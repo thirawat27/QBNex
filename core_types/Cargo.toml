@@ -7,4 +7,4 @@ license.workspace = true
 description.workspace = true
 
 [dependencies]
-thiserror = "1.0"
+thiserror = "2.0"
