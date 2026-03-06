@@ -1,0 +1,98 @@
+
+                                QBNex                           
+                                                                              
+            Modern QBasic/QuickBASIC Compiler and Interpreter               
+                                                                              
+-------------------------------------------------------------------------------
+
+ABOUT QBNEX
+-------------------------------------------------------------------------------
+
+QBNex is a modern QBasic/QuickBASIC compiler and interpreter written in Rust,
+bringing the classic BASIC programming experience to modern systems with 
+enhanced performance and native code generation capabilities.
+
+
+KEY FEATURES
+-------------------------------------------------------------------------------
+
+  * 100% QBasic Core Features Support
+  * Fast Native Code Compilation (via Rust)
+  * VM-based Interpreter Mode
+  * Graphics & Sound Support
+  * File I/O Operations
+  * Error Handling (ON ERROR, RESUME)
+  * String Manipulation (including MID$ statement)
+  * Program Chaining (CHAIN command)
+  * Cross-platform (Windows, Linux, macOS)
+
+
+WHAT'S INCLUDED
+-------------------------------------------------------------------------------
+
+  - qb.exe - Main compiler/interpreter executable
+  - Example programs (.bas files)
+  - Documentation (README.md)
+  - License information (MIT License)
+
+
+QUICK START
+-------------------------------------------------------------------------------
+
+After installation, you can use QBNex from the command line:
+
+  Compile and run:    qb program.bas
+  Interpreter mode:   qb -x program.bas
+  Compile only:       qb -c program.bas
+  Show help:          qb --help
+  Show version:       qb --version
+
+
+SYSTEM REQUIREMENTS
+-------------------------------------------------------------------------------
+
+  - Windows 10 or later (64-bit)
+  - Rust toolchain (for compilation features)
+  - 50 MB free disk space
+
+
+LICENSE
+-------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2026 Thirawat  Sinlapasomsak
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+LINKS
+-------------------------------------------------------------------------------
+
+  GitHub:        https://github.com/thirawat27/QBNex
+  Issues:        https://github.com/thirawat27/QBNex/issues
+
+
+-------------------------------------------------------------------------------
+
+Thank you for choosing QBNex!
+
+Click "Next" to continue with the installation.
+
+-------------------------------------------------------------------------------

@@ -1,0 +1,10 @@
+[package]
+name = "tokenizer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+
+[dependencies]
+core_types = { path = "../core_types" }

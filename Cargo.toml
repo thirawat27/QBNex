@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "cli_tool",
+    "core_types",
+    "tokenizer",
+    "syntax_tree",
+    "analyzer",
+    "vm_engine",
+    "native_codegen",
+    "hal_layer",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+authors = ["thirawat27"]
+license = "MIT"
+description = "QBNex: QBasic/QuickBASIC Compiler and Interpreter"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.bench]
+inherits = "release"
+
+[profile.dev]
+opt-level = 1
+debug = true
+
+[profile.test]
+opt-level = 2

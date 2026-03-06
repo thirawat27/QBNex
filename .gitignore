@@ -1,0 +1,51 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Test temporary files
+tests/temp_*.bas
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Installer output
+installer/Output/
+target/installer/*.exe
+*.msi
+*.dmg
+*.deb
+*.rpm
+
+# Debug and logs
+*.log
+debug.txt
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# OS specific
+Thumbs.db
+desktop.ini
+*.exe
