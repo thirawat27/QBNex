@@ -13,7 +13,9 @@
 //! ```
 
 pub mod ast_nodes;
+pub mod backend;
 pub mod parser;
 
 pub use ast_nodes::{Expression, FunctionCall, Label, LineNumber, Program, Statement, Variable};
+pub use backend::{unsupported_statements, validate_program, Backend};
 pub use parser::Parser;

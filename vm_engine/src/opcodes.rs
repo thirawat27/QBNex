@@ -1,5 +1,15 @@
 use core_types::QType;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ByRefTarget {
+    None,
+    Global(usize),
+    ArrayElement {
+        name: String,
+        index_slots: Vec<usize>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub enum OpCode {
     NoOp,
@@ -9,6 +19,14 @@ pub enum OpCode {
     StoreVariable(String),
     LoadFast(usize),
     StoreFast(usize),
+    SetStringWidth {
+        slot: usize,
+        width: usize,
+    },
+    SetStringArrayWidth {
+        name: String,
+        width: usize,
+    },
     InitGlobals(usize),
 
     ReadFast(usize),
@@ -138,18 +156,25 @@ pub enum OpCode {
     // Function/Sub definitions
     DefineFunction {
         name: String,
-        params: Vec<String>,
+        params: Vec<usize>,
+        result: usize,
         body_start: usize,
         body_end: usize,
     },
     DefineSub {
         name: String,
-        params: Vec<String>,
+        params: Vec<usize>,
         body_start: usize,
         body_end: usize,
     },
-    CallFunction(String),
-    CallSub(String),
+    CallFunction {
+        name: String,
+        by_ref: Vec<ByRefTarget>,
+    },
+    CallSub {
+        name: String,
+        by_ref: Vec<ByRefTarget>,
+    },
     FunctionReturn,
     SubReturn,
 
@@ -169,6 +194,13 @@ pub enum OpCode {
     ResumeNext,
     OnError(usize),
     OnErrorResumeNext,
+    OnTimer {
+        interval_secs: f64,
+        handler: usize,
+    },
+    TimerOn,
+    TimerOff,
+    TimerStop,
 
     // String functions
     Left,
@@ -220,6 +252,7 @@ pub enum OpCode {
     Timer,
     Date,
     Time,
+    Clear,
     Cls,
     Locate(i32, i32),
     Color(i32, i32),
@@ -228,7 +261,9 @@ pub enum OpCode {
     LineInput(String),
     LineInputDynamic, // Pops file_number from stack, pushes line to variable
     WriteFile(String),
+    WriteFileDynamic(usize),
     InputFile(String),
+    InputFileDynamic(usize),
     PrintFile(String),
     PrintFileDynamic, // Pops file_number and value from stack
     Eof(String),
@@ -320,20 +355,38 @@ pub enum OpCode {
 
     // Memory/Hardware (placeholders for compatibility)
     PeekFunc(i32),      // PEEK(address)
+    PeekDynamic,        // PEEK(expr)
     PokeFunc(i32, i32), // POKE address, value
+    PokeDynamic,        // POKE expr, expr
+    WaitDynamic {
+        has_xor: bool,
+    }, // WAIT expr, expr [, expr]
+    BLoadDynamic {
+        has_offset: bool,
+    }, // BLOAD file$ [, offset]
+    BSaveDynamic,       // BSAVE file$, offset, length
+    InpDynamic,         // INP(expr)
+    OutDynamic,         // OUT expr, expr
     DefSeg(i32),        // DEF SEG = segment
     VarPtrFunc(String), // VARPTR(variable)
     VarSegFunc(String), // VARSEG(variable)
     SaddFunc(String),   // SADD(string)
+    VarPtrStrFunc(String), // VARPTR$(variable)
 
     // File system
     FieldStmt {
         // FIELD statement for RANDOM files
         file_num: i32,
-        fields: Vec<(i32, String)>, // (width, field_name)
+        fields: Vec<(i32, usize)>, // (width, global_var_index)
     },
-    LSetStmt(String, String), // LSET field = value
-    RSetStmt(String, String), // RSET field = value
+    LSetField {
+        var_index: usize,
+        width: usize,
+    },
+    RSetField {
+        var_index: usize,
+        width: usize,
+    },
 
     // Graphics advanced
     PointFunc(i32, i32), // POINT(x, y) - get pixel color
@@ -357,6 +410,12 @@ pub enum OpCode {
     // System commands
     Shell, // SHELL command - execute OS command
     Chain, // CHAIN command - load and run another program
+    KillFile,
+    RenameFile,
+    ChangeDir,
+    MakeDir,
+    RemoveDir,
+    Files,
 
     // Error handling
     ErrorStmt,          // ERROR statement - trigger error
@@ -372,6 +431,12 @@ impl std::fmt::Display for OpCode {
             OpCode::StoreVariable(name) => write!(f, "STORE {}", name),
             OpCode::LoadFast(idx) => write!(f, "LOAD_FAST {}", idx),
             OpCode::StoreFast(idx) => write!(f, "STORE_FAST {}", idx),
+            OpCode::SetStringWidth { slot, width } => {
+                write!(f, "SET_STRING_WIDTH {} {}", slot, width)
+            }
+            OpCode::SetStringArrayWidth { name, width } => {
+                write!(f, "SET_STRING_ARRAY_WIDTH {} {}", name, width)
+            }
             OpCode::InitGlobals(count) => write!(f, "INIT_GLOBALS {}", count),
             OpCode::ReadFast(idx) => write!(f, "READ_FAST {}", idx),
             OpCode::SwapFast(idx1, idx2) => write!(f, "SWAP_FAST {} {}", idx1, idx2),
@@ -474,13 +539,19 @@ impl std::fmt::Display for OpCode {
             OpCode::DefineFunction {
                 name,
                 params,
+                result,
                 body_start,
                 body_end,
             } => write!(
                 f,
-                "DEF_FUNC {} ({}) [{}-{}]",
+                "DEF_FUNC {} ({}) result={} [{}-{}]",
                 name,
-                params.join(", "),
+                params
+                    .iter()
+                    .map(|param| param.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                result,
                 body_start,
                 body_end
             ),
@@ -493,12 +564,18 @@ impl std::fmt::Display for OpCode {
                 f,
                 "DEF_SUB {} ({}) [{}-{}]",
                 name,
-                params.join(", "),
+                params
+                    .iter()
+                    .map(|param| param.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 body_start,
                 body_end
             ),
-            OpCode::CallFunction(name) => write!(f, "CALL_FUNC {}", name),
-            OpCode::CallSub(name) => write!(f, "CALL_SUB {}", name),
+            OpCode::CallFunction { name, by_ref } => {
+                write!(f, "CALL_FUNC {} refs={:?}", name, by_ref)
+            }
+            OpCode::CallSub { name, by_ref } => write!(f, "CALL_SUB {} refs={:?}", name, by_ref),
             OpCode::FunctionReturn => write!(f, "FUNC_RETURN"),
             OpCode::SubReturn => write!(f, "SUB_RETURN"),
             OpCode::SelectCase => write!(f, "SELECT_CASE"),
@@ -512,6 +589,13 @@ impl std::fmt::Display for OpCode {
             OpCode::ResumeNext => write!(f, "RESUME_NEXT"),
             OpCode::OnError(addr) => write!(f, "ON_ERROR {}", addr),
             OpCode::OnErrorResumeNext => write!(f, "ON_ERROR_RESUME_NEXT"),
+            OpCode::OnTimer {
+                interval_secs,
+                handler,
+            } => write!(f, "ON_TIMER {} {}", interval_secs, handler),
+            OpCode::TimerOn => write!(f, "TIMER_ON"),
+            OpCode::TimerOff => write!(f, "TIMER_OFF"),
+            OpCode::TimerStop => write!(f, "TIMER_STOP"),
             OpCode::Left => write!(f, "LEFT$"),
             OpCode::Right => write!(f, "RIGHT$"),
             OpCode::Mid => write!(f, "MID$"),
@@ -553,13 +637,16 @@ impl std::fmt::Display for OpCode {
             OpCode::Timer => write!(f, "TIMER"),
             OpCode::Date => write!(f, "DATE$"),
             OpCode::Time => write!(f, "TIME$"),
+            OpCode::Clear => write!(f, "CLEAR"),
             OpCode::Cls => write!(f, "CLS"),
             OpCode::Locate(row, col) => write!(f, "LOCATE {} {}", row, col),
             OpCode::Color(fg, bg) => write!(f, "COLOR {} {}", fg, bg),
             OpCode::LineInput(file) => write!(f, "LINE INPUT #{}", file),
             OpCode::LineInputDynamic => write!(f, "LINE INPUT #(dynamic)"),
             OpCode::WriteFile(file) => write!(f, "WRITE #{}", file),
+            OpCode::WriteFileDynamic(count) => write!(f, "WRITE #(dynamic) {}", count),
             OpCode::InputFile(file) => write!(f, "INPUT #{}", file),
+            OpCode::InputFileDynamic(count) => write!(f, "INPUT #(dynamic) {}", count),
             OpCode::PrintFile(file) => write!(f, "PRINT #{}", file),
             OpCode::PrintFileDynamic => write!(f, "PRINT #(dynamic)"),
             OpCode::Eof(file) => write!(f, "EOF({})", file),
@@ -632,16 +719,40 @@ impl std::fmt::Display for OpCode {
                 write!(f, "MID$({}, {}, {:?}) =", var_name, start, length)
             }
             OpCode::PeekFunc(addr) => write!(f, "PEEK({})", addr),
+            OpCode::PeekDynamic => write!(f, "PEEK(<expr>)"),
             OpCode::PokeFunc(addr, val) => write!(f, "POKE {}, {}", addr, val),
+            OpCode::PokeDynamic => write!(f, "POKE <expr>, <expr>"),
+            OpCode::WaitDynamic { has_xor } => {
+                if *has_xor {
+                    write!(f, "WAIT <expr>, <expr>, <expr>")
+                } else {
+                    write!(f, "WAIT <expr>, <expr>")
+                }
+            }
+            OpCode::BLoadDynamic { has_offset } => {
+                if *has_offset {
+                    write!(f, "BLOAD <expr>, <expr>")
+                } else {
+                    write!(f, "BLOAD <expr>")
+                }
+            }
+            OpCode::BSaveDynamic => write!(f, "BSAVE <expr>, <expr>, <expr>"),
+            OpCode::InpDynamic => write!(f, "INP(<expr>)"),
+            OpCode::OutDynamic => write!(f, "OUT <expr>, <expr>"),
             OpCode::DefSeg(seg) => write!(f, "DEF SEG = {}", seg),
             OpCode::VarPtrFunc(var) => write!(f, "VARPTR({})", var),
             OpCode::VarSegFunc(var) => write!(f, "VARSEG({})", var),
             OpCode::SaddFunc(var) => write!(f, "SADD({})", var),
+            OpCode::VarPtrStrFunc(var) => write!(f, "VARPTR$({})", var),
             OpCode::FieldStmt { file_num, fields } => {
                 write!(f, "FIELD #{}, {} fields", file_num, fields.len())
             }
-            OpCode::LSetStmt(field, value) => write!(f, "LSET {} = {}", field, value),
-            OpCode::RSetStmt(field, value) => write!(f, "RSET {} = {}", field, value),
+            OpCode::LSetField { var_index, width } => {
+                write!(f, "LSET_FAST {} {}", var_index, width)
+            }
+            OpCode::RSetField { var_index, width } => {
+                write!(f, "RSET_FAST {} {}", var_index, width)
+            }
             OpCode::PointFunc(x, y) => write!(f, "POINT({}, {})", x, y),
             OpCode::PMapFunc(coord, func) => write!(f, "PMAP({}, {})", coord, func),
             OpCode::GetImage {
@@ -663,6 +774,12 @@ impl std::fmt::Display for OpCode {
             }
             OpCode::Shell => write!(f, "SHELL"),
             OpCode::Chain => write!(f, "CHAIN"),
+            OpCode::KillFile => write!(f, "KILL"),
+            OpCode::RenameFile => write!(f, "NAME ... AS"),
+            OpCode::ChangeDir => write!(f, "CHDIR"),
+            OpCode::MakeDir => write!(f, "MKDIR"),
+            OpCode::RemoveDir => write!(f, "RMDIR"),
+            OpCode::Files => write!(f, "FILES"),
             OpCode::ErrorStmt => write!(f, "ERROR"),
             OpCode::ResumeLabel(addr) => write!(f, "RESUME {}", addr),
         }

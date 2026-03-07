@@ -36,6 +36,7 @@ impl Default for Program {
 pub struct FunctionDef {
     pub name: String,
     pub return_type: QType,
+    pub return_fixed_length: Option<usize>,
     pub params: Vec<Variable>,
     pub body: Vec<Statement>,
     pub is_static: bool,
@@ -59,6 +60,7 @@ pub struct UserType {
 pub struct TypeField {
     pub name: String,
     pub field_type: QType,
+    pub fixed_length: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -396,9 +398,31 @@ pub enum Statement {
     DefSeg {
         segment: Option<Box<Expression>>,
     },
+    Poke {
+        address: Expression,
+        value: Expression,
+    },
+    Wait {
+        address: Expression,
+        and_mask: Expression,
+        xor_mask: Option<Expression>,
+    },
+    BLoad {
+        filename: Expression,
+        offset: Option<Expression>,
+    },
+    BSave {
+        filename: Expression,
+        offset: Expression,
+        length: Expression,
+    },
+    Out {
+        port: Expression,
+        value: Expression,
+    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitType {
     For,
     Do,
@@ -506,6 +530,8 @@ pub enum UnaryOp {
 pub struct Variable {
     pub name: String,
     pub type_suffix: Option<char>,
+    pub declared_type: Option<String>,
+    pub fixed_length: Option<usize>,
     pub indices: Vec<Expression>,
 }
 
@@ -514,12 +540,24 @@ impl Variable {
         Self {
             name,
             type_suffix: None,
+            declared_type: None,
+            fixed_length: None,
             indices: Vec::new(),
         }
     }
 
     pub fn with_suffix(mut self, suffix: char) -> Self {
         self.type_suffix = Some(suffix);
+        self
+    }
+
+    pub fn with_declared_type(mut self, declared_type: impl Into<String>) -> Self {
+        self.declared_type = Some(declared_type.into());
+        self
+    }
+
+    pub fn with_fixed_length(mut self, fixed_length: usize) -> Self {
+        self.fixed_length = Some(fixed_length);
         self
     }
 

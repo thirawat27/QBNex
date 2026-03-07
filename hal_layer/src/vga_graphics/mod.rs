@@ -61,11 +61,6 @@ impl VGAGraphics {
         self.viewport = Viewport::full_screen(config.width, config.height);
         self.window = WindowCoords::physical(config.width, config.height);
         self.palette = ColorPalette::standard_vga();
-
-        println!(
-            "[VGA] Set screen mode {} ({}x{}, {} colors)",
-            self.screen_mode, self.width, self.height, self.colors
-        );
     }
 
     pub fn get_framebuffer(&self) -> &[u8] {
@@ -84,7 +79,6 @@ impl VGAGraphics {
     pub fn palette(&mut self, attribute: u8, color: u8) {
         if let Some(slot) = self.palette.colors.get_mut(attribute as usize) {
             *slot = color as u32;
-            println!("[PALETTE {} -> {}]", attribute, color);
         }
     }
 

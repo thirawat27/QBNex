@@ -1,4 +1,5 @@
 use core_types::QResult;
+use core_types::QType;
 use syntax_tree::ast_nodes::*;
 
 #[path = "codegen/expr.rs"]
@@ -12,7 +13,585 @@ mod state;
 
 pub use state::CodeGenerator;
 
+#[derive(Clone)]
+struct UdtFieldLayout {
+    storage_name: String,
+    field_type: QType,
+    fixed_length: Option<usize>,
+    offset: usize,
+    array_index: Option<Expression>,
+}
+
+#[derive(Clone)]
+struct ResolvedUdtObject {
+    storage_base: String,
+    type_name: String,
+    array_index: Option<Expression>,
+}
+
 impl CodeGenerator {
+    fn binary_scalar_kind(var: &Variable) -> &'static str {
+        match var.type_suffix.or_else(|| {
+            var.name
+                .chars()
+                .last()
+                .filter(|suffix| matches!(suffix, '%' | '&' | '!' | '#' | '$'))
+        }) {
+            Some('%') => "i16",
+            Some('&') => "i32",
+            Some('!') => "f32",
+            Some('#') => "f64",
+            Some('$') => "str",
+            _ => "f32",
+        }
+    }
+
+    fn primitive_kind_for_type(field_type: &QType) -> Option<&'static str> {
+        match field_type {
+            QType::Integer(_) => Some("i16"),
+            QType::Long(_) => Some("i32"),
+            QType::Single(_) => Some("f32"),
+            QType::Double(_) => Some("f64"),
+            QType::String(_) => Some("str"),
+            _ => None,
+        }
+    }
+
+    fn normalize_udt_name(name: &str) -> String {
+        name.to_uppercase()
+    }
+
+    fn variable_udt_type(&self, var: &Variable) -> Option<String> {
+        var.declared_type
+            .as_ref()
+            .map(|s| Self::normalize_udt_name(s))
+            .or_else(|| {
+                self.udt_vars
+                    .get(&Self::normalize_udt_name(&var.name))
+                    .cloned()
+            })
+    }
+
+    fn array_udt_type(&self, name: &str) -> Option<String> {
+        self.udt_array_vars
+            .get(&Self::normalize_udt_name(name))
+            .cloned()
+    }
+
+    fn field_storage_name(path: &str) -> String {
+        path.to_uppercase()
+    }
+
+    fn fixed_string_width_for_name(&self, name: &str) -> Option<usize> {
+        self.field_widths.get(&name.to_uppercase()).copied()
+    }
+
+    fn lookup_udt_field(&self, type_name: &str, field: &str) -> Option<TypeField> {
+        self.user_types
+            .get(&Self::normalize_udt_name(type_name))
+            .and_then(|user_type| {
+                user_type
+                    .fields
+                    .iter()
+                    .find(|f| f.name.eq_ignore_ascii_case(field))
+                    .cloned()
+            })
+    }
+
+    fn type_size_bytes(&self, field_type: &QType, fixed_length: Option<usize>) -> usize {
+        match field_type {
+            QType::Integer(_) => 2,
+            QType::Long(_) => 4,
+            QType::Single(_) => 4,
+            QType::Double(_) => 8,
+            QType::String(_) => fixed_length.unwrap_or(0),
+            QType::UserDefined(type_name_bytes) => {
+                let type_name = String::from_utf8_lossy(type_name_bytes).to_string();
+                self.collect_udt_layout("__SIZE__", &type_name)
+                    .iter()
+                    .map(|field| self.type_size_bytes(&field.field_type, field.fixed_length))
+                    .sum()
+            }
+            QType::Empty => 0,
+        }
+    }
+
+    fn collect_udt_layout(&self, base_name: &str, type_name: &str) -> Vec<UdtFieldLayout> {
+        let mut fields = Vec::new();
+        self.collect_udt_layout_into(base_name, type_name, 0, &mut fields);
+        fields
+    }
+
+    fn collect_udt_layout_into(
+        &self,
+        base_name: &str,
+        type_name: &str,
+        base_offset: usize,
+        out: &mut Vec<UdtFieldLayout>,
+    ) -> usize {
+        let mut offset = base_offset;
+        if let Some(user_type) = self.user_types.get(&Self::normalize_udt_name(type_name)) {
+            for field in &user_type.fields {
+                let field_name = format!("{}.{}", base_name, field.name);
+                match &field.field_type {
+                    QType::UserDefined(type_name_bytes) => {
+                        let nested_type = String::from_utf8_lossy(type_name_bytes).to_string();
+                        offset =
+                            self.collect_udt_layout_into(&field_name, &nested_type, offset, out);
+                    }
+                    _ => {
+                        let size = self.type_size_bytes(&field.field_type, field.fixed_length);
+                        out.push(UdtFieldLayout {
+                            storage_name: Self::field_storage_name(&field_name),
+                            field_type: field.field_type.clone(),
+                            fixed_length: field.fixed_length,
+                            offset,
+                            array_index: None,
+                        });
+                        offset += size;
+                    }
+                }
+            }
+        }
+        offset
+    }
+
+    fn ensure_udt_storage(&mut self, var_name: &str, type_name: &str) {
+        let normalized = Self::normalize_udt_name(var_name);
+        self.udt_vars
+            .insert(normalized.clone(), Self::normalize_udt_name(type_name));
+        for field in self.collect_udt_layout(&normalized, type_name) {
+            match field.field_type {
+                QType::String(_) => {
+                    self.get_str_var_idx(&field.storage_name);
+                }
+                QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_) => {
+                    self.get_num_var_idx(&field.storage_name);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn ensure_udt_array_storage(&mut self, var_name: &str, type_name: &str) {
+        let normalized = Self::normalize_udt_name(var_name);
+        self.udt_array_vars
+            .insert(normalized.clone(), Self::normalize_udt_name(type_name));
+        for field in self.collect_udt_layout(&normalized, type_name) {
+            match field.field_type {
+                QType::String(_) => {
+                    self.get_str_arr_var_idx(&field.storage_name);
+                }
+                QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_) => {
+                    self.get_arr_var_idx(&field.storage_name);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn resolve_field_access_layout(&self, expr: &Expression) -> Option<UdtFieldLayout> {
+        match expr {
+            Expression::FieldAccess { object, field } => {
+                let resolved = self.resolve_udt_object_access(object)?;
+                let type_field = self.lookup_udt_field(&resolved.type_name, field)?;
+                Some(UdtFieldLayout {
+                    storage_name: Self::field_storage_name(&format!(
+                        "{}.{}",
+                        resolved.storage_base, field
+                    )),
+                    field_type: type_field.field_type,
+                    fixed_length: type_field.fixed_length,
+                    offset: 0,
+                    array_index: resolved.array_index,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn resolve_udt_object_access(&self, expr: &Expression) -> Option<ResolvedUdtObject> {
+        match expr {
+            Expression::Variable(var) => {
+                self.variable_udt_type(var)
+                    .map(|type_name| ResolvedUdtObject {
+                        storage_base: Self::normalize_udt_name(&var.name),
+                        type_name,
+                        array_index: None,
+                    })
+            }
+            Expression::ArrayAccess { name, indices, .. } => {
+                let index = indices.first()?.clone();
+                self.array_udt_type(name)
+                    .map(|type_name| ResolvedUdtObject {
+                        storage_base: Self::normalize_udt_name(name),
+                        type_name,
+                        array_index: Some(index),
+                    })
+            }
+            Expression::FieldAccess { object, field } => {
+                let resolved = self.resolve_udt_object_access(object)?;
+                let type_field = self.lookup_udt_field(&resolved.type_name, field)?;
+                match type_field.field_type {
+                    QType::UserDefined(type_name_bytes) => Some(ResolvedUdtObject {
+                        storage_base: Self::field_storage_name(&format!(
+                            "{}.{}",
+                            resolved.storage_base, field
+                        )),
+                        type_name: String::from_utf8_lossy(&type_name_bytes).to_string(),
+                        array_index: resolved.array_index,
+                    }),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn emit_udt_record_get(
+        &mut self,
+        indent: &str,
+        base_name: &str,
+        type_name: &str,
+        file_number: &str,
+        record: &str,
+        array_index: Option<&Expression>,
+    ) {
+        let base_pos = self.next_temp_var();
+        self.output
+            .push_str(&format!("{}let {} = {};\n", indent, base_pos, record));
+        let cached_array_index = if let Some(index_expr) = array_index {
+            let index_tmp = self.next_temp_var();
+            let index_code = self
+                .generate_expression(index_expr)
+                .unwrap_or_else(|_| "0.0".to_string());
+            self.output
+                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
+            Some(index_tmp)
+        } else {
+            None
+        };
+        for field in self.collect_udt_layout(base_name, type_name) {
+            let field_pos = self.next_temp_var();
+            let pos_expr = format!("({} + {}.0)", base_pos, field.offset);
+            self.output
+                .push_str(&format!("{}let {} = {};\n", indent, field_pos, pos_expr));
+            match field.field_type {
+                QType::String(_) => {
+                    let size_hint = field.fixed_length.unwrap_or(0);
+                    let tmp = self.next_temp_var();
+                    self.output.push_str(&format!(
+                        "{}let {} = qb_get_string_from_file({}, {}, {}.0);\n",
+                        indent, tmp, file_number, field_pos, size_hint
+                    ));
+                    if array_index.is_some() {
+                        let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
+                        let index_code = cached_array_index
+                            .as_deref()
+                            .unwrap_or_else(|| unreachable!());
+                        self.output.push_str(&format!(
+                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                            indent, arr_idx, index_code, tmp
+                        ));
+                    } else {
+                        let idx = self.get_str_var_idx(&field.storage_name);
+                        self.output.push_str(&format!(
+                            "{}set_str(&mut str_vars, {}, &{});\n",
+                            indent, idx, tmp
+                        ));
+                    }
+                }
+                QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_) => {
+                    let helper = match Self::primitive_kind_for_type(&field.field_type) {
+                        Some("i16") => "qb_get_i16",
+                        Some("i32") => "qb_get_i32",
+                        Some("f64") => "qb_get_f64",
+                        _ => "qb_get_f32",
+                    };
+                    let tmp = self.next_temp_var();
+                    self.output.push_str(&format!(
+                        "{}let {} = {}({}, {});\n",
+                        indent, tmp, helper, file_number, field_pos
+                    ));
+                    if array_index.is_some() {
+                        let arr_idx = self.get_arr_var_idx(&field.storage_name);
+                        let index_code = cached_array_index
+                            .as_deref()
+                            .unwrap_or_else(|| unreachable!());
+                        self.output.push_str(&format!(
+                            "{}arr_set(&mut arr_vars, {}, {}, {});\n",
+                            indent, arr_idx, index_code, tmp
+                        ));
+                    } else {
+                        let idx = self.get_num_var_idx(&field.storage_name);
+                        self.output.push_str(&format!(
+                            "{}set_var(&mut num_vars, {}, {});\n",
+                            indent, idx, tmp
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn emit_udt_record_put(
+        &mut self,
+        indent: &str,
+        base_name: &str,
+        type_name: &str,
+        file_number: &str,
+        record: &str,
+        array_index: Option<&Expression>,
+    ) {
+        let base_pos = self.next_temp_var();
+        self.output
+            .push_str(&format!("{}let {} = {};\n", indent, base_pos, record));
+        let cached_array_index = if let Some(index_expr) = array_index {
+            let index_tmp = self.next_temp_var();
+            let index_code = self
+                .generate_expression(index_expr)
+                .unwrap_or_else(|_| "0.0".to_string());
+            self.output
+                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
+            Some(index_tmp)
+        } else {
+            None
+        };
+        for field in self.collect_udt_layout(base_name, type_name) {
+            let field_pos = self.next_temp_var();
+            let pos_expr = format!("({} + {}.0)", base_pos, field.offset);
+            self.output
+                .push_str(&format!("{}let {} = {};\n", indent, field_pos, pos_expr));
+            match field.field_type {
+                QType::String(_) => {
+                    let tmp = self.next_temp_var();
+                    if array_index.is_some() {
+                        let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
+                        let index_code = cached_array_index
+                            .as_deref()
+                            .unwrap_or_else(|| unreachable!());
+                        self.output.push_str(&format!(
+                            "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                            indent, tmp, arr_idx, index_code
+                        ));
+                    } else {
+                        let idx = self.get_str_var_idx(&field.storage_name);
+                        self.output.push_str(&format!(
+                            "{}let {} = get_str(&str_vars, {});\n",
+                            indent, tmp, idx
+                        ));
+                    }
+                    if let Some(width) = field.fixed_length {
+                        self.output.push_str(&format!(
+                            "{}qb_put_fixed_string({}, {}, {}, &{});\n",
+                            indent, file_number, field_pos, width, tmp
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "{}qb_put_string({}, {}, &{});\n",
+                            indent, file_number, field_pos, tmp
+                        ));
+                    }
+                }
+                QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_) => {
+                    let helper = match Self::primitive_kind_for_type(&field.field_type) {
+                        Some("i16") => "qb_put_i16",
+                        Some("i32") => "qb_put_i32",
+                        Some("f64") => "qb_put_f64",
+                        _ => "qb_put_f32",
+                    };
+                    let tmp = self.next_temp_var();
+                    if array_index.is_some() {
+                        let arr_idx = self.get_arr_var_idx(&field.storage_name);
+                        let index_code = cached_array_index
+                            .as_deref()
+                            .unwrap_or_else(|| unreachable!());
+                        self.output.push_str(&format!(
+                            "{}let {} = arr_get(&arr_vars, {}, {});\n",
+                            indent, tmp, arr_idx, index_code
+                        ));
+                    } else {
+                        let idx = self.get_num_var_idx(&field.storage_name);
+                        self.output.push_str(&format!(
+                            "{}let {} = get_var(&num_vars, {});\n",
+                            indent, tmp, idx
+                        ));
+                    }
+                    self.output.push_str(&format!(
+                        "{}{}({}, {}, {});\n",
+                        indent, helper, file_number, field_pos, tmp
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn emit_udt_field_get(
+        &mut self,
+        indent: &str,
+        field: &UdtFieldLayout,
+        file_number: &str,
+        record: &str,
+    ) -> QResult<()> {
+        let cached_array_index = if let Some(index_expr) = &field.array_index {
+            let index_tmp = self.next_temp_var();
+            let index_code = self.generate_expression(index_expr)?;
+            self.output
+                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
+            Some(index_tmp)
+        } else {
+            None
+        };
+        match field.field_type {
+            QType::String(_) => {
+                let size_hint = field.fixed_length.unwrap_or(0);
+                let tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = qb_get_string_from_file({}, {}, {}.0);\n",
+                    indent, tmp, file_number, record, size_hint
+                ));
+                if field.array_index.is_some() {
+                    let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
+                    let index_code = cached_array_index
+                        .as_deref()
+                        .unwrap_or_else(|| unreachable!());
+                    self.output.push_str(&format!(
+                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                        indent, arr_idx, index_code, tmp
+                    ));
+                } else {
+                    let idx = self.get_str_var_idx(&field.storage_name);
+                    self.output.push_str(&format!(
+                        "{}set_str(&mut str_vars, {}, &{});\n",
+                        indent, idx, tmp
+                    ));
+                }
+                Ok(())
+            }
+            QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_) => {
+                let helper = match Self::primitive_kind_for_type(&field.field_type) {
+                    Some("i16") => "qb_get_i16",
+                    Some("i32") => "qb_get_i32",
+                    Some("f64") => "qb_get_f64",
+                    _ => "qb_get_f32",
+                };
+                let tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = {}({}, {});\n",
+                    indent, tmp, helper, file_number, record
+                ));
+                if field.array_index.is_some() {
+                    let arr_idx = self.get_arr_var_idx(&field.storage_name);
+                    let index_code = cached_array_index
+                        .as_deref()
+                        .unwrap_or_else(|| unreachable!());
+                    self.output.push_str(&format!(
+                        "{}arr_set(&mut arr_vars, {}, {}, {});\n",
+                        indent, arr_idx, index_code, tmp
+                    ));
+                } else {
+                    let idx = self.get_num_var_idx(&field.storage_name);
+                    self.output.push_str(&format!(
+                        "{}set_var(&mut num_vars, {}, {});\n",
+                        indent, idx, tmp
+                    ));
+                }
+                Ok(())
+            }
+            _ => Err(core_types::QError::UnsupportedFeature(
+                "native GET field target must resolve to a primitive or fixed-length string leaf"
+                    .to_string(),
+            )),
+        }
+    }
+
+    fn emit_udt_field_put(
+        &mut self,
+        indent: &str,
+        field: &UdtFieldLayout,
+        file_number: &str,
+        record: &str,
+    ) -> QResult<()> {
+        let cached_array_index = if let Some(index_expr) = &field.array_index {
+            let index_tmp = self.next_temp_var();
+            let index_code = self.generate_expression(index_expr)?;
+            self.output
+                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
+            Some(index_tmp)
+        } else {
+            None
+        };
+        match field.field_type {
+            QType::String(_) => {
+                let tmp = self.next_temp_var();
+                if field.array_index.is_some() {
+                    let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
+                    let index_code = cached_array_index
+                        .as_deref()
+                        .unwrap_or_else(|| unreachable!());
+                    self.output.push_str(&format!(
+                        "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                        indent, tmp, arr_idx, index_code
+                    ));
+                } else {
+                    let idx = self.get_str_var_idx(&field.storage_name);
+                    self.output.push_str(&format!(
+                        "{}let {} = get_str(&str_vars, {});\n",
+                        indent, tmp, idx
+                    ));
+                }
+                if let Some(width) = field.fixed_length {
+                    self.output.push_str(&format!(
+                        "{}qb_put_fixed_string({}, {}, {}, &{});\n",
+                        indent, file_number, record, width, tmp
+                    ));
+                } else {
+                    self.output.push_str(&format!(
+                        "{}qb_put_string({}, {}, &{});\n",
+                        indent, file_number, record, tmp
+                    ));
+                }
+                Ok(())
+            }
+            QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_) => {
+                let helper = match Self::primitive_kind_for_type(&field.field_type) {
+                    Some("i16") => "qb_put_i16",
+                    Some("i32") => "qb_put_i32",
+                    Some("f64") => "qb_put_f64",
+                    _ => "qb_put_f32",
+                };
+                let tmp = self.next_temp_var();
+                if field.array_index.is_some() {
+                    let arr_idx = self.get_arr_var_idx(&field.storage_name);
+                    let index_code = cached_array_index
+                        .as_deref()
+                        .unwrap_or_else(|| unreachable!());
+                    self.output.push_str(&format!(
+                        "{}let {} = arr_get(&arr_vars, {}, {});\n",
+                        indent, tmp, arr_idx, index_code
+                    ));
+                } else {
+                    let idx = self.get_num_var_idx(&field.storage_name);
+                    self.output.push_str(&format!(
+                        "{}let {} = get_var(&num_vars, {});\n",
+                        indent, tmp, idx
+                    ));
+                }
+                self.output.push_str(&format!(
+                    "{}{}({}, {}, {});\n",
+                    indent, helper, file_number, record, tmp
+                ));
+                Ok(())
+            }
+            _ => Err(core_types::QError::UnsupportedFeature(
+                "native PUT field target must resolve to a primitive or fixed-length string leaf"
+                    .to_string(),
+            )),
+        }
+    }
+
     fn generate_statement(&mut self, stmt: &Statement) -> QResult<()> {
         let indent = self.indent();
 
@@ -28,6 +607,80 @@ impl CodeGenerator {
                 self.generate_print(&indent, expressions, *newline)?;
             }
 
+            Statement::PrintUsing {
+                format,
+                expressions,
+                newline,
+            } => {
+                let format_code = self.generate_expression(format)?;
+                let pattern_tmp = self.next_temp_var();
+                let values_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = {};\n",
+                    indent, pattern_tmp, format_code
+                ));
+                self.output.push_str(&format!(
+                    "{}let mut {}: Vec<String> = Vec::new();\n",
+                    indent, values_tmp
+                ));
+                for expr in expressions {
+                    let expr_code = self.generate_expression(expr)?;
+                    self.output.push_str(&format!(
+                        "{}{}.push(format!(\"{{}}\", {}));\n",
+                        indent, values_tmp, expr_code
+                    ));
+                }
+                self.output.push_str(&format!(
+                    "{}qb_print_using(&{}, &{}, {});\n",
+                    indent, pattern_tmp, values_tmp, newline
+                ));
+            }
+
+            Statement::Write { expressions } => {
+                let values_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let mut {}: Vec<String> = Vec::new();\n",
+                    indent, values_tmp
+                ));
+                for expr in expressions {
+                    let expr_code = self.generate_expression(expr)?;
+                    self.output.push_str(&format!(
+                        "{}{}.push(format!(\"{{:?}}\", {}));\n",
+                        indent, values_tmp, expr_code
+                    ));
+                }
+                self.output.push_str(&format!(
+                    "{}qb_print(&{}.join(\",\"));\n",
+                    indent, values_tmp
+                ));
+                self.output
+                    .push_str(&format!("{}qb_print_newline();\n", indent));
+            }
+
+            Statement::PrintFile {
+                file_number,
+                expressions,
+                newline,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let values_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let mut {}: Vec<String> = Vec::new();\n",
+                    indent, values_tmp
+                ));
+                for expr in expressions {
+                    let expr_code = self.generate_expression(expr)?;
+                    self.output.push_str(&format!(
+                        "{}{}.push(format!(\"{{}}\", {}));\n",
+                        indent, values_tmp, expr_code
+                    ));
+                }
+                self.output.push_str(&format!(
+                    "{}qb_file_print_fields({}, &{}, {});\n",
+                    indent, file_number, values_tmp, newline
+                ));
+            }
+
             Statement::Assignment { target, value } => {
                 let value_code = self.generate_expression(value)?;
                 match target {
@@ -35,13 +688,21 @@ impl CodeGenerator {
                         let name_upper = var.name.to_uppercase();
                         if var.type_suffix == Some('$') || name_upper.ends_with('$') {
                             let idx = self.get_str_var_idx(&name_upper);
+                            let width = self.fixed_string_width_for_name(&name_upper);
                             // Avoid mutable borrow conflict
                             self.output
                                 .push_str(&format!("{}let _tmp_str = {};\n", indent, value_code));
-                            self.output.push_str(&format!(
-                                "{}set_str(&mut str_vars, {}, &_tmp_str);\n",
-                                indent, idx
-                            ));
+                            if let Some(width) = width {
+                                self.output.push_str(&format!(
+                                    "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                    indent, idx, width
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}set_str(&mut str_vars, {}, &_tmp_str);\n",
+                                    indent, idx
+                                ));
+                            }
                         } else {
                             let idx = self.get_num_var_idx(&name_upper);
                             self.output.push_str(&format!(
@@ -122,6 +783,27 @@ impl CodeGenerator {
                                     indent, idx, result_tmp
                                 ));
                             }
+                        } else if name.ends_with('$') {
+                            if let Some(idx) = indices.first() {
+                                let arr_idx = self.get_str_arr_var_idx(name);
+                                let idx_code = self.generate_expression(idx)?;
+                                let width = self.fixed_string_width_for_name(name);
+                                self.output.push_str(&format!(
+                                    "{}let _tmp_str = {};\n",
+                                    indent, value_code
+                                ));
+                                if let Some(width) = width {
+                                    self.output.push_str(&format!(
+                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                        indent, arr_idx, idx_code, width
+                                    ));
+                                } else {
+                                    self.output.push_str(&format!(
+                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &_tmp_str);\n",
+                                        indent, arr_idx, idx_code
+                                    ));
+                                }
+                            }
                         } else if let Some(idx) = indices.first() {
                             let arr_idx = self.get_arr_var_idx(name);
                             let idx_code = self.generate_expression(idx)?;
@@ -135,6 +817,71 @@ impl CodeGenerator {
                             ));
                         }
                     }
+                    Expression::FieldAccess { .. } => {
+                        if let Some(field) = self.resolve_field_access_layout(target) {
+                            match field.field_type {
+                                QType::String(_) => {
+                                    let width = field.fixed_length;
+                                    self.output.push_str(&format!(
+                                        "{}let _tmp_str = {};\n",
+                                        indent, value_code
+                                    ));
+                                    if let Some(index_expr) = &field.array_index {
+                                        let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
+                                        let index_code = self.generate_expression(index_expr)?;
+                                        if let Some(width) = width {
+                                            self.output.push_str(&format!(
+                                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                                indent, arr_idx, index_code, width
+                                            ));
+                                        } else {
+                                            self.output.push_str(&format!(
+                                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &_tmp_str);\n",
+                                                indent, arr_idx, index_code
+                                            ));
+                                        }
+                                    } else {
+                                        let idx = self.get_str_var_idx(&field.storage_name);
+                                        if let Some(width) = width {
+                                            self.output.push_str(&format!(
+                                                "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                                indent, idx, width
+                                            ));
+                                        } else {
+                                            self.output.push_str(&format!(
+                                                "{}set_str(&mut str_vars, {}, &_tmp_str);\n",
+                                                indent, idx
+                                            ));
+                                        }
+                                    }
+                                }
+                                QType::Integer(_)
+                                | QType::Long(_)
+                                | QType::Single(_)
+                                | QType::Double(_) => {
+                                    self.output.push_str(&format!(
+                                        "{}let _val = {} as f64;\n",
+                                        indent, value_code
+                                    ));
+                                    if let Some(index_expr) = &field.array_index {
+                                        let arr_idx = self.get_arr_var_idx(&field.storage_name);
+                                        let index_code = self.generate_expression(index_expr)?;
+                                        self.output.push_str(&format!(
+                                            "{}arr_set(&mut arr_vars, {}, {}, _val);\n",
+                                            indent, arr_idx, index_code
+                                        ));
+                                    } else {
+                                        let idx = self.get_num_var_idx(&field.storage_name);
+                                        self.output.push_str(&format!(
+                                            "{}set_var(&mut num_vars, {}, _val);\n",
+                                            indent, idx
+                                        ));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -142,21 +889,88 @@ impl CodeGenerator {
             Statement::Dim { variables, .. } => {
                 for (var, dim_expr) in variables {
                     let var_name = &var.name;
+                    if let Some(declared_type) = &var.declared_type {
+                        if let Some(expr) = dim_expr {
+                            let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
+                            self.ensure_udt_array_storage(var_name, declared_type);
+                            let normalized = Self::normalize_udt_name(var_name);
+                            for field in self.collect_udt_layout(&normalized, declared_type) {
+                                match field.field_type {
+                                    QType::String(_) => {
+                                        let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                        let init_guard = if self.current_proc_is_static {
+                                            format!(" && str_arr_vars[{}].is_empty()", idx)
+                                        } else {
+                                            String::new()
+                                        };
+                                        self.output.push_str(&format!(
+                                            "{}if {} < str_arr_vars.len(){} {{ str_arr_vars[{}] = vec![String::new(); {}]; }}\n",
+                                            indent, idx, init_guard, idx, size
+                                        ));
+                                    }
+                                    QType::Integer(_)
+                                    | QType::Long(_)
+                                    | QType::Single(_)
+                                    | QType::Double(_) => {
+                                        let idx = self.get_arr_var_idx(&field.storage_name);
+                                        let init_guard = if self.current_proc_is_static {
+                                            format!(" && arr_vars[{}].is_empty()", idx)
+                                        } else {
+                                            String::new()
+                                        };
+                                        self.output.push_str(&format!(
+                                            "{}if {} < arr_vars.len(){} {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
+                                            indent, idx, init_guard, idx, size
+                                        ));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     if var.type_suffix == Some('$') || var_name.ends_with('$') {
-                        continue; // String array not fully supported
+                        if let Some(width) = var.fixed_length {
+                            self.field_widths.insert(var_name.to_uppercase(), width);
+                        }
+                        if let Some(expr) = dim_expr {
+                            let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
+                            let idx = self.get_str_arr_var_idx(var_name);
+                            let init_guard = if self.current_proc_is_static {
+                                format!(" && str_arr_vars[{}].is_empty()", idx)
+                            } else {
+                                String::new()
+                            };
+                            self.output.push_str(&format!(
+                                "{}if {} < str_arr_vars.len(){} {{ str_arr_vars[{}] = vec![String::new(); {}]; }}\n",
+                                indent, idx, init_guard, idx, size
+                            ));
+                        }
+                        continue;
                     }
 
                     if let Some(expr) = dim_expr {
-                        let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize;
+                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
+                            && var.fixed_length.is_some()
+                        {
+                            self.field_widths
+                                .insert(var.name.to_uppercase(), var.fixed_length.unwrap());
+                        }
+                        let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
                         let idx = self.get_arr_var_idx(var_name);
+                        let init_guard = if self.current_proc_is_static {
+                            format!(" && arr_vars[{}].is_empty()", idx)
+                        } else {
+                            String::new()
+                        };
                         // If idx >= arr_vars.len(), we have a problem because arr_vars is pre-allocated?
                         // But we can re-allocate if needed or check bounds.
                         // However, main() pre-allocates based on collected vars.
                         // So idx is valid.
                         // We just need to set the inner vector size.
                         self.output.push_str(&format!(
-                            "{}if {} < arr_vars.len() {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
-                            indent, idx, idx, size
+                            "{}if {} < arr_vars.len(){} {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
+                            indent, idx, init_guard, idx, size
                         ));
                     }
                 }
@@ -164,8 +978,44 @@ impl CodeGenerator {
 
             Statement::Redim { variables, .. } => {
                 for (var, dim_expr) in variables {
+                    if let Some(declared_type) = &var.declared_type {
+                        if let Some(expr) = dim_expr {
+                            let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
+                            self.ensure_udt_array_storage(&var.name, declared_type);
+                            let normalized = Self::normalize_udt_name(&var.name);
+                            for field in self.collect_udt_layout(&normalized, declared_type) {
+                                match field.field_type {
+                                    QType::String(_) => {
+                                        let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                        self.output.push_str(&format!(
+                                            "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = vec![String::new(); {}]; }}\n",
+                                            indent, idx, idx, size
+                                        ));
+                                    }
+                                    QType::Integer(_)
+                                    | QType::Long(_)
+                                    | QType::Single(_)
+                                    | QType::Double(_) => {
+                                        let idx = self.get_arr_var_idx(&field.storage_name);
+                                        self.output.push_str(&format!(
+                                            "{}if {} < arr_vars.len() {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
+                                            indent, idx, idx, size
+                                        ));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     if let Some(expr) = dim_expr {
-                        let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize;
+                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
+                            && var.fixed_length.is_some()
+                        {
+                            self.field_widths
+                                .insert(var.name.to_uppercase(), var.fixed_length.unwrap());
+                        }
+                        let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
                         let idx = self.get_arr_var_idx(&var.name);
                         self.output.push_str(&format!(
                             "{}if {} < arr_vars.len() {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
@@ -177,6 +1027,33 @@ impl CodeGenerator {
 
             Statement::Erase { variables } => {
                 for var in variables {
+                    if let Some(declared_type) = &var.declared_type {
+                        self.ensure_udt_array_storage(&var.name, declared_type);
+                        let normalized = Self::normalize_udt_name(&var.name);
+                        for field in self.collect_udt_layout(&normalized, declared_type) {
+                            match field.field_type {
+                                QType::String(_) => {
+                                    let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                    self.output.push_str(&format!(
+                                        "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = Vec::new(); }}\n",
+                                        indent, idx, idx
+                                    ));
+                                }
+                                QType::Integer(_)
+                                | QType::Long(_)
+                                | QType::Single(_)
+                                | QType::Double(_) => {
+                                    let idx = self.get_arr_var_idx(&field.storage_name);
+                                    self.output.push_str(&format!(
+                                        "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); }}\n",
+                                        indent, idx, idx
+                                    ));
+                                }
+                                _ => {}
+                            }
+                        }
+                        continue;
+                    }
                     let idx = self.get_arr_var_idx(&var.name);
                     self.output.push_str(&format!(
                         "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); }}\n",
@@ -209,6 +1086,46 @@ impl CodeGenerator {
                 self.output.push_str(&format!("{}}}\n", indent));
             }
 
+            Statement::IfElseBlock {
+                condition,
+                then_branch,
+                else_ifs,
+                else_branch,
+            } => {
+                let cond_code = self.generate_expression(condition)?;
+                self.output
+                    .push_str(&format!("{}if ({} as i32) != 0 {{\n", indent, cond_code));
+                self.indent_level += 1;
+                for stmt in then_branch {
+                    self.generate_statement(stmt)?;
+                }
+                self.indent_level -= 1;
+
+                for (else_if_condition, branch) in else_ifs {
+                    let cond_code = self.generate_expression(else_if_condition)?;
+                    self.output.push_str(&format!(
+                        "{}}} else if ({} as i32) != 0 {{\n",
+                        indent, cond_code
+                    ));
+                    self.indent_level += 1;
+                    for stmt in branch {
+                        self.generate_statement(stmt)?;
+                    }
+                    self.indent_level -= 1;
+                }
+
+                if let Some(branch) = else_branch {
+                    self.output.push_str(&format!("{}}} else {{\n", indent));
+                    self.indent_level += 1;
+                    for stmt in branch {
+                        self.generate_statement(stmt)?;
+                    }
+                    self.indent_level -= 1;
+                }
+
+                self.output.push_str(&format!("{}}}\n", indent));
+            }
+
             Statement::Select { expression, cases } => {
                 let expr_code = self.generate_expression(expression)?;
                 let temp = self.next_temp_var();
@@ -238,7 +1155,10 @@ impl CodeGenerator {
                         Expression::CaseElse => "true".to_string(),
                         _ => {
                             let v = self.generate_expression(case_val)?;
-                            format!("(({} - {}).abs() < 0.0001)", temp, v)
+                            format!(
+                                "(((({}) as f64) - (({}) as f64)).abs() < 0.0001_f64)",
+                                temp, v
+                            )
                         }
                     };
 
@@ -317,6 +1237,34 @@ impl CodeGenerator {
                 self.output.push_str(&format!("{}}}\n", indent));
             }
 
+            Statement::ForEach {
+                variable,
+                array,
+                body,
+            } => {
+                if let Some(array_name) = self.expr_to_array_name(array) {
+                    let arr_idx = self.get_arr_var_idx(&array_name);
+                    let var_idx = self.get_num_var_idx(&variable.name);
+                    let item_tmp = self.next_temp_var();
+                    self.output.push_str(&format!(
+                        "{}for {} in arr_vars[{}].clone() {{\n",
+                        indent, item_tmp, arr_idx
+                    ));
+                    self.indent_level += 1;
+                    self.output.push_str(&format!(
+                        "{}set_var(&mut num_vars, {}, {});\n",
+                        self.indent(),
+                        var_idx,
+                        item_tmp
+                    ));
+                    for stmt in body {
+                        self.generate_statement(stmt)?;
+                    }
+                    self.indent_level -= 1;
+                    self.output.push_str(&format!("{}}}\n", indent));
+                }
+            }
+
             Statement::WhileLoop { condition, body } => {
                 let cond_code = self.generate_condition(condition);
                 self.output
@@ -370,49 +1318,22 @@ impl CodeGenerator {
                 let mut copy_back_ops = Vec::new();
 
                 for arg in args {
-                    match arg {
-                        Expression::Variable(v) => {
-                            let n = &v.name;
-                            let tmp_var = self.next_temp_var();
-
-                            if v.type_suffix == Some('$') || n.ends_with('$') {
-                                let idx = self.get_str_var_idx(n);
-                                self.output.push_str(&format!(
-                                    "{}let mut {} = get_str(&str_vars, {});\n",
-                                    indent, tmp_var, idx
-                                ));
-                                arg_vars.push(format!("&mut {}", tmp_var));
-                                copy_back_ops.push(format!(
-                                    "set_str(&mut str_vars, {}, &{});",
-                                    idx, tmp_var
-                                ));
-                            } else {
-                                let idx = self.get_num_var_idx(n);
-                                self.output.push_str(&format!(
-                                    "{}let mut {} = get_var(&num_vars, {});\n",
-                                    indent, tmp_var, idx
-                                ));
-                                arg_vars.push(format!("&mut {}", tmp_var));
-                                copy_back_ops
-                                    .push(format!("set_var(&mut num_vars, {}, {});", idx, tmp_var));
-                            }
-                        }
-                        _ => {
-                            let val_code = self.generate_expression(arg)?;
-                            let tmp_var = self.next_temp_var();
-                            self.output.push_str(&format!(
-                                "{}let mut {} = {};\n",
-                                indent, tmp_var, val_code
-                            ));
-                            arg_vars.push(format!("&mut {}", tmp_var));
-                        }
+                    let mut setup_lines = Vec::new();
+                    let arg_var = self.prepare_call_argument(
+                        arg,
+                        &mut setup_lines,
+                        &mut copy_back_ops,
+                    )?;
+                    for line in setup_lines {
+                        self.output.push_str(&format!("{}{}\n", indent, line));
                     }
+                    arg_vars.push(arg_var);
                 }
 
                 let global_args = if self.is_in_sub {
-                    "global_num_vars, global_str_vars, global_arr_vars"
+                    "global_num_vars, global_str_vars, global_arr_vars, global_str_arr_vars"
                 } else {
-                    "&mut num_vars, &mut str_vars, &mut arr_vars"
+                    "&mut num_vars, &mut str_vars, &mut arr_vars, &mut str_arr_vars"
                 };
 
                 self.output
@@ -433,25 +1354,37 @@ impl CodeGenerator {
             }
 
             Statement::Exit { exit_type } => match exit_type {
-                ExitType::Sub => self.output.push_str(&format!("{}return;\n", indent)),
-                ExitType::Function => {
-                    let func_name = self.current_function_name.clone();
-                    if let Some(name) = func_name {
-                        if name.ends_with('$') {
-                            let idx = self.get_str_var_idx(&name);
-                            self.output.push_str(&format!(
-                                "{}return get_str(&str_vars, {});\n",
-                                indent, idx
-                            ));
-                        } else {
-                            let idx = self.get_num_var_idx(&name);
-                            self.output.push_str(&format!(
-                                "{}return get_var(&num_vars, {});\n",
-                                indent, idx
-                            ));
-                        }
+                ExitType::Sub => {
+                    if self.is_in_sub {
+                        self.output
+                            .push_str(&format!("{}break 'qb_proc;\n", indent));
                     } else {
-                        self.output.push_str(&format!("{}return 0.0;\n", indent));
+                        self.output.push_str(&format!("{}return;\n", indent));
+                    }
+                }
+                ExitType::Function => {
+                    if self.is_in_sub {
+                        self.output
+                            .push_str(&format!("{}break 'qb_proc;\n", indent));
+                    } else {
+                        let func_name = self.current_function_name.clone();
+                        if let Some(name) = func_name {
+                            if name.ends_with('$') {
+                                let idx = self.get_str_var_idx(&name);
+                                self.output.push_str(&format!(
+                                    "{}return get_str(&str_vars, {});\n",
+                                    indent, idx
+                                ));
+                            } else {
+                                let idx = self.get_num_var_idx(&name);
+                                self.output.push_str(&format!(
+                                    "{}return get_var(&num_vars, {});\n",
+                                    indent, idx
+                                ));
+                            }
+                        } else {
+                            self.output.push_str(&format!("{}return 0.0;\n", indent));
+                        }
                     }
                 }
                 ExitType::For => self.output.push_str(&format!("{}break;\n", indent)),
@@ -707,14 +1640,22 @@ impl CodeGenerator {
                 for var in variables {
                     let var_name = &var.name;
                     if var.type_suffix == Some('$') || var_name.ends_with('$') {
-                        // String read not fully supported yet in this simple DATA model
-                        self.output.push_str(&format!("{}data_idx += 1;\n", indent));
+                        let var_idx = self.get_str_var_idx(var_name);
+                        self.output
+                            .push_str(&format!("{}if data_idx < DATA_VALUES.len() {{\n", indent));
+                        self.output.push_str(&format!(
+                            "{}    set_str(&mut str_vars, {}, DATA_VALUES[data_idx]);\n",
+                            indent, var_idx
+                        ));
+                        self.output
+                            .push_str(&format!("{}    data_idx += 1;\n", indent));
+                        self.output.push_str(&format!("{}}}\n", indent));
                     } else {
                         let var_idx = self.get_num_var_idx(var_name);
                         self.output
                             .push_str(&format!("{}if data_idx < DATA_VALUES.len() {{\n", indent));
                         self.output.push_str(&format!(
-                            "{}    set_var(&mut num_vars, {}, DATA_VALUES[data_idx]);\n",
+                            "{}    set_var(&mut num_vars, {}, qb_data_to_num(DATA_VALUES[data_idx]));\n",
                             indent, var_idx
                         ));
                         self.output
@@ -728,8 +1669,107 @@ impl CodeGenerator {
                 self.output.push_str(&format!("{}data_idx = 0;\n", indent));
             }
 
+            Statement::Open {
+                filename,
+                mode,
+                file_number,
+                ..
+            } => {
+                let filename = self.generate_expression(filename)?;
+                let file_number = self.generate_expression(file_number)?;
+                let mode_name = match mode {
+                    OpenMode::Input => "INPUT",
+                    OpenMode::Output => "OUTPUT",
+                    OpenMode::Append => "APPEND",
+                    OpenMode::Binary => "BINARY",
+                    OpenMode::Random => "RANDOM",
+                };
+                self.output.push_str(&format!(
+                    "{}qb_open(&{}, \"{}\", {});\n",
+                    indent, filename, mode_name, file_number
+                ));
+            }
+
+            Statement::Close { file_numbers } => {
+                if file_numbers.is_empty() {
+                    self.output
+                        .push_str(&format!("{}qb_close_all();\n", indent));
+                } else {
+                    for file_number in file_numbers {
+                        let file_number = self.generate_expression(file_number)?;
+                        self.output
+                            .push_str(&format!("{}qb_close({});\n", indent, file_number));
+                    }
+                }
+            }
+
+            Statement::InputFile {
+                file_number,
+                variables,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let fields_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = qb_input_file_fields({}, {});\n",
+                    indent,
+                    fields_tmp,
+                    file_number,
+                    variables.len()
+                ));
+                for (index, variable) in variables.iter().enumerate() {
+                    self.generate_store_from_text_value(
+                        &indent,
+                        variable,
+                        &format!("{}[{}].clone()", fields_tmp, index),
+                        false,
+                    )?;
+                }
+            }
+
+            Statement::Field {
+                file_number,
+                fields,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let fields_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {}: Vec<(usize, usize)> = vec![\n",
+                    indent, fields_tmp
+                ));
+                for (width_expr, field_expr) in fields {
+                    let width =
+                        self.evaluate_const_expr(width_expr).unwrap_or(0.0).max(0.0) as usize;
+                    if let Expression::Variable(var) = field_expr {
+                        let idx = self.get_str_var_idx(&var.name);
+                        self.field_widths.insert(var.name.to_uppercase(), width);
+                        self.output
+                            .push_str(&format!("{}    ({}, {}),\n", indent, width, idx));
+                    }
+                }
+                self.output.push_str(&format!("{}];\n", indent));
+                self.output.push_str(&format!(
+                    "{}qb_define_fields({}, {});\n",
+                    indent, file_number, fields_tmp
+                ));
+            }
+
             Statement::Cls => {
                 self.output.push_str(&format!("{}cls();\n", indent));
+            }
+
+            Statement::Locate { row, col } => {
+                let row = row
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "1.0".to_string());
+                let col = col
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "1.0".to_string());
+                self.output
+                    .push_str(&format!("{}locate({}, {});\n", indent, row, col));
             }
 
             Statement::Beep => {
@@ -737,16 +1777,45 @@ impl CodeGenerator {
                     .push_str(&format!("{}print!(\"\\x07\");\n", indent));
             }
 
+            Statement::Sound {
+                frequency,
+                duration,
+            } => {
+                let frequency = self.generate_expression(frequency)?;
+                let duration = self.generate_expression(duration)?;
+                self.output.push_str(&format!(
+                    "{}qb_sound({}, {});\n",
+                    indent, frequency, duration
+                ));
+            }
+
+            Statement::Play { melody } => {
+                let melody = self.generate_expression(melody)?;
+                self.output
+                    .push_str(&format!("{}qb_play(&{});\n", indent, melody));
+            }
+
+            Statement::Randomize { seed } => {
+                if let Some(seed) = seed {
+                    let seed_code = self.generate_expression(seed)?;
+                    self.output
+                        .push_str(&format!("{}qb_randomize(Some({}));\n", indent, seed_code));
+                } else {
+                    self.output
+                        .push_str(&format!("{}qb_randomize(None);\n", indent));
+                }
+            }
+
             Statement::Color {
-                foreground: Some(fg),
+                foreground,
                 background: _,
             } => {
-                let val = self.generate_expression(fg)?;
-                if self.use_graphics {
+                if let Some(fg) = foreground {
+                    let val = self.generate_expression(fg)?;
                     self.output
                         .push_str(&format!("{}qb_color({});\n", indent, val));
                 }
-                // Background color not fully supported in graphics mode yet (requires full redraw or next CLS)
+                // Background color is intentionally ignored for now in native codegen.
             }
 
             Statement::Sleep { duration } => {
@@ -759,11 +1828,742 @@ impl CodeGenerator {
                     .push_str(&format!("{}qb_sleep({});\n", indent, seconds));
             }
 
+            Statement::Clear => {
+                self.output.push_str(&format!(
+                    "{}qb_clear(&mut num_vars, &mut str_vars, &mut arr_vars, &mut str_arr_vars);\n",
+                    indent
+                ));
+            }
+
+            Statement::Error { code } => {
+                let code = self.generate_expression(code)?;
+                let code_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = (({}) as f64).round() as i16;\n",
+                    indent, code_tmp, code
+                ));
+                self.output.push_str(&format!(
+                    "{}qb_runtime_fail_code({}, format!(\"ERROR {{}}\", {}));\n",
+                    indent, code_tmp, code_tmp
+                ));
+            }
+
+            Statement::Kill { filename } => {
+                let filename = self.generate_expression(filename)?;
+                self.output
+                    .push_str(&format!("{}qb_kill(&{});\n", indent, filename));
+            }
+
+            Statement::NameFile { old_name, new_name } => {
+                let old_name = self.generate_expression(old_name)?;
+                let new_name = self.generate_expression(new_name)?;
+                self.output.push_str(&format!(
+                    "{}qb_rename(&{}, &{});\n",
+                    indent, old_name, new_name
+                ));
+            }
+
+            Statement::Files { pattern } => {
+                if let Some(pattern) = pattern {
+                    let pattern_code = self.generate_expression(pattern)?;
+                    let temp = self.next_temp_var();
+                    self.output
+                        .push_str(&format!("{}let {} = {};\n", indent, temp, pattern_code));
+                    self.output
+                        .push_str(&format!("{}qb_files(Some(&{}));\n", indent, temp));
+                } else {
+                    self.output
+                        .push_str(&format!("{}qb_files(None);\n", indent));
+                }
+            }
+
+            Statement::ChDir { path } => {
+                let path = self.generate_expression(path)?;
+                self.output
+                    .push_str(&format!("{}qb_chdir(&{});\n", indent, path));
+            }
+
+            Statement::MkDir { path } => {
+                let path = self.generate_expression(path)?;
+                self.output
+                    .push_str(&format!("{}qb_mkdir(&{});\n", indent, path));
+            }
+
+            Statement::RmDir { path } => {
+                let path = self.generate_expression(path)?;
+                self.output
+                    .push_str(&format!("{}qb_rmdir(&{});\n", indent, path));
+            }
+
+            Statement::Shell { command } => {
+                if let Some(command) = command {
+                    let command = self.generate_expression(command)?;
+                    let tmp = self.next_temp_var();
+                    self.output
+                        .push_str(&format!("{}let {} = {};\n", indent, tmp, command));
+                    self.output
+                        .push_str(&format!("{}qb_shell(Some(&{}));\n", indent, tmp));
+                } else {
+                    self.output
+                        .push_str(&format!("{}qb_shell(None);\n", indent));
+                }
+            }
+
+            Statement::Chain { filename, .. } => {
+                let filename = self.generate_expression(filename)?;
+                let tmp = self.next_temp_var();
+                self.output
+                    .push_str(&format!("{}let {} = {};\n", indent, tmp, filename));
+                self.output
+                    .push_str(&format!("{}qb_chain(&{});\n", indent, tmp));
+            }
+
+            Statement::Get {
+                file_number,
+                record,
+                variable,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let record = record
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "1.0".to_string());
+                match variable {
+                    None => {
+                        self.output.push_str(&format!(
+                            "{}qb_get_record_to_fields({}, {}, &mut str_vars);\n",
+                            indent, file_number, record
+                        ));
+                    }
+                    Some(expr)
+                        if self.resolve_udt_object_access(expr).is_some()
+                            && !matches!(
+                                self.resolve_field_access_layout(expr)
+                                    .as_ref()
+                                    .map(|field| &field.field_type),
+                                Some(
+                                    QType::String(_)
+                                        | QType::Integer(_)
+                                        | QType::Long(_)
+                                        | QType::Single(_)
+                                        | QType::Double(_)
+                                )
+                            ) =>
+                    {
+                        let resolved = self.resolve_udt_object_access(expr).unwrap();
+                        self.emit_udt_record_get(
+                            &indent,
+                            &resolved.storage_base,
+                            &resolved.type_name,
+                            &file_number,
+                            &record,
+                            resolved.array_index.as_ref(),
+                        );
+                    }
+                    Some(expr) if self.resolve_field_access_layout(expr).is_some() => {
+                        let field = self.resolve_field_access_layout(expr).unwrap();
+                        self.emit_udt_field_get(&indent, &field, &file_number, &record)?;
+                    }
+                    Some(Expression::Variable(var)) if self.variable_udt_type(var).is_some() => {
+                        let type_name = self.variable_udt_type(var).unwrap();
+                        self.emit_udt_record_get(
+                            &indent,
+                            &var.name,
+                            &type_name,
+                            &file_number,
+                            &record,
+                            None,
+                        );
+                    }
+                    Some(Expression::Variable(var))
+                        if var.type_suffix == Some('$') || var.name.ends_with('$') =>
+                    {
+                        let idx = self.get_str_var_idx(&var.name);
+                        let width = self
+                            .field_widths
+                            .get(&var.name.to_uppercase())
+                            .copied()
+                            .unwrap_or(0);
+                        let tmp = self.next_temp_var();
+                        self.output.push_str(&format!(
+                            "{}let {} = qb_get_string_from_file({}, {}, {});\n",
+                            indent,
+                            tmp,
+                            file_number,
+                            record,
+                            if width > 0 {
+                                format!("{}.0", width)
+                            } else {
+                                format!("get_str(&str_vars, {}).len() as f64", idx)
+                            }
+                        ));
+                        self.output.push_str(&format!(
+                            "{}set_str(&mut str_vars, {}, &{});\n",
+                            indent, idx, tmp
+                        ));
+                    }
+                    Some(Expression::Variable(var)) => {
+                        let idx = self.get_num_var_idx(&var.name);
+                        let helper = match Self::binary_scalar_kind(var) {
+                            "i16" => "qb_get_i16",
+                            "i32" => "qb_get_i32",
+                            "f64" => "qb_get_f64",
+                            _ => "qb_get_f32",
+                        };
+                        let tmp = self.next_temp_var();
+                        self.output.push_str(&format!(
+                            "{}let {} = {}({}, {});\n",
+                            indent, tmp, helper, file_number, record
+                        ));
+                        self.output.push_str(&format!(
+                            "{}set_var(&mut num_vars, {}, {});\n",
+                            indent, idx, tmp
+                        ));
+                    }
+                    Some(Expression::ArrayAccess {
+                        name,
+                        indices,
+                        type_suffix,
+                    }) if type_suffix == &Some('$') || name.ends_with('$') => {
+                        if let Some(index_expr) = indices.first() {
+                            let arr_idx = self.get_str_arr_var_idx(name);
+                            let width = self.fixed_string_width_for_name(name);
+                            let index_tmp = self.next_temp_var();
+                            let index_code = self.generate_expression(index_expr)?;
+                            let len_tmp = self.next_temp_var();
+                            let value_tmp = self.next_temp_var();
+                            self.output.push_str(&format!(
+                                "{}let {} = {};\n",
+                                indent, index_tmp, index_code
+                            ));
+                            self.output.push_str(&format!(
+                                "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                                indent, len_tmp, arr_idx, index_tmp
+                            ));
+                            self.output.push_str(&format!(
+                                "{}let {} = qb_get_string_from_file({}, {}, {});\n",
+                                indent,
+                                value_tmp,
+                                file_number,
+                                record,
+                                width
+                                    .map(|width| format!("{}.0", width))
+                                    .unwrap_or_else(|| format!("{}.len() as f64", len_tmp))
+                            ));
+                            self.output.push_str(&format!(
+                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                indent, arr_idx, index_tmp, value_tmp
+                            ));
+                        }
+                    }
+                    Some(Expression::ArrayAccess {
+                        name,
+                        indices,
+                        type_suffix,
+                    }) if type_suffix != &Some('$') && !name.ends_with('$') => {
+                        if let Some(index_expr) = indices.first() {
+                            let arr_idx = self.get_arr_var_idx(name);
+                            let index_tmp = self.next_temp_var();
+                            let index_code = self.generate_expression(index_expr)?;
+                            let helper = match type_suffix.unwrap_or('!') {
+                                '%' => "qb_get_i16",
+                                '&' => "qb_get_i32",
+                                '#' => "qb_get_f64",
+                                _ => "qb_get_f32",
+                            };
+                            let tmp = self.next_temp_var();
+                            self.output.push_str(&format!(
+                                "{}let {} = {};\n",
+                                indent, index_tmp, index_code
+                            ));
+                            self.output.push_str(&format!(
+                                "{}let {} = {}({}, {});\n",
+                                indent, tmp, helper, file_number, record
+                            ));
+                            self.output.push_str(&format!(
+                                "{}arr_set(&mut arr_vars, {}, {}, {});\n",
+                                indent, arr_idx, index_tmp, tmp
+                            ));
+                        }
+                    }
+                    Some(_) => {
+                        return Err(core_types::QError::UnsupportedFeature(
+                            "native GET target not supported for this expression".to_string(),
+                        ));
+                    }
+                }
+            }
+
+            Statement::Put {
+                file_number,
+                record,
+                variable,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let record = record
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "1.0".to_string());
+                match variable {
+                    None => {
+                        self.output.push_str(&format!(
+                            "{}qb_put_record_from_fields({}, {}, &str_vars);\n",
+                            indent, file_number, record
+                        ));
+                    }
+                    Some(expr)
+                        if self.resolve_udt_object_access(expr).is_some()
+                            && !matches!(
+                                self.resolve_field_access_layout(expr)
+                                    .as_ref()
+                                    .map(|field| &field.field_type),
+                                Some(
+                                    QType::String(_)
+                                        | QType::Integer(_)
+                                        | QType::Long(_)
+                                        | QType::Single(_)
+                                        | QType::Double(_)
+                                )
+                            ) =>
+                    {
+                        let resolved = self.resolve_udt_object_access(expr).unwrap();
+                        self.emit_udt_record_put(
+                            &indent,
+                            &resolved.storage_base,
+                            &resolved.type_name,
+                            &file_number,
+                            &record,
+                            resolved.array_index.as_ref(),
+                        );
+                    }
+                    Some(expr) if self.resolve_field_access_layout(expr).is_some() => {
+                        let field = self.resolve_field_access_layout(expr).unwrap();
+                        self.emit_udt_field_put(&indent, &field, &file_number, &record)?;
+                    }
+                    Some(Expression::Variable(var)) if self.variable_udt_type(var).is_some() => {
+                        let type_name = self.variable_udt_type(var).unwrap();
+                        self.emit_udt_record_put(
+                            &indent,
+                            &var.name,
+                            &type_name,
+                            &file_number,
+                            &record,
+                            None,
+                        );
+                    }
+                    Some(Expression::Variable(var))
+                        if var.type_suffix == Some('$') || var.name.ends_with('$') =>
+                    {
+                        let idx = self.get_str_var_idx(&var.name);
+                        let width = self
+                            .field_widths
+                            .get(&var.name.to_uppercase())
+                            .copied()
+                            .unwrap_or(0);
+                        let tmp = self.next_temp_var();
+                        self.output.push_str(&format!(
+                            "{}let {} = get_str(&str_vars, {});\n",
+                            indent, tmp, idx
+                        ));
+                        if width > 0 {
+                            self.output.push_str(&format!(
+                                "{}qb_put_fixed_string({}, {}, {}, &{});\n",
+                                indent, file_number, record, width, tmp
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "{}qb_put_string({}, {}, &{});\n",
+                                indent, file_number, record, tmp
+                            ));
+                        }
+                    }
+                    Some(Expression::Variable(var)) => {
+                        let idx = self.get_num_var_idx(&var.name);
+                        let helper = match Self::binary_scalar_kind(var) {
+                            "i16" => "qb_put_i16",
+                            "i32" => "qb_put_i32",
+                            "f64" => "qb_put_f64",
+                            _ => "qb_put_f32",
+                        };
+                        let tmp = self.next_temp_var();
+                        self.output.push_str(&format!(
+                            "{}let {} = get_var(&num_vars, {});\n",
+                            indent, tmp, idx
+                        ));
+                        self.output.push_str(&format!(
+                            "{}{}({}, {}, {});\n",
+                            indent, helper, file_number, record, tmp
+                        ));
+                    }
+                    Some(Expression::ArrayAccess {
+                        name,
+                        indices,
+                        type_suffix,
+                    }) if type_suffix == &Some('$') || name.ends_with('$') => {
+                        if let Some(index_expr) = indices.first() {
+                            let arr_idx = self.get_str_arr_var_idx(name);
+                            let width = self.fixed_string_width_for_name(name);
+                            let index_tmp = self.next_temp_var();
+                            let index_code = self.generate_expression(index_expr)?;
+                            let tmp = self.next_temp_var();
+                            self.output.push_str(&format!(
+                                "{}let {} = {};\n",
+                                indent, index_tmp, index_code
+                            ));
+                            self.output.push_str(&format!(
+                                "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                                indent, tmp, arr_idx, index_tmp
+                            ));
+                            if let Some(width) = width {
+                                self.output.push_str(&format!(
+                                    "{}qb_put_fixed_string({}, {}, {}, &{});\n",
+                                    indent, file_number, record, width, tmp
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}qb_put_string({}, {}, &{});\n",
+                                    indent, file_number, record, tmp
+                                ));
+                            }
+                        }
+                    }
+                    Some(Expression::ArrayAccess {
+                        name,
+                        indices,
+                        type_suffix,
+                    }) if type_suffix != &Some('$') && !name.ends_with('$') => {
+                        if let Some(index_expr) = indices.first() {
+                            let arr_idx = self.get_arr_var_idx(name);
+                            let index_tmp = self.next_temp_var();
+                            let index_code = self.generate_expression(index_expr)?;
+                            let helper = match type_suffix.unwrap_or('!') {
+                                '%' => "qb_put_i16",
+                                '&' => "qb_put_i32",
+                                '#' => "qb_put_f64",
+                                _ => "qb_put_f32",
+                            };
+                            let tmp = self.next_temp_var();
+                            self.output.push_str(&format!(
+                                "{}let {} = {};\n",
+                                indent, index_tmp, index_code
+                            ));
+                            self.output.push_str(&format!(
+                                "{}let {} = arr_get(&arr_vars, {}, {});\n",
+                                indent, tmp, arr_idx, index_tmp
+                            ));
+                            self.output.push_str(&format!(
+                                "{}{}({}, {}, {});\n",
+                                indent, helper, file_number, record, tmp
+                            ));
+                        }
+                    }
+                    Some(_) => {
+                        return Err(core_types::QError::UnsupportedFeature(
+                            "native PUT target not supported for this expression".to_string(),
+                        ));
+                    }
+                }
+            }
+
+            Statement::LineInputFile {
+                file_number,
+                variable,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let line_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = qb_read_line_from_file({});\n",
+                    indent, line_tmp, file_number
+                ));
+                self.generate_store_from_text_value(&indent, variable, &line_tmp, true)?;
+            }
+
+            Statement::WriteFile {
+                file_number,
+                expressions,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let values_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let mut {}: Vec<String> = Vec::new();\n",
+                    indent, values_tmp
+                ));
+                for expr in expressions {
+                    let expr_code = self.generate_expression(expr)?;
+                    self.output.push_str(&format!(
+                        "{}{}.push(format!(\"{{:?}}\", {}));\n",
+                        indent, values_tmp, expr_code
+                    ));
+                }
+                self.output.push_str(&format!(
+                    "{}qb_file_write_csv({}, &{});\n",
+                    indent, file_number, values_tmp
+                ));
+            }
+
+            Statement::Seek {
+                file_number,
+                position,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                let position = self.generate_expression(position)?;
+                self.output.push_str(&format!(
+                    "{}qb_seek({}, {});\n",
+                    indent, file_number, position
+                ));
+            }
+
+            Statement::LSet { target, value } => {
+                if let Some(field) = self.resolve_field_access_layout(target) {
+                    if matches!(field.field_type, QType::String(_)) {
+                        let width = field.fixed_length.unwrap_or(0);
+                        let value = self.generate_expression(value)?;
+                        if let Some(index_expr) = &field.array_index {
+                            let idx = self.get_str_arr_var_idx(&field.storage_name);
+                            let index_code = self.generate_expression(index_expr)?;
+                            if width == 0 {
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, idx, index_code, value
+                                ));
+                            } else {
+                                let tmp = self.next_temp_var();
+                                self.output.push_str(&format!(
+                                    "{}let mut {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                                    indent, tmp, idx, index_code
+                                ));
+                                self.output.push_str(&format!(
+                                    "{}qb_lset_field(std::slice::from_mut(&mut {}), 0, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, tmp, width, value
+                                ));
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                    indent, idx, index_code, tmp
+                                ));
+                            }
+                        } else {
+                            let idx = self.get_str_var_idx(&field.storage_name);
+                            if width == 0 {
+                                self.output.push_str(&format!(
+                                    "{}set_str(&mut str_vars, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, idx, value
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}qb_lset_field(&mut str_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, idx, width, value
+                                ));
+                            }
+                        }
+                    }
+                } else if let Expression::Variable(var) = target {
+                    let idx = self.get_str_var_idx(&var.name);
+                    let width = self
+                        .field_widths
+                        .get(&var.name.to_uppercase())
+                        .copied()
+                        .unwrap_or(0);
+                    let value = self.generate_expression(value)?;
+                    if width == 0 {
+                        self.output.push_str(&format!(
+                            "{}set_str(&mut str_vars, {}, &format!(\"{{}}\", {}));\n",
+                            indent, idx, value
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "{}qb_lset_field(&mut str_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                            indent, idx, width, value
+                        ));
+                    }
+                }
+            }
+
+            Statement::RSet { target, value } => {
+                if let Some(field) = self.resolve_field_access_layout(target) {
+                    if matches!(field.field_type, QType::String(_)) {
+                        let width = field.fixed_length.unwrap_or(0);
+                        let value = self.generate_expression(value)?;
+                        if let Some(index_expr) = &field.array_index {
+                            let idx = self.get_str_arr_var_idx(&field.storage_name);
+                            let index_code = self.generate_expression(index_expr)?;
+                            if width == 0 {
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, idx, index_code, value
+                                ));
+                            } else {
+                                let tmp = self.next_temp_var();
+                                self.output.push_str(&format!(
+                                    "{}let mut {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                                    indent, tmp, idx, index_code
+                                ));
+                                self.output.push_str(&format!(
+                                    "{}qb_rset_field(std::slice::from_mut(&mut {}), 0, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, tmp, width, value
+                                ));
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                    indent, idx, index_code, tmp
+                                ));
+                            }
+                        } else {
+                            let idx = self.get_str_var_idx(&field.storage_name);
+                            if width == 0 {
+                                self.output.push_str(&format!(
+                                    "{}set_str(&mut str_vars, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, idx, value
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}qb_rset_field(&mut str_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                                    indent, idx, width, value
+                                ));
+                            }
+                        }
+                    }
+                } else if let Expression::Variable(var) = target {
+                    let idx = self.get_str_var_idx(&var.name);
+                    let width = self
+                        .field_widths
+                        .get(&var.name.to_uppercase())
+                        .copied()
+                        .unwrap_or(0);
+                    let value = self.generate_expression(value)?;
+                    if width == 0 {
+                        self.output.push_str(&format!(
+                            "{}set_str(&mut str_vars, {}, &format!(\"{{}}\", {}));\n",
+                            indent, idx, value
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "{}qb_rset_field(&mut str_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                            indent, idx, width, value
+                        ));
+                    }
+                }
+            }
+
             Statement::End | Statement::Stop | Statement::System => {
-                self.output.push_str(&format!("{}return;\n", indent));
+                if self.is_in_sub {
+                    self.output
+                        .push_str(&format!("{}break 'qb_proc;\n", indent));
+                } else {
+                    self.output.push_str(&format!("{}return;\n", indent));
+                }
             }
 
             Statement::Label { .. } => {}
+
+            Statement::LineInput { prompt, variable } => {
+                if let Some(p) = prompt {
+                    let prompt_code = self.generate_expression(p)?;
+                    self.output.push_str(&format!(
+                        "{}qb_print(&format!(\"{{}}\", {}));\n",
+                        indent, prompt_code
+                    ));
+                }
+                if let Expression::Variable(v) = variable {
+                    let idx = self.get_str_var_idx(&v.name);
+                    self.output
+                        .push_str(&format!("{}io::stdout().flush().unwrap();\n", indent));
+                    self.output
+                        .push_str(&format!("{}let mut _line_input = String::new();\n", indent));
+                    self.output.push_str(&format!(
+                        "{}io::stdin().read_line(&mut _line_input).unwrap();\n",
+                        indent
+                    ));
+                    self.output.push_str(&format!(
+                        "{}set_str(&mut str_vars, {}, _line_input.trim_end_matches(['\\r', '\\n']));\n",
+                        indent, idx
+                    ));
+                }
+            }
+
+            Statement::DefSeg { segment } => {
+                let segment_code = if let Some(segment) = segment {
+                    self.generate_expression(segment)?
+                } else {
+                    "0.0".to_string()
+                };
+                self.output
+                    .push_str(&format!("{}qb_set_def_seg({});\n", indent, segment_code));
+            }
+
+            Statement::Poke { address, value } => {
+                let address_code = self.generate_expression(address)?;
+                let value_code = self.generate_expression(value)?;
+                self.output.push_str(&format!(
+                    "{}qb_poke({}, {});\n",
+                    indent, address_code, value_code
+                ));
+            }
+
+            Statement::Wait {
+                address,
+                and_mask,
+                xor_mask,
+            } => {
+                let address_code = self.generate_expression(address)?;
+                let and_mask_code = self.generate_expression(and_mask)?;
+                let xor_mask_code = xor_mask
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .map(|expr| format!("Some({})", expr))
+                    .unwrap_or_else(|| "None".to_string());
+                self.output.push_str(&format!(
+                    "{}qb_wait({}, {}, {});\n",
+                    indent, address_code, and_mask_code, xor_mask_code
+                ));
+            }
+
+            Statement::BLoad { filename, offset } => {
+                let filename_code = self.generate_expression(filename)?;
+                let offset_code = offset
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .map(|expr| format!("Some({})", expr))
+                    .unwrap_or_else(|| "None".to_string());
+                self.output.push_str(&format!(
+                    "{}qb_bload(&{}, {});\n",
+                    indent, filename_code, offset_code
+                ));
+            }
+
+            Statement::BSave {
+                filename,
+                offset,
+                length,
+            } => {
+                let filename_code = self.generate_expression(filename)?;
+                let offset_code = self.generate_expression(offset)?;
+                let length_code = self.generate_expression(length)?;
+                self.output.push_str(&format!(
+                    "{}qb_bsave(&{}, {}, {});\n",
+                    indent, filename_code, offset_code, length_code
+                ));
+            }
+
+            Statement::Out { port, value } => {
+                let port_code = self.generate_expression(port)?;
+                let value_code = self.generate_expression(value)?;
+                self.output.push_str(&format!(
+                    "{}qb_out({}, {});\n",
+                    indent, port_code, value_code
+                ));
+            }
+
+            Statement::Width { .. }
+            | Statement::Key { .. }
+            | Statement::KeyOn
+            | Statement::KeyOff
+            | Statement::KeyList
+            | Statement::OptionBase { .. }
+            | Statement::Declare { .. }
+            | Statement::ViewPrint { .. } => {}
 
             Statement::DefFn { name, params, body } => {
                 let fn_name = self.rust_symbol("qbfn", name);
@@ -806,8 +2606,10 @@ impl CodeGenerator {
                 // Print prompt if exists
                 if let Some(p) = prompt {
                     let prompt_code = self.generate_expression(p)?;
-                    self.output
-                        .push_str(&format!("{}print!(\"{{}}\", {});\n", indent, prompt_code));
+                    self.output.push_str(&format!(
+                        "{}qb_print(&format!(\"{{}}\", {}));\n",
+                        indent, prompt_code
+                    ));
                 }
 
                 // Read input for each variable
@@ -896,6 +2698,182 @@ impl CodeGenerator {
                 }
             }
 
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn generate_store_from_text_value(
+        &mut self,
+        indent: &str,
+        target: &Expression,
+        value_code: &str,
+        preserve_string_whitespace: bool,
+    ) -> QResult<()> {
+        match target {
+            Expression::Variable(var) => {
+                let name = &var.name;
+                if var.type_suffix == Some('$') || name.ends_with('$') {
+                    let idx = self.get_str_var_idx(name);
+                    let width = self.fixed_string_width_for_name(name);
+                    if preserve_string_whitespace {
+                        if let Some(width) = width {
+                            self.output.push_str(&format!(
+                                "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                indent, idx, width, value_code
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "{}set_str(&mut str_vars, {}, &{});\n",
+                                indent, idx, value_code
+                            ));
+                        }
+                    } else {
+                        if let Some(width) = width {
+                            self.output.push_str(&format!(
+                                "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                indent, idx, width, value_code
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "{}set_str(&mut str_vars, {}, &{}.trim());\n",
+                                indent, idx, value_code
+                            ));
+                        }
+                    }
+                } else {
+                    let idx = self.get_num_var_idx(name);
+                    self.output.push_str(&format!(
+                        "{}set_var(&mut num_vars, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                        indent, idx, value_code
+                    ));
+                }
+            }
+            Expression::ArrayAccess { name, indices, .. } => {
+                if let Some(index) = indices.first() {
+                    let idx_code = self.generate_expression(index)?;
+                    if name.ends_with('$') {
+                        let arr_idx = self.get_str_arr_var_idx(name);
+                        let width = self.fixed_string_width_for_name(name);
+                        if preserve_string_whitespace {
+                            if let Some(width) = width {
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                    indent, arr_idx, idx_code, width, value_code
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                    indent, arr_idx, idx_code, value_code
+                                ));
+                            }
+                        } else {
+                            if let Some(width) = width {
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                    indent, arr_idx, idx_code, width, value_code
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
+                                    indent, arr_idx, idx_code, value_code
+                                ));
+                            }
+                        }
+                    } else {
+                        let arr_idx = self.get_arr_var_idx(name);
+                        self.output.push_str(&format!(
+                            "{}arr_set(&mut arr_vars, {}, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                            indent, arr_idx, idx_code, value_code
+                        ));
+                    }
+                }
+            }
+            Expression::FieldAccess { .. } => {
+                if let Some(field) = self.resolve_field_access_layout(target) {
+                    match field.field_type {
+                        QType::String(_) => {
+                            let width = field.fixed_length;
+                            if let Some(index_expr) = &field.array_index {
+                                let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                let index_code = self.generate_expression(index_expr)?;
+                                if preserve_string_whitespace {
+                                    if let Some(width) = width {
+                                        self.output.push_str(&format!(
+                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                            indent, idx, index_code, width, value_code
+                                        ));
+                                    } else {
+                                        self.output.push_str(&format!(
+                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                            indent, idx, index_code, value_code
+                                        ));
+                                    }
+                                } else {
+                                    if let Some(width) = width {
+                                        self.output.push_str(&format!(
+                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                            indent, idx, index_code, width, value_code
+                                        ));
+                                    } else {
+                                        self.output.push_str(&format!(
+                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
+                                            indent, idx, index_code, value_code
+                                        ));
+                                    }
+                                }
+                            } else {
+                                let idx = self.get_str_var_idx(&field.storage_name);
+                                if preserve_string_whitespace {
+                                    if let Some(width) = width {
+                                        self.output.push_str(&format!(
+                                            "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                            indent, idx, width, value_code
+                                        ));
+                                    } else {
+                                        self.output.push_str(&format!(
+                                            "{}set_str(&mut str_vars, {}, &{});\n",
+                                            indent, idx, value_code
+                                        ));
+                                    }
+                                } else {
+                                    if let Some(width) = width {
+                                        self.output.push_str(&format!(
+                                            "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                            indent, idx, width, value_code
+                                        ));
+                                    } else {
+                                        self.output.push_str(&format!(
+                                            "{}set_str(&mut str_vars, {}, &{}.trim());\n",
+                                            indent, idx, value_code
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        QType::Integer(_)
+                        | QType::Long(_)
+                        | QType::Single(_)
+                        | QType::Double(_) => {
+                            if let Some(index_expr) = &field.array_index {
+                                let idx = self.get_arr_var_idx(&field.storage_name);
+                                let index_code = self.generate_expression(index_expr)?;
+                                self.output.push_str(&format!(
+                                    "{}arr_set(&mut arr_vars, {}, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                                    indent, idx, index_code, value_code
+                                ));
+                            } else {
+                                let idx = self.get_num_var_idx(&field.storage_name);
+                                self.output.push_str(&format!(
+                                    "{}set_var(&mut num_vars, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                                    indent, idx, value_code
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             _ => {}
         }
         Ok(())

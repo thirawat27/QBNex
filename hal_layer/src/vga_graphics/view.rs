@@ -30,16 +30,10 @@ impl VGAGraphics {
             self.raw_line(rect.max_x, rect.max_y, rect.min_x, rect.max_y, border_color);
             self.raw_line(rect.min_x, rect.max_y, rect.min_x, rect.min_y, border_color);
         }
-
-        println!(
-            "[VIEW({},{})-({},{}) Fill:{} Border:{}]",
-            x1, y1, x2, y2, fill_color, border_color
-        );
     }
 
     pub fn view_reset(&mut self) {
         self.viewport = Viewport::full_screen(self.width, self.height);
-        println!("[VIEW RESET]");
     }
 
     pub fn window(&mut self, x1: f64, y1: f64, x2: f64, y2: f64) {
@@ -50,11 +44,9 @@ impl VGAGraphics {
             y2,
             active: true,
         };
-        println!("[WINDOW({},{})-({},{})]", x1, y1, x2, y2);
     }
 
     pub fn window_reset(&mut self) {
         self.window = WindowCoords::physical(self.width, self.height);
-        println!("[WINDOW RESET]");
     }
 }

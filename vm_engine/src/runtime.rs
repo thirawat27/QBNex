@@ -1,8 +1,9 @@
-use crate::opcodes::OpCode;
+use crate::opcodes::{ByRefTarget, OpCode};
 use core_types::{DosMemory, QError, QResult, QType};
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::io::{self, Write};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct ForLoopContext {
@@ -53,8 +54,9 @@ pub struct RuntimeState {
     pub variables: HashMap<String, QType>,
     pub arrays: HashMap<String, Vec<QType>>,
     pub array_dimensions: HashMap<String, Vec<(i32, i32)>>,
-    pub functions: HashMap<String, (Vec<String>, Vec<OpCode>)>,
-    pub subs: HashMap<String, (Vec<String>, Vec<OpCode>)>,
+    pub random_fields: HashMap<i32, Vec<(usize, usize)>>,
+    pub functions: HashMap<String, (Vec<usize>, usize, usize, usize)>,
+    pub subs: HashMap<String, (Vec<usize>, usize, usize)>,
     pub def_fns: HashMap<String, (Vec<String>, Vec<OpCode>)>,
     pub error_handler_address: Option<usize>,
     pub error_resume_next: bool,
@@ -64,6 +66,29 @@ pub struct RuntimeState {
     pub data_pointer: DataPointer,
     pub data_section: Vec<Vec<QType>>, // All DATA values organized by statement
     pub globals: Vec<QType>,
+    pub timer_handler_address: Option<usize>,
+    pub timer_interval_secs: f64,
+    pub timer_enabled: bool,
+    pub next_timer_tick: Option<Instant>,
+    pub timer_handler_depth: Option<usize>,
+    pub procedure_frames: Vec<ProcedureFrame>,
+    pub cursor_row: i16,
+    pub cursor_col: i16,
+    pub current_segment: u16,
+    pub pseudo_var_offsets: HashMap<String, u16>,
+    pub pseudo_var_sizes: HashMap<String, usize>,
+    pub next_pseudo_offset: u16,
+    pub view_print_top: Option<i16>,
+    pub view_print_bottom: Option<i16>,
+    pub pseudo_ports: HashMap<u16, u8>,
+    pub string_widths: HashMap<usize, usize>,
+    pub string_array_widths: HashMap<String, usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcedureFrame {
+    pub saved_slots: Vec<(usize, QType)>,
+    pub copy_backs: Vec<(ByRefTarget, usize)>,
 }
 
 impl RuntimeState {
@@ -75,6 +100,7 @@ impl RuntimeState {
             variables: HashMap::with_capacity(128),
             arrays: HashMap::with_capacity(32),
             array_dimensions: HashMap::with_capacity(32),
+            random_fields: HashMap::with_capacity(8),
             functions: HashMap::new(),
             subs: HashMap::new(),
             def_fns: HashMap::new(),
@@ -86,6 +112,23 @@ impl RuntimeState {
             data_pointer: DataPointer::new(),
             data_section: Vec::new(),
             globals: Vec::new(),
+            timer_handler_address: None,
+            timer_interval_secs: 0.0,
+            timer_enabled: false,
+            next_timer_tick: None,
+            timer_handler_depth: None,
+            procedure_frames: Vec::with_capacity(32),
+            cursor_row: 1,
+            cursor_col: 1,
+            current_segment: 0,
+            pseudo_var_offsets: HashMap::with_capacity(64),
+            pseudo_var_sizes: HashMap::with_capacity(64),
+            next_pseudo_offset: 1,
+            view_print_top: None,
+            view_print_bottom: None,
+            pseudo_ports: HashMap::with_capacity(32),
+            string_widths: HashMap::with_capacity(32),
+            string_array_widths: HashMap::with_capacity(16),
         }
     }
 
@@ -131,6 +174,107 @@ impl Default for RuntimeState {
     }
 }
 
+fn split_input_fields(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut chars = line.chars().peekable();
+    let mut in_quotes = false;
+
+    while let Some(ch) = chars.next() {
+        if in_quotes {
+            if ch == '"' {
+                if chars.peek() == Some(&'"') {
+                    current.push('"');
+                    let _ = chars.next();
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                current.push(ch);
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_quotes = true,
+            ',' => {
+                fields.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    fields.push(current.trim().to_string());
+    fields
+}
+
+#[cfg(windows)]
+fn qb_inkey_nonblocking() -> String {
+    unsafe extern "C" {
+        fn _kbhit() -> i32;
+        fn _getch() -> i32;
+    }
+
+    unsafe {
+        if _kbhit() == 0 {
+            return String::new();
+        }
+        let ch = _getch();
+        if ch == 0 || ch == 224 {
+            let ext = _getch();
+            let mut text = String::with_capacity(2);
+            text.push('\0');
+            text.push(char::from(ext.clamp(0, u8::MAX as i32) as u8));
+            text
+        } else {
+            char::from(ch.clamp(0, u8::MAX as i32) as u8).to_string()
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn qb_inkey_nonblocking() -> String {
+    String::new()
+}
+
+fn qb_wait_for_keypress() {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return;
+    }
+
+    #[cfg(windows)]
+    loop {
+        if !qb_inkey_nonblocking().is_empty() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    #[cfg(not(windows))]
+    {
+        // Non-Windows builds currently keep SLEEP's key-wait path non-blocking to
+        // avoid hanging automation until a proper console key polling layer exists.
+    }
+}
+
+fn qb_fit_fixed_string(width: usize, text: &str) -> String {
+    let mut text = text.to_string();
+    if text.len() > width {
+        text.truncate(width);
+    } else if text.len() < width {
+        text.push_str(&" ".repeat(width - text.len()));
+    }
+    text
+}
+
+fn qb_normalize_fixed_string_value(width: usize, value: QType) -> QType {
+    match value {
+        QType::String(s) => QType::String(qb_fit_fixed_string(width, &s)),
+        other => QType::String(qb_fit_fixed_string(width, &other.to_string())),
+    }
+}
+
 pub struct VM {
     pub runtime: RuntimeState,
     pub bytecode: Vec<OpCode>,
@@ -143,6 +287,24 @@ pub struct VM {
 }
 
 impl VM {
+    const PSEUDO_VAR_SEGMENT: u16 = 0x6000;
+
+    fn normalize_global_value_for_slot(&self, slot: usize, value: QType) -> QType {
+        if let Some(width) = self.runtime.string_widths.get(&slot).copied() {
+            qb_normalize_fixed_string_value(width, value)
+        } else {
+            value
+        }
+    }
+
+    fn normalize_array_value_for_name(&self, name: &str, value: QType) -> QType {
+        if let Some(width) = self.runtime.string_array_widths.get(name).copied() {
+            qb_normalize_fixed_string_value(width, value)
+        } else {
+            value
+        }
+    }
+
     pub fn new(bytecode: Vec<OpCode>) -> Self {
         let memory = DosMemory::new();
         Self {
@@ -159,6 +321,7 @@ impl VM {
 
     pub fn run(&mut self) -> QResult<()> {
         while self.running && self.runtime.instruction_pointer < self.bytecode.len() {
+            self.maybe_fire_timer();
             let prev_ip = self.runtime.instruction_pointer;
             if let Err(e) = self.execute_next() {
                 self.runtime.last_error = Some(e.clone());
@@ -179,6 +342,189 @@ impl VM {
             }
         }
         Ok(())
+    }
+
+    fn maybe_fire_timer(&mut self) {
+        if !self.runtime.timer_enabled || self.runtime.timer_handler_depth.is_some() {
+            return;
+        }
+
+        let Some(handler) = self.runtime.timer_handler_address else {
+            return;
+        };
+
+        let interval = self.runtime.timer_interval_secs.max(0.001);
+        let now = Instant::now();
+
+        match self.runtime.next_timer_tick {
+            Some(next_tick) if now >= next_tick => {
+                let return_depth = self.runtime.call_stack.len();
+                self.runtime
+                    .call_stack
+                    .push(self.runtime.instruction_pointer);
+                self.runtime.timer_handler_depth = Some(return_depth);
+                self.runtime.instruction_pointer = handler;
+                self.runtime.next_timer_tick = Some(now + Duration::from_secs_f64(interval));
+            }
+            Some(_) => {}
+            None => {
+                self.runtime.next_timer_tick = Some(now + Duration::from_secs_f64(interval));
+            }
+        }
+    }
+
+    fn resolve_array_linear_index(&self, name: &str, index_slots: &[usize]) -> Option<usize> {
+        let dims = self.runtime.array_dimensions.get(name)?;
+        let indices = index_slots
+            .iter()
+            .map(|slot| {
+                self.runtime
+                    .globals
+                    .get(*slot)
+                    .cloned()
+                    .unwrap_or(QType::Integer(0))
+                    .to_f64() as i32
+            })
+            .collect::<Vec<_>>();
+
+        let mut linear_index = 0usize;
+        let mut multiplier = 1usize;
+        for (i, (lower, upper)) in dims.iter().enumerate().rev() {
+            let idx = indices.get(i).copied().unwrap_or(*lower);
+            if idx < *lower || idx > *upper {
+                return None;
+            }
+            linear_index += (idx - lower) as usize * multiplier;
+            multiplier *= (upper - lower + 1) as usize;
+        }
+        Some(linear_index)
+    }
+
+    fn apply_by_ref_copy_back(&mut self, target: ByRefTarget, param_idx: usize) {
+        while self.runtime.globals.len() <= param_idx {
+            self.runtime.globals.push(QType::Empty);
+        }
+        let value = self.runtime.globals[param_idx].clone();
+
+        match target {
+            ByRefTarget::None => {}
+            ByRefTarget::Global(caller_idx) => {
+                while self.runtime.globals.len() <= caller_idx {
+                    self.runtime.globals.push(QType::Empty);
+                }
+                self.runtime.globals[caller_idx] =
+                    self.normalize_global_value_for_slot(caller_idx, value);
+            }
+            ByRefTarget::ArrayElement { name, index_slots } => {
+                if let Some(linear_index) = self.resolve_array_linear_index(&name, &index_slots) {
+                    let width = self.runtime.string_array_widths.get(&name).copied();
+                    if let Some(array) = self.runtime.arrays.get_mut(&name) {
+                        if linear_index < array.len() {
+                            array[linear_index] = if let Some(width) = width {
+                                qb_normalize_fixed_string_value(width, value)
+                            } else {
+                                value
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn advance_cursor_text(&mut self, text: &str) {
+        for ch in text.chars() {
+            match ch {
+                '\n' => {
+                    self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
+                    self.runtime.cursor_col = 1;
+                }
+                '\r' => {
+                    self.runtime.cursor_col = 1;
+                }
+                _ => {
+                    self.runtime.cursor_col = self.runtime.cursor_col.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    fn resolve_var_ref<'a>(&'a self, var_ref: &'a str) -> (Option<&'a str>, Option<usize>) {
+        if let Some(rest) = var_ref.strip_prefix('#') {
+            if let Some((slot_text, name)) = rest.split_once(':') {
+                if let Ok(slot) = slot_text.parse::<usize>() {
+                    return (Some(name), Some(slot));
+                }
+            }
+        }
+        (Some(var_ref), None)
+    }
+
+    fn resolve_var_ref_value(&self, var_ref: &str) -> Option<QType> {
+        let (name, slot) = self.resolve_var_ref(var_ref);
+        if let Some(slot) = slot {
+            if let Some(value) = self.runtime.globals.get(slot) {
+                return Some(value.clone());
+            }
+        }
+        name.and_then(|name| self.runtime.variables.get(name).cloned())
+    }
+
+    fn value_to_memory_bytes(value: &QType) -> Vec<u8> {
+        match value {
+            QType::Integer(v) => v.to_le_bytes().to_vec(),
+            QType::Long(v) => v.to_le_bytes().to_vec(),
+            QType::Single(v) => v.to_le_bytes().to_vec(),
+            QType::Double(v) => v.to_le_bytes().to_vec(),
+            QType::String(s) => {
+                let mut bytes = s.as_bytes().to_vec();
+                bytes.push(0);
+                bytes
+            }
+            QType::UserDefined(bytes) => bytes.clone(),
+            QType::Empty => vec![0],
+        }
+    }
+
+    fn ensure_pseudo_var_storage(&mut self, var_ref: &str) -> (u16, u16, Vec<u8>) {
+        let value = self
+            .resolve_var_ref_value(var_ref)
+            .unwrap_or(QType::Integer(0));
+        let bytes = Self::value_to_memory_bytes(&value);
+        let needed = bytes.len().max(1);
+        let needs_realloc = self
+            .runtime
+            .pseudo_var_sizes
+            .get(var_ref)
+            .is_none_or(|size| *size < needed);
+
+        if needs_realloc {
+            let offset = self.runtime.next_pseudo_offset;
+            let next = offset.saturating_add((needed + 1).min(u16::MAX as usize) as u16);
+            self.runtime
+                .pseudo_var_offsets
+                .insert(var_ref.to_string(), offset);
+            self.runtime
+                .pseudo_var_sizes
+                .insert(var_ref.to_string(), needed);
+            self.runtime.next_pseudo_offset = next;
+        }
+
+        let offset = *self.runtime.pseudo_var_offsets.get(var_ref).unwrap_or(&0);
+        let capacity = *self
+            .runtime
+            .pseudo_var_sizes
+            .get(var_ref)
+            .unwrap_or(&needed);
+        for i in 0..capacity {
+            let byte = bytes.get(i).copied().unwrap_or(0);
+            self.memory.poke(
+                Self::PSEUDO_VAR_SEGMENT,
+                offset.saturating_add(i as u16),
+                byte,
+            );
+        }
+        (Self::PSEUDO_VAR_SEGMENT, offset, bytes)
     }
 
     fn execute_next(&mut self) -> QResult<()> {
@@ -203,6 +549,25 @@ impl VM {
                 self.runtime.globals.resize(count, QType::Integer(0));
             }
 
+            OpCode::SetStringWidth { slot, width } => {
+                self.runtime.string_widths.insert(slot, width);
+                while self.runtime.globals.len() <= slot {
+                    self.runtime.globals.push(QType::Empty);
+                }
+                let value = self.runtime.globals[slot].clone();
+                self.runtime.globals[slot] = self.normalize_global_value_for_slot(slot, value);
+            }
+
+            OpCode::SetStringArrayWidth { name, width } => {
+                self.runtime.string_array_widths.insert(name.clone(), width);
+                if let Some(array) = self.runtime.arrays.get_mut(&name) {
+                    for value in array.iter_mut() {
+                        let current = std::mem::replace(value, QType::Empty);
+                        *value = qb_normalize_fixed_string_value(width, current);
+                    }
+                }
+            }
+
             OpCode::LoadFast(idx) => {
                 if idx < self.runtime.globals.len() {
                     self.runtime.push(self.runtime.globals[idx].clone());
@@ -215,6 +580,7 @@ impl VM {
 
             OpCode::StoreFast(idx) => {
                 let value = self.runtime.pop()?;
+                let value = self.normalize_global_value_for_slot(idx, value);
                 if idx < self.runtime.globals.len() {
                     self.runtime.globals[idx] = value;
                 } else {
@@ -465,11 +831,14 @@ impl VM {
             OpCode::PrintTab => {
                 print!("\t");
                 io::stdout().flush().ok();
+                let next_tab = (((self.runtime.cursor_col - 1) / 8) + 1) * 8 + 1;
+                self.runtime.cursor_col = next_tab;
             }
 
             OpCode::PrintSpace => {
                 print!(" ");
                 io::stdout().flush().ok();
+                self.runtime.cursor_col = self.runtime.cursor_col.saturating_add(1);
             }
 
             OpCode::Input => {
@@ -520,6 +889,9 @@ impl VM {
             OpCode::Return => {
                 if let Some(addr) = self.runtime.call_stack.pop() {
                     self.runtime.instruction_pointer = addr;
+                    if self.runtime.timer_handler_depth == Some(self.runtime.call_stack.len()) {
+                        self.runtime.timer_handler_depth = None;
+                    }
                 } else {
                     return Err(QError::ReturnWithoutGosub);
                 }
@@ -711,13 +1083,17 @@ impl VM {
 
             OpCode::Print => {
                 let value = self.runtime.pop()?;
-                print!("{}", value);
+                let rendered = format!("{}", value);
+                print!("{}", rendered);
                 io::stdout().flush().ok();
+                self.advance_cursor_text(&rendered);
             }
 
             OpCode::PrintNewline => {
                 println!();
                 io::stdout().flush().ok();
+                self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
+                self.runtime.cursor_col = 1;
             }
 
             OpCode::PrintUsing(count) => {
@@ -1100,8 +1476,7 @@ impl VM {
                 let duration = self.runtime.pop()?;
                 let seconds = duration.to_f64();
                 if seconds < 0.0 {
-                    // Wait for keypress (simplified - just sleep 1 second)
-                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    qb_wait_for_keypress();
                 } else {
                     std::thread::sleep(std::time::Duration::from_secs_f64(seconds));
                 }
@@ -1267,6 +1642,7 @@ impl VM {
             OpCode::ArrayStore(name, num_indices) => {
                 // Stack order: indices..., value (value on top)
                 let value = self.runtime.pop()?;
+                let value = self.normalize_array_value_for_name(&name, value);
 
                 // Pop indices from stack
                 let mut indices = Vec::with_capacity(num_indices);
@@ -1329,13 +1705,13 @@ impl VM {
             OpCode::DefineFunction {
                 name,
                 params,
+                result,
                 body_start,
                 body_end,
             } => {
-                let body = self.bytecode[body_start..body_end].to_vec();
                 self.runtime
                     .functions
-                    .insert(name.clone(), (params.clone(), body));
+                    .insert(name.clone(), (params.clone(), result, body_start, body_end));
                 // Skip to end of function definition
                 self.runtime.instruction_pointer = body_end;
             }
@@ -1346,10 +1722,9 @@ impl VM {
                 body_start,
                 body_end,
             } => {
-                let body = self.bytecode[body_start..body_end].to_vec();
                 self.runtime
                     .subs
-                    .insert(name.clone(), (params.clone(), body));
+                    .insert(name.clone(), (params.clone(), body_start, body_end));
                 // Skip to end of sub definition
                 self.runtime.instruction_pointer = body_end;
             }
@@ -1399,55 +1774,104 @@ impl VM {
                 }
             }
 
-            OpCode::CallFunction(name) => {
-                if let Some((params, body)) = self.runtime.functions.get(&name.clone()).cloned() {
-                    // Save current state
-                    self.runtime
-                        .call_stack
-                        .push(self.runtime.instruction_pointer);
-
-                    // Pop arguments and bind to parameters
-                    let mut args = Vec::new();
+            OpCode::CallFunction { name, by_ref } => {
+                if let Some((params, result_slot, body_start, _body_end)) =
+                    self.runtime.functions.get(&name.clone()).cloned()
+                {
+                    let mut args = Vec::with_capacity(params.len());
                     for _ in 0..params.len() {
                         args.push(self.runtime.pop()?);
                     }
                     args.reverse();
 
-                    for (param, arg) in params.iter().zip(args.iter()) {
-                        self.runtime.variables.insert(param.clone(), arg.clone());
+                    let mut saved_slots = Vec::new();
+                    let mut copy_backs = Vec::new();
+
+                    for ((param_idx, arg), caller_target) in
+                        params.iter().zip(args.into_iter()).zip(by_ref.iter())
+                    {
+                        while self.runtime.globals.len() <= *param_idx {
+                            self.runtime.globals.push(QType::Empty);
+                        }
+                        match caller_target {
+                            ByRefTarget::Global(caller_idx) if *caller_idx == *param_idx => {}
+                            ByRefTarget::Global(_)
+                            | ByRefTarget::ArrayElement { .. }
+                            | ByRefTarget::None => {
+                                saved_slots
+                                    .push((*param_idx, self.runtime.globals[*param_idx].clone()));
+                            }
+                        }
+                        if !matches!(caller_target, ByRefTarget::None) {
+                            copy_backs.push((caller_target.clone(), *param_idx));
+                        }
+                        self.runtime.globals[*param_idx] =
+                            self.normalize_global_value_for_slot(*param_idx, arg);
                     }
 
-                    // Execute function body
-                    for opcode in body {
-                        self.execute_opcode(opcode)?;
+                    while self.runtime.globals.len() <= result_slot {
+                        self.runtime.globals.push(QType::Empty);
                     }
+                    saved_slots.push((result_slot, self.runtime.globals[result_slot].clone()));
+
+                    self.runtime.procedure_frames.push(ProcedureFrame {
+                        saved_slots,
+                        copy_backs,
+                    });
+                    self.runtime
+                        .call_stack
+                        .push(self.runtime.instruction_pointer);
+
+                    self.runtime.instruction_pointer = body_start;
                 } else {
                     return Err(QError::InvalidProcedure(name.clone()));
                 }
             }
 
-            OpCode::CallSub(name) => {
-                if let Some((params, body)) = self.runtime.subs.get(&name.clone()).cloned() {
-                    // Save current state
-                    self.runtime
-                        .call_stack
-                        .push(self.runtime.instruction_pointer);
-
-                    // Pop arguments and bind to parameters
-                    let mut args = Vec::new();
+            OpCode::CallSub { name, by_ref } => {
+                if let Some((params, body_start, _body_end)) =
+                    self.runtime.subs.get(&name.clone()).cloned()
+                {
+                    let mut args = Vec::with_capacity(params.len());
                     for _ in 0..params.len() {
                         args.push(self.runtime.pop()?);
                     }
                     args.reverse();
 
-                    for (param, arg) in params.iter().zip(args.iter()) {
-                        self.runtime.variables.insert(param.clone(), arg.clone());
+                    let mut saved_slots = Vec::new();
+                    let mut copy_backs = Vec::new();
+
+                    for ((param_idx, arg), caller_target) in
+                        params.iter().zip(args.into_iter()).zip(by_ref.iter())
+                    {
+                        while self.runtime.globals.len() <= *param_idx {
+                            self.runtime.globals.push(QType::Empty);
+                        }
+                        match caller_target {
+                            ByRefTarget::Global(caller_idx) if *caller_idx == *param_idx => {}
+                            ByRefTarget::Global(_)
+                            | ByRefTarget::ArrayElement { .. }
+                            | ByRefTarget::None => {
+                                saved_slots
+                                    .push((*param_idx, self.runtime.globals[*param_idx].clone()));
+                            }
+                        }
+                        if !matches!(caller_target, ByRefTarget::None) {
+                            copy_backs.push((caller_target.clone(), *param_idx));
+                        }
+                        self.runtime.globals[*param_idx] =
+                            self.normalize_global_value_for_slot(*param_idx, arg);
                     }
 
-                    // Execute sub body
-                    for opcode in body {
-                        self.execute_opcode(opcode)?;
-                    }
+                    self.runtime.procedure_frames.push(ProcedureFrame {
+                        saved_slots,
+                        copy_backs,
+                    });
+                    self.runtime
+                        .call_stack
+                        .push(self.runtime.instruction_pointer);
+
+                    self.runtime.instruction_pointer = body_start;
                 } else {
                     return Err(QError::InvalidProcedure(name.clone()));
                 }
@@ -1458,6 +1882,17 @@ impl VM {
             }
 
             OpCode::FunctionReturn | OpCode::SubReturn => {
+                if let Some(frame) = self.runtime.procedure_frames.pop() {
+                    for (target, param_idx) in frame.copy_backs {
+                        self.apply_by_ref_copy_back(target, param_idx);
+                    }
+                    for (slot_idx, value) in frame.saved_slots {
+                        while self.runtime.globals.len() <= slot_idx {
+                            self.runtime.globals.push(QType::Empty);
+                        }
+                        self.runtime.globals[slot_idx] = value;
+                    }
+                }
                 if let Some(addr) = self.runtime.call_stack.pop() {
                     self.runtime.instruction_pointer = addr;
                 } else {
@@ -1476,6 +1911,25 @@ impl VM {
                     .push(QType::Single(seconds_since_midnight as f32));
             }
 
+            OpCode::OnTimer {
+                interval_secs,
+                handler,
+            } => {
+                self.runtime.timer_handler_address = Some(handler);
+                self.runtime.timer_interval_secs = interval_secs.max(0.001);
+                self.runtime.next_timer_tick = None;
+            }
+
+            OpCode::TimerOn => {
+                self.runtime.timer_enabled = true;
+                self.runtime.next_timer_tick = None;
+            }
+
+            OpCode::TimerOff | OpCode::TimerStop => {
+                self.runtime.timer_enabled = false;
+                self.runtime.next_timer_tick = None;
+            }
+
             OpCode::Date => {
                 use chrono::Local;
                 let now = Local::now();
@@ -1490,15 +1944,28 @@ impl VM {
                 self.runtime.push(QType::String(time_str));
             }
 
+            OpCode::Clear => {
+                self.runtime.variables.clear();
+                self.runtime.arrays.clear();
+                self.runtime.array_dimensions.clear();
+                for value in &mut self.runtime.globals {
+                    *value = QType::Integer(0);
+                }
+            }
+
             OpCode::Cls => {
                 // Clear screen (simplified)
                 print!("\x1B[2J\x1B[1;1H");
                 io::stdout().flush().ok();
+                self.runtime.cursor_row = 1;
+                self.runtime.cursor_col = 1;
             }
 
             OpCode::Locate(row, col) => {
                 print!("\x1B[{};{}H", row, col);
                 io::stdout().flush().ok();
+                self.runtime.cursor_row = row as i16;
+                self.runtime.cursor_col = col as i16;
             }
 
             OpCode::Color(fg, _bg) => {
@@ -1568,14 +2035,15 @@ impl VM {
             }
 
             OpCode::ViewPrint { top, bottom } => {
-                println!("[VIEW PRINT {} TO {}]", top, bottom);
+                self.runtime.view_print_top = Some(top as i16);
+                self.runtime.view_print_bottom = Some(bottom as i16);
             }
 
             OpCode::ViewReset => {
+                self.runtime.view_print_top = None;
+                self.runtime.view_print_bottom = None;
                 if let Some(ref mut gfx) = self.graphics {
                     gfx.view_reset();
-                } else {
-                    println!("[VIEW RESET]");
                 }
             }
 
@@ -1712,6 +2180,18 @@ impl VM {
                 self.runtime.push(QType::String(line));
             }
 
+            OpCode::InputFileDynamic(value_count) => {
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+                let line = self.file_io.read_line_by_num(file_num)?;
+                let mut fields = split_input_fields(&line);
+                while fields.len() < value_count {
+                    fields.push(String::new());
+                }
+                for value in fields.into_iter().take(value_count).rev() {
+                    self.runtime.push(QType::String(value));
+                }
+            }
+
             OpCode::Eof(file_num) => {
                 let eof = self.file_io.is_eof_by_num(file_num.parse().unwrap_or(0));
                 self.runtime.push(QType::Integer(if eof { -1 } else { 0 }));
@@ -1758,12 +2238,65 @@ impl VM {
                 }
             }
 
-            // Get/Put for random access files (placeholder)
             OpCode::Get => {
-                // Random file GET operation
+                let record_num = self.runtime.pop()?.to_f64().max(1.0) as u64;
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+
+                if let Some(fields) = self.runtime.random_fields.get(&file_num).cloned() {
+                    let record_len: usize = fields.iter().map(|(width, _)| *width).sum();
+                    let mut buffer = vec![0u8; record_len];
+                    self.file_io.get(file_num as u8, record_num, &mut buffer)?;
+
+                    let mut offset = 0usize;
+                    for (width, var_index) in fields {
+                        let end = offset + width;
+                        let slice = &buffer[offset..end];
+                        let text = String::from_utf8_lossy(slice).to_string();
+                        if var_index < self.runtime.globals.len() {
+                            self.runtime.globals[var_index] = QType::String(text);
+                        }
+                        offset = end;
+                    }
+                }
+                self.runtime.push(QType::Empty);
             }
             OpCode::Put => {
-                // Random file PUT operation
+                let value = self.runtime.pop()?;
+                let record_num = self.runtime.pop()?.to_f64().max(1.0) as u64;
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+
+                if matches!(value, QType::Empty) {
+                    if let Some(fields) = self.runtime.random_fields.get(&file_num).cloned() {
+                        let mut buffer = Vec::new();
+                        for (width, var_index) in fields {
+                            let field_value = self
+                                .runtime
+                                .globals
+                                .get(var_index)
+                                .cloned()
+                                .unwrap_or(QType::String(String::new()));
+                            let mut text = match field_value {
+                                QType::String(s) => s,
+                                other => format!("{}", other),
+                            };
+                            if text.len() > width {
+                                text.truncate(width);
+                            } else if text.len() < width {
+                                text.push_str(&" ".repeat(width - text.len()));
+                            }
+                            buffer.extend_from_slice(text.as_bytes());
+                        }
+                        self.file_io.put(file_num as u8, record_num, &buffer)?;
+                    }
+                } else {
+                    let bytes = match value {
+                        QType::String(s) => s.into_bytes(),
+                        other => format!("{}", other).into_bytes(),
+                    };
+                    self.file_io
+                        .seek(file_num as u8, record_num.saturating_sub(1))?;
+                    self.file_io.write_bytes(file_num as u8, &bytes)?;
+                }
             }
 
             // WriteFile for formatted output
@@ -1772,6 +2305,25 @@ impl VM {
                 let content = format!("\"{}\"", value);
                 self.file_io
                     .write_line_by_num(file_num.parse().unwrap_or(0), &content)?;
+            }
+
+            OpCode::WriteFileDynamic(value_count) => {
+                let mut values = Vec::with_capacity(value_count);
+                for _ in 0..value_count {
+                    values.push(self.runtime.pop()?);
+                }
+                values.reverse();
+
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+                let content = values
+                    .into_iter()
+                    .map(|value| match value {
+                        QType::String(s) => format!("\"{}\"", s),
+                        other => format!("{}", other),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                self.file_io.write_line_by_num(file_num, &content)?;
             }
 
             // New advanced functions
@@ -1890,13 +2442,11 @@ impl VM {
             }
 
             OpCode::CsrLinFunc => {
-                // Return current cursor line (placeholder - return 1)
-                self.runtime.push(QType::Integer(1));
+                self.runtime.push(QType::Integer(self.runtime.cursor_row));
             }
 
             OpCode::PosFunc(_arg) => {
-                // Return current cursor position (placeholder - return 1)
-                self.runtime.push(QType::Integer(1));
+                self.runtime.push(QType::Integer(self.runtime.cursor_col));
             }
 
             OpCode::EnvironFunc => {
@@ -1911,43 +2461,143 @@ impl VM {
             }
 
             OpCode::CommandFunc => {
-                // Return command line arguments (placeholder - return empty)
-                self.runtime.push(QType::String(String::new()));
+                let args = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
+                self.runtime.push(QType::String(args));
             }
 
             OpCode::InKeyFunc => {
-                // Get key press without waiting (placeholder - return empty)
-                // In a real implementation, this would check for keyboard input
-                self.runtime.push(QType::String(String::new()));
+                self.runtime.push(QType::String(qb_inkey_nonblocking()));
             }
 
-            // Memory/Hardware functions (placeholders)
-            OpCode::PeekFunc(_addr) => {
-                // Read memory byte (placeholder - return 0)
-                self.runtime.push(QType::Integer(0));
+            // Memory/Hardware functions
+            OpCode::PeekFunc(addr) => {
+                let offset = addr.clamp(0, u16::MAX as i32) as u16;
+                let value = self.memory.peek(self.runtime.current_segment, offset);
+                self.runtime.push(QType::Integer(value as i16));
             }
 
-            OpCode::PokeFunc(_addr, _value) => {
-                // Write memory byte (placeholder - no-op)
+            OpCode::PeekDynamic => {
+                let addr = self.runtime.pop()?.to_f64().floor() as i32;
+                let offset = addr.clamp(0, u16::MAX as i32) as u16;
+                let value = self.memory.peek(self.runtime.current_segment, offset);
+                self.runtime.push(QType::Integer(value as i16));
             }
 
-            OpCode::DefSeg(_seg) => {
-                // Set memory segment (placeholder - no-op)
+            OpCode::PokeFunc(addr, value) => {
+                let offset = addr.clamp(0, u16::MAX as i32) as u16;
+                let byte = value.clamp(0, u8::MAX as i32) as u8;
+                self.memory.poke(self.runtime.current_segment, offset, byte);
             }
 
-            OpCode::VarPtrFunc(_var) => {
-                // Return variable pointer (placeholder)
-                self.runtime.push(QType::Long(0));
+            OpCode::PokeDynamic => {
+                let value = self.runtime.pop()?.to_f64().floor() as i32;
+                let addr = self.runtime.pop()?.to_f64().floor() as i32;
+                let offset = addr.clamp(0, u16::MAX as i32) as u16;
+                let byte = value.clamp(0, u8::MAX as i32) as u8;
+                self.memory.poke(self.runtime.current_segment, offset, byte);
             }
 
-            OpCode::VarSegFunc(_var) => {
-                // Return variable segment (placeholder)
-                self.runtime.push(QType::Integer(0));
+            OpCode::WaitDynamic { has_xor } => {
+                let xor_mask = if has_xor {
+                    self.runtime.pop()?.to_f64().floor() as i32
+                } else {
+                    0
+                };
+                let and_mask = self.runtime.pop()?.to_f64().floor() as i32;
+                let addr = self.runtime.pop()?.to_f64().floor() as i32;
+                let offset = addr.clamp(0, u16::MAX as i32) as u16;
+                let and_mask = and_mask.clamp(0, u8::MAX as i32) as u8;
+                let xor_mask = xor_mask.clamp(0, u8::MAX as i32) as u8;
+
+                loop {
+                    let value = self.memory.peek(self.runtime.current_segment, offset);
+                    if ((value ^ xor_mask) & and_mask) != 0 {
+                        break;
+                    }
+                    std::thread::yield_now();
+                }
             }
 
-            OpCode::SaddFunc(_var) => {
-                // Return string address (placeholder)
-                self.runtime.push(QType::Long(0));
+            OpCode::BLoadDynamic { has_offset } => {
+                let offset = if has_offset {
+                    self.runtime.pop()?.to_f64().floor() as i32
+                } else {
+                    0
+                };
+                let filename = self.runtime.pop()?;
+                let path = match filename {
+                    QType::String(s) => s,
+                    other => format!("{}", other),
+                };
+                let data = std::fs::read(&path)
+                    .map_err(|e| QError::FileNotFound(format!("BLOAD error: {}", e)))?;
+                let base = offset.clamp(0, u16::MAX as i32) as u16;
+                for (i, byte) in data.iter().enumerate() {
+                    let addr = base.saturating_add(i.min(u16::MAX as usize) as u16);
+                    self.memory.poke(self.runtime.current_segment, addr, *byte);
+                }
+            }
+
+            OpCode::BSaveDynamic => {
+                let length = self.runtime.pop()?.to_f64().floor() as i32;
+                let offset = self.runtime.pop()?.to_f64().floor() as i32;
+                let filename = self.runtime.pop()?;
+                let path = match filename {
+                    QType::String(s) => s,
+                    other => format!("{}", other),
+                };
+                let offset = offset.clamp(0, u16::MAX as i32) as u16;
+                let length = length.max(0) as usize;
+                let mut data = Vec::with_capacity(length);
+                for i in 0..length {
+                    let addr = offset.saturating_add(i.min(u16::MAX as usize) as u16);
+                    data.push(self.memory.peek(self.runtime.current_segment, addr));
+                }
+                std::fs::write(&path, data)
+                    .map_err(|e| QError::Internal(format!("BSAVE error: {}", e)))?;
+            }
+
+            OpCode::InpDynamic => {
+                let port = self.runtime.pop()?.to_f64().floor() as i32;
+                let port = port.clamp(0, u16::MAX as i32) as u16;
+                let value = self.runtime.pseudo_ports.get(&port).copied().unwrap_or(0);
+                self.runtime.push(QType::Integer(value as i16));
+            }
+
+            OpCode::OutDynamic => {
+                let value = self.runtime.pop()?.to_f64().floor() as i32;
+                let port = self.runtime.pop()?.to_f64().floor() as i32;
+                let port = port.clamp(0, u16::MAX as i32) as u16;
+                let value = value.clamp(0, u8::MAX as i32) as u8;
+                self.runtime.pseudo_ports.insert(port, value);
+            }
+
+            OpCode::DefSeg(seg) => {
+                self.runtime.current_segment = seg.clamp(0, u16::MAX as i32) as u16;
+            }
+
+            OpCode::VarPtrFunc(var) => {
+                let (_segment, offset, _bytes) = self.ensure_pseudo_var_storage(&var);
+                self.runtime.push(QType::Long(offset as i32));
+            }
+
+            OpCode::VarSegFunc(var) => {
+                let (segment, _offset, _bytes) = self.ensure_pseudo_var_storage(&var);
+                self.runtime.push(QType::Integer(segment as i16));
+            }
+
+            OpCode::SaddFunc(var) => {
+                let (segment, offset, _bytes) = self.ensure_pseudo_var_storage(&var);
+                let address = DosMemory::absolute_address(segment, offset) as i32;
+                self.runtime.push(QType::Long(address));
+            }
+
+            OpCode::VarPtrStrFunc(var) => {
+                let (segment, offset, _bytes) = self.ensure_pseudo_var_storage(&var);
+                let address = DosMemory::absolute_address(segment, offset) as u32;
+                let bytes = address.to_le_bytes();
+                let text = bytes.iter().map(|byte| *byte as char).collect::<String>();
+                self.runtime.push(QType::String(text));
             }
 
             // Graphics functions
@@ -1972,19 +2622,52 @@ impl VM {
             }
 
             // Advanced file I/O
-            OpCode::FieldStmt {
-                file_num: _,
-                fields: _,
-            } => {
-                // FIELD statement for RANDOM files (placeholder)
+            OpCode::FieldStmt { file_num, fields } => {
+                self.runtime.random_fields.insert(
+                    file_num,
+                    fields
+                        .into_iter()
+                        .map(|(width, var_index)| (width.max(0) as usize, var_index))
+                        .collect(),
+                );
             }
 
-            OpCode::LSetStmt(_field, _value) => {
-                // Left-justify in field (placeholder)
+            OpCode::LSetField { var_index, width } => {
+                let value = self.runtime.pop()?;
+                let mut text = match value {
+                    QType::String(s) => s,
+                    other => format!("{}", other),
+                };
+                if text.len() > width {
+                    text.truncate(width);
+                } else if text.len() < width {
+                    text.push_str(&" ".repeat(width - text.len()));
+                }
+                if var_index < self.runtime.globals.len() {
+                    self.runtime.globals[var_index] = QType::String(text);
+                }
             }
 
-            OpCode::RSetStmt(_field, _value) => {
-                // Right-justify in field (placeholder)
+            OpCode::RSetField { var_index, width } => {
+                let value = self.runtime.pop()?;
+                let text = match value {
+                    QType::String(s) => s,
+                    other => format!("{}", other),
+                };
+                let padded = if text.len() >= width {
+                    text.chars()
+                        .rev()
+                        .take(width)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect::<String>()
+                } else {
+                    format!("{}{}", " ".repeat(width - text.len()), text)
+                };
+                if var_index < self.runtime.globals.len() {
+                    self.runtime.globals[var_index] = QType::String(padded);
+                }
             }
 
             // Graphics GET/PUT
@@ -2106,8 +2789,8 @@ impl VM {
                 };
 
                 if cmd_str.is_empty() {
-                    // Empty SHELL opens a shell (not implemented for safety)
-                    println!("[SHELL: Interactive shell not supported]");
+                    // Empty SHELL is treated as a quiet no-op in VM mode to avoid
+                    // launching an interactive shell or leaking compatibility markers.
                 } else {
                     // Execute command
                     use std::process::Command;
@@ -2165,6 +2848,63 @@ impl VM {
                     }
                     Err(e) => {
                         return Err(QError::FileNotFound(format!("CHAIN error: {}", e)));
+                    }
+                }
+            }
+
+            OpCode::KillFile => {
+                let filename = self.runtime.pop()?;
+                if let QType::String(path) = filename {
+                    std::fs::remove_file(path).map_err(|e| QError::FileIO(e.to_string()))?;
+                }
+            }
+
+            OpCode::RenameFile => {
+                let new_name = self.runtime.pop()?;
+                let old_name = self.runtime.pop()?;
+                if let (QType::String(old_name), QType::String(new_name)) = (old_name, new_name) {
+                    std::fs::rename(old_name, new_name)
+                        .map_err(|e| QError::FileIO(e.to_string()))?;
+                }
+            }
+
+            OpCode::ChangeDir => {
+                let path = self.runtime.pop()?;
+                if let QType::String(path) = path {
+                    std::env::set_current_dir(path).map_err(|e| QError::FileIO(e.to_string()))?;
+                }
+            }
+
+            OpCode::MakeDir => {
+                let path = self.runtime.pop()?;
+                if let QType::String(path) = path {
+                    std::fs::create_dir_all(path).map_err(|e| QError::FileIO(e.to_string()))?;
+                }
+            }
+
+            OpCode::RemoveDir => {
+                let path = self.runtime.pop()?;
+                if let QType::String(path) = path {
+                    std::fs::remove_dir(path).map_err(|e| QError::FileIO(e.to_string()))?;
+                }
+            }
+
+            OpCode::Files => {
+                let pattern = self.runtime.pop()?;
+                let pattern = match pattern {
+                    QType::String(s) if !s.is_empty() => Some(s),
+                    _ => None,
+                };
+                let entries = std::fs::read_dir(".").map_err(|e| QError::FileIO(e.to_string()))?;
+                for entry in entries {
+                    let entry = entry.map_err(|e| QError::FileIO(e.to_string()))?;
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let matched = match pattern.as_deref() {
+                        None | Some("*") => true,
+                        Some(pat) => wildcard_matches(pat, &name),
+                    };
+                    if matched {
+                        println!("{}", name);
                     }
                 }
             }
@@ -2339,6 +3079,45 @@ impl VM {
 
         Ok(result)
     }
+}
+
+fn wildcard_matches(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.to_ascii_uppercase();
+    let text = text.to_ascii_uppercase();
+
+    if pattern == "*" {
+        return true;
+    }
+
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return pattern == text;
+    }
+
+    let mut remaining = text.as_str();
+    let mut anchored_start = !pattern.starts_with('*');
+
+    for part in parts.iter().filter(|part| !part.is_empty()) {
+        if anchored_start {
+            if !remaining.starts_with(part) {
+                return false;
+            }
+            remaining = &remaining[part.len()..];
+            anchored_start = false;
+            continue;
+        }
+
+        if let Some(idx) = remaining.find(part) {
+            remaining = &remaining[idx + part.len()..];
+        } else {
+            return false;
+        }
+    }
+
+    pattern.ends_with('*')
+        || parts
+            .last()
+            .is_none_or(|part| part.is_empty() || text.ends_with(part))
 }
 
 impl Default for VM {

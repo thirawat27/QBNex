@@ -1,5 +1,6 @@
 use crate::ast_nodes::*;
 use core_types::{QError, QResult, QType};
+use std::collections::HashSet;
 use tokenizer::scanner::Scanner;
 use tokenizer::tokens::{Keyword, Token};
 
@@ -8,6 +9,7 @@ pub struct Parser {
     current: usize,
     #[allow(dead_code)]
     def_types: DefTypeMap,
+    known_functions: HashSet<String>,
 }
 
 impl Parser {
@@ -18,6 +20,7 @@ impl Parser {
             tokens,
             current: 0,
             def_types: DefTypeMap::new(),
+            known_functions: HashSet::new(),
         })
     }
 
@@ -107,6 +110,66 @@ impl Parser {
         while self.match_token(&[Token::Newline, Token::Colon]) {}
     }
 
+    fn parse_declared_type_annotation(
+        &mut self,
+    ) -> QResult<(Option<char>, Option<String>, Option<usize>)> {
+        if !self.match_keyword(Keyword::As) {
+            return Ok((None, None, None));
+        }
+
+        let Some(token) = self.advance() else {
+            return Err(QError::Syntax("Expected type name after AS".to_string()));
+        };
+
+        let type_name = match token {
+            Token::Identifier(type_name) => type_name.clone(),
+            Token::Keyword(Keyword::String) => "STRING".to_string(),
+            Token::Keyword(kw) => format!("{:?}", kw).to_uppercase(),
+            _ => return Err(QError::Syntax("Expected type name after AS".to_string())),
+        };
+
+        let type_upper = type_name.to_uppercase();
+        let mut fixed_length = None;
+        if type_upper == "STRING" && self.match_token(&[Token::Multiply]) {
+            let length_expr = self.parse_expression()?;
+            fixed_length = match length_expr {
+                Expression::Literal(core_types::QType::Integer(len)) if len >= 0 => {
+                    Some(len as usize)
+                }
+                Expression::Literal(core_types::QType::Long(len)) if len >= 0 => Some(len as usize),
+                Expression::Literal(core_types::QType::Single(len)) if len >= 0.0 => {
+                    Some(len as usize)
+                }
+                Expression::Literal(core_types::QType::Double(len)) if len >= 0.0 => {
+                    Some(len as usize)
+                }
+                _ => {
+                    return Err(QError::Syntax(
+                        "Fixed-length STRING requires a constant length".to_string(),
+                    ))
+                }
+            };
+        }
+        let suffix = match type_upper.as_str() {
+            "INTEGER" => Some('%'),
+            "LONG" => Some('&'),
+            "SINGLE" => Some('!'),
+            "DOUBLE" => Some('#'),
+            "STRING" => Some('$'),
+            _ => None,
+        };
+
+        Ok((
+            suffix,
+            if suffix.is_none() {
+                Some(type_upper)
+            } else {
+                None
+            },
+            fixed_length,
+        ))
+    }
+
     pub fn parse(&mut self) -> QResult<Program> {
         let mut program = Program::new();
         while !self.is_at_end() {
@@ -125,6 +188,7 @@ impl Parser {
             // Handle FUNCTION definition
             if self.check_keyword(Keyword::Function) {
                 let func_def = self.parse_function_definition()?;
+                self.known_functions.insert(func_def.name.to_uppercase());
                 program.functions.insert(func_def.name.clone(), func_def);
                 continue;
             }
@@ -144,6 +208,12 @@ impl Parser {
     }
 
     fn parse_statement(&mut self) -> QResult<Option<Statement>> {
+        if let Some(Token::IntegerLiteral(line)) = self.peek() {
+            let line = *line as u16;
+            self.advance();
+            return Ok(Some(Statement::LineNumber { number: line }));
+        }
+
         // Handle DEFINT, DEFSNG, DEFDBL, DEFSTR, DEFLNG
         if self.match_keyword(Keyword::DefInt) {
             return self.parse_deftype("INTEGER").map(Some);
@@ -406,6 +476,31 @@ impl Parser {
             return self.parse_paint().map(Some);
         }
 
+        // Handle POKE
+        if self.match_keyword(Keyword::Poke) {
+            return self.parse_poke().map(Some);
+        }
+
+        // Handle WAIT
+        if self.match_keyword(Keyword::Wait) {
+            return self.parse_wait().map(Some);
+        }
+
+        // Handle BLOAD
+        if self.match_keyword(Keyword::BLoad) {
+            return self.parse_bload().map(Some);
+        }
+
+        // Handle BSAVE
+        if self.match_keyword(Keyword::BSave) {
+            return self.parse_bsave().map(Some);
+        }
+
+        // Handle OUT
+        if self.match_keyword(Keyword::Out) {
+            return self.parse_out().map(Some);
+        }
+
         // Handle DRAW
         if self.match_keyword(Keyword::Draw) {
             let commands = self.parse_expression()?;
@@ -620,6 +715,9 @@ impl Parser {
         if self.match_keyword(Keyword::Print) {
             return self.parse_print().map(Some);
         }
+        if self.match_keyword(Keyword::LPrint) {
+            return self.parse_print().map(Some);
+        }
         if self.match_keyword(Keyword::Dim) {
             return self.parse_dim().map(Some);
         }
@@ -831,7 +929,7 @@ impl Parser {
         loop {
             if let Some(Token::Identifier(name)) = self.advance() {
                 let name = name.clone();
-                let mut type_suffix = None;
+                let type_suffix;
                 let mut size_expr = None;
 
                 // Parse array dimensions if present: arr(5) or arr(1 TO 5)
@@ -853,25 +951,16 @@ impl Parser {
                     self.consume(Token::CloseParen, "Expected ')' after array dimensions")?;
                 }
 
-                // Parse AS TYPE if present
-                if self.match_keyword(Keyword::As) {
-                    // Parse type name (INTEGER, STRING, etc.)
-                    if let Some(Token::Identifier(type_name)) = self.advance() {
-                        let type_upper = type_name.to_uppercase();
-                        type_suffix = match type_upper.as_str() {
-                            "INTEGER" => Some('%'),
-                            "LONG" => Some('&'),
-                            "SINGLE" => Some('!'),
-                            "DOUBLE" => Some('#'),
-                            "STRING" => Some('$'),
-                            _ => None,
-                        };
-                    }
-                }
+                let declared_type;
+                let fixed_length;
+                (type_suffix, declared_type, fixed_length) =
+                    self.parse_declared_type_annotation()?;
 
                 let var = Variable {
                     name,
                     type_suffix,
+                    declared_type,
+                    fixed_length,
                     indices: Vec::new(),
                 };
                 variables.push((var, size_expr));
@@ -898,7 +987,7 @@ impl Parser {
         loop {
             if let Some(Token::Identifier(name)) = self.advance() {
                 let name = name.clone();
-                let mut type_suffix = None;
+                let type_suffix;
                 let mut size_expr = None;
 
                 // Parse array dimensions if present: arr(5) or arr(1 TO 5)
@@ -916,24 +1005,16 @@ impl Parser {
                     self.consume(Token::CloseParen, "Expected ')' after array dimensions")?;
                 }
 
-                // Parse AS TYPE if present
-                if self.match_keyword(Keyword::As) {
-                    if let Some(Token::Identifier(type_name)) = self.advance() {
-                        let type_upper = type_name.to_uppercase();
-                        type_suffix = match type_upper.as_str() {
-                            "INTEGER" => Some('%'),
-                            "LONG" => Some('&'),
-                            "SINGLE" => Some('!'),
-                            "DOUBLE" => Some('#'),
-                            "STRING" => Some('$'),
-                            _ => None,
-                        };
-                    }
-                }
+                let declared_type;
+                let fixed_length;
+                (type_suffix, declared_type, fixed_length) =
+                    self.parse_declared_type_annotation()?;
 
                 let var = Variable {
                     name,
                     type_suffix,
+                    declared_type,
+                    fixed_length,
                     indices: Vec::new(),
                 };
                 variables.push((var, size_expr));
@@ -963,6 +1044,48 @@ impl Parser {
     }
 
     fn parse_for(&mut self) -> QResult<Statement> {
+        if matches!(self.peek(), Some(Token::Identifier(each)) if each.eq_ignore_ascii_case("EACH"))
+        {
+            self.advance();
+            let name = if let Some(Token::Identifier(n)) = self.advance() {
+                n.clone()
+            } else {
+                return Err(QError::Syntax(
+                    "Expected loop variable after FOR EACH".to_string(),
+                ));
+            };
+            let variable = Variable::new(name);
+            match self.advance() {
+                Some(Token::Identifier(in_kw)) if in_kw.eq_ignore_ascii_case("IN") => {}
+                other => {
+                    return Err(QError::Syntax(format!(
+                        "Expected IN in FOR EACH loop, found {:?}",
+                        other
+                    )))
+                }
+            }
+            let array = self.parse_expression()?;
+
+            self.skip_newlines();
+            let mut body = Vec::new();
+            while !self.check_keyword(Keyword::Next) && !self.is_at_end() {
+                if let Some(stmt) = self.parse_statement()? {
+                    body.push(stmt);
+                }
+                self.skip_newlines();
+            }
+            self.consume_keyword(Keyword::Next, "Expected NEXT")?;
+            if let Some(Token::Identifier(_)) = self.peek() {
+                self.advance();
+            }
+
+            return Ok(Statement::ForEach {
+                variable,
+                array,
+                body,
+            });
+        }
+
         let name = if let Some(Token::Identifier(n)) = self.advance() {
             n.clone()
         } else {
@@ -1496,16 +1619,23 @@ impl Parser {
 
         // Handle chained field access: obj.field1.field2
         while self.match_token(&[Token::Dot]) {
-            if let Some(Token::Identifier(field_name)) = self.peek() {
-                let field = field_name.clone();
-                self.advance();
-                expr = Expression::FieldAccess {
-                    object: Box::new(expr),
-                    field,
-                };
-            } else {
-                return Err(QError::Syntax("Expected field name after '.'".to_string()));
-            }
+            let field = match self.peek() {
+                Some(Token::Identifier(field_name)) => {
+                    let field = field_name.clone();
+                    self.advance();
+                    field
+                }
+                Some(Token::Keyword(kw)) => {
+                    let field = format!("{:?}", kw);
+                    self.advance();
+                    field
+                }
+                _ => return Err(QError::Syntax("Expected field name after '.'".to_string())),
+            };
+            expr = Expression::FieldAccess {
+                object: Box::new(expr),
+                field,
+            };
         }
 
         Ok(expr)
@@ -1556,8 +1686,10 @@ impl Parser {
                     }
                     self.consume(Token::CloseParen, "Expected ')' after arguments")?;
 
-                    // Check if this is a DEF FN function call (starts with "FN")
-                    if name.to_uppercase().starts_with("FN") {
+                    // Treat known user-defined functions and DEF FN names as calls.
+                    if name.to_uppercase().starts_with("FN")
+                        || self.known_functions.contains(&name.to_uppercase())
+                    {
                         Ok(Expression::FunctionCall(FunctionCall {
                             name,
                             args,
@@ -1574,6 +1706,8 @@ impl Parser {
                     Ok(Expression::Variable(Variable {
                         name,
                         type_suffix,
+                        declared_type: None,
+                        fixed_length: None,
                         indices: Vec::new(),
                     }))
                 }
@@ -1725,6 +1859,9 @@ impl Parser {
 
         if let Some(Token::Identifier(name)) = self.advance() {
             let name = name.clone();
+            if is_function {
+                self.known_functions.insert(name.to_uppercase());
+            }
             // Skip parameter parsing for now
             if self.match_token(&[Token::OpenParen]) {
                 while !self.check(&Token::CloseParen) && !self.is_at_end() {
@@ -1948,6 +2085,59 @@ impl Parser {
             coords: (x, y),
             color,
         })
+    }
+
+    fn parse_poke(&mut self) -> QResult<Statement> {
+        let address = self.parse_expression()?;
+        self.consume(Token::Comma, "Expected ',' after POKE address")?;
+        let value = self.parse_expression()?;
+        Ok(Statement::Poke { address, value })
+    }
+
+    fn parse_wait(&mut self) -> QResult<Statement> {
+        let address = self.parse_expression()?;
+        self.consume(Token::Comma, "Expected ',' after WAIT address")?;
+        let and_mask = self.parse_expression()?;
+        let xor_mask = if self.match_token(&[Token::Comma]) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        Ok(Statement::Wait {
+            address,
+            and_mask,
+            xor_mask,
+        })
+    }
+
+    fn parse_bload(&mut self) -> QResult<Statement> {
+        let filename = self.parse_expression()?;
+        let offset = if self.match_token(&[Token::Comma]) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        Ok(Statement::BLoad { filename, offset })
+    }
+
+    fn parse_bsave(&mut self) -> QResult<Statement> {
+        let filename = self.parse_expression()?;
+        self.consume(Token::Comma, "Expected ',' after BSAVE filename")?;
+        let offset = self.parse_expression()?;
+        self.consume(Token::Comma, "Expected ',' after BSAVE offset")?;
+        let length = self.parse_expression()?;
+        Ok(Statement::BSave {
+            filename,
+            offset,
+            length,
+        })
+    }
+
+    fn parse_out(&mut self) -> QResult<Statement> {
+        let port = self.parse_expression()?;
+        self.consume(Token::Comma, "Expected ',' after OUT port")?;
+        let value = self.parse_expression()?;
+        Ok(Statement::Out { port, value })
     }
 
     fn parse_preset(&mut self) -> QResult<Statement> {
@@ -2449,9 +2639,10 @@ impl Parser {
                 && !self.is_at_end()
             {
                 if let Some(token) = self.advance() {
-                    value.push_str(&format!("{}", token));
+                    value.push_str(&Self::data_token_text(token));
                 }
             }
+            let value = value.trim().to_string();
             if !value.is_empty() {
                 values.push(value);
             }
@@ -2461,6 +2652,46 @@ impl Parser {
             }
         }
         Ok(Statement::Data { values })
+    }
+
+    fn data_token_text(token: &Token) -> String {
+        match token {
+            Token::StringLiteral(value) => value.clone(),
+            Token::Identifier(value) => value.clone(),
+            Token::IntegerLiteral(value) => value.to_string(),
+            Token::LongLiteral(value) => value.to_string(),
+            Token::SingleLiteral(value) => value.to_string(),
+            Token::DoubleLiteral(value) => value.to_string(),
+            Token::Plus => "+".to_string(),
+            Token::Minus => "-".to_string(),
+            Token::Multiply => "*".to_string(),
+            Token::Divide => "/".to_string(),
+            Token::IntegerDivide => "\\".to_string(),
+            Token::Modulo => "MOD".to_string(),
+            Token::Power => "^".to_string(),
+            Token::Equal => "=".to_string(),
+            Token::NotEqual => "<>".to_string(),
+            Token::LessThan => "<".to_string(),
+            Token::GreaterThan => ">".to_string(),
+            Token::LessOrEqual => "<=".to_string(),
+            Token::GreaterOrEqual => ">=".to_string(),
+            Token::And => "AND".to_string(),
+            Token::Or => "OR".to_string(),
+            Token::Not => "NOT".to_string(),
+            Token::OpenParen => "(".to_string(),
+            Token::CloseParen => ")".to_string(),
+            Token::Semicolon => ";".to_string(),
+            Token::Dollar => "$".to_string(),
+            Token::Ampersand => "&".to_string(),
+            Token::Percent => "%".to_string(),
+            Token::Exclamation => "!".to_string(),
+            Token::Hash => "#".to_string(),
+            Token::Dot => ".".to_string(),
+            Token::Keyword(keyword) => format!("{:?}", keyword),
+            Token::Comma | Token::Colon | Token::LineContinuation | Token::Newline | Token::Eof => {
+                String::new()
+            }
+        }
     }
 
     fn parse_read(&mut self) -> QResult<Statement> {
@@ -2495,7 +2726,7 @@ impl Parser {
         loop {
             if let Some(Token::Identifier(name)) = self.advance() {
                 let name = name.clone();
-                let mut type_suffix = None;
+                let type_suffix;
                 let mut size_expr = None;
 
                 // Parse array dimensions: arr(5) or arr(1 TO 5)
@@ -2513,23 +2744,16 @@ impl Parser {
                     self.consume(Token::CloseParen, "Expected ')' after array dimensions")?;
                 }
 
-                if self.match_keyword(Keyword::As) {
-                    if let Some(Token::Identifier(type_name)) = self.advance() {
-                        let type_upper = type_name.to_uppercase();
-                        type_suffix = match type_upper.as_str() {
-                            "INTEGER" => Some('%'),
-                            "LONG" => Some('&'),
-                            "SINGLE" => Some('!'),
-                            "DOUBLE" => Some('#'),
-                            "STRING" => Some('$'),
-                            _ => None,
-                        };
-                    }
-                }
+                let declared_type;
+                let fixed_length;
+                (type_suffix, declared_type, fixed_length) =
+                    self.parse_declared_type_annotation()?;
 
                 let var = Variable {
                     name,
                     type_suffix,
+                    declared_type,
+                    fixed_length,
                     indices: Vec::new(),
                 };
                 variables.push((var, size_expr));
@@ -2585,24 +2809,16 @@ impl Parser {
                 loop {
                     if let Some(Token::Identifier(param_name)) = self.advance() {
                         let param_name = param_name.clone();
-                        let mut type_suffix = None;
-                        // Check for AS TYPE
-                        if self.match_keyword(Keyword::As) {
-                            if let Some(Token::Identifier(type_name)) = self.advance() {
-                                let type_upper = type_name.to_uppercase();
-                                type_suffix = match type_upper.as_str() {
-                                    "INTEGER" => Some('%'),
-                                    "LONG" => Some('&'),
-                                    "SINGLE" => Some('!'),
-                                    "DOUBLE" => Some('#'),
-                                    "STRING" => Some('$'),
-                                    _ => None,
-                                };
-                            }
-                        }
+                        let type_suffix;
+                        let declared_type;
+                        let fixed_length;
+                        (type_suffix, declared_type, fixed_length) =
+                            self.parse_declared_type_annotation()?;
                         params.push(Variable {
                             name: param_name,
                             type_suffix,
+                            declared_type,
+                            fixed_length,
                             indices: Vec::new(),
                         });
                     }
@@ -2656,24 +2872,16 @@ impl Parser {
                 loop {
                     if let Some(Token::Identifier(param_name)) = self.advance() {
                         let param_name = param_name.clone();
-                        let mut type_suffix = None;
-                        // Check for AS TYPE
-                        if self.match_keyword(Keyword::As) {
-                            if let Some(Token::Identifier(type_name)) = self.advance() {
-                                let type_upper = type_name.to_uppercase();
-                                type_suffix = match type_upper.as_str() {
-                                    "INTEGER" => Some('%'),
-                                    "LONG" => Some('&'),
-                                    "SINGLE" => Some('!'),
-                                    "DOUBLE" => Some('#'),
-                                    "STRING" => Some('$'),
-                                    _ => None,
-                                };
-                            }
-                        }
+                        let type_suffix;
+                        let declared_type;
+                        let fixed_length;
+                        (type_suffix, declared_type, fixed_length) =
+                            self.parse_declared_type_annotation()?;
                         params.push(Variable {
                             name: param_name,
                             type_suffix,
+                            declared_type,
+                            fixed_length,
                             indices: Vec::new(),
                         });
                     }
@@ -2687,8 +2895,19 @@ impl Parser {
 
         // Parse return type (AS type)
         let mut return_type = QType::Single(0.0); // Default return type
+        let mut return_fixed_length = None;
         if self.match_keyword(Keyword::As) {
-            if let Some(Token::Identifier(type_name)) = self.advance() {
+            if let Some(token) = self.advance() {
+                let type_name = match token {
+                    Token::Identifier(type_name) => type_name.clone(),
+                    Token::Keyword(Keyword::String) => "STRING".to_string(),
+                    Token::Keyword(kw) => format!("{:?}", kw).to_uppercase(),
+                    _ => {
+                        return Err(QError::Syntax(
+                            "Expected return type name after AS".to_string(),
+                        ))
+                    }
+                };
                 let type_upper = type_name.to_uppercase();
                 return_type = match type_upper.as_str() {
                     "INTEGER" => QType::Integer(0),
@@ -2698,6 +2917,28 @@ impl Parser {
                     "STRING" => QType::String(String::new()),
                     _ => QType::Single(0.0),
                 };
+                if type_upper == "STRING" && self.match_token(&[Token::Multiply]) {
+                    let length_expr = self.parse_expression()?;
+                    return_fixed_length = match length_expr {
+                        Expression::Literal(core_types::QType::Integer(len)) if len >= 0 => {
+                            Some(len as usize)
+                        }
+                        Expression::Literal(core_types::QType::Long(len)) if len >= 0 => {
+                            Some(len as usize)
+                        }
+                        Expression::Literal(core_types::QType::Single(len)) if len >= 0.0 => {
+                            Some(len as usize)
+                        }
+                        Expression::Literal(core_types::QType::Double(len)) if len >= 0.0 => {
+                            Some(len as usize)
+                        }
+                        _ => {
+                            return Err(QError::Syntax(
+                                "Fixed-length STRING return requires a constant length".to_string(),
+                            ))
+                        }
+                    };
+                }
             }
         }
 
@@ -2718,9 +2959,10 @@ impl Parser {
 
         Ok(FunctionDef {
             name,
+            return_type,
+            return_fixed_length,
             params,
             body,
-            return_type,
             is_static,
         })
     }
@@ -2766,6 +3008,7 @@ impl Parser {
             // Parse AS type
             self.consume_keyword(Keyword::As, "Expected AS in TYPE field")?;
 
+            let mut fixed_length = None;
             let field_type = if let Some(token) = self.advance() {
                 let type_name = match token {
                     Token::Identifier(name) => name.clone(),
@@ -2783,12 +3026,22 @@ impl Parser {
                     "STRING" => {
                         // Check for fixed-length string: STRING * n
                         if self.match_token(&[Token::Multiply]) {
-                            // Parse and skip the length
-                            let _ = self.parse_expression()?;
+                            let length_expr = self.parse_expression()?;
+                            fixed_length = match length_expr {
+                                Expression::Literal(QType::Integer(v)) => Some(v.max(0) as usize),
+                                Expression::Literal(QType::Long(v)) => Some(v.max(0) as usize),
+                                Expression::Literal(QType::Single(v)) => {
+                                    Some(v.max(0.0).round() as usize)
+                                }
+                                Expression::Literal(QType::Double(v)) => {
+                                    Some(v.max(0.0).round() as usize)
+                                }
+                                _ => None,
+                            }
                         }
                         QType::String(String::new())
                     }
-                    _ => QType::Empty,
+                    _ => QType::UserDefined(type_upper.into_bytes()),
                 }
             } else {
                 return Err(QError::Syntax("Expected type name after AS".to_string()));
@@ -2797,6 +3050,7 @@ impl Parser {
             fields.push(TypeField {
                 name: field_name,
                 field_type,
+                fixed_length,
             });
 
             self.skip_newlines();

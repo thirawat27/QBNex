@@ -173,15 +173,9 @@ impl VGAGraphics {
             queue.push_back((cx, cy + 1));
             queue.push_back((cx, cy - 1));
         }
-
-        println!(
-            "[PAINT({},{}) Filled:{} Color:{} Border:{}]",
-            x, y, filled, paint_color, border_color
-        );
     }
 
     pub fn draw(&mut self, commands: &str) {
         DrawInterpreter::new(commands).run(self);
-        println!("[DRAW {}]", commands);
     }
 }

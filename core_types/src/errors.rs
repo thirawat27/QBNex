@@ -92,6 +92,9 @@ pub enum QError {
     #[error("Out of data")]
     OutOfData,
 
+    #[error("Unsupported feature: {0}")]
+    UnsupportedFeature(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -134,6 +137,7 @@ impl QError {
             QError::AlreadyInUse => 28,
             QError::PermissionDenied => 29,
             QError::OutOfData => 30,
+            QError::UnsupportedFeature(_) => 31,
             QError::Internal(_) => 99,
             QError::Runtime(_) => 255, // User-defined error
         }

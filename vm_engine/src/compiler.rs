@@ -1,8 +1,16 @@
 use crate::builtin_functions::is_builtin_function;
-use crate::opcodes::OpCode;
+use crate::opcodes::{ByRefTarget, OpCode};
 use core_types::{QResult, QType};
 use std::collections::HashMap;
-use syntax_tree::ast_nodes::{BinaryOp, Expression, GotoTarget, Program, Statement, UnaryOp};
+use syntax_tree::ast_nodes::{
+    BinaryOp, ExitType, Expression, GotoTarget, Program, Statement, UnaryOp,
+};
+use syntax_tree::{validate_program, Backend};
+
+struct LoopContext {
+    exit_type: ExitType,
+    exit_jumps: Vec<usize>,
+}
 
 pub struct BytecodeCompiler {
     program: Program,
@@ -12,8 +20,12 @@ pub struct BytecodeCompiler {
     pending_jumps: Vec<(usize, String)>, // (bytecode_index, label_name)
     pending_gosubs: Vec<(usize, String)>, // (bytecode_index, label_name)
     pending_on_errors: Vec<(usize, String)>, // (bytecode_index, label_name) for ON ERROR GOTO
+    pending_on_timers: Vec<(usize, String)>, // (bytecode_index, label_name) for ON TIMER GOSUB
     variable_map: HashMap<String, usize>,
+    field_widths: HashMap<usize, usize>,
     next_var_index: usize,
+    loop_contexts: Vec<LoopContext>,
+    current_function: Option<String>,
 }
 
 impl BytecodeCompiler {
@@ -26,8 +38,12 @@ impl BytecodeCompiler {
             pending_jumps: Vec::with_capacity(32),
             pending_gosubs: Vec::with_capacity(32),
             pending_on_errors: Vec::with_capacity(16),
+            pending_on_timers: Vec::with_capacity(8),
             variable_map: HashMap::with_capacity(64),
+            field_widths: HashMap::with_capacity(16),
             next_var_index: 0,
+            loop_contexts: Vec::with_capacity(16),
+            current_function: None,
         }
     }
 
@@ -42,7 +58,91 @@ impl BytecodeCompiler {
         }
     }
 
+    fn encode_var_ref(&mut self, name: &str) -> String {
+        let slot = self.get_var_index(name);
+        format!("#{}:{}", slot, name)
+    }
+
+    fn normalize_label(name: &str) -> String {
+        name.to_ascii_uppercase()
+    }
+
+    fn normalize_proc_name(name: &str) -> String {
+        name.to_ascii_uppercase()
+    }
+
+    fn has_function(&self, name: &str) -> bool {
+        self.program
+            .functions
+            .keys()
+            .any(|func_name| func_name.eq_ignore_ascii_case(name))
+    }
+
+    fn compile_call_arguments(&mut self, args: &[Expression]) -> QResult<Vec<ByRefTarget>> {
+        let mut by_ref = Vec::with_capacity(args.len());
+        for (arg_index, arg) in args.iter().enumerate() {
+            match arg {
+                Expression::Variable(var) => {
+                    if is_builtin_function(&var.name)
+                        || (self.has_function(&var.name)
+                            && self
+                                .current_function
+                                .as_ref()
+                                .is_none_or(|current| !current.eq_ignore_ascii_case(&var.name)))
+                    {
+                        by_ref.push(ByRefTarget::None);
+                        self.compile_expression(arg)?;
+                    } else {
+                        let var_idx = self.get_var_index(&var.name);
+                        by_ref.push(ByRefTarget::Global(var_idx));
+                        self.compile_expression(arg)?;
+                    }
+                }
+                Expression::ArrayAccess { name, indices, .. } => {
+                    if is_builtin_function(name)
+                        || self.has_function(name)
+                        || name.to_uppercase().starts_with("FN")
+                    {
+                        by_ref.push(ByRefTarget::None);
+                        self.compile_expression(arg)?;
+                    } else {
+                        let mut index_slots = Vec::with_capacity(indices.len());
+                        for (index_pos, index_expr) in indices.iter().enumerate() {
+                            self.compile_expression(index_expr)?;
+                            let temp_name = format!(
+                                "__byref_{}_{}_{}_{}",
+                                name,
+                                self.bytecode.len(),
+                                arg_index,
+                                index_pos
+                            );
+                            let slot = self.get_var_index(&temp_name);
+                            self.bytecode.push(OpCode::StoreFast(slot));
+                            index_slots.push(slot);
+                        }
+                        for slot in &index_slots {
+                            self.bytecode.push(OpCode::LoadFast(*slot));
+                        }
+                        self.bytecode
+                            .push(OpCode::ArrayLoad(name.clone(), indices.len()));
+                        by_ref.push(ByRefTarget::ArrayElement {
+                            name: name.clone(),
+                            index_slots,
+                        });
+                    }
+                }
+                _ => {
+                    by_ref.push(ByRefTarget::None);
+                    self.compile_expression(arg)?;
+                }
+            }
+        }
+        Ok(by_ref)
+    }
+
     pub fn compile(&mut self) -> QResult<Vec<OpCode>> {
+        validate_program(&self.program, Backend::Vm)?;
+
         // Reserve space for InitGlobals instruction
         self.bytecode.push(OpCode::NoOp);
 
@@ -61,6 +161,8 @@ impl BytecodeCompiler {
             self.bytecode.push(OpCode::Data(data_values));
         }
 
+        self.compile_procedure_definitions()?;
+
         let statements = std::mem::take(&mut self.program.statements);
 
         for stmt in statements {
@@ -76,6 +178,112 @@ impl BytecodeCompiler {
         }
 
         Ok(std::mem::take(&mut self.bytecode))
+    }
+
+    fn compile_procedure_definitions(&mut self) -> QResult<()> {
+        let mut function_names: Vec<_> = self.program.functions.keys().cloned().collect();
+        function_names.sort();
+        for name in function_names {
+            let Some(func_def) = self.program.functions.get(&name).cloned() else {
+                continue;
+            };
+            self.compile_function_definition(&func_def)?;
+        }
+
+        let mut sub_names: Vec<_> = self.program.subs.keys().cloned().collect();
+        sub_names.sort();
+        for name in sub_names {
+            let Some(sub_def) = self.program.subs.get(&name).cloned() else {
+                continue;
+            };
+            self.compile_sub_definition(&sub_def)?;
+        }
+
+        Ok(())
+    }
+
+    fn compile_function_definition(
+        &mut self,
+        func_def: &syntax_tree::ast_nodes::FunctionDef,
+    ) -> QResult<()> {
+        let params = func_def
+            .params
+            .iter()
+            .map(|param| self.get_var_index(&param.name))
+            .collect::<Vec<_>>();
+        let function_index = self.get_var_index(&func_def.name);
+        let define_idx = self.bytecode.len();
+        self.bytecode.push(OpCode::NoOp);
+        let body_start = self.bytecode.len();
+        let previous_function = self.current_function.replace(func_def.name.clone());
+        for param in &func_def.params {
+            if (param.type_suffix == Some('$') || param.name.ends_with('$'))
+                && param.fixed_length.is_some()
+            {
+                let slot = self.get_var_index(&param.name);
+                self.bytecode.push(OpCode::SetStringWidth {
+                    slot,
+                    width: param.fixed_length.unwrap(),
+                });
+            }
+        }
+        if func_def.name.ends_with('$') && func_def.return_fixed_length.is_some() {
+            self.bytecode.push(OpCode::SetStringWidth {
+                slot: function_index,
+                width: func_def.return_fixed_length.unwrap(),
+            });
+        }
+        for stmt in &func_def.body {
+            self.compile_statement(stmt)?;
+        }
+        self.bytecode.push(OpCode::LoadFast(function_index));
+        self.bytecode.push(OpCode::FunctionReturn);
+        self.current_function = previous_function;
+        let body_end = self.bytecode.len();
+        self.bytecode[define_idx] = OpCode::DefineFunction {
+            name: Self::normalize_proc_name(&func_def.name),
+            params,
+            result: function_index,
+            body_start,
+            body_end,
+        };
+        Ok(())
+    }
+
+    fn compile_sub_definition(&mut self, sub_def: &syntax_tree::ast_nodes::SubDef) -> QResult<()> {
+        let params = sub_def
+            .params
+            .iter()
+            .map(|param| self.get_var_index(&param.name))
+            .collect::<Vec<_>>();
+        let define_idx = self.bytecode.len();
+        self.bytecode.push(OpCode::NoOp);
+        let body_start = self.bytecode.len();
+        let previous_function = self.current_function.take();
+        for param in &sub_def.params {
+            if (param.type_suffix == Some('$') || param.name.ends_with('$'))
+                && param.fixed_length.is_some()
+            {
+                let slot = self.get_var_index(&param.name);
+                self.bytecode.push(OpCode::SetStringWidth {
+                    slot,
+                    width: param.fixed_length.unwrap(),
+                });
+            }
+        }
+        for stmt in &sub_def.body {
+            self.compile_statement(stmt)?;
+        }
+        self.bytecode.push(OpCode::SubReturn);
+        self.current_function = previous_function;
+        let body_end = self.bytecode.len();
+        self.bytecode[define_idx] = OpCode::DefineSub {
+            name: Self::normalize_proc_name(&sub_def.name),
+            params,
+            body_start,
+            body_end,
+        };
+        Ok(())
     }
 
     fn collect_data_from_stmts(&self, stmts: &[Statement], data: &mut Vec<Vec<QType>>) {
@@ -128,6 +336,52 @@ impl BytecodeCompiler {
             if let Some(&addr) = self.labels.get(label) {
                 if let Some(OpCode::OnError(_)) = self.bytecode.get_mut(*idx) {
                     self.bytecode[*idx] = OpCode::OnError(addr);
+                }
+            }
+        }
+
+        for (idx, label) in &self.pending_on_timers {
+            if let Some(&addr) = self.labels.get(label) {
+                if let Some(OpCode::OnTimer { handler, .. }) = self.bytecode.get_mut(*idx) {
+                    *handler = addr;
+                }
+            }
+        }
+    }
+
+    fn push_loop_context(&mut self, exit_type: ExitType) {
+        self.loop_contexts.push(LoopContext {
+            exit_type,
+            exit_jumps: Vec::new(),
+        });
+    }
+
+    fn register_loop_exit(&mut self, exit_type: ExitType) -> QResult<()> {
+        let jump_idx = self.bytecode.len();
+        self.bytecode.push(OpCode::Jump(0));
+
+        if let Some(context) = self
+            .loop_contexts
+            .iter_mut()
+            .rev()
+            .find(|context| context.exit_type == exit_type)
+        {
+            context.exit_jumps.push(jump_idx);
+            Ok(())
+        } else {
+            Err(core_types::QError::Internal(format!(
+                "EXIT {:?} used outside matching block",
+                exit_type
+            )))
+        }
+    }
+
+    fn patch_loop_exits(&mut self, exit_type: ExitType, end_addr: usize) {
+        if let Some(context) = self.loop_contexts.pop() {
+            debug_assert!(context.exit_type == exit_type);
+            for jump_idx in context.exit_jumps {
+                if let Some(OpCode::Jump(addr)) = self.bytecode.get_mut(jump_idx) {
+                    *addr = end_addr;
                 }
             }
         }
@@ -289,6 +543,62 @@ impl BytecodeCompiler {
                     }
                 }
             }
+            Statement::IfElseBlock {
+                condition,
+                then_branch,
+                else_ifs,
+                else_branch,
+            } => {
+                let mut end_jumps = Vec::new();
+
+                self.compile_expression(condition)?;
+                let mut next_branch_idx = self.bytecode.len();
+                self.bytecode.push(OpCode::JumpIfFalse(0));
+
+                for s in then_branch {
+                    self.compile_statement(s)?;
+                }
+
+                end_jumps.push(self.bytecode.len());
+                self.bytecode.push(OpCode::Jump(0));
+
+                let mut branch_start = self.bytecode.len();
+                if let Some(OpCode::JumpIfFalse(addr)) = self.bytecode.get_mut(next_branch_idx) {
+                    *addr = branch_start;
+                }
+
+                for (else_if_cond, else_if_body) in else_ifs {
+                    self.compile_expression(else_if_cond)?;
+                    next_branch_idx = self.bytecode.len();
+                    self.bytecode.push(OpCode::JumpIfFalse(0));
+
+                    for s in else_if_body {
+                        self.compile_statement(s)?;
+                    }
+
+                    end_jumps.push(self.bytecode.len());
+                    self.bytecode.push(OpCode::Jump(0));
+
+                    branch_start = self.bytecode.len();
+                    if let Some(OpCode::JumpIfFalse(addr)) = self.bytecode.get_mut(next_branch_idx)
+                    {
+                        *addr = branch_start;
+                    }
+                }
+
+                if let Some(branch) = else_branch {
+                    for s in branch {
+                        self.compile_statement(s)?;
+                    }
+                }
+
+                let end_addr = self.bytecode.len();
+                for jump_idx in end_jumps {
+                    if let Some(OpCode::Jump(addr)) = self.bytecode.get_mut(jump_idx) {
+                        *addr = end_addr;
+                    }
+                }
+            }
 
             Statement::ForLoop {
                 variable,
@@ -297,6 +607,8 @@ impl BytecodeCompiler {
                 step,
                 body,
             } => {
+                self.push_loop_context(ExitType::For);
+
                 // Compile step
                 let step_value: f64 = match step {
                     Some(expr) => {
@@ -357,12 +669,58 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::NextFast(var_idx));
 
                 let end_addr = self.bytecode.len();
+                self.patch_loop_exits(ExitType::For, end_addr);
 
                 // Patch ForInit end_label
                 if let Some(OpCode::ForInitFast { end_label, .. }) =
                     self.bytecode.get_mut(for_init_idx)
                 {
                     *end_label = end_addr;
+                }
+            }
+
+            Statement::ForEach {
+                variable,
+                array,
+                body,
+            } => {
+                let Some(array_name) = self.expr_to_var_name(array) else {
+                    return Ok(());
+                };
+
+                let item_var_idx = self.get_var_index(&variable.name);
+                let index_var_idx = self.get_var_index(&format!("__FOREACH_IDX_{}", item_var_idx));
+                let end_var_idx = self.get_var_index(&format!("__FOREACH_END_{}", item_var_idx));
+
+                self.bytecode.push(OpCode::LoadConstant(QType::Integer(0)));
+                self.bytecode.push(OpCode::StoreFast(index_var_idx));
+                self.bytecode.push(OpCode::UBound(array_name.clone(), 0));
+                self.bytecode.push(OpCode::StoreFast(end_var_idx));
+
+                let loop_start = self.bytecode.len();
+                self.bytecode.push(OpCode::LoadFast(index_var_idx));
+                self.bytecode.push(OpCode::LoadFast(end_var_idx));
+                self.bytecode.push(OpCode::GreaterThan);
+                let exit_jump = self.bytecode.len();
+                self.bytecode.push(OpCode::JumpIfTrue(0));
+
+                self.bytecode.push(OpCode::LoadFast(index_var_idx));
+                self.bytecode.push(OpCode::ArrayLoad(array_name, 1));
+                self.bytecode.push(OpCode::StoreFast(item_var_idx));
+
+                for stmt in body {
+                    self.compile_statement(stmt)?;
+                }
+
+                self.bytecode.push(OpCode::LoadFast(index_var_idx));
+                self.bytecode.push(OpCode::LoadConstant(QType::Integer(1)));
+                self.bytecode.push(OpCode::Add);
+                self.bytecode.push(OpCode::StoreFast(index_var_idx));
+                self.bytecode.push(OpCode::Jump(loop_start));
+
+                let loop_end = self.bytecode.len();
+                if let Some(OpCode::JumpIfTrue(target)) = self.bytecode.get_mut(exit_jump) {
+                    *target = loop_end;
                 }
             }
 
@@ -390,6 +748,8 @@ impl BytecodeCompiler {
                 body,
                 pre_condition,
             } => {
+                self.push_loop_context(ExitType::Do);
+
                 let loop_start = self.bytecode.len();
                 let mut jz_idx = None;
 
@@ -417,6 +777,7 @@ impl BytecodeCompiler {
                 }
 
                 let end_idx = self.bytecode.len();
+                self.patch_loop_exits(ExitType::Do, end_idx);
 
                 if let Some(idx) = jz_idx {
                     if let Some(OpCode::JumpIfTrue(target)) = self.bytecode.get_mut(idx) {
@@ -431,12 +792,13 @@ impl BytecodeCompiler {
                         self.line_numbers.get(&n.to_string()).copied().unwrap_or(0)
                     }
                     GotoTarget::Label(name) => {
-                        if let Some(&addr) = self.labels.get(name) {
+                        let normalized = Self::normalize_label(name);
+                        if let Some(&addr) = self.labels.get(&normalized) {
                             addr
                         } else {
                             // Label not yet defined, add to pending
                             let idx = self.bytecode.len();
-                            self.pending_jumps.push((idx, name.clone()));
+                            self.pending_jumps.push((idx, normalized));
                             0 // placeholder
                         }
                     }
@@ -450,12 +812,13 @@ impl BytecodeCompiler {
                         self.line_numbers.get(&n.to_string()).copied().unwrap_or(0)
                     }
                     GotoTarget::Label(name) => {
-                        if let Some(&addr) = self.labels.get(name) {
+                        let normalized = Self::normalize_label(name);
+                        if let Some(&addr) = self.labels.get(&normalized) {
                             addr
                         } else {
                             // Label not yet defined, add to pending
                             let idx = self.bytecode.len();
-                            self.pending_gosubs.push((idx, name.clone()));
+                            self.pending_gosubs.push((idx, normalized));
                             0 // placeholder
                         }
                     }
@@ -468,7 +831,8 @@ impl BytecodeCompiler {
             }
 
             Statement::Label { name } => {
-                self.labels.insert(name.clone(), self.bytecode.len());
+                self.labels
+                    .insert(Self::normalize_label(name), self.bytecode.len());
             }
 
             Statement::LineNumber { number } => {
@@ -652,6 +1016,14 @@ impl BytecodeCompiler {
             Statement::Dim { variables, .. } => {
                 for (var, size) in variables {
                     if let Some(dim_expr) = size {
+                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
+                            && var.fixed_length.is_some()
+                        {
+                            self.bytecode.push(OpCode::SetStringArrayWidth {
+                                name: var.name.clone(),
+                                width: var.fixed_length.unwrap(),
+                            });
+                        }
                         // Array declaration - extract size from expression
                         let upper_bound = if let Expression::Literal(QType::Integer(i)) = dim_expr {
                             (*i as i32).clamp(0, 10000) // Limit to 10k
@@ -667,8 +1039,24 @@ impl BytecodeCompiler {
                         });
                     } else {
                         // Simple variable
-                        self.bytecode.push(OpCode::LoadConstant(QType::Integer(0)));
-                        self.bytecode.push(OpCode::StoreVariable(var.name.clone()));
+                        let var_idx = self.get_var_index(&var.name);
+                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
+                            && var.fixed_length.is_some()
+                        {
+                            self.bytecode.push(OpCode::SetStringWidth {
+                                slot: var_idx,
+                                width: var.fixed_length.unwrap(),
+                            });
+                            self.bytecode.push(OpCode::LoadConstant(QType::String(
+                                String::new(),
+                            )));
+                        } else if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                            self.bytecode
+                                .push(OpCode::LoadConstant(QType::String(String::new())));
+                        } else {
+                            self.bytecode.push(OpCode::LoadConstant(QType::Integer(0)));
+                        }
+                        self.bytecode.push(OpCode::StoreFast(var_idx));
                     }
                 }
             }
@@ -678,6 +1066,14 @@ impl BytecodeCompiler {
                 preserve,
             } => {
                 for (var, _size) in variables {
+                    if (var.type_suffix == Some('$') || var.name.ends_with('$'))
+                        && var.fixed_length.is_some()
+                    {
+                        self.bytecode.push(OpCode::SetStringArrayWidth {
+                            name: var.name.clone(),
+                            width: var.fixed_length.unwrap(),
+                        });
+                    }
                     let dimensions = vec![(0, 10)]; // Default 0 to 10
                     self.bytecode.push(OpCode::ArrayRedim {
                         name: var.name.clone(),
@@ -780,12 +1176,13 @@ impl BytecodeCompiler {
             Statement::OnError { label } => {
                 let addr = match label {
                     Some(name) => {
-                        if let Some(&addr) = self.labels.get(name) {
+                        let normalized = Self::normalize_label(name);
+                        if let Some(&addr) = self.labels.get(&normalized) {
                             addr
                         } else {
                             // Label not yet defined, add to pending list
                             let idx = self.bytecode.len();
-                            self.pending_on_errors.push((idx, name.clone()));
+                            self.pending_on_errors.push((idx, normalized));
                             0 // Placeholder
                         }
                     }
@@ -812,7 +1209,11 @@ impl BytecodeCompiler {
             }
 
             Statement::ResumeLabel { label } => {
-                let addr = self.labels.get(label).copied().unwrap_or(0);
+                let addr = self
+                    .labels
+                    .get(&Self::normalize_label(label))
+                    .copied()
+                    .unwrap_or(0);
                 self.bytecode.push(OpCode::ResumeLabel(addr));
             }
 
@@ -946,6 +1347,31 @@ impl BytecodeCompiler {
                 }
             }
 
+            Statement::Clear => {
+                self.bytecode.push(OpCode::Clear);
+            }
+
+            Statement::Locate { row, col } => {
+                let row = row.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(1);
+                let col = col.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(1);
+                self.bytecode.push(OpCode::Locate(row, col));
+            }
+
+            Statement::Color {
+                foreground,
+                background,
+            } => {
+                let fg = foreground
+                    .as_ref()
+                    .map(|e| self.expr_to_i32(e))
+                    .unwrap_or(7);
+                let bg = background
+                    .as_ref()
+                    .map(|e| self.expr_to_i32(e))
+                    .unwrap_or(0);
+                self.bytecode.push(OpCode::Color(fg, bg));
+            }
+
             Statement::Open {
                 filename,
                 mode,
@@ -1012,6 +1438,18 @@ impl BytecodeCompiler {
                 ));
             }
 
+            Statement::InputFile {
+                file_number,
+                variables,
+            } => {
+                self.compile_expression(file_number)?;
+                self.bytecode
+                    .push(OpCode::InputFileDynamic(variables.len()));
+                for variable in variables {
+                    self.compile_store_target(variable)?;
+                }
+            }
+
             Statement::Write { expressions } => {
                 for expr in expressions {
                     self.compile_expression(expr)?;
@@ -1020,6 +1458,18 @@ impl BytecodeCompiler {
                     self.bytecode.push(OpCode::Print);
                 }
                 self.bytecode.push(OpCode::PrintNewline);
+            }
+
+            Statement::WriteFile {
+                file_number,
+                expressions,
+            } => {
+                self.compile_expression(file_number)?;
+                for expr in expressions {
+                    self.compile_expression(expr)?;
+                }
+                self.bytecode
+                    .push(OpCode::WriteFileDynamic(expressions.len()));
             }
 
             Statement::Get {
@@ -1099,18 +1549,126 @@ impl BytecodeCompiler {
             }
 
             Statement::Call { name, args } => {
-                for arg in args {
-                    self.compile_expression(arg)?;
+                let by_ref = self.compile_call_arguments(args)?;
+                self.bytecode.push(OpCode::CallSub {
+                    name: Self::normalize_proc_name(name),
+                    by_ref,
+                });
+            }
+
+            Statement::OnGotoGosub {
+                expression,
+                targets,
+                is_gosub,
+            } => {
+                self.compile_expression(expression)?;
+                let mut end_jumps = Vec::new();
+
+                for (idx, target) in targets.iter().enumerate() {
+                    self.bytecode.push(OpCode::Dup);
+                    self.bytecode
+                        .push(OpCode::LoadConstant(QType::Integer((idx + 1) as i16)));
+                    self.bytecode.push(OpCode::Equal);
+
+                    let skip_idx = self.bytecode.len();
+                    self.bytecode.push(OpCode::JumpIfFalse(0));
+                    self.bytecode.push(OpCode::Pop);
+
+                    match target {
+                        GotoTarget::LineNumber(line) => {
+                            let addr = self
+                                .line_numbers
+                                .get(&line.to_string())
+                                .copied()
+                                .unwrap_or(0);
+                            self.bytecode.push(if *is_gosub {
+                                OpCode::Gosub(addr)
+                            } else {
+                                OpCode::Jump(addr)
+                            });
+                        }
+                        GotoTarget::Label(name) => {
+                            let normalized = Self::normalize_label(name);
+                            let op_idx = self.bytecode.len();
+                            if *is_gosub {
+                                self.bytecode.push(OpCode::Gosub(0));
+                                self.pending_gosubs.push((op_idx, normalized));
+                            } else {
+                                self.bytecode.push(OpCode::Jump(0));
+                                self.pending_jumps.push((op_idx, normalized));
+                            }
+                        }
+                    }
+
+                    let end_jump = self.bytecode.len();
+                    self.bytecode.push(OpCode::Jump(0));
+                    end_jumps.push(end_jump);
+
+                    let next_check = self.bytecode.len();
+                    if let Some(OpCode::JumpIfFalse(addr)) = self.bytecode.get_mut(skip_idx) {
+                        *addr = next_check;
+                    }
                 }
-                self.bytecode.push(OpCode::CallSub(name.clone()));
+
+                self.bytecode.push(OpCode::Pop);
+                let end_addr = self.bytecode.len();
+                for jump_idx in end_jumps {
+                    if let Some(OpCode::Jump(addr)) = self.bytecode.get_mut(jump_idx) {
+                        *addr = end_addr;
+                    }
+                }
             }
 
             Statement::Declare { .. } => {}
             Statement::OptionBase { .. } => {}
-            Statement::Erase { .. } => {}
-            Statement::Field { .. } => {} // TODO: Implement Field
-            Statement::LSet { .. } => {}  // TODO: Implement LSet
-            Statement::RSet { .. } => {}  // TODO: Implement RSet
+            Statement::Erase { variables } => {
+                for var in variables {
+                    self.bytecode.push(OpCode::Erase(var.name.clone()));
+                }
+            }
+            Statement::Field {
+                file_number,
+                fields,
+            } => {
+                let file_num = self.expr_to_i32(file_number);
+                let mut compiled_fields = Vec::with_capacity(fields.len());
+                for (width_expr, field_expr) in fields {
+                    let width = self.expr_to_i32(width_expr).max(0) as usize;
+                    let Some(field_name) = self.expr_to_var_name(field_expr) else {
+                        continue;
+                    };
+                    let var_index = self.get_var_index(&field_name);
+                    self.field_widths.insert(var_index, width);
+                    compiled_fields.push((width as i32, var_index));
+                }
+                self.bytecode.push(OpCode::FieldStmt {
+                    file_num,
+                    fields: compiled_fields,
+                });
+            }
+            Statement::LSet { target, value } => {
+                if let Some(field_name) = self.expr_to_var_name(target) {
+                    let var_index = self.get_var_index(&field_name);
+                    let width = self.field_widths.get(&var_index).copied().unwrap_or(0);
+                    self.compile_expression(value)?;
+                    self.bytecode.push(OpCode::LSetField { var_index, width });
+                }
+            }
+            Statement::RSet { target, value } => {
+                if let Some(field_name) = self.expr_to_var_name(target) {
+                    let var_index = self.get_var_index(&field_name);
+                    let width = self.field_widths.get(&var_index).copied().unwrap_or(0);
+                    self.compile_expression(value)?;
+                    self.bytecode.push(OpCode::RSetField { var_index, width });
+                }
+            }
+            Statement::Width { .. }
+            | Statement::Key { .. }
+            | Statement::KeyOn
+            | Statement::KeyOff
+            | Statement::KeyList => {
+                self.bytecode.push(OpCode::NoOp);
+            }
 
             Statement::Const { name, value } => {
                 self.compile_expression(value)?;
@@ -1123,6 +1681,141 @@ impl BytecodeCompiler {
                 // DefType is a compile-time directive, no runtime code needed
                 // The type information should be handled by the parser/analyzer
             }
+
+            Statement::DefSeg { segment } => {
+                let seg = segment
+                    .as_deref()
+                    .map(|expr| self.expr_to_i32(expr))
+                    .unwrap_or(0);
+                self.bytecode.push(OpCode::DefSeg(seg));
+            }
+
+            Statement::Poke { address, value } => {
+                self.compile_expression(address)?;
+                self.compile_expression(value)?;
+                self.bytecode.push(OpCode::PokeDynamic);
+            }
+
+            Statement::Wait {
+                address,
+                and_mask,
+                xor_mask,
+            } => {
+                self.compile_expression(address)?;
+                self.compile_expression(and_mask)?;
+                if let Some(xor_mask) = xor_mask {
+                    self.compile_expression(xor_mask)?;
+                }
+                self.bytecode.push(OpCode::WaitDynamic {
+                    has_xor: xor_mask.is_some(),
+                });
+            }
+
+            Statement::BLoad { filename, offset } => {
+                self.compile_expression(filename)?;
+                if let Some(offset) = offset {
+                    self.compile_expression(offset)?;
+                }
+                self.bytecode.push(OpCode::BLoadDynamic {
+                    has_offset: offset.is_some(),
+                });
+            }
+
+            Statement::BSave {
+                filename,
+                offset,
+                length,
+            } => {
+                self.compile_expression(filename)?;
+                self.compile_expression(offset)?;
+                self.compile_expression(length)?;
+                self.bytecode.push(OpCode::BSaveDynamic);
+            }
+
+            Statement::Out { port, value } => {
+                self.compile_expression(port)?;
+                self.compile_expression(value)?;
+                self.bytecode.push(OpCode::OutDynamic);
+            }
+
+            Statement::System => {
+                self.bytecode.push(OpCode::End);
+            }
+
+            Statement::Kill { filename } => {
+                self.compile_expression(filename)?;
+                self.bytecode.push(OpCode::KillFile);
+            }
+
+            Statement::NameFile { old_name, new_name } => {
+                self.compile_expression(old_name)?;
+                self.compile_expression(new_name)?;
+                self.bytecode.push(OpCode::RenameFile);
+            }
+
+            Statement::Files { pattern } => {
+                if let Some(pattern) = pattern {
+                    self.compile_expression(pattern)?;
+                } else {
+                    self.bytecode.push(OpCode::LoadConstant(QType::Empty));
+                }
+                self.bytecode.push(OpCode::Files);
+            }
+
+            Statement::ChDir { path } => {
+                self.compile_expression(path)?;
+                self.bytecode.push(OpCode::ChangeDir);
+            }
+
+            Statement::MkDir { path } => {
+                self.compile_expression(path)?;
+                self.bytecode.push(OpCode::MakeDir);
+            }
+
+            Statement::RmDir { path } => {
+                self.compile_expression(path)?;
+                self.bytecode.push(OpCode::RemoveDir);
+            }
+
+            Statement::OnTimer { interval, label } => {
+                let normalized = Self::normalize_label(label);
+                let handler = self.labels.get(&normalized).copied().unwrap_or(0);
+                let op_idx = self.bytecode.len();
+                self.bytecode.push(OpCode::OnTimer {
+                    interval_secs: self.expr_to_f64(interval),
+                    handler,
+                });
+                if handler == 0 {
+                    self.pending_on_timers.push((op_idx, normalized));
+                }
+            }
+
+            Statement::TimerOn => {
+                self.bytecode.push(OpCode::TimerOn);
+            }
+
+            Statement::TimerOff => {
+                self.bytecode.push(OpCode::TimerOff);
+            }
+
+            Statement::TimerStop => {
+                self.bytecode.push(OpCode::TimerStop);
+            }
+
+            Statement::Exit { exit_type } => match exit_type {
+                ExitType::For => self.register_loop_exit(ExitType::For)?,
+                ExitType::Do => self.register_loop_exit(ExitType::Do)?,
+                ExitType::Function => {
+                    if let Some(current_function) = self.current_function.clone() {
+                        let return_idx = self.get_var_index(&current_function);
+                        self.bytecode.push(OpCode::LoadFast(return_idx));
+                    } else {
+                        self.bytecode.push(OpCode::LoadConstant(QType::Empty));
+                    }
+                    self.bytecode.push(OpCode::FunctionReturn);
+                }
+                ExitType::Sub => self.bytecode.push(OpCode::SubReturn),
+            },
 
             Statement::DefFn { name, params, body } => {
                 // Save current variable mapping
@@ -1168,6 +1861,23 @@ impl BytecodeCompiler {
         }
     }
 
+    fn expr_to_f64(&self, expr: &Expression) -> f64 {
+        match expr {
+            Expression::Literal(QType::Integer(i)) => *i as f64,
+            Expression::Literal(QType::Long(l)) => *l as f64,
+            Expression::Literal(QType::Single(s)) => *s as f64,
+            Expression::Literal(QType::Double(d)) => *d,
+            Expression::UnaryOp { op, operand } => {
+                let value = self.expr_to_f64(operand);
+                match op {
+                    UnaryOp::Negate => -value,
+                    UnaryOp::Not => value,
+                }
+            }
+            _ => 0.0,
+        }
+    }
+
     fn expr_to_var_name(&self, expr: &Expression) -> Option<String> {
         match expr {
             Expression::Variable(var) => Some(var.name.clone()),
@@ -1199,6 +1909,18 @@ impl BytecodeCompiler {
                         type_suffix: var.type_suffix,
                     };
                     self.compile_expression(&Expression::FunctionCall(func))?;
+                } else if self.has_function(&var.name)
+                    && self
+                        .current_function
+                        .as_ref()
+                        .is_none_or(|current| !current.eq_ignore_ascii_case(&var.name))
+                {
+                    let func = syntax_tree::ast_nodes::FunctionCall {
+                        name: var.name.clone(),
+                        args: Vec::new(),
+                        type_suffix: var.type_suffix,
+                    };
+                    self.compile_expression(&Expression::FunctionCall(func))?;
                 } else {
                     let var_idx = self.get_var_index(&var.name);
                     self.bytecode.push(OpCode::LoadFast(var_idx));
@@ -1208,6 +1930,13 @@ impl BytecodeCompiler {
             Expression::ArrayAccess { name, indices, .. } => {
                 if is_builtin_function(name) {
                     // Treat as Function Call if it's a built-in function
+                    let func = syntax_tree::ast_nodes::FunctionCall {
+                        name: name.clone(),
+                        args: indices.clone(),
+                        type_suffix: None,
+                    };
+                    self.compile_expression(&Expression::FunctionCall(func))?;
+                } else if self.has_function(name) {
                     let func = syntax_tree::ast_nodes::FunctionCall {
                         name: name.clone(),
                         args: indices.clone(),
@@ -1242,13 +1971,20 @@ impl BytecodeCompiler {
             Expression::FunctionCall(func) => {
                 // Check if it's a built-in function
                 if is_builtin_function(&func.name) {
-                    // Compile arguments
-                    for arg in &func.args {
-                        self.compile_expression(arg)?;
+                    let upper_name = func.name.to_uppercase();
+                    let name_based_builtin = matches!(
+                        upper_name.as_str(),
+                        "LBOUND" | "UBOUND" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$"
+                    );
+
+                    if !name_based_builtin {
+                        for arg in &func.args {
+                            self.compile_expression(arg)?;
+                        }
                     }
 
                     // Generate appropriate opcode for built-in function
-                    match func.name.to_uppercase().as_str() {
+                    match upper_name.as_str() {
                         "LEFT$" => self.bytecode.push(OpCode::Left),
                         "RIGHT$" => self.bytecode.push(OpCode::Right),
                         "MID$" => self.bytecode.push(OpCode::Mid),
@@ -1303,10 +2039,37 @@ impl BytecodeCompiler {
                         }
                         "CSRLIN" => self.bytecode.push(OpCode::CsrLinFunc),
                         "POS" => self.bytecode.push(OpCode::PosFunc(0)),
+                        "LPOS" => self.bytecode.push(OpCode::PosFunc(0)),
                         "ENVIRON$" => self.bytecode.push(OpCode::EnvironFunc),
                         "COMMAND$" => self.bytecode.push(OpCode::CommandFunc),
                         "INKEY$" => self.bytecode.push(OpCode::InKeyFunc),
                         "FREEFILE" => self.bytecode.push(OpCode::FreeFile),
+                        "PEEK" => self.bytecode.push(OpCode::PeekDynamic),
+                        "INP" => self.bytecode.push(OpCode::InpDynamic),
+                        "VARPTR" => {
+                            if let Some(Expression::Variable(var)) = func.args.first() {
+                                let var_ref = self.encode_var_ref(&var.name);
+                                self.bytecode.push(OpCode::VarPtrFunc(var_ref));
+                            }
+                        }
+                        "VARSEG" => {
+                            if let Some(Expression::Variable(var)) = func.args.first() {
+                                let var_ref = self.encode_var_ref(&var.name);
+                                self.bytecode.push(OpCode::VarSegFunc(var_ref));
+                            }
+                        }
+                        "SADD" => {
+                            if let Some(Expression::Variable(var)) = func.args.first() {
+                                let var_ref = self.encode_var_ref(&var.name);
+                                self.bytecode.push(OpCode::SaddFunc(var_ref));
+                            }
+                        }
+                        "VARPTR$" => {
+                            if let Some(Expression::Variable(var)) = func.args.first() {
+                                let var_ref = self.encode_var_ref(&var.name);
+                                self.bytecode.push(OpCode::VarPtrStrFunc(var_ref));
+                            }
+                        }
                         // Error functions
                         "ERR" => self.bytecode.push(OpCode::Err),
                         "ERL" => self.bytecode.push(OpCode::Erl),
@@ -1331,12 +2094,13 @@ impl BytecodeCompiler {
                     }
                 } else {
                     // User-defined function or unknown
-                    for arg in &func.args {
-                        self.compile_expression(arg)?;
-                    }
+                    let by_ref = self.compile_call_arguments(&func.args)?;
 
-                    if self.program.functions.contains_key(&func.name) {
-                        self.bytecode.push(OpCode::CallFunction(func.name.clone()));
+                    if self.has_function(&func.name) {
+                        self.bytecode.push(OpCode::CallFunction {
+                            name: Self::normalize_proc_name(&func.name),
+                            by_ref,
+                        });
                     } else if func.name.to_uppercase().starts_with("FN") {
                         self.bytecode.push(OpCode::CallDefFn(func.name.clone()));
                     } else {

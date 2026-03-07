@@ -24,9 +24,9 @@ pub fn is_builtin_function(name: &str) -> bool {
         // File I/O
         | "EOF" | "LOF" | "FREEFILE" | "LOC" | "INPUT$"
         // System
-        | "FRE" | "CSRLIN" | "POS" | "ENVIRON$" | "COMMAND$" | "INKEY$"
+        | "FRE" | "CSRLIN" | "POS" | "LPOS" | "ENVIRON$" | "COMMAND$" | "INKEY$"
         // Memory/Hardware
-        | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$"
+        | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP"
         // Graphics
         | "POINT" | "PMAP"
         // Error handling
@@ -41,12 +41,11 @@ pub fn get_builtin_arity(name: &str) -> Option<(usize, usize)> {
         "LEN" | "STR$" | "VAL" | "CHR$" | "ASC" | "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$"
         | "TRIM$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS" | "TAN" | "ATN" | "EXP"
         | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG" | "CSNG" | "CDBL" | "CSTR" | "MKI$"
-        | "MKL$" | "MKS$" | "MKD$" | "CVI" | "CVL" | "CVS" | "CVD" | "TIMER" | "DATE$"
-        | "TIME$" | "RND" | "FRE" | "CSRLIN" | "POS" | "COMMAND$" | "ENVIRON$" | "PEEK"
-        | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" => Some((1, 1)),
+        | "MKL$" | "MKS$" | "MKD$" | "CVI" | "CVL" | "CVS" | "CVD" | "FRE" | "POS" | "ENVIRON$"
+        | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS" => Some((1, 1)),
 
         // Functions with 0 arguments
-        "INKEY$" => Some((0, 0)),
+        "TIMER" | "DATE$" | "TIME$" | "CSRLIN" | "COMMAND$" | "INKEY$" => Some((0, 0)),
 
         // Functions with 2 arguments
         "POINT" | "PMAP" => Some((2, 2)),
@@ -278,6 +277,9 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
                 bytecode.push(OpCode::PeekFunc(*addr as i32));
             }
         }
+        "INP" => {
+            bytecode.push(OpCode::InpDynamic);
+        }
         "VARPTR" => {
             // Variable pointer - return placeholder address
             bytecode.push(OpCode::LoadConstant(QType::Long(0)));
@@ -356,8 +358,8 @@ pub fn get_builtin_return_type(name: &str) -> &'static str {
         | "VARPTR$" | "ERDEV$" => "STRING",
 
         "LEN" | "ASC" | "INSTR" | "SGN" | "INT" | "FIX" | "CINT" | "LBOUND" | "UBOUND" | "EOF"
-        | "FREEFILE" | "LOC" | "CSRLIN" | "POS" | "CVI" | "ERR" | "ERL" | "ERDEV" | "PEEK"
-        | "VARSEG" => "INTEGER",
+        | "FREEFILE" | "LOC" | "CSRLIN" | "POS" | "LPOS" | "CVI" | "ERR" | "ERL" | "ERDEV"
+        | "PEEK" | "VARSEG" | "INP" => "INTEGER",
 
         "ABS" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "CLNG" | "CVL" | "FRE"
         | "LOF" | "VARPTR" => "LONG",

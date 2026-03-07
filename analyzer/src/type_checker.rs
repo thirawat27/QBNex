@@ -62,6 +62,10 @@ impl TypeChecker {
 
     /// Get the default type for a variable based on DEFxxx rules and type suffix
     pub fn get_variable_type(&self, var: &Variable) -> QType {
+        if let Some(declared_type) = &var.declared_type {
+            return QType::UserDefined(declared_type.clone().into_bytes());
+        }
+
         // First check for explicit type suffix
         if let Some(suffix) = var.type_suffix {
             return match suffix {
@@ -235,8 +239,8 @@ impl TypeChecker {
             | "ERDEV$" => QType::String(String::new()),
 
             // Integer functions
-            "CINT" | "INT" | "FIX" | "LEN" | "ASC" | "INSTR" | "CSRLIN" | "POS" | "ERR" | "ERL"
-            | "ERDEV" | "FREEFILE" => QType::Integer(0),
+            "CINT" | "INT" | "FIX" | "LEN" | "ASC" | "INSTR" | "CSRLIN" | "POS" | "LPOS"
+            | "ERR" | "ERL" | "ERDEV" | "FREEFILE" | "INP" => QType::Integer(0),
 
             // Long functions
             "CLNG" | "FRE" | "LOF" | "LOC" | "VARPTR" | "SADD" => QType::Long(0),
