@@ -411,7 +411,9 @@ impl std::fmt::Display for OpCode {
                 step,
             } => write!(f, "FOR_INIT_FAST {} {} STEP {}", var_index, end_label, step),
             OpCode::ForStep { var_name, step } => write!(f, "FOR_STEP {} {}", var_name, step),
-            OpCode::ForStepFast { var_index, step } => write!(f, "FOR_STEP_FAST {} {}", var_index, step),
+            OpCode::ForStepFast { var_index, step } => {
+                write!(f, "FOR_STEP_FAST {} {}", var_index, step)
+            }
             OpCode::Next(name) => write!(f, "NEXT {}", name),
             OpCode::NextFast(idx) => write!(f, "NEXT_FAST {}", idx),
             OpCode::Print => write!(f, "PRINT"),

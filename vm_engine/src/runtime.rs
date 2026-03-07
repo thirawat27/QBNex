@@ -1999,11 +1999,7 @@ impl VM {
                 if let Some(ref gfx) = self.graphics {
                     let image_data = gfx.get_image(x1, y1, x2, y2);
 
-                    let arr = self
-                        .runtime
-                        .arrays
-                        .entry(array.clone())
-                        .or_default();
+                    let arr = self.runtime.arrays.entry(array.clone()).or_default();
                     arr.clear();
 
                     for byte in image_data {
@@ -2074,7 +2070,8 @@ impl VM {
                         }
 
                         let mut chars: Vec<char> = original_str.chars().collect();
-                        let replacement_chars: Vec<char> = replacement_str.chars().take(len).collect();
+                        let replacement_chars: Vec<char> =
+                            replacement_str.chars().take(len).collect();
 
                         // Replace characters
                         for (i, &ch) in replacement_chars.iter().enumerate() {
@@ -2116,14 +2113,10 @@ impl VM {
                     use std::process::Command;
 
                     #[cfg(target_os = "windows")]
-                    let output = Command::new("cmd")
-                        .args(["/C", &cmd_str])
-                        .output();
+                    let output = Command::new("cmd").args(["/C", &cmd_str]).output();
 
                     #[cfg(not(target_os = "windows"))]
-                    let output = Command::new("sh")
-                        .args(&["-c", &cmd_str])
-                        .output();
+                    let output = Command::new("sh").args(&["-c", &cmd_str]).output();
 
                     match output {
                         Ok(output) => {
@@ -2151,18 +2144,15 @@ impl VM {
                 // For now, we'll use std::process::Command to run qb.exe with the new file
                 // In a real implementation, we would reload the program in the same VM
 
-                use std::process::Command;
                 use std::env;
+                use std::process::Command;
 
                 // Get the current executable path
-                let current_exe = env::current_exe()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("qb"));
+                let current_exe =
+                    env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("qb"));
 
                 // Execute the new program
-                let status = Command::new(current_exe)
-                    .arg("-x")
-                    .arg(&file_str)
-                    .status();
+                let status = Command::new(current_exe).arg("-x").arg(&file_str).status();
 
                 match status {
                     Ok(status) => {
@@ -2231,8 +2221,8 @@ impl VM {
                     decimal_pos = i;
                 }
                 ',' => has_comma = true,
-                '$' if i == 0 || (i > 0 && chars[i-1] == '$') => leading_dollar = true,
-                '*' if i == 0 || (i > 0 && chars[i-1] == '*') => leading_asterisk = true,
+                '$' if i == 0 || (i > 0 && chars[i - 1] == '$') => leading_dollar = true,
+                '*' if i == 0 || (i > 0 && chars[i - 1] == '*') => leading_asterisk = true,
                 '-' if i == chars.len() - 1 => trailing_minus = true,
                 '+' if i == chars.len() - 1 => trailing_plus = true,
                 '!' => {
@@ -2258,11 +2248,7 @@ impl VM {
                     if i < chars.len() && chars[i] == '\\' {
                         width += 2; // Include both backslashes
                         if let QType::String(s) = value {
-                            let truncated = if s.len() > width {
-                                &s[..width]
-                            } else {
-                                s
-                            };
+                            let truncated = if s.len() > width { &s[..width] } else { s };
                             return Ok(format!("{:<width$}", truncated, width = width));
                         }
                     }
@@ -2325,7 +2311,13 @@ impl VM {
         };
 
         // Pad with leading characters
-        let total_width = digit_positions.len() + if has_decimal { 1 } else { 0 } + if has_comma { (digits_before - 1) / 3 } else { 0 };
+        let total_width = digit_positions.len()
+            + if has_decimal { 1 } else { 0 }
+            + if has_comma {
+                (digits_before - 1) / 3
+            } else {
+                0
+            };
         let mut result = if leading_asterisk {
             format!("{:*>width$}", formatted_num, width = total_width)
         } else if leading_dollar {

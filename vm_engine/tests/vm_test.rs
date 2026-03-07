@@ -83,7 +83,11 @@ PUT (20, 20), sprite, XOR";
     let bytecode = compiler.compile().unwrap();
 
     assert!(bytecode.iter().any(|op| matches!(op, OpCode::View { .. })));
-    assert!(bytecode.iter().any(|op| matches!(op, OpCode::Window { .. })));
-    assert!(bytecode.iter().any(|op| matches!(op, OpCode::GetImage { array, .. } if array == "sprite")));
+    assert!(bytecode
+        .iter()
+        .any(|op| matches!(op, OpCode::Window { .. })));
+    assert!(bytecode
+        .iter()
+        .any(|op| matches!(op, OpCode::GetImage { array, .. } if array == "sprite")));
     assert!(bytecode.iter().any(|op| matches!(op, OpCode::PutImage { array, action, .. } if array == "sprite" && action == "XOR")));
 }

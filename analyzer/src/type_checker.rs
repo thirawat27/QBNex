@@ -190,10 +190,12 @@ impl TypeChecker {
             Expression::CaseRange { start, end } => {
                 let start_type = self.infer_type(start)?;
                 let end_type = self.infer_type(end)?;
-                if (start_type.is_numeric() && end_type.is_numeric()) || std::mem::discriminant(&start_type) == std::mem::discriminant(&end_type) {
+                if (start_type.is_numeric() && end_type.is_numeric())
+                    || std::mem::discriminant(&start_type) == std::mem::discriminant(&end_type)
+                {
                     Ok(QType::Integer(0))
                 } else {
-                     Err(QError::TypeMismatch("Case range types mismatch".into()))
+                    Err(QError::TypeMismatch("Case range types mismatch".into()))
                 }
             }
 

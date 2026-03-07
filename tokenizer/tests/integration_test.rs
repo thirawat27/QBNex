@@ -32,7 +32,7 @@ fn test_tokenize_numbers() {
 fn test_tokenize_strings() {
     let mut scanner = Scanner::new("\"Hello World\"".to_string());
     let tokens = scanner.tokenize().unwrap();
-    assert!(tokens.len() >= 1);
+    assert!(!tokens.is_empty());
 }
 
 #[test]

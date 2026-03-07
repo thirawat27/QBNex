@@ -40,15 +40,12 @@ fn check_statement(stmt: &Statement) -> bool {
         | Statement::Sound { .. }
         | Statement::Play { .. }
         | Statement::Beep
-        | Statement::Color { .. }
         | Statement::View { .. }
         | Statement::ViewReset
         | Statement::Window { .. }
         | Statement::WindowReset
         | Statement::Draw { .. }
-        | Statement::Palette { .. }
-        | Statement::Locate { .. }
-        | Statement::Cls => true,
+        | Statement::Palette { .. } => true,
 
         Statement::IfBlock {
             then_branch,
@@ -87,5 +84,28 @@ fn check_statement(stmt: &Statement) -> bool {
             false
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_graphics_or_sound;
+    use syntax_tree::Parser;
+
+    fn parse(source: &str) -> syntax_tree::ast_nodes::Program {
+        let mut parser = Parser::new(source.to_string()).unwrap();
+        parser.parse().unwrap()
+    }
+
+    #[test]
+    fn text_mode_statements_do_not_force_graphics_pipeline() {
+        let program = parse("CLS\nCOLOR 7, 0\nLOCATE 1, 1\nPRINT \"ok\"");
+        assert!(!has_graphics_or_sound(&program));
+    }
+
+    #[test]
+    fn actual_graphics_statements_still_enable_graphics_pipeline() {
+        let program = parse("SCREEN 13\nPSET (1, 1), 15\nDRAW \"R5\"");
+        assert!(has_graphics_or_sound(&program));
     }
 }

@@ -291,9 +291,28 @@ impl Parser {
             return Ok(Some(Statement::Randomize { seed }));
         }
 
+        // Handle standalone SHARED inside SUB/FUNCTION as a compatibility no-op.
+        if self.match_keyword(Keyword::Shared) {
+            while !self.check(&Token::Newline) && !self.check(&Token::Colon) && !self.is_at_end() {
+                self.advance();
+            }
+            return Ok(Some(Statement::Print {
+                expressions: Vec::new(),
+                newline: false,
+            }));
+        }
+
         // Handle CLS
         if self.match_keyword(Keyword::Cls) {
             return Ok(Some(Statement::Cls));
+        }
+
+        // Handle TRON/TROFF as no-op compatibility statements
+        if self.match_keyword(Keyword::TrOn) || self.match_keyword(Keyword::TrOff) {
+            return Ok(Some(Statement::Print {
+                expressions: Vec::new(),
+                newline: false,
+            }));
         }
 
         // Handle LOCATE
@@ -1529,7 +1548,7 @@ impl Parser {
                     let mut args = Vec::new();
                     if !self.check(&Token::CloseParen) {
                         loop {
-                            args.push(self.parse_expression()?);
+                            args.push(self.parse_argument_expression()?);
                             if !self.match_token(&[Token::Comma]) {
                                 break;
                             }
@@ -1586,7 +1605,7 @@ impl Parser {
                     let mut args = Vec::new();
                     if !self.check(&Token::CloseParen) {
                         loop {
-                            args.push(self.parse_expression()?);
+                            args.push(self.parse_argument_expression()?);
                             if !self.match_token(&[Token::Comma]) {
                                 break;
                             }
@@ -1613,6 +1632,11 @@ impl Parser {
             }
             _ => Err(QError::Syntax(format!("Unexpected token: {:?}", token))),
         }
+    }
+
+    fn parse_argument_expression(&mut self) -> QResult<Expression> {
+        let _ = self.match_token(&[Token::Hash]);
+        self.parse_expression()
     }
 
     // Helper functions for parsing new statements
@@ -1754,14 +1778,14 @@ impl Parser {
     }
 
     fn parse_lset(&mut self) -> QResult<Statement> {
-        let target = self.parse_expression()?;
+        let target = self.parse_primary()?;
         self.consume(Token::Equal, "Expected '=' in LSET")?;
         let value = self.parse_expression()?;
         Ok(Statement::LSet { target, value })
     }
 
     fn parse_rset(&mut self) -> QResult<Statement> {
-        let target = self.parse_expression()?;
+        let target = self.parse_primary()?;
         self.consume(Token::Equal, "Expected '=' in RSET")?;
         let value = self.parse_expression()?;
         Ok(Statement::RSet { target, value })
@@ -1825,6 +1849,13 @@ impl Parser {
     fn parse_view(&mut self) -> QResult<Statement> {
         // Simplified VIEW parsing
         if self.match_keyword(Keyword::Print) {
+            if self.check(&Token::Newline) || self.is_at_end() {
+                return Ok(Statement::ViewPrint {
+                    top: None,
+                    bottom: None,
+                });
+            }
+
             // VIEW PRINT top TO bottom
             let top = if !self.check_keyword(Keyword::To) {
                 Some(self.parse_expression()?)
@@ -2149,6 +2180,12 @@ impl Parser {
         // # is optional in OPEN statement
         self.match_token(&[Token::Hash]);
         let file_number = self.parse_expression()?;
+        let record_len = if self.match_keyword(Keyword::Len) {
+            self.consume(Token::Equal, "Expected '=' after LEN in OPEN")?;
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
 
         let access = None; // Simplified
         let lock = None;
@@ -2157,6 +2194,7 @@ impl Parser {
             filename,
             mode,
             file_number,
+            record_len,
             access,
             lock,
         })
@@ -2457,16 +2495,44 @@ impl Parser {
         loop {
             if let Some(Token::Identifier(name)) = self.advance() {
                 let name = name.clone();
-                // Parse array dimensions
+                let mut type_suffix = None;
+                let mut size_expr = None;
+
+                // Parse array dimensions: arr(5) or arr(1 TO 5)
                 if self.match_token(&[Token::OpenParen]) {
-                    // Skip dimension parsing for now
-                    while !self.check(&Token::CloseParen) && !self.is_at_end() {
+                    let lower_expr = self.parse_expression()?;
+
+                    if self.check_keyword(Keyword::To) {
                         self.advance();
+                        let upper_expr = self.parse_expression()?;
+                        size_expr = Some(upper_expr);
+                    } else {
+                        size_expr = Some(lower_expr);
                     }
-                    self.consume(Token::CloseParen, "Expected ')'")?;
+
+                    self.consume(Token::CloseParen, "Expected ')' after array dimensions")?;
                 }
-                let var = Variable::new(name);
-                variables.push((var, None));
+
+                if self.match_keyword(Keyword::As) {
+                    if let Some(Token::Identifier(type_name)) = self.advance() {
+                        let type_upper = type_name.to_uppercase();
+                        type_suffix = match type_upper.as_str() {
+                            "INTEGER" => Some('%'),
+                            "LONG" => Some('&'),
+                            "SINGLE" => Some('!'),
+                            "DOUBLE" => Some('#'),
+                            "STRING" => Some('$'),
+                            _ => None,
+                        };
+                    }
+                }
+
+                let var = Variable {
+                    name,
+                    type_suffix,
+                    indices: Vec::new(),
+                };
+                variables.push((var, size_expr));
             }
             if !self.match_token(&[Token::Comma]) {
                 break;

@@ -134,6 +134,7 @@ pub enum Statement {
         filename: Expression,
         mode: OpenMode,
         file_number: Expression,
+        record_len: Option<Expression>,
         access: Option<OpenAccess>,
         lock: Option<OpenLock>,
     },

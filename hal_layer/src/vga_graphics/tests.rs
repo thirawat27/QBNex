@@ -54,3 +54,50 @@ fn put_image_applies_raster_operation() {
 
     assert_eq!(gfx.get_pixel(20, 20), 0b0110);
 }
+
+#[test]
+fn view_makes_coordinates_relative_to_viewport() {
+    let mut gfx = graphics_mode_13();
+    gfx.view(10, 10, 20, 20, 0, 0);
+
+    gfx.pset(0, 0, 9);
+
+    assert_eq!(gfx.get_pixel(0, 0), 9);
+    assert_eq!(gfx.get_framebuffer()[10 * 320 + 10], 9);
+}
+
+#[test]
+fn window_maps_logical_coordinates_into_viewport() {
+    let mut gfx = graphics_mode_13();
+    gfx.view(10, 10, 110, 110, 0, 0);
+    gfx.window(-10.0, -10.0, 10.0, 10.0);
+
+    gfx.pset(0, 0, 12);
+
+    assert_eq!(gfx.get_pixel(0, 0), 12);
+    assert_eq!(gfx.get_framebuffer()[60 * 320 + 60], 12);
+}
+
+#[test]
+fn pmap_uses_active_viewport_and_window() {
+    let mut gfx = graphics_mode_13();
+    gfx.view(10, 10, 110, 110, 0, 0);
+    gfx.window(-10.0, -10.0, 10.0, 10.0);
+
+    assert_eq!(gfx.pmap(0.0, 0), 60.0);
+    assert_eq!(gfx.pmap(0.0, 1), 60.0);
+    assert_eq!(gfx.pmap(60.0, 2), 0.0);
+    assert_eq!(gfx.pmap(60.0, 3), 0.0);
+}
+
+#[test]
+fn circle_respects_window_transform() {
+    let mut gfx = graphics_mode_13();
+    gfx.view(10, 10, 110, 110, 0, 0);
+    gfx.window(-10.0, -10.0, 10.0, 10.0);
+
+    gfx.circle(0, 0, 5, 14);
+
+    assert_eq!(gfx.get_framebuffer()[60 * 320 + 85], 14);
+    assert_eq!(gfx.get_framebuffer()[85 * 320 + 60], 14);
+}
