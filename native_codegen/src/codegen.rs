@@ -279,14 +279,24 @@ impl CodeGenerator {
                             .unwrap_or_else(|_| "1.0".to_string())
                     })
                     .unwrap_or_else(|| "1.0".to_string());
+                let end_tmp = self.next_temp_var();
+                let step_tmp = self.next_temp_var();
 
                 self.output.push_str(&format!(
                     "{}set_var(&mut num_vars, {}, {} as f64);\n",
                     indent, var_idx, start_code
                 ));
                 self.output.push_str(&format!(
-                    "{}while get_var(&num_vars, {}) <= {} {{\n",
-                    indent, var_idx, end_code
+                    "{}let {} = {} as f64;\n",
+                    indent, end_tmp, end_code
+                ));
+                self.output.push_str(&format!(
+                    "{}let {} = {} as f64;\n",
+                    indent, step_tmp, step_code
+                ));
+                self.output.push_str(&format!(
+                    "{}while if {} >= 0.0 {{ get_var(&num_vars, {}) <= {} }} else {{ get_var(&num_vars, {}) >= {} }} {{\n",
+                    indent, step_tmp, var_idx, end_tmp, var_idx, end_tmp
                 ));
                 self.indent_level += 1;
                 for stmt in body {
@@ -296,7 +306,7 @@ impl CodeGenerator {
                     "{}let _next = get_var(&num_vars, {}) + {};\n",
                     self.indent(),
                     var_idx,
-                    step_code
+                    step_tmp
                 ));
                 self.output.push_str(&format!(
                     "{}set_var(&mut num_vars, {}, _next);\n",
@@ -728,15 +738,13 @@ impl CodeGenerator {
             }
 
             Statement::Color {
-                foreground,
+                foreground: Some(fg),
                 background: _,
             } => {
-                if let Some(fg) = foreground {
-                    let val = self.generate_expression(fg)?;
-                    if self.use_graphics {
-                        self.output
-                            .push_str(&format!("{}qb_color({});\n", indent, val));
-                    }
+                let val = self.generate_expression(fg)?;
+                if self.use_graphics {
+                    self.output
+                        .push_str(&format!("{}qb_color({});\n", indent, val));
                 }
                 // Background color not fully supported in graphics mode yet (requires full redraw or next CLS)
             }

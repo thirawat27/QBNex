@@ -12,10 +12,10 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Check if Inno Setup is installed
-$InnoSetupPath = "C\Program Files (x86)\Inno Setup 6\ISCC.exe"
+$InnoSetupPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if (-not (Test-Path $InnoSetupPath)) {
     Write-Host "ERROR Inno Setup not found at $InnoSetupPath" -ForegroundColor Red
-    Write-Host "Please install Inno Setup from https//jrsoftware.org/isdl.php" -ForegroundColor Yellow
+    Write-Host "Please install Inno Setup from https://jrsoftware.org/isdl.php" -ForegroundColor Yellow
     exit 1
 }
 
