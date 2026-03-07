@@ -11,7 +11,6 @@ name = "qb"
 path = "src/main.rs"
 
 [dependencies]
-tokenizer      = { path = "../tokenizer" }
 syntax_tree    = { path = "../syntax_tree" }
 analyzer       = { path = "../analyzer" }
 vm_engine      = { path = "../vm_engine" }

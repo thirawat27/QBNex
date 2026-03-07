@@ -444,7 +444,7 @@ fn main() {{
 }}
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {{
-    let source = {source_literal};
+    let source = {source:?};
     let mut parser = Parser::new(source.to_string())?;
     let program = parser.parse()?;
     let symbol_table = analyze_program(&program)?;
@@ -456,8 +456,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {{
     vm.run()?;
     Ok(())
 }}
-"#,
-        source_literal = format!("{source:?}")
+"#
     );
 
     let src_dir = temp_dir.join("src");

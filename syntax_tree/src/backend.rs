@@ -114,9 +114,7 @@ fn collect_unsupported(
 
 fn unsupported_statement(statement: &Statement, backend: Backend) -> Option<&'static str> {
     match backend {
-        Backend::Vm => match statement {
-            _ => None,
-        },
+        Backend::Vm => None,
         Backend::Native => match statement {
             Statement::PrintUsing { .. } => None,
             Statement::Goto { .. } => Some("GOTO"),
@@ -200,6 +198,7 @@ fn native_supports_top_level_control_flow(program: &Program) -> bool {
     true
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn has_disallowed_nested_control_flow(
     statements: &[Statement],
     in_loop: bool,

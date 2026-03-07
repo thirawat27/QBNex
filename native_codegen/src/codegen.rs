@@ -950,11 +950,11 @@ impl CodeGenerator {
                     }
 
                     if let Some(expr) = dim_expr {
-                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
-                            && var.fixed_length.is_some()
-                        {
-                            self.field_widths
-                                .insert(var.name.to_uppercase(), var.fixed_length.unwrap());
+                        if let Some(width) = var.fixed_length {
+                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                                self.field_widths
+                                    .insert(var.name.to_uppercase(), width);
+                            }
                         }
                         let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
                         let idx = self.get_arr_var_idx(var_name);
@@ -1009,11 +1009,11 @@ impl CodeGenerator {
                         continue;
                     }
                     if let Some(expr) = dim_expr {
-                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
-                            && var.fixed_length.is_some()
-                        {
-                            self.field_widths
-                                .insert(var.name.to_uppercase(), var.fixed_length.unwrap());
+                        if let Some(width) = var.fixed_length {
+                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                                self.field_widths
+                                    .insert(var.name.to_uppercase(), width);
+                            }
                         }
                         let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
                         let idx = self.get_arr_var_idx(&var.name);
@@ -1807,16 +1807,15 @@ impl CodeGenerator {
             }
 
             Statement::Color {
-                foreground,
+                foreground: Some(fg),
                 background: _,
             } => {
-                if let Some(fg) = foreground {
-                    let val = self.generate_expression(fg)?;
-                    self.output
-                        .push_str(&format!("{}qb_color({});\n", indent, val));
-                }
+                let val = self.generate_expression(fg)?;
+                self.output
+                    .push_str(&format!("{}qb_color({});\n", indent, val));
                 // Background color is intentionally ignored for now in native codegen.
             }
+            Statement::Color { .. } => {}
 
             Statement::Sleep { duration } => {
                 let seconds = if let Some(d) = duration {
@@ -2728,18 +2727,16 @@ impl CodeGenerator {
                                 indent, idx, value_code
                             ));
                         }
+                    } else if let Some(width) = width {
+                        self.output.push_str(&format!(
+                            "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                            indent, idx, width, value_code
+                        ));
                     } else {
-                        if let Some(width) = width {
-                            self.output.push_str(&format!(
-                                "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
-                                indent, idx, width, value_code
-                            ));
-                        } else {
-                            self.output.push_str(&format!(
-                                "{}set_str(&mut str_vars, {}, &{}.trim());\n",
-                                indent, idx, value_code
-                            ));
-                        }
+                        self.output.push_str(&format!(
+                            "{}set_str(&mut str_vars, {}, &{}.trim());\n",
+                            indent, idx, value_code
+                        ));
                     }
                 } else {
                     let idx = self.get_num_var_idx(name);
@@ -2767,18 +2764,16 @@ impl CodeGenerator {
                                     indent, arr_idx, idx_code, value_code
                                 ));
                             }
+                        } else if let Some(width) = width {
+                            self.output.push_str(&format!(
+                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                indent, arr_idx, idx_code, width, value_code
+                            ));
                         } else {
-                            if let Some(width) = width {
-                                self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
-                                    indent, arr_idx, idx_code, width, value_code
-                                ));
-                            } else {
-                                self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
-                                    indent, arr_idx, idx_code, value_code
-                                ));
-                            }
+                            self.output.push_str(&format!(
+                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
+                                indent, arr_idx, idx_code, value_code
+                            ));
                         }
                     } else {
                         let arr_idx = self.get_arr_var_idx(name);
@@ -2809,18 +2804,16 @@ impl CodeGenerator {
                                             indent, idx, index_code, value_code
                                         ));
                                     }
+                                } else if let Some(width) = width {
+                                    self.output.push_str(&format!(
+                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                        indent, idx, index_code, width, value_code
+                                    ));
                                 } else {
-                                    if let Some(width) = width {
-                                        self.output.push_str(&format!(
-                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
-                                            indent, idx, index_code, width, value_code
-                                        ));
-                                    } else {
-                                        self.output.push_str(&format!(
-                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
-                                            indent, idx, index_code, value_code
-                                        ));
-                                    }
+                                    self.output.push_str(&format!(
+                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
+                                        indent, idx, index_code, value_code
+                                    ));
                                 }
                             } else {
                                 let idx = self.get_str_var_idx(&field.storage_name);
@@ -2836,18 +2829,16 @@ impl CodeGenerator {
                                             indent, idx, value_code
                                         ));
                                     }
+                                } else if let Some(width) = width {
+                                    self.output.push_str(&format!(
+                                        "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                        indent, idx, width, value_code
+                                    ));
                                 } else {
-                                    if let Some(width) = width {
-                                        self.output.push_str(&format!(
-                                            "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
-                                            indent, idx, width, value_code
-                                        ));
-                                    } else {
-                                        self.output.push_str(&format!(
-                                            "{}set_str(&mut str_vars, {}, &{}.trim());\n",
-                                            indent, idx, value_code
-                                        ));
-                                    }
+                                    self.output.push_str(&format!(
+                                        "{}set_str(&mut str_vars, {}, &{}.trim());\n",
+                                        indent, idx, value_code
+                                    ));
                                 }
                             }
                         }

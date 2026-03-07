@@ -217,21 +217,20 @@ impl BytecodeCompiler {
         let body_start = self.bytecode.len();
         let previous_function = self.current_function.replace(func_def.name.clone());
         for param in &func_def.params {
-            if (param.type_suffix == Some('$') || param.name.ends_with('$'))
-                && param.fixed_length.is_some()
-            {
-                let slot = self.get_var_index(&param.name);
-                self.bytecode.push(OpCode::SetStringWidth {
-                    slot,
-                    width: param.fixed_length.unwrap(),
-                });
+            if let Some(width) = param.fixed_length {
+                if param.type_suffix == Some('$') || param.name.ends_with('$') {
+                    let slot = self.get_var_index(&param.name);
+                    self.bytecode.push(OpCode::SetStringWidth { slot, width });
+                }
             }
         }
-        if func_def.name.ends_with('$') && func_def.return_fixed_length.is_some() {
-            self.bytecode.push(OpCode::SetStringWidth {
-                slot: function_index,
-                width: func_def.return_fixed_length.unwrap(),
-            });
+        if func_def.name.ends_with('$') {
+            if let Some(width) = func_def.return_fixed_length {
+                self.bytecode.push(OpCode::SetStringWidth {
+                    slot: function_index,
+                    width,
+                });
+            }
         }
         for stmt in &func_def.body {
             self.compile_statement(stmt)?;
@@ -261,14 +260,11 @@ impl BytecodeCompiler {
         let body_start = self.bytecode.len();
         let previous_function = self.current_function.take();
         for param in &sub_def.params {
-            if (param.type_suffix == Some('$') || param.name.ends_with('$'))
-                && param.fixed_length.is_some()
-            {
-                let slot = self.get_var_index(&param.name);
-                self.bytecode.push(OpCode::SetStringWidth {
-                    slot,
-                    width: param.fixed_length.unwrap(),
-                });
+            if let Some(width) = param.fixed_length {
+                if param.type_suffix == Some('$') || param.name.ends_with('$') {
+                    let slot = self.get_var_index(&param.name);
+                    self.bytecode.push(OpCode::SetStringWidth { slot, width });
+                }
             }
         }
         for stmt in &sub_def.body {
@@ -1016,13 +1012,13 @@ impl BytecodeCompiler {
             Statement::Dim { variables, .. } => {
                 for (var, size) in variables {
                     if let Some(dim_expr) = size {
-                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
-                            && var.fixed_length.is_some()
-                        {
-                            self.bytecode.push(OpCode::SetStringArrayWidth {
-                                name: var.name.clone(),
-                                width: var.fixed_length.unwrap(),
-                            });
+                        if let Some(width) = var.fixed_length {
+                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                                self.bytecode.push(OpCode::SetStringArrayWidth {
+                                    name: var.name.clone(),
+                                    width,
+                                });
+                            }
                         }
                         // Array declaration - extract size from expression
                         let upper_bound = if let Expression::Literal(QType::Integer(i)) = dim_expr {
@@ -1040,16 +1036,19 @@ impl BytecodeCompiler {
                     } else {
                         // Simple variable
                         let var_idx = self.get_var_index(&var.name);
-                        if (var.type_suffix == Some('$') || var.name.ends_with('$'))
-                            && var.fixed_length.is_some()
-                        {
-                            self.bytecode.push(OpCode::SetStringWidth {
-                                slot: var_idx,
-                                width: var.fixed_length.unwrap(),
-                            });
-                            self.bytecode.push(OpCode::LoadConstant(QType::String(
-                                String::new(),
-                            )));
+                        if let Some(width) = var.fixed_length {
+                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                                self.bytecode.push(OpCode::SetStringWidth {
+                                    slot: var_idx,
+                                    width,
+                                });
+                                self.bytecode.push(OpCode::LoadConstant(QType::String(
+                                    String::new(),
+                                )));
+                            } else {
+                                self.bytecode
+                                    .push(OpCode::LoadConstant(QType::String(String::new())));
+                            }
                         } else if var.type_suffix == Some('$') || var.name.ends_with('$') {
                             self.bytecode
                                 .push(OpCode::LoadConstant(QType::String(String::new())));
@@ -1066,13 +1065,13 @@ impl BytecodeCompiler {
                 preserve,
             } => {
                 for (var, _size) in variables {
-                    if (var.type_suffix == Some('$') || var.name.ends_with('$'))
-                        && var.fixed_length.is_some()
-                    {
-                        self.bytecode.push(OpCode::SetStringArrayWidth {
-                            name: var.name.clone(),
-                            width: var.fixed_length.unwrap(),
-                        });
+                    if let Some(width) = var.fixed_length {
+                        if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                            self.bytecode.push(OpCode::SetStringArrayWidth {
+                                name: var.name.clone(),
+                                width,
+                            });
+                        }
                     }
                     let dimensions = vec![(0, 10)]; // Default 0 to 10
                     self.bytecode.push(OpCode::ArrayRedim {

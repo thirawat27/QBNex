@@ -77,7 +77,7 @@ QBNex supports 150+ QBasic/QB64 keywords and functions, making it compatible wit
   - Static type checking and analysis
   - Scope resolution and symbol table management
   - Type inference and conversion
-  - OPTION _EXPLICIT support for strict variable declaration
+  - OPTION \_EXPLICIT support for strict variable declaration
 
 - **File System Operations**
   - Sequential, random, and binary file access
@@ -201,13 +201,13 @@ QBNex/
 
 ## System Requirements
 
-| Component       | Requirement                          |
-| --------------- | ------------------------------------ |
-| Operating System| Windows 10/11, Linux, macOS          |
-| Rust Toolchain  | 1.75 or newer (2021 edition)         |
-| Cargo           | Included with Rust                   |
-| Memory          | 512 MB RAM minimum                   |
-| Disk Space      | 100 MB for installation              |
+| Component        | Requirement                  |
+| ---------------- | ---------------------------- |
+| Operating System | Windows 10/11, Linux, macOS  |
+| Rust Toolchain   | 1.75 or newer (2021 edition) |
+| Cargo            | Included with Rust           |
+| Memory           | 512 MB RAM minimum           |
+| Disk Space       | 100 MB for installation      |
 
 **Optional Dependencies**
 
@@ -223,6 +223,7 @@ QBNex/
 Download and install Rust from [https//rustup.rs](https//rustup.rs)
 
 **Windows**
+
 ```powershell
 # Download and run rustup-init.exe
 # Or use winget
@@ -230,11 +231,13 @@ winget install Rustlang.Rustup
 ```
 
 **Linux/macOS**
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https//sh.rustup.rs | sh
 ```
 
 Verify installation
+
 ```bash
 rustc --version
 cargo --version
@@ -250,15 +253,18 @@ cd QBNex
 ### 3. Build Project
 
 **Release Build (Recommended)**
+
 ```bash
 cargo build --release
 ```
 
 The executable will be located at
+
 - Windows `target\release\qb.exe`
 - Linux/macOS `target/release/qb`
 
 **Debug Build (for development)**
+
 ```bash
 cargo build
 ```
@@ -266,6 +272,7 @@ cargo build
 ### 4. Install to System (Optional)
 
 **Windows**
+
 ```powershell
 # Copy to a directory in PATH
 copy target\release\qb.exe C\Windows\System32\
@@ -275,6 +282,7 @@ $envPATH += ";$PWD\target\release"
 ```
 
 **Linux/macOS**
+
 ```bash
 # Copy to /usr/local/bin
 sudo cp target/release/qb /usr/local/bin/
@@ -303,6 +311,7 @@ qb myprogram.bas
 ```
 
 This will
+
 1. Parse and analyze the source code
 2. Generate optimized Rust code
 3. Compile to native executable using rustc
@@ -310,6 +319,7 @@ This will
 5. Display execution time
 
 **With Graphics/Sound**
+
 ```bash
 qb graphics_demo.bas
 ```
@@ -325,11 +335,13 @@ qb -x myprogram.bas
 ```
 
 **Advantages**
+
 - Instant execution (no compilation wait)
 - Ideal for testing and debugging
 - No executable file created
 
 **Quiet mode (suppress output)**
+
 ```bash
 qb -x myprogram.bas -q
 ```
@@ -345,11 +357,13 @@ qb -c myprogram.bas
 This creates `myprogram.exe` (Windows) or `myprogram` (Linux/macOS).
 
 **Custom output filename**
+
 ```bash
 qb -c myprogram.bas -o custom_name.exe
 ```
 
 **Compilation features**
+
 - Optimized release build (opt-level 3)
 - LTO (Link-Time Optimization) enabled
 - Debug symbols stripped
@@ -386,7 +400,8 @@ EXAMPLES
 ### Environment Variables
 
 **QBNEX_EXPLICIT**
-- Set to "1" to enable OPTION _EXPLICIT globally
+
+- Set to "1" to enable OPTION \_EXPLICIT globally
 - Forces all variables to be declared before use
 
 ```bash
@@ -649,298 +664,298 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ### Control Flow
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `IF...THEN...ELSE` | Conditional execution | `IF x > 0 THEN PRINT "Positive"` |
-| `ELSEIF` | Additional condition | `ELSEIF x < 0 THEN PRINT "Negative"` |
-| `END IF` | End conditional block | `END IF` |
-| `SELECT CASE` | Multi-way branch | `SELECT CASE x` |
-| `CASE` | Case branch | `CASE 1, 2, 3` |
-| `CASE IS` | Conditional case | `CASE IS > 10` |
-| `CASE TO` | Range case | `CASE 1 TO 10` |
-| `END SELECT` | End select block | `END SELECT` |
-| `FOR...TO...STEP` | Counted loop | `FOR i = 1 TO 10 STEP 2` |
-| `NEXT` | End for loop | `NEXT i` |
-| `WHILE...WEND` | While loop (legacy) | `WHILE x < 10` |
-| `DO...LOOP` | Do loop | `DO WHILE x < 10` |
-| `DO WHILE` | Do while condition | `DO WHILE x < 10` |
-| `DO UNTIL` | Do until condition | `DO UNTIL x >= 10` |
-| `LOOP WHILE` | Loop while condition | `LOOP WHILE x < 10` |
-| `LOOP UNTIL` | Loop until condition | `LOOP UNTIL x >= 10` |
-| `EXIT FOR` | Exit for loop | `EXIT FOR` |
-| `EXIT DO` | Exit do loop | `EXIT DO` |
-| `GOTO` | Jump to label | `GOTO 100` |
-| `GOSUB` | Call subroutine | `GOSUB 1000` |
-| `RETURN` | Return from gosub | `RETURN` |
-| `ON...GOTO` | Computed goto | `ON x GOTO 100, 200, 300` |
-| `ON...GOSUB` | Computed gosub | `ON x GOSUB 1000, 2000` |
-| `END` | End program | `END` |
-| `STOP` | Stop execution | `STOP` |
-| `SYSTEM` | Exit to OS | `SYSTEM` |
+| Command            | Description           | Example                              |
+| ------------------ | --------------------- | ------------------------------------ |
+| `IF...THEN...ELSE` | Conditional execution | `IF x > 0 THEN PRINT "Positive"`     |
+| `ELSEIF`           | Additional condition  | `ELSEIF x < 0 THEN PRINT "Negative"` |
+| `END IF`           | End conditional block | `END IF`                             |
+| `SELECT CASE`      | Multi-way branch      | `SELECT CASE x`                      |
+| `CASE`             | Case branch           | `CASE 1, 2, 3`                       |
+| `CASE IS`          | Conditional case      | `CASE IS > 10`                       |
+| `CASE TO`          | Range case            | `CASE 1 TO 10`                       |
+| `END SELECT`       | End select block      | `END SELECT`                         |
+| `FOR...TO...STEP`  | Counted loop          | `FOR i = 1 TO 10 STEP 2`             |
+| `NEXT`             | End for loop          | `NEXT i`                             |
+| `WHILE...WEND`     | While loop (legacy)   | `WHILE x < 10`                       |
+| `DO...LOOP`        | Do loop               | `DO WHILE x < 10`                    |
+| `DO WHILE`         | Do while condition    | `DO WHILE x < 10`                    |
+| `DO UNTIL`         | Do until condition    | `DO UNTIL x >= 10`                   |
+| `LOOP WHILE`       | Loop while condition  | `LOOP WHILE x < 10`                  |
+| `LOOP UNTIL`       | Loop until condition  | `LOOP UNTIL x >= 10`                 |
+| `EXIT FOR`         | Exit for loop         | `EXIT FOR`                           |
+| `EXIT DO`          | Exit do loop          | `EXIT DO`                            |
+| `GOTO`             | Jump to label         | `GOTO 100`                           |
+| `GOSUB`            | Call subroutine       | `GOSUB 1000`                         |
+| `RETURN`           | Return from gosub     | `RETURN`                             |
+| `ON...GOTO`        | Computed goto         | `ON x GOTO 100, 200, 300`            |
+| `ON...GOSUB`       | Computed gosub        | `ON x GOSUB 1000, 2000`              |
+| `END`              | End program           | `END`                                |
+| `STOP`             | Stop execution        | `STOP`                               |
+| `SYSTEM`           | Exit to OS            | `SYSTEM`                             |
 
 ### Variables & Data Types
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `DIM` | Declare variable/array | `DIM x AS INTEGER` |
-| `REDIM` | Redimension array | `REDIM arr(20)` |
-| `REDIM PRESERVE` | Redimension keeping data | `REDIM PRESERVE arr(30)` |
-| `CONST` | Declare constant | `CONST MAX = 100` |
-| `LET` | Assign value (optional) | `LET x = 10` |
-| `COMMON SHARED` | Share across modules | `COMMON SHARED x AS INTEGER` |
-| `SHARED` | Share in sub/function | `SHARED x` |
-| `STATIC` | Static variable | `STATIC count AS INTEGER` |
-| `TYPE...END TYPE` | User-defined type | `TYPE Player` |
-| `DEFINT` | Default integer | `DEFINT A-Z` |
-| `DEFSTR` | Default string | `DEFSTR S` |
-| `DEFSNG` | Default single | `DEFSNG A` |
-| `DEFDBL` | Default double | `DEFDBL D` |
-| `DEFLNG` | Default long | `DEFLNG L` |
-| `OPTION BASE` | Array base index | `OPTION BASE 1` |
-| `ERASE` | Erase array | `ERASE arr` |
-| `SWAP` | Swap two variables | `SWAP a, b` |
-| `CLEAR` | Clear variables | `CLEAR` |
+| Command           | Description              | Example                      |
+| ----------------- | ------------------------ | ---------------------------- |
+| `DIM`             | Declare variable/array   | `DIM x AS INTEGER`           |
+| `REDIM`           | Redimension array        | `REDIM arr(20)`              |
+| `REDIM PRESERVE`  | Redimension keeping data | `REDIM PRESERVE arr(30)`     |
+| `CONST`           | Declare constant         | `CONST MAX = 100`            |
+| `LET`             | Assign value (optional)  | `LET x = 10`                 |
+| `COMMON SHARED`   | Share across modules     | `COMMON SHARED x AS INTEGER` |
+| `SHARED`          | Share in sub/function    | `SHARED x`                   |
+| `STATIC`          | Static variable          | `STATIC count AS INTEGER`    |
+| `TYPE...END TYPE` | User-defined type        | `TYPE Player`                |
+| `DEFINT`          | Default integer          | `DEFINT A-Z`                 |
+| `DEFSTR`          | Default string           | `DEFSTR S`                   |
+| `DEFSNG`          | Default single           | `DEFSNG A`                   |
+| `DEFDBL`          | Default double           | `DEFDBL D`                   |
+| `DEFLNG`          | Default long             | `DEFLNG L`                   |
+| `OPTION BASE`     | Array base index         | `OPTION BASE 1`              |
+| `ERASE`           | Erase array              | `ERASE arr`                  |
+| `SWAP`            | Swap two variables       | `SWAP a, b`                  |
+| `CLEAR`           | Clear variables          | `CLEAR`                      |
 
 ### Input/Output
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `PRINT` | Print to screen | `PRINT "Hello"` |
-| `PRINT USING` | Formatted print | `PRINT USING "##.##"; x` |
-| `INPUT` | Get user input | `INPUT "Name ", name$` |
-| `LINE INPUT` | Get line of input | `LINE INPUT "Text ", text$` |
-| `WRITE` | Write comma-separated | `WRITE #1, a, b, c` |
-| `CLS` | Clear screen | `CLS` |
-| `LOCATE` | Position cursor | `LOCATE 10, 20` |
-| `TAB` | Tab to column | `PRINT TAB(10); "Text"` |
-| `SPC` | Print spaces | `PRINT SPC(5); "Text"` |
-| `BEEP` | Sound beep | `BEEP` |
-| `SLEEP` | Pause execution | `SLEEP 2` |
-| `INKEY$` | Get key press | `k$ = INKEY$` |
+| Command       | Description           | Example                     |
+| ------------- | --------------------- | --------------------------- |
+| `PRINT`       | Print to screen       | `PRINT "Hello"`             |
+| `PRINT USING` | Formatted print       | `PRINT USING "##.##"; x`    |
+| `INPUT`       | Get user input        | `INPUT "Name ", name$`      |
+| `LINE INPUT`  | Get line of input     | `LINE INPUT "Text ", text$` |
+| `WRITE`       | Write comma-separated | `WRITE #1, a, b, c`         |
+| `CLS`         | Clear screen          | `CLS`                       |
+| `LOCATE`      | Position cursor       | `LOCATE 10, 20`             |
+| `TAB`         | Tab to column         | `PRINT TAB(10); "Text"`     |
+| `SPC`         | Print spaces          | `PRINT SPC(5); "Text"`      |
+| `BEEP`        | Sound beep            | `BEEP`                      |
+| `SLEEP`       | Pause execution       | `SLEEP 2`                   |
+| `INKEY$`      | Get key press         | `k$ = INKEY$`               |
 
 ### String Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `LEFT$` | Left substring | `LEFT$("Hello", 2)` → "He" |
-| `RIGHT$` | Right substring | `RIGHT$("Hello", 2)` → "lo" |
-| `MID$` | Middle substring | `MID$("Hello", 2, 3)` → "ell" |
-| `LEN` | String length | `LEN("Hello")` → 5 |
-| `INSTR` | Find substring | `INSTR("Hello", "ll")` → 3 |
-| `LCASE$` | Lowercase | `LCASE$("HELLO")` → "hello" |
-| `UCASE$` | Uppercase | `UCASE$("hello")` → "HELLO" |
-| `LTRIM$` | Trim left spaces | `LTRIM$("  Hi")` → "Hi" |
-| `RTRIM$` | Trim right spaces | `RTRIM$("Hi  ")` → "Hi" |
-| `TRIM$` | Trim both sides | `TRIM$("  Hi  ")` → "Hi" |
-| `STR$` | Number to string | `STR$(123)` → " 123" |
-| `VAL` | String to number | `VAL("123")` → 123 |
-| `CHR$` | ASCII to char | `CHR$(65)` → "A" |
-| `ASC` | Char to ASCII | `ASC("A")` → 65 |
-| `SPACE$` | Create spaces | `SPACE$(5)` → "     " |
-| `STRING$` | Repeat character | `STRING$(3, "*")` → "***" |
-| `HEX$` | Number to hex | `HEX$(255)` → "FF" |
-| `OCT$` | Number to octal | `OCT$(8)` → "10" |
+| Function  | Description       | Example                       |
+| --------- | ----------------- | ----------------------------- |
+| `LEFT$`   | Left substring    | `LEFT$("Hello", 2)` → "He"    |
+| `RIGHT$`  | Right substring   | `RIGHT$("Hello", 2)` → "lo"   |
+| `MID$`    | Middle substring  | `MID$("Hello", 2, 3)` → "ell" |
+| `LEN`     | String length     | `LEN("Hello")` → 5            |
+| `INSTR`   | Find substring    | `INSTR("Hello", "ll")` → 3    |
+| `LCASE$`  | Lowercase         | `LCASE$("HELLO")` → "hello"   |
+| `UCASE$`  | Uppercase         | `UCASE$("hello")` → "HELLO"   |
+| `LTRIM$`  | Trim left spaces  | `LTRIM$("  Hi")` → "Hi"       |
+| `RTRIM$`  | Trim right spaces | `RTRIM$("Hi  ")` → "Hi"       |
+| `TRIM$`   | Trim both sides   | `TRIM$("  Hi  ")` → "Hi"      |
+| `STR$`    | Number to string  | `STR$(123)` → " 123"          |
+| `VAL`     | String to number  | `VAL("123")` → 123            |
+| `CHR$`    | ASCII to char     | `CHR$(65)` → "A"              |
+| `ASC`     | Char to ASCII     | `ASC("A")` → 65               |
+| `SPACE$`  | Create spaces     | `SPACE$(5)` → " "             |
+| `STRING$` | Repeat character  | `STRING$(3, "*")` → "\*\*\*"  |
+| `HEX$`    | Number to hex     | `HEX$(255)` → "FF"            |
+| `OCT$`    | Number to octal   | `OCT$(8)` → "10"              |
 
 ### Math Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `ABS` | Absolute value | `ABS(-5)` → 5 |
-| `SGN` | Sign (-1, 0, 1) | `SGN(-5)` → -1 |
-| `SIN` | Sine | `SIN(1.57)` → 1.0 |
-| `COS` | Cosine | `COS(0)` → 1.0 |
-| `TAN` | Tangent | `TAN(0.785)` → 1.0 |
-| `ATN` | Arctangent | `ATN(1)` → 0.785 |
-| `EXP` | Exponential | `EXP(1)` → 2.718 |
-| `LOG` | Natural logarithm | `LOG(2.718)` → 1.0 |
-| `SQR` | Square root | `SQR(16)` → 4 |
-| `INT` | Integer part (floor) | `INT(3.7)` → 3 |
-| `FIX` | Truncate decimal | `FIX(-3.7)` → -3 |
-| `RND` | Random number | `RND` → 0.0-1.0 |
-| `RANDOMIZE` | Seed random | `RANDOMIZE TIMER` |
-| `MOD` | Modulo | `10 MOD 3` → 1 |
-| `^` | Power | `2 ^ 3` → 8 |
-| `\` | Integer division | `10 \ 3` → 3 |
+| Function    | Description          | Example            |
+| ----------- | -------------------- | ------------------ |
+| `ABS`       | Absolute value       | `ABS(-5)` → 5      |
+| `SGN`       | Sign (-1, 0, 1)      | `SGN(-5)` → -1     |
+| `SIN`       | Sine                 | `SIN(1.57)` → 1.0  |
+| `COS`       | Cosine               | `COS(0)` → 1.0     |
+| `TAN`       | Tangent              | `TAN(0.785)` → 1.0 |
+| `ATN`       | Arctangent           | `ATN(1)` → 0.785   |
+| `EXP`       | Exponential          | `EXP(1)` → 2.718   |
+| `LOG`       | Natural logarithm    | `LOG(2.718)` → 1.0 |
+| `SQR`       | Square root          | `SQR(16)` → 4      |
+| `INT`       | Integer part (floor) | `INT(3.7)` → 3     |
+| `FIX`       | Truncate decimal     | `FIX(-3.7)` → -3   |
+| `RND`       | Random number        | `RND` → 0.0-1.0    |
+| `RANDOMIZE` | Seed random          | `RANDOMIZE TIMER`  |
+| `MOD`       | Modulo               | `10 MOD 3` → 1     |
+| `^`         | Power                | `2 ^ 3` → 8        |
+| `\`         | Integer division     | `10 \ 3` → 3       |
 
 ### Type Conversion
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `CINT` | Convert to integer | `CINT(3.7)` → 4 |
-| `CLNG` | Convert to long | `CLNG(3.7)` → 4 |
-| `CSNG` | Convert to single | `CSNG(3)` → 3.0 |
-| `CDBL` | Convert to double | `CDBL(3)` → 3.0 |
-| `CSTR` | Convert to string | `CSTR(123)` → "123" |
-| `MKI$` | Integer to string | `MKI$(100)` |
-| `MKL$` | Long to string | `MKL$(100000)` |
-| `MKS$` | Single to string | `MKS$(value)` |
-| `MKD$` | Double to string | `MKD$(value)` |
-| `CVI` | String to integer | `CVI(s$)` |
-| `CVL` | String to long | `CVL(s$)` |
-| `CVS` | String to single | `CVS(s$)` |
-| `CVD` | String to double | `CVD(s$)` |
+| Function | Description        | Example             |
+| -------- | ------------------ | ------------------- |
+| `CINT`   | Convert to integer | `CINT(3.7)` → 4     |
+| `CLNG`   | Convert to long    | `CLNG(3.7)` → 4     |
+| `CSNG`   | Convert to single  | `CSNG(3)` → 3.0     |
+| `CDBL`   | Convert to double  | `CDBL(3)` → 3.0     |
+| `CSTR`   | Convert to string  | `CSTR(123)` → "123" |
+| `MKI$`   | Integer to string  | `MKI$(100)`         |
+| `MKL$`   | Long to string     | `MKL$(100000)`      |
+| `MKS$`   | Single to string   | `MKS$(value)`       |
+| `MKD$`   | Double to string   | `MKD$(value)`       |
+| `CVI`    | String to integer  | `CVI(s$)`           |
+| `CVL`    | String to long     | `CVL(s$)`           |
+| `CVS`    | String to single   | `CVS(s$)`           |
+| `CVD`    | String to double   | `CVD(s$)`           |
 
 ### Array Operations
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `DIM arr(n)` | Declare array | `DIM arr(10) AS INTEGER` |
-| `REDIM` | Resize array | `REDIM arr(20)` |
+| Command          | Description         | Example                  |
+| ---------------- | ------------------- | ------------------------ |
+| `DIM arr(n)`     | Declare array       | `DIM arr(10) AS INTEGER` |
+| `REDIM`          | Resize array        | `REDIM arr(20)`          |
 | `REDIM PRESERVE` | Resize keeping data | `REDIM PRESERVE arr(30)` |
-| `LBOUND` | Lower bound | `LBOUND(arr)` → 0 or 1 |
-| `UBOUND` | Upper bound | `UBOUND(arr)` → 10 |
-| `ERASE` | Erase array | `ERASE arr` |
-| `OPTION BASE` | Set array base | `OPTION BASE 1` |
+| `LBOUND`         | Lower bound         | `LBOUND(arr)` → 0 or 1   |
+| `UBOUND`         | Upper bound         | `UBOUND(arr)` → 10       |
+| `ERASE`          | Erase array         | `ERASE arr`              |
+| `OPTION BASE`    | Set array base      | `OPTION BASE 1`          |
 
 ### File I/O
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `OPEN` | Open file | `OPEN "file.txt" FOR OUTPUT AS #1` |
-| `CLOSE` | Close file | `CLOSE #1` |
-| `PRINT #` | Write to file | `PRINT #1, "Data"` |
-| `WRITE #` | Write formatted | `WRITE #1, a, b, c` |
-| `INPUT #` | Read from file | `INPUT #1, x` |
-| `LINE INPUT #` | Read line | `LINE INPUT #1, line$` |
-| `INPUT$` | Read n characters | `INPUT$(10, #1)` |
-| `EOF` | End of file | `EOF(1)` |
-| `LOF` | Length of file | `LOF(1)` |
-| `LOC` | Current position | `LOC(1)` |
-| `SEEK` | Set file position | `SEEK #1, 100` |
-| `FREEFILE` | Get free file number | `f = FREEFILE` |
-| `GET` | Read record | `GET #1, , record` |
-| `PUT` | Write record | `PUT #1, , record` |
-| `FIELD` | Define record fields | `FIELD #1, 10 AS name$` |
-| `LSET` | Left-justify in field | `LSET name$ = "John"` |
-| `RSET` | Right-justify in field | `RSET name$ = "John"` |
-| `KILL` | Delete file | `KILL "file.txt"` |
-| `NAME...AS` | Rename file | `NAME "old.txt" AS "new.txt"` |
-| `FILES` | List files | `FILES "*.bas"` |
-| `CHDIR` | Change directory | `CHDIR "C\DATA"` |
-| `MKDIR` | Make directory | `MKDIR "NEWDIR"` |
-| `RMDIR` | Remove directory | `RMDIR "OLDDIR"` |
+| Command        | Description            | Example                            |
+| -------------- | ---------------------- | ---------------------------------- |
+| `OPEN`         | Open file              | `OPEN "file.txt" FOR OUTPUT AS #1` |
+| `CLOSE`        | Close file             | `CLOSE #1`                         |
+| `PRINT #`      | Write to file          | `PRINT #1, "Data"`                 |
+| `WRITE #`      | Write formatted        | `WRITE #1, a, b, c`                |
+| `INPUT #`      | Read from file         | `INPUT #1, x`                      |
+| `LINE INPUT #` | Read line              | `LINE INPUT #1, line$`             |
+| `INPUT$`       | Read n characters      | `INPUT$(10, #1)`                   |
+| `EOF`          | End of file            | `EOF(1)`                           |
+| `LOF`          | Length of file         | `LOF(1)`                           |
+| `LOC`          | Current position       | `LOC(1)`                           |
+| `SEEK`         | Set file position      | `SEEK #1, 100`                     |
+| `FREEFILE`     | Get free file number   | `f = FREEFILE`                     |
+| `GET`          | Read record            | `GET #1, , record`                 |
+| `PUT`          | Write record           | `PUT #1, , record`                 |
+| `FIELD`        | Define record fields   | `FIELD #1, 10 AS name$`            |
+| `LSET`         | Left-justify in field  | `LSET name$ = "John"`              |
+| `RSET`         | Right-justify in field | `RSET name$ = "John"`              |
+| `KILL`         | Delete file            | `KILL "file.txt"`                  |
+| `NAME...AS`    | Rename file            | `NAME "old.txt" AS "new.txt"`      |
+| `FILES`        | List files             | `FILES "*.bas"`                    |
+| `CHDIR`        | Change directory       | `CHDIR "C\DATA"`                   |
+| `MKDIR`        | Make directory         | `MKDIR "NEWDIR"`                   |
+| `RMDIR`        | Remove directory       | `RMDIR "OLDDIR"`                   |
 
 ### Graphics & Sound
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `SCREEN` | Set screen mode | `SCREEN 12` |
-| `COLOR` | Set colors | `COLOR 15, 1` |
-| `CLS` | Clear screen | `CLS` |
-| `LOCATE` | Position cursor | `LOCATE 10, 20` |
-| `PSET` | Set pixel | `PSET (100, 100), 15` |
-| `PRESET` | Reset pixel | `PRESET (100, 100)` |
-| `LINE` | Draw line | `LINE (0, 0)-(100, 100), 15` |
-| `CIRCLE` | Draw circle | `CIRCLE (160, 100), 50, 14` |
-| `PAINT` | Fill area | `PAINT (160, 100), 9, 14` |
-| `DRAW` | Draw with macro | `DRAW "U50 R50 D50 L50"` |
-| `VIEW` | Set viewport | `VIEW (0, 0)-(320, 200)` |
-| `WINDOW` | Set coordinates | `WINDOW (-10, -10)-(10, 10)` |
-| `PMAP` | Map coordinates | `PMAP(x, 0)` |
-| `POINT` | Get pixel color | `POINT(100, 100)` |
-| `PALETTE` | Set palette | `PALETTE 1, 63` |
-| `WIDTH` | Set screen width | `WIDTH 80, 25` |
-| `GET (graphics)` | Capture image | `GET (0, 0)-(10, 10), arr` |
-| `PUT (graphics)` | Display image | `PUT (50, 50), arr, PSET` |
-| `SOUND` | Play sound | `SOUND 440, 18` |
-| `PLAY` | Play music | `PLAY "MFT180 O3 C E G"` |
-| `BEEP` | System beep | `BEEP` |
+| Command          | Description      | Example                      |
+| ---------------- | ---------------- | ---------------------------- |
+| `SCREEN`         | Set screen mode  | `SCREEN 12`                  |
+| `COLOR`          | Set colors       | `COLOR 15, 1`                |
+| `CLS`            | Clear screen     | `CLS`                        |
+| `LOCATE`         | Position cursor  | `LOCATE 10, 20`              |
+| `PSET`           | Set pixel        | `PSET (100, 100), 15`        |
+| `PRESET`         | Reset pixel      | `PRESET (100, 100)`          |
+| `LINE`           | Draw line        | `LINE (0, 0)-(100, 100), 15` |
+| `CIRCLE`         | Draw circle      | `CIRCLE (160, 100), 50, 14`  |
+| `PAINT`          | Fill area        | `PAINT (160, 100), 9, 14`    |
+| `DRAW`           | Draw with macro  | `DRAW "U50 R50 D50 L50"`     |
+| `VIEW`           | Set viewport     | `VIEW (0, 0)-(320, 200)`     |
+| `WINDOW`         | Set coordinates  | `WINDOW (-10, -10)-(10, 10)` |
+| `PMAP`           | Map coordinates  | `PMAP(x, 0)`                 |
+| `POINT`          | Get pixel color  | `POINT(100, 100)`            |
+| `PALETTE`        | Set palette      | `PALETTE 1, 63`              |
+| `WIDTH`          | Set screen width | `WIDTH 80, 25`               |
+| `GET (graphics)` | Capture image    | `GET (0, 0)-(10, 10), arr`   |
+| `PUT (graphics)` | Display image    | `PUT (50, 50), arr, PSET`    |
+| `SOUND`          | Play sound       | `SOUND 440, 18`              |
+| `PLAY`           | Play music       | `PLAY "MFT180 O3 C E G"`     |
+| `BEEP`           | System beep      | `BEEP`                       |
 
 ### System & Memory
 
-| Command/Function | Description | Example |
-|------------------|-------------|---------|
-| `TIMER` | Seconds since midnight | `t = TIMER` |
-| `DATE$` | Current date | `d$ = DATE$` |
-| `TIME$` | Current time | `t$ = TIME$` |
-| `COMMAND$` | Command-line args | `cmd$ = COMMAND$` |
-| `ENVIRON$` | Environment variable | `ENVIRON$("PATH")` |
-| `FRE` | Free memory | `FRE("")` |
-| `CSRLIN` | Current row | `r = CSRLIN` |
-| `POS` | Current column | `c = POS(0)` |
-| `PEEK` | Read memory byte | `PEEK(&H417)` |
-| `POKE` | Write memory byte | `POKE &H417, 0` |
-| `DEF SEG` | Set memory segment | `DEF SEG = &HA000` |
-| `VARPTR` | Variable pointer | `VARPTR(x)` |
-| `VARSEG` | Variable segment | `VARSEG(x)` |
-| `SADD` | String address | `SADD(s$)` |
-| `VARPTR$` | Pointer as string | `VARPTR$(x)` |
-| `BLOAD` | Load binary file | `BLOAD "file.bin", 0` |
-| `BSAVE` | Save binary file | `BSAVE "file.bin", 0, 1000` |
-| `SHELL` | Execute command | `SHELL "DIR"` |
-| `CHAIN` | Chain to program | `CHAIN "prog2.bas"` |
-| `CALL` | Call subroutine | `CALL MySub(x, y)` |
-| `CALL ABSOLUTE` | Call machine code | `CALL ABSOLUTE(addr)` |
+| Command/Function | Description            | Example                     |
+| ---------------- | ---------------------- | --------------------------- |
+| `TIMER`          | Seconds since midnight | `t = TIMER`                 |
+| `DATE$`          | Current date           | `d$ = DATE$`                |
+| `TIME$`          | Current time           | `t$ = TIME$`                |
+| `COMMAND$`       | Command-line args      | `cmd$ = COMMAND$`           |
+| `ENVIRON$`       | Environment variable   | `ENVIRON$("PATH")`          |
+| `FRE`            | Free memory            | `FRE("")`                   |
+| `CSRLIN`         | Current row            | `r = CSRLIN`                |
+| `POS`            | Current column         | `c = POS(0)`                |
+| `PEEK`           | Read memory byte       | `PEEK(&H417)`               |
+| `POKE`           | Write memory byte      | `POKE &H417, 0`             |
+| `DEF SEG`        | Set memory segment     | `DEF SEG = &HA000`          |
+| `VARPTR`         | Variable pointer       | `VARPTR(x)`                 |
+| `VARSEG`         | Variable segment       | `VARSEG(x)`                 |
+| `SADD`           | String address         | `SADD(s$)`                  |
+| `VARPTR$`        | Pointer as string      | `VARPTR$(x)`                |
+| `BLOAD`          | Load binary file       | `BLOAD "file.bin", 0`       |
+| `BSAVE`          | Save binary file       | `BSAVE "file.bin", 0, 1000` |
+| `SHELL`          | Execute command        | `SHELL "DIR"`               |
+| `CHAIN`          | Chain to program       | `CHAIN "prog2.bas"`         |
+| `CALL`           | Call subroutine        | `CALL MySub(x, y)`          |
+| `CALL ABSOLUTE`  | Call machine code      | `CALL ABSOLUTE(addr)`       |
 
 ### Error Handling
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `ON ERROR GOTO` | Set error handler | `ON ERROR GOTO ErrorHandler` |
-| `ON ERROR RESUME NEXT` | Ignore errors | `ON ERROR RESUME NEXT` |
-| `RESUME` | Resume after error | `RESUME` |
-| `RESUME NEXT` | Resume next line | `RESUME NEXT` |
-| `RESUME <label>` | Resume at label | `RESUME Continue` |
-| `ERR` | Error number | `IF ERR = 53 THEN...` |
-| `ERL` | Error line number | `PRINT "Error at line"; ERL` |
-| `ERDEV` | Device error code | `ERDEV` |
-| `ERDEV$` | Device error string | `ERDEV$` |
+| Command                | Description         | Example                      |
+| ---------------------- | ------------------- | ---------------------------- |
+| `ON ERROR GOTO`        | Set error handler   | `ON ERROR GOTO ErrorHandler` |
+| `ON ERROR RESUME NEXT` | Ignore errors       | `ON ERROR RESUME NEXT`       |
+| `RESUME`               | Resume after error  | `RESUME`                     |
+| `RESUME NEXT`          | Resume next line    | `RESUME NEXT`                |
+| `RESUME <label>`       | Resume at label     | `RESUME Continue`            |
+| `ERR`                  | Error number        | `IF ERR = 53 THEN...`        |
+| `ERL`                  | Error line number   | `PRINT "Error at line"; ERL` |
+| `ERDEV`                | Device error code   | `ERDEV`                      |
+| `ERDEV$`               | Device error string | `ERDEV$`                     |
 
 ### Advanced Features
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `SUB...END SUB` | Define subroutine | `SUB MySub(x)` |
-| `FUNCTION...END FUNCTION` | Define function | `FUNCTION Add(a, b)` |
-| `DECLARE SUB` | Declare subroutine | `DECLARE SUB MySub(x AS INTEGER)` |
-| `DECLARE FUNCTION` | Declare function | `DECLARE FUNCTION Add#(a, b)` |
-| `DEF FN` | Define inline function | `DEF FNSquare(x) = x * x` |
-| `STATIC` | Static sub/function | `SUB MySub STATIC` |
-| `SHARED` | Share variables | `SHARED x, y` |
-| `COMMON SHARED` | Share across modules | `COMMON SHARED x AS INTEGER` |
-| `DATA` | Define data | `DATA 10, 20, 30` |
-| `READ` | Read data | `READ x, y, z` |
-| `RESTORE` | Reset data pointer | `RESTORE MyData` |
-| `KEY` | Define function key | `KEY 1, "LIST" + CHR$(13)` |
-| `KEY ON/OFF` | Enable/disable keys | `KEY ON` |
-| `KEY LIST` | List key definitions | `KEY LIST` |
-| `ON TIMER` | Timer event | `ON TIMER(1) GOSUB TimerEvent` |
-| `TIMER ON/OFF` | Enable/disable timer | `TIMER ON` |
-| `ON COM` | Serial port event | `ON COM(1) GOSUB ComEvent` |
-| `ON PEN` | Light pen event | `ON PEN GOSUB PenEvent` |
-| `ON STRIG` | Joystick event | `ON STRIG(1) GOSUB JoyEvent` |
-| `ON PLAY` | Music event | `ON PLAY(1) GOSUB MusicEvent` |
-| `TRON` | Trace on | `TRON` |
-| `TROFF` | Trace off | `TROFF` |
-| `LPRINT` | Print to printer | `LPRINT "Text"` |
-| `LPOS` | Printer position | `LPOS(1)` |
-| `OUT` | Output to port | `OUT &H3F8, 65` |
-| `INP` | Input from port | `INP(&H3F8)` |
-| `WAIT` | Wait for port | `WAIT &H3DA, 8` |
-| `STICK` | Joystick position | `STICK(0)` |
-| `VIEW PRINT` | Set text viewport | `VIEW PRINT 1 TO 20` |
+| Command                   | Description            | Example                           |
+| ------------------------- | ---------------------- | --------------------------------- |
+| `SUB...END SUB`           | Define subroutine      | `SUB MySub(x)`                    |
+| `FUNCTION...END FUNCTION` | Define function        | `FUNCTION Add(a, b)`              |
+| `DECLARE SUB`             | Declare subroutine     | `DECLARE SUB MySub(x AS INTEGER)` |
+| `DECLARE FUNCTION`        | Declare function       | `DECLARE FUNCTION Add#(a, b)`     |
+| `DEF FN`                  | Define inline function | `DEF FNSquare(x) = x * x`         |
+| `STATIC`                  | Static sub/function    | `SUB MySub STATIC`                |
+| `SHARED`                  | Share variables        | `SHARED x, y`                     |
+| `COMMON SHARED`           | Share across modules   | `COMMON SHARED x AS INTEGER`      |
+| `DATA`                    | Define data            | `DATA 10, 20, 30`                 |
+| `READ`                    | Read data              | `READ x, y, z`                    |
+| `RESTORE`                 | Reset data pointer     | `RESTORE MyData`                  |
+| `KEY`                     | Define function key    | `KEY 1, "LIST" + CHR$(13)`        |
+| `KEY ON/OFF`              | Enable/disable keys    | `KEY ON`                          |
+| `KEY LIST`                | List key definitions   | `KEY LIST`                        |
+| `ON TIMER`                | Timer event            | `ON TIMER(1) GOSUB TimerEvent`    |
+| `TIMER ON/OFF`            | Enable/disable timer   | `TIMER ON`                        |
+| `ON COM`                  | Serial port event      | `ON COM(1) GOSUB ComEvent`        |
+| `ON PEN`                  | Light pen event        | `ON PEN GOSUB PenEvent`           |
+| `ON STRIG`                | Joystick event         | `ON STRIG(1) GOSUB JoyEvent`      |
+| `ON PLAY`                 | Music event            | `ON PLAY(1) GOSUB MusicEvent`     |
+| `TRON`                    | Trace on               | `TRON`                            |
+| `TROFF`                   | Trace off              | `TROFF`                           |
+| `LPRINT`                  | Print to printer       | `LPRINT "Text"`                   |
+| `LPOS`                    | Printer position       | `LPOS(1)`                         |
+| `OUT`                     | Output to port         | `OUT &H3F8, 65`                   |
+| `INP`                     | Input from port        | `INP(&H3F8)`                      |
+| `WAIT`                    | Wait for port          | `WAIT &H3DA, 8`                   |
+| `STICK`                   | Joystick position      | `STICK(0)`                        |
+| `VIEW PRINT`              | Set text viewport      | `VIEW PRINT 1 TO 20`              |
 
 ### Logical Operators
 
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `AND` | Logical AND | `IF x > 0 AND y > 0 THEN` |
-| `OR` | Logical OR | `IF x = 1 OR y = 1 THEN` |
-| `NOT` | Logical NOT | `IF NOT flag THEN` |
-| `XOR` | Exclusive OR | `result = a XOR b` |
-| `EQV` | Equivalence | `result = a EQV b` |
-| `IMP` | Implication | `result = a IMP b` |
+| Operator | Description  | Example                   |
+| -------- | ------------ | ------------------------- |
+| `AND`    | Logical AND  | `IF x > 0 AND y > 0 THEN` |
+| `OR`     | Logical OR   | `IF x = 1 OR y = 1 THEN`  |
+| `NOT`    | Logical NOT  | `IF NOT flag THEN`        |
+| `XOR`    | Exclusive OR | `result = a XOR b`        |
+| `EQV`    | Equivalence  | `result = a EQV b`        |
+| `IMP`    | Implication  | `result = a IMP b`        |
 
 ### Comparison Operators
 
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `=` | Equal | `IF x = 10 THEN` |
-| `<>` | Not equal | `IF x <> 10 THEN` |
-| `<` | Less than | `IF x < 10 THEN` |
-| `>` | Greater than | `IF x > 10 THEN` |
-| `<=` | Less or equal | `IF x <= 10 THEN` |
-| `>=` | Greater or equal | `IF x >= 10 THEN` |
+| Operator | Description      | Example           |
+| -------- | ---------------- | ----------------- |
+| `=`      | Equal            | `IF x = 10 THEN`  |
+| `<>`     | Not equal        | `IF x <> 10 THEN` |
+| `<`      | Less than        | `IF x < 10 THEN`  |
+| `>`      | Greater than     | `IF x > 10 THEN`  |
+| `<=`     | Less or equal    | `IF x <= 10 THEN` |
+| `>=`     | Greater or equal | `IF x >= 10 THEN` |
 
 ---
 
@@ -953,11 +968,13 @@ The project uses Cargo workspaces for modular development. Each crate has its ow
 ### Run Test Suite
 
 **Run all tests**
+
 ```bash
 cargo test
 ```
 
 **Run tests for specific crate**
+
 ```bash
 cargo test -p tokenizer
 cargo test -p syntax_tree
@@ -965,6 +982,7 @@ cargo test -p vm_engine
 ```
 
 **Run with output**
+
 ```bash
 cargo test -- --nocapture
 ```
@@ -972,18 +990,21 @@ cargo test -- --nocapture
 ### Build Variants
 
 **Debug build (fast compilation, slower execution)**
+
 ```bash
 cargo build
 ./target/debug/qb examples/test_all.bas
 ```
 
 **Release build (optimized)**
+
 ```bash
 cargo build --release
 ./target/release/qb examples/test_all.bas
 ```
 
 **Benchmark build**
+
 ```bash
 cargo build --profile bench
 ```
@@ -991,11 +1012,13 @@ cargo build --profile bench
 ### Run Examples
 
 **Comprehensive test suite**
+
 ```bash
 cargo run --release -- examples/test_all.bas
 ```
 
 **Individual examples**
+
 ```bash
 cargo run --release -- -x examples/hello.bas
 cargo run --release -- -c examples/calc.bas
@@ -1024,11 +1047,13 @@ cargo run --release -- -c examples/calc.bas
 ### Performance Profiling
 
 **Build with profiling**
+
 ```bash
 cargo build --release
 ```
 
 **Profile execution**
+
 ```bash
 # Windows
 cargo run --release -- examples/test_all.bas
@@ -1041,11 +1066,13 @@ perf report
 ### Debugging
 
 **Enable debug output**
+
 ```bash
 RUST_LOG=debug cargo run -- -x examples/test_all.bas
 ```
 
 **Run with debugger**
+
 ```bash
 # GDB (Linux)
 gdb --args target/debug/qb examples/test_all.bas
@@ -1078,6 +1105,7 @@ lldb target/debug/qb -- examples/test_all.bas
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 **Ways to contribute**
+
 - Report bugs and issues
 - Suggest new features
 - Improve documentation
@@ -1086,6 +1114,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 - Optimize performance
 
 **Development setup**
+
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
@@ -1101,6 +1130,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 **MIT License Summary**
+
 - ✅ Commercial use
 - ✅ Modification
 - ✅ Distribution

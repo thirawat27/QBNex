@@ -407,7 +407,7 @@ impl CodeGenerator {
                     && self
                         .current_function_name
                         .as_ref()
-                        .map_or(true, |current| !current.eq_ignore_ascii_case(name))
+                        .is_none_or(|current| !current.eq_ignore_ascii_case(name))
                 {
                     self.generate_user_function_call(name, &[])
                 } else if var.type_suffix == Some('$') || name.ends_with('$') {

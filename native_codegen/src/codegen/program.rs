@@ -124,11 +124,13 @@ impl CodeGenerator {
                 Statement::LSet { target, .. } | Statement::RSet { target, .. } => {
                     self.collect_var_from_expr(target);
                 }
-                Statement::Get { variable, .. } => {
-                    if let Some(variable) = variable {
-                        self.collect_var_from_expr(variable);
-                    }
+                Statement::Get {
+                    variable: Some(variable),
+                    ..
+                } => {
+                    self.collect_var_from_expr(variable);
                 }
+                Statement::Get { .. } => {}
                 Statement::LineInput { variable, .. }
                 | Statement::LineInputFile { variable, .. } => {
                     self.collect_var_from_expr(variable);
@@ -655,6 +657,7 @@ impl CodeGenerator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn generate_top_level_branch(
         &mut self,
         statements: &[Statement],
@@ -683,6 +686,7 @@ impl CodeGenerator {
         Ok(false)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn generate_top_level_flow_statement(
         &mut self,
         statement: &Statement,
@@ -1954,11 +1958,8 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 
 "#,
         );
-        if self.use_graphics {
-            self.write_graphics_prelude();
-        } else {
-            self.output.push_str(
-                r#"
+        self.output.push_str(
+            r#"
 thread_local! {
     static QB_CURSOR_STATE: std::cell::RefCell<(i32, i32)> = std::cell::RefCell::new((1, 1));
 }
@@ -1995,7 +1996,13 @@ fn qb_print_newline() {
         state.1 = 1;
     });
 }
-
+"#
+        );
+        if self.use_graphics {
+            self.write_graphics_prelude();
+        } else {
+            self.output.push_str(
+                r#"
 fn cls() {
      print!("\x1B[2J\x1B[1;1H");
      let _ = io::stdout().flush();
