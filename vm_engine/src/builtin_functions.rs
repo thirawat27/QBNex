@@ -54,17 +54,18 @@ pub fn get_builtin_arity(name: &str) -> Option<(usize, usize)> {
         "ERR" | "ERL" | "ERDEV" | "ERDEV$" => Some((0, 0)),
 
         // Functions with 2 required arguments
-        "LEFT$" | "RIGHT$" | "SPACE$" | "STRING$" | "INSTR" => Some((2, 2)),
+        "LEFT$" | "RIGHT$" | "STRING$" => Some((2, 2)),
+        "SPACE$" => Some((1, 1)),
 
         // Functions with 2-3 arguments
-        "MID$" => Some((2, 3)),
+        "MID$" | "INSTR" => Some((2, 3)),
 
         // Functions with optional arguments
         "LBOUND" | "UBOUND" => Some((1, 2)), // array name, optional dimension
         "EOF" | "LOF" | "LOC" => Some((1, 1)), // file number
         "FREEFILE" => Some((0, 0)),
-        "INPUT$" => Some((1, 2)),    // n, optional file number
-        "RANDOMIZE" => Some((0, 1)), // optional seed
+        "INPUT$" => Some((1, 2)),     // n, optional file number
+        "RND" | "RANDOMIZE" => Some((0, 1)), // optional seed/control arg
 
         _ => None,
     }
@@ -91,11 +92,21 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
         }
         "MID$" => {
             if args.len() >= 2 {
-                bytecode.push(OpCode::Mid);
+                if args.len() >= 3 {
+                    bytecode.push(OpCode::Mid);
+                } else {
+                    bytecode.push(OpCode::MidNoLen);
+                }
             }
         }
         "LEN" => bytecode.push(OpCode::Len),
-        "INSTR" => bytecode.push(OpCode::InStr),
+        "INSTR" => {
+            if args.len() >= 3 {
+                bytecode.push(OpCode::InStrFrom);
+            } else {
+                bytecode.push(OpCode::InStr);
+            }
+        }
         "LCASE$" => bytecode.push(OpCode::LCase),
         "UCASE$" => bytecode.push(OpCode::UCase),
         "LTRIM$" => bytecode.push(OpCode::LTrim),
@@ -136,7 +147,13 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
         "SQR" => bytecode.push(OpCode::Sqr),
         "INT" => bytecode.push(OpCode::IntFunc),
         "FIX" => bytecode.push(OpCode::Fix),
-        "RND" => bytecode.push(OpCode::Rnd),
+        "RND" => {
+            if args.is_empty() {
+                bytecode.push(OpCode::Rnd);
+            } else {
+                bytecode.push(OpCode::RndWithArg);
+            }
+        }
 
         // Type conversion
         "CINT" => bytecode.push(OpCode::CInt),
@@ -198,31 +215,37 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
 
         // File I/O
         "EOF" => {
-            if let Some(OpCode::LoadConstant(QType::Integer(n))) = args.first() {
-                bytecode.push(OpCode::Eof(n.to_string()));
+            match args.first() {
+                Some(OpCode::LoadConstant(QType::Integer(n))) => {
+                    bytecode.push(OpCode::Eof(n.to_string()));
+                }
+                Some(_) => bytecode.push(OpCode::EofDynamic),
+                None => {}
             }
         }
         "LOF" => {
-            if let Some(OpCode::LoadConstant(QType::Integer(n))) = args.first() {
-                bytecode.push(OpCode::Lof(n.to_string()));
+            match args.first() {
+                Some(OpCode::LoadConstant(QType::Integer(n))) => {
+                    bytecode.push(OpCode::Lof(n.to_string()));
+                }
+                Some(_) => bytecode.push(OpCode::LofDynamic),
+                None => {}
             }
         }
         "FREEFILE" => bytecode.push(OpCode::FreeFile),
         "LOC" => {
-            // File position - similar to LOF for now
-            if let Some(OpCode::LoadConstant(QType::Integer(n))) = args.first() {
-                bytecode.push(OpCode::Lof(n.to_string()));
+            match args.first() {
+                Some(OpCode::LoadConstant(QType::Integer(n))) => {
+                    bytecode.push(OpCode::Loc(n.to_string()));
+                }
+                Some(_) => bytecode.push(OpCode::LocDynamic),
+                None => {}
             }
         }
         "INPUT$" => {
-            // Read n characters from file or keyboard
-            if args.len() >= 2 {
-                // File version
-                bytecode.push(OpCode::Input);
-            } else {
-                // Keyboard version
-                bytecode.push(OpCode::Input);
-            }
+            bytecode.push(OpCode::InputChars {
+                has_file_number: args.len() >= 2,
+            });
         }
 
         // System functions
@@ -250,6 +273,14 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
                 0
             };
             bytecode.push(OpCode::PosFunc(arg));
+        }
+        "LPOS" => {
+            let arg = if let Some(OpCode::LoadConstant(QType::Integer(n))) = args.first() {
+                *n as i32
+            } else {
+                0
+            };
+            bytecode.push(OpCode::LPosFunc(arg));
         }
         "ENVIRON$" => {
             // Environment variable

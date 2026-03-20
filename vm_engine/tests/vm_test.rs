@@ -1,4 +1,6 @@
 use core_types::QType;
+use std::fs;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use syntax_tree::Parser;
 use vm_engine::builtin_functions::get_builtin_arity;
@@ -13,6 +15,24 @@ fn numeric_equals(value: &QType, expected: f64) -> bool {
         QType::Double(v) => (*v - expected).abs() < f64::EPSILON,
         _ => false,
     }
+}
+
+fn run_source(source: &str) -> VM {
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+    let mut vm = VM::new(bytecode);
+    vm.run().unwrap();
+    vm
+}
+
+fn unique_temp_file(stem: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("qbnex_{stem}_{nanos}.tmp"))
 }
 
 #[test]
@@ -104,6 +124,217 @@ PUT (20, 20), sprite, XOR";
         .iter()
         .any(|op| matches!(op, OpCode::GetImage { array, .. } if array == "sprite")));
     assert!(bytecode.iter().any(|op| matches!(op, OpCode::PutImage { array, action, .. } if array == "sprite" && action == "XOR")));
+}
+
+#[test]
+fn test_vm_dynamic_graphics_and_audio_statements_execute_without_stack_leaks() {
+    let vm = run_source(
+        r#"
+screenMode = 13
+SCREEN screenMode
+x = 10
+y = 12
+c = 6
+PSET (x, y), c
+LINE (x, y)-(x + 4, y), c
+CIRCLE (x + 10, y + 8), 3, c
+cmd$ = "BM40,20 C7 R3"
+DRAW cmd$
+melody$ = "C"
+PLAY melody$
+"#,
+    );
+
+    let gfx = vm.graphics.as_ref().expect("graphics runtime");
+    assert_eq!(gfx.get_pixel(10, 12), 6);
+    assert_eq!(gfx.get_pixel(14, 12), 6);
+    assert_eq!(gfx.get_pixel(23, 20), 6);
+    assert_eq!(gfx.get_pixel(43, 20), 7);
+    assert!(vm.sound.is_playing());
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_dynamic_graphics_functions_and_system_helpers() {
+    let vm = run_source(
+        r#"
+screenMode = 13
+SCREEN screenMode
+vx1 = 10
+vy1 = 10
+vx2 = 110
+vy2 = 110
+VIEW (vx1, vy1)-(vx2, vy2), 0, 0
+wx1 = -10
+wy1 = -10
+wx2 = 10
+wy2 = 10
+WINDOW (wx1, wy1)-(wx2, wy2)
+x = 0
+y = 0
+shade = 12
+PSET (x, y), shade
+IF POINT(x, y) <> 12 THEN ERROR 61
+IF PMAP(x, 0) <> 60 THEN ERROR 62
+IF PMAP(y, 1) <> 60 THEN ERROR 63
+IF PMAP(PMAP(x, 0), 2) <> 0 THEN ERROR 64
+IF PMAP(PMAP(y, 1), 3) <> 0 THEN ERROR 65
+row = 5
+col = 9
+LOCATE row, col
+probe = 0
+IF POS(probe) <> col THEN ERROR 66
+probe$ = ""
+IF FRE(probe$) <> 524288 THEN ERROR 67
+segmentValue = 8192
+addr = 16
+DEF SEG = segmentValue
+POKE addr, 77
+IF PEEK(addr) <> 77 THEN ERROR 68
+"#,
+    );
+
+    let gfx = vm.graphics.as_ref().expect("graphics runtime");
+    assert_eq!(gfx.get_pixel(0, 0), 12);
+    assert_eq!(vm.runtime.cursor_col, 9);
+    assert_eq!(vm.runtime.current_segment, 8192);
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_mid_without_length_and_instr_with_start_argument() {
+    let vm = run_source(
+        r#"
+TAIL$ = MID$("ABCDE", 3)
+POS1 = INSTR("ABCDE", "CD")
+POS2 = INSTR(2, "ABCDE", "CD")
+IF TAIL$ <> "CDE" THEN ERROR 81
+IF POS1 <> 3 THEN ERROR 82
+IF POS2 <> 3 THEN ERROR 83
+"#,
+    );
+
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_randomize_and_rnd_argument_forms() {
+    let vm = run_source(
+        r#"
+RANDOMIZE 1234
+A = RND(1)
+B = RND(0)
+RANDOMIZE 1234
+C = RND(1)
+IF A <> B THEN ERROR 84
+IF A <> C THEN ERROR 85
+"#,
+    );
+
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_input_str_file_mode_reads_requested_bytes() {
+    let path = unique_temp_file("input_chars");
+    let escaped_path = path.to_string_lossy().replace('\\', "\\\\");
+    let source = format!(
+        "\
+OPEN \"{escaped_path}\" FOR OUTPUT AS #1
+PRINT #1, \"ABCDE\"
+CLOSE #1
+OPEN \"{escaped_path}\" FOR INPUT AS #1
+CHUNK$ = INPUT$(3, 1)
+CLOSE #1
+IF CHUNK$ <> \"ABC\" THEN ERROR 86
+"
+    );
+
+    let vm = run_source(&source);
+    let _ = fs::remove_file(&path);
+
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_environ_supports_string_and_numeric_forms() {
+    let key = format!("QBNEX_ENV_{}", std::process::id());
+    let value = "VISIBLE";
+    let pair = format!("{key}={value}");
+    unsafe {
+        std::env::set_var(&key, value);
+    }
+
+    let source = format!(
+        "\
+PROBE$ = \"{pair}\"
+FOUND = 0
+FOR I = 1 TO 4096
+    IF ENVIRON$(I) = PROBE$ THEN FOUND = -1
+NEXT I
+IF FOUND = 0 THEN ERROR 87
+IF ENVIRON$(\"{key}\") <> \"{value}\" THEN ERROR 88
+"
+    );
+
+    let vm = run_source(&source);
+    unsafe {
+        std::env::remove_var(&key);
+    }
+
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_str_val_and_string_follow_qbasic_semantics() {
+    let vm = run_source(
+        r#"
+A$ = STR$(123)
+B = VAL("123ABC")
+C = VAL("&H10")
+D$ = STRING$(3, 65)
+E$ = STRING$(2, "Z")
+IF A$ <> " 123" THEN ERROR 89
+IF B <> 123 THEN ERROR 90
+IF C <> 16 THEN ERROR 91
+IF D$ <> "AAA" THEN ERROR 92
+IF E$ <> "ZZ" THEN ERROR 93
+"#,
+    );
+
+    assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_restore_label_and_line_number_reset_data_pointer() {
+    let vm = run_source(
+        r#"
+DATA 1
+firstLabel:
+marker = 0
+DATA 2, 3
+READ a
+IF a <> 1 THEN ERROR 71
+RESTORE firstLabel
+READ b
+READ c
+IF b <> 2 THEN ERROR 72
+IF c <> 3 THEN ERROR 73
+100 DATA 4
+RESTORE 100
+READ d
+IF d <> 4 THEN ERROR 74
+tailLabel:
+marker = 1
+RESTORE tailLabel
+"#,
+    );
+
+    assert_eq!(
+        vm.runtime.data_pointer.section_index,
+        vm.runtime.data_section.len()
+    );
+    assert_eq!(vm.runtime.data_pointer.value_index, 0);
 }
 
 #[test]
@@ -274,6 +505,63 @@ END SUB";
 }
 
 #[test]
+fn test_vm_compile_rejects_wrong_sub_argument_count() {
+    let source = "\
+DECLARE SUB INC(X!)
+CALL INC(1, 2)
+SUB INC(X!)
+END SUB";
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let result = compiler.compile();
+
+    assert!(matches!(
+        result,
+        Err(core_types::QError::InvalidProcedure(message))
+            if message.contains("SUB INC expects 1 argument(s), got 2")
+    ));
+}
+
+#[test]
+fn test_vm_compile_rejects_declared_function_without_definition() {
+    let source = "\
+DECLARE FUNCTION MISSING!(X!)
+PRINT MISSING!(1)";
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let result = compiler.compile();
+
+    assert!(matches!(
+        result,
+        Err(core_types::QError::InvalidProcedure(message))
+            if message.contains("FUNCTION MISSING! is declared but has no definition")
+    ));
+}
+
+#[test]
+fn test_vm_compile_rejects_declare_definition_signature_mismatch() {
+    let source = "\
+DECLARE SUB INC(BYVAL X!)
+SUB INC(X!)
+END SUB";
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let result = compiler.compile();
+
+    assert!(matches!(
+        result,
+        Err(core_types::QError::InvalidProcedure(message))
+            if message.contains("SUB INC argument 1 declared as BYVAL, defined as BYREF")
+    ));
+}
+
+#[test]
 fn test_vm_user_defined_function_call_is_case_insensitive() {
     let source = "\
 DECLARE FUNCTION Inc!(X!)
@@ -331,6 +619,43 @@ END SUB";
 }
 
 #[test]
+fn test_vm_sub_call_respects_byval_parameter_declaration() {
+    let source = "\
+DECLARE SUB INC(BYVAL X!)
+A = 10
+CALL INC(A)
+B = A
+SUB INC(BYVAL X!)
+    X! = X! + 1
+END SUB";
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+
+    assert!(bytecode.iter().any(
+        |op| matches!(op, OpCode::CallSub { name, by_ref } if name == "INC" && by_ref.iter().all(|slot| matches!(slot, ByRefTarget::None)))
+    ));
+
+    let mut vm = VM::new(bytecode);
+    vm.run().unwrap();
+
+    let tens = vm
+        .runtime
+        .globals
+        .iter()
+        .filter(|value| numeric_equals(value, 10.0))
+        .count();
+    assert!(tens >= 2);
+    assert!(!vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 11.0)));
+}
+
+#[test]
 fn test_vm_function_call_copies_back_byref_argument() {
     let source = "\
 DECLARE FUNCTION BUMP!(X!)
@@ -366,6 +691,45 @@ END FUNCTION";
         })
         .count();
     assert!(elevens >= 2);
+}
+
+#[test]
+fn test_vm_function_call_respects_byval_parameter_definition() {
+    let source = "\
+FUNCTION BUMP!(BYVAL X!)
+    X! = X! + 1
+    BUMP! = X!
+END FUNCTION
+A = 10
+B = BUMP!(A)
+C = A";
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+
+    assert!(bytecode.iter().any(
+        |op| matches!(op, OpCode::CallFunction { name, by_ref } if name == "BUMP!" && by_ref.iter().all(|slot| matches!(slot, ByRefTarget::None)))
+    ));
+
+    let mut vm = VM::new(bytecode);
+    vm.run().unwrap();
+
+    let tens = vm
+        .runtime
+        .globals
+        .iter()
+        .filter(|value| numeric_equals(value, 10.0))
+        .count();
+    let elevens = vm
+        .runtime
+        .globals
+        .iter()
+        .filter(|value| numeric_equals(value, 11.0))
+        .count();
+    assert!(tens >= 2);
+    assert!(elevens >= 1);
 }
 
 #[test]
@@ -539,6 +903,45 @@ fn test_builtin_arity_matches_zero_arg_runtime_functions() {
     assert_eq!(get_builtin_arity("TIME$"), Some((0, 0)));
     assert_eq!(get_builtin_arity("CSRLIN"), Some((0, 0)));
     assert_eq!(get_builtin_arity("COMMAND$"), Some((0, 0)));
+    assert_eq!(get_builtin_arity("RND"), Some((0, 1)));
+    assert_eq!(get_builtin_arity("INSTR"), Some((2, 3)));
+    assert_eq!(get_builtin_arity("SPACE$"), Some((1, 1)));
+}
+
+#[test]
+fn test_vm_executes_def_fn_calls_with_arguments() {
+    let vm = run_source(
+        r#"
+DEF FNTWICE(X) = X * 2
+RESULT = FNTWICE(5)
+"#,
+    );
+
+    assert!(vm.runtime.globals.iter().any(|value| numeric_equals(value, 10.0)));
+}
+
+#[test]
+fn test_vm_def_fn_can_capture_outer_const_values() {
+    let vm = run_source(
+        r#"
+CONST MY_PI = 3.141592653589793
+CLEAR
+DEF FNAREA(R) = MY_PI * (R ^ 2)
+RESULT = FNAREA(5)
+"#,
+    );
+
+    assert!(
+        vm.runtime.globals.iter().any(|value| match value {
+            QType::Integer(v) => (*v as f64 - 78.53981633974483).abs() < 1e-4,
+            QType::Long(v) => (*v as f64 - 78.53981633974483).abs() < 1e-4,
+            QType::Single(v) => (*v as f64 - 78.53981633974483).abs() < 1e-4,
+            QType::Double(v) => (*v - 78.53981633974483).abs() < 1e-4,
+            _ => false,
+        }),
+        "expected DEF FN result to use outer CONST, globals={:?}",
+        vm.runtime.globals
+    );
 }
 
 #[test]
@@ -651,6 +1054,29 @@ fn test_vm_inkey_returns_string_without_error() {
     assert!(matches!(
         vm.runtime.variables.get("K$"),
         Some(QType::String(_))
+    ));
+}
+
+#[test]
+fn test_vm_inkey_noninteractive_fallback_is_one_shot() {
+    let bytecode = vec![
+        OpCode::InKeyFunc,
+        OpCode::StoreVariable("K1$".to_string()),
+        OpCode::InKeyFunc,
+        OpCode::StoreVariable("K2$".to_string()),
+        OpCode::End,
+    ];
+
+    let mut vm = VM::new(bytecode);
+    vm.run().unwrap();
+
+    assert!(matches!(
+        vm.runtime.variables.get("K1$"),
+        Some(QType::String(value)) if !value.is_empty()
+    ));
+    assert!(matches!(
+        vm.runtime.variables.get("K2$"),
+        Some(QType::String(value)) if value.is_empty()
     ));
 }
 
@@ -773,7 +1199,7 @@ P = LPOS(0)";
     let mut compiler = BytecodeCompiler::new(program);
     let bytecode = compiler.compile().unwrap();
 
-    assert!(bytecode.iter().any(|op| matches!(op, OpCode::PosFunc(0))));
+    assert!(bytecode.iter().any(|op| matches!(op, OpCode::LPosFunc(0))));
 
     let mut vm = VM::new(bytecode);
     vm.run().unwrap();
@@ -851,9 +1277,9 @@ A$ = \"ABCDE\"";
     let mut compiler = BytecodeCompiler::new(program);
     let bytecode = compiler.compile().unwrap();
 
-    assert!(bytecode.iter().any(
-        |op| matches!(op, OpCode::SetStringWidth { width, .. } if *width == 4)
-    ));
+    assert!(bytecode
+        .iter()
+        .any(|op| matches!(op, OpCode::SetStringWidth { width, .. } if *width == 4)));
 
     let mut vm = VM::new(bytecode);
     vm.run().unwrap();

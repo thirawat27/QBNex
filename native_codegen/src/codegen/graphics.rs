@@ -139,6 +139,24 @@ fn normalize_color(c: f64) -> u8 {
     (c.round() as i32).clamp(0, 255) as u8
 }
 
+fn qb_point(x: f64, y: f64) -> f64 {
+    unsafe {
+        GRAPHICS
+            .as_ref()
+            .map(|gfx| gfx.get_pixel(x.round() as i32, y.round() as i32) as f64)
+            .unwrap_or(0.0)
+    }
+}
+
+fn qb_pmap(coord: f64, func: f64) -> f64 {
+    unsafe {
+        GRAPHICS
+            .as_ref()
+            .map(|gfx| gfx.pmap(coord, func.round() as i32))
+            .unwrap_or(coord)
+    }
+}
+
 fn qb_color(foreground: f64) {
     unsafe {
         CURRENT_COLOR = normalize_color(foreground);

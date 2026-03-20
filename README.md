@@ -269,7 +269,26 @@ The executable will be located at
 cargo build
 ```
 
-### 4. Install to System (Optional)
+### 4. Run with Docker
+
+For containerized usage on Linux or in CI environments, build the bundled image
+
+```bash
+docker build -t qbnex .
+```
+
+Run the CLI from the current working directory
+
+```bash
+docker run --rm -it -v "$PWD:/workspace" -w /workspace qbnex -x examples/test_all.bas
+```
+
+Notes
+
+- The Docker image is intended for CLI/interpreter/native compilation workflows
+- Graphics programs may still require host GUI/display integration outside the container
+
+### 5. Install to System (Optional)
 
 **Windows**
 
@@ -291,12 +310,21 @@ sudo cp target/release/qb /usr/local/bin/
 export PATH="$PATH$HOME/QBNex/target/release"
 ```
 
-### 5. Verify Installation
+### 6. Verify Installation
 
 ```bash
 qb --version
 qb --help
 ```
+
+### GitHub Actions Artifacts
+
+The repository includes a multi-OS GitHub Actions workflow at [ci.yml](./.github/workflows/ci.yml) that
+
+- runs `cargo test -q` on Windows, Linux, and macOS
+- builds the release `qb` binary on each OS
+- uploads per-OS build artifacts for download from the workflow run page
+- verifies that the Docker image builds successfully on Linux
 
 ---
 

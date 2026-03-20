@@ -272,6 +272,7 @@ fn has_disallowed_nested_control_flow(
 mod tests {
     use super::{unsupported_statements, Backend};
     use crate::Parser;
+    use core_types::QType;
 
     fn parse(source: &str) -> Program {
         let mut parser = Parser::new(source.to_string()).unwrap();
@@ -342,6 +343,33 @@ mod tests {
             parse("PRINT FIXED$\nFUNCTION FIXED$() AS STRING * 4\nFIXED$ = \"ABCD\"\nEND FUNCTION");
         let func = program.functions.get("FIXED$").expect("missing function");
         assert_eq!(func.return_fixed_length, Some(4));
+    }
+
+    #[test]
+    fn parser_preserves_declare_signature_metadata() {
+        let program = parse("DECLARE FUNCTION PAD(BYVAL A$ AS STRING * 4, BYREF B%) AS STRING * 6");
+
+        match &program.statements[0] {
+            ProgramStatement::Declare {
+                name,
+                is_function,
+                params,
+                return_type,
+                return_fixed_length,
+            } => {
+                assert_eq!(name, "PAD");
+                assert!(*is_function);
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0].name, "A$");
+                assert!(params[0].by_val);
+                assert_eq!(params[0].fixed_length, Some(4));
+                assert_eq!(params[1].name, "B%");
+                assert!(!params[1].by_val);
+                assert!(matches!(return_type, Some(QType::String(_))));
+                assert_eq!(*return_fixed_length, Some(6));
+            }
+            _ => panic!("expected DECLARE statement"),
+        }
     }
 
     #[test]

@@ -17,12 +17,15 @@ pub struct BytecodeCompiler {
     bytecode: Vec<OpCode>,
     labels: HashMap<String, usize>,
     line_numbers: HashMap<String, usize>,
+    restore_targets: HashMap<String, usize>,
     pending_jumps: Vec<(usize, String)>, // (bytecode_index, label_name)
     pending_gosubs: Vec<(usize, String)>, // (bytecode_index, label_name)
-    pending_on_errors: Vec<(usize, String)>, // (bytecode_index, label_name) for ON ERROR GOTO
+    pending_on_errors: Vec<(usize, GotoTarget)>, // (bytecode_index, target) for ON ERROR GOTO
     pending_on_timers: Vec<(usize, String)>, // (bytecode_index, label_name) for ON TIMER GOSUB
     variable_map: HashMap<String, usize>,
     field_widths: HashMap<usize, usize>,
+    function_param_modes: HashMap<String, Vec<bool>>,
+    sub_param_modes: HashMap<String, Vec<bool>>,
     next_var_index: usize,
     loop_contexts: Vec<LoopContext>,
     current_function: Option<String>,
@@ -30,17 +33,22 @@ pub struct BytecodeCompiler {
 
 impl BytecodeCompiler {
     pub fn new(program: Program) -> Self {
+        let function_param_modes = Self::collect_param_modes(&program, true);
+        let sub_param_modes = Self::collect_param_modes(&program, false);
         Self {
             program,
             bytecode: Vec::with_capacity(1024),
             labels: HashMap::with_capacity(64),
             line_numbers: HashMap::with_capacity(128),
+            restore_targets: HashMap::with_capacity(64),
             pending_jumps: Vec::with_capacity(32),
             pending_gosubs: Vec::with_capacity(32),
             pending_on_errors: Vec::with_capacity(16),
             pending_on_timers: Vec::with_capacity(8),
             variable_map: HashMap::with_capacity(64),
             field_widths: HashMap::with_capacity(16),
+            function_param_modes,
+            sub_param_modes,
             next_var_index: 0,
             loop_contexts: Vec::with_capacity(16),
             current_function: None,
@@ -67,8 +75,32 @@ impl BytecodeCompiler {
         name.to_ascii_uppercase()
     }
 
+    fn normalize_restore_target(name: &str) -> String {
+        if name.parse::<u16>().is_ok() {
+            name.to_string()
+        } else {
+            Self::normalize_label(name)
+        }
+    }
+
     fn normalize_proc_name(name: &str) -> String {
         name.to_ascii_uppercase()
+    }
+
+    fn print_control_argument<'a>(expr: &'a Expression, name: &str) -> Option<&'a Expression> {
+        match expr {
+            Expression::ArrayAccess {
+                name: expr_name,
+                indices,
+                ..
+            } if expr_name.eq_ignore_ascii_case(name) && indices.len() == 1 => indices.first(),
+            Expression::FunctionCall(func)
+                if func.name.eq_ignore_ascii_case(name) && func.args.len() == 1 =>
+            {
+                func.args.first()
+            }
+            _ => None,
+        }
     }
 
     fn has_function(&self, name: &str) -> bool {
@@ -78,9 +110,181 @@ impl BytecodeCompiler {
             .any(|func_name| func_name.eq_ignore_ascii_case(name))
     }
 
-    fn compile_call_arguments(&mut self, args: &[Expression]) -> QResult<Vec<ByRefTarget>> {
+    fn has_sub(&self, name: &str) -> bool {
+        self.program
+            .subs
+            .keys()
+            .any(|sub_name| sub_name.eq_ignore_ascii_case(name))
+    }
+
+    fn collect_param_modes(program: &Program, is_function: bool) -> HashMap<String, Vec<bool>> {
+        let mut modes = HashMap::new();
+
+        for stmt in &program.statements {
+            if let Statement::Declare {
+                name,
+                is_function: declared_is_function,
+                params,
+                ..
+            } = stmt
+            {
+                if *declared_is_function == is_function {
+                    modes.insert(
+                        Self::normalize_proc_name(name),
+                        params.iter().map(|param| param.by_val).collect(),
+                    );
+                }
+            }
+        }
+
+        if is_function {
+            for (name, func_def) in &program.functions {
+                modes.insert(
+                    Self::normalize_proc_name(name),
+                    func_def.params.iter().map(|param| param.by_val).collect(),
+                );
+            }
+        } else {
+            for (name, sub_def) in &program.subs {
+                modes.insert(
+                    Self::normalize_proc_name(name),
+                    sub_def.params.iter().map(|param| param.by_val).collect(),
+                );
+            }
+        }
+
+        modes
+    }
+
+    fn validate_declared_signature_matches_definition(&self) -> QResult<()> {
+        for stmt in &self.program.statements {
+            let Statement::Declare {
+                name,
+                is_function,
+                params,
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+
+            let definition_params = if *is_function {
+                self.program
+                    .functions
+                    .iter()
+                    .find(|(func_name, _)| func_name.eq_ignore_ascii_case(name))
+                    .map(|(_, func_def)| &func_def.params)
+            } else {
+                self.program
+                    .subs
+                    .iter()
+                    .find(|(sub_name, _)| sub_name.eq_ignore_ascii_case(name))
+                    .map(|(_, sub_def)| &sub_def.params)
+            };
+
+            let Some(definition_params) = definition_params else {
+                continue;
+            };
+
+            if params.len() != definition_params.len() {
+                let proc_kind = if *is_function { "FUNCTION" } else { "SUB" };
+                return Err(core_types::QError::InvalidProcedure(format!(
+                    "{} {} declaration expects {} argument(s), definition has {}",
+                    proc_kind,
+                    name,
+                    params.len(),
+                    definition_params.len()
+                )));
+            }
+
+            for (position, (declared, defined)) in
+                params.iter().zip(definition_params.iter()).enumerate()
+            {
+                if declared.by_val != defined.by_val {
+                    let proc_kind = if *is_function { "FUNCTION" } else { "SUB" };
+                    let declared_mode = if declared.by_val { "BYVAL" } else { "BYREF" };
+                    let defined_mode = if defined.by_val { "BYVAL" } else { "BYREF" };
+                    return Err(core_types::QError::InvalidProcedure(format!(
+                        "{} {} argument {} declared as {}, defined as {}",
+                        proc_kind,
+                        name,
+                        position + 1,
+                        declared_mode,
+                        defined_mode
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn require_param_modes(
+        &self,
+        name: &str,
+        args_len: usize,
+        is_function: bool,
+    ) -> QResult<Vec<bool>> {
+        let normalized_name = Self::normalize_proc_name(name);
+        let param_modes = if is_function {
+            self.function_param_modes.get(&normalized_name)
+        } else {
+            self.sub_param_modes.get(&normalized_name)
+        };
+
+        let Some(param_modes) = param_modes else {
+            let proc_kind = if is_function { "FUNCTION" } else { "SUB" };
+            return Err(core_types::QError::InvalidProcedure(format!(
+                "{} {} is not defined or declared",
+                proc_kind, name
+            )));
+        };
+
+        if args_len != param_modes.len() {
+            let proc_kind = if is_function { "FUNCTION" } else { "SUB" };
+            return Err(core_types::QError::InvalidProcedure(format!(
+                "{} {} expects {} argument(s), got {}",
+                proc_kind,
+                name,
+                param_modes.len(),
+                args_len
+            )));
+        }
+
+        if is_function && !self.has_function(name) {
+            return Err(core_types::QError::InvalidProcedure(format!(
+                "FUNCTION {} is declared but has no definition",
+                name
+            )));
+        }
+
+        if !is_function && !self.has_sub(name) {
+            return Err(core_types::QError::InvalidProcedure(format!(
+                "SUB {} is declared but has no definition",
+                name
+            )));
+        }
+
+        Ok(param_modes.clone())
+    }
+
+    fn compile_call_arguments(
+        &mut self,
+        args: &[Expression],
+        param_modes: Option<&[bool]>,
+    ) -> QResult<Vec<ByRefTarget>> {
         let mut by_ref = Vec::with_capacity(args.len());
         for (arg_index, arg) in args.iter().enumerate() {
+            if param_modes
+                .and_then(|modes| modes.get(arg_index))
+                .copied()
+                .unwrap_or(false)
+            {
+                by_ref.push(ByRefTarget::None);
+                self.compile_expression(arg)?;
+                continue;
+            }
+
             match arg {
                 Expression::Variable(var) => {
                     if is_builtin_function(&var.name)
@@ -88,7 +292,7 @@ impl BytecodeCompiler {
                             && self
                                 .current_function
                                 .as_ref()
-                                .is_none_or(|current| !current.eq_ignore_ascii_case(&var.name)))
+                                .map_or(true, |current| !current.eq_ignore_ascii_case(&var.name)))
                     {
                         by_ref.push(ByRefTarget::None);
                         self.compile_expression(arg)?;
@@ -142,18 +346,49 @@ impl BytecodeCompiler {
 
     pub fn compile(&mut self) -> QResult<Vec<OpCode>> {
         validate_program(&self.program, Backend::Vm)?;
+        self.validate_declared_signature_matches_definition()?;
 
         // Reserve space for InitGlobals instruction
         self.bytecode.push(OpCode::NoOp);
 
         // First, collect all DATA statements from the program
         let mut all_data_stmts = Vec::new();
-        self.collect_data_from_stmts(&self.program.statements, &mut all_data_stmts);
-        for sub_def in self.program.subs.values() {
-            self.collect_data_from_stmts(&sub_def.body, &mut all_data_stmts);
+        let mut pending_restore_targets = Vec::new();
+        Self::collect_data_from_stmts(
+            &self.program.statements,
+            &mut all_data_stmts,
+            &mut pending_restore_targets,
+            &mut self.restore_targets,
+        );
+        let mut sub_names: Vec<_> = self.program.subs.keys().cloned().collect();
+        sub_names.sort();
+        for name in sub_names {
+            let Some(sub_def) = self.program.subs.get(&name) else {
+                continue;
+            };
+            Self::collect_data_from_stmts(
+                &sub_def.body,
+                &mut all_data_stmts,
+                &mut pending_restore_targets,
+                &mut self.restore_targets,
+            );
         }
-        for func_def in self.program.functions.values() {
-            self.collect_data_from_stmts(&func_def.body, &mut all_data_stmts);
+        let mut function_names: Vec<_> = self.program.functions.keys().cloned().collect();
+        function_names.sort();
+        for name in function_names {
+            let Some(func_def) = self.program.functions.get(&name) else {
+                continue;
+            };
+            Self::collect_data_from_stmts(
+                &func_def.body,
+                &mut all_data_stmts,
+                &mut pending_restore_targets,
+                &mut self.restore_targets,
+            );
+        }
+        let end_of_data = all_data_stmts.len();
+        for target in pending_restore_targets.drain(..) {
+            self.restore_targets.entry(target).or_insert(end_of_data);
         }
 
         // Emit Data opcodes at the beginning
@@ -282,10 +517,25 @@ impl BytecodeCompiler {
         Ok(())
     }
 
-    fn collect_data_from_stmts(&self, stmts: &[Statement], data: &mut Vec<Vec<QType>>) {
+    fn collect_data_from_stmts(
+        stmts: &[Statement],
+        data: &mut Vec<Vec<QType>>,
+        pending_restore_targets: &mut Vec<String>,
+        restore_targets: &mut HashMap<String, usize>,
+    ) {
         for stmt in stmts {
             match stmt {
+                Statement::Label { name } => {
+                    pending_restore_targets.push(Self::normalize_label(name));
+                }
+                Statement::LineNumber { number } => {
+                    pending_restore_targets.push(number.to_string());
+                }
                 Statement::Data { values } => {
+                    let section_index = data.len();
+                    for target in pending_restore_targets.drain(..) {
+                        restore_targets.entry(target).or_insert(section_index);
+                    }
                     data.push(values.iter().map(|v| QType::String(v.clone())).collect());
                 }
                 Statement::IfBlock {
@@ -293,17 +543,67 @@ impl BytecodeCompiler {
                     else_branch,
                     ..
                 } => {
-                    self.collect_data_from_stmts(then_branch, data);
+                    Self::collect_data_from_stmts(
+                        then_branch,
+                        data,
+                        pending_restore_targets,
+                        restore_targets,
+                    );
                     if let Some(else_br) = else_branch {
-                        self.collect_data_from_stmts(else_br, data);
+                        Self::collect_data_from_stmts(
+                            else_br,
+                            data,
+                            pending_restore_targets,
+                            restore_targets,
+                        );
                     }
                 }
-                Statement::ForLoop { body, .. } => self.collect_data_from_stmts(body, data),
-                Statement::WhileLoop { body, .. } => self.collect_data_from_stmts(body, data),
-                Statement::DoLoop { body, .. } => self.collect_data_from_stmts(body, data),
+                Statement::IfElseBlock {
+                    then_branch,
+                    else_ifs,
+                    else_branch,
+                    ..
+                } => {
+                    Self::collect_data_from_stmts(
+                        then_branch,
+                        data,
+                        pending_restore_targets,
+                        restore_targets,
+                    );
+                    for (_, branch) in else_ifs {
+                        Self::collect_data_from_stmts(
+                            branch,
+                            data,
+                            pending_restore_targets,
+                            restore_targets,
+                        );
+                    }
+                    if let Some(branch) = else_branch {
+                        Self::collect_data_from_stmts(
+                            branch,
+                            data,
+                            pending_restore_targets,
+                            restore_targets,
+                        );
+                    }
+                }
+                Statement::ForLoop { body, .. }
+                | Statement::WhileLoop { body, .. }
+                | Statement::DoLoop { body, .. }
+                | Statement::ForEach { body, .. } => Self::collect_data_from_stmts(
+                    body,
+                    data,
+                    pending_restore_targets,
+                    restore_targets,
+                ),
                 Statement::Select { cases, .. } => {
                     for (_, body) in cases {
-                        self.collect_data_from_stmts(body, data);
+                        Self::collect_data_from_stmts(
+                            body,
+                            data,
+                            pending_restore_targets,
+                            restore_targets,
+                        );
                     }
                 }
                 _ => {}
@@ -328,8 +628,12 @@ impl BytecodeCompiler {
             }
         }
 
-        for (idx, label) in &self.pending_on_errors {
-            if let Some(&addr) = self.labels.get(label) {
+        for (idx, target) in &self.pending_on_errors {
+            let addr = match target {
+                GotoTarget::Label(label) => self.labels.get(label).copied(),
+                GotoTarget::LineNumber(line) => self.line_numbers.get(&line.to_string()).copied(),
+            };
+            if let Some(addr) = addr {
                 if let Some(OpCode::OnError(_)) = self.bytecode.get_mut(*idx) {
                     self.bytecode[*idx] = OpCode::OnError(addr);
                 }
@@ -387,39 +691,76 @@ impl BytecodeCompiler {
         match stmt {
             Statement::Print {
                 expressions,
+                separators,
                 newline,
             } => {
-                for expr in expressions {
-                    self.compile_expression(expr)?;
-                    self.bytecode.push(OpCode::Print);
+                for (index, expr) in expressions.iter().enumerate() {
+                    if let Some(arg) = Self::print_control_argument(expr, "TAB") {
+                        self.compile_expression(arg)?;
+                        self.bytecode.push(OpCode::PrintTab);
+                    } else if let Some(arg) = Self::print_control_argument(expr, "SPC") {
+                        self.compile_expression(arg)?;
+                        self.bytecode.push(OpCode::PrintSpace);
+                    } else {
+                        self.compile_expression(expr)?;
+                        self.bytecode.push(OpCode::Print);
+                    }
+
+                    if matches!(separators.get(index), Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))) {
+                        self.bytecode.push(OpCode::PrintComma);
+                    }
                 }
                 if *newline {
                     self.bytecode.push(OpCode::PrintNewline);
                 }
             }
 
+            Statement::LPrint {
+                expressions,
+                separators,
+                newline,
+            } => {
+                for (index, expr) in expressions.iter().enumerate() {
+                    if let Some(arg) = Self::print_control_argument(expr, "TAB") {
+                        self.compile_expression(arg)?;
+                        self.bytecode.push(OpCode::LPrintTab);
+                    } else if let Some(arg) = Self::print_control_argument(expr, "SPC") {
+                        self.compile_expression(arg)?;
+                        self.bytecode.push(OpCode::LPrintSpace);
+                    } else {
+                        self.compile_expression(expr)?;
+                        self.bytecode.push(OpCode::LPrint);
+                    }
+
+                    if matches!(separators.get(index), Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))) {
+                        self.bytecode.push(OpCode::LPrintComma);
+                    }
+                }
+                if *newline {
+                    self.bytecode.push(OpCode::LPrintNewline);
+                }
+            }
+
             Statement::PrintFile {
                 file_number,
                 expressions,
+                separators,
                 newline,
             } => {
-                // For each expression, we need to print it to the file
-                // The file number is dynamic, so we need a different approach
-                // We'll compile file_number once and use it for all prints
-
-                for expr in expressions {
+                for (index, expr) in expressions.iter().enumerate() {
                     self.compile_expression(file_number)?; // Push file number
                     self.compile_expression(expr)?; // Push value
                     self.bytecode.push(OpCode::PrintFileDynamic);
+
+                    if matches!(separators.get(index), Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))) {
+                        self.compile_expression(file_number)?;
+                        self.bytecode.push(OpCode::PrintFileCommaDynamic);
+                    }
                 }
 
                 if *newline {
                     self.compile_expression(file_number)?;
-                    self.bytecode
-                        .push(OpCode::LoadConstant(core_types::QType::String(
-                            "\n".to_string(),
-                        )));
-                    self.bytecode.push(OpCode::PrintFileDynamic);
+                    self.bytecode.push(OpCode::PrintFileNewlineDynamic);
                 }
             }
 
@@ -834,12 +1175,16 @@ impl BytecodeCompiler {
             Statement::LineNumber { number } => {
                 self.line_numbers
                     .insert(number.to_string(), self.bytecode.len());
+                self.bytecode.push(OpCode::SetCurrentLine(*number));
             }
 
             Statement::Screen { mode } => {
                 if let Some(expr) = mode {
-                    if let Expression::Literal(QType::Integer(i)) = expr {
-                        self.bytecode.push(OpCode::Screen(*i as i32));
+                    if let Some(mode) = self.try_expr_to_i32(expr) {
+                        self.bytecode.push(OpCode::Screen(mode));
+                    } else {
+                        self.compile_expression(expr)?;
+                        self.bytecode.push(OpCode::ScreenDynamic);
                     }
                 } else {
                     self.bytecode.push(OpCode::Screen(0));
@@ -847,67 +1192,67 @@ impl BytecodeCompiler {
             }
 
             Statement::Pset { coords, color } => {
-                self.compile_expression(&coords.0)?;
-                self.compile_expression(&coords.1)?;
-                let c = color
-                    .as_ref()
-                    .map(|e| {
-                        if let Expression::Literal(QType::Integer(i)) = e {
-                            *i as i32
-                        } else {
-                            0
-                        }
-                    })
-                    .unwrap_or(0);
-                self.bytecode.push(OpCode::Pset {
-                    x: 0,
-                    y: 0,
-                    color: c,
-                });
+                if let (Some(x), Some(y), Some(c)) = (
+                    self.try_expr_to_i32(&coords.0),
+                    self.try_expr_to_i32(&coords.1),
+                    color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(0)),
+                ) {
+                    self.bytecode.push(OpCode::Pset { x, y, color: c });
+                } else {
+                    self.compile_expression(&coords.0)?;
+                    self.compile_expression(&coords.1)?;
+                    self.compile_optional_expression(color.as_ref(), QType::Integer(0))?;
+                    self.bytecode.push(OpCode::PsetDynamic);
+                }
             }
 
             Statement::Preset { coords, color } => {
-                self.compile_expression(&coords.0)?;
-                self.compile_expression(&coords.1)?;
-                let c = color
-                    .as_ref()
-                    .map(|e| {
-                        if let Expression::Literal(QType::Integer(i)) = e {
-                            *i as i32
-                        } else {
-                            0
-                        }
-                    })
-                    .unwrap_or(0);
-                self.bytecode.push(OpCode::Preset {
-                    x: 0,
-                    y: 0,
-                    color: c,
-                });
+                if let (Some(x), Some(y), Some(c)) = (
+                    self.try_expr_to_i32(&coords.0),
+                    self.try_expr_to_i32(&coords.1),
+                    color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(0)),
+                ) {
+                    self.bytecode.push(OpCode::Preset { x, y, color: c });
+                } else {
+                    self.compile_expression(&coords.0)?;
+                    self.compile_expression(&coords.1)?;
+                    self.compile_optional_expression(color.as_ref(), QType::Integer(0))?;
+                    self.bytecode.push(OpCode::PresetDynamic);
+                }
             }
 
             Statement::Line { coords, color, .. } => {
-                self.compile_expression(&coords.0 .0)?;
-                self.compile_expression(&coords.0 .1)?;
-                self.compile_expression(&coords.1 .0)?;
-                self.compile_expression(&coords.1 .1)?;
-                let c = color
-                    .as_ref()
-                    .map(|e| {
-                        if let Expression::Literal(QType::Integer(i)) = e {
-                            *i as i32
-                        } else {
-                            0
-                        }
-                    })
-                    .unwrap_or(0);
-                self.bytecode.push(OpCode::Line {
-                    x1: 0,
-                    y1: 0,
-                    x2: 0,
-                    y2: 0,
-                    color: c,
-                });
+                if let (Some(x1), Some(y1), Some(x2), Some(y2), Some(c)) = (
+                    self.try_expr_to_i32(&coords.0 .0),
+                    self.try_expr_to_i32(&coords.0 .1),
+                    self.try_expr_to_i32(&coords.1 .0),
+                    self.try_expr_to_i32(&coords.1 .1),
+                    color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(0)),
+                ) {
+                    self.bytecode.push(OpCode::Line {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        color: c,
+                    });
+                } else {
+                    self.compile_expression(&coords.0 .0)?;
+                    self.compile_expression(&coords.0 .1)?;
+                    self.compile_expression(&coords.1 .0)?;
+                    self.compile_expression(&coords.1 .1)?;
+                    self.compile_optional_expression(color.as_ref(), QType::Integer(0))?;
+                    self.bytecode.push(OpCode::LineDynamic);
+                }
             }
 
             Statement::Circle {
@@ -916,37 +1261,47 @@ impl BytecodeCompiler {
                 color,
                 ..
             } => {
-                self.compile_expression(&center.0)?;
-                self.compile_expression(&center.1)?;
-                self.compile_expression(radius)?;
-                let c = color
-                    .as_ref()
-                    .map(|e| {
-                        if let Expression::Literal(QType::Integer(i)) = e {
-                            *i as i32
-                        } else {
-                            0
-                        }
-                    })
-                    .unwrap_or(0);
-                self.bytecode.push(OpCode::Circle {
-                    x: 0,
-                    y: 0,
-                    radius: 0,
-                    color: c,
-                });
+                if let (Some(x), Some(y), Some(r), Some(c)) = (
+                    self.try_expr_to_i32(&center.0),
+                    self.try_expr_to_i32(&center.1),
+                    self.try_expr_to_i32(radius),
+                    color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(0)),
+                ) {
+                    self.bytecode.push(OpCode::Circle {
+                        x,
+                        y,
+                        radius: r,
+                        color: c,
+                    });
+                } else {
+                    self.compile_expression(&center.0)?;
+                    self.compile_expression(&center.1)?;
+                    self.compile_expression(radius)?;
+                    self.compile_optional_expression(color.as_ref(), QType::Integer(0))?;
+                    self.bytecode.push(OpCode::CircleDynamic);
+                }
             }
 
             Statement::Sound {
                 frequency,
                 duration,
             } => {
-                self.compile_expression(frequency)?;
-                self.compile_expression(duration)?;
-                self.bytecode.push(OpCode::Sound {
-                    frequency: 0,
-                    duration: 0,
-                });
+                if let (Some(frequency), Some(duration)) = (
+                    self.try_expr_to_i32(frequency),
+                    self.try_expr_to_i32(duration),
+                ) {
+                    self.bytecode.push(OpCode::Sound {
+                        frequency,
+                        duration,
+                    });
+                } else {
+                    self.compile_expression(frequency)?;
+                    self.compile_expression(duration)?;
+                    self.bytecode.push(OpCode::SoundDynamic);
+                }
             }
 
             Statement::Play {
@@ -954,7 +1309,10 @@ impl BytecodeCompiler {
             } => {
                 self.bytecode.push(OpCode::Play(s.clone()));
             }
-            Statement::Play { .. } => {}
+            Statement::Play { melody } => {
+                self.compile_expression(melody)?;
+                self.bytecode.push(OpCode::PlayDynamic);
+            }
 
             Statement::Beep => {
                 self.bytecode.push(OpCode::Beep);
@@ -996,8 +1354,9 @@ impl BytecodeCompiler {
             Statement::Randomize { seed } => {
                 if let Some(s) = seed {
                     self.compile_expression(s)?;
+                    self.bytecode.push(OpCode::RandomizeDynamic);
                 } else {
-                    self.bytecode.push(OpCode::LoadConstant(QType::Integer(0)));
+                    self.bytecode.push(OpCode::Randomize);
                 }
             }
 
@@ -1042,9 +1401,8 @@ impl BytecodeCompiler {
                                     slot: var_idx,
                                     width,
                                 });
-                                self.bytecode.push(OpCode::LoadConstant(QType::String(
-                                    String::new(),
-                                )));
+                                self.bytecode
+                                    .push(OpCode::LoadConstant(QType::String(String::new())));
                             } else {
                                 self.bytecode
                                     .push(OpCode::LoadConstant(QType::String(String::new())));
@@ -1172,17 +1530,42 @@ impl BytecodeCompiler {
                 }
             }
 
-            Statement::OnError { label } => {
-                let addr = match label {
-                    Some(name) => {
+            Statement::LPrintUsing {
+                format,
+                expressions,
+                newline,
+            } => {
+                self.compile_expression(format)?;
+                for expr in expressions {
+                    self.compile_expression(expr)?;
+                }
+                self.bytecode.push(OpCode::LPrintUsing(expressions.len()));
+                if *newline {
+                    self.bytecode.push(OpCode::LPrintNewline);
+                }
+            }
+
+            Statement::OnError { target } => {
+                let addr = match target {
+                    Some(GotoTarget::Label(name)) => {
                         let normalized = Self::normalize_label(name);
                         if let Some(&addr) = self.labels.get(&normalized) {
                             addr
                         } else {
-                            // Label not yet defined, add to pending list
                             let idx = self.bytecode.len();
-                            self.pending_on_errors.push((idx, normalized));
-                            0 // Placeholder
+                            self.pending_on_errors
+                                .push((idx, GotoTarget::Label(normalized)));
+                            0
+                        }
+                    }
+                    Some(GotoTarget::LineNumber(line)) => {
+                        if let Some(&addr) = self.line_numbers.get(&line.to_string()) {
+                            addr
+                        } else {
+                            let idx = self.bytecode.len();
+                            self.pending_on_errors
+                                .push((idx, GotoTarget::LineNumber(*line)));
+                            0
                         }
                     }
                     None => 0, // 0 = Disable error handler
@@ -1221,22 +1604,31 @@ impl BytecodeCompiler {
                 paint_color,
                 border_color,
             } => {
-                self.compile_expression(&coords.0)?;
-                self.compile_expression(&coords.1)?;
-                let pc = paint_color
-                    .as_ref()
-                    .map(|e| self.expr_to_i32(e))
-                    .unwrap_or(-1);
-                let bc = border_color
-                    .as_ref()
-                    .map(|e| self.expr_to_i32(e))
-                    .unwrap_or(-1);
-                self.bytecode.push(OpCode::Paint {
-                    x: 0,
-                    y: 0,
-                    paint_color: pc,
-                    border_color: bc,
-                });
+                if let (Some(x), Some(y), Some(pc), Some(bc)) = (
+                    self.try_expr_to_i32(&coords.0),
+                    self.try_expr_to_i32(&coords.1),
+                    paint_color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(-1)),
+                    border_color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(-1)),
+                ) {
+                    self.bytecode.push(OpCode::Paint {
+                        x,
+                        y,
+                        paint_color: pc,
+                        border_color: bc,
+                    });
+                } else {
+                    self.compile_expression(&coords.0)?;
+                    self.compile_expression(&coords.1)?;
+                    self.compile_optional_expression(paint_color.as_ref(), QType::Integer(-1))?;
+                    self.compile_optional_expression(border_color.as_ref(), QType::Integer(-1))?;
+                    self.bytecode.push(OpCode::PaintDynamic);
+                }
             }
 
             Statement::Draw {
@@ -1246,14 +1638,25 @@ impl BytecodeCompiler {
                     commands: s.clone(),
                 });
             }
+            Statement::Draw { commands } => {
+                self.compile_expression(commands)?;
+                self.bytecode.push(OpCode::DrawDynamic);
+            }
 
             Statement::Palette { attribute, color } => {
-                let attr = self.expr_to_i32(attribute);
-                let c = color.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(-1);
-                self.bytecode.push(OpCode::Palette {
-                    attribute: attr,
-                    color: c,
-                });
+                if let (Some(attribute), Some(color)) = (
+                    self.try_expr_to_i32(attribute),
+                    color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(-1)),
+                ) {
+                    self.bytecode.push(OpCode::Palette { attribute, color });
+                } else {
+                    self.compile_expression(attribute)?;
+                    self.compile_optional_expression(color.as_ref(), QType::Integer(-1))?;
+                    self.bytecode.push(OpCode::PaletteDynamic);
+                }
             }
 
             Statement::View {
@@ -1261,32 +1664,55 @@ impl BytecodeCompiler {
                 fill_color,
                 border_color,
             } => {
-                self.compile_expression(&coords.0 .0)?;
-                self.compile_expression(&coords.0 .1)?;
-                self.compile_expression(&coords.1 .0)?;
-                self.compile_expression(&coords.1 .1)?;
-                let fc = fill_color
-                    .as_ref()
-                    .map(|e| self.expr_to_i32(e))
-                    .unwrap_or(-1);
-                let bc = border_color
-                    .as_ref()
-                    .map(|e| self.expr_to_i32(e))
-                    .unwrap_or(-1);
-                self.bytecode.push(OpCode::View {
-                    x1: 0,
-                    y1: 0,
-                    x2: 0,
-                    y2: 0,
-                    fill_color: fc,
-                    border_color: bc,
-                });
+                if let (Some(x1), Some(y1), Some(x2), Some(y2), Some(fc), Some(bc)) = (
+                    self.try_expr_to_i32(&coords.0 .0),
+                    self.try_expr_to_i32(&coords.0 .1),
+                    self.try_expr_to_i32(&coords.1 .0),
+                    self.try_expr_to_i32(&coords.1 .1),
+                    fill_color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(-1)),
+                    border_color
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(-1)),
+                ) {
+                    self.bytecode.push(OpCode::View {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        fill_color: fc,
+                        border_color: bc,
+                    });
+                } else {
+                    self.compile_expression(&coords.0 .0)?;
+                    self.compile_expression(&coords.0 .1)?;
+                    self.compile_expression(&coords.1 .0)?;
+                    self.compile_expression(&coords.1 .1)?;
+                    self.compile_optional_expression(fill_color.as_ref(), QType::Integer(-1))?;
+                    self.compile_optional_expression(border_color.as_ref(), QType::Integer(-1))?;
+                    self.bytecode.push(OpCode::ViewDynamic);
+                }
             }
 
             Statement::ViewPrint { top, bottom } => {
-                let t = top.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(1);
-                let b = bottom.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(25);
-                self.bytecode.push(OpCode::ViewPrint { top: t, bottom: b });
+                if let (Some(top), Some(bottom)) = (
+                    top.as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(1)),
+                    bottom
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(25)),
+                ) {
+                    self.bytecode.push(OpCode::ViewPrint { top, bottom });
+                } else {
+                    self.compile_optional_expression(top.as_ref(), QType::Integer(1))?;
+                    self.compile_optional_expression(bottom.as_ref(), QType::Integer(25))?;
+                    self.bytecode.push(OpCode::ViewPrintDynamic);
+                }
             }
 
             Statement::ViewReset => {
@@ -1294,16 +1720,20 @@ impl BytecodeCompiler {
             }
 
             Statement::Window { coords } => {
-                self.compile_expression(&coords.0 .0)?;
-                self.compile_expression(&coords.0 .1)?;
-                self.compile_expression(&coords.1 .0)?;
-                self.compile_expression(&coords.1 .1)?;
-                self.bytecode.push(OpCode::Window {
-                    x1: 0.0,
-                    y1: 0.0,
-                    x2: 0.0,
-                    y2: 0.0,
-                });
+                if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
+                    self.try_expr_to_f64(&coords.0 .0),
+                    self.try_expr_to_f64(&coords.0 .1),
+                    self.try_expr_to_f64(&coords.1 .0),
+                    self.try_expr_to_f64(&coords.1 .1),
+                ) {
+                    self.bytecode.push(OpCode::Window { x1, y1, x2, y2 });
+                } else {
+                    self.compile_expression(&coords.0 .0)?;
+                    self.compile_expression(&coords.0 .1)?;
+                    self.compile_expression(&coords.1 .0)?;
+                    self.compile_expression(&coords.1 .1)?;
+                    self.bytecode.push(OpCode::WindowDynamic);
+                }
             }
 
             Statement::WindowReset => {
@@ -1322,7 +1752,18 @@ impl BytecodeCompiler {
             }
 
             Statement::Restore { label } => {
-                self.bytecode.push(OpCode::Restore(label.clone()));
+                let section = if let Some(label_name) = label.as_deref() {
+                    let target = Self::normalize_restore_target(label_name);
+                    Some(*self.restore_targets.get(&target).ok_or_else(|| {
+                        core_types::QError::Syntax(format!(
+                            "RESTORE target not found: {}",
+                            label_name
+                        ))
+                    })?)
+                } else {
+                    None
+                };
+                self.bytecode.push(OpCode::Restore(section));
             }
 
             Statement::Swap { var1, var2 } => {
@@ -1351,24 +1792,42 @@ impl BytecodeCompiler {
             }
 
             Statement::Locate { row, col } => {
-                let row = row.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(1);
-                let col = col.as_ref().map(|e| self.expr_to_i32(e)).unwrap_or(1);
-                self.bytecode.push(OpCode::Locate(row, col));
+                if let (Some(row), Some(col)) = (
+                    row.as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(1)),
+                    col.as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(1)),
+                ) {
+                    self.bytecode.push(OpCode::Locate(row, col));
+                } else {
+                    self.compile_optional_expression(row.as_ref(), QType::Integer(1))?;
+                    self.compile_optional_expression(col.as_ref(), QType::Integer(1))?;
+                    self.bytecode.push(OpCode::LocateDynamic);
+                }
             }
 
             Statement::Color {
                 foreground,
                 background,
             } => {
-                let fg = foreground
-                    .as_ref()
-                    .map(|e| self.expr_to_i32(e))
-                    .unwrap_or(7);
-                let bg = background
-                    .as_ref()
-                    .map(|e| self.expr_to_i32(e))
-                    .unwrap_or(0);
-                self.bytecode.push(OpCode::Color(fg, bg));
+                if let (Some(fg), Some(bg)) = (
+                    foreground
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(7)),
+                    background
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(0)),
+                ) {
+                    self.bytecode.push(OpCode::Color(fg, bg));
+                } else {
+                    self.compile_optional_expression(foreground.as_ref(), QType::Integer(7))?;
+                    self.compile_optional_expression(background.as_ref(), QType::Integer(0))?;
+                    self.bytecode.push(OpCode::ColorDynamic);
+                }
             }
 
             Statement::Open {
@@ -1452,11 +1911,8 @@ impl BytecodeCompiler {
             Statement::Write { expressions } => {
                 for expr in expressions {
                     self.compile_expression(expr)?;
-                    // Write needs commas between values
-                    // For prototype, just print
-                    self.bytecode.push(OpCode::Print);
                 }
-                self.bytecode.push(OpCode::PrintNewline);
+                self.bytecode.push(OpCode::WriteConsole(expressions.len()));
             }
 
             Statement::WriteFile {
@@ -1511,13 +1967,26 @@ impl BytecodeCompiler {
 
             Statement::GetImage { coords, variable } => {
                 let array = self.expr_to_var_name(variable).unwrap_or_default();
-                self.bytecode.push(OpCode::GetImage {
-                    x1: self.expr_to_i32(&coords.0 .0),
-                    y1: self.expr_to_i32(&coords.0 .1),
-                    x2: self.expr_to_i32(&coords.1 .0),
-                    y2: self.expr_to_i32(&coords.1 .1),
-                    array,
-                });
+                if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
+                    self.try_expr_to_i32(&coords.0 .0),
+                    self.try_expr_to_i32(&coords.0 .1),
+                    self.try_expr_to_i32(&coords.1 .0),
+                    self.try_expr_to_i32(&coords.1 .1),
+                ) {
+                    self.bytecode.push(OpCode::GetImage {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        array,
+                    });
+                } else {
+                    self.compile_expression(&coords.0 .0)?;
+                    self.compile_expression(&coords.0 .1)?;
+                    self.compile_expression(&coords.1 .0)?;
+                    self.compile_expression(&coords.1 .1)?;
+                    self.bytecode.push(OpCode::GetImageDynamic { array });
+                }
             }
 
             Statement::PutImage {
@@ -1526,16 +1995,29 @@ impl BytecodeCompiler {
                 action,
             } => {
                 let array = self.expr_to_var_name(variable).unwrap_or_default();
-                let action = action
-                    .as_ref()
-                    .and_then(|expr| self.expr_to_string(expr))
-                    .unwrap_or_else(|| "PSET".to_string());
-                self.bytecode.push(OpCode::PutImage {
-                    x: self.expr_to_i32(&coords.0),
-                    y: self.expr_to_i32(&coords.1),
-                    array,
-                    action,
-                });
+                if let (Some(x), Some(y), Some(action_text)) = (
+                    self.try_expr_to_i32(&coords.0),
+                    self.try_expr_to_i32(&coords.1),
+                    action
+                        .as_ref()
+                        .map(|expr| self.try_expr_to_string(expr))
+                        .unwrap_or_else(|| Some("PSET".to_string())),
+                ) {
+                    self.bytecode.push(OpCode::PutImage {
+                        x,
+                        y,
+                        array,
+                        action: action_text,
+                    });
+                } else {
+                    self.compile_expression(&coords.0)?;
+                    self.compile_expression(&coords.1)?;
+                    self.compile_optional_expression(
+                        action.as_ref(),
+                        QType::String("PSET".to_string()),
+                    )?;
+                    self.bytecode.push(OpCode::PutImageDynamic { array });
+                }
             }
 
             Statement::Seek {
@@ -1548,9 +2030,11 @@ impl BytecodeCompiler {
             }
 
             Statement::Call { name, args } => {
-                let by_ref = self.compile_call_arguments(args)?;
+                let normalized_name = Self::normalize_proc_name(name);
+                let param_modes = self.require_param_modes(name, args.len(), false)?;
+                let by_ref = self.compile_call_arguments(args, Some(param_modes.as_slice()))?;
                 self.bytecode.push(OpCode::CallSub {
-                    name: Self::normalize_proc_name(name),
+                    name: normalized_name,
                     by_ref,
                 });
             }
@@ -1661,19 +2145,44 @@ impl BytecodeCompiler {
                     self.bytecode.push(OpCode::RSetField { var_index, width });
                 }
             }
-            Statement::Width { .. }
-            | Statement::Key { .. }
-            | Statement::KeyOn
-            | Statement::KeyOff
-            | Statement::KeyList => {
+            Statement::TrOn => {
+                self.bytecode.push(OpCode::TraceOn);
+            }
+
+            Statement::TrOff => {
+                self.bytecode.push(OpCode::TraceOff);
+            }
+
+            Statement::Key {
+                key_num,
+                key_string,
+            } => {
+                self.compile_expression(key_num)?;
+                self.compile_expression(key_string)?;
+                self.bytecode.push(OpCode::KeySetDynamic);
+            }
+
+            Statement::KeyOn => {
+                self.bytecode.push(OpCode::KeyOn);
+            }
+
+            Statement::KeyOff => {
+                self.bytecode.push(OpCode::KeyOff);
+            }
+
+            Statement::KeyList => {
+                self.bytecode.push(OpCode::KeyList);
+            }
+
+            Statement::Width { .. } => {
                 self.bytecode.push(OpCode::NoOp);
             }
 
             Statement::Const { name, value } => {
                 self.compile_expression(value)?;
-                self.compile_store_target(&Expression::Variable(
-                    syntax_tree::ast_nodes::Variable::new(name.clone()),
-                ))?;
+                let slot = self.get_var_index(name);
+                self.bytecode.push(OpCode::StoreFast(slot));
+                self.bytecode.push(OpCode::MarkConst(slot));
             }
 
             Statement::DefType { .. } => {
@@ -1682,11 +2191,16 @@ impl BytecodeCompiler {
             }
 
             Statement::DefSeg { segment } => {
-                let seg = segment
-                    .as_deref()
-                    .map(|expr| self.expr_to_i32(expr))
-                    .unwrap_or(0);
-                self.bytecode.push(OpCode::DefSeg(seg));
+                if let Some(expr) = segment.as_deref() {
+                    if let Some(seg) = self.try_expr_to_i32(expr) {
+                        self.bytecode.push(OpCode::DefSeg(seg));
+                    } else {
+                        self.compile_expression(expr)?;
+                        self.bytecode.push(OpCode::DefSegDynamic);
+                    }
+                } else {
+                    self.bytecode.push(OpCode::DefSeg(0));
+                }
             }
 
             Statement::Poke { address, value } => {
@@ -1821,11 +2335,13 @@ impl BytecodeCompiler {
                 let saved_var_map = self.variable_map.clone();
                 let saved_var_counter = self.next_var_index;
 
-                // Create new variable mapping for DEF FN parameters
-                self.variable_map.clear();
-                self.next_var_index = 0;
+                // Keep outer scope slots visible inside DEF FN, but bind parameters to fresh slots
+                // so calls can temporarily override only those parameter locations.
+                let mut param_slots = Vec::with_capacity(params.len());
                 for param in params {
-                    self.variable_map.insert(param.clone(), self.next_var_index);
+                    let slot = self.next_var_index;
+                    self.variable_map.insert(param.clone(), slot);
+                    param_slots.push(slot);
                     self.next_var_index += 1;
                 }
 
@@ -1839,54 +2355,66 @@ impl BytecodeCompiler {
 
                 self.bytecode.push(OpCode::DefFn {
                     name: name.clone(),
-                    params: params.clone(),
+                    param_slots,
                     body: body_ops,
                 });
             }
-
-            _ => {}
         }
 
         Ok(())
     }
 
-    fn expr_to_i32(&self, expr: &Expression) -> i32 {
-        match expr {
-            Expression::Literal(QType::Integer(i)) => *i as i32,
-            Expression::Literal(QType::Long(l)) => *l,
-            Expression::Literal(QType::Single(s)) => *s as i32,
-            Expression::Literal(QType::Double(d)) => *d as i32,
-            _ => 0,
-        }
+    fn try_expr_to_i32(&self, expr: &Expression) -> Option<i32> {
+        self.try_expr_to_f64(expr).map(|value| value as i32)
     }
 
-    fn expr_to_f64(&self, expr: &Expression) -> f64 {
+    fn expr_to_i32(&self, expr: &Expression) -> i32 {
+        self.try_expr_to_i32(expr).unwrap_or(0)
+    }
+
+    fn try_expr_to_f64(&self, expr: &Expression) -> Option<f64> {
         match expr {
-            Expression::Literal(QType::Integer(i)) => *i as f64,
-            Expression::Literal(QType::Long(l)) => *l as f64,
-            Expression::Literal(QType::Single(s)) => *s as f64,
-            Expression::Literal(QType::Double(d)) => *d,
+            Expression::Literal(QType::Integer(i)) => Some(*i as f64),
+            Expression::Literal(QType::Long(l)) => Some(*l as f64),
+            Expression::Literal(QType::Single(s)) => Some(*s as f64),
+            Expression::Literal(QType::Double(d)) => Some(*d),
             Expression::UnaryOp { op, operand } => {
-                let value = self.expr_to_f64(operand);
-                match op {
+                let value = self.try_expr_to_f64(operand)?;
+                Some(match op {
                     UnaryOp::Negate => -value,
                     UnaryOp::Not => value,
-                }
+                })
             }
-            _ => 0.0,
-        }
-    }
-
-    fn expr_to_var_name(&self, expr: &Expression) -> Option<String> {
-        match expr {
-            Expression::Variable(var) => Some(var.name.clone()),
             _ => None,
         }
     }
 
-    fn expr_to_string(&self, expr: &Expression) -> Option<String> {
+    fn expr_to_f64(&self, expr: &Expression) -> f64 {
+        self.try_expr_to_f64(expr).unwrap_or(0.0)
+    }
+
+    fn try_expr_to_string(&self, expr: &Expression) -> Option<String> {
         match expr {
             Expression::Literal(QType::String(s)) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    fn compile_optional_expression(
+        &mut self,
+        expr: Option<&Expression>,
+        default: QType,
+    ) -> QResult<()> {
+        if let Some(expr) = expr {
+            self.compile_expression(expr)?;
+        } else {
+            self.bytecode.push(OpCode::LoadConstant(default));
+        }
+        Ok(())
+    }
+
+    fn expr_to_var_name(&self, expr: &Expression) -> Option<String> {
+        match expr {
             Expression::Variable(var) => Some(var.name.clone()),
             _ => None,
         }
@@ -1912,7 +2440,7 @@ impl BytecodeCompiler {
                     && self
                         .current_function
                         .as_ref()
-                        .is_none_or(|current| !current.eq_ignore_ascii_case(&var.name))
+                        .map_or(true, |current| !current.eq_ignore_ascii_case(&var.name))
                 {
                     let func = syntax_tree::ast_nodes::FunctionCall {
                         name: var.name.clone(),
@@ -1971,12 +2499,22 @@ impl BytecodeCompiler {
                 // Check if it's a built-in function
                 if is_builtin_function(&func.name) {
                     let upper_name = func.name.to_uppercase();
-                    let name_based_builtin = matches!(
+                    let custom_compiled_builtin = matches!(
                         upper_name.as_str(),
-                        "LBOUND" | "UBOUND" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$"
+                        "LBOUND"
+                            | "UBOUND"
+                            | "VARPTR"
+                            | "VARSEG"
+                            | "SADD"
+                            | "VARPTR$"
+                            | "FRE"
+                            | "POS"
+                            | "LPOS"
+                            | "POINT"
+                            | "PMAP"
                     );
 
-                    if !name_based_builtin {
+                    if !custom_compiled_builtin {
                         for arg in &func.args {
                             self.compile_expression(arg)?;
                         }
@@ -1986,9 +2524,21 @@ impl BytecodeCompiler {
                     match upper_name.as_str() {
                         "LEFT$" => self.bytecode.push(OpCode::Left),
                         "RIGHT$" => self.bytecode.push(OpCode::Right),
-                        "MID$" => self.bytecode.push(OpCode::Mid),
+                        "MID$" => {
+                            if func.args.len() > 2 {
+                                self.bytecode.push(OpCode::Mid);
+                            } else {
+                                self.bytecode.push(OpCode::MidNoLen);
+                            }
+                        }
                         "LEN" => self.bytecode.push(OpCode::Len),
-                        "INSTR" => self.bytecode.push(OpCode::InStr),
+                        "INSTR" => {
+                            if func.args.len() > 2 {
+                                self.bytecode.push(OpCode::InStrFrom);
+                            } else {
+                                self.bytecode.push(OpCode::InStr);
+                            }
+                        }
                         "LCASE$" => self.bytecode.push(OpCode::LCase),
                         "UCASE$" => self.bytecode.push(OpCode::UCase),
                         "LTRIM$" => self.bytecode.push(OpCode::LTrim),
@@ -2013,7 +2563,13 @@ impl BytecodeCompiler {
                         "SQR" => self.bytecode.push(OpCode::Sqr),
                         "INT" => self.bytecode.push(OpCode::IntFunc),
                         "FIX" => self.bytecode.push(OpCode::Fix),
-                        "RND" => self.bytecode.push(OpCode::Rnd),
+                        "RND" => {
+                            if func.args.is_empty() {
+                                self.bytecode.push(OpCode::Rnd);
+                            } else {
+                                self.bytecode.push(OpCode::RndWithArg);
+                            }
+                        }
                         "CINT" => self.bytecode.push(OpCode::CInt),
                         "CLNG" => self.bytecode.push(OpCode::CLng),
                         "CSNG" => self.bytecode.push(OpCode::CSng),
@@ -2032,19 +2588,111 @@ impl BytecodeCompiler {
                         "CVS" => self.bytecode.push(OpCode::CvsFunc),
                         "CVD" => self.bytecode.push(OpCode::CvdFunc),
                         // System functions
-                        "FRE" => {
-                            // Argument already compiled, add opcode
-                            self.bytecode.push(OpCode::FreFunc(0));
-                        }
+                        "FRE" => match func.args.first() {
+                            Some(arg) if self.try_expr_to_string(arg).is_some() => {
+                                self.bytecode.push(OpCode::FreFunc(0));
+                            }
+                            Some(arg) if self.try_expr_to_i32(arg).is_some() => {
+                                self.bytecode
+                                    .push(OpCode::FreFunc(self.try_expr_to_i32(arg).unwrap()));
+                            }
+                            Some(arg) => {
+                                self.compile_expression(arg)?;
+                                self.bytecode.push(OpCode::FreDynamic);
+                            }
+                            None => self.bytecode.push(OpCode::FreFunc(0)),
+                        },
                         "CSRLIN" => self.bytecode.push(OpCode::CsrLinFunc),
-                        "POS" => self.bytecode.push(OpCode::PosFunc(0)),
-                        "LPOS" => self.bytecode.push(OpCode::PosFunc(0)),
+                        "POS" => match func.args.first() {
+                            Some(arg) if self.try_expr_to_i32(arg).is_some() => {
+                                self.bytecode
+                                    .push(OpCode::PosFunc(self.try_expr_to_i32(arg).unwrap()));
+                            }
+                            Some(arg) => {
+                                self.compile_expression(arg)?;
+                                self.bytecode.push(OpCode::PosDynamic);
+                            }
+                            None => self.bytecode.push(OpCode::PosFunc(0)),
+                        },
+                        "LPOS" => match func.args.first() {
+                            Some(arg) if self.try_expr_to_i32(arg).is_some() => {
+                                self.bytecode
+                                    .push(OpCode::LPosFunc(self.try_expr_to_i32(arg).unwrap()));
+                            }
+                            Some(arg) => {
+                                self.compile_expression(arg)?;
+                                self.bytecode.push(OpCode::LPosDynamic);
+                            }
+                            None => self.bytecode.push(OpCode::LPosFunc(0)),
+                        },
                         "ENVIRON$" => self.bytecode.push(OpCode::EnvironFunc),
+                        "INPUT$" => self.bytecode.push(OpCode::InputChars {
+                            has_file_number: func.args.len() > 1,
+                        }),
                         "COMMAND$" => self.bytecode.push(OpCode::CommandFunc),
                         "INKEY$" => self.bytecode.push(OpCode::InKeyFunc),
                         "FREEFILE" => self.bytecode.push(OpCode::FreeFile),
+                        "EOF" => match func.args.first() {
+                            Some(arg) if self.try_expr_to_i32(arg).is_some() => {
+                                self.bytecode
+                                    .push(OpCode::Eof(self.try_expr_to_i32(arg).unwrap().to_string()));
+                            }
+                            Some(arg) => {
+                                self.compile_expression(arg)?;
+                                self.bytecode.push(OpCode::EofDynamic);
+                            }
+                            None => {}
+                        },
+                        "LOF" => match func.args.first() {
+                            Some(arg) if self.try_expr_to_i32(arg).is_some() => {
+                                self.bytecode
+                                    .push(OpCode::Lof(self.try_expr_to_i32(arg).unwrap().to_string()));
+                            }
+                            Some(arg) => {
+                                self.compile_expression(arg)?;
+                                self.bytecode.push(OpCode::LofDynamic);
+                            }
+                            None => {}
+                        },
+                        "LOC" => match func.args.first() {
+                            Some(arg) if self.try_expr_to_i32(arg).is_some() => {
+                                self.bytecode
+                                    .push(OpCode::Loc(self.try_expr_to_i32(arg).unwrap().to_string()));
+                            }
+                            Some(arg) => {
+                                self.compile_expression(arg)?;
+                                self.bytecode.push(OpCode::LocDynamic);
+                            }
+                            None => {}
+                        },
                         "PEEK" => self.bytecode.push(OpCode::PeekDynamic),
                         "INP" => self.bytecode.push(OpCode::InpDynamic),
+                        "POINT" => {
+                            if let [x, y] = func.args.as_slice() {
+                                if let (Some(x), Some(y)) =
+                                    (self.try_expr_to_i32(x), self.try_expr_to_i32(y))
+                                {
+                                    self.bytecode.push(OpCode::PointFunc(x, y));
+                                } else {
+                                    self.compile_expression(x)?;
+                                    self.compile_expression(y)?;
+                                    self.bytecode.push(OpCode::PointDynamic);
+                                }
+                            }
+                        }
+                        "PMAP" => {
+                            if let [coord, func_num] = func.args.as_slice() {
+                                if let (Some(coord), Some(func_num)) =
+                                    (self.try_expr_to_f64(coord), self.try_expr_to_i32(func_num))
+                                {
+                                    self.bytecode.push(OpCode::PMapFunc(coord, func_num));
+                                } else {
+                                    self.compile_expression(coord)?;
+                                    self.compile_expression(func_num)?;
+                                    self.bytecode.push(OpCode::PMapDynamic);
+                                }
+                            }
+                        }
                         "VARPTR" => {
                             if let Some(Expression::Variable(var)) = func.args.first() {
                                 let var_ref = self.encode_var_ref(&var.name);
@@ -2093,17 +2741,30 @@ impl BytecodeCompiler {
                     }
                 } else {
                     // User-defined function or unknown
-                    let by_ref = self.compile_call_arguments(&func.args)?;
+                    if func.name.to_uppercase().starts_with("FN") {
+                        for arg in &func.args {
+                            self.compile_expression(arg)?;
+                        }
+                        self.bytecode.push(OpCode::CallDefFn(func.name.clone()));
+                        return Ok(());
+                    }
+
+                    let normalized_name = Self::normalize_proc_name(&func.name);
+                    let param_modes =
+                        self.require_param_modes(&func.name, func.args.len(), true)?;
+                    let by_ref =
+                        self.compile_call_arguments(&func.args, Some(param_modes.as_slice()))?;
 
                     if self.has_function(&func.name) {
                         self.bytecode.push(OpCode::CallFunction {
-                            name: Self::normalize_proc_name(&func.name),
+                            name: normalized_name,
                             by_ref,
                         });
-                    } else if func.name.to_uppercase().starts_with("FN") {
-                        self.bytecode.push(OpCode::CallDefFn(func.name.clone()));
                     } else {
-                        self.bytecode.push(OpCode::CallNative(func.name.clone()));
+                        return Err(core_types::QError::InvalidProcedure(format!(
+                            "FUNCTION {} is declared but has no definition",
+                            func.name
+                        )));
                     }
                 }
             }

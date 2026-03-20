@@ -412,7 +412,7 @@ impl FileIO {
     }
 
     pub fn seek_compat(&mut self, file_num: i32, pos: u64) -> QResult<()> {
-        self.seek(file_num as u8, pos)
+        self.seek(file_num as u8, pos.saturating_sub(1))
     }
 
     // VM runtime interface methods
@@ -450,6 +450,12 @@ impl FileIO {
 
     pub fn seek_by_num(&mut self, file_num: i32, pos: u64) -> QResult<()> {
         self.seek_compat(file_num, pos)
+    }
+
+    pub fn position_by_num(&self, file_num: i32) -> usize {
+        self.tell(file_num as u8)
+            .map(|pos| pos.saturating_add(1) as usize)
+            .unwrap_or(0)
     }
 }
 

@@ -110,6 +110,7 @@ WRITE #1, "World", 456
 CLOSE #1
 OPEN "temp.txt" FOR INPUT AS #1
 LINE INPUT #1, l$
+PRINT INPUT$(3, 1)
 CLOSE #1
 "#,
     );
@@ -128,10 +129,31 @@ PRINT SADD(s$)
 PRINT DATE$
 PRINT TIME$
 PRINT TIMER
+RANDOMIZE 1234
+PRINT RND(1)
+PRINT CSTR(123)
 PRINT COMMAND$
 PRINT LEFT$(ENVIRON$("PATH"), 5)
+PRINT ENVIRON$(1)
+PRINT MID$("ABCDE", 3)
+PRINT INSTR(2, "ABCDE", "CD")
+PRINT TRIM$("  X  ")
+PRINT STR$(123)
+PRINT VAL("123ABC")
+PRINT STRING$(3, 65)
+PRINT "["; SPACE$(2); "]"
 PRINT CSRLIN
 PRINT POS(0)
+"#,
+    );
+}
+
+#[test]
+fn qb_compiles_graphics_builtin_only_smoke_program() {
+    compile_with_qb(
+        r#"
+PRINT POINT(1, 1)
+PRINT PMAP(0, 0)
 "#,
     );
 }
@@ -144,6 +166,8 @@ SCREEN 13
 VIEW (10, 10)-(100, 80), 1, 15
 WINDOW (0, 0)-(319, 199)
 PSET (20, 20), 14
+PRINT POINT(20, 20)
+PRINT PMAP(0, 0)
 LINE (10,10)-(30,30), 12
 CIRCLE (60, 45), 15, 11
 PAINT (60, 45), 9, 11

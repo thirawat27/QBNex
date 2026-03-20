@@ -86,23 +86,33 @@ pub enum OpCode {
 
     Print,
     PrintNewline,
+    PrintComma,
     PrintTab,
     PrintSpace,
     PrintUsing(usize),
+    LPrint,
+    LPrintNewline,
+    LPrintComma,
+    LPrintTab,
+    LPrintSpace,
+    LPrintUsing(usize),
 
     Input,
 
     Screen(i32),
+    ScreenDynamic,
     Pset {
         x: i32,
         y: i32,
         color: i32,
     },
+    PsetDynamic,
     Preset {
         x: i32,
         y: i32,
         color: i32,
     },
+    PresetDynamic,
     Line {
         x1: i32,
         y1: i32,
@@ -110,18 +120,22 @@ pub enum OpCode {
         y2: i32,
         color: i32,
     },
+    LineDynamic,
     Circle {
         x: i32,
         y: i32,
         radius: i32,
         color: i32,
     },
+    CircleDynamic,
 
     Sound {
         frequency: i32,
         duration: i32,
     },
+    SoundDynamic,
     Play(String),
+    PlayDynamic,
     Beep,
 
     Open {
@@ -206,8 +220,10 @@ pub enum OpCode {
     Left,
     Right,
     Mid,
+    MidNoLen,
     Len,
     InStr,
+    InStrFrom,
     LCase,
     UCase,
     LTrim,
@@ -233,6 +249,7 @@ pub enum OpCode {
     IntFunc,
     Fix,
     Rnd,
+    RndWithArg,
 
     // Type conversion
     CInt,
@@ -249,25 +266,37 @@ pub enum OpCode {
     // Misc
     Swap(String, String),
     Sleep,
+    Randomize,
+    RandomizeDynamic,
     Timer,
     Date,
     Time,
     Clear,
     Cls,
     Locate(i32, i32),
+    LocateDynamic,
     Color(i32, i32),
+    ColorDynamic,
 
     // File I/O
     LineInput(String),
     LineInputDynamic, // Pops file_number from stack, pushes line to variable
+    WriteConsole(usize),
     WriteFile(String),
     WriteFileDynamic(usize),
+    InputChars { has_file_number: bool },
     InputFile(String),
     InputFileDynamic(usize),
     PrintFile(String),
     PrintFileDynamic, // Pops file_number and value from stack
+    PrintFileCommaDynamic, // Pops file_number and advances to next print zone
+    PrintFileNewlineDynamic, // Pops file_number and writes newline
     Eof(String),
+    EofDynamic,
     Lof(String),
+    LofDynamic,
+    Loc(String),
+    LocDynamic,
     Seek(String, i32),
     SeekDynamic,
     FreeFile,
@@ -279,13 +308,16 @@ pub enum OpCode {
         paint_color: i32,
         border_color: i32,
     },
+    PaintDynamic,
     Draw {
         commands: String,
     },
+    DrawDynamic,
     Palette {
         attribute: i32,
         color: i32,
     },
+    PaletteDynamic,
     View {
         x1: i32,
         y1: i32,
@@ -294,10 +326,12 @@ pub enum OpCode {
         fill_color: i32,
         border_color: i32,
     },
+    ViewDynamic,
     ViewPrint {
         top: i32,
         bottom: i32,
     },
+    ViewPrintDynamic,
     ViewReset,
     Window {
         x1: f64,
@@ -305,18 +339,22 @@ pub enum OpCode {
         x2: f64,
         y2: f64,
     },
+    WindowDynamic,
     WindowReset,
 
     // DATA/READ/RESTORE
     Data(Vec<QType>),
     Read(String),
-    Restore(Option<String>),
+    Restore(Option<usize>),
 
     // Error handling
     Err,
     Erl,
     ErDev,
     ErDevStr,
+    SetCurrentLine(u16),
+    TraceOn,
+    TraceOff,
 
     // Additional string/numeric functions
     HexFunc,
@@ -332,19 +370,28 @@ pub enum OpCode {
 
     // System functions
     FreFunc(i32), // FRE with argument type: 0=string, -1=array, -2=stack
+    FreDynamic,   // FRE(expr)
     CsrLinFunc,   // Current cursor line
     PosFunc(i32), // Current cursor position
+    PosDynamic,   // POS(expr)
+    LPosFunc(i32), // LPOS(expr)
+    LPosDynamic,   // LPOS(expr dynamic)
     EnvironFunc,  // Environment variable
     CommandFunc,  // Command line arguments
     InKeyFunc,    // Get key press without waiting
+    KeySetDynamic,
+    KeyOn,
+    KeyOff,
+    KeyList,
 
     // Advanced features
     DefFn {
         // DEF FN inline function
         name: String,
-        params: Vec<String>,
+        param_slots: Vec<usize>,
         body: Vec<OpCode>,
     },
+    MarkConst(usize),
     CallDefFn(String), // Call DEF FN function
     MidAssign {
         // MID$ as statement (assign to substring)
@@ -368,6 +415,7 @@ pub enum OpCode {
     InpDynamic,         // INP(expr)
     OutDynamic,         // OUT expr, expr
     DefSeg(i32),        // DEF SEG = segment
+    DefSegDynamic,      // DEF SEG = expr
     VarPtrFunc(String), // VARPTR(variable)
     VarSegFunc(String), // VARSEG(variable)
     SaddFunc(String),   // SADD(string)
@@ -390,7 +438,9 @@ pub enum OpCode {
 
     // Graphics advanced
     PointFunc(i32, i32), // POINT(x, y) - get pixel color
+    PointDynamic,        // POINT(expr, expr)
     PMapFunc(f64, i32),  // PMAP(coord, function)
+    PMapDynamic,         // PMAP(expr, expr)
     GetImage {
         // GET (graphics)
         x1: i32,
@@ -399,12 +449,18 @@ pub enum OpCode {
         y2: i32,
         array: String,
     },
+    GetImageDynamic {
+        array: String,
+    },
     PutImage {
         // PUT (graphics)
         x: i32,
         y: i32,
         array: String,
         action: String, // PSET, PRESET, AND, OR, XOR
+    },
+    PutImageDynamic {
+        array: String,
     },
 
     // System commands
@@ -483,13 +539,23 @@ impl std::fmt::Display for OpCode {
             OpCode::NextFast(idx) => write!(f, "NEXT_FAST {}", idx),
             OpCode::Print => write!(f, "PRINT"),
             OpCode::PrintNewline => write!(f, "PRINT_NL"),
+            OpCode::PrintComma => write!(f, "PRINT_COMMA"),
             OpCode::PrintTab => write!(f, "PRINT_TAB"),
             OpCode::PrintSpace => write!(f, "PRINT_SPC"),
             OpCode::PrintUsing(n) => write!(f, "PRINT_USING {}", n),
+            OpCode::LPrint => write!(f, "LPRINT"),
+            OpCode::LPrintNewline => write!(f, "LPRINT_NL"),
+            OpCode::LPrintComma => write!(f, "LPRINT_COMMA"),
+            OpCode::LPrintTab => write!(f, "LPRINT_TAB"),
+            OpCode::LPrintSpace => write!(f, "LPRINT_SPC"),
+            OpCode::LPrintUsing(n) => write!(f, "LPRINT_USING {}", n),
             OpCode::Input => write!(f, "INPUT"),
             OpCode::Screen(mode) => write!(f, "SCREEN {}", mode),
+            OpCode::ScreenDynamic => write!(f, "SCREEN <expr>"),
             OpCode::Pset { x, y, color } => write!(f, "PSET({},{}) {}", x, y, color),
+            OpCode::PsetDynamic => write!(f, "PSET(<expr>,<expr>) <expr>"),
             OpCode::Preset { x, y, color } => write!(f, "PRESET({},{}) {}", x, y, color),
+            OpCode::PresetDynamic => write!(f, "PRESET(<expr>,<expr>) <expr>"),
             OpCode::Line {
                 x1,
                 y1,
@@ -497,17 +563,21 @@ impl std::fmt::Display for OpCode {
                 y2,
                 color,
             } => write!(f, "LINE({},{}),({},{}) {}", x1, y1, x2, y2, color),
+            OpCode::LineDynamic => write!(f, "LINE(<expr>,<expr>),(<expr>,<expr>) <expr>"),
             OpCode::Circle {
                 x,
                 y,
                 radius,
                 color,
             } => write!(f, "CIRCLE({},{}) {} {}", x, y, radius, color),
+            OpCode::CircleDynamic => write!(f, "CIRCLE(<expr>,<expr>) <expr> <expr>"),
             OpCode::Sound {
                 frequency,
                 duration,
             } => write!(f, "SOUND {} {}", frequency, duration),
+            OpCode::SoundDynamic => write!(f, "SOUND <expr> <expr>"),
             OpCode::Play(melody) => write!(f, "PLAY {}", melody),
+            OpCode::PlayDynamic => write!(f, "PLAY <expr>"),
             OpCode::Beep => write!(f, "BEEP"),
             OpCode::Open { mode } => write!(f, "OPEN {}", mode),
             OpCode::Close => write!(f, "CLOSE"),
@@ -599,8 +669,10 @@ impl std::fmt::Display for OpCode {
             OpCode::Left => write!(f, "LEFT$"),
             OpCode::Right => write!(f, "RIGHT$"),
             OpCode::Mid => write!(f, "MID$"),
+            OpCode::MidNoLen => write!(f, "MID$(<start-to-end>)"),
             OpCode::Len => write!(f, "LEN"),
             OpCode::InStr => write!(f, "INSTR"),
+            OpCode::InStrFrom => write!(f, "INSTR(<start>, ...)"),
             OpCode::LCase => write!(f, "LCASE$"),
             OpCode::UCase => write!(f, "UCASE$"),
             OpCode::LTrim => write!(f, "LTRIM$"),
@@ -624,6 +696,7 @@ impl std::fmt::Display for OpCode {
             OpCode::IntFunc => write!(f, "INT"),
             OpCode::Fix => write!(f, "FIX"),
             OpCode::Rnd => write!(f, "RND"),
+            OpCode::RndWithArg => write!(f, "RND(<expr>)"),
             OpCode::CInt => write!(f, "CINT"),
             OpCode::CLng => write!(f, "CLNG"),
             OpCode::CSng => write!(f, "CSNG"),
@@ -634,23 +707,41 @@ impl std::fmt::Display for OpCode {
             OpCode::Erase(name) => write!(f, "ERASE {}", name),
             OpCode::Swap(a, b) => write!(f, "SWAP {} {}", a, b),
             OpCode::Sleep => write!(f, "SLEEP"),
+            OpCode::Randomize => write!(f, "RANDOMIZE"),
+            OpCode::RandomizeDynamic => write!(f, "RANDOMIZE <expr>"),
             OpCode::Timer => write!(f, "TIMER"),
             OpCode::Date => write!(f, "DATE$"),
             OpCode::Time => write!(f, "TIME$"),
             OpCode::Clear => write!(f, "CLEAR"),
             OpCode::Cls => write!(f, "CLS"),
             OpCode::Locate(row, col) => write!(f, "LOCATE {} {}", row, col),
+            OpCode::LocateDynamic => write!(f, "LOCATE <expr>, <expr>"),
             OpCode::Color(fg, bg) => write!(f, "COLOR {} {}", fg, bg),
+            OpCode::ColorDynamic => write!(f, "COLOR <expr>, <expr>"),
             OpCode::LineInput(file) => write!(f, "LINE INPUT #{}", file),
             OpCode::LineInputDynamic => write!(f, "LINE INPUT #(dynamic)"),
+            OpCode::WriteConsole(count) => write!(f, "WRITE {}", count),
             OpCode::WriteFile(file) => write!(f, "WRITE #{}", file),
             OpCode::WriteFileDynamic(count) => write!(f, "WRITE #(dynamic) {}", count),
+            OpCode::InputChars { has_file_number } => {
+                if *has_file_number {
+                    write!(f, "INPUT$(<count>, <file>)")
+                } else {
+                    write!(f, "INPUT$(<count>)")
+                }
+            }
             OpCode::InputFile(file) => write!(f, "INPUT #{}", file),
             OpCode::InputFileDynamic(count) => write!(f, "INPUT #(dynamic) {}", count),
             OpCode::PrintFile(file) => write!(f, "PRINT #{}", file),
             OpCode::PrintFileDynamic => write!(f, "PRINT #(dynamic)"),
+            OpCode::PrintFileCommaDynamic => write!(f, "PRINT #(dynamic) COMMA"),
+            OpCode::PrintFileNewlineDynamic => write!(f, "PRINT #(dynamic) NL"),
             OpCode::Eof(file) => write!(f, "EOF({})", file),
+            OpCode::EofDynamic => write!(f, "EOF(dynamic)"),
             OpCode::Lof(file) => write!(f, "LOF({})", file),
+            OpCode::LofDynamic => write!(f, "LOF(dynamic)"),
+            OpCode::Loc(file) => write!(f, "LOC({})", file),
+            OpCode::LocDynamic => write!(f, "LOC(dynamic)"),
             OpCode::Seek(file, pos) => write!(f, "SEEK {} {}", file, pos),
             OpCode::SeekDynamic => write!(f, "SEEK (dynamic)"),
             OpCode::FreeFile => write!(f, "FREEFILE"),
@@ -662,10 +753,13 @@ impl std::fmt::Display for OpCode {
             } => {
                 write!(f, "PAINT({},{}) {} {}", x, y, paint_color, border_color)
             }
+            OpCode::PaintDynamic => write!(f, "PAINT(<expr>,<expr>) <expr> <expr>"),
             OpCode::Draw { commands } => write!(f, "DRAW {}", commands),
+            OpCode::DrawDynamic => write!(f, "DRAW <expr>"),
             OpCode::Palette { attribute, color } => {
                 write!(f, "PALETTE {} {}", attribute, color)
             }
+            OpCode::PaletteDynamic => write!(f, "PALETTE <expr> <expr>"),
             OpCode::View {
                 x1,
                 y1,
@@ -680,19 +774,25 @@ impl std::fmt::Display for OpCode {
                     x1, y1, x2, y2, fill_color, border_color
                 )
             }
+            OpCode::ViewDynamic => write!(f, "VIEW(<expr>,<expr>)-(<expr>,<expr>) <expr> <expr>"),
             OpCode::ViewPrint { top, bottom } => write!(f, "VIEW PRINT {} TO {}", top, bottom),
+            OpCode::ViewPrintDynamic => write!(f, "VIEW PRINT <expr> TO <expr>"),
             OpCode::ViewReset => write!(f, "VIEW RESET"),
             OpCode::Window { x1, y1, x2, y2 } => {
                 write!(f, "WINDOW({},{})-({},{})", x1, y1, x2, y2)
             }
+            OpCode::WindowDynamic => write!(f, "WINDOW(<expr>,<expr>)-(<expr>,<expr>)"),
             OpCode::WindowReset => write!(f, "WINDOW RESET"),
             OpCode::Data(values) => write!(f, "DATA {:?}", values),
             OpCode::Read(var) => write!(f, "READ {}", var),
-            OpCode::Restore(label) => write!(f, "RESTORE {:?}", label),
+            OpCode::Restore(section) => write!(f, "RESTORE {:?}", section),
             OpCode::Err => write!(f, "ERR"),
             OpCode::Erl => write!(f, "ERL"),
             OpCode::ErDev => write!(f, "ERDEV"),
             OpCode::ErDevStr => write!(f, "ERDEV$"),
+            OpCode::SetCurrentLine(line) => write!(f, "LINE {}", line),
+            OpCode::TraceOn => write!(f, "TRON"),
+            OpCode::TraceOff => write!(f, "TROFF"),
             OpCode::HexFunc => write!(f, "HEX$"),
             OpCode::OctFunc => write!(f, "OCT$"),
             OpCode::MkiFunc => write!(f, "MKI$"),
@@ -704,12 +804,23 @@ impl std::fmt::Display for OpCode {
             OpCode::CvsFunc => write!(f, "CVS"),
             OpCode::CvdFunc => write!(f, "CVD"),
             OpCode::FreFunc(arg) => write!(f, "FRE({})", arg),
+            OpCode::FreDynamic => write!(f, "FRE(<expr>)"),
             OpCode::CsrLinFunc => write!(f, "CSRLIN"),
             OpCode::PosFunc(arg) => write!(f, "POS({})", arg),
+            OpCode::PosDynamic => write!(f, "POS(<expr>)"),
+            OpCode::LPosFunc(arg) => write!(f, "LPOS({})", arg),
+            OpCode::LPosDynamic => write!(f, "LPOS(<expr>)"),
             OpCode::EnvironFunc => write!(f, "ENVIRON$"),
             OpCode::CommandFunc => write!(f, "COMMAND$"),
             OpCode::InKeyFunc => write!(f, "INKEY$"),
-            OpCode::DefFn { name, params, .. } => write!(f, "DEF FN{}({:?})", name, params),
+            OpCode::KeySetDynamic => write!(f, "KEY <expr>, <expr>"),
+            OpCode::KeyOn => write!(f, "KEY ON"),
+            OpCode::KeyOff => write!(f, "KEY OFF"),
+            OpCode::KeyList => write!(f, "KEY LIST"),
+            OpCode::DefFn {
+                name, param_slots, ..
+            } => write!(f, "DEF FN{}({:?})", name, param_slots),
+            OpCode::MarkConst(slot) => write!(f, "MARK_CONST {}", slot),
             OpCode::CallDefFn(name) => write!(f, "FN{}", name),
             OpCode::MidAssign {
                 var_name,
@@ -740,6 +851,7 @@ impl std::fmt::Display for OpCode {
             OpCode::InpDynamic => write!(f, "INP(<expr>)"),
             OpCode::OutDynamic => write!(f, "OUT <expr>, <expr>"),
             OpCode::DefSeg(seg) => write!(f, "DEF SEG = {}", seg),
+            OpCode::DefSegDynamic => write!(f, "DEF SEG = <expr>"),
             OpCode::VarPtrFunc(var) => write!(f, "VARPTR({})", var),
             OpCode::VarSegFunc(var) => write!(f, "VARSEG({})", var),
             OpCode::SaddFunc(var) => write!(f, "SADD({})", var),
@@ -754,7 +866,9 @@ impl std::fmt::Display for OpCode {
                 write!(f, "RSET_FAST {} {}", var_index, width)
             }
             OpCode::PointFunc(x, y) => write!(f, "POINT({}, {})", x, y),
+            OpCode::PointDynamic => write!(f, "POINT(<expr>, <expr>)"),
             OpCode::PMapFunc(coord, func) => write!(f, "PMAP({}, {})", coord, func),
+            OpCode::PMapDynamic => write!(f, "PMAP(<expr>, <expr>)"),
             OpCode::GetImage {
                 x1,
                 y1,
@@ -764,6 +878,9 @@ impl std::fmt::Display for OpCode {
             } => {
                 write!(f, "GET ({}, {})-({}, {}), {}", x1, y1, x2, y2, array)
             }
+            OpCode::GetImageDynamic { array } => {
+                write!(f, "GET (<expr>, <expr>)-(<expr>, <expr>), {}", array)
+            }
             OpCode::PutImage {
                 x,
                 y,
@@ -771,6 +888,9 @@ impl std::fmt::Display for OpCode {
                 action,
             } => {
                 write!(f, "PUT ({}, {}), {}, {}", x, y, array, action)
+            }
+            OpCode::PutImageDynamic { array } => {
+                write!(f, "PUT (<expr>, <expr>), {}, <expr>", array)
             }
             OpCode::Shell => write!(f, "SHELL"),
             OpCode::Chain => write!(f, "CHAIN"),

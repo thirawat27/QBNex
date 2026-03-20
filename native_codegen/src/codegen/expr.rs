@@ -3,6 +3,72 @@ use core_types::{QError, QResult, QType};
 use syntax_tree::ast_nodes::*;
 
 impl CodeGenerator {
+    pub(super) fn is_string_expression(expr: &Expression) -> bool {
+        match expr {
+            Expression::Literal(QType::String(_)) => true,
+            Expression::Variable(var) => var.type_suffix == Some('$') || var.name.ends_with('$'),
+            Expression::ArrayAccess {
+                name, type_suffix, ..
+            } => {
+                type_suffix == &Some('$')
+                    || name.ends_with('$')
+                    || matches!(
+                        name.to_uppercase().as_str(),
+                        "LEFT$"
+                            | "RIGHT$"
+                            | "MID$"
+                            | "LCASE$"
+                            | "UCASE$"
+                            | "LTRIM$"
+                            | "RTRIM$"
+                            | "TRIM$"
+                            | "STR$"
+                            | "CHR$"
+                            | "SPACE$"
+                            | "STRING$"
+                            | "HEX$"
+                            | "OCT$"
+                            | "MKI$"
+                            | "MKL$"
+                            | "MKS$"
+                            | "MKD$"
+                            | "DATE"
+                            | "DATE$"
+                            | "TIME"
+                            | "TIME$"
+                            | "ENVIRON$"
+                            | "COMMAND"
+                            | "COMMAND$"
+                            | "INPUT$"
+                            | "INKEY$"
+                            | "VARPTR$"
+                            | "ERDEVSTR"
+                            | "ERDEV$"
+                            | "CSTR"
+                    )
+            }
+            Expression::FunctionCall(func) => {
+                func.type_suffix == Some('$')
+                    || func.name.ends_with('$')
+                    || matches!(
+                        func.name.to_uppercase().as_str(),
+                        "DATE" | "TIME" | "COMMAND" | "ERDEVSTR" | "CSTR"
+                    )
+            }
+            Expression::FieldAccess { field, .. } => field.ends_with('$'),
+            Expression::TypeCast {
+                target_type,
+                expression,
+            } => matches!(target_type, QType::String(_)) || Self::is_string_expression(expression),
+            Expression::BinaryOp {
+                op: BinaryOp::Add,
+                left,
+                right,
+            } => Self::is_string_expression(left) || Self::is_string_expression(right),
+            _ => false,
+        }
+    }
+
     pub(super) fn generate_swap(
         &mut self,
         indent: &str,
@@ -65,18 +131,82 @@ impl CodeGenerator {
         &mut self,
         indent: &str,
         expressions: &[Expression],
+        separators: &[Option<PrintSeparator>],
         newline: bool,
     ) -> QResult<()> {
-        for expr in expressions {
-            let code = self.generate_expression(expr)?;
-            self.output.push_str(&format!(
-                "{}qb_print(&format!(\"{{}}\", {}));\n",
-                indent, code
-            ));
+        self.generate_print_target(indent, expressions, separators, newline, false)
+    }
+
+    pub(super) fn generate_lprint(
+        &mut self,
+        indent: &str,
+        expressions: &[Expression],
+        separators: &[Option<PrintSeparator>],
+        newline: bool,
+    ) -> QResult<()> {
+        self.generate_print_target(indent, expressions, separators, newline, true)
+    }
+
+    fn generate_print_target(
+        &mut self,
+        indent: &str,
+        expressions: &[Expression],
+        separators: &[Option<PrintSeparator>],
+        newline: bool,
+        printer: bool,
+    ) -> QResult<()> {
+        let print_tab_fn = if printer { "qb_lprint_tab" } else { "qb_print_tab" };
+        let print_spc_fn = if printer { "qb_lprint_spc" } else { "qb_print_spc" };
+        let print_text_fn = if printer { "qb_lprint" } else { "qb_print" };
+        let print_comma_fn = if printer { "qb_lprint_comma" } else { "qb_print_comma" };
+        let print_newline_fn = if printer { "qb_lprint_newline" } else { "qb_print_newline" };
+
+        for (index, expr) in expressions.iter().enumerate() {
+            match expr {
+                Expression::ArrayAccess { name, indices, .. }
+                    if name.eq_ignore_ascii_case("TAB") && indices.len() == 1 =>
+                {
+                    let code = self.generate_expression(&indices[0])?;
+                    self.output
+                        .push_str(&format!("{}{}({});\n", indent, print_tab_fn, code));
+                }
+                Expression::FunctionCall(func)
+                    if func.name.eq_ignore_ascii_case("TAB") && func.args.len() == 1 =>
+                {
+                    let code = self.generate_expression(&func.args[0])?;
+                    self.output
+                        .push_str(&format!("{}{}({});\n", indent, print_tab_fn, code));
+                }
+                Expression::ArrayAccess { name, indices, .. }
+                    if name.eq_ignore_ascii_case("SPC") && indices.len() == 1 =>
+                {
+                    let code = self.generate_expression(&indices[0])?;
+                    self.output
+                        .push_str(&format!("{}{}({});\n", indent, print_spc_fn, code));
+                }
+                Expression::FunctionCall(func)
+                    if func.name.eq_ignore_ascii_case("SPC") && func.args.len() == 1 =>
+                {
+                    let code = self.generate_expression(&func.args[0])?;
+                    self.output
+                        .push_str(&format!("{}{}({});\n", indent, print_spc_fn, code));
+                }
+                _ => {
+                    let code = self.generate_expression(expr)?;
+                    self.output.push_str(&format!(
+                        "{}{}(&format!(\"{{}}\", {}));\n",
+                        indent, print_text_fn, code
+                    ));
+                }
+            }
+            if matches!(separators.get(index), Some(Some(PrintSeparator::Comma))) {
+                self.output
+                    .push_str(&format!("{}{}();\n", indent, print_comma_fn));
+            }
         }
         if newline {
             self.output
-                .push_str(&format!("{}qb_print_newline();\n", indent));
+                .push_str(&format!("{}{}();\n", indent, print_newline_fn));
         }
         Ok(())
     }
@@ -407,7 +537,7 @@ impl CodeGenerator {
                     && self
                         .current_function_name
                         .as_ref()
-                        .is_none_or(|current| !current.eq_ignore_ascii_case(name))
+                        .map_or(true, |current| !current.eq_ignore_ascii_case(name))
                 {
                     self.generate_user_function_call(name, &[])
                 } else if var.type_suffix == Some('$') || name.ends_with('$') {
@@ -494,7 +624,13 @@ impl CodeGenerator {
                 let left_code = self.generate_expression(left)?;
                 let right_code = self.generate_expression(right)?;
                 match op {
-                    BinaryOp::Add => Ok(format!("({} + {})", left_code, right_code)),
+                    BinaryOp::Add => {
+                        if Self::is_string_expression(left) || Self::is_string_expression(right) {
+                            Ok(format!("qb_concat({}, {})", left_code, right_code))
+                        } else {
+                            Ok(format!("({} + {})", left_code, right_code))
+                        }
+                    }
                     BinaryOp::Subtract => Ok(format!("({} - {})", left_code, right_code)),
                     BinaryOp::Multiply => Ok(format!("({} * {})", left_code, right_code)),
                     BinaryOp::Divide => Ok(format!("({} / {})", left_code, right_code)),
@@ -646,7 +782,14 @@ impl CodeGenerator {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_log({})", arg))
             }
-            "RND" => Ok("qb_rnd()".to_string()),
+            "RND" => {
+                if let Some(arg) = args.first() {
+                    let arg = self.generate_expression(arg)?;
+                    Ok(format!("qb_rnd(Some({}))", arg))
+                } else {
+                    Ok("qb_rnd(None)".to_string())
+                }
+            }
             "CINT" => {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_cint({})", arg))
@@ -662,6 +805,10 @@ impl CodeGenerator {
             "CDBL" => {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_cdbl({})", arg))
+            }
+            "CSTR" => {
+                let arg = self.generate_expression(&args[0])?;
+                Ok(format!("qb_cstr({})", arg))
             }
             "MKI$" => {
                 let arg = self.generate_expression(&args[0])?;
@@ -754,7 +901,11 @@ impl CodeGenerator {
             }
             "ENVIRON$" => {
                 let arg = self.generate_expression(&args[0])?;
-                Ok(format!("qb_environ(&{})", arg))
+                if Self::is_string_expression(&args[0]) {
+                    Ok(format!("qb_environ(&{})", arg))
+                } else {
+                    Ok(format!("qb_environ_index({})", arg))
+                }
             }
             "LEN" => {
                 let arg = self.generate_expression(&args[0])?;
@@ -767,6 +918,10 @@ impl CodeGenerator {
             "RTRIM$" => {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_rtrim(&{})", arg))
+            }
+            "TRIM$" => {
+                let arg = self.generate_expression(&args[0])?;
+                Ok(format!("qb_trim(&{})", arg))
             }
             "UCASE$" => {
                 let arg = self.generate_expression(&args[0])?;
@@ -797,14 +952,25 @@ impl CodeGenerator {
                 }
             }
             "INSTR" => {
-                let s = self.generate_expression(&args[0])?;
-                let substr = self.generate_expression(&args[1])?;
-                Ok(format!("qb_instr(&{}, &{})", s, substr))
+                if args.len() > 2 {
+                    let start = self.generate_expression(&args[0])?;
+                    let s = self.generate_expression(&args[1])?;
+                    let substr = self.generate_expression(&args[2])?;
+                    Ok(format!("qb_instr_from({}, &{}, &{})", start, s, substr))
+                } else {
+                    let s = self.generate_expression(&args[0])?;
+                    let substr = self.generate_expression(&args[1])?;
+                    Ok(format!("qb_instr(&{}, &{})", s, substr))
+                }
             }
             "STRING$" => {
                 let n = self.generate_expression(&args[0])?;
                 let c = self.generate_expression(&args[1])?;
-                Ok(format!("qb_string({}, &{})", n, c))
+                if Self::is_string_expression(&args[1]) {
+                    Ok(format!("qb_string_str({}, &{})", n, c))
+                } else {
+                    Ok(format!("qb_string_chr({}, {})", n, c))
+                }
             }
             "SPACE$" => {
                 let n = self.generate_expression(&args[0])?;
@@ -874,7 +1040,7 @@ impl CodeGenerator {
                 } else {
                     self.generate_expression(&args[0])?
                 };
-                Ok(format!("qb_pos({})", arg))
+                Ok(format!("qb_lpos({})", arg))
             }
             "EOF" => {
                 let arg = self.generate_expression(&args[0])?;
@@ -887,6 +1053,16 @@ impl CodeGenerator {
             "LOC" => {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_loc({})", arg))
+            }
+            "POINT" => {
+                let x = self.generate_expression(&args[0])?;
+                let y = self.generate_expression(&args[1])?;
+                Ok(format!("qb_point({}, {})", x, y))
+            }
+            "PMAP" => {
+                let coord = self.generate_expression(&args[0])?;
+                let func = self.generate_expression(&args[1])?;
+                Ok(format!("qb_pmap({}, {})", coord, func))
             }
 
             _ => Ok("0.0".to_string()),

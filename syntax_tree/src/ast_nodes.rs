@@ -63,10 +63,22 @@ pub struct TypeField {
     pub fixed_length: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrintSeparator {
+    Comma,
+    Semicolon,
+}
+
 #[derive(Debug, Clone)]
 pub enum Statement {
     Print {
         expressions: Vec<Expression>,
+        separators: Vec<Option<PrintSeparator>>,
+        newline: bool,
+    },
+    LPrint {
+        expressions: Vec<Expression>,
+        separators: Vec<Option<PrintSeparator>>,
         newline: bool,
     },
     PrintUsing {
@@ -74,9 +86,15 @@ pub enum Statement {
         expressions: Vec<Expression>,
         newline: bool,
     },
+    LPrintUsing {
+        format: Expression,
+        expressions: Vec<Expression>,
+        newline: bool,
+    },
     PrintFile {
         file_number: Box<Expression>,
         expressions: Vec<Expression>,
+        separators: Vec<Option<PrintSeparator>>,
         newline: bool,
     },
     Assignment {
@@ -214,7 +232,7 @@ pub enum Statement {
     },
     FunctionCall(FunctionCall),
     DefType {
-        letter_range: (char, char),
+        letter_ranges: Vec<(char, char)>,
         type_name: String,
     },
     Dim {
@@ -252,7 +270,7 @@ pub enum Statement {
         col: Option<Expression>,
     },
     OnError {
-        label: Option<String>,
+        target: Option<GotoTarget>,
     },
     OnErrorResumeNext,
     Error {
@@ -351,6 +369,8 @@ pub enum Statement {
     KeyOn,
     KeyOff,
     KeyList,
+    TrOn,
+    TrOff,
     OnTimer {
         interval: Expression,
         label: String,
@@ -389,6 +409,9 @@ pub enum Statement {
     Declare {
         name: String,
         is_function: bool,
+        params: Vec<Variable>,
+        return_type: Option<QType>,
+        return_fixed_length: Option<usize>,
     },
     DefFn {
         name: String,
@@ -529,6 +552,7 @@ pub enum UnaryOp {
 #[derive(Debug, Clone)]
 pub struct Variable {
     pub name: String,
+    pub by_val: bool,
     pub type_suffix: Option<char>,
     pub declared_type: Option<String>,
     pub fixed_length: Option<usize>,
@@ -536,10 +560,18 @@ pub struct Variable {
 }
 
 impl Variable {
+    pub fn suffix_from_name(name: &str) -> Option<char> {
+        match name.chars().last() {
+            Some('%') | Some('&') | Some('!') | Some('#') | Some('$') => name.chars().last(),
+            _ => None,
+        }
+    }
+
     pub fn new(name: String) -> Self {
         Self {
+            type_suffix: Self::suffix_from_name(&name),
             name,
-            type_suffix: None,
+            by_val: false,
             declared_type: None,
             fixed_length: None,
             indices: Vec::new(),
@@ -553,6 +585,11 @@ impl Variable {
 
     pub fn with_declared_type(mut self, declared_type: impl Into<String>) -> Self {
         self.declared_type = Some(declared_type.into());
+        self
+    }
+
+    pub fn with_by_val(mut self, by_val: bool) -> Self {
+        self.by_val = by_val;
         self
     }
 

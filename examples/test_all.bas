@@ -117,24 +117,24 @@ NEXT idx
 PRINT "ออกจาก FOR ที่ idx = "; idx
 
 ' WHILE...WEND (ยุคเก่า)
-count = 0
-WHILE count < 2
-    count = count + 1
+count% = 0
+WHILE count% < 2
+    count% = count% + 1
 WEND
 
 ' DO...LOOP (แบบเช็คเงื่อนไขก่อนและหลัง)
-DO WHILE count < 5
-    count = count + 1
-    IF count = 4 THEN EXIT DO ' ทดสอบ EXIT DO
+DO WHILE count% < 5
+    count% = count% + 1
+    IF count% = 4 THEN EXIT DO ' ทดสอบ EXIT DO
 LOOP
 DO
-    count = count - 1
-LOOP UNTIL count = 0
+    count% = count% - 1
+LOOP UNTIL count% = 0
 
 ' IF...THEN...ELSEIF...ELSE
-IF count = 1 THEN
+IF count% = 1 THEN
     PRINT "Count is 1"
-ELSEIF count = 0 THEN
+ELSEIF count% = 0 THEN
     PRINT "IF...ELSEIF ทำงานถูกต้อง: Count = 0"
 ELSE
     PRINT "Unknown"
@@ -156,14 +156,14 @@ CASE ELSE
 END SELECT
 
 ' Computed GOTO / GOSUB (ON ... GOTO / ON ... GOSUB)
-choice = 2
-ON choice GOTO Lbl1, Lbl2, Lbl3
+choice% = 2
+ON choice% GOTO Lbl1, Lbl2, Lbl3
 Lbl1: PRINT "ไม่ถูกเรียก": GOTO SkipGotos
 Lbl2: PRINT "ON...GOTO ทำงานถูกต้อง!": GOTO SkipGotos
 Lbl3: PRINT "ไม่ถูกเรียก"
 SkipGotos:
 
-ON choice GOSUB Sub1, Sub2, Sub3
+ON choice% GOSUB Sub1, Sub2, Sub3
 GOTO SkipGoSub
 Sub1: RETURN
 Sub2: PRINT "ON...GOSUB ทำงานถูกต้อง!": RETURN

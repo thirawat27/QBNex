@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use syntax_tree::ast_nodes::UserType;
+use syntax_tree::ast_nodes::{Expression, UserType};
 
 pub struct CodeGenerator {
     pub(super) output: String,
@@ -17,6 +17,7 @@ pub struct CodeGenerator {
     pub(super) udt_array_vars: HashMap<String, String>,
     pub(super) functions: HashSet<String>,
     pub(super) params: HashMap<String, String>,
+    pub(super) const_defs: Vec<(String, Expression)>,
     pub(super) is_in_sub: bool,
     pub(super) current_proc_is_static: bool,
     pub(super) current_function_name: Option<String>,
@@ -40,6 +41,7 @@ impl CodeGenerator {
             udt_array_vars: HashMap::new(),
             functions: HashSet::new(),
             params: HashMap::new(),
+            const_defs: Vec::new(),
             is_in_sub: false,
             current_proc_is_static: false,
             current_function_name: None,

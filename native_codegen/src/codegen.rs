@@ -602,9 +602,18 @@ impl CodeGenerator {
         match stmt {
             Statement::Print {
                 expressions,
+                separators,
                 newline,
             } => {
-                self.generate_print(&indent, expressions, *newline)?;
+                self.generate_print(&indent, expressions, separators, *newline)?;
+            }
+
+            Statement::LPrint {
+                expressions,
+                separators,
+                newline,
+            } => {
+                self.generate_lprint(&indent, expressions, separators, *newline)?;
             }
 
             Statement::PrintUsing {
@@ -636,34 +645,18 @@ impl CodeGenerator {
                 ));
             }
 
-            Statement::Write { expressions } => {
-                let values_tmp = self.next_temp_var();
-                self.output.push_str(&format!(
-                    "{}let mut {}: Vec<String> = Vec::new();\n",
-                    indent, values_tmp
-                ));
-                for expr in expressions {
-                    let expr_code = self.generate_expression(expr)?;
-                    self.output.push_str(&format!(
-                        "{}{}.push(format!(\"{{:?}}\", {}));\n",
-                        indent, values_tmp, expr_code
-                    ));
-                }
-                self.output.push_str(&format!(
-                    "{}qb_print(&{}.join(\",\"));\n",
-                    indent, values_tmp
-                ));
-                self.output
-                    .push_str(&format!("{}qb_print_newline();\n", indent));
-            }
-
-            Statement::PrintFile {
-                file_number,
+            Statement::LPrintUsing {
+                format,
                 expressions,
                 newline,
             } => {
-                let file_number = self.generate_expression(file_number)?;
+                let format_code = self.generate_expression(format)?;
+                let pattern_tmp = self.next_temp_var();
                 let values_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = {};\n",
+                    indent, pattern_tmp, format_code
+                ));
                 self.output.push_str(&format!(
                     "{}let mut {}: Vec<String> = Vec::new();\n",
                     indent, values_tmp
@@ -676,9 +669,61 @@ impl CodeGenerator {
                     ));
                 }
                 self.output.push_str(&format!(
-                    "{}qb_file_print_fields({}, &{}, {});\n",
-                    indent, file_number, values_tmp, newline
+                    "{}qb_lprint_using(&{}, &{}, {});\n",
+                    indent, pattern_tmp, values_tmp, newline
                 ));
+            }
+
+            Statement::Write { expressions } => {
+                let values_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let mut {}: Vec<String> = Vec::new();\n",
+                    indent, values_tmp
+                ));
+                for expr in expressions {
+                    let expr_code = self.generate_expression(expr)?;
+                    if Self::is_string_expression(expr) {
+                        self.output.push_str(&format!(
+                            "{}{}.push(qb_write_string_field(&{}));\n",
+                            indent, values_tmp, expr_code
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "{}{}.push(qb_write_numeric_field({}));\n",
+                            indent, values_tmp, expr_code
+                        ));
+                    }
+                }
+                self.output.push_str(&format!(
+                    "{}qb_print(&{}.join(\",\"));\n",
+                    indent, values_tmp
+                ));
+                self.output
+                    .push_str(&format!("{}qb_print_newline();\n", indent));
+            }
+
+            Statement::PrintFile {
+                file_number,
+                expressions,
+                separators,
+                newline,
+            } => {
+                let file_number = self.generate_expression(file_number)?;
+                for (index, expr) in expressions.iter().enumerate() {
+                    let expr_code = self.generate_expression(expr)?;
+                    self.output.push_str(&format!(
+                        "{}qb_file_write({}, &format!(\"{{}}\", {}), false);\n",
+                        indent, file_number, expr_code
+                    ));
+                    if matches!(separators.get(index), Some(Some(PrintSeparator::Comma))) {
+                        self.output
+                            .push_str(&format!("{}qb_file_print_comma({});\n", indent, file_number));
+                    }
+                }
+                if *newline {
+                    self.output
+                        .push_str(&format!("{}qb_file_print_newline({});\n", indent, file_number));
+                }
             }
 
             Statement::Assignment { target, value } => {
@@ -1832,6 +1877,7 @@ impl CodeGenerator {
                     "{}qb_clear(&mut num_vars, &mut str_vars, &mut arr_vars, &mut str_arr_vars);\n",
                     indent
                 ));
+                self.emit_restore_consts(&indent)?;
             }
 
             Statement::Error { code } => {
@@ -2291,10 +2337,17 @@ impl CodeGenerator {
                 ));
                 for expr in expressions {
                     let expr_code = self.generate_expression(expr)?;
-                    self.output.push_str(&format!(
-                        "{}{}.push(format!(\"{{:?}}\", {}));\n",
-                        indent, values_tmp, expr_code
-                    ));
+                    if Self::is_string_expression(expr) {
+                        self.output.push_str(&format!(
+                            "{}{}.push(qb_write_string_field(&{}));\n",
+                            indent, values_tmp, expr_code
+                        ));
+                    } else {
+                        self.output.push_str(&format!(
+                            "{}{}.push(qb_write_numeric_field({}));\n",
+                            indent, values_tmp, expr_code
+                        ));
+                    }
                 }
                 self.output.push_str(&format!(
                     "{}qb_file_write_csv({}, &{});\n",
@@ -2455,6 +2508,11 @@ impl CodeGenerator {
 
             Statement::Label { .. } => {}
 
+            Statement::LineNumber { number } => {
+                self.output
+                    .push_str(&format!("{}qb_set_current_line({});\n", indent, number));
+            }
+
             Statement::LineInput { prompt, variable } => {
                 if let Some(p) = prompt {
                     let prompt_code = self.generate_expression(p)?;
@@ -2555,23 +2613,62 @@ impl CodeGenerator {
                 ));
             }
 
+            Statement::TrOn => {
+                self.output.push_str(&format!("{}qb_tron();\n", indent));
+            }
+
+            Statement::TrOff => {
+                self.output.push_str(&format!("{}qb_troff();\n", indent));
+            }
+
+            Statement::Key {
+                key_num,
+                key_string,
+            } => {
+                let key_num = self.generate_expression(key_num)?;
+                let key_string = self.generate_expression(key_string)?;
+                self.output.push_str(&format!(
+                    "{}qb_key_set({}, &{});\n",
+                    indent, key_num, key_string
+                ));
+            }
+
+            Statement::KeyOn => {
+                self.output.push_str(&format!("{}qb_key_on();\n", indent));
+            }
+
+            Statement::KeyOff => {
+                self.output.push_str(&format!("{}qb_key_off();\n", indent));
+            }
+
+            Statement::KeyList => {
+                self.output.push_str(&format!("{}qb_key_list();\n", indent));
+            }
+
             Statement::Width { .. }
-            | Statement::Key { .. }
-            | Statement::KeyOn
-            | Statement::KeyOff
-            | Statement::KeyList
             | Statement::OptionBase { .. }
             | Statement::Declare { .. }
             | Statement::ViewPrint { .. } => {}
 
+            Statement::Const { name, value } => {
+                self.record_const(name, value);
+                self.emit_const_assignment(&indent, name, value)?;
+            }
+
             Statement::DefFn { name, params, body } => {
                 let fn_name = self.rust_symbol("qbfn", name);
+                let saved_params = self.params.clone();
+                self.params.clear();
                 let param_list = params
                     .iter()
                     .map(|p| format!("{}: f64", p))
                     .collect::<Vec<_>>()
                     .join(", ");
+                for param in params {
+                    self.params.insert(param.clone(), param.clone());
+                }
                 let body_code = self.generate_expression(body)?;
+                self.params = saved_params;
 
                 self.output.push_str(&format!(
                     "{}fn {}(num_vars: &[f64], str_vars: &[String], {}) -> f64 {{\n",
@@ -2698,6 +2795,45 @@ impl CodeGenerator {
             }
 
             _ => {}
+        }
+        Ok(())
+    }
+
+    fn record_const(&mut self, name: &str, value: &Expression) {
+        self.const_defs.retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
+        self.const_defs.push((name.to_string(), value.clone()));
+    }
+
+    fn emit_const_assignment(
+        &mut self,
+        indent: &str,
+        name: &str,
+        value: &Expression,
+    ) -> QResult<()> {
+        let value_code = self.generate_expression(value)?;
+        let name_upper = name.to_uppercase();
+        if name.ends_with('$') {
+            let idx = self.get_str_var_idx(&name_upper);
+            self.output
+                .push_str(&format!("{}let _tmp_const = {};\n", indent, value_code));
+            self.output.push_str(&format!(
+                "{}set_str(&mut str_vars, {}, &_tmp_const);\n",
+                indent, idx
+            ));
+        } else {
+            let idx = self.get_num_var_idx(&name_upper);
+            self.output.push_str(&format!(
+                "{}set_var(&mut num_vars, {}, ({} as f64));\n",
+                indent, idx, value_code
+            ));
+        }
+        Ok(())
+    }
+
+    fn emit_restore_consts(&mut self, indent: &str) -> QResult<()> {
+        let const_defs = self.const_defs.clone();
+        for (name, value) in const_defs {
+            self.emit_const_assignment(indent, &name, &value)?;
         }
         Ok(())
     }

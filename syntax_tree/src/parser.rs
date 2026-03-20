@@ -110,6 +110,84 @@ impl Parser {
         while self.match_token(&[Token::Newline, Token::Colon]) {}
     }
 
+    fn consume_declared_type_name(&mut self, message: &str) -> QResult<String> {
+        let Some(token) = self.advance() else {
+            return Err(QError::Syntax(message.to_string()));
+        };
+
+        let type_name = match token {
+            Token::Identifier(type_name) => type_name.clone(),
+            Token::Keyword(Keyword::String) => "STRING".to_string(),
+            Token::Keyword(kw) => format!("{:?}", kw).to_uppercase(),
+            _ => return Err(QError::Syntax(message.to_string())),
+        };
+
+        Ok(type_name.to_uppercase())
+    }
+
+    fn parse_fixed_length_string(&mut self, error_message: &str) -> QResult<Option<usize>> {
+        if !self.match_token(&[Token::Multiply]) {
+            return Ok(None);
+        }
+
+        let length_expr = self.parse_expression()?;
+        match length_expr {
+            Expression::Literal(core_types::QType::Integer(len)) if len >= 0 => {
+                Ok(Some(len as usize))
+            }
+            Expression::Literal(core_types::QType::Long(len)) if len >= 0 => Ok(Some(len as usize)),
+            Expression::Literal(core_types::QType::Single(len)) if len >= 0.0 => {
+                Ok(Some(len as usize))
+            }
+            Expression::Literal(core_types::QType::Double(len)) if len >= 0.0 => {
+                Ok(Some(len as usize))
+            }
+            _ => Err(QError::Syntax(error_message.to_string())),
+        }
+    }
+
+    fn type_name_to_suffix(type_name: &str) -> Option<char> {
+        match type_name {
+            "INTEGER" => Some('%'),
+            "LONG" => Some('&'),
+            "SINGLE" => Some('!'),
+            "DOUBLE" => Some('#'),
+            "STRING" => Some('$'),
+            _ => None,
+        }
+    }
+
+    fn type_name_to_qtype(type_name: &str) -> QType {
+        match type_name {
+            "INTEGER" => QType::Integer(0),
+            "LONG" => QType::Long(0),
+            "SINGLE" => QType::Single(0.0),
+            "DOUBLE" => QType::Double(0.0),
+            "STRING" => QType::String(String::new()),
+            _ => QType::UserDefined(type_name.as_bytes().to_vec()),
+        }
+    }
+
+    fn function_name_to_qtype(name: &str) -> Option<QType> {
+        if name.ends_with('%') {
+            Some(QType::Integer(0))
+        } else if name.ends_with('&') {
+            Some(QType::Long(0))
+        } else if name.ends_with('!') {
+            Some(QType::Single(0.0))
+        } else if name.ends_with('#') {
+            Some(QType::Double(0.0))
+        } else if name.ends_with('$') {
+            Some(QType::String(String::new()))
+        } else {
+            None
+        }
+    }
+
+    fn default_function_return_type(name: &str) -> QType {
+        Self::function_name_to_qtype(name).unwrap_or(QType::Single(0.0))
+    }
+
     fn parse_declared_type_annotation(
         &mut self,
     ) -> QResult<(Option<char>, Option<String>, Option<usize>)> {
@@ -117,47 +195,13 @@ impl Parser {
             return Ok((None, None, None));
         }
 
-        let Some(token) = self.advance() else {
-            return Err(QError::Syntax("Expected type name after AS".to_string()));
+        let type_upper = self.consume_declared_type_name("Expected type name after AS")?;
+        let fixed_length = if type_upper == "STRING" {
+            self.parse_fixed_length_string("Fixed-length STRING requires a constant length")?
+        } else {
+            None
         };
-
-        let type_name = match token {
-            Token::Identifier(type_name) => type_name.clone(),
-            Token::Keyword(Keyword::String) => "STRING".to_string(),
-            Token::Keyword(kw) => format!("{:?}", kw).to_uppercase(),
-            _ => return Err(QError::Syntax("Expected type name after AS".to_string())),
-        };
-
-        let type_upper = type_name.to_uppercase();
-        let mut fixed_length = None;
-        if type_upper == "STRING" && self.match_token(&[Token::Multiply]) {
-            let length_expr = self.parse_expression()?;
-            fixed_length = match length_expr {
-                Expression::Literal(core_types::QType::Integer(len)) if len >= 0 => {
-                    Some(len as usize)
-                }
-                Expression::Literal(core_types::QType::Long(len)) if len >= 0 => Some(len as usize),
-                Expression::Literal(core_types::QType::Single(len)) if len >= 0.0 => {
-                    Some(len as usize)
-                }
-                Expression::Literal(core_types::QType::Double(len)) if len >= 0.0 => {
-                    Some(len as usize)
-                }
-                _ => {
-                    return Err(QError::Syntax(
-                        "Fixed-length STRING requires a constant length".to_string(),
-                    ))
-                }
-            };
-        }
-        let suffix = match type_upper.as_str() {
-            "INTEGER" => Some('%'),
-            "LONG" => Some('&'),
-            "SINGLE" => Some('!'),
-            "DOUBLE" => Some('#'),
-            "STRING" => Some('$'),
-            _ => None,
-        };
+        let suffix = Self::type_name_to_suffix(&type_upper);
 
         Ok((
             suffix,
@@ -168,6 +212,62 @@ impl Parser {
             },
             fixed_length,
         ))
+    }
+
+    fn parse_parameter_list(&mut self) -> QResult<Vec<Variable>> {
+        let mut params = Vec::new();
+        if self.match_token(&[Token::OpenParen]) {
+            if !self.check(&Token::CloseParen) {
+                loop {
+                    let by_val = if self.match_keyword(Keyword::ByVal) {
+                        true
+                    } else {
+                        self.match_keyword(Keyword::ByRef);
+                        false
+                    };
+                    let Some(Token::Identifier(param_name)) = self.advance() else {
+                        return Err(QError::Syntax(
+                            "Expected parameter name in procedure signature".to_string(),
+                        ));
+                    };
+                    let param_name = param_name.clone();
+                    let (type_suffix, declared_type, fixed_length) =
+                        self.parse_declared_type_annotation()?;
+                    let type_suffix =
+                        type_suffix.or_else(|| Variable::suffix_from_name(&param_name));
+                    params.push(Variable {
+                        name: param_name,
+                        by_val,
+                        type_suffix,
+                        declared_type,
+                        fixed_length,
+                        indices: Vec::new(),
+                    });
+
+                    if !self.match_token(&[Token::Comma]) {
+                        break;
+                    }
+                }
+            }
+            self.consume(Token::CloseParen, "Expected ')' after parameters")?;
+        }
+
+        Ok(params)
+    }
+
+    fn parse_function_return_annotation(&mut self, name: &str) -> QResult<(QType, Option<usize>)> {
+        if !self.match_keyword(Keyword::As) {
+            return Ok((Self::default_function_return_type(name), None));
+        }
+
+        let type_upper = self.consume_declared_type_name("Expected return type name after AS")?;
+        let fixed_length = if type_upper == "STRING" {
+            self.parse_fixed_length_string("Fixed-length STRING return requires a constant length")?
+        } else {
+            None
+        };
+
+        Ok((Self::type_name_to_qtype(&type_upper), fixed_length))
     }
 
     pub fn parse(&mut self) -> QResult<Program> {
@@ -368,6 +468,7 @@ impl Parser {
             }
             return Ok(Some(Statement::Print {
                 expressions: Vec::new(),
+                separators: Vec::new(),
                 newline: false,
             }));
         }
@@ -377,12 +478,12 @@ impl Parser {
             return Ok(Some(Statement::Cls));
         }
 
-        // Handle TRON/TROFF as no-op compatibility statements
-        if self.match_keyword(Keyword::TrOn) || self.match_keyword(Keyword::TrOff) {
-            return Ok(Some(Statement::Print {
-                expressions: Vec::new(),
-                newline: false,
-            }));
+        // Handle TRON/TROFF trace-control statements
+        if self.match_keyword(Keyword::TrOn) {
+            return Ok(Some(Statement::TrOn));
+        }
+        if self.match_keyword(Keyword::TrOff) {
+            return Ok(Some(Statement::TrOff));
         }
 
         // Handle LOCATE
@@ -616,12 +717,23 @@ impl Parser {
 
         // Handle RESTORE
         if self.match_keyword(Keyword::Restore) {
-            let label = if let Some(Token::Identifier(name)) = self.peek() {
-                let name = name.clone();
-                self.advance();
-                Some(name)
-            } else {
-                None
+            let label = match self.peek() {
+                Some(Token::Identifier(name)) => {
+                    let name = name.clone();
+                    self.advance();
+                    Some(name)
+                }
+                Some(Token::IntegerLiteral(value)) => {
+                    let value = value.to_string();
+                    self.advance();
+                    Some(value)
+                }
+                Some(Token::LongLiteral(value)) => {
+                    let value = value.to_string();
+                    self.advance();
+                    Some(value)
+                }
+                _ => None,
             };
             return Ok(Some(Statement::Restore { label }));
         }
@@ -713,10 +825,10 @@ impl Parser {
         }
 
         if self.match_keyword(Keyword::Print) {
-            return self.parse_print().map(Some);
+            return self.parse_print(false).map(Some);
         }
         if self.match_keyword(Keyword::LPrint) {
-            return self.parse_print().map(Some);
+            return self.parse_print(true).map(Some);
         }
         if self.match_keyword(Keyword::Dim) {
             return self.parse_dim().map(Some);
@@ -840,7 +952,7 @@ impl Parser {
         )))
     }
 
-    fn parse_print(&mut self) -> QResult<Statement> {
+    fn parse_print(&mut self, printer: bool) -> QResult<Statement> {
         // Check for file output: PRINT #filenum, ...
         let file_number = if self.match_token(&[Token::Hash]) {
             Some(Box::new(self.parse_expression()?))
@@ -860,63 +972,103 @@ impl Parser {
         }
 
         let mut expressions = Vec::new();
+        let mut separators = Vec::new();
         let mut newline = true;
 
         if self.check(&Token::Newline) || self.check(&Token::Colon) || self.is_at_end() {
             if let Some(format) = using_format {
-                return Ok(Statement::PrintUsing {
-                    format,
-                    expressions,
-                    newline,
+                return Ok(if printer {
+                    Statement::LPrintUsing {
+                        format,
+                        expressions,
+                        newline,
+                    }
+                } else {
+                    Statement::PrintUsing {
+                        format,
+                        expressions,
+                        newline,
+                    }
                 });
             }
             if let Some(fnum) = file_number {
                 return Ok(Statement::PrintFile {
                     file_number: fnum,
                     expressions,
+                    separators,
                     newline,
                 });
             }
-            return Ok(Statement::Print {
-                expressions,
-                newline,
+            return Ok(if printer {
+                Statement::LPrint {
+                    expressions,
+                    separators,
+                    newline,
+                }
+            } else {
+                Statement::Print {
+                    expressions,
+                    separators,
+                    newline,
+                }
             });
         }
 
         loop {
             expressions.push(self.parse_expression()?);
             if self.match_token(&[Token::Semicolon]) {
+                separators.push(Some(PrintSeparator::Semicolon));
                 newline = false;
                 if self.check(&Token::Newline) || self.check(&Token::Colon) || self.is_at_end() {
                     break;
                 }
             } else if self.match_token(&[Token::Comma]) {
+                separators.push(Some(PrintSeparator::Comma));
                 newline = false; // Simplified, normally advances to next print zone
                 if self.check(&Token::Newline) || self.check(&Token::Colon) || self.is_at_end() {
                     break;
                 }
             } else {
+                separators.push(None);
                 newline = true;
                 break;
             }
         }
 
         if let Some(format) = using_format {
-            Ok(Statement::PrintUsing {
-                format,
-                expressions,
-                newline,
+            Ok(if printer {
+                Statement::LPrintUsing {
+                    format,
+                    expressions,
+                    newline,
+                }
+            } else {
+                Statement::PrintUsing {
+                    format,
+                    expressions,
+                    newline,
+                }
             })
         } else if let Some(fnum) = file_number {
             Ok(Statement::PrintFile {
                 file_number: fnum,
                 expressions,
+                separators,
                 newline,
             })
         } else {
-            Ok(Statement::Print {
-                expressions,
-                newline,
+            Ok(if printer {
+                Statement::LPrint {
+                    expressions,
+                    separators,
+                    newline,
+                }
+            } else {
+                Statement::Print {
+                    expressions,
+                    separators,
+                    newline,
+                }
             })
         }
     }
@@ -955,9 +1107,11 @@ impl Parser {
                 let fixed_length;
                 (type_suffix, declared_type, fixed_length) =
                     self.parse_declared_type_annotation()?;
+                let type_suffix = type_suffix.or_else(|| Variable::suffix_from_name(&name));
 
                 let var = Variable {
                     name,
+                    by_val: false,
                     type_suffix,
                     declared_type,
                     fixed_length,
@@ -1009,9 +1163,11 @@ impl Parser {
                 let fixed_length;
                 (type_suffix, declared_type, fixed_length) =
                     self.parse_declared_type_annotation()?;
+                let type_suffix = type_suffix.or_else(|| Variable::suffix_from_name(&name));
 
                 let var = Variable {
                     name,
+                    by_val: false,
                     type_suffix,
                     declared_type,
                     fixed_length,
@@ -1705,6 +1861,7 @@ impl Parser {
                 } else {
                     Ok(Expression::Variable(Variable {
                         name,
+                        by_val: false,
                         type_suffix,
                         declared_type: None,
                         fixed_length: None,
@@ -1831,11 +1988,9 @@ impl Parser {
             }
         }
 
-        // For now, return the first range (QBASIC allows multiple ranges, but we'll simplify)
-        // In a full implementation, we'd need to handle multiple ranges
-        if let Some(&(start, end)) = ranges.first() {
+        if !ranges.is_empty() {
             Ok(Statement::DefType {
-                letter_range: (start, end),
+                letter_ranges: ranges,
                 type_name: type_name.to_string(),
             })
         } else {
@@ -1846,7 +2001,6 @@ impl Parser {
     }
 
     fn parse_declare(&mut self) -> QResult<Statement> {
-        // DECLARE SUB/FUNCTION name (params)
         let is_function = if self.match_keyword(Keyword::Function) {
             true
         } else if self.match_keyword(Keyword::Sub) {
@@ -1862,14 +2016,21 @@ impl Parser {
             if is_function {
                 self.known_functions.insert(name.to_uppercase());
             }
-            // Skip parameter parsing for now
-            if self.match_token(&[Token::OpenParen]) {
-                while !self.check(&Token::CloseParen) && !self.is_at_end() {
-                    self.advance();
-                }
-                self.consume(Token::CloseParen, "Expected ')'")?;
-            }
-            return Ok(Statement::Declare { name, is_function });
+            let params = self.parse_parameter_list()?;
+            let (return_type, return_fixed_length) = if is_function {
+                let (return_type, return_fixed_length) =
+                    self.parse_function_return_annotation(&name)?;
+                (Some(return_type), return_fixed_length)
+            } else {
+                (None, None)
+            };
+            return Ok(Statement::Declare {
+                name,
+                is_function,
+                params,
+                return_type,
+                return_fixed_length,
+            });
         }
         Err(QError::Syntax("Expected name after DECLARE".to_string()))
     }
@@ -2282,14 +2443,12 @@ impl Parser {
         if self.match_keyword(Keyword::Goto) {
             if let Some(Token::IntegerLiteral(0)) = self.peek() {
                 self.advance();
-                return Ok(Statement::OnError { label: None });
+                return Ok(Statement::OnError { target: None });
             }
-            let label = if let Some(Token::Identifier(name)) = self.advance() {
-                Some(name.clone())
-            } else {
-                None
-            };
-            return Ok(Statement::OnError { label });
+            let target = self.parse_goto_target()?;
+            return Ok(Statement::OnError {
+                target: Some(target),
+            });
         } else if self.match_keyword(Keyword::Resume) {
             self.consume_keyword(Keyword::Next, "Expected NEXT after RESUME")?;
             return Ok(Statement::OnErrorResumeNext);
@@ -2748,9 +2907,11 @@ impl Parser {
                 let fixed_length;
                 (type_suffix, declared_type, fixed_length) =
                     self.parse_declared_type_annotation()?;
+                let type_suffix = type_suffix.or_else(|| Variable::suffix_from_name(&name));
 
                 let var = Variable {
                     name,
+                    by_val: false,
                     type_suffix,
                     declared_type,
                     fixed_length,
@@ -2802,33 +2963,7 @@ impl Parser {
             ));
         };
 
-        // Parse parameters
-        let mut params = Vec::new();
-        if self.match_token(&[Token::OpenParen]) {
-            if !self.check(&Token::CloseParen) {
-                loop {
-                    if let Some(Token::Identifier(param_name)) = self.advance() {
-                        let param_name = param_name.clone();
-                        let type_suffix;
-                        let declared_type;
-                        let fixed_length;
-                        (type_suffix, declared_type, fixed_length) =
-                            self.parse_declared_type_annotation()?;
-                        params.push(Variable {
-                            name: param_name,
-                            type_suffix,
-                            declared_type,
-                            fixed_length,
-                            indices: Vec::new(),
-                        });
-                    }
-                    if !self.match_token(&[Token::Comma]) {
-                        break;
-                    }
-                }
-            }
-            self.consume(Token::CloseParen, "Expected ')' after parameters")?;
-        }
+        let params = self.parse_parameter_list()?;
 
         // Check for STATIC
         let is_static = self.match_keyword(Keyword::Static);
@@ -2865,82 +3000,9 @@ impl Parser {
             ));
         };
 
-        // Parse parameters
-        let mut params = Vec::new();
-        if self.match_token(&[Token::OpenParen]) {
-            if !self.check(&Token::CloseParen) {
-                loop {
-                    if let Some(Token::Identifier(param_name)) = self.advance() {
-                        let param_name = param_name.clone();
-                        let type_suffix;
-                        let declared_type;
-                        let fixed_length;
-                        (type_suffix, declared_type, fixed_length) =
-                            self.parse_declared_type_annotation()?;
-                        params.push(Variable {
-                            name: param_name,
-                            type_suffix,
-                            declared_type,
-                            fixed_length,
-                            indices: Vec::new(),
-                        });
-                    }
-                    if !self.match_token(&[Token::Comma]) {
-                        break;
-                    }
-                }
-            }
-            self.consume(Token::CloseParen, "Expected ')' after parameters")?;
-        }
+        let params = self.parse_parameter_list()?;
 
-        // Parse return type (AS type)
-        let mut return_type = QType::Single(0.0); // Default return type
-        let mut return_fixed_length = None;
-        if self.match_keyword(Keyword::As) {
-            if let Some(token) = self.advance() {
-                let type_name = match token {
-                    Token::Identifier(type_name) => type_name.clone(),
-                    Token::Keyword(Keyword::String) => "STRING".to_string(),
-                    Token::Keyword(kw) => format!("{:?}", kw).to_uppercase(),
-                    _ => {
-                        return Err(QError::Syntax(
-                            "Expected return type name after AS".to_string(),
-                        ))
-                    }
-                };
-                let type_upper = type_name.to_uppercase();
-                return_type = match type_upper.as_str() {
-                    "INTEGER" => QType::Integer(0),
-                    "LONG" => QType::Long(0),
-                    "SINGLE" => QType::Single(0.0),
-                    "DOUBLE" => QType::Double(0.0),
-                    "STRING" => QType::String(String::new()),
-                    _ => QType::Single(0.0),
-                };
-                if type_upper == "STRING" && self.match_token(&[Token::Multiply]) {
-                    let length_expr = self.parse_expression()?;
-                    return_fixed_length = match length_expr {
-                        Expression::Literal(core_types::QType::Integer(len)) if len >= 0 => {
-                            Some(len as usize)
-                        }
-                        Expression::Literal(core_types::QType::Long(len)) if len >= 0 => {
-                            Some(len as usize)
-                        }
-                        Expression::Literal(core_types::QType::Single(len)) if len >= 0.0 => {
-                            Some(len as usize)
-                        }
-                        Expression::Literal(core_types::QType::Double(len)) if len >= 0.0 => {
-                            Some(len as usize)
-                        }
-                        _ => {
-                            return Err(QError::Syntax(
-                                "Fixed-length STRING return requires a constant length".to_string(),
-                            ))
-                        }
-                    };
-                }
-            }
-        }
+        let (return_type, return_fixed_length) = self.parse_function_return_annotation(&name)?;
 
         // Check for STATIC
         let is_static = self.match_keyword(Keyword::Static);

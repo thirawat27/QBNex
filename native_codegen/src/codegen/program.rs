@@ -571,6 +571,14 @@ impl CodeGenerator {
                 .push_str(&format!("            {} => {{\n", index));
             self.indent_level = 2;
 
+            if let Some(line_number) = block.line_number {
+                self.output.push_str(&format!(
+                    "{}qb_set_current_line({});\n",
+                    self.indent(),
+                    line_number
+                ));
+            }
+
             let mut terminated = false;
             for statement in &block.statements {
                 if self.generate_top_level_flow_statement(
@@ -808,12 +816,9 @@ impl CodeGenerator {
                 self.output.push_str(&format!("{}}}\n", self.indent()));
                 Ok(true)
             }
-            Statement::OnError { label } => {
-                if let Some(label) = label {
-                    let handler = labels
-                        .get(&Self::normalize_label(label))
-                        .copied()
-                        .ok_or_else(|| QError::LabelNotFound(label.clone()))?;
+            Statement::OnError { target } => {
+                if let Some(target) = target {
+                    let handler = self.resolve_top_level_target(target, labels, line_numbers)?;
                     self.output.push_str(&format!(
                         "{}qb_error_handler = Some({});\n",
                         self.indent(),
@@ -1962,6 +1967,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
             r#"
 thread_local! {
     static QB_CURSOR_STATE: std::cell::RefCell<(i32, i32)> = std::cell::RefCell::new((1, 1));
+    static QB_NONINTERACTIVE_INKEY_EMITTED: std::cell::RefCell<bool> = std::cell::RefCell::new(false);
 }
 
 fn qb_advance_cursor_text(text: &str) {
@@ -1981,10 +1987,76 @@ fn qb_advance_cursor_text(text: &str) {
     });
 }
 
+fn qb_next_print_zone(column: i32) -> Option<i32> {
+    let normalized = column.max(1);
+    let target = ((normalized - 1) / 14 + 1) * 14 + 1;
+    if target > 80 {
+        None
+    } else {
+        Some(target)
+    }
+}
+
 fn qb_print(text: &str) {
     print!("{}", text);
     let _ = io::stdout().flush();
     qb_advance_cursor_text(text);
+}
+
+fn qb_concat<L: std::fmt::Display, R: std::fmt::Display>(left: L, right: R) -> String {
+    format!("{}{}", left, right)
+}
+
+fn qb_write_numeric_field(value: f64) -> String {
+    if (value.fract()).abs() < f64::EPSILON {
+        format!("{}", value as i64)
+    } else {
+        format!("{}", value)
+    }
+}
+
+fn qb_write_string_field(value: &str) -> String {
+    format!("\"{}\"", value)
+}
+
+fn qb_print_spc(count: f64) {
+    let count = count.round().max(0.0) as usize;
+    if count == 0 {
+        return;
+    }
+    let spaces = " ".repeat(count);
+    qb_print(&spaces);
+}
+
+fn qb_print_tab(target_col: f64) {
+    let target_col = target_col.round().max(1.0) as i32;
+    QB_CURSOR_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        if target_col <= state.1 {
+            print!("\n");
+            let _ = io::stdout().flush();
+            state.0 += 1;
+            state.1 = 1;
+        }
+        let spaces = (target_col - state.1).max(0) as usize;
+        drop(state);
+        if spaces > 0 {
+            qb_print(&" ".repeat(spaces));
+        }
+    });
+}
+
+fn qb_print_comma() {
+    QB_CURSOR_STATE.with(|state| {
+        let current_col = state.borrow().1;
+        if let Some(target_col) = qb_next_print_zone(current_col) {
+            drop(state);
+            qb_print_tab(target_col as f64);
+        } else {
+            drop(state);
+            qb_print_newline();
+        }
+    });
 }
 
 fn qb_print_newline() {
@@ -1995,6 +2067,49 @@ fn qb_print_newline() {
         state.0 += 1;
         state.1 = 1;
     });
+}
+thread_local! {
+    static QB_PRINTER_COL: std::cell::Cell<i16> = const { std::cell::Cell::new(1) };
+}
+fn qb_lprint(text: &str) {
+    QB_PRINTER_COL.with(|col| {
+        let mut current = col.get();
+        for ch in text.chars() {
+            match ch {
+                '\n' | '\r' => current = 1,
+                _ => current = current.saturating_add(1),
+            }
+        }
+        col.set(current);
+    });
+}
+fn qb_lprint_spc(count: f64) {
+    let count = count.round().max(0.0) as i16;
+    QB_PRINTER_COL.with(|col| col.set(col.get().saturating_add(count)));
+}
+fn qb_lprint_tab(target_col: f64) {
+    QB_PRINTER_COL.with(|col| col.set(target_col.round().max(1.0) as i16));
+}
+fn qb_lprint_comma() {
+    QB_PRINTER_COL.with(|col| {
+        let current = col.get();
+        if let Some(target) = qb_next_print_zone(current as i32) {
+            col.set(target as i16);
+        } else {
+            col.set(1);
+        }
+    });
+}
+fn qb_lprint_newline() {
+    QB_PRINTER_COL.with(|col| col.set(1));
+}
+fn qb_lprint_using(pattern: &str, values: &[String], newline: bool) {
+    for value in values {
+        qb_lprint(&qb_format_using_value(pattern, value));
+    }
+    if newline {
+        qb_lprint_newline();
+    }
 }
 "#
         );
@@ -2125,13 +2240,30 @@ thread_local! {
 fn qb_randomize(seed: Option<f64>) {
     let seed = seed.unwrap_or_else(qb_timer) as u32;
     QB_RNG_STATE.with(|state| *state.borrow_mut() = seed.wrapping_add(1));
+    QB_RNG_LAST.with(|last| *last.borrow_mut() = None);
 }
-fn qb_rnd() -> f64 {
-    QB_RNG_STATE.with(|state| {
+thread_local! {
+    static QB_RNG_LAST: std::cell::RefCell<Option<f64>> = std::cell::RefCell::new(None);
+}
+fn qb_rnd(arg: Option<f64>) -> f64 {
+    if let Some(value) = arg {
+        if value < 0.0 {
+            qb_randomize(Some(value));
+        } else if value == 0.0 {
+            if let Some(last) = QB_RNG_LAST.with(|last| *last.borrow()) {
+                return last;
+            }
+            return qb_rnd(None);
+        }
+    }
+
+    let random = QB_RNG_STATE.with(|state| {
         let mut state = state.borrow_mut();
         *state = state.wrapping_mul(1103515245).wrapping_add(12345);
         ((*state / 65536) % 32768) as f64 / 32768.0
-    })
+    });
+    QB_RNG_LAST.with(|last| *last.borrow_mut() = Some(random));
+    random
 }
 fn qb_cint(x: f64) -> f64 { x.round() }
 fn qb_clng(x: f64) -> f64 { x.round() }
@@ -2430,16 +2562,109 @@ fn qb_time() -> String {
 fn qb_time() -> String {
     "00:00:00".to_string()
 }
-fn qb_command() -> String { std::env::args().skip(1).collect::<Vec<_>>().join(" ") }
+fn qb_command() -> String {
+    std::env::var("QBNEX_COMMAND_LINE")
+        .unwrap_or_else(|_| std::env::args().skip(1).collect::<Vec<_>>().join(" "))
+}
 fn qb_environ(key: &str) -> String { std::env::var(key).unwrap_or_default() }
+fn qb_sorted_environ_entries() -> Vec<String> {
+    let mut entries = std::env::vars()
+        .map(|(name, value)| format!("{}={}", name, value))
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
+}
+fn qb_environ_index(index: f64) -> String {
+    if index < 1.0 {
+        return String::new();
+    }
+    qb_sorted_environ_entries()
+        .get(index.round() as usize - 1)
+        .cloned()
+        .unwrap_or_default()
+}
 fn qb_csrlin() -> f64 {
     QB_CURSOR_STATE.with(|state| state.borrow().0 as f64)
 }
 fn qb_pos(_dummy: f64) -> f64 {
     QB_CURSOR_STATE.with(|state| state.borrow().1 as f64)
 }
+fn qb_lpos(_dummy: f64) -> f64 {
+    QB_PRINTER_COL.with(|col| col.get() as f64)
+}
+thread_local! {
+    static QB_CURRENT_LINE: std::cell::Cell<i16> = const { std::cell::Cell::new(0) };
+    static QB_TRACE_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static QB_KEY_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static QB_KEY_ASSIGNMENTS: std::cell::RefCell<std::collections::BTreeMap<i16, String>> =
+        std::cell::RefCell::new(std::collections::BTreeMap::new());
+}
+fn qb_set_current_line(line: u16) {
+    QB_CURRENT_LINE.with(|state| state.set(line as i16));
+    QB_TRACE_ENABLED.with(|trace| {
+        if trace.get() {
+            println!("[{}]", line);
+        }
+    });
+}
+fn qb_tron() {
+    QB_TRACE_ENABLED.with(|trace| trace.set(true));
+}
+fn qb_troff() {
+    QB_TRACE_ENABLED.with(|trace| trace.set(false));
+}
+fn qb_key_set(key_num: f64, key_string: &str) {
+    QB_KEY_ASSIGNMENTS.with(|map| {
+        map.borrow_mut().insert(key_num.round() as i16, key_string.to_string());
+    });
+}
+fn qb_key_on() {
+    QB_KEY_ENABLED.with(|state| state.set(true));
+}
+fn qb_key_off() {
+    QB_KEY_ENABLED.with(|state| state.set(false));
+}
+fn qb_format_key_assignment(text: &str) -> String {
+    let mut output = String::new();
+    for ch in text.chars() {
+        match ch {
+            '\r' => output.push_str("<CR>"),
+            '\n' => output.push_str("<LF>"),
+            '\t' => output.push_str("<TAB>"),
+            '\0' => output.push_str("<NUL>"),
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+fn qb_key_list() {
+    if !QB_KEY_ENABLED.with(|state| state.get()) {
+        return;
+    }
+    QB_KEY_ASSIGNMENTS.with(|map| {
+        for (key, value) in map.borrow().iter() {
+            println!("F{} {}", key, qb_format_key_assignment(value));
+        }
+    });
+}
+fn qb_noninteractive_inkey() -> String {
+    QB_NONINTERACTIVE_INKEY_EMITTED.with(|flag| {
+        let mut flag = flag.borrow_mut();
+        if *flag {
+            String::new()
+        } else {
+            *flag = true;
+            "\r".to_string()
+        }
+    })
+}
 #[cfg(windows)]
 fn qb_inkey() -> String {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return qb_noninteractive_inkey();
+    }
+
     unsafe extern "C" {
         fn _kbhit() -> i32;
         fn _getch() -> i32;
@@ -2462,7 +2687,14 @@ fn qb_inkey() -> String {
     }
 }
 #[cfg(not(windows))]
-fn qb_inkey() -> String { String::new() }
+fn qb_inkey() -> String {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        qb_noninteractive_inkey()
+    } else {
+        String::new()
+    }
+}
 #[derive(Debug)]
 struct QBRuntimeError {
     code: i16,
@@ -2552,6 +2784,7 @@ fn qb_clear(num_vars: &mut [f64], str_vars: &mut [String], arr_vars: &mut [Vec<f
     for value in str_arr_vars.iter_mut() {
         value.clear();
     }
+    qb_close_all();
 }
 fn qb_chdir(path: &str) {
     let _ = std::env::set_current_dir(path);
@@ -2612,7 +2845,7 @@ fn qb_wildcard_match(pattern: &str, text: &str) -> bool {
     pattern.ends_with('*')
         || parts
             .last()
-            .is_none_or(|part| part.is_empty() || text.ends_with(part))
+            .map_or(true, |part| part.is_empty() || text.ends_with(part))
 }
 #[derive(Debug)]
 enum QBFileMode {
@@ -2631,6 +2864,8 @@ thread_local! {
     static QB_FILES: std::cell::RefCell<std::collections::HashMap<i32, QBFileHandle>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
     static QB_RANDOM_FIELDS: std::cell::RefCell<std::collections::HashMap<i32, Vec<(usize, usize)>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    static QB_FILE_PRINT_COLS: std::cell::RefCell<std::collections::HashMap<i32, i32>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 fn qb_open(path: &str, mode: &str, file_number: f64) {
@@ -2671,6 +2906,9 @@ fn qb_open(path: &str, mode: &str, file_number: f64) {
             },
         );
     });
+    QB_FILE_PRINT_COLS.with(|cols| {
+        cols.borrow_mut().insert(file_number, 1);
+    });
 }
 fn qb_close(file_number: f64) {
     let removed = QB_FILES.with(|files| files.borrow_mut().remove(&(file_number as i32)));
@@ -2680,10 +2918,14 @@ fn qb_close(file_number: f64) {
     QB_RANDOM_FIELDS.with(|fields| {
         fields.borrow_mut().remove(&(file_number as i32));
     });
+    QB_FILE_PRINT_COLS.with(|cols| {
+        cols.borrow_mut().remove(&(file_number as i32));
+    });
 }
 fn qb_close_all() {
     QB_FILES.with(|files| files.borrow_mut().clear());
     QB_RANDOM_FIELDS.with(|fields| fields.borrow_mut().clear());
+    QB_FILE_PRINT_COLS.with(|cols| cols.borrow_mut().clear());
 }
 fn qb_freefile() -> f64 {
     QB_FILES.with(|files| {
@@ -2767,6 +3009,9 @@ fn qb_seek(file_number: f64, position: f64) {
             .unwrap_or_else(|err| {
                 qb_runtime_fail(format!("SEEK failed for file #{}: {}", file_number as i32, err))
             });
+    });
+    QB_FILE_PRINT_COLS.with(|cols| {
+        cols.borrow_mut().remove(&(file_number as i32));
     });
 }
 fn qb_define_fields(file_number: f64, fields: Vec<(usize, usize)>) {
@@ -3065,6 +3310,20 @@ fn qb_input_str(count: f64, file_number: Option<f64>) -> String {
     let _ = io::stdin().read_line(&mut input);
     input.chars().take(count.max(0.0) as usize).collect()
 }
+
+fn qb_advance_file_print_column(file_number: i32, text: &str) {
+    QB_FILE_PRINT_COLS.with(|cols| {
+        let mut cols = cols.borrow_mut();
+        let col = cols.entry(file_number).or_insert(1);
+        for ch in text.chars() {
+            match ch {
+                '\n' | '\r' => *col = 1,
+                _ => *col += 1,
+            }
+        }
+    });
+}
+
 fn qb_file_write(file_number: f64, text: &str, newline: bool) {
     QB_FILES.with(|files| {
         let mut files = files.borrow_mut();
@@ -3096,16 +3355,31 @@ fn qb_file_write(file_number: f64, text: &str, newline: bool) {
                         err
                     ))
                 });
+                qb_advance_file_print_column(file_number as i32, text);
+                if newline {
+                    qb_advance_file_print_column(file_number as i32, "\n");
+                }
             }
         };
     });
 }
-fn qb_file_print_fields(file_number: f64, fields: &[String], newline: bool) {
-    for field in fields {
-        qb_file_write(file_number, field, false);
-    }
-    if newline {
-        qb_file_write(file_number, "", true);
+fn qb_file_print_newline(file_number: f64) {
+    qb_file_write(file_number, "", true);
+}
+fn qb_file_print_comma(file_number: f64) {
+    let current_col = QB_FILE_PRINT_COLS.with(|cols| {
+        cols.borrow()
+            .get(&(file_number as i32))
+            .copied()
+            .unwrap_or(1)
+    });
+    if let Some(target_col) = qb_next_print_zone(current_col) {
+        let spaces = (target_col - current_col).max(0) as usize;
+        if spaces > 0 {
+            qb_file_write(file_number, &" ".repeat(spaces), false);
+        }
+    } else {
+        qb_file_print_newline(file_number);
     }
 }
 fn qb_file_write_csv(file_number: f64, fields: &[String]) {
@@ -3246,6 +3520,7 @@ fn qb_chain(path: &str) -> ! {
 fn qb_len(s: &str) -> f64 { s.len() as f64 }
 fn qb_ltrim(s: &str) -> String { s.trim_start().to_string() }
 fn qb_rtrim(s: &str) -> String { s.trim_end().to_string() }
+fn qb_trim(s: &str) -> String { s.trim().to_string() }
 fn qb_ucase(s: &str) -> String { s.to_uppercase() }
 fn qb_lcase(s: &str) -> String { s.to_lowercase() }
 fn qb_left(s: &str, n: f64) -> String { s.chars().take(n as usize).collect() }
@@ -3262,15 +3537,120 @@ fn qb_instr(s: &str, substr: &str) -> f64 {
         None => 0.0
     }
 }
-fn qb_string(n: f64, c: &str) -> String { 
+fn qb_instr_from(start: f64, s: &str, substr: &str) -> f64 {
+    let start = start.round().max(1.0) as usize;
+    let chars: Vec<char> = s.chars().collect();
+    let offset = start.saturating_sub(1);
+    let haystack: String = chars.iter().skip(offset).collect();
+    match haystack.find(substr) {
+        Some(i) => (offset + i + 1) as f64,
+        None => 0.0
+    }
+}
+fn qb_string_str(n: f64, c: &str) -> String {
     let ch = c.chars().next().unwrap_or(' ');
-    ch.to_string().repeat(n as usize) 
+    ch.to_string().repeat(n as usize)
+}
+fn qb_string_chr(n: f64, c: f64) -> String {
+    let ch = ((c as u8) as char).to_string();
+    ch.repeat(n as usize)
 }
 fn qb_space(n: f64) -> String { " ".repeat(n as usize) }
 fn qb_asc(s: &str) -> f64 { s.chars().next().unwrap_or('\0') as u8 as f64 }
 fn qb_chr(n: f64) -> String { ((n as u8) as char).to_string() }
-fn qb_val(s: &str) -> f64 { s.parse().unwrap_or(0.0) }
-fn qb_str(n: f64) -> String { format!("{}", n) }
+fn qb_cstr(n: f64) -> String { format!("{}", n) }
+fn qb_val(s: &str) -> f64 {
+    let trimmed = s.trim_start();
+    if trimmed.is_empty() {
+        return 0.0;
+    }
+
+    let bytes = trimmed.as_bytes();
+    let mut index = 0usize;
+    let mut sign = 1.0f64;
+    if let Some(byte) = bytes.first() {
+        match byte {
+            b'+' => index = 1,
+            b'-' => {
+                index = 1;
+                sign = -1.0;
+            }
+            _ => {}
+        }
+    }
+
+    let rest = &trimmed[index..];
+    if rest.len() >= 2 && rest.as_bytes()[0] == b'&' {
+        let radix = match rest.as_bytes()[1].to_ascii_uppercase() {
+            b'H' => 16,
+            b'O' => 8,
+            _ => 0,
+        };
+        if radix != 0 {
+            let mut end = 2usize;
+            while end < rest.len() {
+                let ch = rest.as_bytes()[end] as char;
+                let valid = match radix {
+                    16 => ch.is_ascii_hexdigit(),
+                    8 => matches!(ch, '0'..='7'),
+                    _ => false,
+                };
+                if !valid {
+                    break;
+                }
+                end += 1;
+            }
+            if end > 2 {
+                let value = i64::from_str_radix(&rest[2..end], radix).unwrap_or(0) as f64;
+                return sign * value;
+            }
+            return 0.0;
+        }
+    }
+
+    let mut end = index;
+    let mut has_digits = false;
+    while end < trimmed.len() && trimmed.as_bytes()[end].is_ascii_digit() {
+        end += 1;
+        has_digits = true;
+    }
+    if end < trimmed.len() && trimmed.as_bytes()[end] == b'.' {
+        end += 1;
+        while end < trimmed.len() && trimmed.as_bytes()[end].is_ascii_digit() {
+            end += 1;
+            has_digits = true;
+        }
+    }
+    if !has_digits {
+        return 0.0;
+    }
+    if end < trimmed.len() && matches!(trimmed.as_bytes()[end], b'E' | b'e' | b'D' | b'd') {
+        let mut exp_end = end + 1;
+        if exp_end < trimmed.len() && matches!(trimmed.as_bytes()[exp_end], b'+' | b'-') {
+            exp_end += 1;
+        }
+        let exp_start = exp_end;
+        while exp_end < trimmed.len() && trimmed.as_bytes()[exp_end].is_ascii_digit() {
+            exp_end += 1;
+        }
+        if exp_end > exp_start {
+            end = exp_end;
+        }
+    }
+
+    trimmed[..end]
+        .replace('D', "E")
+        .replace('d', "E")
+        .parse()
+        .unwrap_or(0.0)
+}
+fn qb_str(n: f64) -> String {
+    let mut text = format!("{}", n);
+    if n >= 0.0 {
+        text.insert(0, ' ');
+    }
+    text
+}
 fn qb_hex(n: f64) -> String { format!("{:X}", n as i64) }
 fn qb_oct(n: f64) -> String { format!("{:o}", n as i64) }
 

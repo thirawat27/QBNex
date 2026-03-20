@@ -13,6 +13,7 @@ use feature_check::has_graphics_or_sound;
 #[derive(Default)]
 struct Args {
     file: Option<String>,
+    program_args: Vec<String>,
     compile: bool,
     output: Option<String>,
     run: bool,
@@ -28,6 +29,10 @@ fn parse_args() -> Args {
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
+            "--" => {
+                a.program_args.extend(raw[i + 1..].iter().cloned());
+                break;
+            }
             "-h" | "--help" => a.help = true,
             "-v" | "--version" => a.version = true,
             "-c" => a.compile = true,
@@ -84,7 +89,7 @@ fn main() -> Result<()> {
         }
     } else if args.run {
         match &args.file {
-            Some(f) => run_file(f, args.quiet)?,
+            Some(f) => run_file(f, &args.program_args, args.quiet)?,
             None => {
                 eprintln!("error: no input file specified");
                 eprintln!("       usage: qb -x <file.bas>");
@@ -94,7 +99,7 @@ fn main() -> Result<()> {
     } else {
         // Default mode: Compile and Run (like QB64)
         match &args.file {
-            Some(f) => compile_and_run(f, args.output.as_deref(), args.quiet)?,
+            Some(f) => compile_and_run(f, args.output.as_deref(), &args.program_args, args.quiet)?,
             None => unreachable!(),
         }
     }
@@ -130,6 +135,7 @@ OPTIONS:
 EXAMPLES:
     qb hello.bas           Compile & run hello.bas (default)
     qb -x hello.bas        Run hello.bas via interpreter
+    qb -x hello.bas -- a b Run via interpreter with COMMAND$ = "a b"
     qb -c hello.bas        Compile  -->  hello.exe
     qb -c -o out.exe a.bas Compile  -->  out.exe
     qb -e main.bas         Compile & run with forced variable declaration"#
@@ -211,7 +217,42 @@ fn select_runtime_backend(program: &syntax_tree::Program) -> Result<ExecutionBac
     Err(unsupported_backend_error(program))
 }
 
-fn run_program_with_vm(program: syntax_tree::Program) -> Result<()> {
+const COMMAND_LINE_ENV: &str = "QBNEX_COMMAND_LINE";
+
+struct EnvVarGuard {
+    key: &'static str,
+    old_value: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: String) -> Self {
+        let old_value = env::var(key).ok();
+        unsafe {
+            env::set_var(key, value);
+        }
+        Self { key, old_value }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(value) = &self.old_value {
+            unsafe {
+                env::set_var(self.key, value);
+            }
+        } else {
+            unsafe {
+                env::remove_var(self.key);
+            }
+        }
+    }
+}
+
+fn command_tail(program_args: &[String]) -> String {
+    program_args.join(" ")
+}
+
+fn run_program_with_vm(program: syntax_tree::Program, program_args: &[String]) -> Result<()> {
     let symbol_table = analyzer::scope::analyze_program(&program)?;
     let mut type_checker = analyzer::TypeChecker::new(symbol_table);
     type_checker.check_program(&program)?;
@@ -219,12 +260,26 @@ fn run_program_with_vm(program: syntax_tree::Program) -> Result<()> {
     let mut compiler = vm_engine::BytecodeCompiler::new(program);
     let bytecode = compiler.compile()?;
 
+    let _command_line_guard = EnvVarGuard::set(COMMAND_LINE_ENV, command_tail(program_args));
     let mut vm = vm_engine::VM::new(bytecode);
     vm.run()?;
     Ok(())
 }
 
-fn copy_built_binary(temp_dir: &Path, output_path: &str, run: bool) -> Result<()> {
+fn run_compiled_binary(binary_path: &Path, program_args: &[String]) -> Result<std::process::ExitStatus> {
+    let mut command = std::process::Command::new(binary_path);
+    command.args(program_args);
+    command.env(COMMAND_LINE_ENV, command_tail(program_args));
+    command.status().map_err(|e| {
+        anyhow::anyhow!(
+            "failed to run compiled program '{}': {}",
+            binary_path.display(),
+            e
+        )
+    })
+}
+
+fn copy_built_binary(temp_dir: &Path, output_path: &str, run: bool, program_args: &[String]) -> Result<()> {
     let target_bin = temp_dir.join("target/release/qbnex_app.exe");
     let dest = std::env::current_dir()?.join(output_path);
     if target_bin.exists() {
@@ -239,7 +294,7 @@ fn copy_built_binary(temp_dir: &Path, output_path: &str, run: bool) -> Result<()
     }
 
     if run {
-        let run_status = std::process::Command::new(&dest).status()?;
+        let run_status = run_compiled_binary(&dest, program_args)?;
 
         if !run_status.success() {
             let _ = fs::remove_dir_all(temp_dir);
@@ -278,7 +333,12 @@ fn workspace_paths() -> Result<(String, String, String, String, String)> {
     ))
 }
 
-fn build_with_rustc(program: &syntax_tree::Program, output_path: &str, run: bool) -> Result<()> {
+fn build_with_rustc(
+    program: &syntax_tree::Program,
+    output_path: &str,
+    run: bool,
+    program_args: &[String],
+) -> Result<()> {
     let mut codegen = native_codegen::CodeGenerator::new();
     let rust_code = codegen.generate(program)?;
 
@@ -310,15 +370,7 @@ fn build_with_rustc(program: &syntax_tree::Program, output_path: &str, run: bool
 
     if run {
         let abs_path = std::env::current_dir()?.join(output_path);
-        let run_status = std::process::Command::new(&abs_path)
-            .status()
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to run compiled program '{}': {}",
-                    abs_path.display(),
-                    e
-                )
-            })?;
+        let run_status = run_compiled_binary(&abs_path, program_args)?;
 
         if !run_status.success() {
             std::process::exit(run_status.code().unwrap_or(1));
@@ -333,6 +385,7 @@ fn build_with_cargo(
     program: &syntax_tree::Program,
     output: Option<&str>,
     run: bool,
+    program_args: &[String],
 ) -> Result<()> {
     let output_path = output
         .map(|s| s.to_string())
@@ -386,14 +439,19 @@ panic = "abort"
         return Err(anyhow::anyhow!("cargo compilation failed"));
     }
 
-    copy_built_binary(&temp_dir, &output_path, run)?;
+    copy_built_binary(&temp_dir, &output_path, run, program_args)?;
 
     let _ = fs::remove_dir_all(&temp_dir);
 
     Ok(())
 }
 
-fn build_with_vm_bundle(input: &str, output: Option<&str>, run: bool) -> Result<()> {
+fn build_with_vm_bundle(
+    input: &str,
+    output: Option<&str>,
+    run: bool,
+    program_args: &[String],
+) -> Result<()> {
     let output_path = output
         .map(|s| s.to_string())
         .unwrap_or_else(|| default_output_name(input));
@@ -474,7 +532,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {{
         return Err(anyhow::anyhow!("cargo compilation failed"));
     }
 
-    copy_built_binary(&temp_dir, &output_path, run)?;
+    copy_built_binary(&temp_dir, &output_path, run, program_args)?;
 
     let _ = fs::remove_dir_all(&temp_dir);
 
@@ -485,7 +543,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {{
 //  Compile and Run (default mode like QB64)
 // ──────────────────────────────────────────────
 
-fn compile_and_run(input: &str, output: Option<&str>, quiet: bool) -> Result<()> {
+fn compile_and_run(
+    input: &str,
+    output: Option<&str>,
+    program_args: &[String],
+    quiet: bool,
+) -> Result<()> {
     use std::time::Instant;
 
     let start = Instant::now();
@@ -496,16 +559,16 @@ fn compile_and_run(input: &str, output: Option<&str>, quiet: bool) -> Result<()>
             let output_path = output
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| default_output_name(input));
-            build_with_vm_bundle(input, Some(&output_path), true)?;
+            build_with_vm_bundle(input, Some(&output_path), true, program_args)?;
         }
         ExecutionBackend::Native => {
             if loaded.has_graphics {
-                build_with_cargo(input, &loaded.program, output, true)?;
+                build_with_cargo(input, &loaded.program, output, true, program_args)?;
             } else {
                 let output_path = output
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| default_output_name(input));
-                build_with_rustc(&loaded.program, &output_path, true)?;
+                build_with_rustc(&loaded.program, &output_path, true, program_args)?;
             }
         }
     }
@@ -521,7 +584,7 @@ fn compile_and_run(input: &str, output: Option<&str>, quiet: bool) -> Result<()>
 //  Run (interpreter) - OPTIMIZED with timeout
 // ──────────────────────────────────────────────
 
-fn run_file(filename: &str, quiet: bool) -> Result<()> {
+fn run_file(filename: &str, program_args: &[String], quiet: bool) -> Result<()> {
     use std::time::Instant;
 
     let start = Instant::now();
@@ -529,15 +592,15 @@ fn run_file(filename: &str, quiet: bool) -> Result<()> {
     let loaded = load_program(filename)?;
     let vm_gaps = syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm);
     if vm_gaps.is_empty() {
-        run_program_with_vm(loaded.program)?;
+        run_program_with_vm(loaded.program, program_args)?;
     } else if syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native)
         .is_empty()
     {
         if loaded.has_graphics {
-            build_with_cargo(filename, &loaded.program, None, true)?;
+            build_with_cargo(filename, &loaded.program, None, true, program_args)?;
         } else {
             let output_path = default_output_name(filename);
-            build_with_rustc(&loaded.program, &output_path, true)?;
+            build_with_rustc(&loaded.program, &output_path, true, program_args)?;
         }
     } else {
         return Err(unsupported_backend_error(&loaded.program));
@@ -578,14 +641,14 @@ fn build_file(input: &str, output: Option<&str>, quiet: bool) -> Result<()> {
         syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native);
     if native_gaps.is_empty() {
         if loaded.has_graphics {
-            build_with_cargo(input, &loaded.program, Some(&output_path), false)
+            build_with_cargo(input, &loaded.program, Some(&output_path), false, &[])
         } else {
-            build_with_rustc(&loaded.program, &output_path, false)
+            build_with_rustc(&loaded.program, &output_path, false, &[])
         }
     } else if syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm)
         .is_empty()
     {
-        build_with_vm_bundle(input, Some(&output_path), false)
+        build_with_vm_bundle(input, Some(&output_path), false, &[])
     } else {
         Err(unsupported_backend_error(&loaded.program))
     }
