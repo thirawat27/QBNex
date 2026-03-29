@@ -1,0 +1,17 @@
+[package]
+name = "vm_engine"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+
+[[test]]
+name = "vm_test"
+path = "../tests/integration/runtime/vm_regression_suite.rs"
+
+[dependencies]
+core_types = { path = "../types" }
+syntax_tree = { path = "../frontend" }
+hal_layer = { path = "../platform" }
+chrono = "0.4"

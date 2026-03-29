@@ -1,0 +1,17 @@
+DATA 1
+firstLabel:
+DATA 2, 3
+
+READ a
+PRINT a
+
+RESTORE firstLabel
+READ b
+READ c
+PRINT b
+PRINT c
+
+100 DATA 4
+RESTORE 100
+READ d
+PRINT d

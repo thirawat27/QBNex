@@ -1,0 +1,8 @@
+name$ = "  QBNex  "
+
+PRINT LEFT$("HELLO", 2)
+PRINT RIGHT$("HELLO", 2)
+PRINT MID$("HELLO", 2, 3)
+PRINT INSTR(1, "QBNex", "Ne")
+PRINT ASC("A")
+PRINT TRIM$(name$)

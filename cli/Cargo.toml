@@ -1,0 +1,33 @@
+[package]
+name = "cli_tool"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+
+[[bin]]
+name = "qb"
+path = "src/main.rs"
+
+[[test]]
+name = "compile_smoke_test"
+path = "../tests/integration/cli/compile_regression_suite.rs"
+
+[[test]]
+name = "shell_cli"
+path = "../tests/integration/cli/cli_regression_suite.rs"
+
+[[test]]
+name = "qbasic_conformance"
+path = "../tests/conformance/non_dos_quickbasic/qbasic_conformance_suite.rs"
+
+[dependencies]
+core_types     = { path = "../types" }
+syntax_tree    = { path = "../frontend" }
+analyzer       = { path = "../semantics" }
+vm_engine      = { path = "../runtime" }
+native_codegen = { path = "../codegen" }
+anyhow         = "1.0"
+miette         = { version = "7.4", features = ["fancy"] }
+thiserror      = "2.0"

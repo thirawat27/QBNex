@@ -103,44 +103,47 @@ QBNex supports 150+ QBasic/QB64 keywords and functions, making it compatible wit
 
 ## Project Architecture
 
-QBNex is organized as a Rust workspace with modular crates, each handling a specific phase of compilation or execution
+QBNex is organized as a Rust workspace with modular crates, each handling a specific phase of compilation or execution.
 
 ```
 QBNex/
-├── cli_tool/          Command-line interface and main entry point
+├── cli/               Command-line interface and main entry point
 │   ├── main.rs        Argument parsing, mode selection, compilation pipeline
 │   └── feature_check.rs  Graphics/sound feature detection
-├── tokenizer/         Lexical analysis (source code → tokens)
+├── lexer/             Lexical analysis (source code → tokens)
 │   ├── scanner.rs     Character-level scanning
 │   └── tokens.rs      Token definitions and types
-├── syntax_tree/       Syntax analysis (tokens → Abstract Syntax Tree)
+├── frontend/          Syntax analysis (tokens → Abstract Syntax Tree)
 │   ├── frontend.rs    Production frontend abstraction seam
 │   ├── parser.rs      Recursive descent parser
 │   └── ast_nodes.rs   AST node definitions
-├── analyzer/          Semantic analysis (type checking, scope resolution)
+├── semantics/         Semantic analysis (type checking, scope resolution)
 │   ├── scope.rs       Symbol table and scope management
 │   └── type_checker.rs  Type inference and validation
-├── vm_engine/         Bytecode compilation and virtual machine
+├── runtime/           Bytecode compilation and virtual machine
 │   ├── compiler.rs    AST → Bytecode compiler
 │   ├── runtime.rs     Bytecode interpreter/VM
 │   ├── opcodes.rs     Bytecode instruction set
 │   └── builtin_functions.rs  Built-in function implementations
-├── native_codegen/    Native code generation (AST → Rust → executable)
+├── codegen/           Native code generation (AST → Rust → executable)
 │   ├── backend.rs     Native backend abstraction seam
 │   ├── codegen.rs     Rust code generator
 │   ├── llvm_builder.rs  LLVM IR generation (future)
 │   └── linker.rs      Executable linking
-├── hal_layer/         Hardware Abstraction Layer
+├── platform/          Runtime and platform abstraction helpers
 │   ├── file_io.rs     Cross-platform file operations
 │   ├── vga_graphics.rs  Graphics rendering
 │   └── sound_synth.rs   Sound synthesis
-├── core_types/        Shared data structures
+├── types/             Shared data structures
 │   ├── data_types.rs  QBasic type system
 │   ├── errors.rs      Error handling
 │   └── memory_map.rs  Memory management
-└── test/              Centralized test suites and BASIC fixtures
+└── tests/             Centralized test suites, corpora, and BASIC fixtures
+    ├── corpora/       Shipped large compatibility source corpora
+    ├── conformance/   Language-level QBasic/QuickBASIC conformance suites
     ├── integration/   Cross-crate integration and CLI regression tests
-    └── fixtures/      Shared BASIC source fixtures
+    ├── fixtures/      Shared BASIC source fixtures
+    └── runners/       Sharded regression runners and test utilities
 ```
 
 The production compiler still uses the in-tree tokenizer and recursive-descent parser for correctness, but the frontend and native backend seams now make it practical to stage alternate implementations such as `Chumsky`, `Cranelift`, or `Inkwell` behind the same pipeline. The current adoption plan lives in `docs/architecture/rust-compiler-libraries-roadmap.md`.
@@ -162,7 +165,7 @@ The production compiler still uses the in-tree tokenizer and recursive-descent p
        ▼
 ┌─────────────┐
 │   Parser    │  Syntax Analysis
-│ (syntax_tree)│  Tokens → AST
+│ (frontend)  │  Tokens → AST
 └──────┬──────┘
        │
        ▼
@@ -177,7 +180,7 @@ The production compiler still uses the in-tree tokenizer and recursive-descent p
 ┌─────────────┐   ┌─────────────┐
 │  Bytecode   │   │   Native    │
 │  Compiler   │   │  CodeGen    │
-│ (vm_engine) │   │ (Rust code) │
+│  (runtime) │   │ (Rust code) │
 └──────┬──────┘   └──────┬──────┘
        │                 │
        ▼                 ▼
@@ -297,7 +300,7 @@ docker build -t qbnex .
 Run the CLI from the current working directory
 
 ```bash
-docker run --rm -it -v "$PWD:/workspace" -w /workspace qbnex -x test/fixtures/basic/test_all.bas
+docker run --rm -it -v "$PWD:/workspace" -w /workspace qbnex -x tests/fixtures/basic/test_all.bas
 ```
 
 Notes
@@ -493,6 +496,7 @@ EXAMPLES
 - `qb --explain-pipeline FILE`
   Explains how QBNex classifies a BASIC file: which frontend is active, whether preview gating blocks it, whether the program will run natively or via VM fallback, and which native gaps caused that decision.
 - The ignored QB64 source regression suite now sweeps every current `*.bas` file under `qb64/source/`, while a companion fragment-promotion regression keeps directly-invoked include fragments covered through their owning root program.
+- For large CLI regression passes on Windows, `powershell -ExecutionPolicy Bypass -File tests/runners/run-cli-regression-suite.ps1 -Workspace D:\QBNex` runs the `shell_cli` binary once-built and then shards tests one by one with per-test timeouts, so long runs show progress and isolate hangs more reliably than a single monolithic `cargo test -p cli_tool --test shell_cli`.
 
 ### Environment Variables
 
@@ -1060,14 +1064,16 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ### Project Structure
 
-The project uses Cargo workspaces for modular development. In-source unit tests stay next to implementation files, and file-based integration tests plus BASIC fixtures are centralized under `test/`.
+The project uses Cargo workspaces for modular development. In-source unit tests stay next to implementation files, and file-based integration tests plus BASIC fixtures are centralized under `tests/`.
 
 ### Test Layout
 
-- `test/integration/cli_tool/` contains CLI and end-to-end integration tests
-- `test/integration/vm_engine/` contains VM integration and semantic regression tests
-- `test/integration/tokenizer/` contains tokenizer integration coverage
-- `test/fixtures/basic/` contains shared BASIC smoke, graphics, and compatibility fixtures
+- `tests/integration/cli/` contains CLI and end-to-end integration tests
+- `tests/integration/runtime/` contains VM integration and semantic regression tests
+- `tests/integration/lexer/` contains lexer/tokenizer integration coverage
+- `tests/conformance/non_dos_quickbasic/` contains centralized non-DOS QBasic/QuickBASIC conformance fixtures and expected outputs
+- `tests/corpora/qb64/` contains the shipped QB64 compatibility corpus used when the full external `qb64/source/` tree is not present
+- `tests/fixtures/basic/` contains shared BASIC smoke, graphics, and compatibility fixtures
 
 ### Run Test Suite
 
@@ -1085,6 +1091,7 @@ cargo test -p syntax_tree
 cargo test -p vm_engine
 cargo test -p cli_tool --test shell_cli
 cargo test -p cli_tool --test compile_smoke_test
+cargo test -p cli_tool --test qbasic_conformance
 ```
 
 **Run with output**
@@ -1099,14 +1106,14 @@ cargo test -- --nocapture
 
 ```bash
 cargo build
-./target/debug/qb test/fixtures/basic/test_all.bas
+./target/debug/qb tests/fixtures/basic/test_all.bas
 ```
 
 **Release build (optimized)**
 
 ```bash
 cargo build --release
-./target/release/qb test/fixtures/basic/test_all.bas
+./target/release/qb tests/fixtures/basic/test_all.bas
 ```
 
 **Benchmark build**
@@ -1120,13 +1127,13 @@ cargo build --profile bench
 **Comprehensive BASIC fixture**
 
 ```bash
-cargo run --release -- test/fixtures/basic/test_all.bas
+cargo run --release -- tests/fixtures/basic/test_all.bas
 ```
 
 **Targeted fixture or sample program**
 
 ```bash
-cargo run --release -- -x test/fixtures/basic/test_graphics_getput.bas
+cargo run --release -- -x tests/fixtures/basic/test_graphics_getput.bas
 cargo run --release -- -c path/to/program.bas
 ```
 
@@ -1139,7 +1146,7 @@ cargo run --release -- -c path/to/program.bas
    ```
 3. **Test with shared fixtures**
    ```bash
-   cargo run -- -x test/fixtures/basic/test_all.bas
+cargo run -- -x tests/fixtures/basic/test_all.bas
    ```
 4. **Check for warnings**
    ```bash
@@ -1162,10 +1169,10 @@ cargo build --release
 
 ```bash
 # Windows
-cargo run --release -- test/fixtures/basic/test_all.bas
+cargo run --release -- tests/fixtures/basic/test_all.bas
 
 # Linux (with perf)
-perf record cargo run --release -- test/fixtures/basic/test_all.bas
+perf record cargo run --release -- tests/fixtures/basic/test_all.bas
 perf report
 ```
 
@@ -1174,27 +1181,49 @@ perf report
 **Enable debug output**
 
 ```bash
-RUST_LOG=debug cargo run -- -x test/fixtures/basic/test_all.bas
+RUST_LOG=debug cargo run -- -x tests/fixtures/basic/test_all.bas
 ```
 
 **Run with debugger**
 
 ```bash
 # GDB (Linux)
-gdb --args target/debug/qb test/fixtures/basic/test_all.bas
+gdb --args target/debug/qb tests/fixtures/basic/test_all.bas
 
 # LLDB (macOS)
-lldb target/debug/qb -- test/fixtures/basic/test_all.bas
+lldb target/debug/qb -- tests/fixtures/basic/test_all.bas
 ```
 
 ### Adding New Features
 
-1. **Add keyword** to `tokenizer/src/tokens.rs`
-2. **Update parser** in `syntax_tree/src/parser.rs`
-3. **Add AST node** in `syntax_tree/src/ast_nodes.rs`
-4. **Implement in VM** in `vm_engine/src/compiler.rs` and `vm_engine/src/runtime.rs`
-5. **Add codegen** in `native_codegen/src/codegen.rs`
-6. **Write file-based integration tests** under `test/integration/<crate>/` and shared BASIC fixtures under `test/fixtures/basic/`
+1. **Add keyword** to `lexer/src/tokens.rs`
+2. **Update parser** in `frontend/src/parser.rs`
+3. **Add AST node** in `frontend/src/ast_nodes.rs`
+4. **Implement in VM** in `runtime/src/compiler.rs` and `runtime/src/runtime.rs`
+5. **Add codegen** in `codegen/src/codegen.rs`
+6. **Write file-based integration tests** under `tests/integration/<area>/`, shared BASIC fixtures under `tests/fixtures/basic/`, and language-coverage fixtures under `tests/conformance/non_dos_quickbasic/`
+
+### Non-DOS Conformance
+
+QBNex now keeps a centralized non-DOS QBasic/QuickBASIC conformance suite under `tests/conformance/non_dos_quickbasic/`. That suite executes each fixture through the three production CLI paths that matter in practice:
+
+- default compile-and-run
+- `-x` VM-backed runnable build
+- compile-only followed by running the emitted executable
+
+The current conformance inventory covers:
+
+- arrays and `OPTION BASE` / bounds
+- control flow
+- `DATA` / `READ` / `RESTORE`
+- numeric operators and conversions
+- `ON ERROR` / `ERR` / `ERL`
+- `PRINT USING`
+- procedures and `DEF FN`
+- random record file I/O with `FIELD`, `LSET`, `GET`, and `PUT`
+- sequential file I/O
+- string intrinsics
+- user-defined types
 
 ### Code Style
 

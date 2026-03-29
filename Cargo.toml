@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "cli_tool",
-    "core_types",
-    "tokenizer",
-    "syntax_tree",
-    "analyzer",
-    "vm_engine",
-    "native_codegen",
-    "hal_layer",
+    "cli",
+    "types",
+    "lexer",
+    "frontend",
+    "semantics",
+    "runtime",
+    "codegen",
+    "platform",
 ]
 
 [workspace.package]

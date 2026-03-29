@@ -1,0 +1,16 @@
+[package]
+name = "syntax_tree"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description.workspace = true
+
+[[test]]
+name = "qb64_source_parse"
+path = "../tests/integration/frontend/qb64_parse_regression_suite.rs"
+
+[dependencies]
+core_types = { path = "../types" }
+tokenizer = { path = "../lexer" }
+chumsky = "0.9"
