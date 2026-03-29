@@ -1,9 +1,123 @@
-use crate::opcodes::{ByRefTarget, OpCode};
+use crate::opcodes::{BinaryFileKind, ByRefTarget, OpCode};
 use core_types::{DosMemory, QError, QResult, QType};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::IsTerminal;
 use std::io::{self, Write};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+fn runtime_binary_bytes(s: &str) -> Vec<u8> {
+    s.chars().map(|ch| ch as u32 as u8).collect()
+}
+
+fn runtime_binary_prefix<const N: usize>(s: &str) -> Option<[u8; N]> {
+    let bytes = runtime_binary_bytes(s);
+    if bytes.len() < N {
+        return None;
+    }
+    let mut prefix = [0u8; N];
+    prefix.copy_from_slice(&bytes[..N]);
+    Some(prefix)
+}
+
+fn runtime_parse_number(s: &str) -> f64 {
+    s.trim().parse::<f64>().unwrap_or(0.0)
+}
+
+fn runtime_cv_i8(s: &str) -> i8 {
+    runtime_binary_prefix::<1>(s)
+        .map(|bytes| bytes[0] as i8)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as i8)
+}
+
+fn runtime_cv_u8(s: &str) -> u8 {
+    runtime_binary_prefix::<1>(s)
+        .map(|bytes| bytes[0])
+        .unwrap_or_else(|| runtime_parse_number(s).round() as u8)
+}
+
+fn runtime_cv_i16(s: &str) -> i16 {
+    runtime_binary_prefix::<2>(s)
+        .map(i16::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as i16)
+}
+
+fn runtime_cv_u16(s: &str) -> u16 {
+    runtime_binary_prefix::<2>(s)
+        .map(u16::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as u16)
+}
+
+fn runtime_cv_i32(s: &str) -> i32 {
+    runtime_binary_prefix::<4>(s)
+        .map(i32::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as i32)
+}
+
+fn runtime_cv_u32(s: &str) -> u32 {
+    runtime_binary_prefix::<4>(s)
+        .map(u32::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as u32)
+}
+
+fn runtime_cv_f32(s: &str) -> f32 {
+    runtime_binary_prefix::<4>(s)
+        .map(f32::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s) as f32)
+}
+
+fn runtime_cv_f64(s: &str) -> f64 {
+    runtime_binary_prefix::<8>(s)
+        .map(f64::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s))
+}
+
+fn runtime_cv_i64(s: &str) -> i64 {
+    runtime_binary_prefix::<8>(s)
+        .map(i64::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as i64)
+}
+
+fn runtime_cv_u64(s: &str) -> u64 {
+    runtime_binary_prefix::<8>(s)
+        .map(u64::from_le_bytes)
+        .unwrap_or_else(|| runtime_parse_number(s).round() as u64)
+}
+
+fn runtime_normalize_qb64_type_name(type_name: &str) -> String {
+    type_name
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_uppercase()
+}
+
+fn runtime_cv_to_qtype(type_name: &str, s: &str) -> QType {
+    match runtime_normalize_qb64_type_name(type_name).as_str() {
+        "_BYTE" | "BYTE" | "_BIT" | "BIT" => QType::Integer(runtime_cv_i8(s) as i16),
+        "_UNSIGNED _BYTE" | "UNSIGNED _BYTE" | "_UNSIGNED BYTE" | "UNSIGNED BYTE"
+        | "_UNSIGNED _BIT" | "UNSIGNED _BIT" | "_UNSIGNED BIT" | "UNSIGNED BIT" => {
+            QType::Integer(runtime_cv_u8(s) as i16)
+        }
+        "INTEGER" => QType::Integer(runtime_cv_i16(s)),
+        "_UNSIGNED INTEGER" | "UNSIGNED INTEGER" => QType::Long(runtime_cv_u16(s) as i32),
+        "LONG" => QType::Long(runtime_cv_i32(s)),
+        "_UNSIGNED LONG" | "UNSIGNED LONG" => QType::Double(runtime_cv_u32(s) as f64),
+        "SINGLE" => QType::Single(runtime_cv_f32(s)),
+        "DOUBLE" | "_FLOAT" | "FLOAT" => QType::Double(runtime_cv_f64(s)),
+        "_INTEGER64" | "INTEGER64" | "_OFFSET" | "OFFSET" => {
+            QType::Double(runtime_cv_i64(s) as f64)
+        }
+        "_UNSIGNED _INTEGER64"
+        | "UNSIGNED _INTEGER64"
+        | "_UNSIGNED INTEGER64"
+        | "UNSIGNED INTEGER64"
+        | "_UNSIGNED _OFFSET"
+        | "UNSIGNED _OFFSET"
+        | "_UNSIGNED OFFSET"
+        | "UNSIGNED OFFSET" => QType::Double(runtime_cv_u64(s) as f64),
+        _ => QType::Double(runtime_parse_number(s)),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ForLoopContext {
@@ -46,6 +160,13 @@ impl Default for DataPointer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlayTrapState {
+    Off,
+    On,
+    Stop,
+}
+
 pub struct RuntimeState {
     pub instruction_pointer: usize,
     pub value_stack: Vec<QType>,
@@ -71,13 +192,28 @@ pub struct RuntimeState {
     pub timer_enabled: bool,
     pub next_timer_tick: Option<Instant>,
     pub timer_handler_depth: Option<usize>,
+    pub play_handler_address: Option<usize>,
+    pub play_queue_limit: usize,
+    pub play_trap_state: PlayTrapState,
+    pub play_pending_event: bool,
+    pub play_handler_depth: Option<usize>,
+    pub play_note_deadlines: VecDeque<Instant>,
     pub procedure_frames: Vec<ProcedureFrame>,
     pub cursor_row: i16,
     pub cursor_col: i16,
+    pub text_columns: i16,
+    pub text_rows: i16,
+    pub text_chars: Vec<u8>,
+    pub text_attrs: Vec<u8>,
+    pub text_foreground: u8,
+    pub text_background: u8,
     pub current_line: i16,
     pub trace_enabled: bool,
     pub current_segment: u16,
     pub printer_col: i16,
+    pub cursor_visible: bool,
+    pub cursor_start: Option<i16>,
+    pub cursor_stop: Option<i16>,
     pub key_enabled: bool,
     pub key_assignments: std::collections::BTreeMap<i16, String>,
     pub pseudo_var_offsets: HashMap<String, u16>,
@@ -89,10 +225,13 @@ pub struct RuntimeState {
     pub string_widths: HashMap<usize, usize>,
     pub string_array_widths: HashMap<String, usize>,
     pub file_print_columns: HashMap<i32, i16>,
+    pub pending_view_print_scroll: bool,
     pub noninteractive_inkey_emitted: bool,
     pub const_globals: HashMap<usize, QType>,
     pub rng_state: u32,
     pub last_random: Option<f32>,
+    pub default_array_base: i32,
+    pub captured_stdout: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,13 +267,28 @@ impl RuntimeState {
             timer_enabled: false,
             next_timer_tick: None,
             timer_handler_depth: None,
+            play_handler_address: None,
+            play_queue_limit: 1,
+            play_trap_state: PlayTrapState::Off,
+            play_pending_event: false,
+            play_handler_depth: None,
+            play_note_deadlines: VecDeque::with_capacity(32),
             procedure_frames: Vec::with_capacity(32),
             cursor_row: 1,
             cursor_col: 1,
+            text_columns: 80,
+            text_rows: 25,
+            text_chars: vec![b' '; 80 * 25],
+            text_attrs: vec![7; 80 * 25],
+            text_foreground: 7,
+            text_background: 0,
             current_line: 0,
             trace_enabled: false,
             current_segment: 0,
             printer_col: 1,
+            cursor_visible: true,
+            cursor_start: None,
+            cursor_stop: None,
             key_enabled: false,
             key_assignments: std::collections::BTreeMap::new(),
             pseudo_var_offsets: HashMap::with_capacity(64),
@@ -146,6 +300,7 @@ impl RuntimeState {
             string_widths: HashMap::with_capacity(32),
             string_array_widths: HashMap::with_capacity(16),
             file_print_columns: HashMap::with_capacity(8),
+            pending_view_print_scroll: false,
             noninteractive_inkey_emitted: false,
             const_globals: HashMap::with_capacity(16),
             rng_state: SystemTime::now()
@@ -153,6 +308,8 @@ impl RuntimeState {
                 .unwrap_or(Duration::from_secs(0))
                 .as_secs() as u32,
             last_random: None,
+            default_array_base: 0,
+            captured_stdout: None,
         }
     }
 
@@ -189,6 +346,14 @@ impl RuntimeState {
             .last()
             .cloned()
             .ok_or(QError::Internal("Stack underflow".to_string()))
+    }
+
+    pub fn begin_stdout_capture(&mut self) {
+        self.captured_stdout = Some(String::new());
+    }
+
+    pub fn take_captured_stdout(&mut self) -> String {
+        self.captured_stdout.take().unwrap_or_default()
     }
 }
 
@@ -293,6 +458,23 @@ pub struct VM {
 impl VM {
     const PSEUDO_VAR_SEGMENT: u16 = 0x6000;
 
+    pub fn enable_stdout_capture(&mut self) {
+        self.runtime.begin_stdout_capture();
+    }
+
+    pub fn take_captured_stdout(&mut self) -> String {
+        self.runtime.take_captured_stdout()
+    }
+
+    fn write_stdout(&mut self, text: &str) {
+        if let Some(captured) = &mut self.runtime.captured_stdout {
+            captured.push_str(text);
+        } else {
+            print!("{}", text);
+            io::stdout().flush().ok();
+        }
+    }
+
     fn poll_inkey_nonblocking(&mut self) -> String {
         if io::stdin().is_terminal() && io::stdout().is_terminal() {
             return qb_inkey_nonblocking();
@@ -336,9 +518,35 @@ impl VM {
 
     fn normalize_array_value_for_name(&self, name: &str, value: QType) -> QType {
         if let Some(width) = self.runtime.string_array_widths.get(name).copied() {
-            qb_normalize_fixed_string_value(width, value)
+            if width == 0 {
+                match value {
+                    QType::String(text) => QType::String(text),
+                    other => QType::String(format!("{}", other)),
+                }
+            } else {
+                qb_normalize_fixed_string_value(width, value)
+            }
+        } else if name.ends_with('$') {
+            match value {
+                QType::String(text) => QType::String(text),
+                other => QType::String(format!("{}", other)),
+            }
         } else {
             value
+        }
+    }
+
+    fn default_array_value_for_name(&self, name: &str) -> QType {
+        if let Some(width) = self.runtime.string_array_widths.get(name).copied() {
+            if width == 0 {
+                QType::String(String::new())
+            } else {
+                qb_normalize_fixed_string_value(width, QType::String(String::new()))
+            }
+        } else if name.ends_with('$') {
+            QType::String(String::new())
+        } else {
+            QType::Integer(0)
         }
     }
 
@@ -357,6 +565,223 @@ impl VM {
         })
     }
 
+    fn binary_file_offset(&self, file_num: u8, record_num: u64) -> QResult<u64> {
+        if record_num == 0 {
+            self.file_io.tell(file_num)
+        } else {
+            Ok(record_num.saturating_sub(1))
+        }
+    }
+
+    fn read_binary_bytes(
+        &mut self,
+        file_num: u8,
+        record_num: u64,
+        size: usize,
+    ) -> QResult<Vec<u8>> {
+        let offset = self.binary_file_offset(file_num, record_num)?;
+        self.file_io.seek(file_num, offset)?;
+        let mut bytes = self.file_io.read_bytes(file_num, size)?;
+        if bytes.len() < size {
+            bytes.resize(size, 0);
+        }
+        Ok(bytes)
+    }
+
+    fn write_binary_bytes(&mut self, file_num: u8, record_num: u64, bytes: &[u8]) -> QResult<()> {
+        let offset = self.binary_file_offset(file_num, record_num)?;
+        self.file_io.seek(file_num, offset)?;
+        self.file_io.write_bytes(file_num, bytes)
+    }
+
+    fn read_binary_value(
+        &mut self,
+        file_num: u8,
+        record_num: u64,
+        kind: BinaryFileKind,
+        fixed_length: usize,
+    ) -> QResult<QType> {
+        Ok(match kind {
+            BinaryFileKind::Integer => {
+                let bytes = self.read_binary_bytes(file_num, record_num, 2)?;
+                QType::Integer(i16::from_le_bytes([bytes[0], bytes[1]]))
+            }
+            BinaryFileKind::Long => {
+                let bytes = self.read_binary_bytes(file_num, record_num, 4)?;
+                QType::Long(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            }
+            BinaryFileKind::Single => {
+                let bytes = self.read_binary_bytes(file_num, record_num, 4)?;
+                QType::Single(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            }
+            BinaryFileKind::Double => {
+                let bytes = self.read_binary_bytes(file_num, record_num, 8)?;
+                QType::Double(f64::from_le_bytes([
+                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                ]))
+            }
+            BinaryFileKind::String => {
+                let bytes = if fixed_length > 0 {
+                    self.read_binary_bytes(file_num, record_num, fixed_length)?
+                } else {
+                    let offset = self.binary_file_offset(file_num, record_num)?;
+                    let length = self.file_io.length_by_num(file_num as i32) as u64;
+                    let remaining = length.saturating_sub(offset) as usize;
+                    self.read_binary_bytes(file_num, record_num, remaining)?
+                };
+                QType::String(String::from_utf8_lossy(&bytes).to_string())
+            }
+        })
+    }
+
+    fn write_binary_value(
+        &mut self,
+        file_num: u8,
+        record_num: u64,
+        kind: BinaryFileKind,
+        fixed_length: usize,
+        value: QType,
+    ) -> QResult<()> {
+        match kind {
+            BinaryFileKind::Integer => {
+                let value = value.to_f64().round() as i16;
+                self.write_binary_bytes(file_num, record_num, &value.to_le_bytes())
+            }
+            BinaryFileKind::Long => {
+                let value = value.to_f64().round() as i32;
+                self.write_binary_bytes(file_num, record_num, &value.to_le_bytes())
+            }
+            BinaryFileKind::Single => {
+                let value = value.to_f64() as f32;
+                self.write_binary_bytes(file_num, record_num, &value.to_le_bytes())
+            }
+            BinaryFileKind::Double => {
+                let value = value.to_f64();
+                self.write_binary_bytes(file_num, record_num, &value.to_le_bytes())
+            }
+            BinaryFileKind::String => {
+                let mut text = match value {
+                    QType::String(text) => text,
+                    other => other.to_string(),
+                };
+                if fixed_length > 0 {
+                    if text.len() > fixed_length {
+                        text.truncate(fixed_length);
+                    } else if text.len() < fixed_length {
+                        text.push_str(&" ".repeat(fixed_length - text.len()));
+                    }
+                }
+                self.write_binary_bytes(file_num, record_num, text.as_bytes())
+            }
+        }
+    }
+
+    fn pop_array_dimensions(&mut self, count: usize) -> QResult<Vec<(i32, i32)>> {
+        let mut dimensions = Vec::with_capacity(count);
+        for _ in 0..count {
+            let upper = self.pop_i32_rounded()?;
+            let lower = self.pop_i32_rounded()?;
+            dimensions.push((lower, upper));
+        }
+        dimensions.reverse();
+        Ok(dimensions)
+    }
+
+    fn validate_array_dimensions(dimensions: &[(i32, i32)]) -> QResult<usize> {
+        let mut total_size: usize = 1;
+        for (lower, upper) in dimensions {
+            if *upper < *lower {
+                return Err(QError::Internal(format!(
+                    "Invalid array bounds: {} to {}",
+                    lower, upper
+                )));
+            }
+
+            let dim_size = match (*upper - *lower + 1).try_into() {
+                Ok(size) if size > 0 && size <= 10000 => size,
+                _ => {
+                    return Err(QError::Internal(format!(
+                        "Array dimension too large: {} to {}",
+                        lower, upper
+                    )))
+                }
+            };
+
+            total_size = match total_size.checked_mul(dim_size) {
+                Some(size) if size <= 100000 => size,
+                _ => {
+                    return Err(QError::Internal(
+                        "Array size exceeds limit (max 100,000 elements)".to_string(),
+                    ))
+                }
+            };
+        }
+
+        Ok(total_size)
+    }
+
+    fn store_array_dimensions(
+        &mut self,
+        name: String,
+        dimensions: Vec<(i32, i32)>,
+        preserve: bool,
+    ) -> QResult<()> {
+        let total_size = Self::validate_array_dimensions(&dimensions)?;
+        let default_value = self.default_array_value_for_name(&name);
+
+        if preserve {
+            if let Some(old_array) = self.runtime.arrays.get(&name) {
+                let mut new_array = Vec::with_capacity(total_size);
+                new_array.resize(total_size, default_value.clone());
+                let copy_size = old_array.len().min(total_size);
+                new_array[..copy_size].clone_from_slice(&old_array[..copy_size]);
+                self.runtime.arrays.insert(name.clone(), new_array);
+            } else {
+                let mut array = Vec::with_capacity(total_size);
+                array.resize(total_size, default_value.clone());
+                self.runtime.arrays.insert(name.clone(), array);
+            }
+        } else {
+            let mut array = Vec::with_capacity(total_size);
+            array.resize(total_size, default_value);
+            self.runtime.arrays.insert(name.clone(), array);
+        }
+
+        self.runtime.array_dimensions.insert(name, dimensions);
+        Ok(())
+    }
+
+    fn create_implicit_array_dimensions(&self, indices: &[i32]) -> QResult<Vec<(i32, i32)>> {
+        let lower = self.runtime.default_array_base;
+        let mut dimensions = Vec::with_capacity(indices.len());
+        for idx in indices {
+            let upper = (*idx + 5).max(lower + 5).min(lower + 100);
+            dimensions.push((lower, upper));
+        }
+        Self::validate_array_dimensions(&dimensions)?;
+        Ok(dimensions)
+    }
+
+    fn linear_array_index(&self, dimensions: &[(i32, i32)], indices: &[i32]) -> Option<usize> {
+        if dimensions.len() != indices.len() {
+            return None;
+        }
+
+        let mut linear_index = 0usize;
+        let mut multiplier = 1usize;
+
+        for ((lower, upper), idx) in dimensions.iter().zip(indices.iter()).rev() {
+            if idx < lower || idx > upper {
+                return None;
+            }
+
+            linear_index += (*idx - *lower) as usize * multiplier;
+            multiplier = multiplier.checked_mul((*upper - *lower + 1) as usize)?;
+        }
+
+        Some(linear_index)
+    }
+
     fn read_input_chars(&mut self, count: usize, file_number: Option<i32>) -> QResult<String> {
         if let Some(file_number) = file_number {
             let bytes = self.file_io.read_bytes(file_number as u8, count)?;
@@ -368,6 +793,57 @@ impl VM {
             .read_line(&mut input)
             .map_err(|e| QError::Internal(e.to_string()))?;
         Ok(input.chars().take(count).collect())
+    }
+
+    fn emit_terminal_bell(&mut self) {
+        self.write_stdout("\x07");
+    }
+
+    fn sleep_sound_ticks(&self, duration_ticks: i32) {
+        if duration_ticks > 0 {
+            std::thread::sleep(Duration::from_secs_f64(duration_ticks as f64 / 18.2));
+        }
+    }
+
+    fn render_sound_notes(&mut self, notes: &[hal_layer::sound_synth::Note]) {
+        if notes.iter().any(|note| note.frequency > 0.0) {
+            self.emit_terminal_bell();
+        }
+
+        let total_ms: u64 = notes.iter().map(|note| note.duration_ms as u64).sum();
+        if total_ms > 0 {
+            std::thread::sleep(Duration::from_millis(total_ms));
+        }
+    }
+
+    fn queue_background_sound_notes(&mut self, notes: &[hal_layer::sound_synth::Note]) {
+        self.update_play_queue();
+        if notes.iter().any(|note| note.frequency > 0.0) {
+            self.emit_terminal_bell();
+        }
+
+        let now = Instant::now();
+        let mut next_deadline = self
+            .runtime
+            .play_note_deadlines
+            .back()
+            .copied()
+            .unwrap_or(now)
+            .max(now);
+        for note in notes {
+            next_deadline += Duration::from_millis(note.duration_ms as u64);
+            self.runtime.play_note_deadlines.push_back(next_deadline);
+        }
+    }
+
+    fn current_play_queue_count(&mut self) -> i16 {
+        if self.runtime.play_handler_depth.is_none() {
+            self.update_play_queue();
+        }
+        self.runtime
+            .play_note_deadlines
+            .len()
+            .min(i16::MAX as usize) as i16
     }
 
     fn qbasic_str(value: &QType) -> String {
@@ -534,6 +1010,8 @@ impl VM {
 
     pub fn run(&mut self) -> QResult<()> {
         while self.running && self.runtime.instruction_pointer < self.bytecode.len() {
+            self.update_play_queue();
+            self.maybe_fire_play_event();
             self.maybe_fire_timer();
             let prev_ip = self.runtime.instruction_pointer;
             if let Err(e) = self.execute_next() {
@@ -556,6 +1034,51 @@ impl VM {
             }
         }
         Ok(())
+    }
+
+    fn update_play_queue(&mut self) {
+        if self.runtime.play_pending_event || self.runtime.play_handler_depth.is_some() {
+            return;
+        }
+        let now = Instant::now();
+        while matches!(self.runtime.play_note_deadlines.front(), Some(deadline) if *deadline <= now)
+        {
+            let previous = self.runtime.play_note_deadlines.len();
+            self.runtime.play_note_deadlines.pop_front();
+            let current = self.runtime.play_note_deadlines.len();
+            if previous == self.runtime.play_queue_limit && current + 1 == previous {
+                match self.runtime.play_trap_state {
+                    PlayTrapState::Off => self.runtime.play_pending_event = false,
+                    PlayTrapState::On | PlayTrapState::Stop => {
+                        self.runtime.play_pending_event = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn maybe_fire_play_event(&mut self) {
+        if self.runtime.play_handler_depth.is_some()
+            || !self.runtime.play_pending_event
+            || self.runtime.play_trap_state != PlayTrapState::On
+        {
+            return;
+        }
+
+        let Some(handler) = self.runtime.play_handler_address else {
+            self.runtime.play_pending_event = false;
+            return;
+        };
+
+        let return_depth = self.runtime.call_stack.len();
+        self.runtime
+            .call_stack
+            .push(self.runtime.instruction_pointer);
+        self.runtime.play_handler_depth = Some(return_depth);
+        self.runtime.play_pending_event = false;
+        self.runtime.play_trap_state = PlayTrapState::Stop;
+        self.runtime.instruction_pointer = handler;
     }
 
     fn maybe_fire_timer(&mut self) {
@@ -635,7 +1158,14 @@ impl VM {
                     if let Some(array) = self.runtime.arrays.get_mut(&name) {
                         if linear_index < array.len() {
                             array[linear_index] = if let Some(width) = width {
-                                qb_normalize_fixed_string_value(width, value)
+                                if width == 0 {
+                                    match value {
+                                        QType::String(text) => QType::String(text),
+                                        other => QType::String(format!("{}", other)),
+                                    }
+                                } else {
+                                    qb_normalize_fixed_string_value(width, value)
+                                }
                             } else {
                                 value
                             };
@@ -646,53 +1176,241 @@ impl VM {
         }
     }
 
-    fn advance_cursor_text(&mut self, text: &str) {
+    fn active_text_rows(&self) -> i16 {
+        self.runtime.text_rows.max(1)
+    }
+
+    fn active_text_columns(&self) -> i16 {
+        self.runtime.text_columns.max(1)
+    }
+
+    fn active_view_print_top(&self) -> i16 {
+        self.runtime
+            .view_print_top
+            .unwrap_or(1)
+            .clamp(1, self.active_text_rows())
+    }
+
+    fn active_view_print_bottom(&self) -> i16 {
+        let top = self.active_view_print_top();
+        self.runtime
+            .view_print_bottom
+            .unwrap_or(self.active_text_rows())
+            .clamp(top, self.active_text_rows())
+    }
+
+    fn ensure_cursor_in_text_window(&mut self) {
+        let text_rows = self.active_text_rows();
+        let text_columns = self.active_text_columns();
+        let top = self.active_view_print_top();
+        let bottom = self.active_view_print_bottom();
+
+        if self.runtime.view_print_top.is_some()
+            && (self.runtime.cursor_row < top || self.runtime.cursor_row > bottom)
+        {
+            self.runtime.cursor_row = top;
+            self.runtime.cursor_col = 1;
+        } else {
+            self.runtime.cursor_row = self.runtime.cursor_row.clamp(1, text_rows);
+            self.runtime.cursor_col = self.runtime.cursor_col.clamp(1, text_columns);
+        }
+    }
+
+    fn current_text_attr(&self) -> u8 {
+        self.runtime
+            .text_foreground
+            .saturating_add(self.runtime.text_background.saturating_mul(16))
+    }
+
+    fn resize_text_buffer(&mut self, columns: i16, rows: i16, preserve_contents: bool) {
+        let columns = columns.max(1) as usize;
+        let rows = rows.max(1) as usize;
+        let mut chars = vec![b' '; columns * rows];
+        let mut attrs = vec![self.current_text_attr(); columns * rows];
+
+        if preserve_contents {
+            let old_columns = self.runtime.text_columns.max(1) as usize;
+            let old_rows = self.runtime.text_rows.max(1) as usize;
+            let copy_rows = old_rows.min(rows);
+            let copy_cols = old_columns.min(columns);
+            for row in 0..copy_rows {
+                let old_start = row * old_columns;
+                let new_start = row * columns;
+                chars[new_start..new_start + copy_cols]
+                    .copy_from_slice(&self.runtime.text_chars[old_start..old_start + copy_cols]);
+                attrs[new_start..new_start + copy_cols]
+                    .copy_from_slice(&self.runtime.text_attrs[old_start..old_start + copy_cols]);
+            }
+        }
+
+        self.runtime.text_chars = chars;
+        self.runtime.text_attrs = attrs;
+    }
+
+    fn text_buffer_index(&self, row: i16, col: i16) -> Option<usize> {
+        let row = row.max(1).min(self.active_text_rows()) as usize - 1;
+        let col = col.max(1).min(self.active_text_columns()) as usize - 1;
+        let width = self.active_text_columns() as usize;
+        let idx = row * width + col;
+        (idx < self.runtime.text_chars.len()).then_some(idx)
+    }
+
+    fn put_text_cell(&mut self, row: i16, col: i16, ch: u8) {
+        if let Some(idx) = self.text_buffer_index(row, col) {
+            self.runtime.text_chars[idx] = ch;
+            self.runtime.text_attrs[idx] = self.current_text_attr();
+        }
+    }
+
+    fn clear_text_rows(&mut self, top: i16, bottom: i16) {
+        let width = self.active_text_columns() as usize;
+        let top = top.clamp(1, self.active_text_rows()) as usize;
+        let bottom = bottom.clamp(top as i16, self.active_text_rows()) as usize;
+        let attr = self.current_text_attr();
+        for row in top..=bottom {
+            let start = (row - 1) * width;
+            let end = start + width;
+            self.runtime.text_chars[start..end].fill(b' ');
+            self.runtime.text_attrs[start..end].fill(attr);
+        }
+    }
+
+    fn scroll_text_rows_up(&mut self, top: i16, bottom: i16) {
+        let width = self.active_text_columns() as usize;
+        let top = top.clamp(1, self.active_text_rows()) as usize;
+        let bottom = bottom.clamp(top as i16, self.active_text_rows()) as usize;
+        if top >= bottom {
+            self.clear_text_rows(top as i16, bottom as i16);
+            return;
+        }
+
+        for row in top..bottom {
+            let dst_start = (row - 1) * width;
+            let src_start = row * width;
+            let src_end = src_start + width;
+            self.runtime
+                .text_chars
+                .copy_within(src_start..src_end, dst_start);
+            self.runtime
+                .text_attrs
+                .copy_within(src_start..src_end, dst_start);
+        }
+
+        self.clear_text_rows(bottom as i16, bottom as i16);
+    }
+
+    fn screen_fn_value(&self, row: i32, col: i32, color_flag: i32) -> i16 {
+        let row = row.clamp(1, self.active_text_rows() as i32) as i16;
+        let col = col.clamp(1, self.active_text_columns() as i32) as i16;
+        if let Some(idx) = self.text_buffer_index(row, col) {
+            if color_flag != 0 {
+                self.runtime.text_attrs[idx] as i16
+            } else {
+                self.runtime.text_chars[idx] as i16
+            }
+        } else {
+            0
+        }
+    }
+
+    fn consume_pending_view_print_scroll(&mut self) {
+        if self.runtime.pending_view_print_scroll {
+            let (top, bottom) = if self.runtime.view_print_top.is_some() {
+                (
+                    self.active_view_print_top(),
+                    self.active_view_print_bottom(),
+                )
+            } else {
+                (1, self.active_text_rows())
+            };
+            self.scroll_text_rows_up(top, bottom);
+            self.runtime.cursor_row = bottom;
+            self.runtime.cursor_col = 1;
+            self.runtime.pending_view_print_scroll = false;
+        }
+    }
+
+    fn advance_console_line(&mut self) {
+        let next_row = if self.runtime.view_print_top.is_some() {
+            let top = self.active_view_print_top();
+            let bottom = self.active_view_print_bottom();
+            let current = self.runtime.cursor_row.clamp(top, bottom);
+            if current < bottom {
+                self.runtime.pending_view_print_scroll = false;
+                current + 1
+            } else {
+                self.runtime.pending_view_print_scroll = true;
+                bottom
+            }
+        } else if self.runtime.cursor_row < self.active_text_rows() {
+            self.runtime.pending_view_print_scroll = false;
+            self.runtime.cursor_row + 1
+        } else {
+            self.runtime.pending_view_print_scroll = true;
+            self.active_text_rows()
+        };
+        self.runtime.cursor_row = next_row;
+        self.runtime.cursor_col = 1;
+    }
+
+    fn emit_console_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+
+        self.ensure_cursor_in_text_window();
+        let columns = self.active_text_columns();
+        let mut rendered = String::with_capacity(text.len());
         for ch in text.chars() {
+            self.consume_pending_view_print_scroll();
             match ch {
                 '\n' => {
-                    self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
-                    self.runtime.cursor_col = 1;
+                    rendered.push('\n');
+                    self.advance_console_line();
                 }
                 '\r' => {
+                    rendered.push('\r');
                     self.runtime.cursor_col = 1;
                 }
                 _ => {
+                    rendered.push(ch);
+                    self.put_text_cell(self.runtime.cursor_row, self.runtime.cursor_col, ch as u8);
                     self.runtime.cursor_col = self.runtime.cursor_col.saturating_add(1);
+                    if self.runtime.cursor_col > columns {
+                        rendered.push('\n');
+                        self.advance_console_line();
+                    }
                 }
             }
         }
+
+        self.write_stdout(&rendered);
     }
 
     fn emit_spaces(&mut self, count: usize) {
         if count == 0 {
             return;
         }
-        let spaces = " ".repeat(count);
-        print!("{}", spaces);
-        io::stdout().flush().ok();
-        self.advance_cursor_text(&spaces);
+        self.emit_console_text(&" ".repeat(count));
     }
 
     fn print_tab_to(&mut self, target_col: i16) {
-        let target_col = target_col.max(1);
+        self.ensure_cursor_in_text_window();
+        let target_col = target_col.max(1).min(self.active_text_columns());
         if target_col <= self.runtime.cursor_col {
-            println!();
-            io::stdout().flush().ok();
-            self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
-            self.runtime.cursor_col = 1;
+            self.emit_console_text("\n");
         }
 
         let spaces = target_col.saturating_sub(self.runtime.cursor_col) as usize;
         self.emit_spaces(spaces);
     }
 
-    fn next_print_zone(current_col: i16) -> Option<i16> {
+    fn next_print_zone(current_col: i16, line_width: i16) -> Option<i16> {
         const PRINT_ZONE_WIDTH: i16 = 14;
-        const PRINT_LINE_WIDTH: i16 = 80;
 
         let normalized = current_col.max(1);
         let target = ((normalized - 1) / PRINT_ZONE_WIDTH + 1) * PRINT_ZONE_WIDTH + 1;
-        if target > PRINT_LINE_WIDTH {
+        if target > line_width.max(1) {
             None
         } else {
             Some(target)
@@ -700,13 +1418,13 @@ impl VM {
     }
 
     fn print_comma(&mut self) {
-        if let Some(target) = Self::next_print_zone(self.runtime.cursor_col) {
+        self.ensure_cursor_in_text_window();
+        if let Some(target) =
+            Self::next_print_zone(self.runtime.cursor_col, self.active_text_columns())
+        {
             self.print_tab_to(target);
         } else {
-            println!();
-            io::stdout().flush().ok();
-            self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
-            self.runtime.cursor_col = 1;
+            self.emit_console_text("\n");
         }
     }
 
@@ -741,12 +1459,79 @@ impl VM {
 
     fn file_print_comma(&mut self, file_num: i32) -> QResult<()> {
         let current_col = *self.runtime.file_print_columns.get(&file_num).unwrap_or(&1);
-        if let Some(target) = Self::next_print_zone(current_col) {
+        if let Some(target) = Self::next_print_zone(current_col, 80) {
             let spaces = target.saturating_sub(current_col) as usize;
             self.file_print_spaces(file_num, spaces)
         } else {
             self.file_print_newline(file_num)
         }
+    }
+
+    fn pop_using_operands(&mut self, count: usize) -> QResult<(String, Vec<QType>)> {
+        let mut values = Vec::with_capacity(count);
+        for _ in 0..count {
+            values.push(self.runtime.pop()?);
+        }
+        values.reverse();
+        let format = Self::coerce_using_format(self.runtime.pop()?);
+        Ok((format, values))
+    }
+
+    fn coerce_using_format(format: QType) -> String {
+        if let QType::String(text) = format {
+            text
+        } else {
+            format!("{}", format)
+        }
+    }
+
+    fn emit_print_using_values(
+        &mut self,
+        format: &str,
+        values: &[QType],
+        comma_after: &[bool],
+    ) -> QResult<()> {
+        let chunks = qb_format_using_chunks(format, values)?;
+        for (index, formatted) in chunks.iter().enumerate() {
+            self.emit_console_text(&formatted);
+            if comma_after.get(index).copied().unwrap_or(false) {
+                self.print_comma();
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_lprint_using_values(
+        &mut self,
+        format: &str,
+        values: &[QType],
+        comma_after: &[bool],
+    ) -> QResult<()> {
+        let chunks = qb_format_using_chunks(format, values)?;
+        for (index, formatted) in chunks.iter().enumerate() {
+            self.emit_lprint_text(&formatted);
+            if comma_after.get(index).copied().unwrap_or(false) {
+                self.lprint_comma();
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_file_print_using_values(
+        &mut self,
+        file_num: i32,
+        format: &str,
+        values: &[QType],
+        comma_after: &[bool],
+    ) -> QResult<()> {
+        let chunks = qb_format_using_chunks(format, values)?;
+        for (index, formatted) in chunks.iter().enumerate() {
+            self.file_print_write(file_num, &formatted)?;
+            if comma_after.get(index).copied().unwrap_or(false) {
+                self.file_print_comma(file_num)?;
+            }
+        }
+        Ok(())
     }
 
     fn format_write_value(value: QType) -> String {
@@ -789,13 +1574,170 @@ impl VM {
         entries
     }
 
+    fn set_text_width(&mut self, columns: i32, rows: i32) {
+        let columns = columns.max(1).min(i16::MAX as i32) as i16;
+        let rows = rows.max(1).min(i16::MAX as i32) as i16;
+        self.resize_text_buffer(columns, rows, true);
+        self.runtime.text_columns = columns;
+        self.runtime.text_rows = rows;
+        if let Some(top) = self.runtime.view_print_top {
+            self.runtime.view_print_top = Some(top.clamp(1, self.runtime.text_rows));
+        }
+        if let Some(bottom) = self.runtime.view_print_bottom {
+            let top = self.active_view_print_top();
+            self.runtime.view_print_bottom = Some(bottom.clamp(top, self.runtime.text_rows));
+        }
+
+        self.runtime.pending_view_print_scroll = false;
+        self.ensure_cursor_in_text_window();
+    }
+
+    fn default_text_geometry_for_screen_mode(mode: i32) -> (i32, i32) {
+        match mode {
+            1 | 7 | 13 => (40, 25),
+            11 | 12 => (80, 30),
+            _ => (80, 25),
+        }
+    }
+
+    fn apply_screen_mode_text_state(&mut self, mode: i32) {
+        let (columns, rows) = Self::default_text_geometry_for_screen_mode(mode);
+        self.resize_text_buffer(columns as i16, rows as i16, false);
+        self.runtime.text_columns = columns as i16;
+        self.runtime.text_rows = rows as i16;
+        self.runtime.view_print_top = None;
+        self.runtime.view_print_bottom = None;
+        self.runtime.pending_view_print_scroll = false;
+        self.runtime.cursor_row = 1;
+        self.runtime.cursor_col = 1;
+    }
+
+    fn set_view_print_region(&mut self, top: i32, bottom: i32) {
+        let rows = self.active_text_rows() as i32;
+        let top = top.clamp(1, rows) as i16;
+        let bottom = bottom.clamp(top as i32, rows) as i16;
+        self.runtime.view_print_top = Some(top);
+        self.runtime.view_print_bottom = Some(bottom);
+        self.runtime.pending_view_print_scroll = false;
+        self.runtime.cursor_row = top;
+        self.runtime.cursor_col = 1;
+    }
+
+    fn reset_view_print_region(&mut self) {
+        self.runtime.view_print_top = None;
+        self.runtime.view_print_bottom = None;
+        self.runtime.pending_view_print_scroll = false;
+        self.runtime.cursor_row = self.runtime.cursor_row.clamp(1, self.active_text_rows());
+        self.runtime.cursor_col = self.runtime.cursor_col.clamp(1, self.active_text_columns());
+    }
+
+    fn locate_cursor(&mut self, row: i32, col: i32) -> bool {
+        self.ensure_cursor_in_text_window();
+        let previous = (self.runtime.cursor_row, self.runtime.cursor_col);
+        let row = if row == 0 {
+            self.runtime.cursor_row as i32
+        } else {
+            row.max(1).min(self.active_text_rows() as i32)
+        } as i16;
+        let col = if col == 0 {
+            self.runtime.cursor_col as i32
+        } else {
+            col.max(1).min(self.active_text_columns() as i32)
+        } as i16;
+        if self.runtime.view_print_top.is_some() {
+            self.runtime.cursor_row = row.clamp(
+                self.active_view_print_top(),
+                self.active_view_print_bottom(),
+            );
+        } else {
+            self.runtime.cursor_row = row;
+        }
+        self.runtime.pending_view_print_scroll = false;
+        self.runtime.cursor_col = col;
+        previous != (self.runtime.cursor_row, self.runtime.cursor_col)
+    }
+
+    fn set_cursor_state(&mut self, visible: i32, start: i32, stop: i32) {
+        if visible >= 0 {
+            let visible = visible != 0;
+            if self.runtime.cursor_visible != visible {
+                self.write_stdout(if visible { "\x1B[?25h" } else { "\x1B[?25l" });
+            }
+            self.runtime.cursor_visible = visible;
+        }
+
+        if start >= 0 {
+            self.runtime.cursor_start = Some(start.clamp(0, i16::MAX as i32) as i16);
+        }
+
+        if stop >= 0 {
+            self.runtime.cursor_stop = Some(stop.clamp(0, i16::MAX as i32) as i16);
+        }
+    }
+
+    fn has_active_graphics_viewport(&self) -> bool {
+        self.graphics
+            .as_ref()
+            .map(|gfx| gfx.viewport.active)
+            .unwrap_or(false)
+    }
+
+    fn clear_text_for_cls(&mut self, full_screen: bool) {
+        let (top, bottom) = if full_screen {
+            (1, self.active_text_rows())
+        } else {
+            (
+                self.active_view_print_top(),
+                self.active_view_print_bottom(),
+            )
+        };
+        self.clear_text_rows(top, bottom);
+        self.runtime.pending_view_print_scroll = false;
+        self.runtime.cursor_row = top;
+        self.runtime.cursor_col = 1;
+    }
+
+    fn clear_graphics_for_cls(&mut self, full_screen: bool) {
+        if let Some(ref mut gfx) = self.graphics {
+            if full_screen {
+                gfx.clear_graphics_screen(0);
+            } else {
+                gfx.clear_graphics_viewport(0);
+            }
+        }
+    }
+
+    fn execute_cls_mode(&mut self, mode: i32) {
+        match mode {
+            0 => {
+                self.clear_graphics_for_cls(true);
+                self.clear_text_for_cls(true);
+            }
+            1 => {
+                if self.has_active_graphics_viewport() {
+                    self.clear_graphics_for_cls(false);
+                } else {
+                    self.clear_graphics_for_cls(true);
+                    self.clear_text_for_cls(true);
+                }
+            }
+            2 => {
+                self.clear_text_for_cls(false);
+            }
+            _ => {
+                if self.has_active_graphics_viewport() {
+                    self.clear_graphics_for_cls(false);
+                } else {
+                    self.clear_text_for_cls(false);
+                }
+            }
+        }
+    }
+
     fn set_current_line(&mut self, line: u16) {
         self.runtime.current_line = line as i16;
         if self.runtime.trace_enabled {
-            println!("[{}]", line);
-            io::stdout().flush().ok();
-            self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
-            self.runtime.cursor_col = 1;
+            self.emit_console_text(&format!("[{}]\n", line));
         }
     }
 
@@ -817,9 +1759,14 @@ impl VM {
         if !self.runtime.key_enabled {
             return;
         }
-        for (key, value) in &self.runtime.key_assignments {
-            println!("F{} {}", key, Self::format_key_assignment(value));
-            io::stdout().flush().ok();
+        let lines = self
+            .runtime
+            .key_assignments
+            .iter()
+            .map(|(key, value)| format!("F{} {}\n", key, Self::format_key_assignment(value)))
+            .collect::<Vec<_>>();
+        for line in lines {
+            self.write_stdout(&line);
             self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
             self.runtime.cursor_col = 1;
         }
@@ -850,7 +1797,7 @@ impl VM {
     }
 
     fn lprint_comma(&mut self) {
-        if let Some(target) = Self::next_print_zone(self.runtime.printer_col) {
+        if let Some(target) = Self::next_print_zone(self.runtime.printer_col, 80) {
             self.lprint_tab_to(target);
         } else {
             self.lprint_newline();
@@ -957,6 +1904,10 @@ impl VM {
                 self.runtime.globals.resize(count, QType::Integer(0));
             }
 
+            OpCode::SetOptionBase(base) => {
+                self.runtime.default_array_base = base;
+            }
+
             OpCode::SetStringWidth { slot, width } => {
                 self.runtime.string_widths.insert(slot, width);
                 while self.runtime.globals.len() <= slot {
@@ -971,7 +1922,14 @@ impl VM {
                 if let Some(array) = self.runtime.arrays.get_mut(&name) {
                     for value in array.iter_mut() {
                         let current = std::mem::replace(value, QType::Empty);
-                        *value = qb_normalize_fixed_string_value(width, current);
+                        *value = if width == 0 {
+                            match current {
+                                QType::String(text) => QType::String(text),
+                                other => QType::String(format!("{}", other)),
+                            }
+                        } else {
+                            qb_normalize_fixed_string_value(width, current)
+                        };
                     }
                 }
             }
@@ -1318,6 +2276,12 @@ impl VM {
                     if self.runtime.timer_handler_depth == Some(self.runtime.call_stack.len()) {
                         self.runtime.timer_handler_depth = None;
                     }
+                    if self.runtime.play_handler_depth == Some(self.runtime.call_stack.len()) {
+                        self.runtime.play_handler_depth = None;
+                        if self.runtime.play_trap_state != PlayTrapState::Off {
+                            self.runtime.play_trap_state = PlayTrapState::On;
+                        }
+                    }
                 } else {
                     return Err(QError::ReturnWithoutGosub);
                 }
@@ -1510,9 +2474,7 @@ impl VM {
             OpCode::Print => {
                 let value = self.runtime.pop()?;
                 let rendered = format!("{}", value);
-                print!("{}", rendered);
-                io::stdout().flush().ok();
-                self.advance_cursor_text(&rendered);
+                self.emit_console_text(&rendered);
             }
 
             OpCode::LPrint => {
@@ -1522,10 +2484,7 @@ impl VM {
             }
 
             OpCode::PrintNewline => {
-                println!();
-                io::stdout().flush().ok();
-                self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
-                self.runtime.cursor_col = 1;
+                self.emit_console_text("\n");
             }
 
             OpCode::LPrintNewline => {
@@ -1550,62 +2509,26 @@ impl VM {
                 self.lprint_space(count);
             }
 
-            OpCode::PrintUsing(count) => {
-                let mut values = Vec::new();
-                for _ in 0..count {
-                    values.push(self.runtime.pop()?);
-                }
-                values.reverse();
-                let format_str = self.runtime.pop()?;
-
-                let format = if let QType::String(str) = format_str {
-                    str
-                } else {
-                    format!("{}", format_str)
-                };
-
-                // Format each value according to the format string
-                let mut result = String::new();
-
-                for val in &values {
-                    let formatted = self.format_using_value(&format, val)?;
-                    result.push_str(&formatted);
-                }
-
-                print!("{}", result);
-                io::stdout().flush().ok();
+            OpCode::PrintUsing { count, comma_after } => {
+                let (format, values) = self.pop_using_operands(count)?;
+                self.emit_print_using_values(&format, &values, &comma_after)?;
             }
 
-            OpCode::LPrintUsing(count) => {
-                let mut values = Vec::new();
-                for _ in 0..count {
-                    values.push(self.runtime.pop()?);
-                }
-                values.reverse();
-                let format_str = self.runtime.pop()?;
-
-                let format = if let QType::String(str) = format_str {
-                    str
-                } else {
-                    format!("{}", format_str)
-                };
-
-                let mut result = String::new();
-                for val in &values {
-                    let formatted = self.format_using_value(&format, val)?;
-                    result.push_str(&formatted);
-                }
-
-                self.emit_lprint_text(&result);
+            OpCode::LPrintUsing { count, comma_after } => {
+                let (format, values) = self.pop_using_operands(count)?;
+                self.emit_lprint_using_values(&format, &values, &comma_after)?;
             }
 
             OpCode::Beep => {
-                print!("\x07");
-                io::stdout().flush().ok();
+                self.sound.stop();
+                self.sound.beep();
+                let notes = self.sound.drain_notes();
+                self.render_sound_notes(&notes);
             }
 
             OpCode::Screen(mode) => {
                 self.screen_mode = mode;
+                self.apply_screen_mode_text_state(mode);
                 if let Some(ref mut gfx) = self.graphics {
                     gfx.set_screen_mode(mode as u8);
                 }
@@ -1614,9 +2537,22 @@ impl VM {
             OpCode::ScreenDynamic => {
                 let mode = self.pop_i32_rounded()?;
                 self.screen_mode = mode;
+                self.apply_screen_mode_text_state(mode);
                 if let Some(ref mut gfx) = self.graphics {
                     gfx.set_screen_mode(mode as u8);
                 }
+            }
+
+            OpCode::ScreenFn(arg_count) => {
+                let color_flag = if arg_count >= 3 {
+                    self.pop_i32_rounded()?
+                } else {
+                    0
+                };
+                let col = self.pop_i32_rounded()?;
+                let row = self.pop_i32_rounded()?;
+                self.runtime
+                    .push(QType::Integer(self.screen_fn_value(row, col, color_flag)));
             }
 
             OpCode::Pset { x, y, color } => {
@@ -1659,22 +2595,50 @@ impl VM {
                 frequency,
                 duration,
             } => {
-                self.sound.play_note(frequency as f32, duration as u32);
+                if frequency > 0 {
+                    self.emit_terminal_bell();
+                }
+                self.sleep_sound_ticks(duration.max(0));
             }
 
             OpCode::SoundDynamic => {
                 let duration = self.pop_i32_rounded()?.max(0);
                 let frequency = self.pop_i32_rounded()?.max(0);
-                self.sound.play_note(frequency as f32, duration as u32);
+                if frequency > 0 {
+                    self.emit_terminal_bell();
+                }
+                self.sleep_sound_ticks(duration);
             }
 
             OpCode::Play(melody) => {
-                self.sound.play_melody(&melody);
+                self.sound.stop();
+                let parsed = self.sound.parse_melody(&melody);
+                if parsed.background {
+                    self.queue_background_sound_notes(&parsed.notes);
+                } else {
+                    self.sound.play_melody(&melody);
+                    let notes = self.sound.drain_notes();
+                    self.render_sound_notes(&notes);
+                }
             }
 
             OpCode::PlayDynamic => {
                 let melody = self.pop_string_value()?;
-                self.sound.play_melody(&melody);
+                self.sound.stop();
+                let parsed = self.sound.parse_melody(&melody);
+                if parsed.background {
+                    self.queue_background_sound_notes(&parsed.notes);
+                } else {
+                    self.sound.play_melody(&melody);
+                    let notes = self.sound.drain_notes();
+                    self.render_sound_notes(&notes);
+                }
+            }
+
+            OpCode::PlayFunc => {
+                let _ = self.runtime.pop()?;
+                let queue_count = self.current_play_queue_count();
+                self.runtime.push(QType::Integer(queue_count));
             }
 
             OpCode::End | OpCode::Stop => {
@@ -1764,7 +2728,10 @@ impl VM {
                 let start = self.runtime.pop()?.to_f64() as usize;
                 let s = self.runtime.pop()?;
                 if let QType::String(str) = s {
-                    let result = str.chars().skip(start.saturating_sub(1)).collect::<String>();
+                    let result = str
+                        .chars()
+                        .skip(start.saturating_sub(1))
+                        .collect::<String>();
                     self.runtime.push(QType::String(result));
                 }
             }
@@ -2016,46 +2983,12 @@ impl VM {
 
             // Arrays
             OpCode::ArrayDim { name, dimensions } => {
-                // Calculate total size with strict limits
-                let mut total_size: usize = 1;
-                for (lower, upper) in &dimensions {
-                    // Validate bounds
-                    if *upper < *lower {
-                        return Err(QError::Internal(format!(
-                            "Invalid array bounds: {} to {}",
-                            lower, upper
-                        )));
-                    }
+                self.store_array_dimensions(name, dimensions, false)?;
+            }
 
-                    // Calculate dimension size with overflow check
-                    let dim_size = match (*upper - *lower + 1).try_into() {
-                        Ok(size) if size > 0 && size <= 10000 => size, // Max 10k per dimension
-                        _ => {
-                            return Err(QError::Internal(format!(
-                                "Array dimension too large: {} to {}",
-                                lower, upper
-                            )))
-                        }
-                    };
-
-                    // Check for overflow and apply total limit
-                    total_size = match total_size.checked_mul(dim_size) {
-                        Some(size) if size <= 100000 => size, // Max 100k total elements
-                        _ => {
-                            return Err(QError::Internal(
-                                "Array size exceeds limit (max 100,000 elements)".to_string(),
-                            ))
-                        }
-                    };
-                }
-
-                // Pre-allocate with capacity hint
-                let mut array = Vec::with_capacity(total_size);
-                array.resize(total_size, QType::Integer(0));
-                self.runtime.arrays.insert(name.clone(), array);
-                self.runtime
-                    .array_dimensions
-                    .insert(name.clone(), dimensions.clone());
+            OpCode::ArrayDimDynamic { name, dimensions } => {
+                let dimensions = self.pop_array_dimensions(dimensions)?;
+                self.store_array_dimensions(name, dimensions, false)?;
             }
 
             OpCode::ArrayRedim {
@@ -2063,52 +2996,16 @@ impl VM {
                 dimensions,
                 preserve,
             } => {
-                // Calculate total size with strict limits
-                let mut total_size: usize = 1;
-                for (lower, upper) in &dimensions {
-                    if *upper < *lower {
-                        return Err(QError::Internal(format!(
-                            "Invalid array bounds: {} to {}",
-                            lower, upper
-                        )));
-                    }
+                self.store_array_dimensions(name, dimensions, preserve)?;
+            }
 
-                    let dim_size = match (*upper - *lower + 1).try_into() {
-                        Ok(size) if size > 0 && size <= 10000 => size,
-                        _ => {
-                            return Err(QError::Internal(format!(
-                                "Array dimension too large: {} to {}",
-                                lower, upper
-                            )))
-                        }
-                    };
-
-                    total_size = match total_size.checked_mul(dim_size) {
-                        Some(size) if size <= 100000 => size,
-                        _ => {
-                            return Err(QError::Internal(
-                                "Array size exceeds limit (max 100,000 elements)".to_string(),
-                            ))
-                        }
-                    };
-                }
-
-                if preserve {
-                    if let Some(old_array) = self.runtime.arrays.get(&name.clone()) {
-                        let mut new_array = Vec::with_capacity(total_size);
-                        new_array.resize(total_size, QType::Integer(0));
-                        let copy_size = old_array.len().min(total_size);
-                        new_array[..copy_size].clone_from_slice(&old_array[..copy_size]);
-                        self.runtime.arrays.insert(name.clone(), new_array);
-                    }
-                } else {
-                    let mut array = Vec::with_capacity(total_size);
-                    array.resize(total_size, QType::Integer(0));
-                    self.runtime.arrays.insert(name.clone(), array);
-                }
-                self.runtime
-                    .array_dimensions
-                    .insert(name.clone(), dimensions.clone());
+            OpCode::ArrayRedimDynamic {
+                name,
+                dimensions,
+                preserve,
+            } => {
+                let dimensions = self.pop_array_dimensions(dimensions)?;
+                self.store_array_dimensions(name, dimensions, preserve)?;
             }
 
             OpCode::ArrayLoad(name, num_indices) => {
@@ -2116,29 +3013,18 @@ impl VM {
                 let mut indices = Vec::with_capacity(num_indices);
                 for _ in 0..num_indices {
                     let idx = self.runtime.pop()?;
-                    indices.push(idx.to_f64() as i32);
+                    indices.push(idx.to_f64().round() as i32);
                 }
                 indices.reverse();
 
                 // create implicit if not exists - use smaller default size
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    self.runtime.arrays.entry(name.clone())
-                {
-                    let mut dimensions = Vec::with_capacity(num_indices);
-                    let mut total_size: usize = 1;
-                    for i in 0..num_indices {
-                        // Use actual index + small buffer instead of fixed large size
-                        let idx_val = indices.get(i).copied().unwrap_or(0);
-                        let upper = (idx_val + 5).clamp(5, 100); // Reduced cap to 100
-                        dimensions.push((0, upper));
-                        total_size = match total_size.checked_mul((upper + 1) as usize) {
-                            Some(size) if size <= 10000 => size,
-                            _ => 10000, // Cap at 10k
-                        };
-                    }
+                if !self.runtime.arrays.contains_key(&name) {
+                    let dimensions = self.create_implicit_array_dimensions(&indices)?;
+                    let total_size = Self::validate_array_dimensions(&dimensions)?;
+                    let default_value = self.default_array_value_for_name(&name);
                     let mut array = Vec::with_capacity(total_size);
-                    array.resize(total_size, QType::Integer(0));
-                    e.insert(array);
+                    array.resize(total_size, default_value);
+                    self.runtime.arrays.insert(name.clone(), array);
                     self.runtime
                         .array_dimensions
                         .insert(name.clone(), dimensions);
@@ -2151,14 +3037,9 @@ impl VM {
                     .cloned()
                     .unwrap_or_default();
 
-                // Calculate linear index
-                let mut linear_index = 0;
-                let mut multiplier = 1;
-                for (i, (lower, upper)) in dims.iter().enumerate().rev() {
-                    let idx = indices.get(i).copied().unwrap_or(0);
-                    linear_index += (idx - lower) as usize * multiplier;
-                    multiplier *= (upper - lower + 1) as usize;
-                }
+                let Some(linear_index) = self.linear_array_index(&dims, &indices) else {
+                    return Err(QError::SubscriptOutOfRange);
+                };
 
                 if let Some(array) = self.runtime.arrays.get(&name.clone()) {
                     if linear_index < array.len() {
@@ -2167,7 +3048,7 @@ impl VM {
                         return Err(QError::SubscriptOutOfRange);
                     }
                 } else {
-                    self.runtime.push(QType::Integer(0));
+                    self.runtime.push(self.default_array_value_for_name(&name));
                 }
             }
 
@@ -2180,29 +3061,18 @@ impl VM {
                 let mut indices = Vec::with_capacity(num_indices);
                 for _ in 0..num_indices {
                     let idx = self.runtime.pop()?;
-                    indices.push(idx.to_f64() as i32);
+                    indices.push(idx.to_f64().round() as i32);
                 }
                 indices.reverse();
 
                 // create implicit if not exists - use smaller default size
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    self.runtime.arrays.entry(name.clone())
-                {
-                    let mut dimensions = Vec::with_capacity(num_indices);
-                    let mut total_size: usize = 1;
-                    for i in 0..num_indices {
-                        // Use actual index + small buffer instead of fixed large size
-                        let idx_val = indices.get(i).copied().unwrap_or(0);
-                        let upper = (idx_val + 5).clamp(5, 100); // Reduced cap to 100
-                        dimensions.push((0, upper));
-                        total_size = match total_size.checked_mul((upper + 1) as usize) {
-                            Some(size) if size <= 10000 => size,
-                            _ => 10000, // Cap at 10k
-                        };
-                    }
+                if !self.runtime.arrays.contains_key(&name) {
+                    let dimensions = self.create_implicit_array_dimensions(&indices)?;
+                    let total_size = Self::validate_array_dimensions(&dimensions)?;
+                    let default_value = self.default_array_value_for_name(&name);
                     let mut array = Vec::with_capacity(total_size);
-                    array.resize(total_size, QType::Integer(0));
-                    e.insert(array);
+                    array.resize(total_size, default_value);
+                    self.runtime.arrays.insert(name.clone(), array);
                     self.runtime
                         .array_dimensions
                         .insert(name.clone(), dimensions);
@@ -2215,14 +3085,9 @@ impl VM {
                     .cloned()
                     .unwrap_or_default();
 
-                // Calculate linear index
-                let mut linear_index = 0;
-                let mut multiplier = 1;
-                for (i, (lower, upper)) in dims.iter().enumerate().rev() {
-                    let idx = indices.get(i).copied().unwrap_or(0);
-                    linear_index += (idx - lower) as usize * multiplier;
-                    multiplier *= (upper - lower + 1) as usize;
-                }
+                let Some(linear_index) = self.linear_array_index(&dims, &indices) else {
+                    return Err(QError::SubscriptOutOfRange);
+                };
 
                 if let Some(array) = self.runtime.arrays.get_mut(&name.clone()) {
                     if linear_index < array.len() {
@@ -2471,6 +3336,36 @@ impl VM {
                 self.runtime.next_timer_tick = None;
             }
 
+            OpCode::OnPlay {
+                queue_limit,
+                handler,
+            } => {
+                self.runtime.play_handler_address = Some(handler);
+                self.runtime.play_queue_limit = queue_limit.clamp(1, 32);
+                self.runtime.play_pending_event = false;
+            }
+
+            OpCode::OnPlayDynamic { handler } => {
+                let queue_limit = self.pop_i32_rounded()?.clamp(1, 32) as usize;
+                self.runtime.play_handler_address = Some(handler);
+                self.runtime.play_queue_limit = queue_limit;
+                self.runtime.play_pending_event = false;
+            }
+
+            OpCode::PlayOn => {
+                self.runtime.play_trap_state = PlayTrapState::On;
+            }
+
+            OpCode::PlayOff => {
+                self.runtime.play_trap_state = PlayTrapState::Off;
+                self.runtime.play_pending_event = false;
+                self.runtime.play_handler_depth = None;
+            }
+
+            OpCode::PlayStop => {
+                self.runtime.play_trap_state = PlayTrapState::Stop;
+            }
+
             OpCode::Date => {
                 use chrono::Local;
                 let now = Local::now();
@@ -2492,6 +3387,10 @@ impl VM {
                 self.runtime.random_fields.clear();
                 self.runtime.file_print_columns.clear();
                 self.runtime.current_segment = 0;
+                self.runtime.play_note_deadlines.clear();
+                self.runtime.play_pending_event = false;
+                self.runtime.play_handler_depth = None;
+                self.runtime.play_trap_state = PlayTrapState::Off;
                 self.file_io.close_all();
                 for value in &mut self.runtime.globals {
                     *value = match value {
@@ -2506,41 +3405,73 @@ impl VM {
                 }
             }
 
-            OpCode::Cls => {
-                // Clear screen (simplified)
-                print!("\x1B[2J\x1B[1;1H");
-                io::stdout().flush().ok();
-                self.runtime.cursor_row = 1;
-                self.runtime.cursor_col = 1;
+            OpCode::Cls(mode) => {
+                self.execute_cls_mode(mode);
+            }
+
+            OpCode::ClsDynamic => {
+                let mode = self.pop_i32_rounded()?;
+                self.execute_cls_mode(mode);
             }
 
             OpCode::Locate(row, col) => {
-                print!("\x1B[{};{}H", row, col);
-                io::stdout().flush().ok();
-                self.runtime.cursor_row = row as i16;
-                self.runtime.cursor_col = col as i16;
+                if self.locate_cursor(row, col) {
+                    self.write_stdout(&format!(
+                        "\x1B[{};{}H",
+                        self.runtime.cursor_row, self.runtime.cursor_col
+                    ));
+                }
             }
 
             OpCode::LocateDynamic => {
                 let col = self.pop_i32_rounded()?;
                 let row = self.pop_i32_rounded()?;
-                print!("\x1B[{};{}H", row, col);
-                io::stdout().flush().ok();
-                self.runtime.cursor_row = row as i16;
-                self.runtime.cursor_col = col as i16;
+                if self.locate_cursor(row, col) {
+                    self.write_stdout(&format!(
+                        "\x1B[{};{}H",
+                        self.runtime.cursor_row, self.runtime.cursor_col
+                    ));
+                }
             }
 
-            OpCode::Color(fg, _bg) => {
+            OpCode::SetCursorState {
+                visible,
+                start,
+                stop,
+            } => {
+                self.set_cursor_state(visible, start, stop);
+            }
+
+            OpCode::SetCursorStateDynamic => {
+                let stop = self.pop_i32_rounded()?;
+                let start = self.pop_i32_rounded()?;
+                let visible = self.pop_i32_rounded()?;
+                self.set_cursor_state(visible, start, stop);
+            }
+
+            OpCode::Width { columns, rows } => {
+                self.set_text_width(columns, rows);
+            }
+
+            OpCode::WidthDynamic => {
+                let rows = self.pop_i32_rounded()?;
+                let columns = self.pop_i32_rounded()?;
+                self.set_text_width(columns, rows);
+            }
+
+            OpCode::Color(fg, bg) => {
                 // Simplified color support
-                print!("\x1B[{}m", 30 + fg);
-                io::stdout().flush().ok();
+                self.runtime.text_foreground = fg.clamp(0, 255) as u8;
+                self.runtime.text_background = bg.clamp(0, 255) as u8;
+                self.write_stdout(&format!("\x1B[{}m", 30 + fg));
             }
 
             OpCode::ColorDynamic => {
-                let _bg = self.pop_i32_rounded()?;
+                let bg = self.pop_i32_rounded()?;
                 let fg = self.pop_i32_rounded()?;
-                print!("\x1B[{}m", 30 + fg);
-                io::stdout().flush().ok();
+                self.runtime.text_foreground = fg.clamp(0, 255) as u8;
+                self.runtime.text_background = bg.clamp(0, 255) as u8;
+                self.write_stdout(&format!("\x1B[{}m", 30 + fg));
             }
 
             OpCode::SelectCase => {
@@ -2657,20 +3588,17 @@ impl VM {
             }
 
             OpCode::ViewPrint { top, bottom } => {
-                self.runtime.view_print_top = Some(top as i16);
-                self.runtime.view_print_bottom = Some(bottom as i16);
+                self.set_view_print_region(top, bottom);
             }
 
             OpCode::ViewPrintDynamic => {
                 let bottom = self.pop_i32_rounded()?;
                 let top = self.pop_i32_rounded()?;
-                self.runtime.view_print_top = Some(top as i16);
-                self.runtime.view_print_bottom = Some(bottom as i16);
+                self.set_view_print_region(top, bottom);
             }
 
             OpCode::ViewReset => {
-                self.runtime.view_print_top = None;
-                self.runtime.view_print_bottom = None;
+                self.reset_view_print_region();
                 if let Some(ref mut gfx) = self.graphics {
                     gfx.view_reset();
                 }
@@ -2769,7 +3697,7 @@ impl VM {
                 let lower = dims
                     .and_then(|d| d.get(dim as usize))
                     .map(|(l, _)| *l)
-                    .unwrap_or(0);
+                    .unwrap_or(self.runtime.default_array_base);
                 self.runtime.push(QType::Integer(lower as i16));
             }
 
@@ -2779,6 +3707,23 @@ impl VM {
                     .and_then(|d| d.get(dim as usize))
                     .map(|(_, u)| *u)
                     .unwrap_or(0);
+                self.runtime.push(QType::Integer(upper as i16));
+            }
+
+            OpCode::LBoundDynamic(name) => {
+                let dim = self.pop_i32_rounded()?.max(1) as usize - 1;
+                let dims = self.runtime.array_dimensions.get(&name);
+                let lower = dims
+                    .and_then(|d| d.get(dim))
+                    .map(|(l, _)| *l)
+                    .unwrap_or(self.runtime.default_array_base);
+                self.runtime.push(QType::Integer(lower as i16));
+            }
+
+            OpCode::UBoundDynamic(name) => {
+                let dim = self.pop_i32_rounded()?.max(1) as usize - 1;
+                let dims = self.runtime.array_dimensions.get(&name);
+                let upper = dims.and_then(|d| d.get(dim)).map(|(_, u)| *u).unwrap_or(0);
                 self.runtime.push(QType::Integer(upper as i16));
             }
 
@@ -2826,6 +3771,17 @@ impl VM {
                 self.file_print_newline(file_num)?;
             }
 
+            OpCode::PrintFileUsingDynamic { count, comma_after } => {
+                let mut values = Vec::with_capacity(count);
+                for _ in 0..count {
+                    values.push(self.runtime.pop()?);
+                }
+                values.reverse();
+                let format = Self::coerce_using_format(self.runtime.pop()?);
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+                self.emit_file_print_using_values(file_num, &format, &values, &comma_after)?;
+            }
+
             OpCode::LineInputDynamic => {
                 let file_num = self.runtime.pop()?.to_f64() as i32;
                 let line = self.file_io.read_line_by_num(file_num)?;
@@ -2839,11 +3795,8 @@ impl VM {
                 }
                 values.reverse();
                 let content = Self::write_record(values);
-                print!("{}", content);
-                println!();
-                io::stdout().flush().ok();
-                self.runtime.cursor_row = self.runtime.cursor_row.saturating_add(1);
-                self.runtime.cursor_col = 1;
+                self.emit_console_text(&content);
+                self.emit_console_text("\n");
             }
 
             OpCode::InputFile(file_num) => {
@@ -2956,6 +3909,14 @@ impl VM {
                 }
             }
 
+            OpCode::GetBinary { kind, fixed_length } => {
+                let record_num = self.runtime.pop()?.to_f64().round().max(0.0) as u64;
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+                let value =
+                    self.read_binary_value(file_num as u8, record_num, kind, fixed_length)?;
+                self.runtime.push(value);
+            }
+
             OpCode::Get => {
                 let record_num = self.runtime.pop()?.to_f64().max(1.0) as u64;
                 let file_num = self.runtime.pop()?.to_f64() as i32;
@@ -2978,6 +3939,13 @@ impl VM {
                 }
                 self.runtime.push(QType::Empty);
             }
+            OpCode::PutBinary { kind, fixed_length } => {
+                let value = self.runtime.pop()?;
+                let record_num = self.runtime.pop()?.to_f64().round().max(0.0) as u64;
+                let file_num = self.runtime.pop()?.to_f64() as i32;
+                self.write_binary_value(file_num as u8, record_num, kind, fixed_length, value)?;
+            }
+
             OpCode::Put => {
                 let value = self.runtime.pop()?;
                 let record_num = self.runtime.pop()?.to_f64().max(1.0) as u64;
@@ -3091,55 +4059,67 @@ impl VM {
             OpCode::CviFunc => {
                 let s = self.runtime.pop()?;
                 if let QType::String(str) = s {
-                    let bytes: Vec<u8> = str.chars().map(|c| c as u8).collect();
-                    if bytes.len() >= 2 {
-                        let val = i16::from_le_bytes([bytes[0], bytes[1]]);
-                        self.runtime.push(QType::Integer(val));
-                    } else {
-                        self.runtime.push(QType::Integer(0));
-                    }
+                    self.runtime.push(QType::Integer(runtime_cv_i16(&str)));
+                } else {
+                    self.runtime.push(QType::Integer(0));
                 }
             }
 
             OpCode::CvlFunc => {
                 let s = self.runtime.pop()?;
                 if let QType::String(str) = s {
-                    let bytes: Vec<u8> = str.chars().map(|c| c as u8).collect();
-                    if bytes.len() >= 4 {
-                        let val = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                        self.runtime.push(QType::Long(val));
-                    } else {
-                        self.runtime.push(QType::Long(0));
-                    }
+                    self.runtime.push(QType::Long(runtime_cv_i32(&str)));
+                } else {
+                    self.runtime.push(QType::Long(0));
                 }
             }
 
             OpCode::CvsFunc => {
                 let s = self.runtime.pop()?;
                 if let QType::String(str) = s {
-                    let bytes: Vec<u8> = str.chars().map(|c| c as u8).collect();
-                    if bytes.len() >= 4 {
-                        let val = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                        self.runtime.push(QType::Single(val));
-                    } else {
-                        self.runtime.push(QType::Single(0.0));
-                    }
+                    self.runtime.push(QType::Single(runtime_cv_f32(&str)));
+                } else {
+                    self.runtime.push(QType::Single(0.0));
                 }
             }
 
             OpCode::CvdFunc => {
                 let s = self.runtime.pop()?;
                 if let QType::String(str) = s {
-                    let bytes: Vec<u8> = str.chars().map(|c| c as u8).collect();
-                    if bytes.len() >= 8 {
-                        let val = f64::from_le_bytes([
-                            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
-                            bytes[7],
-                        ]);
-                        self.runtime.push(QType::Double(val));
-                    } else {
-                        self.runtime.push(QType::Double(0.0));
-                    }
+                    self.runtime.push(QType::Double(runtime_cv_f64(&str)));
+                } else {
+                    self.runtime.push(QType::Double(0.0));
+                }
+            }
+
+            OpCode::CvFunc(type_name) => {
+                let value = self.runtime.pop()?;
+                if let QType::String(str) = value {
+                    self.runtime.push(runtime_cv_to_qtype(&type_name, &str));
+                } else {
+                    self.runtime.push(QType::Double(0.0));
+                }
+            }
+
+            OpCode::FileExistsFunc => {
+                let value = self.runtime.pop()?;
+                if let QType::String(path) = value {
+                    let exists = std::path::Path::new(&path).is_file();
+                    self.runtime
+                        .push(QType::Integer(if exists { -1 } else { 0 }));
+                } else {
+                    self.runtime.push(QType::Integer(0));
+                }
+            }
+
+            OpCode::DirExistsFunc => {
+                let value = self.runtime.pop()?;
+                if let QType::String(path) = value {
+                    let exists = std::path::Path::new(&path).is_dir();
+                    self.runtime
+                        .push(QType::Integer(if exists { -1 } else { 0 }));
+                } else {
+                    self.runtime.push(QType::Integer(0));
                 }
             }
 
@@ -3653,6 +4633,34 @@ impl VM {
                 }
             }
 
+            OpCode::AscAssign => {
+                let replacement = self.runtime.pop()?;
+                let position = self.runtime.pop()?;
+                let original = self.runtime.pop()?;
+
+                let mut original_text = match original {
+                    QType::String(text) => text,
+                    other => format!("{}", other),
+                };
+                let index = (position.to_f64().round() as i32 - 1).max(0) as usize;
+                let ascii = replacement.to_f64().round().clamp(0.0, 255.0) as u8;
+                let mut chars: Vec<char> = original_text.chars().collect();
+
+                while chars.len() < index {
+                    chars.push(' ');
+                }
+
+                let new_char = char::from(ascii);
+                if index < chars.len() {
+                    chars[index] = new_char;
+                } else {
+                    chars.push(new_char);
+                }
+
+                original_text = chars.into_iter().collect();
+                self.runtime.push(QType::String(original_text));
+            }
+
             OpCode::Shell => {
                 let command = self.runtime.pop()?;
                 let cmd_str = if let QType::String(s) = command {
@@ -3676,9 +4684,9 @@ impl VM {
 
                     match output {
                         Ok(output) => {
-                            print!("{}", String::from_utf8_lossy(&output.stdout));
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            self.write_stdout(stdout.as_ref());
                             eprint!("{}", String::from_utf8_lossy(&output.stderr));
-                            io::stdout().flush().ok();
                             io::stderr().flush().ok();
                         }
                         Err(e) => {
@@ -3777,7 +4785,7 @@ impl VM {
                         Some(pat) => wildcard_matches(pat, &name),
                     };
                     if matched {
-                        println!("{}", name);
+                        self.write_stdout(&format!("{name}\n"));
                     }
                 }
             }
@@ -3810,148 +4818,569 @@ impl VM {
         let result = op(left.to_f64(), right.to_f64());
         Ok(QType::Double(result))
     }
+}
 
-    /// Format a value using PRINT USING format string
-    fn format_using_value(&self, format: &str, value: &QType) -> QResult<String> {
-        // Parse format string and apply formatting
-        let chars: Vec<char> = format.chars().collect();
-        let mut i = 0;
-        let mut digit_positions = Vec::new();
-        let mut has_decimal = false;
-        let mut decimal_pos = 0;
-        let mut has_comma = false;
-        let mut leading_dollar = false;
-        let mut leading_asterisk = false;
-        let mut trailing_minus = false;
-        let mut trailing_plus = false;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QbUsingStringMode {
+    FirstChar,
+    Whole,
+    FixedWidth(usize),
+}
 
-        // Scan format string
-        while i < chars.len() {
-            match chars[i] {
-                '#' => digit_positions.push(i),
-                '.' => {
-                    has_decimal = true;
-                    decimal_pos = i;
-                }
-                ',' => has_comma = true,
-                '$' if i == 0 || (i > 0 && chars[i - 1] == '$') => leading_dollar = true,
-                '*' if i == 0 || (i > 0 && chars[i - 1] == '*') => leading_asterisk = true,
-                '-' if i == chars.len() - 1 => trailing_minus = true,
-                '+' if i == chars.len() - 1 => trailing_plus = true,
-                '!' => {
-                    // String format: first character only
-                    if let QType::String(s) = value {
-                        return Ok(s.chars().next().unwrap_or(' ').to_string());
-                    }
-                    return Ok(" ".to_string());
-                }
-                '&' => {
-                    // String format: whole string
-                    return Ok(format!("{}", value));
-                }
-                '\\' => {
-                    // Fixed width string format: \  \ (spaces between)
-                    let mut width = 0;
-                    let start = i;
-                    i += 1;
-                    while i < chars.len() && chars[i] == ' ' {
-                        width += 1;
-                        i += 1;
-                    }
-                    if i < chars.len() && chars[i] == '\\' {
-                        width += 2; // Include both backslashes
-                        if let QType::String(s) = value {
-                            let truncated = if s.len() > width { &s[..width] } else { s };
-                            return Ok(format!("{:<width$}", truncated, width = width));
-                        }
-                    }
-                    i = start; // Reset if not valid format
-                }
-                _ => {}
-            }
-            i += 1;
-        }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QbUsingPrefixKind {
+    None,
+    Stars,
+    Dollars,
+    StarDollars,
+}
 
-        // If no # found, just return the value as string
-        if digit_positions.is_empty() {
-            return Ok(format!("{}", value));
-        }
+#[derive(Clone)]
+struct QbUsingField {
+    core: String,
+    suffix: String,
+}
 
-        // Convert value to number
-        let num = value.to_f64();
-        let is_negative = num < 0.0;
-        let abs_num = num.abs();
-
-        // Count digits before and after decimal
-        let digits_before = if has_decimal {
-            digit_positions.iter().filter(|&&p| p < decimal_pos).count()
-        } else {
-            digit_positions.len()
-        };
-
-        let digits_after = if has_decimal {
-            digit_positions.iter().filter(|&&p| p > decimal_pos).count()
-        } else {
-            0
-        };
-
-        // Format the number
-        let formatted_num = if has_decimal {
-            format!("{:.*}", digits_after, abs_num)
-        } else {
-            format!("{:.0}", abs_num)
-        };
-
-        // Add thousand separators if needed
-        let formatted_num = if has_comma {
-            let parts: Vec<&str> = formatted_num.split('.').collect();
-            let int_part = parts[0];
-            let mut result = String::new();
-            let chars: Vec<char> = int_part.chars().collect();
-            for (i, ch) in chars.iter().enumerate() {
-                if i > 0 && (chars.len() - i) % 3 == 0 {
-                    result.push(',');
-                }
-                result.push(*ch);
-            }
-            if parts.len() > 1 {
-                result.push('.');
-                result.push_str(parts[1]);
-            }
-            result
-        } else {
-            formatted_num
-        };
-
-        // Pad with leading characters
-        let total_width = digit_positions.len()
-            + if has_decimal { 1 } else { 0 }
-            + if has_comma {
-                (digits_before - 1) / 3
-            } else {
-                0
-            };
-        let mut result = if leading_asterisk {
-            format!("{:*>width$}", formatted_num, width = total_width)
-        } else if leading_dollar {
-            format!("${:>width$}", formatted_num, width = total_width - 1)
-        } else {
-            format!("{:>width$}", formatted_num, width = total_width)
-        };
-
-        // Add sign
-        if is_negative {
-            if trailing_minus {
-                result.push('-');
-            } else {
-                result.insert(0, '-');
-            }
-        } else if trailing_plus {
-            result.push('+');
-        }
-
-        Ok(result)
+fn qb_format_using_pattern(format: &str, value: &QType) -> QResult<String> {
+    let decoded = qb_decode_using_pattern(format);
+    if let Some((start, end, mode)) = qb_find_using_string_field(&decoded) {
+        let prefix = qb_collect_using_chars(&decoded[..start]);
+        let suffix = qb_collect_using_chars(&decoded[end + 1..]);
+        return Ok(format!(
+            "{}{}{}",
+            prefix,
+            qb_format_using_string_value(mode, value),
+            suffix
+        ));
     }
+
+    if let Some((start, end)) = qb_find_using_numeric_span(&decoded) {
+        let prefix = qb_collect_using_chars(&decoded[..start]);
+        let suffix = qb_collect_using_chars(&decoded[end + 1..]);
+        let core = qb_collect_using_chars(&decoded[start..=end]);
+        return Ok(format!(
+            "{}{}{}",
+            prefix,
+            qb_format_using_numeric_value(&core, value.to_f64())?,
+            suffix
+        ));
+    }
+
+    Ok(format!("{}", value))
+}
+
+fn qb_decode_using_pattern(format: &str) -> Vec<(char, bool)> {
+    let mut decoded = Vec::new();
+    let mut chars = format.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '_' {
+            if let Some(next) = chars.next() {
+                decoded.push((next, true));
+            } else {
+                decoded.push(('_', true));
+            }
+        } else {
+            decoded.push((ch, false));
+        }
+    }
+    decoded
+}
+
+fn qb_collect_using_chars(slice: &[(char, bool)]) -> String {
+    slice.iter().map(|(ch, _)| *ch).collect()
+}
+
+fn qb_find_using_string_field(
+    decoded: &[(char, bool)],
+) -> Option<(usize, usize, QbUsingStringMode)> {
+    for (index, (ch, literal)) in decoded.iter().enumerate() {
+        if *literal {
+            continue;
+        }
+        match ch {
+            '!' => return Some((index, index, QbUsingStringMode::FirstChar)),
+            '&' => return Some((index, index, QbUsingStringMode::Whole)),
+            '\\' => {
+                for end in index + 1..decoded.len() {
+                    if !decoded[end].1 && decoded[end].0 == '\\' {
+                        return Some((index, end, QbUsingStringMode::FixedWidth(end - index + 1)));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn qb_find_using_numeric_span(decoded: &[(char, bool)]) -> Option<(usize, usize)> {
+    let mut cursor = 0;
+    while let Some((start, end)) = qb_next_using_field_span(decoded, cursor) {
+        if matches!(decoded[start].0, '#' | '.' | '+' | '-' | '*' | '$') {
+            return Some((start, end));
+        }
+        cursor = end + 1;
+    }
+    None
+}
+
+fn qb_using_field_span_at(decoded: &[(char, bool)], start: usize) -> Option<(usize, usize)> {
+    let Some((start_char, literal)) = decoded.get(start).copied() else {
+        return None;
+    };
+    if literal {
+        return None;
+    }
+
+    match start_char {
+        '!' | '&' => Some((start, start)),
+        '\\' => {
+            for end in start + 1..decoded.len() {
+                if !decoded[end].1 && decoded[end].0 == '\\' {
+                    return Some((start, end));
+                }
+            }
+            None
+        }
+        '#' | '.' | '+' | '-' | '*' | '$' => {
+            let mut end = start;
+            while end + 1 < decoded.len()
+                && !decoded[end + 1].1
+                && matches!(
+                    decoded[end + 1].0,
+                    '#' | '.' | '+' | '-' | '*' | '$' | ',' | '^'
+                )
+            {
+                end += 1;
+            }
+            decoded[start..=end]
+                .iter()
+                .any(|(ch, literal)| !*literal && *ch == '#')
+                .then_some((start, end))
+        }
+        _ => None,
+    }
+}
+
+fn qb_next_using_field_span(decoded: &[(char, bool)], mut start: usize) -> Option<(usize, usize)> {
+    while start < decoded.len() {
+        if let Some(span) = qb_using_field_span_at(decoded, start) {
+            return Some(span);
+        }
+        start += 1;
+    }
+    None
+}
+
+fn qb_parse_using_fields(pattern: &str) -> (String, Vec<QbUsingField>) {
+    let decoded = qb_decode_using_pattern(pattern);
+    let mut cursor = 0;
+    let mut leading = String::new();
+    let mut fields: Vec<QbUsingField> = Vec::new();
+
+    while let Some((start, end)) = qb_next_using_field_span(&decoded, cursor) {
+        let between = qb_collect_using_chars(&decoded[cursor..start]);
+        if fields.is_empty() {
+            leading.push_str(&between);
+        } else if let Some(last) = fields.last_mut() {
+            last.suffix.push_str(&between);
+        }
+
+        fields.push(QbUsingField {
+            core: qb_collect_using_chars(&decoded[start..=end]),
+            suffix: String::new(),
+        });
+        cursor = end + 1;
+    }
+
+    let trailing = qb_collect_using_chars(&decoded[cursor..]);
+    if fields.is_empty() {
+        leading.push_str(&trailing);
+    } else if let Some(last) = fields.last_mut() {
+        last.suffix.push_str(&trailing);
+        if last.suffix.is_empty() && last.core.ends_with(',') {
+            last.core.pop();
+            last.suffix.push(',');
+        }
+    }
+
+    (leading, fields)
+}
+
+fn qb_format_using_chunks(pattern: &str, values: &[QType]) -> QResult<Vec<String>> {
+    let (leading, fields) = qb_parse_using_fields(pattern);
+    if fields.is_empty() {
+        if values.is_empty() {
+            return Ok(if leading.is_empty() {
+                Vec::new()
+            } else {
+                vec![leading]
+            });
+        }
+        return Ok(values.iter().map(|_| leading.clone()).collect());
+    }
+
+    let mut chunks = Vec::with_capacity(values.len());
+    for (index, value) in values.iter().enumerate() {
+        let field_index = index % fields.len();
+        let field = &fields[field_index];
+        let mut chunk = String::new();
+        if field_index == 0 {
+            chunk.push_str(&leading);
+        }
+        chunk.push_str(&qb_format_using_pattern(&field.core, value)?);
+        chunk.push_str(&field.suffix);
+        chunks.push(chunk);
+    }
+
+    Ok(chunks)
+}
+
+fn qb_format_using_string_value(mode: QbUsingStringMode, value: &QType) -> String {
+    let text = match value {
+        QType::String(text) => text.clone(),
+        _ => format!("{}", value),
+    };
+    match mode {
+        QbUsingStringMode::FirstChar => text.chars().next().unwrap_or(' ').to_string(),
+        QbUsingStringMode::Whole => text,
+        QbUsingStringMode::FixedWidth(width) => {
+            let truncated = text.chars().take(width).collect::<String>();
+            format!("{:<width$}", truncated, width = width)
+        }
+    }
+}
+
+fn qb_format_using_numeric_value(core: &str, value: f64) -> QResult<String> {
+    let target_width = core.chars().count();
+    let mut mantissa = core;
+
+    let mut trailing_plus = false;
+    let mut trailing_minus = false;
+    if let Some(stripped) = mantissa.strip_suffix('+') {
+        trailing_plus = true;
+        mantissa = stripped;
+    } else if let Some(stripped) = mantissa.strip_suffix('-') {
+        trailing_minus = true;
+        mantissa = stripped;
+    }
+
+    let exponent_digits = if let Some(stripped) = mantissa.strip_suffix("^^^^^") {
+        mantissa = stripped;
+        Some(3usize)
+    } else if let Some(stripped) = mantissa.strip_suffix("^^^^") {
+        mantissa = stripped;
+        Some(2usize)
+    } else {
+        None
+    };
+
+    let mut leading_plus = false;
+    if let Some(stripped) = mantissa.strip_prefix('+') {
+        leading_plus = true;
+        mantissa = stripped;
+    }
+
+    let (prefix_kind, mantissa) = if let Some(stripped) = mantissa.strip_prefix("**$") {
+        (QbUsingPrefixKind::StarDollars, stripped)
+    } else if let Some(stripped) = mantissa.strip_prefix("$$") {
+        (QbUsingPrefixKind::Dollars, stripped)
+    } else if let Some(stripped) = mantissa.strip_prefix("**") {
+        (QbUsingPrefixKind::Stars, stripped)
+    } else {
+        (QbUsingPrefixKind::None, mantissa)
+    };
+
+    if let Some(exp_digits) = exponent_digits {
+        qb_format_using_exponential(
+            core,
+            mantissa,
+            value,
+            leading_plus,
+            trailing_plus,
+            trailing_minus,
+            exp_digits,
+        )
+    } else {
+        qb_format_using_fixed(
+            core,
+            mantissa,
+            value,
+            leading_plus,
+            trailing_plus,
+            trailing_minus,
+            prefix_kind,
+            target_width,
+        )
+    }
+}
+
+fn qb_using_extra_integer_positions(prefix_kind: QbUsingPrefixKind) -> usize {
+    match prefix_kind {
+        QbUsingPrefixKind::None => 0,
+        QbUsingPrefixKind::Stars => 2,
+        QbUsingPrefixKind::Dollars => 1,
+        QbUsingPrefixKind::StarDollars => 2,
+    }
+}
+
+fn qb_insert_grouping(int_part: &str) -> String {
+    let chars: Vec<char> = int_part.chars().collect();
+    let mut out = String::new();
+    for (idx, ch) in chars.iter().enumerate() {
+        if idx > 0 && (chars.len() - idx) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*ch);
+    }
+    out
+}
+
+fn qb_format_using_fixed(
+    core: &str,
+    mantissa: &str,
+    value: f64,
+    leading_plus: bool,
+    trailing_plus: bool,
+    trailing_minus: bool,
+    prefix_kind: QbUsingPrefixKind,
+    target_width: usize,
+) -> QResult<String> {
+    let parts: Vec<&str> = mantissa.splitn(2, '.').collect();
+    let int_pattern = parts[0];
+    let frac_pattern = parts.get(1).copied().unwrap_or("");
+    let comma_slots = int_pattern.chars().filter(|ch| *ch == ',').count();
+    let int_hashes = int_pattern.chars().filter(|ch| *ch == '#').count();
+    let frac_hashes = frac_pattern.chars().filter(|ch| *ch == '#').count();
+    let extra_integer_positions = qb_using_extra_integer_positions(prefix_kind);
+
+    if int_hashes + frac_hashes + extra_integer_positions > 24 {
+        return Err(QError::IllegalFunctionCall(
+            "PRINT USING digit count exceeds 24".to_string(),
+        ));
+    }
+
+    let rounded = if frac_hashes > 0 {
+        format!("{:.*}", frac_hashes, value.abs())
+    } else {
+        format!("{:.0}", value.abs())
+    };
+    let mut rounded_parts = rounded.split('.');
+    let rounded_int = rounded_parts.next().unwrap_or("0");
+    let rounded_frac = rounded_parts.next().unwrap_or("");
+
+    let integer_capacity = int_hashes + extra_integer_positions + comma_slots;
+    if integer_capacity == 0 && rounded_int != "0" {
+        return Ok(format!("%{}", rounded));
+    }
+
+    let show_zero_before_decimal = int_hashes + extra_integer_positions > 0;
+    let int_digits = if rounded_int == "0" && !show_zero_before_decimal {
+        String::new()
+    } else {
+        rounded_int.to_string()
+    };
+
+    let grouped_int = if comma_slots > 0 {
+        qb_insert_grouping(&int_digits)
+    } else {
+        int_digits
+    };
+
+    if grouped_int.chars().count() > integer_capacity {
+        return Ok(format!("%{}", rounded));
+    }
+
+    let mut number = grouped_int;
+    if frac_hashes > 0 {
+        if number.is_empty() {
+            number.push('.');
+            number.push_str(rounded_frac);
+        } else {
+            number.push('.');
+            number.push_str(rounded_frac);
+        }
+    }
+
+    let sign_prefix = if leading_plus {
+        Some(if value.is_sign_negative() { '-' } else { '+' })
+    } else if !trailing_plus && !trailing_minus && value.is_sign_negative() {
+        Some('-')
+    } else {
+        None
+    };
+
+    let sign_suffix = if trailing_plus {
+        Some(if value.is_sign_negative() { '-' } else { '+' })
+    } else if trailing_minus && value.is_sign_negative() {
+        Some('-')
+    } else {
+        None
+    };
+
+    let mut body = String::new();
+    match prefix_kind {
+        QbUsingPrefixKind::Dollars | QbUsingPrefixKind::StarDollars => {
+            if let Some(sign) = sign_prefix {
+                body.push(sign);
+            }
+            body.push('$');
+            body.push_str(&number);
+        }
+        _ => {
+            if let Some(sign) = sign_prefix {
+                body.push(sign);
+            }
+            body.push_str(&number);
+        }
+    }
+
+    let total_len = body.chars().count() + usize::from(sign_suffix.is_some());
+    if total_len > target_width {
+        let mut overflow = String::from("%");
+        overflow.push_str(&body);
+        if let Some(sign) = sign_suffix {
+            overflow.push(sign);
+        }
+        return Ok(overflow);
+    }
+
+    let pad_char = match prefix_kind {
+        QbUsingPrefixKind::Stars | QbUsingPrefixKind::StarDollars => '*',
+        _ => ' ',
+    };
+
+    let mut output = String::new();
+    output.push_str(&pad_char.to_string().repeat(target_width - total_len));
+    output.push_str(&body);
+    if let Some(sign) = sign_suffix {
+        output.push(sign);
+    }
+    debug_assert_eq!(output.chars().count(), target_width);
+    let _ = core;
+    Ok(output)
+}
+
+fn qb_scientific_digits(value: f64, significant_digits: usize) -> (String, i32) {
+    if significant_digits == 0 {
+        return (String::new(), 0);
+    }
+    if value.abs() < f64::EPSILON {
+        return ("0".repeat(significant_digits), 0);
+    }
+
+    let mut exponent = value.abs().log10().floor() as i32;
+    let scaled = value.abs() / 10f64.powi(exponent);
+    let rounded = (scaled * 10f64.powi((significant_digits as i32) - 1)).round();
+    let mut digits = rounded as i128;
+    let limit = 10_i128.pow(significant_digits as u32);
+    if digits >= limit {
+        digits /= 10;
+        exponent += 1;
+    }
+
+    (
+        format!("{:0width$}", digits, width = significant_digits),
+        exponent,
+    )
+}
+
+fn qb_compose_scientific_mantissa(
+    digits: &str,
+    digits_before_decimal: usize,
+    digits_after_decimal: usize,
+) -> String {
+    if digits_before_decimal == 0 {
+        return format!(".{}", digits);
+    }
+
+    let split = digits_before_decimal.min(digits.len());
+    let left = &digits[..split];
+    if digits_after_decimal == 0 {
+        return left.to_string();
+    }
+
+    let right = &digits[split..];
+    format!("{}.{}", left, right)
+}
+
+fn qb_format_using_exponential(
+    core: &str,
+    mantissa: &str,
+    value: f64,
+    leading_plus: bool,
+    trailing_plus: bool,
+    trailing_minus: bool,
+    exponent_digits: usize,
+) -> QResult<String> {
+    let parts: Vec<&str> = mantissa.splitn(2, '.').collect();
+    let int_hashes = parts[0].chars().filter(|ch| *ch == '#').count();
+    let frac_hashes = parts
+        .get(1)
+        .copied()
+        .unwrap_or("")
+        .chars()
+        .filter(|ch| *ch == '#')
+        .count();
+
+    let explicit_sign = leading_plus || trailing_plus || trailing_minus;
+    let digits_before_decimal = if explicit_sign {
+        int_hashes
+    } else {
+        int_hashes.saturating_sub(1)
+    };
+    let significant_digits = digits_before_decimal + frac_hashes;
+
+    if significant_digits == 0 || significant_digits > 24 {
+        return Err(QError::IllegalFunctionCall(
+            "PRINT USING significant digit count exceeds 24".to_string(),
+        ));
+    }
+
+    let (digits, exponent) = qb_scientific_digits(value, significant_digits);
+    let adjusted_exponent = exponent + 1 - digits_before_decimal as i32;
+    let mantissa_text = qb_compose_scientific_mantissa(&digits, digits_before_decimal, frac_hashes);
+    let exponent_text = format!(
+        "E{}{abs_exp:0width$}",
+        if adjusted_exponent < 0 { '-' } else { '+' },
+        abs_exp = adjusted_exponent.abs(),
+        width = exponent_digits
+    );
+
+    let mut body = String::new();
+    if leading_plus {
+        body.push(if value.is_sign_negative() { '-' } else { '+' });
+    } else if !trailing_plus && !trailing_minus {
+        body.push(if value.is_sign_negative() { '-' } else { ' ' });
+    }
+    body.push_str(&mantissa_text);
+    body.push_str(&exponent_text);
+
+    let sign_suffix = if trailing_plus {
+        Some(if value.is_sign_negative() { '-' } else { '+' })
+    } else if trailing_minus && value.is_sign_negative() {
+        Some('-')
+    } else {
+        None
+    };
+
+    let total_len = body.chars().count() + usize::from(sign_suffix.is_some());
+    if total_len > core.chars().count() {
+        let mut overflow = String::from("%");
+        overflow.push_str(&body);
+        if let Some(sign) = sign_suffix {
+            overflow.push(sign);
+        }
+        return Ok(overflow);
+    }
+
+    let mut output = String::new();
+    output.push_str(&" ".repeat(core.chars().count() - total_len));
+    output.push_str(&body);
+    if let Some(sign) = sign_suffix {
+        output.push(sign);
+    }
+    Ok(output)
 }
 
 fn wildcard_matches(pattern: &str, text: &str) -> bool {

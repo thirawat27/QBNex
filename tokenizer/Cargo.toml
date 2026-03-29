@@ -6,5 +6,9 @@ authors.workspace = true
 license.workspace = true
 description.workspace = true
 
+[[test]]
+name = "integration_test"
+path = "../test/integration/tokenizer/integration_test.rs"
+
 [dependencies]
 core_types = { path = "../core_types" }

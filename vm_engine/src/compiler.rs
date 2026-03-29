@@ -1,9 +1,10 @@
 use crate::builtin_functions::is_builtin_function;
-use crate::opcodes::{ByRefTarget, OpCode};
+use crate::opcodes::{BinaryFileKind, ByRefTarget, OpCode};
 use core_types::{QResult, QType};
 use std::collections::HashMap;
 use syntax_tree::ast_nodes::{
-    BinaryOp, ExitType, Expression, GotoTarget, Program, Statement, UnaryOp,
+    ArrayDimension, BinaryOp, ExitType, Expression, GotoTarget, PrintSeparator, Program, Statement,
+    UnaryOp,
 };
 use syntax_tree::{validate_program, Backend};
 
@@ -22,6 +23,7 @@ pub struct BytecodeCompiler {
     pending_gosubs: Vec<(usize, String)>, // (bytecode_index, label_name)
     pending_on_errors: Vec<(usize, GotoTarget)>, // (bytecode_index, target) for ON ERROR GOTO
     pending_on_timers: Vec<(usize, String)>, // (bytecode_index, label_name) for ON TIMER GOSUB
+    pending_on_plays: Vec<(usize, String)>, // (bytecode_index, label_name) for ON PLAY GOSUB
     variable_map: HashMap<String, usize>,
     field_widths: HashMap<usize, usize>,
     function_param_modes: HashMap<String, Vec<bool>>,
@@ -29,6 +31,7 @@ pub struct BytecodeCompiler {
     next_var_index: usize,
     loop_contexts: Vec<LoopContext>,
     current_function: Option<String>,
+    option_base: i32,
 }
 
 impl BytecodeCompiler {
@@ -45,6 +48,7 @@ impl BytecodeCompiler {
             pending_gosubs: Vec::with_capacity(32),
             pending_on_errors: Vec::with_capacity(16),
             pending_on_timers: Vec::with_capacity(8),
+            pending_on_plays: Vec::with_capacity(8),
             variable_map: HashMap::with_capacity(64),
             field_widths: HashMap::with_capacity(16),
             function_param_modes,
@@ -52,6 +56,7 @@ impl BytecodeCompiler {
             next_var_index: 0,
             loop_contexts: Vec::with_capacity(16),
             current_function: None,
+            option_base: 0,
         }
     }
 
@@ -71,8 +76,80 @@ impl BytecodeCompiler {
         format!("#{}:{}", slot, name)
     }
 
+    fn qualified_field_name(expr: &Expression) -> Option<String> {
+        expr.flattened_qb64_name().filter(|name| name.contains('.'))
+    }
+
+    fn normalize_qb64_type_name(type_name: &str) -> String {
+        type_name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_uppercase()
+    }
+
+    fn cv_type_name_from_expr(expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Variable(var) => Some(Self::normalize_qb64_type_name(&var.name)),
+            Expression::FieldAccess { .. } => expr
+                .flattened_qb64_name()
+                .map(|name| Self::normalize_qb64_type_name(&name)),
+            _ => None,
+        }
+    }
+
     fn normalize_label(name: &str) -> String {
         name.to_ascii_uppercase()
+    }
+
+    fn variable_is_string(var: &syntax_tree::ast_nodes::Variable) -> bool {
+        var.type_suffix == Some('$')
+            || var.name.ends_with('$')
+            || var
+                .declared_type
+                .as_deref()
+                .is_some_and(|type_name| type_name.eq_ignore_ascii_case("STRING"))
+    }
+
+    fn binary_file_kind_from_suffix(type_suffix: Option<char>, name: &str) -> BinaryFileKind {
+        match type_suffix.or_else(|| syntax_tree::ast_nodes::Variable::suffix_from_name(name)) {
+            Some('%') => BinaryFileKind::Integer,
+            Some('&') => BinaryFileKind::Long,
+            Some('#') => BinaryFileKind::Double,
+            Some('$') => BinaryFileKind::String,
+            _ => BinaryFileKind::Single,
+        }
+    }
+
+    fn binary_file_target_metadata(&self, expr: &Expression) -> Option<(BinaryFileKind, usize)> {
+        match expr {
+            Expression::Variable(var) => {
+                if Self::variable_is_string(var) {
+                    Some((BinaryFileKind::String, var.fixed_length.unwrap_or(0)))
+                } else {
+                    Some((
+                        Self::binary_file_kind_from_suffix(var.type_suffix, &var.name),
+                        0,
+                    ))
+                }
+            }
+            Expression::ArrayAccess {
+                name, type_suffix, ..
+            } => {
+                let kind = Self::binary_file_kind_from_suffix(*type_suffix, name);
+                Some((kind, 0))
+            }
+            Expression::FieldAccess { .. } => Self::qualified_field_name(expr).map(|name| {
+                (
+                    Self::binary_file_kind_from_suffix(
+                        syntax_tree::ast_nodes::Variable::suffix_from_name(&name),
+                        &name,
+                    ),
+                    0,
+                )
+            }),
+            _ => None,
+        }
     }
 
     fn normalize_restore_target(name: &str) -> String {
@@ -101,6 +178,13 @@ impl BytecodeCompiler {
             }
             _ => None,
         }
+    }
+
+    fn comma_after(separators: &[Option<PrintSeparator>]) -> Vec<bool> {
+        separators
+            .iter()
+            .map(|separator| matches!(separator, Some(PrintSeparator::Comma)))
+            .collect()
     }
 
     fn has_function(&self, name: &str) -> bool {
@@ -647,6 +731,16 @@ impl BytecodeCompiler {
                 }
             }
         }
+
+        for (idx, label) in &self.pending_on_plays {
+            if let Some(&addr) = self.labels.get(label) {
+                match self.bytecode.get_mut(*idx) {
+                    Some(OpCode::OnPlay { handler, .. }) => *handler = addr,
+                    Some(OpCode::OnPlayDynamic { handler }) => *handler = addr,
+                    _ => {}
+                }
+            }
+        }
     }
 
     fn push_loop_context(&mut self, exit_type: ExitType) {
@@ -706,7 +800,10 @@ impl BytecodeCompiler {
                         self.bytecode.push(OpCode::Print);
                     }
 
-                    if matches!(separators.get(index), Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))) {
+                    if matches!(
+                        separators.get(index),
+                        Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))
+                    ) {
                         self.bytecode.push(OpCode::PrintComma);
                     }
                 }
@@ -732,7 +829,10 @@ impl BytecodeCompiler {
                         self.bytecode.push(OpCode::LPrint);
                     }
 
-                    if matches!(separators.get(index), Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))) {
+                    if matches!(
+                        separators.get(index),
+                        Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))
+                    ) {
                         self.bytecode.push(OpCode::LPrintComma);
                     }
                 }
@@ -752,7 +852,10 @@ impl BytecodeCompiler {
                     self.compile_expression(expr)?; // Push value
                     self.bytecode.push(OpCode::PrintFileDynamic);
 
-                    if matches!(separators.get(index), Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))) {
+                    if matches!(
+                        separators.get(index),
+                        Some(Some(syntax_tree::ast_nodes::PrintSeparator::Comma))
+                    ) {
                         self.compile_expression(file_number)?;
                         self.bytecode.push(OpCode::PrintFileCommaDynamic);
                     }
@@ -827,18 +930,32 @@ impl BytecodeCompiler {
                     }
                 }
 
-                // Regular assignment
-                // For array assignments, push indices first, then value
-                if let Expression::ArrayAccess { indices, .. } = target {
-                    for idx in indices {
-                        self.compile_expression(idx)?;
+                let asc_assign_args = match target {
+                    Expression::FunctionCall(func) if func.name.eq_ignore_ascii_case("ASC") => {
+                        Some(func.args.clone())
                     }
-                    self.compile_expression(value)?;
-                    self.compile_store_target(target)?;
-                } else {
-                    self.compile_expression(value)?;
-                    self.compile_store_target(target)?;
+                    Expression::ArrayAccess { name, indices, .. }
+                        if name.eq_ignore_ascii_case("ASC") =>
+                    {
+                        Some(indices.clone())
+                    }
+                    _ => None,
+                };
+
+                if let Some(args) = asc_assign_args {
+                    if args.len() >= 2 {
+                        self.compile_expression(&args[0])?;
+                        self.compile_expression(&args[1])?;
+                        self.compile_expression(value)?;
+                        self.bytecode.push(OpCode::AscAssign);
+                        self.compile_store_target(&args[0])?;
+                        return Ok(());
+                    }
                 }
+
+                // Regular assignment
+                self.compile_expression(value)?;
+                self.compile_store_target(target)?;
             }
 
             Statement::IfBlock {
@@ -1062,6 +1179,7 @@ impl BytecodeCompiler {
             }
 
             Statement::WhileLoop { condition, body } => {
+                self.push_loop_context(ExitType::While);
                 let loop_start = self.bytecode.len();
 
                 self.compile_expression(condition)?;
@@ -1078,6 +1196,7 @@ impl BytecodeCompiler {
                 if let Some(OpCode::JumpIfFalse(target)) = self.bytecode.get_mut(jz_idx) {
                     *target = end_idx;
                 }
+                self.patch_loop_exits(ExitType::While, end_idx);
             }
 
             Statement::DoLoop {
@@ -1318,8 +1437,17 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::Beep);
             }
 
-            Statement::Cls => {
-                self.bytecode.push(OpCode::PrintNewline);
+            Statement::Cls { mode } => {
+                if let Some(mode_expr) = mode {
+                    if let Some(mode) = self.try_expr_to_i32(mode_expr) {
+                        self.bytecode.push(OpCode::Cls(mode));
+                    } else {
+                        self.compile_expression(mode_expr)?;
+                        self.bytecode.push(OpCode::ClsDynamic);
+                    }
+                } else {
+                    self.bytecode.push(OpCode::Cls(-1));
+                }
             }
 
             Statement::End => {
@@ -1369,34 +1497,20 @@ impl BytecodeCompiler {
             }
 
             Statement::Dim { variables, .. } => {
-                for (var, size) in variables {
-                    if let Some(dim_expr) = size {
-                        if let Some(width) = var.fixed_length {
-                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
-                                self.bytecode.push(OpCode::SetStringArrayWidth {
-                                    name: var.name.clone(),
-                                    width,
-                                });
-                            }
+                for (var, dimensions) in variables {
+                    if let Some(dimensions) = dimensions {
+                        if Self::variable_is_string(var) {
+                            self.bytecode.push(OpCode::SetStringArrayWidth {
+                                name: var.name.clone(),
+                                width: var.fixed_length.unwrap_or(0),
+                            });
                         }
-                        // Array declaration - extract size from expression
-                        let upper_bound = if let Expression::Literal(QType::Integer(i)) = dim_expr {
-                            (*i as i32).clamp(0, 10000) // Limit to 10k
-                        } else if let Expression::Literal(QType::Long(l)) = dim_expr {
-                            (*l).clamp(0, 10000) // Limit to 10k
-                        } else {
-                            10 // Default
-                        };
-                        let dimensions = vec![(0, upper_bound)];
-                        self.bytecode.push(OpCode::ArrayDim {
-                            name: var.name.clone(),
-                            dimensions,
-                        });
+                        self.compile_array_dimensions(&var.name, dimensions, false)?;
                     } else {
                         // Simple variable
                         let var_idx = self.get_var_index(&var.name);
                         if let Some(width) = var.fixed_length {
-                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                            if Self::variable_is_string(var) {
                                 self.bytecode.push(OpCode::SetStringWidth {
                                     slot: var_idx,
                                     width,
@@ -1407,7 +1521,7 @@ impl BytecodeCompiler {
                                 self.bytecode
                                     .push(OpCode::LoadConstant(QType::String(String::new())));
                             }
-                        } else if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                        } else if Self::variable_is_string(var) {
                             self.bytecode
                                 .push(OpCode::LoadConstant(QType::String(String::new())));
                         } else {
@@ -1422,21 +1536,19 @@ impl BytecodeCompiler {
                 variables,
                 preserve,
             } => {
-                for (var, _size) in variables {
-                    if let Some(width) = var.fixed_length {
-                        if var.type_suffix == Some('$') || var.name.ends_with('$') {
-                            self.bytecode.push(OpCode::SetStringArrayWidth {
-                                name: var.name.clone(),
-                                width,
-                            });
-                        }
+                for (var, dimensions) in variables {
+                    if Self::variable_is_string(var) {
+                        self.bytecode.push(OpCode::SetStringArrayWidth {
+                            name: var.name.clone(),
+                            width: var.fixed_length.unwrap_or(0),
+                        });
                     }
-                    let dimensions = vec![(0, 10)]; // Default 0 to 10
-                    self.bytecode.push(OpCode::ArrayRedim {
-                        name: var.name.clone(),
-                        dimensions,
-                        preserve: *preserve,
-                    });
+                    let dimensions = dimensions.as_ref().ok_or_else(|| {
+                        core_types::QError::Syntax(
+                            "REDIM requires at least one array dimension".to_string(),
+                        )
+                    })?;
+                    self.compile_array_dimensions(&var.name, dimensions, *preserve)?;
                 }
             }
 
@@ -1518,13 +1630,17 @@ impl BytecodeCompiler {
             Statement::PrintUsing {
                 format,
                 expressions,
+                separators,
                 newline,
             } => {
                 self.compile_expression(format)?;
                 for expr in expressions {
                     self.compile_expression(expr)?;
                 }
-                self.bytecode.push(OpCode::PrintUsing(expressions.len()));
+                self.bytecode.push(OpCode::PrintUsing {
+                    count: expressions.len(),
+                    comma_after: Self::comma_after(separators),
+                });
                 if *newline {
                     self.bytecode.push(OpCode::PrintNewline);
                 }
@@ -1533,15 +1649,41 @@ impl BytecodeCompiler {
             Statement::LPrintUsing {
                 format,
                 expressions,
+                separators,
                 newline,
             } => {
                 self.compile_expression(format)?;
                 for expr in expressions {
                     self.compile_expression(expr)?;
                 }
-                self.bytecode.push(OpCode::LPrintUsing(expressions.len()));
+                self.bytecode.push(OpCode::LPrintUsing {
+                    count: expressions.len(),
+                    comma_after: Self::comma_after(separators),
+                });
                 if *newline {
                     self.bytecode.push(OpCode::LPrintNewline);
+                }
+            }
+
+            Statement::PrintFileUsing {
+                file_number,
+                format,
+                expressions,
+                separators,
+                newline,
+            } => {
+                self.compile_expression(file_number)?;
+                self.compile_expression(format)?;
+                for expr in expressions {
+                    self.compile_expression(expr)?;
+                }
+                self.bytecode.push(OpCode::PrintFileUsingDynamic {
+                    count: expressions.len(),
+                    comma_after: Self::comma_after(separators),
+                });
+                if *newline {
+                    self.compile_expression(file_number)?;
+                    self.bytecode.push(OpCode::PrintFileNewlineDynamic);
                 }
             }
 
@@ -1791,20 +1933,53 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::Clear);
             }
 
-            Statement::Locate { row, col } => {
+            Statement::Locate {
+                row,
+                col,
+                cursor,
+                start,
+                stop,
+            } => {
                 if let (Some(row), Some(col)) = (
                     row.as_ref()
                         .map(|expr| self.try_expr_to_i32(expr))
-                        .unwrap_or(Some(1)),
+                        .unwrap_or(Some(0)),
                     col.as_ref()
                         .map(|expr| self.try_expr_to_i32(expr))
-                        .unwrap_or(Some(1)),
+                        .unwrap_or(Some(0)),
                 ) {
                     self.bytecode.push(OpCode::Locate(row, col));
                 } else {
-                    self.compile_optional_expression(row.as_ref(), QType::Integer(1))?;
-                    self.compile_optional_expression(col.as_ref(), QType::Integer(1))?;
+                    self.compile_optional_expression(row.as_ref(), QType::Integer(0))?;
+                    self.compile_optional_expression(col.as_ref(), QType::Integer(0))?;
                     self.bytecode.push(OpCode::LocateDynamic);
+                }
+
+                if cursor.is_some() || start.is_some() || stop.is_some() {
+                    if let (Some(visible), Some(start), Some(stop)) = (
+                        cursor
+                            .as_ref()
+                            .map(|expr| self.try_expr_to_i32(expr))
+                            .unwrap_or(Some(-1)),
+                        start
+                            .as_ref()
+                            .map(|expr| self.try_expr_to_i32(expr))
+                            .unwrap_or(Some(-1)),
+                        stop.as_ref()
+                            .map(|expr| self.try_expr_to_i32(expr))
+                            .unwrap_or(Some(-1)),
+                    ) {
+                        self.bytecode.push(OpCode::SetCursorState {
+                            visible,
+                            start,
+                            stop,
+                        });
+                    } else {
+                        self.compile_optional_expression(cursor.as_ref(), QType::Integer(-1))?;
+                        self.compile_optional_expression(start.as_ref(), QType::Integer(-1))?;
+                        self.compile_optional_expression(stop.as_ref(), QType::Integer(-1))?;
+                        self.bytecode.push(OpCode::SetCursorStateDynamic);
+                    }
                 }
             }
 
@@ -1938,10 +2113,15 @@ impl BytecodeCompiler {
                 } else {
                     self.bytecode.push(OpCode::LoadConstant(QType::Integer(0)));
                 }
-                self.bytecode.push(OpCode::Get);
                 if let Some(var) = variable {
+                    if let Some((kind, fixed_length)) = self.binary_file_target_metadata(var) {
+                        self.bytecode.push(OpCode::GetBinary { kind, fixed_length });
+                    } else {
+                        self.bytecode.push(OpCode::Get);
+                    }
                     self.compile_store_target(var)?;
                 } else {
+                    self.bytecode.push(OpCode::Get);
                     self.bytecode.push(OpCode::Pop);
                 }
             }
@@ -1959,10 +2139,15 @@ impl BytecodeCompiler {
                 }
                 if let Some(var) = variable {
                     self.compile_expression(var)?;
+                    if let Some((kind, fixed_length)) = self.binary_file_target_metadata(var) {
+                        self.bytecode.push(OpCode::PutBinary { kind, fixed_length });
+                    } else {
+                        self.bytecode.push(OpCode::Put);
+                    }
                 } else {
                     self.bytecode.push(OpCode::LoadConstant(QType::Empty));
+                    self.bytecode.push(OpCode::Put);
                 }
-                self.bytecode.push(OpCode::Put);
             }
 
             Statement::GetImage { coords, variable } => {
@@ -2103,7 +2288,17 @@ impl BytecodeCompiler {
             }
 
             Statement::Declare { .. } => {}
-            Statement::OptionBase { .. } => {}
+            Statement::OptionBase { base } => match *base {
+                0 | 1 => {
+                    self.option_base = *base as i32;
+                    self.bytecode.push(OpCode::SetOptionBase(self.option_base));
+                }
+                _ => {
+                    return Err(core_types::QError::Syntax(
+                        "OPTION BASE must be 0 or 1".to_string(),
+                    ))
+                }
+            },
             Statement::Erase { variables } => {
                 for var in variables {
                     self.bytecode.push(OpCode::Erase(var.name.clone()));
@@ -2174,8 +2369,19 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::KeyList);
             }
 
-            Statement::Width { .. } => {
-                self.bytecode.push(OpCode::NoOp);
+            Statement::Width { columns, rows } => {
+                if let (Some(columns), Some(rows)) = (
+                    self.try_expr_to_i32(columns),
+                    rows.as_ref()
+                        .map(|expr| self.try_expr_to_i32(expr))
+                        .unwrap_or(Some(25)),
+                ) {
+                    self.bytecode.push(OpCode::Width { columns, rows });
+                } else {
+                    self.compile_expression(columns)?;
+                    self.compile_optional_expression(rows.as_ref(), QType::Integer(25))?;
+                    self.bytecode.push(OpCode::WidthDynamic);
+                }
             }
 
             Statement::Const { name, value } => {
@@ -2303,6 +2509,24 @@ impl BytecodeCompiler {
                 }
             }
 
+            Statement::OnPlay { queue_limit, label } => {
+                let normalized = Self::normalize_label(label);
+                let handler = self.labels.get(&normalized).copied().unwrap_or(0);
+                let op_idx = self.bytecode.len();
+                if let Some(limit) = self.try_expr_to_i32(queue_limit) {
+                    self.bytecode.push(OpCode::OnPlay {
+                        queue_limit: limit.clamp(1, 32) as usize,
+                        handler,
+                    });
+                } else {
+                    self.compile_expression(queue_limit)?;
+                    self.bytecode.push(OpCode::OnPlayDynamic { handler });
+                }
+                if handler == 0 {
+                    self.pending_on_plays.push((op_idx, normalized));
+                }
+            }
+
             Statement::TimerOn => {
                 self.bytecode.push(OpCode::TimerOn);
             }
@@ -2315,9 +2539,22 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::TimerStop);
             }
 
+            Statement::PlayOn => {
+                self.bytecode.push(OpCode::PlayOn);
+            }
+
+            Statement::PlayOff => {
+                self.bytecode.push(OpCode::PlayOff);
+            }
+
+            Statement::PlayStop => {
+                self.bytecode.push(OpCode::PlayStop);
+            }
+
             Statement::Exit { exit_type } => match exit_type {
                 ExitType::For => self.register_loop_exit(ExitType::For)?,
                 ExitType::Do => self.register_loop_exit(ExitType::Do)?,
+                ExitType::While => self.register_loop_exit(ExitType::While)?,
                 ExitType::Function => {
                     if let Some(current_function) = self.current_function.clone() {
                         let return_idx = self.get_var_index(&current_function);
@@ -2370,6 +2607,44 @@ impl BytecodeCompiler {
 
     fn expr_to_i32(&self, expr: &Expression) -> i32 {
         self.try_expr_to_i32(expr).unwrap_or(0)
+    }
+
+    fn compile_array_dimension_lower(&mut self, lower_bound: Option<&Expression>) -> QResult<()> {
+        if let Some(lower_bound) = lower_bound {
+            self.compile_expression(lower_bound)?;
+        } else {
+            self.bytecode.push(OpCode::LoadConstant(QType::Integer(
+                self.option_base as i16,
+            )));
+        }
+        Ok(())
+    }
+
+    fn compile_array_dimensions(
+        &mut self,
+        name: &str,
+        dimensions: &[ArrayDimension],
+        preserve: bool,
+    ) -> QResult<()> {
+        for dimension in dimensions {
+            self.compile_array_dimension_lower(dimension.lower_bound.as_ref())?;
+            self.compile_expression(&dimension.upper_bound)?;
+        }
+
+        if preserve {
+            self.bytecode.push(OpCode::ArrayRedimDynamic {
+                name: name.to_string(),
+                dimensions: dimensions.len(),
+                preserve,
+            });
+        } else {
+            self.bytecode.push(OpCode::ArrayDimDynamic {
+                name: name.to_string(),
+                dimensions: dimensions.len(),
+            });
+        }
+
+        Ok(())
     }
 
     fn try_expr_to_f64(&self, expr: &Expression) -> Option<f64> {
@@ -2512,6 +2787,7 @@ impl BytecodeCompiler {
                             | "LPOS"
                             | "POINT"
                             | "PMAP"
+                            | "_CV"
                     );
 
                     if !custom_compiled_builtin {
@@ -2543,11 +2819,17 @@ impl BytecodeCompiler {
                         "UCASE$" => self.bytecode.push(OpCode::UCase),
                         "LTRIM$" => self.bytecode.push(OpCode::LTrim),
                         "RTRIM$" => self.bytecode.push(OpCode::RTrim),
-                        "TRIM$" => self.bytecode.push(OpCode::Trim),
+                        "TRIM$" | "_TRIM$" => self.bytecode.push(OpCode::Trim),
                         "STR$" => self.bytecode.push(OpCode::StrFunc),
                         "VAL" => self.bytecode.push(OpCode::ValFunc),
                         "CHR$" => self.bytecode.push(OpCode::ChrFunc),
-                        "ASC" => self.bytecode.push(OpCode::AscFunc),
+                        "ASC" => {
+                            if func.args.len() > 1 {
+                                self.bytecode.push(OpCode::LoadConstant(QType::Integer(1)));
+                                self.bytecode.push(OpCode::Mid);
+                            }
+                            self.bytecode.push(OpCode::AscFunc);
+                        }
                         "SPACE$" => self.bytecode.push(OpCode::SpaceFunc),
                         "STRING$" => self.bytecode.push(OpCode::StringFunc),
                         "HEX$" => self.bytecode.push(OpCode::HexFunc),
@@ -2578,6 +2860,8 @@ impl BytecodeCompiler {
                         "TIMER" => self.bytecode.push(OpCode::Timer),
                         "DATE$" => self.bytecode.push(OpCode::Date),
                         "TIME$" => self.bytecode.push(OpCode::Time),
+                        "SCREEN" => self.bytecode.push(OpCode::ScreenFn(func.args.len())),
+                        "PLAY" => self.bytecode.push(OpCode::PlayFunc),
                         // Binary conversion functions
                         "MKI$" => self.bytecode.push(OpCode::MkiFunc),
                         "MKL$" => self.bytecode.push(OpCode::MklFunc),
@@ -2587,6 +2871,29 @@ impl BytecodeCompiler {
                         "CVL" => self.bytecode.push(OpCode::CvlFunc),
                         "CVS" => self.bytecode.push(OpCode::CvsFunc),
                         "CVD" => self.bytecode.push(OpCode::CvdFunc),
+                        "_CV" => {
+                            let type_name = Self::cv_type_name_from_expr(
+                                func.args.first().ok_or_else(|| {
+                                    core_types::QError::Syntax(
+                                        "_CV requires a QB64 numeric type argument".to_string(),
+                                    )
+                                })?,
+                            )
+                            .ok_or_else(|| {
+                                core_types::QError::Syntax(
+                                    "_CV requires a QB64 numeric type argument".to_string(),
+                                )
+                            })?;
+                            let value_expr = func.args.get(1).ok_or_else(|| {
+                                core_types::QError::Syntax(
+                                    "_CV requires a binary string argument".to_string(),
+                                )
+                            })?;
+                            self.compile_expression(value_expr)?;
+                            self.bytecode.push(OpCode::CvFunc(type_name));
+                        }
+                        "_FILEEXISTS" => self.bytecode.push(OpCode::FileExistsFunc),
+                        "_DIREXISTS" => self.bytecode.push(OpCode::DirExistsFunc),
                         // System functions
                         "FRE" => match func.args.first() {
                             Some(arg) if self.try_expr_to_string(arg).is_some() => {
@@ -2634,8 +2941,9 @@ impl BytecodeCompiler {
                         "FREEFILE" => self.bytecode.push(OpCode::FreeFile),
                         "EOF" => match func.args.first() {
                             Some(arg) if self.try_expr_to_i32(arg).is_some() => {
-                                self.bytecode
-                                    .push(OpCode::Eof(self.try_expr_to_i32(arg).unwrap().to_string()));
+                                self.bytecode.push(OpCode::Eof(
+                                    self.try_expr_to_i32(arg).unwrap().to_string(),
+                                ));
                             }
                             Some(arg) => {
                                 self.compile_expression(arg)?;
@@ -2645,8 +2953,9 @@ impl BytecodeCompiler {
                         },
                         "LOF" => match func.args.first() {
                             Some(arg) if self.try_expr_to_i32(arg).is_some() => {
-                                self.bytecode
-                                    .push(OpCode::Lof(self.try_expr_to_i32(arg).unwrap().to_string()));
+                                self.bytecode.push(OpCode::Lof(
+                                    self.try_expr_to_i32(arg).unwrap().to_string(),
+                                ));
                             }
                             Some(arg) => {
                                 self.compile_expression(arg)?;
@@ -2656,8 +2965,9 @@ impl BytecodeCompiler {
                         },
                         "LOC" => match func.args.first() {
                             Some(arg) if self.try_expr_to_i32(arg).is_some() => {
-                                self.bytecode
-                                    .push(OpCode::Loc(self.try_expr_to_i32(arg).unwrap().to_string()));
+                                self.bytecode.push(OpCode::Loc(
+                                    self.try_expr_to_i32(arg).unwrap().to_string(),
+                                ));
                             }
                             Some(arg) => {
                                 self.compile_expression(arg)?;
@@ -2726,15 +3036,33 @@ impl BytecodeCompiler {
                         "LBOUND" => {
                             // Get array name from first argument
                             if let Some(Expression::Variable(var)) = func.args.first() {
-                                let dim = if func.args.len() > 1 { 1 } else { 0 };
-                                self.bytecode.push(OpCode::LBound(var.name.clone(), dim));
+                                if let Some(dim_expr) = func.args.get(1) {
+                                    if let Some(dim) = self.try_expr_to_i32(dim_expr) {
+                                        let dim = (dim - 1).max(0);
+                                        self.bytecode.push(OpCode::LBound(var.name.clone(), dim));
+                                    } else {
+                                        self.compile_expression(dim_expr)?;
+                                        self.bytecode.push(OpCode::LBoundDynamic(var.name.clone()));
+                                    }
+                                } else {
+                                    self.bytecode.push(OpCode::LBound(var.name.clone(), 0));
+                                }
                             }
                         }
                         "UBOUND" => {
                             // Get array name from first argument
                             if let Some(Expression::Variable(var)) = func.args.first() {
-                                let dim = if func.args.len() > 1 { 1 } else { 0 };
-                                self.bytecode.push(OpCode::UBound(var.name.clone(), dim));
+                                if let Some(dim_expr) = func.args.get(1) {
+                                    if let Some(dim) = self.try_expr_to_i32(dim_expr) {
+                                        let dim = (dim - 1).max(0);
+                                        self.bytecode.push(OpCode::UBound(var.name.clone(), dim));
+                                    } else {
+                                        self.compile_expression(dim_expr)?;
+                                        self.bytecode.push(OpCode::UBoundDynamic(var.name.clone()));
+                                    }
+                                } else {
+                                    self.bytecode.push(OpCode::UBound(var.name.clone(), 0));
+                                }
                             }
                         }
                         _ => {}
@@ -2769,9 +3097,13 @@ impl BytecodeCompiler {
                 }
             }
 
-            Expression::FieldAccess { object, .. } => {
-                // For now, compile the object expression
-                self.compile_expression(object.as_ref())?;
+            Expression::FieldAccess { .. } => {
+                if let Some(name) = Self::qualified_field_name(expr) {
+                    let var_idx = self.get_var_index(&name);
+                    self.bytecode.push(OpCode::LoadFast(var_idx));
+                } else if let Expression::FieldAccess { object, .. } = expr {
+                    self.compile_expression(object.as_ref())?;
+                }
             }
             Expression::TypeCast { expression, .. } => {
                 // Compile the inner expression, ignore type cast for now
@@ -2820,18 +3152,26 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::StoreFast(var_idx));
             }
             Expression::ArrayAccess { name, indices, .. } => {
-                // For array store, value is already on stack
-                // We need to push indices after value
-                // But value was pushed before this function was called
-                // So we need to save value, push indices, then restore value
+                // ArrayStore expects the stack as indices..., value with the value on top.
+                // Preserve that convention across assignment, GET/INPUT stores, and file reads.
+                let temp_var = format!("__ARR_STORE_TMP_{}", self.next_var_index);
+                let temp_idx = self.get_var_index(&temp_var);
 
-                // Actually, let's change the order: push indices first
-                // This requires changing how Assignment works
+                self.bytecode.push(OpCode::StoreFast(temp_idx));
+                for idx in indices {
+                    self.compile_expression(idx)?;
+                }
+                self.bytecode.push(OpCode::LoadFast(temp_idx));
                 self.bytecode
                     .push(OpCode::ArrayStore(name.clone(), indices.len()));
             }
-            Expression::FieldAccess { object, field: _ } => {
-                self.compile_expression(object.as_ref())?;
+            Expression::FieldAccess { .. } => {
+                if let Some(name) = Self::qualified_field_name(target) {
+                    let var_idx = self.get_var_index(&name);
+                    self.bytecode.push(OpCode::StoreFast(var_idx));
+                } else if let Expression::FieldAccess { object, .. } = target {
+                    self.compile_expression(object.as_ref())?;
+                }
             }
             _ => {}
         }

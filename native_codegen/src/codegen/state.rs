@@ -1,5 +1,5 @@
+use core_types::QType;
 use std::collections::{HashMap, HashSet};
-
 use syntax_tree::ast_nodes::{Expression, UserType};
 
 pub struct CodeGenerator {
@@ -16,6 +16,7 @@ pub struct CodeGenerator {
     pub(super) udt_vars: HashMap<String, String>,
     pub(super) udt_array_vars: HashMap<String, String>,
     pub(super) functions: HashSet<String>,
+    pub(super) function_return_types: HashMap<String, QType>,
     pub(super) params: HashMap<String, String>,
     pub(super) const_defs: Vec<(String, Expression)>,
     pub(super) is_in_sub: bool,
@@ -40,6 +41,7 @@ impl CodeGenerator {
             udt_vars: HashMap::new(),
             udt_array_vars: HashMap::new(),
             functions: HashSet::new(),
+            function_return_types: HashMap::new(),
             params: HashMap::new(),
             const_defs: Vec::new(),
             is_in_sub: false,

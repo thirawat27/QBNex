@@ -27,6 +27,19 @@ fn run_source(source: &str) -> VM {
     vm
 }
 
+fn run_source_with_captured_stdout(source: &str) -> String {
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+    let mut vm = VM::new(bytecode);
+    vm.enable_stdout_capture();
+    vm.run().unwrap();
+    vm.take_captured_stdout()
+        .replace("\r\n", "\n")
+        .replace('\r', "")
+}
+
 fn unique_temp_file(stem: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -72,6 +85,12 @@ fn test_compile_simple_program() {
     let mut compiler = BytecodeCompiler::new(program);
     let bytecode = compiler.compile();
     assert!(bytecode.is_ok());
+}
+
+#[test]
+fn test_vm_stdout_capture_records_print_output() {
+    let output = run_source_with_captured_stdout("PRINT \"QBNex\"\nPRINT 60\n");
+    assert_eq!(output, "QBNex\n60\n");
 }
 
 #[test]
@@ -140,7 +159,7 @@ LINE (x, y)-(x + 4, y), c
 CIRCLE (x + 10, y + 8), 3, c
 cmd$ = "BM40,20 C7 R3"
 DRAW cmd$
-melody$ = "C"
+melody$ = "R"
 PLAY melody$
 "#,
     );
@@ -150,8 +169,24 @@ PLAY melody$
     assert_eq!(gfx.get_pixel(14, 12), 6);
     assert_eq!(gfx.get_pixel(23, 20), 6);
     assert_eq!(gfx.get_pixel(43, 20), 7);
-    assert!(vm.sound.is_playing());
+    assert!(!vm.sound.is_playing());
     assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_cls_1_clears_active_graphics_viewport_only() {
+    let vm = run_source(
+        r#"
+SCREEN 13
+VIEW (10, 10)-(20, 20), 0, 0
+PSET (15, 15), 12
+CLS 1
+"#,
+    );
+
+    let gfx = vm.graphics.as_ref().expect("graphics runtime");
+    assert_eq!(gfx.get_pixel(15, 15), 0);
+    assert!(gfx.viewport.active);
 }
 
 #[test]
@@ -359,6 +394,9 @@ PRINT \"two\"";
     let bytecode = compiler.compile().unwrap();
 
     assert!(bytecode.iter().any(|op| matches!(op, OpCode::Clear)));
+    assert!(bytecode
+        .iter()
+        .any(|op| matches!(op, OpCode::Width { columns, rows } if *columns == 80 && *rows == 25)));
     assert!(bytecode.iter().any(|op| matches!(op, OpCode::Dup)));
 }
 
@@ -917,7 +955,11 @@ RESULT = FNTWICE(5)
 "#,
     );
 
-    assert!(vm.runtime.globals.iter().any(|value| numeric_equals(value, 10.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 10.0)));
 }
 
 #[test]
@@ -1212,12 +1254,75 @@ P = LPOS(0)";
 }
 
 #[test]
+fn test_vm_locate_zero_arguments_preserve_current_row_and_column() {
+    let mut vm = VM::new(vec![
+        OpCode::Locate(5, 7),
+        OpCode::Locate(0, 9),
+        OpCode::CsrLinFunc,
+        OpCode::PosFunc(0),
+        OpCode::Locate(6, 0),
+        OpCode::CsrLinFunc,
+        OpCode::PosFunc(0),
+        OpCode::End,
+    ]);
+
+    vm.run().unwrap();
+
+    assert_eq!(vm.runtime.cursor_row, 6);
+    assert_eq!(vm.runtime.cursor_col, 9);
+    assert_eq!(vm.runtime.value_stack.len(), 4);
+    assert!(numeric_equals(&vm.runtime.value_stack[0], 5.0));
+    assert!(numeric_equals(&vm.runtime.value_stack[1], 9.0));
+    assert!(numeric_equals(&vm.runtime.value_stack[2], 6.0));
+    assert!(numeric_equals(&vm.runtime.value_stack[3], 9.0));
+}
+
+#[test]
+fn test_vm_locate_cursor_arguments_compile_and_update_runtime_state() {
+    let source = "\
+LOCATE , , 0, 5, 6
+LOCATE , , 1";
+
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+
+    assert!(bytecode.iter().any(|op| matches!(
+        op,
+        OpCode::SetCursorState {
+            visible: 0,
+            start: 5,
+            stop: 6
+        }
+    )));
+    assert!(bytecode.iter().any(|op| matches!(
+        op,
+        OpCode::SetCursorState {
+            visible: 1,
+            start: -1,
+            stop: -1
+        }
+    )));
+
+    let mut vm = VM::new(bytecode);
+    vm.run().unwrap();
+
+    assert!(vm.runtime.cursor_visible);
+    assert_eq!(vm.runtime.cursor_start, Some(5));
+    assert_eq!(vm.runtime.cursor_stop, Some(6));
+}
+
+#[test]
 fn test_vm_view_print_updates_runtime_state_without_marker_output() {
     let mut vm = VM::new(vec![OpCode::ViewPrint { top: 2, bottom: 20 }, OpCode::End]);
     vm.run().unwrap();
 
     assert_eq!(vm.runtime.view_print_top, Some(2));
     assert_eq!(vm.runtime.view_print_bottom, Some(20));
+    assert_eq!(vm.runtime.cursor_row, 2);
+    assert_eq!(vm.runtime.cursor_col, 1);
 
     let bytecode = vec![
         OpCode::ViewPrint { top: 2, bottom: 20 },
@@ -1245,6 +1350,589 @@ fn test_vm_view_reset_clears_view_print_state() {
 
     assert_eq!(vm.runtime.view_print_top, None);
     assert_eq!(vm.runtime.view_print_bottom, None);
+}
+
+#[test]
+fn test_vm_width_tracks_text_columns_and_wraps_exact_line_length() {
+    let vm = run_source(
+        r#"
+WIDTH 10
+PRINT STRING$(10, "A");
+"#,
+    );
+
+    assert_eq!(vm.runtime.text_columns, 10);
+    assert_eq!(vm.runtime.cursor_row, 2);
+    assert_eq!(vm.runtime.cursor_col, 1);
+}
+
+#[test]
+fn test_vm_screen_mode_resets_text_geometry_and_view_print_state() {
+    let vm = run_source(
+        r#"
+WIDTH 10
+VIEW PRINT 3 TO 4
+SCREEN 0
+"#,
+    );
+
+    assert_eq!(vm.runtime.text_columns, 80);
+    assert_eq!(vm.runtime.text_rows, 25);
+    assert_eq!(vm.runtime.view_print_top, None);
+    assert_eq!(vm.runtime.view_print_bottom, None);
+    assert_eq!(vm.runtime.cursor_row, 1);
+    assert_eq!(vm.runtime.cursor_col, 1);
+
+    let vm = run_source(
+        r#"
+SCREEN 13
+"#,
+    );
+    assert_eq!(vm.runtime.text_columns, 40);
+    assert_eq!(vm.runtime.text_rows, 25);
+
+    let vm = run_source(
+        r#"
+SCREEN 12
+"#,
+    );
+    assert_eq!(vm.runtime.text_columns, 80);
+    assert_eq!(vm.runtime.text_rows, 30);
+}
+
+#[test]
+fn test_vm_cls_respects_text_viewport_and_full_screen_modes() {
+    let vm = run_source(
+        r#"
+VIEW PRINT 3 TO 4
+LOCATE 4, 5
+CLS 2
+"#,
+    );
+    assert_eq!(vm.runtime.cursor_row, 3);
+    assert_eq!(vm.runtime.cursor_col, 1);
+
+    let vm = run_source(
+        r#"
+VIEW PRINT 3 TO 4
+LOCATE 4, 5
+CLS 0
+"#,
+    );
+    assert_eq!(vm.runtime.cursor_row, 1);
+    assert_eq!(vm.runtime.cursor_col, 1);
+}
+
+#[test]
+fn test_vm_screen_function_reads_text_buffer_character_and_attribute() {
+    let vm = run_source(
+        r#"
+PRINT "A";
+CH = SCREEN(1, 1)
+ATTR = SCREEN(1, 1, 1)
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 65.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 7.0)));
+}
+
+#[test]
+fn test_vm_view_print_defers_scroll_until_next_output() {
+    let vm = run_source(
+        r#"
+VIEW PRINT 2 TO 3
+PRINT "A"
+PRINT "B"
+TOPVAL = SCREEN(2, 1)
+BOTVAL = SCREEN(3, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 65.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_view_print_scrolls_when_next_output_arrives() {
+    let vm = run_source(
+        r#"
+VIEW PRINT 2 TO 3
+PRINT "A"
+PRINT "B"
+PRINT "C"
+TOPVAL = SCREEN(2, 1)
+BOTVAL = SCREEN(3, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 67.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_view_print_blank_line_triggers_deferred_scroll() {
+    let vm = run_source(
+        r#"
+VIEW PRINT 2 TO 3
+PRINT "A"
+PRINT "B"
+PRINT
+TOPVAL = SCREEN(2, 1)
+BOTVAL = SCREEN(3, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 32.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_locate_cancels_pending_view_print_scroll() {
+    let vm = run_source(
+        r#"
+VIEW PRINT 2 TO 3
+PRINT "A"
+PRINT "B"
+LOCATE 2, 5
+PRINT "C"
+TOPLEFT = SCREEN(2, 1)
+TOPMID = SCREEN(2, 5)
+BOTLEFT = SCREEN(3, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 65.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 67.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_full_screen_scrolls_when_next_output_arrives() {
+    let vm = run_source(
+        r#"
+WIDTH 10, 2
+PRINT STRING$(10, "A");
+PRINT STRING$(10, "B");
+PRINT STRING$(10, "C");
+TOPVAL = SCREEN(1, 1)
+BOTVAL = SCREEN(2, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 67.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 2.0)));
+}
+
+#[test]
+fn test_vm_write_console_scrolls_in_view_print_region() {
+    let vm = run_source(
+        r#"
+VIEW PRINT 2 TO 3
+WRITE 1
+WRITE 2
+WRITE 3
+TOPVAL = SCREEN(2, 1)
+BOTVAL = SCREEN(3, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 51.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_write_console_scrolls_in_full_screen_text_mode() {
+    let vm = run_source(
+        r#"
+WIDTH 10, 2
+WRITE 1
+WRITE 2
+WRITE 3
+TOPVAL = SCREEN(1, 1)
+BOTVAL = SCREEN(2, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 51.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 2.0)));
+}
+
+#[test]
+fn test_vm_print_comma_scrolls_when_zone_wrap_hits_view_print_bottom() {
+    let vm = run_source(
+        r#"
+WIDTH 10, 3
+VIEW PRINT 2 TO 3
+PRINT "A"
+PRINT 1, 2
+TOPVAL = SCREEN(2, 1)
+BOTVAL = SCREEN(3, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 49.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_print_using_comma_scrolls_when_zone_wrap_hits_view_print_bottom() {
+    let vm = run_source(
+        r###"
+WIDTH 10, 3
+VIEW PRINT 2 TO 3
+PRINT USING "##"; 1
+PRINT USING "##"; 2, 3
+TOPVAL = SCREEN(2, 2)
+BOTVAL = SCREEN(3, 2)
+ROWVAL = CSRLIN
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 51.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 3.0)));
+}
+
+#[test]
+fn test_vm_lprint_using_comma_updates_printer_column() {
+    let vm = run_source(
+        r###"
+LPRINT USING "##"; 8, 9;
+P = LPOS(0)
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 17.0)));
+}
+
+#[test]
+fn test_vm_print_using_cycles_across_multiple_fields() {
+    let vm = run_source(
+        r###"
+PRINT USING "Item: ! Qty: ## "; "A"; 1; "B"; 2
+FIRST = SCREEN(1, 7)
+SECOND = SCREEN(1, 23)
+NUM1 = SCREEN(1, 15)
+NUM2 = SCREEN(1, 31)
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 65.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 49.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+}
+
+#[test]
+fn test_vm_print_using_cycles_across_adjacent_mixed_fields() {
+    let vm = run_source(
+        r###"
+PRINT USING "!##"; "A"; 1; "B"; 2
+FIRST = SCREEN(1, 1)
+SECOND = SCREEN(1, 2)
+THIRD = SCREEN(1, 3)
+FOURTH = SCREEN(1, 4)
+FIFTH = SCREEN(1, 5)
+SIXTH = SCREEN(1, 6)
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 65.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 32.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 49.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 66.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+}
+
+#[test]
+fn test_vm_print_using_preserves_literal_commas_around_numeric_fields() {
+    let vm = run_source(
+        r###"
+PRINT USING "Total, ###,"; 12
+LEAD_COMMA = SCREEN(1, 6)
+DIGIT1 = SCREEN(1, 9)
+DIGIT2 = SCREEN(1, 10)
+TAIL_COMMA = SCREEN(1, 11)
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 44.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 49.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+}
+
+#[test]
+fn test_vm_print_using_literal_only_format_prints_literal_text() {
+    let vm = run_source(
+        r###"
+PRINT USING "Header:";
+PRINT USING "Total:"; 12
+H = SCREEN(1, 1)
+R = SCREEN(1, 7)
+T = SCREEN(2, 1)
+C = SCREEN(2, 6)
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 72.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 58.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 84.0)));
+}
+
+#[test]
+fn test_vm_on_timer_breaks_out_of_do_while_loop() {
+    let vm = run_source(
+        r###"
+COUNT = 0
+ON TIMER(0) GOSUB Tick
+TIMER ON
+DO WHILE COUNT = 0
+LOOP
+DONE = COUNT
+END
+Tick:
+COUNT = COUNT + 1
+TIMER OFF
+RETURN
+"###,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 1.0)));
+}
+
+#[test]
+fn test_vm_print_tab_scrolls_when_wrap_hits_full_screen_bottom() {
+    let vm = run_source(
+        r#"
+WIDTH 10, 2
+PRINT STRING$(10, "A")
+PRINT "1"; TAB(1); "2"
+TOPVAL = SCREEN(1, 1)
+BOTVAL = SCREEN(2, 1)
+ROWVAL = CSRLIN
+"#,
+    );
+
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 49.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 50.0)));
+    assert!(vm
+        .runtime
+        .globals
+        .iter()
+        .any(|value| numeric_equals(value, 2.0)));
 }
 
 #[test]
@@ -1411,4 +2099,121 @@ END SUB";
         QType::Double(v) => (*v - 3.0).abs() < f64::EPSILON,
         _ => false,
     }));
+}
+
+#[test]
+fn test_vm_option_base_applies_to_declared_and_implicit_arrays() {
+    let vm = run_source(
+        "\
+OPTION BASE 1
+DIM A(3)
+A(1) = 10
+A(3) = 30
+B(1) = 7",
+    );
+
+    assert_eq!(vm.runtime.array_dimensions.get("A"), Some(&vec![(1, 3)]));
+    assert_eq!(vm.runtime.array_dimensions.get("B"), Some(&vec![(1, 6)]));
+
+    let a = vm.runtime.arrays.get("A").expect("declared array A");
+    assert!(numeric_equals(&a[0], 10.0));
+    assert!(numeric_equals(&a[2], 30.0));
+
+    let b = vm.runtime.arrays.get("B").expect("implicit array B");
+    assert!(numeric_equals(&b[0], 7.0));
+}
+
+#[test]
+fn test_vm_explicit_lower_bounds_and_multidimensional_arrays_work() {
+    let vm = run_source(
+        "\
+DIM M(1 TO 2, 3 TO 4)
+M(1, 3) = 11
+M(2, 4) = 22",
+    );
+
+    assert_eq!(
+        vm.runtime.array_dimensions.get("M"),
+        Some(&vec![(1, 2), (3, 4)])
+    );
+    let m = vm.runtime.arrays.get("M").expect("array M");
+    assert_eq!(m.len(), 4);
+    assert!(numeric_equals(&m[0], 11.0));
+    assert!(numeric_equals(&m[3], 22.0));
+}
+
+#[test]
+fn test_vm_redim_preserve_string_arrays_default_to_empty_strings() {
+    let vm = run_source(
+        "\
+OPTION BASE 1
+REDIM A$(2)
+A$(1) = \"ALPHA\"
+A$(2) = \"BETA\"
+REDIM PRESERVE A$(3)",
+    );
+
+    assert_eq!(vm.runtime.array_dimensions.get("A$"), Some(&vec![(1, 3)]));
+
+    let values = vm.runtime.arrays.get("A$").expect("string array A$");
+    assert_eq!(values.len(), 3);
+    assert!(matches!(&values[0], QType::String(text) if text == "ALPHA"));
+    assert!(matches!(&values[1], QType::String(text) if text == "BETA"));
+    assert!(matches!(&values[2], QType::String(text) if text.is_empty()));
+}
+
+#[test]
+fn test_vm_declared_string_arrays_without_suffix_use_string_defaults() {
+    let vm = run_source(
+        "\
+DIM A(2) AS STRING
+A(1) = \"ALPHA\"",
+    );
+
+    assert_eq!(vm.runtime.array_dimensions.get("A"), Some(&vec![(0, 2)]));
+
+    let values = vm.runtime.arrays.get("A").expect("string array A");
+    assert_eq!(values.len(), 3);
+    assert!(matches!(&values[0], QType::String(text) if text.is_empty()));
+    assert!(matches!(&values[1], QType::String(text) if text == "ALPHA"));
+    assert!(matches!(&values[2], QType::String(text) if text.is_empty()));
+}
+
+#[test]
+fn test_vm_compiler_emits_correct_dimension_indexes_for_lbound_and_ubound() {
+    let source = "\
+DIM M(1 TO 2, 3 TO 4)
+A = LBOUND(M)
+B = UBOUND(M)
+C = LBOUND(M, 1)
+D = UBOUND(M, 1)
+E = LBOUND(M, 2)
+F = UBOUND(M, 2)";
+
+    let mut parser = Parser::new(source.to_string()).unwrap();
+    let program = parser.parse().unwrap();
+
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+
+    assert!(bytecode
+        .iter()
+        .any(|op| matches!(op, OpCode::LBound(name, dim) if name == "M" && *dim == 0)));
+    assert!(bytecode
+        .iter()
+        .any(|op| matches!(op, OpCode::UBound(name, dim) if name == "M" && *dim == 0)));
+    assert_eq!(
+        bytecode
+            .iter()
+            .filter(|op| matches!(op, OpCode::LBound(name, dim) if name == "M" && *dim == 1))
+            .count(),
+        1
+    );
+    assert_eq!(
+        bytecode
+            .iter()
+            .filter(|op| matches!(op, OpCode::UBound(name, dim) if name == "M" && *dim == 1))
+            .count(),
+        1
+    );
 }

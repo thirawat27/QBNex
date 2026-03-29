@@ -4,7 +4,9 @@ target/
 Cargo.lock
 
 # Test temporary files
-tests/temp_*.bas
+test/temp_*.bas
+test/tmp/
+test/output/
 
 # IDE and Editor
 .vscode/
@@ -49,3 +51,4 @@ debug.txt
 Thumbs.db
 desktop.ini
 *.exe
+qb64/

@@ -9,3 +9,8 @@ description.workspace = true
 [dependencies]
 core_types = { path = "../core_types" }
 syntax_tree = { path = "../syntax_tree" }
+cranelift-codegen = "0.130"
+cranelift-frontend = "0.130"
+cranelift-jit = "0.130"
+cranelift-module = "0.130"
+cranelift-native = "0.130"

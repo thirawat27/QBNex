@@ -56,8 +56,7 @@ fn check_statement(stmt: &Statement) -> bool {
         Statement::Input {
             prompt, variables, ..
         } => {
-            prompt.as_ref().is_some_and(check_expression)
-                || variables.iter().any(check_expression)
+            prompt.as_ref().is_some_and(check_expression) || variables.iter().any(check_expression)
         }
         Statement::Open {
             filename,
@@ -128,21 +127,38 @@ fn check_statement(stmt: &Statement) -> bool {
         }
         Statement::DoLoop {
             condition, body, ..
-        } => {
-            condition.as_ref().is_some_and(check_expression) || body.iter().any(check_statement)
-        }
+        } => condition.as_ref().is_some_and(check_expression) || body.iter().any(check_statement),
         Statement::ForEach { array, body, .. } => {
             check_expression(array) || body.iter().any(check_statement)
         }
         Statement::Call { args, .. } => args.iter().any(check_expression),
         Statement::FunctionCall(func) => check_function_call(func),
-        Statement::Dim { variables, .. } | Statement::Redim { variables, .. } => variables
-            .iter()
-            .any(|(var, size)| check_variable(var) || size.as_ref().is_some_and(check_expression)),
+        Statement::Dim { variables, .. } | Statement::Redim { variables, .. } => {
+            variables.iter().any(|(var, dimensions)| {
+                check_variable(var)
+                    || dimensions.as_ref().is_some_and(|dimensions| {
+                        dimensions.iter().any(|dimension| {
+                            dimension.lower_bound.as_ref().is_some_and(check_expression)
+                                || check_expression(&dimension.upper_bound)
+                        })
+                    })
+            })
+        }
         Statement::Const { value, .. } => check_expression(value),
         Statement::Randomize { seed } => seed.as_ref().is_some_and(check_expression),
-        Statement::Locate { row, col } => {
-            row.as_ref().is_some_and(check_expression) || col.as_ref().is_some_and(check_expression)
+        Statement::Cls { mode } => mode.as_ref().is_some_and(check_expression),
+        Statement::Locate {
+            row,
+            col,
+            cursor,
+            start,
+            stop,
+        } => {
+            row.as_ref().is_some_and(check_expression)
+                || col.as_ref().is_some_and(check_expression)
+                || cursor.as_ref().is_some_and(check_expression)
+                || start.as_ref().is_some_and(check_expression)
+                || stop.as_ref().is_some_and(check_expression)
         }
         Statement::Error { code } => check_expression(code),
         Statement::Chain { filename, delete } => {
@@ -159,7 +175,10 @@ fn check_statement(stmt: &Statement) -> bool {
             check_expression(old_name) || check_expression(new_name)
         }
         Statement::Files { pattern } => pattern.as_ref().is_some_and(check_expression),
-        Statement::Field { file_number, fields } => {
+        Statement::Field {
+            file_number,
+            fields,
+        } => {
             check_expression(file_number)
                 || fields
                     .iter()
@@ -187,6 +206,7 @@ fn check_statement(stmt: &Statement) -> bool {
             key_string,
         } => check_expression(key_num) || check_expression(key_string),
         Statement::OnTimer { interval, .. } => check_expression(interval),
+        Statement::OnPlay { queue_limit, .. } => check_expression(queue_limit),
         Statement::OnGotoGosub { expression, .. } => check_expression(expression),
         Statement::InputFile {
             file_number,
@@ -208,10 +228,10 @@ fn check_statement(stmt: &Statement) -> bool {
             position,
         } => check_expression(file_number) || check_expression(position),
         Statement::DefFn { body, .. } => check_expression(body),
-        Statement::DefSeg { segment } => segment.as_ref().is_some_and(|expr| check_expression(expr)),
-        Statement::Poke { address, value } => {
-            check_expression(address) || check_expression(value)
+        Statement::DefSeg { segment } => {
+            segment.as_ref().is_some_and(|expr| check_expression(expr))
         }
+        Statement::Poke { address, value } => check_expression(address) || check_expression(value),
         Statement::Wait {
             address,
             and_mask,
@@ -228,15 +248,13 @@ fn check_statement(stmt: &Statement) -> bool {
             filename,
             offset,
             length,
-        } => {
-            check_expression(filename) || check_expression(offset) || check_expression(length)
-        }
+        } => check_expression(filename) || check_expression(offset) || check_expression(length),
         Statement::Out { port, value } => check_expression(port) || check_expression(value),
         Statement::Select { expression, cases } => {
             check_expression(expression)
-                || cases
-                    .iter()
-                    .any(|(expr, stmts)| check_expression(expr) || stmts.iter().any(check_statement))
+                || cases.iter().any(|(expr, stmts)| {
+                    check_expression(expr) || stmts.iter().any(check_statement)
+                })
         }
         _ => false,
     }
@@ -268,9 +286,7 @@ fn check_expression(expr: &syntax_tree::ast_nodes::Expression) -> bool {
             check_expression(left) || check_expression(right)
         }
         Expression::UnaryOp { operand, .. } => check_expression(operand),
-        Expression::CaseRange { start, end } => {
-            check_expression(start) || check_expression(end)
-        }
+        Expression::CaseRange { start, end } => check_expression(start) || check_expression(end),
         Expression::CaseIs { value, .. } => check_expression(value),
     }
 }

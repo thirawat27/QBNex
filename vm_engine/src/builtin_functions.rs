@@ -8,7 +8,7 @@ pub fn is_builtin_function(name: &str) -> bool {
         upper.as_str(),
         // String functions
         "LEFT$" | "RIGHT$" | "MID$" | "LEN" | "INSTR" | "LCASE$" | "UCASE$"
-        | "LTRIM$" | "RTRIM$" | "TRIM$" | "STR$" | "VAL" | "CHR$" | "ASC"
+        | "LTRIM$" | "RTRIM$" | "TRIM$" | "_TRIM$" | "STR$" | "VAL" | "CHR$" | "ASC"
         | "SPACE$" | "STRING$" | "HEX$" | "OCT$"
         // Math functions
         | "ABS" | "SGN" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG"
@@ -16,19 +16,21 @@ pub fn is_builtin_function(name: &str) -> bool {
         // Type conversion
         | "CINT" | "CLNG" | "CSNG" | "CDBL" | "CSTR"
         | "MKI$" | "MKL$" | "MKS$" | "MKD$"
-        | "CVI" | "CVL" | "CVS" | "CVD"
+        | "CVI" | "CVL" | "CVS" | "CVD" | "_CV"
         // Date/Time
         | "TIMER" | "DATE$" | "TIME$"
         // Array functions
         | "LBOUND" | "UBOUND"
         // File I/O
-        | "EOF" | "LOF" | "FREEFILE" | "LOC" | "INPUT$"
+        | "EOF" | "LOF" | "FREEFILE" | "LOC" | "INPUT$" | "_FILEEXISTS" | "_DIREXISTS"
         // System
         | "FRE" | "CSRLIN" | "POS" | "LPOS" | "ENVIRON$" | "COMMAND$" | "INKEY$"
         // Memory/Hardware
         | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP"
         // Graphics
-        | "POINT" | "PMAP"
+        | "POINT" | "PMAP" | "SCREEN"
+        // Sound/Event
+        | "PLAY"
         // Error handling
         | "ERR" | "ERL" | "ERDEV" | "ERDEV$"
     )
@@ -38,17 +40,21 @@ pub fn is_builtin_function(name: &str) -> bool {
 pub fn get_builtin_arity(name: &str) -> Option<(usize, usize)> {
     match name.to_uppercase().as_str() {
         // Functions with 1 required argument
-        "LEN" | "STR$" | "VAL" | "CHR$" | "ASC" | "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$"
-        | "TRIM$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS" | "TAN" | "ATN" | "EXP"
-        | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG" | "CSNG" | "CDBL" | "CSTR" | "MKI$"
-        | "MKL$" | "MKS$" | "MKD$" | "CVI" | "CVL" | "CVS" | "CVD" | "FRE" | "POS" | "ENVIRON$"
-        | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS" => Some((1, 1)),
+        "LEN" | "STR$" | "VAL" | "CHR$" | "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$" | "TRIM$"
+        | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG"
+        | "SQR" | "INT" | "FIX" | "CINT" | "CLNG" | "CSNG" | "CDBL" | "CSTR" | "MKI$" | "MKL$"
+        | "MKS$" | "MKD$" | "CVI" | "CVL" | "CVS" | "CVD" | "FRE" | "POS" | "ENVIRON$" | "PEEK"
+        | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS" | "PLAY" | "_FILEEXISTS"
+        | "_DIREXISTS" => Some((1, 1)),
+        "_CV" => Some((2, 2)),
+        "ASC" => Some((1, 2)),
 
         // Functions with 0 arguments
         "TIMER" | "DATE$" | "TIME$" | "CSRLIN" | "COMMAND$" | "INKEY$" => Some((0, 0)),
 
         // Functions with 2 arguments
         "POINT" | "PMAP" => Some((2, 2)),
+        "SCREEN" => Some((2, 3)),
 
         // Functions with 0 arguments (error handling)
         "ERR" | "ERL" | "ERDEV" | "ERDEV$" => Some((0, 0)),
@@ -64,7 +70,7 @@ pub fn get_builtin_arity(name: &str) -> Option<(usize, usize)> {
         "LBOUND" | "UBOUND" => Some((1, 2)), // array name, optional dimension
         "EOF" | "LOF" | "LOC" => Some((1, 1)), // file number
         "FREEFILE" => Some((0, 0)),
-        "INPUT$" => Some((1, 2)),     // n, optional file number
+        "INPUT$" => Some((1, 2)),            // n, optional file number
         "RND" | "RANDOMIZE" => Some((0, 1)), // optional seed/control arg
 
         _ => None,
@@ -111,11 +117,17 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
         "UCASE$" => bytecode.push(OpCode::UCase),
         "LTRIM$" => bytecode.push(OpCode::LTrim),
         "RTRIM$" => bytecode.push(OpCode::RTrim),
-        "TRIM$" => bytecode.push(OpCode::Trim),
+        "TRIM$" | "_TRIM$" => bytecode.push(OpCode::Trim),
         "STR$" => bytecode.push(OpCode::StrFunc),
         "VAL" => bytecode.push(OpCode::ValFunc),
         "CHR$" => bytecode.push(OpCode::ChrFunc),
-        "ASC" => bytecode.push(OpCode::AscFunc),
+        "ASC" => {
+            if args.len() >= 2 {
+                bytecode.push(OpCode::LoadConstant(QType::Integer(1)));
+                bytecode.push(OpCode::Mid);
+            }
+            bytecode.push(OpCode::AscFunc);
+        }
         "SPACE$" => {
             if !args.is_empty() {
                 bytecode.push(OpCode::SpaceFunc);
@@ -197,6 +209,12 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
             // Convert string to double
             bytecode.push(OpCode::CvdFunc);
         }
+        "_FILEEXISTS" => {
+            bytecode.push(OpCode::FileExistsFunc);
+        }
+        "_DIREXISTS" => {
+            bytecode.push(OpCode::DirExistsFunc);
+        }
 
         // Date/Time
         "TIMER" => bytecode.push(OpCode::Timer),
@@ -214,39 +232,34 @@ pub fn compile_builtin_function(name: &str, args: &[OpCode]) -> QResult<Vec<OpCo
         }
 
         // File I/O
-        "EOF" => {
-            match args.first() {
-                Some(OpCode::LoadConstant(QType::Integer(n))) => {
-                    bytecode.push(OpCode::Eof(n.to_string()));
-                }
-                Some(_) => bytecode.push(OpCode::EofDynamic),
-                None => {}
+        "EOF" => match args.first() {
+            Some(OpCode::LoadConstant(QType::Integer(n))) => {
+                bytecode.push(OpCode::Eof(n.to_string()));
             }
-        }
-        "LOF" => {
-            match args.first() {
-                Some(OpCode::LoadConstant(QType::Integer(n))) => {
-                    bytecode.push(OpCode::Lof(n.to_string()));
-                }
-                Some(_) => bytecode.push(OpCode::LofDynamic),
-                None => {}
+            Some(_) => bytecode.push(OpCode::EofDynamic),
+            None => {}
+        },
+        "LOF" => match args.first() {
+            Some(OpCode::LoadConstant(QType::Integer(n))) => {
+                bytecode.push(OpCode::Lof(n.to_string()));
             }
-        }
+            Some(_) => bytecode.push(OpCode::LofDynamic),
+            None => {}
+        },
         "FREEFILE" => bytecode.push(OpCode::FreeFile),
-        "LOC" => {
-            match args.first() {
-                Some(OpCode::LoadConstant(QType::Integer(n))) => {
-                    bytecode.push(OpCode::Loc(n.to_string()));
-                }
-                Some(_) => bytecode.push(OpCode::LocDynamic),
-                None => {}
+        "LOC" => match args.first() {
+            Some(OpCode::LoadConstant(QType::Integer(n))) => {
+                bytecode.push(OpCode::Loc(n.to_string()));
             }
-        }
+            Some(_) => bytecode.push(OpCode::LocDynamic),
+            None => {}
+        },
         "INPUT$" => {
             bytecode.push(OpCode::InputChars {
                 has_file_number: args.len() >= 2,
             });
         }
+        "PLAY" => bytecode.push(OpCode::PlayFunc),
 
         // System functions
         "FRE" => {
@@ -390,14 +403,14 @@ pub fn get_builtin_return_type(name: &str) -> &'static str {
 
         "LEN" | "ASC" | "INSTR" | "SGN" | "INT" | "FIX" | "CINT" | "LBOUND" | "UBOUND" | "EOF"
         | "FREEFILE" | "LOC" | "CSRLIN" | "POS" | "LPOS" | "CVI" | "ERR" | "ERL" | "ERDEV"
-        | "PEEK" | "VARSEG" | "INP" => "INTEGER",
+        | "_FILEEXISTS" | "_DIREXISTS" | "PEEK" | "VARSEG" | "INP" => "INTEGER",
 
         "ABS" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "CLNG" | "CVL" | "FRE"
         | "LOF" | "VARPTR" => "LONG",
 
         "TIMER" | "RND" | "CSNG" | "CVS" => "SINGLE",
 
-        "CDBL" | "CVD" | "VAL" => "DOUBLE",
+        "CDBL" | "CVD" | "VAL" | "_CV" => "DOUBLE",
 
         "CSTR" => "STRING",
 

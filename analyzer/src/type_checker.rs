@@ -119,6 +119,62 @@ impl TypeChecker {
         }
     }
 
+    fn declared_type_to_qtype(type_name: &str) -> QType {
+        match Self::normalize_qb64_type_name(type_name).as_str() {
+            "INTEGER" => QType::Integer(0),
+            "LONG" => QType::Long(0),
+            "SINGLE" => QType::Single(0.0),
+            "DOUBLE" | "_FLOAT" | "FLOAT" => QType::Double(0.0),
+            "STRING" => QType::String(String::new()),
+            "_BYTE" | "BYTE" | "_BIT" | "BIT" => QType::Integer(0),
+            "_UNSIGNED _BYTE" | "UNSIGNED _BYTE" | "_UNSIGNED BYTE" | "UNSIGNED BYTE"
+            | "_UNSIGNED _BIT" | "UNSIGNED _BIT" | "_UNSIGNED BIT" | "UNSIGNED BIT" => {
+                QType::Integer(0)
+            }
+            "_UNSIGNED INTEGER" | "UNSIGNED INTEGER" => QType::Long(0),
+            "_UNSIGNED LONG"
+            | "UNSIGNED LONG"
+            | "_INTEGER64"
+            | "INTEGER64"
+            | "_UNSIGNED _INTEGER64"
+            | "UNSIGNED _INTEGER64"
+            | "_UNSIGNED INTEGER64"
+            | "UNSIGNED INTEGER64"
+            | "_OFFSET"
+            | "OFFSET"
+            | "_UNSIGNED _OFFSET"
+            | "UNSIGNED _OFFSET"
+            | "_UNSIGNED OFFSET"
+            | "UNSIGNED OFFSET" => QType::Double(0.0),
+            _ => QType::UserDefined(type_name.as_bytes().to_vec()),
+        }
+    }
+
+    fn infer_qualified_variable_type(
+        &self,
+        name: &str,
+        local_scope: Option<&HashMap<String, QType>>,
+    ) -> QResult<QType> {
+        if let Some(scope) = local_scope {
+            if let Some(var_type) = scope.get(&name.to_lowercase()) {
+                return Ok(var_type.clone());
+            }
+        }
+
+        if let Ok(var_type) = self.symbol_table.get_type(name) {
+            return Ok(var_type);
+        }
+
+        if matches!(
+            name.chars().last(),
+            Some('$') | Some('%') | Some('&') | Some('!') | Some('#')
+        ) {
+            return Self::infer_type_from_suffix(name);
+        }
+
+        Ok(self.symbol_table.get_default_type(name))
+    }
+
     fn same_signature_type(left: &QType, right: &QType) -> bool {
         match (left, right) {
             (QType::Integer(_), QType::Integer(_))
@@ -146,6 +202,7 @@ impl TypeChecker {
             "LTRIM$" => Some("LTRIM$"),
             "RTRIM$" => Some("RTRIM$"),
             "TRIM$" => Some("TRIM$"),
+            "_TRIM$" => Some("TRIM$"),
             "STR$" => Some("STR$"),
             "VAL" => Some("VAL"),
             "CHR$" => Some("CHR$"),
@@ -179,11 +236,14 @@ impl TypeChecker {
             "CVL" => Some("CVL"),
             "CVS" => Some("CVS"),
             "CVD" => Some("CVD"),
+            "_CV" => Some("_CV"),
             "TIMER" => Some("TIMER"),
             "DATE" | "DATE$" => Some("DATE$"),
             "TIME" | "TIME$" => Some("TIME$"),
             "LBOUND" => Some("LBOUND"),
             "UBOUND" => Some("UBOUND"),
+            "_FILEEXISTS" => Some("_FILEEXISTS"),
+            "_DIREXISTS" => Some("_DIREXISTS"),
             "EOF" => Some("EOF"),
             "LOF" => Some("LOF"),
             "FREEFILE" => Some("FREEFILE"),
@@ -204,6 +264,8 @@ impl TypeChecker {
             "INP" => Some("INP"),
             "POINT" => Some("POINT"),
             "PMAP" => Some("PMAP"),
+            "SCREEN" => Some("SCREEN"),
+            "PLAY" => Some("PLAY"),
             "ERR" => Some("ERR"),
             "ERL" => Some("ERL"),
             "ERDEV" => Some("ERDEV"),
@@ -214,41 +276,87 @@ impl TypeChecker {
 
     fn builtin_arity(name: &str) -> Option<(usize, usize)> {
         match Self::canonical_builtin_name(name)? {
-            "LEN" | "STR$" | "VAL" | "CHR$" | "ASC" | "LCASE$" | "UCASE$" | "LTRIM$"
-            | "RTRIM$" | "TRIM$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS"
-            | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG"
-            | "CSNG" | "CDBL" | "CSTR" | "MKI$" | "MKL$" | "MKS$" | "MKD$" | "CVI"
-            | "CVL" | "CVS" | "CVD" | "FRE" | "POS" | "ENVIRON$" | "PEEK" | "VARPTR"
-            | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS" => Some((1, 1)),
-            "TIMER" | "DATE$" | "TIME$" | "CSRLIN" | "COMMAND$" | "INKEY$"
-            | "FREEFILE"
-            | "ERR" | "ERL" | "ERDEV" | "ERDEV$" => Some((0, 0)),
+            "_CV" => Some((2, 2)),
+            "LEN" | "STR$" | "VAL" | "CHR$" | "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$"
+            | "TRIM$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS" | "TAN" | "ATN" | "EXP"
+            | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG" | "CSNG" | "CDBL" | "CSTR"
+            | "MKI$" | "MKL$" | "MKS$" | "MKD$" | "CVI" | "CVL" | "CVS" | "CVD" | "FRE" | "POS"
+            | "ENVIRON$" | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS" => {
+                Some((1, 1))
+            }
+            "ASC" => Some((1, 2)),
+            "TIMER" | "DATE$" | "TIME$" | "CSRLIN" | "COMMAND$" | "INKEY$" | "FREEFILE" | "ERR"
+            | "ERL" | "ERDEV" | "ERDEV$" => Some((0, 0)),
             "POINT" | "PMAP" => Some((2, 2)),
+            "SCREEN" => Some((2, 3)),
+            "PLAY" => Some((1, 1)),
             "LEFT$" | "RIGHT$" | "STRING$" => Some((2, 2)),
             "SPACE$" => Some((1, 1)),
             "MID$" | "INSTR" => Some((2, 3)),
             "LBOUND" | "UBOUND" | "INPUT$" => Some((1, 2)),
+            "_FILEEXISTS" | "_DIREXISTS" => Some((1, 1)),
             "EOF" | "LOF" | "LOC" => Some((1, 1)),
             "RND" | "RANDOMIZE" => Some((0, 1)),
             _ => None,
         }
     }
 
-    fn builtin_return_type(name: &str) -> Option<QType> {
-        match Self::canonical_builtin_name(name)? {
-            "LEFT$" | "RIGHT$" | "MID$" | "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$"
-            | "TRIM$" | "STR$" | "CHR$" | "SPACE$" | "STRING$" | "HEX$" | "OCT$"
-            | "MKI$" | "MKL$" | "MKS$" | "MKD$" | "DATE$" | "TIME$" | "ENVIRON$"
-            |             "COMMAND$" | "INPUT$" | "INKEY$" | "VARPTR$" | "ERDEV$" | "CSTR" => {
-                Some(QType::String(String::new()))
-            }
-            "LEN" | "ASC" | "INSTR" | "SGN" | "INT" | "FIX" | "CINT" | "LBOUND"
-            | "UBOUND" | "EOF" | "LOC" | "CSRLIN" | "POS" | "LPOS" | "CVI"
-            | "ERR" | "ERL" | "ERDEV" | "PEEK" | "VARSEG" | "INP" | "POINT" => {
+    fn normalize_qb64_type_name(type_name: &str) -> String {
+        type_name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_uppercase()
+    }
+
+    fn cv_type_name_from_expr(expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Variable(var) => Some(Self::normalize_qb64_type_name(&var.name)),
+            Expression::FieldAccess { .. } => expr
+                .flattened_qb64_name()
+                .map(|name| Self::normalize_qb64_type_name(&name)),
+            _ => None,
+        }
+    }
+
+    fn cv_return_type_from_name(type_name: &str) -> Option<QType> {
+        match Self::normalize_qb64_type_name(type_name).as_str() {
+            "_BYTE" | "BYTE" | "_BIT" | "BIT" => Some(QType::Integer(0)),
+            "_UNSIGNED _BYTE" | "UNSIGNED _BYTE" | "_UNSIGNED BYTE" | "UNSIGNED BYTE"
+            | "_UNSIGNED _BIT" | "UNSIGNED _BIT" | "_UNSIGNED BIT" | "UNSIGNED BIT" => {
                 Some(QType::Integer(0))
             }
-            "ABS" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "CLNG"
-            | "CVL" | "FRE" | "LOF" | "VARPTR" | "SADD" => Some(QType::Long(0)),
+            "INTEGER" => Some(QType::Integer(0)),
+            "_UNSIGNED INTEGER" | "UNSIGNED INTEGER" => Some(QType::Long(0)),
+            "LONG" => Some(QType::Long(0)),
+            "_UNSIGNED LONG" | "UNSIGNED LONG" => Some(QType::Double(0.0)),
+            "SINGLE" => Some(QType::Single(0.0)),
+            "DOUBLE" | "_FLOAT" | "FLOAT" => Some(QType::Double(0.0)),
+            "_INTEGER64" | "INTEGER64" | "_OFFSET" | "OFFSET" => Some(QType::Double(0.0)),
+            "_UNSIGNED _INTEGER64"
+            | "UNSIGNED _INTEGER64"
+            | "_UNSIGNED INTEGER64"
+            | "UNSIGNED INTEGER64"
+            | "_UNSIGNED _OFFSET"
+            | "UNSIGNED _OFFSET"
+            | "_UNSIGNED OFFSET"
+            | "UNSIGNED OFFSET" => Some(QType::Double(0.0)),
+            _ => None,
+        }
+    }
+
+    fn builtin_return_type(name: &str) -> Option<QType> {
+        match Self::canonical_builtin_name(name)? {
+            "LEFT$" | "RIGHT$" | "MID$" | "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$" | "TRIM$"
+            | "STR$" | "CHR$" | "SPACE$" | "STRING$" | "HEX$" | "OCT$" | "MKI$" | "MKL$"
+            | "MKS$" | "MKD$" | "DATE$" | "TIME$" | "ENVIRON$" | "COMMAND$" | "INPUT$"
+            | "INKEY$" | "VARPTR$" | "ERDEV$" | "CSTR" => Some(QType::String(String::new())),
+            "LEN" | "ASC" | "INSTR" | "SGN" | "INT" | "FIX" | "CINT" | "LBOUND" | "UBOUND"
+            | "EOF" | "LOC" | "CSRLIN" | "POS" | "LPOS" | "CVI" | "ERR" | "ERL" | "ERDEV"
+            | "_FILEEXISTS" | "_DIREXISTS" | "PEEK" | "VARSEG" | "INP" | "POINT" | "SCREEN"
+            | "PLAY" => Some(QType::Integer(0)),
+            "ABS" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "CLNG" | "CVL"
+            | "FRE" | "LOF" | "VARPTR" | "SADD" => Some(QType::Long(0)),
             "TIMER" | "RND" | "CSNG" | "CVS" | "PMAP" | "FREEFILE" => Some(QType::Single(0.0)),
             "CDBL" | "CVD" | "VAL" => Some(QType::Double(0.0)),
             _ => None,
@@ -271,12 +379,17 @@ impl TypeChecker {
                 1 | 2 => BuiltinArgRule::Numeric,
                 _ => return None,
             }),
-            "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$" | "TRIM$" | "VAL" | "ASC" | "CVI"
-            | "CVL" | "CVS" | "CVD" => Some(BuiltinArgRule::String),
+            "ASC" => Some(if index == 0 {
+                BuiltinArgRule::String
+            } else {
+                BuiltinArgRule::Numeric
+            }),
+            "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$" | "TRIM$" | "VAL" | "CVI" | "CVL" | "CVS"
+            | "CVD" | "_FILEEXISTS" | "_DIREXISTS" => Some(BuiltinArgRule::String),
             "STR$" | "CHR$" | "SPACE$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS"
-            | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG"
-            | "CSNG" | "CDBL" | "MKI$" | "MKL$" | "MKS$" | "MKD$" | "PEEK" | "INP"
-            | "POS" | "LPOS" | "EOF" | "LOF" | "LOC" | "POINT" | "PMAP" => {
+            | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG" | "CSNG"
+            | "CDBL" | "MKI$" | "MKL$" | "MKS$" | "MKD$" | "PEEK" | "INP" | "POS" | "LPOS"
+            | "EOF" | "LOF" | "LOC" | "POINT" | "PMAP" | "SCREEN" | "PLAY" => {
                 Some(BuiltinArgRule::Numeric)
             }
             "INSTR" => Some(if arg_count > 2 {
@@ -433,7 +546,7 @@ impl TypeChecker {
         let builtin_name = Self::canonical_builtin_name(name)?;
         let Some((min_args, max_args)) = Self::builtin_arity(builtin_name) else {
             return Some(Ok(
-                Self::builtin_return_type(builtin_name).unwrap_or(QType::Single(0.0)),
+                Self::builtin_return_type(builtin_name).unwrap_or(QType::Single(0.0))
             ));
         };
 
@@ -451,6 +564,31 @@ impl TypeChecker {
             ))));
         }
 
+        if builtin_name == "_CV" {
+            let Some(type_name) = Self::cv_type_name_from_expr(&args[0]) else {
+                return Some(Err(QError::InvalidProcedure(
+                    "Built-in function _CV argument 1 expects a QB64 numeric type".to_string(),
+                )));
+            };
+            let Some(return_type) = Self::cv_return_type_from_name(&type_name) else {
+                return Some(Err(QError::InvalidProcedure(format!(
+                    "Built-in function _CV does not support type {}",
+                    type_name
+                ))));
+            };
+            let value_type = match self.infer_type_in_scope(&args[1], local_scope) {
+                Ok(value_type) => value_type,
+                Err(err) => return Some(Err(err)),
+            };
+            if !matches!(value_type, QType::String(_)) {
+                return Some(Err(QError::TypeMismatch(format!(
+                    "Built-in function _CV argument 2 expects STRING, got {}",
+                    Self::type_name(&value_type)
+                ))));
+            }
+            return Some(Ok(return_type));
+        }
+
         for (index, arg) in args.iter().enumerate() {
             if let Err(err) =
                 self.validate_builtin_argument(builtin_name, args, index, arg, local_scope)
@@ -460,7 +598,7 @@ impl TypeChecker {
         }
 
         Some(Ok(
-            Self::builtin_return_type(builtin_name).unwrap_or(QType::Single(0.0)),
+            Self::builtin_return_type(builtin_name).unwrap_or(QType::Single(0.0))
         ))
     }
 
@@ -597,7 +735,7 @@ impl TypeChecker {
     /// Get the default type for a variable based on DEFxxx rules and type suffix
     pub fn get_variable_type(&self, var: &Variable) -> QType {
         if let Some(declared_type) = &var.declared_type {
-            return QType::UserDefined(declared_type.clone().into_bytes());
+            return Self::declared_type_to_qtype(declared_type);
         }
 
         // First check for explicit type suffix
@@ -665,7 +803,8 @@ impl TypeChecker {
                 indices,
                 type_suffix,
             } => {
-                if let Some(result) = self.validate_builtin_function_call(name, indices, local_scope)
+                if let Some(result) =
+                    self.validate_builtin_function_call(name, indices, local_scope)
                 {
                     return result;
                 }
@@ -711,11 +850,15 @@ impl TypeChecker {
                                 return Ok(type_field.field_type.clone());
                             }
                         }
-                        // Field not found - try suffix-based inference as fallback
+                        if let Some(name) = expr.flattened_qb64_name() {
+                            return self.infer_qualified_variable_type(&name, local_scope);
+                        }
                         Self::infer_type_from_suffix(field)
                     }
                     _ => {
-                        // For non-user-defined types, use suffix-based inference
+                        if let Some(name) = expr.flattened_qb64_name() {
+                            return self.infer_qualified_variable_type(&name, local_scope);
+                        }
                         Self::infer_type_from_suffix(field)
                     }
                 }
@@ -800,7 +943,7 @@ impl TypeChecker {
 
             // Integer functions
             "CINT" | "INT" | "FIX" | "LEN" | "ASC" | "INSTR" | "CSRLIN" | "POS" | "LPOS"
-            | "ERR" | "ERL" | "ERDEV" | "FREEFILE" | "INP" => QType::Integer(0),
+            | "ERR" | "ERL" | "ERDEV" | "FREEFILE" | "INP" | "SCREEN" | "PLAY" => QType::Integer(0),
 
             // Long functions
             "CLNG" | "FRE" | "LOF" | "LOC" | "VARPTR" | "SADD" => QType::Long(0),
@@ -811,6 +954,7 @@ impl TypeChecker {
 
             // Double functions
             "CDBL" | "CVD" => QType::Double(0.0),
+            "_CV" => QType::Double(0.0),
 
             // Type conversion that depends on input
             "CVI" => QType::Integer(0),
@@ -1172,10 +1316,15 @@ impl TypeChecker {
                 Ok(())
             }
             Statement::Dim { variables, .. } | Statement::Redim { variables, .. } => {
-                for (var, size) in variables {
+                for (var, dimensions) in variables {
                     local_scope.insert(var.name.to_lowercase(), self.get_variable_type(var));
-                    if let Some(size) = size {
-                        self.infer_type_in_scope(size, Some(local_scope))?;
+                    if let Some(dimensions) = dimensions {
+                        for dimension in dimensions {
+                            if let Some(lower_bound) = &dimension.lower_bound {
+                                self.infer_type_in_scope(lower_bound, Some(local_scope))?;
+                            }
+                            self.infer_type_in_scope(&dimension.upper_bound, Some(local_scope))?;
+                        }
                     }
                 }
                 Ok(())
@@ -1325,10 +1474,22 @@ PRINT TIMER";
             _ => panic!("expected PRINT statement"),
         };
 
-        assert!(matches!(type_checker.infer_type(point_expr), Ok(QType::Integer(_))));
-        assert!(matches!(type_checker.infer_type(pmap_expr), Ok(QType::Single(_))));
-        assert!(matches!(type_checker.infer_type(input_expr), Ok(QType::String(_))));
-        assert!(matches!(type_checker.infer_type(timer_expr), Ok(QType::Single(_))));
+        assert!(matches!(
+            type_checker.infer_type(point_expr),
+            Ok(QType::Integer(_))
+        ));
+        assert!(matches!(
+            type_checker.infer_type(pmap_expr),
+            Ok(QType::Single(_))
+        ));
+        assert!(matches!(
+            type_checker.infer_type(input_expr),
+            Ok(QType::String(_))
+        ));
+        assert!(matches!(
+            type_checker.infer_type(timer_expr),
+            Ok(QType::Single(_))
+        ));
     }
 
     #[test]
@@ -1407,5 +1568,4 @@ PRINT TIMER";
                 if message.contains("Built-in function LBOUND argument 1 expects ARRAY NAME")
         ));
     }
-
 }

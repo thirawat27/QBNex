@@ -15,4 +15,4 @@ pub mod scanner;
 pub mod tokens;
 
 pub use scanner::Scanner;
-pub use tokens::Token;
+pub use tokens::{SpannedToken, Token, TokenSpan};

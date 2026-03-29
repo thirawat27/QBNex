@@ -10,6 +10,15 @@ pub enum ByRefTarget {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryFileKind {
+    Integer,
+    Long,
+    Single,
+    Double,
+    String,
+}
+
 #[derive(Debug, Clone)]
 pub enum OpCode {
     NoOp,
@@ -28,6 +37,7 @@ pub enum OpCode {
         width: usize,
     },
     InitGlobals(usize),
+    SetOptionBase(i32),
 
     ReadFast(usize),
     SwapFast(usize, usize),
@@ -89,13 +99,19 @@ pub enum OpCode {
     PrintComma,
     PrintTab,
     PrintSpace,
-    PrintUsing(usize),
+    PrintUsing {
+        count: usize,
+        comma_after: Vec<bool>,
+    },
     LPrint,
     LPrintNewline,
     LPrintComma,
     LPrintTab,
     LPrintSpace,
-    LPrintUsing(usize),
+    LPrintUsing {
+        count: usize,
+        comma_after: Vec<bool>,
+    },
 
     Input,
 
@@ -142,6 +158,14 @@ pub enum OpCode {
         mode: String,
     },
     Close,
+    GetBinary {
+        kind: BinaryFileKind,
+        fixed_length: usize,
+    },
+    PutBinary {
+        kind: BinaryFileKind,
+        fixed_length: usize,
+    },
     Get,
     Put,
 
@@ -161,9 +185,18 @@ pub enum OpCode {
         name: String,
         dimensions: Vec<(i32, i32)>,
     },
+    ArrayDimDynamic {
+        name: String,
+        dimensions: usize,
+    },
     ArrayRedim {
         name: String,
         dimensions: Vec<(i32, i32)>,
+        preserve: bool,
+    },
+    ArrayRedimDynamic {
+        name: String,
+        dimensions: usize,
         preserve: bool,
     },
 
@@ -212,9 +245,20 @@ pub enum OpCode {
         interval_secs: f64,
         handler: usize,
     },
+    OnPlay {
+        queue_limit: usize,
+        handler: usize,
+    },
+    OnPlayDynamic {
+        handler: usize,
+    },
     TimerOn,
     TimerOff,
     TimerStop,
+    PlayOn,
+    PlayOff,
+    PlayStop,
+    PlayFunc,
 
     // String functions
     Left,
@@ -261,6 +305,8 @@ pub enum OpCode {
     // Array functions
     LBound(String, i32),
     UBound(String, i32),
+    LBoundDynamic(String),
+    UBoundDynamic(String),
     Erase(String),
 
     // Misc
@@ -271,10 +317,23 @@ pub enum OpCode {
     Timer,
     Date,
     Time,
+    ScreenFn(usize),
     Clear,
-    Cls,
+    Cls(i32),
+    ClsDynamic,
     Locate(i32, i32),
     LocateDynamic,
+    SetCursorState {
+        visible: i32,
+        start: i32,
+        stop: i32,
+    },
+    SetCursorStateDynamic,
+    Width {
+        columns: i32,
+        rows: i32,
+    },
+    WidthDynamic,
     Color(i32, i32),
     ColorDynamic,
 
@@ -284,12 +343,18 @@ pub enum OpCode {
     WriteConsole(usize),
     WriteFile(String),
     WriteFileDynamic(usize),
-    InputChars { has_file_number: bool },
+    InputChars {
+        has_file_number: bool,
+    },
     InputFile(String),
     InputFileDynamic(usize),
     PrintFile(String),
     PrintFileDynamic, // Pops file_number and value from stack
-    PrintFileCommaDynamic, // Pops file_number and advances to next print zone
+    PrintFileUsingDynamic {
+        count: usize,
+        comma_after: Vec<bool>,
+    },
+    PrintFileCommaDynamic,   // Pops file_number and advances to next print zone
     PrintFileNewlineDynamic, // Pops file_number and writes newline
     Eof(String),
     EofDynamic,
@@ -367,18 +432,21 @@ pub enum OpCode {
     CvlFunc,
     CvsFunc,
     CvdFunc,
+    CvFunc(String),
+    FileExistsFunc,
+    DirExistsFunc,
 
     // System functions
-    FreFunc(i32), // FRE with argument type: 0=string, -1=array, -2=stack
-    FreDynamic,   // FRE(expr)
-    CsrLinFunc,   // Current cursor line
-    PosFunc(i32), // Current cursor position
-    PosDynamic,   // POS(expr)
+    FreFunc(i32),  // FRE with argument type: 0=string, -1=array, -2=stack
+    FreDynamic,    // FRE(expr)
+    CsrLinFunc,    // Current cursor line
+    PosFunc(i32),  // Current cursor position
+    PosDynamic,    // POS(expr)
     LPosFunc(i32), // LPOS(expr)
     LPosDynamic,   // LPOS(expr dynamic)
-    EnvironFunc,  // Environment variable
-    CommandFunc,  // Command line arguments
-    InKeyFunc,    // Get key press without waiting
+    EnvironFunc,   // Environment variable
+    CommandFunc,   // Command line arguments
+    InKeyFunc,     // Get key press without waiting
     KeySetDynamic,
     KeyOn,
     KeyOff,
@@ -399,6 +467,7 @@ pub enum OpCode {
         start: i32,
         length: Option<i32>,
     },
+    AscAssign,
 
     // Memory/Hardware (placeholders for compatibility)
     PeekFunc(i32),      // PEEK(address)
@@ -494,6 +563,7 @@ impl std::fmt::Display for OpCode {
                 write!(f, "SET_STRING_ARRAY_WIDTH {} {}", name, width)
             }
             OpCode::InitGlobals(count) => write!(f, "INIT_GLOBALS {}", count),
+            OpCode::SetOptionBase(base) => write!(f, "OPTION_BASE {}", base),
             OpCode::ReadFast(idx) => write!(f, "READ_FAST {}", idx),
             OpCode::SwapFast(idx1, idx2) => write!(f, "SWAP_FAST {} {}", idx1, idx2),
             OpCode::Add => write!(f, "ADD"),
@@ -542,13 +612,13 @@ impl std::fmt::Display for OpCode {
             OpCode::PrintComma => write!(f, "PRINT_COMMA"),
             OpCode::PrintTab => write!(f, "PRINT_TAB"),
             OpCode::PrintSpace => write!(f, "PRINT_SPC"),
-            OpCode::PrintUsing(n) => write!(f, "PRINT_USING {}", n),
+            OpCode::PrintUsing { count, .. } => write!(f, "PRINT_USING {}", count),
             OpCode::LPrint => write!(f, "LPRINT"),
             OpCode::LPrintNewline => write!(f, "LPRINT_NL"),
             OpCode::LPrintComma => write!(f, "LPRINT_COMMA"),
             OpCode::LPrintTab => write!(f, "LPRINT_TAB"),
             OpCode::LPrintSpace => write!(f, "LPRINT_SPC"),
-            OpCode::LPrintUsing(n) => write!(f, "LPRINT_USING {}", n),
+            OpCode::LPrintUsing { count, .. } => write!(f, "LPRINT_USING {}", count),
             OpCode::Input => write!(f, "INPUT"),
             OpCode::Screen(mode) => write!(f, "SCREEN {}", mode),
             OpCode::ScreenDynamic => write!(f, "SCREEN <expr>"),
@@ -581,6 +651,12 @@ impl std::fmt::Display for OpCode {
             OpCode::Beep => write!(f, "BEEP"),
             OpCode::Open { mode } => write!(f, "OPEN {}", mode),
             OpCode::Close => write!(f, "CLOSE"),
+            OpCode::GetBinary { kind, fixed_length } => {
+                write!(f, "GET_BINARY {:?} {}", kind, fixed_length)
+            }
+            OpCode::PutBinary { kind, fixed_length } => {
+                write!(f, "PUT_BINARY {:?} {}", kind, fixed_length)
+            }
             OpCode::Get => write!(f, "GET"),
             OpCode::Put => write!(f, "PUT"),
             OpCode::End => write!(f, "END"),
@@ -595,6 +671,9 @@ impl std::fmt::Display for OpCode {
             OpCode::ArrayDim { name, dimensions } => {
                 write!(f, "DIM {}({})", name, dimensions.len())
             }
+            OpCode::ArrayDimDynamic { name, dimensions } => {
+                write!(f, "DIM_DYNAMIC {}({})", name, dimensions)
+            }
             OpCode::ArrayRedim {
                 name,
                 dimensions,
@@ -605,6 +684,15 @@ impl std::fmt::Display for OpCode {
                 name,
                 dimensions.len(),
                 preserve
+            ),
+            OpCode::ArrayRedimDynamic {
+                name,
+                dimensions,
+                preserve,
+            } => write!(
+                f,
+                "REDIM_DYNAMIC {} {} dims preserve={}",
+                name, dimensions, preserve
             ),
             OpCode::DefineFunction {
                 name,
@@ -663,9 +751,18 @@ impl std::fmt::Display for OpCode {
                 interval_secs,
                 handler,
             } => write!(f, "ON_TIMER {} {}", interval_secs, handler),
+            OpCode::OnPlay {
+                queue_limit,
+                handler,
+            } => write!(f, "ON_PLAY {} {}", queue_limit, handler),
+            OpCode::OnPlayDynamic { handler } => write!(f, "ON_PLAY_DYNAMIC {}", handler),
             OpCode::TimerOn => write!(f, "TIMER_ON"),
             OpCode::TimerOff => write!(f, "TIMER_OFF"),
             OpCode::TimerStop => write!(f, "TIMER_STOP"),
+            OpCode::PlayOn => write!(f, "PLAY_ON"),
+            OpCode::PlayOff => write!(f, "PLAY_OFF"),
+            OpCode::PlayStop => write!(f, "PLAY_STOP"),
+            OpCode::PlayFunc => write!(f, "PLAY_FUNC"),
             OpCode::Left => write!(f, "LEFT$"),
             OpCode::Right => write!(f, "RIGHT$"),
             OpCode::Mid => write!(f, "MID$"),
@@ -704,6 +801,8 @@ impl std::fmt::Display for OpCode {
             OpCode::CStr => write!(f, "CSTR"),
             OpCode::LBound(name, dim) => write!(f, "LBOUND {} {}", name, dim),
             OpCode::UBound(name, dim) => write!(f, "UBOUND {} {}", name, dim),
+            OpCode::LBoundDynamic(name) => write!(f, "LBOUND_DYNAMIC {}", name),
+            OpCode::UBoundDynamic(name) => write!(f, "UBOUND_DYNAMIC {}", name),
             OpCode::Erase(name) => write!(f, "ERASE {}", name),
             OpCode::Swap(a, b) => write!(f, "SWAP {} {}", a, b),
             OpCode::Sleep => write!(f, "SLEEP"),
@@ -712,10 +811,22 @@ impl std::fmt::Display for OpCode {
             OpCode::Timer => write!(f, "TIMER"),
             OpCode::Date => write!(f, "DATE$"),
             OpCode::Time => write!(f, "TIME$"),
+            OpCode::ScreenFn(arg_count) => write!(f, "SCREEN_FN {}", arg_count),
             OpCode::Clear => write!(f, "CLEAR"),
-            OpCode::Cls => write!(f, "CLS"),
+            OpCode::Cls(mode) => write!(f, "CLS {}", mode),
+            OpCode::ClsDynamic => write!(f, "CLS <expr>"),
             OpCode::Locate(row, col) => write!(f, "LOCATE {} {}", row, col),
             OpCode::LocateDynamic => write!(f, "LOCATE <expr>, <expr>"),
+            OpCode::SetCursorState {
+                visible,
+                start,
+                stop,
+            } => write!(f, "LOCATE CURSOR {} {} {}", visible, start, stop),
+            OpCode::SetCursorStateDynamic => {
+                write!(f, "LOCATE CURSOR <expr>, <expr>, <expr>")
+            }
+            OpCode::Width { columns, rows } => write!(f, "WIDTH {} {}", columns, rows),
+            OpCode::WidthDynamic => write!(f, "WIDTH <expr>, <expr>"),
             OpCode::Color(fg, bg) => write!(f, "COLOR {} {}", fg, bg),
             OpCode::ColorDynamic => write!(f, "COLOR <expr>, <expr>"),
             OpCode::LineInput(file) => write!(f, "LINE INPUT #{}", file),
@@ -734,6 +845,9 @@ impl std::fmt::Display for OpCode {
             OpCode::InputFileDynamic(count) => write!(f, "INPUT #(dynamic) {}", count),
             OpCode::PrintFile(file) => write!(f, "PRINT #{}", file),
             OpCode::PrintFileDynamic => write!(f, "PRINT #(dynamic)"),
+            OpCode::PrintFileUsingDynamic { count, .. } => {
+                write!(f, "PRINT #(dynamic) USING {}", count)
+            }
             OpCode::PrintFileCommaDynamic => write!(f, "PRINT #(dynamic) COMMA"),
             OpCode::PrintFileNewlineDynamic => write!(f, "PRINT #(dynamic) NL"),
             OpCode::Eof(file) => write!(f, "EOF({})", file),
@@ -803,6 +917,9 @@ impl std::fmt::Display for OpCode {
             OpCode::CvlFunc => write!(f, "CVL"),
             OpCode::CvsFunc => write!(f, "CVS"),
             OpCode::CvdFunc => write!(f, "CVD"),
+            OpCode::CvFunc(type_name) => write!(f, "_CV({})", type_name),
+            OpCode::FileExistsFunc => write!(f, "_FILEEXISTS"),
+            OpCode::DirExistsFunc => write!(f, "_DIREXISTS"),
             OpCode::FreFunc(arg) => write!(f, "FRE({})", arg),
             OpCode::FreDynamic => write!(f, "FRE(<expr>)"),
             OpCode::CsrLinFunc => write!(f, "CSRLIN"),
@@ -829,6 +946,7 @@ impl std::fmt::Display for OpCode {
             } => {
                 write!(f, "MID$({}, {}, {:?}) =", var_name, start, length)
             }
+            OpCode::AscAssign => write!(f, "ASC(<string>, <position>) = <value>"),
             OpCode::PeekFunc(addr) => write!(f, "PEEK({})", addr),
             OpCode::PeekDynamic => write!(f, "PEEK(<expr>)"),
             OpCode::PokeFunc(addr, val) => write!(f, "POKE {}, {}", addr, val),

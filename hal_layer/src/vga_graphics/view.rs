@@ -1,6 +1,24 @@
 use super::{Rect, VGAGraphics, Viewport, WindowCoords};
 
 impl VGAGraphics {
+    pub fn clear_graphics_screen(&mut self, color: u8) {
+        self.framebuffer.fill(color);
+    }
+
+    pub fn clear_graphics_viewport(&mut self, color: u8) {
+        let viewport = if self.viewport.active {
+            self.viewport
+        } else {
+            Viewport::full_screen(self.width, self.height)
+        };
+
+        for y in viewport.y1..=viewport.y2 {
+            for x in viewport.x1..=viewport.x2 {
+                self.raw_pset(x, y, color);
+            }
+        }
+    }
+
     pub fn view(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, fill_color: u8, border_color: u8) {
         let Some(rect) = Rect::from_points(x1, y1, x2, y2, self.width, self.height) else {
             return;

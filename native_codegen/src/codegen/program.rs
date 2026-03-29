@@ -24,6 +24,30 @@ impl CodeGenerator {
             .keys()
             .map(|name| name.to_uppercase())
             .collect();
+        self.function_return_types.clear();
+        for stmt in &program.statements {
+            if let Statement::Declare {
+                name,
+                is_function: true,
+                return_type,
+                ..
+            } = stmt
+            {
+                let inferred = return_type.clone().unwrap_or_else(|| {
+                    if name.ends_with('$') {
+                        QType::String(String::new())
+                    } else {
+                        QType::Double(0.0)
+                    }
+                });
+                self.function_return_types
+                    .insert(name.to_uppercase(), inferred);
+            }
+        }
+        for func_def in program.functions.values() {
+            self.function_return_types
+                .insert(func_def.name.to_uppercase(), func_def.return_type.clone());
+        }
         self.udt_vars.clear();
         self.write_prelude();
 
@@ -69,7 +93,15 @@ impl CodeGenerator {
             self.arr_vars.len().max(1)
         ));
         self.output.push_str(&format!(
+            "    let mut arr_bounds: Vec<Vec<(i32, i32)>> = vec![Vec::new(); {}];\n",
+            self.arr_vars.len().max(1)
+        ));
+        self.output.push_str(&format!(
             "    let mut str_arr_vars: Vec<Vec<String>> = vec![Vec::new(); {}];\n",
+            self.str_arr_vars.len().max(1)
+        ));
+        self.output.push_str(&format!(
+            "    let mut str_arr_bounds: Vec<Vec<(i32, i32)>> = vec![Vec::new(); {}];\n",
             self.str_arr_vars.len().max(1)
         ));
 
@@ -138,11 +170,10 @@ impl CodeGenerator {
                 Statement::Read { variables } => {
                     for var in variables {
                         // Read takes Variable struct, not Expression
-                        let name = &var.name;
-                        if var.type_suffix == Some('$') || name.ends_with('$') {
-                            self.get_str_var_idx(name);
+                        if self.variable_is_string(var) {
+                            self.get_str_var_idx(&var.name);
                         } else {
-                            self.get_num_var_idx(name);
+                            self.get_num_var_idx(&var.name);
                         }
                     }
                 }
@@ -177,26 +208,45 @@ impl CodeGenerator {
                     }
                 }
                 Statement::Dim { variables, .. } => {
-                    for (var, dim_expr) in variables {
+                    for (var, dimensions) in variables {
                         if let Some(declared_type) = &var.declared_type {
-                            if dim_expr.is_some() || !var.indices.is_empty() {
-                                self.ensure_udt_array_storage(&var.name, declared_type);
-                            } else {
-                                self.ensure_udt_storage(&var.name, declared_type);
+                            match Self::declared_type_to_qtype(declared_type) {
+                                QType::UserDefined(_) => {
+                                    if dimensions.is_some() || !var.indices.is_empty() {
+                                        self.ensure_udt_array_storage(&var.name, declared_type);
+                                    } else {
+                                        self.ensure_udt_storage(&var.name, declared_type);
+                                    }
+                                }
+                                QType::String(_) => {
+                                    if let Some(width) = var.fixed_length {
+                                        self.field_widths.insert(var.name.to_uppercase(), width);
+                                    }
+                                    if dimensions.is_some() || !var.indices.is_empty() {
+                                        self.get_str_arr_var_idx(&var.name);
+                                    } else {
+                                        self.get_str_var_idx(&var.name);
+                                    }
+                                }
+                                qtype if Self::qtype_is_numeric(&qtype) => {
+                                    if dimensions.is_some() || !var.indices.is_empty() {
+                                        self.get_arr_var_idx(&var.name);
+                                    } else {
+                                        self.get_num_var_idx(&var.name);
+                                    }
+                                }
+                                _ => {}
                             }
                             continue;
                         }
-                        if var.indices.is_empty()
-                            && var.type_suffix != Some('$')
-                            && !var.name.ends_with('$')
-                        {
+                        if var.indices.is_empty() && !self.variable_is_string(var) {
                             // Scalar variable declared with DIM
                             self.get_num_var_idx(&var.name);
-                        } else if var.indices.is_empty()
-                            && (var.type_suffix == Some('$') || var.name.ends_with('$'))
-                        {
+                        } else if var.indices.is_empty() && self.variable_is_string(var) {
                             // String variable
                             self.get_str_var_idx(&var.name);
+                        } else if self.array_is_string(&var.name, var.type_suffix) {
+                            self.get_str_arr_var_idx(&var.name);
                         } else {
                             // Array
                             self.get_arr_var_idx(&var.name);
@@ -204,16 +254,42 @@ impl CodeGenerator {
                     }
                 }
                 Statement::Redim { variables, .. } => {
-                    for (var, dim_expr) in variables {
+                    for (var, dimensions) in variables {
                         if let Some(declared_type) = &var.declared_type {
-                            if dim_expr.is_some() || !var.indices.is_empty() {
-                                self.ensure_udt_array_storage(&var.name, declared_type);
-                            } else {
-                                self.ensure_udt_storage(&var.name, declared_type);
+                            match Self::declared_type_to_qtype(declared_type) {
+                                QType::UserDefined(_) => {
+                                    if dimensions.is_some() || !var.indices.is_empty() {
+                                        self.ensure_udt_array_storage(&var.name, declared_type);
+                                    } else {
+                                        self.ensure_udt_storage(&var.name, declared_type);
+                                    }
+                                }
+                                QType::String(_) => {
+                                    if let Some(width) = var.fixed_length {
+                                        self.field_widths.insert(var.name.to_uppercase(), width);
+                                    }
+                                    if dimensions.is_some() || !var.indices.is_empty() {
+                                        self.get_str_arr_var_idx(&var.name);
+                                    } else {
+                                        self.get_str_var_idx(&var.name);
+                                    }
+                                }
+                                qtype if Self::qtype_is_numeric(&qtype) => {
+                                    if dimensions.is_some() || !var.indices.is_empty() {
+                                        self.get_arr_var_idx(&var.name);
+                                    } else {
+                                        self.get_num_var_idx(&var.name);
+                                    }
+                                }
+                                _ => {}
                             }
                             continue;
                         }
-                        self.get_arr_var_idx(&var.name);
+                        if self.array_is_string(&var.name, var.type_suffix) {
+                            self.get_str_arr_var_idx(&var.name);
+                        } else {
+                            self.get_arr_var_idx(&var.name);
+                        }
                     }
                 }
                 Statement::GetImage { variable, .. } | Statement::PutImage { variable, .. } => {
@@ -290,9 +366,13 @@ impl CodeGenerator {
                 | Statement::ResumeLabel { .. }
                 | Statement::Error { .. }
                 | Statement::OnTimer { .. }
+                | Statement::OnPlay { .. }
                 | Statement::TimerOn
                 | Statement::TimerOff
-                | Statement::TimerStop => return true,
+                | Statement::TimerStop
+                | Statement::PlayOn
+                | Statement::PlayOff
+                | Statement::PlayStop => return true,
                 Statement::IfBlock {
                     then_branch,
                     else_branch,
@@ -548,6 +628,16 @@ impl CodeGenerator {
             .push_str("    let mut qb_timer_active = false;\n");
         self.output
             .push_str("    let mut qb_timer_next_tick = std::time::Instant::now();\n");
+        self.output
+            .push_str("    let mut qb_play_handler: Option<usize> = None;\n");
+        self.output
+            .push_str("    let mut qb_play_queue_limit: usize = 1;\n");
+        self.output
+            .push_str("    let mut qb_play_trap_state: i32 = 0;\n");
+        self.output
+            .push_str("    let mut qb_play_pending_event = false;\n");
+        self.output
+            .push_str("    let mut qb_play_active = false;\n");
         self.output.push_str("    'qb_main: loop {\n");
         self.output.push_str(
             "        if qb_timer_enabled && !qb_timer_active && qb_timer_handler.is_some() && std::time::Instant::now() >= qb_timer_next_tick {\n",
@@ -561,6 +651,25 @@ impl CodeGenerator {
             .push_str("            qb_pc = qb_timer_handler.unwrap();\n");
         self.output
             .push_str("            qb_timer_active = true;\n");
+        self.output.push_str("            continue 'qb_main;\n");
+        self.output.push_str("        }\n");
+        self.output.push_str(
+            "        qb_update_play_queue(qb_play_queue_limit, qb_play_trap_state, &mut qb_play_pending_event);\n",
+        );
+        self.output.push_str(
+            "        if qb_play_trap_state == 1 && !qb_play_active && qb_play_handler.is_some() && qb_play_pending_event {\n",
+        );
+        self.output
+            .push_str("            qb_gosub_stack.push((0, qb_pc));\n");
+        self.output
+            .push_str("            qb_pc = qb_play_handler.unwrap();\n");
+        self.output.push_str("            qb_play_active = true;\n");
+        self.output
+            .push_str("            qb_set_play_handler_active(true);\n");
+        self.output
+            .push_str("            qb_play_trap_state = 2;\n");
+        self.output
+            .push_str("            qb_play_pending_event = false;\n");
         self.output.push_str("            continue 'qb_main;\n");
         self.output.push_str("        }\n");
         self.output.push_str("        match qb_pc {\n");
@@ -933,6 +1042,28 @@ impl CodeGenerator {
                 ));
                 Ok(false)
             }
+            Statement::OnPlay { queue_limit, label } => {
+                let queue_limit = self.generate_expression(queue_limit)?;
+                let handler = labels
+                    .get(&Self::normalize_label(label))
+                    .copied()
+                    .ok_or_else(|| QError::LabelNotFound(label.clone()))?;
+                self.output.push_str(&format!(
+                    "{}qb_play_queue_limit = (({}) as i32).clamp(1, 32) as usize;\n",
+                    self.indent(),
+                    queue_limit
+                ));
+                self.output.push_str(&format!(
+                    "{}qb_play_handler = Some({});\n",
+                    self.indent(),
+                    handler
+                ));
+                self.output.push_str(&format!(
+                    "{}qb_play_pending_event = false;\n",
+                    self.indent()
+                ));
+                Ok(false)
+            }
             Statement::TimerOn => {
                 self.output
                     .push_str(&format!("{}qb_timer_enabled = true;\n", self.indent()));
@@ -949,9 +1080,34 @@ impl CodeGenerator {
                     .push_str(&format!("{}qb_timer_active = false;\n", self.indent()));
                 Ok(false)
             }
+            Statement::PlayOn => {
+                self.output
+                    .push_str(&format!("{}qb_play_trap_state = 1;\n", self.indent()));
+                Ok(false)
+            }
+            Statement::PlayOff => {
+                self.output
+                    .push_str(&format!("{}qb_play_trap_state = 0;\n", self.indent()));
+                self.output.push_str(&format!(
+                    "{}qb_play_pending_event = false;\n",
+                    self.indent()
+                ));
+                self.output
+                    .push_str(&format!("{}qb_play_active = false;\n", self.indent()));
+                self.output.push_str(&format!(
+                    "{}qb_set_play_handler_active(false);\n",
+                    self.indent()
+                ));
+                Ok(false)
+            }
+            Statement::PlayStop => {
+                self.output
+                    .push_str(&format!("{}qb_play_trap_state = 2;\n", self.indent()));
+                Ok(false)
+            }
             Statement::Exit { exit_type } => {
                 match exit_type {
-                    ExitType::For | ExitType::Do => {
+                    ExitType::For | ExitType::Do | ExitType::While => {
                         if let Some((loop_id, loop_exit_block)) = loop_context {
                             self.output.push_str(&format!(
                                 "{}qb_loop_active[{}] = false;\n",
@@ -1102,6 +1258,7 @@ impl CodeGenerator {
             Statement::Select { expression, cases } => {
                 let expr_code = self.generate_expression(expression)?;
                 let temp = self.next_temp_var();
+                let select_is_string = self.is_string_expression(expression);
                 self.output
                     .push_str(&format!("{}let {} = {};\n", self.indent(), temp, expr_code));
 
@@ -1128,10 +1285,14 @@ impl CodeGenerator {
                         Expression::CaseElse => "true".to_string(),
                         _ => {
                             let v = self.generate_expression(case_val)?;
-                            format!(
-                                "(((({}) as f64) - (({}) as f64)).abs() < 0.0001_f64)",
-                                temp, v
-                            )
+                            if select_is_string || self.is_string_expression(case_val) {
+                                format!("({} == {})", temp, v)
+                            } else {
+                                format!(
+                                    "(((({}) as f64) - (({}) as f64)).abs() < 0.0001_f64)",
+                                    temp, v
+                                )
+                            }
                         }
                     };
 
@@ -1526,7 +1687,7 @@ impl CodeGenerator {
                 if *pre_condition {
                     if let Some(cond_code) = &cond_code {
                         self.output
-                            .push_str(&format!("{}if !{} {{\n", self.indent(), cond_code));
+                            .push_str(&format!("{}if {} {{\n", self.indent(), cond_code));
                         self.indent_level += 1;
                         self.output.push_str(&format!(
                             "{}qb_loop_active[{}] = false;\n",
@@ -1592,7 +1753,7 @@ impl CodeGenerator {
                 if !*pre_condition {
                     if let Some(cond_code) = &cond_code {
                         self.output
-                            .push_str(&format!("{}if !{} {{\n", self.indent(), cond_code));
+                            .push_str(&format!("{}if {} {{\n", self.indent(), cond_code));
                         self.indent_level += 1;
                         self.output.push_str(&format!(
                             "{}qb_loop_active[{}] = false;\n",
@@ -1804,6 +1965,24 @@ impl CodeGenerator {
         if clear_timer_active {
             self.output
                 .push_str(&format!("{}qb_timer_active = false;\n", self.indent()));
+            self.output
+                .push_str(&format!("{}if qb_play_active {{\n", self.indent()));
+            self.indent_level += 1;
+            self.output
+                .push_str(&format!("{}qb_play_active = false;\n", self.indent()));
+            self.output.push_str(&format!(
+                "{}qb_set_play_handler_active(false);\n",
+                self.indent()
+            ));
+            self.output
+                .push_str(&format!("{}if qb_play_trap_state != 0 {{\n", self.indent()));
+            self.indent_level += 1;
+            self.output
+                .push_str(&format!("{}qb_play_trap_state = 1;\n", self.indent()));
+            self.indent_level -= 1;
+            self.output.push_str(&format!("{}}}\n", self.indent()));
+            self.indent_level -= 1;
+            self.output.push_str(&format!("{}}}\n", self.indent()));
         }
         self.output
             .push_str(&format!("{}continue 'qb_main;\n", self.indent()));
@@ -1833,6 +2012,24 @@ impl CodeGenerator {
         if clear_timer_active {
             self.output
                 .push_str(&format!("{}qb_timer_active = false;\n", self.indent()));
+            self.output
+                .push_str(&format!("{}if qb_play_active {{\n", self.indent()));
+            self.indent_level += 1;
+            self.output
+                .push_str(&format!("{}qb_play_active = false;\n", self.indent()));
+            self.output.push_str(&format!(
+                "{}qb_set_play_handler_active(false);\n",
+                self.indent()
+            ));
+            self.output
+                .push_str(&format!("{}if qb_play_trap_state != 0 {{\n", self.indent()));
+            self.indent_level += 1;
+            self.output
+                .push_str(&format!("{}qb_play_trap_state = 1;\n", self.indent()));
+            self.indent_level -= 1;
+            self.output.push_str(&format!("{}}}\n", self.indent()));
+            self.indent_level -= 1;
+            self.output.push_str(&format!("{}}}\n", self.indent()));
         }
         self.output
             .push_str(&format!("{}continue 'qb_main;\n", self.indent()));
@@ -1868,28 +2065,69 @@ impl CodeGenerator {
             .push_str(&format!("{}continue 'qb_main;\n", self.indent()));
         self.indent_level -= 1;
         self.output.push_str(&format!("{}}}\n", self.indent()));
+        self.output.push_str(&format!(
+            "{}qb_update_play_queue(qb_play_queue_limit, qb_play_trap_state, &mut qb_play_pending_event);\n",
+            self.indent()
+        ));
+        self.output.push_str(&format!(
+            "{}if qb_play_trap_state == 1 && !qb_play_active && qb_play_handler.is_some() && qb_play_pending_event {{\n",
+            self.indent()
+        ));
+        self.indent_level += 1;
+        self.output.push_str(&format!(
+            "{}qb_gosub_stack.push(({}, qb_loop_pc[{}]));\n",
+            self.indent(),
+            loop_id + 1,
+            loop_id
+        ));
+        self.output.push_str(&format!(
+            "{}qb_pc = qb_play_handler.unwrap();\n",
+            self.indent()
+        ));
+        self.output
+            .push_str(&format!("{}qb_play_active = true;\n", self.indent()));
+        self.output.push_str(&format!(
+            "{}qb_set_play_handler_active(true);\n",
+            self.indent()
+        ));
+        self.output
+            .push_str(&format!("{}qb_play_trap_state = 2;\n", self.indent()));
+        self.output.push_str(&format!(
+            "{}qb_play_pending_event = false;\n",
+            self.indent()
+        ));
+        self.output
+            .push_str(&format!("{}continue 'qb_main;\n", self.indent()));
+        self.indent_level -= 1;
+        self.output.push_str(&format!("{}}}\n", self.indent()));
     }
 
     pub(super) fn collect_var_from_expr(&mut self, expr: &Expression) {
         match expr {
             Expression::Variable(var) => {
-                if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                if self.variable_is_string(var) {
                     self.get_str_var_idx(&var.name);
                 } else {
                     self.get_num_var_idx(&var.name);
                 }
             }
-            Expression::ArrayAccess { name, .. } => {
+            Expression::ArrayAccess {
+                name, type_suffix, ..
+            } => {
                 if self.array_udt_type(name).is_some() {
                     return;
                 }
-                self.get_arr_var_idx(name);
+                if self.array_is_string(name, *type_suffix) {
+                    self.get_str_arr_var_idx(name);
+                } else {
+                    self.get_arr_var_idx(name);
+                }
             }
             Expression::FieldAccess { .. } => {
                 if let Some(field) = self.resolve_field_access_layout(expr) {
                     match field.field_type {
                         QType::String(_) => {
-                            if field.array_index.is_some() {
+                            if field.array_indices.is_some() {
                                 self.get_str_arr_var_idx(&field.storage_name);
                             } else {
                                 self.get_str_var_idx(&field.storage_name);
@@ -1899,13 +2137,19 @@ impl CodeGenerator {
                         | QType::Long(_)
                         | QType::Single(_)
                         | QType::Double(_) => {
-                            if field.array_index.is_some() {
+                            if field.array_indices.is_some() {
                                 self.get_arr_var_idx(&field.storage_name);
                             } else {
                                 self.get_num_var_idx(&field.storage_name);
                             }
                         }
                         _ => {}
+                    }
+                } else if let Some(name) = Self::qualified_field_name(expr) {
+                    if self.name_is_string(&name) {
+                        self.get_str_var_idx(&name);
+                    } else {
+                        self.get_num_var_idx(&name);
                     }
                 }
             }
@@ -1967,30 +2211,287 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
             r#"
 thread_local! {
     static QB_CURSOR_STATE: std::cell::RefCell<(i32, i32)> = std::cell::RefCell::new((1, 1));
+    static QB_CURSOR_VISIBLE: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    static QB_CURSOR_SHAPE: std::cell::RefCell<(Option<i32>, Option<i32>)> =
+        std::cell::RefCell::new((None, None));
+    static QB_PENDING_VIEW_PRINT_SCROLL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static QB_SCREEN_SIZE: std::cell::RefCell<(i32, i32)> = std::cell::RefCell::new((80, 25));
+    static QB_VIEW_PRINT_REGION: std::cell::RefCell<Option<(i32, i32)>> = std::cell::RefCell::new(None);
+    static QB_TEXT_CHARS: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![b' '; 80 * 25]);
+    static QB_TEXT_ATTRS: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![7; 80 * 25]);
+    static QB_TEXT_FOREGROUND: std::cell::Cell<u8> = const { std::cell::Cell::new(7) };
+    static QB_TEXT_BACKGROUND: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
     static QB_NONINTERACTIVE_INKEY_EMITTED: std::cell::RefCell<bool> = std::cell::RefCell::new(false);
 }
 
-fn qb_advance_cursor_text(text: &str) {
+fn qb_text_columns() -> i32 {
+    QB_SCREEN_SIZE.with(|state| state.borrow().0.max(1))
+}
+
+fn qb_text_rows() -> i32 {
+    QB_SCREEN_SIZE.with(|state| state.borrow().1.max(1))
+}
+
+fn qb_view_print_bounds() -> (i32, i32) {
+    let rows = qb_text_rows();
+    QB_VIEW_PRINT_REGION.with(|region| {
+        if let Some((top, bottom)) = *region.borrow() {
+            let top = top.clamp(1, rows);
+            let bottom = bottom.clamp(top, rows);
+            (top, bottom)
+        } else {
+            (1, rows)
+        }
+    })
+}
+
+fn qb_current_text_attr() -> u8 {
+    QB_TEXT_FOREGROUND.with(|fg| {
+        QB_TEXT_BACKGROUND.with(|bg| fg.get().saturating_add(bg.get().saturating_mul(16)))
+    })
+}
+
+fn qb_resize_text_buffer(columns: i32, rows: i32, preserve: bool) {
+    let columns = columns.max(1) as usize;
+    let rows = rows.max(1) as usize;
+    let attr = qb_current_text_attr();
+    QB_TEXT_CHARS.with(|chars| {
+        QB_TEXT_ATTRS.with(|attrs| {
+            let old_chars = chars.borrow().clone();
+            let old_attrs = attrs.borrow().clone();
+            let old_columns = qb_text_columns().max(1) as usize;
+            let old_rows = qb_text_rows().max(1) as usize;
+            let mut new_chars = vec![b' '; columns * rows];
+            let mut new_attrs = vec![attr; columns * rows];
+            if preserve {
+                let copy_rows = old_rows.min(rows);
+                let copy_cols = old_columns.min(columns);
+                for row in 0..copy_rows {
+                    let old_start = row * old_columns;
+                    let new_start = row * columns;
+                    new_chars[new_start..new_start + copy_cols]
+                        .copy_from_slice(&old_chars[old_start..old_start + copy_cols]);
+                    new_attrs[new_start..new_start + copy_cols]
+                        .copy_from_slice(&old_attrs[old_start..old_start + copy_cols]);
+                }
+            }
+            *chars.borrow_mut() = new_chars;
+            *attrs.borrow_mut() = new_attrs;
+        });
+    });
+}
+
+fn qb_text_index(row: i32, col: i32) -> Option<usize> {
+    let row = row.clamp(1, qb_text_rows()) as usize - 1;
+    let col = col.clamp(1, qb_text_columns()) as usize - 1;
+    let width = qb_text_columns() as usize;
+    let idx = row * width + col;
+    QB_TEXT_CHARS.with(|chars| (idx < chars.borrow().len()).then_some(idx))
+}
+
+fn qb_put_text_cell(row: i32, col: i32, ch: u8) {
+    if let Some(idx) = qb_text_index(row, col) {
+        QB_TEXT_CHARS.with(|chars| chars.borrow_mut()[idx] = ch);
+        QB_TEXT_ATTRS.with(|attrs| attrs.borrow_mut()[idx] = qb_current_text_attr());
+    }
+}
+
+fn qb_clear_text_rows(top: i32, bottom: i32) {
+    let width = qb_text_columns().max(1) as usize;
+    let top = top.clamp(1, qb_text_rows()) as usize;
+    let bottom = bottom.clamp(top as i32, qb_text_rows()) as usize;
+    let attr = qb_current_text_attr();
+    QB_TEXT_CHARS.with(|chars| {
+        QB_TEXT_ATTRS.with(|attrs| {
+            let mut chars = chars.borrow_mut();
+            let mut attrs = attrs.borrow_mut();
+            for row in top..=bottom {
+                let start = (row - 1) * width;
+                let end = start + width;
+                chars[start..end].fill(b' ');
+                attrs[start..end].fill(attr);
+            }
+        });
+    });
+}
+
+fn qb_scroll_text_rows_up(top: i32, bottom: i32) {
+    let width = qb_text_columns().max(1) as usize;
+    let top = top.clamp(1, qb_text_rows()) as usize;
+    let bottom = bottom.clamp(top as i32, qb_text_rows()) as usize;
+    if top >= bottom {
+        qb_clear_text_rows(top as i32, bottom as i32);
+        return;
+    }
+
+    QB_TEXT_CHARS.with(|chars| {
+        QB_TEXT_ATTRS.with(|attrs| {
+            let mut chars = chars.borrow_mut();
+            let mut attrs = attrs.borrow_mut();
+            for row in top..bottom {
+                let dst_start = (row - 1) * width;
+                let src_start = row * width;
+                let src_end = src_start + width;
+                chars.copy_within(src_start..src_end, dst_start);
+                attrs.copy_within(src_start..src_end, dst_start);
+            }
+        });
+    });
+
+    qb_clear_text_rows(bottom as i32, bottom as i32);
+}
+
+fn qb_screen(row: f64, col: f64, color_flag: f64) -> f64 {
+    let row = row.round() as i32;
+    let col = col.round() as i32;
+    if let Some(idx) = qb_text_index(row, col) {
+        if color_flag.round() as i32 != 0 {
+            QB_TEXT_ATTRS.with(|attrs| attrs.borrow()[idx] as f64)
+        } else {
+            QB_TEXT_CHARS.with(|chars| chars.borrow()[idx] as f64)
+        }
+    } else {
+        0.0
+    }
+}
+
+fn qb_ensure_cursor_in_window() {
+    let columns = qb_text_columns();
+    let rows = qb_text_rows();
+    let (top, bottom) = qb_view_print_bounds();
+    let has_view_print = QB_VIEW_PRINT_REGION.with(|region| region.borrow().is_some());
     QB_CURSOR_STATE.with(|state| {
         let mut state = state.borrow_mut();
-        for ch in text.chars() {
-            match ch {
-                '\n' => {
-                    state.0 += 1;
-                    state.1 = 1;
-                }
-                '\r' => state.1 = 1,
-                '\t' => state.1 = (((state.1 - 1) / 8) + 1) * 8 + 1,
-                _ => state.1 += 1,
-            }
+        if has_view_print && (state.0 < top || state.0 > bottom) {
+            state.0 = top;
+            state.1 = 1;
+        } else {
+            state.0 = state.0.clamp(1, rows);
+            state.1 = state.1.clamp(1, columns);
         }
     });
 }
 
-fn qb_next_print_zone(column: i32) -> Option<i32> {
+fn qb_consume_pending_view_print_scroll() {
+    if QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.get()) {
+        let (top, bottom) = if QB_VIEW_PRINT_REGION.with(|region| region.borrow().is_some()) {
+            qb_view_print_bounds()
+        } else {
+            (1, qb_text_rows())
+        };
+        qb_scroll_text_rows_up(top, bottom);
+        QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (bottom, 1));
+        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+    }
+}
+
+fn qb_advance_console_line() {
+    let rows = qb_text_rows();
+    let has_view_print = QB_VIEW_PRINT_REGION.with(|region| region.borrow().is_some());
+    let (top, bottom) = qb_view_print_bounds();
+    QB_CURSOR_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        if has_view_print {
+            let current = state.0.clamp(top, bottom);
+            state.0 = if current < bottom {
+                QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                current + 1
+            } else {
+                QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(true));
+                bottom
+            };
+        } else {
+            state.0 = if state.0 < rows {
+                QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                state.0 + 1
+            } else {
+                QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(true));
+                rows
+            };
+        }
+        state.1 = 1;
+    });
+}
+
+fn qb_emit_console_text(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+
+    qb_ensure_cursor_in_window();
+    let columns = qb_text_columns();
+    let mut rendered = String::with_capacity(text.len());
+    let (mut row, mut col) = QB_CURSOR_STATE.with(|state| *state.borrow());
+    let has_view_print = QB_VIEW_PRINT_REGION.with(|region| region.borrow().is_some());
+    let (top, bottom) = qb_view_print_bounds();
+    let rows = qb_text_rows();
+    for ch in text.chars() {
+        qb_consume_pending_view_print_scroll();
+        match ch {
+            '\n' => {
+                rendered.push('\n');
+                if has_view_print {
+                    let current = row.clamp(top, bottom);
+                    row = if current < bottom {
+                        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                        current + 1
+                    } else {
+                        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(true));
+                        bottom
+                    };
+                } else {
+                    row = if row < rows {
+                        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                        row + 1
+                    } else {
+                        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(true));
+                        rows
+                    };
+                }
+                col = 1;
+            }
+            '\r' => {
+                rendered.push('\r');
+                col = 1;
+            }
+            _ => {
+                rendered.push(ch);
+                qb_put_text_cell(row, col, ch as u8);
+                col += 1;
+                if col > columns {
+                    rendered.push('\n');
+                    if has_view_print {
+                        let current = row.clamp(top, bottom);
+                        row = if current < bottom {
+                            QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                            current + 1
+                        } else {
+                            QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(true));
+                            bottom
+                        };
+                    } else {
+                        row = if row < rows {
+                            QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                            row + 1
+                        } else {
+                            QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(true));
+                            rows
+                        };
+                    }
+                    col = 1;
+                }
+            }
+        }
+    }
+    QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (row, col));
+    print!("{}", rendered);
+    let _ = io::stdout().flush();
+}
+
+fn qb_next_print_zone(column: i32, line_width: i32) -> Option<i32> {
     let normalized = column.max(1);
     let target = ((normalized - 1) / 14 + 1) * 14 + 1;
-    if target > 80 {
+    if target > line_width.max(1) {
         None
     } else {
         Some(target)
@@ -1998,9 +2499,7 @@ fn qb_next_print_zone(column: i32) -> Option<i32> {
 }
 
 fn qb_print(text: &str) {
-    print!("{}", text);
-    let _ = io::stdout().flush();
-    qb_advance_cursor_text(text);
+    qb_emit_console_text(text);
 }
 
 fn qb_concat<L: std::fmt::Display, R: std::fmt::Display>(left: L, right: R) -> String {
@@ -2030,43 +2529,107 @@ fn qb_print_spc(count: f64) {
 
 fn qb_print_tab(target_col: f64) {
     let target_col = target_col.round().max(1.0) as i32;
-    QB_CURSOR_STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        if target_col <= state.1 {
-            print!("\n");
-            let _ = io::stdout().flush();
-            state.0 += 1;
-            state.1 = 1;
-        }
-        let spaces = (target_col - state.1).max(0) as usize;
-        drop(state);
-        if spaces > 0 {
-            qb_print(&" ".repeat(spaces));
-        }
-    });
+    qb_ensure_cursor_in_window();
+    let target_col = target_col.min(qb_text_columns());
+    let current_col = QB_CURSOR_STATE.with(|state| state.borrow().1);
+    if target_col <= current_col {
+        qb_emit_console_text("\n");
+    }
+    let current_col = QB_CURSOR_STATE.with(|state| state.borrow().1);
+    let spaces = (target_col - current_col).max(0) as usize;
+    if spaces > 0 {
+        qb_print(&" ".repeat(spaces));
+    }
 }
 
 fn qb_print_comma() {
-    QB_CURSOR_STATE.with(|state| {
-        let current_col = state.borrow().1;
-        if let Some(target_col) = qb_next_print_zone(current_col) {
-            drop(state);
-            qb_print_tab(target_col as f64);
-        } else {
-            drop(state);
-            qb_print_newline();
-        }
-    });
+    let current_col = QB_CURSOR_STATE.with(|state| state.borrow().1);
+    if let Some(target_col) = qb_next_print_zone(current_col, qb_text_columns()) {
+        qb_print_tab(target_col as f64);
+    } else {
+        qb_print_newline();
+    }
 }
 
 fn qb_print_newline() {
-    println!();
-    let _ = io::stdout().flush();
-    QB_CURSOR_STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        state.0 += 1;
-        state.1 = 1;
+    qb_emit_console_text("\n");
+}
+
+fn qb_width(columns: f64, rows: f64) {
+    let columns = columns.round().max(1.0) as i32;
+    let rows = rows.round().max(1.0) as i32;
+    qb_resize_text_buffer(columns, rows, true);
+    QB_SCREEN_SIZE.with(|state| *state.borrow_mut() = (columns, rows));
+    QB_VIEW_PRINT_REGION.with(|region| {
+        let current = *region.borrow();
+        if let Some((top, bottom)) = current {
+            let top = top.clamp(1, rows);
+            *region.borrow_mut() = Some((top, bottom.clamp(top, rows)));
+        }
     });
+    QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+    qb_ensure_cursor_in_window();
+}
+
+fn qb_default_text_geometry_for_screen_mode(mode: i32) -> (i32, i32) {
+    match mode {
+        1 | 7 | 13 => (40, 25),
+        11 | 12 => (80, 30),
+        _ => (80, 25),
+    }
+}
+
+fn qb_apply_screen_mode(mode: i32) {
+    let (columns, rows) = qb_default_text_geometry_for_screen_mode(mode);
+    qb_resize_text_buffer(columns, rows, false);
+    QB_SCREEN_SIZE.with(|state| *state.borrow_mut() = (columns, rows));
+    QB_VIEW_PRINT_REGION.with(|region| *region.borrow_mut() = None);
+    QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+    QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (1, 1));
+}
+
+fn qb_view_print(top: f64, bottom: f64) {
+    let rows = qb_text_rows();
+    let top = (top.round() as i32).clamp(1, rows);
+    let bottom = (bottom.round() as i32).clamp(top, rows);
+    QB_VIEW_PRINT_REGION.with(|region| *region.borrow_mut() = Some((top, bottom)));
+    QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+    QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (top, 1));
+}
+
+fn qb_view_print_reset() {
+    QB_VIEW_PRINT_REGION.with(|region| *region.borrow_mut() = None);
+    QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+    qb_ensure_cursor_in_window();
+}
+
+fn qb_set_cursor_state(visible: f64, start: f64, stop: f64) {
+    let visible = visible.round() as i32;
+    let start = start.round() as i32;
+    let stop = stop.round() as i32;
+
+    if visible >= 0 {
+        let visible = visible != 0;
+        QB_CURSOR_VISIBLE.with(|state| {
+            if state.get() != visible {
+                print!("{}", if visible { "\x1B[?25h" } else { "\x1B[?25l" });
+                let _ = io::stdout().flush();
+            }
+            state.set(visible);
+        });
+    }
+
+    if start >= 0 || stop >= 0 {
+        QB_CURSOR_SHAPE.with(|shape| {
+            let mut shape = shape.borrow_mut();
+            if start >= 0 {
+                shape.0 = Some(start);
+            }
+            if stop >= 0 {
+                shape.1 = Some(stop);
+            }
+        });
+    }
 }
 thread_local! {
     static QB_PRINTER_COL: std::cell::Cell<i16> = const { std::cell::Cell::new(1) };
@@ -2093,7 +2656,7 @@ fn qb_lprint_tab(target_col: f64) {
 fn qb_lprint_comma() {
     QB_PRINTER_COL.with(|col| {
         let current = col.get();
-        if let Some(target) = qb_next_print_zone(current as i32) {
+        if let Some(target) = qb_next_print_zone(current as i32, 80) {
             col.set(target as i16);
         } else {
             col.set(1);
@@ -2103,9 +2666,13 @@ fn qb_lprint_comma() {
 fn qb_lprint_newline() {
     QB_PRINTER_COL.with(|col| col.set(1));
 }
-fn qb_lprint_using(pattern: &str, values: &[String], newline: bool) {
-    for value in values {
-        qb_lprint(&qb_format_using_value(pattern, value));
+fn qb_lprint_using(pattern: &str, values: &[String], comma_after: &[bool], newline: bool) {
+    let chunks = qb_format_using_values(pattern, values);
+    for (index, chunk) in chunks.iter().enumerate() {
+        qb_lprint(chunk);
+        if comma_after.get(index).copied().unwrap_or(false) {
+            qb_lprint_comma();
+        }
     }
     if newline {
         qb_lprint_newline();
@@ -2118,20 +2685,53 @@ fn qb_lprint_using(pattern: &str, values: &[String], newline: bool) {
         } else {
             self.output.push_str(
                 r#"
-fn cls() {
-     print!("\x1B[2J\x1B[1;1H");
-     let _ = io::stdout().flush();
-     QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (1, 1));
+fn qb_cls(mode: f64) {
+     let mode = mode.round() as i32;
+     let (top, bottom) = if mode == 0 {
+         (1, qb_text_rows())
+     } else {
+         qb_view_print_bounds()
+     };
+     qb_clear_text_rows(top, bottom);
+     QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+     QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (top, 1));
 }
 
 fn locate(row: f64, col: f64) {
-     print!("\x1B[{};{}H", row as i32, col as i32);
-     let _ = io::stdout().flush();
-     QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (row as i32, col as i32));
+     let row = row.round() as i32;
+     let col = col.round() as i32;
+     qb_ensure_cursor_in_window();
+     let rows = qb_text_rows();
+     let cols = qb_text_columns();
+     let has_view_print = QB_VIEW_PRINT_REGION.with(|region| region.borrow().is_some());
+     let (top, bottom) = qb_view_print_bounds();
+     let (current_row, current_col) = QB_CURSOR_STATE.with(|state| *state.borrow());
+     let row = if row == 0 {
+         current_row
+     } else if has_view_print {
+         row.clamp(top, bottom)
+     } else {
+         row.clamp(1, rows)
+     };
+     let col = if col == 0 { current_col } else { col.clamp(1, cols) };
+     if row != current_row || col != current_col {
+         print!("\x1B[{};{}H", row, col);
+         let _ = io::stdout().flush();
+     }
+     QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+     QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (row, col));
 }
 
-fn qb_color(foreground: f64) {
+fn locate_ex(row: f64, col: f64, cursor: f64, start: f64, stop: f64) {
+     locate(row, col);
+     qb_set_cursor_state(cursor, start, stop);
+}
+
+fn qb_color(foreground: f64, background: f64) {
      let color = (foreground.round() as i32).clamp(0, 15);
+     let bg = (background.round() as i32).clamp(0, 15);
+     QB_TEXT_FOREGROUND.with(|fg| fg.set(color as u8));
+     QB_TEXT_BACKGROUND.with(|cell| cell.set(bg as u8));
      print!("\x1B[{}m", 30 + color);
 }
 
@@ -2182,44 +2782,6 @@ fn qb_fit_fixed_string(width: usize, val: &str) -> String {
 
 fn qb_data_to_num(value: &str) -> f64 {
     value.trim().parse::<f64>().unwrap_or(0.0)
-}
-
-fn arr_get(arrs: &[Vec<f64>], arr_idx: usize, idx: f64) -> f64 {
-    if arr_idx < arrs.len() {
-        let arr = &arrs[arr_idx];
-        let i = idx.max(0.0) as usize;
-        if i < arr.len() { arr[i] } else { 0.0 }
-    } else {
-        0.0
-    }
-}
-
-fn arr_set(arrs: &mut [Vec<f64>], arr_idx: usize, idx: f64, val: f64) {
-    if arr_idx < arrs.len() {
-        let arr = &mut arrs[arr_idx];
-        let i = idx.max(0.0) as usize;
-        if i < arr.len() { arr[i] = val; }
-    }
-}
-
-fn str_arr_get(arrs: &[Vec<String>], arr_idx: usize, idx: f64) -> String {
-    if arr_idx < arrs.len() {
-        let arr = &arrs[arr_idx];
-        let i = idx.max(0.0) as usize;
-        if i < arr.len() { arr[i].clone() } else { String::new() }
-    } else {
-        String::new()
-    }
-}
-
-fn str_arr_set(arrs: &mut [Vec<String>], arr_idx: usize, idx: f64, val: &str) {
-    if arr_idx < arrs.len() {
-        let arr = &mut arrs[arr_idx];
-        let i = idx.max(0.0) as usize;
-        if i < arr.len() {
-            arr[i] = val.to_string();
-        }
-    }
 }
 
 // Math functions
@@ -2273,29 +2835,120 @@ fn qb_mki(x: f64) -> String { format!("__BIN:I16:{:04X}", (x as i16) as u16) }
 fn qb_mkl(x: f64) -> String { format!("__BIN:I32:{:08X}", (x as i32) as u32) }
 fn qb_mks(x: f64) -> String { format!("__BIN:F32:{:08X}", (x as f32).to_bits()) }
 fn qb_mkd(x: f64) -> String { format!("__BIN:F64:{:016X}", x.to_bits()) }
+fn qb_binary_bytes(s: &str) -> Vec<u8> {
+    if let Some(hex) = s.strip_prefix("__BIN:I16:") {
+        if let Ok(bits) = u16::from_str_radix(hex, 16) {
+            return bits.to_le_bytes().to_vec();
+        }
+    }
+    if let Some(hex) = s.strip_prefix("__BIN:I32:") {
+        if let Ok(bits) = u32::from_str_radix(hex, 16) {
+            return bits.to_le_bytes().to_vec();
+        }
+    }
+    if let Some(hex) = s.strip_prefix("__BIN:F32:") {
+        if let Ok(bits) = u32::from_str_radix(hex, 16) {
+            return bits.to_le_bytes().to_vec();
+        }
+    }
+    if let Some(hex) = s.strip_prefix("__BIN:F64:") {
+        if let Ok(bits) = u64::from_str_radix(hex, 16) {
+            return bits.to_le_bytes().to_vec();
+        }
+    }
+    s.chars().map(|ch| ch as u32 as u8).collect()
+}
+fn qb_binary_prefix<const N: usize>(s: &str) -> Option<[u8; N]> {
+    let bytes = qb_binary_bytes(s);
+    if bytes.len() < N {
+        return None;
+    }
+    let mut prefix = [0u8; N];
+    prefix.copy_from_slice(&bytes[..N]);
+    Some(prefix)
+}
+fn qb_parse_number(s: &str) -> f64 { s.trim().parse().unwrap_or(0.0) }
 fn qb_cvi(s: &str) -> f64 {
-    s.strip_prefix("__BIN:I16:")
-        .and_then(|hex| u16::from_str_radix(hex, 16).ok())
-        .map(|bits| (bits as i16) as f64)
-        .unwrap_or_else(|| s.parse().unwrap_or(0.0))
+    qb_binary_prefix::<2>(s)
+        .map(i16::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
 }
 fn qb_cvl(s: &str) -> f64 {
-    s.strip_prefix("__BIN:I32:")
-        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-        .map(|bits| (bits as i32) as f64)
-        .unwrap_or_else(|| s.parse().unwrap_or(0.0))
+    qb_binary_prefix::<4>(s)
+        .map(i32::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
 }
 fn qb_cvs(s: &str) -> f64 {
-    s.strip_prefix("__BIN:F32:")
-        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-        .map(|bits| f32::from_bits(bits) as f64)
-        .unwrap_or_else(|| s.parse().unwrap_or(0.0))
+    qb_binary_prefix::<4>(s)
+        .map(f32::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
 }
 fn qb_cvd(s: &str) -> f64 {
-    s.strip_prefix("__BIN:F64:")
-        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
-        .map(f64::from_bits)
-        .unwrap_or_else(|| s.parse().unwrap_or(0.0))
+    qb_binary_prefix::<8>(s)
+        .map(f64::from_le_bytes)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_cv_i8(s: &str) -> f64 {
+    qb_binary_prefix::<1>(s)
+        .map(|bytes| bytes[0] as i8 as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_cv_u8(s: &str) -> f64 {
+    qb_binary_prefix::<1>(s)
+        .map(|bytes| bytes[0] as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_cv_u16(s: &str) -> f64 {
+    qb_binary_prefix::<2>(s)
+        .map(u16::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_cv_u32(s: &str) -> f64 {
+    qb_binary_prefix::<4>(s)
+        .map(u32::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_cv_i64(s: &str) -> f64 {
+    qb_binary_prefix::<8>(s)
+        .map(i64::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_cv_u64(s: &str) -> f64 {
+    qb_binary_prefix::<8>(s)
+        .map(u64::from_le_bytes)
+        .map(|value| value as f64)
+        .unwrap_or_else(|| qb_parse_number(s))
+}
+fn qb_normalize_qb64_type_name(type_name: &str) -> String {
+    type_name
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_uppercase()
+}
+fn qb_cv(type_name: &str, s: &str) -> f64 {
+    match qb_normalize_qb64_type_name(type_name).as_str() {
+        "_BYTE" | "BYTE" | "_BIT" | "BIT" => qb_cv_i8(s),
+        "_UNSIGNED _BYTE" | "UNSIGNED _BYTE" | "_UNSIGNED BYTE" | "UNSIGNED BYTE"
+        | "_UNSIGNED _BIT" | "UNSIGNED _BIT" | "_UNSIGNED BIT" | "UNSIGNED BIT" => qb_cv_u8(s),
+        "INTEGER" => qb_cvi(s),
+        "_UNSIGNED INTEGER" | "UNSIGNED INTEGER" => qb_cv_u16(s),
+        "LONG" => qb_cvl(s),
+        "_UNSIGNED LONG" | "UNSIGNED LONG" => qb_cv_u32(s),
+        "SINGLE" => qb_cvs(s),
+        "DOUBLE" | "_FLOAT" | "FLOAT" => qb_cvd(s),
+        "_INTEGER64" | "INTEGER64" | "_OFFSET" | "OFFSET" => qb_cv_i64(s),
+        "_UNSIGNED _INTEGER64" | "UNSIGNED _INTEGER64" | "_UNSIGNED INTEGER64"
+        | "UNSIGNED INTEGER64" | "_UNSIGNED _OFFSET" | "UNSIGNED _OFFSET"
+        | "_UNSIGNED OFFSET" | "UNSIGNED OFFSET" => qb_cv_u64(s),
+        _ => qb_parse_number(s),
+    }
 }
 fn qb_fre(_arg: &str) -> f64 { 524288.0 }
 fn qb_fre_num(_arg: f64) -> f64 { 1048576.0 }
@@ -2593,11 +3246,17 @@ fn qb_lpos(_dummy: f64) -> f64 {
     QB_PRINTER_COL.with(|col| col.get() as f64)
 }
 thread_local! {
+    static QB_PLAY_NOTE_DEADLINES: std::cell::RefCell<Vec<std::time::Instant>> =
+        std::cell::RefCell::new(Vec::new());
+    static QB_PLAY_HANDLER_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static QB_CURRENT_LINE: std::cell::Cell<i16> = const { std::cell::Cell::new(0) };
     static QB_TRACE_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static QB_KEY_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static QB_KEY_ASSIGNMENTS: std::cell::RefCell<std::collections::BTreeMap<i16, String>> =
         std::cell::RefCell::new(std::collections::BTreeMap::new());
+}
+fn qb_set_play_handler_active(active: bool) {
+    QB_PLAY_HANDLER_ACTIVE.with(|state| state.set(active));
 }
 fn qb_set_current_line(line: u16) {
     QB_CURRENT_LINE.with(|state| state.set(line as i16));
@@ -3136,7 +3795,13 @@ fn qb_get_string_from_file(file_number: f64, record_number: f64, size_hint: f64)
         let Some(handle) = files.get_mut(&(file_number as i32)) else {
             qb_runtime_fail(format!("GET failed: file #{} is not open", file_number as i32));
         };
-        let offset = record_number.max(1.0) as u64 - 1;
+        let offset = if record_number > 0.0 {
+            record_number as u64 - 1
+        } else {
+            handle.file.stream_position().unwrap_or_else(|err| {
+                qb_runtime_fail(format!("GET failed for file #{}: {}", file_number as i32, err))
+            })
+        };
         handle.file.seek(SeekFrom::Start(offset)).unwrap_or_else(|err| {
             qb_runtime_fail(format!("GET failed for file #{}: {}", file_number as i32, err))
         });
@@ -3162,7 +3827,13 @@ fn qb_get_bytes(file_number: f64, record_number: f64, size: usize) -> Vec<u8> {
         let Some(handle) = files.get_mut(&(file_number as i32)) else {
             qb_runtime_fail(format!("GET failed: file #{} is not open", file_number as i32));
         };
-        let offset = record_number.max(1.0) as u64 - 1;
+        let offset = if record_number > 0.0 {
+            record_number as u64 - 1
+        } else {
+            handle.file.stream_position().unwrap_or_else(|err| {
+                qb_runtime_fail(format!("GET failed for file #{}: {}", file_number as i32, err))
+            })
+        };
         handle.file.seek(SeekFrom::Start(offset)).unwrap_or_else(|err| {
             qb_runtime_fail(format!("GET failed for file #{}: {}", file_number as i32, err))
         });
@@ -3200,7 +3871,13 @@ fn qb_put_string(file_number: f64, record_number: f64, value: &str) {
         let Some(handle) = files.get_mut(&(file_number as i32)) else {
             qb_runtime_fail(format!("PUT failed: file #{} is not open", file_number as i32));
         };
-        let offset = record_number.max(1.0) as u64 - 1;
+        let offset = if record_number > 0.0 {
+            record_number as u64 - 1
+        } else {
+            handle.file.stream_position().unwrap_or_else(|err| {
+                qb_runtime_fail(format!("PUT failed for file #{}: {}", file_number as i32, err))
+            })
+        };
         handle.file.seek(SeekFrom::Start(offset)).unwrap_or_else(|err| {
             qb_runtime_fail(format!("PUT failed for file #{}: {}", file_number as i32, err))
         });
@@ -3227,7 +3904,13 @@ fn qb_put_bytes(file_number: f64, record_number: f64, bytes: &[u8]) {
         let Some(handle) = files.get_mut(&(file_number as i32)) else {
             qb_runtime_fail(format!("PUT failed: file #{} is not open", file_number as i32));
         };
-        let offset = record_number.max(1.0) as u64 - 1;
+        let offset = if record_number > 0.0 {
+            record_number as u64 - 1
+        } else {
+            handle.file.stream_position().unwrap_or_else(|err| {
+                qb_runtime_fail(format!("PUT failed for file #{}: {}", file_number as i32, err))
+            })
+        };
         handle.file.seek(SeekFrom::Start(offset)).unwrap_or_else(|err| {
             qb_runtime_fail(format!("PUT failed for file #{}: {}", file_number as i32, err))
         });
@@ -3373,12 +4056,30 @@ fn qb_file_print_comma(file_number: f64) {
             .copied()
             .unwrap_or(1)
     });
-    if let Some(target_col) = qb_next_print_zone(current_col) {
+    if let Some(target_col) = qb_next_print_zone(current_col, 80) {
         let spaces = (target_col - current_col).max(0) as usize;
         if spaces > 0 {
             qb_file_write(file_number, &" ".repeat(spaces), false);
         }
     } else {
+        qb_file_print_newline(file_number);
+    }
+}
+fn qb_file_print_using(
+    file_number: f64,
+    pattern: &str,
+    values: &[String],
+    comma_after: &[bool],
+    newline: bool,
+) {
+    let chunks = qb_format_using_values(pattern, values);
+    for (index, chunk) in chunks.iter().enumerate() {
+        qb_file_write(file_number, chunk, false);
+        if comma_after.get(index).copied().unwrap_or(false) {
+            qb_file_print_comma(file_number);
+        }
+    }
+    if newline {
         qb_file_print_newline(file_number);
     }
 }
@@ -3396,49 +4097,518 @@ fn qb_insert_commas(int_part: &str) -> String {
     }
     out
 }
-fn qb_format_using_value(pattern: &str, value: &str) -> String {
-    if pattern.contains('!') || pattern.contains('&') {
-        let width = pattern.chars().filter(|ch| *ch == '!' || *ch == '&').count().max(1);
-        return value.chars().take(width).collect();
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QbUsingStringMode {
+    FirstChar,
+    Whole,
+    FixedWidth(usize),
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QbUsingPrefixKind {
+    None,
+    Stars,
+    Dollars,
+    StarDollars,
+}
+#[derive(Clone)]
+struct QbUsingField {
+    core: String,
+    suffix: String,
+}
+fn qb_decode_using_pattern(pattern: &str) -> Vec<(char, bool)> {
+    let mut decoded = Vec::new();
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '_' {
+            if let Some(next) = chars.next() {
+                decoded.push((next, true));
+            } else {
+                decoded.push(('_', true));
+            }
+        } else {
+            decoded.push((ch, false));
+        }
     }
-    let decimals = pattern
-        .split('.')
-        .nth(1)
-        .map(|part| part.chars().filter(|ch| *ch == '#' || *ch == '*').count())
-        .unwrap_or(0);
-    if let Ok(number) = value.trim_matches('"').parse::<f64>() {
-        let negative = number < 0.0;
-        let abs = number.abs();
-        let raw = format!("{:.*}", decimals, abs);
-        let mut parts = raw.split('.').map(str::to_string).collect::<Vec<_>>();
-        let mut int_part = parts.remove(0);
-        if pattern.contains(',') {
-            int_part = qb_insert_commas(&int_part);
+    decoded
+}
+fn qb_collect_using_chars(slice: &[(char, bool)]) -> String {
+    slice.iter().map(|(ch, _)| *ch).collect()
+}
+fn qb_find_using_string_field(decoded: &[(char, bool)]) -> Option<(usize, usize, QbUsingStringMode)> {
+    for (index, (ch, literal)) in decoded.iter().enumerate() {
+        if *literal {
+            continue;
         }
-        let mut formatted = String::new();
-        if pattern.contains('$') {
-            formatted.push('$');
+        match ch {
+            '!' => return Some((index, index, QbUsingStringMode::FirstChar)),
+            '&' => return Some((index, index, QbUsingStringMode::Whole)),
+            '\\' => {
+                for end in index + 1..decoded.len() {
+                    if !decoded[end].1 && decoded[end].0 == '\\' {
+                        return Some((index, end, QbUsingStringMode::FixedWidth(end - index + 1)));
+                    }
+                }
+            }
+            _ => {}
         }
-        if negative {
-            formatted.push('-');
+    }
+    None
+}
+fn qb_find_using_numeric_span(decoded: &[(char, bool)]) -> Option<(usize, usize)> {
+    let mut cursor = 0;
+    while let Some((start, end)) = qb_next_using_field_span(decoded, cursor) {
+        if matches!(decoded[start].0, '#' | '.' | '+' | '-' | '*' | '$') {
+            return Some((start, end));
         }
-        formatted.push_str(&int_part);
-        if decimals > 0 {
-            formatted.push('.');
-            formatted.push_str(parts.first().map(String::as_str).unwrap_or(""));
+        cursor = end + 1;
+    }
+    None
+}
+fn qb_using_field_span_at(decoded: &[(char, bool)], start: usize) -> Option<(usize, usize)> {
+    let Some((ch, literal)) = decoded.get(start).copied() else {
+        return None;
+    };
+    if literal {
+        return None;
+    }
+    match ch {
+        '!' | '&' => Some((start, start)),
+        '\\' => {
+            for end in start + 1..decoded.len() {
+                if !decoded[end].1 && decoded[end].0 == '\\' {
+                    return Some((start, end));
+                }
+            }
+            None
         }
-        let width = pattern.chars().count();
-        if formatted.len() < width {
-            let pad = if pattern.contains('*') { '*' } else { ' ' };
-            formatted = format!("{}{}", pad.to_string().repeat(width - formatted.len()), formatted);
+        '#' | '.' | '+' | '-' | '*' | '$' => {
+            let mut end = start;
+            while end + 1 < decoded.len()
+                && !decoded[end + 1].1
+                && matches!(decoded[end + 1].0, '#' | '.' | '+' | '-' | '*' | '$' | ',' | '^')
+            {
+                end += 1;
+            }
+            decoded[start..=end]
+                .iter()
+                .any(|(ch, literal)| !*literal && *ch == '#')
+                .then_some((start, end))
         }
-        return formatted;
+        _ => None,
+    }
+}
+fn qb_next_using_field_span(decoded: &[(char, bool)], mut start: usize) -> Option<(usize, usize)> {
+    while start < decoded.len() {
+        if let Some(span) = qb_using_field_span_at(decoded, start) {
+            return Some(span);
+        }
+        start += 1;
+    }
+    None
+}
+fn qb_parse_using_fields(pattern: &str) -> (String, Vec<QbUsingField>) {
+    let decoded = qb_decode_using_pattern(pattern);
+    let mut cursor = 0;
+    let mut leading = String::new();
+    let mut fields: Vec<QbUsingField> = Vec::new();
+
+    while let Some((start, end)) = qb_next_using_field_span(&decoded, cursor) {
+        let between = qb_collect_using_chars(&decoded[cursor..start]);
+        if fields.is_empty() {
+            leading.push_str(&between);
+        } else if let Some(last) = fields.last_mut() {
+            last.suffix.push_str(&between);
+        }
+
+        fields.push(QbUsingField {
+            core: qb_collect_using_chars(&decoded[start..=end]),
+            suffix: String::new(),
+        });
+        cursor = end + 1;
+    }
+
+    let trailing = qb_collect_using_chars(&decoded[cursor..]);
+    if fields.is_empty() {
+        leading.push_str(&trailing);
+    } else if let Some(last) = fields.last_mut() {
+        last.suffix.push_str(&trailing);
+        if last.suffix.is_empty() && last.core.ends_with(',') {
+            last.core.pop();
+            last.suffix.push(',');
+        }
+    }
+
+    (leading, fields)
+}
+fn qb_format_using_string_value(mode: QbUsingStringMode, value: &str) -> String {
+    let text = value.trim_matches('"');
+    match mode {
+        QbUsingStringMode::FirstChar => text.chars().next().unwrap_or(' ').to_string(),
+        QbUsingStringMode::Whole => text.to_string(),
+        QbUsingStringMode::FixedWidth(width) => {
+            let truncated = text.chars().take(width).collect::<String>();
+            format!("{:<width$}", truncated, width = width)
+        }
+    }
+}
+fn qb_using_extra_integer_positions(prefix_kind: QbUsingPrefixKind) -> usize {
+    match prefix_kind {
+        QbUsingPrefixKind::None => 0,
+        QbUsingPrefixKind::Stars => 2,
+        QbUsingPrefixKind::Dollars => 1,
+        QbUsingPrefixKind::StarDollars => 2,
+    }
+}
+fn qb_scientific_digits(value: f64, significant_digits: usize) -> (String, i32) {
+    if significant_digits == 0 {
+        return (String::new(), 0);
+    }
+    if value.abs() < f64::EPSILON {
+        return ("0".repeat(significant_digits), 0);
+    }
+    let mut exponent = value.abs().log10().floor() as i32;
+    let scaled = value.abs() / 10f64.powi(exponent);
+    let rounded = (scaled * 10f64.powi((significant_digits as i32) - 1)).round();
+    let mut digits = rounded as i128;
+    let limit = 10_i128.pow(significant_digits as u32);
+    if digits >= limit {
+        digits /= 10;
+        exponent += 1;
+    }
+    (format!("{:0width$}", digits, width = significant_digits), exponent)
+}
+fn qb_compose_scientific_mantissa(
+    digits: &str,
+    digits_before_decimal: usize,
+    digits_after_decimal: usize,
+) -> String {
+    if digits_before_decimal == 0 {
+        return format!(".{}", digits);
+    }
+    let split = digits_before_decimal.min(digits.len());
+    let left = &digits[..split];
+    if digits_after_decimal == 0 {
+        return left.to_string();
+    }
+    let right = &digits[split..];
+    format!("{}.{}", left, right)
+}
+fn qb_format_using_fixed(
+    core: &str,
+    mantissa: &str,
+    value: f64,
+    leading_plus: bool,
+    trailing_plus: bool,
+    trailing_minus: bool,
+    prefix_kind: QbUsingPrefixKind,
+    target_width: usize,
+) -> String {
+    let parts: Vec<&str> = mantissa.splitn(2, '.').collect();
+    let int_pattern = parts[0];
+    let frac_pattern = parts.get(1).copied().unwrap_or("");
+    let comma_slots = int_pattern.chars().filter(|ch| *ch == ',').count();
+    let int_hashes = int_pattern.chars().filter(|ch| *ch == '#').count();
+    let frac_hashes = frac_pattern.chars().filter(|ch| *ch == '#').count();
+    let extra_integer_positions = qb_using_extra_integer_positions(prefix_kind);
+    if int_hashes + frac_hashes + extra_integer_positions > 24 {
+        qb_runtime_fail("Illegal function call".to_string());
+    }
+
+    let rounded = if frac_hashes > 0 {
+        format!("{:.*}", frac_hashes, value.abs())
+    } else {
+        format!("{:.0}", value.abs())
+    };
+    let mut rounded_parts = rounded.split('.');
+    let rounded_int = rounded_parts.next().unwrap_or("0");
+    let rounded_frac = rounded_parts.next().unwrap_or("");
+
+    let integer_capacity = int_hashes + extra_integer_positions + comma_slots;
+    if integer_capacity == 0 && rounded_int != "0" {
+        return format!("%{}", rounded);
+    }
+
+    let show_zero_before_decimal = int_hashes + extra_integer_positions > 0;
+    let int_digits = if rounded_int == "0" && !show_zero_before_decimal {
+        String::new()
+    } else {
+        rounded_int.to_string()
+    };
+
+    let grouped_int = if comma_slots > 0 {
+        qb_insert_commas(&int_digits)
+    } else {
+        int_digits
+    };
+    if grouped_int.chars().count() > integer_capacity {
+        return format!("%{}", rounded);
+    }
+
+    let mut number = grouped_int;
+    if frac_hashes > 0 {
+        if number.is_empty() {
+            number.push('.');
+            number.push_str(rounded_frac);
+        } else {
+            number.push('.');
+            number.push_str(rounded_frac);
+        }
+    }
+
+    let sign_prefix = if leading_plus {
+        Some(if value.is_sign_negative() { '-' } else { '+' })
+    } else if !trailing_plus && !trailing_minus && value.is_sign_negative() {
+        Some('-')
+    } else {
+        None
+    };
+    let sign_suffix = if trailing_plus {
+        Some(if value.is_sign_negative() { '-' } else { '+' })
+    } else if trailing_minus && value.is_sign_negative() {
+        Some('-')
+    } else {
+        None
+    };
+
+    let mut body = String::new();
+    match prefix_kind {
+        QbUsingPrefixKind::Dollars | QbUsingPrefixKind::StarDollars => {
+            if let Some(sign) = sign_prefix {
+                body.push(sign);
+            }
+            body.push('$');
+            body.push_str(&number);
+        }
+        _ => {
+            if let Some(sign) = sign_prefix {
+                body.push(sign);
+            }
+            body.push_str(&number);
+        }
+    }
+
+    let total_len = body.chars().count() + usize::from(sign_suffix.is_some());
+    if total_len > target_width {
+        let mut overflow = String::from("%");
+        overflow.push_str(&body);
+        if let Some(sign) = sign_suffix {
+            overflow.push(sign);
+        }
+        return overflow;
+    }
+
+    let pad_char = match prefix_kind {
+        QbUsingPrefixKind::Stars | QbUsingPrefixKind::StarDollars => '*',
+        _ => ' ',
+    };
+    let mut output = String::new();
+    output.push_str(&pad_char.to_string().repeat(target_width - total_len));
+    output.push_str(&body);
+    if let Some(sign) = sign_suffix {
+        output.push(sign);
+    }
+    let _ = core;
+    output
+}
+fn qb_format_using_exponential(
+    core: &str,
+    mantissa: &str,
+    value: f64,
+    leading_plus: bool,
+    trailing_plus: bool,
+    trailing_minus: bool,
+    exponent_digits: usize,
+) -> String {
+    let parts: Vec<&str> = mantissa.splitn(2, '.').collect();
+    let int_hashes = parts[0].chars().filter(|ch| *ch == '#').count();
+    let frac_hashes = parts
+        .get(1)
+        .copied()
+        .unwrap_or("")
+        .chars()
+        .filter(|ch| *ch == '#')
+        .count();
+
+    let explicit_sign = leading_plus || trailing_plus || trailing_minus;
+    let digits_before_decimal = if explicit_sign {
+        int_hashes
+    } else {
+        int_hashes.saturating_sub(1)
+    };
+    let significant_digits = digits_before_decimal + frac_hashes;
+    if significant_digits == 0 || significant_digits > 24 {
+        qb_runtime_fail("Illegal function call".to_string());
+    }
+
+    let (digits, exponent) = qb_scientific_digits(value, significant_digits);
+    let adjusted_exponent = exponent + 1 - digits_before_decimal as i32;
+    let mantissa_text =
+        qb_compose_scientific_mantissa(&digits, digits_before_decimal, frac_hashes);
+    let exponent_text = format!(
+        "E{}{abs_exp:0width$}",
+        if adjusted_exponent < 0 { '-' } else { '+' },
+        abs_exp = adjusted_exponent.abs(),
+        width = exponent_digits
+    );
+
+    let mut body = String::new();
+    if leading_plus {
+        body.push(if value.is_sign_negative() { '-' } else { '+' });
+    } else if !trailing_plus && !trailing_minus {
+        body.push(if value.is_sign_negative() { '-' } else { ' ' });
+    }
+    body.push_str(&mantissa_text);
+    body.push_str(&exponent_text);
+
+    let sign_suffix = if trailing_plus {
+        Some(if value.is_sign_negative() { '-' } else { '+' })
+    } else if trailing_minus && value.is_sign_negative() {
+        Some('-')
+    } else {
+        None
+    };
+
+    let total_len = body.chars().count() + usize::from(sign_suffix.is_some());
+    if total_len > core.chars().count() {
+        let mut overflow = String::from("%");
+        overflow.push_str(&body);
+        if let Some(sign) = sign_suffix {
+            overflow.push(sign);
+        }
+        return overflow;
+    }
+
+    let mut output = String::new();
+    output.push_str(&" ".repeat(core.chars().count() - total_len));
+    output.push_str(&body);
+    if let Some(sign) = sign_suffix {
+        output.push(sign);
+    }
+    output
+}
+fn qb_format_using_numeric_value(core: &str, value: f64) -> String {
+    let target_width = core.chars().count();
+    let mut mantissa = core;
+    let mut trailing_plus = false;
+    let mut trailing_minus = false;
+    if let Some(stripped) = mantissa.strip_suffix('+') {
+        trailing_plus = true;
+        mantissa = stripped;
+    } else if let Some(stripped) = mantissa.strip_suffix('-') {
+        trailing_minus = true;
+        mantissa = stripped;
+    }
+
+    let exponent_digits = if let Some(stripped) = mantissa.strip_suffix("^^^^^") {
+        mantissa = stripped;
+        Some(3usize)
+    } else if let Some(stripped) = mantissa.strip_suffix("^^^^") {
+        mantissa = stripped;
+        Some(2usize)
+    } else {
+        None
+    };
+
+    let mut leading_plus = false;
+    if let Some(stripped) = mantissa.strip_prefix('+') {
+        leading_plus = true;
+        mantissa = stripped;
+    }
+
+    let (prefix_kind, mantissa) = if let Some(stripped) = mantissa.strip_prefix("**$") {
+        (QbUsingPrefixKind::StarDollars, stripped)
+    } else if let Some(stripped) = mantissa.strip_prefix("$$") {
+        (QbUsingPrefixKind::Dollars, stripped)
+    } else if let Some(stripped) = mantissa.strip_prefix("**") {
+        (QbUsingPrefixKind::Stars, stripped)
+    } else {
+        (QbUsingPrefixKind::None, mantissa)
+    };
+
+    if let Some(exp_digits) = exponent_digits {
+        qb_format_using_exponential(
+            core,
+            mantissa,
+            value,
+            leading_plus,
+            trailing_plus,
+            trailing_minus,
+            exp_digits,
+        )
+    } else {
+        qb_format_using_fixed(
+            core,
+            mantissa,
+            value,
+            leading_plus,
+            trailing_plus,
+            trailing_minus,
+            prefix_kind,
+            target_width,
+        )
+    }
+}
+fn qb_format_using_value(pattern: &str, value: &str) -> String {
+    let decoded = qb_decode_using_pattern(pattern);
+    if let Some((start, end, mode)) = qb_find_using_string_field(&decoded) {
+        let prefix = qb_collect_using_chars(&decoded[..start]);
+        let suffix = qb_collect_using_chars(&decoded[end + 1..]);
+        return format!(
+            "{}{}{}",
+            prefix,
+            qb_format_using_string_value(mode, value),
+            suffix
+        );
+    }
+    if let Some((start, end)) = qb_find_using_numeric_span(&decoded) {
+        let prefix = qb_collect_using_chars(&decoded[..start]);
+        let suffix = qb_collect_using_chars(&decoded[end + 1..]);
+        let core = qb_collect_using_chars(&decoded[start..=end]);
+        if let Ok(number) = value.trim_matches('"').parse::<f64>() {
+            return format!(
+                "{}{}{}",
+                prefix,
+                qb_format_using_numeric_value(&core, number),
+                suffix
+            );
+        }
     }
     value.trim_matches('"').to_string()
 }
-fn qb_print_using(pattern: &str, values: &[String], newline: bool) {
-    for value in values {
-        qb_print(&qb_format_using_value(pattern, value));
+fn qb_format_using_values(pattern: &str, values: &[String]) -> Vec<String> {
+    let (leading, fields) = qb_parse_using_fields(pattern);
+    if fields.is_empty() {
+        if values.is_empty() {
+            return if leading.is_empty() {
+                Vec::new()
+            } else {
+                vec![leading]
+            };
+        }
+        return values.iter().map(|_| leading.clone()).collect();
+    }
+
+    let mut chunks = Vec::with_capacity(values.len());
+    for (index, value) in values.iter().enumerate() {
+        let field_index = index % fields.len();
+        let field = &fields[field_index];
+        let mut chunk = String::new();
+        if field_index == 0 {
+            chunk.push_str(&leading);
+        }
+        chunk.push_str(&qb_format_using_value(&field.core, value));
+        chunk.push_str(&field.suffix);
+        chunks.push(chunk);
+    }
+    chunks
+}
+fn qb_print_using(pattern: &str, values: &[String], comma_after: &[bool], newline: bool) {
+    let chunks = qb_format_using_values(pattern, values);
+    for (index, chunk) in chunks.iter().enumerate() {
+        qb_print(chunk);
+        if comma_after.get(index).copied().unwrap_or(false) {
+            qb_print_comma();
+        }
     }
     if newline {
         qb_print_newline();
@@ -3483,16 +4653,318 @@ fn qb_input_file_fields(file_number: f64, expected_fields: usize) -> Vec<String>
     }
     fields
 }
-fn qb_sound(_frequency: f64, duration_ticks: f64) {
+#[derive(Clone, Copy)]
+struct QbSoundNote {
+    frequency: f64,
+    duration_ms: u32,
+}
+#[derive(Clone, Copy)]
+enum QbPlayArticulation {
+    Normal,
+    Legato,
+    Staccato,
+}
+fn qb_emit_bell() {
+    let _ = io::stdout().flush();
     print!("\x07");
     let _ = io::stdout().flush();
+}
+fn qb_render_sound_notes(notes: &[QbSoundNote]) {
+    if notes.iter().any(|note| note.frequency > 0.0) {
+        qb_emit_bell();
+    }
+    let total_ms: u64 = notes.iter().map(|note| note.duration_ms as u64).sum();
+    if total_ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(total_ms));
+    }
+}
+fn qb_play_parse_number(chars: &[char], index: &mut usize) -> Option<u32> {
+    let start = *index;
+    let mut digits = String::new();
+    while *index < chars.len() && chars[*index].is_ascii_digit() {
+        digits.push(chars[*index]);
+        *index += 1;
+    }
+    if *index == start {
+        None
+    } else {
+        digits.parse::<u32>().ok()
+    }
+}
+fn qb_play_note_length(chars: &[char], index: &mut usize, default_length: u32) -> u32 {
+    match qb_play_parse_number(chars, index) {
+        Some(0) | None => default_length,
+        Some(value) => value,
+    }
+}
+fn qb_play_duration_ms(tempo: u32, length: u32) -> u32 {
+    if length == 0 {
+        return 0;
+    }
+    240000 / (tempo.max(1) * length.max(1))
+}
+fn qb_play_dotted_duration(tempo: u32, length: u32, chars: &[char], index: &mut usize) -> u32 {
+    let base_duration = qb_play_duration_ms(tempo, length);
+    let mut total = base_duration as f64;
+    let mut extra = base_duration as f64 / 2.0;
+    while *index < chars.len() && chars[*index] == '.' {
+        total += extra;
+        extra /= 2.0;
+        *index += 1;
+    }
+    total.round() as u32
+}
+fn qb_push_rest_note(notes: &mut Vec<QbSoundNote>, duration_ms: u32) {
+    if duration_ms == 0 {
+        return;
+    }
+    notes.push(QbSoundNote {
+        frequency: 0.0,
+        duration_ms,
+    });
+}
+fn qb_push_articulated_note(
+    notes: &mut Vec<QbSoundNote>,
+    frequency: f64,
+    duration_ms: u32,
+    articulation: QbPlayArticulation,
+) {
+    if duration_ms == 0 {
+        return;
+    }
+    let sound_duration = match articulation {
+        QbPlayArticulation::Legato => duration_ms,
+        QbPlayArticulation::Normal => duration_ms.saturating_mul(7) / 8,
+        QbPlayArticulation::Staccato => duration_ms.saturating_mul(3) / 4,
+    }
+    .min(duration_ms);
+    let rest_duration = duration_ms.saturating_sub(sound_duration);
+
+    if sound_duration > 0 {
+        notes.push(QbSoundNote {
+            frequency,
+            duration_ms: sound_duration,
+        });
+    }
+    if rest_duration > 0 {
+        qb_push_rest_note(notes, rest_duration);
+    }
+}
+fn qb_parse_play(mml: &str) -> (Vec<QbSoundNote>, bool) {
+    let mut notes = Vec::new();
+    let mut tempo: u32 = 120;
+    let mut octave: u32 = 4;
+    let mut length: u32 = 4;
+    let mut articulation = QbPlayArticulation::Normal;
+    let mut background = false;
+    let chars: Vec<char> = mml.chars().collect();
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        let ch = chars[i].to_ascii_uppercase();
+        match ch {
+            ' ' | '\t' | '\r' | '\n' | ';' => {
+                i += 1;
+            }
+            'T' => {
+                i += 1;
+                if let Some(value) = qb_play_parse_number(&chars, &mut i) {
+                    tempo = value.max(1);
+                }
+            }
+            'O' => {
+                i += 1;
+                if let Some(value) = qb_play_parse_number(&chars, &mut i) {
+                    octave = value.clamp(1, 8);
+                }
+            }
+            'L' => {
+                i += 1;
+                if let Some(value) = qb_play_parse_number(&chars, &mut i) {
+                    length = value.max(1);
+                }
+            }
+            'M' => {
+                i += 1;
+                if i < chars.len() {
+                    match chars[i].to_ascii_uppercase() {
+                        'L' => articulation = QbPlayArticulation::Legato,
+                        'N' => articulation = QbPlayArticulation::Normal,
+                        'S' => articulation = QbPlayArticulation::Staccato,
+                        'B' => background = true,
+                        'F' => background = false,
+                        _ => {
+                            continue;
+                        }
+                    }
+                    i += 1;
+                }
+            }
+            '>' => {
+                octave = (octave + 1).min(8);
+                i += 1;
+            }
+            '<' => {
+                octave = octave.saturating_sub(1).max(1);
+                i += 1;
+            }
+            'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' => {
+                let mut frequency = qb_play_note_frequency(ch, octave);
+                i += 1;
+                if i < chars.len() {
+                    match chars[i] {
+                        '#' | '+' => {
+                            frequency *= 1.0594630943592953;
+                            i += 1;
+                        }
+                        '-' => {
+                            frequency /= 1.0594630943592953;
+                            i += 1;
+                        }
+                        _ => {}
+                    }
+                }
+
+                let note_length = qb_play_note_length(&chars, &mut i, length);
+                let duration_ms = qb_play_dotted_duration(tempo, note_length, &chars, &mut i);
+                qb_push_articulated_note(&mut notes, frequency, duration_ms, articulation);
+            }
+            'N' => {
+                i += 1;
+                let note_number = qb_play_parse_number(&chars, &mut i).unwrap_or(0);
+                let duration_ms = qb_play_dotted_duration(tempo, length, &chars, &mut i);
+                if note_number == 0 {
+                    qb_push_rest_note(&mut notes, duration_ms);
+                } else {
+                    qb_push_articulated_note(
+                        &mut notes,
+                        qb_play_note_number_frequency(note_number),
+                        duration_ms,
+                        articulation,
+                    );
+                }
+            }
+            'P' => {
+                i += 1;
+                let pause_length = match qb_play_parse_number(&chars, &mut i) {
+                    Some(0) => 0,
+                    Some(value) => value,
+                    None => length,
+                };
+                let duration_ms = qb_play_dotted_duration(tempo, pause_length, &chars, &mut i);
+                qb_push_rest_note(&mut notes, duration_ms);
+            }
+            'R' => {
+                i += 1;
+                let rest_length = qb_play_note_length(&chars, &mut i, length);
+                let duration_ms = qb_play_dotted_duration(tempo, rest_length, &chars, &mut i);
+                qb_push_rest_note(&mut notes, duration_ms);
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    (notes, background)
+}
+fn qb_play_note_frequency(note: char, octave: u32) -> f64 {
+    let note_val = match note {
+        'C' => 0u32,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => 0,
+    };
+    let semitones = octave.saturating_sub(1) * 12 + note_val;
+    440.0 * 2.0_f64.powf((semitones as f64 - 9.0) / 12.0)
+}
+fn qb_play_note_number_frequency(note_number: u32) -> f64 {
+    let semitones = note_number.saturating_sub(1);
+    440.0 * 2.0_f64.powf((semitones as f64 - 9.0) / 12.0)
+}
+fn qb_update_play_queue(play_queue_limit: usize, play_trap_state: i32, play_pending_event: &mut bool) {
+    if *play_pending_event || QB_PLAY_HANDLER_ACTIVE.with(|state| state.get()) {
+        return;
+    }
+    QB_PLAY_NOTE_DEADLINES.with(|deadlines| {
+        let now = std::time::Instant::now();
+        let deadlines = &mut *deadlines.borrow_mut();
+        while deadlines
+            .first()
+            .copied()
+            .is_some_and(|deadline| deadline <= now)
+        {
+            let previous = deadlines.len();
+            deadlines.remove(0);
+            let current = deadlines.len();
+            if previous == play_queue_limit && current + 1 == previous {
+                if play_trap_state == 0 {
+                    *play_pending_event = false;
+                } else {
+                    *play_pending_event = true;
+                    break;
+                }
+            }
+        }
+    });
+}
+fn qb_play_queue_len() -> usize {
+    if QB_PLAY_HANDLER_ACTIVE.with(|state| state.get()) {
+        return QB_PLAY_NOTE_DEADLINES.with(|deadlines| deadlines.borrow().len());
+    }
+    QB_PLAY_NOTE_DEADLINES.with(|deadlines| {
+        let now = std::time::Instant::now();
+        let deadlines = &mut *deadlines.borrow_mut();
+        while deadlines
+            .first()
+            .copied()
+            .is_some_and(|deadline| deadline <= now)
+        {
+            deadlines.remove(0);
+        }
+        deadlines.len()
+    })
+}
+fn qb_enqueue_play_notes(notes: &[QbSoundNote]) {
+    if notes.iter().any(|note| note.frequency > 0.0) {
+        qb_emit_bell();
+    }
+    QB_PLAY_NOTE_DEADLINES.with(|deadlines| {
+        let now = std::time::Instant::now();
+        let deadlines = &mut *deadlines.borrow_mut();
+        let mut next_deadline = deadlines.last().copied().unwrap_or(now).max(now);
+        for note in notes {
+            next_deadline += std::time::Duration::from_millis(note.duration_ms as u64);
+            deadlines.push(next_deadline);
+        }
+    });
+}
+fn qb_beep() {
+    qb_emit_bell();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+}
+fn qb_sound(frequency: f64, duration_ticks: f64) {
+    if frequency > 0.0 {
+        qb_emit_bell();
+    }
     if duration_ticks > 0.0 {
         std::thread::sleep(std::time::Duration::from_secs_f64(duration_ticks / 18.2));
     }
 }
-fn qb_play(_melody: &str) {
-    print!("\x07");
-    let _ = io::stdout().flush();
+fn qb_play(melody: &str) {
+    let (notes, background) = qb_parse_play(melody);
+    if background {
+        qb_enqueue_play_notes(&notes);
+    } else {
+        qb_render_sound_notes(&notes);
+    }
+}
+fn qb_play_count(_dummy: f64) -> f64 {
+    qb_play_queue_len() as f64
 }
 fn qb_shell(command: Option<&str>) {
     if let Some(command) = command {
@@ -3521,6 +4993,12 @@ fn qb_len(s: &str) -> f64 { s.len() as f64 }
 fn qb_ltrim(s: &str) -> String { s.trim_start().to_string() }
 fn qb_rtrim(s: &str) -> String { s.trim_end().to_string() }
 fn qb_trim(s: &str) -> String { s.trim().to_string() }
+fn qb_fileexists(path: &str) -> f64 {
+    if std::path::Path::new(path).is_file() { -1.0 } else { 0.0 }
+}
+fn qb_direxists(path: &str) -> f64 {
+    if std::path::Path::new(path).is_dir() { -1.0 } else { 0.0 }
+}
 fn qb_ucase(s: &str) -> String { s.to_uppercase() }
 fn qb_lcase(s: &str) -> String { s.to_lowercase() }
 fn qb_left(s: &str, n: f64) -> String { s.chars().take(n as usize).collect() }
@@ -3557,6 +5035,21 @@ fn qb_string_chr(n: f64, c: f64) -> String {
 }
 fn qb_space(n: f64) -> String { " ".repeat(n as usize) }
 fn qb_asc(s: &str) -> f64 { s.chars().next().unwrap_or('\0') as u8 as f64 }
+fn qb_set_asc(s: &str, position: f64, value: f64) -> String {
+    let index = (position.round() as i32 - 1).max(0) as usize;
+    let ascii = value.round().clamp(0.0, 255.0) as u8;
+    let mut chars: Vec<char> = s.chars().collect();
+    while chars.len() < index {
+        chars.push(' ');
+    }
+    let new_char = char::from(ascii);
+    if index < chars.len() {
+        chars[index] = new_char;
+    } else {
+        chars.push(new_char);
+    }
+    chars.into_iter().collect()
+}
 fn qb_chr(n: f64) -> String { ((n as u8) as char).to_string() }
 fn qb_cstr(n: f64) -> String { format!("{}", n) }
 fn qb_val(s: &str) -> f64 {
@@ -3655,8 +5148,215 @@ fn qb_hex(n: f64) -> String { format!("{:X}", n as i64) }
 fn qb_oct(n: f64) -> String { format!("{:o}", n as i64) }
 
 // Array functions
-fn qb_lbound<T>(_arr: &[T]) -> f64 { 0.0 }
-fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
+thread_local! {
+    static QB_OPTION_BASE: std::cell::RefCell<i32> = const { std::cell::RefCell::new(0) };
+}
+
+fn qb_set_option_base(base: i32) {
+    QB_OPTION_BASE.with(|cell| *cell.borrow_mut() = base.clamp(0, 1));
+}
+
+fn qb_current_option_base() -> i32 {
+    QB_OPTION_BASE.with(|cell| *cell.borrow())
+}
+
+fn qb_array_bound_value(value: f64) -> i32 {
+    value.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32
+}
+
+fn qb_validate_array_dimensions(dimensions: &[(i32, i32)]) -> usize {
+    let mut total_size = 1usize;
+    for (lower, upper) in dimensions {
+        if upper < lower {
+            qb_runtime_fail(format!("Invalid array bounds: {} TO {}", lower, upper));
+        }
+
+        let dim_size = (*upper - *lower + 1) as i64;
+        if !(1..=10_000).contains(&dim_size) {
+            qb_runtime_fail(format!("Array dimension too large: {} TO {}", lower, upper));
+        }
+
+        total_size = total_size
+            .checked_mul(dim_size as usize)
+            .unwrap_or_else(|| qb_runtime_fail("Array size exceeds limit (max 100,000 elements)"));
+        if total_size > 100_000 {
+            qb_runtime_fail("Array size exceeds limit (max 100,000 elements)");
+        }
+    }
+    total_size
+}
+
+fn qb_create_implicit_array_dimensions(indices: &[f64]) -> Vec<(i32, i32)> {
+    let lower = qb_current_option_base();
+    let mut dimensions = Vec::with_capacity(indices.len());
+    for index in indices {
+        let idx = qb_array_bound_value(*index);
+        let upper = (idx + 5).max(lower + 5).min(lower + 100);
+        dimensions.push((lower, upper));
+    }
+    let _ = qb_validate_array_dimensions(&dimensions);
+    dimensions
+}
+
+fn qb_linear_array_index(dimensions: &[(i32, i32)], indices: &[f64]) -> Option<usize> {
+    if dimensions.len() != indices.len() {
+        return None;
+    }
+
+    let mut linear_index = 0usize;
+    let mut multiplier = 1usize;
+    for ((lower, upper), index) in dimensions.iter().zip(indices.iter()).rev() {
+        let index = qb_array_bound_value(*index);
+        if index < *lower || index > *upper {
+            return None;
+        }
+        linear_index += (index - *lower) as usize * multiplier;
+        multiplier = multiplier.checked_mul((*upper - *lower + 1) as usize)?;
+    }
+    Some(linear_index)
+}
+
+fn qb_dim_num_array(
+    arrs: &mut [Vec<f64>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    dimensions: &[(i32, i32)],
+    preserve: bool,
+) {
+    if arr_idx >= arrs.len() || arr_idx >= bounds_store.len() {
+        qb_runtime_fail("Numeric array slot out of range");
+    }
+
+    let total_size = qb_validate_array_dimensions(dimensions);
+    let mut new_array = vec![0.0; total_size];
+    if preserve {
+        let copy_size = arrs[arr_idx].len().min(total_size);
+        new_array[..copy_size].copy_from_slice(&arrs[arr_idx][..copy_size]);
+    }
+    arrs[arr_idx] = new_array;
+    bounds_store[arr_idx] = dimensions.to_vec();
+}
+
+fn qb_dim_str_array(
+    arrs: &mut [Vec<String>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    dimensions: &[(i32, i32)],
+    preserve: bool,
+) {
+    if arr_idx >= arrs.len() || arr_idx >= bounds_store.len() {
+        qb_runtime_fail("String array slot out of range");
+    }
+
+    let total_size = qb_validate_array_dimensions(dimensions);
+    let mut new_array = vec![String::new(); total_size];
+    if preserve {
+        let copy_size = arrs[arr_idx].len().min(total_size);
+        new_array[..copy_size].clone_from_slice(&arrs[arr_idx][..copy_size]);
+    }
+    arrs[arr_idx] = new_array;
+    bounds_store[arr_idx] = dimensions.to_vec();
+}
+
+fn qb_ensure_num_array(
+    arrs: &mut [Vec<f64>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    indices: &[f64],
+) -> usize {
+    if arr_idx >= arrs.len() || arr_idx >= bounds_store.len() {
+        qb_runtime_fail("Numeric array slot out of range");
+    }
+    if bounds_store[arr_idx].is_empty() {
+        let dimensions = qb_create_implicit_array_dimensions(indices);
+        let total_size = qb_validate_array_dimensions(&dimensions);
+        arrs[arr_idx] = vec![0.0; total_size];
+        bounds_store[arr_idx] = dimensions;
+    }
+
+    qb_linear_array_index(&bounds_store[arr_idx], indices)
+        .unwrap_or_else(|| qb_runtime_fail("Subscript out of range"))
+}
+
+fn qb_ensure_str_array(
+    arrs: &mut [Vec<String>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    indices: &[f64],
+) -> usize {
+    if arr_idx >= arrs.len() || arr_idx >= bounds_store.len() {
+        qb_runtime_fail("String array slot out of range");
+    }
+    if bounds_store[arr_idx].is_empty() {
+        let dimensions = qb_create_implicit_array_dimensions(indices);
+        let total_size = qb_validate_array_dimensions(&dimensions);
+        arrs[arr_idx] = vec![String::new(); total_size];
+        bounds_store[arr_idx] = dimensions;
+    }
+
+    qb_linear_array_index(&bounds_store[arr_idx], indices)
+        .unwrap_or_else(|| qb_runtime_fail("Subscript out of range"))
+}
+
+fn arr_get(
+    arrs: &mut [Vec<f64>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    indices: &[f64],
+) -> f64 {
+    let linear = qb_ensure_num_array(arrs, bounds_store, arr_idx, indices);
+    arrs[arr_idx][linear]
+}
+
+fn arr_set(
+    arrs: &mut [Vec<f64>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    indices: &[f64],
+    val: f64,
+) {
+    let linear = qb_ensure_num_array(arrs, bounds_store, arr_idx, indices);
+    arrs[arr_idx][linear] = val;
+}
+
+fn str_arr_get(
+    arrs: &mut [Vec<String>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    indices: &[f64],
+) -> String {
+    let linear = qb_ensure_str_array(arrs, bounds_store, arr_idx, indices);
+    arrs[arr_idx][linear].clone()
+}
+
+fn str_arr_set(
+    arrs: &mut [Vec<String>],
+    bounds_store: &mut [Vec<(i32, i32)>],
+    arr_idx: usize,
+    indices: &[f64],
+    val: &str,
+) {
+    let linear = qb_ensure_str_array(arrs, bounds_store, arr_idx, indices);
+    arrs[arr_idx][linear] = val.to_string();
+}
+
+fn qb_lbound(arr_bounds: &[Vec<(i32, i32)>], arr_idx: usize, dim: Option<f64>) -> f64 {
+    let dimension = qb_array_bound_value(dim.unwrap_or(1.0)).max(1) as usize - 1;
+    arr_bounds
+        .get(arr_idx)
+        .and_then(|bounds| bounds.get(dimension))
+        .map(|(lower, _)| *lower as f64)
+        .unwrap_or(qb_current_option_base() as f64)
+}
+
+fn qb_ubound(arr_bounds: &[Vec<(i32, i32)>], arr_idx: usize, dim: Option<f64>) -> f64 {
+    let dimension = qb_array_bound_value(dim.unwrap_or(1.0)).max(1) as usize - 1;
+    arr_bounds
+        .get(arr_idx)
+        .and_then(|bounds| bounds.get(dimension))
+        .map(|(_, upper)| *upper as f64)
+        .unwrap_or(0.0)
+}
 
 "#);
     }
@@ -3723,7 +5423,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                     .replace("#", "_D")
             );
 
-            if param.type_suffix == Some('$') || param_name.ends_with('$') {
+            if self.variable_is_string(param) {
                 rust_params.push(format!("{}: &mut String", rust_name));
                 let _ = self.get_str_var_idx(param_name);
                 if let Some(width) = param.fixed_length {
@@ -3741,7 +5441,9 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
         let static_num_name = format!("{}_static_num", fn_name);
         let static_str_name = format!("{}_static_str", fn_name);
         let static_arr_name = format!("{}_static_arr", fn_name);
+        let static_arr_bounds_name = format!("{}_static_arr_bounds", fn_name);
         let static_str_arr_name = format!("{}_static_str_arr", fn_name);
+        let static_str_arr_bounds_name = format!("{}_static_str_arr_bounds", fn_name);
 
         if sub.is_static {
             self.output.push_str("thread_local! {\n");
@@ -3761,15 +5463,25 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 self.arr_vars.len().max(1)
             ));
             self.output.push_str(&format!(
+                "    static {}: std::cell::RefCell<Vec<Vec<(i32, i32)>>> = std::cell::RefCell::new(vec![Vec::new(); {}]);\n",
+                static_arr_bounds_name.to_uppercase(),
+                self.arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
                 "    static {}: std::cell::RefCell<Vec<Vec<String>>> = std::cell::RefCell::new(vec![Vec::new(); {}]);\n",
                 static_str_arr_name.to_uppercase(),
+                self.str_arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
+                "    static {}: std::cell::RefCell<Vec<Vec<(i32, i32)>>> = std::cell::RefCell::new(vec![Vec::new(); {}]);\n",
+                static_str_arr_bounds_name.to_uppercase(),
                 self.str_arr_vars.len().max(1)
             ));
             self.output.push_str("}\n");
         }
 
         self.output.push_str(&format!("\nfn {}(", fn_name));
-        self.output.push_str("global_num_vars: &mut Vec<f64>, global_str_vars: &mut Vec<String>, global_arr_vars: &mut Vec<Vec<f64>>, global_str_arr_vars: &mut Vec<Vec<String>>");
+        self.output.push_str("global_num_vars: &mut Vec<f64>, global_str_vars: &mut Vec<String>, global_arr_vars: &mut Vec<Vec<f64>>, global_arr_bounds: &mut Vec<Vec<(i32, i32)>>, global_str_arr_vars: &mut Vec<Vec<String>>, global_str_arr_bounds: &mut Vec<Vec<(i32, i32)>>");
         if !rust_params.is_empty() {
             self.output.push_str(", ");
             self.output.push_str(&rust_params.join(", "));
@@ -3790,8 +5502,16 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 static_arr_name.to_uppercase()
             ));
             self.output.push_str(&format!(
+                "    let mut arr_bounds = {}.with(|cell| cell.borrow().clone());\n",
+                static_arr_bounds_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
                 "    let mut str_arr_vars = {}.with(|cell| cell.borrow().clone());\n",
                 static_str_arr_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
+                "    let mut str_arr_bounds = {}.with(|cell| cell.borrow().clone());\n",
+                static_str_arr_bounds_name.to_uppercase()
             ));
         } else {
             self.output.push_str(&format!(
@@ -3807,7 +5527,15 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 self.arr_vars.len().max(1)
             ));
             self.output.push_str(&format!(
+                "    let mut arr_bounds: Vec<Vec<(i32, i32)>> = vec![Vec::new(); {}];\n",
+                self.arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
                 "    let mut str_arr_vars: Vec<Vec<String>> = vec![Vec::new(); {}];\n",
+                self.str_arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
+                "    let mut str_arr_bounds: Vec<Vec<(i32, i32)>> = vec![Vec::new(); {}];\n",
                 self.str_arr_vars.len().max(1)
             ));
         }
@@ -3824,7 +5552,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                     .replace("!", "_F")
                     .replace("#", "_D")
             );
-            if param.type_suffix == Some('$') || param_name.ends_with('$') {
+            if self.variable_is_string(param) {
                 let idx = self.get_str_var_idx(param_name);
                 if let Some(width) = param.fixed_length {
                     self.output.push_str(&format!(
@@ -3870,8 +5598,16 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 static_arr_name.to_uppercase()
             ));
             self.output.push_str(&format!(
+                "    {}.with(|cell| *cell.borrow_mut() = arr_bounds.clone());\n",
+                static_arr_bounds_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
                 "    {}.with(|cell| *cell.borrow_mut() = str_arr_vars.clone());\n",
                 static_str_arr_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
+                "    {}.with(|cell| *cell.borrow_mut() = str_arr_bounds.clone());\n",
+                static_str_arr_bounds_name.to_uppercase()
             ));
         }
 
@@ -3887,7 +5623,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                     .replace("!", "_F")
                     .replace("#", "_D")
             );
-            if param.type_suffix == Some('$') || param_name.ends_with('$') {
+            if self.variable_is_string(param) {
                 let idx = self.get_str_var_idx(param_name);
                 if let Some(width) = param.fixed_length {
                     self.output.push_str(&format!(
@@ -3962,7 +5698,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                     .replace("#", "_D")
             );
 
-            if param.type_suffix == Some('$') || param_name.ends_with('$') {
+            if self.variable_is_string(param) {
                 rust_params.push(format!("{}: &mut String", rust_name));
                 let _ = self.get_str_var_idx(param_name);
                 if let Some(width) = param.fixed_length {
@@ -3976,7 +5712,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
 
         // Reserve return value
         let ret_name = func.name.clone();
-        if ret_name.ends_with('$') {
+        if matches!(func.return_type, QType::String(_)) {
             self.get_str_var_idx(&ret_name);
             if let Some(width) = func.return_fixed_length {
                 self.field_widths.insert(ret_name.to_uppercase(), width);
@@ -3988,7 +5724,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
         self.collect_vars(&func.body);
 
         let fn_name = self.rust_symbol("func", &func.name);
-        let ret_type = if func.name.ends_with('$') {
+        let ret_type = if matches!(func.return_type, QType::String(_)) {
             "String"
         } else {
             "f64"
@@ -3996,7 +5732,9 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
         let static_num_name = format!("{}_static_num", fn_name);
         let static_str_name = format!("{}_static_str", fn_name);
         let static_arr_name = format!("{}_static_arr", fn_name);
+        let static_arr_bounds_name = format!("{}_static_arr_bounds", fn_name);
         let static_str_arr_name = format!("{}_static_str_arr", fn_name);
+        let static_str_arr_bounds_name = format!("{}_static_str_arr_bounds", fn_name);
 
         if func.is_static {
             self.output.push_str("thread_local! {\n");
@@ -4016,15 +5754,25 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 self.arr_vars.len().max(1)
             ));
             self.output.push_str(&format!(
+                "    static {}: std::cell::RefCell<Vec<Vec<(i32, i32)>>> = std::cell::RefCell::new(vec![Vec::new(); {}]);\n",
+                static_arr_bounds_name.to_uppercase(),
+                self.arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
                 "    static {}: std::cell::RefCell<Vec<Vec<String>>> = std::cell::RefCell::new(vec![Vec::new(); {}]);\n",
                 static_str_arr_name.to_uppercase(),
+                self.str_arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
+                "    static {}: std::cell::RefCell<Vec<Vec<(i32, i32)>>> = std::cell::RefCell::new(vec![Vec::new(); {}]);\n",
+                static_str_arr_bounds_name.to_uppercase(),
                 self.str_arr_vars.len().max(1)
             ));
             self.output.push_str("}\n");
         }
 
         self.output.push_str(&format!("\nfn {}(", fn_name));
-        self.output.push_str("global_num_vars: &mut Vec<f64>, global_str_vars: &mut Vec<String>, global_arr_vars: &mut Vec<Vec<f64>>, global_str_arr_vars: &mut Vec<Vec<String>>");
+        self.output.push_str("global_num_vars: &mut Vec<f64>, global_str_vars: &mut Vec<String>, global_arr_vars: &mut Vec<Vec<f64>>, global_arr_bounds: &mut Vec<Vec<(i32, i32)>>, global_str_arr_vars: &mut Vec<Vec<String>>, global_str_arr_bounds: &mut Vec<Vec<(i32, i32)>>");
         if !rust_params.is_empty() {
             self.output.push_str(", ");
             self.output.push_str(&rust_params.join(", "));
@@ -4045,8 +5793,16 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 static_arr_name.to_uppercase()
             ));
             self.output.push_str(&format!(
+                "    let mut arr_bounds = {}.with(|cell| cell.borrow().clone());\n",
+                static_arr_bounds_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
                 "    let mut str_arr_vars = {}.with(|cell| cell.borrow().clone());\n",
                 static_str_arr_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
+                "    let mut str_arr_bounds = {}.with(|cell| cell.borrow().clone());\n",
+                static_str_arr_bounds_name.to_uppercase()
             ));
         } else {
             self.output.push_str(&format!(
@@ -4062,7 +5818,15 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 self.arr_vars.len().max(1)
             ));
             self.output.push_str(&format!(
+                "    let mut arr_bounds: Vec<Vec<(i32, i32)>> = vec![Vec::new(); {}];\n",
+                self.arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
                 "    let mut str_arr_vars: Vec<Vec<String>> = vec![Vec::new(); {}];\n",
+                self.str_arr_vars.len().max(1)
+            ));
+            self.output.push_str(&format!(
+                "    let mut str_arr_bounds: Vec<Vec<(i32, i32)>> = vec![Vec::new(); {}];\n",
                 self.str_arr_vars.len().max(1)
             ));
         }
@@ -4079,7 +5843,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                     .replace("!", "_F")
                     .replace("#", "_D")
             );
-            if param.type_suffix == Some('$') || param_name.ends_with('$') {
+            if self.variable_is_string(param) {
                 let idx = self.get_str_var_idx(param_name);
                 if let Some(width) = param.fixed_length {
                     self.output.push_str(&format!(
@@ -4125,8 +5889,16 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                 static_arr_name.to_uppercase()
             ));
             self.output.push_str(&format!(
+                "    {}.with(|cell| *cell.borrow_mut() = arr_bounds.clone());\n",
+                static_arr_bounds_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
                 "    {}.with(|cell| *cell.borrow_mut() = str_arr_vars.clone());\n",
                 static_str_arr_name.to_uppercase()
+            ));
+            self.output.push_str(&format!(
+                "    {}.with(|cell| *cell.borrow_mut() = str_arr_bounds.clone());\n",
+                static_str_arr_bounds_name.to_uppercase()
             ));
         }
 
@@ -4142,7 +5914,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
                     .replace("!", "_F")
                     .replace("#", "_D")
             );
-            if param.type_suffix == Some('$') || param_name.ends_with('$') {
+            if self.variable_is_string(param) {
                 let idx = self.get_str_var_idx(param_name);
                 if let Some(width) = param.fixed_length {
                     self.output.push_str(&format!(
@@ -4165,7 +5937,7 @@ fn qb_ubound<T>(arr: &[T]) -> f64 { arr.len().saturating_sub(1) as f64 }
         }
 
         // Return value
-        if ret_name.ends_with('$') {
+        if matches!(func.return_type, QType::String(_)) {
             let idx = self.get_str_var_idx(&ret_name);
             self.output
                 .push_str(&format!("    get_str(&str_vars, {})\n", idx));

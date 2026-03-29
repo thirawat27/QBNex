@@ -19,18 +19,28 @@ struct UdtFieldLayout {
     field_type: QType,
     fixed_length: Option<usize>,
     offset: usize,
-    array_index: Option<Expression>,
+    array_indices: Option<Vec<Expression>>,
 }
 
 #[derive(Clone)]
 struct ResolvedUdtObject {
     storage_base: String,
     type_name: String,
-    array_index: Option<Expression>,
+    array_indices: Option<Vec<Expression>>,
 }
 
 impl CodeGenerator {
     fn binary_scalar_kind(var: &Variable) -> &'static str {
+        if let Some(declared_type) = &var.declared_type {
+            match Self::declared_type_to_qtype(declared_type) {
+                QType::Integer(_) => return "i16",
+                QType::Long(_) => return "i32",
+                QType::Single(_) => return "f32",
+                QType::Double(_) => return "f64",
+                QType::String(_) => return "str",
+                _ => {}
+            }
+        }
         match var.type_suffix.or_else(|| {
             var.name
                 .chars()
@@ -61,10 +71,126 @@ impl CodeGenerator {
         name.to_uppercase()
     }
 
+    fn normalize_declared_type_name(type_name: &str) -> String {
+        type_name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_uppercase()
+    }
+
+    fn declared_type_to_qtype(type_name: &str) -> QType {
+        match Self::normalize_declared_type_name(type_name).as_str() {
+            "INTEGER" => QType::Integer(0),
+            "LONG" => QType::Long(0),
+            "SINGLE" => QType::Single(0.0),
+            "DOUBLE" | "_FLOAT" | "FLOAT" => QType::Double(0.0),
+            "STRING" => QType::String(String::new()),
+            "_BYTE" | "BYTE" | "_BIT" | "BIT" => QType::Integer(0),
+            "_UNSIGNED _BYTE" | "UNSIGNED _BYTE" | "_UNSIGNED BYTE" | "UNSIGNED BYTE"
+            | "_UNSIGNED _BIT" | "UNSIGNED _BIT" | "_UNSIGNED BIT" | "UNSIGNED BIT" => {
+                QType::Integer(0)
+            }
+            "_UNSIGNED INTEGER" | "UNSIGNED INTEGER" => QType::Long(0),
+            "_UNSIGNED LONG"
+            | "UNSIGNED LONG"
+            | "_INTEGER64"
+            | "INTEGER64"
+            | "_UNSIGNED _INTEGER64"
+            | "UNSIGNED _INTEGER64"
+            | "_UNSIGNED INTEGER64"
+            | "UNSIGNED INTEGER64"
+            | "_OFFSET"
+            | "OFFSET"
+            | "_UNSIGNED _OFFSET"
+            | "UNSIGNED _OFFSET"
+            | "_UNSIGNED OFFSET"
+            | "UNSIGNED OFFSET" => QType::Double(0.0),
+            _ => QType::UserDefined(type_name.as_bytes().to_vec()),
+        }
+    }
+
+    fn qtype_is_string(qtype: &QType) -> bool {
+        matches!(qtype, QType::String(_))
+    }
+
+    fn qtype_is_numeric(qtype: &QType) -> bool {
+        matches!(
+            qtype,
+            QType::Integer(_) | QType::Long(_) | QType::Single(_) | QType::Double(_)
+        )
+    }
+
+    fn variable_type_hint(&self, var: &Variable) -> Option<QType> {
+        if let Some(declared_type) = &var.declared_type {
+            return Some(Self::declared_type_to_qtype(declared_type));
+        }
+
+        if let Some(suffix) = var.type_suffix.or_else(|| {
+            var.name
+                .chars()
+                .last()
+                .filter(|suffix| matches!(suffix, '%' | '&' | '!' | '#' | '$'))
+        }) {
+            return Some(match suffix {
+                '%' => QType::Integer(0),
+                '&' => QType::Long(0),
+                '!' => QType::Single(0.0),
+                '#' => QType::Double(0.0),
+                '$' => QType::String(String::new()),
+                _ => QType::Empty,
+            });
+        }
+
+        let name_upper = var.name.to_uppercase();
+        if self.str_vars.contains_key(&name_upper) {
+            Some(QType::String(String::new()))
+        } else if self.num_vars.contains_key(&name_upper) {
+            Some(QType::Double(0.0))
+        } else {
+            None
+        }
+    }
+
+    fn variable_is_string(&self, var: &Variable) -> bool {
+        self.variable_type_hint(var)
+            .as_ref()
+            .is_some_and(Self::qtype_is_string)
+    }
+
+    fn name_is_string(&self, name: &str) -> bool {
+        name.ends_with('$') || self.str_vars.contains_key(&name.to_uppercase())
+    }
+
+    fn array_is_string(&self, name: &str, type_suffix: Option<char>) -> bool {
+        type_suffix == Some('$')
+            || name.ends_with('$')
+            || self.str_arr_vars.contains_key(&name.to_uppercase())
+    }
+
+    fn function_returns_string(&self, name: &str, type_suffix: Option<char>) -> bool {
+        if type_suffix == Some('$') || name.ends_with('$') {
+            return true;
+        }
+
+        self.function_return_types
+            .get(&name.to_uppercase())
+            .is_some_and(Self::qtype_is_string)
+    }
+
     fn variable_udt_type(&self, var: &Variable) -> Option<String> {
         var.declared_type
             .as_ref()
-            .map(|s| Self::normalize_udt_name(s))
+            .and_then(|declared_type| {
+                if matches!(
+                    Self::declared_type_to_qtype(declared_type),
+                    QType::UserDefined(_)
+                ) {
+                    Some(Self::normalize_udt_name(declared_type))
+                } else {
+                    None
+                }
+            })
             .or_else(|| {
                 self.udt_vars
                     .get(&Self::normalize_udt_name(&var.name))
@@ -82,8 +208,54 @@ impl CodeGenerator {
         path.to_uppercase()
     }
 
+    fn qualified_field_name(expr: &Expression) -> Option<String> {
+        expr.flattened_qb64_name().filter(|name| name.contains('.'))
+    }
+
     fn fixed_string_width_for_name(&self, name: &str) -> Option<usize> {
         self.field_widths.get(&name.to_uppercase()).copied()
+    }
+
+    fn native_bound_value_expr(&mut self, expr: &Expression) -> QResult<String> {
+        let value = self.generate_expression(expr)?;
+        Ok(format!("qb_array_bound_value({})", value))
+    }
+
+    fn native_array_bounds_expr(&mut self, dimensions: &[ArrayDimension]) -> QResult<String> {
+        let mut bounds = Vec::with_capacity(dimensions.len());
+        for dimension in dimensions {
+            let lower = if let Some(lower_bound) = &dimension.lower_bound {
+                self.native_bound_value_expr(lower_bound)?
+            } else {
+                "qb_current_option_base()".to_string()
+            };
+            let upper = self.native_bound_value_expr(&dimension.upper_bound)?;
+            bounds.push(format!("({}, {})", lower, upper));
+        }
+        Ok(format!("vec![{}]", bounds.join(", ")))
+    }
+
+    fn native_array_indices_expr(&mut self, indices: &[Expression]) -> QResult<String> {
+        let mut values = Vec::with_capacity(indices.len());
+        for index in indices {
+            values.push(self.generate_expression(index)?);
+        }
+        Ok(format!("&[{}]", values.join(", ")))
+    }
+
+    fn native_cached_array_indices(
+        &mut self,
+        indices: &[Expression],
+    ) -> QResult<(Vec<String>, String)> {
+        let mut setup_lines = Vec::with_capacity(indices.len());
+        let mut cached_values = Vec::with_capacity(indices.len());
+        for index in indices {
+            let tmp = self.next_temp_var();
+            let value = self.generate_expression(index)?;
+            setup_lines.push(format!("let {} = {};", tmp, value));
+            cached_values.push(tmp);
+        }
+        Ok((setup_lines, format!("&[{}]", cached_values.join(", "))))
     }
 
     fn lookup_udt_field(&self, type_name: &str, field: &str) -> Option<TypeField> {
@@ -146,7 +318,7 @@ impl CodeGenerator {
                             field_type: field.field_type.clone(),
                             fixed_length: field.fixed_length,
                             offset,
-                            array_index: None,
+                            array_indices: None,
                         });
                         offset += size;
                     }
@@ -203,7 +375,7 @@ impl CodeGenerator {
                     field_type: type_field.field_type,
                     fixed_length: type_field.fixed_length,
                     offset: 0,
-                    array_index: resolved.array_index,
+                    array_indices: resolved.array_indices,
                 })
             }
             _ => None,
@@ -217,16 +389,15 @@ impl CodeGenerator {
                     .map(|type_name| ResolvedUdtObject {
                         storage_base: Self::normalize_udt_name(&var.name),
                         type_name,
-                        array_index: None,
+                        array_indices: None,
                     })
             }
             Expression::ArrayAccess { name, indices, .. } => {
-                let index = indices.first()?.clone();
                 self.array_udt_type(name)
                     .map(|type_name| ResolvedUdtObject {
                         storage_base: Self::normalize_udt_name(name),
                         type_name,
-                        array_index: Some(index),
+                        array_indices: Some(indices.clone()),
                     })
             }
             Expression::FieldAccess { object, field } => {
@@ -239,7 +410,7 @@ impl CodeGenerator {
                             resolved.storage_base, field
                         )),
                         type_name: String::from_utf8_lossy(&type_name_bytes).to_string(),
-                        array_index: resolved.array_index,
+                        array_indices: resolved.array_indices,
                     }),
                     _ => None,
                 }
@@ -255,19 +426,19 @@ impl CodeGenerator {
         type_name: &str,
         file_number: &str,
         record: &str,
-        array_index: Option<&Expression>,
+        array_indices: Option<&[Expression]>,
     ) {
         let base_pos = self.next_temp_var();
         self.output
             .push_str(&format!("{}let {} = {};\n", indent, base_pos, record));
-        let cached_array_index = if let Some(index_expr) = array_index {
-            let index_tmp = self.next_temp_var();
-            let index_code = self
-                .generate_expression(index_expr)
-                .unwrap_or_else(|_| "0.0".to_string());
-            self.output
-                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
-            Some(index_tmp)
+        let cached_array_indices = if let Some(indices) = array_indices {
+            let (setup_lines, index_slice) = self
+                .native_cached_array_indices(indices)
+                .unwrap_or_else(|_| (Vec::new(), "&[]".to_string()));
+            for line in setup_lines {
+                self.output.push_str(&format!("{}{}\n", indent, line));
+            }
+            Some(index_slice)
         } else {
             None
         };
@@ -284,13 +455,13 @@ impl CodeGenerator {
                         "{}let {} = qb_get_string_from_file({}, {}, {}.0);\n",
                         indent, tmp, file_number, field_pos, size_hint
                     ));
-                    if array_index.is_some() {
+                    if array_indices.is_some() {
                         let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                        let index_code = cached_array_index
+                        let index_code = cached_array_indices
                             .as_deref()
                             .unwrap_or_else(|| unreachable!());
                         self.output.push_str(&format!(
-                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                            "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
                             indent, arr_idx, index_code, tmp
                         ));
                     } else {
@@ -313,13 +484,13 @@ impl CodeGenerator {
                         "{}let {} = {}({}, {});\n",
                         indent, tmp, helper, file_number, field_pos
                     ));
-                    if array_index.is_some() {
+                    if array_indices.is_some() {
                         let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                        let index_code = cached_array_index
+                        let index_code = cached_array_indices
                             .as_deref()
                             .unwrap_or_else(|| unreachable!());
                         self.output.push_str(&format!(
-                            "{}arr_set(&mut arr_vars, {}, {}, {});\n",
+                            "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});\n",
                             indent, arr_idx, index_code, tmp
                         ));
                     } else {
@@ -342,19 +513,19 @@ impl CodeGenerator {
         type_name: &str,
         file_number: &str,
         record: &str,
-        array_index: Option<&Expression>,
+        array_indices: Option<&[Expression]>,
     ) {
         let base_pos = self.next_temp_var();
         self.output
             .push_str(&format!("{}let {} = {};\n", indent, base_pos, record));
-        let cached_array_index = if let Some(index_expr) = array_index {
-            let index_tmp = self.next_temp_var();
-            let index_code = self
-                .generate_expression(index_expr)
-                .unwrap_or_else(|_| "0.0".to_string());
-            self.output
-                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
-            Some(index_tmp)
+        let cached_array_indices = if let Some(indices) = array_indices {
+            let (setup_lines, index_slice) = self
+                .native_cached_array_indices(indices)
+                .unwrap_or_else(|_| (Vec::new(), "&[]".to_string()));
+            for line in setup_lines {
+                self.output.push_str(&format!("{}{}\n", indent, line));
+            }
+            Some(index_slice)
         } else {
             None
         };
@@ -366,13 +537,13 @@ impl CodeGenerator {
             match field.field_type {
                 QType::String(_) => {
                     let tmp = self.next_temp_var();
-                    if array_index.is_some() {
+                    if array_indices.is_some() {
                         let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                        let index_code = cached_array_index
+                        let index_code = cached_array_indices
                             .as_deref()
                             .unwrap_or_else(|| unreachable!());
                         self.output.push_str(&format!(
-                            "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                            "{}let {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});\n",
                             indent, tmp, arr_idx, index_code
                         ));
                     } else {
@@ -402,13 +573,13 @@ impl CodeGenerator {
                         _ => "qb_put_f32",
                     };
                     let tmp = self.next_temp_var();
-                    if array_index.is_some() {
+                    if array_indices.is_some() {
                         let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                        let index_code = cached_array_index
+                        let index_code = cached_array_indices
                             .as_deref()
                             .unwrap_or_else(|| unreachable!());
                         self.output.push_str(&format!(
-                            "{}let {} = arr_get(&arr_vars, {}, {});\n",
+                            "{}let {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});\n",
                             indent, tmp, arr_idx, index_code
                         ));
                     } else {
@@ -435,12 +606,12 @@ impl CodeGenerator {
         file_number: &str,
         record: &str,
     ) -> QResult<()> {
-        let cached_array_index = if let Some(index_expr) = &field.array_index {
-            let index_tmp = self.next_temp_var();
-            let index_code = self.generate_expression(index_expr)?;
-            self.output
-                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
-            Some(index_tmp)
+        let cached_array_indices = if let Some(indices) = field.array_indices.as_deref() {
+            let (setup_lines, index_slice) = self.native_cached_array_indices(indices)?;
+            for line in setup_lines {
+                self.output.push_str(&format!("{}{}\n", indent, line));
+            }
+            Some(index_slice)
         } else {
             None
         };
@@ -452,13 +623,13 @@ impl CodeGenerator {
                     "{}let {} = qb_get_string_from_file({}, {}, {}.0);\n",
                     indent, tmp, file_number, record, size_hint
                 ));
-                if field.array_index.is_some() {
+                if field.array_indices.is_some() {
                     let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                    let index_code = cached_array_index
+                    let index_code = cached_array_indices
                         .as_deref()
                         .unwrap_or_else(|| unreachable!());
                     self.output.push_str(&format!(
-                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                        "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
                         indent, arr_idx, index_code, tmp
                     ));
                 } else {
@@ -482,13 +653,13 @@ impl CodeGenerator {
                     "{}let {} = {}({}, {});\n",
                     indent, tmp, helper, file_number, record
                 ));
-                if field.array_index.is_some() {
+                if field.array_indices.is_some() {
                     let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                    let index_code = cached_array_index
+                    let index_code = cached_array_indices
                         .as_deref()
                         .unwrap_or_else(|| unreachable!());
                     self.output.push_str(&format!(
-                        "{}arr_set(&mut arr_vars, {}, {}, {});\n",
+                        "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});\n",
                         indent, arr_idx, index_code, tmp
                     ));
                 } else {
@@ -514,25 +685,25 @@ impl CodeGenerator {
         file_number: &str,
         record: &str,
     ) -> QResult<()> {
-        let cached_array_index = if let Some(index_expr) = &field.array_index {
-            let index_tmp = self.next_temp_var();
-            let index_code = self.generate_expression(index_expr)?;
-            self.output
-                .push_str(&format!("{}let {} = {};\n", indent, index_tmp, index_code));
-            Some(index_tmp)
+        let cached_array_indices = if let Some(indices) = field.array_indices.as_deref() {
+            let (setup_lines, index_slice) = self.native_cached_array_indices(indices)?;
+            for line in setup_lines {
+                self.output.push_str(&format!("{}{}\n", indent, line));
+            }
+            Some(index_slice)
         } else {
             None
         };
         match field.field_type {
             QType::String(_) => {
                 let tmp = self.next_temp_var();
-                if field.array_index.is_some() {
+                if field.array_indices.is_some() {
                     let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                    let index_code = cached_array_index
+                    let index_code = cached_array_indices
                         .as_deref()
                         .unwrap_or_else(|| unreachable!());
                     self.output.push_str(&format!(
-                        "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                        "{}let {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});\n",
                         indent, tmp, arr_idx, index_code
                     ));
                 } else {
@@ -563,13 +734,13 @@ impl CodeGenerator {
                     _ => "qb_put_f32",
                 };
                 let tmp = self.next_temp_var();
-                if field.array_index.is_some() {
+                if field.array_indices.is_some() {
                     let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                    let index_code = cached_array_index
+                    let index_code = cached_array_indices
                         .as_deref()
                         .unwrap_or_else(|| unreachable!());
                     self.output.push_str(&format!(
-                        "{}let {} = arr_get(&arr_vars, {}, {});\n",
+                        "{}let {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});\n",
                         indent, tmp, arr_idx, index_code
                     ));
                 } else {
@@ -619,40 +790,38 @@ impl CodeGenerator {
             Statement::PrintUsing {
                 format,
                 expressions,
+                separators,
                 newline,
             } => {
-                let format_code = self.generate_expression(format)?;
-                let pattern_tmp = self.next_temp_var();
-                let values_tmp = self.next_temp_var();
-                self.output.push_str(&format!(
-                    "{}let {} = {};\n",
-                    indent, pattern_tmp, format_code
-                ));
-                self.output.push_str(&format!(
-                    "{}let mut {}: Vec<String> = Vec::new();\n",
-                    indent, values_tmp
-                ));
-                for expr in expressions {
-                    let expr_code = self.generate_expression(expr)?;
-                    self.output.push_str(&format!(
-                        "{}{}.push(format!(\"{{}}\", {}));\n",
-                        indent, values_tmp, expr_code
-                    ));
-                }
-                self.output.push_str(&format!(
-                    "{}qb_print_using(&{}, &{}, {});\n",
-                    indent, pattern_tmp, values_tmp, newline
-                ));
+                self.generate_print_using(&indent, format, expressions, separators, *newline)?;
             }
 
             Statement::LPrintUsing {
                 format,
                 expressions,
+                separators,
                 newline,
             } => {
+                self.generate_lprint_using(&indent, format, expressions, separators, *newline)?;
+            }
+
+            Statement::PrintFileUsing {
+                file_number,
+                format,
+                expressions,
+                separators,
+                newline,
+            } => {
+                let file_number_code = self.generate_expression(file_number)?;
                 let format_code = self.generate_expression(format)?;
+                let file_number_tmp = self.next_temp_var();
                 let pattern_tmp = self.next_temp_var();
                 let values_tmp = self.next_temp_var();
+                let comma_tmp = self.next_temp_var();
+                self.output.push_str(&format!(
+                    "{}let {} = {};\n",
+                    indent, file_number_tmp, file_number_code
+                ));
                 self.output.push_str(&format!(
                     "{}let {} = {};\n",
                     indent, pattern_tmp, format_code
@@ -661,16 +830,28 @@ impl CodeGenerator {
                     "{}let mut {}: Vec<String> = Vec::new();\n",
                     indent, values_tmp
                 ));
-                for expr in expressions {
+                self.output.push_str(&format!(
+                    "{}let mut {}: Vec<bool> = Vec::new();\n",
+                    indent, comma_tmp
+                ));
+                for expr in expressions.iter() {
                     let expr_code = self.generate_expression(expr)?;
                     self.output.push_str(&format!(
                         "{}{}.push(format!(\"{{}}\", {}));\n",
                         indent, values_tmp, expr_code
                     ));
                 }
+                for separator in separators.iter().take(expressions.len()) {
+                    self.output.push_str(&format!(
+                        "{}{}.push({});\n",
+                        indent,
+                        comma_tmp,
+                        matches!(separator, Some(PrintSeparator::Comma))
+                    ));
+                }
                 self.output.push_str(&format!(
-                    "{}qb_lprint_using(&{}, &{}, {});\n",
-                    indent, pattern_tmp, values_tmp, newline
+                    "{}qb_file_print_using({}, &{}, &{}, &{}, {});\n",
+                    indent, file_number_tmp, pattern_tmp, values_tmp, comma_tmp, newline
                 ));
             }
 
@@ -682,7 +863,7 @@ impl CodeGenerator {
                 ));
                 for expr in expressions {
                     let expr_code = self.generate_expression(expr)?;
-                    if Self::is_string_expression(expr) {
+                    if self.is_string_expression(expr) {
                         self.output.push_str(&format!(
                             "{}{}.push(qb_write_string_field(&{}));\n",
                             indent, values_tmp, expr_code
@@ -716,22 +897,53 @@ impl CodeGenerator {
                         indent, file_number, expr_code
                     ));
                     if matches!(separators.get(index), Some(Some(PrintSeparator::Comma))) {
-                        self.output
-                            .push_str(&format!("{}qb_file_print_comma({});\n", indent, file_number));
+                        self.output.push_str(&format!(
+                            "{}qb_file_print_comma({});\n",
+                            indent, file_number
+                        ));
                     }
                 }
                 if *newline {
-                    self.output
-                        .push_str(&format!("{}qb_file_print_newline({});\n", indent, file_number));
+                    self.output.push_str(&format!(
+                        "{}qb_file_print_newline({});\n",
+                        indent, file_number
+                    ));
                 }
             }
 
             Statement::Assignment { target, value } => {
+                let asc_assign_args = match target {
+                    Expression::FunctionCall(func) if func.name.eq_ignore_ascii_case("ASC") => {
+                        Some(func.args.clone())
+                    }
+                    Expression::ArrayAccess { name, indices, .. }
+                        if name.eq_ignore_ascii_case("ASC") =>
+                    {
+                        Some(indices.clone())
+                    }
+                    _ => None,
+                };
+
+                if let Some(args) = asc_assign_args {
+                    if args.len() >= 2 {
+                        let original_code = self.generate_expression(&args[0])?;
+                        let position_code = self.generate_expression(&args[1])?;
+                        let value_code = self.generate_expression(value)?;
+                        let tmp = self.next_temp_var();
+                        self.output.push_str(&format!(
+                            "{}let {} = qb_set_asc(&{}, {}, {});\n",
+                            indent, tmp, original_code, position_code, value_code
+                        ));
+                        self.generate_store_from_text_value(indent.as_str(), &args[0], &tmp, true)?;
+                        return Ok(());
+                    }
+                }
+
                 let value_code = self.generate_expression(value)?;
                 match target {
                     Expression::Variable(var) => {
                         let name_upper = var.name.to_uppercase();
-                        if var.type_suffix == Some('$') || name_upper.ends_with('$') {
+                        if self.variable_is_string(var) {
                             let idx = self.get_str_var_idx(&name_upper);
                             let width = self.fixed_string_width_for_name(&name_upper);
                             // Avoid mutable borrow conflict
@@ -828,10 +1040,10 @@ impl CodeGenerator {
                                     indent, idx, result_tmp
                                 ));
                             }
-                        } else if name.ends_with('$') {
-                            if let Some(idx) = indices.first() {
+                        } else if self.array_is_string(name, None) {
+                            if !indices.is_empty() {
                                 let arr_idx = self.get_str_arr_var_idx(name);
-                                let idx_code = self.generate_expression(idx)?;
+                                let idx_code = self.native_array_indices_expr(indices)?;
                                 let width = self.fixed_string_width_for_name(name);
                                 self.output.push_str(&format!(
                                     "{}let _tmp_str = {};\n",
@@ -839,25 +1051,25 @@ impl CodeGenerator {
                                 ));
                                 if let Some(width) = width {
                                     self.output.push_str(&format!(
-                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                        "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
                                         indent, arr_idx, idx_code, width
                                     ));
                                 } else {
                                     self.output.push_str(&format!(
-                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &_tmp_str);\n",
+                                        "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &_tmp_str);\n",
                                         indent, arr_idx, idx_code
                                     ));
                                 }
                             }
-                        } else if let Some(idx) = indices.first() {
+                        } else if !indices.is_empty() {
                             let arr_idx = self.get_arr_var_idx(name);
-                            let idx_code = self.generate_expression(idx)?;
+                            let idx_code = self.native_array_indices_expr(indices)?;
                             self.output.push_str(&format!(
                                 "{}let _val = {} as f64;\n",
                                 indent, value_code
                             ));
                             self.output.push_str(&format!(
-                                "{}arr_set(&mut arr_vars, {}, {}, _val);\n",
+                                "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, _val);\n",
                                 indent, arr_idx, idx_code
                             ));
                         }
@@ -871,17 +1083,17 @@ impl CodeGenerator {
                                         "{}let _tmp_str = {};\n",
                                         indent, value_code
                                     ));
-                                    if let Some(index_expr) = &field.array_index {
+                                    if let Some(indices) = field.array_indices.as_ref() {
                                         let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                                        let index_code = self.generate_expression(index_expr)?;
+                                        let index_code = self.native_array_indices_expr(indices)?;
                                         if let Some(width) = width {
                                             self.output.push_str(&format!(
-                                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                                "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
                                                 indent, arr_idx, index_code, width
                                             ));
                                         } else {
                                             self.output.push_str(&format!(
-                                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &_tmp_str);\n",
+                                                "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &_tmp_str);\n",
                                                 indent, arr_idx, index_code
                                             ));
                                         }
@@ -908,11 +1120,11 @@ impl CodeGenerator {
                                         "{}let _val = {} as f64;\n",
                                         indent, value_code
                                     ));
-                                    if let Some(index_expr) = &field.array_index {
+                                    if let Some(indices) = field.array_indices.as_ref() {
                                         let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                                        let index_code = self.generate_expression(index_expr)?;
+                                        let index_code = self.native_array_indices_expr(indices)?;
                                         self.output.push_str(&format!(
-                                            "{}arr_set(&mut arr_vars, {}, {}, _val);\n",
+                                            "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, _val);\n",
                                             indent, arr_idx, index_code
                                         ));
                                     } else {
@@ -925,6 +1137,36 @@ impl CodeGenerator {
                                 }
                                 _ => {}
                             }
+                        } else if let Some(name) = Self::qualified_field_name(target) {
+                            if self.name_is_string(&name) {
+                                let idx = self.get_str_var_idx(&name);
+                                let width = self.fixed_string_width_for_name(&name);
+                                self.output.push_str(&format!(
+                                    "{}let _tmp_str = {};\n",
+                                    indent, value_code
+                                ));
+                                if let Some(width) = width {
+                                    self.output.push_str(&format!(
+                                        "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                        indent, idx, width
+                                    ));
+                                } else {
+                                    self.output.push_str(&format!(
+                                        "{}set_str(&mut str_vars, {}, &_tmp_str);\n",
+                                        indent, idx
+                                    ));
+                                }
+                            } else {
+                                let idx = self.get_num_var_idx(&name);
+                                self.output.push_str(&format!(
+                                    "{}let _val = {} as f64;\n",
+                                    indent, value_code
+                                ));
+                                self.output.push_str(&format!(
+                                    "{}set_var(&mut num_vars, {}, _val);\n",
+                                    indent, idx
+                                ));
+                            }
                         }
                     }
                     _ => {}
@@ -932,140 +1174,269 @@ impl CodeGenerator {
             }
 
             Statement::Dim { variables, .. } => {
-                for (var, dim_expr) in variables {
+                for (var, dimensions) in variables {
                     let var_name = &var.name;
                     if let Some(declared_type) = &var.declared_type {
-                        if let Some(expr) = dim_expr {
-                            let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
-                            self.ensure_udt_array_storage(var_name, declared_type);
-                            let normalized = Self::normalize_udt_name(var_name);
-                            for field in self.collect_udt_layout(&normalized, declared_type) {
-                                match field.field_type {
-                                    QType::String(_) => {
-                                        let idx = self.get_str_arr_var_idx(&field.storage_name);
-                                        let init_guard = if self.current_proc_is_static {
-                                            format!(" && str_arr_vars[{}].is_empty()", idx)
-                                        } else {
-                                            String::new()
-                                        };
-                                        self.output.push_str(&format!(
-                                            "{}if {} < str_arr_vars.len(){} {{ str_arr_vars[{}] = vec![String::new(); {}]; }}\n",
-                                            indent, idx, init_guard, idx, size
-                                        ));
+                        match Self::declared_type_to_qtype(declared_type) {
+                            QType::UserDefined(_) => {
+                                if let Some(dimensions) = dimensions {
+                                    let bounds_tmp = self.next_temp_var();
+                                    let bounds = self.native_array_bounds_expr(dimensions)?;
+                                    self.ensure_udt_array_storage(var_name, declared_type);
+                                    self.output.push_str(&format!(
+                                        "{}let {} = {};\n",
+                                        indent, bounds_tmp, bounds
+                                    ));
+                                    let normalized = Self::normalize_udt_name(var_name);
+                                    for field in self.collect_udt_layout(&normalized, declared_type)
+                                    {
+                                        match field.field_type {
+                                            QType::String(_) => {
+                                                let idx =
+                                                    self.get_str_arr_var_idx(&field.storage_name);
+                                                let init_guard = if self.current_proc_is_static {
+                                                    format!(" && str_arr_vars[{}].is_empty()", idx)
+                                                } else {
+                                                    String::new()
+                                                };
+                                                self.output.push_str(&format!(
+                                                    "{}if {} < str_arr_vars.len(){} {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, false); }}\n",
+                                                    indent, idx, init_guard, idx, bounds_tmp
+                                                ));
+                                            }
+                                            QType::Integer(_)
+                                            | QType::Long(_)
+                                            | QType::Single(_)
+                                            | QType::Double(_) => {
+                                                let idx = self.get_arr_var_idx(&field.storage_name);
+                                                let init_guard = if self.current_proc_is_static {
+                                                    format!(" && arr_vars[{}].is_empty()", idx)
+                                                } else {
+                                                    String::new()
+                                                };
+                                                self.output.push_str(&format!(
+                                                    "{}if {} < arr_vars.len(){} {{ qb_dim_num_array(&mut arr_vars, &mut arr_bounds, {}, &{}, false); }}\n",
+                                                    indent, idx, init_guard, idx, bounds_tmp
+                                                ));
+                                            }
+                                            _ => {}
+                                        }
                                     }
-                                    QType::Integer(_)
-                                    | QType::Long(_)
-                                    | QType::Single(_)
-                                    | QType::Double(_) => {
-                                        let idx = self.get_arr_var_idx(&field.storage_name);
-                                        let init_guard = if self.current_proc_is_static {
-                                            format!(" && arr_vars[{}].is_empty()", idx)
-                                        } else {
-                                            String::new()
-                                        };
-                                        self.output.push_str(&format!(
-                                            "{}if {} < arr_vars.len(){} {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
-                                            indent, idx, init_guard, idx, size
-                                        ));
-                                    }
-                                    _ => {}
+                                } else {
+                                    self.ensure_udt_storage(var_name, declared_type);
                                 }
                             }
+                            QType::String(_) => {
+                                if let Some(width) = var.fixed_length {
+                                    self.field_widths.insert(var_name.to_uppercase(), width);
+                                }
+                                if let Some(dimensions) = dimensions {
+                                    let bounds_tmp = self.next_temp_var();
+                                    let bounds = self.native_array_bounds_expr(dimensions)?;
+                                    let idx = self.get_str_arr_var_idx(var_name);
+                                    let init_guard = if self.current_proc_is_static {
+                                        format!(" && str_arr_vars[{}].is_empty()", idx)
+                                    } else {
+                                        String::new()
+                                    };
+                                    self.output.push_str(&format!(
+                                        "{}let {} = {};\n",
+                                        indent, bounds_tmp, bounds
+                                    ));
+                                    self.output.push_str(&format!(
+                                        "{}if {} < str_arr_vars.len(){} {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, false); }}\n",
+                                        indent, idx, init_guard, idx, bounds_tmp
+                                    ));
+                                }
+                            }
+                            qtype if Self::qtype_is_numeric(&qtype) => {
+                                if let Some(dimensions) = dimensions {
+                                    let bounds_tmp = self.next_temp_var();
+                                    let bounds = self.native_array_bounds_expr(dimensions)?;
+                                    let idx = self.get_arr_var_idx(var_name);
+                                    let init_guard = if self.current_proc_is_static {
+                                        format!(" && arr_vars[{}].is_empty()", idx)
+                                    } else {
+                                        String::new()
+                                    };
+                                    self.output.push_str(&format!(
+                                        "{}let {} = {};\n",
+                                        indent, bounds_tmp, bounds
+                                    ));
+                                    self.output.push_str(&format!(
+                                        "{}if {} < arr_vars.len(){} {{ qb_dim_num_array(&mut arr_vars, &mut arr_bounds, {}, &{}, false); }}\n",
+                                        indent, idx, init_guard, idx, bounds_tmp
+                                    ));
+                                }
+                            }
+                            _ => {}
                         }
                         continue;
                     }
-                    if var.type_suffix == Some('$') || var_name.ends_with('$') {
+                    if self.variable_is_string(var) {
                         if let Some(width) = var.fixed_length {
                             self.field_widths.insert(var_name.to_uppercase(), width);
                         }
-                        if let Some(expr) = dim_expr {
-                            let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
+                        if let Some(dimensions) = dimensions {
+                            let bounds_tmp = self.next_temp_var();
+                            let bounds = self.native_array_bounds_expr(dimensions)?;
                             let idx = self.get_str_arr_var_idx(var_name);
                             let init_guard = if self.current_proc_is_static {
                                 format!(" && str_arr_vars[{}].is_empty()", idx)
                             } else {
                                 String::new()
                             };
+                            self.output
+                                .push_str(&format!("{}let {} = {};\n", indent, bounds_tmp, bounds));
                             self.output.push_str(&format!(
-                                "{}if {} < str_arr_vars.len(){} {{ str_arr_vars[{}] = vec![String::new(); {}]; }}\n",
-                                indent, idx, init_guard, idx, size
+                                "{}if {} < str_arr_vars.len(){} {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, false); }}\n",
+                                indent, idx, init_guard, idx, bounds_tmp
                             ));
                         }
                         continue;
                     }
 
-                    if let Some(expr) = dim_expr {
-                        if let Some(width) = var.fixed_length {
-                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
-                                self.field_widths
-                                    .insert(var.name.to_uppercase(), width);
+                    if let Some(dimensions) = dimensions {
+                        let bounds_tmp = self.next_temp_var();
+                        let bounds = self.native_array_bounds_expr(dimensions)?;
+                        let is_string_array = self.array_is_string(var_name, var.type_suffix);
+                        if is_string_array {
+                            if let Some(width) = var.fixed_length {
+                                self.field_widths.insert(var.name.to_uppercase(), width);
                             }
                         }
-                        let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
-                        let idx = self.get_arr_var_idx(var_name);
+                        let idx = if is_string_array {
+                            self.get_str_arr_var_idx(var_name)
+                        } else {
+                            self.get_arr_var_idx(var_name)
+                        };
                         let init_guard = if self.current_proc_is_static {
-                            format!(" && arr_vars[{}].is_empty()", idx)
+                            if is_string_array {
+                                format!(" && str_arr_vars[{}].is_empty()", idx)
+                            } else {
+                                format!(" && arr_vars[{}].is_empty()", idx)
+                            }
                         } else {
                             String::new()
                         };
-                        // If idx >= arr_vars.len(), we have a problem because arr_vars is pre-allocated?
-                        // But we can re-allocate if needed or check bounds.
-                        // However, main() pre-allocates based on collected vars.
-                        // So idx is valid.
-                        // We just need to set the inner vector size.
-                        self.output.push_str(&format!(
-                            "{}if {} < arr_vars.len(){} {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
-                            indent, idx, init_guard, idx, size
-                        ));
+                        self.output
+                            .push_str(&format!("{}let {} = {};\n", indent, bounds_tmp, bounds));
+                        if is_string_array {
+                            self.output.push_str(&format!(
+                                "{}if {} < str_arr_vars.len(){} {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, false); }}\n",
+                                indent, idx, init_guard, idx, bounds_tmp
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "{}if {} < arr_vars.len(){} {{ qb_dim_num_array(&mut arr_vars, &mut arr_bounds, {}, &{}, false); }}\n",
+                                indent, idx, init_guard, idx, bounds_tmp
+                            ));
+                        }
                     }
                 }
             }
 
-            Statement::Redim { variables, .. } => {
-                for (var, dim_expr) in variables {
+            Statement::Redim {
+                variables,
+                preserve,
+            } => {
+                for (var, dimensions) in variables {
                     if let Some(declared_type) = &var.declared_type {
-                        if let Some(expr) = dim_expr {
-                            let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
-                            self.ensure_udt_array_storage(&var.name, declared_type);
-                            let normalized = Self::normalize_udt_name(&var.name);
-                            for field in self.collect_udt_layout(&normalized, declared_type) {
-                                match field.field_type {
-                                    QType::String(_) => {
-                                        let idx = self.get_str_arr_var_idx(&field.storage_name);
-                                        self.output.push_str(&format!(
-                                            "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = vec![String::new(); {}]; }}\n",
-                                            indent, idx, idx, size
-                                        ));
+                        match Self::declared_type_to_qtype(declared_type) {
+                            QType::UserDefined(_) => {
+                                if let Some(dimensions) = dimensions {
+                                    let bounds_tmp = self.next_temp_var();
+                                    let bounds = self.native_array_bounds_expr(dimensions)?;
+                                    self.ensure_udt_array_storage(&var.name, declared_type);
+                                    self.output.push_str(&format!(
+                                        "{}let {} = {};\n",
+                                        indent, bounds_tmp, bounds
+                                    ));
+                                    let normalized = Self::normalize_udt_name(&var.name);
+                                    for field in self.collect_udt_layout(&normalized, declared_type)
+                                    {
+                                        match field.field_type {
+                                            QType::String(_) => {
+                                                let idx =
+                                                    self.get_str_arr_var_idx(&field.storage_name);
+                                                self.output.push_str(&format!(
+                                                    "{}if {} < str_arr_vars.len() {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, {}); }}\n",
+                                                    indent, idx, idx, bounds_tmp, preserve
+                                                ));
+                                            }
+                                            QType::Integer(_)
+                                            | QType::Long(_)
+                                            | QType::Single(_)
+                                            | QType::Double(_) => {
+                                                let idx = self.get_arr_var_idx(&field.storage_name);
+                                                self.output.push_str(&format!(
+                                                    "{}if {} < arr_vars.len() {{ qb_dim_num_array(&mut arr_vars, &mut arr_bounds, {}, &{}, {}); }}\n",
+                                                    indent, idx, idx, bounds_tmp, preserve
+                                                ));
+                                            }
+                                            _ => {}
+                                        }
                                     }
-                                    QType::Integer(_)
-                                    | QType::Long(_)
-                                    | QType::Single(_)
-                                    | QType::Double(_) => {
-                                        let idx = self.get_arr_var_idx(&field.storage_name);
-                                        self.output.push_str(&format!(
-                                            "{}if {} < arr_vars.len() {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
-                                            indent, idx, idx, size
-                                        ));
-                                    }
-                                    _ => {}
                                 }
                             }
+                            QType::String(_) => {
+                                if let Some(width) = var.fixed_length {
+                                    self.field_widths.insert(var.name.to_uppercase(), width);
+                                }
+                                if let Some(dimensions) = dimensions {
+                                    let bounds_tmp = self.next_temp_var();
+                                    let bounds = self.native_array_bounds_expr(dimensions)?;
+                                    let idx = self.get_str_arr_var_idx(&var.name);
+                                    self.output.push_str(&format!(
+                                        "{}let {} = {};\n",
+                                        indent, bounds_tmp, bounds
+                                    ));
+                                    self.output.push_str(&format!(
+                                        "{}if {} < str_arr_vars.len() {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, {}); }}\n",
+                                        indent, idx, idx, bounds_tmp, preserve
+                                    ));
+                                }
+                            }
+                            qtype if Self::qtype_is_numeric(&qtype) => {
+                                if let Some(dimensions) = dimensions {
+                                    let bounds_tmp = self.next_temp_var();
+                                    let bounds = self.native_array_bounds_expr(dimensions)?;
+                                    let idx = self.get_arr_var_idx(&var.name);
+                                    self.output.push_str(&format!(
+                                        "{}let {} = {};\n",
+                                        indent, bounds_tmp, bounds
+                                    ));
+                                    self.output.push_str(&format!(
+                                        "{}if {} < arr_vars.len() {{ qb_dim_num_array(&mut arr_vars, &mut arr_bounds, {}, &{}, {}); }}\n",
+                                        indent, idx, idx, bounds_tmp, preserve
+                                    ));
+                                }
+                            }
+                            _ => {}
                         }
                         continue;
                     }
-                    if let Some(expr) = dim_expr {
-                        if let Some(width) = var.fixed_length {
-                            if var.type_suffix == Some('$') || var.name.ends_with('$') {
-                                self.field_widths
-                                    .insert(var.name.to_uppercase(), width);
+                    if let Some(dimensions) = dimensions {
+                        let bounds_tmp = self.next_temp_var();
+                        let bounds = self.native_array_bounds_expr(dimensions)?;
+                        self.output
+                            .push_str(&format!("{}let {} = {};\n", indent, bounds_tmp, bounds));
+                        if self.array_is_string(&var.name, var.type_suffix) {
+                            if let Some(width) = var.fixed_length {
+                                self.field_widths.insert(var.name.to_uppercase(), width);
                             }
+                            let idx = self.get_str_arr_var_idx(&var.name);
+                            self.output.push_str(&format!(
+                                "{}if {} < str_arr_vars.len() {{ qb_dim_str_array(&mut str_arr_vars, &mut str_arr_bounds, {}, &{}, {}); }}\n",
+                                indent, idx, idx, bounds_tmp, preserve
+                            ));
+                        } else {
+                            let idx = self.get_arr_var_idx(&var.name);
+                            self.output.push_str(&format!(
+                                "{}if {} < arr_vars.len() {{ qb_dim_num_array(&mut arr_vars, &mut arr_bounds, {}, &{}, {}); }}\n",
+                                indent, idx, idx, bounds_tmp, preserve
+                            ));
                         }
-                        let size = self.evaluate_const_expr(expr).unwrap_or(10.0) as usize + 1;
-                        let idx = self.get_arr_var_idx(&var.name);
-                        self.output.push_str(&format!(
-                            "{}if {} < arr_vars.len() {{ arr_vars[{}] = vec![0.0; {}]; }}\n",
-                            indent, idx, idx, size
-                        ));
                     }
                 }
             }
@@ -1073,37 +1444,64 @@ impl CodeGenerator {
             Statement::Erase { variables } => {
                 for var in variables {
                     if let Some(declared_type) = &var.declared_type {
-                        self.ensure_udt_array_storage(&var.name, declared_type);
-                        let normalized = Self::normalize_udt_name(&var.name);
-                        for field in self.collect_udt_layout(&normalized, declared_type) {
-                            match field.field_type {
-                                QType::String(_) => {
-                                    let idx = self.get_str_arr_var_idx(&field.storage_name);
-                                    self.output.push_str(&format!(
-                                        "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = Vec::new(); }}\n",
-                                        indent, idx, idx
-                                    ));
+                        match Self::declared_type_to_qtype(declared_type) {
+                            QType::UserDefined(_) => {
+                                self.ensure_udt_array_storage(&var.name, declared_type);
+                                let normalized = Self::normalize_udt_name(&var.name);
+                                for field in self.collect_udt_layout(&normalized, declared_type) {
+                                    match field.field_type {
+                                        QType::String(_) => {
+                                            let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                            self.output.push_str(&format!(
+                                                "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = Vec::new(); str_arr_bounds[{}] = Vec::new(); }}\n",
+                                                indent, idx, idx, idx
+                                            ));
+                                        }
+                                        QType::Integer(_)
+                                        | QType::Long(_)
+                                        | QType::Single(_)
+                                        | QType::Double(_) => {
+                                            let idx = self.get_arr_var_idx(&field.storage_name);
+                                            self.output.push_str(&format!(
+                                                "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); arr_bounds[{}] = Vec::new(); }}\n",
+                                                indent, idx, idx, idx
+                                            ));
+                                        }
+                                        _ => {}
+                                    }
                                 }
-                                QType::Integer(_)
-                                | QType::Long(_)
-                                | QType::Single(_)
-                                | QType::Double(_) => {
-                                    let idx = self.get_arr_var_idx(&field.storage_name);
-                                    self.output.push_str(&format!(
-                                        "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); }}\n",
-                                        indent, idx, idx
-                                    ));
-                                }
-                                _ => {}
                             }
+                            QType::String(_) => {
+                                let idx = self.get_str_arr_var_idx(&var.name);
+                                self.output.push_str(&format!(
+                                    "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = Vec::new(); str_arr_bounds[{}] = Vec::new(); }}\n",
+                                    indent, idx, idx, idx
+                                ));
+                            }
+                            qtype if Self::qtype_is_numeric(&qtype) => {
+                                let idx = self.get_arr_var_idx(&var.name);
+                                self.output.push_str(&format!(
+                                    "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); arr_bounds[{}] = Vec::new(); }}\n",
+                                    indent, idx, idx, idx
+                                ));
+                            }
+                            _ => {}
                         }
                         continue;
                     }
-                    let idx = self.get_arr_var_idx(&var.name);
-                    self.output.push_str(&format!(
-                        "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); }}\n",
-                        indent, idx, idx
-                    ));
+                    if self.array_is_string(&var.name, var.type_suffix) {
+                        let idx = self.get_str_arr_var_idx(&var.name);
+                        self.output.push_str(&format!(
+                            "{}if {} < str_arr_vars.len() {{ str_arr_vars[{}] = Vec::new(); str_arr_bounds[{}] = Vec::new(); }}\n",
+                            indent, idx, idx, idx
+                        ));
+                    } else {
+                        let idx = self.get_arr_var_idx(&var.name);
+                        self.output.push_str(&format!(
+                            "{}if {} < arr_vars.len() {{ arr_vars[{}] = Vec::new(); arr_bounds[{}] = Vec::new(); }}\n",
+                            indent, idx, idx, idx
+                        ));
+                    }
                 }
             }
 
@@ -1174,6 +1572,7 @@ impl CodeGenerator {
             Statement::Select { expression, cases } => {
                 let expr_code = self.generate_expression(expression)?;
                 let temp = self.next_temp_var();
+                let select_is_string = self.is_string_expression(expression);
                 self.output
                     .push_str(&format!("{}let {} = {};\n", indent, temp, expr_code));
 
@@ -1200,10 +1599,14 @@ impl CodeGenerator {
                         Expression::CaseElse => "true".to_string(),
                         _ => {
                             let v = self.generate_expression(case_val)?;
-                            format!(
-                                "(((({}) as f64) - (({}) as f64)).abs() < 0.0001_f64)",
-                                temp, v
-                            )
+                            if select_is_string || self.is_string_expression(case_val) {
+                                format!("({} == {})", temp, v)
+                            } else {
+                                format!(
+                                    "(((({}) as f64) - (({}) as f64)).abs() < 0.0001_f64)",
+                                    temp, v
+                                )
+                            }
                         }
                     };
 
@@ -1327,18 +1730,18 @@ impl CodeGenerator {
                 body,
                 pre_condition,
             } => {
+                self.output.push_str(&format!("{}loop {{\n", indent));
+                self.indent_level += 1;
                 if *pre_condition {
                     if let Some(cond) = condition {
                         let cond_code = self.generate_condition(cond);
-                        self.output
-                            .push_str(&format!("{}while {} {{\n", indent, cond_code));
-                    } else {
-                        self.output.push_str(&format!("{}loop {{\n", indent));
+                        self.output.push_str(&format!(
+                            "{}if {} {{ break; }}\n",
+                            self.indent(),
+                            cond_code
+                        ));
                     }
-                } else {
-                    self.output.push_str(&format!("{}loop {{\n", indent));
                 }
-                self.indent_level += 1;
                 for stmt in body {
                     self.generate_statement(stmt)?;
                 }
@@ -1346,7 +1749,7 @@ impl CodeGenerator {
                     if let Some(cond) = condition {
                         let cond_code = self.generate_condition(cond);
                         self.output.push_str(&format!(
-                            "{}if !{} {{ break; }}\n",
+                            "{}if {} {{ break; }}\n",
                             self.indent(),
                             cond_code
                         ));
@@ -1364,11 +1767,8 @@ impl CodeGenerator {
 
                 for arg in args {
                     let mut setup_lines = Vec::new();
-                    let arg_var = self.prepare_call_argument(
-                        arg,
-                        &mut setup_lines,
-                        &mut copy_back_ops,
-                    )?;
+                    let arg_var =
+                        self.prepare_call_argument(arg, &mut setup_lines, &mut copy_back_ops)?;
                     for line in setup_lines {
                         self.output.push_str(&format!("{}{}\n", indent, line));
                     }
@@ -1376,9 +1776,9 @@ impl CodeGenerator {
                 }
 
                 let global_args = if self.is_in_sub {
-                    "global_num_vars, global_str_vars, global_arr_vars, global_str_arr_vars"
+                    "global_num_vars, global_str_vars, global_arr_vars, global_arr_bounds, global_str_arr_vars, global_str_arr_bounds"
                 } else {
-                    "&mut num_vars, &mut str_vars, &mut arr_vars, &mut str_arr_vars"
+                    "&mut num_vars, &mut str_vars, &mut arr_vars, &mut arr_bounds, &mut str_arr_vars, &mut str_arr_bounds"
                 };
 
                 self.output
@@ -1414,7 +1814,7 @@ impl CodeGenerator {
                     } else {
                         let func_name = self.current_function_name.clone();
                         if let Some(name) = func_name {
-                            if name.ends_with('$') {
+                            if self.function_returns_string(&name, None) {
                                 let idx = self.get_str_var_idx(&name);
                                 self.output.push_str(&format!(
                                     "{}return get_str(&str_vars, {});\n",
@@ -1434,15 +1834,20 @@ impl CodeGenerator {
                 }
                 ExitType::For => self.output.push_str(&format!("{}break;\n", indent)),
                 ExitType::Do => self.output.push_str(&format!("{}break;\n", indent)),
+                ExitType::While => self.output.push_str(&format!("{}break;\n", indent)),
             },
 
             Statement::Screen { mode } => {
+                let mode_code = if let Some(m) = mode {
+                    self.generate_expression(m).unwrap_or("0.0".to_string())
+                } else {
+                    "0.0".to_string()
+                };
+                self.output.push_str(&format!(
+                    "{}qb_apply_screen_mode({} as i32);\n",
+                    indent, mode_code
+                ));
                 if self.use_graphics {
-                    let mode_code = if let Some(m) = mode {
-                        self.generate_expression(m).unwrap_or("0.0".to_string())
-                    } else {
-                        "0.0".to_string()
-                    };
                     self.output
                         .push_str(&format!("{}match {} as i32 {{\n", indent, mode_code));
                     self.output
@@ -1612,6 +2017,8 @@ impl CodeGenerator {
             }
 
             Statement::ViewReset => {
+                self.output
+                    .push_str(&format!("{}qb_view_print_reset();\n", indent));
                 if self.use_graphics {
                     self.output
                         .push_str(&format!("{}view_reset_qb();\n", indent));
@@ -1684,7 +2091,7 @@ impl CodeGenerator {
             Statement::Read { variables } => {
                 for var in variables {
                     let var_name = &var.name;
-                    if var.type_suffix == Some('$') || var_name.ends_with('$') {
+                    if self.variable_is_string(var) {
                         let var_idx = self.get_str_var_idx(var_name);
                         self.output
                             .push_str(&format!("{}if data_idx < DATA_VALUES.len() {{\n", indent));
@@ -1798,28 +2205,87 @@ impl CodeGenerator {
                 ));
             }
 
-            Statement::Cls => {
-                self.output.push_str(&format!("{}cls();\n", indent));
+            Statement::Cls { mode } => {
+                let mode = mode
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "-1.0".to_string());
+                self.output
+                    .push_str(&format!("{}qb_cls({});\n", indent, mode));
             }
 
-            Statement::Locate { row, col } => {
+            Statement::Locate {
+                row,
+                col,
+                cursor,
+                start,
+                stop,
+            } => {
                 let row = row
                     .as_ref()
                     .map(|expr| self.generate_expression(expr))
                     .transpose()?
-                    .unwrap_or_else(|| "1.0".to_string());
+                    .unwrap_or_else(|| "0.0".to_string());
                 let col = col
                     .as_ref()
                     .map(|expr| self.generate_expression(expr))
                     .transpose()?
-                    .unwrap_or_else(|| "1.0".to_string());
+                    .unwrap_or_else(|| "0.0".to_string());
+                if cursor.is_some() || start.is_some() || stop.is_some() {
+                    let cursor = cursor
+                        .as_ref()
+                        .map(|expr| self.generate_expression(expr))
+                        .transpose()?
+                        .unwrap_or_else(|| "-1.0".to_string());
+                    let start = start
+                        .as_ref()
+                        .map(|expr| self.generate_expression(expr))
+                        .transpose()?
+                        .unwrap_or_else(|| "-1.0".to_string());
+                    let stop = stop
+                        .as_ref()
+                        .map(|expr| self.generate_expression(expr))
+                        .transpose()?
+                        .unwrap_or_else(|| "-1.0".to_string());
+                    self.output.push_str(&format!(
+                        "{}locate_ex({}, {}, {}, {}, {});\n",
+                        indent, row, col, cursor, start, stop
+                    ));
+                } else {
+                    self.output
+                        .push_str(&format!("{}locate({}, {});\n", indent, row, col));
+                }
+            }
+
+            Statement::Width { columns, rows } => {
+                let columns = self.generate_expression(columns)?;
+                let rows = rows
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "25.0".to_string());
                 self.output
-                    .push_str(&format!("{}locate({}, {});\n", indent, row, col));
+                    .push_str(&format!("{}qb_width({}, {});\n", indent, columns, rows));
+            }
+
+            Statement::ViewPrint { top, bottom } => {
+                let top = top
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "1.0".to_string());
+                let bottom = bottom
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "25.0".to_string());
+                self.output
+                    .push_str(&format!("{}qb_view_print({}, {});\n", indent, top, bottom));
             }
 
             Statement::Beep => {
-                self.output
-                    .push_str(&format!("{}print!(\"\\x07\");\n", indent));
+                self.output.push_str(&format!("{}qb_beep();\n", indent));
             }
 
             Statement::Sound {
@@ -1852,15 +2318,22 @@ impl CodeGenerator {
             }
 
             Statement::Color {
-                foreground: Some(fg),
-                background: _,
+                foreground,
+                background,
             } => {
-                let val = self.generate_expression(fg)?;
+                let fg = foreground
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "7.0".to_string());
+                let bg = background
+                    .as_ref()
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .unwrap_or_else(|| "0.0".to_string());
                 self.output
-                    .push_str(&format!("{}qb_color({});\n", indent, val));
-                // Background color is intentionally ignored for now in native codegen.
+                    .push_str(&format!("{}qb_color({}, {});\n", indent, fg, bg));
             }
-            Statement::Color { .. } => {}
 
             Statement::Sleep { duration } => {
                 let seconds = if let Some(d) = duration {
@@ -1973,7 +2446,7 @@ impl CodeGenerator {
                     .as_ref()
                     .map(|expr| self.generate_expression(expr))
                     .transpose()?
-                    .unwrap_or_else(|| "1.0".to_string());
+                    .unwrap_or_else(|| "0.0".to_string());
                 match variable {
                     None => {
                         self.output.push_str(&format!(
@@ -2003,7 +2476,7 @@ impl CodeGenerator {
                             &resolved.type_name,
                             &file_number,
                             &record,
-                            resolved.array_index.as_ref(),
+                            resolved.array_indices.as_deref(),
                         );
                     }
                     Some(expr) if self.resolve_field_access_layout(expr).is_some() => {
@@ -2021,9 +2494,7 @@ impl CodeGenerator {
                             None,
                         );
                     }
-                    Some(Expression::Variable(var))
-                        if var.type_suffix == Some('$') || var.name.ends_with('$') =>
-                    {
+                    Some(Expression::Variable(var)) if self.variable_is_string(var) => {
                         let idx = self.get_str_var_idx(&var.name);
                         let width = self
                             .field_widths
@@ -2070,21 +2541,20 @@ impl CodeGenerator {
                         name,
                         indices,
                         type_suffix,
-                    }) if type_suffix == &Some('$') || name.ends_with('$') => {
-                        if let Some(index_expr) = indices.first() {
+                    }) if self.array_is_string(name, *type_suffix) => {
+                        if !indices.is_empty() {
                             let arr_idx = self.get_str_arr_var_idx(name);
                             let width = self.fixed_string_width_for_name(name);
-                            let index_tmp = self.next_temp_var();
-                            let index_code = self.generate_expression(index_expr)?;
+                            let (setup_lines, index_slice) =
+                                self.native_cached_array_indices(indices)?;
                             let len_tmp = self.next_temp_var();
                             let value_tmp = self.next_temp_var();
+                            for line in setup_lines {
+                                self.output.push_str(&format!("{}{}\n", indent, line));
+                            }
                             self.output.push_str(&format!(
-                                "{}let {} = {};\n",
-                                indent, index_tmp, index_code
-                            ));
-                            self.output.push_str(&format!(
-                                "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
-                                indent, len_tmp, arr_idx, index_tmp
+                                "{}let {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});\n",
+                                indent, len_tmp, arr_idx, index_slice
                             ));
                             self.output.push_str(&format!(
                                 "{}let {} = qb_get_string_from_file({}, {}, {});\n",
@@ -2097,8 +2567,8 @@ impl CodeGenerator {
                                     .unwrap_or_else(|| format!("{}.len() as f64", len_tmp))
                             ));
                             self.output.push_str(&format!(
-                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
-                                indent, arr_idx, index_tmp, value_tmp
+                                "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
+                                indent, arr_idx, index_slice, value_tmp
                             ));
                         }
                     }
@@ -2106,11 +2576,11 @@ impl CodeGenerator {
                         name,
                         indices,
                         type_suffix,
-                    }) if type_suffix != &Some('$') && !name.ends_with('$') => {
-                        if let Some(index_expr) = indices.first() {
+                    }) if !self.array_is_string(name, *type_suffix) => {
+                        if !indices.is_empty() {
                             let arr_idx = self.get_arr_var_idx(name);
-                            let index_tmp = self.next_temp_var();
-                            let index_code = self.generate_expression(index_expr)?;
+                            let (setup_lines, index_slice) =
+                                self.native_cached_array_indices(indices)?;
                             let helper = match type_suffix.unwrap_or('!') {
                                 '%' => "qb_get_i16",
                                 '&' => "qb_get_i32",
@@ -2118,17 +2588,16 @@ impl CodeGenerator {
                                 _ => "qb_get_f32",
                             };
                             let tmp = self.next_temp_var();
-                            self.output.push_str(&format!(
-                                "{}let {} = {};\n",
-                                indent, index_tmp, index_code
-                            ));
+                            for line in setup_lines {
+                                self.output.push_str(&format!("{}{}\n", indent, line));
+                            }
                             self.output.push_str(&format!(
                                 "{}let {} = {}({}, {});\n",
                                 indent, tmp, helper, file_number, record
                             ));
                             self.output.push_str(&format!(
-                                "{}arr_set(&mut arr_vars, {}, {}, {});\n",
-                                indent, arr_idx, index_tmp, tmp
+                                "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});\n",
+                                indent, arr_idx, index_slice, tmp
                             ));
                         }
                     }
@@ -2150,7 +2619,7 @@ impl CodeGenerator {
                     .as_ref()
                     .map(|expr| self.generate_expression(expr))
                     .transpose()?
-                    .unwrap_or_else(|| "1.0".to_string());
+                    .unwrap_or_else(|| "0.0".to_string());
                 match variable {
                     None => {
                         self.output.push_str(&format!(
@@ -2180,7 +2649,7 @@ impl CodeGenerator {
                             &resolved.type_name,
                             &file_number,
                             &record,
-                            resolved.array_index.as_ref(),
+                            resolved.array_indices.as_deref(),
                         );
                     }
                     Some(expr) if self.resolve_field_access_layout(expr).is_some() => {
@@ -2198,9 +2667,7 @@ impl CodeGenerator {
                             None,
                         );
                     }
-                    Some(Expression::Variable(var))
-                        if var.type_suffix == Some('$') || var.name.ends_with('$') =>
-                    {
+                    Some(Expression::Variable(var)) if self.variable_is_string(var) => {
                         let idx = self.get_str_var_idx(&var.name);
                         let width = self
                             .field_widths
@@ -2246,20 +2713,19 @@ impl CodeGenerator {
                         name,
                         indices,
                         type_suffix,
-                    }) if type_suffix == &Some('$') || name.ends_with('$') => {
-                        if let Some(index_expr) = indices.first() {
+                    }) if self.array_is_string(name, *type_suffix) => {
+                        if !indices.is_empty() {
                             let arr_idx = self.get_str_arr_var_idx(name);
                             let width = self.fixed_string_width_for_name(name);
-                            let index_tmp = self.next_temp_var();
-                            let index_code = self.generate_expression(index_expr)?;
+                            let (setup_lines, index_slice) =
+                                self.native_cached_array_indices(indices)?;
                             let tmp = self.next_temp_var();
+                            for line in setup_lines {
+                                self.output.push_str(&format!("{}{}\n", indent, line));
+                            }
                             self.output.push_str(&format!(
-                                "{}let {} = {};\n",
-                                indent, index_tmp, index_code
-                            ));
-                            self.output.push_str(&format!(
-                                "{}let {} = str_arr_get(&str_arr_vars, {}, {});\n",
-                                indent, tmp, arr_idx, index_tmp
+                                "{}let {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});\n",
+                                indent, tmp, arr_idx, index_slice
                             ));
                             if let Some(width) = width {
                                 self.output.push_str(&format!(
@@ -2278,11 +2744,11 @@ impl CodeGenerator {
                         name,
                         indices,
                         type_suffix,
-                    }) if type_suffix != &Some('$') && !name.ends_with('$') => {
-                        if let Some(index_expr) = indices.first() {
+                    }) if !self.array_is_string(name, *type_suffix) => {
+                        if !indices.is_empty() {
                             let arr_idx = self.get_arr_var_idx(name);
-                            let index_tmp = self.next_temp_var();
-                            let index_code = self.generate_expression(index_expr)?;
+                            let (setup_lines, index_slice) =
+                                self.native_cached_array_indices(indices)?;
                             let helper = match type_suffix.unwrap_or('!') {
                                 '%' => "qb_put_i16",
                                 '&' => "qb_put_i32",
@@ -2290,13 +2756,12 @@ impl CodeGenerator {
                                 _ => "qb_put_f32",
                             };
                             let tmp = self.next_temp_var();
+                            for line in setup_lines {
+                                self.output.push_str(&format!("{}{}\n", indent, line));
+                            }
                             self.output.push_str(&format!(
-                                "{}let {} = {};\n",
-                                indent, index_tmp, index_code
-                            ));
-                            self.output.push_str(&format!(
-                                "{}let {} = arr_get(&arr_vars, {}, {});\n",
-                                indent, tmp, arr_idx, index_tmp
+                                "{}let {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});\n",
+                                indent, tmp, arr_idx, index_slice
                             ));
                             self.output.push_str(&format!(
                                 "{}{}({}, {}, {});\n",
@@ -2337,7 +2802,7 @@ impl CodeGenerator {
                 ));
                 for expr in expressions {
                     let expr_code = self.generate_expression(expr)?;
-                    if Self::is_string_expression(expr) {
+                    if self.is_string_expression(expr) {
                         self.output.push_str(&format!(
                             "{}{}.push(qb_write_string_field(&{}));\n",
                             indent, values_tmp, expr_code
@@ -2372,18 +2837,18 @@ impl CodeGenerator {
                     if matches!(field.field_type, QType::String(_)) {
                         let width = field.fixed_length.unwrap_or(0);
                         let value = self.generate_expression(value)?;
-                        if let Some(index_expr) = &field.array_index {
+                        if let Some(indices) = field.array_indices.as_ref() {
                             let idx = self.get_str_arr_var_idx(&field.storage_name);
-                            let index_code = self.generate_expression(index_expr)?;
+                            let index_code = self.native_array_indices_expr(indices)?;
                             if width == 0 {
                                 self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                                    "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &format!(\"{{}}\", {}));\n",
                                     indent, idx, index_code, value
                                 ));
                             } else {
                                 let tmp = self.next_temp_var();
                                 self.output.push_str(&format!(
-                                    "{}let mut {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                                    "{}let mut {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});\n",
                                     indent, tmp, idx, index_code
                                 ));
                                 self.output.push_str(&format!(
@@ -2391,7 +2856,7 @@ impl CodeGenerator {
                                     indent, tmp, width, value
                                 ));
                                 self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                    "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
                                     indent, idx, index_code, tmp
                                 ));
                             }
@@ -2437,18 +2902,18 @@ impl CodeGenerator {
                     if matches!(field.field_type, QType::String(_)) {
                         let width = field.fixed_length.unwrap_or(0);
                         let value = self.generate_expression(value)?;
-                        if let Some(index_expr) = &field.array_index {
+                        if let Some(indices) = field.array_indices.as_ref() {
                             let idx = self.get_str_arr_var_idx(&field.storage_name);
-                            let index_code = self.generate_expression(index_expr)?;
+                            let index_code = self.native_array_indices_expr(indices)?;
                             if width == 0 {
                                 self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &format!(\"{{}}\", {}));\n",
+                                    "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &format!(\"{{}}\", {}));\n",
                                     indent, idx, index_code, value
                                 ));
                             } else {
                                 let tmp = self.next_temp_var();
                                 self.output.push_str(&format!(
-                                    "{}let mut {} = str_arr_get(&str_arr_vars, {}, {});\n",
+                                    "{}let mut {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});\n",
                                     indent, tmp, idx, index_code
                                 ));
                                 self.output.push_str(&format!(
@@ -2456,7 +2921,7 @@ impl CodeGenerator {
                                     indent, tmp, width, value
                                 ));
                                 self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                    "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
                                     indent, idx, index_code, tmp
                                 ));
                             }
@@ -2645,10 +3110,12 @@ impl CodeGenerator {
                 self.output.push_str(&format!("{}qb_key_list();\n", indent));
             }
 
-            Statement::Width { .. }
-            | Statement::OptionBase { .. }
-            | Statement::Declare { .. }
-            | Statement::ViewPrint { .. } => {}
+            Statement::OptionBase { base } => {
+                self.output
+                    .push_str(&format!("{}qb_set_option_base({});\n", indent, base));
+            }
+
+            Statement::Declare { .. } => {}
 
             Statement::Const { name, value } => {
                 self.record_const(name, value);
@@ -2712,7 +3179,7 @@ impl CodeGenerator {
                 for var in variables {
                     if let Expression::Variable(v) = var {
                         let var_name = &v.name;
-                        if v.type_suffix == Some('$') || var_name.ends_with('$') {
+                        if self.variable_is_string(v) {
                             // String input
                             let idx = self.get_str_var_idx(var_name);
                             self.output
@@ -2800,7 +3267,8 @@ impl CodeGenerator {
     }
 
     fn record_const(&mut self, name: &str, value: &Expression) {
-        self.const_defs.retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
+        self.const_defs
+            .retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
         self.const_defs.push((name.to_string(), value.clone()));
     }
 
@@ -2848,7 +3316,7 @@ impl CodeGenerator {
         match target {
             Expression::Variable(var) => {
                 let name = &var.name;
-                if var.type_suffix == Some('$') || name.ends_with('$') {
+                if self.variable_is_string(var) {
                     let idx = self.get_str_var_idx(name);
                     let width = self.fixed_string_width_for_name(name);
                     if preserve_string_whitespace {
@@ -2883,38 +3351,38 @@ impl CodeGenerator {
                 }
             }
             Expression::ArrayAccess { name, indices, .. } => {
-                if let Some(index) = indices.first() {
-                    let idx_code = self.generate_expression(index)?;
-                    if name.ends_with('$') {
+                if !indices.is_empty() {
+                    let idx_code = self.native_array_indices_expr(indices)?;
+                    if self.array_is_string(name, None) {
                         let arr_idx = self.get_str_arr_var_idx(name);
                         let width = self.fixed_string_width_for_name(name);
                         if preserve_string_whitespace {
                             if let Some(width) = width {
                                 self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                    "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));\n",
                                     indent, arr_idx, idx_code, width, value_code
                                 ));
                             } else {
                                 self.output.push_str(&format!(
-                                    "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                    "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
                                     indent, arr_idx, idx_code, value_code
                                 ));
                             }
                         } else if let Some(width) = width {
                             self.output.push_str(&format!(
-                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
                                 indent, arr_idx, idx_code, width, value_code
                             ));
                         } else {
                             self.output.push_str(&format!(
-                                "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
+                                "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{}.trim());\n",
                                 indent, arr_idx, idx_code, value_code
                             ));
                         }
                     } else {
                         let arr_idx = self.get_arr_var_idx(name);
                         self.output.push_str(&format!(
-                            "{}arr_set(&mut arr_vars, {}, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                            "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
                             indent, arr_idx, idx_code, value_code
                         ));
                     }
@@ -2925,29 +3393,29 @@ impl CodeGenerator {
                     match field.field_type {
                         QType::String(_) => {
                             let width = field.fixed_length;
-                            if let Some(index_expr) = &field.array_index {
+                            if let Some(indices) = field.array_indices.as_ref() {
                                 let idx = self.get_str_arr_var_idx(&field.storage_name);
-                                let index_code = self.generate_expression(index_expr)?;
+                                let index_code = self.native_array_indices_expr(indices)?;
                                 if preserve_string_whitespace {
                                     if let Some(width) = width {
                                         self.output.push_str(&format!(
-                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                            "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));\n",
                                             indent, idx, index_code, width, value_code
                                         ));
                                     } else {
                                         self.output.push_str(&format!(
-                                            "{}str_arr_set(&mut str_arr_vars, {}, {}, &{});\n",
+                                            "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});\n",
                                             indent, idx, index_code, value_code
                                         ));
                                     }
                                 } else if let Some(width) = width {
                                     self.output.push_str(&format!(
-                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                        "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
                                         indent, idx, index_code, width, value_code
                                     ));
                                 } else {
                                     self.output.push_str(&format!(
-                                        "{}str_arr_set(&mut str_arr_vars, {}, {}, &{}.trim());\n",
+                                        "{}str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{}.trim());\n",
                                         indent, idx, index_code, value_code
                                     ));
                                 }
@@ -2982,11 +3450,11 @@ impl CodeGenerator {
                         | QType::Long(_)
                         | QType::Single(_)
                         | QType::Double(_) => {
-                            if let Some(index_expr) = &field.array_index {
+                            if let Some(indices) = field.array_indices.as_ref() {
                                 let idx = self.get_arr_var_idx(&field.storage_name);
-                                let index_code = self.generate_expression(index_expr)?;
+                                let index_code = self.native_array_indices_expr(indices)?;
                                 self.output.push_str(&format!(
-                                    "{}arr_set(&mut arr_vars, {}, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                                    "{}arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
                                     indent, idx, index_code, value_code
                                 ));
                             } else {
@@ -2998,6 +3466,40 @@ impl CodeGenerator {
                             }
                         }
                         _ => {}
+                    }
+                } else if let Some(name) = Self::qualified_field_name(target) {
+                    if self.name_is_string(&name) {
+                        let idx = self.get_str_var_idx(&name);
+                        let width = self.fixed_string_width_for_name(&name);
+                        if preserve_string_whitespace {
+                            if let Some(width) = width {
+                                self.output.push_str(&format!(
+                                    "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));\n",
+                                    indent, idx, width, value_code
+                                ));
+                            } else {
+                                self.output.push_str(&format!(
+                                    "{}set_str(&mut str_vars, {}, &{});\n",
+                                    indent, idx, value_code
+                                ));
+                            }
+                        } else if let Some(width) = width {
+                            self.output.push_str(&format!(
+                                "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}.trim()));\n",
+                                indent, idx, width, value_code
+                            ));
+                        } else {
+                            self.output.push_str(&format!(
+                                "{}set_str(&mut str_vars, {}, &{}.trim());\n",
+                                indent, idx, value_code
+                            ));
+                        }
+                    } else {
+                        let idx = self.get_num_var_idx(&name);
+                        self.output.push_str(&format!(
+                            "{}set_var(&mut num_vars, {}, {}.trim().parse::<f64>().unwrap_or(0.0));\n",
+                            indent, idx, value_code
+                        ));
                     }
                 }
             }

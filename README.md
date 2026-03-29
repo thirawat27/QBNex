@@ -61,6 +61,7 @@ QBNex supports 150+ QBasic/QB64 keywords and functions, making it compatible wit
 - **Comprehensive Language Support**
   - 150+ QBasic/QB64 keywords and functions
   - Full support for classic QBasic syntax
+  - QB64-style commented metacommands and recursive `$INCLUDE` expansion
   - User-defined types (TYPE...END TYPE)
   - Subroutines and functions with parameters
   - Multi-dimensional arrays with REDIM PRESERVE
@@ -78,6 +79,13 @@ QBNex supports 150+ QBasic/QB64 keywords and functions, making it compatible wit
   - Scope resolution and symbol table management
   - Type inference and conversion
   - OPTION \_EXPLICIT support for strict variable declaration
+
+- **Compiler Diagnostics**
+  - Source-aware tokenizer/parser diagnostics rendered with `miette`
+  - Highlighted source snippets for syntax failures in the CLI
+  - Central parser/frontend and native-backend seams for staged library adoption
+  - Experimental `Chumsky` frontend and `Cranelift-JIT` backend paths exposed through CLI flags
+  - Production surface validation and preview gating in the CLI
 
 - **File System Operations**
   - Sequential, random, and binary file access
@@ -106,6 +114,7 @@ QBNex/
 │   ├── scanner.rs     Character-level scanning
 │   └── tokens.rs      Token definitions and types
 ├── syntax_tree/       Syntax analysis (tokens → Abstract Syntax Tree)
+│   ├── frontend.rs    Production frontend abstraction seam
 │   ├── parser.rs      Recursive descent parser
 │   └── ast_nodes.rs   AST node definitions
 ├── analyzer/          Semantic analysis (type checking, scope resolution)
@@ -117,6 +126,7 @@ QBNex/
 │   ├── opcodes.rs     Bytecode instruction set
 │   └── builtin_functions.rs  Built-in function implementations
 ├── native_codegen/    Native code generation (AST → Rust → executable)
+│   ├── backend.rs     Native backend abstraction seam
 │   ├── codegen.rs     Rust code generator
 │   ├── llvm_builder.rs  LLVM IR generation (future)
 │   └── linker.rs      Executable linking
@@ -128,9 +138,12 @@ QBNex/
 │   ├── data_types.rs  QBasic type system
 │   ├── errors.rs      Error handling
 │   └── memory_map.rs  Memory management
-└── examples/          Sample QBasic programs
-    └── test_all.bas   Comprehensive test suite
+└── test/              Centralized test suites and BASIC fixtures
+    ├── integration/   Cross-crate integration and CLI regression tests
+    └── fixtures/      Shared BASIC source fixtures
 ```
+
+The production compiler still uses the in-tree tokenizer and recursive-descent parser for correctness, but the frontend and native backend seams now make it practical to stage alternate implementations such as `Chumsky`, `Cranelift`, or `Inkwell` behind the same pipeline. The current adoption plan lives in `docs/architecture/rust-compiler-libraries-roadmap.md`.
 
 **Compilation Pipeline**
 
@@ -183,19 +196,23 @@ QBNex/
 **Execution Modes**
 
 1. **Default Mode (Compile & Run)** - Like QB64
-   - Compiles to native executable using rustc
+   - Parses the fully expanded source tree, including commented QB64 `$INCLUDE` directives
+   - Builds a native executable when the native backend fully supports the program
+   - Falls back to a VM-backed executable when the VM is the compatible backend
    - Automatically runs the compiled program
-   - Detects graphics/sound and switches to Cargo if needed
 
-2. **Interpreter Mode (-x flag)**
-   - Fast bytecode compilation
-   - Immediate execution via VM
-   - Ideal for testing and debugging
+2. **Run Program (-x flag)**
+   - Builds a VM-backed executable and runs it immediately
+   - Leaves the runnable file in the working directory
+   - Honors `-o` so you can keep the generated runner under an explicit filename
+   - Useful when VM compatibility is needed but you still want an executable artifact
+   - Supports `--frontend chumsky` and `--native-backend cranelift-jit` for preview alternate paths when explicitly opted in
 
 3. **Compile-Only Mode (-c flag)**
-   - Generates standalone executable
-   - No automatic execution
+   - Generates a standalone executable without running it
+   - Uses native codegen when possible, otherwise emits a VM-backed executable
    - Optimized release build
+   - Can emit a preview Cranelift-backed runner executable for the supported subset via `--native-backend cranelift-jit`
 
 ---
 
@@ -280,7 +297,7 @@ docker build -t qbnex .
 Run the CLI from the current working directory
 
 ```bash
-docker run --rm -it -v "$PWD:/workspace" -w /workspace qbnex -x examples/test_all.bas
+docker run --rm -it -v "$PWD:/workspace" -w /workspace qbnex -x test/fixtures/basic/test_all.bas
 ```
 
 Notes
@@ -332,7 +349,7 @@ The repository includes a multi-OS GitHub Actions workflow at [ci.yml](./.github
 
 ### Default Mode (Compile & Run)
 
-The default behavior compiles your program to a native executable and runs it immediately (similar to QB64)
+The default behavior compiles your program to an executable and runs it immediately (similar to QB64)
 
 ```bash
 qb myprogram.bas
@@ -341,10 +358,11 @@ qb myprogram.bas
 This will
 
 1. Parse and analyze the source code
-2. Generate optimized Rust code
-3. Compile to native executable using rustc
-4. Execute the program automatically
-5. Display execution time
+2. Expand commented QB64 `$INCLUDE` directives relative to the including file
+3. Select the compatible backend (native or VM-backed executable)
+4. Compile the executable automatically
+5. Execute the program automatically
+6. Display execution time
 
 **With Graphics/Sound**
 
@@ -356,17 +374,17 @@ QBNex automatically detects graphics/sound features and switches to Cargo compil
 
 ### Run Program (Interpreter)
 
-Execute programs through the fast bytecode interpreter without creating an executable
+Build and run a VM-backed executable for the program
 
 ```bash
 qb -x myprogram.bas
 ```
 
-**Advantages**
+**Behavior**
 
-- Instant execution (no compilation wait)
-- Ideal for testing and debugging
-- No executable file created
+- Uses the VM-compatible execution path
+- Creates a runnable output file in the working directory
+- Runs that executable immediately
 
 **Quiet mode (suppress output)**
 
@@ -397,6 +415,20 @@ qb -c myprogram.bas -o custom_name.exe
 - Debug symbols stripped
 - Small executable size
 
+### QB64 Includes
+
+QBNex expands QB64-style include directives before parsing. Both direct and commented directives are supported, for example
+
+```basic
+'$INCLUDE:'utilities\strings.bas'
+```
+
+Include paths are resolved relative to the file that contains the directive, and nested includes are expanded recursively.
+If you compile a project fragment that is only meant to be included by a larger root file, the CLI now reports that relationship explicitly instead of only surfacing the downstream backend error.
+If that fragment has a single owning root, QBNex retries through the root automatically while still keeping the output filename based on the fragment you actually invoked.
+If `-o` points at a nested path, QBNex now creates the parent output directories automatically for native and VM-backed build paths.
+If `-o` points at an existing directory, QBNex places the generated executable in that directory using the source file stem.
+
 ### Command-Line Options
 
 ```
@@ -409,7 +441,14 @@ ARGUMENTS
 OPTIONS
     -c                     Compile FILE to .exe only (do not run)
     -o <OUTPUT>            Set output filename  (default <FILE>.exe)
-    -x                     Run FILE through the interpreter (no compile)
+    -x                     Build a VM-backed executable and run it
+    --frontend <NAME>      Select parser frontend: classic, chumsky
+    --native-backend <NAME> Select native backend: rust, llvm-ir, cranelift-jit
+    --allow-preview        Allow preview frontend/backend paths explicitly
+    --list-pipelines       Show production/preview pipeline status and exit
+    --explain-pipeline     Explain the selected pipeline for FILE and exit
+    --validate-release     Run production-surface validation checks and exit
+    --validate-pipeline    Run the release fixtures against the selected pipeline
     -e                     Enable OPTION _EXPLICIT (force variable declaration)
     -w                     Show warnings
     -q                     Quiet mode (suppress non-error output)
@@ -419,11 +458,41 @@ OPTIONS
 
 EXAMPLES
     qb hello.bas           Compile & run hello.bas (default)
-    qb -x hello.bas        Run hello.bas via interpreter
+    qb -x hello.bas        Build and run hello.bas via the VM runner
+    qb --frontend chumsky --allow-preview -x hello.bas
+                           Parse and run with the preview Chumsky frontend
+    qb --frontend chumsky --native-backend cranelift-jit --allow-preview -x hello.bas
+                           Parse and run with the preview Chumsky + Cranelift-JIT pipeline
+    qb -x -o app.exe a.bas Build, run, and keep the VM runner as app.exe
     qb -c hello.bas        Compile  -->  hello.exe
     qb -c -o out.exe a.bas Compile  -->  out.exe
     qb -e main.bas         Compile & run with forced variable declaration
+    qb --explain-pipeline main.bas
+                           Explain which runtime/backend path QBNex will use
+    qb --list-pipelines    Show frontend/backend stability levels
+    qb --validate-release  Validate the production compiler surface
+    qb --validate-pipeline --frontend classic
+                           Validate the release fixtures with the selected pipeline
 ```
+
+**Preview Alternate Pipelines**
+
+- `--frontend chumsky`
+  Uses the preview Chumsky-based frontend. The current supported subset is intentionally small: `PRINT`, `LET`/simple assignment, `END`, variables, string literals, and basic arithmetic. This path requires `--allow-preview`.
+- `--native-backend cranelift-jit`
+  Builds a runnable executable that embeds the source and executes the supported subset through Cranelift JIT at runtime. This path is currently limited to simple top-level text-mode programs with `PRINT`, numeric assignments, `END`, and basic arithmetic. This path requires `--allow-preview`.
+
+**Production Validation**
+
+- `qb --validate-release`
+  Runs a fixture-driven validation pass over the production compiler surface: the production frontend, semantic analysis, type checking, VM bytecode compilation, runtime-backend selection, and the production native backend across text-mode, graphics-mode, file-I/O, and VM-fallback BASIC fixtures. Fixtures with companion `.out` files are also executed in-process through the VM, so release validation checks deterministic runtime output without rebuilding throwaway executables for every fixture. The command prints `[n/total]` progress lines plus a summary of graphics/runtime-output/VM-fallback coverage. Use this before tagging or packaging a release.
+- `qb --validate-pipeline --frontend <NAME> [--native-backend <NAME>] [--allow-preview]`
+  Runs the same release fixtures against the selected pipeline, so preview frontends and backends can only graduate after they pass the same regression set as the production path, including the shared `.out` runtime-output checks. It prints the same per-fixture progress and coverage summary as `--validate-release`. Failures report the exact fixture that broke and the backend/frontend gap that caused it.
+- `qb --list-pipelines`
+  Prints the current frontend/native-backend matrix with their production or preview status, plus the active release-fixture inventory and validation coverage counts, so release tooling and operators can inspect the active compiler surface directly from the binary.
+- `qb --explain-pipeline FILE`
+  Explains how QBNex classifies a BASIC file: which frontend is active, whether preview gating blocks it, whether the program will run natively or via VM fallback, and which native gaps caused that decision.
+- The ignored QB64 source regression suite now sweeps every current `*.bas` file under `qb64/source/`, while a companion fragment-promotion regression keeps directly-invoked include fragments covered through their owning root program.
 
 ### Environment Variables
 
@@ -991,7 +1060,14 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ### Project Structure
 
-The project uses Cargo workspaces for modular development. Each crate has its own tests and can be developed independently.
+The project uses Cargo workspaces for modular development. In-source unit tests stay next to implementation files, and file-based integration tests plus BASIC fixtures are centralized under `test/`.
+
+### Test Layout
+
+- `test/integration/cli_tool/` contains CLI and end-to-end integration tests
+- `test/integration/vm_engine/` contains VM integration and semantic regression tests
+- `test/integration/tokenizer/` contains tokenizer integration coverage
+- `test/fixtures/basic/` contains shared BASIC smoke, graphics, and compatibility fixtures
 
 ### Run Test Suite
 
@@ -1007,6 +1083,8 @@ cargo test
 cargo test -p tokenizer
 cargo test -p syntax_tree
 cargo test -p vm_engine
+cargo test -p cli_tool --test shell_cli
+cargo test -p cli_tool --test compile_smoke_test
 ```
 
 **Run with output**
@@ -1021,14 +1099,14 @@ cargo test -- --nocapture
 
 ```bash
 cargo build
-./target/debug/qb examples/test_all.bas
+./target/debug/qb test/fixtures/basic/test_all.bas
 ```
 
 **Release build (optimized)**
 
 ```bash
 cargo build --release
-./target/release/qb examples/test_all.bas
+./target/release/qb test/fixtures/basic/test_all.bas
 ```
 
 **Benchmark build**
@@ -1037,19 +1115,19 @@ cargo build --release
 cargo build --profile bench
 ```
 
-### Run Examples
+### Run Shared Fixtures
 
-**Comprehensive test suite**
+**Comprehensive BASIC fixture**
 
 ```bash
-cargo run --release -- examples/test_all.bas
+cargo run --release -- test/fixtures/basic/test_all.bas
 ```
 
-**Individual examples**
+**Targeted fixture or sample program**
 
 ```bash
-cargo run --release -- -x examples/hello.bas
-cargo run --release -- -c examples/calc.bas
+cargo run --release -- -x test/fixtures/basic/test_graphics_getput.bas
+cargo run --release -- -c path/to/program.bas
 ```
 
 ### Development Workflow
@@ -1059,9 +1137,9 @@ cargo run --release -- -c examples/calc.bas
    ```bash
    cargo test
    ```
-3. **Test with examples**
+3. **Test with shared fixtures**
    ```bash
-   cargo run -- -x examples/test_all.bas
+   cargo run -- -x test/fixtures/basic/test_all.bas
    ```
 4. **Check for warnings**
    ```bash
@@ -1084,10 +1162,10 @@ cargo build --release
 
 ```bash
 # Windows
-cargo run --release -- examples/test_all.bas
+cargo run --release -- test/fixtures/basic/test_all.bas
 
 # Linux (with perf)
-perf record cargo run --release -- examples/test_all.bas
+perf record cargo run --release -- test/fixtures/basic/test_all.bas
 perf report
 ```
 
@@ -1096,17 +1174,17 @@ perf report
 **Enable debug output**
 
 ```bash
-RUST_LOG=debug cargo run -- -x examples/test_all.bas
+RUST_LOG=debug cargo run -- -x test/fixtures/basic/test_all.bas
 ```
 
 **Run with debugger**
 
 ```bash
 # GDB (Linux)
-gdb --args target/debug/qb examples/test_all.bas
+gdb --args target/debug/qb test/fixtures/basic/test_all.bas
 
 # LLDB (macOS)
-lldb target/debug/qb -- examples/test_all.bas
+lldb target/debug/qb -- test/fixtures/basic/test_all.bas
 ```
 
 ### Adding New Features
@@ -1116,7 +1194,7 @@ lldb target/debug/qb -- examples/test_all.bas
 3. **Add AST node** in `syntax_tree/src/ast_nodes.rs`
 4. **Implement in VM** in `vm_engine/src/compiler.rs` and `vm_engine/src/runtime.rs`
 5. **Add codegen** in `native_codegen/src/codegen.rs`
-6. **Write tests** in respective `tests/` directories
+6. **Write file-based integration tests** under `test/integration/<crate>/` and shared BASIC fixtures under `test/fixtures/basic/`
 
 ### Code Style
 

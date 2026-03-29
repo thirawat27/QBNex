@@ -3,15 +3,25 @@ use core_types::{QError, QResult, QType};
 use syntax_tree::ast_nodes::*;
 
 impl CodeGenerator {
-    pub(super) fn is_string_expression(expr: &Expression) -> bool {
+    fn format_float_literal(value: f64) -> String {
+        let mut text = value.to_string();
+        if !text.contains('.') && !text.contains('e') && !text.contains('E') {
+            text.push_str(".0");
+        }
+        text
+    }
+
+    pub(super) fn is_string_expression(&self, expr: &Expression) -> bool {
         match expr {
             Expression::Literal(QType::String(_)) => true,
-            Expression::Variable(var) => var.type_suffix == Some('$') || var.name.ends_with('$'),
+            Expression::Variable(var) => {
+                self.variable_is_string(var) || self.function_returns_string(&var.name, None)
+            }
             Expression::ArrayAccess {
                 name, type_suffix, ..
             } => {
-                type_suffix == &Some('$')
-                    || name.ends_with('$')
+                self.array_is_string(name, *type_suffix)
+                    || self.function_returns_string(name, *type_suffix)
                     || matches!(
                         name.to_uppercase().as_str(),
                         "LEFT$"
@@ -22,6 +32,7 @@ impl CodeGenerator {
                             | "LTRIM$"
                             | "RTRIM$"
                             | "TRIM$"
+                            | "_TRIM$"
                             | "STR$"
                             | "CHR$"
                             | "SPACE$"
@@ -48,23 +59,30 @@ impl CodeGenerator {
                     )
             }
             Expression::FunctionCall(func) => {
-                func.type_suffix == Some('$')
-                    || func.name.ends_with('$')
+                self.function_returns_string(&func.name, func.type_suffix)
                     || matches!(
                         func.name.to_uppercase().as_str(),
                         "DATE" | "TIME" | "COMMAND" | "ERDEVSTR" | "CSTR"
                     )
             }
-            Expression::FieldAccess { field, .. } => field.ends_with('$'),
+            Expression::FieldAccess { field, .. } => {
+                if let Some(field_layout) = self.resolve_field_access_layout(expr) {
+                    matches!(field_layout.field_type, QType::String(_))
+                } else if let Some(name) = Self::qualified_field_name(expr) {
+                    self.name_is_string(&name)
+                } else {
+                    field.ends_with('$')
+                }
+            }
             Expression::TypeCast {
                 target_type,
                 expression,
-            } => matches!(target_type, QType::String(_)) || Self::is_string_expression(expression),
+            } => matches!(target_type, QType::String(_)) || self.is_string_expression(expression),
             Expression::BinaryOp {
                 op: BinaryOp::Add,
                 left,
                 right,
-            } => Self::is_string_expression(left) || Self::is_string_expression(right),
+            } => self.is_string_expression(left) || self.is_string_expression(right),
             _ => false,
         }
     }
@@ -82,9 +100,7 @@ impl CodeGenerator {
             let n1 = &v1.name;
             let n2 = &v2.name;
 
-            if (v1.type_suffix == Some('$') || n1.ends_with('$'))
-                && (v2.type_suffix == Some('$') || n2.ends_with('$'))
-            {
+            if self.variable_is_string(v1) && self.variable_is_string(v2) {
                 let idx1 = self.get_str_var_idx(n1);
                 let idx2 = self.get_str_var_idx(n2);
                 self.output.push_str(&format!(
@@ -147,6 +163,28 @@ impl CodeGenerator {
         self.generate_print_target(indent, expressions, separators, newline, true)
     }
 
+    pub(super) fn generate_print_using(
+        &mut self,
+        indent: &str,
+        format: &Expression,
+        expressions: &[Expression],
+        separators: &[Option<PrintSeparator>],
+        newline: bool,
+    ) -> QResult<()> {
+        self.generate_print_using_target(indent, format, expressions, separators, newline, true)
+    }
+
+    pub(super) fn generate_lprint_using(
+        &mut self,
+        indent: &str,
+        format: &Expression,
+        expressions: &[Expression],
+        separators: &[Option<PrintSeparator>],
+        newline: bool,
+    ) -> QResult<()> {
+        self.generate_print_using_target(indent, format, expressions, separators, newline, false)
+    }
+
     fn generate_print_target(
         &mut self,
         indent: &str,
@@ -155,11 +193,27 @@ impl CodeGenerator {
         newline: bool,
         printer: bool,
     ) -> QResult<()> {
-        let print_tab_fn = if printer { "qb_lprint_tab" } else { "qb_print_tab" };
-        let print_spc_fn = if printer { "qb_lprint_spc" } else { "qb_print_spc" };
+        let print_tab_fn = if printer {
+            "qb_lprint_tab"
+        } else {
+            "qb_print_tab"
+        };
+        let print_spc_fn = if printer {
+            "qb_lprint_spc"
+        } else {
+            "qb_print_spc"
+        };
         let print_text_fn = if printer { "qb_lprint" } else { "qb_print" };
-        let print_comma_fn = if printer { "qb_lprint_comma" } else { "qb_print_comma" };
-        let print_newline_fn = if printer { "qb_lprint_newline" } else { "qb_print_newline" };
+        let print_comma_fn = if printer {
+            "qb_lprint_comma"
+        } else {
+            "qb_print_comma"
+        };
+        let print_newline_fn = if printer {
+            "qb_lprint_newline"
+        } else {
+            "qb_print_newline"
+        };
 
         for (index, expr) in expressions.iter().enumerate() {
             match expr {
@@ -211,6 +265,61 @@ impl CodeGenerator {
         Ok(())
     }
 
+    fn generate_print_using_target(
+        &mut self,
+        indent: &str,
+        format: &Expression,
+        expressions: &[Expression],
+        separators: &[Option<PrintSeparator>],
+        newline: bool,
+        console: bool,
+    ) -> QResult<()> {
+        let format_code = self.generate_expression(format)?;
+        let pattern_tmp = self.next_temp_var();
+        let values_tmp = self.next_temp_var();
+        let comma_tmp = self.next_temp_var();
+        let print_using_fn = if console {
+            "qb_print_using"
+        } else {
+            "qb_lprint_using"
+        };
+
+        self.output.push_str(&format!(
+            "{}let {} = {};\n",
+            indent, pattern_tmp, format_code
+        ));
+        self.output.push_str(&format!(
+            "{}let mut {}: Vec<String> = Vec::new();\n",
+            indent, values_tmp
+        ));
+        self.output.push_str(&format!(
+            "{}let mut {}: Vec<bool> = Vec::new();\n",
+            indent, comma_tmp
+        ));
+
+        for expr in expressions {
+            let expr_code = self.generate_expression(expr)?;
+            self.output.push_str(&format!(
+                "{}{}.push(format!(\"{{}}\", {}));\n",
+                indent, values_tmp, expr_code
+            ));
+        }
+        for separator in separators.iter().take(expressions.len()) {
+            self.output.push_str(&format!(
+                "{}{}.push({});\n",
+                indent,
+                comma_tmp,
+                matches!(separator, Some(PrintSeparator::Comma))
+            ));
+        }
+        self.output.push_str(&format!(
+            "{}{}(&{}, &{}, &{}, {});\n",
+            indent, print_using_fn, pattern_tmp, values_tmp, comma_tmp, newline
+        ));
+
+        Ok(())
+    }
+
     pub(super) fn generate_condition(&mut self, expr: &Expression) -> String {
         match expr {
             Expression::BinaryOp { op, left, right } => {
@@ -220,36 +329,17 @@ impl CodeGenerator {
                 let right_code = self
                     .generate_expression(right)
                     .unwrap_or_else(|_| "0.0".to_string());
-
-                // Check if string comparison
-                let is_string_cmp = (left_code.contains("get_str")
-                    || left_code.contains(".to_string()")
-                    || left_code.contains("qb_chr")
-                    || left_code.contains("inkey()")
-                    || left_code.contains("qb_str"))
-                    || (right_code.contains("get_str")
-                        || right_code.contains(".to_string()")
-                        || right_code.contains("qb_chr")
-                        || right_code.contains("inkey()")
-                        || right_code.contains("qb_str"))
-                    || (left_code.starts_with('"') && left_code.ends_with(".to_string()"))
-                    || (right_code.starts_with('"') && right_code.ends_with(".to_string()"))
-                    || (left_code.contains("qb_left")
-                        || right_code.contains("qb_left")
-                        || left_code.contains("qb_right")
-                        || right_code.contains("qb_right")
-                        || left_code.contains("qb_mid")
-                        || right_code.contains("qb_mid")
-                        || left_code.contains("qb_string")
-                        || right_code.contains("qb_string")
-                        || left_code.contains("qb_space")
-                        || right_code.contains("qb_space"));
+                let is_string_cmp =
+                    self.is_string_expression(left) || self.is_string_expression(right);
 
                 if is_string_cmp {
                     match op {
                         BinaryOp::Equal => format!("({} == {})", left_code, right_code),
                         BinaryOp::NotEqual => format!("({} != {})", left_code, right_code),
-                        // Other string ops not fully supported in simple logic
+                        BinaryOp::LessThan => format!("({} < {})", left_code, right_code),
+                        BinaryOp::GreaterThan => format!("({} > {})", left_code, right_code),
+                        BinaryOp::LessOrEqual => format!("({} <= {})", left_code, right_code),
+                        BinaryOp::GreaterOrEqual => format!("({} >= {})", left_code, right_code),
                         _ => "false".to_string(),
                     }
                 } else {
@@ -310,10 +400,13 @@ impl CodeGenerator {
         match arg {
             Expression::Variable(var) => {
                 let tmp_var = self.next_temp_var();
-                if var.type_suffix == Some('$') || var.name.ends_with('$') {
+                if self.variable_is_string(var) {
                     let idx = self.get_str_var_idx(&var.name);
                     let width = self.fixed_string_width_for_name(&var.name);
-                    setup_lines.push(format!("let mut {} = get_str(&str_vars, {});", tmp_var, idx));
+                    setup_lines.push(format!(
+                        "let mut {} = get_str(&str_vars, {});",
+                        tmp_var, idx
+                    ));
                     if let Some(width) = width {
                         copy_back_lines.push(format!(
                             "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
@@ -325,7 +418,10 @@ impl CodeGenerator {
                     }
                 } else {
                     let idx = self.get_num_var_idx(&var.name);
-                    setup_lines.push(format!("let mut {} = get_var(&num_vars, {});", tmp_var, idx));
+                    setup_lines.push(format!(
+                        "let mut {} = get_var(&num_vars, {});",
+                        tmp_var, idx
+                    ));
                     copy_back_lines.push(format!("set_var(&mut num_vars, {}, {});", idx, tmp_var));
                 }
                 Ok(format!("&mut {}", tmp_var))
@@ -335,38 +431,38 @@ impl CodeGenerator {
                 indices,
                 type_suffix,
             } => {
-                if let Some(index_expr) = indices.first() {
-                    let index_tmp = self.next_temp_var();
+                if !indices.is_empty() {
                     let value_tmp = self.next_temp_var();
-                    let index_code = self.generate_expression(index_expr)?;
-                    setup_lines.push(format!("let {} = {};", index_tmp, index_code));
-                    if type_suffix == &Some('$') || name.ends_with('$') {
+                    let (index_setup_lines, index_slice) =
+                        self.native_cached_array_indices(indices)?;
+                    setup_lines.extend(index_setup_lines);
+                    if self.array_is_string(name, *type_suffix) {
                         let arr_idx = self.get_str_arr_var_idx(name);
                         let width = self.fixed_string_width_for_name(name);
                         setup_lines.push(format!(
-                            "let mut {} = str_arr_get(&str_arr_vars, {}, {});",
-                            value_tmp, arr_idx, index_tmp
+                            "let mut {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});",
+                            value_tmp, arr_idx, index_slice
                         ));
                         if let Some(width) = width {
                             copy_back_lines.push(format!(
-                                "str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}));",
-                                arr_idx, index_tmp, width, value_tmp
+                                "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
+                                arr_idx, index_slice, width, value_tmp
                             ));
                         } else {
                             copy_back_lines.push(format!(
-                                "str_arr_set(&mut str_arr_vars, {}, {}, &{});",
-                                arr_idx, index_tmp, value_tmp
+                                "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});",
+                                arr_idx, index_slice, value_tmp
                             ));
                         }
                     } else {
                         let arr_idx = self.get_arr_var_idx(name);
                         setup_lines.push(format!(
-                            "let mut {} = arr_get(&arr_vars, {}, {});",
-                            value_tmp, arr_idx, index_tmp
+                            "let mut {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});",
+                            value_tmp, arr_idx, index_slice
                         ));
                         copy_back_lines.push(format!(
-                            "arr_set(&mut arr_vars, {}, {}, {});",
-                            arr_idx, index_tmp, value_tmp
+                            "arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});",
+                            arr_idx, index_slice, value_tmp
                         ));
                     }
                     Ok(format!("&mut {}", value_tmp))
@@ -382,24 +478,24 @@ impl CodeGenerator {
                     let value_tmp = self.next_temp_var();
                     match field.field_type {
                         QType::String(_) => {
-                            if let Some(index_expr) = &field.array_index {
-                                let index_tmp = self.next_temp_var();
-                                let index_code = self.generate_expression(index_expr)?;
+                            if let Some(indices) = field.array_indices.as_ref() {
+                                let (index_setup_lines, index_slice) =
+                                    self.native_cached_array_indices(indices)?;
                                 let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                                setup_lines.push(format!("let {} = {};", index_tmp, index_code));
+                                setup_lines.extend(index_setup_lines);
                                 setup_lines.push(format!(
-                                    "let mut {} = str_arr_get(&str_arr_vars, {}, {});",
-                                    value_tmp, arr_idx, index_tmp
+                                    "let mut {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});",
+                                    value_tmp, arr_idx, index_slice
                                 ));
                                 if let Some(width) = field.fixed_length {
                                     copy_back_lines.push(format!(
-                                        "str_arr_set(&mut str_arr_vars, {}, {}, &qb_fit_fixed_string({}, &{}));",
-                                        arr_idx, index_tmp, width, value_tmp
+                                        "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
+                                        arr_idx, index_slice, width, value_tmp
                                     ));
                                 } else {
                                     copy_back_lines.push(format!(
-                                        "str_arr_set(&mut str_arr_vars, {}, {}, &{});",
-                                        arr_idx, index_tmp, value_tmp
+                                        "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});",
+                                        arr_idx, index_slice, value_tmp
                                     ));
                                 }
                             } else {
@@ -425,18 +521,18 @@ impl CodeGenerator {
                         | QType::Long(_)
                         | QType::Single(_)
                         | QType::Double(_) => {
-                            if let Some(index_expr) = &field.array_index {
-                                let index_tmp = self.next_temp_var();
-                                let index_code = self.generate_expression(index_expr)?;
+                            if let Some(indices) = field.array_indices.as_ref() {
+                                let (index_setup_lines, index_slice) =
+                                    self.native_cached_array_indices(indices)?;
                                 let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                                setup_lines.push(format!("let {} = {};", index_tmp, index_code));
+                                setup_lines.extend(index_setup_lines);
                                 setup_lines.push(format!(
-                                    "let mut {} = arr_get(&arr_vars, {}, {});",
-                                    value_tmp, arr_idx, index_tmp
+                                    "let mut {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});",
+                                    value_tmp, arr_idx, index_slice
                                 ));
                                 copy_back_lines.push(format!(
-                                    "arr_set(&mut arr_vars, {}, {}, {});",
-                                    arr_idx, index_tmp, value_tmp
+                                    "arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});",
+                                    arr_idx, index_slice, value_tmp
                                 ));
                             } else {
                                 let idx = self.get_num_var_idx(&field.storage_name);
@@ -456,6 +552,33 @@ impl CodeGenerator {
                             setup_lines.push(format!("let mut {} = {};", tmp_var, value_code));
                             return Ok(format!("&mut {}", tmp_var));
                         }
+                    }
+                    Ok(format!("&mut {}", value_tmp))
+                } else if let Some(name) = Self::qualified_field_name(arg) {
+                    let value_tmp = self.next_temp_var();
+                    if self.name_is_string(&name) {
+                        let idx = self.get_str_var_idx(&name);
+                        setup_lines.push(format!(
+                            "let mut {} = get_str(&str_vars, {});",
+                            value_tmp, idx
+                        ));
+                        if let Some(width) = self.fixed_string_width_for_name(&name) {
+                            copy_back_lines.push(format!(
+                                "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
+                                idx, width, value_tmp
+                            ));
+                        } else {
+                            copy_back_lines
+                                .push(format!("set_str(&mut str_vars, {}, &{});", idx, value_tmp));
+                        }
+                    } else {
+                        let idx = self.get_num_var_idx(&name);
+                        setup_lines.push(format!(
+                            "let mut {} = get_var(&num_vars, {});",
+                            value_tmp, idx
+                        ));
+                        copy_back_lines
+                            .push(format!("set_var(&mut num_vars, {}, {});", idx, value_tmp));
                     }
                     Ok(format!("&mut {}", value_tmp))
                 } else {
@@ -488,9 +611,9 @@ impl CodeGenerator {
         }
 
         let globals = if self.is_in_sub {
-            "global_num_vars, global_str_vars, global_arr_vars, global_str_arr_vars"
+            "global_num_vars, global_str_vars, global_arr_vars, global_arr_bounds, global_str_arr_vars, global_str_arr_bounds"
         } else {
-            "&mut num_vars, &mut str_vars, &mut arr_vars, &mut str_arr_vars"
+            "&mut num_vars, &mut str_vars, &mut arr_vars, &mut arr_bounds, &mut str_arr_vars, &mut str_arr_bounds"
         };
         let func_symbol = self.rust_symbol("func", name);
         let result_tmp = self.next_temp_var();
@@ -519,8 +642,8 @@ impl CodeGenerator {
             Expression::Literal(qtype) => Ok(match qtype {
                 QType::Integer(i) => format!("{}.0", i),
                 QType::Long(l) => format!("{}.0", l),
-                QType::Single(s) => s.to_string(),
-                QType::Double(d) => d.to_string(),
+                QType::Single(s) => Self::format_float_literal(*s as f64),
+                QType::Double(d) => Self::format_float_literal(*d),
                 QType::String(s) => format!("\"{}\".to_string()", s.escape_default()),
                 QType::Empty => "0.0".to_string(),
                 _ => "0.0".to_string(),
@@ -533,14 +656,14 @@ impl CodeGenerator {
                     Ok(param_expr.clone())
                 } else if let Some(builtin_name) = Self::zero_arg_builtin_name(name) {
                     self.generate_builtin_call(builtin_name, &[])
-                } else if self.functions.contains(&name_upper)
+                } else if self.function_return_types.contains_key(&name_upper)
                     && self
                         .current_function_name
                         .as_ref()
                         .map_or(true, |current| !current.eq_ignore_ascii_case(name))
                 {
                     self.generate_user_function_call(name, &[])
-                } else if var.type_suffix == Some('$') || name.ends_with('$') {
+                } else if self.variable_is_string(var) {
                     let idx = self.get_str_var_idx(name);
                     Ok(format!("get_str(&str_vars, {})", idx))
                 } else {
@@ -557,7 +680,7 @@ impl CodeGenerator {
                 let builtin = self.generate_builtin_call(name, indices)?;
                 if builtin != "0.0" {
                     Ok(builtin)
-                } else if self.functions.contains(&name_upper) {
+                } else if self.function_return_types.contains_key(&name_upper) {
                     self.generate_user_function_call(name, indices)
                 } else if name_upper.starts_with("FN") {
                     let args_code: Vec<String> = indices
@@ -572,14 +695,26 @@ impl CodeGenerator {
                         self.rust_symbol("qbfn", name),
                         args_code.join(", ")
                     ))
-                } else if let Some(idx_expr) = indices.first() {
-                    let idx = self.generate_expression(idx_expr)?;
-                    if name.ends_with('$') || matches!(type_suffix, Some('$')) {
+                } else if !indices.is_empty() {
+                    if !self.arr_vars.contains_key(&name_upper)
+                        && !self.str_arr_vars.contains_key(&name_upper)
+                        && indices.iter().any(|arg| self.is_string_expression(arg))
+                    {
+                        return self.generate_user_function_call(name, indices);
+                    }
+                    let index_slice = self.native_array_indices_expr(indices)?;
+                    if self.array_is_string(name, *type_suffix) {
                         let arr_idx = self.get_str_arr_var_idx(name);
-                        Ok(format!("str_arr_get(&str_arr_vars, {}, {})", arr_idx, idx))
+                        Ok(format!(
+                            "str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {})",
+                            arr_idx, index_slice
+                        ))
                     } else {
                         let arr_idx = self.get_arr_var_idx(name);
-                        Ok(format!("arr_get(&arr_vars, {}, {})", arr_idx, idx))
+                        Ok(format!(
+                            "arr_get(&mut arr_vars, &mut arr_bounds, {}, {})",
+                            arr_idx, index_slice
+                        ))
                     }
                 } else {
                     Ok("0.0".to_string())
@@ -589,11 +724,11 @@ impl CodeGenerator {
                 if let Some(field) = self.resolve_field_access_layout(expr) {
                     match field.field_type {
                         QType::String(_) => {
-                            if let Some(index_expr) = &field.array_index {
+                            if let Some(indices) = field.array_indices.as_ref() {
                                 let arr_idx = self.get_str_arr_var_idx(&field.storage_name);
-                                let index_code = self.generate_expression(index_expr)?;
+                                let index_code = self.native_array_indices_expr(indices)?;
                                 Ok(format!(
-                                    "str_arr_get(&str_arr_vars, {}, {})",
+                                    "str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {})",
                                     arr_idx, index_code
                                 ))
                             } else {
@@ -605,16 +740,27 @@ impl CodeGenerator {
                         | QType::Long(_)
                         | QType::Single(_)
                         | QType::Double(_) => {
-                            if let Some(index_expr) = &field.array_index {
+                            if let Some(indices) = field.array_indices.as_ref() {
                                 let arr_idx = self.get_arr_var_idx(&field.storage_name);
-                                let index_code = self.generate_expression(index_expr)?;
-                                Ok(format!("arr_get(&arr_vars, {}, {})", arr_idx, index_code))
+                                let index_code = self.native_array_indices_expr(indices)?;
+                                Ok(format!(
+                                    "arr_get(&mut arr_vars, &mut arr_bounds, {}, {})",
+                                    arr_idx, index_code
+                                ))
                             } else {
                                 let idx = self.get_num_var_idx(&field.storage_name);
                                 Ok(format!("get_var(&num_vars, {})", idx))
                             }
                         }
                         _ => Ok("0.0".to_string()),
+                    }
+                } else if let Some(name) = Self::qualified_field_name(expr) {
+                    if self.name_is_string(&name) {
+                        let idx = self.get_str_var_idx(&name);
+                        Ok(format!("get_str(&str_vars, {})", idx))
+                    } else {
+                        let idx = self.get_num_var_idx(&name);
+                        Ok(format!("get_var(&num_vars, {})", idx))
                     }
                 } else {
                     Ok("0.0".to_string())
@@ -625,7 +771,7 @@ impl CodeGenerator {
                 let right_code = self.generate_expression(right)?;
                 match op {
                     BinaryOp::Add => {
-                        if Self::is_string_expression(left) || Self::is_string_expression(right) {
+                        if self.is_string_expression(left) || self.is_string_expression(right) {
                             Ok(format!("qb_concat({}, {})", left_code, right_code))
                         } else {
                             Ok(format!("({} + {})", left_code, right_code))
@@ -842,6 +988,22 @@ impl CodeGenerator {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_cvd(&{})", arg))
             }
+            "_CV" => {
+                let type_name = Self::cv_type_name_from_expr(args.first().ok_or_else(|| {
+                    QError::Syntax("_CV requires a QB64 numeric type argument".to_string())
+                })?)
+                .ok_or_else(|| {
+                    QError::Syntax("_CV requires a QB64 numeric type argument".to_string())
+                })?;
+                let arg = self.generate_expression(args.get(1).ok_or_else(|| {
+                    QError::Syntax("_CV requires a binary string argument".to_string())
+                })?)?;
+                Ok(format!(
+                    "qb_cv(\"{}\", &{})",
+                    type_name.escape_default(),
+                    arg
+                ))
+            }
             "FRE" => {
                 let arg = self.generate_expression(&args[0])?;
                 if arg.contains("to_string()") || arg.contains("get_str(") {
@@ -901,7 +1063,7 @@ impl CodeGenerator {
             }
             "ENVIRON$" => {
                 let arg = self.generate_expression(&args[0])?;
-                if Self::is_string_expression(&args[0]) {
+                if self.is_string_expression(&args[0]) {
                     Ok(format!("qb_environ(&{})", arg))
                 } else {
                     Ok(format!("qb_environ_index({})", arg))
@@ -922,6 +1084,18 @@ impl CodeGenerator {
             "TRIM$" => {
                 let arg = self.generate_expression(&args[0])?;
                 Ok(format!("qb_trim(&{})", arg))
+            }
+            "_TRIM$" => {
+                let arg = self.generate_expression(&args[0])?;
+                Ok(format!("qb_trim(&{})", arg))
+            }
+            "_FILEEXISTS" => {
+                let arg = self.generate_expression(&args[0])?;
+                Ok(format!("qb_fileexists(&{})", arg))
+            }
+            "_DIREXISTS" => {
+                let arg = self.generate_expression(&args[0])?;
+                Ok(format!("qb_direxists(&{})", arg))
             }
             "UCASE$" => {
                 let arg = self.generate_expression(&args[0])?;
@@ -966,7 +1140,7 @@ impl CodeGenerator {
             "STRING$" => {
                 let n = self.generate_expression(&args[0])?;
                 let c = self.generate_expression(&args[1])?;
-                if Self::is_string_expression(&args[1]) {
+                if self.is_string_expression(&args[1]) {
                     Ok(format!("qb_string_str({}, &{})", n, c))
                 } else {
                     Ok(format!("qb_string_chr({}, {})", n, c))
@@ -982,7 +1156,12 @@ impl CodeGenerator {
             }
             "ASC" => {
                 let s = self.generate_expression(&args[0])?;
-                Ok(format!("qb_asc(&{})", s))
+                if args.len() >= 2 {
+                    let pos = self.generate_expression(&args[1])?;
+                    Ok(format!("qb_asc(&qb_mid(&{}, {}, 1.0))", s, pos))
+                } else {
+                    Ok(format!("qb_asc(&{})", s))
+                }
             }
             "VAL" => {
                 let s = self.generate_expression(&args[0])?;
@@ -1001,29 +1180,99 @@ impl CodeGenerator {
                 Ok(format!("qb_oct({})", n))
             }
             "LBOUND" => {
-                if let Some(Expression::Variable(v)) = args.first() {
-                    if v.type_suffix == Some('$') || v.name.ends_with('$') {
-                        let idx = self.get_str_arr_var_idx(&v.name);
-                        Ok(format!("qb_lbound(&str_arr_vars[{}])", idx))
-                    } else {
-                        let idx = self.get_arr_var_idx(&v.name);
-                        Ok(format!("qb_lbound(&arr_vars[{}])", idx))
+                let dim = args
+                    .get(1)
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .map(|expr| format!("Some({})", expr))
+                    .unwrap_or_else(|| "None".to_string());
+                match args.first() {
+                    Some(Expression::Variable(v)) => {
+                        if self.variable_is_string(v) {
+                            let idx = self.get_str_arr_var_idx(&v.name);
+                            Ok(format!("qb_lbound(&str_arr_bounds, {}, {})", idx, dim))
+                        } else {
+                            let idx = self.get_arr_var_idx(&v.name);
+                            Ok(format!("qb_lbound(&arr_bounds, {}, {})", idx, dim))
+                        }
                     }
-                } else {
-                    Ok("0.0".to_string())
+                    Some(Expression::ArrayAccess {
+                        name, type_suffix, ..
+                    }) => {
+                        if self.array_is_string(name, *type_suffix) {
+                            let idx = self.get_str_arr_var_idx(name);
+                            Ok(format!("qb_lbound(&str_arr_bounds, {}, {})", idx, dim))
+                        } else {
+                            let idx = self.get_arr_var_idx(name);
+                            Ok(format!("qb_lbound(&arr_bounds, {}, {})", idx, dim))
+                        }
+                    }
+                    Some(expr) => {
+                        if let Some(field) = self.resolve_field_access_layout(expr) {
+                            if field.array_indices.is_some() {
+                                if matches!(field.field_type, QType::String(_)) {
+                                    let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                    Ok(format!("qb_lbound(&str_arr_bounds, {}, {})", idx, dim))
+                                } else {
+                                    let idx = self.get_arr_var_idx(&field.storage_name);
+                                    Ok(format!("qb_lbound(&arr_bounds, {}, {})", idx, dim))
+                                }
+                            } else {
+                                Ok("0.0".to_string())
+                            }
+                        } else {
+                            Ok("0.0".to_string())
+                        }
+                    }
+                    None => Ok("0.0".to_string()),
                 }
             }
             "UBOUND" => {
-                if let Some(Expression::Variable(v)) = args.first() {
-                    if v.type_suffix == Some('$') || v.name.ends_with('$') {
-                        let idx = self.get_str_arr_var_idx(&v.name);
-                        Ok(format!("qb_ubound(&str_arr_vars[{}])", idx))
-                    } else {
-                        let idx = self.get_arr_var_idx(&v.name);
-                        Ok(format!("qb_ubound(&arr_vars[{}])", idx))
+                let dim = args
+                    .get(1)
+                    .map(|expr| self.generate_expression(expr))
+                    .transpose()?
+                    .map(|expr| format!("Some({})", expr))
+                    .unwrap_or_else(|| "None".to_string());
+                match args.first() {
+                    Some(Expression::Variable(v)) => {
+                        if self.variable_is_string(v) {
+                            let idx = self.get_str_arr_var_idx(&v.name);
+                            Ok(format!("qb_ubound(&str_arr_bounds, {}, {})", idx, dim))
+                        } else {
+                            let idx = self.get_arr_var_idx(&v.name);
+                            Ok(format!("qb_ubound(&arr_bounds, {}, {})", idx, dim))
+                        }
                     }
-                } else {
-                    Ok("0.0".to_string())
+                    Some(Expression::ArrayAccess {
+                        name, type_suffix, ..
+                    }) => {
+                        if self.array_is_string(name, *type_suffix) {
+                            let idx = self.get_str_arr_var_idx(name);
+                            Ok(format!("qb_ubound(&str_arr_bounds, {}, {})", idx, dim))
+                        } else {
+                            let idx = self.get_arr_var_idx(name);
+                            Ok(format!("qb_ubound(&arr_bounds, {}, {})", idx, dim))
+                        }
+                    }
+                    Some(expr) => {
+                        if let Some(field) = self.resolve_field_access_layout(expr) {
+                            if field.array_indices.is_some() {
+                                if matches!(field.field_type, QType::String(_)) {
+                                    let idx = self.get_str_arr_var_idx(&field.storage_name);
+                                    Ok(format!("qb_ubound(&str_arr_bounds, {}, {})", idx, dim))
+                                } else {
+                                    let idx = self.get_arr_var_idx(&field.storage_name);
+                                    Ok(format!("qb_ubound(&arr_bounds, {}, {})", idx, dim))
+                                }
+                            } else {
+                                Ok("0.0".to_string())
+                            }
+                        } else {
+                            Ok("0.0".to_string())
+                        }
+                    }
+                    None => Ok("0.0".to_string()),
                 }
             }
             "POS" => {
@@ -1033,6 +1282,20 @@ impl CodeGenerator {
                     self.generate_expression(&args[0])?
                 };
                 Ok(format!("qb_pos({})", arg))
+            }
+            "SCREEN" => {
+                let row = self.generate_expression(&args[0])?;
+                let col = self.generate_expression(&args[1])?;
+                let color_flag = if args.len() > 2 {
+                    self.generate_expression(&args[2])?
+                } else {
+                    "0.0".to_string()
+                };
+                Ok(format!("qb_screen({}, {}, {})", row, col, color_flag))
+            }
+            "PLAY" => {
+                let arg = self.generate_expression(&args[0])?;
+                Ok(format!("qb_play_count({})", arg))
             }
             "LPOS" => {
                 let arg = if args.is_empty() {
@@ -1073,10 +1336,33 @@ impl CodeGenerator {
         match expr {
             Expression::Variable(var) => Ok(var.name.clone()),
             Expression::ArrayAccess { name, .. } => Ok(name.clone()),
-            Expression::FieldAccess { field, .. } => Ok(field.clone()),
+            Expression::FieldAccess { .. } => expr.flattened_qb64_name().ok_or_else(|| {
+                QError::Syntax(
+                    "VARPTR/VARSEG/SADD/VARPTR$ require a variable-compatible reference"
+                        .to_string(),
+                )
+            }),
             _ => Err(QError::Syntax(
                 "VARPTR/VARSEG/SADD/VARPTR$ require a variable-compatible reference".to_string(),
             )),
+        }
+    }
+
+    fn normalize_qb64_type_name(type_name: &str) -> String {
+        type_name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_uppercase()
+    }
+
+    fn cv_type_name_from_expr(expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Variable(var) => Some(Self::normalize_qb64_type_name(&var.name)),
+            Expression::FieldAccess { .. } => expr
+                .flattened_qb64_name()
+                .map(|name| Self::normalize_qb64_type_name(&name)),
+            _ => None,
         }
     }
 

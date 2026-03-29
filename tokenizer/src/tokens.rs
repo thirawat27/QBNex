@@ -1,5 +1,29 @@
 use std::fmt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenSpan {
+    pub offset: usize,
+    pub len: usize,
+}
+
+impl TokenSpan {
+    pub fn new(offset: usize, len: usize) -> Self {
+        Self { offset, len }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpannedToken {
+    pub token: Token,
+    pub span: TokenSpan,
+}
+
+impl SpannedToken {
+    pub fn new(token: Token, span: TokenSpan) -> Self {
+        Self { token, span }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Keyword(Keyword),

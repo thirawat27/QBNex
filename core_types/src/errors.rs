@@ -1,9 +1,17 @@
+use std::borrow::Cow;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
 pub enum QError {
     #[error("Syntax error: {0}")]
     Syntax(String),
+
+    #[error("Syntax error: {message}")]
+    SyntaxAt {
+        message: String,
+        offset: usize,
+        len: usize,
+    },
 
     #[error("Type mismatch: {0}")]
     TypeMismatch(String),
@@ -105,9 +113,37 @@ pub enum QError {
 pub type QResult<T> = Result<T, QError>;
 
 impl QError {
+    pub fn syntax(message: impl Into<String>) -> Self {
+        Self::Syntax(message.into())
+    }
+
+    pub fn syntax_at(message: impl Into<String>, offset: usize, len: usize) -> Self {
+        Self::SyntaxAt {
+            message: message.into(),
+            offset,
+            len: len.max(1),
+        }
+    }
+
+    pub fn message(&self) -> Cow<'_, str> {
+        match self {
+            QError::Syntax(message) => Cow::Borrowed(message),
+            QError::SyntaxAt { message, .. } => Cow::Borrowed(message),
+            _ => Cow::Owned(self.to_string()),
+        }
+    }
+
+    pub fn source_span(&self) -> Option<(usize, usize)> {
+        match self {
+            QError::SyntaxAt { offset, len, .. } => Some((*offset, *len)),
+            _ => None,
+        }
+    }
+
     pub fn code(&self) -> i16 {
         match self {
             QError::Syntax(_) => 1,
+            QError::SyntaxAt { .. } => 1,
             QError::TypeMismatch(_) => 2,
             QError::DivisionByZero => 3,
             QError::IllegalFunctionCall(_) => 4,

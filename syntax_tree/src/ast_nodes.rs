@@ -63,6 +63,28 @@ pub struct TypeField {
     pub fixed_length: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ArrayDimension {
+    pub lower_bound: Option<Expression>,
+    pub upper_bound: Expression,
+}
+
+impl ArrayDimension {
+    pub fn implicit(upper_bound: Expression) -> Self {
+        Self {
+            lower_bound: None,
+            upper_bound,
+        }
+    }
+
+    pub fn explicit(lower_bound: Expression, upper_bound: Expression) -> Self {
+        Self {
+            lower_bound: Some(lower_bound),
+            upper_bound,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrintSeparator {
     Comma,
@@ -84,11 +106,20 @@ pub enum Statement {
     PrintUsing {
         format: Expression,
         expressions: Vec<Expression>,
+        separators: Vec<Option<PrintSeparator>>,
         newline: bool,
     },
     LPrintUsing {
         format: Expression,
         expressions: Vec<Expression>,
+        separators: Vec<Option<PrintSeparator>>,
+        newline: bool,
+    },
+    PrintFileUsing {
+        file_number: Box<Expression>,
+        format: Expression,
+        expressions: Vec<Expression>,
+        separators: Vec<Option<PrintSeparator>>,
         newline: bool,
     },
     PrintFile {
@@ -236,13 +267,13 @@ pub enum Statement {
         type_name: String,
     },
     Dim {
-        variables: Vec<(Variable, Option<Expression>)>,
+        variables: Vec<(Variable, Option<Vec<ArrayDimension>>)>,
         is_static: bool,
         is_shared: bool,
         is_common: bool,
     },
     Redim {
-        variables: Vec<(Variable, Option<Expression>)>,
+        variables: Vec<(Variable, Option<Vec<ArrayDimension>>)>,
         preserve: bool,
     },
     Erase {
@@ -264,10 +295,15 @@ pub enum Statement {
     Randomize {
         seed: Option<Expression>,
     },
-    Cls,
+    Cls {
+        mode: Option<Expression>,
+    },
     Locate {
         row: Option<Expression>,
         col: Option<Expression>,
+        cursor: Option<Expression>,
+        start: Option<Expression>,
+        stop: Option<Expression>,
     },
     OnError {
         target: Option<GotoTarget>,
@@ -375,6 +411,10 @@ pub enum Statement {
         interval: Expression,
         label: String,
     },
+    OnPlay {
+        queue_limit: Expression,
+        label: String,
+    },
     OnGotoGosub {
         expression: Expression,
         targets: Vec<GotoTarget>,
@@ -383,6 +423,9 @@ pub enum Statement {
     TimerOn,
     TimerOff,
     TimerStop,
+    PlayOn,
+    PlayOff,
+    PlayStop,
     InputFile {
         file_number: Expression,
         variables: Vec<Expression>,
@@ -449,6 +492,7 @@ pub enum Statement {
 pub enum ExitType {
     For,
     Do,
+    While,
     Function,
     Sub,
 }
@@ -519,6 +563,21 @@ pub enum Expression {
         value: Box<Expression>,
     },
     CaseElse,
+}
+
+impl Expression {
+    pub fn flattened_qb64_name(&self) -> Option<String> {
+        match self {
+            Expression::Variable(var) => Some(var.name.clone()),
+            Expression::FieldAccess { object, field } => {
+                let mut name = object.flattened_qb64_name()?;
+                name.push('.');
+                name.push_str(field);
+                Some(name)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

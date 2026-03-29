@@ -6,6 +6,11 @@ authors.workspace = true
 license.workspace = true
 description.workspace = true
 
+[[test]]
+name = "qb64_source_parse"
+path = "../test/integration/syntax_tree/qb64_source_parse.rs"
+
 [dependencies]
 core_types = { path = "../core_types" }
 tokenizer = { path = "../tokenizer" }
+chumsky = "0.9"

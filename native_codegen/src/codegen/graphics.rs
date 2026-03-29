@@ -93,24 +93,92 @@ fn update_screen() {
 }
 
 #[allow(static_mut_refs)]
-fn cls() {
+fn qb_cls(mode: f64) {
+    let mode = mode.round() as i32;
     unsafe {
         if let Some(gfx) = GRAPHICS.as_mut() {
-            gfx.get_framebuffer_mut().fill(0);
-            TEXT_X = 0;
-            TEXT_Y = 0;
+            match mode {
+                0 => {
+                    gfx.clear_graphics_screen(0);
+                    qb_clear_text_rows(1, qb_text_rows());
+                    QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                    TEXT_X = 0;
+                    TEXT_Y = 0;
+                    QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (1, 1));
+                }
+                1 => {
+                    if gfx.viewport.active {
+                        gfx.clear_graphics_viewport(0);
+                    } else {
+                        gfx.clear_graphics_screen(0);
+                        qb_clear_text_rows(1, qb_text_rows());
+                        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                        TEXT_X = 0;
+                        TEXT_Y = 0;
+                        QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (1, 1));
+                    }
+                }
+                2 => {
+                    let (top, bottom) = qb_view_print_bounds();
+                    qb_clear_text_rows(top, bottom);
+                    QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                    TEXT_X = 0;
+                    QB_CURSOR_STATE.with(|state| {
+                        let row = state.borrow().0;
+                        *state.borrow_mut() = (row, 1);
+                    });
+                }
+                _ => {
+                    if gfx.viewport.active {
+                        gfx.clear_graphics_viewport(0);
+                    } else {
+                        let (top, bottom) = qb_view_print_bounds();
+                        qb_clear_text_rows(top, bottom);
+                        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+                        TEXT_X = 0;
+                        QB_CURSOR_STATE.with(|state| {
+                            let row = state.borrow().0;
+                            *state.borrow_mut() = (row, 1);
+                        });
+                    }
+                }
+            }
             update_screen();
         } else {
-             print!("\x1B[2J\x1B[1;1H");
+            TEXT_X = 0;
+            TEXT_Y = if mode == 0 { 0 } else { TEXT_Y };
         }
     }
 }
 
 fn locate(row: f64, col: f64) {
     unsafe {
-        TEXT_Y = (row as usize).saturating_sub(1);
-        TEXT_X = (col as usize).saturating_sub(1);
+        qb_ensure_cursor_in_window();
+        let rows = qb_text_rows();
+        let cols = qb_text_columns();
+        let has_view_print = QB_VIEW_PRINT_REGION.with(|region| region.borrow().is_some());
+        let (top, bottom) = qb_view_print_bounds();
+        let (current_row, current_col) = QB_CURSOR_STATE.with(|state| *state.borrow());
+        let row = row.round() as i32;
+        let col = col.round() as i32;
+        let row = if row == 0 {
+            current_row
+        } else if has_view_print {
+            row.clamp(top, bottom)
+        } else {
+            row.clamp(1, rows)
+        };
+        let col = if col == 0 { current_col } else { col.clamp(1, cols) };
+        TEXT_Y = row.saturating_sub(1) as usize;
+        TEXT_X = col.saturating_sub(1) as usize;
+        QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
+        QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (row, col));
     }
+}
+
+fn locate_ex(row: f64, col: f64, cursor: f64, start: f64, stop: f64) {
+    locate(row, col);
+    qb_set_cursor_state(cursor, start, stop);
 }
 
 fn map_color(c: f64) -> u32 {
@@ -157,7 +225,10 @@ fn qb_pmap(coord: f64, func: f64) -> f64 {
     }
 }
 
-fn qb_color(foreground: f64) {
+fn qb_color(foreground: f64, background: f64) {
+    let _ = background;
+    QB_TEXT_FOREGROUND.with(|fg| fg.set((foreground.round() as i32).clamp(0, 15) as u8));
+    QB_TEXT_BACKGROUND.with(|bg| bg.set((background.round() as i32).clamp(0, 15) as u8));
     unsafe {
         CURRENT_COLOR = normalize_color(foreground);
     }
@@ -370,6 +441,10 @@ fn put_image_from_array(x: f64, y: f64, arr_idx: usize, action: &str, arr_vars: 
                 } else {
                     "0.0".to_string()
                 };
+                self.output.push_str(&format!(
+                    "{}qb_apply_screen_mode({} as i32);\n",
+                    indent, mode_code
+                ));
                 self.output
                     .push_str(&format!("{}match {} as i32 {{\n", indent, mode_code));
                 self.output

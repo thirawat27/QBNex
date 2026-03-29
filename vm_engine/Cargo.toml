@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 description.workspace = true
 
+[[test]]
+name = "vm_test"
+path = "../test/integration/vm_engine/vm_test.rs"
+
 [dependencies]
 core_types = { path = "../core_types" }
 syntax_tree = { path = "../syntax_tree" }

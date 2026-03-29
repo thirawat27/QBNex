@@ -157,10 +157,10 @@ pub fn analyze_program(program: &Program) -> QResult<SymbolTable> {
     for stmt in &program.statements {
         match stmt {
             syntax_tree::Statement::Dim { variables, .. } => {
-                for (var, size) in variables {
+                for (var, dimensions) in variables {
                     let var_type = if let Some(declared_type) = &var.declared_type {
                         QType::UserDefined(declared_type.clone().into_bytes())
-                    } else if size.is_some() {
+                    } else if dimensions.is_some() {
                         QType::Integer(0)
                     } else {
                         table.get_default_type(&var.name)
