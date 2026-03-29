@@ -1,0 +1,20 @@
+COUNT = 0
+START! = TIMER
+ON TIMER(0.1) GOSUB Tick
+TIMER ON
+
+DO
+    IF COUNT > 0 THEN EXIT DO
+    IF TIMER - START! > 2 THEN
+        PRINT "timeout"
+        END
+    END IF
+LOOP
+
+TIMER OFF
+PRINT COUNT
+END
+
+Tick:
+COUNT = COUNT + 1
+RETURN

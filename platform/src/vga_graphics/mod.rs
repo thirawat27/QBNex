@@ -71,11 +71,6 @@ impl VGAGraphics {
         &mut self.framebuffer
     }
 
-    #[allow(dead_code)]
-    pub fn get_vram_buffer(&self) -> Vec<u8> {
-        self.memory.get_vga_buffer()
-    }
-
     pub fn palette(&mut self, attribute: u8, color: u8) {
         if let Some(slot) = self.palette.colors.get_mut(attribute as usize) {
             *slot = color as u32;

@@ -128,8 +128,7 @@ QBNex/
 ├── codegen/           Native code generation (AST → Rust → executable)
 │   ├── backend.rs     Native backend abstraction seam
 │   ├── codegen.rs     Rust code generator
-│   ├── llvm_builder.rs  LLVM IR generation (future)
-│   └── linker.rs      Executable linking
+│   └── llvm_builder.rs  LLVM IR preview backend
 ├── platform/          Runtime and platform abstraction helpers
 │   ├── file_io.rs     Cross-platform file operations
 │   ├── vga_graphics.rs  Graphics rendering
@@ -488,9 +487,9 @@ EXAMPLES
 **Production Validation**
 
 - `qb --validate-release`
-  Runs a fixture-driven validation pass over the production compiler surface: the production frontend, semantic analysis, type checking, VM bytecode compilation, runtime-backend selection, and the production native backend across text-mode, graphics-mode, file-I/O, and VM-fallback BASIC fixtures. Fixtures with companion `.out` files are also executed in-process through the VM, so release validation checks deterministic runtime output without rebuilding throwaway executables for every fixture. The command prints `[n/total]` progress lines plus a summary of graphics/runtime-output/VM-fallback coverage. Use this before tagging or packaging a release.
+  Runs a fixture-driven validation pass over the production compiler surface: the production frontend, semantic analysis, type checking, VM bytecode compilation, runtime-backend selection, and the production native backend across text-mode, graphics-mode, file-I/O, and VM-fallback BASIC fixtures. Expected runtime output is now read from the centralized catalog in [fixture_io_catalog.rs](D:\QBNex\tests\fixtures\fixture_io_catalog.rs), so validation stays deterministic without carrying separate `.out` files or rebuilding throwaway executables for every fixture. The command prints `[n/total]` progress lines plus a summary of graphics/runtime-output/VM-fallback coverage. Use this before tagging or packaging a release.
 - `qb --validate-pipeline --frontend <NAME> [--native-backend <NAME>] [--allow-preview]`
-  Runs the same release fixtures against the selected pipeline, so preview frontends and backends can only graduate after they pass the same regression set as the production path, including the shared `.out` runtime-output checks. It prints the same per-fixture progress and coverage summary as `--validate-release`. Failures report the exact fixture that broke and the backend/frontend gap that caused it.
+  Runs the same release fixtures against the selected pipeline, so preview frontends and backends can only graduate after they pass the same regression set as the production path, including the shared catalog-backed runtime-output checks. It prints the same per-fixture progress and coverage summary as `--validate-release`. Failures report the exact fixture that broke and the backend/frontend gap that caused it.
 - `qb --list-pipelines`
   Prints the current frontend/native-backend matrix with their production or preview status, plus the active release-fixture inventory and validation coverage counts, so release tooling and operators can inspect the active compiler surface directly from the binary.
 - `qb --explain-pipeline FILE`
@@ -1214,16 +1213,38 @@ QBNex now keeps a centralized non-DOS QBasic/QuickBASIC conformance suite under 
 The current conformance inventory covers:
 
 - arrays and `OPTION BASE` / bounds
+- `BYVAL` / `BYREF`
+- `CLEAR` with file-handle reset and `FREEFILE` recovery
+- `COMMON SHARED`
+- `COMMON SHARED` through `$INCLUDE`d helper modules
+- computed branching with `ON GOTO` / `ON GOSUB`
+- console `INPUT` / `LINE INPUT`
+- constants and `DEF FN`
 - control flow
 - `DATA` / `READ` / `RESTORE`
+- `DEFINT` / `DEFLNG` / related `DEFxxx` default-type coercion
+- array lifecycle through `ERASE` and `REDIM`
+- fixed-length string `LSET` / `RSET` on UDT fields
+- logical and comparison operators
+- loop controls
+- `MID$` assignment
 - numeric operators and conversions
+- `ON PLAY` queue events
+- `ON TIMER` event dispatch
 - `ON ERROR` / `ERR` / `ERL`
 - `PRINT USING`
 - procedures and `DEF FN`
 - random record file I/O with `FIELD`, `LSET`, `GET`, and `PUT`
+- text-screen state through `WIDTH`, `TAB`, `SCREEN`, and `CSRLIN`
 - sequential file I/O
+- advanced `SELECT CASE`
+- `DIM SHARED` globals and `STATIC` procedure state
 - string intrinsics
+- `SWAP` and `CLEAR`
 - user-defined types
+
+The VM-backed `-x` runner is also rebuilt through Cargo's shared target cache on each invocation now, so conformance and release checks no longer silently reuse stale runtime semantics after dependency changes. Programs that rely on `DEFxxx` default-type coercion currently run through the VM-compatible path intentionally so QBNex preserves QuickBASIC semantics instead of silently miscompiling them in the native backend.
+Conformance stdin and expected stdout are now centralized in [fixture_io_catalog.rs](D:\QBNex\tests\fixtures\fixture_io_catalog.rs), so console-interaction and output-parity checks stay canonical without separate `.in`/`.out` sidecar files. Multi-file conformance fixtures are still supported: any sibling files that share the fixture stem are copied into the temp workspace alongside the main `.bas`, so `$INCLUDE`-driven project behavior can be validated through the same canonical harness. Sound/event outputs still use `<BEL>` inside the catalog as a readable placeholder for the ASCII bell character.
 
 ### Code Style
 

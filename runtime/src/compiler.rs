@@ -3,8 +3,8 @@ use crate::opcodes::{BinaryFileKind, ByRefTarget, OpCode};
 use core_types::{QResult, QType};
 use std::collections::HashMap;
 use syntax_tree::ast_nodes::{
-    ArrayDimension, BinaryOp, ExitType, Expression, GotoTarget, PrintSeparator, Program, Statement,
-    UnaryOp,
+    ArrayDimension, BinaryOp, DefTypeMap, ExitType, Expression, GotoTarget, PrintSeparator,
+    Program, Statement, UnaryOp,
 };
 use syntax_tree::{validate_program, Backend};
 
@@ -28,6 +28,7 @@ pub struct BytecodeCompiler {
     field_widths: HashMap<usize, usize>,
     function_param_modes: HashMap<String, Vec<bool>>,
     sub_param_modes: HashMap<String, Vec<bool>>,
+    def_types: DefTypeMap,
     next_var_index: usize,
     loop_contexts: Vec<LoopContext>,
     current_function: Option<String>,
@@ -36,6 +37,7 @@ pub struct BytecodeCompiler {
 
 impl BytecodeCompiler {
     pub fn new(program: Program) -> Self {
+        let def_types = Self::collect_def_types(&program);
         let function_param_modes = Self::collect_param_modes(&program, true);
         let sub_param_modes = Self::collect_param_modes(&program, false);
         Self {
@@ -53,6 +55,7 @@ impl BytecodeCompiler {
             field_widths: HashMap::with_capacity(16),
             function_param_modes,
             sub_param_modes,
+            def_types,
             next_var_index: 0,
             loop_contexts: Vec::with_capacity(16),
             current_function: None,
@@ -102,33 +105,159 @@ impl BytecodeCompiler {
         name.to_ascii_uppercase()
     }
 
-    fn variable_is_string(var: &syntax_tree::ast_nodes::Variable) -> bool {
-        var.type_suffix == Some('$')
-            || var.name.ends_with('$')
-            || var
-                .declared_type
-                .as_deref()
-                .is_some_and(|type_name| type_name.eq_ignore_ascii_case("STRING"))
+    fn collect_def_types(program: &Program) -> DefTypeMap {
+        let mut def_types = DefTypeMap::new();
+        for statement in &program.statements {
+            if let Statement::DefType {
+                letter_ranges,
+                type_name,
+            } = statement
+            {
+                let qtype = Self::declared_type_to_qtype(type_name);
+                for (start, end) in letter_ranges {
+                    def_types.set_range(
+                        start.to_ascii_lowercase(),
+                        end.to_ascii_lowercase(),
+                        qtype.clone(),
+                    );
+                }
+            }
+        }
+        def_types
     }
 
-    fn binary_file_kind_from_suffix(type_suffix: Option<char>, name: &str) -> BinaryFileKind {
-        match type_suffix.or_else(|| syntax_tree::ast_nodes::Variable::suffix_from_name(name)) {
-            Some('%') => BinaryFileKind::Integer,
-            Some('&') => BinaryFileKind::Long,
-            Some('#') => BinaryFileKind::Double,
-            Some('$') => BinaryFileKind::String,
-            _ => BinaryFileKind::Single,
+    fn declared_type_to_qtype(type_name: &str) -> QType {
+        match Self::normalize_qb64_type_name(type_name).as_str() {
+            "INTEGER" => QType::Integer(0),
+            "LONG" => QType::Long(0),
+            "SINGLE" => QType::Single(0.0),
+            "DOUBLE" | "_FLOAT" | "FLOAT" => QType::Double(0.0),
+            "STRING" => QType::String(String::new()),
+            "_BYTE" | "BYTE" | "_BIT" | "BIT" => QType::Integer(0),
+            "_UNSIGNED _BYTE" | "UNSIGNED _BYTE" | "_UNSIGNED BYTE" | "UNSIGNED BYTE"
+            | "_UNSIGNED _BIT" | "UNSIGNED _BIT" | "_UNSIGNED BIT" | "UNSIGNED BIT" => {
+                QType::Integer(0)
+            }
+            "_UNSIGNED INTEGER" | "UNSIGNED INTEGER" => QType::Long(0),
+            "_UNSIGNED LONG"
+            | "UNSIGNED LONG"
+            | "_INTEGER64"
+            | "INTEGER64"
+            | "_UNSIGNED _INTEGER64"
+            | "UNSIGNED _INTEGER64"
+            | "_UNSIGNED INTEGER64"
+            | "UNSIGNED INTEGER64"
+            | "_OFFSET"
+            | "OFFSET"
+            | "_UNSIGNED _OFFSET"
+            | "UNSIGNED _OFFSET"
+            | "_UNSIGNED OFFSET"
+            | "UNSIGNED OFFSET" => QType::Double(0.0),
+            _ => QType::UserDefined(type_name.as_bytes().to_vec()),
+        }
+    }
+
+    fn name_type_hint(&self, name: &str, type_suffix: Option<char>) -> QType {
+        let mut variable = syntax_tree::ast_nodes::Variable::new(name.to_string());
+        if let Some(type_suffix) = type_suffix {
+            variable.type_suffix = Some(type_suffix);
+        }
+        variable.get_default_type(&self.def_types)
+    }
+
+    fn variable_type_hint(&self, var: &syntax_tree::ast_nodes::Variable) -> QType {
+        if let Some(declared_type) = &var.declared_type {
+            return Self::declared_type_to_qtype(declared_type);
+        }
+        var.get_default_type(&self.def_types)
+    }
+
+    fn variable_is_string(&self, var: &syntax_tree::ast_nodes::Variable) -> bool {
+        matches!(self.variable_type_hint(var), QType::String(_))
+    }
+
+    fn qtype_to_binary_kind(qtype: &QType) -> Option<BinaryFileKind> {
+        match qtype {
+            QType::Integer(_) => Some(BinaryFileKind::Integer),
+            QType::Long(_) => Some(BinaryFileKind::Long),
+            QType::Single(_) => Some(BinaryFileKind::Single),
+            QType::Double(_) => Some(BinaryFileKind::Double),
+            QType::String(_) => Some(BinaryFileKind::String),
+            _ => None,
+        }
+    }
+
+    fn binary_file_kind_for_name(&self, name: &str, type_suffix: Option<char>) -> BinaryFileKind {
+        Self::qtype_to_binary_kind(&self.name_type_hint(name, type_suffix))
+            .unwrap_or(BinaryFileKind::Single)
+    }
+
+    fn zero_value_for_qtype(qtype: &QType) -> QType {
+        match qtype {
+            QType::Integer(_) => QType::Integer(0),
+            QType::Long(_) => QType::Long(0),
+            QType::Single(_) => QType::Single(0.0),
+            QType::Double(_) => QType::Double(0.0),
+            QType::String(_) => QType::String(String::new()),
+            QType::UserDefined(bytes) => QType::UserDefined(bytes.clone()),
+            QType::Empty => QType::Empty,
+        }
+    }
+
+    fn register_numeric_slot_type(&mut self, slot: usize, qtype: &QType) {
+        if let Some(kind) =
+            Self::qtype_to_binary_kind(qtype).filter(|kind| *kind != BinaryFileKind::String)
+        {
+            self.bytecode.push(OpCode::SetNumericType { slot, kind });
+        }
+    }
+
+    fn register_numeric_array_type(&mut self, name: &str, qtype: &QType) {
+        if let Some(kind) =
+            Self::qtype_to_binary_kind(qtype).filter(|kind| *kind != BinaryFileKind::String)
+        {
+            self.bytecode.push(OpCode::SetNumericArrayType {
+                name: name.to_string(),
+                kind,
+            });
+        }
+    }
+
+    fn register_scalar_storage_metadata(
+        &mut self,
+        var: &syntax_tree::ast_nodes::Variable,
+        slot: usize,
+    ) {
+        if self.variable_is_string(var) {
+            if let Some(width) = var.fixed_length {
+                self.bytecode.push(OpCode::SetStringWidth { slot, width });
+            }
+        } else {
+            let qtype = self.variable_type_hint(var);
+            self.register_numeric_slot_type(slot, &qtype);
+        }
+    }
+
+    fn register_array_storage_metadata(&mut self, var: &syntax_tree::ast_nodes::Variable) {
+        if self.variable_is_string(var) {
+            self.bytecode.push(OpCode::SetStringArrayWidth {
+                name: var.name.clone(),
+                width: var.fixed_length.unwrap_or(0),
+            });
+        } else {
+            let qtype = self.variable_type_hint(var);
+            self.register_numeric_array_type(&var.name, &qtype);
         }
     }
 
     fn binary_file_target_metadata(&self, expr: &Expression) -> Option<(BinaryFileKind, usize)> {
         match expr {
             Expression::Variable(var) => {
-                if Self::variable_is_string(var) {
+                if self.variable_is_string(var) {
                     Some((BinaryFileKind::String, var.fixed_length.unwrap_or(0)))
                 } else {
                     Some((
-                        Self::binary_file_kind_from_suffix(var.type_suffix, &var.name),
+                        self.binary_file_kind_for_name(&var.name, var.type_suffix),
                         0,
                     ))
                 }
@@ -136,19 +265,123 @@ impl BytecodeCompiler {
             Expression::ArrayAccess {
                 name, type_suffix, ..
             } => {
-                let kind = Self::binary_file_kind_from_suffix(*type_suffix, name);
+                let kind = self.binary_file_kind_for_name(name, *type_suffix);
                 Some((kind, 0))
             }
             Expression::FieldAccess { .. } => Self::qualified_field_name(expr).map(|name| {
-                (
-                    Self::binary_file_kind_from_suffix(
-                        syntax_tree::ast_nodes::Variable::suffix_from_name(&name),
-                        &name,
-                    ),
-                    0,
-                )
+                let fixed_length = self.fixed_string_width_for_expr(expr).unwrap_or(0);
+                (self.binary_file_kind_for_name(&name, None), fixed_length)
             }),
             _ => None,
+        }
+    }
+
+    fn lookup_user_type(&self, type_name: &str) -> Option<syntax_tree::ast_nodes::UserType> {
+        self.program
+            .user_types
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(type_name))
+            .map(|(_, user_type)| user_type.clone())
+    }
+
+    fn find_declared_type_for_variable(&self, name: &str) -> Option<String> {
+        for stmt in &self.program.statements {
+            if let Statement::Dim { variables, .. } | Statement::Redim { variables, .. } = stmt {
+                for (var, _) in variables {
+                    if var.name.eq_ignore_ascii_case(name) {
+                        return var.declared_type.clone();
+                    }
+                }
+            }
+        }
+
+        for func in self.program.functions.values() {
+            for param in &func.params {
+                if param.name.eq_ignore_ascii_case(name) {
+                    return param.declared_type.clone();
+                }
+            }
+        }
+
+        for sub in self.program.subs.values() {
+            for param in &sub.params {
+                if param.name.eq_ignore_ascii_case(name) {
+                    return param.declared_type.clone();
+                }
+            }
+        }
+
+        None
+    }
+
+    fn resolve_udt_object_type(&self, expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Variable(var) => var
+                .declared_type
+                .clone()
+                .or_else(|| self.find_declared_type_for_variable(&var.name))
+                .filter(|type_name| self.lookup_user_type(type_name).is_some()),
+            Expression::FieldAccess { object, field } => {
+                let parent_type = self.resolve_udt_object_type(object)?;
+                let user_type = self.lookup_user_type(&parent_type)?;
+                let type_field = user_type
+                    .fields
+                    .iter()
+                    .find(|candidate| candidate.name.eq_ignore_ascii_case(field))?;
+                match &type_field.field_type {
+                    QType::UserDefined(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn fixed_string_width_for_expr(&self, expr: &Expression) -> Option<usize> {
+        match expr {
+            Expression::Variable(var) => var.fixed_length,
+            Expression::FieldAccess { object, field } => {
+                let parent_type = self.resolve_udt_object_type(object)?;
+                let user_type = self.lookup_user_type(&parent_type)?;
+                let type_field = user_type
+                    .fields
+                    .iter()
+                    .find(|candidate| candidate.name.eq_ignore_ascii_case(field))?;
+                matches!(type_field.field_type, QType::String(_))
+                    .then_some(type_field.fixed_length)
+                    .flatten()
+            }
+            _ => None,
+        }
+    }
+
+    fn register_udt_field_slots(&mut self, base_name: &str, type_name: &str) {
+        let Some(user_type) = self.lookup_user_type(type_name) else {
+            return;
+        };
+
+        for field in user_type.fields {
+            let field_name = format!("{base_name}.{}", field.name);
+            match field.field_type {
+                QType::UserDefined(bytes) => {
+                    let nested_type = String::from_utf8_lossy(&bytes).into_owned();
+                    self.register_udt_field_slots(&field_name, &nested_type);
+                }
+                QType::String(_) => {
+                    let slot = self.get_var_index(&field_name);
+                    if let Some(width) = field.fixed_length {
+                        self.field_widths.insert(slot, width);
+                        self.bytecode.push(OpCode::SetStringWidth { slot, width });
+                    }
+                    self.bytecode
+                        .push(OpCode::LoadConstant(QType::String(String::new())));
+                    self.bytecode.push(OpCode::StoreFast(slot));
+                }
+                _ => {
+                    let slot = self.get_var_index(&field_name);
+                    self.register_numeric_slot_type(slot, &field.field_type);
+                }
+            }
         }
     }
 
@@ -376,7 +609,7 @@ impl BytecodeCompiler {
                             && self
                                 .current_function
                                 .as_ref()
-                                .map_or(true, |current| !current.eq_ignore_ascii_case(&var.name)))
+                                .is_none_or(|current| !current.eq_ignore_ascii_case(&var.name)))
                     {
                         by_ref.push(ByRefTarget::None);
                         self.compile_expression(arg)?;
@@ -536,20 +769,21 @@ impl BytecodeCompiler {
         let body_start = self.bytecode.len();
         let previous_function = self.current_function.replace(func_def.name.clone());
         for param in &func_def.params {
-            if let Some(width) = param.fixed_length {
-                if param.type_suffix == Some('$') || param.name.ends_with('$') {
-                    let slot = self.get_var_index(&param.name);
-                    self.bytecode.push(OpCode::SetStringWidth { slot, width });
-                }
+            let slot = self.get_var_index(&param.name);
+            if let Some(declared_type) = &param.declared_type {
+                self.register_udt_field_slots(&param.name, declared_type);
             }
+            self.register_scalar_storage_metadata(param, slot);
         }
-        if func_def.name.ends_with('$') {
+        if matches!(func_def.return_type, QType::String(_)) {
             if let Some(width) = func_def.return_fixed_length {
                 self.bytecode.push(OpCode::SetStringWidth {
                     slot: function_index,
                     width,
                 });
             }
+        } else {
+            self.register_numeric_slot_type(function_index, &func_def.return_type);
         }
         for stmt in &func_def.body {
             self.compile_statement(stmt)?;
@@ -579,12 +813,11 @@ impl BytecodeCompiler {
         let body_start = self.bytecode.len();
         let previous_function = self.current_function.take();
         for param in &sub_def.params {
-            if let Some(width) = param.fixed_length {
-                if param.type_suffix == Some('$') || param.name.ends_with('$') {
-                    let slot = self.get_var_index(&param.name);
-                    self.bytecode.push(OpCode::SetStringWidth { slot, width });
-                }
+            let slot = self.get_var_index(&param.name);
+            if let Some(declared_type) = &param.declared_type {
+                self.register_udt_field_slots(&param.name, declared_type);
             }
+            self.register_scalar_storage_metadata(param, slot);
         }
         for stmt in &sub_def.body {
             self.compile_statement(stmt)?;
@@ -1101,6 +1334,7 @@ impl BytecodeCompiler {
                 // Push start value and store in variable!
                 self.compile_expression(start)?;
                 let var_idx = self.get_var_index(&variable.name);
+                self.register_scalar_storage_metadata(variable, var_idx);
                 self.bytecode.push(OpCode::StoreFast(var_idx));
 
                 let for_init_idx = self.bytecode.len();
@@ -1143,6 +1377,7 @@ impl BytecodeCompiler {
                 };
 
                 let item_var_idx = self.get_var_index(&variable.name);
+                self.register_scalar_storage_metadata(variable, item_var_idx);
                 let index_var_idx = self.get_var_index(&format!("__FOREACH_IDX_{}", item_var_idx));
                 let end_var_idx = self.get_var_index(&format!("__FOREACH_END_{}", item_var_idx));
 
@@ -1499,34 +1734,19 @@ impl BytecodeCompiler {
             Statement::Dim { variables, .. } => {
                 for (var, dimensions) in variables {
                     if let Some(dimensions) = dimensions {
-                        if Self::variable_is_string(var) {
-                            self.bytecode.push(OpCode::SetStringArrayWidth {
-                                name: var.name.clone(),
-                                width: var.fixed_length.unwrap_or(0),
-                            });
-                        }
+                        self.register_array_storage_metadata(var);
                         self.compile_array_dimensions(&var.name, dimensions, false)?;
                     } else {
+                        if let Some(declared_type) = &var.declared_type {
+                            self.register_udt_field_slots(&var.name, declared_type);
+                        }
                         // Simple variable
                         let var_idx = self.get_var_index(&var.name);
-                        if let Some(width) = var.fixed_length {
-                            if Self::variable_is_string(var) {
-                                self.bytecode.push(OpCode::SetStringWidth {
-                                    slot: var_idx,
-                                    width,
-                                });
-                                self.bytecode
-                                    .push(OpCode::LoadConstant(QType::String(String::new())));
-                            } else {
-                                self.bytecode
-                                    .push(OpCode::LoadConstant(QType::String(String::new())));
-                            }
-                        } else if Self::variable_is_string(var) {
-                            self.bytecode
-                                .push(OpCode::LoadConstant(QType::String(String::new())));
-                        } else {
-                            self.bytecode.push(OpCode::LoadConstant(QType::Integer(0)));
-                        }
+                        self.register_scalar_storage_metadata(var, var_idx);
+                        self.bytecode
+                            .push(OpCode::LoadConstant(Self::zero_value_for_qtype(
+                                &self.variable_type_hint(var),
+                            )));
                         self.bytecode.push(OpCode::StoreFast(var_idx));
                     }
                 }
@@ -1537,12 +1757,7 @@ impl BytecodeCompiler {
                 preserve,
             } => {
                 for (var, dimensions) in variables {
-                    if Self::variable_is_string(var) {
-                        self.bytecode.push(OpCode::SetStringArrayWidth {
-                            name: var.name.clone(),
-                            width: var.fixed_length.unwrap_or(0),
-                        });
-                    }
+                    self.register_array_storage_metadata(var);
                     let dimensions = dimensions.as_ref().ok_or_else(|| {
                         core_types::QError::Syntax(
                             "REDIM requires at least one array dimension".to_string(),
@@ -1889,6 +2104,7 @@ impl BytecodeCompiler {
             Statement::Read { variables } => {
                 for var in variables {
                     let var_idx = self.get_var_index(&var.name);
+                    self.register_scalar_storage_metadata(var, var_idx);
                     self.bytecode.push(OpCode::ReadFast(var_idx));
                 }
             }
@@ -2066,9 +2282,8 @@ impl BytecodeCompiler {
                     self.compile_expression(p)?;
                     self.bytecode.push(OpCode::Print);
                 }
-                self.bytecode.push(OpCode::LineInput(
-                    self.expr_to_var_name(variable).unwrap_or_default(),
-                ));
+                self.bytecode.push(OpCode::Input);
+                self.compile_store_target(variable)?;
             }
 
             Statement::InputFile {
@@ -2327,7 +2542,12 @@ impl BytecodeCompiler {
             Statement::LSet { target, value } => {
                 if let Some(field_name) = self.expr_to_var_name(target) {
                     let var_index = self.get_var_index(&field_name);
-                    let width = self.field_widths.get(&var_index).copied().unwrap_or(0);
+                    let width = self
+                        .field_widths
+                        .get(&var_index)
+                        .copied()
+                        .or_else(|| self.fixed_string_width_for_expr(target))
+                        .unwrap_or(0);
                     self.compile_expression(value)?;
                     self.bytecode.push(OpCode::LSetField { var_index, width });
                 }
@@ -2335,7 +2555,12 @@ impl BytecodeCompiler {
             Statement::RSet { target, value } => {
                 if let Some(field_name) = self.expr_to_var_name(target) {
                     let var_index = self.get_var_index(&field_name);
-                    let width = self.field_widths.get(&var_index).copied().unwrap_or(0);
+                    let width = self
+                        .field_widths
+                        .get(&var_index)
+                        .copied()
+                        .or_else(|| self.fixed_string_width_for_expr(target))
+                        .unwrap_or(0);
                     self.compile_expression(value)?;
                     self.bytecode.push(OpCode::RSetField { var_index, width });
                 }
@@ -2385,8 +2610,12 @@ impl BytecodeCompiler {
             }
 
             Statement::Const { name, value } => {
+                let qtype = self.name_type_hint(name, None);
                 self.compile_expression(value)?;
                 let slot = self.get_var_index(name);
+                if !matches!(qtype, QType::String(_)) {
+                    self.register_numeric_slot_type(slot, &qtype);
+                }
                 self.bytecode.push(OpCode::StoreFast(slot));
                 self.bytecode.push(OpCode::MarkConst(slot));
             }
@@ -2579,6 +2808,10 @@ impl BytecodeCompiler {
                     let slot = self.next_var_index;
                     self.variable_map.insert(param.clone(), slot);
                     param_slots.push(slot);
+                    let qtype = self.name_type_hint(param, None);
+                    if !matches!(qtype, QType::String(_)) {
+                        self.register_numeric_slot_type(slot, &qtype);
+                    }
                     self.next_var_index += 1;
                 }
 
@@ -2691,6 +2924,7 @@ impl BytecodeCompiler {
     fn expr_to_var_name(&self, expr: &Expression) -> Option<String> {
         match expr {
             Expression::Variable(var) => Some(var.name.clone()),
+            Expression::FieldAccess { .. } => Self::qualified_field_name(expr),
             _ => None,
         }
     }
@@ -2715,7 +2949,7 @@ impl BytecodeCompiler {
                     && self
                         .current_function
                         .as_ref()
-                        .map_or(true, |current| !current.eq_ignore_ascii_case(&var.name))
+                        .is_none_or(|current| !current.eq_ignore_ascii_case(&var.name))
                 {
                     let func = syntax_tree::ast_nodes::FunctionCall {
                         name: var.name.clone(),
@@ -3149,9 +3383,18 @@ impl BytecodeCompiler {
         match target {
             Expression::Variable(var) => {
                 let var_idx = self.get_var_index(&var.name);
+                self.register_scalar_storage_metadata(var, var_idx);
                 self.bytecode.push(OpCode::StoreFast(var_idx));
             }
-            Expression::ArrayAccess { name, indices, .. } => {
+            Expression::ArrayAccess {
+                name,
+                indices,
+                type_suffix,
+            } => {
+                let qtype = self.name_type_hint(name, *type_suffix);
+                if !matches!(qtype, QType::String(_)) {
+                    self.register_numeric_array_type(name, &qtype);
+                }
                 // ArrayStore expects the stack as indices..., value with the value on top.
                 // Preserve that convention across assignment, GET/INPUT stores, and file reads.
                 let temp_var = format!("__ARR_STORE_TMP_{}", self.next_var_index);
@@ -3168,6 +3411,13 @@ impl BytecodeCompiler {
             Expression::FieldAccess { .. } => {
                 if let Some(name) = Self::qualified_field_name(target) {
                     let var_idx = self.get_var_index(&name);
+                    let qtype = self.name_type_hint(
+                        &name,
+                        syntax_tree::ast_nodes::Variable::suffix_from_name(&name),
+                    );
+                    if !matches!(qtype, QType::String(_)) {
+                        self.register_numeric_slot_type(var_idx, &qtype);
+                    }
                     self.bytecode.push(OpCode::StoreFast(var_idx));
                 } else if let Expression::FieldAccess { object, .. } = target {
                     self.compile_expression(object.as_ref())?;

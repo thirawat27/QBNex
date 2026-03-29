@@ -1,0 +1,12 @@
+VALUE = 7
+
+SELECT CASE VALUE
+CASE 1 TO 3
+    PRINT "small"
+CASE 4, 5, 6
+    PRINT "mid"
+CASE IS > 6
+    PRINT "big"
+CASE ELSE
+    PRINT "other"
+END SELECT

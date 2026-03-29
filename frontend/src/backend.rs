@@ -479,8 +479,8 @@ fn collect_unsupported_expressions_in_statement(
 fn collect_unsupported_expression(
     expr: &Expression,
     backend: Backend,
-    known_functions: &BTreeSet<String>,
-    unsupported: &mut BTreeSet<&'static str>,
+    _known_functions: &BTreeSet<String>,
+    _unsupported: &mut BTreeSet<&'static str>,
 ) {
     if backend != Backend::Native {
         return;
@@ -489,33 +489,33 @@ fn collect_unsupported_expression(
     match expr {
         Expression::ArrayAccess { indices, .. } => {
             for index in indices {
-                collect_unsupported_expression(index, backend, known_functions, unsupported);
+                collect_unsupported_expression(index, backend, _known_functions, _unsupported);
             }
         }
         Expression::FieldAccess { object, .. } => {
-            collect_unsupported_expression(object, backend, known_functions, unsupported);
+            collect_unsupported_expression(object, backend, _known_functions, _unsupported);
         }
         Expression::BinaryOp { left, right, .. } => {
-            collect_unsupported_expression(left, backend, known_functions, unsupported);
-            collect_unsupported_expression(right, backend, known_functions, unsupported);
+            collect_unsupported_expression(left, backend, _known_functions, _unsupported);
+            collect_unsupported_expression(right, backend, _known_functions, _unsupported);
         }
         Expression::UnaryOp { operand, .. } => {
-            collect_unsupported_expression(operand, backend, known_functions, unsupported);
+            collect_unsupported_expression(operand, backend, _known_functions, _unsupported);
         }
         Expression::FunctionCall(func) => {
             for arg in &func.args {
-                collect_unsupported_expression(arg, backend, known_functions, unsupported);
+                collect_unsupported_expression(arg, backend, _known_functions, _unsupported);
             }
         }
         Expression::TypeCast { expression, .. } => {
-            collect_unsupported_expression(expression, backend, known_functions, unsupported);
+            collect_unsupported_expression(expression, backend, _known_functions, _unsupported);
         }
         Expression::CaseRange { start, end } => {
-            collect_unsupported_expression(start, backend, known_functions, unsupported);
-            collect_unsupported_expression(end, backend, known_functions, unsupported);
+            collect_unsupported_expression(start, backend, _known_functions, _unsupported);
+            collect_unsupported_expression(end, backend, _known_functions, _unsupported);
         }
         Expression::CaseIs { value, .. } => {
-            collect_unsupported_expression(value, backend, known_functions, unsupported);
+            collect_unsupported_expression(value, backend, _known_functions, _unsupported);
         }
         Expression::Literal(_) | Expression::Variable(_) | Expression::CaseElse => {}
     }
@@ -547,6 +547,7 @@ fn unsupported_statement(statement: &Statement, backend: Backend) -> Option<&'st
         Backend::Vm => None,
         Backend::Native => match statement {
             Statement::PrintUsing { .. } => None,
+            Statement::DefType { .. } => Some("DEFxxx default-type coercion"),
             Statement::Goto { .. } => Some("GOTO"),
             Statement::Gosub { .. } => Some("GOSUB"),
             Statement::Return => Some("RETURN"),
@@ -1256,6 +1257,13 @@ mod tests {
         let program = parse("DIM arr(3)\nFOR EACH item IN arr\nPRINT item\nNEXT");
         let unsupported = unsupported_statements(&program, Backend::Native);
         assert!(unsupported.is_empty());
+    }
+
+    #[test]
+    fn native_rejects_def_type_programs_for_vm_fallback() {
+        let program = parse("DEFINT A-Z\nA = 1.5\nPRINT A");
+        let unsupported = unsupported_statements(&program, Backend::Native);
+        assert!(unsupported.contains(&"DEFxxx default-type coercion"));
     }
 
     #[test]

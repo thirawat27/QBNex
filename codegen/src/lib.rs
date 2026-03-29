@@ -5,7 +5,7 @@
 //! ## Example
 //!
 //! ```rust
-//! use native_codegen::{CodeGenerator, Linker};
+//! use native_codegen::CodeGenerator;
 //!
 //! // let mut codegen = CodeGenerator::new();
 //! // let code = codegen.generate(&program).unwrap();
@@ -19,7 +19,6 @@
 pub mod backend;
 pub mod codegen;
 pub mod cranelift_jit;
-pub mod linker;
 pub mod llvm_builder;
 
 pub use backend::{
@@ -28,5 +27,4 @@ pub use backend::{
 };
 pub use codegen::CodeGenerator;
 pub use cranelift_jit::{run_with_cranelift_jit, supports_cranelift_jit};
-pub use linker::Linker;
 pub use llvm_builder::LLVMBuilder;

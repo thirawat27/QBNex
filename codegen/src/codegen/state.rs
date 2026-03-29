@@ -1,6 +1,6 @@
 use core_types::QType;
 use std::collections::{HashMap, HashSet};
-use syntax_tree::ast_nodes::{Expression, UserType};
+use syntax_tree::ast_nodes::{Expression, UserType, Variable};
 
 pub struct CodeGenerator {
     pub(super) output: String,
@@ -11,12 +11,20 @@ pub struct CodeGenerator {
     pub(super) str_vars: HashMap<String, usize>,
     pub(super) arr_vars: HashMap<String, usize>,
     pub(super) str_arr_vars: HashMap<String, usize>,
+    pub(super) shared_num_vars: HashMap<String, usize>,
+    pub(super) shared_str_vars: HashMap<String, usize>,
+    pub(super) shared_arr_vars: HashMap<String, usize>,
+    pub(super) shared_str_arr_vars: HashMap<String, usize>,
     pub(super) field_widths: HashMap<String, usize>,
     pub(super) user_types: HashMap<String, UserType>,
     pub(super) udt_vars: HashMap<String, String>,
     pub(super) udt_array_vars: HashMap<String, String>,
+    pub(super) shared_udt_vars: HashMap<String, String>,
+    pub(super) shared_udt_array_vars: HashMap<String, String>,
     pub(super) functions: HashSet<String>,
     pub(super) function_return_types: HashMap<String, QType>,
+    pub(super) sub_param_modes: HashMap<String, Vec<bool>>,
+    pub(super) function_param_modes: HashMap<String, Vec<bool>>,
     pub(super) params: HashMap<String, String>,
     pub(super) const_defs: Vec<(String, Expression)>,
     pub(super) restore_targets: HashMap<String, usize>,
@@ -37,12 +45,20 @@ impl CodeGenerator {
             str_vars: HashMap::new(),
             arr_vars: HashMap::new(),
             str_arr_vars: HashMap::new(),
+            shared_num_vars: HashMap::new(),
+            shared_str_vars: HashMap::new(),
+            shared_arr_vars: HashMap::new(),
+            shared_str_arr_vars: HashMap::new(),
             field_widths: HashMap::new(),
             user_types: HashMap::new(),
             udt_vars: HashMap::new(),
             udt_array_vars: HashMap::new(),
+            shared_udt_vars: HashMap::new(),
+            shared_udt_array_vars: HashMap::new(),
             functions: HashSet::new(),
             function_return_types: HashMap::new(),
+            sub_param_modes: HashMap::new(),
+            function_param_modes: HashMap::new(),
             params: HashMap::new(),
             const_defs: Vec::new(),
             restore_targets: HashMap::new(),
@@ -130,6 +146,41 @@ impl CodeGenerator {
             }
         }
         symbol
+    }
+
+    pub(super) fn register_sub_param_modes(&mut self, name: &str, params: &[Variable]) {
+        self.sub_param_modes.insert(
+            name.to_uppercase(),
+            params.iter().map(|param| param.by_val).collect(),
+        );
+    }
+
+    pub(super) fn register_function_param_modes(&mut self, name: &str, params: &[Variable]) {
+        self.function_param_modes.insert(
+            name.to_uppercase(),
+            params.iter().map(|param| param.by_val).collect(),
+        );
+    }
+
+    pub(super) fn param_modes_for_call(
+        &self,
+        name: &str,
+        is_function: bool,
+        arg_count: usize,
+    ) -> Vec<bool> {
+        let modes = if is_function {
+            self.function_param_modes.get(&name.to_uppercase())
+        } else {
+            self.sub_param_modes.get(&name.to_uppercase())
+        };
+
+        let mut resolved = vec![false; arg_count];
+        if let Some(modes) = modes {
+            for (index, by_val) in modes.iter().take(arg_count).enumerate() {
+                resolved[index] = *by_val;
+            }
+        }
+        resolved
     }
 }
 

@@ -246,11 +246,9 @@ impl CodeGenerator {
                         .push_str(&format!("{}{}({});\n", indent, print_spc_fn, code));
                 }
                 _ => {
-                    let code = self.generate_expression(expr)?;
-                    self.output.push_str(&format!(
-                        "{}{}(&format!(\"{{}}\", {}));\n",
-                        indent, print_text_fn, code
-                    ));
+                    let code = self.generate_printable_expression(expr)?;
+                    self.output
+                        .push_str(&format!("{}{}(&{});\n", indent, print_text_fn, code));
                 }
             }
             if matches!(separators.get(index), Some(Some(PrintSeparator::Comma))) {
@@ -298,11 +296,9 @@ impl CodeGenerator {
         ));
 
         for expr in expressions {
-            let expr_code = self.generate_expression(expr)?;
-            self.output.push_str(&format!(
-                "{}{}.push(format!(\"{{}}\", {}));\n",
-                indent, values_tmp, expr_code
-            ));
+            let expr_code = self.generate_printable_expression(expr)?;
+            self.output
+                .push_str(&format!("{}{}.push({});\n", indent, values_tmp, expr_code));
         }
         for separator in separators.iter().take(expressions.len()) {
             self.output.push_str(&format!(
@@ -318,6 +314,15 @@ impl CodeGenerator {
         ));
 
         Ok(())
+    }
+
+    pub(super) fn generate_printable_expression(&mut self, expr: &Expression) -> QResult<String> {
+        let value_code = self.generate_expression(expr)?;
+        if self.is_string_expression(expr) {
+            Ok(value_code)
+        } else {
+            Ok(format!("qb_format_number({})", value_code))
+        }
     }
 
     pub(super) fn generate_condition(&mut self, expr: &Expression) -> String {
@@ -394,6 +399,7 @@ impl CodeGenerator {
     pub(super) fn prepare_call_argument(
         &mut self,
         arg: &Expression,
+        copy_back: bool,
         setup_lines: &mut Vec<String>,
         copy_back_lines: &mut Vec<String>,
     ) -> QResult<String> {
@@ -401,28 +407,78 @@ impl CodeGenerator {
             Expression::Variable(var) => {
                 let tmp_var = self.next_temp_var();
                 if self.variable_is_string(var) {
-                    let idx = self.get_str_var_idx(&var.name);
+                    let shared_idx = if self.is_in_sub {
+                        self.shared_str_var_idx(&var.name)
+                    } else {
+                        None
+                    };
+                    let idx = shared_idx.unwrap_or_else(|| self.get_str_var_idx(&var.name));
                     let width = self.fixed_string_width_for_name(&var.name);
                     setup_lines.push(format!(
-                        "let mut {} = get_str(&str_vars, {});",
-                        tmp_var, idx
+                        "let mut {} = get_str({}, {});",
+                        tmp_var,
+                        if shared_idx.is_some() {
+                            "global_str_vars"
+                        } else {
+                            "&str_vars"
+                        },
+                        idx
                     ));
-                    if let Some(width) = width {
-                        copy_back_lines.push(format!(
-                            "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
-                            idx, width, tmp_var
-                        ));
-                    } else {
-                        copy_back_lines
-                            .push(format!("set_str(&mut str_vars, {}, &{});", idx, tmp_var));
+                    if copy_back {
+                        if let Some(width) = width {
+                            copy_back_lines.push(format!(
+                                "set_str({}, {}, &qb_fit_fixed_string({}, &{}));",
+                                if shared_idx.is_some() {
+                                    "global_str_vars"
+                                } else {
+                                    "&mut str_vars"
+                                },
+                                idx,
+                                width,
+                                tmp_var
+                            ));
+                        } else {
+                            copy_back_lines.push(format!(
+                                "set_str({}, {}, &{});",
+                                if shared_idx.is_some() {
+                                    "global_str_vars"
+                                } else {
+                                    "&mut str_vars"
+                                },
+                                idx,
+                                tmp_var
+                            ));
+                        }
                     }
                 } else {
-                    let idx = self.get_num_var_idx(&var.name);
+                    let shared_idx = if self.is_in_sub {
+                        self.shared_num_var_idx(&var.name)
+                    } else {
+                        None
+                    };
+                    let idx = shared_idx.unwrap_or_else(|| self.get_num_var_idx(&var.name));
                     setup_lines.push(format!(
-                        "let mut {} = get_var(&num_vars, {});",
-                        tmp_var, idx
+                        "let mut {} = get_var({}, {});",
+                        tmp_var,
+                        if shared_idx.is_some() {
+                            "global_num_vars"
+                        } else {
+                            "&num_vars"
+                        },
+                        idx
                     ));
-                    copy_back_lines.push(format!("set_var(&mut num_vars, {}, {});", idx, tmp_var));
+                    if copy_back {
+                        copy_back_lines.push(format!(
+                            "set_var({}, {}, {});",
+                            if shared_idx.is_some() {
+                                "global_num_vars"
+                            } else {
+                                "&mut num_vars"
+                            },
+                            idx,
+                            tmp_var
+                        ));
+                    }
                 }
                 Ok(format!("&mut {}", tmp_var))
             }
@@ -436,6 +492,42 @@ impl CodeGenerator {
                     let (index_setup_lines, index_slice) =
                         self.native_cached_array_indices(indices)?;
                     setup_lines.extend(index_setup_lines);
+                    if self.is_in_sub {
+                        if let Some(arr_idx) = self.shared_str_arr_var_idx(name) {
+                            let width = self.fixed_string_width_for_name(name);
+                            setup_lines.push(format!(
+                                "let mut {} = str_arr_get(global_str_arr_vars, global_str_arr_bounds, {}, {});",
+                                value_tmp, arr_idx, index_slice
+                            ));
+                            if copy_back {
+                                if let Some(width) = width {
+                                    copy_back_lines.push(format!(
+                                        "str_arr_set(global_str_arr_vars, global_str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
+                                        arr_idx, index_slice, width, value_tmp
+                                    ));
+                                } else {
+                                    copy_back_lines.push(format!(
+                                        "str_arr_set(global_str_arr_vars, global_str_arr_bounds, {}, {}, &{});",
+                                        arr_idx, index_slice, value_tmp
+                                    ));
+                                }
+                            }
+                            return Ok(format!("&mut {}", value_tmp));
+                        }
+                        if let Some(arr_idx) = self.shared_arr_var_idx(name) {
+                            setup_lines.push(format!(
+                                "let mut {} = arr_get(global_arr_vars, global_arr_bounds, {}, {});",
+                                value_tmp, arr_idx, index_slice
+                            ));
+                            if copy_back {
+                                copy_back_lines.push(format!(
+                                    "arr_set(global_arr_vars, global_arr_bounds, {}, {}, {});",
+                                    arr_idx, index_slice, value_tmp
+                                ));
+                            }
+                            return Ok(format!("&mut {}", value_tmp));
+                        }
+                    }
                     if self.array_is_string(name, *type_suffix) {
                         let arr_idx = self.get_str_arr_var_idx(name);
                         let width = self.fixed_string_width_for_name(name);
@@ -443,16 +535,18 @@ impl CodeGenerator {
                             "let mut {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});",
                             value_tmp, arr_idx, index_slice
                         ));
-                        if let Some(width) = width {
-                            copy_back_lines.push(format!(
-                                "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
-                                arr_idx, index_slice, width, value_tmp
-                            ));
-                        } else {
-                            copy_back_lines.push(format!(
-                                "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});",
-                                arr_idx, index_slice, value_tmp
-                            ));
+                        if copy_back {
+                            if let Some(width) = width {
+                                copy_back_lines.push(format!(
+                                    "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
+                                    arr_idx, index_slice, width, value_tmp
+                                ));
+                            } else {
+                                copy_back_lines.push(format!(
+                                    "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});",
+                                    arr_idx, index_slice, value_tmp
+                                ));
+                            }
                         }
                     } else {
                         let arr_idx = self.get_arr_var_idx(name);
@@ -460,10 +554,12 @@ impl CodeGenerator {
                             "let mut {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});",
                             value_tmp, arr_idx, index_slice
                         ));
-                        copy_back_lines.push(format!(
-                            "arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});",
-                            arr_idx, index_slice, value_tmp
-                        ));
+                        if copy_back {
+                            copy_back_lines.push(format!(
+                                "arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});",
+                                arr_idx, index_slice, value_tmp
+                            ));
+                        }
                     }
                     Ok(format!("&mut {}", value_tmp))
                 } else {
@@ -487,16 +583,18 @@ impl CodeGenerator {
                                     "let mut {} = str_arr_get(&mut str_arr_vars, &mut str_arr_bounds, {}, {});",
                                     value_tmp, arr_idx, index_slice
                                 ));
-                                if let Some(width) = field.fixed_length {
-                                    copy_back_lines.push(format!(
-                                        "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
-                                        arr_idx, index_slice, width, value_tmp
-                                    ));
-                                } else {
-                                    copy_back_lines.push(format!(
-                                        "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});",
-                                        arr_idx, index_slice, value_tmp
-                                    ));
+                                if copy_back {
+                                    if let Some(width) = field.fixed_length {
+                                        copy_back_lines.push(format!(
+                                            "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &qb_fit_fixed_string({}, &{}));",
+                                            arr_idx, index_slice, width, value_tmp
+                                        ));
+                                    } else {
+                                        copy_back_lines.push(format!(
+                                            "str_arr_set(&mut str_arr_vars, &mut str_arr_bounds, {}, {}, &{});",
+                                            arr_idx, index_slice, value_tmp
+                                        ));
+                                    }
                                 }
                             } else {
                                 let idx = self.get_str_var_idx(&field.storage_name);
@@ -504,16 +602,18 @@ impl CodeGenerator {
                                     "let mut {} = get_str(&str_vars, {});",
                                     value_tmp, idx
                                 ));
-                                if let Some(width) = field.fixed_length {
-                                    copy_back_lines.push(format!(
-                                        "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
-                                        idx, width, value_tmp
-                                    ));
-                                } else {
-                                    copy_back_lines.push(format!(
-                                        "set_str(&mut str_vars, {}, &{});",
-                                        idx, value_tmp
-                                    ));
+                                if copy_back {
+                                    if let Some(width) = field.fixed_length {
+                                        copy_back_lines.push(format!(
+                                            "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
+                                            idx, width, value_tmp
+                                        ));
+                                    } else {
+                                        copy_back_lines.push(format!(
+                                            "set_str(&mut str_vars, {}, &{});",
+                                            idx, value_tmp
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -530,20 +630,24 @@ impl CodeGenerator {
                                     "let mut {} = arr_get(&mut arr_vars, &mut arr_bounds, {}, {});",
                                     value_tmp, arr_idx, index_slice
                                 ));
-                                copy_back_lines.push(format!(
-                                    "arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});",
-                                    arr_idx, index_slice, value_tmp
-                                ));
+                                if copy_back {
+                                    copy_back_lines.push(format!(
+                                        "arr_set(&mut arr_vars, &mut arr_bounds, {}, {}, {});",
+                                        arr_idx, index_slice, value_tmp
+                                    ));
+                                }
                             } else {
                                 let idx = self.get_num_var_idx(&field.storage_name);
                                 setup_lines.push(format!(
                                     "let mut {} = get_var(&num_vars, {});",
                                     value_tmp, idx
                                 ));
-                                copy_back_lines.push(format!(
-                                    "set_var(&mut num_vars, {}, {});",
-                                    idx, value_tmp
-                                ));
+                                if copy_back {
+                                    copy_back_lines.push(format!(
+                                        "set_var(&mut num_vars, {}, {});",
+                                        idx, value_tmp
+                                    ));
+                                }
                             }
                         }
                         _ => {
@@ -562,14 +666,18 @@ impl CodeGenerator {
                             "let mut {} = get_str(&str_vars, {});",
                             value_tmp, idx
                         ));
-                        if let Some(width) = self.fixed_string_width_for_name(&name) {
-                            copy_back_lines.push(format!(
-                                "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
-                                idx, width, value_tmp
-                            ));
-                        } else {
-                            copy_back_lines
-                                .push(format!("set_str(&mut str_vars, {}, &{});", idx, value_tmp));
+                        if copy_back {
+                            if let Some(width) = self.fixed_string_width_for_name(&name) {
+                                copy_back_lines.push(format!(
+                                    "set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &{}));",
+                                    idx, width, value_tmp
+                                ));
+                            } else {
+                                copy_back_lines.push(format!(
+                                    "set_str(&mut str_vars, {}, &{});",
+                                    idx, value_tmp
+                                ));
+                            }
                         }
                     } else {
                         let idx = self.get_num_var_idx(&name);
@@ -577,8 +685,10 @@ impl CodeGenerator {
                             "let mut {} = get_var(&num_vars, {});",
                             value_tmp, idx
                         ));
-                        copy_back_lines
-                            .push(format!("set_var(&mut num_vars, {}, {});", idx, value_tmp));
+                        if copy_back {
+                            copy_back_lines
+                                .push(format!("set_var(&mut num_vars, {}, {});", idx, value_tmp));
+                        }
                     }
                     Ok(format!("&mut {}", value_tmp))
                 } else {
@@ -601,10 +711,12 @@ impl CodeGenerator {
         let mut setup_lines = Vec::new();
         let mut copy_back_lines = Vec::new();
         let mut arg_refs = Vec::new();
+        let param_modes = self.param_modes_for_call(name, true, args.len());
 
-        for arg in args {
+        for (index, arg) in args.iter().enumerate() {
             arg_refs.push(self.prepare_call_argument(
                 arg,
+                !param_modes.get(index).copied().unwrap_or(false),
                 &mut setup_lines,
                 &mut copy_back_lines,
             )?);
@@ -660,9 +772,21 @@ impl CodeGenerator {
                     && self
                         .current_function_name
                         .as_ref()
-                        .map_or(true, |current| !current.eq_ignore_ascii_case(name))
+                        .is_none_or(|current| !current.eq_ignore_ascii_case(name))
                 {
                     self.generate_user_function_call(name, &[])
+                } else if self.is_in_sub {
+                    if let Some(idx) = self.shared_str_var_idx(name) {
+                        Ok(format!("get_str(global_str_vars, {})", idx))
+                    } else if let Some(idx) = self.shared_num_var_idx(name) {
+                        Ok(format!("get_var(global_num_vars, {})", idx))
+                    } else if self.variable_is_string(var) {
+                        let idx = self.get_str_var_idx(name);
+                        Ok(format!("get_str(&str_vars, {})", idx))
+                    } else {
+                        let idx = self.get_num_var_idx(name);
+                        Ok(format!("get_var(&num_vars, {})", idx))
+                    }
                 } else if self.variable_is_string(var) {
                     let idx = self.get_str_var_idx(name);
                     Ok(format!("get_str(&str_vars, {})", idx))
@@ -703,6 +827,20 @@ impl CodeGenerator {
                         return self.generate_user_function_call(name, indices);
                     }
                     let index_slice = self.native_array_indices_expr(indices)?;
+                    if self.is_in_sub {
+                        if let Some(arr_idx) = self.shared_str_arr_var_idx(name) {
+                            return Ok(format!(
+                                "str_arr_get(global_str_arr_vars, global_str_arr_bounds, {}, {})",
+                                arr_idx, index_slice
+                            ));
+                        }
+                        if let Some(arr_idx) = self.shared_arr_var_idx(name) {
+                            return Ok(format!(
+                                "arr_get(global_arr_vars, global_arr_bounds, {}, {})",
+                                arr_idx, index_slice
+                            ));
+                        }
+                    }
                     if self.array_is_string(name, *type_suffix) {
                         let arr_idx = self.get_str_arr_var_idx(name);
                         Ok(format!(
@@ -755,6 +893,14 @@ impl CodeGenerator {
                         _ => Ok("0.0".to_string()),
                     }
                 } else if let Some(name) = Self::qualified_field_name(expr) {
+                    if self.is_in_sub {
+                        if let Some(idx) = self.shared_str_var_idx(&name) {
+                            return Ok(format!("get_str(global_str_vars, {})", idx));
+                        }
+                        if let Some(idx) = self.shared_num_var_idx(&name) {
+                            return Ok(format!("get_var(global_num_vars, {})", idx));
+                        }
+                    }
                     if self.name_is_string(&name) {
                         let idx = self.get_str_var_idx(&name);
                         Ok(format!("get_str(&str_vars, {})", idx))
@@ -1295,7 +1441,10 @@ impl CodeGenerator {
             }
             "PLAY" => {
                 let arg = self.generate_expression(&args[0])?;
-                Ok(format!("qb_play_count({})", arg))
+                Ok(format!(
+                    "qb_play_count({}, qb_play_queue_limit, qb_play_trap_state, &mut qb_play_pending_event)",
+                    arg
+                ))
             }
             "LPOS" => {
                 let arg = if args.is_empty() {

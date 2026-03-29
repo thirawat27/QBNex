@@ -17,6 +17,13 @@ use thiserror::Error;
 mod feature_check;
 use feature_check::has_graphics_or_sound;
 
+mod fixture_io_catalog {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/fixture_io_catalog.rs"
+    ));
+}
+
 // ──────────────────────────────────────────────
 //  Argument parsing
 // ──────────────────────────────────────────────
@@ -668,16 +675,8 @@ fn release_fixture_path(fixture_name: &str) -> Result<PathBuf> {
 }
 
 fn release_fixture_expected_stdout(fixture_name: &str) -> Result<Option<String>> {
-    let expected_path = release_fixture_path(fixture_name)?.with_extension("out");
-    match fs::read_to_string(&expected_path) {
-        Ok(output) => Ok(Some(output.replace("\r\n", "\n"))),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(anyhow::anyhow!(
-            "failed to read expected output fixture '{}': {}",
-            clean_path_display(&expected_path),
-            error
-        )),
-    }
+    Ok(fixture_io_catalog::release_expected_output(fixture_name)
+        .map(|output| output.replace("\r\n", "\n").replace('\r', "")))
 }
 
 fn prepare_release_fixture(
@@ -734,7 +733,7 @@ fn validate_release_fixture_behavior(
     fixture: ReleaseFixtureSpec,
 ) -> Result<()> {
     let fixture_name = fixture.name;
-    let selected_backend = select_runtime_backend(&program).map_err(|error| {
+    let selected_backend = select_runtime_backend(program).map_err(|error| {
         anyhow::anyhow!("release validation backend selection failed for {fixture_name}: {error:#}")
     })?;
     if selected_backend != fixture.expected_runtime_backend {
@@ -757,7 +756,7 @@ fn validate_release_fixture_behavior(
         .map_err(|error| {
             anyhow::anyhow!("release validation native codegen failed for {fixture_name}: {error}")
         })?;
-    } else if syntax_tree::unsupported_statements(&program, syntax_tree::Backend::Native).is_empty()
+    } else if syntax_tree::unsupported_statements(program, syntax_tree::Backend::Native).is_empty()
     {
         return Err(anyhow::anyhow!(
             "release validation fixture '{}' was expected to require VM fallback, but native support is currently reported as complete",
@@ -1647,10 +1646,6 @@ fn cached_vm_runner_binary_path() -> Result<PathBuf> {
 
 fn ensure_cached_vm_runner_binary() -> Result<PathBuf> {
     let binary = cached_vm_runner_binary_path()?;
-    if binary.exists() {
-        return Ok(binary);
-    }
-
     let runner_src_dir = shared_runner_source_dir("vm-runner")?;
     let (_, hal_layer_path, syntax_tree_path, analyzer_path, vm_engine_path) = workspace_paths()?;
     let cargo_toml = format!(

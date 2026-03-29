@@ -7,8 +7,6 @@ use tokenizer::tokens::{Keyword, SpannedToken, Token, TokenSpan};
 pub struct Parser {
     tokens: Vec<SpannedToken>,
     current: usize,
-    #[allow(dead_code)]
-    def_types: DefTypeMap,
     known_functions: HashSet<String>,
     collected_user_types: HashMap<String, UserType>,
     pending_statements: VecDeque<Statement>,
@@ -21,7 +19,6 @@ impl Parser {
         Ok(Self {
             tokens,
             current: 0,
-            def_types: DefTypeMap::new(),
             known_functions: HashSet::new(),
             collected_user_types: HashMap::new(),
             pending_statements: VecDeque::new(),
@@ -2285,13 +2282,11 @@ impl Parser {
                     let mut args = Vec::new();
                     if name.eq_ignore_ascii_case("_CV") && !self.check(&Token::CloseParen) {
                         args.push(self.parse_cv_type_argument()?);
-                        if self.match_token(&[Token::Comma]) {
-                            if !self.check(&Token::CloseParen) {
-                                loop {
-                                    args.push(self.parse_argument_expression()?);
-                                    if !self.match_token(&[Token::Comma]) {
-                                        break;
-                                    }
+                        if self.match_token(&[Token::Comma]) && !self.check(&Token::CloseParen) {
+                            loop {
+                                args.push(self.parse_argument_expression()?);
+                                if !self.match_token(&[Token::Comma]) {
+                                    break;
                                 }
                             }
                         }
@@ -2380,8 +2375,6 @@ impl Parser {
                         indices: Vec::new(),
                         type_suffix: None,
                     })
-                } else if matches!(kw, Keyword::On | Keyword::Off) {
-                    Ok(Expression::Variable(Variable::new(fn_name)))
                 } else {
                     Ok(Expression::Variable(Variable::new(fn_name)))
                 }

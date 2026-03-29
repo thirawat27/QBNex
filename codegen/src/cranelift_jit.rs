@@ -115,12 +115,11 @@ impl CraneliftSupport {
                 op: UnaryOp::Negate,
                 operand,
             } => self.validate_numeric_expression(operand),
-            Expression::BinaryOp { op, left, right }
-                if matches!(
-                    op,
-                    BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide
-                ) =>
-            {
+            Expression::BinaryOp {
+                op: BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide,
+                left,
+                right,
+            } => {
                 self.validate_numeric_expression(left)?;
                 self.validate_numeric_expression(right)
             }
@@ -145,8 +144,9 @@ impl CraneliftProgram {
             .map_err(|err| QError::Internal(format!("cranelift finalize failed: {err}")))?;
 
         let code = self.module.get_finalized_function(self.func_id);
-        let function =
-            unsafe { std::mem::transmute::<_, extern "C" fn(*mut RuntimeStrings) -> i32>(code) };
+        let function = unsafe {
+            std::mem::transmute::<*const u8, extern "C" fn(*mut RuntimeStrings) -> i32>(code)
+        };
 
         let mut runtime = RuntimeStrings {
             values: self.strings,
@@ -249,11 +249,11 @@ fn compile_program(program: &Program) -> QResult<CraneliftProgram> {
         let runtime_ptr = function_builder.block_params(entry)[0];
 
         let imported_print_number =
-            module.declare_func_in_func(print_number.0, &mut function_builder.func);
+            module.declare_func_in_func(print_number.0, function_builder.func);
         let imported_print_newline =
-            module.declare_func_in_func(print_newline.0, &mut function_builder.func);
+            module.declare_func_in_func(print_newline.0, function_builder.func);
         let imported_print_string =
-            module.declare_func_in_func(print_string.0, &mut function_builder.func);
+            module.declare_func_in_func(print_string.0, function_builder.func);
 
         let mut variables = HashMap::new();
         let mut next_variable = 0u32;

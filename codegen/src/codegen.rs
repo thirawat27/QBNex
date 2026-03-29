@@ -143,9 +143,12 @@ impl CodeGenerator {
         }
 
         let name_upper = var.name.to_uppercase();
-        if self.str_vars.contains_key(&name_upper) {
+        if self.str_vars.contains_key(&name_upper) || self.shared_str_vars.contains_key(&name_upper)
+        {
             Some(QType::String(String::new()))
-        } else if self.num_vars.contains_key(&name_upper) {
+        } else if self.num_vars.contains_key(&name_upper)
+            || self.shared_num_vars.contains_key(&name_upper)
+        {
             Some(QType::Double(0.0))
         } else {
             None
@@ -159,13 +162,18 @@ impl CodeGenerator {
     }
 
     fn name_is_string(&self, name: &str) -> bool {
-        name.ends_with('$') || self.str_vars.contains_key(&name.to_uppercase())
+        let name_upper = name.to_uppercase();
+        name.ends_with('$')
+            || self.str_vars.contains_key(&name_upper)
+            || self.shared_str_vars.contains_key(&name_upper)
     }
 
     fn array_is_string(&self, name: &str, type_suffix: Option<char>) -> bool {
+        let name_upper = name.to_uppercase();
         type_suffix == Some('$')
             || name.ends_with('$')
-            || self.str_arr_vars.contains_key(&name.to_uppercase())
+            || self.str_arr_vars.contains_key(&name_upper)
+            || self.shared_str_arr_vars.contains_key(&name_upper)
     }
 
     fn function_returns_string(&self, name: &str, type_suffix: Option<char>) -> bool {
@@ -196,12 +204,22 @@ impl CodeGenerator {
                     .get(&Self::normalize_udt_name(&var.name))
                     .cloned()
             })
+            .or_else(|| {
+                self.shared_udt_vars
+                    .get(&Self::normalize_udt_name(&var.name))
+                    .cloned()
+            })
     }
 
     fn array_udt_type(&self, name: &str) -> Option<String> {
         self.udt_array_vars
             .get(&Self::normalize_udt_name(name))
             .cloned()
+            .or_else(|| {
+                self.shared_udt_array_vars
+                    .get(&Self::normalize_udt_name(name))
+                    .cloned()
+            })
     }
 
     fn field_storage_name(path: &str) -> String {
@@ -214,6 +232,35 @@ impl CodeGenerator {
 
     fn fixed_string_width_for_name(&self, name: &str) -> Option<usize> {
         self.field_widths.get(&name.to_uppercase()).copied()
+    }
+
+    fn shared_num_var_idx(&self, name: &str) -> Option<usize> {
+        self.shared_num_vars.get(&name.to_uppercase()).copied()
+    }
+
+    fn shared_str_var_idx(&self, name: &str) -> Option<usize> {
+        self.shared_str_vars.get(&name.to_uppercase()).copied()
+    }
+
+    fn shared_arr_var_idx(&self, name: &str) -> Option<usize> {
+        self.shared_arr_vars.get(&name.to_uppercase()).copied()
+    }
+
+    fn shared_str_arr_var_idx(&self, name: &str) -> Option<usize> {
+        self.shared_str_arr_vars.get(&name.to_uppercase()).copied()
+    }
+
+    fn shared_global_scalar_name(&self, name: &str) -> bool {
+        let name_upper = name.to_uppercase();
+        self.shared_num_vars.contains_key(&name_upper)
+            || self.shared_str_vars.contains_key(&name_upper)
+    }
+
+    fn shared_global_array_name(&self, name: &str) -> bool {
+        let name_upper = name.to_uppercase();
+        self.shared_arr_vars.contains_key(&name_upper)
+            || self.shared_str_arr_vars.contains_key(&name_upper)
+            || self.shared_udt_array_vars.contains_key(&name_upper)
     }
 
     fn native_bound_value_expr(&mut self, expr: &Expression) -> QResult<String> {
@@ -835,11 +882,9 @@ impl CodeGenerator {
                     indent, comma_tmp
                 ));
                 for expr in expressions.iter() {
-                    let expr_code = self.generate_expression(expr)?;
-                    self.output.push_str(&format!(
-                        "{}{}.push(format!(\"{{}}\", {}));\n",
-                        indent, values_tmp, expr_code
-                    ));
+                    let expr_code = self.generate_printable_expression(expr)?;
+                    self.output
+                        .push_str(&format!("{}{}.push({});\n", indent, values_tmp, expr_code));
                 }
                 for separator in separators.iter().take(expressions.len()) {
                     self.output.push_str(&format!(
@@ -891,9 +936,9 @@ impl CodeGenerator {
             } => {
                 let file_number = self.generate_expression(file_number)?;
                 for (index, expr) in expressions.iter().enumerate() {
-                    let expr_code = self.generate_expression(expr)?;
+                    let expr_code = self.generate_printable_expression(expr)?;
                     self.output.push_str(&format!(
-                        "{}qb_file_write({}, &format!(\"{{}}\", {}), false);\n",
+                        "{}qb_file_write({}, &{}, false);\n",
                         indent, file_number, expr_code
                     ));
                     if matches!(separators.get(index), Some(Some(PrintSeparator::Comma))) {
@@ -944,31 +989,62 @@ impl CodeGenerator {
                     Expression::Variable(var) => {
                         let name_upper = var.name.to_uppercase();
                         if self.variable_is_string(var) {
-                            let idx = self.get_str_var_idx(&name_upper);
+                            let shared_idx = if self.is_in_sub {
+                                self.shared_str_var_idx(&name_upper)
+                            } else {
+                                None
+                            };
+                            let idx =
+                                shared_idx.unwrap_or_else(|| self.get_str_var_idx(&name_upper));
                             let width = self.fixed_string_width_for_name(&name_upper);
                             // Avoid mutable borrow conflict
                             self.output
                                 .push_str(&format!("{}let _tmp_str = {};\n", indent, value_code));
                             if let Some(width) = width {
                                 self.output.push_str(&format!(
-                                    "{}set_str(&mut str_vars, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
-                                    indent, idx, width
+                                    "{}set_str({}, {}, &qb_fit_fixed_string({}, &_tmp_str));\n",
+                                    indent,
+                                    if shared_idx.is_some() {
+                                        "global_str_vars"
+                                    } else {
+                                        "&mut str_vars"
+                                    },
+                                    idx,
+                                    width
                                 ));
                             } else {
                                 self.output.push_str(&format!(
-                                    "{}set_str(&mut str_vars, {}, &_tmp_str);\n",
-                                    indent, idx
+                                    "{}set_str({}, {}, &_tmp_str);\n",
+                                    indent,
+                                    if shared_idx.is_some() {
+                                        "global_str_vars"
+                                    } else {
+                                        "&mut str_vars"
+                                    },
+                                    idx
                                 ));
                             }
                         } else {
-                            let idx = self.get_num_var_idx(&name_upper);
+                            let shared_idx = if self.is_in_sub {
+                                self.shared_num_var_idx(&name_upper)
+                            } else {
+                                None
+                            };
+                            let idx =
+                                shared_idx.unwrap_or_else(|| self.get_num_var_idx(&name_upper));
                             self.output.push_str(&format!(
                                 "{}let _val = {} as f64;\n",
                                 indent, value_code
                             ));
                             self.output.push_str(&format!(
-                                "{}set_var(&mut num_vars, {}, _val);\n",
-                                indent, idx
+                                "{}set_var({}, {}, _val);\n",
+                                indent,
+                                if shared_idx.is_some() {
+                                    "global_num_vars"
+                                } else {
+                                    "&mut num_vars"
+                                },
+                                idx
                             ));
                         }
                     }
@@ -1062,8 +1138,21 @@ impl CodeGenerator {
                                 }
                             }
                         } else if !indices.is_empty() {
-                            let arr_idx = self.get_arr_var_idx(name);
                             let idx_code = self.native_array_indices_expr(indices)?;
+                            if self.is_in_sub {
+                                if let Some(arr_idx) = self.shared_arr_var_idx(name) {
+                                    self.output.push_str(&format!(
+                                        "{}let _val = {} as f64;\n",
+                                        indent, value_code
+                                    ));
+                                    self.output.push_str(&format!(
+                                        "{}arr_set(global_arr_vars, global_arr_bounds, {}, {}, _val);\n",
+                                        indent, arr_idx, idx_code
+                                    ));
+                                    return Ok(());
+                                }
+                            }
+                            let arr_idx = self.get_arr_var_idx(name);
                             self.output.push_str(&format!(
                                 "{}let _val = {} as f64;\n",
                                 indent, value_code
@@ -1764,11 +1853,16 @@ impl CodeGenerator {
 
                 let mut arg_vars = Vec::new();
                 let mut copy_back_ops = Vec::new();
+                let param_modes = self.param_modes_for_call(name, false, args.len());
 
-                for arg in args {
+                for (index, arg) in args.iter().enumerate() {
                     let mut setup_lines = Vec::new();
-                    let arg_var =
-                        self.prepare_call_argument(arg, &mut setup_lines, &mut copy_back_ops)?;
+                    let arg_var = self.prepare_call_argument(
+                        arg,
+                        !param_modes.get(index).copied().unwrap_or(false),
+                        &mut setup_lines,
+                        &mut copy_back_ops,
+                    )?;
                     for line in setup_lines {
                         self.output.push_str(&format!("{}{}\n", indent, line));
                     }
@@ -2986,11 +3080,9 @@ impl CodeGenerator {
 
             Statement::LineInput { prompt, variable } => {
                 if let Some(p) = prompt {
-                    let prompt_code = self.generate_expression(p)?;
-                    self.output.push_str(&format!(
-                        "{}qb_print(&format!(\"{{}}\", {}));\n",
-                        indent, prompt_code
-                    ));
+                    let prompt_code = self.generate_printable_expression(p)?;
+                    self.output
+                        .push_str(&format!("{}qb_print(&{});\n", indent, prompt_code));
                 }
                 if let Expression::Variable(v) = variable {
                     let idx = self.get_str_var_idx(&v.name);
@@ -3174,11 +3266,9 @@ impl CodeGenerator {
 
                 // Print prompt if exists
                 if let Some(p) = prompt {
-                    let prompt_code = self.generate_expression(p)?;
-                    self.output.push_str(&format!(
-                        "{}qb_print(&format!(\"{{}}\", {}));\n",
-                        indent, prompt_code
-                    ));
+                    let prompt_code = self.generate_printable_expression(p)?;
+                    self.output
+                        .push_str(&format!("{}qb_print(&{});\n", indent, prompt_code));
                 }
 
                 // Read input for each variable

@@ -15,6 +15,89 @@ pub enum QType {
 impl Eq for QType {}
 
 impl QType {
+    fn trim_float_text(mut text: String) -> String {
+        if let Some(exponent_index) = text.find(['e', 'E']) {
+            let exponent = text.split_off(exponent_index);
+            while text.contains('.') && text.ends_with('0') {
+                text.pop();
+            }
+            if text.ends_with('.') {
+                text.pop();
+            }
+            if text == "-0" {
+                text = "0".to_string();
+            }
+            text.push_str(&exponent);
+            return text;
+        }
+
+        while text.contains('.') && text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+        if text == "-0" {
+            "0".to_string()
+        } else {
+            text
+        }
+    }
+
+    fn format_significant_digits(value: f64, digits: usize) -> String {
+        if value == 0.0 {
+            return "0".to_string();
+        }
+
+        let exponent = value.abs().log10().floor() as i32;
+        let decimals = (digits as i32 - exponent - 1).max(0) as usize;
+        Self::trim_float_text(format!("{:.*}", decimals, value))
+    }
+
+    fn format_single(value: f32) -> String {
+        if !value.is_finite() {
+            return format!("{}", value);
+        }
+        if value == 0.0 {
+            return "0".to_string();
+        }
+
+        let rounded = value.round();
+        if (value - rounded).abs() <= f32::EPSILON * value.abs().max(1.0) {
+            if value.abs() <= i64::MAX as f32 {
+                return format!("{}", rounded as i64);
+            }
+            return format!("{:.0}", rounded);
+        }
+
+        Self::format_significant_digits(value as f64, 7)
+    }
+
+    fn format_double(value: f64) -> String {
+        if !value.is_finite() {
+            return format!("{}", value);
+        }
+        if value == 0.0 {
+            return "0".to_string();
+        }
+
+        let rounded = value.round();
+        if (value - rounded).abs() <= f64::EPSILON * value.abs().max(1.0) {
+            if value.abs() <= i64::MAX as f64 {
+                return format!("{}", rounded as i64);
+            }
+            return format!("{:.0}", rounded);
+        }
+
+        let single = value as f32 as f64;
+        let single_tolerance = f32::EPSILON as f64 * value.abs().max(1.0) * 2.0;
+        if single.is_finite() && (value - single).abs() <= single_tolerance {
+            return Self::format_significant_digits(value, 7);
+        }
+
+        Self::trim_float_text(format!("{}", value))
+    }
+
     /// Convert QType to f64 for numeric operations
     pub fn to_f64(&self) -> f64 {
         match self {
@@ -33,8 +116,8 @@ impl QType {
         match self {
             QType::Integer(i) => i.to_string(),
             QType::Long(l) => l.to_string(),
-            QType::Single(s) => s.to_string(),
-            QType::Double(d) => d.to_string(),
+            QType::Single(s) => Self::format_single(*s),
+            QType::Double(d) => Self::format_double(*d),
             QType::String(s) => s.clone(),
             QType::UserDefined(_) => "[UserDefined]".to_string(),
             QType::Empty => String::new(),
@@ -92,8 +175,8 @@ impl fmt::Display for QType {
         match self {
             QType::Integer(i) => write!(f, "{}", i),
             QType::Long(l) => write!(f, "{}", l),
-            QType::Single(s) => write!(f, "{}", s),
-            QType::Double(d) => write!(f, "{}", d),
+            QType::Single(s) => write!(f, "{}", Self::format_single(*s)),
+            QType::Double(d) => write!(f, "{}", Self::format_double(*d)),
             QType::String(s) => write!(f, "{}", s),
             QType::UserDefined(_) => write!(f, "[UserDefined]"),
             QType::Empty => write!(f, ""),
@@ -145,5 +228,7 @@ mod tests {
     fn test_display() {
         assert_eq!(format!("{}", QType::Integer(42)), "42");
         assert_eq!(format!("{}", QType::String("test".to_string())), "test");
+        assert_eq!(format!("{}", QType::Single(12.56)), "12.56");
+        assert_eq!(format!("{}", QType::Single(28.26)), "28.26");
     }
 }

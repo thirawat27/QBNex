@@ -810,7 +810,7 @@ mod tests {
     fn test_double_literals_accept_qb64_double_hash_suffix() {
         let mut scanner = Scanner::new("3.141592653589793##".to_string());
         let tokens = scanner.tokenize().unwrap();
-        assert_eq!(tokens[0], Token::DoubleLiteral(3.141592653589793));
+        assert_eq!(tokens[0], Token::DoubleLiteral(std::f64::consts::PI));
     }
 
     #[test]

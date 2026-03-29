@@ -1,0 +1,5 @@
+A$ = "X"
+OPEN "held.txt" FOR OUTPUT AS #1
+CLEAR
+PRINT "["; A$; "]"
+PRINT FREEFILE

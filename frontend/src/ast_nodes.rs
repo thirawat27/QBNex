@@ -719,11 +719,74 @@ impl DefTypeMap {
     }
 
     pub fn set_range(&mut self, start: char, end: char, qtype: QType) {
-        self.ranges
-            .retain(|(range, _)| !(range.0 <= start && range.1 >= end));
-        self.ranges.push(((start, end), qtype));
+        let start = start.to_ascii_lowercase();
+        let end = end.to_ascii_lowercase();
+        if start > end {
+            return;
+        }
+
+        let mut updated = Vec::with_capacity(self.ranges.len() + 2);
+        for ((range_start, range_end), existing_type) in &self.ranges {
+            if *range_end < start || *range_start > end {
+                updated.push(((*range_start, *range_end), existing_type.clone()));
+                continue;
+            }
+
+            if *range_start < start {
+                updated.push((
+                    (*range_start, Self::previous_letter(start)),
+                    existing_type.clone(),
+                ));
+            }
+            if *range_end > end {
+                updated.push(((Self::next_letter(end), *range_end), existing_type.clone()));
+            }
+        }
+
+        updated.push(((start, end), qtype));
+        updated.sort_by_key(|((range_start, _), _)| *range_start);
+
+        let mut merged: Vec<((char, char), QType)> = Vec::with_capacity(updated.len());
+        for (range, range_type) in updated {
+            if let Some(((_, merged_end), merged_type)) = merged.last_mut() {
+                if *merged_type == range_type && (u32::from(*merged_end) + 1) == u32::from(range.0)
+                {
+                    *merged_end = range.1;
+                    continue;
+                }
+            }
+            merged.push((range, range_type));
+        }
+
+        self.ranges = merged;
+    }
+
+    fn previous_letter(ch: char) -> char {
+        char::from_u32(u32::from(ch).saturating_sub(1)).unwrap_or(ch)
+    }
+
+    fn next_letter(ch: char) -> char {
+        char::from_u32(u32::from(ch) + 1).unwrap_or(ch)
     }
 }
 
 pub type LineNumber = u16;
 pub type Label = String;
+
+#[cfg(test)]
+mod tests {
+    use super::{DefTypeMap, QType};
+
+    #[test]
+    fn def_type_ranges_override_without_erasing_unrelated_letters() {
+        let mut map = DefTypeMap::new();
+        map.set_range('a', 'z', QType::Integer(0));
+        map.set_range('d', 'd', QType::Double(0.0));
+
+        assert_eq!(map.get_type('a'), QType::Integer(0));
+        assert_eq!(map.get_type('c'), QType::Integer(0));
+        assert_eq!(map.get_type('d'), QType::Double(0.0));
+        assert_eq!(map.get_type('e'), QType::Integer(0));
+        assert_eq!(map.get_type('z'), QType::Integer(0));
+    }
+}

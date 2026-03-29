@@ -54,8 +54,7 @@ fn number_literal() -> impl Parser<char, Expression, Error = ParseError> + Clone
         .collect::<String>();
 
     digits
-        .clone()
-        .then(just('.').then(digits.clone()).or_not())
+        .then(just('.').then(digits).or_not())
         .map(|(whole, fraction)| {
             if let Some((dot, frac)) = fraction {
                 let mut text = whole;

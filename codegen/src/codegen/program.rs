@@ -178,6 +178,14 @@ impl CodeGenerator {
             .map(|name| name.to_uppercase())
             .collect();
         self.function_return_types.clear();
+        self.shared_num_vars.clear();
+        self.shared_str_vars.clear();
+        self.shared_arr_vars.clear();
+        self.shared_str_arr_vars.clear();
+        self.shared_udt_vars.clear();
+        self.shared_udt_array_vars.clear();
+        self.sub_param_modes.clear();
+        self.function_param_modes.clear();
         for stmt in &program.statements {
             if let Statement::Declare {
                 name,
@@ -196,8 +204,25 @@ impl CodeGenerator {
                 self.function_return_types
                     .insert(name.to_uppercase(), inferred);
             }
+            if let Statement::Declare {
+                name,
+                is_function,
+                params,
+                ..
+            } = stmt
+            {
+                if *is_function {
+                    self.register_function_param_modes(name, params);
+                } else {
+                    self.register_sub_param_modes(name, params);
+                }
+            }
+        }
+        for sub_def in program.subs.values() {
+            self.register_sub_param_modes(&sub_def.name, &sub_def.params);
         }
         for func_def in program.functions.values() {
+            self.register_function_param_modes(&func_def.name, &func_def.params);
             self.function_return_types
                 .insert(func_def.name.to_uppercase(), func_def.return_type.clone());
         }
@@ -206,6 +231,7 @@ impl CodeGenerator {
 
         // Collect variables for main program
         self.collect_vars(&program.statements);
+        self.register_shared_globals_from_statements(&program.statements);
 
         let data_values = self.collect_program_data_layout(program);
 
@@ -442,6 +468,88 @@ impl CodeGenerator {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn register_shared_globals_from_statements(&mut self, stmts: &[Statement]) {
+        for stmt in stmts {
+            let Statement::Dim {
+                variables,
+                is_shared,
+                is_common,
+                ..
+            } = stmt
+            else {
+                continue;
+            };
+
+            if !(*is_shared || *is_common) {
+                continue;
+            }
+
+            for (var, dimensions) in variables {
+                let has_dimensions = dimensions.is_some() || !var.indices.is_empty();
+                let name_upper = var.name.to_uppercase();
+
+                if let Some(declared_type) = &var.declared_type {
+                    match Self::declared_type_to_qtype(declared_type) {
+                        QType::UserDefined(_) => {
+                            if has_dimensions {
+                                if let Some(type_name) = self
+                                    .udt_array_vars
+                                    .get(&Self::normalize_udt_name(&var.name))
+                                {
+                                    self.shared_udt_array_vars.insert(
+                                        Self::normalize_udt_name(&var.name),
+                                        type_name.clone(),
+                                    );
+                                }
+                            } else if let Some(type_name) =
+                                self.udt_vars.get(&Self::normalize_udt_name(&var.name))
+                            {
+                                self.shared_udt_vars
+                                    .insert(Self::normalize_udt_name(&var.name), type_name.clone());
+                            }
+                        }
+                        QType::String(_) => {
+                            if has_dimensions {
+                                if let Some(idx) = self.str_arr_vars.get(&name_upper) {
+                                    self.shared_str_arr_vars.insert(name_upper.clone(), *idx);
+                                }
+                            } else if let Some(idx) = self.str_vars.get(&name_upper) {
+                                self.shared_str_vars.insert(name_upper.clone(), *idx);
+                            }
+                        }
+                        qtype if Self::qtype_is_numeric(&qtype) => {
+                            if has_dimensions {
+                                if let Some(idx) = self.arr_vars.get(&name_upper) {
+                                    self.shared_arr_vars.insert(name_upper.clone(), *idx);
+                                }
+                            } else if let Some(idx) = self.num_vars.get(&name_upper) {
+                                self.shared_num_vars.insert(name_upper.clone(), *idx);
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
+                if has_dimensions {
+                    if self.array_is_string(&var.name, var.type_suffix) {
+                        if let Some(idx) = self.str_arr_vars.get(&name_upper) {
+                            self.shared_str_arr_vars.insert(name_upper.clone(), *idx);
+                        }
+                    } else if let Some(idx) = self.arr_vars.get(&name_upper) {
+                        self.shared_arr_vars.insert(name_upper.clone(), *idx);
+                    }
+                } else if self.variable_is_string(var) {
+                    if let Some(idx) = self.str_vars.get(&name_upper) {
+                        self.shared_str_vars.insert(name_upper.clone(), *idx);
+                    }
+                } else if let Some(idx) = self.num_vars.get(&name_upper) {
+                    self.shared_num_vars.insert(name_upper.clone(), *idx);
+                }
             }
         }
     }
@@ -2249,6 +2357,9 @@ impl CodeGenerator {
     pub(super) fn collect_var_from_expr(&mut self, expr: &Expression) {
         match expr {
             Expression::Variable(var) => {
+                if self.is_in_sub && self.shared_global_scalar_name(&var.name) {
+                    return;
+                }
                 if self.variable_is_string(var) {
                     self.get_str_var_idx(&var.name);
                 } else {
@@ -2258,6 +2369,9 @@ impl CodeGenerator {
             Expression::ArrayAccess {
                 name, type_suffix, ..
             } => {
+                if self.is_in_sub && self.shared_global_array_name(name) {
+                    return;
+                }
                 if self.array_udt_type(name).is_some() {
                     return;
                 }
@@ -2290,6 +2404,9 @@ impl CodeGenerator {
                         _ => {}
                     }
                 } else if let Some(name) = Self::qualified_field_name(expr) {
+                    if self.is_in_sub && self.shared_global_scalar_name(&name) {
+                        return;
+                    }
                     if self.name_is_string(&name) {
                         self.get_str_var_idx(&name);
                     } else {
@@ -2646,16 +2763,77 @@ fn qb_print(text: &str) {
     qb_emit_console_text(text);
 }
 
+fn qb_trim_float_text(mut text: String) -> String {
+    if let Some(exponent_index) = text.find(['e', 'E']) {
+        let exponent = text.split_off(exponent_index);
+        while text.contains('.') && text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+        if text == "-0" {
+            text = "0".to_string();
+        }
+        text.push_str(&exponent);
+        return text;
+    }
+
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    if text == "-0" {
+        "0".to_string()
+    } else {
+        text
+    }
+}
+
+fn qb_format_significant_digits(value: f64, digits: usize) -> String {
+    if value == 0.0 {
+        return "0".to_string();
+    }
+
+    let exponent = value.abs().log10().floor() as i32;
+    let decimals = (digits as i32 - exponent - 1).max(0) as usize;
+    qb_trim_float_text(format!("{:.*}", decimals, value))
+}
+
+fn qb_format_number(value: f64) -> String {
+    if !value.is_finite() {
+        return format!("{}", value);
+    }
+
+    if value == 0.0 {
+        return "0".to_string();
+    }
+
+    let rounded = value.round();
+    if (value - rounded).abs() <= f64::EPSILON * value.abs().max(1.0) {
+        if value.abs() <= i64::MAX as f64 {
+            return format!("{}", rounded as i64);
+        }
+        return format!("{:.0}", rounded);
+    }
+
+    let single = value as f32 as f64;
+    let single_tolerance = f32::EPSILON as f64 * value.abs().max(1.0) * 2.0;
+    if single.is_finite() && (value - single).abs() <= single_tolerance {
+        return qb_format_significant_digits(value, 7);
+    }
+
+    qb_trim_float_text(format!("{}", value))
+}
+
 fn qb_concat<L: std::fmt::Display, R: std::fmt::Display>(left: L, right: R) -> String {
     format!("{}{}", left, right)
 }
 
 fn qb_write_numeric_field(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON {
-        format!("{}", value as i64)
-    } else {
-        format!("{}", value)
-    }
+    qb_format_number(value)
 }
 
 fn qb_write_string_field(value: &str) -> String {
@@ -5056,21 +5234,17 @@ fn qb_update_play_queue(play_queue_limit: usize, play_trap_state: i32, play_pend
         }
     });
 }
-fn qb_play_queue_len() -> usize {
+fn qb_play_queue_len(
+    play_queue_limit: usize,
+    play_trap_state: i32,
+    play_pending_event: &mut bool,
+) -> usize {
     if QB_PLAY_HANDLER_ACTIVE.with(|state| state.get()) {
         return QB_PLAY_NOTE_DEADLINES.with(|deadlines| deadlines.borrow().len());
     }
+    qb_update_play_queue(play_queue_limit, play_trap_state, play_pending_event);
     QB_PLAY_NOTE_DEADLINES.with(|deadlines| {
-        let now = std::time::Instant::now();
-        let deadlines = &mut *deadlines.borrow_mut();
-        while deadlines
-            .first()
-            .copied()
-            .is_some_and(|deadline| deadline <= now)
-        {
-            deadlines.remove(0);
-        }
-        deadlines.len()
+        deadlines.borrow().len()
     })
 }
 fn qb_enqueue_play_notes(notes: &[QbSoundNote]) {
@@ -5107,8 +5281,13 @@ fn qb_play(melody: &str) {
         qb_render_sound_notes(&notes);
     }
 }
-fn qb_play_count(_dummy: f64) -> f64 {
-    qb_play_queue_len() as f64
+fn qb_play_count(
+    _dummy: f64,
+    play_queue_limit: usize,
+    play_trap_state: i32,
+    play_pending_event: &mut bool,
+) -> f64 {
+    qb_play_queue_len(play_queue_limit, play_trap_state, play_pending_event) as f64
 }
 fn qb_shell(command: Option<&str>) {
     if let Some(command) = command {
@@ -5195,7 +5374,7 @@ fn qb_set_asc(s: &str, position: f64, value: f64) -> String {
     chars.into_iter().collect()
 }
 fn qb_chr(n: f64) -> String { ((n as u8) as char).to_string() }
-fn qb_cstr(n: f64) -> String { format!("{}", n) }
+fn qb_cstr(n: f64) -> String { qb_format_number(n) }
 fn qb_val(s: &str) -> f64 {
     let trimmed = s.trim_start();
     if trimmed.is_empty() {
@@ -5282,7 +5461,7 @@ fn qb_val(s: &str) -> f64 {
         .unwrap_or(0.0)
 }
 fn qb_str(n: f64) -> String {
-    let mut text = format!("{}", n);
+    let mut text = qb_format_number(n);
     if n >= 0.0 {
         text.insert(0, ' ');
     }
@@ -5757,6 +5936,9 @@ fn qb_ubound(arr_bounds: &[Vec<(i32, i32)>], arr_idx: usize, dim: Option<f64>) -
 
         // Copy back to args (pass by reference simulation)
         for param in &sub.params {
+            if param.by_val {
+                continue;
+            }
             let param_name = &param.name;
             let rust_name = format!(
                 "arg_{}",
@@ -6048,6 +6230,9 @@ fn qb_ubound(arr_bounds: &[Vec<(i32, i32)>], arr_idx: usize, dim: Option<f64>) -
 
         // Copy back to args
         for param in &func.params {
+            if param.by_val {
+                continue;
+            }
             let param_name = &param.name;
             let rust_name = format!(
                 "arg_{}",

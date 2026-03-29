@@ -119,6 +119,34 @@ fn runtime_cv_to_qtype(type_name: &str, s: &str) -> QType {
     }
 }
 
+fn runtime_normalize_numeric_value(kind: BinaryFileKind, value: QType) -> QType {
+    let numeric = value.to_f64();
+    match kind {
+        BinaryFileKind::Integer => {
+            QType::Integer(numeric.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16)
+        }
+        BinaryFileKind::Long => {
+            QType::Long(numeric.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32)
+        }
+        BinaryFileKind::Single => QType::Single(numeric as f32),
+        BinaryFileKind::Double => QType::Double(numeric),
+        BinaryFileKind::String => match value {
+            QType::String(text) => QType::String(text),
+            other => QType::String(format!("{}", other)),
+        },
+    }
+}
+
+fn runtime_default_numeric_value(kind: BinaryFileKind) -> QType {
+    match kind {
+        BinaryFileKind::Integer => QType::Integer(0),
+        BinaryFileKind::Long => QType::Long(0),
+        BinaryFileKind::Single => QType::Single(0.0),
+        BinaryFileKind::Double => QType::Double(0.0),
+        BinaryFileKind::String => QType::String(String::new()),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ForLoopContext {
     pub var_name: String,
@@ -222,7 +250,9 @@ pub struct RuntimeState {
     pub view_print_top: Option<i16>,
     pub view_print_bottom: Option<i16>,
     pub pseudo_ports: HashMap<u16, u8>,
+    pub numeric_slot_kinds: HashMap<usize, BinaryFileKind>,
     pub string_widths: HashMap<usize, usize>,
+    pub numeric_array_kinds: HashMap<String, BinaryFileKind>,
     pub string_array_widths: HashMap<String, usize>,
     pub file_print_columns: HashMap<i32, i16>,
     pub pending_view_print_scroll: bool,
@@ -297,7 +327,9 @@ impl RuntimeState {
             view_print_top: None,
             view_print_bottom: None,
             pseudo_ports: HashMap::with_capacity(32),
+            numeric_slot_kinds: HashMap::with_capacity(64),
             string_widths: HashMap::with_capacity(32),
+            numeric_array_kinds: HashMap::with_capacity(32),
             string_array_widths: HashMap::with_capacity(16),
             file_print_columns: HashMap::with_capacity(8),
             pending_view_print_scroll: false,
@@ -511,6 +543,8 @@ impl VM {
     fn normalize_global_value_for_slot(&self, slot: usize, value: QType) -> QType {
         if let Some(width) = self.runtime.string_widths.get(&slot).copied() {
             qb_normalize_fixed_string_value(width, value)
+        } else if let Some(kind) = self.runtime.numeric_slot_kinds.get(&slot).copied() {
+            runtime_normalize_numeric_value(kind, value)
         } else {
             value
         }
@@ -526,6 +560,8 @@ impl VM {
             } else {
                 qb_normalize_fixed_string_value(width, value)
             }
+        } else if let Some(kind) = self.runtime.numeric_array_kinds.get(name).copied() {
+            runtime_normalize_numeric_value(kind, value)
         } else if name.ends_with('$') {
             match value {
                 QType::String(text) => QType::String(text),
@@ -543,6 +579,8 @@ impl VM {
             } else {
                 qb_normalize_fixed_string_value(width, QType::String(String::new()))
             }
+        } else if let Some(kind) = self.runtime.numeric_array_kinds.get(name).copied() {
+            runtime_default_numeric_value(kind)
         } else if name.ends_with('$') {
             QType::String(String::new())
         } else {
@@ -934,8 +972,7 @@ impl VM {
         }
 
         trimmed[..end]
-            .replace('D', "E")
-            .replace('d', "E")
+            .replace(['D', 'd'], "E")
             .parse::<f64>()
             .unwrap_or(0.0)
     }
@@ -978,7 +1015,7 @@ impl VM {
                 self.seed_rng_with_value(value);
                 self.next_random_value()
             }
-            Some(value) if value == 0.0 => self
+            Some(0.0) => self
                 .runtime
                 .last_random
                 .unwrap_or_else(|| self.next_random_value()),
@@ -1154,21 +1191,10 @@ impl VM {
             }
             ByRefTarget::ArrayElement { name, index_slots } => {
                 if let Some(linear_index) = self.resolve_array_linear_index(&name, &index_slots) {
-                    let width = self.runtime.string_array_widths.get(&name).copied();
+                    let normalized = self.normalize_array_value_for_name(&name, value);
                     if let Some(array) = self.runtime.arrays.get_mut(&name) {
                         if linear_index < array.len() {
-                            array[linear_index] = if let Some(width) = width {
-                                if width == 0 {
-                                    match value {
-                                        QType::String(text) => QType::String(text),
-                                        other => QType::String(format!("{}", other)),
-                                    }
-                                } else {
-                                    qb_normalize_fixed_string_value(width, value)
-                                }
-                            } else {
-                                value
-                            };
+                            array[linear_index] = normalized;
                         }
                     }
                 }
@@ -1493,7 +1519,7 @@ impl VM {
     ) -> QResult<()> {
         let chunks = qb_format_using_chunks(format, values)?;
         for (index, formatted) in chunks.iter().enumerate() {
-            self.emit_console_text(&formatted);
+            self.emit_console_text(formatted);
             if comma_after.get(index).copied().unwrap_or(false) {
                 self.print_comma();
             }
@@ -1509,7 +1535,7 @@ impl VM {
     ) -> QResult<()> {
         let chunks = qb_format_using_chunks(format, values)?;
         for (index, formatted) in chunks.iter().enumerate() {
-            self.emit_lprint_text(&formatted);
+            self.emit_lprint_text(formatted);
             if comma_after.get(index).copied().unwrap_or(false) {
                 self.lprint_comma();
             }
@@ -1526,7 +1552,7 @@ impl VM {
     ) -> QResult<()> {
         let chunks = qb_format_using_chunks(format, values)?;
         for (index, formatted) in chunks.iter().enumerate() {
-            self.file_print_write(file_num, &formatted)?;
+            self.file_print_write(file_num, formatted)?;
             if comma_after.get(index).copied().unwrap_or(false) {
                 self.file_print_comma(file_num)?;
             }
@@ -1851,7 +1877,7 @@ impl VM {
             .runtime
             .pseudo_var_sizes
             .get(var_ref)
-            .map_or(true, |size| *size < needed);
+            .is_none_or(|size| *size < needed);
 
         if needs_realloc {
             let offset = self.runtime.next_pseudo_offset;
@@ -1908,6 +1934,15 @@ impl VM {
                 self.runtime.default_array_base = base;
             }
 
+            OpCode::SetNumericType { slot, kind } => {
+                self.runtime.numeric_slot_kinds.insert(slot, kind);
+                while self.runtime.globals.len() <= slot {
+                    self.runtime.globals.push(QType::Empty);
+                }
+                let value = self.runtime.globals[slot].clone();
+                self.runtime.globals[slot] = self.normalize_global_value_for_slot(slot, value);
+            }
+
             OpCode::SetStringWidth { slot, width } => {
                 self.runtime.string_widths.insert(slot, width);
                 while self.runtime.globals.len() <= slot {
@@ -1915,6 +1950,16 @@ impl VM {
                 }
                 let value = self.runtime.globals[slot].clone();
                 self.runtime.globals[slot] = self.normalize_global_value_for_slot(slot, value);
+            }
+
+            OpCode::SetNumericArrayType { name, kind } => {
+                self.runtime.numeric_array_kinds.insert(name.clone(), kind);
+                if let Some(array) = self.runtime.arrays.get_mut(&name) {
+                    for value in array.iter_mut() {
+                        let current = std::mem::replace(value, QType::Empty);
+                        *value = runtime_normalize_numeric_value(kind, current);
+                    }
+                }
             }
 
             OpCode::SetStringArrayWidth { name, width } => {
@@ -2289,6 +2334,7 @@ impl VM {
 
             OpCode::ReadFast(idx) => {
                 if let Some(val) = self.runtime.read_data() {
+                    let val = self.normalize_global_value_for_slot(idx, val);
                     if idx < self.runtime.globals.len() {
                         self.runtime.globals[idx] = val;
                     } else {
@@ -2408,8 +2454,12 @@ impl VM {
                     }
                 }
 
-                if let Some(val) = self.runtime.globals.get_mut(var_index) {
-                    *val = QType::Double(val.to_f64() + step);
+                if let Some(current) = self.runtime.globals.get(var_index).cloned() {
+                    let next_value = QType::Double(current.to_f64() + step);
+                    let normalized = self.normalize_global_value_for_slot(var_index, next_value);
+                    if let Some(val) = self.runtime.globals.get_mut(var_index) {
+                        *val = normalized;
+                    }
                 }
             }
 
@@ -3154,13 +3204,15 @@ impl VM {
                     for (slot, arg) in param_slots.iter().copied().zip(args.iter()) {
                         if slot < self.runtime.globals.len() {
                             backups.push((slot, self.runtime.globals[slot].clone()));
-                            self.runtime.globals[slot] = arg.clone();
+                            self.runtime.globals[slot] =
+                                self.normalize_global_value_for_slot(slot, arg.clone());
                         } else {
                             while self.runtime.globals.len() <= slot {
                                 self.runtime.globals.push(QType::Empty);
                             }
                             backups.push((slot, QType::Empty));
-                            self.runtime.globals[slot] = arg.clone();
+                            self.runtime.globals[slot] =
+                                self.normalize_global_value_for_slot(slot, arg.clone());
                         }
                     }
 
@@ -4901,8 +4953,8 @@ fn qb_find_using_string_field(
             '!' => return Some((index, index, QbUsingStringMode::FirstChar)),
             '&' => return Some((index, index, QbUsingStringMode::Whole)),
             '\\' => {
-                for end in index + 1..decoded.len() {
-                    if !decoded[end].1 && decoded[end].0 == '\\' {
+                for (end, (candidate, literal)) in decoded.iter().enumerate().skip(index + 1) {
+                    if !*literal && *candidate == '\\' {
                         return Some((index, end, QbUsingStringMode::FixedWidth(end - index + 1)));
                     }
                 }
@@ -4925,9 +4977,7 @@ fn qb_find_using_numeric_span(decoded: &[(char, bool)]) -> Option<(usize, usize)
 }
 
 fn qb_using_field_span_at(decoded: &[(char, bool)], start: usize) -> Option<(usize, usize)> {
-    let Some((start_char, literal)) = decoded.get(start).copied() else {
-        return None;
-    };
+    let (start_char, literal) = decoded.get(start).copied()?;
     if literal {
         return None;
     }
@@ -4935,8 +4985,8 @@ fn qb_using_field_span_at(decoded: &[(char, bool)], start: usize) -> Option<(usi
     match start_char {
         '!' | '&' => Some((start, start)),
         '\\' => {
-            for end in start + 1..decoded.len() {
-                if !decoded[end].1 && decoded[end].0 == '\\' {
+            for (end, (candidate, literal)) in decoded.iter().enumerate().skip(start + 1) {
+                if !*literal && *candidate == '\\' {
                     return Some((start, end));
                 }
             }
@@ -5103,14 +5153,16 @@ fn qb_format_using_numeric_value(core: &str, value: f64) -> QResult<String> {
         )
     } else {
         qb_format_using_fixed(
-            core,
-            mantissa,
+            QbUsingFixedSpec {
+                core,
+                mantissa,
+                leading_plus,
+                trailing_plus,
+                trailing_minus,
+                prefix_kind,
+                target_width,
+            },
             value,
-            leading_plus,
-            trailing_plus,
-            trailing_minus,
-            prefix_kind,
-            target_width,
         )
     }
 }
@@ -5128,7 +5180,7 @@ fn qb_insert_grouping(int_part: &str) -> String {
     let chars: Vec<char> = int_part.chars().collect();
     let mut out = String::new();
     for (idx, ch) in chars.iter().enumerate() {
-        if idx > 0 && (chars.len() - idx) % 3 == 0 {
+        if idx > 0 && (chars.len() - idx).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*ch);
@@ -5136,16 +5188,26 @@ fn qb_insert_grouping(int_part: &str) -> String {
     out
 }
 
-fn qb_format_using_fixed(
-    core: &str,
-    mantissa: &str,
-    value: f64,
+struct QbUsingFixedSpec<'a> {
+    core: &'a str,
+    mantissa: &'a str,
     leading_plus: bool,
     trailing_plus: bool,
     trailing_minus: bool,
     prefix_kind: QbUsingPrefixKind,
     target_width: usize,
-) -> QResult<String> {
+}
+
+fn qb_format_using_fixed(spec: QbUsingFixedSpec<'_>, value: f64) -> QResult<String> {
+    let QbUsingFixedSpec {
+        core,
+        mantissa,
+        leading_plus,
+        trailing_plus,
+        trailing_minus,
+        prefix_kind,
+        target_width,
+    } = spec;
     let parts: Vec<&str> = mantissa.splitn(2, '.').collect();
     let int_pattern = parts[0];
     let frac_pattern = parts.get(1).copied().unwrap_or("");
@@ -5193,13 +5255,8 @@ fn qb_format_using_fixed(
 
     let mut number = grouped_int;
     if frac_hashes > 0 {
-        if number.is_empty() {
-            number.push('.');
-            number.push_str(rounded_frac);
-        } else {
-            number.push('.');
-            number.push_str(rounded_frac);
-        }
+        number.push('.');
+        number.push_str(rounded_frac);
     }
 
     let sign_prefix = if leading_plus {
@@ -5419,7 +5476,7 @@ fn wildcard_matches(pattern: &str, text: &str) -> bool {
     pattern.ends_with('*')
         || parts
             .last()
-            .map_or(true, |part| part.is_empty() || text.ends_with(part))
+            .is_none_or(|part| part.is_empty() || text.ends_with(part))
 }
 
 impl Default for VM {

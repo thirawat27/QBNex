@@ -28,9 +28,17 @@ pub enum OpCode {
     StoreVariable(String),
     LoadFast(usize),
     StoreFast(usize),
+    SetNumericType {
+        slot: usize,
+        kind: BinaryFileKind,
+    },
     SetStringWidth {
         slot: usize,
         width: usize,
+    },
+    SetNumericArrayType {
+        name: String,
+        kind: BinaryFileKind,
     },
     SetStringArrayWidth {
         name: String,
@@ -556,8 +564,14 @@ impl std::fmt::Display for OpCode {
             OpCode::StoreVariable(name) => write!(f, "STORE {}", name),
             OpCode::LoadFast(idx) => write!(f, "LOAD_FAST {}", idx),
             OpCode::StoreFast(idx) => write!(f, "STORE_FAST {}", idx),
+            OpCode::SetNumericType { slot, kind } => {
+                write!(f, "SET_NUMERIC_TYPE {} {:?}", slot, kind)
+            }
             OpCode::SetStringWidth { slot, width } => {
                 write!(f, "SET_STRING_WIDTH {} {}", slot, width)
+            }
+            OpCode::SetNumericArrayType { name, kind } => {
+                write!(f, "SET_NUMERIC_ARRAY_TYPE {} {:?}", name, kind)
             }
             OpCode::SetStringArrayWidth { name, width } => {
                 write!(f, "SET_STRING_ARRAY_WIDTH {} {}", name, width)

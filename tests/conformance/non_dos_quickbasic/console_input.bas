@@ -1,0 +1,11 @@
+DIM name$ AS STRING
+DIM age AS INTEGER
+DIM note$ AS STRING
+
+INPUT name$
+INPUT age
+LINE INPUT note$
+
+PRINT name$
+PRINT age
+PRINT note$
