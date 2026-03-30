@@ -83,9 +83,8 @@ QBNex supports 150+ QBasic/QB64 keywords and functions, making it compatible wit
 - **Compiler Diagnostics**
   - Source-aware tokenizer/parser diagnostics rendered with `miette`
   - Highlighted source snippets for syntax failures in the CLI
-  - Central parser/frontend and native-backend seams for staged library adoption
-  - Experimental `Chumsky` frontend and `Cranelift-JIT` backend paths exposed through CLI flags
-  - Production surface validation and preview gating in the CLI
+  - Production-only compiler pipeline with built-in release validation
+  - Fixture-driven validation for text, graphics, file I/O, and VM fallback paths
 
 - **File System Operations**
   - Sequential, random, and binary file access
@@ -128,7 +127,7 @@ QBNex/
 ├── codegen/           Native code generation (AST → Rust → executable)
 │   ├── backend.rs     Native backend abstraction seam
 │   ├── codegen.rs     Rust code generator
-│   └── llvm_builder.rs  LLVM IR preview backend
+│   └── codegen/       Native runtime support emitters
 ├── platform/          Runtime and platform abstraction helpers
 │   ├── file_io.rs     Cross-platform file operations
 │   ├── vga_graphics.rs  Graphics rendering
@@ -145,7 +144,7 @@ QBNex/
     └── runners/       Sharded regression runners and test utilities
 ```
 
-The production compiler still uses the in-tree tokenizer and recursive-descent parser for correctness, but the frontend and native backend seams now make it practical to stage alternate implementations such as `Chumsky`, `Cranelift`, or `Inkwell` behind the same pipeline. The current adoption plan lives in `docs/architecture/rust-compiler-libraries-roadmap.md`.
+The production compiler uses one supported pipeline end to end: the in-tree tokenizer, recursive-descent parser, semantic analyzer, bytecode compiler/runtime, and Rust-based native code generator.
 
 **Compilation Pipeline**
 
@@ -208,13 +207,11 @@ The production compiler still uses the in-tree tokenizer and recursive-descent p
    - Leaves the runnable file in the working directory
    - Honors `-o` so you can keep the generated runner under an explicit filename
    - Useful when VM compatibility is needed but you still want an executable artifact
-   - Supports `--frontend chumsky` and `--native-backend cranelift-jit` for preview alternate paths when explicitly opted in
 
 3. **Compile-Only Mode (-c flag)**
    - Generates a standalone executable without running it
    - Uses native codegen when possible, otherwise emits a VM-backed executable
    - Optimized release build
-   - Can emit a preview Cranelift-backed runner executable for the supported subset via `--native-backend cranelift-jit`
 
 ---
 
@@ -336,14 +333,14 @@ qb --version
 qb --help
 ```
 
-### GitHub Actions Artifacts
+### CI/CD and Releases
 
-The repository includes a multi-OS GitHub Actions workflow at [ci.yml](./.github/workflows/ci.yml) that
+The repository includes two GitHub Actions workflows:
 
-- runs `cargo test -q` on Windows, Linux, and macOS
-- builds the release `qb` binary on each OS
-- uploads per-OS build artifacts for download from the workflow run page
-- verifies that the Docker image builds successfully on Linux
+- [ci.yml](D:\QBNex\.github\workflows\ci.yml)
+  Runs formatting, clippy, workspace checks, the compile smoke suite, the canonical non-DOS QBasic/QuickBASIC conformance suite, `qb --validate-release`, and the sharded CLI regression runner on Windows, Linux, and macOS. It also verifies the Docker image builds.
+- [release.yml](D:\QBNex\.github\workflows\release.yml)
+  Builds tagged releases for Windows, Linux, and macOS, packages them with [package_release.py](D:\QBNex\scripts\package_release.py), publishes archives plus SHA-256 checksums, and uploads the resulting release assets.
 
 ---
 
@@ -402,12 +399,12 @@ Generate a standalone executable without running it
 qb -c myprogram.bas
 ```
 
-This creates `myprogram.exe` (Windows) or `myprogram` (Linux/macOS).
+This creates a standalone executable: `myprogram.exe` on Windows or `myprogram` on Linux/macOS.
 
 **Custom output filename**
 
 ```bash
-qb -c myprogram.bas -o custom_name.exe
+qb -c myprogram.bas -o custom_name
 ```
 
 **Compilation features**
@@ -441,16 +438,11 @@ ARGUMENTS
     FILE                   Source file (.bas) to compile and run
 
 OPTIONS
-    -c                     Compile FILE to .exe only (do not run)
-    -o <OUTPUT>            Set output filename  (default <FILE>.exe)
+    -c                     Compile FILE to a standalone executable only (do not run)
+    -o <OUTPUT>            Set output filename  (default: derived from FILE)
     -x                     Build a VM-backed executable and run it
-    --frontend <NAME>      Select parser frontend: classic, chumsky
-    --native-backend <NAME> Select native backend: rust, llvm-ir, cranelift-jit
-    --allow-preview        Allow preview frontend/backend paths explicitly
-    --list-pipelines       Show production/preview pipeline status and exit
     --explain-pipeline     Explain the selected pipeline for FILE and exit
     --validate-release     Run production-surface validation checks and exit
-    --validate-pipeline    Run the release fixtures against the selected pipeline
     -e                     Enable OPTION _EXPLICIT (force variable declaration)
     -w                     Show warnings
     -q                     Quiet mode (suppress non-error output)
@@ -461,41 +453,24 @@ OPTIONS
 EXAMPLES
     qb hello.bas           Compile & run hello.bas (default)
     qb -x hello.bas        Build and run hello.bas via the VM runner
-    qb --frontend chumsky --allow-preview -x hello.bas
-                           Parse and run with the preview Chumsky frontend
-    qb --frontend chumsky --native-backend cranelift-jit --allow-preview -x hello.bas
-                           Parse and run with the preview Chumsky + Cranelift-JIT pipeline
-    qb -x -o app.exe a.bas Build, run, and keep the VM runner as app.exe
-    qb -c hello.bas        Compile  -->  hello.exe
-    qb -c -o out.exe a.bas Compile  -->  out.exe
+    qb -x -o app a.bas     Build, run, and keep the VM runner as app(.exe on Windows)
+    qb -c hello.bas        Compile  -->  hello(.exe on Windows)
+    qb -c -o out a.bas     Compile  -->  out(.exe on Windows)
     qb -e main.bas         Compile & run with forced variable declaration
     qb --explain-pipeline main.bas
                            Explain which runtime/backend path QBNex will use
-    qb --list-pipelines    Show frontend/backend stability levels
     qb --validate-release  Validate the production compiler surface
-    qb --validate-pipeline --frontend classic
-                           Validate the release fixtures with the selected pipeline
 ```
-
-**Preview Alternate Pipelines**
-
-- `--frontend chumsky`
-  Uses the preview Chumsky-based frontend. The current supported subset is intentionally small: `PRINT`, `LET`/simple assignment, `END`, variables, string literals, and basic arithmetic. This path requires `--allow-preview`.
-- `--native-backend cranelift-jit`
-  Builds a runnable executable that embeds the source and executes the supported subset through Cranelift JIT at runtime. This path is currently limited to simple top-level text-mode programs with `PRINT`, numeric assignments, `END`, and basic arithmetic. This path requires `--allow-preview`.
 
 **Production Validation**
 
 - `qb --validate-release`
   Runs a fixture-driven validation pass over the production compiler surface: the production frontend, semantic analysis, type checking, VM bytecode compilation, runtime-backend selection, and the production native backend across text-mode, graphics-mode, file-I/O, and VM-fallback BASIC fixtures. Expected runtime output is now read from the centralized catalog in [fixture_io_catalog.rs](D:\QBNex\tests\fixtures\fixture_io_catalog.rs), so validation stays deterministic without carrying separate `.out` files or rebuilding throwaway executables for every fixture. The command prints `[n/total]` progress lines plus a summary of graphics/runtime-output/VM-fallback coverage. Use this before tagging or packaging a release.
-- `qb --validate-pipeline --frontend <NAME> [--native-backend <NAME>] [--allow-preview]`
-  Runs the same release fixtures against the selected pipeline, so preview frontends and backends can only graduate after they pass the same regression set as the production path, including the shared catalog-backed runtime-output checks. It prints the same per-fixture progress and coverage summary as `--validate-release`. Failures report the exact fixture that broke and the backend/frontend gap that caused it.
-- `qb --list-pipelines`
-  Prints the current frontend/native-backend matrix with their production or preview status, plus the active release-fixture inventory and validation coverage counts, so release tooling and operators can inspect the active compiler surface directly from the binary.
 - `qb --explain-pipeline FILE`
-  Explains how QBNex classifies a BASIC file: which frontend is active, whether preview gating blocks it, whether the program will run natively or via VM fallback, and which native gaps caused that decision.
+  Explains how QBNex classifies a BASIC file: which production frontend is active, whether the program will run natively or via VM fallback, and which native gaps caused that decision.
 - The ignored QB64 source regression suite now sweeps every current `*.bas` file under `qb64/source/`, while a companion fragment-promotion regression keeps directly-invoked include fragments covered through their owning root program.
-- For large CLI regression passes on Windows, `powershell -ExecutionPolicy Bypass -File tests/runners/run-cli-regression-suite.ps1 -Workspace D:\QBNex` runs the `shell_cli` binary once-built and then shards tests one by one with per-test timeouts, so long runs show progress and isolate hangs more reliably than a single monolithic `cargo test -p cli_tool --test shell_cli`.
+- For large CLI regression passes on Windows, `powershell -ExecutionPolicy Bypass -File tests/runners/run-cli-regression-suite.ps1 -Workspace D:\QBNex` runs the `shell_cli` binary once-built and then shards tests one by one with per-test timeouts.
+- For a cross-platform equivalent, `python tests/runners/run_cli_regression_suite.py --workspace D:\QBNex` provides the same shard-and-timeout flow on Windows, Linux, and macOS.
 
 ### Environment Variables
 

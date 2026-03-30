@@ -13,4 +13,3 @@ path = "../tests/integration/frontend/qb64_parse_regression_suite.rs"
 [dependencies]
 core_types = { path = "../types" }
 tokenizer = { path = "../lexer" }
-chumsky = "0.9"

@@ -2895,7 +2895,8 @@ fn qb_width(columns: f64, rows: f64) {
 
 fn qb_default_text_geometry_for_screen_mode(mode: i32) -> (i32, i32) {
     match mode {
-        1 | 7 | 13 => (40, 25),
+        1 | 4 | 5 | 7 | 13 => (40, 25),
+        2 | 6 | 8 | 9 | 10 => (80, 25),
         11 | 12 => (80, 30),
         _ => (80, 25),
     }
@@ -3524,7 +3525,15 @@ fn qb_date() -> String {
 
 #[cfg(not(windows))]
 fn qb_date() -> String {
-    "01-01-1980".to_string()
+    std::process::Command::new("date")
+        .arg("+%m-%d-%Y")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| "01-01-1980".to_string())
 }
 
 #[cfg(windows)]
@@ -3535,7 +3544,15 @@ fn qb_time() -> String {
 
 #[cfg(not(windows))]
 fn qb_time() -> String {
-    "00:00:00".to_string()
+    std::process::Command::new("date")
+        .arg("+%H:%M:%S")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| "00:00:00".to_string())
 }
 fn qb_command() -> String {
     std::env::var("QBNEX_COMMAND_LINE")
@@ -3782,51 +3799,268 @@ fn qb_kill(path: &str) {
 fn qb_rename(old_name: &str, new_name: &str) {
     let _ = std::fs::rename(old_name, new_name);
 }
+fn qb_normalize_dos_path(path: &str) -> std::path::PathBuf {
+    let trimmed = path.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return std::path::PathBuf::from(".");
+    }
+
+    let mut normalized = std::path::PathBuf::new();
+    let mut rest = trimmed;
+    if trimmed.len() >= 2 && trimmed.as_bytes()[1] == b':' {
+        normalized.push(&trimmed[..2]);
+        rest = &trimmed[2..];
+    }
+
+    for segment in rest.split(['\\', '/']) {
+        if !segment.is_empty() {
+            normalized.push(segment);
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        std::path::PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+fn qb_files_query(pattern: Option<&str>) -> (std::path::PathBuf, Option<String>) {
+    let Some(pattern) = pattern.map(str::trim).filter(|pattern| !pattern.is_empty()) else {
+        return (std::path::PathBuf::from("."), None);
+    };
+
+    if pattern == "*" {
+        return (std::path::PathBuf::from("."), None);
+    }
+
+    let normalized = qb_normalize_dos_path(pattern);
+    let has_wildcards = pattern.contains('*') || pattern.contains('?');
+
+    if has_wildcards {
+        let mask = normalized
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|mask| !mask.is_empty())
+            .unwrap_or("*")
+            .to_string();
+        let directory = normalized
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf();
+        return (directory, Some(mask));
+    }
+
+    if normalized.is_dir() {
+        return (normalized, None);
+    }
+
+    let mask = normalized
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|mask| !mask.is_empty())
+        .map(str::to_string);
+    let directory = normalized
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    (directory, mask)
+}
 fn qb_files(pattern: Option<&str>) {
-    if let Ok(entries) = std::fs::read_dir(".") {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let matched = match pattern {
-                None | Some("") | Some("*") => true,
-                Some(pattern) => qb_wildcard_match(pattern, &name),
-            };
-            if matched {
-                println!("{}", name);
-            }
+    let (directory, mask) = qb_files_query(pattern);
+    if let Ok(entries) = std::fs::read_dir(directory) {
+        let mut names = entries
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let matched = mask
+                    .as_deref()
+                    .is_none_or(|mask| qb_wildcard_match(mask, &name));
+                matched.then_some(name)
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        for name in names {
+            println!("{}", name);
         }
     }
 }
 fn qb_wildcard_match(pattern: &str, text: &str) -> bool {
-    let pattern = pattern.to_ascii_uppercase();
-    let text = text.to_ascii_uppercase();
-    if pattern == "*" {
-        return true;
+    let pattern = pattern.to_ascii_uppercase().chars().collect::<Vec<_>>();
+    let text = text.to_ascii_uppercase().chars().collect::<Vec<_>>();
+    let mut dp = vec![vec![false; text.len() + 1]; pattern.len() + 1];
+    dp[0][0] = true;
+
+    for (index, ch) in pattern.iter().enumerate() {
+        if *ch == '*' {
+            dp[index + 1][0] = dp[index][0];
+        }
     }
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return pattern == text;
+
+    for (i, pat) in pattern.iter().enumerate() {
+        for (j, txt) in text.iter().enumerate() {
+            dp[i + 1][j + 1] = match pat {
+                '*' => dp[i][j + 1] || dp[i + 1][j] || dp[i][j],
+                '?' => dp[i][j],
+                ch => dp[i][j] && ch == txt,
+            };
+        }
     }
-    let mut remaining = text.as_str();
-    let mut anchored_start = !pattern.starts_with('*');
-    for part in parts.iter().filter(|part| !part.is_empty()) {
-        if anchored_start {
-            if !remaining.starts_with(part) {
-                return false;
+
+    dp[pattern.len()][text.len()]
+}
+fn qb_expand_dos_paths(pattern: &str) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let trimmed = pattern.trim();
+    if trimmed.contains('*') || trimmed.contains('?') {
+        let (directory, mask) = qb_files_query(Some(trimmed));
+        let Some(mask) = mask else {
+            return Ok(vec![directory]);
+        };
+        let mut matches = Vec::new();
+        for entry in std::fs::read_dir(&directory)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if qb_wildcard_match(&mask, &name) {
+                matches.push(entry.path());
             }
-            remaining = &remaining[part.len()..];
-            anchored_start = false;
-            continue;
         }
-        if let Some(idx) = remaining.find(part) {
-            remaining = &remaining[idx + part.len()..];
-        } else {
-            return false;
+        matches.sort();
+        Ok(matches)
+    } else {
+        Ok(vec![qb_normalize_dos_path(trimmed)])
+    }
+}
+fn qb_shell_split_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+
+    for ch in command.chars() {
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => current.push(ch),
+            None if ch == '"' || ch == '\'' => quote = Some(ch),
+            None if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+            }
+            None => current.push(ch),
         }
     }
-    pattern.ends_with('*')
-        || parts
-            .last()
-            .map_or(true, |part| part.is_empty() || text.ends_with(part))
+
+    if !current.is_empty() {
+        words.push(current);
+    }
+
+    words
+}
+fn qb_try_execute_dos_shell_builtin(command: &str) -> Result<Option<String>, String> {
+    let words = qb_shell_split_words(command);
+    let Some(head) = words.first() else {
+        return Ok(Some(String::new()));
+    };
+
+    let verb = head.to_ascii_uppercase();
+    match verb.as_str() {
+        "CLS" => Ok(Some(String::new())),
+        "ECHO" => Ok(Some(format!(
+            "{}\n",
+            words.iter().skip(1).cloned().collect::<Vec<_>>().join(" ")
+        ))),
+        "DIR" => {
+            let pattern = words
+                .iter()
+                .skip(1)
+                .find(|arg| !arg.starts_with('/'))
+                .map(String::as_str);
+            let (directory, mask) = qb_files_query(pattern);
+            let mut names = std::fs::read_dir(directory)
+                .map_err(|err| err.to_string())?
+                .flatten()
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let matched = mask
+                        .as_deref()
+                        .is_none_or(|mask| qb_wildcard_match(mask, &name));
+                    matched.then_some(name)
+                })
+                .collect::<Vec<_>>();
+            names.sort();
+            Ok(Some(names.join("\n") + if names.is_empty() { "" } else { "\n" }))
+        }
+        "TYPE" => {
+            let Some(path) = words.get(1) else {
+                return Err("TYPE expects a file path".to_string());
+            };
+            std::fs::read_to_string(qb_normalize_dos_path(path))
+                .map(Some)
+                .map_err(|err| err.to_string())
+        }
+        "COPY" => {
+            let Some(source) = words.get(1) else {
+                return Err("COPY expects a source path".to_string());
+            };
+            let Some(destination) = words.get(2) else {
+                return Err("COPY expects a destination path".to_string());
+            };
+            std::fs::copy(qb_normalize_dos_path(source), qb_normalize_dos_path(destination))
+                .map_err(|err| err.to_string())?;
+            Ok(Some(String::new()))
+        }
+        "REN" | "RENAME" => {
+            let Some(source) = words.get(1) else {
+                return Err("REN expects a source path".to_string());
+            };
+            let Some(destination) = words.get(2) else {
+                return Err("REN expects a destination path".to_string());
+            };
+            std::fs::rename(qb_normalize_dos_path(source), qb_normalize_dos_path(destination))
+                .map_err(|err| err.to_string())?;
+            Ok(Some(String::new()))
+        }
+        "DEL" | "ERASE" => {
+            for path in words.iter().skip(1) {
+                for expanded in qb_expand_dos_paths(path).map_err(|err| err.to_string())? {
+                    if expanded.is_file() {
+                        std::fs::remove_file(expanded).map_err(|err| err.to_string())?;
+                    }
+                }
+            }
+            Ok(Some(String::new()))
+        }
+        "MD" | "MKDIR" => {
+            for path in words.iter().skip(1) {
+                std::fs::create_dir_all(qb_normalize_dos_path(path))
+                    .map_err(|err| err.to_string())?;
+            }
+            Ok(Some(String::new()))
+        }
+        "RD" | "RMDIR" => {
+            for path in words.iter().skip(1) {
+                std::fs::remove_dir(qb_normalize_dos_path(path)).map_err(|err| err.to_string())?;
+            }
+            Ok(Some(String::new()))
+        }
+        "CD" | "CHDIR" => {
+            if words.len() == 1 {
+                return Ok(Some(format!(
+                    "{}\n",
+                    std::env::current_dir()
+                        .map_err(|err| err.to_string())?
+                        .display()
+                )));
+            }
+            let path = qb_normalize_dos_path(&words[1]);
+            if path.is_dir() {
+                Ok(Some(String::new()))
+            } else {
+                Err(format!("directory not found: {}", path.display()))
+            }
+        }
+        _ => Ok(None),
+    }
 }
 #[derive(Debug)]
 enum QBFileMode {
@@ -5291,10 +5525,33 @@ fn qb_play_count(
 }
 fn qb_shell(command: Option<&str>) {
     if let Some(command) = command {
+        if command.is_empty() {
+            return;
+        }
+
+        match qb_try_execute_dos_shell_builtin(command) {
+            Ok(Some(stdout)) => {
+                if !stdout.is_empty() {
+                    print!("{}", stdout);
+                }
+                return;
+            }
+            Ok(None) => {}
+            Err(err) => qb_runtime_fail(format!("SHELL failed: {}", err)),
+        }
+
+        #[cfg(target_os = "windows")]
         let status = std::process::Command::new("cmd")
             .args(["/C", command])
             .status()
             .unwrap_or_else(|err| qb_runtime_fail(format!("SHELL failed: {}", err)));
+
+        #[cfg(not(target_os = "windows"))]
+        let status = std::process::Command::new("sh")
+            .args(["-c", command])
+            .status()
+            .unwrap_or_else(|err| qb_runtime_fail(format!("SHELL failed: {}", err)));
+
         if !status.success() {
             qb_runtime_fail(format!(
                 "SHELL command exited with status {}",
@@ -5304,7 +5561,17 @@ fn qb_shell(command: Option<&str>) {
     }
 }
 fn qb_chain(path: &str) -> ! {
-    let status = std::process::Command::new("qb")
+    let launcher = std::env::var("QBNEX_COMPILER_EXE")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from("qb"));
+
+    let mut command = std::process::Command::new(launcher);
+    if std::env::var("QBNEX_QUIET").is_ok_and(|value| value == "1") {
+        command.arg("-q");
+    }
+    let status = command
         .args(["-x", path])
         .status()
         .unwrap_or_else(|err| qb_runtime_fail(format!("CHAIN failed to launch qb: {}", err)));

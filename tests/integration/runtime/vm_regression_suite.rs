@@ -2,7 +2,7 @@ use core_types::QType;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use syntax_tree::Parser;
+use syntax_tree::{parse_with_frontend, FrontendKind, Parser};
 use vm_engine::builtin_functions::get_builtin_arity;
 use vm_engine::opcodes::ByRefTarget;
 use vm_engine::{BytecodeCompiler, OpCode, VM};
@@ -30,6 +30,21 @@ fn run_source(source: &str) -> VM {
 fn run_source_with_captured_stdout(source: &str) -> String {
     let mut parser = Parser::new(source.to_string()).unwrap();
     let program = parser.parse().unwrap();
+    let mut compiler = BytecodeCompiler::new(program);
+    let bytecode = compiler.compile().unwrap();
+    let mut vm = VM::new(bytecode);
+    vm.enable_stdout_capture();
+    vm.run().unwrap();
+    vm.take_captured_stdout()
+        .replace("\r\n", "\n")
+        .replace('\r', "")
+}
+
+fn run_checked_source_with_captured_stdout(source: &str) -> String {
+    let program = parse_with_frontend(FrontendKind::Classic, source.to_string()).unwrap();
+    let symbol_table = analyzer::scope::analyze_program(&program).unwrap();
+    let mut type_checker = analyzer::TypeChecker::new(symbol_table);
+    type_checker.check_program(&program).unwrap();
     let mut compiler = BytecodeCompiler::new(program);
     let bytecode = compiler.compile().unwrap();
     let mut vm = VM::new(bytecode);
@@ -234,6 +249,84 @@ IF PEEK(addr) <> 77 THEN ERROR 68
     assert_eq!(vm.runtime.cursor_col, 9);
     assert_eq!(vm.runtime.current_segment, 8192);
     assert!(vm.runtime.value_stack.is_empty());
+}
+
+#[test]
+fn test_vm_graphics_modes_write_bottom_right_pixels() {
+    let cases = [
+        (1, 319, 199, 1),
+        (2, 639, 199, 1),
+        (4, 319, 199, 2),
+        (5, 319, 199, 3),
+        (6, 639, 199, 1),
+        (7, 319, 199, 4),
+        (8, 639, 199, 5),
+        (9, 639, 349, 6),
+        (10, 639, 349, 3),
+        (11, 639, 479, 1),
+        (12, 639, 479, 2),
+        (13, 319, 199, 7),
+    ];
+
+    for (mode, x, y, color) in cases {
+        let source = format!("SCREEN {mode}\nPSET ({x}, {y}), {color}\n");
+        let vm = run_source(&source);
+        let gfx = vm.graphics.as_ref().expect("graphics runtime");
+        assert_eq!(gfx.screen_mode, mode as u8, "mode {mode} screen selection");
+        assert_eq!(gfx.get_pixel(x, y), color as u8, "mode {mode} pset result");
+    }
+}
+
+#[test]
+fn test_vm_graphics_modes_point_reads_bottom_right_pixels() {
+    let cases = [
+        (1, 319, 199, 1),
+        (2, 639, 199, 1),
+        (4, 319, 199, 2),
+        (5, 319, 199, 3),
+        (6, 639, 199, 1),
+        (7, 319, 199, 4),
+        (8, 639, 199, 5),
+        (9, 639, 349, 6),
+        (10, 639, 349, 3),
+        (11, 639, 479, 1),
+        (12, 639, 479, 2),
+        (13, 319, 199, 7),
+    ];
+
+    for (mode, x, y, color) in cases {
+        let source = format!("SCREEN {mode}\nPSET ({x}, {y}), {color}\nPRINT POINT({x}, {y})\n");
+        let stdout = run_source_with_captured_stdout(&source);
+        assert_eq!(stdout.trim(), color.to_string(), "mode {mode} point result");
+    }
+}
+
+#[test]
+fn test_checked_pipeline_graphics_modes_point_reads_bottom_right_pixels() {
+    let cases = [
+        (1, 319, 199, 1),
+        (2, 639, 199, 1),
+        (4, 319, 199, 2),
+        (5, 319, 199, 3),
+        (6, 639, 199, 1),
+        (7, 319, 199, 4),
+        (8, 639, 199, 5),
+        (9, 639, 349, 6),
+        (10, 639, 349, 3),
+        (11, 639, 479, 1),
+        (12, 639, 479, 2),
+        (13, 319, 199, 7),
+    ];
+
+    for (mode, x, y, color) in cases {
+        let source = format!("SCREEN {mode}\nPSET ({x}, {y}), {color}\nPRINT POINT({x}, {y})\n");
+        let stdout = run_checked_source_with_captured_stdout(&source);
+        assert_eq!(
+            stdout.trim(),
+            color.to_string(),
+            "mode {mode} checked pipeline point result"
+        );
+    }
 }
 
 #[test]

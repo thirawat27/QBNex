@@ -15,6 +15,7 @@ struct LoopContext {
 
 pub struct BytecodeCompiler {
     program: Program,
+    top_level_statements: Vec<Statement>,
     bytecode: Vec<OpCode>,
     labels: HashMap<String, usize>,
     line_numbers: HashMap<String, usize>,
@@ -32,6 +33,7 @@ pub struct BytecodeCompiler {
     next_var_index: usize,
     loop_contexts: Vec<LoopContext>,
     current_function: Option<String>,
+    current_sub: Option<String>,
     option_base: i32,
 }
 
@@ -41,6 +43,7 @@ impl BytecodeCompiler {
         let function_param_modes = Self::collect_param_modes(&program, true);
         let sub_param_modes = Self::collect_param_modes(&program, false);
         Self {
+            top_level_statements: program.statements.clone(),
             program,
             bytecode: Vec::with_capacity(1024),
             labels: HashMap::with_capacity(64),
@@ -59,6 +62,7 @@ impl BytecodeCompiler {
             next_var_index: 0,
             loop_contexts: Vec::with_capacity(16),
             current_function: None,
+            current_sub: None,
             option_base: 0,
         }
     }
@@ -162,14 +166,16 @@ impl BytecodeCompiler {
         if let Some(type_suffix) = type_suffix {
             variable.type_suffix = Some(type_suffix);
         }
-        variable.get_default_type(&self.def_types)
+        self.resolve_variable_metadata(&variable)
+            .get_default_type(&self.def_types)
     }
 
     fn variable_type_hint(&self, var: &syntax_tree::ast_nodes::Variable) -> QType {
-        if let Some(declared_type) = &var.declared_type {
+        let resolved = self.resolve_variable_metadata(var);
+        if let Some(declared_type) = &resolved.declared_type {
             return Self::declared_type_to_qtype(declared_type);
         }
-        var.get_default_type(&self.def_types)
+        resolved.get_default_type(&self.def_types)
     }
 
     fn variable_is_string(&self, var: &syntax_tree::ast_nodes::Variable) -> bool {
@@ -228,36 +234,39 @@ impl BytecodeCompiler {
         var: &syntax_tree::ast_nodes::Variable,
         slot: usize,
     ) {
-        if self.variable_is_string(var) {
-            if let Some(width) = var.fixed_length {
+        let resolved = self.resolve_variable_metadata(var);
+        if self.variable_is_string(&resolved) {
+            if let Some(width) = resolved.fixed_length {
                 self.bytecode.push(OpCode::SetStringWidth { slot, width });
             }
         } else {
-            let qtype = self.variable_type_hint(var);
+            let qtype = self.variable_type_hint(&resolved);
             self.register_numeric_slot_type(slot, &qtype);
         }
     }
 
     fn register_array_storage_metadata(&mut self, var: &syntax_tree::ast_nodes::Variable) {
-        if self.variable_is_string(var) {
+        let resolved = self.resolve_variable_metadata(var);
+        if self.variable_is_string(&resolved) {
             self.bytecode.push(OpCode::SetStringArrayWidth {
-                name: var.name.clone(),
-                width: var.fixed_length.unwrap_or(0),
+                name: resolved.name.clone(),
+                width: resolved.fixed_length.unwrap_or(0),
             });
         } else {
-            let qtype = self.variable_type_hint(var);
-            self.register_numeric_array_type(&var.name, &qtype);
+            let qtype = self.variable_type_hint(&resolved);
+            self.register_numeric_array_type(&resolved.name, &qtype);
         }
     }
 
     fn binary_file_target_metadata(&self, expr: &Expression) -> Option<(BinaryFileKind, usize)> {
         match expr {
             Expression::Variable(var) => {
-                if self.variable_is_string(var) {
-                    Some((BinaryFileKind::String, var.fixed_length.unwrap_or(0)))
+                let resolved = self.resolve_variable_metadata(var);
+                if self.variable_is_string(&resolved) {
+                    Some((BinaryFileKind::String, resolved.fixed_length.unwrap_or(0)))
                 } else {
                     Some((
-                        self.binary_file_kind_for_name(&var.name, var.type_suffix),
+                        self.binary_file_kind_for_name(&resolved.name, resolved.type_suffix),
                         0,
                     ))
                 }
@@ -284,42 +293,162 @@ impl BytecodeCompiler {
             .map(|(_, user_type)| user_type.clone())
     }
 
-    fn find_declared_type_for_variable(&self, name: &str) -> Option<String> {
-        for stmt in &self.program.statements {
-            if let Statement::Dim { variables, .. } | Statement::Redim { variables, .. } = stmt {
-                for (var, _) in variables {
-                    if var.name.eq_ignore_ascii_case(name) {
-                        return var.declared_type.clone();
+    fn find_variable_in_statements(
+        statements: &[Statement],
+        name: &str,
+    ) -> Option<syntax_tree::ast_nodes::Variable> {
+        for statement in statements {
+            match statement {
+                Statement::Dim { variables, .. } | Statement::Redim { variables, .. } => {
+                    for (var, _) in variables {
+                        if var.name.eq_ignore_ascii_case(name) {
+                            return Some(var.clone());
+                        }
                     }
                 }
-            }
-        }
-
-        for func in self.program.functions.values() {
-            for param in &func.params {
-                if param.name.eq_ignore_ascii_case(name) {
-                    return param.declared_type.clone();
+                Statement::IfBlock {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    if let Some(found) = Self::find_variable_in_statements(then_branch, name) {
+                        return Some(found);
+                    }
+                    if let Some(else_branch) = else_branch {
+                        if let Some(found) = Self::find_variable_in_statements(else_branch, name) {
+                            return Some(found);
+                        }
+                    }
                 }
-            }
-        }
-
-        for sub in self.program.subs.values() {
-            for param in &sub.params {
-                if param.name.eq_ignore_ascii_case(name) {
-                    return param.declared_type.clone();
+                Statement::IfElseBlock {
+                    then_branch,
+                    else_ifs,
+                    else_branch,
+                    ..
+                } => {
+                    if let Some(found) = Self::find_variable_in_statements(then_branch, name) {
+                        return Some(found);
+                    }
+                    for (_, branch) in else_ifs {
+                        if let Some(found) = Self::find_variable_in_statements(branch, name) {
+                            return Some(found);
+                        }
+                    }
+                    if let Some(else_branch) = else_branch {
+                        if let Some(found) = Self::find_variable_in_statements(else_branch, name) {
+                            return Some(found);
+                        }
+                    }
                 }
+                Statement::ForLoop { body, .. }
+                | Statement::WhileLoop { body, .. }
+                | Statement::DoLoop { body, .. }
+                | Statement::ForEach { body, .. } => {
+                    if let Some(found) = Self::find_variable_in_statements(body, name) {
+                        return Some(found);
+                    }
+                }
+                Statement::Select { cases, .. } => {
+                    for (_, body) in cases {
+                        if let Some(found) = Self::find_variable_in_statements(body, name) {
+                            return Some(found);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
         None
     }
 
+    fn find_variable_metadata_in_function(
+        &self,
+        function_name: &str,
+        name: &str,
+    ) -> Option<syntax_tree::ast_nodes::Variable> {
+        let function = self.program.functions.get(function_name)?;
+        for param in &function.params {
+            if param.name.eq_ignore_ascii_case(name) {
+                return Some(param.clone());
+            }
+        }
+        Self::find_variable_in_statements(&function.body, name)
+    }
+
+    fn find_variable_metadata_in_sub(
+        &self,
+        sub_name: &str,
+        name: &str,
+    ) -> Option<syntax_tree::ast_nodes::Variable> {
+        let sub = self.program.subs.get(sub_name)?;
+        for param in &sub.params {
+            if param.name.eq_ignore_ascii_case(name) {
+                return Some(param.clone());
+            }
+        }
+        Self::find_variable_in_statements(&sub.body, name)
+    }
+
+    fn find_variable_metadata(&self, name: &str) -> Option<syntax_tree::ast_nodes::Variable> {
+        if let Some(current_function) = self.current_function.as_ref() {
+            if let Some(found) = self.find_variable_metadata_in_function(current_function, name) {
+                return Some(found);
+            }
+        }
+
+        if let Some(current_sub) = self.current_sub.as_ref() {
+            if let Some(found) = self.find_variable_metadata_in_sub(current_sub, name) {
+                return Some(found);
+            }
+        }
+
+        for stmt in &self.top_level_statements {
+            if let Some(found) = Self::find_variable_in_statements(std::slice::from_ref(stmt), name)
+            {
+                return Some(found);
+            }
+        }
+
+        for function_name in self.program.functions.keys() {
+            if let Some(found) = self.find_variable_metadata_in_function(function_name, name) {
+                return Some(found);
+            }
+        }
+
+        for sub_name in self.program.subs.keys() {
+            if let Some(found) = self.find_variable_metadata_in_sub(sub_name, name) {
+                return Some(found);
+            }
+        }
+
+        None
+    }
+
+    fn resolve_variable_metadata(
+        &self,
+        var: &syntax_tree::ast_nodes::Variable,
+    ) -> syntax_tree::ast_nodes::Variable {
+        let mut resolved = var.clone();
+        if let Some(found) = self.find_variable_metadata(&var.name) {
+            if resolved.type_suffix.is_none() {
+                resolved.type_suffix = found.type_suffix;
+            }
+            if resolved.declared_type.is_none() {
+                resolved.declared_type = found.declared_type;
+            }
+            if resolved.fixed_length.is_none() {
+                resolved.fixed_length = found.fixed_length;
+            }
+        }
+        resolved
+    }
+
     fn resolve_udt_object_type(&self, expr: &Expression) -> Option<String> {
         match expr {
-            Expression::Variable(var) => var
+            Expression::Variable(var) => self
+                .resolve_variable_metadata(var)
                 .declared_type
-                .clone()
-                .or_else(|| self.find_declared_type_for_variable(&var.name))
                 .filter(|type_name| self.lookup_user_type(type_name).is_some()),
             Expression::FieldAccess { object, field } => {
                 let parent_type = self.resolve_udt_object_type(object)?;
@@ -339,7 +468,7 @@ impl BytecodeCompiler {
 
     fn fixed_string_width_for_expr(&self, expr: &Expression) -> Option<usize> {
         match expr {
-            Expression::Variable(var) => var.fixed_length,
+            Expression::Variable(var) => self.resolve_variable_metadata(var).fixed_length,
             Expression::FieldAccess { object, field } => {
                 let parent_type = self.resolve_udt_object_type(object)?;
                 let user_type = self.lookup_user_type(&parent_type)?;
@@ -768,6 +897,7 @@ impl BytecodeCompiler {
         self.bytecode.push(OpCode::NoOp);
         let body_start = self.bytecode.len();
         let previous_function = self.current_function.replace(func_def.name.clone());
+        let previous_sub = self.current_sub.take();
         for param in &func_def.params {
             let slot = self.get_var_index(&param.name);
             if let Some(declared_type) = &param.declared_type {
@@ -791,6 +921,7 @@ impl BytecodeCompiler {
         self.bytecode.push(OpCode::LoadFast(function_index));
         self.bytecode.push(OpCode::FunctionReturn);
         self.current_function = previous_function;
+        self.current_sub = previous_sub;
         let body_end = self.bytecode.len();
         self.bytecode[define_idx] = OpCode::DefineFunction {
             name: Self::normalize_proc_name(&func_def.name),
@@ -812,6 +943,7 @@ impl BytecodeCompiler {
         self.bytecode.push(OpCode::NoOp);
         let body_start = self.bytecode.len();
         let previous_function = self.current_function.take();
+        let previous_sub = self.current_sub.replace(sub_def.name.clone());
         for param in &sub_def.params {
             let slot = self.get_var_index(&param.name);
             if let Some(declared_type) = &param.declared_type {
@@ -824,6 +956,7 @@ impl BytecodeCompiler {
         }
         self.bytecode.push(OpCode::SubReturn);
         self.current_function = previous_function;
+        self.current_sub = previous_sub;
         let body_end = self.bytecode.len();
         self.bytecode[define_idx] = OpCode::DefineSub {
             name: Self::normalize_proc_name(&sub_def.name),
@@ -2799,7 +2932,6 @@ impl BytecodeCompiler {
             Statement::DefFn { name, params, body } => {
                 // Save current variable mapping
                 let saved_var_map = self.variable_map.clone();
-                let saved_var_counter = self.next_var_index;
 
                 // Keep outer scope slots visible inside DEF FN, but bind parameters to fresh slots
                 // so calls can temporarily override only those parameter locations.
@@ -2821,7 +2953,6 @@ impl BytecodeCompiler {
 
                 // Restore variable mapping
                 self.variable_map = saved_var_map;
-                self.next_var_index = saved_var_counter;
 
                 self.bytecode.push(OpCode::DefFn {
                     name: name.clone(),

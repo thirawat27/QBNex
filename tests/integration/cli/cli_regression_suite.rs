@@ -2,11 +2,15 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        OnceLock,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 static TEST_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+static WORKSPACE_QB_BINARY: OnceLock<PathBuf> = OnceLock::new();
 
 fn retry_output_path(command: &Command) -> Option<PathBuf> {
     let current_dir = command
@@ -127,6 +131,46 @@ fn compile_with_qb(source_path: &Path, output_path: &Path, cwd: &Path) {
     );
 }
 
+fn fresh_qb_command(cwd: &Path) -> Command {
+    let source_binary_path = WORKSPACE_QB_BINARY
+        .get_or_init(|| {
+            let binary = PathBuf::from(env!("CARGO_BIN_EXE_qb"));
+            assert!(
+                binary.exists(),
+                "expected qb binary at {}",
+                binary.display()
+            );
+            binary
+        })
+        .clone();
+    let runner_name = if cfg!(windows) {
+        format!(
+            "qb_runner_{}_{}.exe",
+            std::process::id(),
+            TEST_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
+    } else {
+        format!(
+            "qb_runner_{}_{}",
+            std::process::id(),
+            TEST_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
+    };
+    let runner_path = cwd.join(runner_name);
+    fs::copy(&source_binary_path, &runner_path).unwrap_or_else(|err| {
+        panic!(
+            "failed to copy qb runner from {} to {}: {}",
+            source_binary_path.display(),
+            runner_path.display(),
+            err
+        )
+    });
+
+    let mut command = Command::new(runner_path);
+    command.current_dir(cwd);
+    command
+}
+
 fn test_temp_dir(prefix: &str) -> PathBuf {
     let unique = TEST_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let nanos = SystemTime::now()
@@ -192,6 +236,117 @@ fn empty_shell_interpreter_run_is_quiet() {
 }
 
 #[test]
+fn chain_runs_followup_program_in_interpreter_and_native_run() {
+    let temp_dir = test_temp_dir("qbnex_cli_chain");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("first.bas");
+    let next_path = temp_dir.join("next.bas");
+    std::fs::write(
+        &source_path,
+        "PRINT \"first\"\nCHAIN \"next.bas\"\nPRINT \"bad\"\n",
+    )
+    .unwrap();
+    std::fs::write(&next_path, "PRINT \"next\"\n").unwrap();
+
+    let expected = "first\nnext\n";
+
+    let interpreter = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-x")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        interpreter.status.success(),
+        "interpreter failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&interpreter.stdout),
+        String::from_utf8_lossy(&interpreter.stderr)
+    );
+    let interpreter_stdout = String::from_utf8_lossy(&interpreter.stdout).replace('\r', "");
+    assert_eq!(interpreter_stdout, expected);
+
+    let native = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        native.status.success(),
+        "native run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_stdout = String::from_utf8_lossy(&native.stdout).replace('\r', "");
+    assert_eq!(native_stdout, expected);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn dos_shell_builtins_work_cross_platform_in_interpreter_and_native_run() {
+    let temp_dir = test_temp_dir("qbnex_cli_dos_shell");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("dos_shell.bas");
+    std::fs::write(
+        &source_path,
+        concat!(
+            "OPEN \"source.txt\" FOR OUTPUT AS #1\n",
+            "PRINT #1, \"HELLO\"\n",
+            "CLOSE #1\n",
+            "SHELL \"MD sandbox\"\n",
+            "SHELL \"COPY source.txt sandbox\\\\copy.txt\"\n",
+            "SHELL \"REN sandbox\\\\copy.txt sandbox\\\\moved.txt\"\n",
+            "SHELL \"TYPE sandbox\\\\moved.txt\"\n",
+            "SHELL \"DIR sandbox\\\\*.txt\"\n",
+            "PRINT _FILEEXISTS(\"sandbox\\\\moved.txt\")\n",
+            "SHELL \"DEL sandbox\\\\moved.txt\"\n",
+            "SHELL \"DEL source.txt\"\n",
+            "SHELL \"RD sandbox\"\n",
+            "PRINT _FILEEXISTS(\"source.txt\")\n",
+            "PRINT _DIREXISTS(\"sandbox\")\n",
+        ),
+    )
+    .unwrap();
+
+    let expected = "HELLO\nmoved.txt\n-1\n0\n0\n";
+
+    let interpreter = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-x")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        interpreter.status.success(),
+        "interpreter failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&interpreter.stdout),
+        String::from_utf8_lossy(&interpreter.stderr)
+    );
+    let interpreter_stdout = String::from_utf8_lossy(&interpreter.stdout).replace('\r', "");
+    assert_eq!(interpreter_stdout, expected);
+
+    let native = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        native.status.success(),
+        "native run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_stdout = String::from_utf8_lossy(&native.stdout).replace('\r', "");
+    assert_eq!(native_stdout, expected);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn interpreter_run_builds_a_runnable_executable_in_the_working_directory() {
     let temp_dir = test_temp_dir("qbnex_cli_runner_build");
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -227,6 +382,63 @@ fn interpreter_run_builds_a_runnable_executable_in_the_working_directory() {
         "expected built runner at {}",
         built_binary.display()
     );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn dos_shell_builtins_accept_forward_slash_paths_in_interpreter_and_native_run() {
+    let temp_dir = test_temp_dir("qbnex_cli_dos_shell_forward_slash");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("dos_shell_forward.bas");
+    std::fs::write(
+        &source_path,
+        concat!(
+            "OPEN \"source.txt\" FOR OUTPUT AS #1\n",
+            "PRINT #1, \"HELLO\"\n",
+            "CLOSE #1\n",
+            "SHELL \"MD sandbox/sub\"\n",
+            "SHELL \"COPY source.txt sandbox/sub/copy.txt\"\n",
+            "SHELL \"TYPE sandbox/sub/copy.txt\"\n",
+            "SHELL \"DIR sandbox/sub/*.txt\"\n",
+            "PRINT _FILEEXISTS(\"sandbox/sub/copy.txt\")\n",
+            "FILES \"sandbox/sub/*.txt\"\n",
+        ),
+    )
+    .unwrap();
+
+    let expected = "HELLO\ncopy.txt\n-1\ncopy.txt\n";
+
+    let interpreter = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-x")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        interpreter.status.success(),
+        "interpreter failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&interpreter.stdout),
+        String::from_utf8_lossy(&interpreter.stderr)
+    );
+    let interpreter_stdout = String::from_utf8_lossy(&interpreter.stdout).replace('\r', "");
+    assert_eq!(interpreter_stdout, expected);
+
+    let native = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        native.status.success(),
+        "native run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_stdout = String::from_utf8_lossy(&native.stdout).replace('\r', "");
+    assert_eq!(native_stdout, expected);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -419,11 +631,10 @@ fn commented_qb64_includes_are_expanded_recursively_for_all_cli_paths() {
 
     let expected = "QBNex\n";
 
-    let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
+    let interpreter = fresh_qb_command(&temp_dir)
         .arg("-q")
         .arg("-x")
         .arg(&source_path)
-        .current_dir(&temp_dir)
         .stable_output();
     assert!(
         interpreter.status.success(),
@@ -441,10 +652,9 @@ fn commented_qb64_includes_are_expanded_recursively_for_all_cli_paths() {
     };
     let _ = std::fs::remove_file(&interpreter_output_path);
 
-    let native = Command::new(env!("CARGO_BIN_EXE_qb"))
+    let native = fresh_qb_command(&temp_dir)
         .arg("-q")
         .arg(&source_path)
-        .current_dir(&temp_dir)
         .stable_output();
     assert!(
         native.status.success(),
@@ -493,11 +703,10 @@ fn duplicate_qb64_includes_preserve_multiple_expansions() {
 
     let expected = "QBNex\nQBNex\n";
 
-    let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
+    let interpreter = fresh_qb_command(&temp_dir)
         .arg("-q")
         .arg("-x")
         .arg(&source_path)
-        .current_dir(&temp_dir)
         .stable_output();
     assert!(
         interpreter.status.success(),
@@ -510,10 +719,9 @@ fn duplicate_qb64_includes_preserve_multiple_expansions() {
         expected
     );
 
-    let native = Command::new(env!("CARGO_BIN_EXE_qb"))
+    let native = fresh_qb_command(&temp_dir)
         .arg("-q")
         .arg(&source_path)
-        .current_dir(&temp_dir)
         .stable_output();
     assert!(
         native.status.success(),
@@ -603,159 +811,6 @@ fn syntax_errors_render_with_a_highlighted_source_snippet() {
 }
 
 #[test]
-#[ignore = "preview execution regression; run explicitly when validating the chumsky preview path"]
-fn chumsky_frontend_runs_simple_programs_through_the_cli() {
-    let temp_dir = test_temp_dir("qbnex_cli_chumsky_frontend");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    let source_path = temp_dir.join("simple.bas");
-    std::fs::write(&source_path, "LET total = 40 + 2\nPRINT total\nEND\n").unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("-q")
-        .arg("-x")
-        .arg("--frontend")
-        .arg("chumsky")
-        .arg("--allow-preview")
-        .arg(&source_path)
-        .current_dir(&temp_dir)
-        .stable_output();
-
-    assert!(
-        output.status.success(),
-        "qb with chumsky frontend failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).replace('\r', ""),
-        "42\n"
-    );
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
-#[ignore = "preview execution regression; run explicitly when validating the cranelift preview path"]
-fn cranelift_jit_backend_builds_and_runs_simple_programs() {
-    let temp_dir = test_temp_dir("qbnex_cli_cranelift_backend");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    let source_path = temp_dir.join("simple.bas");
-    std::fs::write(
-        &source_path,
-        "value = 40 + 2\nPRINT value\nPRINT \"OK\"\nEND\n",
-    )
-    .unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("-q")
-        .arg("-x")
-        .arg("--frontend")
-        .arg("chumsky")
-        .arg("--allow-preview")
-        .arg("--native-backend")
-        .arg("cranelift-jit")
-        .arg(&source_path)
-        .current_dir(&temp_dir)
-        .stable_output();
-
-    assert!(
-        output.status.success(),
-        "qb with cranelift-jit backend failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).replace('\r', ""),
-        "42\nOK\n"
-    );
-
-    let built_binary = if cfg!(target_os = "windows") {
-        temp_dir.join("simple.exe")
-    } else {
-        temp_dir.join("simple")
-    };
-    assert!(
-        built_binary.exists(),
-        "expected cranelift-backed runner at {}",
-        built_binary.display()
-    );
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
-fn cranelift_preview_failures_include_a_production_fallback_hint() {
-    let temp_dir = test_temp_dir("qbnex_cli_cranelift_hint");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    let source_path = temp_dir.join("unsupported.bas");
-    std::fs::write(&source_path, "IF 1 THEN PRINT 1\n").unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("-q")
-        .arg("-x")
-        .arg("--native-backend")
-        .arg("cranelift-jit")
-        .arg("--allow-preview")
-        .arg(&source_path)
-        .current_dir(&temp_dir)
-        .stable_output();
-
-    assert!(
-        !output.status.success(),
-        "unsupported preview program unexpectedly ran\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
-    assert!(
-        stderr.contains("rerun without --native-backend"),
-        "expected production fallback hint, got stderr:\n{stderr}"
-    );
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
-fn preview_frontends_are_blocked_without_explicit_opt_in() {
-    let temp_dir = test_temp_dir("qbnex_cli_preview_gate");
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    std::fs::create_dir_all(&temp_dir).unwrap();
-
-    let source_path = temp_dir.join("simple.bas");
-    std::fs::write(&source_path, "PRINT 42\n").unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("-q")
-        .arg("-x")
-        .arg("--frontend")
-        .arg("chumsky")
-        .arg(&source_path)
-        .current_dir(&temp_dir)
-        .stable_output();
-
-    assert!(
-        !output.status.success(),
-        "preview frontend unexpectedly ran without opt-in\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
-    assert!(
-        stderr.contains("rerun with --allow-preview"),
-        "expected preview opt-in guidance, got stderr:\n{stderr}"
-    );
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
 fn release_validation_command_succeeds_for_the_production_surface() {
     let output = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("--validate-release")
@@ -788,90 +843,23 @@ fn release_validation_command_succeeds_for_the_production_surface() {
 }
 
 #[test]
-fn validate_pipeline_command_succeeds_for_the_production_pipeline() {
+fn removed_validate_pipeline_flag_is_rejected() {
     let output = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("--validate-pipeline")
-        .arg("--frontend")
-        .arg("classic")
-        .stable_output();
-
-    assert!(
-        output.status.success(),
-        "pipeline validation failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace('\r', "");
-    assert!(
-        stdout.contains("pipeline validation passed"),
-        "expected pipeline validation summary, got stdout:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("frontend=classic") && stdout.contains("native-backend=auto"),
-        "expected pipeline details in validation summary, got stdout:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("[3/4] validated fixture: release_validation_file_io.bas [kind=file-io"),
-        "expected fixture inventory progress in pipeline validation, got stdout:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("graphics=1") && stdout.contains("runtime-output=3"),
-        "expected pipeline validation summary counts, got stdout:\n{stdout}"
-    );
-}
-
-#[test]
-fn validate_pipeline_reports_preview_fixture_gaps_clearly() {
-    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("--validate-pipeline")
-        .arg("--frontend")
-        .arg("classic")
-        .arg("--native-backend")
-        .arg("cranelift-jit")
-        .arg("--allow-preview")
         .stable_output();
 
     assert!(
         !output.status.success(),
-        "preview pipeline unexpectedly passed the release fixtures\nstdout:\n{}\nstderr:\n{}",
+        "removed validate-pipeline flag unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
     assert!(
-        stderr.contains("release_validation_text.bas"),
-        "expected failing fixture name in stderr, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("cranelift-jit"),
-        "expected failing backend name in stderr, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("rerun without --native-backend"),
-        "expected fallback guidance in stderr, got:\n{stderr}"
-    );
-}
-
-#[test]
-fn validation_modes_are_mutually_exclusive() {
-    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("--validate-release")
-        .arg("--validate-pipeline")
-        .stable_output();
-
-    assert!(
-        !output.status.success(),
-        "combined validation modes unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
-    assert!(
-        stderr.contains("--validate-release and --validate-pipeline cannot be used together"),
-        "expected mutual exclusion error, got stderr:\n{stderr}"
+        stderr.contains("unsupported option(s) for the production CLI")
+            && stderr.contains("--validate-pipeline"),
+        "expected removal guidance, got stderr:\n{stderr}"
     );
 }
 
@@ -907,6 +895,10 @@ fn explain_pipeline_reports_vm_fallback_reasons() {
         "expected vm-fallback selection, got stdout:\n{stdout}"
     );
     assert!(
+        stdout.contains("frontend: classic [production]"),
+        "expected production frontend summary, got stdout:\n{stdout}"
+    );
+    assert!(
         stdout.contains("native gaps:") && stdout.contains("GOTO"),
         "expected native gap explanation, got stdout:\n{stdout}"
     );
@@ -915,8 +907,49 @@ fn explain_pipeline_reports_vm_fallback_reasons() {
 }
 
 #[test]
-fn preview_native_backends_are_blocked_without_explicit_opt_in() {
-    let temp_dir = test_temp_dir("qbnex_cli_preview_backend_gate");
+fn removed_list_pipelines_flag_is_rejected() {
+    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
+        .arg("--list-pipelines")
+        .stable_output();
+
+    assert!(
+        !output.status.success(),
+        "removed list-pipelines flag unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
+    assert!(
+        stderr.contains("unsupported option(s) for the production CLI")
+            && stderr.contains("--list-pipelines"),
+        "expected removal guidance, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn production_build_rejects_removed_allow_preview_flag() {
+    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
+        .arg("--allow-preview")
+        .stable_output();
+
+    assert!(
+        !output.status.success(),
+        "production build unexpectedly accepted --allow-preview\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
+    assert!(
+        stderr.contains("unsupported option(s) for the production CLI")
+            && stderr.contains("--allow-preview"),
+        "expected removed-option guidance, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn production_build_rejects_removed_frontend_flag() {
+    let temp_dir = test_temp_dir("qbnex_cli_prod_reject_preview_frontend");
     let _ = std::fs::remove_dir_all(&temp_dir);
     std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -924,7 +957,38 @@ fn preview_native_backends_are_blocked_without_explicit_opt_in() {
     std::fs::write(&source_path, "PRINT 42\n").unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("-q")
+        .arg("-x")
+        .arg("--frontend")
+        .arg("chumsky")
+        .arg(&source_path)
+        .current_dir(&temp_dir)
+        .stable_output();
+
+    assert!(
+        !output.status.success(),
+        "production build unexpectedly accepted a preview frontend\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
+    assert!(
+        stderr.contains("unsupported option(s) for the production CLI")
+            && stderr.contains("--frontend"),
+        "expected removed-frontend guidance, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn production_build_rejects_removed_native_backend_flag() {
+    let temp_dir = test_temp_dir("qbnex_cli_prod_reject_preview_backend");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("simple.bas");
+    std::fs::write(&source_path, "PRINT 42\n").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("-x")
         .arg("--native-backend")
         .arg("cranelift-jit")
@@ -934,70 +998,48 @@ fn preview_native_backends_are_blocked_without_explicit_opt_in() {
 
     assert!(
         !output.status.success(),
-        "preview backend unexpectedly ran without opt-in\nstdout:\n{}\nstderr:\n{}",
+        "production build unexpectedly accepted a preview backend\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
     let stderr = String::from_utf8_lossy(&output.stderr).replace('\r', "");
     assert!(
-        stderr.contains("rerun with --allow-preview"),
-        "expected preview opt-in guidance, got stderr:\n{stderr}"
+        stderr.contains("unsupported option(s) for the production CLI")
+            && stderr.contains("--native-backend"),
+        "expected removed-backend guidance, got stderr:\n{stderr}"
     );
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
-fn list_pipelines_reports_production_and_preview_statuses() {
+fn production_help_hides_removed_pipeline_flags_and_examples() {
     let output = Command::new(env!("CARGO_BIN_EXE_qb"))
-        .arg("--list-pipelines")
+        .arg("--help")
         .stable_output();
 
     assert!(
         output.status.success(),
-        "listing pipelines failed\nstdout:\n{}\nstderr:\n{}",
+        "help command failed\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout).replace('\r', "");
     assert!(
-        stdout.contains("Frontends:"),
-        "missing frontend section:\n{stdout}"
+        !stdout.contains("--allow-preview"),
+        "production help should not advertise --allow-preview:\n{stdout}"
     );
     assert!(
-        stdout.contains("classic [production]"),
-        "missing production frontend status:\n{stdout}"
+        !stdout.contains("--frontend"),
+        "production help should not advertise removed frontend selectors:\n{stdout}"
     );
     assert!(
-        stdout.contains("chumsky [preview]"),
-        "missing preview frontend status:\n{stdout}"
+        !stdout.contains("--native-backend"),
+        "production help should not advertise removed backend selectors:\n{stdout}"
     );
     assert!(
-        stdout.contains("rust [production]"),
-        "missing production backend status:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("cranelift-jit [preview]"),
-        "missing preview backend status:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("--validate-pipeline"),
-        "missing validation guidance:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("Validation fixtures:"),
-        "missing validation fixture inventory section:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("release_validation_vm_fallback.bas [kind=vm-fallback"),
-        "missing fixture descriptor details:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("fixtures=4")
-            && stdout.contains("runtime-output=3")
-            && stdout.contains("vm-fallback=1"),
-        "missing validation summary counts:\n{stdout}"
+        !stdout.contains("--validate-pipeline") && !stdout.contains("--list-pipelines"),
+        "production help should not advertise removed pipeline commands:\n{stdout}"
     );
 }
 
@@ -1900,6 +1942,118 @@ PRINT POINT(34, 20)
         "circle marker leaked: {stdout}"
     );
     assert!(!stdout.contains("[DRAW"), "draw marker leaked: {stdout}");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn graphics_screen_modes_support_expected_bottom_right_pixels_in_both_backends() {
+    let temp_dir = test_temp_dir("qbnex_cli_graphics_modes");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("graphics_modes.bas");
+    std::fs::write(
+        &source_path,
+        concat!(
+            "SCREEN 1\nPSET (319, 199), 1\nPRINT POINT(319, 199)\n",
+            "SCREEN 2\nPSET (639, 199), 1\nPRINT POINT(639, 199)\n",
+            "SCREEN 4\nPSET (319, 199), 2\nPRINT POINT(319, 199)\n",
+            "SCREEN 5\nPSET (319, 199), 3\nPRINT POINT(319, 199)\n",
+            "SCREEN 6\nPSET (639, 199), 1\nPRINT POINT(639, 199)\n",
+            "SCREEN 7\nPSET (319, 199), 4\nPRINT POINT(319, 199)\n",
+            "SCREEN 8\nPSET (639, 199), 5\nPRINT POINT(639, 199)\n",
+            "SCREEN 9\nPSET (639, 349), 6\nPRINT POINT(639, 349)\n",
+            "SCREEN 10\nPSET (639, 349), 3\nPRINT POINT(639, 349)\n",
+            "SCREEN 11\nPSET (639, 479), 1\nPRINT POINT(639, 479)\n",
+            "SCREEN 12\nPSET (639, 479), 2\nPRINT POINT(639, 479)\n",
+            "SCREEN 13\nPSET (319, 199), 7\nPRINT POINT(319, 199)\n",
+        ),
+    )
+    .unwrap();
+
+    let expected = "1\n1\n2\n3\n1\n4\n5\n6\n3\n1\n2\n7\n";
+
+    let interpreter = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-x")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        interpreter.status.success(),
+        "interpreter failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&interpreter.stdout),
+        String::from_utf8_lossy(&interpreter.stderr)
+    );
+    let interpreter_stdout = String::from_utf8_lossy(&interpreter.stdout).replace('\r', "");
+    assert_eq!(interpreter_stdout, expected);
+
+    let native = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        native.status.success(),
+        "native run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_stdout = String::from_utf8_lossy(&native.stdout).replace('\r', "");
+    assert_eq!(native_stdout, expected);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn graphics_screen_zero_returns_to_text_mode_in_both_backends() {
+    let temp_dir = test_temp_dir("qbnex_cli_graphics_screen_zero");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("graphics_to_text.bas");
+    std::fs::write(
+        &source_path,
+        concat!(
+            "SCREEN 13\n",
+            "PSET (319, 199), 7\n",
+            "SCREEN 0\n",
+            "PRINT \"text\"\n",
+        ),
+    )
+    .unwrap();
+
+    let expected = "text\n";
+
+    let interpreter = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-x")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        interpreter.status.success(),
+        "interpreter failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&interpreter.stdout),
+        String::from_utf8_lossy(&interpreter.stderr)
+    );
+    let interpreter_stdout = String::from_utf8_lossy(&interpreter.stdout).replace('\r', "");
+    assert_eq!(interpreter_stdout, expected);
+
+    let native = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        native.status.success(),
+        "native run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_stdout = String::from_utf8_lossy(&native.stdout).replace('\r', "");
+    assert_eq!(native_stdout, expected);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -4796,6 +4950,53 @@ fn files_pattern_filters_directory_entries_in_interpreter_and_native_run() {
     assert!(native_lines.contains(&"alpha.bas"));
     assert!(!native_lines.contains(&"beta.txt"));
     assert!(!native_lines.contains(&"runner.bas"));
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn files_patterns_support_nested_dos_paths_in_interpreter_and_native_run() {
+    let temp_dir = test_temp_dir("qbnex_cli_files_nested");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(temp_dir.join("nested")).unwrap();
+
+    std::fs::write(temp_dir.join("nested").join("alpha.bas"), "PRINT 1\n").unwrap();
+    std::fs::write(temp_dir.join("nested").join("beta.txt"), "x\n").unwrap();
+    let source_path = temp_dir.join("runner.bas");
+    std::fs::write(&source_path, "FILES \"nested\\\\a*.BAS\"\n").unwrap();
+
+    let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
+        .arg("-q")
+        .arg("-x")
+        .arg(&source_path)
+        .current_dir(&temp_dir)
+        .stable_output();
+
+    assert!(
+        interpreter.status.success(),
+        "interpreter failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&interpreter.stdout),
+        String::from_utf8_lossy(&interpreter.stderr)
+    );
+    let interpreter_stdout = String::from_utf8_lossy(&interpreter.stdout).replace('\r', "");
+    let interpreter_lines: Vec<&str> = interpreter_stdout.lines().collect();
+    assert_eq!(interpreter_lines, vec!["alpha.bas"]);
+
+    let native = Command::new(env!("CARGO_BIN_EXE_qb"))
+        .arg("-q")
+        .arg(&source_path)
+        .current_dir(&temp_dir)
+        .stable_output();
+
+    assert!(
+        native.status.success(),
+        "native run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&native.stdout),
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let native_stdout = String::from_utf8_lossy(&native.stdout).replace('\r', "");
+    let native_lines: Vec<&str> = native_stdout.lines().collect();
+    assert_eq!(native_lines, vec!["alpha.bas"]);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

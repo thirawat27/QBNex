@@ -15,3 +15,6 @@ core_types = { path = "../types" }
 syntax_tree = { path = "../frontend" }
 hal_layer = { path = "../platform" }
 chrono = "0.4"
+
+[dev-dependencies]
+analyzer = { path = "../semantics" }

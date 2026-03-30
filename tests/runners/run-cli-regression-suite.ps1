@@ -15,6 +15,15 @@ function Get-ShellCliTestBinary {
 
     Push-Location $WorkspaceRoot
     try {
+        Stop-LeakedQbnexProcesses -WorkspaceRoot $WorkspaceRoot
+
+        $buildOutput = & cmd /c "cargo build -p cli_tool 2>&1"
+        if ($LASTEXITCODE -ne 0) {
+            throw "cargo build -p cli_tool failed.`n$($buildOutput -join [Environment]::NewLine)"
+        }
+
+        Stop-LeakedQbnexProcesses -WorkspaceRoot $WorkspaceRoot
+
         $noRunOutput = & cmd /c "cargo test -p cli_tool --test shell_cli --no-run 2>&1"
         if ($LASTEXITCODE -ne 0) {
             throw "cargo test --no-run failed.`n$($noRunOutput -join [Environment]::NewLine)"

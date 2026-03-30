@@ -39,13 +39,9 @@ struct Args {
     explicit: bool,
     help: bool,
     version: bool,
-    frontend: Option<String>,
-    native_backend: Option<String>,
-    allow_preview: bool,
     validate_release: bool,
-    validate_pipeline: bool,
-    list_pipelines: bool,
     explain_pipeline: bool,
+    unsupported_options: Vec<String>,
 }
 
 fn parse_args() -> Args {
@@ -61,10 +57,10 @@ fn parse_args() -> Args {
             "-h" | "--help" => a.help = true,
             "-v" | "--version" => a.version = true,
             "--validate-release" => a.validate_release = true,
-            "--validate-pipeline" => a.validate_pipeline = true,
-            "--list-pipelines" => a.list_pipelines = true,
             "--explain-pipeline" => a.explain_pipeline = true,
-            "--allow-preview" => a.allow_preview = true,
+            "--validate-pipeline" | "--list-pipelines" | "--allow-preview" => {
+                a.unsupported_options.push(raw[i].clone());
+            }
             "-c" => a.compile = true,
             "-x" => a.run = true,
             "-q" => a.quiet = true,
@@ -76,17 +72,9 @@ fn parse_args() -> Args {
                     a.output = Some(raw[i].clone());
                 }
             }
-            "--frontend" => {
+            "--frontend" | "--native-backend" => {
+                a.unsupported_options.push(raw[i].clone());
                 i += 1;
-                if i < raw.len() {
-                    a.frontend = Some(raw[i].clone());
-                }
-            }
-            "--native-backend" => {
-                i += 1;
-                if i < raw.len() {
-                    a.native_backend = Some(raw[i].clone());
-                }
             }
             s if !s.starts_with('-') => a.file = Some(s.to_string()),
             _ => {}
@@ -128,33 +116,28 @@ fn render_diagnostic(diagnostic: &dyn Diagnostic) -> bool {
     }
 }
 
+fn unsupported_legacy_options_error(options: &[String]) -> anyhow::Error {
+    let listed = options
+        .iter()
+        .map(|option| format!("  - {option}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    anyhow::anyhow!(
+        "unsupported option(s) for the production CLI:\n{listed}\nQBNex release builds now expose a single production pipeline only. Use the default mode, `-x`, `-c`, `--explain-pipeline`, or `--validate-release` instead."
+    )
+}
+
 fn try_main() -> Result<()> {
     let args = parse_args();
-    if args.validate_release && args.validate_pipeline {
-        return Err(anyhow::anyhow!(
-            "--validate-release and --validate-pipeline cannot be used together"
-        ));
+    if !args.unsupported_options.is_empty() {
+        return Err(unsupported_legacy_options_error(&args.unsupported_options));
     }
 
-    let frontend = args
-        .frontend
-        .as_deref()
-        .map(str::parse::<FrontendKind>)
-        .transpose()?
-        .unwrap_or_else(syntax_tree::production_frontend);
-    let native_backend = args
-        .native_backend
-        .as_deref()
-        .map(str::parse::<NativeBackendKind>)
-        .transpose()?;
+    let frontend = syntax_tree::production_frontend();
+    let native_backend = None;
 
     if args.version {
         println!("{}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
-
-    if args.list_pipelines {
-        print_pipeline_status()?;
         return Ok(());
     }
 
@@ -162,7 +145,7 @@ fn try_main() -> Result<()> {
         let file = args.file.as_deref().ok_or_else(|| {
             anyhow::anyhow!("--explain-pipeline requires an input BASIC source file")
         })?;
-        explain_pipeline_for_file(file, frontend, native_backend, args.allow_preview)?;
+        explain_pipeline_for_file(file, frontend)?;
         return Ok(());
     }
 
@@ -171,9 +154,16 @@ fn try_main() -> Result<()> {
         return Ok(());
     }
 
-    if args.validate_pipeline {
-        validate_pipeline_surface(frontend, native_backend, args.allow_preview, args.quiet)?;
-        return Ok(());
+    if let Ok(current_exe) = std::env::current_exe() {
+        unsafe {
+            std::env::set_var(COMPILER_EXE_ENV, current_exe);
+        }
+    }
+
+    if args.quiet {
+        unsafe {
+            std::env::set_var("QBNEX_QUIET", "1");
+        }
     }
 
     if args.explicit {
@@ -181,8 +171,6 @@ fn try_main() -> Result<()> {
             std::env::set_var("QBNEX_EXPLICIT", "1");
         }
     }
-
-    enforce_stability(frontend, native_backend, args.allow_preview)?;
 
     // Show help when: -h flag OR no file AND no action flag
     if args.help || args.file.is_none() {
@@ -271,86 +259,59 @@ fn try_main() -> Result<()> {
 // ──────────────────────────────────────────────
 
 fn print_help() {
-    println!(
-        r#"QBNex - Modern QBasic Compiler
-
-USAGE:
-    qb [OPTIONS] [FILE]
-
-ARGUMENTS:
-    FILE                   Source file (.bas) to compile and run
-
-OPTIONS:
-    -c                     Compile FILE to .exe only (do not run)
-    -o <OUTPUT>            Set output filename  (default: <FILE>.exe)
-    -x                     Build a VM-backed executable and run it
-    --frontend <NAME>      Select parser frontend: classic, chumsky
-    --native-backend <NAME> Select native backend: rust, llvm-ir, cranelift-jit
-    --allow-preview        Allow preview frontend/backend paths explicitly
-    --list-pipelines       Show production/preview pipeline status and exit
-    --explain-pipeline     Explain the selected pipeline for FILE and exit
-    --validate-release     Run production-surface validation checks and exit
-    --validate-pipeline    Run the release fixtures against the selected pipeline
-    -e                     Enable OPTION _EXPLICIT (force variable declaration)
-    -w                     Show warnings
-    -q                     Quiet mode (suppress non-error output)
-    -m                     Monochrome output
-    -h, --help             Show this help message
-    -v, --version          Show version
-
-EXAMPLES:
-    qb hello.bas           Compile & run hello.bas (default)
-    qb -x hello.bas        Build and run hello.bas via the VM runner
-    qb --frontend chumsky -x hello.bas
-                           Parse with the preview Chumsky frontend (requires --allow-preview)
-    qb --native-backend cranelift-jit -x hello.bas
-                           Build and run via the preview Cranelift JIT runner (requires --allow-preview)
-    qb -x hello.bas -- a b Run via the VM runner with COMMAND$ = "a b"
-    qb -x -o app.exe a.bas Build, run, and keep the VM runner as app.exe
-    qb -c hello.bas        Compile  -->  hello.exe
-    qb -c -o out.exe a.bas Compile  -->  out.exe
-    qb -e main.bas         Compile & run with forced variable declaration
-    qb --explain-pipeline main.bas
-                           Explain which runtime/backend path QBNex will use
-    qb --list-pipelines    Show frontend/backend stability levels
-    qb --validate-release  Validate the production compiler surface
-    qb --validate-pipeline --frontend classic
-                           Validate the release fixtures with the selected pipeline"#
-    );
+    let executable_name = if cfg!(windows) {
+        "standalone executable (.exe)"
+    } else {
+        "standalone executable"
+    };
+    let default_output = default_output_name("file.bas");
+    let app_output = default_output_name("app.bas");
+    let hello_output = default_output_name("hello.bas");
+    let out_output = default_output_name("out.bas");
+    println!("QBNex - Modern QBasic Compiler\n");
+    println!("USAGE:");
+    println!("    qb [OPTIONS] [FILE]\n");
+    println!("ARGUMENTS:");
+    println!("    FILE                   Source file (.bas) to compile and run\n");
+    println!("OPTIONS:");
+    println!("    -c                     Compile FILE to a {executable_name} only (do not run)");
+    println!("    -o <OUTPUT>            Set output filename  (default: {default_output})");
+    println!("    -x                     Build a VM-backed executable and run it");
+    println!("    --explain-pipeline     Explain the selected pipeline for FILE and exit");
+    println!("    --validate-release     Run production-surface validation checks and exit");
+    println!("    -e                     Enable OPTION _EXPLICIT (force variable declaration)");
+    println!("    -w                     Show warnings");
+    println!("    -q                     Quiet mode (suppress non-error output)");
+    println!("    -m                     Monochrome output");
+    println!("    -h, --help             Show this help message");
+    println!("    -v, --version          Show version\n");
+    println!("EXAMPLES:");
+    println!("    qb hello.bas           Compile & run hello.bas (default)");
+    println!("    qb -x hello.bas        Build and run hello.bas via the VM runner");
+    println!("    qb -x hello.bas -- a b Run via the VM runner with COMMAND$ = \"a b\"");
+    println!("    qb -x -o {app_output} a.bas Build, run, and keep the VM runner as {app_output}");
+    println!("    qb -c hello.bas        Compile  -->  {hello_output}");
+    println!("    qb -c -o {out_output} a.bas Compile  -->  {out_output}");
+    println!("    qb -e main.bas         Compile & run with forced variable declaration");
+    println!("    qb --explain-pipeline main.bas");
+    println!("                           Explain which runtime/backend path QBNex will use");
+    println!("    qb --validate-release  Validate the production compiler surface");
 }
 
+#[allow(dead_code)]
 fn print_pipeline_status() -> Result<()> {
     let fixtures = release_fixture_specs();
     let summary = summarize_release_fixtures(&fixtures)?;
 
-    println!("Frontends:");
-    for frontend in FrontendKind::ALL {
-        println!(
-            "  {} [{}] - {}",
-            frontend.name(),
-            frontend.stability().label(),
-            frontend.description()
-        );
-    }
-
-    println!("Native backends:");
-    for backend in NativeBackendKind::ALL {
-        println!(
-            "  {} [{}] - {}",
-            backend.name(),
-            backend.stability().label(),
-            backend.description()
-        );
-    }
-
+    println!("Production pipeline:");
+    println!(
+        "  frontend={} native-backend={} auto-fallback=vm",
+        syntax_tree::production_frontend().name(),
+        NativeBackendKind::Rust.name()
+    );
     println!();
     println!("Validation:");
     println!("  qb --validate-release");
-    println!("  qb --validate-pipeline --frontend classic");
-    println!("  qb --validate-pipeline --frontend classic --native-backend rust");
-    println!(
-        "  qb --validate-pipeline --frontend classic --native-backend cranelift-jit --allow-preview"
-    );
     println!(
         "  fixtures={} graphics={} runtime-output={} vm-fallback={} native-codegen={}",
         summary.total,
@@ -367,87 +328,22 @@ fn print_pipeline_status() -> Result<()> {
     Ok(())
 }
 
-fn enforce_stability(
-    frontend: FrontendKind,
-    native_backend: Option<NativeBackendKind>,
-    allow_preview: bool,
-) -> Result<()> {
-    if !allow_preview && !frontend.is_production_ready() {
-        return Err(anyhow::anyhow!(
-            "frontend '{}' is {}-only right now; rerun with --allow-preview to use it",
-            frontend.name(),
-            frontend.stability().label()
-        ));
-    }
-
-    if let Some(native_backend) = native_backend {
-        if !allow_preview && !native_backend.is_production_ready() {
-            return Err(anyhow::anyhow!(
-                "native backend '{}' is {}-only right now; rerun with --allow-preview to use it",
-                native_backend.name(),
-                native_backend.stability().label()
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn explain_pipeline_for_file(
-    input: &str,
-    frontend: FrontendKind,
-    native_backend: Option<NativeBackendKind>,
-    allow_preview: bool,
-) -> Result<()> {
-    let stability_status = enforce_stability(frontend, native_backend, allow_preview).err();
+fn explain_pipeline_for_file(input: &str, frontend: FrontendKind) -> Result<()> {
     let loaded = load_program(input, frontend)?;
     let native_gaps =
         syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native);
     let vm_gaps = syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm);
 
     println!("input: {}", clean_path_display(Path::new(input)));
-    println!(
-        "frontend: {} [{}]",
-        frontend.name(),
-        frontend.stability().label()
-    );
-    match native_backend {
-        Some(backend) => println!(
-            "requested native backend: {} [{}]",
-            backend.name(),
-            backend.stability().label()
-        ),
-        None => println!("requested native backend: auto"),
-    }
+    println!("frontend: {} [production]", frontend.name());
+    println!("native backend policy: auto-select production pipeline");
     println!("graphics-or-sound: {}", loaded.has_graphics);
-
-    if let Some(error) = stability_status {
-        println!("preview-gate: blocked");
-        println!("gate-reason: {:#}", error);
-    } else {
-        println!("preview-gate: allowed");
-    }
-
-    match native_backend {
-        Some(NativeBackendKind::CraneliftJit) => {
-            println!("selected execution path: preview cranelift-jit runner");
-            match native_codegen::supports_cranelift_jit(&loaded.program) {
-                Ok(()) => println!("preview backend support: supported"),
-                Err(error) => println!(
-                    "preview backend support: not supported\npreview backend note: {error}"
-                ),
-            }
-        }
-        Some(NativeBackendKind::LlvmIr) => {
-            println!("selected execution path: llvm-ir text backend only");
-        }
-        Some(NativeBackendKind::Rust) | None => match select_runtime_backend(&loaded.program) {
-            Ok(selected) => println!("selected execution path: {}", selected.label()),
-            Err(error) => println!(
-                "selected execution path: unavailable\nselection note: {:#}",
-                error
-            ),
-        },
+    match select_runtime_backend(&loaded.program) {
+        Ok(selected) => println!("selected execution path: {}", selected.label()),
+        Err(error) => println!(
+            "selected execution path: unavailable\nselection note: {:#}",
+            error
+        ),
     }
 
     println!(
@@ -628,44 +524,6 @@ fn validate_release_surface(quiet: bool) -> Result<()> {
     Ok(())
 }
 
-fn validate_pipeline_surface(
-    frontend: FrontendKind,
-    native_backend: Option<NativeBackendKind>,
-    allow_preview: bool,
-    quiet: bool,
-) -> Result<()> {
-    enforce_stability(frontend, native_backend, allow_preview)?;
-
-    let fixtures = release_fixture_specs();
-    let summary = summarize_release_fixtures(&fixtures)?;
-    for (index, fixture) in fixtures.into_iter().enumerate() {
-        validate_pipeline_fixture(frontend, native_backend, fixture)?;
-        if !quiet {
-            println!(
-                "{}",
-                format_release_fixture_progress(index, summary.total, fixture)?
-            );
-        }
-    }
-
-    if !quiet {
-        println!(
-            "pipeline validation passed: frontend={} native-backend={} fixtures={} graphics={} runtime-output={} vm-fallback={} native-codegen={}",
-            frontend.name(),
-            native_backend
-                .map(NativeBackendKind::name)
-                .unwrap_or("auto"),
-            summary.total,
-            summary.graphics,
-            summary.runtime_output,
-            summary.vm_fallback,
-            summary.native_codegen
-        );
-    }
-
-    Ok(())
-}
-
 fn release_fixture_path(fixture_name: &str) -> Result<PathBuf> {
     Ok(workspace_root_path()?
         .join("tests")
@@ -763,53 +621,6 @@ fn validate_release_fixture_behavior(
             fixture_name
         ));
     }
-
-    Ok(())
-}
-
-fn validate_pipeline_fixture(
-    frontend: FrontendKind,
-    native_backend: Option<NativeBackendKind>,
-    fixture: ReleaseFixtureSpec,
-) -> Result<()> {
-    let fixture_name = fixture.name;
-    let (program, has_graphics, bytecode) = prepare_release_fixture(frontend, fixture)?;
-
-    match native_backend {
-        Some(NativeBackendKind::CraneliftJit) => {
-            ensure_cranelift_preview_support(&program).map_err(|error| {
-                anyhow::anyhow!(
-                    "pipeline validation preview backend failed for {}: {:#}",
-                    fixture_name,
-                    error
-                )
-            })?;
-        }
-        Some(NativeBackendKind::LlvmIr) => {
-            native_codegen::generate_with_backend(
-                &program,
-                NativeBackendKind::LlvmIr,
-                native_codegen::NativeBackendOptions {
-                    graphics: has_graphics,
-                },
-            )
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "pipeline validation native codegen failed for {}: {}",
-                    fixture_name,
-                    error
-                )
-            })?;
-        }
-        Some(NativeBackendKind::Rust) | None => validate_release_fixture_behavior(
-            &program,
-            has_graphics,
-            NativeBackendKind::Rust,
-            fixture,
-        )?,
-    }
-
-    validate_fixture_runtime_output(&bytecode, fixture)?;
 
     Ok(())
 }
@@ -1458,15 +1269,6 @@ fn unsupported_backend_error(program: &syntax_tree::Program) -> anyhow::Error {
     )
 }
 
-fn ensure_cranelift_preview_support(program: &syntax_tree::Program) -> Result<()> {
-    native_codegen::supports_cranelift_jit(program).map_err(|error| {
-        anyhow::anyhow!(
-            "preview backend 'cranelift-jit' cannot compile this program yet: {}\nrerun without --native-backend for the production auto-selected path, or keep --allow-preview and simplify the program to the current preview subset",
-            error
-        )
-    })
-}
-
 fn select_runtime_backend(program: &syntax_tree::Program) -> Result<ExecutionBackend> {
     let native = syntax_tree::unsupported_statements(program, syntax_tree::Backend::Native);
     if native.is_empty() {
@@ -1482,6 +1284,7 @@ fn select_runtime_backend(program: &syntax_tree::Program) -> Result<ExecutionBac
 }
 
 const COMMAND_LINE_ENV: &str = "QBNEX_COMMAND_LINE";
+const COMPILER_EXE_ENV: &str = "QBNEX_COMPILER_EXE";
 
 fn command_tail(program_args: &[String]) -> String {
     program_args.join(" ")
@@ -1494,6 +1297,9 @@ fn run_compiled_binary(
     let mut command = std::process::Command::new(binary_path);
     command.args(program_args);
     command.env(COMMAND_LINE_ENV, command_tail(program_args));
+    if let Ok(current_exe) = std::env::current_exe() {
+        command.env(COMPILER_EXE_ENV, current_exe);
+    }
     command.status().map_err(|e| {
         anyhow::anyhow!(
             "failed to run compiled program '{}': {}",
@@ -1501,6 +1307,26 @@ fn run_compiled_binary(
             e
         )
     })
+}
+
+#[cfg(unix)]
+fn ensure_binary_is_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let metadata = fs::metadata(path)?;
+    let mut permissions = metadata.permissions();
+    let mode = permissions.mode();
+    let desired_mode = mode | 0o111;
+    if mode != desired_mode {
+        permissions.set_mode(desired_mode);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_binary_is_executable(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn ensure_run_success(run_status: std::process::ExitStatus) -> Result<()> {
@@ -1560,6 +1386,7 @@ fn copy_built_binary(
             return Err(anyhow::anyhow!("compiled binary not found"));
         }
     }
+    ensure_binary_is_executable(&dest)?;
 
     if run {
         let run_status = run_compiled_binary(&dest, program_args)?;
@@ -1820,6 +1647,7 @@ fn build_with_rustc(
     if !output.status.success() {
         return Err(command_failure("rustc compilation failed", &output));
     }
+    ensure_binary_is_executable(&resolved_output)?;
 
     if run {
         let run_status = run_compiled_binary(&resolved_output, program_args)?;
@@ -1915,109 +1743,13 @@ fn build_with_vm_bundle(
     let cached_runner = ensure_cached_vm_runner_binary()?;
     fs::copy(&cached_runner, &resolved_output)?;
     embed_vm_runner_payload(&resolved_output, source, frontend)?;
+    ensure_binary_is_executable(&resolved_output)?;
 
     if run {
         let run_status = run_compiled_binary(&resolved_output, program_args)?;
         ensure_run_success(run_status)?;
     }
 
-    Ok(())
-}
-
-fn build_with_cranelift_bundle(
-    logical_input: &str,
-    source: &str,
-    output: Option<&str>,
-    run: bool,
-    program_args: &[String],
-    frontend: FrontendKind,
-) -> Result<()> {
-    let resolved_output = resolve_output_path(logical_input, output)?;
-    let bundle_name = unique_bundle_name("qbnex_cranelift_app");
-    let target_dir = shared_cargo_target_dir("cranelift-runner")?;
-
-    let temp_workspace = TempWorkspace::new("qbnex_cranelift_build")?;
-    let temp_dir = temp_workspace.path();
-
-    let (core_types_path, _, syntax_tree_path, _, _) = workspace_paths()?;
-    let native_codegen_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("failed to locate workspace root"))?
-        .join("codegen")
-        .to_string_lossy()
-        .replace('\\', "/");
-
-    let cargo_toml = format!(
-        r#"[package]
-name = "{bundle_name}"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-core_types = {{ path = "{}" }}
-syntax_tree = {{ path = "{}" }}
-native_codegen = {{ path = "{}" }}
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-strip = true
-panic = "abort"
-"#,
-        core_types_path,
-        syntax_tree_path,
-        native_codegen_path,
-        bundle_name = bundle_name
-    );
-    fs::write(temp_dir.join("Cargo.toml"), cargo_toml)?;
-    write_windows_static_config(temp_dir)?;
-
-    let main_rs = format!(
-        r#"use native_codegen::{{run_with_cranelift_jit, supports_cranelift_jit}};
-use syntax_tree::parse_with_frontend;
-
-fn main() {{
-    if let Err(err) = run() {{
-        eprintln!("{{}}", err);
-        std::process::exit(1);
-    }}
-}}
-
-fn run() -> Result<(), Box<dyn std::error::Error>> {{
-    let source = {source:?};
-    let frontend: syntax_tree::FrontendKind = {frontend_name:?}.parse()?;
-    let program = parse_with_frontend(frontend, source.to_string())?;
-    supports_cranelift_jit(&program)?;
-    run_with_cranelift_jit(&program)?;
-    Ok(())
-}}
-"#,
-        frontend_name = frontend.name()
-    );
-
-    let src_dir = temp_dir.join("src");
-    fs::create_dir_all(&src_dir)?;
-    fs::write(src_dir.join("main.rs"), main_rs)?;
-
-    let output = std::process::Command::new("cargo")
-        .args(["build", "--release", "--quiet", "--target-dir"])
-        .arg(&target_dir)
-        .current_dir(temp_dir)
-        .output()
-        .map_err(|e| anyhow::anyhow!("failed to run cargo: {}", e))?;
-
-    if !output.status.success() {
-        return Err(command_failure("cargo compilation failed", &output));
-    }
-
-    copy_built_binary(
-        &target_dir,
-        &bundle_name,
-        &resolved_output,
-        run,
-        program_args,
-    )?;
     Ok(())
 }
 
@@ -2039,10 +1771,10 @@ fn compile_and_run(
     let start = Instant::now();
 
     let loaded = load_program(input, frontend)?;
-    match native_backend {
-        Some(NativeBackendKind::CraneliftJit) => {
-            ensure_cranelift_preview_support(&loaded.program)?;
-            build_with_cranelift_bundle(
+    let _ = native_backend;
+    match select_runtime_backend(&loaded.program)? {
+        ExecutionBackend::Vm => {
+            build_with_vm_bundle(
                 logical_input,
                 &loaded.source,
                 output,
@@ -2051,30 +1783,13 @@ fn compile_and_run(
                 frontend,
             )?;
         }
-        Some(NativeBackendKind::LlvmIr) => {
-            return Err(anyhow::anyhow!(
-                "--native-backend llvm-ir is not executable yet; use rust or cranelift-jit"
-            ));
+        ExecutionBackend::Native => {
+            if loaded.has_graphics {
+                build_with_cargo(logical_input, &loaded.program, output, true, program_args)?;
+            } else {
+                build_with_rustc(&loaded.program, logical_input, output, true, program_args)?;
+            }
         }
-        Some(NativeBackendKind::Rust) | None => match select_runtime_backend(&loaded.program)? {
-            ExecutionBackend::Vm => {
-                build_with_vm_bundle(
-                    logical_input,
-                    &loaded.source,
-                    output,
-                    true,
-                    program_args,
-                    frontend,
-                )?;
-            }
-            ExecutionBackend::Native => {
-                if loaded.has_graphics {
-                    build_with_cargo(logical_input, &loaded.program, output, true, program_args)?;
-                } else {
-                    build_with_rustc(&loaded.program, logical_input, output, true, program_args)?;
-                }
-            }
-        },
     }
 
     if !quiet {
@@ -2102,50 +1817,27 @@ fn run_file(
     let start = Instant::now();
 
     let loaded = load_program(filename, frontend)?;
-    match native_backend {
-        Some(NativeBackendKind::CraneliftJit) => {
-            ensure_cranelift_preview_support(&loaded.program)?;
-            build_with_cranelift_bundle(
-                logical_input,
-                &loaded.source,
-                output,
-                true,
-                program_args,
-                frontend,
-            )?;
+    let _ = native_backend;
+    let vm_gaps = syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm);
+    if vm_gaps.is_empty() {
+        build_with_vm_bundle(
+            logical_input,
+            &loaded.source,
+            output,
+            true,
+            program_args,
+            frontend,
+        )?;
+    } else if syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native)
+        .is_empty()
+    {
+        if loaded.has_graphics {
+            build_with_cargo(logical_input, &loaded.program, output, true, program_args)?;
+        } else {
+            build_with_rustc(&loaded.program, logical_input, output, true, program_args)?;
         }
-        Some(NativeBackendKind::LlvmIr) => {
-            return Err(anyhow::anyhow!(
-                "--native-backend llvm-ir is not executable yet; use rust or cranelift-jit"
-            ));
-        }
-        Some(NativeBackendKind::Rust) | None => {
-            let vm_gaps =
-                syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm);
-            if vm_gaps.is_empty() {
-                build_with_vm_bundle(
-                    logical_input,
-                    &loaded.source,
-                    output,
-                    true,
-                    program_args,
-                    frontend,
-                )?;
-            } else if syntax_tree::unsupported_statements(
-                &loaded.program,
-                syntax_tree::Backend::Native,
-            )
-            .is_empty()
-            {
-                if loaded.has_graphics {
-                    build_with_cargo(logical_input, &loaded.program, output, true, program_args)?;
-                } else {
-                    build_with_rustc(&loaded.program, logical_input, output, true, program_args)?;
-                }
-            } else {
-                return Err(unsupported_backend_error(&loaded.program));
-            }
-        }
+    } else {
+        return Err(unsupported_backend_error(&loaded.program));
     }
 
     let elapsed = start.elapsed();
@@ -2183,30 +1875,20 @@ fn build_file(
 ) -> Result<()> {
     let _ = quiet;
     let loaded = load_program(input, frontend)?;
-    match native_backend {
-        Some(NativeBackendKind::CraneliftJit) => {
-            ensure_cranelift_preview_support(&loaded.program)?;
-            build_with_cranelift_bundle(logical_input, &loaded.source, output, false, &[], frontend)
+    let _ = native_backend;
+    let native_gaps =
+        syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native);
+    if native_gaps.is_empty() {
+        if loaded.has_graphics {
+            build_with_cargo(logical_input, &loaded.program, output, false, &[])
+        } else {
+            build_with_rustc(&loaded.program, logical_input, output, false, &[])
         }
-        Some(NativeBackendKind::LlvmIr) => Err(anyhow::anyhow!(
-            "--native-backend llvm-ir does not emit standalone executables yet"
-        )),
-        Some(NativeBackendKind::Rust) | None => {
-            let native_gaps =
-                syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native);
-            if native_gaps.is_empty() {
-                if loaded.has_graphics {
-                    build_with_cargo(logical_input, &loaded.program, output, false, &[])
-                } else {
-                    build_with_rustc(&loaded.program, logical_input, output, false, &[])
-                }
-            } else if syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm)
-                .is_empty()
-            {
-                build_with_vm_bundle(logical_input, &loaded.source, output, false, &[], frontend)
-            } else {
-                Err(unsupported_backend_error(&loaded.program))
-            }
-        }
+    } else if syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm)
+        .is_empty()
+    {
+        build_with_vm_bundle(logical_input, &loaded.source, output, false, &[], frontend)
+    } else {
+        Err(unsupported_backend_error(&loaded.program))
     }
 }

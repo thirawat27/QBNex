@@ -3,6 +3,7 @@ use core_types::{DosMemory, QError, QResult, QType};
 use std::collections::{HashMap, VecDeque};
 use std::io::IsTerminal;
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn runtime_binary_bytes(s: &str) -> Vec<u8> {
@@ -1620,7 +1621,8 @@ impl VM {
 
     fn default_text_geometry_for_screen_mode(mode: i32) -> (i32, i32) {
         match mode {
-            1 | 7 | 13 => (40, 25),
+            1 | 4 | 5 | 7 | 13 => (40, 25),
+            2 | 6 | 8 | 9 | 10 => (80, 25),
             11 | 12 => (80, 30),
             _ => (80, 25),
         }
@@ -4725,25 +4727,36 @@ impl VM {
                     // Empty SHELL is treated as a quiet no-op in VM mode to avoid
                     // launching an interactive shell or leaking compatibility markers.
                 } else {
-                    // Execute command
-                    use std::process::Command;
-
-                    #[cfg(target_os = "windows")]
-                    let output = Command::new("cmd").args(["/C", &cmd_str]).output();
-
-                    #[cfg(not(target_os = "windows"))]
-                    let output = Command::new("sh").args(&["-c", &cmd_str]).output();
-
-                    match output {
-                        Ok(output) => {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            self.write_stdout(stdout.as_ref());
-                            eprint!("{}", String::from_utf8_lossy(&output.stderr));
-                            io::stderr().flush().ok();
+                    match qb_try_execute_dos_shell_builtin(&cmd_str) {
+                        Ok(Some(stdout)) => {
+                            if !stdout.is_empty() {
+                                self.write_stdout(&stdout);
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("SHELL error: {}", e);
+                        Ok(None) => {
+                            #[cfg(target_os = "windows")]
+                            let output = std::process::Command::new("cmd")
+                                .args(["/C", &cmd_str])
+                                .output();
+
+                            #[cfg(not(target_os = "windows"))]
+                            let output = std::process::Command::new("sh")
+                                .args(["-c", &cmd_str])
+                                .output();
+
+                            match output {
+                                Ok(output) => {
+                                    let stdout = String::from_utf8_lossy(&output.stdout);
+                                    self.write_stdout(stdout.as_ref());
+                                    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                                    io::stderr().flush().ok();
+                                }
+                                Err(e) => {
+                                    eprintln!("SHELL error: {}", e);
+                                }
+                            }
                         }
+                        Err(e) => eprintln!("SHELL error: {}", e),
                     }
                 }
             }
@@ -4760,15 +4773,17 @@ impl VM {
                 // For now, we'll use std::process::Command to run qb.exe with the new file
                 // In a real implementation, we would reload the program in the same VM
 
-                use std::env;
-                use std::process::Command;
+                let launcher = std::env::var("QBNEX_COMPILER_EXE")
+                    .map(PathBuf::from)
+                    .ok()
+                    .filter(|path| path.exists())
+                    .unwrap_or_else(|| PathBuf::from("qb"));
 
-                // Get the current executable path
-                let current_exe =
-                    env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("qb"));
-
-                // Execute the new program
-                let status = Command::new(current_exe).arg("-x").arg(&file_str).status();
+                let mut command = std::process::Command::new(launcher);
+                if std::env::var("QBNEX_QUIET").is_ok_and(|value| value == "1") {
+                    command.arg("-q");
+                }
+                let status = command.arg("-x").arg(&file_str).status();
 
                 match status {
                     Ok(status) => {
@@ -4828,17 +4843,10 @@ impl VM {
                     QType::String(s) if !s.is_empty() => Some(s),
                     _ => None,
                 };
-                let entries = std::fs::read_dir(".").map_err(|e| QError::FileIO(e.to_string()))?;
-                for entry in entries {
-                    let entry = entry.map_err(|e| QError::FileIO(e.to_string()))?;
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    let matched = match pattern.as_deref() {
-                        None | Some("*") => true,
-                        Some(pat) => wildcard_matches(pat, &name),
-                    };
-                    if matched {
-                        self.write_stdout(&format!("{name}\n"));
-                    }
+                for entry in
+                    qb_list_files(pattern.as_deref()).map_err(|e| QError::FileIO(e.to_string()))?
+                {
+                    self.write_stdout(&format!("{entry}\n"));
                 }
             }
 
@@ -5440,43 +5448,278 @@ fn qb_format_using_exponential(
     Ok(output)
 }
 
+fn qb_normalize_dos_path(path: &str) -> PathBuf {
+    let trimmed = path.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return PathBuf::from(".");
+    }
+
+    let mut normalized = PathBuf::new();
+    let mut rest = trimmed;
+    if trimmed.len() >= 2 && trimmed.as_bytes()[1] == b':' {
+        normalized.push(&trimmed[..2]);
+        rest = &trimmed[2..];
+    }
+
+    for segment in rest.split(['\\', '/']) {
+        if !segment.is_empty() {
+            normalized.push(segment);
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
 fn wildcard_matches(pattern: &str, text: &str) -> bool {
-    let pattern = pattern.to_ascii_uppercase();
-    let text = text.to_ascii_uppercase();
+    let pattern = pattern.to_ascii_uppercase().chars().collect::<Vec<_>>();
+    let text = text.to_ascii_uppercase().chars().collect::<Vec<_>>();
+
+    let mut dp = vec![vec![false; text.len() + 1]; pattern.len() + 1];
+    dp[0][0] = true;
+
+    for (index, ch) in pattern.iter().enumerate() {
+        if *ch == '*' {
+            dp[index + 1][0] = dp[index][0];
+        }
+    }
+
+    for (i, pat) in pattern.iter().enumerate() {
+        for (j, txt) in text.iter().enumerate() {
+            dp[i + 1][j + 1] = match pat {
+                '*' => dp[i][j + 1] || dp[i + 1][j] || dp[i][j],
+                '?' => dp[i][j],
+                ch => dp[i][j] && ch == txt,
+            };
+        }
+    }
+
+    dp[pattern.len()][text.len()]
+}
+
+fn qb_files_query(pattern: Option<&str>) -> (PathBuf, Option<String>) {
+    let Some(pattern) = pattern.map(str::trim).filter(|pattern| !pattern.is_empty()) else {
+        return (PathBuf::from("."), None);
+    };
 
     if pattern == "*" {
-        return true;
+        return (PathBuf::from("."), None);
     }
 
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return pattern == text;
+    let normalized = qb_normalize_dos_path(pattern);
+    let has_wildcards = pattern.contains('*') || pattern.contains('?');
+
+    if has_wildcards {
+        let mask = normalized
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|mask| !mask.is_empty())
+            .unwrap_or("*")
+            .to_string();
+        let directory = normalized
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        return (directory, Some(mask));
     }
 
-    let mut remaining = text.as_str();
-    let mut anchored_start = !pattern.starts_with('*');
+    if normalized.is_dir() {
+        return (normalized, None);
+    }
 
-    for part in parts.iter().filter(|part| !part.is_empty()) {
-        if anchored_start {
-            if !remaining.starts_with(part) {
-                return false;
+    let mask = normalized
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|mask| !mask.is_empty())
+        .map(str::to_string);
+    let directory = normalized
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    (directory, mask)
+}
+
+fn qb_list_files(pattern: Option<&str>) -> io::Result<Vec<String>> {
+    let (directory, mask) = qb_files_query(pattern);
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(&directory)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let matched = mask
+            .as_deref()
+            .is_none_or(|mask| wildcard_matches(mask, &name));
+        if matched {
+            entries.push(name);
+        }
+    }
+    entries.sort();
+    Ok(entries)
+}
+
+fn qb_shell_split_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+
+    for ch in command.chars() {
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => current.push(ch),
+            None if ch == '"' || ch == '\'' => quote = Some(ch),
+            None if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
             }
-            remaining = &remaining[part.len()..];
-            anchored_start = false;
-            continue;
-        }
-
-        if let Some(idx) = remaining.find(part) {
-            remaining = &remaining[idx + part.len()..];
-        } else {
-            return false;
+            None => current.push(ch),
         }
     }
 
-    pattern.ends_with('*')
-        || parts
-            .last()
-            .is_none_or(|part| part.is_empty() || text.ends_with(part))
+    if !current.is_empty() {
+        words.push(current);
+    }
+
+    words
+}
+
+fn qb_expand_dos_paths(pattern: &str) -> io::Result<Vec<PathBuf>> {
+    let trimmed = pattern.trim();
+    if trimmed.contains('*') || trimmed.contains('?') {
+        let (directory, mask) = qb_files_query(Some(trimmed));
+        let Some(mask) = mask else {
+            return Ok(vec![directory]);
+        };
+        let mut matches = Vec::new();
+        for entry in std::fs::read_dir(&directory)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if wildcard_matches(&mask, &name) {
+                matches.push(entry.path());
+            }
+        }
+        matches.sort();
+        Ok(matches)
+    } else {
+        Ok(vec![qb_normalize_dos_path(trimmed)])
+    }
+}
+
+fn qb_try_execute_dos_shell_builtin(command: &str) -> io::Result<Option<String>> {
+    let words = qb_shell_split_words(command);
+    let Some(head) = words.first() else {
+        return Ok(Some(String::new()));
+    };
+
+    let verb = head.to_ascii_uppercase();
+    match verb.as_str() {
+        "CLS" => Ok(Some(String::new())),
+        "ECHO" => {
+            let tail = words.iter().skip(1).cloned().collect::<Vec<_>>().join(" ");
+            Ok(Some(format!("{tail}\n")))
+        }
+        "DIR" => {
+            let pattern = words
+                .iter()
+                .skip(1)
+                .find(|arg| !arg.starts_with('/'))
+                .map(String::as_str);
+            let mut output = String::new();
+            for entry in qb_list_files(pattern)? {
+                output.push_str(&entry);
+                output.push('\n');
+            }
+            Ok(Some(output))
+        }
+        "TYPE" => {
+            let Some(path) = words.get(1) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "TYPE expects a file path",
+                ));
+            };
+            std::fs::read_to_string(qb_normalize_dos_path(path)).map(Some)
+        }
+        "COPY" => {
+            let Some(source) = words.get(1) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "COPY expects a source path",
+                ));
+            };
+            let Some(destination) = words.get(2) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "COPY expects a destination path",
+                ));
+            };
+            std::fs::copy(
+                qb_normalize_dos_path(source),
+                qb_normalize_dos_path(destination),
+            )?;
+            Ok(Some(String::new()))
+        }
+        "REN" | "RENAME" => {
+            let Some(source) = words.get(1) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "REN expects a source path",
+                ));
+            };
+            let Some(destination) = words.get(2) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "REN expects a destination path",
+                ));
+            };
+            std::fs::rename(
+                qb_normalize_dos_path(source),
+                qb_normalize_dos_path(destination),
+            )?;
+            Ok(Some(String::new()))
+        }
+        "DEL" | "ERASE" => {
+            for path in words.iter().skip(1) {
+                for expanded in qb_expand_dos_paths(path)? {
+                    if expanded.is_file() {
+                        std::fs::remove_file(expanded)?;
+                    }
+                }
+            }
+            Ok(Some(String::new()))
+        }
+        "MD" | "MKDIR" => {
+            for path in words.iter().skip(1) {
+                std::fs::create_dir_all(qb_normalize_dos_path(path))?;
+            }
+            Ok(Some(String::new()))
+        }
+        "RD" | "RMDIR" => {
+            for path in words.iter().skip(1) {
+                std::fs::remove_dir(qb_normalize_dos_path(path))?;
+            }
+            Ok(Some(String::new()))
+        }
+        "CD" | "CHDIR" => {
+            if words.len() == 1 {
+                return Ok(Some(format!("{}\n", std::env::current_dir()?.display())));
+            }
+            let path = qb_normalize_dos_path(&words[1]);
+            if path.is_dir() {
+                Ok(Some(String::new()))
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("directory not found: {}", path.display()),
+                ))
+            }
+        }
+        _ => Ok(None),
+    }
 }
 
 impl Default for VM {

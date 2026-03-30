@@ -13,18 +13,14 @@
 
 //! Native code generation for QBasic programs
 //!
-//! This crate provides code generation to Rust source code and
-//! native executables via rustc, with future LLVM backend support.
+//! This crate provides production Rust source generation and
+//! native executables via rustc/cargo.
 
 pub mod backend;
 pub mod codegen;
-pub mod cranelift_jit;
-pub mod llvm_builder;
 
 pub use backend::{
-    generate_with_backend, LlvmIrTextBackend, NativeBackendKind, NativeBackendOptions,
-    NativeTextBackend, RustTextBackend,
+    generate_with_backend, NativeBackendKind, NativeBackendOptions, NativeTextBackend,
+    RustTextBackend,
 };
 pub use codegen::CodeGenerator;
-pub use cranelift_jit::{run_with_cranelift_jit, supports_cranelift_jit};
-pub use llvm_builder::LLVMBuilder;

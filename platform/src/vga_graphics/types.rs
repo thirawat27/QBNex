@@ -139,17 +139,47 @@ pub(super) struct ScreenConfig {
 impl ScreenConfig {
     pub(super) fn for_mode(mode: u8) -> Self {
         match mode {
-            0 | 2 => Self {
+            0 | 3 => Self {
                 mode,
                 width: 80,
                 height: 25,
                 colors: 16,
             },
-            1 | 7 | 9 => Self {
+            1 | 4 | 5 => Self {
                 mode,
-                width: 40,
-                height: 25,
+                width: 320,
+                height: 200,
+                colors: 4,
+            },
+            2 | 6 => Self {
+                mode,
+                width: 640,
+                height: 200,
+                colors: 2,
+            },
+            7 => Self {
+                mode,
+                width: 320,
+                height: 200,
                 colors: 16,
+            },
+            8 => Self {
+                mode,
+                width: 640,
+                height: 200,
+                colors: 16,
+            },
+            9 => Self {
+                mode,
+                width: 640,
+                height: 350,
+                colors: 16,
+            },
+            10 => Self {
+                mode,
+                width: 640,
+                height: 350,
+                colors: 4,
             },
             11 => Self {
                 mode,

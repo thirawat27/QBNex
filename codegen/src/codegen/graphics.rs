@@ -22,22 +22,44 @@ static mut LAST_UPDATE: Option<Instant> = None;
 static mut TEXT_X: usize = 0;
 static mut TEXT_Y: usize = 0;
 
-fn init_graphics(width: usize, height: usize) {
+fn qb_graphics_dimensions_for_mode(mode: i32) -> Option<(usize, usize)> {
+    match mode {
+        1 | 4 | 5 | 7 | 13 => Some((320, 200)),
+        2 | 6 | 8 => Some((640, 200)),
+        9 | 10 => Some((640, 350)),
+        11 | 12 => Some((640, 480)),
+        _ => None,
+    }
+}
+
+fn close_graphics_window() {
     unsafe {
+        GRAPHICS = None;
+        WINDOW = None;
+        WINDOW_BUFFER.clear();
+        KEY_BUFFER.clear();
+        WINDOW_WIDTH = 80;
+        WINDOW_HEIGHT = 25;
+        LAST_UPDATE = None;
+    }
+}
+
+fn init_graphics_mode(mode: i32) {
+    unsafe {
+        let Some((width, height)) = qb_graphics_dimensions_for_mode(mode) else {
+            close_graphics_window();
+            return;
+        };
         WINDOW_WIDTH = width;
         WINDOW_HEIGHT = height;
         WINDOW_BUFFER = vec![0; width * height];
         let mut graphics = VGAGraphics::new(DosMemory::new());
-        let mode = match (width, height) {
-            (320, 200) => 13,
-            (640, 480) => 12,
-            _ => 0,
-        };
-        graphics.set_screen_mode(mode);
+        graphics.set_screen_mode(mode as u8);
         GRAPHICS = Some(graphics);
         CURRENT_COLOR = 15;
         TEXT_X = 0;
         TEXT_Y = 0;
+        KEY_BUFFER.clear();
         let mut window = Window::new(
             "QBNex Graphics",
             width,
@@ -445,15 +467,10 @@ fn put_image_from_array(x: f64, y: f64, arr_idx: usize, action: &str, arr_vars: 
                     "{}qb_apply_screen_mode({} as i32);\n",
                     indent, mode_code
                 ));
-                self.output
-                    .push_str(&format!("{}match {} as i32 {{\n", indent, mode_code));
-                self.output
-                    .push_str(&format!("{}    13 => init_graphics(320, 200),\n", indent));
-                self.output
-                    .push_str(&format!("{}    12 => init_graphics(640, 480),\n", indent));
-                self.output
-                    .push_str(&format!("{}    _ => init_graphics(80, 25),\n", indent));
-                self.output.push_str(&format!("{}}}\n", indent));
+                self.output.push_str(&format!(
+                    "{}init_graphics_mode({} as i32);\n",
+                    indent, mode_code
+                ));
                 Ok(true)
             }
             Statement::Pset { coords, color } if self.use_graphics => {
