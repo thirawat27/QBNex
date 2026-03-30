@@ -95,6 +95,7 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
     ))
 }
 
+#[cfg(windows)]
 fn retry_output_path(command: &Command) -> Option<PathBuf> {
     let current_dir = command
         .get_current_dir()

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/QBNex.ico" alt="QBNex Logo" width="256" height="256">
   
-  # QBNex
+  # QBNex v1.0.0
   
   **Modern QBasic/QuickBASIC Compiler and Interpreter**
   
@@ -66,12 +66,19 @@ QBNex supports 150+ QBasic/QB64 keywords and functions, making it compatible wit
   - Subroutines and functions with parameters
   - Multi-dimensional arrays with REDIM PRESERVE
 
+- **System Compatibility & Safety**
+  - Sandboxed 1MB Pseudo-Memory State layer for legacy memory compatibility
+  - 100% safe `PEEK`/`POKE` operations without OS violations
+  - Eliminated memory leaks and out-of-bounds pointer states
+
 - **Advanced Graphics & Sound**
+  - Unified 60FPS VGA Framebuffer abstraction
   - Automatic detection of graphics/sound features
   - SCREEN modes with VGA graphics support
   - Drawing primitives (LINE, CIRCLE, PAINT, DRAW)
   - Image manipulation (GET/PUT)
   - Sound synthesis (SOUND, PLAY, BEEP)
+  - Custom `TEXT_X` and `TEXT_Y` static tracking for seamless graphics text integration
   - Automatic Cargo compilation for graphics-enabled programs
 
 - **Robust Type System**
@@ -332,6 +339,17 @@ export PATH="$PATH$HOME/QBNex/target/release"
 qb --version
 qb --help
 ```
+
+### 7. Windows Installer
+
+For Windows users, QBNex provides a standard setup installer using Inno Setup:
+
+```powershell
+# Build the setup executable
+.\build-installer.ps1 -Release
+```
+The resulting installer will be located in `target\installer\`. 
+You can run it to automatically install the compiler, examples, and configure your system `PATH`.
 
 ### CI/CD and Releases
 

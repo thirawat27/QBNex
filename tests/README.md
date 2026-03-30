@@ -65,6 +65,7 @@ cargo test -p cli_tool --test shell_cli build_pipelines_clean_up_tagged_temp_wor
 - Temp workspace cleanup for release build pipelines is covered by an ignored CLI regression that tags child-process temp paths and verifies they are removed after both graphics/native and VM-backed builds.
 - CLI syntax diagnostics have a dedicated regression that checks for a highlighted source snippet on invalid BASIC input, so `miette`-based error rendering stays exercised.
 - The public CLI is production-only now, and `shell_cli` keeps regressions for removed legacy flags such as `--frontend`, `--native-backend`, `--allow-preview`, `--validate-pipeline`, and `--list-pipelines` so release builds do not accidentally re-expose them.
+- Windows-only retry/cleanup helpers inside the CLI and conformance harness are now guarded with `#[cfg(windows)]`, so cross-platform `clippy -D warnings` stays clean instead of carrying dead-code exceptions on Linux or macOS.
 - `tests/runners/run-cli-regression-suite.ps1` is the Windows-oriented shard runner for long `shell_cli` sweeps.
 - `tests/runners/run_cli_regression_suite.py` provides the same one-test-at-a-time sharding flow on Windows, Linux, and macOS without depending on PowerShell.
 - `--validate-release` is backed by shared BASIC fixtures under `tests/fixtures/basic/`, so release health checks are exercised against real text-mode, file-I/O, VM-fallback, and graphics-mode source inputs rather than ad hoc inline strings.

@@ -12,6 +12,7 @@ use std::{
 static TEST_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 static WORKSPACE_QB_BINARY: OnceLock<PathBuf> = OnceLock::new();
 
+#[cfg(windows)]
 fn retry_output_path(command: &Command) -> Option<PathBuf> {
     let current_dir = command
         .get_current_dir()
