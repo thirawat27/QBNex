@@ -2489,6 +2489,18 @@ fn qb_text_columns() -> i32 {
     QB_SCREEN_SIZE.with(|state| state.borrow().0.max(1))
 }
 
+fn qb_stdout_supports_terminal_control() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal()
+}
+
+fn qb_emit_terminal_control(text: &str) {
+    if qb_stdout_supports_terminal_control() {
+        print!("{}", text);
+        let _ = io::stdout().flush();
+    }
+}
+
 fn qb_text_rows() -> i32 {
     QB_SCREEN_SIZE.with(|state| state.borrow().1.max(1))
 }
@@ -2935,8 +2947,7 @@ fn qb_set_cursor_state(visible: f64, start: f64, stop: f64) {
         let visible = visible != 0;
         QB_CURSOR_VISIBLE.with(|state| {
             if state.get() != visible {
-                print!("{}", if visible { "\x1B[?25h" } else { "\x1B[?25l" });
-                let _ = io::stdout().flush();
+                qb_emit_terminal_control(if visible { "\x1B[?25h" } else { "\x1B[?25l" });
             }
             state.set(visible);
         });
@@ -3038,8 +3049,7 @@ fn locate(row: f64, col: f64) {
      };
      let col = if col == 0 { current_col } else { col.clamp(1, cols) };
      if row != current_row || col != current_col {
-         print!("\x1B[{};{}H", row, col);
-         let _ = io::stdout().flush();
+         qb_emit_terminal_control(&format!("\x1B[{};{}H", row, col));
      }
      QB_PENDING_VIEW_PRINT_SCROLL.with(|pending| pending.set(false));
      QB_CURSOR_STATE.with(|state| *state.borrow_mut() = (row, col));
@@ -3055,7 +3065,7 @@ fn qb_color(foreground: f64, background: f64) {
      let bg = (background.round() as i32).clamp(0, 15);
      QB_TEXT_FOREGROUND.with(|fg| fg.set(color as u8));
      QB_TEXT_BACKGROUND.with(|cell| cell.set(bg as u8));
-     print!("\x1B[{}m", 30 + color);
+     qb_emit_terminal_control(&format!("\x1B[{}m", 30 + color));
 }
 
 fn qb_sleep(seconds: f64) {

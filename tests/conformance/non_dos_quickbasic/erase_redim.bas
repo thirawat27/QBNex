@@ -1,4 +1,5 @@
 REDIM values(1 TO 3) AS INTEGER
+DIM i AS INTEGER
 
 FOR i = 1 TO 3
     values(i) = i * 7

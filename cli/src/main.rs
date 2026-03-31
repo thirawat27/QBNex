@@ -145,7 +145,7 @@ fn try_main() -> Result<()> {
         let file = args.file.as_deref().ok_or_else(|| {
             anyhow::anyhow!("--explain-pipeline requires an input BASIC source file")
         })?;
-        explain_pipeline_for_file(file, frontend)?;
+        explain_pipeline_for_file(file, frontend, args.explicit)?;
         return Ok(());
     }
 
@@ -166,12 +166,6 @@ fn try_main() -> Result<()> {
         }
     }
 
-    if args.explicit {
-        unsafe {
-            std::env::set_var("QBNEX_EXPLICIT", "1");
-        }
-    }
-
     // Show help when: -h flag OR no file AND no action flag
     if args.help || args.file.is_none() {
         print_help();
@@ -186,6 +180,7 @@ fn try_main() -> Result<()> {
                     logical_input,
                     args.output.as_deref(),
                     args.quiet,
+                    args.explicit,
                     frontend,
                     native_backend,
                 )
@@ -205,6 +200,7 @@ fn try_main() -> Result<()> {
                     args.output.as_deref(),
                     &args.program_args,
                     args.quiet,
+                    args.explicit,
                     frontend,
                     native_backend,
                 )
@@ -223,6 +219,7 @@ fn try_main() -> Result<()> {
                     logical_input,
                     args.output.as_deref(),
                     args.quiet,
+                    args.explicit,
                     frontend,
                     native_backend,
                 )
@@ -243,6 +240,7 @@ fn try_main() -> Result<()> {
                     args.output.as_deref(),
                     &args.program_args,
                     args.quiet,
+                    args.explicit,
                     frontend,
                     native_backend,
                 )
@@ -328,8 +326,8 @@ fn print_pipeline_status() -> Result<()> {
     Ok(())
 }
 
-fn explain_pipeline_for_file(input: &str, frontend: FrontendKind) -> Result<()> {
-    let loaded = load_program(input, frontend)?;
+fn explain_pipeline_for_file(input: &str, frontend: FrontendKind, explicit: bool) -> Result<()> {
+    let loaded = load_program(input, frontend, explicit)?;
     let native_gaps =
         syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native);
     let vm_gaps = syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm);
@@ -1237,18 +1235,50 @@ where
     }
 }
 
-fn load_program(input: &str, frontend: FrontendKind) -> Result<LoadedProgram> {
-    let source = load_source(input)?;
+fn load_program(
+    input: &str,
+    frontend: FrontendKind,
+    force_explicit: bool,
+) -> Result<LoadedProgram> {
+    let mut source = load_source(input)?;
     let path = Path::new(input);
-    let program = parse_with_frontend(frontend, source.clone()).map_err(|error| {
+    let mut program = parse_with_frontend(frontend, source.clone()).map_err(|error| {
         anyhow::Error::new(SourceDiagnostic::from_qerror(path, source.clone(), error))
     })?;
+    if force_explicit && !program.option_explicit {
+        source = format!("OPTION _EXPLICIT\n{source}");
+    }
+    if force_explicit {
+        program.option_explicit = true;
+    }
     let has_graphics = has_graphics_or_sound(&program);
     Ok(LoadedProgram {
         source,
         program,
         has_graphics,
     })
+}
+
+fn validate_loaded_program(input: &str, loaded: &LoadedProgram) -> Result<()> {
+    let path = Path::new(input);
+    let symbol_table = analyzer::scope::analyze_program(&loaded.program).map_err(|error| {
+        anyhow::Error::new(SourceDiagnostic::from_qerror(
+            path,
+            loaded.source.clone(),
+            error,
+        ))
+    })?;
+    let mut type_checker = analyzer::TypeChecker::new(symbol_table);
+    type_checker
+        .check_program(&loaded.program)
+        .map_err(|error| {
+            anyhow::Error::new(SourceDiagnostic::from_qerror(
+                path,
+                loaded.source.clone(),
+                error,
+            ))
+        })?;
+    Ok(())
 }
 
 fn format_backend_gaps(gaps: &[&str]) -> String {
@@ -1344,14 +1374,46 @@ fn output_spec_looks_like_directory(output_path: &str) -> bool {
     output_path.ends_with('\\') || output_path.ends_with('/')
 }
 
-fn resolve_output_path(logical_input: &str, output_path: Option<&str>) -> Result<PathBuf> {
+fn resolve_output_path(
+    logical_input: &str,
+    output_path: Option<&str>,
+    run: bool,
+) -> Result<PathBuf> {
+    let current_dir = std::env::current_dir()?;
     let default_name = default_output_name(logical_input);
-    let raw_output = output_path.unwrap_or(&default_name);
-    let mut resolved = std::env::current_dir()?.join(raw_output);
+    let mut resolved = match output_path {
+        Some(raw_output) => {
+            let explicit = PathBuf::from(raw_output);
+            if explicit.is_absolute() {
+                explicit
+            } else {
+                current_dir.join(explicit)
+            }
+        }
+        None => {
+            let default_dir = if run {
+                current_dir.clone()
+            } else {
+                let source_path = Path::new(logical_input);
+                match source_path.parent() {
+                    Some(parent) if !parent.as_os_str().is_empty() => {
+                        if parent.is_absolute() {
+                            parent.to_path_buf()
+                        } else {
+                            current_dir.join(parent)
+                        }
+                    }
+                    _ => current_dir.clone(),
+                }
+            };
+            default_dir.join(&default_name)
+        }
+    };
 
-    if output_path.is_some() && (output_spec_looks_like_directory(raw_output) || resolved.is_dir())
-    {
-        resolved = resolved.join(default_name);
+    if let Some(raw_output) = output_path {
+        if output_spec_looks_like_directory(raw_output) || resolved.is_dir() {
+            resolved = resolved.join(default_name);
+        }
     }
 
     if let Some(parent) = resolved.parent() {
@@ -1620,7 +1682,7 @@ fn build_with_rustc(
         native_codegen::NativeBackendKind::Rust,
         native_codegen::NativeBackendOptions::default(),
     )?;
-    let resolved_output = resolve_output_path(logical_input, output_path)?;
+    let resolved_output = resolve_output_path(logical_input, output_path, run)?;
 
     let rust_file = unique_temp_path("qb").with_extension("rs");
     fs::write(&rust_file, rust_code)
@@ -1664,7 +1726,7 @@ fn build_with_cargo(
     run: bool,
     program_args: &[String],
 ) -> Result<()> {
-    let resolved_output = resolve_output_path(logical_input, output)?;
+    let resolved_output = resolve_output_path(logical_input, output, run)?;
     let bundle_name = unique_bundle_name("qbnex_app");
     let target_dir = shared_cargo_target_dir("native-graphics")?;
 
@@ -1739,7 +1801,7 @@ fn build_with_vm_bundle(
     program_args: &[String],
     frontend: FrontendKind,
 ) -> Result<()> {
-    let resolved_output = resolve_output_path(logical_input, output)?;
+    let resolved_output = resolve_output_path(logical_input, output, run)?;
     let cached_runner = ensure_cached_vm_runner_binary()?;
     fs::copy(&cached_runner, &resolved_output)?;
     embed_vm_runner_payload(&resolved_output, source, frontend)?;
@@ -1763,6 +1825,7 @@ fn compile_and_run(
     output: Option<&str>,
     program_args: &[String],
     quiet: bool,
+    explicit: bool,
     frontend: FrontendKind,
     native_backend: Option<NativeBackendKind>,
 ) -> Result<()> {
@@ -1770,7 +1833,8 @@ fn compile_and_run(
 
     let start = Instant::now();
 
-    let loaded = load_program(input, frontend)?;
+    let loaded = load_program(input, frontend, explicit)?;
+    validate_loaded_program(input, &loaded)?;
     let _ = native_backend;
     match select_runtime_backend(&loaded.program)? {
         ExecutionBackend::Vm => {
@@ -1809,6 +1873,7 @@ fn run_file(
     output: Option<&str>,
     program_args: &[String],
     quiet: bool,
+    explicit: bool,
     frontend: FrontendKind,
     native_backend: Option<NativeBackendKind>,
 ) -> Result<()> {
@@ -1816,7 +1881,8 @@ fn run_file(
 
     let start = Instant::now();
 
-    let loaded = load_program(filename, frontend)?;
+    let loaded = load_program(filename, frontend, explicit)?;
+    validate_loaded_program(filename, &loaded)?;
     let _ = native_backend;
     let vm_gaps = syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Vm);
     if vm_gaps.is_empty() {
@@ -1870,11 +1936,13 @@ fn build_file(
     logical_input: &str,
     output: Option<&str>,
     quiet: bool,
+    explicit: bool,
     frontend: FrontendKind,
     native_backend: Option<NativeBackendKind>,
 ) -> Result<()> {
     let _ = quiet;
-    let loaded = load_program(input, frontend)?;
+    let loaded = load_program(input, frontend, explicit)?;
+    validate_loaded_program(input, &loaded)?;
     let _ = native_backend;
     let native_gaps =
         syntax_tree::unsupported_statements(&loaded.program, syntax_tree::Backend::Native);

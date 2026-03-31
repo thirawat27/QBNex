@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/QBNex.ico" alt="QBNex Logo" width="256" height="256">
   
-  # QBNex v1.0.0
+  # QBNex
   
   **Modern QBasic/QuickBASIC Compiler and Interpreter**
   
@@ -417,7 +417,7 @@ Generate a standalone executable without running it
 qb -c myprogram.bas
 ```
 
-This creates a standalone executable: `myprogram.exe` on Windows or `myprogram` on Linux/macOS.
+Without `-o`, QBNex now writes the compiled executable next to the source file itself: `myprogram.exe` on Windows or `myprogram` on Linux/macOS.
 
 **Custom output filename**
 
@@ -431,6 +431,7 @@ qb -c myprogram.bas -o custom_name
 - LTO (Link-Time Optimization) enabled
 - Debug symbols stripped
 - Small executable size
+- Default output location follows the source file directory for `-c`, while `-x` keeps its runnable VM-backed output in the working directory unless `-o` is provided
 
 ### QB64 Includes
 
@@ -486,6 +487,8 @@ EXAMPLES
   Runs a fixture-driven validation pass over the production compiler surface: the production frontend, semantic analysis, type checking, VM bytecode compilation, runtime-backend selection, and the production native backend across text-mode, graphics-mode, file-I/O, and VM-fallback BASIC fixtures. Expected runtime output is now read from the centralized catalog in [fixture_io_catalog.rs](D:\QBNex\tests\fixtures\fixture_io_catalog.rs), so validation stays deterministic without carrying separate `.out` files or rebuilding throwaway executables for every fixture. The command prints `[n/total]` progress lines plus a summary of graphics/runtime-output/VM-fallback coverage. Use this before tagging or packaging a release.
 - `qb --explain-pipeline FILE`
   Explains how QBNex classifies a BASIC file: which production frontend is active, whether the program will run natively or via VM fallback, and which native gaps caused that decision.
+- `qb -e FILE`
+  Forces `OPTION _EXPLICIT` for the loaded program across all production file paths, including default compile-and-run, `-c` compile-only output, and `-x` VM-backed runnable builds.
 - The ignored QB64 source regression suite now sweeps every current `*.bas` file under `qb64/source/`, while a companion fragment-promotion regression keeps directly-invoked include fragments covered through their owning root program.
 - For large CLI regression passes on Windows, `powershell -ExecutionPolicy Bypass -File tests/runners/run-cli-regression-suite.ps1 -Workspace D:\QBNex` runs the `shell_cli` binary once-built and then shards tests one by one with per-test timeouts.
 - For a cross-platform equivalent, `python tests/runners/run_cli_regression_suite.py --workspace D:\QBNex` provides the same shard-and-timeout flow on Windows, Linux, and macOS.
@@ -1218,6 +1221,8 @@ The current conformance inventory covers:
 - `DEFINT` / `DEFLNG` / related `DEFxxx` default-type coercion
 - array lifecycle through `ERASE` and `REDIM`
 - fixed-length string `LSET` / `RSET` on UDT fields
+- graphics mode pixel parity across `SCREEN 1` through `SCREEN 13`
+- graphics viewport/window mapping through `VIEW`, `WINDOW`, `PMAP`, `POINT`, and noninteractive `LOCATE`
 - logical and comparison operators
 - loop controls
 - `MID$` assignment
@@ -1234,10 +1239,13 @@ The current conformance inventory covers:
 - `DIM SHARED` globals and `STATIC` procedure state
 - string intrinsics
 - `SWAP` and `CLEAR`
+- system-memory compatibility through `DEF SEG`, `PEEK`, `POKE`, `BSAVE`, `BLOAD`, `OUT`, and `INP`
 - user-defined types
 
 The VM-backed `-x` runner is also rebuilt through Cargo's shared target cache on each invocation now, so conformance and release checks no longer silently reuse stale runtime semantics after dependency changes. Programs that rely on `DEFxxx` default-type coercion currently run through the VM-compatible path intentionally so QBNex preserves QuickBASIC semantics instead of silently miscompiling them in the native backend.
+The CLI regression suite now keeps an explicit-mode matrix too: `-e` must reject undeclared variables in default run, `-c`, and `-x`, while declared representative conformance fixtures such as `const_and_def_fn`, `fixed_length_lset_rset`, `logical_comparisons`, `static_state`, `type_conversions`, and `user_defined_types` must still match their canonical expected output across all three production paths.
 Conformance stdin and expected stdout are now centralized in [fixture_io_catalog.rs](D:\QBNex\tests\fixtures\fixture_io_catalog.rs), so console-interaction and output-parity checks stay canonical without separate `.in`/`.out` sidecar files. Multi-file conformance fixtures are still supported: any sibling files that share the fixture stem are copied into the temp workspace alongside the main `.bas`, so `$INCLUDE`-driven project behavior can be validated through the same canonical harness. Sound/event outputs still use `<BEL>` inside the catalog as a readable placeholder for the ASCII bell character.
+When stdout is not an interactive terminal, both the VM path and the native executable path now keep cursor/color state internally without leaking ANSI control sequences into captured program output, so `LOCATE`, cursor visibility changes, and `COLOR` remain semantically correct while CLI/test output stays clean.
 
 ### Code Style
 

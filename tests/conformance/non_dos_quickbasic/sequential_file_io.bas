@@ -1,3 +1,5 @@
+DIM first$ AS STRING
+DIM second$ AS STRING
 OPEN "sample.txt" FOR OUTPUT AS #1
 PRINT #1, "line-one"
 PRINT #1, "line-two"

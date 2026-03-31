@@ -1,3 +1,4 @@
+DIM A$ AS STRING
 A$ = "X"
 OPEN "held.txt" FOR OUTPUT AS #1
 CLEAR

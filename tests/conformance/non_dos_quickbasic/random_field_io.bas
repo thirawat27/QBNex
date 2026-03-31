@@ -1,3 +1,4 @@
+DIM a$ AS STRING
 OPEN "field.dat" FOR RANDOM AS #1 LEN = 4
 FIELD #1, 4 AS a$
 LSET a$ = "XY"

@@ -1,4 +1,6 @@
 OPTION BASE 1
+DIM total AS INTEGER
+DIM i AS INTEGER
 total = 0
 
 FOR i = 1 TO 3

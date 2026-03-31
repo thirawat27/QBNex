@@ -24,6 +24,7 @@ pub struct TypeChecker {
     symbol_table: SymbolTable,
     user_types: HashMap<String, syntax_tree::ast_nodes::UserType>,
     procedure_signatures: HashMap<String, ProcedureSignature>,
+    explicit_mode: bool,
 }
 
 impl TypeChecker {
@@ -32,6 +33,7 @@ impl TypeChecker {
             symbol_table,
             user_types: HashMap::new(),
             procedure_signatures: HashMap::new(),
+            explicit_mode: false,
         }
     }
 
@@ -44,6 +46,8 @@ impl TypeChecker {
     }
 
     pub fn check_program(&mut self, program: &Program) -> QResult<()> {
+        self.explicit_mode = program.option_explicit;
+
         // First, collect all user-defined types
         for (name, user_type) in &program.user_types {
             self.user_types.insert(name.clone(), user_type.clone());
@@ -101,6 +105,28 @@ impl TypeChecker {
             }
         }
         Ok(())
+    }
+
+    fn require_declared_name(
+        &self,
+        name: &str,
+        local_scope: Option<&HashMap<String, QType>>,
+    ) -> QResult<()> {
+        if !self.explicit_mode {
+            return Ok(());
+        }
+
+        if let Some(local_scope) = local_scope {
+            if local_scope.contains_key(&name.to_lowercase()) {
+                return Ok(());
+            }
+        }
+
+        if self.symbol_table.contains(name) {
+            return Ok(());
+        }
+
+        Err(QError::UndefinedVariable(name.to_string()))
     }
 
     fn normalize_proc_name(name: &str) -> String {
@@ -165,6 +191,10 @@ impl TypeChecker {
             return Ok(var_type);
         }
 
+        if self.explicit_mode {
+            return Err(QError::UndefinedVariable(name.to_string()));
+        }
+
         if matches!(
             name.chars().last(),
             Some('$') | Some('%') | Some('&') | Some('!') | Some('#')
@@ -173,6 +203,16 @@ impl TypeChecker {
         }
 
         Ok(self.symbol_table.get_default_type(name))
+    }
+
+    fn find_user_type_case_insensitive(
+        &self,
+        type_name: &str,
+    ) -> Option<&syntax_tree::ast_nodes::UserType> {
+        self.user_types
+            .iter()
+            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(type_name))
+            .map(|(_, user_type)| user_type)
     }
 
     fn same_signature_type(left: &QType, right: &QType) -> bool {
@@ -253,6 +293,7 @@ impl TypeChecker {
             "CSRLIN" => Some("CSRLIN"),
             "POS" => Some("POS"),
             "LPOS" => Some("LPOS"),
+            "TAB" => Some("TAB"),
             "ENVIRON$" => Some("ENVIRON$"),
             "COMMAND" | "COMMAND$" => Some("COMMAND$"),
             "INKEY" | "INKEY$" => Some("INKEY$"),
@@ -281,9 +322,8 @@ impl TypeChecker {
             | "TRIM$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS" | "TAN" | "ATN" | "EXP"
             | "LOG" | "SQR" | "INT" | "FIX" | "CINT" | "CLNG" | "CSNG" | "CDBL" | "CSTR"
             | "MKI$" | "MKL$" | "MKS$" | "MKD$" | "CVI" | "CVL" | "CVS" | "CVD" | "FRE" | "POS"
-            | "ENVIRON$" | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS" => {
-                Some((1, 1))
-            }
+            | "ENVIRON$" | "PEEK" | "VARPTR" | "VARSEG" | "SADD" | "VARPTR$" | "INP" | "LPOS"
+            | "TAB" => Some((1, 1)),
             "ASC" => Some((1, 2)),
             "TIMER" | "DATE$" | "TIME$" | "CSRLIN" | "COMMAND$" | "INKEY$" | "FREEFILE" | "ERR"
             | "ERL" | "ERDEV" | "ERDEV$" => Some((0, 0)),
@@ -352,9 +392,9 @@ impl TypeChecker {
             | "MKS$" | "MKD$" | "DATE$" | "TIME$" | "ENVIRON$" | "COMMAND$" | "INPUT$"
             | "INKEY$" | "VARPTR$" | "ERDEV$" | "CSTR" => Some(QType::String(String::new())),
             "LEN" | "ASC" | "INSTR" | "SGN" | "INT" | "FIX" | "CINT" | "LBOUND" | "UBOUND"
-            | "EOF" | "LOC" | "CSRLIN" | "POS" | "LPOS" | "CVI" | "ERR" | "ERL" | "ERDEV"
-            | "_FILEEXISTS" | "_DIREXISTS" | "PEEK" | "VARSEG" | "INP" | "POINT" | "SCREEN"
-            | "PLAY" => Some(QType::Integer(0)),
+            | "EOF" | "LOC" | "CSRLIN" | "POS" | "LPOS" | "TAB" | "CVI" | "ERR" | "ERL"
+            | "ERDEV" | "_FILEEXISTS" | "_DIREXISTS" | "PEEK" | "VARSEG" | "INP" | "POINT"
+            | "SCREEN" | "PLAY" => Some(QType::Integer(0)),
             "ABS" | "SIN" | "COS" | "TAN" | "ATN" | "EXP" | "LOG" | "SQR" | "CLNG" | "CVL"
             | "FRE" | "LOF" | "VARPTR" | "SADD" => Some(QType::Long(0)),
             "TIMER" | "RND" | "CSNG" | "CVS" | "PMAP" | "FREEFILE" => Some(QType::Single(0.0)),
@@ -384,6 +424,7 @@ impl TypeChecker {
             } else {
                 BuiltinArgRule::Numeric
             }),
+            "TAB" => Some(BuiltinArgRule::Numeric),
             "LCASE$" | "UCASE$" | "LTRIM$" | "RTRIM$" | "TRIM$" | "VAL" | "CVI" | "CVL" | "CVS"
             | "CVD" | "_FILEEXISTS" | "_DIREXISTS" => Some(BuiltinArgRule::String),
             "STR$" | "CHR$" | "SPACE$" | "HEX$" | "OCT$" | "ABS" | "SGN" | "SIN" | "COS"
@@ -794,6 +835,9 @@ impl TypeChecker {
                 if let Ok(t) = self.symbol_table.get_type(&var.name) {
                     return Ok(t);
                 }
+                if self.explicit_mode {
+                    return Err(QError::UndefinedVariable(var.name.clone()));
+                }
                 // Otherwise infer from DEFxxx rules and suffix
                 Ok(self.get_variable_type_in_scope(var, local_scope))
             }
@@ -816,6 +860,9 @@ impl TypeChecker {
                 // First try to get from symbol table
                 if let Ok(t) = self.symbol_table.get_type(name) {
                     return Ok(t);
+                }
+                if self.explicit_mode {
+                    return Err(QError::UndefinedVariable(name.clone()));
                 }
                 // Otherwise infer from suffix or DEFxxx rules
                 if let Some(suffix) = type_suffix {
@@ -841,7 +888,9 @@ impl TypeChecker {
                         // Convert Vec<u8> to String for lookup
                         let type_name = String::from_utf8_lossy(type_name_bytes);
                         // Look up the field in the type definition
-                        if let Some(user_type) = self.user_types.get(type_name.as_ref()) {
+                        if let Some(user_type) =
+                            self.find_user_type_case_insensitive(type_name.as_ref())
+                        {
                             if let Some(type_field) = user_type
                                 .fields
                                 .iter()
@@ -1212,6 +1261,16 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+            Statement::Input { variables, .. } => {
+                for variable in variables {
+                    self.infer_type_in_scope(variable, Some(local_scope))?;
+                }
+                Ok(())
+            }
+            Statement::LineInput { variable, .. } | Statement::LineInputFile { variable, .. } => {
+                self.infer_type_in_scope(variable, Some(local_scope))?;
+                Ok(())
+            }
             Statement::FunctionCall(func) => {
                 self.validate_function_call(func, Some(local_scope))?;
                 Ok(())
@@ -1276,6 +1335,7 @@ impl TypeChecker {
                 step,
                 body,
             } => {
+                self.require_declared_name(&variable.name, Some(local_scope))?;
                 let var_type = self.get_variable_type_in_scope(variable, Some(local_scope));
                 local_scope
                     .entry(variable.name.to_lowercase())
@@ -1310,7 +1370,12 @@ impl TypeChecker {
                 }
                 Ok(())
             }
-            Statement::ForEach { array, body, .. } => {
+            Statement::ForEach {
+                variable,
+                array,
+                body,
+            } => {
+                self.require_declared_name(&variable.name, Some(local_scope))?;
                 self.infer_type_in_scope(array, Some(local_scope))?;
                 self.check_statements_in_scope(body, local_scope)?;
                 Ok(())
@@ -1567,5 +1632,36 @@ PRINT TIMER";
             Err(core_types::QError::InvalidProcedure(message))
                 if message.contains("Built-in function LBOUND argument 1 expects ARRAY NAME")
         ));
+    }
+
+    #[test]
+    fn check_program_rejects_undeclared_variables_under_option_explicit() {
+        let source = "OPTION _EXPLICIT\nX = 1\nPRINT X\n";
+        let mut parser = Parser::new(source.to_string()).unwrap();
+        let program = parser.parse().unwrap();
+        assert!(program.option_explicit);
+
+        let symbol_table = analyze_program(&program).unwrap();
+        let mut type_checker = TypeChecker::new(symbol_table);
+        let result = type_checker.check_program(&program);
+
+        assert!(matches!(
+            result,
+            Err(core_types::QError::UndefinedVariable(name)) if name == "X"
+        ));
+    }
+
+    #[test]
+    fn check_program_accepts_declared_variables_under_option_explicit() {
+        let source = "OPTION _EXPLICIT\nDIM X AS INTEGER\nX = 1\nPRINT X\n";
+        let mut parser = Parser::new(source.to_string()).unwrap();
+        let program = parser.parse().unwrap();
+        assert!(program.option_explicit);
+
+        let symbol_table = analyze_program(&program).unwrap();
+        let mut type_checker = TypeChecker::new(symbol_table);
+        let result = type_checker.check_program(&program);
+
+        assert!(result.is_ok());
     }
 }

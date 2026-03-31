@@ -1,3 +1,4 @@
+DIM name$ AS STRING
 name$ = "  QBNex  "
 
 PRINT LEFT$("HELLO", 2)

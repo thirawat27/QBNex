@@ -9,6 +9,13 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod fixture_io_catalog {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/fixtures/fixture_io_catalog.rs"
+    ));
+}
+
 static TEST_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 static WORKSPACE_QB_BINARY: OnceLock<PathBuf> = OnceLock::new();
 
@@ -112,6 +119,35 @@ fn normalize_test_all_output(output: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
+}
+
+fn normalize_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes)
+        .replace("\r\n", "\n")
+        .replace('\r', "")
+}
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("cli crate should live under the workspace root")
+        .to_path_buf()
+}
+
+fn conformance_fixture_path(stem: &str) -> PathBuf {
+    repo_root()
+        .join("tests")
+        .join("conformance")
+        .join("non_dos_quickbasic")
+        .join(format!("{stem}.bas"))
+}
+
+fn conformance_expected_output(stem: &str) -> String {
+    fixture_io_catalog::conformance_expected_output(stem)
+        .unwrap_or_else(|| panic!("missing conformance output for {stem}"))
+        .replace("\r\n", "\n")
+        .replace('\r', "")
+        .replace("<BEL>", "\u{7}")
 }
 
 fn compile_with_qb(source_path: &Path, output_path: &Path, cwd: &Path) {
@@ -494,6 +530,325 @@ fn compile_only_creates_missing_output_directories() {
     );
 
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn compile_only_without_explicit_output_builds_next_to_the_source_file() {
+    let temp_dir = test_temp_dir("qbnex_cli_compile_source_directory");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let source_dir = temp_dir.join("project").join("src");
+    std::fs::create_dir_all(&source_dir).unwrap();
+
+    let source_path = source_dir.join("hello.bas");
+    std::fs::write(&source_path, "PRINT \"hello\"\n").unwrap();
+
+    let expected_output = if cfg!(target_os = "windows") {
+        source_dir.join("hello.exe")
+    } else {
+        source_dir.join("hello")
+    };
+    let unexpected_cwd_output = if cfg!(target_os = "windows") {
+        temp_dir.join("hello.exe")
+    } else {
+        temp_dir.join("hello")
+    };
+
+    let output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-c")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        output.status.success(),
+        "qb -c without -o failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        expected_output.exists(),
+        "expected compiled executable beside the source file at {}",
+        expected_output.display()
+    );
+    assert!(
+        !unexpected_cwd_output.exists(),
+        "compile-only output should not fall back to cwd: {}",
+        unexpected_cwd_output.display()
+    );
+
+    let compiled = Command::new(&expected_output)
+        .current_dir(&temp_dir)
+        .stable_output();
+    assert!(
+        compiled.status.success(),
+        "compiled executable failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&compiled.stdout),
+        String::from_utf8_lossy(&compiled.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&compiled.stdout).replace('\r', ""),
+        "hello\n"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn explicit_flag_allows_declared_variables() {
+    let temp_dir = test_temp_dir("qbnex_cli_explicit_declared");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("declared.bas");
+    std::fs::write(&source_path, "DIM X AS INTEGER\nX = 1\nPRINT X\n").unwrap();
+
+    let output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        output.status.success(),
+        "qb -e rejected a declared variable program\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace('\r', ""),
+        "1\n"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn explicit_flag_rejects_undeclared_variables_in_default_run() {
+    let temp_dir = test_temp_dir("qbnex_cli_explicit_undeclared_run");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("undeclared.bas");
+    std::fs::write(&source_path, "X = 1\nPRINT X\n").unwrap();
+
+    let output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        !output.status.success(),
+        "qb -e should reject undeclared variables\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Undefined variable: X"),
+        "expected undefined-variable error for -e\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let unexpected_output = if cfg!(target_os = "windows") {
+        temp_dir.join("undeclared.exe")
+    } else {
+        temp_dir.join("undeclared")
+    };
+    assert!(
+        !unexpected_output.exists(),
+        "undeclared program should not emit an executable at {}",
+        unexpected_output.display()
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn explicit_flag_rejects_undeclared_variables_in_compile_only_mode() {
+    let temp_dir = test_temp_dir("qbnex_cli_explicit_undeclared_compile");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("undeclared.bas");
+    std::fs::write(&source_path, "X = 1\nPRINT X\n").unwrap();
+
+    let output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg("-c")
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        !output.status.success(),
+        "qb -e -c should reject undeclared variables\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Undefined variable: X"),
+        "expected undefined-variable error for -e -c\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let unexpected_output = if cfg!(target_os = "windows") {
+        temp_dir.join("undeclared.exe")
+    } else {
+        temp_dir.join("undeclared")
+    };
+    assert!(
+        !unexpected_output.exists(),
+        "compile-only undeclared program should not emit an executable at {}",
+        unexpected_output.display()
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn explicit_flag_rejects_undeclared_variables_in_vm_run_mode() {
+    let temp_dir = test_temp_dir("qbnex_cli_explicit_undeclared_vm");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = temp_dir.join("undeclared.bas");
+    let vm_output = if cfg!(target_os = "windows") {
+        temp_dir.join("undeclared-vm.exe")
+    } else {
+        temp_dir.join("undeclared-vm")
+    };
+    std::fs::write(&source_path, "X = 1\nPRINT X\n").unwrap();
+
+    let output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg("-x")
+        .arg("-o")
+        .arg(&vm_output)
+        .arg(&source_path)
+        .stable_output();
+
+    assert!(
+        !output.status.success(),
+        "qb -e -x should reject undeclared variables\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Undefined variable: X"),
+        "expected undefined-variable error for -e -x\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !vm_output.exists(),
+        "VM runner should not be emitted for an undeclared program at {}",
+        vm_output.display()
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+fn assert_explicit_fixture_matches_expected_output_across_paths(stem: &str) {
+    let temp_dir = test_temp_dir(&format!("qbnex_cli_explicit_fixture_{stem}"));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let source_path = conformance_fixture_path(stem);
+    let expected = conformance_expected_output(stem);
+
+    let default_output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg(&source_path)
+        .stable_output();
+    assert!(
+        default_output.status.success(),
+        "qb -e fixture run failed for {stem}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&default_output.stdout),
+        String::from_utf8_lossy(&default_output.stderr)
+    );
+    assert_eq!(normalize_output(&default_output.stdout), expected);
+
+    let vm_binary = if cfg!(target_os = "windows") {
+        temp_dir.join(format!("{stem}-vm.exe"))
+    } else {
+        temp_dir.join(format!("{stem}-vm"))
+    };
+    let vm_output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg("-x")
+        .arg("-o")
+        .arg(&vm_binary)
+        .arg(&source_path)
+        .stable_output();
+    assert!(
+        vm_output.status.success(),
+        "qb -e -x fixture run failed for {stem}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&vm_output.stdout),
+        String::from_utf8_lossy(&vm_output.stderr)
+    );
+    assert_eq!(normalize_output(&vm_output.stdout), expected);
+    assert!(
+        vm_binary.exists(),
+        "expected VM runner at {}",
+        vm_binary.display()
+    );
+
+    let compiled_binary = if cfg!(target_os = "windows") {
+        temp_dir.join(format!("{stem}-native.exe"))
+    } else {
+        temp_dir.join(format!("{stem}-native"))
+    };
+    let compile_output = fresh_qb_command(&temp_dir)
+        .arg("-q")
+        .arg("-e")
+        .arg("-c")
+        .arg("-o")
+        .arg(&compiled_binary)
+        .arg(&source_path)
+        .stable_output();
+    assert!(
+        compile_output.status.success(),
+        "qb -e -c fixture compile failed for {stem}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&compile_output.stdout),
+        String::from_utf8_lossy(&compile_output.stderr)
+    );
+    assert!(
+        compiled_binary.exists(),
+        "expected compiled binary at {}",
+        compiled_binary.display()
+    );
+
+    let compiled_output = Command::new(&compiled_binary)
+        .current_dir(&temp_dir)
+        .stable_output();
+    assert!(
+        compiled_output.status.success(),
+        "compiled fixture binary failed for {stem}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&compiled_output.stdout),
+        String::from_utf8_lossy(&compiled_output.stderr)
+    );
+    assert_eq!(normalize_output(&compiled_output.stdout), expected);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn explicit_flag_matches_expected_output_for_declared_conformance_fixtures() {
+    for stem in [
+        "const_and_def_fn",
+        "fixed_length_lset_rset",
+        "logical_comparisons",
+        "static_state",
+        "type_conversions",
+        "user_defined_types",
+    ] {
+        assert_explicit_fixture_matches_expected_output_across_paths(stem);
+    }
 }
 
 #[test]
@@ -1136,10 +1491,15 @@ fn nested_fragment_chains_retry_via_the_top_level_root() {
     );
 
     let built_binary = if cfg!(target_os = "windows") {
-        temp_dir.join("leaf.exe")
+        source_path.with_extension("exe")
     } else {
-        temp_dir.join("leaf")
+        source_path.with_extension("")
     };
+    assert!(
+        built_binary.exists(),
+        "expected nested fragment compile to emit the binary next to the source file at {}",
+        built_binary.display()
+    );
     let compiled = Command::new(&built_binary)
         .current_dir(&temp_dir)
         .stable_output();
@@ -3543,7 +3903,7 @@ fn cls_modes_respect_text_viewport_in_interpreter_and_native_run() {
     )
     .unwrap();
 
-    let expected = "\u{1b}[4;5H3,1\n\u{1b}[4;5H1,1\n";
+    let expected = "3,1\n1,1\n";
 
     let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("-q")
@@ -3601,7 +3961,7 @@ fn locate_omitted_row_and_col_preserve_cursor_in_interpreter_and_native_run() {
     )
     .unwrap();
 
-    let expected = "\u{1b}[5;7H\u{1b}[5;9H\u{1b}[6;9H5,9,6,9\n";
+    let expected = "5,9,6,9\n";
 
     let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("-q")
@@ -3656,7 +4016,7 @@ fn locate_cursor_visibility_matches_between_interpreter_and_native_run() {
     )
     .unwrap();
 
-    let expected = "A\u{1b}[?25lB\u{1b}[?25hC\n";
+    let expected = "ABC\n";
 
     let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("-q")
@@ -3925,7 +4285,7 @@ fn locate_cancels_pending_view_print_scroll_in_interpreter_and_native_run() {
     )
     .unwrap();
 
-    let expected = "A\nB\n\u{1b}[2;5HC\n65,67,66,3\n";
+    let expected = "A\nB\nC\n65,67,66,3\n";
 
     let interpreter = Command::new(env!("CARGO_BIN_EXE_qb"))
         .arg("-q")

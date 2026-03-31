@@ -1,3 +1,5 @@
+DIM I AS INTEGER
+DIM X AS INTEGER
 FOR I = 1 TO 3
     ON I GOSUB FirstCase, SecondCase, ThirdCase
 NEXT I

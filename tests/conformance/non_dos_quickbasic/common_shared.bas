@@ -1,4 +1,5 @@
 COMMON SHARED total AS INTEGER
+DIM i AS INTEGER
 
 FOR i = 1 TO 4
     CALL AddTwo

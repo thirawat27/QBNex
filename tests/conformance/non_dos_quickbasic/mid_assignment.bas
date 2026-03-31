@@ -1,3 +1,4 @@
+DIM TEXT$ AS STRING
 TEXT$ = "ABCDE"
 MID$(TEXT$, 2, 3) = "xyz"
 PRINT TEXT$

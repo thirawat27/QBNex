@@ -10,6 +10,7 @@ pub struct Program {
     pub subs: HashMap<String, SubDef>,
     pub user_types: HashMap<String, UserType>,
     pub data_statements: Vec<Vec<Expression>>,
+    pub option_explicit: bool,
 }
 
 impl Program {
@@ -22,6 +23,7 @@ impl Program {
             subs: HashMap::new(),
             user_types: HashMap::new(),
             data_statements: Vec::new(),
+            option_explicit: false,
         }
     }
 }

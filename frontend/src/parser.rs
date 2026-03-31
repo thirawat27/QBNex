@@ -10,6 +10,8 @@ pub struct Parser {
     known_functions: HashSet<String>,
     collected_user_types: HashMap<String, UserType>,
     pending_statements: VecDeque<Statement>,
+    option_explicit: bool,
+    current_procedure_is_static: bool,
 }
 
 impl Parser {
@@ -22,6 +24,8 @@ impl Parser {
             known_functions: HashSet::new(),
             collected_user_types: HashMap::new(),
             pending_statements: VecDeque::new(),
+            option_explicit: false,
+            current_procedure_is_static: false,
         })
     }
 
@@ -543,6 +547,7 @@ impl Parser {
             }
         }
         program.user_types.extend(self.collected_user_types.clone());
+        program.option_explicit = self.option_explicit;
         Ok(program)
     }
 
@@ -690,20 +695,13 @@ impl Parser {
                 ));
             }
             if self.match_identifier_ci("_EXPLICIT") || self.match_identifier_ci("EXPLICIT") {
-                return Ok(Some(Statement::Print {
-                    expressions: Vec::new(),
-                    separators: Vec::new(),
-                    newline: false,
-                }));
+                self.option_explicit = true;
+                return Ok(None);
             }
             if self.match_identifier_ci("_EXPLICITARRAY")
                 || self.match_identifier_ci("EXPLICITARRAY")
             {
-                return Ok(Some(Statement::Print {
-                    expressions: Vec::new(),
-                    separators: Vec::new(),
-                    newline: false,
-                }));
+                return Ok(None);
             }
             return Err(
                 self.syntax_error_here("Expected BASE, _EXPLICIT, or _EXPLICITARRAY after OPTION")
@@ -1518,7 +1516,7 @@ impl Parser {
         let variables = self.parse_variable_declarations("DIM")?;
         Ok(Statement::Dim {
             variables,
-            is_static: false,
+            is_static: self.current_procedure_is_static && !is_shared,
             is_shared,
             is_common: false,
         })
@@ -3466,6 +3464,8 @@ impl Parser {
 
         // Check for STATIC
         let is_static = self.match_keyword(Keyword::Static);
+        let previous_proc_is_static = self.current_procedure_is_static;
+        self.current_procedure_is_static = is_static;
 
         // Parse body until END SUB
         self.skip_newlines();
@@ -3499,6 +3499,7 @@ impl Parser {
             self.skip_newlines();
         }
 
+        self.current_procedure_is_static = previous_proc_is_static;
         self.consume_keyword(Keyword::EndSub, "Expected END SUB")?;
 
         Ok(SubDef {
@@ -3527,6 +3528,8 @@ impl Parser {
 
         // Check for STATIC
         let is_static = self.match_keyword(Keyword::Static);
+        let previous_proc_is_static = self.current_procedure_is_static;
+        self.current_procedure_is_static = is_static;
 
         // Parse body until END FUNCTION
         self.skip_newlines();
@@ -3560,6 +3563,7 @@ impl Parser {
             self.skip_newlines();
         }
 
+        self.current_procedure_is_static = previous_proc_is_static;
         self.consume_keyword(Keyword::EndFunction, "Expected END FUNCTION")?;
 
         Ok(FunctionDef {

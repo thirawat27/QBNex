@@ -1038,17 +1038,34 @@ mod tests {
     #[test]
     fn parser_supports_qb64_option_forms_and_keyword_named_variables() {
         let program = parse("OPTION _EXPLICIT\noptionbase = 0\nPRINT optionbase");
+        assert!(program.option_explicit);
         assert!(matches!(
             program.statements[0],
-            ProgramStatement::Print { .. }
-        ));
-        assert!(matches!(
-            program.statements[1],
             ProgramStatement::Assignment { .. }
         ));
         assert!(matches!(
-            program.statements[2],
+            program.statements[1],
             ProgramStatement::Print { .. }
+        ));
+    }
+
+    #[test]
+    fn parser_marks_local_dims_inside_static_procedures_as_static() {
+        let program = parse(
+            "SUB Bump STATIC\nDIM count AS INTEGER\nEND SUB\nFUNCTION NextCount# STATIC\nDIM total AS DOUBLE\nEND FUNCTION",
+        );
+        let sub = program.subs.get("Bump").expect("missing sub");
+        let func = program.functions.get("NextCount#").expect("missing function");
+
+        assert!(sub.is_static);
+        assert!(func.is_static);
+        assert!(matches!(
+            sub.body[0],
+            ProgramStatement::Dim { is_static: true, .. }
+        ));
+        assert!(matches!(
+            func.body[0],
+            ProgramStatement::Dim { is_static: true, .. }
         ));
     }
 

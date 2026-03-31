@@ -548,7 +548,7 @@ fn test_vm_input_file_dynamic_round_trip() {
         .runtime
         .globals
         .iter()
-        .any(|value| matches!(value, QType::String(s) if s == "42")));
+        .any(|value| numeric_equals(value, 42.0)));
 
     let _ = std::fs::remove_file(path);
 }
@@ -1405,6 +1405,18 @@ LOCATE , , 1";
     assert!(vm.runtime.cursor_visible);
     assert_eq!(vm.runtime.cursor_start, Some(5));
     assert_eq!(vm.runtime.cursor_stop, Some(6));
+}
+
+#[test]
+fn test_vm_locate_does_not_emit_ansi_when_stdout_is_captured() {
+    let stdout = run_source_with_captured_stdout(
+        "\
+LOCATE 5, 9
+PRINT POS(0)
+",
+    );
+
+    assert_eq!(stdout, "9\n");
 }
 
 #[test]

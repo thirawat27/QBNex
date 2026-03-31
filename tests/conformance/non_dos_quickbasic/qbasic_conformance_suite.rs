@@ -30,6 +30,8 @@ const FIXTURE_STEMS: &[&str] = &[
     "def_type_coercion",
     "erase_redim",
     "fixed_length_lset_rset",
+    "graphics_modes",
+    "graphics_view_window_pmap",
     "logical_comparisons",
     "loop_controls",
     "mid_assignment",
@@ -47,6 +49,7 @@ const FIXTURE_STEMS: &[&str] = &[
     "static_state",
     "string_intrinsics",
     "swap_and_clear",
+    "system_memory_io",
     "type_conversions",
     "user_defined_types",
 ];

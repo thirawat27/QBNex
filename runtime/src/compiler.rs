@@ -109,6 +109,21 @@ impl BytecodeCompiler {
         name.to_ascii_uppercase()
     }
 
+    fn current_procedure_scope_name(&self) -> Option<String> {
+        if let Some(name) = self.current_function.as_ref() {
+            Some(format!("FN:{}", Self::normalize_proc_name(name)))
+        } else {
+            self.current_sub
+                .as_ref()
+                .map(|name| format!("SUB:{}", Self::normalize_proc_name(name)))
+        }
+    }
+
+    fn static_dim_guard_name(&self, var_name: &str) -> Option<String> {
+        self.current_procedure_scope_name()
+            .map(|scope| format!("__STATIC_DIM_INIT__{}__{}", scope, var_name.to_ascii_uppercase()))
+    }
+
     fn collect_def_types(program: &Program) -> DefTypeMap {
         let mut def_types = DefTypeMap::new();
         for statement in &program.statements {
@@ -256,6 +271,56 @@ impl BytecodeCompiler {
             let qtype = self.variable_type_hint(&resolved);
             self.register_numeric_array_type(&resolved.name, &qtype);
         }
+    }
+
+    fn compile_dim_initializer(
+        &mut self,
+        var: &syntax_tree::ast_nodes::Variable,
+        dimensions: Option<&[ArrayDimension]>,
+    ) -> QResult<()> {
+        if let Some(dimensions) = dimensions {
+            self.register_array_storage_metadata(var);
+            self.compile_array_dimensions(&var.name, dimensions, false)?;
+        } else {
+            if let Some(declared_type) = &var.declared_type {
+                self.register_udt_field_slots(&var.name, declared_type);
+            }
+            let var_idx = self.get_var_index(&var.name);
+            self.register_scalar_storage_metadata(var, var_idx);
+            self.bytecode
+                .push(OpCode::LoadConstant(Self::zero_value_for_qtype(
+                    &self.variable_type_hint(var),
+                )));
+            self.bytecode.push(OpCode::StoreFast(var_idx));
+        }
+        Ok(())
+    }
+
+    fn compile_static_dim_initializer(
+        &mut self,
+        var: &syntax_tree::ast_nodes::Variable,
+        dimensions: Option<&[ArrayDimension]>,
+    ) -> QResult<()> {
+        let Some(flag_name) = self.static_dim_guard_name(&var.name) else {
+            return self.compile_dim_initializer(var, dimensions);
+        };
+
+        let flag_idx = self.get_var_index(&flag_name);
+        self.register_numeric_slot_type(flag_idx, &QType::Integer(0));
+        self.bytecode.push(OpCode::LoadFast(flag_idx));
+        let skip_idx = self.bytecode.len();
+        self.bytecode.push(OpCode::JumpIfTrue(0));
+
+        self.compile_dim_initializer(var, dimensions)?;
+        self.bytecode.push(OpCode::LoadConstant(QType::Integer(1)));
+        self.bytecode.push(OpCode::StoreFast(flag_idx));
+
+        let init_end = self.bytecode.len();
+        if let Some(OpCode::JumpIfTrue(target)) = self.bytecode.get_mut(skip_idx) {
+            *target = init_end;
+        }
+
+        Ok(())
     }
 
     fn binary_file_target_metadata(&self, expr: &Expression) -> Option<(BinaryFileKind, usize)> {
@@ -1864,23 +1929,16 @@ impl BytecodeCompiler {
                 self.bytecode.push(OpCode::Pop);
             }
 
-            Statement::Dim { variables, .. } => {
+            Statement::Dim {
+                variables,
+                is_static,
+                ..
+            } => {
                 for (var, dimensions) in variables {
-                    if let Some(dimensions) = dimensions {
-                        self.register_array_storage_metadata(var);
-                        self.compile_array_dimensions(&var.name, dimensions, false)?;
+                    if *is_static {
+                        self.compile_static_dim_initializer(var, dimensions.as_deref())?;
                     } else {
-                        if let Some(declared_type) = &var.declared_type {
-                            self.register_udt_field_slots(&var.name, declared_type);
-                        }
-                        // Simple variable
-                        let var_idx = self.get_var_index(&var.name);
-                        self.register_scalar_storage_metadata(var, var_idx);
-                        self.bytecode
-                            .push(OpCode::LoadConstant(Self::zero_value_for_qtype(
-                                &self.variable_type_hint(var),
-                            )));
-                        self.bytecode.push(OpCode::StoreFast(var_idx));
+                        self.compile_dim_initializer(var, dimensions.as_deref())?;
                     }
                 }
             }

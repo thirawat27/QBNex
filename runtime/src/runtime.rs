@@ -499,12 +499,22 @@ impl VM {
         self.runtime.take_captured_stdout()
     }
 
+    fn stdout_supports_terminal_control(&self) -> bool {
+        self.runtime.captured_stdout.is_none() && io::stdout().is_terminal()
+    }
+
     fn write_stdout(&mut self, text: &str) {
         if let Some(captured) = &mut self.runtime.captured_stdout {
             captured.push_str(text);
         } else {
             print!("{}", text);
             io::stdout().flush().ok();
+        }
+    }
+
+    fn emit_terminal_control(&mut self, text: &str) {
+        if self.stdout_supports_terminal_control() {
+            self.write_stdout(text);
         }
     }
 
@@ -1689,7 +1699,7 @@ impl VM {
         if visible >= 0 {
             let visible = visible != 0;
             if self.runtime.cursor_visible != visible {
-                self.write_stdout(if visible { "\x1B[?25h" } else { "\x1B[?25l" });
+                self.emit_terminal_control(if visible { "\x1B[?25h" } else { "\x1B[?25l" });
             }
             self.runtime.cursor_visible = visible;
         }
@@ -3470,7 +3480,7 @@ impl VM {
 
             OpCode::Locate(row, col) => {
                 if self.locate_cursor(row, col) {
-                    self.write_stdout(&format!(
+                    self.emit_terminal_control(&format!(
                         "\x1B[{};{}H",
                         self.runtime.cursor_row, self.runtime.cursor_col
                     ));
@@ -3481,7 +3491,7 @@ impl VM {
                 let col = self.pop_i32_rounded()?;
                 let row = self.pop_i32_rounded()?;
                 if self.locate_cursor(row, col) {
-                    self.write_stdout(&format!(
+                    self.emit_terminal_control(&format!(
                         "\x1B[{};{}H",
                         self.runtime.cursor_row, self.runtime.cursor_col
                     ));
@@ -3517,7 +3527,7 @@ impl VM {
                 // Simplified color support
                 self.runtime.text_foreground = fg.clamp(0, 255) as u8;
                 self.runtime.text_background = bg.clamp(0, 255) as u8;
-                self.write_stdout(&format!("\x1B[{}m", 30 + fg));
+                self.emit_terminal_control(&format!("\x1B[{}m", 30 + fg));
             }
 
             OpCode::ColorDynamic => {
@@ -3525,7 +3535,7 @@ impl VM {
                 let fg = self.pop_i32_rounded()?;
                 self.runtime.text_foreground = fg.clamp(0, 255) as u8;
                 self.runtime.text_background = bg.clamp(0, 255) as u8;
-                self.write_stdout(&format!("\x1B[{}m", 30 + fg));
+                self.emit_terminal_control(&format!("\x1B[{}m", 30 + fg));
             }
 
             OpCode::SelectCase => {
