@@ -1,0 +1,83 @@
+'=============================================================================
+' QBNex Constants Module
+' Copyright © 2026 thirawat27
+' Version: 1.0.0
+' Description: System-wide constants and ASCII codes
+'=============================================================================
+
+DEFLNG A-Z
+
+'String spacer/delimiter constants
+'sp is used as the primary string spacer
+'sp2 & sp3 are used when further delimiation is required
+DIM SHARED sp AS STRING * 1, sp2 AS STRING * 1, sp3 AS STRING * 1
+sp = CHR$(13): sp2 = CHR$(10): sp3 = CHR$(26)
+DIM SHARED sp_asc AS LONG, sp2_asc AS LONG, sp3_asc AS LONG
+sp_asc = ASC(sp): sp2_asc = ASC(sp2): sp3_asc = ASC(sp3)
+
+'ASCII code constants
+CONST ASC_BACKSLASH = 92
+CONST ASC_FORWARDSLASH = 47
+CONST ASC_LEFTBRACKET = 40
+CONST ASC_RIGHTBRACKET = 41
+CONST ASC_FULLSTOP = 46
+CONST ASC_COLON = 58
+CONST ASC_SEMICOLON = 59
+CONST ASC_UNDERSCORE = 95
+CONST ASC_QUOTE = 34
+CONST ASC_LEFTSQUAREBRACKET = 91
+CONST ASC_RIGHTSQUAREBRACKET = 93
+CONST ASC_QUESTIONMARK = 63
+CONST ASC_TAB = 9
+CONST ASC_SPACE = 32
+CONST ASC_NEWLINE = 10
+CONST ASC_CARRIAGE_RETURN = 13
+
+'Special characters
+DIM SHARED CHR_QUOTE AS STRING: CHR_QUOTE$ = CHR$(34)
+DIM SHARED CHR_TAB AS STRING: CHR_TAB$ = CHR$(9)
+DIM SHARED CRLF AS STRING: CRLF$ = CHR$(13) + CHR$(10)
+
+'Key codes for console input
+CONST KEY_ENTER = 13
+CONST KEY_ESC = 27
+CONST KEY_SPACE = 32
+CONST KEY_BACKSPACE = 8
+CONST KEY_TAB = 9
+
+'Compiler status codes
+CONST STATUS_SUCCESS = 0
+CONST STATUS_ERROR_PARSE = 1
+CONST STATUS_ERROR_COMPILE = 2
+CONST STATUS_ERROR_LINK = 3
+CONST STATUS_ERROR_RUNTIME = 4
+CONST STATUS_WARNING = 10
+
+'Maximum limits
+CONST MAX_SOURCE_LINES = 100000
+CONST MAX_IDENTIFIER_LENGTH = 64
+CONST MAX_STRING_LENGTH = 32767
+CONST MAX_ARRAY_DIMENSIONS = 60
+CONST MAX_INCLUDE_DEPTH = 10
+CONST MAX_ERROR_MESSAGE_LENGTH = 256
+
+'File extensions
+CONST EXT_SOURCE$ = ".bas"
+CONST EXT_OUTPUT_WIN$ = ".exe"
+CONST EXT_OUTPUT_LNX$ = ""
+CONST EXT_OUTPUT_MAC$ = ""
+CONST EXT_TEMP$ = ".tmp"
+CONST EXT_LOG$ = ".log"
+
+'Platform identifiers
+CONST PLATFORM_WINDOWS = 1
+CONST PLATFORM_LINUX = 2
+CONST PLATFORM_MACOS = 3
+
+'Compilation phases
+CONST PHASE_INIT = 0
+CONST PHASE_PARSE = 1
+CONST PHASE_GENERATE = 2
+CONST PHASE_COMPILE = 3
+CONST PHASE_LINK = 4
+CONST PHASE_FINALIZE = 5

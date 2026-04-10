@@ -1,20 +1,78 @@
-internal/c/c_compiler
-internal/temp*
+```
+# Binary and compiled files
+*.bin
+*.obj
 *.o
-*.a
 *.exe
-*.bas
-internal/config*.txt
-internal/config.ini
-# internal/help
-internal/version.txt
-tempfoldersearch.bin
-internal/c/mingw32
-internal/c/mingw64
-internal/c/qbx[2-9].cpp
-*.ttf
-/run_qb64.sh
-/qb64
-.fake
-.vscode
-build.cmd
+*.dll
+*.so
+*.a
+*.out
+
+# Build artifacts
+build/
+dist/
+target/
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.egg-info/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# MyPy cache
+.mypy_cache/
+# PyTest cache
+.pytest_cache/
+
+# Data files that appear to be generated
+internal/source/data*.txt
+internal/source/data*.bin
+```
