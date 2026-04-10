@@ -1,0 +1,88 @@
+name: Release CI
+
+on:
+  workflow_dispatch:
+    branches: [ "master" ]
+
+jobs:
+  linux-build:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'ci-skip')"
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt update && sudo apt install libglu1-mesa-dev libncurses-dev
+    - name: Bootstrap compiler
+      run: .ci/bootstrap.sh lnx
+    - name: Compile
+      run: .ci/compile.sh
+    - name: Publish
+      if: github.event_name == 'push'
+      run: .ci/deploy.sh lnx
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      with: 
+        name: qb64_${{ github.ref_name }}_${{ github.sha }}_lnx
+        path: /home/runner/work/qb64/qb64_*.tar.gz
+
+  macos-build:
+    runs-on: macos-latest
+    if: "!contains(github.event.head_commit.message, 'ci-skip')"
+    steps:
+    - uses: actions/checkout@v4
+    - name: Bootstrap compiler
+      run: .ci/bootstrap.sh osx
+    - name: Compile
+      run: .ci/compile.sh
+    - name: Publish
+      if: github.event_name == 'push'
+      run: .ci/deploy.sh osx
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      with: 
+        name: qb64_${{ github.ref_name }}_${{ github.sha }}_osx
+        path: /Users/runner/work/qb64/qb64_*.tar.gz
+
+  windows-x86-build:
+    runs-on: windows-latest
+    if: "!contains(github.event.head_commit.message, 'ci-skip')"
+    env:
+      PLATFORM: x86
+    steps:
+    - uses: actions/checkout@v4
+    - name: Bootstrap compiler
+      run: .ci/bootstrap32.bat
+    - name: Compile
+      run: .ci/compile.bat
+    - name: Publish
+      if: github.event_name == 'push'
+      run: .ci/deploy.ps1
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      if: always()
+      with: 
+        name: qb64_${{ github.ref_name }}_${{ github.sha }}_win-x86
+        path: D:\a\qb64\qb64_*.7z
+
+  windows-x64-build:
+    runs-on: windows-latest
+    if: "!contains(github.event.head_commit.message, 'ci-skip')"
+    env:
+      PLATFORM: x64
+    steps:
+    - uses: actions/checkout@v4
+    - name: Bootstrap compiler
+      run: .ci/bootstrap.bat
+    - name: Compile
+      run: .ci/compile.bat
+    - name: Publish
+      if: github.event_name == 'push'
+      run: .ci/deploy.ps1
+    - name: Upload
+      uses: actions/upload-artifact@v3
+      with: 
+        name: qb64_${{ github.ref_name }}_${{ github.sha }}_win-x64
+        path: D:\a\qb64\qb64_*.7z
+
+# ${{ github.event.repository.updated_at }}
+# path: ${{ github.workspace }}\qb64_*.7z
