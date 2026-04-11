@@ -1,4 +1,4 @@
-#ifdef QB64_MACOSX
+#ifdef QBNex_MACOSX
 #include <sys/sysctl.h>
 #endif
 
@@ -44,7 +44,7 @@ void sub__glrender(int32 method){
 }
 
 
-#ifndef QB64_GUI //begin stubs
+#ifndef QBNex_GUI //begin stubs
     
     
     
@@ -422,7 +422,7 @@ void sub__glrender(int32 method){
         if (new_mode==ALPHA_MODE__BLEND){
             glEnable(GL_BLEND);
             if (framebufferobjects_supported){
-                #ifndef QB64_GLES
+                #ifndef QBNex_GLES
                     //glBlendFuncSeparateEXT(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
                     glBlendFuncSeparateEXT(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
                     #else
@@ -532,7 +532,7 @@ void sub__glrender(int32 method){
                 static int32 dst_w,dst_h;
                 static int32 scale_factor=0;
 
-                #ifdef QB64_MACOSX
+                #ifdef QBNex_MACOSX
                     if (scale_factor==0) {
                         // by default scale_factor should be 1, but in macOS Catalina (10.15.*) scale_factor must be setted in 2
                         // * in cases where the app is executed on system with Retina Display
@@ -1314,7 +1314,7 @@ void sub__glrender(int32 method){
         }
         in_GLUT_DISPLAY_REQUEST=1;
         
-        #ifdef QB64_MACOSX
+        #ifdef QBNex_MACOSX
             if (temp_window_title_set==1) {
                 glutSetWindowTitle((char*)window_title);
                 temp_window_title_set=0;
@@ -1967,7 +1967,7 @@ void sub__glrender(int32 method){
     
     
     void GLUT_MouseButton_Up(int button,int x,int y){
-        #ifdef QB64_GLUT
+        #ifdef QBNex_GLUT
             int32 i;
             int32 handle;
             handle=mouse_message_queue_first;
@@ -2003,7 +2003,7 @@ void sub__glrender(int32 method){
     }
     
     void GLUT_MouseButton_Down(int button,int x,int y){
-        #ifdef QB64_GLUT
+        #ifdef QBNex_GLUT
             
             int32 i;
             int32 handle;
@@ -2058,7 +2058,7 @@ void sub__glrender(int32 method){
     }
     
     void GLUT_MOUSE_FUNC(int glut_button,int state,int x,int y){
-        #ifdef QB64_GLUT
+        #ifdef QBNex_GLUT
             if (state==GLUT_DOWN) GLUT_MouseButton_Down(glut_button + 1,x,y);
             if (state==GLUT_UP) GLUT_MouseButton_Up(glut_button + 1,x,y);
         #endif
@@ -2080,7 +2080,7 @@ void sub__glrender(int32 method){
             if (nextIndex>queue->lastIndex) nextIndex=0;
             queue->current=nextIndex;
         }
-        #ifdef QB64_WINDOWS
+        #ifdef QBNex_WINDOWS
         // Windows calculates relative movement by intercepting WM_INPUT events instead
         xrel = 0;
         yrel = 0;
@@ -2168,7 +2168,7 @@ void sub__glrender(int32 method){
     
     
     void GLUT_MOUSEWHEEL_FUNC(int wheel, int direction, int x, int y){
-        #ifdef QB64_GLUT
+        #ifdef QBNex_GLUT
             //Note: freeglut specific, limited documentation existed so the following research was done:
             //  qbs_print(qbs_str(wheel),NULL); <-- was always 0 [could 1 indicate horizontal wheel?]
             //  qbs_print(qbs_str(direction),NULL); <-- 1(up) or -1(down)

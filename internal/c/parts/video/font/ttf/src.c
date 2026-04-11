@@ -16,7 +16,7 @@ int32 FontWidth(int32 i){return NULL;}
 void FontFree(int32 i){return;}
 #else
 
-#ifdef QB64_BACKSLASH_FILESYSTEM
+#ifdef QBNex_BACKSLASH_FILESYSTEM
  #include "src\\freetypeamalgam.h"
 #else
  #include "src/freetypeamalgam.h"

@@ -22,8 +22,8 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v3
       with: 
-        name: qb64_${{ github.ref_name }}_${{ github.sha }}_lnx
-        path: /home/runner/work/qb64/qb64_*.tar.gz
+        name: qbnex_${{ github.ref_name }}_${{ github.sha }}_lnx
+        path: ${{ github.workspace }}/qbnex_*.tar.gz
 
   macos-build:
     runs-on: macos-latest
@@ -40,8 +40,8 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v3
       with: 
-        name: qb64_${{ github.ref_name }}_${{ github.sha }}_osx
-        path: /Users/runner/work/qb64/qb64_*.tar.gz
+        name: qbnex_${{ github.ref_name }}_${{ github.sha }}_osx
+        path: ${{ github.workspace }}/qbnex_*.tar.gz
 
   windows-x86-build:
     runs-on: windows-latest
@@ -61,8 +61,8 @@ jobs:
       uses: actions/upload-artifact@v3
       if: always()
       with: 
-        name: qb64_${{ github.ref_name }}_${{ github.sha }}_win-x86
-        path: D:\a\qb64\qb64_*.7z
+        name: qbnex_${{ github.ref_name }}_${{ github.sha }}_win-x86
+        path: ${{ github.workspace }}\qbnex_*.7z
 
   windows-x64-build:
     runs-on: windows-latest
@@ -81,8 +81,8 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@v3
       with: 
-        name: qb64_${{ github.ref_name }}_${{ github.sha }}_win-x64
-        path: D:\a\qb64\qb64_*.7z
+        name: qbnex_${{ github.ref_name }}_${{ github.sha }}_win-x64
+        path: ${{ github.workspace }}\qbnex_*.7z
 
 # ${{ github.event.repository.updated_at }}
-# path: ${{ github.workspace }}\qb64_*.7z
+# path: ${{ github.workspace }}\qbnex_*.7z

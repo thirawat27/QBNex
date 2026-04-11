@@ -261,16 +261,16 @@ static void initGamepad() {
 	Gamepad_init();
 }
 
-void QB64_GAMEPAD_INIT(){
+void QBNex_GAMEPAD_INIT(){
 	initGamepad();
 }
 
-void QB64_GAMEPAD_POLL(){
+void QBNex_GAMEPAD_POLL(){
 	Gamepad_detectDevices();
 	Gamepad_processEvents();
 }
 
-void QB64_GAMEPAD_SHUTDOWN(){
+void QBNex_GAMEPAD_SHUTDOWN(){
 	Gamepad_deviceAttachFunc(NULL, (void *) 0x1);
 	Gamepad_deviceRemoveFunc(NULL, (void *) 0x2);
 	Gamepad_buttonDownFunc(NULL, (void *) 0x3);

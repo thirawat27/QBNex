@@ -5,7 +5,7 @@
 //   \__\_\___/\___/ |_| /_/ \_\_,_\__,_|_\___/ |___|_||_\__, |_|_||_\___|
 //                                                       |___/
 //
-//  QB64 Audio Engine powered by miniaudio (https://miniaud.io/)
+//  QBNex Audio Engine powered by miniaudio (https://miniaud.io/)
 //
 //	This implements a data source that decodes MIDI files using TinySoundFont + TinyMidiLoader
 //	https://github.com/schellingb/TinySoundFont (MIT)

@@ -1,7 +1,7 @@
 ' String Extensions
 
 ' Please reserve this module for only string methods that can be 
-' utilized outside of QB64. Meaning, anyone could add this to their
+' utilized outside of QBNex. Meaning, anyone could add this to their
 ' personal project and leverage the same functionality.
 
 ' Removes a string pattern from an existing string (case-insensitive).

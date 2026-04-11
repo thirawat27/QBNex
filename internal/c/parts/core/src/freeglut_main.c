@@ -43,17 +43,17 @@
 #    define VFPRINTF(s,f,a)
 #endif
 
-int qb64_custom_event(int event,int v1,int v2,int v3,int v4,int v5,int v6,int v7,int v8,void *p1,void *p2);
+int qbnex_custom_event(int event,int v1,int v2,int v3,int v4,int v5,int v6,int v7,int v8,void *p1,void *p2);
 #if TARGET_HOST_POSIX_X11
- void qb64_os_event_linux(XEvent *event, Display *display, int *qb64_os_event_info);
+ void qbnex_os_event_linux(XEvent *event, Display *display, int *qbnex_os_event_info);
 #else
- LRESULT qb64_os_event_windows(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, int *qb64_os_event_info);
+ LRESULT qbnex_os_event_windows(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, int *qbnex_os_event_info);
 #endif
 
-#define QB64_EVENT_CLOSE 1
-#define QB64_EVENT_KEY 2
-#define QB64_EVENT_RELATIVE_MOUSE_MOVEMENT 3
-#define QB64_EVENT_FILE_DROP 4
+#define QBNex_EVENT_CLOSE 1
+#define QBNex_EVENT_KEY 2
+#define QBNex_EVENT_RELATIVE_MOUSE_MOVEMENT 3
+#define QBNex_EVENT_FILE_DROP 4
 
 #define QBK 200000
 #define VK 100000
@@ -1307,11 +1307,11 @@ void FGAPIENTRY glutMainLoopEvent( void )
         fghPrintEvent( &event );
 #endif
 
-	int qb64_os_event_info=0;
+	int qbnex_os_event_info=0;
 
-	qb64_os_event_info=1;
-	qb64_os_event_linux(&event, fgDisplay.Display, &qb64_os_event_info);
-	if (qb64_os_event_info==3) return; 
+	qbnex_os_event_info=1;
+	qbnex_os_event_linux(&event, fgDisplay.Display, &qbnex_os_event_info);
+	if (qbnex_os_event_info==3) return; 
 
         switch( event.type )
         {
@@ -1324,7 +1324,7 @@ void FGAPIENTRY glutMainLoopEvent( void )
             if( (Atom) event.xclient.data.l[ 0 ] == fgDisplay.DeleteWindow )
             {
                 GETWINDOW( xclient );
-		qb64_custom_event(QB64_EVENT_CLOSE,0,0,0,0,0,0,0,0,NULL,NULL);
+		qbnex_custom_event(QBNex_EVENT_CLOSE,0,0,0,0,0,0,0,0,NULL,NULL);
 		/*                fgDestroyWindow ( window );
 
                 if( fgState.ActionOnWindowClose == GLUT_ACTION_EXIT )
@@ -1765,9 +1765,9 @@ void FGAPIENTRY glutMainLoopEvent( void )
             break;
         }
 
-	qb64_os_event_info=2;
-	qb64_os_event_linux(&event, fgDisplay.Display, &qb64_os_event_info);
-	if (qb64_os_event_info==3) return;//(although we would return anyway)
+	qbnex_os_event_info=2;
+	qbnex_os_event_linux(&event, fgDisplay.Display, &qbnex_os_event_info);
+	if (qbnex_os_event_info==3) return;//(although we would return anyway)
 
     }
 
@@ -1920,14 +1920,14 @@ LRESULT CALLBACK fgWindowProc( HWND hWnd, UINT uMsg, WPARAM wParam,
                                LPARAM lParam )
 {
 
-    int qb64_os_event_info=0;
-    LRESULT qb64_os_event_return=1;
+    int qbnex_os_event_info=0;
+    LRESULT qbnex_os_event_return=1;
 
-    qb64_os_event_info=1;
-    qb64_os_event_return=qb64_os_event_windows(
-	hWnd, uMsg, wParam,lParam, &qb64_os_event_info
+    qbnex_os_event_info=1;
+    qbnex_os_event_return=qbnex_os_event_windows(
+	hWnd, uMsg, wParam,lParam, &qbnex_os_event_info
     );
-    if (qb64_os_event_info==3) return qb64_os_event_return; 
+    if (qbnex_os_event_info==3) return qbnex_os_event_return; 
 
     static unsigned char lControl = 0, rControl = 0, lShift = 0,
                          rShift = 0, lAlt = 0, rAlt = 0;
@@ -2226,18 +2226,18 @@ LRESULT CALLBACK fgWindowProc( HWND hWnd, UINT uMsg, WPARAM wParam,
 
     case WM_CLOSE:
 
-//QB64
+//QBNex
 /*
         fgDestroyWindow ( window );
         if ( fgState.ActionOnWindowClose != GLUT_ACTION_CONTINUE_EXECUTION )
             PostQuitMessage(0);
 */
-        qb64_custom_event(QB64_EVENT_CLOSE,0,0,0,0,0,0,0,0,NULL,NULL);
+        qbnex_custom_event(QBNex_EVENT_CLOSE,0,0,0,0,0,0,0,0,NULL,NULL);
 
         break;
 
     case WM_DROPFILES:
-        qb64_custom_event(QB64_EVENT_FILE_DROP,0,0,0,0,0,0,0,0,(void*)wParam,NULL);
+        qbnex_custom_event(QBNex_EVENT_FILE_DROP,0,0,0,0,0,0,0,0,(void*)wParam,NULL);
         break;
 
     case WM_DESTROY:
@@ -2252,7 +2252,7 @@ LRESULT CALLBACK fgWindowProc( HWND hWnd, UINT uMsg, WPARAM wParam,
  case WM_INPUT:
     {
     if (raw_setup){
-        //QB64
+        //QBNex
         //adapted from http://msdn.microsoft.com/en-us/library/windows/desktop/ee418864%28v=vs.85%29.aspx#WM_INPUT
         UINT dwSize = sizeof(RAWINPUT);
         static BYTE lpb[sizeof(RAWINPUT)];
@@ -2263,7 +2263,7 @@ LRESULT CALLBACK fgWindowProc( HWND hWnd, UINT uMsg, WPARAM wParam,
         {
             int xPosRelative = raw->data.mouse.lLastX;
             int yPosRelative = raw->data.mouse.lLastY;
-            if (xPosRelative||yPosRelative) qb64_custom_event(QB64_EVENT_RELATIVE_MOUSE_MOVEMENT,xPosRelative,yPosRelative,0,0,0,0,0,0,NULL,NULL);
+            if (xPosRelative||yPosRelative) qbnex_custom_event(QBNex_EVENT_RELATIVE_MOUSE_MOVEMENT,xPosRelative,yPosRelative,0,0,0,0,0,0,NULL,NULL);
         }
 
     }
@@ -2508,13 +2508,13 @@ LRESULT CALLBACK fgWindowProc( HWND hWnd, UINT uMsg, WPARAM wParam,
     case WM_KEYDOWN:
     {
 
-//QB64
+//QBNex
 if (wParam==VK_PAUSE){
- qb64_custom_event(QB64_EVENT_KEY,VK+QBVK_PAUSE,1,0,0,0,0,0,0,NULL,NULL);
+ qbnex_custom_event(QBNex_EVENT_KEY,VK+QBVK_PAUSE,1,0,0,0,0,0,0,NULL,NULL);
  break;
 }
 if (wParam==VK_CANCEL){
- qb64_custom_event(QB64_EVENT_KEY,VK+QBVK_BREAK,1,0,0,0,0,0,0,NULL,NULL);
+ qbnex_custom_event(QBNex_EVENT_KEY,VK+QBVK_BREAK,1,0,0,0,0,0,0,NULL,NULL);
  break;
 }
 
@@ -2613,13 +2613,13 @@ if (wParam==VK_CANCEL){
     case WM_KEYUP:
     {
 
-//QB64
+//QBNex
 if (wParam==VK_PAUSE){
- qb64_custom_event(QB64_EVENT_KEY,VK+QBVK_PAUSE,-1,0,0,0,0,0,0,NULL,NULL);
+ qbnex_custom_event(QBNex_EVENT_KEY,VK+QBVK_PAUSE,-1,0,0,0,0,0,0,NULL,NULL);
  break;
 }
 if (wParam==VK_CANCEL){
- qb64_custom_event(QB64_EVENT_KEY,VK+QBVK_BREAK,-1,0,0,0,0,0,0,NULL,NULL);
+ qbnex_custom_event(QBNex_EVENT_KEY,VK+QBVK_BREAK,-1,0,0,0,0,0,0,NULL,NULL);
  break;
 }
 
@@ -2915,11 +2915,11 @@ if (wParam==VK_CANCEL){
         break;
     }
 
-    qb64_os_event_info=2;
-    qb64_os_event_return=qb64_os_event_windows(
-	hWnd, uMsg, wParam,lParam, &qb64_os_event_info
+    qbnex_os_event_info=2;
+    qbnex_os_event_return=qbnex_os_event_windows(
+	hWnd, uMsg, wParam,lParam, &qbnex_os_event_info
     );
-    if (qb64_os_event_info==3) return qb64_os_event_return; 
+    if (qbnex_os_event_info==3) return qbnex_os_event_return; 
 
     return lRet;
 }

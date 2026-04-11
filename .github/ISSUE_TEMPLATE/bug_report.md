@@ -7,9 +7,9 @@ assignees: ''
 
 ---
 
-**QB64 info (please complete the following information):**
- - First, make sure you've tried to replicate the problem in the latest development build. Get it from [Github Repo](https://github.com/QB64Official/qb64): [Yes, the issue is in the latest dev build. / No, the issue was fixed. Yay!]
- - If the suspected bug is also present in the latest dev build, please report what you get in the `Help->About` dialog: [e.g. `Version 2.1 dev build from git a6101af`]
+**QBNex info (please complete the following information):**
+ - First, make sure you've tried to replicate the problem in the latest development build. Get it from [Github Repo](https://github.com/thirawat27/QBNex): [Yes, the issue is in the latest dev build. / No, the issue was fixed. Yay!]
+ - If the suspected bug is also present in the latest dev build, please report what you get in the `Help->About` dialog: [e.g. `Version 1.0.0 from git a6101af`]
  - Report the OS you're using: [e.g. Windows 10 Build 2H2D]
  
  **Describe the bug**

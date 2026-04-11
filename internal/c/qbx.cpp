@@ -22,12 +22,12 @@ extern int32 vWatchHandle();
 #endif
 
 
-#ifdef QB64_MACOSX
+#ifdef QBNex_MACOSX
     #include <ApplicationServices/ApplicationServices.h>
 #endif
 
 /* testing only
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
     
     HWND FindMyTopMostWindow()
     {
@@ -58,7 +58,7 @@ extern int32 vWatchHandle();
 extern void error(int32 error_number);
 extern int32 sub_gl_called;
 
-#ifdef QB64_GUI
+#ifdef QBNex_GUI
     #ifdef DEPENDENCY_GL
         
         #include "parts/core/gl_header_for_parsing/temp/gl_helper_code.h"
@@ -296,7 +296,7 @@ extern void sub_defseg(int32 segment,int32 passed);
 extern int32 func_peek(int32 offset);
 extern void sub_poke(int32 offset,int32 value);
 extern void more_return_points();
-extern void qb64_generatesound(double f,double l,uint8 wait);
+extern void qbnex_generatesound(double f,double l,uint8 wait);
 extern uint8 *soundwave(double frequency,double length,double volume,double fadein,double fadeout);
 extern int32 wavesize(double length);
 extern qbs *qbs_new_descriptor();
@@ -661,7 +661,7 @@ int64 func__readbit(uint64 a1, int b1);
 uint64 func__setbit(uint64 a1, int b1);
 uint64 func__resetbit(uint64 a1, int b1);
 uint64 func__togglebit(uint64 a1, int b1);
-#ifndef QB64_WINDOWS
+#ifndef QBNex_WINDOWS
     extern void Sleep(uint32 milliseconds);
     extern void ZeroMemory(void *ptr,int64 bytes);
 #endif
@@ -976,7 +976,7 @@ void call_setbits(uint32 bsize,ptrszint *array,ptrszint i,int64 val) {
 }
 
 int32 logical_drives() {
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         return GetLogicalDrives();
     #else
         return 0;
@@ -1129,7 +1129,7 @@ inline uint16 varseg_dblock_check(uint8 *off){
     }
 }
 
-#ifdef QB64_WINDOWS
+#ifdef QBNex_WINDOWS
     #include "..\\temp\\regsf.txt"
     #include "..\\temp\\global.txt"
     #else
@@ -1145,7 +1145,7 @@ extern int32 ScreenResizeScale;
 //main() begins, to set global, static variables
 //controlling app init
 void set_dynamic_info(){
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         #include "..\\temp\\dyninfo.txt"
         #else
         #include "../temp/dyninfo.txt"
@@ -1155,7 +1155,7 @@ void set_dynamic_info(){
 void sub_clear(int32 ignore,int32 ignore2, int32 stack,int32 passed){
     static ptrszint tmp_long;
     //note: stack can be ignored
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         #include "..\\temp\\clear.txt"
         #else
         #include "../temp/clear.txt"
@@ -1242,7 +1242,7 @@ void chain_input(){
                 sub_get(FF,NULL,byte_element((uint64)&int32val,4),0);
                 
                 //read COMMON data
-                #ifdef QB64_WINDOWS
+                #ifdef QBNex_WINDOWS
                     #include "..\\temp\\inpchain.txt"
                     #else
                     #include "../temp/inpchain.txt"
@@ -1268,7 +1268,7 @@ void chain_input(){
 void sub_chain(qbs* f){
     if (new_error) return;
     
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         
         //run program
         static qbs *str=NULL; if (str==NULL) str=qbs_new(0,0);
@@ -1413,7 +1413,7 @@ void sub_chain(qbs* f){
         
         chain_savescreenstate(FF);
         
-        #ifdef QB64_WINDOWS
+        #ifdef QBNex_WINDOWS
             #include "..\\temp\\chain.txt"
             #else
             #include "../temp/chain.txt"
@@ -1468,7 +1468,7 @@ void sub_chain(qbs* f){
             //attempt .bas compilation
             qbs_set(str,qbs_new_txt_len("\x022",1));
             qbs_set(str,qbs_add(str,thisexe_path));
-            qbs_set(str,qbs_add(str,qbs_new_txt("qb64.exe")));
+            qbs_set(str,qbs_add(str,qbs_new_txt("qb.exe")));
             qbs_set(str,qbs_add(str,qbs_new_txt_len("\x022",1)));
             qbs_set(str,qbs_add(str,qbs_new_txt(" -c ")));
             qbs_set(str,qbs_add(str,f_path));
@@ -1486,7 +1486,7 @@ void sub_chain(qbs* f){
         //add NULL terminator
         qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
         
-        #ifdef QB64_WINDOWS
+        #ifdef QBNex_WINDOWS
             
             if (WinExec((char *)strz->chr,SW_SHOWDEFAULT)>31){
                 goto run_exit;
@@ -1755,7 +1755,7 @@ void sub_strig(int32 i,int32 controller,int32 option,int32 passed){
     if (new_error) return;
     //Note: QuickBASIC ignores STRIG ON and STRIG OFF statements--the statements are provided for compatibility with earlier versions,
     //      Reference: http://www.antonis.de/qbebooks/gwbasman/strig.html
-    //      QB64 makes STRIG ON/OFF/STOP change the checking status for all buttons
+    //      QBNex makes STRIG ON/OFF/STOP change the checking status for all buttons
     static int32 i1,i2;
     if (passed>0){
         if (i<0||i>65535){error(5); return;}
@@ -1920,7 +1920,7 @@ void sub_timer(int32 i,int32 option,int32 passed){
 }
 
 
-#ifdef QB64_WINDOWS
+#ifdef QBNex_WINDOWS
     void TIMERTHREAD_WINDOWS(void *unused){
         TIMERTHREAD();
         return;
@@ -1990,7 +1990,7 @@ void events(){
                                         x=onstrig[(di<<8)+i].id;
                                         i64=onstrig[(di<<8)+i].pass;
                                         switch(x){
-                                            #ifdef QB64_WINDOWS
+                                            #ifdef QBNex_WINDOWS
                                                 #include "..\\temp\\onstrig.txt"
                                                 #else
                                                 #include "../temp/onstrig.txt"
@@ -2028,7 +2028,7 @@ void events(){
                             x=onkey[i].id;
                             i64=onkey[i].pass;
                             switch(x){
-                                #ifdef QB64_WINDOWS
+                                #ifdef QBNex_WINDOWS
                                     #include "..\\temp\\onkey.txt"
                                     #else
                                     #include "../temp/onkey.txt"
@@ -2061,7 +2061,7 @@ void events(){
                             i64=ontimer[i].pass;
                             switch(x){
                                 
-                                #ifdef QB64_WINDOWS
+                                #ifdef QBNex_WINDOWS
                                     #include "..\\temp\\ontimer.txt"
                                     #else
                                     #include "../temp/ontimer.txt"
@@ -2135,7 +2135,7 @@ void division_by_zero_handler(int ignore){
 //    error(256);//assume stack overflow? (the most likely cause)
 //}
 
-#ifdef QB64_WINDOWS
+#ifdef QBNex_WINDOWS
     void QBMAIN_WINDOWS(void *unused){
         QBMAIN(NULL);
         return;
@@ -2149,7 +2149,7 @@ void division_by_zero_handler(int ignore){
 void QBMAIN(void *unused)
 {
     fpu_reinit();
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         signal(SIGFPE, division_by_zero_handler);
         //signal(SIGSEGV, SIGSEGV_handler);
         #else
@@ -2167,7 +2167,7 @@ void QBMAIN(void *unused)
     static mem_lock *sf_mem_lock=NULL;
     if (!sf_mem_lock){new_mem_lock(); sf_mem_lock=mem_lock_tmp; sf_mem_lock->type=3;}
     
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         #include "..\\temp\\maindata.txt"
         #include "..\\temp\\runline.txt"
         #include "..\\temp\\mainerr.txt"

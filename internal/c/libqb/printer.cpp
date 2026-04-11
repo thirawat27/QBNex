@@ -9,7 +9,7 @@
     
     void sub__printimage(int32 i){
         
-        #ifdef QB64_WINDOWS
+        #ifdef QBNex_WINDOWS
             
             static LPSTR szPrinterName=NULL;
             DWORD dwNameLen;

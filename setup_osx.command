@@ -6,7 +6,7 @@ stty -icanon -echo min 1 time 0
 dd count=1 2>/dev/null
 stty $OLDCONFIG
 }
-echo "QB64 Setup"
+echo "QBNex Setup"
 echo ""
 
 find . -name "*.command" -exec chmod +x {} \;
@@ -54,22 +54,21 @@ if [ ! -f ./src.o ]; then
 fi
 popd >/dev/null
 
-echo "Building 'QB64' (~3 min)"
+echo "Building 'QBNex' (~3 min)"
 cp ./internal/source/* ./internal/temp/
 pushd internal/c >/dev/null
-clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb64
+clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb
 popd >/dev/null
 
 echo ""
-if [ -f ./qb64 ]; then
-  echo "QB64 CLI compiler is ready:"
-  echo "  ./qb64 yourfile.bas"
+if [ -f ./qb ]; then
+  echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
   echo ""
   echo "Press any key to continue..."
   Pause
 else
-  echo "Compilation of QB64 failed!"
+  echo "Compilation of QBNex failed!"
   Pause
   exit 1
 fi

@@ -1,8 +1,8 @@
-#ifndef QB64_GLES
+#ifndef QBNex_GLES
  #include "glew/include/GL/glew.h"
 #endif
 
-#ifdef QB64_MACOSX
+#ifdef QBNex_MACOSX
  //note: MacOSX uses Apple's GLUT not FreeGLUT
  #include <OpenGL/gl.h>
  #include <OpenGL/glu.h>

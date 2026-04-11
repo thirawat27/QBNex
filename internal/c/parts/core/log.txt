@@ -1,14 +1,14 @@
 -downloaded: http://freeglut.sourceforge.net/index.php#download
 -copied *.c in 'src' folder of download to src
 -copied headers in 'include' folder of download to src
--created QB64 program to help locally build freeglut without makefiles
+-created QBNex program to help locally build freeglut without makefiles
  note: this program is for reference purposes only, do not run it unless you fully understand it
  note: for rebuilding edits to the exisiting source, simple run the batch/script file provided
 
-########################### QB64 PROGRAM TO MANAGE FREEGLUT LIBRARY ######################################
+########################### QBNex PROGRAM TO MANAGE FREEGLUT LIBRARY ######################################
 'FreeGLUT Source Manipulation
 rel_c_path$ = "..\..\"
-c_path$ = "c:\qb64_gl_core\internal\c\" '<<<<<<<<<< ********CHANGE ME*********
+c_path$ = "c:\qbnex_gl_core\internal\c\" '<<<<<<<<<< ********CHANGE ME*********
 path$ = c_path$ + "parts\core\"
 SHELL "dir /b /s " + path$ + "src\*.c >glutfiles.txt"
 OPEN path$ + "rebuild_libfreeglut_a.bat" FOR OUTPUT AS #10

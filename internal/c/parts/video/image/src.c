@@ -5,7 +5,7 @@
 //   \__\_\___/\___/ |_|  |___|_|_|_\__,_\__, \___| |____|_|_.__/_| \__,_|_|  \_, |
 //                                       |___/                                |__/
 //
-//  QB64 Image Library
+//  QBNex Image Library
 //  Powered by stb_image (https://github.com/nothings/stb) & dr_pcx (https://github.com/mackron/dr_pcx)
 //
 //  Copyright (c) 2022 Samuel Gomes
@@ -335,7 +335,7 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed)
         }
         else
         {
-            // Remap the image indexes to QB64 default palette and then free our palette
+            // Remap the image indexes to QBNex default palette and then free our palette
             image_remap_palette(pixels256, x, y, palette, palette_256);
             free(palette);
 
@@ -343,7 +343,7 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed)
             memcpy(img[-i].offset, pixels256, x * y);
             free(pixels256);
 
-            // Copy the default QB64 palette
+            // Copy the default QBNex palette
             memcpy(img[-i].pal, palette_256, 256 * sizeof(uint32_t));
         }
     }

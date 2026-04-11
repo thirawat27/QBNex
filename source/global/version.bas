@@ -2,8 +2,8 @@ DIM SHARED Version AS STRING
 DIM SHARED DevChannel AS STRING
 DIM SHARED AutoBuildMsg AS STRING
 
-Version$ = "2.1.1"
-DevChannel$ = "Development Build"
+Version$ = "1.0.0"
+DevChannel$ = ""
 IF _FILEEXISTS("internal/version.txt") THEN
     versionfile = FREEFILE
     OPEN "internal/version.txt" FOR INPUT AS #versionfile

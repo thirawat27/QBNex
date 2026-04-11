@@ -1,7 +1,7 @@
 //Common
 int32 requestedKeyboardOverlayImage=0;
 
-#ifndef QB64_GUI //begin stubs
+#ifndef QBNex_GUI //begin stubs
     
     //STUB: simulate generating a hardware surface
     int32 new_hardware_img(int32 x, int32 y, uint32 *pixels, int32 flags){
@@ -53,7 +53,7 @@ int32 requestedKeyboardOverlayImage=0;
     
     
     
-    int32 force_NPO2_fix=0;//This should only be set to 1 for debugging QB64
+    int32 force_NPO2_fix=0;//This should only be set to 1 for debugging QBNex
     
     uint32 *NPO2_buffer=(uint32*)malloc(4);
     int32 NPO2_buffer_size_in_pixels=1;
@@ -260,7 +260,7 @@ int32 requestedKeyboardOverlayImage=0;
         if (hardware_img->depthbuffer_handle==0){
             //inspiration... http://www.opengl.org/wiki/Framebuffer_Object_Examples#Color_texture.2C_Depth_texture
             static GLuint depth_tex;
-            #ifndef QB64_GLES
+            #ifndef QBNex_GLES
                 glGenTextures(1, &depth_tex);
                 glBindTexture(GL_TEXTURE_2D, depth_tex);
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);

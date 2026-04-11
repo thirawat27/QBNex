@@ -1,8 +1,8 @@
 #!/bin/bash
-#QB64 Installer -- Shell Script -- Matt Kilgore 2013
+#QBNex Installer -- Shell Script -- Matt Kilgore 2013
 #Version 5 -- January 2020
 
-#This checks the currently installed packages for the one's QB64 needs
+#This checks the currently installed packages for the ones QBNex needs
 #And runs the package manager to install them if that is the case
 pkg_install() {
   #Search
@@ -31,10 +31,10 @@ fi
 GET_WGET=
 #Path to Icon
 #Relative Path to icon -- Don't include beginning or trailing '/'
-QB64_ICON_PATH="internal/source"
+QBNex_ICON_PATH="internal/source"
 
 #Name of the Icon picture
-QB64_ICON_NAME="qb64icon32.png"
+QBNex_ICON_NAME="qbnexicon32.png"
 
 DISTRO=
 
@@ -98,7 +98,7 @@ elif [ "$DISTRO" == "voidlinux" ]; then
 
 elif [ -z "$DISTRO" ]; then
   echo "Unable to detect distro, skipping package installation"
-  echo "Please be aware that for QB64 to compile, you will need the following installed:"
+  echo "Please be aware that QBNex requires the following to compile:"
   echo "  OpenGL developement libraries"
   echo "  ALSA development libraries"
   echo "  GNU C++ Compiler (g++)"
@@ -106,7 +106,7 @@ elif [ -z "$DISTRO" ]; then
   echo "  zlib"
 fi
 
-echo "Compiling and installing QB64..."
+echo "Compiling and installing QBNex..."
 
 ### Build process
 find . -name "*.sh" -exec chmod +x {} \;
@@ -133,25 +133,24 @@ rm -f src.a
 ./setup_build.sh
 popd >/dev/null
 
-echo "Building 'QB64'"
+echo "Building 'QBNex'"
 cp -r ./internal/source/* ./internal/temp/
 pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb64
+g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb
 popd
 
-if [ -e "./qb64" ]; then
+if [ -e "./qb" ]; then
   echo "Done compiling!!"
   echo
-  echo "QB64 CLI compiler is ready:"
-  echo "  ./qb64 yourfile.bas"
+  echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
 else
-  ### QB64 didn't compile
-  echo "It appears that the qb64 executable file was not created, this is usually an indication of a compile failure (You probably saw lots of error messages pop up on the screen)"
+  ### QBNex did not compile
+  echo "It appears that the qb executable file was not created, which usually indicates a compile failure."
   echo "Usually these are due to missing packages needed for compilation. If you're not running a distro supported by this compiler, please note you will need to install the packages listed above."
-  echo "If you need help, please feel free to post on the QB64 Forums detailing what happened and what distro you are using."
+  echo "If you need help, please open an issue at https://github.com/thirawat27/QBNex/issues with your distro details and build log."
   echo "Also, please tell them the exact contents of this next line:"
   echo "DISTRO: $DISTRO"
 fi
 echo
-echo "Thank you for using the QB64 installer."
+echo "Thank you for using the QBNex installer."

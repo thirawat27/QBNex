@@ -49,10 +49,10 @@ if exist mingw32 rmdir /s /q mingw32
 echo Remove internal/version.txt
 if exist internal\version.txt del internal\version.txt
 
-echo Remove qb64.exe
-if exist qb64.exe del qb64.exe
+echo Remove qb.exe
+if exist qb.exe del qb.exe
 
-echo Remove qb64-dev.exe
-if exist qb64-dev.exe del qb64-dev.exe
+echo Remove qb-dev.exe
+if exist qb-dev.exe del qb-dev.exe
 
 pause

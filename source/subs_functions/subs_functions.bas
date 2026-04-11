@@ -75,17 +75,17 @@ id.n = "SetMem": id.subfunc = 1: id.callname = "func_stub": id.args = 1: id.arg 
 clearid
 id.n = "FileAttr": id.subfunc = 1: id.callname = "func_stub": id.args = 2: id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
 clearid
-id.n = qb64prefix$ + "MemGet": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = qbnexprefix$ + "MemGet": id.subfunc = 2: id.callname = "sub_stub": regid
 clearid
-id.n = qb64prefix$ + "MemPut": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = qbnexprefix$ + "MemPut": id.subfunc = 2: id.callname = "sub_stub": regid
 clearid
-id.n = qb64prefix$ + "MemFill": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = qbnexprefix$ + "MemFill": id.subfunc = 2: id.callname = "sub_stub": regid
 clearid
-id.n = qb64prefix$ + "Continue": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = qbnexprefix$ + "Continue": id.subfunc = 2: id.callname = "sub_stub": regid
 
 
 clearid
-id.n = qb64prefix$ + "Resize"
+id.n = qbnexprefix$ + "Resize"
 id.subfunc = 2
 id.callname = "sub__resize"
 id.args = 2
@@ -95,7 +95,7 @@ id.hr_syntax = "_RESIZE [{ON|OFF}][, {_STRETCH|_SMOOTH}]"
 regid
 
 clearid
-id.n = qb64prefix$ + "Resize"
+id.n = qbnexprefix$ + "Resize"
 id.subfunc = 1
 id.callname = "func__resize"
 id.ret = LONGTYPE - ISPOINTER
@@ -103,7 +103,7 @@ id.hr_syntax = "_RESIZE"
 regid
 
 clearid
-id.n = qb64prefix$ + "ResizeWidth"
+id.n = qbnexprefix$ + "ResizeWidth"
 id.subfunc = 1
 id.callname = "func__resizewidth"
 id.ret = LONGTYPE - ISPOINTER
@@ -111,7 +111,7 @@ id.hr_syntax = "_RESIZEWIDTH"
 regid
 
 clearid
-id.n = qb64prefix$ + "ResizeHeight"
+id.n = qbnexprefix$ + "ResizeHeight"
 id.subfunc = 1
 id.callname = "func__resizeheight"
 id.ret = LONGTYPE - ISPOINTER
@@ -119,7 +119,7 @@ id.hr_syntax = "_RESIZEHEIGHT"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScaledWidth"
+id.n = qbnexprefix$ + "ScaledWidth"
 id.subfunc = 1
 id.callname = "func__scaledwidth"
 id.ret = LONGTYPE - ISPOINTER
@@ -127,7 +127,7 @@ id.hr_syntax = "_SCALEDWIDTH"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScaledHeight"
+id.n = qbnexprefix$ + "ScaledHeight"
 id.subfunc = 1
 id.callname = "func__scaledheight"
 id.ret = LONGTYPE - ISPOINTER
@@ -136,7 +136,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "GLRender"
+id.n = qbnexprefix$ + "GLRender"
 id.subfunc = 2
 id.callname = "sub__glrender"
 id.args = 1
@@ -146,7 +146,7 @@ id.hr_syntax = "_GLRENDER {_Behind|_OnTop|_Only}"
 regid
 
 clearid
-id.n = qb64prefix$ + "DisplayOrder"
+id.n = qbnexprefix$ + "DisplayOrder"
 id.subfunc = 2
 id.callname = "sub__displayorder"
 id.args = 4
@@ -156,7 +156,7 @@ id.hr_syntax = "_DISPLAYORDER {_Software|_Hardware|_Hardware1|_GLRender} (any co
 regid
 
 clearid
-id.n = qb64prefix$ + "MemGet"
+id.n = qbnexprefix$ + "MemGet"
 id.subfunc = 1
 id.callname = "func__memget"
 id.args = 3
@@ -166,7 +166,7 @@ id.hr_syntax = "_MEMGET(block, offset, type)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Mem"
+id.n = qbnexprefix$ + "Mem"
 id.subfunc = 1
 id.callname = "func__mem"
 'id.args = 1
@@ -180,7 +180,7 @@ regid
 '---special case---
 
 clearid
-id.n = qb64prefix$ + "MemElement"
+id.n = qbnexprefix$ + "MemElement"
 id.subfunc = 1
 id.callname = "func__mem"
 id.args = 1
@@ -193,7 +193,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "MemFree"
+id.n = qbnexprefix$ + "MemFree"
 id.subfunc = 2
 id.callname = "sub__memfree"
 id.args = 1
@@ -202,7 +202,7 @@ id.hr_syntax = "_MEMFREE memoryVariable"
 regid
 
 clearid
-id.n = qb64prefix$ + "MemExists"
+id.n = qbnexprefix$ + "MemExists"
 id.subfunc = 1
 id.callname = "func__memexists"
 id.args = 1
@@ -212,7 +212,7 @@ id.hr_syntax = "_MEMEXISTS(memBlock)"
 regid
 
 clearid
-id.n = qb64prefix$ + "MemNew"
+id.n = qbnexprefix$ + "MemNew"
 id.subfunc = 1
 id.callname = "func__memnew"
 id.args = 1
@@ -222,7 +222,7 @@ id.hr_syntax = "_MEMNEW(byteSize)"
 regid
 
 clearid
-id.n = qb64prefix$ + "MemImage"
+id.n = qbnexprefix$ + "MemImage"
 id.subfunc = 1
 id.callname = "func__memimage"
 id.args = 1
@@ -233,7 +233,7 @@ id.hr_syntax = "_MEMIMAGE or _MEMIMAGE(imageHandle)"
 regid
 
 clearid
-id.n = qb64prefix$ + "MemSound": id.Dependency = DEPENDENCY_AUDIO_DECODE
+id.n = qbnexprefix$ + "MemSound": id.Dependency = DEPENDENCY_AUDIO_DECODE
 id.subfunc = 1
 id.callname = "func__memsound"
 id.args = 2
@@ -243,7 +243,7 @@ id.hr_syntax = "_MEMSOUND(soundHandle)"
 regid
 
 clearid '_MEMCOPY a, aoffset, bytes TO b, boffset
-id.n = qb64prefix$ + "MemCopy"
+id.n = qbnexprefix$ + "MemCopy"
 id.subfunc = 2
 id.callname = "sub__memcopy"
 id.args = 5
@@ -253,7 +253,7 @@ id.hr_syntax = "_MEMCOPY sourceBlock, sourceBlock.OFFSET, sourceBlock.SIZE TO de
 regid
 
 clearid
-id.n = qb64prefix$ + "ConsoleTitle"
+id.n = qbnexprefix$ + "ConsoleTitle"
 id.subfunc = 2
 id.callname = "sub__consoletitle"
 id.args = 1
@@ -262,21 +262,21 @@ id.hr_syntax = "_CONSOLETITLE title$"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenShow"
+id.n = qbnexprefix$ + "ScreenShow"
 id.subfunc = 2
 id.callname = "sub__screenshow"
 id.hr_syntax = "_SCREENSHOW"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenHide"
+id.n = qbnexprefix$ + "ScreenHide"
 id.subfunc = 2
 id.callname = "sub__screenhide"
 id.hr_syntax = "_SCREENHIDE"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenHide"
+id.n = qbnexprefix$ + "ScreenHide"
 id.subfunc = 1
 id.callname = "func__screenhide"
 id.ret = LONGTYPE - ISPOINTER
@@ -285,7 +285,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "Console"
+id.n = qbnexprefix$ + "Console"
 id.subfunc = 1
 id.callname = "func__console"
 id.ret = LONGTYPE - ISPOINTER
@@ -293,7 +293,7 @@ id.hr_syntax = "_CONSOLE"
 regid
 
 clearid
-id.n = qb64prefix$ + "Console"
+id.n = qbnexprefix$ + "Console"
 id.subfunc = 2
 id.callname = "sub__console"
 id.args = 1
@@ -303,7 +303,7 @@ id.hr_syntax = "_CONSOLE {On|Off}"
 regid
 
 clearid
-id.n = qb64prefix$ + "ControlChr"
+id.n = qbnexprefix$ + "ControlChr"
 id.subfunc = 2
 id.callname = "sub__controlchr"
 id.args = 1
@@ -313,7 +313,7 @@ id.hr_syntax = "_CONTROLCHR {On|Off}"
 regid
 
 clearid
-id.n = qb64prefix$ + "Blink"
+id.n = qbnexprefix$ + "Blink"
 id.subfunc = 2
 id.callname = "sub__blink"
 id.args = 1
@@ -323,7 +323,7 @@ id.hr_syntax = "_BLINK {On|Off}"
 regid
 
 clearid
-id.n = qb64prefix$ + "Blink"
+id.n = qbnexprefix$ + "Blink"
 id.subfunc = 1
 id.callname = "func__blink"
 id.ret = LONGTYPE - ISPOINTER
@@ -331,7 +331,7 @@ id.hr_syntax = "_BLINK"
 regid
 
 clearid
-id.n = qb64prefix$ + "FileExists"
+id.n = qbnexprefix$ + "FileExists"
 id.subfunc = 1
 id.callname = "func__fileexists"
 id.args = 1
@@ -341,7 +341,7 @@ id.hr_syntax = "_FILEEXISTS(fileName$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "DirExists"
+id.n = qbnexprefix$ + "DirExists"
 id.subfunc = 1
 id.callname = "func__direxists"
 id.args = 1
@@ -350,7 +350,7 @@ id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "_DIREXISTS(path$)"
 regid
 
-'QB64 DEVICE interface
+'QBNex DEVICE interface
 
 clearid
 id.n = "Stick": id.Dependency=DEPENDENCY_DEVICEINPUT
@@ -388,7 +388,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "Devices": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "Devices": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__devices"
 id.ret = LONGTYPE - ISPOINTER
@@ -396,7 +396,7 @@ id.hr_syntax = "_DEVICES"
 regid
 
 clearid
-id.n = qb64prefix$ + "Device": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "Device": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__device"
@@ -408,7 +408,7 @@ id.hr_syntax = "_DEVICE$(device_number)"
 regid
 
 clearid
-id.n = qb64prefix$ + "DeviceInput": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "DeviceInput": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__deviceinput"
 id.args = 1
@@ -419,7 +419,7 @@ id.hr_syntax = "_DEVICEINPUT or _DEVICEINPUT(device_number%)"
 regid
 
 clearid
-id.n = qb64prefix$ + "LastButton": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "LastButton": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__lastbutton"
 id.args = 1
@@ -430,7 +430,7 @@ id.hr_syntax = "_LASTBUTTON(deviceNumber)"
 regid
 
 clearid
-id.n = qb64prefix$ + "LastAxis": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "LastAxis": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__lastaxis"
 id.args = 1
@@ -441,7 +441,7 @@ id.hr_syntax = "_LASTAXIS(deviceNumber)"
 regid
 
 clearid
-id.n = qb64prefix$ + "LastWheel": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "LastWheel": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__lastwheel"
 id.args = 1
@@ -452,7 +452,7 @@ id.hr_syntax = "_LASTWHEEL(deviceNumber)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Button": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "Button": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__button"
 id.args = 1
@@ -463,7 +463,7 @@ id.hr_syntax = "_BUTTON(button_number%)"
 regid
 
 clearid
-id.n = qb64prefix$ + "ButtonChange": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "ButtonChange": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__buttonchange"
 id.args = 1
@@ -474,7 +474,7 @@ id.hr_syntax = "_BUTTONCHANGE(button_number%)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Axis": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "Axis": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__axis"
 id.args = 1
@@ -486,7 +486,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "Wheel": id.Dependency=DEPENDENCY_DEVICEINPUT
+id.n = qbnexprefix$ + "Wheel": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
 id.callname = "func__wheel"
 id.args = 1
@@ -516,7 +516,7 @@ id.hr_syntax = "KEY(number) {On|Off|Stop}"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenX"
+id.n = qbnexprefix$ + "ScreenX"
 id.subfunc = 1
 id.callname = "func__screenx"
 id.ret = LONGTYPE - ISPOINTER
@@ -524,7 +524,7 @@ id.hr_syntax = "_SCREENX"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenY"
+id.n = qbnexprefix$ + "ScreenY"
 id.subfunc = 1
 id.callname = "func__screeny"
 id.ret = LONGTYPE - ISPOINTER
@@ -532,7 +532,7 @@ id.hr_syntax = "_SCREENY"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenMove"
+id.n = qbnexprefix$ + "ScreenMove"
 id.subfunc = 2
 id.callname = "sub__screenmove"
 id.args = 2
@@ -542,7 +542,7 @@ id.hr_syntax = "_SCREENMOVE x, y or _SCREENMOVE _Middle"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseMove"
+id.n = qbnexprefix$ + "MouseMove"
 id.subfunc = 2
 id.callname = "sub__mousemove"
 id.args = 2
@@ -551,7 +551,7 @@ id.hr_syntax = "_MOUSEMOVE x, y"
 regid
 
 clearid
-id.n = qb64prefix$ + "OS"
+id.n = qbnexprefix$ + "OS"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__os"
@@ -560,7 +560,7 @@ id.hr_syntax = "_OS$"
 regid
 
 clearid
-id.n = qb64prefix$ + "Title"
+id.n = qbnexprefix$ + "Title"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__title"
@@ -569,7 +569,7 @@ id.hr_syntax = "_TITLE$"
 regid
 
 clearid
-id.n = qb64prefix$ + "MapUnicode"
+id.n = qbnexprefix$ + "MapUnicode"
 id.subfunc = 2
 id.callname = "sub__mapunicode"
 id.args = 2
@@ -579,7 +579,7 @@ id.hr_syntax = "_MAPUNICODE unicode& TO asciiCode%"
 regid
 
 clearid
-id.n = qb64prefix$ + "MapUnicode"
+id.n = qbnexprefix$ + "MapUnicode"
 id.subfunc = 1
 id.callname = "func__mapunicode"
 id.args = 1
@@ -589,7 +589,7 @@ id.hr_syntax = "_MAPUNICODE(asciiCode%)"
 regid
 
 clearid
-id.n = qb64prefix$ + "KeyDown"
+id.n = qbnexprefix$ + "KeyDown"
 id.subfunc = 1
 id.callname = "func__keydown"
 id.args = 1
@@ -599,7 +599,7 @@ id.hr_syntax = "_KEYDOWN(code&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "KeyHit"
+id.n = qbnexprefix$ + "KeyHit"
 id.subfunc = 1
 id.callname = "func__keyhit"
 id.ret = LONGTYPE - ISPOINTER
@@ -607,7 +607,7 @@ id.hr_syntax = "_KEYHIT"
 regid
 
 clearid
-id.n = qb64prefix$ + "WindowHandle"
+id.n = qbnexprefix$ + "WindowHandle"
 id.subfunc = 1
 id.callname = "func__handle"
 id.ret = INTEGER64TYPE - ISPOINTER
@@ -625,7 +625,7 @@ id.hr_syntax = "FILES fileSpec$"
 regid
 
 clearid
-id.n = qb64prefix$ + "PrintImage": id.Dependency = DEPENDENCY_PRINTER
+id.n = qbnexprefix$ + "PrintImage": id.Dependency = DEPENDENCY_PRINTER
 id.subfunc = 2
 id.callname = "sub__printimage"
 id.args = 1
@@ -638,7 +638,7 @@ regid
 'remote desktop
 
 clearid
-id.n = qb64prefix$ + "ScreenClick"
+id.n = qbnexprefix$ + "ScreenClick"
 id.subfunc = 2
 id.callname = "sub__screenclick"
 id.args = 3
@@ -648,7 +648,7 @@ id.hr_syntax = "_SCREENCLICK x, y[, button%]"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenPrint"
+id.n = qbnexprefix$ + "ScreenPrint"
 id.subfunc = 2
 id.callname = "sub__screenprint"
 id.args = 1
@@ -657,7 +657,7 @@ id.hr_syntax = "_SCREENPRINT text$"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenImage": id.Dependency = DEPENDENCY_SCREENIMAGE
+id.n = qbnexprefix$ + "ScreenImage": id.Dependency = DEPENDENCY_SCREENIMAGE
 id.subfunc = 1
 id.callname = "func__screenimage"
 id.args = 4
@@ -692,7 +692,7 @@ id.hr_syntax = "UNLOCK #fileNumber%, record& or UNLOCK #fileNumber% firstRecord&
 regid
 
 clearid
-id.n = qb64prefix$ + "FreeTimer"
+id.n = qbnexprefix$ + "FreeTimer"
 id.subfunc = 1
 id.callname = "func__freetimer"
 id.ret = LONGTYPE - ISPOINTER
@@ -710,7 +710,7 @@ id.hr_syntax = "TIMER[(number%)] {On|Off|Stop|Free}"
 regid
 
 clearid
-id.n = qb64prefix$ + "FullScreen"
+id.n = qbnexprefix$ + "FullScreen"
 id.subfunc = 2
 id.callname = "sub__fullscreen"
 id.args = 1
@@ -720,7 +720,7 @@ id.hr_syntax = "_FULLSCREEN [{_Off|_Stretch|_SquarePixels|Off}][,{_Smooth}]"
 regid
 
 clearid
-id.n = qb64prefix$ + "AllowFullScreen"
+id.n = qbnexprefix$ + "AllowFullScreen"
 id.subfunc = 2
 id.callname = "sub__allowfullscreen"
 id.args = 2
@@ -730,7 +730,7 @@ id.hr_syntax = "_ALLOWFULLSCREEN [{_Stretch|_SquarePixels|_Off|_All|Off}][,{_Smo
 regid
 
 clearid
-id.n = qb64prefix$ + "FullScreen"
+id.n = qbnexprefix$ + "FullScreen"
 id.subfunc = 1
 id.callname = "func__fullscreen"
 id.ret = LONGTYPE - ISPOINTER
@@ -738,7 +738,7 @@ id.hr_syntax = "_FULLSCREEN"
 regid
 
 clearid
-id.n = qb64prefix$ + "Smooth"
+id.n = qbnexprefix$ + "Smooth"
 id.subfunc = 1
 id.callname = "func__fullscreensmooth"
 id.ret = LONGTYPE - ISPOINTER
@@ -746,7 +746,7 @@ id.hr_syntax = "_SMOOTH"
 regid
 
 clearid
-id.n = qb64prefix$ + "WindowHasFocus"
+id.n = qbnexprefix$ + "WindowHasFocus"
 id.subfunc = 1
 id.callname = "func__hasfocus"
 id.ret = LONGTYPE - ISPOINTER
@@ -754,7 +754,7 @@ id.hr_syntax = "_WINDOWHASFOCUS"
 regid
 
 clearid
-id.n = qb64prefix$ + "Clipboard"
+id.n = qbnexprefix$ + "Clipboard"
 id.musthave = "$"
 id.subfunc = 2
 id.callname = "sub__clipboard"
@@ -765,7 +765,7 @@ id.hr_syntax = "_CLIPBOARD$ = text$"
 regid
 
 clearid
-id.n = qb64prefix$ + "Clipboard"
+id.n = qbnexprefix$ + "Clipboard"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__clipboard"
@@ -774,7 +774,7 @@ id.hr_syntax = "_CLIPBOARD$"
 regid
 
 clearid
-id.n = qb64prefix$ + "ClipboardImage": id.Dependency = DEPENDENCY_SCREENIMAGE
+id.n = qbnexprefix$ + "ClipboardImage": id.Dependency = DEPENDENCY_SCREENIMAGE
 id.subfunc = 1
 id.callname = "func__clipboardimage"
 id.ret = LONGTYPE - ISPOINTER
@@ -782,7 +782,7 @@ id.hr_syntax = "_CLIPBOARDIMAGE"
 regid
 
 clearid
-id.n = qb64prefix$ + "ClipboardImage": id.Dependency = DEPENDENCY_SCREENIMAGE
+id.n = qbnexprefix$ + "ClipboardImage": id.Dependency = DEPENDENCY_SCREENIMAGE
 id.subfunc = 2
 id.callname = "sub__clipboardimage"
 id.args = 1
@@ -792,7 +792,7 @@ id.hr_syntax = "_CLIPBOARDIMAGE = existingImageHandle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "Exit"
+id.n = qbnexprefix$ + "Exit"
 id.subfunc = 1
 id.callname = "func__exit"
 id.ret = LONGTYPE - ISPOINTER
@@ -800,7 +800,7 @@ id.hr_syntax = "_EXIT"
 regid
 
 clearid
-id.n = qb64prefix$ + "OpenHost": id.Dependency = DEPENDENCY_SOCKETS
+id.n = qbnexprefix$ + "OpenHost": id.Dependency = DEPENDENCY_SOCKETS
 id.subfunc = 1
 id.callname = "func__openhost"
 id.args = 1
@@ -810,7 +810,7 @@ id.hr_syntax = "_OPENHOST(" + CHR$(34) + "TCP/IP:portNumber" + CHR$(34) + ")"
 regid
 
 clearid
-id.n = qb64prefix$ + "Connected"
+id.n = qbnexprefix$ + "Connected"
 id.subfunc = 1
 id.callname = "func__connected"
 id.args = 1
@@ -820,7 +820,7 @@ id.hr_syntax = "_CONNECTED(connectionHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "ConnectionAddress"
+id.n = qbnexprefix$ + "ConnectionAddress"
 id.mayhave = "$"
 id.subfunc = 1
 id.callname = "func__connectionaddress"
@@ -831,7 +831,7 @@ id.hr_syntax = "_CONNECTIONADDRESS(connectionHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "OpenConnection"
+id.n = qbnexprefix$ + "OpenConnection"
 id.subfunc = 1
 id.callname = "func__openconnection"
 id.args = 1
@@ -841,7 +841,7 @@ id.hr_syntax = "_OPENCONNECTION(hostHandle)"
 regid
 
 clearid
-id.n = qb64prefix$ + "OpenClient": id.Dependency = DEPENDENCY_SOCKETS
+id.n = qbnexprefix$ + "OpenClient": id.Dependency = DEPENDENCY_SOCKETS
 id.subfunc = 1
 id.callname = "func__openclient"
 id.args = 1
@@ -852,7 +852,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "EnvironCount"
+id.n = qbnexprefix$ + "EnvironCount"
 id.subfunc = 1
 id.callname = "func__environcount"
 id.ret = LONGTYPE - ISPOINTER
@@ -880,7 +880,7 @@ id.hr_syntax = "ENVIRON stringExpression$"
 regid
 
 clearid
-id.n = qb64prefix$ + "ErrorLine"
+id.n = qbnexprefix$ + "ErrorLine"
 id.subfunc = 1
 id.callname = "func__errorline"
 id.ret = LONGTYPE - ISPOINTER
@@ -888,7 +888,7 @@ id.hr_syntax = "_ERRORLINE"
 regid
 
 clearid
-id.n = qb64prefix$ + "InclErrorLine"
+id.n = qbnexprefix$ + "InclErrorLine"
 id.subfunc = 1
 id.callname = "func__inclerrorline"
 id.ret = LONGTYPE - ISPOINTER
@@ -896,7 +896,7 @@ id.hr_syntax = "_INCLERRORLINE"
 regid
 
 clearid
-id.n = qb64prefix$ + "ErrorMessage"
+id.n = qbnexprefix$ + "ErrorMessage"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__errormessage"
@@ -908,7 +908,7 @@ id.hr_syntax = "_ERRORMESSAGE$ or _ERRORMESSAGE$(errorCode%)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Assert"
+id.n = qbnexprefix$ + "Assert"
 id.subfunc = 2
 id.callname = "sub__assert"
 id.args = 2
@@ -918,21 +918,21 @@ id.hr_syntax = "_ASSERT condition[, errorMessage$]"
 regid
 
 clearid
-id.n = qb64prefix$ + "Display"
+id.n = qbnexprefix$ + "Display"
 id.subfunc = 2
 id.callname = "sub__display"
 id.hr_syntax = "_DISPLAY"
 regid
 
 clearid
-id.n = qb64prefix$ + "AutoDisplay"
+id.n = qbnexprefix$ + "AutoDisplay"
 id.subfunc = 2
 id.callname = "sub__autodisplay"
 id.hr_syntax = "_AUTODISPLAY"
 regid
 
 clearid
-id.n = qb64prefix$ + "Limit"
+id.n = qbnexprefix$ + "Limit"
 id.subfunc = 2
 id.callname = "sub__limit"
 id.args = 1
@@ -941,7 +941,7 @@ id.hr_syntax = "_LIMIT framesPerSecond!"
 regid
 
 clearid
-id.n = qb64prefix$ + "FPS"
+id.n = qbnexprefix$ + "FPS"
 id.subfunc = 2
 id.callname = "sub__fps"
 id.args = 1
@@ -951,7 +951,7 @@ id.hr_syntax = "_FPS fps! or _FPS _Auto"
 regid
 
 clearid
-id.n = qb64prefix$ + "Delay"
+id.n = qbnexprefix$ + "Delay"
 id.subfunc = 2
 id.callname = "sub__delay"
 id.args = 1
@@ -960,7 +960,7 @@ id.hr_syntax = "_DELAY seconds!"
 regid
 
 clearid
-id.n = qb64prefix$ + "Icon": id.Dependency = DEPENDENCY_ICON
+id.n = qbnexprefix$ + "Icon": id.Dependency = DEPENDENCY_ICON
 id.subfunc = 2
 id.callname = "sub__icon"
 id.args = 2
@@ -970,7 +970,7 @@ id.hr_syntax = "_ICON [mainImageHandle&[, smallImageHandle&]]"
 regid
 
 clearid
-id.n = qb64prefix$ + "Title"
+id.n = qbnexprefix$ + "Title"
 id.subfunc = 2
 id.callname = "sub__title"
 id.args = 1
@@ -979,7 +979,7 @@ id.hr_syntax = "_TITLE text$"
 regid
 
 clearid
-id.n = qb64prefix$ + "Echo"
+id.n = qbnexprefix$ + "Echo"
 id.subfunc = 2
 id.callname = "sub__echo"
 id.args = 1
@@ -988,7 +988,7 @@ id.hr_syntax = "_ECHO text$"
 regid
 
 clearid
-id.n = qb64prefix$ + "AcceptFileDrop"
+id.n = qbnexprefix$ + "AcceptFileDrop"
 id.subfunc = 2
 id.callname = "sub__filedrop"
 id.args = 1
@@ -998,7 +998,7 @@ id.hr_syntax = "_ACCEPTFILEDROP [{On|Off}]"
 regid
 
 clearid
-id.n = qb64prefix$ + "AcceptFileDrop"
+id.n = qbnexprefix$ + "AcceptFileDrop"
 id.subfunc = 1
 id.callname = "func__filedrop"
 id.ret = LONGTYPE - ISPOINTER
@@ -1006,14 +1006,14 @@ id.hr_syntax = "_ACCEPTFILEDROP"
 regid
 
 clearid
-id.n = qb64prefix$ + "FinishDrop"
+id.n = qbnexprefix$ + "FinishDrop"
 id.subfunc = 2
 id.callname = "sub__finishdrop"
 id.hr_syntax = "_FINISHDROP"
 regid
 
 clearid
-id.n = qb64prefix$ + "TotalDroppedFiles"
+id.n = qbnexprefix$ + "TotalDroppedFiles"
 id.subfunc = 1
 id.callname = "func__totaldroppedfiles"
 id.ret = LONGTYPE - ISPOINTER
@@ -1021,7 +1021,7 @@ id.hr_syntax = "_TOTALDROPPEDFILES"
 regid
 
 clearid
-id.n = qb64prefix$ + "DroppedFile"
+id.n = qbnexprefix$ + "DroppedFile"
 id.mayhave = "$"
 id.subfunc = 1
 id.callname = "func__droppedfile"
@@ -1045,7 +1045,7 @@ regid
 'IMAGE CREATION/FREEING
 
 clearid
-id.n = qb64prefix$ + "NewImage"
+id.n = qbnexprefix$ + "NewImage"
 id.subfunc = 1
 id.callname = "func__newimage"
 id.args = 3
@@ -1056,7 +1056,7 @@ id.hr_syntax = "_NEWIMAGE(width&, height&, mode)"
 regid
 
 clearid
-id.n = qb64prefix$ + "LoadImage": id.Dependency = DEPENDENCY_IMAGE_CODEC
+id.n = qbnexprefix$ + "LoadImage": id.Dependency = DEPENDENCY_IMAGE_CODEC
 id.subfunc = 1
 id.callname = "func__loadimage"
 id.args = 2
@@ -1067,7 +1067,7 @@ id.hr_syntax = "_LOADIMAGE(fileName$[, mode])"
 regid
 
 clearid
-id.n = qb64prefix$ + "FreeImage"
+id.n = qbnexprefix$ + "FreeImage"
 id.subfunc = 2
 id.callname = "sub__freeimage"
 id.args = 1
@@ -1077,7 +1077,7 @@ id.hr_syntax = "_FREEIMAGE handle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "CopyImage"
+id.n = qbnexprefix$ + "CopyImage"
 id.subfunc = 1
 id.callname = "func__copyimage"
 id.args = 2
@@ -1090,7 +1090,7 @@ regid
 'IMAGE SELECTION
 
 clearid
-id.n = qb64prefix$ + "Source"
+id.n = qbnexprefix$ + "Source"
 id.subfunc = 2
 id.callname = "sub__source"
 id.args = 1
@@ -1100,7 +1100,7 @@ id.hr_syntax = "_SOURCE handle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "Dest"
+id.n = qbnexprefix$ + "Dest"
 id.subfunc = 2
 id.callname = "sub__dest"
 id.args = 1
@@ -1110,7 +1110,7 @@ id.hr_syntax = "_DEST imageHandle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "Source"
+id.n = qbnexprefix$ + "Source"
 id.subfunc = 1
 id.callname = "func__source"
 id.ret = LONGTYPE - ISPOINTER
@@ -1118,7 +1118,7 @@ id.hr_syntax = "_SOURCE"
 regid
 
 clearid
-id.n = qb64prefix$ + "Dest"
+id.n = qbnexprefix$ + "Dest"
 id.subfunc = 1
 id.callname = "func__dest"
 id.ret = LONGTYPE - ISPOINTER
@@ -1126,7 +1126,7 @@ id.hr_syntax = "_DEST"
 regid
 
 clearid
-id.n = qb64prefix$ + "Display"
+id.n = qbnexprefix$ + "Display"
 id.subfunc = 1
 id.callname = "func__display"
 id.ret = LONGTYPE - ISPOINTER
@@ -1136,7 +1136,7 @@ regid
 'IMAGE SETTINGS
 
 clearid
-id.n = qb64prefix$ + "Blend"
+id.n = qbnexprefix$ + "Blend"
 id.subfunc = 2
 id.callname = "sub__blend"
 id.args = 1
@@ -1146,7 +1146,7 @@ id.hr_syntax = "_BLEND [imageHandle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "DontBlend"
+id.n = qbnexprefix$ + "DontBlend"
 id.subfunc = 2
 id.callname = "sub__dontblend"
 id.args = 1
@@ -1156,7 +1156,7 @@ id.hr_syntax = "_DONTBLEND [imageHandle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "ClearColor"
+id.n = qbnexprefix$ + "ClearColor"
 id.subfunc = 2
 id.callname = "sub__clearcolor"
 id.args = 2
@@ -1168,7 +1168,7 @@ regid
 'USING/CHANGING A SURFACE
 
 clearid
-id.n = qb64prefix$ + "PutImage"
+id.n = qbnexprefix$ + "PutImage"
 id.subfunc = 2
 id.callname = "sub__putimage"
 id.args = 10
@@ -1178,7 +1178,7 @@ id.hr_syntax = "_PUTIMAGE [STEP] [(dx1, dy1)-[STEP][(dx2, dy2)]][, sourceHandle&
 regid
 
 clearid
-id.n = qb64prefix$ + "MapTriangle"
+id.n = qbnexprefix$ + "MapTriangle"
 id.subfunc = 2
 id.callname = "sub__maptriangle"
 id.args = 19
@@ -1188,7 +1188,7 @@ id.hr_syntax = "_MAPTRIANGLE [{_SEAMLESS}] (sx1, sy1)-(sx2, sy2)-(sx3, sy3), sou
 regid
 
 clearid
-id.n = qb64prefix$ + "DepthBuffer"
+id.n = qbnexprefix$ + "DepthBuffer"
 id.subfunc = 2
 id.callname = "sub__depthbuffer"
 id.args = 2
@@ -1198,7 +1198,7 @@ id.hr_syntax = "_DEPTHBUFFER {On|Off|Lock|_Clear}[,handle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "SetAlpha"
+id.n = qbnexprefix$ + "SetAlpha"
 id.subfunc = 2
 id.callname = "sub__setalpha"
 id.args = 4
@@ -1210,7 +1210,7 @@ regid
 'IMAGE INFO
 
 clearid
-id.n = qb64prefix$ + "Width"
+id.n = qbnexprefix$ + "Width"
 id.subfunc = 1
 id.callname = "func__width"
 id.args = 1
@@ -1221,7 +1221,7 @@ id.hr_syntax = "_WIDTH(imageHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Height"
+id.n = qbnexprefix$ + "Height"
 id.subfunc = 1
 id.callname = "func__height"
 id.args = 1
@@ -1232,7 +1232,7 @@ id.hr_syntax = "_HEIGHT(imageHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "PixelSize"
+id.n = qbnexprefix$ + "PixelSize"
 id.subfunc = 1
 id.callname = "func__pixelsize"
 id.args = 1
@@ -1243,7 +1243,7 @@ id.hr_syntax = "_PIXELSIZE[(imageHandle&)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "ClearColor"
+id.n = qbnexprefix$ + "ClearColor"
 id.subfunc = 1
 id.callname = "func__clearcolor"
 id.args = 1
@@ -1254,7 +1254,7 @@ id.hr_syntax = "_CLEARCOLOR[(sourceHandle&)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "Blend"
+id.n = qbnexprefix$ + "Blend"
 id.subfunc = 1
 id.callname = "func__blend"
 id.args = 1
@@ -1265,7 +1265,7 @@ id.hr_syntax = "_BLEND[(imageHandle&)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "DefaultColor"
+id.n = qbnexprefix$ + "DefaultColor"
 id.subfunc = 1
 id.callname = "func__defaultcolor"
 id.args = 1
@@ -1276,7 +1276,7 @@ id.hr_syntax = "_DEFAULTCOLOR[(imageHandle&)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "BackgroundColor"
+id.n = qbnexprefix$ + "BackgroundColor"
 id.subfunc = 1
 id.callname = "func__backgroundcolor"
 id.args = 1
@@ -1289,7 +1289,7 @@ regid
 '256 COLOR PALETTES
 
 clearid
-id.n = qb64prefix$ + "PaletteColor"
+id.n = qbnexprefix$ + "PaletteColor"
 id.subfunc = 1
 id.callname = "func__palettecolor"
 id.args = 2
@@ -1300,7 +1300,7 @@ id.hr_syntax = "_PALETTECOLOR(attributeNumber%, imgHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "PaletteColor"
+id.n = qbnexprefix$ + "PaletteColor"
 id.subfunc = 2
 id.callname = "sub__palettecolor"
 id.args = 3
@@ -1310,7 +1310,7 @@ id.hr_syntax = "_PALETTECOLOR attribute%, newColor&[, imgHandle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "CopyPalette"
+id.n = qbnexprefix$ + "CopyPalette"
 id.subfunc = 2
 id.callname = "sub__copypalette"
 id.args = 2
@@ -1322,7 +1322,7 @@ regid
 'FONT SUPPORT
 
 clearid
-id.n = qb64prefix$ + "LoadFont": id.Dependency = DEPENDENCY_LOADFONT
+id.n = qbnexprefix$ + "LoadFont": id.Dependency = DEPENDENCY_LOADFONT
 id.subfunc = 1
 id.callname = "func__loadfont"
 id.args = 3
@@ -1333,7 +1333,7 @@ id.hr_syntax = "_LOADFONT(fileName$, size%[, " + CHR$(34) + "{MONOSPACE|, BOLD|,
 regid
 
 clearid
-id.n = qb64prefix$ + "Font"
+id.n = qbnexprefix$ + "Font"
 id.subfunc = 2
 id.callname = "sub__font"
 id.args = 2
@@ -1343,7 +1343,7 @@ id.hr_syntax = "_FONT fontHandle&[, imageHandle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "FontWidth"
+id.n = qbnexprefix$ + "FontWidth"
 id.subfunc = 1
 id.callname = "func__fontwidth"
 id.args = 1
@@ -1354,7 +1354,7 @@ id.hr_syntax = "_FONTWIDTH or _FONTWIDTH(fontHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "FontHeight"
+id.n = qbnexprefix$ + "FontHeight"
 id.subfunc = 1
 id.callname = "func__fontheight"
 id.args = 1
@@ -1365,7 +1365,7 @@ id.hr_syntax = "_FONTHEIGHT or _FONTHEIGHT(fontHandle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Font"
+id.n = qbnexprefix$ + "Font"
 id.subfunc = 1
 id.callname = "func__font"
 id.args = 1
@@ -1376,7 +1376,7 @@ id.hr_syntax = "_FONT[(imageHandle&)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "PrintString"
+id.n = qbnexprefix$ + "PrintString"
 id.subfunc = 2
 id.callname = "sub__printstring"
 id.args = 4
@@ -1386,7 +1386,7 @@ id.hr_syntax = "_PRINTSTRING(x, y), text$[, imageHandle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "PrintWidth"
+id.n = qbnexprefix$ + "PrintWidth"
 id.subfunc = 1
 id.callname = "func__printwidth"
 id.args = 2
@@ -1397,7 +1397,7 @@ id.hr_syntax = "_PRINTWIDTH(textToPrint$[, destinationHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "FreeFont"
+id.n = qbnexprefix$ + "FreeFont"
 id.subfunc = 2
 id.callname = "sub__freefont"
 id.args = 1
@@ -1407,7 +1407,7 @@ id.hr_syntax = "_FREEFONT fontHandle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "PrintMode"
+id.n = qbnexprefix$ + "PrintMode"
 id.subfunc = 2
 id.callname = "sub__printmode"
 id.args = 2
@@ -1417,7 +1417,7 @@ id.hr_syntax = "_PRINTMODE {_FillBackground|_KeepBackground|_OnlyBackground}[, i
 regid
 
 clearid
-id.n = qb64prefix$ + "PrintMode"
+id.n = qbnexprefix$ + "PrintMode"
 id.subfunc = 1
 id.callname = "func__printmode"
 id.args = 1
@@ -1430,7 +1430,7 @@ regid
 'WORKING WITH COLORS
 
 clearid
-id.n = qb64prefix$ + "RGBA"
+id.n = qbnexprefix$ + "RGBA"
 id.subfunc = 1
 id.callname = "func__rgba"
 id.args = 5
@@ -1441,7 +1441,7 @@ id.hr_syntax = "_RGBA(red&, green&, blue&, alpha&[, imageHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "RGB"
+id.n = qbnexprefix$ + "RGB"
 id.subfunc = 1
 id.callname = "func__rgb"
 id.args = 4
@@ -1452,7 +1452,7 @@ id.hr_syntax = "_RGB(red&, green&, blue&[, imageHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "Red"
+id.n = qbnexprefix$ + "Red"
 id.subfunc = 1
 id.callname = "func__red"
 id.args = 2
@@ -1463,7 +1463,7 @@ id.hr_syntax = "_RED(rgbaColorIndex&[, imageHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "Green"
+id.n = qbnexprefix$ + "Green"
 id.subfunc = 1
 id.callname = "func__green"
 id.args = 2
@@ -1474,7 +1474,7 @@ id.hr_syntax = "_GREEN(rgbaColorIndex&[, imageHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "Blue"
+id.n = qbnexprefix$ + "Blue"
 id.subfunc = 1
 id.callname = "func__blue"
 id.args = 2
@@ -1485,7 +1485,7 @@ id.hr_syntax = "_BLUE(rgbaColorIndex&[, imageHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "Alpha"
+id.n = qbnexprefix$ + "Alpha"
 id.subfunc = 1
 id.callname = "func__alpha"
 id.args = 2
@@ -1496,7 +1496,7 @@ id.hr_syntax = "_ALPHA(color~&[, imageHandle&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "RGBA32"
+id.n = qbnexprefix$ + "RGBA32"
 id.subfunc = 1
 id.callname = "func__rgba32"
 id.args = 4
@@ -1506,7 +1506,7 @@ id.hr_syntax = "_RGBA32(red&, green&, blue&, alpha&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "RGB32"
+id.n = qbnexprefix$ + "RGB32"
 id.subfunc = 1
 id.callname = "func__rgb32"
 id.overloaded = -1
@@ -1518,7 +1518,7 @@ id.hr_syntax = "_RGB32(red&, green&, blue&[, alpha&]) or _RGB32(intensity&[, alp
 regid
 
 clearid
-id.n = qb64prefix$ + "Red32"
+id.n = qbnexprefix$ + "Red32"
 id.subfunc = 1
 id.callname = "func__red32"
 id.args = 1
@@ -1528,7 +1528,7 @@ id.hr_syntax = "_RED32(rgbaColor&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Green32"
+id.n = qbnexprefix$ + "Green32"
 id.subfunc = 1
 id.callname = "func__green32"
 id.args = 1
@@ -1538,7 +1538,7 @@ id.hr_syntax = "_GREEN32(rgbaColor&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Blue32"
+id.n = qbnexprefix$ + "Blue32"
 id.subfunc = 1
 id.callname = "func__blue32"
 id.args = 1
@@ -1548,7 +1548,7 @@ id.hr_syntax = "_BLUE32(rgbaColor&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Alpha32"
+id.n = qbnexprefix$ + "Alpha32"
 id.subfunc = 1
 id.callname = "func__alpha32"
 id.args = 1
@@ -1586,9 +1586,9 @@ id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "PLAY"
 regid
 
-'QB64 MOUSE
+'QBNex MOUSE
 clearid
-id.n = qb64prefix$ + "MouseShow"
+id.n = qbnexprefix$ + "MouseShow"
 id.subfunc = 2
 id.callname = "sub__mouseshow"
 id.args = 1
@@ -1598,14 +1598,14 @@ id.hr_syntax = "_MOUSESHOW [cursorShape$]"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseHide"
+id.n = qbnexprefix$ + "MouseHide"
 id.subfunc = 2
 id.callname = "sub__mousehide"
 id.hr_syntax = "_MOUSEHIDE"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseInput"
+id.n = qbnexprefix$ + "MouseInput"
 id.subfunc = 1
 id.callname = "func__mouseinput"
 id.ret = LONGTYPE - ISPOINTER
@@ -1616,7 +1616,7 @@ id.hr_syntax = "_MOUSEINPUT"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseX"
+id.n = qbnexprefix$ + "MouseX"
 id.subfunc = 1
 id.callname = "func__mousex"
 id.ret = SINGLETYPE - ISPOINTER
@@ -1627,7 +1627,7 @@ id.hr_syntax = "_MOUSEX"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseY"
+id.n = qbnexprefix$ + "MouseY"
 id.subfunc = 1
 id.callname = "func__mousey"
 id.ret = SINGLETYPE - ISPOINTER
@@ -1638,7 +1638,7 @@ id.hr_syntax = "_MOUSEY"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseMovementX"
+id.n = qbnexprefix$ + "MouseMovementX"
 id.subfunc = 1
 id.callname = "func__mousemovementx"
 id.ret = SINGLETYPE - ISPOINTER
@@ -1649,7 +1649,7 @@ id.hr_syntax = "_MOUSEMOVEMENTX"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseMovementY"
+id.n = qbnexprefix$ + "MouseMovementY"
 id.subfunc = 1
 id.callname = "func__mousemovementy"
 id.ret = SINGLETYPE - ISPOINTER
@@ -1660,7 +1660,7 @@ id.hr_syntax = "_MOUSEMOVEMENTY"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseButton"
+id.n = qbnexprefix$ + "MouseButton"
 id.subfunc = 1
 id.callname = "func__mousebutton"
 id.args = 2
@@ -1671,7 +1671,7 @@ id.hr_syntax = "_MOUSEBUTTON(buttonNumber)"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseWheel"
+id.n = qbnexprefix$ + "MouseWheel"
 id.subfunc = 1
 id.callname = "func__mousewheel"
 id.ret = LONGTYPE - ISPOINTER
@@ -1683,7 +1683,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "MousePipeOpen"
+id.n = qbnexprefix$ + "MousePipeOpen"
 id.subfunc = 1
 id.callname = "func__mousepipeopen"
 id.ret = LONGTYPE - ISPOINTER
@@ -1691,7 +1691,7 @@ id.hr_syntax = "_MOUSEPIPEOPEN"
 regid
 
 clearid
-id.n = qb64prefix$ + "MouseInputPipe"
+id.n = qbnexprefix$ + "MouseInputPipe"
 id.subfunc = 2
 id.callname = "sub__mouseinputpipe"
 id.args = 1
@@ -1700,7 +1700,7 @@ id.hr_syntax = "_MOUSEINPUTPIPE(context)"
 regid
 
 clearid
-id.n = qb64prefix$ + "MousePipeClose"
+id.n = qbnexprefix$ + "MousePipeClose"
 id.subfunc = 2
 id.callname = "sub__mousepipeclose"
 id.args = 1
@@ -1816,7 +1816,7 @@ id.hr_syntax = "SHELL(commandToRun$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "ShellHide"
+id.n = qbnexprefix$ + "ShellHide"
 id.subfunc = 1
 id.callname = "func__shellhide"
 id.args = 1
@@ -1838,7 +1838,7 @@ id.hr_syntax = "COMMAND$[(index%)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "CommandCount"
+id.n = qbnexprefix$ + "CommandCount"
 id.subfunc = 1
 id.callname = "func__commandcount"
 id.ret = LONGTYPE - ISPOINTER
@@ -1846,10 +1846,10 @@ id.hr_syntax = "_COMMANDCOUNT"
 regid
 
 
-'QB64 AUDIO
+'QBNex AUDIO
 
 clearid
-id.n = qb64prefix$ + "SndRate": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndRate": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndrate"
 id.ret = LONGTYPE - ISPOINTER
@@ -1857,7 +1857,7 @@ id.hr_syntax = "_SNDRATE"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndRaw": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndRaw": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndraw"
 id.args = 3
@@ -1867,7 +1867,7 @@ id.hr_syntax = "_SNDRAW leftSample[, rightSample][, pipeHandle&]"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndRawDone": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndRawDone": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndrawdone"
 id.args = 1
@@ -1877,7 +1877,7 @@ id.hr_syntax = "_SNDRAWDONE"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndOpenRaw": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndOpenRaw": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndopenraw"
 id.ret = LONGTYPE - ISPOINTER
@@ -1885,7 +1885,7 @@ id.hr_syntax = "_SNDOPENRAW"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndRawLen": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndRawLen": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndrawlen"
 id.args = 1
@@ -1896,7 +1896,7 @@ id.hr_syntax = "_SNDRAWLEN"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndLen": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndLen": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndlen"
 id.args = 1
@@ -1906,7 +1906,7 @@ id.hr_syntax = "_SNDLEN(handle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndPaused": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndPaused": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndpaused"
 id.args = 1
@@ -1916,7 +1916,7 @@ id.hr_syntax = "_SNDPAUSED(handle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndPlayFile": id.Dependency = DEPENDENCY_AUDIO_DECODE
+id.n = qbnexprefix$ + "SndPlayFile": id.Dependency = DEPENDENCY_AUDIO_DECODE
 id.subfunc = 2
 id.callname = "sub__sndplayfile"
 id.args = 3
@@ -1926,7 +1926,7 @@ id.hr_syntax = "_SNDPLAYFILE fileName$[, , volume!]"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndPlayCopy": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndPlayCopy": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndplaycopy"
 id.args = 2
@@ -1936,7 +1936,7 @@ id.hr_syntax = "_SNDPLAYCOPY handle&[, volume!]"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndStop": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndStop": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndstop"
 id.args = 1
@@ -1945,7 +1945,7 @@ id.hr_syntax = "_SNDSTOP handle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndLoop": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndLoop": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndloop"
 id.args = 1
@@ -1954,7 +1954,7 @@ id.hr_syntax = "_SNDLOOP handle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndLimit": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndLimit": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndlimit"
 id.args = 2
@@ -1963,7 +1963,7 @@ id.hr_syntax = "_SNDLIMIT handle&, numberOfSeconds!"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndOpen": id.Dependency = DEPENDENCY_AUDIO_DECODE
+id.n = qbnexprefix$ + "SndOpen": id.Dependency = DEPENDENCY_AUDIO_DECODE
 id.subfunc = 1
 id.callname = "func__sndopen"
 id.args = 2
@@ -1974,7 +1974,7 @@ id.hr_syntax = "_SNDOPEN(fileName$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndSetPos": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndSetPos": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndsetpos"
 id.args = 2
@@ -1983,7 +1983,7 @@ id.hr_syntax = "_SNDSETPOS handle&, position!"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndGetPos": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndGetPos": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndgetpos"
 id.args = 1
@@ -1993,7 +1993,7 @@ id.hr_syntax = "_SNDGETPOS(handle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndPlaying": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndPlaying": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndplaying"
 id.args = 1
@@ -2003,7 +2003,7 @@ id.hr_syntax = "_SNDPLAYING(handle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndPause": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndPause": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndpause"
 id.args = 1
@@ -2012,7 +2012,7 @@ id.hr_syntax = "_SNDPAUSE handle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndBal": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndBal": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndbal"
 id.args = 5
@@ -2023,7 +2023,7 @@ regid
 
 
 clearid
-id.n = qb64prefix$ + "SndVol": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndVol": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndvol"
 id.args = 2
@@ -2032,7 +2032,7 @@ id.hr_syntax = "_SNDVOL handle&, volume!"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndPlay": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndPlay": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndplay"
 id.args = 1
@@ -2041,7 +2041,7 @@ id.hr_syntax = "_SNDPLAY handle&"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndCopy": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndCopy": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 1
 id.callname = "func__sndcopy"
 id.args = 1
@@ -2051,7 +2051,7 @@ id.hr_syntax = "_SNDCOPY(handle&)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SndClose": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = qbnexprefix$ + "SndClose": id.Dependency = DEPENDENCY_AUDIO_OUT
 id.subfunc = 2
 id.callname = "sub__sndclose"
 id.args = 1
@@ -2238,7 +2238,7 @@ id.hr_syntax = "UBOUND(arrayName[, dimension%])"
 regid
 
 clearid
-id.n = qb64prefix$ + "Bin"
+id.n = qbnexprefix$ + "Bin"
 id.musthave = "$"
 id.subfunc = 1
 id.args = 1
@@ -2323,7 +2323,7 @@ id.hr_syntax = "CSNG(expression)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Round"
+id.n = qbnexprefix$ + "Round"
 id.subfunc = 1
 id.args = 1
 id.arg = MKL$(-1)
@@ -2606,7 +2606,7 @@ id.ret = STRINGTYPE - ISPOINTER
 id.hr_syntax = "MKD$(doublePrecisionVariableOrLiteral#)"
 regid
 clearid
-id.n = qb64prefix$ + "MK"
+id.n = qbnexprefix$ + "MK"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = ""
@@ -2672,7 +2672,7 @@ id.ret = DOUBLETYPE - ISPOINTER
 id.hr_syntax = "CVD(stringData$)"
 regid
 clearid
-id.n = qb64prefix$ + "CV"
+id.n = qbnexprefix$ + "CV"
 id.subfunc = 1
 id.callname = ""
 id.args = 2
@@ -2715,7 +2715,7 @@ id.hr_syntax = "INSTR([start%,] baseString$, searchString$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "InStrRev"
+id.n = qbnexprefix$ + "InStrRev"
 id.subfunc = 1
 id.callname = "func__instrrev"
 id.args = 3
@@ -2742,7 +2742,7 @@ id.n = "SAdd"
 id.subfunc = 1
 id.callname = ""
 id.args = 1
-id.arg = MKL$(-1) '!this value is ignored, the qb64 compiler handles this function
+id.arg = MKL$(-1) '!this value is ignored, the qbnex compiler handles this function
 id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "SADD(stringVariable$)"
 regid
@@ -2783,7 +2783,7 @@ id.n = "VarPtr"
 id.subfunc = 1
 id.callname = ""
 id.args = 1
-id.arg = MKL$(-1) '!this value is ignored, the qb64 compiler handles this function
+id.arg = MKL$(-1) '!this value is ignored, the qbnex compiler handles this function
 id.ret = STRINGTYPE - ISPOINTER
 id.musthave = "$"
 id.hr_syntax = "VARPTR(variable_name[(reference_index%)])"
@@ -2794,17 +2794,17 @@ id.n = "VarPtr"
 id.subfunc = 1
 id.callname = ""
 id.args = 1
-id.arg = MKL$(-1) '!this value is ignored, the qb64 compiler handles this function
+id.arg = MKL$(-1) '!this value is ignored, the qbnex compiler handles this function
 id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "VARPTR(variable_name[(reference_index%)])"
 regid
 
 clearid
-id.n = qb64prefix$ + "Offset"
+id.n = qbnexprefix$ + "Offset"
 id.subfunc = 1
 id.callname = ""
 id.args = 1
-id.arg = MKL$(-1) '!this value is ignored, the qb64 compiler handles this function
+id.arg = MKL$(-1) '!this value is ignored, the qbnex compiler handles this function
 id.ret = UOFFSETTYPE - ISPOINTER
 id.hr_syntax = "_OFFSET(variable)"
 regid
@@ -2814,7 +2814,7 @@ id.n = "VarSeg"
 id.subfunc = 1
 id.callname = ""
 id.args = 1
-id.arg = MKL$(-1) '!this value is ignored, the qb64 compiler handles this function
+id.arg = MKL$(-1) '!this value is ignored, the qbnex compiler handles this function
 id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "VARSEG(variable_name[(start_index)])"
 regid
@@ -3227,7 +3227,7 @@ id.hr_syntax = "RTRIM$(text$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Trim"
+id.n = qbnexprefix$ + "Trim"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "qbs__trim"
@@ -3267,7 +3267,7 @@ regid
 
 'Get Current Working Directory
 clearid
-id.n = qb64prefix$ + "CWD"
+id.n = qbnexprefix$ + "CWD"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__cwd"
@@ -3277,7 +3277,7 @@ regid
 
 'Get the directory the program was started from (before the currenct directory is automatically changed to the executables directory)
 clearid
-id.n = qb64prefix$ + "StartDir"
+id.n = qbnexprefix$ + "StartDir"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__startdir"
@@ -3287,7 +3287,7 @@ regid
 
 'Return a path that best represents the context provided e.g. _DIR$("DESKTOP")
 clearid
-id.n = qb64prefix$ + "Dir"
+id.n = qbnexprefix$ + "Dir"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__dir"
@@ -3299,7 +3299,7 @@ regid
 
 'Return the name of the included file in which the last error occurred
 clearid
-id.n = qb64prefix$ + "InclErrorFile"
+id.n = qbnexprefix$ + "InclErrorFile"
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__inclerrorfile"
@@ -3308,7 +3308,7 @@ id.hr_syntax = "_INCLERRORFILE$"
 regid
 
 clearid
-id.n = qb64prefix$ + "KeyClear"
+id.n = qbnexprefix$ + "KeyClear"
 id.subfunc = 2
 id.args = 1
 id.arg = MKL$(LONGTYPE - ISPOINTER)
@@ -3318,7 +3318,7 @@ id.hr_syntax = "_KEYCLEAR buffer&"
 regid
 
 clearid
-id.n = qb64prefix$ + "D2R"
+id.n = qbnexprefix$ + "D2R"
 id.subfunc =  1
 id.callname = "func_deg2rad"
 id.args = 1
@@ -3328,7 +3328,7 @@ id.hr_syntax = "_D2R(angleInDegrees!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "D2G"
+id.n = qbnexprefix$ + "D2G"
 id.subfunc =  1
 id.callname = "func_deg2grad"
 id.args = 1
@@ -3338,7 +3338,7 @@ id.hr_syntax = "_D2G(angleInDegrees!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "R2D"
+id.n = qbnexprefix$ + "R2D"
 id.subfunc =  1
 id.callname = "func_rad2deg"
 id.args = 1
@@ -3348,7 +3348,7 @@ id.hr_syntax = "_R2D(angleInRadians!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "R2G"
+id.n = qbnexprefix$ + "R2G"
 id.subfunc =  1
 id.callname = "func_rad2grad"
 id.args = 1
@@ -3358,7 +3358,7 @@ id.hr_syntax = "_R2G(angleInRadians!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "G2D"
+id.n = qbnexprefix$ + "G2D"
 id.subfunc =  1
 id.callname = "func_grad2deg"
 id.args = 1
@@ -3368,7 +3368,7 @@ id.hr_syntax = "_G2D(gradient!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "G2R"
+id.n = qbnexprefix$ + "G2R"
 id.subfunc =  1
 id.callname = "func_grad2rad"
 id.args = 1
@@ -3378,7 +3378,7 @@ id.hr_syntax = "_G2R(gradient!)"
 regid
 
 clearid   'Clear the old id info so we set the slate for a new one
-id.n = qb64prefix$ + "Atan2" 'The name of our new one
+id.n = qbnexprefix$ + "Atan2" 'The name of our new one
 id.subfunc = 1 'And this is a function
 id.callname = "atan2" 'The C name of the function
 id.args = 2 'It takes 2 parameters to work
@@ -3388,7 +3388,7 @@ id.hr_syntax = "_ATAN2(y, x)"
 regid 'and we're finished with ID registration
 
 clearid   'Clear the old id info so we set the slate for a new one
-id.n = qb64prefix$ + "Hypot" 'The name of our new one
+id.n = qbnexprefix$ + "Hypot" 'The name of our new one
 id.subfunc = 1 'And this is a function
 id.callname = "hypot" 'The C name of the function
 id.args = 2 'It takes 2 parameters to work
@@ -3398,7 +3398,7 @@ id.hr_syntax = "_HYPOT(x, y)"
 regid 'and we're finished with ID registration
 
 clearid
-id.n = qb64prefix$ + "Asin"
+id.n = qbnexprefix$ + "Asin"
 id.subfunc =  1
 id.callname = "asin"
 id.args = 1
@@ -3408,7 +3408,7 @@ id.hr_syntax = "_ASIN(sine_value!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Acos"
+id.n = qbnexprefix$ + "Acos"
 id.subfunc =  1
 id.callname = "acos"
 id.args = 1
@@ -3418,7 +3418,7 @@ id.hr_syntax = "_ACOS(cosine_value!)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Sinh"
+id.n = qbnexprefix$ + "Sinh"
 id.subfunc =  1
 id.callname = "sinh"
 id.args = 1
@@ -3428,7 +3428,7 @@ id.hr_syntax = "_SINH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Cosh"
+id.n = qbnexprefix$ + "Cosh"
 id.subfunc =  1
 id.callname = "cosh"
 id.args = 1
@@ -3438,7 +3438,7 @@ id.hr_syntax = "_COSH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Tanh"
+id.n = qbnexprefix$ + "Tanh"
 id.subfunc =  1
 id.callname = "tanh"
 id.args = 1
@@ -3448,7 +3448,7 @@ id.hr_syntax = "_TANH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Asinh"
+id.n = qbnexprefix$ + "Asinh"
 id.subfunc =  1
 id.callname = "asinh"
 id.args = 1
@@ -3458,7 +3458,7 @@ id.hr_syntax = "_ASINH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Acosh"
+id.n = qbnexprefix$ + "Acosh"
 id.subfunc =  1
 id.callname = "acosh"
 id.args = 1
@@ -3468,7 +3468,7 @@ id.hr_syntax = "_ACOSH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Atanh"
+id.n = qbnexprefix$ + "Atanh"
 id.subfunc =  1
 id.callname = "atanh"
 id.args = 1
@@ -3478,7 +3478,7 @@ id.hr_syntax = "_ATANH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Ceil"
+id.n = qbnexprefix$ + "Ceil"
 id.subfunc =  1
 id.callname = "ceil"
 id.args = 1
@@ -3488,7 +3488,7 @@ id.hr_syntax = "_CEIL(expression)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Pi"
+id.n = qbnexprefix$ + "Pi"
 id.subfunc = 1
 id.callname = "func_pi"
 id.args = 1
@@ -3499,7 +3499,7 @@ id.hr_syntax = "_PI[(multiplier)]"
 regid
 
 clearid
-id.n = qb64prefix$ + "DesktopHeight"
+id.n = qbnexprefix$ + "DesktopHeight"
 id.subfunc = 1
 id.callname = "func_screenheight"
 id.args = 0
@@ -3508,7 +3508,7 @@ id.hr_syntax = "_DESKTOPHEIGHT"
 regid
 
 clearid
-id.n = qb64prefix$ + "DesktopWidth"
+id.n = qbnexprefix$ + "DesktopWidth"
 id.subfunc = 1
 id.callname = "func_screenwidth"
 id.args = 0
@@ -3517,21 +3517,21 @@ id.hr_syntax = "_DESKTOPWIDTH"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenIcon"     'name change to from _ICONIFYWINDOW to _SCREENICON to match the screenshow and screenhide
+id.n = qbnexprefix$ + "ScreenIcon"     'name change to from _ICONIFYWINDOW to _SCREENICON to match the screenshow and screenhide
 id.subfunc = 2
 id.callname = "sub_screenicon"
 id.hr_syntax = "_SCREENICON"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenExists"
+id.n = qbnexprefix$ + "ScreenExists"
 id.subfunc = 1
 id.callname = "func_windowexists"
 id.hr_syntax = "_SCREENEXISTS"
 regid
 
 clearid
-id.n = qb64prefix$ + "ControlChr"
+id.n = qbnexprefix$ + "ControlChr"
 id.subfunc = 1
 id.callname = "func__controlchr"
 id.args = 0
@@ -3540,7 +3540,7 @@ id.hr_syntax = "_CONTROLCHR"
 regid
 
 clearid
-id.n = qb64prefix$ + "StriCmp"
+id.n = qbnexprefix$ + "StriCmp"
 id.subfunc = 1
 id.callname = "func__str_nc_compare"
 id.args = 2
@@ -3550,7 +3550,7 @@ id.hr_syntax = "_STRICMP(string1$, string2$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "StrCmp"
+id.n = qbnexprefix$ + "StrCmp"
 id.subfunc = 1
 id.callname = "func__str_compare"
 id.args = 2
@@ -3560,7 +3560,7 @@ id.hr_syntax = "_STRCMP(string1$, string2$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Arcsec"
+id.n = qbnexprefix$ + "Arcsec"
 id.subfunc =  1
 id.callname = "func_arcsec"
 id.args = 1
@@ -3570,7 +3570,7 @@ id.hr_syntax = "_ARCSEC(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Arccsc"
+id.n = qbnexprefix$ + "Arccsc"
 id.subfunc =  1
 id.callname = "func_arccsc"
 id.args = 1
@@ -3580,7 +3580,7 @@ id.hr_syntax = "_ARCCSC(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Arccot"
+id.n = qbnexprefix$ + "Arccot"
 id.subfunc =  1
 id.callname = "func_arccot"
 id.args = 1
@@ -3590,7 +3590,7 @@ id.hr_syntax = "_ARCCOT(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Sech"
+id.n = qbnexprefix$ + "Sech"
 id.subfunc =  1
 id.callname = "func_sech"
 id.args = 1
@@ -3600,7 +3600,7 @@ id.hr_syntax = "_SECH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Csch"
+id.n = qbnexprefix$ + "Csch"
 id.subfunc =  1
 id.callname = "func_csch"
 id.args = 1
@@ -3610,7 +3610,7 @@ id.hr_syntax = "_CSCH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Coth"
+id.n = qbnexprefix$ + "Coth"
 id.subfunc =  1
 id.callname = "func_coth"
 id.args = 1
@@ -3620,7 +3620,7 @@ id.hr_syntax = "_COTH(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Sec"
+id.n = qbnexprefix$ + "Sec"
 id.subfunc =  1
 id.callname = "func_sec"
 id.args = 1
@@ -3630,7 +3630,7 @@ id.hr_syntax = "_SEC(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Csc"
+id.n = qbnexprefix$ + "Csc"
 id.subfunc =  1
 id.callname = "func_csc"
 id.args = 1
@@ -3640,7 +3640,7 @@ id.hr_syntax = "_CSC(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Cot"
+id.n = qbnexprefix$ + "Cot"
 id.subfunc =  1
 id.callname = "func_cot"
 id.args = 1
@@ -3650,7 +3650,7 @@ id.hr_syntax = "_COT(value)"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScreenIcon"
+id.n = qbnexprefix$ + "ScreenIcon"
 id.subfunc =  1
 id.callname = "func_screenicon"
 id.args = 0
@@ -3659,7 +3659,7 @@ id.hr_syntax = "_SCREENICON"
 regid
 
 clearid
-id.n = qb64prefix$ + "AutoDisplay"
+id.n = qbnexprefix$ + "AutoDisplay"
 id.subfunc = 1
 id.callname = "func__autodisplay"
 id.args = 0
@@ -3668,7 +3668,7 @@ id.hr_syntax = "_AUTODISPLAY"
 regid
 
 clearid
-id.n = qb64prefix$ + "SHR"
+id.n = qbnexprefix$ + "SHR"
 id.subfunc = 1
 id.callname = "func__shr"
 id.args = 2
@@ -3678,7 +3678,7 @@ id.hr_syntax = "_SHR(numericalVariable, numericalValue)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SHL"
+id.n = qbnexprefix$ + "SHL"
 id.subfunc = 1
 id.callname = "func__shl"
 id.args = 2
@@ -3688,7 +3688,7 @@ id.hr_syntax = "_SHL(numericalVariable, numericalValue)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Deflate"
+id.n = qbnexprefix$ + "Deflate"
 id.Dependency=DEPENDENCY_ZLIB
 id.musthave = "$"
 id.subfunc = 1
@@ -3700,7 +3700,7 @@ id.hr_syntax = "_DEFLATE$(stringToCompress$)"
 regid
 
 clearid
-id.n = qb64prefix$ + "Inflate"
+id.n = qbnexprefix$ + "Inflate"
 id.Dependency=DEPENDENCY_ZLIB
 id.musthave = "$"
 id.subfunc = 1
@@ -3713,7 +3713,7 @@ id.hr_syntax = "_INFLATE$(stringToDecompress$[, originalSize&])"
 regid
 
 clearid
-id.n = qb64prefix$ + "CInp"
+id.n = qbnexprefix$ + "CInp"
 id.subfunc =  1
 id.callname = "func__cinp"
 id.args = 1
@@ -3724,7 +3724,7 @@ id.hr_syntax = "_CINP"
 regid
 
 clearid
-id.n = qb64prefix$ + "CapsLock"
+id.n = qbnexprefix$ + "CapsLock"
 id.subfunc =  1
 id.callname = "func__capslock"
 id.args = 0
@@ -3733,7 +3733,7 @@ id.hr_syntax = "_CAPSLOCK"
 regid
 
 clearid
-id.n = qb64prefix$ + "ScrollLock"
+id.n = qbnexprefix$ + "ScrollLock"
 id.subfunc =  1
 id.callname = "func__scrolllock"
 id.args = 0
@@ -3742,7 +3742,7 @@ id.hr_syntax = "_SCROLLLOCK"
 regid
 
 clearid
-id.n = qb64prefix$ + "NumLock"
+id.n = qbnexprefix$ + "NumLock"
 id.subfunc =  1
 id.callname = "func__numlock"
 id.args = 0
@@ -3751,7 +3751,7 @@ id.hr_syntax = "_NUMLOCK"
 regid
 
 clearid
-id.n = qb64prefix$ + "CapsLock"
+id.n = qbnexprefix$ + "CapsLock"
 id.subfunc = 2
 id.callname = "sub__capslock"
 id.arg = MKL$(LONGTYPE - ISPOINTER)
@@ -3761,7 +3761,7 @@ id.hr_syntax = "_CAPSLOCK {On|Off|_Toggle}"
 regid
 
 clearid
-id.n = qb64prefix$ + "Scrolllock"
+id.n = qbnexprefix$ + "Scrolllock"
 id.subfunc = 2
 id.callname = "sub__scrolllock"
 id.arg = MKL$(LONGTYPE - ISPOINTER)
@@ -3771,7 +3771,7 @@ id.hr_syntax = "_SCROLLLOCK {On|Off|_Toggle}"
 regid
 
 clearid
-id.n = qb64prefix$ + "Numlock"
+id.n = qbnexprefix$ + "Numlock"
 id.subfunc = 2
 id.callname = "sub__numlock"
 id.arg = MKL$(LONGTYPE - ISPOINTER)
@@ -3781,7 +3781,7 @@ id.hr_syntax = "_NUMLOCK {On|Off|_Toggle}"
 regid
 
 clearid
-id.n = qb64prefix$ + "ConsoleFont"
+id.n = qbnexprefix$ + "ConsoleFont"
 id.subfunc = 2
 id.callname = "sub__consolefont"
 id.args = 2
@@ -3790,7 +3790,7 @@ id.hr_syntax = "_CONSOLEFONT fontFile$"
 regid
 
 clearid
-id.n = qb64prefix$ + "ConsoleCursor"
+id.n = qbnexprefix$ + "ConsoleCursor"
 id.subfunc = 2
 id.callname = "sub__console_cursor"
 id.args = 2
@@ -3800,7 +3800,7 @@ id.hr_syntax = "_CONSOLECURSOR {_Show|_Hide}[, size%]"
 regid
 
 clearid
-id.n = qb64prefix$ + "ConsoleInput"
+id.n = qbnexprefix$ + "ConsoleInput"
 id.subfunc =  1
 id.callname = "func__getconsoleinput"
 id.args = 0
@@ -3809,7 +3809,7 @@ id.hr_syntax = "_CONSOLEINPUT"
 regid
 
 clearid
-id.n = qb64prefix$ + "ReadBit"
+id.n = qbnexprefix$ + "ReadBit"
 id.subfunc = 1
 id.callname = "func__readbit"
 id.args = 2
@@ -3819,7 +3819,7 @@ id.hr_syntax = "_READBIT(numericalVariable, numericalValue)"
 regid
 
 clearid
-id.n = qb64prefix$ + "SetBit"
+id.n = qbnexprefix$ + "SetBit"
 id.subfunc = 1
 id.callname = "func__setbit"
 id.args = 2
@@ -3829,7 +3829,7 @@ id.hr_syntax = "_SETBIT(numericalVariable, numericalValue)"
 regid
 
 clearid
-id.n = qb64prefix$ + "ResetBit"
+id.n = qbnexprefix$ + "ResetBit"
 id.subfunc = 1
 id.callname = "func__resetbit"
 id.args = 2
@@ -3839,7 +3839,7 @@ id.hr_syntax = "_RESETBIT(numericalVariable, numericalValue)"
 regid
 
 clearid
-id.n = qb64prefix$ + "ToggleBit"
+id.n = qbnexprefix$ + "ToggleBit"
 id.subfunc = 1
 id.callname = "func__togglebit"
 id.args = 2

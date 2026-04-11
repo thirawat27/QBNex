@@ -1,55 +1,46 @@
-# QB64
+# QBNex
 
-![QB64](source/qb64.png)
+![QBNex](source/qbnex.png)
 
-QB64 is a modern extended BASIC+OpenGL language that retains QB4.5/QBasic compatibility and compiles native binaries for Windows (XP and up), Linux and macOS.
-=======
-[![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/QB64Team/qb64/issues)
+QBNex is a modern extended BASIC+OpenGL language that retains QB4.5/QBasic compatibility and compiles native binaries for Windows, Linux, and macOS.
 
-# Table of Contents
-1. [Installation](#Installation)
-    1. [Windows](#Windows)
-    2. [macOS](#macOS)
-    3. [Linux](#Linux)
+Version: `1.0.0`
+Repository: https://github.com/thirawat27/QBNex
 
-2.  [Usage](#Usage)
-3.  [Additional Info](#Additional_Info)
+## Installation
 
-# Installation <a name="Installation"></a>
-Download the appropriate package for your operating system. Check the Releases page.
+Download the appropriate package for your operating system from the repository releases page.
 
-<a name="Windows"></a>
-## Windows
+### Windows
 
-Make sure to extract the package contents to a folder with full write permissions (failing to do so may result in packaging or compilation errors).
+Extract the package to a folder with full write permissions.
 
-* It is advisable to to whitelist the QB64 folder in your antivirus/antimalware software *
+It is advisable to whitelist the QBNex folder in your antivirus or antimalware software.
 
-<a name="macOS"></a>
-## macOS
-Before using QB64 make sure to install the Xcode command line tools with:
+### macOS
+
+Install the Xcode command line tools first:
+
 ```bash
 xcode-select --install
 ```
 
-Run ```./setup_osx.command``` to compile QB64 for your OS version.
+Run `./setup_osx.command` to compile QBNex for your macOS version.
 
-<a name="Linux"></a>
-## Linux
-Compile QB64 with ```./setup_lnx.sh```.
+### Linux
 
-Dependencies should be automatically installed. Required packages include OpenGL, ALSA and the GNU C++ Compiler.
+Run `./setup_lnx.sh` to compile QBNex.
 
-<a name="Usage"></a>
-# Usage
-QB64 now runs as a command-line compiler only.
+Required packages generally include OpenGL, ALSA, and the GNU C++ compiler.
 
-Use `qb` as the primary command, or `qb64` if you want the full executable name:
+## Usage
 
-```qb yourfile.bas```
+QBNex runs as a command-line compiler.
 
-```qb yourfile.bas -o outputname.exe```
+Use `qb` as the command name:
 
-Use `-x` to keep compiler output in the terminal:
-
-```qb yourfile.bas -x```
+```bash
+qb yourfile.bas
+qb yourfile.bas -o outputname.exe
+qb yourfile.bas -x
+```

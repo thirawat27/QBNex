@@ -5,7 +5,7 @@
 //   \__\_\___/\___/ |_| /_/ \_\_,_\__,_|_\___/ |___|_||_\__, |_|_||_\___|
 //                                                       |___/
 //
-//  QB64 Audio Engine powered by miniaudio (https://miniaud.io/)
+//  QBNex Audio Engine powered by miniaudio (https://miniaud.io/)
 //
 //  Copyright (c) 2022 Samuel Gomes
 //  https://github.com/a740g
@@ -66,7 +66,7 @@
     ((_handle_) > 0 && (_handle_) < audioEngine.soundHandles.size() && audioEngine.soundHandles[_handle_]->isUsed && \
      !audioEngine.soundHandles[_handle_]->autoKill)
 
-#ifdef QB64_WINDOWS
+#ifdef QBNex_WINDOWS
 #define ZERO_VARIABLE(_v_) ZeroMemory(&(_v_), sizeof(_v_))
 #else
 #define ZERO_VARIABLE(_v_) memset(&(_v_), 0, sizeof(_v_))
@@ -85,7 +85,7 @@ qbs *qbs_new_txt_len(const char *txt, int32 len);                   // Not decla
 int32 func_instr(int32 start, qbs *str, qbs *substr, int32 passed); // Did not find this declared anywhere
 void new_mem_lock();                                                // This is required for MemSound()
 void free_mem_lock(mem_lock *lock);                                 // Same as above
-#ifndef QB64_WINDOWS
+#ifndef QBNex_WINDOWS
 void Sleep(uint32 milliseconds); // There is a non-Windows implementation. However it is not declared anywhere
 #endif
 
@@ -481,7 +481,7 @@ struct AudioEngine
     ma_result maResult;                                 // This is the result of the last miniaudio operation (used for trapping errors)
     ma_uint32 sampleRate;                               // Sample rate used by the miniaudio engine
     int32_t sndInternal;                                // Internal sound handle that we will use for Play(), Beep() & Sound()
-    int32_t sndInternalRaw;                             // Internal sound handle that we will use for the QB64 'handle-less' raw stream
+    int32_t sndInternalRaw;                             // Internal sound handle that we will use for the QBNex 'handle-less' raw stream
     std::vector<SoundHandle *> soundHandles;            // This is the audio handle list used by the engine and by everything else
     int32_t lowestFreeHandle;                           // This is the lowest handle then was recently freed. We'll start checking for free handles from here
 
@@ -1536,7 +1536,7 @@ int32_t func__sndrate() { return audioEngine.sampleRate; }
 /// This loads a sound file into memory and returns a LONG handle value above 0.
 /// </summary>
 /// <param name="fileName">The is the pathname for the sound file. This can be any format that miniaudio or a miniaudio plugin supports</param>
-/// <param name="requirements">This is leftover from the old QB64-SDL days. But we use this to pass some parameters like 'stream'</param>
+/// <param name="requirements">This is leftover from the old QBNex-SDL days. But we use this to pass some parameters like 'stream'</param>
 /// <param name="passed">How many parameters were passed?</param>
 /// <returns>Returns a valid sound handle (> 0) if successful or 0 if it fails</returns>
 int32_t func__sndopen(qbs *fileName, qbs *requirements, int32_t passed)

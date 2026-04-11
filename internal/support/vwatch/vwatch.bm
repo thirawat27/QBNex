@@ -683,13 +683,13 @@ SUB vwatch (globalVariables AS _OFFSET, localVariables AS _OFFSET)
 
     Connect:
     DIM vw_ideport$
-    vw_ideport$ = ENVIRON$("QB64DEBUGPORT")
+    vw_ideport$ = ENVIRON$("QBNEXDEBUGPORT")
     IF vw_ideport$ = "" THEN vw_bypass = -1: EXIT SUB
 
     vw_start! = TIMER
     DO
         vw_k& = _KEYHIT
-        vw_ideHost = _OPENCLIENT("QB64IDE:" + vw_ideport$ + ":localhost")
+        vw_ideHost = _OPENCLIENT("QBNEXIDE:" + vw_ideport$ + ":localhost")
         _LIMIT 30
     LOOP UNTIL vw_k& = 27 OR vw_ideHost <> 0 OR TIMER - vw_start! > vw_timeout
     IF vw_ideHost = 0 THEN vw_bypass = -1: EXIT SUB

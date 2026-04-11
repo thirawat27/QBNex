@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "This batch is an admin tool to return QB64 to its pre-setup state"
+echo "This batch is an admin tool to return QBNex to its pre-setup state"
 # removed pause so it can be used with .ci tools
 
 echo Purging temp folders

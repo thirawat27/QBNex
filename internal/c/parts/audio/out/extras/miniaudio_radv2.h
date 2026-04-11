@@ -5,7 +5,7 @@
 //   \__\_\___/\___/ |_| /_/ \_\_,_\__,_|_\___/ |___|_||_\__, |_|_||_\___|
 //                                                       |___/
 //
-//  QB64 Audio Engine powered by miniaudio (https://miniaud.io/)
+//  QBNex Audio Engine powered by miniaudio (https://miniaud.io/)
 //
 //	This implements a data source that decodes Reality Adlib Tracker 2 tunes
 //	https://realityproductions.itch.io/rad (Public Domain)

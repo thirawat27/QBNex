@@ -1,10 +1,10 @@
 DIM SHARED SaveExeWithSource AS _BYTE, IgnoreWarnings AS _BYTE
-DIM SHARED qb64versionprinted AS _BYTE
+DIM SHARED qbnexversionprinted AS _BYTE
 DIM SHARED generalSettingsSection$, ConfigFile$, DebugInfoIniWarning$
 
 ConfigFile$ = "internal/config.ini"
 generalSettingsSection$ = "COMPILER SETTINGS"
-DebugInfoIniWarning$ = " 'Managed by qb64 -s"
+DebugInfoIniWarning$ = " 'Managed by qbnex -s"
 
 IniSetAddQuotes 0
 IniSetForceReload -1

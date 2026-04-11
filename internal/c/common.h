@@ -19,26 +19,26 @@
     #define INC_COMMON_CPP
     #include "os.h"
     
-    #define QB64_GL1
-    #define QB64_GLUT
+    #define QBNex_GL1
+    #define QBNex_GLUT
     
     #ifdef DEPENDENCY_CONSOLE_ONLY
-        #undef QB64_GLUT
+        #undef QBNex_GLUT
         #else
-        #define QB64_GUI
+        #define QBNex_GUI
     #endif
     
     //core
-    #ifdef QB64_GUI
-        #ifdef QB64_GLUT
+    #ifdef QBNex_GUI
+        #ifdef QBNex_GLUT
             //This file only contains header stuff
             #include "parts/core/src.c"
         #endif
     #endif
     
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         
-        #ifndef QB64_GUI
+        #ifndef QBNex_GUI
             #undef int64 //definition of int64 from os.h conflicts with a definition within windows.h, temporarily undefine then redefine
             #include <windows.h>
             #define int64 __int64
@@ -53,7 +53,7 @@
     
     //common includes
     #include <stdio.h>
-    #ifdef QB64_MACOSX
+    #ifdef QBNex_MACOSX
         #include <cmath>
         #else
         //#include <math.h> //<-causes overloading abs conflicts in Windows
@@ -68,14 +68,14 @@
     #include <fcntl.h>
     
     //OS/compiler specific includes
-    #ifdef QB64_WINDOWS
+    #ifdef QBNex_WINDOWS
         #include <direct.h>
         #ifdef DEPENDENCY_PRINTER
             #include <winspool.h>
         #endif
         #include <csignal>
         #include <process.h> //required for multi-threading
-        #if defined DEPENDENCY_AUDIO_OUT || defined QB64_GUI
+        #if defined DEPENDENCY_AUDIO_OUT || defined QBNex_GUI
             #include <mmsystem.h>
         #endif
         
@@ -88,20 +88,20 @@
         #include <unistd.h>
         #include <stdint.h>
         #include <pthread.h>
-        #ifndef QB64_MACOSX
+        #ifndef QBNex_MACOSX
             #include <dlfcn.h>
         #endif
         
     #endif
     
-    #ifdef QB64_GUI
-        #ifdef QB64_GLUT
+    #ifdef QBNex_GUI
+        #ifdef QBNex_GLUT
             #include "parts/core/gl_headers/opengl_org_registery/glext.h"
         #endif
     #endif
     
     
-    //QB64 string descriptor structure
+    //QBNex string descriptor structure
     struct qbs_field{
         int32 fileno;
         int64 fileid;
@@ -170,7 +170,7 @@
     #define IMG_FREEMEM 4 //if set, it means memory must be freed
     
     
-    //QB64 internal variable type flags (internally referenced by some C functions)
+    //QBNex internal variable type flags (internally referenced by some C functions)
     #define ISSTRING 1073741824
     #define ISFLOAT 536870912
     #define ISUNSIGNED 268435456

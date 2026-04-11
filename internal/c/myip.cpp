@@ -1,7 +1,4 @@
-//Note: Updated 23/9/2018: Switched to www.qb64.org since .net is down; replaces implementation with download sample code from wiki
-//Note: Updated 26/3/2014: Switched to WWW.QB64.NET to avoid IP changes when QB64 moves servers
-//Note: Updated 16/1/2013: Switched to QB64.NET IP service
-//Note: Updated 15/7/2013: Switched to 223.27.25.123 because of DNS issues
+//Note: Updated 11/4/2026: Switched to api.ipify.org and added Content-Length handling.
 
 /*
     'ip.php:
@@ -13,7 +10,7 @@
 
     $CHECKING:OFF
     FUNCTION whatismyip$
-        url$ = "www.qb64.org/ip.php"
+        url$ = "api.ipify.org"
         url2$ = url$
         x = INSTR(url2$, "/")
         IF x THEN url2$ = LEFT$(url$, x - 1)
@@ -125,7 +122,7 @@ qbs* WHATISMYIP(){ //changed name from FUNC_WHATISMYIP to WHATISMYIP
     sf_mem_lock=mem_lock_tmp;
     sf_mem_lock->type=3;
     if (new_error) goto exit_subfunc;
-    qbs_set(_FUNC_WHATISMYIP_STRING_URL,qbs_new_txt_len("www.qb64.org/ip.php",19));
+    qbs_set(_FUNC_WHATISMYIP_STRING_URL,qbs_new_txt_len("api.ipify.org",13));
     qbs_cleanup(qbs_tmp_base,0);
     qbs_set(_FUNC_WHATISMYIP_STRING_URL2,_FUNC_WHATISMYIP_STRING_URL);
     qbs_cleanup(qbs_tmp_base,0);
@@ -161,13 +158,26 @@ qbs* WHATISMYIP(){ //changed name from FUNC_WHATISMYIP to WHATISMYIP
             *_FUNC_WHATISMYIP_SINGLE_I=func_instr(NULL,_FUNC_WHATISMYIP_STRING_A,qbs_add(_FUNC_WHATISMYIP_STRING_E,_FUNC_WHATISMYIP_STRING_E),0);
             qbs_cleanup(qbs_tmp_base,0);
             if ((*_FUNC_WHATISMYIP_SINGLE_I)||new_error){
-                *_FUNC_WHATISMYIP_SINGLE_I2=func_instr(qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 ),_FUNC_WHATISMYIP_STRING_A,_FUNC_WHATISMYIP_STRING_E,1);
+                *_FUNC_WHATISMYIP_SINGLE_X=func_instr(NULL,_FUNC_WHATISMYIP_STRING_A,qbs_new_txt_len("Content-Length: ",16),0);
                 qbs_cleanup(qbs_tmp_base,0);
-                if ((*_FUNC_WHATISMYIP_SINGLE_I2)||new_error){
-                    *_FUNC_WHATISMYIP_SINGLE_L=func_val(qbs_add(qbs_new_txt_len("&H",2),func_mid(_FUNC_WHATISMYIP_STRING_A,qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 ),qbr(*_FUNC_WHATISMYIP_SINGLE_I2-*_FUNC_WHATISMYIP_SINGLE_I- 2 ),1)));
+                if ((*_FUNC_WHATISMYIP_SINGLE_X)&&(*_FUNC_WHATISMYIP_SINGLE_X<*_FUNC_WHATISMYIP_SINGLE_I)||new_error){
+                    *_FUNC_WHATISMYIP_SINGLE_I2=func_instr(qbr(*_FUNC_WHATISMYIP_SINGLE_X),_FUNC_WHATISMYIP_STRING_A,_FUNC_WHATISMYIP_STRING_E,1);
                     qbs_cleanup(qbs_tmp_base,0);
-                    qbs_set(_FUNC_WHATISMYIP_STRING_A,func_mid(_FUNC_WHATISMYIP_STRING_A,qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 +*_FUNC_WHATISMYIP_SINGLE_I2-*_FUNC_WHATISMYIP_SINGLE_I- 2 ),NULL,0));
+                    if ((*_FUNC_WHATISMYIP_SINGLE_I2)||new_error){
+                        *_FUNC_WHATISMYIP_SINGLE_L=func_val(func_mid(_FUNC_WHATISMYIP_STRING_A,qbr(*_FUNC_WHATISMYIP_SINGLE_X+ 16 ),qbr(*_FUNC_WHATISMYIP_SINGLE_I2-*_FUNC_WHATISMYIP_SINGLE_X- 16 ),1));
+                        qbs_cleanup(qbs_tmp_base,0);
+                        qbs_set(_FUNC_WHATISMYIP_STRING_A,func_mid(_FUNC_WHATISMYIP_STRING_A,qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 ),NULL,0));
+                        qbs_cleanup(qbs_tmp_base,0);
+                    }
+                }else{
+                    *_FUNC_WHATISMYIP_SINGLE_I2=func_instr(qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 ),_FUNC_WHATISMYIP_STRING_A,_FUNC_WHATISMYIP_STRING_E,1);
                     qbs_cleanup(qbs_tmp_base,0);
+                    if ((*_FUNC_WHATISMYIP_SINGLE_I2)||new_error){
+                        *_FUNC_WHATISMYIP_SINGLE_L=func_val(qbs_add(qbs_new_txt_len("&H",2),func_mid(_FUNC_WHATISMYIP_STRING_A,qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 ),qbr(*_FUNC_WHATISMYIP_SINGLE_I2-*_FUNC_WHATISMYIP_SINGLE_I- 2 ),1)));
+                        qbs_cleanup(qbs_tmp_base,0);
+                        qbs_set(_FUNC_WHATISMYIP_STRING_A,func_mid(_FUNC_WHATISMYIP_STRING_A,qbr(*_FUNC_WHATISMYIP_SINGLE_I+ 4 +*_FUNC_WHATISMYIP_SINGLE_I2-*_FUNC_WHATISMYIP_SINGLE_I- 2 ),NULL,0));
+                        qbs_cleanup(qbs_tmp_base,0);
+                    }
                 }
             }
             }else{

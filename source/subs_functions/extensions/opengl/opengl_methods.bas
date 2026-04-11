@@ -350,8 +350,8 @@ SUB gl_include_content
             REDIM _PRESERVE constdefined(constmax) AS LONG
         END IF
         i = constlast
-        constname(i) = qb64prefix$ + GL_DEFINES(d)
-        constcname(i) = qb64prefix$ + GL_DEFINES(d)
+        constname(i) = qbnexprefix$ + GL_DEFINES(d)
+        constcname(i) = qbnexprefix$ + GL_DEFINES(d)
         constnamesymbol(i) = "&&"
         consttype(i) = INTEGER64TYPE - ISPOINTER
         constinteger(i) = GL_DEFINES_VALUE(d)
@@ -379,7 +379,7 @@ SUB gl_include_content
         clearid
         id.ccall = 1 '*** important for handling string returns correctly ***
         id.n = RTRIM$(g.cn)
-        IF qb64prefix_set = 1 THEN id.n = MID$(RTRIM$(g.cn), 2)
+        IF qbnexprefix_set = 1 THEN id.n = MID$(RTRIM$(g.cn), 2)
         s = g.subfunc
         id.subfunc = s
         id.callname = RTRIM$(g.callname)
@@ -395,7 +395,7 @@ SUB gl_include_content
     'SUB gluPerspective (BYVAL fovy#, BYVAL aspect#, BYVAL zNear#, BYVAL zFar#)
     reginternalsubfunc = 1
     clearid
-    id.n = qb64prefix$ + "gluPerspective"
+    id.n = qbnexprefix$ + "gluPerspective"
     id.subfunc = 2 'sub
     id.callname = "gluPerspective"
     id.args = 4
