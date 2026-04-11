@@ -6,7 +6,7 @@
     name="QB64.QB64.QB64"
     type="win32"
 />
-<description>QB64 IDE and Compiler</description>
+<description>QB64 CLI Compiler</description>
 <dependency>
     <dependentAssembly>
         <assemblyIdentity

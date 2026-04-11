@@ -141,36 +141,10 @@ popd
 
 if [ -e "./qb64" ]; then
   echo "Done compiling!!"
-
-  echo "Creating ./run_qb64.sh script..."
-  _pwd=`pwd`
-  echo "#!/bin/sh" > ./run_qb64.sh
-  echo "cd $_pwd" >> ./run_qb64.sh
-  echo "./qb64 &" >> ./run_qb64.sh
-  
-  chmod +x ./run_qb64.sh
-  #chmod -R 777 ./
-  echo "Adding QB64 menu entry..."
-  cat > ~/.local/share/applications/qb64.desktop <<EOF
-[Desktop Entry]
-Name=QB64 Programming IDE
-GenericName=QB64 Programming IDE
-Exec=$_pwd/run_qb64.sh
-Icon=$_pwd/$QB64_ICON_PATH/$QB64_ICON_NAME
-Terminal=false
-Type=Application
-Categories=Development;IDE;
-Path=$_pwd
-StartupNotify=false
-EOF
-
-  echo "Running QB64..."
-  ./qb64 &
-  echo "QB64 is located in this folder:"
-  echo "`pwd`"
-  echo "There is a ./run_qb64.sh script in this folder that should let you run qb64 if using the executable directly isn't working."
-  echo 
-  echo "You should also find a QB64 option in the Programming/Development section of your menu you can use."
+  echo
+  echo "QB64 CLI compiler is ready:"
+  echo "  ./qb64 yourfile.bas"
+  echo "  ./qb yourfile.bas"
 else
   ### QB64 didn't compile
   echo "It appears that the qb64 executable file was not created, this is usually an indication of a compile failure (You probably saw lots of error messages pop up on the screen)"

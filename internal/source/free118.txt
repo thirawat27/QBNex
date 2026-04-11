@@ -1,9 +1,9 @@
-if(oldstr3814){
-if(oldstr3814->fixed)qbs_set(oldstr3814,_FUNC_COPYFILE_STRING_SOURCEFILE);
+if(oldstr3835){
+if(oldstr3835->fixed)qbs_set(oldstr3835,_FUNC_COPYFILE_STRING_SOURCEFILE);
 qbs_free(_FUNC_COPYFILE_STRING_SOURCEFILE);
 }
-if(oldstr3815){
-if(oldstr3815->fixed)qbs_set(oldstr3815,_FUNC_COPYFILE_STRING_DESTFILE);
+if(oldstr3836){
+if(oldstr3836->fixed)qbs_set(oldstr3836,_FUNC_COPYFILE_STRING_DESTFILE);
 qbs_free(_FUNC_COPYFILE_STRING_DESTFILE);
 }
 qbs_free(_FUNC_COPYFILE_STRING_BUFFER);

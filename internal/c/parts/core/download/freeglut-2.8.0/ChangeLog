@@ -9,7 +9,7 @@
 
 2009-06-11  Paul Blew  <paul.blew@northgatearinso.com>
 
-	* replaced broken IDE based OpenWatcom build with a makefile based one
+	* replaced the broken OpenWatcom build with a makefile based one
 
 2009-06-11  Sven Panne  <sven.panne@aedion.de>
 
@@ -3765,4 +3765,3 @@
 	  install-sh, mkinstalldirs, stamp-h, stamp-h.in, tests, tests/.deps,
 	  tests/.deps/one.P, tests/Makefile, tests/Makefile.am,
 	  tests/Makefile.in, tests/one.c: Initial revision
-

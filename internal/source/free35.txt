@@ -1,5 +1,5 @@
-if(oldstr3053){
-if(oldstr3053->fixed)qbs_set(oldstr3053,_SUB_REMOVEELEMENTS_STRING_A);
+if(oldstr3039){
+if(oldstr3039->fixed)qbs_set(oldstr3039,_SUB_REMOVEELEMENTS_STRING_A);
 qbs_free(_SUB_REMOVEELEMENTS_STRING_A);
 }
 qbs_free(_SUB_REMOVEELEMENTS_STRING_A2);

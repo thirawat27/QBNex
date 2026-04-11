@@ -1,9 +1,9 @@
-if(oldstr3062){
-if(oldstr3062->fixed)qbs_set(oldstr3062,_FUNC_SEPERATEARGS_STRING_A);
+if(oldstr3048){
+if(oldstr3048->fixed)qbs_set(oldstr3048,_FUNC_SEPERATEARGS_STRING_A);
 qbs_free(_FUNC_SEPERATEARGS_STRING_A);
 }
-if(oldstr3063){
-if(oldstr3063->fixed)qbs_set(oldstr3063,_FUNC_SEPERATEARGS_STRING_CA);
+if(oldstr3049){
+if(oldstr3049->fixed)qbs_set(oldstr3049,_FUNC_SEPERATEARGS_STRING_CA);
 qbs_free(_FUNC_SEPERATEARGS_STRING_CA);
 }
 qbs_free(*((qbs**)(((char*)_FUNC_SEPERATEARGS_UDT_ID2)+ 2861)));

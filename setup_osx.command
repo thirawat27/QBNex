@@ -62,10 +62,10 @@ popd >/dev/null
 
 echo ""
 if [ -f ./qb64 ]; then
-  echo "Launching 'QB64'"
-  ./qb64
+  echo "QB64 CLI compiler is ready:"
+  echo "  ./qb64 yourfile.bas"
+  echo "  ./qb yourfile.bas"
   echo ""
-  echo "Note: 'qb64' is located in same folder as this setup program."
   echo "Press any key to continue..."
   Pause
 else

@@ -1,20 +1,15 @@
-qbs *_SUB_UPDATETITLEOFMAINWINDOW_STRING_SFNAME=NULL;
-if (!_SUB_UPDATETITLEOFMAINWINDOW_STRING_SFNAME)_SUB_UPDATETITLEOFMAINWINDOW_STRING_SFNAME=qbs_new(0,0);
-byte_element_struct *byte_element_4630=NULL;
-if (!byte_element_4630){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4630=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4630=(byte_element_struct*)mem_static_malloc(12);
+qbs*oldstr3947=NULL;
+if(_SUB_DEBUGPRINT_STRING_TEXT->tmp||_SUB_DEBUGPRINT_STRING_TEXT->fixed||_SUB_DEBUGPRINT_STRING_TEXT->readonly){
+oldstr3947=_SUB_DEBUGPRINT_STRING_TEXT;
+if (oldstr3947->cmem_descriptor){
+_SUB_DEBUGPRINT_STRING_TEXT=qbs_new_cmem(oldstr3947->len,0);
+}else{
+_SUB_DEBUGPRINT_STRING_TEXT=qbs_new(oldstr3947->len,0);
 }
-qbs *_SUB_UPDATETITLEOFMAINWINDOW_STRING_A=NULL;
-if (!_SUB_UPDATETITLEOFMAINWINDOW_STRING_A)_SUB_UPDATETITLEOFMAINWINDOW_STRING_A=qbs_new(0,0);
-byte_element_struct *byte_element_4631=NULL;
-if (!byte_element_4631){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4631=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4631=(byte_element_struct*)mem_static_malloc(12);
+memcpy(_SUB_DEBUGPRINT_STRING_TEXT->chr,oldstr3947->chr,oldstr3947->len);
 }
-byte_element_struct *byte_element_4632=NULL;
-if (!byte_element_4632){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4632=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4632=(byte_element_struct*)mem_static_malloc(12);
-}
-byte_element_struct *byte_element_4633=NULL;
-if (!byte_element_4633){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4633=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4633=(byte_element_struct*)mem_static_malloc(12);
+int32 *_SUB_DEBUGPRINT_LONG_FN=NULL;
+if(_SUB_DEBUGPRINT_LONG_FN==NULL){
+_SUB_DEBUGPRINT_LONG_FN=(int32*)mem_static_malloc(4);
+*_SUB_DEBUGPRINT_LONG_FN=0;
 }

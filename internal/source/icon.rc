@@ -1,4 +1,4 @@
-0 ICON "D:/github/qb64-development/source/qb64.ico"
+0 ICON "D:/QBNex/source/qb64.ico"
 
 #include "manifest.h"
 
@@ -11,7 +11,7 @@ BEGIN
         BLOCK "040904E4"
         BEGIN
             VALUE "CompanyName","QB64\0"
-            VALUE "FileDescription","QB64 IDE and Compiler\0"
+            VALUE "FileDescription","QB64 CLI Compiler\0"
             VALUE "FileVersion","\0"
             VALUE "InternalName","qb64.bas\0"
             VALUE "LegalCopyright","MIT\0"

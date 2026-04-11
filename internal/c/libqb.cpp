@@ -13351,7 +13351,7 @@ void sub_close(int32 i2,int32 passed){
     
     for (i=1;i<=special_handles->indexes;i++){
         if (vwatch>0 && vwatch==i) {
-            //keep connection to the IDE open for $DEBUG mode
+            //keep the debug connection open for $DEBUG mode
         } else {
             sub_close(-i-1,1);
         }

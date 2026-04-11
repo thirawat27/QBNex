@@ -1,7 +1,7 @@
 'String SPacer/delimiter constants
 'sp is used as the primary string spacer
 'sp2 & sp3 are used when further delimiation is required
-'for instance, sp2 is used for embedding spacing info for auto-layout by an IDE
+'for instance, sp2 is used for embedding spacing info for auto-layout tools
 DIM SHARED sp AS STRING * 1, sp2 AS STRING * 1, sp3 AS STRING * 1
 sp = CHR$(13): sp2 = CHR$(10): sp3 = CHR$(26)
 DIM SHARED sp_asc AS LONG, sp2_asc AS LONG, sp3_asc AS LONG

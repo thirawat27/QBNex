@@ -13,7 +13,7 @@ $SCREENHIDE
 $EXEICON:'./qb64.ico'
 
 $VERSIONINFO:CompanyName=QB64
-$VERSIONINFO:FileDescription=QB64 IDE and Compiler
+$VERSIONINFO:FileDescription=QB64 CLI Compiler
 $VERSIONINFO:InternalName=qb64.bas
 $VERSIONINFO:LegalCopyright=MIT
 $VERSIONINFO:LegalTrademarks=
@@ -29,8 +29,7 @@ $VERSIONINFO:Comments=QB64 is a modern extended BASIC programming language that 
 
 DEFLNG A-Z
 
-'-------- Optional IDE Component (1/2) --------
-'$INCLUDE:'ide\ide_global.bas'
+'-------- Optional layout component (1/2) --------
 
 REDIM SHARED OName(1000) AS STRING 'Operation Name
 REDIM SHARED PL(1000) AS INTEGER 'Priority Level
@@ -124,7 +123,7 @@ OS_BITS = 64: IF INSTR(_OS$, "[32BIT]") THEN OS_BITS = 32
 IF OS_BITS = 32 THEN WindowTitle = "QB64 x32" ELSE WindowTitle = "QB64 x64"
 _TITLE WindowTitle
 
-DIM SHARED ConsoleMode, No_C_Compile_Mode, NoIDEMode
+DIM SHARED ConsoleMode, No_C_Compile_Mode
 DIM SHARED ShowWarnings AS _BYTE, QuietMode AS _BYTE, CMDLineFile AS STRING
 DIM SHARED MonochromeLoggingMode AS _BYTE
 
@@ -344,7 +343,7 @@ DIM SHARED tempfolderindexstr2 AS STRING
 IF tempfolderindex <> 1 THEN tempfolderindexstr$ = "(" + str2$(tempfolderindex) + ")": tempfolderindexstr2$ = str2$(tempfolderindex)
 
 
-DIM SHARED idedebuginfo
+DIM SHARED compilerdebuginfo
 DIM SHARED seperateargs_error
 DIM SHARED seperateargs_error_message AS STRING
 
@@ -360,27 +359,14 @@ symboltype_size = 0
 DIM SHARED use_global_byte_elements
 use_global_byte_elements = 0
 
-'compiler-side IDE data & definitions
-'SHARED variables "passed" to/from the compiler & IDE
-DIM SHARED idecommand AS STRING 'a 1 byte message-type code, followed by optional string data
-DIM SHARED idereturn AS STRING 'used to pass formatted-lines and return information back to the IDE
-DIM SHARED ideerror AS LONG
-DIM SHARED idecompiled AS LONG
-DIM SHARED idemode '1 if using the IDE to compile
-DIM SHARED ideerrorline AS LONG 'set by qb64-error(...) to the line number it would have reported, this number
-'is later passed to the ide in message #8
-DIM SHARED idemessage AS STRING 'set by qb64-error(...) to the error message to be reported, this
-'is later passed to the ide in message #8
-
 DIM SHARED optionexplicit AS _BYTE
 DIM SHARED optionexplicitarray AS _BYTE
 DIM SHARED optionexplicit_cmd AS _BYTE
-DIM SHARED ideStartAtLine AS LONG, errorLineInInclude AS LONG
-DIM SHARED warningInInclude AS LONG, warningInIncludeLine AS LONG
+DIM SHARED errorLineInInclude AS LONG
 DIM SHARED outputfile_cmd$
 DIM SHARED compilelog$
 
-'$INCLUDE:'global\IDEsettings.bas'
+'$INCLUDE:'global\compiler_settings.bas'
 
 CMDLineFile = ParseCMDLineArgs$
 IF CMDLineFile <> "" AND FileHasExtension(CMDLineFile) = 0 THEN
@@ -390,58 +376,8 @@ IF CMDLineFile <> "" AND _FILEEXISTS(_STARTDIR$ + "/" + CMDLineFile) THEN
     CMDLineFile = _STARTDIR$ + "/" + CMDLineFile
 END IF
 
-IF ConsoleMode THEN
-    _DEST _CONSOLE
-ELSE
-    _CONSOLE OFF
-    _SCREENSHOW
-    _ICON
-END IF
-
-'the function ?=ide(?) should always be passed 0, it returns a message code number, any further information
-'is passed back in idereturn
-
-'message code numbers:
-'0  no ide present  (auto defined array ide() return 0)
-
-'1  launch ide & with passed filename (compiler->ide)
-
-'2  begin new compilation with returned line of code (compiler<-ide)
-'   [2][line of code]
-
-'3  request next line (compiler->ide)
-'   [3]
-
-'4  next line of code returned (compiler<-ide)
-'   [4][line of code]
-
-'5  no more lines of code exist (compiler<-ide)
-'   [5]
-
-'6  code is OK/ready (compiler->ide)
-'   [6]
-
-'7  repass the code from the beginning (compiler->ide)
-'   [7]
-
-'8  an error has occurred with 'this' message on 'this' line(compiler->ide)
-'   [8][error message][line as LONG]
-
-'9  C++ compile (if necessary) and run with 'this' name (compiler<-ide)
-'   [9][name(no path, no .bas)]
-
-'10 The line requires more time to process
-'       Pass-back 'line of code' using method [4] when ready
-'   [10][line of code]
-
-'11 ".EXE file created" message
-
-'12     The name of the exe I'll create is '...' (compiler->ide)
-'   [12][exe name without .exe]
-
-'255    A qb error happened in the IDE (compiler->ide)
-'   note: detected by the fact that ideerror was not set to 0
-'   [255]
+ConsoleMode = -1
+_DEST _CONSOLE
 
 'hash table data
 TYPE HashListItem
@@ -556,7 +492,7 @@ DIM SHARED incerror AS STRING
 DIM SHARED fix046 AS STRING
 fix046$ = "__" + "ASCII" + "_" + "CHR" + "_" + "046" + "__" 'broken up to avoid detection for layout reversion
 
-DIM SHARED layout AS STRING 'passed to IDE
+DIM SHARED layout AS STRING 'layout text for tooling
 DIM SHARED layoutok AS LONG 'tracks status of entire line
 
 DIM SHARED layoutcomment AS STRING
@@ -954,224 +890,6 @@ gl_scan_header
 
 '-----------------------QB64 COMPILER ONCE ONLY SETUP CODE ENDS HERE---------------------------------------
 
-IF NoIDEMode THEN IDE_AutoPosition = 0: GOTO noide
-DIM FileDropEnabled AS _BYTE
-IF FileDropEnabled = 0 THEN FileDropEnabled = -1: _ACCEPTFILEDROP
-
-IF IDE_AutoPosition AND NOT IDE_BypassAutoPosition THEN _SCREENMOVE IDE_LeftPosition, IDE_TopPosition
-idemode = 1
-sendc$ = "" 'no initial message
-IF CMDLineFile <> "" THEN sendc$ = CHR$(1) + CMDLineFile
-sendcommand:
-idecommand$ = sendc$
-C = ide(0)
-ideerror = 0
-IF C = 0 THEN idemode = 0: GOTO noide
-c$ = idereturn$
-
-IF C = 2 THEN 'begin
-    ideerrorline = 0 'addresses invalid prepass error line numbers being reported
-    idepass = 1
-    GOTO fullrecompile
-    ideret1:
-    wholeline$ = c$
-    GOTO ideprepass
-    ideret2:
-    IF lastLineReturn THEN GOTO lastLineReturn
-    sendc$ = CHR$(3) 'request next line
-    GOTO sendcommand
-END IF
-
-IF C = 4 THEN 'next line
-    IF idepass = 1 THEN
-        wholeline$ = c$
-        GOTO ideprepass
-        '(returns to ideret2: above)
-    END IF
-    'assume idepass>1
-    a3$ = c$
-    continuelinefrom = 0
-    GOTO ide4
-    ideret4:
-    IF lastLineReturn THEN GOTO lastLineReturn
-    sendc$ = CHR$(3) 'request next line
-    GOTO sendcommand
-END IF
-
-IF C = 5 THEN 'end of program reached
-
-    lastLine = 1
-    lastLineReturn = 1
-    IF idepass = 1 THEN
-        wholeline$ = ""
-        GOTO ideprepass
-        '(returns to ideret2: above, then to lastLinePrepassReturn below)
-    END IF
-    'idepass>1
-    a3$ = ""
-    continuelinefrom = 0
-    GOTO ide4 'returns to ideret4, then to lastLinePrepassReturn below
-    lastLineReturn:
-    lastLineReturn = 0
-    lastLine = 0
-
-    IF idepass = 1 THEN
-        'prepass complete
-        idepass = 2
-        GOTO ide3
-        ideret3:
-        sendc$ = CHR$(7) 'repass request
-        firstLine = 1
-        GOTO sendcommand
-    END IF
-    'assume idepass=2
-    'finalize program
-    GOTO ide5
-    ideret5: 'note: won't return here if a recompile was required!
-    sendc$ = CHR$(6) 'ready
-    idecompiled = 0
-    GOTO sendcommand
-END IF
-
-IF C = 9 THEN 'run
-
-    IF idecompiled = 0 THEN 'exe needs to be compiled
-        file$ = c$
-
-        'locate accessible file and truncate
-        f$ = file$
-
-        path.exe$ = ""
-        IF SaveExeWithSource THEN
-            IF LEN(ideprogname) THEN path.exe$ = idepath$ + pathsep$
-        END IF
-
-        i = 1
-        nextexeindex:
-        IF _FILEEXISTS(path.exe$ + file$ + extension$) THEN
-            E = 0
-            ON ERROR GOTO qberror_test
-            KILL path.exe$ + file$ + extension$
-            ON ERROR GOTO qberror
-            IF E = 1 THEN
-                i = i + 1
-                file$ = f$ + "(" + str2$(i) + ")"
-                GOTO nextexeindex
-            END IF
-        END IF
-
-        IF path.exe$ = "" THEN
-            IF INSTR(_OS$, "WIN") THEN path.exe$ = "..\..\" ELSE path.exe$ = "../../"
-        END IF
-
-        'inform IDE of name change if necessary (IDE will respond with message 9 and corrected name)
-        IF i <> 1 THEN
-            sendc$ = CHR$(12) + file$
-            GOTO sendcommand
-        END IF
-
-        ideerrorline = 0 'addresses C++ comp. error's line number
-        GOTO ide6
-        ideret6:
-        idecompiled = 1
-    END IF
-
-    IF iderunmode = 2 THEN
-        sendc$ = CHR$(11) '.EXE file created
-        GOTO sendcommand
-    END IF
-
-    'execute program
-
-
-
-
-    IF iderunmode = 1 THEN
-        IF NoExeSaved THEN
-            'This is the section which deals with if the user selected to run the program without
-            'saving an EXE file to the disk.
-            'We start off by first running the EXE, and then we delete it from the drive.
-            'making it a temporary file when all is said and done.
-            IF os$ = "WIN" THEN
-                SHELL QuotedFilename$(CHR$(34) + lastBinaryGenerated$ + CHR$(34)) + ModifyCOMMAND$ 'run the newly created program
-                SHELL _HIDE _DONTWAIT "del " + QuotedFilename$(CHR$(34) + lastBinaryGenerated$ + CHR$(34)) 'kill it
-            END IF
-            IF path.exe$ = "" THEN path.exe$ = "./"
-            IF os$ = "LNX" THEN
-                IF LEFT$(lastBinaryGenerated$, LEN(path.exe$)) = path.exe$ THEN
-                    SHELL QuotedFilename$(lastBinaryGenerated$) + ModifyCOMMAND$
-                    KILL lastBinaryGenerated$
-                ELSE
-                    SHELL QuotedFilename$(path.exe$ + lastBinaryGenerated$) + ModifyCOMMAND$
-                    KILL path.exe$ + lastBinaryGenerated$
-                END IF
-            END IF
-            IF path.exe$ = "./" THEN path.exe$ = ""
-            NoExeSaved = 0 'reset the flag for a temp EXE
-            sendc$ = CHR$(6) 'ready
-            GOTO sendcommand
-        END IF
-
-
-
-        IF os$ = "WIN" THEN SHELL _DONTWAIT QuotedFilename$(CHR$(34) + lastBinaryGenerated$ + CHR$(34)) + ModifyCOMMAND$
-        IF path.exe$ = "" THEN path.exe$ = "./"
-        IF os$ = "LNX" THEN
-            IF LEFT$(lastBinaryGenerated$, LEN(path.exe$)) = path.exe$ THEN
-                SHELL _DONTWAIT QuotedFilename$(lastBinaryGenerated$) + ModifyCOMMAND$
-            ELSE
-                SHELL _DONTWAIT QuotedFilename$(path.exe$ + lastBinaryGenerated$) + ModifyCOMMAND$
-            END IF
-        END IF
-        IF path.exe$ = "./" THEN path.exe$ = ""
-    ELSE
-        IF os$ = "WIN" THEN SHELL QuotedFilename$(CHR$(34) + lastBinaryGenerated$ + CHR$(34)) + ModifyCOMMAND$
-        IF path.exe$ = "" THEN path.exe$ = "./"
-        IF os$ = "LNX" THEN
-            IF LEFT$(lastBinaryGenerated$, LEN(path.exe$)) = path.exe$ THEN
-                SHELL QuotedFilename$(lastBinaryGenerated$) + ModifyCOMMAND$
-            ELSE
-                SHELL QuotedFilename$(path.exe$ + lastBinaryGenerated$) + ModifyCOMMAND$
-            END IF
-        END IF
-        IF path.exe$ = "./" THEN path.exe$ = ""
-        DO: LOOP UNTIL INKEY$ = ""
-        DO: LOOP UNTIL _KEYHIT = 0
-    END IF
-
-    IF idemode THEN
-        'Darken fg/bg colors
-        dummy = DarkenFGBG(0)
-    END IF
-
-    IF vWatchOn THEN
-        sendc$ = CHR$(254) 'launch debug interface
-    ELSE
-        sendc$ = CHR$(6) 'ready
-    END IF
-    GOTO sendcommand
-END IF
-
-PRINT "Invalid IDE message": END
-
-ideerror:
-IF INSTR(idemessage$, sp$) THEN
-    'Something went wrong here, so let's give a generic error message to the user.
-    '(No error message should contain sp$ - that is, CHR$(13), when not in Debug mode)
-    terrmsg$ = _ERRORMESSAGE$
-    IF terrmsg$ = "No error" THEN terrmsg$ = "Internal error"
-    idemessage$ = "Compiler error (check for syntax errors) (" + terrmsg$ + ":"
-    IF ERR THEN idemessage$ = idemessage$ + str2$(ERR) + "-"
-    IF _ERRORLINE THEN idemessage$ = idemessage$ + str2$(_ERRORLINE)
-    IF _INCLERRORLINE THEN idemessage$ = idemessage$ + "-" + _INCLERRORFILE$ + "-" + str2$(_INCLERRORLINE)
-    idemessage$ = idemessage$ + ")"
-    IF inclevel > 0 THEN idemessage$ = idemessage$ + incerror$
-END IF
-
-sendc$ = CHR$(8) + idemessage$ + MKL$(ideerrorline)
-GOTO sendcommand
-
-
 noide:
 IF (qb64versionprinted = 0 OR ConsoleMode = 0) AND NOT QuietMode THEN
     qb64versionprinted = -1
@@ -1179,7 +897,25 @@ IF (qb64versionprinted = 0 OR ConsoleMode = 0) AND NOT QuietMode THEN
 END IF
 
 IF CMDLineFile = "" THEN
-    LINE INPUT ; "COMPILE (.bas)>", f$
+    PRINT
+    PRINT "Usage: qb <file> [switches]"
+    PRINT
+    PRINT "Options:"
+    PRINT "  <file>                  Source file to load"
+    PRINT "  -c                      Compile the source file (default)"
+    PRINT "  -o <output file>        Write output executable to <output file>"
+    PRINT "  -x                      Compile and output the result to the"
+    PRINT "                             console"
+    PRINT "  -w                      Show warnings"
+    PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
+    PRINT "  -m                      Do not colorize compiler output (monochrome mode)"
+    PRINT "  -e                      Enable OPTION _EXPLICIT, making variable declaration"
+    PRINT "                             mandatory (per-compilation; doesn't affect the"
+    PRINT "                             source file or global settings)"
+    PRINT "  -s[:switch=true/false]  View/edit compiler settings"
+    PRINT "  -p                      Purge all pre-compiled content first"
+    PRINT "  -z                      Generate C code without compiling to executable"
+    SYSTEM 1
 ELSE
     f$ = CMDLineFile
 END IF
@@ -1275,7 +1011,7 @@ qb64prefix_set = qb64prefix_set_desiredState
 qb64prefix$ = "_"
 
 optionexplicit = opex_desiredState
-IF optionexplicit_cmd = -1 AND NoIDEMode = 1 THEN optionexplicit = -1
+IF optionexplicit_cmd = -1 THEN optionexplicit = -1
 optionexplicitarray = opexarray_desiredState
 
 lastLineReturn = 0
@@ -1646,20 +1382,18 @@ ff = FREEFILE: OPEN tmpdir$ + "icon.rc" FOR OUTPUT AS #ff: CLOSE #ff
 
 IF Debug THEN CLOSE #9: OPEN tmpdir$ + "debug.txt" FOR APPEND AS #9
 
-IF idemode = 0 THEN
-    qberrorhappened = -1
-    OPEN sourcefile$ FOR INPUT AS #1
-    qberrorhappened1:
-    IF qberrorhappened = 1 THEN
-        PRINT
-        PRINT "Cannot locate source file: " + sourcefile$
-        IF ConsoleMode THEN SYSTEM 1
-        END 1
-    ELSE
-        CLOSE #1
-    END IF
-    qberrorhappened = 0
+qberrorhappened = -1
+OPEN sourcefile$ FOR INPUT AS #1
+qberrorhappened1:
+IF qberrorhappened = 1 THEN
+    PRINT
+    PRINT "Cannot locate source file: " + sourcefile$
+    IF ConsoleMode THEN SYSTEM 1
+    END 1
+ELSE
+    CLOSE #1
 END IF
+qberrorhappened = 0
 
 reginternal
 
@@ -1683,18 +1417,9 @@ END IF
 
 OPEN tmpdir$ + "global.txt" FOR OUTPUT AS #18
 
-IF iderecompile THEN
-    iderecompile = 0
-    idepass = 1 'prepass must be done again
-    sendc$ = CHR$(7) 'repass request
-    GOTO sendcommand
-END IF
-
-IF idemode THEN GOTO ideret1
-
 IF NOT QuietMode THEN
     PRINT
-    PRINT "Beginning C++ output from QB64 code... "
+    PRINT "[QB64] Building " + sourcefile$
 END IF
 
 lineinput3load sourcefile$
@@ -1706,7 +1431,7 @@ DO
     wholeline$ = lineinput3$
     IF wholeline$ = CHR$(13) THEN EXIT DO
 
-    ideprepass:
+    prepassline:
     prepassLastLine:
 
     IF lastLine <> 0 OR firstLine <> 0 THEN
@@ -2765,7 +2490,7 @@ DO
         FOR try = firstTryMethod TO 2 'if including file from root, do not attempt including from relative location
             IF try = 1 THEN
                 IF inclevel = 0 THEN
-                    IF idemode THEN p$ = idepath$ + pathsep$ ELSE p$ = getfilepath$(sourcefile$)
+                    p$ = getfilepath$(sourcefile$)
                 ELSE
                     p$ = getfilepath$(incname(inclevel))
                 END IF
@@ -2817,8 +2542,7 @@ DO
 
             IF Debug THEN PRINT #9, "Pre-pass:Feeding INCLUDE$ line:[" + wholeline$ + "]"
 
-            IF idemode THEN sendc$ = CHR$(10) + wholeline$: GOTO sendcommand 'passback
-            GOTO ideprepass
+            GOTO prepassline
         END IF
         '3. Close & return control
         CLOSE #fh
@@ -2830,7 +2554,6 @@ DO
     LOOP
     '(end manager)
 
-    IF idemode THEN GOTO ideret2
 LOOP
 
 'add final line
@@ -2846,14 +2569,9 @@ IF declaringlibrary THEN declaringlibrary = 0 'ignore this error so that auto-fo
 
 totallinenumber = reallinenumber
 
-'IF idemode = 0 AND NOT QuietMode THEN PRINT "first pass finished.": PRINT "Translating code... "
-
 'prepass finished
 
 lineinput3index = 1 'reset input line
-
-'ide specific
-ide3:
 
 addmetainclude$ = "" 'reset stray meta-includes
 
@@ -2934,11 +2652,7 @@ PRINT #12, "S_0:;" 'note: REQUIRED by run statement
 IF UseGL THEN gl_include_content
 
 
-'ide specific
-IF idemode THEN GOTO ideret3
-
 DO
-    ide4:
     includeline:
     mainpassLastLine:
 
@@ -2983,8 +2697,8 @@ DO
     IF addmetadynamic = 1 THEN addmetadynamic = 0: DynamicMode = 1
     IF addmetastatic = 1 THEN addmetastatic = 0: DynamicMode = 0
 
-    'a3$ is passed in idemode and when using $include
-    IF idemode = 0 AND inclevel = 0 THEN a3$ = lineinput3$
+    'a3$ is passed in when using $include
+    IF inclevel = 0 THEN a3$ = lineinput3$
     IF a3$ = CHR$(13) THEN EXIT DO
     linenumber = linenumber + 1
     reallinenumber = reallinenumber + 1
@@ -2992,34 +2706,15 @@ DO
     IF InValidLine(linenumber) THEN
         layoutok = 1
         layout$ = SPACE$(controllevel + 1) + LTRIM$(RTRIM$(a3$))
-        IF idemode GOTO ideret4 ELSE GOTO skipide4
+        GOTO nextmainpassline
     END IF
 
     layout = ""
     layoutok = 1
 
-    IF idemode = 0 AND NOT QuietMode THEN
-        'IF LEN(a3$) THEN
-        '    dotlinecount = dotlinecount + 1: IF dotlinecount >= 100 THEN dotlinecount = 0: PRINT ".";
-        'END IF
-        maxprogresswidth = 50 'arbitrary
-        percentage = INT(reallinenumber / totallinenumber * 100)
-        percentagechars = INT(maxprogresswidth * reallinenumber / totallinenumber)
-        IF percentage <> prevpercentage AND percentagechars <> prevpercentagechars THEN
-            prevpercentage = percentage
-            prevpercentagechars = percentagechars
-            IF ConsoleMode THEN
-                PRINT "[" + STRING$(percentagechars, ".") + SPACE$(maxprogresswidth - percentagechars) + "]" + STR$(percentage) + "%";
-                IF os$ = "LNX" THEN
-                    PRINT CHR$(27) + "[A"
-                ELSE
-                    PRINT CHR$(13);
-                END IF
-            ELSE
-                LOCATE , 1
-                PRINT STRING$(percentagechars, 219) + STRING$(maxprogresswidth - percentagechars, 176) + STR$(percentage) + "%";
-            END IF
-        END IF
+    IF NOT QuietMode THEN
+        IF percentage = 0 THEN PRINT "[1/2] Preparing build files from QBasic source..."
+        percentage = 1
     END IF
 
     a3$ = LTRIM$(RTRIM$(a3$))
@@ -3037,7 +2732,7 @@ DO
 
     'We've already figured out in the prepass which lines are invalidated by the precompiler
     'No need to go over those lines again.
-    'IF InValidLine(linenumber) THEN goto skipide4 'layoutdone = 0: GOTO finishednonexec
+    'IF InValidLine(linenumber) THEN goto nextmainpassline 'layoutdone = 0: GOTO finishednonexec
 
     a3u$ = UCASE$(a3$)
 
@@ -3205,18 +2900,13 @@ DO
 
         IF a3u$ = "$DEBUG" THEN
             layout$ = SCase$("$Debug")
-            IF NoIDEMode THEN
-                addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "$Debug", "$Debug features only work from the IDE"
-            END IF
+            addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "$Debug", "$Debug is not supported in the CLI compiler"
             GOTO finishednonexec
         END IF
 
         IF a3u$ = "$CHECKING:OFF" THEN
             layout$ = SCase$("$Checking:Off")
             NoChecks = 1
-            IF vWatchOn <> 0 AND NoIDEMode = 0 AND inclevel = 0 THEN
-                addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "$Debug", "$Debug features won't work in $Checking:Off blocks"
-            END IF
             GOTO finishednonexec
         END IF
 
@@ -3387,12 +3077,8 @@ DO
                 IconPath$ = ""
                 IF LEFT$(ExeIconFile$, 2) = "./" OR LEFT$(ExeIconFile$, 2) = ".\" THEN
                     'Relative to source file's folder
-                    IF NoIDEMode THEN
-                        IconPath$ = path.source$
-                        IF LEN(IconPath$) > 0 AND RIGHT$(IconPath$, 1) <> pathsep$ THEN IconPath$ = IconPath$ + pathsep$
-                    ELSE
-                        IF LEN(ideprogname) THEN IconPath$ = idepath$ + pathsep$
-                    END IF
+                    IconPath$ = path.source$
+                    IF LEN(IconPath$) > 0 AND RIGHT$(IconPath$, 1) <> pathsep$ THEN IconPath$ = IconPath$ + pathsep$
 
                     ExeIconFile$ = IconPath$ + MID$(ExeIconFile$, 3)
                 ELSEIF INSTR(ExeIconFile$, "/") OR INSTR(ExeIconFile$, "\") THEN
@@ -4063,12 +3749,8 @@ DO
                     'folder, replacing it with the actual full path, if available
                     IF libpath$ = "./" OR libpath$ = ".\" THEN
                         libpath$ = ""
-                        IF NoIDEMode THEN
-                            libpath$ = path.source$
-                            IF LEN(libpath$) > 0 AND RIGHT$(libpath$, 1) <> pathsep$ THEN libpath$ = libpath$ + pathsep$
-                        ELSE
-                            IF LEN(ideprogname) THEN libpath$ = idepath$ + pathsep$
-                        END IF
+                        libpath$ = path.source$
+                        IF LEN(libpath$) > 0 AND RIGHT$(libpath$, 1) <> pathsep$ THEN libpath$ = libpath$ + pathsep$
                     END IF
 
                     'Create a path which can be used for inline code (uses \\ instead of \)
@@ -6014,11 +5696,9 @@ DO
             'END IF
             'Notice the ELSE with the SELECT CASE?  Before this patch, commands like those were considered valid QB64 code.
             temp$ = UCASE$(LTRIM$(RTRIM$(wholeline)))
-            'IF NoIDEMode THEN
             DO WHILE INSTR(temp$, CHR$(9))
                 ASC(temp$, INSTR(temp$, CHR$(9))) = 32
             LOOP
-            'END IF
             goodelse = 0 'a check to see if it's a good else
             IF LEFT$(temp$, 2) = "IF" THEN goodelse = -1: GOTO skipelsecheck 'If we have an IF, the else is probably good
             IF LEFT$(temp$, 4) = "ELSE" THEN goodelse = -1: GOTO skipelsecheck 'If it's an else by itself,then we'll call it good too at this point and let the rest of the syntax checking check for us
@@ -11357,7 +11037,7 @@ DO
             FOR try = firstTryMethod TO 2 'if including file from root, do not attempt including from relative location
                 IF try = 1 THEN
                     IF inclevel = 0 THEN
-                        IF idemode THEN p$ = idepath$ + pathsep$ ELSE p$ = getfilepath$(sourcefile$)
+                        p$ = getfilepath$(sourcefile$)
                     ELSE
                         p$ = getfilepath$(incname(inclevel))
                     END IF
@@ -11403,7 +11083,6 @@ DO
                 END IF
                 incerror$ = e$
                 linenumber = linenumber - 1 'lower official linenumber to counter later increment
-                IF idemode THEN sendc$ = CHR$(10) + a3$: GOTO sendcommand 'passback
                 GOTO includeline
             END IF
             '3. Close & return control
@@ -11438,39 +11117,8 @@ DO
 
 
 
-    IF idemode THEN
-        IF continuelinefrom <> 0 THEN GOTO ide4 'continue processing other commands on line
-
-        IF LEN(layoutcomment$) THEN
-            IF LEN(layout$) THEN layout$ = layout$ + sp + layoutcomment$ ELSE layout$ = layoutcomment$
-        END IF
-
-        IF layoutok = 0 THEN
-            layout$ = layoutoriginal$
-        ELSE
-
-            'reverse '046' changes present in autolayout
-            'replace fix046$ with .
-            i = INSTR(layout$, fix046$)
-            DO WHILE i
-                layout$ = LEFT$(layout$, i - 1) + "." + RIGHT$(layout$, LEN(layout$) - (i + LEN(fix046$) - 1))
-                i = INSTR(layout$, fix046$)
-            LOOP
-
-        END IF
-        x = lhscontrollevel: IF controllevel < lhscontrollevel THEN x = controllevel
-        IF definingtype = 2 THEN x = x + 1
-        IF definingtype > 0 THEN definingtype = 2
-        IF declaringlibrary = 2 THEN x = x + 1
-        IF declaringlibrary > 0 THEN declaringlibrary = 2
-        layout$ = SPACE$(x) + layout$
-        IF linecontinuation THEN layout$ = ""
-
-        GOTO ideret4 'return control to IDE
-    END IF
-
-    'layout is not currently used by the compiler (as appose to the IDE), if it was it would be used here
-    skipide4:
+    'layout is not currently used by the compiler, if it was it would be used here
+    nextmainpassline:
 LOOP
 
 'add final line
@@ -11481,7 +11129,6 @@ IF lastLineReturn = 0 THEN
     GOTO mainpassLastLine
 END IF
 
-ide5:
 linenumber = 0
 
 IF closedmain = 0 THEN closemain
@@ -11751,7 +11398,6 @@ IF recompile THEN
     do_recompile:
     IF Debug THEN PRINT #9, "Recompile required!"
     recompile = 0
-    IF idemode THEN iderecompile = 1
     FOR closeall = 1 TO 255: CLOSE closeall: NEXT
     OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
     GOTO recompile
@@ -12320,14 +11966,7 @@ OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
 compilelog$ = tmpdir$ + "compilelog.txt"
 OPEN compilelog$ FOR OUTPUT AS #1: CLOSE #1 'Clear log
 
-IF idemode = 0 AND NOT QuietMode THEN
-    IF ConsoleMode THEN
-        PRINT "[" + STRING$(maxprogresswidth, ".") + "] 100%"
-    ELSE
-        LOCATE , 1
-        PRINT STRING$(maxprogresswidth, 219) + " 100%"
-    END IF
-END IF
+IF NOT QuietMode THEN PRINT "[1/2] Build files ready"
 
 IF NOT IgnoreWarnings THEN
     totalUnusedVariables = 0
@@ -12354,16 +11993,13 @@ IF NOT IgnoreWarnings THEN
     END IF
 END IF
 
-IF idemode THEN GOTO ideret5
-ide6:
-
-IF idemode = 0 AND No_C_Compile_Mode = 0 THEN
+IF No_C_Compile_Mode = 0 THEN
     IF NOT QuietMode THEN
         PRINT
         IF os$ = "LNX" THEN
-            PRINT "Compiling C++ code into executable..."
+            PRINT "[2/2] Converting QBasic source to a native executable..."
         ELSE
-            PRINT "Compiling C++ code into EXE..."
+            PRINT "[2/2] Converting QBasic source to EXE..."
         END IF
     END IF
     IF LEN(outputfile_cmd$) THEN
@@ -12987,10 +12623,6 @@ IF os$ = "WIN" THEN
         CHDIR ".\internal\c"
         SHELL _HIDE "cmd /c " + a$ + " 2>> ..\..\" + compilelog$
         CHDIR "..\.."
-        IF idemode THEN
-            'Restore fg/bg colors
-            dummy = DarkenFGBG(0)
-        END IF
     END IF 'No_C_Compile_Mode=0
 
 END IF
@@ -13298,10 +12930,6 @@ IF os$ = "LNX" THEN
         CHDIR "./internal/c"
         SHELL _HIDE a$ + " 2>> ../../" + compilelog$
         CHDIR "../.."
-        IF idemode THEN
-            'Restore fg/bg colors
-            dummy = DarkenFGBG(0)
-        END IF
     END IF
 
     IF INSTR(_OS$, "[MACOSX]") THEN
@@ -13334,16 +12962,14 @@ ELSE
 END IF
 
 IF compfailed THEN
-    IF idemode THEN
-        idemessage$ = "C++ Compilation failed " + CHR$(0) + "(Check " + _TRIM$(compilelog$) + ")"
-        GOTO ideerror
+    IF os$ = "LNX" THEN
+        PRINT "ERROR: Failed to convert QBasic source to a native executable."
+    ELSE
+        PRINT "ERROR: Failed to convert QBasic source to EXE."
     END IF
-    IF compfailed THEN
-        PRINT "ERROR: C++ compilation failed."
-        PRINT "Check " + compilelog$ + " for details."
-    END IF
+    PRINT "Check " + compilelog$ + " for details."
 ELSE
-    IF idemode = 0 AND NOT QuietMode THEN PRINT "Output: "; lastBinaryGenerated$
+    IF NOT QuietMode THEN PRINT "[OK] Build complete: "; lastBinaryGenerated$
 END IF
 
 
@@ -13351,8 +12977,6 @@ END IF
 Skip_Build:
 
 
-
-IF idemode THEN GOTO ideret6
 
 No_C_Compile:
 
@@ -13377,8 +13001,8 @@ qberror:
 'END IF
 '_ECHO ""
 '_ECHO "Loaded source file details:"
-'_ECHO "ideerror =" + STR$(ideerror) + "; qberrorhappened =" + STR$(qberrorhappened) + "; qberrorhappenedvalue =" + STR$(qberrorhappenedvalue) + "; linenumber =" + STR$(linenumber)
-'_ECHO "ca$ = {" + ca$ + "}, idecommand$ = {" + idecommand$ + "}"
+'_ECHO "qberrorhappened =" + STR$(qberrorhappened) + "; qberrorhappenedvalue =" + STR$(qberrorhappenedvalue) + "; linenumber =" + STR$(linenumber)
+'_ECHO "ca$ = {" + ca$ + "}"
 '_ECHO "linefragment = {" + linefragment+ "}"
 
 IF Debug THEN 'A more in-your-face error handler
@@ -13401,24 +13025,10 @@ IF Debug THEN 'A more in-your-face error handler
     END IF
     PRINT
     PRINT "Loaded source file details:"
-    PRINT "ideerror ="; ideerror; "qberrorhappened ="; qberrorhappened; "qberrorhappenedvalue ="; qberrorhappenedvalue; "linenumber ="; linenumber
-    PRINT "ca$ = {"; ca$; "}, idecommand$ = {"; idecommand$; "}"
+    PRINT "qberrorhappened ="; qberrorhappened; "qberrorhappenedvalue ="; qberrorhappenedvalue; "linenumber ="; linenumber
+    PRINT "ca$ = {"; ca$; "}"
     PRINT "linefragment = {"; linefragment; "}"
     END
-END IF
-
-IF ideerror THEN 'error happened inside the IDE
-    fh = FREEFILE
-    OPEN "internal\temp\ideerror.txt" FOR APPEND AS #fh
-    PRINT #fh, DATE$; TIME$; "--------------------"
-    PRINT #fh, ERR
-    PRINT #fh, _ERRORMESSAGE$
-    PRINT #fh, _ERRORLINE
-    PRINT #fh, _INCLERRORLINE
-    PRINT #fh, _INCLERRORFILE$
-    CLOSE #fh
-    sendc$ = CHR$(255) 'a runtime error has occurred
-    RESUME sendcommand 'allow IDE to handle error recovery
 END IF
 
 qberrorhappenedvalue = qberrorhappened
@@ -13427,18 +13037,6 @@ qberrorhappened = 1
 IF Debug THEN PRINT #9, "QB ERROR!"
 IF Debug THEN PRINT #9, "ERR="; ERR
 IF Debug THEN PRINT #9, "ERL="; ERL
-
-IF idemode AND qberrorhappenedvalue >= 0 THEN
-    'real qb error occurred
-    ideerrorline = linenumber
-    idemessage$ = "Compiler error (check for syntax errors) (" + _ERRORMESSAGE$ + ":"
-    IF ERR THEN idemessage$ = idemessage$ + str2$(ERR) + "-"
-    IF _ERRORLINE THEN idemessage$ = idemessage$ + str2$(_ERRORLINE)
-    IF _INCLERRORLINE THEN idemessage$ = idemessage$ + "-" + _INCLERRORFILE$ + "-" + str2$(_INCLERRORLINE)
-    idemessage$ = idemessage$ + ")"
-    IF inclevel > 0 THEN idemessage$ = idemessage$ + incerror$
-    RESUME ideerror
-END IF
 
 IF qberrorhappenedvalue >= 0 THEN
     a$ = "UNEXPECTED INTERNAL COMPILER ERROR!": GOTO errmes 'internal comiler error
@@ -13462,12 +13060,6 @@ ELSE 'We want to let the user know which module the error occurred in
     IF inclevel > 0 THEN a$ = a$ + incerror$
 END IF
 
-IF idemode THEN
-    ideerrorline = linenumber
-    idemessage$ = a$
-    GOTO ideerror 'infinitely preferable to RESUME
-END IF
-'non-ide mode output
 PRINT
 IF NOT MonochromeLoggingMode THEN
     IF INSTR(_OS$, "WIN") THEN
@@ -13501,19 +13093,19 @@ FUNCTION ParseCMDLineArgs$ ()
     'in which case they're simply asking for trouble).
     FOR i = 1 TO _COMMANDCOUNT
         token$ = COMMAND$(i)
-        IF LCASE$(token$) = "/?" OR LCASE$(token$) = "--help" OR LCASE$(token$) = "/help" THEN token$ = "-?"
+        IF LCASE$(token$) = "-h" OR LCASE$(token$) = "/?" OR LCASE$(token$) = "--help" OR LCASE$(token$) = "/help" THEN token$ = "-?"
         SELECT CASE LCASE$(LEFT$(token$, 2))
             CASE "-?" 'Command-line help
                 _DEST _CONSOLE
                 IF qb64versionprinted = 0 THEN qb64versionprinted = -1: PRINT "QB64 Compiler V" + Version$
                 PRINT
-                PRINT "Usage: qb64 [switches] <file>"
+                PRINT "Usage: qb <file> [switches]"
                 PRINT
                 PRINT "Options:"
                 PRINT "  <file>                  Source file to load" '                                '80 columns
-                PRINT "  -c                      Compile instead of edit"
+                PRINT "  -c                      Compile the source file (default)"
                 PRINT "  -o <output file>        Write output executable to <output file>"
-                PRINT "  -x                      Compile instead of edit and output the result to the"
+                PRINT "  -x                      Compile and output the result to the"
                 PRINT "                             console"
                 PRINT "  -w                      Show warnings"
                 PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
@@ -13522,20 +13114,17 @@ FUNCTION ParseCMDLineArgs$ ()
                 PRINT "                             mandatory (per-compilation; doesn't affect the"
                 PRINT "                             source file or global settings)"
                 PRINT "  -s[:switch=true/false]  View/edit compiler settings"
-                PRINT "  -l:<line number>        Start the IDE at the specified line number"
                 PRINT "  -p                      Purge all pre-compiled content first"
                 PRINT "  -z                      Generate C code without compiling to executable"
                 PRINT
                 SYSTEM
             CASE "-c" 'Compile instead of edit
-                NoIDEMode = 1
                 cmdlineswitch = -1
             CASE "-o" 'Specify an output file
                 IF LEN(COMMAND$(i + 1)) > 0 THEN outputfile_cmd$ = COMMAND$(i + 1): i = i + 1
                 cmdlineswitch = -1
             CASE "-x" 'Use the console
                 ConsoleMode = 1
-                NoIDEMode = 1 'Implies -c
                 cmdlineswitch = -1
             CASE "-w" 'Show warnings
                 ShowWarnings = -1
@@ -13556,7 +13145,7 @@ FUNCTION ParseCMDLineArgs$ ()
                 SELECT CASE LCASE$(MID$(token$, 3))
                     CASE ""
                         PRINT "debuginfo     = ";
-                        IF idedebuginfo THEN PRINT "true" ELSE PRINT "false"
+                        IF compilerdebuginfo THEN PRINT "true" ELSE PRINT "false"
                         PRINT "exewithsource = ";
                         IF SaveExeWithSource THEN PRINT "true" ELSE PRINT "false"
                         SYSTEM
@@ -13574,13 +13163,13 @@ FUNCTION ParseCMDLineArgs$ ()
                         SaveExeWithSource = 0
                     CASE ":debuginfo"
                         PRINT "debuginfo = ";
-                        IF idedebuginfo THEN PRINT "true" ELSE PRINT "false"
+                        IF compilerdebuginfo THEN PRINT "true" ELSE PRINT "false"
                         SYSTEM
                     CASE ":debuginfo=true"
                         PRINT "debuginfo = true"
                         WriteConfigSetting generalSettingsSection$, "DebugInfo", "True" + DebugInfoIniWarning$
-                        idedebuginfo = 1
-                        Include_GDB_Debugging_Info = idedebuginfo
+                        compilerdebuginfo = 1
+                        Include_GDB_Debugging_Info = compilerdebuginfo
                         IF os$ = "WIN" THEN
                             CHDIR "internal\c"
                             SHELL _HIDE "cmd /c purge_all_precompiled_content_win.bat"
@@ -13599,8 +13188,8 @@ FUNCTION ParseCMDLineArgs$ ()
                     CASE ":debuginfo=false"
                         PRINT "debuginfo = false"
                         WriteConfigSetting generalSettingsSection$, "DebugInfo", "False" + DebugInfoIniWarning$
-                        idedebuginfo = 0
-                        Include_GDB_Debugging_Info = idedebuginfo
+                        compilerdebuginfo = 0
+                        Include_GDB_Debugging_Info = compilerdebuginfo
                         IF os$ = "WIN" THEN
                             CHDIR "internal\c"
                             SHELL _HIDE "cmd /c purge_all_precompiled_content_win.bat"
@@ -13625,9 +13214,9 @@ FUNCTION ParseCMDLineArgs$ ()
                         SYSTEM 1
                 END SELECT
                 _DEST 0
-            CASE "-l" 'goto line (ide mode only); -l:<line number>
-                IF MID$(token$, 3, 1) = ":" THEN ideStartAtLine = VAL(MID$(token$, 4))
-                cmdlineswitch = -1
+            CASE "-l" 'legacy compatibility switch
+                PRINT "The -l switch is no longer supported in the CLI compiler."
+                SYSTEM 1
             CASE "-p" 'Purge
                 IF os$ = "WIN" THEN
                     CHDIR "internal\c"
@@ -13648,9 +13237,16 @@ FUNCTION ParseCMDLineArgs$ ()
             CASE "-z" 'Not compiling C code
                 No_C_Compile_Mode = 1
                 ConsoleMode = 1 'Implies -x
-                NoIDEMode = 1 'Implies -c
                 cmdlineswitch = -1
-            CASE ELSE 'Something we don't recognise, assume it's a filename
+            CASE ELSE
+                IF LEFT$(token$, 1) = "-" OR LEFT$(token$, 1) = "/" THEN
+                    _DEST _CONSOLE
+                    IF qb64versionprinted = 0 THEN qb64versionprinted = -1: PRINT "QB64 Compiler V" + Version$
+                    PRINT
+                    PRINT "Unknown switch: "; token$
+                    PRINT "Run 'qb64 -h' for usage."
+                    SYSTEM 1
+                END IF
                 IF PassedFileName$ = "" THEN PassedFileName$ = token$
         END SELECT
     NEXT i
@@ -20958,7 +20554,6 @@ FUNCTION lineformat$ (a$)
     lineformatdone:
 
     'line continuation?
-    'note: line continuation in idemode is illegal
     IF LEN(a2$) THEN
         IF RIGHT$(a2$, 1) = "_" THEN
 
@@ -20979,16 +20574,8 @@ FUNCTION lineformat$ (a$)
                 GOTO includecont 'note: should not increase linenumber
             END IF
 
-            IF idemode THEN
-                idecommand$ = CHR$(100)
-                ignore = ide(0)
-                ideerror = 0
-                a$ = idereturn$
-                IF a$ = "" THEN GOTO lineformatdone2
-            ELSE
-                a$ = lineinput3$
-                IF a$ = CHR$(13) THEN GOTO lineformatdone2
-            END IF
+            a$ = lineinput3$
+            IF a$ = CHR$(13) THEN GOTO lineformatdone2
 
             linenumber = linenumber + 1
 
@@ -21345,11 +20932,6 @@ SUB regid
                 END IF 'hashres
                 IF hashres <> 1 THEN hashres = HashFindCont(hashresflags, hashresref) ELSE hashres = 0
             LOOP
-            IF idemode THEN
-                IF INSTR(listOfCustomKeywords$, "@" + UCASE$(n$) + "@") = 0 THEN
-                    listOfCustomKeywords$ = listOfCustomKeywords$ + "@" + UCASE$(n$) + "@"
-                END IF
-            END IF
         END IF 'reginternalsubfunc = 0
     END IF
 
@@ -25694,7 +25276,7 @@ FUNCTION removecast$ (a$)
 END FUNCTION
 
 FUNCTION converttabs$ (a2$)
-    IF ideautoindent THEN s = ideautoindentsize ELSE s = 4
+    s = 4
     a$ = a2$
     DO WHILE INSTR(a$, CHR_TAB)
         x = INSTR(a$, CHR_TAB)
@@ -26208,7 +25790,7 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
     warningsissued = -1
     totalWarnings = totalWarnings + 1
 
-    IF idemode = 0 AND ShowWarnings THEN
+    IF ShowWarnings AND NOT IgnoreWarnings THEN
         thissource$ = getfilepath$(CMDLineFile)
         thissource$ = MID$(CMDLineFile, LEN(thissource$) + 1)
         thisincname$ = getfilepath$(incFileName$)
@@ -26233,29 +25815,6 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
             PRINT SPACE$(4); text$
             IF NOT MonochromeLoggingMode THEN COLOR 7
         END IF
-    ELSEIF idemode THEN
-        IF NOT IgnoreWarnings THEN
-            IF whichLineNumber > maxLineNumber THEN maxLineNumber = whichLineNumber
-            IF lastWarningHeader <> header$ THEN
-                lastWarningHeader = header$
-                GOSUB increaseWarningCount
-                warning$(warningListItems) = header$
-                warningLines(warningListItems) = 0
-            END IF
-
-            GOSUB increaseWarningCount
-            warning$(warningListItems) = text$
-            warningLines(warningListItems) = whichLineNumber
-            IF includeLevel > 0 THEN
-                thisincname$ = getfilepath$(incFileName$)
-                thisincname$ = MID$(incFileName$, LEN(thisincname$) + 1)
-                warningIncLines(warningListItems) = incLineNumber
-                warningIncFiles(warningListItems) = thisincname$
-            ELSE
-                warningIncLines(warningListItems) = 0
-                warningIncFiles(warningListItems) = ""
-            END IF
-        END IF
     END IF
     EXIT SUB
     increaseWarningCount:
@@ -26270,36 +25829,32 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
 END SUB
 
 FUNCTION SCase$ (t$)
-    IF ideautolayoutkwcapitals THEN SCase$ = UCASE$(t$) ELSE SCase$ = t$
+    SCase$ = t$
 END FUNCTION
 
 FUNCTION SCase2$ (t$)
     separator$ = sp
-    IF ideautolayoutkwcapitals THEN
-        SCase2$ = UCASE$(t$)
-    ELSE
-        newWord = -1
-        temp$ = ""
-        FOR i = 1 TO LEN(t$)
-            s$ = MID$(t$, i, 1)
-            IF newWord THEN
-                IF s$ = "_" OR s$ = separator$ THEN
-                    temp$ = temp$ + s$
-                ELSE
-                    temp$ = temp$ + UCASE$(s$)
-                    newWord = 0
-                END IF
+    newWord = -1
+    temp$ = ""
+    FOR i = 1 TO LEN(t$)
+        s$ = MID$(t$, i, 1)
+        IF newWord THEN
+            IF s$ = "_" OR s$ = separator$ THEN
+                temp$ = temp$ + s$
             ELSE
-                IF s$ = separator$ THEN
-                    temp$ = temp$ + separator$
-                    newWord = -1
-                ELSE
-                    temp$ = temp$ + LCASE$(s$)
-                END IF
+                temp$ = temp$ + UCASE$(s$)
+                newWord = 0
             END IF
-        NEXT
-        SCase2$ = temp$
-    END IF
+        ELSE
+            IF s$ = separator$ THEN
+                temp$ = temp$ + separator$
+                newWord = -1
+            ELSE
+                temp$ = temp$ + LCASE$(s$)
+            END IF
+        END IF
+    NEXT
+    SCase2$ = temp$
 END FUNCTION
 
 SUB increaseUDTArrays
@@ -26334,8 +25889,7 @@ END SUB
 
 DEFLNG A-Z
 
-'-------- Optional IDE Component (2/2) --------
-'$INCLUDE:'ide\ide_methods.bas'
+'-------- Optional layout component (2/2) --------
 
 SUB DebugPrint(text$)
   fn = FREEFILE

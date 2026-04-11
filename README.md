@@ -21,7 +21,7 @@ Download the appropriate package for your operating system. Check the Releases p
 <a name="Windows"></a>
 ## Windows
 
-Make sure to extract the package contents to a folder with full write permissions (failing to do so may result in IDE or compilation errors).
+Make sure to extract the package contents to a folder with full write permissions (failing to do so may result in packaging or compilation errors).
 
 * It is advisable to to whitelist the QB64 folder in your antivirus/antimalware software *
 
@@ -42,14 +42,14 @@ Dependencies should be automatically installed. Required packages include OpenGL
 
 <a name="Usage"></a>
 # Usage
-Run the QB64 executable to launch the IDE, which you can use to edit your .BAS files. From there, hit F5 to compile and run your code.
+QB64 now runs as a command-line compiler only.
 
-To generate a binary without running it, hit F11.
+Use `qb` as the primary command, or `qb64` if you want the full executable name:
 
-Additionally, if you do not wish to use the integrated IDE and to only compile your program, you can use the following command-line calls:
+```qb yourfile.bas```
 
-```qb64 -c yourfile.bas```
+```qb yourfile.bas -o outputname.exe```
 
-```qb64 -c yourfile.bas -o outputname.exe```
+Use `-x` to keep compiler output in the terminal:
 
-Replacing `-c` with `-x` will compile without opening a separate compiler window.
+```qb yourfile.bas -x```
