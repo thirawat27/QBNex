@@ -41,7 +41,11 @@
 
 ## About
 
-**QBNex** is a modern extended BASIC+OpenGL language that retains QB4.5/QBasic compatibility and compiles native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components.
+**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into optimized C++ and compiles to native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components.
+
+**Version**: 1.0.0
+
+The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. It features comprehensive graphics via OpenGL/FreeGLUT, sound synthesis via miniaudio, TCP/IP networking, and full file I/O operations.
 
 Repository: https://github.com/thirawat27/QBNex
 
@@ -50,36 +54,112 @@ Repository: https://github.com/thirawat27/QBNex
 ## Features
 
 - **Comprehensive Language Support**
-  - Full support for classic QBasic syntax
-  - User-defined types (TYPE...END TYPE)
+  - Full support for classic QBasic/QB4.5 syntax
+  - User-defined types (TYPE...END TYPE) with nested structures
   - Subroutines and functions with parameters
   - Multi-dimensional arrays with REDIM PRESERVE
+  - 150+ QBasic/QB64 keywords and functions
+  - Extended data types: BIT, BYTE, _INTEGER64, _FLOAT, OFFSET (pointers)
+  - Unsigned integer types (UNSIGNED BYTE, UNSIGNED INTEGER, UNSIGNED LONG, UNSIGNED _INTEGER64)
 
 - **Modern Execution**
-  - Compiles directly to native C++ binaries for maximum performance
-  - Robust OpenGL-driven graphics subsystem
-  - Advanced sound synthesis via ALSA/native APIs
+  - Self-hosting compiler written in QBNex BASIC (~26,000 lines)
+  - Transpiles BASIC source to optimized C++ before compilation
+  - Compiles to native binaries for maximum performance
   - CLI-driven compilation optimized for modern terminal workflows
+  - Cross-platform support: Windows (x86/x64), Linux, macOS
 
 - **Advanced Graphics & Sound**
+  - OpenGL-based graphics subsystem with FreeGLUT
   - Automatic detection of graphics/sound features
-  - SCREEN modes with VGA and hi-res graphics support
-  - Drawing primitives (LINE, CIRCLE, PAINT, DRAW)
-  - Image manipulation (GET/PUT)
-  - Sound synthesis (SOUND, PLAY, BEEP)
+  - SCREEN modes with VGA and hi-res graphics support (SCREEN 0-12+)
+  - Drawing primitives (LINE, CIRCLE, PAINT, DRAW with macro strings)
+  - Image manipulation (GET/PUT with PSET, AND, OR, XOR transfer modes)
+  - TrueType font rendering via FreeType library
+  - Image format loading (BMP, PCX, PNG, JPEG, etc.) via STB Image
+  - Sound synthesis via miniaudio library (SOUND, PLAY, BEEP)
+  - Cross-platform audio: ALSA (Linux), CoreAudio (macOS), Windows Multimedia
+
+- **Network Capabilities**
+  - TCP/IP networking with socket support
+  - Server sockets (`_OPENHOST`)
+  - Client connections (`_OPENCLIENT`)
+  - Connection management functions
+  - Conditional compilation via DEPENDENCY_SOCKETS
 
 - **File System Operations**
-  - Sequential, random, and binary file access
+  - Sequential file access (OPEN, PRINT #, WRITE #, INPUT #, LINE INPUT #)
+  - Random file access (OPEN FOR RANDOM, GET, PUT, FIELD, LSET, RSET)
+  - Binary file access (OPEN FOR BINARY, GET, PUT)
   - Directory operations (MKDIR, CHDIR, RMDIR)
   - File management (KILL, NAME...AS, FILES)
+  - Binary load/save (BLOAD, BSAVE)
+
+- **Developer Tools**
+  - Compiler version tracking (`-v` flag)
+  - Help and documentation (`-h`, `--help`)
+  - Examples display (`-g` flag)
+  - Warning system with `-w` flag
+  - Quiet mode (`-q` flag)
+  - Monochrome output option (`-m` flag)
+  - Settings management (`-s` flag)
+  - Pre-compiled content purge (`-p` flag)
+  - C code generation without compilation (`-z` flag)
+  - OPTION _EXPLICIT enforcement (`-e` flag)
+  - Compile and run immediately (`-x` flag)
+  - Custom output naming (`-o` flag)
+  - Debug mode with GDB information
+  - Configurable compiler settings via INI file
+
+- **System Integration**
+  - Timer and date/time functions
+  - Command-line argument access
+  - Environment variable queries
+  - Low-level memory operations (PEEK, POKE, DEF SEG, VARPTR)
+  - Process control (SHELL, CHAIN, CALL, CALL ABSOLUTE)
+  - Error handling with ON ERROR GOTO, RESUME
 
 ---
 
 ## System Requirements
 
-- **Windows**: Windows 7 or newer.
-- **macOS**: macOS with Xcode command line tools installed.
-- **Linux**: Requires OpenGL, ALSA, and the GNU C++ compiler (`g++`).
+### Platform Requirements
+
+**Windows:**
+- Windows 7 or newer (32-bit or 64-bit)
+- No additional setup required (MinGW is downloaded automatically by setup script)
+- Recommended: Whitelist QBNex folder in antivirus software
+
+**macOS:**
+- macOS with Xcode Command Line Tools installed
+- Install with: `xcode-select --install`
+- OpenGL and GLUT libraries (typically pre-installed)
+- CoreAudio for sound output
+
+**Linux:**
+- GNU C++ compiler (`g++`)
+- OpenGL development libraries (`libglu1-mesa-dev`)
+- ALSA development libraries (`libasound2-dev`)
+- FreeGLUT development libraries
+- X11 libraries
+- ncurses library
+
+### Dependencies
+
+**Core Dependencies (installed automatically or required):**
+- OpenGL, GLU, GLEW, FreeGLUT (graphics)
+- miniaudio library (audio)
+- FreeType (TrueType fonts, optional)
+- STB Image (image format loading)
+
+**Platform-Specific:**
+- Windows: MinGW g++ (auto-downloaded), Windows Multimedia library
+- Linux: ALSA (`libasound2-dev`), X11
+- macOS: CoreAudio, Apple GLUT, Cocoa
+
+**Optional:**
+- ZLIB (compression support)
+- Socket libraries (networking support)
 
 ---
 
@@ -116,17 +196,69 @@ Required packages generally include OpenGL, ALSA, and the GNU C++ compiler.
 
 QBNex runs as a command-line compiler.
 
+### Basic Usage
+
 Use `qb` or `qbnex` as the command name (depending on your setup):
 
 ```bash
+# Compile to executable
 qb yourfile.bas
+
+# Compile with custom output name
 qb yourfile.bas -o outputname.exe
+
+# Compile and run immediately
 qb yourfile.bas -x
+
+# Generate C code without compiling
+qb yourfile.bas -z
 ```
 
-- **Compile to Executable**: By default, compiling a source file builds an executable binary for your platform.
-- **Custom Output Name**: Use the `-o` flag to specify the exact name of the output binary.
-- **Execute Immediately**: Use the `-x` flag to compile and run the binary immediately.
+### Compiler Flags
+
+| Flag | Description |
+|------|-------------|
+| `-h`, `--help` | Show help information |
+| `-v`, `--version` | Show compiler version |
+| `-i`, `--info`, `--about` | Show project information |
+| `-g`, `--examples` | Show common CLI examples |
+| `-c` | Compile the source file (default behavior) |
+| `-o <file>` | Write output executable to specified file |
+| `-x` | Compile and run immediately |
+| `-w` | Show warnings during compilation |
+| `-q` | Quiet mode (minimal output) |
+| `-m` | Monochrome (no color) output |
+| `-e` | Enable OPTION _EXPLICIT for this compilation |
+| `-s[:switch=true/false]` | View/edit compiler settings |
+| `-p` | Purge all pre-compiled content |
+| `-z` | Generate C code without compiling to executable |
+
+### Compiler Settings
+
+QBNex supports configurable compiler settings via the `-s` flag or `internal/config.ini`:
+
+- **SaveExeWithSource**: Include source code in compiled executable
+- **IgnoreWarnings**: Suppress warning messages during compilation
+- **DebugInfo**: Include GDB debugging information in output
+
+Example:
+```bash
+# View current settings
+qb -s
+
+# Enable debug mode
+qb -s:DebugInfo=true
+
+# Disable warnings
+qb -s:IgnoreWarnings=true
+```
+
+### Compilation Pipeline
+
+1. **Pre-pass**: Reads BASIC source, handles `$INCLUDE` directives, processes `$DEFINE`/`$IFDEF` conditional compilation, validates syntax
+2. **Code generation**: Translates QB commands into C++ code in `internal/temp/`
+3. **C++ compilation**: Invokes platform-native C++ compiler (g++ on Windows/Linux, clang++ on macOS) to produce final binary
+4. The generated C++ links against OpenGL, audio libraries, and other dependencies
 
 ---
 
@@ -162,6 +294,35 @@ PRINT "Division "; a; " / "; b; " = "; a / b
 PRINT "Modulo "; a; " MOD 3 = "; a MOD 3
 PRINT "Power "; a; " ^ 2 = "; a ^ 2
 PRINT "Square root SQR("; a; ") = "; SQR(a)
+```
+
+### Data Types
+
+QBNex supports a comprehensive range of data types:
+
+```basic
+' types_demo.bas
+DIM bitVar AS BIT
+DIM byteVar AS BYTE
+DIM intVar AS INTEGER
+DIM longVar AS LONG
+DIM int64Var AS _INTEGER64
+DIM singleVar AS SINGLE
+DIM doubleVar AS DOUBLE
+DIM floatVar AS _FLOAT
+DIM stringVar AS STRING * 20
+DIM offsetVar AS OFFSET
+
+' Unsigned types
+DIM uByte AS UNSIGNED BYTE
+DIM uInt AS UNSIGNED INTEGER
+DIM uLong AS UNSIGNED LONG
+DIM uInt64 AS UNSIGNED _INTEGER64
+
+' Type conversion
+DIM num AS INTEGER
+num = CINT("123")
+PRINT "Converted: "; num
 ```
 
 ### Loops and Conditionals
@@ -368,6 +529,73 @@ PRINT "Graphics demo complete. Press any key..."
 SLEEP
 
 SCREEN 0  ' Return to text mode
+```
+
+### Networking Example
+
+QBNex supports TCP/IP networking for server and client applications:
+
+```basic
+' network_server.bas
+' Simple TCP server example
+DIM serverHandle AS LONG
+DIM clientHandle AS LONG
+DIM message AS STRING
+
+' Create server socket on port 8080
+serverHandle = _OPENHOST("TCP/IP:8080")
+IF serverHandle = 0 THEN
+    PRINT "Failed to create server socket"
+    END
+END IF
+
+PRINT "Server listening on port 8080..."
+PRINT "Waiting for connection..."
+
+' Wait for client connection
+DO
+    clientHandle = _OPENCONNECTION(serverHandle)
+    IF clientHandle > 0 THEN EXIT DO
+    SLEEP 1
+LOOP
+
+PRINT "Client connected!"
+
+' Receive and display message
+DO
+    message = INPUT$(1024, clientHandle)
+    IF LEN(message) > 0 THEN
+        PRINT "Received: "; message
+    END IF
+    SLEEP 1
+LOOP UNTIL message = "QUIT"
+
+PRINT "Client disconnected"
+_CLOSECONNECTION clientHandle
+_CLOSECONNECTION serverHandle
+```
+
+```basic
+' network_client.bas
+' Simple TCP client example
+DIM clientHandle AS LONG
+
+' Connect to server
+clientHandle = _OPENCLIENT("TCP/IP:8080:localhost")
+IF clientHandle = 0 THEN
+    PRINT "Failed to connect to server"
+    END
+END IF
+
+PRINT "Connected to server"
+
+' Send message
+PRINT #clientHandle, "Hello from client!"
+PRINT "Message sent"
+
+' Close connection
+_CLOSECONNECTION clientHandle
+PRINT "Connection closed"
 ```
 
 ---
@@ -675,58 +903,142 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ## Development
 
-The compiler translates BASIC source code into optimized C++ code (`internal/c` directory) and automates compilation via native toolchains (like `g++`). The core components have been refactored for improved CLI usage, decoupled from any legacy IDE logic.
+### How It Works
+
+QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). The compilation process:
+
+1. **Bootstrap Phase**: A minimal C++ compiler (`internal/c/qbx.cpp`) compiles the QBNex source
+2. **Code Generation**: The QBNex compiler translates BASIC source code into optimized C++ code
+3. **Native Compilation**: Platform C++ compiler (g++/clang++) compiles the generated C++ to native binary
+4. **Runtime Linking**: Generated code links against OpenGL, miniaudio, FreeType, and platform libraries
+
+### Project Structure
+
+```
+QBNex/
+├── source/                      # Compiler source code (QBNex BASIC)
+│   ├── qbnex.bas               # Main compiler (~26,000 lines)
+│   ├── global/                 # Version, constants, settings
+│   │   ├── version.bas        # Version 1.0.0
+│   │   ├── constants.bas      # ASCII codes, key codes
+│   │   └── compiler_settings.bas # INI-based configuration
+│   ├── subs_functions/         # Built-in functions and subroutines
+│   │   └── extensions/opengl/  # OpenGL extension definitions
+│   └── utilities/              # Helper modules
+├── internal/                   # Internal build files
+│   ├── c/                      # C++ runtime library
+│   │   ├── qbx.cpp            # C++ compiler entry point
+│   │   ├── libqb/             # Platform-specific runtime (win/lnx/osx)
+│   │   └── parts/             # Feature modules
+│   │       ├── core/          # OpenGL, FreeGLUT, GLEW
+│   │       ├── audio/         # miniaudio library
+│   │       ├── video/         # FreeType, STB Image
+│   │       ├── network/       # Socket implementation
+│   │       └── input/         # Game controller support
+│   └── source/                 # Bootstrap data files
+├── .ci/                        # CI build scripts
+├── .github/workflows/          # GitHub Actions CI/CD
+├── assets/                     # Logo and icons
+├── licenses/                   # License files
+└── setup_*.cmd/sh             # Platform setup scripts
+```
 
 ### Building from Source
 
-1. Clone the repository.
-2. Run the platform-specific build script:
-   - **Windows**: `setup_win.cmd`
-   - **macOS**: `setup_osx.command`
-   - **Linux**: `setup_lnx.sh`
+**Windows:**
+```cmd
+git clone https://github.com/thirawat27/QBNex.git
+cd QBNex
+setup_win.cmd
+```
+
+**Linux:**
+```bash
+git clone https://github.com/thirawat27/QBNex.git
+cd QBNex
+chmod +x setup_lnx.sh
+./setup_lnx.sh
+```
+
+**macOS:**
+```bash
+git clone https://github.com/thirawat27/QBNex.git
+cd QBNex
+chmod +x setup_osx.command
+./setup_osx.command
+```
 
 ### Adding New Features
 
-- **Runtime & Built-ins**: Found primarily in the `internal/c` library, written in C/C++.
-- **BASIC Core Source**: Found in the `source` directory, compiling natively as part of the bootstrap phase.
+- **Built-in Functions/Subs**: Add to `source/subs_functions/subs_functions.bas`
+- **Runtime Library**: Modify C++ code in `internal/c/` and `internal/c/parts/`
+- **Graphics Extensions**: Edit `source/subs_functions/extensions/opengl/`
+- **Compiler Core**: Main compiler logic in `source/qbnex.bas`
+
+### Continuous Integration
+
+QBNex uses GitHub Actions for automated builds:
+
+- **Push to master**: Linux build
+- **Pull requests**: Linux build
+- **Releases**: Linux, macOS, Windows x86, Windows x64
+
+CI workflows skip with commit message containing `ci-skip`.
 
 ---
 
 ## Contributing
 
-Contributions are welcome!
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
-**Ways to contribute**
+### Ways to Contribute
 
-- Report bugs and issues
-- Suggest new features
-- Improve documentation
-- Submit pull requests
-- Write test cases
-- Optimize performance
+- **Report bugs** and issues via GitHub Issues
+- **Suggest new features** and enhancements
+- **Improve documentation** and examples
+- **Submit pull requests** with fixes or features
+- **Write test cases** for better coverage
+- **Optimize performance** of compiler or runtime
+- **Help others** by answering questions in discussions
+
+### Code of Conduct
+
+Please note that this project follows a code of conduct. By participating, you are expected to uphold this code and maintain a respectful, inclusive community.
+
+### Security
+
+For security vulnerabilities, please read [SECURITY.md](SECURITY.md) and follow the responsible disclosure process. **Do not** create public GitHub issues for security vulnerabilities.
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License**. See [licenses/](licenses/) or `LICENSE` for details if bundled.
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+The MIT License is a permissive open source license that allows free use, modification, and distribution of the software with minimal restrictions.
 
 ---
 
 ## Acknowledgments
 
-- **QBasic/QuickBASIC** - The original BASIC implementation by Microsoft
-- **QB64** - Modern QBasic compiler that inspired this project
-- **Contributors** - Everyone who has contributed to this project
+- **QBasic/QuickBASIC** - The original BASIC implementation by Microsoft that inspired this project
+- **QB64** - Modern QBasic compiler that served as the foundation for QBNex
+- **FreeGLUT & OpenGL** - Cross-platform window management and graphics rendering
+- **miniaudio** - Single-file audio playback library enabling cross-platform sound
+- **FreeType** - TrueType font rendering engine
+- **STB Image** - Single-header image loading library
+- **GLEW** - OpenGL Extension Wrangler for advanced graphics features
+- **Contributors** - Everyone who has contributed code, documentation, or feedback to this project
 
 ---
 
 ## Links
 
-- **Repository** [https//github.com/thirawat27/QBNex](https//github.com/thirawat27/QBNex)
-- **Issues** [https//github.com/thirawat27/QBNex/issues](https//github.com/thirawat27/QBNex/issues)
-- **Changelog** [CHANGELOG.md](CHANGELOG.md)
-- **Security** [SECURITY.md](SECURITY.md)
+- **Repository**: [https://github.com/thirawat27/QBNex](https://github.com/thirawat27/QBNex)
+- **Issues**: [https://github.com/thirawat27/QBNex/issues](https://github.com/thirawat27/QBNex/issues)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md)
+- **Security Policy**: [SECURITY.md](SECURITY.md)
+- **Contributing Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
