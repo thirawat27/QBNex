@@ -1429,8 +1429,13 @@ END IF
 OPEN tmpdir$ + "global.txt" FOR OUTPUT AS #18
 
 IF NOT QuietMode THEN
+    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+    PRINT " Q    Q   B   B   NN  N   E        X X   "
+    PRINT " Q  QQ    BBBB    N N N   EEEE      X    "
+    PRINT " Q   Q    B   B   N  NN   E        X X   "
+    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+    PRINT "QBNex Compiler V" + Version$
     PRINT
-    PRINT "[QBNex] Building " + sourcefile$
 END IF
 
 lineinput3load sourcefile$
@@ -2657,6 +2662,7 @@ continuelinefrom = 0
 linenumber = 0
 reallinenumber = 0
 declaringlibrary = 0
+percentage = -1
 
 PRINT #12, "S_0:;" 'note: REQUIRED by run statement
 
@@ -2724,8 +2730,16 @@ DO
     layoutok = 1
 
     IF NOT QuietMode THEN
-        IF percentage = 0 THEN PRINT "[1/2] Preparing build files from QBasic source..."
-        percentage = 1
+        IF totallinenumber > 0 THEN
+            x = (reallinenumber * 100) \ totallinenumber
+            IF x > 100 THEN x = 100
+            IF x <> percentage THEN
+                percentage = x
+                x2 = (percentage * 40) \ 100
+                a$ = STRING$(x2, "#") + STRING$(40 - x2, ".")
+                PRINT CHR$(13) + "Preparing build files... [" + a$ + "] " + str2$(percentage) + "% ";
+            END IF
+        END IF
     END IF
 
     a3$ = LTRIM$(RTRIM$(a3$))
@@ -11129,7 +11143,7 @@ DO
 
 
     'layout is not currently used by the compiler, if it was it would be used here
-    nextmainpassline:
+nextmainpassline:
 LOOP
 
 'add final line
@@ -11138,6 +11152,15 @@ IF lastLineReturn = 0 THEN
     lastLine = 1
     wholeline$ = ""
     GOTO mainpassLastLine
+END IF
+
+IF NOT QuietMode THEN
+    IF percentage <> 100 THEN
+        percentage = 100
+        a$ = STRING$(40, "#")
+        PRINT CHR$(13) + "Preparing build files... [" + a$ + "] 100% ";
+    END IF
+    PRINT
 END IF
 
 linenumber = 0
@@ -11977,8 +12000,6 @@ OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
 compilelog$ = tmpdir$ + "compilelog.txt"
 OPEN compilelog$ FOR OUTPUT AS #1: CLOSE #1 'Clear log
 
-IF NOT QuietMode THEN PRINT "[1/2] Build files ready"
-
 IF NOT IgnoreWarnings THEN
     totalUnusedVariables = 0
     FOR i = 1 TO totalVariablesCreated
@@ -12006,12 +12027,7 @@ END IF
 
 IF No_C_Compile_Mode = 0 THEN
     IF NOT QuietMode THEN
-        PRINT
-        IF os$ = "LNX" THEN
-            PRINT "[2/2] Converting QBasic source to a native executable..."
-        ELSE
-            PRINT "[2/2] Converting QBasic source to EXE..."
-        END IF
+        PRINT "Compiling program..."
     END IF
     IF LEN(outputfile_cmd$) THEN
         'resolve relative path for output file
@@ -12973,14 +12989,10 @@ ELSE
 END IF
 
 IF compfailed THEN
-    IF os$ = "LNX" THEN
-        PRINT "ERROR: Failed to convert QBasic source to a native executable."
-    ELSE
-        PRINT "ERROR: Failed to convert QBasic source to EXE."
-    END IF
+    PRINT "ERROR: Build failed."
     PRINT "Check " + compilelog$ + " for details."
 ELSE
-    IF NOT QuietMode THEN PRINT "[OK] Build complete: "; lastBinaryGenerated$
+    IF NOT QuietMode THEN PRINT "Build complete: "; lastBinaryGenerated$
 END IF
 
 
