@@ -21,7 +21,8 @@ find . -type f -iname "*.a" -exec rm -f {} \;
 find . -type f -iname "*.o" -exec rm -f {} \;
 popd >/dev/null
 
-rm ./internal/temp/*
+mkdir -p ./internal/temp
+rm -f ./internal/temp/*
 
 if [ -z "$(which clang++)" ]; then
   echo "Apple's C++ compiler not found."
