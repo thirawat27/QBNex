@@ -1,4 +1,5 @@
-//
+// DEPRECATED: Migrated to msbin.cpp (C++). libqb.cpp now includes msbin.cpp.
+// Do NOT compile this file directly — kept for reference only.
 // The following are implementations of Microsoft RTL functions not
 // include in the Borland RTL.
 //
@@ -193,7 +194,10 @@ int32 _dmsbintoieee(double *src8, double *dest8)
     }
     ieee[0] |= msbin[0] >> 4;
     
-    /* IEEE has a half byte less for its mantissa.  If the msbin    */
+    /* IEEE has a half byte less for its mantissa.  If the// DEPRECATED: This file has been migrated to msbin.cpp (C++).
+// libqb.cpp now includes msbin.cpp instead of this file.
+// Do NOT compile this file directly. It is kept for reference only.
+// See msbin.cpp for the current implementation.
     /* number has anything in this last half byte, then there is an */
     /* overflow.                                                    */
     if (msbin[0] & 0x0f) 

@@ -40,13 +40,12 @@ return (word << shift) | (word >> (32 - shift));
     
 #ifndef QBNex_WINDOWS
     void Sleep(uint32 milliseconds){
-        static uint64 sec,nsec;
-        sec=milliseconds/1000;
-        nsec=(milliseconds%1000)*1000000;
-        static timespec ts;
-        ts.tv_sec = sec;
-        ts.tv_nsec = nsec;
-        nanosleep (&ts, NULL);
+        uint64 sec  = milliseconds / 1000;
+        uint64 nsec = (milliseconds % 1000) * 1000000ULL;
+        timespec ts;
+        ts.tv_sec  = static_cast<time_t>(sec);
+        ts.tv_nsec = static_cast<long>(nsec);
+        nanosleep(&ts, NULL);
     }
     
     void ZeroMemory(void *ptr,int64 bytes){
@@ -5220,25 +5219,23 @@ int32 lock_display_required=0;
 #define cost_delay 0
 uint32 cost=0;
 
-#include "msbin.c"
+#include "msbin.cpp"
 
 //#include "time64.c"
 //#include "time64.h"
 
 
-int64 build_int64(uint32 val2,uint32 val1){
-    static int64 val;
-    val=val2;
-    val<<=32;
-    val|=val1;
+int64 build_int64(uint32 val2, uint32 val1){
+    int64 val = static_cast<int64>(val2);
+    val <<= 32;
+    val |= val1;
     return val;
 }
 
-uint64 build_uint64(uint32 val2,uint32 val1){
-    static uint64 val;
-    val=val2;
-    val<<=32;
-    val|=val1;
+uint64 build_uint64(uint32 val2, uint32 val1){
+    uint64 val = static_cast<uint64>(val2);
+    val <<= 32;
+    val |= val1;
     return val;
 }
 

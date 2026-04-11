@@ -673,17 +673,17 @@ static AudioEngine audioEngine;
 /// <returns></returns>
 static ma_uint8 *GenerateWaveform(double frequency, double length, double volume, ma_int32 *soundwave_bytes)
 {
-    static ma_uint8 *data;
-    static ma_int32 i;
-    static ma_int16 x, lastx;
-    static ma_int16 *sp;
-    static double samples;
-    static ma_int32 samplesi;
-    static ma_int32 direction;
-    static double value;
-    static double volume_multiplier;
-    static ma_int32 waveend;
-    static double gradient;
+    ma_uint8 *data;
+    ma_int32 i;
+    ma_int16 x, lastx;
+    ma_int16 *sp;
+    double samples;
+    ma_int32 samplesi;
+    ma_int32 direction;
+    double value;
+    double volume_multiplier;
+    ma_int32 waveend;
+    double gradient;
 
     // calculate total number of samples required
     samples = length * audioEngine.sampleRate;
@@ -767,7 +767,7 @@ static ma_uint8 *GenerateWaveform(double frequency, double length, double volume
 /// <returns>Length in bytes</returns>
 static ma_int32 WaveformBufferSize(double length)
 {
-    static ma_int32 samples;
+    ma_int32 samples;
 
     samples = (ma_int32)(length * audioEngine.sampleRate);
     if (!samples)
@@ -787,8 +787,8 @@ static ma_int32 WaveformBufferSize(double length)
 /// <param name="sndRawQueue">A pointer to a raw queue object</param>
 static void SendWaveformToQueue(ma_uint8 *data, ma_int32 bytes, bool block)
 {
-    static ma_int32 i;
-    static ma_int64 time_ms;
+    ma_int32 i;
+    ma_int64 time_ms;
 
     if (!data)
         return;
@@ -823,8 +823,8 @@ static void SendWaveformToQueue(ma_uint8 *data, ma_int32 bytes, bool block)
 /// <param name="lengthInClockTicks">Duration in clock ticks. There are 18.2 clock ticks per second</param>
 void sub_sound(double frequency, double lengthInClockTicks)
 {
-    static ma_uint8 *data;
-    static ma_int32 soundwave_bytes;
+    ma_uint8 *data;
+    ma_int32 soundwave_bytes;
 
     if (new_error || !audioEngine.isInitialized || audioEngine.sndInternal != 0)
         return;

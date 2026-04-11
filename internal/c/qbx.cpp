@@ -799,37 +799,53 @@ inline void swap_longdouble(void *a,void*b){
     *(long double*)b=x;
 }
 void swap_string(qbs *a,qbs *b){
-    static qbs *c;
+    qbs *c;
     c=qbs_new(a->len,0);
     memcpy(c->chr,a->chr,a->len);
     qbs_set(a,b);
     qbs_set(b,c);
     qbs_free(c);
 }
-void swap_block(void *a,void *b,uint32 bytes){
-    static uint32 quads;
-    quads=bytes>>2;
-    static uint32 *a32,*b32;
-    a32=(uint32*)a; b32=(uint32*)b;
-    while(quads--){
-        static uint32 c;
-        c=*a32;
-        *a32++=*b32;
-        *b32++=c;
+void swap_block(void *a, void *b, uint32 bytes){
+    // Fast path for large blocks: use a temp buffer + memcpy (SIMD-accelerated)
+    if (bytes >= 64) {
+        void *tmp = malloc(bytes);
+        if (tmp) {
+            memcpy(tmp, a,   bytes);
+            memcpy(a,   b,   bytes);
+            memcpy(b,   tmp, bytes);
+            free(tmp);
+            return;
+        }
+        // Fall through to manual swap on alloc failure
     }
-    bytes&=3;
-    static uint8 *a8,*b8;
-    a8=(uint8*)a32; b8=(uint8*)b32;
-    while(bytes--){
-        static uint8 c;
-        c=*a8;
-        *a8++=*b8;
-        *b8++=c;
+    // Manual quad-then-byte swap for small blocks
+    uint32 quads = bytes >> 2;
+    uint32 *a32 = (uint32*)a;
+    uint32 *b32 = (uint32*)b;
+    while (quads--) {
+        uint32 c = *a32;
+        *a32++ = *b32;
+        *b32++ = c;
+    }
+    bytes &= 3;
+    uint8 *a8 = (uint8*)a32;
+    uint8 *b8 = (uint8*)b32;
+    while (bytes--) {
+        uint8 c = *a8;
+        *a8++ = *b8;
+        *b8++ = c;
     }
 }
 extern ptrszint *qbs_tmp_list;
-template <typename T> static T qbs_cleanup(uint32 base,T passvalue){ 
-    while (qbs_tmp_list_nexti>base) { qbs_tmp_list_nexti--; if(qbs_tmp_list[qbs_tmp_list_nexti]!=-1)qbs_free((qbs*)qbs_tmp_list[qbs_tmp_list_nexti]); }//clear any temp. strings created
+template <typename T> static inline T qbs_cleanup(uint32 base, T passvalue){
+    // Fast-path: no temp strings were created since last cleanup
+    if (qbs_tmp_list_nexti == base) return passvalue;
+    while (qbs_tmp_list_nexti > base) {
+        qbs_tmp_list_nexti--;
+        if (qbs_tmp_list[qbs_tmp_list_nexti] != -1)
+            qbs_free((qbs*)qbs_tmp_list[qbs_tmp_list_nexti]);
+    }
     return passvalue;
 }
 
@@ -946,7 +962,7 @@ inline int64 func_abs(int64 d){return llabs(d);}
 extern int32 disableEvents;
 
 ptrszint check_lbound(ptrszint *array,int32 index, int32 num_indexes) {
-    static ptrszint ret;
+    ptrszint ret;
     disableEvents = 1;
     ret = func_lbound((ptrszint*)(*array),index,num_indexes);
     new_error=0;
@@ -955,7 +971,7 @@ ptrszint check_lbound(ptrszint *array,int32 index, int32 num_indexes) {
 }
 
 ptrszint check_ubound(ptrszint *array,int32 index, int32 num_indexes) {
-    static ptrszint ret;
+    ptrszint ret;
     disableEvents = 1;
     ret = func_ubound((ptrszint*)(*array),index,num_indexes);
     new_error=0;
@@ -1309,7 +1325,7 @@ void sub_chain(qbs* f){
                 if ((i+3)<str->len){
                     if ((str2->chr[i+1]==69)&&(str2->chr[i+2]==88)&&(str2->chr[i+3]==69)){//"EXE"
                         qbs_set(f_bas,str); f_bas->len=i+4;//arguments truncated, change .exe to .bas
-                        f_bas->chr[i+1]=98; f_bas->chr[i+2]=97; f_exe->chr[i+3]=115;//"bas"
+                        f_bas->chr[i+1]=98; f_bas->chr[i+2]=97; f_bas->chr[i+3]=115;//"bas" (fixed: was f_exe)
                         qbs_set(f_exe,str);//note: exe kept as is
                         goto extensions_ready;
                     }//"EXE"
@@ -1629,15 +1645,15 @@ qbs *func__device(int32 i,int32 passed){
 
 
 int32 func__deviceinput(int32 i,int32 passed){
-    static device_struct *d;
-    static int32 retval;
+    device_struct *d;
+    int32 retval;
     retval=-1;
     device_selected=-1;
     
     if (!passed){
         //find oldest event across all devices
-        static int32 i2;
-        static int64 index,lowest_index;
+        int32 i2;
+        int64 index,lowest_index;
         i2=-1;
         for (i=1;i<=device_last;i++){
             d=&devices[i];
@@ -1669,7 +1685,7 @@ int32 func__deviceinput(int32 i,int32 passed){
 
 int32 func__button(int32 i,int32 passed){
     if (device_selected<1||device_selected>device_last){error(5); return 0;}
-    static device_struct *d; d=&devices[device_selected];
+    device_struct *d = &devices[device_selected];
     if (!passed) i=1;
     if (i<1||i>d->lastbutton){error(5); return 0;}
     if (getDeviceEventButtonValue(d,1,i-1)) return -1;
@@ -1678,12 +1694,11 @@ int32 func__button(int32 i,int32 passed){
 
 int32 func__buttonchange(int32 i,int32 passed){
     if (device_selected<1||device_selected>device_last){error(5); return 0;}
-    static device_struct *d; d=&devices[device_selected];
+    device_struct *d = &devices[device_selected];
     if (!passed) i=1;
     if (i<1||i>d->lastbutton){error(5); return 0;}
-    static int32 old_value,value;
-    value=getDeviceEventButtonValue(d,1,i-1);
-    old_value=getDeviceEventButtonValue(d,0,i-1);
+    int32 value    = getDeviceEventButtonValue(d,1,i-1);
+    int32 old_value= getDeviceEventButtonValue(d,0,i-1);
     if (value>old_value) return -1;
     if (value<old_value) return 1;
     return 0;
@@ -1691,7 +1706,7 @@ int32 func__buttonchange(int32 i,int32 passed){
 
 float func__axis(int32 i,int32 passed){
     if (device_selected<1||device_selected>device_last){error(5); return 0;}
-    static device_struct *d; d=&devices[device_selected];
+    device_struct *d = &devices[device_selected];
     if (!passed) i=1;
     if (i<1||i>d->lastaxis){error(5); return 0;}
     return getDeviceEventAxisValue(d,1,i-1);
@@ -1699,7 +1714,7 @@ float func__axis(int32 i,int32 passed){
 
 float func__wheel(int32 i,int32 passed){
     if (device_selected<1||device_selected>device_last){error(5); return 0;}
-    static device_struct *d; d=&devices[device_selected];
+    device_struct *d = &devices[device_selected];
     if (!passed) i=1;
     if (i<1||i>d->lastwheel){error(5); return 0;}
     return getDeviceEventWheelValue(d,1,i-1);
@@ -1708,21 +1723,21 @@ float func__wheel(int32 i,int32 passed){
 int32 func__lastbutton(int32 di,int32 passed){
     if (!passed) di=device_selected;
     if (di<1||di>device_last) error(5);
-    static device_struct *d; d=&devices[di];
+    device_struct *d = &devices[di];
     return d->lastbutton;
 }
 
 int32 func__lastaxis(int32 di,int32 passed){
     if (!passed) di=device_selected;
     if (di<1||di>device_last) error(5);
-    static device_struct *d; d=&devices[di];
+    device_struct *d = &devices[di];
     return d->lastaxis;
 }
 
 int32 func__lastwheel(int32 di,int32 passed){
     if (!passed) di=device_selected;
     if (di<1||di>device_last) error(5);
-    static device_struct *d; d=&devices[di];
+    device_struct *d = &devices[di];
     return d->lastwheel;
 }
 
@@ -1739,7 +1754,7 @@ void onstrig_setup(int32 i,int32 controller,int32 controller_passed,uint32 id,in
         }else{
         controller=1; if (i&2){controller=2; i-=2;}
     }
-    static int32 button;
+    int32 button;
     button=(i>>2)+1;
     if (i&1){error(5); return;}//'currently down' state cannot be used as an ON STRIG event
     if (controller>256||button>256) return;//error-less exit for (currently) unsupported ranges
@@ -1838,7 +1853,7 @@ int32 ontimerthread_lock=0;
 
 void stop_timers() {
   ontimerthread_lock = 1;
-  while (ontimerthread_lock != 2);
+  while (ontimerthread_lock != 2) Sleep(0); // yield CPU instead of busy-spinning
 }
 
 void start_timers() {
@@ -1847,7 +1862,7 @@ void start_timers() {
 
 int32 func__freetimer(){
     if (new_error) return 0;
-    static int32 i;
+    int32 i;
     if (ontimer_freelist_available){
         i=ontimer_freelist[ontimer_freelist_available--];
         }else{
@@ -1932,8 +1947,8 @@ void sub_timer(int32 i,int32 option,int32 passed){
     }
 #endif
 void TIMERTHREAD(){
-    static int32 i;
-    static double time_now=100000;
+    int32 i;
+    double time_now = 100000.0;
     while(1){
         quick_lock:
         if (ontimerthread_lock==1) ontimerthread_lock=2;//mutex, verify lock

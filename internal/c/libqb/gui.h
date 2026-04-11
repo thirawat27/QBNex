@@ -74,7 +74,7 @@ int32 requestedKeyboardOverlayImage=0;
                 ox>>=1;
                 nx<<=1;
             }	
-            nx<<1;
+            nx<<=1; // Fixed: was "nx<<1;" which discarded the result
         }
         while ((oy&1)==0){
             oy>>=1;
@@ -85,7 +85,7 @@ int32 requestedKeyboardOverlayImage=0;
                 oy>>=1;
                 ny<<=1;
             }	
-            ny<<1;
+            ny<<=1; // Fixed: was "ny<<1;" which discarded the result
         }
         
         //reset original values
