@@ -370,6 +370,8 @@ DIM SHARED optionexplicit_cmd AS _BYTE
 DIM SHARED errorLineInInclude AS LONG
 DIM SHARED outputfile_cmd$
 DIM SHARED compilelog$
+DIM SHARED compilerProgressRow AS LONG
+DIM SHARED compilerProgressVisible AS _BYTE
 
 '$INCLUDE:'global\compiler_settings.bas'
 
@@ -896,7 +898,7 @@ gl_scan_header
 '-----------------------QBNex COMPILER ONCE ONLY SETUP CODE ENDS HERE---------------------------------------
 
 noide:
-IF (qbnexversionprinted = 0 OR ConsoleMode = 0) AND NOT QuietMode THEN
+IF CMDLineFile = "" AND (qbnexversionprinted = 0 OR ConsoleMode = 0) AND NOT QuietMode THEN
     qbnexversionprinted = -1
     PRINT "QBNex Compiler V" + Version$
 END IF
@@ -1429,13 +1431,7 @@ END IF
 OPEN tmpdir$ + "global.txt" FOR OUTPUT AS #18
 
 IF NOT QuietMode THEN
-    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
-    PRINT " Q    Q   B   B   NN  N   E        X X   "
-    PRINT " Q  QQ    BBBB    N N N   EEEE      X    "
-    PRINT " Q   Q    B   B   N  NN   E        X X   "
-    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
-    PRINT "QBNex Compiler V" + Version$
-    PRINT
+    ShowCompilerBanner
 END IF
 
 lineinput3load sourcefile$
@@ -2735,9 +2731,7 @@ DO
             IF x > 100 THEN x = 100
             IF x <> percentage THEN
                 percentage = x
-                x2 = (percentage * 40) \ 100
-                a$ = STRING$(x2, "#") + STRING$(40 - x2, ".")
-                PRINT CHR$(13) + "Preparing build files... [" + a$ + "] " + str2$(percentage) + "% ";
+                UpdateCompilerProgress percentage
             END IF
         END IF
     END IF
@@ -11157,10 +11151,9 @@ END IF
 IF NOT QuietMode THEN
     IF percentage <> 100 THEN
         percentage = 100
-        a$ = STRING$(40, "#")
-        PRINT CHR$(13) + "Preparing build files... [" + a$ + "] 100% ";
+        UpdateCompilerProgress percentage
     END IF
-    PRINT
+    FinishCompilerProgress
 END IF
 
 linenumber = 0
@@ -12028,6 +12021,7 @@ END IF
 IF No_C_Compile_Mode = 0 THEN
     IF NOT QuietMode THEN
         PRINT "Compiling program..."
+        PRINT
     END IF
     IF LEN(outputfile_cmd$) THEN
         'resolve relative path for output file
@@ -25880,9 +25874,45 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
     RETURN
 END SUB
 
+FUNCTION CompilerProgressLine$ (percentage AS LONG)
+    IF percentage < 0 THEN percentage = 0
+    IF percentage > 100 THEN percentage = 100
+    x2 = (percentage * 40) \ 100
+    a$ = STRING$(x2, "#") + STRING$(40 - x2, ".")
+    CompilerProgressLine$ = "Preparing build files... [" + a$ + "] " + str2$(percentage) + "%"
+END FUNCTION
+
+SUB FinishCompilerProgress
+    IF compilerProgressVisible THEN
+        LOCATE compilerProgressRow + 2, 1
+        compilerProgressVisible = 0
+    END IF
+END SUB
+
+SUB ShowCompilerBanner
+    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+    PRINT " Q    Q   B   B   NN  N   E        X X   "
+    PRINT " Q  QQ    BBBB    N N N   EEEE      X    "
+    PRINT " Q   Q    B   B   N  NN   E        X X   "
+    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+    PRINT
+    PRINT "QBNex Compiler "
+    PRINT
+    compilerProgressRow = CSRLIN
+    compilerProgressVisible = -1
+    UpdateCompilerProgress 0
+    LOCATE compilerProgressRow + 2, 1
+END SUB
+
 FUNCTION SCase$ (t$)
     SCase$ = t$
 END FUNCTION
+
+SUB UpdateCompilerProgress (percentage AS LONG)
+    IF compilerProgressVisible = 0 THEN EXIT SUB
+    LOCATE compilerProgressRow, 1
+    PRINT CompilerProgressLine$(percentage);
+END SUB
 
 FUNCTION SCase2$ (t$)
     separator$ = sp
