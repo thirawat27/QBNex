@@ -113,8 +113,7 @@ find . -name "*.sh" -exec chmod +x {} \;
 find internal/c/parts -type f -iname "*.a" -exec rm -f {} \;
 find internal/c/parts -type f -iname "*.o" -exec rm -f {} \;
 find internal/c/libqb -type f -iname "*.o" -exec rm -f {} \;
-mkdir -p ./internal/temp
-rm -f ./internal/temp/*
+rm ./internal/temp/*
 
 echo "Building library 'LibQB'"
 pushd internal/c/libqb/os/lnx >/dev/null

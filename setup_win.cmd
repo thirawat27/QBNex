@@ -109,7 +109,6 @@ call setup_build.bat
 cd ../../../../../..
 
 echo Building 'QBNex'
-if not exist internal\temp mkdir internal\temp
 copy internal\source\*.* internal\temp\ >nul
 copy source\qbnex.ico internal\temp\ >nul
 copy source\icon.rc internal\temp\ >nul
