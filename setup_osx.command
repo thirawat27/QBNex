@@ -21,6 +21,7 @@ find . -type f -iname "*.a" -exec rm -f {} \;
 find . -type f -iname "*.o" -exec rm -f {} \;
 popd >/dev/null
 
+mkdir -p ./internal/temp
 rm ./internal/temp/*
 
 if [ -z "$(which clang++)" ]; then
@@ -55,6 +56,7 @@ fi
 popd >/dev/null
 
 echo "Building 'QBNex' (~3 min)"
+mkdir -p ./internal/temp
 cp ./internal/source/* ./internal/temp/
 pushd internal/c >/dev/null
 clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb

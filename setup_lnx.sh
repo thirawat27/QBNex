@@ -113,6 +113,7 @@ find . -name "*.sh" -exec chmod +x {} \;
 find internal/c/parts -type f -iname "*.a" -exec rm -f {} \;
 find internal/c/parts -type f -iname "*.o" -exec rm -f {} \;
 find internal/c/libqb -type f -iname "*.o" -exec rm -f {} \;
+mkdir -p ./internal/temp
 rm ./internal/temp/*
 
 echo "Building library 'LibQB'"
@@ -134,6 +135,7 @@ rm -f src.a
 popd >/dev/null
 
 echo "Building 'QBNex'"
+mkdir -p ./internal/temp
 cp -r ./internal/source/* ./internal/temp/
 pushd internal/c >/dev/null
 g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb
