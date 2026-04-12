@@ -12157,7 +12157,7 @@ IF os$ = "WIN" THEN
     IF ExeIconSet OR VersionInfoSet THEN
         ffh = FREEFILE
         OPEN tmpdir$ + "call_windres.bat" FOR OUTPUT AS #ffh
-        PRINT #ffh, "internal\c\c_compiler\bin\windres.exe -i " + tmpdir$ + "icon.rc -o " + tmpdir$ + "icon.o"
+        PRINT #ffh, "internal\c\c_compiler\bin\windres.exe -i " + StrReplace$(tmpdir$, "\", "/") + "icon.rc -o " + StrReplace$(tmpdir$, "\", "/") + "icon.o"
         CLOSE #ffh
         SHELL _HIDE tmpdir$ + "call_windres.bat"
         IF _FILEEXISTS(tmpdir$ + "icon.o") = 0 THEN
@@ -25896,7 +25896,7 @@ SUB ShowCompilerBanner
     PRINT " Q   Q    B   B   N  NN   E        X X   "
     PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
     PRINT
-    PRINT "QBNex Compiler "
+    PRINT "QBNex Compiler"
     PRINT
     compilerProgressRow = CSRLIN
     compilerProgressVisible = -1
