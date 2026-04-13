@@ -94,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows**: Windows 7+ (32-bit and 64-bit), MinGW g++ compiler
 - **Linux**: OpenGL, ALSA, FreeGLUT, X11, g++ compiler
 - **macOS**: Xcode command line tools, clang++, OpenGL, CoreAudio
+- **Docker**: Ubuntu 22.04 base container with all dependencies pre-installed
 
 #### Developer Tools
 - Compiler version tracking (`-v` flag)
@@ -106,12 +107,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pre-compiled content purge (`-p` flag)
 - C code generation without compilation (`-z` flag)
 - OPTION _EXPLICIT enforcement (`-e` flag)
+- Compile and run immediately (`-x` flag)
+- Custom output naming (`-o` flag)
+
+#### Docker Support
+- Multi-stage Dockerfile for production builds (~300MB)
+- Development Dockerfile with build cache support (~500MB)
+- Docker Compose configuration for easy deployment
+- Comprehensive `.dockerignore` for optimized build context
+- Volume mounting for seamless development workflow
+- Graphics support via X11 forwarding (Linux, macOS, Windows)
+- Network mode support for TCP/IP applications
+- Interactive development mode with bash shell
+- Cross-platform compilation without local dependencies
+- CI/CD ready Docker configuration
+- Merged Docker documentation into main README.md
 
 #### Documentation
 - Comprehensive README.md with code examples
 - Supported commands reference by category
 - Installation guides for all platforms
 - Usage examples and common patterns
+- Docker usage guide integrated into main README
+- Complete Docker documentation with troubleshooting
+- Updated Table of Contents with Docker sections
 
 #### Bug Fixes
 - Cross-platform compilation issues on Windows x86, x64, Linux, and macOS

@@ -17,7 +17,9 @@
 - [Features](#features)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
+  - [Docker Setup](#docker-setup)
 - [Usage](#usage)
+  - [Docker Usage](#docker-usage)
 - [Code Examples](#code-examples)
 - [Supported QBasic Commands](#supported-qbasic-commands)
   - [Control Flow](#control-flow)
@@ -58,6 +60,7 @@ Repository: https://github.com/thirawat27/QBNex
   - User-defined types (TYPE...END TYPE) with nested structures
   - Subroutines and functions with parameters
   - Multi-dimensional arrays with REDIM PRESERVE
+  - Root-based standard library imports via `'$IMPORT:'module.name'`
   - 150+ QBasic/QB64 keywords and functions
   - Extended data types: BIT, BYTE, _INTEGER64, _FLOAT, OFFSET (pointers)
   - Unsigned integer types (UNSIGNED BYTE, UNSIGNED INTEGER, UNSIGNED LONG, UNSIGNED _INTEGER64)
@@ -190,11 +193,169 @@ Run `./setup_lnx.sh` to compile QBNex.
 
 Required packages generally include OpenGL, ALSA, and the GNU C++ compiler.
 
+### Docker Setup
+
+QBNex provides Docker support for consistent cross-platform builds without installing dependencies locally.
+
+**Quick Start:**
+
+```bash
+# Build the Docker image
+docker build -t qbnex .
+
+# Or using docker-compose
+docker-compose build
+```
+
+**Compile a program:**
+
+```bash
+# Linux/macOS
+docker run --rm -v $(pwd):/project qbnex qb yourfile.bas
+
+# Windows (PowerShell)
+docker run --rm -v ${PWD}:/project qbnex qb yourfile.bas
+
+# Windows (Command Prompt)
+docker run --rm -v %cd%:/project qbnex qb yourfile.bas
+```
+
+**Compile and run immediately:**
+
+```bash
+docker run --rm -v $(pwd):/project qbnex qb yourfile.bas -x
+```
+
+**Full Docker documentation:** See the Docker section below for comprehensive usage examples, graphics support, networking, and troubleshooting.
+
 ---
 
 ## Usage
 
 QBNex runs as a command-line compiler.
+
+### Docker Usage
+
+QBNex provides Docker containers for easy deployment without local dependencies installation.
+
+#### Basic Docker Commands
+
+```bash
+# Build the Docker image
+docker build -t qbnex .
+
+# Compile a BASIC program
+docker run --rm -v $(pwd):/project qbnex qb yourfile.bas
+
+# Show help
+docker run --rm qbnex qb --help
+
+# Show version
+docker run --rm qbnex qb --version
+```
+
+#### Using Docker Compose (Recommended)
+
+```bash
+# Build the image
+docker-compose build
+
+# Compile a program
+docker-compose run --rm qbnex qb yourfile.bas
+
+# Compile and run immediately
+docker-compose run --rm qbnex qb yourfile.bas -x
+
+# Generate C code without compiling
+docker-compose run --rm qbnex qb yourfile.bas -z
+
+# Compile with custom output name
+docker-compose run --rm qbnex qb yourfile.bas -o myprogram
+```
+
+#### Interactive Development
+
+For development with access to your source files:
+
+```bash
+# Start an interactive shell
+docker-compose run --rm qbnex bash
+
+# Inside the container:
+# - Compile programs: qb myfile.bas
+# - Run programs: ./myfile
+# - Access all files in /project (mounted from host)
+```
+
+#### Graphics Programs
+
+For programs that use graphics (requires X11 display):
+
+```bash
+# Linux
+docker run --rm -v $(pwd):/project -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix qbnex qb graphics.bas -x
+
+# macOS (requires XQuartz)
+docker run --rm -v $(pwd):/project -e DISPLAY=host.docker.internal:0 qbnex qb graphics.bas -x
+
+# Windows (requires VcXsrv or similar)
+docker run --rm -v $(pwd):/project -e DISPLAY=host.docker.internal:0 qbnex qb graphics.bas -x
+```
+
+#### Network Programs
+
+For programs using TCP/IP networking:
+
+```bash
+docker run --rm -v $(pwd):/project --network host qbnex qb server.bas -x
+```
+
+#### Example Docker Workflow
+
+1. **Create a BASIC file** (`hello.bas`):
+
+```basic
+PRINT "Hello from QBNex!"
+PRINT "Running in Docker!"
+FOR i = 1 TO 5
+    PRINT "Count: "; i
+NEXT i
+```
+
+2. **Compile and run**:
+
+```bash
+docker-compose run --rm qbnex qb hello.bas -x
+```
+
+3. **The compiled binary** will be available in your current directory.
+
+#### Troubleshooting Docker
+
+**Permission Issues:**
+```bash
+# Fix permissions after compilation
+sudo chmod +x ./yourprogram
+```
+
+**Missing Libraries:**
+```bash
+# Check installed packages
+docker run --rm qbnex dpkg -l | grep -E "libgl|libasound|x11"
+
+# Rebuild the image
+docker-compose build --no-cache qbnex
+```
+
+**Docker Files:**
+- `Dockerfile` - Production image (~300MB)
+- `Dockerfile.dev` - Development image (~500MB)
+- `.dockerignore` - Excludes unnecessary files from build context
+- `docker-compose.yml` - Easy-to-use compose configuration
+
+For complete Docker documentation with advanced configuration, CI/CD integration, and multi-platform compilation, see the inline comments in `docker-compose.yml` and `Dockerfile`.
+
+---
 
 ### Basic Usage
 
@@ -213,6 +374,61 @@ qb yourfile.bas -x
 # Generate C code without compiling
 qb yourfile.bas -z
 ```
+
+### Standard Library Imports
+
+QBNex supports Python-style dotted module imports for the bundled standard library:
+
+```basic
+PRINT Env_Platform$
+PRINT Path_Join$("root", "demo.txt")
+
+'$IMPORT:'sys.env'
+'$IMPORT:'io.path'
+```
+
+Integrated core usage:
+
+```basic
+'$IMPORT:'qbnex'
+
+CLASS Dog
+    Name AS STRING * 32
+
+    CONSTRUCTOR (petName AS STRING)
+        ME.Name = petName
+    END CONSTRUCTOR
+
+    FUNCTION Describe$ ()
+        Describe$ = RTRIM$(ME.Name)
+    END FUNCTION
+END CLASS
+```
+
+Imported modules resolve from `source/stdlib/` relative to the compiler root, so projects can load bundled libraries without hardcoding relative paths. Function-only imports are safest when placed at the end of the file, while the integrated `qbnex` core is intended to be imported at the top of files that declare `TYPE`, `SUB`, `FUNCTION`, or `CLASS`.
+
+Native class syntax is now lowered by the compiler into classic BASIC-compatible `TYPE` plus generated procedures. Supported forms in this phase are:
+
+- `CLASS ... END CLASS`
+- `EXTENDS` and `IMPLEMENTS`
+- `CONSTRUCTOR (...)`
+- `METHOD Name (...)`
+- `SUB Name (...)`
+- `FUNCTION Name$ (...)`
+- `ME.` and `THIS.` field access inside methods
+- `object.method(...)` dispatch sugar for known class variables and `self`
+
+Inherited members are flattened into derived class layouts, so callers and method bodies use `Name` directly instead of `BaseState.Name`. End-to-end examples live in `source/stdlib/examples/class_syntax_demo.bas`.
+
+Bundled modules now cover:
+
+- `qbnex` integrated core entrypoint
+- `collections.list`, `collections.stack`, `collections.queue`, `collections.set`, `collections.dictionary`
+- `strings.strbuilder`, `strings.text`
+- `sys.env`, `sys.args`, `sys.datetime`
+- `io.path`, `io.csv`, `io.json`
+- `math.numeric`
+- `error.result`
 
 ### Compiler Flags
 
@@ -966,6 +1182,14 @@ git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
 chmod +x setup_osx.command
 ./setup_osx.command
+```
+
+**Docker:**
+```bash
+git clone https://github.com/thirawat27/QBNex.git
+cd QBNex
+docker build -t qbnex .
+docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
 ```
 
 ### Adding New Features

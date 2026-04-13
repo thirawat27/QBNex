@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  qbnex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qbnex:latest
+    volumes:
+      # Mount current directory for easy access to source files
+      - .:/project
+    working_dir: /project
+    # Allow access to display for graphics (optional)
+    environment:
+      - DISPLAY=${DISPLAY:-}
+    # Network access for TCP/IP examples
+    network_mode: host
+    # Standard input and tty for interactive programs
+    stdin_open: true
+    tty: true
+
+  # Development service with hot reload
+  qbnex-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: qbnex-dev:latest
+    volumes:
+      - .:/project
+    working_dir: /project
+    environment:
+      - DISPLAY=${DISPLAY:-}
+    network_mode: host
+    stdin_open: true
+    tty: true

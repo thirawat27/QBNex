@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+*.o
+*.a
+*.exe
+internal/temp/
+internal/c/c_compiler/
+internal/c/mingw32/
+internal/c/mingw64/
+
+# Generated files
+qb.exe
+qb
+internal/config.ini
+internal/version.txt
+tempfoldersearch.bin
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+README.docker.md
+
+# Scripts (not needed in container)
+setup_win.cmd
+setup_osx.command
+findcurl.cmd
+reset.cmd
+
+# Assets (not needed at runtime)
+assets/

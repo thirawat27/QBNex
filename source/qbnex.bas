@@ -575,6 +575,27 @@ DIM SHARED nextrunlineindex AS LONG
 
 DIM SHARED lineinput3buffer AS STRING
 DIM SHARED lineinput3index AS LONG
+DIM SHARED classSyntaxQueue AS STRING
+DIM SHARED classSyntaxDeferredQueue AS STRING
+DIM SHARED classSyntaxActive AS LONG
+DIM SHARED classSyntaxTypeOpen AS LONG
+DIM SHARED classSyntaxInMethod AS LONG
+DIM SHARED classSyntaxHelperEmitted AS LONG
+DIM SHARED classSyntaxClassName AS STRING
+DIM SHARED classSyntaxBaseName AS STRING
+DIM SHARED classSyntaxInterfaces AS STRING
+DIM SHARED classSyntaxMethodKind AS STRING
+DIM SHARED classSyntaxMethodAlias AS STRING
+DIM SHARED classSyntaxGeneratedName AS STRING
+DIM SHARED classSyntaxOwnFieldLines AS STRING
+DIM SHARED classSyntaxRegistryCount AS LONG
+DIM SHARED classSyntaxRegistryName(1 TO 256) AS STRING
+DIM SHARED classSyntaxRegistryBase(1 TO 256) AS STRING
+DIM SHARED classSyntaxRegistryOwnFields(1 TO 256) AS STRING
+DIM SHARED classSyntaxRegistryFlatFields(1 TO 256) AS STRING
+DIM SHARED classSyntaxRegistryMethods(1 TO 256) AS STRING
+DIM SHARED classSyntaxScopeDepth AS LONG
+DIM SHARED classSyntaxScopeVars(0 TO 63) AS STRING
 
 DIM SHARED dimstatic AS LONG
 
@@ -753,6 +774,9 @@ DIM SHARED optionbase AS INTEGER
 DIM SHARED addmetastatic AS INTEGER
 DIM SHARED addmetadynamic AS INTEGER
 DIM SHARED addmetainclude AS STRING
+DIM SHARED importedModules AS STRING
+DIM SHARED prepassImportedModules AS STRING
+DIM SHARED stdlibPreludeImportPaths AS STRING
 
 DIM SHARED closedmain AS INTEGER
 DIM SHARED module AS STRING
@@ -1209,6 +1233,25 @@ NoChecks = 0
 inclevel = 0
 errorLineInInclude = 0
 addmetainclude$ = ""
+importedModules$ = "@"
+prepassImportedModules$ = "@"
+stdlibPreludeImportPaths$ = ""
+classSyntaxQueue$ = ""
+classSyntaxDeferredQueue$ = ""
+classSyntaxActive = 0
+classSyntaxTypeOpen = 0
+classSyntaxInMethod = 0
+classSyntaxHelperEmitted = 0
+classSyntaxClassName$ = ""
+classSyntaxBaseName$ = ""
+classSyntaxInterfaces$ = ""
+classSyntaxMethodKind$ = ""
+classSyntaxMethodAlias$ = ""
+classSyntaxGeneratedName$ = ""
+classSyntaxOwnFieldLines$ = ""
+classSyntaxRegistryCount = 0
+classSyntaxScopeDepth = 0
+ClassSyntax_ClearRegistry
 nextrunlineindex = 1
 lasttype = 0
 lasttypeelement = 0
@@ -1440,7 +1483,16 @@ DO
 
     '### STEVE EDIT FOR CONST EXPANSION 10/11/2013
 
-    wholeline$ = lineinput3$
+    IF LEN(classSyntaxQueue$) THEN
+        wholeline$ = ClassSyntax_DequeueLine$
+    ELSE
+        wholeline$ = lineinput3$
+        IF wholeline$ = CHR$(13) THEN
+            IF LEN(classSyntaxDeferredQueue$) THEN wholeline$ = ClassSyntax_DequeueDeferredLine$
+        ELSE
+            wholeline$ = ClassSyntax_ProcessLine$(wholeline$)
+        END IF
+    END IF
     IF wholeline$ = CHR$(13) THEN EXIT DO
 
     prepassline:
@@ -2527,10 +2579,18 @@ DO
 
         fh = 99 + inclevel
         '2. Feed next line
+        IF LEN(classSyntaxQueue$) THEN
+            wholeline$ = ClassSyntax_DequeueLine$
+            linenumber = linenumber - 1 'lower official linenumber to counter later increment
+
+            IF Debug THEN PRINT #9, "Pre-pass:Feeding INCLUDE$ line:[" + wholeline$ + "]"
+
+            GOTO prepassline
+        END IF
         IF EOF(fh) = 0 THEN
             LINE INPUT #fh, x$
 
-            wholeline$ = x$
+            wholeline$ = ClassSyntax_ProcessLine$(x$)
             inclinenumber(inclevel) = inclinenumber(inclevel) + 1
             'create extended error string 'incerror$'
             errorLineInInclude = inclinenumber(inclevel)
@@ -2553,6 +2613,14 @@ DO
             linenumber = linenumber - 1 'lower official linenumber to counter later increment
 
             IF Debug THEN PRINT #9, "Pre-pass:Feeding INCLUDE$ line:[" + wholeline$ + "]"
+
+            GOTO prepassline
+        END IF
+        IF LEN(classSyntaxDeferredQueue$) THEN
+            wholeline$ = ClassSyntax_DequeueDeferredLine$
+            linenumber = linenumber - 1
+
+            IF Debug THEN PRINT #9, "Pre-pass:Feeding deferred CLASS line:[" + wholeline$ + "]"
 
             GOTO prepassline
         END IF
@@ -2586,6 +2654,11 @@ totallinenumber = reallinenumber
 lineinput3index = 1 'reset input line
 
 addmetainclude$ = "" 'reset stray meta-includes
+importedModules$ = "@"
+ClassSyntax_Reset
+classSyntaxDeferredQueue$ = ""
+ClassSyntax_ClearRegistry
+ClassSyntax_ClearScopes
 
 'reset altered variables
 DataOffset = 0
@@ -2711,7 +2784,18 @@ DO
     IF addmetastatic = 1 THEN addmetastatic = 0: DynamicMode = 0
 
     'a3$ is passed in when using $include
-    IF inclevel = 0 THEN a3$ = lineinput3$
+    IF inclevel = 0 THEN
+        IF LEN(classSyntaxQueue$) THEN
+            a3$ = ClassSyntax_DequeueLine$
+        ELSE
+            a3$ = lineinput3$
+            IF a3$ = CHR$(13) THEN
+                IF LEN(classSyntaxDeferredQueue$) THEN a3$ = ClassSyntax_DequeueDeferredLine$
+            ELSE
+                a3$ = ClassSyntax_ProcessLine$(a3$)
+            END IF
+        END IF
+    END IF
     IF a3$ = CHR$(13) THEN EXIT DO
     linenumber = linenumber + 1
     reallinenumber = reallinenumber + 1
@@ -11078,9 +11162,15 @@ DO
         DO WHILE inclevel
             fh = 99 + inclevel
             '2. Feed next line
+            IF LEN(classSyntaxQueue$) THEN
+                a3$ = ClassSyntax_DequeueLine$
+                continuelinefrom = 0
+                linenumber = linenumber - 1 'lower official linenumber to counter later increment
+                GOTO includeline
+            END IF
             IF EOF(fh) = 0 THEN
                 LINE INPUT #fh, x$
-                a3$ = x$
+                a3$ = ClassSyntax_ProcessLine$(x$)
                 continuelinefrom = 0
                 inclinenumber(inclevel) = inclinenumber(inclevel) + 1
                 'create extended error string 'incerror$'
@@ -11102,6 +11192,12 @@ DO
                 END IF
                 incerror$ = e$
                 linenumber = linenumber - 1 'lower official linenumber to counter later increment
+                GOTO includeline
+            END IF
+            IF LEN(classSyntaxDeferredQueue$) THEN
+                a3$ = ClassSyntax_DequeueDeferredLine$
+                continuelinefrom = 0
+                linenumber = linenumber - 1
                 GOTO includeline
             END IF
             '3. Close & return control
@@ -18877,6 +18973,7 @@ FUNCTION fixoperationorder$ (savea$)
     f$ = ""
     b = 0
     c = 0
+    udtMethodObjectStart = 0
     lastt = 0: lastti = 0
     FOR i = 1 TO n
         f2$ = getelement(a$, i)
@@ -19223,7 +19320,7 @@ FUNCTION fixoperationorder$ (savea$)
                                     'jump to UDT section if array is of UDT type (and elements are referenced)
                                     IF id.arraytype AND ISUDT THEN
                                         IF i < n THEN nextc = ASC(getelement(a$, i + 1)) ELSE nextc = 0
-                                        IF nextc = 46 THEN t = id.arraytype: GOTO fooudt
+                                        IF nextc = 46 THEN udtMethodObjectStart = lastti: t = id.arraytype: GOTO fooudt
                                     END IF
 
                                     f$ = f$ + sp
@@ -19252,6 +19349,7 @@ FUNCTION fixoperationorder$ (savea$)
 
 
                                         IF nextc <> 46 THEN f$ = f$ + sp: GOTO classdone_special 'no sub-elements referenced
+                                        udtMethodObjectStart = lastti
                                         t = id.t
 
                                         fooudt:
@@ -19292,6 +19390,15 @@ FUNCTION fixoperationorder$ (savea$)
                                         END IF 'match found
 
                                         'no, so check next element
+                                        IF i < n THEN nextc = ASC(getelement(a$, i + 1)) ELSE nextc = 0
+                                        IF nextc = 40 THEN
+                                            generatedMethod$ = ClassSyntax_FindGeneratedMethod$(RTRIM$(udtxname(t AND 511)), f2$)
+                                            IF LEN(generatedMethod$) THEN
+                                                a$ = ClassSyntax_RewriteMethodCall$(a$, udtMethodObjectStart, i, generatedMethod$)
+                                                fixoperationorder$ = fixoperationorder$(a$)
+                                                EXIT FUNCTION
+                                            END IF
+                                        END IF
                                         E = udtenext(E)
                                         IF E = 0 THEN Give_Error "Element not defined": EXIT FUNCTION
                                         GOTO fooudtnexte
@@ -19663,6 +19770,1102 @@ FUNCTION isvalidvariable (a$)
     e$ = RIGHT$(e$, LEN(e$) - 1)
     IF isuinteger(e$) THEN isvalidvariable = 1: EXIT FUNCTION
     isvalidvariable = 0
+END FUNCTION
+
+FUNCTION StdLib_NormalizeImportKey$ (module$)
+    DIM importKey AS STRING
+    DIM importChar AS STRING
+    DIM resultText AS STRING
+
+    importKey = LCASE$(LTRIM$(RTRIM$(module$)))
+    IF LEN(importKey) = 0 THEN EXIT FUNCTION
+
+    DO WHILE LEFT$(importKey, 7) = "stdlib."
+        importKey = MID$(importKey, 8)
+    LOOP
+    IF LEFT$(importKey, 7) = "stdlib\" THEN importKey = MID$(importKey, 8)
+    IF LEFT$(importKey, 7) = "stdlib/" THEN importKey = MID$(importKey, 8)
+
+    IF RIGHT$(importKey, 4) = ".bas" THEN importKey = LEFT$(importKey, LEN(importKey) - 4)
+
+    FOR i = 1 TO LEN(importKey)
+        importChar = MID$(importKey, i, 1)
+        IF importChar = "\" OR importChar = "/" THEN importChar = "."
+        resultText = resultText + importChar
+    NEXT
+
+    DO WHILE INSTR(resultText, "..")
+        i = INSTR(resultText, "..")
+        resultText = LEFT$(resultText, i - 1) + RIGHT$(resultText, LEN(resultText) - i)
+    LOOP
+
+    IF LEFT$(resultText, 1) = "." THEN resultText = MID$(resultText, 2)
+    IF RIGHT$(resultText, 1) = "." THEN resultText = LEFT$(resultText, LEN(resultText) - 1)
+
+    StdLib_NormalizeImportKey$ = resultText
+END FUNCTION
+
+FUNCTION StdLib_ImportPath$ (module$)
+    DIM normalizedKey AS STRING
+    DIM relativeModulePath AS STRING
+    DIM importChar AS STRING
+
+    normalizedKey = StdLib_NormalizeImportKey$(module$)
+    IF LEN(normalizedKey) = 0 THEN EXIT FUNCTION
+
+    IF normalizedKey = "qbnex" OR normalizedKey = "stdlib" OR normalizedKey = "stdlib.all" OR normalizedKey = "qbnex_stdlib" THEN
+        StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "source" + pathsep$ + "stdlib" + pathsep$ + "qbnex_stdlib.bas"
+        EXIT FUNCTION
+    END IF
+
+    FOR i = 1 TO LEN(normalizedKey)
+        importChar = MID$(normalizedKey, i, 1)
+        IF importChar = "." THEN importChar = pathsep$
+        relativeModulePath = relativeModulePath + importChar
+    NEXT
+
+    StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "source" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
+END FUNCTION
+
+FUNCTION StdLib_QueueImport$ (module$)
+    DIM normalizedKey AS STRING
+    DIM importPath AS STRING
+
+    normalizedKey = StdLib_NormalizeImportKey$(module$)
+    IF LEN(normalizedKey) = 0 THEN
+        Give_Error "Expected $IMPORT:'module.name'"
+        EXIT FUNCTION
+    END IF
+
+    IF INSTR(importedModules$, "@" + normalizedKey + "@") THEN EXIT FUNCTION
+
+    importedModules$ = importedModules$ + normalizedKey + "@"
+    importPath = StdLib_ImportPath$(normalizedKey)
+    IF prepass THEN
+        IF LEN(stdlibPreludeImportPaths$) THEN stdlibPreludeImportPaths$ = stdlibPreludeImportPaths$ + CHR$(10)
+        stdlibPreludeImportPaths$ = stdlibPreludeImportPaths$ + importPath
+    END IF
+    StdLib_QueueImport$ = importPath
+END FUNCTION
+
+FUNCTION StdLib_DequeuePreludeImport$ ()
+    DIM separatorPos AS LONG
+
+    IF LEN(stdlibPreludeImportPaths$) = 0 THEN EXIT FUNCTION
+
+    separatorPos = INSTR(stdlibPreludeImportPaths$, CHR$(10))
+    IF separatorPos = 0 THEN
+        StdLib_DequeuePreludeImport$ = stdlibPreludeImportPaths$
+        stdlibPreludeImportPaths$ = ""
+    ELSE
+        StdLib_DequeuePreludeImport$ = LEFT$(stdlibPreludeImportPaths$, separatorPos - 1)
+        stdlibPreludeImportPaths$ = MID$(stdlibPreludeImportPaths$, separatorPos + 1)
+    END IF
+END FUNCTION
+
+SUB ClassSyntax_Reset
+    classSyntaxQueue$ = ""
+    classSyntaxActive = 0
+    classSyntaxTypeOpen = 0
+    classSyntaxInMethod = 0
+    classSyntaxHelperEmitted = 0
+    classSyntaxClassName$ = ""
+    classSyntaxBaseName$ = ""
+    classSyntaxInterfaces$ = ""
+    classSyntaxMethodKind$ = ""
+    classSyntaxMethodAlias$ = ""
+    classSyntaxGeneratedName$ = ""
+    classSyntaxOwnFieldLines$ = ""
+END SUB
+
+SUB ClassSyntax_QueueLine (line$)
+    IF LEN(classSyntaxQueue$) THEN classSyntaxQueue$ = classSyntaxQueue$ + CHR$(10)
+    classSyntaxQueue$ = classSyntaxQueue$ + line$
+END SUB
+
+SUB ClassSyntax_QueueDeferredLine (line$)
+    IF LEN(classSyntaxDeferredQueue$) THEN classSyntaxDeferredQueue$ = classSyntaxDeferredQueue$ + CHR$(10)
+    classSyntaxDeferredQueue$ = classSyntaxDeferredQueue$ + line$
+END SUB
+
+SUB ClassSyntax_ClearRegistry
+    DIM i AS LONG
+
+    classSyntaxRegistryCount = 0
+    FOR i = 1 TO 256
+        classSyntaxRegistryName(i) = ""
+        classSyntaxRegistryBase(i) = ""
+        classSyntaxRegistryOwnFields(i) = ""
+        classSyntaxRegistryFlatFields(i) = ""
+        classSyntaxRegistryMethods(i) = ""
+    NEXT
+END SUB
+
+SUB ClassSyntax_ClearScopes
+    DIM i AS LONG
+
+    classSyntaxScopeDepth = 0
+    FOR i = 0 TO 63
+        classSyntaxScopeVars(i) = ""
+    NEXT
+END SUB
+
+FUNCTION ClassSyntax_DequeueLine$ ()
+    DIM separatorPos AS LONG
+
+    IF LEN(classSyntaxQueue$) = 0 THEN EXIT FUNCTION
+
+    separatorPos = INSTR(classSyntaxQueue$, CHR$(10))
+    IF separatorPos = 0 THEN
+        ClassSyntax_DequeueLine$ = classSyntaxQueue$
+        classSyntaxQueue$ = ""
+    ELSE
+        ClassSyntax_DequeueLine$ = LEFT$(classSyntaxQueue$, separatorPos - 1)
+        classSyntaxQueue$ = MID$(classSyntaxQueue$, separatorPos + 1)
+    END IF
+END FUNCTION
+
+FUNCTION ClassSyntax_DequeueDeferredLine$ ()
+    DIM separatorPos AS LONG
+
+    IF LEN(classSyntaxDeferredQueue$) = 0 THEN EXIT FUNCTION
+
+    separatorPos = INSTR(classSyntaxDeferredQueue$, CHR$(10))
+    IF separatorPos = 0 THEN
+        ClassSyntax_DequeueDeferredLine$ = classSyntaxDeferredQueue$
+        classSyntaxDeferredQueue$ = ""
+    ELSE
+        ClassSyntax_DequeueDeferredLine$ = LEFT$(classSyntaxDeferredQueue$, separatorPos - 1)
+        classSyntaxDeferredQueue$ = MID$(classSyntaxDeferredQueue$, separatorPos + 1)
+    END IF
+END FUNCTION
+
+SUB ClassSyntax_AppendLine (target$, line$)
+    IF LEN(line$) = 0 THEN EXIT SUB
+    IF LEN(target$) THEN target$ = target$ + CHR$(10)
+    target$ = target$ + line$
+END SUB
+
+FUNCTION ClassSyntax_FindRegistryClass& (className$)
+    DIM i AS LONG
+    DIM lookupName AS STRING
+
+    lookupName = UCASE$(RTRIM$(className$))
+    FOR i = 1 TO classSyntaxRegistryCount
+        IF UCASE$(RTRIM$(classSyntaxRegistryName(i))) = lookupName THEN
+            ClassSyntax_FindRegistryClass = i
+            EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+FUNCTION ClassSyntax_FlatFieldLines$ (className$)
+    DIM classIndex AS LONG
+
+    classIndex = ClassSyntax_FindRegistryClass&(className$)
+    IF classIndex = 0 THEN EXIT FUNCTION
+    ClassSyntax_FlatFieldLines$ = classSyntaxRegistryFlatFields(classIndex)
+END FUNCTION
+
+SUB ClassSyntax_QueueFieldLines (fieldLines$)
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+
+    remainingLines$ = fieldLines$
+    DO WHILE LEN(remainingLines$)
+        nextBreak = INSTR(remainingLines$, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine$ = remainingLines$
+            remainingLines$ = ""
+        ELSE
+            nextLine$ = LEFT$(remainingLines$, nextBreak - 1)
+            remainingLines$ = MID$(remainingLines$, nextBreak + 1)
+        END IF
+        IF LEN(LTRIM$(RTRIM$(nextLine$))) THEN ClassSyntax_QueueLine nextLine$
+    LOOP
+END SUB
+
+SUB ClassSyntax_RegisterCurrentClass
+    DIM classIndex AS LONG
+    DIM baseIndex AS LONG
+    DIM flattenedFields AS STRING
+
+    classIndex = ClassSyntax_FindRegistryClass&(classSyntaxClassName$)
+    IF classIndex = 0 THEN
+        classSyntaxRegistryCount = classSyntaxRegistryCount + 1
+        IF classSyntaxRegistryCount > 256 THEN
+            Give_Error "Maximum CLASS limit exceeded"
+            EXIT SUB
+        END IF
+        classIndex = classSyntaxRegistryCount
+    END IF
+
+    classSyntaxRegistryName(classIndex) = classSyntaxClassName$
+    classSyntaxRegistryBase(classIndex) = classSyntaxBaseName$
+    classSyntaxRegistryOwnFields(classIndex) = classSyntaxOwnFieldLines$
+
+    flattenedFields$ = ""
+    IF LEN(classSyntaxBaseName$) THEN
+        baseIndex = ClassSyntax_FindRegistryClass&(classSyntaxBaseName$)
+        IF baseIndex = 0 THEN
+            Give_Error "Base class must be declared before derived class"
+            EXIT SUB
+        END IF
+        flattenedFields$ = classSyntaxRegistryFlatFields(baseIndex)
+    END IF
+    IF LEN(flattenedFields$) AND LEN(classSyntaxOwnFieldLines$) THEN flattenedFields$ = flattenedFields$ + CHR$(10)
+    flattenedFields$ = flattenedFields$ + classSyntaxOwnFieldLines$
+    classSyntaxRegistryFlatFields(classIndex) = flattenedFields$
+END SUB
+
+SUB ClassSyntax_RegisterMethod (className$, methodName$, generatedName$)
+    DIM classIndex AS LONG
+    DIM methodKey AS STRING
+    DIM entryLine AS STRING
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM updatedLines AS STRING
+
+    classIndex = ClassSyntax_FindRegistryClass&(className$)
+    IF classIndex = 0 THEN EXIT SUB
+
+    methodKey$ = UCASE$(RTRIM$(methodName$))
+    entryLine$ = methodKey$ + "=" + generatedName$
+    remainingLines$ = classSyntaxRegistryMethods(classIndex)
+
+    DO WHILE LEN(remainingLines$)
+        nextBreak = INSTR(remainingLines$, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine$ = remainingLines$
+            remainingLines$ = ""
+        ELSE
+            nextLine$ = LEFT$(remainingLines$, nextBreak - 1)
+            remainingLines$ = MID$(remainingLines$, nextBreak + 1)
+        END IF
+        IF LEFT$(nextLine$, LEN(methodKey$) + 1) <> methodKey$ + "=" THEN
+            ClassSyntax_AppendLine updatedLines$, nextLine$
+        END IF
+    LOOP
+
+    ClassSyntax_AppendLine updatedLines$, entryLine$
+    classSyntaxRegistryMethods(classIndex) = updatedLines$
+END SUB
+
+FUNCTION ClassSyntax_FindGeneratedMethod$ (className$, methodName$)
+    DIM classIndex AS LONG
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM methodKey AS STRING
+
+    classIndex = ClassSyntax_FindRegistryClass&(className$)
+    IF classIndex = 0 THEN EXIT FUNCTION
+
+    methodKey$ = UCASE$(RTRIM$(methodName$)) + "="
+    remainingLines$ = classSyntaxRegistryMethods(classIndex)
+    DO WHILE LEN(remainingLines$)
+        nextBreak = INSTR(remainingLines$, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine$ = remainingLines$
+            remainingLines$ = ""
+        ELSE
+            nextLine$ = LEFT$(remainingLines$, nextBreak - 1)
+            remainingLines$ = MID$(remainingLines$, nextBreak + 1)
+        END IF
+        IF LEFT$(nextLine$, LEN(methodKey$)) = methodKey$ THEN
+            ClassSyntax_FindGeneratedMethod$ = MID$(nextLine$, LEN(methodKey$) + 1)
+            EXIT FUNCTION
+        END IF
+    LOOP
+
+    IF LEN(classSyntaxRegistryBase(classIndex)) THEN
+        ClassSyntax_FindGeneratedMethod$ = ClassSyntax_FindGeneratedMethod$(classSyntaxRegistryBase(classIndex), methodName$)
+    END IF
+END FUNCTION
+
+FUNCTION ClassSyntax_RewriteMethodCall$ (tokens$, objectStart AS LONG, methodElement AS LONG, generatedName$)
+    DIM n AS LONG
+    DIM i AS LONG
+    DIM depth AS LONG
+    DIM closeElement AS LONG
+    DIM prefixText AS STRING
+    DIM objectExpr AS STRING
+    DIM argsText AS STRING
+    DIM suffixText AS STRING
+    DIM resultText AS STRING
+
+    n = numelements(tokens$)
+    IF methodElement + 1 > n THEN EXIT FUNCTION
+    IF getelement$(tokens$, methodElement + 1) <> "(" THEN EXIT FUNCTION
+
+    depth = 0
+    FOR i = methodElement + 1 TO n
+        IF getelement$(tokens$, i) = "(" THEN depth = depth + 1
+        IF getelement$(tokens$, i) = ")" THEN
+            depth = depth - 1
+            IF depth = 0 THEN closeElement = i: EXIT FOR
+        END IF
+    NEXT
+    IF closeElement = 0 THEN EXIT FUNCTION
+
+    IF objectStart > 1 THEN prefixText = getelements$(tokens$, 1, objectStart - 1)
+    objectExpr = getelements$(tokens$, objectStart, methodElement - 2)
+    IF closeElement > methodElement + 2 THEN argsText = getelements$(tokens$, methodElement + 2, closeElement - 1)
+    IF closeElement < n THEN suffixText = getelements$(tokens$, closeElement + 1, n)
+
+    resultText = generatedName$ + sp + "(" + sp + objectExpr
+    IF LEN(argsText) THEN resultText = resultText + sp + "," + sp + argsText
+    resultText = resultText + sp + ")"
+
+    IF LEN(prefixText) THEN resultText = prefixText + sp + resultText
+    IF LEN(suffixText) THEN resultText = resultText + sp + suffixText
+    ClassSyntax_RewriteMethodCall$ = resultText
+END FUNCTION
+
+SUB ClassSyntax_EnterScope
+    IF classSyntaxScopeDepth < 63 THEN classSyntaxScopeDepth = classSyntaxScopeDepth + 1
+    classSyntaxScopeVars(classSyntaxScopeDepth) = ""
+END SUB
+
+SUB ClassSyntax_ExitScope
+    IF classSyntaxScopeDepth < 0 THEN classSyntaxScopeDepth = 0
+    classSyntaxScopeVars(classSyntaxScopeDepth) = ""
+    IF classSyntaxScopeDepth > 0 THEN classSyntaxScopeDepth = classSyntaxScopeDepth - 1
+END SUB
+
+SUB ClassSyntax_RegisterScopeVar (varName$, typeName$)
+    DIM entryLine AS STRING
+    DIM scopeText AS STRING
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM updatedLines AS STRING
+    DIM lookupKey AS STRING
+
+    varName$ = LTRIM$(RTRIM$(varName$))
+    typeName$ = LTRIM$(RTRIM$(typeName$))
+    IF LEN(varName$) = 0 OR LEN(typeName$) = 0 THEN EXIT SUB
+    IF ClassSyntax_FindRegistryClass&(typeName$) = 0 THEN EXIT SUB
+
+    lookupKey$ = UCASE$(varName$) + "="
+    entryLine$ = lookupKey$ + typeName$
+    scopeText$ = classSyntaxScopeVars(classSyntaxScopeDepth)
+    remainingLines$ = scopeText$
+
+    DO WHILE LEN(remainingLines$)
+        nextBreak = INSTR(remainingLines$, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine$ = remainingLines$
+            remainingLines$ = ""
+        ELSE
+            nextLine$ = LEFT$(remainingLines$, nextBreak - 1)
+            remainingLines$ = MID$(remainingLines$, nextBreak + 1)
+        END IF
+        IF LEFT$(nextLine$, LEN(lookupKey$)) <> lookupKey$ THEN
+            ClassSyntax_AppendLine updatedLines$, nextLine$
+        END IF
+    LOOP
+
+    ClassSyntax_AppendLine updatedLines$, entryLine$
+    classSyntaxScopeVars(classSyntaxScopeDepth) = updatedLines$
+END SUB
+
+FUNCTION ClassSyntax_LookupVarType$ (varName$)
+    DIM scopeIndex AS LONG
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM lookupKey AS STRING
+
+    lookupKey$ = UCASE$(LTRIM$(RTRIM$(varName$))) + "="
+    FOR scopeIndex = classSyntaxScopeDepth TO 0 STEP -1
+        remainingLines$ = classSyntaxScopeVars(scopeIndex)
+        DO WHILE LEN(remainingLines$)
+            nextBreak = INSTR(remainingLines$, CHR$(10))
+            IF nextBreak = 0 THEN
+                nextLine$ = remainingLines$
+                remainingLines$ = ""
+            ELSE
+                nextLine$ = LEFT$(remainingLines$, nextBreak - 1)
+                remainingLines$ = MID$(remainingLines$, nextBreak + 1)
+            END IF
+            IF LEFT$(nextLine$, LEN(lookupKey$)) = lookupKey$ THEN
+                ClassSyntax_LookupVarType$ = MID$(nextLine$, LEN(lookupKey$) + 1)
+                EXIT FUNCTION
+            END IF
+        LOOP
+    NEXT
+END FUNCTION
+
+FUNCTION ClassSyntax_FirstIdentifier$ (text$)
+    DIM i AS LONG
+    DIM c$
+
+    text$ = LTRIM$(RTRIM$(text$))
+    FOR i = 1 TO LEN(text$)
+        c$ = MID$(text$, i, 1)
+        IF c$ = " " OR c$ = CHR$(9) OR c$ = "(" THEN
+            ClassSyntax_FirstIdentifier$ = LEFT$(text$, i - 1)
+            EXIT FUNCTION
+        END IF
+    NEXT
+    ClassSyntax_FirstIdentifier$ = text$
+END FUNCTION
+
+SUB ClassSyntax_RegisterTypedList (leftText$, typeText$)
+    DIM remainingText AS STRING
+    DIM nextComma AS LONG
+    DIM nextPart AS STRING
+    DIM varName AS STRING
+
+    remainingText$ = leftText$
+    DO WHILE LEN(remainingText$)
+        nextComma = INSTR(remainingText$, ",")
+        IF nextComma = 0 THEN
+            nextPart$ = remainingText$
+            remainingText$ = ""
+        ELSE
+            nextPart$ = LEFT$(remainingText$, nextComma - 1)
+            remainingText$ = MID$(remainingText$, nextComma + 1)
+        END IF
+        varName$ = ClassSyntax_FirstIdentifier$(nextPart$)
+        IF LEN(varName$) THEN ClassSyntax_RegisterScopeVar varName$, typeText$
+    LOOP
+END SUB
+
+SUB ClassSyntax_RegisterDeclarationLine (rawLine$)
+    DIM trimmedLine AS STRING
+    DIM upperLine AS STRING
+    DIM asPos AS LONG
+    DIM leftText AS STRING
+    DIM typeText AS STRING
+
+    trimmedLine = LTRIM$(RTRIM$(rawLine$))
+    upperLine = UCASE$(trimmedLine)
+
+    IF LEFT$(upperLine, 11) = "DIM SHARED " THEN
+        leftText = MID$(trimmedLine, 12)
+    ELSEIF LEFT$(upperLine, 4) = "DIM " THEN
+        leftText = MID$(trimmedLine, 5)
+    ELSEIF LEFT$(upperLine, 7) = "STATIC " THEN
+        leftText = MID$(trimmedLine, 8)
+    ELSE
+        EXIT SUB
+    END IF
+
+    asPos = INSTR(UCASE$(leftText), " AS ")
+    IF asPos = 0 THEN EXIT SUB
+    typeText = ClassSyntax_FirstToken$(MID$(leftText, asPos + 4))
+    leftText = LEFT$(leftText, asPos - 1)
+    ClassSyntax_RegisterTypedList leftText, typeText
+END SUB
+
+SUB ClassSyntax_RegisterProcedureHeader (rawLine$)
+    DIM trimmedLine AS STRING
+    DIM upperLine AS STRING
+    DIM signatureText AS STRING
+    DIM openPos AS LONG
+    DIM closePos AS LONG
+    DIM paramsText AS STRING
+    DIM remainingText AS STRING
+    DIM nextComma AS LONG
+    DIM nextParam AS STRING
+    DIM asPos AS LONG
+    DIM paramName AS STRING
+    DIM typeText AS STRING
+
+    trimmedLine = LTRIM$(RTRIM$(rawLine$))
+    upperLine = UCASE$(trimmedLine)
+    IF LEFT$(upperLine, 4) = "SUB " THEN
+        signatureText = MID$(trimmedLine, 4)
+    ELSEIF LEFT$(upperLine, 9) = "FUNCTION " THEN
+        signatureText = MID$(trimmedLine, 9)
+    ELSE
+        EXIT SUB
+    END IF
+
+    ClassSyntax_EnterScope
+    openPos = INSTR(signatureText, "(")
+    IF openPos = 0 THEN EXIT SUB
+    closePos = INSTR(signatureText, ")")
+    IF closePos = 0 THEN EXIT SUB
+    paramsText = MID$(signatureText, openPos + 1, closePos - openPos - 1)
+    remainingText = paramsText
+
+    DO WHILE LEN(remainingText)
+        nextComma = INSTR(remainingText, ",")
+        IF nextComma = 0 THEN
+            nextParam = remainingText
+            remainingText = ""
+        ELSE
+            nextParam = LEFT$(remainingText, nextComma - 1)
+            remainingText = MID$(remainingText, nextComma + 1)
+        END IF
+        asPos = INSTR(UCASE$(nextParam), " AS ")
+        IF asPos THEN
+            paramName = ClassSyntax_FirstIdentifier$(LEFT$(nextParam, asPos - 1))
+            typeText = ClassSyntax_FirstToken$(MID$(nextParam, asPos + 4))
+            ClassSyntax_RegisterScopeVar paramName, typeText
+        END IF
+    LOOP
+END SUB
+
+FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
+    DIM outputText AS STRING
+    DIM i AS LONG
+    DIM j AS LONG
+    DIM inString AS LONG
+    DIM identifierStart AS LONG
+    DIM identifierName AS STRING
+    DIM methodStart AS LONG
+    DIM methodName AS STRING
+    DIM openPos AS LONG
+    DIM closePos AS LONG
+    DIM depth AS LONG
+    DIM currentChar AS STRING
+    DIM className AS STRING
+    DIM generatedName AS STRING
+    DIM argsText AS STRING
+
+    DO WHILE i < LEN(sourceLine$)
+        i = i + 1
+        currentChar = MID$(sourceLine$, i, 1)
+
+        IF currentChar = CHR$(34) THEN
+            outputText = outputText + currentChar
+            IF inString THEN inString = 0 ELSE inString = -1
+            GOTO ClassSyntax_RewriteDispatch_Next
+        END IF
+
+        IF inString = 0 THEN
+            IF currentChar = "'" THEN
+                outputText = outputText + MID$(sourceLine$, i)
+                EXIT DO
+            END IF
+
+            IF ClassSyntax_IsIdentifierChar%(currentChar) THEN
+                identifierStart = i
+                DO WHILE i <= LEN(sourceLine$) AND ClassSyntax_IsIdentifierChar%(MID$(sourceLine$, i, 1))
+                    i = i + 1
+                LOOP
+                identifierName = MID$(sourceLine$, identifierStart, i - identifierStart)
+
+                j = i
+                DO WHILE j <= LEN(sourceLine$) AND (MID$(sourceLine$, j, 1) = " " OR MID$(sourceLine$, j, 1) = CHR$(9))
+                    j = j + 1
+                LOOP
+
+                IF j <= LEN(sourceLine$) AND MID$(sourceLine$, j, 1) = "." THEN
+                    methodStart = j + 1
+                    DO WHILE methodStart <= LEN(sourceLine$) AND (MID$(sourceLine$, methodStart, 1) = " " OR MID$(sourceLine$, methodStart, 1) = CHR$(9))
+                        methodStart = methodStart + 1
+                    LOOP
+                    j = methodStart
+                    DO WHILE j <= LEN(sourceLine$)
+                        currentChar = MID$(sourceLine$, j, 1)
+                        IF ClassSyntax_IsIdentifierChar%(currentChar) OR currentChar = "$" OR currentChar = "%" OR currentChar = "&" OR currentChar = "!" OR currentChar = "#" THEN
+                            j = j + 1
+                        ELSE
+                            EXIT DO
+                        END IF
+                    LOOP
+                    methodName = MID$(sourceLine$, methodStart, j - methodStart)
+
+                    DO WHILE j <= LEN(sourceLine$) AND (MID$(sourceLine$, j, 1) = " " OR MID$(sourceLine$, j, 1) = CHR$(9))
+                        j = j + 1
+                    LOOP
+
+                    IF LEN(methodName) AND j <= LEN(sourceLine$) AND MID$(sourceLine$, j, 1) = "(" THEN
+                        className = ""
+                        IF UCASE$(identifierName) = "SELF" AND LEN(selfType$) THEN
+                            className = selfType$
+                        ELSE
+                            className = ClassSyntax_LookupVarType$(identifierName)
+                        END IF
+
+                        IF LEN(className) THEN
+                            generatedName = ClassSyntax_FindGeneratedMethod$(className, methodName)
+                            IF LEN(generatedName) THEN
+                                openPos = j
+                                depth = 0
+                                FOR closePos = openPos TO LEN(sourceLine$)
+                                    currentChar = MID$(sourceLine$, closePos, 1)
+                                    IF currentChar = "(" THEN depth = depth + 1
+                                    IF currentChar = ")" THEN
+                                        depth = depth - 1
+                                        IF depth = 0 THEN EXIT FOR
+                                    END IF
+                                NEXT
+                                IF closePos <= LEN(sourceLine$) THEN
+                                    argsText = MID$(sourceLine$, openPos + 1, closePos - openPos - 1)
+                                    outputText = outputText + generatedName + "(" + identifierName
+                                    IF LEN(LTRIM$(RTRIM$(argsText))) THEN outputText = outputText + ", " + argsText
+                                    outputText = outputText + ")"
+                                    i = closePos
+                                    GOTO ClassSyntax_RewriteDispatch_Next
+                                END IF
+                            END IF
+                        END IF
+                    END IF
+                END IF
+
+                outputText = outputText + identifierName
+                i = i - 1
+                GOTO ClassSyntax_RewriteDispatch_Next
+            END IF
+        END IF
+
+        outputText = outputText + currentChar
+        ClassSyntax_RewriteDispatch_Next:
+    LOOP
+
+    ClassSyntax_RewriteDispatch$ = outputText
+END FUNCTION
+
+FUNCTION ClassSyntax_IsIdentifierChar% (c$)
+    DIM c AS LONG
+
+    IF LEN(c$) = 0 THEN EXIT FUNCTION
+    c = ASC(c$)
+    IF c >= 48 AND c <= 57 THEN ClassSyntax_IsIdentifierChar = -1: EXIT FUNCTION
+    IF c >= 65 AND c <= 90 THEN ClassSyntax_IsIdentifierChar = -1: EXIT FUNCTION
+    IF c >= 97 AND c <= 122 THEN ClassSyntax_IsIdentifierChar = -1: EXIT FUNCTION
+    IF c$ = "_" THEN ClassSyntax_IsIdentifierChar = -1
+END FUNCTION
+
+FUNCTION ClassSyntax_MatchTextAt% (text$, position AS LONG, pattern$)
+    IF position < 1 THEN EXIT FUNCTION
+    IF LEN(pattern$) = 0 THEN EXIT FUNCTION
+    IF position + LEN(pattern$) - 1 > LEN(text$) THEN EXIT FUNCTION
+    IF UCASE$(MID$(text$, position, LEN(pattern$))) = UCASE$(pattern$) THEN ClassSyntax_MatchTextAt = -1
+END FUNCTION
+
+FUNCTION ClassSyntax_MatchTokenAt% (text$, position AS LONG, token$)
+    DIM beforeChar$
+    DIM afterChar$
+
+    IF ClassSyntax_MatchTextAt%(text$, position, token$) = 0 THEN EXIT FUNCTION
+
+    IF position > 1 THEN
+        beforeChar$ = MID$(text$, position - 1, 1)
+        IF ClassSyntax_IsIdentifierChar%(beforeChar$) THEN EXIT FUNCTION
+    END IF
+
+    IF position + LEN(token$) <= LEN(text$) THEN
+        afterChar$ = MID$(text$, position + LEN(token$), 1)
+        IF ClassSyntax_IsIdentifierChar%(afterChar$) THEN EXIT FUNCTION
+    END IF
+
+    ClassSyntax_MatchTokenAt = -1
+END FUNCTION
+
+FUNCTION ClassSyntax_FirstToken$ (text$)
+    DIM i AS LONG
+    DIM c$
+
+    text$ = LTRIM$(RTRIM$(text$))
+    FOR i = 1 TO LEN(text$)
+        c$ = MID$(text$, i, 1)
+        IF c$ = " " OR c$ = CHR$(9) THEN
+            ClassSyntax_FirstToken$ = LEFT$(text$, i - 1)
+            EXIT FUNCTION
+        END IF
+    NEXT
+    ClassSyntax_FirstToken$ = text$
+END FUNCTION
+
+FUNCTION ClassSyntax_SafeIdentifier$ (text$)
+    DIM i AS LONG
+    DIM c$
+    DIM c AS LONG
+    DIM resultText AS STRING
+
+    FOR i = 1 TO LEN(text$)
+        c$ = MID$(text$, i, 1)
+        c = ASC(c$)
+        IF c >= 48 AND c <= 57 THEN resultText = resultText + c$
+        IF c >= 65 AND c <= 90 THEN resultText = resultText + c$
+        IF c >= 97 AND c <= 122 THEN resultText = resultText + c$
+        IF c$ = "_" THEN resultText = resultText + c$
+    NEXT
+
+    IF LEN(resultText) = 0 THEN resultText = "ClassValue"
+    c = ASC(LEFT$(resultText, 1))
+    IF c >= 48 AND c <= 57 THEN resultText = "_" + resultText
+    ClassSyntax_SafeIdentifier$ = resultText
+END FUNCTION
+
+FUNCTION ClassSyntax_TypeSuffix$ (name$)
+    DIM suffix$
+
+    IF LEN(name$) = 0 THEN EXIT FUNCTION
+    suffix$ = RIGHT$(RTRIM$(name$), 1)
+    IF suffix$ = "$" OR suffix$ = "%" OR suffix$ = "&" OR suffix$ = "!" OR suffix$ = "#" THEN
+        ClassSyntax_TypeSuffix$ = suffix$
+    END IF
+END FUNCTION
+
+FUNCTION ClassSyntax_RemoveTypeSuffix$ (name$)
+    DIM suffix$
+
+    name$ = RTRIM$(name$)
+    suffix$ = ClassSyntax_TypeSuffix$(name$)
+    IF LEN(suffix$) THEN
+        ClassSyntax_RemoveTypeSuffix$ = LEFT$(name$, LEN(name$) - 1)
+    ELSE
+        ClassSyntax_RemoveTypeSuffix$ = name$
+    END IF
+END FUNCTION
+
+FUNCTION ClassSyntax_SelfParams$ (paramsClause$, className$)
+    DIM innerText AS STRING
+
+    innerText = LTRIM$(RTRIM$(paramsClause$))
+    IF LEFT$(innerText, 1) = "(" AND RIGHT$(innerText, 1) = ")" THEN
+        innerText = MID$(innerText, 2, LEN(innerText) - 2)
+    ELSE
+        innerText = ""
+    END IF
+    innerText = LTRIM$(RTRIM$(innerText))
+
+    IF LEN(innerText) THEN
+        ClassSyntax_SelfParams$ = "(self AS " + className$ + ", " + innerText + ")"
+    ELSE
+        ClassSyntax_SelfParams$ = "(self AS " + className$ + ")"
+    END IF
+END FUNCTION
+
+FUNCTION ClassSyntax_TransformBody$ (sourceLine$)
+    DIM outputText AS STRING
+    DIM inString AS LONG
+    DIM i AS LONG
+    DIM currentChar$
+
+    DO WHILE i < LEN(sourceLine$)
+        i = i + 1
+        currentChar$ = MID$(sourceLine$, i, 1)
+
+        IF currentChar$ = CHR$(34) THEN
+            outputText = outputText + currentChar$
+            IF inString THEN
+                inString = 0
+            ELSE
+                inString = -1
+            END IF
+            GOTO ClassSyntax_TransformBody_NextChar
+        END IF
+
+        IF inString = 0 THEN
+            IF currentChar$ = "'" THEN
+                outputText = outputText + MID$(sourceLine$, i)
+                EXIT DO
+            END IF
+
+            IF ClassSyntax_MatchTextAt%(sourceLine$, i, "ME.") THEN
+                outputText = outputText + "self."
+                i = i + 2
+                GOTO ClassSyntax_TransformBody_NextChar
+            END IF
+
+            IF ClassSyntax_MatchTextAt%(sourceLine$, i, "THIS.") THEN
+                outputText = outputText + "self."
+                i = i + 4
+                GOTO ClassSyntax_TransformBody_NextChar
+            END IF
+
+            IF classSyntaxMethodKind$ = "FUNCTION" THEN
+                IF ClassSyntax_MatchTokenAt%(sourceLine$, i, classSyntaxMethodAlias$) THEN
+                    outputText = outputText + classSyntaxGeneratedName$
+                    i = i + LEN(classSyntaxMethodAlias$) - 1
+                    GOTO ClassSyntax_TransformBody_NextChar
+                END IF
+            END IF
+        END IF
+
+        outputText = outputText + currentChar$
+        ClassSyntax_TransformBody_NextChar:
+    LOOP
+
+    ClassSyntax_TransformBody$ = ClassSyntax_RewriteDispatch$(outputText, classSyntaxClassName$)
+END FUNCTION
+
+SUB ClassSyntax_EmitHelper
+    DIM helperName$
+    DIM interfacesText$
+    DIM interfaceName$
+    DIM separatorPos AS LONG
+
+    IF classSyntaxHelperEmitted THEN EXIT SUB
+
+    helperName$ = "__QBNEX_CLASSID_" + ClassSyntax_SafeIdentifier$(classSyntaxClassName$) + "&"
+    ClassSyntax_QueueDeferredLine "FUNCTION " + helperName$ + " ()"
+    ClassSyntax_QueueDeferredLine "    STATIC cachedClassID AS LONG"
+    ClassSyntax_QueueDeferredLine "    IF cachedClassID = 0 THEN"
+    IF LEN(classSyntaxBaseName$) THEN
+        ClassSyntax_QueueDeferredLine "        cachedClassID = QBNEX_EnsureClass(" + CHR$(34) + classSyntaxClassName$ + CHR$(34) + ", QBNEX_FindClass(" + CHR$(34) + classSyntaxBaseName$ + CHR$(34) + "))"
+    ELSE
+        ClassSyntax_QueueDeferredLine "        cachedClassID = QBNEX_EnsureClass(" + CHR$(34) + classSyntaxClassName$ + CHR$(34) + ", 0)"
+    END IF
+
+    interfacesText$ = classSyntaxInterfaces$
+    DO WHILE LEN(interfacesText$)
+        separatorPos = INSTR(interfacesText$, ",")
+        IF separatorPos = 0 THEN
+            interfaceName$ = LTRIM$(RTRIM$(interfacesText$))
+            interfacesText$ = ""
+        ELSE
+            interfaceName$ = LTRIM$(RTRIM$(LEFT$(interfacesText$, separatorPos - 1)))
+            interfacesText$ = MID$(interfacesText$, separatorPos + 1)
+        END IF
+        IF LEN(interfaceName$) THEN
+            ClassSyntax_QueueDeferredLine "        QBNEX_RegisterInterface cachedClassID, " + CHR$(34) + interfaceName$ + CHR$(34)
+        END IF
+    LOOP
+
+    ClassSyntax_QueueDeferredLine "    END IF"
+    ClassSyntax_QueueDeferredLine "    " + helperName$ + " = cachedClassID"
+    ClassSyntax_QueueDeferredLine "END FUNCTION"
+    classSyntaxHelperEmitted = -1
+END SUB
+
+FUNCTION ClassSyntax_BuildMethodHeader$ (rawLine$)
+    DIM trimmedLine$
+    DIM upperLine$
+    DIM signatureText$
+    DIM nameText$
+    DIM paramsClause$
+    DIM returnClause$
+    DIM openPos AS LONG
+    DIM closePos AS LONG
+    DIM generatedBase$
+    DIM suffixText$
+    DIM kindText$
+    DIM headerLine AS STRING
+
+    trimmedLine$ = LTRIM$(RTRIM$(rawLine$))
+    upperLine$ = UCASE$(trimmedLine$)
+
+    IF upperLine$ = "CONSTRUCTOR" OR LEFT$(upperLine$, 12) = "CONSTRUCTOR " THEN
+        signatureText$ = LTRIM$(MID$(trimmedLine$, 12))
+        nameText$ = "CONSTRUCTOR"
+        kindText$ = "SUB"
+        generatedBase$ = "__QBNEX_" + ClassSyntax_SafeIdentifier$(classSyntaxClassName$) + "_CTOR"
+        openPos = INSTR(signatureText$, "(")
+        IF openPos THEN
+            closePos = INSTR(signatureText$, ")")
+            IF closePos = 0 THEN closePos = LEN(signatureText$)
+            paramsClause$ = MID$(signatureText$, openPos, closePos - openPos + 1)
+        ELSE
+            paramsClause$ = "()"
+        END IF
+    ELSE
+        IF LEFT$(upperLine$, 4) = "SUB " THEN
+            signatureText$ = LTRIM$(MID$(trimmedLine$, 4))
+            kindText$ = "SUB"
+        ELSEIF LEFT$(upperLine$, 9) = "FUNCTION " THEN
+            signatureText$ = LTRIM$(MID$(trimmedLine$, 9))
+            kindText$ = "FUNCTION"
+        ELSE
+            signatureText$ = LTRIM$(MID$(trimmedLine$, 7))
+        END IF
+
+        openPos = INSTR(signatureText$, "(")
+        IF openPos THEN
+            nameText$ = RTRIM$(LEFT$(signatureText$, openPos - 1))
+            closePos = INSTR(signatureText$, ")")
+            IF closePos = 0 THEN closePos = LEN(signatureText$)
+            paramsClause$ = MID$(signatureText$, openPos, closePos - openPos + 1)
+            returnClause$ = LTRIM$(MID$(signatureText$, closePos + 1))
+        ELSE
+            nameText$ = RTRIM$(signatureText$)
+            paramsClause$ = "()"
+        END IF
+
+        IF kindText$ = "" THEN
+            suffixText$ = ClassSyntax_TypeSuffix$(nameText$)
+            IF LEN(returnClause$) OR LEN(suffixText$) THEN
+                kindText$ = "FUNCTION"
+            ELSE
+                kindText$ = "SUB"
+            END IF
+        END IF
+
+        generatedBase$ = "__QBNEX_" + ClassSyntax_SafeIdentifier$(classSyntaxClassName$) + "_" + ClassSyntax_SafeIdentifier$(ClassSyntax_RemoveTypeSuffix$(nameText$))
+    END IF
+
+    suffixText$ = ClassSyntax_TypeSuffix$(nameText$)
+    classSyntaxMethodKind$ = kindText$
+    classSyntaxMethodAlias$ = nameText$
+    classSyntaxGeneratedName$ = generatedBase$
+    IF kindText$ = "FUNCTION" AND LEN(suffixText$) THEN classSyntaxGeneratedName$ = classSyntaxGeneratedName$ + suffixText$
+
+    headerLine = kindText$ + " " + classSyntaxGeneratedName$ + ClassSyntax_SelfParams$(paramsClause$, classSyntaxClassName$)
+    IF kindText$ = "FUNCTION" AND LEN(returnClause$) THEN headerLine = headerLine + " " + returnClause$
+    ClassSyntax_BuildMethodHeader$ = headerLine
+END FUNCTION
+
+FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
+    DIM trimmedLine$
+    DIM upperLine$
+    DIM headerText$
+    DIM remainderText$
+    DIM className$
+    DIM savedQueue$
+    DIM methodHeader$
+
+    IF rawLine$ = CHR$(13) THEN
+        ClassSyntax_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    trimmedLine$ = LTRIM$(RTRIM$(rawLine$))
+    upperLine$ = UCASE$(trimmedLine$)
+
+    IF classSyntaxActive = 0 THEN
+        IF upperLine$ = "END SUB" OR upperLine$ = "END FUNCTION" THEN
+            ClassSyntax_ExitScope
+            ClassSyntax_ProcessLine$ = rawLine$
+            EXIT FUNCTION
+        END IF
+
+        IF LEFT$(upperLine$, 4) = "SUB " OR LEFT$(upperLine$, 9) = "FUNCTION " THEN
+            ClassSyntax_RegisterProcedureHeader rawLine$
+            ClassSyntax_ProcessLine$ = rawLine$
+            EXIT FUNCTION
+        END IF
+
+        ClassSyntax_RegisterDeclarationLine rawLine$
+
+        IF LEFT$(upperLine$, 6) <> "CLASS " THEN
+            ClassSyntax_ProcessLine$ = ClassSyntax_RewriteDispatch$(rawLine$, "")
+            EXIT FUNCTION
+        END IF
+
+        headerText$ = LTRIM$(MID$(trimmedLine$, 6))
+        className$ = ClassSyntax_FirstToken$(headerText$)
+        IF LEN(className$) = 0 THEN
+            Give_Error "Expected class name after CLASS"
+            ClassSyntax_ProcessLine$ = rawLine$
+            EXIT FUNCTION
+        END IF
+
+        ClassSyntax_Reset
+        classSyntaxActive = -1
+        classSyntaxTypeOpen = -1
+        classSyntaxClassName$ = className$
+
+        remainderText$ = LTRIM$(MID$(headerText$, LEN(className$) + 1))
+        IF LEN(remainderText$) THEN
+            IF LEFT$(UCASE$(remainderText$), 8) = "EXTENDS " THEN
+                remainderText$ = LTRIM$(MID$(remainderText$, 9))
+                classSyntaxBaseName$ = ClassSyntax_FirstToken$(remainderText$)
+                remainderText$ = LTRIM$(MID$(remainderText$, LEN(classSyntaxBaseName$) + 1))
+            END IF
+            IF LEFT$(UCASE$(remainderText$), 11) = "IMPLEMENTS " THEN
+                classSyntaxInterfaces$ = LTRIM$(MID$(remainderText$, 12))
+            END IF
+        END IF
+
+        ClassSyntax_QueueLine "TYPE " + classSyntaxClassName$
+        ClassSyntax_QueueLine "    Header AS QBNex_ObjectHeader"
+        IF LEN(classSyntaxBaseName$) THEN
+            IF ClassSyntax_FindRegistryClass&(classSyntaxBaseName$) = 0 THEN
+                Give_Error "Base class must be declared before derived class"
+                EXIT FUNCTION
+            END IF
+            ClassSyntax_QueueFieldLines ClassSyntax_FlatFieldLines$(classSyntaxBaseName$)
+        END IF
+
+        ClassSyntax_ProcessLine$ = ClassSyntax_DequeueLine$
+        EXIT FUNCTION
+    END IF
+
+    IF classSyntaxInMethod THEN
+        IF upperLine$ = "END METHOD" OR upperLine$ = "END CONSTRUCTOR" OR upperLine$ = "END SUB" OR upperLine$ = "END FUNCTION" THEN
+            IF classSyntaxMethodKind$ = "FUNCTION" THEN
+                ClassSyntax_QueueDeferredLine "END FUNCTION"
+            ELSE
+                ClassSyntax_QueueDeferredLine "END SUB"
+            END IF
+            classSyntaxInMethod = 0
+            classSyntaxMethodKind$ = ""
+            classSyntaxMethodAlias$ = ""
+            classSyntaxGeneratedName$ = ""
+            ClassSyntax_ProcessLine$ = ""
+            EXIT FUNCTION
+        END IF
+
+        IF upperLine$ = "END CLASS" THEN
+            Give_Error "Expected END METHOD before END CLASS"
+            EXIT FUNCTION
+        END IF
+
+        ClassSyntax_QueueDeferredLine ClassSyntax_TransformBody$(rawLine$)
+        ClassSyntax_ProcessLine$ = ""
+        EXIT FUNCTION
+    END IF
+
+    IF upperLine$ = "END CLASS" THEN
+        IF classSyntaxTypeOpen THEN
+            ClassSyntax_QueueLine "END TYPE"
+            classSyntaxTypeOpen = 0
+        END IF
+        ClassSyntax_RegisterCurrentClass
+        IF Error_Happened THEN EXIT FUNCTION
+        ClassSyntax_EmitHelper
+        savedQueue$ = classSyntaxQueue$
+        ClassSyntax_Reset
+        classSyntaxQueue$ = savedQueue$
+        ClassSyntax_ProcessLine$ = ClassSyntax_DequeueLine$
+        EXIT FUNCTION
+    END IF
+
+    IF upperLine$ = "END METHOD" OR upperLine$ = "END CONSTRUCTOR" OR upperLine$ = "END SUB" OR upperLine$ = "END FUNCTION" THEN
+        Give_Error "END METHOD without METHOD"
+        EXIT FUNCTION
+    END IF
+
+    IF LEFT$(upperLine$, 7) = "METHOD " OR LEFT$(upperLine$, 4) = "SUB " OR LEFT$(upperLine$, 9) = "FUNCTION " OR upperLine$ = "CONSTRUCTOR" OR LEFT$(upperLine$, 12) = "CONSTRUCTOR " THEN
+        IF classSyntaxTypeOpen THEN
+            ClassSyntax_QueueLine "END TYPE"
+            classSyntaxTypeOpen = 0
+        END IF
+        ClassSyntax_RegisterCurrentClass
+        IF Error_Happened THEN EXIT FUNCTION
+        ClassSyntax_EmitHelper
+        methodHeader$ = ClassSyntax_BuildMethodHeader$(trimmedLine$)
+        ClassSyntax_RegisterMethod classSyntaxClassName$, classSyntaxMethodAlias$, classSyntaxGeneratedName$
+        classSyntaxInMethod = -1
+        ClassSyntax_QueueDeferredLine methodHeader$
+        IF classSyntaxMethodAlias$ = "CONSTRUCTOR" THEN
+            ClassSyntax_QueueDeferredLine "    self.Header.ClassID = __QBNEX_CLASSID_" + ClassSyntax_SafeIdentifier$(classSyntaxClassName$) + "&"
+            ClassSyntax_QueueDeferredLine "    self.Header.Flags = 0"
+        ELSE
+            ClassSyntax_QueueDeferredLine "    IF self.Header.ClassID = 0 THEN"
+            ClassSyntax_QueueDeferredLine "        self.Header.ClassID = __QBNEX_CLASSID_" + ClassSyntax_SafeIdentifier$(classSyntaxClassName$) + "&"
+            ClassSyntax_QueueDeferredLine "        self.Header.Flags = 0"
+            ClassSyntax_QueueDeferredLine "    END IF"
+        END IF
+        ClassSyntax_ProcessLine$ = ""
+        EXIT FUNCTION
+    END IF
+
+    IF classSyntaxHelperEmitted THEN
+        IF LEN(trimmedLine$) AND LEFT$(trimmedLine$, 1) <> "'" AND LEFT$(upperLine$, 4) <> "REM " THEN
+            Give_Error "Class fields must be declared before methods"
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    IF LEN(trimmedLine$) THEN
+        IF LEFT$(trimmedLine$, 1) <> "'" AND LEFT$(upperLine$, 4) <> "REM " THEN
+            ClassSyntax_AppendLine classSyntaxOwnFieldLines$, rawLine$
+        END IF
+    END IF
+
+    ClassSyntax_ProcessLine$ = rawLine$
 END FUNCTION
 
 
@@ -20585,6 +21788,23 @@ FUNCTION lineformat$ (a$)
             IF xx = 0 THEN Give_Error "Expected $INCLUDE:'filename'": EXIT FUNCTION
             addmetainclude$ = MID$(nocasec$, x + 1, xx - x - 1)
             IF addmetainclude$ = "" THEN Give_Error "Expected $INCLUDE:'filename'": EXIT FUNCTION
+        ELSEIF MID$(c$, x, 7) = "$IMPORT" THEN
+            FOR xx = x + 7 TO LEN(c$)
+                ac = ASC(MID$(c$, xx, 1))
+                IF ac = 58 THEN EXIT FOR ':
+                IF ac <> 32 AND ac <> 9 THEN Give_Error "Expected $IMPORT:'module.name'": EXIT FUNCTION
+            NEXT
+            x = xx
+            FOR xx = x + 1 TO LEN(c$)
+                ac = ASC(MID$(c$, xx, 1))
+                IF ac = 39 THEN EXIT FOR 'character:'
+                IF ac <> 32 AND ac <> 9 THEN Give_Error "Expected $IMPORT:'module.name'": EXIT FUNCTION
+            NEXT
+            x = xx
+            xx = INSTR(x + 1, c$, "'")
+            IF xx = 0 THEN Give_Error "Expected $IMPORT:'module.name'": EXIT FUNCTION
+            addmetainclude$ = StdLib_QueueImport$(MID$(nocasec$, x + 1, xx - x - 1))
+            IF Error_Happened THEN EXIT FUNCTION
         END IF
 
         x = INSTR(x + 1, c$, "$")
