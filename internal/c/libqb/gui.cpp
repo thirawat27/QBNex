@@ -336,28 +336,41 @@ void sub__glrender(int32 method){
     
     
     
-    float *hardware_buffer_vertices=(float*)malloc(sizeof(float)*1);
-    int32 hardware_buffer_vertices_max=1;
-    int32 hardware_buffer_vertices_count=0;
+    namespace {
+        constexpr std::size_t kInitialHardwareBufferCapacity = 18;
+        
+        std::size_t grow_hardware_buffer_capacity(std::size_t current_capacity, std::size_t required_size){
+            if (current_capacity == 0) current_capacity = kInitialHardwareBufferCapacity;
+            while (current_capacity < required_size){
+                current_capacity *= 2;
+            }
+            return current_capacity;
+        }
+        
+        void reserve_hardware_buffer(std::vector<float>& buffer, std::size_t additional_values){
+            const std::size_t required_size = buffer.size() + additional_values;
+            if (required_size <= buffer.capacity()) return;
+            buffer.reserve(grow_hardware_buffer_capacity(buffer.capacity(), required_size));
+        }
+    }
     
-    float *hardware_buffer_texcoords=(float*)malloc(sizeof(float)*1);
-    int32 hardware_buffer_texcoords_max=1;
-    int32 hardware_buffer_texcoords_count=0;
+    std::vector<float> hardware_buffer_vertices;
+    std::vector<float> hardware_buffer_texcoords;
     
     void hardware_buffer_flush(){
-        if (hardware_buffer_vertices_count){
+        if (!hardware_buffer_vertices.empty()){
             //ref: http://stackoverflow.com/questions/5009014/draw-square-with-opengl-es-for-ios
-            if (hardware_buffer_vertices_count==hardware_buffer_texcoords_count){
-                glVertexPointer(2, GL_FLOAT, 2*sizeof(GL_FLOAT), hardware_buffer_vertices); //http://www.opengl.org/sdk/docs/man2/xhtml/glVertexPointer.xml
-                glTexCoordPointer(2, GL_FLOAT, 2*sizeof(GL_FLOAT), hardware_buffer_texcoords); //http://www.opengl.org/sdk/docs/man2/xhtml/glTexCoordPointer.xml
-                glDrawArrays(GL_TRIANGLES, 0, hardware_buffer_vertices_count/2);//start index, number of indexes
+            if (hardware_buffer_vertices.size()==hardware_buffer_texcoords.size()){
+                glVertexPointer(2, GL_FLOAT, 2*sizeof(GL_FLOAT), hardware_buffer_vertices.data()); //http://www.opengl.org/sdk/docs/man2/xhtml/glVertexPointer.xml
+                glTexCoordPointer(2, GL_FLOAT, 2*sizeof(GL_FLOAT), hardware_buffer_texcoords.data()); //http://www.opengl.org/sdk/docs/man2/xhtml/glTexCoordPointer.xml
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(hardware_buffer_vertices.size()/2));//start index, number of indexes
                 }else{
-                glVertexPointer(3, GL_FLOAT, 3*sizeof(GL_FLOAT), hardware_buffer_vertices); //http://www.opengl.org/sdk/docs/man2/xhtml/glVertexPointer.xml
-                glTexCoordPointer(2, GL_FLOAT, 2*sizeof(GL_FLOAT), hardware_buffer_texcoords); //http://www.opengl.org/sdk/docs/man2/xhtml/glTexCoordPointer.xml
-                glDrawArrays(GL_TRIANGLES, 0, hardware_buffer_vertices_count/3);//start index, number of indexes
+                glVertexPointer(3, GL_FLOAT, 3*sizeof(GL_FLOAT), hardware_buffer_vertices.data()); //http://www.opengl.org/sdk/docs/man2/xhtml/glVertexPointer.xml
+                glTexCoordPointer(2, GL_FLOAT, 2*sizeof(GL_FLOAT), hardware_buffer_texcoords.data()); //http://www.opengl.org/sdk/docs/man2/xhtml/glTexCoordPointer.xml
+                glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(hardware_buffer_vertices.size()/3));//start index, number of indexes
             }
-            hardware_buffer_vertices_count=0;
-            hardware_buffer_texcoords_count=0;
+            hardware_buffer_vertices.clear();
+            hardware_buffer_texcoords.clear();
         }
     }
     
@@ -849,29 +862,23 @@ void sub__glrender(int32 method){
         }
         
         //expand buffers if necessary
-        if ((hardware_buffer_vertices_count+18)>hardware_buffer_vertices_max){
-            hardware_buffer_vertices_max=hardware_buffer_vertices_max*2+18;
-            hardware_buffer_vertices=(float*)realloc(hardware_buffer_vertices,hardware_buffer_vertices_max*sizeof(float));
-        }
-        if ((hardware_buffer_texcoords_count+12)>hardware_buffer_texcoords_max){
-            hardware_buffer_texcoords_max=hardware_buffer_texcoords_max*2+12;
-            hardware_buffer_texcoords=(float*)realloc(hardware_buffer_texcoords,hardware_buffer_texcoords_max*sizeof(float));
-        }
+        reserve_hardware_buffer(hardware_buffer_vertices, 18);
+        reserve_hardware_buffer(hardware_buffer_texcoords, 12);
         
         //clockwise
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x1; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y1;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x2; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y1;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x1; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y2;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x1f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y1f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x2f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y1f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x1f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y2f;
+        hardware_buffer_vertices.push_back(dst_x1); hardware_buffer_vertices.push_back(dst_y1);
+        hardware_buffer_vertices.push_back(dst_x2); hardware_buffer_vertices.push_back(dst_y1);
+        hardware_buffer_vertices.push_back(dst_x1); hardware_buffer_vertices.push_back(dst_y2);
+        hardware_buffer_texcoords.push_back(x1f); hardware_buffer_texcoords.push_back(y1f);
+        hardware_buffer_texcoords.push_back(x2f); hardware_buffer_texcoords.push_back(y1f);
+        hardware_buffer_texcoords.push_back(x1f); hardware_buffer_texcoords.push_back(y2f);
         
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x1; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y2;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x2; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y1;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x2; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y2;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x1f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y2f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x2f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y1f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x2f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y2f;
+        hardware_buffer_vertices.push_back(dst_x1); hardware_buffer_vertices.push_back(dst_y2);
+        hardware_buffer_vertices.push_back(dst_x2); hardware_buffer_vertices.push_back(dst_y1);
+        hardware_buffer_vertices.push_back(dst_x2); hardware_buffer_vertices.push_back(dst_y2);
+        hardware_buffer_texcoords.push_back(x1f); hardware_buffer_texcoords.push_back(y2f);
+        hardware_buffer_texcoords.push_back(x2f); hardware_buffer_texcoords.push_back(y1f);
+        hardware_buffer_texcoords.push_back(x2f); hardware_buffer_texcoords.push_back(y2f);
         
         
         //hardware_buffer_flush(); //uncomment for debugging only
@@ -1122,24 +1129,18 @@ void sub__glrender(int32 method){
         
         
         //expand buffers if necessary
-        if ((hardware_buffer_vertices_count+9)>hardware_buffer_vertices_max){
-            hardware_buffer_vertices_max=hardware_buffer_vertices_max*2+9;
-            hardware_buffer_vertices=(float*)realloc(hardware_buffer_vertices,hardware_buffer_vertices_max*sizeof(float));
-        }
-        if ((hardware_buffer_texcoords_count+6)>hardware_buffer_texcoords_max){
-            hardware_buffer_texcoords_max=hardware_buffer_texcoords_max*2+6;
-            hardware_buffer_texcoords=(float*)realloc(hardware_buffer_texcoords,hardware_buffer_texcoords_max*sizeof(float));
-        }
+        reserve_hardware_buffer(hardware_buffer_vertices, 9);
+        reserve_hardware_buffer(hardware_buffer_texcoords, 6);
         
         
         
         //clockwise
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x1; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y1;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x2; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y2;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x3; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y3;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x1f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y1f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x2f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y2f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x3f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y3f;
+        hardware_buffer_vertices.push_back(dst_x1); hardware_buffer_vertices.push_back(dst_y1);
+        hardware_buffer_vertices.push_back(dst_x2); hardware_buffer_vertices.push_back(dst_y2);
+        hardware_buffer_vertices.push_back(dst_x3); hardware_buffer_vertices.push_back(dst_y3);
+        hardware_buffer_texcoords.push_back(x1f); hardware_buffer_texcoords.push_back(y1f);
+        hardware_buffer_texcoords.push_back(x2f); hardware_buffer_texcoords.push_back(y2f);
+        hardware_buffer_texcoords.push_back(x3f); hardware_buffer_texcoords.push_back(y3f);
         
         //hardware_buffer_flush(); //uncomment for debugging only
         
@@ -1233,21 +1234,15 @@ void sub__glrender(int32 method){
         y3f=((float)src_y3+0.5f)/(float)src_h;
         
         //expand buffers if necessary
-        if ((hardware_buffer_vertices_count+9)>hardware_buffer_vertices_max){
-            hardware_buffer_vertices_max=hardware_buffer_vertices_max*2+9;
-            hardware_buffer_vertices=(float*)realloc(hardware_buffer_vertices,hardware_buffer_vertices_max*sizeof(float));
-        }
-        if ((hardware_buffer_texcoords_count+6)>hardware_buffer_texcoords_max){
-            hardware_buffer_texcoords_max=hardware_buffer_texcoords_max*2+6;
-            hardware_buffer_texcoords=(float*)realloc(hardware_buffer_texcoords,hardware_buffer_texcoords_max*sizeof(float));
-        }
+        reserve_hardware_buffer(hardware_buffer_vertices, 9);
+        reserve_hardware_buffer(hardware_buffer_texcoords, 6);
         
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x1; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y1; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_z1;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x2; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y2; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_z2;
-        hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_x3; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_y3; hardware_buffer_vertices[hardware_buffer_vertices_count++]=dst_z3;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x1f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y1f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x2f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y2f;
-        hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=x3f; hardware_buffer_texcoords[hardware_buffer_texcoords_count++]=y3f;
+        hardware_buffer_vertices.push_back(dst_x1); hardware_buffer_vertices.push_back(dst_y1); hardware_buffer_vertices.push_back(dst_z1);
+        hardware_buffer_vertices.push_back(dst_x2); hardware_buffer_vertices.push_back(dst_y2); hardware_buffer_vertices.push_back(dst_z2);
+        hardware_buffer_vertices.push_back(dst_x3); hardware_buffer_vertices.push_back(dst_y3); hardware_buffer_vertices.push_back(dst_z3);
+        hardware_buffer_texcoords.push_back(x1f); hardware_buffer_texcoords.push_back(y1f);
+        hardware_buffer_texcoords.push_back(x2f); hardware_buffer_texcoords.push_back(y2f);
+        hardware_buffer_texcoords.push_back(x3f); hardware_buffer_texcoords.push_back(y3f);
         //hardware_buffer_flush(); //uncomment for debugging only
         
     }

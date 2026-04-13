@@ -1175,33 +1175,64 @@ typedef enum {
     
 */
 
+namespace {
+    constexpr uint64 MEM_LOCK_INVALID_ID = 1073741821;
+    constexpr uint64 MEM_LOCK_INITIAL_ID = 1073741823; // this value should never be 0 or 1
+    constexpr int32 MEM_LOCK_BLOCK_SIZE = 10000;
+    constexpr std::size_t MEM_LOCK_FREED_RESERVE = 1000;
+    
+    mem_lock mem_lock_invalid{};
+    std::vector<mem_lock*> mem_lock_blocks;
+    std::vector<mem_lock*> mem_lock_freed;
+    
+    void allocate_mem_lock_block();
+    
+    struct mem_lock_storage_initializer {
+        mem_lock_storage_initializer(){
+            mem_lock_blocks.reserve(4);
+            mem_lock_freed.reserve(MEM_LOCK_FREED_RESERVE);
+            allocate_mem_lock_block();
+        }
+    };
+}
+
 //QBNex memory blocks
-uint64 mem_lock_id=1073741823;//this value should never be 0 or 1
-int32 mem_lock_max=10000;
+uint64 mem_lock_id=MEM_LOCK_INITIAL_ID;
+int32 mem_lock_max=MEM_LOCK_BLOCK_SIZE;
 int32 mem_lock_next=0;
-mem_lock *mem_lock_base=(mem_lock*)malloc(sizeof(mem_lock)*mem_lock_max);
+mem_lock *mem_lock_base=NULL;
 mem_lock *mem_lock_tmp;
 
-int32 mem_lock_freed_max=1000;//number of allocated entries
-int32 mem_lock_freed_n=0;//number of entries
-ptrszint *mem_lock_freed=(ptrszint*)malloc(sizeof(ptrszint)*mem_lock_freed_max);
+namespace {
+    void allocate_mem_lock_block(){
+        mem_lock_base=(mem_lock*)malloc(sizeof(mem_lock)*mem_lock_max);
+        mem_lock_blocks.push_back(mem_lock_base);
+        mem_lock_next=0;
+    }
+    
+    mem_lock_storage_initializer mem_lock_storage;
+}
 
 void new_mem_lock(){
-    if (mem_lock_freed_n){
-        mem_lock_tmp=(mem_lock*)mem_lock_freed[--mem_lock_freed_n];
+    if (!mem_lock_freed.empty()){
+        mem_lock_tmp=mem_lock_freed.back();
+        mem_lock_freed.pop_back();
         }else{
-        if (mem_lock_next==mem_lock_max){mem_lock_base=(mem_lock*)malloc(sizeof(mem_lock)*mem_lock_max); mem_lock_next=0;}
+        if (mem_lock_next==mem_lock_max){allocate_mem_lock_block();}
         mem_lock_tmp=&mem_lock_base[mem_lock_next++];
     }
     mem_lock_tmp->id=++mem_lock_id;
+    mem_lock_tmp->type=0;
+    mem_lock_tmp->offset=NULL;
 }
 
 void free_mem_lock(mem_lock *lock){
     lock->id=0;//invalidate lock
     if (lock->type==1) free(lock->offset);//malloc type
+    lock->type=0;
+    lock->offset=NULL;
     //add to freed list
-    if (mem_lock_freed_n==mem_lock_freed_max){mem_lock_freed_max*=2; mem_lock_freed=(ptrszint*)realloc(mem_lock_freed,sizeof(ptrszint)*mem_lock_freed_max);}
-    mem_lock_freed[mem_lock_freed_n++]=(ptrszint)lock;
+    mem_lock_freed.push_back(lock);
 }
 
 
@@ -2700,16 +2731,14 @@ uint32 palette_64[64];
 //QBNex 2D PROTOTYPE 1.0
 
 int32 pages=1;
-int32 *page=(int32*)calloc(1,4);
+std::vector<int32> page(1, 0);
 
 #define IMG_BUFFERSIZE 4096
 img_struct *img=(img_struct*)malloc(IMG_BUFFERSIZE*sizeof(img_struct));
 int32 nimg=IMG_BUFFERSIZE;
 int32 nextimg=0;
 
-uint32 *fimg=(uint32*)malloc(IMG_BUFFERSIZE*4);//a list to recover freed indexes
-int32 nfimg=IMG_BUFFERSIZE;
-int32 lastfimg=-1;//-1=no freed indexes exist
+std::vector<uint32> fimg;//a list to recover freed indexes
 
 uint8 *cblend=NULL;
 uint8 *ablend=NULL;
@@ -2769,6 +2798,90 @@ img_struct *write_page=NULL;
 img_struct *read_page=NULL;
 img_struct *display_page=NULL;
 uint32 *display_surface_offset=0;
+
+void ensure_page_entries(int32 required_pages){
+    if (required_pages <= pages) return;
+    page.resize(required_pages, 0);
+    pages = required_pages;
+}
+
+void select_display_page(uint32 index){
+    display_page_index=index;
+    display_page=&img[index];
+}
+
+void select_write_page(uint32 index){
+    write_page_index=index;
+    write_page=&img[index];
+}
+
+void select_read_page(uint32 index){
+    read_page_index=index;
+    read_page=&img[index];
+}
+
+void select_write_and_read_page(uint32 index){
+    select_write_page(index);
+    select_read_page(index);
+}
+
+void select_all_pages(uint32 index){
+    select_display_page(index);
+    select_write_and_read_page(index);
+}
+
+void refresh_selected_pages(){
+    select_display_page(display_page_index);
+    select_write_page(write_page_index);
+    select_read_page(read_page_index);
+}
+
+inline int32 resolve_page_or_image_index(int32 handle,int32 &resolved_index){
+    if (handle>=0){
+        validatepage(handle);
+        resolved_index=page[handle];
+        return -1;
+    }
+    handle=-handle;
+    if (handle>=nextimg){error(258); return 0;}
+    if (!img[handle].valid){error(258); return 0;}
+    resolved_index=handle;
+    return -1;
+}
+
+inline img_struct* resolve_page_or_image_ptr(int32 handle,int32 &resolved_index){
+    if (!resolve_page_or_image_index(handle,resolved_index)) return NULL;
+    return &img[resolved_index];
+}
+
+int32 next_img_capacity(int32 required_slots){
+    int32 capacity=nimg;
+    if (capacity < IMG_BUFFERSIZE) capacity=IMG_BUFFERSIZE;
+    while (capacity < required_slots){
+        if (capacity > 1073741823){
+            capacity=required_slots;
+            break;
+        }
+        capacity*=2;
+    }
+    return capacity;
+}
+
+int32 grow_img_registry(int32 required_slots){
+    if (required_slots <= nimg) return -1;
+    const int32 previous_capacity=nimg;
+    const int32 new_capacity=next_img_capacity(required_slots);
+    img_struct *resized_img=(img_struct*)realloc(img,new_capacity*sizeof(img_struct));
+    if (!resized_img){
+        error(502);
+        return 0;
+    }
+    img=resized_img;
+    memset(&img[previous_capacity],0,(new_capacity-previous_capacity)*sizeof(img_struct));
+    nimg=new_capacity;
+    refresh_selected_pages();
+    return -1;
+}
 
 void restorepalette(img_struct* im){
     static uint32 *pal;
@@ -2922,22 +3035,16 @@ void pset(int32 x,int32 y,uint32 col){
 //returns an index to free img structure
 uint32 newimg(){
     static int32 i;
-    if (lastfimg!=-1){
-        i=fimg[lastfimg--];
+    if (!fimg.empty()){
+        i=fimg.back();
+        fimg.pop_back();
         goto gotindex;
     }
     if (nextimg<nimg){
         i=nextimg++;
         goto gotindex;
     }
-    img=(img_struct*)realloc(img,(nimg+IMG_BUFFERSIZE)*sizeof(img_struct));
-    if (!img) error(502);
-    //update existing img pointers to new locations
-    display_page=&img[display_page_index];
-    write_page=&img[write_page_index];
-    read_page=&img[read_page_index];
-    memset(&img[nimg],0,IMG_BUFFERSIZE*sizeof(img_struct));
-    nimg+=IMG_BUFFERSIZE;
+    if (!grow_img_registry(nextimg+1)) return 0;
     i=nextimg++;
     gotindex:
     img[i].valid=1;
@@ -2948,17 +3055,11 @@ int32 freeimg(uint32 i){
     //returns: 0=failed, 1=success
     if (i>=nimg) return 0;
     if (!img[i].valid) return 0;
-    if (lastfimg>=(nfimg-1)){//extend
-        fimg=(uint32*)realloc(fimg,(nfimg+IMG_BUFFERSIZE)*4);
-        if (!fimg) error(503);
-        nfimg+=IMG_BUFFERSIZE;
-    }
     if (img[i].lock_id){
         free_mem_lock((mem_lock*)img[i].lock_offset);//untag
     }
     memset(&img[i],0,sizeof(img_struct));
-    lastfimg++;
-    fimg[lastfimg]=i;
+    fimg.push_back(i);
     return 1;
 }
 
@@ -7565,10 +7666,7 @@ void validatepage(int32 n){
     static int32 i,i2;
     //add new page indexes if necessary
     if (n>=pages){
-        i=n+1;
-        page=(int32*)realloc(page,i*4);
-        memset(page+pages,0,(i-pages)*4);
-        pages=i;
+        ensure_page_entries(n+1);
     }
     //create page at index n if none exists
     if (!page[n]){
@@ -7715,7 +7813,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             
             if (mode<0){//custom screen
                 i=-mode;
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
                 sub_screen_keep_page0=1;
             }
             
@@ -7725,7 +7823,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (mode==13){
                 i=imgframe(&cmem[655360],320,200,13);
                 memset(img[i].offset,0,320*200);
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//13
             
             //640 x 480 graphics
@@ -7734,7 +7832,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (mode==12){
                 i=imgnew(640,480,12);
                 if ((prev_width_in_characters==80)&&(prev_height_in_characters==60)) selectfont(8,&img[i]);//override default font
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//12
             
             /*
@@ -7746,7 +7844,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (mode==11){
                 i=imgnew(640,480,11);
                 if ((prev_width_in_characters==80)&&(prev_height_in_characters==60)) selectfont(8,&img[i]);//override default font
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//11
             
             //SCREEN 10: 640 x 350 graphics, monochrome monitor only
@@ -7774,7 +7872,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (mode==10){
                 i=imgnew(640,350,10);
                 if ((prev_width_in_characters==80)&&(prev_height_in_characters==43)) selectfont(8,&img[i]);//override default font
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
                 
             }//10
             
@@ -7789,7 +7887,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (mode==9){
                 i=imgnew(640,350,9);
                 if ((prev_width_in_characters==80)&&(prev_height_in_characters==43)) selectfont(8,&img[i]);//override default font
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//9
             
             /*
@@ -7800,7 +7898,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             */
             if (mode==8){
                 i=imgnew(640,200,8);
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//8
             
             /*
@@ -7811,7 +7909,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             */
             if (mode==7){
                 i=imgnew(320,200,7);
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//7
             
             /*
@@ -7842,7 +7940,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             */
             if (mode==2){
                 i=imgnew(640,200,2);
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//2
             
             /*
@@ -7854,7 +7952,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             */
             if (mode==1){
                 i=imgnew(320,200,1);
-                page[0]=i; img[i].flags|=IMG_SCREEN; display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
             }//1
             
             /*
@@ -7925,10 +8023,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
                 if (p>8) p=8;//limit cmem pages to 8
                 //make sure 8 page indexes exist
                 if (7>=pages){
-                    i=7+1;
-                    page=(int32*)realloc(page,i*4);
-                    memset(page+pages,0,(i-pages)*4);
-                    pages=i;
+                    ensure_page_entries(8);
                 }
                 for (i3=0;i3<8;i3++){
                     if (i3<p){
@@ -7943,7 +8038,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
                 //text-clear 64K after seg. &HB800
                 for (i=0;i<65536;i+=2){cmem[753664+i]=32; cmem[753664+i+1]=7;}//init. 64K of memory after B800
                 i=page[0];
-                display_page_index=i; display_page=&img[i]; write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+                select_all_pages(i);
             }//0
             
             write_page->draw_ta=0.0; write_page->draw_scale=1.0; //reset DRAW attributes (of write_page)
@@ -7959,7 +8054,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
     if (passed&4){//SCREEN ?,?,X,? (active_page)
         i=active_page; validatepage(i); i=page[i];
         if ((write_page_index!=i)||(read_page_index!=i)){
-            write_page_index=i; write_page=&img[i]; read_page_index=i; read_page=&img[i];
+            select_write_and_read_page(i);
             defaultcolors();
             //reset VIEW PRINT state
             write_page->top_row=1;
@@ -8005,7 +8100,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
     if (passed&8){//SCREEN ?,?,?,X (visual_page)
         i=visual_page; validatepage(i); i=page[i];
         if (display_page_index!=i){
-            display_page_index=i; display_page=&img[i];
+            select_display_page(i);
             defaultcolors();
             //reset VIEW PRINT state
             write_page->top_row=1;
@@ -8028,24 +8123,10 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
 
 void sub_pcopy(int32 src,int32 dst){
     if (new_error) return;
+    static int32 src_index,dst_index;
     static img_struct *s,*d;
-    //validate
-    if (src>=0){
-        validatepage(src); s=&img[page[src]];
-        }else{
-        src=-src;
-        if (src>=nextimg) goto error;
-        s=&img[src];
-        if (!s->valid) goto error;
-    }
-    if (dst>=0){
-        validatepage(dst); d=&img[page[dst]];
-        }else{
-        dst=-dst;
-        if (dst>=nextimg) goto error;
-        d=&img[dst];
-        if (!d->valid) goto error;
-    }
+    s=resolve_page_or_image_ptr(src,src_index); if (!s) goto error;
+    d=resolve_page_or_image_ptr(dst,dst_index); if (!d) goto error;
     if (s==d) return;
     if (s->bytes_per_pixel!=d->bytes_per_pixel) goto error;
     if ((s->height!=d->height)||(s->width!=d->width)) goto error;
@@ -18769,20 +18850,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         #endif
         
         int32 func__copyimage(int32 i,int32 mode,int32 passed){
-            static int32 i2,bytes;
+            static int32 i2,bytes,source_index;
             static img_struct *s,*d;
             if (new_error) return 0;
-            //if (passed){
-            if (i>=0){//validate i
-                validatepage(i); i=page[i];
-                }else{
-                i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-            }
-            // }else{
-            // i=write_page_index;
-            // }
-            
-            s=&img[i];
+            s=resolve_page_or_image_ptr(i,source_index); if (!s) return 0;
             
             if (passed&1){
                 if (mode!=s->compatible_mode){
@@ -18796,6 +18867,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             
             //duplicate structure
             i2=newimg();
+            s=&img[source_index];
             d=&img[i2];
             memcpy(d,s,sizeof(img_struct));
             //don't duplicate the memory lock (if any),
@@ -18854,7 +18926,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                         return;
                     }
                     
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
+                    if (!resolve_page_or_image_index(i,i)) return;
                 }
                 }else{
                 i=write_page_index;
@@ -18883,22 +18955,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         void sub__source(int32 i){ 
             if (new_error) return;
-            if (i>=0){//validate i
-                validatepage(i); i=page[i];
-                }else{
-                i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;} 
-            }
-            read_page_index=i; read_page=&img[i];
+            if (!resolve_page_or_image_index(i,i)) return;
+            select_read_page(i);
         }
         
         void sub__dest(int32 i){ 
             if (new_error) return;
-            if (i>=0){//validate i
-                validatepage(i); i=page[i];
-                }else{
-                i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;} 
-            }
-            write_page_index=i; write_page=&img[i];
+            if (!resolve_page_or_image_index(i,i)) return;
+            select_write_page(i);
         }
         
         int32 func__source(){
@@ -18918,16 +18982,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub__blend(int32 i,int32 passed){
             if (new_error) return;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
+                if (i<0){
                     static hardware_img_struct *himg;  
                     if (himg=get_hardware_img(i)){
                         himg->alpha_disabled=0;
                         return;
                     }
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;} 
                 }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -18938,20 +19000,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub__dontblend(int32 i,int32 passed){
             if (new_error) return;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
+                if (i<0){
                     static hardware_img_struct *himg;  
                     if (himg=get_hardware_img(i)){
                         himg->alpha_disabled=1;
                         return;
                     }
-                    i=-i;
-                    if (i>=nextimg){error(258); return;}
-                    if (!img[i].valid){
-                        error(258); return;
-                    } 
                 }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -18970,11 +19026,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             static uint8 b_max,b_min,g_max,g_min,r_max,r_min;
             static uint8 *cp,*clast,v;
             if (passed&4){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;} 
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -19025,11 +19077,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             static uint8 *cp,*clast,v;
             if (new_error) return;
             if (passed&2){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;} 
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -19104,15 +19152,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #endif
 
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
+                if (i<0){
                     static hardware_img_struct *himg;  
                     if (himg=get_hardware_img(i)){
                         return himg->w;
                     }
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
                 }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19141,15 +19187,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #endif
 
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
+                if (i<0){
                     static hardware_img_struct *himg;  
                     if (himg=get_hardware_img(i)){
                         return himg->h;
                     }
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
                 }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19159,11 +19203,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__pixelsize(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19176,11 +19216,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__clearcolor(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19192,11 +19228,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__blend(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19209,11 +19241,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         uint32 func__defaultcolor(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19223,11 +19251,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         uint32 func__backgroundcolor(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19239,11 +19263,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         uint32 func__palettecolor(int32 n,int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19255,11 +19275,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub__palettecolor(int32 n,uint32 c,int32 i,int32 passed){
             if (new_error) return;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -19271,22 +19287,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub__copypalette(int32 i,int32 i2,int32 passed){
             if (new_error) return;
             if (passed&1){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=read_page_index;
             }
             if (!img[i].pal){error(5); return;}
             swap(i,i2);
             if (passed&2){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -19304,11 +19312,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
             if (passed&2){
                 sub__dest(i);
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); goto printstring_exit;} if (!img[i].valid){error(258); goto printstring_exit;}
-                }
+                if (!resolve_page_or_image_index(i,i)) goto printstring_exit;
                 }else{
                 i=write_page_index;
             }
@@ -19772,11 +19776,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             static img_struct *im;
             if (new_error) return;
             if (passed&1){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -19873,11 +19873,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__font(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19907,11 +19903,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub__printmode(int32 mode,int32 i,int32 passed){
             if (new_error) return;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return;
                 }else{
                 i=write_page_index;
             }
@@ -19926,11 +19918,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__printmode(int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 }else{
                 i=write_page_index;
             }
@@ -19985,11 +19973,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (b<0) b=0;
             if (b>255) b=255;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 if (img[i].bytes_per_pixel==4){
                     return (r<<16)+(g<<8)+b|0xFF000000;
                     }else{//==4
@@ -20015,11 +19999,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (a<0) a=0;
             if (a>255) a=255;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 if (img[i].bytes_per_pixel==4){
                     return (a<<24)+(r<<16)+(g<<8)+b;
                     }else{//==4
@@ -20041,11 +20021,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__alpha(uint32 col,int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 if (img[i].bytes_per_pixel==4){
                     return col>>24;
                     }else{//==4
@@ -20069,11 +20045,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__red(uint32 col,int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 if (img[i].bytes_per_pixel==4){
                     return col>>16&0xFF;
                     }else{//==4
@@ -20093,11 +20065,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__green(uint32 col,int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 if (img[i].bytes_per_pixel==4){
                     return col>>8&0xFF;
                     }else{//==4
@@ -20117,12 +20085,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__blue(uint32 col,int32 i,int32 passed){
             if (new_error) return 0;
             if (passed){
-                if (i>=0){//validate i
-                    validatepage(i); i=page[i];
-                    }else{
-                    i=-i; if (i>=nextimg){error(258); return 0;} if (!img[i].valid){error(258); return 0;}
-                    
-                }
+                if (!resolve_page_or_image_index(i,i)) return 0;
                 if (img[i].bytes_per_pixel==4){
                     return col&0xFF;
                     }else{//==4
@@ -20975,11 +20938,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 for (ii=1;ii<=2;ii++){
                     if (ii==1) i=handle_icon;
                     if (ii==2) i=handle_window_icon;
-                    if (i>=0){//validate i
-                        validatepage(i); i=page[i];
-                        }else{
-                        i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                    }
+                    if (!resolve_page_or_image_index(i,i)) return;
                     if (img[i].text){error(5); return;}
                     if (ii==1) handle_icon=i;
                     if (ii==2) handle_window_icon=i;
@@ -22642,11 +22601,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                     
                     //validation
                     i=src;
-                    if (i>=0){//validate i
-                        validatepage(i); i=page[i];
-                        }else{
-                        i=-i; if (i>=nextimg){error(258); return;} if (!img[i].valid){error(258); return;}
-                    }
+                    if (!resolve_page_or_image_index(i,i)) return;
                     
                     if (img[i].text){error(5); return;}
                     //end of validation
@@ -26484,7 +26439,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }
             //note: type 2(image) is freed when the image is freed
             //invalidate caller's mem structure (avoids misconception that _MEMFREE failed)
-            ((mem_block*)(mem))->lock_id=1073741821;
+            ((mem_block*)(mem))->lock_id=MEM_LOCK_INVALID_ID;
         }
         
         
@@ -26585,7 +26540,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             error:
             b.offset=0;
             b.size=0;
-            b.lock_offset=(ptrszint)mem_lock_base; b.lock_id=1073741821;//set invalid lock
+            b.lock_offset=(ptrszint)&mem_lock_invalid; b.lock_id=MEM_LOCK_INVALID_ID;//set invalid lock
             b.type=0;
             b.elementsize=0;
             b.image=-1;
