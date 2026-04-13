@@ -1,4 +1,4 @@
-=== IMPORTANT LICENSING NOTE FOR QBNex PROGRAMMERS ===
+=== IMPORTANT LICENSING NOTE FOR QB64 PROGRAMMERS ===
 If you are using fonts, you are bound by the terms of FreeType's license. Somewhere in your software package should include a notice that your program includes the FreeType library (see licence_freetype_ftl.txt for details).
 Other components are licensed under various permissive licences.
 In all cases, you should distribute the licenses folder with your program.
@@ -6,14 +6,15 @@ In all cases, you should distribute the licenses folder with your program.
 It should be noted that providing source code is not the only way to meet the conditions of the LGPL (eg dynamic linking) but it is by far the easiest from a technical point of view at this current time.
 =====================================================
 
-The license requirements for components of QBNex are as follows:
+The license requirements for components of QBNex (forked from QB64) are as follows:
 
 Software/Library Name: QBNex (inclusive of all parts of this distribution not covered by separate licence below)
-Website(s): https://github.com/thirawat27/QBNex
+Website(s): https://github.com/thirawat27/QBNex (QBNex Repository)
+Original Website: https://qb64.com
 License: MIT
 License Website: https://opensource.org/licenses/MIT
-License:
-Copyright 2007-2026 Galleon, The QBNex Team, and thirawat27
+Copyright (c) 2026 Thirawat Sinlapasomsak
+Copyright (c) 2007-2022 Galleon & The QB64 Team
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -33,35 +34,35 @@ MinGW profiling code: MinGW profiling code is distributed under the terms of the
 Binutils, GCC, GDB, GNU Make: All of the GNU development tools, such as GNU binutils, GCC, GDB and GNU Make, are governed by the terms of the GNU General Public License.
 License Website: http://www.gnu.org/licenses/licenses.html#GPL
 License File: license_gnu_gpl_3.txt
-Location in QBNex distribution: internal/c/c_compiler/
+Location in QB64 distribution: internal/c/c_compiler/
 
 Software/Library Name: miniaudio
 Website(s): https://miniaud.io
 License: MIT No Attribution or Public Domain
 License Website: https://github.com/mackron/miniaudio/blob/master/LICENSE
 License File: license_miniaudio.txt
-Location in QBNex distribution: internal/c/parts/audio/out/
+Location in QB64 distribution: internal/c/parts/audio/out/
 
 Software/Library Name: STB Vorbis
 Website: http://nothings.org/stb_vorbis/
 License: MIT License or Public Domain
 License Website: https://github.com/nothings/stb/blob/master/LICENSE
 License File: license_stb_vorbis.txt
-Location in QBNex distribution: internal/c/parts/audio/decode/ogg/
+Location in QB64 distribution: internal/c/parts/audio/decode/ogg/
 
 Software/Library Name: STB Image
 Website: http://nothings.org/
 License: MIT License or Public Domain
 License Website: https://github.com/nothings/stb/blob/master/LICENSE
 License File: license_stb_image.txt
-Location in QBNex distribution: internal/c/parts/video/image/
+Location in QB64 distribution: internal/c/parts/video/image/
 
 Software/Library Name: FreeGLUT
 Website: http://freeglut.sourceforge.net/
 License: LGPL (note: website states LGPL, license file is not a copy of GNU LGPL)
 License Website: http://www.gnu.org/licenses/licenses.html#LGPL
 License File: license_freeglut.txt
-Location in QBNex distribution: internal/c/parts/core/
+Location in QB64 distribution: internal/c/parts/core/
 
 Software/Library Name: FreeTYPE
 Website: http://www.freetype.org/
@@ -72,18 +73,18 @@ http://www.gnu.org/licenses/licenses.html#GPL
 License File(s): (see below)
 license_freetype_ftl.txt
 license_gnu_gpl_2.txt
-Location in QBNex distribution: internal/c/parts/video/font/ttf/
+Location in QB64 distribution: internal/c/parts/video/font/ttf/
 
 Software/Library Name: Libxmp-lite
 Website: http://xmp.sourceforge.net/
 License: MIT
 License website: https://github.com/libxmp/libxmp/blob/master/lite/README
 License File: license_libxmp-lite.txt
-Location in QBNex distribution: internal/c/parts/audio/out/extras/libxmp-lite
+Location in QB64 distribution: internal/c/parts/audio/out/extras/libxmp-lite
 
 Software/Library Name: TinySoundFont
 Website: https://github.com/schellingb/TinySoundFont
 License: MIT
 License website: https://github.com/schellingb/TinySoundFont/blob/master/LICENSE
 License File: license_tinysoundfont.txt
-Location in QBNex distribution: internal/c/parts/audio/out/extras/tinysoundfont
+Location in QB64 distribution: internal/c/parts/audio/out/extras/tinysoundfont
