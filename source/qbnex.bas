@@ -777,6 +777,12 @@ DIM SHARED addmetainclude AS STRING
 DIM SHARED importedModules AS STRING
 DIM SHARED prepassImportedModules AS STRING
 DIM SHARED stdlibPreludeImportPaths AS STRING
+DIM SHARED topLevelRuntimeLines AS STRING
+DIM SHARED topLevelRuntimeCallInjected AS LONG
+DIM SHARED topLevelRuntimeFinalized AS LONG
+DIM SHARED topLevelRuntimeProcDepth AS LONG
+DIM SHARED topLevelRuntimeTypeDepth AS LONG
+DIM SHARED topLevelRuntimeDeclareDepth AS LONG
 
 DIM SHARED closedmain AS INTEGER
 DIM SHARED module AS STRING
@@ -1238,6 +1244,12 @@ prepassImportedModules$ = "@"
 stdlibPreludeImportPaths$ = ""
 classSyntaxQueue$ = ""
 classSyntaxDeferredQueue$ = ""
+topLevelRuntimeLines = ""
+topLevelRuntimeCallInjected = 0
+topLevelRuntimeFinalized = 0
+topLevelRuntimeProcDepth = 0
+topLevelRuntimeTypeDepth = 0
+topLevelRuntimeDeclareDepth = 0
 classSyntaxActive = 0
 classSyntaxTypeOpen = 0
 classSyntaxInMethod = 0
@@ -1485,12 +1497,21 @@ DO
 
     IF LEN(classSyntaxQueue$) THEN
         wholeline$ = ClassSyntax_DequeueLine$
+        wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
     ELSE
         wholeline$ = lineinput3$
         IF wholeline$ = CHR$(13) THEN
-            IF LEN(classSyntaxDeferredQueue$) THEN wholeline$ = ClassSyntax_DequeueDeferredLine$
+            IF topLevelRuntimeFinalized = 0 THEN
+                TopLevelRuntime_Finalize
+                IF LEN(classSyntaxDeferredQueue$) THEN
+                    wholeline$ = ClassSyntax_DequeueDeferredLine$
+                END IF
+            ELSEIF LEN(classSyntaxDeferredQueue$) THEN
+                wholeline$ = ClassSyntax_DequeueDeferredLine$
+            END IF
         ELSE
             wholeline$ = ClassSyntax_ProcessLine$(wholeline$)
+            wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
         END IF
     END IF
     IF wholeline$ = CHR$(13) THEN EXIT DO
@@ -2581,6 +2602,7 @@ DO
         '2. Feed next line
         IF LEN(classSyntaxQueue$) THEN
             wholeline$ = ClassSyntax_DequeueLine$
+            wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
             linenumber = linenumber - 1 'lower official linenumber to counter later increment
 
             IF Debug THEN PRINT #9, "Pre-pass:Feeding INCLUDE$ line:[" + wholeline$ + "]"
@@ -2591,6 +2613,7 @@ DO
             LINE INPUT #fh, x$
 
             wholeline$ = ClassSyntax_ProcessLine$(x$)
+            wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
             inclinenumber(inclevel) = inclinenumber(inclevel) + 1
             'create extended error string 'incerror$'
             errorLineInInclude = inclinenumber(inclevel)
@@ -2657,6 +2680,12 @@ addmetainclude$ = "" 'reset stray meta-includes
 importedModules$ = "@"
 ClassSyntax_Reset
 classSyntaxDeferredQueue$ = ""
+topLevelRuntimeLines = ""
+topLevelRuntimeCallInjected = 0
+topLevelRuntimeFinalized = 0
+topLevelRuntimeProcDepth = 0
+topLevelRuntimeTypeDepth = 0
+topLevelRuntimeDeclareDepth = 0
 ClassSyntax_ClearRegistry
 ClassSyntax_ClearScopes
 
@@ -2787,12 +2816,21 @@ DO
     IF inclevel = 0 THEN
         IF LEN(classSyntaxQueue$) THEN
             a3$ = ClassSyntax_DequeueLine$
+            a3$ = TopLevelRuntime_ProcessLine$(a3$)
         ELSE
             a3$ = lineinput3$
             IF a3$ = CHR$(13) THEN
-                IF LEN(classSyntaxDeferredQueue$) THEN a3$ = ClassSyntax_DequeueDeferredLine$
+                IF topLevelRuntimeFinalized = 0 THEN
+                    TopLevelRuntime_Finalize
+                    IF LEN(classSyntaxDeferredQueue$) THEN
+                        a3$ = ClassSyntax_DequeueDeferredLine$
+                    END IF
+                ELSEIF LEN(classSyntaxDeferredQueue$) THEN
+                    a3$ = ClassSyntax_DequeueDeferredLine$
+                END IF
             ELSE
                 a3$ = ClassSyntax_ProcessLine$(a3$)
+                a3$ = TopLevelRuntime_ProcessLine$(a3$)
             END IF
         END IF
     END IF
@@ -11164,6 +11202,7 @@ DO
             '2. Feed next line
             IF LEN(classSyntaxQueue$) THEN
                 a3$ = ClassSyntax_DequeueLine$
+                a3$ = TopLevelRuntime_ProcessLine$(a3$)
                 continuelinefrom = 0
                 linenumber = linenumber - 1 'lower official linenumber to counter later increment
                 GOTO includeline
@@ -11171,6 +11210,7 @@ DO
             IF EOF(fh) = 0 THEN
                 LINE INPUT #fh, x$
                 a3$ = ClassSyntax_ProcessLine$(x$)
+                a3$ = TopLevelRuntime_ProcessLine$(a3$)
                 continuelinefrom = 0
                 inclinenumber(inclevel) = inclinenumber(inclevel) + 1
                 'create extended error string 'incerror$'
@@ -11284,6 +11324,7 @@ PRINT #14, "}" 'close error jump handler
 
 'create CLEAR method "CLEAR"
 CLOSE #12 'close code handle
+CALL TopLevelRuntime_InjectMainHook(tmpdir$ + "main.txt")
 OPEN tmpdir$ + "clear.txt" FOR OUTPUT AS #12 'direct code to clear.txt
 
 FOR i = 1 TO idn
@@ -19883,6 +19924,15 @@ SUB ClassSyntax_QueueLine (line$)
     classSyntaxQueue$ = classSyntaxQueue$ + line$
 END SUB
 
+SUB ClassSyntax_PushFrontLine (line$)
+    IF LEN(line$) = 0 THEN EXIT SUB
+    IF LEN(classSyntaxQueue$) THEN
+        classSyntaxQueue$ = line$ + CHR$(10) + classSyntaxQueue$
+    ELSE
+        classSyntaxQueue$ = line$
+    END IF
+END SUB
+
 SUB ClassSyntax_QueueDeferredLine (line$)
     IF LEN(classSyntaxDeferredQueue$) THEN classSyntaxDeferredQueue$ = classSyntaxDeferredQueue$ + CHR$(10)
     classSyntaxDeferredQueue$ = classSyntaxDeferredQueue$ + line$
@@ -20315,113 +20365,229 @@ END SUB
 FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
     DIM outputText AS STRING
     DIM i AS LONG
-    DIM j AS LONG
     DIM inString AS LONG
-    DIM identifierStart AS LONG
-    DIM identifierName AS STRING
+    DIM flushPos AS LONG
+    DIM objectEnd AS LONG
+    DIM objectStart AS LONG
     DIM methodStart AS LONG
+    DIM j AS LONG
     DIM methodName AS STRING
     DIM openPos AS LONG
     DIM closePos AS LONG
-    DIM depth AS LONG
     DIM currentChar AS STRING
     DIM className AS STRING
     DIM generatedName AS STRING
+    DIM objectExpr AS STRING
+    DIM emittedObjectExpr AS STRING
     DIM argsText AS STRING
 
-    DO WHILE i < LEN(sourceLine$)
-        i = i + 1
+    flushPos = 1
+    i = 1
+    DO WHILE i <= LEN(sourceLine$)
         currentChar = MID$(sourceLine$, i, 1)
 
         IF currentChar = CHR$(34) THEN
-            outputText = outputText + currentChar
             IF inString THEN inString = 0 ELSE inString = -1
+            i = i + 1
             GOTO ClassSyntax_RewriteDispatch_Next
         END IF
 
         IF inString = 0 THEN
             IF currentChar = "'" THEN
-                outputText = outputText + MID$(sourceLine$, i)
                 EXIT DO
             END IF
 
-            IF ClassSyntax_IsIdentifierChar%(currentChar) THEN
-                identifierStart = i
-                DO WHILE i <= LEN(sourceLine$) AND ClassSyntax_IsIdentifierChar%(MID$(sourceLine$, i, 1))
-                    i = i + 1
+            IF currentChar = "." THEN
+                methodStart = i + 1
+                DO WHILE methodStart <= LEN(sourceLine$) AND (MID$(sourceLine$, methodStart, 1) = " " OR MID$(sourceLine$, methodStart, 1) = CHR$(9))
+                    methodStart = methodStart + 1
                 LOOP
-                identifierName = MID$(sourceLine$, identifierStart, i - identifierStart)
-
-                j = i
+                j = methodStart
                 DO WHILE j <= LEN(sourceLine$) AND (MID$(sourceLine$, j, 1) = " " OR MID$(sourceLine$, j, 1) = CHR$(9))
                     j = j + 1
                 LOOP
 
-                IF j <= LEN(sourceLine$) AND MID$(sourceLine$, j, 1) = "." THEN
-                    methodStart = j + 1
-                    DO WHILE methodStart <= LEN(sourceLine$) AND (MID$(sourceLine$, methodStart, 1) = " " OR MID$(sourceLine$, methodStart, 1) = CHR$(9))
-                        methodStart = methodStart + 1
-                    LOOP
-                    j = methodStart
-                    DO WHILE j <= LEN(sourceLine$)
-                        currentChar = MID$(sourceLine$, j, 1)
-                        IF ClassSyntax_IsIdentifierChar%(currentChar) OR currentChar = "$" OR currentChar = "%" OR currentChar = "&" OR currentChar = "!" OR currentChar = "#" THEN
-                            j = j + 1
-                        ELSE
-                            EXIT DO
-                        END IF
-                    LOOP
-                    methodName = MID$(sourceLine$, methodStart, j - methodStart)
-
-                    DO WHILE j <= LEN(sourceLine$) AND (MID$(sourceLine$, j, 1) = " " OR MID$(sourceLine$, j, 1) = CHR$(9))
+                DO WHILE j <= LEN(sourceLine$)
+                    currentChar = MID$(sourceLine$, j, 1)
+                    IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) THEN
                         j = j + 1
-                    LOOP
+                    ELSE
+                        EXIT DO
+                    END IF
+                LOOP
+                methodName = MID$(sourceLine$, methodStart, j - methodStart)
 
-                    IF LEN(methodName) AND j <= LEN(sourceLine$) AND MID$(sourceLine$, j, 1) = "(" THEN
-                        className = ""
-                        IF UCASE$(identifierName) = "SELF" AND LEN(selfType$) THEN
-                            className = selfType$
-                        ELSE
-                            className = ClassSyntax_LookupVarType$(identifierName)
-                        END IF
+                DO WHILE j <= LEN(sourceLine$) AND (MID$(sourceLine$, j, 1) = " " OR MID$(sourceLine$, j, 1) = CHR$(9))
+                    j = j + 1
+                LOOP
 
+                IF LEN(methodName) AND j <= LEN(sourceLine$) AND MID$(sourceLine$, j, 1) = "(" THEN
+                    objectEnd = ClassSyntax_SkipLeftSpaces&(sourceLine$, i - 1)
+                    objectStart = ClassSyntax_FindDispatchObjectStart&(sourceLine$, objectEnd)
+                    IF objectStart > 0 AND objectStart >= flushPos THEN
+                        objectExpr = MID$(sourceLine$, objectStart, objectEnd - objectStart + 1)
+                        emittedObjectExpr = LTRIM$(RTRIM$(objectExpr))
+                        DO WHILE ClassSyntax_IsWrappedExpression%(emittedObjectExpr)
+                            emittedObjectExpr = LTRIM$(RTRIM$(MID$(emittedObjectExpr, 2, LEN(emittedObjectExpr) - 2)))
+                        LOOP
+                        className = ClassSyntax_ResolveDispatchType$(objectExpr, selfType$)
                         IF LEN(className) THEN
                             generatedName = ClassSyntax_FindGeneratedMethod$(className, methodName)
                             IF LEN(generatedName) THEN
                                 openPos = j
-                                depth = 0
-                                FOR closePos = openPos TO LEN(sourceLine$)
-                                    currentChar = MID$(sourceLine$, closePos, 1)
-                                    IF currentChar = "(" THEN depth = depth + 1
-                                    IF currentChar = ")" THEN
-                                        depth = depth - 1
-                                        IF depth = 0 THEN EXIT FOR
-                                    END IF
-                                NEXT
-                                IF closePos <= LEN(sourceLine$) THEN
+                                closePos = ClassSyntax_FindMatchingCloseParen&(sourceLine$, openPos)
+                                IF closePos > 0 THEN
                                     argsText = MID$(sourceLine$, openPos + 1, closePos - openPos - 1)
-                                    outputText = outputText + generatedName + "(" + identifierName
+                                    IF objectStart > flushPos THEN outputText = outputText + MID$(sourceLine$, flushPos, objectStart - flushPos)
+                                    outputText = outputText + generatedName + "(" + emittedObjectExpr
                                     IF LEN(LTRIM$(RTRIM$(argsText))) THEN outputText = outputText + ", " + argsText
                                     outputText = outputText + ")"
-                                    i = closePos
+                                    i = closePos + 1
+                                    flushPos = i
                                     GOTO ClassSyntax_RewriteDispatch_Next
                                 END IF
                             END IF
                         END IF
                     END IF
                 END IF
-
-                outputText = outputText + identifierName
-                i = i - 1
-                GOTO ClassSyntax_RewriteDispatch_Next
             END IF
         END IF
 
-        outputText = outputText + currentChar
+        i = i + 1
         ClassSyntax_RewriteDispatch_Next:
     LOOP
 
+    IF flushPos <= LEN(sourceLine$) THEN outputText = outputText + MID$(sourceLine$, flushPos)
     ClassSyntax_RewriteDispatch$ = outputText
+END FUNCTION
+
+FUNCTION TopLevelRuntime_ShouldCapture% (trimmedLine$, upperLine$)
+    IF LEN(trimmedLine$) = 0 THEN EXIT FUNCTION
+    IF LEFT$(trimmedLine$, 1) = "'" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 4) = "REM " THEN EXIT FUNCTION
+    IF LEFT$(trimmedLine$, 1) = "$" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 7) = "OPTION " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "CONST " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 11) = "DIM SHARED " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 14) = "STATIC SHARED " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 5) = "DATA " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 7) = "COMMON " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "DEFINT" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "DEFLNG" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "DEFSNG" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "DEFDBL" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "DEFSTR" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 7) = "_DEFINE" THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 6) = "DEFINE" THEN EXIT FUNCTION
+    TopLevelRuntime_ShouldCapture = -1
+END FUNCTION
+
+SUB TopLevelRuntime_Finalize
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+
+    IF topLevelRuntimeFinalized THEN EXIT SUB
+    topLevelRuntimeFinalized = -1
+    ClassSyntax_QueueDeferredLine "SUB QBNEX_TOPLEVEL_RUNTIME0 ()"
+    remainingLines = topLevelRuntimeLines
+    DO WHILE LEN(remainingLines)
+        nextBreak = INSTR(remainingLines, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine = remainingLines
+            remainingLines = ""
+        ELSE
+            nextLine = LEFT$(remainingLines, nextBreak - 1)
+            remainingLines = MID$(remainingLines, nextBreak + 1)
+        END IF
+        ClassSyntax_QueueDeferredLine nextLine
+    LOOP
+    ClassSyntax_QueueDeferredLine "END SUB"
+END SUB
+
+SUB TopLevelRuntime_InjectMainHook (mainPath$)
+    DIM fileText AS STRING
+    DIM insertPos AS LONG
+    DIM runtimeCall AS STRING
+    DIM fh AS LONG
+
+    runtimeCall = "SUB_QBNEX_TOPLEVEL_RUNTIME0();"
+
+    fh = FREEFILE
+    OPEN mainPath$ FOR BINARY AS #fh
+    IF LOF(fh) THEN fileText = INPUT$(LOF(fh), #fh)
+    CLOSE #fh
+
+    IF INSTR(fileText, runtimeCall) THEN EXIT SUB
+
+    insertPos = INSTR(fileText, "sub_end();")
+    IF insertPos = 0 THEN EXIT SUB
+
+    fileText = LEFT$(fileText, insertPos - 1) + runtimeCall + CHR$(13) + CHR$(10) + MID$(fileText, insertPos)
+
+    fh = FREEFILE
+    OPEN mainPath$ FOR OUTPUT AS #fh
+    PRINT #fh, fileText;
+    CLOSE #fh
+END SUB
+
+FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
+    DIM trimmedLine AS STRING
+    DIM upperLine AS STRING
+
+    IF rawLine$ = CHR$(13) THEN
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    trimmedLine = LTRIM$(RTRIM$(rawLine$))
+    upperLine = UCASE$(trimmedLine)
+
+    IF upperLine = "END SUB" OR upperLine = "END FUNCTION" THEN
+        IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+    IF upperLine = "END TYPE" THEN
+        IF topLevelRuntimeTypeDepth > 0 THEN topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth - 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+    IF upperLine = "END DECLARE" THEN
+        IF topLevelRuntimeDeclareDepth > 0 THEN topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth - 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    IF LEFT$(upperLine, 16) = "DECLARE LIBRARY " OR upperLine = "DECLARE LIBRARY" THEN
+        topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth + 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+    IF LEFT$(upperLine, 5) = "TYPE " THEN
+        topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth + 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+    IF LEFT$(upperLine, 4) = "SUB " OR LEFT$(upperLine, 9) = "FUNCTION " THEN
+        topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    IF topLevelRuntimeProcDepth OR topLevelRuntimeTypeDepth OR topLevelRuntimeDeclareDepth THEN
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    IF TopLevelRuntime_ShouldCapture%(trimmedLine, upperLine) THEN
+        topLevelRuntimeCallInjected = -1
+        ClassSyntax_AppendLine topLevelRuntimeLines, rawLine$
+        TopLevelRuntime_ProcessLine$ = ""
+        EXIT FUNCTION
+    END IF
+
+    TopLevelRuntime_ProcessLine$ = rawLine$
 END FUNCTION
 
 FUNCTION ClassSyntax_IsIdentifierChar% (c$)
@@ -20474,6 +20640,221 @@ FUNCTION ClassSyntax_FirstToken$ (text$)
         END IF
     NEXT
     ClassSyntax_FirstToken$ = text$
+END FUNCTION
+
+FUNCTION ClassSyntax_FindMatchingOpenParen& (text$, closePos AS LONG)
+    DIM i AS LONG
+    DIM depth AS LONG
+    DIM currentChar AS STRING
+
+    FOR i = closePos TO 1 STEP -1
+        currentChar = MID$(text$, i, 1)
+        IF currentChar = ")" THEN depth = depth + 1
+        IF currentChar = "(" THEN
+            depth = depth - 1
+            IF depth = 0 THEN
+                ClassSyntax_FindMatchingOpenParen = i
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT
+END FUNCTION
+
+FUNCTION ClassSyntax_FindMatchingCloseParen& (text$, openPos AS LONG)
+    DIM i AS LONG
+    DIM depth AS LONG
+    DIM currentChar AS STRING
+
+    FOR i = openPos TO LEN(text$)
+        currentChar = MID$(text$, i, 1)
+        IF currentChar = "(" THEN depth = depth + 1
+        IF currentChar = ")" THEN
+            depth = depth - 1
+            IF depth = 0 THEN
+                ClassSyntax_FindMatchingCloseParen = i
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT
+END FUNCTION
+
+FUNCTION ClassSyntax_IsTypeSuffixChar% (c$)
+    IF c$ = "$" OR c$ = "%" OR c$ = "&" OR c$ = "!" OR c$ = "#" THEN ClassSyntax_IsTypeSuffixChar = -1
+END FUNCTION
+
+FUNCTION ClassSyntax_SkipLeftSpaces& (text$, position AS LONG)
+    DO WHILE position > 0
+        IF MID$(text$, position, 1) <> " " AND MID$(text$, position, 1) <> CHR$(9) THEN EXIT DO
+        position = position - 1
+    LOOP
+    ClassSyntax_SkipLeftSpaces = position
+END FUNCTION
+
+FUNCTION ClassSyntax_ConsumeDispatchSegmentStart& (text$, endPos AS LONG)
+    DIM startPos AS LONG
+    DIM currentChar AS STRING
+    DIM openPos AS LONG
+    DIM previousPos AS LONG
+
+    endPos = ClassSyntax_SkipLeftSpaces&(text$, endPos)
+    IF endPos < 1 THEN EXIT FUNCTION
+
+    currentChar = MID$(text$, endPos, 1)
+    IF currentChar = ")" THEN
+        openPos = ClassSyntax_FindMatchingOpenParen&(text$, endPos)
+        IF openPos = 0 THEN EXIT FUNCTION
+        startPos = openPos
+        previousPos = ClassSyntax_SkipLeftSpaces&(text$, openPos - 1)
+        IF previousPos > 0 AND previousPos = openPos - 1 THEN
+            currentChar = MID$(text$, previousPos, 1)
+            IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) OR currentChar = ")" THEN
+                startPos = ClassSyntax_ConsumeDispatchSegmentStart&(text$, previousPos)
+            END IF
+        END IF
+        ClassSyntax_ConsumeDispatchSegmentStart = startPos
+        EXIT FUNCTION
+    END IF
+
+    IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) THEN
+        startPos = endPos
+        DO WHILE startPos > 1
+            currentChar = MID$(text$, startPos - 1, 1)
+            IF ClassSyntax_IsIdentifierChar%(currentChar) OR ClassSyntax_IsTypeSuffixChar%(currentChar) THEN
+                startPos = startPos - 1
+            ELSE
+                EXIT DO
+            END IF
+        LOOP
+        ClassSyntax_ConsumeDispatchSegmentStart = startPos
+    END IF
+END FUNCTION
+
+FUNCTION ClassSyntax_FindDispatchObjectStart& (text$, endPos AS LONG)
+    DIM startPos AS LONG
+    DIM previousPos AS LONG
+
+    startPos = ClassSyntax_ConsumeDispatchSegmentStart&(text$, endPos)
+    IF startPos = 0 THEN EXIT FUNCTION
+
+    DO
+        previousPos = ClassSyntax_SkipLeftSpaces&(text$, startPos - 1)
+        IF previousPos < 1 THEN EXIT DO
+        IF MID$(text$, previousPos, 1) <> "." THEN EXIT DO
+        previousPos = ClassSyntax_SkipLeftSpaces&(text$, previousPos - 1)
+        startPos = ClassSyntax_ConsumeDispatchSegmentStart&(text$, previousPos)
+        IF startPos = 0 THEN EXIT DO
+    LOOP
+
+    ClassSyntax_FindDispatchObjectStart = startPos
+END FUNCTION
+
+FUNCTION ClassSyntax_IsWrappedExpression% (text$)
+    DIM closePos AS LONG
+
+    text$ = LTRIM$(RTRIM$(text$))
+    IF LEN(text$) < 2 THEN EXIT FUNCTION
+    IF LEFT$(text$, 1) <> "(" OR RIGHT$(text$, 1) <> ")" THEN EXIT FUNCTION
+    closePos = ClassSyntax_FindMatchingCloseParen&(text$, 1)
+    IF closePos = LEN(text$) THEN ClassSyntax_IsWrappedExpression = -1
+END FUNCTION
+
+FUNCTION ClassSyntax_FindLastTopLevelDot& (text$)
+    DIM i AS LONG
+    DIM depth AS LONG
+    DIM inString AS LONG
+    DIM currentChar AS STRING
+
+    FOR i = 1 TO LEN(text$)
+        currentChar = MID$(text$, i, 1)
+        IF currentChar = CHR$(34) THEN
+            IF inString THEN inString = 0 ELSE inString = -1
+        ELSEIF inString = 0 THEN
+            IF currentChar = "(" THEN depth = depth + 1
+            IF currentChar = ")" THEN depth = depth - 1
+            IF currentChar = "." AND depth = 0 THEN ClassSyntax_FindLastTopLevelDot = i
+        END IF
+    NEXT
+END FUNCTION
+
+FUNCTION ClassSyntax_FindUDTIndex& (typeName$)
+    DIM i AS LONG
+    DIM lookupName AS STRING
+
+    lookupName = UCASE$(RTRIM$(typeName$))
+    FOR i = 1 TO lasttype
+        IF UCASE$(RTRIM$(udtxname(i))) = lookupName THEN
+            ClassSyntax_FindUDTIndex = i
+            EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+FUNCTION ClassSyntax_FindFieldType$ (typeName$, fieldName$)
+    DIM typeIndex AS LONG
+    DIM elementIndex AS LONG
+    DIM lookupField AS STRING
+
+    typeIndex = ClassSyntax_FindUDTIndex&(typeName$)
+    IF typeIndex = 0 THEN EXIT FUNCTION
+
+    lookupField = UCASE$(RTRIM$(fieldName$))
+    elementIndex = udtxnext(typeIndex)
+    DO WHILE elementIndex
+        IF UCASE$(RTRIM$(udtename(elementIndex))) = lookupField THEN
+            IF udtetype(elementIndex) AND ISUDT THEN
+                ClassSyntax_FindFieldType$ = RTRIM$(udtxname(udtetype(elementIndex) AND 511))
+            END IF
+            EXIT FUNCTION
+        END IF
+        elementIndex = udtenext(elementIndex)
+    LOOP
+END FUNCTION
+
+FUNCTION ClassSyntax_ResolveDispatchType$ (exprText$, selfType$)
+    DIM trimmedExpr AS STRING
+    DIM dotPos AS LONG
+    DIM leftExpr AS STRING
+    DIM memberExpr AS STRING
+    DIM memberName AS STRING
+    DIM baseType AS STRING
+    DIM openPos AS LONG
+    DIM prefixExpr AS STRING
+
+    trimmedExpr = LTRIM$(RTRIM$(exprText$))
+    DO WHILE ClassSyntax_IsWrappedExpression%(trimmedExpr)
+        trimmedExpr = LTRIM$(RTRIM$(MID$(trimmedExpr, 2, LEN(trimmedExpr) - 2)))
+    LOOP
+    IF LEN(trimmedExpr) = 0 THEN EXIT FUNCTION
+
+    dotPos = ClassSyntax_FindLastTopLevelDot&(trimmedExpr)
+    IF dotPos THEN
+        leftExpr = LEFT$(trimmedExpr, dotPos - 1)
+        memberExpr = LTRIM$(RTRIM$(MID$(trimmedExpr, dotPos + 1)))
+        memberName = ClassSyntax_FirstIdentifier$(memberExpr)
+        baseType = ClassSyntax_ResolveDispatchType$(leftExpr, selfType$)
+        IF LEN(baseType) AND LEN(memberName) THEN
+            ClassSyntax_ResolveDispatchType$ = ClassSyntax_FindFieldType$(baseType, memberName)
+        END IF
+        EXIT FUNCTION
+    END IF
+
+    IF RIGHT$(trimmedExpr, 1) = ")" THEN
+        openPos = ClassSyntax_FindMatchingOpenParen&(trimmedExpr, LEN(trimmedExpr))
+        IF openPos > 1 THEN
+            prefixExpr = RTRIM$(LEFT$(trimmedExpr, openPos - 1))
+            IF LEN(prefixExpr) THEN
+                ClassSyntax_ResolveDispatchType$ = ClassSyntax_ResolveDispatchType$(prefixExpr, selfType$)
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
+    IF UCASE$(trimmedExpr) = "SELF" OR UCASE$(trimmedExpr) = "THIS" OR UCASE$(trimmedExpr) = "ME" THEN
+        ClassSyntax_ResolveDispatchType$ = selfType$
+        EXIT FUNCTION
+    END IF
+
+    ClassSyntax_ResolveDispatchType$ = ClassSyntax_LookupVarType$(trimmedExpr)
 END FUNCTION
 
 FUNCTION ClassSyntax_SafeIdentifier$ (text$)
