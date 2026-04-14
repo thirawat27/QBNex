@@ -36,9 +36,9 @@ DEFLNG A-Z
 
 '-------- Optional layout component (1/2) --------
 
-DIM SHARED OName(1000) AS STRING 'Operation Name
-DIM SHARED PL(1000) AS INTEGER 'Priority Level
-DIM SHARED PP_TypeMod(0) AS STRING, PP_ConvertedMod(0) AS STRING 'Prepass Name Conversion variables.
+REDIM SHARED OName(1000) AS STRING 'Operation Name
+REDIM SHARED PL(1000) AS INTEGER 'Priority Level
+REDIM SHARED PP_TypeMod(0) AS STRING, PP_ConvertedMod(0) AS STRING 'Prepass Name Conversion variables.
 Set_OrderOfOperations
 
 DIM SHARED NoExeSaved AS INTEGER
@@ -46,7 +46,9 @@ DIM SHARED NoExeSaved AS INTEGER
 DIM SHARED vWatchOn, vWatchRecompileAttempts, vWatchDesiredState, vWatchErrorCall$
 DIM SHARED vWatchNewVariable$, vWatchVariableExclusions$
 vWatchErrorCall$ = "if (stop_program) {*__LONG_VWATCH_LINENUMBER=0; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);};if(new_error){bkp_new_error=new_error;new_error=0;*__LONG_VWATCH_LINENUMBER=-1; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);new_error=bkp_new_error;};"
-vWatchVariableExclusions$ = "@__LONG_VWATCH_LINENUMBER@__LONG_VWATCH_SUBLEVEL@__LONG_VWATCH_GOTO@@__STRING_VWATCH_SUBNAME@__STRING_VWATCH_CALLSTACK@__ARRAY_BYTE_VWATCH_BREAKPOINTS@__ARRAY_BYTE_VWATCH_SKIPLINES@__STRING_VWATCH_INTERNALSUBNAME@__ARRAY_STRING_VWATCH_STACK@"
+vWatchVariableExclusions$ = "@__LONG_VWATCH_LINENUMBER@__LONG_VWATCH_SUBLEVEL@__LONG_VWATCH_GOTO@" + _
+              "@__STRING_VWATCH_SUBNAME@__STRING_VWATCH_CALLSTACK@__ARRAY_BYTE_VWATCH_BREAKPOINTS" + _
+              "@__ARRAY_BYTE_VWATCH_SKIPLINES@__STRING_VWATCH_INTERNALSUBNAME@__ARRAY_STRING_VWATCH_STACK@"
 
 DIM SHARED nativeDataTypes$
 nativeDataTypes$ = "@_OFFSET@OFFSET@_UNSIGNED _OFFSET@UNSIGNED OFFSET@_BIT@BIT@_UNSIGNED _BIT@UNSIGNED BIT@_BYTE@_UNSIGNED _BYTE@BYTE@UNSIGNED BYTE@INTEGER@_UNSIGNED INTEGER@UNSIGNED INTEGER@LONG@_UNSIGNED LONG@UNSIGNED LONG@_INTEGER64@INTEGER64@_UNSIGNED _INTEGER64@UNSIGNED INTEGER64@SINGLE@DOUBLE@_FLOAT@FLOAT@STRING@"
@@ -58,8 +60,8 @@ DIM SHARED opexarray_recompileAttempts, opexarray_desiredState
 REDIM EveryCaseSet(100), SelectCaseCounter AS _UNSIGNED LONG
 REDIM SelectCaseHasCaseBlock(100)
 DIM ExecLevel(255), ExecCounter AS INTEGER
-DIM SHARED UserDefine(1, 100) AS STRING '0 element is the name, 1 element is the string value
-DIM SHARED InValidLine(10000) AS _BYTE
+REDIM SHARED UserDefine(1, 100) AS STRING '0 element is the name, 1 element is the string value
+REDIM SHARED InValidLine(10000) AS _BYTE
 DIM DefineElse(255) AS _BYTE
 DIM SHARED UserDefineCount AS INTEGER, UserDefineList$
 UserDefineList$ = "@DEFINED@UNDEFINED@WINDOWS@WIN@LINUX@MAC@MACOSX@32BIT@64BIT@VERSION@"
@@ -162,7 +164,7 @@ DIM SHARED ScreenHide
 DIM SHARED Asserts
 DIM SHARED OptMax AS LONG
 OptMax = 256
-DIM SHARED Opt(1 TO OptMax, 1 TO 10) AS STRING * 256
+REDIM SHARED Opt(1 TO OptMax, 1 TO 10) AS STRING * 256
 '   (1,1)="READ"
 '   (1,2)="WRITE"
 '   (1,3)="READ WRITE"
@@ -186,10 +188,10 @@ REDIM SHARED PassRule(1 TO OptMax) AS LONG
 'negative values refer to an opt () element
 'positive values refer to a flag value
 REDIM SHARED LevelEntered(OptMax) 'up to 64 levels supported
-DIM SHARED separgs(OptMax + 1) AS STRING
-DIM SHARED separgslayout(OptMax + 1) AS STRING
-DIM SHARED separgs2(OptMax + 1) AS STRING
-DIM SHARED separgslayout2(OptMax + 1) AS STRING
+REDIM SHARED separgs(OptMax + 1) AS STRING
+REDIM SHARED separgslayout(OptMax + 1) AS STRING
+REDIM SHARED separgs2(OptMax + 1) AS STRING
+REDIM SHARED separgslayout2(OptMax + 1) AS STRING
 
 
 
@@ -207,8 +209,8 @@ DIM SHARED E
 
 
 DIM SHARED ResolveStaticFunctions
-DIM SHARED ResolveStaticFunction_File(1 TO 100) AS STRING
-DIM SHARED ResolveStaticFunction_Name(1 TO 100) AS STRING
+REDIM SHARED ResolveStaticFunction_File(1 TO 100) AS STRING
+REDIM SHARED ResolveStaticFunction_Name(1 TO 100) AS STRING
 REDIM SHARED ResolveStaticFunction_Method(1 TO 100) AS LONG
 
 
@@ -607,9 +609,9 @@ DIM SHARED constmax AS LONG
 constmax = 100
 DIM SHARED constlast AS LONG
 constlast = -1
-DIM SHARED constname(constmax) AS STRING
-DIM SHARED constcname(constmax) AS STRING
-DIM SHARED constnamesymbol(constmax) AS STRING 'optional name symbol
+REDIM SHARED constname(constmax) AS STRING
+REDIM SHARED constcname(constmax) AS STRING
+REDIM SHARED constnamesymbol(constmax) AS STRING 'optional name symbol
 ' `1 and `no-number must be handled correctly
 'DIM SHARED constlastshared AS LONG 'so any defined inside a sub/function after this index can be "forgotten" when sub/function exits
 'constlastshared = -1
@@ -618,7 +620,7 @@ REDIM SHARED consttype(constmax) AS LONG 'variable type number
 REDIM SHARED constinteger(constmax) AS _INTEGER64
 REDIM SHARED constuinteger(constmax) AS _UNSIGNED _INTEGER64
 REDIM SHARED constfloat(constmax) AS _FLOAT
-DIM SHARED conststring(constmax) AS STRING
+REDIM SHARED conststring(constmax) AS STRING
 REDIM SHARED constsubfunc(constmax) AS LONG
 REDIM SHARED constdefined(constmax) AS LONG
 
@@ -914,7 +916,6 @@ DIM SHARED sfelelist(1000) AS INTEGER
 
 
 '----------------ripgl.bas--------------------------------------------------------------------------------
-'gl_scan_header is stubbed during self-host rebuilds.
 gl_scan_header
 '----------------ripgl.bas--------------------------------------------------------------------------------
 
@@ -1212,7 +1213,7 @@ HashAdd "WHILE", f, 0
 
 
 'clear/init variables
-Console = 1
+Console = 0
 ScreenHide = 0
 Asserts = 0
 ResolveStaticFunctions = 0
@@ -1332,7 +1333,7 @@ firstLineNumberLabelvWatch = 0
 REDIM SHARED warning$(1000)
 REDIM SHARED warningLines(1000) AS LONG
 REDIM SHARED warningIncLines(1000) AS LONG
-DIM SHARED warningIncFiles(1000) AS STRING
+REDIM SHARED warningIncFiles(1000) AS STRING
 maxLineNumber = 0
 uniquenumbern = 0
 
@@ -2673,7 +2674,6 @@ totallinenumber = reallinenumber
 
 'prepass finished
 
-StdLib_ExpandImportsInBuffer
 lineinput3index = 1 'reset input line
 
 addmetainclude$ = "" 'reset stray meta-includes
@@ -2763,10 +2763,6 @@ declaringlibrary = 0
 percentage = -1
 
 PRINT #12, "S_0:;" 'note: REQUIRED by run statement
-IF Console THEN
-    PRINT #12, "sub__dest(func__console());"
-    PRINT #12, "sub__source(func__console());"
-END IF
 
 IF UseGL THEN gl_include_content
 
@@ -19908,100 +19904,6 @@ FUNCTION StdLib_DequeuePreludeImport$ ()
     END IF
 END FUNCTION
 
-FUNCTION StdLib_RewriteImportLine$ (rawLine$)
-    DIM trimmedLine AS STRING
-    DIM directiveText AS STRING
-    DIM upperDirective AS STRING
-    DIM moduleStart AS LONG
-    DIM moduleEnd AS LONG
-    DIM moduleName AS STRING
-    DIM normalizedKey AS STRING
-    DIM importPath AS STRING
-
-    StdLib_RewriteImportLine$ = rawLine$
-    trimmedLine = LTRIM$(rawLine$)
-    IF LEFT$(trimmedLine, 1) <> "'" THEN EXIT FUNCTION
-
-    directiveText = LTRIM$(MID$(trimmedLine, 2))
-    upperDirective = UCASE$(directiveText)
-    IF LEFT$(upperDirective, 7) <> "$IMPORT" THEN EXIT FUNCTION
-
-    moduleStart = INSTR(directiveText, ":")
-    IF moduleStart = 0 THEN EXIT FUNCTION
-    moduleStart = moduleStart + 1
-    DO WHILE moduleStart <= LEN(directiveText)
-        IF MID$(directiveText, moduleStart, 1) <> " " AND MID$(directiveText, moduleStart, 1) <> CHR$(9) THEN EXIT DO
-        moduleStart = moduleStart + 1
-    LOOP
-    IF moduleStart > LEN(directiveText) OR MID$(directiveText, moduleStart, 1) <> "'" THEN EXIT FUNCTION
-
-    moduleEnd = INSTR(moduleStart + 1, directiveText, "'")
-    IF moduleEnd = 0 THEN EXIT FUNCTION
-    moduleName = MID$(directiveText, moduleStart + 1, moduleEnd - moduleStart - 1)
-    normalizedKey = StdLib_NormalizeImportKey$(moduleName)
-    IF LEN(normalizedKey) = 0 THEN EXIT FUNCTION
-
-    IF INSTR(importedModules$, "@" + normalizedKey + "@") THEN
-        StdLib_RewriteImportLine$ = "' duplicate $IMPORT skipped: " + normalizedKey
-        EXIT FUNCTION
-    END IF
-
-    importedModules$ = importedModules$ + normalizedKey + "@"
-    importPath = StdLib_ImportPath$(normalizedKey)
-    StdLib_RewriteImportLine$ = "'$INCLUDE:'" + importPath + "'"
-END FUNCTION
-
-SUB StdLib_ExpandImportsInBuffer
-    DIM sourceText AS STRING
-    DIM rebuiltText AS STRING
-    DIM lineText AS STRING
-    DIM lineBreak AS STRING
-    DIM lineStart AS LONG
-    DIM scanPos AS LONG
-    DIM bufferLen AS LONG
-    DIM currentChar AS STRING
-
-    sourceText = lineinput3buffer$
-    bufferLen = LEN(sourceText)
-    lineStart = 1
-
-    importedModules$ = "@"
-
-    DO WHILE lineStart <= bufferLen
-        scanPos = lineStart
-        DO WHILE scanPos <= bufferLen
-            currentChar = MID$(sourceText, scanPos, 1)
-            IF currentChar = CHR$(13) OR currentChar = CHR$(10) THEN EXIT DO
-            scanPos = scanPos + 1
-        LOOP
-
-        lineText = MID$(sourceText, lineStart, scanPos - lineStart)
-        lineBreak = ""
-        IF scanPos <= bufferLen THEN
-            currentChar = MID$(sourceText, scanPos, 1)
-            IF currentChar = CHR$(13) THEN
-                lineBreak = CHR$(13)
-                scanPos = scanPos + 1
-                IF scanPos <= bufferLen THEN
-                    IF MID$(sourceText, scanPos, 1) = CHR$(10) THEN
-                        lineBreak = lineBreak + CHR$(10)
-                        scanPos = scanPos + 1
-                    END IF
-                END IF
-            ELSEIF currentChar = CHR$(10) THEN
-                lineBreak = CHR$(10)
-                scanPos = scanPos + 1
-            END IF
-        END IF
-
-        rebuiltText = rebuiltText + StdLib_RewriteImportLine$(lineText) + lineBreak
-        lineStart = scanPos
-    LOOP
-
-    lineinput3buffer$ = rebuiltText
-    lineinput3index = 1
-END SUB
-
 SUB ClassSyntax_Reset
     classSyntaxQueue$ = ""
     classSyntaxActive = 0
@@ -20566,11 +20468,8 @@ FUNCTION TopLevelRuntime_ShouldCapture% (trimmedLine$, upperLine$)
     IF LEFT$(trimmedLine$, 1) = "$" THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 7) = "OPTION " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 6) = "CONST " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 4) = "DIM " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 6) = "REDIM " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 7) = "STATIC " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 7) = "COMMON " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 8) = "DECLARE " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 11) = "DIM SHARED " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 14) = "STATIC SHARED " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 5) = "DATA " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 7) = "COMMON " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 6) = "DEFINT" THEN EXIT FUNCTION
@@ -27511,7 +27410,20 @@ SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
                 found = INSTR(backupVariableWatchList$, temp$)
                 IF found THEN
                     'this variable existed in a previous edit of this program
-                    'in this same session; restore is skipped here to keep self-host builds stable.
+                    'in this same session; let's preselect it.
+                    j = CVL(MID$(backupVariableWatchList$, found + LEN(temp$), 4))
+
+                    'if there have been changes in TYPEs, this variable won't be preselected
+                    IF (LEN(backupUsedVariableList(j).elements) > 0 AND backupTypeDefinitions$ = typeDefinitions$) OR _
+                        (LEN(backupUsedVariableList(j).elements) = 0) THEN
+                        usedVariableList(i).watch = backupUsedVariableList(j).watch
+                        usedVariableList(i).watchRange = backupUsedVariableList(j).watchRange
+                        usedVariableList(i).indexes = backupUsedVariableList(j).indexes
+                        usedVariableList(i).displayFormat = backupUsedVariableList(j).displayFormat
+                        usedVariableList(i).elements = backupUsedVariableList(j).elements
+                        usedVariableList(i).elementTypes = backupUsedVariableList(j).elementTypes
+                        usedVariableList(i).elementOffset = backupUsedVariableList(j).elementOffset
+                    END IF
                 END IF
             END IF
         CASE ELSE 'find and mark as used
@@ -27655,11 +27567,7 @@ END SUB
 
 '$INCLUDE:'utilities\config.bas'
 '$INCLUDE:'utilities\file.bas'
-SUB gl_scan_header
-END SUB
-
-SUB gl_include_content
-END SUB
+'$INCLUDE:'subs_functions\extensions\opengl\opengl_methods.bas'
 '$INCLUDE:'utilities\ini-manager\ini.bm'
 
 DEFLNG A-Z
