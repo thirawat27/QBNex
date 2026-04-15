@@ -38,6 +38,7 @@ FUNCTION QBNEX_FindClass& (className AS STRING)
             EXIT FUNCTION
         END IF
     NEXT
+    QBNEX_FindClass = 0
 END FUNCTION
 
 FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
@@ -52,7 +53,8 @@ FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
     QBNEX_ClassCount = QBNEX_ClassCount + 1
     IF QBNEX_ClassCount > 256 THEN
         PRINT "ERROR: Maximum class limit exceeded"
-        SYSTEM 1
+        QBNEX_RegisterClass = 0
+        EXIT FUNCTION
     END IF
 
     QBNEX_ClassRegistry(QBNEX_ClassCount).ClassName = RTRIM$(className)
@@ -81,7 +83,7 @@ SUB QBNEX_RegisterMethod (classID AS LONG, methodName AS STRING, methodSlot AS L
     count = count + 1
     IF count > 64 THEN
         PRINT "ERROR: Maximum method limit exceeded for class "; RTRIM$(QBNEX_ClassRegistry(classID).ClassName)
-        SYSTEM 1
+        EXIT SUB
     END IF
 
     QBNEX_MethodRegistry(classID, count).MethodName = RTRIM$(methodName)
@@ -106,11 +108,14 @@ FUNCTION QBNEX_FindMethodSlot& (classID AS LONG, methodName AS STRING)
         NEXT
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP
+    QBNEX_FindMethodSlot = 0
 END FUNCTION
 
 FUNCTION QBNEX_ClassName$ (classID AS LONG)
     IF classID > 0 AND classID <= QBNEX_ClassCount THEN
         QBNEX_ClassName = RTRIM$(QBNEX_ClassRegistry(classID).ClassName)
+    ELSE
+        QBNEX_ClassName = ""
     END IF
 END FUNCTION
 
@@ -119,7 +124,10 @@ FUNCTION QBNEX_IsInstance& (classID AS LONG, className AS STRING)
     DIM currentID AS LONG
 
     lookupID = QBNEX_FindClass(className)
-    IF lookupID = 0 THEN EXIT FUNCTION
+    IF lookupID = 0 THEN
+        QBNEX_IsInstance = 0
+        EXIT FUNCTION
+    END IF
 
     currentID = classID
     DO WHILE currentID > 0 AND currentID <= QBNEX_ClassCount
@@ -129,6 +137,7 @@ FUNCTION QBNEX_IsInstance& (classID AS LONG, className AS STRING)
         END IF
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP
+    QBNEX_IsInstance = 0
 END FUNCTION
 
 SUB QBNEX_ObjectInit (header AS QBNex_ObjectHeader, classID AS LONG)

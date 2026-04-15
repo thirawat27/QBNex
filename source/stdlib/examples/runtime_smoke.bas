@@ -1,6 +1,11 @@
 ' ============================================================================
 ' QBNex Runtime Smoke Test
 ' ============================================================================
+' Requires a qb.exe built from current source/qbnex.bas (bootstrap); installed
+' snapshots may not include compiler fixes for stdlib multi-arg calls.
+' ============================================================================
+
+'$IMPORT:'qbnex'
 
 DIM failures AS LONG
 
@@ -16,9 +21,3 @@ IF failures <> 0 THEN
 END IF
 
 PRINT "RUNTIME_SMOKE_OK"
-
-'$IMPORT:'strings.text'
-'$IMPORT:'io.csv'
-'$IMPORT:'math.numeric'
-'$IMPORT:'io.path'
-'$IMPORT:'sys.env'

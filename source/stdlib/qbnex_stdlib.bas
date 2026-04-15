@@ -92,6 +92,7 @@ FUNCTION QBNEX_FindClass& (className AS STRING)
             EXIT FUNCTION
         END IF
     NEXT
+    QBNEX_FindClass = 0
 END FUNCTION
 
 FUNCTION QBNEX_EnsureClass& (className AS STRING, baseClassID AS LONG)
@@ -114,7 +115,8 @@ FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
     QBNEX_ClassCount = QBNEX_ClassCount + 1
     IF QBNEX_ClassCount > 256 THEN
         PRINT "ERROR: Maximum class limit exceeded"
-        SYSTEM 1
+        QBNEX_RegisterClass = 0
+        EXIT FUNCTION
     END IF
 
     QBNEX_ClassRegistry(QBNEX_ClassCount).ClassName = RTRIM$(className)
@@ -143,7 +145,7 @@ SUB QBNEX_RegisterMethod (classID AS LONG, methodName AS STRING, methodSlot AS L
     count = count + 1
     IF count > 64 THEN
         PRINT "ERROR: Maximum method limit exceeded for class "; RTRIM$(QBNEX_ClassRegistry(classID).ClassName)
-        SYSTEM 1
+        EXIT SUB
     END IF
 
     QBNEX_MethodRegistry(classID, count).MethodName = RTRIM$(methodName)
@@ -168,11 +170,14 @@ FUNCTION QBNEX_FindMethodSlot& (classID AS LONG, methodName AS STRING)
         NEXT
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP
+    QBNEX_FindMethodSlot = 0
 END FUNCTION
 
 FUNCTION QBNEX_ClassName$ (classID AS LONG)
     IF classID > 0 AND classID <= QBNEX_ClassCount THEN
         QBNEX_ClassName = RTRIM$(QBNEX_ClassRegistry(classID).ClassName)
+    ELSE
+        QBNEX_ClassName = ""
     END IF
 END FUNCTION
 
@@ -181,7 +186,10 @@ FUNCTION QBNEX_IsInstance& (classID AS LONG, className AS STRING)
     DIM currentID AS LONG
 
     lookupID = QBNEX_FindClass(className)
-    IF lookupID = 0 THEN EXIT FUNCTION
+    IF lookupID = 0 THEN
+        QBNEX_IsInstance = 0
+        EXIT FUNCTION
+    END IF
 
     currentID = classID
     DO WHILE currentID > 0 AND currentID <= QBNEX_ClassCount
@@ -191,6 +199,7 @@ FUNCTION QBNEX_IsInstance& (classID AS LONG, className AS STRING)
         END IF
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP
+    QBNEX_IsInstance = 0
 END FUNCTION
 
 SUB QBNEX_ObjectInit (header AS QBNex_ObjectHeader, classID AS LONG)
@@ -217,6 +226,7 @@ FUNCTION QBNEX_FindInterface& (interfaceName AS STRING)
             EXIT FUNCTION
         END IF
     NEXT
+    QBNEX_FindInterface = 0
 END FUNCTION
 
 FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
@@ -231,7 +241,8 @@ FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
     QBNEX_InterfaceCount = QBNEX_InterfaceCount + 1
     IF QBNEX_InterfaceCount > 256 THEN
         PRINT "ERROR: Maximum interface limit exceeded"
-        SYSTEM 1
+        QBNEX_RegisterInterfaceName = 0
+        EXIT FUNCTION
     END IF
 
     QBNEX_InterfaceRegistry(QBNEX_InterfaceCount).InterfaceName = RTRIM$(interfaceName)
@@ -262,8 +273,8 @@ SUB QBNEX_RegisterInterface (classID AS LONG, interfaceName AS STRING)
 
     count = count + 1
     IF count > 32 THEN
-        PRINT "ERROR: Maximum interface limit exceeded for class "; RTRIM$(QBNEX_ClassRegistry(classID).ClassName)
-        SYSTEM 1
+        PRINT "ERROR: Maximum interface limit exceeded"
+        EXIT SUB
     END IF
 
     QBNEX_ClassInterfaces(classID, count) = interfaceID
@@ -276,7 +287,10 @@ FUNCTION QBNEX_Implements& (classID AS LONG, interfaceName AS STRING)
     DIM index AS LONG
 
     interfaceID = QBNEX_FindInterface(interfaceName)
-    IF interfaceID = 0 THEN EXIT FUNCTION
+    IF interfaceID = 0 THEN
+        QBNEX_Implements = 0
+        EXIT FUNCTION
+    END IF
 
     currentID = classID
     DO WHILE currentID > 0 AND currentID <= QBNEX_ClassCount
@@ -288,6 +302,7 @@ FUNCTION QBNEX_Implements& (classID AS LONG, interfaceName AS STRING)
         NEXT
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP
+    QBNEX_Implements = 0
 END FUNCTION
 
 SUB List_Init (listRef AS QBNex_List)
@@ -305,7 +320,8 @@ SUB List_Init (listRef AS QBNex_List)
     NEXT
 
     PRINT "ERROR: List pool exhausted"
-    SYSTEM 1
+    listRef.Handle = 0
+    listRef.Count = 0
 END SUB
 
 FUNCTION List_Count& (listRef AS QBNex_List)
@@ -439,14 +455,20 @@ SUB Stack_Push (stackRef AS QBNex_Stack, item AS STRING)
 END SUB
 
 FUNCTION Stack_Peek$ (stackRef AS QBNex_Stack)
-    IF stackRef.Items.Count = 0 THEN EXIT FUNCTION
+    IF stackRef.Items.Count = 0 THEN
+        Stack_Peek = ""
+        EXIT FUNCTION
+    END IF
     Stack_Peek = List_Get$(stackRef.Items, stackRef.Items.Count - 1)
 END FUNCTION
 
 FUNCTION Stack_Pop$ (stackRef AS QBNex_Stack)
     DIM valueText AS STRING
 
-    IF stackRef.Items.Count = 0 THEN EXIT FUNCTION
+    IF stackRef.Items.Count = 0 THEN
+        Stack_Pop = ""
+        EXIT FUNCTION
+    END IF
     valueText = List_Get$(stackRef.Items, stackRef.Items.Count - 1)
     List_RemoveAt stackRef.Items, stackRef.Items.Count - 1
     Stack_Pop = valueText
@@ -473,14 +495,20 @@ SUB Queue_Enqueue (queueRef AS QBNex_Queue, item AS STRING)
 END SUB
 
 FUNCTION Queue_Peek$ (queueRef AS QBNex_Queue)
-    IF queueRef.Items.Count = 0 THEN EXIT FUNCTION
+    IF queueRef.Items.Count = 0 THEN
+        Queue_Peek = ""
+        EXIT FUNCTION
+    END IF
     Queue_Peek = List_Get$(queueRef.Items, 0)
 END FUNCTION
 
 FUNCTION Queue_Dequeue$ (queueRef AS QBNex_Queue)
     DIM valueText AS STRING
 
-    IF queueRef.Items.Count = 0 THEN EXIT FUNCTION
+    IF queueRef.Items.Count = 0 THEN
+        Queue_Dequeue = ""
+        EXIT FUNCTION
+    END IF
     valueText = List_Get$(queueRef.Items, 0)
     List_RemoveAt queueRef.Items, 0
     Queue_Dequeue = valueText
@@ -658,7 +686,10 @@ FUNCTION Text_Repeat$ (valueText AS STRING, repeatCount AS LONG)
     DIM index AS LONG
     DIM resultText AS STRING
 
-    IF repeatCount <= 0 THEN EXIT FUNCTION
+    IF repeatCount <= 0 THEN
+        Text_Repeat = ""
+        EXIT FUNCTION
+    END IF
     FOR index = 1 TO repeatCount
         resultText = resultText + valueText
     NEXT
@@ -666,19 +697,43 @@ FUNCTION Text_Repeat$ (valueText AS STRING, repeatCount AS LONG)
 END FUNCTION
 
 FUNCTION Text_StartsWith& (valueText AS STRING, prefixText AS STRING)
-    IF LEN(prefixText) = 0 THEN Text_StartsWith = -1: EXIT FUNCTION
-    IF LEN(valueText) < LEN(prefixText) THEN EXIT FUNCTION
-    IF LEFT$(valueText, LEN(prefixText)) = prefixText THEN Text_StartsWith = -1
+    IF LEN(prefixText) = 0 THEN
+        Text_StartsWith = -1
+        EXIT FUNCTION
+    END IF
+    IF LEN(valueText) < LEN(prefixText) THEN
+        Text_StartsWith = 0
+        EXIT FUNCTION
+    END IF
+    IF LEFT$(valueText, LEN(prefixText)) = prefixText THEN
+        Text_StartsWith = -1
+    ELSE
+        Text_StartsWith = 0
+    END IF
 END FUNCTION
 
 FUNCTION Text_EndsWith& (valueText AS STRING, suffixText AS STRING)
-    IF LEN(suffixText) = 0 THEN Text_EndsWith = -1: EXIT FUNCTION
-    IF LEN(valueText) < LEN(suffixText) THEN EXIT FUNCTION
-    IF RIGHT$(valueText, LEN(suffixText)) = suffixText THEN Text_EndsWith = -1
+    IF LEN(suffixText) = 0 THEN
+        Text_EndsWith = -1
+        EXIT FUNCTION
+    END IF
+    IF LEN(valueText) < LEN(suffixText) THEN
+        Text_EndsWith = 0
+        EXIT FUNCTION
+    END IF
+    IF RIGHT$(valueText, LEN(suffixText)) = suffixText THEN
+        Text_EndsWith = -1
+    ELSE
+        Text_EndsWith = 0
+    END IF
 END FUNCTION
 
 FUNCTION Text_Contains& (valueText AS STRING, searchText AS STRING)
-    IF INSTR(valueText, searchText) <> 0 THEN Text_Contains = -1
+    IF INSTR(valueText, searchText) <> 0 THEN
+        Text_Contains = -1
+    ELSE
+        Text_Contains = 0
+    END IF
 END FUNCTION
 
 FUNCTION Text_PadLeft$ (valueText AS STRING, totalWidth AS LONG, padText AS STRING)
@@ -688,7 +743,10 @@ FUNCTION Text_PadLeft$ (valueText AS STRING, totalWidth AS LONG, padText AS STRI
     resultText = valueText
     IF LEN(padText) = 0 THEN padText = " "
     deficit = totalWidth - LEN(resultText)
-    IF deficit <= 0 THEN Text_PadLeft = resultText: EXIT FUNCTION
+    IF deficit <= 0 THEN
+        Text_PadLeft = resultText
+        EXIT FUNCTION
+    END IF
     Text_PadLeft = Text_Repeat$(padText, deficit) + resultText
 END FUNCTION
 
@@ -699,7 +757,10 @@ FUNCTION Text_PadRight$ (valueText AS STRING, totalWidth AS LONG, padText AS STR
     resultText = valueText
     IF LEN(padText) = 0 THEN padText = " "
     deficit = totalWidth - LEN(resultText)
-    IF deficit <= 0 THEN Text_PadRight = resultText: EXIT FUNCTION
+    IF deficit <= 0 THEN
+        Text_PadRight = resultText
+        EXIT FUNCTION
+    END IF
     Text_PadRight = resultText + Text_Repeat$(padText, deficit)
 END FUNCTION
 
@@ -711,18 +772,18 @@ FUNCTION Json_Escape$ (valueText AS STRING)
     FOR index = 1 TO LEN(valueText)
         currentChar = MID$(valueText, index, 1)
         SELECT CASE ASC(currentChar)
-            CASE 34
-                resultText = resultText + CHR$(92) + CHR$(34)
-            CASE 92
-                resultText = resultText + CHR$(92) + CHR$(92)
-            CASE 9
-                resultText = resultText + CHR$(92) + "t"
-            CASE 10
-                resultText = resultText + CHR$(92) + "n"
-            CASE 13
-                resultText = resultText + CHR$(92) + "r"
-            CASE ELSE
-                resultText = resultText + currentChar
+        CASE 34
+            resultText = resultText + CHR$(92) + CHR$(34)
+        CASE 92
+            resultText = resultText + CHR$(92) + CHR$(92)
+        CASE 9
+            resultText = resultText + CHR$(92) + "t"
+        CASE 10
+            resultText = resultText + CHR$(92) + "n"
+        CASE 13
+            resultText = resultText + CHR$(92) + "r"
+        CASE ELSE
+            resultText = resultText + currentChar
         END SELECT
     NEXT
 
@@ -838,25 +899,38 @@ FUNCTION Date_Pad3$ (valueNumber AS LONG)
 END FUNCTION
 
 FUNCTION Date_PartValue& (sourceText AS STRING, startPos AS LONG, endPos AS LONG)
-    IF endPos < startPos THEN EXIT FUNCTION
+    IF endPos < startPos THEN
+        Date_PartValue = 0
+        EXIT FUNCTION
+    END IF
     Date_PartValue = VAL(MID$(sourceText, startPos, endPos - startPos + 1))
 END FUNCTION
 
 FUNCTION Date_IsLeapYear& (yearValue AS LONG)
-    IF (yearValue MOD 400) = 0 THEN Date_IsLeapYear = -1: EXIT FUNCTION
-    IF (yearValue MOD 100) = 0 THEN EXIT FUNCTION
-    IF (yearValue MOD 4) = 0 THEN Date_IsLeapYear = -1
+    IF (yearValue MOD 400) = 0 THEN
+        Date_IsLeapYear = -1
+        EXIT FUNCTION
+    END IF
+    IF (yearValue MOD 100) = 0 THEN
+        Date_IsLeapYear = 0
+        EXIT FUNCTION
+    END IF
+    IF (yearValue MOD 4) = 0 THEN
+        Date_IsLeapYear = -1
+        EXIT FUNCTION
+    END IF
+    Date_IsLeapYear = 0
 END FUNCTION
 
 FUNCTION Date_DaysInMonth& (yearValue AS LONG, monthValue AS LONG)
     SELECT CASE monthValue
-        CASE 1, 3, 5, 7, 8, 10, 12
-            Date_DaysInMonth = 31
-        CASE 4, 6, 9, 11
-            Date_DaysInMonth = 30
-        CASE 2
-            Date_DaysInMonth = 28
-            IF Date_IsLeapYear&(yearValue) THEN Date_DaysInMonth = 29
+    CASE 1, 3, 5, 7, 8, 10, 12
+        Date_DaysInMonth = 31
+    CASE 4, 6, 9, 11
+        Date_DaysInMonth = 30
+    CASE 2
+        Date_DaysInMonth = 28
+        IF Date_IsLeapYear&(yearValue) THEN Date_DaysInMonth = 29
     END SELECT
 END FUNCTION
 
@@ -1017,6 +1091,7 @@ FUNCTION Path_Separator$ ()
 END FUNCTION
 
 FUNCTION Path_Normalize$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM separator AS STRING
     DIM pathChar AS STRING
     DIM previousWasSeparator AS LONG
@@ -1063,6 +1138,7 @@ FUNCTION Path_Join$ (basePath AS STRING, leafPath AS STRING)
 END FUNCTION
 
 FUNCTION Path_FileName$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM normalized AS STRING
     DIM separator AS STRING
     DIM position AS LONG
@@ -1082,6 +1158,7 @@ FUNCTION Path_FileName$ (rawPath AS STRING)
 END FUNCTION
 
 FUNCTION Path_DirName$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM normalized AS STRING
     DIM separator AS STRING
     DIM position AS LONG
@@ -1101,6 +1178,7 @@ FUNCTION Path_DirName$ (rawPath AS STRING)
 END FUNCTION
 
 FUNCTION Path_Extension$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM filename AS STRING
     DIM position AS LONG
 

@@ -55,6 +55,9 @@ FUNCTION gl2qb_type_convert$ (a$, symbol$, typ, ctyp$)
 END FUNCTION
 
 FUNCTION readchunk$ (a$, last_character$)
+    DIM x AS LONG
+    DIM c AS LONG
+    
     a$ = LTRIM$(RTRIM$(a$))
     FOR x = 1 TO LEN(a$)
         c = ASC(a$, x)
@@ -65,6 +68,11 @@ END FUNCTION
 
 
 SUB gl_scan_header
+    DIM x AS LONG
+    DIM c AS LONG
+    DIM x2 AS LONG
+    DIM c2 AS LONG
+    DIM i AS LONG
 
     IF GL_KIT THEN hk = FREEFILE: OPEN "internal\c\parts\core\gl_header_for_parsing\temp\gl_kit.bas" FOR OUTPUT AS #hk
     IF GL_KIT THEN PRINT #hk, "DECLARE LIBRARY"
@@ -228,107 +236,110 @@ SUB gl_scan_header
                         arg$ = MKL$(typ)
                     END IF
                     IF pointer = 1 THEN 'all pointers convert to BYVAL _OFFSET
-                        arg$ = MKL$(OFFSETTYPE - ISPOINTER)
-                        ctyp$ = "ptrszint"
-                    END IF
-                    IF pointer = 2 THEN 'all pointers-to-pointers convert to xxx"BYREF"xxx BYVAL _OFFSET
-                        arg$ = MKL$(OFFSETTYPE - ISPOINTER)
-                        ctyp$ = "ptrszint"
-                        '***this is important or you lose the ability to specify any offset, only the offset of a variable of type
-                        '   _OFFSET
-                        '                   arg$ = MKL$(OFFSETTYPE)
-                        '                    ctyp$ = "ptrszint*"
-                    END IF
-
-                    GL_COMMANDS(c).args = GL_COMMANDS(c).args + 1
-
-                    MID$(GL_COMMANDS(c).arg, (GL_COMMANDS(c).args - 1) * 4 + 1, 4) = arg$
-                    'z$ = GL_COMMANDS(c).arg
-                    'MID$(z$, (GL_COMMANDS(c).args - 1) * 4 + 1, 4) = arg$
-                    'GL_COMMANDS(c).arg = z$
-
-                    letter$ = CHR$(96 + GL_COMMANDS(c).args)
-
-                    hc$ = hc$ + "(" + var_type_backup$ + ")" + letter$
-                    hd$ = hd$ + ctyp$ + " " + letter$
-
-
-
-                    IF l$ <> ")" THEN hc$ = hc$ + ",": hd$ = hd$ + ","
-
-                LOOP UNTIL l$ = ")"
-                no_arguments:
-
-
-                hd$ = hd$ + "){"
-                hc$ = hc$ + ");"
-                IF GL_KIT THEN PRINT #hk, ")"
-                h$ = hd$ + CRLF + "if (!sub_gl_called) error(270);" + CRLF + hc$ + CRLF + "}" + CRLF
-
-                IF need_helper_function THEN 'do we need the helper function for this command?
-                    GL_HELPER_CODE = GL_HELPER_CODE + h$
-                    GL_COMMANDS(c).callname = "call_" + proc_name$
+                    arg$ = MKL$(OFFSETTYPE - ISPOINTER)
+                    ctyp$ = "ptrszint"
                 END IF
-
-
-                IF proc_name$ = "glGetString" THEN
-                    GL_COMMANDS(c).ret = STRINGTYPE
-                    GL_COMMANDS(c).callname = "(  char*  )" + RTRIM$(GL_COMMANDS(c).callname)
-                END IF
-
-
-
-
+                IF pointer = 2 THEN 'all pointers-to-pointers convert to xxx"BYREF"xxx BYVAL _OFFSET
+                arg$ = MKL$(OFFSETTYPE - ISPOINTER)
+                ctyp$ = "ptrszint"
+                '***this is important or you lose the ability to specify any offset, only the offset of a variable of type
+                '   _OFFSET
+                '                   arg$ = MKL$(OFFSETTYPE)
+                '                    ctyp$ = "ptrszint*"
             END IF
 
-        END IF
+            GL_COMMANDS(c).args = GL_COMMANDS(c).args + 1
+
+            MID$(GL_COMMANDS(c).arg, (GL_COMMANDS(c).args - 1) * 4 + 1, 4) = arg$
+            'z$ = GL_COMMANDS(c).arg
+            'MID$(z$, (GL_COMMANDS(c).args - 1) * 4 + 1, 4) = arg$
+            'GL_COMMANDS(c).arg = z$
+
+            letter$ = CHR$(96 + GL_COMMANDS(c).args)
+
+            hc$ = hc$ + "(" + var_type_backup$ + ")" + letter$
+            hd$ = hd$ + ctyp$ + " " + letter$
 
 
 
+            IF l$ <> ")" THEN hc$ = hc$ + ",": hd$ = hd$ + ","
+
+        LOOP UNTIL l$ = ")"
+        no_arguments:
 
 
-        discard:
-    LOOP
-    CLOSE #h
+        hd$ = hd$ + "){"
+        hc$ = hc$ + ");"
+        IF GL_KIT THEN PRINT #hk, ")"
+        h$ = hd$ + CRLF + "if (!sub_gl_called) error(270);" + CRLF + hc$ + CRLF + "}" + CRLF
 
-    IF GL_KIT THEN PRINT #hk, "END DECLARE"
-
-    GL_DEFINES_LAST = d
-    REDIM _PRESERVE GL_DEFINES(d) AS STRING
-    'PRINT "Defines:"; GL_DEFINES_LAST
-
-    REDIM _PRESERVE GL_COMMANDS(GL_COMMANDS_LAST) AS GL_idstruct
-    'PRINT "Commands:"; GL_COMMANDS_LAST
-
-    IF GL_KIT THEN
-        FOR i = 1 TO GL_DEFINES_LAST
-            PRINT #hk, "CONST " + GL_DEFINES(i) + "="; GL_DEFINES_VALUE(i)
-        NEXT
+        IF need_helper_function THEN 'do we need the helper function for this command?
+        GL_HELPER_CODE = GL_HELPER_CODE + h$
+        GL_COMMANDS(c).callname = "call_" + proc_name$
     END IF
 
-    'FOR i = 1 TO GL_COMMANDS_LAST
-    '    PRINT ".cn="; GL_COMMANDS(i).cn
-    '    PRINT ".callname="; GL_COMMANDS(i).callname
-    '    PRINT ".subfunc="; GL_COMMANDS(i).subfunc
-    '    PRINT ".args="; GL_COMMANDS(i).args
-    '    _CONTROLCHR OFF
-    '    PRINT ".arg=[" + RTRIM$(GL_COMMANDS(i).arg) + "]"
-    '    _CONTROLCHR ON
-    '    PRINT ".ret="; GL_COMMANDS(i).ret
-    'NEXT
 
-    IF GL_KIT THEN CLOSE #hk
+    IF proc_name$ = "glGetString" THEN
+        GL_COMMANDS(c).ret = STRINGTYPE
+        GL_COMMANDS(c).callname = "(  char*  )" + RTRIM$(GL_COMMANDS(c).callname)
+    END IF
 
 
-    fh = FREEFILE
-    OPEN "internal\c\parts\core\gl_header_for_parsing\temp\gl_helper_code.h" FOR OUTPUT AS #fh
-    PRINT #fh, GL_HELPER_CODE
-    CLOSE #fh
+
+
+END IF
+
+END IF
+
+
+
+
+
+discard:
+LOOP
+CLOSE #h
+
+IF GL_KIT THEN PRINT #hk, "END DECLARE"
+
+GL_DEFINES_LAST = d
+REDIM _PRESERVE GL_DEFINES(d) AS STRING
+'PRINT "Defines:"; GL_DEFINES_LAST
+
+REDIM _PRESERVE GL_COMMANDS(GL_COMMANDS_LAST) AS GL_idstruct
+'PRINT "Commands:"; GL_COMMANDS_LAST
+
+IF GL_KIT THEN
+    FOR i = 1 TO GL_DEFINES_LAST
+        PRINT #hk, "CONST " + GL_DEFINES(i) + "="; GL_DEFINES_VALUE(i)
+    NEXT
+END IF
+
+'FOR i = 1 TO GL_COMMANDS_LAST
+'    PRINT ".cn="; GL_COMMANDS(i).cn
+'    PRINT ".callname="; GL_COMMANDS(i).callname
+'    PRINT ".subfunc="; GL_COMMANDS(i).subfunc
+'    PRINT ".args="; GL_COMMANDS(i).args
+'    _CONTROLCHR OFF
+'    PRINT ".arg=[" + RTRIM$(GL_COMMANDS(i).arg) + "]"
+'    _CONTROLCHR ON
+'    PRINT ".ret="; GL_COMMANDS(i).ret
+'NEXT
+
+IF GL_KIT THEN CLOSE #hk
+
+
+fh = FREEFILE
+OPEN "internal\c\parts\core\gl_header_for_parsing\temp\gl_helper_code.h" FOR OUTPUT AS #fh
+PRINT #fh, GL_HELPER_CODE
+CLOSE #fh
 
 
 END SUB
 
 SUB gl_include_content
+    DIM d AS LONG
+    DIM i AS LONG
+    DIM c AS LONG
 
     'add constants
     FOR d = 1 TO GL_DEFINES_LAST

@@ -32,25 +32,38 @@ FUNCTION Date_Pad3$ (valueNumber AS LONG)
 END FUNCTION
 
 FUNCTION Date_PartValue& (sourceText AS STRING, startPos AS LONG, endPos AS LONG)
-    IF endPos < startPos THEN EXIT FUNCTION
+    IF endPos < startPos THEN
+        Date_PartValue = 0
+        EXIT FUNCTION
+    END IF
     Date_PartValue = VAL(MID$(sourceText, startPos, endPos - startPos + 1))
 END FUNCTION
 
 FUNCTION Date_IsLeapYear& (yearValue AS LONG)
-    IF (yearValue MOD 400) = 0 THEN Date_IsLeapYear = -1: EXIT FUNCTION
-    IF (yearValue MOD 100) = 0 THEN EXIT FUNCTION
-    IF (yearValue MOD 4) = 0 THEN Date_IsLeapYear = -1
+    IF (yearValue MOD 400) = 0 THEN
+        Date_IsLeapYear = -1
+        EXIT FUNCTION
+    END IF
+    IF (yearValue MOD 100) = 0 THEN
+        Date_IsLeapYear = 0
+        EXIT FUNCTION
+    END IF
+    IF (yearValue MOD 4) = 0 THEN
+        Date_IsLeapYear = -1
+        EXIT FUNCTION
+    END IF
+    Date_IsLeapYear = 0
 END FUNCTION
 
 FUNCTION Date_DaysInMonth& (yearValue AS LONG, monthValue AS LONG)
     SELECT CASE monthValue
-        CASE 1, 3, 5, 7, 8, 10, 12
-            Date_DaysInMonth = 31
-        CASE 4, 6, 9, 11
-            Date_DaysInMonth = 30
-        CASE 2
-            Date_DaysInMonth = 28
-            IF Date_IsLeapYear&(yearValue) THEN Date_DaysInMonth = 29
+    CASE 1, 3, 5, 7, 8, 10, 12
+        Date_DaysInMonth = 31
+    CASE 4, 6, 9, 11
+        Date_DaysInMonth = 30
+    CASE 2
+        Date_DaysInMonth = 28
+        IF Date_IsLeapYear&(yearValue) THEN Date_DaysInMonth = 29
     END SELECT
 END FUNCTION
 

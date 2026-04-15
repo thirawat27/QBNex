@@ -17,14 +17,20 @@ SUB Queue_Enqueue (queueRef AS QBNex_Queue, item AS STRING)
 END SUB
 
 FUNCTION Queue_Peek$ (queueRef AS QBNex_Queue)
-    IF queueRef.Items.Count = 0 THEN EXIT FUNCTION
+    IF queueRef.Items.Count = 0 THEN
+        Queue_Peek = ""
+        EXIT FUNCTION
+    END IF
     Queue_Peek = List_Get$(queueRef.Items, 0)
 END FUNCTION
 
 FUNCTION Queue_Dequeue$ (queueRef AS QBNex_Queue)
     DIM valueText AS STRING
 
-    IF queueRef.Items.Count = 0 THEN EXIT FUNCTION
+    IF queueRef.Items.Count = 0 THEN
+        Queue_Dequeue = ""
+        EXIT FUNCTION
+    END IF
     valueText = List_Get$(queueRef.Items, 0)
     List_RemoveAt queueRef.Items, 0
     Queue_Dequeue = valueText

@@ -2,6 +2,8 @@
 ' QBNex Ecosystem Smoke Test
 ' ============================================================================
 
+'$IMPORT:'qbnex'
+
 SUB EcosystemSmoke ()
     DIM instant AS QBNex_Date
 
@@ -12,9 +14,3 @@ SUB EcosystemSmoke ()
     PRINT Math_Clamp#(12#, 0#, 10#)
     PRINT Date_GetFullYear&(instant)
 END SUB
-
-'$IMPORT:'strings.text'
-'$IMPORT:'sys.args'
-'$IMPORT:'sys.datetime'
-'$IMPORT:'io.csv'
-'$IMPORT:'math.numeric'

@@ -8,13 +8,13 @@ FUNCTION CopyFile& (sourceFile$, destFile$)
     result = 0
     sourceFileNo = FREEFILE
     OPEN sourceFile$ FOR BINARY AS #sourceFileNo
-    if result = 1 THEN GOTO errorCleanup
+    IF result = 1 THEN GOTO ErrorCleanup
 
     fileLength = LOF(sourceFileNo)
 
     destFileNo = FREEFILE
     OPEN destFile$ FOR BINARY AS #destFileNo
-    if result = 1 THEN GOTO errorCleanup
+    IF result = 1 THEN GOTO ErrorCleanup
 
     ' Read the file in one go
     buffer$ = SPACE$(fileLength)
@@ -22,7 +22,7 @@ FUNCTION CopyFile& (sourceFile$, destFile$)
     GET #sourceFileNo, , buffer$
     PUT #destFileNo, , buffer$
 
-ErrorCleanup:
+    ErrorCleanup:
     IF sourceFileNo <> 0 THEN CLOSE #sourceFileNo
     IF destFileNo <> 0 THEN CLOSE #destFileNo
     CopyFile& = result
@@ -32,6 +32,9 @@ END FUNCTION
 ''' Splits the filename from its path and returns the path.
 ''' Returns: The path or empty if no path.
 FUNCTION GetFilePath$ (f$)
+    DIM i AS LONG
+    DIM a AS STRING
+    
     FOR i = LEN(f$) TO 1 STEP -1
         a$ = MID$(f$, i, 1)
         IF a$ = "/" OR a$ = "\" THEN
@@ -45,6 +48,9 @@ END FUNCTION
 ''' Checks if a filename has an extension on the end.
 ''' Returns: True if provided filename has an extension.
 FUNCTION FileHasExtension (f$)
+    DIM i AS LONG
+    DIM a AS LONG
+    
     FOR i = LEN(f$) TO 1 STEP -1
         a = ASC(f$, i)
         IF a = 47 OR a = 92 THEN EXIT FOR
@@ -55,6 +61,9 @@ END FUNCTION
 ''' Removes the extension off of a filename.
 ''' Returns: Provided filename without extension on the end.
 FUNCTION RemoveFileExtension$ (f$)
+    DIM i AS LONG
+    DIM a AS LONG
+    
     FOR i = LEN(f$) TO 1 STEP -1
         a = ASC(f$, i)
         IF a = 47 OR a = 92 THEN EXIT FOR
@@ -65,6 +74,8 @@ END FUNCTION
 
 ''' Fixes the provided filename and path to use the correct path separator.
 SUB PATH_SLASH_CORRECT (a$)
+    DIM x AS LONG
+    
     IF os$ = "WIN" THEN
         FOR x = 1 TO LEN(a$)
             IF ASC(a$, x) = 47 THEN ASC(a$, x) = 92

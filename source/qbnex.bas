@@ -775,8 +775,6 @@ DIM SHARED addmetastatic AS INTEGER
 DIM SHARED addmetadynamic AS INTEGER
 DIM SHARED addmetainclude AS STRING
 DIM SHARED importedModules AS STRING
-DIM SHARED prepassImportedModules AS STRING
-DIM SHARED stdlibPreludeImportPaths AS STRING
 DIM SHARED topLevelRuntimeLines AS STRING
 DIM SHARED topLevelRuntimeCallInjected AS LONG
 DIM SHARED topLevelRuntimeFinalized AS LONG
@@ -1240,8 +1238,6 @@ inclevel = 0
 errorLineInInclude = 0
 addmetainclude$ = ""
 importedModules$ = "@"
-prepassImportedModules$ = "@"
-stdlibPreludeImportPaths$ = ""
 classSyntaxQueue$ = ""
 classSyntaxDeferredQueue$ = ""
 topLevelRuntimeLines = ""
@@ -19797,16 +19793,21 @@ FUNCTION isvalidvariable (a$)
         END IF
     NEXT
 
-    isvalidvariable = 1
-    IF i > n THEN EXIT FUNCTION 'i is always greater than n because n is undefined here. Why didn't I remove this line and the ones below it, which will never run? Cause I'm a coward. F.h.
-    e$ = RIGHT$(a$, LEN(a$) - i - 1)
-    IF e$ = "%%" OR e$ = "~%%" THEN EXIT FUNCTION
-    IF e$ = "%" OR e$ = "~%" THEN EXIT FUNCTION
-    IF e$ = "&" OR e$ = "~&" THEN EXIT FUNCTION
-    IF e$ = "&&" OR e$ = "~&&" THEN EXIT FUNCTION
-    IF e$ = "!" OR e$ = "#" OR e$ = "##" THEN EXIT FUNCTION
-    IF e$ = "$" THEN EXIT FUNCTION
-    IF e$ = "`" THEN EXIT FUNCTION
+    'All characters matched base identifier rules (letters, digits after first, underscore).
+    IF i > LEN(a$) THEN
+        isvalidvariable = 1
+        EXIT FUNCTION
+    END IF
+
+    'Typed suffix begins at the first character that failed the loop (e.g. "name$" at "$").
+    e$ = MID$(a$, i)
+    IF e$ = "%%" OR e$ = "~%%" THEN isvalidvariable = 1: EXIT FUNCTION
+    IF e$ = "%" OR e$ = "~%" THEN isvalidvariable = 1: EXIT FUNCTION
+    IF e$ = "&" OR e$ = "~&" THEN isvalidvariable = 1: EXIT FUNCTION
+    IF e$ = "&&" OR e$ = "~&&" THEN isvalidvariable = 1: EXIT FUNCTION
+    IF e$ = "!" OR e$ = "#" OR e$ = "##" THEN isvalidvariable = 1: EXIT FUNCTION
+    IF e$ = "$" THEN isvalidvariable = 1: EXIT FUNCTION
+    IF e$ = "`" THEN isvalidvariable = 1: EXIT FUNCTION
     IF LEFT$(e$, 1) <> "$" AND LEFT$(e$, 1) <> "`" THEN isvalidvariable = 0: EXIT FUNCTION
     e$ = RIGHT$(e$, LEN(e$) - 1)
     IF isuinteger(e$) THEN isvalidvariable = 1: EXIT FUNCTION
@@ -19882,26 +19883,7 @@ FUNCTION StdLib_QueueImport$ (module$)
 
     importedModules$ = importedModules$ + normalizedKey + "@"
     importPath = StdLib_ImportPath$(normalizedKey)
-    IF prepass THEN
-        IF LEN(stdlibPreludeImportPaths$) THEN stdlibPreludeImportPaths$ = stdlibPreludeImportPaths$ + CHR$(10)
-        stdlibPreludeImportPaths$ = stdlibPreludeImportPaths$ + importPath
-    END IF
     StdLib_QueueImport$ = importPath
-END FUNCTION
-
-FUNCTION StdLib_DequeuePreludeImport$ ()
-    DIM separatorPos AS LONG
-
-    IF LEN(stdlibPreludeImportPaths$) = 0 THEN EXIT FUNCTION
-
-    separatorPos = INSTR(stdlibPreludeImportPaths$, CHR$(10))
-    IF separatorPos = 0 THEN
-        StdLib_DequeuePreludeImport$ = stdlibPreludeImportPaths$
-        stdlibPreludeImportPaths$ = ""
-    ELSE
-        StdLib_DequeuePreludeImport$ = LEFT$(stdlibPreludeImportPaths$, separatorPos - 1)
-        stdlibPreludeImportPaths$ = MID$(stdlibPreludeImportPaths$, separatorPos + 1)
-    END IF
 END FUNCTION
 
 SUB ClassSyntax_Reset
@@ -21273,23 +21255,37 @@ FUNCTION lineformat$ (a$)
 
     '----------------quoted string----------------
     IF c = 34 THEN '"
-        a2$ = a2$ + sp + CHR$(34)
+        'Emit one token "content",len so getelement/evaluatefunc do not split the
+        'opening quote from the literal (avoids Illegal string-number conversion).
+        escaped_output = 0
         p1 = i + 1
         FOR i2 = i + 1 TO n - 2
             c2 = ASC(a$, i2)
 
             IF c2 = 34 THEN
-                a2$ = a2$ + MID$(ca$, p1, i2 - p1 + 1) + "," + str2$(i2 - (i + 1))
+                IF escaped_output = 0 THEN
+                    a2$ = a2$ + sp + CHR$(34) + MID$(ca$, p1, i2 - p1 + 1) + "," + str2$(i2 - (i + 1))
+                ELSE
+                    a2$ = a2$ + MID$(ca$, p1, i2 - p1 + 1) + "," + str2$(i2 - (i + 1))
+                END IF
                 i = i2 + 1
                 EXIT FOR
             END IF
 
             IF c2 = 92 THEN '\
+                IF escaped_output = 0 THEN
+                    a2$ = a2$ + sp + CHR$(34)
+                    escaped_output = 1
+                END IF
                 a2$ = a2$ + MID$(ca$, p1, i2 - p1) + "\\"
                 p1 = i2 + 1
             END IF
 
             IF c2 < 32 OR c2 > 126 THEN
+                IF escaped_output = 0 THEN
+                    a2$ = a2$ + sp + CHR$(34)
+                    escaped_output = 1
+                END IF
                 o$ = OCT$(c2)
                 IF LEN(o$) < 3 THEN
                     o$ = "0" + o$
@@ -21302,7 +21298,11 @@ FUNCTION lineformat$ (a$)
         NEXT
 
         IF i2 = n - 1 THEN 'no closing "
-            a2$ = a2$ + MID$(ca$, p1, (n - 2) - p1 + 1) + CHR$(34) + "," + str2$((n - 2) - (i + 1) + 1)
+            IF escaped_output = 0 THEN
+                a2$ = a2$ + sp + CHR$(34) + MID$(ca$, p1, (n - 2) - p1 + 1) + CHR$(34) + "," + str2$((n - 2) - (i + 1) + 1)
+            ELSE
+                a2$ = a2$ + MID$(ca$, p1, (n - 2) - p1 + 1) + CHR$(34) + "," + str2$((n - 2) - (i + 1) + 1)
+            END IF
             i = n - 1
         END IF
 

@@ -11,6 +11,7 @@ FUNCTION Path_Separator$ ()
 END FUNCTION
 
 FUNCTION Path_Normalize$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM separator AS STRING
     DIM ch AS STRING
     DIM previousWasSeparator AS LONG
@@ -57,6 +58,7 @@ FUNCTION Path_Join$ (basePath AS STRING, leafPath AS STRING)
 END FUNCTION
 
 FUNCTION Path_FileName$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM normalized AS STRING
     DIM separator AS STRING
     DIM position AS LONG
@@ -77,6 +79,7 @@ FUNCTION Path_FileName$ (rawPath AS STRING)
 END FUNCTION
 
 FUNCTION Path_DirName$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM normalized AS STRING
     DIM separator AS STRING
     DIM position AS LONG
@@ -97,6 +100,7 @@ FUNCTION Path_DirName$ (rawPath AS STRING)
 END FUNCTION
 
 FUNCTION Path_Extension$ (rawPath AS STRING)
+    DIM i AS LONG
     DIM filename AS STRING
     DIM position AS LONG
 

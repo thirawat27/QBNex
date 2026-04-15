@@ -2,10 +2,18 @@
 ' QBNex Standard Library - OOP Foundation: Interfaces
 ' ============================================================================
 
+TYPE QBNex_ClassInfo
+    ClassName AS STRING * 64
+    BaseClassID AS LONG
+    MethodCount AS LONG
+END TYPE
+
 TYPE QBNex_InterfaceInfo
     InterfaceName AS STRING * 64
 END TYPE
 
+DIM SHARED QBNEX_ClassCount AS LONG
+DIM SHARED QBNEX_ClassRegistry(1 TO 256) AS QBNex_ClassInfo
 DIM SHARED QBNEX_InterfaceCount AS LONG
 DIM SHARED QBNEX_InterfaceRegistry(1 TO 256) AS QBNex_InterfaceInfo
 DIM SHARED QBNEX_ClassInterfaceCount(1 TO 256) AS LONG
@@ -22,6 +30,7 @@ FUNCTION QBNEX_FindInterface& (interfaceName AS STRING)
             EXIT FUNCTION
         END IF
     NEXT
+    QBNEX_FindInterface = 0
 END FUNCTION
 
 FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
@@ -36,7 +45,8 @@ FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
     QBNEX_InterfaceCount = QBNEX_InterfaceCount + 1
     IF QBNEX_InterfaceCount > 256 THEN
         PRINT "ERROR: Maximum interface limit exceeded"
-        SYSTEM 1
+        QBNEX_RegisterInterfaceName = 0
+        EXIT FUNCTION
     END IF
 
     QBNEX_InterfaceRegistry(QBNEX_InterfaceCount).InterfaceName = RTRIM$(interfaceName)
@@ -59,8 +69,8 @@ SUB QBNEX_RegisterInterface (classID AS LONG, interfaceName AS STRING)
 
     count = count + 1
     IF count > 32 THEN
-        PRINT "ERROR: Maximum interface limit exceeded for class "; RTRIM$(QBNEX_ClassRegistry(classID).ClassName)
-        SYSTEM 1
+        PRINT "ERROR: Maximum interface limit exceeded"
+        EXIT SUB
     END IF
 
     QBNEX_ClassInterfaces(classID, count) = interfaceID
@@ -73,7 +83,10 @@ FUNCTION QBNEX_Implements& (classID AS LONG, interfaceName AS STRING)
     DIM index AS LONG
 
     interfaceID = QBNEX_FindInterface(interfaceName)
-    IF interfaceID = 0 THEN EXIT FUNCTION
+    IF interfaceID = 0 THEN
+        QBNEX_Implements = 0
+        EXIT FUNCTION
+    END IF
 
     currentID = classID
     DO WHILE currentID > 0 AND currentID <= QBNEX_ClassCount
@@ -85,4 +98,5 @@ FUNCTION QBNEX_Implements& (classID AS LONG, interfaceName AS STRING)
         NEXT
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP
+    QBNEX_Implements = 0
 END FUNCTION

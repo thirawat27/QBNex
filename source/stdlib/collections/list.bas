@@ -29,7 +29,8 @@ SUB List_Init (listRef AS QBNex_List)
     NEXT
 
     PRINT "ERROR: List pool exhausted"
-    SYSTEM 1
+    listRef.Handle = 0
+    listRef.Count = 0
 END SUB
 
 FUNCTION List_Count& (listRef AS QBNex_List)

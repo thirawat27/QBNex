@@ -1,10 +1,11 @@
 ' ============================================================================
 ' QBNex Import Smoke Test
 ' ============================================================================
-' Phase 1 recommendation: place function-only imports at the end of the file.
-' This keeps classic BASIC statement ordering valid while still enabling the
-' Python-style dotted import syntax.
+' Metacommands live inside comment lines: '$IMPORT:'module'
+' Place the import line before the first SUB/FUNCTION or code that uses stdlib.
 ' ============================================================================
+
+'$IMPORT:'qbnex'
 
 SUB ImportSmoke ()
     PRINT "Platform: "; Env_Platform$
@@ -12,6 +13,3 @@ SUB ImportSmoke ()
     PRINT "Joined path: "; Path_Join$("root", "child/file.txt")
     PRINT "Extension: "; Path_Extension$("child/file.txt")
 END SUB
-
-'$IMPORT:'sys.env'
-'$IMPORT:'io.path'
