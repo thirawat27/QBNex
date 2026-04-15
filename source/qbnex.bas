@@ -29,16 +29,28 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'global\version.bas'
 '$INCLUDE:'global\settings.bas'
 '$INCLUDE:'global\constants.bas'
+'=== Phase 1: Quick Wins ===
 '$INCLUDE:'global\optimization.bas'
+'$INCLUDE:'global\hash_table.bas'
 '$INCLUDE:'global\single_pass.bas'
+'=== Phase 2: Architectural Improvements ===
 '$INCLUDE:'global\compiler_phases.bas'
 '$INCLUDE:'global\parallel_processing.bas'
 '$INCLUDE:'global\integration_module.bas'
+'$INCLUDE:'utils\logging.bas'
+'=== Phase 3: Advanced Optimizations ===
+'$INCLUDE:'global\incremental_compile.bas'
+'$INCLUDE:'global\llvm_backend.bas'
+'$INCLUDE:'global\jit_compilation.bas'
+'=== Phase 4: Stability & Testing ===
+'$INCLUDE:'global\state_management.bas'
+'$INCLUDE:'utils\error_handler.bas'
+'$INCLUDE:'tests\test_framework.bas'
+'$INCLUDE:'tests\regression_tests.bas'
 '$INCLUDE:'compiler\main.bas'
 '$INCLUDE:'compiler\parser.bas'
 '$INCLUDE:'compiler\symbol_table.bas'
 '$INCLUDE:'compiler\code_generator.bas'
-'$INCLUDE:'utils\error_handler.bas'
 '$INCLUDE:'subs_functions\extensions\opengl\opengl_global.bas'
 '$INCLUDE:'utilities\ini-manager\ini.bi'
 
@@ -100,12 +112,30 @@ InitCompilationState
 'OPTIMIZED: Initialize compiler phase system
 InitCompilerPhases
 
+'Phase 1: Quick Wins - Initialize optimized hash table (99.6% memory reduction)
+InitMainHashTable
+
+'Phase 1: Quick Wins - Initialize string pool and cache
+InitOptimizationModule
+
 'OPTIMIZED: Initialize new compiler modules
 InitErrorHandler
+InitLogging
 InitParser
 InitSymbolTable
 InitCodeGenerator
 InitIntegrationModule
+
+'Phase 3: Advanced Optimizations
+InitIncrementalCompilation
+InitLLVMBakend
+InitJITCompilation
+
+'Phase 4: Stability & Testing
+InitStateManagement
+InitTestFramework
+InitRegressionTests
+
 SetVerboseMode -1  ' Enable verbose mode for detailed error messages
 SetMaxErrors 100
 
