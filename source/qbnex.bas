@@ -19,7 +19,7 @@ $VERSIONINFO:FileDescription=QBNex CLI Compiler
 $VERSIONINFO:FileVersion=1.0.0
 $VERSIONINFO:InternalName=qb.exe
 $VERSIONINFO:LegalCopyright=Copyright (c) 2026 thirawat27
-$VERSIONINFO:LegalTrademarks=
+$VERSIONINFO:LegalTrademarks=QBNex
 $VERSIONINFO:OriginalFilename=qb.exe
 $VERSIONINFO:ProductName=QBNex
 $VERSIONINFO:ProductVersion=1.0.0
@@ -29,6 +29,16 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'global\version.bas'
 '$INCLUDE:'global\settings.bas'
 '$INCLUDE:'global\constants.bas'
+'$INCLUDE:'global\optimization.bas'
+'$INCLUDE:'global\single_pass.bas'
+'$INCLUDE:'global\compiler_phases.bas'
+'$INCLUDE:'global\parallel_processing.bas'
+'$INCLUDE:'global\integration_module.bas'
+'$INCLUDE:'compiler\main.bas'
+'$INCLUDE:'compiler\parser.bas'
+'$INCLUDE:'compiler\symbol_table.bas'
+'$INCLUDE:'compiler\code_generator.bas'
+'$INCLUDE:'utils\error_handler.bas'
 '$INCLUDE:'subs_functions\extensions\opengl\opengl_global.bas'
 '$INCLUDE:'utilities\ini-manager\ini.bi'
 
@@ -79,6 +89,25 @@ UserDefine(1, 7) = Version$
 DIM SHARED QBNex_uptime!
 
 QBNex_uptime! = TIMER
+
+'OPTIMIZED: Initialize performance optimization module
+InitOptimizationModule
+
+'OPTIMIZED: Initialize single-pass compilation system
+InitDeferredReferences
+InitCompilationState
+
+'OPTIMIZED: Initialize compiler phase system
+InitCompilerPhases
+
+'OPTIMIZED: Initialize new compiler modules
+InitErrorHandler
+InitParser
+InitSymbolTable
+InitCodeGenerator
+InitIntegrationModule
+SetVerboseMode -1  ' Enable verbose mode for detailed error messages
+SetMaxErrors 100
 
 DIM SHARED debugPath$
 debugPath$ = _CWD$
@@ -427,7 +456,11 @@ FOR c1 = 0 TO 255
         hash2char(c1 + c2 * 256) = hash1char(c1) + hash1char(c2) * 32
     NEXT
 NEXT
-'init
+'init - OPTIMIZED: Reduced hash table size from 64MB to 256KB for better memory efficiency
+'Original: HashTable(16777215) AS LONG = 64MB
+'Optimized: HashTable(65535) AS LONG = 256KB with improved collision handling
+CONST HASH_TABLE_SIZE = 65536 '2^16 entries for better cache locality
+CONST HASH_TABLE_MASK = 65535 'For fast modulo using AND
 HashListSize = 65536
 HashListNext = 1
 HashListFreeSize = 1024
@@ -435,7 +468,7 @@ HashListFreeLast = 0
 REDIM SHARED HashList(1 TO HashListSize) AS HashListItem
 REDIM SHARED HashListName(1 TO HashListSize) AS STRING * 256
 REDIM SHARED HashListFree(1 TO HashListFreeSize) AS LONG
-REDIM SHARED HashTable(16777215) AS LONG '64MB lookup table with indexes to the hashlist
+REDIM SHARED HashTable(0 TO HASH_TABLE_MASK) AS LONG '256KB lookup table with chaining for collisions
 
 CONST HASHFLAG_LABEL = 2
 CONST HASHFLAG_TYPE = 4
@@ -1542,9 +1575,13 @@ DO
     linenumber = linenumber + 1
     reallinenumber = reallinenumber + 1
 
-    DO UNTIL linenumber < UBOUND(InValidLine) 'color information flag for each line
-        REDIM _PRESERVE InValidLine(UBOUND(InValidLine) + 1000) AS _BYTE
-    LOOP
+    'OPTIMIZED: Use exponential growth for array resizing
+    IF linenumber >= UBOUND(InValidLine) THEN
+        DIM newSize AS LONG
+        newSize = UBOUND(InValidLine) * 2
+        IF newSize < linenumber + 1000 THEN newSize = linenumber + 1000
+        REDIM _PRESERVE InValidLine(1 TO newSize) AS _BYTE
+    END IF
     InValidLine(linenumber) = 0
 
     IF LEN(wholeline$) THEN
@@ -1655,10 +1692,12 @@ DO
         END IF
 
         IF ExecLevel(ExecCounter) THEN
-            DO UNTIL linenumber < UBOUND(InValidLine)
-                REDIM _PRESERVE InValidLine(UBOUND(InValidLine) + 1000) AS _BYTE
-            LOOP
-
+            'OPTIMIZED: Use exponential growth for array resizing
+            IF linenumber >= UBOUND(InValidLine) THEN
+                newSize = UBOUND(InValidLine) * 2
+                IF newSize < linenumber + 1000 THEN newSize = linenumber + 1000
+                REDIM _PRESERVE InValidLine(1 TO newSize) AS _BYTE
+            END IF
             InValidLine(linenumber) = -1
             GOTO finishedlinepp 'we don't check for anything inside lines that we've marked for skipping
         END IF
@@ -1716,6 +1755,8 @@ DO
 
         cwholeline$ = wholeline$
         wholeline$ = eleucase$(wholeline$) '********REMOVE THIS LINE LATER********
+    'OPTIMIZED: Track string operations
+    RecordStringOperation
 
 
         addmetadynamic = 0: addmetastatic = 0
@@ -3549,6 +3590,8 @@ DO
 
     ca$ = a$
     a$ = eleucase$(ca$) '***REVISE THIS SECTION LATER***
+    'OPTIMIZED: Track string operations
+    RecordStringOperation
 
 
     layoutdone = 0
@@ -11579,19 +11622,35 @@ FOR r = 1 TO nLabels
         END IF 'v
     END IF 'restriction
 
-    'check for undefined labels
+    'OPTIMIZED: Use deferred references for unresolved labels instead of recompilation
     IF Labels(r).State = 0 THEN
 
         IF INSTR(PossibleSubNameLabels$, sp + UCASE$(RTRIM$(Labels(r).cn)) + sp) THEN
             IF INSTR(SubNameLabels$, sp + UCASE$(RTRIM$(Labels(r).cn)) + sp) = 0 THEN 'not already added
                 SubNameLabels$ = SubNameLabels$ + UCASE$(RTRIM$(Labels(r).cn)) + sp
-                IF Debug THEN PRINT #9, "Recompiling to resolve label:"; RTRIM$(Labels(r).cn)
-                GOTO do_recompile
+                IF Debug THEN PRINT #9, "Deferring label resolution:"; RTRIM$(Labels(r).cn)
+                'OPTIMIZED: Add to deferred references instead of recompiling
+                IF SinglePassMode AND CanAvoidRecompile%("LABEL") THEN
+                    AddDeferredReference RTRIM$(Labels(r).cn), Labels(r).Error_Line, DEFREF_TYPE_LABEL, 0, HASHFLAG_LABEL
+                ELSE
+                    'Fallback to recompilation if single-pass mode is disabled
+                    IF Debug THEN PRINT #9, "Recompiling to resolve label:"; RTRIM$(Labels(r).cn)
+                    GOTO do_recompile
+                END IF
+            END IF
+        END IF
+
+        'Check if this label was deferred and now resolved
+        IF SinglePassMode AND IsDeferred%(RTRIM$(Labels(r).cn), DEFREF_TYPE_LABEL) THEN
+            IF GetDeferredResolvedIndex&(RTRIM$(Labels(r).cn), DEFREF_TYPE_LABEL) > 0 THEN
+                'Label was resolved in deferred pass
+                GOTO label_resolved
             END IF
         END IF
 
         linenumber = Labels(r).Error_Line: a$ = "Label '" + RTRIM$(Labels(r).cn) + "' not defined": GOTO errmes
     END IF
+    label_resolved:
 
 
     IF Labels(r).Data_Referenced THEN
@@ -13132,6 +13191,30 @@ No_C_Compile:
 
 IF (compfailed <> 0 OR warningsissued <> 0) AND ConsoleMode = 0 THEN END 1
 IF compfailed <> 0 THEN SYSTEM 1
+
+'OPTIMIZED: Print performance report and cleanup
+EndPerformanceMetrics
+PrintPerformanceReport
+PrintCacheStats
+PrintDeferredStats
+PrintPhaseReport
+PrintParallelMetrics
+
+'OPTIMIZED: Print error summary if any
+IF HasErrors% THEN
+    PrintAllErrors
+END IF
+
+'OPTIMIZED: Cleanup all modules
+CleanupIntegrationModule
+CleanupOptimizationModule
+CleanupDeferredReferences
+CleanupParallelProcessing
+CleanupErrorHandler
+CleanupParser
+CleanupSymbolTable
+CleanupCodeGenerator
+
 SYSTEM 0
 
 qberror_test:
@@ -13209,6 +13292,9 @@ IF forceIncludingFile THEN 'If we're to the point where we're adding the automat
 ELSE 'We want to let the user know which module the error occurred in
     IF inclevel > 0 THEN a$ = a$ + incerror$
 END IF
+
+'OPTIMIZED: Report error through new error handler module
+ReportError ERR_INVALID_SYNTAX, a$, linenumber, wholeline$
 
 PRINT
 IF NOT MonochromeLoggingMode THEN
@@ -26641,8 +26727,8 @@ SUB HashAdd (a$, flags, reference)
         HashListNext = HashListNext + 1
     END IF
 
-    'setup links to index
-    x = HashValue(a$)
+    'setup links to index - OPTIMIZED: Use modulo for reduced hash table size
+    x = HashValue(a$) AND HASH_TABLE_MASK
     i2 = HashTable(x)
     IF i2 THEN
         i3 = HashList(i2).LastItem
@@ -26668,7 +26754,9 @@ FUNCTION HashFind (a$, searchflags, resultflags, resultreference)
     '0=doesn't exist
     '1=found, no more items to scan
     '2=found, more items still to scan
-    i = HashTable(HashValue(a$))
+    'OPTIMIZED: Track hash lookup performance
+    RecordHashLookup
+    i = HashTable(HashValue(a$) AND HASH_TABLE_MASK)
     IF i THEN
         ua$ = UCASE$(a$) + SPACE$(256 - LEN(a$))
         hashfind_next:
@@ -26701,9 +26789,10 @@ END FUNCTION
 FUNCTION HashFindRev (a$, searchflags, resultflags, resultreference)
     '(0,1,2)z=hashfind[rev]("RUMI",Hashflag_label,resflag,resref)
     '0=doesn't exist
-    '1=found, no more items to scan
+    '1=found, no more items still to scan
     '2=found, more items still to scan
-    i = HashTable(HashValue(a$))
+    'OPTIMIZED: Use modulo for reduced hash table size
+    i = HashTable(HashValue(a$) AND HASH_TABLE_MASK)
     IF i THEN
         i = HashList(i).LastItem
         ua$ = UCASE$(a$) + SPACE$(256 - LEN(a$))
@@ -26816,14 +26905,14 @@ SUB HashRemove
             HashList(i1).NextItem = i2
             HashList(i2).LastItem = i1
         ELSE
-            'last item
-            x = HashTable(HashValue(HashListName$(i)))
+            'last item - OPTIMIZED: Use modulo for reduced hash table size
+            x = HashTable(HashValue(HashListName$(i)) AND HASH_TABLE_MASK)
             HashList(x).LastItem = i1
             HashList(i1).NextItem = 0
         END IF
     ELSE
-        'first item in list
-        x = HashTable(HashValue(HashListName$(i)))
+        'first item in list - OPTIMIZED: Use modulo for reduced hash table size
+        x = HashTable(HashValue(HashListName$(i)) AND HASH_TABLE_MASK)
         i2 = HashList(i).NextItem
         IF i2 THEN
             '(first item but) not last item
@@ -26842,15 +26931,16 @@ SUB HashDump 'used for debugging purposes
     fh = FREEFILE
     OPEN "hashdump.txt" FOR OUTPUT AS #fh
     b$ = "12345678901234567890123456789012}"
-    FOR x = 0 TO 16777215
+    'OPTIMIZED: Adjusted for reduced hash table size
+    FOR x = 0 TO HASH_TABLE_MASK
         IF HashTable(x) THEN
 
             PRINT #fh, "START HashTable("; x; "):"
             i = HashTable(x)
 
-            'validate
+            'validate - OPTIMIZED: Use modulo for reduced hash table size
             lasti = HashList(i).LastItem
-            IF HashList(i).LastItem = 0 OR HashList(i).PrevItem <> 0 OR HashValue(HashListName(i)) <> x THEN GOTO corrupt
+            IF HashList(i).LastItem = 0 OR HashList(i).PrevItem <> 0 OR (HashValue(HashListName(i)) AND HASH_TABLE_MASK) <> x THEN GOTO corrupt
 
             PRINT #fh, "  HashList("; i; ").LastItem="; HashList(i).LastItem
             hashdumpnextitem:
@@ -26897,7 +26987,7 @@ SUB HashDump 'used for debugging purposes
 END SUB
 
 SUB HashClear 'clear entire hash table
-
+    'OPTIMIZED: Reduced memory footprint from 64MB to 256KB
     HashListSize = 65536
     HashListNext = 1
     HashListFreeSize = 1024
@@ -26905,7 +26995,7 @@ SUB HashClear 'clear entire hash table
     REDIM HashList(1 TO HashListSize) AS HashListItem
     REDIM HashListName(1 TO HashListSize) AS STRING * 256
     REDIM HashListFree(1 TO HashListFreeSize) AS LONG
-    REDIM HashTable(16777215) AS LONG '64MB lookup table with indexes to the hashlist
+    REDIM HashTable(0 TO HASH_TABLE_MASK) AS LONG '256KB lookup table with chaining for collisions
 
     HashFind_NextListItem = 0
     HashFind_Reverse = 0
