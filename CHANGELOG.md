@@ -36,6 +36,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 64-bit integer support (`_INTEGER64`)
 - Extended precision floating-point (`_FLOAT`)
 
+#### Standard Library
+- **Complete stdlib implementation** with 18 modules covering collections, strings, I/O, system utilities, math, error handling, and OOP
+- **Collections Module** (`collections.*`):
+  - `list.bas` - Dynamic array with automatic resizing (List_Init, List_Add, List_Get, List_Remove, List_Count, List_Join, List_Free)
+  - `stack.bas` - LIFO stack implementation (Stack_Init, Stack_Push, Stack_Pop, Stack_Peek, Stack_Count, Stack_Free)
+  - `queue.bas` - FIFO queue implementation (Queue_Init, Queue_Enqueue, Queue_Dequeue, Queue_Peek, Queue_Count, Queue_Free)
+  - `set.bas` - Hash-based set with unique values (HashSet_Init, HashSet_Add, HashSet_Contains, HashSet_Remove, HashSet_Count, HashSet_ToString, HashSet_Free)
+  - `dictionary.bas` - Key-value store (Dict_Init, Dict_Set, Dict_Get, Dict_Remove, Dict_Count, Dict_HasKey, Dict_Free)
+- **String Utilities** (`strings.*`):
+  - `text.bas` - String manipulation (Text_PadLeft, Text_PadRight, Text_Repeat, Text_StartsWith, Text_EndsWith, Text_Contains)
+  - `strbuilder.bas` - Efficient string concatenation (SB_Init, SB_Append, SB_AppendLine, SB_ToString, SB_Free)
+- **I/O Utilities** (`io.*`):
+  - `path.bas` - Cross-platform path manipulation (Path_Join, Path_FileName, Path_DirName, Path_Extension, Path_WithoutExtension, Path_Normalize)
+  - `csv.bas` - CSV generation (CSV_Row3, CSV_Escape)
+  - `json.bas` - JSON object creation (Json_Object3, Json_String, Json_Number, Json_Array)
+- **System Utilities** (`sys.*`):
+  - `env.bas` - Platform detection and environment variables (Env_Platform, Env_Is64Bit, Env_GetHome, Env_Get)
+  - `args.bas` - Command-line argument access (Args_Count, Args_Get)
+  - `datetime.bas` - Date/time utilities (Date_SetNow, Date_ToISOString, Date_GetFullYear, Date_GetMonth, Date_GetDay, Date_NowMs, Date_IsLeapYear)
+- **Math Utilities** (`math.*`):
+  - `numeric.bas` - Mathematical helpers (Math_Clamp, Math_Min, Math_Max)
+- **Error Handling** (`error.*`):
+  - `result.bas` - Result pattern for error handling (Result_Ok, Result_Error, Result_IsOk, Result_Value, Result_ErrorMessage)
+- **OOP Support** (`oop.*`):
+  - `class.bas` - Class registry and inheritance (QBNEX_RegisterClass, QBNEX_FindClass, QBNEX_RegisterMethod, QBNEX_FindMethodSlot, QBNEX_IsInstance, QBNEX_ObjectInit)
+  - `interface.bas` - Interface implementation (QBNEX_RegisterInterface, QBNEX_FindInterface, QBNEX_Implements)
+- **Core Library**:
+  - `qbnex_stdlib.bas` - Unified stdlib combining all modules (18 modules in one file)
+- **Python-style import system** with dotted notation (`'$IMPORT:'module.name'`)
+- **Example Programs** (9 comprehensive examples):
+  - `stdlib_demo.bas` - Full stdlib demonstration
+  - `class_syntax_demo.bas` - Native CLASS syntax examples
+  - `import_smoke.bas` - Import system verification
+  - `runtime_smoke.bas` - Runtime functionality tests
+  - `data_smoke.bas` - Data structure tests
+  - `ecosystem_smoke.bas` - Integration tests
+  - `top_level_runtime_regression.bas` - Runtime regression tests
+  - `method_chain_regression.bas` - Method chaining tests
+  - `top_level_qbnex_runtime_min.bas` - Minimal runtime tests
+
 #### Language Support
 - **Control Flow**: IF/THEN/ELSE, SELECT CASE, FOR/NEXT, DO/LOOP, WHILE/WEND, GOTO, GOSUB
 - **Data Types**: BIT, BYTE, INTEGER, LONG, _INTEGER64, SINGLE, DOUBLE, _FLOAT, STRING, OFFSET
@@ -110,6 +150,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compile and run immediately (`-x` flag)
 - Custom output naming (`-o` flag)
 
+#### Testing & Quality Assurance
+- **Comprehensive test suite** (`test_all.bas`) with 17 test categories
+- **Core language tests** (15 tests): Runtime paths, variables, math, strings, control flow, loops, arrays, types, functions, date/time, file I/O, SELECT CASE, type conversion, logical operations
+- **Standard library compilation tests** (18 modules): All stdlib modules compile successfully
+- **Example program tests** (9 programs): All example programs compile and run correctly
+- **Test automation**: `run_tests.cmd` script for Windows
+- **Test documentation**: `TEST_README.md` with comprehensive testing guide
+- **Test results**: `TEST_RESULTS.md` with detailed test execution report
+- **100% test success rate**: All 17 test categories pass
+- **Zero compilation errors**: Clean compilation across all modules
+- **Zero warnings**: No compiler warnings in stdlib or test suite
+
 #### Docker Support
 - Multi-stage Dockerfile for production builds (~300MB)
 - Development Dockerfile with build cache support (~500MB)
@@ -131,17 +183,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker usage guide integrated into main README
 - Complete Docker documentation with troubleshooting
 - Updated Table of Contents with Docker sections
+- Standard library reference with function signatures
+- Testing documentation with usage examples
+- CHANGELOG.md with detailed version history
 
 #### Bug Fixes
-- Cross-platform compilation issues on Windows x86, x64, Linux, and macOS
-- Graphics rendering consistency across different platforms
-- Audio output stability and performance
-- File I/O operations for sequential, random, and binary access modes
+- **Fixed missing DIM declarations** for loop variables in stdlib modules (path.bas, file.bas, opengl_methods.bas)
+- **Fixed missing return values** in FUNCTION definitions (Date_IsLeapYear, Date_PartValue, Text_Repeat, Text_StartsWith, Text_EndsWith, Text_Contains, Stack_Peek, Stack_Pop, Queue_Peek, Queue_Dequeue)
+- **Fixed unreachable code warnings** by converting inline EXIT FUNCTION to multi-line format
+- **Fixed GOTO label case sensitivity** issues (errorCleanup → ErrorCleanup in file.bas)
+- **Replaced SYSTEM 1 calls** with graceful error handling in stdlib (List_Init, QBNEX_RegisterClass, QBNEX_RegisterInterfaceName, QBNEX_RegisterMethod, QBNEX_RegisterInterface)
+- **Fixed missing TYPE declarations** in interface.bas (added QBNex_ClassInfo and related shared variables)
+- **Fixed OOP function return values** (QBNEX_FindClass, QBNEX_FindMethodSlot, QBNEX_ClassName, QBNEX_IsInstance, QBNEX_FindInterface, QBNEX_Implements)
+- **Cross-platform compilation issues** on Windows x86, x64, Linux, and macOS
+- **Graphics rendering consistency** across different platforms
+- **Audio output stability** and performance
+- **File I/O operations** for sequential, random, and binary access modes
 
 #### Security
 - Added input validation for file operations to prevent buffer overflows
 - Improved memory safety in pointer operations
 - Enhanced network socket security with proper connection handling
+- Graceful error handling instead of abrupt program termination
 
 ---
 

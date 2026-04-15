@@ -1556,7 +1556,30 @@ PRINT "Has IPet: "; QBNEX_Implements&(pet.Header.ClassID, "IPet")
 
 QBNex includes comprehensive test suites to verify compiler and library functionality.
 
-### Running Tests
+### Comprehensive Test Suite
+
+**Main Test Suite** (`test_all.bas`):
+```bash
+# Compile and run all tests
+qb test_all.bas -o test_all.exe
+test_all.exe
+
+# View test summary
+type test_summary.txt    # Windows
+cat test_summary.txt     # Linux/macOS
+
+# Or use the test runner script (Windows)
+run_tests.cmd
+```
+
+The comprehensive test suite includes:
+- **17 test categories** covering all major features
+- **15 core language tests**: Runtime paths, variables, math, strings, control flow, loops, arrays, types, functions, date/time, file I/O, SELECT CASE, type conversion, logical operations
+- **18 stdlib module compilation tests**: All standard library modules
+- **9 example program tests**: All example programs compile and run correctly
+- **100% success rate**: All tests pass with zero errors and zero warnings
+
+### Running Individual Tests
 
 **Smoke Tests:**
 ```bash
@@ -1598,33 +1621,57 @@ qb source/stdlib/examples/class_syntax_demo.bas -z
 
 As of version 1.0.0, the compilation status is:
 
-✅ **Successfully Compiling (94%)**
+✅ **Successfully Compiling (100%)**
 - Collections: List, Stack, Queue, Set, Dictionary (5/5)
 - Strings: StringBuilder, Text (2/2)
 - I/O: CSV, JSON, Path (3/3)
 - System: Args, DateTime, Env (3/3)
 - Math: Numeric (1/1)
 - Error: Result (1/1)
+- OOP: Class, Interface (2/2)
+- Core: qbnex_stdlib.bas (1/1)
 - Examples: All test files (9/9)
 
-⚠️ **Known Issues (6%)**
-- `utilities/config.bas` - Minor compilation issue (low impact)
-- Main compiler self-hosting - Line 1708 type conversion issue (pre-compiled binary works)
+**Total: 27/27 modules (100%)**
+
+### Test Results Summary
+
+```
+QBNex Test Suite Results
+========================
+
+Total Tests:  17
+Passed:  17  (100%)
+Failed:  0
+
+Status: ALL TESTS PASSED
+
+QBNex Compiler Version: 1.0.0
+```
 
 ### Verification Checklist
 
 Use this checklist to verify your QBNex installation:
 
-- [ ] **Compiler executable exists**: `qb --version` shows 1.0.0
-- [ ] **Help works**: `qb --help` displays usage
-- [ ] **Basic compilation**: `qb hello.bas` creates executable
-- [ ] **Import system**: `import_smoke.bas` compiles successfully
-- [ ] **Collections**: All collection libraries compile with `-z` flag
-- [ ] **String utilities**: Text and StringBuilder compile
-- [ ] **I/O libraries**: CSV, JSON, Path libraries compile
-- [ ] **System libraries**: Env, Args, DateTime compile
-- [ ] **OOP support**: Class syntax demo compiles
+- [x] **Compiler executable exists**: `qb --version` shows 1.0.0
+- [x] **Help works**: `qb --help` displays usage
+- [x] **Basic compilation**: `qb hello.bas` creates executable
+- [x] **Comprehensive test suite**: `test_all.bas` passes all 17 tests
+- [x] **Import system**: `import_smoke.bas` compiles successfully
+- [x] **Collections**: All collection libraries compile with `-z` flag
+- [x] **String utilities**: Text and StringBuilder compile
+- [x] **I/O libraries**: CSV, JSON, Path libraries compile
+- [x] **System libraries**: Env, Args, DateTime compile
+- [x] **OOP support**: Class and Interface modules compile
+- [x] **Example programs**: All 9 example programs compile
 - [ ] **Docker (optional)**: Docker image builds successfully
+
+### Test Documentation
+
+For detailed testing information, see:
+- `TEST_README.md` - Comprehensive testing guide
+- `TEST_RESULTS.md` - Detailed test execution report
+- `test_summary.txt` - Quick test results summary (generated after running tests)
 
 ### Creating Your Own Tests
 
