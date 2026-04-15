@@ -47,7 +47,13 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'utils\error_handler.bas'
 '$INCLUDE:'tests\test_framework.bas'
 '$INCLUDE:'tests\regression_tests.bas'
+'=== QBNex Standard Library (QBasic + Modern Syntax) ===
+'$INCLUDE:'stdlib\net\http_client.bas'
+'$INCLUDE:'stdlib\net\http_server.bas'
+'$INCLUDE:'stdlib\json.bas'
+'$INCLUDE:'stdlib\url.bas'
 '$INCLUDE:'compiler\main.bas'
+'$INCLUDE:'compiler\modern_syntax.bas'
 '$INCLUDE:'compiler\parser.bas'
 '$INCLUDE:'compiler\symbol_table.bas'
 '$INCLUDE:'compiler\code_generator.bas'
@@ -135,6 +141,12 @@ InitJITCompilation
 InitStateManagement
 InitTestFramework
 InitRegressionTests
+
+'QBNex Standard Library
+Stdlib_Init
+
+'QBasic-Modern Syntax Support
+ModernSyntax_Init
 
 SetVerboseMode -1  ' Enable verbose mode for detailed error messages
 SetMaxErrors 100
@@ -13323,32 +13335,25 @@ ELSE 'We want to let the user know which module the error occurred in
     IF inclevel > 0 THEN a$ = a$ + incerror$
 END IF
 
-'OPTIMIZED: Report error through new error handler module
-ReportError ERR_INVALID_SYNTAX, a$, linenumber, wholeline$
+'OPTIMIZED: Report error through new error handler module with enhanced details
+'Build context string with line fragment info
+DIM fullContext AS STRING
+fullContext = wholeline$
 
-PRINT
-IF NOT MonochromeLoggingMode THEN
-    IF INSTR(_OS$, "WIN") THEN
-        COLOR 4
-    ELSE
-        COLOR 9
-    END IF
-END IF
-PRINT a$
-IF NOT MonochromeLoggingMode THEN COLOR 7
+'Preprocess special characters in context for display
 FOR i = 1 TO LEN(linefragment)
     IF MID$(linefragment, i, 1) = sp$ THEN MID$(linefragment, i, 1) = " "
 NEXT
 FOR i = 1 TO LEN(wholeline)
     IF MID$(wholeline, i, 1) = sp$ THEN MID$(wholeline, i, 1) = " "
 NEXT
-PRINT "Caused by (or after):" + linefragment
-IF NOT MonochromeLoggingMode THEN COLOR 8
-PRINT "LINE ";
-IF NOT MonochromeLoggingMode THEN COLOR 15
-PRINT str2(linenumber) + ":";
-IF NOT MonochromeLoggingMode THEN COLOR 7
-PRINT wholeline
+
+ReportError ERR_INVALID_SYNTAX, a$, linenumber, fullContext
+
+'Print legacy error format below enhanced report
+PRINT
+PRINT "Additional Info:"
+PRINT "Caused by (or after): " + linefragment
 
 IF ConsoleMode THEN SYSTEM 1
 END 1
@@ -25681,6 +25686,28 @@ SUB lineinput3load (f$)
     GET #1, , lineinput3buffer$
     IF LEN(lineinput3buffer$) THEN IF RIGHT$(lineinput3buffer$, 1) = CHR$(26) THEN lineinput3buffer$ = LEFT$(lineinput3buffer$, LEN(lineinput3buffer$) - 1)
     CLOSE #1
+    
+    ' Check for and handle UTF-8 BOM (EF BB BF = 239 187 191)
+    IF LEN(lineinput3buffer$) >= 3 THEN
+        IF ASC(lineinput3buffer$, 1) = 239 AND ASC(lineinput3buffer$, 2) = 187 AND ASC(lineinput3buffer$, 3) = 191 THEN
+            ' Skip UTF-8 BOM
+            lineinput3buffer$ = MID$(lineinput3buffer$, 4)
+        END IF
+    END IF
+    
+    ' Check for UTF-16 BOM (not supported - warn user)
+    IF LEN(lineinput3buffer$) >= 2 THEN
+        IF ASC(lineinput3buffer$, 1) = 255 AND ASC(lineinput3buffer$, 2) = 254 THEN
+            ' UTF-16 LE - report encoding error
+            ReportError ERR_ENCODING_ISSUE, "UTF-16 LE encoding detected. Please convert file to UTF-8", 1, ""
+            lineinput3buffer$ = ""
+        ELSEIF ASC(lineinput3buffer$, 1) = 254 AND ASC(lineinput3buffer$, 2) = 255 THEN
+            ' UTF-16 BE - report encoding error  
+            ReportError ERR_ENCODING_ISSUE, "UTF-16 BE encoding detected. Please convert file to UTF-8", 1, ""
+            lineinput3buffer$ = ""
+        END IF
+    END IF
+    
     lineinput3index = 1
 END SUB
 

@@ -81,11 +81,13 @@ Repository: https://github.com/thirawat27/QBNex
 ## Features
 
 - **Comprehensive Language Support**
-  - Full support for classic QBasic/QB4.5 syntax
+  - Full support for classic QBasic/QB4.5 syntax (100% backward compatible)
+  - Modern extended syntax: `IMPORT module`, `x += 1`, `# comments`
+  - AS TYPE syntax: `FUNCTION name AS STRING` instead of `FUNCTION name$`
   - User-defined types (TYPE...END TYPE) with nested structures
   - Subroutines and functions with parameters
   - Multi-dimensional arrays with REDIM PRESERVE
-  - Root-based standard library imports via `'$IMPORT:'module.name'`
+  - Standard library imports via `IMPORT module` or `'$IMPORT:'module.name'`
   - 150+ QBasic/QB64 keywords and functions
   - Extended data types: BIT, BYTE, _INTEGER64, _FLOAT, OFFSET (pointers)
   - Unsigned integer types (UNSIGNED BYTE, UNSIGNED INTEGER, UNSIGNED LONG, UNSIGNED _INTEGER64)
@@ -482,7 +484,25 @@ DebugInfo=false
 
 ### Standard Library Imports
 
-QBNex supports Python-style dotted module imports for the bundled standard library:
+QBNex supports both traditional and modern import syntax for the bundled standard library:
+
+**Modern Syntax (Recommended):**
+```basic
+' Modern import syntax - cleaner and easier to read
+IMPORT qbnex
+IMPORT net.http
+IMPORT json
+IMPORT url
+```
+
+**Traditional Syntax (Still Supported):**
+```basic
+' Traditional import syntax
+'$IMPORT:'qbnex'
+'$IMPORT:'net.http'
+'$IMPORT:'json'
+'$IMPORT:'url'
+```
 
 **Basic Import Syntax:**
 ```basic
@@ -531,26 +551,60 @@ CLASS Dog
 END CLASS
 ```
 
+**Modern QBNex Syntax (QBasic + Extended):**
+
+QBNex now supports a modern, cleaner syntax while maintaining full backward compatibility with traditional QBasic:
+
+| Feature | Modern Syntax | Traditional Syntax | Description |
+|---------|--------------|-------------------|-------------|
+| Import | `IMPORT module` | `'$IMPORT:'module'` | Import stdlib modules |
+| Function Type | `FUNCTION name AS STRING` | `FUNCTION name$` | AS TYPE syntax |
+| Short Function | `FUNC name()` | `FUNCTION name()` | Shorter declaration |
+| Single-line Func | `DEF name(x) = x*2` | `FUNCTION...END FUNCTION` | Lambda-like syntax |
+| Augmented Assign | `x += 1` | `x = x + 1` | += -= *= /= operators |
+| Alternative Comment | `# comment` | `' comment` | # for comments |
+
+**Modern API Examples:**
+
+```basic
+# Import standard library
+IMPORT qbnex
+
+# HTTP requests - clean function names
+result = get("http://api.example.com")
+data = post("http://api.example.com/api", jsonData)
+
+# JSON handling
+json = json_parse("{""name"": ""John""}")
+name = json_get_str(json)
+output = json_string(json)
+
+# URL encoding/decoding
+encoded = encode("hello world")
+decoded = decode(encoded)
+
+# Create web server
+s = server(8080)
+route_get s, "/", handler_index
+route_post s, "/api", handler_api
+listen s
+
+# Augmented assignment (like other modern languages)
+count += 1      # count = count + 1
+total -= 5      # total = total - 5
+value *= 2      # value = value * 2
+average /= n    # average = average / n
+```
+
 **Available Standard Library Modules:**
 
-| Module | Import Path | Description |
+| Module | Modern Import | Description |
 |--------|-------------|-------------|
-| QBNex Core | `'$IMPORT:'qbnex'` | Full stdlib core with OOP support |
-| List | `'$IMPORT:'collections.list'` | Dynamic array list |
-| Stack | `'$IMPORT:'collections.stack'` | LIFO stack |
-| Queue | `'$IMPORT:'collections.queue'` | FIFO queue |
-| Set | `'$IMPORT:'collections.set'` | Hash set |
-| Dictionary | `'$IMPORT:'collections.dictionary'` | Key-value store |
-| StringBuilder | `'$IMPORT:'strings.strbuilder'` | String builder |
-| Text | `'$IMPORT:'strings.text'` | Text utilities |
-| Environment | `'$IMPORT:'sys.env'` | Platform detection, env vars |
-| Args | `'$IMPORT:'sys.args'` | Command-line arguments |
-| DateTime | `'$IMPORT:'sys.datetime'` | Date/time utilities |
-| Path | `'$IMPORT:'io.path'` | Path manipulation |
-| CSV | `'$IMPORT:'io.csv'` | CSV parsing/generation |
-| JSON | `'$IMPORT:'io.json'` | JSON generation |
-| Numeric | `'$IMPORT:'math.numeric'` | Math utilities |
-| Result | `'$IMPORT:'error.result'` | Error handling |
+| QBNex Core | `IMPORT qbnex` | Full stdlib with HTTP, JSON, URL |
+| HTTP Client | `IMPORT net.http` | get, post, put, delete, fetch |
+| HTTP Server | Built-in | server, route_get, route_post, listen |
+| JSON | Built-in | json_parse, json_string, json_obj, json_array |
+| URL | Built-in | encode, decode, url_parse, path_join |
 
 ### Working with Modules
 
