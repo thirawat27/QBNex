@@ -2844,6 +2844,7 @@ img_struct *img=(img_struct*)malloc(IMG_BUFFERSIZE*sizeof(img_struct));
 int32 nimg=IMG_BUFFERSIZE;
 int32 nextimg=0;
 static std::vector<std::vector<std::string>> qb_text_utf8_cells(IMG_BUFFERSIZE);
+static std::vector<std::vector<uint8>> qb_text_utf8_cell_state(IMG_BUFFERSIZE);
 
 static int32 qb_img_index(const img_struct *im){
     if (!im || !img) return -1;
@@ -2853,22 +2854,29 @@ static int32 qb_img_index(const img_struct *im){
 static void qb_init_text_utf8_cells(int32 image_index){
     if (image_index < 0 || image_index >= nimg) return;
     if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) qb_text_utf8_cells.resize(nimg);
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state.resize(nimg);
     if (!img[image_index].text){
         qb_text_utf8_cells[image_index].clear();
+        qb_text_utf8_cell_state[image_index].clear();
         return;
     }
     qb_text_utf8_cells[image_index].assign(static_cast<size_t>(img[image_index].width) * img[image_index].height, std::string());
+    qb_text_utf8_cell_state[image_index].assign(static_cast<size_t>(img[image_index].width) * img[image_index].height, 0);
 }
 
 static void qb_clear_text_utf8_cells_range(int32 image_index,int32 first_cell,int32 cell_count){
     if (image_index < 0 || image_index >= nimg) return;
     if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
     std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
     if (cells.empty() || cell_count <= 0) return;
     if (first_cell < 0) first_cell=0;
     int32 end_cell=first_cell+cell_count;
     if (end_cell > static_cast<int32>(cells.size())) end_cell=static_cast<int32>(cells.size());
-    for (int32 i=first_cell;i<end_cell;i++) cells[i].clear();
+    for (int32 i=first_cell;i<end_cell;i++){
+        cells[i].clear();
+        cell_state[i]=0;
+    }
 }
 
 static int32 qb_text_page_has_utf8_content(int32 image_index){
@@ -2967,6 +2975,19 @@ static int32 qb_is_zero_width_codepoint(uint32 codepoint){
     return 0;
 }
 
+static int32 qb_is_wide_codepoint(uint32 codepoint){
+    if ((codepoint >= 0x1100 && codepoint <= 0x115F) ||
+        (codepoint >= 0x2329 && codepoint <= 0x232A) ||
+        (codepoint >= 0x2E80 && codepoint <= 0xA4CF && codepoint != 0x303F) ||
+        (codepoint >= 0xAC00 && codepoint <= 0xD7A3) ||
+        (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
+        (codepoint >= 0xFE10 && codepoint <= 0xFE19) ||
+        (codepoint >= 0xFE30 && codepoint <= 0xFE6F) ||
+        (codepoint >= 0xFF01 && codepoint <= 0xFF60) ||
+        (codepoint >= 0xFFE0 && codepoint <= 0xFFE6)) return -1;
+    return 0;
+}
+
 static uint8 qb_unicode_to_screen_byte(uint32 character){
     if (character <= 0x7F) return static_cast<uint8>(character);
     const uint32 mapped=unicode_to_cp437(character);
@@ -2974,16 +2995,67 @@ static uint8 qb_unicode_to_screen_byte(uint32 character){
     return '?';
 }
 
-static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character){
+static void qb_normalize_text_cell_state(int32 image_index,int32 cell_index){
+    if (image_index < 0 || image_index >= nimg) return;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
+    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
+    if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return;
+
+    if (cell_state[cell_index] == 3 && cell_index > 0 && cell_state[cell_index - 1] == 2){
+        cells[cell_index - 1].clear();
+        cell_state[cell_index - 1]=0;
+    }
+    if (cell_state[cell_index] == 2 && cell_index + 1 < static_cast<int32>(cells.size()) && cell_state[cell_index + 1] == 3){
+        cells[cell_index + 1].clear();
+        cell_state[cell_index + 1]=0;
+    }
+
+    cells[cell_index].clear();
+    cell_state[cell_index]=0;
+}
+
+static int32 qb_text_cluster_start(int32 image_index,int32 cell_index){
+    if (image_index < 0 || image_index >= nimg) return cell_index;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return cell_index;
+    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
+    if (cell_index < 0 || cell_index >= static_cast<int32>(cell_state.size())) return cell_index;
+    if (cell_state[cell_index] == 3 && cell_index > 0) return cell_index - 1;
+    return cell_index;
+}
+
+static int32 qb_text_cell_span(int32 image_index,int32 cell_index){
+    if (image_index < 0 || image_index >= nimg) return 1;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 1;
+    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
+    if (cell_index < 0 || cell_index >= static_cast<int32>(cell_state.size())) return 1;
+    if (cell_state[cell_index] == 2) return 2;
+    if (cell_state[cell_index] == 3) return 0;
+    return 1;
+}
+
+static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character,int32 cell_span){
     const int32 image_index=qb_img_index(im);
     if (image_index < 0 || image_index >= nimg) return;
     if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
     std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
     if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return;
-    cells[cell_index].clear();
-    if (character <= 0x7F) return;
-    if (unicode_to_cp437(character)) return;
+
+    qb_normalize_text_cell_state(image_index,cell_index);
+    if (cell_span > 1 && cell_index + 1 < static_cast<int32>(cells.size())) qb_normalize_text_cell_state(image_index,cell_index + 1);
+
+    if (character <= 0x7F || unicode_to_cp437(character)){
+        cell_state[cell_index]=0;
+        return;
+    }
+
     qb_append_utf8_codepoint(cells[cell_index],character);
+    cell_state[cell_index]=(cell_span > 1) ? 2 : 1;
+    if (cell_span > 1 && cell_index + 1 < static_cast<int32>(cells.size())){
+        cells[cell_index + 1].clear();
+        cell_state[cell_index + 1]=3;
+    }
 }
 
 static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character){
@@ -2991,10 +3063,13 @@ static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 cha
     if (image_index < 0 || image_index >= nimg) return 0;
     if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 0;
     std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
+    cell_index=qb_text_cluster_start(image_index,cell_index);
     if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return 0;
     if (cells[cell_index].empty()){
         const uint8 raw_character=im->offset[cell_index<<1];
         if (raw_character != 32) qb_append_utf8_codepoint(cells[cell_index],codepage437_to_unicode16[raw_character]);
+        cell_state[cell_index]=1;
     }
     qb_append_utf8_codepoint(cells[cell_index],character);
     return 1;
@@ -3254,6 +3329,7 @@ int32 grow_img_registry(int32 required_slots){
     memset(&img[previous_capacity],0,(new_capacity-previous_capacity)*sizeof(img_struct));
     nimg=new_capacity;
     qb_text_utf8_cells.resize(new_capacity);
+    qb_text_utf8_cell_state.resize(new_capacity);
     refresh_selected_pages();
     return -1;
 }
@@ -3434,6 +3510,7 @@ int32 freeimg(uint32 i){
         free_mem_lock((mem_lock*)img[i].lock_offset);//untag
     }
     if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
+    if (i<qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state[i].clear();
     memset(&img[i],0,sizeof(img_struct));
     fimg.push_back(i);
     return 1;
@@ -3640,7 +3717,11 @@ int32 imgframe(uint8 *o,int32 x,int32 y,int32 bpp){
     im->top_row=1;
     if (bpp) im->bottom_row=(im->height/im->font); else im->bottom_row=im->height;
     im->bottom_row--; if (im->bottom_row<=0) im->bottom_row=1;
-    if (!bpp) qb_init_text_utf8_cells(i); else if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
+    if (!bpp) qb_init_text_utf8_cells(i);
+    else{
+        if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
+        if (i<qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state[i].clear();
+    }
     if (!bpp) return i;
     //graphics
     //clipping/scaling
@@ -10845,7 +10926,7 @@ int32 img_printchr_x;
 int32 img_printchr_y;
 char *img_printchr_offset;
 
-void printchr(int32 character){
+void printchr(int32 character,int32 cell_span){
     static uint32 x,x2,y,y2,w,h,z,z2,z3,a,a2,a3,color,background_color,f;
     static uint32 *lp;
     static uint8 *cp;
@@ -10860,7 +10941,11 @@ void printchr(int32 character){
         const int32 cell_index=(im->cursor_y-1)*im->width+im->cursor_x-1;
         im->offset[cell_index<<1]=qb_unicode_to_screen_byte(character);
         im->offset[(cell_index<<1)+1]=(color&0xF)+background_color*16+(color&16)*8;
-        qb_store_text_cell_utf8(im,cell_index,character);
+        if (cell_span > 1 && cell_index + 1 < im->width * im->height){
+            im->offset[(cell_index+1)<<1]=32;
+            im->offset[((cell_index+1)<<1)+1]=(color&0xF)+background_color*16+(color&16)*8;
+        }
+        qb_store_text_cell_utf8(im,cell_index,character,cell_span);
         return;
     }
     
@@ -11098,12 +11183,16 @@ void newline(){
                 const int32 image_index=qb_img_index(write_page);
                 if (image_index >= 0 && image_index < nimg && image_index < qb_text_utf8_cells.size()){
                     std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+                    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
                     if (!cells.empty()){
                         const int32 row_width=write_page->width;
                         const int32 dst=(write_page->top_row-1)*row_width;
                         const int32 src=write_page->top_row*row_width;
                         const int32 moved=(write_page->bottom_row-write_page->top_row)*row_width;
-                        for (int32 cell=0;cell<moved;cell++) cells[dst+cell]=cells[src+cell];
+                        for (int32 cell=0;cell<moved;cell++){
+                            cells[dst+cell]=cells[src+cell];
+                            cell_state[dst+cell]=cell_state[src+cell];
+                        }
                         qb_clear_text_utf8_cells_range(image_index,(write_page->bottom_row-1)*row_width,row_width);
                     }
                 }
@@ -11268,7 +11357,7 @@ int32 func__controlchr () {
 
 void qbs_print(qbs* str,int32 finish_on_new_line){
     if (new_error) return;
-    int32 i,i2,entered_new_line,x,x2,y,y2,z,z2,w;
+    int32 i,i2,entered_new_line,x,x2,y,y2,z,z2,w,cell_span;
     entered_new_line=0;
     static uint32 character;
     
@@ -11473,6 +11562,14 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
                 goto skip;
             }
         }
+
+        cell_span=1;
+        if (write_page->text && qb_is_wide_codepoint(character)) cell_span=2;
+        if (write_page->text && cell_span > 1){
+            if ((write_page->cursor_x + cell_span - 1) > write_page->width){
+                newline();
+            }
+        }
         
         //###check if character fits on line, if not move to next line
         //(only applies to non-fixed width fonts)
@@ -11485,7 +11582,7 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
         }
         
         //###print the character
-        printchr(character);
+        printchr(character,cell_span);
         
         //###advance lpos, begin new line if necessary
         if (lprint){
@@ -11500,7 +11597,7 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
         
         //###advance cursor
         if (fontwidth[write_page->font]){
-            write_page->cursor_x++;
+            write_page->cursor_x+=cell_span;
             }else{
             write_page->cursor_x+=w;
         }
@@ -19299,6 +19396,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }
             if (d->text && source_index < qb_text_utf8_cells.size() && i2 < qb_text_utf8_cells.size()){
                 qb_text_utf8_cells[i2]=qb_text_utf8_cells[source_index];
+                qb_text_utf8_cell_state[i2]=qb_text_utf8_cell_state[source_index];
             }
             //adjust flags
             if (d->flags&IMG_SCREEN)d->flags^=IMG_SCREEN;
@@ -28793,6 +28891,7 @@ void display(){
             static const std::string *cell_utf8;
             static int32 rendered_utf8;
             static int32 cell_index;
+            static int32 cell_span;
             
             static int32 f,f_pitch,f_width,f_height;//font info
             f=display_page->font; f_width=fontwidth[f]; f_height=fontheight[f];
@@ -28907,8 +29006,10 @@ void display(){
             cp=display_page->offset;//read from
             cp_last=screen_last;//written to for future comparisons
             std::vector<std::string> *text_utf8_cells=NULL;
+            std::vector<uint8> *text_utf8_cell_state=NULL;
             if (display_page_index >= 0 && display_page_index < qb_text_utf8_cells.size() && !qb_text_utf8_cells[display_page_index].empty()){
                 text_utf8_cells=&qb_text_utf8_cells[display_page_index];
+                text_utf8_cell_state=&qb_text_utf8_cell_state[display_page_index];
             }
             
             
@@ -28938,8 +29039,11 @@ void display(){
                             cantskip:
                             cp_last-=2; *cp_last=chr; cp_last++; *cp_last=col; cp_last++;
                             cell_utf8=NULL;
+                            cell_span=1;
                             if (text_utf8_cells){
                                 cell_index=y*display_page->width+x;
+                                cell_span=qb_text_cell_span(display_page_index,cell_index);
+                                if (cell_span == 0) goto skip;
                                 if (cell_index >= 0 && cell_index < static_cast<int32>(text_utf8_cells->size()) && !(*text_utf8_cells)[cell_index].empty()){
                                     cell_utf8=&((*text_utf8_cells)[cell_index]);
                                 }
@@ -28988,7 +29092,7 @@ void display(){
                             rendered_utf8=0;
                             if (cell_utf8){
                                 #ifdef QBNex_WINDOWS
-                                    rendered_utf8=qb_render_text_cell_windows(*cell_utf8,f_width,f_height,i2,i3,display_surface_offset+qbg_y_offset+y2*x_monitor+x2,x_monitor);
+                                    rendered_utf8=qb_render_text_cell_windows(*cell_utf8,f_width*cell_span,f_height,i2,i3,display_surface_offset+qbg_y_offset+y2*x_monitor+x2,x_monitor);
                                 #endif
                             }
                             if (!rendered_utf8){
