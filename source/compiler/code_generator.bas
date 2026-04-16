@@ -407,16 +407,22 @@ END SUB
 '-------------------------------------------------------------------------------
 
 SUB GeneratePrint (exprList AS STRING, isNewLine AS _BYTE)
+    EmitLine "{"
+    IncreaseIndent
+    EmitLine "std::ostringstream qbnex_print_stream;"
+    EmitLine "qbnex_print_stream << " + exprList + ";"
     IF isNewLine THEN
-        EmitLine "std::cout << " + exprList + " << std::endl;"
+        EmitLine "qb_print_string(qbnex_print_stream.str(), 1);"
     ELSE
-        EmitLine "std::cout << " + exprList + ";"
+        EmitLine "qb_print_string(qbnex_print_stream.str(), 0);"
     END IF
+    DecreaseIndent
+    EmitLine "}"
 END SUB
 
 SUB GenerateInput (prompt AS STRING, varList AS STRING)
     IF prompt <> "" THEN
-        EmitLine "std::cout << " + CppStringLiteral$(prompt) + ";"
+        EmitLine "qb_print_cstr(" + CppStringLiteral$(prompt) + ", 0);"
     END IF
     EmitLine "std::cin >> " + varList + ";"
 END SUB

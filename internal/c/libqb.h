@@ -24,6 +24,7 @@
     int32 func__printwidth(qbs*,int32,int32);
     void sub_cls(int32,uint32,int32);
     void qbs_print(qbs*,int32);
+    void qb_write_utf8(const char*,int32,int32);
     int32 func__copyimage(int32 i,int32 mode,int32 passed);
     int32 func__dest();
     int32 func__display();
@@ -68,6 +69,22 @@
     
     extern qbs *qbs_lcase(qbs *str);
     extern qbs *qbs_ucase(qbs *str);
+
+    inline void qb_print_string(const std::string& text, int32 finish_on_new_line) {
+        qb_write_utf8(text.c_str(), static_cast<int32>(text.size()), finish_on_new_line);
+    }
+
+    inline void qb_print_cstr(const char* text, int32 finish_on_new_line) {
+        qb_write_utf8(text, text ? static_cast<int32>(strlen(text)) : 0, finish_on_new_line);
+    }
+
+    template <typename T>
+    inline void qb_print_value(const T& value, int32 finish_on_new_line) {
+        std::ostringstream stream;
+        stream << value;
+        const std::string text = stream.str();
+        qb_write_utf8(text.c_str(), static_cast<int32>(text.size()), finish_on_new_line);
+    }
 
     using namespace std;
 #endif

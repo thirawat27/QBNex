@@ -31,6 +31,98 @@ static int32 consolemousey;
 static int32 consolebutton;
 int32 func__getconsoleinput(); //declare here, so we can use with SLEEP and END commands
 
+#ifdef QBNex_WINDOWS
+static UINT qb_console_original_input_cp = 0;
+static UINT qb_console_original_output_cp = 0;
+static int32 qb_console_utf8_initialized = 0;
+
+static int32 qb_is_console_handle(HANDLE handle) {
+    DWORD mode = 0;
+    if (handle == NULL || handle == INVALID_HANDLE_VALUE) return 0;
+    return GetConsoleMode(handle, &mode) != 0;
+}
+
+static void qb_init_windows_console_utf8() {
+    if (qb_console_utf8_initialized) return;
+    qb_console_utf8_initialized = 1;
+
+    qb_console_original_input_cp = GetConsoleCP();
+    qb_console_original_output_cp = GetConsoleOutputCP();
+
+    if (!qb_console_original_input_cp) qb_console_original_input_cp = GetACP();
+    if (!qb_console_original_output_cp) qb_console_original_output_cp = GetACP();
+
+    HANDLE stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (qb_is_console_handle(stdout_handle)) {
+        SetConsoleOutputCP(CP_UTF8);
+        DWORD output_mode = 0;
+        if (GetConsoleMode(stdout_handle, &output_mode)) {
+            SetConsoleMode(stdout_handle, output_mode | ENABLE_PROCESSED_OUTPUT);
+        }
+    }
+
+    HANDLE stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+    if (qb_is_console_handle(stdin_handle)) {
+        SetConsoleCP(CP_UTF8);
+    }
+}
+
+static int32 qb_multibyte_to_wide(const char* text, int32 len, UINT codepage, DWORD flags, std::wstring& out) {
+    int required;
+
+    out.clear();
+    if (!text || len <= 0) return 1;
+
+    required = MultiByteToWideChar(codepage, flags, text, len, NULL, 0);
+    if (required <= 0) return 0;
+
+    out.resize(required);
+    return MultiByteToWideChar(codepage, flags, text, len, &out[0], required) > 0;
+}
+#endif
+
+void qb_write_utf8(const char* text, int32 len, int32 finish_on_new_line) {
+    if (!text) len = 0;
+    if (len < 0 && text) len = static_cast<int32>(strlen(text));
+
+    #ifdef QBNex_WINDOWS
+    HANDLE stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (qb_is_console_handle(stdout_handle)) {
+        std::wstring wide_text;
+        DWORD written = 0;
+
+        qb_init_windows_console_utf8();
+
+        if (text && len > 0) {
+            if (!qb_multibyte_to_wide(text, len, CP_UTF8, MB_ERR_INVALID_CHARS, wide_text)) {
+                UINT fallback_codepage = qb_console_original_output_cp ? qb_console_original_output_cp : GetACP();
+                if (!qb_multibyte_to_wide(text, len, fallback_codepage, 0, wide_text)) {
+                    wide_text.clear();
+                }
+            }
+
+            if (!wide_text.empty()) {
+                WriteConsoleW(stdout_handle, wide_text.data(), static_cast<DWORD>(wide_text.size()), &written, NULL);
+            }
+        }
+
+        if (finish_on_new_line) {
+            static const wchar_t newline[] = L"\r\n";
+            WriteConsoleW(stdout_handle, newline, 2, &written, NULL);
+        }
+        return;
+    }
+    #endif
+
+    if (text && len > 0) {
+        fwrite(text, 1, len, stdout);
+    }
+    if (finish_on_new_line) {
+        fwrite("\n", 1, 1, stdout);
+    }
+    fflush(stdout);
+}
+
 //This next block used to be in common.cpp; put here until I can find a better
 //place for it (LC, 2018-01-05)
 
@@ -2079,6 +2171,20 @@ uint32 unicode_to_cp437(uint32 x){
     return 0;
 }
 
+static int32 qb_img_index(const img_struct *im);
+static void qb_init_text_utf8_cells(int32 image_index);
+static void qb_clear_text_utf8_cells_range(int32 image_index,int32 first_cell,int32 cell_count);
+static int32 qb_text_page_has_utf8_content(int32 image_index);
+static void qb_append_utf8_codepoint(std::string &out,uint32 codepoint);
+static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepoint);
+static int32 qb_is_zero_width_codepoint(uint32 codepoint);
+static uint8 qb_unicode_to_screen_byte(uint32 character);
+static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character);
+static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character);
+#ifdef QBNex_WINDOWS
+static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride);
+#endif
+
 uint32 *keyheld_buffer=(uint32*)malloc(1);
 uint32 *keyheld_bind_buffer=(uint32*)malloc(1);
 int32 keyheld_n=0;
@@ -2737,6 +2843,274 @@ std::vector<int32> page(1, 0);
 img_struct *img=(img_struct*)malloc(IMG_BUFFERSIZE*sizeof(img_struct));
 int32 nimg=IMG_BUFFERSIZE;
 int32 nextimg=0;
+static std::vector<std::vector<std::string>> qb_text_utf8_cells(IMG_BUFFERSIZE);
+
+static int32 qb_img_index(const img_struct *im){
+    if (!im || !img) return -1;
+    return static_cast<int32>(im - img);
+}
+
+static void qb_init_text_utf8_cells(int32 image_index){
+    if (image_index < 0 || image_index >= nimg) return;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) qb_text_utf8_cells.resize(nimg);
+    if (!img[image_index].text){
+        qb_text_utf8_cells[image_index].clear();
+        return;
+    }
+    qb_text_utf8_cells[image_index].assign(static_cast<size_t>(img[image_index].width) * img[image_index].height, std::string());
+}
+
+static void qb_clear_text_utf8_cells_range(int32 image_index,int32 first_cell,int32 cell_count){
+    if (image_index < 0 || image_index >= nimg) return;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
+    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    if (cells.empty() || cell_count <= 0) return;
+    if (first_cell < 0) first_cell=0;
+    int32 end_cell=first_cell+cell_count;
+    if (end_cell > static_cast<int32>(cells.size())) end_cell=static_cast<int32>(cells.size());
+    for (int32 i=first_cell;i<end_cell;i++) cells[i].clear();
+}
+
+static int32 qb_text_page_has_utf8_content(int32 image_index){
+    if (image_index < 0 || image_index >= nimg) return 0;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 0;
+    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    for (size_t i=0;i<cells.size();i++){
+        if (!cells[i].empty()) return -1;
+    }
+    return 0;
+}
+
+static void qb_append_utf8_codepoint(std::string &out,uint32 codepoint){
+    if (codepoint > 0x10FFFF) codepoint=0xFFFD;
+    if (codepoint <= 0x7F){
+        out.push_back(static_cast<char>(codepoint));
+        return;
+    }
+    if (codepoint <= 0x7FF){
+        out.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        return;
+    }
+    if (codepoint <= 0xFFFF){
+        out.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        return;
+    }
+    out.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+}
+
+static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepoint){
+    if (!text || len <= 0 || !codepoint) return 0;
+
+    const uint8 b0=text[0];
+    if (b0 < 0x80){
+        *codepoint=b0;
+        return 1;
+    }
+
+    if ((b0 >= 0xC2) && (b0 <= 0xDF) && len >= 2){
+        const uint8 b1=text[1];
+        if ((b1 & 0xC0) == 0x80){
+            *codepoint=((b0 & 0x1F) << 6) | (b1 & 0x3F);
+            return 2;
+        }
+    }
+
+    if ((b0 >= 0xE0) && (b0 <= 0xEF) && len >= 3){
+        const uint8 b1=text[1];
+        const uint8 b2=text[2];
+        if (((b1 & 0xC0) == 0x80) && ((b2 & 0xC0) == 0x80)){
+            uint32 value=((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+            if ((value >= 0x800) && !(value >= 0xD800 && value <= 0xDFFF)){
+                if (!((b0 == 0xE0) && (b1 < 0xA0)) && !((b0 == 0xED) && (b1 >= 0xA0))){
+                    *codepoint=value;
+                    return 3;
+                }
+            }
+        }
+    }
+
+    if ((b0 >= 0xF0) && (b0 <= 0xF4) && len >= 4){
+        const uint8 b1=text[1];
+        const uint8 b2=text[2];
+        const uint8 b3=text[3];
+        if (((b1 & 0xC0) == 0x80) && ((b2 & 0xC0) == 0x80) && ((b3 & 0xC0) == 0x80)){
+            uint32 value=((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+            if ((value >= 0x10000) && (value <= 0x10FFFF)){
+                if (!((b0 == 0xF0) && (b1 < 0x90)) && !((b0 == 0xF4) && (b1 > 0x8F))){
+                    *codepoint=value;
+                    return 4;
+                }
+            }
+        }
+    }
+
+    *codepoint=codepage437_to_unicode16[b0];
+    return 1;
+}
+
+static int32 qb_is_zero_width_codepoint(uint32 codepoint){
+    if ((codepoint >= 0x0300 && codepoint <= 0x036F) ||
+        (codepoint >= 0x1AB0 && codepoint <= 0x1AFF) ||
+        (codepoint >= 0x1DC0 && codepoint <= 0x1DFF) ||
+        (codepoint >= 0x20D0 && codepoint <= 0x20FF) ||
+        (codepoint >= 0xFE20 && codepoint <= 0xFE2F) ||
+        (codepoint >= 0xFE00 && codepoint <= 0xFE0F) ||
+        (codepoint >= 0xE0100 && codepoint <= 0xE01EF)) return -1;
+    if (codepoint == 0x0E31 || codepoint == 0x200C || codepoint == 0x200D || codepoint == 0xFEFF) return -1;
+    if ((codepoint >= 0x0E34 && codepoint <= 0x0E3A) || (codepoint >= 0x0E47 && codepoint <= 0x0E4E)) return -1;
+    return 0;
+}
+
+static uint8 qb_unicode_to_screen_byte(uint32 character){
+    if (character <= 0x7F) return static_cast<uint8>(character);
+    const uint32 mapped=unicode_to_cp437(character);
+    if (mapped <= 0xFF) return static_cast<uint8>(mapped);
+    return '?';
+}
+
+static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character){
+    const int32 image_index=qb_img_index(im);
+    if (image_index < 0 || image_index >= nimg) return;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
+    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return;
+    cells[cell_index].clear();
+    if (character <= 0x7F) return;
+    if (unicode_to_cp437(character)) return;
+    qb_append_utf8_codepoint(cells[cell_index],character);
+}
+
+static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character){
+    const int32 image_index=qb_img_index(im);
+    if (image_index < 0 || image_index >= nimg) return 0;
+    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 0;
+    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+    if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return 0;
+    if (cells[cell_index].empty()){
+        const uint8 raw_character=im->offset[cell_index<<1];
+        if (raw_character != 32) qb_append_utf8_codepoint(cells[cell_index],codepage437_to_unicode16[raw_character]);
+    }
+    qb_append_utf8_codepoint(cells[cell_index],character);
+    return 1;
+}
+
+#ifdef QBNex_WINDOWS
+static HDC qb_textmode_gdi_dc=NULL;
+static HBITMAP qb_textmode_gdi_bitmap=NULL;
+static HGDIOBJ qb_textmode_gdi_previous_bitmap=NULL;
+static uint32 *qb_textmode_gdi_pixels=NULL;
+static int32 qb_textmode_gdi_bitmap_width=0;
+static int32 qb_textmode_gdi_bitmap_height=0;
+static HFONT qb_textmode_gdi_fonts[4][3]={{NULL}};
+
+static int32 qb_get_textmode_gdi_script_slot(uint32 codepoint){
+    if (codepoint >= 0x0E00 && codepoint <= 0x0E7F) return 1;
+    if ((codepoint >= 0x3040 && codepoint <= 0x30FF) || (codepoint >= 0x3000 && codepoint <= 0x303F) || (codepoint >= 0x4E00 && codepoint <= 0x9FFF)) return 2;
+    if ((codepoint >= 0x1100 && codepoint <= 0x11FF) || (codepoint >= 0x3130 && codepoint <= 0x318F) || (codepoint >= 0xAC00 && codepoint <= 0xD7AF)) return 3;
+    return 0;
+}
+
+static HFONT qb_get_textmode_gdi_font(uint32 codepoint,int32 cell_width,int32 cell_height){
+    static const wchar_t *faces[4]={L"Segoe UI",L"Leelawadee UI",L"MS Gothic",L"Malgun Gothic"};
+    const int32 script_slot=qb_get_textmode_gdi_script_slot(codepoint);
+    int32 height_slot=2;
+    if (cell_height <= 8) height_slot=0;
+    else if (cell_height <= 14) height_slot=1;
+    HFONT *slot=&qb_textmode_gdi_fonts[script_slot][height_slot];
+    if (*slot) return *slot;
+
+    int32 requested_height=cell_height;
+    if ((script_slot == 2 || script_slot == 3) && requested_height > 8) requested_height--;
+
+    *slot=CreateFontW(
+        -requested_height,
+        0,
+        0,
+        0,
+        FW_NORMAL,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_OUTLINE_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        faces[script_slot]
+    );
+    return *slot;
+}
+
+static int32 qb_prepare_textmode_gdi_bitmap(int32 cell_width,int32 cell_height){
+    if (!qb_textmode_gdi_dc) qb_textmode_gdi_dc=CreateCompatibleDC(NULL);
+    if (!qb_textmode_gdi_dc) return 0;
+    if (cell_width <= qb_textmode_gdi_bitmap_width && cell_height <= qb_textmode_gdi_bitmap_height && qb_textmode_gdi_pixels) return -1;
+
+    if (qb_textmode_gdi_bitmap){
+        SelectObject(qb_textmode_gdi_dc,qb_textmode_gdi_previous_bitmap);
+        DeleteObject(qb_textmode_gdi_bitmap);
+        qb_textmode_gdi_bitmap=NULL;
+        qb_textmode_gdi_pixels=NULL;
+        qb_textmode_gdi_bitmap_width=0;
+        qb_textmode_gdi_bitmap_height=0;
+    }
+
+    BITMAPINFO bitmap_info;
+    ZeroMemory(&bitmap_info,sizeof(bitmap_info));
+    bitmap_info.bmiHeader.biSize=sizeof(bitmap_info.bmiHeader);
+    bitmap_info.bmiHeader.biWidth=cell_width;
+    bitmap_info.bmiHeader.biHeight=-cell_height;
+    bitmap_info.bmiHeader.biPlanes=1;
+    bitmap_info.bmiHeader.biBitCount=32;
+    bitmap_info.bmiHeader.biCompression=BI_RGB;
+
+    void *bitmap_pixels=NULL;
+    qb_textmode_gdi_bitmap=CreateDIBSection(qb_textmode_gdi_dc,&bitmap_info,DIB_RGB_COLORS,&bitmap_pixels,NULL,0);
+    if (!qb_textmode_gdi_bitmap || !bitmap_pixels) return 0;
+
+    qb_textmode_gdi_previous_bitmap=SelectObject(qb_textmode_gdi_dc,qb_textmode_gdi_bitmap);
+    qb_textmode_gdi_pixels=(uint32*)bitmap_pixels;
+    qb_textmode_gdi_bitmap_width=cell_width;
+    qb_textmode_gdi_bitmap_height=cell_height;
+    SetTextAlign(qb_textmode_gdi_dc,TA_LEFT | TA_TOP);
+    return -1;
+}
+
+static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride){
+    if (utf8.empty() || !dest || cell_width <= 0 || cell_height <= 0) return 0;
+    if (!qb_prepare_textmode_gdi_bitmap(cell_width,cell_height)) return 0;
+
+    std::wstring wide_text;
+    if (!qb_multibyte_to_wide(utf8.data(),static_cast<int32>(utf8.size()),CP_UTF8,0,wide_text) || wide_text.empty()) return 0;
+
+    RECT draw_rect={0,0,cell_width,cell_height};
+    HBRUSH background_brush=CreateSolidBrush(RGB((background_color>>16)&255,(background_color>>8)&255,background_color&255));
+    FillRect(qb_textmode_gdi_dc,&draw_rect,background_brush);
+    DeleteObject(background_brush);
+
+    HFONT font_handle=qb_get_textmode_gdi_font(static_cast<uint32>(wide_text[0]),cell_width,cell_height);
+    HGDIOBJ previous_font=NULL;
+    if (font_handle) previous_font=SelectObject(qb_textmode_gdi_dc,font_handle);
+    SetTextColor(qb_textmode_gdi_dc,RGB((foreground_color>>16)&255,(foreground_color>>8)&255,foreground_color&255));
+    SetBkMode(qb_textmode_gdi_dc,TRANSPARENT);
+    DrawTextW(qb_textmode_gdi_dc,wide_text.c_str(),static_cast<int32>(wide_text.size()),&draw_rect,DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    if (previous_font) SelectObject(qb_textmode_gdi_dc,previous_font);
+
+    for (int32 y=0;y<cell_height;y++){
+        uint32 *src=qb_textmode_gdi_pixels+y*qb_textmode_gdi_bitmap_width;
+        uint32 *dst=dest+y*dest_stride;
+        for (int32 x=0;x<cell_width;x++) dst[x]=src[x];
+    }
+
+    return -1;
+}
+#endif
 
 std::vector<uint32> fimg;//a list to recover freed indexes
 
@@ -2879,6 +3253,7 @@ int32 grow_img_registry(int32 required_slots){
     img=resized_img;
     memset(&img[previous_capacity],0,(new_capacity-previous_capacity)*sizeof(img_struct));
     nimg=new_capacity;
+    qb_text_utf8_cells.resize(new_capacity);
     refresh_selected_pages();
     return -1;
 }
@@ -3058,6 +3433,7 @@ int32 freeimg(uint32 i){
     if (img[i].lock_id){
         free_mem_lock((mem_lock*)img[i].lock_offset);//untag
     }
+    if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
     memset(&img[i],0,sizeof(img_struct));
     fimg.push_back(i);
     return 1;
@@ -3164,6 +3540,7 @@ void imgrevert(int32 i){
         static int32 i2,i3;
         static uint16 *sp;
         i3=im->width*im->height; sp=(uint16*)im->offset; for (i2=0;i2<i3;i2++){*sp++=0x0720;}
+        qb_init_text_utf8_cells(i);
     }
     
 }//imgrevert
@@ -3263,6 +3640,7 @@ int32 imgframe(uint8 *o,int32 x,int32 y,int32 bpp){
     im->top_row=1;
     if (bpp) im->bottom_row=(im->height/im->font); else im->bottom_row=im->height;
     im->bottom_row--; if (im->bottom_row<=0) im->bottom_row=1;
+    if (!bpp) qb_init_text_utf8_cells(i); else if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
     if (!bpp) return i;
     //graphics
     //clipping/scaling
@@ -3298,6 +3676,7 @@ int32 imgnew(int32 x,int32 y,int32 bpp){
         im->offset=(uint8*)malloc(x*y*im->bytes_per_pixel);
         if (!im->offset){sub__freeimage(-i,1); return 0;}
         i3=x*y; sp=(uint16*)im->offset; for (i2=0;i2<i3;i2++){*sp++=0x0720;}
+        qb_init_text_utf8_cells(i);
     }
     im->flags|=IMG_FREEMEM;
     return i;
@@ -10478,8 +10857,10 @@ void printchr(int32 character){
     
     
     if (im->text){
-        im->offset[(((im->cursor_y-1)*im->width+im->cursor_x-1))<<1]=character;
-        im->offset[((((im->cursor_y-1)*im->width+im->cursor_x-1))<<1)+1]=(color&0xF)+background_color*16+(color&16)*8;
+        const int32 cell_index=(im->cursor_y-1)*im->width+im->cursor_x-1;
+        im->offset[cell_index<<1]=qb_unicode_to_screen_byte(character);
+        im->offset[(cell_index<<1)+1]=(color&0xF)+background_color*16+(color&16)*8;
+        qb_store_text_cell_utf8(im,cell_index,character);
         return;
     }
     
@@ -10713,6 +11094,20 @@ void newline(){
             write_page->offset+ write_page->top_row   *2*write_page->width,
             (write_page->bottom_row-write_page->top_row)*2*write_page->width
             );
+            {
+                const int32 image_index=qb_img_index(write_page);
+                if (image_index >= 0 && image_index < nimg && image_index < qb_text_utf8_cells.size()){
+                    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
+                    if (!cells.empty()){
+                        const int32 row_width=write_page->width;
+                        const int32 dst=(write_page->top_row-1)*row_width;
+                        const int32 src=write_page->top_row*row_width;
+                        const int32 moved=(write_page->bottom_row-write_page->top_row)*row_width;
+                        for (int32 cell=0;cell<moved;cell++) cells[dst+cell]=cells[src+cell];
+                        qb_clear_text_utf8_cells_range(image_index,(write_page->bottom_row-1)*row_width,row_width);
+                    }
+                }
+            }
             //erase bottom line
             z2=(write_page->color&0xF)+(write_page->background_color&7)*16+(write_page->color&16)*8;
             z2<<=8;
@@ -10878,12 +11273,7 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
     static uint32 character;
     
     if (write_page->console){
-        static qbs* strz; if (!strz) strz=qbs_new(0,0);
-        qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-        if (finish_on_new_line) cout<<(char*)strz->chr<<endl; else cout<<(char*)strz->chr;
-        #ifndef QBNex_WINDOWS
-            std::cout.flush();
-        #endif
+        qb_write_utf8(reinterpret_cast<const char*>(str->chr), str->len, finish_on_new_line);
         return;
     }
     
@@ -10922,9 +11312,13 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
     
     for (i=0;i<str->len;i++){
         
-        character=str->chr[i];
+        character=(uint8)str->chr[i];
         
-        if (fontflags[write_page->font]&32){//unicode font
+        if (write_page->text){
+            const int32 bytes_used=qb_decode_utf8_codepoint((const uint8*)&str->chr[i],str->len-i,&character);
+            if (!bytes_used) break;
+            i+=bytes_used-1;
+        }else if (fontflags[write_page->font]&32){//unicode font
             if (i>(str->len-4)) break;//not enough data for a utf32 encoding
             character=*((int32*)(&str->chr[i]));
             i+=3;
@@ -11067,6 +11461,18 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
         }
         
         skip_control_characters:
+        
+        if (write_page->text && qb_is_zero_width_codepoint(character)){
+            int32 previous_cell=-1;
+            if (write_page->cursor_x > 1){
+                previous_cell=(write_page->cursor_y-1)*write_page->width+write_page->cursor_x-2;
+            }else if (write_page->cursor_y > write_page->top_row){
+                previous_cell=(write_page->cursor_y-2)*write_page->width+write_page->width-1;
+            }
+            if (previous_cell >= 0 && qb_append_text_cell_utf8(write_page,previous_cell,character)){
+                goto skip;
+            }
+        }
         
         //###check if character fits on line, if not move to next line
         //(only applies to non-fixed width fonts)
@@ -11497,10 +11903,12 @@ void sub_cls(int32 method,uint32 use_color,int32 passed){
             characters=write_page->width*(write_page->bottom_row-write_page->top_row+1);
             sp=(uint16*)&write_page->offset[(write_page->top_row-1)*write_page->width*2];
             for (i=0;i<characters;i++){sp[i]=clearvalue;}
+            qb_clear_text_utf8_cells_range(qb_img_index(write_page),(write_page->top_row-1)*write_page->width,characters);
             //bottom line
             characters=write_page->width;
             sp=(uint16*)&write_page->offset[(write_page->height-1)*write_page->width*2];
             for (i=0;i<characters;i++){sp[i]=clearvalue;}
+            qb_clear_text_utf8_cells_range(qb_img_index(write_page),(write_page->height-1)*write_page->width,characters);
             key_display_redraw=1; key_update();
             return;
             }else{//graphics
@@ -11539,6 +11947,7 @@ void sub_cls(int32 method,uint32 use_color,int32 passed){
             characters=write_page->height*write_page->width;
             sp=(uint16*)write_page->offset;
             for (i=0;i<characters;i++){sp[i]=clearvalue;}
+            qb_clear_text_utf8_cells_range(qb_img_index(write_page),0,characters);
             key_display_redraw=1; key_update();
             return;
             }else{
@@ -11600,6 +12009,7 @@ void sub_cls(int32 method,uint32 use_color,int32 passed){
             characters=write_page->width*(write_page->bottom_row-write_page->top_row+1);
             sp=(uint16*)&write_page->offset[(write_page->top_row-1)*write_page->width*2];
             for (i=0;i<characters;i++){sp[i]=clearvalue;}
+            qb_clear_text_utf8_cells_range(qb_img_index(write_page),(write_page->top_row-1)*write_page->width,characters);
             //should not and does not redraw KEY bar
             return;
             }else{
@@ -18887,6 +19297,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 memcpy(d->pal,s->pal,1024);
                 d->flags|=IMG_FREEPAL;
             }
+            if (d->text && source_index < qb_text_utf8_cells.size() && i2 < qb_text_utf8_cells.size()){
+                qb_text_utf8_cells[i2]=qb_text_utf8_cells[source_index];
+            }
             //adjust flags
             if (d->flags&IMG_SCREEN)d->flags^=IMG_SCREEN;
             //return new handle
@@ -20150,7 +20563,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 if (console){
                         //screen is hidden, console is visible
                         #ifdef QBNex_WINDOWS
-                            cout<<"\nPress any key to continue";
+                            qb_print_cstr("\nPress any key to continue", 0);
                             int32 junk;
                             FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)); //clear any stray buffer events before we run END.
                             do{ //ignore all console input
@@ -28377,6 +28790,9 @@ void display(){
             static int32 show_flashing;
             static uint8 chr,col,chr_last,col_last;
             static int32 qbg_y_offset;
+            static const std::string *cell_utf8;
+            static int32 rendered_utf8;
+            static int32 cell_index;
             
             static int32 f,f_pitch,f_width,f_height;//font info
             f=display_page->font; f_width=fontwidth[f]; f_height=fontheight[f];
@@ -28413,6 +28829,7 @@ void display(){
                     check_last=0;
                 }
             }
+            if (qb_text_page_has_utf8_content(display_page_index)) check_last=0;
             
             //Check/Prepare content
             if (check_last){
@@ -28489,6 +28906,10 @@ void display(){
             qbg_y_offset=0;//the screen base offset
             cp=display_page->offset;//read from
             cp_last=screen_last;//written to for future comparisons
+            std::vector<std::string> *text_utf8_cells=NULL;
+            if (display_page_index >= 0 && display_page_index < qb_text_utf8_cells.size() && !qb_text_utf8_cells[display_page_index].empty()){
+                text_utf8_cells=&qb_text_utf8_cells[display_page_index];
+            }
             
             
             if (BGRA_to_RGBA) swap_paldata_BGRA_with_RGBA();
@@ -28516,6 +28937,13 @@ void display(){
                             }}}
                             cantskip:
                             cp_last-=2; *cp_last=chr; cp_last++; *cp_last=col; cp_last++;
+                            cell_utf8=NULL;
+                            if (text_utf8_cells){
+                                cell_index=y*display_page->width+x;
+                                if (cell_index >= 0 && cell_index < static_cast<int32>(text_utf8_cells->size()) && !(*text_utf8_cells)[cell_index].empty()){
+                                    cell_utf8=&((*text_utf8_cells)[cell_index]);
+                                }
+                            }
                             
                             //set cp2 to the character's data
                             z2=0;//double-width if set
@@ -28557,23 +28985,31 @@ void display(){
                             if (c3&&show_flashing && H3C0_blink_enable) c=c2;
                             i2=paldata[c];
                             i3=paldata[c2];
-                            lp=display_surface_offset+qbg_y_offset+y2*x_monitor+x2;
-                            z=x_monitor-fontwidth[display_page->font];
-                            
-                            //inner loop
-                            for (y3=0;y3<f_height;y3++){
-                                for (x3=0;x3<f_width;x3++){
-                                    if (*cp2) *lp=i2; else *lp=i3;
-                                    if (z2){
-                                        if (x3&z2) cp2++;
-                                        }else{
-                                        cp2++;
+                            rendered_utf8=0;
+                            if (cell_utf8){
+                                #ifdef QBNex_WINDOWS
+                                    rendered_utf8=qb_render_text_cell_windows(*cell_utf8,f_width,f_height,i2,i3,display_surface_offset+qbg_y_offset+y2*x_monitor+x2,x_monitor);
+                                #endif
+                            }
+                            if (!rendered_utf8){
+                                lp=display_surface_offset+qbg_y_offset+y2*x_monitor+x2;
+                                z=x_monitor-fontwidth[display_page->font];
+                                
+                                //inner loop
+                                for (y3=0;y3<f_height;y3++){
+                                    for (x3=0;x3<f_width;x3++){
+                                        if (*cp2) *lp=i2; else *lp=i3;
+                                        if (z2){
+                                            if (x3&z2) cp2++;
+                                            }else{
+                                            cp2++;
+                                        }
+                                        lp++;
                                     }
-                                    lp++;
-                                }
-                                lp+=z;
-                                cp2+=f_pitch;
-                            }//y3,x3
+                                    lp+=z;
+                                    cp2+=f_pitch;
+                                }//y3,x3
+                            }
                             
                             //draw cursor
                             if (display_page->cursor_show&&show_cursor&&(cx==x)&&(cy==y)){

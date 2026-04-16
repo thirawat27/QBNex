@@ -62,7 +62,9 @@
     #include <time.h>
     #include <iostream>
     #include <fstream>
-    #include <vector>
+#include <sstream>
+#include <string>
+#include <vector>
     #include <time.h>
     #include <string.h>
     #include <errno.h>

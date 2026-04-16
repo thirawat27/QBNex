@@ -12556,7 +12556,32 @@ FOR i = 1 TO DEPENDENCY_LAST
 NEXT
 libqb$ = " libqb\os\" + o$ + "\libqb_" + depstr$ + ".o "
 PATH_SLASH_CORRECT libqb$
-IF _FILEEXISTS("internal\c\" + LTRIM$(RTRIM$(libqb$))) = 0 THEN
+DIM libqbObjectPath AS STRING, libqbSourcePath AS STRING
+DIM libqbHeaderPath AS STRING, commonHeaderPath AS STRING
+DIM libqbObjectTime AS DOUBLE, libqbSourceTime AS DOUBLE
+DIM libqbHeaderTime AS DOUBLE, commonHeaderTime AS DOUBLE
+DIM rebuildLibqb AS _BYTE
+
+libqbObjectPath = "internal\c\" + LTRIM$(RTRIM$(libqb$))
+libqbSourcePath = "internal\c\libqb.cpp"
+libqbHeaderPath = "internal\c\libqb.h"
+commonHeaderPath = "internal\c\common.h"
+
+rebuildLibqb = 0
+IF _FILEEXISTS(libqbObjectPath) = 0 THEN
+    rebuildLibqb = -1
+ELSE
+    libqbObjectTime = _FILEDATETIME(libqbObjectPath)
+    libqbSourceTime = _FILEDATETIME(libqbSourcePath)
+    libqbHeaderTime = _FILEDATETIME(libqbHeaderPath)
+    commonHeaderTime = _FILEDATETIME(commonHeaderPath)
+
+    IF libqbSourceTime > libqbObjectTime THEN rebuildLibqb = -1
+    IF libqbHeaderTime > libqbObjectTime THEN rebuildLibqb = -1
+    IF commonHeaderTime > libqbObjectTime THEN rebuildLibqb = -1
+END IF
+
+IF rebuildLibqb THEN
     CHDIR "internal\c"
     IF os$ = "WIN" THEN
         SHELL _HIDE GDB_Fix("cmd /c c_compiler\bin\g++ -c -s -w -Wall libqb.cpp -D FREEGLUT_STATIC " + defines$ + " -o libqb\os\" + o$ + "\libqb_" + depstr$ + ".o") + " 2>> ..\..\" + compilelog$
