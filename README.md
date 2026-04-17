@@ -411,10 +411,22 @@ qb <source.bas> [flags]
 | `-w` | - | Show warnings during compilation | `qb file.bas -w` |
 | `-q` | - | Quiet mode (minimal output) | `qb file.bas -q` |
 | `-m` | - | Monochrome (no color) output | `qb file.bas -m` |
+| `-d` | `--verbose-errors` | Show detailed diagnostic notes, causes, and examples | `qb file.bas -d` |
 | `-e` | - | Enable OPTION _EXPLICIT | `qb file.bas -e` |
 | `-s` | - | View/edit compiler settings | `qb -s:DebugInfo=true` |
 | `-p` | - | Purge all pre-compiled content | `qb file.bas -p` |
 | `-z` | - | Generate C code only (no exe) | `qb file.bas -z` |
+
+**Recommended for debugging diagnostics:**
+```bash
+# Show the full diagnostic trail, cause notes, and examples
+qb myprogram.bas -d
+
+# Combine warnings with verbose diagnostics when chasing follow-on failures
+qb myprogram.bas -w -d
+```
+
+`-d`, `--verbose-errors` enables the extra diagnostic sections used by the modern QBNex formatter, including `cause`, `example`, `where`, `while`, and other context notes that are hidden in the default compact output.
 
 **Combining Flags:**
 ```bash
@@ -1886,6 +1898,30 @@ Preparing build files... [########################################] 100%
 
 [x] QBNex :: Build Halted  1 blocking diagnostic(s)
 ```
+
+### Diagnostic Output Style
+
+QBNex diagnostics use compact markers so the important parts of an error can be scanned quickly in a plain terminal:
+
+| Marker | Meaning |
+|--------|---------|
+| `[x]` | Error diagnostic |
+| `[!!]` | Fatal diagnostic |
+| `[~]` | Warning diagnostic |
+| `[i]` | Informational diagnostic |
+| `[@]` | File location (`file(line,column)`) |
+| `[#]` | Source snippet |
+| `[>]` | Next action / fix hint |
+| `[::]` | Phase and flow summary |
+| `[*]` | Active compiler configuration note |
+| `[=]` | Repeated diagnostic or hidden duplicate summary |
+| `[^]` | Verbose location context |
+| `[.]` | Verbose detail note |
+| `[>>]` | Verbose in-progress context |
+| `[!]` | Verbose cause note |
+| `[+]` | Verbose example or corrected form |
+
+Default output stays compact. Use `-d` or `--verbose-errors` when you want the full trail, root-cause notes, and remediation examples.
 
 **Runtime Success:**
 ```
