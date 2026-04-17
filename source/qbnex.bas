@@ -13399,7 +13399,13 @@ IF inclevel > 0 THEN
 END IF
 
 SetCurrentFile reportFile
+SetErrorPhase "Legacy Frontend"
+PushErrorContext "syntax validation"
+IF RTRIM$(reportFile) <> "" THEN PushErrorContext "file: " + RTRIM$(reportFile)
 ReportDetailedError ERR_INVALID_SYNTAX, a$, reportLineNumber, fullContext, secondaryContext, locationNote
+IF RTRIM$(reportFile) <> "" THEN PopErrorContext
+PopErrorContext
+ClearErrorPhase
 WarnIfStaleOutputBinary
 
 IF ConsoleMode THEN SYSTEM 1

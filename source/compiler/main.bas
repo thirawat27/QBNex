@@ -267,15 +267,19 @@ END FUNCTION
 '-------------------------------------------------------------------------------
 
 FUNCTION InitializeCompilation%
+    PushErrorContext "initialize compilation"
+
     ' Validate source file
     IF Compiler.sourceFile = "" THEN
         ReportError 1001, "No source file specified", 0, ""
+        PopErrorContext
         InitializeCompilation% = 0
         EXIT FUNCTION
     END IF
     
     IF NOT _FILEEXISTS(Compiler.sourceFile) THEN
         ReportError 1002, "Source file not found: " + Compiler.sourceFile, 0, ""
+        PopErrorContext
         InitializeCompilation% = 0
         EXIT FUNCTION
     END IF
@@ -294,6 +298,7 @@ FUNCTION InitializeCompilation%
     InitParallelProcessing
     InitDeferredReferences
     
+    PopErrorContext
     InitializeCompilation% = -1
 END FUNCTION
 

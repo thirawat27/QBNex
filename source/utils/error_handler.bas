@@ -16,6 +16,7 @@ CONST ERR_INFO = 1
 CONST ERR_WARNING = 2
 CONST ERR_ERROR = 3
 CONST ERR_FATAL = 4
+CONST MAX_ERROR_CONTEXTS = 16
 
 '-------------------------------------------------------------------------------
 ' ERROR CODES
@@ -75,6 +76,10 @@ TYPE ErrorInfo
     suggestion AS STRING * 512
     cause AS STRING * 256
     fixExample AS STRING * 256
+    phaseName AS STRING * 64
+    contextTrace AS STRING * 512
+    fingerprint AS STRING * 512
+    duplicateCount AS LONG
     recovered AS _BYTE
 END TYPE
 
@@ -88,6 +93,7 @@ TYPE ErrorStats
     errorCount AS LONG
     fatalCount AS LONG
     totalCount AS LONG
+    suppressedDuplicateCount AS LONG
     maxErrors AS LONG
     hasErrors AS _BYTE
 END TYPE
@@ -103,23 +109,35 @@ DIM SHARED CurrentFile AS STRING
 DIM SHARED ErrorOutputFile AS INTEGER
 DIM SHARED VerboseMode AS _BYTE
 DIM SHARED WarningsAsErrors AS _BYTE
+DIM SHARED CurrentErrorPhase AS STRING * 64
+DIM SHARED ErrorContextDepth AS INTEGER
+DIM SHARED ErrorContextStack(1 TO MAX_ERROR_CONTEXTS) AS STRING * 128
 
 '-------------------------------------------------------------------------------
 ' INITIALIZATION
 '-------------------------------------------------------------------------------
 
 SUB InitErrorHandler
+    DIM i AS INTEGER
+
     ErrorCount = 0
     CurrentFile = ""
     ErrorOutputFile = 0
     VerboseMode = 0
     WarningsAsErrors = 0
+    CurrentErrorPhase = ""
+    ErrorContextDepth = 0
+
+    FOR i = 1 TO MAX_ERROR_CONTEXTS
+        ErrorContextStack(i) = ""
+    NEXT
 
     Stats.infoCount = 0
     Stats.warningCount = 0
     Stats.errorCount = 0
     Stats.fatalCount = 0
     Stats.totalCount = 0
+    Stats.suppressedDuplicateCount = 0
     Stats.maxErrors = 100
     Stats.hasErrors = 0
 END SUB
@@ -142,6 +160,46 @@ END SUB
 
 SUB SetCurrentFile (fileName AS STRING)
     CurrentFile = RTRIM$(fileName)
+END SUB
+
+SUB SetErrorPhase (phaseName AS STRING)
+    CurrentErrorPhase = RTRIM$(phaseName)
+END SUB
+
+SUB ClearErrorPhase
+    CurrentErrorPhase = ""
+END SUB
+
+FUNCTION GetErrorPhase$ ()
+    GetErrorPhase$ = RTRIM$(CurrentErrorPhase)
+END FUNCTION
+
+SUB PushErrorContext (contextText AS STRING)
+    contextText = NormalizeDiagnosticMessage$(contextText)
+    IF contextText = "" THEN EXIT SUB
+
+    IF ErrorContextDepth < MAX_ERROR_CONTEXTS THEN
+        ErrorContextDepth = ErrorContextDepth + 1
+        ErrorContextStack(ErrorContextDepth) = contextText
+    ELSE
+        ErrorContextStack(MAX_ERROR_CONTEXTS) = contextText
+    END IF
+END SUB
+
+SUB PopErrorContext
+    IF ErrorContextDepth <= 0 THEN EXIT SUB
+    ErrorContextStack(ErrorContextDepth) = ""
+    ErrorContextDepth = ErrorContextDepth - 1
+END SUB
+
+SUB ClearErrorContextStack
+    DIM i AS INTEGER
+
+    FOR i = 1 TO MAX_ERROR_CONTEXTS
+        ErrorContextStack(i) = ""
+    NEXT
+
+    ErrorContextDepth = 0
 END SUB
 
 '-------------------------------------------------------------------------------
@@ -208,6 +266,75 @@ FUNCTION NormalizeSourceContext$ (text AS STRING)
     NEXT
 
     NormalizeSourceContext$ = RTRIM$(result)
+END FUNCTION
+
+FUNCTION MergeDiagnosticNote$ (existingText AS STRING, newText AS STRING)
+    DIM normalizedExisting AS STRING
+    DIM normalizedNew AS STRING
+
+    normalizedExisting = NormalizeDiagnosticMessage$(existingText)
+    normalizedNew = NormalizeDiagnosticMessage$(newText)
+
+    IF normalizedNew = "" THEN
+        MergeDiagnosticNote$ = normalizedExisting
+    ELSEIF normalizedExisting = "" THEN
+        MergeDiagnosticNote$ = normalizedNew
+    ELSEIF UCASE$(normalizedExisting) = UCASE$(normalizedNew) THEN
+        MergeDiagnosticNote$ = normalizedExisting
+    ELSEIF INSTR(UCASE$(normalizedExisting), UCASE$(normalizedNew)) > 0 THEN
+        MergeDiagnosticNote$ = normalizedExisting
+    ELSE
+        MergeDiagnosticNote$ = normalizedExisting + " | " + normalizedNew
+    END IF
+END FUNCTION
+
+FUNCTION GetErrorContextTrace$ ()
+    DIM i AS INTEGER
+    DIM trace AS STRING
+    DIM itemText AS STRING
+
+    trace = ""
+
+    FOR i = 1 TO ErrorContextDepth
+        itemText = NormalizeDiagnosticMessage$(ErrorContextStack(i))
+        IF itemText <> "" THEN
+            IF trace = "" THEN
+                trace = itemText
+            ELSE
+                trace = trace + " -> " + itemText
+            END IF
+        END IF
+    NEXT
+
+    GetErrorContextTrace$ = trace
+END FUNCTION
+
+FUNCTION BuildErrorFingerprint$ (errCode AS INTEGER, severity AS INTEGER, fileName AS STRING, lineNum AS LONG, message AS STRING, context AS STRING, phaseName AS STRING)
+    BuildErrorFingerprint$ = UCASE$(RTRIM$(fileName)) + "|" + LTRIM$(STR$(lineNum)) + "|" + LTRIM$(STR$(severity)) + "|" + LTRIM$(STR$(errCode)) + "|" + UCASE$(NormalizeDiagnosticMessage$(message)) + "|" + UCASE$(NormalizeSourceContext$(context)) + "|" + UCASE$(NormalizeDiagnosticMessage$(phaseName))
+END FUNCTION
+
+FUNCTION FindExistingErrorIndex% (fingerprint AS STRING)
+    DIM i AS LONG
+
+    fingerprint = LEFT$(RTRIM$(fingerprint), 512)
+    IF fingerprint = "" THEN
+        FindExistingErrorIndex% = 0
+        EXIT FUNCTION
+    END IF
+
+    FOR i = 1 TO ErrorCount
+        IF RTRIM$(Errors(i).fingerprint) = fingerprint THEN
+            FindExistingErrorIndex% = i
+            EXIT FUNCTION
+        END IF
+    NEXT
+
+    FindExistingErrorIndex% = 0
+END FUNCTION
+
+FUNCTION GetBlockingIssueCount& ()
+    GetBlockingIssueCount& = Stats.errorCount + Stats.fatalCount
+    IF WarningsAsErrors THEN GetBlockingIssueCount& = GetBlockingIssueCount& + Stats.warningCount
 END FUNCTION
 
 FUNCTION RepeatSpaces$ (count AS INTEGER)
@@ -659,6 +786,7 @@ END SUB
 
 SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, message AS STRING, lineNum AS LONG, context AS STRING, secondaryContext AS STRING, locationNote AS STRING)
     DIM errIdx AS LONG
+    DIM duplicateIdx AS LONG
     DIM colNum AS INTEGER
     DIM causeStr AS STRING
     DIM fixStr AS STRING
@@ -666,9 +794,32 @@ SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, me
     DIM normalizedContext AS STRING
     DIM normalizedSecondary AS STRING
     DIM normalizedLocation AS STRING
+    DIM phaseName AS STRING
+    DIM contextTrace AS STRING
+    DIM fingerprint AS STRING
 
-    IF Stats.errorCount >= Stats.maxErrors THEN
-        IF ErrorCount < 1000 THEN
+    normalizedMessage = NormalizeDiagnosticMessage$(message)
+    normalizedContext = NormalizeSourceContext$(context)
+    normalizedSecondary = NormalizeSourceContext$(secondaryContext)
+    normalizedLocation = NormalizeDiagnosticMessage$(locationNote)
+    phaseName = GetErrorPhase$()
+    contextTrace = GetErrorContextTrace$()
+
+    errCode = InferErrorCode%(errCode, normalizedMessage, normalizedContext)
+    fingerprint = BuildErrorFingerprint$(errCode, severity, CurrentFile, lineNum, normalizedMessage, normalizedContext, phaseName)
+
+    duplicateIdx = FindExistingErrorIndex%(fingerprint)
+    IF duplicateIdx > 0 THEN
+        Errors(duplicateIdx).duplicateCount = Errors(duplicateIdx).duplicateCount + 1
+        Stats.suppressedDuplicateCount = Stats.suppressedDuplicateCount + 1
+        EXIT SUB
+    END IF
+
+    IF GetBlockingIssueCount& >= Stats.maxErrors THEN
+        fingerprint = BuildErrorFingerprint$(9999, ERR_FATAL, CurrentFile, 0, "Too many errors - compilation aborted", "", phaseName)
+        duplicateIdx = FindExistingErrorIndex%(fingerprint)
+
+        IF duplicateIdx = 0 AND ErrorCount < 1000 THEN
             ErrorCount = ErrorCount + 1
             Errors(ErrorCount).errorCode = 9999
             Errors(ErrorCount).severity = ERR_FATAL
@@ -678,22 +829,27 @@ SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, me
             Errors(ErrorCount).columnNumber = 0
             Errors(ErrorCount).context = ""
             Errors(ErrorCount).secondaryContext = ""
-            Errors(ErrorCount).locationNote = ""
+            Errors(ErrorCount).locationNote = "Stop after reaching the configured diagnostic budget."
             Errors(ErrorCount).suggestion = "Fix the reported errors and recompile"
             Errors(ErrorCount).cause = "Maximum error limit reached"
             Errors(ErrorCount).fixExample = ""
+            Errors(ErrorCount).phaseName = phaseName
+            Errors(ErrorCount).contextTrace = contextTrace
+            Errors(ErrorCount).fingerprint = fingerprint
+            Errors(ErrorCount).duplicateCount = 1
             Errors(ErrorCount).recovered = 0
+
+            Stats.totalCount = Stats.totalCount + 1
+            Stats.fatalCount = Stats.fatalCount + 1
+            Stats.hasErrors = -1
+            PrintError ErrorCount
+        ELSEIF duplicateIdx > 0 THEN
+            Errors(duplicateIdx).duplicateCount = Errors(duplicateIdx).duplicateCount + 1
+            Stats.suppressedDuplicateCount = Stats.suppressedDuplicateCount + 1
         END IF
-        Stats.fatalCount = Stats.fatalCount + 1
+
         EXIT SUB
     END IF
-
-    normalizedMessage = NormalizeDiagnosticMessage$(message)
-    normalizedContext = NormalizeSourceContext$(context)
-    normalizedSecondary = NormalizeSourceContext$(secondaryContext)
-    normalizedLocation = NormalizeDiagnosticMessage$(locationNote)
-
-    errCode = InferErrorCode%(errCode, normalizedMessage, normalizedContext)
 
     colNum = 0
     IF normalizedContext <> "" THEN colNum = FindErrorColumn%(errCode, normalizedMessage, normalizedContext)
@@ -717,6 +873,10 @@ SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, me
         Errors(errIdx).suggestion = GetDetailedSuggestion$(errCode, normalizedMessage, normalizedContext)
         Errors(errIdx).cause = causeStr
         Errors(errIdx).fixExample = fixStr
+        Errors(errIdx).phaseName = phaseName
+        Errors(errIdx).contextTrace = contextTrace
+        Errors(errIdx).fingerprint = fingerprint
+        Errors(errIdx).duplicateCount = 1
         Errors(errIdx).recovered = 0
     END IF
 
@@ -1132,8 +1292,13 @@ FUNCTION PadLeftZero$ (value AS LONG, width AS INTEGER)
     PadLeftZero$ = s
 END FUNCTION
 
+FUNCTION GetRenderedSeverity% (severity AS INTEGER)
+    GetRenderedSeverity% = severity
+    IF severity = ERR_WARNING AND WarningsAsErrors THEN GetRenderedSeverity% = ERR_ERROR
+END FUNCTION
+
 FUNCTION GetDiagnosticKind$ (severity AS INTEGER)
-    SELECT CASE severity
+    SELECT CASE GetRenderedSeverity%(severity)
         CASE ERR_WARNING
             GetDiagnosticKind$ = "warning"
         CASE ERR_INFO
@@ -1155,7 +1320,7 @@ FUNCTION GetDiagnosticCodeTag$ (severity AS INTEGER, errCode AS INTEGER)
 END FUNCTION
 
 FUNCTION GetSeverityColor% (severity AS INTEGER)
-    SELECT CASE severity
+    SELECT CASE GetRenderedSeverity%(severity)
         CASE ERR_INFO
             GetSeverityColor% = 11
         CASE ERR_WARNING
@@ -1167,45 +1332,111 @@ FUNCTION GetSeverityColor% (severity AS INTEGER)
     END SELECT
 END FUNCTION
 
+FUNCTION GetDiagnosticTitle$ (severity AS INTEGER)
+    SELECT CASE GetRenderedSeverity%(severity)
+        CASE ERR_WARNING
+            GetDiagnosticTitle$ = "Warning"
+        CASE ERR_INFO
+            GetDiagnosticTitle$ = "Info"
+        CASE ERR_FATAL
+            GetDiagnosticTitle$ = "Fatal"
+        CASE ELSE
+            GetDiagnosticTitle$ = "Error"
+    END SELECT
+END FUNCTION
+
+FUNCTION GetDiagnosticMarker$ (severity AS INTEGER)
+    SELECT CASE GetRenderedSeverity%(severity)
+        CASE ERR_WARNING
+            GetDiagnosticMarker$ = "[~]"
+        CASE ERR_INFO
+            GetDiagnosticMarker$ = "[i]"
+        CASE ERR_FATAL
+            GetDiagnosticMarker$ = "[!!]"
+        CASE ELSE
+            GetDiagnosticMarker$ = "[x]"
+    END SELECT
+END FUNCTION
+
+FUNCTION FormatDiagnosticLocation$ (fileName AS STRING, lineNumber AS LONG, columnNumber AS INTEGER)
+    DIM location AS STRING
+
+    location = RTRIM$(fileName)
+    IF location = "" THEN
+        FormatDiagnosticLocation$ = ""
+        EXIT FUNCTION
+    END IF
+
+    IF lineNumber > 0 THEN
+        location = location + "(" + LTRIM$(STR$(lineNumber))
+        IF columnNumber > 0 THEN location = location + "," + LTRIM$(STR$(columnNumber))
+        location = location + ")"
+    END IF
+
+    FormatDiagnosticLocation$ = location
+END FUNCTION
+
+FUNCTION FormatDiagnosticFlow$ (phaseName AS STRING, contextTrace AS STRING)
+    DIM flowText AS STRING
+
+    flowText = ""
+    phaseName = RTRIM$(phaseName)
+    contextTrace = RTRIM$(contextTrace)
+
+    IF phaseName <> "" THEN flowText = phaseName
+    IF contextTrace <> "" THEN
+        IF flowText <> "" THEN
+            flowText = flowText + " :: " + contextTrace
+        ELSE
+            flowText = contextTrace
+        END IF
+    END IF
+
+    FormatDiagnosticFlow$ = flowText
+END FUNCTION
+
 '-------------------------------------------------------------------------------
 ' ERROR OUTPUT
 '-------------------------------------------------------------------------------
 
 SUB PrintError (errIdx AS LONG)
     DIM errInfo AS ErrorInfo
-    DIM diagnosticKind AS STRING
+    DIM diagnosticTitle AS STRING
+    DIM diagnosticMarker AS STRING
     DIM codeTag AS STRING
     DIM headline AS STRING
     DIM pointerHint AS STRING
     DIM lineStr AS STRING
     DIM gutter AS STRING
-    DIM locationLabel AS STRING
     DIM severityColor AS INTEGER
+    DIM locationText AS STRING
+    DIM flowText AS STRING
 
     IF errIdx < 1 OR errIdx > ErrorCount THEN EXIT SUB
 
     errInfo = Errors(errIdx)
-    diagnosticKind = GetDiagnosticKind$(errInfo.severity)
+    diagnosticTitle = GetDiagnosticTitle$(errInfo.severity)
+    diagnosticMarker = GetDiagnosticMarker$(errInfo.severity)
     codeTag = GetDiagnosticCodeTag$(errInfo.severity, errInfo.errorCode)
     headline = GetDiagnosticHeadline$(errInfo.errorCode, RTRIM$(errInfo.message), RTRIM$(errInfo.context))
     pointerHint = GetPointerHint$(errInfo.errorCode, RTRIM$(errInfo.message), RTRIM$(errInfo.context))
     severityColor = GetSeverityColor%(errInfo.severity)
-    locationLabel = GetLocationLabel$(RTRIM$(errInfo.fileName), errInfo.lineNumber, errInfo.columnNumber)
+    locationText = FormatDiagnosticLocation$(RTRIM$(errInfo.fileName), errInfo.lineNumber, errInfo.columnNumber)
+    flowText = FormatDiagnosticFlow$(RTRIM$(errInfo.phaseName), RTRIM$(errInfo.contextTrace))
 
     IF errIdx > 1 THEN PRINT
 
     COLOR severityColor
-    PRINT diagnosticKind;
+    PRINT diagnosticMarker;
     COLOR 7
-    PRINT "[" + codeTag + "]: ";
+    PRINT " QBNex :: " + diagnosticTitle + " [" + codeTag + "]  ";
     COLOR 15
     PRINT headline
     COLOR 7
 
-    IF locationLabel <> "" THEN PRINT " --> " + locationLabel
+    IF locationText <> "" THEN PRINT "  [@] " + locationText
 
     IF RTRIM$(errInfo.context) <> "" THEN
-        PRINT "  |"
         IF errInfo.lineNumber > 0 THEN
             lineStr = LTRIM$(STR$(errInfo.lineNumber))
         ELSE
@@ -1213,14 +1444,15 @@ SUB PrintError (errIdx AS LONG)
         END IF
         gutter = RepeatSpaces$(LEN(lineStr))
 
+        PRINT "  [#] source"
         COLOR 8
-        PRINT " " + lineStr + " | ";
+        PRINT "    " + lineStr + " | ";
         COLOR 7
         PRINT RTRIM$(errInfo.context)
 
         IF errInfo.columnNumber > 0 THEN
             COLOR severityColor
-            PRINT " " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
+            PRINT "    " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
             IF pointerHint <> "" THEN
                 PRINT " " + pointerHint
             ELSE
@@ -1232,26 +1464,30 @@ SUB PrintError (errIdx AS LONG)
 
     IF RTRIM$(errInfo.suggestion) <> "" THEN
         COLOR 10
-        PRINT "  = help: " + RTRIM$(errInfo.suggestion)
+        PRINT "  [>] next     " + RTRIM$(errInfo.suggestion)
         COLOR 7
     END IF
 
+    IF flowText <> "" THEN PRINT "  [::] flow    " + flowText
+    IF WarningsAsErrors AND errInfo.severity = ERR_WARNING THEN PRINT "  [*] config   warning promoted to blocking diagnostic"
+    IF errInfo.duplicateCount > 1 THEN PRINT "  [=] repeat   seen " + LTRIM$(STR$(errInfo.duplicateCount)) + " times; duplicates hidden"
+
     IF VerboseMode THEN
-        IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT "  = note: " + RTRIM$(errInfo.locationNote)
-        IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT "  = note: compiler message: " + RTRIM$(errInfo.message)
-        IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT "  = note: while processing: " + RTRIM$(errInfo.secondaryContext)
-        IF RTRIM$(errInfo.cause) <> "" THEN PRINT "  = note: " + RTRIM$(errInfo.cause)
-        IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT "  = note: example: " + RTRIM$(errInfo.fixExample)
+        IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT "  [^] where    " + RTRIM$(errInfo.locationNote)
+        IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT "  [.] detail   " + RTRIM$(errInfo.message)
+        IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT "  [>>] while   " + RTRIM$(errInfo.secondaryContext)
+        IF RTRIM$(errInfo.cause) <> "" THEN PRINT "  [!] cause    " + RTRIM$(errInfo.cause)
+        IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT "  [+] example  " + RTRIM$(errInfo.fixExample)
     END IF
 
     IF ErrorOutputFile > 0 THEN
-        PRINT #ErrorOutputFile, diagnosticKind + "[" + codeTag + "]: " + headline
-        IF locationLabel <> "" THEN PRINT #ErrorOutputFile, " --> " + locationLabel
+        PRINT #ErrorOutputFile, diagnosticMarker + " QBNex :: " + diagnosticTitle + " [" + codeTag + "]  " + headline
+        IF locationText <> "" THEN PRINT #ErrorOutputFile, "  [@] " + locationText
         IF RTRIM$(errInfo.context) <> "" THEN
-            PRINT #ErrorOutputFile, "  |"
-            PRINT #ErrorOutputFile, " " + lineStr + " | " + RTRIM$(errInfo.context)
+            PRINT #ErrorOutputFile, "  [#] source"
+            PRINT #ErrorOutputFile, "    " + lineStr + " | " + RTRIM$(errInfo.context)
             IF errInfo.columnNumber > 0 THEN
-                PRINT #ErrorOutputFile, " " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
+                PRINT #ErrorOutputFile, "    " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
                 IF pointerHint <> "" THEN
                     PRINT #ErrorOutputFile, " " + pointerHint
                 ELSE
@@ -1259,13 +1495,16 @@ SUB PrintError (errIdx AS LONG)
                 END IF
             END IF
         END IF
-        IF RTRIM$(errInfo.suggestion) <> "" THEN PRINT #ErrorOutputFile, "  = help: " + RTRIM$(errInfo.suggestion)
+        IF RTRIM$(errInfo.suggestion) <> "" THEN PRINT #ErrorOutputFile, "  [>] next     " + RTRIM$(errInfo.suggestion)
+        IF flowText <> "" THEN PRINT #ErrorOutputFile, "  [::] flow    " + flowText
+        IF WarningsAsErrors AND errInfo.severity = ERR_WARNING THEN PRINT #ErrorOutputFile, "  [*] config   warning promoted to blocking diagnostic"
+        IF errInfo.duplicateCount > 1 THEN PRINT #ErrorOutputFile, "  [=] repeat   seen " + LTRIM$(STR$(errInfo.duplicateCount)) + " times; duplicates hidden"
         IF VerboseMode THEN
-            IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT #ErrorOutputFile, "  = note: " + RTRIM$(errInfo.locationNote)
-            IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT #ErrorOutputFile, "  = note: compiler message: " + RTRIM$(errInfo.message)
-            IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT #ErrorOutputFile, "  = note: while processing: " + RTRIM$(errInfo.secondaryContext)
-            IF RTRIM$(errInfo.cause) <> "" THEN PRINT #ErrorOutputFile, "  = note: " + RTRIM$(errInfo.cause)
-            IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT #ErrorOutputFile, "  = note: example: " + RTRIM$(errInfo.fixExample)
+            IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT #ErrorOutputFile, "  [^] where    " + RTRIM$(errInfo.locationNote)
+            IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT #ErrorOutputFile, "  [.] detail   " + RTRIM$(errInfo.message)
+            IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT #ErrorOutputFile, "  [>>] while   " + RTRIM$(errInfo.secondaryContext)
+            IF RTRIM$(errInfo.cause) <> "" THEN PRINT #ErrorOutputFile, "  [!] cause    " + RTRIM$(errInfo.cause)
+            IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT #ErrorOutputFile, "  [+] example  " + RTRIM$(errInfo.fixExample)
         END IF
         PRINT #ErrorOutputFile, ""
     END IF
@@ -1287,27 +1526,40 @@ SUB PrintAllErrors
 END SUB
 
 SUB PrintErrorSummary
+    DIM blockingCount AS LONG
+    DIM summaryMarker AS STRING
+
     IF Stats.totalCount = 0 THEN EXIT SUB
 
     PRINT
     IF Stats.hasErrors THEN
+        blockingCount = GetBlockingIssueCount&
+        IF Stats.fatalCount > 0 THEN
+            summaryMarker = "[!!]"
+        ELSE
+            summaryMarker = "[x]"
+        END IF
         COLOR 12
-        PRINT "error: compilation failed with "; Stats.errorCount + Stats.fatalCount; " error(s)";
+        PRINT summaryMarker; " QBNex :: Build Halted  "; blockingCount; " blocking diagnostic(s)";
         COLOR 7
-        IF Stats.warningCount > 0 THEN
+        IF Stats.warningCount > 0 AND NOT WarningsAsErrors THEN
             PRINT " and "; Stats.warningCount; " warning(s)"
+        ELSEIF Stats.warningCount > 0 AND WarningsAsErrors THEN
+            PRINT " ("; Stats.warningCount; " warning(s) promoted)"
         ELSE
             PRINT
         END IF
-        IF VerboseMode THEN PRINT "note: start with the first error above because later diagnostics may be follow-on failures."
+        IF Stats.suppressedDuplicateCount > 0 THEN PRINT "[=] QBNex :: Hidden  "; Stats.suppressedDuplicateCount; " duplicate diagnostic(s)."
+        IF VerboseMode THEN PRINT "[::] QBNex :: Flow   fix the first blocking diagnostic first; later ones may be follow-on effects."
     ELSE
         IF Stats.warningCount > 0 THEN
             COLOR 14
-            PRINT "warning: compilation completed with "; Stats.warningCount; " warning(s)"
+            PRINT "[~] QBNex :: Build Complete  "; Stats.warningCount; " warning(s)"
             COLOR 7
         ELSE
-            PRINT "info: compilation completed successfully."
+            PRINT "[ok] QBNex :: Build Complete"
         END IF
+        IF Stats.suppressedDuplicateCount > 0 THEN PRINT "[=] QBNex :: Hidden  "; Stats.suppressedDuplicateCount; " duplicate diagnostic(s)."
     END IF
 END SUB
 
@@ -1331,7 +1583,7 @@ SUB MarkRecovered (errIdx AS LONG)
 END SUB
 
 FUNCTION ShouldAbort%
-    ShouldAbort% = (Stats.fatalCount > 0) OR (Stats.errorCount >= Stats.maxErrors)
+    ShouldAbort% = (Stats.fatalCount > 0) OR (GetBlockingIssueCount& >= Stats.maxErrors)
 END FUNCTION
 
 '-------------------------------------------------------------------------------
@@ -1354,6 +1606,10 @@ FUNCTION GetFatalCount%
     GetFatalCount% = Stats.fatalCount
 END FUNCTION
 
+FUNCTION GetSuppressedDuplicateCount%
+    GetSuppressedDuplicateCount% = Stats.suppressedDuplicateCount
+END FUNCTION
+
 '-------------------------------------------------------------------------------
 ' CLEANUP
 '-------------------------------------------------------------------------------
@@ -1361,6 +1617,8 @@ END FUNCTION
 SUB CleanupErrorHandler
     ErrorCount = 0
     CurrentFile = ""
+    CurrentErrorPhase = ""
+    ClearErrorContextStack
 
     IF ErrorOutputFile > 0 THEN
         CLOSE #ErrorOutputFile

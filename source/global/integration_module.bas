@@ -177,15 +177,19 @@ END FUNCTION
 '-------------------------------------------------------------------------------
 
 FUNCTION IntegratedInitializeCompilation%
+    PushErrorContext "initialize compilation"
+
     ' Validate source file
     IF RTRIM$(Integration.sourceFile) = "" THEN
         ReportError ERR_NO_SOURCE_FILE, "No source file specified", 0, ""
+        PopErrorContext
         IntegratedInitializeCompilation% = 0
         EXIT FUNCTION
     END IF
     
     IF NOT _FILEEXISTS(RTRIM$(Integration.sourceFile)) THEN
         ReportError ERR_FILE_NOT_FOUND, "Source file not found: " + RTRIM$(Integration.sourceFile), 0, ""
+        PopErrorContext
         IntegratedInitializeCompilation% = 0
         EXIT FUNCTION
     END IF
@@ -193,6 +197,7 @@ FUNCTION IntegratedInitializeCompilation%
     ' Set current file for error reporting
     SetCurrentFile RTRIM$(Integration.sourceFile)
     
+    PopErrorContext
     IntegratedInitializeCompilation% = -1
 END FUNCTION
 
@@ -204,12 +209,15 @@ END FUNCTION
 
 FUNCTION IntegratedParse%
     DIM astRoot AS LONG
+
+    PushErrorContext "parse source file"
     
     ' Use parser module to parse source
     astRoot = ParseSourceFile%(RTRIM$(Integration.sourceFile))
     
     IF astRoot = 0 THEN
         ReportError ERR_INVALID_SYNTAX, "Failed to parse source file", 0, ""
+        PopErrorContext
         IntegratedParse% = 0
         EXIT FUNCTION
     END IF
@@ -217,10 +225,13 @@ FUNCTION IntegratedParse%
     ' Update statistics
     Integration.totalLinesProcessed = GetASTNodeCount%
     
+    PopErrorContext
     IntegratedParse% = -1
 END FUNCTION
 
 FUNCTION IntegratedAnalyze%
+    PushErrorContext "semantic analysis"
+
     ' Use parallel processing if enabled and beneficial
     IF Integration.useParallelProcessing AND IsParallelEnabled% THEN
         ' Use parallel symbol resolution
@@ -242,6 +253,7 @@ FUNCTION IntegratedAnalyze%
     
     Integration.totalSymbolsResolved = SymbolCount
     
+    PopErrorContext
     IntegratedAnalyze% = -1
 END FUNCTION
 

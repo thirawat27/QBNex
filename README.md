@@ -1501,18 +1501,33 @@ PRINT Math_Clamp#(5#, 0#, 10#)
 ```
 
 #### Result Type (`error.result`)
-Error handling with Result pattern.
+Structured error handling with typed failures, propagation context, and readable error chains.
 
 **Functions:**
 - `Result_Ok(result, value$)` - Set successful result
-- `Result_Error(result, message$)` - Set error result
+- `Result_Fail(result, message$)` - Set a generic error result
+- `Result_FailCode(result, code&, message$)` - Set an error with an explicit code
+- `Result_FailWithContext(result, code&, message$, context$, source$)` - Set an error with code, context, and source information
+- `Result_AddContext(result, context$)` - Prepend outer context while propagating an error
+- `Result_SetSource(result, source$)` - Record the subsystem, file, or module that emitted the error
+- `Result_SetCause(result, cause$)` - Attach the underlying cause text
+- `Result_Propagate(result, sourceResult, context$, source$)` - Copy an error forward and add outer context
 - `Result_IsOk&(result)` - Check if result is OK
+- `Result_IsError&(result)` - Check if result is an error
+- `Result_Code&(result)` - Get the error code
 - `Result_Value$(result, default$)` - Get result value
-- `Result_ErrorMessage$(result)` - Get error message
+- `Result_Message$(result)` - Get the error message
+- `Result_Context$(result)` - Get the accumulated context chain
+- `Result_Source$(result)` - Get the source/subsystem text
+- `Result_Cause$(result)` - Get the attached cause text
+- `Result_ErrorChain$(result)` - Render a readable combined error chain
+- `Result_Describe$(result)` - Describe the result in a readable single string
+- `Result_Expect$(result, expectation$)` - Abort with a panic-style message if the result is an error
 
 **Example:**
 ```basic
 DIM outcome AS QBNex_Result
+DIM startup AS QBNex_Result
 
 Result_Ok outcome, "stable"
 IF Result_IsOk&(outcome) THEN
@@ -1520,11 +1535,14 @@ IF Result_IsOk&(outcome) THEN
 END IF
 ' Output: Success: stable
 
-Result_Error outcome, "Something went wrong"
-IF NOT Result_IsOk&(outcome) THEN
-    PRINT "Error: "; Result_ErrorMessage$(outcome)
+Result_FailWithContext outcome, 404, "Configuration file not found", "while reading settings.json", "config.loader"
+Result_SetCause outcome, "startup profile is missing from the project root"
+Result_Propagate startup, outcome, "while starting application", "startup"
+
+IF Result_IsError&(startup) THEN
+    PRINT "Error: "; Result_ErrorChain$(startup)
 END IF
-' Output: Error: Something went wrong
+' Output: Error: while starting application -> while reading settings.json: [E404] Configuration file not found [source=startup] | cause: startup profile is missing from the project root
 ```
 
 ### OOP Support
@@ -1845,9 +1863,28 @@ Preparing build files... [########################################] 100%
 
 **Compilation Error:**
 ```
-Cannot convert number to string
-Caused by: IF USERDEFINE ( 0 , I ) = L$ THEN
-LINE 1708: IF UserDefine(0, i) = l$ THEN
+[x] QBNex :: Error [E1203]  Expression mixes incompatible types
+  [@] source/qbnex.bas(1708,28)
+  [#] source
+    1708 | IF UserDefine(0, i) = l$ THEN
+         |                            ^ string value compared against incompatible type
+  [>] next     Convert the value to the correct type using an explicit conversion function.
+  [::] flow    Parsing :: parse source file -> file: source/qbnex.bas
+```
+
+**Verbose Diagnostics (`-d`, `--verbose-errors`):**
+```
+[x] QBNex :: Error [E1106]  IF statement is missing THEN or GOTO
+  [@] app.bas(42,13)
+  [#] source
+    42 | IF score > 10 PRINT "win"
+       |             ^ add THEN or GOTO here
+  [>] next     Add THEN after the IF condition.
+  [::] flow    Parsing :: parse source file -> file: app.bas
+  [!] cause    The compiler parsed an IF condition but never found THEN or GOTO to finish the statement.
+  [+] example  IF score > 10 THEN PRINT "win"
+
+[x] QBNex :: Build Halted  1 blocking diagnostic(s)
 ```
 
 **Runtime Success:**

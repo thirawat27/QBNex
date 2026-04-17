@@ -71,6 +71,7 @@ SUB StartPhase (phaseNum AS INTEGER)
     IF NOT Phases(phaseNum).isEnabled THEN EXIT SUB
     
     CurrentPhase = phaseNum
+    SetErrorPhase RTRIM$(Phases(phaseNum).phaseName)
     Phases(phaseNum).startTime = TIMER
     
     ' Call phase-specific entry hook
@@ -123,6 +124,7 @@ SUB EndPhase (phaseNum AS INTEGER)
     END SELECT
     
     TotalPhasesCompleted = TotalPhasesCompleted + 1
+    ClearErrorPhase
     CurrentPhase = 0
 END SUB
 

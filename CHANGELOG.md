@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Math Utilities** (`math.*`):
   - `numeric.bas` - Mathematical helpers (Math_Clamp, Math_Min, Math_Max)
 - **Error Handling** (`error.*`):
-  - `result.bas` - Result pattern for error handling (Result_Ok, Result_Error, Result_IsOk, Result_Value, Result_ErrorMessage)
+  - `result.bas` - Result pattern for error handling (Result_Ok, Result_Fail, Result_FailCode, Result_IsOk, Result_Value, Result_Message, Result_ErrorChain)
 - **OOP Support** (`oop.*`):
   - `class.bas` - Class registry and inheritance (QBNEX_RegisterClass, QBNEX_FindClass, QBNEX_RegisterMethod, QBNEX_FindMethodSlot, QBNEX_IsInstance, QBNEX_ObjectInit)
   - `interface.bas` - Interface implementation (QBNEX_RegisterInterface, QBNEX_FindInterface, QBNEX_Implements)
@@ -161,6 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OPTION _EXPLICIT enforcement (`-e` flag)
 - Compile and run immediately (`-x` flag)
 - Custom output naming (`-o` flag)
+
+#### Error Handling
+- Expanded `QBNex_Result` in `error.result` and `qbnex_stdlib.bas` from a minimal success/message container into a structured result type with `Code`, `Context`, `Source`, and `Cause` metadata.
+- Added richer result helpers for contextual propagation and inspection: `Result_FailCode`, `Result_FailWithContext`, `Result_AddContext`, `Result_SetSource`, `Result_SetCause`, `Result_Propagate`, `Result_IsError`, `Result_Code`, `Result_Context`, `Result_Source`, `Result_Cause`, `Result_ErrorChain`, `Result_Describe`, and `Result_Expect`.
+- Upgraded compiler diagnostics in `source/utils/error_handler.bas` with phase-aware reporting, context-flow tracing, duplicate suppression, and blocking-diagnostic summaries.
+- Reworked diagnostic presentation into a QBNex-specific format using markers such as `[x]`, `[!!]`, `[@]`, `[#]`, `[>]`, `[::]`, and `[=]` instead of generic compiler-style notes.
+- Added compact, modern diagnostic summaries such as `QBNex :: Build Halted` and `QBNex :: Build Complete` to better distinguish build outcome from individual errors.
 
 #### Testing & Quality Assurance
 - **Comprehensive test suite** (`test_all.bas`) with 17 test categories
