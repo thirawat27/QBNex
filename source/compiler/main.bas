@@ -279,6 +279,8 @@ FUNCTION InitializeCompilation%
         InitializeCompilation% = 0
         EXIT FUNCTION
     END IF
+
+    SetCurrentFile Compiler.sourceFile
     
     ' Create temp directory if needed
     IF NOT _DIREXISTS(Compiler.tempDir) THEN

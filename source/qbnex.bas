@@ -1042,6 +1042,7 @@ IF FileHasExtension(f$) = 0 THEN f$ = f$ + ".bas"
 
 sourcefile$ = f$
 CMDLineFile = sourcefile$
+SetCurrentFile sourcefile$
 'derive name from sourcefile
 f$ = RemoveFileExtension$(f$)
 
@@ -13361,9 +13362,17 @@ ELSE 'We want to let the user know which module the error occurred in
 END IF
 
 'OPTIMIZED: Report error through new error handler module with enhanced details
-'Build context string with line fragment info
+'Build context string with precise file and include information
 DIM fullContext AS STRING
+DIM secondaryContext AS STRING
+DIM locationNote AS STRING
+DIM reportLineNumber AS LONG
+DIM reportFile AS STRING
 fullContext = wholeline$
+secondaryContext = ""
+locationNote = ""
+reportLineNumber = linenumber
+reportFile = sourcefile$
 
 'Preprocess special characters in context for display
 FOR i = 1 TO LEN(linefragment)
@@ -13373,12 +13382,17 @@ FOR i = 1 TO LEN(wholeline)
     IF MID$(wholeline, i, 1) = sp$ THEN MID$(wholeline, i, 1) = " "
 NEXT
 
-ReportError ERR_INVALID_SYNTAX, a$, linenumber, fullContext
+IF RTRIM$(fullContext) = "" THEN fullContext = linefragment
+IF RTRIM$(linefragment) <> "" AND RTRIM$(linefragment) <> RTRIM$(fullContext) THEN secondaryContext = linefragment
 
-'Print legacy error format below enhanced report
-PRINT
-PRINT "Additional Info:"
-PRINT "Caused by (or after): " + linefragment
+IF inclevel > 0 THEN
+    IF RTRIM$(incname$(inclevel)) <> "" THEN reportFile = incname$(inclevel)
+    IF inclinenumber(inclevel) > 0 THEN reportLineNumber = inclinenumber(inclevel)
+    locationNote = "Triggered while compiling an included module."
+END IF
+
+SetCurrentFile reportFile
+ReportDetailedError ERR_INVALID_SYNTAX, a$, reportLineNumber, fullContext, secondaryContext, locationNote
 
 IF ConsoleMode THEN SYSTEM 1
 END 1
