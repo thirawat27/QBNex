@@ -242,9 +242,266 @@ FUNCTION ExtractDiagnosticToken$ (message AS STRING)
     ExtractDiagnosticToken$ = NormalizeDiagnosticMessage$(token)
 END FUNCTION
 
+FUNCTION IsIdentifierStartChar% (ch AS STRING)
+    IF LEN(ch) = 0 THEN
+        IsIdentifierStartChar% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF (ASC(ch) >= 65 AND ASC(ch) <= 90) OR (ASC(ch) >= 97 AND ASC(ch) <= 122) OR ch = "_" THEN
+        IsIdentifierStartChar% = -1
+    ELSE
+        IsIdentifierStartChar% = 0
+    END IF
+END FUNCTION
+
+FUNCTION IsIdentifierBodyChar% (ch AS STRING)
+    IF LEN(ch) = 0 THEN
+        IsIdentifierBodyChar% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF IsIdentifierStartChar%(ch) THEN
+        IsIdentifierBodyChar% = -1
+    ELSEIF ASC(ch) >= 48 AND ASC(ch) <= 57 THEN
+        IsIdentifierBodyChar% = -1
+    ELSEIF ch = "$" OR ch = "%" OR ch = "&" OR ch = "!" OR ch = "#" OR ch = "~" THEN
+        IsIdentifierBodyChar% = -1
+    ELSE
+        IsIdentifierBodyChar% = 0
+    END IF
+END FUNCTION
+
+FUNCTION ExtractLeadingIdentifier$ (context AS STRING)
+    DIM normalized AS STRING
+    DIM i AS LONG
+    DIM startPos AS LONG
+
+    normalized = NormalizeSourceContext$(context)
+    startPos = 1
+
+    DO WHILE startPos <= LEN(normalized) AND MID$(normalized, startPos, 1) = " "
+        startPos = startPos + 1
+    LOOP
+
+    IF startPos > LEN(normalized) THEN
+        ExtractLeadingIdentifier$ = ""
+        EXIT FUNCTION
+    END IF
+
+    IF IsIdentifierStartChar%(MID$(normalized, startPos, 1)) = 0 THEN
+        ExtractLeadingIdentifier$ = ""
+        EXIT FUNCTION
+    END IF
+
+    i = startPos
+    DO WHILE i <= LEN(normalized)
+        IF IsIdentifierBodyChar%(MID$(normalized, i, 1)) = 0 THEN EXIT DO
+        i = i + 1
+    LOOP
+
+    ExtractLeadingIdentifier$ = MID$(normalized, startPos, i - startPos)
+END FUNCTION
+
+FUNCTION NextNonSpaceCharAfterLeadingIdentifier$ (context AS STRING)
+    DIM normalized AS STRING
+    DIM token AS STRING
+    DIM i AS LONG
+
+    normalized = NormalizeSourceContext$(context)
+    token = ExtractLeadingIdentifier$(normalized)
+    IF token = "" THEN
+        NextNonSpaceCharAfterLeadingIdentifier$ = ""
+        EXIT FUNCTION
+    END IF
+
+    i = INSTR(normalized, token)
+    IF i = 0 THEN
+        NextNonSpaceCharAfterLeadingIdentifier$ = ""
+        EXIT FUNCTION
+    END IF
+
+    i = i + LEN(token)
+    DO WHILE i <= LEN(normalized) AND MID$(normalized, i, 1) = " "
+        i = i + 1
+    LOOP
+
+    IF i > LEN(normalized) THEN
+        NextNonSpaceCharAfterLeadingIdentifier$ = ""
+    ELSE
+        NextNonSpaceCharAfterLeadingIdentifier$ = MID$(normalized, i, 1)
+    END IF
+END FUNCTION
+
+FUNCTION CountChar% (text AS STRING, target AS STRING)
+    DIM i AS LONG
+    DIM total AS INTEGER
+
+    total = 0
+    FOR i = 1 TO LEN(text)
+        IF MID$(text, i, 1) = target THEN total = total + 1
+    NEXT
+
+    CountChar% = total
+END FUNCTION
+
+FUNCTION IsAdjacentSwapMatch% (source AS STRING, target AS STRING)
+    DIM i AS LONG
+    DIM mismatchPos AS LONG
+
+    source = UCASE$(source)
+    target = UCASE$(target)
+
+    IF LEN(source) <> LEN(target) OR LEN(source) < 2 THEN
+        IsAdjacentSwapMatch% = 0
+        EXIT FUNCTION
+    END IF
+
+    mismatchPos = 0
+    FOR i = 1 TO LEN(source)
+        IF MID$(source, i, 1) <> MID$(target, i, 1) THEN
+            mismatchPos = i
+            EXIT FOR
+        END IF
+    NEXT
+
+    IF mismatchPos = 0 OR mismatchPos >= LEN(source) THEN
+        IsAdjacentSwapMatch% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF MID$(source, mismatchPos, 1) <> MID$(target, mismatchPos + 1, 1) THEN
+        IsAdjacentSwapMatch% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF MID$(source, mismatchPos + 1, 1) <> MID$(target, mismatchPos, 1) THEN
+        IsAdjacentSwapMatch% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF LEFT$(source, mismatchPos - 1) + MID$(source, mismatchPos + 2) = LEFT$(target, mismatchPos - 1) + MID$(target, mismatchPos + 2) THEN
+        IsAdjacentSwapMatch% = -1
+    ELSE
+        IsAdjacentSwapMatch% = 0
+    END IF
+END FUNCTION
+
+FUNCTION IsSingleEditMatch% (source AS STRING, target AS STRING)
+    DIM i AS LONG
+    DIM j AS LONG
+    DIM edits AS INTEGER
+    DIM lenSource AS INTEGER
+    DIM lenTarget AS INTEGER
+
+    source = UCASE$(source)
+    target = UCASE$(target)
+    lenSource = LEN(source)
+    lenTarget = LEN(target)
+
+    IF ABS(lenSource - lenTarget) > 1 THEN
+        IsSingleEditMatch% = 0
+        EXIT FUNCTION
+    END IF
+
+    i = 1
+    j = 1
+    edits = 0
+
+    DO WHILE i <= lenSource AND j <= lenTarget
+        IF MID$(source, i, 1) = MID$(target, j, 1) THEN
+            i = i + 1
+            j = j + 1
+        ELSE
+            edits = edits + 1
+            IF edits > 1 THEN
+                IsSingleEditMatch% = 0
+                EXIT FUNCTION
+            END IF
+
+            IF lenSource > lenTarget THEN
+                i = i + 1
+            ELSEIF lenTarget > lenSource THEN
+                j = j + 1
+            ELSE
+                i = i + 1
+                j = j + 1
+            END IF
+        END IF
+    LOOP
+
+    IF i <= lenSource OR j <= lenTarget THEN edits = edits + 1
+
+    IF edits = 1 THEN
+        IsSingleEditMatch% = -1
+    ELSE
+        IsSingleEditMatch% = 0
+    END IF
+END FUNCTION
+
+FUNCTION SuggestStatementKeyword$ (token AS STRING)
+    DIM candidates AS STRING
+    DIM startPos AS LONG
+    DIM endPos AS LONG
+    DIM candidate AS STRING
+
+    token = UCASE$(NormalizeDiagnosticMessage$(token))
+    IF LEN(token) < 3 THEN
+        SuggestStatementKeyword$ = ""
+        EXIT FUNCTION
+    END IF
+
+    candidates = "PRINT|INPUT|IF|THEN|ELSE|ELSEIF|FOR|NEXT|DO|LOOP|WHILE|WEND|SELECT|CASE|DIM|REDIM|CONST|DECLARE|SUB|FUNCTION|END|TYPE|CLASS|METHOD|CALL|LET|OPEN|CLOSE|READ|DATA|RESTORE|RETURN|GOTO|GOSUB|ON|OPTION|EXIT|SYSTEM|SLEEP|RANDOMIZE|COLOR|LOCATE|LINE|PSET|CIRCLE|PAINT|PLAY|SOUND|BEEP|CLS|WRITE|LPRINT"
+    startPos = 1
+
+    DO WHILE startPos <= LEN(candidates)
+        endPos = INSTR(startPos, candidates, "|")
+        IF endPos = 0 THEN endPos = LEN(candidates) + 1
+        candidate = MID$(candidates, startPos, endPos - startPos)
+
+        IF token <> candidate THEN
+            IF IsSingleEditMatch%(token, candidate) OR IsAdjacentSwapMatch%(token, candidate) THEN
+                SuggestStatementKeyword$ = candidate
+                EXIT FUNCTION
+            END IF
+        END IF
+
+        startPos = endPos + 1
+    LOOP
+
+    SuggestStatementKeyword$ = ""
+END FUNCTION
+
+FUNCTION GetStatementTypoToken$ (context AS STRING, suggestion AS STRING)
+    DIM token AS STRING
+    DIM nextChar AS STRING
+
+    suggestion = ""
+    token = UCASE$(ExtractLeadingIdentifier$(context))
+    IF token = "" THEN
+        GetStatementTypoToken$ = ""
+        EXIT FUNCTION
+    END IF
+
+    nextChar = NextNonSpaceCharAfterLeadingIdentifier$(context)
+    IF nextChar = "=" OR nextChar = ":" OR LEFT$(token, 2) = "__" THEN
+        GetStatementTypoToken$ = ""
+        EXIT FUNCTION
+    END IF
+
+    suggestion = SuggestStatementKeyword$(token)
+    IF suggestion = "" THEN
+        GetStatementTypoToken$ = ""
+    ELSE
+        GetStatementTypoToken$ = token
+    END IF
+END FUNCTION
+
 FUNCTION InferErrorCode% (requestedCode AS INTEGER, message AS STRING, context AS STRING)
     DIM upperMessage AS STRING
     DIM upperContext AS STRING
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
 
     InferErrorCode% = requestedCode
     upperMessage = UCASE$(NormalizeDiagnosticMessage$(message))
@@ -275,6 +532,9 @@ FUNCTION InferErrorCode% (requestedCode AS INTEGER, message AS STRING, context A
     ELSEIF INSTR(upperMessage, "UNEXPECTED CHARACTER") > 0 OR INSTR(upperMessage, "INVALID SYMBOL") > 0 OR INSTR(upperMessage, "UNEXPECTED TOKEN") > 0 THEN
         InferErrorCode% = ERR_UNEXPECTED_TOKEN
     ELSEIF requestedCode = ERR_INVALID_SYNTAX THEN
+        IF CountChar%(context, CHR$(34)) MOD 2 <> 0 THEN InferErrorCode% = ERR_UNCLOSED_STRING
+        typoToken = GetStatementTypoToken$(context, suggestion)
+        IF typoToken <> "" THEN InferErrorCode% = ERR_UNEXPECTED_TOKEN
         IF INSTR(upperContext, "IF ") > 0 AND INSTR(upperContext, "THEN") = 0 THEN InferErrorCode% = ERR_EXPECTED_THEN
         IF INSTR(upperContext, "FOR ") > 0 AND INSTR(upperContext, " TO ") = 0 AND INSTR(upperMessage, "EXPECTED") > 0 THEN InferErrorCode% = ERR_EXPECTED_TO
     END IF
@@ -282,8 +542,11 @@ END FUNCTION
 
 FUNCTION GetDiagnosticHeadline$ (errCode AS INTEGER, message AS STRING, context AS STRING)
     DIM token AS STRING
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
 
     token = ExtractDiagnosticToken$(message)
+    typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
         CASE ERR_EXPECTED_THEN
@@ -315,7 +578,11 @@ FUNCTION GetDiagnosticHeadline$ (errCode AS INTEGER, message AS STRING, context 
         CASE ERR_INVALID_IDENTIFIER
             GetDiagnosticHeadline$ = "Identifier contains invalid characters or shape"
         CASE ERR_UNEXPECTED_TOKEN
-            GetDiagnosticHeadline$ = "Unexpected token or character"
+            IF typoToken <> "" THEN
+                GetDiagnosticHeadline$ = "Unknown statement '" + typoToken + "'. Did you mean '" + suggestion + "'?"
+            ELSE
+                GetDiagnosticHeadline$ = "Unexpected token or character"
+            END IF
         CASE ELSE
             IF NormalizeDiagnosticMessage$(message) <> "" THEN
                 GetDiagnosticHeadline$ = NormalizeDiagnosticMessage$(message)
@@ -326,6 +593,11 @@ FUNCTION GetDiagnosticHeadline$ (errCode AS INTEGER, message AS STRING, context 
 END FUNCTION
 
 FUNCTION GetPointerHint$ (errCode AS INTEGER, message AS STRING, context AS STRING)
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
+
+    typoToken = GetStatementTypoToken$(context, suggestion)
+
     SELECT CASE errCode
         CASE ERR_EXPECTED_THEN
             GetPointerHint$ = "add THEN here"
@@ -346,7 +618,11 @@ FUNCTION GetPointerHint$ (errCode AS INTEGER, message AS STRING, context AS STRI
         CASE ERR_TYPE_MISMATCH
             GetPointerHint$ = "check operand types here"
         CASE ERR_UNEXPECTED_TOKEN
-            GetPointerHint$ = "unexpected token"
+            IF typoToken <> "" THEN
+                GetPointerHint$ = "did you mean " + suggestion + "?"
+            ELSE
+                GetPointerHint$ = "unexpected token"
+            END IF
         CASE ELSE
             GetPointerHint$ = ""
     END SELECT
@@ -548,9 +824,12 @@ END FUNCTION
 FUNCTION GetDetailedSuggestion$ (errCode AS INTEGER, message AS STRING, context AS STRING)
     DIM basicSuggestion AS STRING
     DIM upperMessage AS STRING
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
 
     basicSuggestion = GetSuggestion$(errCode)
     upperMessage = UCASE$(NormalizeDiagnosticMessage$(message))
+    typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
         CASE ERR_INVALID_SYNTAX
@@ -574,6 +853,13 @@ FUNCTION GetDetailedSuggestion$ (errCode AS INTEGER, message AS STRING, context 
                 GetDetailedSuggestion$ = "IF statements require THEN. Example: IF x = 1 THEN"
             ELSEIF INSTR(UCASE$(context), "FOR") > 0 AND INSTR(UCASE$(context), "TO") = 0 THEN
                 GetDetailedSuggestion$ = "FOR loops require TO. Example: FOR i = 1 TO 10"
+            ELSE
+                GetDetailedSuggestion$ = basicSuggestion
+            END IF
+
+        CASE ERR_UNEXPECTED_TOKEN
+            IF typoToken <> "" THEN
+                GetDetailedSuggestion$ = "'" + typoToken + "' is not a built-in statement. Replace it with '" + suggestion + "' if you intended the standard QBasic command."
             ELSE
                 GetDetailedSuggestion$ = basicSuggestion
             END IF
@@ -628,8 +914,11 @@ END FUNCTION
 
 FUNCTION GetErrorCause$ (errCode AS INTEGER, message AS STRING, context AS STRING)
     DIM upperMessage AS STRING
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
 
     upperMessage = UCASE$(NormalizeDiagnosticMessage$(message))
+    typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
         CASE ERR_INVALID_SYNTAX
@@ -665,7 +954,11 @@ FUNCTION GetErrorCause$ (errCode AS INTEGER, message AS STRING, context AS STRIN
         CASE ERR_INVALID_UTF8
             GetErrorCause$ = "A multi-byte UTF-8 character sequence is incomplete or malformed."
         CASE ERR_UNEXPECTED_TOKEN
-            GetErrorCause$ = "A symbol appeared where the compiler did not expect it."
+            IF typoToken <> "" THEN
+                GetErrorCause$ = "The line starts with '" + typoToken + "', which does not match a known built-in statement. The closest built-in command is '" + suggestion + "'."
+            ELSE
+                GetErrorCause$ = "A symbol appeared where the compiler did not expect it."
+            END IF
         CASE ERR_OUT_OF_MEMORY
             GetErrorCause$ = "System has insufficient memory to continue compilation."
         CASE ERR_FILE_NOT_FOUND
@@ -691,8 +984,11 @@ END FUNCTION
 
 FUNCTION GetFixExample$ (errCode AS INTEGER, message AS STRING, context AS STRING)
     DIM upperMessage AS STRING
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
 
     upperMessage = UCASE$(NormalizeDiagnosticMessage$(message))
+    typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
         CASE ERR_INVALID_SYNTAX
@@ -710,6 +1006,15 @@ FUNCTION GetFixExample$ (errCode AS INTEGER, message AS STRING, context AS STRIN
                 GetFixExample$ = "SUB MySub(param AS INTEGER): ' code : END SUB"
             ELSEIF INSTR(UCASE$(context), "FUNCTION") > 0 THEN
                 GetFixExample$ = "FUNCTION MyFunc(x) AS INTEGER: MyFunc = x * 2: END FUNCTION"
+            ELSE
+                GetFixExample$ = ""
+            END IF
+
+        CASE ERR_UNEXPECTED_TOKEN
+            IF typoToken <> "" AND suggestion = "PRINT" THEN
+                GetFixExample$ = "PRINT " + CHR$(34) + "Hello" + CHR$(34)
+            ELSEIF typoToken <> "" THEN
+                GetFixExample$ = suggestion + " ..."
             ELSE
                 GetFixExample$ = ""
             END IF
@@ -760,9 +1065,12 @@ FUNCTION FindErrorColumn% (errCode AS INTEGER, message AS STRING, context AS STR
     DIM token AS STRING
     DIM upperContext AS STRING
     DIM i AS INTEGER
+    DIM typoToken AS STRING
+    DIM suggestion AS STRING
 
     upperContext = UCASE$(context)
     token = ExtractDiagnosticToken$(message)
+    typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
         CASE ERR_UNCLOSED_STRING
@@ -786,6 +1094,11 @@ FUNCTION FindErrorColumn% (errCode AS INTEGER, message AS STRING, context AS STR
             END IF
 
         CASE ERR_UNEXPECTED_TOKEN
+            IF typoToken <> "" THEN
+                FindErrorColumn% = INSTR(upperContext, typoToken)
+                IF FindErrorColumn% = 0 THEN FindErrorColumn% = 1
+                EXIT FUNCTION
+            END IF
             FOR i = 1 TO LEN(context)
                 SELECT CASE MID$(context, i, 1)
                     CASE "@", "#", "$", "%", "&", "*", "^", "!"

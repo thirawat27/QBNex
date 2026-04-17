@@ -832,6 +832,7 @@ DIM SHARED findidinternal AS LONG
 DIM SHARED currentid AS LONG 'is the index of the last ID accessed
 DIM SHARED linenumber AS LONG, reallinenumber AS LONG, totallinenumber AS LONG, definingtypeerror AS LONG
 DIM SHARED wholeline AS STRING
+DIM SHARED diagnosticSourceLine AS STRING
 DIM SHARED firstLineNumberLabelvWatch AS LONG, lastLineNumberLabelvWatch AS LONG
 DIM SHARED vWatchUsedLabels AS STRING, vWatchUsedSkipLabels AS STRING
 DIM SHARED linefragment AS STRING
@@ -1379,6 +1380,7 @@ controllevel = 0
 findidsecondarg$ = "": findanotherid = 0: findidinternal = 0: currentid = 0
 linenumber = 0
 wholeline$ = ""
+diagnosticSourceLine = ""
 linefragment$ = ""
 idn = 0
 arrayprocessinghappened = 0
@@ -1609,6 +1611,7 @@ DO
         wholeline$ = lineBackup$
     END IF
 
+    diagnosticSourceLine = wholeline$
     wholestv$ = wholeline$ '### STEVE EDIT FOR CONST EXPANSION 10/11/2013
 
     prepass = 1
@@ -2939,6 +2942,7 @@ DO
     END IF
 
     a3$ = LTRIM$(RTRIM$(a3$))
+    diagnosticSourceLine = a3$
     wholeline = a3$
 
     layoutoriginal$ = a3$
@@ -13368,22 +13372,23 @@ DIM secondaryContext AS STRING
 DIM locationNote AS STRING
 DIM reportLineNumber AS LONG
 DIM reportFile AS STRING
-fullContext = wholeline$
+DIM fragmentContext AS STRING
+DIM processedContext AS STRING
+fullContext = RTRIM$(diagnosticSourceLine)
 secondaryContext = ""
 locationNote = ""
 reportLineNumber = linenumber
 reportFile = sourcefile$
+fragmentContext = CleanDiagnosticContext$(linefragment)
+processedContext = CleanDiagnosticContext$(wholeline$)
 
-'Preprocess special characters in context for display
-FOR i = 1 TO LEN(linefragment)
-    IF MID$(linefragment, i, 1) = sp$ THEN MID$(linefragment, i, 1) = " "
-NEXT
-FOR i = 1 TO LEN(wholeline)
-    IF MID$(wholeline, i, 1) = sp$ THEN MID$(wholeline, i, 1) = " "
-NEXT
+IF RTRIM$(fullContext) = "" THEN fullContext = processedContext
+IF RTRIM$(fullContext) = "" THEN fullContext = fragmentContext
 
-IF RTRIM$(fullContext) = "" THEN fullContext = linefragment
-IF RTRIM$(linefragment) <> "" AND RTRIM$(linefragment) <> RTRIM$(fullContext) THEN secondaryContext = linefragment
+IF RTRIM$(processedContext) <> "" AND RTRIM$(processedContext) <> RTRIM$(fullContext) THEN secondaryContext = processedContext
+IF RTRIM$(fragmentContext) <> "" AND RTRIM$(fragmentContext) <> RTRIM$(fullContext) AND RTRIM$(fragmentContext) <> RTRIM$(secondaryContext) THEN
+    IF RTRIM$(secondaryContext) = "" THEN secondaryContext = fragmentContext
+END IF
 
 IF inclevel > 0 THEN
     IF RTRIM$(incname$(inclevel)) <> "" THEN reportFile = incname$(inclevel)
@@ -25724,7 +25729,236 @@ FUNCTION symbol2fulltypename$ (s2$)
 
 END FUNCTION
 
+FUNCTION IsDigitChar% (ch AS STRING)
+    IF LEN(ch) = 0 THEN
+        IsDigitChar% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF ASC(ch) >= 48 AND ASC(ch) <= 57 THEN
+        IsDigitChar% = -1
+    ELSE
+        IsDigitChar% = 0
+    END IF
+END FUNCTION
+
+FUNCTION IsOctalText% (text AS STRING)
+    DIM i AS LONG
+
+    IF LEN(text) <> 3 THEN
+        IsOctalText% = 0
+        EXIT FUNCTION
+    END IF
+
+    FOR i = 1 TO 3
+        IF ASC(text, i) < 48 OR ASC(text, i) > 55 THEN
+            IsOctalText% = 0
+            EXIT FUNCTION
+        END IF
+    NEXT
+
+    IsOctalText% = -1
+END FUNCTION
+
+FUNCTION OctalTextValue% (text AS STRING)
+    DIM i AS LONG
+    DIM value AS INTEGER
+
+    value = 0
+    FOR i = 1 TO LEN(text)
+        value = value * 8 + (ASC(text, i) - 48)
+    NEXT
+
+    OctalTextValue% = value
+END FUNCTION
+
+FUNCTION CleanDiagnosticContext$ (text$)
+    DIM result AS STRING
+    DIM i AS LONG
+    DIM j AS LONG
+    DIM ch AS STRING
+    DIM octal$ AS STRING
+    DIM hadCompilerEscapes AS _BYTE
+
+    result = ""
+    i = 1
+
+    DO WHILE i <= LEN(text$)
+        ch = MID$(text$, i, 1)
+
+        IF ch = sp$ THEN
+            result = result + " "
+            i = i + 1
+        ELSEIF ch = CHR$(34) THEN
+            result = result + ch
+            i = i + 1
+            hadCompilerEscapes = 0
+
+            DO WHILE i <= LEN(text$)
+                ch = MID$(text$, i, 1)
+
+                IF ch = CHR$(34) THEN
+                    result = result + ch
+                    i = i + 1
+                    EXIT DO
+                ELSEIF ch = "\" AND i + 3 <= LEN(text$) THEN
+                    octal$ = MID$(text$, i + 1, 3)
+                    IF IsOctalText%(octal$) THEN
+                        result = result + CHR$(OctalTextValue%(octal$))
+                        hadCompilerEscapes = -1
+                        i = i + 4
+                    ELSEIF MID$(text$, i + 1, 1) = "\" THEN
+                        result = result + "\"
+                        hadCompilerEscapes = -1
+                        i = i + 2
+                    ELSE
+                        result = result + ch
+                        i = i + 1
+                    END IF
+                ELSE
+                    IF ch = sp$ THEN ch = " "
+                    result = result + ch
+                    i = i + 1
+                END IF
+            LOOP
+
+            IF hadCompilerEscapes THEN
+                IF i <= LEN(text$) AND MID$(text$, i, 1) = "," THEN
+                    j = i + 1
+                    DO WHILE j <= LEN(text$)
+                        IF IsDigitChar%(MID$(text$, j, 1)) = 0 THEN EXIT DO
+                        j = j + 1
+                    LOOP
+                    IF j > i + 1 THEN i = j
+                END IF
+            END IF
+        ELSE
+            result = result + ch
+            i = i + 1
+        END IF
+    LOOP
+
+    CleanDiagnosticContext$ = RTRIM$(result)
+END FUNCTION
+
+FUNCTION UTF8ByteAt% (text AS STRING, pos AS LONG)
+    IF pos < 1 OR pos > LEN(text) THEN
+        UTF8ByteAt% = -1
+    ELSE
+        UTF8ByteAt% = ASC(text, pos)
+    END IF
+END FUNCTION
+
+FUNCTION IsUTF8ContinuationByte% (value AS INTEGER)
+    IF value >= 128 AND value <= 191 THEN
+        IsUTF8ContinuationByte% = -1
+    ELSE
+        IsUTF8ContinuationByte% = 0
+    END IF
+END FUNCTION
+
+FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS LONG, invalidContext AS STRING)
+    DIM pos AS LONG
+    DIM i AS LONG
+    DIM lineStart AS LONG
+    DIM lineEnd AS LONG
+    DIM b1 AS INTEGER
+    DIM b2 AS INTEGER
+    DIM b3 AS INTEGER
+    DIM b4 AS INTEGER
+
+    invalidPos = 0
+    invalidLine = 1
+    invalidContext = ""
+
+    pos = 1
+    DO WHILE pos <= LEN(text)
+        b1 = UTF8ByteAt%(text, pos)
+
+        IF b1 < 128 THEN
+            pos = pos + 1
+        ELSEIF b1 >= 194 AND b1 <= 223 THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            IF IsUTF8ContinuationByte%(b2) = 0 THEN GOTO invalid_utf8
+            pos = pos + 2
+        ELSEIF b1 = 224 THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            b3 = UTF8ByteAt%(text, pos + 2)
+            IF b2 < 160 OR b2 > 191 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
+            pos = pos + 3
+        ELSEIF (b1 >= 225 AND b1 <= 236) OR (b1 >= 238 AND b1 <= 239) THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            b3 = UTF8ByteAt%(text, pos + 2)
+            IF IsUTF8ContinuationByte%(b2) = 0 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
+            pos = pos + 3
+        ELSEIF b1 = 237 THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            b3 = UTF8ByteAt%(text, pos + 2)
+            IF b2 < 128 OR b2 > 159 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
+            pos = pos + 3
+        ELSEIF b1 = 240 THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            b3 = UTF8ByteAt%(text, pos + 2)
+            b4 = UTF8ByteAt%(text, pos + 3)
+            IF b2 < 144 OR b2 > 191 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b4) = 0 THEN GOTO invalid_utf8
+            pos = pos + 4
+        ELSEIF b1 >= 241 AND b1 <= 243 THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            b3 = UTF8ByteAt%(text, pos + 2)
+            b4 = UTF8ByteAt%(text, pos + 3)
+            IF IsUTF8ContinuationByte%(b2) = 0 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b4) = 0 THEN GOTO invalid_utf8
+            pos = pos + 4
+        ELSEIF b1 = 244 THEN
+            b2 = UTF8ByteAt%(text, pos + 1)
+            b3 = UTF8ByteAt%(text, pos + 2)
+            b4 = UTF8ByteAt%(text, pos + 3)
+            IF b2 < 128 OR b2 > 143 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
+            IF IsUTF8ContinuationByte%(b4) = 0 THEN GOTO invalid_utf8
+            pos = pos + 4
+        ELSE
+            GOTO invalid_utf8
+        END IF
+    LOOP
+
+    ValidateUTF8Buffer% = -1
+    EXIT FUNCTION
+
+    invalid_utf8:
+    invalidPos = pos
+    invalidLine = 1
+    FOR i = 1 TO invalidPos - 1
+        IF MID$(text, i, 1) = CHR$(10) THEN invalidLine = invalidLine + 1
+    NEXT
+
+    lineStart = invalidPos
+    DO WHILE lineStart > 1
+        IF MID$(text, lineStart - 1, 1) = CHR$(10) OR MID$(text, lineStart - 1, 1) = CHR$(13) THEN EXIT DO
+        lineStart = lineStart - 1
+    LOOP
+
+    lineEnd = invalidPos
+    DO WHILE lineEnd <= LEN(text)
+        IF MID$(text, lineEnd, 1) = CHR$(10) OR MID$(text, lineEnd, 1) = CHR$(13) THEN EXIT DO
+        lineEnd = lineEnd + 1
+    LOOP
+
+    invalidContext = MID$(text, lineStart, lineEnd - lineStart)
+    ValidateUTF8Buffer% = 0
+END FUNCTION
+
 SUB lineinput3load (f$)
+    DIM invalidPos AS LONG
+    DIM invalidLine AS LONG
+    DIM invalidContext AS STRING
+
     OPEN f$ FOR BINARY AS #1
     l = LOF(1)
     lineinput3buffer$ = SPACE$(l)
@@ -25749,6 +25983,15 @@ SUB lineinput3load (f$)
         ELSEIF ASC(lineinput3buffer$, 1) = 254 AND ASC(lineinput3buffer$, 2) = 255 THEN
             ' UTF-16 BE - report encoding error  
             ReportError ERR_ENCODING_ISSUE, "UTF-16 BE encoding detected. Please convert file to UTF-8", 1, ""
+            lineinput3buffer$ = ""
+        END IF
+    END IF
+
+    IF LEN(lineinput3buffer$) THEN
+        IF ValidateUTF8Buffer%(lineinput3buffer$, invalidPos, invalidLine, invalidContext) = 0 THEN
+            SetCurrentFile f$
+            ReportDetailedErrorWithSeverity ERR_INVALID_UTF8, ERR_FATAL, "Invalid UTF-8 byte sequence detected in source file", invalidLine, invalidContext, "", "Re-save this file as UTF-8 without mixing ANSI/UTF-16 bytes."
+            compfailed = 1
             lineinput3buffer$ = ""
         END IF
     END IF

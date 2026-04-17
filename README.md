@@ -5,7 +5,7 @@
   
   **Modern QBasic/QuickBASIC Compiler**
   
-  > A modern extended BASIC+OpenGL language that retains QB4.5/QBasic compatibility and compiles native binaries for Windows, Linux, and macOS.
+  > **A high-performance, modernized BASIC compiler.** Experience the classic nostalgia of full QB4.5/QBasic compatibility, seamlessly supercharged with advanced OpenGL graphics, modern syntax, TCP/IP networking, and native cross-platform binaries for Windows, Linux, and macOS.
   
 </div>
 

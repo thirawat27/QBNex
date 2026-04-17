@@ -50,7 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **I/O Utilities** (`io.*`):
   - `path.bas` - Cross-platform path manipulation (Path_Join, Path_FileName, Path_DirName, Path_Extension, Path_WithoutExtension, Path_Normalize)
   - `csv.bas` - CSV generation (CSV_Row3, CSV_Escape)
-  - `json.bas` - JSON object creation (Json_Object3, Json_String, Json_Number, Json_Array)
+  - `json.bas` - JSON object creation and parsing (Json_Object3, Json_String, Json_Number, Json_Array, json_parse, json_get_str)
+- **Network & Web Utilities** (`net.*` / Built-in):
+  - `http.bas` - HTTP client implementation (get, post, put, delete, fetch)
+  - `url.bas` - URL encoding, decoding, and parsing (encode, decode, url_parse)
+  - Web Server - Built-in functionality for HTTP servers (server, route_get, route_post, listen)
 - **System Utilities** (`sys.*`):
   - `env.bas` - Platform detection and environment variables (Env_Platform, Env_Is64Bit, Env_GetHome, Env_Get)
   - `args.bas` - Command-line argument access (Args_Count, Args_Get)
@@ -64,7 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `interface.bas` - Interface implementation (QBNEX_RegisterInterface, QBNEX_FindInterface, QBNEX_Implements)
 - **Core Library**:
   - `qbnex_stdlib.bas` - Unified stdlib combining all modules (18 modules in one file)
-- **Python-style import system** with dotted notation (`'$IMPORT:'module.name'`)
+- **Modern Import System**:
+  - Clean Python-style module imports (`IMPORT module.name`) alongside traditional syntax (`'$IMPORT:'module.name'`)
 - **Example Programs** (9 comprehensive examples):
   - `stdlib_demo.bas` - Full stdlib demonstration
   - `class_syntax_demo.bas` - Native CLASS syntax examples
@@ -85,6 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **String Operations**: LEFT$, RIGHT$, MID$, INSTR, LCASE$, UCASE$, LTRIM$, RTRIM$, TRIM$, etc.
 - **Math Functions**: ABS, SGN, SIN, COS, TAN, ATN, EXP, LOG, SQR, INT, FIX, RND, etc.
 - **Type Conversion**: CINT, CLNG, CSNG, CDBL, CSTR, MKI$, MKL$, CVS, CVD, etc.
+- **Modern Extended Syntax**:
+  - `IMPORT` statement for modular ecosystem (`IMPORT module_name`)
+  - Augmented assignment operators (`+=`, `-=`, `*=`, `/=`)
+  - Alternative comment syntax (`# comment`)
+  - Modern function type definitions (`FUNCTION name AS STRING` instead of `FUNCTION name$`)
+  - Shorter function declarations (`FUNC name()`)
+  - Lambda-like single-line functions (`DEF name(x) = x*2`)
 
 #### Graphics Capabilities
 - OpenGL-based graphics subsystem with FreeGLUT
