@@ -48,8 +48,6 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'tests\test_framework.bas'
 '$INCLUDE:'tests\regression_tests.bas'
 '=== QBNex Standard Library (QBasic + Modern Syntax) ===
-'$INCLUDE:'stdlib\net\http_client.bas'
-'$INCLUDE:'stdlib\net\http_server.bas'
 '$INCLUDE:'stdlib\json.bas'
 '$INCLUDE:'stdlib\url.bas'
 '$INCLUDE:'compiler\main.bas'

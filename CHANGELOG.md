@@ -51,10 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `path.bas` - Cross-platform path manipulation (Path_Join, Path_FileName, Path_DirName, Path_Extension, Path_WithoutExtension, Path_Normalize)
   - `csv.bas` - CSV generation (CSV_Row3, CSV_Escape)
   - `json.bas` - JSON object creation and parsing (Json_Object3, Json_String, Json_Number, Json_Array, json_parse, json_get_str)
-- **Network & Web Utilities** (`net.*` / Built-in):
-  - `http.bas` - HTTP client implementation (get, post, put, delete, fetch)
+- **URL Utilities**:
   - `url.bas` - URL encoding, decoding, and parsing (encode, decode, url_parse)
-  - Web Server - Built-in functionality for HTTP servers (server, route_get, route_post, listen)
 - **System Utilities** (`sys.*`):
   - `env.bas` - Platform detection and environment variables (Env_Platform, Env_Is64Bit, Env_GetHome, Env_Get)
   - `args.bas` - Command-line argument access (Args_Count, Args_Get)

@@ -502,7 +502,6 @@ QBNex supports both traditional and modern import syntax for the bundled standar
 ```basic
 ' Modern import syntax - cleaner and easier to read
 IMPORT qbnex
-IMPORT net.http
 IMPORT json
 IMPORT url
 ```
@@ -511,7 +510,6 @@ IMPORT url
 ```basic
 ' Traditional import syntax
 '$IMPORT:'qbnex'
-'$IMPORT:'net.http'
 '$IMPORT:'json'
 '$IMPORT:'url'
 ```
@@ -582,10 +580,6 @@ QBNex now supports a modern, cleaner syntax while maintaining full backward comp
 # Import standard library
 IMPORT qbnex
 
-# HTTP requests - clean function names
-result = get("http://api.example.com")
-data = post("http://api.example.com/api", jsonData)
-
 # JSON handling
 json = json_parse("{""name"": ""John""}")
 name = json_get_str(json)
@@ -594,12 +588,6 @@ output = json_string(json)
 # URL encoding/decoding
 encoded = encode("hello world")
 decoded = decode(encoded)
-
-# Create web server
-s = server(8080)
-route_get s, "/", handler_index
-route_post s, "/api", handler_api
-listen s
 
 # Augmented assignment (like other modern languages)
 count += 1      # count = count + 1
@@ -612,9 +600,7 @@ average /= n    # average = average / n
 
 | Module | Modern Import | Description |
 |--------|-------------|-------------|
-| QBNex Core | `IMPORT qbnex` | Full stdlib with HTTP, JSON, URL |
-| HTTP Client | `IMPORT net.http` | get, post, put, delete, fetch |
-| HTTP Server | Built-in | server, route_get, route_post, listen |
+| QBNex Core | `IMPORT qbnex` | Full stdlib with core types, JSON, and URL helpers |
 | JSON | Built-in | json_parse, json_string, json_obj, json_array |
 | URL | Built-in | encode, decode, url_parse, path_join |
 
