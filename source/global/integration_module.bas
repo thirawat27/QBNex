@@ -65,7 +65,7 @@ SUB InitIntegrationModule
     InitCodeGenerator
     
     ' Set error handler options
-    SetVerboseMode -1
+    SetVerboseMode 0
     SetMaxErrors 100
 END SUB
 

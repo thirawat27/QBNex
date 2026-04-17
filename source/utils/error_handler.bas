@@ -808,73 +808,106 @@ FUNCTION GetSeverityString$ (severity AS INTEGER)
     END SELECT
 END FUNCTION
 
+FUNCTION PadLeftZero$ (value AS LONG, width AS INTEGER)
+    DIM s AS STRING
+
+    s = LTRIM$(STR$(value))
+    DO WHILE LEN(s) < width
+        s = "0" + s
+    LOOP
+
+    PadLeftZero$ = s
+END FUNCTION
+
+FUNCTION GetDiagnosticKind$ (severity AS INTEGER)
+    SELECT CASE severity
+        CASE ERR_WARNING
+            GetDiagnosticKind$ = "warning"
+        CASE ERR_INFO
+            GetDiagnosticKind$ = "info"
+        CASE ELSE
+            GetDiagnosticKind$ = "error"
+    END SELECT
+END FUNCTION
+
+FUNCTION GetDiagnosticCodeTag$ (severity AS INTEGER, errCode AS INTEGER)
+    SELECT CASE severity
+        CASE ERR_WARNING
+            GetDiagnosticCodeTag$ = "W" + PadLeftZero$(errCode, 4)
+        CASE ERR_INFO
+            GetDiagnosticCodeTag$ = "I" + PadLeftZero$(errCode, 4)
+        CASE ELSE
+            GetDiagnosticCodeTag$ = "E" + PadLeftZero$(errCode, 4)
+    END SELECT
+END FUNCTION
+
+FUNCTION GetSeverityColor% (severity AS INTEGER)
+    SELECT CASE severity
+        CASE ERR_INFO
+            GetSeverityColor% = 11
+        CASE ERR_WARNING
+            GetSeverityColor% = 14
+        CASE ERR_FATAL
+            GetSeverityColor% = 4
+        CASE ELSE
+            GetSeverityColor% = 12
+    END SELECT
+END FUNCTION
+
 '-------------------------------------------------------------------------------
 ' ERROR OUTPUT
 '-------------------------------------------------------------------------------
 
 SUB PrintError (errIdx AS LONG)
     DIM errInfo AS ErrorInfo
-    DIM severityStr AS STRING
+    DIM diagnosticKind AS STRING
+    DIM codeTag AS STRING
     DIM headline AS STRING
     DIM pointerHint AS STRING
     DIM lineStr AS STRING
     DIM gutter AS STRING
+    DIM locationLabel AS STRING
+    DIM severityColor AS INTEGER
 
     IF errIdx < 1 OR errIdx > ErrorCount THEN EXIT SUB
 
     errInfo = Errors(errIdx)
-    severityStr = GetSeverityString$(errInfo.severity)
+    diagnosticKind = GetDiagnosticKind$(errInfo.severity)
+    codeTag = GetDiagnosticCodeTag$(errInfo.severity, errInfo.errorCode)
     headline = GetDiagnosticHeadline$(errInfo.errorCode, RTRIM$(errInfo.message), RTRIM$(errInfo.context))
     pointerHint = GetPointerHint$(errInfo.errorCode, RTRIM$(errInfo.message), RTRIM$(errInfo.context))
+    severityColor = GetSeverityColor%(errInfo.severity)
+    locationLabel = GetLocationLabel$(RTRIM$(errInfo.fileName), errInfo.lineNumber, errInfo.columnNumber)
 
-    PRINT STRING$(78, "-")
+    IF errIdx > 1 THEN PRINT
 
-    SELECT CASE errInfo.severity
-        CASE ERR_INFO
-            COLOR 7
-        CASE ERR_WARNING
-            COLOR 14
-        CASE ERR_ERROR
-            COLOR 12
-        CASE ERR_FATAL
-            COLOR 4
-        CASE ELSE
-            COLOR 7
-    END SELECT
-    PRINT "[" + severityStr + " " + LTRIM$(STR$(errInfo.errorCode)) + "] ";
+    COLOR severityColor
+    PRINT diagnosticKind;
+    COLOR 7
+    PRINT "[" + codeTag + "]: ";
     COLOR 15
     PRINT headline
     COLOR 7
 
-    IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN
-        PRINT "  Compiler message: " + RTRIM$(errInfo.message)
-    END IF
-
-    IF RTRIM$(errInfo.fileName) <> "" THEN
-        COLOR 11
-        PRINT "  Where: " + GetLocationLabel$(RTRIM$(errInfo.fileName), errInfo.lineNumber, errInfo.columnNumber)
-        COLOR 7
-    END IF
-
-    IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT "  Note: " + RTRIM$(errInfo.locationNote)
+    IF locationLabel <> "" THEN PRINT " --> " + locationLabel
 
     IF RTRIM$(errInfo.context) <> "" THEN
-        PRINT "  Source:"
+        PRINT "  |"
         IF errInfo.lineNumber > 0 THEN
             lineStr = LTRIM$(STR$(errInfo.lineNumber))
         ELSE
             lineStr = "?"
         END IF
-        gutter = RepeatSpaces$(6 - LEN(lineStr))
+        gutter = RepeatSpaces$(LEN(lineStr))
 
         COLOR 8
-        PRINT "    " + gutter + lineStr + " | ";
+        PRINT " " + lineStr + " | ";
         COLOR 7
         PRINT RTRIM$(errInfo.context)
 
         IF errInfo.columnNumber > 0 THEN
-            COLOR 12
-            PRINT "    " + gutter + RepeatSpaces$(LEN(lineStr)) + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
+            COLOR severityColor
+            PRINT " " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
             IF pointerHint <> "" THEN
                 PRINT " " + pointerHint
             ELSE
@@ -884,44 +917,28 @@ SUB PrintError (errIdx AS LONG)
         END IF
     END IF
 
-    IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT "  While processing: " + RTRIM$(errInfo.secondaryContext)
-
-    IF RTRIM$(errInfo.cause) <> "" THEN
-        COLOR 13
-        PRINT "  Why: " + RTRIM$(errInfo.cause)
-        COLOR 7
-    END IF
-
     IF RTRIM$(errInfo.suggestion) <> "" THEN
         COLOR 10
-        PRINT "  How to fix: " + RTRIM$(errInfo.suggestion)
+        PRINT "  = help: " + RTRIM$(errInfo.suggestion)
         COLOR 7
     END IF
 
-    IF RTRIM$(errInfo.fixExample) <> "" THEN
-        COLOR 14
-        PRINT "  Example:"
-        PRINT "    " + RTRIM$(errInfo.fixExample)
-        COLOR 7
+    IF VerboseMode THEN
+        IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT "  = note: " + RTRIM$(errInfo.locationNote)
+        IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT "  = note: compiler message: " + RTRIM$(errInfo.message)
+        IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT "  = note: while processing: " + RTRIM$(errInfo.secondaryContext)
+        IF RTRIM$(errInfo.cause) <> "" THEN PRINT "  = note: " + RTRIM$(errInfo.cause)
+        IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT "  = note: example: " + RTRIM$(errInfo.fixExample)
     END IF
-
-    PRINT STRING$(78, "-")
 
     IF ErrorOutputFile > 0 THEN
-        PRINT #ErrorOutputFile, "[" + severityStr + " " + LTRIM$(STR$(errInfo.errorCode)) + "] " + headline
-        IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN
-            PRINT #ErrorOutputFile, "Compiler message: " + RTRIM$(errInfo.message)
-        END IF
-        IF RTRIM$(errInfo.fileName) <> "" THEN
-            PRINT #ErrorOutputFile, "Where: " + GetLocationLabel$(RTRIM$(errInfo.fileName), errInfo.lineNumber, errInfo.columnNumber)
-        END IF
-        IF RTRIM$(errInfo.locationNote) <> "" THEN
-            PRINT #ErrorOutputFile, "Note: " + RTRIM$(errInfo.locationNote)
-        END IF
+        PRINT #ErrorOutputFile, diagnosticKind + "[" + codeTag + "]: " + headline
+        IF locationLabel <> "" THEN PRINT #ErrorOutputFile, " --> " + locationLabel
         IF RTRIM$(errInfo.context) <> "" THEN
-            PRINT #ErrorOutputFile, "Source: " + RTRIM$(errInfo.context)
+            PRINT #ErrorOutputFile, "  |"
+            PRINT #ErrorOutputFile, " " + lineStr + " | " + RTRIM$(errInfo.context)
             IF errInfo.columnNumber > 0 THEN
-                PRINT #ErrorOutputFile, "Pointer: " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
+                PRINT #ErrorOutputFile, " " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
                 IF pointerHint <> "" THEN
                     PRINT #ErrorOutputFile, " " + pointerHint
                 ELSE
@@ -929,17 +946,13 @@ SUB PrintError (errIdx AS LONG)
                 END IF
             END IF
         END IF
-        IF RTRIM$(errInfo.secondaryContext) <> "" THEN
-            PRINT #ErrorOutputFile, "While processing: " + RTRIM$(errInfo.secondaryContext)
-        END IF
-        IF RTRIM$(errInfo.cause) <> "" THEN
-            PRINT #ErrorOutputFile, "Why: " + RTRIM$(errInfo.cause)
-        END IF
-        IF RTRIM$(errInfo.suggestion) <> "" THEN
-            PRINT #ErrorOutputFile, "How to fix: " + RTRIM$(errInfo.suggestion)
-        END IF
-        IF RTRIM$(errInfo.fixExample) <> "" THEN
-            PRINT #ErrorOutputFile, "Example: " + RTRIM$(errInfo.fixExample)
+        IF RTRIM$(errInfo.suggestion) <> "" THEN PRINT #ErrorOutputFile, "  = help: " + RTRIM$(errInfo.suggestion)
+        IF VerboseMode THEN
+            IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT #ErrorOutputFile, "  = note: " + RTRIM$(errInfo.locationNote)
+            IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT #ErrorOutputFile, "  = note: compiler message: " + RTRIM$(errInfo.message)
+            IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT #ErrorOutputFile, "  = note: while processing: " + RTRIM$(errInfo.secondaryContext)
+            IF RTRIM$(errInfo.cause) <> "" THEN PRINT #ErrorOutputFile, "  = note: " + RTRIM$(errInfo.cause)
+            IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT #ErrorOutputFile, "  = note: example: " + RTRIM$(errInfo.fixExample)
         END IF
         PRINT #ErrorOutputFile, ""
     END IF
@@ -953,10 +966,6 @@ SUB PrintAllErrors
         EXIT SUB
     END IF
 
-    PRINT
-    PRINT "=== Compiler Diagnostics ==="
-    PRINT
-
     FOR i = 1 TO ErrorCount
         PrintError i
     NEXT
@@ -968,18 +977,23 @@ SUB PrintErrorSummary
     IF Stats.totalCount = 0 THEN EXIT SUB
 
     PRINT
-    PRINT "=== Diagnostic Summary ==="
-    PRINT "Info: "; Stats.infoCount; "  Warnings: "; Stats.warningCount; "  Errors: "; Stats.errorCount; "  Fatal: "; Stats.fatalCount
-
     IF Stats.hasErrors THEN
-        PRINT
-        PRINT "Compilation stopped. Start with the first error above because later diagnostics may be follow-on failures."
-    ELSE
-        PRINT
+        COLOR 12
+        PRINT "error: compilation failed with "; Stats.errorCount + Stats.fatalCount; " error(s)";
+        COLOR 7
         IF Stats.warningCount > 0 THEN
-            PRINT "Compilation completed with warnings."
+            PRINT " and "; Stats.warningCount; " warning(s)"
         ELSE
-            PRINT "Compilation completed successfully."
+            PRINT
+        END IF
+        IF VerboseMode THEN PRINT "note: start with the first error above because later diagnostics may be follow-on failures."
+    ELSE
+        IF Stats.warningCount > 0 THEN
+            COLOR 14
+            PRINT "warning: compilation completed with "; Stats.warningCount; " warning(s)"
+            COLOR 7
+        ELSE
+            PRINT "info: compilation completed successfully."
         END IF
     END IF
 END SUB

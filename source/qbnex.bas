@@ -148,7 +148,7 @@ Stdlib_Init
 'QBasic-Modern Syntax Support
 ModernSyntax_Init
 
-SetVerboseMode -1  ' Enable verbose mode for detailed error messages
+SetVerboseMode 0  ' Use compact diagnostics by default
 SetMaxErrors 100
 
 DIM SHARED debugPath$
@@ -13407,6 +13407,7 @@ FUNCTION ParseCMDLineArgs$ ()
         IF LCASE$(token$) = "-v" OR LCASE$(token$) = "--version" OR LCASE$(token$) = "/version" THEN token$ = "-v"
         IF LCASE$(token$) = "-i" OR LCASE$(token$) = "--info" OR LCASE$(token$) = "--about" OR LCASE$(token$) = "/info" OR LCASE$(token$) = "/about" THEN token$ = "-i"
         IF LCASE$(token$) = "-g" OR LCASE$(token$) = "--examples" OR LCASE$(token$) = "--example" OR LCASE$(token$) = "/examples" OR LCASE$(token$) = "/example" THEN token$ = "-g"
+        IF LCASE$(token$) = "--verbose-errors" OR LCASE$(token$) = "--detailed-errors" THEN token$ = "-d"
         SELECT CASE LCASE$(LEFT$(token$, 2))
             CASE "-?" 'Command-line help
                 _DEST _CONSOLE
@@ -13429,6 +13430,7 @@ FUNCTION ParseCMDLineArgs$ ()
                 PRINT "  -w                      Show warnings"
                 PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
                 PRINT "  -m                      Do not colorize compiler output (monochrome mode)"
+                PRINT "  -d, --verbose-errors    Show detailed diagnostic notes and examples"
                 PRINT "  -e                      Enable OPTION _EXPLICIT, making variable declaration"
                 PRINT "                             mandatory (per-compilation; doesn't affect the"
                 PRINT "                             source file or global settings)"
@@ -13454,6 +13456,7 @@ FUNCTION ParseCMDLineArgs$ ()
                 PRINT "  qb hello.bas"
                 PRINT "  qb hello.bas -x"
                 PRINT "  qb hello.bas -o hello.exe"
+                PRINT "  qb broken.bas -d"
                 PRINT "  qb --version"
                 PRINT "  qb -s"
                 SYSTEM
@@ -13473,6 +13476,9 @@ FUNCTION ParseCMDLineArgs$ ()
                 cmdlineswitch = -1
             CASE "-m" 'Monochrome mode
                 MonochromeLoggingMode = -1
+                cmdlineswitch = -1
+            CASE "-d" 'Detailed diagnostics
+                SetVerboseMode -1
                 cmdlineswitch = -1
             CASE "-e" 'Option Explicit
                 optionexplicit_cmd = -1
