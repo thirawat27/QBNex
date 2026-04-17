@@ -314,7 +314,7 @@ NEXT
 
 
 DIM SHARED extension AS STRING
-DIM SHARED path.exe$, path.source$, lastBinaryGenerated$
+DIM SHARED path.exe$, path.source$, lastBinaryGenerated$, pendingOutputBinary$
 extension$ = ".exe"
 IF os$ = "LNX" THEN extension$ = "" 'no extension under Linux
 
@@ -1066,6 +1066,7 @@ IF SaveExeWithSource THEN path.exe$ = path.source$
 IF path.exe$ = "" THEN
     IF INSTR(_OS$, "WIN") THEN path.exe$ = "..\..\" ELSE path.exe$ = "../../"
 END IF
+pendingOutputBinary$ = path.exe$ + f$ + extension$
 
 FOR x = LEN(f$) TO 1 STEP -1
     a$ = MID$(f$, x, 1)
@@ -12295,6 +12296,7 @@ IF No_C_Compile_Mode = 0 THEN
         END IF
     END IF
     path.exe$ = t.path.exe$
+    pendingOutputBinary$ = path.exe$ + file$ + extension$
 END IF
 
 
@@ -13398,6 +13400,7 @@ END IF
 
 SetCurrentFile reportFile
 ReportDetailedError ERR_INVALID_SYNTAX, a$, reportLineNumber, fullContext, secondaryContext, locationNote
+WarnIfStaleOutputBinary
 
 IF ConsoleMode THEN SYSTEM 1
 END 1
@@ -27012,6 +27015,32 @@ FUNCTION QuotedFilename$ (f$)
     END IF
 
 END FUNCTION
+
+SUB WarnIfStaleOutputBinary
+    DIM outputPath AS STRING
+    DIM sourcePath AS STRING
+    DIM outputTime
+    DIM sourceTime
+
+    outputPath = RTRIM$(pendingOutputBinary$)
+    sourcePath = RTRIM$(sourcefile$)
+
+    IF outputPath = "" THEN EXIT SUB
+    IF sourcePath = "" THEN EXIT SUB
+    IF _FILEEXISTS(outputPath) = 0 THEN EXIT SUB
+    IF _FILEEXISTS(sourcePath) = 0 THEN EXIT SUB
+
+    outputTime = _FILEDATETIME(outputPath)
+    sourceTime = _FILEDATETIME(sourcePath)
+
+    IF sourceTime <= outputTime THEN EXIT SUB
+
+    PRINT
+    PRINT "Warning: Existing output was not updated because compilation failed."
+    PRINT "Existing executable may be stale:"
+    PRINT "  Source: "; sourcePath
+    PRINT "  Output: "; outputPath
+END SUB
 
 
 FUNCTION HashValue& (a$) 'returns the hash table value of a string
