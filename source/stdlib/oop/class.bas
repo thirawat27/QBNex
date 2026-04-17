@@ -33,12 +33,13 @@ FUNCTION QBNEX_FindClass& (className AS STRING)
 
     lookupName = UCASE$(RTRIM$(className))
     FOR i = 1 TO QBNEX_ClassCount
-        IF UCASE$(RTRIM$(QBNEX_ClassRegistry(i).ClassName)) = lookupName THEN
-            QBNEX_FindClass = i
-            EXIT FUNCTION
-        END IF
+        IF UCASE$(RTRIM$(QBNEX_ClassRegistry(i).ClassName)) = lookupName THEN QBNEX_FindClass = i: EXIT FUNCTION
     NEXT
     QBNEX_FindClass = 0
+END FUNCTION
+
+FUNCTION QBNEX_EnsureClass& (className AS STRING, baseClassID AS LONG)
+    QBNEX_EnsureClass = QBNEX_RegisterClass(className, baseClassID)
 END FUNCTION
 
 FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
@@ -74,10 +75,7 @@ SUB QBNEX_RegisterMethod (classID AS LONG, methodName AS STRING, methodSlot AS L
     count = QBNEX_ClassRegistry(classID).MethodCount
 
     FOR index = 1 TO count
-        IF UCASE$(RTRIM$(QBNEX_MethodRegistry(classID, index).MethodName)) = lookupName THEN
-            QBNEX_MethodRegistry(classID, index).MethodSlot = methodSlot
-            EXIT SUB
-        END IF
+        IF UCASE$(RTRIM$(QBNEX_MethodRegistry(classID, index).MethodName)) = lookupName THEN QBNEX_MethodRegistry(classID, index).MethodSlot = methodSlot: EXIT SUB
     NEXT
 
     count = count + 1
@@ -101,10 +99,7 @@ FUNCTION QBNEX_FindMethodSlot& (classID AS LONG, methodName AS STRING)
 
     DO WHILE currentID > 0 AND currentID <= QBNEX_ClassCount
         FOR index = 1 TO QBNEX_ClassRegistry(currentID).MethodCount
-            IF UCASE$(RTRIM$(QBNEX_MethodRegistry(currentID, index).MethodName)) = lookupName THEN
-                QBNEX_FindMethodSlot = QBNEX_MethodRegistry(currentID, index).MethodSlot
-                EXIT FUNCTION
-            END IF
+            IF UCASE$(RTRIM$(QBNEX_MethodRegistry(currentID, index).MethodName)) = lookupName THEN QBNEX_FindMethodSlot = QBNEX_MethodRegistry(currentID, index).MethodSlot: EXIT FUNCTION
         NEXT
         currentID = QBNEX_ClassRegistry(currentID).BaseClassID
     LOOP

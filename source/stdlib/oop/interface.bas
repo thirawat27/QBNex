@@ -2,18 +2,12 @@
 ' QBNex Standard Library - OOP Foundation: Interfaces
 ' ============================================================================
 
-TYPE QBNex_ClassInfo
-    ClassName AS STRING * 64
-    BaseClassID AS LONG
-    MethodCount AS LONG
-END TYPE
+'$IMPORT:'oop.class'
 
 TYPE QBNex_InterfaceInfo
     InterfaceName AS STRING * 64
 END TYPE
 
-DIM SHARED QBNEX_ClassCount AS LONG
-DIM SHARED QBNEX_ClassRegistry(1 TO 256) AS QBNex_ClassInfo
 DIM SHARED QBNEX_InterfaceCount AS LONG
 DIM SHARED QBNEX_InterfaceRegistry(1 TO 256) AS QBNex_InterfaceInfo
 DIM SHARED QBNEX_ClassInterfaceCount(1 TO 256) AS LONG
@@ -25,10 +19,7 @@ FUNCTION QBNEX_FindInterface& (interfaceName AS STRING)
 
     lookupName = UCASE$(RTRIM$(interfaceName))
     FOR i = 1 TO QBNEX_InterfaceCount
-        IF UCASE$(RTRIM$(QBNEX_InterfaceRegistry(i).InterfaceName)) = lookupName THEN
-            QBNEX_FindInterface = i
-            EXIT FUNCTION
-        END IF
+        IF UCASE$(RTRIM$(QBNEX_InterfaceRegistry(i).InterfaceName)) = lookupName THEN QBNEX_FindInterface = i: EXIT FUNCTION
     NEXT
     QBNEX_FindInterface = 0
 END FUNCTION
@@ -51,6 +42,10 @@ FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
 
     QBNEX_InterfaceRegistry(QBNEX_InterfaceCount).InterfaceName = RTRIM$(interfaceName)
     QBNEX_RegisterInterfaceName = QBNEX_InterfaceCount
+END FUNCTION
+
+FUNCTION QBNEX_EnsureInterfaceName& (interfaceName AS STRING)
+    QBNEX_EnsureInterfaceName = QBNEX_RegisterInterfaceName(interfaceName)
 END FUNCTION
 
 SUB QBNEX_RegisterInterface (classID AS LONG, interfaceName AS STRING)
