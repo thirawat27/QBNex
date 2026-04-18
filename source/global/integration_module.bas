@@ -65,7 +65,7 @@ SUB InitIntegrationModule
     InitCodeGenerator
     
     ' Set error handler options
-    SetVerboseMode 0
+    SetVerboseMode -1
     SetMaxErrors 100
 END SUB
 
@@ -166,7 +166,7 @@ FUNCTION IntegratedCompile% (sourcePath AS STRING, outputPath AS STRING)
     EndPhase PHASE_FINALIZATION
     Integration.totalPhasesCompleted = Integration.totalPhasesCompleted + 1
     
-IntegratedCompileExit:
+    IntegratedCompileExit:
     Integration.compileEndTime = TIMER
     Integration.isCompiling = 0
     IntegratedCompile% = success

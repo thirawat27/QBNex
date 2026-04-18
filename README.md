@@ -411,7 +411,8 @@ qb <source.bas> [flags]
 | `-w` | - | Show warnings during compilation | `qb file.bas -w` |
 | `-q` | - | Quiet mode (minimal output) | `qb file.bas -q` |
 | `-m` | - | Monochrome (no color) output | `qb file.bas -m` |
-| `-d` | `--verbose-errors` | Show detailed diagnostic notes, causes, and examples | `qb file.bas -d` |
+| `-d` | `--verbose-errors` | Legacy alias for detailed diagnostics (enabled by default) | `qb file.bas` |
+| `-k` | `--compact-errors` | Use compact diagnostics (hide detailed notes) | `qb file.bas -k` |
 | `-e` | - | Enable OPTION _EXPLICIT | `qb file.bas -e` |
 | `-s` | - | View/edit compiler settings | `qb -s:DebugInfo=true` |
 | `-p` | - | Purge all pre-compiled content | `qb file.bas -p` |
@@ -419,14 +420,17 @@ qb <source.bas> [flags]
 
 **Recommended for debugging diagnostics:**
 ```bash
-# Show the full diagnostic trail, cause notes, and examples
-qb myprogram.bas -d
+# Detailed diagnostics are enabled by default
+qb myprogram.bas
 
-# Combine warnings with verbose diagnostics when chasing follow-on failures
-qb myprogram.bas -w -d
+# Combine warnings when chasing follow-on failures
+qb myprogram.bas -w
+
+# Switch back to compact diagnostics when you only want headline + source snippet
+qb myprogram.bas --compact-errors
 ```
 
-`-d`, `--verbose-errors` enables the extra diagnostic sections used by the modern QBNex formatter, including `cause`, `example`, `where`, `while`, and other context notes that are hidden in the default compact output.
+Detailed output sections used by the modern QBNex formatter (`cause`, `example`, `where`, `while`, and related context notes) are now shown by default. `-d` and `--verbose-errors` are kept as backward-compatible aliases.
 
 **Combining Flags:**
 ```bash
@@ -1680,6 +1684,22 @@ qb source/stdlib/examples/data_smoke.bas -z
 qb source/stdlib/examples/ecosystem_smoke.bas -z
 ```
 
+**Diagnostics Smoke Test (Windows):**
+```cmd
+tests\diagnostics_smoke.cmd
+```
+
+**Diagnostics Smoke Test (Linux/macOS):**
+```bash
+chmod +x tests/diagnostics_smoke.sh
+./tests/diagnostics_smoke.sh
+```
+
+This script validates both behaviors in one run:
+- Default compilation output includes detailed markers such as `[!] cause` and `[+] example` without requiring `-d`
+- `--compact-errors` hides those detailed sections and keeps output compact
+- Source fixture for the test is `tests/fixtures/diagnostics_compile_error.bas`
+
 **Regression Tests:**
 ```bash
 # Top-level runtime regression
@@ -1884,7 +1904,7 @@ Preparing build files... [########################################] 100%
   [::] flow    Parsing :: parse source file -> file: source/qbnex.bas
 ```
 
-**Verbose Diagnostics (`-d`, `--verbose-errors`):**
+**Detailed Diagnostics (default):**
 ```
 [x] QBNex :: Error [E1106]  IF statement is missing THEN or GOTO
   [@] app.bas(42,13)
@@ -1921,7 +1941,7 @@ QBNex diagnostics use compact markers so the important parts of an error can be 
 | `[!]` | Verbose cause note |
 | `[+]` | Verbose example or corrected form |
 
-Default output stays compact. Use `-d` or `--verbose-errors` when you want the full trail, root-cause notes, and remediation examples.
+Detailed diagnostics are enabled by default so the full trail, root-cause notes, and remediation examples appear automatically. Use `-k` or `--compact-errors` when you prefer compact output.
 
 **Runtime Success:**
 ```

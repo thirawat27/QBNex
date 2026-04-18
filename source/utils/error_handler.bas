@@ -123,7 +123,7 @@ SUB InitErrorHandler
     ErrorCount = 0
     CurrentFile = ""
     ErrorOutputFile = 0
-    VerboseMode = 0
+    VerboseMode = -1
     WarningsAsErrors = 0
     CurrentErrorPhase = ""
     ErrorContextDepth = 0
@@ -208,11 +208,11 @@ END SUB
 
 FUNCTION GetDefaultSeverity% (errCode AS INTEGER)
     SELECT CASE errCode
-        CASE 1000 TO 1099: GetDefaultSeverity% = ERR_ERROR
-        CASE 1100 TO 1199: GetDefaultSeverity% = ERR_ERROR
-        CASE 1200 TO 1299: GetDefaultSeverity% = ERR_ERROR
-        CASE 1300 TO 1399: GetDefaultSeverity% = ERR_FATAL
-        CASE ELSE: GetDefaultSeverity% = ERR_ERROR
+    CASE 1000 TO 1099: GetDefaultSeverity% = ERR_ERROR
+    CASE 1100 TO 1199: GetDefaultSeverity% = ERR_ERROR
+    CASE 1200 TO 1299: GetDefaultSeverity% = ERR_ERROR
+    CASE 1300 TO 1399: GetDefaultSeverity% = ERR_FATAL
+    CASE ELSE: GetDefaultSeverity% = ERR_ERROR
     END SELECT
 END FUNCTION
 
@@ -254,14 +254,14 @@ FUNCTION NormalizeSourceContext$ (text AS STRING)
         code = ASC(ch)
 
         SELECT CASE code
-            CASE 9
-                result = result + "    "
-            CASE 10, 13
-                IF LEN(result) > 0 AND RIGHT$(result, 1) <> " " THEN result = result + " "
-            CASE 0 TO 31
-                result = result + " "
-            CASE ELSE
-                result = result + ch
+        CASE 9
+            result = result + "    "
+        CASE 10, 13
+            IF LEN(result) > 0 AND RIGHT$(result, 1) <> " " THEN result = result + " "
+        CASE 0 TO 31
+            result = result + " "
+        CASE ELSE
+            result = result + ch
         END SELECT
     NEXT
 
@@ -676,46 +676,46 @@ FUNCTION GetDiagnosticHeadline$ (errCode AS INTEGER, message AS STRING, context 
     typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
-        CASE ERR_EXPECTED_THEN
-            GetDiagnosticHeadline$ = "IF statement is missing THEN or GOTO"
-        CASE ERR_EXPECTED_TO
-            GetDiagnosticHeadline$ = "FOR loop is missing TO"
-        CASE ERR_EXPECTED_NEXT
-            GetDiagnosticHeadline$ = "FOR block was not closed with NEXT"
-        CASE ERR_EXPECTED_LOOP
-            GetDiagnosticHeadline$ = "DO block was not closed with LOOP"
-        CASE ERR_EXPECTED_WEND
-            GetDiagnosticHeadline$ = "WHILE block was not closed with WEND"
-        CASE ERR_UNCLOSED_STRING
-            GetDiagnosticHeadline$ = "String literal was opened but not closed"
-        CASE ERR_UNDEFINED_SYMBOL
-            IF token <> "" THEN
-                GetDiagnosticHeadline$ = "'" + token + "' is not defined in the current scope"
-            ELSE
-                GetDiagnosticHeadline$ = "A symbol is used before it is defined"
-            END IF
-        CASE ERR_REDEFINED_SYMBOL
-            IF token <> "" THEN
-                GetDiagnosticHeadline$ = "'" + token + "' is already defined"
-            ELSE
-                GetDiagnosticHeadline$ = "A name is declared more than once in the same scope"
-            END IF
-        CASE ERR_TYPE_MISMATCH
-            GetDiagnosticHeadline$ = "Expression mixes incompatible types"
-        CASE ERR_INVALID_IDENTIFIER
-            GetDiagnosticHeadline$ = "Identifier contains invalid characters or shape"
-        CASE ERR_UNEXPECTED_TOKEN
-            IF typoToken <> "" THEN
-                GetDiagnosticHeadline$ = "Unknown statement '" + typoToken + "'. Did you mean '" + suggestion + "'?"
-            ELSE
-                GetDiagnosticHeadline$ = "Unexpected token or character"
-            END IF
-        CASE ELSE
-            IF NormalizeDiagnosticMessage$(message) <> "" THEN
-                GetDiagnosticHeadline$ = NormalizeDiagnosticMessage$(message)
-            ELSE
-                GetDiagnosticHeadline$ = GetErrorMessage$(errCode)
-            END IF
+    CASE ERR_EXPECTED_THEN
+        GetDiagnosticHeadline$ = "IF statement is missing THEN or GOTO"
+    CASE ERR_EXPECTED_TO
+        GetDiagnosticHeadline$ = "FOR loop is missing TO"
+    CASE ERR_EXPECTED_NEXT
+        GetDiagnosticHeadline$ = "FOR block was not closed with NEXT"
+    CASE ERR_EXPECTED_LOOP
+        GetDiagnosticHeadline$ = "DO block was not closed with LOOP"
+    CASE ERR_EXPECTED_WEND
+        GetDiagnosticHeadline$ = "WHILE block was not closed with WEND"
+    CASE ERR_UNCLOSED_STRING
+        GetDiagnosticHeadline$ = "String literal was opened but not closed"
+    CASE ERR_UNDEFINED_SYMBOL
+        IF token <> "" THEN
+            GetDiagnosticHeadline$ = "'" + token + "' is not defined in the current scope"
+        ELSE
+            GetDiagnosticHeadline$ = "A symbol is used before it is defined"
+        END IF
+    CASE ERR_REDEFINED_SYMBOL
+        IF token <> "" THEN
+            GetDiagnosticHeadline$ = "'" + token + "' is already defined"
+        ELSE
+            GetDiagnosticHeadline$ = "A name is declared more than once in the same scope"
+        END IF
+    CASE ERR_TYPE_MISMATCH
+        GetDiagnosticHeadline$ = "Expression mixes incompatible types"
+    CASE ERR_INVALID_IDENTIFIER
+        GetDiagnosticHeadline$ = "Identifier contains invalid characters or shape"
+    CASE ERR_UNEXPECTED_TOKEN
+        IF typoToken <> "" THEN
+            GetDiagnosticHeadline$ = "Unknown statement '" + typoToken + "'. Did you mean '" + suggestion + "'?"
+        ELSE
+            GetDiagnosticHeadline$ = "Unexpected token or character"
+        END IF
+    CASE ELSE
+        IF NormalizeDiagnosticMessage$(message) <> "" THEN
+            GetDiagnosticHeadline$ = NormalizeDiagnosticMessage$(message)
+        ELSE
+            GetDiagnosticHeadline$ = GetErrorMessage$(errCode)
+        END IF
     END SELECT
 END FUNCTION
 
@@ -726,32 +726,32 @@ FUNCTION GetPointerHint$ (errCode AS INTEGER, message AS STRING, context AS STRI
     typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
-        CASE ERR_EXPECTED_THEN
-            GetPointerHint$ = "add THEN here"
-        CASE ERR_EXPECTED_TO
-            GetPointerHint$ = "add TO here"
-        CASE ERR_EXPECTED_NEXT
-            GetPointerHint$ = "add NEXT after the loop body"
-        CASE ERR_EXPECTED_LOOP
-            GetPointerHint$ = "close the DO block here"
-        CASE ERR_EXPECTED_WEND
-            GetPointerHint$ = "close the WHILE block here"
-        CASE ERR_UNCLOSED_STRING
-            GetPointerHint$ = "close the string here"
-        CASE ERR_UNDEFINED_SYMBOL
-            GetPointerHint$ = "unknown symbol"
-        CASE ERR_REDEFINED_SYMBOL
-            GetPointerHint$ = "duplicate name"
-        CASE ERR_TYPE_MISMATCH
-            GetPointerHint$ = "check operand types here"
-        CASE ERR_UNEXPECTED_TOKEN
-            IF typoToken <> "" THEN
-                GetPointerHint$ = "did you mean " + suggestion + "?"
-            ELSE
-                GetPointerHint$ = "unexpected token"
-            END IF
-        CASE ELSE
-            GetPointerHint$ = ""
+    CASE ERR_EXPECTED_THEN
+        GetPointerHint$ = "add THEN here"
+    CASE ERR_EXPECTED_TO
+        GetPointerHint$ = "add TO here"
+    CASE ERR_EXPECTED_NEXT
+        GetPointerHint$ = "add NEXT after the loop body"
+    CASE ERR_EXPECTED_LOOP
+        GetPointerHint$ = "close the DO block here"
+    CASE ERR_EXPECTED_WEND
+        GetPointerHint$ = "close the WHILE block here"
+    CASE ERR_UNCLOSED_STRING
+        GetPointerHint$ = "close the string here"
+    CASE ERR_UNDEFINED_SYMBOL
+        GetPointerHint$ = "unknown symbol"
+    CASE ERR_REDEFINED_SYMBOL
+        GetPointerHint$ = "duplicate name"
+    CASE ERR_TYPE_MISMATCH
+        GetPointerHint$ = "check operand types here"
+    CASE ERR_UNEXPECTED_TOKEN
+        IF typoToken <> "" THEN
+            GetPointerHint$ = "did you mean " + suggestion + "?"
+        ELSE
+            GetPointerHint$ = "unexpected token"
+        END IF
+    CASE ELSE
+        GetPointerHint$ = ""
     END SELECT
 END FUNCTION
 
@@ -882,17 +882,17 @@ SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, me
 
     Stats.totalCount = Stats.totalCount + 1
     SELECT CASE severity
-        CASE ERR_INFO
-            Stats.infoCount = Stats.infoCount + 1
-        CASE ERR_WARNING
-            Stats.warningCount = Stats.warningCount + 1
-            IF WarningsAsErrors THEN Stats.hasErrors = -1
-        CASE ERR_ERROR
-            Stats.errorCount = Stats.errorCount + 1
-            Stats.hasErrors = -1
-        CASE ERR_FATAL
-            Stats.fatalCount = Stats.fatalCount + 1
-            Stats.hasErrors = -1
+    CASE ERR_INFO
+        Stats.infoCount = Stats.infoCount + 1
+    CASE ERR_WARNING
+        Stats.warningCount = Stats.warningCount + 1
+        IF WarningsAsErrors THEN Stats.hasErrors = -1
+    CASE ERR_ERROR
+        Stats.errorCount = Stats.errorCount + 1
+        Stats.hasErrors = -1
+    CASE ERR_FATAL
+        Stats.fatalCount = Stats.fatalCount + 1
+        Stats.hasErrors = -1
     END SELECT
 
     PrintError errIdx
@@ -912,68 +912,68 @@ END SUB
 
 FUNCTION GetErrorMessage$ (errCode AS INTEGER)
     SELECT CASE errCode
-        CASE ERR_NO_SOURCE_FILE: GetErrorMessage$ = "No source file specified"
-        CASE ERR_FILE_NOT_FOUND: GetErrorMessage$ = "Source file not found"
-        CASE ERR_PERMISSION_DENIED: GetErrorMessage$ = "Permission denied accessing file"
-        CASE ERR_OUT_OF_MEMORY: GetErrorMessage$ = "Out of memory"
-        CASE ERR_INVALID_SYNTAX: GetErrorMessage$ = "Invalid syntax"
-        CASE ERR_UNEXPECTED_TOKEN: GetErrorMessage$ = "Unexpected token"
-        CASE ERR_UNCLOSED_STRING: GetErrorMessage$ = "Unclosed string literal"
-        CASE ERR_UNCLOSED_COMMENT: GetErrorMessage$ = "Unclosed comment"
-        CASE ERR_INVALID_IDENTIFIER: GetErrorMessage$ = "Invalid identifier"
-        CASE ERR_EXPECTED_EOL: GetErrorMessage$ = "Expected end of line"
-        CASE ERR_EXPECTED_THEN: GetErrorMessage$ = "Expected THEN"
-        CASE ERR_EXPECTED_TO: GetErrorMessage$ = "Expected TO"
-        CASE ERR_EXPECTED_NEXT: GetErrorMessage$ = "Expected NEXT"
-        CASE ERR_EXPECTED_LOOP: GetErrorMessage$ = "Expected LOOP"
-        CASE ERR_EXPECTED_WEND: GetErrorMessage$ = "Expected WEND"
-        CASE ERR_UNDEFINED_SYMBOL: GetErrorMessage$ = "Undefined symbol"
-        CASE ERR_REDEFINED_SYMBOL: GetErrorMessage$ = "Symbol already defined"
-        CASE ERR_TYPE_MISMATCH: GetErrorMessage$ = "Type mismatch"
-        CASE ERR_WRONG_ARGUMENT_COUNT: GetErrorMessage$ = "Wrong number of arguments"
-        CASE ERR_INVALID_SCOPE: GetErrorMessage$ = "Invalid scope"
-        CASE ERR_UNDECLARED_VARIABLE: GetErrorMessage$ = "Undeclared variable (Option Explicit)"
-        CASE ERR_OPTION_EXPLICIT_VIOLATION: GetErrorMessage$ = "Option Explicit requires variable declaration"
-        CASE ERR_INVALID_ARRAY_BOUNDS: GetErrorMessage$ = "Invalid array bounds"
-        CASE ERR_SUBSCRIPT_OUT_OF_RANGE: GetErrorMessage$ = "Subscript out of range"
-        CASE ERR_CODEGEN_FAILED: GetErrorMessage$ = "Code generation failed"
-        CASE ERR_UNSUPPORTED_FEATURE: GetErrorMessage$ = "Unsupported feature"
-        CASE ERR_LINK_ERROR: GetErrorMessage$ = "Link error"
-        CASE ELSE: GetErrorMessage$ = "Unknown error"
+    CASE ERR_NO_SOURCE_FILE: GetErrorMessage$ = "No source file specified"
+    CASE ERR_FILE_NOT_FOUND: GetErrorMessage$ = "Source file not found"
+    CASE ERR_PERMISSION_DENIED: GetErrorMessage$ = "Permission denied accessing file"
+    CASE ERR_OUT_OF_MEMORY: GetErrorMessage$ = "Out of memory"
+    CASE ERR_INVALID_SYNTAX: GetErrorMessage$ = "Invalid syntax"
+    CASE ERR_UNEXPECTED_TOKEN: GetErrorMessage$ = "Unexpected token"
+    CASE ERR_UNCLOSED_STRING: GetErrorMessage$ = "Unclosed string literal"
+    CASE ERR_UNCLOSED_COMMENT: GetErrorMessage$ = "Unclosed comment"
+    CASE ERR_INVALID_IDENTIFIER: GetErrorMessage$ = "Invalid identifier"
+    CASE ERR_EXPECTED_EOL: GetErrorMessage$ = "Expected end of line"
+    CASE ERR_EXPECTED_THEN: GetErrorMessage$ = "Expected THEN"
+    CASE ERR_EXPECTED_TO: GetErrorMessage$ = "Expected TO"
+    CASE ERR_EXPECTED_NEXT: GetErrorMessage$ = "Expected NEXT"
+    CASE ERR_EXPECTED_LOOP: GetErrorMessage$ = "Expected LOOP"
+    CASE ERR_EXPECTED_WEND: GetErrorMessage$ = "Expected WEND"
+    CASE ERR_UNDEFINED_SYMBOL: GetErrorMessage$ = "Undefined symbol"
+    CASE ERR_REDEFINED_SYMBOL: GetErrorMessage$ = "Symbol already defined"
+    CASE ERR_TYPE_MISMATCH: GetErrorMessage$ = "Type mismatch"
+    CASE ERR_WRONG_ARGUMENT_COUNT: GetErrorMessage$ = "Wrong number of arguments"
+    CASE ERR_INVALID_SCOPE: GetErrorMessage$ = "Invalid scope"
+    CASE ERR_UNDECLARED_VARIABLE: GetErrorMessage$ = "Undeclared variable (Option Explicit)"
+    CASE ERR_OPTION_EXPLICIT_VIOLATION: GetErrorMessage$ = "Option Explicit requires variable declaration"
+    CASE ERR_INVALID_ARRAY_BOUNDS: GetErrorMessage$ = "Invalid array bounds"
+    CASE ERR_SUBSCRIPT_OUT_OF_RANGE: GetErrorMessage$ = "Subscript out of range"
+    CASE ERR_CODEGEN_FAILED: GetErrorMessage$ = "Code generation failed"
+    CASE ERR_UNSUPPORTED_FEATURE: GetErrorMessage$ = "Unsupported feature"
+    CASE ERR_LINK_ERROR: GetErrorMessage$ = "Link error"
+    CASE ELSE: GetErrorMessage$ = "Unknown error"
     END SELECT
 END FUNCTION
 
 FUNCTION GetSuggestion$ (errCode AS INTEGER)
     SELECT CASE errCode
-        CASE ERR_NO_SOURCE_FILE: GetSuggestion$ = "Specify a .bas file to compile: qb program.bas"
-        CASE ERR_FILE_NOT_FOUND: GetSuggestion$ = "Check the file path exists and try again"
-        CASE ERR_PERMISSION_DENIED: GetSuggestion$ = "Check file permissions or run with elevated privileges"
-        CASE ERR_OUT_OF_MEMORY: GetSuggestion$ = "Close other applications or use smaller source files"
-        CASE ERR_INVALID_SYNTAX: GetSuggestion$ = "Review the syntax and compare with QBasic documentation"
-        CASE ERR_ENCODING_ISSUE: GetSuggestion$ = "Save the source file as UTF-8 encoded text"
-        CASE ERR_INVALID_UTF8: GetSuggestion$ = "Remove invalid UTF-8 characters or re-encode the file"
-        CASE ERR_UNEXPECTED_TOKEN: GetSuggestion$ = "Remove or replace the unexpected symbol"
-        CASE ERR_UNCLOSED_STRING: GetSuggestion$ = "Add closing double quote to the string literal"
-        CASE ERR_UNCLOSED_COMMENT: GetSuggestion$ = "Close the comment with appropriate delimiter"
-        CASE ERR_INVALID_IDENTIFIER: GetSuggestion$ = "Use valid variable names (letters, numbers, underscores)"
-        CASE ERR_EXPECTED_THEN: GetSuggestion$ = "Add THEN after the IF condition"
-        CASE ERR_EXPECTED_TO: GetSuggestion$ = "Add TO in the FOR loop statement"
-        CASE ERR_EXPECTED_NEXT: GetSuggestion$ = "Add NEXT to close the FOR loop"
-        CASE ERR_EXPECTED_LOOP: GetSuggestion$ = "Add LOOP to close the DO loop"
-        CASE ERR_EXPECTED_WEND: GetSuggestion$ = "Add WEND to close the WHILE loop"
-        CASE ERR_UNDEFINED_SYMBOL: GetSuggestion$ = "Define the symbol or check for typos"
-        CASE ERR_REDEFINED_SYMBOL: GetSuggestion$ = "Use a different name or remove duplicate definition"
-        CASE ERR_TYPE_MISMATCH: GetSuggestion$ = "Convert the value to the correct type using type conversion functions"
-        CASE ERR_WRONG_ARGUMENT_COUNT: GetSuggestion$ = "Check the function signature and provide correct arguments"
-        CASE ERR_INVALID_SCOPE: GetSuggestion$ = "Move the statement to an appropriate scope"
-        CASE ERR_UNDECLARED_VARIABLE: GetSuggestion$ = "Declare the variable with DIM or turn off Option Explicit"
-        CASE ERR_OPTION_EXPLICIT_VIOLATION: GetSuggestion$ = "Add DIM statement before using the variable"
-        CASE ERR_INVALID_ARRAY_BOUNDS: GetSuggestion$ = "Check array dimension bounds are positive integers"
-        CASE ERR_SUBSCRIPT_OUT_OF_RANGE: GetSuggestion$ = "Ensure array index is within declared bounds"
-        CASE ERR_CODEGEN_FAILED: GetSuggestion$ = "Check for syntax errors or unsupported language features"
-        CASE ERR_UNSUPPORTED_FEATURE: GetSuggestion$ = "Use an alternative syntax or update QBNex"
-        CASE ERR_LINK_ERROR: GetSuggestion$ = "Check C++ compiler installation and library paths"
-        CASE ELSE: GetSuggestion$ = "Review the error context and consult the documentation"
+    CASE ERR_NO_SOURCE_FILE: GetSuggestion$ = "Specify a .bas file to compile: qb program.bas"
+    CASE ERR_FILE_NOT_FOUND: GetSuggestion$ = "Check the file path exists and try again"
+    CASE ERR_PERMISSION_DENIED: GetSuggestion$ = "Check file permissions or run with elevated privileges"
+    CASE ERR_OUT_OF_MEMORY: GetSuggestion$ = "Close other applications or use smaller source files"
+    CASE ERR_INVALID_SYNTAX: GetSuggestion$ = "Review the syntax and compare with QBasic documentation"
+    CASE ERR_ENCODING_ISSUE: GetSuggestion$ = "Save the source file as UTF-8 encoded text"
+    CASE ERR_INVALID_UTF8: GetSuggestion$ = "Remove invalid UTF-8 characters or re-encode the file"
+    CASE ERR_UNEXPECTED_TOKEN: GetSuggestion$ = "Remove or replace the unexpected symbol"
+    CASE ERR_UNCLOSED_STRING: GetSuggestion$ = "Add closing double quote to the string literal"
+    CASE ERR_UNCLOSED_COMMENT: GetSuggestion$ = "Close the comment with appropriate delimiter"
+    CASE ERR_INVALID_IDENTIFIER: GetSuggestion$ = "Use valid variable names (letters, numbers, underscores)"
+    CASE ERR_EXPECTED_THEN: GetSuggestion$ = "Add THEN after the IF condition"
+    CASE ERR_EXPECTED_TO: GetSuggestion$ = "Add TO in the FOR loop statement"
+    CASE ERR_EXPECTED_NEXT: GetSuggestion$ = "Add NEXT to close the FOR loop"
+    CASE ERR_EXPECTED_LOOP: GetSuggestion$ = "Add LOOP to close the DO loop"
+    CASE ERR_EXPECTED_WEND: GetSuggestion$ = "Add WEND to close the WHILE loop"
+    CASE ERR_UNDEFINED_SYMBOL: GetSuggestion$ = "Define the symbol or check for typos"
+    CASE ERR_REDEFINED_SYMBOL: GetSuggestion$ = "Use a different name or remove duplicate definition"
+    CASE ERR_TYPE_MISMATCH: GetSuggestion$ = "Convert the value to the correct type using type conversion functions"
+    CASE ERR_WRONG_ARGUMENT_COUNT: GetSuggestion$ = "Check the function signature and provide correct arguments"
+    CASE ERR_INVALID_SCOPE: GetSuggestion$ = "Move the statement to an appropriate scope"
+    CASE ERR_UNDECLARED_VARIABLE: GetSuggestion$ = "Declare the variable with DIM or turn off Option Explicit"
+    CASE ERR_OPTION_EXPLICIT_VIOLATION: GetSuggestion$ = "Add DIM statement before using the variable"
+    CASE ERR_INVALID_ARRAY_BOUNDS: GetSuggestion$ = "Check array dimension bounds are positive integers"
+    CASE ERR_SUBSCRIPT_OUT_OF_RANGE: GetSuggestion$ = "Ensure array index is within declared bounds"
+    CASE ERR_CODEGEN_FAILED: GetSuggestion$ = "Check for syntax errors or unsupported language features"
+    CASE ERR_UNSUPPORTED_FEATURE: GetSuggestion$ = "Use an alternative syntax or update QBNex"
+    CASE ERR_LINK_ERROR: GetSuggestion$ = "Check C++ compiler installation and library paths"
+    CASE ELSE: GetSuggestion$ = "Review the error context and consult the documentation"
     END SELECT
 END FUNCTION
 
@@ -992,83 +992,83 @@ FUNCTION GetDetailedSuggestion$ (errCode AS INTEGER, message AS STRING, context 
     typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
-        CASE ERR_INVALID_SYNTAX
-            IF INSTR(upperMessage, "$INCLUDE") > 0 THEN
-                GetDetailedSuggestion$ = "Use $INCLUDE:'relative-or-absolute-file' and keep the path inside single quotes."
-            ELSEIF INSTR(upperMessage, "$IMPORT") > 0 THEN
-                GetDetailedSuggestion$ = "Use $IMPORT:'module.name' and keep the module name inside single quotes."
-            ELSEIF INSTR(upperMessage, "EXPECTED )") > 0 OR INSTR(upperMessage, "MISSING )") > 0 THEN
-                GetDetailedSuggestion$ = "Close the open parenthesis before continuing the expression."
-            ELSEIF INSTR(upperMessage, "EXPECTED (") > 0 THEN
-                GetDetailedSuggestion$ = "Add the opening parenthesis that starts the parameter list or grouped expression."
-            ELSEIF INSTR(upperMessage, "EXPECTED =") > 0 THEN
-                GetDetailedSuggestion$ = "Assignments and CONST declarations require = between the name and value."
-            ELSEIF INSTR(upperMessage, "EXPECTED ,") > 0 THEN
-                GetDetailedSuggestion$ = "Separate adjacent items with commas and remove any trailing comma."
-            ELSEIF INSTR(context, "$") > 0 THEN
-                GetDetailedSuggestion$ = "Metacommands must start with $. Check for typos in " + context
-            ELSEIF INSTR(context, "(") > 0 AND INSTR(context, ")") = 0 THEN
-                GetDetailedSuggestion$ = "Missing closing parenthesis. Add ) at the end of the expression."
-            ELSEIF INSTR(UCASE$(context), "IF") > 0 AND INSTR(UCASE$(context), "THEN") = 0 THEN
-                GetDetailedSuggestion$ = "IF statements require THEN. Example: IF x = 1 THEN"
-            ELSEIF INSTR(UCASE$(context), "FOR") > 0 AND INSTR(UCASE$(context), "TO") = 0 THEN
-                GetDetailedSuggestion$ = "FOR loops require TO. Example: FOR i = 1 TO 10"
-            ELSE
-                GetDetailedSuggestion$ = basicSuggestion
-            END IF
-
-        CASE ERR_UNEXPECTED_TOKEN
-            IF typoToken <> "" THEN
-                GetDetailedSuggestion$ = "'" + typoToken + "' is not a built-in statement. Replace it with '" + suggestion + "' if you intended the standard QBasic command."
-            ELSE
-                GetDetailedSuggestion$ = basicSuggestion
-            END IF
-
-        CASE ERR_EXPECTED_THEN
-            GetDetailedSuggestion$ = "Add THEN after the IF condition. If you intended a jump, use IF condition GOTO label."
-
-        CASE ERR_EXPECTED_TO
-            GetDetailedSuggestion$ = "Write FOR <variable> = start TO finish. Add STEP only after the TO range."
-
-        CASE ERR_EXPECTED_NEXT
-            GetDetailedSuggestion$ = "Close the FOR block with NEXT or NEXT <variable>."
-
-        CASE ERR_EXPECTED_LOOP
-            GetDetailedSuggestion$ = "Close the DO block with LOOP, LOOP WHILE ..., or LOOP UNTIL ...."
-
-        CASE ERR_EXPECTED_WEND
-            GetDetailedSuggestion$ = "Close the WHILE block with WEND."
-
-        CASE ERR_UNDECLARED_VARIABLE
-            IF context <> "" THEN
-                GetDetailedSuggestion$ = "Variable '" + RTRIM$(context) + "' was used but not declared. Add: DIM " + RTRIM$(context) + " AS [type]"
-            ELSE
-                GetDetailedSuggestion$ = basicSuggestion
-            END IF
-
-        CASE ERR_TYPE_MISMATCH
-            IF INSTR(context, "$") > 0 THEN
-                GetDetailedSuggestion$ = "String variable used where numeric expected. Use VAL() to convert or remove $ from the variable."
-            ELSEIF INSTR(context, "!") > 0 OR INSTR(context, "#") > 0 THEN
-                GetDetailedSuggestion$ = "Numeric type mismatch. Use CSNG(), CDBL(), CINT(), or CLNG() to convert explicitly."
-            ELSE
-                GetDetailedSuggestion$ = basicSuggestion
-            END IF
-
-        CASE ERR_REDEFINED_SYMBOL
-            GetDetailedSuggestion$ = "Rename the duplicate symbol or remove the earlier declaration in the same scope."
-
-        CASE ERR_UNDEFINED_SYMBOL
-            GetDetailedSuggestion$ = "Declare the symbol before using it, or fix the spelling to match the existing declaration."
-
-        CASE ERR_ENCODING_ISSUE
-            GetDetailedSuggestion$ = "The source file contains characters that cannot be properly decoded. Save the file as UTF-8 without BOM using Notepad++ or VS Code."
-
-        CASE ERR_INVALID_UTF8
-            GetDetailedSuggestion$ = "Invalid UTF-8 byte sequence detected. This often happens when mixing ANSI and UTF-8 encoding. Re-save the file as UTF-8."
-
-        CASE ELSE
+    CASE ERR_INVALID_SYNTAX
+        IF INSTR(upperMessage, "$INCLUDE") > 0 THEN
+            GetDetailedSuggestion$ = "Use $INCLUDE:'relative-or-absolute-file' and keep the path inside single quotes."
+        ELSEIF INSTR(upperMessage, "$IMPORT") > 0 THEN
+            GetDetailedSuggestion$ = "Use $IMPORT:'module.name' and keep the module name inside single quotes."
+        ELSEIF INSTR(upperMessage, "EXPECTED )") > 0 OR INSTR(upperMessage, "MISSING )") > 0 THEN
+            GetDetailedSuggestion$ = "Close the open parenthesis before continuing the expression."
+        ELSEIF INSTR(upperMessage, "EXPECTED (") > 0 THEN
+            GetDetailedSuggestion$ = "Add the opening parenthesis that starts the parameter list or grouped expression."
+        ELSEIF INSTR(upperMessage, "EXPECTED =") > 0 THEN
+            GetDetailedSuggestion$ = "Assignments and CONST declarations require = between the name and value."
+        ELSEIF INSTR(upperMessage, "EXPECTED ,") > 0 THEN
+            GetDetailedSuggestion$ = "Separate adjacent items with commas and remove any trailing comma."
+        ELSEIF INSTR(context, "$") > 0 THEN
+            GetDetailedSuggestion$ = "Metacommands must start with $. Check for typos in " + context
+        ELSEIF INSTR(context, "(") > 0 AND INSTR(context, ")") = 0 THEN
+            GetDetailedSuggestion$ = "Missing closing parenthesis. Add ) at the end of the expression."
+        ELSEIF INSTR(UCASE$(context), "IF") > 0 AND INSTR(UCASE$(context), "THEN") = 0 THEN
+            GetDetailedSuggestion$ = "IF statements require THEN. Example: IF x = 1 THEN"
+        ELSEIF INSTR(UCASE$(context), "FOR") > 0 AND INSTR(UCASE$(context), "TO") = 0 THEN
+            GetDetailedSuggestion$ = "FOR loops require TO. Example: FOR i = 1 TO 10"
+        ELSE
             GetDetailedSuggestion$ = basicSuggestion
+        END IF
+
+    CASE ERR_UNEXPECTED_TOKEN
+        IF typoToken <> "" THEN
+            GetDetailedSuggestion$ = "'" + typoToken + "' is not a built-in statement. Replace it with '" + suggestion + "' if you intended the standard QBasic command."
+        ELSE
+            GetDetailedSuggestion$ = basicSuggestion
+        END IF
+
+    CASE ERR_EXPECTED_THEN
+        GetDetailedSuggestion$ = "Add THEN after the IF condition. If you intended a jump, use IF condition GOTO label."
+
+    CASE ERR_EXPECTED_TO
+        GetDetailedSuggestion$ = "Write FOR <variable> = start TO finish. Add STEP only after the TO range."
+
+    CASE ERR_EXPECTED_NEXT
+        GetDetailedSuggestion$ = "Close the FOR block with NEXT or NEXT <variable>."
+
+    CASE ERR_EXPECTED_LOOP
+        GetDetailedSuggestion$ = "Close the DO block with LOOP, LOOP WHILE ..., or LOOP UNTIL ...."
+
+    CASE ERR_EXPECTED_WEND
+        GetDetailedSuggestion$ = "Close the WHILE block with WEND."
+
+    CASE ERR_UNDECLARED_VARIABLE
+        IF context <> "" THEN
+            GetDetailedSuggestion$ = "Variable '" + RTRIM$(context) + "' was used but not declared. Add: DIM " + RTRIM$(context) + " AS [type]"
+        ELSE
+            GetDetailedSuggestion$ = basicSuggestion
+        END IF
+
+    CASE ERR_TYPE_MISMATCH
+        IF INSTR(context, "$") > 0 THEN
+            GetDetailedSuggestion$ = "String variable used where numeric expected. Use VAL() to convert or remove $ from the variable."
+        ELSEIF INSTR(context, "!") > 0 OR INSTR(context, "#") > 0 THEN
+            GetDetailedSuggestion$ = "Numeric type mismatch. Use CSNG(), CDBL(), CINT(), or CLNG() to convert explicitly."
+        ELSE
+            GetDetailedSuggestion$ = basicSuggestion
+        END IF
+
+    CASE ERR_REDEFINED_SYMBOL
+        GetDetailedSuggestion$ = "Rename the duplicate symbol or remove the earlier declaration in the same scope."
+
+    CASE ERR_UNDEFINED_SYMBOL
+        GetDetailedSuggestion$ = "Declare the symbol before using it, or fix the spelling to match the existing declaration."
+
+    CASE ERR_ENCODING_ISSUE
+        GetDetailedSuggestion$ = "The source file contains characters that cannot be properly decoded. Save the file as UTF-8 without BOM using Notepad++ or VS Code."
+
+    CASE ERR_INVALID_UTF8
+        GetDetailedSuggestion$ = "Invalid UTF-8 byte sequence detected. This often happens when mixing ANSI and UTF-8 encoding. Re-save the file as UTF-8."
+
+    CASE ELSE
+        GetDetailedSuggestion$ = basicSuggestion
     END SELECT
 END FUNCTION
 
@@ -1081,64 +1081,64 @@ FUNCTION GetErrorCause$ (errCode AS INTEGER, message AS STRING, context AS STRIN
     typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
-        CASE ERR_INVALID_SYNTAX
-            IF INSTR(upperMessage, "EXPECTED )") > 0 OR INSTR(upperMessage, "MISSING )") > 0 THEN
-                GetErrorCause$ = "A parenthesized expression was started but never closed."
-            ELSEIF INSTR(upperMessage, "$INCLUDE") > 0 OR INSTR(upperMessage, "$IMPORT") > 0 THEN
-                GetErrorCause$ = "A compiler metacommand was parsed, but its required quoted path or module name was missing."
-            ELSE
-                GetErrorCause$ = "The compiler could not parse the statement due to incorrect syntax or unexpected symbols."
-            END IF
-        CASE ERR_EXPECTED_THEN
-            GetErrorCause$ = "The compiler parsed an IF condition but never found THEN or GOTO to finish the statement."
-        CASE ERR_EXPECTED_TO
-            GetErrorCause$ = "The compiler found a FOR loop header but could not find the TO range separator."
-        CASE ERR_EXPECTED_NEXT
-            GetErrorCause$ = "A FOR block was opened earlier and the matching NEXT statement is missing."
-        CASE ERR_EXPECTED_LOOP
-            GetErrorCause$ = "A DO block was opened earlier and the matching LOOP statement is missing."
-        CASE ERR_EXPECTED_WEND
-            GetErrorCause$ = "A WHILE block was opened earlier and the matching WEND statement is missing."
-        CASE ERR_UNCLOSED_STRING
-            GetErrorCause$ = "A string literal was opened with " + CHR$(34) + " but never closed."
-        CASE ERR_UNDEFINED_SYMBOL
-            GetErrorCause$ = "A variable, function, or label was referenced that has not been defined."
-        CASE ERR_REDEFINED_SYMBOL
-            GetErrorCause$ = "A variable, function, or type was defined more than once in the same scope."
-        CASE ERR_TYPE_MISMATCH
-            GetErrorCause$ = "An operation was attempted between incompatible data types."
-        CASE ERR_UNDECLARED_VARIABLE
-            GetErrorCause$ = "OPTION EXPLICIT is enabled and a variable was used without being declared first."
-        CASE ERR_ENCODING_ISSUE
-            GetErrorCause$ = "Source file encoding does not match expected UTF-8 format."
-        CASE ERR_INVALID_UTF8
-            GetErrorCause$ = "A multi-byte UTF-8 character sequence is incomplete or malformed."
-        CASE ERR_UNEXPECTED_TOKEN
-            IF typoToken <> "" THEN
-                GetErrorCause$ = "The line starts with '" + typoToken + "', which does not match a known built-in statement. The closest built-in command is '" + suggestion + "'."
-            ELSE
-                GetErrorCause$ = "A symbol appeared where the compiler did not expect it."
-            END IF
-        CASE ERR_OUT_OF_MEMORY
-            GetErrorCause$ = "System has insufficient memory to continue compilation."
-        CASE ERR_FILE_NOT_FOUND
-            GetErrorCause$ = "The specified source file or include file could not be found."
-        CASE ERR_PERMISSION_DENIED
-            GetErrorCause$ = "The operating system denied access to the file."
-        CASE ERR_WRONG_ARGUMENT_COUNT
-            GetErrorCause$ = "A function or subroutine was called with the wrong number of arguments."
-        CASE ERR_INVALID_ARRAY_BOUNDS
-            GetErrorCause$ = "Array dimensions must be positive integers."
-        CASE ERR_SUBSCRIPT_OUT_OF_RANGE
-            GetErrorCause$ = "An array index exceeds the declared bounds."
-        CASE ERR_CODEGEN_FAILED
-            GetErrorCause$ = "An internal error occurred during C++ code generation."
-        CASE ERR_UNSUPPORTED_FEATURE
-            GetErrorCause$ = "This language feature is not yet implemented in QBNex."
-        CASE ERR_LINK_ERROR
-            GetErrorCause$ = "The C++ linker failed to create the executable."
-        CASE ELSE
-            GetErrorCause$ = ""
+    CASE ERR_INVALID_SYNTAX
+        IF INSTR(upperMessage, "EXPECTED )") > 0 OR INSTR(upperMessage, "MISSING )") > 0 THEN
+            GetErrorCause$ = "A parenthesized expression was started but never closed."
+        ELSEIF INSTR(upperMessage, "$INCLUDE") > 0 OR INSTR(upperMessage, "$IMPORT") > 0 THEN
+            GetErrorCause$ = "A compiler metacommand was parsed, but its required quoted path or module name was missing."
+        ELSE
+            GetErrorCause$ = "The compiler could not parse the statement due to incorrect syntax or unexpected symbols."
+        END IF
+    CASE ERR_EXPECTED_THEN
+        GetErrorCause$ = "The compiler parsed an IF condition but never found THEN or GOTO to finish the statement."
+    CASE ERR_EXPECTED_TO
+        GetErrorCause$ = "The compiler found a FOR loop header but could not find the TO range separator."
+    CASE ERR_EXPECTED_NEXT
+        GetErrorCause$ = "A FOR block was opened earlier and the matching NEXT statement is missing."
+    CASE ERR_EXPECTED_LOOP
+        GetErrorCause$ = "A DO block was opened earlier and the matching LOOP statement is missing."
+    CASE ERR_EXPECTED_WEND
+        GetErrorCause$ = "A WHILE block was opened earlier and the matching WEND statement is missing."
+    CASE ERR_UNCLOSED_STRING
+        GetErrorCause$ = "A string literal was opened with " + CHR$(34) + " but never closed."
+    CASE ERR_UNDEFINED_SYMBOL
+        GetErrorCause$ = "A variable, function, or label was referenced that has not been defined."
+    CASE ERR_REDEFINED_SYMBOL
+        GetErrorCause$ = "A variable, function, or type was defined more than once in the same scope."
+    CASE ERR_TYPE_MISMATCH
+        GetErrorCause$ = "An operation was attempted between incompatible data types."
+    CASE ERR_UNDECLARED_VARIABLE
+        GetErrorCause$ = "OPTION EXPLICIT is enabled and a variable was used without being declared first."
+    CASE ERR_ENCODING_ISSUE
+        GetErrorCause$ = "Source file encoding does not match expected UTF-8 format."
+    CASE ERR_INVALID_UTF8
+        GetErrorCause$ = "A multi-byte UTF-8 character sequence is incomplete or malformed."
+    CASE ERR_UNEXPECTED_TOKEN
+        IF typoToken <> "" THEN
+            GetErrorCause$ = "The line starts with '" + typoToken + "', which does not match a known built-in statement. The closest built-in command is '" + suggestion + "'."
+        ELSE
+            GetErrorCause$ = "A symbol appeared where the compiler did not expect it."
+        END IF
+    CASE ERR_OUT_OF_MEMORY
+        GetErrorCause$ = "System has insufficient memory to continue compilation."
+    CASE ERR_FILE_NOT_FOUND
+        GetErrorCause$ = "The specified source file or include file could not be found."
+    CASE ERR_PERMISSION_DENIED
+        GetErrorCause$ = "The operating system denied access to the file."
+    CASE ERR_WRONG_ARGUMENT_COUNT
+        GetErrorCause$ = "A function or subroutine was called with the wrong number of arguments."
+    CASE ERR_INVALID_ARRAY_BOUNDS
+        GetErrorCause$ = "Array dimensions must be positive integers."
+    CASE ERR_SUBSCRIPT_OUT_OF_RANGE
+        GetErrorCause$ = "An array index exceeds the declared bounds."
+    CASE ERR_CODEGEN_FAILED
+        GetErrorCause$ = "An internal error occurred during C++ code generation."
+    CASE ERR_UNSUPPORTED_FEATURE
+        GetErrorCause$ = "This language feature is not yet implemented in QBNex."
+    CASE ERR_LINK_ERROR
+        GetErrorCause$ = "The C++ linker failed to create the executable."
+    CASE ELSE
+        GetErrorCause$ = ""
     END SELECT
 END FUNCTION
 
@@ -1151,72 +1151,72 @@ FUNCTION GetFixExample$ (errCode AS INTEGER, message AS STRING, context AS STRIN
     typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
-        CASE ERR_INVALID_SYNTAX
-            IF INSTR(upperMessage, "$INCLUDE") > 0 THEN
-                GetFixExample$ = "$INCLUDE:'./stdlib/math.bas'"
-            ELSEIF INSTR(upperMessage, "$IMPORT") > 0 THEN
-                GetFixExample$ = "$IMPORT:'module.name'"
-            ELSEIF INSTR(upperMessage, "EXPECTED )") > 0 OR INSTR(upperMessage, "MISSING )") > 0 THEN
-                GetFixExample$ = "PRINT (value + 1)"
-            ELSEIF INSTR(UCASE$(context), "IF") > 0 THEN
-                GetFixExample$ = "IF x = 1 THEN PRINT " + CHR$(34) + "Yes" + CHR$(34) + " ELSE PRINT " + CHR$(34) + "No" + CHR$(34)
-            ELSEIF INSTR(UCASE$(context), "FOR") > 0 THEN
-                GetFixExample$ = "FOR i = 1 TO 10 STEP 2: PRINT i: NEXT"
-            ELSEIF INSTR(UCASE$(context), "SUB") > 0 THEN
-                GetFixExample$ = "SUB MySub(param AS INTEGER): ' code : END SUB"
-            ELSEIF INSTR(UCASE$(context), "FUNCTION") > 0 THEN
-                GetFixExample$ = "FUNCTION MyFunc(x) AS INTEGER: MyFunc = x * 2: END FUNCTION"
-            ELSE
-                GetFixExample$ = ""
-            END IF
-
-        CASE ERR_UNEXPECTED_TOKEN
-            IF typoToken <> "" AND suggestion = "PRINT" THEN
-                GetFixExample$ = "PRINT " + CHR$(34) + "Hello" + CHR$(34)
-            ELSEIF typoToken <> "" THEN
-                GetFixExample$ = suggestion + " ..."
-            ELSE
-                GetFixExample$ = ""
-            END IF
-
-        CASE ERR_EXPECTED_THEN
-            GetFixExample$ = "IF score > 10 THEN PRINT " + CHR$(34) + "win" + CHR$(34)
-
-        CASE ERR_EXPECTED_TO
-            GetFixExample$ = "FOR i = 1 TO 10: PRINT i: NEXT"
-
-        CASE ERR_EXPECTED_NEXT
-            GetFixExample$ = "FOR i = 1 TO 10: PRINT i: NEXT i"
-
-        CASE ERR_EXPECTED_LOOP
-            GetFixExample$ = "DO WHILE running: PRINT running: LOOP"
-
-        CASE ERR_EXPECTED_WEND
-            GetFixExample$ = "WHILE ready: PRINT ready: WEND"
-
-        CASE ERR_UNDECLARED_VARIABLE
-            GetFixExample$ = "DIM myVariable AS STRING"
-
-        CASE ERR_TYPE_MISMATCH
-            GetFixExample$ = "numValue = VAL(stringValue$)"
-
-        CASE ERR_UNCLOSED_STRING
-            GetFixExample$ = "text$ = " + CHR$(34) + "Complete sentence" + CHR$(34)
-
-        CASE ERR_WRONG_ARGUMENT_COUNT
-            GetFixExample$ = "Check the function definition for the required parameters."
-
-        CASE ERR_INVALID_ARRAY_BOUNDS
-            GetFixExample$ = "DIM arr(1 TO 100)"
-
-        CASE ERR_ENCODING_ISSUE
-            GetFixExample$ = "Encoding > Convert to UTF-8 without BOM"
-
-        CASE ERR_REDEFINED_SYMBOL
-            GetFixExample$ = "Use unique names: myVar1, myVar2"
-
-        CASE ELSE
+    CASE ERR_INVALID_SYNTAX
+        IF INSTR(upperMessage, "$INCLUDE") > 0 THEN
+            GetFixExample$ = "$INCLUDE:'./stdlib/math.bas'"
+        ELSEIF INSTR(upperMessage, "$IMPORT") > 0 THEN
+            GetFixExample$ = "$IMPORT:'module.name'"
+        ELSEIF INSTR(upperMessage, "EXPECTED )") > 0 OR INSTR(upperMessage, "MISSING )") > 0 THEN
+            GetFixExample$ = "PRINT (value + 1)"
+        ELSEIF INSTR(UCASE$(context), "IF") > 0 THEN
+            GetFixExample$ = "IF x = 1 THEN PRINT " + CHR$(34) + "Yes" + CHR$(34) + " ELSE PRINT " + CHR$(34) + "No" + CHR$(34)
+        ELSEIF INSTR(UCASE$(context), "FOR") > 0 THEN
+            GetFixExample$ = "FOR i = 1 TO 10 STEP 2: PRINT i: NEXT"
+        ELSEIF INSTR(UCASE$(context), "SUB") > 0 THEN
+            GetFixExample$ = "SUB MySub(param AS INTEGER): ' code : END SUB"
+        ELSEIF INSTR(UCASE$(context), "FUNCTION") > 0 THEN
+            GetFixExample$ = "FUNCTION MyFunc(x) AS INTEGER: MyFunc = x * 2: END FUNCTION"
+        ELSE
             GetFixExample$ = ""
+        END IF
+
+    CASE ERR_UNEXPECTED_TOKEN
+        IF typoToken <> "" AND suggestion = "PRINT" THEN
+            GetFixExample$ = "PRINT " + CHR$(34) + "Hello" + CHR$(34)
+        ELSEIF typoToken <> "" THEN
+            GetFixExample$ = suggestion + " ..."
+        ELSE
+            GetFixExample$ = ""
+        END IF
+
+    CASE ERR_EXPECTED_THEN
+        GetFixExample$ = "IF score > 10 THEN PRINT " + CHR$(34) + "win" + CHR$(34)
+
+    CASE ERR_EXPECTED_TO
+        GetFixExample$ = "FOR i = 1 TO 10: PRINT i: NEXT"
+
+    CASE ERR_EXPECTED_NEXT
+        GetFixExample$ = "FOR i = 1 TO 10: PRINT i: NEXT i"
+
+    CASE ERR_EXPECTED_LOOP
+        GetFixExample$ = "DO WHILE running: PRINT running: LOOP"
+
+    CASE ERR_EXPECTED_WEND
+        GetFixExample$ = "WHILE ready: PRINT ready: WEND"
+
+    CASE ERR_UNDECLARED_VARIABLE
+        GetFixExample$ = "DIM myVariable AS STRING"
+
+    CASE ERR_TYPE_MISMATCH
+        GetFixExample$ = "numValue = VAL(stringValue$)"
+
+    CASE ERR_UNCLOSED_STRING
+        GetFixExample$ = "text$ = " + CHR$(34) + "Complete sentence" + CHR$(34)
+
+    CASE ERR_WRONG_ARGUMENT_COUNT
+        GetFixExample$ = "Check the function definition for the required parameters."
+
+    CASE ERR_INVALID_ARRAY_BOUNDS
+        GetFixExample$ = "DIM arr(1 TO 100)"
+
+    CASE ERR_ENCODING_ISSUE
+        GetFixExample$ = "Encoding > Convert to UTF-8 without BOM"
+
+    CASE ERR_REDEFINED_SYMBOL
+        GetFixExample$ = "Use unique names: myVar1, myVar2"
+
+    CASE ELSE
+        GetFixExample$ = ""
     END SELECT
 END FUNCTION
 
@@ -1233,39 +1233,39 @@ FUNCTION FindErrorColumn% (errCode AS INTEGER, message AS STRING, context AS STR
     typoToken = GetStatementTypoToken$(context, suggestion)
 
     SELECT CASE errCode
-        CASE ERR_UNCLOSED_STRING
-            columnPos = INSTR(context, CHR$(34))
+    CASE ERR_UNCLOSED_STRING
+        columnPos = INSTR(context, CHR$(34))
+        IF columnPos > 0 THEN
+            FindErrorColumn% = columnPos
+            EXIT FUNCTION
+        END IF
+
+    CASE ERR_EXPECTED_THEN, ERR_EXPECTED_TO, ERR_EXPECTED_NEXT, ERR_EXPECTED_LOOP, ERR_EXPECTED_WEND
+        FindErrorColumn% = LEN(RTRIM$(context)) + 1
+        EXIT FUNCTION
+
+    CASE ERR_REDEFINED_SYMBOL, ERR_UNDEFINED_SYMBOL
+        IF token <> "" THEN
+            columnPos = INSTR(upperContext, UCASE$(token))
             IF columnPos > 0 THEN
                 FindErrorColumn% = columnPos
                 EXIT FUNCTION
             END IF
+        END IF
 
-        CASE ERR_EXPECTED_THEN, ERR_EXPECTED_TO, ERR_EXPECTED_NEXT, ERR_EXPECTED_LOOP, ERR_EXPECTED_WEND
-            FindErrorColumn% = LEN(RTRIM$(context)) + 1
+    CASE ERR_UNEXPECTED_TOKEN
+        IF typoToken <> "" THEN
+            FindErrorColumn% = INSTR(upperContext, typoToken)
+            IF FindErrorColumn% = 0 THEN FindErrorColumn% = 1
             EXIT FUNCTION
-
-        CASE ERR_REDEFINED_SYMBOL, ERR_UNDEFINED_SYMBOL
-            IF token <> "" THEN
-                columnPos = INSTR(upperContext, UCASE$(token))
-                IF columnPos > 0 THEN
-                    FindErrorColumn% = columnPos
-                    EXIT FUNCTION
-                END IF
-            END IF
-
-        CASE ERR_UNEXPECTED_TOKEN
-            IF typoToken <> "" THEN
-                FindErrorColumn% = INSTR(upperContext, typoToken)
-                IF FindErrorColumn% = 0 THEN FindErrorColumn% = 1
+        END IF
+        FOR i = 1 TO LEN(context)
+            SELECT CASE MID$(context, i, 1)
+            CASE "@", "#", "$", "%", "&", "*", "^", "!"
+                FindErrorColumn% = i
                 EXIT FUNCTION
-            END IF
-            FOR i = 1 TO LEN(context)
-                SELECT CASE MID$(context, i, 1)
-                    CASE "@", "#", "$", "%", "&", "*", "^", "!"
-                        FindErrorColumn% = i
-                        EXIT FUNCTION
-                END SELECT
-            NEXT
+            END SELECT
+        NEXT
     END SELECT
 
     FindErrorColumn% = 0
@@ -1273,19 +1273,19 @@ END FUNCTION
 
 FUNCTION GetSeverityString$ (severity AS INTEGER)
     SELECT CASE severity
-        CASE ERR_INFO: GetSeverityString$ = "INFO"
-        CASE ERR_WARNING: GetSeverityString$ = "WARNING"
-        CASE ERR_ERROR: GetSeverityString$ = "ERROR"
-        CASE ERR_FATAL: GetSeverityString$ = "FATAL"
-        CASE ELSE: GetSeverityString$ = "UNKNOWN"
+    CASE ERR_INFO: GetSeverityString$ = "INFO"
+    CASE ERR_WARNING: GetSeverityString$ = "WARNING"
+    CASE ERR_ERROR: GetSeverityString$ = "ERROR"
+    CASE ERR_FATAL: GetSeverityString$ = "FATAL"
+    CASE ELSE: GetSeverityString$ = "UNKNOWN"
     END SELECT
 END FUNCTION
 
-FUNCTION PadLeftZero$ (value AS LONG, width AS INTEGER)
+FUNCTION PadLeftZero$ (value AS LONG, WIDTH AS INTEGER)
     DIM s AS STRING
 
     s = LTRIM$(STR$(value))
-    DO WHILE LEN(s) < width
+    DO WHILE LEN(s) < WIDTH
         s = "0" + s
     LOOP
 
@@ -1299,62 +1299,62 @@ END FUNCTION
 
 FUNCTION GetDiagnosticKind$ (severity AS INTEGER)
     SELECT CASE GetRenderedSeverity%(severity)
-        CASE ERR_WARNING
-            GetDiagnosticKind$ = "warning"
-        CASE ERR_INFO
-            GetDiagnosticKind$ = "info"
-        CASE ELSE
-            GetDiagnosticKind$ = "error"
+    CASE ERR_WARNING
+        GetDiagnosticKind$ = "warning"
+    CASE ERR_INFO
+        GetDiagnosticKind$ = "info"
+    CASE ELSE
+        GetDiagnosticKind$ = "error"
     END SELECT
 END FUNCTION
 
 FUNCTION GetDiagnosticCodeTag$ (severity AS INTEGER, errCode AS INTEGER)
     SELECT CASE severity
-        CASE ERR_WARNING
-            GetDiagnosticCodeTag$ = "W" + PadLeftZero$(errCode, 4)
-        CASE ERR_INFO
-            GetDiagnosticCodeTag$ = "I" + PadLeftZero$(errCode, 4)
-        CASE ELSE
-            GetDiagnosticCodeTag$ = "E" + PadLeftZero$(errCode, 4)
+    CASE ERR_WARNING
+        GetDiagnosticCodeTag$ = "W" + PadLeftZero$(errCode, 4)
+    CASE ERR_INFO
+        GetDiagnosticCodeTag$ = "I" + PadLeftZero$(errCode, 4)
+    CASE ELSE
+        GetDiagnosticCodeTag$ = "E" + PadLeftZero$(errCode, 4)
     END SELECT
 END FUNCTION
 
 FUNCTION GetSeverityColor% (severity AS INTEGER)
     SELECT CASE GetRenderedSeverity%(severity)
-        CASE ERR_INFO
-            GetSeverityColor% = 11
-        CASE ERR_WARNING
-            GetSeverityColor% = 14
-        CASE ERR_FATAL
-            GetSeverityColor% = 4
-        CASE ELSE
-            GetSeverityColor% = 12
+    CASE ERR_INFO
+        GetSeverityColor% = 11
+    CASE ERR_WARNING
+        GetSeverityColor% = 14
+    CASE ERR_FATAL
+        GetSeverityColor% = 4
+    CASE ELSE
+        GetSeverityColor% = 12
     END SELECT
 END FUNCTION
 
 FUNCTION GetDiagnosticTitle$ (severity AS INTEGER)
     SELECT CASE GetRenderedSeverity%(severity)
-        CASE ERR_WARNING
-            GetDiagnosticTitle$ = "Warning"
-        CASE ERR_INFO
-            GetDiagnosticTitle$ = "Info"
-        CASE ERR_FATAL
-            GetDiagnosticTitle$ = "Fatal"
-        CASE ELSE
-            GetDiagnosticTitle$ = "Error"
+    CASE ERR_WARNING
+        GetDiagnosticTitle$ = "Warning"
+    CASE ERR_INFO
+        GetDiagnosticTitle$ = "Info"
+    CASE ERR_FATAL
+        GetDiagnosticTitle$ = "Fatal"
+    CASE ELSE
+        GetDiagnosticTitle$ = "Error"
     END SELECT
 END FUNCTION
 
 FUNCTION GetDiagnosticMarker$ (severity AS INTEGER)
     SELECT CASE GetRenderedSeverity%(severity)
-        CASE ERR_WARNING
-            GetDiagnosticMarker$ = "[~]"
-        CASE ERR_INFO
-            GetDiagnosticMarker$ = "[i]"
-        CASE ERR_FATAL
-            GetDiagnosticMarker$ = "[!!]"
-        CASE ELSE
-            GetDiagnosticMarker$ = "[x]"
+    CASE ERR_WARNING
+        GetDiagnosticMarker$ = "[~]"
+    CASE ERR_INFO
+        GetDiagnosticMarker$ = "[i]"
+    CASE ERR_FATAL
+        GetDiagnosticMarker$ = "[!!]"
+    CASE ELSE
+        GetDiagnosticMarker$ = "[x]"
     END SELECT
 END FUNCTION
 
@@ -1569,12 +1569,12 @@ END SUB
 
 FUNCTION CanRecover% (errCode AS INTEGER)
     SELECT CASE errCode
-        CASE ERR_NO_SOURCE_FILE, ERR_FILE_NOT_FOUND, ERR_OUT_OF_MEMORY
-            CanRecover% = 0
-        CASE ERR_FATAL
-            CanRecover% = 0
-        CASE ELSE
-            CanRecover% = -1
+    CASE ERR_NO_SOURCE_FILE, ERR_FILE_NOT_FOUND, ERR_OUT_OF_MEMORY
+        CanRecover% = 0
+    CASE ERR_FATAL
+        CanRecover% = 0
+    CASE ELSE
+        CanRecover% = -1
     END SELECT
 END FUNCTION
 
