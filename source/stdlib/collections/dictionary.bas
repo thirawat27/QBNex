@@ -2,7 +2,7 @@
 ' QBNex Standard Library - Collections: Dictionary
 ' ============================================================================
 
-'$IMPORT:'collections.list'
+$IMPORT:'collections.list'
 
 TYPE QBNex_Dictionary
     Keys AS QBNex_List

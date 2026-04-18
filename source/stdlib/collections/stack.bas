@@ -2,7 +2,7 @@
 ' QBNex Standard Library - Collections: Stack
 ' ============================================================================
 
-'$IMPORT:'collections.list'
+$IMPORT:'collections.list'
 
 TYPE QBNex_Stack
     Items AS QBNex_List

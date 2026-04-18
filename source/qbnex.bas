@@ -20003,16 +20003,29 @@ FUNCTION StdLib_NormalizeImportKey$ (module$)
     StdLib_NormalizeImportKey$ = resultText
 END FUNCTION
 
+FUNCTION StdLib_CanonicalImportKey$ (module$)
+    DIM normalizedKey AS STRING
+
+    normalizedKey = StdLib_NormalizeImportKey$(module$)
+
+    SELECT CASE normalizedKey
+    CASE "qbnex", "stdlib", "stdlib.all", "qbnex_stdlib", "all"
+        StdLib_CanonicalImportKey$ = "qbnex"
+    CASE ELSE
+        StdLib_CanonicalImportKey$ = normalizedKey
+    END SELECT
+END FUNCTION
+
 FUNCTION StdLib_ImportPath$ (module$)
     DIM normalizedKey AS STRING
     DIM relativeModulePath AS STRING
     DIM importChar AS STRING
 
-    normalizedKey = StdLib_NormalizeImportKey$(module$)
+    normalizedKey = StdLib_CanonicalImportKey$(module$)
     IF LEN(normalizedKey) = 0 THEN EXIT FUNCTION
 
-    IF normalizedKey = "qbnex" OR normalizedKey = "stdlib" OR normalizedKey = "stdlib.all" OR normalizedKey = "qbnex_stdlib" THEN
-        StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "source" + pathsep$ + "stdlib" + pathsep$ + "qbnex_stdlib.bas"
+    IF normalizedKey = "qbnex" THEN
+        StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "source" + pathsep$ + "stdlib" + pathsep$ + "stdlib.bas"
         EXIT FUNCTION
     END IF
 
@@ -20029,10 +20042,16 @@ FUNCTION StdLib_QueueImport$ (module$)
     DIM normalizedKey AS STRING
     DIM importPath AS STRING
 
-    normalizedKey = StdLib_NormalizeImportKey$(module$)
+    normalizedKey = StdLib_CanonicalImportKey$(module$)
     IF LEN(normalizedKey) = 0 THEN
         Give_Error "Expected $IMPORT:'module.name'"
         EXIT FUNCTION
+    END IF
+
+    IF normalizedKey = "qbnex" THEN
+        IF importedModules$ <> "@" THEN EXIT FUNCTION
+    ELSE
+        IF INSTR(importedModules$, "@qbnex@") THEN EXIT FUNCTION
     END IF
 
     IF INSTR(importedModules$, "@" + normalizedKey + "@") THEN EXIT FUNCTION
@@ -25917,7 +25936,7 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
     EXIT FUNCTION
 
     invalid_utf8:
-invalidPos = bytePos
+    invalidPos = bytePos
     invalidLine = 1
     FOR i = 1 TO invalidPos - 1
         IF MID$(text, i, 1) = CHR$(10) THEN invalidLine = invalidLine + 1

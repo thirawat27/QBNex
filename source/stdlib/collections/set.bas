@@ -2,7 +2,7 @@
 ' QBNex Standard Library - Collections: Set
 ' ============================================================================
 
-'$IMPORT:'collections.list'
+$IMPORT:'collections.list'
 
 TYPE QBNex_HashSet
     Items AS QBNex_List

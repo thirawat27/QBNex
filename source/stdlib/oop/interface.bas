@@ -2,18 +2,12 @@
 ' QBNex Standard Library - OOP Foundation: Interfaces
 ' ============================================================================
 
-TYPE QBNex_ClassInfo
-    ClassName AS STRING * 64
-    BaseClassID AS LONG
-    MethodCount AS LONG
-END TYPE
+$IMPORT:'oop.class'
 
 TYPE QBNex_InterfaceInfo
     InterfaceName AS STRING * 64
 END TYPE
 
-DIM SHARED QBNEX_ClassCount AS LONG
-DIM SHARED QBNEX_ClassRegistry(1 TO 256) AS QBNex_ClassInfo
 DIM SHARED QBNEX_InterfaceCount AS LONG
 DIM SHARED QBNEX_InterfaceRegistry(1 TO 256) AS QBNex_InterfaceInfo
 DIM SHARED QBNEX_ClassInterfaceCount(1 TO 256) AS LONG

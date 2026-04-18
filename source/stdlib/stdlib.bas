@@ -23,9 +23,37 @@ CONST STDLIB_NAME = "QBNex Standard Library"
 ' MODULE INCLUDES
 '-------------------------------------------------------------------------------
 
-'--- Data Format Modules ---
-'$INCLUDE:'json.bas'
-'$INCLUDE:'url.bas'
+' Core data modules
+$INCLUDE:'json.bas'
+$INCLUDE:'url.bas'
+
+' Collections
+$INCLUDE:'collections\list.bas'
+$INCLUDE:'collections\stack.bas'
+$INCLUDE:'collections\queue.bas'
+$INCLUDE:'collections\set.bas'
+$INCLUDE:'collections\dictionary.bas'
+
+' Strings
+$INCLUDE:'strings\strbuilder.bas'
+$INCLUDE:'strings\text.bas'
+
+' I/O
+$INCLUDE:'io\csv.bas'
+$INCLUDE:'io\json.bas'
+$INCLUDE:'io\path.bas'
+
+' System
+$INCLUDE:'sys\args.bas'
+$INCLUDE:'sys\datetime.bas'
+$INCLUDE:'sys\env.bas'
+
+' Math and error handling
+$INCLUDE:'math\numeric.bas'
+$INCLUDE:'error\result.bas'
+
+' OOP runtime
+$INCLUDE:'oop\interface.bas'
 
 '-------------------------------------------------------------------------------
 ' STDLIB INITIALIZATION
@@ -95,8 +123,8 @@ SUB array_add (arrayIndex AS INTEGER, valueIndex AS INTEGER)
     JsonArrayPush arrayIndex, valueIndex
 END SUB
 
-SUB obj_set (objectIndex AS INTEGER, key AS STRING, valueIndex AS INTEGER)
-    JsonObjectSet objectIndex, key, valueIndex
+SUB obj_set (objectIndex AS INTEGER, KEY AS STRING, valueIndex AS INTEGER)
+    JsonObjectSet objectIndex, KEY, valueIndex
 END SUB
 
 ' Get values
@@ -130,12 +158,12 @@ FUNCTION decode AS STRING (str AS STRING)
 END FUNCTION
 
 ' Query parameters
-SUB param_set (parts AS UrlParts, key AS STRING, value AS STRING)
-    UrlSetQueryParam parts, key, value
+SUB param_set (parts AS UrlParts, KEY AS STRING, value AS STRING)
+    UrlSetQueryParam parts, KEY, value
 END SUB
 
-FUNCTION param_get AS STRING (parts AS UrlParts, key AS STRING)
-    param_get = UrlGetQueryParam$(parts, key)
+FUNCTION param_get AS STRING (parts AS UrlParts, KEY AS STRING)
+    param_get = UrlGetQueryParam$(parts, KEY)
 END FUNCTION
 
 ' Path helpers
@@ -177,3 +205,20 @@ END FUNCTION
 FUNCTION Stdlib_GetName AS STRING ()
     Stdlib_GetName = STDLIB_NAME
 END FUNCTION
+
+' Backward-compatible aliases used by earlier stdlib entrypoints.
+FUNCTION QBNex_StdLib_Version$ ()
+    QBNex_StdLib_Version$ = Stdlib_GetVersion()
+END FUNCTION
+
+FUNCTION QBNex_StdLib_Info$ ()
+    DIM text AS STRING
+
+    text = STDLIB_NAME + " v" + STDLIB_VERSION + CHR$(13) + CHR$(10)
+    text = text + "Loaded via IMPORT qbnex"
+    QBNex_StdLib_Info$ = text
+END FUNCTION
+
+SUB QBNex_StdLib_PrintInfo ()
+    Stdlib_PrintInfo
+END SUB

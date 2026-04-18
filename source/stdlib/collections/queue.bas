@@ -2,7 +2,7 @@
 ' QBNex Standard Library - Collections: Queue
 ' ============================================================================
 
-'$IMPORT:'collections.list'
+$IMPORT:'collections.list'
 
 TYPE QBNex_Queue
     Items AS QBNex_List
