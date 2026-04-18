@@ -802,8 +802,8 @@ SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, me
     normalizedContext = NormalizeSourceContext$(context)
     normalizedSecondary = NormalizeSourceContext$(secondaryContext)
     normalizedLocation = NormalizeDiagnosticMessage$(locationNote)
-    phaseName = GetErrorPhase$()
-    contextTrace = GetErrorContextTrace$()
+    phaseName = GetErrorPhase$
+    contextTrace = GetErrorContextTrace$
 
     errCode = InferErrorCode%(errCode, normalizedMessage, normalizedContext)
     fingerprint = BuildErrorFingerprint$(errCode, severity, CurrentFile, lineNum, normalizedMessage, normalizedContext, phaseName)
@@ -1255,8 +1255,9 @@ FUNCTION FindErrorColumn% (errCode AS INTEGER, message AS STRING, context AS STR
 
     CASE ERR_UNEXPECTED_TOKEN
         IF typoToken <> "" THEN
-            FindErrorColumn% = INSTR(upperContext, typoToken)
-            IF FindErrorColumn% = 0 THEN FindErrorColumn% = 1
+            columnPos = INSTR(upperContext, typoToken)
+            IF columnPos = 0 THEN columnPos = 1
+            FindErrorColumn% = columnPos
             EXIT FUNCTION
         END IF
         FOR i = 1 TO LEN(context)

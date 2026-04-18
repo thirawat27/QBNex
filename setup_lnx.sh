@@ -137,22 +137,32 @@ popd >/dev/null
 echo "Building 'QBNex'"
 mkdir -p ./internal/temp
 cp -r ./internal/source/* ./internal/temp/
+cp -r ./source/* ./internal/temp/
 pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb
+g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb-stage0
 popd
 
+if [ -x "./qb-stage0" ]; then
+  echo "Bootstrapping compiler from source/qbnex.bas..."
+  ./qb-stage0 ./source/qbnex.bas -o qb
+fi
+
 if [ -e "./qb" ]; then
+  if [ -z "$QBNEX_KEEP_STAGE0" ]; then
+    rm -f ./qb-stage0
+  fi
   echo "Done compiling!!"
   echo
   echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
 else
   ### QBNex did not compile
-  echo "It appears that the qb executable file was not created, which usually indicates a compile failure."
+  echo "It appears that the final qb executable file was not created, which usually indicates a self-hosting compile failure."
   echo "Usually these are due to missing packages needed for compilation. If you're not running a distro supported by this compiler, please note you will need to install the packages listed above."
   echo "If you need help, please open an issue at https://github.com/thirawat27/QBNex/issues with your distro details and build log."
   echo "Also, please tell them the exact contents of this next line:"
   echo "DISTRO: $DISTRO"
+  exit 1
 fi
 echo
 echo "Thank you for using the QBNex installer."

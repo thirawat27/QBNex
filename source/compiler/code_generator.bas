@@ -29,13 +29,6 @@ DIM SHARED StringPool(1 TO 1000) AS STRING
 DIM SHARED StringPoolCount AS INTEGER
 
 '-------------------------------------------------------------------------------
-' C++ CODE TEMPLATES
-'-------------------------------------------------------------------------------
-
-CONST HEADER_TEMPLATE = "#include <iostream>~#include <string>~#include <cmath>~#include \"libqb.h\"~"
-CONST MAIN_TEMPLATE = "int main(int argc, char* argv[]) {~    qb_init();~    $BODY~    qb_cleanup();~    return 0;~}"
-
-'-------------------------------------------------------------------------------
 ' INITIALIZATION AND CLEANUP
 '-------------------------------------------------------------------------------
 
@@ -145,15 +138,15 @@ SUB GenerateHeader
     EmitBlankLine
     
     ' Include QBNex runtime
-    EmitLine "#include \"libqb.h\""
+    EmitLine "#include " + CHR$(34) + "libqb.h" + CHR$(34)
     EmitBlankLine
     
     ' UTF-8 locale initialization for multi-language support
     EmitLine "// UTF-8 Locale initialization for multi-language support"
     EmitLine "struct UTF8LocaleInit {"
     EmitLine "    UTF8LocaleInit() {"
-    EmitLine "        std::setlocale(LC_ALL, \"\");"
-    EmitLine "        std::locale::global(std::locale(\"\"));"
+    EmitLine "        std::setlocale(LC_ALL, " + CHR$(34) + CHR$(34) + ");"
+    EmitLine "        std::locale::global(std::locale(" + CHR$(34) + CHR$(34) + "));"
     EmitLine "    }"
     EmitLine "} utf8_locale_init;"
     EmitBlankLine
@@ -529,8 +522,8 @@ FUNCTION CppStringLiteral$ (strVal AS STRING)
         ELSE
             ' Single byte character or continuation byte
             SELECT CASE ch
-                CASE CHR$(34): result = result + "\\\""
-                CASE "\\": result = result + "\\\\"
+                CASE CHR$(34): result = result + "\" + CHR$(34)
+                CASE "\": result = result + "\\"
                 CASE CHR$(10): result = result + "\\n"
                 CASE CHR$(13): result = result + "\\r"
                 CASE CHR$(9): result = result + "\\t"

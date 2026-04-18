@@ -506,7 +506,6 @@ QBNex supports both traditional and modern import syntax for the bundled standar
 ```basic
 ' Modern import syntax - cleaner and easier to read
 IMPORT qbnex
-IMPORT net.http
 IMPORT json
 IMPORT url
 ```
@@ -515,7 +514,6 @@ IMPORT url
 ```basic
 ' Traditional import syntax
 '$IMPORT:'qbnex'
-'$IMPORT:'net.http'
 '$IMPORT:'json'
 '$IMPORT:'url'
 ```
@@ -586,10 +584,6 @@ QBNex now supports a modern, cleaner syntax while maintaining full backward comp
 # Import standard library
 IMPORT qbnex
 
-# HTTP requests - clean function names
-result = get("http://api.example.com")
-data = post("http://api.example.com/api", jsonData)
-
 # JSON handling
 json = json_parse("{""name"": ""John""}")
 name = json_get_str(json)
@@ -598,12 +592,6 @@ output = json_string(json)
 # URL encoding/decoding
 encoded = encode("hello world")
 decoded = decode(encoded)
-
-# Create web server
-s = server(8080)
-route_get s, "/", handler_index
-route_post s, "/api", handler_api
-listen s
 
 # Augmented assignment (like other modern languages)
 count += 1      # count = count + 1
@@ -616,9 +604,7 @@ average /= n    # average = average / n
 
 | Module | Modern Import | Description |
 |--------|-------------|-------------|
-| QBNex Core | `IMPORT qbnex` | Full stdlib with HTTP, JSON, URL |
-| HTTP Client | `IMPORT net.http` | get, post, put, delete, fetch |
-| HTTP Server | Built-in | server, route_get, route_post, listen |
+| QBNex Core | `IMPORT qbnex` | Full stdlib with JSON and URL helpers |
 | JSON | Built-in | json_parse, json_string, json_obj, json_array |
 | URL | Built-in | encode, decode, url_parse, path_join |
 
@@ -3128,10 +3114,11 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). The compilation process:
 
-1. **Bootstrap Phase**: A minimal C++ compiler (`internal/c/qbx.cpp`) compiles the QBNex source
-2. **Code Generation**: The QBNex compiler translates BASIC source code into optimized C++ code
-3. **Native Compilation**: Platform C++ compiler (g++/clang++) compiles the generated C++ to native binary
-4. **Runtime Linking**: Generated code links against OpenGL, miniaudio, FreeType, and platform libraries
+1. **Bootstrap Phase**: A minimal C++ compiler (`internal/c/qbx.cpp`) compiles the bootstrap data in `internal/source/` into a stage0 compiler
+2. **Self-Hosting Phase**: The build generates a stage0-compatible source from `source/qbnex.bas` and its modules, then the stage0 compiler recompiles that source into the final `qb` / `qb.exe`
+3. **Code Generation**: The QBNex compiler translates BASIC source code into optimized C++ code
+4. **Native Compilation**: Platform C++ compiler (g++/clang++) compiles the generated C++ to native binary
+5. **Runtime Linking**: Generated code links against OpenGL, miniaudio, FreeType, and platform libraries
 
 ### Project Structure
 
@@ -3156,8 +3143,7 @@ QBNex/
 │   │       ├── video/         # FreeType, STB Image
 │   │       ├── network/       # Socket implementation
 │   │       └── input/         # Game controller support
-│   └── source/                 # Bootstrap data files
-├── .ci/                        # CI build scripts
+│   └── source/                 # Bootstrap data files for the stage0 compiler
 ├── .github/workflows/          # GitHub Actions CI/CD
 ├── assets/                     # Logo and icons
 ├── licenses/                   # License files
@@ -3212,7 +3198,7 @@ QBNex uses GitHub Actions for automated builds:
 - **Pull requests**: Linux build
 - **Releases**: Linux, macOS, Windows x86, Windows x64
 
-CI workflows skip with commit message containing `ci-skip`.
+CI workflows call the platform `setup_*` scripts directly in CI mode and skip with commit message containing `ci-skip`.
 
 ---
 

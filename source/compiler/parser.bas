@@ -238,17 +238,16 @@ SUB AdvanceChar
 END SUB
 
 FUNCTION PeekChar$ (offset AS INTEGER)
-    DIM pos AS LONG
-    pos = Parser.currentPos + offset
-    IF pos > LEN(Parser.sourceText) THEN
+    DIM charPos AS LONG
+    charPos = Parser.currentPos + offset
+    IF charPos > LEN(Parser.sourceText) THEN
         PeekChar$ = ""
     ELSE
-        PeekChar$ = MID$(Parser.sourceText, pos, 1)
+        PeekChar$ = MID$(Parser.sourceText, charPos, 1)
     END IF
 END FUNCTION
 
-FUNCTION GetNextToken AS Token
-    DIM tok AS Token
+SUB GetNextToken (tok AS Token)
     DIM ch AS STRING
     DIM nextCh AS STRING
     
@@ -262,8 +261,7 @@ FUNCTION GetNextToken AS Token
     DO
         ch = GetNextChar$
         IF ch = "" THEN
-            GetNextToken = tok
-            EXIT FUNCTION
+            EXIT SUB
         END IF
         IF ch <> " " AND ch <> CHR$(9) THEN EXIT DO
         AdvanceChar
@@ -281,12 +279,17 @@ FUNCTION GetNextToken AS Token
             tok.value = RTRIM$(tok.value) + ch
             AdvanceChar
         LOOP
-        GetNextToken = tok
-        EXIT FUNCTION
+        EXIT SUB
     END IF
     
     ' Check for REM statement
     IF UCASE$(ch + PeekChar$(1) + PeekChar$(2)) = "REM" THEN
+        nextCh = PeekChar$(3)
+        IF nextCh <> "" THEN
+            IF (nextCh >= "A" AND nextCh <= "Z") OR (nextCh >= "a" AND nextCh <= "z") OR (nextCh >= "0" AND nextCh <= "9") OR nextCh = "_" OR nextCh = "$" OR nextCh = "%" OR nextCh = "!" OR nextCh = "#" OR nextCh = "&" THEN
+                GOTO SkipRemCommentCheck
+            END IF
+        END IF
         tok.type = TOKEN_COMMENT
         tok.value = "REM"
         AdvanceChar: AdvanceChar: AdvanceChar
@@ -297,9 +300,9 @@ FUNCTION GetNextToken AS Token
             tok.value = RTRIM$(tok.value) + ch
             AdvanceChar
         LOOP
-        GetNextToken = tok
-        EXIT FUNCTION
+        EXIT SUB
     END IF
+SkipRemCommentCheck:
     
     ' Check for string literal
     IF ch = CHR$(34) THEN
@@ -323,26 +326,40 @@ FUNCTION GetNextToken AS Token
                 AdvanceChar
             END IF
         LOOP
-        GetNextToken = tok
-        EXIT FUNCTION
+        EXIT SUB
     END IF
     
     ' Check for number
     IF (ch >= "0" AND ch <= "9") OR (ch = "." AND PeekChar$(1) >= "0" AND PeekChar$(1) <= "9") THEN
         tok.type = TOKEN_NUMBER
         tok.value = ""
+        DIM seenExponent AS _BYTE
+        DIM allowSign AS _BYTE
+
+        seenExponent = 0
+        allowSign = 0
+
         DO
             ch = GetNextChar$
             IF ch = "" THEN EXIT DO
-            IF (ch >= "0" AND ch <= "9") OR ch = "." OR UCASE$(ch) = "E" OR ch = "+" OR ch = "-" THEN
+            IF (ch >= "0" AND ch <= "9") OR ch = "." THEN
                 tok.value = RTRIM$(tok.value) + ch
                 AdvanceChar
+                allowSign = 0
+            ELSEIF UCASE$(ch) = "E" AND seenExponent = 0 THEN
+                tok.value = RTRIM$(tok.value) + ch
+                AdvanceChar
+                seenExponent = -1
+                allowSign = -1
+            ELSEIF (ch = "+" OR ch = "-") AND allowSign THEN
+                tok.value = RTRIM$(tok.value) + ch
+                AdvanceChar
+                allowSign = 0
             ELSE
                 EXIT DO
             END IF
         LOOP
-        GetNextToken = tok
-        EXIT FUNCTION
+        EXIT SUB
     END IF
     
     ' Check for identifier
@@ -365,8 +382,7 @@ FUNCTION GetNextToken AS Token
             tok.type = TOKEN_KEYWORD
         END IF
         
-        GetNextToken = tok
-        EXIT FUNCTION
+        EXIT SUB
     END IF
     
     ' Check for operators and symbols
@@ -388,11 +404,10 @@ FUNCTION GetNextToken AS Token
             tok.type = TOKEN_OPERATOR
     END SELECT
     
-    GetNextToken = tok
-END FUNCTION
+END SUB
 
 SUB AdvanceToken
-    Parser.currentToken = GetNextToken
+    GetNextToken Parser.currentToken
 END SUB
 
 FUNCTION CurrentTokenType%
@@ -415,22 +430,22 @@ SUB BufferTokens (count AS INTEGER)
     FOR i = 1 TO count
         IF TokenBufferCount < 100 THEN
             TokenBufferCount = TokenBufferCount + 1
-            TokenBuffer(TokenBufferCount) = GetNextToken
+            GetNextToken TokenBuffer(TokenBufferCount)
         END IF
     NEXT
 END SUB
 
-FUNCTION PeekToken (offset AS INTEGER) AS Token
-    DIM pos AS INTEGER
-    pos = TokenBufferPos + offset - 1
+SUB PeekToken (offset AS INTEGER, tok AS Token)
+    DIM tokenPos AS INTEGER
+    tokenPos = TokenBufferPos + offset - 1
     
-    IF pos >= 1 AND pos <= TokenBufferCount THEN
-        PeekToken = TokenBuffer(pos)
+    IF tokenPos >= 1 AND tokenPos <= TokenBufferCount THEN
+        tok = TokenBuffer(tokenPos)
     ELSE
-        PeekToken.type = TOKEN_EOF
-        PeekToken.value = ""
+        tok.type = TOKEN_EOF
+        tok.value = ""
     END IF
-END FUNCTION
+END SUB
 
 SUB ConsumeToken
     IF TokenBufferPos < TokenBufferCount THEN

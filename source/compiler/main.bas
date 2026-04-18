@@ -82,7 +82,6 @@ SUB ParseCommandLine (cmdLine AS STRING)
     DIM i AS INTEGER
     DIM currentArg AS STRING
     DIM inQuote AS _BYTE
-    DIM argStart AS INTEGER
     
     ' Reset arguments
     ArgCount = 0
@@ -94,7 +93,6 @@ SUB ParseCommandLine (cmdLine AS STRING)
     ' In practice, this would handle quotes and spaces properly
     currentArg = ""
     inQuote = 0
-    argStart = 1
     
     FOR i = 1 TO LEN(cmdLine)
         SELECT CASE MID$(cmdLine, i, 1)
@@ -129,11 +127,13 @@ END SUB
 SUB ProcessArguments
     DIM i AS INTEGER
     DIM arg AS STRING
+    DIM argUpper AS STRING
     
     FOR i = 1 TO ArgCount
         arg = CLIArgs(i)
+        argUpper = UCASE$(arg)
         
-        SELECT CASE UCASE$(arg)
+        SELECT CASE argUpper
             CASE "-O", "-O1"
                 Compiler.optimizeLevel = 1
             CASE "-O2"
@@ -164,7 +164,7 @@ SUB ProcessArguments
                         Compiler.libraryPaths = Compiler.libraryPaths + ";" + CLIArgs(i)
                     END IF
                 END IF
-            CASE "-O", "-OUT"
+            CASE "-OUT", "-OUTPUT"
                 ' Output file (next argument)
                 IF i < ArgCount THEN
                     i = i + 1
@@ -174,8 +174,13 @@ SUB ProcessArguments
                 PrintHelp
                 SYSTEM 0
             CASE ELSE
-                ' Assume it's the source file
-                IF LEFT$(arg, 1) <> "-" THEN
+                IF arg = "-o" OR arg = "-out" OR arg = "-output" THEN
+                    IF i < ArgCount THEN
+                        i = i + 1
+                        Compiler.outputFile = CLIArgs(i)
+                    END IF
+                ELSEIF LEFT$(arg, 1) <> "-" THEN
+                    ' Assume it's the source file
                     Compiler.sourceFile = arg
                 END IF
         END SELECT

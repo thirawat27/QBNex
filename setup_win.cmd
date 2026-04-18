@@ -58,8 +58,11 @@ rem )
 reg Query "HKLM\Hardware\Description\System\CentralProcessor\0" | find /i "x86" > NUL && goto chose32 || goto choose
 
 :choose
+if /I "%QBNEX_MINGW_ARCH%"=="x86" goto chose32
+if /I "%QBNEX_MINGW_ARCH%"=="x64" goto chose64
 choice /c 12 /M "Use (1) 64-bit or (2) 32-bit MINGW? "
-if errorlevel == 1 goto chose64
+if errorlevel 2 goto chose32
+if errorlevel 1 goto chose64
 goto chose32
 
 :chose32
@@ -114,17 +117,29 @@ cd ../../../../../..
 echo Building 'QBNex'
 if not exist internal\temp mkdir internal\temp
 copy internal\source\*.* internal\temp\ >nul
+xcopy /e /i /y source\* internal\temp\ >nul
 copy source\qbnex.ico internal\temp\ >nul
 copy source\icon.rc internal\temp\ >nul
 cd internal\c
 c_compiler\bin\windres.exe -i ../temp/icon.rc -o ../temp/icon.o
-c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\temp\icon.o -D DEPENDENCY_LOADFONT  parts\video\font\ttf\os\win\src.o -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE parts\core\os\win\src.a -lopengl32 -lglu32 -static-libgcc -static-libstdc++ -D GLEW_STATIC -D FREEGLUT_STATIC -lws2_32 -lwinmm -lgdi32 -o "..\..\qb.exe"
+c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\temp\icon.o -D DEPENDENCY_LOADFONT  parts\video\font\ttf\os\win\src.o -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE parts\core\os\win\src.a -lopengl32 -lglu32 -static-libgcc -static-libstdc++ -D GLEW_STATIC -D FREEGLUT_STATIC -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
 cd ..\..
 
+if exist qb-stage0.exe (
+    echo Bootstrapping compiler from source\qbnex.bas...
+    qb-stage0.exe source\qbnex.bas -o qb.exe
+)
+
 echo.
-echo QBNex CLI compiler is ready:
-echo   qb yourfile.bas
-pause
+if exist qb.exe (
+    if not defined QBNEX_KEEP_STAGE0 del qb-stage0.exe >nul 2>nul
+    echo QBNex CLI compiler is ready:
+    echo   qb yourfile.bas
+) else (
+    echo Final self-hosted compiler build failed.
+    exit /b 1
+)
+if not defined QBNEX_CI pause
 
 :end
 endlocal

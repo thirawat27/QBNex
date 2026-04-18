@@ -58,19 +58,32 @@ popd >/dev/null
 echo "Building 'QBNex' (~3 min)"
 mkdir -p ./internal/temp
 cp ./internal/source/* ./internal/temp/
+cp -r ./source/* ./internal/temp/
 pushd internal/c >/dev/null
-clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb
+clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb-stage0
 popd >/dev/null
 
 echo ""
+if [ -f ./qb-stage0 ]; then
+  echo "Bootstrapping compiler from source/qbnex.bas..."
+  ./qb-stage0 ./source/qbnex.bas -o qb
+fi
+
 if [ -f ./qb ]; then
+  if [ -z "$QBNEX_KEEP_STAGE0" ]; then
+    rm -f ./qb-stage0
+  fi
   echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
   echo ""
-  echo "Press any key to continue..."
-  Pause
+  if [ -z "$QBNEX_CI" ]; then
+    echo "Press any key to continue..."
+    Pause
+  fi
 else
   echo "Compilation of QBNex failed!"
-  Pause
+  if [ -z "$QBNEX_CI" ]; then
+    Pause
+  fi
   exit 1
 fi

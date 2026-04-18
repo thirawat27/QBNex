@@ -5,14 +5,11 @@
 '
 ' Usage:
 '   IMPORT qbnex              'Import entire stdlib
-'   IMPORT net.http           'Import HTTP module only
 '   IMPORT json               'Import JSON module only
 '
 ' Simple API (clean names):
-' - get, post, put, delete         : HTTP requests
 ' - json_parse, json_string        : JSON handling
 ' - encode, decode                 : URL encoding
-' - server, route_get, listen      : Web server
 '===============================================================================
 
 '-------------------------------------------------------------------------------
@@ -26,13 +23,9 @@ CONST STDLIB_NAME = "QBNex Standard Library"
 ' MODULE INCLUDES
 '-------------------------------------------------------------------------------
 
-'--- Networking Modules ---
-'$INCLUDE:'source\stdlib\net\http_client.bas'
-'$INCLUDE:'source\stdlib\net\http_server.bas'
-
 '--- Data Format Modules ---
-'$INCLUDE:'source\stdlib\json.bas'
-'$INCLUDE:'source\stdlib\url.bas'
+'$INCLUDE:'json.bas'
+'$INCLUDE:'url.bas'
 
 '-------------------------------------------------------------------------------
 ' STDLIB INITIALIZATION
@@ -40,8 +33,6 @@ CONST STDLIB_NAME = "QBNex Standard Library"
 
 SUB Stdlib_Init
     'Initialize all stdlib modules
-    HttpClient_Init
-    HttpServer_Init
     Json_Init
     Url_Init
     
@@ -50,40 +41,12 @@ END SUB
 
 SUB Stdlib_Cleanup
     'Cleanup all stdlib modules
-    HttpClient_Cleanup
-    HttpServer_Cleanup
     Json_Cleanup
 END SUB
 
 '-------------------------------------------------------------------------------
 ' HIGH-LEVEL API WRAPPERS
 '-------------------------------------------------------------------------------
-
-'--- HTTP Client API (Web Requests) ---
-' Functions available from net/http_client.bas:
-' - get, post, put, delete, fetch (return STRING)
-
-'--- HTTP Server API (Web Server) ---
-
-' Create HTTP server on port
-FUNCTION server AS INTEGER (port AS INTEGER)
-    server = HttpServer_Create(port)
-END FUNCTION
-
-' Add GET route
-SUB route_get (server AS HttpServer, path AS STRING, handlerIndex AS INTEGER)
-    HttpServer_Get server, path, handlerIndex
-END SUB
-
-' Add POST route
-SUB route_post (server AS HttpServer, path AS STRING, handlerIndex AS INTEGER)
-    HttpServer_Post server, path, handlerIndex
-END SUB
-
-' Start server
-SUB listen (server AS HttpServer)
-    HttpServer_Start server
-END SUB
 
 '--- JSON API (Data Serialization) ---
 
@@ -198,7 +161,6 @@ SUB Stdlib_PrintInfo
     PRINT "Version: "; STDLIB_VERSION
     PRINT ""
     PRINT "Simple API (clean syntax):"
-    PRINT "  HTTP:  get, post, put, delete"
     PRINT "  JSON:  json_parse, json_string"
     PRINT "  URL:   encode, decode"
     PRINT ""
@@ -215,4 +177,3 @@ END FUNCTION
 FUNCTION Stdlib_GetName AS STRING ()
     Stdlib_GetName = STDLIB_NAME
 END FUNCTION
-

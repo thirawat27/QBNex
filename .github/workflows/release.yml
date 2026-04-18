@@ -12,77 +12,61 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install dependencies
       run: sudo apt update && sudo apt install libglu1-mesa-dev libncurses-dev
-    - name: Bootstrap compiler
-      run: .ci/bootstrap.sh lnx
-    - name: Compile
-      run: .ci/compile.sh
-    - name: Publish
-      if: github.event_name == 'push'
-      run: .ci/deploy.sh lnx
+    - name: Build compiler
+      run: QBNEX_CI=1 bash ./setup_lnx.sh
     - name: Upload
       uses: actions/upload-artifact@v3
       with: 
         name: qbnex_${{ github.ref_name }}_${{ github.sha }}_lnx
-        path: ${{ github.workspace }}/qbnex_*.tar.gz
+        path: ${{ github.workspace }}/qb
 
   macos-build:
     runs-on: macos-latest
     if: "!contains(github.event.head_commit.message, 'ci-skip')"
     steps:
     - uses: actions/checkout@v4
-    - name: Bootstrap compiler
-      run: .ci/bootstrap.sh osx
-    - name: Compile
-      run: .ci/compile.sh
-    - name: Publish
-      if: github.event_name == 'push'
-      run: .ci/deploy.sh osx
+    - name: Build compiler
+      run: QBNEX_CI=1 bash ./setup_osx.command
     - name: Upload
       uses: actions/upload-artifact@v3
       with: 
         name: qbnex_${{ github.ref_name }}_${{ github.sha }}_osx
-        path: ${{ github.workspace }}/qbnex_*.tar.gz
+        path: ${{ github.workspace }}/qb
 
   windows-x86-build:
     runs-on: windows-latest
     if: "!contains(github.event.head_commit.message, 'ci-skip')"
     env:
       PLATFORM: x86
+      QBNEX_CI: "1"
+      QBNEX_MINGW_ARCH: x86
     steps:
     - uses: actions/checkout@v4
-    - name: Bootstrap compiler
-      run: .ci/bootstrap32.bat
-    - name: Compile
-      run: .ci/compile.bat
-    - name: Publish
-      if: github.event_name == 'push'
-      run: .ci/deploy.ps1
+    - name: Build compiler
+      run: cmd /c setup_win.cmd
     - name: Upload
       uses: actions/upload-artifact@v3
       if: always()
       with: 
         name: qbnex_${{ github.ref_name }}_${{ github.sha }}_win-x86
-        path: ${{ github.workspace }}\qbnex_*.7z
+        path: ${{ github.workspace }}\qb.exe
 
   windows-x64-build:
     runs-on: windows-latest
     if: "!contains(github.event.head_commit.message, 'ci-skip')"
     env:
       PLATFORM: x64
+      QBNEX_CI: "1"
+      QBNEX_MINGW_ARCH: x64
     steps:
     - uses: actions/checkout@v4
-    - name: Bootstrap compiler
-      run: .ci/bootstrap.bat
-    - name: Compile
-      run: .ci/compile.bat
-    - name: Publish
-      if: github.event_name == 'push'
-      run: .ci/deploy.ps1
+    - name: Build compiler
+      run: cmd /c setup_win.cmd
     - name: Upload
       uses: actions/upload-artifact@v3
       with: 
         name: qbnex_${{ github.ref_name }}_${{ github.sha }}_win-x64
-        path: ${{ github.workspace }}\qbnex_*.7z
+        path: ${{ github.workspace }}\qb.exe
 
 # ${{ github.event.repository.updated_at }}
 # path: ${{ github.workspace }}\qbnex_*.7z

@@ -27,6 +27,7 @@ TYPE IntegrationState
     totalLinesProcessed AS LONG
     totalSymbolsResolved AS LONG
     totalPhasesCompleted AS INTEGER
+    generatedCodePath AS STRING * 256
 END TYPE
 
 DIM SHARED Integration AS IntegrationState
@@ -44,14 +45,15 @@ SUB InitIntegrationModule
     Integration.compileEndTime = 0
     
     ' Enable all optimizations by default
-    Integration.useParallelProcessing = -1
+    Integration.useParallelProcessing = 0
     Integration.useSinglePass = -1
-    Integration.useOptimizations = -1
+    Integration.useOptimizations = 0
     Integration.useCaching = -1
     
     Integration.totalLinesProcessed = 0
     Integration.totalSymbolsResolved = 0
     Integration.totalPhasesCompleted = 0
+    Integration.generatedCodePath = ""
     
     ' Initialize all subsystems in correct order
     InitErrorHandler
@@ -248,7 +250,9 @@ FUNCTION IntegratedAnalyze%
         FOR i = 1 TO GetUnresolvedCount%
             ReportError ERR_UNDEFINED_SYMBOL, "Unresolved symbol", 0, ""
         NEXT
-        ' Don't fail immediately - let user see all errors
+        PopErrorContext
+        IntegratedAnalyze% = 0
+        EXIT FUNCTION
     END IF
     
     Integration.totalSymbolsResolved = SymbolCount
@@ -258,29 +262,70 @@ FUNCTION IntegratedAnalyze%
 END FUNCTION
 
 FUNCTION IntegratedGenerateCode%
-    ' Use parallel code generation if enabled
-    IF Integration.useParallelProcessing AND IsParallelEnabled% THEN
-        GenerateCodeParallel
+    DIM targetOutput AS STRING
+    DIM astRoot AS LONG
+
+    PushErrorContext "code generation"
+
+    astRoot = GetASTRoot%
+    IF astRoot = 0 THEN
+        ReportError ERR_CODEGEN_FAILED, "Cannot generate code without a parsed AST", 0, ""
+        PopErrorContext
+        IntegratedGenerateCode% = 0
+        EXIT FUNCTION
+    END IF
+
+    targetOutput = RTRIM$(Integration.outputFile)
+    IF targetOutput = "" THEN
+        targetOutput = "internal/temp/integrated_output.cpp"
+    END IF
+
+    GenerateCodeFromAST astRoot, targetOutput
+    Integration.generatedCodePath = targetOutput
+
+    IF GetOutputLineCount% <= 0 THEN
+        ReportError ERR_CODEGEN_FAILED, "Code generator produced no output", 0, ""
+        PopErrorContext
+        IntegratedGenerateCode% = 0
+        EXIT FUNCTION
     END IF
     
+    PopErrorContext
     IntegratedGenerateCode% = -1
 END FUNCTION
 
 FUNCTION IntegratedOptimize%
     ' Run optimization passes
     IF Integration.useOptimizations THEN
-        IF Integration.useParallelProcessing AND IsParallelEnabled% THEN
-            OptimizeParallel
-        END IF
+        ReportError ERR_UNSUPPORTED_FEATURE, "Integrated optimization pass is not implemented yet", 0, ""
+        IntegratedOptimize% = 0
+        EXIT FUNCTION
     END IF
     
     IntegratedOptimize% = -1
 END FUNCTION
 
 FUNCTION IntegratedLink%
-    ' Linking is handled by the main compiler loop
-    ' This is a placeholder for future expansion
-    IntegratedLink% = -1
+    DIM targetOutput AS STRING
+    DIM lowerOutput AS STRING
+
+    targetOutput = RTRIM$(Integration.outputFile)
+    IF targetOutput = "" THEN targetOutput = RTRIM$(Integration.generatedCodePath)
+    lowerOutput = LCASE$(targetOutput)
+
+    IF lowerOutput = "" THEN
+        ReportError ERR_LINK_ERROR, "No output path available for integrated link step", 0, ""
+        IntegratedLink% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF RIGHT$(lowerOutput, 4) = ".cpp" OR RIGHT$(lowerOutput, 2) = ".c" OR RIGHT$(lowerOutput, 4) = ".cxx" OR RIGHT$(lowerOutput, 3) = ".cc" THEN
+        IntegratedLink% = -1
+        EXIT FUNCTION
+    END IF
+
+    ReportError ERR_UNSUPPORTED_FEATURE, "Integrated native linking is not implemented yet; use a .cpp output path or the legacy compiler path", 0, ""
+    IntegratedLink% = 0
 END FUNCTION
 
 SUB IntegratedFinalize
@@ -382,10 +427,10 @@ SUB PrintIntegrationSummary
     PRINT "Phases Completed: "; Integration.totalPhasesCompleted; " / 8"
     PRINT ""
     PRINT "Features Enabled:"
-    PRINT "  - Parallel Processing: "; IIF$(Integration.useParallelProcessing, "YES", "NO")
-    PRINT "  - Single-Pass Mode: "; IIF$(Integration.useSinglePass, "YES", "NO")
-    PRINT "  - Optimizations: "; IIF$(Integration.useOptimizations, "YES", "NO")
-    PRINT "  - Caching: "; IIF$(Integration.useCaching, "YES", "NO")
+    PRINT "  - Parallel Processing: "; EnabledStatus$(Integration.useParallelProcessing)
+    PRINT "  - Single-Pass Mode: "; EnabledStatus$(Integration.useSinglePass)
+    PRINT "  - Optimizations: "; EnabledStatus$(Integration.useOptimizations)
+    PRINT "  - Caching: "; EnabledStatus$(Integration.useCaching)
     
     IF HasErrors% THEN
         PRINT ""
@@ -400,3 +445,11 @@ SUB PrintIntegrationSummary
     
     PRINT "========================================"
 END SUB
+
+FUNCTION EnabledStatus$ (enabled AS _BYTE)
+    IF enabled THEN
+        EnabledStatus$ = "YES"
+    ELSE
+        EnabledStatus$ = "NO"
+    END IF
+END FUNCTION

@@ -48,8 +48,6 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'tests\test_framework.bas'
 '$INCLUDE:'tests\regression_tests.bas'
 '=== QBNex Standard Library (QBasic + Modern Syntax) ===
-'$INCLUDE:'stdlib\net\http_client.bas'
-'$INCLUDE:'stdlib\net\http_server.bas'
 '$INCLUDE:'stdlib\json.bas'
 '$INCLUDE:'stdlib\url.bas'
 '$INCLUDE:'compiler\main.bas'
@@ -124,30 +122,7 @@ InitMainHashTable
 'Phase 1: Quick Wins - Initialize string pool and cache
 InitOptimizationModule
 
-'OPTIMIZED: Initialize new compiler modules
 InitErrorHandler
-InitLogging
-InitParser
-InitSymbolTable
-InitCodeGenerator
-InitIntegrationModule
-
-'Phase 3: Advanced Optimizations
-InitIncrementalCompilation
-InitLLVMBakend
-InitJITCompilation
-
-'Phase 4: Stability & Testing
-InitStateManagement
-InitTestFramework
-InitRegressionTests
-
-'QBNex Standard Library
-Stdlib_Init
-
-'QBasic-Modern Syntax Support
-ModernSyntax_Init
-
 SetVerboseMode -1  ' Show detailed diagnostics by default
 SetMaxErrors 100
 
@@ -12580,14 +12555,7 @@ rebuildLibqb = 0
 IF _FILEEXISTS(libqbObjectPath) = 0 THEN
     rebuildLibqb = -1
 ELSE
-    libqbObjectTime = _FILEDATETIME(libqbObjectPath)
-    libqbSourceTime = _FILEDATETIME(libqbSourcePath)
-    libqbHeaderTime = _FILEDATETIME(libqbHeaderPath)
-    commonHeaderTime = _FILEDATETIME(commonHeaderPath)
-
-    IF libqbSourceTime > libqbObjectTime THEN rebuildLibqb = -1
-    IF libqbHeaderTime > libqbObjectTime THEN rebuildLibqb = -1
-    IF commonHeaderTime > libqbObjectTime THEN rebuildLibqb = -1
+    rebuildLibqb = -1
 END IF
 
 IF rebuildLibqb THEN
@@ -24361,11 +24329,11 @@ IF (a >= 48 AND a <= 57) OR a = 46 THEN
 
     'note: The symbols ! and # are valid trailing symbols in QBASIC, regardless of the number's size,
     '      so they are allowed in QBNex for compatibility reasons
-    addsymbol$ = removesymbol$(t$)
+    labelSymbol$ = removesymbol$(t$)
     IF Error_Happened THEN EXIT FUNCTION
-    IF LEN(addsymbol$) THEN
-        IF INSTR(addsymbol$, "$") THEN EXIT FUNCTION
-        IF addsymbol$ <> "#" AND addsymbol$ <> "!" THEN addsymbol$ = ""
+    IF LEN(labelSymbol$) THEN
+        IF INSTR(labelSymbol$, "$") THEN EXIT FUNCTION
+        IF labelSymbol$ <> "#" AND labelSymbol$ <> "!" THEN labelSymbol$ = ""
     END IF
 
     IF a = 46 THEN dp = 1
@@ -24377,11 +24345,11 @@ IF (a >= 48 AND a <= 57) OR a = 46 THEN
     IF dp > 1 THEN EXIT FUNCTION 'too many decimal points
     IF dp = 1 AND LEN(t$) = 1 THEN EXIT FUNCTION 'cant have '.' as a label
 
-    tlayout$ = t$ + addsymbol$
+    tlayout$ = t$ + labelSymbol$
 
     i = INSTR(t$, "."): IF i THEN MID$(t$, i, 1) = "p"
-    IF addsymbol$ = "#" THEN t$ = t$ + "d"
-    IF addsymbol$ = "!" THEN t$ = t$ + "s"
+    IF labelSymbol$ = "#" THEN t$ = t$ + "d"
+    IF labelSymbol$ = "!" THEN t$ = t$ + "s"
 
     IF LEN(t$) > 40 THEN EXIT FUNCTION
 
@@ -25794,7 +25762,7 @@ FUNCTION CleanDiagnosticContext$ (text$)
     DIM i AS LONG
     DIM j AS LONG
     DIM ch AS STRING
-    DIM octal$ AS STRING
+    DIM octal AS STRING
     DIM hadCompilerEscapes AS _BYTE
 
     result = ""
@@ -25819,9 +25787,9 @@ FUNCTION CleanDiagnosticContext$ (text$)
                     i = i + 1
                     EXIT DO
                 ELSEIF ch = "\" AND i + 3 <= LEN(text$) THEN
-                    octal$ = MID$(text$, i + 1, 3)
-                    IF IsOctalText%(octal$) THEN
-                        result = result + CHR$(OctalTextValue%(octal$))
+                    octal = MID$(text$, i + 1, 3)
+                    IF IsOctalText%(octal) THEN
+                        result = result + CHR$(OctalTextValue%(octal))
                         hadCompilerEscapes = -1
                         i = i + 4
                     ELSEIF MID$(text$, i + 1, 1) = "\" THEN
@@ -25858,11 +25826,11 @@ FUNCTION CleanDiagnosticContext$ (text$)
     CleanDiagnosticContext$ = RTRIM$(result)
 END FUNCTION
 
-FUNCTION UTF8ByteAt% (text AS STRING, POS AS LONG)
-    IF POS < 1 OR POS > LEN(text) THEN
+FUNCTION UTF8ByteAt% (text AS STRING, bytePos AS LONG)
+    IF bytePos < 1 OR bytePos > LEN(text) THEN
         UTF8ByteAt% = -1
     ELSE
-        UTF8ByteAt% = ASC(text, POS)
+        UTF8ByteAt% = ASC(text, bytePos)
     END IF
 END FUNCTION
 
@@ -25875,7 +25843,7 @@ FUNCTION IsUTF8ContinuationByte% (value AS INTEGER)
 END FUNCTION
 
 FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS LONG, invalidContext AS STRING)
-    DIM POS AS LONG
+    DIM bytePos AS LONG
     DIM i AS LONG
     DIM lineStart AS LONG
     DIM lineEnd AS LONG
@@ -25888,58 +25856,58 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
     invalidLine = 1
     invalidContext = ""
 
-    POS = 1
-    DO WHILE POS <= LEN(text)
-        b1 = UTF8ByteAt%(text, POS)
+    bytePos = 1
+    DO WHILE bytePos <= LEN(text)
+        b1 = UTF8ByteAt%(text, bytePos)
 
         IF b1 < 128 THEN
-            POS = POS + 1
+            bytePos = bytePos + 1
         ELSEIF b1 >= 194 AND b1 <= 223 THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
             IF IsUTF8ContinuationByte%(b2) = 0 THEN GOTO invalid_utf8
-            POS = POS + 2
+            bytePos = bytePos + 2
         ELSEIF b1 = 224 THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
-            b3 = UTF8ByteAt%(text, POS + 2)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
+            b3 = UTF8ByteAt%(text, bytePos + 2)
             IF b2 < 160 OR b2 > 191 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
-            POS = POS + 3
+            bytePos = bytePos + 3
         ELSEIF (b1 >= 225 AND b1 <= 236) OR (b1 >= 238 AND b1 <= 239) THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
-            b3 = UTF8ByteAt%(text, POS + 2)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
+            b3 = UTF8ByteAt%(text, bytePos + 2)
             IF IsUTF8ContinuationByte%(b2) = 0 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
-            POS = POS + 3
+            bytePos = bytePos + 3
         ELSEIF b1 = 237 THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
-            b3 = UTF8ByteAt%(text, POS + 2)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
+            b3 = UTF8ByteAt%(text, bytePos + 2)
             IF b2 < 128 OR b2 > 159 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
-            POS = POS + 3
+            bytePos = bytePos + 3
         ELSEIF b1 = 240 THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
-            b3 = UTF8ByteAt%(text, POS + 2)
-            b4 = UTF8ByteAt%(text, POS + 3)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
+            b3 = UTF8ByteAt%(text, bytePos + 2)
+            b4 = UTF8ByteAt%(text, bytePos + 3)
             IF b2 < 144 OR b2 > 191 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b4) = 0 THEN GOTO invalid_utf8
-            POS = POS + 4
+            bytePos = bytePos + 4
         ELSEIF b1 >= 241 AND b1 <= 243 THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
-            b3 = UTF8ByteAt%(text, POS + 2)
-            b4 = UTF8ByteAt%(text, POS + 3)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
+            b3 = UTF8ByteAt%(text, bytePos + 2)
+            b4 = UTF8ByteAt%(text, bytePos + 3)
             IF IsUTF8ContinuationByte%(b2) = 0 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b4) = 0 THEN GOTO invalid_utf8
-            POS = POS + 4
+            bytePos = bytePos + 4
         ELSEIF b1 = 244 THEN
-            b2 = UTF8ByteAt%(text, POS + 1)
-            b3 = UTF8ByteAt%(text, POS + 2)
-            b4 = UTF8ByteAt%(text, POS + 3)
+            b2 = UTF8ByteAt%(text, bytePos + 1)
+            b3 = UTF8ByteAt%(text, bytePos + 2)
+            b4 = UTF8ByteAt%(text, bytePos + 3)
             IF b2 < 128 OR b2 > 143 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b3) = 0 THEN GOTO invalid_utf8
             IF IsUTF8ContinuationByte%(b4) = 0 THEN GOTO invalid_utf8
-            POS = POS + 4
+            bytePos = bytePos + 4
         ELSE
             GOTO invalid_utf8
         END IF
@@ -25949,7 +25917,7 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
     EXIT FUNCTION
 
     invalid_utf8:
-    invalidPos = POS
+invalidPos = bytePos
     invalidLine = 1
     FOR i = 1 TO invalidPos - 1
         IF MID$(text, i, 1) = CHR$(10) THEN invalidLine = invalidLine + 1
@@ -27044,10 +27012,7 @@ SUB WarnIfStaleOutputBinary
     IF _FILEEXISTS(outputPath) = 0 THEN EXIT SUB
     IF _FILEEXISTS(sourcePath) = 0 THEN EXIT SUB
 
-    outputTime = _FILEDATETIME(outputPath)
-    sourceTime = _FILEDATETIME(sourcePath)
-
-    IF sourceTime <= outputTime THEN EXIT SUB
+    EXIT SUB
 
     PRINT
     PRINT "Warning: Existing output was not updated because compilation failed."

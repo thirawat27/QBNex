@@ -42,6 +42,17 @@ TYPE ThreadInfo
     endTime AS SINGLE
 END TYPE
 
+TYPE ParallelMetrics
+    tasksSubmitted AS LONG
+    tasksCompleted AS LONG
+    tasksFailed AS LONG
+    totalThreadTime AS SINGLE
+    avgTaskTime AS SINGLE
+    speedupFactor AS SINGLE
+END TYPE
+
+CONST PARALLEL_IMPLEMENTATION_READY = 0
+
 '-------------------------------------------------------------------------------
 ' SHARED VARIABLES
 '-------------------------------------------------------------------------------
@@ -52,8 +63,7 @@ DIM SHARED TaskCount AS LONG
 DIM SHARED TaskNextID AS LONG
 DIM SHARED ParallelEnabled AS _BYTE
 DIM SHARED ActiveThreads AS INTEGER
-DIM SHARED ThreadMutex AS LONG
-DIM SHARED ThreadCV AS LONG
+DIM SHARED Metrics AS ParallelMetrics
 
 '-------------------------------------------------------------------------------
 ' EXTERNAL LIBRARY DECLARATIONS (QB64 Threading)
@@ -86,7 +96,7 @@ SUB InitParallelProcessing
     ' Determine if parallel processing should be enabled
     ' Check number of CPU cores (simplified - QB64 doesn't expose this directly)
     ' Enable by default on modern systems
-    ParallelEnabled = -1
+    ParallelEnabled = 0
     ActiveThreads = 0
     
     ' Note: QB64's _THREAD creates actual OS threads
@@ -107,7 +117,7 @@ END SUB
 ' TASK QUEUE MANAGEMENT
 '-------------------------------------------------------------------------------
 
-FUNCTION AddTask% (taskType AS INTEGER, startIdx AS LONG, endIdx AS LONG, scope AS LONG)
+FUNCTION AddTask% (taskType AS INTEGER, startIdx AS LONG, endIdx AS LONG, scopeId AS LONG)
     IF TaskCount >= 100 THEN AddTask% = 0: EXIT FUNCTION
     
     TaskCount = TaskCount + 1
@@ -115,7 +125,7 @@ FUNCTION AddTask% (taskType AS INTEGER, startIdx AS LONG, endIdx AS LONG, scope 
     TaskQueue(TaskCount).taskType = taskType
     TaskQueue(TaskCount).startIndex = startIdx
     TaskQueue(TaskCount).endIndex = endIdx
-    TaskQueue(TaskCount).scopeID = scope
+    TaskQueue(TaskCount).scopeID = scopeId
     TaskQueue(TaskCount).status = THREAD_IDLE
     TaskQueue(TaskCount).result = 0
     TaskQueue(TaskCount).errorCode = 0
@@ -164,7 +174,7 @@ END SUB
 
 ' Main function to resolve symbols in parallel across scopes
 SUB ResolveSymbolsParallel
-    IF NOT ParallelEnabled THEN
+    IF NOT ParallelEnabled OR NOT SupportsParallelExecution% THEN
         ' Fall back to sequential processing
         EXIT SUB
     END IF
@@ -175,7 +185,7 @@ SUB ResolveSymbolsParallel
     
     ' Get number of scopes to process
     ' This would be determined by the actual symbol table structure
-    scopeCount = GetScopeCount
+    scopeCount = GetParallelScopeCount&
     
     IF scopeCount <= 1 THEN
         ' Not enough scopes for parallel processing
@@ -219,21 +229,21 @@ END SUB
 
 ' Generate code for independent functions in parallel
 SUB GenerateCodeParallel
-    IF NOT ParallelEnabled THEN EXIT SUB
+    IF NOT ParallelEnabled OR NOT SupportsParallelExecution% THEN EXIT SUB
     
     DIM functionCount AS LONG
     DIM i AS LONG
     DIM tasksAdded AS INTEGER
     
     ' Get number of functions to generate code for
-    functionCount = GetFunctionCount
+    functionCount = GetParallelFunctionCount&
     
     IF functionCount <= 1 THEN EXIT SUB
     
     ' Add tasks for each function
     tasksAdded = 0
     FOR i = 1 TO functionCount
-        IF CanGenerateParallel(i) THEN
+        IF CanGenerateFunctionParallel%(i) THEN
             IF AddTask%(TASK_TYPE_CODE_GENERATION, i, i, 0) > 0 THEN
                 tasksAdded = tasksAdded + 1
             END IF
@@ -251,20 +261,20 @@ END SUB
 
 ' Parse multiple files in parallel (for projects with multiple source files)
 SUB ParseFilesParallel (fileList AS STRING)
-    IF NOT ParallelEnabled THEN EXIT SUB
+    IF NOT ParallelEnabled OR NOT SupportsParallelExecution% THEN EXIT SUB
     
     ' fileList would be a delimited string of file paths
     ' Parse and create tasks for each file
     
     DIM fileCount AS LONG
-    fileCount = ParseFileList(fileList)
+    fileCount = ParseFileListCount&(fileList)
     
     IF fileCount <= 1 THEN EXIT SUB
     
     ' Add tasks for each file
     DIM i AS LONG
     FOR i = 1 TO fileCount
-        AddTask% TASK_TYPE_FILE_PARSING, i, i, 0
+        IF AddTask%(TASK_TYPE_FILE_PARSING, i, i, 0) <= 0 THEN EXIT FOR
     NEXT
     
     ProcessTasksParallel
@@ -276,19 +286,19 @@ END SUB
 
 ' Run optimization passes in parallel on different code sections
 SUB OptimizeParallel
-    IF NOT ParallelEnabled THEN EXIT SUB
+    IF NOT ParallelEnabled OR NOT SupportsParallelExecution% THEN EXIT SUB
     
     ' Add optimization tasks for different sections
     ' This would be integrated with the optimizer module
     
     DIM sectionCount AS LONG
-    sectionCount = GetCodeSectionCount
+    sectionCount = GetParallelCodeSectionCount&
     
     IF sectionCount <= 1 THEN EXIT SUB
     
     DIM i AS LONG
     FOR i = 1 TO sectionCount
-        AddTask% TASK_TYPE_OPTIMIZATION, i, i, 0
+        IF AddTask%(TASK_TYPE_OPTIMIZATION, i, i, 0) <= 0 THEN EXIT FOR
     NEXT
     
     ProcessTasksParallel
@@ -300,45 +310,13 @@ END SUB
 
 ' Process all queued tasks using the thread pool
 SUB ProcessTasksParallel
-    DIM i AS INTEGER
     DIM taskIdx AS LONG
-    DIM threadsUsed AS INTEGER
-    
-    threadsUsed = 0
-    
-    ' Launch threads up to MAX_THREADS or task count
-    FOR i = 1 TO MAX_THREADS
+
+    ' Stage0-compatible fallback: execute queued tasks sequentially.
+    DO
         taskIdx = GetNextTask%
-        IF taskIdx = 0 THEN EXIT FOR
-        
-        ' Mark task as running
-        TaskQueue(taskIdx).status = THREAD_RUNNING
-        ThreadPool(i).currentTask = taskIdx
-        ThreadPool(i).status = THREAD_RUNNING
-        ThreadPool(i).startTime = TIMER
-        
-        ' Launch thread based on task type
-        SELECT CASE TaskQueue(taskIdx).taskType
-            CASE TASK_TYPE_SYMBOL_RESOLUTION
-                ThreadPool(i).handle = _THREAD(SymbolResolutionThread, taskIdx)
-            CASE TASK_TYPE_CODE_GENERATION
-                ThreadPool(i).handle = _THREAD(CodeGenerationThread, taskIdx)
-            CASE TASK_TYPE_FILE_PARSING
-                ' Would launch file parsing thread
-            CASE TASK_TYPE_OPTIMIZATION
-                ' Would launch optimization thread
-        END SELECT
-        
-        threadsUsed = threadsUsed + 1
-        ActiveThreads = ActiveThreads + 1
-    NEXT
-    
-    ' Wait for all threads to complete
-    WaitForAllThreads
-    
-    ' Process any remaining tasks sequentially if queue not empty
-    DO WHILE GetNextTask% > 0
-        ProcessTaskSequential GetNextTask%
+        IF taskIdx <= 0 THEN EXIT DO
+        ProcessTaskSequential taskIdx
     LOOP
 END SUB
 
@@ -360,17 +338,7 @@ END SUB
 
 ' Wait for all active threads to complete
 SUB WaitForAllThreads
-    DIM i AS INTEGER
-    
-    FOR i = 1 TO MAX_THREADS
-        IF ThreadPool(i).handle <> 0 THEN
-            _THREADWAIT ThreadPool(i).handle
-            ThreadPool(i).endTime = TIMER
-            ThreadPool(i).status = THREAD_COMPLETED
-            ThreadPool(i).handle = 0
-            ActiveThreads = ActiveThreads - 1
-        END IF
-    NEXT
+    ' Sequential fallback leaves no active worker threads to wait on.
 END SUB
 
 '-------------------------------------------------------------------------------
@@ -378,7 +346,11 @@ END SUB
 '-------------------------------------------------------------------------------
 
 SUB SetParallelEnabled (enabled AS _BYTE)
-    ParallelEnabled = enabled
+    IF enabled AND SupportsParallelExecution% THEN
+        ParallelEnabled = -1
+    ELSE
+        ParallelEnabled = 0
+    END IF
 END SUB
 
 FUNCTION IsParallelEnabled%
@@ -397,21 +369,6 @@ SUB SetMaxThreads (count AS INTEGER)
     ' In this implementation, MAX_THREADS is constant
     ' Could be made dynamic in future versions
 END SUB
-
-'-------------------------------------------------------------------------------
-' PERFORMANCE METRICS
-'-------------------------------------------------------------------------------
-
-TYPE ParallelMetrics
-    tasksSubmitted AS LONG
-    tasksCompleted AS LONG
-    tasksFailed AS LONG
-    totalThreadTime AS SINGLE
-    avgTaskTime AS SINGLE
-    speedupFactor AS SINGLE
-END TYPE
-
-DIM SHARED Metrics AS ParallelMetrics
 
 SUB ResetParallelMetrics
     Metrics.tasksSubmitted = 0
@@ -445,30 +402,61 @@ END SUB
 ' STUB FUNCTIONS (Would be implemented with actual compiler integration)
 '-------------------------------------------------------------------------------
 
-FUNCTION GetScopeCount&
-    ' Returns the number of scopes in the symbol table
-    ' Placeholder implementation
-    GetScopeCount& = 10
+FUNCTION SupportsParallelExecution%
+    SupportsParallelExecution% = PARALLEL_IMPLEMENTATION_READY
 END FUNCTION
 
-FUNCTION GetFunctionCount&
-    ' Returns the number of functions to compile
-    ' Placeholder implementation
-    GetFunctionCount& = 20
+FUNCTION GetParallelScopeCount&
+    GetParallelScopeCount& = GetScopeCount%
 END FUNCTION
 
-FUNCTION CanGenerateParallel% (funcIndex AS LONG)
-    ' Check if a function can be compiled in parallel
-    ' (i.e., has no dependencies on other functions being compiled)
-    CanGenerateParallel% = -1
+FUNCTION GetParallelFunctionCount&
+    DIM i AS LONG
+    DIM total AS LONG
+
+    total = 0
+    FOR i = 1 TO SymbolCount
+        IF Symbols(i).symbolType = SYM_FUNCTION OR Symbols(i).symbolType = SYM_SUB THEN
+            total = total + 1
+        END IF
+    NEXT
+
+    GetParallelFunctionCount& = total
 END FUNCTION
 
-FUNCTION GetCodeSectionCount&
-    ' Returns number of code sections for optimization
-    GetCodeSectionCount& = 5
+FUNCTION CanGenerateFunctionParallel% (funcIndex AS LONG)
+    ' Parallel function code generation is disabled until dependency analysis exists.
+    CanGenerateFunctionParallel% = 0
 END FUNCTION
 
-FUNCTION ParseFileList& (fileList AS STRING)
-    ' Parse delimited file list and return count
-    ParseFileList& = 3
+FUNCTION GetParallelCodeSectionCount&
+    IF GetOutputLineCount% > 0 THEN
+        GetParallelCodeSectionCount& = 1
+    ELSE
+        GetParallelCodeSectionCount& = 0
+    END IF
+END FUNCTION
+
+FUNCTION ParseFileListCount& (fileList AS STRING)
+    DIM i AS LONG
+    DIM itemCount AS LONG
+    DIM inItem AS _BYTE
+    DIM ch AS STRING
+
+    itemCount = 0
+    inItem = 0
+
+    FOR i = 1 TO LEN(fileList)
+        ch = MID$(fileList, i, 1)
+        IF ch = ";" OR ch = CHR$(10) OR ch = CHR$(13) THEN
+            inItem = 0
+        ELSEIF ch <> " " AND ch <> CHR$(9) THEN
+            IF NOT inItem THEN
+                itemCount = itemCount + 1
+                inItem = -1
+            END IF
+        END IF
+    NEXT
+
+    ParseFileListCount& = itemCount
 END FUNCTION
