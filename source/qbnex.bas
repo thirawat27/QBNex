@@ -81,7 +81,6 @@ IF INSTR(_OS$, "32BIT") THEN UserDefine(1, 5) = "-1": UserDefine(1, 6) = "0" ELS
 UserDefine(1, 7) = Version$
 
 InitCompilerServices
-InitDebugLog
 VerifyInternalFolderOrExit
 
 DIM SHARED Include_GDB_Debugging_Info 'set using "options.bin"
@@ -206,7 +205,7 @@ FUNCTION getpid& ()
     END DECLARE
 
     thisinstancepid = getpid&
-    IF INSTR(_OS$, "LINUX") THEN
+    IF os$ = "LNX" THEN
         fh = FREEFILE
         OPEN ".\internal\temp\tempfoldersearch.bin" FOR RANDOM AS #fh LEN = LEN(tempfolderindex)
         tempfolderrecords = LOF(fh) / LEN(tempfolderindex)
@@ -330,7 +329,6 @@ FUNCTION getpid& ()
     DIM SHARED HashFind_Reverse AS LONG
     DIM SHARED HashFind_SearchFlags AS LONG
     DIM SHARED HashFind_Name AS STRING
-    DIM SHARED HashRemove_LastFound AS LONG
     DIM SHARED HashListSize AS LONG
     DIM SHARED HashListNext AS LONG
     DIM SHARED HashListFreeSize AS LONG
@@ -13769,10 +13767,3 @@ END FUNCTION
 DEFLNG A-Z
 
 '-------- Optional layout component (2/2) --------
-
-SUB DebugPrint(text$)
-    FN = FREEFILE
-    OPEN debugPath$ + "/qbnex.log" FOR APPEND AS #FN
-    PRINT #FN, text$
-    CLOSE #FN
-END SUB

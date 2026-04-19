@@ -36,12 +36,6 @@ if [ $EUID == "0" ]; then
 fi
 
 GET_WGET=
-#Path to Icon
-#Relative Path to icon -- Don't include beginning or trailing '/'
-QBNex_ICON_PATH="internal/source"
-
-#Name of the Icon picture
-QBNex_ICON_NAME="qbnexicon32.png"
 
 DISTRO=
 

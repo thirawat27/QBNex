@@ -157,8 +157,6 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, o$, win, lnx, mac)
     rebuildLibqb = 0
     IF _FILEEXISTS(libqbObjectPath) = 0 THEN
         rebuildLibqb = -1
-    ELSE
-        rebuildLibqb = -1
     END IF
 
     IF rebuildLibqb THEN

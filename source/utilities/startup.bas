@@ -1,16 +1,7 @@
 SUB InitCompilerServices
-    QBNex_uptime! = TIMER
-
     InitErrorHandler
     SetVerboseMode -1
     SetMaxErrors 100
-END SUB
-
-SUB InitDebugLog
-    debugPath$ = _CWD$
-    IF _FILEEXISTS(debugPath$ + "/qbnex.log") THEN
-        KILL debugPath$ + "/qbnex.log"
-    END IF
 END SUB
 
 SUB VerifyInternalFolderOrExit
@@ -29,11 +20,11 @@ SUB VerifyInternalFolderOrExit
 END SUB
 
 SUB InitPlatformDefaults
-    os$ = "WIN"
-    IF INSTR(_OS$, "[LINUX]") THEN os$ = "LNX"
-
     MacOSX = 0
     IF INSTR(_OS$, "[MACOSX]") THEN MacOSX = 1
+
+    os$ = "WIN"
+    IF INSTR(_OS$, "[LINUX]") OR MacOSX THEN os$ = "LNX"
 
     inline_DATA = 0
     IF MacOSX THEN inline_DATA = 1

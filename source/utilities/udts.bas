@@ -109,20 +109,6 @@ SUB copy_full_udt (dst$, src$, file, base_offset, udt)
     LOOP
 END SUB
 
-SUB dump_udts
-    f = FREEFILE
-    OPEN "types.txt" FOR OUTPUT AS #f
-    PRINT #f, "Name   Size   Align? Next   Var?"
-    FOR i = 1 TO lasttype
-        PRINT #f, RTRIM$(udtxname(i)), udtxsize(i), udtxbytealign(i), udtxnext(i), udtxvariable(i)
-    NEXT i
-    PRINT #f, "Name   Size   Align? Next   Type   Tsize  Arr"
-    FOR i = 1 TO lasttypeelement
-        PRINT #f, RTRIM$(udtename(i)), udtesize(i), udtebytealign(i), udtenext(i), udtetype(i), udtetypesize(i), udtearrayelements(i)
-    NEXT i
-    CLOSE #f
-END SUB
-
 SUB increaseUDTArrays
     x = UBOUND(udtxname)
     REDIM _PRESERVE udtxname(x + 1000) AS STRING * 256

@@ -3,8 +3,6 @@
 ' implementations.
 
 ' Startup/platform state
-DIM SHARED QBNex_uptime!
-DIM SHARED debugPath$
 DIM SHARED OS_BITS AS LONG, WindowTitle AS STRING
 DIM SHARED os AS STRING
 DIM SHARED MacOSX AS LONG

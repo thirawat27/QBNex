@@ -89,11 +89,9 @@ FUNCTION HashFind (a$, searchflags, resultflags, resultreference)
                     HashFind_Reverse = 0
                     HashFind_SearchFlags = searchflags
                     HashFind_Name = ua$
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 ELSE
                     HashFind = 1
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 END IF
             END IF
@@ -121,11 +119,9 @@ FUNCTION HashFindRev (a$, searchflags, resultflags, resultreference)
                     HashFind_Reverse = 1
                     HashFind_SearchFlags = searchflags
                     HashFind_Name = ua$
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 ELSE
                     HashFindRev = 1
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 END IF
             END IF
@@ -148,11 +144,9 @@ FUNCTION HashFindCont (resultflags, resultreference)
                 IF i2 THEN
                     HashFindCont = 2
                     HashFind_NextListItem = i2
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 ELSE
                     HashFindCont = 1
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 END IF
             END IF
@@ -172,11 +166,9 @@ FUNCTION HashFindCont (resultflags, resultreference)
                 IF i2 THEN
                     HashFindCont = 2
                     HashFind_NextListItem = i2
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 ELSE
                     HashFindCont = 1
-                    HashRemove_LastFound = i
                     EXIT FUNCTION
                 END IF
             END IF
@@ -186,40 +178,6 @@ FUNCTION HashFindCont (resultflags, resultreference)
         EXIT FUNCTION
     END IF
 END FUNCTION
-
-SUB HashRemove
-    i = HashRemove_LastFound
-
-    HashListFreeLast = HashListFreeLast + 1
-    IF HashListFreeLast > HashListFreeSize THEN
-        HashListFreeSize = HashListFreeSize * 2
-        REDIM _PRESERVE HashListFree(1 TO HashListFreeSize) AS LONG
-    END IF
-    HashListFree(HashListFreeLast) = i
-
-    i1 = HashList(i).PrevItem
-    IF i1 THEN
-        i2 = HashList(i).NextItem
-        IF i2 THEN
-            HashList(i1).NextItem = i2
-            HashList(i2).LastItem = i1
-        ELSE
-            x = HashTable(HashValue(HashListName$(i)) AND HASH_TABLE_MASK)
-            HashList(x).LastItem = i1
-            HashList(i1).NextItem = 0
-        END IF
-    ELSE
-        x = HashTable(HashValue(HashListName$(i)) AND HASH_TABLE_MASK)
-        i2 = HashList(i).NextItem
-        IF i2 THEN
-            HashTable(x) = i2
-            HashList(i2).PrevItem = 0
-            HashList(i2).LastItem = HashList(i).LastItem
-        ELSE
-            HashTable(x) = 0
-        END IF
-    END IF
-END SUB
 
 SUB HashDump
     fh = FREEFILE
@@ -289,5 +247,4 @@ SUB HashClear
     HashFind_Reverse = 0
     HashFind_SearchFlags = 0
     HashFind_Name = ""
-    HashRemove_LastFound = 0
 END SUB

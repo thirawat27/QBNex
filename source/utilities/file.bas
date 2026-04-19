@@ -1,34 +1,3 @@
-''' Duplicates the contents of one file into another.
-''' Returns: 0 on success, 1 on error.
-FUNCTION CopyFile& (sourceFile$, destFile$)
-
-    DIM sourcefileNo, destFileNo
-    DIM fileLength AS _INTEGER64
-
-    result = 0
-    sourceFileNo = FREEFILE
-    OPEN sourceFile$ FOR BINARY AS #sourceFileNo
-    IF result = 1 THEN GOTO ErrorCleanup
-
-    fileLength = LOF(sourceFileNo)
-
-    destFileNo = FREEFILE
-    OPEN destFile$ FOR BINARY AS #destFileNo
-    IF result = 1 THEN GOTO ErrorCleanup
-
-    ' Read the file in one go
-    buffer$ = SPACE$(fileLength)
-
-    GET #sourceFileNo, , buffer$
-    PUT #destFileNo, , buffer$
-
-    ErrorCleanup:
-    IF sourceFileNo <> 0 THEN CLOSE #sourceFileNo
-    IF destFileNo <> 0 THEN CLOSE #destFileNo
-    CopyFile& = result
-
-END FUNCTION
-
 ''' Splits the filename from its path and returns the path.
 ''' Returns: The path or empty if no path.
 FUNCTION GetFilePath$ (f$)
