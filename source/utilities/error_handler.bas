@@ -97,6 +97,7 @@ END SUB
 
 FUNCTION GetDefaultSeverity% (errCode AS INTEGER)
     SELECT CASE errCode
+    CASE 2000 TO 2099: GetDefaultSeverity% = ERR_WARNING
     CASE 1000 TO 1099: GetDefaultSeverity% = ERR_ERROR
     CASE 1100 TO 1199: GetDefaultSeverity% = ERR_ERROR
     CASE 1200 TO 1299: GetDefaultSeverity% = ERR_ERROR
@@ -599,6 +600,20 @@ FUNCTION GetDiagnosticHeadline$ (errCode AS INTEGER, message AS STRING, context 
         ELSE
             GetDiagnosticHeadline$ = "Unexpected token or character"
         END IF
+    CASE WARN_UNUSED_VARIABLE
+        GetDiagnosticHeadline$ = "Unused variable can be removed or used"
+    CASE WARN_DUPLICATE_CONSTANT
+        GetDiagnosticHeadline$ = "Duplicate constant definition"
+    CASE WARN_EMPTY_SELECT_CASE
+        GetDiagnosticHeadline$ = "SELECT CASE block has no CASE branches"
+    CASE WARN_DEBUG_INCOMPATIBLE_FEATURE
+        GetDiagnosticHeadline$ = "Feature is incompatible with $Debug mode"
+    CASE WARN_GENERIC
+        IF NormalizeDiagnosticMessage$(message) <> "" THEN
+            GetDiagnosticHeadline$ = NormalizeDiagnosticMessage$(message)
+        ELSE
+            GetDiagnosticHeadline$ = "Compiler warning"
+        END IF
     CASE ELSE
         IF NormalizeDiagnosticMessage$(message) <> "" THEN
             GetDiagnosticHeadline$ = NormalizeDiagnosticMessage$(message)
@@ -861,6 +876,11 @@ FUNCTION GetSuggestion$ (errCode AS INTEGER)
     CASE ERR_CODEGEN_FAILED: GetSuggestion$ = "Check for syntax errors or unsupported language features"
     CASE ERR_UNSUPPORTED_FEATURE: GetSuggestion$ = "Use an alternative syntax or update QBNex"
     CASE ERR_LINK_ERROR: GetSuggestion$ = "Check C++ compiler installation and library paths"
+    CASE WARN_UNUSED_VARIABLE: GetSuggestion$ = "Remove the variable declaration if it is unnecessary, or use the variable in code"
+    CASE WARN_DUPLICATE_CONSTANT: GetSuggestion$ = "Keep a single CONST definition for the same symbol"
+    CASE WARN_EMPTY_SELECT_CASE: GetSuggestion$ = "Add at least one CASE branch inside SELECT CASE"
+    CASE WARN_DEBUG_INCOMPATIBLE_FEATURE: GetSuggestion$ = "Disable $Debug mode or remove the incompatible feature"
+    CASE WARN_GENERIC: GetSuggestion$ = "Review the warning details and decide whether to refactor the code"
     CASE ELSE: GetSuggestion$ = "Review the error context and consult the documentation"
     END SELECT
 END FUNCTION
@@ -955,6 +975,21 @@ FUNCTION GetDetailedSuggestion$ (errCode AS INTEGER, message AS STRING, context 
     CASE ERR_INVALID_UTF8
         GetDetailedSuggestion$ = "Invalid UTF-8 byte sequence detected. This often happens when mixing ANSI and UTF-8 encoding. Re-save the file as UTF-8."
 
+    CASE WARN_UNUSED_VARIABLE
+        GetDetailedSuggestion$ = "Either remove the declaration or consume the value (for example, print it or pass it to a function)."
+
+    CASE WARN_DUPLICATE_CONSTANT
+        GetDetailedSuggestion$ = "Keep only one declaration for the constant and remove conflicting duplicates."
+
+    CASE WARN_EMPTY_SELECT_CASE
+        GetDetailedSuggestion$ = "Insert one or more CASE blocks, or remove the empty SELECT CASE statement."
+
+    CASE WARN_DEBUG_INCOMPATIBLE_FEATURE
+        GetDetailedSuggestion$ = "This feature is disabled in $Debug mode. Use a debug-safe alternative or compile without $Debug."
+
+    CASE WARN_GENERIC
+        GetDetailedSuggestion$ = basicSuggestion
+
     CASE ELSE
         GetDetailedSuggestion$ = basicSuggestion
     END SELECT
@@ -1025,6 +1060,16 @@ FUNCTION GetErrorCause$ (errCode AS INTEGER, message AS STRING, context AS STRIN
         GetErrorCause$ = "This language feature is not yet implemented in QBNex."
     CASE ERR_LINK_ERROR
         GetErrorCause$ = "The C++ linker failed to create the executable."
+    CASE WARN_UNUSED_VARIABLE
+        GetErrorCause$ = "A variable was declared but never referenced by any reachable code path."
+    CASE WARN_DUPLICATE_CONSTANT
+        GetErrorCause$ = "The same constant name appears more than once, and later definitions may shadow earlier ones."
+    CASE WARN_EMPTY_SELECT_CASE
+        GetErrorCause$ = "A SELECT CASE statement was opened without any CASE branches, so it has no executable behavior."
+    CASE WARN_DEBUG_INCOMPATIBLE_FEATURE
+        GetErrorCause$ = "The requested feature is blocked while $Debug mode is enabled."
+    CASE WARN_GENERIC
+        GetErrorCause$ = "The compiler detected a non-fatal issue that may indicate dead code or a maintenance risk."
     CASE ELSE
         GetErrorCause$ = ""
     END SELECT
@@ -1102,6 +1147,21 @@ FUNCTION GetFixExample$ (errCode AS INTEGER, message AS STRING, context AS STRIN
 
     CASE ERR_REDEFINED_SYMBOL
         GetFixExample$ = "Use unique names: myVar1, myVar2"
+
+    CASE WARN_UNUSED_VARIABLE
+        GetFixExample$ = "DIM unusedValue AS INTEGER: PRINT unusedValue"
+
+    CASE WARN_DUPLICATE_CONSTANT
+        GetFixExample$ = "CONST MaxRetry = 3"
+
+    CASE WARN_EMPTY_SELECT_CASE
+        GetFixExample$ = "SELECT CASE mode: CASE 1: PRINT " + CHR$(34) + "A" + CHR$(34) + ": END SELECT"
+
+    CASE WARN_DEBUG_INCOMPATIBLE_FEATURE
+        GetFixExample$ = "Compile without $Debug or replace CHAIN/RUN with a debug-safe flow."
+
+    CASE WARN_GENERIC
+        GetFixExample$ = "Review the warning and simplify or correct the related statement."
 
     CASE ELSE
         GetFixExample$ = ""

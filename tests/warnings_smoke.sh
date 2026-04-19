@@ -66,6 +66,38 @@ grep -F "unused variable" "$OUT_WERROR" >/dev/null 2>&1 || {
   echo "[FAIL] Warnings-as-errors output is missing the warning header."
   FAIL=1
 }
+grep -F "[x] QBNex :: Error [W" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing structured diagnostic headline."
+  FAIL=1
+}
+grep -F "  [@] " "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing location marker [@]."
+  FAIL=1
+}
+grep -F "  [#] source" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing source marker [#]."
+  FAIL=1
+}
+grep -F "  [>] next" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing suggestion marker [>]."
+  FAIL=1
+}
+grep -F "  [::] flow" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing flow marker [::]."
+  FAIL=1
+}
+grep -F "  [!] cause" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing cause marker [!]."
+  FAIL=1
+}
+grep -F "  [+] example" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing example marker [+]."
+  FAIL=1
+}
+grep -F "[x] QBNex :: Build Halted" "$OUT_WERROR" >/dev/null 2>&1 || {
+  echo "[FAIL] Warnings-as-errors output is missing build halt summary."
+  FAIL=1
+}
 if grep -F "Build complete:" "$OUT_WERROR" >/dev/null 2>&1; then
   echo "[FAIL] Warnings-as-errors run should not report a successful build."
   FAIL=1

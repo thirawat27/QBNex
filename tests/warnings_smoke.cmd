@@ -70,6 +70,38 @@ findstr /L /C:"unused variable" "%OUT_WERROR%" >nul || (
     echo [FAIL] Warnings-as-errors output is missing the warning header.
     set "FAIL=1"
 )
+findstr /L /C:"[x] QBNex :: Error [W" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing structured diagnostic headline.
+    set "FAIL=1"
+)
+findstr /L /C:"  [@] " "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing location marker [@].
+    set "FAIL=1"
+)
+findstr /L /C:"  [#] source" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing source marker [#].
+    set "FAIL=1"
+)
+findstr /L /C:"  [>] next" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing suggestion marker [>].
+    set "FAIL=1"
+)
+findstr /L /C:"  [::] flow" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing flow marker [::].
+    set "FAIL=1"
+)
+findstr /L /C:"  [!] cause" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing cause marker [!].
+    set "FAIL=1"
+)
+findstr /L /C:"  [+] example" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing example marker [+].
+    set "FAIL=1"
+)
+findstr /L /C:"[x] QBNex :: Build Halted" "%OUT_WERROR%" >nul || (
+    echo [FAIL] Warnings-as-errors output is missing build halt summary.
+    set "FAIL=1"
+)
 findstr /L /C:"Build complete:" "%OUT_WERROR%" >nul && (
     echo [FAIL] Warnings-as-errors run should not report a successful build.
     set "FAIL=1"
