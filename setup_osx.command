@@ -74,13 +74,9 @@ popd >/dev/null
 
 echo ""
 if [ -f ./qb-stage0 ]; then
-  if [ "${QBNEX_BOOTSTRAP:-0}" = "1" ]; then
-    echo "Bootstrapping compiler from source/qbnex.bas..."
-    ./qb-stage0 ./source/qbnex.bas -o qb
-  elif [ ! -f ./qb ]; then
-    echo "Bootstrapping compiler from source/qbnex.bas..."
-    ./qb-stage0 ./source/qbnex.bas -o qb
-  fi
+  rm -f ./qb
+  cp -f ./qb-stage0 ./qb
+  chmod +x ./qb
 fi
 
 if [ -f ./qb ]; then

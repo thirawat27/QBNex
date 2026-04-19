@@ -145,13 +145,9 @@ g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/sr
 popd
 
 if [ -x "./qb-stage0" ]; then
-  if [ "${QBNEX_BOOTSTRAP:-0}" = "1" ]; then
-    echo "Bootstrapping compiler from source/qbnex.bas..."
-    ./qb-stage0 ./source/qbnex.bas -o qb
-  elif [ ! -e "./qb" ]; then
-    echo "Bootstrapping compiler from source/qbnex.bas..."
-    ./qb-stage0 ./source/qbnex.bas -o qb
-  fi
+  rm -f ./qb
+  cp -f ./qb-stage0 ./qb
+  chmod +x ./qb
 fi
 
 if [ -e "./qb" ]; then
@@ -166,7 +162,7 @@ if [ -e "./qb" ]; then
 else
   ### QBNex did not compile
   cleanup_setup_artifacts
-  echo "It appears that the final qb executable file was not created, which usually indicates a self-hosting compile failure."
+  echo "It appears that the final qb executable file was not created."
   echo "Usually these are due to missing packages needed for compilation. If you're not running a distro supported by this compiler, please note you will need to install the packages listed above."
   echo "If you need help, please open an issue at https://github.com/thirawat27/QBNex/issues with your distro details and build log."
   echo "Also, please tell them the exact contents of this next line:"

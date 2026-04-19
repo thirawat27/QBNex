@@ -138,13 +138,8 @@ c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\lib
 cd ..\..
 
 if exist qb-stage0.exe (
-    if /I "%QBNEX_BOOTSTRAP%"=="1" (
-        echo Bootstrapping compiler from source\qbnex.bas...
-        qb-stage0.exe source\qbnex.bas -o qb.exe
-    ) else if not exist qb.exe (
-        echo Bootstrapping compiler from source\qbnex.bas...
-        qb-stage0.exe source\qbnex.bas -o qb.exe
-    )
+    if exist qb.exe del /q qb.exe >nul 2>nul
+    copy /y qb-stage0.exe qb.exe >nul
 )
 
 echo.
@@ -153,7 +148,7 @@ if exist qb.exe (
     echo QBNex CLI compiler is ready:
     echo   qb yourfile.bas
 ) else (
-    echo Final self-hosted compiler build failed.
+    echo Final compiler build failed.
     exit /b 1
 )
 if not defined QBNEX_CI pause
