@@ -1,4 +1,5 @@
 cd "$(dirname "$0")"
+set -u
 Pause()
 {
 OLDCONFIG=`stty -g`
@@ -6,9 +7,17 @@ stty -icanon -echo min 1 time 0
 dd count=1 2>/dev/null
 stty $OLDCONFIG
 }
+
+cleanup_setup_artifacts()
+{
+rm -f ./temp.7z ./7zr ./7zr.exe >/dev/null 2>&1 || true
+rm -rf ./mingw32 ./mingw64 >/dev/null 2>&1 || true
+}
+
 echo "QBNex Setup"
 echo ""
 
+cleanup_setup_artifacts
 find . -name "*.command" -exec chmod +x {} \;
 
 pushd internal/c/libqb >/dev/null
@@ -22,7 +31,7 @@ find . -type f -iname "*.o" -exec rm -f {} \;
 popd >/dev/null
 
 mkdir -p ./internal/temp
-rm ./internal/temp/*
+find ./internal/temp -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
 
 if [ -z "$(which clang++)" ]; then
   echo "Apple's C++ compiler not found."
@@ -65,14 +74,20 @@ popd >/dev/null
 
 echo ""
 if [ -f ./qb-stage0 ]; then
-  echo "Bootstrapping compiler from source/qbnex.bas..."
-  ./qb-stage0 ./source/qbnex.bas -o qb
+  if [ "${QBNEX_BOOTSTRAP:-0}" = "1" ]; then
+    echo "Bootstrapping compiler from source/qbnex.bas..."
+    ./qb-stage0 ./source/qbnex.bas -o qb
+  elif [ ! -f ./qb ]; then
+    echo "Bootstrapping compiler from source/qbnex.bas..."
+    ./qb-stage0 ./source/qbnex.bas -o qb
+  fi
 fi
 
 if [ -f ./qb ]; then
   if [ -z "$QBNEX_KEEP_STAGE0" ]; then
     rm -f ./qb-stage0
   fi
+  cleanup_setup_artifacts
   echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
   echo ""
@@ -81,6 +96,7 @@ if [ -f ./qb ]; then
     Pause
   fi
 else
+  cleanup_setup_artifacts
   echo "Compilation of QBNex failed!"
   if [ -z "$QBNEX_CI" ]; then
     Pause

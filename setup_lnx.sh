@@ -2,6 +2,13 @@
 #QBNex Installer -- Shell Script -- Matt Kilgore 2013
 #Version 5 -- January 2020
 
+set -u
+
+cleanup_setup_artifacts() {
+  rm -f ./temp.7z ./7zr ./7zr.exe >/dev/null 2>&1 || true
+  rm -rf ./mingw32 ./mingw64 >/dev/null 2>&1 || true
+}
+
 #This checks the currently installed packages for the ones QBNex needs
 #And runs the package manager to install them if that is the case
 pkg_install() {
@@ -109,12 +116,13 @@ fi
 echo "Compiling and installing QBNex..."
 
 ### Build process
+cleanup_setup_artifacts
 find . -name "*.sh" -exec chmod +x {} \;
 find internal/c/parts -type f -iname "*.a" -exec rm -f {} \;
 find internal/c/parts -type f -iname "*.o" -exec rm -f {} \;
 find internal/c/libqb -type f -iname "*.o" -exec rm -f {} \;
 mkdir -p ./internal/temp
-rm ./internal/temp/*
+find ./internal/temp -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
 
 echo "Building library 'LibQB'"
 pushd internal/c/libqb/os/lnx >/dev/null
@@ -143,20 +151,27 @@ g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/sr
 popd
 
 if [ -x "./qb-stage0" ]; then
-  echo "Bootstrapping compiler from source/qbnex.bas..."
-  ./qb-stage0 ./source/qbnex.bas -o qb
+  if [ "${QBNEX_BOOTSTRAP:-0}" = "1" ]; then
+    echo "Bootstrapping compiler from source/qbnex.bas..."
+    ./qb-stage0 ./source/qbnex.bas -o qb
+  elif [ ! -e "./qb" ]; then
+    echo "Bootstrapping compiler from source/qbnex.bas..."
+    ./qb-stage0 ./source/qbnex.bas -o qb
+  fi
 fi
 
 if [ -e "./qb" ]; then
   if [ -z "$QBNEX_KEEP_STAGE0" ]; then
     rm -f ./qb-stage0
   fi
+  cleanup_setup_artifacts
   echo "Done compiling!!"
   echo
   echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
 else
   ### QBNex did not compile
+  cleanup_setup_artifacts
   echo "It appears that the final qb executable file was not created, which usually indicates a self-hosting compile failure."
   echo "Usually these are due to missing packages needed for compilation. If you're not running a distro supported by this compiler, please note you will need to install the packages listed above."
   echo "If you need help, please open an issue at https://github.com/thirawat27/QBNex/issues with your distro details and build log."

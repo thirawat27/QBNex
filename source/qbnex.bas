@@ -29,32 +29,7 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'global\version.bas'
 '$INCLUDE:'global\settings.bas'
 '$INCLUDE:'global\constants.bas'
-'=== Phase 1: Quick Wins ===
-'$INCLUDE:'global\optimization.bas'
-'$INCLUDE:'global\hash_table.bas'
-'$INCLUDE:'global\single_pass.bas'
-'=== Phase 2: Architectural Improvements ===
-'$INCLUDE:'global\compiler_phases.bas'
-'$INCLUDE:'global\parallel_processing.bas'
-'$INCLUDE:'global\integration_module.bas'
-'$INCLUDE:'utils\logging.bas'
-'=== Phase 3: Advanced Optimizations ===
-'$INCLUDE:'global\incremental_compile.bas'
-'$INCLUDE:'global\llvm_backend.bas'
-'$INCLUDE:'global\jit_compilation.bas'
-'=== Phase 4: Stability & Testing ===
-'$INCLUDE:'global\state_management.bas'
-'$INCLUDE:'utils\error_handler.bas'
-'$INCLUDE:'tests\test_framework.bas'
-'$INCLUDE:'tests\regression_tests.bas'
-'=== QBNex Standard Library (QBasic + Modern Syntax) ===
-'$INCLUDE:'stdlib\json.bas'
-'$INCLUDE:'stdlib\url.bas'
-'$INCLUDE:'compiler\main.bas'
-'$INCLUDE:'compiler\modern_syntax.bas'
-'$INCLUDE:'compiler\parser.bas'
-'$INCLUDE:'compiler\symbol_table.bas'
-'$INCLUDE:'compiler\code_generator.bas'
+'$INCLUDE:'global\compat_defs.bas'
 '$INCLUDE:'subs_functions\extensions\opengl\opengl_global.bas'
 '$INCLUDE:'utilities\ini-manager\ini.bi'
 
@@ -27962,9 +27937,7 @@ SUB ShowCompilerBanner
     PRINT "QBNex Compiler"
     PRINT
     compilerProgressRow = CSRLIN
-    compilerProgressVisible = -1
-    UpdateCompilerProgress 0
-    LOCATE compilerProgressRow + 2, 1
+    compilerProgressVisible = 0
 END SUB
 
 FUNCTION SCase$ (t$)
@@ -28031,6 +28004,7 @@ END SUB
 '$INCLUDE:'utilities\file.bas'
 '$INCLUDE:'subs_functions\extensions\opengl\opengl_methods.bas'
 '$INCLUDE:'utilities\ini-manager\ini.bm'
+'$INCLUDE:'global\compat.bas'
 
 DEFLNG A-Z
 

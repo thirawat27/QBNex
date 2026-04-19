@@ -29,6 +29,10 @@ rem Change to the correct drive letter
 rem Change to the correct path
 cd %~dp0
 
+set "MINGW_STAGE="
+set "ARCHIVE_FILE=%CD%\temp.7z"
+set "SEVENZIP_EXE=%CD%\7zr.exe"
+
 rem Ensure the compiler temp staging folder exists before cleaning/copying files into it
 if not exist internal\temp mkdir internal\temp
 
@@ -37,6 +41,10 @@ del /q /s internal\c\libqb\*.a >nul 2>nul
 del /q /s internal\c\parts\*.o >nul 2>nul
 del /q /s internal\c\parts\*.a >nul 2>nul
 del /q /s internal\temp\*.* >nul 2>nul
+if exist "%ARCHIVE_FILE%" del /q "%ARCHIVE_FILE%" >nul 2>nul
+if exist "%SEVENZIP_EXE%" del /q "%SEVENZIP_EXE%" >nul 2>nul
+if exist "mingw32" rd /s /q "mingw32" >nul 2>nul
+if exist "mingw64" rd /s /q "mingw64" >nul 2>nul
 
 rem Check if the C++ compiler is there and skip downloading if it exists
 if exist internal\c\c_compiler\bin\c++.exe goto skipccompsetup
@@ -68,31 +76,35 @@ goto chose32
 :chose32
 set url="https://github.com/niXman/mingw-builds-binaries/releases/download/12.2.0-rt_v10-rev0/i686-12.2.0-release-win32-sjlj-rt_v10-rev0.7z"
 set MINGW=mingw32
+set "MINGW_STAGE=%CD%\mingw32"
 goto chosen
 
 :chose64
 set url="https://github.com/niXman/mingw-builds-binaries/releases/download/12.2.0-rt_v10-rev0/x86_64-12.2.0-release-win32-seh-rt_v10-rev0.7z"
 set MINGW=mingw64
+set "MINGW_STAGE=%CD%\mingw64"
 goto chosen
 
 :chosen
 
 echo Downloading %url%...
-curl -L %url% -o temp.7z
+curl -L %url% -o "%ARCHIVE_FILE%"
 
 echo Downloading 7zr.exe...
-curl -L https://www.7-zip.org/a/7zr.exe -o 7zr.exe
+curl -L https://www.7-zip.org/a/7zr.exe -o "%SEVENZIP_EXE%"
 
 echo Extracting C++ Compiler...
-7zr.exe x temp.7z -y
+"%SEVENZIP_EXE%" x "%ARCHIVE_FILE%" -y
 
 echo Moving C++ compiler...
-for /f %%a in ('dir %MINGW% /b') do move /y "%MINGW%\%%a" internal\c\c_compiler\
+for /f %%a in ('dir /b "%MINGW%"') do move /y "%MINGW%\%%a" "internal\c\c_compiler\" >nul
 
 echo Cleaning up..
-rd %MINGW%
-del 7zr.exe
-del temp.7z
+if defined MINGW_STAGE if exist "%MINGW_STAGE%" rd /s /q "%MINGW_STAGE%" >nul 2>nul
+if exist "%SEVENZIP_EXE%" del /q "%SEVENZIP_EXE%" >nul 2>nul
+if exist "%ARCHIVE_FILE%" del /q "%ARCHIVE_FILE%" >nul 2>nul
+if exist "mingw32" rd /s /q "mingw32" >nul 2>nul
+if exist "mingw64" rd /s /q "mingw64" >nul 2>nul
 
 :skipccompsetup
 
@@ -126,8 +138,13 @@ c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\lib
 cd ..\..
 
 if exist qb-stage0.exe (
-    echo Bootstrapping compiler from source\qbnex.bas...
-    qb-stage0.exe source\qbnex.bas -o qb.exe
+    if /I "%QBNEX_BOOTSTRAP%"=="1" (
+        echo Bootstrapping compiler from source\qbnex.bas...
+        qb-stage0.exe source\qbnex.bas -o qb.exe
+    ) else if not exist qb.exe (
+        echo Bootstrapping compiler from source\qbnex.bas...
+        qb-stage0.exe source\qbnex.bas -o qb.exe
+    )
 )
 
 echo.

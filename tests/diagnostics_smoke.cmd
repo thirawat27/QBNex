@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 
 set "ROOT=%~dp0"
 set "REPO_ROOT=%ROOT%.."
@@ -67,7 +67,7 @@ findstr /L /C:"[+] example" "%OUT_COMPACT%" >nul && (
     set "FAIL=1"
 )
 
-if "!FAIL!"=="0" (
+if "%FAIL%"=="0" (
     echo DIAGNOSTICS_SMOKE_OK
     echo Source fixture: "%SRC%"
     echo Output samples:
