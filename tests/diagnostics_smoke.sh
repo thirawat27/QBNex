@@ -25,11 +25,13 @@ fi
 OUT_DEFAULT="$TMPDIR/default_diagnostics.txt"
 OUT_COMPACT="$TMPDIR/compact_diagnostics.txt"
 
+set +e
 "$QB" "$SRC" > "$OUT_DEFAULT" 2>&1
 EC_DEFAULT=$?
 
 "$QB" "$SRC" --compact-errors > "$OUT_COMPACT" 2>&1
 EC_COMPACT=$?
+set -e
 
 FAIL=0
 
