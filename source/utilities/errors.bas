@@ -66,6 +66,7 @@ SUB HandleFrontendErrorAndExit (errMessage$)
     DIM reportFile AS STRING
     DIM fragmentContext AS STRING
     DIM processedContext AS STRING
+    DIM frontendErrorKey AS STRING
 
     IF Error_Happened THEN
         errMessage$ = Error_Message
@@ -103,6 +104,17 @@ SUB HandleFrontendErrorAndExit (errMessage$)
         locationNote = "Triggered while compiling an included module."
     END IF
 
+    frontendErrorKey = UCASE$(NormalizeDiagnosticMessage$(errMessage$)) + "|" + UCASE$(RTRIM$(reportFile)) + "|" + LTRIM$(STR$(reportLineNumber))
+    IF FrontendErrorHandled THEN
+        IF RTRIM$(LastFrontendErrorKey) = RTRIM$(frontendErrorKey) THEN
+            WarnIfStaleOutputBinary
+            CleanupErrorHandler
+            SYSTEM 1
+        END IF
+    END IF
+    FrontendErrorHandled = -1
+    LastFrontendErrorKey = frontendErrorKey
+
     SetCurrentFile reportFile
     SetErrorPhase "Legacy Frontend"
     PushErrorContext "syntax validation"
@@ -113,7 +125,6 @@ SUB HandleFrontendErrorAndExit (errMessage$)
     ClearErrorPhase
     PrintAllErrors
     WarnIfStaleOutputBinary
-
-    IF ConsoleMode THEN SYSTEM 1
-    END 1
+    CleanupErrorHandler
+    SYSTEM 1
 END SUB

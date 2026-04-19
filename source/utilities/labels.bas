@@ -2,13 +2,14 @@ FUNCTION CountMatchingLabels& (labelName AS STRING)
     DIM lookupMode AS LONG
     DIM lookupResult AS LONG
     DIM lookupRef AS LONG
+    DIM labelCount AS LONG
 
-    CountMatchingLabels& = 0
+    labelCount = 0
     lookupMode = validlabel(labelName)
     lookupResult = HashFind(labelName, HASHFLAG_LABEL, lookupMode, lookupRef)
 
     DO WHILE lookupResult
-        CountMatchingLabels& = CountMatchingLabels& + 1
+        labelCount = labelCount + 1
 
         IF lookupResult = 2 THEN
             lookupResult = HashFindCont(lookupMode, lookupRef)
@@ -16,6 +17,8 @@ FUNCTION CountMatchingLabels& (labelName AS STRING)
             lookupResult = 0
         END IF
     LOOP
+
+    CountMatchingLabels& = labelCount
 END FUNCTION
 
 FUNCTION ValidatePendingLabels% ()

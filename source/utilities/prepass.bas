@@ -79,14 +79,17 @@ SUB StartMainPassSession
 END SUB
 
 FUNCTION NextPrepassLine$
+    DIM processedLine$
+
     IF LEN(classSyntaxQueue$) THEN
-        NextPrepassLine$ = ClassSyntax_DequeueLine$
-        NextPrepassLine$ = TopLevelRuntime_ProcessLine$(NextPrepassLine$)
+        processedLine$ = ClassSyntax_DequeueLine$
+        NextPrepassLine$ = TopLevelRuntime_ProcessLine$(processedLine$)
         EXIT FUNCTION
     END IF
 
-    NextPrepassLine$ = lineinput3$
-    IF NextPrepassLine$ = CHR$(13) THEN
+    processedLine$ = lineinput3$
+    NextPrepassLine$ = processedLine$
+    IF processedLine$ = CHR$(13) THEN
         IF topLevelRuntimeFinalized = 0 THEN
             TopLevelRuntime_Finalize
             IF LEN(classSyntaxDeferredQueue$) THEN NextPrepassLine$ = ClassSyntax_DequeueDeferredLine$
@@ -94,23 +97,27 @@ FUNCTION NextPrepassLine$
             NextPrepassLine$ = ClassSyntax_DequeueDeferredLine$
         END IF
     ELSE
-        NextPrepassLine$ = ClassSyntax_ProcessLine$(NextPrepassLine$)
-        NextPrepassLine$ = TopLevelRuntime_ProcessLine$(NextPrepassLine$)
+        processedLine$ = ClassSyntax_ProcessLine$(processedLine$)
+        NextPrepassLine$ = TopLevelRuntime_ProcessLine$(processedLine$)
     END IF
 END FUNCTION
 
 FUNCTION NextMainPassLine$ (currentLine$)
-    NextMainPassLine$ = currentLine$
+    DIM processedLine$
+
+    processedLine$ = currentLine$
+    NextMainPassLine$ = processedLine$
     IF inclevel <> 0 THEN EXIT FUNCTION
 
     IF LEN(classSyntaxQueue$) THEN
-        NextMainPassLine$ = ClassSyntax_DequeueLine$
-        NextMainPassLine$ = TopLevelRuntime_ProcessLine$(NextMainPassLine$)
+        processedLine$ = ClassSyntax_DequeueLine$
+        NextMainPassLine$ = TopLevelRuntime_ProcessLine$(processedLine$)
         EXIT FUNCTION
     END IF
 
-    NextMainPassLine$ = lineinput3$
-    IF NextMainPassLine$ = CHR$(13) THEN
+    processedLine$ = lineinput3$
+    NextMainPassLine$ = processedLine$
+    IF processedLine$ = CHR$(13) THEN
         IF topLevelRuntimeFinalized = 0 THEN
             TopLevelRuntime_Finalize
             IF LEN(classSyntaxDeferredQueue$) THEN NextMainPassLine$ = ClassSyntax_DequeueDeferredLine$
@@ -118,7 +125,7 @@ FUNCTION NextMainPassLine$ (currentLine$)
             NextMainPassLine$ = ClassSyntax_DequeueDeferredLine$
         END IF
     ELSE
-        NextMainPassLine$ = ClassSyntax_ProcessLine$(NextMainPassLine$)
-        NextMainPassLine$ = TopLevelRuntime_ProcessLine$(NextMainPassLine$)
+        processedLine$ = ClassSyntax_ProcessLine$(processedLine$)
+        NextMainPassLine$ = TopLevelRuntime_ProcessLine$(processedLine$)
     END IF
 END FUNCTION

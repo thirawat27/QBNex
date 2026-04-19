@@ -194,37 +194,38 @@ FUNCTION ResolveBuildLinkSymbols%
             END IF
 
             IF n = 0 THEN
-                IF MacOSX THEN GOTO buildlink_macosx_libfind_failed
-                SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " -D --demangle -g >./internal/temp/nm_output_dynamic.txt 2>./internal/temp/nm_error.txt"
-                fh = FREEFILE
-                s$ = " " + ResolveStaticFunction_Name(x) + "("
-                OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
-                DO UNTIL EOF(fh)
-                    LINE INPUT #fh, a$
-                    IF LEN(a$) THEN
-                        x1 = INSTR(a$, s$)
-                        IF x1 THEN
-                            IF ResolveStaticFunction_Method(x) = 1 THEN
-                                x1 = x1 + 1
-                                x2 = INSTR(x1, a$, ")")
-                                fh2 = FREEFILE
-                                OPEN tmpdir$ + "global.txt" FOR APPEND AS #fh2
-                                PRINT #fh2, "extern void " + MID$(a$, x1, x2 - x1 + 1) + ";"
-                                CLOSE #fh2
+                IF MacOSX = 0 THEN
+                    SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " -D --demangle -g >./internal/temp/nm_output_dynamic.txt 2>./internal/temp/nm_error.txt"
+                    fh = FREEFILE
+                    s$ = " " + ResolveStaticFunction_Name(x) + "("
+                    OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
+                    DO UNTIL EOF(fh)
+                        LINE INPUT #fh, a$
+                        IF LEN(a$) THEN
+                            x1 = INSTR(a$, s$)
+                            IF x1 THEN
+                                IF ResolveStaticFunction_Method(x) = 1 THEN
+                                    x1 = x1 + 1
+                                    x2 = INSTR(x1, a$, ")")
+                                    fh2 = FREEFILE
+                                    OPEN tmpdir$ + "global.txt" FOR APPEND AS #fh2
+                                    PRINT #fh2, "extern void " + MID$(a$, x1, x2 - x1 + 1) + ";"
+                                    CLOSE #fh2
+                                END IF
+                                n = n + 1
                             END IF
-                            n = n + 1
                         END IF
+                    LOOP
+                    CLOSE #fh
+                    IF n > 1 THEN
+                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                        ResolveBuildLinkSymbols% = -1
+                        EXIT FUNCTION
                     END IF
-                LOOP
-                CLOSE #fh
-                IF n > 1 THEN
-                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
-                    ResolveBuildLinkSymbols% = -1
-                    EXIT FUNCTION
                 END IF
             END IF
 
-            IF n = 0 THEN
+            IF n = 0 AND MacOSX = 0 THEN
                 fh = FREEFILE
                 s$ = " " + ResolveStaticFunction_Name(x)
                 OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
@@ -252,7 +253,6 @@ FUNCTION ResolveBuildLinkSymbols%
                 CLOSE #fh
             END IF
 
-buildlink_macosx_libfind_failed:
             IF n = 0 THEN
                 a$ = "Could not find sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
                 ResolveBuildLinkSymbols% = -1
@@ -311,6 +311,8 @@ SUB BuildProgramDataObject
 END SUB
 
 FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$)
+    DIM targetOutputFile AS STRING
+
     OPEN ".\internal\c\makeline_win.txt" FOR BINARY AS #150
     LINE INPUT #150, a$: a$ = GDB_Fix(a$)
     CLOSE #150
@@ -419,10 +421,15 @@ FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$)
         IF x THEN a$ = LEFT$(a$, x + LEN(libqb$)) + "..\..\" + tmpdir$ + "icon.o " + MID$(a$, x + LEN(libqb$) + 1)
     END IF
 
-    PrepareWindowsBuildCommand$ = a$ + QuotedFilename$(path.exe$ + file$ + extension$)
+    targetOutputFile = pendingOutputBinary$
+    IF LEN(targetOutputFile) = 0 THEN targetOutputFile = path.exe$ + file$ + extension$
+
+    PrepareWindowsBuildCommand$ = a$ + QuotedFilename$(targetOutputFile)
 END FUNCTION
 
 FUNCTION PrepareUnixBuildCommand$ (file$, libqb$, libs$, defines$)
+    DIM targetOutputFile AS STRING
+
     IF INSTR(_OS$, "[MACOSX]") THEN
         OPEN "./internal/c/makeline_osx.txt" FOR INPUT AS #150
     ELSEIF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
@@ -474,7 +481,10 @@ FUNCTION PrepareUnixBuildCommand$ (file$, libqb$, libs$, defines$)
         a$ = LEFT$(a$, x - 1) + libqb$ + RIGHT$(a$, LEN(a$) - x + 1)
     END IF
 
-    PrepareUnixBuildCommand$ = a$ + QuotedFilename$(path.exe$ + file$ + extension$)
+    targetOutputFile = pendingOutputBinary$
+    IF LEN(targetOutputFile) = 0 THEN targetOutputFile = path.exe$ + file$ + extension$
+
+    PrepareUnixBuildCommand$ = a$ + QuotedFilename$(targetOutputFile)
 END FUNCTION
 
 FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$)
@@ -504,6 +514,11 @@ FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$)
 END FUNCTION
 
 SUB EmitBuildSupportScripts (buildCommand$, file$)
+    DIM debugTargetPath AS STRING
+
+    debugTargetPath = ResolveOutputBinaryPath$(pendingOutputBinary$)
+    IF LEN(debugTargetPath) = 0 THEN debugTargetPath = path.exe$ + file$ + extension$
+
     IF os$ = "WIN" THEN
         ffh = FREEFILE
         OPEN tmpdir$ + "recompile_win.bat" FOR OUTPUT AS #ffh
@@ -527,7 +542,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
         PRINT #ffh, "echo Type 'quit' to exit"
         PRINT #ffh, "echo (the GDB debugger has many other useful commands, this advice is for beginners)"
         PRINT #ffh, "pause"
-        PRINT #ffh, "internal\c\c_compiler\bin\gdb.exe " + CHR$(34) + path.exe$ + file$ + extension$ + CHR$(34)
+        PRINT #ffh, "internal\c\c_compiler\bin\gdb.exe " + CHR$(34) + debugTargetPath + CHR$(34)
         PRINT #ffh, "pause"
         CLOSE ffh
         EXIT SUB
@@ -561,7 +576,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
         PRINT #ffh, "echo " + CHR_QUOTE + "After the debugger launches type 'run' to start your program" + CHR_QUOTE + CHR$(10);
         PRINT #ffh, "echo " + CHR_QUOTE + "After your program crashes type 'list' to find where the problem is and fix/report it" + CHR_QUOTE + CHR$(10);
         PRINT #ffh, "echo " + CHR_QUOTE + "(the GDB debugger has many other useful commands, this advice is for beginners)" + CHR_QUOTE + CHR$(10);
-        PRINT #ffh, "gdb " + CHR$(34) + path.exe$ + file$ + extension$ + CHR$(34) + CHR$(10);
+        PRINT #ffh, "gdb " + CHR$(34) + debugTargetPath + CHR$(34) + CHR$(10);
         PRINT #ffh, "Pause" + CHR$(10);
         CLOSE ffh
         SHELL _HIDE "chmod +x " + tmpdir$ + "debug_osx.command"
@@ -601,7 +616,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
     PRINT #ffh, "echo " + CHR_QUOTE + "After the debugger launches type 'run' to start your program" + CHR_QUOTE + CHR$(10);
     PRINT #ffh, "echo " + CHR_QUOTE + "After your program crashes type 'list' to find where the problem is and fix/report it" + CHR_QUOTE + CHR$(10);
     PRINT #ffh, "echo " + CHR_QUOTE + "(the GDB debugger has many other useful commands, this advice is for beginners)" + CHR_QUOTE + CHR$(10);
-    PRINT #ffh, "gdb " + CHR$(34) + path.exe$ + file$ + extension$ + CHR$(34) + CHR$(10);
+    PRINT #ffh, "gdb " + CHR$(34) + debugTargetPath + CHR$(34) + CHR$(10);
     PRINT #ffh, "Pause" + CHR$(10);
     CLOSE ffh
     SHELL _HIDE "chmod +x " + tmpdir$ + "debug_lnx.sh"

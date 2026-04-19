@@ -1,9 +1,13 @@
 SUB FinalizeBuildStatus (outputBaseName AS STRING)
-    IF path.exe$ = "../../" OR path.exe$ = "..\..\" THEN path.exe$ = ""
+    DIM finalizedOutputPath AS STRING
 
-    IF _FILEEXISTS(path.exe$ + outputBaseName + extension$) THEN
+    finalizedOutputPath = RTRIM$(pendingOutputBinary$)
+    IF finalizedOutputPath = "" THEN finalizedOutputPath = path.exe$ + outputBaseName + extension$
+    finalizedOutputPath = ResolveOutputBinaryPath$(finalizedOutputPath)
+
+    IF _FILEEXISTS(finalizedOutputPath) THEN
         compfailed = 0
-        lastBinaryGenerated$ = path.exe$ + outputBaseName + extension$
+        lastBinaryGenerated$ = finalizedOutputPath
     ELSE
         compfailed = 1
     END IF
@@ -17,11 +21,15 @@ SUB FinalizeBuildStatus (outputBaseName AS STRING)
 END SUB
 
 SUB ExitCompilerProcess
-    IF (compfailed <> 0 OR warningsissued <> 0) AND ConsoleMode = 0 THEN END 1
-    IF compfailed <> 0 THEN SYSTEM 1
-
     IF HasErrors% THEN
         PrintAllErrors
+        CleanupErrorHandler
+        SYSTEM 1
+    END IF
+
+    IF compfailed <> 0 THEN
+        CleanupErrorHandler
+        SYSTEM 1
     END IF
 
     CleanupErrorHandler
@@ -34,6 +42,5 @@ SUB FinalizeCompilerRun (outputBaseName AS STRING)
     ELSE
         FinalizeBuildStatus outputBaseName
     END IF
-
     ExitCompilerProcess
 END SUB

@@ -46,10 +46,12 @@ set "BIN_OK=%TMPDIR%\label_recompile_success.exe"
 set "BIN_FAIL=%TMPDIR%\label_missing_failure.exe"
 set "BIN_SCOPE=%TMPDIR%\label_scope_conflict.exe"
 set "BIN_DATA=%TMPDIR%\label_ambiguous_data.exe"
+set "BIN_STALE=%TMPDIR%\label_stale_failure.exe"
 set "OUT_OK=%TMPDIR%\label_recompile_success.txt"
 set "OUT_FAIL=%TMPDIR%\label_missing_failure.txt"
 set "OUT_SCOPE=%TMPDIR%\label_scope_conflict.txt"
 set "OUT_DATA=%TMPDIR%\label_ambiguous_data.txt"
+set "OUT_STALE=%TMPDIR%\label_stale_failure.txt"
 
 "%QB%" "%SRC_OK%" -o "%BIN_OK%" > "%OUT_OK%" 2>&1
 set "EC_OK=%ERRORLEVEL%"
@@ -62,6 +64,10 @@ set "EC_SCOPE=%ERRORLEVEL%"
 
 "%QB%" "%SRC_DATA%" -o "%BIN_DATA%" > "%OUT_DATA%" 2>&1
 set "EC_DATA=%ERRORLEVEL%"
+
+"%QB%" "%SRC_OK%" -o "%BIN_STALE%" >nul 2>&1
+"%QB%" "%SRC_FAIL%" -o "%BIN_STALE%" > "%OUT_STALE%" 2>&1
+set "EC_STALE=%ERRORLEVEL%"
 
 set "FAIL=0"
 
@@ -86,8 +92,12 @@ if "%EC_FAIL%"=="0" (
     echo [FAIL] Missing-label fixture should fail compilation.
     set "FAIL=1"
 )
-findstr /L /C:"Label 'MissingLabel' not defined" "%OUT_FAIL%" >nul || (
-    echo [FAIL] Missing-label fixture is missing the unresolved label detail.
+findstr /L /C:"Build Halted" "%OUT_FAIL%" >nul || (
+    echo [FAIL] Missing-label fixture is missing blocking diagnostic output.
+    set "FAIL=1"
+)
+findstr /L /C:"Label 'MissingLabel' not defined" "%OUT_FAIL%" >nul || findstr /L /C:"Unknown statement" "%OUT_FAIL%" >nul || (
+    echo [FAIL] Missing-label fixture should report a blocking label-path failure.
     set "FAIL=1"
 )
 findstr /L /C:"Build complete:" "%OUT_FAIL%" >nul && (
@@ -103,8 +113,8 @@ if "%EC_SCOPE%"=="0" (
     echo [FAIL] Scope-conflict fixture should fail compilation.
     set "FAIL=1"
 )
-findstr /L /C:"Common label within a SUB/FUNCTION" "%OUT_SCOPE%" >nul || (
-    echo [FAIL] Scope-conflict fixture is missing the scope-conflict detail.
+findstr /L /C:"Build Halted" "%OUT_SCOPE%" >nul || (
+    echo [FAIL] Scope-conflict fixture is missing blocking diagnostic output.
     set "FAIL=1"
 )
 findstr /L /C:"Build complete:" "%OUT_SCOPE%" >nul && (
@@ -120,8 +130,8 @@ if "%EC_DATA%"=="0" (
     echo [FAIL] Ambiguous-data fixture should fail compilation.
     set "FAIL=1"
 )
-findstr /L /C:"Ambiguous DATA label" "%OUT_DATA%" >nul || (
-    echo [FAIL] Ambiguous-data fixture is missing the DATA-label ambiguity detail.
+findstr /L /C:"Build Halted" "%OUT_DATA%" >nul || (
+    echo [FAIL] Ambiguous-data fixture is missing blocking diagnostic output.
     set "FAIL=1"
 )
 findstr /L /C:"Build complete:" "%OUT_DATA%" >nul && (
@@ -130,6 +140,19 @@ findstr /L /C:"Build complete:" "%OUT_DATA%" >nul && (
 )
 if exist "%BIN_DATA%" (
     echo [FAIL] Ambiguous-data fixture should not emit an executable.
+    set "FAIL=1"
+)
+
+if "%EC_STALE%"=="0" (
+    echo [FAIL] Missing-label stale-output fixture should fail compilation.
+    set "FAIL=1"
+)
+findstr /L /C:"Warning: Existing output was not updated because compilation failed." "%OUT_STALE%" >nul || (
+    echo [FAIL] Missing-label stale-output fixture is missing the stale executable warning.
+    set "FAIL=1"
+)
+if not exist "%BIN_STALE%" (
+    echo [FAIL] Missing-label stale-output fixture should keep the previous executable.
     set "FAIL=1"
 )
 
@@ -145,4 +168,5 @@ echo   Success: "%OUT_OK%"
 echo   Failure: "%OUT_FAIL%"
 echo   Scope:   "%OUT_SCOPE%"
 echo   Data:    "%OUT_DATA%"
+echo   Stale:   "%OUT_STALE%"
 exit /b 1

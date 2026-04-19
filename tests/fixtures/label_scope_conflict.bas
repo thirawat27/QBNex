@@ -1,4 +1,5 @@
 SUB Demo
-LocalLabel:
 RUN LocalLabel
+LocalLabel:
+PRINT "x"
 END SUB

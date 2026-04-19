@@ -8,9 +8,11 @@ SUB InitErrorHandler
     ErrorCount = 0
     CurrentFile = ""
     ErrorOutputFile = 0
+    ErrorOutputFileEnabled = 0
     VerboseMode = -1
     WarningsAsErrors = 0
     ErrorsFlushed = 0
+    LastRenderedFingerprint = ""
     CurrentErrorPhase = ""
     ErrorContextDepth = 0
 
@@ -30,6 +32,7 @@ END SUB
 
 SUB SetErrorOutputFile (fileNum AS INTEGER)
     ErrorOutputFile = fileNum
+    ErrorOutputFileEnabled = -1
 END SUB
 
 SUB SetVerboseMode (enabled AS _BYTE)
@@ -1299,8 +1302,15 @@ SUB PrintError (errIdx AS LONG)
     DIM flowText AS STRING
 
     IF errIdx < 1 OR errIdx > ErrorCount THEN EXIT SUB
+    IF Errors(errIdx).wasPrinted <> 0 THEN EXIT SUB
+
+    Errors(errIdx).wasPrinted = -1
 
     errInfo = Errors(errIdx)
+    IF RTRIM$(errInfo.fingerprint) <> "" THEN
+        IF RTRIM$(errInfo.fingerprint) = RTRIM$(LastRenderedFingerprint) THEN EXIT SUB
+        LastRenderedFingerprint = RTRIM$(errInfo.fingerprint)
+    END IF
     diagnosticTitle = GetDiagnosticTitle$(errInfo.severity)
     diagnosticMarker = GetDiagnosticMarker$(errInfo.severity)
     codeTag = GetDiagnosticCodeTag$(errInfo.severity, errInfo.errorCode)
@@ -1366,37 +1376,28 @@ SUB PrintError (errIdx AS LONG)
         IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT "  [+] example  " + RTRIM$(errInfo.fixExample)
     END IF
 
-    IF ErrorOutputFile > 0 THEN
-        PRINT #ErrorOutputFile, diagnosticMarker + " QBNex :: " + diagnosticTitle + " [" + codeTag + "]  " + headline
-        IF locationText <> "" THEN PRINT #ErrorOutputFile, "  [@] " + locationText
-        IF RTRIM$(errInfo.context) <> "" THEN
-            PRINT #ErrorOutputFile, "  [#] source"
-            PRINT #ErrorOutputFile, "    " + lineStr + " | " + RTRIM$(errInfo.context)
-            IF errInfo.columnNumber > 0 THEN
-                PRINT #ErrorOutputFile, "    " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
-                IF pointerHint <> "" THEN
-                    PRINT #ErrorOutputFile, " " + pointerHint
-                ELSE
-                    PRINT #ErrorOutputFile,
-                END IF
-            END IF
-        END IF
-        IF RTRIM$(errInfo.suggestion) <> "" THEN PRINT #ErrorOutputFile, "  [>] next     " + RTRIM$(errInfo.suggestion)
-        IF flowText <> "" THEN PRINT #ErrorOutputFile, "  [::] flow    " + flowText
-        IF WarningsAsErrors AND errInfo.severity = ERR_WARNING THEN PRINT #ErrorOutputFile, "  [*] config   warning promoted to blocking diagnostic"
-        IF errInfo.duplicateCount > 1 THEN PRINT #ErrorOutputFile, "  [=] repeat   seen " + LTRIM$(STR$(errInfo.duplicateCount)) + " times; duplicates hidden"
-        IF VerboseMode THEN
-            IF RTRIM$(errInfo.locationNote) <> "" THEN PRINT #ErrorOutputFile, "  [^] where    " + RTRIM$(errInfo.locationNote)
-            IF RTRIM$(errInfo.message) <> "" AND UCASE$(RTRIM$(errInfo.message)) <> UCASE$(headline) THEN PRINT #ErrorOutputFile, "  [.] detail   " + RTRIM$(errInfo.message)
-            IF RTRIM$(errInfo.secondaryContext) <> "" THEN PRINT #ErrorOutputFile, "  [>>] while   " + RTRIM$(errInfo.secondaryContext)
-            IF RTRIM$(errInfo.cause) <> "" THEN PRINT #ErrorOutputFile, "  [!] cause    " + RTRIM$(errInfo.cause)
-            IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT #ErrorOutputFile, "  [+] example  " + RTRIM$(errInfo.fixExample)
-        END IF
-        PRINT #ErrorOutputFile, ""
+END SUB
+
+FUNCTION HasPrintedFingerprint% (fingerprint AS STRING, uptoIndex AS LONG)
+    DIM i AS LONG
+
+    fingerprint = LEFT$(RTRIM$(fingerprint), 512)
+    IF fingerprint = "" THEN
+        HasPrintedFingerprint% = 0
+        EXIT FUNCTION
     END IF
 
-    Errors(errIdx).wasPrinted = -1
-END SUB
+    FOR i = 1 TO uptoIndex
+        IF Errors(i).wasPrinted <> 0 THEN
+            IF RTRIM$(Errors(i).fingerprint) = fingerprint THEN
+                HasPrintedFingerprint% = -1
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT
+
+    HasPrintedFingerprint% = 0
+END FUNCTION
 
 SUB PrintAllErrors
     DIM i AS LONG
@@ -1410,6 +1411,9 @@ SUB PrintAllErrors
     END IF
 
     FOR i = 1 TO ErrorCount
+        IF HasPrintedFingerprint%(RTRIM$(Errors(i).fingerprint), i - 1) THEN
+            Errors(i).wasPrinted = -1
+        END IF
         IF Errors(i).wasPrinted = 0 THEN PrintError i
     NEXT
 
@@ -1510,12 +1514,14 @@ SUB CleanupErrorHandler
     ErrorCount = 0
     CurrentFile = ""
     CurrentErrorPhase = ""
+    LastRenderedFingerprint = ""
     ClearErrorContextStack
 
-    IF ErrorOutputFile > 0 THEN
+    IF ErrorOutputFileEnabled AND ErrorOutputFile > 0 THEN
         CLOSE #ErrorOutputFile
         ErrorOutputFile = 0
     END IF
 
+    ErrorOutputFileEnabled = 0
     ErrorsFlushed = 0
 END SUB

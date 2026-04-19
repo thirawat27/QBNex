@@ -12,12 +12,110 @@ FUNCTION QuotedFilename$ (f$)
 
 END FUNCTION
 
+FUNCTION ResolveAbsoluteDirectory$ (pathCandidate$)
+    DIM currentdir AS STRING
+    DIM resolvedPath AS STRING
+
+    IF LEN(pathCandidate$) = 0 THEN EXIT FUNCTION
+    IF _DIREXISTS(pathCandidate$) = 0 THEN EXIT FUNCTION
+
+    currentdir = _CWD$
+    CHDIR pathCandidate$
+    resolvedPath = _CWD$
+    CHDIR currentdir
+
+    IF LEN(resolvedPath) THEN
+        IF RIGHT$(resolvedPath, 1) <> pathsep$ THEN resolvedPath = resolvedPath + pathsep$
+    END IF
+
+    ResolveAbsoluteDirectory$ = resolvedPath
+END FUNCTION
+
+FUNCTION IsCompilerRelativeOutputPath% (pathCandidate$)
+    pathCandidate$ = RTRIM$(pathCandidate$)
+
+    SELECT CASE pathCandidate$
+    CASE "..\..\", "../../", ".\", "./"
+        IsCompilerRelativeOutputPath% = -1
+    CASE ELSE
+        IsCompilerRelativeOutputPath% = 0
+    END SELECT
+END FUNCTION
+
+FUNCTION ResolveCompilerRelativeOutputDirectory$ (pathCandidate$)
+    DIM currentdir AS STRING
+    DIM resolvedPath AS STRING
+
+    IF LEN(pathCandidate$) = 0 THEN EXIT FUNCTION
+    IF IsCompilerRelativeOutputPath%(pathCandidate$) = 0 THEN EXIT FUNCTION
+    IF _DIREXISTS(".\internal\c") = 0 THEN EXIT FUNCTION
+
+    currentdir = _CWD$
+    CHDIR ".\internal\c"
+    CHDIR pathCandidate$
+    resolvedPath = _CWD$
+    CHDIR currentdir
+
+    IF LEN(resolvedPath) THEN
+        IF RIGHT$(resolvedPath, 1) <> pathsep$ THEN resolvedPath = resolvedPath + pathsep$
+    END IF
+
+    ResolveCompilerRelativeOutputDirectory$ = resolvedPath
+END FUNCTION
+
+FUNCTION ResolveOutputBinaryPath$ (outputPath$)
+    DIM pathOut AS STRING
+    DIM outputName AS STRING
+
+    outputPath$ = RTRIM$(outputPath$)
+    IF outputPath$ = "" THEN EXIT FUNCTION
+
+    pathOut = getfilepath$(outputPath$)
+    IF pathOut = "" THEN
+        ResolveOutputBinaryPath$ = outputPath$
+        EXIT FUNCTION
+    END IF
+
+    outputName = MID$(outputPath$, LEN(pathOut) + 1)
+    IF IsCompilerRelativeOutputPath%(pathOut) THEN
+        pathOut = ResolveCompilerRelativeOutputDirectory$(pathOut)
+    ELSE
+        pathOut = ResolveAbsoluteDirectory$(pathOut)
+    END IF
+
+    IF pathOut = "" THEN
+        ResolveOutputBinaryPath$ = outputPath$
+    ELSE
+        ResolveOutputBinaryPath$ = pathOut + outputName
+    END IF
+END FUNCTION
+
+SUB CleanupStaleBuildSideFiles (outputBaseName AS STRING)
+    DIM staleManifestPath AS STRING
+
+    IF outputBaseName = "" THEN EXIT SUB
+
+    staleManifestPath = tmpdir$ + outputBaseName + extension$ + ".manifest"
+    IF _FILEEXISTS(staleManifestPath) THEN KILL staleManifestPath
+    IF _FILEEXISTS(tmpdir$ + "manifest.h") THEN KILL tmpdir$ + "manifest.h"
+    IF _FILEEXISTS(tmpdir$ + "icon.rc") THEN KILL tmpdir$ + "icon.rc"
+    IF _FILEEXISTS(tmpdir$ + "call_windres.bat") THEN KILL tmpdir$ + "call_windres.bat"
+END SUB
+
 SUB PreparePendingOutputBinary (sourceBaseName AS STRING)
     DIM outputName AS STRING
     DIM pathOut AS STRING
-    DIM currentdir AS STRING
 
     pendingOutputBinary$ = path.exe$ + sourceBaseName + extension$
+    pathOut = getfilepath$(pendingOutputBinary$)
+    IF LEN(pathOut) THEN
+        IF IsCompilerRelativeOutputPath%(pathOut) THEN
+            pathOut = ResolveCompilerRelativeOutputDirectory$(pathOut)
+        ELSE
+            pathOut = ResolveAbsoluteDirectory$(pathOut)
+        END IF
+        IF LEN(pathOut) THEN pendingOutputBinary$ = pathOut + sourceBaseName + extension$
+    END IF
 
     IF LEN(outputfile_cmd$) = 0 THEN EXIT SUB
 
@@ -26,24 +124,24 @@ SUB PreparePendingOutputBinary (sourceBaseName AS STRING)
     IF outputName = "" THEN outputName = outputfile_cmd$
     outputName = RemoveFileExtension$(outputName)
 
-    IF LEN(pathOut) THEN
-        IF _DIREXISTS(pathOut) THEN
-            currentdir = _CWD$
-            CHDIR pathOut
-            pathOut = _CWD$
-            CHDIR currentdir
-            IF RIGHT$(pathOut, 1) <> pathsep$ THEN pathOut = pathOut + pathsep$
-        END IF
-    END IF
+    IF LEN(pathOut) THEN pathOut = ResolveAbsoluteDirectory$(pathOut)
 
     pendingOutputBinary$ = pathOut + outputName + extension$
 END SUB
 
 SUB ResolveBuildOutputTarget (fileName AS STRING, exePath AS STRING)
     DIM pathOut AS STRING
-    DIM currentdir AS STRING
 
     IF LEN(outputfile_cmd$) = 0 THEN
+        IF LEN(exePath) THEN
+            IF IsCompilerRelativeOutputPath%(exePath) THEN
+                pathOut = ResolveCompilerRelativeOutputDirectory$(exePath)
+                IF LEN(pathOut) THEN exePath = pathOut
+            ELSE
+                pathOut = ResolveAbsoluteDirectory$(exePath)
+                IF LEN(pathOut) THEN exePath = pathOut
+            END IF
+        END IF
         pendingOutputBinary$ = exePath + fileName + extension$
         EXIT SUB
     END IF
@@ -61,11 +159,7 @@ SUB ResolveBuildOutputTarget (fileName AS STRING, exePath AS STRING)
             END 1
         END IF
 
-        currentdir = _CWD$
-        CHDIR pathOut
-        pathOut = _CWD$
-        CHDIR currentdir
-        IF RIGHT$(pathOut, 1) <> pathsep$ THEN pathOut = pathOut + pathsep$
+        pathOut = ResolveAbsoluteDirectory$(pathOut)
         exePath = pathOut
         SaveExeWithSource = -1
     END IF
@@ -80,6 +174,7 @@ SUB WarnIfStaleOutputBinary
     outputPath = RTRIM$(pendingOutputBinary$)
     sourcePath = RTRIM$(sourcefile$)
 
+    outputPath = ResolveOutputBinaryPath$(outputPath)
     IF outputPath = "" THEN EXIT SUB
     IF sourcePath = "" THEN EXIT SUB
     IF _FILEEXISTS(outputPath) = 0 THEN EXIT SUB
@@ -99,37 +194,36 @@ SUB InitializeCompilationLog
 END SUB
 
 FUNCTION PrepareExecutableOutputTarget% (outputBaseName AS STRING)
-    DIM originalExePath AS STRING
+    DIM targetOutputFile AS STRING
 
     IF NOT QuietMode THEN
         PRINT "Compiling program..."
         PRINT
     END IF
 
-    originalExePath = path.exe$
+    CleanupStaleBuildSideFiles outputBaseName
     ResolveBuildOutputTarget outputBaseName, path.exe$
+    targetOutputFile = pendingOutputBinary$
+    path.exe$ = getfilepath$(targetOutputFile)
 
     IF path.exe$ = "../../" OR path.exe$ = "..\..\" THEN path.exe$ = ""
-    IF _FILEEXISTS(path.exe$ + outputBaseName + extension$) THEN
-        E = 0
-        ON ERROR GOTO prepare_output_target_error
-        KILL path.exe$ + outputBaseName + extension$
-        IF E = 1 THEN
+    IF _FILEEXISTS(targetOutputFile) THEN
+        IF os$ = "WIN" THEN
+            SHELL _HIDE "cmd /c del /f /q " + QuotedFilename$(targetOutputFile) + " >nul 2>nul"
+        ELSEIF os$ = "LNX" THEN
+            SHELL _HIDE "rm -f " + QuotedFilename$(targetOutputFile) + " >/dev/null 2>&1"
+        ELSE
+            KILL targetOutputFile
+        END IF
+        IF _FILEEXISTS(targetOutputFile) THEN
             a$ = "CANNOT CREATE " + CHR$(34) + outputBaseName + extension$ + CHR$(34) + " BECAUSE THE FILE IS ALREADY IN USE!"
-            path.exe$ = originalExePath
             PrepareExecutableOutputTarget% = -1
             EXIT FUNCTION
         END IF
     END IF
 
-    path.exe$ = originalExePath
-    pendingOutputBinary$ = path.exe$ + outputBaseName + extension$
+    pendingOutputBinary$ = targetOutputFile
     PrepareExecutableOutputTarget% = 0
-    EXIT FUNCTION
-
-prepare_output_target_error:
-    E = 1
-    RESUME NEXT
 END FUNCTION
 
 SUB WriteWindowsManifestFiles (outputBaseName AS STRING)
@@ -213,14 +307,15 @@ SUB AppendVersionInfoResource (outputBaseName AS STRING)
 END SUB
 
 FUNCTION PrepareWindowsResourceArtifacts% (outputBaseName AS STRING)
+    DIM iconObjectPath AS STRING
+
     IF os$ <> "WIN" THEN EXIT FUNCTION
+    iconObjectPath = tmpdir$ + "icon.o"
 
     IF ExeIconSet OR VersionInfoSet THEN
-        IF _FILEEXISTS(tmpdir$ + "icon.o") THEN
-            E = 0
-            ON ERROR GOTO prepare_windows_resources_error
-            KILL tmpdir$ + "icon.o"
-            IF E = 1 OR _FILEEXISTS(tmpdir$ + "icon.o") = -1 THEN
+        IF _FILEEXISTS(iconObjectPath) THEN
+            SHELL _HIDE "cmd /c del /f /q " + QuotedFilename$(iconObjectPath) + " >nul 2>nul"
+            IF _FILEEXISTS(iconObjectPath) THEN
                 a$ = "Error creating resource file"
                 PrepareWindowsResourceArtifacts% = -1
                 EXIT FUNCTION
@@ -253,11 +348,6 @@ FUNCTION PrepareWindowsResourceArtifacts% (outputBaseName AS STRING)
     END IF
 
     PrepareWindowsResourceArtifacts% = 0
-    EXIT FUNCTION
-
-prepare_windows_resources_error:
-    E = 1
-    RESUME NEXT
 END FUNCTION
 
 SUB EmitMacOSLauncherScript (outputBaseName AS STRING)

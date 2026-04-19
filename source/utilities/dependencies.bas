@@ -1,15 +1,15 @@
 SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, o$, win, lnx, mac)
-    DIM defines_header$ AS STRING
-    DIM ver$ AS STRING
-    DIM depstr$ AS STRING
-    DIM localpath$ AS STRING
-    DIM libname$ AS STRING
-    DIM libpath$ AS STRING
-    DIM libfile$ AS STRING
-    DIM d$ AS STRING
-    DIM d1$ AS STRING
-    DIM d2$ AS STRING
-    DIM d3$ AS STRING
+    DIM defines_header$
+    DIM ver$
+    DIM depstr$
+    DIM localpath$
+    DIM libname$
+    DIM libpath$
+    DIM libfile$
+    DIM d$
+    DIM d1$
+    DIM d2$
+    DIM d3$
     DIM libqbObjectPath AS STRING
     DIM libqbSourcePath AS STRING
     DIM libqbHeaderPath AS STRING

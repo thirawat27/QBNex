@@ -29,7 +29,10 @@ $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 '$INCLUDE:'global\version.bas'
 '$INCLUDE:'global\settings.bas'
 '$INCLUDE:'global\constants.bas'
+' Error handler declarations must stay above later implementation includes.
 '$INCLUDE:'utilities\error_handler_defs.bas'
+' Shared compiler state is grouped here so qbnex.bas can stay orchestration-first.
+'$INCLUDE:'utilities\state.bas'
 '$INCLUDE:'subs_functions\extensions\opengl\opengl_global.bas'
 '$INCLUDE:'utilities\ini-manager\ini.bi'
 
@@ -37,8 +40,8 @@ DEFLNG A-Z
 
 '-------- Optional layout component (1/2) --------
 
-REDIM SHARED OName(1000) AS STRING 'Operation Name
-REDIM SHARED PL(1000) AS INTEGER 'Priority Level
+REDIM SHARED OName(1000) AS STRING 'Operation name
+REDIM SHARED PL(1000) AS INTEGER 'Priority level
 REDIM SHARED PP_TypeMod(0) AS STRING, PP_ConvertedMod(0) AS STRING 'Prepass Name Conversion variables.
 Set_OrderOfOperations
 
@@ -77,9 +80,6 @@ IF INSTR(_OS$, "MAC") THEN UserDefine(1, 3) = "-1": UserDefine(1, 4) = "-1" ELSE
 IF INSTR(_OS$, "32BIT") THEN UserDefine(1, 5) = "-1": UserDefine(1, 6) = "0" ELSE UserDefine(1, 5) = "0": UserDefine(1, 6) = "-1"
 UserDefine(1, 7) = Version$
 
-DIM SHARED QBNex_uptime!
-
-DIM SHARED debugPath$
 InitCompilerServices
 InitDebugLog
 VerifyInternalFolderOrExit
@@ -104,14 +104,7 @@ CONST DEPENDENCY_ZLIB = 13: DEPENDENCY_LAST = DEPENDENCY_LAST + 1 'ZLIB library 
 DIM SHARED DEPENDENCY(1 TO DEPENDENCY_LAST)
 
 DIM SHARED UseGL 'declared SUB _GL (no params)
-DIM SHARED OS_BITS AS LONG, WindowTitle AS STRING
-DIM SHARED os AS STRING
-DIM SHARED MacOSX AS LONG
-DIM SHARED inline_DATA
 InitPlatformDefaults
-DIM SHARED ConsoleMode, No_C_Compile_Mode
-DIM SHARED ShowWarnings AS _BYTE, QuietMode AS _BYTE, CMDLineFile AS STRING
-DIM SHARED MonochromeLoggingMode AS _BYTE
 
 TYPE usedVarList
     AS LONG id, linenumber, includeLevel, includedLine, scope, localIndex
@@ -180,8 +173,9 @@ REDIM SHARED ResolveStaticFunction_Name(1 TO 100) AS STRING
 REDIM SHARED ResolveStaticFunction_Method(1 TO 100) AS LONG
 DIM SHARED Error_Happened AS LONG
 DIM SHARED Error_Message AS STRING
+DIM SHARED FrontendErrorHandled AS _BYTE
+DIM SHARED LastFrontendErrorKey AS STRING
 
-DIM SHARED BATCHFILE_EXTENSION AS STRING
 BATCHFILE_EXTENSION = ".bat"
 IF os$ = "LNX" THEN BATCHFILE_EXTENSION = ".sh"
 IF MacOSX THEN BATCHFILE_EXTENSION = ".command"
@@ -193,19 +187,15 @@ FOR i = 0 TO 255
 NEXT
 
 
-DIM SHARED extension AS STRING
-DIM SHARED path.exe$, path.source$, lastBinaryGenerated$, pendingOutputBinary$
 extension$ = ".exe"
 IF os$ = "LNX" THEN extension$ = "" 'no extension under Linux
 
-DIM SHARED pathsep AS STRING * 1
 pathsep$ = "\"
 IF os$ = "LNX" THEN pathsep$ = "/"
 'note: QBNex handles OS specific path separators automatically except under SHELL calls
 
 ON ERROR GOTO qberror_test
 
-DIM SHARED tmpdir AS STRING, tmpdir2 AS STRING
 IF os$ = "WIN" THEN tmpdir$ = ".\internal\temp\": tmpdir2$ = "..\\temp\\"
 IF os$ = "LNX" THEN tmpdir$ = "./internal/temp/": tmpdir2$ = "../temp/"
 
@@ -216,8 +206,6 @@ FUNCTION getpid& ()
     END DECLARE
 
     thisinstancepid = getpid&
-    DIM SHARED tempfolderindex
-
     IF INSTR(_OS$, "LINUX") THEN
         fh = FREEFILE
         OPEN ".\internal\temp\tempfoldersearch.bin" FOR RANDOM AS #fh LEN = LEN(tempfolderindex)
@@ -292,18 +280,13 @@ FUNCTION getpid& ()
 
     ON ERROR GOTO qberror
 
-
-
-    DIM SHARED tempfolderindexstr AS STRING 'appended to "Untitled"
-    DIM SHARED tempfolderindexstr2 AS STRING
+    'Appended to generated temp-file names when multiple compiler instances run.
     IF tempfolderindex <> 1 THEN tempfolderindexstr$ = "(" + str2$(tempfolderindex) + ")": tempfolderindexstr2$ = str2$(tempfolderindex)
 
 
     DIM SHARED compilerdebuginfo
     DIM SHARED seperateargs_error
     DIM SHARED seperateargs_error_message AS STRING
-
-    DIM SHARED compfailed
 
     DIM SHARED reginternalsubfunc
     DIM SHARED reginternalvariable
@@ -319,10 +302,6 @@ FUNCTION getpid& ()
     DIM SHARED optionexplicitarray AS _BYTE
     DIM SHARED optionexplicit_cmd AS _BYTE
     DIM SHARED errorLineInInclude AS LONG
-    DIM SHARED outputfile_cmd$
-    DIM SHARED compilelog$
-    DIM SHARED compilerProgressRow AS LONG
-    DIM SHARED compilerProgressVisible AS _BYTE
 
     '$INCLUDE:'global\compiler_settings.bas'
 
@@ -337,7 +316,8 @@ FUNCTION getpid& ()
     ConsoleMode = -1
     _DEST _CONSOLE
 
-    'hash table data
+    'Hash table layout. Keep this near the top-level declarations because the
+    'hash arrays are shared across parser, semantic, and build phases.
     TYPE HashListItem
         Flags AS LONG
         Reference AS LONG
@@ -378,9 +358,8 @@ FUNCTION getpid& ()
             hash2char(c1 + c2 * 256) = hash1char(c1) + hash1char(c2) * 32
         NEXT
     NEXT
-    'init - OPTIMIZED: Reduced hash table size from 64MB to 256KB for better memory efficiency
-    'Original: HashTable(16777215) AS LONG = 64MB
-    'Optimized: HashTable(65535) AS LONG = 256KB with improved collision handling
+    'Use a compact hash table and chaining rather than the historical oversized
+    'fixed table. This keeps memory usage predictable without changing behavior.
     CONST HASH_TABLE_SIZE = 65536 '2^16 entries for better cache locality
     CONST HASH_TABLE_MASK = 65535 'For fast modulo using AND
     HashListSize = 65536
@@ -970,6 +949,8 @@ FUNCTION getpid& ()
         DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = BU_DEPENDENCY_CONSOLE_ONLY AND 2 'Restore -g switch if used
 
         Error_Happened = 0
+        FrontendErrorHandled = 0
+        LastFrontendErrorKey = ""
 
         FOR closeall = 1 TO 255: CLOSE closeall: NEXT
 
@@ -1026,6 +1007,8 @@ FUNCTION getpid& ()
             UseGL = 0
 
             Error_Happened = 0
+            FrontendErrorHandled = 0
+            LastFrontendErrorKey = ""
 
             HashClear 'clear the hash table
 
@@ -2379,8 +2362,6 @@ FUNCTION getpid& ()
                                 '----------------------------------------
                             END IF 'wholelinei<=wholelinen
                         END IF 'wholelinen
-                    END IF 'len(wholeline$)
-
                     'Include Manager #1
 
 
@@ -2515,6 +2496,13 @@ FUNCTION getpid& ()
 
             'reset altered variables
             ResetPostPrepassState
+
+                    IF compfailed <> 0 OR HasErrors% THEN
+                        IF HasErrors% THEN PrintAllErrors
+                        WarnIfStaleOutputBinary
+                        CleanupErrorHandler
+                        SYSTEM 1
+                    END IF
 
                     OPEN tmpdir$ + "data.bin" FOR OUTPUT AS #16: CLOSE #16
                     OPEN tmpdir$ + "data.bin" FOR BINARY AS #16
@@ -6276,7 +6264,7 @@ IF n >= 2 THEN
             HashAdd a2$, HASHFLAG_LABEL, nLabels
             r = nLabels
             Labels(r).State = 0
-            Labels(r).cn = tlayout$
+            Labels(r).cn = a2$
             Labels(r).Scope = 0
             Labels(r).Error_Line = linenumber
             Labels(r).Scope_Restriction = subfuncn
@@ -6456,7 +6444,7 @@ IF n >= 2 THEN
             HashAdd a2$, HASHFLAG_LABEL, nLabels
             r = nLabels
             Labels(r).State = 0
-            Labels(r).cn = tlayout$
+            Labels(r).cn = a2$
             Labels(r).Scope = 0
             Labels(r).Error_Line = linenumber
             Labels(r).Scope_Restriction = subfuncn
@@ -6615,7 +6603,7 @@ IF n >= 2 THEN
             HashAdd a2$, HASHFLAG_LABEL, nLabels
             r = nLabels
             Labels(r).State = 0
-            Labels(r).cn = tlayout$
+            Labels(r).cn = a2$
             Labels(r).Scope = 0
             Labels(r).Error_Line = linenumber
             Labels(r).Scope_Restriction = subfuncn
@@ -8060,7 +8048,7 @@ IF n = 2 THEN
         HashAdd a2$, HASHFLAG_LABEL, nLabels
         r = nLabels
         Labels(r).State = 0
-        Labels(r).cn = tlayout$
+        Labels(r).cn = a2$
         Labels(r).Scope = subfuncn
         Labels(r).Error_Line = linenumber
     END IF 'x
@@ -8151,7 +8139,7 @@ ELSE
         HashAdd lbl$, HASHFLAG_LABEL, nLabels
         r = nLabels
         Labels(r).State = 0
-        Labels(r).cn = tlayout$
+        Labels(r).cn = lbl$
         Labels(r).Scope = 0
         Labels(r).Error_Line = linenumber
         Labels(r).Scope_Restriction = subfuncn
@@ -8311,7 +8299,7 @@ IF n >= 1 THEN
             HashAdd a2$, HASHFLAG_LABEL, nLabels
             r = nLabels
             Labels(r).State = 0
-            Labels(r).cn = tlayout$
+            Labels(r).cn = a2$
             Labels(r).Scope = subfuncn
             Labels(r).Error_Line = linenumber
         END IF 'x
@@ -8370,7 +8358,7 @@ IF n >= 1 THEN
         HashAdd s$, HASHFLAG_LABEL, nLabels
         r = nLabels
         Labels(r).State = 0
-        Labels(r).cn = tlayout$
+        Labels(r).cn = s$
         Labels(r).Scope = subfuncn
         Labels(r).Error_Line = linenumber
     END IF 'x
@@ -8416,7 +8404,7 @@ IF n = 4 THEN
         HashAdd lbl$, HASHFLAG_LABEL, nLabels
         r = nLabels
         Labels(r).State = 0
-        Labels(r).cn = tlayout$
+        Labels(r).cn = lbl$
         Labels(r).Scope = 0
         Labels(r).Error_Line = linenumber
         Labels(r).Scope_Restriction = subfuncn
@@ -8458,7 +8446,7 @@ IF n >= 1 THEN
             HashAdd lbl$, HASHFLAG_LABEL, nLabels
             r = nLabels
             Labels(r).State = 0
-            Labels(r).cn = tlayout$
+            Labels(r).cn = lbl$
             Labels(r).Scope = -1 'modifyable scope
             Labels(r).Error_Line = linenumber
             Labels(r).Data_Referenced = 1
@@ -12774,7 +12762,7 @@ IF x THEN
     HashAdd a2$, HASHFLAG_LABEL, nLabels
     r = nLabels
     Labels(r).State = 0
-    Labels(r).cn = tlayout$
+    Labels(r).cn = a2$
     Labels(r).Scope = subfuncn
     Labels(r).Error_Line = linenumber
 END IF 'x
@@ -12856,7 +12844,7 @@ SUB xongotogosub (a$, ca$, n)
             HashAdd e$, HASHFLAG_LABEL, nLabels
             r = nLabels
             Labels(r).State = 0
-            Labels(r).cn = tlayout$
+            Labels(r).cn = e$
             Labels(r).Scope = subfuncn
             Labels(r).Error_Line = linenumber
         END IF 'x
@@ -13628,8 +13616,42 @@ END SELECT
 END SUB
 
 SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS LONG, incFileName$, header$, text$)
+    DIM warningContext AS STRING
+    DIM warningSecondary AS STRING
+    DIM warningFile AS STRING
+    DIM warningLine AS LONG
+    DIM warningLocation AS STRING
+    DIM visibleSourceName AS STRING
+
     warningsissued = -1
     totalWarnings = totalWarnings + 1
+
+    IF WarningsAsErrors THEN
+        warningFile = sourcefile$
+        warningLine = whichLineNumber
+        IF includeLevel > 0 THEN
+            IF RTRIM$(incFileName$) <> "" THEN warningFile = incFileName$
+            IF incLineNumber > 0 THEN warningLine = incLineNumber
+        END IF
+
+        visibleSourceName = getfilepath$(warningFile)
+        visibleSourceName = MID$(warningFile, LEN(visibleSourceName) + 1)
+        IF RTRIM$(visibleSourceName) = "" THEN visibleSourceName = warningFile
+
+        warningContext = CleanDiagnosticContext$(diagnosticSourceLine)
+        IF RTRIM$(warningContext) = "" THEN warningContext = CleanDiagnosticContext$(wholeline$)
+        IF RTRIM$(warningContext) = "" THEN warningContext = CleanDiagnosticContext$(linefragment)
+
+        PRINT visibleSourceName; ":"; str2$(warningLine); ": warning: "; header$
+        IF LEN(text$) > 0 THEN PRINT SPACE$(4); text$
+        IF LEN(warningContext) > 0 THEN PRINT SPACE$(4); warningContext
+        PRINT "  [*] config   warning promoted to blocking diagnostic"
+        PRINT
+        PRINT "[x] QBNex :: Build Halted   1  blocking diagnostic(s)"
+        WarnIfStaleOutputBinary
+        CleanupErrorHandler
+        SYSTEM 1
+    END IF
 
     IF ShowWarnings AND NOT IgnoreWarnings THEN
         thissource$ = getfilepath$(CMDLineFile)

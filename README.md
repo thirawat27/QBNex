@@ -76,6 +76,11 @@ The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and
 
 Repository: https://github.com/thirawat27/QBNex
 
+Additional documentation:
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Development workflow: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- Benchmark baseline: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
+
 ---
 
 ## Features
@@ -407,8 +412,9 @@ qb <source.bas> [flags]
 | `-g` | `--examples` | Show common CLI examples | `qb -g` |
 | `-c` | - | Compile the source file (default) | `qb file.bas -c` |
 | `-o` | - | Specify output filename | `qb file.bas -o myapp.exe` |
-| `-x` | - | Compile and run immediately | `qb file.bas -x` |
+| `-x` | - | Compile with console-mode CLI behavior | `qb file.bas -x` |
 | `-w` | - | Show warnings during compilation | `qb file.bas -w` |
+| `-Werror` | `--warnings-as-errors` | Promote warnings to blocking diagnostics | `qb file.bas --warnings-as-errors` |
 | `-q` | - | Quiet mode (minimal output) | `qb file.bas -q` |
 | `-m` | - | Monochrome (no color) output | `qb file.bas -m` |
 | `-d` | `--verbose-errors` | Legacy alias for detailed diagnostics (enabled by default) | `qb file.bas` |
@@ -1680,6 +1686,26 @@ tests\diagnostics_smoke.cmd
 chmod +x tests/diagnostics_smoke.sh
 ./tests/diagnostics_smoke.sh
 ```
+
+**Compiler Smoke Suite (Windows):**
+```cmd
+set QBNEX_CI=1
+set QBNEX_BOOTSTRAP=1
+setup_win.cmd
+tests\diagnostics_smoke.cmd
+tests\warnings_smoke.cmd
+tests\labels_smoke.cmd
+tests\encoding_smoke.cmd
+tests\cli_smoke.cmd
+```
+
+Current CLI smoke coverage includes:
+- `--help`, `--version`, unknown switch, invalid output path
+- quiet mode (`-q`)
+- settings output (`-s`)
+- warnings-as-errors
+- console-mode CLI flag (`-x`)
+- C-generation mode (`-z`)
 
 This script validates both behaviors in one run:
 - Default compilation output includes detailed markers such as `[!] cause` and `[+] example` without requiring `-d`
@@ -3109,6 +3135,13 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 ---
 
 ## Development
+
+Primary compiler modules now live under `source/utilities/` with `source/qbnex.bas`
+acting mainly as the main orchestrator. Shared startup/build/temp-workspace state is
+grouped in `source/utilities/state.bas`.
+
+For rebuild steps, minimum verification, and module-splitting guidance, see
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ### How It Works
 

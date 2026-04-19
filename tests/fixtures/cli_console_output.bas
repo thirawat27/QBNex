@@ -1,0 +1,1 @@
+PRINT "cli smoke"

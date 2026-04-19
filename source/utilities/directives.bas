@@ -1,7 +1,7 @@
 FUNCTION HandleSimpleDirective% (upperLine AS STRING, rawLine AS STRING)
     DIM tempPos AS LONG
-    DIM l$ AS STRING
-    DIM r$ AS STRING
+    DIM l$
+    DIM r$
 
     HandleSimpleDirective% = 0
 
@@ -377,8 +377,8 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
     DIM conditionResult AS INTEGER
     DIM comparePos AS LONG
     DIM compareOp AS STRING
-    DIM l$ AS STRING
-    DIM r$ AS STRING
+    DIM l$
+    DIM r$
 
     HandleMainPassConditionalDirective% = 0
 
@@ -635,7 +635,7 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     DIM exeIconFile AS STRING
     DIM iconPath AS STRING
     DIM exeIconFileOnly AS STRING
-    DIM currentdir$ AS STRING
+    DIM currentdir$
     DIM iconfilehandle AS LONG
     DIM iconWriteFailed AS _BYTE
 
@@ -711,13 +711,10 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
         END IF
 
         iconfilehandle = FREEFILE
-        iconWriteFailed = 0
-        ON ERROR GOTO exicon_write_failed
         OPEN tmpdir$ + "icon.rc" FOR OUTPUT AS #iconfilehandle
         PRINT #iconfilehandle, "0 ICON " + QuotedFilename$(StrReplace$(exeIconFile, "\", "/"))
         CLOSE #iconfilehandle
-        ON ERROR GOTO 0
-        IF iconWriteFailed THEN
+        IF _FILEEXISTS(tmpdir$ + "icon.rc") = 0 THEN
             a$ = "Error creating icon resource file"
             HandleExeIconDirective% = 2
             EXIT FUNCTION
@@ -729,10 +726,4 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     IF NoChecks = 0 THEN PRINT #12, "do{"
     PRINT #12, "sub__icon(NULL,NULL,0);"
     HandleExeIconDirective% = 3
-    EXIT FUNCTION
-
-exicon_write_failed:
-    iconWriteFailed = -1
-    CLOSE #iconfilehandle
-    RESUME NEXT
 END FUNCTION

@@ -1,6 +1,8 @@
 '===============================================================================
-' QBNex Error Handler Module
+' QBNex Error Handler Declarations
 '===============================================================================
+' This file stays separate from error_handler.bas because QB64 requires
+' CONST/TYPE/DIM declarations to appear before later SUB/FUNCTION bodies.
 ' Structured compiler diagnostics that explain:
 ' - what happened
 ' - where it happened
@@ -102,9 +104,11 @@ DIM SHARED ErrorCount AS LONG
 DIM SHARED Stats AS ErrorStats
 DIM SHARED CurrentFile AS STRING
 DIM SHARED ErrorOutputFile AS INTEGER
+DIM SHARED ErrorOutputFileEnabled AS _BYTE
 DIM SHARED VerboseMode AS _BYTE
 DIM SHARED WarningsAsErrors AS _BYTE
 DIM SHARED ErrorsFlushed AS _BYTE
+DIM SHARED LastRenderedFingerprint AS STRING * 512
 DIM SHARED CurrentErrorPhase AS STRING * 64
 DIM SHARED ErrorContextDepth AS INTEGER
 DIM SHARED ErrorContextStack(1 TO MAX_ERROR_CONTEXTS) AS STRING * 128

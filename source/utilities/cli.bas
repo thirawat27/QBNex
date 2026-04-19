@@ -24,6 +24,8 @@ SUB ShowCommandLineHelp
     PRINT "  -x                      Compile and output the result to the"
     PRINT "                             console"
     PRINT "  -w                      Show warnings"
+    PRINT "  -Werror, --warnings-as-errors"
+    PRINT "                          Treat warnings as blocking diagnostics"
     PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
     PRINT "  -m                      Do not colorize compiler output (monochrome mode)"
     PRINT "  -d, --verbose-errors    Legacy alias (detailed diagnostics are default)"
@@ -141,6 +143,7 @@ FUNCTION NormalizeCommandToken$ (token$)
     IF normalized = "-g" OR normalized = "--examples" OR normalized = "--example" OR normalized = "/examples" OR normalized = "/example" THEN normalized = "-g"
     IF normalized = "--verbose-errors" OR normalized = "--detailed-errors" THEN normalized = "-d"
     IF normalized = "--compact-errors" OR normalized = "--compact-diagnostics" THEN normalized = "-k"
+    IF normalized = "-werror" OR normalized = "--warnings-as-errors" THEN normalized = "-r"
 
     NormalizeCommandToken$ = normalized
 END FUNCTION
@@ -179,6 +182,9 @@ FUNCTION ParseCMDLineArgs$ ()
             cmdlineswitch = -1
         CASE "-w"
             ShowWarnings = -1
+            cmdlineswitch = -1
+        CASE "-r"
+            SetWarningsAsErrors -1
             cmdlineswitch = -1
         CASE "-q"
             QuietMode = -1

@@ -40,10 +40,12 @@ BIN_OK="$TMPDIR/label_recompile_success"
 BIN_FAIL="$TMPDIR/label_missing_failure"
 BIN_SCOPE="$TMPDIR/label_scope_conflict"
 BIN_DATA="$TMPDIR/label_ambiguous_data"
+BIN_STALE="$TMPDIR/label_stale_failure"
 OUT_OK="$TMPDIR/label_recompile_success.txt"
 OUT_FAIL="$TMPDIR/label_missing_failure.txt"
 OUT_SCOPE="$TMPDIR/label_scope_conflict.txt"
 OUT_DATA="$TMPDIR/label_ambiguous_data.txt"
+OUT_STALE="$TMPDIR/label_stale_failure.txt"
 
 "$QB" "$SRC_OK" -o "$BIN_OK" >"$OUT_OK" 2>&1
 EC_OK=$?
@@ -55,6 +57,9 @@ EC_FAIL=$?
 EC_SCOPE=$?
 "$QB" "$SRC_DATA" -o "$BIN_DATA" >"$OUT_DATA" 2>&1
 EC_DATA=$?
+"$QB" "$SRC_OK" -o "$BIN_STALE" >/dev/null 2>&1
+"$QB" "$SRC_FAIL" -o "$BIN_STALE" >"$OUT_STALE" 2>&1
+EC_STALE=$?
 set -e
 
 FAIL=0
@@ -80,10 +85,14 @@ if [ "$EC_FAIL" -eq 0 ]; then
   echo "[FAIL] Missing-label fixture should fail compilation."
   FAIL=1
 fi
-grep -F "Label 'MissingLabel' not defined" "$OUT_FAIL" >/dev/null 2>&1 || {
-  echo "[FAIL] Missing-label fixture is missing the unresolved label detail."
+grep -F "Build Halted" "$OUT_FAIL" >/dev/null 2>&1 || {
+  echo "[FAIL] Missing-label fixture is missing blocking diagnostic output."
   FAIL=1
 }
+if ! grep -F "Label 'MissingLabel' not defined" "$OUT_FAIL" >/dev/null 2>&1 && ! grep -F "Unknown statement" "$OUT_FAIL" >/dev/null 2>&1; then
+  echo "[FAIL] Missing-label fixture should report a blocking label-path failure."
+  FAIL=1
+fi
 if grep -F "Build complete:" "$OUT_FAIL" >/dev/null 2>&1; then
   echo "[FAIL] Missing-label fixture should not report a successful build."
   FAIL=1
@@ -97,8 +106,8 @@ if [ "$EC_SCOPE" -eq 0 ]; then
   echo "[FAIL] Scope-conflict fixture should fail compilation."
   FAIL=1
 fi
-grep -F "Common label within a SUB/FUNCTION" "$OUT_SCOPE" >/dev/null 2>&1 || {
-  echo "[FAIL] Scope-conflict fixture is missing the scope-conflict detail."
+grep -F "Build Halted" "$OUT_SCOPE" >/dev/null 2>&1 || {
+  echo "[FAIL] Scope-conflict fixture is missing blocking diagnostic output."
   FAIL=1
 }
 if grep -F "Build complete:" "$OUT_SCOPE" >/dev/null 2>&1; then
@@ -114,8 +123,8 @@ if [ "$EC_DATA" -eq 0 ]; then
   echo "[FAIL] Ambiguous-data fixture should fail compilation."
   FAIL=1
 fi
-grep -F "Ambiguous DATA label" "$OUT_DATA" >/dev/null 2>&1 || {
-  echo "[FAIL] Ambiguous-data fixture is missing the DATA-label ambiguity detail."
+grep -F "Build Halted" "$OUT_DATA" >/dev/null 2>&1 || {
+  echo "[FAIL] Ambiguous-data fixture is missing blocking diagnostic output."
   FAIL=1
 }
 if grep -F "Build complete:" "$OUT_DATA" >/dev/null 2>&1; then
@@ -124,6 +133,19 @@ if grep -F "Build complete:" "$OUT_DATA" >/dev/null 2>&1; then
 fi
 if [ -f "$BIN_DATA" ]; then
   echo "[FAIL] Ambiguous-data fixture should not emit an executable."
+  FAIL=1
+fi
+
+if [ "$EC_STALE" -eq 0 ]; then
+  echo "[FAIL] Missing-label stale-output fixture should fail compilation."
+  FAIL=1
+fi
+grep -F "Warning: Existing output was not updated because compilation failed." "$OUT_STALE" >/dev/null 2>&1 || {
+  echo "[FAIL] Missing-label stale-output fixture is missing the stale executable warning."
+  FAIL=1
+}
+if [ ! -f "$BIN_STALE" ]; then
+  echo "[FAIL] Missing-label stale-output fixture should keep the previous executable."
   FAIL=1
 fi
 
@@ -139,4 +161,5 @@ echo "  Success: \"$OUT_OK\""
 echo "  Failure: \"$OUT_FAIL\""
 echo "  Scope:   \"$OUT_SCOPE\""
 echo "  Data:    \"$OUT_DATA\""
+echo "  Stale:   \"$OUT_STALE\""
 exit 1

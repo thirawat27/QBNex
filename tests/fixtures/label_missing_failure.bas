@@ -1,1 +1,1 @@
-GOTO MissingLabel
+RUN MissingLabel
