@@ -2,7 +2,7 @@ name: Pull Request CI
 
 on:
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
 
 jobs:
   linux-build:
@@ -14,3 +14,12 @@ jobs:
       run: sudo apt update && sudo apt install libglu1-mesa-dev libncurses-dev
     - name: Build compiler
       run: QBNEX_CI=1 bash ./setup_lnx.sh
+    - name: Run smoke and benchmark suite
+      run: |
+        chmod +x tests/*.sh
+        ./tests/diagnostics_smoke.sh
+        ./tests/warnings_smoke.sh
+        ./tests/labels_smoke.sh
+        ./tests/encoding_smoke.sh
+        ./tests/cli_smoke.sh
+        ./tests/benchmark_smoke.sh

@@ -18,3 +18,10 @@ internal/c/qbx[2-9].cpp
 .vscode
 build.cmd
 *.md
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!SECURITY.md
+!ENGINEERING_BACKLOG.md
+!docs/
+!docs/*.md

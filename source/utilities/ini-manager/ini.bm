@@ -487,11 +487,11 @@ SUB IniLoad (file$)
             IniFileNotFound:
             IniCODE = 1
 
-            $IF WIN THEN
+            IF INSTR(_OS$, "WIN") THEN
                 IniLF$ = CHR$(13) + CHR$(10)
-            $ELSE
+            ELSE
                 IniLF$ = CHR$(10)
-            $END IF
+            END IF
             EXIT SUB
         END IF
     ELSEIF NOT _FILEEXISTS(currentIniFileName$) THEN

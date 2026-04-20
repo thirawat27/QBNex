@@ -2981,9 +2981,13 @@ END FUNCTION
 FUNCTION seperateargs (a$, ca$, pass&)
     pass& = 0
 
-    FOR i = 1 TO OptMax: separgs(i) = "": NEXT
-        FOR i = 1 TO OptMax + 1: separgslayout(i) = "": NEXT
-            FOR i = 1 TO OptMax
+    FOR i = 1 TO OptMax
+        separgs$(i) = ""
+    NEXT
+    FOR i = 1 TO OptMax + 1
+        separgslayout$(i) = ""
+    NEXT
+    FOR i = 1 TO OptMax
                 Lev(i) = 0
                 EntryLev(i) = 0
                 DitchLev(i) = 0
@@ -2991,19 +2995,19 @@ FUNCTION seperateargs (a$, ca$, pass&)
                 TempList(i) = 0
                 PassRule(i) = 0
                 LevelEntered(i) = 0
-            NEXT
+    NEXT
 
-            DIM id2 AS idstruct
+    DIM id2 AS idstruct
 
-            id2 = id
+    id2 = id
 
-            IF id2.args = 0 THEN EXIT FUNCTION 'no arguments!
+    IF id2.args = 0 THEN EXIT FUNCTION 'no arguments!
 
 
-            s$ = id2.specialformat
-            s$ = RTRIM$(s$)
+    s$ = id2.specialformat
+    s$ = RTRIM$(s$)
 
-            'build a special format if none exists
+    'build a special format if none exists
             IF s$ = "" THEN
                 FOR i = 1 TO id2.args
                     IF i <> 1 THEN s$ = s$ + ",?" ELSE s$ = "?"
@@ -3043,17 +3047,17 @@ FUNCTION seperateargs (a$, ca$, pass&)
                     numopts = numopts + 1
                     i3 = INSTR(i + 1, s$, "|")
                     IF i3 <> 0 AND i3 < i2 THEN
-                        Opt(lastt, numopts) = MID$(s$, i, i3 - i)
+                        Opt$(lastt, numopts) = MID$(s$, i, i3 - i)
                         i = i3 + 1: GOTO nextopt
                     END IF
-                    Opt(lastt, numopts) = MID$(s$, i, i2 - i)
+                    Opt$(lastt, numopts) = MID$(s$, i, i2 - i)
                     T(lastt) = numopts
                     'calculate words in each option
                     FOR x = 1 TO T(lastt)
                         w = 1
                         x2 = 1
                         newword:
-                        IF INSTR(x2, RTRIM$(Opt(lastt, x)), " ") THEN w = w + 1: x2 = INSTR(x2, RTRIM$(Opt(lastt, x)), " ") + 1: GOTO newword
+                        IF INSTR(x2, RTRIM$(Opt$(lastt, x)), " ") THEN w = w + 1: x2 = INSTR(x2, RTRIM$(Opt$(lastt, x)), " ") + 1: GOTO newword
                         OptWords(lastt, x) = w
                     NEXT
                     i = i2
@@ -3091,7 +3095,7 @@ FUNCTION seperateargs (a$, ca$, pass&)
                 'assume "special" character (like ( ) , . - etc.)
                 lastt = lastt + 1: Lev(lastt) = level: PassRule(lastt) = 0
                 DitchLev(lastt) = ditchlevel: ditchlevel = level 'store & reset ditch level
-                T(lastt) = 1: Opt(lastt, 1) = s2$: OptWords(lastt, 1) = 1: DontPass(lastt) = 1
+            T(lastt) = 1: Opt$(lastt, 1) = s2$: OptWords(lastt, 1) = 1: DontPass(lastt) = 1
 
                 'set entry level routine
                 EntryLev(lastt) = level 'default level when continuing a previously entered level
@@ -3112,7 +3116,7 @@ FUNCTION seperateargs (a$, ca$, pass&)
             IF Debug THEN
                 PRINT #9, "--------SEPERATE ARGUMENTS REPORT #1:1--------"
                 FOR i = 1 TO lastt
-                    PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt(i, 1)) + CHR$(34)
+                        PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt$(i, 1)) + CHR$(34)
                     PRINT #9, i, "OPTWORDS="; OptWords(i, 1)
                     PRINT #9, i, "T="; T(i)
                     PRINT #9, i, "DONTPASS="; DontPass(i)
@@ -3135,7 +3139,7 @@ FUNCTION seperateargs (a$, ca$, pass&)
             IF Debug THEN
                 PRINT #9, "--------SEPERATE ARGUMENTS REPORT #1:2--------"
                 FOR i = 1 TO lastt
-                    PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt(i, 1)) + CHR$(34)
+                        PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt$(i, 1)) + CHR$(34)
                     PRINT #9, i, "OPTWORDS="; OptWords(i, 1)
                     PRINT #9, i, "T="; T(i)
                     PRINT #9, i, "DONTPASS="; DontPass(i)
@@ -3264,7 +3268,7 @@ FUNCTION seperateargs (a$, ca$, pass&)
     IF Debug THEN
         PRINT #9, "--------SEPERATE ARGUMENTS REPORT #1:3--------"
         FOR i = 1 TO lastt
-            PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt(i, 1)) + CHR$(34)
+                PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt$(i, 1)) + CHR$(34)
             PRINT #9, i, "OPTWORDS="; OptWords(i, 1)
             PRINT #9, i, "T="; T(i)
             PRINT #9, i, "DONTPASS="; DontPass(i)
@@ -3276,7 +3280,9 @@ FUNCTION seperateargs (a$, ca$, pass&)
 
 
 
-    FOR i = 1 TO lastt: separgs(i) = "n-ll": NEXT
+FOR i = 1 TO lastt
+    separgs$(i) = "n-ll"
+NEXT
 
 
 
@@ -3388,8 +3394,8 @@ FUNCTION seperateargs (a$, ca$, pass&)
                         c$ = c$ + " " + getelement$(a$, i3 + w - 1)
                     NEXT w
                     'Compare
-                    noPrefixMatch = LEFT$(Opt(x, o), 1) = "_" AND qbnexprefix_set = 1 AND c$ = UCASE$(MID$(RTRIM$(Opt(x, o)), 2))
-                    IF c$ = UCASE$(RTRIM$(Opt(x, o))) OR noPrefixMatch THEN
+                    noPrefixMatch = LEFT$(Opt$(x, o), 1) = "_" AND qbnexprefix_set = 1 AND c$ = UCASE$(MID$(RTRIM$(Opt$(x, o)), 2))
+                    IF c$ = UCASE$(RTRIM$(Opt$(x, o))) OR noPrefixMatch THEN
                         'Record Match
                         IF i3 < position THEN
                             position = i3
@@ -3426,7 +3432,7 @@ IF Expression THEN
     'Has an expression been provided?
     IF position > i AND bvalue = 0 THEN
         'Found...Expression...Provided...
-        separgs(Expression) = getelements$(ca$, i, position - 1)
+separgs$(Expression) = getelements$(ca$, i, position - 1)
         Expression = 0
         i = position
     ELSE
@@ -3437,8 +3443,8 @@ IF Expression THEN
     END IF
 END IF 'Expression
 i = i + OptWords(x, which)
-separgslayout(x) = CHR$(LEN(RTRIM$(Opt(x, which))) - removePrefix) + SCase$(MID$(RTRIM$(Opt(x, which)), removePrefix + 1))
-separgs(x) = CHR$(0) + str2(which)
+                        separgslayout$(x) = CHR$(LEN(RTRIM$(Opt$(x, which))) - removePrefix) + SCase$(MID$(RTRIM$(Opt$(x, which)), removePrefix + 1))
+separgs$(x) = CHR$(0) + str2(which)
 ELSE
     'Not Found...
     '*********backtrack************
@@ -3470,10 +3476,10 @@ i = BranchInputPos(Branches)
 x = BranchFormatPos(Branches)
 level = BranchLevel(Branches)
 '3)Erase any content created after revert position
-IF Expression THEN separgs(Expression) = "n-ll"
+IF Expression THEN separgs$(Expression) = "n-ll"
 FOR x2 = x TO lastt
-    separgs(x2) = "n-ll"
-    separgslayout(x2) = ""
+separgs$(x2) = "n-ll"
+separgslayout$(x2) = ""
 NEXT
 END IF 'Optional Opt ()?
 '******************************
@@ -3489,7 +3495,7 @@ NEXT x
 'Final expression?
 IF Expression THEN
     IF i <= n THEN
-        separgs(Expression) = getelements$(ca$, i, n)
+separgs$(Expression) = getelements$(ca$, i, n)
 
         'can this be an expression?
         'check it passes bracketting and comma rules
@@ -3520,7 +3526,7 @@ IF i <> n + 1 THEN GOTO Backtrack 'Trailing content?
 IF Debug THEN
     PRINT #9, "--------SEPERATE ARGUMENTS REPORT #2--------"
     FOR i = 1 TO lastt
-        PRINT #9, i, separgs(i)
+PRINT #9, i, separgs$(i)
     NEXT
 END IF
 
@@ -3542,21 +3548,21 @@ FOR i = 1 TO lastt
     IF DontPass(i) = 0 THEN
 
         IF PassRule(i) > 0 THEN
-            IF separgs(i) <> "n-ll" THEN pass& = pass& OR PassRule(i) 'build 'passed' flags
+IF separgs$(i) <> "n-ll" THEN pass& = pass& OR PassRule(i) 'build 'passed' flags
         END IF
 
-        separgs(x) = separgs(i)
-        separgslayout(x) = separgslayout(i)
+separgs$(x) = separgs$(i)
+separgslayout$(x) = separgslayout$(i)
 
-        IF LEN(separgs(x)) THEN
-            IF ASC(separgs(x)) = 0 THEN
+IF LEN(separgs$(x)) THEN
+IF ASC(separgs$(x)) = 0 THEN
                 'switch omit layout tag from item to layout info
-                separgs(x) = RIGHT$(separgs(x), LEN(separgs(x)) - 1)
-                separgslayout(x) = separgslayout(x) + CHR$(0)
+separgs$(x) = RIGHT$(separgs$(x), LEN(separgs$(x)) - 1)
+separgslayout$(x) = separgslayout$(x) + CHR$(0)
             END IF
         END IF
 
-        IF separgs(x) = "n-ll" THEN separgs(x) = "N-LL"
+IF separgs$(x) = "n-ll" THEN separgs$(x) = "N-LL"
         x = x + 1
 
     ELSE
@@ -3565,14 +3571,14 @@ FOR i = 1 TO lastt
 
         'for syntax such as [{HELLO}] which uses a flag instead of being passed
         IF PassRule(i) > 0 THEN
-            IF separgs(i) <> "n-ll" THEN pass& = pass& OR PassRule(i) 'build 'passed' flags
+IF separgs$(i) <> "n-ll" THEN pass& = pass& OR PassRule(i) 'build 'passed' flags
         END IF
 
-        separgslayout(i + 1) = separgslayout(i) + separgslayout(i + 1)
+separgslayout$(i + 1) = separgslayout$(i) + separgslayout$(i + 1)
 
     END IF
 NEXT
-separgslayout(x) = separgslayout(i) 'set final layout
+separgslayout$(x) = separgslayout$(i) 'set final layout
 
 'x = x - 1
 'PRINT "total arguments:"; x

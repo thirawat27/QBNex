@@ -58,10 +58,10 @@ SUB ParseExpression (exp$)
                 'Look for first valid operator
                 IF J = PL(P) THEN 'Priority levels match
                 IF LEFT$(exp$, 1) = "-" THEN startAt = 2 ELSE startAt = 1
-                op = INSTR(startAt, exp$, OName(P))
-                IF op = 0 AND LEFT$(OName(P), 1) = "_" AND qbnexprefix_set = 1 THEN
+                op = INSTR(startAt, exp$, OName$(P))
+                IF op = 0 AND LEFT$(OName$(P), 1) = "_" AND qbnexprefix_set = 1 THEN
                     'try again without prefix
-                    op = INSTR(startAt, exp$, MID$(OName(P), 2))
+                    op = INSTR(startAt, exp$, MID$(OName$(P), 2))
                     IF op > 0 THEN
                         exp$ = LEFT$(exp$, op - 1) + "_" + MID$(exp$, op)
                         lowest = lowest + 1
@@ -72,12 +72,12 @@ SUB ParseExpression (exp$)
         NEXT
         IF OpOn = 0 THEN EXIT DO 'We haven't gotten to the proper PL for this OP to be processed yet.
         IF LEFT$(exp$, 1) = "-" THEN startAt = 2 ELSE startAt = 1
-        op = INSTR(startAt, exp$, OName(OpOn))
+        op = INSTR(startAt, exp$, OName$(OpOn))
 
         numset = 0
 
         '*** SPECIAL OPERATION RULESETS
-        IF OName(OpOn) = "-" THEN 'check for BOOLEAN operators before the -
+        IF OName$(OpOn) = "-" THEN 'check for BOOLEAN operators before the -
         SELECT CASE MID$(exp$, op - 3, 3)
         CASE "NOT", "XOR", "AND", "EQV", "IMP"
             EXIT DO 'Not an operator, it's a negative
@@ -86,12 +86,12 @@ SUB ParseExpression (exp$)
     END IF
 
     IF op THEN
-        c = LEN(OName(OpOn)) - 1
+        c = LEN(OName$(OpOn)) - 1
         DO
             SELECT CASE MID$(exp$, op + c + 1, 1)
             CASE "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "N": numset = -1 'Valid digit
             CASE "-" 'We need to check if it's a minus or a negative
-                IF OName(OpOn) = "_PI" OR numset THEN EXIT DO
+                IF OName$(OpOn) = "_PI" OR numset THEN EXIT DO
             CASE ",": numset = 0
             CASE ELSE 'Not a valid digit, we found our separator
                 EXIT DO
@@ -125,7 +125,7 @@ SUB ParseExpression (exp$)
         LOOP UNTIL op - c <= 0
         s = op - c
         num(1) = MID$(exp$, s + 1, op - s - 1) 'Get our first number
-        num(2) = MID$(exp$, op + LEN(OName(OpOn)), E - op - LEN(OName(OpOn)) + 1) 'Get our second number
+        num(2) = MID$(exp$, op + LEN(OName$(OpOn)), E - op - LEN(OName$(OpOn)) + 1) 'Get our second number
         IF MID$(num(1), 1, 1) = "N" THEN MID$(num(1), 1) = "-"
         IF MID$(num(2), 1, 1) = "N" THEN MID$(num(2), 1) = "-"
         IF num(1) = "-" THEN
@@ -149,110 +149,125 @@ SUB Set_OrderOfOperations
     'PL sets our priortity level. 1 is highest to 65535 for the lowest.
     'I used a range here so I could add in new priority levels as needed.
     'OName ended up becoming the name of our commands, as I modified things.... Go figure!  LOL!
-    REDIM OName(10000) AS STRING, PL(10000) AS INTEGER
+REDIM OName(10000) AS STRING, PL(10000) AS INTEGER
     'Constants get evaluated first, with a Priority Level of 1
 
-    i = i + 1: OName(i) = "C_UOF": PL(i) = 5 'convert to unsigned offset
-    i = i + 1: OName(i) = "C_OF": PL(i) = 5 'convert to offset
-    i = i + 1: OName(i) = "C_UBY": PL(i) = 5 'convert to unsigned byte
-    i = i + 1: OName(i) = "C_BY": PL(i) = 5 'convert to byte
-    i = i + 1: OName(i) = "C_UIN": PL(i) = 5 'convert to unsigned integer
-    i = i + 1: OName(i) = "C_IN": PL(i) = 5 'convert to integer
-    i = i + 1: OName(i) = "C_UIF": PL(i) = 5 'convert to unsigned int64
-    i = i + 1: OName(i) = "C_IF": PL(i) = 5 'convert to int64
-    i = i + 1: OName(i) = "C_ULO": PL(i) = 5 'convert to unsigned long
-    i = i + 1: OName(i) = "C_LO": PL(i) = 5 'convert to long
-    i = i + 1: OName(i) = "C_SI": PL(i) = 5 'convert to single
-    i = i + 1: OName(i) = "C_FL": PL(i) = 5 'convert to float
-    i = i + 1: OName(i) = "C_DO": PL(i) = 5 'convert to double
-    i = i + 1: OName(i) = "C_UBI": PL(i) = 5 'convert to unsigned bit
-    i = i + 1: OName(i) = "C_BI": PL(i) = 5 'convert to bit
+    i = i + 1: OName$(i) = "C_UOF": PL(i) = 5 'convert to unsigned offset
+    i = i + 1: OName$(i) = "C_OF": PL(i) = 5 'convert to offset
+    i = i + 1: OName$(i) = "C_UBY": PL(i) = 5 'convert to unsigned byte
+    i = i + 1: OName$(i) = "C_BY": PL(i) = 5 'convert to byte
+    i = i + 1: OName$(i) = "C_UIN": PL(i) = 5 'convert to unsigned integer
+    i = i + 1: OName$(i) = "C_IN": PL(i) = 5 'convert to integer
+    i = i + 1: OName$(i) = "C_UIF": PL(i) = 5 'convert to unsigned int64
+    i = i + 1: OName$(i) = "C_IF": PL(i) = 5 'convert to int64
+    i = i + 1: OName$(i) = "C_ULO": PL(i) = 5 'convert to unsigned long
+    i = i + 1: OName$(i) = "C_LO": PL(i) = 5 'convert to long
+    i = i + 1: OName$(i) = "C_SI": PL(i) = 5 'convert to single
+    i = i + 1: OName$(i) = "C_FL": PL(i) = 5 'convert to float
+    i = i + 1: OName$(i) = "C_DO": PL(i) = 5 'convert to double
+    i = i + 1: OName$(i) = "C_UBI": PL(i) = 5 'convert to unsigned bit
+    i = i + 1: OName$(i) = "C_BI": PL(i) = 5 'convert to bit
 
     'Then Functions with PL 10
-    i = i + 1:: OName(i) = "_PI": PL(i) = 10
-    i = i + 1: OName(i) = "_ACOS": PL(i) = 10
-    i = i + 1: OName(i) = "_ASIN": PL(i) = 10
-    i = i + 1: OName(i) = "_ARCSEC": PL(i) = 10
-    i = i + 1: OName(i) = "_ARCCSC": PL(i) = 10
-    i = i + 1: OName(i) = "_ARCCOT": PL(i) = 10
-    i = i + 1: OName(i) = "_SECH": PL(i) = 10
-    i = i + 1: OName(i) = "_CSCH": PL(i) = 10
-    i = i + 1: OName(i) = "_COTH": PL(i) = 10
-    i = i + 1: OName(i) = "COS": PL(i) = 10
-    i = i + 1: OName(i) = "SIN": PL(i) = 10
-    i = i + 1: OName(i) = "TAN": PL(i) = 10
-    i = i + 1: OName(i) = "LOG": PL(i) = 10
-    i = i + 1: OName(i) = "EXP": PL(i) = 10
-    i = i + 1: OName(i) = "ATN": PL(i) = 10
-    i = i + 1: OName(i) = "_D2R": PL(i) = 10
-    i = i + 1: OName(i) = "_D2G": PL(i) = 10
-    i = i + 1: OName(i) = "_R2D": PL(i) = 10
-    i = i + 1: OName(i) = "_R2G": PL(i) = 10
-    i = i + 1: OName(i) = "_G2D": PL(i) = 10
-    i = i + 1: OName(i) = "_G2R": PL(i) = 10
-    i = i + 1: OName(i) = "ABS": PL(i) = 10
-    i = i + 1: OName(i) = "SGN": PL(i) = 10
-    i = i + 1: OName(i) = "INT": PL(i) = 10
-    i = i + 1: OName(i) = "_ROUND": PL(i) = 10
-    i = i + 1: OName(i) = "_CEIL": PL(i) = 10
-    i = i + 1: OName(i) = "FIX": PL(i) = 10
-    i = i + 1: OName(i) = "_SEC": PL(i) = 10
-    i = i + 1: OName(i) = "_CSC": PL(i) = 10
-    i = i + 1: OName(i) = "_COT": PL(i) = 10
-    i = i + 1: OName(i) = "ASC": PL(i) = 10
-    i = i + 1: OName(i) = "C_RG": PL(i) = 10 '_RGB32 converted
-    i = i + 1: OName(i) = "C_RA": PL(i) = 10 '_RGBA32 converted
-    i = i + 1: OName(i) = "_RGB": PL(i) = 10
-    i = i + 1: OName(i) = "_RGBA": PL(i) = 10
-    i = i + 1: OName(i) = "C_RX": PL(i) = 10 '_RED32 converted
-    i = i + 1: OName(i) = "C_GR": PL(i) = 10 ' _GREEN32 converted
-    i = i + 1: OName(i) = "C_BL": PL(i) = 10 '_BLUE32 converted
-    i = i + 1: OName(i) = "C_AL": PL(i) = 10 '_ALPHA32 converted
-    i = i + 1: OName(i) = "_RED": PL(i) = 10
-    i = i + 1: OName(i) = "_GREEN": PL(i) = 10
-    i = i + 1: OName(i) = "_BLUE": PL(i) = 10
-    i = i + 1: OName(i) = "_ALPHA": PL(i) = 10
+    i = i + 1:: OName$(i) = "_PI": PL(i) = 10
+    i = i + 1: OName$(i) = "_ACOS": PL(i) = 10
+    i = i + 1: OName$(i) = "_ASIN": PL(i) = 10
+    i = i + 1: OName$(i) = "_ARCSEC": PL(i) = 10
+    i = i + 1: OName$(i) = "_ARCCSC": PL(i) = 10
+    i = i + 1: OName$(i) = "_ARCCOT": PL(i) = 10
+    i = i + 1: OName$(i) = "_SECH": PL(i) = 10
+    i = i + 1: OName$(i) = "_CSCH": PL(i) = 10
+    i = i + 1: OName$(i) = "_COTH": PL(i) = 10
+    i = i + 1: OName$(i) = "COS": PL(i) = 10
+    i = i + 1: OName$(i) = "SIN": PL(i) = 10
+    i = i + 1: OName$(i) = "TAN": PL(i) = 10
+    i = i + 1: OName$(i) = "LOG": PL(i) = 10
+    i = i + 1: OName$(i) = "EXP": PL(i) = 10
+    i = i + 1: OName$(i) = "ATN": PL(i) = 10
+    i = i + 1: OName$(i) = "_D2R": PL(i) = 10
+    i = i + 1: OName$(i) = "_D2G": PL(i) = 10
+    i = i + 1: OName$(i) = "_R2D": PL(i) = 10
+    i = i + 1: OName$(i) = "_R2G": PL(i) = 10
+    i = i + 1: OName$(i) = "_G2D": PL(i) = 10
+    i = i + 1: OName$(i) = "_G2R": PL(i) = 10
+    i = i + 1: OName$(i) = "ABS": PL(i) = 10
+    i = i + 1: OName$(i) = "SGN": PL(i) = 10
+    i = i + 1: OName$(i) = "INT": PL(i) = 10
+    i = i + 1: OName$(i) = "_ROUND": PL(i) = 10
+    i = i + 1: OName$(i) = "_CEIL": PL(i) = 10
+    i = i + 1: OName$(i) = "FIX": PL(i) = 10
+    i = i + 1: OName$(i) = "_SEC": PL(i) = 10
+    i = i + 1: OName$(i) = "_CSC": PL(i) = 10
+    i = i + 1: OName$(i) = "_COT": PL(i) = 10
+    i = i + 1: OName$(i) = "ASC": PL(i) = 10
+    i = i + 1: OName$(i) = "C_RG": PL(i) = 10 '_RGB32 converted
+    i = i + 1: OName$(i) = "C_RA": PL(i) = 10 '_RGBA32 converted
+    i = i + 1: OName$(i) = "_RGB": PL(i) = 10
+    i = i + 1: OName$(i) = "_RGBA": PL(i) = 10
+    i = i + 1: OName$(i) = "C_RX": PL(i) = 10 '_RED32 converted
+    i = i + 1: OName$(i) = "C_GR": PL(i) = 10 ' _GREEN32 converted
+    i = i + 1: OName$(i) = "C_BL": PL(i) = 10 '_BLUE32 converted
+    i = i + 1: OName$(i) = "C_AL": PL(i) = 10 '_ALPHA32 converted
+    i = i + 1: OName$(i) = "_RED": PL(i) = 10
+    i = i + 1: OName$(i) = "_GREEN": PL(i) = 10
+    i = i + 1: OName$(i) = "_BLUE": PL(i) = 10
+    i = i + 1: OName$(i) = "_ALPHA": PL(i) = 10
 
     'Exponents with PL 20
-    i = i + 1: OName(i) = "^": PL(i) = 20
-    i = i + 1: OName(i) = "SQR": PL(i) = 20
-    i = i + 1: OName(i) = "ROOT": PL(i) = 20
+    i = i + 1: OName$(i) = "^": PL(i) = 20
+    i = i + 1: OName$(i) = "SQR": PL(i) = 20
+    i = i + 1: OName$(i) = "ROOT": PL(i) = 20
     'Multiplication and Division PL 30
-    i = i + 1: OName(i) = "*": PL(i) = 30
-    i = i + 1: OName(i) = "/": PL(i) = 30
+    i = i + 1: OName$(i) = "*": PL(i) = 30
+    i = i + 1: OName$(i) = "/": PL(i) = 30
     'Integer Division PL 40
-    i = i + 1: OName(i) = "\": PL(i) = 40
+    i = i + 1: OName$(i) = "\": PL(i) = 40
     'MOD PL 50
-    i = i + 1: OName(i) = "MOD": PL(i) = 50
+    i = i + 1: OName$(i) = "MOD": PL(i) = 50
     'Addition and Subtraction PL 60
-    i = i + 1: OName(i) = "+": PL(i) = 60
-    i = i + 1: OName(i) = "-": PL(i) = 60
+    i = i + 1: OName$(i) = "+": PL(i) = 60
+    i = i + 1: OName$(i) = "-": PL(i) = 60
 
     'Relational Operators =, >, <, <>, <=, >=   PL 70
-    i = i + 1: OName(i) = "<>": PL(i) = 70 'These next three are just reversed symbols as an attempt to help process a common typo
-    i = i + 1: OName(i) = "><": PL(i) = 70
-    i = i + 1: OName(i) = "<=": PL(i) = 70
-    i = i + 1: OName(i) = ">=": PL(i) = 70
-    i = i + 1: OName(i) = "=<": PL(i) = 70 'I personally can never keep these things straight.  Is it < = or = <...
-    i = i + 1: OName(i) = "=>": PL(i) = 70 'Who knows, check both!
-    i = i + 1: OName(i) = ">": PL(i) = 70
-    i = i + 1: OName(i) = "<": PL(i) = 70
-    i = i + 1: OName(i) = "=": PL(i) = 70
+    i = i + 1: OName$(i) = "<>": PL(i) = 70 'These next three are just reversed symbols as an attempt to help process a common typo
+    i = i + 1: OName$(i) = "><": PL(i) = 70
+    i = i + 1: OName$(i) = "<=": PL(i) = 70
+    i = i + 1: OName$(i) = ">=": PL(i) = 70
+    i = i + 1: OName$(i) = "=<": PL(i) = 70 'I personally can never keep these things straight.  Is it < = or = <...
+    i = i + 1: OName$(i) = "=>": PL(i) = 70 'Who knows, check both!
+    i = i + 1: OName$(i) = ">": PL(i) = 70
+    i = i + 1: OName$(i) = "<": PL(i) = 70
+    i = i + 1: OName$(i) = "=": PL(i) = 70
     'Logical Operations PL 80+
-    i = i + 1: OName(i) = "NOT": PL(i) = 80
-    i = i + 1: OName(i) = "AND": PL(i) = 90
-    i = i + 1: OName(i) = "OR": PL(i) = 100
-    i = i + 1: OName(i) = "XOR": PL(i) = 110
-    i = i + 1: OName(i) = "EQV": PL(i) = 120
-    i = i + 1: OName(i) = "IMP": PL(i) = 130
-    i = i + 1: OName(i) = ",": PL(i) = 1000
+    i = i + 1: OName$(i) = "NOT": PL(i) = 80
+    i = i + 1: OName$(i) = "AND": PL(i) = 90
+    i = i + 1: OName$(i) = "OR": PL(i) = 100
+    i = i + 1: OName$(i) = "XOR": PL(i) = 110
+    i = i + 1: OName$(i) = "EQV": PL(i) = 120
+    i = i + 1: OName$(i) = "IMP": PL(i) = 130
+    i = i + 1: OName$(i) = ",": PL(i) = 1000
 
-    REDIM _PRESERVE OName(i) AS STRING, PL(i) AS INTEGER
+REDIM _PRESERVE OName(i) AS STRING, PL(i) AS INTEGER
 END SUB
 
 FUNCTION EvaluateNumbers$ (p, num() AS STRING)
     DIM n1 AS _FLOAT, n2 AS _FLOAT, n3 AS _FLOAT
-    'PRINT "EVALNUM:"; OName(p), num(1), num(2)
+    DIM convUnsignedOffset AS _UNSIGNED _OFFSET
+    DIM convUnsignedLong AS _UNSIGNED LONG
+    DIM convUnsignedByte AS _UNSIGNED _BYTE
+    DIM convUnsignedInteger AS _UNSIGNED INTEGER
+    DIM convByte AS _BYTE
+    DIM convInteger AS INTEGER
+    DIM convUnsignedInt64 AS _UNSIGNED _INTEGER64
+    DIM convOffset AS _OFFSET
+    DIM convInt64 AS _INTEGER64
+    DIM convLong AS LONG
+    DIM convUnsignedBit AS _UNSIGNED _BIT
+    DIM convBit AS _BIT
+    DIM convFloat AS _FLOAT
+    DIM convDouble AS DOUBLE
+    DIM convSingle AS SINGLE
+    'PRINT "EVALNUM:"; OName$(p), num(1), num(2)
 
     IF _TRIM$(num(1)) = "" THEN num(1) = "0"
 
@@ -265,7 +280,7 @@ FUNCTION EvaluateNumbers$ (p, num() AS STRING)
     END IF
     l2 = INSTR(num(2), ",")
     IF l2 THEN
-        SELECT CASE OName(p) 'only certain commands should pass a comma value
+        SELECT CASE OName$(p) 'only certain commands should pass a comma value
         CASE "C_RG", "C_RA", "_RGB", "_RGBA", "_RED", "_GREEN", "C_BL", "_ALPHA"
         CASE ELSE
             C$ = MID$(num(2), l2)
@@ -276,26 +291,56 @@ FUNCTION EvaluateNumbers$ (p, num() AS STRING)
     SELECT CASE PL(p) 'divide up the work so we want do as much case checking
     CASE 5 'Type conversions
         'Note, these are special cases and work with the number BEFORE the command and not after
-        SELECT CASE OName(p) 'Depending on our operator..
-        CASE "C_UOF": n1~%& = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1~%&)))
-        CASE "C_ULO": n1%& = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1%&)))
-        CASE "C_UBY": n1~%% = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1~%%)))
-        CASE "C_UIN": n1~% = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1~%)))
-        CASE "C_BY": n1%% = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1%%)))
-        CASE "C_IN": n1% = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1%)))
-        CASE "C_UIF": n1~&& = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1~&&)))
-        CASE "C_OF": n1~& = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1~&)))
-        CASE "C_IF": n1&& = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1&&)))
-        CASE "C_LO": n1& = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1&)))
-        CASE "C_UBI": n1~` = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1~`)))
-        CASE "C_BI": n1` = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1`)))
-        CASE "C_FL": n1## = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1##)))
-        CASE "C_DO": n1# = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1#)))
-        CASE "C_SI": n1! = VAL(num(1)): EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1!)))
+        SELECT CASE OName$(p) 'Depending on our operator..
+        CASE "C_UOF"
+            convUnsignedOffset = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convUnsignedOffset)))
+        CASE "C_ULO"
+            convUnsignedLong = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convUnsignedLong)))
+        CASE "C_UBY"
+            convUnsignedByte = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convUnsignedByte)))
+        CASE "C_UIN"
+            convUnsignedInteger = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convUnsignedInteger)))
+        CASE "C_BY"
+            convByte = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convByte)))
+        CASE "C_IN"
+            convInteger = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convInteger)))
+        CASE "C_UIF"
+            convUnsignedInt64 = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convUnsignedInt64)))
+        CASE "C_OF"
+            convOffset = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convOffset)))
+        CASE "C_IF"
+            convInt64 = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convInt64)))
+        CASE "C_LO"
+            convLong = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convLong)))
+        CASE "C_UBI"
+            convUnsignedBit = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convUnsignedBit)))
+        CASE "C_BI"
+            convBit = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convBit)))
+        CASE "C_FL"
+            convFloat = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convFloat)))
+        CASE "C_DO"
+            convDouble = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convDouble)))
+        CASE "C_SI"
+            convSingle = VAL(num(1))
+            EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(convSingle)))
         END SELECT
         EXIT FUNCTION
     CASE 10 'functions
-        SELECT CASE OName(p) 'Depending on our operator..
+        SELECT CASE OName$(p) 'Depending on our operator..
         CASE "_PI"
             n1 = 3.14159265358979323846264338327950288## 'Future compatable in case something ever stores extra digits for PI
             IF num(2) <> "" THEN n1 = n1 * VAL(num(2))
@@ -395,11 +440,11 @@ FUNCTION EvaluateNumbers$ (p, num() AS STRING)
         _FREEIMAGE t
     CASE "_RED", "_GREEN", "_BLUE", "_ALPHA"
         n$ = num(2)
-        IF n$ = "" THEN EvaluateNumbers$ = "ERROR - Invalid null " + OName(p): EXIT FUNCTION
+        IF n$ = "" THEN EvaluateNumbers$ = "ERROR - Invalid null " + OName$(p): EXIT FUNCTION
         c1 = INSTR(n$, ",")
-        IF c1 = 0 THEN EvaluateNumbers$ = "ERROR - " + OName(p) + " requires 2 parameters for Color, ScreenMode.": EXIT FUNCTION
+        IF c1 = 0 THEN EvaluateNumbers$ = "ERROR - " + OName$(p) + " requires 2 parameters for Color, ScreenMode.": EXIT FUNCTION
         IF c1 THEN c2 = INSTR(c1 + 1, n$, ",")
-        IF c2 THEN EvaluateNumbers$ = "ERROR - " + OName(p) + " requires 2 parameters for Color, ScreenMode.": EXIT FUNCTION
+        IF c2 THEN EvaluateNumbers$ = "ERROR - " + OName$(p) + " requires 2 parameters for Color, ScreenMode.": EXIT FUNCTION
         n = VAL(LEFT$(num(2), c1))
         n2 = VAL(MID$(num(2), c1 + 1))
         SELECT CASE n2
@@ -408,7 +453,7 @@ FUNCTION EvaluateNumbers$ (p, num() AS STRING)
             EvaluateNumbers$ = "ERROR - Invalid Screen Mode (" + STR$(n2) + ")": EXIT FUNCTION
         END SELECT
         t = _NEWIMAGE(1, 1, n4)
-        SELECT CASE OName(p)
+        SELECT CASE OName$(p)
         CASE "_RED": n1 = _RED(n, t)
         CASE "_BLUE": n1 = _BLUE(n, t)
         CASE "_GREEN": n1 = _GREEN(n, t)
@@ -417,9 +462,9 @@ FUNCTION EvaluateNumbers$ (p, num() AS STRING)
         _FREEIMAGE t
     CASE "C_RX", "C_GR", "C_BL", "C_AL"
         n$ = num(2)
-        IF n$ = "" THEN EvaluateNumbers$ = "ERROR - Invalid null " + OName(p): EXIT FUNCTION
+        IF n$ = "" THEN EvaluateNumbers$ = "ERROR - Invalid null " + OName$(p): EXIT FUNCTION
         n = VAL(num(2))
-        SELECT CASE OName(p)
+        SELECT CASE OName$(p)
         CASE "C_RX": n1 = _RED32(n)
         CASE "C_BL": n1 = _BLUE32(n)
         CASE "C_GR": n1 = _GREEN32(n)
@@ -448,7 +493,7 @@ FUNCTION EvaluateNumbers$ (p, num() AS STRING)
     CASE "_COT": n1 = _COT(VAL(num(2)))
     END SELECT
 CASE 20 TO 60 'Math Operators
-    SELECT CASE OName(p) 'Depending on our operator..
+    SELECT CASE OName$(p) 'Depending on our operator..
     CASE "^": n1 = VAL(num(1)) ^ VAL(num(2))
     CASE "SQR": n1 = SQR(VAL(num(2)))
     CASE "ROOT"
@@ -486,7 +531,7 @@ CASE 20 TO 60 'Math Operators
         n1 = VAL(num(1)) - VAL(num(2))
     END SELECT
 CASE 70 'Relational Operators =, >, <, <>, <=, >=
-    SELECT CASE OName(p) 'Depending on our operator..
+    SELECT CASE OName$(p) 'Depending on our operator..
     CASE "=": n1 = VAL(num(1)) = VAL(num(2))
     CASE ">": n1 = VAL(num(1)) > VAL(num(2))
     CASE "<": n1 = VAL(num(1)) < VAL(num(2))
@@ -495,7 +540,7 @@ CASE 70 'Relational Operators =, >, <, <>, <=, >=
     CASE ">=", "=>": n1 = VAL(num(1)) >= VAL(num(2))
     END SELECT
 CASE ELSE 'a value we haven't processed elsewhere
-    SELECT CASE OName(p) 'Depending on our operator..
+    SELECT CASE OName$(p) 'Depending on our operator..
     CASE "NOT": n1 = NOT VAL(num(2))
     CASE "AND": n1 = VAL(num(1)) AND VAL(num(2))
     CASE "OR": n1 = VAL(num(1)) OR VAL(num(2))
@@ -541,40 +586,40 @@ SUB PreParse (e$)
     DIM f AS _FLOAT
     STATIC TotalPrefixedPP_TypeMod AS LONG, TotalPP_TypeMod AS LONG
 
-    IF PP_TypeMod(0) = "" THEN
-        REDIM PP_TypeMod(100) AS STRING, PP_ConvertedMod(100) AS STRING 'Large enough to hold all values to begin with
-        PP_TypeMod(0) = "Initialized" 'Set so we don't do this section over and over, as we keep the values in shared memory.
+    IF PP_TypeMod$(0) = "" THEN
+REDIM PP_TypeMod(100) AS STRING, PP_ConvertedMod(100) AS STRING 'Large enough to hold all values to begin with
+        PP_TypeMod$(0) = "Initialized" 'Set so we don't do this section over and over, as we keep the values in shared memory.
         'and the below is a conversion list so symbols don't get cross confused.
-        i = i + 1: PP_TypeMod(i) = "~`": PP_ConvertedMod(i) = "C_UBI" 'unsigned bit
-        i = i + 1: PP_TypeMod(i) = "~%%": PP_ConvertedMod(i) = "C_UBY" 'unsigned byte
-        i = i + 1: PP_TypeMod(i) = "~%&": PP_ConvertedMod(i) = "C_UOF" 'unsigned offset
-        i = i + 1: PP_TypeMod(i) = "~%": PP_ConvertedMod(i) = "C_UIN" 'unsigned integer
-        i = i + 1: PP_TypeMod(i) = "~&&": PP_ConvertedMod(i) = "C_UIF" 'unsigned integer64
-        i = i + 1: PP_TypeMod(i) = "~&": PP_ConvertedMod(i) = "C_ULO" 'unsigned long
-        i = i + 1: PP_TypeMod(i) = "`": PP_ConvertedMod(i) = "C_BI" 'bit
-        i = i + 1: PP_TypeMod(i) = "%%": PP_ConvertedMod(i) = "C_BY" 'byte
-        i = i + 1: PP_TypeMod(i) = "%&": PP_ConvertedMod(i) = "C_OF" 'offset
-        i = i + 1: PP_TypeMod(i) = "%": PP_ConvertedMod(i) = "C_IN" 'integer
-        i = i + 1: PP_TypeMod(i) = "&&": PP_ConvertedMod(i) = "C_IF" 'integer64
-        i = i + 1: PP_TypeMod(i) = "&": PP_ConvertedMod(i) = "C_LO" 'long
-        i = i + 1: PP_TypeMod(i) = "!": PP_ConvertedMod(i) = "C_SI" 'single
-        i = i + 1: PP_TypeMod(i) = "##": PP_ConvertedMod(i) = "C_FL" 'float
-        i = i + 1: PP_TypeMod(i) = "#": PP_ConvertedMod(i) = "C_DO" 'double
-        i = i + 1: PP_TypeMod(i) = "_RGB32": PP_ConvertedMod(i) = "C_RG" 'rgb32
-        i = i + 1: PP_TypeMod(i) = "_RGBA32": PP_ConvertedMod(i) = "C_RA" 'rgba32
-        i = i + 1: PP_TypeMod(i) = "_RED32": PP_ConvertedMod(i) = "C_RX" 'red32
-        i = i + 1: PP_TypeMod(i) = "_GREEN32": PP_ConvertedMod(i) = "C_GR" 'green32
-        i = i + 1: PP_TypeMod(i) = "_BLUE32": PP_ConvertedMod(i) = "C_BL" 'blue32
-        i = i + 1: PP_TypeMod(i) = "_ALPHA32": PP_ConvertedMod(i) = "C_AL" 'alpha32
+        i = i + 1: PP_TypeMod$(i) = "~`": PP_ConvertedMod$(i) = "C_UBI" 'unsigned bit
+        i = i + 1: PP_TypeMod$(i) = "~%%": PP_ConvertedMod$(i) = "C_UBY" 'unsigned byte
+        i = i + 1: PP_TypeMod$(i) = "~%&": PP_ConvertedMod$(i) = "C_UOF" 'unsigned offset
+        i = i + 1: PP_TypeMod$(i) = "~%": PP_ConvertedMod$(i) = "C_UIN" 'unsigned integer
+        i = i + 1: PP_TypeMod$(i) = "~&&": PP_ConvertedMod$(i) = "C_UIF" 'unsigned integer64
+        i = i + 1: PP_TypeMod$(i) = "~&": PP_ConvertedMod$(i) = "C_ULO" 'unsigned long
+        i = i + 1: PP_TypeMod$(i) = "`": PP_ConvertedMod$(i) = "C_BI" 'bit
+        i = i + 1: PP_TypeMod$(i) = "%%": PP_ConvertedMod$(i) = "C_BY" 'byte
+        i = i + 1: PP_TypeMod$(i) = "%&": PP_ConvertedMod$(i) = "C_OF" 'offset
+        i = i + 1: PP_TypeMod$(i) = "%": PP_ConvertedMod$(i) = "C_IN" 'integer
+        i = i + 1: PP_TypeMod$(i) = "&&": PP_ConvertedMod$(i) = "C_IF" 'integer64
+        i = i + 1: PP_TypeMod$(i) = "&": PP_ConvertedMod$(i) = "C_LO" 'long
+        i = i + 1: PP_TypeMod$(i) = "!": PP_ConvertedMod$(i) = "C_SI" 'single
+        i = i + 1: PP_TypeMod$(i) = "##": PP_ConvertedMod$(i) = "C_FL" 'float
+        i = i + 1: PP_TypeMod$(i) = "#": PP_ConvertedMod$(i) = "C_DO" 'double
+        i = i + 1: PP_TypeMod$(i) = "_RGB32": PP_ConvertedMod$(i) = "C_RG" 'rgb32
+        i = i + 1: PP_TypeMod$(i) = "_RGBA32": PP_ConvertedMod$(i) = "C_RA" 'rgba32
+        i = i + 1: PP_TypeMod$(i) = "_RED32": PP_ConvertedMod$(i) = "C_RX" 'red32
+        i = i + 1: PP_TypeMod$(i) = "_GREEN32": PP_ConvertedMod$(i) = "C_GR" 'green32
+        i = i + 1: PP_TypeMod$(i) = "_BLUE32": PP_ConvertedMod$(i) = "C_BL" 'blue32
+        i = i + 1: PP_TypeMod$(i) = "_ALPHA32": PP_ConvertedMod$(i) = "C_AL" 'alpha32
         TotalPrefixedPP_TypeMod = i
-        i = i + 1: PP_TypeMod(i) = "RGB32": PP_ConvertedMod(i) = "C_RG" 'rgb32
-        i = i + 1: PP_TypeMod(i) = "RGBA32": PP_ConvertedMod(i) = "C_RA" 'rgba32
-        i = i + 1: PP_TypeMod(i) = "RED32": PP_ConvertedMod(i) = "C_RX" 'red32
-        i = i + 1: PP_TypeMod(i) = "GREEN32": PP_ConvertedMod(i) = "C_GR" 'green32
-        i = i + 1: PP_TypeMod(i) = "BLUE32": PP_ConvertedMod(i) = "C_BL" 'blue32
-        i = i + 1: PP_TypeMod(i) = "ALPHA32": PP_ConvertedMod(i) = "C_AL" 'alpha32
+        i = i + 1: PP_TypeMod$(i) = "RGB32": PP_ConvertedMod$(i) = "C_RG" 'rgb32
+        i = i + 1: PP_TypeMod$(i) = "RGBA32": PP_ConvertedMod$(i) = "C_RA" 'rgba32
+        i = i + 1: PP_TypeMod$(i) = "RED32": PP_ConvertedMod$(i) = "C_RX" 'red32
+        i = i + 1: PP_TypeMod$(i) = "GREEN32": PP_ConvertedMod$(i) = "C_GR" 'green32
+        i = i + 1: PP_TypeMod$(i) = "BLUE32": PP_ConvertedMod$(i) = "C_BL" 'blue32
+        i = i + 1: PP_TypeMod$(i) = "ALPHA32": PP_ConvertedMod$(i) = "C_AL" 'alpha32
         TotalPP_TypeMod = i
-        REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then resized to just contain the necessary space in memory
+REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then resized to just contain the necessary space in memory
     END IF
     t$ = e$
 
@@ -658,9 +703,9 @@ SUB PreParse (e$)
     FOR j = 1 TO uboundPP_TypeMod
         l = 0
         DO
-            l = INSTR(l + 1, t$, PP_TypeMod(j))
+            l = INSTR(l + 1, t$, PP_TypeMod$(j))
             IF l = 0 THEN EXIT DO
-            i = 0: l1 = 0: l2 = 0: lo = LEN(PP_TypeMod(j))
+            i = 0: l1 = 0: l2 = 0: lo = LEN(PP_TypeMod$(j))
             DO
                 IF PL(i) > 10 THEN
                     l2 = _INSTRREV(l, t$, OName$(i))
@@ -670,14 +715,14 @@ SUB PreParse (e$)
             LOOP UNTIL i > UBOUND(PL)
             l$ = LEFT$(t$, l1)
             m$ = MID$(t$, l1 + 1, l - l1 - 1)
-            r$ = PP_ConvertedMod(j) + MID$(t$, l + lo)
+            r$ = PP_ConvertedMod$(j) + MID$(t$, l + lo)
             IF j > 15 THEN
                 t$ = l$ + m$ + r$ 'replacement routine for commands which might get confused with others, like _RGB and _RGB32
             ELSE
                 'the first 15 commands need to properly place the parenthesis around the value we want to convert.
                 t$ = l$ + "(" + m$ + ")" + r$
             END IF
-            l = l + 2 + LEN(PP_TypeMod(j)) 'move forward from the length of the symbol we checked + the new "(" and  ")"
+            l = l + 2 + LEN(PP_TypeMod$(j)) 'move forward from the length of the symbol we checked + the new "(" and  ")"
         LOOP
     NEXT
 
@@ -688,14 +733,14 @@ SUB PreParse (e$)
         IF l > 0 AND l > 2 THEN 'Don't check the starting bracket; there's nothing before it.
         good = 0
         FOR i = 1 TO UBOUND(OName)
-            m$ = MID$(t$, l - LEN(OName(i)), LEN(OName(i)))
-            IF m$ = OName(i) THEN
+            m$ = MID$(t$, l - LEN(OName$(i)), LEN(OName$(i)))
+            IF m$ = OName$(i) THEN
                 good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI)
             ELSE
-                IF LEFT$(OName(i), 1) = "_" AND qbnexprefix_set = 1 THEN
+                IF LEFT$(OName$(i), 1) = "_" AND qbnexprefix_set = 1 THEN
                     'try without prefix
-                    m$ = MID$(t$, l - (LEN(OName(i)) - 1), LEN(OName(i)) - 1)
-                    IF m$ = MID$(OName(i), 2) THEN good = -1: EXIT FOR
+                    m$ = MID$(t$, l - (LEN(OName$(i)) - 1), LEN(OName$(i)) - 1)
+                    IF m$ = MID$(OName$(i), 2) THEN good = -1: EXIT FOR
                 END IF
             END IF
         NEXT
@@ -711,14 +756,14 @@ DO
     IF l > 0 AND l < LEN(t$) THEN
         good = 0
         FOR i = 1 TO UBOUND(OName)
-            m$ = MID$(t$, l + 1, LEN(OName(i)))
-            IF m$ = OName(i) THEN
+            m$ = MID$(t$, l + 1, LEN(OName$(i)))
+            IF m$ = OName$(i) THEN
                 good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI
             ELSE
-                IF LEFT$(OName(i), 1) = "_" AND qbnexprefix_set = 1 THEN
+                IF LEFT$(OName$(i), 1) = "_" AND qbnexprefix_set = 1 THEN
                     'try without prefix
-                    m$ = MID$(t$, l + 1, LEN(OName(i)) - 1)
-                    IF m$ = MID$(OName(i), 2) THEN good = -1: EXIT FOR
+                    m$ = MID$(t$, l + 1, LEN(OName$(i)) - 1)
+                    IF m$ = MID$(OName$(i), 2) THEN good = -1: EXIT FOR
                 END IF
             END IF
         NEXT
@@ -742,7 +787,7 @@ DO
             CASE ELSE
                 good = 0
                 FOR i = 1 TO UBOUND(OName)
-                    IF MID$(t$, E, LEN(OName(i))) = OName(i) AND PL(i) > 1 AND PL(i) <= 250 THEN good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI)
+                    IF MID$(t$, E, LEN(OName$(i))) = OName$(i) AND PL(i) > 1 AND PL(i) <= 250 THEN good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI)
                 NEXT
                 IF NOT good THEN e$ = "ERROR - Improper &H value. (" + comp$ + ")": EXIT SUB
                 E = E - 1
@@ -767,7 +812,7 @@ DO
             CASE ELSE
                 good = 0
                 FOR i = 1 TO UBOUND(OName)
-                    IF MID$(t$, E, LEN(OName(i))) = OName(i) AND PL(i) > 1 AND PL(i) <= 250 THEN good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI)
+                    IF MID$(t$, E, LEN(OName$(i))) = OName$(i) AND PL(i) > 1 AND PL(i) <= 250 THEN good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI)
                 NEXT
                 IF NOT good THEN e$ = "ERROR - Improper &B value. (" + comp$ + ")": EXIT SUB
                 E = E - 1
@@ -801,19 +846,19 @@ SUB VerifyString (t$)
             good = 0
             extrachar = 0
             FOR i = 1 TO UBOUND(OName)
-                IF MID$(t$, j, LEN(OName(i))) = OName(i) THEN
+                IF MID$(t$, j, LEN(OName$(i))) = OName$(i) THEN
                     good = -1: EXIT FOR 'We found an operator after our ), and it's not a CONST (like PI)
                 ELSE
-                    IF LEFT$(OName(i), 1) = "_" AND qbnexprefix_set = 1 THEN
+                    IF LEFT$(OName$(i), 1) = "_" AND qbnexprefix_set = 1 THEN
                         'try without prefix
-                        IF MID$(t$, j, LEN(OName(i)) - 1) = MID$(OName(i), 2) THEN
+                        IF MID$(t$, j, LEN(OName$(i)) - 1) = MID$(OName$(i), 2) THEN
                             good = -1: extrachar = 1: EXIT FOR
                         END IF
                     END IF
                 END IF
             NEXT
             IF NOT good THEN t$ = "ERROR - Bad Operational value. (" + comp$ + ")": EXIT SUB
-            j = j + (LEN(OName(i)) - extrachar)
+            j = j + (LEN(OName$(i)) - extrachar)
         END SELECT
     LOOP UNTIL j > LEN(t$)
 END SUB

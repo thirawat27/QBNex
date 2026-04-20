@@ -33,7 +33,7 @@ popd >/dev/null
 mkdir -p ./internal/temp
 find ./internal/temp -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
 
-if [ -z "$(which clang++)" ]; then
+if ! command -v clang++ >/dev/null 2>&1; then
   echo "Apple's C++ compiler not found."
   echo "Attempting to install Apple's Command Line Tools for Xcode..."
   echo "After installation is finished, run this setup script again."
@@ -75,26 +75,27 @@ popd >/dev/null
 echo ""
 if [ -f ./qb-stage0 ]; then
   rm -f ./qb
-  cp -f ./qb-stage0 ./qb
+  echo "Self-hosting 'QBNex'"
+  ./qb-stage0 ./source/qbnex.bas -o ./qb
   chmod +x ./qb
 fi
 
 if [ -f ./qb ]; then
-  if [ -z "$QBNEX_KEEP_STAGE0" ]; then
+  if [ -z "${QBNEX_KEEP_STAGE0:-}" ]; then
     rm -f ./qb-stage0
   fi
   cleanup_setup_artifacts
   echo "QBNex CLI compiler is ready:"
   echo "  ./qb yourfile.bas"
   echo ""
-  if [ -z "$QBNEX_CI" ]; then
+  if [ -z "${QBNEX_CI:-}" ]; then
     echo "Press any key to continue..."
     Pause
   fi
 else
   cleanup_setup_artifacts
   echo "Compilation of QBNex failed!"
-  if [ -z "$QBNEX_CI" ]; then
+  if [ -z "${QBNEX_CI:-}" ]; then
     Pause
   fi
   exit 1

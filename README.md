@@ -76,10 +76,7 @@ The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and
 
 Repository: https://github.com/thirawat27/QBNex
 
-Additional documentation:
-- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Development workflow: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- Benchmark baseline: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
+Additional documentation is being consolidated into this README and `CONTRIBUTING.md`.
 
 ---
 
@@ -3141,7 +3138,7 @@ acting mainly as the main orchestrator. Shared startup/build/temp-workspace stat
 grouped in `source/utilities/state.bas`.
 
 For rebuild steps, minimum verification, and module-splitting guidance, see
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+`CONTRIBUTING.md`.
 
 ### How It Works
 

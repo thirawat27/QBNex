@@ -5,14 +5,33 @@ SUB InitCompilerServices
 END SUB
 
 SUB VerifyInternalFolderOrExit
+    DIM compilerPath AS STRING
+    DIM compilerDir AS STRING
+    DIM currentDir AS STRING
+    DIM separatorPos AS LONG
+
     IF _DIREXISTS("internal") THEN EXIT SUB
+
+    compilerPath = COMMAND$(0)
+    separatorPos = _INSTRREV(compilerPath, "\")
+    IF separatorPos = 0 THEN separatorPos = _INSTRREV(compilerPath, "/")
+
+    IF separatorPos > 0 THEN
+        compilerDir = LEFT$(compilerPath, separatorPos - 1)
+        IF LEN(compilerDir) THEN
+            currentDir = _CWD$
+            CHDIR compilerDir
+            IF _DIREXISTS("internal") THEN EXIT SUB
+            CHDIR currentDir
+        END IF
+    END IF
 
     _SCREENSHOW
     PRINT "QBNex cannot locate the 'internal' folder"
     PRINT
     PRINT "Check that QBNex has been extracted properly."
-    PRINT "For macOS, enter './qbnex' in Terminal."
-    PRINT "For Linux, enter './qbnex' in the console."
+    PRINT "For macOS, enter './qb' in Terminal."
+    PRINT "For Linux, enter './qb' in the console."
     DO
         _LIMIT 1
     LOOP UNTIL INKEY$ <> ""

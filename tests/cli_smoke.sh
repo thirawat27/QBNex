@@ -33,8 +33,12 @@ OUT_QUIET="$TMPDIR/quiet.txt"
 OUT_SETTINGS="$TMPDIR/settings.txt"
 OUT_ZMODE="$TMPDIR/zmode.txt"
 OUT_XMODE="$TMPDIR/xmode.txt"
+OUT_EXTERNAL="$TMPDIR/external_cwd.txt"
+BIN_EXTERNAL="$TMPDIR/external_cwd_output"
+EXTERNAL_CWD="$TMPDIR/external-workdir"
 
 rm -f "$BIN_XMODE"
+mkdir -p "$EXTERNAL_CWD"
 
 "$QB" --help >"$OUT_HELP" 2>&1
 EC_HELP=$?
@@ -55,6 +59,13 @@ EC_SETTINGS=$?
 EC_ZMODE=$?
 "$QB" "$SRC_CONSOLE" -x >"$OUT_XMODE" 2>&1
 EC_XMODE=$?
+
+rm -f "$BIN_EXTERNAL"
+(
+  cd "$EXTERNAL_CWD" &&
+  "$QB" "$SRC_OK" -o "$BIN_EXTERNAL" >"$OUT_EXTERNAL" 2>&1
+)
+EC_EXTERNAL=$?
 set -e
 
 FAIL=0
@@ -151,6 +162,19 @@ if [ ! -f "$BIN_XMODE" ]; then
   FAIL=1
 fi
 
+if [ "$EC_EXTERNAL" -ne 0 ]; then
+  echo "[FAIL] Running qb from outside the repo root should still compile successfully."
+  FAIL=1
+fi
+grep -F "Build complete:" "$OUT_EXTERNAL" >/dev/null 2>&1 || {
+  echo "[FAIL] External-cwd compile is missing successful build output."
+  FAIL=1
+}
+if [ ! -f "$BIN_EXTERNAL" ]; then
+  echo "[FAIL] External-cwd compile should emit the requested executable."
+  FAIL=1
+fi
+
 if [ "$FAIL" -eq 0 ]; then
   echo "CLI_SMOKE_OK"
   rm -f "$BIN_XMODE"
@@ -168,4 +192,5 @@ echo "  Quiet: \"$OUT_QUIET\""
 echo "  Settings: \"$OUT_SETTINGS\""
 echo "  Z mode: \"$OUT_ZMODE\""
 echo "  X mode: \"$OUT_XMODE\""
+echo "  External cwd: \"$OUT_EXTERNAL\""
 exit 1

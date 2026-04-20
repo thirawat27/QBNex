@@ -34,8 +34,3 @@ FUNCTION StrReplace$ (myString$, find$, replaceWith$)
     LOOP
     StrReplace$ = a$
 END FUNCTION
-
-' Adds quotation (ASCII 034) marks around a string.
-FUNCTION AddQuotes$ (s$)
-    AddQuotes$ = CHR$(34) + s$ + CHR$(34)
-END FUNCTION

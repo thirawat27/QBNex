@@ -1,30 +1,25 @@
 ''' Splits the filename from its path and returns the path.
 ''' Returns: The path or empty if no path.
 FUNCTION GetFilePath$ (f$)
-    DIM i AS LONG
-    DIM a AS STRING
-    
-    FOR i = LEN(f$) TO 1 STEP -1
-        a$ = MID$(f$, i, 1)
-        IF a$ = "/" OR a$ = "\" THEN
-            GetFilePath$ = LEFT$(f$, i)
-            EXIT FUNCTION
-        END IF
-    NEXT
-    GetFilePath$ = ""
+    DIM normalizedPath AS STRING
+    DIM directoryPath AS STRING
+    DIM resultPath AS STRING
+    DIM separator AS STRING
+
+    normalizedPath = Path_Normalize$(f$)
+    directoryPath = Path_DirName$(normalizedPath)
+    IF directoryPath = "" THEN EXIT FUNCTION
+
+    separator = Path_Separator$
+    resultPath = directoryPath
+    IF RIGHT$(resultPath, 1) <> separator THEN resultPath = resultPath + separator
+    GetFilePath$ = resultPath
 END FUNCTION
 
 ''' Checks if a filename has an extension on the end.
 ''' Returns: True if provided filename has an extension.
 FUNCTION FileHasExtension (f$)
-    DIM i AS LONG
-    DIM a AS LONG
-    
-    FOR i = LEN(f$) TO 1 STEP -1
-        a = ASC(f$, i)
-        IF a = 47 OR a = 92 THEN EXIT FOR
-        IF a = 46 THEN FileHasExtension = -1: EXIT FUNCTION
-    NEXT
+    IF Path_Extension$(f$) <> "" THEN FileHasExtension = -1
 END FUNCTION
 
 ''' Removes the extension off of a filename.
@@ -43,15 +38,5 @@ END FUNCTION
 
 ''' Fixes the provided filename and path to use the correct path separator.
 SUB PATH_SLASH_CORRECT (a$)
-    DIM x AS LONG
-    
-    IF os$ = "WIN" THEN
-        FOR x = 1 TO LEN(a$)
-            IF ASC(a$, x) = 47 THEN ASC(a$, x) = 92
-        NEXT
-    ELSE
-        FOR x = 1 TO LEN(a$)
-            IF ASC(a$, x) = 92 THEN ASC(a$, x) = 47
-        NEXT
-    END IF
+    a$ = Path_Normalize$(a$)
 END SUB

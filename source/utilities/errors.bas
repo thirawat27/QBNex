@@ -31,8 +31,64 @@ SUB LogQbErrorDetails
     IF Debug THEN PRINT #9, "ERL="; ERL
 END SUB
 
+FUNCTION UnusedVariableBaseKey$ (rawName$)
+    DIM normalizedName AS STRING
+
+    normalizedName = UCASE$(RTRIM$(rawName$))
+    IF RIGHT$(normalizedName, 2) = "()" THEN normalizedName = LEFT$(normalizedName, LEN(normalizedName) - 2)
+
+    UnusedVariableBaseKey$ = normalizedName
+END FUNCTION
+
+SUB ReconcileSharedIncludeUsageForWarnings
+    DIM i AS LONG
+    DIM j AS LONG
+    DIM declKey AS STRING
+    DIM useKey AS STRING
+    DIM declType AS STRING
+    DIM useType AS STRING
+    DIM includeScoped AS _BYTE
+
+    FOR i = 1 TO totalVariablesCreated
+        IF usedVariableList(i).used = 0 THEN
+            IF usedVariableList(i).scope = 0 THEN
+                includeScoped = 0
+                IF usedVariableList(i).includeLevel > 0 THEN includeScoped = -1
+                IF LEN(RTRIM$(usedVariableList(i).includedFile)) > 0 THEN includeScoped = -1
+
+                IF includeScoped THEN
+                    declKey = UnusedVariableBaseKey$(usedVariableList(i).NAME)
+                    IF LEN(declKey) > 0 THEN
+                        FOR j = 1 TO totalVariablesCreated
+                            IF i <> j THEN
+                                IF usedVariableList(j).used <> 0 THEN
+                                    IF usedVariableList(j).scope <> 0 THEN
+                                        useKey = UnusedVariableBaseKey$(usedVariableList(j).NAME)
+                                        IF useKey = declKey THEN
+                                            IF usedVariableList(j).isarray = usedVariableList(i).isarray THEN
+                                                declType = UCASE$(RTRIM$(usedVariableList(i).varType))
+                                                useType = UCASE$(RTRIM$(usedVariableList(j).varType))
+                                                IF declType = useType OR declType = "" OR useType = "" THEN
+                                                    usedVariableList(i).used = -1
+                                                    EXIT FOR
+                                                END IF
+                                            END IF
+                                        END IF
+                                    END IF
+                                END IF
+                            END IF
+                        NEXT
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT
+END SUB
+
 SUB ReportUnusedVariableWarnings
     IF IgnoreWarnings THEN EXIT SUB
+
+    ReconcileSharedIncludeUsageForWarnings
 
     totalUnusedVariables = 0
     FOR i = 1 TO totalVariablesCreated

@@ -39,6 +39,8 @@ set "OUT_QUIET=%TMPDIR%\quiet.txt"
 set "OUT_SETTINGS=%TMPDIR%\settings.txt"
 set "OUT_ZMODE=%TMPDIR%\zmode.txt"
 set "OUT_XMODE=%TMPDIR%\xmode.txt"
+set "OUT_EXTERNAL=%TMPDIR%\external_cwd.txt"
+set "BIN_EXTERNAL=%TMPDIR%\external_cwd.exe"
 
 if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
 
@@ -65,6 +67,11 @@ set "EC_ZMODE=%ERRORLEVEL%"
 
 "%QB%" "%SRC_CONSOLE%" -x > "%OUT_XMODE%" 2>&1
 set "EC_XMODE=%ERRORLEVEL%"
+
+pushd "%TMPDIR%" >nul
+"%QB%" "%SRC_OK%" -o "%BIN_EXTERNAL%" > "%OUT_EXTERNAL%" 2>&1
+set "EC_EXTERNAL=%ERRORLEVEL%"
+popd >nul
 
 set "FAIL=0"
 
@@ -160,6 +167,19 @@ if not exist "%BIN_XMODE%" (
     set "FAIL=1"
 )
 
+if not "%EC_EXTERNAL%"=="0" (
+    echo [FAIL] Running qb.exe from outside the repo root should still compile successfully.
+    set "FAIL=1"
+)
+findstr /L /C:"Build complete:" "%OUT_EXTERNAL%" >nul || (
+    echo [FAIL] External-cwd compile is missing successful build output.
+    set "FAIL=1"
+)
+if not exist "%BIN_EXTERNAL%" (
+    echo [FAIL] External-cwd compile should emit the requested executable.
+    set "FAIL=1"
+)
+
 if "%FAIL%"=="0" (
     echo CLI_SMOKE_OK
     if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
@@ -177,4 +197,5 @@ echo   Quiet: "%OUT_QUIET%"
 echo   Settings: "%OUT_SETTINGS%"
 echo   Z mode: "%OUT_ZMODE%"
 echo   X mode: "%OUT_XMODE%"
+echo   External cwd: "%OUT_EXTERNAL%"
 exit /b 1

@@ -1,11 +1,11 @@
 FUNCTION ResolveBuildLinkSymbols%
     IF os$ = "WIN" THEN
         FOR x = 1 TO ResolveStaticFunctions
-            IF LEN(ResolveStaticFunction_File(x)) THEN
+            IF LEN(ResolveStaticFunction_File$(x)) THEN
                 n = 0
-                SHELL _HIDE "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " --demangle -g >internal\temp\nm_output.txt"
+                SHELL _HIDE "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " --demangle -g >internal\temp\nm_output.txt"
                 fh = FREEFILE
-                s$ = " " + ResolveStaticFunction_Name(x) + "("
+                s$ = " " + ResolveStaticFunction_Name$(x) + "("
                 OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
@@ -26,14 +26,14 @@ FUNCTION ResolveBuildLinkSymbols%
                 LOOP
                 CLOSE #fh
                 IF n > 1 THEN
-                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                     ResolveBuildLinkSymbols% = -1
                     EXIT FUNCTION
                 END IF
 
                 IF n = 0 THEN
                     fh = FREEFILE
-                    s$ = " " + ResolveStaticFunction_Name(x)
+                    s$ = " " + ResolveStaticFunction_Name$(x)
                     OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
@@ -60,9 +60,9 @@ FUNCTION ResolveBuildLinkSymbols%
                 END IF
 
                 IF n = 0 THEN
-                    SHELL _HIDE "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " -D --demangle -g >.\internal\temp\nm_output_dynamic.txt"
+                    SHELL _HIDE "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " -D --demangle -g >.\internal\temp\nm_output_dynamic.txt"
                     fh = FREEFILE
-                    s$ = " " + ResolveStaticFunction_Name(x) + "("
+                    s$ = " " + ResolveStaticFunction_Name$(x) + "("
                     OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
@@ -83,7 +83,7 @@ FUNCTION ResolveBuildLinkSymbols%
                     LOOP
                     CLOSE #fh
                     IF n > 1 THEN
-                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                         ResolveBuildLinkSymbols% = -1
                         EXIT FUNCTION
                     END IF
@@ -91,7 +91,7 @@ FUNCTION ResolveBuildLinkSymbols%
 
                 IF n = 0 THEN
                     fh = FREEFILE
-                    s$ = " " + ResolveStaticFunction_Name(x)
+                    s$ = " " + ResolveStaticFunction_Name$(x)
                     OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
@@ -116,7 +116,7 @@ FUNCTION ResolveBuildLinkSymbols%
                     LOOP
                     CLOSE #fh
                     IF n = 0 THEN
-                        a$ = "Could not find sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                        a$ = "Could not find sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                         ResolveBuildLinkSymbols% = -1
                         EXIT FUNCTION
                     END IF
@@ -129,14 +129,14 @@ FUNCTION ResolveBuildLinkSymbols%
     IF os$ <> "LNX" THEN EXIT FUNCTION
 
     FOR x = 1 TO ResolveStaticFunctions
-        IF LEN(ResolveStaticFunction_File(x)) THEN
+        IF LEN(ResolveStaticFunction_File$(x)) THEN
             n = 0
-            IF MacOSX = 0 THEN SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " --demangle -g >./internal/temp/nm_output.txt 2>./internal/temp/nm_error.txt"
-            IF MacOSX THEN SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " >./internal/temp/nm_output.txt 2>./internal/temp/nm_error.txt"
+            IF MacOSX = 0 THEN SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " --demangle -g >./internal/temp/nm_output.txt 2>./internal/temp/nm_error.txt"
+            IF MacOSX THEN SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " >./internal/temp/nm_output.txt 2>./internal/temp/nm_error.txt"
 
             IF MacOSX = 0 THEN
                 fh = FREEFILE
-                s$ = " " + ResolveStaticFunction_Name(x) + "("
+                s$ = " " + ResolveStaticFunction_Name$(x) + "("
                 OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
@@ -157,7 +157,7 @@ FUNCTION ResolveBuildLinkSymbols%
                 LOOP
                 CLOSE #fh
                 IF n > 1 THEN
-                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                     ResolveBuildLinkSymbols% = -1
                     EXIT FUNCTION
                 END IF
@@ -165,9 +165,9 @@ FUNCTION ResolveBuildLinkSymbols%
 
             IF n = 0 THEN
                 fh = FREEFILE
-                s$ = " " + ResolveStaticFunction_Name(x)
+                s$ = " " + ResolveStaticFunction_Name$(x)
                 s2$ = s$
-                IF MacOSX THEN s$ = " _" + ResolveStaticFunction_Name(x)
+                IF MacOSX THEN s$ = " _" + ResolveStaticFunction_Name$(x)
                 OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
@@ -195,9 +195,9 @@ FUNCTION ResolveBuildLinkSymbols%
 
             IF n = 0 THEN
                 IF MacOSX = 0 THEN
-                    SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File(x) + CHR$(34) + " -D --demangle -g >./internal/temp/nm_output_dynamic.txt 2>./internal/temp/nm_error.txt"
+                    SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " -D --demangle -g >./internal/temp/nm_output_dynamic.txt 2>./internal/temp/nm_error.txt"
                     fh = FREEFILE
-                    s$ = " " + ResolveStaticFunction_Name(x) + "("
+                    s$ = " " + ResolveStaticFunction_Name$(x) + "("
                     OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
@@ -218,7 +218,7 @@ FUNCTION ResolveBuildLinkSymbols%
                     LOOP
                     CLOSE #fh
                     IF n > 1 THEN
-                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                         ResolveBuildLinkSymbols% = -1
                         EXIT FUNCTION
                     END IF
@@ -227,7 +227,7 @@ FUNCTION ResolveBuildLinkSymbols%
 
             IF n = 0 AND MacOSX = 0 THEN
                 fh = FREEFILE
-                s$ = " " + ResolveStaticFunction_Name(x)
+                s$ = " " + ResolveStaticFunction_Name$(x)
                 OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
@@ -254,7 +254,7 @@ FUNCTION ResolveBuildLinkSymbols%
             END IF
 
             IF n = 0 THEN
-                a$ = "Could not find sub/function '" + ResolveStaticFunction_Name(x) + "' in '" + ResolveStaticFunction_File(x) + "'"
+                a$ = "Could not find sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                 ResolveBuildLinkSymbols% = -1
                 EXIT FUNCTION
             END IF
@@ -559,7 +559,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
         PRINT #ffh, buildCommand$ + CHR$(10);
         PRINT #ffh, "read -p " + CHR_QUOTE + "Press ENTER to exit..." + CHR_QUOTE + CHR$(10);
         CLOSE ffh
-        SHELL _HIDE "chmod +x " + tmpdir$ + "recompile_osx.command"
+        SHELL _HIDE "chmod +x " + QuotedFilename$(tmpdir$ + "recompile_osx.command")
 
         ffh = FREEFILE
         OPEN tmpdir$ + "debug_osx.command" FOR OUTPUT AS #ffh
@@ -579,7 +579,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
         PRINT #ffh, "gdb " + CHR$(34) + debugTargetPath + CHR$(34) + CHR$(10);
         PRINT #ffh, "Pause" + CHR$(10);
         CLOSE ffh
-        SHELL _HIDE "chmod +x " + tmpdir$ + "debug_osx.command"
+        SHELL _HIDE "chmod +x " + QuotedFilename$(tmpdir$ + "debug_osx.command")
         EXIT SUB
     END IF
 
@@ -599,7 +599,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
     PRINT #ffh, "echo " + CHR_QUOTE + "Press ENTER to exit..." + CHR_QUOTE + CHR$(10);
     PRINT #ffh, "Pause" + CHR$(10);
     CLOSE ffh
-    SHELL _HIDE "chmod +x " + tmpdir$ + "recompile_lnx.sh"
+    SHELL _HIDE "chmod +x " + QuotedFilename$(tmpdir$ + "recompile_lnx.sh")
 
     ffh = FREEFILE
     OPEN tmpdir$ + "debug_lnx.sh" FOR OUTPUT AS #ffh
@@ -619,7 +619,7 @@ SUB EmitBuildSupportScripts (buildCommand$, file$)
     PRINT #ffh, "gdb " + CHR$(34) + debugTargetPath + CHR$(34) + CHR$(10);
     PRINT #ffh, "Pause" + CHR$(10);
     CLOSE ffh
-    SHELL _HIDE "chmod +x " + tmpdir$ + "debug_lnx.sh"
+    SHELL _HIDE "chmod +x " + QuotedFilename$(tmpdir$ + "debug_lnx.sh")
 END SUB
 
 SUB ExecuteBuildCommand (buildCommand$)

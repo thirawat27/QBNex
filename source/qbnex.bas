@@ -26,33 +26,22 @@ $VERSIONINFO:ProductVersion=1.0.0
 $VERSIONINFO:Comments=QBNex IS a modern extended BASIC programming language that retains QB4.5/QBasic compatibility AND compiles native binaries FOR Windows, Linux AND macOS.
 $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 
-'$INCLUDE:'global\version.bas'
-'$INCLUDE:'global\settings.bas'
-'$INCLUDE:'global\constants.bas'
-' Error handler declarations must stay above later implementation includes.
-'$INCLUDE:'utilities\error_handler_defs.bas'
-' Shared compiler state is grouped here so qbnex.bas can stay orchestration-first.
-'$INCLUDE:'utilities\state.bas'
-'$INCLUDE:'subs_functions\extensions\opengl\opengl_global.bas'
-'$INCLUDE:'utilities\ini-manager\ini.bi'
+' Error handler declarations and bootstrap globals must stay above later implementation includes.
+'$INCLUDE:'includes\bootstrap.bas'
 
 DEFLNG A-Z
 
 '-------- Optional layout component (1/2) --------
 
-REDIM SHARED OName(1000) AS STRING 'Operation name
-REDIM SHARED PL(1000) AS INTEGER 'Priority level
-REDIM SHARED PP_TypeMod(0) AS STRING, PP_ConvertedMod(0) AS STRING 'Prepass Name Conversion variables.
+DIM SHARED OName(1000) AS STRING 'Operation name
+DIM SHARED PL(1000) AS INTEGER 'Priority level
+DIM SHARED PP_TypeMod(0) AS STRING, PP_ConvertedMod(0) AS STRING 'Prepass Name Conversion variables.
 Set_OrderOfOperations
-
-DIM SHARED NoExeSaved AS INTEGER
 
 DIM SHARED vWatchOn, vWatchRecompileAttempts, vWatchDesiredState, vWatchErrorCall$
 DIM SHARED vWatchNewVariable$, vWatchVariableExclusions$
 vWatchErrorCall$ = "if (stop_program) {*__LONG_VWATCH_LINENUMBER=0; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);};if(new_error){bkp_new_error=new_error;new_error=0;*__LONG_VWATCH_LINENUMBER=-1; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);new_error=bkp_new_error;};"
-vWatchVariableExclusions$ = "@__LONG_VWATCH_LINENUMBER@__LONG_VWATCH_SUBLEVEL@__LONG_VWATCH_GOTO@" + _
-"@__STRING_VWATCH_SUBNAME@__STRING_VWATCH_CALLSTACK@__ARRAY_BYTE_VWATCH_BREAKPOINTS" + _
-"@__ARRAY_BYTE_VWATCH_SKIPLINES@__STRING_VWATCH_INTERNALSUBNAME@__ARRAY_STRING_VWATCH_STACK@"
+vWatchVariableExclusions$ = "@__LONG_VWATCH_LINENUMBER@__LONG_VWATCH_SUBLEVEL@__LONG_VWATCH_GOTO@@__STRING_VWATCH_SUBNAME@__STRING_VWATCH_CALLSTACK@__ARRAY_BYTE_VWATCH_BREAKPOINTS@__ARRAY_BYTE_VWATCH_SKIPLINES@__STRING_VWATCH_INTERNALSUBNAME@__ARRAY_STRING_VWATCH_STACK@"
 
 DIM SHARED nativeDataTypes$
 nativeDataTypes$ = "@_OFFSET@OFFSET@_UNSIGNED _OFFSET@UNSIGNED OFFSET@_BIT@BIT@_UNSIGNED _BIT@UNSIGNED BIT@_BYTE@_UNSIGNED _BYTE@BYTE@UNSIGNED BYTE@INTEGER@_UNSIGNED INTEGER@UNSIGNED INTEGER@LONG@_UNSIGNED LONG@UNSIGNED LONG@_INTEGER64@INTEGER64@_UNSIGNED _INTEGER64@UNSIGNED INTEGER64@SINGLE@DOUBLE@_FLOAT@FLOAT@STRING@"
@@ -64,21 +53,22 @@ DIM SHARED opexarray_recompileAttempts, opexarray_desiredState
 REDIM EveryCaseSet(100), SelectCaseCounter AS _UNSIGNED LONG
 REDIM SelectCaseHasCaseBlock(100)
 DIM ExecLevel(255), ExecCounter AS INTEGER
-REDIM SHARED UserDefine(1, 100) AS STRING '0 element is the name, 1 element is the string value
-REDIM SHARED InValidLine(10000) AS _BYTE
+DIM SHARED UserDefineName(0 TO 1000) AS STRING
+DIM SHARED UserDefineValue(0 TO 1000) AS STRING
+DIM SHARED InValidLine(10000) AS _BYTE
 DIM DefineElse(255) AS _BYTE
 DIM SHARED UserDefineCount AS INTEGER, UserDefineList$
 UserDefineList$ = "@DEFINED@UNDEFINED@WINDOWS@WIN@LINUX@MAC@MACOSX@32BIT@64BIT@VERSION@"
-UserDefine(0, 0) = "WINDOWS": UserDefine(0, 1) = "WIN"
-UserDefine(0, 2) = "LINUX"
-UserDefine(0, 3) = "MAC": UserDefine(0, 4) = "MACOSX"
-UserDefine(0, 5) = "32BIT": UserDefine(0, 6) = "64BIT"
-UserDefine(0, 7) = "VERSION"
-IF INSTR(_OS$, "WIN") THEN UserDefine(1, 0) = "-1": UserDefine(1, 1) = "-1" ELSE UserDefine(1, 0) = "0": UserDefine(1, 1) = "0"
-IF INSTR(_OS$, "LINUX") THEN UserDefine(1, 2) = "-1" ELSE UserDefine(1, 2) = "0"
-IF INSTR(_OS$, "MAC") THEN UserDefine(1, 3) = "-1": UserDefine(1, 4) = "-1" ELSE UserDefine(1, 3) = "0": UserDefine(1, 4) = "0"
-IF INSTR(_OS$, "32BIT") THEN UserDefine(1, 5) = "-1": UserDefine(1, 6) = "0" ELSE UserDefine(1, 5) = "0": UserDefine(1, 6) = "-1"
-UserDefine(1, 7) = Version$
+UserDefineName$(0) = "WINDOWS": UserDefineName$(1) = "WIN"
+UserDefineName$(2) = "LINUX"
+UserDefineName$(3) = "MAC": UserDefineName$(4) = "MACOSX"
+UserDefineName$(5) = "32BIT": UserDefineName$(6) = "64BIT"
+UserDefineName$(7) = "VERSION"
+IF INSTR(_OS$, "WIN") THEN UserDefineValue$(0) = "-1": UserDefineValue$(1) = "-1" ELSE UserDefineValue$(0) = "0": UserDefineValue$(1) = "0"
+IF INSTR(_OS$, "LINUX") THEN UserDefineValue$(2) = "-1" ELSE UserDefineValue$(2) = "0"
+IF INSTR(_OS$, "MAC") THEN UserDefineValue$(3) = "-1": UserDefineValue$(4) = "-1" ELSE UserDefineValue$(3) = "0": UserDefineValue$(4) = "0"
+IF INSTR(_OS$, "32BIT") THEN UserDefineValue$(5) = "-1": UserDefineValue$(6) = "0" ELSE UserDefineValue$(5) = "0": UserDefineValue$(6) = "-1"
+UserDefineValue$(7) = Version$
 
 InitCompilerServices
 VerifyInternalFolderOrExit
@@ -114,13 +104,11 @@ TYPE usedVarList
     AS STRING elementOffset, storage
 END TYPE
 
-REDIM SHARED backupUsedVariableList(1000) AS usedVarList
-DIM SHARED typeDefinitions$, backupTypeDefinitions$
+DIM SHARED typeDefinitions$
 DIM SHARED totalVariablesCreated AS LONG, totalMainVariablesCreated AS LONG
 DIM SHARED bypassNextVariable AS _BYTE
-DIM SHARED totalWarnings AS LONG, warningListItems AS LONG, lastWarningHeader AS STRING
-DIM SHARED duplicateConstWarning AS _BYTE, warningsissued AS _BYTE
-DIM SHARED emptySCWarning AS _BYTE, maxLineNumber AS LONG
+DIM SHARED totalWarnings AS LONG, warningListItems AS LONG
+DIM SHARED maxLineNumber AS LONG
 DIM SHARED ExeIconSet AS LONG, qbnexprefix$, qbnexprefix_set
 DIM SHARED VersionInfoSet AS _BYTE
 
@@ -137,39 +125,39 @@ DIM SHARED ScreenHide
 DIM SHARED Asserts
 DIM SHARED OptMax AS LONG
 OptMax = 256
-REDIM SHARED Opt(1 TO OptMax, 1 TO 10) AS STRING * 256
+DIM SHARED Opt(1 TO OptMax, 1 TO 10) AS STRING * 256
 '   (1,1)="READ"
 '   (1,2)="WRITE"
 '   (1,3)="READ WRITE"
-REDIM SHARED OptWords(1 TO OptMax, 1 TO 10) AS INTEGER 'The number of words of each opt () element
+DIM SHARED OptWords(1 TO OptMax, 1 TO 10) AS INTEGER 'The number of words of each opt () element
 '   (1,1)=1 '"READ"
 '   (1,2)=1 '"WRITE"
 '   (1,3)=2 '"READ WRITE"
-REDIM SHARED T(1 TO OptMax) AS INTEGER 'The type of the entry
+DIM SHARED T(1 TO OptMax) AS INTEGER 'The type of the entry
 '   t is 0 for ? opts
 '   ---------- 0 means ? , 1+ means a symbol or {}block ----------
 '   t is 1 for symbol opts
 '   t is the number of rhs opt () index enteries for {READ|WRITE|READ WRITE} like opts
-REDIM SHARED Lev(1 TO OptMax) AS INTEGER 'The indwelling level of each opt () element (the lowest is 0)
-REDIM SHARED EntryLev(1 TO OptMax) AS INTEGER 'The level required from which this opt () can be validly be entered/checked-for
-REDIM SHARED DitchLev(1 TO OptMax) AS INTEGER 'The lowest level recorded between the previous Opt and this Opt
-REDIM SHARED DontPass(1 TO OptMax) AS INTEGER 'Set to 1 or 0, with 1 meaning don't pass
+DIM SHARED Lev(1 TO OptMax) AS INTEGER 'The indwelling level of each opt () element (the lowest is 0)
+DIM SHARED EntryLev(1 TO OptMax) AS INTEGER 'The level required from which this opt () can be validly be entered/checked-for
+DIM SHARED DitchLev(1 TO OptMax) AS INTEGER 'The lowest level recorded between the previous Opt and this Opt
+DIM SHARED DontPass(1 TO OptMax) AS INTEGER 'Set to 1 or 0, with 1 meaning don't pass
 'Determines whether the opt () entry needs to actually be passed to the C++ sub/function
-REDIM SHARED TempList(1 TO OptMax) AS INTEGER
-REDIM SHARED PassRule(1 TO OptMax) AS LONG
+DIM SHARED TempList(1 TO OptMax) AS INTEGER
+DIM SHARED PassRule(1 TO OptMax) AS LONG
 '0 means no pass rule
 'negative values refer to an opt () element
 'positive values refer to a flag value
-REDIM SHARED LevelEntered(OptMax) 'up to 64 levels supported
-REDIM SHARED separgs(OptMax + 1) AS STRING
-REDIM SHARED separgslayout(OptMax + 1) AS STRING
-REDIM SHARED separgs2(OptMax + 1) AS STRING
-REDIM SHARED separgslayout2(OptMax + 1) AS STRING
+DIM SHARED LevelEntered(OptMax) 'up to 64 levels supported
+DIM SHARED separgs(OptMax + 1) AS STRING
+DIM SHARED separgslayout(OptMax + 1) AS STRING
+DIM SHARED separgs_local(OptMax + 1) AS STRING
+DIM SHARED separgslayout_local(OptMax + 1) AS STRING
 DIM SHARED E
 DIM SHARED ResolveStaticFunctions
-REDIM SHARED ResolveStaticFunction_File(1 TO 100) AS STRING
-REDIM SHARED ResolveStaticFunction_Name(1 TO 100) AS STRING
-REDIM SHARED ResolveStaticFunction_Method(1 TO 100) AS LONG
+DIM SHARED ResolveStaticFunction_File(1 TO 100) AS STRING
+DIM SHARED ResolveStaticFunction_Name(1 TO 100) AS STRING
+DIM SHARED ResolveStaticFunction_Method(1 TO 100) AS LONG
 DIM SHARED Error_Happened AS LONG
 DIM SHARED Error_Message AS STRING
 DIM SHARED FrontendErrorHandled AS _BYTE
@@ -364,10 +352,10 @@ FUNCTION getpid& ()
     HashListNext = 1
     HashListFreeSize = 1024
     HashListFreeLast = 0
-    REDIM SHARED HashList(1 TO HashListSize) AS HashListItem
-    REDIM SHARED HashListName(1 TO HashListSize) AS STRING * 256
-    REDIM SHARED HashListFree(1 TO HashListFreeSize) AS LONG
-    REDIM SHARED HashTable(0 TO HASH_TABLE_MASK) AS LONG '256KB lookup table with chaining for collisions
+    DIM SHARED HashList(1 TO HashListSize) AS HashListItem
+    DIM SHARED HashListName(1 TO HashListSize) AS STRING * 256
+    DIM SHARED HashListFree(1 TO HashListFreeSize) AS LONG
+    DIM SHARED HashTable(0 TO HASH_TABLE_MASK) AS LONG '256KB lookup table with chaining for collisions
 
     CONST HASHFLAG_LABEL = 2
     CONST HASHFLAG_TYPE = 4
@@ -396,7 +384,7 @@ FUNCTION getpid& ()
     END TYPE
     DIM SHARED nLabels, Labels_Ubound
     Labels_Ubound = 100
-    REDIM SHARED Labels(1 TO Labels_Ubound) AS Label_Type
+    DIM SHARED Labels(1 TO Labels_Ubound) AS Label_Type
     DIM SHARED Empty_Label AS Label_Type
 
     DIM SHARED PossibleSubNameLabels AS STRING 'format: name+sp+name+sp+name <-ucase$'d
@@ -541,20 +529,20 @@ FUNCTION getpid& ()
     constmax = 100
     DIM SHARED constlast AS LONG
     constlast = -1
-    REDIM SHARED constname(constmax) AS STRING
-    REDIM SHARED constcname(constmax) AS STRING
-    REDIM SHARED constnamesymbol(constmax) AS STRING 'optional name symbol
+    DIM SHARED constname(constmax) AS STRING
+    DIM SHARED constcname(constmax) AS STRING
+    DIM SHARED constnamesymbol(constmax) AS STRING 'optional name symbol
     ' `1 and `no-number must be handled correctly
     'DIM SHARED constlastshared AS LONG 'so any defined inside a sub/function after this index can be "forgotten" when sub/function exits
     'constlastshared = -1
-    REDIM SHARED consttype(constmax) AS LONG 'variable type number
+    DIM SHARED consttype(constmax) AS LONG 'variable type number
     'consttype determines storage
-    REDIM SHARED constinteger(constmax) AS _INTEGER64
-    REDIM SHARED constuinteger(constmax) AS _UNSIGNED _INTEGER64
-    REDIM SHARED constfloat(constmax) AS _FLOAT
-    REDIM SHARED conststring(constmax) AS STRING
-    REDIM SHARED constsubfunc(constmax) AS LONG
-    REDIM SHARED constdefined(constmax) AS LONG
+    DIM SHARED constinteger(constmax) AS _INTEGER64
+    DIM SHARED constuinteger(constmax) AS _UNSIGNED _INTEGER64
+    DIM SHARED constfloat(constmax) AS _FLOAT
+    DIM SHARED conststring(constmax) AS STRING
+    DIM SHARED constsubfunc(constmax) AS LONG
+    DIM SHARED constdefined(constmax) AS LONG
 
     'UDT
     'names
@@ -614,10 +602,10 @@ FUNCTION getpid& ()
     DIM SHARED idn AS LONG
     DIM SHARED ids_max AS LONG
     ids_max = 1024
-    REDIM SHARED ids(1 TO ids_max) AS idstruct
-    REDIM SHARED cmemlist(1 TO ids_max + 1) AS INTEGER 'variables that must be in cmem
-    REDIM SHARED sfcmemargs(1 TO ids_max + 1) AS STRING * 100 's/f arg that must be in cmem
-    REDIM SHARED arrayelementslist(1 TO ids_max + 1) AS INTEGER 'arrayelementslist (like cmemlist) helps to resolve the number of elements in arrays with an unknown number of elements. Note: arrays with an unknown number of elements have .arrayelements=-1
+    DIM SHARED ids(1 TO ids_max) AS idstruct
+    DIM SHARED cmemlist(1 TO ids_max + 1) AS INTEGER 'variables that must be in cmem
+    DIM SHARED sfcmemargs(1 TO ids_max + 1) AS STRING * 100 's/f arg that must be in cmem
+    DIM SHARED arrayelementslist(1 TO ids_max + 1) AS INTEGER 'arrayelementslist (like cmemlist) helps to resolve the number of elements in arrays with an unknown number of elements. Note: arrays with an unknown number of elements have .arrayelements=-1
 
 
     'create blank id template for idclear to copy (stops strings being set to chr$(0))
@@ -1205,21 +1193,21 @@ FUNCTION getpid& ()
             nextrunlineindex = 1
             lasttype = 0
             lasttypeelement = 0
-            REDIM SHARED udtxname(1000) AS STRING * 256
-            REDIM SHARED udtxcname(1000) AS STRING * 256
-            REDIM SHARED udtxsize(1000) AS LONG
-            REDIM SHARED udtxbytealign(1000) AS INTEGER 'first element MUST be on a byte alignment & size is a multiple of 8
-            REDIM SHARED udtxnext(1000) AS LONG
-            REDIM SHARED udtxvariable(1000) AS INTEGER 'true if the udt contains variable length elements
+            DIM SHARED udtxname(1000) AS STRING * 256
+            DIM SHARED udtxcname(1000) AS STRING * 256
+            DIM SHARED udtxsize(1000) AS LONG
+            DIM SHARED udtxbytealign(1000) AS INTEGER 'first element MUST be on a byte alignment & size is a multiple of 8
+            DIM SHARED udtxnext(1000) AS LONG
+            DIM SHARED udtxvariable(1000) AS INTEGER 'true if the udt contains variable length elements
             'elements
-            REDIM SHARED udtename(1000) AS STRING * 256
-            REDIM SHARED udtecname(1000) AS STRING * 256
-            REDIM SHARED udtebytealign(1000) AS INTEGER
-            REDIM SHARED udtesize(1000) AS LONG
-            REDIM SHARED udtetype(1000) AS LONG
-            REDIM SHARED udtetypesize(1000) AS LONG
-            REDIM SHARED udtearrayelements(1000) AS LONG
-            REDIM SHARED udtenext(1000) AS LONG
+            DIM SHARED udtename(1000) AS STRING * 256
+            DIM SHARED udtecname(1000) AS STRING * 256
+            DIM SHARED udtebytealign(1000) AS INTEGER
+            DIM SHARED udtesize(1000) AS LONG
+            DIM SHARED udtetype(1000) AS LONG
+            DIM SHARED udtetypesize(1000) AS LONG
+            DIM SHARED udtearrayelements(1000) AS LONG
+            DIM SHARED udtenext(1000) AS LONG
             definingtype = 0
             definingtypeerror = 0
             constlast = -1
@@ -1260,19 +1248,16 @@ FUNCTION getpid& ()
                 totalVariablesCreated = 0
                 typeDefinitions$ = ""
                 totalMainVariablesCreated = 0
-                REDIM SHARED usedVariableList(1000) AS usedVarList
+                DIM SHARED usedVariableList(1000) AS usedVarList
                 totalWarnings = 0
-                duplicateConstWarning = 0
-                emptySCWarning = 0
                 warningListItems = 0
-                lastWarningHeader = ""
                 vWatchUsedLabels = SPACE$(1000)
                 vWatchUsedSkipLabels = SPACE$(1000)
                 firstLineNumberLabelvWatch = 0
-                REDIM SHARED warning$(1000)
-                REDIM SHARED warningLines(1000) AS LONG
-                REDIM SHARED warningIncLines(1000) AS LONG
-                REDIM SHARED warningIncFiles(1000) AS STRING
+                DIM SHARED warning$(1000)
+                DIM SHARED warningLines(1000) AS LONG
+                DIM SHARED warningIncLines(1000) AS LONG
+                DIM SHARED warningIncFiles(1000) AS STRING
                 maxLineNumber = 0
                 uniquenumbern = 0
 
@@ -2650,7 +2635,7 @@ FUNCTION getpid& ()
                             GOTO finishednonexec 'we don't check for anything inside lines that we've marked for skipping
                         END IF
 
-                        directiveResult = HandleSimpleDirective%(a3u$, a3$)
+                        directiveResult = HandleSimpleDirective%(a3u$)
                         IF directiveResult = 1 THEN GOTO finishednonexec
                         IF directiveResult = 2 THEN GOTO errmes
                         IF directiveResult = 3 THEN GOTO finishedline2
@@ -9764,233 +9749,241 @@ passedneeded = seperateargs(getelements(a$, 2, n), getelements(ca$, 2, n), passe
 IF seperateargs_error THEN a$ = seperateargs_error_message: GOTO errmes
 
 'backup args to local string array space before calling evaluate
-FOR i = 1 TO OptMax: separgs2(i) = "": NEXT 'save space!
-    FOR i = 1 TO OptMax + 1: separgslayout2(i) = "": NEXT
-        FOR i = 1 TO id2.args: separgs2(i) = separgs(i): NEXT
-            FOR i = 1 TO id2.args + 1: separgslayout2(i) = separgslayout(i): NEXT
+FOR i = 1 TO id2.args
+    separgs_local$(i) = separgs$(i)
+NEXT
+FOR i = 1 TO id2.args + 1
+    separgslayout_local$(i) = separgslayout$(i)
+NEXT
 
 
 
-                IF Debug THEN
-                    PRINT #9, "separgs:": FOR i = 1 TO id2.args: PRINT #9, i, separgs2(i): NEXT
-                    PRINT #9, "separgslayout:": FOR i = 1 TO id2.args + 1: PRINT #9, i, separgslayout2(i): NEXT
-                END IF
+IF Debug THEN
+    PRINT #9, "separgs:"
+    FOR i = 1 TO id2.args
+        PRINT #9, i, separgs_local$(i)
+    NEXT
+    PRINT #9, "separgslayout:"
+    FOR i = 1 TO id2.args + 1
+        PRINT #9, i, separgslayout_local$(i)
+    NEXT
+END IF
 
 
 
-                'note: seperateargs finds the arguments to pass and sets passed& as necessary
-                '      FIXOPERTIONORDER is not called on these args yet
-                '      what we need it to do is build a second array of layout info at the same time
-                '   ref:DIM SHARED separgslayout(100) AS STRING
-                '   the above array stores what layout info (if any) goes BEFORE the arg in question
-                '       it has one extra index which is the arg after
+'note: seperateargs finds the arguments to pass and sets passed& as necessary
+'      FIXOPERTIONORDER is not called on these args yet
+'      what we need it to do is build a second array of layout info at the same time
+'   ref:DIM SHARED separgslayout(100) AS STRING
+'   the above array stores what layout info (if any) goes BEFORE the arg in question
+'       it has one extra index which is the arg after
 
-                IF usecall THEN
-                    IF id.internal_subfunc THEN
-                        IF usecall = 1 THEN l$ = SCase$("Call") + sp + SCase$(RTRIM$(id.cn)) + RTRIM$(id.musthave) + sp2 + "(" + sp2
-                        IF usecall = 2 THEN l$ = SCase$("Call") + sp + SCase$(RTRIM$(id.cn)) + RTRIM$(id.musthave) + sp 'sp at end for easy parsing
-                    ELSE
-                        IF usecall = 1 THEN l$ = SCase$("Call") + sp + RTRIM$(id.cn) + RTRIM$(id.musthave) + sp2 + "(" + sp2
-                        IF usecall = 2 THEN l$ = SCase$("Call") + sp + RTRIM$(id.cn) + RTRIM$(id.musthave) + sp 'sp at end for easy parsing
-                    END IF
-                ELSE
-                    IF id.internal_subfunc THEN
-                        l$ = SCase$(RTRIM$(id.cn)) + RTRIM$(id.musthave) + sp
-                    ELSE
-                        l$ = RTRIM$(id.cn) + RTRIM$(id.musthave) + sp
-                    END IF
-                END IF
+IF usecall THEN
+    IF id.internal_subfunc THEN
+        IF usecall = 1 THEN l$ = SCase$("Call") + sp + SCase$(RTRIM$(id.cn)) + RTRIM$(id.musthave) + sp2 + "(" + sp2
+        IF usecall = 2 THEN l$ = SCase$("Call") + sp + SCase$(RTRIM$(id.cn)) + RTRIM$(id.musthave) + sp 'sp at end for easy parsing
+    ELSE
+        IF usecall = 1 THEN l$ = SCase$("Call") + sp + RTRIM$(id.cn) + RTRIM$(id.musthave) + sp2 + "(" + sp2
+        IF usecall = 2 THEN l$ = SCase$("Call") + sp + RTRIM$(id.cn) + RTRIM$(id.musthave) + sp 'sp at end for easy parsing
+    END IF
+ELSE
+    IF id.internal_subfunc THEN
+        l$ = SCase$(RTRIM$(id.cn)) + RTRIM$(id.musthave) + sp
+    ELSE
+        l$ = RTRIM$(id.cn) + RTRIM$(id.musthave) + sp
+    END IF
+END IF
 
-                subcall$ = RTRIM$(id.callname) + "("
-                addedlayout = 0
+subcall$ = RTRIM$(id.callname) + "("
+addedlayout = 0
 
-                fieldcall = 0
-                'GET/PUT field exception
-                IF RTRIM$(id2.callname) = "sub_get" OR RTRIM$(id2.callname) = "sub_put" THEN
-                    IF passed AND 2 THEN
-                        'regular GET/PUT call with variable provided
-                        passed = passed - 2 'for complience with existing methods, remove 'passed' flag for the passing of a variable
-                    ELSE
-                        'FIELD GET/PUT call with variable omited
-                        IF RTRIM$(id2.callname) = "sub_get" THEN
-                            fieldcall = 1
-                            subcall$ = "field_get("
-                        ELSE
-                            fieldcall = 2
-                            subcall$ = "field_put("
-                        END IF
-                    END IF
-                END IF 'field exception
+fieldcall = 0
+'GET/PUT field exception
+IF RTRIM$(id2.callname) = "sub_get" OR RTRIM$(id2.callname) = "sub_put" THEN
+    IF passed AND 2 THEN
+        'regular GET/PUT call with variable provided
+        passed = passed - 2 'for complience with existing methods, remove 'passed' flag for the passing of a variable
+    ELSE
+        'FIELD GET/PUT call with variable omited
+        IF RTRIM$(id2.callname) = "sub_get" THEN
+            fieldcall = 1
+            subcall$ = "field_get("
+        ELSE
+            fieldcall = 2
+            subcall$ = "field_put("
+        END IF
+    END IF
+END IF 'field exception
 
-                IF RTRIM$(id2.callname) = "sub_timer" OR RTRIM$(id2.callname) = "sub_key" THEN 'spacing exception
-                IF usecall = 0 THEN
-                    l$ = LEFT$(l$, LEN(l$) - 1) + sp2
-                END IF
-            END IF
+IF RTRIM$(id2.callname) = "sub_timer" OR RTRIM$(id2.callname) = "sub_key" THEN 'spacing exception
+IF usecall = 0 THEN
+    l$ = LEFT$(l$, LEN(l$) - 1) + sp2
+END IF
+END IF
 
-            FOR i = 1 TO id2.args
-                targettyp = CVL(MID$(id2.arg, -3 + i * 4, 4))
-                nele = ASC(MID$(id2.nele, i, 1))
-                nelereq = ASC(MID$(id2.nelereq, i, 1))
+FOR i = 1 TO id2.args
+    targettyp = CVL(MID$(id2.arg, -3 + i * 4, 4))
+    nele = ASC(MID$(id2.nele, i, 1))
+    nelereq = ASC(MID$(id2.nelereq, i, 1))
 
-                addlayout = 1 'omits option values in layout (eg. BINARY="2")
-                convertspacing = 0 'if an 'equation' is next, it will be preceeded by a space
-                x$ = separgslayout2$(i)
-                DO WHILE LEN(x$)
-                    x = ASC(x$)
-                    IF x THEN
-                        convertspacing = 0
-                        x2$ = MID$(x$, 2, x)
-                        x$ = RIGHT$(x$, LEN(x$) - x - 1)
+    addlayout = 1 'omits option values in layout (eg. BINARY="2")
+    convertspacing = 0 'if an 'equation' is next, it will be preceeded by a space
+    x$ = separgslayout_local$(i)
+    DO WHILE LEN(x$)
+        x = ASC(x$)
+        IF x THEN
+            convertspacing = 0
+            x2$ = MID$(x$, 2, x)
+            x$ = RIGHT$(x$, LEN(x$) - x - 1)
 
-                        s = 0
-                        an = 0
-                        x3$ = RIGHT$(l$, 1)
-                        IF x3$ = sp THEN s = 1
-                        IF x3$ = sp2 THEN
-                            s = 2
-                            IF alphanumeric(ASC(RIGHT$(l$, 2))) THEN an = 1
-                        ELSE
-                            IF alphanumeric(ASC(x3$)) THEN an = 1
-                        END IF
-                        s1 = s
-
-                        IF alphanumeric(ASC(x2$)) THEN convertspacing = 1
-
-
-                        IF x2$ = "LPRINT" THEN
-
-                            'x2$="LPRINT"
-                            'x$=CHR$(0)
-                            'x3$=[sp] from WIDTH[sp]
-                            'therefore...
-                            's=1
-                            'an=0
-                            'convertspacing=1
-
-
-                            'if debug=1 then
-                            'print #9,"LPRINT:"
-                            'print #9,s
-                            'print #9,an
-                            'print #9,l$
-                            'print #9,x2$
-                            'end if
-
-                        END IF
-
-
-
-
-                        IF (an = 1 OR addedlayout = 1) AND alphanumeric(ASC(x2$)) <> 0 THEN
-
-
-
-                            s = 1 'force space
-                            x2$ = x2$ + sp2
-                            GOTO customlaychar
-                        END IF
-
-                        IF x2$ = "=" THEN
-                            s = 1
-                            x2$ = x2$ + sp
-                            GOTO customlaychar
-                        END IF
-
-                        IF x2$ = "#" THEN
-                            s = 1
-                            x2$ = x2$ + sp2
-                            GOTO customlaychar
-                        END IF
-
-                        IF x2$ = "," THEN x2$ = x2$ + sp: GOTO customlaychar
-
-
-                        IF x$ = CHR$(0) THEN 'substitution
-                        IF x2$ = "STEP" THEN x2$ = x2$ + sp2: GOTO customlaychar
-                        x2$ = x2$ + sp: GOTO customlaychar
-                    END IF
-
-                    'default solution sp2+?+sp2
-                    x2$ = x2$ + sp2
-
-
-
-
-
-                    customlaychar:
-                    IF s = 0 THEN s = 2
-                    IF s <> s1 THEN
-                        IF s1 THEN l$ = LEFT$(l$, LEN(l$) - 1)
-                        IF s = 1 THEN l$ = l$ + sp
-                        IF s = 2 THEN l$ = l$ + sp2
-                    END IF
-
-                    IF (RTRIM$(id2.callname) = "sub_timer" OR RTRIM$(id2.callname) = "sub_key") AND i = id2.args THEN 'spacing exception
-                    IF x2$ <> ")" + sp2 THEN
-                        l$ = LEFT$(l$, LEN(l$) - 1) + sp
-                    END IF
-                END IF
-
-                l$ = l$ + x2$
-
+            s = 0
+            an = 0
+            x3$ = RIGHT$(l$, 1)
+            IF x3$ = sp THEN s = 1
+            IF x3$ = sp2 THEN
+                s = 2
+                IF alphanumeric(ASC(RIGHT$(l$, 2))) THEN an = 1
             ELSE
-                addlayout = 0
-                x$ = RIGHT$(x$, LEN(x$) - 1)
+                IF alphanumeric(ASC(x3$)) THEN an = 1
             END IF
-            addedlayout = 0
-        LOOP
+            s1 = s
+
+            IF alphanumeric(ASC(x2$)) THEN convertspacing = 1
+
+
+            IF x2$ = "LPRINT" THEN
+
+                'x2$="LPRINT"
+                'x$=CHR$(0)
+                'x3$=[sp] from WIDTH[sp]
+                'therefore...
+                's=1
+                'an=0
+                'convertspacing=1
+
+
+                'if debug=1 then
+                'print #9,"LPRINT:"
+                'print #9,s
+                'print #9,an
+                'print #9,l$
+                'print #9,x2$
+                'end if
+
+            END IF
 
 
 
-        '---better sub syntax checking begins here---
+
+            IF (an = 1 OR addedlayout = 1) AND alphanumeric(ASC(x2$)) <> 0 THEN
 
 
 
-        IF targettyp = -3 THEN
-            IF separgs2(i) = "N-LL" THEN a$ = "Expected array name": GOTO errmes
-            'names of numeric arrays have ( ) automatically appended (nothing else)
-            e$ = separgs2(i)
+                s = 1 'force space
+                x2$ = x2$ + sp2
+                GOTO customlaychar
+            END IF
 
-            IF INSTR(e$, sp) = 0 THEN 'one element only
-            try_string$ = e$
-            try = findid(try_string$)
-            IF Error_Happened THEN GOTO errmes
-            DO
-                IF try THEN
-                    IF id.arraytype THEN
-                        IF (id.arraytype AND ISSTRING) = 0 THEN
-                            e$ = e$ + sp + "(" + sp + ")"
-                            EXIT DO
-                        END IF
-                    END IF
-                    '---
-                    IF try = 2 THEN findanotherid = 1: try = findid(try_string$) ELSE try = 0
-                    IF Error_Happened THEN GOTO errmes
-                END IF 'if try
-                IF try = 0 THEN 'add symbol?
-                IF LEN(removesymbol$(try_string$)) = 0 THEN
-                    IF Error_Happened THEN GOTO errmes
-                    a = ASC(try_string$)
-                    IF a >= 97 AND a <= 122 THEN a = a - 32
-                    IF a = 95 THEN a = 91
-                    a = a - 64
-                    IF LEN(defineextaz(a)) THEN try_string$ = try_string$ + defineextaz(a): try = findid(try_string$)
-                    IF Error_Happened THEN GOTO errmes
+            IF x2$ = "=" THEN
+                s = 1
+                x2$ = x2$ + sp
+                GOTO customlaychar
+            END IF
+
+            IF x2$ = "#" THEN
+                s = 1
+                x2$ = x2$ + sp2
+                GOTO customlaychar
+            END IF
+
+            IF x2$ = "," THEN x2$ = x2$ + sp: GOTO customlaychar
+
+
+            IF x$ = CHR$(0) THEN 'substitution
+            IF x2$ = "STEP" THEN x2$ = x2$ + sp2: GOTO customlaychar
+            x2$ = x2$ + sp: GOTO customlaychar
+        END IF
+
+        'default solution sp2+?+sp2
+        x2$ = x2$ + sp2
+
+
+
+
+
+        customlaychar:
+        IF s = 0 THEN s = 2
+        IF s <> s1 THEN
+            IF s1 THEN l$ = LEFT$(l$, LEN(l$) - 1)
+            IF s = 1 THEN l$ = l$ + sp
+            IF s = 2 THEN l$ = l$ + sp2
+        END IF
+
+        IF (RTRIM$(id2.callname) = "sub_timer" OR RTRIM$(id2.callname) = "sub_key") AND i = id2.args THEN 'spacing exception
+        IF x2$ <> ")" + sp2 THEN
+            l$ = LEFT$(l$, LEN(l$) - 1) + sp
+        END IF
+    END IF
+
+    l$ = l$ + x2$
+
+ELSE
+    addlayout = 0
+    x$ = RIGHT$(x$, LEN(x$) - 1)
+END IF
+addedlayout = 0
+LOOP
+
+
+
+'---better sub syntax checking begins here---
+
+
+
+IF targettyp = -3 THEN
+    IF separgs_local$(i) = "N-LL" THEN a$ = "Expected array name": GOTO errmes
+    'names of numeric arrays have ( ) automatically appended (nothing else)
+    e$ = separgs_local$(i)
+
+    IF INSTR(e$, sp) = 0 THEN 'one element only
+    try_string$ = e$
+    try = findid(try_string$)
+    IF Error_Happened THEN GOTO errmes
+    DO
+        IF try THEN
+            IF id.arraytype THEN
+                IF (id.arraytype AND ISSTRING) = 0 THEN
+                    e$ = e$ + sp + "(" + sp + ")"
+                    EXIT DO
                 END IF
-            END IF 'try=0
-        LOOP UNTIL try = 0
-    END IF 'one element only
+            END IF
+            '---
+            IF try = 2 THEN findanotherid = 1: try = findid(try_string$) ELSE try = 0
+            IF Error_Happened THEN GOTO errmes
+        END IF 'if try
+        IF try = 0 THEN 'add symbol?
+        IF LEN(removesymbol$(try_string$)) = 0 THEN
+            IF Error_Happened THEN GOTO errmes
+            a = ASC(try_string$)
+            IF a >= 97 AND a <= 122 THEN a = a - 32
+            IF a = 95 THEN a = 91
+            a = a - 64
+            IF LEN(defineextaz(a)) THEN try_string$ = try_string$ + defineextaz(a): try = findid(try_string$)
+            IF Error_Happened THEN GOTO errmes
+        END IF
+    END IF 'try=0
+LOOP UNTIL try = 0
+END IF 'one element only
 
 
 
-    e$ = fixoperationorder$(e$)
-    IF Error_Happened THEN GOTO errmes
-    IF convertspacing = 1 AND addlayout = 1 THEN l$ = LEFT$(l$, LEN(l$) - 1) + sp
-    IF addlayout THEN l$ = l$ + tlayout$: addedlayout = 1
-    e$ = evaluatetotyp(e$, -2)
-    IF Error_Happened THEN GOTO errmes
-    GOTO sete
+e$ = fixoperationorder$(e$)
+IF Error_Happened THEN GOTO errmes
+IF convertspacing = 1 AND addlayout = 1 THEN l$ = LEFT$(l$, LEN(l$) - 1) + sp
+IF addlayout THEN l$ = l$ + tlayout$: addedlayout = 1
+e$ = evaluatetotyp(e$, -2)
+IF Error_Happened THEN GOTO errmes
+GOTO sete
 END IF '-3
 
 
@@ -10011,8 +10004,8 @@ IF targettyp = -4 THEN
         EXIT FOR
     END IF
 
-    IF separgs2(i) = "N-LL" THEN a$ = "Expected variable name/array element": GOTO errmes
-    e$ = fixoperationorder$(separgs2(i))
+    IF separgs_local$(i) = "N-LL" THEN a$ = "Expected variable name/array element": GOTO errmes
+    e$ = fixoperationorder$(separgs_local$(i))
     IF Error_Happened THEN GOTO errmes
     IF convertspacing = 1 AND addlayout = 1 THEN l$ = LEFT$(l$, LEN(l$) - 1) + sp
     IF addlayout THEN l$ = l$ + tlayout$: addedlayout = 1
@@ -10046,11 +10039,11 @@ IF targettyp = -4 THEN
     GOTO sete
 END IF '-4
 
-IF separgs2(i) = "N-LL" THEN
+IF separgs_local$(i) = "N-LL" THEN
     e$ = "NULL"
 ELSE
 
-    e2$ = fixoperationorder$(separgs2(i))
+    e2$ = fixoperationorder$(separgs_local$(i))
     IF Error_Happened THEN GOTO errmes
     IF convertspacing = 1 AND addlayout = 1 THEN l$ = LEFT$(l$, LEN(l$) - 1) + sp
     IF addlayout THEN l$ = l$ + tlayout$: addedlayout = 1
@@ -10072,7 +10065,7 @@ ELSE
         END IF
     END IF
 
-    IF LEFT$(separgs2(i), 2) = "(" + sp THEN dereference = 1 ELSE dereference = 0
+    IF LEFT$(separgs_local$(i), 2) = "(" + sp THEN dereference = 1 ELSE dereference = 0
 
     'pass by reference
     IF (targettyp AND ISPOINTER) THEN
@@ -10361,7 +10354,7 @@ subcall$ = subcall$ + e$
 NEXT
 
 'note: i=id.args+1
-x$ = separgslayout2$(i)
+x$ = separgslayout_local$(i)
 DO WHILE LEN(x$)
     x = ASC(x$)
     IF x THEN
@@ -11536,12 +11529,7 @@ IF recompile THEN
         errmes: 'set a$ to message
         HandleFrontendErrorAndExit a$
 
-        '$INCLUDE:'utilities\cli.bas'
-        '$INCLUDE:'utilities\errors.bas'
-        '$INCLUDE:'utilities\directives.bas'
-        '$INCLUDE:'utilities\prepass.bas'
-        '$INCLUDE:'utilities\startup.bas'
-        '$INCLUDE:'utilities\shutdown.bas'
+        '$INCLUDE:'includes\frontend.bas'
 
         FUNCTION Type2MemTypeValue (t1)
             t = 0
@@ -11577,9 +11565,7 @@ IF recompile THEN
         END FUNCTION
 
         'udt is non-zero if this is an array of udt's, to allow examining each udt element
-        '$INCLUDE:'utilities\variables.bas'
-
-        '$INCLUDE:'utilities\semantics.bas'
+        '$INCLUDE:'includes\codegen.bas'
 
 
 
@@ -13225,16 +13211,7 @@ FUNCTION IsDigitChar% (ch AS STRING)
     END IF
 END FUNCTION
 
-'$INCLUDE:'utilities\context.bas'
-'$INCLUDE:'utilities\sources.bas'
-'$INCLUDE:'utilities\types.bas'
-
-'$INCLUDE:'utilities\consteval.bas'
-'$INCLUDE:'utilities\artifacts.bas'
-'$INCLUDE:'utilities\dependencies.bas'
-'$INCLUDE:'utilities\linker.bas'
-'$INCLUDE:'utilities\labels.bas'
-'$INCLUDE:'utilities\hash.bas'
+'$INCLUDE:'includes\support.bas'
 
 
 FUNCTION NewByteElement$
@@ -13385,15 +13362,15 @@ FUNCTION EvalPreIF (text$, err$)
     result$ = " 0 "
     IF symbol$ = "<>" THEN 'check to see if we're NOT equal in any case with <>
     FOR i = 0 TO UserDefineCount
-        IF UserDefine(0, i) = l$ AND UserDefine(1, i) <> r$ THEN result$ = " -1 ": GOTO finishedcheck
+        IF UserDefineName$(i) = l$ AND UserDefineValue$(i) <> r$ THEN result$ = " -1 ": GOTO finishedcheck
     NEXT
 END IF
 IF INSTR(symbol$, "=") THEN 'check to see if we're equal in any case with =
 UserFound = 0
 FOR i = 0 TO UserDefineCount
-    IF UserDefine(0, i) = l$ THEN
+    IF UserDefineName$(i) = l$ THEN
         UserFound = -1
-        IF UserDefine(1, i) = r$ THEN result$ = " -1 ": GOTO finishedcheck
+        IF UserDefineValue$(i) = r$ THEN result$ = " -1 ": GOTO finishedcheck
     END IF
 NEXT
 IF UserFound = 0 AND LTRIM$(RTRIM$(r$)) = "UNDEFINED" THEN result$ = " -1 ": GOTO finishedcheck
@@ -13402,19 +13379,19 @@ END IF
 
 IF INSTR(symbol$, ">") THEN 'check to see if we're greater than in any case with >
 FOR i = 0 TO UserDefineCount
-    IF VerifyNumber(r$) AND VerifyNumber(UserDefine(1, i)) THEN 'we're comparing numeric values
-    IF UserDefine(0, i) = l$ AND VAL(UserDefine(1, i)) > VAL(r$) THEN result$ = " -1 ": GOTO finishedcheck
+    IF VerifyNumber(r$) AND VerifyNumber(UserDefineValue$(i)) THEN 'we're comparing numeric values
+    IF UserDefineName$(i) = l$ AND VAL(UserDefineValue$(i)) > VAL(r$) THEN result$ = " -1 ": GOTO finishedcheck
 ELSE
-    IF UserDefine(0, i) = l$ AND UserDefine(1, i) > r$ THEN result$ = " -1 ": GOTO finishedcheck
+    IF UserDefineName$(i) = l$ AND UserDefineValue$(i) > r$ THEN result$ = " -1 ": GOTO finishedcheck
 END IF
 NEXT
 END IF
 IF INSTR(symbol$, "<") THEN 'check to see if we're less than in any case with <
 FOR i = 0 TO UserDefineCount
-    IF VerifyNumber(r$) AND VerifyNumber(UserDefine(1, i)) THEN 'we're comparing numeric values
-    IF UserDefine(0, i) = l$ AND VAL(UserDefine(1, i)) < VAL(r$) THEN result$ = " -1 ": GOTO finishedcheck
+    IF VerifyNumber(r$) AND VerifyNumber(UserDefineValue$(i)) THEN 'we're comparing numeric values
+    IF UserDefineName$(i) = l$ AND VAL(UserDefineValue$(i)) < VAL(r$) THEN result$ = " -1 ": GOTO finishedcheck
 ELSE
-    IF UserDefine(0, i) = l$ AND UserDefine(1, i) < r$ THEN result$ = " -1 ": GOTO finishedcheck
+    IF UserDefineName$(i) = l$ AND UserDefineValue$(i) < r$ THEN result$ = " -1 ": GOTO finishedcheck
 END IF
 NEXT
 END IF
@@ -13461,8 +13438,8 @@ DO
         IF VAL(leftside$) <> 0 THEN leftresult = -1
     ELSE
         FOR i = 0 TO UserDefineCount
-            IF UserDefine(0, i) = leftside$ THEN
-                t$ = LTRIM$(RTRIM$(UserDefine(1, i)))
+            IF UserDefineName$(i) = leftside$ THEN
+                t$ = LTRIM$(RTRIM$(UserDefineValue$(i)))
                 IF t$ <> "0" AND t$ <> "" THEN leftresult = -1: EXIT FOR
             END IF
         NEXT
@@ -13472,8 +13449,8 @@ DO
         IF VAL(m$) <> 0 THEN rightresult = -1
     ELSE
         FOR i = 0 TO UserDefineCount
-            IF UserDefine(0, i) = m$ THEN
-                t$ = LTRIM$(RTRIM$(UserDefine(1, i)))
+            IF UserDefineName$(i) = m$ THEN
+                t$ = LTRIM$(RTRIM$(UserDefineValue$(i)))
                 IF t$ <> "0" AND t$ <> "" THEN rightresult = -1: EXIT FOR
             END IF
         NEXT
@@ -13494,8 +13471,8 @@ IF VerifyNumber(temp$) THEN
 ELSE
     IF INSTR(temp$, " ") THEN err$ = "Invalid Resolution of $IF; check statements" 'If we've got more than 1 statement, it's invalid
     FOR i = 0 TO UserDefineCount
-        IF UserDefine(0, i) = temp$ THEN
-            t$ = LTRIM$(RTRIM$(UserDefine(1, i)))
+        IF UserDefineName$(i) = temp$ THEN
+            t$ = LTRIM$(RTRIM$(UserDefineValue$(i)))
             IF t$ <> "0" AND t$ <> "" THEN EvalPreIF = -1: EXIT FOR
         END IF
     NEXT
@@ -13592,25 +13569,13 @@ SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
                 'this variable existed in a previous edit of this program
                 'in this same session; let's preselect it.
                 j = CVL(MID$(backupVariableWatchList$, found + LEN(temp$), 4))
-
-                'if there have been changes in TYPEs, this variable won't be preselected
-                IF (LEN(backupUsedVariableList(j).elements) > 0 AND backupTypeDefinitions$ = typeDefinitions$) OR _
-                (LEN(backupUsedVariableList(j).elements) = 0) THEN
-                usedVariableList(i).watch = backupUsedVariableList(j).watch
-                usedVariableList(i).watchRange = backupUsedVariableList(j).watchRange
-                usedVariableList(i).indexes = backupUsedVariableList(j).indexes
-                usedVariableList(i).displayFormat = backupUsedVariableList(j).displayFormat
-                usedVariableList(i).elements = backupUsedVariableList(j).elements
-                usedVariableList(i).elementTypes = backupUsedVariableList(j).elementTypes
-                usedVariableList(i).elementOffset = backupUsedVariableList(j).elementOffset
             END IF
         END IF
-    END IF
-CASE ELSE 'find and mark as used
-    IF found THEN
-        usedVariableList(i).used = -1
-    END IF
-END SELECT
+    CASE ELSE 'find and mark as used
+        IF found THEN
+            usedVariableList(i).used = -1
+        END IF
+    END SELECT
 END SUB
 
 SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS LONG, incFileName$, header$, text$)
@@ -13622,9 +13587,12 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
     DIM warningCode AS INTEGER
     DIM warningMessage AS STRING
     DIM activePhase AS STRING
-    DIM phaseSetByWarning AS _BYTE
-
-    warningsissued = -1
+    DIM flowText AS STRING
+    DIM suggestionText AS STRING
+    DIM causeText AS STRING
+    DIM exampleText AS STRING
+    DIM locationText AS STRING
+    DIM lineStr AS STRING
     totalWarnings = totalWarnings + 1
 
     IF WarningsAsErrors THEN
@@ -13659,22 +13627,36 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
             warningMessage = warningMessage + ": " + RTRIM$(warningSecondary)
         END IF
 
-        SetCurrentFile warningFile
         activePhase = GetErrorPhase$
-        phaseSetByWarning = 0
-        IF RTRIM$(activePhase) = "" THEN
-            SetErrorPhase "Warning Analysis"
-            phaseSetByWarning = -1
+        IF RTRIM$(activePhase) = "" THEN activePhase = "Warning Analysis"
+        flowText = activePhase + " :: warning evaluation"
+        IF RTRIM$(warningFile) <> "" THEN flowText = flowText + " :: file: " + RTRIM$(warningFile)
+
+        suggestionText = GetDetailedSuggestion$(warningCode, warningMessage, warningContext)
+        causeText = GetErrorCause$(warningCode, warningMessage, warningContext)
+        exampleText = GetFixExample$(warningCode, warningMessage, warningContext)
+        locationText = FormatDiagnosticLocation$(RTRIM$(warningFile), warningLine, FindErrorColumn%(warningCode, warningMessage, warningContext))
+        lineStr = LTRIM$(STR$(warningLine))
+        IF lineStr = "" THEN lineStr = "?"
+
+        _DEST _CONSOLE
+        PRINT
+        PRINT "[x] QBNex :: Error [" + GetDiagnosticCodeTag$(ERR_WARNING, warningCode) + "]  "; GetDiagnosticHeadline$(warningCode, warningMessage, warningContext)
+        IF RTRIM$(locationText) <> "" THEN PRINT "  [@] " + RTRIM$(locationText)
+        IF RTRIM$(warningContext) <> "" THEN
+            PRINT "  [#] source"
+            PRINT "    " + lineStr + " | " + RTRIM$(warningContext)
         END IF
-
-        PushErrorContext "warning evaluation"
-        IF RTRIM$(warningFile) <> "" THEN PushErrorContext "file: " + RTRIM$(warningFile)
-        ReportDetailedErrorWithSeverity warningCode, ERR_WARNING, warningMessage, warningLine, warningContext, warningSecondary, warningLocation
-        IF RTRIM$(warningFile) <> "" THEN PopErrorContext
-        PopErrorContext
-        IF phaseSetByWarning THEN ClearErrorPhase
-
-        PrintAllErrors
+        IF RTRIM$(suggestionText) <> "" THEN PRINT "  [>] next     " + RTRIM$(suggestionText)
+        IF RTRIM$(flowText) <> "" THEN PRINT "  [::] flow    " + RTRIM$(flowText)
+        PRINT "  [*] config   warning promoted to blocking diagnostic"
+        IF RTRIM$(warningMessage) <> "" THEN PRINT "  [.] detail   " + RTRIM$(warningMessage)
+        IF RTRIM$(warningLocation) <> "" THEN PRINT "  [^] where    " + RTRIM$(warningLocation)
+        IF RTRIM$(warningSecondary) <> "" THEN PRINT "  [>>] while   " + RTRIM$(warningSecondary)
+        IF RTRIM$(causeText) <> "" THEN PRINT "  [!] cause    " + RTRIM$(causeText)
+        IF RTRIM$(exampleText) <> "" THEN PRINT "  [+] example  " + RTRIM$(exampleText)
+        PRINT
+        PRINT "[x] QBNex :: Build Halted  1 blocking diagnostic(s) (1 warning(s) promoted)"
         WarnIfStaleOutputBinary
         CleanupErrorHandler
         SYSTEM 1
@@ -13783,15 +13765,7 @@ END FUNCTION
 
 ' Generic method (can be used outside of QBNex) includes:
 
-'$INCLUDE:'utilities\strings.bas'
-
-' Custom method (designed specifically for QBNex) includes:
-
-'$INCLUDE:'utilities\config.bas'
-'$INCLUDE:'utilities\file.bas'
-'$INCLUDE:'subs_functions\extensions\opengl\opengl_methods.bas'
-'$INCLUDE:'utilities\ini-manager\ini.bm'
-'$INCLUDE:'utilities\error_handler.bas'
+'$INCLUDE:'includes\runtime.bas'
 
 DEFLNG A-Z
 

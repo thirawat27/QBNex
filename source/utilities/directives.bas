@@ -1,4 +1,4 @@
-FUNCTION HandleSimpleDirective% (upperLine AS STRING, rawLine AS STRING)
+FUNCTION HandleSimpleDirective% (upperLine AS STRING)
     DIM tempPos AS LONG
     DIM l$
     DIM r$
@@ -19,19 +19,16 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING, rawLine AS STRING)
         layout$ = SCase$("$Let ") + l$ + " = " + r$
 
         FOR i = 7 TO UserDefineCount
-            IF UserDefine(0, i) = l$ THEN
-                UserDefine(1, i) = r$
+            IF UserDefineName$(i) = l$ THEN
+                UserDefineValue$(i) = r$
                 HandleSimpleDirective% = 1
                 EXIT FUNCTION
             END IF
         NEXT
 
         UserDefineCount = UserDefineCount + 1
-        IF UserDefineCount > UBOUND(UserDefine, 2) THEN
-            REDIM _PRESERVE UserDefine(1, UBOUND(UserDefine, 2) + 10)
-        END IF
-        UserDefine(0, UserDefineCount) = l$
-        UserDefine(1, UserDefineCount) = r$
+        UserDefineName$(UserDefineCount) = l$
+        UserDefineValue$(UserDefineCount) = r$
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -355,19 +352,16 @@ FUNCTION HandlePrepassMetaDirective% (upperLine AS STRING)
     defineValue = normalizedValue
 
     FOR i = 8 TO UserDefineCount
-        IF UserDefine(0, i) = defineName THEN
-            UserDefine(1, i) = defineValue
+            IF UserDefineName$(i) = defineName THEN
+                UserDefineValue$(i) = defineValue
             HandlePrepassMetaDirective% = 1
             EXIT FUNCTION
         END IF
     NEXT
 
     UserDefineCount = UserDefineCount + 1
-    IF UserDefineCount > UBOUND(UserDefine, 2) THEN
-        REDIM _PRESERVE UserDefine(1, UBOUND(UserDefine, 2) + 10)
-    END IF
-    UserDefine(0, UserDefineCount) = defineName
-    UserDefine(1, UserDefineCount) = defineValue
+    UserDefineName$(UserDefineCount) = defineName
+    UserDefineValue$(UserDefineCount) = defineValue
 
     HandlePrepassMetaDirective% = 1
 END FUNCTION
@@ -637,8 +631,6 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     DIM exeIconFileOnly AS STRING
     DIM currentdir$
     DIM iconfilehandle AS LONG
-    DIM iconWriteFailed AS _BYTE
-
     HandleExeIconDirective% = 0
     IF LEFT$(upperLine, 8) <> "$EXEICON" THEN EXIT FUNCTION
 

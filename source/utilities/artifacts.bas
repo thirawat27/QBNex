@@ -1,3 +1,7 @@
+FUNCTION EscapeUnixShellPath$ (pathValue$)
+    EscapeUnixShellPath$ = StrReplace$(pathValue$, "'", "'\''")
+END FUNCTION
+
 FUNCTION QuotedFilename$ (f$)
 
     IF os$ = "WIN" THEN
@@ -6,10 +10,20 @@ FUNCTION QuotedFilename$ (f$)
     END IF
 
     IF os$ = "LNX" THEN
-        QuotedFilename$ = "'" + f$ + "'"
+        QuotedFilename$ = "'" + EscapeUnixShellPath$(f$) + "'"
         EXIT FUNCTION
     END IF
 
+    QuotedFilename$ = CHR$(34) + f$ + CHR$(34)
+END FUNCTION
+
+FUNCTION GetCompilerBuildDirectory$ ()
+    DIM buildDirectory AS STRING
+
+    buildDirectory = "." + pathsep$ + "internal" + pathsep$ + "c"
+    IF _DIREXISTS(buildDirectory) = 0 THEN EXIT FUNCTION
+
+    GetCompilerBuildDirectory$ = buildDirectory
 END FUNCTION
 
 FUNCTION ResolveAbsoluteDirectory$ (pathCandidate$)
@@ -43,15 +57,17 @@ FUNCTION IsCompilerRelativeOutputPath% (pathCandidate$)
 END FUNCTION
 
 FUNCTION ResolveCompilerRelativeOutputDirectory$ (pathCandidate$)
+    DIM buildDirectory AS STRING
     DIM currentdir AS STRING
     DIM resolvedPath AS STRING
 
     IF LEN(pathCandidate$) = 0 THEN EXIT FUNCTION
     IF IsCompilerRelativeOutputPath%(pathCandidate$) = 0 THEN EXIT FUNCTION
-    IF _DIREXISTS(".\internal\c") = 0 THEN EXIT FUNCTION
+    buildDirectory = GetCompilerBuildDirectory$
+    IF LEN(buildDirectory) = 0 THEN EXIT FUNCTION
 
     currentdir = _CWD$
-    CHDIR ".\internal\c"
+    CHDIR buildDirectory
     CHDIR pathCandidate$
     resolvedPath = _CWD$
     CHDIR currentdir
@@ -338,7 +354,7 @@ FUNCTION PrepareWindowsResourceArtifacts% (outputBaseName AS STRING)
         OPEN tmpdir$ + "call_windres.bat" FOR OUTPUT AS #ffh
         PRINT #ffh, "internal\c\c_compiler\bin\windres.exe -i " + StrReplace$(tmpdir$, "\", "/") + "icon.rc -o " + StrReplace$(tmpdir$, "\", "/") + "icon.o"
         CLOSE #ffh
-        SHELL _HIDE tmpdir$ + "call_windres.bat"
+        SHELL _HIDE "cmd /c " + QuotedFilename$(tmpdir$ + "call_windres.bat")
         IF _FILEEXISTS(tmpdir$ + "icon.o") = 0 THEN
             a$ = "Bad icon file"
             IF VersionInfoSet THEN a$ = a$ + " or invalid $VERSIONINFO values"
@@ -367,5 +383,5 @@ SUB EmitMacOSLauncherScript (outputBaseName AS STRING)
     PRINT #ff, "exit";
     PRINT #ff, CHR$(10);
     CLOSE #ff
-    SHELL _HIDE "chmod +x " + path.exe$ + outputBaseName + extension$ + "_start.command"
+    SHELL _HIDE "chmod +x " + QuotedFilename$(path.exe$ + outputBaseName + extension$ + "_start.command")
 END SUB

@@ -4,6 +4,9 @@
 
 set -u
 
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$ROOT"
+
 cleanup_setup_artifacts() {
   rm -f ./temp.7z ./7zr ./7zr.exe >/dev/null 2>&1 || true
   rm -rf ./mingw32 ./mingw64 >/dev/null 2>&1 || true
@@ -29,7 +32,7 @@ pkg_install() {
 
 
 #Make sure we're not running as root
-if [ $EUID == "0" ]; then
+if [ "$EUID" = "0" ]; then
   echo "You are trying to run this script as root. This is highly unrecommended."
   echo "This script will prompt you for your sudo password if needed to install packages."
   exit 1
@@ -146,12 +149,13 @@ popd
 
 if [ -x "./qb-stage0" ]; then
   rm -f ./qb
-  cp -f ./qb-stage0 ./qb
+  echo "Self-hosting 'QBNex'"
+  ./qb-stage0 ./source/qbnex.bas -o ./qb
   chmod +x ./qb
 fi
 
 if [ -e "./qb" ]; then
-  if [ -z "$QBNEX_KEEP_STAGE0" ]; then
+  if [ -z "${QBNEX_KEEP_STAGE0:-}" ]; then
     rm -f ./qb-stage0
   fi
   cleanup_setup_artifacts

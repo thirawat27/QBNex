@@ -228,11 +228,7 @@ FUNCTION GetBlockingIssueCount& ()
 END FUNCTION
 
 FUNCTION RepeatSpaces$ (count AS INTEGER)
-    IF count <= 0 THEN
-        RepeatSpaces$ = ""
-    ELSE
-        RepeatSpaces$ = STRING$(count, " ")
-    END IF
+    RepeatSpaces$ = Text_Repeat$(" ", count)
 END FUNCTION
 
 FUNCTION ExtractDiagnosticToken$ (message AS STRING)
@@ -623,7 +619,7 @@ FUNCTION GetDiagnosticHeadline$ (errCode AS INTEGER, message AS STRING, context 
     END SELECT
 END FUNCTION
 
-FUNCTION GetPointerHint$ (errCode AS INTEGER, message AS STRING, context AS STRING)
+FUNCTION GetPointerHint$ (errCode AS INTEGER, context AS STRING)
     DIM typoToken AS STRING
     DIM suggestion AS STRING
 
@@ -1375,7 +1371,7 @@ SUB PrintError (errIdx AS LONG)
     diagnosticMarker = GetDiagnosticMarker$(errInfo.severity)
     codeTag = GetDiagnosticCodeTag$(errInfo.severity, errInfo.errorCode)
     headline = GetDiagnosticHeadline$(errInfo.errorCode, RTRIM$(errInfo.message), RTRIM$(errInfo.context))
-    pointerHint = GetPointerHint$(errInfo.errorCode, RTRIM$(errInfo.message), RTRIM$(errInfo.context))
+    pointerHint = GetPointerHint$(errInfo.errorCode, RTRIM$(errInfo.context))
     severityColor = GetSeverityColor%(errInfo.severity)
     locationText = FormatDiagnosticLocation$(RTRIM$(errInfo.fileName), errInfo.lineNumber, errInfo.columnNumber)
     flowText = FormatDiagnosticFlow$(RTRIM$(errInfo.phaseName), RTRIM$(errInfo.contextTrace))

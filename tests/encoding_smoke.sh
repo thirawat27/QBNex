@@ -23,12 +23,15 @@ SRC_BOM="$TMPDIR/utf8_bom_source.bas"
 SRC_EMPTY="$TMPDIR/empty_source.bas"
 SRC_SPACE_DIR="$TMPDIR/source with spaces"
 SRC_SPACE="$SRC_SPACE_DIR/hello world.bas"
+SRC_QUOTE_DIR="$TMPDIR/source's apostrophe"
+SRC_QUOTE="$SRC_QUOTE_DIR/hello's world.bas"
 BIN_UTF16="$TMPDIR/utf16_output"
 BIN_INVALID="$TMPDIR/invalid_utf8_output"
 BIN_INVALID_MID="$TMPDIR/invalid_utf8_mid_output"
 BIN_BOM="$TMPDIR/utf8_bom_output"
 BIN_EMPTY="$TMPDIR/empty_output"
 BIN_SPACE="$TMPDIR/output with spaces/hello world"
+BIN_QUOTE="$TMPDIR/output's apostrophe/hello's world"
 BIN_STALE="$TMPDIR/stale_output"
 OUT_UTF16="$TMPDIR/utf16_output.txt"
 OUT_INVALID="$TMPDIR/invalid_utf8_output.txt"
@@ -36,6 +39,7 @@ OUT_INVALID_MID="$TMPDIR/invalid_utf8_mid_output.txt"
 OUT_BOM="$TMPDIR/utf8_bom_output.txt"
 OUT_EMPTY="$TMPDIR/empty_output.txt"
 OUT_SPACE="$TMPDIR/space_path_output.txt"
+OUT_QUOTE="$TMPDIR/apostrophe_path_output.txt"
 OUT_STALE="$TMPDIR/stale_output.txt"
 
 printf '\377\376P\000R\000I\000N\000T\000 \000"\000h\000i\000"\000\r\000\n\000' > "$SRC_UTF16"
@@ -45,6 +49,8 @@ printf '\357\273\277PRINT "hi"\r\n' > "$SRC_BOM"
 : > "$SRC_EMPTY"
 mkdir -p "$SRC_SPACE_DIR" "$TMPDIR/output with spaces"
 printf 'PRINT "hi"\r\n' > "$SRC_SPACE"
+mkdir -p "$SRC_QUOTE_DIR" "$TMPDIR/output's apostrophe"
+printf 'PRINT "hi"\r\n' > "$SRC_QUOTE"
 
 set +e
 "$QB" "$SRC_UTF16" -o "$BIN_UTF16" > "$OUT_UTF16" 2>&1
@@ -64,6 +70,9 @@ EC_EMPTY=$?
 
 "$QB" "$SRC_SPACE" -o "$BIN_SPACE" > "$OUT_SPACE" 2>&1
 EC_SPACE=$?
+
+"$QB" "$SRC_QUOTE" -o "$BIN_QUOTE" > "$OUT_QUOTE" 2>&1
+EC_QUOTE=$?
 
 "$QB" "$SRC_BOM" -o "$BIN_STALE" >/dev/null 2>&1
 "$QB" "$SRC_INVALID" -o "$BIN_STALE" > "$OUT_STALE" 2>&1
@@ -166,6 +175,19 @@ if [ ! -f "$BIN_SPACE" ]; then
   FAIL=1
 fi
 
+if [ "$EC_QUOTE" -ne 0 ]; then
+  echo "[FAIL] Source and output paths with apostrophes should compile successfully."
+  FAIL=1
+fi
+grep -F "Build complete:" "$OUT_QUOTE" >/dev/null 2>&1 || {
+  echo "[FAIL] Apostrophe-path fixture is missing successful build output."
+  FAIL=1
+}
+if [ ! -f "$BIN_QUOTE" ]; then
+  echo "[FAIL] Apostrophe-path compilation should emit an executable."
+  FAIL=1
+fi
+
 if [ "$EC_STALE" -eq 0 ]; then
   echo "[FAIL] Recompiling invalid UTF-8 over an existing output should fail."
   FAIL=1
@@ -193,5 +215,6 @@ echo "  Mid invalid UTF-8: \"$OUT_INVALID_MID\""
 echo "  UTF-8 BOM: \"$OUT_BOM\""
 echo "  Empty: \"$OUT_EMPTY\""
 echo "  Spaced path: \"$OUT_SPACE\""
+echo "  Apostrophe path: \"$OUT_QUOTE\""
 echo "  Stale output: \"$OUT_STALE\""
 exit 1
