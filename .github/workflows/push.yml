@@ -32,6 +32,7 @@ jobs:
       QBNEX_CI: "1"
       PLATFORM: ${{ matrix.platform || '' }}
       QBNEX_MINGW_ARCH: ${{ matrix.mingw_arch || '' }}
+      QBNEX_BUNDLE_DIR: dist/bundle/qbnex
     steps:
       - uses: actions/checkout@v4
 
@@ -49,9 +50,19 @@ jobs:
         shell: cmd
         run: setup_win.cmd
 
+      - name: Stage portable bundle (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./.github/scripts/stage_portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
+
+      - name: Stage portable bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/stage_portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
+
       - name: Upload compiler artifact
         uses: actions/upload-artifact@v4
         with:
           name: qbnex_push_${{ github.sha }}_${{ matrix.artifact_suffix }}
-          path: ${{ github.workspace }}/${{ matrix.artifact_path }}
+          path: ${{ github.workspace }}/${{ env.QBNEX_BUNDLE_DIR }}
           if-no-files-found: error

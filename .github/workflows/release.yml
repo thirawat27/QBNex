@@ -51,6 +51,7 @@ jobs:
       QBNEX_CI: "1"
       PLATFORM: ${{ matrix.platform || '' }}
       QBNEX_MINGW_ARCH: ${{ matrix.mingw_arch || '' }}
+      QBNEX_BUNDLE_DIR: dist/bundle/qbnex
     steps:
       - uses: actions/checkout@v4
 
@@ -68,19 +69,30 @@ jobs:
         shell: cmd
         run: setup_win.cmd
 
+      - name: Stage portable bundle (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./.github/scripts/stage_portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
+
+      - name: Stage portable bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/stage_portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
+
       - name: Package compiler artifact (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          bundle_dir="${QBNEX_BUNDLE_DIR}"
           mkdir -p dist
-          tar -czf "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.tar.gz" "${{ matrix.artifact_path }}"
+          tar -czf "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.tar.gz" -C "$(dirname "${bundle_dir}")" "$(basename "${bundle_dir}")"
 
       - name: Package compiler artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "${{ matrix.artifact_path }}" -DestinationPath "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.zip" -Force
+          Compress-Archive -Path "${{ env.QBNEX_BUNDLE_DIR }}" -DestinationPath "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.zip" -Force
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
