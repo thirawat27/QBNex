@@ -1,14 +1,3 @@
-@rem This batch script downloads a standalone MinGW distribution from WinLibs:
-@rem https://winlibs.com/
-@rem
-@rem The downloaded archive is extracted with PowerShell's Expand-Archive support.
-@rem
-@rem The archive is downloaded using 'curl', extracted to the correct location,
-@rem and then the temporary archive is deleted.
-@rem
-@rem Copyright (c) 2022, Samuel Gomes
-@rem https://github.com/a740g
-@rem
 @echo off
 
 rem Enable cmd extensions and exit if not present
@@ -157,11 +146,10 @@ c_compiler\bin\windres.exe -i ../temp/icon.rc -o ../temp/icon.o
 c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\temp\icon.o -D DEPENDENCY_LOADFONT  parts\video\font\ttf\os\win\src.o -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE parts\core\os\win\src.a -lopengl32 -lglu32 -static-libgcc -static-libstdc++ -D GLEW_STATIC -D FREEGLUT_STATIC -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
 cd ..\..
 
-set "SELFHOST_EXIT="
 if exist qb-stage0.exe (
-    call :selfhost
-) else (
-    echo Stage0 compiler was not produced.
+    echo Self-hosting 'QBNex'
+    if exist qb.exe del /q qb.exe >nul 2>nul
+    qb-stage0.exe source\qbnex.bas -o qb.exe
 )
 
 echo.
@@ -171,29 +159,9 @@ if exist qb.exe (
     echo   qb yourfile.bas
 ) else (
     echo Final compiler build failed.
-    if defined SELFHOST_EXIT echo Stage0 exit code: %SELFHOST_EXIT%
-    for %%F in (internal\temp\compilelog.txt internal\temp\mainerr.txt internal\temp\ideerror.txt) do (
-        if exist "%%F" if not "%%~zF"=="0" (
-            echo.
-            echo ===== %%F =====
-            type "%%F"
-        )
-    )
     exit /b 1
 )
 if not defined QBNEX_CI pause
 
 :end
 endlocal
-
-:selfhost
-echo Self-hosting 'QBNex'
-if exist qb.exe del /q qb.exe >nul 2>nul
-qb-stage0.exe source\qbnex.bas -o qb.exe
-set "SELFHOST_EXIT=%ERRORLEVEL%"
-if not exist qb.exe if /I "%QBNEX_MINGW_ARCH%"=="x86" (
-    echo Self-hosting did not produce qb.exe on Windows x86. Retrying once...
-    qb-stage0.exe source\qbnex.bas -o qb.exe
-    set "SELFHOST_EXIT=%ERRORLEVEL%"
-)
-exit /b 0

@@ -40,12 +40,6 @@ jobs:
             artifact_suffix: osx
             artifact_path: qb
             build_command: QBNEX_CI=1 bash ./setup_osx.command
-          - target: windows-x86
-            runs_on: windows-latest
-            artifact_suffix: win-x86
-            artifact_path: qb.exe
-            platform: x86
-            mingw_arch: x86
           - target: windows-x64
             runs_on: windows-latest
             artifact_suffix: win-x64

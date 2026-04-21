@@ -166,7 +166,7 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - Transpiles BASIC source to optimized C++ before compilation
   - Compiles to native binaries for maximum performance
   - CLI-driven compilation optimized for modern terminal workflows
-  - Cross-platform support: Windows (x86/x64), Linux, macOS
+  - Cross-platform support: Windows (x64 release builds, x86/x64 source builds), Linux, macOS
 
 - **Advanced Graphics & Sound**
   - OpenGL-based graphics subsystem with FreeGLUT
@@ -264,7 +264,9 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 
 ## Installation
 
-Download the appropriate package for your operating system from the repository releases page, or build from source using the provided setup scripts. Tagged releases publish per-platform archives such as `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz`, `qbnex_<tag>_win-x86.zip`, and `qbnex_<tag>_win-x64.zip`.
+Download the appropriate package for your operating system from the repository releases page, or build from source using the provided setup scripts. Tagged releases publish per-platform archives such as `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz`, and `qbnex_<tag>_win-x64.zip`.
+
+`windows-x86` / 32-bit packages are not published by the GitHub release workflow. If you need a 32-bit Windows build, compile it locally with the scripts in this repository by running `setup_win.cmd` and choosing the 32-bit MinGW toolchain, or by setting `QBNEX_MINGW_ARCH=x86` before running the script.
 
 ### Windows Setup
 
@@ -274,6 +276,12 @@ It is advisable to whitelist the QBNex folder in your antivirus or antimalware s
 
 **Building from source:**
 ```cmd
+setup_win.cmd
+```
+
+To force a 32-bit Windows build without the interactive prompt:
+```cmd
+set QBNEX_MINGW_ARCH=x86
 setup_win.cmd
 ```
 
@@ -1940,11 +1948,12 @@ qb test_collections.bas -x
 
 QBNex uses GitHub Actions for automated builds and release packaging:
 
-- `pull_request.yml`: Builds compiler artifacts for Linux, macOS, Windows x86, and Windows x64 on pull requests targeting `main`
-- `push.yml`: Runs the same four-target build matrix for pushes to `main`
+- `pull_request.yml`: Builds compiler artifacts for Linux, macOS, and Windows x64 on pull requests targeting `main`
+- `push.yml`: Runs the same three-target build matrix for pushes to `main`
 - `release.yml`: Runs on pushed tags matching `v*` and on manual dispatch, packages release archives, and publishes a GitHub Release with generated notes
 - Push and pull-request workflows honor `ci-skip` in the commit message to skip the build matrix when explicitly requested
 - Default GitHub-hosted workflows do not run the smoke or benchmark suites; use the local commands above when you need deeper validation
+- `windows-x86` / 32-bit builds are still supported through the repository setup scripts, but they must be compiled manually outside GitHub Actions
 
 To cut a release from Git:
 
@@ -1957,8 +1966,9 @@ When the release workflow succeeds, GitHub Releases will contain:
 
 - `qbnex_v1.0.0_lnx.tar.gz`
 - `qbnex_v1.0.0_osx.tar.gz`
-- `qbnex_v1.0.0_win-x86.zip`
 - `qbnex_v1.0.0_win-x64.zip`
+
+If you need `qbnex_v1.0.0_win-x86.zip` or another 32-bit Windows artifact, build it locally with `setup_win.cmd`.
 
 ### Test Output Interpretation
 
@@ -3297,11 +3307,11 @@ docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
 
 QBNex uses GitHub Actions for automated builds:
 
-- **Push to `main`**: Linux, macOS, Windows x86, Windows x64 artifact builds
-- **Pull requests to `main`**: Linux, macOS, Windows x86, Windows x64 artifact builds
-- **Release tags (`v*`)**: Package and publish GitHub Releases for Linux, macOS, Windows x86, and Windows x64
+- **Push to `main`**: Linux, macOS, Windows x64 artifact builds
+- **Pull requests to `main`**: Linux, macOS, Windows x64 artifact builds
+- **Release tags (`v*`)**: Package and publish GitHub Releases for Linux, macOS, and Windows x64
 
-CI workflows call the platform `setup_*` scripts directly in CI mode. Push and pull-request workflows can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases.
+CI workflows call the platform `setup_*` scripts directly in CI mode. Push and pull-request workflows can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases. `windows-x86` / 32-bit builds must be compiled manually with `setup_win.cmd`.
 
 ---
 

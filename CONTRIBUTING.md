@@ -314,7 +314,9 @@ QBNex uses GitHub Actions for CI:
 
 - **Push to master**: Builds on Linux
 - **Pull requests**: Builds on Linux
-- **Releases**: Builds on Linux, macOS, Windows x86, Windows x64
+- **Releases**: Builds on Linux, macOS, Windows x64
+
+If you need a Windows x86 / 32-bit artifact, build it locally with `setup_win.cmd` from the repository instead of relying on GitHub Releases.
 
 Ensure your changes pass CI before requesting review.
 
