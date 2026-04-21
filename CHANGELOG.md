@@ -5,9 +5,21 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2024-04-11
+## [1.0.0] - 2026-04-21
 
 ### Initial Release
+
+#### Release Engineering
+- Added GitHub Actions release packaging for Linux, macOS, Windows x86, and Windows x64 artifacts.
+- Added tag-driven GitHub Release publishing for tags matching `v*`, with generated release notes and packaged archives.
+- Updated push and pull-request CI workflows to build cross-platform artifacts instead of Linux-only builds.
+- Removed smoke and benchmark suites from the default GitHub-hosted build workflows; these suites remain available for manual verification.
+
+#### Compatibility Fixes
+- Fixed the macOS clang build in `sub_environ` by using a mutable `std::string` buffer pointer compatible with Apple toolchains.
+
+#### Documentation
+- Updated `README.md` to reflect the current release assets, CI matrix, tag-based release flow, and the distinction between local smoke tests and default hosted CI behavior.
 
 #### Core Features
 - Complete QBasic/QB4.5 compatible compiler

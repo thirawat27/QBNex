@@ -5,7 +5,7 @@
   
   **Modern QBasic/QuickBASIC Compiler**
   
-  > **A high-performance, modernized BASIC compiler.** Experience the classic nostalgia of full QB4.5/QBasic compatibility, seamlessly supercharged with advanced OpenGL graphics, modern syntax, TCP/IP networking, and native cross-platform binaries for Windows, Linux, and macOS.
+  > **QBNex is a modern QBasic compiler built to keep the QB4.5/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding self-hosted performance, OpenGL graphics, modern syntax, and native binaries for Windows, Linux, and macOS.
   
 </div>
 
@@ -13,56 +13,123 @@
 
 ## Table of Contents
 
-- [About](#about)
-- [Features](#features)
-- [System Requirements](#system-requirements)
-- [Installation](#installation)
-  - [Windows Setup](#windows-setup)
-  - [macOS Setup](#macos-setup)
-  - [Linux Setup](#linux-setup)
-  - [Docker Setup](#docker-setup)
-  - [Build from Source](#build-from-source)
-- [Quick Start](#quick-start)
-- [Usage Guide](#usage-guide)
-  - [Basic Compilation](#basic-compilation)
-  - [Compiler Flags Reference](#compiler-flags-reference)
-  - [Compiler Settings Configuration](#compiler-settings-configuration)
-  - [Standard Library Imports](#standard-library-imports)
-  - [Working with Modules](#working-with-modules)
-- [Docker Complete Guide](#docker-complete-guide)
-  - [Basic Docker Usage](#basic-docker-usage)
-  - [Docker Compose Workflow](#docker-compose-workflow)
-  - [Graphics Programs in Docker](#graphics-programs-in-docker)
-  - [Network Programs in Docker](#network-programs-in-docker)
-  - [Interactive Development](#interactive-development)
-  - [Advanced Docker Configuration](#advanced-docker-configuration)
-  - [Docker Troubleshooting](#docker-troubleshooting)
-- [Standard Library Reference](#standard-library-reference)
-  - [Collection Libraries](#collection-libraries)
-  - [String Libraries](#string-libraries)
-  - [I/O Libraries](#io-libraries)
-  - [System Libraries](#system-libraries)
-  - [Math & Error Handling](#math--error-handling)
-  - [OOP Support](#oop-support)
-- [Code Examples](#code-examples)
-- [Supported QBasic Commands](#supported-qbasic-commands)
-  - [Control Flow](#control-flow)
-  - [Variables & Data Types](#variables--data-types)
-  - [Input/Output](#inputoutput)
-  - [String Functions](#string-functions)
-  - [Math Functions](#math-functions)
-  - [Type Conversion](#type-conversion)
-  - [Array Operations](#array-operations)
-  - [File I/O](#file-io)
-  - [Graphics & Sound](#graphics--sound)
-  - [System & Memory](#system--memory)
-  - [Error Handling](#error-handling)
-  - [Advanced Features](#advanced-features)
-- [Testing & Verification](#testing--verification)
-- [Development](#development)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgments](#acknowledgments)
+- [QBNex](#qbnex)
+  - [Table of Contents](#table-of-contents)
+  - [About](#about)
+  - [Features](#features)
+  - [System Requirements](#system-requirements)
+    - [Platform Requirements](#platform-requirements)
+    - [Dependencies](#dependencies)
+  - [Installation](#installation)
+    - [Windows Setup](#windows-setup)
+    - [macOS Setup](#macos-setup)
+    - [Linux Setup](#linux-setup)
+    - [Docker Setup](#docker-setup)
+    - [Build from Source](#build-from-source)
+  - [Quick Start](#quick-start)
+  - [Usage Guide](#usage-guide)
+    - [Basic Compilation](#basic-compilation)
+    - [Compiler Flags Reference](#compiler-flags-reference)
+    - [Compiler Settings Configuration](#compiler-settings-configuration)
+    - [Standard Library Imports](#standard-library-imports)
+    - [Working with Modules](#working-with-modules)
+  - [Docker Complete Guide](#docker-complete-guide)
+    - [Basic Docker Usage](#basic-docker-usage)
+    - [Docker Compose Workflow](#docker-compose-workflow)
+    - [Graphics Programs in Docker](#graphics-programs-in-docker)
+    - [Network Programs in Docker](#network-programs-in-docker)
+    - [Interactive Development](#interactive-development)
+    - [Advanced Docker Configuration](#advanced-docker-configuration)
+    - [Docker Troubleshooting](#docker-troubleshooting)
+  - [Standard Library Reference](#standard-library-reference)
+    - [Collection Libraries](#collection-libraries)
+      - [List (`collections.list`)](#list-collectionslist)
+      - [Stack (`collections.stack`)](#stack-collectionsstack)
+      - [Queue (`collections.queue`)](#queue-collectionsqueue)
+      - [Set (`collections.set`)](#set-collectionsset)
+      - [Dictionary (`collections.dictionary`)](#dictionary-collectionsdictionary)
+    - [String Libraries](#string-libraries)
+      - [StringBuilder (`strings.strbuilder`)](#stringbuilder-stringsstrbuilder)
+      - [Text Utilities (`strings.text`)](#text-utilities-stringstext)
+    - [I/O Libraries](#io-libraries)
+      - [Path Utilities (`io.path`)](#path-utilities-iopath)
+      - [CSV Generation (`io.csv`)](#csv-generation-iocsv)
+      - [JSON Generation (`io.json`)](#json-generation-iojson)
+    - [System Libraries](#system-libraries)
+      - [Environment (`sys.env`)](#environment-sysenv)
+      - [Arguments (`sys.args`)](#arguments-sysargs)
+      - [DateTime (`sys.datetime`)](#datetime-sysdatetime)
+    - [Math \& Error Handling](#math--error-handling)
+      - [Numeric Utilities (`math.numeric`)](#numeric-utilities-mathnumeric)
+      - [Result Type (`error.result`)](#result-type-errorresult)
+    - [OOP Support](#oop-support)
+  - [Testing \& Verification](#testing--verification)
+    - [Comprehensive Test Suite](#comprehensive-test-suite)
+    - [Running Individual Tests](#running-individual-tests)
+    - [Library Compilation Status](#library-compilation-status)
+    - [Test Results Summary](#test-results-summary)
+    - [Verification Checklist](#verification-checklist)
+    - [Test Documentation](#test-documentation)
+    - [Creating Your Own Tests](#creating-your-own-tests)
+    - [Continuous Integration](#continuous-integration)
+    - [Test Output Interpretation](#test-output-interpretation)
+    - [Diagnostic Output Style](#diagnostic-output-style)
+  - [Compilation Pipeline](#compilation-pipeline)
+    - [How It Works](#how-it-works)
+    - [Stage 1: Pre-pass (Parsing)](#stage-1-pre-pass-parsing)
+    - [Stage 2: Code Generation](#stage-2-code-generation)
+    - [Stage 3: C++ Compilation](#stage-3-c-compilation)
+    - [Generated Files](#generated-files)
+    - [Compilation Flags Deep Dive](#compilation-flags-deep-dive)
+    - [Performance Considerations](#performance-considerations)
+  - [Troubleshooting Comprehensive Guide](#troubleshooting-comprehensive-guide)
+    - [Compilation Issues](#compilation-issues)
+    - [Runtime Issues](#runtime-issues)
+    - [Docker Issues](#docker-issues)
+    - [Standard Library Issues](#standard-library-issues)
+    - [Platform-Specific Issues](#platform-specific-issues)
+    - [Getting Help](#getting-help)
+    - [Known Issues](#known-issues)
+    - [Reporting Bugs](#reporting-bugs)
+  - [Code Examples](#code-examples)
+    - [Hello World](#hello-world)
+    - [Variables and Math](#variables-and-math)
+    - [Data Types](#data-types)
+    - [Loops and Conditionals](#loops-and-conditionals)
+    - [Subroutines and Functions](#subroutines-and-functions)
+    - [Arrays and Data Processing](#arrays-and-data-processing)
+    - [File I/O](#file-io)
+    - [User-Defined Types](#user-defined-types)
+    - [Graphics Example](#graphics-example)
+    - [Networking Example](#networking-example)
+  - [Supported QBasic Commands](#supported-qbasic-commands)
+    - [Control Flow](#control-flow)
+    - [Variables \& Data Types](#variables--data-types)
+    - [Input/Output](#inputoutput)
+    - [String Functions](#string-functions)
+    - [Math Functions](#math-functions)
+    - [Type Conversion](#type-conversion)
+    - [Array Operations](#array-operations)
+    - [File I/O](#file-io-1)
+    - [Graphics \& Sound](#graphics--sound)
+    - [System \& Memory](#system--memory)
+    - [Error Handling](#error-handling)
+    - [Advanced Features](#advanced-features)
+    - [Logical Operators](#logical-operators)
+    - [Comparison Operators](#comparison-operators)
+  - [Development](#development)
+    - [How It Works](#how-it-works-1)
+    - [Project Structure](#project-structure)
+    - [Building from Source](#building-from-source)
+    - [Adding New Features](#adding-new-features)
+    - [Continuous Integration](#continuous-integration-1)
+  - [Contributing](#contributing)
+    - [Ways to Contribute](#ways-to-contribute)
+    - [Code of Conduct](#code-of-conduct)
+    - [Security](#security)
+  - [License](#license)
+  - [Acknowledgments](#acknowledgments)
+  - [Links](#links)
 
 ---
 
@@ -197,7 +264,7 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 
 ## Installation
 
-Download the appropriate package for your operating system from the repository releases page, or build from source using the provided setup scripts.
+Download the appropriate package for your operating system from the repository releases page, or build from source using the provided setup scripts. Tagged releases publish per-platform archives such as `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz`, `qbnex_<tag>_win-x86.zip`, and `qbnex_<tag>_win-x64.zip`.
 
 ### Windows Setup
 
@@ -234,12 +301,12 @@ chmod +x setup_osx.command
 ```
 
 The script will:
-- Install required dependencies via Homebrew
-- Compile OpenGL, FreeGLUT, and audio libraries
-- Build the QBNex compiler
-- Create `qb` executable
+- Verify Xcode Command Line Tools are available
+- Build the bundled runtime objects required for macOS
+- Build the stage0 compiler and self-host the final compiler
+- Create `qb` in the project root
 
-**Required packages:** OpenGL, GLUT, CoreAudio, Cocoa
+**Required components:** Xcode Command Line Tools, OpenGL, GLUT, CoreAudio, Cocoa
 
 ### Linux Setup
 
@@ -253,13 +320,13 @@ chmod +x setup_lnx.sh
 **Required packages:**
 ```bash
 # Debian/Ubuntu
-sudo apt-get install build-essential libglu1-mesa-dev libasound2-dev freeglut3-dev libx11-dev libncurses5-dev
+sudo apt-get install g++ x11-utils mesa-common-dev libglu1-mesa-dev libasound2-dev zlib1g-dev libncurses-dev
 
 # Fedora/RHEL
-sudo dnf install gcc-c++ libglu-devel libasound-devel freeglut-devel libX11-devel ncurses-devel
+sudo dnf install gcc-c++ xmessage mesa-libGLU-devel alsa-lib-devel zlib-devel ncurses-devel
 
 # Arch Linux
-sudo pacman -S gcc glu alsa-lib freeglut libx11 ncurses
+sudo pacman -S gcc xorg-xmessage glu alsa-lib zlib ncurses
 ```
 
 The setup script compiles all libraries and creates the `qb` compiler binary.
@@ -1696,6 +1763,18 @@ tests\encoding_smoke.cmd
 tests\cli_smoke.cmd
 ```
 
+**Benchmark Smoke Test (manual):**
+```bash
+# Linux/macOS
+chmod +x tests/benchmark_smoke.sh
+./tests/benchmark_smoke.sh
+```
+
+```cmd
+:: Windows
+tests\benchmark_smoke.cmd
+```
+
 Current CLI smoke coverage includes:
 - `--help`, `--version`, unknown switch, invalid output path
 - quiet mode (`-q`)
@@ -1708,6 +1787,8 @@ This script validates both behaviors in one run:
 - Default compilation output includes detailed markers such as `[!] cause` and `[+] example` without requiring `-d`
 - `--compact-errors` hides those detailed sections and keeps output compact
 - Source fixture for the test is `tests/fixtures/diagnostics_compile_error.bas`
+
+Smoke and benchmark suites remain available for local validation and troubleshooting, but the default GitHub-hosted build workflows now focus on building and packaging artifacts rather than running these suites on every CI execution.
 
 **Regression Tests:**
 ```bash
@@ -1857,35 +1938,27 @@ qb test_collections.bas -x
 
 ### Continuous Integration
 
-QBNex uses GitHub Actions for automated testing:
+QBNex uses GitHub Actions for automated builds and release packaging:
 
-```yaml
-name: QBNex Tests
-on: [push, pull_request]
+- `pull_request.yml`: Builds compiler artifacts for Linux, macOS, Windows x86, and Windows x64 on pull requests targeting `main`
+- `push.yml`: Runs the same four-target build matrix for pushes to `main`
+- `release.yml`: Runs on pushed tags matching `v*` and on manual dispatch, packages release archives, and publishes a GitHub Release with generated notes
+- Push and pull-request workflows honor `ci-skip` in the commit message to skip the build matrix when explicitly requested
+- Default GitHub-hosted workflows do not run the smoke or benchmark suites; use the local commands above when you need deeper validation
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup QBNex
-        run: |
-          chmod +x setup_lnx.sh
-          ./setup_lnx.sh
-      
-      - name: Run smoke tests
-        run: |
-          qb source/stdlib/examples/import_smoke.bas -z
-          qb source/stdlib/examples/runtime_smoke.bas -z
-          qb source/stdlib/examples/stdlib_demo.bas -z
-      
-      - name: Verify all libraries
-        run: |
-          for f in source/stdlib/collections/*.bas; do
-            qb "$f" -z || exit 1
-          done
+To cut a release from Git:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
 ```
+
+When the release workflow succeeds, GitHub Releases will contain:
+
+- `qbnex_v1.0.0_lnx.tar.gz`
+- `qbnex_v1.0.0_osx.tar.gz`
+- `qbnex_v1.0.0_win-x86.zip`
+- `qbnex_v1.0.0_win-x64.zip`
 
 ### Test Output Interpretation
 
@@ -3174,10 +3247,10 @@ QBNex/
 │   │       ├── network/       # Socket implementation
 │   │       └── input/         # Game controller support
 │   └── source/                 # Bootstrap data files for the stage0 compiler
-├── .github/workflows/          # GitHub Actions CI/CD
+├── .github/workflows/          # pull_request.yml, push.yml, release.yml
 ├── assets/                     # Logo and icons
 ├── licenses/                   # License files
-└── setup_*.cmd/sh             # Platform setup scripts
+└── setup_*                     # setup_lnx.sh, setup_osx.command, setup_win.cmd
 ```
 
 ### Building from Source
@@ -3224,11 +3297,11 @@ docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
 
 QBNex uses GitHub Actions for automated builds:
 
-- **Push to master**: Linux build
-- **Pull requests**: Linux build
-- **Releases**: Linux, macOS, Windows x86, Windows x64
+- **Push to `main`**: Linux, macOS, Windows x86, Windows x64 artifact builds
+- **Pull requests to `main`**: Linux, macOS, Windows x86, Windows x64 artifact builds
+- **Release tags (`v*`)**: Package and publish GitHub Releases for Linux, macOS, Windows x86, and Windows x64
 
-CI workflows call the platform `setup_*` scripts directly in CI mode and skip with commit message containing `ci-skip`.
+CI workflows call the platform `setup_*` scripts directly in CI mode. Push and pull-request workflows can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases.
 
 ---
 
