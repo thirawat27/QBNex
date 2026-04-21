@@ -5,7 +5,7 @@
   
   **Modern QBasic/QuickBASIC Compiler**
   
-  > **QBNex is a modern QBasic compiler built to keep the QB4.5/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding self-hosted performance, OpenGL graphics, modern syntax, and native binaries for Windows, Linux, and macOS.
+  > **QBNex is a modern QBasic compiler built to keep the QuickBASIC/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding self-hosted performance, OpenGL graphics, modern syntax, and native binaries for Windows, Linux, and macOS.
   
 </div>
 
