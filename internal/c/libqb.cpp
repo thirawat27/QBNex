@@ -12,6 +12,7 @@
 
 #ifdef QBNex_MACOSX
     #include <ApplicationServices/ApplicationServices.h>
+    #include <CoreText/CoreText.h>
     
     #include "Cocoa/Cocoa.h"
     #include <CoreFoundation/CoreFoundation.h>
@@ -2131,12 +2132,15 @@ static void qb_clear_text_utf8_cells_range(int32 image_index,int32 first_cell,in
 static int32 qb_text_page_has_utf8_content(int32 image_index);
 static void qb_append_utf8_codepoint(std::string &out,uint32 codepoint);
 static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepoint);
+static int32 qb_is_emoji_like_codepoint(uint32 codepoint);
 static int32 qb_is_zero_width_codepoint(uint32 codepoint);
 static uint8 qb_unicode_to_screen_byte(uint32 character);
-static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character);
+static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character,int32 cell_span);
 static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character);
 #ifdef QBNex_WINDOWS
 static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride);
+#else
+static int32 qb_render_text_cell_freetype(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride);
 #endif
 
 static std::vector<uint32> keyheld_buffer;
@@ -2979,6 +2983,15 @@ static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepo
     return 1;
 }
 
+static int32 qb_is_emoji_like_codepoint(uint32 codepoint){
+    if ((codepoint >= 0x1F1E6 && codepoint <= 0x1F1FF) ||
+        (codepoint >= 0x1F300 && codepoint <= 0x1FAFF) ||
+        (codepoint >= 0x2600 && codepoint <= 0x27BF) ||
+        (codepoint >= 0x2300 && codepoint <= 0x23FF) ||
+        codepoint == 0x20E3) return -1;
+    return 0;
+}
+
 static int32 qb_is_zero_width_codepoint(uint32 codepoint){
     if ((codepoint >= 0x0300 && codepoint <= 0x036F) ||
         (codepoint >= 0x1AB0 && codepoint <= 0x1AFF) ||
@@ -2993,6 +3006,7 @@ static int32 qb_is_zero_width_codepoint(uint32 codepoint){
 }
 
 static int32 qb_is_wide_codepoint(uint32 codepoint){
+    if (qb_is_emoji_like_codepoint(codepoint)) return -1;
     if ((codepoint >= 0x1100 && codepoint <= 0x115F) ||
         (codepoint >= 0x2329 && codepoint <= 0x232A) ||
         (codepoint >= 0x2E80 && codepoint <= 0xA4CF && codepoint != 0x303F) ||
@@ -3099,26 +3113,38 @@ static HGDIOBJ qb_textmode_gdi_previous_bitmap=NULL;
 static uint32 *qb_textmode_gdi_pixels=NULL;
 static int32 qb_textmode_gdi_bitmap_width=0;
 static int32 qb_textmode_gdi_bitmap_height=0;
-static HFONT qb_textmode_gdi_fonts[4][3]={{NULL}};
+static HFONT qb_textmode_gdi_fonts[5][3]={{NULL}};
 
-static int32 qb_get_textmode_gdi_script_slot(uint32 codepoint){
+static int32 qb_get_textmode_script_slot(uint32 codepoint){
+    if (qb_is_emoji_like_codepoint(codepoint)) return 4;
     if (codepoint >= 0x0E00 && codepoint <= 0x0E7F) return 1;
     if ((codepoint >= 0x3040 && codepoint <= 0x30FF) || (codepoint >= 0x3000 && codepoint <= 0x303F) || (codepoint >= 0x4E00 && codepoint <= 0x9FFF)) return 2;
     if ((codepoint >= 0x1100 && codepoint <= 0x11FF) || (codepoint >= 0x3130 && codepoint <= 0x318F) || (codepoint >= 0xAC00 && codepoint <= 0xD7AF)) return 3;
     return 0;
 }
 
-static HFONT qb_get_textmode_gdi_font(uint32 codepoint,int32 cell_width,int32 cell_height){
-    static const wchar_t *faces[4]={L"Segoe UI",L"Leelawadee UI",L"MS Gothic",L"Malgun Gothic"};
-    const int32 script_slot=qb_get_textmode_gdi_script_slot(codepoint);
-    int32 height_slot=2;
-    if (cell_height <= 8) height_slot=0;
-    else if (cell_height <= 14) height_slot=1;
-    HFONT *slot=&qb_textmode_gdi_fonts[script_slot][height_slot];
-    if (*slot) return *slot;
+static int32 qb_get_textmode_height_slot(int32 cell_height){
+    if (cell_height <= 8) return 0;
+    if (cell_height <= 14) return 1;
+    return 2;
+}
 
+static int32 qb_get_textmode_requested_height(int32 script_slot,int32 cell_height){
     int32 requested_height=cell_height;
-    if ((script_slot == 2 || script_slot == 3) && requested_height > 8) requested_height--;
+    if ((script_slot == 2 || script_slot == 3 || script_slot == 4) && requested_height > 8) requested_height--;
+    if ((script_slot == 1 || script_slot == 4) && requested_height > 14) requested_height--;
+    if (requested_height < 1) requested_height=1;
+    return requested_height;
+}
+
+static HFONT qb_get_textmode_gdi_font(uint32 codepoint,int32 cell_width,int32 cell_height){
+    static const wchar_t *faces[5]={L"Segoe UI",L"Leelawadee UI",L"MS Gothic",L"Malgun Gothic",L"Segoe UI Emoji"};
+    const int32 script_slot=qb_get_textmode_script_slot(codepoint);
+    const int32 height_slot=qb_get_textmode_height_slot(cell_height);
+    HFONT *slot=&qb_textmode_gdi_fonts[script_slot][height_slot];
+    const int32 requested_height=qb_get_textmode_requested_height(script_slot,cell_height);
+
+    if (*slot) return *slot;
 
     *slot=CreateFontW(
         -requested_height,
@@ -3200,6 +3226,311 @@ static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_widt
         for (int32 x=0;x<cell_width;x++) dst[x]=src[x];
     }
 
+    return -1;
+}
+#else
+static int32 qb_get_textmode_script_slot(uint32 codepoint){
+    if (qb_is_emoji_like_codepoint(codepoint)) return 4;
+    if (codepoint >= 0x0E00 && codepoint <= 0x0E7F) return 1;
+    if ((codepoint >= 0x3040 && codepoint <= 0x30FF) || (codepoint >= 0x3000 && codepoint <= 0x303F) || (codepoint >= 0x4E00 && codepoint <= 0x9FFF)) return 2;
+    if ((codepoint >= 0x1100 && codepoint <= 0x11FF) || (codepoint >= 0x3130 && codepoint <= 0x318F) || (codepoint >= 0xAC00 && codepoint <= 0xD7AF)) return 3;
+    return 0;
+}
+
+static int32 qb_get_textmode_height_slot(int32 cell_height){
+    if (cell_height <= 8) return 0;
+    if (cell_height <= 14) return 1;
+    return 2;
+}
+
+static int32 qb_get_textmode_requested_height(int32 script_slot,int32 cell_height){
+    int32 requested_height=cell_height;
+    if ((script_slot == 2 || script_slot == 3 || script_slot == 4) && requested_height > 8) requested_height--;
+    if ((script_slot == 1 || script_slot == 4) && requested_height > 14) requested_height--;
+    if (requested_height < 1) requested_height=1;
+    return requested_height;
+}
+
+static int32 qb_textmode_freetype_fonts[5][3]={{0}};
+static uint8 qb_textmode_freetype_attempted[5][3]={{0}};
+
+static void qb_fill_text_cell(uint32 *dest,int32 dest_stride,int32 cell_width,int32 cell_height,uint32 color){
+    int32 x,y;
+    for (y=0;y<cell_height;y++){
+        uint32 *row=dest+y*dest_stride;
+        for (x=0;x<cell_width;x++) row[x]=color;
+    }
+}
+
+static uint32 qb_blend_textmode_color(uint32 background_color,uint32 foreground_color,uint8 alpha){
+    if (!alpha) return background_color;
+    if (alpha == 255) return foreground_color;
+
+    const uint32 inverse_alpha=255-alpha;
+    const uint32 r=((((background_color>>16)&255)*inverse_alpha)+(((foreground_color>>16)&255)*alpha)+127)/255;
+    const uint32 g=((((background_color>>8)&255)*inverse_alpha)+(((foreground_color>>8)&255)*alpha)+127)/255;
+    const uint32 b=((((background_color)&255)*inverse_alpha)+(((foreground_color)&255)*alpha)+127)/255;
+    return (r<<16)|(g<<8)|b;
+}
+
+static int32 qb_read_binary_file(const std::string &path,std::vector<uint8> &content){
+    std::ifstream file(path.c_str(),std::ios::binary);
+    std::streamoff size;
+
+    content.clear();
+    if (!file) return 0;
+
+    file.seekg(0,std::ios::end);
+    size=file.tellg();
+    if (size <= 0) return 0;
+    file.seekg(0,std::ios::beg);
+
+    content.resize(static_cast<size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(&content[0]),static_cast<std::streamsize>(content.size()))) return 0;
+    return -1;
+}
+
+static int32 qb_decode_utf8_text(const std::string &utf8,std::vector<uint32> &codepoints){
+    int32 offset=0;
+    uint32 codepoint=0;
+    int32 consumed=0;
+
+    codepoints.clear();
+    while (offset < static_cast<int32>(utf8.size())){
+        consumed=qb_decode_utf8_codepoint(reinterpret_cast<const uint8*>(utf8.data())+offset,static_cast<int32>(utf8.size())-offset,&codepoint);
+        if (consumed <= 0) return 0;
+        codepoints.push_back(codepoint);
+        offset+=consumed;
+    }
+
+    return codepoints.empty() ? 0 : -1;
+}
+
+static uint32 qb_get_primary_text_cell_codepoint(const std::vector<uint32> &codepoints){
+    size_t i;
+    for (i=0;i<codepoints.size();i++){
+        if (!qb_is_zero_width_codepoint(codepoints[i])) return codepoints[i];
+    }
+    if (!codepoints.empty()) return codepoints[0];
+    return 0;
+}
+
+#ifdef QBNex_MACOSX
+static std::string qb_resolve_macos_font_path(const char *font_name){
+    std::string path;
+    CFStringRef font_name_ref;
+    CTFontRef font;
+    CFTypeRef url_value;
+
+    if (!font_name || !font_name[0]) return path;
+
+    font_name_ref=CFStringCreateWithCString(kCFAllocatorDefault,font_name,kCFStringEncodingUTF8);
+    if (!font_name_ref) return path;
+
+    font=CTFontCreateWithName(font_name_ref,12.0,NULL);
+    CFRelease(font_name_ref);
+    if (!font) return path;
+
+    url_value=CTFontCopyAttribute(font,kCTFontURLAttribute);
+    if (url_value && CFGetTypeID(url_value)==CFURLGetTypeID()){
+        char buffer[4096];
+        if (CFURLGetFileSystemRepresentation((CFURLRef)url_value,true,reinterpret_cast<UInt8*>(buffer),sizeof(buffer))){
+            path.assign(buffer);
+        }
+    }
+
+    if (url_value) CFRelease(url_value);
+    CFRelease(font);
+    return path;
+}
+
+static const char* const* qb_get_macos_textmode_font_candidates(int32 script_slot){
+    static const char* const default_faces[]={"Helvetica","Arial Unicode MS","Menlo",NULL};
+    static const char* const thai_faces[]={"Thonburi","Sukhumvit Set","Arial Unicode MS",NULL};
+    static const char* const cjk_faces[]={"Hiragino Sans","PingFang SC","Arial Unicode MS",NULL};
+    static const char* const korean_faces[]={"Apple SD Gothic Neo","AppleGothic","Arial Unicode MS",NULL};
+    static const char* const emoji_faces[]={"Apple Symbols","Apple Color Emoji","Arial Unicode MS",NULL};
+
+    if (script_slot == 1) return thai_faces;
+    if (script_slot == 2) return cjk_faces;
+    if (script_slot == 3) return korean_faces;
+    if (script_slot == 4) return emoji_faces;
+    return default_faces;
+}
+
+static int32 qb_try_load_textmode_font_candidates(const char* const* candidates,int32 requested_height){
+    std::vector<uint8> content;
+    int32 i=0;
+
+    if (!candidates) return 0;
+
+    while (candidates[i]){
+        std::string font_path=qb_resolve_macos_font_path(candidates[i]);
+        if (!font_path.empty() && qb_read_binary_file(font_path,content)){
+            int32 handle=FontLoad(&content[0],static_cast<int32>(content.size()),requested_height,-1,32);
+            if (handle) return handle;
+        }
+        i++;
+    }
+
+    return 0;
+}
+#else
+static const char* const* qb_get_linux_textmode_font_candidates(int32 script_slot){
+    static const char* const default_paths[]={
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        NULL
+    };
+    static const char* const thai_paths[]={
+        "/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansThai-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        NULL
+    };
+    static const char* const cjk_paths[]={
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf",
+        "/usr/share/fonts/truetype/noto/NotoSansJP-Regular.otf",
+        NULL
+    };
+    static const char* const korean_paths[]={
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
+        "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.ttf",
+        NULL
+    };
+    static const char* const emoji_paths[]={
+        "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        NULL
+    };
+
+    if (script_slot == 1) return thai_paths;
+    if (script_slot == 2) return cjk_paths;
+    if (script_slot == 3) return korean_paths;
+    if (script_slot == 4) return emoji_paths;
+    return default_paths;
+}
+
+static int32 qb_try_load_textmode_font_candidates(const char* const* candidates,int32 requested_height){
+    std::vector<uint8> content;
+    int32 i=0;
+
+    if (!candidates) return 0;
+
+    while (candidates[i]){
+        if (qb_read_binary_file(candidates[i],content)){
+            int32 handle=FontLoad(&content[0],static_cast<int32>(content.size()),requested_height,-1,32);
+            if (handle) return handle;
+        }
+        i++;
+    }
+
+    return 0;
+}
+#endif
+
+static int32 qb_get_textmode_freetype_font(uint32 codepoint,int32 cell_height){
+    const int32 script_slot=qb_get_textmode_script_slot(codepoint);
+    const int32 height_slot=qb_get_textmode_height_slot(cell_height);
+    const int32 requested_height=qb_get_textmode_requested_height(script_slot,cell_height);
+    int32 handle=0;
+
+    if (qb_textmode_freetype_fonts[script_slot][height_slot]) return qb_textmode_freetype_fonts[script_slot][height_slot];
+    if (qb_textmode_freetype_attempted[script_slot][height_slot]) return 0;
+
+    qb_textmode_freetype_attempted[script_slot][height_slot]=1;
+
+#ifdef QBNex_MACOSX
+    handle=qb_try_load_textmode_font_candidates(qb_get_macos_textmode_font_candidates(script_slot),requested_height);
+    if (!handle && script_slot != 0) handle=qb_try_load_textmode_font_candidates(qb_get_macos_textmode_font_candidates(0),requested_height);
+#else
+    handle=qb_try_load_textmode_font_candidates(qb_get_linux_textmode_font_candidates(script_slot),requested_height);
+    if (!handle && script_slot != 0) handle=qb_try_load_textmode_font_candidates(qb_get_linux_textmode_font_candidates(0),requested_height);
+#endif
+
+    qb_textmode_freetype_fonts[script_slot][height_slot]=handle;
+    return handle;
+}
+
+static int32 qb_render_text_cell_freetype(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride){
+    std::vector<uint32> codepoints;
+    uint8 *alpha_bitmap=NULL;
+    int32 bitmap_width=0,bitmap_height=0,pre_x=0,post_x=0;
+    int32 font_handle=0;
+    uint32 primary_codepoint=0;
+    int32 min_x,max_x,min_y,max_y;
+    int32 src_x,src_y,copy_width,copy_height,dest_x,dest_y;
+    int32 x,y;
+
+    if (utf8.empty() || !dest || cell_width <= 0 || cell_height <= 0) return 0;
+    if (!qb_decode_utf8_text(utf8,codepoints)) return 0;
+
+    primary_codepoint=qb_get_primary_text_cell_codepoint(codepoints);
+    font_handle=qb_get_textmode_freetype_font(primary_codepoint,cell_height);
+    if (!font_handle) return 0;
+
+    if (!FontRenderTextUTF32(font_handle,&codepoints[0],static_cast<int32>(codepoints.size()),0,&alpha_bitmap,&bitmap_width,&bitmap_height,&pre_x,&post_x) || !alpha_bitmap) return 0;
+
+    min_x=bitmap_width;
+    min_y=bitmap_height;
+    max_x=-1;
+    max_y=-1;
+    for (y=0;y<bitmap_height;y++){
+        for (x=0;x<bitmap_width;x++){
+            if (alpha_bitmap[x+y*bitmap_width]){
+                if (x < min_x) min_x=x;
+                if (y < min_y) min_y=y;
+                if (x > max_x) max_x=x;
+                if (y > max_y) max_y=y;
+            }
+        }
+    }
+
+    if (max_x < min_x || max_y < min_y){
+        free(alpha_bitmap);
+        return 0;
+    }
+
+    qb_fill_text_cell(dest,dest_stride,cell_width,cell_height,background_color);
+
+    src_x=min_x;
+    src_y=min_y;
+    copy_width=max_x-min_x+1;
+    copy_height=max_y-min_y+1;
+    dest_x=(cell_width-copy_width)/2;
+    dest_y=(cell_height-copy_height)/2;
+
+    if (dest_x < 0){
+        src_x+=-dest_x;
+        copy_width+=dest_x;
+        dest_x=0;
+    }
+    if (dest_y < 0){
+        src_y+=-dest_y;
+        copy_height+=dest_y;
+        dest_y=0;
+    }
+    if ((dest_x+copy_width) > cell_width) copy_width=cell_width-dest_x;
+    if ((dest_y+copy_height) > cell_height) copy_height=cell_height-dest_y;
+
+    if (copy_width > 0 && copy_height > 0){
+        for (y=0;y<copy_height;y++){
+            uint32 *dest_row=dest+(dest_y+y)*dest_stride+dest_x;
+            uint8 *src_row=alpha_bitmap+(src_y+y)*bitmap_width+src_x;
+            for (x=0;x<copy_width;x++){
+                dest_row[x]=qb_blend_textmode_color(background_color,foreground_color,src_row[x]);
+            }
+        }
+    }
+
+    free(alpha_bitmap);
     return -1;
 }
 #endif
@@ -29149,6 +29480,8 @@ void display(){
                             if (cell_utf8){
                                 #ifdef QBNex_WINDOWS
                                     rendered_utf8=qb_render_text_cell_windows(*cell_utf8,f_width*cell_span,f_height,i2,i3,display_surface_offset+qbg_y_offset+y2*x_monitor+x2,x_monitor);
+                                    #else
+                                    rendered_utf8=qb_render_text_cell_freetype(*cell_utf8,f_width*cell_span,f_height,i2,i3,display_surface_offset+qbg_y_offset+y2*x_monitor+x2,x_monitor);
                                 #endif
                             }
                             if (!rendered_utf8){
