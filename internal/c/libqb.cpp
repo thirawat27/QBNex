@@ -22232,7 +22232,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             char *separator;
             std::string buffer((char*)str->chr, (char*)str->chr + str->len);
             buffer.push_back('\0');
-            char *buf=buffer.data();
+            char *buf=&buffer[0];
             //Name and value may be separated by = or space
             separator = strchr(buf, ' ');
             if (!separator) {
