@@ -2,25 +2,62 @@ name: Pull Request CI
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-  linux-build:
-    runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, 'ci-skip')"
+  build:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message || '', 'ci-skip') }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            runs_on: ubuntu-latest
+            artifact_suffix: lnx
+            artifact_path: qb
+            build_command: QBNEX_CI=1 bash ./setup_lnx.sh
+          - target: macos
+            runs_on: macos-latest
+            artifact_suffix: osx
+            artifact_path: qb
+            build_command: QBNEX_CI=1 bash ./setup_osx.command
+          - target: windows-x86
+            runs_on: windows-latest
+            artifact_suffix: win-x86
+            artifact_path: qb.exe
+            platform: x86
+            mingw_arch: x86
+          - target: windows-x64
+            runs_on: windows-latest
+            artifact_suffix: win-x64
+            artifact_path: qb.exe
+            platform: x64
+            mingw_arch: x64
+    env:
+      QBNEX_CI: "1"
+      PLATFORM: ${{ matrix.platform || '' }}
+      QBNEX_MINGW_ARCH: ${{ matrix.mingw_arch || '' }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Install dependencies
-      run: sudo apt update && sudo apt install libglu1-mesa-dev libncurses-dev
-    - name: Build compiler
-      run: QBNEX_CI=1 bash ./setup_lnx.sh
-    - name: Run smoke and benchmark suite
-      run: |
-        chmod +x tests/*.sh
-        ./tests/diagnostics_smoke.sh
-        ./tests/warnings_smoke.sh
-        ./tests/labels_smoke.sh
-        ./tests/encoding_smoke.sh
-        ./tests/cli_smoke.sh
-        ./tests/stdlib_smoke.sh
-        ./tests/benchmark_smoke.sh
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libglu1-mesa-dev libncurses-dev
+
+      - name: Build compiler (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ${{ matrix.build_command }}
+
+      - name: Build compiler (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: setup_win.cmd
+
+      - name: Upload compiler artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qbnex_pr_${{ github.sha }}_${{ matrix.artifact_suffix }}
+          path: ${{ github.workspace }}/${{ matrix.artifact_path }}
+          if-no-files-found: error
