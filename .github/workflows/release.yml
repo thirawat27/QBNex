@@ -1,11 +1,31 @@
 name: Release CI
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Git tag to create or update the release for
+        required: true
+        type: string
+      release_name:
+        description: Optional display name for the GitHub release
+        required: false
+        default: ""
+        type: string
+      draft:
+        description: Create the release as a draft
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
     runs-on: ${{ matrix.runs_on }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +53,7 @@ jobs:
             platform: x64
             mingw_arch: x64
     env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
       QBNEX_CI: "1"
       PLATFORM: ${{ matrix.platform || '' }}
       QBNEX_MINGW_ARCH: ${{ matrix.mingw_arch || '' }}
@@ -53,9 +74,50 @@ jobs:
         shell: cmd
         run: setup_win.cmd
 
-      - name: Upload compiler artifact
+      - name: Package compiler artifact (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar -czf "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.tar.gz" "${{ matrix.artifact_path }}"
+
+      - name: Package compiler artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "${{ matrix.artifact_path }}" -DestinationPath "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.zip" -Force
+
+      - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qbnex_${{ github.ref_name }}_${{ github.sha }}_${{ matrix.artifact_suffix }}
-          path: ${{ github.workspace }}/${{ matrix.artifact_path }}
+          name: release-${{ matrix.artifact_suffix }}
+          path: ${{ github.workspace }}/dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.*
           if-no-files-found: error
+
+  publish-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+      RELEASE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.release_name || '' }}
+      RELEASE_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ env.RELEASE_NAME != '' && env.RELEASE_NAME || env.RELEASE_TAG }}
+          draft: ${{ env.RELEASE_DRAFT == 'true' }}
+          generate_release_notes: true
+          files: release-assets/*
