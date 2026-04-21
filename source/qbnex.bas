@@ -110,6 +110,7 @@ DIM SHARED bypassNextVariable AS _BYTE
 DIM SHARED totalWarnings AS LONG, warningListItems AS LONG
 DIM SHARED maxLineNumber AS LONG
 DIM SHARED ExeIconSet AS LONG, qbnexprefix$, qbnexprefix_set
+DIM SHARED recompileDimSharedInitialized AS _BYTE
 DIM SHARED VersionInfoSet AS _BYTE
 
 'Variables to handle $VERSIONINFO metacommand:
@@ -1193,21 +1194,29 @@ FUNCTION getpid& ()
             nextrunlineindex = 1
             lasttype = 0
             lasttypeelement = 0
-            DIM SHARED udtxname(1000) AS STRING * 256
-            DIM SHARED udtxcname(1000) AS STRING * 256
-            DIM SHARED udtxsize(1000) AS LONG
-            DIM SHARED udtxbytealign(1000) AS INTEGER 'first element MUST be on a byte alignment & size is a multiple of 8
-            DIM SHARED udtxnext(1000) AS LONG
-            DIM SHARED udtxvariable(1000) AS INTEGER 'true if the udt contains variable length elements
-            'elements
-            DIM SHARED udtename(1000) AS STRING * 256
-            DIM SHARED udtecname(1000) AS STRING * 256
-            DIM SHARED udtebytealign(1000) AS INTEGER
-            DIM SHARED udtesize(1000) AS LONG
-            DIM SHARED udtetype(1000) AS LONG
-            DIM SHARED udtetypesize(1000) AS LONG
-            DIM SHARED udtearrayelements(1000) AS LONG
-            DIM SHARED udtenext(1000) AS LONG
+            IF recompileDimSharedInitialized = 0 THEN
+                DIM SHARED udtxname(1000) AS STRING * 256
+                DIM SHARED udtxcname(1000) AS STRING * 256
+                DIM SHARED udtxsize(1000) AS LONG
+                DIM SHARED udtxbytealign(1000) AS INTEGER 'first element MUST be on a byte alignment & size is a multiple of 8
+                DIM SHARED udtxnext(1000) AS LONG
+                DIM SHARED udtxvariable(1000) AS INTEGER 'true if the udt contains variable length elements
+                'elements
+                DIM SHARED udtename(1000) AS STRING * 256
+                DIM SHARED udtecname(1000) AS STRING * 256
+                DIM SHARED udtebytealign(1000) AS INTEGER
+                DIM SHARED udtesize(1000) AS LONG
+                DIM SHARED udtetype(1000) AS LONG
+                DIM SHARED udtetypesize(1000) AS LONG
+                DIM SHARED udtearrayelements(1000) AS LONG
+                DIM SHARED udtenext(1000) AS LONG
+                DIM SHARED usedVariableList(1000) AS usedVarList
+                DIM SHARED warning$(1000)
+                DIM SHARED warningLines(1000) AS LONG
+                DIM SHARED warningIncLines(1000) AS LONG
+                DIM SHARED warningIncFiles(1000) AS STRING
+                recompileDimSharedInitialized = -1
+            END IF
             definingtype = 0
             definingtypeerror = 0
             constlast = -1
@@ -1248,16 +1257,11 @@ FUNCTION getpid& ()
                 totalVariablesCreated = 0
                 typeDefinitions$ = ""
                 totalMainVariablesCreated = 0
-                DIM SHARED usedVariableList(1000) AS usedVarList
                 totalWarnings = 0
                 warningListItems = 0
                 vWatchUsedLabels = SPACE$(1000)
                 vWatchUsedSkipLabels = SPACE$(1000)
                 firstLineNumberLabelvWatch = 0
-                DIM SHARED warning$(1000)
-                DIM SHARED warningLines(1000) AS LONG
-                DIM SHARED warningIncLines(1000) AS LONG
-                DIM SHARED warningIncFiles(1000) AS STRING
                 maxLineNumber = 0
                 uniquenumbern = 0
 

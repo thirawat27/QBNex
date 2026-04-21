@@ -59,12 +59,25 @@
         //#include <math.h> //<-causes overloading abs conflicts in Windows
         #include <cmath>
     #endif
+    #include <algorithm>
+    #include <atomic>
+    #include <chrono>
+    #include <complex>
+    #include <condition_variable>
+    #include <future>
     #include <time.h>
+    #include <memory>
+    #include <mutex>
+    #include <numeric>
     #include <iostream>
     #include <fstream>
-#include <sstream>
-#include <string>
-#include <vector>
+    #include <random>
+    #include <sstream>
+    #include <string>
+    #include <thread>
+    #include <unordered_map>
+    #include <utility>
+    #include <vector>
     #include <time.h>
     #include <string.h>
     #include <errno.h>

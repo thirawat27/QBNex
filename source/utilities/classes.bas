@@ -5,9 +5,7 @@ FUNCTION TopLevelRuntime_ShouldCapture% (trimmedLine$, upperLine$)
     IF LEFT$(trimmedLine$, 1) = "$" THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 7) = "OPTION " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 6) = "CONST " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 4) = "DIM " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 6) = "REDIM " THEN EXIT FUNCTION
-    IF LEFT$(upperLine$, 7) = "STATIC " THEN EXIT FUNCTION
+    IF LEFT$(upperLine$, 11) = "DIM SHARED " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 5) = "DATA " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 7) = "COMMON " THEN EXIT FUNCTION
     IF LEFT$(upperLine$, 6) = "DEFINT" THEN EXIT FUNCTION

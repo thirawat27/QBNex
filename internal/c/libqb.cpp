@@ -247,13 +247,20 @@ void setbits(uint32 bsize,uint8 *base,ptrszint i,int64 val){
     Window X11_window;
 #endif
 
-int32 x11_locked=0;
-int32 x11_lock_request=0;
+static std::mutex x11_lock_mutex;
+static std::condition_variable x11_lock_cv;
+static bool x11_locked=false;
+static bool x11_lock_request=false;
 void x11_lock(){
-    x11_lock_request=1; while (x11_locked==0) Sleep(1);
+    std::unique_lock<std::mutex> lock(x11_lock_mutex);
+    x11_lock_request=true;
+    x11_lock_cv.notify_all();
+    x11_lock_cv.wait(lock, [](){ return x11_locked; });
 }
 void x11_unlock(){
-    x11_locked=0;
+    std::lock_guard<std::mutex> lock(x11_lock_mutex);
+    x11_locked=false;
+    x11_lock_cv.notify_all();
 }
 
 
@@ -348,6 +355,7 @@ int32 window_exists=0;
 int32 create_window=0;
 int32 window_focused=0; //Not used on Windows
 uint8 *window_title=NULL;
+static std::vector<uint8> window_title_storage;
 int32 temp_window_title_set=0;
 
 double max_fps=60;//60 is the default
@@ -442,6 +450,7 @@ struct display_frame_struct{
     int32 state;
     int64 order;
     uint32 *bgra;
+    std::vector<uint32> bgra_storage;
     int32 w;
     int32 h;
     int32 bytes;//w*h*4
@@ -458,85 +467,48 @@ int64 display_frame_order_next=1;
 int64 last_rendered_hardware_display_frame_order=0;
 int64 last_hardware_display_frame_order=0;
 
-#ifdef QBNex_WINDOWS
-    struct MUTEX {
-        HANDLE handle;
-    };
-    
-    MUTEX* new_mutex(){
-        MUTEX *m=(MUTEX*)calloc(1,sizeof(MUTEX));
-        m->handle=CreateMutex(
-        NULL,              // default security attributes
-        FALSE,             // initially not owned
-        NULL);             // unnamed mutex
-        return m;
-    }
-    
-    void free_mutex(MUTEX *mutex){
-        //todo
-    }
-    
-    void lock_mutex(MUTEX *m){
-        if (m==NULL) return;
-        WaitForSingleObject(
-        m->handle,    // handle to mutex
-        INFINITE);  // no time-out interval
-    }
-    
-    void unlock_mutex(MUTEX *m) {
-        if (m==NULL) return;
-        ReleaseMutex(m->handle);
-    }
-#endif
-#ifdef QBNex_UNIX
-    struct MUTEX{
-        pthread_mutex_t handle;
-    };
-    
-    MUTEX* new_mutex(){
-        MUTEX *m=(MUTEX*)calloc(1,sizeof(MUTEX));
-        pthread_mutex_init(&m->handle, NULL);
-        return m;
-    }
-    
-    void free_mutex(MUTEX *mutex){
-        //todo
-    }
-    
-    void lock_mutex(MUTEX *m){
-        if (m==NULL) return;
-        pthread_mutex_lock(&m->handle);
-    }
-    
-    void unlock_mutex(MUTEX *m){
-        if (m==NULL) return;
-        pthread_mutex_unlock(&m->handle);
-    }
-#endif
+struct MUTEX {
+    std::mutex handle;
+};
+
+MUTEX* new_mutex(){
+    return new MUTEX();
+}
+
+void free_mutex(MUTEX *mutex){
+    delete mutex;
+}
+
+void lock_mutex(MUTEX *m){
+    if (m==NULL) return;
+    m->handle.lock();
+}
+
+void unlock_mutex(MUTEX *m){
+    if (m==NULL) return;
+    m->handle.unlock();
+}
+
+static std::unique_lock<std::mutex> make_unique_lock(MUTEX *mutex){
+    if (mutex==NULL) return std::unique_lock<std::mutex>();
+    return std::unique_lock<std::mutex>(mutex->handle);
+}
 
 
 //List Interface
 //Purpose: Unify and optimize the way QBNex references lists of objects (such as handles)
 //Notes: Does not use index 0
 struct list{
-    ptrszint user_structure_size;
-    ptrszint internal_structure_size;
-    uint8 *structure;//block of structures of user-specified size
-    ptrszint structures;
-    ptrszint structures_last;
-    ptrszint *structure_freed;//quickly re-reference available structures after they have been removed
-    ptrszint *structure_freed_cleanup;//the previous *structure_freed memory block
-    ptrszint structures_freed;
-    ptrszint structures_freed_last;
-    ptrszint structure_base[64];//every time the 'structure' block is full a new and larger block is allocated
-    //because the list doubles each time, 64 entries will never be exceeded
-    ptrszint structure_bases;
-    ptrszint *index;//pointers to the structures referred to by each index value
-    ptrszint *index_cleanup;
-    ptrszint indexes;
-    ptrszint indexes_last;
-    MUTEX *lock_add;
-    MUTEX *lock_remove;
+    ptrszint user_structure_size=0;
+    ptrszint internal_structure_size=0;
+    uint8 *structure=NULL;//block of structures of user-specified size
+    ptrszint structures=0;
+    ptrszint structures_last=0;
+    std::vector<ptrszint> structure_freed;//quickly re-reference available structures after they have been removed
+    std::vector<ptrszint> structure_bases;//retain previous blocks so references stay valid
+    std::vector<ptrszint> index;//pointers to the structures referred to by each index value
+    ptrszint indexes=0;
+    std::unique_ptr<MUTEX> lock;
 };
 
 //fwd refs
@@ -545,36 +517,29 @@ void *list_get(list *L, ptrszint i);
 
 
 list *list_new(ptrszint structure_size){
-    list *L;
-    L=(list*)calloc(1,sizeof(list));
-    L->structure=(uint8*)malloc(sizeof(uint8*));
-    L->structure_base[1]=(ptrszint)L->structure;
-    L->structure_bases=1;
-    L->structure_freed=(ptrszint*)malloc(sizeof(ptrszint*));
-    L->index=(ptrszint*)malloc(sizeof(ptrszint*));
+    list *L=new list();
     L->user_structure_size=structure_size;
-    L->internal_structure_size=structure_size+sizeof(ptrszint);  
+    L->internal_structure_size=structure_size+sizeof(ptrszint);
+    L->index.push_back(0);
     return L;
 }
 
 list *list_new_threadsafe(ptrszint structure_size){
     list *L=list_new(structure_size);
-    L->lock_add=new_mutex();
-    L->lock_remove=new_mutex();
+    L->lock=std::unique_ptr<MUTEX>(new_mutex());
     return L;
 }
 
 ptrszint list_add(list *L){  
-    lock_mutex(L->lock_add);
+    std::unique_lock<std::mutex> list_lock=make_unique_lock(L->lock.get());
     ptrszint i;
-    if(L->structures_freed){//retrieve index from freed list if possible
-        lock_mutex(L->lock_remove);
-        i=L->structure_freed[L->structures_freed--];
+    if(!L->structure_freed.empty()){//retrieve index from freed list if possible
+        i=L->structure_freed.back();
+        L->structure_freed.pop_back();
         uint8* structure;
         structure=(uint8*)L->index[i];
         memset(structure,0,L->user_structure_size);
         *(ptrszint*)(structure+L->user_structure_size)=i;
-        unlock_mutex(L->lock_remove);
         }else{
         //create new buffer?
         if ((L->structures+1)>L->structures_last){
@@ -585,69 +550,43 @@ ptrszint list_add(list *L){
             if (L->structure==NULL){ alert("list_add: failed to allocate new buffer, structure size:"); alert(L->internal_structure_size);}
             L->structures_last=new_structures_last;
             L->structures=0;
-            L->structure_base[++L->structure_bases]=(ptrszint)L->structure;
+            L->structure_bases.push_back((ptrszint)L->structure);
         }
         i=++L->indexes;    
         *(ptrszint*)(L->structure+(L->internal_structure_size*(++L->structures))+L->user_structure_size)=i;      
         //allocate new index
-        if (L->indexes>L->indexes_last){
-            if (L->index_cleanup!=NULL) free(L->index_cleanup);
-            L->index_cleanup=L->index;
-            int32 new_indexes_last=(L->indexes_last*2)+1;
-            ptrszint* temp=(ptrszint*)malloc(sizeof(ptrszint)*(new_indexes_last+1));
-            memcpy(temp,L->index,sizeof(ptrszint)*(L->indexes_last+1));
-            L->index=temp;
-            L->index[i]=(ptrszint)( L->structure + (L->internal_structure_size*L->structures) );
-            L->indexes_last=new_indexes_last;
-            }else{
-            L->index[i]=(ptrszint)( L->structure + (L->internal_structure_size*L->structures) );
-        }  
+        if ((ptrszint)L->index.size()<=i){
+            L->index.resize(i+1,0);
+        }
+        L->index[i]=(ptrszint)( L->structure + (L->internal_structure_size*L->structures) );
     }
-    unlock_mutex(L->lock_add);
     return i;
 }//list_add
 
 ptrszint list_remove(list *L,ptrszint i){//returns -1 on success, 0 on failure
-    lock_mutex(L->lock_remove);
+    std::unique_lock<std::mutex> list_lock=make_unique_lock(L->lock.get());
     if ((i<1)||(i>L->indexes)){
-        unlock_mutex(L->lock_remove);
         return 0;
     }
     uint8* structure;
     structure=(uint8*)(L->index[i]);
     if (!*(ptrszint*)(structure+L->user_structure_size)){
-        unlock_mutex(L->lock_remove);
         return 0;
     }  
-    //expand buffer?
-    if ((L->structures_freed+1)>L->structures_freed_last){        
-        ptrszint new_structures_freed_last;
-        new_structures_freed_last=(L->structures_freed_last*2)+1;
-        ptrszint *temp=(ptrszint*)malloc(sizeof(ptrszint)*(new_structures_freed_last+1));
-        memcpy(temp, L->structure_freed, sizeof(ptrszint)*(L->structures_freed+1));
-        if (L->structure_freed_cleanup!=NULL) free(L->structure_freed_cleanup);
-        L->structure_freed_cleanup=L->structure_freed;
-        L->structure_freed=temp;
-        L->structures_freed_last=new_structures_freed_last;
-    }
-    L->structure_freed[L->structures_freed+1]=i;  
+    L->structure_freed.push_back(i);
     *(ptrszint*)(structure+L->user_structure_size)=0;
-    L->structures_freed++;
-    unlock_mutex(L->lock_remove);
     return -1;
 };
 
 void list_destroy(list *L){
-    ptrszint i;
-    for (i=1;i<=L->structure_bases;i++){
-        free((void*)L->structure_base[i]);
+    for (std::vector<ptrszint>::const_iterator it=L->structure_bases.begin(); it!=L->structure_bases.end(); ++it){
+        free((void*)(*it));
     }
-    free(L->structure_base);
-    free(L->structure_freed);
-    free(L);
+    delete L;
 }
 
 void *list_get(list *L, ptrszint i){//Returns a pointer to an index's structure
+    std::unique_lock<std::mutex> list_lock=make_unique_lock(L->lock.get());
     if ((i<1)||(i>L->indexes)){
         return NULL;
     }
@@ -690,9 +629,21 @@ struct stream_struct{
     ptrszint index;//an index or pointer to the type's object
 };
 list *stream_handles=NULL;
+static std::unordered_map<stream_struct*, std::vector<uint8>> stream_input_buffers;
+
+static void resize_stream_input_buffer(stream_struct *stream, ptrszint bytes){
+    auto &buffer=stream_input_buffers[stream];
+    buffer.resize(static_cast<size_t>(bytes));
+    stream->in=buffer.empty()?NULL:buffer.data();
+    stream->in_limit=bytes;
+    if (stream->in_size>stream->in_limit) stream->in_size=stream->in_limit;
+}
 
 void stream_free(stream_struct *st){
-    if (st->in_limit) free(st->in);
+    stream_input_buffers.erase(st);
+    st->in=NULL;
+    st->in_size=0;
+    st->in_limit=0;
     list_remove(stream_handles,list_get_index(stream_handles,st));
 }
 
@@ -1274,8 +1225,9 @@ namespace {
     constexpr std::size_t MEM_LOCK_FREED_RESERVE = 1000;
     
     mem_lock mem_lock_invalid{};
-    std::vector<mem_lock*> mem_lock_blocks;
+    std::vector<std::unique_ptr<mem_lock[]>> mem_lock_blocks;
     std::vector<mem_lock*> mem_lock_freed;
+    std::unordered_map<mem_lock*, std::vector<uint8>> memnew_storage;
     
     void allocate_mem_lock_block();
     
@@ -1297,8 +1249,10 @@ mem_lock *mem_lock_tmp;
 
 namespace {
     void allocate_mem_lock_block(){
-        mem_lock_base=(mem_lock*)malloc(sizeof(mem_lock)*mem_lock_max);
-        mem_lock_blocks.push_back(mem_lock_base);
+        std::unique_ptr<mem_lock[]> block(new(std::nothrow) mem_lock[mem_lock_max]);
+        if (!block) error(504);
+        mem_lock_base=block.get();
+        mem_lock_blocks.push_back(std::move(block));
         mem_lock_next=0;
     }
     
@@ -1565,10 +1519,10 @@ int32 func__loadfont(qbs *filename,int32 size,qbs *requirements,int32 passed);
 
 
 int32 lastfont=48;
-int32 *font=(int32*)calloc(4*(48+1),1);//NULL=unused index
-int32 *fontheight=(int32*)calloc(4*(48+1),1);
-int32 *fontwidth=(int32*)calloc(4*(48+1),1);
-int32 *fontflags=(int32*)calloc(4*(48+1),1);
+std::vector<int32> font(lastfont+1,0);//NULL=unused index
+std::vector<int32> fontheight(lastfont+1,0);
+std::vector<int32> fontwidth(lastfont+1,0);
+std::vector<int32> fontflags(lastfont+1,0);
 
 //keyhit cyclic buffer
 int64 keyhit[8192];
@@ -2185,15 +2139,12 @@ static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 cha
 static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride);
 #endif
 
-uint32 *keyheld_buffer=(uint32*)malloc(1);
-uint32 *keyheld_bind_buffer=(uint32*)malloc(1);
-int32 keyheld_n=0;
-int32 keyheld_size=0;
+static std::vector<uint32> keyheld_buffer;
+static std::vector<uint32> keyheld_bind_buffer;
 
 int32 keyheld(uint32 x){
-    static int32 i;
-    for (i=0;i<keyheld_n;i++){
-        if (keyheld_buffer[i]==x) return 1;
+    for (std::vector<uint32>::const_iterator it=keyheld_buffer.begin(); it!=keyheld_buffer.end(); ++it){
+        if (*it==x) return 1;
     }
     //check multimapped NUMPAD keys
     if ((x>=42)&&(x<=57)){
@@ -2227,26 +2178,22 @@ int32 keyheld(uint32 x){
 
 
 void keyheld_add(uint32 x){
-    static int32 i; for (i=0;i<keyheld_n;i++){if (keyheld_buffer[i]==x) return;}//already in buffer
-    if (keyheld_n==keyheld_size){keyheld_size++; keyheld_buffer=(uint32*)realloc(keyheld_buffer,keyheld_size*4); keyheld_bind_buffer=(uint32*)realloc(keyheld_bind_buffer,keyheld_size*4);}//expand buffer
-    keyheld_buffer[keyheld_n]=x;//add entry
-    keyheld_bind_buffer[keyheld_n]=bindkey; bindkey=0;//add binded key (0=none)
-    keyheld_n++;//note: inc. must occur after setting entry (threading reasons)
+    if (std::find(keyheld_buffer.begin(), keyheld_buffer.end(), x)!=keyheld_buffer.end()) return;//already in buffer
+    keyheld_buffer.push_back(x);//add entry
+    keyheld_bind_buffer.push_back(bindkey);//add binded key (0=none)
+    bindkey=0;
 }
 void keyheld_remove(uint32 x){
-    static int32 i;
-    for (i=0;i<keyheld_n;i++){
+    for (std::vector<uint32>::size_type i=0; i<keyheld_buffer.size(); ++i){
         if (keyheld_buffer[i]==x){//exists
-            memmove(&keyheld_buffer[i],&keyheld_buffer[i+1],(keyheld_n-i-1)*4);
-            memmove(&keyheld_bind_buffer[i],&keyheld_bind_buffer[i+1],(keyheld_n-i-1)*4);
-            keyheld_n--;//note: dec. must occur after memmove (threading reasons)
+            keyheld_buffer.erase(keyheld_buffer.begin()+static_cast<std::vector<uint32>::difference_type>(i));
+            keyheld_bind_buffer.erase(keyheld_bind_buffer.begin()+static_cast<std::vector<uint32>::difference_type>(i));
             return;
         }
     }
 }
 void keyheld_unbind(uint32 x){
-    static int32 i;
-    for (i=0;i<keyheld_n;i++){
+    for (std::vector<uint32>::size_type i=0; i<keyheld_bind_buffer.size(); ++i){
         if (keyheld_bind_buffer[i]==x){//exists
             keyup(keyheld_buffer[i]);
             return;
@@ -2465,6 +2412,21 @@ void GLUT_DISPLAY_REQUEST();
 
 extern qbs* WHATISMYIP();
 
+static void qb_set_background_thread_priority(std::thread &thread){
+    #ifdef QBNex_WINDOWS
+        SetThreadPriority((HANDLE)thread.native_handle(), THREAD_PRIORITY_NORMAL);
+    #else
+        (void)thread;
+    #endif
+}
+
+template <typename Fn>
+static void qb_start_detached_thread(Fn &&fn){
+    std::thread thread(std::forward<Fn>(fn));
+    qb_set_background_thread_priority(thread);
+    thread.detach();
+}
+
 //directory access defines
 #define EPERM           1
 #define ENOENT          2
@@ -2590,20 +2552,31 @@ struct gfs_file_struct{//info applicable to all files
     struct gfs_file_win_struct{//info applicable to WINDOWS OS files
         HANDLE file_handle;
     };
-    gfs_file_win_struct *gfs_file_win=(gfs_file_win_struct*)malloc(1);
+    std::vector<gfs_file_win_struct> gfs_file_win;
 #endif
 
 int64 gfs_nextid=1;
 
-gfs_file_struct *gfs_file=(gfs_file_struct*)malloc(1);
+std::vector<gfs_file_struct> gfs_file;
+static std::vector<std::vector<uint8>> gfs_field_buffer_storage;
+static std::vector<std::vector<qbs*>> gfs_field_string_storage;
 
 int32 gfs_n=0;
-int32 gfs_freed_n=0;
-int32 *gfs_freed=(int32*)malloc(1);
-int32 gfs_freed_size=0;
+std::vector<int32> gfs_freed;
 
-int32 *gfs_fileno=(int32*)malloc(1);
+std::vector<int32> gfs_fileno(1, -1);
 int32 gfs_fileno_n=0;
+
+static void sync_gfs_field_strings(int32 index){
+    std::vector<qbs*> &buffer=gfs_field_string_storage[index];
+    gfs_file[index].field_strings=buffer.empty()?NULL:buffer.data();
+    gfs_file[index].field_strings_n=static_cast<int32>(buffer.size());
+}
+
+static void sync_gfs_field_buffer(int32 index){
+    std::vector<uint8> &buffer=gfs_field_buffer_storage[index];
+    gfs_file[index].field_buffer=buffer.empty()?NULL:buffer.data();
+}
 
 static int32 file_charset8_raw_len=16384;
 static const uint8 file_charset8_raw[]={
@@ -2755,14 +2728,15 @@ static const uint8 file_qbnexega_pal[]={
     0,0,0,0,170,0,0,0,0,170,0,0,170,170,0,0,0,0,170,0,170,0,170,0,0,170,170,0,170,170,170,0,85,0,0,0,255,0,0,0,85,170,0,0,255,170,0,0,85,0,170,0,255,0,170,0,85,170,170,0,255,170,170,0,0,85,0,0,170,85,0,0,0,255,0,0,170,255,0,0,0,85,170,0,170,85,170,0,0,255,170,0,170,255,170,0,85,85,0,0,255,85,0,0,85,255,0,0,255,255,0,0,85,85,170,0,255,85,170,0,85,255,170,0,255,255,170,0,0,0,85,0,170,0,85,0,0,170,85,0,170,170,85,0,0,0,255,0,170,0,255,0,0,170,255,0,170,170,255,0,85,0,85,0,255,0,85,0,85,170,85,0,255,170,85,0,85,0,255,0,255,0,255,0,85,170,255,0,255,170,255,0,0,85,85,0,170,85,85,0,0,255,85,0,170,255,85,0,0,85,255,0,170,85,255,0,0,255,255,0,170,255,255,0,85,85,85,0,255,85,85,0,85,255,85,0,255,255,85,0,85,85,255,0,255,85,255,0,85,255,255,0,255,255,255,0
 };
 
-uint16 *unicode16_buf=(uint16*)malloc(1);
-int32 unicode16_buf_size=1;
+static std::vector<uint16> unicode16_buf_storage(1,0);
+uint16 *unicode16_buf=unicode16_buf_storage.data();
+int32 unicode16_buf_size=static_cast<int32>(sizeof(uint16));
 void convert_text_to_utf16(int32 fonthandle,void *buf,int32 size){
     //expand buffer if necessary
     if (unicode16_buf_size<(size*4+4)){
         unicode16_buf_size=size*4+4;
-        free(unicode16_buf);
-        unicode16_buf=(uint16*)malloc(unicode16_buf_size);
+        unicode16_buf_storage.resize((unicode16_buf_size+static_cast<int32>(sizeof(uint16))-1)/static_cast<int32>(sizeof(uint16)),0);
+        unicode16_buf=unicode16_buf_storage.data();
     }
     //convert text
     if ((fontflags[fonthandle]&32)&&(fonthandle!=NULL)){//unicode font
@@ -2840,11 +2814,54 @@ int32 pages=1;
 std::vector<int32> page(1, 0);
 
 #define IMG_BUFFERSIZE 4096
-img_struct *img=(img_struct*)malloc(IMG_BUFFERSIZE*sizeof(img_struct));
+static std::unique_ptr<img_struct[]> qb_img_storage(new img_struct[IMG_BUFFERSIZE]());
+static std::vector<std::vector<uint8>> qb_img_pixel_storage(IMG_BUFFERSIZE);
+static std::vector<std::vector<uint32>> qb_img_palette_storage(IMG_BUFFERSIZE);
+img_struct *img=qb_img_storage.get();
 int32 nimg=IMG_BUFFERSIZE;
 int32 nextimg=0;
 static std::vector<std::vector<std::string>> qb_text_utf8_cells(IMG_BUFFERSIZE);
 static std::vector<std::vector<uint8>> qb_text_utf8_cell_state(IMG_BUFFERSIZE);
+
+static void qb_resize_img_owner_storage(int32 capacity){
+    qb_img_pixel_storage.resize(capacity);
+    qb_img_palette_storage.resize(capacity);
+}
+
+static void qb_set_img_external_offset(int32 index,uint8 *offset){
+    qb_img_pixel_storage[index].clear();
+    img[index].offset=offset;
+}
+
+static void qb_set_img_external_palette(int32 index,uint32 *palette){
+    qb_img_palette_storage[index].clear();
+    img[index].pal=palette;
+}
+
+static void qb_release_img_pixels(int32 index){
+    std::vector<uint8>().swap(qb_img_pixel_storage[index]);
+    img[index].offset=NULL;
+}
+
+static void qb_release_img_palette(int32 index){
+    std::vector<uint32>().swap(qb_img_palette_storage[index]);
+    img[index].pal=NULL;
+}
+
+static void qb_release_img_owned_resources(int32 index){
+    if (img[index].flags&IMG_FREEMEM) qb_release_img_pixels(index);
+    if (img[index].flags&IMG_FREEPAL) qb_release_img_palette(index);
+}
+
+static void qb_allocate_img_pixels(int32 index,ptrszint bytes){
+    qb_img_pixel_storage[index].assign(static_cast<size_t>(bytes),0);
+    img[index].offset=qb_img_pixel_storage[index].empty()?NULL:qb_img_pixel_storage[index].data();
+}
+
+static void qb_allocate_img_palette(int32 index){
+    qb_img_palette_storage[index].assign(256,0);
+    img[index].pal=qb_img_palette_storage[index].empty()?NULL:qb_img_palette_storage[index].data();
+}
 
 static int32 qb_img_index(const img_struct *im){
     if (!im || !img) return -1;
@@ -3189,6 +3206,8 @@ static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_widt
 
 std::vector<uint32> fimg;//a list to recover freed indexes
 
+static std::vector<uint8> cblend_storage;
+static std::vector<uint8> ablend_storage;
 uint8 *cblend=NULL;
 uint8 *ablend=NULL;
 uint8 *ablend127;
@@ -3198,7 +3217,8 @@ void init_blend(){
     uint8 *cp;
     int32 i,x2,x3,i2,z;
     float f,f2,f3;
-    cblend=(uint8*)malloc(16777216);
+    cblend_storage.resize(16777216);
+    cblend=cblend_storage.data();
     cp=cblend;
     for (i=0;i<256;i++){//source alpha
         for (x2=0;x2<256;x2++){//source
@@ -3223,7 +3243,8 @@ void init_blend(){
                 v3=1-iv3
                 V3=v3*100
             */
-            ablend=(uint8*)malloc(65536);
+            ablend_storage.resize(65536);
+            ablend=ablend_storage.data();
             cp=ablend;
             for (i=0;i<256;i++){//first alpha value
                 for (i2=0;i2<256;i2++){//second alpha value
@@ -3320,14 +3341,16 @@ int32 grow_img_registry(int32 required_slots){
     if (required_slots <= nimg) return -1;
     const int32 previous_capacity=nimg;
     const int32 new_capacity=next_img_capacity(required_slots);
-    img_struct *resized_img=(img_struct*)realloc(img,new_capacity*sizeof(img_struct));
+    std::unique_ptr<img_struct[]> resized_img(new(std::nothrow) img_struct[new_capacity]());
     if (!resized_img){
         error(502);
         return 0;
     }
-    img=resized_img;
-    memset(&img[previous_capacity],0,(new_capacity-previous_capacity)*sizeof(img_struct));
+    memcpy(resized_img.get(),img,previous_capacity*sizeof(img_struct));
+    qb_img_storage.swap(resized_img);
+    img=qb_img_storage.get();
     nimg=new_capacity;
+    qb_resize_img_owner_storage(new_capacity);
     qb_text_utf8_cells.resize(new_capacity);
     qb_text_utf8_cell_state.resize(new_capacity);
     refresh_selected_pages();
@@ -3509,6 +3532,8 @@ int32 freeimg(uint32 i){
     if (img[i].lock_id){
         free_mem_lock((mem_lock*)img[i].lock_offset);//untag
     }
+    qb_release_img_pixels(i);
+    qb_release_img_palette(i);
     if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
     if (i<qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state[i].clear();
     memset(&img[i],0,sizeof(img_struct));
@@ -3628,7 +3653,7 @@ int32 imgframe(uint8 *o,int32 x,int32 y,int32 bpp){
     if (x<=0||y<=0) return 0;
     i=newimg();
     im=&img[i];
-    im->offset=o;
+    qb_set_img_external_offset(i,o);
     im->width=x; im->height=y;
     
     //assume default values
@@ -3700,7 +3725,7 @@ int32 imgframe(uint8 *o,int32 x,int32 y,int32 bpp){
     
     //attach palette
     if (bpp!=32){
-        im->pal=(uint32*)calloc(256,4);
+        qb_allocate_img_palette(i);
         if (!im->pal){
             freeimg(i);
             return 0;
@@ -3746,15 +3771,15 @@ int32 imgnew(int32 x,int32 y,int32 bpp){
     if (bpp){//graphics
         if (bpp==32){
             if (!cblend) init_blend();
-            im->offset=(uint8*)calloc(x*y,4);
+            qb_allocate_img_pixels(i,x*y*4);
             if (!im->offset){sub__freeimage(-i,1); return 0;}
             //i3=x*y; lp=im->offset32; for (i2=0;i2<i3;i2++){*lp++=0xFF000000;}
             }else{
-            im->offset=(uint8*)calloc(x*y*im->bytes_per_pixel,1);
+            qb_allocate_img_pixels(i,x*y*im->bytes_per_pixel);
             if (!im->offset){sub__freeimage(-i,1); return 0;}
         }
         }else{//text
-        im->offset=(uint8*)malloc(x*y*im->bytes_per_pixel);
+        qb_allocate_img_pixels(i,x*y*im->bytes_per_pixel);
         if (!im->offset){sub__freeimage(-i,1); return 0;}
         i3=x*y; sp=(uint16*)im->offset; for (i2=0;i2<i3;i2++){*sp++=0x0720;}
         qb_init_text_utf8_cells(i);
@@ -5004,7 +5029,8 @@ int32 x_monitor=0,y_monitor=0;
 
 
 int32 conversion_required=0;
-uint32 *conversion_layer=(uint32*)malloc(8);
+static std::vector<uint32> conversion_layer_storage(2,0);
+uint32 *conversion_layer=conversion_layer_storage.data();
 
 
 
@@ -5046,6 +5072,14 @@ struct mouse_message_queue_struct{
 list *mouse_message_queue_handles=NULL;
 int32 mouse_message_queue_first; //the first queue to populate from input source
 int32 mouse_message_queue_default;//the default queue (for int33h and default _MOUSEINPUT operations)
+static std::unordered_map<mouse_message_queue_struct*, std::vector<mouse_message>> mouse_message_queue_storage;
+
+static void initialize_mouse_message_queue(mouse_message_queue_struct *queue, int32 last_index){
+    auto &buffer=mouse_message_queue_storage[queue];
+    buffer.assign(static_cast<size_t>(last_index)+1, mouse_message{});
+    queue->queue=buffer.data();
+    queue->lastIndex=last_index;
+}
 
 
 
@@ -5763,8 +5797,9 @@ void cpu_call(){
 
 
 int32 screen_last_valid=0;
-uint8 *screen_last=(uint8*)malloc(1);
-uint32 screen_last_size=1;
+static std::vector<uint8> screen_last_storage(1,0);
+uint8 *screen_last=screen_last_storage.data();
+uint32 screen_last_size=static_cast<uint32>(screen_last_storage.size());
 
 
 uint64 asciicode_value=0;
@@ -6011,7 +6046,7 @@ qbs *qbs_new_txt_len(const char *txt,int32 len);
 qbs *func_command(int32 index, int32 passed);
 
 void fix_error(){
-    char *errtitle = NULL, *errmess = NULL, *cp;
+    const char *cp;
     int prevent_handling = 0, len, v;
     if ((new_error >= 300) && (new_error <= 315)) prevent_handling = 1;
     if (!error_goto_line || error_handling || prevent_handling) {
@@ -6035,21 +6070,19 @@ void fix_error(){
         #define FIXERRMSG_UNHAND "Unhandled Error #"
         #define FIXERRMSG_CRIT "Critical Error #"
         
-        len = snprintf(errmess, 0, FIXERRMSG_BODY, (inclercl ? inclercl : ercl), (inclercl ? includedfilename : FIXERRMSG_MAINFILE), cp, (!prevent_handling ? FIXERRMSG_CONT : ""));
-        errmess = (char*)malloc(len + 1);
-        if (!errmess) exit(0); //At this point we just give up
-        snprintf(errmess, len + 1, FIXERRMSG_BODY, (inclercl ? inclercl : ercl), (inclercl ? includedfilename : FIXERRMSG_MAINFILE), cp, (!prevent_handling ? FIXERRMSG_CONT : ""));
+        len = snprintf(NULL, 0, FIXERRMSG_BODY, (inclercl ? inclercl : ercl), (inclercl ? includedfilename : FIXERRMSG_MAINFILE), cp, (!prevent_handling ? FIXERRMSG_CONT : ""));
+        std::vector<char> errmess(static_cast<size_t>(len) + 1, '\0');
+        snprintf(errmess.data(), errmess.size(), FIXERRMSG_BODY, (inclercl ? inclercl : ercl), (inclercl ? includedfilename : FIXERRMSG_MAINFILE), cp, (!prevent_handling ? FIXERRMSG_CONT : ""));
         
-        len = snprintf(errtitle, 0, FIXERRMSG_TITLE, (!prevent_handling ? FIXERRMSG_UNHAND : FIXERRMSG_CRIT), new_error, binary_name->chr);
-        errtitle = (char*)malloc(len + 1);
-        if (!errtitle) exit(0); //At this point we just give up
-        snprintf(errtitle, len + 1, FIXERRMSG_TITLE, (!prevent_handling ? FIXERRMSG_UNHAND : FIXERRMSG_CRIT), new_error, binary_name->chr);
+        len = snprintf(NULL, 0, FIXERRMSG_TITLE, (!prevent_handling ? FIXERRMSG_UNHAND : FIXERRMSG_CRIT), new_error, binary_name->chr);
+        std::vector<char> errtitle(static_cast<size_t>(len) + 1, '\0');
+        snprintf(errtitle.data(), errtitle.size(), FIXERRMSG_TITLE, (!prevent_handling ? FIXERRMSG_UNHAND : FIXERRMSG_CRIT), new_error, binary_name->chr);
         
         if (prevent_handling){
-            v=MessageBox2(NULL,errmess,errtitle,MB_OK);
+            v=MessageBox2(NULL,errmess.data(),errtitle.data(),MB_OK);
             exit(0);
             }else{
-            v=MessageBox2(NULL,errmess,errtitle,MB_YESNO|MB_SYSTEMMODAL);
+            v=MessageBox2(NULL,errmess.data(),errtitle.data(),MB_YESNO|MB_SYSTEMMODAL);
         }
         
         if ((v==IDNO)||(v==IDOK)){close_program=1; end();}
@@ -6153,14 +6186,26 @@ extern uint8 *mem_static;
 extern uint8 *mem_static_pointer;
 extern uint8 *mem_static_limit;
 
+namespace {
+    std::vector<std::unique_ptr<uint8[]>> mem_static_blocks;
+
+    void allocate_mem_static_block(uint32 size){
+        std::unique_ptr<uint8[]> block(new(std::nothrow) uint8[size]);
+        if (!block) error(504);
+        mem_static=block.get();
+        mem_static_blocks.push_back(std::move(block));
+        mem_static_size=size;
+        mem_static_pointer=mem_static;
+        mem_static_limit=mem_static+mem_static_size;
+    }
+}
+
 uint8 *mem_static_malloc(uint32 size){
     size+=7; size-=(size&7);//align to 8 byte boundry
     if ((mem_static_pointer+=size)<mem_static_limit) return mem_static_pointer-size;
     mem_static_size=(mem_static_size<<1)+size;
-    mem_static=(uint8*)malloc(mem_static_size);
-    if (!mem_static) error(504);
+    allocate_mem_static_block(mem_static_size);
     mem_static_pointer=mem_static+size;
-    mem_static_limit=mem_static+mem_static_size;
     return mem_static_pointer-size;
 }
 void mem_static_restore(uint8* restore_point){
@@ -6312,13 +6357,14 @@ int32 array_ok=1;//kept to compile legacy versions
 
 //gosub-return handling
 extern uint32 next_return_point; //=0;
+extern std::vector<uint32> return_point_storage;
 extern uint32 *return_point; //=(uint32*)malloc(4*16384);
 extern uint32 return_points; //=16384;
 void more_return_points(){
     if (return_points>2147483647) error(256);
     return_points*=2;
-    return_point=(uint32*)realloc(return_point,return_points*4);
-    if (return_point==NULL) error(256);
+    return_point_storage.resize(return_points,0);
+    return_point=return_point_storage.data();
 }
 
 
@@ -6330,11 +6376,29 @@ uint8 keyon[65536];
 qbs* singlespace;
 
 
-qbs *qbs_malloc=(qbs*)calloc(sizeof(qbs)*65536,1);//~1MEG
+static const uint32 QBS_DESCRIPTOR_BLOCK_SIZE=65536;
+static const uint32 QBS_TRACK_LIST_BLOCK_SIZE=65536;
+static std::vector<std::unique_ptr<qbs[]>> qbs_malloc_blocks;
+qbs *qbs_malloc=NULL;
 uint32 qbs_malloc_next=0;//the next idex in qbs_malloc to use
-ptrszint *qbs_malloc_freed=(ptrszint*)malloc(ptrsz*65536);
-uint32 qbs_malloc_freed_size=65536;
-uint32 qbs_malloc_freed_num=0;//number of freed qbs descriptors
+static std::vector<qbs*> qbs_malloc_freed;
+
+static qbs* qbs_allocate_descriptor_block(){
+    std::unique_ptr<qbs[]> block(new(std::nothrow) qbs[QBS_DESCRIPTOR_BLOCK_SIZE]());
+    if (!block){
+        error(508);
+        return NULL;
+    }
+    qbs *block_ptr=block.get();
+    qbs_malloc_blocks.push_back(std::move(block));
+    return block_ptr;
+}
+
+static void qbs_expand_tracking_list(std::vector<ptrszint> &list,uint32 &lasti){
+    const size_t new_size=std::max<size_t>(list.size()*2, static_cast<size_t>(QBS_TRACK_LIST_BLOCK_SIZE));
+    list.resize(new_size, 0);
+    lasti=static_cast<uint32>(new_size-1);
+}
 
 /*MLP
     uint32 *dbglist=(uint32*)malloc(4*10000000);
@@ -6344,17 +6408,20 @@ uint32 qbs_malloc_freed_num=0;//number of freed qbs descriptors
 
 qbs *qbs_new_descriptor(){
     //MLP //qbshlp1++;
-    if (qbs_malloc_freed_num){
+    if (!qbs_malloc_freed.empty()){
         /*MLP
             static qbs *s;
-            s=(qbs*)memset((void *)qbs_malloc_freed[--qbs_malloc_freed_num],0,sizeof(qbs));
+            s=(qbs*)memset((void *)qbs_malloc_freed.back(),0,sizeof(qbs));
             s->dbgl=dbgline;
+            qbs_malloc_freed.pop_back();
             return s;
         */
-        return (qbs*)memset((void *)qbs_malloc_freed[--qbs_malloc_freed_num],0,sizeof(qbs));
+        qbs *descriptor=qbs_malloc_freed.back();
+        qbs_malloc_freed.pop_back();
+        return (qbs*)memset((void *)descriptor,0,sizeof(qbs));
     }
-    if (qbs_malloc_next==65536){
-        qbs_malloc=(qbs*)calloc(sizeof(qbs)*65536,1);//~1MEG
+    if (qbs_malloc==NULL || qbs_malloc_next==QBS_DESCRIPTOR_BLOCK_SIZE){
+        qbs_malloc=qbs_allocate_descriptor_block();//~1MEG
         qbs_malloc_next=0;
     }
     /*MLP
@@ -6370,34 +6437,29 @@ qbs *qbs_new_descriptor(){
 
 void qbs_free_descriptor(qbs *str){
     //MLP //qbshlp1--;
-    if (qbs_malloc_freed_num==qbs_malloc_freed_size){
-        qbs_malloc_freed_size*=2;
-        qbs_malloc_freed=(ptrszint*)realloc(qbs_malloc_freed,qbs_malloc_freed_size*ptrsz);
-        if (!qbs_malloc_freed) error(508);
-    }
-    qbs_malloc_freed[qbs_malloc_freed_num]=(ptrszint)str;
-    qbs_malloc_freed_num++;
+    qbs_malloc_freed.push_back(str);
     return;
 }
 
 //Used to track strings in 16bit memory
-ptrszint *qbs_cmem_list=(ptrszint*)malloc(65536*ptrsz);
+std::vector<ptrszint> qbs_cmem_list(QBS_TRACK_LIST_BLOCK_SIZE,0);
 uint32  qbs_cmem_list_lasti=65535;
 uint32  qbs_cmem_list_nexti=0;
 //Used to track strings in 32bit memory
-ptrszint *qbs_list=(ptrszint*)malloc(65536*ptrsz);
+std::vector<ptrszint> qbs_list(QBS_TRACK_LIST_BLOCK_SIZE,0);
 uint32  qbs_list_lasti=65535;
 uint32  qbs_list_nexti=0;
 //Used to track temporary strings for later removal when they fall out of scope
 //*Some string functions delete a temporary string automatically after they have been
 // passed one to save memory. In this case qbstring_templist[?]=0xFFFFFFFF
-ptrszint *qbs_tmp_list=(ptrszint*)calloc(65536*ptrsz,1);//first index MUST be 0
+std::vector<ptrszint> qbs_tmp_list(QBS_TRACK_LIST_BLOCK_SIZE,0);//first index MUST be 0
 uint32  qbs_tmp_list_lasti=65535;
 extern uint32 qbs_tmp_list_nexti;
 //entended string memory
 
-uint8 *qbs_data=(uint8*)malloc(1048576);
-uint32 qbs_data_size=1048576;
+static std::vector<uint8> qbs_data_storage(1048576,0);
+uint8 *qbs_data=qbs_data_storage.data();
+uint32 qbs_data_size=static_cast<uint32>(qbs_data_storage.size());
 uint32 qbs_sp=0;
 
 
@@ -6456,9 +6518,7 @@ void qbs_cmem_concat_list(){
     qbs_cmem_list_nexti=d;
     //if string listings are taking up more than half of the list array double the list array's size
     if (qbs_cmem_list_nexti>=(qbs_cmem_list_lasti/2)){
-        qbs_cmem_list_lasti*=2;
-        qbs_cmem_list=(ptrszint*)realloc(qbs_cmem_list,(qbs_cmem_list_lasti+1)*ptrsz);
-        if (!qbs_cmem_list) error(509);
+        qbs_expand_tracking_list(qbs_cmem_list,qbs_cmem_list_lasti);
     }
     return;
 }
@@ -6481,18 +6541,14 @@ void qbs_concat_list(){
     qbs_list_nexti=d;
     //if string listings are taking up more than half of the list array double the list array's size
     if (qbs_list_nexti>=(qbs_list_lasti/2)){
-        qbs_list_lasti*=2;
-        qbs_list=(ptrszint*)realloc(qbs_list,(qbs_list_lasti+1)*ptrsz);
-        if (!qbs_list) error(510);
+        qbs_expand_tracking_list(qbs_list,qbs_list_lasti);
     }
     return;
 }
 
 void qbs_tmp_concat_list(){
     if (qbs_tmp_list_nexti>=(qbs_tmp_list_lasti/2)){
-        qbs_tmp_list_lasti*=2;
-        qbs_tmp_list=(ptrszint*)realloc(qbs_tmp_list,(qbs_tmp_list_lasti+1)*ptrsz);
-        if (!qbs_tmp_list) error(511);
+        qbs_expand_tracking_list(qbs_tmp_list,qbs_tmp_list_lasti);
     }
     return;
 }
@@ -6525,8 +6581,8 @@ void qbs_concat(uint32 bytesrequired){
         static uint8 *oldbase;
         oldbase=qbs_data;
         qbs_data_size=qbs_data_size*2+bytesrequired;
-        qbs_data=(uint8*)realloc(qbs_data,qbs_data_size);
-        if (qbs_data==NULL) error(512);//realloc failed!
+        qbs_data_storage.resize(qbs_data_size);
+        qbs_data=qbs_data_storage.data();
         for (i=0;i<qbs_list_nexti;i++){
             if (qbs_list[i]!=-1){
                 tqbs=(qbs*)qbs_list[i];
@@ -8136,8 +8192,8 @@ void validatepage(int32 n){
         //modify based on page 0's attributes
         //i. link palette to page 0's palette (if necessary)
         if (img[i2].bytes_per_pixel!=4){
-            free(img[i2].pal); img[i2].flags^=IMG_FREEPAL;
-            img[i2].pal=img[i].pal;
+            qb_release_img_palette(i2); img[i2].flags^=IMG_FREEPAL;
+            qb_set_img_external_palette(i2,img[i].pal);
         }
         //ii. set flags
         img[i2].flags|=IMG_SCREEN;
@@ -8254,7 +8310,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
                 for (i=1;i<pages;i++){
                     if(i2=page[i]){
                         //manual delete, freeing video pages is usually illegal
-                        if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                        qb_release_img_owned_resources(i2);
                         freeimg(i2);
                     }//i2
                 }//i
@@ -8262,8 +8318,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
                 if (sub_screen_keep_page0){
                     img[i].flags^=IMG_SCREEN;
                     }else{
-                    if (img[i].flags&IMG_FREEMEM) free(img[i].offset);//free pixel data
-                    if (img[i].flags&IMG_FREEPAL) free(img[i].pal);//free palette
+                    qb_release_img_owned_resources(i);
                     freeimg(i);
                 }
             }//currently in a screen mode
@@ -8691,7 +8746,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                         if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                         if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                         //manual delete, freeing video pages is usually illegal
-                        if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                        qb_release_img_owned_resources(i2);
                         freeimg(i2);
                     }
                 }//i
@@ -8713,8 +8768,8 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
             //change resolution
             write_page->width=width; write_page->height=height;
             if (write_page->flags&IMG_FREEMEM){
-                free(write_page->offset);//free pixel data
-                write_page->offset=(uint8*)calloc(width*height*write_page->bytes_per_pixel,1);
+                qb_release_img_pixels(write_page_index);
+                qb_allocate_img_pixels(write_page_index,width*height*write_page->bytes_per_pixel);
                 }else{//frame?
                 memset(write_page->offset,0,width*height*write_page->bytes_per_pixel);
             }
@@ -8759,7 +8814,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                                 if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                                 if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                                 //manual delete, freeing video pages is usually illegal
-                                if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                                qb_release_img_owned_resources(i2);
                                 freeimg(i2);
                             }
                         }//i
@@ -8800,7 +8855,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                                 if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                                 if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                                 //manual delete, freeing video pages is usually illegal
-                                if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                                qb_release_img_owned_resources(i2);
                                 freeimg(i2);
                             }
                         }//i
@@ -8830,7 +8885,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                                 if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                                 if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                                 //manual delete, freeing video pages is usually illegal
-                                if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                                qb_release_img_owned_resources(i2);
                                 freeimg(i2);
                             }
                         }//i
@@ -8884,7 +8939,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                                 if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                                 if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                                 //manual delete, freeing video pages is usually illegal
-                                if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                                qb_release_img_owned_resources(i2);
                                 freeimg(i2);
                             }
                         }//i
@@ -8924,7 +8979,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                                 if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                                 if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                                 //manual delete, freeing video pages is usually illegal
-                                if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                                qb_release_img_owned_resources(i2);
                                 freeimg(i2);
                             }
                         }//i
@@ -8954,7 +9009,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                                 if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                                 if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                                 //manual delete, freeing video pages is usually illegal
-                                if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                                qb_release_img_owned_resources(i2);
                                 freeimg(i2);
                             }
                         }//i
@@ -9008,7 +9063,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                             if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                             if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                             //manual delete, freeing video pages is usually illegal
-                            if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                            qb_release_img_owned_resources(i2);
                             freeimg(i2);
                         }
                     }//i
@@ -9051,7 +9106,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                             if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                             if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                             //manual delete, freeing video pages is usually illegal
-                            if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                            qb_release_img_owned_resources(i2);
                             freeimg(i2);
                         }
                     }//i
@@ -9085,7 +9140,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
                             if (read_page_index==i2){read_page_index=display_page_index; read_page=display_page;}
                             if (write_page_index==i2){write_page_index=display_page_index; write_page=display_page;}
                             //manual delete, freeing video pages is usually illegal
-                            if (img[i2].flags&IMG_FREEMEM) free(img[i2].offset);//free pixel data
+                            qb_release_img_owned_resources(i2);
                             freeimg(i2);
                         }
                     }//i
@@ -9670,12 +9725,17 @@ void sub_paint32(float x,float y,uint32 fillcol,uint32 bordercol,int32 passed){
     
     //uses 2 buffers, a and b, and swaps between them for reading and creating
     static uint32 a_n=0;
-    static uint16 *a_x=(uint16*)malloc(2*65536),*a_y=(uint16*)malloc(2*65536);
-    static uint8 *a_t=(uint8*)malloc(65536);
+    static std::vector<uint16> a_x_storage(65536),a_y_storage(65536);
+    static std::vector<uint8> a_t_storage(65536);
     static uint32 b_n=0;
-    static uint16 *b_x=(uint16*)malloc(2*65536),*b_y=(uint16*)malloc(2*65536);
-    static uint8 *b_t=(uint8*)malloc(65536);
-    static uint8 *done=(uint8*)calloc(640*480,1);
+    static std::vector<uint16> b_x_storage(65536),b_y_storage(65536);
+    static std::vector<uint8> b_t_storage(65536);
+    static std::vector<uint8> done_storage(640*480,0);
+    uint16 *a_x=a_x_storage.data(),*a_y=a_y_storage.data();
+    uint8 *a_t=a_t_storage.data();
+    uint16 *b_x=b_x_storage.data(),*b_y=b_y_storage.data();
+    uint8 *b_t=b_t_storage.data();
+    uint8 *done=done_storage.data();
     static int32 ix,iy,i,t,x2,y2;
     static uint32 offset;
     static uint8 *cp;
@@ -9717,8 +9777,9 @@ void sub_paint32(float x,float y,uint32 fillcol,uint32 bordercol,int32 passed){
     qbg_view_y2=write_page->view_y2;
     i=write_page->width*write_page->height;
     if (i>done_size){
-        free(done);
-        done=(uint8*)calloc(i,1);
+        done_storage.assign(i,0);
+        done_size=i;
+        done=done_storage.data();
     }
     
     //return if first point is the bordercolor
@@ -9936,12 +9997,17 @@ void sub_paint32x(float x,float y,uint32 fillcol,uint32 bordercol,int32 passed){
     
     //uses 2 buffers, a and b, and swaps between them for reading and creating
     static uint32 a_n=0;
-    static uint16 *a_x=(uint16*)malloc(2*65536),*a_y=(uint16*)malloc(2*65536);
-    static uint8 *a_t=(uint8*)malloc(65536);
+    static std::vector<uint16> a_x_storage(65536),a_y_storage(65536);
+    static std::vector<uint8> a_t_storage(65536);
     static uint32 b_n=0;
-    static uint16 *b_x=(uint16*)malloc(2*65536),*b_y=(uint16*)malloc(2*65536);
-    static uint8 *b_t=(uint8*)malloc(65536);
-    static uint8 *done=(uint8*)calloc(640*480,1);
+    static std::vector<uint16> b_x_storage(65536),b_y_storage(65536);
+    static std::vector<uint8> b_t_storage(65536);
+    static std::vector<uint8> done_storage(640*480,0);
+    uint16 *a_x=a_x_storage.data(),*a_y=a_y_storage.data();
+    uint8 *a_t=a_t_storage.data();
+    uint16 *b_x=b_x_storage.data(),*b_y=b_y_storage.data();
+    uint8 *b_t=b_t_storage.data();
+    uint8 *done=done_storage.data();
     static int32 ix,iy,i,t,x2,y2;
     static uint32 offset;
     static uint8 *cp;
@@ -9982,8 +10048,9 @@ void sub_paint32x(float x,float y,uint32 fillcol,uint32 bordercol,int32 passed){
     qbg_view_y2=write_page->view_y2;
     i=write_page->width*write_page->height;
     if (i>done_size){
-        free(done);
-        done=(uint8*)calloc(i,1);
+        done_storage.assign(i,0);
+        done_size=i;
+        done=done_storage.data();
     }
     
     //return if first point is the bordercolor
@@ -10092,12 +10159,17 @@ void sub_paint(float x,float y,uint32 fillcol,uint32 bordercol,qbs *backgroundst
     
     //uses 2 buffers, a and b, and swaps between them for reading and creating
     static uint32 a_n=0;
-    static uint16 *a_x=(uint16*)malloc(2*65536),*a_y=(uint16*)malloc(2*65536);
-    static uint8 *a_t=(uint8*)malloc(65536);
+    static std::vector<uint16> a_x_storage(65536),a_y_storage(65536);
+    static std::vector<uint8> a_t_storage(65536);
     static uint32 b_n=0;
-    static uint16 *b_x=(uint16*)malloc(2*65536),*b_y=(uint16*)malloc(2*65536);
-    static uint8 *b_t=(uint8*)malloc(65536);
-    static uint8 *done=(uint8*)calloc(640*480,1);
+    static std::vector<uint16> b_x_storage(65536),b_y_storage(65536);
+    static std::vector<uint8> b_t_storage(65536);
+    static std::vector<uint8> done_storage(640*480,0);
+    uint16 *a_x=a_x_storage.data(),*a_y=a_y_storage.data();
+    uint8 *a_t=a_t_storage.data();
+    uint16 *b_x=b_x_storage.data(),*b_y=b_y_storage.data();
+    uint8 *b_t=b_t_storage.data();
+    uint8 *done=done_storage.data();
     static int32 ix,iy,i,t,x2,y2;
     static uint32 offset;
     static uint8 *cp;
@@ -10140,8 +10212,9 @@ void sub_paint(float x,float y,uint32 fillcol,uint32 bordercol,qbs *backgroundst
     qbg_view_y2=write_page->view_y2;
     i=write_page->width*write_page->height;
     if (i>done_size){
-        free(done);
-        done=(uint8*)calloc(i,1);
+        done_storage.assign(i,0);
+        done_size=i;
+        done=done_storage.data();
     }
     
     //return if first point is the bordercolor
@@ -10304,14 +10377,19 @@ void sub_paint(float x,float y,qbs *fillstr,uint32 bordercol,qbs *backgroundstr,
     
     //uses 2 buffers, a and b, and swaps between them for reading and creating
     static uint32 a_n{0};
-    static uint16 *a_x{(uint16*) malloc(2*65536)};
-    static uint16 *a_y{(uint16*) malloc(2*65536)};
-    static uint8 *a_t{(uint8*) malloc(65536)};
+    static std::vector<uint16> a_x_storage(65536),a_y_storage(65536);
+    static std::vector<uint8> a_t_storage(65536);
     static uint32 b_n{0};
-    static uint16 *b_x{(uint16*) malloc(2*65536)};
-    static uint16 *b_y{(uint16*) malloc(2*65536)};
-    static uint8 *b_t{(uint8*) malloc(65536)};
-    static uint8 *done{(uint8*) calloc(640*480,1)};
+    static std::vector<uint16> b_x_storage(65536),b_y_storage(65536);
+    static std::vector<uint8> b_t_storage(65536);
+    static std::vector<uint8> done_storage(640*480,0);
+    uint16 *a_x{a_x_storage.data()};
+    uint16 *a_y{a_y_storage.data()};
+    uint8 *a_t{a_t_storage.data()};
+    uint16 *b_x{b_x_storage.data()};
+    uint16 *b_y{b_y_storage.data()};
+    uint8 *b_t{b_t_storage.data()};
+    uint8 *done{done_storage.data()};
     static int32 ix;
     static int32 iy;
     static int32 i;
@@ -10409,8 +10487,9 @@ void sub_paint(float x,float y,qbs *fillstr,uint32 bordercol,qbs *backgroundstr,
     i = write_page->width * write_page->height;
     
     if (i > done_size){
-        free(done);
-        done = (uint8*) calloc(i, 1);
+        done_storage.assign(i, 0);
+        done_size = i;
+        done = done_storage.data();
     }
 
     //  FirstColor IS THE COLOR OF THE FIRST PIXEL CHECKED. IF bordercol WAS NOT PROVIDED,
@@ -12186,15 +12265,13 @@ void qbg_sub_locate(int32 row,int32 column,int32 cursor,int32 start,int32 stop,i
                         if (column<1) goto error;
                         if (column>w) goto error;
                     }
-                    char *buffer;
+                    std::vector<char> buffer(80*25*2);
                     uint32 c,c2;
-                    buffer=(char*)malloc(80*25*2);
                     c=write_page->color; c2=write_page->background_color;
-                    memcpy(buffer,&cmem[0xB8000],80*25*2);
+                    memcpy(buffer.data(),&cmem[0xB8000],80*25*2);
                     qbsub_width(0,80,50,0,0,3);
-                    memcpy(&cmem[0xB8000],buffer,80*25*2);
+                    memcpy(&cmem[0xB8000],buffer.data(),80*25*2);
                     write_page->color=c; write_page->background_color=c2;
-                    free(buffer);
                     goto width8050switch_done;
                 }
             }
@@ -13802,7 +13879,8 @@ void sub_open(qbs *name,int32 type,int32 access,int32 sharing,int32 i,int64 reco
     if (type==1){//set record length
         f->record_length=128;
         if (passed) if (record_length!=-1) f->record_length=record_length;
-        f->field_buffer=(uint8*)calloc(f->record_length,1);
+        gfs_field_buffer_storage[x].assign(f->record_length,0);
+        sync_gfs_field_buffer(x);
     }
     
     if (type==5){//seek eof
@@ -15320,9 +15398,10 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
     
     static int32 e;
     
-    static uint8 *data;
+    static std::vector<uint8> data_storage;
     static uint64 l,bytes;
-    data=(uint8*)malloc(gfs->record_length);
+    data_storage.resize(gfs->record_length);
+    uint8 *data=data_storage.data();
     e=gfs_read(i,offset,data,gfs->record_length);//read the whole record (including header & data)
     if (e){
         if (e!=-10){//note: on eof, unread buffer area becomes NULL
@@ -15335,7 +15414,7 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
     }
     
     bytes=gfs_read_bytes();//note: any unread part of the buffer is set to NULL (by gfs_read) and is treated as valid record data
-    if (!bytes){qbs_set(str,qbs_new(0,1)); free(data); return;}//as in QB when 0 bytes read, NULL string returned and (as no bytes read) no seek advancement
+    if (!bytes){qbs_set(str,qbs_new(0,1)); return;}//as in QB when 0 bytes read, NULL string returned and (as no bytes read) no seek advancement
     
     //seek to beginning of next field
     //note: advancement occurs even if e==-10 (eof reached)
@@ -15345,7 +15424,7 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
             }else{
             e=gfs_setpos(i,gfs_getpos(i)-bytes+gfs->record_length);
         }
-        if (e){error(54); free(data); return;}//assume[-3]: bad file mode
+        if (e){error(54); return;}//assume[-3]: bad file mode
     }
     
     x=2;//offset where string data will be read from
@@ -15358,7 +15437,7 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
                 }else{
                 e=gfs_setpos(i,gfs_getpos(i)-gfs->record_length);
             }
-            error(59); free(data); return;//Bad record length
+            error(59); return;//Bad record length
         }
         x=8;
         l=(l&0x7FFF)+( ( (((uint64*)data)[0]) >> 16) << 15 );
@@ -15372,11 +15451,10 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
             }else{
             e=gfs_setpos(i,gfs_getpos(i)-gfs->record_length);
         }
-        error(59); free(data); return;//Bad record length
+        error(59); return;//Bad record length
     }
     
     qbs_set(str,qbs_new_txt_len((char*)(data+x),l));
-    free(data);
 }
 
 void sub_put(int32 i,int64 offset,void *element,int32 passed){
@@ -15452,7 +15530,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     if (new_error) return;
     static byte_element_struct *ele;
     static int32 x;
-    static uint8 *data;
+    static std::vector<uint8> data_storage;
     
     if (i<0){//special handle?
         sub_put(i,offset,element,passed);//(use standard put call)
@@ -15480,7 +15558,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     l=ele->length;//note: ele->length is currently 32-bit, but sub_put2 is 64-bit compliant
     //{15}{1}[{48}]
         if (l>32767){
-            data=(uint8*)malloc(l+8);
+            data_storage.resize(static_cast<size_t>(l)+8);
+            uint8 *data=data_storage.data();
             memcpy(&data[8],(void*)(ele->offset),l);
             ((uint64*)data)[0]=0;
             ((uint16*)data)[0]=(l&32767)+32768;
@@ -15488,14 +15567,15 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             ((uint64*)(data+2))[0]|=l;
             ele->length+=8;
             }else{
-            data=(uint8*)malloc(l+2);
+            data_storage.resize(static_cast<size_t>(l)+2);
+            uint8 *data=data_storage.data();
             memcpy(&data[2],(void*)(ele->offset),l);
             ((uint16*)data)[0]=l;
             ele->length+=2;
         }
+        uint8 *data=data_storage.data();
         ele->offset=(uint64)&data[0];
         sub_put(gfs->fileno,offset,element,passed);
-        free(data);
         
     }//put2
     
@@ -19082,8 +19162,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             //create new queue
             int32 context=list_add(mouse_message_queue_handles);
             mouse_message_queue_struct *queue=(mouse_message_queue_struct*)list_get(mouse_message_queue_handles,context);
-            queue->lastIndex=65535;
-            queue->queue=(mouse_message*)calloc(1,sizeof(mouse_message)*(queue->lastIndex+1));
+            initialize_mouse_message_queue(queue,65535);
             
             //link new queue to child queue
             int32 child_context=mouse_message_queue_first;
@@ -19383,14 +19462,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             img[i2].lock_offset=NULL;
             //duplicate pixel data
             bytes=d->width*d->height*d->bytes_per_pixel;
-            d->offset=(uint8*)malloc(bytes);
+            qb_allocate_img_pixels(i2,bytes);
             if (!d->offset){freeimg(i2); return -1;}
             memcpy(d->offset,s->offset,bytes);
             d->flags|=IMG_FREEMEM;
             //duplicate palette
             if (d->pal){
-                d->pal=(uint32*)malloc(1024);
-                if (!d->pal){free(d->offset); freeimg(i2); return -1;}
+                qb_allocate_img_palette(i2);
+                if (!d->pal){qb_release_img_pixels(i2); freeimg(i2); return -1;}
                 memcpy(d->pal,s->pal,1024);
                 d->flags|=IMG_FREEPAL;
             }
@@ -19445,8 +19524,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (img[i].flags&IMG_SCREEN){error(5); return;}//The SCREEN's pages cannot be freed!
             if (write_page_index==i) sub__dest(-display_page_index);
             if (read_page_index==i) sub__source(-display_page_index);
-            if (img[i].flags&IMG_FREEMEM) free(img[i].offset);//free pixel data (potential crash here)
-            if (img[i].flags&IMG_FREEPAL) free(img[i].pal);//free palette
+            qb_release_img_owned_resources(i);
             freeimg(i);
         }
         
@@ -20205,11 +20283,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             //32 unicode
 
             bytes=gfs_lof(fh);
-            static uint8* content;
-            content=(uint8*)malloc(bytes); if (!content){gfs_close(fh); return -1;}
+            static std::vector<uint8> content_storage;
+            content_storage.resize(static_cast<size_t>(bytes));
+            uint8 *content=content_storage.empty()?NULL:content_storage.data();
+            if (!content){gfs_close(fh); return -1;}
             result=gfs_read(fh,-1,content,bytes);
             gfs_close(fh);
-            if (result<0){free(content); return -1;}
+            if (result<0) return -1;
             
             //open the font
             //get free font handle
@@ -20218,15 +20298,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }
             //increase handle range
             lastfont++;
-            font=(int32*)realloc(font,4*(lastfont+1)); font[lastfont]=NULL;
-            fontheight=(int32*)realloc(fontheight,4*(lastfont+1));
-            fontwidth=(int32*)realloc(fontwidth,4*(lastfont+1));
-            fontflags=(int32*)realloc(fontflags,4*(lastfont+1));
+            font.resize(lastfont+1,0); font[lastfont]=NULL;
+            fontheight.resize(lastfont+1,0);
+            fontwidth.resize(lastfont+1,0);
+            fontflags.resize(lastfont+1,0);
             i=lastfont;
             got_font_index:
             static int32 h;
             h=FontLoad(content,bytes,size,-1,options);
-            free(content);
             if (!h) return -1;
             
             font[i]=h;
@@ -20247,11 +20326,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             fh=gfs_open(f,1,0,0);
             if (fh<0) return -1;
             bytes=gfs_lof(fh);
-            static uint8* content;
-            content=(uint8*)malloc(bytes); if (!content){gfs_close(fh); return -1;}
+            static std::vector<uint8> content_storage;
+            content_storage.resize(static_cast<size_t>(bytes));
+            uint8 *content=content_storage.empty()?NULL:content_storage.data();
+            if (!content){gfs_close(fh); return -1;}
             result=gfs_read(fh,-1,content,bytes);
             gfs_close(fh);
-            if (result<0){free(content); return -1;}
+            if (result<0) return -1;
             
             //open the font
             //get free font handle
@@ -20260,15 +20341,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }
             //increase handle range
             lastfont++;
-            font=(int32*)realloc(font,4*(lastfont+1)); font[lastfont]=NULL;
-            fontheight=(int32*)realloc(fontheight,4*(lastfont+1));
-            fontwidth=(int32*)realloc(fontwidth,4*(lastfont+1));
-            fontflags=(int32*)realloc(fontflags,4*(lastfont+1));
+            font.resize(lastfont+1,0); font[lastfont]=NULL;
+            fontheight.resize(lastfont+1,0);
+            fontwidth.resize(lastfont+1,0);
+            fontflags.resize(lastfont+1,0);
             i=lastfont;
             got_font_index:
             static int32 h;
             h=FontLoad(content,bytes,size,-1,options);
-            free(content);
             if (!h) return -1;
             
             font[i]=h;
@@ -20905,15 +20985,16 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             
             
             static int32 buf_size;//buf_size is an estimation of size required
-            static uint8 *cp,*buf=NULL;
+            static uint8 *cp,*buf;
+            static std::vector<uint8> buf_storage;
             static int32 count;
-            if (buf) free(buf);
             buf_size=256;//256 bytes to account for calc overflow (such as exponent digits)
             buf_size+=9;//%(1)+-(1)$(1)???.(1)???exponent(5)
             buf_size+=digits_before_point;
             if (commas) buf_size+=((digits_before_point/3)+2);
             buf_size+=digits_after_point;
-            buf=(uint8*)malloc(buf_size);
+            buf_storage.resize(buf_size);
+            buf=buf_storage.data();
             cp=buf;
             count=0;//char count
             ii=0;
@@ -22109,12 +22190,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
          }
              
         qbs *func_environ(qbs *name) {
-            char *query, *result;
+            char *result;
             qbs *tqbs;
-            query = (char *)malloc(name->len + 1);
-            query[name->len] = '\0'; //add NULL terminator
-            memcpy(query, name->chr, name->len);
-            result = getenv(query);
+            std::string query((char*)name->chr, (char*)name->chr + name->len);
+            result = getenv(query.c_str());
             if (result) {
                 int result_length = strlen(result);
                 tqbs = qbs_new(result_length, 1);
@@ -22150,11 +22229,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         void sub_environ(qbs *str) {
-            char *buf;
             char *separator;
-            buf = (char *)malloc(str->len + 1);
-            buf[str->len] = '\0';
-            memcpy(buf, str->chr, str->len);
+            std::string buffer((char*)str->chr, (char*)str->chr + str->len);
+            buffer.push_back('\0');
+            char *buf=buffer.data();
             //Name and value may be separated by = or space
             separator = strchr(buf, ' ');
             if (!separator) {
@@ -22188,7 +22266,6 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 					setenv(buf, separator + 1, 1);
 				#endif
             }
-            free(buf);
         }
         
         #ifdef QBNex_WINDOWS
@@ -22248,6 +22325,19 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             uint8* hostname;//clients only
             int connected;
         };
+        static std::unordered_map<tcp_connection*, std::vector<uint8>> tcp_hostname_storage;
+
+        static tcp_connection *create_tcp_connection(){
+            return new(std::nothrow) tcp_connection{};
+        }
+
+        static void assign_tcp_hostname(tcp_connection *connection, uint8 *host){
+            auto &buffer=tcp_hostname_storage[connection];
+            size_t host_length=strlen((char*)host);
+            buffer.resize(host_length+1);
+            memcpy(buffer.data(),host,host_length+1);
+            connection->hostname=buffer.data();
+        }
         
         void *tcp_host_open(int64 port){
             tcp_init();
@@ -22279,7 +22369,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 ioctlsocket(listeningSocket, FIONBIO,&iMode);
                 
                 static tcp_connection *connection;
-                connection=(tcp_connection*)calloc(sizeof(tcp_connection),1);
+                connection=create_tcp_connection();
+                if (!connection){closesocket(listeningSocket); return NULL;}
                 connection->socket=listeningSocket;
                 connection->connected = -1;
                 return (void*)connection;
@@ -22314,7 +22405,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 }    
                 
                 tcp_connection *connection;
-                connection=(tcp_connection*)calloc(sizeof(tcp_connection),1);
+                connection=create_tcp_connection();
+                if (!connection){close(sockfd); return NULL;}
                 connection->socket=sockfd;
                 connection->connected = -1;
                 return (void*)connection;
@@ -22368,12 +22460,12 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 ioctlsocket(theSocket, FIONBIO,&iMode);
                 
                 static tcp_connection *connection;
-                connection=(tcp_connection*)calloc(sizeof(tcp_connection),1);
+                connection=create_tcp_connection();
+                if (!connection){closesocket(theSocket); return NULL;}
                 connection->socket=theSocket;
                 connection->port=port;
                 connection->connected = -1;
-                connection->hostname=(uint8*)malloc(strlen((char*)host)+1);
-                memcpy(connection->hostname,host,strlen((char*)host)+1);
+                assign_tcp_hostname(connection,host);
                 return (void*)connection;
                 #elif defined(QBNex_UNIX)
                 struct addrinfo hints, *servinfo, *p;
@@ -22399,12 +22491,12 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 
                 //now we just need to create a struct tcp_connection to return
                 tcp_connection *connection;
-                connection=(tcp_connection*)calloc(sizeof(tcp_connection),1);
+                connection=create_tcp_connection();
+                if (!connection){close(sockfd); return NULL;}
                 connection->socket=sockfd;
                 connection->port=port;
                 connection->connected = -1;
-                connection->hostname=(uint8*)malloc(strlen((char*)host)+1);
-                memcpy(connection->hostname,host,strlen((char*)host)+1);
+                assign_tcp_hostname(connection,host);
                 return (void*)connection;
                 #else
                 return NULL;
@@ -22429,7 +22521,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 iMode=1;
                 ioctlsocket(new_socket, FIONBIO,&iMode);
                 static tcp_connection *connection;
-                connection=(tcp_connection*)calloc(sizeof(tcp_connection),1);
+                connection=create_tcp_connection();
+                if (!connection){closesocket(new_socket); return NULL;}
                 connection->socket=new_socket;
                 //IPv4: port,port,ip,ip,ip,ip
                 connection->port=*((uint16*)sa.sa_data);
@@ -22448,7 +22541,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 fcntl(fd, F_SETFL, O_NONBLOCK); //make socket non-blocking
                 
                 tcp_connection *connection;
-                connection=(tcp_connection*)calloc(sizeof(tcp_connection),1);
+                connection=create_tcp_connection();
+                if (!connection){close(fd); return NULL;}
                 connection->socket=fd;
                 connection->connected = -1;
                 //IPv4: port,port,ip,ip,ip,ip
@@ -22474,8 +22568,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                     close(tcp->socket);
                 }
             #endif
-            if (tcp->hostname) free(tcp->hostname);
-            free(tcp);
+            tcp_hostname_storage.erase(tcp);
+            tcp->hostname=NULL;
+            delete tcp;
         }
         
         void tcp_out(void *connection,void *offset,ptrszint bytes){
@@ -22539,9 +22634,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 static ptrszint bytes;
                 
                 if (!stream->in_limit){
-                    stream->in=(uint8*)malloc(1024);
                     stream->in_size=0;
-                    stream->in_limit=1024;
+                    resize_stream_input_buffer(stream,1024);
                 }
                 
                 expand_and_retry:
@@ -22549,7 +22643,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 //expand buffer if 'in' stream is full
                 //also guarantees that bytes requested from recv() is not 0
                 if (stream->in_size==stream->in_limit){
-                    stream->in_limit*=2; stream->in=(uint8*)realloc(stream->in,stream->in_limit);
+                    resize_stream_input_buffer(stream,stream->in_limit*2);
                 }
                 
                 
@@ -23529,17 +23623,24 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         int32 gfs_new(){
             static int32 i;
-            if (gfs_freed_n){
-                i=gfs_freed[--gfs_freed_n];
+            if (!gfs_freed.empty()){
+                i=gfs_freed.back();
+                gfs_freed.pop_back();
                 }else{
                 i=gfs_n;
                 gfs_n++;
-                gfs_file=(gfs_file_struct*)realloc(gfs_file,gfs_n*sizeof(gfs_file_struct));
+                gfs_file.resize(gfs_n);
+                gfs_field_buffer_storage.resize(gfs_n);
+                gfs_field_string_storage.resize(gfs_n);
                 #ifdef GFS_WINDOWS
-                    gfs_file_win=(gfs_file_win_struct*)realloc(gfs_file_win,gfs_n*sizeof(gfs_file_win_struct));
+                    gfs_file_win.resize(gfs_n);
                 #endif
             }
             memset(&gfs_file[i],0,sizeof(gfs_file_struct));
+            gfs_field_buffer_storage[i].clear();
+            sync_gfs_field_buffer(i);
+            gfs_field_string_storage[i].clear();
+            sync_gfs_field_strings(i);
             #ifdef GFS_WINDOWS
                 ZeroMemory(&gfs_file_win[i],sizeof(gfs_file_win_struct));
             #endif
@@ -23563,8 +23664,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (f<=gfs_fileno_n){
                 if (gfs_fileno[f]==-1) return 0; else return 1;
             }
-            gfs_fileno=(int32*)realloc(gfs_fileno,(f+1)*4);
-            memset(gfs_fileno+gfs_fileno_n+1,-1,(f-gfs_fileno_n)*4);
+            gfs_fileno.resize(f+1,-1);
             gfs_fileno_n=f;
             return 0;
         }
@@ -23590,14 +23690,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 gfs_free(int32 i){
             
             if (!gfs_validhandle(i)) return -2;//invalid handle    
-            if (gfs_freed_size<=gfs_freed_n){
-                gfs_freed_size++;
-                gfs_freed=(int32*)realloc(gfs_freed,gfs_freed_size*4);
-            }
-            
             gfs_file[i].open=0;
             if (gfs_file[i].fileno) gfs_fileno_free(gfs_file[i].fileno);
-            gfs_freed[gfs_freed_n++]=i;
+            gfs_freed.push_back(i);
             return 0;
         }
         
@@ -23606,8 +23701,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (x=gfs_free(i)) return x;
             
             if (gfs_file[i].scrn) return 0; //No further action needed
-            if (gfs_file[i].field_buffer){free(gfs_file[i].field_buffer); gfs_file[i].field_buffer=NULL;}
-            if (gfs_file[i].field_strings){free(gfs_file[i].field_strings); gfs_file[i].field_strings=NULL;}
+            gfs_field_buffer_storage[i].clear();
+            sync_gfs_field_buffer(i);
+            gfs_field_string_storage[i].clear();
+            sync_gfs_field_strings(i);
             
             #ifdef GFS_C
                 static gfs_file_struct *f;
@@ -25660,7 +25757,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             
             return;
             remove:;
-            free(str->field);
+            delete str->field;
             str->field=NULL;
         }
         
@@ -25682,14 +25779,15 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             for (i=0;i<gfs->field_strings_n;i++){
                 str2=gfs->field_strings[i];
                 if (str==str2){//match found
-                    //truncate list
-                    memmove(&(gfs->field_strings[i]),&(gfs->field_strings[i+1]),(gfs->field_strings_n-i-1)*ptrsz);
+                    std::vector<qbs*> &fields=gfs_field_string_storage[gfs_fileno[str->field->fileno]];
+                    fields.erase(fields.begin()+i);
+                    sync_gfs_field_strings(gfs_fileno[str->field->fileno]);
                     goto remove;
                 }
             }//i
             
             remove:
-            free(str->field);
+            delete str->field;
             str->field=NULL;
         }
         
@@ -25714,22 +25812,16 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (str->field) field_free(str);
             
             //2) Setup qbs field info
-            str->field=(qbs_field*)malloc(sizeof(qbs_field));
+            str->field=new(std::nothrow) qbs_field{};
+            if (!str->field){error(518); goto fail;}
             str->field->fileno=field_fileno;
             str->field->fileid=gfs->id;
             str->field->size=size;
             str->field->offset=field_totalsize;
             
             //3) Add str to qbs list of gfs
-            if (!gfs->field_strings){
-                gfs->field_strings_n=1;
-                gfs->field_strings=(qbs**)malloc(ptrsz);
-                gfs->field_strings[0]=str;
-                }else{
-                gfs->field_strings_n++;
-                gfs->field_strings=(qbs**)realloc(gfs->field_strings,ptrsz*gfs->field_strings_n);
-                gfs->field_strings[gfs->field_strings_n-1]=str;
-            }
+            gfs_field_string_storage[i].push_back(str);
+            sync_gfs_field_strings(i);
             
             //4) Update field strings for this file
             field_update(field_fileno);
@@ -26923,12 +27015,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         void sub__consoletitle(qbs* s){
             #ifdef QBNex_WINDOWS
-                char *title;
-                title = (char *)malloc(s->len + 1);
-                title[s->len] = '\0'; //add NULL terminator
-                memcpy(title, s->chr, s->len);
+                std::string title((char*)s->chr, (char*)s->chr + s->len);
                 if (console){ if (console_active){
-                    SetConsoleTitle(title);
+                    SetConsoleTitle(title.c_str());
                     Sleep(40);
                 }}
             #endif
@@ -26946,6 +27035,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 free_mem_lock( (mem_lock*)((mem_block*)(mem))->lock_offset );
             }
             if ( ((mem_lock*)(((mem_block*)(mem))->lock_offset))->type ==1){//malloc
+                memnew_storage.erase((mem_lock*)((mem_block*)(mem))->lock_offset);
                 free_mem_lock( (mem_lock*)((mem_block*)(mem))->lock_offset );
             }
             //note: type 2(image) is freed when the image is freed
@@ -27000,8 +27090,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                     b.offset=1;//non-zero=success
                     b.size=0;
                     }else{
-                    b.offset=(ptrszint)malloc(bytes);
-                    if (!b.offset){b.size=0; mem_lock_tmp->type=0;} else {b.size=bytes; mem_lock_tmp->type=1; mem_lock_tmp->offset=(void*)b.offset;}
+                    std::vector<uint8> &buffer=memnew_storage[mem_lock_tmp];
+                    buffer.assign(static_cast<size_t>(bytes),0);
+                    b.offset=(ptrszint)(buffer.empty()?NULL:buffer.data());
+                    if (!b.offset){b.size=0; mem_lock_tmp->type=0; memnew_storage.erase(mem_lock_tmp);} else {b.size=bytes; mem_lock_tmp->type=1; mem_lock_tmp->offset=(void*)b.offset;}
                 }
             }
             return b;
@@ -27081,8 +27173,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return (void*)off;
             //------------------------------------------------------------
             fail:
-            static void *fail_buffer;
-            fail_buffer=calloc(bytes,1);
+            static std::vector<uint8> fail_buffer_storage;
+            fail_buffer_storage.assign(static_cast<size_t>(bytes),0);
+            void *fail_buffer=fail_buffer_storage.empty()?NULL:fail_buffer_storage.data();
             if (!fail_buffer) error(518);//critical error: out of memory
             return fail_buffer;
         }
@@ -27504,11 +27597,14 @@ void GLUT_SPECIALUP_FUNC(int key, int x, int y){
         #endif
         
         #ifdef QBNex_GLUT
-            
-            if (x11_lock_request){     
-                x11_locked=1;
-                x11_lock_request=0;
-                while (x11_locked) Sleep(1);
+            {
+                std::unique_lock<std::mutex> lock(x11_lock_mutex);
+                if (x11_lock_request){
+                    x11_locked=true;
+                    x11_lock_request=false;
+                    x11_lock_cv.notify_all();
+                    x11_lock_cv.wait(lock, [](){ return !x11_locked; });
+                }
             }
             
             glutPostRedisplay();
@@ -27528,12 +27624,8 @@ void sub__title(qbs *title){
     static qbs *str=NULL; if (!str) str=qbs_new(0,0);
     qbs_set(str,qbs_add(title,cz));
     
-    uint8 *buf,*old_buf;
-    buf=(uint8*)malloc(str->len);
-    memcpy(buf,str->chr,str->len);
-    old_buf=window_title;
-    window_title=buf;
-    if (old_buf) free(old_buf);
+    window_title_storage.assign(str->chr,str->chr+str->len);
+    window_title=window_title_storage.empty()?NULL:window_title_storage.data();
     
     if (window_exists){
         #ifdef QBNex_GLUT
@@ -27671,19 +27763,18 @@ int32 func__scaledheight(){
 
 //Get Current Working Directory
 qbs *func__cwd(){
-    qbs *final, *tqbs;
+    qbs *final=NULL, *tqbs=NULL;
     int length;
-    char *buf, *ret;
+    std::vector<char> buf;
     
     #if defined QBNex_WINDOWS
         length = GetCurrentDirectoryA(0, NULL);
-        buf = (char *)malloc(length);
-        if (!buf) {
+        buf.resize(length);
+        if (buf.empty()) {
             error(7); //"Out of memory"
             return tqbs;
         }
-        if (GetCurrentDirectoryA(length, buf) != --length) { //Sanity check
-            free(buf); //It's good practice
+        if (GetCurrentDirectoryA(length, buf.data()) != --length) { //Sanity check
             tqbs = qbs_new(0, 1);
             error(51); //"Internal error"
             return tqbs;
@@ -27691,34 +27782,25 @@ qbs *func__cwd(){
         #elif defined QBNex_UNIX
         length = 512;
         while(1) {
-            buf = (char *)malloc(length);
-            if (!buf) {
+            buf.resize(length);
+            if (buf.empty()) {
                 tqbs = qbs_new(0, 1);
                 error(7);
                 return tqbs;
             }
-            ret = getcwd(buf, length);
+            char *ret = getcwd(buf.data(), length);
             if (ret) break;
             if (errno != ERANGE) {
                 tqbs = qbs_new(0, 1);
                 error(51);
                 return tqbs;
             }
-            free(buf);
             length += 512;
         }
-        length = strlen(ret);
-        ret = (char *)realloc(ret, length); //Chops off the null byte
-        if (!ret) {
-            tqbs = qbs_new(0, 1);
-            error(7);
-            return tqbs;
-        }
-        buf = ret;
+        length = strlen(buf.data());
     #endif
     final = qbs_new(length, 1);
-    memcpy(final->chr, buf, length);
-    free(buf);
+    memcpy(final->chr, buf.data(), length);
     return final;
 }
 
@@ -27930,8 +28012,7 @@ int main( int argc, char* argv[] ){
     mouse_message_queue_first=list_add(mouse_message_queue_handles);
     mouse_message_queue_default=mouse_message_queue_first;
     mouse_message_queue_struct *this_mouse_message_queue=(mouse_message_queue_struct*)list_get(mouse_message_queue_handles,mouse_message_queue_default);
-    this_mouse_message_queue->lastIndex=65535;
-    this_mouse_message_queue->queue=(mouse_message*)calloc(1,sizeof(mouse_message)*(this_mouse_message_queue->lastIndex+1));
+    initialize_mouse_message_queue(this_mouse_message_queue,65535);
     
     snd_init();
     
@@ -27941,8 +28022,8 @@ int main( int argc, char* argv[] ){
     
     #ifdef QBNex_WINDOWS
         if (console){
-            LPDWORD plist=(LPDWORD)malloc(1000);
-            if (GetConsoleProcessList(plist,256)==1){
+            std::vector<DWORD> plist(256,0);
+            if (GetConsoleProcessList(plist.data(),256)==1){
                 console_child=1;//only this program is using the console
             }
         }
@@ -28084,10 +28165,7 @@ int main( int argc, char* argv[] ){
     port60h_event[0]=128+1;//simulate release of ESC
     
     
-    mem_static_size=1048576;//1MEG
-    mem_static=(uint8*)malloc(mem_static_size);
-    mem_static_pointer=mem_static;
-    mem_static_limit=mem_static+mem_static_size;
+    allocate_mem_static_block(1048576);//1MEG
     
     memset(&cmem[0],0,sizeof(cmem));
     
@@ -28118,7 +28196,8 @@ int main( int argc, char* argv[] ){
     //switch to directory of this EXE file
     //http://stackoverflow.com/questions/1023306/finding-current-executables-path-without-proc-self-exe
     #if defined(QBNex_WINDOWS) && !defined(QBNex_MICROSOFT)
-        static char *exepath=(char*)malloc(65536);
+        static std::vector<char> exepath_storage(65536,0);
+        char *exepath=exepath_storage.data();
         GetModuleFileName(NULL,exepath,65536);
         i=strlen(exepath);
         for (i2=i-1;i2>=0;i2--){
@@ -28334,29 +28413,13 @@ int main( int argc, char* argv[] ){
         QBNex_GAMEPAD_INIT();
     #endif
     
-    #ifdef QBNex_WINDOWS
-        {
-            uintptr_t thread_handle = _beginthread(QBMAIN_WINDOWS,0,NULL);
-            SetThreadPriority((HANDLE)thread_handle, THREAD_PRIORITY_NORMAL);
-        }    
-        #else
-        {
-            static pthread_t thread_handle;
-            pthread_create(&thread_handle,NULL,&QBMAIN_LINUX,NULL);
-        }
-    #endif
+    qb_start_detached_thread([](){
+        QBMAIN(NULL);
+    });
     
-    #ifdef QBNex_WINDOWS    
-        {
-            uintptr_t thread_handle = _beginthread(TIMERTHREAD_WINDOWS,0,NULL);
-            SetThreadPriority((HANDLE)thread_handle, THREAD_PRIORITY_NORMAL);
-        }
-        #else
-        {
-            static pthread_t thread_handle;
-            pthread_create(&thread_handle,NULL,&TIMERTHREAD_LINUX,NULL);
-        }
-    #endif
+    qb_start_detached_thread([](){
+        TIMERTHREAD();
+    });
     
     
     
@@ -28401,17 +28464,9 @@ int main( int argc, char* argv[] ){
         exit(0);
     #endif    
     
-    #ifdef QBNex_WINDOWS
-        {
-            uintptr_t thread_handle = _beginthread(MAIN_LOOP_WINDOWS,0,NULL);
-            SetThreadPriority((HANDLE)thread_handle, THREAD_PRIORITY_NORMAL);
-        }
-        #else
-        {
-            static pthread_t thread_handle;
-            pthread_create(&thread_handle,NULL,&MAIN_LOOP_LINUX,NULL);
-        }
-    #endif
+    qb_start_detached_thread([](){
+        MAIN_LOOP();
+    });
     
     if (!screen_hide) create_window=1;
     
@@ -28768,8 +28823,9 @@ exit(exit_code);
 
 
 //used to preserve the previous frame's content for comparison/reuse purposes
-uint8 *pixeldata=(uint8*)malloc(1);
-int32 pixeldatasize=1;
+static std::vector<uint8> pixeldata_storage(1,0);
+uint8 *pixeldata=pixeldata_storage.data();
+int32 pixeldatasize=static_cast<int32>(pixeldata_storage.size());
 uint32 paldata[256];
 
 //note: temporarily swapping a source palette is far more effecient than converting the resulting image pixels
@@ -28905,9 +28961,9 @@ void display(){
             //Realloc pixel-buffer if necessary
             i=display_page->width*display_page->height*2;
             if (screen_last_size!=i){
-                free(screen_last);
-                screen_last=(uint8*)malloc(i);
-                screen_last_size=i;
+                screen_last_storage.resize(i,0);
+                screen_last=screen_last_storage.data();
+                screen_last_size=static_cast<uint32>(screen_last_storage.size());
                 check_last=0;
             }
             
@@ -28969,8 +29025,8 @@ void display(){
                 static int32 new_size_bytes;
                 new_size_bytes=x_monitor*y_monitor*4;
                 if (new_size_bytes>display_frame[frame_i].bytes){
-                    free(display_frame[frame_i].bgra);
-                    display_frame[frame_i].bgra=(uint32*)malloc(new_size_bytes);
+                    display_frame[frame_i].bgra_storage.resize(static_cast<size_t>(new_size_bytes/4),0);
+                    display_frame[frame_i].bgra=display_frame[frame_i].bgra_storage.data();
                     display_frame[frame_i].bytes=new_size_bytes;
                 }
                 display_frame[frame_i].w=x_monitor; display_frame[frame_i].h=y_monitor;
@@ -29315,9 +29371,9 @@ void display(){
                 //BGRA_to_RGBA
                 i=display_page->width*display_page->height*4;
                 if (i!=pixeldatasize){
-                    free(pixeldata);
-                    pixeldata=(uint8*)malloc(i);
-                    pixeldatasize=i;
+                    pixeldata_storage.resize(i,0);
+                    pixeldata=pixeldata_storage.data();
+                    pixeldatasize=static_cast<int32>(pixeldata_storage.size());
                     goto update_display32;
                 }
                 if (force_display_update) goto update_display32; //force update
@@ -29340,8 +29396,8 @@ void display(){
                 static int32 new_size_bytes;
                 new_size_bytes=x_monitor*y_monitor*4;
                 if (new_size_bytes>display_frame[frame_i].bytes){
-                    free(display_frame[frame_i].bgra);
-                    display_frame[frame_i].bgra=(uint32*)malloc(new_size_bytes);
+                    display_frame[frame_i].bgra_storage.resize(static_cast<size_t>(new_size_bytes/4),0);
+                    display_frame[frame_i].bgra=display_frame[frame_i].bgra_storage.data();
                     display_frame[frame_i].bytes=new_size_bytes;
                 }
                 display_frame[frame_i].w=x_monitor; display_frame[frame_i].h=y_monitor;
@@ -29396,9 +29452,9 @@ void display(){
         
         //data changed?
         if (i!=pixeldatasize){
-            free(pixeldata);
-            pixeldata=(uint8*)malloc(i);
-            pixeldatasize=i;
+            pixeldata_storage.resize(i,0);
+            pixeldata=pixeldata_storage.data();
+            pixeldatasize=static_cast<int32>(pixeldata_storage.size());
             goto update_display;
         }
         
@@ -29425,8 +29481,8 @@ void display(){
             static int32 new_size_bytes;
             new_size_bytes=x_monitor*y_monitor*4;
             if (new_size_bytes>display_frame[frame_i].bytes){
-                free(display_frame[frame_i].bgra);
-                display_frame[frame_i].bgra=(uint32*)malloc(new_size_bytes);
+                display_frame[frame_i].bgra_storage.resize(static_cast<size_t>(new_size_bytes/4),0);
+                display_frame[frame_i].bgra=display_frame[frame_i].bgra_storage.data();
                 display_frame[frame_i].bytes=new_size_bytes;
             }
             display_frame[frame_i].w=x_monitor; display_frame[frame_i].h=y_monitor;

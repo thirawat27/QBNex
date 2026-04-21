@@ -735,7 +735,8 @@ double last_line=0;
 uint32 error_goto_line=0;
 uint32 error_handling=0;
 uint32 next_return_point=0;
-uint32 *return_point=(uint32*)malloc(4*16384);
+std::vector<uint32> return_point_storage(16384,0);
+uint32 *return_point=return_point_storage.data();
 uint32 return_points=16384;
 void *qbs_input_variableoffsets[257];
 int32 qbs_input_variabletypes[257];
@@ -809,12 +810,11 @@ void swap_string(qbs *a,qbs *b){
 void swap_block(void *a, void *b, uint32 bytes){
     // Fast path for large blocks: use a temp buffer + memcpy (SIMD-accelerated)
     if (bytes >= 64) {
-        void *tmp = malloc(bytes);
+        std::unique_ptr<uint8[]> tmp(new(std::nothrow) uint8[bytes]);
         if (tmp) {
-            memcpy(tmp, a,   bytes);
-            memcpy(a,   b,   bytes);
-            memcpy(b,   tmp, bytes);
-            free(tmp);
+            memcpy(tmp.get(), a,   bytes);
+            memcpy(a,         b,   bytes);
+            memcpy(b,   tmp.get(), bytes);
             return;
         }
         // Fall through to manual swap on alloc failure
@@ -1568,7 +1568,16 @@ void sub_chain(qbs* f){
 //note: index 0 is unused
 int32 device_last=0;//last used device
 int32 device_max=1000;//number of allocated indexes
-device_struct *devices=(device_struct*)calloc(1000+1,sizeof(device_struct));
+static std::vector<device_struct> devices_storage(1000+1);
+device_struct *devices=devices_storage.data();
+static std::unordered_map<device_struct*, std::vector<uint8>> device_event_buffers;
+
+static void resize_device_event_buffer(device_struct *device, int32 event_count){
+    auto &buffer=device_event_buffers[device];
+    buffer.resize(static_cast<size_t>(event_count)*static_cast<size_t>(device->event_size),0);
+    device->events=buffer.empty()?NULL:buffer.data();
+    device->max_events=event_count;
+}
 
 //device_struct helper functions
 uint8 getDeviceEventButtonValue(device_struct *device, int32 eventIndex, int32 objectIndex){
@@ -1594,26 +1603,22 @@ void setupDevice(device_struct *device){
 	size+=8;//for appended ordering index
 	size+=7; size=size-(size&7);//align to closest 8-byte boundary	
 	device->event_size=size;
-	device->events=(uint8*)calloc(2,device->event_size);//create initial 'current' and 'previous' events
+	auto &buffer=device_event_buffers[device];
+	buffer.assign(static_cast<size_t>(2)*static_cast<size_t>(device->event_size),0);//create initial 'current' and 'previous' events
+	device->events=buffer.empty()?NULL:buffer.data();
 	device->max_events=2;
 	device->queued_events=2;
 	device->connected=1;
 	device->used=1;
 }
 int32 createDeviceEvent(device_struct *device){
-	uint8 *cp,*cp2;
 	if (device->queued_events==device->max_events){//expand/shift event buffer
 		if (device->max_events>=QUEUED_EVENTS_LIMIT){
 			//discard base message
 			memmove(device->events,device->events+device->event_size,(device->queued_events-1)*device->event_size);
 			device->queued_events--;
             }else{
-			cp=(uint8*)calloc(device->max_events*2,device->event_size);//create new buffer
-			memcpy(cp,device->events,device->queued_events*device->event_size);//copy events from old buffer into new buffer
-			cp2=device->events;
-			device->events=cp;
-			device->max_events*=2;
-			free(cp2);
+			resize_device_event_buffer(device,device->max_events*2);
         }
     }
 	//copy previous event data into new event
@@ -1742,7 +1747,8 @@ int32 func__lastwheel(int32 di,int32 passed){
 }
 
 
-onstrig_struct *onstrig=(onstrig_struct*)calloc(65536,sizeof(onstrig_struct));//note: up to 256 controllers with up to 256 buttons each supported
+static std::vector<onstrig_struct> onstrig_storage(65536);
+onstrig_struct *onstrig=onstrig_storage.data();//note: up to 256 controllers with up to 256 buttons each supported
 int32 onstrig_inprogress=0;
 
 void onstrig_setup(int32 i,int32 controller,int32 controller_passed,uint32 id,int64 pass){
@@ -1806,7 +1812,8 @@ void sub_strig(int32 i,int32 controller,int32 option,int32 passed){
 }
 
 
-onkey_struct *onkey=(onkey_struct*)calloc(32,sizeof(onkey_struct));
+static std::vector<onkey_struct> onkey_storage(32);
+onkey_struct *onkey=onkey_storage.data();
 int32 onkey_inprogress=0;
 
 void onkey_setup(int32 i,uint32 id,int64 pass){
@@ -1843,56 +1850,57 @@ void sub_key(int32 i,int32 option){
 }
 
 int32 ontimer_nextfree=1;
-int32 *ontimer_freelist=(int32*)malloc(32);
-uint32 ontimer_freelist_size=8;//number of elements in the freelist
-uint32 ontimer_freelist_available=0;//element (if any) which is available)
-ontimer_struct *ontimer=(ontimer_struct*)malloc(sizeof(ontimer_struct));
+std::vector<int32> ontimer_freelist;
+std::vector<ontimer_struct> ontimer(1);
 //note: index 0 of the above cannot be allocated/freed
 
-int32 ontimerthread_lock=0;
+static std::mutex ontimer_mutex;
+static std::unique_ptr<std::unique_lock<std::mutex>> ontimer_pause_lock;
 
 void stop_timers() {
-  ontimerthread_lock = 1;
-  while (ontimerthread_lock != 2) Sleep(0); // yield CPU instead of busy-spinning
+    if (!ontimer_pause_lock){
+        ontimer_pause_lock.reset(new std::unique_lock<std::mutex>(ontimer_mutex));
+    }
 }
 
 void start_timers() {
-  ontimerthread_lock = 0;
+    ontimer_pause_lock.reset();
+}
+
+static void freetimer_locked(int32 i){
+    ontimer[i].allocated=0;
+    ontimer[i].id=0;
+    ontimer_freelist.push_back(i);
 }
 
 int32 func__freetimer(){
     if (new_error) return 0;
+    std::lock_guard<std::mutex> lock(ontimer_mutex);
     int32 i;
-    if (ontimer_freelist_available){
-        i=ontimer_freelist[ontimer_freelist_available--];
+    if (!ontimer_freelist.empty()){
+        i=ontimer_freelist.back();
+        ontimer_freelist.pop_back();
         }else{
-        ontimerthread_lock=1; while(ontimerthread_lock==1) Sleep(0);//mutex
-        ontimer=(ontimer_struct*)realloc(ontimer,sizeof(ontimer_struct)*(ontimer_nextfree+1));
-        if (!ontimer) error(257);//out of memory
-        ontimerthread_lock=0;//mutex
         i=ontimer_nextfree;
+        ontimer.resize(static_cast<size_t>(ontimer_nextfree)+1);
         ontimer[i].state=0;//state is not set to 0 if reusing an existing index as event could still be in progress
+        ontimer_nextfree++;
     }
     ontimer[i].active=0;
     ontimer[i].id=0;
     ontimer[i].allocated=1;
-    if (i==ontimer_nextfree) ontimer_nextfree++;
     return i;
 }
 
 void freetimer(int32 i){
-    ontimer[i].allocated=0;
-    ontimer[i].id=0;
-    if (ontimer_freelist_available==ontimer_freelist_size){
-        ontimer_freelist_size*=2;
-        ontimer_freelist=(int32*)realloc(ontimer_freelist,ontimer_freelist_size*4);
-    }
-    ontimer_freelist[++ontimer_freelist_available]=i;
+    std::lock_guard<std::mutex> lock(ontimer_mutex);
+    freetimer_locked(i);
 }
 
 void ontimer_setup(int32 i,double sec,uint32 id,int64 pass){
     //note: pass is ignored by ids not requiring a pass value
     if (new_error) return;
+    std::lock_guard<std::mutex> lock(ontimer_mutex);
     if ((i<0)||(i>=ontimer_nextfree)){error(5); return;}
     if (!ontimer[i].allocated){error(5); return;}
     if (ontimer[i].state==1) ontimer[i].state=0;//retract prev event if not in progress
@@ -1906,6 +1914,7 @@ void sub_timer(int32 i,int32 option,int32 passed){
     //ref: "[(?)]{ON|OFF|STOP|FREE}"
     if (new_error) return;
     if (!passed) i=0;
+    std::lock_guard<std::mutex> lock(ontimer_mutex);
     if ((i<0)||(i>=ontimer_nextfree)){error(5); return;}
     if (!ontimer[i].allocated){error(5); return;}
     //ref: uint8 active;//0=OFF, 1=ON, 2=STOP
@@ -1927,7 +1936,7 @@ void sub_timer(int32 i,int32 option,int32 passed){
         if (i==0){error(5); return;}
         ontimer[i].active=0;
         if (ontimer[i].state==1) ontimer[i].state=0;//retract event if not in progress
-        freetimer(i);
+        freetimer_locked(i);
         //note: if an event is still in progress, it will set state to 0 when it finishes
         //      which may delay the first instance of this index if it is immediately reused
         return;
@@ -1950,9 +1959,8 @@ void TIMERTHREAD(){
     int32 i;
     double time_now = 100000.0;
     while(1){
-        quick_lock:
-        if (ontimerthread_lock==1) ontimerthread_lock=2;//mutex, verify lock
-        if (!ontimerthread_lock){//mutex
+        {
+            std::lock_guard<std::mutex> lock(ontimer_mutex);
             time_now=((double)GetTicks())*0.001;
             for (i=0;i<ontimer_nextfree;i++){
                 if (ontimer[i].allocated){
@@ -1975,9 +1983,8 @@ void TIMERTHREAD(){
                         }//active
                     }//id
                 }//allocated
-                if (ontimerthread_lock==1) goto quick_lock;
             }//i
-        }//not locked
+        }
         Sleep(1);
         if (stop_program){exit_ok|=2; return;}//close thread #2
     }//while(1)
@@ -2066,35 +2073,51 @@ void events(){
     
     //ontimer events
     if (!error_handling){//no new on timer calls happen whilst error handling
-        for (i=0;i<ontimer_nextfree;i++){
-            if (ontimer[i].allocated){
-                if (ontimer[i].id){
-                    if (ontimer[i].active==1){//if timer STOPped, event will be postponed
-                        if (ontimer[i].state==1){
-                            ontimer[i].state=2;//event in progress
-                            x=ontimer[i].id;
-                            i64=ontimer[i].pass;
-                            switch(x){
-                                
-                                #ifdef QBNex_WINDOWS
-                                    #include "..\\temp\\ontimer.txt"
-                                    #else
-                                    #include "../temp/ontimer.txt"
-                                #endif
-                                //example.....
-                                //case 1:
-                                //...
-                                //break;
-                                
-                                default:
-                                break;
-                            }//switch
-                            ontimer[i].state=0;//event finished
-                            sleep_break=1;
-                        }//state==1
-                    }//active==1
-                }//id
-            }//allocated
+        int32 ontimer_limit;
+        {
+            std::lock_guard<std::mutex> lock(ontimer_mutex);
+            ontimer_limit=ontimer_nextfree;
+        }
+        for (i=0;i<ontimer_limit;i++){
+            x=0;
+            i64=0;
+            {
+                std::lock_guard<std::mutex> lock(ontimer_mutex);
+                if (ontimer[i].allocated){
+                    if (ontimer[i].id){
+                        if (ontimer[i].active==1){//if timer STOPped, event will be postponed
+                            if (ontimer[i].state==1){
+                                ontimer[i].state=2;//event in progress
+                                x=ontimer[i].id;
+                                i64=ontimer[i].pass;
+                            }//state==1
+                        }//active==1
+                    }//id
+                }//allocated
+            }
+            if (!x) continue;
+            switch(x){
+                
+                #ifdef QBNex_WINDOWS
+                    #include "..\\temp\\ontimer.txt"
+                    #else
+                    #include "../temp/ontimer.txt"
+                #endif
+                //example.....
+                //case 1:
+                //...
+                //break;
+                
+                default:
+                break;
+            }//switch
+            {
+                std::lock_guard<std::mutex> lock(ontimer_mutex);
+                if ((i<ontimer_nextfree)&&ontimer[i].allocated){
+                    ontimer[i].state=0;//event finished
+                }
+            }
+            sleep_break=1;
         }//i
     }//!error_handling
     
@@ -2138,7 +2161,8 @@ void evnt(uint32 linenumber, uint32 inclinenumber = 0, const char* incfilename =
     
 }
 
-uint8 *redim_preserve_cmem_buffer=(uint8*)malloc(65536);//used for temporary storage only (move to libqbx?)
+static std::vector<uint8> redim_preserve_cmem_buffer_storage(65536,0);
+uint8 *redim_preserve_cmem_buffer=redim_preserve_cmem_buffer_storage.data();//used for temporary storage only (move to libqbx?)
 
 #include "myip.cpp"
 
