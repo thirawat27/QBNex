@@ -1,6 +1,5 @@
 #!/bin/bash
-#QBNex Installer -- Shell Script -- Matt Kilgore 2013
-#Version 5 -- January 2020
+#QBNex Installer -- Shell Script --
 
 set -u
 
