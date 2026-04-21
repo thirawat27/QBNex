@@ -72,12 +72,12 @@ jobs:
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: bash ./.github/scripts/stage_portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
+        run: bash ./.github/scripts/portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
 
       - name: Stage portable bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .github/scripts/stage_portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
+        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
 
       - name: Package compiler artifact (Unix)
         if: runner.os != 'Windows'
@@ -111,12 +111,18 @@ jobs:
       RELEASE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.release_name || '' }}
       RELEASE_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           pattern: release-*
           merge-multiple: true
+
+      - name: Generate release notes from changelog
+        shell: bash
+        run: bash ./.github/scripts/release_notes.sh CHANGELOG.md "${{ env.RELEASE_TAG }}" release-notes.md
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -125,5 +131,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ env.RELEASE_NAME != '' && env.RELEASE_NAME || env.RELEASE_TAG }}
           draft: ${{ env.RELEASE_DRAFT == 'true' }}
-          generate_release_notes: true
+          body_path: release-notes.md
           files: release-assets/*

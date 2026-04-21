@@ -182,9 +182,9 @@ if not exist "%BIN_EXTERNAL%" (
 
 if "%FAIL%"=="0" (
     echo CLI_SMOKE_OK
-    if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
     rmdir /s /q "%TMPDIR%" >nul 2>&1
-    exit /b 0
+    set "RESULT=0"
+    goto :cleanup
 )
 
 echo CLI_SMOKE_FAIL
@@ -198,4 +198,9 @@ echo   Settings: "%OUT_SETTINGS%"
 echo   Z mode: "%OUT_ZMODE%"
 echo   X mode: "%OUT_XMODE%"
 echo   External cwd: "%OUT_EXTERNAL%"
-exit /b 1
+set "RESULT=1"
+goto :cleanup
+
+:cleanup
+if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
+exit /b %RESULT%

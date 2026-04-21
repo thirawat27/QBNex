@@ -53,12 +53,12 @@ jobs:
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: bash ./.github/scripts/stage_portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
+        run: bash ./.github/scripts/portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
 
       - name: Stage portable bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .github/scripts/stage_portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
+        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
 
       - name: Upload compiler artifact
         uses: actions/upload-artifact@v4
