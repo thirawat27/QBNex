@@ -25,3 +25,8 @@ build.cmd
 !ENGINEERING_BACKLOG.md
 !docs/
 !docs/*.md
+dist/
+dist-*
+*.log
+*.bak
+*.tmp
