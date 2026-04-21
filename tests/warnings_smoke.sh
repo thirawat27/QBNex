@@ -4,7 +4,7 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$ROOT/.." && pwd)"
 QB="$REPO_ROOT/qb"
-SRC="$ROOT/fixtures/unused_variable_warning.bas"
+SRC_REL="tests/fixtures/unused_variable_warning.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -12,22 +12,25 @@ if [ ! -x "$QB" ]; then
   exit 2
 fi
 
-if [ ! -f "$SRC" ]; then
-  echo "[FAIL] Warning fixture source not found at \"$SRC\""
+if [ ! -f "$REPO_ROOT/$SRC_REL" ]; then
+  echo "[FAIL] Warning fixture source not found at \"$REPO_ROOT/$SRC_REL\""
   exit 2
 fi
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_warnings_smoke_XXXXXX")"
+mkdir -p "$REPO_ROOT/temp"
+cd "$REPO_ROOT"
+
+TMPDIR="$(mktemp -d "./temp/qbnex_warnings_smoke_XXXXXX")"
 BIN_WARN="$TMPDIR/warn"
 BIN_WERROR="$TMPDIR/werror"
 OUT_WARN="$TMPDIR/warn.txt"
 OUT_WERROR="$TMPDIR/werror.txt"
 
-"$QB" "$SRC" -w -o "$BIN_WARN" >"$OUT_WARN" 2>&1
+"$QB" "$SRC_REL" -w -o "$BIN_WARN" >"$OUT_WARN" 2>&1
 EC_WARN=$?
 
 set +e
-"$QB" "$SRC" --warnings-as-errors -o "$BIN_WERROR" >"$OUT_WERROR" 2>&1
+"$QB" "$SRC_REL" --warnings-as-errors -o "$BIN_WERROR" >"$OUT_WERROR" 2>&1
 EC_WERROR=$?
 set -e
 

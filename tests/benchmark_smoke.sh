@@ -4,9 +4,9 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$ROOT/.." && pwd)"
 QB="$REPO_ROOT/qb"
-SRC_TINY="$ROOT/fixtures/label_recompile_success.bas"
-SRC_WARN="$ROOT/fixtures/unused_variable_warning.bas"
-SRC_MEDIUM="$ROOT/fixtures/benchmark_large.bas"
+SRC_TINY_REL="tests/fixtures/label_recompile_success.bas"
+SRC_WARN_REL="tests/fixtures/unused_variable_warning.bas"
+SRC_MEDIUM_REL="tests/fixtures/benchmark_large.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -14,12 +14,15 @@ if [ ! -x "$QB" ]; then
   exit 2
 fi
 
-if [ ! -f "$SRC_TINY" ] || [ ! -f "$SRC_WARN" ] || [ ! -f "$SRC_MEDIUM" ]; then
+if [ ! -f "$REPO_ROOT/$SRC_TINY_REL" ] || [ ! -f "$REPO_ROOT/$SRC_WARN_REL" ] || [ ! -f "$REPO_ROOT/$SRC_MEDIUM_REL" ]; then
   echo "[FAIL] One or more benchmark fixtures are missing."
   exit 2
 fi
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_benchmark_XXXXXX")"
+mkdir -p "$REPO_ROOT/temp"
+cd "$REPO_ROOT"
+
+TMPDIR="$(mktemp -d "./temp/qbnex_benchmark_XXXXXX")"
 BIN_TINY="$TMPDIR/tiny_output"
 BIN_WARN="$TMPDIR/warn_output"
 BIN_MEDIUM="$TMPDIR/medium_output"
@@ -89,8 +92,8 @@ measure_case() {
 
 echo "BENCHMARK_SMOKE_OK"
 printf '%-14s %10s %7s\n' "Case" "Iterations" "AvgMs"
-measure_case "tiny-success" 5 "$SRC_TINY" "$BIN_TINY"
-measure_case "warning-path" 5 "$SRC_WARN" "$BIN_WARN" "-w"
-measure_case "medium-parse" 3 "$SRC_MEDIUM" "$BIN_MEDIUM"
+measure_case "tiny-success" 5 "$SRC_TINY_REL" "$BIN_TINY"
+measure_case "warning-path" 5 "$SRC_WARN_REL" "$BIN_WARN" "-w"
+measure_case "medium-parse" 3 "$SRC_MEDIUM_REL" "$BIN_MEDIUM"
 
 rm -rf "$TMPDIR"

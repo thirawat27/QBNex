@@ -22,4 +22,5 @@ jobs:
         ./tests/labels_smoke.sh
         ./tests/encoding_smoke.sh
         ./tests/cli_smoke.sh
+        ./tests/stdlib_smoke.sh
         ./tests/benchmark_smoke.sh

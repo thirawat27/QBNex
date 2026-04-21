@@ -24,188 +24,197 @@ END TYPE
 SUB Url_Init
 END SUB
 
-SUB UrlParse (urlString AS STRING, parts AS UrlParts)
-    DIM pos%
-    DIM temp AS STRING
-    DIM auth AS STRING
-    DIM colonPos%
+SUB UrlParse (urlParseText AS STRING, urlParseParts AS UrlParts)
+    DIM urlParsePos%
+    DIM urlParseTemp AS STRING
+    DIM urlParseAuth AS STRING
+    DIM urlParseColonPos%
 
-    parts.href = urlString
-    parts.protocol = ""
-    parts.username = ""
-    parts.password = ""
-    parts.hostname = ""
-    parts.port = 0
-    parts.pathname = "/"
-    parts.search = ""
-    parts.hash = ""
-    parts.host = ""
-    parts.origin = ""
-    parts.queryCount = 0
-    parts.queryData = ""
+    urlParseParts.href = urlParseText
+    urlParseParts.protocol = ""
+    urlParseParts.username = ""
+    urlParseParts.password = ""
+    urlParseParts.hostname = ""
+    urlParseParts.port = 0
+    urlParseParts.pathname = "/"
+    urlParseParts.search = ""
+    urlParseParts.hash = ""
+    urlParseParts.host = ""
+    urlParseParts.origin = ""
+    urlParseParts.queryCount = 0
+    urlParseParts.queryData = ""
 
-    pos% = INSTR(urlString, "://")
-    IF pos% > 0 THEN
-        parts.protocol = LEFT$(urlString, pos% + 2)
-        temp = MID$(urlString, pos% + 3)
+    urlParsePos% = INSTR(urlParseText, "://")
+    IF urlParsePos% > 0 THEN
+        urlParseParts.protocol = LEFT$(urlParseText, urlParsePos% + 2)
+        urlParseTemp = MID$(urlParseText, urlParsePos% + 3)
     ELSE
-        temp = urlString
+        urlParseTemp = urlParseText
     END IF
 
-    pos% = INSTR(temp, "#")
-    IF pos% > 0 THEN
-        parts.hash = MID$(temp, pos%)
-        temp = LEFT$(temp, pos% - 1)
+    urlParsePos% = INSTR(urlParseTemp, "#")
+    IF urlParsePos% > 0 THEN
+        urlParseParts.hash = MID$(urlParseTemp, urlParsePos%)
+        urlParseTemp = LEFT$(urlParseTemp, urlParsePos% - 1)
     END IF
 
-    pos% = INSTR(temp, "?")
-    IF pos% > 0 THEN
-        parts.search = MID$(temp, pos%)
-        UrlParseQueryString MID$(temp, pos% + 1), parts
-        temp = LEFT$(temp, pos% - 1)
+    urlParsePos% = INSTR(urlParseTemp, "?")
+    IF urlParsePos% > 0 THEN
+        urlParseParts.search = MID$(urlParseTemp, urlParsePos%)
+        UrlParseQueryString MID$(urlParseTemp, urlParsePos% + 1), urlParseParts
+        urlParseTemp = LEFT$(urlParseTemp, urlParsePos% - 1)
     END IF
 
-    pos% = INSTR(temp, "@")
-    IF pos% > 0 THEN
-        auth = LEFT$(temp, pos% - 1)
-        temp = MID$(temp, pos% + 1)
-        colonPos% = INSTR(auth, ":")
-        IF colonPos% > 0 THEN
-            parts.username = LEFT$(auth, colonPos% - 1)
-            parts.password = MID$(auth, colonPos% + 1)
+    urlParsePos% = INSTR(urlParseTemp, "@")
+    IF urlParsePos% > 0 THEN
+        urlParseAuth = LEFT$(urlParseTemp, urlParsePos% - 1)
+        urlParseTemp = MID$(urlParseTemp, urlParsePos% + 1)
+        urlParseColonPos% = INSTR(urlParseAuth, ":")
+        IF urlParseColonPos% > 0 THEN
+            urlParseParts.username = LEFT$(urlParseAuth, urlParseColonPos% - 1)
+            urlParseParts.password = MID$(urlParseAuth, urlParseColonPos% + 1)
         ELSE
-            parts.username = auth
+            urlParseParts.username = urlParseAuth
         END IF
     END IF
 
-    pos% = INSTR(temp, "/")
-    IF pos% > 0 THEN
-        parts.pathname = MID$(temp, pos%)
-        temp = LEFT$(temp, pos% - 1)
+    urlParsePos% = INSTR(urlParseTemp, "/")
+    IF urlParsePos% > 0 THEN
+        urlParseParts.pathname = MID$(urlParseTemp, urlParsePos%)
+        urlParseTemp = LEFT$(urlParseTemp, urlParsePos% - 1)
     END IF
 
-    colonPos% = INSTR(temp, ":")
-    IF colonPos% > 0 THEN
-        parts.hostname = LEFT$(temp, colonPos% - 1)
-        parts.port = VAL(MID$(temp, colonPos% + 1))
+    urlParseColonPos% = INSTR(urlParseTemp, ":")
+    IF urlParseColonPos% > 0 THEN
+        urlParseParts.hostname = LEFT$(urlParseTemp, urlParseColonPos% - 1)
+        urlParseParts.port = VAL(MID$(urlParseTemp, urlParseColonPos% + 1))
     ELSE
-        parts.hostname = temp
+        urlParseParts.hostname = urlParseTemp
     END IF
 
-    IF parts.port > 0 THEN
-        parts.host = parts.hostname + ":" + LTRIM$(STR$(parts.port))
+    IF urlParseParts.port > 0 THEN
+        urlParseParts.host = urlParseParts.hostname + ":" + LTRIM$(STR$(urlParseParts.port))
     ELSE
-        parts.host = parts.hostname
+        urlParseParts.host = urlParseParts.hostname
     END IF
 
-    IF LEN(parts.protocol) > 0 THEN
-        parts.origin = parts.protocol + "//" + parts.host
+    IF LEN(urlParseParts.protocol) > 0 THEN
+        urlParseParts.origin = urlParseParts.protocol + "//" + urlParseParts.host
     END IF
 END SUB
 
-SUB UrlParseQueryString (queryString AS STRING, parts AS UrlParts)
-    DIM item AS STRING
-    DIM rest AS STRING
-    DIM pos%
+SUB UrlParseQueryString (urlQueryText AS STRING, urlQueryParts AS UrlParts)
+    DIM urlQueryItem AS STRING
+    DIM urlQueryRest AS STRING
+    DIM urlQueryPos%
 
-    parts.queryData = ""
-    parts.queryCount = 0
-    rest = queryString
-    DO WHILE LEN(rest) > 0
-        pos% = INSTR(rest, "&")
-        IF pos% > 0 THEN
-            item = LEFT$(rest, pos% - 1)
-            rest = MID$(rest, pos% + 1)
+    urlQueryParts.queryData = ""
+    urlQueryParts.queryCount = 0
+    urlQueryRest = urlQueryText
+    DO WHILE LEN(urlQueryRest) > 0
+        urlQueryPos% = INSTR(urlQueryRest, "&")
+        IF urlQueryPos% > 0 THEN
+            urlQueryItem = LEFT$(urlQueryRest, urlQueryPos% - 1)
+            urlQueryRest = MID$(urlQueryRest, urlQueryPos% + 1)
         ELSE
-            item = rest
-            rest = ""
+            urlQueryItem = urlQueryRest
+            urlQueryRest = ""
         END IF
-        IF LEN(item) > 0 THEN
-            IF LEN(parts.queryData) > 0 THEN parts.queryData = parts.queryData + CHR$(10)
-            parts.queryData = parts.queryData + item
-            parts.queryCount = parts.queryCount + 1
+        IF LEN(urlQueryItem) > 0 THEN
+            IF LEN(urlQueryParts.queryData) > 0 THEN
+                urlQueryParts.queryData = urlQueryParts.queryData + CHR$(10)
+            END IF
+            urlQueryParts.queryData = urlQueryParts.queryData + urlQueryItem
+            urlQueryParts.queryCount = urlQueryParts.queryCount + 1
         END IF
     LOOP
 END SUB
 
-FUNCTION UrlEncode$ (str AS STRING)
-    UrlEncode$ = UrlEncodeComponent$(str)
+FUNCTION UrlEncode$ (urlEncodeText AS STRING)
+    UrlEncode$ = UrlEncodeComponent$(urlEncodeText)
 END FUNCTION
 
-FUNCTION UrlEncodeComponent$ (str AS STRING)
-    DIM i%
-    DIM c$
-    DIM result$
+FUNCTION UrlEncodeComponent$ (urlEncodeComponentText AS STRING)
+    DIM urlEncodeIndex%
+    DIM urlEncodeChar$
+    DIM urlEncodeResult$
 
-    result$ = ""
-    FOR i% = 1 TO LEN(str)
-        c$ = MID$(str, i%, 1)
-        IF (c$ >= "A" AND c$ <= "Z") OR (c$ >= "a" AND c$ <= "z") OR (c$ >= "0" AND c$ <= "9") OR c$ = "-" OR c$ = "_" OR c$ = "." OR c$ = "~" THEN
-            result$ = result$ + c$
-        ELSEIF c$ = " " THEN
-            result$ = result$ + "%20"
+    urlEncodeResult$ = ""
+    FOR urlEncodeIndex% = 1 TO LEN(urlEncodeComponentText)
+        urlEncodeChar$ = MID$(urlEncodeComponentText, urlEncodeIndex%, 1)
+        IF (urlEncodeChar$ >= "A" AND urlEncodeChar$ <= "Z") OR (urlEncodeChar$ >= "a" AND urlEncodeChar$ <= "z") OR (urlEncodeChar$ >= "0" AND urlEncodeChar$ <= "9") OR urlEncodeChar$ = "-" OR urlEncodeChar$ = "_" OR urlEncodeChar$ = "." OR urlEncodeChar$ = "~" THEN
+            urlEncodeResult$ = urlEncodeResult$ + urlEncodeChar$
+        ELSEIF urlEncodeChar$ = " " THEN
+            urlEncodeResult$ = urlEncodeResult$ + "%20"
         ELSE
-            result$ = result$ + "%" + RIGHT$("0" + HEX$(ASC(c$)), 2)
+            urlEncodeResult$ = urlEncodeResult$ + "%" + RIGHT$("0" + HEX$(ASC(urlEncodeChar$)), 2)
         END IF
     NEXT
-    UrlEncodeComponent$ = result$
+    UrlEncodeComponent$ = urlEncodeResult$
 END FUNCTION
 
-FUNCTION UrlDecode$ (str AS STRING)
-    DIM i%
-    DIM result$
-    DIM hexPart$
+FUNCTION UrlDecode$ (urlDecodeText AS STRING)
+    DIM urlDecodeIndex%
+    DIM urlDecodeResult$
+    DIM urlDecodeHex$
 
-    result$ = ""
-    i% = 1
-    DO WHILE i% <= LEN(str)
-        IF MID$(str, i%, 1) = "%" AND i% + 2 <= LEN(str) THEN
-            hexPart$ = MID$(str, i% + 1, 2)
-            result$ = result$ + CHR$(VAL("&H" + hexPart$))
-            i% = i% + 3
+    urlDecodeResult$ = ""
+    urlDecodeIndex% = 1
+    DO WHILE urlDecodeIndex% <= LEN(urlDecodeText)
+        IF MID$(urlDecodeText, urlDecodeIndex%, 1) = "%" AND urlDecodeIndex% + 2 <= LEN(urlDecodeText) THEN
+            urlDecodeHex$ = MID$(urlDecodeText, urlDecodeIndex% + 1, 2)
+            urlDecodeResult$ = urlDecodeResult$ + CHR$(VAL("&H" + urlDecodeHex$))
+            urlDecodeIndex% = urlDecodeIndex% + 3
         ELSE
-            result$ = result$ + MID$(str, i%, 1)
-            i% = i% + 1
+            urlDecodeResult$ = urlDecodeResult$ + MID$(urlDecodeText, urlDecodeIndex%, 1)
+            urlDecodeIndex% = urlDecodeIndex% + 1
         END IF
     LOOP
-    UrlDecode$ = result$
+    UrlDecode$ = urlDecodeResult$
 END FUNCTION
 
-FUNCTION UrlBuildQueryString$ (parts AS UrlParts)
-    UrlBuildQueryString$ = parts.queryData
-    IF LEN(UrlBuildQueryString$) > 0 THEN UrlBuildQueryString$ = REPLACE_LINEBREAKS$(UrlBuildQueryString$, "&")
+FUNCTION UrlBuildQueryString$ (urlBuildParts AS UrlParts)
+    DIM urlBuildQuery$
+
+    urlBuildQuery$ = urlBuildParts.queryData
+    IF LEN(urlBuildQuery$) > 0 THEN
+        urlBuildQuery$ = REPLACE_LINEBREAKS$(urlBuildQuery$, "&")
+    END IF
+    UrlBuildQueryString$ = urlBuildQuery$
 END FUNCTION
 
-SUB UrlSetQueryParam (parts AS UrlParts, key AS STRING, value AS STRING)
-    DIM encoded$
+SUB UrlSetQueryParam (urlSetParts AS UrlParts, urlSetKey AS STRING, urlSetValue AS STRING)
+    DIM urlSetEncoded$
 
-    encoded$ = UrlEncodeComponent$(key) + "=" + UrlEncodeComponent$(value)
-    IF LEN(parts.queryData) > 0 THEN parts.queryData = parts.queryData + CHR$(10)
-    parts.queryData = parts.queryData + encoded$
-    parts.queryCount = parts.queryCount + 1
-    parts.search = "?" + REPLACE_LINEBREAKS$(parts.queryData, "&")
+    urlSetEncoded$ = UrlEncodeComponent$(urlSetKey) + "=" + UrlEncodeComponent$(urlSetValue)
+    IF LEN(urlSetParts.queryData) > 0 THEN
+        urlSetParts.queryData = urlSetParts.queryData + CHR$(10)
+    END IF
+    urlSetParts.queryData = urlSetParts.queryData + urlSetEncoded$
+    urlSetParts.queryCount = urlSetParts.queryCount + 1
+    urlSetParts.search = "?" + REPLACE_LINEBREAKS$(urlSetParts.queryData, "&")
 END SUB
 
-FUNCTION UrlGetQueryParam$ (parts AS UrlParts, key AS STRING)
-    DIM lines$
-    DIM item$
-    DIM pos%
-    DIM eq%
+FUNCTION UrlGetQueryParam$ (urlGetParts AS UrlParts, urlGetKey AS STRING)
+    DIM urlGetLines$
+    DIM urlGetItem$
+    DIM urlGetPos%
+    DIM urlGetEq%
 
-    lines$ = parts.queryData
-    DO WHILE LEN(lines$) > 0
-        pos% = INSTR(lines$, CHR$(10))
-        IF pos% > 0 THEN
-            item$ = LEFT$(lines$, pos% - 1)
-            lines$ = MID$(lines$, pos% + 1)
+    urlGetLines$ = urlGetParts.queryData
+    DO WHILE LEN(urlGetLines$) > 0
+        urlGetPos% = INSTR(urlGetLines$, CHR$(10))
+        IF urlGetPos% > 0 THEN
+            urlGetItem$ = LEFT$(urlGetLines$, urlGetPos% - 1)
+            urlGetLines$ = MID$(urlGetLines$, urlGetPos% + 1)
         ELSE
-            item$ = lines$
-            lines$ = ""
+            urlGetItem$ = urlGetLines$
+            urlGetLines$ = ""
         END IF
-        eq% = INSTR(item$, "=")
-        IF eq% > 0 THEN
-            IF UrlDecode$(LEFT$(item$, eq% - 1)) = key THEN
-                UrlGetQueryParam$ = UrlDecode$(MID$(item$, eq% + 1))
+        urlGetEq% = INSTR(urlGetItem$, "=")
+        IF urlGetEq% > 0 THEN
+            IF UrlDecode$(LEFT$(urlGetItem$, urlGetEq% - 1)) = urlGetKey THEN
+                UrlGetQueryParam$ = UrlDecode$(MID$(urlGetItem$, urlGetEq% + 1))
                 EXIT FUNCTION
             END IF
         END IF
@@ -213,101 +222,125 @@ FUNCTION UrlGetQueryParam$ (parts AS UrlParts, key AS STRING)
     UrlGetQueryParam$ = ""
 END FUNCTION
 
-FUNCTION UrlFormat$ (parts AS UrlParts)
-    DIM result$
-    result$ = ""
-    IF LEN(parts.protocol) > 0 THEN result$ = result$ + parts.protocol + "//"
-    IF LEN(parts.username) > 0 THEN
-        result$ = result$ + parts.username
-        IF LEN(parts.password) > 0 THEN result$ = result$ + ":" + parts.password
-        result$ = result$ + "@"
+FUNCTION UrlFormat$ (urlFormatParts AS UrlParts)
+    DIM urlFormatResult$
+    urlFormatResult$ = ""
+    IF LEN(urlFormatParts.protocol) > 0 THEN
+        urlFormatResult$ = urlFormatResult$ + urlFormatParts.protocol + "//"
     END IF
-    result$ = result$ + parts.hostname
-    IF parts.port > 0 THEN result$ = result$ + ":" + LTRIM$(STR$(parts.port))
-    result$ = result$ + parts.pathname + parts.search + parts.hash
-    UrlFormat$ = result$
+    IF LEN(urlFormatParts.username) > 0 THEN
+        urlFormatResult$ = urlFormatResult$ + urlFormatParts.username
+        IF LEN(urlFormatParts.password) > 0 THEN
+            urlFormatResult$ = urlFormatResult$ + ":" + urlFormatParts.password
+        END IF
+        urlFormatResult$ = urlFormatResult$ + "@"
+    END IF
+    urlFormatResult$ = urlFormatResult$ + urlFormatParts.hostname
+    IF urlFormatParts.port > 0 THEN
+        urlFormatResult$ = urlFormatResult$ + ":" + LTRIM$(STR$(urlFormatParts.port))
+    END IF
+    urlFormatResult$ = urlFormatResult$ + urlFormatParts.pathname + urlFormatParts.search + urlFormatParts.hash
+    UrlFormat$ = urlFormatResult$
 END FUNCTION
 
-SUB UrlResolve (baseUrl AS STRING, relativeUrl AS STRING, result AS UrlParts)
-    IF UrlIsAbsolute%(relativeUrl) THEN
-        UrlParse relativeUrl, result
+SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResolveResult AS UrlParts)
+    IF UrlIsAbsolute%(urlResolveRelative) THEN
+        UrlParse urlResolveRelative, urlResolveResult
     ELSE
-        UrlParse UrlJoin$(baseUrl, relativeUrl), result
+        UrlParse UrlJoin$(urlResolveBase, urlResolveRelative), urlResolveResult
     END IF
 END SUB
 
-FUNCTION UrlJoin$ (basePath AS STRING, path AS STRING)
-    IF LEN(basePath) = 0 THEN
-        UrlJoin$ = path
-    ELSEIF RIGHT$(basePath, 1) = "/" THEN
-        UrlJoin$ = basePath + path
+FUNCTION UrlJoin$ (urlJoinBase AS STRING, urlJoinPath AS STRING)
+    IF LEN(urlJoinBase) = 0 THEN
+        UrlJoin$ = urlJoinPath
+    ELSEIF RIGHT$(urlJoinBase, 1) = "/" THEN
+        UrlJoin$ = urlJoinBase + urlJoinPath
     ELSE
-        UrlJoin$ = basePath + "/" + path
+        UrlJoin$ = urlJoinBase + "/" + urlJoinPath
     END IF
 END FUNCTION
 
-FUNCTION UrlDirname$ (path AS STRING)
-    DIM pos%
-    pos% = _INSTRREV(path, "/")
-    IF pos% > 0 THEN UrlDirname$ = LEFT$(path, pos% - 1) ELSE UrlDirname$ = ""
-END FUNCTION
-
-FUNCTION UrlBasename$ (path AS STRING, ext AS STRING)
-    DIM pos%
-    DIM name$
-    pos% = _INSTRREV(path, "/")
-    IF pos% > 0 THEN name$ = MID$(path, pos% + 1) ELSE name$ = path
-    IF LEN(ext) > 0 AND RIGHT$(name$, LEN(ext)) = ext THEN name$ = LEFT$(name$, LEN(name$) - LEN(ext))
-    UrlBasename$ = name$
-END FUNCTION
-
-FUNCTION UrlExtname$ (path AS STRING)
-    DIM pos%
-    pos% = _INSTRREV(path, ".")
-    IF pos% > 0 THEN UrlExtname$ = MID$(path, pos%) ELSE UrlExtname$ = ""
-END FUNCTION
-
-FUNCTION UrlFileToPath$ (fileUrl AS STRING)
-    IF LEFT$(LCASE$(fileUrl), 8) = "file:///" THEN
-        UrlFileToPath$ = MID$(fileUrl, 9)
+FUNCTION UrlDirname$ (urlDirPath AS STRING)
+    DIM urlDirPos%
+    urlDirPos% = UrlInstrRev%(urlDirPath, "/")
+    IF urlDirPos% > 0 THEN
+        UrlDirname$ = LEFT$(urlDirPath, urlDirPos% - 1)
     ELSE
-        UrlFileToPath$ = fileUrl
+        UrlDirname$ = ""
     END IF
 END FUNCTION
 
-FUNCTION UrlPathToFile$ (filePath AS STRING)
-    UrlPathToFile$ = "file:///" + filePath
+FUNCTION UrlBasename$ (urlBasePath AS STRING, urlBaseExt AS STRING)
+    DIM urlBasePos%
+    DIM urlBaseLeaf$
+    urlBasePos% = UrlInstrRev%(urlBasePath, "/")
+    IF urlBasePos% > 0 THEN
+        urlBaseLeaf$ = MID$(urlBasePath, urlBasePos% + 1)
+    ELSE
+        urlBaseLeaf$ = urlBasePath
+    END IF
+    IF LEN(urlBaseExt) > 0 AND RIGHT$(urlBaseLeaf$, LEN(urlBaseExt)) = urlBaseExt THEN
+        urlBaseLeaf$ = LEFT$(urlBaseLeaf$, LEN(urlBaseLeaf$) - LEN(urlBaseExt))
+    END IF
+    UrlBasename$ = urlBaseLeaf$
 END FUNCTION
 
-FUNCTION _INSTRREV (s AS STRING, substr AS STRING)
-    DIM i%
-    FOR i% = LEN(s) - LEN(substr) + 1 TO 1 STEP -1
-        IF MID$(s, i%, LEN(substr)) = substr THEN
-            _INSTRREV = i%
+FUNCTION UrlExtname$ (urlExtPath AS STRING)
+    DIM urlExtPos%
+    urlExtPos% = UrlInstrRev%(urlExtPath, ".")
+    IF urlExtPos% > 0 THEN
+        UrlExtname$ = MID$(urlExtPath, urlExtPos%)
+    ELSE
+        UrlExtname$ = ""
+    END IF
+END FUNCTION
+
+FUNCTION UrlFileToPath$ (urlFileUrl AS STRING)
+    IF LEFT$(LCASE$(urlFileUrl), 8) = "file:///" THEN
+        UrlFileToPath$ = MID$(urlFileUrl, 9)
+    ELSE
+        UrlFileToPath$ = urlFileUrl
+    END IF
+END FUNCTION
+
+FUNCTION UrlPathToFile$ (urlFilePath AS STRING)
+    UrlPathToFile$ = "file:///" + urlFilePath
+END FUNCTION
+
+FUNCTION UrlInstrRev% (urlInstrText AS STRING, urlInstrNeedle AS STRING)
+    DIM urlInstrIndex%
+    FOR urlInstrIndex% = LEN(urlInstrText) - LEN(urlInstrNeedle) + 1 TO 1 STEP -1
+        IF MID$(urlInstrText, urlInstrIndex%, LEN(urlInstrNeedle)) = urlInstrNeedle THEN
+            UrlInstrRev% = urlInstrIndex%
             EXIT FUNCTION
         END IF
     NEXT
-    _INSTRREV = 0
+    UrlInstrRev% = 0
 END FUNCTION
 
-FUNCTION UrlIsAbsolute% (url AS STRING)
-    IF INSTR(url, "://") > 0 OR LEFT$(url, 1) = "/" THEN UrlIsAbsolute% = -1 ELSE UrlIsAbsolute% = 0
+FUNCTION UrlIsAbsolute% (urlAbsoluteText AS STRING)
+    IF INSTR(urlAbsoluteText, "://") > 0 OR LEFT$(urlAbsoluteText, 1) = "/" THEN
+        UrlIsAbsolute% = -1
+    ELSE
+        UrlIsAbsolute% = 0
+    END IF
 END FUNCTION
 
-FUNCTION UrlNormalizePath$ (path AS STRING)
-    UrlNormalizePath$ = path
+FUNCTION UrlNormalizePath$ (urlNormalizeValue AS STRING)
+    UrlNormalizePath$ = urlNormalizeValue
 END FUNCTION
 
-FUNCTION REPLACE_LINEBREAKS$ (s AS STRING, replacement AS STRING)
-    DIM result$
-    DIM i%
-    result$ = ""
-    FOR i% = 1 TO LEN(s)
-        IF MID$(s, i%, 1) = CHR$(10) THEN
-            result$ = result$ + replacement
-        ELSEIF MID$(s, i%, 1) <> CHR$(13) THEN
-            result$ = result$ + MID$(s, i%, 1)
+FUNCTION REPLACE_LINEBREAKS$ (replaceLineText AS STRING, replaceLineReplacement AS STRING)
+    DIM replaceLineResult$
+    DIM replaceLineIndex%
+    replaceLineResult$ = ""
+    FOR replaceLineIndex% = 1 TO LEN(replaceLineText)
+        IF MID$(replaceLineText, replaceLineIndex%, 1) = CHR$(10) THEN
+            replaceLineResult$ = replaceLineResult$ + replaceLineReplacement
+        ELSEIF MID$(replaceLineText, replaceLineIndex%, 1) <> CHR$(13) THEN
+            replaceLineResult$ = replaceLineResult$ + MID$(replaceLineText, replaceLineIndex%, 1)
         END IF
     NEXT
-    REPLACE_LINEBREAKS$ = result$
+    REPLACE_LINEBREAKS$ = replaceLineResult$
 END FUNCTION

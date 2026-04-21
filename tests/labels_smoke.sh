@@ -4,10 +4,10 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$ROOT/.." && pwd)"
 QB="$REPO_ROOT/qb"
-SRC_OK="$ROOT/fixtures/label_recompile_success.bas"
-SRC_FAIL="$ROOT/fixtures/label_missing_failure.bas"
-SRC_SCOPE="$ROOT/fixtures/label_scope_conflict.bas"
-SRC_DATA="$ROOT/fixtures/label_ambiguous_data.bas"
+SRC_OK_REL="tests/fixtures/label_recompile_success.bas"
+SRC_FAIL_REL="tests/fixtures/label_missing_failure.bas"
+SRC_SCOPE_REL="tests/fixtures/label_scope_conflict.bas"
+SRC_DATA_REL="tests/fixtures/label_ambiguous_data.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -15,27 +15,30 @@ if [ ! -x "$QB" ]; then
   exit 2
 fi
 
-if [ ! -f "$SRC_OK" ]; then
-  echo "[FAIL] Success fixture source not found at \"$SRC_OK\""
+if [ ! -f "$REPO_ROOT/$SRC_OK_REL" ]; then
+  echo "[FAIL] Success fixture source not found at \"$REPO_ROOT/$SRC_OK_REL\""
   exit 2
 fi
 
-if [ ! -f "$SRC_FAIL" ]; then
-  echo "[FAIL] Failure fixture source not found at \"$SRC_FAIL\""
+if [ ! -f "$REPO_ROOT/$SRC_FAIL_REL" ]; then
+  echo "[FAIL] Failure fixture source not found at \"$REPO_ROOT/$SRC_FAIL_REL\""
   exit 2
 fi
 
-if [ ! -f "$SRC_SCOPE" ]; then
-  echo "[FAIL] Scope-conflict fixture source not found at \"$SRC_SCOPE\""
+if [ ! -f "$REPO_ROOT/$SRC_SCOPE_REL" ]; then
+  echo "[FAIL] Scope-conflict fixture source not found at \"$REPO_ROOT/$SRC_SCOPE_REL\""
   exit 2
 fi
 
-if [ ! -f "$SRC_DATA" ]; then
-  echo "[FAIL] Ambiguous-data fixture source not found at \"$SRC_DATA\""
+if [ ! -f "$REPO_ROOT/$SRC_DATA_REL" ]; then
+  echo "[FAIL] Ambiguous-data fixture source not found at \"$REPO_ROOT/$SRC_DATA_REL\""
   exit 2
 fi
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_labels_smoke_XXXXXX")"
+mkdir -p "$REPO_ROOT/temp"
+cd "$REPO_ROOT"
+
+TMPDIR="$(mktemp -d "./temp/qbnex_labels_smoke_XXXXXX")"
 BIN_OK="$TMPDIR/label_recompile_success"
 BIN_FAIL="$TMPDIR/label_missing_failure"
 BIN_SCOPE="$TMPDIR/label_scope_conflict"
@@ -47,18 +50,18 @@ OUT_SCOPE="$TMPDIR/label_scope_conflict.txt"
 OUT_DATA="$TMPDIR/label_ambiguous_data.txt"
 OUT_STALE="$TMPDIR/label_stale_failure.txt"
 
-"$QB" "$SRC_OK" -o "$BIN_OK" >"$OUT_OK" 2>&1
+"$QB" "$SRC_OK_REL" -o "$BIN_OK" >"$OUT_OK" 2>&1
 EC_OK=$?
 
 set +e
-"$QB" "$SRC_FAIL" -o "$BIN_FAIL" >"$OUT_FAIL" 2>&1
+"$QB" "$SRC_FAIL_REL" -o "$BIN_FAIL" >"$OUT_FAIL" 2>&1
 EC_FAIL=$?
-"$QB" "$SRC_SCOPE" -o "$BIN_SCOPE" >"$OUT_SCOPE" 2>&1
+"$QB" "$SRC_SCOPE_REL" -o "$BIN_SCOPE" >"$OUT_SCOPE" 2>&1
 EC_SCOPE=$?
-"$QB" "$SRC_DATA" -o "$BIN_DATA" >"$OUT_DATA" 2>&1
+"$QB" "$SRC_DATA_REL" -o "$BIN_DATA" >"$OUT_DATA" 2>&1
 EC_DATA=$?
-"$QB" "$SRC_OK" -o "$BIN_STALE" >/dev/null 2>&1
-"$QB" "$SRC_FAIL" -o "$BIN_STALE" >"$OUT_STALE" 2>&1
+"$QB" "$SRC_OK_REL" -o "$BIN_STALE" >/dev/null 2>&1
+"$QB" "$SRC_FAIL_REL" -o "$BIN_STALE" >"$OUT_STALE" 2>&1
 EC_STALE=$?
 set -e
 

@@ -10,7 +10,10 @@ if [ ! -x "$QB" ]; then
   exit 2
 fi
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_encoding_smoke_XXXXXX")"
+mkdir -p "$REPO_ROOT/temp"
+cd "$REPO_ROOT"
+
+TMPDIR="$(mktemp -d "./temp/qbnex_encoding_smoke_XXXXXX")"
 if [ ! -d "$TMPDIR" ]; then
   echo "[FAIL] Could not create temp directory"
   exit 2

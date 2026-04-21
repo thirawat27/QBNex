@@ -4,8 +4,8 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$ROOT/.." && pwd)"
 QB="$REPO_ROOT/qb"
-SRC_OK="$ROOT/fixtures/label_recompile_success.bas"
-SRC_CONSOLE="$ROOT/fixtures/cli_console_output.bas"
+SRC_OK_REL="tests/fixtures/label_recompile_success.bas"
+SRC_CONSOLE_REL="tests/fixtures/cli_console_output.bas"
 BIN_XMODE="$REPO_ROOT/cli_console_output"
 
 if [ ! -x "$QB" ]; then
@@ -14,17 +14,20 @@ if [ ! -x "$QB" ]; then
   exit 2
 fi
 
-if [ ! -f "$SRC_OK" ]; then
-  echo "[FAIL] Fixture source not found at \"$SRC_OK\""
+if [ ! -f "$REPO_ROOT/$SRC_OK_REL" ]; then
+  echo "[FAIL] Fixture source not found at \"$REPO_ROOT/$SRC_OK_REL\""
   exit 2
 fi
 
-if [ ! -f "$SRC_CONSOLE" ]; then
-  echo "[FAIL] Console fixture source not found at \"$SRC_CONSOLE\""
+if [ ! -f "$REPO_ROOT/$SRC_CONSOLE_REL" ]; then
+  echo "[FAIL] Console fixture source not found at \"$REPO_ROOT/$SRC_CONSOLE_REL\""
   exit 2
 fi
 
-TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_cli_smoke_XXXXXX")"
+mkdir -p "$REPO_ROOT/temp"
+cd "$REPO_ROOT"
+
+TMPDIR="$(mktemp -d "./temp/qbnex_cli_smoke_XXXXXX")"
 OUT_HELP="$TMPDIR/help.txt"
 OUT_VERSION="$TMPDIR/version.txt"
 OUT_INVALID="$TMPDIR/invalid.txt"
@@ -36,6 +39,8 @@ OUT_XMODE="$TMPDIR/xmode.txt"
 OUT_EXTERNAL="$TMPDIR/external_cwd.txt"
 BIN_EXTERNAL="$TMPDIR/external_cwd_output"
 EXTERNAL_CWD="$TMPDIR/external-workdir"
+SRC_OK_FROM_EXTERNAL="../../../$SRC_OK_REL"
+BIN_EXTERNAL_FROM_EXTERNAL="../external_cwd_output"
 
 rm -f "$BIN_XMODE"
 mkdir -p "$EXTERNAL_CWD"
@@ -49,22 +54,22 @@ EC_VERSION=$?
 set +e
 "$QB" --definitely-invalid >"$OUT_INVALID" 2>&1
 EC_INVALID=$?
-"$QB" "$SRC_OK" -o "$TMPDIR/missing-dir/out" >"$OUT_BADOUT" 2>&1
+"$QB" "$SRC_OK_REL" -o "$TMPDIR/missing-dir/out" >"$OUT_BADOUT" 2>&1
 EC_BADOUT=$?
-"$QB" "$SRC_OK" -q -o "$TMPDIR/quiet" >"$OUT_QUIET" 2>&1
+"$QB" "$SRC_OK_REL" -q -o "$TMPDIR/quiet" >"$OUT_QUIET" 2>&1
 EC_QUIET=$?
 "$QB" -s >"$OUT_SETTINGS" 2>&1
 EC_SETTINGS=$?
-"$QB" "$SRC_OK" -z >"$OUT_ZMODE" 2>&1
+"$QB" "$SRC_OK_REL" -z >"$OUT_ZMODE" 2>&1
 EC_ZMODE=$?
-"$QB" "$SRC_CONSOLE" -x >"$OUT_XMODE" 2>&1
+"$QB" "$SRC_CONSOLE_REL" -x >"$OUT_XMODE" 2>&1
 EC_XMODE=$?
 
 rm -f "$BIN_EXTERNAL"
 (
   cd "$EXTERNAL_CWD" &&
-  "$QB" "$SRC_OK" -o "$BIN_EXTERNAL" >"$OUT_EXTERNAL" 2>&1
-)
+  "$QB" "$SRC_OK_FROM_EXTERNAL" -o "$BIN_EXTERNAL_FROM_EXTERNAL"
+) >"$OUT_EXTERNAL" 2>&1
 EC_EXTERNAL=$?
 set -e
 
