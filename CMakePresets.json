@@ -1,0 +1,104 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-mingw",
+      "displayName": "Windows MinGW",
+      "description": "Windows build using MinGW toolchain installed by setup_win.cmd",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/windows-mingw",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "environment": {
+        "PATH": "${sourceDir}/internal/c/c_compiler/bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "${sourceDir}/internal/c/c_compiler/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "${sourceDir}/internal/c/c_compiler/bin/g++.exe",
+        "CMAKE_RC_COMPILER": "${sourceDir}/internal/c/c_compiler/bin/windres.exe"
+      }
+    },
+    {
+      "name": "linux-gcc",
+      "displayName": "Linux GCC",
+      "description": "Linux build using system GCC",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/linux-gcc",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "macos-clang",
+      "displayName": "macOS Clang",
+      "description": "macOS build using system Clang",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/macos-clang",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-mingw-stage0",
+      "displayName": "Windows MinGW - qb-stage0",
+      "configurePreset": "windows-mingw",
+      "targets": [
+        "qb-stage0"
+      ]
+    },
+    {
+      "name": "windows-mingw-selfhost",
+      "displayName": "Windows MinGW - qb-selfhost",
+      "configurePreset": "windows-mingw",
+      "targets": [
+        "qb-selfhost"
+      ]
+    },
+    {
+      "name": "linux-gcc-stage0",
+      "displayName": "Linux GCC - qb-stage0",
+      "configurePreset": "linux-gcc",
+      "targets": [
+        "qb-stage0"
+      ]
+    },
+    {
+      "name": "linux-gcc-selfhost",
+      "displayName": "Linux GCC - qb-selfhost",
+      "configurePreset": "linux-gcc",
+      "targets": [
+        "qb-selfhost"
+      ]
+    },
+    {
+      "name": "macos-clang-stage0",
+      "displayName": "macOS Clang - qb-stage0",
+      "configurePreset": "macos-clang",
+      "targets": [
+        "qb-stage0"
+      ]
+    },
+    {
+      "name": "macos-clang-selfhost",
+      "displayName": "macOS Clang - qb-selfhost",
+      "configurePreset": "macos-clang",
+      "targets": [
+        "qb-selfhost"
+      ]
+    }
+  ]
+}

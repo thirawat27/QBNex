@@ -407,6 +407,55 @@ docker build -t qbnex .
 docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
 ```
 
+### CMake Build (Experimental)
+
+An incremental CMake workflow is available for developers who want IDE-friendly builds while keeping the current platform scripts intact.
+
+```bash
+cmake -S . -B build
+cmake --build build --target qb-stage0
+```
+
+This produces `qb-stage0` / `qb-stage0.exe` in the repository root.
+
+To run the self-hosting phase through CMake:
+
+```bash
+cmake --build build --target qb-selfhost
+```
+
+This generates the final compiler binary (`qb` or `qb.exe`) in the repository root.
+
+Using presets (recommended):
+
+```bash
+# Linux
+cmake --preset linux-gcc
+cmake --build --preset linux-gcc-stage0
+
+# macOS
+cmake --preset macos-clang
+cmake --build --preset macos-clang-stage0
+
+# Windows (after setup_win.cmd)
+cmake --preset windows-mingw
+cmake --build --preset windows-mingw-stage0
+```
+
+Notes:
+- The CMake flow reuses existing runtime setup scripts under `internal/c/*/os/*/setup_build.*`.
+- Existing `setup_win.cmd`, `setup_lnx.sh`, and `setup_osx.command` scripts remain the primary supported path.
+- On Windows, CMake currently expects a MinGW-based toolchain.
+
+Windows MinGW example:
+
+```cmd
+setup_win.cmd
+set PATH=%CD%\internal\c\c_compiler\bin;%PATH%
+cmake -S . -B build -G "MinGW Makefiles"
+cmake --build build --target qb-stage0
+```
+
 ---
 
 ## Quick Start
