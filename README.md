@@ -426,6 +426,8 @@ cmake --build build --target qb-selfhost
 
 This generates the final compiler binary (`qb` or `qb.exe`) in the repository root.
 
+By default, `qb-selfhost` also removes `qb-stage0` / `qb-stage0.exe` after the final compiler is generated, matching the behavior of the setup scripts.
+
 Using presets (recommended):
 
 ```bash
@@ -446,6 +448,7 @@ Notes:
 - The CMake flow reuses existing runtime setup scripts under `internal/c/*/os/*/setup_build.*`.
 - Existing `setup_win.cmd`, `setup_lnx.sh`, and `setup_osx.command` scripts remain the primary supported path.
 - On Windows, CMake currently expects a MinGW-based toolchain.
+- To keep stage0 for debugging, configure with `-DQBNEX_KEEP_STAGE0=ON`.
 
 Windows MinGW example:
 

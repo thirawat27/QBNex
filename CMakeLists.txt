@@ -9,6 +9,7 @@ endif()
 project(QBNex LANGUAGES ${QBNEX_LANGUAGES})
 
 option(QBNEX_SELF_HOST "Build final qb/qb.exe with the stage0 compiler" OFF)
+option(QBNEX_KEEP_STAGE0 "Keep qb-stage0/qb-stage0.exe after qb-selfhost" OFF)
 
 set(QBNEX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 set(QBNEX_INTERNAL_C "${QBNEX_ROOT}/internal/c")
@@ -178,6 +179,7 @@ endif()
 
 add_custom_target(
   qb-selfhost
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${QBNEX_INTERNAL_TEMP}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${QBNEX_INTERNAL_TEMP}"
   COMMAND "${CMAKE_COMMAND}" -E copy_directory "${QBNEX_ROOT}/internal/source" "${QBNEX_INTERNAL_TEMP}"
   COMMAND "${CMAKE_COMMAND}" -E copy_directory "${QBNEX_ROOT}/source" "${QBNEX_INTERNAL_TEMP}"
@@ -190,6 +192,10 @@ add_custom_target(
 
 if(UNIX)
   add_custom_command(TARGET qb-selfhost POST_BUILD COMMAND "${CMAKE_COMMAND}" -E chmod +x "${QBNEX_FINAL_BIN}")
+endif()
+
+if(NOT QBNEX_KEEP_STAGE0)
+  add_custom_command(TARGET qb-selfhost POST_BUILD COMMAND "${CMAKE_COMMAND}" -E rm -f "$<TARGET_FILE:qb-stage0>")
 endif()
 
 if(QBNEX_SELF_HOST)
