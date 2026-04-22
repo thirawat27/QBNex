@@ -103,6 +103,10 @@ FUNCTION CopyBinaryFile% (sourcePath AS STRING, targetPath AS STRING)
     DIM chunkData AS STRING
 
     IF _FILEEXISTS(sourcePath) = 0 THEN EXIT FUNCTION
+    IF UCASE$(sourcePath) = UCASE$(targetPath) THEN
+        CopyBinaryFile% = -1
+        EXIT FUNCTION
+    END IF
 
     IF _FILEEXISTS(targetPath) THEN KILL targetPath
 
@@ -113,7 +117,7 @@ FUNCTION CopyBinaryFile% (sourcePath AS STRING, targetPath AS STRING)
 
     remaining = LOF(sourceFile)
     DO WHILE remaining > 0
-        chunkSize = 32768
+        chunkSize = 262144
         IF remaining < chunkSize THEN chunkSize = remaining
         chunkData = SPACE$(chunkSize)
         GET #sourceFile, , chunkData
@@ -710,11 +714,15 @@ FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$, pchOptions$)
 
     IF os$ = "WIN" THEN
         a$ = PrepareWindowsBuildCommand$(file$, libqb$, libs$, defines$, pchOptions$)
-        EmitBuildSupportScripts a$, file$
         targetOutputFile = ResolveOutputBinaryPath$(pendingOutputBinary$)
         IF LEN(targetOutputFile) = 0 THEN targetOutputFile = path.exe$ + file$ + extension$
         cacheKey = GetNativeBuildCacheKey$(libqb$, libs$, defines$, pchOptions$)
-        IF TryRestoreNativeBuildCache%(cacheKey, targetOutputFile) THEN EXIT FUNCTION
+        IF TryRestoreNativeBuildCache%(cacheKey, targetOutputFile) THEN
+            EmitBuildSupportScripts a$, file$
+            EXIT FUNCTION
+        END IF
+
+        EmitBuildSupportScripts a$, file$
         ExecuteBuildCommand a$
         StoreNativeBuildCache cacheKey, targetOutputFile
         EXIT FUNCTION
@@ -722,11 +730,16 @@ FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$, pchOptions$)
 
     IF os$ = "LNX" THEN
         a$ = PrepareUnixBuildCommand$(file$, libqb$, libs$, defines$)
-        EmitBuildSupportScripts a$, file$
         targetOutputFile = ResolveOutputBinaryPath$(pendingOutputBinary$)
         IF LEN(targetOutputFile) = 0 THEN targetOutputFile = path.exe$ + file$ + extension$
         cacheKey = GetNativeBuildCacheKey$(libqb$, libs$, defines$, "")
-        IF TryRestoreNativeBuildCache%(cacheKey, targetOutputFile) THEN EXIT FUNCTION
+        IF TryRestoreNativeBuildCache%(cacheKey, targetOutputFile) THEN
+            EmitBuildSupportScripts a$, file$
+            IF INSTR(_OS$, "[MACOSX]") THEN EmitMacOSLauncherScript file$
+            EXIT FUNCTION
+        END IF
+
+        EmitBuildSupportScripts a$, file$
         ExecuteBuildCommand a$
         StoreNativeBuildCache cacheKey, targetOutputFile
 
