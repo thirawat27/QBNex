@@ -1,21 +1,36 @@
 FUNCTION getelementspecial$ (savea$, elenum)
-    STATIC cacheSource AS STRING
-    STATIC cacheElement AS LONG
-    STATIC cacheStart AS LONG
-    STATIC cacheNext AS LONG
+    STATIC cacheSource(1 TO 2) AS STRING
+    STATIC cacheElement(1 TO 2) AS LONG
+    STATIC cacheStart(1 TO 2) AS LONG
+    STATIC cacheNext(1 TO 2) AS LONG
+    STATIC cacheVictim AS INTEGER
 
     a$ = savea$
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
 
-    IF cacheSource = a$ AND elenum = cacheElement AND cacheStart > 0 THEN
-        p = cacheStart
-        i = cacheNext
+    slot = 0
+    FOR s = 1 TO 2
+        IF cacheSource(s) = a$ THEN slot = s: EXIT FOR
+    NEXT
+    IF slot = 0 THEN
+        cacheVictim = cacheVictim + 1
+        IF cacheVictim > 2 THEN cacheVictim = 1
+        slot = cacheVictim
+        cacheSource(slot) = a$
+        cacheElement(slot) = 0
+        cacheStart(slot) = 0
+        cacheNext(slot) = 0
+    END IF
+
+    IF elenum = cacheElement(slot) AND cacheStart(slot) > 0 THEN
+        p = cacheStart(slot)
+        i = cacheNext(slot)
         GOTO getelementspecialreturn
     END IF
 
-    IF cacheSource = a$ AND elenum > cacheElement AND cacheNext <> 0 THEN
-        n = cacheElement + 1
-        p = cacheNext + 1
+    IF elenum > cacheElement(slot) AND cacheNext(slot) <> 0 THEN
+        n = cacheElement(slot) + 1
+        p = cacheNext(slot) + 1
     ELSE
         n = 1
         p = 1
@@ -32,10 +47,10 @@ FUNCTION getelementspecial$ (savea$, elenum)
     END IF
 
     IF elenum = n THEN
-        cacheSource = a$
-        cacheElement = elenum
-        cacheStart = p
-        cacheNext = i
+        cacheSource(slot) = a$
+        cacheElement(slot) = elenum
+        cacheStart(slot) = p
+        cacheNext(slot) = i
         getelementspecialreturn:
         IF i THEN getelementspecial$ = MID$(a$, p, i - p) ELSE getelementspecial$ = RIGHT$(a$, LEN(a$) - p + 1)
         EXIT FUNCTION
@@ -48,22 +63,37 @@ FUNCTION getelementspecial$ (savea$, elenum)
 END FUNCTION
 
 FUNCTION getelement$ (a$, elenum)
-    STATIC cacheSource AS STRING
-    STATIC cacheElement AS LONG
-    STATIC cacheStart AS LONG
-    STATIC cacheNext AS LONG
+    STATIC cacheSource(1 TO 2) AS STRING
+    STATIC cacheElement(1 TO 2) AS LONG
+    STATIC cacheStart(1 TO 2) AS LONG
+    STATIC cacheNext(1 TO 2) AS LONG
+    STATIC cacheVictim AS INTEGER
 
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
 
-    IF cacheSource = a$ AND elenum = cacheElement AND cacheStart > 0 THEN
-        p = cacheStart
-        i = cacheNext
+    slot = 0
+    FOR s = 1 TO 2
+        IF cacheSource(s) = a$ THEN slot = s: EXIT FOR
+    NEXT
+    IF slot = 0 THEN
+        cacheVictim = cacheVictim + 1
+        IF cacheVictim > 2 THEN cacheVictim = 1
+        slot = cacheVictim
+        cacheSource(slot) = a$
+        cacheElement(slot) = 0
+        cacheStart(slot) = 0
+        cacheNext(slot) = 0
+    END IF
+
+    IF elenum = cacheElement(slot) AND cacheStart(slot) > 0 THEN
+        p = cacheStart(slot)
+        i = cacheNext(slot)
         GOTO getelementreturn
     END IF
 
-    IF cacheSource = a$ AND elenum > cacheElement AND cacheNext <> 0 THEN
-        n = cacheElement + 1
-        p = cacheNext + 1
+    IF elenum > cacheElement(slot) AND cacheNext(slot) <> 0 THEN
+        n = cacheElement(slot) + 1
+        p = cacheNext(slot) + 1
     ELSE
         n = 1
         p = 1
@@ -73,10 +103,10 @@ FUNCTION getelement$ (a$, elenum)
     i = INSTR(p, a$, sp)
 
     IF elenum = n THEN
-        cacheSource = a$
-        cacheElement = elenum
-        cacheStart = p
-        cacheNext = i
+        cacheSource(slot) = a$
+        cacheElement(slot) = elenum
+        cacheStart(slot) = p
+        cacheNext(slot) = i
         getelementreturn:
         IF i THEN getelement$ = MID$(a$, p, i - p) ELSE getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
         EXIT FUNCTION
@@ -133,19 +163,24 @@ SUB insertelements (a$, i, elements$)
 END SUB
 
 FUNCTION numelements (a$)
-    STATIC cacheSource AS STRING
-    STATIC cacheCount AS LONG
+    STATIC cacheSource(1 TO 2) AS STRING
+    STATIC cacheCount(1 TO 2) AS LONG
+    STATIC cacheVictim AS INTEGER
 
     IF a$ = "" THEN EXIT FUNCTION
-    IF cacheSource = a$ THEN numelements = cacheCount: EXIT FUNCTION
+    FOR s = 1 TO 2
+        IF cacheSource(s) = a$ THEN numelements = cacheCount(s): EXIT FUNCTION
+    NEXT
 
     n = 1
     p = 1
     numelementsnext:
     i = INSTR(p, a$, sp)
     IF i = 0 THEN
-        cacheSource = a$
-        cacheCount = n
+        cacheVictim = cacheVictim + 1
+        IF cacheVictim > 2 THEN cacheVictim = 1
+        cacheSource(cacheVictim) = a$
+        cacheCount(cacheVictim) = n
         numelements = n
         EXIT FUNCTION
     END IF
