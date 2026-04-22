@@ -26,6 +26,7 @@
     - [Linux Setup](#linux-setup)
     - [Docker Setup](#docker-setup)
     - [Build from Source](#build-from-source)
+    - [CMake Build (Experimental)](#cmake-build-experimental)
   - [Quick Start](#quick-start)
   - [Usage Guide](#usage-guide)
     - [Basic Compilation](#basic-compilation)
@@ -3289,30 +3290,62 @@ QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). 
 
 ```
 QBNex/
-├── source/                      # Compiler source code (QBNex BASIC)
-│   ├── qbnex.bas               # Main compiler (~26,000 lines)
-│   ├── global/                 # Version, constants, settings
-│   │   ├── version.bas        # Version 1.0.0
-│   │   ├── constants.bas      # ASCII codes, key codes
-│   │   └── compiler_settings.bas # INI-based configuration
-│   ├── subs_functions/         # Built-in functions and subroutines
-│   │   └── extensions/opengl/  # OpenGL extension definitions
-│   └── utilities/              # Helper modules
-├── internal/                   # Internal build files
-│   ├── c/                      # C++ runtime library
-│   │   ├── qbx.cpp            # C++ compiler entry point
-│   │   ├── libqb/             # Platform-specific runtime (win/lnx/osx)
-│   │   └── parts/             # Feature modules
-│   │       ├── core/          # OpenGL, FreeGLUT, GLEW
-│   │       ├── audio/         # miniaudio library
-│   │       ├── video/         # FreeType, STB Image
-│   │       ├── network/       # Socket implementation
-│   │       └── input/         # Game controller support
-│   └── source/                 # Bootstrap data files for the stage0 compiler
-├── .github/workflows/          # pull_request.yml, push.yml, release.yml
-├── assets/                     # Logo and icons
-├── licenses/                   # License files
-└── setup_*                     # setup_lnx.sh, setup_osx.command, setup_win.cmd
+├── .github/
+│   ├── scripts/                # CI helper scripts (bundle/release notes)
+│   └── workflows/              # pull_request.yml, push.yml, release.yml
+├── assets/
+│   └── icons/                  # Platform icon assets (linux/macos/windows)
+├── installer/
+│   └── qbnex_setup.iss         # Inno Setup installer script
+├── internal/                   # Bootstrap/runtime build workspace
+│   ├── c/                      # Native runtime sources and build scripts
+│   │   ├── c_compiler/         # Downloaded MinGW toolchain (Windows setup)
+│   │   ├── libqb/              # Runtime core (common + os/win|lnx|osx)
+│   │   ├── parts/              # Runtime modules (audio/core/input/network/video/zlib)
+│   │   ├── qbx.cpp             # Stage0 C++ compiler entry point
+│   │   ├── build_cache/        # Native build cache
+│   │   └── pch/                # Precompiled header artifacts
+│   ├── source/                 # Bootstrap templates/data files consumed by stage0
+│   ├── support/                # Terminal color + watch support data
+│   ├── temp/                   # Generated intermediate files during builds
+│   └── config.ini              # Compiler settings
+├── licenses/                   # Third-party license files
+├── source/                     # QBNex compiler source (BASIC)
+│   ├── qbnex.bas               # Main orchestrator entry point
+│   ├── icon.rc                 # Windows resource script
+│   ├── qbnex.ico               # Compiler icon
+│   ├── global/                 # Version/constants/settings modules
+│   ├── includes/               # Shared include files
+│   ├── stdlib/                 # Standard library modules + examples
+│   │   ├── collections/
+│   │   ├── error/
+│   │   ├── io/
+│   │   ├── math/
+│   │   ├── oop/
+│   │   ├── strings/
+│   │   └── sys/
+│   ├── subs_functions/         # Built-in functions/subroutines
+│   └── utilities/              # Compiler utility modules
+├── tests/
+│   ├── *.cmd / *.sh            # Smoke and benchmark test runners
+│   └── fixtures/               # Test input programs
+├── CMakeLists.txt              # Experimental CMake build graph
+├── CMakePresets.json           # Cross-platform CMake presets
+├── docker-compose.yml
+├── Dockerfile
+├── Dockerfile.dev
+├── setup_lnx.sh
+├── setup_osx.command
+├── setup_win.cmd
+├── qb.cmd                      # Windows wrapper command
+├── README.md
+├── CONTRIBUTING.md
+└── CHANGELOG.md
+
+# Generated after build/test (not source)
+# - build/
+# - qb, qb.exe
+# - qb-stage0, qb-stage0.exe
 ```
 
 ### Building from Source
