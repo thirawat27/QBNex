@@ -7,6 +7,7 @@ QB="$REPO_ROOT/qb"
 SRC_TINY_REL="tests/fixtures/label_recompile_success.bas"
 SRC_WARN_REL="tests/fixtures/unused_variable_warning.bas"
 SRC_MEDIUM_REL="tests/fixtures/benchmark_large.bas"
+SRC_LARGE_REL="tests/fixtures/benchmark_stress.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -14,7 +15,7 @@ if [ ! -x "$QB" ]; then
   exit 2
 fi
 
-if [ ! -f "$REPO_ROOT/$SRC_TINY_REL" ] || [ ! -f "$REPO_ROOT/$SRC_WARN_REL" ] || [ ! -f "$REPO_ROOT/$SRC_MEDIUM_REL" ]; then
+if [ ! -f "$REPO_ROOT/$SRC_TINY_REL" ] || [ ! -f "$REPO_ROOT/$SRC_WARN_REL" ] || [ ! -f "$REPO_ROOT/$SRC_MEDIUM_REL" ] || [ ! -f "$REPO_ROOT/$SRC_LARGE_REL" ]; then
   echo "[FAIL] One or more benchmark fixtures are missing."
   exit 2
 fi
@@ -26,6 +27,7 @@ TMPDIR="$(mktemp -d "./temp/qbnex_benchmark_XXXXXX")"
 BIN_TINY="$TMPDIR/tiny_output"
 BIN_WARN="$TMPDIR/warn_output"
 BIN_MEDIUM="$TMPDIR/medium_output"
+BIN_LARGE="$TMPDIR/large_output"
 
 measure_case() {
   case_name=$1
@@ -95,5 +97,6 @@ printf '%-14s %10s %7s\n' "Case" "Iterations" "AvgMs"
 measure_case "tiny-success" 5 "$SRC_TINY_REL" "$BIN_TINY"
 measure_case "warning-path" 5 "$SRC_WARN_REL" "$BIN_WARN" "-w"
 measure_case "medium-parse" 3 "$SRC_MEDIUM_REL" "$BIN_MEDIUM"
+measure_case "large-parse" 2 "$SRC_LARGE_REL" "$BIN_LARGE"
 
 rm -rf "$TMPDIR"

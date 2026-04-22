@@ -5,6 +5,24 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-04-22
+
+### Changed
+
+#### Compiler Performance
+- Reduced repeated linker symbol scans by caching `nm` output during native build preparation.
+- Reduced repeated build-script reads by caching Windows and Unix build command templates.
+- Added token access caching in the parser hot path to cut repeated sequential string scans.
+- Added Windows precompiled-header generation for `common.h` so repeated compiler runs can reuse a dependency-specific PCH.
+
+#### Compiler Structure
+- Split static link symbol registration and cached build-line helpers out of `qbnex.bas` into dedicated utility modules.
+- Simplified the monolithic compiler flow by routing static symbol registration through shared helpers instead of duplicating dynamic array growth logic inline.
+
+#### Validation
+- Added a larger benchmark fixture and extended benchmark smoke coverage to exercise small, medium, and large compile paths.
+- Verified the release build against CLI, diagnostics, warnings, encoding, labels, stdlib, and benchmark smoke suites on Windows.
+
 ## [1.0.0] - 2026-04-21
 
 ### Initial Release
@@ -271,4 +289,5 @@ Optional dependencies:
 
 ---
 
+[1.0.1]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.1
 [1.0.0]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.0

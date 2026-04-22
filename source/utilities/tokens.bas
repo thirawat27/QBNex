@@ -1,9 +1,26 @@
 FUNCTION getelementspecial$ (savea$, elenum)
+    STATIC cacheSource AS STRING
+    STATIC cacheElement AS LONG
+    STATIC cacheStart AS LONG
+    STATIC cacheNext AS LONG
+
     a$ = savea$
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
 
-    n = 1
-    p = 1
+    IF cacheSource = a$ AND elenum = cacheElement AND cacheStart > 0 THEN
+        p = cacheStart
+        i = cacheNext
+        GOTO getelementspecialreturn
+    END IF
+
+    IF cacheSource = a$ AND elenum > cacheElement AND cacheNext <> 0 THEN
+        n = cacheElement + 1
+        p = cacheNext + 1
+    ELSE
+        n = 1
+        p = 1
+    END IF
+
     getelementspecialnext:
     i = INSTR(p, a$, sp)
 
@@ -15,11 +32,12 @@ FUNCTION getelementspecial$ (savea$, elenum)
     END IF
 
     IF elenum = n THEN
-        IF i THEN
-            getelementspecial$ = MID$(a$, p, i - p)
-        ELSE
-            getelementspecial$ = RIGHT$(a$, LEN(a$) - p + 1)
-        END IF
+        cacheSource = a$
+        cacheElement = elenum
+        cacheStart = p
+        cacheNext = i
+        getelementspecialreturn:
+        IF i THEN getelementspecial$ = MID$(a$, p, i - p) ELSE getelementspecial$ = RIGHT$(a$, LEN(a$) - p + 1)
         EXIT FUNCTION
     END IF
 
@@ -30,19 +48,37 @@ FUNCTION getelementspecial$ (savea$, elenum)
 END FUNCTION
 
 FUNCTION getelement$ (a$, elenum)
+    STATIC cacheSource AS STRING
+    STATIC cacheElement AS LONG
+    STATIC cacheStart AS LONG
+    STATIC cacheNext AS LONG
+
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
 
-    n = 1
-    p = 1
+    IF cacheSource = a$ AND elenum = cacheElement AND cacheStart > 0 THEN
+        p = cacheStart
+        i = cacheNext
+        GOTO getelementreturn
+    END IF
+
+    IF cacheSource = a$ AND elenum > cacheElement AND cacheNext <> 0 THEN
+        n = cacheElement + 1
+        p = cacheNext + 1
+    ELSE
+        n = 1
+        p = 1
+    END IF
+
     getelementnext:
     i = INSTR(p, a$, sp)
 
     IF elenum = n THEN
-        IF i THEN
-            getelement$ = MID$(a$, p, i - p)
-        ELSE
-            getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
-        END IF
+        cacheSource = a$
+        cacheElement = elenum
+        cacheStart = p
+        cacheNext = i
+        getelementreturn:
+        IF i THEN getelement$ = MID$(a$, p, i - p) ELSE getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
         EXIT FUNCTION
     END IF
 
@@ -97,12 +133,22 @@ SUB insertelements (a$, i, elements$)
 END SUB
 
 FUNCTION numelements (a$)
+    STATIC cacheSource AS STRING
+    STATIC cacheCount AS LONG
+
     IF a$ = "" THEN EXIT FUNCTION
+    IF cacheSource = a$ THEN numelements = cacheCount: EXIT FUNCTION
+
     n = 1
     p = 1
     numelementsnext:
     i = INSTR(p, a$, sp)
-    IF i = 0 THEN numelements = n: EXIT FUNCTION
+    IF i = 0 THEN
+        cacheSource = a$
+        cacheCount = n
+        numelements = n
+        EXIT FUNCTION
+    END IF
     n = n + 1
     p = i + 1
     GOTO numelementsnext

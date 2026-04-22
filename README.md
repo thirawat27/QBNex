@@ -137,7 +137,7 @@
 
 **QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into optimized C++ and compiles to native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components.
 
-**Version**: 1.0.0
+**Version**: 1.0.1
 
 The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. It features comprehensive graphics via OpenGL/FreeGLUT, sound synthesis via miniaudio, TCP/IP networking, and full file I/O operations.
 

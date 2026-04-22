@@ -7,6 +7,7 @@ set "QB=%REPO_ROOT%\qb.exe"
 set "SRC_TINY=%ROOT%fixtures\label_recompile_success.bas"
 set "SRC_WARN=%ROOT%fixtures\unused_variable_warning.bas"
 set "SRC_MEDIUM=%ROOT%fixtures\benchmark_large.bas"
+set "SRC_LARGE=%ROOT%fixtures\benchmark_stress.bas"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -29,6 +30,11 @@ if not exist "%SRC_MEDIUM%" (
     exit /b 2
 )
 
+if not exist "%SRC_LARGE%" (
+    echo [FAIL] Large benchmark fixture not found at "%SRC_LARGE%"
+    exit /b 2
+)
+
 set "TMPDIR=%TEMP%\qbnex_benchmark_%RANDOM%_%RANDOM%"
 mkdir "%TMPDIR%" >nul 2>&1
 if errorlevel 1 (
@@ -39,6 +45,7 @@ if errorlevel 1 (
 set "BIN_TINY=%TMPDIR%\tiny.exe"
 set "BIN_WARN=%TMPDIR%\warn.exe"
 set "BIN_MEDIUM=%TMPDIR%\medium.exe"
+set "BIN_LARGE=%TMPDIR%\large.exe"
 set "RESULTS=%TMPDIR%\benchmark_results.txt"
 
 powershell -NoProfile -Command ^
@@ -46,7 +53,8 @@ powershell -NoProfile -Command ^
   "$cases = @(" ^
   "  @{ Name = 'tiny-success'; Iterations = 5; Source = $env:SRC_TINY; Output = $env:BIN_TINY; Args = @() }," ^
   "  @{ Name = 'warning-path'; Iterations = 5; Source = $env:SRC_WARN; Output = $env:BIN_WARN; Args = @('-w') }," ^
-  "  @{ Name = 'medium-parse'; Iterations = 3; Source = $env:SRC_MEDIUM; Output = $env:BIN_MEDIUM; Args = @() }" ^
+  "  @{ Name = 'medium-parse'; Iterations = 3; Source = $env:SRC_MEDIUM; Output = $env:BIN_MEDIUM; Args = @() }," ^
+  "  @{ Name = 'large-parse'; Iterations = 2; Source = $env:SRC_LARGE; Output = $env:BIN_LARGE; Args = @() }" ^
   ");" ^
   "$lines = @('BENCHMARK_SMOKE_OK', 'Case           Iterations  AvgMs');" ^
   "foreach ($case in $cases) {" ^

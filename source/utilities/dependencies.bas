@@ -1,4 +1,42 @@
-SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, o$, win, lnx, mac)
+SUB EnsureWindowsCommonPCH (depstr$, defines$, pchOptions$)
+    DIM pchRoot$
+    DIM pchPlatformRoot$
+    DIM pchHeaderRel$
+    DIM pchHeaderPath$
+    DIM pchBinaryRel$
+    DIM pchBinaryPath$
+    DIM ffh AS LONG
+
+    pchOptions$ = ""
+    IF os$ <> "WIN" THEN EXIT SUB
+
+    pchRoot$ = "internal\c\pch"
+    pchPlatformRoot$ = pchRoot$ + "\win"
+    IF _DIREXISTS(pchRoot$) = 0 THEN MKDIR pchRoot$
+    IF _DIREXISTS(pchPlatformRoot$) = 0 THEN MKDIR pchPlatformRoot$
+
+    pchHeaderRel$ = "pch\win\common_" + depstr$ + ".h"
+    pchHeaderPath$ = "internal\c\" + pchHeaderRel$
+    pchBinaryRel$ = pchHeaderRel$ + ".gch"
+    pchBinaryPath$ = "internal\c\" + pchBinaryRel$
+
+    IF _FILEEXISTS(pchHeaderPath$) = 0 THEN
+        ffh = FREEFILE
+        OPEN pchHeaderPath$ FOR OUTPUT AS #ffh
+        PRINT #ffh, "#include " + CHR$(34) + "..\..\common.h" + CHR$(34)
+        CLOSE #ffh
+    END IF
+
+    IF _FILEEXISTS(pchBinaryPath$) = 0 THEN
+        CHDIR "internal\c"
+        SHELL _HIDE GDB_Fix("cmd /c c_compiler\bin\g++ -x c++-header -w -Wall " + defines$ + " " + pchHeaderRel$ + " -o " + pchBinaryRel$) + " 2>> ..\..\" + compilelog$
+        CHDIR "..\.."
+    END IF
+
+    pchOptions$ = " -Winvalid-pch -include " + pchHeaderRel$ + " "
+END SUB
+
+SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win, lnx, mac)
     DIM defines_header$
     DIM ver$
     DIM depstr$
@@ -21,6 +59,7 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, o$, win, lnx, mac)
     lnx = 0: IF os$ = "LNX" THEN lnx = 1
     mac = 0: IF MacOSX THEN mac = 1: o$ = "osx"
     defines$ = ""
+    pchOptions$ = ""
     defines_header$ = " -D "
     ver$ = Version$
     x = INSTR(ver$, "."): IF x THEN ASC(ver$, x) = 95
@@ -176,4 +215,6 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, o$, win, lnx, mac)
     IF DEPENDENCY(DEPENDENCY_AUDIO_OUT) THEN
         IF mac THEN defines$ = defines$ + " -framework AudioUnit -framework AudioToolbox "
     END IF
+
+    EnsureWindowsCommonPCH depstr$, defines$, pchOptions$
 END SUB

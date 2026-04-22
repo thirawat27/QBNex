@@ -12,17 +12,17 @@ $SCREENHIDE
 
 $EXEICON:'./qbnex.ico'
 
-$VERSIONINFO:FILEVERSION#=1,0,0,0
-$VERSIONINFO:PRODUCTVERSION#=1,0,0,0
+$VERSIONINFO:FILEVERSION#=1,0,1,0
+$VERSIONINFO:PRODUCTVERSION#=1,0,1,0
 $VERSIONINFO:CompanyName=thirawat27
 $VERSIONINFO:FileDescription=QBNex CLI Compiler
-$VERSIONINFO:FileVersion=1.0.0
+$VERSIONINFO:FileVersion=1.0.1
 $VERSIONINFO:InternalName=qb.exe
 $VERSIONINFO:LegalCopyright=Copyright (c) 2026 thirawat27
 $VERSIONINFO:LegalTrademarks=QBNex
 $VERSIONINFO:OriginalFilename=qb.exe
 $VERSIONINFO:ProductName=QBNex
-$VERSIONINFO:ProductVersion=1.0.0
+$VERSIONINFO:ProductVersion=1.0.1
 $VERSIONINFO:Comments=QBNex IS a modern extended BASIC programming language that retains QB4.5/QBasic compatibility AND compiles native binaries FOR Windows, Linux AND macOS.
 $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 
@@ -4490,16 +4490,7 @@ IF declaringlibrary THEN
 
         'if no header exists to make the external function available, the function definition must be found
         IF sfheader = 0 AND sfdeclare <> 0 THEN
-            ResolveStaticFunctions = ResolveStaticFunctions + 1
-            'expand array if necessary
-            IF ResolveStaticFunctions > UBOUND(ResolveStaticFunction_Name) THEN
-                REDIM _PRESERVE ResolveStaticFunction_Name(1 TO ResolveStaticFunctions + 100) AS STRING
-                REDIM _PRESERVE ResolveStaticFunction_File(1 TO ResolveStaticFunctions + 100) AS STRING
-                REDIM _PRESERVE ResolveStaticFunction_Method(1 TO ResolveStaticFunctions + 100) AS LONG
-            END IF
-            ResolveStaticFunction_File(ResolveStaticFunctions) = libname$
-            ResolveStaticFunction_Name(ResolveStaticFunctions) = aliasname$
-            ResolveStaticFunction_Method(ResolveStaticFunctions) = 1
+            RegisterResolveStaticFunction libname$, aliasname$, 1
         END IF 'sfheader=0
 
     END IF
@@ -4533,16 +4524,7 @@ IF declaringlibrary THEN
     END IF 'dynamic
 
     IF sfdeclare = 1 AND customtypelibrary = 0 AND dynamiclibrary = 0 AND indirectlibrary = 0 THEN
-        ResolveStaticFunctions = ResolveStaticFunctions + 1
-        'expand array if necessary
-        IF ResolveStaticFunctions > UBOUND(ResolveStaticFunction_Name) THEN
-            REDIM _PRESERVE ResolveStaticFunction_Name(1 TO ResolveStaticFunctions + 100) AS STRING
-            REDIM _PRESERVE ResolveStaticFunction_File(1 TO ResolveStaticFunctions + 100) AS STRING
-            REDIM _PRESERVE ResolveStaticFunction_Method(1 TO ResolveStaticFunctions + 100) AS LONG
-        END IF
-        ResolveStaticFunction_File(ResolveStaticFunctions) = libname$
-        ResolveStaticFunction_Name(ResolveStaticFunctions) = aliasname$
-        ResolveStaticFunction_Method(ResolveStaticFunctions) = 2
+        RegisterResolveStaticFunction libname$, aliasname$, 2
     END IF
 
     IF sfdeclare = 0 AND indirectlibrary = 0 THEN
@@ -11485,9 +11467,9 @@ IF recompile THEN
             IF PrepareWindowsResourceArtifacts%(file$) THEN GOTO errmes
         END IF
 
-        PrepareDependencyBuildInputs defines$, libs$, libqb$, o$, win, lnx, mac
+        PrepareDependencyBuildInputs defines$, libs$, libqb$, pchOptions$, o$, win, lnx, mac
 
-        IF RunNativeBuild%(file$, libqb$, libs$, defines$) THEN GOTO errmes
+        IF RunNativeBuild%(file$, libqb$, libs$, defines$, pchOptions$) THEN GOTO errmes
         FinalizeCompilerRun file$
 
         qberror_test:

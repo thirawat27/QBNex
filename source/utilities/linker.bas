@@ -1,12 +1,49 @@
+FUNCTION GetCachedNmOutputPath$ (filePath AS STRING, dynamicSymbols AS LONG)
+    CONST NM_CACHE_SLOTS = 32
+    STATIC cacheKey(1 TO NM_CACHE_SLOTS) AS STRING
+    STATIC cachePath(1 TO NM_CACHE_SLOTS) AS STRING
+    STATIC nextSlot AS LONG
+
+    cacheId$ = os$ + "|" + str2$(MacOSX) + "|" + str2$(dynamicSymbols) + "|" + filePath
+    FOR i = 1 TO NM_CACHE_SLOTS
+        IF cacheKey(i) = cacheId$ THEN
+            GetCachedNmOutputPath$ = cachePath(i)
+            EXIT FUNCTION
+        END IF
+    NEXT
+
+    nextSlot = nextSlot + 1
+    IF nextSlot > NM_CACHE_SLOTS THEN nextSlot = 1
+
+    cacheFile$ = tmpdir$ + "nm_cache_" + str2$(nextSlot) + ".txt"
+    cacheKey(nextSlot) = cacheId$
+    cachePath(nextSlot) = cacheFile$
+
+    IF os$ = "WIN" THEN
+        nmCommand$ = "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + filePath + CHR$(34)
+        IF dynamicSymbols THEN nmCommand$ = nmCommand$ + " -D"
+        nmCommand$ = nmCommand$ + " --demangle -g >" + QuotedFilename$(cacheFile$)
+        SHELL _HIDE nmCommand$
+    ELSEIF os$ = "LNX" THEN
+        nmCommand$ = "nm " + CHR$(34) + filePath + CHR$(34)
+        IF dynamicSymbols AND MacOSX = 0 THEN nmCommand$ = nmCommand$ + " -D"
+        IF MacOSX = 0 THEN nmCommand$ = nmCommand$ + " --demangle -g"
+        nmCommand$ = nmCommand$ + " >" + QuotedFilename$(cacheFile$) + " 2>" + QuotedFilename$(tmpdir$ + "nm_error.txt")
+        SHELL _HIDE nmCommand$
+    END IF
+
+    GetCachedNmOutputPath$ = cacheFile$
+END FUNCTION
+
 FUNCTION ResolveBuildLinkSymbols%
     IF os$ = "WIN" THEN
         FOR x = 1 TO ResolveStaticFunctions
             IF LEN(ResolveStaticFunction_File$(x)) THEN
                 n = 0
-                SHELL _HIDE "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " --demangle -g >internal\temp\nm_output.txt"
+                nmOutputPath$ = GetCachedNmOutputPath$(ResolveStaticFunction_File$(x), 0)
                 fh = FREEFILE
                 s$ = " " + ResolveStaticFunction_Name$(x) + "("
-                OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
+                OPEN nmOutputPath$ FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
                     IF LEN(a$) THEN
@@ -34,7 +71,7 @@ FUNCTION ResolveBuildLinkSymbols%
                 IF n = 0 THEN
                     fh = FREEFILE
                     s$ = " " + ResolveStaticFunction_Name$(x)
-                    OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
+                    OPEN nmOutputPath$ FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
                         IF LEN(a$) THEN
@@ -60,10 +97,10 @@ FUNCTION ResolveBuildLinkSymbols%
                 END IF
 
                 IF n = 0 THEN
-                    SHELL _HIDE "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " -D --demangle -g >.\internal\temp\nm_output_dynamic.txt"
+                    nmOutputDynamicPath$ = GetCachedNmOutputPath$(ResolveStaticFunction_File$(x), -1)
                     fh = FREEFILE
                     s$ = " " + ResolveStaticFunction_Name$(x) + "("
-                    OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
+                    OPEN nmOutputDynamicPath$ FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
                         IF LEN(a$) THEN
@@ -92,7 +129,7 @@ FUNCTION ResolveBuildLinkSymbols%
                 IF n = 0 THEN
                     fh = FREEFILE
                     s$ = " " + ResolveStaticFunction_Name$(x)
-                    OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
+                    OPEN nmOutputDynamicPath$ FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
                         IF LEN(a$) THEN
@@ -131,13 +168,12 @@ FUNCTION ResolveBuildLinkSymbols%
     FOR x = 1 TO ResolveStaticFunctions
         IF LEN(ResolveStaticFunction_File$(x)) THEN
             n = 0
-            IF MacOSX = 0 THEN SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " --demangle -g >./internal/temp/nm_output.txt 2>./internal/temp/nm_error.txt"
-            IF MacOSX THEN SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " >./internal/temp/nm_output.txt 2>./internal/temp/nm_error.txt"
+            nmOutputPath$ = GetCachedNmOutputPath$(ResolveStaticFunction_File$(x), 0)
 
             IF MacOSX = 0 THEN
                 fh = FREEFILE
                 s$ = " " + ResolveStaticFunction_Name$(x) + "("
-                OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
+                OPEN nmOutputPath$ FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
                     IF LEN(a$) THEN
@@ -168,7 +204,7 @@ FUNCTION ResolveBuildLinkSymbols%
                 s$ = " " + ResolveStaticFunction_Name$(x)
                 s2$ = s$
                 IF MacOSX THEN s$ = " _" + ResolveStaticFunction_Name$(x)
-                OPEN "internal\temp\nm_output.txt" FOR BINARY AS #fh
+                OPEN nmOutputPath$ FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
                     IF LEN(a$) THEN
@@ -195,10 +231,10 @@ FUNCTION ResolveBuildLinkSymbols%
 
             IF n = 0 THEN
                 IF MacOSX = 0 THEN
-                    SHELL _HIDE "nm " + CHR$(34) + ResolveStaticFunction_File$(x) + CHR$(34) + " -D --demangle -g >./internal/temp/nm_output_dynamic.txt 2>./internal/temp/nm_error.txt"
+                    nmOutputDynamicPath$ = GetCachedNmOutputPath$(ResolveStaticFunction_File$(x), -1)
                     fh = FREEFILE
                     s$ = " " + ResolveStaticFunction_Name$(x) + "("
-                    OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
+                    OPEN nmOutputDynamicPath$ FOR BINARY AS #fh
                     DO UNTIL EOF(fh)
                         LINE INPUT #fh, a$
                         IF LEN(a$) THEN
@@ -228,7 +264,7 @@ FUNCTION ResolveBuildLinkSymbols%
             IF n = 0 AND MacOSX = 0 THEN
                 fh = FREEFILE
                 s$ = " " + ResolveStaticFunction_Name$(x)
-                OPEN "internal\temp\nm_output_dynamic.txt" FOR BINARY AS #fh
+                OPEN nmOutputDynamicPath$ FOR BINARY AS #fh
                 DO UNTIL EOF(fh)
                     LINE INPUT #fh, a$
                     IF LEN(a$) THEN
@@ -268,9 +304,9 @@ SUB BuildProgramDataObject
 
     IF os$ = "WIN" THEN
         IF OS_BITS = 32 THEN
-            OPEN ".\internal\c\makedat_win32.txt" FOR BINARY AS #150: LINE INPUT #150, a$: CLOSE #150
+            a$ = ReadCachedFirstLine$(".\internal\c\makedat_win32.txt")
         ELSE
-            OPEN ".\internal\c\makedat_win64.txt" FOR BINARY AS #150: LINE INPUT #150, a$: CLOSE #150
+            a$ = ReadCachedFirstLine$(".\internal\c\makedat_win64.txt")
         END IF
         a$ = a$ + " " + tmpdir2$ + "data.bin " + tmpdir2$ + "data.o"
         CHDIR ".\internal\c"
@@ -310,12 +346,10 @@ SUB BuildProgramDataObject
     END IF
 END SUB
 
-FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$)
+FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$, pchOptions$)
     DIM targetOutputFile AS STRING
 
-    OPEN ".\internal\c\makeline_win.txt" FOR BINARY AS #150
-    LINE INPUT #150, a$: a$ = GDB_Fix(a$)
-    CLOSE #150
+    a$ = GDB_Fix(ReadCachedFirstLine$(".\internal\c\makeline_win.txt"))
 
     IF RIGHT$(a$, 7) = " ..\..\" THEN a$ = LEFT$(a$, LEN(a$) - 6)
     x = INSTR(a$, "qbx.cpp")
@@ -411,6 +445,14 @@ FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$)
         END IF
     END IF
 
+    IF LEN(pchOptions$) THEN
+        x = INSTR(a$, ".cpp ")
+        IF x THEN
+            x = x + 5
+            a$ = LEFT$(a$, x - 1) + pchOptions$ + RIGHT$(a$, LEN(a$) - x + 1)
+        END IF
+    END IF
+
     x = INSTR(a$, ".cpp ")
     IF x THEN
         x = x + 5
@@ -431,15 +473,13 @@ FUNCTION PrepareUnixBuildCommand$ (file$, libqb$, libs$, defines$)
     DIM targetOutputFile AS STRING
 
     IF INSTR(_OS$, "[MACOSX]") THEN
-        OPEN "./internal/c/makeline_osx.txt" FOR INPUT AS #150
+        a$ = ReadCachedFirstLine$("./internal/c/makeline_osx.txt")
     ELSEIF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
-        OPEN "./internal/c/makeline_lnx_nogui.txt" FOR INPUT AS #150
+        a$ = ReadCachedFirstLine$("./internal/c/makeline_lnx_nogui.txt")
     ELSE
-        OPEN "./internal/c/makeline_lnx.txt" FOR INPUT AS #150
+        a$ = ReadCachedFirstLine$("./internal/c/makeline_lnx.txt")
     END IF
-
-    LINE INPUT #150, a$: a$ = GDB_Fix(a$)
-    CLOSE #150
+    a$ = GDB_Fix(a$)
 
     x = INSTR(a$, "qbx.cpp")
     IF x <> 0 AND tempfolderindex <> 1 THEN a$ = LEFT$(a$, x - 1) + "qbx" + str2$(tempfolderindex) + ".cpp" + RIGHT$(a$, LEN(a$) - (x + 6))
@@ -487,7 +527,7 @@ FUNCTION PrepareUnixBuildCommand$ (file$, libqb$, libs$, defines$)
     PrepareUnixBuildCommand$ = a$ + QuotedFilename$(targetOutputFile)
 END FUNCTION
 
-FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$)
+FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$, pchOptions$)
     IF ResolveBuildLinkSymbols% THEN
         RunNativeBuild% = -1
         EXIT FUNCTION
@@ -496,7 +536,7 @@ FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$)
     BuildProgramDataObject
 
     IF os$ = "WIN" THEN
-        a$ = PrepareWindowsBuildCommand$(file$, libqb$, libs$, defines$)
+        a$ = PrepareWindowsBuildCommand$(file$, libqb$, libs$, defines$, pchOptions$)
         EmitBuildSupportScripts a$, file$
         ExecuteBuildCommand a$
         EXIT FUNCTION

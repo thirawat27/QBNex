@@ -6,6 +6,7 @@
 '$INCLUDE:'..\utilities\consteval.bas'
 '$INCLUDE:'..\utilities\artifacts.bas'
 '$INCLUDE:'..\utilities\dependencies.bas'
+'$INCLUDE:'..\utilities\link_symbols.bas'
 '$INCLUDE:'..\utilities\linker.bas'
 '$INCLUDE:'..\utilities\labels.bas'
 '$INCLUDE:'..\utilities\hash.bas'
