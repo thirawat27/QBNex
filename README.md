@@ -102,7 +102,6 @@
     - [File I/O](#file-io)
     - [User-Defined Types](#user-defined-types)
     - [Graphics Example](#graphics-example)
-    - [Networking Example](#networking-example)
   - [Supported QBasic Commands](#supported-qbasic-commands)
     - [Control Flow](#control-flow)
     - [Variables \& Data Types](#variables--data-types)
@@ -138,9 +137,9 @@
 
 **QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into optimized C++ and compiles to native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components.
 
-**Version**: 1.0.1
+**Version**: See release tags and `qb --version`
 
-The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. It features comprehensive graphics via OpenGL/FreeGLUT, sound synthesis via miniaudio, TCP/IP networking, and full file I/O operations.
+The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. It features comprehensive graphics via OpenGL/FreeGLUT, sound synthesis via miniaudio, and full file I/O operations.
 
 Repository: https://github.com/thirawat27/QBNex
 
@@ -887,6 +886,7 @@ docker run --rm -v %cd%:/project qbnex qb yourfile.bas
 
 ```yaml
 version: '3.8'
+
 services:
   qbnex:
     build:
@@ -1055,8 +1055,8 @@ DO
 LOOP
 
 PRINT "Client connected!"
-_CLOSECONNECTION clientHandle
-_CLOSECONNECTION serverHandle
+CLOSE #clientHandle
+CLOSE #serverHandle
 ```
 
 **Client Example:**
@@ -1072,7 +1072,7 @@ END IF
 
 PRINT "Connected to server"
 PRINT #clientHandle, "Hello!"
-_CLOSECONNECTION clientHandle
+CLOSE #clientHandle
 ```
 
 Run server:
@@ -1184,8 +1184,6 @@ CMD ["bash"]
 
 **docker-compose.yml:**
 ```yaml
-version: '3.8'
-
 services:
   qbnex:
     build:
@@ -1205,7 +1203,7 @@ services:
 
 **CI/CD Integration:**
 ```yaml
-# .github/workflows/docker-build.yml
+# Example Docker workflow snippet
 name: Docker Build
 on: [push, pull_request]
 
@@ -1213,7 +1211,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@<ref>
       
       - name: Build Docker image
         run: docker build -t qbnex .
@@ -1438,7 +1436,7 @@ DIM metadata AS QBNex_Dictionary
 Dict_Init metadata
 
 Dict_Set metadata, "name", "QBNex"
-Dict_Set metadata, "version", "1.0.0"
+Dict_Set metadata, "version", "current"
 Dict_Set metadata, "kind", "compiler"
 
 PRINT "Name: "; Dict_Get$(metadata, "name", "")
@@ -1549,8 +1547,8 @@ JSON object creation.
 
 **Example:**
 ```basic
-PRINT Json_Object3$("name", Json_String$("QBNex"), "version", Json_String$("1.0.0"), "status", Json_String$("ok"))
-' Output: {"name":"QBNex","version":"1.0.0","status":"ok"}
+PRINT Json_Object3$("name", Json_String$("QBNex"), "version", Json_String$("current"), "status", Json_String$("ok"))
+' Output: {"name":"QBNex","version":"current","status":"ok"}
 ```
 
 ### System Libraries
@@ -1763,50 +1761,51 @@ QBNex includes comprehensive test suites to verify compiler and library function
 
 ### Comprehensive Test Suite
 
-**Main Test Suite** (`test_all.bas`):
-```bash
-# Compile and run all tests
-qb test_all.bas -o test_all.exe
-test_all.exe
+QBNex ships with runnable smoke scripts under `tests/` for both Windows (`.cmd`) and Linux/macOS (`.sh`).
 
-# View test summary
-type test_summary.txt    # Windows
-cat test_summary.txt     # Linux/macOS
+Current script coverage includes:
+- Diagnostics formatting and include-chain reporting
+- CLI behavior (`--help`, `--version`, invalid switches, `-q`, `-z`, `-x`, settings output)
+- Encoding handling (UTF-16 rejection, invalid UTF-8 rejection, BOM acceptance, empty source, spaced paths)
+- Label resolution and stale-output protections
+- Standard library import/include smoke checks
+- Warning behavior and `--warnings-as-errors` promotion
+- Lightweight compile-time benchmark harness
 
-# Or use the test runner script (Windows)
-run_tests.cmd
-```
-
-The comprehensive test suite includes:
-- **17 test categories** covering all major features
-- **15 core language tests**: Runtime paths, variables, math, strings, control flow, loops, arrays, types, functions, date/time, file I/O, SELECT CASE, type conversion, logical operations
-- **18 stdlib module compilation tests**: All standard library modules
-- **9 example program tests**: All example programs compile and run correctly
-- **100% success rate**: All tests pass with zero errors and zero warnings
+Supporting fixture sources live in `tests/fixtures/` (14 `.bas` files).
 
 ### Running Individual Tests
 
 **Smoke Tests:**
 ```bash
-# Import smoke test (verifies import system)
-qb source/stdlib/examples/import_smoke.bas -x
-
-# Runtime smoke test (verifies stdlib functions)
-qb source/stdlib/examples/runtime_smoke.bas -x
-
-# Data smoke test (verifies data structures)
-qb source/stdlib/examples/data_smoke.bas -z
-
-# Ecosystem smoke test (verifies integration)
-qb source/stdlib/examples/ecosystem_smoke.bas -z
+# Linux/macOS
+chmod +x tests/*.sh
+./tests/diagnostics_smoke.sh
+./tests/warnings_smoke.sh
+./tests/labels_smoke.sh
+./tests/encoding_smoke.sh
+./tests/cli_smoke.sh
+./tests/stdlib_smoke.sh
+./tests/benchmark_smoke.sh
 ```
 
-**Diagnostics Smoke Test (Windows):**
+```cmd
+:: Windows
+tests\diagnostics_smoke.cmd
+tests\warnings_smoke.cmd
+tests\labels_smoke.cmd
+tests\encoding_smoke.cmd
+tests\cli_smoke.cmd
+tests\stdlib_smoke.cmd
+tests\benchmark_smoke.cmd
+```
+
+**Diagnostics Smoke Test Only (Windows):**
 ```cmd
 tests\diagnostics_smoke.cmd
 ```
 
-**Diagnostics Smoke Test (Linux/macOS):**
+**Diagnostics Smoke Test Only (Linux/macOS):**
 ```bash
 chmod +x tests/diagnostics_smoke.sh
 ./tests/diagnostics_smoke.sh
@@ -1822,6 +1821,7 @@ tests\warnings_smoke.cmd
 tests\labels_smoke.cmd
 tests\encoding_smoke.cmd
 tests\cli_smoke.cmd
+tests\stdlib_smoke.cmd
 ```
 
 **Benchmark Smoke Test (manual):**
@@ -1851,30 +1851,18 @@ This script validates both behaviors in one run:
 
 Smoke and benchmark suites remain available for local validation and troubleshooting, but the default GitHub-hosted build workflows now focus on building and packaging artifacts rather than running these suites on every CI execution.
 
-**Regression Tests:**
-```bash
-# Top-level runtime regression
-qb source/stdlib/examples/top_level_runtime_regression.bas -z
-
-# Method chain regression
-qb source/stdlib/examples/method_chain_regression.bas -z
-
-# Top-level QBNex runtime (minimal)
-qb source/stdlib/examples/top_level_qbnex_runtime_min.bas -z
-```
-
-**Demo Programs:**
-```bash
-# Full stdlib demonstration
-qb source/stdlib/examples/stdlib_demo.bas -z
-
-# Class syntax examples
-qb source/stdlib/examples/class_syntax_demo.bas -z
-```
+Success markers printed by the scripts:
+- `DIAGNOSTICS_SMOKE_OK`
+- `WARNINGS_SMOKE_OK`
+- `LABELS_SMOKE_OK`
+- `ENCODING_SMOKE_OK`
+- `CLI_SMOKE_OK`
+- `STDLIB_SMOKE_OK`
+- `BENCHMARK_SMOKE_OK`
 
 ### Library Compilation Status
 
-As of version 1.0.0, the compilation status is:
+Current compilation status:
 
 ✅ **Successfully Compiling (100%)**
 - Collections: List, Stack, Queue, Set, Dictionary (5/5)
@@ -1885,48 +1873,40 @@ As of version 1.0.0, the compilation status is:
 - Error: Result (1/1)
 - OOP: Class, Interface (2/2)
 - Core: qbnex_stdlib.bas (1/1)
-- Examples: All test files (9/9)
 
-**Total: 27/27 modules (100%)**
+The `tests/stdlib_smoke.*` scripts validate representative stdlib entry points using:
+- `tests/fixtures/stdlib_import_success.bas`
+- `tests/fixtures/qbnex_stdlib_include_success.bas`
+- `tests/fixtures/url_import_success.bas`
 
 ### Test Results Summary
 
 ```
-QBNex Test Suite Results
-========================
-
-Total Tests:  17
-Passed:  17  (100%)
-Failed:  0
-
-Status: ALL TESTS PASSED
-
-QBNex Compiler Version: 1.0.0
+Smoke scripts report one `*_SMOKE_OK` marker each on success.
+If a script fails, it prints `*_SMOKE_FAIL` with paths to captured output.
 ```
 
 ### Verification Checklist
 
 Use this checklist to verify your QBNex installation:
 
-- [x] **Compiler executable exists**: `qb --version` shows 1.0.0
-- [x] **Help works**: `qb --help` displays usage
-- [x] **Basic compilation**: `qb hello.bas` creates executable
-- [x] **Comprehensive test suite**: `test_all.bas` passes all 17 tests
-- [x] **Import system**: `import_smoke.bas` compiles successfully
-- [x] **Collections**: All collection libraries compile with `-z` flag
-- [x] **String utilities**: Text and StringBuilder compile
-- [x] **I/O libraries**: CSV, JSON, Path libraries compile
-- [x] **System libraries**: Env, Args, DateTime compile
-- [x] **OOP support**: Class and Interface modules compile
-- [x] **Example programs**: All 9 example programs compile
+- [ ] **Compiler executable exists**: `qb --version` prints compiler version
+- [ ] **Help works**: `qb --help` displays usage
+- [ ] **Diagnostics smoke**: `tests\diagnostics_smoke.cmd` or `./tests/diagnostics_smoke.sh`
+- [ ] **Warnings smoke**: `tests\warnings_smoke.cmd` or `./tests/warnings_smoke.sh`
+- [ ] **Labels smoke**: `tests\labels_smoke.cmd` or `./tests/labels_smoke.sh`
+- [ ] **Encoding smoke**: `tests\encoding_smoke.cmd` or `./tests/encoding_smoke.sh`
+- [ ] **CLI smoke**: `tests\cli_smoke.cmd` or `./tests/cli_smoke.sh`
+- [ ] **Stdlib smoke**: `tests\stdlib_smoke.cmd` or `./tests/stdlib_smoke.sh`
+- [ ] **Benchmark smoke (optional)**: `tests\benchmark_smoke.cmd` or `./tests/benchmark_smoke.sh`
 - [ ] **Docker (optional)**: Docker image builds successfully
 
 ### Test Documentation
 
 For detailed testing information, see:
-- `TEST_README.md` - Comprehensive testing guide
-- `TEST_RESULTS.md` - Detailed test execution report
-- `test_summary.txt` - Quick test results summary (generated after running tests)
+- `tests/*.cmd` - Windows smoke/benchmark scripts
+- `tests/*.sh` - Linux/macOS smoke/benchmark scripts
+- `tests/fixtures/*.bas` - fixture programs used by the smoke suites
 
 ### Creating Your Own Tests
 
@@ -2011,17 +1991,17 @@ QBNex uses GitHub Actions for automated builds and release packaging:
 To cut a release from Git:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag <tag>
+git push origin <tag>
 ```
 
 When the release workflow succeeds, GitHub Releases will contain:
 
-- `qbnex_v1.0.0_lnx.tar.gz`
-- `qbnex_v1.0.0_osx.tar.gz`
-- `qbnex_v1.0.0_win-x64.zip`
+- `qbnex_<tag>_lnx.tar.gz`
+- `qbnex_<tag>_osx.tar.gz`
+- `qbnex_<tag>_win-x64.zip`
 
-If you need `qbnex_v1.0.0_win-x86.zip` or another 32-bit Windows artifact, build it locally with `setup_win.cmd`.
+If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build it locally with `setup_win.cmd`.
 
 ### Test Output Interpretation
 
@@ -2546,7 +2526,7 @@ clang --version
 **Check compiler version:**
 ```bash
 qb --version
-# Should show: QBNex Compiler 1.0.0
+# Should show: QBNex Compiler <build info>
 ```
 
 **Show help:**
@@ -2590,12 +2570,7 @@ qb myprogram.bas -z
    - Affects recompiling compiler from source
    - Workaround: Use existing `qb.exe`
 
-2. **utilities/config.bas compilation**
-   - Minor syntax issue preventing compilation
-   - Low impact (configuration utility)
-   - Use `internal/config.ini` directly instead
-
-3. **Executable timeout in automated tests**
+2. **Executable timeout in automated tests**
    - Console I/O in certain environments
    - Manual execution works correctly
    - Use `-x` flag for immediate testing
@@ -2895,73 +2870,6 @@ PRINT "Graphics demo complete. Press any key..."
 SLEEP
 
 SCREEN 0  ' Return to text mode
-```
-
-### Networking Example
-
-QBNex supports TCP/IP networking for server and client applications:
-
-```basic
-' network_server.bas
-' Simple TCP server example
-DIM serverHandle AS LONG
-DIM clientHandle AS LONG
-DIM message AS STRING
-
-' Create server socket on port 8080
-serverHandle = _OPENHOST("TCP/IP:8080")
-IF serverHandle = 0 THEN
-    PRINT "Failed to create server socket"
-    END
-END IF
-
-PRINT "Server listening on port 8080..."
-PRINT "Waiting for connection..."
-
-' Wait for client connection
-DO
-    clientHandle = _OPENCONNECTION(serverHandle)
-    IF clientHandle > 0 THEN EXIT DO
-    SLEEP 1
-LOOP
-
-PRINT "Client connected!"
-
-' Receive and display message
-DO
-    message = INPUT$(1024, clientHandle)
-    IF LEN(message) > 0 THEN
-        PRINT "Received: "; message
-    END IF
-    SLEEP 1
-LOOP UNTIL message = "QUIT"
-
-PRINT "Client disconnected"
-_CLOSECONNECTION clientHandle
-_CLOSECONNECTION serverHandle
-```
-
-```basic
-' network_client.bas
-' Simple TCP client example
-DIM clientHandle AS LONG
-
-' Connect to server
-clientHandle = _OPENCLIENT("TCP/IP:8080:localhost")
-IF clientHandle = 0 THEN
-    PRINT "Failed to connect to server"
-    END
-END IF
-
-PRINT "Connected to server"
-
-' Send message
-PRINT #clientHandle, "Hello from client!"
-PRINT "Message sent"
-
-' Close connection
-_CLOSECONNECTION clientHandle
-PRINT "Connection closed"
 ```
 
 ---
