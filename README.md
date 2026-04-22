@@ -26,7 +26,7 @@
     - [Linux Setup](#linux-setup)
     - [Docker Setup](#docker-setup)
     - [Build from Source](#build-from-source)
-    - [CMake Build (Experimental)](#cmake-build-experimental)
+    - [CMake Build](#cmake-build)
   - [Quick Start](#quick-start)
   - [Usage Guide](#usage-guide)
     - [Basic Compilation](#basic-compilation)
@@ -407,7 +407,7 @@ docker build -t qbnex .
 docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
 ```
 
-### CMake Build (Experimental)
+### CMake Build
 
 An incremental CMake workflow is available for developers who want IDE-friendly builds while keeping the current platform scripts intact.
 
@@ -3237,7 +3237,7 @@ QBNex/
 ├── tests/
 │   ├── *.cmd / *.sh            # Smoke and benchmark test runners
 │   └── fixtures/               # Test input programs
-├── CMakeLists.txt              # Experimental CMake build graph
+├── CMakeLists.txt              # CMake build graph
 ├── CMakePresets.json           # Cross-platform CMake presets
 ├── docker-compose.yml
 ├── Dockerfile
