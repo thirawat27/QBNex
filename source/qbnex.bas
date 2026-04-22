@@ -992,6 +992,8 @@ FUNCTION getpid& ()
             Resize_Scale = 0
 
             UseGL = 0
+            AutoConsoleOnlyEligible = -1
+            AutoConsoleOnlyActive = 0
 
             Error_Happened = 0
             FrontendErrorHandled = 0
@@ -9722,6 +9724,10 @@ id2 = id
 
 targetid = currentid
 
+IF AutoConsoleOnlyEligible THEN
+    IF RequiresGuiCore%(RTRIM$(id2.n)) THEN AutoConsoleOnlyEligible = 0
+END IF
+
 IF RTRIM$(id2.callname) = "sub_stub" THEN a$ = "Command not implemented": GOTO errmes
 
 IF n > 1 THEN
@@ -10947,6 +10953,14 @@ IF recompile THEN
     IF labelValidationResult = 1 THEN GOTO do_recompile
     IF labelValidationResult = 2 THEN GOTO errmes
 
+    IF AutoConsoleOnlyEligible THEN
+        IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 THEN
+            DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 1
+            AutoConsoleOnlyActive = -1
+            Console = 1
+        END IF
+    END IF
+
 
     'if targettyp=-4 or targettyp=-5 then '? -> byte_element(offset,element size in bytes)
     ' IF (sourcetyp AND ISREFERENCE) = 0 THEN a$ = "Expected variable name/array element": GOTO errmes
@@ -10961,6 +10975,11 @@ IF recompile THEN
     defdatahandle = 18
     CLOSE #13: OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #13
     CLOSE #19: OPEN tmpdir$ + "mainfree.txt" FOR APPEND AS #19
+
+    IF AutoConsoleOnlyActive THEN
+        PRINT #13, "sub__dest(func__console());"
+        PRINT #13, "sub__source(func__console());"
+    END IF
 
     IF Console THEN
         PRINT #18, "int32 console=1;"

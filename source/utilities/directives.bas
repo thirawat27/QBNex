@@ -93,6 +93,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
     IF upperLine = "$CONSOLE" THEN
         layout$ = SCase$("$Console")
         Console = 1
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -101,6 +102,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         layout$ = SCase$("$Console:Only")
         DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) OR 1
         Console = 1
+        AutoConsoleOnlyEligible = 0
         IF prepass = 0 THEN
             IF NoChecks = 0 THEN PRINT #12, "do{"
             PRINT #12, "sub__dest(func__console());"
@@ -123,6 +125,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         layout$ = SCase$("$Asserts:Console")
         Asserts = 1
         Console = 1
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -130,6 +133,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
     IF upperLine = "$SCREENHIDE" THEN
         layout$ = SCase$("$ScreenHide")
         ScreenHide = 1
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -137,6 +141,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
     IF upperLine = "$SCREENSHOW" THEN
         layout$ = SCase$("$ScreenShow")
         ScreenHide = 0
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -145,6 +150,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         layout$ = SCase$("$Resize:Off")
         Resize = 0
         Resize_Scale = 0
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -153,6 +159,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         layout$ = SCase$("$Resize:On")
         Resize = 1
         Resize_Scale = 0
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -161,6 +168,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         layout$ = SCase$("$Resize:Stretch")
         Resize = 1
         Resize_Scale = 1
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
@@ -169,6 +177,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         layout$ = SCase$("$Resize:Smooth")
         Resize = 1
         Resize_Scale = 2
+        AutoConsoleOnlyEligible = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF

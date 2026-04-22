@@ -21,6 +21,7 @@ DIM SHARED compilerProgressVisible AS _BYTE
 DIM SHARED compfailed
 DIM SHARED extension AS STRING
 DIM SHARED path.exe$, path.source$, lastBinaryGenerated$, pendingOutputBinary$
+DIM SHARED AutoConsoleOnlyEligible AS _BYTE, AutoConsoleOnlyActive AS _BYTE
 
 ' Temporary workspace state
 DIM SHARED tmpdir AS STRING, tmpdir2 AS STRING

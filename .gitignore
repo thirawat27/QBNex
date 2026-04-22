@@ -10,7 +10,9 @@ internal/version.txt
 tempfoldersearch.bin
 internal/c/mingw32
 internal/c/mingw64
+internal/c/build_cache/
 internal/c/qbx[2-9].cpp
+internal/c/pch/
 *.ttf
 /run_qbnex.sh
 /qbnex

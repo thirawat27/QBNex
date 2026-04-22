@@ -234,14 +234,34 @@ SUB HashDump
 END SUB
 
 SUB HashClear
-    HashListSize = 65536
+    DIM usedItems AS LONG
+    DIM clearLimit AS LONG
+
+    usedItems = HashListNext - 1
+    IF usedItems < 0 THEN usedItems = 0
+
+    clearLimit = HashListFreeLast
+    IF clearLimit > HashListFreeSize THEN clearLimit = HashListFreeSize
+
+    FOR i = 1 TO usedItems
+        HashList(i).Flags = 0
+        HashList(i).Reference = 0
+        HashList(i).NextItem = 0
+        HashList(i).PrevItem = 0
+        HashList(i).LastItem = 0
+        HashListName(i) = ""
+    NEXT
+
+    FOR i = 1 TO clearLimit
+        HashListFree(i) = 0
+    NEXT
+
+    FOR i = 0 TO HASH_TABLE_MASK
+        HashTable(i) = 0
+    NEXT
+
     HashListNext = 1
-    HashListFreeSize = 1024
     HashListFreeLast = 0
-    REDIM HashList(1 TO HashListSize) AS HashListItem
-    REDIM HashListName(1 TO HashListSize) AS STRING * 256
-    REDIM HashListFree(1 TO HashListFreeSize) AS LONG
-    REDIM HashTable(0 TO HASH_TABLE_MASK) AS LONG
 
     HashFind_NextListItem = 0
     HashFind_Reverse = 0

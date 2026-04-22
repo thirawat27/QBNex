@@ -1054,6 +1054,10 @@ FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
     typ = id2.ret
     targetid = currentid
 
+    IF AutoConsoleOnlyEligible THEN
+        IF RequiresGuiCore%(n$) THEN AutoConsoleOnlyEligible = 0
+    END IF
+
     IF RTRIM$(id2.callname) = "func_stub" THEN Give_Error "Command not implemented": EXIT FUNCTION
     IF RTRIM$(id2.callname) = "func_input" AND args = 1 AND inputfunctioncalled = 0 THEN
         inputfunctioncalled = -1

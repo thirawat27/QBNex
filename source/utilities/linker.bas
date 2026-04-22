@@ -35,6 +35,176 @@ FUNCTION GetCachedNmOutputPath$ (filePath AS STRING, dynamicSymbols AS LONG)
     GetCachedNmOutputPath$ = cacheFile$
 END FUNCTION
 
+FUNCTION GetGeneratedProgramSourcePath$ ()
+    IF tempfolderindex <> 1 THEN
+        GetGeneratedProgramSourcePath$ = "." + pathsep$ + "internal" + pathsep$ + "c" + pathsep$ + "qbx" + str2$(tempfolderindex) + ".cpp"
+    ELSE
+        GetGeneratedProgramSourcePath$ = "." + pathsep$ + "internal" + pathsep$ + "c" + pathsep$ + "qbx.cpp"
+    END IF
+END FUNCTION
+
+FUNCTION HashTextFingerprint$ (textValue AS STRING)
+    DIM h1 AS _UNSIGNED LONG
+    DIM h2 AS _UNSIGNED LONG
+
+    h1 = &H811C9DC5
+    h2 = &H9E3779B9
+
+    FOR i = 1 TO LEN(textValue)
+        b = ASC(textValue, i)
+        h1 = (h1 XOR b) * &H1000193
+        h2 = ((h2 XOR b) + &H9E3779B9) * 33
+    NEXT
+
+    HashTextFingerprint$ = HEX$(h1) + "_" + HEX$(h2) + "_" + str2$(LEN(textValue))
+END FUNCTION
+
+FUNCTION HashFileFingerprint$ (filePath AS STRING)
+    DIM fh AS LONG
+    DIM fileLength AS _INTEGER64
+    DIM remaining AS _INTEGER64
+    DIM chunkSize AS LONG
+    DIM chunkData AS STRING
+    DIM h1 AS _UNSIGNED LONG
+    DIM h2 AS _UNSIGNED LONG
+
+    IF _FILEEXISTS(filePath) = 0 THEN EXIT FUNCTION
+
+    h1 = &H811C9DC5
+    h2 = &H9E3779B9
+
+    fh = FREEFILE
+    OPEN filePath FOR BINARY AS #fh
+    fileLength = LOF(fh)
+    remaining = fileLength
+
+    DO WHILE remaining > 0
+        chunkSize = 4096
+        IF remaining < chunkSize THEN chunkSize = remaining
+        chunkData = SPACE$(chunkSize)
+        GET #fh, , chunkData
+        FOR i = 1 TO chunkSize
+            b = ASC(chunkData, i)
+            h1 = (h1 XOR b) * &H1000193
+            h2 = ((h2 XOR b) + &H9E3779B9) * 33
+        NEXT
+        remaining = remaining - chunkSize
+    LOOP
+
+    CLOSE #fh
+    HashFileFingerprint$ = HEX$(h1) + "_" + HEX$(h2) + "_" + str2$(fileLength)
+END FUNCTION
+
+FUNCTION CopyBinaryFile% (sourcePath AS STRING, targetPath AS STRING)
+    DIM sourceFile AS LONG
+    DIM targetFile AS LONG
+    DIM remaining AS _INTEGER64
+    DIM chunkSize AS LONG
+    DIM chunkData AS STRING
+
+    IF _FILEEXISTS(sourcePath) = 0 THEN EXIT FUNCTION
+
+    IF _FILEEXISTS(targetPath) THEN KILL targetPath
+
+    sourceFile = FREEFILE
+    OPEN sourcePath FOR BINARY AS #sourceFile
+    targetFile = FREEFILE
+    OPEN targetPath FOR BINARY AS #targetFile
+
+    remaining = LOF(sourceFile)
+    DO WHILE remaining > 0
+        chunkSize = 32768
+        IF remaining < chunkSize THEN chunkSize = remaining
+        chunkData = SPACE$(chunkSize)
+        GET #sourceFile, , chunkData
+        PUT #targetFile, , chunkData
+        remaining = remaining - chunkSize
+    LOOP
+
+    CLOSE #targetFile
+    CLOSE #sourceFile
+    CopyBinaryFile% = -1
+END FUNCTION
+
+FUNCTION GetNativeBuildCacheDirectory$ ()
+    DIM cacheRoot AS STRING
+    DIM cachePlatform AS STRING
+
+    cacheRoot = "." + pathsep$ + "internal" + pathsep$ + "c" + pathsep$ + "build_cache"
+    IF _DIREXISTS(cacheRoot) = 0 THEN MKDIR cacheRoot
+
+    cachePlatform = cacheRoot + pathsep$ + LCASE$(os$) + str2$(OS_BITS)
+    IF _DIREXISTS(cachePlatform) = 0 THEN MKDIR cachePlatform
+    IF RIGHT$(cachePlatform, 1) <> pathsep$ THEN cachePlatform = cachePlatform + pathsep$
+
+    GetNativeBuildCacheDirectory$ = cachePlatform
+END FUNCTION
+
+FUNCTION GetNativeBuildCacheKey$ (libqb$, libs$, defines$, pchOptions$)
+    DIM keyMaterial AS STRING
+    DIM generatedSource AS STRING
+    DIM templateLine AS STRING
+
+    IF LEN(mylib$) THEN EXIT FUNCTION
+
+    generatedSource = GetGeneratedProgramSourcePath$
+    IF _FILEEXISTS(generatedSource) = 0 THEN EXIT FUNCTION
+
+    keyMaterial = LCASE$(os$) + "|" + str2$(OS_BITS) + "|" + str2$(MacOSX) + "|" + str2$(Console)
+    keyMaterial = keyMaterial + "|" + str2$(inline_DATA) + "|" + str2$(DataOffset)
+    keyMaterial = keyMaterial + "|" + str2$(ExeIconSet) + "|" + str2$(VersionInfoSet)
+    keyMaterial = keyMaterial + "|" + libqb$ + "|" + libs$ + "|" + defines$ + "|" + pchOptions$
+    keyMaterial = keyMaterial + "|" + mylibopt$ + "|" + HashFileFingerprint$(generatedSource)
+
+    IF inline_DATA = 0 AND DataOffset THEN
+        keyMaterial = keyMaterial + "|" + HashFileFingerprint$(tmpdir2$ + "data.o")
+    END IF
+
+    IF ExeIconSet OR VersionInfoSet THEN
+        keyMaterial = keyMaterial + "|" + HashFileFingerprint$(tmpdir$ + "icon.o")
+    END IF
+
+    IF os$ = "WIN" THEN
+        templateLine = ReadCachedFirstLine$(".\internal\c\makeline_win.txt")
+    ELSEIF os$ = "LNX" THEN
+        IF MacOSX THEN
+            templateLine = ReadCachedFirstLine$("./internal/c/makeline_osx.txt")
+        ELSEIF Console THEN
+            templateLine = ReadCachedFirstLine$("./internal/c/makeline_lnx_nogui.txt")
+        ELSE
+            templateLine = ReadCachedFirstLine$("./internal/c/makeline_lnx.txt")
+        END IF
+    END IF
+
+    keyMaterial = keyMaterial + "|" + templateLine
+    GetNativeBuildCacheKey$ = HashTextFingerprint$(keyMaterial)
+END FUNCTION
+
+FUNCTION TryRestoreNativeBuildCache% (cacheKey AS STRING, targetOutputFile AS STRING)
+    DIM cachePath AS STRING
+
+    IF LEN(cacheKey) = 0 THEN EXIT FUNCTION
+    IF LEN(targetOutputFile) = 0 THEN EXIT FUNCTION
+
+    cachePath = GetNativeBuildCacheDirectory$ + cacheKey + extension$
+    IF _FILEEXISTS(cachePath) = 0 THEN EXIT FUNCTION
+
+    IF CopyBinaryFile%(cachePath, targetOutputFile) THEN
+        TryRestoreNativeBuildCache% = -1
+    END IF
+END FUNCTION
+
+SUB StoreNativeBuildCache (cacheKey AS STRING, targetOutputFile AS STRING)
+    DIM cachePath AS STRING
+
+    IF LEN(cacheKey) = 0 THEN EXIT SUB
+    IF LEN(targetOutputFile) = 0 THEN EXIT SUB
+    IF _FILEEXISTS(targetOutputFile) = 0 THEN EXIT SUB
+
+    cachePath = GetNativeBuildCacheDirectory$ + cacheKey + extension$
+    ignoreResult = CopyBinaryFile%(targetOutputFile, cachePath)
+END SUB
+
 FUNCTION ResolveBuildLinkSymbols%
     IF os$ = "WIN" THEN
         FOR x = 1 TO ResolveStaticFunctions
@@ -406,7 +576,7 @@ FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$, pchOptions
     END IF
 
     a$ = StrRemove(a$, "-lgdi32")
-    IF DEPENDENCY(DEPENDENCY_ICON) <> 0 OR DEPENDENCY(DEPENDENCY_SCREENIMAGE) <> 0 OR DEPENDENCY(DEPENDENCY_PRINTER) <> 0 THEN
+    IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) <> 0 OR DEPENDENCY(DEPENDENCY_ICON) <> 0 OR DEPENDENCY(DEPENDENCY_SCREENIMAGE) <> 0 OR DEPENDENCY(DEPENDENCY_PRINTER) <> 0 THEN
         x = INSTR(a$, " -o")
         a$ = LEFT$(a$, x - 1) + " -lgdi32" + RIGHT$(a$, LEN(a$) - x + 1)
     END IF
@@ -528,6 +698,9 @@ FUNCTION PrepareUnixBuildCommand$ (file$, libqb$, libs$, defines$)
 END FUNCTION
 
 FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$, pchOptions$)
+    DIM targetOutputFile AS STRING
+    DIM cacheKey AS STRING
+
     IF ResolveBuildLinkSymbols% THEN
         RunNativeBuild% = -1
         EXIT FUNCTION
@@ -538,14 +711,24 @@ FUNCTION RunNativeBuild% (file$, libqb$, libs$, defines$, pchOptions$)
     IF os$ = "WIN" THEN
         a$ = PrepareWindowsBuildCommand$(file$, libqb$, libs$, defines$, pchOptions$)
         EmitBuildSupportScripts a$, file$
+        targetOutputFile = ResolveOutputBinaryPath$(pendingOutputBinary$)
+        IF LEN(targetOutputFile) = 0 THEN targetOutputFile = path.exe$ + file$ + extension$
+        cacheKey = GetNativeBuildCacheKey$(libqb$, libs$, defines$, pchOptions$)
+        IF TryRestoreNativeBuildCache%(cacheKey, targetOutputFile) THEN EXIT FUNCTION
         ExecuteBuildCommand a$
+        StoreNativeBuildCache cacheKey, targetOutputFile
         EXIT FUNCTION
     END IF
 
     IF os$ = "LNX" THEN
         a$ = PrepareUnixBuildCommand$(file$, libqb$, libs$, defines$)
         EmitBuildSupportScripts a$, file$
+        targetOutputFile = ResolveOutputBinaryPath$(pendingOutputBinary$)
+        IF LEN(targetOutputFile) = 0 THEN targetOutputFile = path.exe$ + file$ + extension$
+        cacheKey = GetNativeBuildCacheKey$(libqb$, libs$, defines$, "")
+        IF TryRestoreNativeBuildCache%(cacheKey, targetOutputFile) THEN EXIT FUNCTION
         ExecuteBuildCommand a$
+        StoreNativeBuildCache cacheKey, targetOutputFile
 
         IF INSTR(_OS$, "[MACOSX]") THEN
             EmitMacOSLauncherScript file$
