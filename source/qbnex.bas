@@ -12,17 +12,17 @@ $SCREENHIDE
 
 $EXEICON:'./qbnex.ico'
 
-$VERSIONINFO:FILEVERSION#=1,0,1,0
-$VERSIONINFO:PRODUCTVERSION#=1,0,1,0
+$VERSIONINFO:FILEVERSION#=1,0,2,0
+$VERSIONINFO:PRODUCTVERSION#=1,0,2,0
 $VERSIONINFO:CompanyName=thirawat27
 $VERSIONINFO:FileDescription=QBNex CLI Compiler
-$VERSIONINFO:FileVersion=1.0.1
+$VERSIONINFO:FileVersion=1.0.2
 $VERSIONINFO:InternalName=qb.exe
 $VERSIONINFO:LegalCopyright=Copyright (c) 2026 thirawat27
 $VERSIONINFO:LegalTrademarks=QBNex
 $VERSIONINFO:OriginalFilename=qb.exe
 $VERSIONINFO:ProductName=QBNex
-$VERSIONINFO:ProductVersion=1.0.1
+$VERSIONINFO:ProductVersion=1.0.2
 $VERSIONINFO:Comments=QBNex IS a modern extended BASIC programming language that retains QB4.5/QBasic compatibility AND compiles native binaries FOR Windows, Linux AND macOS.
 $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 
@@ -89,6 +89,7 @@ CONST DEPENDENCY_ICON = 10: DEPENDENCY_LAST = DEPENDENCY_LAST + 1
 CONST DEPENDENCY_SCREENIMAGE = 11: DEPENDENCY_LAST = DEPENDENCY_LAST + 1
 CONST DEPENDENCY_DEVICEINPUT = 12: DEPENDENCY_LAST = DEPENDENCY_LAST + 1 'removes support for gamepad input if not present
 CONST DEPENDENCY_ZLIB = 13: DEPENDENCY_LAST = DEPENDENCY_LAST + 1 'ZLIB library linkage, if desired, for compression/decompression.
+CONST DEPENDENCY_GUI_CORE = 14: DEPENDENCY_LAST = DEPENDENCY_LAST + 1 'windowed graphics/input subsystem linkage
 
 DIM SHARED DEPENDENCY(1 TO DEPENDENCY_LAST)
 
@@ -9724,8 +9725,9 @@ id2 = id
 
 targetid = currentid
 
-IF AutoConsoleOnlyEligible THEN
-    IF RequiresGuiCore%(RTRIM$(id2.n)) THEN AutoConsoleOnlyEligible = 0
+IF RequiresGuiCore%(RTRIM$(id2.n)) THEN
+    DEPENDENCY(DEPENDENCY_GUI_CORE) = 1
+    IF AutoConsoleOnlyEligible THEN AutoConsoleOnlyEligible = 0
 END IF
 
 IF RTRIM$(id2.callname) = "sub_stub" THEN a$ = "Command not implemented": GOTO errmes
@@ -10953,8 +10955,8 @@ IF recompile THEN
     IF labelValidationResult = 1 THEN GOTO do_recompile
     IF labelValidationResult = 2 THEN GOTO errmes
 
-    IF AutoConsoleOnlyEligible THEN
-        IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 THEN
+    IF (AutoConsoleOnlyEligible <> 0) OR (DEPENDENCY(DEPENDENCY_GUI_CORE) = 0) THEN
+        IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 AND DEPENDENCY(DEPENDENCY_GUI_CORE) = 0 THEN
             DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 1
             AutoConsoleOnlyActive = -1
             Console = 1

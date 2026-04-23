@@ -27,11 +27,22 @@ AUDIO_EXE="$TMPDIR/audio_synth"
 SIMPLE_SRC="$TMPDIR/simple_beep.bas"
 SIMPLE_EXE="$TMPDIR/simple_beep"
 OUT_SIMPLE="$TMPDIR/simple_beep.txt"
+TEXTUI_SRC="$TMPDIR/text_ui.bas"
+TEXTUI_EXE="$TMPDIR/text_ui"
+OUT_TEXTUI="$TMPDIR/text_ui.txt"
 
 {
   echo 'PRINT "simple"'
   echo 'BEEP'
 } >"$SIMPLE_SRC"
+
+{
+  echo 'CLS'
+  echo 'COLOR 14, 1'
+  echo 'LOCATE 2, 4'
+  echo 'PRINT "text ui"'
+  echo 'BEEP'
+} >"$TEXTUI_SRC"
 
 set +e
 "$QB" "$SRC" -z >"$OUT_ZMODE" 2>&1
@@ -40,6 +51,8 @@ EC_ZMODE=$?
 EC_LINK=$?
 "$QB" "$SIMPLE_SRC" -o "$SIMPLE_EXE" >"$OUT_SIMPLE" 2>&1
 EC_SIMPLE=$?
+"$QB" "$TEXTUI_SRC" -o "$TEXTUI_EXE" >"$OUT_TEXTUI" 2>&1
+EC_TEXTUI=$?
 set -e
 
 if [ "$EC_ZMODE" -ne 0 ]; then
@@ -63,12 +76,27 @@ if [ "$EC_SIMPLE" -ne 0 ]; then
   exit 1
 fi
 
+if [ "$EC_TEXTUI" -ne 0 ]; then
+  echo "[FAIL] Text UI program should link without GUI/audio runtime."
+  echo "AUDIO_SMOKE_FAIL"
+  echo "Inspect output: \"$OUT_TEXTUI\""
+  exit 1
+fi
+
 audio_size="$(wc -c <"$AUDIO_EXE" | tr -d ' ')"
 simple_size="$(wc -c <"$SIMPLE_EXE" | tr -d ' ')"
+textui_size="$(wc -c <"$TEXTUI_EXE" | tr -d ' ')"
 if [ "$simple_size" -ge "$audio_size" ]; then
   echo "[FAIL] Simple PRINT+BEEP executable should stay smaller than audio synth executable."
   echo "AUDIO_SMOKE_FAIL"
   echo "simple=$simple_size audio=$audio_size"
+  exit 1
+fi
+
+if [ "$textui_size" -ge "$audio_size" ]; then
+  echo "[FAIL] Text UI executable should stay smaller than audio synth executable."
+  echo "AUDIO_SMOKE_FAIL"
+  echo "textui=$textui_size audio=$audio_size"
   exit 1
 fi
 
