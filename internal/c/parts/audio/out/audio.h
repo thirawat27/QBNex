@@ -57,6 +57,9 @@ void sub_sound(double frequency, double lengthInClockTicks);
 void sub_beep();
 void sub_play(qbs *str);
 int32_t func_play(int32_t ignore);
+void sub__voice(int32_t voice);
+void sub__adsr(double attack, double decay, double sustain, double release, int32_t voice, int32_t passed);
+void sub__wave(qbs *spec, int32_t voice, int32_t passed);
 
 int32_t func__sndrate();
 int32_t func__sndopen(qbs *fileName, qbs *requirements, int32_t passed);

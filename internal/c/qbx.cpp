@@ -426,6 +426,9 @@ extern void sub_randomize (double seed,int32 passed);
 extern float func_rnd(float n,int32 passed);
 extern double func_timer(double accuracy,int32 passed);
 extern void sub_sound(double frequency,double lengthinclockticks);
+extern void sub__voice(int32 voice);
+extern void sub__adsr(double attack,double decay,double sustain,double release,int32 voice,int32 passed);
+extern void sub__wave(qbs *spec,int32 voice,int32 passed);
 //following are declared below to allow for inlining
 //extern double func_abs(double d);
 //extern long double func_abs(long double d);

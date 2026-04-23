@@ -19,6 +19,10 @@
 #define AUDIO_DEBUG 0
 #include "audio.h"
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <string>
 #include <vector>
 // Enable Ogg Vorbis decoding
 #define STB_VORBIS_HEADER_ONLY
@@ -36,6 +40,9 @@
 //-----------------------------------------------------------------------------------------------------
 // CONSTANTS
 //-----------------------------------------------------------------------------------------------------
+static const int QBNEX_SYNTH_VOICE_COUNT = 4;
+static const double QBNEX_PI = 3.14159265358979323846;
+
 // This should be defined elsewhere (in libqb?). Since it is not, we are doing it here
 #define INVALID_MEM_LOCK 1073741821
 
@@ -106,6 +113,55 @@ enum struct SoundType
     None,   // No sound or internal sound whose buffer is managed by the QBPE audio engine
     Static, // Static sounds that are completely managed by miniaudio
     Raw     // Raw sound stream that is managed by the QBPE audio engine
+};
+
+struct SampleFrameBlockQueue;
+
+enum struct SynthWaveformKind
+{
+    Triangle,
+    Sine,
+    Square,
+    Saw,
+    WhiteNoise,
+    PinkNoise,
+    BrownNoise,
+    LfsrNoise,
+    Custom
+};
+
+struct SynthEnvelopeSettings
+{
+    double attack;
+    double decay;
+    double sustain;
+    double release;
+
+    SynthEnvelopeSettings()
+    {
+        attack = 0.01;
+        decay = 0.05;
+        sustain = 0.80;
+        release = 0.06;
+    }
+};
+
+struct SynthVoice
+{
+    ma_sound maSound;
+    SampleFrameBlockQueue *rawQueue;
+    SynthEnvelopeSettings envelope;
+    SynthWaveformKind waveform;
+    std::vector<float> customWave;
+    uint32_t lfsr;
+
+    SynthVoice()
+    {
+        ZERO_VARIABLE(maSound);
+        rawQueue = nullptr;
+        waveform = SynthWaveformKind::Triangle;
+        lfsr = 0xACE1u;
+    }
 };
 
 /// <summary>
@@ -484,6 +540,10 @@ struct AudioEngine
     int32_t sndInternalRaw;                             // Internal sound handle that we will use for the QBNex 'handle-less' raw stream
     std::vector<SoundHandle *> soundHandles;            // This is the audio handle list used by the engine and by everything else
     int32_t lowestFreeHandle;                           // This is the lowest handle then was recently freed. We'll start checking for free handles from here
+    SynthVoice synthVoices[QBNEX_SYNTH_VOICE_COUNT];
+    int32_t currentSynthVoice;
+    int32_t nextSynthVoice;
+    bool synthVoicePinned;
 
     AudioEngine(const AudioEngine &) = delete;      // No default copy constructor
     AudioEngine &operator=(AudioEngine &) = delete; // No assignment operator
@@ -497,6 +557,9 @@ struct AudioEngine
         sampleRate = 0;
         lowestFreeHandle = 0;
         sndInternal = sndInternalRaw = INVALID_SOUND_HANDLE;
+        currentSynthVoice = 0;
+        nextSynthVoice = 0;
+        synthVoicePinned = false;
     }
 
     /// <summary>
@@ -662,6 +725,284 @@ static AudioEngine audioEngine;
 //-----------------------------------------------------------------------------------------------------
 // FUNCTIONS
 //-----------------------------------------------------------------------------------------------------
+static double ClampUnit(double value)
+{
+    if (value < 0.0)
+        return 0.0;
+    if (value > 1.0)
+        return 1.0;
+    return value;
+}
+
+static std::string TrimCopy(const std::string &value)
+{
+    size_t first = 0;
+    size_t last = value.size();
+
+    while (first < value.size() && std::isspace(static_cast<unsigned char>(value[first])))
+        ++first;
+    while (last > first && std::isspace(static_cast<unsigned char>(value[last - 1])))
+        --last;
+
+    return value.substr(first, last - first);
+}
+
+static std::string UpperCopy(const std::string &value)
+{
+    std::string result = value;
+    for (size_t i = 0; i < result.size(); ++i)
+        result[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(result[i])));
+    return result;
+}
+
+static int32_t ResolveConfigVoiceIndex(int32_t requestedVoice, int32_t voicePassedMask, bool &applyAll)
+{
+    applyAll = false;
+
+    if (voicePassedMask)
+    {
+        if (requestedVoice < 1 || requestedVoice > QBNEX_SYNTH_VOICE_COUNT)
+            return -1;
+        return requestedVoice - 1;
+    }
+
+    if (audioEngine.synthVoicePinned)
+        return audioEngine.currentSynthVoice;
+
+    applyAll = true;
+    return 0;
+}
+
+static int32_t ResolvePlaybackVoiceIndex()
+{
+    if (audioEngine.synthVoicePinned)
+        return audioEngine.currentSynthVoice;
+
+    int32_t voiceIndex = audioEngine.nextSynthVoice;
+    audioEngine.nextSynthVoice = (audioEngine.nextSynthVoice + 1) % QBNEX_SYNTH_VOICE_COUNT;
+    audioEngine.currentSynthVoice = voiceIndex;
+    return voiceIndex;
+}
+
+static float EnvelopeAmplitude(const SynthEnvelopeSettings &envelope, double totalLength, double timePosition)
+{
+    double attack = std::max(0.0, envelope.attack);
+    double decay = std::max(0.0, envelope.decay);
+    double sustain = ClampUnit(envelope.sustain);
+    double release = std::max(0.0, envelope.release);
+    double sustainDuration = 0.0;
+    double shapedTotal = attack + decay + release;
+
+    if (totalLength <= 0.0)
+        return 0.0f;
+
+    if (shapedTotal > totalLength && shapedTotal > 0.0)
+    {
+        double scale = totalLength / shapedTotal;
+        attack *= scale;
+        decay *= scale;
+        release *= scale;
+    }
+    else
+    {
+        sustainDuration = totalLength - shapedTotal;
+    }
+
+    if (attack > 0.0 && timePosition < attack)
+        return static_cast<float>(timePosition / attack);
+
+    timePosition -= attack;
+    if (decay > 0.0 && timePosition < decay)
+        return static_cast<float>(1.0 - (1.0 - sustain) * (timePosition / decay));
+
+    timePosition -= decay;
+    if (timePosition < sustainDuration)
+        return static_cast<float>(sustain);
+
+    timePosition -= sustainDuration;
+    if (release > 0.0 && timePosition < release)
+        return static_cast<float>(sustain * (1.0 - (timePosition / release)));
+
+    return 0.0f;
+}
+
+static float SampleCustomWave(const std::vector<float> &customWave, double phase)
+{
+    if (customWave.empty())
+        return 0.0f;
+    if (customWave.size() == 1)
+        return customWave[0];
+
+    double wrapped = phase - std::floor(phase);
+    double scaledIndex = wrapped * customWave.size();
+    size_t index0 = static_cast<size_t>(scaledIndex) % customWave.size();
+    size_t index1 = (index0 + 1) % customWave.size();
+    double fraction = scaledIndex - std::floor(scaledIndex);
+
+    return static_cast<float>(customWave[index0] + (customWave[index1] - customWave[index0]) * fraction);
+}
+
+static float NextLfsrNoise(uint32_t &lfsr)
+{
+    uint32_t bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1u;
+    lfsr = (lfsr >> 1) | (bit << 15);
+    return (lfsr & 1u) ? 1.0f : -1.0f;
+}
+
+static bool ParseCustomWaveSpec(const std::string &spec, std::vector<float> &outSamples)
+{
+    std::string samplesText = spec;
+    size_t colon = samplesText.find(':');
+    if (colon != std::string::npos)
+        samplesText = samplesText.substr(colon + 1);
+
+    outSamples.clear();
+
+    size_t start = 0;
+    while (start < samplesText.size())
+    {
+        size_t end = start;
+        while (end < samplesText.size() && samplesText[end] != ',' && samplesText[end] != ';')
+            ++end;
+
+        std::string token = TrimCopy(samplesText.substr(start, end - start));
+        if (!token.empty())
+        {
+            char *parseEnd = NULL;
+            double parsedValue = std::strtod(token.c_str(), &parseEnd);
+            if (!parseEnd || *parseEnd != 0)
+                return false;
+
+            if (parsedValue > 1.0 || parsedValue < -1.0)
+                parsedValue /= 32768.0;
+
+            if (parsedValue > 1.0)
+                parsedValue = 1.0;
+            if (parsedValue < -1.0)
+                parsedValue = -1.0;
+
+            outSamples.push_back(static_cast<float>(parsedValue));
+        }
+
+        start = end + 1;
+    }
+
+    return !outSamples.empty();
+}
+
+static bool ApplyWaveSpecToVoice(SynthVoice &voice, const std::string &spec)
+{
+    std::string normalized = UpperCopy(TrimCopy(spec));
+
+    if (normalized == "TRIANGLE")
+    {
+        voice.waveform = SynthWaveformKind::Triangle;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "SINE")
+    {
+        voice.waveform = SynthWaveformKind::Sine;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "SQUARE")
+    {
+        voice.waveform = SynthWaveformKind::Square;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "SAW" || normalized == "SAWTOOTH")
+    {
+        voice.waveform = SynthWaveformKind::Saw;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "NOISE" || normalized == "WHITE" || normalized == "WHITE NOISE")
+    {
+        voice.waveform = SynthWaveformKind::WhiteNoise;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "PINK" || normalized == "PINK NOISE")
+    {
+        voice.waveform = SynthWaveformKind::PinkNoise;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "BROWN" || normalized == "BROWNIAN" || normalized == "BROWN NOISE" || normalized == "BROWNIAN NOISE")
+    {
+        voice.waveform = SynthWaveformKind::BrownNoise;
+        std::vector<float>().swap(voice.customWave);
+        return true;
+    }
+    if (normalized == "LFSR" || normalized == "LFSR NOISE")
+    {
+        voice.waveform = SynthWaveformKind::LfsrNoise;
+        std::vector<float>().swap(voice.customWave);
+        if (!voice.lfsr)
+            voice.lfsr = 0xACE1u;
+        return true;
+    }
+
+    if (normalized.rfind("CUSTOM", 0) == 0 || normalized.find(',') != std::string::npos || normalized.find(';') != std::string::npos)
+    {
+        std::vector<float> parsedWave;
+        if (!ParseCustomWaveSpec(spec, parsedWave))
+            return false;
+        voice.waveform = SynthWaveformKind::Custom;
+        voice.customWave.swap(parsedWave);
+        return true;
+    }
+
+    return false;
+}
+
+static float SampleSynthWave(SynthVoice &voice, double phase, float &brownState, float &pink0, float &pink1, float &pink2)
+{
+    switch (voice.waveform)
+    {
+    case SynthWaveformKind::Sine:
+        return static_cast<float>(std::sin(phase * QBNEX_PI * 2.0));
+    case SynthWaveformKind::Square:
+        return phase < 0.5 ? 1.0f : -1.0f;
+    case SynthWaveformKind::Saw:
+        return static_cast<float>(phase * 2.0 - 1.0);
+    case SynthWaveformKind::WhiteNoise:
+        return static_cast<float>((static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX)) * 2.0 - 1.0);
+    case SynthWaveformKind::PinkNoise:
+    {
+        float white = static_cast<float>((static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX)) * 2.0 - 1.0);
+        pink0 = 0.99765f * pink0 + white * 0.0990460f;
+        pink1 = 0.96300f * pink1 + white * 0.2965164f;
+        pink2 = 0.57000f * pink2 + white * 1.0526913f;
+        float pink = pink0 + pink1 + pink2 + white * 0.1848f;
+        if (pink > 1.0f)
+            pink = 1.0f;
+        if (pink < -1.0f)
+            pink = -1.0f;
+        return pink;
+    }
+    case SynthWaveformKind::BrownNoise:
+    {
+        float white = static_cast<float>((static_cast<double>(std::rand()) / static_cast<double>(RAND_MAX)) * 2.0 - 1.0);
+        brownState += white * 0.08f;
+        if (brownState > 1.0f)
+            brownState = 1.0f;
+        if (brownState < -1.0f)
+            brownState = -1.0f;
+        return brownState;
+    }
+    case SynthWaveformKind::LfsrNoise:
+        return NextLfsrNoise(voice.lfsr);
+    case SynthWaveformKind::Custom:
+        return SampleCustomWave(voice.customWave, phase);
+    case SynthWaveformKind::Triangle:
+    default:
+        return static_cast<float>(1.0 - 4.0 * std::fabs(phase - 0.5));
+    }
+}
+
 /// <summary>
 /// This creates 16-bit signed stereo data. The sound buffer is allocated and then returned.
 /// Do we really need stereo for Play(), Sound() and Beep()?
@@ -671,19 +1012,21 @@ static AudioEngine audioEngine;
 /// <param name="volume">The volume of the sound (0.0 - 1.0)</param>
 /// <param name="soundwave_bytes">A pointer to an integer that will receive the buffer size in bytes. This cannot be NULL</param>
 /// <returns></returns>
-static ma_uint8 *GenerateWaveform(double frequency, double length, double volume, ma_int32 *soundwave_bytes)
+static ma_uint8 *GenerateWaveform(SynthVoice &voice, double frequency, double length, double volume, ma_int32 *soundwave_bytes)
 {
     ma_uint8 *data;
     ma_int32 i;
-    ma_int16 x, lastx;
+    ma_int16 x;
     ma_int16 *sp;
     double samples;
     ma_int32 samplesi;
-    ma_int32 direction;
-    double value;
     double volume_multiplier;
-    ma_int32 waveend;
-    double gradient;
+    float brownState = 0.0f;
+    double phase = 0.0;
+    double phaseIncrement = 0.0;
+    float pink0 = 0.0f;
+    float pink1 = 0.0f;
+    float pink2 = 0.0f;
 
     // calculate total number of samples required
     samples = length * audioEngine.sampleRate;
@@ -710,52 +1053,27 @@ static ma_uint8 *GenerateWaveform(double frequency, double length, double volume
 
     sp = (ma_int16 *)data;
 
-    direction = 1;
-    value = 0;
     volume_multiplier = volume * 32767.0;
-    waveend = 0;
+    if (audioEngine.sampleRate > 0)
+        phaseIncrement = frequency / audioEngine.sampleRate;
 
-    // frequency*4.0*length is the total distance value will travel (+1,-2,+1[repeated])
-    // samples is the number of steps to do this in
-    if (samples)
-        gradient = (frequency * 4.0 * length) / samples;
-    else
-        gradient = 0; // avoid division by 0
-
-    lastx = 1; // set to 1 to avoid passing initial comparison
     for (i = 0; i < samplesi; i++)
     {
-        x = value * volume_multiplier;
-        *sp++ = x;
-        *sp++ = x;
-        if (x > 0)
-        {
-            if (lastx <= 0)
-            {
-                waveend = i;
-            }
-        }
-        lastx = x;
-        if (direction)
-        {
-            if ((value += gradient) >= 1.0)
-            {
-                direction = 0;
-                value = 2.0 - value;
-            }
-        }
-        else
-        {
-            if ((value -= gradient) <= -1.0)
-            {
-                direction = 1;
-                value = -2.0 - value;
-            }
-        }
-    } // i
+        double timePosition = static_cast<double>(i) / audioEngine.sampleRate;
+        float envelope = EnvelopeAmplitude(voice.envelope, length, timePosition);
+        float waveform = 0.0f;
 
-    if (waveend)
-        *soundwave_bytes = waveend * SAMPLE_FRAME_SIZE(ma_int16, 2);
+        if (frequency > 0.0 || voice.waveform == SynthWaveformKind::WhiteNoise || voice.waveform == SynthWaveformKind::PinkNoise ||
+            voice.waveform == SynthWaveformKind::BrownNoise || voice.waveform == SynthWaveformKind::LfsrNoise)
+        {
+            waveform = SampleSynthWave(voice, phase - std::floor(phase), brownState, pink0, pink1, pink2);
+        }
+
+        x = static_cast<ma_int16>(waveform * envelope * volume_multiplier);
+        *sp++ = x;
+        *sp++ = x;
+        phase += phaseIncrement;
+    }
 
     return data;
 }
@@ -785,32 +1103,31 @@ static ma_int32 WaveformBufferSize(double length)
 /// <param name="bytes">Length of buffer in bytes</param>
 /// <param name="block">So we have to wait until playback completes</param>
 /// <param name="sndRawQueue">A pointer to a raw queue object</param>
-static void SendWaveformToQueue(ma_uint8 *data, ma_int32 bytes, bool block)
+static void SendWaveformToQueue(SampleFrameBlockQueue *queue, ma_uint8 *data, ma_int32 bytes, bool block)
 {
     ma_int32 i;
     ma_int64 time_ms;
 
-    if (!data)
+    if (!data || !queue)
         return;
 
     // Move data into sndraw handle
     for (i = 0; i < bytes; i += SAMPLE_FRAME_SIZE(ma_int16, 2))
     {
-        audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->PushSampleFrame((float)((ma_int16 *)(data + i))[0] / 32768.0f,
-                                                                                     (float)((ma_int16 *)(data + i))[1] / 32768.0f);
+        queue->PushSampleFrame((float)((ma_int16 *)(data + i))[0] / 32768.0f, (float)((ma_int16 *)(data + i))[1] / 32768.0f);
     }
 
     free(data); // free the sound data
 
     // This will push any unfinished block for playback
-    if (audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->last)
-        audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->last->force = true;
+    if (queue->last)
+        queue->last->force = true;
 
     // This will wait for the block to finish (if specified)
     // We'll be good citizens and give-up our time-slices while waiting
     if (block)
     {
-        time_ms = (ma_int64)(audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->GetTimeRemaining() * 950.0 - 250.0);
+        time_ms = (ma_int64)(queue->GetTimeRemaining() * 950.0 - 250.0);
         if (time_ms > 0)
             Sleep(time_ms);
     }
@@ -825,8 +1142,9 @@ void sub_sound(double frequency, double lengthInClockTicks)
 {
     ma_uint8 *data;
     ma_int32 soundwave_bytes;
+    int32_t voiceIndex;
 
-    if (new_error || !audioEngine.isInitialized || audioEngine.sndInternal != 0)
+    if (new_error || !audioEngine.isInitialized)
         return;
 
     if ((frequency < 37.0) && (frequency != 0))
@@ -840,10 +1158,9 @@ void sub_sound(double frequency, double lengthInClockTicks)
     if (lengthInClockTicks == 0.0)
         return;
 
-    audioEngine.soundHandles[audioEngine.sndInternal]->type = SoundType::Raw; // This will start processing handle 0 as a raw stream
-
-    data = GenerateWaveform(frequency, lengthInClockTicks / 18.2, 1, &soundwave_bytes);
-    SendWaveformToQueue(data, soundwave_bytes, true);
+    voiceIndex = ResolvePlaybackVoiceIndex();
+    data = GenerateWaveform(audioEngine.synthVoices[voiceIndex], frequency, lengthInClockTicks / 18.2, 1, &soundwave_bytes);
+    SendWaveformToQueue(audioEngine.synthVoices[voiceIndex].rawQueue, data, soundwave_bytes, false);
 
     return;
 
@@ -870,12 +1187,21 @@ void sub_beep() { sub_sound(900, 5); }
 /// <returns>Returns the number of sample frames left to play for Play(), Sound() & Beep()</returns>
 int32_t func_play(int32_t ignore)
 {
-    if (audioEngine.isInitialized && audioEngine.sndInternal == 0)
+    if (audioEngine.isInitialized)
     {
-        // This will push any unfinished block for playback
-        if (audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->last)
-            audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->last->force = true;
-        return (int32_t)audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue->GetSampleFramesRemaining();
+        int32_t maxFramesRemaining = 0;
+
+        for (int32_t voiceIndex = 0; voiceIndex < QBNEX_SYNTH_VOICE_COUNT; ++voiceIndex)
+        {
+            if (audioEngine.synthVoices[voiceIndex].rawQueue)
+            {
+                if (audioEngine.synthVoices[voiceIndex].rawQueue->last)
+                    audioEngine.synthVoices[voiceIndex].rawQueue->last->force = true;
+                maxFramesRemaining = std::max(maxFramesRemaining, static_cast<int32_t>(audioEngine.synthVoices[voiceIndex].rawQueue->GetSampleFramesRemaining()));
+            }
+        }
+
+        return maxFramesRemaining;
     }
 
     return 0;
@@ -910,11 +1236,16 @@ void sub_play(qbs *str)
     static ma_int32 followup; // 1=play note
     static ma_int32 playit;
     static ma_int32 fullstops = 0;
+    int32_t voiceIndex;
+    SampleFrameBlockQueue *targetQueue;
 
-    if (new_error || !audioEngine.isInitialized || audioEngine.sndInternal != 0)
+    if (new_error || !audioEngine.isInitialized)
         return;
 
-    audioEngine.soundHandles[audioEngine.sndInternal]->type = SoundType::Raw; // This will start processing handle 0 as a raw stream
+    voiceIndex = ResolvePlaybackVoiceIndex();
+    targetQueue = audioEngine.synthVoices[voiceIndex].rawQueue;
+    if (!targetQueue)
+        return;
 
     b = str->chr;
     bytes_left = str->len;
@@ -1209,7 +1540,7 @@ next_byte:
                     if (playit)
                     {
                         playit = 0;
-                        SendWaveformToQueue(wave, wave_bytes, true);
+                        SendWaveformToQueue(targetQueue, wave, wave_bytes, false);
                     }
                     wave = NULL;
                 }
@@ -1341,7 +1672,7 @@ next_byte:
             frequency = pow(2.0, ((double)n) / 12.0) * 440.0;
 
             // create wave
-            wave2 = GenerateWaveform(frequency, length2 * (1.0 - pause), v / 100.0, &soundwave_bytes);
+            wave2 = GenerateWaveform(audioEngine.synthVoices[voiceIndex], frequency, length2 * (1.0 - pause), v / 100.0, &soundwave_bytes);
             if (pause > 0)
             {
                 wave2 = (ma_uint8 *)realloc(wave2, soundwave_bytes + WaveformBufferSize(length2 * pause));
@@ -1515,15 +1846,98 @@ done:
 
     if (playit)
     {
-        if (mb)
-        {
-            SendWaveformToQueue(wave, wave_bytes, false);
-        }
-        else
-        {
-            SendWaveformToQueue(wave, wave_bytes, true);
-        }
+        SendWaveformToQueue(targetQueue, wave, wave_bytes, false);
     } // playit
+}
+
+void sub__voice(int32_t voice)
+{
+    if (voice == 0)
+    {
+        audioEngine.synthVoicePinned = false;
+        return;
+    }
+
+    if (voice < 1 || voice > QBNEX_SYNTH_VOICE_COUNT)
+    {
+        error(5);
+        return;
+    }
+
+    audioEngine.synthVoicePinned = true;
+    audioEngine.currentSynthVoice = voice - 1;
+}
+
+void sub__adsr(double attack, double decay, double sustain, double release, int32_t voice, int32_t passed)
+{
+    bool applyAll;
+    int32_t targetVoice = ResolveConfigVoiceIndex(voice, passed & 16, applyAll);
+    if (targetVoice < 0)
+    {
+        error(5);
+        return;
+    }
+
+    if (sustain > 1.0 && sustain <= 100.0)
+        sustain /= 100.0;
+    if (attack < 0.0 || decay < 0.0 || release < 0.0 || sustain < 0.0 || sustain > 1.0)
+    {
+        error(5);
+        return;
+    }
+
+    if (applyAll)
+    {
+        for (int32_t i = 0; i < QBNEX_SYNTH_VOICE_COUNT; ++i)
+        {
+            audioEngine.synthVoices[i].envelope.attack = attack;
+            audioEngine.synthVoices[i].envelope.decay = decay;
+            audioEngine.synthVoices[i].envelope.sustain = sustain;
+            audioEngine.synthVoices[i].envelope.release = release;
+        }
+    }
+    else
+    {
+        audioEngine.synthVoices[targetVoice].envelope.attack = attack;
+        audioEngine.synthVoices[targetVoice].envelope.decay = decay;
+        audioEngine.synthVoices[targetVoice].envelope.sustain = sustain;
+        audioEngine.synthVoices[targetVoice].envelope.release = release;
+    }
+}
+
+void sub__wave(qbs *spec, int32_t voice, int32_t passed)
+{
+    bool applyAll;
+    int32_t targetVoice = ResolveConfigVoiceIndex(voice, passed & 2, applyAll);
+    std::string waveSpec;
+
+    if (targetVoice < 0 || !spec || spec->len <= 0)
+    {
+        error(5);
+        return;
+    }
+
+    waveSpec.assign(reinterpret_cast<const char *>(spec->chr), spec->len);
+
+    if (applyAll)
+    {
+        for (int32_t i = 0; i < QBNEX_SYNTH_VOICE_COUNT; ++i)
+        {
+            if (!ApplyWaveSpecToVoice(audioEngine.synthVoices[i], waveSpec))
+            {
+                error(5);
+                return;
+            }
+        }
+    }
+    else
+    {
+        if (!ApplyWaveSpecToVoice(audioEngine.synthVoices[targetVoice], waveSpec))
+        {
+            error(5);
+            return;
+        }
+    }
 }
 
 /// <summary>
@@ -2249,16 +2663,19 @@ void snd_init()
 
     AUDIO_DEBUG_PRINT("Audio engine initialized at %uHz sample rate", audioEngine.sampleRate);
 
-    // Reserve sound handle 0 so that nothing else can use it
-    // We will use this handle internally for Play(), Beep(), Sound() etc.
-    audioEngine.sndInternal = audioEngine.AllocateSoundHandle();
-    AUDIO_DEBUG_CHECK(audioEngine.sndInternal == 0); // The first handle must return 0 and this is what is used by Beep and Sound
+    for (int32_t voiceIndex = 0; voiceIndex < QBNEX_SYNTH_VOICE_COUNT; ++voiceIndex)
+    {
+        audioEngine.synthVoices[voiceIndex].rawQueue = new SampleFrameBlockQueue(&audioEngine.maEngine, &audioEngine.synthVoices[voiceIndex].maSound);
+    }
 
-    // Just do a basic setup and mark the type as 'none'
-    // If Play(), Sound(), Beep() are called, those will mark it as 'raw'
-    audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue =
-        new SampleFrameBlockQueue(&audioEngine.maEngine, &audioEngine.soundHandles[audioEngine.sndInternal]->maSound);
+    // Reserve handle 0 so user-visible _SND* handles remain strictly positive.
+    audioEngine.sndInternal = audioEngine.AllocateSoundHandle();
+    AUDIO_DEBUG_CHECK(audioEngine.sndInternal == 0);
     audioEngine.soundHandles[audioEngine.sndInternal]->type = SoundType::None;
+
+    audioEngine.currentSynthVoice = 0;
+    audioEngine.nextSynthVoice = 0;
+    audioEngine.synthVoicePinned = false;
 }
 
 /// <summary>
@@ -2268,10 +2685,13 @@ void snd_un_init()
 {
     if (audioEngine.isInitialized)
     {
-        // Special handling for handle 0
-        audioEngine.soundHandles[audioEngine.sndInternal]->type = SoundType::None;
-        delete audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue;
-        audioEngine.soundHandles[audioEngine.sndInternal]->rawQueue = nullptr;
+        for (int32_t voiceIndex = 0; voiceIndex < QBNEX_SYNTH_VOICE_COUNT; ++voiceIndex)
+        {
+            delete audioEngine.synthVoices[voiceIndex].rawQueue;
+            audioEngine.synthVoices[voiceIndex].rawQueue = nullptr;
+            std::vector<float>().swap(audioEngine.synthVoices[voiceIndex].customWave);
+            ZERO_VARIABLE(audioEngine.synthVoices[voiceIndex].maSound);
+        }
 
         // Free all sound handles here
         for (size_t handle = 0; handle < audioEngine.soundHandles.size(); handle++)

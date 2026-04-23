@@ -5,6 +5,22 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Audio Synthesis
+- Added 4-voice polyphonic synthesis for `SOUND` and `PLAY`, with `_VOICE` for fixed or automatic voice selection.
+- Added `_ADSR` envelope controls for attack, decay, sustain, and release shaping.
+- Added `_WAVE` waveform selection with built-in sine, square, saw, triangle, white noise, pink noise, brown noise, LFSR noise, and custom sample-table waveforms.
+- Added audio synth smoke fixtures covering `_VOICE`, `_ADSR`, `_WAVE`, `SOUND`, and `PLAY`.
+
+### Fixed
+
+#### Runtime Memory Cleanup
+- Released retained text-cell and image/palette vector capacity when images switch ownership or are freed.
+- Cleared stale page references when image slots are reclaimed to reduce long-running screen-buffer leaks and dangling state.
+
 ## [1.0.1] - 2026-04-22
 
 ### Changed

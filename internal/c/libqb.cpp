@@ -1505,6 +1505,51 @@ int32 convert_unicode(int32 src_fmt,void *src_buf,int32 src_size,int32 dest_fmt,
 #endif
 void sub_beep();
 
+#ifndef DEPENDENCY_AUDIO_OUT
+void sub_beep() {
+    #ifdef QBNex_WINDOWS
+        Beep(800, 120);
+    #elif defined(QBNex_MACOSX)
+        NSBeep();
+    #else
+        qb_write_utf8("\a", 1, 0);
+    #endif
+}
+
+void sub_sound(double frequency, double lengthInClockTicks) {
+    (void)frequency;
+    (void)lengthInClockTicks;
+}
+
+int32 func_play(int32 ignore) {
+    (void)ignore;
+    return 0;
+}
+
+void sub_play(qbs *str) {
+    (void)str;
+}
+
+void sub__voice(int32 voice) {
+    (void)voice;
+}
+
+void sub__adsr(double attack, double decay, double sustain, double release, int32 voice, int32 passed) {
+    (void)attack;
+    (void)decay;
+    (void)sustain;
+    (void)release;
+    (void)voice;
+    (void)passed;
+}
+
+void sub__wave(qbs *spec, int32 voice, int32 passed) {
+    (void)spec;
+    (void)voice;
+    (void)passed;
+}
+#endif
+
 
 
 
@@ -2833,12 +2878,12 @@ static void qb_resize_img_owner_storage(int32 capacity){
 }
 
 static void qb_set_img_external_offset(int32 index,uint8 *offset){
-    qb_img_pixel_storage[index].clear();
+    std::vector<uint8>().swap(qb_img_pixel_storage[index]);
     img[index].offset=offset;
 }
 
 static void qb_set_img_external_palette(int32 index,uint32 *palette){
-    qb_img_palette_storage[index].clear();
+    std::vector<uint32>().swap(qb_img_palette_storage[index]);
     img[index].pal=palette;
 }
 
@@ -2867,6 +2912,16 @@ static void qb_allocate_img_palette(int32 index){
     img[index].pal=qb_img_palette_storage[index].empty()?NULL:qb_img_palette_storage[index].data();
 }
 
+static void qb_release_text_utf8_cells(int32 image_index){
+    if (image_index < 0) return;
+    if (static_cast<size_t>(image_index) < qb_text_utf8_cells.size()){
+        std::vector<std::string>().swap(qb_text_utf8_cells[image_index]);
+    }
+    if (static_cast<size_t>(image_index) < qb_text_utf8_cell_state.size()){
+        std::vector<uint8>().swap(qb_text_utf8_cell_state[image_index]);
+    }
+}
+
 static int32 qb_img_index(const img_struct *im){
     if (!im || !img) return -1;
     return static_cast<int32>(im - img);
@@ -2877,8 +2932,7 @@ static void qb_init_text_utf8_cells(int32 image_index){
     if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) qb_text_utf8_cells.resize(nimg);
     if (static_cast<size_t>(image_index) >= qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state.resize(nimg);
     if (!img[image_index].text){
-        qb_text_utf8_cells[image_index].clear();
-        qb_text_utf8_cell_state[image_index].clear();
+        qb_release_text_utf8_cells(image_index);
         return;
     }
     qb_text_utf8_cells[image_index].assign(static_cast<size_t>(img[image_index].width) * img[image_index].height, std::string());
@@ -3865,8 +3919,10 @@ int32 freeimg(uint32 i){
     }
     qb_release_img_pixels(i);
     qb_release_img_palette(i);
-    if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
-    if (i<qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state[i].clear();
+    qb_release_text_utf8_cells(i);
+    for (size_t page_index = 0; page_index < page.size(); ++page_index){
+        if (page[page_index] == static_cast<int32>(i)) page[page_index] = 0;
+    }
     memset(&img[i],0,sizeof(img_struct));
     fimg.push_back(i);
     return 1;
@@ -4074,10 +4130,7 @@ int32 imgframe(uint8 *o,int32 x,int32 y,int32 bpp){
     if (bpp) im->bottom_row=(im->height/im->font); else im->bottom_row=im->height;
     im->bottom_row--; if (im->bottom_row<=0) im->bottom_row=1;
     if (!bpp) qb_init_text_utf8_cells(i);
-    else{
-        if (i<qb_text_utf8_cells.size()) qb_text_utf8_cells[i].clear();
-        if (i<qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state[i].clear();
-    }
+    else qb_release_text_utf8_cells(i);
     if (!bpp) return i;
     //graphics
     //clipping/scaling

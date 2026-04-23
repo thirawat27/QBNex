@@ -1586,6 +1586,35 @@ id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "PLAY"
 regid
 
+clearid
+id.n = qbnexprefix$ + "Voice": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.subfunc = 2
+id.callname = "sub__voice"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_VOICE voice% (0=auto, 1-4=fixed voice)"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Adsr": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.subfunc = 2
+id.callname = "sub__adsr"
+id.args = 5
+id.arg = MKL$(DOUBLETYPE - ISPOINTER) + MKL$(DOUBLETYPE - ISPOINTER) + MKL$(DOUBLETYPE - ISPOINTER) + MKL$(DOUBLETYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.specialformat = "?,?,?,?[,?]"
+id.hr_syntax = "_ADSR attack!, decay!, sustain!, release![, voice%]"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Wave": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.subfunc = 2
+id.callname = "sub__wave"
+id.args = 2
+id.arg = MKL$(STRINGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.specialformat = "?[,?]"
+id.hr_syntax = "_WAVE spec$[, voice%]"
+regid
+
 'QBNex MOUSE
 clearid
 id.n = qbnexprefix$ + "MouseShow"
@@ -2956,7 +2985,7 @@ id.hr_syntax = "SOUND frequency, duration"
 regid
 
 clearid
-id.n = "Beep": id.Dependency = DEPENDENCY_AUDIO_OUT
+id.n = "Beep": id.Dependency = 0
 id.subfunc = 2
 id.callname = "sub_beep"
 id.args = 0

@@ -177,6 +177,9 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - TrueType font rendering via FreeType library
   - Image format loading (BMP, PCX, PNG, JPEG, etc.) via STB Image
   - Sound synthesis via miniaudio library (SOUND, PLAY, BEEP)
+  - 4-voice polyphonic SOUND/PLAY synthesis via `_VOICE`
+  - ADSR envelopes via `_ADSR attack, decay, sustain, release`
+  - Custom and noise waveforms via `_WAVE` (`SINE`, `SQUARE`, `SAW`, `PINK`, `BROWN`, `LFSR`, `CUSTOM:...`)
   - Cross-platform audio: ALSA (Linux), CoreAudio (macOS), Windows Multimedia
 
 - **Network Capabilities**
@@ -1768,11 +1771,12 @@ Current script coverage includes:
 - CLI behavior (`--help`, `--version`, invalid switches, `-q`, `-z`, `-x`, settings output)
 - Encoding handling (UTF-16 rejection, invalid UTF-8 rejection, BOM acceptance, empty source, spaced paths)
 - Label resolution and stale-output protections
+- Audio synth command parsing (`_VOICE`, `_ADSR`, `_WAVE`, SOUND, PLAY)
 - Standard library import/include smoke checks
 - Warning behavior and `--warnings-as-errors` promotion
 - Lightweight compile-time benchmark harness
 
-Supporting fixture sources live in `tests/fixtures/` (14 `.bas` files).
+Supporting fixture sources live in `tests/fixtures/` (15 `.bas` files).
 
 ### Running Individual Tests
 
@@ -1786,6 +1790,7 @@ chmod +x tests/*.sh
 ./tests/encoding_smoke.sh
 ./tests/cli_smoke.sh
 ./tests/stdlib_smoke.sh
+./tests/audio_smoke.sh
 ./tests/benchmark_smoke.sh
 ```
 
@@ -1797,6 +1802,7 @@ tests\labels_smoke.cmd
 tests\encoding_smoke.cmd
 tests\cli_smoke.cmd
 tests\stdlib_smoke.cmd
+tests\audio_smoke.cmd
 tests\benchmark_smoke.cmd
 ```
 
@@ -2390,6 +2396,22 @@ docker run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix qbnex qb gr
 ```basic
 BEEP  ' Should produce system beep
 SOUND 440, 18  ' 440Hz for 1 second
+```
+
+**Polyphonic synth example:**
+```basic
+_VOICE 1
+_ADSR .01, .05, .7, .08
+_WAVE "SINE"
+SOUND 440, 6
+
+_VOICE 2
+_WAVE "CUSTOM:0,1,0,-1"
+SOUND 660, 6
+
+_VOICE 0  ' return to automatic 4-voice round-robin
+_WAVE "PINK", 3
+PLAY "MB T180 O3 L8 CEG"
 ```
 
 ### Docker Issues
