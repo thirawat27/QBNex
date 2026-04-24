@@ -13715,7 +13715,13 @@ END FUNCTION
 
 SUB FinishCompilerProgress
     IF compilerProgressVisible THEN
-        LOCATE compilerProgressRow + 2, 1
+        progressLine$ = CompilerProgressLine$(100)
+        LOCATE compilerProgressRow, 1
+        PRINT progressLine$;
+        IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
+        PRINT
+        PRINT
+        compilerProgressLastLength = 0
         compilerProgressVisible = 0
     END IF
 END SUB
@@ -13730,7 +13736,9 @@ SUB ShowCompilerBanner
     PRINT "QBNex Compiler"
     PRINT
     compilerProgressRow = CSRLIN
-    compilerProgressVisible = 0
+    compilerProgressVisible = -1
+    compilerProgressLastLength = 0
+    UpdateCompilerProgress 0
 END SUB
 
 FUNCTION SCase$ (t$)
@@ -13739,8 +13747,12 @@ END FUNCTION
 
 SUB UpdateCompilerProgress (percentage AS LONG)
     IF compilerProgressVisible = 0 THEN EXIT SUB
+    progressLine$ = CompilerProgressLine$(percentage)
     LOCATE compilerProgressRow, 1
-    PRINT CompilerProgressLine$(percentage);
+    PRINT progressLine$;
+    IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
+    compilerProgressLastLength = LEN(progressLine$)
+    LOCATE compilerProgressRow + 1, 1
 END SUB
 
 FUNCTION SCase2$ (t$)
