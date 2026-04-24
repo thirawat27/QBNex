@@ -1,6 +1,5 @@
 #include "common.h"
 
-
 extern int32 func__cinp (int32 toggle, int32 passed); //Console INP scan code reader
 extern int func__capslock();
 extern int func__scrolllock();
@@ -21,39 +20,9 @@ extern int32 vWatchHandle();
     qbs *func__inflate(qbs *text, int64 originalsize, int32 passed);
 #endif
 
-
 #ifdef QBNex_MACOSX
     #include <ApplicationServices/ApplicationServices.h>
 #endif
-
-/* testing only
-    #ifdef QBNex_WINDOWS
-    
-    HWND FindMyTopMostWindow()
-    {
-    DWORD dwProcID = GetCurrentProcessId();
-    HWND hWnd = GetTopWindow(GetDesktopWindow());
-    while(hWnd)
-    {
-    DWORD dwWndProcID = 0;
-    GetWindowThreadProcessId(hWnd, &dwWndProcID);
-    if(dwWndProcID == dwProcID)
-    return hWnd;            
-    hWnd = GetNextWindow(hWnd, GW_HWNDNEXT);
-    }
-    return NULL;
-    }
-    
-    void SetMidiVolume(int32 vol){
-    //DWORD vol = MAKELONG(((volume*65535L)/100), ((volume*65535L)/100));
-    MIDIOUTCAPS midiCaps;
-    midiOutGetDevCaps(0, &midiCaps, sizeof(midiCaps));
-    if (midiCaps.dwSupport & MIDICAPS_VOLUME)
-    midiOutSetVolume(0, vol); 
-    }
-    
-    #endif
-*/
 
 extern void error(int32 error_number);
 extern int32 sub_gl_called;
@@ -78,7 +47,6 @@ extern int32 sub_gl_called;
     #endif
 #endif
 
-
 //forward references
 void QBMAIN(void *);
 void TIMERTHREAD();
@@ -88,11 +56,8 @@ void requestKeyboardOverlayImage(int32 handle){
     requestedKeyboardOverlayImage=handle;
 }
 
-
 //extern functions
-
 extern qbs *func__dir(qbs* context);
-
 
 extern int32 func__scaledwidth();
 extern int32 func__scaledheight();
@@ -110,7 +75,6 @@ extern void sub__resize(int32 on_off,int32 stretch_smooth);
 extern int32 func__resize();
 extern int32 func__resizewidth();
 extern int32 func__resizeheight();
-
 
 extern int32 FontLoad (uint8 *content,int32 content_bytes,int32 default_pixel_height,int32 which_font,int32 options);
 extern int32 FontRenderTextUTF32(int i,uint32*codepoint,int32 codepoints,int32 options,

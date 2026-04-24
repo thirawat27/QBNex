@@ -200,4 +200,6 @@ endif()
 
 if(QBNEX_SELF_HOST)
   add_custom_target(qbnex ALL DEPENDS qb-selfhost)
+else()
+  add_custom_target(qbnex DEPENDS qb-stage0)
 endif()

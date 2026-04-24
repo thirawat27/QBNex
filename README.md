@@ -26,7 +26,7 @@
     - [Linux Setup](#linux-setup)
     - [Docker Setup](#docker-setup)
     - [Build from Source](#build-from-source)
-    - [CMake Build (Experimental)](#cmake-build-experimental)
+    - [CMake Build](#cmake-build)
   - [Quick Start](#quick-start)
   - [Usage Guide](#usage-guide)
     - [Basic Compilation](#basic-compilation)
@@ -410,13 +410,13 @@ docker build -t qbnex .
 docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
 ```
 
-### CMake Build (Experimental)
+### CMake Build
 
-An incremental CMake workflow is available for developers who want IDE-friendly builds while keeping the current platform scripts intact.
+QBNex ships with a supported incremental CMake workflow for developers who want IDE-friendly builds while keeping the existing platform setup scripts intact.
 
 ```bash
 cmake -S . -B build
-cmake --build build --target qb-stage0
+cmake --build build --target qbnex
 ```
 
 This produces `qb-stage0` / `qb-stage0.exe` in the repository root.
@@ -449,8 +449,9 @@ cmake --build --preset windows-mingw-stage0
 
 Notes:
 - The CMake flow reuses existing runtime setup scripts under `internal/c/*/os/*/setup_build.*`.
-- Existing `setup_win.cmd`, `setup_lnx.sh`, and `setup_osx.command` scripts remain the primary supported path.
+- Existing `setup_win.cmd`, `setup_lnx.sh`, and `setup_osx.command` scripts remain available for bootstrapping and troubleshooting.
 - On Windows, CMake currently expects a MinGW-based toolchain.
+- `qbnex` is the stable top-level target. It builds `qb-stage0` by default, or `qb-selfhost` when configured with `-DQBNEX_SELF_HOST=ON`.
 - To keep stage0 for debugging, configure with `-DQBNEX_KEEP_STAGE0=ON`.
 
 Windows MinGW example:
@@ -3260,7 +3261,7 @@ QBNex/
 ├── tests/
 │   ├── *.cmd / *.sh            # Smoke and benchmark test runners
 │   └── fixtures/               # Test input programs
-├── CMakeLists.txt              # Experimental CMake build graph
+├── CMakeLists.txt              # CMake build graph
 ├── CMakePresets.json           # Cross-platform CMake presets
 ├── docker-compose.yml
 ├── Dockerfile
