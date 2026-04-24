@@ -2,7 +2,7 @@ DIM SHARED Version AS STRING
 DIM SHARED DevChannel AS STRING
 DIM SHARED AutoBuildMsg AS STRING
 
-Version$ = "1.0.1"
+Version$ = "1.0.3"
 DevChannel$ = ""
 IF _FILEEXISTS("internal/version.txt") THEN
     versionfile = FREEFILE
