@@ -1773,7 +1773,6 @@ Current script coverage includes:
 - Encoding handling (UTF-16 rejection, invalid UTF-8 rejection, BOM acceptance, empty source, spaced paths)
 - Label resolution and stale-output protections
 - Audio synth command parsing (`_VOICE`, `_ADSR`, `_WAVE`, SOUND, PLAY)
-- Smart linking checks for text-console programs (`PRINT`, `BEEP`, `CLS`, `LOCATE`, `COLOR`) versus audio/graphics programs
 - Standard library import/include smoke checks
 - Warning behavior and `--warnings-as-errors` promotion
 - Lightweight compile-time benchmark harness

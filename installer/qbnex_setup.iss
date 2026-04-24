@@ -9,7 +9,7 @@
 #endif
 
 #define MyAppName "QBNex"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "thirawat27"
 #define MyAppURL "https://github.com/thirawat27/QBNex"
 #define MyAppExeName "qb.exe"

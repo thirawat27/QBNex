@@ -1054,9 +1054,8 @@ FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
     typ = id2.ret
     targetid = currentid
 
-    IF RequiresGuiCore%(n$) THEN
-        DEPENDENCY(DEPENDENCY_GUI_CORE) = 1
-        IF AutoConsoleOnlyEligible THEN AutoConsoleOnlyEligible = 0
+    IF AutoConsoleOnlyEligible THEN
+        IF RequiresGuiCore%(n$) THEN AutoConsoleOnlyEligible = 0
     END IF
 
     IF RTRIM$(id2.callname) = "func_stub" THEN Give_Error "Command not implemented": EXIT FUNCTION

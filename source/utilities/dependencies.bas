@@ -4,7 +4,7 @@ FUNCTION RequiresGuiCore% (symbolName AS STRING)
     upperName = UCASE$(RTRIM$(symbolName))
 
     SELECT CASE upperName
-    CASE "SCREEN", "LINE", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "VIEW", "WINDOW", "PCOPY", "POINT", "PMAP", "PALETTE"
+    CASE "SCREEN", "LINE", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "VIEW", "WINDOW", "PCOPY", "POINT", "PMAP", "PALETTE", "CLS", "LOCATE"
         RequiresGuiCore% = -1
         EXIT FUNCTION
     CASE "_GL", "_GLRENDER", "_DISPLAYORDER", "_MAPTRIANGLE", "_DEPTHBUFFER"
@@ -97,10 +97,6 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
 
     IF DEPENDENCY(DEPENDENCY_GL) THEN
         defines$ = defines$ + defines_header$ + "DEPENDENCY_GL"
-    END IF
-
-    IF DEPENDENCY(DEPENDENCY_GUI_CORE) THEN
-        defines$ = defines$ + defines_header$ + "DEPENDENCY_GUI_CORE"
     END IF
 
     IF DEPENDENCY(DEPENDENCY_SCREENIMAGE) THEN

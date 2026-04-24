@@ -7,13 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.2] - 2026-04-23
-
 ### Added
-
-#### Smart Linking
-- Added an explicit GUI-core dependency flag so text-console programs can stay console-only while graphics programs still link the window/OpenGL runtime.
-- Expanded smart-link smoke coverage to verify `PRINT`, `BEEP`, `CLS`, `LOCATE`, and `COLOR` do not pull in the audio or OpenGL runtime.
 
 #### Audio Synthesis
 - Added 4-voice polyphonic synthesis for `SOUND` and `PLAY`, with `_VOICE` for fixed or automatic voice selection.
@@ -311,6 +305,5 @@ Optional dependencies:
 
 ---
 
-[1.0.2]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.2
 [1.0.1]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.1
 [1.0.0]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.0
