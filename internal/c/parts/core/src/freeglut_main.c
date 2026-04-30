@@ -58,6 +58,47 @@ int qbnex_custom_event(int event,int v1,int v2,int v3,int v4,int v5,int v6,int v
 #define QBK 200000
 #define VK 100000
 #define UC 1073741824
+
+#if defined(_WIN32)
+static int qbnex_win32_wm_char_to_unicode(HWND hWnd, WPARAM wParam)
+{
+    char ansiText[2];
+    char codePageText[16];
+    WCHAR wideText[2];
+    int ansiLength;
+    UINT codePage;
+    HKL keyboardLayout;
+    LCID keyboardLocale;
+
+    if (IsWindowUnicode(hWnd))
+        return (int)wParam;
+
+    ansiLength = 1;
+    ansiText[0] = (char)(wParam & 0xff);
+    if (wParam > 0xff)
+    {
+        ansiLength = 2;
+        ansiText[0] = (char)((wParam >> 8) & 0xff);
+        ansiText[1] = (char)(wParam & 0xff);
+    }
+
+    codePage = CP_ACP;
+    keyboardLayout = GetKeyboardLayout(0);
+    keyboardLocale = MAKELCID(LOWORD((DWORD_PTR)keyboardLayout), SORT_DEFAULT);
+    if (GetLocaleInfoA(keyboardLocale, LOCALE_IDEFAULTANSICODEPAGE, codePageText, sizeof(codePageText)) > 0)
+    {
+        codePage = (UINT)atoi(codePageText);
+        if (codePage == 0)
+            codePage = CP_ACP;
+    }
+
+    if (MultiByteToWideChar(codePage, 0, ansiText, ansiLength, wideText, 2) > 0)
+        return (int)wideText[0];
+
+    return (int)wParam;
+}
+#endif
+
 /* QBK codes:
 200000-200010: Numpad keys with Num-Lock off
         NO_NUMLOCK_KP0=INSERT
@@ -2719,10 +2760,26 @@ if (wParam==VK_CANCEL){
             break;
 
         fgState.Modifiers = fghGetWin32Modifiers( );
-        INVOKE_WCB( *window, Keyboard,
-                    ( (char)wParam,
-                      window->State.MouseX, window->State.MouseY )
-        );
+        {
+            int qbnexChar = (int)wParam;
+#if defined(_WIN32)
+            if( wParam > 0x7f )
+                qbnexChar = qbnex_win32_wm_char_to_unicode(hWnd, wParam);
+#endif
+
+            if( qbnexChar > 0x7f )
+            {
+                qbnex_custom_event(QBNex_EVENT_KEY, UC | qbnexChar, 1, 0, 0, 0, 0, 0, 0, NULL, NULL);
+                qbnex_custom_event(QBNex_EVENT_KEY, UC | qbnexChar, -1, 0, 0, 0, 0, 0, 0, NULL, NULL);
+            }
+            else
+            {
+                INVOKE_WCB( *window, Keyboard,
+                            ( (char)qbnexChar,
+                              window->State.MouseX, window->State.MouseY )
+                );
+            }
+        }
         fgState.Modifiers = INVALID_MODIFIERS;
     }
     break;

@@ -8,12 +8,13 @@ endif()
 
 project(QBNex LANGUAGES ${QBNEX_LANGUAGES})
 
-option(QBNEX_SELF_HOST "Build final qb/qb.exe with the stage0 compiler" OFF)
+option(QBNEX_SELF_HOST "Build final qb/qb.exe with the stage0 compiler" ON)
 option(QBNEX_KEEP_STAGE0 "Keep qb-stage0/qb-stage0.exe after qb-selfhost" OFF)
 
 set(QBNEX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 set(QBNEX_INTERNAL_C "${QBNEX_ROOT}/internal/c")
 set(QBNEX_INTERNAL_TEMP "${QBNEX_ROOT}/internal/temp")
+file(GLOB QBNEX_STAGE0_SNAPSHOT_FILES CONFIGURE_DEPENDS "${QBNEX_ROOT}/internal/source/*")
 
 if(WIN32)
   if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -111,8 +112,18 @@ endif()
 
 add_custom_target(qbnex_runtime_objects DEPENDS ${QBNEX_RUNTIME_DEPENDS})
 
+add_custom_target(
+  qbnex_stage0_sources
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${QBNEX_INTERNAL_TEMP}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${QBNEX_INTERNAL_TEMP}"
+  COMMAND "${CMAKE_COMMAND}" -E copy_directory "${QBNEX_ROOT}/internal/source" "${QBNEX_INTERNAL_TEMP}"
+  DEPENDS ${QBNEX_STAGE0_SNAPSHOT_FILES}
+  COMMENT "Preparing stage0 compiler snapshot"
+  VERBATIM
+)
+
 add_executable(qb-stage0 "${QBNEX_INTERNAL_C}/qbx.cpp")
-add_dependencies(qb-stage0 qbnex_runtime_objects)
+add_dependencies(qb-stage0 qbnex_runtime_objects qbnex_stage0_sources)
 set_target_properties(qb-stage0 PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${QBNEX_ROOT}")
 
 if(WIN32)

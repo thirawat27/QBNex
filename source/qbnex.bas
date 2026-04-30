@@ -13727,14 +13727,20 @@ SUB FinishCompilerProgress
 END SUB
 
 SUB ShowCompilerBanner
-    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
-    PRINT " Q    Q   B   B   NN  N   E        X X   "
-    PRINT " Q  QQ    BBBB    N N N   EEEE      X    "
-    PRINT " Q   Q    B   B   N  NN   E        X X   "
-    PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
-    PRINT
-    PRINT "QBNex Compiler"
-    PRINT
+    IF compilerBannerShown = 0 THEN
+        PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+        PRINT " Q    Q   B   B   NN  N   E        X X   "
+        PRINT " Q  QQ    BBBB    N N N   EEEE      X    "
+        PRINT " Q   Q    B   B   N  NN   E        X X   "
+        PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+        PRINT
+        PRINT "QBNex Compiler"
+        PRINT
+        compilerBannerShown = -1
+    ELSEIF compilerProgressVisible THEN
+        FinishCompilerProgress
+    END IF
+
     compilerProgressRow = CSRLIN
     compilerProgressVisible = -1
     compilerProgressLastLength = 0

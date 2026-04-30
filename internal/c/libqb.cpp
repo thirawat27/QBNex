@@ -30942,6 +30942,14 @@ extern "C" int qbnex_custom_event(int event,int v1,int v2,int v3,int v4,int v5,i
         return NULL;
     }//close
     if (event==QBNex_EVENT_KEY){
+        if (v1&UC){
+            if (v2>0){
+                keydown_unicode(v1&~UC);
+            }else{
+                keyup_unicode(v1&~UC);
+            }
+            return NULL;
+        }
         if (v1==VK+QBVK_PAUSE){
             if (v2>0) keydown_vk(v1); else keyup_vk(v1);
             return NULL;

@@ -16,6 +16,7 @@ DIM SHARED ShowWarnings AS _BYTE, QuietMode AS _BYTE, CMDLineFile AS STRING
 DIM SHARED MonochromeLoggingMode AS _BYTE
 DIM SHARED outputfile_cmd$
 DIM SHARED compilelog$
+DIM SHARED compilerBannerShown AS _BYTE
 DIM SHARED compilerProgressRow AS LONG
 DIM SHARED compilerProgressVisible AS _BYTE
 DIM SHARED compilerProgressLastLength AS LONG
