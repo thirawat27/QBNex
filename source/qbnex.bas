@@ -1421,6 +1421,7 @@ FUNCTION getpid& ()
 
                     lineinput3load sourcefile$
                     IF compfailed <> 0 OR HasErrors% THEN
+                        CancelCompilerProgress
                         IF HasErrors% THEN PrintAllErrors
                         WarnIfStaleOutputBinary
                         IF ConsoleMode THEN SYSTEM 1
@@ -2487,6 +2488,7 @@ FUNCTION getpid& ()
                         ResetPostPrepassState
 
                         IF compfailed <> 0 OR HasErrors% THEN
+                            CancelCompilerProgress
                             IF HasErrors% THEN PrintAllErrors
                             WarnIfStaleOutputBinary
                             CleanupErrorHandler
@@ -10666,14 +10668,6 @@ IF lastLineReturn = 0 THEN
     GOTO mainpassLastLine
 END IF
 
-IF NOT QuietMode THEN
-    IF percentage <> 100 THEN
-        percentage = 100
-        UpdateCompilerProgress percentage
-    END IF
-    FinishCompilerProgress
-END IF
-
 linenumber = 0
 
 IF closedmain = 0 THEN closemain
@@ -11476,6 +11470,8 @@ IF recompile THEN
         InitializeCompilationLog
 
         ReportUnusedVariableWarnings
+
+        FinishCompilerProgress
 
         IF No_C_Compile_Mode = 0 THEN
             IF PrepareExecutableOutputTarget%(file$) THEN GOTO errmes
@@ -13716,12 +13712,25 @@ END FUNCTION
 SUB FinishCompilerProgress
     IF compilerProgressVisible THEN
         progressLine$ = CompilerProgressLine$(100)
-        LOCATE compilerProgressRow, 1
-        PRINT progressLine$;
-        IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
+        IF compilerProgressLastPercentage <> 100 THEN
+            LOCATE compilerProgressRow, 1
+            PRINT progressLine$;
+            IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
+        END IF
         PRINT
         PRINT
         compilerProgressLastLength = 0
+        compilerProgressLastPercentage = -1
+        compilerProgressVisible = 0
+    END IF
+END SUB
+
+SUB CancelCompilerProgress
+    IF compilerProgressVisible THEN
+        LOCATE compilerProgressRow + 1, 1
+        PRINT
+        compilerProgressLastLength = 0
+        compilerProgressLastPercentage = -1
         compilerProgressVisible = 0
     END IF
 END SUB
@@ -13738,12 +13747,13 @@ SUB ShowCompilerBanner
         PRINT
         compilerBannerShown = -1
     ELSEIF compilerProgressVisible THEN
-        FinishCompilerProgress
+        EXIT SUB
     END IF
 
     compilerProgressRow = CSRLIN
     compilerProgressVisible = -1
     compilerProgressLastLength = 0
+    compilerProgressLastPercentage = -1
     UpdateCompilerProgress 0
 END SUB
 
@@ -13753,11 +13763,13 @@ END FUNCTION
 
 SUB UpdateCompilerProgress (percentage AS LONG)
     IF compilerProgressVisible = 0 THEN EXIT SUB
+    IF percentage <= compilerProgressLastPercentage THEN EXIT SUB
     progressLine$ = CompilerProgressLine$(percentage)
     LOCATE compilerProgressRow, 1
     PRINT progressLine$;
     IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
     compilerProgressLastLength = LEN(progressLine$)
+    compilerProgressLastPercentage = percentage
     LOCATE compilerProgressRow + 1, 1
 END SUB
 

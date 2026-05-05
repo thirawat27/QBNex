@@ -124,6 +124,8 @@ SUB HandleFrontendErrorAndExit (errMessage$)
     DIM processedContext AS STRING
     DIM frontendErrorKey AS STRING
 
+    CancelCompilerProgress
+
     IF Error_Happened THEN
         errMessage$ = Error_Message
         Error_Happened = 0

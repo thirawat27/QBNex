@@ -7,6 +7,7 @@ set "QB=%REPO_ROOT%\qb.exe"
 set "SRC_OK=%ROOT%fixtures\label_recompile_success.bas"
 set "SRC_CONSOLE=%ROOT%fixtures\cli_console_output.bas"
 set "BIN_XMODE=%REPO_ROOT%\cli_console_output.exe"
+set "BIN_ZMODE=%REPO_ROOT%\label_recompile_success.exe"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -43,6 +44,7 @@ set "OUT_EXTERNAL=%TMPDIR%\external_cwd.txt"
 set "BIN_EXTERNAL=%TMPDIR%\external_cwd.exe"
 
 if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
+if exist "%BIN_ZMODE%" del /f /q "%BIN_ZMODE%" >nul 2>&1
 
 "%QB%" --help > "%OUT_HELP%" 2>&1
 set "EC_HELP=%ERRORLEVEL%"
@@ -203,4 +205,5 @@ goto :cleanup
 
 :cleanup
 if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
+if exist "%BIN_ZMODE%" del /f /q "%BIN_ZMODE%" >nul 2>&1
 exit /b %RESULT%

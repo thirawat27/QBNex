@@ -7,6 +7,7 @@ QB="$REPO_ROOT/qb"
 SRC_OK_REL="tests/fixtures/label_recompile_success.bas"
 SRC_CONSOLE_REL="tests/fixtures/cli_console_output.bas"
 BIN_XMODE="$REPO_ROOT/cli_console_output"
+BIN_ZMODE="$REPO_ROOT/label_recompile_success"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -42,7 +43,7 @@ EXTERNAL_CWD="$TMPDIR/external-workdir"
 SRC_OK_FROM_EXTERNAL="../../../$SRC_OK_REL"
 BIN_EXTERNAL_FROM_EXTERNAL="../external_cwd_output"
 
-rm -f "$BIN_XMODE"
+rm -f "$BIN_XMODE" "$BIN_ZMODE"
 mkdir -p "$EXTERNAL_CWD"
 
 "$QB" --help >"$OUT_HELP" 2>&1
@@ -182,7 +183,7 @@ fi
 
 if [ "$FAIL" -eq 0 ]; then
   echo "CLI_SMOKE_OK"
-  rm -f "$BIN_XMODE"
+  rm -f "$BIN_XMODE" "$BIN_ZMODE"
   rm -rf "$TMPDIR"
   exit 0
 fi

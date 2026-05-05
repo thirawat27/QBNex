@@ -20,6 +20,7 @@ DIM SHARED compilerBannerShown AS _BYTE
 DIM SHARED compilerProgressRow AS LONG
 DIM SHARED compilerProgressVisible AS _BYTE
 DIM SHARED compilerProgressLastLength AS LONG
+DIM SHARED compilerProgressLastPercentage AS LONG
 DIM SHARED compfailed
 DIM SHARED extension AS STRING
 DIM SHARED path.exe$, path.source$, lastBinaryGenerated$, pendingOutputBinary$
