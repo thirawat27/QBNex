@@ -5,6 +5,32 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-05-05
+
+### Added
+
+#### Input Runtime
+- Added Unicode key event handling for non-ASCII Windows `WM_CHAR` input so extended characters are routed through the QBNex keyboard path instead of being truncated to single-byte callbacks.
+
+### Changed
+
+#### Build System
+- Enabled CMake self-hosting by default so the standard build target produces the final `qb`/`qb.exe` compiler.
+- Added an explicit stage0 source snapshot step that refreshes `internal/temp` from `internal/source` before building `qb-stage0`.
+
+#### Compiler Progress
+- Tracked the last rendered compiler progress percentage to avoid redundant progress redraws.
+- Moved final progress completion to the successful native-build preparation path so progress output no longer finishes before late diagnostics and build setup run.
+- Added progress cancellation for frontend error paths so diagnostics start on a clean line instead of being mixed with an active progress bar.
+
+### Fixed
+
+#### Compiler Shutdown
+- Closed open file handles before compiler process exit paths, reducing stale locks after success or failure.
+
+#### Test Cleanup
+- Updated CLI smoke tests to remove the default `-z` output binary so test runs no longer leave `label_recompile_success` executables in the repository root.
+
 ## [1.0.3] - 2026-04-24
 
 ### Changed
