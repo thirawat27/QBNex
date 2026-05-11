@@ -144,6 +144,41 @@ FUNCTION GetNativeBuildCacheDirectory$ ()
     GetNativeBuildCacheDirectory$ = cachePlatform
 END FUNCTION
 
+FUNCTION GeneratedTempSourcesFingerprint$ ()
+    DIM keyMaterial AS STRING
+    DIM i AS LONG
+
+    keyMaterial = keyMaterial + "|regsf=" + HashFileFingerprint$(tmpdir$ + "regsf.txt")
+    keyMaterial = keyMaterial + "|global=" + HashFileFingerprint$(tmpdir$ + "global.txt")
+    keyMaterial = keyMaterial + "|dyninfo=" + HashFileFingerprint$(tmpdir$ + "dyninfo.txt")
+    keyMaterial = keyMaterial + "|clear=" + HashFileFingerprint$(tmpdir$ + "clear.txt")
+    keyMaterial = keyMaterial + "|inpchain=" + HashFileFingerprint$(tmpdir$ + "inpchain.txt")
+    keyMaterial = keyMaterial + "|chain=" + HashFileFingerprint$(tmpdir$ + "chain.txt")
+    keyMaterial = keyMaterial + "|onstrig=" + HashFileFingerprint$(tmpdir$ + "onstrig.txt")
+    keyMaterial = keyMaterial + "|onkey=" + HashFileFingerprint$(tmpdir$ + "onkey.txt")
+    keyMaterial = keyMaterial + "|ontimer=" + HashFileFingerprint$(tmpdir$ + "ontimer.txt")
+    keyMaterial = keyMaterial + "|maindata=" + HashFileFingerprint$(tmpdir$ + "maindata.txt")
+    keyMaterial = keyMaterial + "|runline=" + HashFileFingerprint$(tmpdir$ + "runline.txt")
+    keyMaterial = keyMaterial + "|mainerr=" + HashFileFingerprint$(tmpdir$ + "mainerr.txt")
+    keyMaterial = keyMaterial + "|ontimerj=" + HashFileFingerprint$(tmpdir$ + "ontimerj.txt")
+    keyMaterial = keyMaterial + "|onkeyj=" + HashFileFingerprint$(tmpdir$ + "onkeyj.txt")
+    keyMaterial = keyMaterial + "|onstrigj=" + HashFileFingerprint$(tmpdir$ + "onstrigj.txt")
+    keyMaterial = keyMaterial + "|main=" + HashFileFingerprint$(tmpdir$ + "main.txt")
+    keyMaterial = keyMaterial + "|mainfree=" + HashFileFingerprint$(tmpdir$ + "mainfree.txt")
+
+    i = 0
+    keyMaterial = keyMaterial + "|ret0=" + HashFileFingerprint$(tmpdir$ + "ret0.txt")
+    DO
+        i = i + 1
+        IF _FILEEXISTS(tmpdir$ + "data" + str2$(i) + ".txt") = 0 AND _FILEEXISTS(tmpdir$ + "free" + str2$(i) + ".txt") = 0 AND _FILEEXISTS(tmpdir$ + "ret" + str2$(i) + ".txt") = 0 THEN EXIT DO
+        keyMaterial = keyMaterial + "|data" + str2$(i) + "=" + HashFileFingerprint$(tmpdir$ + "data" + str2$(i) + ".txt")
+        keyMaterial = keyMaterial + "|free" + str2$(i) + "=" + HashFileFingerprint$(tmpdir$ + "free" + str2$(i) + ".txt")
+        keyMaterial = keyMaterial + "|ret" + str2$(i) + "=" + HashFileFingerprint$(tmpdir$ + "ret" + str2$(i) + ".txt")
+    LOOP
+
+    GeneratedTempSourcesFingerprint$ = HashTextFingerprint$(keyMaterial)
+END FUNCTION
+
 FUNCTION GetNativeBuildCacheKey$ (libqb$, libs$, defines$, pchOptions$)
     DIM keyMaterial AS STRING
     DIM generatedSource AS STRING
@@ -159,6 +194,7 @@ FUNCTION GetNativeBuildCacheKey$ (libqb$, libs$, defines$, pchOptions$)
     keyMaterial = keyMaterial + "|" + str2$(ExeIconSet) + "|" + str2$(VersionInfoSet)
     keyMaterial = keyMaterial + "|" + libqb$ + "|" + libs$ + "|" + defines$ + "|" + pchOptions$
     keyMaterial = keyMaterial + "|" + mylibopt$ + "|" + HashFileFingerprint$(generatedSource)
+    keyMaterial = keyMaterial + "|" + GeneratedTempSourcesFingerprint$
 
     IF inline_DATA = 0 AND DataOffset THEN
         keyMaterial = keyMaterial + "|" + HashFileFingerprint$(tmpdir2$ + "data.o")

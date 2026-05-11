@@ -38,10 +38,18 @@ OUT_SETTINGS="$TMPDIR/settings.txt"
 OUT_ZMODE="$TMPDIR/zmode.txt"
 OUT_XMODE="$TMPDIR/xmode.txt"
 OUT_EXTERNAL="$TMPDIR/external_cwd.txt"
+OUT_CACHE_A="$TMPDIR/cache_a.txt"
+OUT_CACHE_B="$TMPDIR/cache_b.txt"
+OUT_CACHE_A_STRINGS="$TMPDIR/cache_a_strings.txt"
+OUT_CACHE_B_STRINGS="$TMPDIR/cache_b_strings.txt"
 BIN_EXTERNAL="$TMPDIR/external_cwd_output"
 EXTERNAL_CWD="$TMPDIR/external-workdir"
 SRC_OK_FROM_EXTERNAL="../../../$SRC_OK_REL"
 BIN_EXTERNAL_FROM_EXTERNAL="../external_cwd_output"
+SRC_CACHE_A="$TMPDIR/cache_a.bas"
+SRC_CACHE_B="$TMPDIR/cache_b.bas"
+BIN_CACHE_A="$TMPDIR/cache_a_output"
+BIN_CACHE_B="$TMPDIR/cache_b_output"
 
 rm -f "$BIN_XMODE" "$BIN_ZMODE"
 mkdir -p "$EXTERNAL_CWD"
@@ -72,6 +80,21 @@ rm -f "$BIN_EXTERNAL"
   "$QB" "$SRC_OK_FROM_EXTERNAL" -o "$BIN_EXTERNAL_FROM_EXTERNAL"
 ) >"$OUT_EXTERNAL" 2>&1
 EC_EXTERNAL=$?
+
+printf '%s\n' 'PRINT "CACHE_A_UNIQUE"' >"$SRC_CACHE_A"
+printf '%s\n' 'PRINT "CACHE_B_UNIQUE"' >"$SRC_CACHE_B"
+"$QB" "$SRC_CACHE_A" -q -o "$BIN_CACHE_A" >"$OUT_CACHE_A" 2>&1
+EC_CACHE_A=$?
+"$QB" "$SRC_CACHE_B" -q -o "$BIN_CACHE_B" >"$OUT_CACHE_B" 2>&1
+EC_CACHE_B=$?
+
+if command -v strings >/dev/null 2>&1; then
+  [ -f "$BIN_CACHE_A" ] && strings "$BIN_CACHE_A" >"$OUT_CACHE_A_STRINGS" 2>&1
+  [ -f "$BIN_CACHE_B" ] && strings "$BIN_CACHE_B" >"$OUT_CACHE_B_STRINGS" 2>&1
+else
+  : >"$OUT_CACHE_A_STRINGS"
+  : >"$OUT_CACHE_B_STRINGS"
+fi
 set -e
 
 FAIL=0
@@ -181,6 +204,44 @@ if [ ! -f "$BIN_EXTERNAL" ]; then
   FAIL=1
 fi
 
+if ! command -v strings >/dev/null 2>&1; then
+  echo "[FAIL] strings command is required for cache regression coverage."
+  FAIL=1
+fi
+
+if [ "$EC_CACHE_A" -ne 0 ]; then
+  echo "[FAIL] Cache regression compile A should exit successfully."
+  FAIL=1
+fi
+if [ "$EC_CACHE_B" -ne 0 ]; then
+  echo "[FAIL] Cache regression compile B should exit successfully."
+  FAIL=1
+fi
+if [ ! -f "$BIN_CACHE_A" ]; then
+  echo "[FAIL] Cache regression compile A should emit an executable."
+  FAIL=1
+fi
+if [ ! -f "$BIN_CACHE_B" ]; then
+  echo "[FAIL] Cache regression compile B should emit an executable."
+  FAIL=1
+fi
+grep -F "CACHE_A_UNIQUE" "$OUT_CACHE_A_STRINGS" >/dev/null 2>&1 || {
+  echo "[FAIL] Cache regression binary A is missing its unique string."
+  FAIL=1
+}
+if grep -F "CACHE_B_UNIQUE" "$OUT_CACHE_A_STRINGS" >/dev/null 2>&1; then
+  echo "[FAIL] Cache regression binary A contains binary B's string."
+  FAIL=1
+fi
+grep -F "CACHE_B_UNIQUE" "$OUT_CACHE_B_STRINGS" >/dev/null 2>&1 || {
+  echo "[FAIL] Cache regression binary B is missing its unique string."
+  FAIL=1
+}
+if grep -F "CACHE_A_UNIQUE" "$OUT_CACHE_B_STRINGS" >/dev/null 2>&1; then
+  echo "[FAIL] Cache regression binary B contains binary A's string."
+  FAIL=1
+fi
+
 if [ "$FAIL" -eq 0 ]; then
   echo "CLI_SMOKE_OK"
   rm -f "$BIN_XMODE" "$BIN_ZMODE"
@@ -199,4 +260,6 @@ echo "  Settings: \"$OUT_SETTINGS\""
 echo "  Z mode: \"$OUT_ZMODE\""
 echo "  X mode: \"$OUT_XMODE\""
 echo "  External cwd: \"$OUT_EXTERNAL\""
+echo "  Cache A: \"$OUT_CACHE_A\""
+echo "  Cache B: \"$OUT_CACHE_B\""
 exit 1

@@ -28,6 +28,117 @@ FUNCTION RequiresGuiCore% (symbolName AS STRING)
     END IF
 END FUNCTION
 
+FUNCTION DependencyFileFingerprint$ (filePath AS STRING)
+    DIM fh AS LONG
+    DIM fileLength AS _INTEGER64
+    DIM remaining AS _INTEGER64
+    DIM chunkSize AS LONG
+    DIM chunkData AS STRING
+    DIM h1 AS _UNSIGNED LONG
+    DIM h2 AS _UNSIGNED LONG
+
+    IF _FILEEXISTS(filePath) = 0 THEN EXIT FUNCTION
+
+    h1 = &H811C9DC5
+    h2 = &H9E3779B9
+
+    fh = FREEFILE
+    OPEN filePath FOR BINARY AS #fh
+    fileLength = LOF(fh)
+    remaining = fileLength
+
+    DO WHILE remaining > 0
+        chunkSize = 4096
+        IF remaining < chunkSize THEN chunkSize = remaining
+        chunkData = SPACE$(chunkSize)
+        GET #fh, , chunkData
+        FOR i = 1 TO chunkSize
+            b = ASC(chunkData, i)
+            h1 = (h1 XOR b) * &H1000193
+            h2 = ((h2 XOR b) + &H9E3779B9) * 33
+        NEXT
+        remaining = remaining - chunkSize
+    LOOP
+
+    CLOSE #fh
+    DependencyFileFingerprint$ = HEX$(h1) + "_" + HEX$(h2) + "_" + str2$(fileLength)
+END FUNCTION
+
+FUNCTION LibqbBuildSignature$ (depstr AS STRING, defines AS STRING, sourcePath AS STRING, headerPath AS STRING, commonPath AS STRING)
+    DIM signature AS STRING
+
+    signature = "libqb-cache-v2|" + depstr + "|" + defines
+    signature = signature + "|" + DependencyFileFingerprint$(sourcePath)
+    signature = signature + "|" + DependencyFileFingerprint$("internal\c\libqb.mm")
+    signature = signature + "|" + DependencyFileFingerprint$(headerPath)
+    signature = signature + "|" + DependencyFileFingerprint$(commonPath)
+
+    LibqbBuildSignature$ = signature
+END FUNCTION
+
+FUNCTION ReadWholeTextFile$ (filePath AS STRING)
+    DIM fh AS LONG
+    DIM textValue AS STRING
+
+    IF _FILEEXISTS(filePath) = 0 THEN EXIT FUNCTION
+
+    fh = FREEFILE
+    OPEN filePath FOR BINARY AS #fh
+    textValue = SPACE$(LOF(fh))
+    IF LEN(textValue) THEN GET #fh, , textValue
+    CLOSE #fh
+
+    ReadWholeTextFile$ = textValue
+END FUNCTION
+
+FUNCTION StripTrailingLineBreaks$ (textValue AS STRING)
+    DO WHILE LEN(textValue) > 0
+        IF RIGHT$(textValue, 1) <> CHR$(10) AND RIGHT$(textValue, 1) <> CHR$(13) THEN EXIT DO
+        textValue = LEFT$(textValue, LEN(textValue) - 1)
+    LOOP
+
+    StripTrailingLineBreaks$ = textValue
+END FUNCTION
+
+FUNCTION LibqbObjectDefinesProgramEntry% (objectPath AS STRING)
+    DIM nmOutputPath AS STRING
+    DIM nmCommand AS STRING
+    DIM fh AS LONG
+    DIM symbolLine AS STRING
+
+    IF _FILEEXISTS(objectPath) = 0 THEN EXIT FUNCTION
+
+    nmOutputPath = tmpdir$ + "libqb_symbols.txt"
+    IF os$ = "WIN" THEN
+        nmCommand = "cmd.exe /c internal\c\c_compiler\bin\nm.exe " + QuotedFilename$(objectPath) + " >" + QuotedFilename$(nmOutputPath)
+    ELSE
+        nmCommand = "nm " + QuotedFilename$(objectPath) + " >" + QuotedFilename$(nmOutputPath) + " 2>" + QuotedFilename$(tmpdir$ + "libqb_symbols_error.txt")
+    END IF
+    SHELL _HIDE nmCommand
+
+    IF _FILEEXISTS(nmOutputPath) = 0 THEN EXIT FUNCTION
+
+    fh = FREEFILE
+    OPEN nmOutputPath FOR INPUT AS #fh
+    DO UNTIL EOF(fh)
+        LINE INPUT #fh, symbolLine
+        IF INSTR(symbolLine, " T _Z6QBMAIN") OR INSTR(symbolLine, " T QBMAIN") OR INSTR(symbolLine, " T _QBMAIN") THEN
+            LibqbObjectDefinesProgramEntry% = -1
+            EXIT DO
+        END IF
+    LOOP
+    CLOSE #fh
+END FUNCTION
+
+SUB WriteLibqbBuildSignature (signaturePath AS STRING, signature AS STRING)
+    DIM fh AS LONG
+
+    fh = FREEFILE
+    OPEN signaturePath FOR OUTPUT AS #fh
+    PRINT #fh, signature
+    CLOSE #fh
+END SUB
+
 SUB EnsureWindowsCommonPCH (depstr$, defines$, pchOptions$)
     DIM pchRoot$
     DIM pchPlatformRoot$
@@ -82,6 +193,9 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     DIM libqbSourcePath AS STRING
     DIM libqbHeaderPath AS STRING
     DIM commonHeaderPath AS STRING
+    DIM libqbSignaturePath AS STRING
+    DIM libqbSignature AS STRING
+    DIM storedLibqbSignature AS STRING
     DIM rebuildLibqb AS _BYTE
 
     o$ = LCASE$(os$)
@@ -222,13 +336,26 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     libqbSourcePath = "internal\c\libqb.cpp"
     libqbHeaderPath = "internal\c\libqb.h"
     commonHeaderPath = "internal\c\common.h"
+    libqbSignaturePath = libqbObjectPath + ".sig"
+    libqbSignature = LibqbBuildSignature$(depstr$, defines$, libqbSourcePath, libqbHeaderPath, commonHeaderPath)
 
     rebuildLibqb = 0
     IF _FILEEXISTS(libqbObjectPath) = 0 THEN
         rebuildLibqb = -1
+    ELSEIF _FILEEXISTS(libqbSignaturePath) = 0 THEN
+        rebuildLibqb = -1
+    ELSE
+        storedLibqbSignature = StripTrailingLineBreaks$(ReadWholeTextFile$(libqbSignaturePath))
+        IF storedLibqbSignature <> libqbSignature THEN
+            rebuildLibqb = -1
+        ELSEIF LibqbObjectDefinesProgramEntry%(libqbObjectPath) THEN
+            rebuildLibqb = -1
+        END IF
     END IF
 
     IF rebuildLibqb THEN
+        IF _FILEEXISTS(libqbObjectPath) THEN KILL libqbObjectPath
+        IF _FILEEXISTS(libqbSignaturePath) THEN KILL libqbSignaturePath
         CHDIR "internal\c"
         IF os$ = "WIN" THEN
             SHELL _HIDE GDB_Fix("cmd /c c_compiler\bin\g++ -c -s -w -Wall libqb.cpp -D FREEGLUT_STATIC " + defines$ + " -o libqb\os\" + o$ + "\libqb_" + depstr$ + ".o") + " 2>> ..\..\" + compilelog$
@@ -240,6 +367,11 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
             END IF
         END IF
         CHDIR "..\.."
+        IF _FILEEXISTS(libqbObjectPath) THEN
+            IF LibqbObjectDefinesProgramEntry%(libqbObjectPath) = 0 THEN
+                WriteLibqbBuildSignature libqbSignaturePath, libqbSignature
+            END IF
+        END IF
     END IF
 
     IF DEPENDENCY(DEPENDENCY_AUDIO_OUT) THEN

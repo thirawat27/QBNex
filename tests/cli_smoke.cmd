@@ -8,6 +8,7 @@ set "SRC_OK=%ROOT%fixtures\label_recompile_success.bas"
 set "SRC_CONSOLE=%ROOT%fixtures\cli_console_output.bas"
 set "BIN_XMODE=%REPO_ROOT%\cli_console_output.exe"
 set "BIN_ZMODE=%REPO_ROOT%\label_recompile_success.exe"
+set "STRINGS=%REPO_ROOT%\internal\c\c_compiler\bin\strings.exe"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -41,7 +42,15 @@ set "OUT_SETTINGS=%TMPDIR%\settings.txt"
 set "OUT_ZMODE=%TMPDIR%\zmode.txt"
 set "OUT_XMODE=%TMPDIR%\xmode.txt"
 set "OUT_EXTERNAL=%TMPDIR%\external_cwd.txt"
+set "OUT_CACHE_A=%TMPDIR%\cache_a.txt"
+set "OUT_CACHE_B=%TMPDIR%\cache_b.txt"
+set "OUT_CACHE_A_STRINGS=%TMPDIR%\cache_a_strings.txt"
+set "OUT_CACHE_B_STRINGS=%TMPDIR%\cache_b_strings.txt"
 set "BIN_EXTERNAL=%TMPDIR%\external_cwd.exe"
+set "SRC_CACHE_A=%TMPDIR%\cache_a.bas"
+set "SRC_CACHE_B=%TMPDIR%\cache_b.bas"
+set "BIN_CACHE_A=%TMPDIR%\cache_a.exe"
+set "BIN_CACHE_B=%TMPDIR%\cache_b.exe"
 
 if exist "%BIN_XMODE%" del /f /q "%BIN_XMODE%" >nul 2>&1
 if exist "%BIN_ZMODE%" del /f /q "%BIN_ZMODE%" >nul 2>&1
@@ -74,6 +83,20 @@ pushd "%TMPDIR%" >nul
 "%QB%" "%SRC_OK%" -o "%BIN_EXTERNAL%" > "%OUT_EXTERNAL%" 2>&1
 set "EC_EXTERNAL=%ERRORLEVEL%"
 popd >nul
+
+> "%SRC_CACHE_A%" echo PRINT "CACHE_A_UNIQUE"
+> "%SRC_CACHE_B%" echo PRINT "CACHE_B_UNIQUE"
+
+"%QB%" "%SRC_CACHE_A%" -q -o "%BIN_CACHE_A%" > "%OUT_CACHE_A%" 2>&1
+set "EC_CACHE_A=%ERRORLEVEL%"
+
+"%QB%" "%SRC_CACHE_B%" -q -o "%BIN_CACHE_B%" > "%OUT_CACHE_B%" 2>&1
+set "EC_CACHE_B=%ERRORLEVEL%"
+
+if exist "%STRINGS%" (
+    if exist "%BIN_CACHE_A%" "%STRINGS%" "%BIN_CACHE_A%" > "%OUT_CACHE_A_STRINGS%" 2>&1
+    if exist "%BIN_CACHE_B%" "%STRINGS%" "%BIN_CACHE_B%" > "%OUT_CACHE_B_STRINGS%" 2>&1
+)
 
 set "FAIL=0"
 
@@ -182,6 +205,48 @@ if not exist "%BIN_EXTERNAL%" (
     set "FAIL=1"
 )
 
+if not exist "%STRINGS%" (
+    echo [FAIL] strings.exe not found at "%STRINGS%".
+    set "FAIL=1"
+)
+
+if not "%EC_CACHE_A%"=="0" (
+    echo [FAIL] Cache regression compile A should exit successfully.
+    set "FAIL=1"
+)
+if not "%EC_CACHE_B%"=="0" (
+    echo [FAIL] Cache regression compile B should exit successfully.
+    set "FAIL=1"
+)
+if not exist "%BIN_CACHE_A%" (
+    echo [FAIL] Cache regression compile A should emit an executable.
+    set "FAIL=1"
+)
+if not exist "%BIN_CACHE_B%" (
+    echo [FAIL] Cache regression compile B should emit an executable.
+    set "FAIL=1"
+)
+if exist "%OUT_CACHE_A_STRINGS%" (
+    findstr /L /C:"CACHE_A_UNIQUE" "%OUT_CACHE_A_STRINGS%" >nul || (
+        echo [FAIL] Cache regression binary A is missing its unique string.
+        set "FAIL=1"
+    )
+    findstr /L /C:"CACHE_B_UNIQUE" "%OUT_CACHE_A_STRINGS%" >nul && (
+        echo [FAIL] Cache regression binary A contains binary B's string.
+        set "FAIL=1"
+    )
+)
+if exist "%OUT_CACHE_B_STRINGS%" (
+    findstr /L /C:"CACHE_B_UNIQUE" "%OUT_CACHE_B_STRINGS%" >nul || (
+        echo [FAIL] Cache regression binary B is missing its unique string.
+        set "FAIL=1"
+    )
+    findstr /L /C:"CACHE_A_UNIQUE" "%OUT_CACHE_B_STRINGS%" >nul && (
+        echo [FAIL] Cache regression binary B contains binary A's string.
+        set "FAIL=1"
+    )
+)
+
 if "%FAIL%"=="0" (
     echo CLI_SMOKE_OK
     rmdir /s /q "%TMPDIR%" >nul 2>&1
@@ -200,6 +265,8 @@ echo   Settings: "%OUT_SETTINGS%"
 echo   Z mode: "%OUT_ZMODE%"
 echo   X mode: "%OUT_XMODE%"
 echo   External cwd: "%OUT_EXTERNAL%"
+echo   Cache A: "%OUT_CACHE_A%"
+echo   Cache B: "%OUT_CACHE_B%"
 set "RESULT=1"
 goto :cleanup
 
