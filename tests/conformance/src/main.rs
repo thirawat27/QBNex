@@ -110,6 +110,18 @@ fn parse_args() -> Result<Options, String> {
             other => return Err(format!("unknown argument `{other}`\n{}", usage())),
         }
     }
+    // A bare `--qb qb.exe` must mean the file in the current directory. Windows
+    // process creation does not search the current directory when
+    // NoDefaultCurrentDirectoryInExePath is set, so it would silently pick another
+    // qb.exe from PATH (e.g. an installed QBNex release).
+    if opts.qb.is_relative() {
+        if let Ok(cwd) = env::current_dir() {
+            opts.qb = cwd.join(&opts.qb);
+        }
+    }
+    if !opts.qb.exists() {
+        return Err(format!("qb compiler not found: {}", opts.qb.display()));
+    }
     Ok(opts)
 }
 
