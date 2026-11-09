@@ -15,7 +15,6 @@ extern void unlockvWatchHandle();
 extern int32 vWatchHandle();
 
 #ifdef DEPENDENCY_ZLIB
-    #include <zlib.h>
     qbs *func__deflate(qbs *text);
     qbs *func__inflate(qbs *text, int64 originalsize, int32 passed);
 #endif

@@ -1670,6 +1670,7 @@ dependencies = [
  "softbuffer",
  "windows-sys 0.61.2",
  "winit",
+ "zlib-rs",
  "zune-jpeg",
 ]
 
