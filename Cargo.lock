@@ -1836,6 +1836,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-ir"
+version = "0.1.0"
+
+[[package]]
 name = "qb-jit"
 version = "0.1.0"
 dependencies = [
