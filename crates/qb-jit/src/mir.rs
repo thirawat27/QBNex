@@ -101,6 +101,9 @@ pub enum MathOp {
     Sqrt,
     /// F64 -> F64 rounded through f32 (store into SINGLE held as double).
     RoundF32,
+    /// I64 -> I64 wrapped to 16 / 32 bits and sign-extended back.
+    Wrap16,
+    Wrap32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -126,6 +129,10 @@ pub enum Arg {
 pub enum Inst {
     /// Statement start: records line/pc for errors and polls events.
     Line { line: u32, pc: u32 },
+    /// Records the pc reported by the next error (no event poll).
+    At { pc: u32 },
+    /// Reinterprets the bits of an I64 slot as F64 or back.
+    Bitcast { dst: Reg, src: Reg },
     Const { dst: Reg, imm: Imm },
     Mov { dst: Reg, src: Reg },
     /// Conversion between the slot types of `src` and `dst`.
@@ -184,6 +191,8 @@ pub enum Term {
     Return { pc: u32 },
     /// END / SYSTEM.
     End,
+    /// Leave native code: the VM continues at `pc` (status DEOPT).
+    Exit { pc: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -255,7 +264,13 @@ impl Module {
             for (bi, b) in f.blocks.iter().enumerate() {
                 for i in &b.insts {
                     match i {
-                        Inst::Line { .. } => {}
+                        Inst::Line { .. } | Inst::At { .. } => {}
+                        Inst::Bitcast { dst, src } => {
+                            let ok = matches!((ty(*dst)?, ty(*src)?), (Ty::I64, Ty::F64) | (Ty::F64, Ty::I64));
+                            if !ok {
+                                return Err(e("Bitcast is I64 <-> F64".into()));
+                            }
+                        }
                         Inst::Const { dst, imm } => {
                             let t = ty(*dst)?;
                             if matches!(imm, Imm::F(_)) && !t.is_float() {
@@ -391,6 +406,7 @@ impl Module {
                                 MathOp::Sgn => d.is_int() && d != Ty::Ptr && s != Ty::Ptr,
                                 MathOp::Floor | MathOp::Fix | MathOp::Sqrt => d == s && d.is_float(),
                                 MathOp::RoundF32 => d == Ty::F64 && s == Ty::F64,
+                                MathOp::Wrap16 | MathOp::Wrap32 => d == Ty::I64 && s == Ty::I64,
                             };
                             if !ok {
                                 return Err(e(format!("block {bi}: Math {op:?} types")));
@@ -425,7 +441,7 @@ impl Module {
                         chk(*target)?;
                         chk(*ret)?;
                     }
-                    Term::Ret | Term::Return { .. } | Term::End => {}
+                    Term::Ret | Term::Return { .. } | Term::End | Term::Exit { .. } => {}
                 }
             }
         }

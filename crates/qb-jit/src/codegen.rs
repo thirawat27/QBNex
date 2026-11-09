@@ -270,6 +270,14 @@ impl<'a> Gen<'a> {
         self.b.ins().load(t, MemFlags::trusted(), c, off)
     }
 
+    /// `*ctx.ev_ptr & ctx.ev_mask` (non-zero = event pending).
+    fn event_word(&mut self) -> Value {
+        let p = self.ctx_load(types::I64, OFF_EV_PTR);
+        let w = self.b.ins().load(types::I32, MemFlags::trusted(), p, 0);
+        let m = self.ctx_load(types::I32, OFF_EV_MASK);
+        self.b.ins().band(w, m)
+    }
+
     fn ctx_store(&mut self, v: Value, off: i32) {
         let c = self.ctx;
         self.b.ins().store(MemFlags::trusted(), v, c, off);
@@ -396,7 +404,7 @@ impl<'a> Gen<'a> {
     fn emit_exits(&mut self) {
         for (poll, pc, target) in std::mem::take(&mut self.polls) {
             self.b.switch_to_block(poll);
-            let ev = self.ctx_load(types::I32, OFF_EVENT);
+            let ev = self.event_word();
             let pcv = self.b.ins().iconst(types::I32, i64::from(pc));
             self.b.ins().brif(ev, self.event_blk, &[pcv], target, &[]);
         }
@@ -464,6 +472,10 @@ impl<'a> Gen<'a> {
                 }
                 let st = self.b.ins().iconst(types::I32, i64::from(status::OK));
                 self.b.ins().return_(&[st]);
+            }
+            Term::Exit { pc } => {
+                let pcv = self.b.ins().iconst(types::I32, i64::from(*pc));
+                self.b.ins().jump(self.deopt_blk, &[pcv]);
             }
             Term::End => {
                 let z = self.b.ins().iconst(types::I32, 0);
@@ -537,7 +549,7 @@ impl<'a> Gen<'a> {
                 self.b.def_var(self.v_line, l);
                 let p = self.b.ins().iconst(types::I32, i64::from(*pc));
                 self.b.def_var(self.v_pc, p);
-                let ev = self.ctx_load(types::I32, OFF_EVENT);
+                let ev = self.event_word();
                 let cont = self.b.create_block();
                 self.b.ins().brif(ev, self.event_blk, &[p], cont, &[]);
                 self.b.switch_to_block(cont);
@@ -681,6 +693,16 @@ impl<'a> Gen<'a> {
                     self.b.switch_to_block(cont);
                 }
             }
+            Inst::At { pc } => {
+                let p = self.b.ins().iconst(types::I32, i64::from(*pc));
+                self.b.def_var(self.v_pc, p);
+            }
+            Inst::Bitcast { dst, src } => {
+                let v = self.get(*src);
+                let to = if self.ty(*dst) == Ty::F64 { types::F64 } else { types::I64 };
+                let r = self.b.ins().bitcast(to, MemFlags::new(), v);
+                self.set(*dst, r);
+            }
             Inst::ConvWrap { dst, src } => {
                 let (from, to) = (self.ty(*src), self.ty(*dst));
                 let v = self.get(*src);
@@ -740,6 +762,14 @@ impl<'a> Gen<'a> {
                     MathOp::RoundF32 => {
                         let f = self.b.ins().fdemote(types::F32, v);
                         self.b.ins().fpromote(types::F64, f)
+                    }
+                    MathOp::Wrap16 => {
+                        let n = self.b.ins().ireduce(types::I16, v);
+                        self.b.ins().sextend(types::I64, n)
+                    }
+                    MathOp::Wrap32 => {
+                        let n = self.b.ins().ireduce(types::I32, v);
+                        self.b.ins().sextend(types::I64, n)
                     }
                 };
                 self.set(*dst, r);
@@ -1059,7 +1089,8 @@ fn inst_def(i: &Inst) -> Option<Reg> {
         | Inst::ALoad { dst, .. }
         | Inst::ConvWrap { dst, .. }
         | Inst::Trunc { dst, .. }
-        | Inst::Math { dst, .. } => Some(*dst),
+        | Inst::Math { dst, .. }
+        | Inst::Bitcast { dst, .. } => Some(*dst),
         Inst::Call { dst, .. } | Inst::Host { dst, .. } => *dst,
         _ => None,
     }

@@ -8,7 +8,7 @@
 use crate::ctx::{qberr, status, ArrDesc, ChainRec, Ctx, NO_DST};
 use crate::mir::*;
 use crate::thunk::Thunks;
-use core::sync::atomic::Ordering;
+
 
 /// VM callback executing one VM instruction on a frame.
 pub type VmOpFn = unsafe extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
@@ -163,6 +163,8 @@ fn math(op: MathOp, t: Ty, v: V) -> Result<V, i32> {
             }
         }
         (MathOp::RoundF32, V::F64(x)) => V::F64(f64::from(x as f32)),
+        (MathOp::Wrap16, V::I(x)) => V::I(i64::from(x as i16)),
+        (MathOp::Wrap32, V::I(x)) => V::I(i64::from(x as i32)),
         _ => unreachable!("validated"),
     })
 }
@@ -299,7 +301,7 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 Inst::Line { line: l, pc: p } => {
                     line = *l;
                     pc = *p;
-                    if ctx.event.load(Ordering::Relaxed) != 0 {
+                    if ctx.event_pending() {
                         ctx.exit_pc = pc;
                         return status::EVENT;
                     }
@@ -415,6 +417,15 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 }
                 Inst::Raise { code } => fail!(get(*code).i() as i32),
                 Inst::ConvWrap { dst, src } => set(*dst, conv_wrap(ty(*src), ty(*dst), get(*src))),
+                Inst::At { pc: p } => pc = *p,
+                Inst::Bitcast { dst, src } => set(
+                    *dst,
+                    match get(*src) {
+                        V::I(x) => V::F64(f64::from_bits(x as u64)),
+                        V::F64(x) => V::I(x.to_bits() as i64),
+                        _ => unreachable!("validated"),
+                    },
+                ),
                 Inst::Trunc { dst, src } => set(*dst, trunc(ty(*dst), get(*src))),
                 Inst::Math { op, dst, src } => {
                     let v = tryq!(math(*op, ty(*dst), get(*src)));
@@ -433,7 +444,7 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
         let poll = |ctx: &Ctx, t: BlockId| -> Option<u32> {
             let tb = &f.blocks[t as usize];
             match tb.pc {
-                Some(p) if (t as usize) <= bi && ctx.event.load(Ordering::Relaxed) != 0 => Some(p),
+                Some(p) if (t as usize) <= bi && ctx.event_pending() => Some(p),
                 _ => None,
             }
         };
@@ -447,6 +458,10 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 }
             }
             Term::Ret => return status::OK,
+            Term::Exit { pc: p } => {
+                ctx.exit_pc = *p;
+                return status::DEOPT;
+            }
             Term::End => {
                 ctx.exit_pc = 0;
                 return status::END;

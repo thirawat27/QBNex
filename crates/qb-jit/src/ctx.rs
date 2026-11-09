@@ -142,13 +142,19 @@ pub struct Ctx {
     pub arena_cap: u64,
     /// Host state (VM, runtime).
     pub user: *mut c_void,
+    /// Event word polled by native code: pending = `*ev_ptr & ev_mask != 0`.
+    /// Defaults to `&event` / all bits; a VM points it at its own pending word.
+    pub ev_ptr: *const AtomicU32,
+    pub ev_mask: u32,
+    pub _pad2: u32,
     // ---- not accessed by native code ----
     pub chain: Vec<ChainRec>,
     gosub_buf: Vec<u32>,
     arena_buf: Vec<u64>,
 }
 
-pub(crate) const OFF_EVENT: i32 = offset_of!(Ctx, event) as i32;
+pub(crate) const OFF_EV_PTR: i32 = offset_of!(Ctx, ev_ptr) as i32;
+pub(crate) const OFF_EV_MASK: i32 = offset_of!(Ctx, ev_mask) as i32;
 pub(crate) const OFF_ERR: i32 = offset_of!(Ctx, err) as i32;
 pub(crate) const OFF_ERR_LINE: i32 = offset_of!(Ctx, err_line) as i32;
 pub(crate) const OFF_EXIT_PC: i32 = offset_of!(Ctx, exit_pc) as i32;
@@ -178,7 +184,7 @@ impl Ctx {
     pub fn with_capacity(globals: *mut u64, gosub_cap: usize, arena_slots: usize) -> Box<Ctx> {
         let mut gosub_buf = vec![0u32; gosub_cap];
         let mut arena_buf = vec![0u64; arena_slots];
-        Box::new(Ctx {
+        let mut c = Box::new(Ctx {
             event: AtomicU32::new(0),
             err: 0,
             err_line: 0,
@@ -193,10 +199,21 @@ impl Ctx {
             arena_top: 0,
             arena_cap: arena_slots as u64,
             user: core::ptr::null_mut(),
+            ev_ptr: core::ptr::null(),
+            ev_mask: u32::MAX,
+            _pad2: 0,
             chain: Vec::new(),
             gosub_buf,
             arena_buf,
-        })
+        });
+        c.ev_ptr = &c.event;
+        c
+    }
+
+    /// Is an event pending (what native code checks)?
+    pub fn event_pending(&self) -> bool {
+        // SAFETY: `ev_ptr` points at `self.event` or at a word the embedder keeps alive.
+        unsafe { (*self.ev_ptr).load(core::sync::atomic::Ordering::Relaxed) & self.ev_mask != 0 }
     }
 
     /// Current GOSUB stack (VM pcs), bottom first.
