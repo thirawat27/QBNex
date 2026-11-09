@@ -144,6 +144,7 @@ FUNCTION NormalizeCommandToken$ (token$)
     IF normalized = "--verbose-errors" OR normalized = "--detailed-errors" THEN normalized = "-d"
     IF normalized = "--compact-errors" OR normalized = "--compact-diagnostics" THEN normalized = "-k"
     IF normalized = "-werror" OR normalized = "--warnings-as-errors" THEN normalized = "-r"
+    IF normalized = "--ir" OR normalized = "--emit-ir" THEN normalized = "-ir" 'R11 spike
 
     NormalizeCommandToken$ = normalized
 END FUNCTION
@@ -167,8 +168,13 @@ FUNCTION ParseCMDLineArgs$ ()
             PRINT "QBNex Compiler " + Version$
             SYSTEM
         CASE "-i"
-            ShowProjectInfo
-            SYSTEM
+            IF LCASE$(token$) = "-ir" THEN
+                IrEmitMode = -1 'R11 spike: emit QIR for the Rust runner instead of C++
+                cmdlineswitch = -1
+            ELSE
+                ShowProjectInfo
+                SYSTEM
+            END IF
         CASE "-g"
             ShowCommandExamples
             SYSTEM

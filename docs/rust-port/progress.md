@@ -12,6 +12,7 @@
 | R1 `qbrt` foundation + MBF slice | **done (Windows), Linux/macOS unverified** | `internal/c/qbrt`; `libqb.cpp` includes `qbrt.h` instead of `msbin.cpp`; exhaustive differential test 0 mismatches |
 | R2 Leaf numeric code | **done (Windows)** | TDD + differential + legacy deleted for rounding (`qbr*`, `fpu_reinit`), RND/RANDOMIZE, VAL, STR$ number formatting (all `qbs_str` overloads), TIMER arithmetic. `libqb.cpp` is ~600 lines shorter |
 | R3–R10 | pending | — |
+| R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `internal/c/qbrun`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
@@ -46,7 +47,15 @@ Where the legacy behaviour is a clear defect against QBasic, the Rust code fixes
 
 ### What "remove all C/C++" can reach under D10
 
-With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`, the generated fragments and a C++ compiler at user compile time remain. Everything else can go: `libqb.cpp` shrinks to shims and then disappears, and every library under `internal/c/parts` is replaced by Rust crates. Removing the last C++ needs a separate phase (proposed **R11**): change the BASIC compiler's emitter to generate Rust (or an IR the Rust runtime executes) instead of C++. That keeps D10 (compiler stays BASIC) but needs `rustc` instead of `g++` on the user's machine. Not started; needs approval.
+With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`, the generated fragments and a C++ compiler at user compile time remain. Everything else can go: `libqb.cpp` shrinks to shims and then disappears, and every library under `internal/c/parts` is replaced by Rust crates. Removing the last C++ is phase **R11** (approved). Recommendation after the spike: the BASIC compiler emits **QIR**, a text IR that the prebuilt Rust runner `qbrun` (linked with `qbrt`) executes; the executable is the runner with the IR appended, so users need **no** compiler toolchain. A Cranelift JIT tier on the same IR is the later performance step. See [`r11-emitter-design.md`](r11-emitter-design.md).
+
+### R11 spike status (2026-11-09)
+
+- `qb.exe prog.bas --ir -o prog.exe` (also `-ir`, `--emit-ir`) uses a separate small emitter (`source/utilities/ir_emit.bas`); the default C++ path is unchanged.
+- `cargo test -p qbrun`: 18 interpreter unit tests + 3 end-to-end tests. `spike.bas` (PRINT, numeric types, IF, FOR, GOSUB/RETURN, SUB with BYREF + `DIM SHARED`, string functions) gives the same output through both backends; `onerror.bas` (`ON ERROR GOTO` + `RESUME NEXT` in the main module, legacy defect L-01 in the C++ path) runs under QIR.
+- Verified with MinGW removed: an IR executable compiles and runs; `qb.exe` and C++-backend executables do not start without the MinGW DLLs on PATH (`0xC0000135`).
+- Measured: hello world 0.14 s vs 1.11 s, executable 0.25 MB vs 2.6 MB, but a tight loop costs ~95 ns per iteration in the untyped spike VM (C++ loop below noise). Typed VM + JIT are required before QIR can be the default or run the compiler itself.
+- Not done: language coverage beyond the subset, emitter inside the real compiler pipeline, runner in CMake/release bundle, Linux/macOS runs.
 
 ## How the pieces fit
 

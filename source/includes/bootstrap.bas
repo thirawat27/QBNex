@@ -6,5 +6,6 @@
 '$INCLUDE:'..\global\constants.bas'
 '$INCLUDE:'..\utilities\error_handler_defs.bas'
 '$INCLUDE:'..\utilities\state.bas'
+'$INCLUDE:'..\utilities\ir_state.bas'
 '$INCLUDE:'..\subs_functions\extensions\opengl\opengl_global.bas'
 '$INCLUDE:'..\utilities\ini-manager\ini.bi'

@@ -9,3 +9,10 @@ version = "0.1.0"
 [[package]]
 name = "qbrt"
 version = "0.1.0"
+
+[[package]]
+name = "qbrun"
+version = "0.1.0"
+dependencies = [
+ "qbrt",
+]
