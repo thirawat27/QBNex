@@ -24,7 +24,13 @@ copy_if_exists() {
 
 copy_if_exists "${repo_root}/${binary_path}" "${output_dir}/$(basename "${binary_path}")"
 copy_if_exists "${repo_root}/qb.cmd" "${output_dir}/qb.cmd"
+# Product-name alias created by scripts/setup_*.: ./qbnex (symlink or copy of ./qb).
+copy_if_exists "${repo_root}/qbnex" "${output_dir}/qbnex"
+copy_if_exists "${repo_root}/qbnex.cmd" "${output_dir}/qbnex.cmd"
 copy_if_exists "${repo_root}/internal" "${output_dir}/internal"
+# Prebuilt Rust runtime (libqb_runtime.a, linked into every program) and QIR runner.
+copy_if_exists "${repo_root}/crates/qb-runtime/os" "${output_dir}/crates/qb-runtime/os"
+copy_if_exists "${repo_root}/crates/qb-exec/bin" "${output_dir}/crates/qb-exec/bin"
 copy_if_exists "${repo_root}/licenses" "${output_dir}/licenses"
 copy_if_exists "${repo_root}/README.md" "${output_dir}/README.md"
 copy_if_exists "${repo_root}/CHANGELOG.md" "${output_dir}/CHANGELOG.md"

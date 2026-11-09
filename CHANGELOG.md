@@ -5,6 +5,11 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Reorganized the repository: compiler sources moved from `source/` to `compiler/`; the native runtime is now a Cargo workspace in `crates/` (`qb-runtime`, `qb-audio`, `qb-exec`, C ABI symbols prefixed `qb_`, header `crates/qb-runtime/include/qb_runtime.h`); tests live under `tests/` (`smoke/`, `fixtures/`, `conformance/`, `diff/`); setup scripts moved to `scripts/`, Docker files to `docker/`, the installer to `packaging/installer/`.
+
 ## [1.0.4] - 2026-05-05
 
 ### Added

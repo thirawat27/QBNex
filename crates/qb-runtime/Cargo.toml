@@ -1,0 +1,50 @@
+[package]
+name = "qb-runtime"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "QBNex runtime in Rust. Replaces libqb.cpp subsystems through a C ABI (strangler migration)."
+publish = false
+
+[lib]
+name = "qb_runtime"
+# staticlib: linked into qb-stage0, qb and every user program next to libqb_*.o
+# rlib: used by Rust unit tests and tools
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+# Audio runtime (R6). Its own crate so that its object file is only pulled into
+# programs whose libqb references the audio entry points (DEPENDENCY_AUDIO_OUT).
+qb-audio = { path = "../qb-audio" }
+ab_glyph_rasterizer = "0.1.10"
+png = "0.18"
+skrifa = "0.36.0"
+zune-jpeg = "0.5.15"
+# R8: window + input (replaces freeglut/GLEW/gui.cpp)
+winit = "0.30"
+softbuffer = "0.4"
+gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
+# Local time of day for TIMER's start-up reference (replaces localtime()).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[target.'cfg(windows)'.dependencies]
+# Clipboard (CF_TEXT/CF_BITMAP), _SCREENIMAGE/_SCREENCLICK/_SCREENPRINT and the
+# printer use Win32 directly, exactly like the legacy runtime. windows-sys links
+# through raw-dylib import stubs, so libqb_runtime.a needs no extra -l flags for them.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Printing",
+    "Win32_Storage_Xps",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Clipboard text and images on Linux (X11/Wayland) and macOS.
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }

@@ -7,7 +7,7 @@
 
 | # | Finding | Dimension | Evidence | Impact | Severity | Confidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| F0 | **ยืนยันแล้ว (2026-11-09):** compiler รุ่นที่ 2 (HEAD compile ตัวเอง) compile hello world ไม่ได้ — self-host ทำงานได้เพราะ snapshot เก่าเท่านั้น (L-00 ใน progress.md) | Flow conflict | `.oracle/qb.exe source/qbnex.bas -o qb-gen2.exe` แล้ว `qb-gen2.exe hello.bas` → `[E9999] Too many errors` | regenerate snapshot ไม่ได้; ถ้า snapshot หาย build ไม่ได้เลย | Critical | Direct |
+| F0 | **ยืนยันแล้ว (2026-11-09):** compiler รุ่นที่ 2 (HEAD compile ตัวเอง) compile hello world ไม่ได้ — self-host ทำงานได้เพราะ snapshot เก่าเท่านั้น (L-00 ใน progress.md) | Flow conflict | `.oracle/qb.exe compiler/qbnex.bas -o qb-gen2.exe` แล้ว `qb-gen2.exe hello.bas` → `[E9999] Too many errors` | regenerate snapshot ไม่ได้; ถ้า snapshot หาย build ไม่ได้เลย | Critical | Direct |
 | F1 | Bootstrap snapshot `internal/source` ล้าหลัง source และไม่มีกลไก refresh | Debt / Flow conflict | snapshot ไม่มี `TOPLEVELRUNTIME_INJECTMAINHOOK` (classes.bas:44 มี); `evnt()` อ้างแค่ 11 ไฟล์ include; ไม่มีสคริปต์/CI step แตะ `internal/source`; แก้ล่าสุด commit d811e1a | stage0 ≠ stage1 → ถ้า source ต้องการ feature ที่ stage0 ไม่มี self-host จะพัง; ใช้เป็น oracle ไม่ได้ | High | Direct (drift) / Inferred (ผลกระทบ) |
 | F2 | Extern ชนิดไม่ตรงข้าม translation unit | Framework drift (C++ ODR) | qbx.cpp:807 `extern ptrszint *qbs_tmp_list;` vs libqb.cpp:6839 `std::vector<ptrszint> qbs_tmp_list`; libqb.cpp:1384 `extern ontimer_struct *ontimer;` vs qbx.cpp:1821 `std::vector<ontimer_struct> ontimer` | UB; ทำงานได้เพราะ libstdc++ วาง begin-pointer เป็น field แรกและ Itanium ABI ไม่ mangle ชนิดของตัวแปร → พังทันทีถ้าเปลี่ยน STL/ABI/เปิด debug iterators | High | Direct |
 | F3 | Flag ข้าม thread ไม่ใช้ atomic/lock | Framework drift (C++ memory model) | `qbevent`, `new_error`, `display_frame[].state`, `keyhit[]`, mouse queue, audio handles อ่าน/เขียนจากหลาย thread (libqb.cpp:450-464, 794-796, 1574-1578; qbx.cpp:1925-1959); ไม่มี mutex ระหว่าง `_SND*` กับ `snd_mainloop` | data race (UB); พึ่ง memory ordering ของ x86 → เสี่ยงบน ARM (Apple Silicon/Linux ARM) | High | Inferred · Verify first: Yes |
@@ -21,15 +21,15 @@
 | F11 | Version drift: CHANGELOG 1.0.4 แต่ `Version$ = "1.0.3"`; installer 1.0.3; SECURITY.md รองรับแค่ 1.0.0 | Project drift | CHANGELOG.md:8; version.bas:5; qbnex_setup.iss:12; SECURITY.md:5-8 | binary รายงาน version ผิด | Low | Direct |
 | F12 | `.eniac-plan.md` อ้าง `runtime/` และ `docs/architecture-audit-2026-07-24.md` ที่ไม่มีอยู่ | Project drift | `.eniac-plan.md:11,32`; ไม่มี `runtime/`, ไม่มีใน git history | agent/คนในอนาคตเข้าใจผิด | Low | Direct |
 | F13 | TopLevelRuntime ย้ายโค้ดระดับบนไปเป็น SUB อย่างไม่มีเงื่อนไข | Flow conflict | classes.bas:1-124; prepass.bas:86-129; **ยืนยันแล้ว:** `ON ERROR GOTO` + handler ใน main module compile ไม่ผ่าน (L-01) | โปรแกรม QB ที่ใช้ error handler แบบคลาสสิก compile ไม่ได้ | High | Direct |
-| F16 | Runtime console: `PRINT` แบบ `,` วน space ไม่รู้จบเมื่อ stdout ถูก redirect (L-02); `RESTORE label` ค้าง (L-03); relational ใน PRINT ถูก reject (L-04) | Flow conflict | `conformance/cases/*/*.xfail` | โปรแกรมทั่วไปค้าง/compile ไม่ได้ | High | Direct |
+| F16 | Runtime console: `PRINT` แบบ `,` วน space ไม่รู้จบเมื่อ stdout ถูก redirect (L-02); `RESTORE label` ค้าง (L-03); relational ใน PRINT ถูก reject (L-04) | Flow conflict | `tests/conformance/cases/*/*.xfail` | โปรแกรมทั่วไปค้าง/compile ไม่ได้ | High | Direct |
 | F14 | vwatch debugger ฝังใน compiler แต่ไม่มีฝั่ง IDE | Debt | qbnex.bas:1444-1501; vwatch.bm:684-695 | โค้ดตายที่ต้องดูแล | Low | Inferred |
-| F15 | Docker runtime stage ไม่มี g++ | Flow conflict | Dockerfile:38-47 | `qb file.bas` ใน image อาจใช้ไม่ได้ | Low | Inferred · Verify first: Yes |
+| F15 | Docker runtime stage ไม่มี g++ | Flow conflict | docker/Dockerfile:38-47 | `qb file.bas` ใน image อาจใช้ไม่ได้ | Low | Inferred · Verify first: Yes |
 
 ### Proposed Corrections (ระบบเดิม — ทำได้ก่อน/ระหว่าง port)
 
 | # | Smallest safe correction | ป้องกันอะไรในอนาคต |
 | --- | --- | --- |
-| F1 | เพิ่ม `xtask`/สคริปต์ regenerate snapshot (`qb -z source/qbnex.bas` → copy `internal/temp` → `internal/source`) + CI job ที่ self-host 2 รอบแล้วเทียบ | stage drift |
+| F1 | เพิ่ม `xtask`/สคริปต์ regenerate snapshot (`qb -z compiler/qbnex.bas` → copy `internal/temp` → `internal/source`) + CI job ที่ self-host 2 รอบแล้วเทียบ | stage drift |
 | F2 | แก้ `extern` ให้ตรงชนิด (`extern std::vector<...>`) — 2 บรรทัด | UB เมื่อเปลี่ยน toolchain |
 | F6 | เพิ่ม job `tests/*.sh` ใน `pull_request.yml` | regression ระหว่าง port |
 | F11 | ตั้ง `Version$` จากแหล่งเดียว | version drift |

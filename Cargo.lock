@@ -1640,28 +1640,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
-name = "qbnex-conformance"
-version = "0.1.0"
-
-[[package]]
-name = "qbrt"
-version = "0.1.0"
-dependencies = [
- "ab_glyph_rasterizer",
- "arboard",
- "chrono",
- "gilrs",
- "png",
- "qbrt-audio",
- "skrifa",
- "softbuffer",
- "windows-sys 0.61.2",
- "winit",
- "zune-jpeg",
-]
-
-[[package]]
-name = "qbrt-audio"
+name = "qb-audio"
 version = "0.1.0"
 dependencies = [
  "cpal",
@@ -1671,11 +1650,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "qbrun"
+name = "qb-exec"
 version = "0.1.0"
 dependencies = [
- "qbrt",
+ "qb-runtime",
 ]
+
+[[package]]
+name = "qb-runtime"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph_rasterizer",
+ "arboard",
+ "chrono",
+ "gilrs",
+ "png",
+ "qb-audio",
+ "skrifa",
+ "softbuffer",
+ "windows-sys 0.61.2",
+ "winit",
+ "zune-jpeg",
+]
+
+[[package]]
+name = "qbnex-conformance"
+version = "0.1.0"
 
 [[package]]
 name = "quick-error"

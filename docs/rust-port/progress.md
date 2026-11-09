@@ -2,29 +2,29 @@
 
 > Project: `D:\QBNex-Rust` (git branch `rust-port`, cloned from `D:\QBNex` at `545b859`).
 > The original `D:\QBNex` is **not modified** by the port. Remote `legacy-local` points at it.
-> Strategy: Revision 2 in [`port-plan.md`](port-plan.md) — the BASIC compiler stays, the C++ runtime is replaced subsystem by subsystem with the Rust crate `qbrt`.
+> Strategy: Revision 2 in [`port-plan.md`](port-plan.md) — the BASIC compiler stays, the C++ runtime is replaced subsystem by subsystem with the Rust crate `qb-runtime`.
 
 ## Status (2026-11-09)
 
 | Phase | Status | Evidence |
 | --- | --- | --- |
-| R0 Oracle + CI | **done (local), CI unverified** | `conformance/` runner + 25 cases (19 golden, 6 xfail); smoke + conformance + unit + differential steps in `.github/workflows/{push,pull_request}.yml` |
-| R1 `qbrt` foundation + MBF slice | **done (Windows), Linux/macOS unverified** | `internal/c/qbrt`; `libqb.cpp` includes `qbrt.h` instead of `msbin.cpp`; exhaustive differential test 0 mismatches |
+| R0 Oracle + CI | **done (local), CI unverified** | `tests/conformance/` runner + 25 cases (19 golden, 6 xfail); smoke + conformance + unit + differential steps in `.github/workflows/{push,pull_request}.yml` |
+| R1 `qb-runtime` foundation + MBF slice | **done (Windows), Linux/macOS unverified** | `crates/qb-runtime`; `libqb.cpp` includes `qb_runtime.h` instead of `msbin.cpp`; exhaustive differential test 0 mismatches |
 | R2 Leaf numeric code | **done (Windows)** | TDD + differential + legacy deleted for rounding (`qbr*`, `fpu_reinit`), RND/RANDOMIZE, VAL, STR$ number formatting (all `qbs_str` overloads), TIMER arithmetic. `libqb.cpp` is ~600 lines shorter |
 | L-00 self-host fixpoint | **done (Windows)** | TopLevelRuntime lowering fixed (`classes.bas`); gen1 = gen2 = gen3 byte-identical C++; `internal/source` regenerated and reproducible; `tests/selfhost_fixpoint.{sh,cmd}` in CI |
-| R3 String engine (`qbs`) | **done (Windows)** | descriptor pool, tracking lists, `qbs_data` arena, DBLOCK (cmem) strings, `qbs_set`/`qbs_free`/`qbs_cleanup` and the string functions in `qbrt/src/qbs.rs`; legacy C++ deleted (`libqb.cpp` ~850 lines shorter); debt F2 fixed |
+| R3 String engine (`qbs`) | **done (Windows)** | descriptor pool, tracking lists, `qbs_data` arena, DBLOCK (cmem) strings, `qbs_set`/`qbs_free`/`qbs_cleanup` and the string functions in `crates/qb-runtime/src/qbs.rs`; legacy C++ deleted (`libqb.cpp` ~850 lines shorter); debt F2 fixed |
 | R4 Files, file system, ENVIRON, SHELL, `_MEM` | **done (Windows), Linux/macOS unverified** | see [R4 details](#r4-files-file-system-environ-shell-_mem). TDD + differential + legacy deleted; `libqb.cpp` is ~4,400 lines shorter |
-| R5 Software graphics | **done (Windows)** | `qbrt/src/gfx/*`: image registry + `img_struct`, palettes/fonts data, SCREEN mode decisions, COLOR/PALETTE, PSET/PRESET/POINT, LINE, CIRCLE, PAINT (color + tile), DRAW, VIEW/WINDOW/PMAP, GET/PUT, PCOPY, `_PUTIMAGE`, `_COPYIMAGE`/`_FREEIMAGE` storage, `_SETALPHA`, `_CLEARCOLOR`, `_RGB*`, `_PALETTECOLOR`, software `_MAPTRIANGLE`, built-in 8x8/8x14/8x16 text. Legacy C++ deleted, one-line shims left; `mtri*.cpp` moved to `tests/legacy` |
-| R6 Audio | **done (Windows), Linux/macOS unverified** | Crate `internal/c/qbrt/audio` (cpal, symphonia, xmrs) replaces `parts/audio` (audio.cpp, miniaudio, stb_vorbis, minimp3, libxmp-lite, tinysoundfont, RADv2: ~130k lines deleted). Synth bit-exact vs legacy over 204M frames. See [R6 audio](#r6-audio) |
-| R7 Fonts + image codecs | **done (Windows)** | FreeType 2.4.9 wrapper → `qbrt::font` (skrifa + ab_glyph_rasterizer); stb_image 2.27 + dr_pcx → `qbrt::image` (ports + png/zune-jpeg crates). FreeType, stb_image, dr_pcx deleted (~170k lines of C). See [R7](#r7-fonts-and-image-codecs) |
+| R5 Software graphics | **done (Windows)** | `crates/qb-runtime/src/gfx/*`: image registry + `img_struct`, palettes/fonts data, SCREEN mode decisions, COLOR/PALETTE, PSET/PRESET/POINT, LINE, CIRCLE, PAINT (color + tile), DRAW, VIEW/WINDOW/PMAP, GET/PUT, PCOPY, `_PUTIMAGE`, `_COPYIMAGE`/`_FREEIMAGE` storage, `_SETALPHA`, `_CLEARCOLOR`, `_RGB*`, `_PALETTECOLOR`, software `_MAPTRIANGLE`, built-in 8x8/8x14/8x16 text. Legacy C++ deleted, one-line shims left; `mtri*.cpp` moved to `tests/legacy` |
+| R6 Audio | **done (Windows), Linux/macOS unverified** | Crate `crates/qb-audio` (cpal, symphonia, xmrs) replaces `parts/audio` (audio.cpp, miniaudio, stb_vorbis, minimp3, libxmp-lite, tinysoundfont, RADv2: ~130k lines deleted). Synth bit-exact vs legacy over 204M frames. See [R6 audio](#r6-audio) |
+| R7 Fonts + image codecs | **done (Windows)** | FreeType 2.4.9 wrapper → `qb_runtime::font` (skrifa + ab_glyph_rasterizer); stb_image 2.27 + dr_pcx → `qb_runtime::image` (ports + png/zune-jpeg crates). FreeType, stb_image, dr_pcx deleted (~170k lines of C). See [R7](#r7-fonts-and-image-codecs) |
 | R8 Window / input / threads | **done (Windows), Linux/macOS unverified** | freeglut, GLEW, `libqb/gui.cpp` and `parts/input/game_controller` deleted; Rust `window.rs` (winit + softbuffer), `keymap.rs`, `keybuf.rs`, `raster.rs`, `script.rs`, `gamepad.rs` (gilrs); see "R8" below |
 | R9 Net, clipboard, screen, printer, clock | **done (Windows)**, Linux/macOS unverified | TCP (`std::net`), clipboard (Win32 `CF_TEXT`/`CF_BITMAP`, `arboard` elsewhere), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer page output, `GetTicks` + TIMER start-of-day. Deleted: socket layer, X11/Cocoa/Win32 clipboard, screen code, `libqb/printer.{cpp,h}`, `myip.cpp`, `time64.{c,cpp,h}`; `libqb.cpp` ~1,860 lines shorter. See [R9 notes](#r9-notes) |
 | R10 | pending | — |
-| R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `internal/c/qbrun`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
+| R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `crates/qb-exec`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
-- `cmake --build --preset windows-mingw-selfhost` builds `libqbrt.a`, `qb-stage0.exe` and `qb.exe` linked against Rust.
+- `cmake --build --preset windows-mingw-selfhost` builds `libqb_runtime.a`, `qb-stage0.exe` and `qb.exe` linked against Rust.
 - `cargo test --workspace`: 64/64 pass; `cargo clippy --workspace --all-targets`: 0 warnings.
 - `diff_msbin` (legacy `msbin.cpp` vs Rust, every 2³² single-precision bit pattern in both directions + 50M double samples + edge cases): **0 mismatches**.
 - `diff_round` (legacy x87 `fistp` asm vs Rust, 30M random 80-bit/double/float inputs + specials): **0 mismatches**; a mutation run reports 138k mismatches, so the harness can fail.
@@ -34,22 +34,22 @@
 - `diff_qbs` (verbatim legacy string engine vs Rust, 5.17M random BASIC-like statements: nested string expressions, comparisons, INSTR/_INSTRREV/ASC/LEN, MID$ statement, fixed-length and DBLOCK strings, FREE, scope cleanup, 300k live strings, 150k tmp strings in one scope, concatenation loops growing the arena; after each statement every tracking-list entry, descriptor-pool position (incl. free list), arena/DBLOCK offset, stack pointer, DBLOCK byte and variable is compared): **0 mismatches**; mutation runs: arena compaction threshold 175 mismatches, MID$ boundary 133k mismatches; a third mutant (tmp-source skip in `qbs_set`) survives because that legacy branch is unreachable (a tmp source in the same list is always acquired first).
 - `conformance`: 39 cases — 35 passed, 4 xfail (known legacy defects), 0 failed; golden output from the unmodified legacy build, plus hand-written `.deviation` cases. R3 added `strings/{concat_loop,mid_statement,fixed_length_ops,cmem_strings,case_trim_search}`.
 - Self-host fixpoint with the Rust string engine: gen2 = gen3 C++, both pass the corpus.
-- Benchmark (interleaved A/B, median of 5, legacy-engine `qb` vs Rust-engine `qb`, same machine and toolchain): tiny -9.0%, warning path -16.7%, medium -14.5%, large -11.5%, `qb source/qbnex.bas -z` (front end only) 19.0 s -> 10.0 s (-47.7%). The machine was shared with other builds, so treat single numbers as noisy; no case got slower.
+- Benchmark (interleaved A/B, median of 5, legacy-engine `qb` vs Rust-engine `qb`, same machine and toolchain): tiny -9.0%, warning path -16.7%, medium -14.5%, large -11.5%, `qb compiler/qbnex.bas -z` (front end only) 19.0 s -> 10.0 s (-47.7%). The machine was shared with other builds, so treat single numbers as noisy; no case got slower.
 - `tests/*_smoke.cmd` (cli, diagnostics, warnings, labels, encoding, stdlib, audio): 7/7 pass.
 - R5 `diff_gfx` (verbatim legacy graphics in `tests/legacy/gfx_*.inc` + `mtri*.cpp` vs Rust on twin images, 6000 rounds x 60 random ops over SCREEN 1/2/7-13, 256-color and 32-bit images, plus exhaustive SCREEN decisions, blend tables, built-in palettes/fonts, 4M x87 long-double loads for DRAW `VARPTR$`): **2,278,925 checks, 0 mismatches** (skipped by design: 1829 `_PUTIMAGE` D-06 cases, 3337 2-bit GET D-07 cases, 10830 SCREEN 0 D-08 layouts). The mutation run reports mismatches in every op.
-- R5 framebuffer conformance: `QBNEX_FB_CAPTURE=<file>` makes the runtime record each `_DISPLAY` frame and the final graphics screen (pixels + palette); the runner hashes them (FNV-1a 64) into `<case>.fb`. Eight cases in `conformance/cases/graphics` (SCREEN 7/9/12/13/32, image ops, pages + DRAW, GET/PUT, SCREEN mode switches) are pixel-exact against the legacy oracle, plus the hand-written `get_2bit_partial` deviation case. Conformance total: 43 cases, 36 passed, 7 xfail, 0 failed (a full run occasionally times out one case under load; it passes on rerun).
+- R5 framebuffer conformance: `QBNEX_FB_CAPTURE=<file>` makes the runtime record each `_DISPLAY` frame and the final graphics screen (pixels + palette); the runner hashes them (FNV-1a 64) into `<case>.fb`. Eight cases in `tests/conformance/cases/graphics` (SCREEN 7/9/12/13/32, image ops, pages + DRAW, GET/PUT, SCREEN mode switches) are pixel-exact against the legacy oracle, plus the hand-written `get_2bit_partial` deviation case. Conformance total: 43 cases, 36 passed, 7 xfail, 0 failed (a full run occasionally times out one case under load; it passes on rerun).
 - `cargo test --workspace`: 132/132 pass; `cargo clippy --workspace --all-targets`: 0 warnings.
 
 ### R9 notes
 
-Rust modules (`internal/c/qbrt/src`): `net.rs`, `clipboard.rs`, `screen.rs`, `printer.rs`, `systime.rs`, `pixels.rs` (buffers handed to C). `libqb.cpp` keeps thin shims with the old signatures plus the handle tables (`special_handles`, streams) that file I/O shares; LPRINT text layout and image scaling stay in the graphics engine (R5).
+Rust modules (`crates/qb-runtime/src`): `net.rs`, `clipboard.rs`, `screen.rs`, `printer.rs`, `systime.rs`, `pixels.rs` (buffers handed to C). `libqb.cpp` keeps thin shims with the old signatures plus the handle tables (`special_handles`, streams) that file I/O shares; LPRINT text layout and image scaling stay in the graphics engine (R5).
 
 Verified on Windows:
 
 - `cargo test --workspace`: 82/82 (34 new: loopback host/client echo, non-blocking accept/recv, close detection, byte-swapped remote port, info-string parsing, `WHATISMYIP` against a local HTTP server and its reply parser, key/mouse event sequences, capture region, printer call flow, clock); `cargo clippy --workspace --all-targets`: 0 warnings.
-- `diff_net` (legacy `connection_new`/`func__openclient`/`func__openhost`/`func__connectionaddress`, verbatim, on a mock qbs/list runtime, vs `qbrt_net_parse_info`/`qbrt_net_format_address`; 400k random info strings incl. VAL errors, embedded NULs, `$DEBUG` kind, 100k address texts): **0 mismatches**; mutation run 1,760.
+- `diff_net` (legacy `connection_new`/`func__openclient`/`func__openhost`/`func__connectionaddress`, verbatim, on a mock qbs/list runtime, vs `qb_net_parse_info`/`qb_net_format_address`; 400k random info strings incl. VAL errors, embedded NULs, `$DEBUG` kind, 100k address texts): **0 mismatches**; mutation run 1,760.
 - `diff_screen` (legacy `sub__screenprint` compiled as the Windows *and* the macOS build, `sub__screenclick`, `func__screenimage`, all against recording mocks of `SendInput`/`VkKeyScan`/CoreGraphics/GDI; 500k strings with random keyboard layouts, 500k clicks, 500k capture regions): **0 mismatches**; mutation run 56k.
-- `diff_printer` (verbatim `printer.cpp` vs `qbrt::printer` page flow, every combination of failing GDI calls, page heights and image failure; 4,096 call sequences): **0 mismatches**; mutation run 2,048.
+- `diff_printer` (verbatim `printer.cpp` vs `qb_runtime::printer` page flow, every combination of failing GDI calls, page heights and image failure; 4,096 call sequences): **0 mismatches**; mutation run 2,048.
 - `diff_systime` (verbatim start-of-day block from `main()` with scripted `time()`/`localtime()`, 2M scripts, plus a live check against the C library clock): **0 mismatches**; mutation run 98k.
 - Conformance (whole corpus: 36 cases, 28 passed, 8 xfail, 0 failed): `net/loopback_echo` (host + client in one program: `_OPENHOST`, `_OPENCLIENT`, `_OPENCONNECTION`, `_CONNECTED`, `_CONNECTIONADDRESS`, binary-safe `PUT`/`GET` both ways, 20 KB transfer, close detection), `net/open_failures` (out-of-range ports, refused and unknown hosts, port in use, VAL-style port text), `net/send_buffer_full` (`.xfail`, L-08). Golden output from the legacy build.
 - End to end against the legacy build (same output): `_CLIPBOARD$` set/get with a non-ASCII byte, `_CLIPBOARDIMAGE` write/read of a 32-bit image, `_SCREENIMAGE` whole screen and region. `_SCREENCLICK`, `_SCREENPRINT`, `_PRINTIMAGE` and `LPRINT` were compiled and linked but not run (they would inject input into, or print from, the desktop of the machine running the tests); their logic is covered by the differential tests above.
@@ -59,7 +59,7 @@ Notes:
 
 - **Runtime error paths cannot be conformance cases yet.** An unhandled error opens a modal `MessageBox` ("Unhandled Error #… Continue?"); headless it hangs until the timeout, on a desktop it waits for a click. With L-01 (`ON ERROR GOTO` does not compile) there is no way to observe error codes from BASIC. The error codes of the network functions are covered by `diff_net` instead.
 - **Precompiled `libqb_*.o` are not rebuilt when `libqb.cpp` changes.** After pulling this branch delete `internal/c/libqb/os/<os>/libqb_*.o` (or run `internal/c/purge_libqb_only.*`); a stale object still references the deleted `WHATISMYIP` and fails to link.
-- `windows-sys` links through raw-dylib import stubs, so `libqbrt.a` needs no new `-l` flags on Windows (`--print native-static-libs` unchanged). macOS now needs `-framework AppKit -framework CoreGraphics -framework CoreFoundation -framework Foundation -lobjc` (added to CMake, `makeline_osx.txt`, `setup_osx.command`, `run_diff.sh`; not built). Linux needs nothing new (`arboard` uses the pure-Rust X11 client).
+- `windows-sys` links through raw-dylib import stubs, so `libqb_runtime.a` needs no new `-l` flags on Windows (`--print native-static-libs` unchanged). macOS now needs `-framework AppKit -framework CoreGraphics -framework CoreFoundation -framework Foundation -lobjc` (added to CMake, `makeline_osx.txt`, `scripts/setup_osx.command`, `run_diff.sh`; not built). Linux needs nothing new (`arboard` uses the pure-Rust X11 client).
 - Platform gaps kept from legacy: `_SCREENIMAGE` is a blank image of the screen size on Linux and macOS; `_SCREENCLICK`/`_SCREENPRINT` do nothing on Linux; the printer is Windows only (D8).
 
 ### Not verified yet
@@ -72,35 +72,35 @@ Notes:
 
 ## R3 string engine
 
-`internal/c/qbrt/src/qbs.rs` owns all string-engine state: the descriptor pool (65536-descriptor blocks, LIFO free list), the three tracking lists (arena, DBLOCK, tmp), the `qbs_data` arena (1 MB, compaction when a gap above 32 bytes opens, growth `size*2+needed`) and the DBLOCK string area. `struct qbs` keeps the exact `common.h` layout (`#[repr(C)]`, checked by a unit test and by the harness) because generated C++ reads and writes its fields.
+`crates/qb-runtime/src/qbs.rs` owns all string-engine state: the descriptor pool (65536-descriptor blocks, LIFO free list), the three tracking lists (arena, DBLOCK, tmp), the `qbs_data` arena (1 MB, compaction when a gap above 32 bytes opens, growth `size*2+needed`) and the DBLOCK string area. `struct qbs` keeps the exact `common.h` layout (`#[repr(C)]`, checked by a unit test and by the harness) because generated C++ reads and writes its fields.
 
 - Rust exports the globals generated code uses: `qbs_tmp_list_nexti` (scope marker), `qbs_cmem_sp`, `qbs_cmem_descriptor_space`; `qbx.cpp`/`libqb.cpp` now only declare them.
-- Conventional memory stays C++ (`cmem`, `dblock`, `cmem_sp`); errors and FIELD buffers go through `qbrt_host_error` / `qbrt_host_field_free` in `libqb.cpp`.
-- `libqb.cpp` keeps one-line shims with the old C++ signatures; `sub_mid` keeps its `new_error`/`nothingstring` checks in the shim. `qbs_cleanup` (qbx.cpp and libqb.cpp) keeps the inline fast path and calls `qbrt_qbs_cleanup` otherwise, so C++ no longer touches the tmp list: **F2 fixed** (`extern ptrszint *qbs_tmp_list` vs `std::vector` is gone).
+- Conventional memory stays C++ (`cmem`, `dblock`, `cmem_sp`); errors and FIELD buffers go through `qb_host_error` / `qb_host_field_free` in `libqb.cpp`.
+- `libqb.cpp` keeps one-line shims with the old C++ signatures; `sub_mid` keeps its `new_error`/`nothingstring` checks in the shim. `qbs_cleanup` (qbx.cpp and libqb.cpp) keeps the inline fast path and calls `qb_qbs_cleanup` otherwise, so C++ no longer touches the tmp list: **F2 fixed** (`extern ptrszint *qbs_tmp_list` vs `std::vector` is gone).
 - Still in C++: `qbs_inkey`, `qbs_str` shims, MK*/CV* helpers (`b2string` …), `LSET`/`RSET` (FIELD-coupled), `qbs_print`/`qbs_input`.
 - Known legacy behaviour kept: DBLOCK string descriptors (4 bytes below `cmem_sp`) are never returned by `qbs_free`; generated code restores `cmem_sp` when a SUB exits. Allocation failure aborts the process (legacy raised error 508 and continued with a NULL block).
 
 ## Bootstrap snapshot and self-host fixpoint (L-00)
 
-`internal/source` is the generated C++ of the compiler itself; CMake builds `qb-stage0` from it, and stage0 compiles `source/qbnex.bas` into `qb`. Since L-00 is fixed the chain is a true fixpoint: the C++ that gen1, gen2 and gen3 emit for `source/qbnex.bas` is byte-identical, and equal to the committed snapshot.
+`internal/source` is the generated C++ of the compiler itself; CMake builds `qb-stage0` from it, and stage0 compiles `compiler/qbnex.bas` into `qb`. Since L-00 is fixed the chain is a true fixpoint: the C++ that gen1, gen2 and gen3 emit for `compiler/qbnex.bas` is byte-identical, and equal to the committed snapshot.
 
 - `tests/selfhost_fixpoint.{sh,cmd}` builds gen2 and gen3 from `qb`, requires identical `-z` output, and runs the conformance corpus with both (CI step "Self-host fixpoint"). `--no-conformance` skips the corpus runs.
 - `tests/refresh_stage0_snapshot.{sh,cmd}` regenerates `internal/source` with `qb -z` (only `*.txt` and `data.bin`; `icon.rc`, `*.bat`, `manifest.h`, manifests and icons stay as committed). Refresh after compiler changes, then rebuild from scratch and run it again: the second run must leave `internal/source` unchanged. The snapshot is generated on Windows, as before.
 ## R6 audio
 
-`internal/c/parts/audio/{out,decode,conversion}` are gone. Only `parts/audio/out/audio.h` (declarations) and `src.c` (shims, `#include`d by `libqb.cpp`) remain; the shims keep the old `sub_*`/`func_*` signatures, raise BASIC errors and manage `_MEMSOUND` mem locks, and call the C ABI in `internal/c/qbrt/include/qbrt_audio.h`.
+`internal/c/parts/audio/{out,decode,conversion}` are gone. Only `parts/audio/out/audio.h` (declarations) and `src.c` (shims, `#include`d by `libqb.cpp`) remain; the shims keep the old `sub_*`/`func_*` signatures, raise BASIC errors and manage `_MEMSOUND` mem locks, and call the C ABI in `crates/qb-runtime/include/qb_audio.h`.
 
-- **Crate layout.** `qbrt-audio` is a separate crate linked into `libqbrt.a` (`extern crate qbrt_audio` in `qbrt`). The release profile builds one object per crate, so a program only pulls the audio object (and cpal/symphonia) when libqb references a `qbrt_snd_*` symbol, which happens only with `DEPENDENCY_AUDIO_OUT`. A console `PRINT "hi"` exe is 2.6 MB with no audio strings; an audio exe is 5.0 MB.
+- **Crate layout.** `qb-runtime-audio` is a separate crate linked into `libqb_runtime.a` (`extern crate qb_audio` in `qb-runtime`). The release profile builds one object per crate, so a program only pulls the audio object (and cpal/symphonia) when libqb references a `qb_snd_*` symbol, which happens only with `DEPENDENCY_AUDIO_OUT`. A console `PRINT "hi"` exe is 2.6 MB with no audio strings; an audio exe is 5.0 MB.
 - **Modules.** `synth.rs` (envelope, waveforms, `GenerateWaveform`), `mml.rs` (`PLAY` state machine transcribed from the `goto` code, `SOUND`, `_VOICE`, `_ADSR`, `_WAVE`, VARPTR$), `queue.rs` (raw frame queue), `engine.rs` (handle table, mixer, `_SND*`), `decode.rs`, `device.rs` (cpal on its own thread), `ffi.rs`.
 - **F3 fixed for audio.** One mutex guards the whole engine; the BASIC thread, libqb's main-loop thread (`snd_mainloop`) and the cpal callback all take it. Legacy shared `soundHandles`, the raw queues and miniaudio sounds between those threads with no lock.
-- **Build.** No extra Windows link libraries (the `windows` crate uses raw-dylib). Linux user links get `-lasound` and need `libasound2-dev` (added to CI apt lines; Dockerfiles already had it). macOS links CoreAudio, AudioUnit, AudioToolbox, CoreFoundation. Building `libqbrt.a` now needs Rust 1.88 (xmrsplayer; cpal 0.18 needs 1.85). `QBRT_AUDIO_DEVICE=none` runs a program without an output device (same behaviour as legacy when miniaudio failed to start).
+- **Build.** No extra Windows link libraries (the `windows` crate uses raw-dylib). Linux user links get `-lasound` and need `libasound2-dev` (added to CI apt lines; Dockerfiles already had it). macOS links CoreAudio, AudioUnit, AudioToolbox, CoreFoundation. Building `libqb_runtime.a` now needs Rust 1.88 (xmrsplayer; cpal 0.18 needs 1.85). `QB_AUDIO_DEVICE=none` runs a program without an output device (same behaviour as legacy when miniaudio failed to start).
 
 Verified on Windows:
 
-- `cargo test -p qbrt-audio`: 40 tests (envelope, waveforms, custom wave parsing incl. `strtod` forms, rand LCG, MML: octave/`<`/`>`, length, tempo, dots, MB/MF/MN/ML/MS, N, sharps/flats, P, chords, VARPTR$, errors, state between statements; queue blocks; handle allocation, play/loop/pause/stop/seek/limit/volume/pan, `_MEMSOUND`, raw streams, voice draining; WAV decoding and resampling). RED run first: 11 PLAY tests failed on assertions against a stub.
+- `cargo test -p qb-runtime-audio`: 40 tests (envelope, waveforms, custom wave parsing incl. `strtod` forms, rand LCG, MML: octave/`<`/`>`, length, tempo, dots, MB/MF/MN/ML/MS, N, sharps/flats, P, chords, VARPTR$, errors, state between statements; queue blocks; handle allocation, play/loop/pause/stop/seek/limit/volume/pan, `_MEMSOUND`, raw streams, voice draining; WAV decoding and resampling). RED run first: 11 PLAY tests failed on assertions against a stub.
 - `diff_audio` (legacy synth + `sub_play`/`sub_sound`/`sub__voice`/`sub__adsr`/`sub__wave` copied verbatim into `tests/legacy/audio_synth*.inc`, rendered offline vs Rust): 50,000 random statements over 8000/22050/44100/48000 Hz, **204,132,081 frames, 0 mismatches, 0 samples off even by 1 LSB** (documented tolerance is 1 LSB for libm differences; not needed on MinGW). Noise waveforms included. A mutation run (pink-noise coefficient 0.1848 -> 0.1849 and dotted-note divisor 2 -> 2.01) reports 911 mismatches in the quick run. The harness found two real porting bugs on the way: x87 unnormal long doubles in `"=" + VARPTR$` and the out-of-range double -> int16 conversion (`cvttsd2si` gives 0x80000000, Rust `as` saturates); both are now emulated.
-- End-to-end on a real device (48 kHz): `_SNDOPEN` WAV, `_SNDLEN`, `_MEMSOUND` (size, element size and a spot-checked sample match the file), `_SNDPLAY` to the end, `_SNDCOPY`, `_SNDRAW` + `_SNDRAWDONE` until `_SNDRAWLEN` = 0, `PLAY` until `PLAY(0)` = 0; and the same program with `QBRT_AUDIO_DEVICE=none`.
-- `tests/audio_smoke.cmd` and the other 6 smoke tests pass; conformance 35 cases: 28 passed, 7 xfail, 0 failed (2 new device-independent cases in `conformance/cases/audio/`).
+- End-to-end on a real device (48 kHz): `_SNDOPEN` WAV, `_SNDLEN`, `_MEMSOUND` (size, element size and a spot-checked sample match the file), `_SNDPLAY` to the end, `_SNDCOPY`, `_SNDRAW` + `_SNDRAWDONE` until `_SNDRAWLEN` = 0, `PLAY` until `PLAY(0)` = 0; and the same program with `QB_AUDIO_DEVICE=none`.
+- `tests/smoke/audio_smoke.cmd` and the other 6 smoke tests pass; conformance 35 cases: 28 passed, 7 xfail, 0 failed (2 new device-independent cases in `tests/conformance/cases/audio/`).
 
 Not verified: Linux (ALSA) and macOS (CoreAudio) builds and playback; MP3/FLAC/Ogg/MOD/XM/S3M/IT files beyond the decoder unit tests (WAV); audible quality by ear.
 
@@ -124,20 +124,20 @@ Intentional deviations of R6:
 License changes: miniaudio, stb_vorbis, minimp3, libxmp-lite, tinysoundfont and RADv2 are no longer distributed (their entries and license files were removed from `licenses/`). Added: cpal (Apache-2.0), Symphonia (**MPL-2.0**, file-level copyleft, used unmodified), xmrs/xmrsplayer (MIT) and their MIT/Apache-2.0/Zlib/BSD dependencies (`licenses/COPYING.TXT`, `license_apache_2_0.txt`, `license_mpl_2_0.txt`, `license_xmrs.txt`).
 ## R8 — window, input, threads (branch `claude/r8-window-bec52a`)
 
-What moved to Rust (`internal/c/qbrt/src`, C ABI in `include/qbrt_window.h`):
+What moved to Rust (`crates/qb-runtime/src`, C ABI in `include/qb_window.h`):
 
 | Module | Replaces | Notes |
 | --- | --- | --- |
 | `window.rs` | freeglut window + GLUT main loop, `glutSetWindowTitle/ReshapeWindow/FullScreen/PositionWindow/SetCursor/WarpPointer/IconifyWindow`, `glutGet(GLUT_SCREEN_*)` | winit event loop on the **main thread**; softbuffer presents the frame; setters queue commands and wake the loop; getters read atomics |
 | `raster.rs` | the OpenGL presenter of `gui.cpp`: `prepare_environment_2d`, `hardware_img_put/tri2d/tri3d`, letterbox, stretch/smooth | software rasteriser for "hardware" images (`_COPYIMAGE(,33)`), depth buffer, culling, near-plane clipping |
 | `keymap.rs` | freeglut's Win32 key translation + `GLUT_key_ascii`/`GLUT_key_special` | stage 2 is verbatim (diffed); stage 1 maps winit keys |
-| `keybuf.rs` | `keyhit[]` ring, `keyheld_*`, `update_shift_state` bytes | one mutex per operation + re-entrant `qbrt_input_lock` around `keydown()/keyup()`/mouse queue writes (fixes F3 for these) |
+| `keybuf.rs` | `keyhit[]` ring, `keyheld_*`, `update_shift_state` bytes | one mutex per operation + re-entrant `qb_input_lock` around `keydown()/keyup()`/mouse queue writes (fixes F3 for these) |
 | `script.rs` | — (new) | `QBNEX_INPUT_SCRIPT=<file>` replays keys/mouse/resize/close; `snapshot` prints a frame hash |
 | `gamepad.rs` | libstem gamepad (`parts/input/game_controller`) | gilrs (XInput on Windows); glue logic kept in `libqb/gamepad_bridge.cpp` |
 
 C++ glue that stays (until `libqb.cpp` itself goes): `libqb/window_bridge.cpp` (frame composition from `display_frame[]` + the hardware command list, mouse queue handlers, callbacks), `libqb/gamepad_bridge.cpp`.
 
-Thread layout now: main thread = window event loop (`window_main()` → `qbrt_window_run`); QBMAIN = user program; MAIN_LOOP = timer bytes, autodisplay, gamepad poll; TIMERTHREAD unchanged. Frames are composed on the thread that built them (MAIN_LOOP, or the program thread on `_DISPLAY`) under `present_mutex`, so `display_frame[].state` and the hardware command list are no longer shared with the window thread. `qbevent`, `lock_display`, `autodisplay` handshakes and the mouse queue readers are still plain C++ globals (F3 partly open, see below).
+Thread layout now: main thread = window event loop (`window_main()` → `qb_window_run`); QBMAIN = user program; MAIN_LOOP = timer bytes, autodisplay, gamepad poll; TIMERTHREAD unchanged. Frames are composed on the thread that built them (MAIN_LOOP, or the program thread on `_DISPLAY`) under `present_mutex`, so `display_frame[].state` and the hardware command list are no longer shared with the window thread. `qbevent`, `lock_display`, `autodisplay` handshakes and the mouse queue readers are still plain C++ globals (F3 partly open, see below).
 
 Environment variables: `QBNEX_HEADLESS=1` runs GUI programs without a window (desktop size reported as 1920x1080, the "window" follows the frame size); `QBNEX_INPUT_SCRIPT=<file>` (syntax in `script.rs`). The conformance runner sets `QBNEX_HEADLESS=1` for every case and passes `<name>.input` as the script.
 
@@ -145,7 +145,7 @@ Build changes: makelines/CMake/setup scripts no longer build or link `parts/core
 
 ### R8 evidence (Windows)
 
-- `cargo test -p qbrt`: 76 unit tests (keymap, keybuf, raster, script, gamepad, window helpers) — each module first run RED against stubs.
+- `cargo test -p qb-runtime`: 76 unit tests (keymap, keybuf, raster, script, gamepad, window helpers) — each module first run RED against stubs.
 - `diff_keymap` (verbatim `GLUT_key_ascii`/`GLUT_key_special` vs Rust, exhaustive 12,544 cases): 0 mismatches; mutation run 32 mismatches.
 - `diff_keybuf` (verbatim `keyheld*`, `update_shift_state`, keyhit ring vs Rust, 5M random operations incl. ring overflow): 0 mismatches; mutation run 5,130 mismatches.
 - `diff_layout` (verbatim `prepare_environment_2d` vs Rust, 5M size/mode combinations): 0 mismatches; mutation run 21,904 mismatches.
@@ -170,8 +170,8 @@ Open: `_DEVICEINPUT` keyboard device events (legacy `qbnex_os_event_windows` sca
 Every subsystem goes through the same loop:
 
 1. **RED** — Rust unit tests describing the behaviour (values captured from the legacy oracle or QBasic semantics); run them against a stub and watch them fail on assertions.
-2. **GREEN** — minimal Rust implementation in `internal/c/qbrt/src/<module>.rs`.
-3. **Differential** — a harness in `internal/c/qbrt/tests/diff_<module>.cpp` links the Rust code with a *verbatim copy* of the legacy C++ (`tests/legacy/*.inc`, test-only) and compares them on millions of inputs. A mutation run proves the harness can fail.
+2. **GREEN** — minimal Rust implementation in `crates/qb-runtime/src/<module>.rs`.
+3. **Differential** — a harness in `tests/diff/diff_<module>.cpp` links the Rust code with a *verbatim copy* of the legacy C++ (`tests/legacy/*.inc`, test-only) and compares them on millions of inputs. A mutation run proves the harness can fail.
 4. **Delete** — the legacy C++ is removed from `libqb.cpp` (no `#ifdef LEGACY` fallback); only a one-line shim with the old C++ signature stays, because generated code and `qbx.cpp` call it.
 5. **Conformance** — new cases blessed from `.oracle`, then the whole corpus + smoke tests run against the Rust build.
 
@@ -179,16 +179,16 @@ Where the legacy behaviour is a clear defect against QBasic, the Rust code fixes
 
 ### What "remove all C/C++" can reach under D10
 
-With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`, the generated fragments and a C++ compiler at user compile time remain. Everything else can go: `libqb.cpp` shrinks to shims and then disappears, and every library under `internal/c/parts` is replaced by Rust crates. Removing the last C++ is phase **R11** (approved). Recommendation after the spike: the BASIC compiler emits **QIR**, a text IR that the prebuilt Rust runner `qbrun` (linked with `qbrt`) executes; the executable is the runner with the IR appended, so users need **no** compiler toolchain. A Cranelift JIT tier on the same IR is the later performance step. See [`r11-emitter-design.md`](r11-emitter-design.md).
+With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`, the generated fragments and a C++ compiler at user compile time remain. Everything else can go: `libqb.cpp` shrinks to shims and then disappears, and every library under `internal/c/parts` is replaced by Rust crates. Removing the last C++ is phase **R11** (approved). Recommendation after the spike: the BASIC compiler emits **QIR**, a text IR that the prebuilt Rust runner `qb-exec` (linked with `qb-runtime`) executes; the executable is the runner with the IR appended, so users need **no** compiler toolchain. A Cranelift JIT tier on the same IR is the later performance step. See [`r11-emitter-design.md`](r11-emitter-design.md).
 
 ### R11 spike status (2026-11-09)
 
-- `qb.exe prog.bas --ir -o prog.exe` (also `-ir`, `--emit-ir`) uses a separate small emitter (`source/utilities/ir_emit.bas`); the default C++ path is unchanged.
-- `cargo test -p qbrun`: 18 interpreter unit tests + 3 end-to-end tests. `spike.bas` (PRINT, numeric types, IF, FOR, GOSUB/RETURN, SUB with BYREF + `DIM SHARED`, string functions) gives the same output through both backends; `onerror.bas` (`ON ERROR GOTO` + `RESUME NEXT` in the main module, legacy defect L-01 in the C++ path) runs under QIR.
+- `qb.exe prog.bas --ir -o prog.exe` (also `-ir`, `--emit-ir`) uses a separate small emitter (`compiler/utilities/ir_emit.bas`); the default C++ path is unchanged.
+- `cargo test -p qb-exec`: 18 interpreter unit tests + 3 end-to-end tests. `spike.bas` (PRINT, numeric types, IF, FOR, GOSUB/RETURN, SUB with BYREF + `DIM SHARED`, string functions) gives the same output through both backends; `onerror.bas` (`ON ERROR GOTO` + `RESUME NEXT` in the main module, legacy defect L-01 in the C++ path) runs under QIR.
 - Verified with MinGW removed: an IR executable compiles and runs; `qb.exe` and C++-backend executables do not start without the MinGW DLLs on PATH (`0xC0000135`).
 - Measured: hello world 0.14 s vs 1.11 s, executable 0.25 MB vs 2.6 MB, but a tight loop costs ~95 ns per iteration in the untyped spike VM (C++ loop below noise). Typed VM + JIT are required before QIR can be the default or run the compiler itself.
-- Round 2: `cargo run --release -p qbnex-conformance -- --qb-arg --ir` passes **15 of 33** cases (C++ backend: 26 + 7 xfail). Added loops, SELECT CASE, FUNCTION/STATIC, arrays, DATA/READ/RESTORE, RND/RANDOMIZE, MK$/CV/MBF, DEFtype and more builtins (TDD, `qbrun` tests 18 + 19 + 7 unit, 4 end-to-end). The L-01, L-03 and L-04 cases run correctly under QIR (`internal/c/qbrun/tests/fixtures/legacy_defects`).
-- The CMake target `qbrun` (built with `qb-selfhost`) produces `internal/c/qbrun/bin/<os>/qbrun`; on Windows it imports only system DLLs.
+- Round 2: `cargo run --release -p qbnex-conformance -- --qb-arg --ir` passes **15 of 33** cases (C++ backend: 26 + 7 xfail). Added loops, SELECT CASE, FUNCTION/STATIC, arrays, DATA/READ/RESTORE, RND/RANDOMIZE, MK$/CV/MBF, DEFtype and more builtins (TDD, `qb-exec` tests 18 + 19 + 7 unit, 4 end-to-end). The L-01, L-03 and L-04 cases run correctly under QIR (`crates/qb-exec/tests/fixtures/legacy_defects`).
+- The CMake target `qb-exec` (built with `qb-selfhost`) produces `crates/qb-exec/bin/<os>/qb-exec`; on Windows it imports only system DLLs.
 - Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
 
 ## How the pieces fit
@@ -197,15 +197,15 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 flowchart LR
   bas[user .bas] --> qb[qb.exe<br/>BASIC compiler, unchanged logic]
   qb -->|C++ fragments| qbx[qbx.cpp + libqb_*.o]
-  qbrtsrc[internal/c/qbrt/src/*.rs] -->|cargo, setup_build.*| a[internal/c/qbrt/os/OS/libqbrt.a]
+  runtimesrc[crates/qb-runtime/src/*.rs] -->|cargo, setup_build.*| a[crates/qb-runtime/os/OS/libqb_runtime.a]
   a --> link[g++ link<br/>makeline_*.txt first line]
   qbx --> link --> exe[user program]
 ```
 
-- `libqb.cpp` references Rust symbols, so **every** link needs `libqbrt.a`. It is on the first line of `internal/c/makeline_*.txt`, which both the bootstrap `qb-stage0` and the current compiler read at run time. That is the only way to reach the stage0 link, because stage0 is built from the frozen snapshot in `internal/source` (see L-00).
+- `libqb.cpp` references Rust symbols, so **every** link needs `libqb_runtime.a`. It is on the first line of `internal/c/makeline_*.txt`, which both the bootstrap `qb-stage0` and the current compiler read at run time. That is the only way to reach the stage0 link, because stage0 is built from the frozen snapshot in `internal/source` (see L-00).
 - Windows native libs are written `-l ws2_32` (with a space) on purpose: `PrepareWindowsBuildCommand$` strips every `-lws2_32` when sockets are unused.
-- `libqbrt.stamp` is rewritten on each Rust build and is part of the native build-cache key (`linker.bas`), so cached executables are rebuilt after a runtime change.
-- End users do not need cargo: release bundles copy `internal/`, which contains the prebuilt `libqbrt.a`.
+- `qb_runtime.stamp` is rewritten on each Rust build and is part of the native build-cache key (`linker.bas`), so cached executables are rebuilt after a runtime change.
+- End users do not need cargo: release bundles copy `internal/`, which contains the prebuilt `libqb_runtime.a`.
 
 ## How to run
 
@@ -233,7 +233,7 @@ cargo run --release -p qbnex-conformance -- --qb .oracle/qb.exe --bless
 
 Golden output must always come from the legacy C++ runtime (`.oracle`, gitignored), never from the Rust build.
 
-Framebuffer goldens (`.fb`) need an oracle that can capture: clone `.oracle` to `.oracle-fb`, run `conformance/oracle/make_fb_oracle.sh .oracle-fb` (adds `fb_capture_legacy.inc` to its `libqb.cpp`), build it (on Windows under Git Bash: `env -u NoDefaultCurrentDirectoryInExePath cmake --build --preset windows-mingw-selfhost`), then bless with `--qb .oracle-fb/qb.exe`. `--fb-dump <dir>` writes the raw frames for inspection.
+Framebuffer goldens (`.fb`) need an oracle that can capture: clone `.oracle` to `.oracle-fb`, run `tests/conformance/oracle/make_fb_oracle.sh .oracle-fb` (adds `fb_capture_legacy.inc` to its `libqb.cpp`), build it (on Windows under Git Bash: `env -u NoDefaultCurrentDirectoryInExePath cmake --build --preset windows-mingw-selfhost`), then bless with `--qb .oracle-fb/qb.exe`. `--fb-dump <dir>` writes the raw frames for inspection.
 
 ## Legacy defects found by the corpus
 
@@ -241,7 +241,7 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 
 | ID | Defect | Case | Severity |
 | --- | --- | --- | --- |
-| L-00 | **Self-host fixpoint is broken.** `qb.exe` built from HEAD compiles `source/qbnex.bas` into a second-generation compiler that fails on hello world with `[E9999] Too many errors`. Root cause: the TopLevelRuntime lowering counted `FUNCTION getpid& ()` inside `DECLARE LIBRARY` as a procedure opening, so main-module code before the block moved into `SUB QBNEX_TOPLEVEL_RUNTIME0` (with its own locals, called only at the end) while later code ran first, before `InitCompilerServices` set `maxErrors` (0 -> first diagnostic aborts). **Fixed** (D-06). | `control/declare_library_toplevel` (`.deviation`), `tests/selfhost_fixpoint.*` | Critical |
+| L-00 | **Self-host fixpoint is broken.** `qb.exe` built from HEAD compiles `compiler/qbnex.bas` into a second-generation compiler that fails on hello world with `[E9999] Too many errors`. Root cause: the TopLevelRuntime lowering counted `FUNCTION getpid& ()` inside `DECLARE LIBRARY` as a procedure opening, so main-module code before the block moved into `SUB QBNEX_TOPLEVEL_RUNTIME0` (with its own locals, called only at the end) while later code ran first, before `InitCompilerServices` set `maxErrors` (0 -> first diagnostic aborts). **Fixed** (D-06). | `control/declare_library_toplevel` (`.deviation`), `tests/selfhost_fixpoint.*` | Critical |
 | L-01 | A main-module `ON ERROR GOTO` handler label makes compilation fail with `Unknown statement 'END'` on a line past the end of the file (TopLevelRuntime lowering, `classes.bas`). Classic QB error handling does not compile. **Fixed** for main-module code before the first SUB/FUNCTION (D-06); a handler label placed *after* a SUB (or after an `$INCLUDE` that defines SUBs) is still moved into the runtime SUB and still fails. | `errors/*`, `binary/mbf_overflow` (`.deviation`) | High |
 | L-02 | `PRINT a, b` (14-column zones) writes spaces forever when stdout is redirected. | `console/print_comma_redirected` | High |
 | L-03 | `RESTORE <label>` never returns. | `data/restore_label` | High |
@@ -316,7 +316,7 @@ Verified on Windows:
 - `diff_sys` (verbatim legacy KILL/NAME/CHDIR/MKDIR/RMDIR/FILES/_FILEEXISTS/_DIREXISTS/_CWD$/ENVIRON/COMMAND$/SHELL): 62k operations, 0 mismatches; mutation run (RMDIR error, ENVIRON separator, exit code) reports mismatches in each.
 - Conformance: 9 new cases (`files/*` 5, `system/*` 2, `mem/*` 2 incl. one `.deviation`), golden from `.oracle`. Whole corpus against the Rust build: 42 cases, 35 passed, 7 xfail (L-01..L-04, L-06), 0 failed.
 - `tests/*_smoke.cmd`: 8/8 pass (audio, benchmark, cli, diagnostics, encoding, labels, stdlib, warnings).
-- `cargo clippy -p qbrt --all-targets`: 0 warnings.
+- `cargo clippy -p qb-runtime --all-targets`: 0 warnings.
 
 Not verified: Linux/macOS (`GFS_C` replacement on `std::fs`, `setenv`, `system()`), real COM ports, FILES on non-Windows (legacy printed nothing there either).
 | D-R7-1 | PCX images whose pixel buffer exceeds 4 GiB fail to load. dr_pcx computed the size in 32 bits and overflowed the heap. | Defined failure instead of memory corruption. |
@@ -330,22 +330,22 @@ Not verified: Linux/macOS (`GFS_C` replacement on `std::fs`, `setenv`, `system()
 
 ### What changed
 
-| Before (C, deleted) | After (Rust, `internal/c/qbrt`) | C entry points kept |
+| Before (C, deleted) | After (Rust, `crates/qb-runtime`) | C entry points kept |
 | --- | --- | --- |
 | `parts/video/font/ttf/src.c` wrapper + `src/freetypeamalgam.{c,h}` (FreeType 2.4.9, ~158k lines) + `download/` copy | `src/font.rs`: wrapper logic ported line by line; FreeType replaced by `skrifa` 0.36 (outlines, TrueType bytecode hinter, auto-hinter) and `ab_glyph_rasterizer` | `FontLoad`, `FontRenderTextUTF32`, `FontRenderTextASCII`, `FontWidth`, `FontFree` (thin shims in `ttf/src.c`, still `#include`d by libqb.cpp) |
-| `parts/video/image/stb_image.h` (v2.27) + `dr_pcx.h` (v0.3.1) | `src/image/pcx.rs` (dr_pcx port), `src/image/stb.rs` (ports of stb's BMP, TGA, GIF, PNM loaders and format dispatch), `src/image/codecs.rs` (`png`, `zune-jpeg`), `src/image/quant.rs` (8bpp quantizer + palette remap) | `func__loadimage` keeps its C++ body; decoding and 8bpp conversion call `qbrt_image_*` |
+| `parts/video/image/stb_image.h` (v2.27) + `dr_pcx.h` (v0.3.1) | `src/image/pcx.rs` (dr_pcx port), `src/image/stb.rs` (ports of stb's BMP, TGA, GIF, PNM loaders and format dispatch), `src/image/codecs.rs` (`png`, `zune-jpeg`), `src/image/quant.rs` (8bpp quantizer + palette remap) | `func__loadimage` keeps its C++ body; decoding and 8bpp conversion call `qb_image_*` |
 
 - The ports keep the legacy quirks bit for bit, e.g. stb's OS/2 BMP palette that is 4 entries short, "all alpha 0 means opaque", the GIF background colour stored as B,G,R (red and blue swapped), dr_pcx's 4-bit nibble mask and reads past EOF as zero bytes.
 - Font metrics use FreeType's fixed-point formulas (`FT_MulFix`/`FT_DivFix`, `tt_size_reset` ppem rounding, `hdmx` advances), FreeType 2.4.9's hinter choice (bytecode for instructed TrueType, auto-hinter when `maxp.maxSizeOfInstructions` is 0) and its two renderers' bitmap boxes (smooth: floor/ceil of the control box; mono: rounded control box, pixel-centre sampling).
-- Dependency flags are unchanged (`DEPENDENCY_LOADFONT`, `DEPENDENCY_IMAGE_CODEC`, `DEPENDENCY_SCREENIMAGE` still select the stubs or the shims); the code is always in `libqbrt.a`, so `dependencies.bas` no longer builds or links `ttf/os/<os>/src.o`.
+- Dependency flags are unchanged (`DEPENDENCY_LOADFONT`, `DEPENDENCY_IMAGE_CODEC`, `DEPENDENCY_SCREENIMAGE` still select the stubs or the shims); the code is always in `libqb_runtime.a`, so `dependencies.bas` no longer builds or links `ttf/os/<os>/src.o`.
 - **L-00 workaround:** the frozen stage0 (`internal/source`) still links `parts/video/font/ttf/os/<os>/src.o` when it builds `qb`. The `ttf/os/*` build scripts now compile `ttf/placeholder.c` (an empty object), so CMake and the setup scripts work unchanged. Delete it once stage0 is regenerated.
 - New crate dependencies (all permissive, listed in `licenses/COPYING.TXT`): `skrifa`/`read-fonts`/`font-types` (MIT/Apache-2.0), `ab_glyph_rasterizer` (Apache-2.0, text in `licenses/license_apache_2_0.txt`), `png` (+`fdeflate`, `flate2`, `zlib-rs`, `miniz_oxide`), `zune-jpeg`. `skrifa` is pinned to 0.36 because the workspace declares `rust-version = 1.80`.
 
 ### License notes
 
 - **FreeType's FTL/GPL obligation is removed.** Programs that use `_LOADFONT` no longer contain FreeType, so the "your program includes the FreeType library" notice is not required any more. `licenses/license_freetype_ftl.txt` and `licenses/license_gnu_gpl_2.txt` (only used for FreeType) were deleted; the note at the top of `COPYING.TXT` says so.
-- stb_image (MIT/public domain) and dr_pcx (public domain) code survives as Rust ports; `COPYING.TXT` keeps the stb_image entry and points it at `internal/c/qbrt/src/image/`.
-- Test fonts in `internal/c/qbrt/tests/data/fonts/` are Noto (SIL OFL 1.1, `OFL.txt` next to them; only used by tests). Test images are synthetic (`make_corpus.py`).
+- stb_image (MIT/public domain) and dr_pcx (public domain) code survives as Rust ports; `COPYING.TXT` keeps the stb_image entry and points it at `crates/qb-runtime/src/image/`.
+- Test fonts in `tests/diff/data/fonts/` are Noto (SIL OFL 1.1, `OFL.txt` next to them; only used by tests). Test images are synthetic (`make_corpus.py`).
 
 ### Evidence (Windows, MinGW g++ 15.2, rustc 1.98)
 
@@ -357,7 +357,7 @@ Not verified: Linux/macOS (`GFS_C` replacement on `std::fs`, `setenv`, `system()
 
 ```bash
 # R7 differential tests (also part of run_diff); legacy sources come from git history
-internal/c/qbrt/tests/run_diff.cmd
+tests/diff/run_diff.cmd
 ```
 
 
@@ -365,4 +365,4 @@ internal/c/qbrt/tests/run_diff.cmd
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
 3. Grow the corpus per builtin group (`subs_functions.bas`), especially PRINT USING, file I/O and string functions, before R3/R4.
-4. Run the new CI on GitHub to verify Linux/macOS builds of `libqbrt.a`.
+4. Run the new CI on GitHub to verify Linux/macOS builds of `libqb_runtime.a`.

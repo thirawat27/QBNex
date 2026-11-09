@@ -19,7 +19,7 @@
     #define INC_COMMON_CPP
     #include "os.h"
     
-    //R8: the window is provided by the Rust runtime (qbrt window.rs: winit + softbuffer);
+    //R8: the window is provided by the Rust runtime (qb-runtime window.rs: winit + softbuffer);
     //freeglut/GLEW/OpenGL are no longer compiled or linked.
     #ifndef DEPENDENCY_CONSOLE_ONLY
         #define QBNex_GUI

@@ -16,12 +16,12 @@ jobs:
             runs_on: ubuntu-latest
             artifact_suffix: lnx
             artifact_path: qb
-            build_command: QBNEX_CI=1 bash ./setup_lnx.sh
+            build_command: QBNEX_CI=1 bash ./scripts/setup_lnx.sh
           - target: macos
             runs_on: macos-latest
             artifact_suffix: osx
             artifact_path: qb
-            build_command: QBNEX_CI=1 bash ./setup_osx.command
+            build_command: QBNEX_CI=1 bash ./scripts/setup_osx.command
           - target: windows-x64
             runs_on: windows-latest
             artifact_suffix: win-x64
@@ -48,7 +48,7 @@ jobs:
       - name: Build compiler (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: setup_win.cmd
+        run: scripts\setup_win.cmd
 
       - name: Rust runtime unit tests
         shell: bash
@@ -57,19 +57,19 @@ jobs:
       - name: Differential tests, legacy C++ vs Rust (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: sh internal/c/qbrt/tests/run_diff.sh --quick
+        run: sh tests/diff/run_diff.sh --quick
 
       - name: Differential tests, legacy C++ vs Rust (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: call internal\c\qbrt\tests\run_diff.cmd --quick
+        run: call tests\diff\run_diff.cmd --quick
 
       - name: Smoke tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           for t in cli diagnostics warnings labels encoding stdlib audio; do
-            echo "::group::${t}_smoke"; sh "tests/${t}_smoke.sh"; echo "::endgroup::"
+            echo "::group::${t}_smoke"; sh "tests/smoke/${t}_smoke.sh"; echo "::endgroup::"
           done
 
       - name: Smoke tests (Windows)
@@ -77,7 +77,7 @@ jobs:
         shell: cmd
         run: |
           for %%t in (cli diagnostics warnings labels encoding stdlib audio) do (
-            call tests\%%t_smoke.cmd || exit /b 1
+            call tests\smoke\%%t_smoke.cmd || exit /b 1
           )
 
       - name: Conformance (golden output from the legacy C++ runtime)
@@ -87,12 +87,12 @@ jobs:
       - name: Self-host fixpoint (gen2 == gen3, both pass conformance; L-00)
         if: runner.os != 'Windows'
         shell: bash
-        run: sh tests/selfhost_fixpoint.sh
+        run: sh scripts/selfhost_fixpoint.sh
 
       - name: Self-host fixpoint (gen2 == gen3, both pass conformance; L-00) (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: call tests\selfhost_fixpoint.cmd
+        run: call scripts\selfhost_fixpoint.cmd
 
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
@@ -102,7 +102,7 @@ jobs:
       - name: Stage portable bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
+        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd" -AliasWrapperPath "qbnex.cmd"
 
       - name: Upload compiler artifact
         uses: actions/upload-artifact@v4

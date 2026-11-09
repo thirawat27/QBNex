@@ -60,7 +60,7 @@ We use GitHub Issues to track bugs. Before creating a bug report:
 1. **Check existing issues** to avoid duplicates
 2. **Reproduce the issue** with a minimal code example
 3. **Gather information**:
-   - QBNex version (`qb --version`)
+   - QBNex version (`qb --version` or `qbnex --version`)
    - Operating system and version
    - Exact commands used
    - Source code that triggers the issue
@@ -92,14 +92,19 @@ Feature suggestions help QBNex grow. When suggesting features:
 
 QBNex is primarily written in **QBNex BASIC** itself (self-hosting compiler). The codebase structure:
 
-- **`source/`**: Compiler source code (written in QBNex BASIC)
+- **`compiler/`**: Compiler source code (written in QBNex BASIC)
   - `qbnex.bas`: Main compiler entry point (~26,000 lines)
   - `global/`: Version, constants, and settings
   - `subs_functions/`: Built-in functions and subroutines
   - `utilities/`: Helper modules
-- **`internal/c/`**: C++ runtime library
+- **`crates/`**: Native runtime (Cargo workspace)
+  - `qb-runtime`: runtime library exported through a C ABI (`qb_` symbols, header `include/qb_runtime.h`)
+  - `qb-audio`: audio engine
+  - `qb-exec`: runner for compiled QIR programs
+- **`internal/c/`**: C++ runtime glue
   - Runtime code generated during compilation
   - Platform-specific implementations
+- **`tests/`**: `smoke/` scripts, `fixtures/`, `conformance/` corpus and runner, `diff/` differential tests
 - **`.github/workflows/`**: CI/CD pipelines
 - **`.ci/`**: Build automation scripts
 
@@ -150,21 +155,21 @@ Documentation improvements are always welcome:
 ```cmd
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-setup_win.cmd
+scripts\setup_win.cmd
 ```
 
 The setup script will:
 - Download MinGW compiler automatically
 - Configure build environment
-- Compile the QBNex compiler
+- Compile the QBNex compiler (`qb.exe` in the repository root; run it as `qb` or `qbnex`)
 
 ### Linux
 
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-chmod +x setup_lnx.sh
-./setup_lnx.sh
+chmod +x scripts/setup_lnx.sh
+./scripts/setup_lnx.sh
 ```
 
 The setup script will:
@@ -177,8 +182,8 @@ The setup script will:
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-chmod +x setup_osx.command
-./setup_osx.command
+chmod +x scripts/setup_osx.command
+./scripts/setup_osx.command
 ```
 
 The setup script will:
@@ -240,9 +245,11 @@ END FUNCTION
 - Provide clear error messages
 - Log errors in debug mode
 
-### C++ Runtime Code
+### Runtime Code
 
-The C++ runtime code (in `internal/c/`) should follow:
+The runtime is a Cargo workspace under `crates/` (`qb-runtime`, `qb-audio`, `qb-exec`); `internal/c/` holds the C++ glue (`libqb.cpp`, `qbx.cpp`) that calls `qb-runtime` through the C ABI declared in `crates/qb-runtime/include/qb_runtime.h` (all exported symbols use the `qb_` prefix).
+
+Rust changes should pass `cargo test --workspace`. The C++ glue should follow:
 
 - Modern C++ practices (C++11 or later)
 - Consistent with existing runtime code style
@@ -290,6 +297,24 @@ docs: Update README with comprehensive command reference
 
 ## Testing
 
+### Automated Tests
+
+```bash
+# Runtime unit tests (all crates, or one: -p qb-runtime / -p qb-audio / -p qb-exec)
+cargo test --workspace
+
+# Conformance corpus (needs a built qb / qbnex in the repository root)
+cargo run --release -p qbnex-conformance
+
+# Smoke tests
+./tests/smoke/cli_smoke.sh          # Linux/macOS
+tests\smoke\cli_smoke.cmd           # Windows
+
+# Legacy-vs-runtime differential tests
+sh tests/diff/run_diff.sh          # Linux/macOS
+tests\diff\run_diff.cmd             # Windows
+```
+
 ### Manual Testing
 
 Test your changes manually:
@@ -316,7 +341,7 @@ QBNex uses GitHub Actions for CI:
 - **Pull requests**: Builds on Linux
 - **Releases**: Builds on Linux, macOS, Windows x64
 
-If you need a Windows x86 / 32-bit artifact, build it locally with `setup_win.cmd` from the repository instead of relying on GitHub Releases.
+If you need a Windows x86 / 32-bit artifact, build it locally with `scripts\setup_win.cmd` from the repository instead of relying on GitHub Releases.
 
 Ensure your changes pass CI before requesting review.
 
@@ -393,26 +418,38 @@ Brief summary of changes
 
 ```
 QBNex/
-├── source/                      # Compiler source code (QBNex BASIC)
-│   ├── qbnex.bas               # Main compiler (~26,000 lines)
+├── compiler/                   # Compiler source code (QBNex BASIC)
+│   ├── qbnex.bas               # Main compiler
 │   ├── global/                 # Version, constants, settings
+│   ├── stdlib/                 # Standard library modules
 │   ├── subs_functions/         # Built-in functions/subs
 │   └── utilities/              # Helper modules
+├── crates/                     # Native runtime (Cargo workspace)
+│   ├── qb-runtime/             # Runtime library, C ABI headers in include/
+│   ├── qb-audio/               # Audio engine
+│   └── qb-exec/                # Runner for compiled QIR programs
 ├── internal/                   # Internal build files
-│   ├── c/                      # C++ runtime library
-│   │   ├── qbx.cpp            # C++ compiler entry point
-│   │   ├── libqb/             # Platform-specific runtime
-│   │   └── parts/             # Feature modules (graphics, audio, etc.)
+│   ├── c/                      # C++ runtime glue
+│   │   ├── qbx.cpp             # C++ compiler entry point
+│   │   ├── libqb/              # Platform-specific runtime
+│   │   └── parts/              # Feature modules (graphics, audio, etc.)
 │   └── source/                 # Data files for bootstrap
-├── .ci/                        # CI build scripts
+├── tests/
+│   ├── conformance/            # Conformance runner and cases
+│   ├── diff/                   # Differential tests against the legacy runtime
+│   ├── fixtures/               # Test input programs
+│   └── smoke/                  # Smoke test scripts
+├── scripts/                    # Platform setup scripts (setup_*.cmd/sh/command)
+├── docker/                     # Dockerfile, Dockerfile.dev, docker-compose.yml
+├── packaging/installer/        # Inno Setup installer script
+├── docs/                       # Design notes
 ├── .github/                    # GitHub workflows and templates
 ├── assets/                     # Logo and icons
 ├── licenses/                   # License files
 ├── README.md                   # Main documentation
 ├── CHANGELOG.md                # Version history
 ├── SECURITY.md                 # Security policies
-├── CONTRIBUTING.md             # This file
-└── setup_*.cmd/sh              # Platform setup scripts
+└── CONTRIBUTING.md             # This file
 ```
 
 ## Getting Help

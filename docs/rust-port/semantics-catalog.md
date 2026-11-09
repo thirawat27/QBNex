@@ -1,14 +1,14 @@
 # Semantics Catalog — พฤติกรรมที่ Rust port ต้องรักษา
 
-> จุดประสงค์: ระบบเดิมไม่มีสเปกภาษาที่เป็นเอกสาร — สเปกจริงคือโค้ดใน `source/qbnex.bas` และ `internal/c/*.cpp`.
-> ไฟล์นี้รวมพฤติกรรมที่ "ซ่อน" อยู่ เพื่อให้แต่ละข้อกลายเป็นกลุ่ม test ใน `conformance/`.
+> จุดประสงค์: ระบบเดิมไม่มีสเปกภาษาที่เป็นเอกสาร — สเปกจริงคือโค้ดใน `compiler/qbnex.bas` และ `internal/c/*.cpp`.
+> ไฟล์นี้รวมพฤติกรรมที่ "ซ่อน" อยู่ เพื่อให้แต่ละข้อกลายเป็นกลุ่ม test ใน `tests/conformance/`.
 > แต่ละข้อมี ref ไปที่โค้ดเดิม. ข้อที่ `Verify first: Yes` ต้องรันกับ binary เดิมยืนยันก่อน implement.
 
 ## 1. Lexing / Preprocessing
 
 | # | พฤติกรรม | Ref | หมายเหตุ |
 | --- | --- | --- | --- |
-| L1 | อ่านไฟล์: ตัด UTF-8 BOM, ปฏิเสธ UTF-16, ตรวจ UTF-8 ไม่ถูกต้อง | sources.bas:114-161 | `tests/encoding_smoke` |
+| L1 | อ่านไฟล์: ตัด UTF-8 BOM, ปฏิเสธ UTF-16, ตรวจ UTF-8 ไม่ถูกต้อง | sources.bas:114-161 | `tests/smoke/encoding_smoke` |
 | L2 | string literal เก็บเป็น byte; มี C-style octal escape ภายใน | parsing.bas:963-1017 | ต้องรักษา byte ที่ไม่ใช่ ASCII (CP437) |
 | L3 | line continuation `_` ท้ายบรรทัด | parsing.bas:1909-1939 | |
 | L4 | metacommand ในคอมเมนต์: `'$STATIC`, `'$DYNAMIC`, `'$INCLUDE:'f'`, `'$IMPORT:'m'` | parsing.bas:1843-1901 | |

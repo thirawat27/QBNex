@@ -4,22 +4,22 @@
 >
 > ผลต่อแผน (แทนที่ §3.2, §4, §5 ด้านล่างซึ่งคงไว้เป็นบันทึกทางเลือกเดิม):
 >
-> - **D2 = Runtime-first strangler ผ่าน C ABI.** compiler BASIC ยัง emit C++ fragment เหมือนเดิม; `internal/c/qbx.cpp` + fragment ยังถูก compile ด้วย g++ แต่ฟังก์ชันใน `libqb.cpp` และ `parts/*` ถูกแทนทีละ subsystem ด้วย crate Rust `qbrt` (staticlib `libqbrt.a`) ที่ export `extern "C"` ชื่อเดิม
+> - **D2 = Runtime-first strangler ผ่าน C ABI.** compiler BASIC ยัง emit C++ fragment เหมือนเดิม; `internal/c/qbx.cpp` + fragment ยังถูก compile ด้วย g++ แต่ฟังก์ชันใน `libqb.cpp` และ `parts/*` ถูกแทนทีละ subsystem ด้วย crate Rust `qb-runtime` (staticlib `libqb_runtime.a`) ที่ export `extern "C"` ชื่อเดิม
 > - **D1 ไม่ใช้แล้ว** — backend ยังเป็น C++ ผ่าน g++. ผลที่ตามมา: ผู้ใช้ **ยังต้องมี C++ compiler** และชั้นบาง ๆ C++ (`qbx.cpp` + glue) จะเหลืออยู่ตลอดตราบที่ compiler emit C++
 > - Struct ที่ generated code แตะตรง (`qbs`, array descriptor, `img_struct`, `mem_block`) ต้องเป็น `#[repr(C)]` layout เดิมเป๊ะ — ห้ามเปลี่ยน layout โดยไม่แก้ compiler พร้อมกัน
-> - **TDD + ลบ legacy ทันที (เจ้าของสั่ง 2026-11-09):** test Rust ก่อน → แดง → implement → differential กับสำเนา C++ legacy ใน `internal/c/qbrt/tests/legacy/` (ใช้ใน test เท่านั้น) → **ลบ C++ ออกจาก `libqb.cpp`** เหลือ shim 1 บรรทัด ไม่มี `#ifdef LEGACY`
-> - `libqbrt.a` build ตอน setup (เหมือน `libqb_setup.o`/`src.a`) และติดไปใน release bundle — **ผู้ใช้ไม่ต้องมี cargo**
+> - **TDD + ลบ legacy ทันที (เจ้าของสั่ง 2026-11-09):** test Rust ก่อน → แดง → implement → differential กับสำเนา C++ legacy ใน `tests/diff/legacy/` (ใช้ใน test เท่านั้น) → **ลบ C++ ออกจาก `libqb.cpp`** เหลือ shim 1 บรรทัด ไม่มี `#ifdef LEGACY`
+> - `libqb_runtime.a` build ตอน setup (เหมือน `libqb_setup.o`/`src.a`) และติดไปใน release bundle — **ผู้ใช้ไม่ต้องมี cargo**
 >
 > ### Phases ใหม่ (R = runtime)
 >
 > | Phase | งาน | Gate | สถานะ |
 > | --- | --- | --- | --- |
-> | R0 | Oracle: smoke tests เข้า CI, `conformance/` corpus + runner, golden outputs | CI รัน smoke + conformance 3 OS | **เสร็จ (local)**, CI ยังไม่ได้รันจริง |
-> | R1 | `internal/c/qbrt` crate, header C, build integration (CMake, setup scripts, `makeline_*.txt`, CI) + slice แรก: MBF (`msbin.cpp`) | self-host + smoke + conformance ผ่าน โดย MBF มาจาก Rust | **เสร็จ (Windows)** · `msbin.cpp/.c` ลบแล้ว |
+> | R0 | Oracle: smoke tests เข้า CI, `tests/conformance/` corpus + runner, golden outputs | CI รัน smoke + conformance 3 OS | **เสร็จ (local)**, CI ยังไม่ได้รันจริง |
+> | R1 | `crates/qb-runtime` crate, header C, build integration (CMake, setup scripts, `makeline_*.txt`, CI) + slice แรก: MBF (`msbin.cpp`) | self-host + smoke + conformance ผ่าน โดย MBF มาจาก Rust | **เสร็จ (Windows)** · `msbin.cpp/.c` ลบแล้ว |
 > | R2 | Leaf functions ไม่แตะ allocator: math, rounding (`qbr`), number↔string formatting, `VAL`, RND/TIMER | differential test Rust vs C++ legacy ผ่านบน input สุ่ม | **เสร็จ (Windows)** · rounding + `fpu_reinit`, RND/RANDOMIZE, VAL, STR$ formatting, TIMER — C++ legacy ลบแล้ว |
 > | R3 | String engine `qbs` (`#[repr(C)]`, allocator, tmp list, cleanup) | corpus ทั้งหมดผ่าน + benchmark ไม่ช้ากว่า 10% | pending |
 > | R4 | File I/O (`gfs_*`, OPEN/GET/PUT/FIELD), SHELL/ENV, `_MEM` | corpus file group ผ่าน | pending |
-> | R5 | Graphics software (`img_struct`, SCREEN, LINE/CIRCLE/PAINT/DRAW, palette, `_PUTIMAGE`) | framebuffer hash ตรง | **เสร็จ (Windows)** · software graphics ทั้งหมดอยู่ใน `qbrt/src/gfx`, C++ legacy ลบแล้ว (เหลือ orchestration ของ SCREEN/hardware images ไว้ให้ R8) |
+> | R5 | Graphics software (`img_struct`, SCREEN, LINE/CIRCLE/PAINT/DRAW, palette, `_PUTIMAGE`) | framebuffer hash ตรง | **เสร็จ (Windows)** · software graphics ทั้งหมดอยู่ใน `crates/qb-runtime/src/gfx`, C++ legacy ลบแล้ว (เหลือ orchestration ของ SCREEN/hardware images ไว้ให้ R8) |
 > | R6 | Audio (`audio.cpp` + miniaudio → cpal + synth Rust) | PCM offline ตรงภายใน tolerance | pending |
 > | R7 | Fonts + image codec (FreeType → skrifa + ab_glyph_rasterizer, stb_image/dr_pcx → Rust ports + `png`/`zune-jpeg`) | glyph/decoded image tests | done (Windows), ดู progress.md |
 > | R8 | Window/input/threads (freeglut+GLEW+gui.cpp → winit + softbuffer, atomic event flags) | interactive scripted tests 3 OS | pending |
@@ -77,23 +77,23 @@ qbnex/                      (Cargo workspace)
 │  ├─ qb-sema        name resolution, DEFtype ranges, OPTION BASE/_EXPLICIT, scopes, labels/line numbers,
 │  │                 consteval, overload by sigil, CLASS desugar, TopLevelRuntime → HIR (typed)
 │  ├─ qb-ir          CFG IR: blocks, explicit GOSUB stack ops, error regions, event-poll points, temp-string scopes
-│  ├─ qb-backend-vm  bytecode emitter + (ใน qbrt) interpreter        ← backend แรก (D1)
+│  ├─ qb-backend-vm  bytecode emitter + (ใน qb-runtime) interpreter        ← backend แรก (D1)
 │  ├─ qb-backend-clif Cranelift AOT → object file + linker            ← backend ที่สอง (D1)
 │  ├─ qb-driver      CLI (flags เดิม), config.ini, build cache, packaging exe
 │  │
-│  ├─ qbrt           core runtime: QbString(Vec<u8>), arrays, numeric (QB rounding, MBF), RND,
+│  ├─ qb-runtime           core runtime: QbString(Vec<u8>), arrays, numeric (QB rounding, MBF), RND,
 │  │                 PRINT/PRINT USING/INPUT formatting, file I/O (RANDOM/BINARY/FIELD), errors, events,
 │  │                 DATA/READ, CHAIN/COMMON, SHELL/ENVIRON/COMMAND$, _MEM, cmem emulation (D4)
-│  ├─ qbrt-gfx       software framebuffer: SCREEN 0–13 + 32-bit images, palette, PSET/LINE/CIRCLE/PAINT/DRAW,
+│  ├─ qb-runtime-gfx       software framebuffer: SCREEN 0–13 + 32-bit images, palette, PSET/LINE/CIRCLE/PAINT/DRAW,
 │  │                 _PUTIMAGE/_MAPTRIANGLE, bitmap fonts 8x8/8x16, image registry
-│  ├─ qbrt-window    winit (main thread) + softbuffer/pixels presenter, keyboard/mouse/gamepad → event queue
-│  ├─ qbrt-font      TTF ผ่าน fontdue หรือ ab_glyph (แทน FreeType)
-│  ├─ qbrt-audio     cpal output, SOUND/PLAY MML/_VOICE/_ADSR/_WAVE synth, _SND* (decoder: symphonia/lewton/minimp3)
-│  ├─ qbrt-net       TCP host/client (std::net)
-│  ├─ qbrt-sys       clipboard (arboard), _SCREENIMAGE (xcap หรือ platform API), printer (Windows, D8)
-│  └─ qbrt-gl        (ทางเลือก, D6) SUB _GL ผ่าน glow
-├─ stdlib/           ย้ายจาก source/stdlib (ยังเป็น .bas)
-├─ conformance/      corpus + expected outputs + runner (Phase 0)
+│  ├─ qb-runtime-window    winit (main thread) + softbuffer/pixels presenter, keyboard/mouse/gamepad → event queue
+│  ├─ qb-runtime-font      TTF ผ่าน fontdue หรือ ab_glyph (แทน FreeType)
+│  ├─ qb-runtime-audio     cpal output, SOUND/PLAY MML/_VOICE/_ADSR/_WAVE synth, _SND* (decoder: symphonia/lewton/minimp3)
+│  ├─ qb-runtime-net       TCP host/client (std::net)
+│  ├─ qb-runtime-sys       clipboard (arboard), _SCREENIMAGE (xcap หรือ platform API), printer (Windows, D8)
+│  └─ qb-runtime-gl        (ทางเลือก, D6) SUB _GL ผ่าน glow
+├─ stdlib/           ย้ายจาก compiler/stdlib (ยังเป็น .bas)
+├─ tests/conformance/      corpus + expected outputs + runner (Phase 0)
 └─ xtask/            งาน dev: regenerate golden, import registry จาก subs_functions.bas
 ```
 
@@ -108,13 +108,13 @@ flowchart LR
   diag[qb-diag] -.-> syntax & sema & driver
   driver[qb-driver] --> syntax
   driver --> vm & clif
-  layout --> qbrt
-  qbrt --> gfx[qbrt-gfx] --> win[qbrt-window]
-  qbrt --> audio[qbrt-audio]
-  qbrt --> net[qbrt-net] & sys[qbrt-sys]
-  gfx --> font[qbrt-font]
-  vm -.payload.-> stub[qbrt stub exe]
-  clif -.link.-> qbrt
+  layout --> qb-runtime
+  qb-runtime --> gfx[qb-runtime-gfx] --> win[qb-runtime-window]
+  qb-runtime --> audio[qb-runtime-audio]
+  qb-runtime --> net[qb-runtime-net] & sys[qb-runtime-sys]
+  gfx --> font[qb-runtime-font]
+  vm -.payload.-> stub[qb-runtime stub exe]
+  clif -.link.-> qb-runtime
 ```
 
 ### 3.2 Backend (D1 — ต้องอนุมัติ)
@@ -122,7 +122,7 @@ flowchart LR
 | ตัวเลือก | ข้อดี | ข้อเสีย |
 | --- | --- | --- |
 | **B. Bytecode VM + prebuilt runtime stub** (exe = stub + payload ต่อท้าย) | ไม่ต้องมี linker/compiler ฝั่งผู้ใช้เลย, compile เร็วมาก, ทำ parity ได้เร็ว, ใช้เป็น reference semantics | ช้ากว่า native (ประมาณ 3–10 เท่าสำหรับลูปตัวเลข — Assumed) |
-| **A. Cranelift AOT** (`cranelift-object` → `.o` → link กับ `qbrt` staticlib) | native speed, GOTO/label map ตรงกับ block ของ Cranelift | ยังต้องมี linker (bundle `lld`/`rust-lld` ได้, license Apache-2.0 w/ LLVM exception), งานมากกว่า |
+| **A. Cranelift AOT** (`cranelift-object` → `.o` → link กับ `qb-runtime` staticlib) | native speed, GOTO/label map ตรงกับ block ของ Cranelift | ยังต้องมี linker (bundle `lld`/`rust-lld` ได้, license Apache-2.0 w/ LLVM exception), งานมากกว่า |
 | C. Emit C + คง g++ | งานน้อยสุด | ไม่ตอบเป้าหมาย "Rust ทั้งหมด", ยังต้อง bundle GCC (GPL) |
 | D. Emit Rust source + rustc | — | Rust ไม่มี `goto` → ต้องแปลงเป็น state machine, compile ช้ามาก, ผู้ใช้ต้องมี rustc — **ไม่แนะนำ** |
 
@@ -146,7 +146,7 @@ flowchart LR
 
 เหตุผล: generated code ปัจจุบันแตะ field ของ `qbs`, array descriptor และ global ของ qbx.cpp ตรงๆ (README §5, debt F2) — ถ้าจะแทน libqb ทีละส่วนด้วย Rust ผ่าน C ABI ต้องเลียน layout C ทั้งหมดซึ่งจะถูกทิ้งเมื่อเปลี่ยน backend → งานเสียเปล่า. ทางที่คุ้มกว่าคือสร้างระบบใหม่คู่ขนาน แล้วใช้ `qb.exe` เดิมเป็น oracle จนกว่าจะผ่าน gate
 
-ทางเลือกที่ไม่แนะนำแต่เป็นไปได้: strangler runtime-first (Rust `qbrt` export `extern "C"` แทน libqb ทีละ subsystem) — ใช้เฉพาะถ้าต้องส่งมอบ Rust ระหว่างทางให้ผู้ใช้เวอร์ชันเดิม
+ทางเลือกที่ไม่แนะนำแต่เป็นไปได้: strangler runtime-first (Rust `qb-runtime` export `extern "C"` แทน libqb ทีละ subsystem) — ใช้เฉพาะถ้าต้องส่งมอบ Rust ระหว่างทางให้ผู้ใช้เวอร์ชันเดิม
 
 ## 5. Phases + Exit Gates
 
@@ -154,7 +154,7 @@ flowchart LR
 
 ### Phase 0 — Oracle & Freeze (≈1 PM) — ทำก่อนเขียน Rust บรรทัดแรก
 
-- สร้าง `conformance/` corpus: แตก `tests/fixtures` + โปรแกรมทดสอบต่อ keyword (เป้าหมาย ≥ 1 โปรแกรมต่อ builtin 354 ตัว, จัดกลุ่มตาม semantics-catalog)
+- สร้าง `tests/conformance/` corpus: แตก `tests/fixtures` + โปรแกรมทดสอบต่อ keyword (เป้าหมาย ≥ 1 โปรแกรมต่อ builtin 354 ตัว, จัดกลุ่มตาม semantics-catalog)
 - เพิ่ม **headless/capture mode** ให้ runtime เดิม (หรือใช้ `$CONSOLE:ONLY` + `_DEST _CONSOLE`) เพื่อจับ stdout, ไฟล์ที่เขียน, และ hash ของ framebuffer ทุก `_DISPLAY`/จบโปรแกรม
 - จับ diagnostics (stdout ของ compiler) ของโปรแกรมที่ตั้งใจให้ error
 - เอา smoke tests เข้า CI (ตอนนี้ไม่ได้รัน — debt F6)
@@ -166,28 +166,28 @@ flowchart LR
 - `qb-span`, `qb-diag`, `qb-syntax` (lexer + preprocessor + parser → AST), `qb-builtins` (import อัตโนมัติจาก `subs_functions.bas` ด้วย `xtask`)
 - `qb-sema`: symbol/type/scope/labels/DEFtype/consteval/CLASS desugar/`$NOPREFIX`
 - โหมด `qb check file.bas` = ทำแค่ diagnostics
-- **Gate:** diagnostics ของ corpus error ตรงกับเดิม (code + บรรทัด + คอลัมน์); parse ทั้ง `source/qbnex.bas` (โปรแกรม BASIC ใหญ่สุดที่มี) และ stdlib ได้ไม่ error — นี่เป็น stress test ที่ดีที่สุดเพราะใช้ฟีเจอร์ครบ
+- **Gate:** diagnostics ของ corpus error ตรงกับเดิม (code + บรรทัด + คอลัมน์); parse ทั้ง `compiler/qbnex.bas` (โปรแกรม BASIC ใหญ่สุดที่มี) และ stdlib ได้ไม่ error — นี่เป็น stress test ที่ดีที่สุดเพราะใช้ฟีเจอร์ครบ
 
 ### Phase 2 — IR + Core runtime + VM (≈4–6 PM)
 
 - `qb-ir` + lowering (control flow ทั้งหมดใน semantics-catalog §2)
-- `qbrt` core: strings, numeric, arrays, PRINT/INPUT/PRINT USING, file I/O, errors/RESUME, DATA/READ, GOSUB, ON TIMER, SHELL/ENVIRON, `_MEM`
+- `qb-runtime` core: strings, numeric, arrays, PRINT/INPUT/PRINT USING, file I/O, errors/RESUME, DATA/READ, GOSUB, ON TIMER, SHELL/ENVIRON, `_MEM`
 - `qb-backend-vm` + stub exe packaging
 - **Gate:** corpus กลุ่ม console/ไฟล์/คณิตศาสตร์ ผ่าน ≥ 99%; `qb` ใหม่ compile โปรแกรมของ stdlib smoke test ได้ผลตรง
 
 ### Phase 3 — Graphics, Window, Input, Fonts (≈3–4 PM)
 
-- `qbrt-gfx` (software rasterizer เทียบ pixel กับ golden hash), `qbrt-window`, `qbrt-font`
+- `qb-runtime-gfx` (software rasterizer เทียบ pixel กับ golden hash), `qb-runtime-window`, `qb-runtime-font`
 - **Gate:** framebuffer hash ตรงกับเดิมสำหรับ SCREEN 0/7/9/12/13/32-bit; input events ทดสอบด้วย scripted input
 
 ### Phase 4 — Audio, Net, Sys (≈2–3 PM)
 
-- `qbrt-audio` (SOUND/PLAY/synth เทียบ PCM ที่ render offline), `qbrt-net`, `qbrt-sys`, printer (D8)
+- `qb-runtime-audio` (SOUND/PLAY/synth เทียบ PCM ที่ render offline), `qb-runtime-net`, `qb-runtime-sys`, printer (D8)
 - **Gate:** PCM ของ PLAY/SOUND/`_WAVE` ตรงภายใน tolerance; TCP loopback tests ผ่าน
 
 ### Phase 5 — Native backend (≈3–5 PM)
 
-- `qb-backend-clif` + bundle linker; benchmark เทียบ g++ build เดิม (`tests/benchmark_smoke`)
+- `qb-backend-clif` + bundle linker; benchmark เทียบ g++ build เดิม (`tests/smoke/benchmark_smoke`)
 - **Gate:** corpus ทั้งหมดผ่านบน backend native เท่ากับ VM; perf ไม่ต่ำกว่าเดิมเกิน X% (กำหนดใน D1)
 
 ### Phase 6 — Cutover & Cleanup (≈1–2 PM)
@@ -230,8 +230,8 @@ flowchart LR
 | build cache fingerprint (linker.bas:147-237) | `qb-driver::cache` (hash ของ IR) | |
 | `qbs` + `qbs_tmp_list` + arena | `QbString` (`Vec<u8>`) | |
 | array descriptor `ptrszint[4n+5]` | `QbArray { dims: SmallVec<[Dim;2]>, data: Box<[u8]> }` | LBOUND/UBOUND/ REDIM PRESERVE semantics |
-| `gfs_file_struct` | `qbrt::fs::FileTable` | FIELD, RANDOM record len, COM syntax (D7) |
-| `img_struct` + `img` registry | `qbrt-gfx::ImageRegistry` (handle = negative long เหมือนเดิม) | |
+| `gfs_file_struct` | `qb_runtime::fs::FileTable` | FIELD, RANDOM record len, COM syntax (D7) |
+| `img_struct` + `img` registry | `qb-runtime-gfx::ImageRegistry` (handle = negative long เหมือนเดิม) | |
 | freeglut + GLEW + gui.cpp | winit + softbuffer/pixels | |
 | FreeType amalgam | fontdue / ab_glyph | ผล rasterize อาจต่าง 1px → tolerance |
 | miniaudio + audio.cpp | cpal + synth เดิม port ตรง | |
@@ -244,11 +244,11 @@ flowchart LR
 
 ## 7. Testing Strategy
 
-1. **Differential conformance** (หลัก): `conformance/run` compile ด้วยทั้ง `qb-legacy` และ `qb` ใหม่ → เทียบ stdout, ไฟล์ output, framebuffer hash, PCM hash, exit code
+1. **Differential conformance** (หลัก): `tests/conformance/run` compile ด้วยทั้ง `qb-legacy` และ `qb` ใหม่ → เทียบ stdout, ไฟล์ output, framebuffer hash, PCM hash, exit code
 2. **Snapshot tests** (`insta`) ของ AST/HIR/IR/diagnostics
-3. **Unit + property tests** ใน `qbrt` (เช่น `STR$`/`VAL` round-trip, PRINT USING, MBF, RND sequence)
+3. **Unit + property tests** ใน `qb-runtime` (เช่น `STR$`/`VAL` round-trip, PRINT USING, MBF, RND sequence)
 4. **Fuzzing** (`cargo-fuzz`) ของ lexer/parser/preprocessor — ระบบเดิมไม่มี
-5. **Self-test ขนาดใหญ่:** compile `source/qbnex.bas` เดิม (40k บรรทัด) ด้วย compiler ใหม่ แล้วให้มัน compile corpus — ถ้าผลตรง แปลว่า semantics ของภาษาเกือบครบ
+5. **Self-test ขนาดใหญ่:** compile `compiler/qbnex.bas` เดิม (40k บรรทัด) ด้วย compiler ใหม่ แล้วให้มัน compile corpus — ถ้าผลตรง แปลว่า semantics ของภาษาเกือบครบ
 
 ## 8. Safe Next Actions (เรียงลำดับ)
 

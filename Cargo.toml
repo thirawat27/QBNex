@@ -1,9 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "internal/c/qbrt",
-    "internal/c/qbrun",
-    "conformance",
+    "crates/qb-runtime",
+    "crates/qb-audio",
+    "crates/qb-exec",
+    "tests/conformance",
 ]
 
 [workspace.package]

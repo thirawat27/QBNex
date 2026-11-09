@@ -15,7 +15,7 @@ internal/c/build_cache/
 internal/c/qbx[2-9].cpp
 internal/c/pch/
 *.ttf
-!internal/c/qbrt/tests/data/fonts/*.ttf
+!tests/diff/data/fonts/*.ttf
 /run_qbnex.sh
 /qbnex
 .fake
@@ -30,7 +30,7 @@ build.cmd
 !docs/
 !docs/*.md
 !docs/**/*.md
-!internal/c/qbrt/**/*.md
+!crates/**/*.md
 dist/
 dist-*
 *.log
@@ -43,4 +43,7 @@ build/
 
 # Legacy oracle build (conformance golden source)
 /.oracle/
-/internal/c/qbrt/os/*/libqbrt.stamp
+/crates/*/os/*/*.stamp
+
+# Prebuilt QIR runner (crates/qb-exec/os/<os>/setup_build output)
+/crates/qb-exec/bin/

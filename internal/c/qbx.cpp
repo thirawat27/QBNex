@@ -657,7 +657,7 @@ uint32 inclercl;
 char* includedfilename;
 uint16 call_absolute_offsets[256];
 uint32 dbgline;
-extern uint32 qbs_cmem_sp;//=256, defined by the Rust string engine (qbrt/src/qbs.rs)
+extern uint32 qbs_cmem_sp;//=256, defined by the Rust string engine (crates/qb-runtime/src/qbs.rs)
 uint32 cmem_sp=65536;
 ptrszint dblock;//32bit offset of dblock
 uint8 close_program=0;
@@ -668,7 +668,7 @@ int32 tab_LPRINT=0;//1=dest is LPRINT image
 uint64 *nothingvalue;//a pointer to 8 empty bytes in dblock
 uint32 error_err=0;
 double error_erl=0;
-extern uint32 qbs_tmp_list_nexti;//=1, defined by the Rust string engine (qbrt/src/qbs.rs)
+extern uint32 qbs_tmp_list_nexti;//=1, defined by the Rust string engine (crates/qb-runtime/src/qbs.rs)
 uint32 error_occurred=0;
 uint32 new_error=0;
 uint32 bkp_new_error=0;
@@ -789,11 +789,11 @@ void swap_block(void *a, void *b, uint32 bytes){
         *b8++ = c;
     }
 }
-extern "C" void qbrt_qbs_cleanup(uint32 base);//Rust string engine; the tmp list is not visible to C++ (fixes debt F2)
+extern "C" void qb_qbs_cleanup(uint32 base);//Rust string engine; the tmp list is not visible to C++ (fixes debt F2)
 template <typename T> static inline T qbs_cleanup(uint32 base, T passvalue){
     // Fast-path: no temp strings were created since last cleanup
     if (qbs_tmp_list_nexti == base) return passvalue;
-    qbrt_qbs_cleanup(base);
+    qb_qbs_cleanup(base);
     return passvalue;
 }
 

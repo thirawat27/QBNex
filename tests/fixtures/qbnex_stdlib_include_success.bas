@@ -1,4 +1,4 @@
-'$INCLUDE:'source/stdlib/qbnex_stdlib.bas'
+'$INCLUDE:'compiler/stdlib/qbnex_stdlib.bas'
 
 DIM version$
 

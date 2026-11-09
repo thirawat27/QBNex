@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  qbnex:
+    build:
+      # Build context is the repository root; the Dockerfiles live in docker/
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: qbnex:latest
+    volumes:
+      # Mount the repository root for easy access to source files
+      - ..:/project
+    working_dir: /project
+    # Allow access to display for graphics (optional)
+    environment:
+      - DISPLAY=${DISPLAY:-}
+    # Network access for TCP/IP examples
+    network_mode: host
+    # Standard input and tty for interactive programs
+    stdin_open: true
+    tty: true
+
+  # Development service with hot reload
+  qbnex-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    image: qbnex-dev:latest
+    volumes:
+      - ..:/project
+    working_dir: /project
+    environment:
+      - DISPLAY=${DISPLAY:-}
+    network_mode: host
+    stdin_open: true
+    tty: true

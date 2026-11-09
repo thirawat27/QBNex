@@ -1,0 +1,19 @@
+[package]
+name = "qb-exec"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "R11 spike: prebuilt runner that executes QBNex IR (QIR) emitted by the BASIC compiler with `--ir`. No C++ compiler needed at user compile time."
+publish = false
+
+[lib]
+name = "qb_exec"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qb-exec"
+path = "src/main.rs"
+
+[dependencies]
+qb-runtime = { path = "../qb-runtime" }

@@ -1,18 +1,18 @@
 // gamepad_bridge.cpp — _DEVICES/_DEVICEINPUT/STRIG glue for the Rust gamepad
-// backend (internal/c/qbrt/src/gamepad.rs, gilrs). Replaces
+// backend (crates/qb-runtime/src/gamepad.rs, gilrs). Replaces
 // internal/c/parts/input/game_controller (libstem gamepad + src.c glue).
 // The device bookkeeping below is the legacy src.c logic with the library
 // structs replaced by plain arguments.
 
 extern "C" {
-    typedef struct qbrt_gamepad_callbacks {
+    typedef struct qb_gamepad_callbacks {
         void (*attached)(uint32_t id, const char *name, int32_t vendor, int32_t product, int32_t axes, int32_t buttons);
         void (*removed)(uint32_t id);
         void (*button)(uint32_t id, int32_t button, int32_t down);
         void (*axis)(uint32_t id, int32_t axis, float value);
-    } qbrt_gamepad_callbacks;
-    void qbrt_gamepad_poll(const qbrt_gamepad_callbacks *cb);
-    void qbrt_gamepad_shutdown(void);
+    } qb_gamepad_callbacks;
+    void qb_gamepad_poll(const qb_gamepad_callbacks *cb);
+    void qb_gamepad_shutdown(void);
 }
 
 static void gamepad_button_down(uint32 deviceID, int32 button){
@@ -127,19 +127,19 @@ static void gamepad_removed(uint32 deviceID){
 }
 
 extern "C" {
-    static void qbrt_gp_attached(uint32_t id,const char *name,int32_t vendor,int32_t product,int32_t axes,int32_t buttons){ gamepad_attached(id,name,vendor,product,axes,buttons); }
-    static void qbrt_gp_removed(uint32_t id){ gamepad_removed(id); }
-    static void qbrt_gp_button(uint32_t id,int32_t button,int32_t down){ if (down) gamepad_button_down(id,button); else gamepad_button_up(id,button); }
-    static void qbrt_gp_axis(uint32_t id,int32_t axis,float value){ gamepad_axis(id,axis,value); }
+    static void qb_gp_attached(uint32_t id,const char *name,int32_t vendor,int32_t product,int32_t axes,int32_t buttons){ gamepad_attached(id,name,vendor,product,axes,buttons); }
+    static void qb_gp_removed(uint32_t id){ gamepad_removed(id); }
+    static void qb_gp_button(uint32_t id,int32_t button,int32_t down){ if (down) gamepad_button_down(id,button); else gamepad_button_up(id,button); }
+    static void qb_gp_axis(uint32_t id,int32_t axis,float value){ gamepad_axis(id,axis,value); }
 }
 
 void QBNex_GAMEPAD_INIT(){
     //the gilrs context is created by the first poll, on the MAIN_LOOP thread
 }
 void QBNex_GAMEPAD_POLL(){
-    static qbrt_gamepad_callbacks cb={qbrt_gp_attached,qbrt_gp_removed,qbrt_gp_button,qbrt_gp_axis};
-    qbrt_gamepad_poll(&cb);
+    static qb_gamepad_callbacks cb={qb_gp_attached,qb_gp_removed,qb_gp_button,qb_gp_axis};
+    qb_gamepad_poll(&cb);
 }
 void QBNex_GAMEPAD_SHUTDOWN(){
-    qbrt_gamepad_shutdown();
+    qb_gamepad_shutdown();
 }

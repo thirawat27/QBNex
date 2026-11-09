@@ -6,7 +6,7 @@
 //                                       |___/                                |__/
 //
 //  QBNex Image Library
-//  Decoding by the Rust runtime (internal/c/qbrt/src/image, ported from stb_image & dr_pcx)
+//  Decoding by the Rust runtime (crates/qb-runtime/src/image, ported from stb_image & dr_pcx)
 //
 //  Copyright (c) 2022 Samuel Gomes
 //  https://github.com/a740g
@@ -19,8 +19,8 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed);
 
 #else
 // The decoders (dr_pcx 0.3.1 and stb_image 2.27 ports, PNG/JPEG crates) and the 8bpp
-// quantizer/palette remapper live in Rust since phase R7: internal/c/qbrt/src/image/,
-// declared in qbrt.h. Deviations from the old decoders: docs/rust-port/progress.md (D-R7-1..D-R7-5).
+// quantizer/palette remapper live in Rust since phase R7: crates/qb-runtime/src/image/,
+// declared in qb_runtime.h. Deviations from the old decoders: docs/rust-port/progress.md (D-R7-1..D-R7-5).
 
 /// <summary>
 /// This function loads an image into memory and returns valid LONG image handle values that are less than -1.
@@ -91,7 +91,7 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed)
 
     int32_t x, y;
     // Decode (PCX first, then the stb_image formats); the pixels come back as BGRA
-    auto pixels = qbrt_image_decode(content, lof, &x, &y);
+    auto pixels = qb_image_decode(content, lof, &x, &y);
 
     // Free the memory holding the file
     free(content);
@@ -119,7 +119,7 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed)
             return -1;
         }
 
-        auto pixels256 = qbrt_image_to_8bpp(pixels, x, y, palette);
+        auto pixels256 = qb_image_to_8bpp(pixels, x, y, palette);
         if (!pixels256)
         {
             free(palette);
@@ -140,7 +140,7 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed)
         else
         {
             // Remap the image indexes to QBNex default palette and then free our palette
-            qbrt_image_remap_palette(pixels256, x, y, palette, palette_256);
+            qb_image_remap_palette(pixels256, x, y, palette, palette_256);
             free(palette);
 
             // Copy the 8bpp pixel data and then free it
@@ -162,7 +162,7 @@ int32_t func__loadimage(qbs *f, int32_t bpp, int32_t passed)
         memcpy(img[-i].offset, pixels, x * y * sizeof(uint32_t));
     }
 
-    // Free pixel memory (qbrt allocates it with malloc)
+    // Free pixel memory (qb-runtime allocates it with malloc)
     free(pixels);
 
     // This only executes if bpp is 32

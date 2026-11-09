@@ -1,2 +1,2 @@
-internal/c/qbrt/src/gfx/data/*.bin binary
-conformance/cases/**/*.fb text eol=lf
+crates/qb-runtime/src/gfx/data/*.bin binary
+tests/conformance/cases/**/*.fb text eol=lf

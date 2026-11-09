@@ -49,7 +49,7 @@
 - **ห้าม**ใช้ `internal/source/*.txt` เป็นตัวอย่าง codegen ปัจจุบัน — มันล้าหลัง (F1). ถ้าต้องการ output ปัจจุบันให้รัน `qb -z file.bas` แล้วดู `internal/temp/`
 - **ห้าม**เชื่อ `.eniac-plan.md` เรื่อง `runtime/` — ไม่มีอยู่จริง (F12)
 - `build/` เป็น output ที่ gitignore ไม่ใช่ source
-- จุดเริ่มอ่านโค้ด compiler: `source/qbnex.bas:1431` (prepass), `:2542` (main pass), `:10937` (recompile), `:11485` (native build)
+- จุดเริ่มอ่านโค้ด compiler: `compiler/qbnex.bas:1431` (prepass), `:2542` (main pass), `:10937` (recompile), `:11485` (native build)
 - จุดเริ่มอ่าน runtime: `internal/c/qbx.cpp:2100` (`evnt`), `:2170-2214` (QBMAIN shell), `internal/c/libqb.cpp:28334` (`main`), `:6432` (`fix_error`), `:6763-7140` (string engine)
 - ทุกพฤติกรรมใหม่ที่ implement ต้องมี conformance test ที่เทียบกับ binary เดิม — ถ้าต่าง ให้บันทึกเป็น deviation พร้อมเหตุผล ไม่ใช่ "แก้ให้ถูก" เอง
 - Proposed ทุกข้อใน `port-plan.md` ยังไม่อนุมัติ — อย่าสร้าง Cargo workspace ก่อน D1/D2/D10 ได้คำตอบ

@@ -9,7 +9,7 @@
     {
       "name": "windows-mingw",
       "displayName": "Windows MinGW",
-      "description": "Windows build using MinGW toolchain installed by setup_win.cmd",
+      "description": "Windows build using MinGW toolchain installed by scripts/setup_win.cmd",
       "generator": "MinGW Makefiles",
       "binaryDir": "${sourceDir}/build/windows-mingw",
       "condition": {

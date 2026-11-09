@@ -26,11 +26,11 @@ QBNex คือ **BASIC compiler แบบ CLI** ที่ fork จาก QB64 (
 
 | ชั้น | ภาษา | ขนาด (first-party) | หลักฐาน |
 | --- | --- | --- | --- |
-| Compiler (front/middle/back end) | **QB64 BASIC** (self-hosted) | ~39.6k บรรทัด `.bas` (qbnex.bas 13.8k) | `source/**` — Direct |
+| Compiler (front/middle/back end) | **QB64 BASIC** (self-hosted) | ~39.6k บรรทัด `.bas` (qbnex.bas 13.8k) | `compiler/**` — Direct |
 | Runtime ที่ลิงก์กับโปรแกรมผู้ใช้ | **C++** | libqb.cpp 31.2k + qbx.cpp 2.2k + gui.cpp 2.2k + audio.cpp 2.8k + อื่นๆ ≈ 40k | `internal/c/**` — Direct |
 | Third-party vendored | C/C++ | ≈ 600k+ บรรทัด (freeglut, GLEW, FreeType amalgam, miniaudio, stb_*, libxmp-lite, tinysoundfont, minimp3, zlib) | `internal/c/parts/**` — Direct |
 | Bootstrap snapshot | C++ ที่ generate ไว้แล้ว | 818 ไฟล์, 6.9 MB | `internal/source/*.txt` — Direct |
-| Stdlib สำหรับผู้ใช้ | BASIC | 18 โมดูล | `source/stdlib/**` — Direct |
+| Stdlib สำหรับผู้ใช้ | BASIC | 18 โมดูล | `compiler/stdlib/**` — Direct |
 
 ดังนั้น "port C → Rust ทั้งหมด" ในทางปฏิบัติหมายถึง **เขียนใหม่ 2 ระบบ**: (1) compiler ที่ตอนนี้เขียนด้วย BASIC และ (2) runtime C++ — พร้อมเลือก backend ใหม่แทนการ emit C++ แล้วเรียก g++
 
@@ -39,7 +39,7 @@ QBNex คือ **BASIC compiler แบบ CLI** ที่ fork จาก QB64 (
 ```mermaid
 flowchart LR
   user[ผู้ใช้: ไฟล์ .bas] --> qb[qb / qb.exe<br/>compiler ที่ self-host แล้ว]
-  stdlib[source/stdlib/*.bas<br/>$IMPORT] --> qb
+  stdlib[compiler/stdlib/*.bas<br/>$IMPORT] --> qb
   cfg[internal/config.ini] --> qb
   qb -->|เขียน fragment C++| temp[internal/temp/*.txt]
   temp --> qbx[internal/c/qbx.cpp<br/>#include fragments]
@@ -51,7 +51,7 @@ flowchart LR
 ```
 
 - ผู้ใช้ปลายทาง **ต้องมี C++ compiler ตอน compile** (README.md:2184-2197; linker.bas:208-215 อ่าน `makeline_*.txt`) — Direct
-- Windows: MinGW (WinLibs GCC 15.2.0) ดาวน์โหลดโดย `setup_win.cmd:71-105` ไม่ได้ commit — Direct
+- Windows: MinGW (WinLibs GCC 15.2.0) ดาวน์โหลดโดย `scripts/setup_win.cmd:71-105` ไม่ได้ commit — Direct
 - ไม่มี backend/DB/network service ภายนอก. Network มีแค่ TCP API ให้โปรแกรมผู้ใช้ (libqb.cpp ~22680-23365) — Direct
 - `$IMPORT:'url'` **ไม่ใช่** remote import — เป็นแค่โมดูล parse URL (imports.bas:47-75, tests/fixtures/url_import_success.bas) — Direct
 
@@ -72,7 +72,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  subgraph Compiler["Compiler (BASIC) — source/"]
+  subgraph Compiler["Compiler (BASIC) — compiler/"]
     cli[utilities/cli.bas<br/>flags] --> drv[qbnex.bas<br/>top-level driver ~1150 GOTO]
     src[utilities/sources.bas<br/>อ่านไฟล์, UTF-8 check] --> pre
     pre[utilities/prepass.bas<br/>NextPrepassLine$] --> cls[utilities/classes.bas<br/>CLASS lowering แบบ text + TopLevelRuntime]
@@ -133,30 +133,30 @@ sequenceDiagram
 
 ### 5.3 Bootstrap flow (Direct, CMakeLists.txt)
 
-`internal/source/*` (snapshot C++ ของ compiler เวอร์ชันเก่า) → copy ไป `internal/temp` → `g++ qbx.cpp` = `qb-stage0` → `qb-stage0 source/qbnex.bas -o qb.exe` (CMakeLists.txt:115-210). **ไม่มีสคริปต์ refresh snapshot** และ snapshot ล้าหลัง source ปัจจุบัน (ไม่มี `TOPLEVELRUNTIME_INJECTMAINHOOK`) — Direct/Inferred
+`internal/source/*` (snapshot C++ ของ compiler เวอร์ชันเก่า) → copy ไป `internal/temp` → `g++ qbx.cpp` = `qb-stage0` → `qb-stage0 compiler/qbnex.bas -o qb.exe` (CMakeLists.txt:115-210). **ไม่มีสคริปต์ refresh snapshot** และ snapshot ล้าหลัง source ปัจจุบัน (ไม่มี `TOPLEVELRUNTIME_INJECTMAINHOOK`) — Direct/Inferred
 
 ## 6. File Responsibility Map (ส่วนที่เกี่ยวกับการ port)
 
 | ไฟล์ | หน้าที่ | ใน Rust จะไปอยู่ที่ |
 | --- | --- | --- |
-| `source/qbnex.bas` | driver, statement handlers, emitter, include manager, recompile loop | `qb-driver`, `qb-sema`, `qb-lower` |
-| `source/utilities/parsing.bas` | tokenizer `lineformat$`, `fixoperationorder$`, `evaluateconst$` | `qb-syntax` |
-| `source/utilities/semantics.bas` | expression typing + emit (`evaluate$`, `evaluatetotyp$`, `seperateargs`) | `qb-sema` |
-| `source/utilities/{symbols,hash,variables,udts,types,labels}.bas` | symbol table, hash, type encoding, array descriptors, labels | `qb-sema` |
-| `source/utilities/consteval.bas` | CONST evaluator แยก | `qb-sema::consteval` |
-| `source/utilities/directives.bas` | `$IF/$LET/$ERROR/$VERSIONINFO/$EXEICON`, metacommands | `qb-syntax::preproc` |
-| `source/utilities/classes.bas` | CLASS → TYPE + SUB lowering (text), TopLevelRuntime | `qb-sema::oop` (AST desugar) |
-| `source/utilities/imports.bas` | `$IMPORT` resolver | `qb-syntax::loader` |
-| `source/subs_functions/subs_functions.bas` | builtin registry (354 ชื่อ, 348 C callname) | `qb-builtins` (ตารางข้อมูล) |
-| `source/utilities/error_handler*.bas`, `errors.bas` | diagnostics + renderer | `qb-diag` |
-| `source/utilities/{linker,dependencies,artifacts}.bas` | toolchain, build cache, icon/manifest | `qb-driver::build` |
-| `internal/c/qbx.cpp` | QBMAIN shell, evnt/events, GOSUB stack, cmem, ON TIMER | `qbrt::exec` |
-| `internal/c/libqb.cpp` | runtime ทั้งหมด (unity build) | `qbrt*` crates |
-| `internal/c/libqb/gui.cpp` | GL display | `qbrt-window` |
-| `internal/c/parts/audio/out/audio.cpp` | SOUND/PLAY/_SND*/synth | `qbrt-audio` |
-| `internal/c/msbin.cpp`, `mtri*.cpp`, `time64.*` | MBF, _MAPTRIANGLE, time | `qbrt::num`, `qbrt-gfx` |
+| `compiler/qbnex.bas` | driver, statement handlers, emitter, include manager, recompile loop | `qb-driver`, `qb-sema`, `qb-lower` |
+| `compiler/utilities/parsing.bas` | tokenizer `lineformat$`, `fixoperationorder$`, `evaluateconst$` | `qb-syntax` |
+| `compiler/utilities/semantics.bas` | expression typing + emit (`evaluate$`, `evaluatetotyp$`, `seperateargs`) | `qb-sema` |
+| `compiler/utilities/{symbols,hash,variables,udts,types,labels}.bas` | symbol table, hash, type encoding, array descriptors, labels | `qb-sema` |
+| `compiler/utilities/consteval.bas` | CONST evaluator แยก | `qb-sema::consteval` |
+| `compiler/utilities/directives.bas` | `$IF/$LET/$ERROR/$VERSIONINFO/$EXEICON`, metacommands | `qb-syntax::preproc` |
+| `compiler/utilities/classes.bas` | CLASS → TYPE + SUB lowering (text), TopLevelRuntime | `qb-sema::oop` (AST desugar) |
+| `compiler/utilities/imports.bas` | `$IMPORT` resolver | `qb-syntax::loader` |
+| `compiler/subs_functions/subs_functions.bas` | builtin registry (354 ชื่อ, 348 C callname) | `qb-builtins` (ตารางข้อมูล) |
+| `compiler/utilities/error_handler*.bas`, `errors.bas` | diagnostics + renderer | `qb-diag` |
+| `compiler/utilities/{linker,dependencies,artifacts}.bas` | toolchain, build cache, icon/manifest | `qb-driver::build` |
+| `internal/c/qbx.cpp` | QBMAIN shell, evnt/events, GOSUB stack, cmem, ON TIMER | `qb_runtime::exec` |
+| `internal/c/libqb.cpp` | runtime ทั้งหมด (unity build) | `qb-runtime*` crates |
+| `internal/c/libqb/gui.cpp` | GL display | `qb-runtime-window` |
+| `internal/c/parts/audio/out/audio.cpp` | SOUND/PLAY/_SND*/synth | `qb-runtime-audio` |
+| `internal/c/msbin.cpp`, `mtri*.cpp`, `time64.*` | MBF, _MAPTRIANGLE, time | `qb_runtime::num`, `qb-runtime-gfx` |
 | `internal/support/vwatch/*` | debugger hook (dormant) | ตัดสินใจทีหลัง (D9) |
-| `source/stdlib/**` | stdlib BASIC | **คงเป็น BASIC** — compile ด้วย compiler ใหม่ |
+| `compiler/stdlib/**` | stdlib BASIC | **คงเป็น BASIC** — compile ด้วย compiler ใหม่ |
 | `tests/**` | smoke tests | ขยายเป็น conformance corpus |
 
 ## 7. ขอบเขตที่ข้าม (Skipped areas)

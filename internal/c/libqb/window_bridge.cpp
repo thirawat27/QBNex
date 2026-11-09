@@ -1,11 +1,11 @@
 // window_bridge.cpp — glue between libqb.cpp and the Rust window layer
-// (internal/c/qbrt/src/window.rs, raster.rs, keybuf.rs). Included by libqb.cpp
+// (crates/qb-runtime/src/window.rs, raster.rs, keybuf.rs). Included by libqb.cpp
 // in place of the old libqb/gui.cpp (freeglut + OpenGL presenter).
 //
 // Composition model: the thread that builds a display frame (MAIN_LOOP, or
 // the program thread on _DISPLAY) also composes it here — software SCREEN
-// plus "hardware" image commands, rendered in software by qbrt_hw_* — and
-// hands the result to qbrt_window_present(). The window thread only scales it.
+// plus "hardware" image commands, rendered in software by qb_hw_* — and
+// hands the result to qb_window_present(). The window thread only scales it.
 // display_frame[] and the hardware command list are therefore touched by one
 // thread at a time (present_mutex), which removes the GLUT-thread races (F3).
 
@@ -131,7 +131,7 @@ int32 src_x1,int32 src_y1,int32 src_x2,int32 src_y2,int32 use_alpha,int32 smooth
     hardware_img_struct *s=hw_source(src_img); if (!s) return;
     int32 dr[4]={dst_x1,dst_y1,dst_x2,dst_y2};
     int32 sr[4]={src_x1,src_y1,src_x2,src_y2};
-    qbrt_hw_put(d.px,d.w,d.h,s->software_pixel_buffer,s->w,s->h,dr,sr,use_alpha,smooth);
+    qb_hw_put(d.px,d.w,d.h,s->software_pixel_buffer,s->w,s->h,dr,sr,use_alpha,smooth);
 }
 
 void hardware_img_tri2d(float dst_x1,float dst_y1,float dst_x2,float dst_y2,float dst_x3,float dst_y3,
@@ -141,7 +141,7 @@ int32 use_alpha,int32 smooth){
     hardware_img_struct *s=hw_source(src_img); if (!s) return;
     float dv[6]={dst_x1,dst_y1,dst_x2,dst_y2,dst_x3,dst_y3};
     float sv[6]={src_x1,src_y1,src_x2,src_y2,src_x3,src_y3};
-    qbrt_hw_tri2d(d.px,d.w,d.h,s->software_pixel_buffer,s->w,s->h,dv,sv,use_alpha,smooth);
+    qb_hw_tri2d(d.px,d.w,d.h,s->software_pixel_buffer,s->w,s->h,dv,sv,use_alpha,smooth);
 }
 
 void hardware_img_tri3d(float dst_x1,float dst_y1,float dst_z1,float dst_x2,float dst_y2,float dst_z2,float dst_x3,float dst_y3,float dst_z3,
@@ -151,7 +151,7 @@ int32 use_alpha,int32 smooth,int32 cull_mode,int32 depthbuffer_mode){
     hardware_img_struct *s=hw_source(src_img); if (!s) return;
     float dv[9]={dst_x1,dst_y1,dst_z1,dst_x2,dst_y2,dst_z2,dst_x3,dst_y3,dst_z3};
     float sv[6]={src_x1,src_y1,src_x2,src_y2,src_x3,src_y3};
-    qbrt_hw_tri3d(d.px,d.w,d.h,d.depth,s->software_pixel_buffer,s->w,s->h,dv,sv,use_alpha,smooth,cull_mode,depthbuffer_mode);
+    qb_hw_tri3d(d.px,d.w,d.h,d.depth,s->software_pixel_buffer,s->w,s->h,dv,sv,use_alpha,smooth,cull_mode,depthbuffer_mode);
 }
 
 void clear_depthbuffer(int32 dst_img){
@@ -161,7 +161,7 @@ void clear_depthbuffer(int32 dst_img){
 
 static void present_update_environment(){
     int32 l[8]; float sc[2];
-    qbrt_layout(environment_2d__screen_width,environment_2d__screen_height,environment__window_width,environment__window_height,
+    qb_layout(environment_2d__screen_width,environment_2d__screen_height,environment__window_width,environment__window_height,
     full_screen,fullscreen_smooth,resize_auto,l,sc);
     environment_2d__screen_x1=l[0]; environment_2d__screen_y1=l[1];
     environment_2d__screen_x2=l[2]; environment_2d__screen_y2=l[3];
@@ -239,13 +239,13 @@ void present_frame(){
                 }
                 resize_auto_accept_aspect=(float)x/(float)y;
                 resize_pending=1;
-                qbrt_window_set_size(x,y);
+                qb_window_set_size(x,y);
                 goto auto_resized;
             }
         }//resize_auto
         if ((display_required_x!=display_x)||(display_required_y!=display_y)){
             if (resize_snapback||framesize_changed){
-                qbrt_window_set_size(display_required_x,display_required_y);
+                qb_window_set_size(display_required_x,display_required_y);
                 resize_pending=1;
             }
         }
@@ -258,13 +258,13 @@ void present_frame(){
                 if (full_screen!=0){
                     //exit full screen
                     resize_pending=1;
-                    qbrt_window_set_fullscreen(0);
-                    qbrt_window_set_size(display_frame[i].w,display_frame[i].h);
+                    qb_window_set_fullscreen(0);
+                    qb_window_set_size(display_frame[i].w,display_frame[i].h);
                 }
                 full_screen=0;
                 full_screen_set=-1;
             }else{
-                if (full_screen==0) qbrt_window_set_fullscreen(1);
+                if (full_screen==0) qb_window_set_fullscreen(1);
                 full_screen=full_screen_set;
                 full_screen_set=-1;
             }
@@ -289,7 +289,7 @@ void present_frame(){
                 memcpy(present_buffer.data(),display_frame[i].bgra,(size_t)present_w*(size_t)present_h*4);
             }else{
                 int32 dr[4]={0,0,present_w-1,present_h-1};
-                qbrt_hw_put(present_buffer.data(),present_w,present_h,display_frame[i].bgra,present_w,present_h,dr,dr,1,0);
+                qb_hw_put(present_buffer.data(),present_w,present_h,display_frame[i].bgra,present_w,present_h,dr,dr,1,0);
             }
         }
         if (level==displayorder_hardware||level==displayorder_hardware1){
@@ -351,7 +351,7 @@ void present_frame(){
         }
     }//level
     last_rendered_hardware_display_frame_order=last_hardware_display_frame_order;
-    if (!suspend_program) qbrt_window_present(present_buffer.data(),present_w,present_h,full_screen,fullscreen_smooth,resize_auto);
+    if (!suspend_program) qb_window_present(present_buffer.data(),present_w,present_h,full_screen,fullscreen_smooth,resize_auto);
 }
 
 // ---- OS event callbacks (window thread or input script thread) ------------------
@@ -509,36 +509,36 @@ static void mouse_relative(int dx,int dy){
 }
 
 extern "C" {
-    static void qbrt_cb_key(int32_t action,uint32_t code){
-        qbrt_input_lock();
+    static void qb_cb_key(int32_t action,uint32_t code){
+        qb_input_lock();
         if (action==1) keydown(code);
         if (action==2) keyup(code);
         if (action==3) keydown_unicode(code);
         if (action==4) keyup_unicode(code);
-        qbrt_input_unlock();
+        qb_input_unlock();
     }
-    static void qbrt_cb_mouse_button(int32_t glut_button,int32_t down,int32_t x,int32_t y){
-        qbrt_input_lock();
+    static void qb_cb_mouse_button(int32_t glut_button,int32_t down,int32_t x,int32_t y){
+        qb_input_lock();
         if (down) mouse_button_down(glut_button+1,x,y); else mouse_button_up(glut_button+1,x,y);
-        qbrt_input_unlock();
+        qb_input_unlock();
     }
-    static void qbrt_cb_mouse_move(int32_t x,int32_t y){
-        qbrt_input_lock();
+    static void qb_cb_mouse_move(int32_t x,int32_t y){
+        qb_input_lock();
         mouse_motion(x,y);
-        qbrt_input_unlock();
+        qb_input_unlock();
     }
-    static void qbrt_cb_mouse_wheel(int32_t direction,int32_t x,int32_t y){
-        qbrt_input_lock();
+    static void qb_cb_mouse_wheel(int32_t direction,int32_t x,int32_t y){
+        qb_input_lock();
         if (direction>0){mouse_button_down(4,x,y); mouse_button_up(4,x,y);}
         if (direction<0){mouse_button_down(5,x,y); mouse_button_up(5,x,y);}
-        qbrt_input_unlock();
+        qb_input_unlock();
     }
-    static void qbrt_cb_mouse_relative(int32_t dx,int32_t dy){
-        qbrt_input_lock();
+    static void qb_cb_mouse_relative(int32_t dx,int32_t dy){
+        qb_input_lock();
         mouse_relative(dx,dy);
-        qbrt_input_unlock();
+        qb_input_unlock();
     }
-    static void qbrt_cb_resize(int32_t width,int32_t height){
+    static void qb_cb_resize(int32_t width,int32_t height){
         //was GLUT_RESHAPE_FUNC
         resize_event_x=width; resize_event_y=height;
         resize_event=-1;
@@ -547,16 +547,16 @@ extern "C" {
         resize_pending=0;
         os_resize_event=1;
     }
-    static void qbrt_cb_close(){
+    static void qb_cb_close(){
         exit_value|=1;
     }
-    static void qbrt_cb_focus(int32_t focused){
+    static void qb_cb_focus(int32_t focused){
         window_focused=focused?-1:0;
     }
-    static void qbrt_cb_file_drop(const char *path){
+    static void qb_cb_file_drop(const char *path){
         if (acceptFileDrop) dropped_files.push_back(std::string(path));
     }
-    static void qbrt_cb_created(void *handle){
+    static void qb_cb_created(void *handle){
         QBNex_Window_Handle(handle);
         window_exists=1;
     }
@@ -564,18 +564,18 @@ extern "C" {
 
 //Runs the window system on the main thread (never returns in windowed mode).
 void window_main(){
-    static qbrt_window_callbacks cb;
-    cb.key=qbrt_cb_key;
-    cb.mouse_button=qbrt_cb_mouse_button;
-    cb.mouse_move=qbrt_cb_mouse_move;
-    cb.mouse_wheel=qbrt_cb_mouse_wheel;
-    cb.mouse_relative=qbrt_cb_mouse_relative;
-    cb.resize=qbrt_cb_resize;
-    cb.close=qbrt_cb_close;
-    cb.focus=qbrt_cb_focus;
-    cb.file_drop=qbrt_cb_file_drop;
-    cb.created=qbrt_cb_created;
-    qbrt_window_run(&cb,640,400,window_title?(char*)window_title:"Untitled",ScreenResize,screen_hide?1:0);
+    static qb_window_callbacks cb;
+    cb.key=qb_cb_key;
+    cb.mouse_button=qb_cb_mouse_button;
+    cb.mouse_move=qb_cb_mouse_move;
+    cb.mouse_wheel=qb_cb_mouse_wheel;
+    cb.mouse_relative=qb_cb_mouse_relative;
+    cb.resize=qb_cb_resize;
+    cb.close=qb_cb_close;
+    cb.focus=qb_cb_focus;
+    cb.file_drop=qb_cb_file_drop;
+    cb.created=qb_cb_created;
+    qb_window_run(&cb,640,400,window_title?(char*)window_title:"Untitled",ScreenResize,screen_hide?1:0);
 }
 
 #else //console only

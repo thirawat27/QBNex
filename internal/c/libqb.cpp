@@ -1,6 +1,6 @@
 #include "common.h"
 #include "libqb.h"
-#include "qbrt/include/qbrt.h" // Rust runtime (internal/c/qbrt)
+#include "../../crates/qb-runtime/include/qb_runtime.h" // Rust runtime (crates/qb-runtime)
 
 
 #ifdef QBNex_WINDOWS
@@ -143,18 +143,18 @@ return (word << shift) | (word >> (32 - shift));
         memset(ptr,0,bytes);
     }
 #endif
-// QBasic-compatible rounding lives in the Rust runtime (internal/c/qbrt/src/round.rs).
+// QBasic-compatible rounding lives in the Rust runtime (crates/qb-runtime/src/round.rs).
 #include <float.h>
 #if LDBL_MANT_DIG == 64
-    int64 qbr(long double f){return qbrt_qbr_f80((const unsigned char*)&f);}
-    uint64 qbr_longdouble_to_uint64(long double f){return (uint64)qbrt_fistp_i64_f80((const unsigned char*)&f);}
+    int64 qbr(long double f){return qb_qbr_f80((const unsigned char*)&f);}
+    uint64 qbr_longdouble_to_uint64(long double f){return (uint64)qb_fistp_i64_f80((const unsigned char*)&f);}
 #else
-    int64 qbr(long double f){return qbrt_qbr_f64((double)f);}
-    uint64 qbr_longdouble_to_uint64(long double f){return (uint64)qbrt_fistp_i64_f64((double)f);}
+    int64 qbr(long double f){return qb_qbr_f64((double)f);}
+    uint64 qbr_longdouble_to_uint64(long double f){return (uint64)qb_fistp_i64_f64((double)f);}
 #endif
-int32 qbr_float_to_long(float f){return qbrt_fistp_i32(f);}
-int32 qbr_double_to_long(double f){return qbrt_fistp_i32(f);}
-void fpu_reinit(){qbrt_fpu_reinit();}
+int32 qbr_float_to_long(float f){return qb_fistp_i32(f);}
+int32 qbr_double_to_long(double f){return qb_fistp_i32(f);}
+void fpu_reinit(){qb_fpu_reinit();}
 //bit-array access functions (note: used to be included through 'bit.cpp')
 uint64 getubits(uint32 bsize,uint8 *base,ptrszint i){
     int64 bmask;
@@ -243,7 +243,7 @@ void log_event(int32 x){
 }
 
 
-void sub__printimage(int32 i);//internal/c/qbrt/src/printer.rs via the shim near sub_files
+void sub__printimage(int32 i);//crates/qb-runtime/src/printer.rs via the shim near sub_files
 
 void alert(int32 x);
 void alert(char *x);
@@ -796,8 +796,8 @@ static uint16 codepage437_to_unicode16[] = {
     #include "parts/video/font/ttf/src.c"
 #endif
 
-// Clock reads live in the Rust runtime (internal/c/qbrt/src/systime.rs).
-int64 GetTicks(){return qbrt_get_ticks();}
+// Clock reads live in the Rust runtime (crates/qb-runtime/src/systime.rs).
+int64 GetTicks(){return qb_get_ticks();}
 
 
 #define QBK 200000
@@ -1124,11 +1124,11 @@ typedef enum {
 */
 
 //QBNex memory blocks: lock tags, mem_lock_id, mem_lock_tmp and mem_lock_base live in
-//the Rust runtime (internal/c/qbrt/src/mem.rs); generated code uses them directly.
+//the Rust runtime (crates/qb-runtime/src/mem.rs); generated code uses them directly.
 static constexpr uint64 MEM_LOCK_INVALID_ID = 1073741821;
-#define mem_lock_invalid (*(mem_lock*)qbrt_mem_lock_invalid())
-void new_mem_lock(){ qbrt_new_mem_lock(); }
-void free_mem_lock(mem_lock *lock){ qbrt_free_mem_lock((qbrt_mem_lock*)lock); }
+#define mem_lock_invalid (*(mem_lock*)qb_mem_lock_invalid())
+void new_mem_lock(){ qb_new_mem_lock(); }
+void free_mem_lock(mem_lock *lock){ qb_free_mem_lock((qb_mem_lock*)lock); }
 
 
 
@@ -1238,7 +1238,7 @@ extern int32 onstrig_inprogress;
 extern uint32 qbevent;
 
 #ifdef DEPENDENCY_DEVICEINPUT
-    #include "libqb/gamepad_bridge.cpp" //R8: gilrs backend (qbrt gamepad.rs)
+    #include "libqb/gamepad_bridge.cpp" //R8: gilrs backend (qb-runtime gamepad.rs)
 #endif
 
 extern int32 console;
@@ -1418,7 +1418,7 @@ std::vector<int32> fontheight(lastfont+1,0);
 std::vector<int32> fontwidth(lastfont+1,0);
 std::vector<int32> fontflags(lastfont+1,0);
 
-//keyhit cyclic buffer: R8 moved to qbrt keybuf.rs (qbrt_keyhit_*)
+//keyhit cyclic buffer: R8 moved to qb-runtime keybuf.rs (qb_keyhit_*)
 //    keyhit specific internal flags: (stored in high 32-bits)
 //    &4294967296->numpad was used
 
@@ -2033,18 +2033,18 @@ static int32 qb_render_text_cell_freetype(const std::string &utf8,int32 cell_wid
 #endif
 
 int32 keyheld(uint32 x){
-    return qbrt_keyheld(x);//R8: keybuf.rs (numpad multimapping included)
+    return qb_keyheld(x);//R8: keybuf.rs (numpad multimapping included)
 }
 void keyheld_add(uint32 x){
-    qbrt_keyheld_add(x,bindkey);
+    qb_keyheld_add(x,bindkey);
     bindkey=0;
 }
 void keyheld_remove(uint32 x){
-    qbrt_keyheld_remove(x);
+    qb_keyheld_remove(x);
 }
 void keyheld_unbind(uint32 x){
     uint32 held;
-    if (qbrt_keyheld_bound_to(x,&held)) keyup(held);
+    if (qb_keyheld_bound_to(x,&held)) keyup(held);
 }
 
 
@@ -2213,7 +2213,7 @@ int MessageBox2(int ignore,char* message,char* title,int type){
     //headless (QBNEX_HEADLESS / no display): nothing can answer a modal box.
     //The legacy GLUT build got 0 back here (no usable owner window) and went
     //on, so do the same and report the message on stderr instead.
-    if (qbrt_window_headless()){
+    if (qb_window_headless()){
         fprintf(stderr,"%s: %s\n",title,message);
         return 0;
     }
@@ -2345,15 +2345,15 @@ int32 lprint_locked=0;//set to 1 to deny access by QBNex program
     -11 bad file name
 */
 
-//GFS file table: owned by the Rust runtime (internal/c/qbrt/src/gfs.rs).
+//GFS file table: owned by the Rust runtime (crates/qb-runtime/src/gfs.rs).
 //The C++ code that still looks at open files (PRINT # TAB, FIELD strings)
 //reads entries through these two views.
-typedef qbrt_gfs_file gfs_file_struct;
+typedef qb_gfs_file gfs_file_struct;
 static const struct gfs_file_view{
-    gfs_file_struct &operator[](int32 i) const { return *qbrt_gfs_file_at(i); }
+    gfs_file_struct &operator[](int32 i) const { return *qb_gfs_file_at(i); }
 } gfs_file{};
 static const struct gfs_fileno_view{
-    int32 operator[](int32 f) const { return qbrt_gfs_fileno(f); }
+    int32 operator[](int32 f) const { return qb_gfs_fileno(f); }
 } gfs_fileno{};
 
 
@@ -2442,8 +2442,8 @@ std::vector<int32> page(1, 0);
 
 #define IMG_BUFFERSIZE 4096
 //image registry: img, nimg, nextimg and the pixel/palette buffers are owned by
-//Rust (qbrt gfx/registry.rs); img moves when the registry grows.
-static const int32 qb_img_registry_ready=(qbrt_img_init(),1);
+//Rust (qb-runtime gfx/registry.rs); img moves when the registry grows.
+static const int32 qb_img_registry_ready=(qb_img_init(),1);
 static std::vector<std::vector<std::string>> qb_text_utf8_cells(IMG_BUFFERSIZE);
 static std::vector<std::vector<uint8>> qb_text_utf8_cell_state(IMG_BUFFERSIZE);
 void refresh_selected_pages();
@@ -2452,13 +2452,13 @@ static void qb_img_registry_grew(){//img may have moved: resize side tables, re-
     qb_text_utf8_cell_state.resize(nimg);
     refresh_selected_pages();
 }
-static void qb_set_img_external_offset(int32 index,uint8 *offset){qbrt_img_set_external_offset(index,offset);}
-static void qb_set_img_external_palette(int32 index,uint32 *palette){qbrt_img_set_external_palette(index,palette);}
-static void qb_release_img_pixels(int32 index){qbrt_img_release_pixels(index);}
-static void qb_release_img_palette(int32 index){qbrt_img_release_palette(index);}
-static void qb_release_img_owned_resources(int32 index){qbrt_img_release_owned(index);}
-static void qb_allocate_img_pixels(int32 index,ptrszint bytes){qbrt_img_alloc_pixels(index,bytes);}
-static void qb_allocate_img_palette(int32 index){qbrt_img_alloc_palette(index);}
+static void qb_set_img_external_offset(int32 index,uint8 *offset){qb_img_set_external_offset(index,offset);}
+static void qb_set_img_external_palette(int32 index,uint32 *palette){qb_img_set_external_palette(index,palette);}
+static void qb_release_img_pixels(int32 index){qb_img_release_pixels(index);}
+static void qb_release_img_palette(int32 index){qb_img_release_palette(index);}
+static void qb_release_img_owned_resources(int32 index){qb_img_release_owned(index);}
+static void qb_allocate_img_pixels(int32 index,ptrszint bytes){qb_img_alloc_pixels(index,bytes);}
+static void qb_allocate_img_palette(int32 index){qb_img_alloc_palette(index);}
 
 static void qb_release_text_utf8_cells(int32 image_index){
     if (image_index < 0) return;
@@ -3145,7 +3145,7 @@ uint8 *ablend127;
 uint8 *ablend128;
 //software blend tables (Rust, built on first use)
 void init_blend(){
-    qbrt_gfx_blend_tables((const uint8**)&cblend,(const uint8**)&ablend);
+    qb_gfx_blend_tables((const uint8**)&cblend,(const uint8**)&ablend);
     ablend127=ablend+(127<<8);
     ablend128=ablend+(128<<8);
 }
@@ -3215,21 +3215,21 @@ inline img_struct* resolve_page_or_image_ptr(int32 handle,int32 &resolved_index)
     return &img[resolved_index];
 }
 
-//next_img_capacity: Rust (qbrt gfx/registry.rs)
+//next_img_capacity: Rust (qb-runtime gfx/registry.rs)
 
 int32 grow_img_registry(int32 required_slots){
     if (required_slots <= nimg) return -1;
-    if (int32 e=qbrt_img_grow(required_slots)){error(e); return 0;}
+    if (int32 e=qb_img_grow(required_slots)){error(e); return 0;}
     qb_img_registry_grew();
     return -1;
 }
 
-void restorepalette(img_struct* im){qbrt_gfx_restorepalette(im);}
+void restorepalette(img_struct* im){qb_gfx_restorepalette(im);}
 
 
 
 
-void pset(int32 x,int32 y,uint32 col){qbrt_gfx_pset(write_page,x,y,col);}
+void pset(int32 x,int32 y,uint32 col){qb_gfx_pset(write_page,x,y,col);}
 
 
 
@@ -3246,7 +3246,7 @@ void pset(int32 x,int32 y,uint32 col){qbrt_gfx_pset(write_page,x,y,col);}
 //returns an index to free img structure
 uint32 newimg(){
     int32 old_capacity=nimg,e=0;
-    uint32 i=qbrt_img_new(&e);
+    uint32 i=qb_img_new(&e);
     if (e) error(e);
     if (nimg!=old_capacity) qb_img_registry_grew();
     return i;
@@ -3263,16 +3263,16 @@ int32 freeimg(uint32 i){
     for (size_t page_index = 0; page_index < page.size(); ++page_index){
         if (page[page_index] == static_cast<int32>(i)) page[page_index] = 0;
     }
-    qbrt_img_free(i);//buffers, struct reset, free list (Rust)
+    qb_img_free(i);//buffers, struct reset, free list (Rust)
     return 1;
 }
 
 
-void imgrevert(int32 i){qbrt_imgrevert(i);}//text surfaces keep their cells (as before)
+void imgrevert(int32 i){qb_imgrevert(i);}//text surfaces keep their cells (as before)
 
 int32 imgframe(uint8 *o,int32 x,int32 y,int32 bpp){
     int32 old_capacity=nimg,e=0;
-    int32 i=qbrt_imgframe(o,x,y,bpp,&e);
+    int32 i=qb_imgframe(o,x,y,bpp,&e);
     if (e) error(e);
     if (nimg!=old_capacity) qb_img_registry_grew();
     if (!i) return 0;
@@ -3284,7 +3284,7 @@ void sub__freeimage(int32 i,int32 passed);//forward ref
 
 int32 imgnew(int32 x,int32 y,int32 bpp){
     int32 old_capacity=nimg,e=0;
-    int32 i=qbrt_imgnew(x,y,bpp,&e);
+    int32 i=qb_imgnew(x,y,bpp,&e);
     if (e) error(e);
     if (nimg!=old_capacity) qb_img_registry_grew();
     if (!i) return 0;
@@ -3474,15 +3474,15 @@ void sub__putimage(double f_dx1,double f_dy1,double f_dx2,double f_dy2,int32 src
     
     
     resolve_coordinates:
-    //coordinates, clipping, stretching and the software copy: Rust (qbrt gfx/putimage.rs)
+    //coordinates, clipping, stretching and the software copy: Rust (qb-runtime gfx/putimage.rs)
     {
-        qbrt_put_coords pc={f_dx1,f_dy1,f_dx2,f_dy2,f_sx1,f_sy1,f_sx2,f_sy2};
+        qb_put_coords pc={f_dx1,f_dy1,f_dx2,f_dy2,f_sx1,f_sy1,f_sx2,f_sy2};
         if (!use_hardware){
-            if (int32 e=qbrt_gfx_putimage(s,d,&pc,passed,NULL)) error(e);
+            if (int32 e=qb_gfx_putimage(s,d,&pc,passed,NULL)) error(e);
             return;
         }
         int32 hw[8];
-        if (int32 e=qbrt_gfx_putimage(s,d,&pc,passed,hw)){error(e); return;}
+        if (int32 e=qb_gfx_putimage(s,d,&pc,passed,hw)){error(e); return;}
         sx1=hw[0]; sy1=hw[1]; sx2=hw[2]; sy2=hw[3]; dx1=hw[4]; dy1=hw[5]; dx2=hw[6]; dy2=hw[7];
     }
     {
@@ -4342,7 +4342,7 @@ int32 lock_display_required=0;
 #define cost_delay 0
 uint32 cost=0;
 
-// MBF <-> IEEE conversion lives in the Rust runtime (internal/c/qbrt/src/mbf.rs).
+// MBF <-> IEEE conversion lives in the Rust runtime (crates/qb-runtime/src/mbf.rs).
 
 
 
@@ -4677,7 +4677,7 @@ uint32 get_error_err(){
 }
 
 void end(){
-    qbrt_fb_capture(display_page,1);//headless framebuffer capture (QBNEX_FB_CAPTURE)
+    qb_fb_capture(display_page,1);//headless framebuffer capture (QBNEX_FB_CAPTURE)
     dont_call_sub_gl=1;
     exit_ok|=1;
     while(!stop_program) Sleep(16);
@@ -4903,34 +4903,34 @@ qbs* singlespace;
 
 
 //String engine: descriptor pool, tracking lists, qbs_data arena, DBLOCK strings and
-//the string functions below live in the Rust runtime (internal/c/qbrt/src/qbs.rs).
+//the string functions below live in the Rust runtime (crates/qb-runtime/src/qbs.rs).
 //These shims keep the C++ signatures used by qbx.cpp and generated code.
 extern uint32 qbs_tmp_list_nexti;//defined by the Rust string engine
 void field_free(qbs* str);
-extern "C" void qbrt_host_error(int32 n){error(n);}
-extern "C" void qbrt_host_field_free(qbs *s){field_free(s);}
-qbs *qbs_new_descriptor(){return qbrt_qbs_new_descriptor();}
-void qbs_free_descriptor(qbs *str){qbrt_qbs_free_descriptor(str);}
-void qbs_free(qbs *str){qbrt_qbs_free(str);}
-void qbs_cmem_concat_list(){qbrt_qbs_cmem_concat_list();}
-void qbs_concat_list(){qbrt_qbs_concat_list();}
-void qbs_tmp_concat_list(){qbrt_qbs_tmp_concat_list();}
-void qbs_concat(uint32 bytesrequired){qbrt_qbs_concat(bytesrequired);}
-void qbs_concat_cmem(uint32 bytesrequired){qbrt_qbs_concat_cmem(bytesrequired);}
-qbs *qbs_new_cmem(int32 size,uint8 tmp){return qbrt_qbs_new_cmem(size,tmp);}
-qbs *qbs_new_txt(const char *txt){return qbrt_qbs_new_txt(txt);}
-qbs *qbs_new_txt_len(const char *txt,int32 len){return qbrt_qbs_new_txt_len(txt,len);}
-qbs *qbs_new_fixed(uint8 *offset,uint32 size,uint8 tmp){return qbrt_qbs_new_fixed(offset,size,tmp);}
-qbs *qbs_new(int32 size,uint8 tmp){return qbrt_qbs_new(size,tmp);}
-void qbs_maketmp(qbs *str){qbrt_qbs_maketmp(str);}
-qbs *qbs_set(qbs *deststr,qbs *srcstr){return qbrt_qbs_set(deststr,srcstr);}
-qbs *qbs_add(qbs *str1,qbs *str2){return qbrt_qbs_add(str1,str2);}
-qbs *qbs_ucase(qbs *str){return qbrt_qbs_ucase(str);}
-qbs *qbs_lcase(qbs *str){return qbrt_qbs_lcase(str);}
-qbs *func_chr(int32 value){return qbrt_func_chr(value);}
-qbs *func_varptr_helper(uint8 type,uint16 offset){return qbrt_func_varptr_helper(type,offset);}
-qbs *qbs_left(qbs *str,int32 l){return qbrt_qbs_left(str,l);}
-qbs *qbs_right(qbs *str,int32 l){return qbrt_qbs_right(str,l);}
+extern "C" void qb_host_error(int32 n){error(n);}
+extern "C" void qb_host_field_free(qbs *s){field_free(s);}
+qbs *qbs_new_descriptor(){return qb_qbs_new_descriptor();}
+void qbs_free_descriptor(qbs *str){qb_qbs_free_descriptor(str);}
+void qbs_free(qbs *str){qb_qbs_free(str);}
+void qbs_cmem_concat_list(){qb_qbs_cmem_concat_list();}
+void qbs_concat_list(){qb_qbs_concat_list();}
+void qbs_tmp_concat_list(){qb_qbs_tmp_concat_list();}
+void qbs_concat(uint32 bytesrequired){qb_qbs_concat(bytesrequired);}
+void qbs_concat_cmem(uint32 bytesrequired){qb_qbs_concat_cmem(bytesrequired);}
+qbs *qbs_new_cmem(int32 size,uint8 tmp){return qb_qbs_new_cmem(size,tmp);}
+qbs *qbs_new_txt(const char *txt){return qb_qbs_new_txt(txt);}
+qbs *qbs_new_txt_len(const char *txt,int32 len){return qb_qbs_new_txt_len(txt,len);}
+qbs *qbs_new_fixed(uint8 *offset,uint32 size,uint8 tmp){return qb_qbs_new_fixed(offset,size,tmp);}
+qbs *qbs_new(int32 size,uint8 tmp){return qb_qbs_new(size,tmp);}
+void qbs_maketmp(qbs *str){qb_qbs_maketmp(str);}
+qbs *qbs_set(qbs *deststr,qbs *srcstr){return qb_qbs_set(deststr,srcstr);}
+qbs *qbs_add(qbs *str1,qbs *str2){return qb_qbs_add(str1,str2);}
+qbs *qbs_ucase(qbs *str){return qb_qbs_ucase(str);}
+qbs *qbs_lcase(qbs *str){return qb_qbs_lcase(str);}
+qbs *func_chr(int32 value){return qb_func_chr(value);}
+qbs *func_varptr_helper(uint8 type,uint16 offset){return qb_func_varptr_helper(type,offset);}
+qbs *qbs_left(qbs *str,int32 l){return qb_qbs_left(str,l);}
+qbs *qbs_right(qbs *str,int32 l){return qb_qbs_right(str,l);}
 
 qbs *func_mksmbf(float val){
     static qbs *tqbs;
@@ -5022,35 +5022,35 @@ void lrset_field(qbs *str);
 
 void sub_lset(qbs *dest,qbs *source){
     if (new_error) return;
-    qbrt_lset(dest->chr,dest->len,source->chr,source->len);//Rust: internal/c/qbrt/src/fileio.rs
+    qb_lset(dest->chr,dest->len,source->chr,source->len);//Rust: crates/qb-runtime/src/fileio.rs
     if (dest->field) lrset_field(dest);
 }
 
 void sub_rset(qbs *dest,qbs *source){
     if (new_error) return;
-    qbrt_rset(dest->chr,dest->len,source->chr,source->len);//Rust: internal/c/qbrt/src/fileio.rs
+    qb_rset(dest->chr,dest->len,source->chr,source->len);//Rust: crates/qb-runtime/src/fileio.rs
     if (dest->field) lrset_field(dest);
 }
 
 
 
 
-qbs *func_space(int32 spaces){return qbrt_func_space(spaces);}
-qbs *func_string(int32 characters,int32 asciivalue){return qbrt_func_string(characters,asciivalue);}
-void set_qbs_size(ptrszint *target_qbs,int32 newlength){qbrt_set_qbs_size(target_qbs,newlength);}
-int32 func_instr(int32 start,qbs *str,qbs *substr,int32 passed){return qbrt_func_instr(start,str,substr,passed);}
-int32 func__instrrev(int32 start,qbs *str,qbs *substr,int32 passed){return qbrt_func__instrrev(start,str,substr,passed);}
+qbs *func_space(int32 spaces){return qb_func_space(spaces);}
+qbs *func_string(int32 characters,int32 asciivalue){return qb_func_string(characters,asciivalue);}
+void set_qbs_size(ptrszint *target_qbs,int32 newlength){qb_set_qbs_size(target_qbs,newlength);}
+int32 func_instr(int32 start,qbs *str,qbs *substr,int32 passed){return qb_func_instr(start,str,substr,passed);}
+int32 func__instrrev(int32 start,qbs *str,qbs *substr,int32 passed){return qb_func__instrrev(start,str,substr,passed);}
 void sub_mid(qbs *dest,int32 start,int32 l,qbs* src,int32 passed){
     if (new_error) return;
     if (dest==nothingstring) return;//quiet exit, error has already been reported!
-    qbrt_sub_mid(dest,start,l,src,passed);
+    qb_sub_mid(dest,start,l,src,passed);
 }
-qbs *func_mid(qbs *str,int32 start,int32 l,int32 passed){return qbrt_func_mid(str,start,l,passed);}
-qbs *qbs_ltrim(qbs *str){return qbrt_qbs_ltrim(str);}
-qbs *qbs_rtrim(qbs *str){return qbrt_qbs_rtrim(str);}
-qbs *qbs__trim(qbs *str){return qbrt_qbs__trim(str);}
-int32 func__str_nc_compare(qbs *s1, qbs *s2){return qbrt_func__str_nc_compare(s1,s2);}
-int32 func__str_compare(qbs *s1, qbs *s2){return qbrt_func__str_compare(s1,s2);}
+qbs *func_mid(qbs *str,int32 start,int32 l,int32 passed){return qb_func_mid(str,start,l,passed);}
+qbs *qbs_ltrim(qbs *str){return qb_qbs_ltrim(str);}
+qbs *qbs_rtrim(qbs *str){return qb_qbs_rtrim(str);}
+qbs *qbs__trim(qbs *str){return qb_qbs__trim(str);}
+int32 func__str_nc_compare(qbs *s1, qbs *s2){return qb_func__str_nc_compare(s1,s2);}
+int32 func__str_compare(qbs *s1, qbs *s2){return qb_func__str_compare(s1,s2);}
 
 qbs *qbs_inkey(){
     if (new_error) return qbs_new(0,1);
@@ -5084,7 +5084,7 @@ void sub__keyclear(int32 buf, int32 passed) {
     }
     if ((buf == 2 && passed) || !passed) {
         //_KEYHIT buffer
-        qbrt_keyhit_clear();
+        qb_keyhit_clear();
     }
     if ((buf == 3 && passed) || !passed) {
         //INP(&H60) buffer
@@ -5098,34 +5098,34 @@ void sub__keyclear(int32 buf, int32 passed) {
 
 }
 
-//STR() functions: number formatting lives in the Rust runtime (internal/c/qbrt/src/numfmt.rs).
+//STR() functions: number formatting lives in the Rust runtime (crates/qb-runtime/src/numfmt.rs).
 static qbs *qbs_str_from_rust(const unsigned char *text, int32 len){
     qbs *tqbs=qbs_new(len,1);
     memcpy(tqbs->chr,text,len);
     return tqbs;
 }
-qbs *qbs_str(int64 value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_i64(value,b));}
+qbs *qbs_str(int64 value){unsigned char b[QB_STR_MAX]; return qbs_str_from_rust(b,qb_str_i64(value,b));}
 qbs *qbs_str(int32 value){return qbs_str((int64)value);}
 qbs *qbs_str(int16 value){return qbs_str((int64)value);}
 qbs *qbs_str(int8 value){return qbs_str((int64)value);}
-qbs *qbs_str(uint64 value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_u64(value,b));}
+qbs *qbs_str(uint64 value){unsigned char b[QB_STR_MAX]; return qbs_str_from_rust(b,qb_str_u64(value,b));}
 qbs *qbs_str(uint32 value){return qbs_str((uint64)value);}
 qbs *qbs_str(uint16 value){return qbs_str((uint64)value);}
 qbs *qbs_str(uint8 value){return qbs_str((uint64)value);}
-qbs *qbs_str(float value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_f32(value,b));}
-qbs *qbs_str(double value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_f64(value,b));}
+qbs *qbs_str(float value){unsigned char b[QB_STR_MAX]; return qbs_str_from_rust(b,qb_str_f32(value,b));}
+qbs *qbs_str(double value){unsigned char b[QB_STR_MAX]; return qbs_str_from_rust(b,qb_str_f64(value,b));}
 qbs *qbs_str(long double value){return qbs_str((double)value);}
 
 
-int32 qbs_equal(qbs *str1,qbs *str2){return qbrt_qbs_equal(str1,str2);}
-int32 qbs_notequal(qbs *str1,qbs *str2){return qbrt_qbs_notequal(str1,str2);}
-int32 qbs_greaterthan(qbs *str2,qbs *str1){return qbrt_qbs_greaterthan(str2,str1);}
-int32 qbs_lessthan(qbs *str1,qbs *str2){return qbrt_qbs_lessthan(str1,str2);}
-int32 qbs_lessorequal(qbs *str1,qbs *str2){return qbrt_qbs_lessorequal(str1,str2);}
-int32 qbs_greaterorequal(qbs *str2,qbs *str1){return qbrt_qbs_greaterorequal(str2,str1);}
-int32 qbs_asc(qbs *str,uint32 i){return qbrt_qbs_asc(str,i);}
-int32 qbs_asc(qbs *str){return qbrt_qbs_asc1(str);}
-int32 qbs_len(qbs *str){return qbrt_qbs_len(str);}
+int32 qbs_equal(qbs *str1,qbs *str2){return qb_qbs_equal(str1,str2);}
+int32 qbs_notequal(qbs *str1,qbs *str2){return qb_qbs_notequal(str1,str2);}
+int32 qbs_greaterthan(qbs *str2,qbs *str1){return qb_qbs_greaterthan(str2,str1);}
+int32 qbs_lessthan(qbs *str1,qbs *str2){return qb_qbs_lessthan(str1,str2);}
+int32 qbs_lessorequal(qbs *str1,qbs *str2){return qb_qbs_lessorequal(str1,str2);}
+int32 qbs_greaterorequal(qbs *str2,qbs *str1){return qb_qbs_greaterorequal(str2,str1);}
+int32 qbs_asc(qbs *str,uint32 i){return qb_qbs_asc(str,i);}
+int32 qbs_asc(qbs *str){return qb_qbs_asc1(str);}
+int32 qbs_len(qbs *str){return qb_qbs_len(str);}
 
 
 //QBG BLOCK
@@ -5177,7 +5177,7 @@ int32 qbg_color_assign[256];//for modes with quasi palettes!
 
 void qbg_palette(uint32 attribute,uint32 col,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_palette(write_page,attribute,col,passed)) error(e);
+    if (int32 e=qb_gfx_palette(write_page,attribute,col,passed)) error(e);
 }
 
 
@@ -5213,7 +5213,7 @@ void qbg_sub_color(uint32 col1,uint32 col2,uint32 bordercolor,int32 passed){
 		#endif
         return;
 	}
-    if (int32 e=qbrt_gfx_color(write_page,col1,col2,passed)) error(e);
+    if (int32 e=qb_gfx_color(write_page,col1,col2,passed)) error(e);
     return;
     #ifndef QBNex_WINDOWS
     error:
@@ -5222,7 +5222,7 @@ void qbg_sub_color(uint32 col1,uint32 col2,uint32 bordercolor,int32 passed){
     #endif
 }
 
-void defaultcolors(){qbrt_gfx_defaultcolors(write_page);}
+void defaultcolors(){qb_gfx_defaultcolors(write_page);}
 
 //Note: Cannot be used to setup page 0, just to validate it
 void validatepage(int32 n){
@@ -5280,7 +5280,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (!img[i3].valid){error(258); return;}//valid? 
             if (i3!=i2) i=1; //is mode changing?
             }else{
-            if (!qbrt_gfx_screen_mode_valid(mode)) goto error;//modes 3-6 and >13
+            if (!qb_gfx_screen_mode_valid(mode)) goto error;//modes 3-6 and >13
             //is mode changing?
             if (i2){
                 if (img[i2].compatible_mode!=mode) i=1;
@@ -5378,10 +5378,10 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             //320 x 200 graphics
             //40 x 25 text format, character box size of 8 x 8
             //Assignment of up to 256K colors to up to 256 attributes
-            //graphics modes: size and 8x8 font override from Rust (qbrt gfx/screen.rs)
+            //graphics modes: size and 8x8 font override from Rust (qb-runtime gfx/screen.rs)
             if (mode>0){
                 int32 geo[3];
-                if (qbrt_gfx_screen_geometry(mode,prev_width_in_characters,prev_height_in_characters,geo)){
+                if (qb_gfx_screen_geometry(mode,prev_width_in_characters,prev_height_in_characters,geo)){
                     if (mode==13){
                         i=imgframe(&cmem[655360],geo[0],geo[1],13);
                         memset(img[i].offset,0,320*200);
@@ -5542,9 +5542,9 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             */
             if (mode==0){
                 
-                //text layout, font and cmem page granularity: Rust (qbrt gfx/screen.rs)
+                //text layout, font and cmem page granularity: Rust (qb-runtime gfx/screen.rs)
                 {int32 lay[5];
-                qbrt_gfx_screen0_layout(prev_width_in_characters,prev_height_in_characters,&sub_screen_width_in_characters,&sub_screen_height_in_characters,&sub_screen_font,lay);
+                qb_gfx_screen0_layout(prev_width_in_characters,prev_height_in_characters,&sub_screen_width_in_characters,&sub_screen_height_in_characters,&sub_screen_font,lay);
                 x=lay[0]; y=lay[1]; f=lay[2]; i2=lay[3]; p=lay[4];}
                 //make sure 8 page indexes exist
                 if (7>=pages){
@@ -5652,7 +5652,7 @@ void sub_pcopy(int32 src,int32 dst){
     static img_struct *s,*d;
     s=resolve_page_or_image_ptr(src,src_index); if (!s){error(5); return;}
     d=resolve_page_or_image_ptr(dst,dst_index); if (!d){error(5); return;}
-    if (int32 e=qbrt_gfx_pcopy(s,d)) error(e);
+    if (int32 e=qb_gfx_pcopy(s,d)) error(e);
 }
 
 void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 value4, int32 passed){
@@ -6189,52 +6189,52 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
     return;
 }
 
-// Drawing primitives: Rust (internal/c/qbrt/src/gfx). Shims keep the legacy
+// Drawing primitives: Rust (crates/qb-runtime/src/gfx). Shims keep the legacy
 // signatures for generated code and the C++ that is not ported yet.
 void pset_and_clip(int32 x,int32 y,uint32 col){
-    if ((x>=write_page->view_x1)&&(x<=write_page->view_x2)&&(y>=write_page->view_y1)&&(y<=write_page->view_y2)) qbrt_gfx_pset(write_page,x,y,col);
+    if ((x>=write_page->view_x1)&&(x<=write_page->view_x2)&&(y>=write_page->view_y1)&&(y<=write_page->view_y2)) qb_gfx_pset(write_page,x,y,col);
 }
-void qb32_boxfill(float x1f,float y1f,float x2f,float y2f,uint32 col){qbrt_gfx_boxfill(write_page,x1f,y1f,x2f,y2f,col);}
-void fast_boxfill(int32 x1,int32 y1,int32 x2,int32 y2,uint32 col){qbrt_gfx_fast_boxfill(write_page,x1,y1,x2,y2,col);}
-void fast_line(int32 x1,int32 y1,int32 x2,int32 y2,uint32 col){qbrt_gfx_fast_line(write_page,x1,y1,x2,y2,col);}
+void qb32_boxfill(float x1f,float y1f,float x2f,float y2f,uint32 col){qb_gfx_boxfill(write_page,x1f,y1f,x2f,y2f,col);}
+void fast_boxfill(int32 x1,int32 y1,int32 x2,int32 y2,uint32 col){qb_gfx_fast_boxfill(write_page,x1,y1,x2,y2,col);}
+void fast_line(int32 x1,int32 y1,int32 x2,int32 y2,uint32 col){qb_gfx_fast_line(write_page,x1,y1,x2,y2,col);}
 
 void sub_line(float x1,float y1,float x2,float y2,uint32 col,int32 bf,uint32 style,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_line(write_page,x1,y1,x2,y2,col,bf,style,passed)) error(e);
+    if (int32 e=qb_gfx_line(write_page,x1,y1,x2,y2,col,bf,style,passed)) error(e);
 }
 
 void sub_paint(float x,float y,uint32 fillcol,uint32 bordercol,qbs *backgroundstr,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_paint(write_page,x,y,fillcol,bordercol,passed)) error(e);
+    if (int32 e=qb_gfx_paint(write_page,x,y,fillcol,bordercol,passed)) error(e);
 }
 
 void sub_paint(float x,float y,qbs *fillstr,uint32 bordercol,qbs *backgroundstr,int32 passed){
     if (new_error) return;
     if (qbg_text_only) {error(5); return;}
-    if (int32 e=qbrt_gfx_paint_tile(write_page,x,y,fillstr->chr,fillstr->len,bordercol,passed)) error(e);
+    if (int32 e=qb_gfx_paint_tile(write_page,x,y,fillstr->chr,fillstr->len,bordercol,passed)) error(e);
 }
 
 void sub_circle(double x,double y,double r,uint32 col,double start,double end,double aspect,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_circle(write_page,x,y,r,col,start,end,aspect,passed)) error(e);
+    if (int32 e=qb_gfx_circle(write_page,x,y,r,col,start,end,aspect,passed)) error(e);
 }
 
-uint32 point(int32 x,int32 y){return qbrt_gfx_point_raw(read_page,x,y);}//does not clip!
+uint32 point(int32 x,int32 y){return qb_gfx_point_raw(read_page,x,y);}//does not clip!
 
 double func_point(float x,float y,int32 passed){
-    int32 e=0; double v=qbrt_gfx_point(write_page,read_page,x,y,passed,&e);
+    int32 e=0; double v=qb_gfx_point(write_page,read_page,x,y,passed,&e);
     if (e){error(e); return 0;}
     return v;
 }
 
 void sub_pset(float x,float y,uint32 col,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_pset_stmt(write_page,x,y,col,passed)) error(e);
+    if (int32 e=qb_gfx_pset_stmt(write_page,x,y,col,passed)) error(e);
 }
 
 void sub_preset(float x,float y,uint32 col,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_preset_stmt(write_page,x,y,col,passed)) error(e);
+    if (int32 e=qb_gfx_preset_stmt(write_page,x,y,col,passed)) error(e);
 }
 
 
@@ -6403,8 +6403,8 @@ void printchr(int32 character,int32 cell_span){
     }//custom font
     
     
-    //default fonts (8x8, 8x14, 8x16): Rust (qbrt gfx/text.rs)
-    qbrt_gfx_printchr(im,character);
+    //default fonts (8x8, 8x14, 8x16): Rust (qb-runtime gfx/text.rs)
+    qb_gfx_printchr(im,character);
     return;
 }//printchr
 
@@ -7027,13 +7027,13 @@ void qbs_print(qbs* str,int32 finish_on_new_line){
 }
 
 template <typename T> static T qbs_cleanup(uint32 base,T passvalue){
-    if (qbs_tmp_list_nexti>base) qbrt_qbs_cleanup(base);//clear any temp. strings created (Rust, qbs.rs)
+    if (qbs_tmp_list_nexti>base) qb_qbs_cleanup(base);//clear any temp. strings created (Rust, qbs.rs)
     return passvalue;
 }
 
 void qbg_sub_window(float x1,float y1,float x2,float y2,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_window(write_page,x1,y1,x2,y2,passed)) error(e);
+    if (int32 e=qb_gfx_window(write_page,x1,y1,x2,y2,passed)) error(e);
 }
 
 
@@ -7070,7 +7070,7 @@ void qbg_sub_view_print(int32 topline,int32 bottomline,int32 passed){
 
 void qbg_sub_view(int32 x1,int32 y1,int32 x2,int32 y2,int32 fillcolor,int32 bordercolor,int32 passed){
     if (new_error) return;
-    if (int32 e=qbrt_gfx_view(write_page,x1,y1,x2,y2,fillcolor,bordercolor,passed)) error(e);
+    if (int32 e=qb_gfx_view(write_page,x1,y1,x2,y2,fillcolor,bordercolor,passed)) error(e);
 }
 
 
@@ -8298,17 +8298,17 @@ void qbs_input(int32 numvariables,uint8 newline){
         
 }//qbs_input
 
-// VAL lives in the Rust runtime (internal/c/qbrt/src/val.rs).
+// VAL lives in the Rust runtime (crates/qb-runtime/src/val.rs).
 long double func_val(qbs *s){
     unsigned char result[10];
-    int32 code=qbrt_val(s->chr,s->len,result);
+    int32 code=qb_val(s->chr,s->len,result);
     if (code){error(code); return 0;}
     #if LDBL_MANT_DIG == 64
         long double value=0;
         memcpy(&value,result,10);
         return value;
     #else
-        return qbrt_f80_to_f64(result);
+        return qb_f80_to_f64(result);
     #endif
 }
 
@@ -8435,28 +8435,28 @@ void sub_out(int32 port,int32 data){
     error(5);
 }
 
-// RND / RANDOMIZE live in the Rust runtime (internal/c/qbrt/src/rnd.rs).
+// RND / RANDOMIZE live in the Rust runtime (crates/qb-runtime/src/rnd.rs).
 void sub_randomize (double seed,int32 passed){
     if (new_error) return;
-    if (passed==3||passed==1){qbrt_randomize(seed,passed==3); return;}
+    if (passed==3||passed==1){qb_randomize(seed,passed==3); return;}
     qbs_print(qbs_new_txt("Random-number seed (-32768 to 32767)? "),0);
     static int16 integerseed;
     qbs_input_variabletypes[1]=16;//id.t=16 'a signed 16 bit integer
     qbs_input_variableoffsets[1]=&integerseed;
     qbs_input(1,1);
-    qbrt_randomize_prompt(integerseed);
+    qb_randomize_prompt(integerseed);
 }
 
 float func_rnd(float n,int32 passed){
     if (new_error) return 0;
-    return qbrt_rnd(n,passed);
+    return qb_rnd(n,passed);
 }
 
-// TIMER arithmetic lives in the Rust runtime (internal/c/qbrt/src/timer.rs).
+// TIMER arithmetic lives in the Rust runtime (crates/qb-runtime/src/timer.rs).
 double func_timer(double accuracy,int32 passed){
     if (new_error) return 0;
     double value;
-    int32 code=qbrt_timer(GetTicks(),clock_firsttimervalue,qbnex_firsttimervalue,accuracy,passed,&value);
+    int32 code=qb_timer(GetTicks(),clock_firsttimervalue,qbnex_firsttimervalue,accuracy,passed,&value);
     if (code){error(code); return 0;}
     return value;
 }
@@ -8554,11 +8554,11 @@ void sub__limit(double fps){
 
 
 
-//generic_put/get, OPEN, CLOSE, PRINT #: implemented in Rust (internal/c/qbrt/src/fileio.rs)
+//generic_put/get, OPEN, CLOSE, PRINT #: implemented in Rust (crates/qb-runtime/src/fileio.rs)
 int32 generic_put(int32 i,int32 offset,uint8 *cp,int32 bytes){
     //offset is a byte-offset from base 0 (-1=current pos); the return value is always 0
     if (new_error) return 0;
-    int32 e=qbrt_generic_put(i,offset,cp,bytes); if (e) error(e);
+    int32 e=qb_generic_put(i,offset,cp,bytes); if (e) error(e);
     return 0;
 }
 
@@ -8566,18 +8566,18 @@ int32 generic_get_bytes_read;
 int32 generic_get(int32 i,int32 offset,uint8 *cp,int32 bytes){
     generic_get_bytes_read=0;
     if (new_error) return 0;
-    int32 e=qbrt_generic_get(i,offset,cp,bytes,&generic_get_bytes_read); if (e) error(e);
+    int32 e=qb_generic_get(i,offset,cp,bytes,&generic_get_bytes_read); if (e) error(e);
     return 0;
 }
 
 void sub_open(qbs *name,int32 type,int32 access,int32 sharing,int32 i,int64 record_length,int32 passed){
     if (new_error) return;
-    int32 e=qbrt_file_open(name->chr,name->len,type,access,sharing,i,record_length,passed); if (e) error(e);
+    int32 e=qb_file_open(name->chr,name->len,type,access,sharing,i,record_length,passed); if (e) error(e);
 }
 
 void sub_open_gwbasic(qbs *typestr,int32 i,qbs *name,int64 record_length,int32 passed){
     if (new_error) return;
-    int32 e=qbrt_file_open_gwbasic(typestr->chr,typestr->len,i,name->chr,name->len,record_length,passed); if (e) error(e);
+    int32 e=qb_file_open_gwbasic(typestr->chr,typestr->len,i,name->chr,name->len,record_length,passed); if (e) error(e);
 }
 
 void sub_close(int32 i2,int32 passed){
@@ -8604,7 +8604,7 @@ void sub_close(int32 i2,int32 passed){
             return;
         }//special handle
 
-        qbrt_file_close(i2);
+        qb_file_close(i2);
         return;
 
     }//passed
@@ -8618,7 +8618,7 @@ void sub_close(int32 i2,int32 passed){
         }
     }
 
-    qbrt_file_close_all();
+    qb_file_close_all();
 
 }//close
 
@@ -8629,8 +8629,8 @@ void sub_file_print(int32 i,qbs *str,int32 extraspace,int32 tab,int32 newline){
     if (i<0){
         return;
     }
-    int32 e=qbrt_file_print(i,str->chr,str->len,extraspace,tab,newline);
-    if (e==QBRT_PRINT_TO_SCREEN){
+    int32 e=qb_file_print(i,str->chr,str->len,extraspace,tab,newline);
+    if (e==QB_PRINT_TO_SCREEN){
         qbs_print (str, newline);
         return;
     }
@@ -9145,13 +9145,13 @@ int32 n_inputnumberfromdata(uint8 *data,ptrszint *data_offset,ptrszint data_size
 
 
 
-//INPUT # readers: implemented in Rust (internal/c/qbrt/src/fileio.rs). The
+//INPUT # readers: implemented in Rust (crates/qb-runtime/src/fileio.rs). The
 //number reader fills the universal number representation used by n_float.
 int32 n_inputnumberfromfile(int32 fileno){
     //return values: 0=success, 1=overflow, 2=eof, 3=failed (no further errors)
-    static qbrt_num_repr n;
+    static qb_num_repr n;
     int32 r=3;
-    int32 e=qbrt_file_input_number(fileno,&n,&r);
+    int32 e=qb_file_input_number(fileno,&n,&r);
     n_digits=n.digits; memcpy(n_digit,n.digit,n.digits); n_exp=n.exp; n_neg=n.neg; n_hex=n.hex;
     if (e) error(e);
     return r;
@@ -9169,7 +9169,7 @@ void sub_file_input_string(int32 fileno,qbs *deststr){
         return;
     }
     const uint8 *out; int32 len=0,assign=0;
-    int32 e=qbrt_file_input_string(fileno,&out,&len,&assign);
+    int32 e=qb_file_input_string(fileno,&out,&len,&assign);
     if (assign) qbs_set(deststr,qbs_new_txt_len((const char*)out,len));
     if (e) error(e);
 }
@@ -9530,7 +9530,7 @@ void call_interruptx(int32 intno, void *inregs,void *outregs){
     return;
 }
 
-//GET / PUT: file numbers are handled in Rust (internal/c/qbrt/src/fileio.rs);
+//GET / PUT: file numbers are handled in Rust (crates/qb-runtime/src/fileio.rs);
 //TCP/IP streams (negative handles) stay here.
 void sub_get(int32 i,int64 offset,void *element,int32 passed){
     if (new_error) return;
@@ -9555,7 +9555,7 @@ void sub_get(int32 i,int64 offset,void *element,int32 passed){
     }//special handle
 
     ele=(byte_element_struct*)element;
-    int32 e=qbrt_file_get(i,offset,(uint8*)ele->offset,ele->length,passed); if (e) error(e);
+    int32 e=qb_file_get(i,offset,(uint8*)ele->offset,ele->length,passed); if (e) error(e);
 }
 
 void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
@@ -9585,7 +9585,7 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
     }//special handle
 
     const uint8 *out; int32 len=0,assign=0;
-    int32 e=qbrt_file_get_string(i,offset,str->chr,str->len,passed,&out,&len,&assign);
+    int32 e=qb_file_get_string(i,offset,str->chr,str->len,passed,&out,&len,&assign);
     if (assign) qbs_set(str,qbs_new_txt_len((const char*)out,len));
     if (e) error(e);
 }
@@ -9608,7 +9608,7 @@ void sub_put(int32 i,int64 offset,void *element,int32 passed){
     }//special handle
 
     ele=(byte_element_struct*)element;
-    int32 e=qbrt_file_put(i,offset,(const uint8*)ele->offset,ele->length,passed); if (e) error(e);
+    int32 e=qb_file_put(i,offset,(const uint8*)ele->offset,ele->length,passed); if (e) error(e);
 }
 
 //put2 adds a 2-4 byte length descriptor to the data
@@ -9621,7 +9621,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     }
     static byte_element_struct *ele;
     ele=(byte_element_struct*)element;
-    int32 e=qbrt_file_put_string(i,offset,(const uint8*)ele->offset,ele->length,passed); if (e) error(e);
+    int32 e=qb_file_put_string(i,offset,(const uint8*)ele->offset,ele->length,passed); if (e) error(e);
 }
     
     
@@ -9632,7 +9632,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     void sub_graphics_get(float x1f,float y1f,float x2f,float y2f,void *element,uint32 mask,int32 passed){
         if (new_error) return;
         byte_element_struct *ele=(byte_element_struct*)element;
-        if (int32 e=qbrt_gfx_get(read_page,x1f,y1f,x2f,y2f,(uint8*)(ele->offset),ele->length,mask,passed)) error(e);
+        if (int32 e=qb_gfx_get(read_page,x1f,y1f,x2f,y2f,(uint8*)(ele->offset),ele->length,mask,passed)) error(e);
     }
     
     
@@ -9640,7 +9640,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     void sub_graphics_put(float x1f,float y1f,void *element,int32 option,uint32 mask,int32 passed){
         if (new_error) return;
         byte_element_struct *ele=(byte_element_struct*)element;
-        if (int32 e=qbrt_gfx_put(write_page,x1f,y1f,(const uint8*)(ele->offset),ele->length,option,mask,passed)) error(e);
+        if (int32 e=qb_gfx_put(write_page,x1f,y1f,(const uint8*)(ele->offset),ele->length,option,mask,passed)) error(e);
     }
     
     
@@ -10368,7 +10368,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     float func_pmap(float val,int32 option){
         if (new_error) return 0;
-        int32 e=0; float v=qbrt_gfx_pmap(write_page,val,option,&e);
+        int32 e=0; float v=qb_gfx_pmap(write_page,val,option,&e);
         if (e){error(e); return 0;}
         return v;
     }
@@ -10537,7 +10537,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     }
     
     //LOF, EOF, SEEK, LOC, INPUT$(n,#f), LINE INPUT #: implemented in Rust
-    //(internal/c/qbrt/src/fileio.rs); TCP/IP handles and the keyboard stay here.
+    //(crates/qb-runtime/src/fileio.rs); TCP/IP handles and the keyboard stay here.
     int64 func_lof(int32 i){
         if (i<0){//special handle?
             static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,-(i+1)); if (!sh){error(52); return 0;}
@@ -10548,7 +10548,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }//stream
             error(52); return 0;
         }//special handle
-        int64 v; int32 e=qbrt_file_lof(i,&v); if (e) error(e);
+        int64 v; int32 e=qb_file_lof(i,&v); if (e) error(e);
         return v;
     }
 
@@ -10562,22 +10562,22 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }//stream
             error(52); return 0;
         }//special handle
-        int32 v; int32 e=qbrt_file_eof(i,&v); if (e) error(e);
+        int32 v; int32 e=qb_file_eof(i,&v); if (e) error(e);
         return v;
     }
 
     void sub_seek(int32 i,int64 pos){
         if (new_error) return;
-        int32 e=qbrt_file_seek_set(i,pos); if (e) error(e);
+        int32 e=qb_file_seek_set(i,pos); if (e) error(e);
     }
 
     int64 func_seek(int32 i){
-        int64 v; int32 e=qbrt_file_seek_get(i,&v); if (e) error(e);
+        int64 v; int32 e=qb_file_seek_get(i,&v); if (e) error(e);
         return v;
     }
 
     int64 func_loc(int32 i){
-        int64 v; int32 e=qbrt_file_loc(i,&v); if (e) error(e);
+        int64 v; int32 e=qb_file_loc(i,&v); if (e) error(e);
         return v;
     }
 
@@ -10588,7 +10588,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         if (n<0) str=qbs_new(0,1); else str=qbs_new(n,1);
         if (passed){
             int32 len=str->len;
-            int32 e=qbrt_file_input_n(n,i,str->chr,str->len,&len);
+            int32 e=qb_file_input_n(n,i,str->chr,str->len,&len);
             str->len=len;
             if (e) error(e);
             return str;
@@ -10618,7 +10618,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     void sub_file_line_input_string(int32 fileno, qbs *deststr){
         if (new_error) return;
         const uint8 *out; int32 len=0,assign=0;
-        int32 e=qbrt_file_line_input(fileno,&out,&len,&assign);
+        int32 e=qb_file_line_input(fileno,&out,&len,&assign);
         if (assign) qbs_set(deststr,qbs_new_txt_len((const char*)out,len));
         if (e) error(e);
     }
@@ -10653,12 +10653,12 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     int32 func_command_count = 0;
 
     //COMMAND$, SHELL family, KILL, NAME, CHDIR, MKDIR, RMDIR: implemented in Rust
-    //(internal/c/qbrt/src/{env,shell,fsops}.rs). Full screen and console state stay here.
+    //(crates/qb-runtime/src/{env,shell,fsops}.rs). Full screen and console state stay here.
     qbs *func_command(int32 index, int32 passed){
         static qbs *tqbs;
         if (passed) { //Get specific parameter ("" when out of bounds)
             const uint8 *out; int32 len=0;
-            qbrt_command_arg(func_command_array,func_command_count,index,&out,&len);
+            qb_command_arg(func_command_array,func_command_count,index,&out,&len);
             tqbs=qbs_new(len,1);
             memcpy(tqbs->chr,out,len);
         }
@@ -10698,7 +10698,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     static int64 shell_run(qbs *str,int32 show,int32 wait,int32 use_console){
         int64 rc;
         if (wait) shell_call_in_progress=1;
-        rc=qbrt_shell_run(str->chr,str->len,show,wait,use_console);
+        rc=qb_shell_run(str->chr,str->len,show,wait,use_console);
         if (wait) shell_call_in_progress=0;
         return rc;
     }
@@ -10706,7 +10706,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     static int64 shell_interactive(int32 use_console){
         int64 rc;
         shell_call_in_progress=1;
-        rc=qbrt_shell_interactive(use_console);
+        rc=qb_shell_interactive(use_console);
         shell_call_in_progress=0;
         return rc;
     }
@@ -10761,27 +10761,27 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
     void sub_kill(qbs *str){
         if (new_error) return;
-        int32 e=qbrt_kill(str->chr,str->len); if (e) error(e);
+        int32 e=qb_kill(str->chr,str->len); if (e) error(e);
     }
 
     void sub_name(qbs *oldname,qbs *newname){
         if (new_error) return;
-        int32 e=qbrt_name(oldname->chr,oldname->len,newname->chr,newname->len); if (e) error(e);
+        int32 e=qb_name(oldname->chr,oldname->len,newname->chr,newname->len); if (e) error(e);
     }
 
     void sub_chdir(qbs *str){
         if (new_error) return;
-        int32 e=qbrt_chdir(str->chr,str->len); if (e) error(e);
+        int32 e=qb_chdir(str->chr,str->len); if (e) error(e);
     }
 
     void sub_mkdir(qbs *str){
         if (new_error) return;
-        int32 e=qbrt_mkdir(str->chr,str->len); if (e) error(e);
+        int32 e=qb_mkdir(str->chr,str->len); if (e) error(e);
     }
 
     void sub_rmdir(qbs *str){
         if (new_error) return;
-        int32 e=qbrt_rmdir(str->chr,str->len); if (e) error(e);
+        int32 e=qb_rmdir(str->chr,str->len); if (e) error(e);
     }
         
         long double pow2(long double x,long double y){
@@ -10799,12 +10799,12 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #ifdef QBNex_GUI
                 if (!screen_hide){
                     while (!window_exists){Sleep(100);}
-                    qbrt_window_set_cursor(QBRT_CURSOR_HIDDEN);
+                    qb_window_set_cursor(QB_CURSOR_HIDDEN);
                 }
             #endif
         }
 
-        int mouse_cursor_style=QBRT_CURSOR_DEFAULT;
+        int mouse_cursor_style=QB_CURSOR_DEFAULT;
 
         void sub__mouseshow(qbs *style, int32 passed){
             if (new_error) return;
@@ -10814,24 +10814,24 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 static qbs *str=NULL; if (str==NULL) str=qbs_new(0,0);
                 if (passed){
                     qbs_set(str,qbs_ucase(style));
-                    if (qbs_equal(str,qbs_new_txt("DEFAULT"))) {mouse_cursor_style=QBRT_CURSOR_DEFAULT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("LINK"))) {mouse_cursor_style=QBRT_CURSOR_LINK; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("TEXT"))) {mouse_cursor_style=QBRT_CURSOR_TEXT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("CROSSHAIR"))) {mouse_cursor_style=QBRT_CURSOR_CROSSHAIR; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("VERTICAL"))) {mouse_cursor_style=QBRT_CURSOR_VERTICAL; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("HORIZONTAL"))) {mouse_cursor_style=QBRT_CURSOR_HORIZONTAL; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("TOPLEFT_BOTTOMRIGHT"))) {mouse_cursor_style=QBRT_CURSOR_TOPLEFT_BOTTOMRIGHT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt ("TOPRIGHT_BOTTOMLEFT"))) {mouse_cursor_style=QBRT_CURSOR_TOPRIGHT_BOTTOMLEFT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt ("WAIT"))) {mouse_cursor_style=QBRT_CURSOR_WAIT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt ("HELP"))) {mouse_cursor_style=QBRT_CURSOR_HELP; goto cursor_valid;}
-                    if(qbs_equal(str,qbs_new_txt("CYCLE"))||qbs_equal(str, qbs_new_txt("MOVE"))) {mouse_cursor_style=QBRT_CURSOR_MOVE; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("DEFAULT"))) {mouse_cursor_style=QB_CURSOR_DEFAULT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("LINK"))) {mouse_cursor_style=QB_CURSOR_LINK; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("TEXT"))) {mouse_cursor_style=QB_CURSOR_TEXT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("CROSSHAIR"))) {mouse_cursor_style=QB_CURSOR_CROSSHAIR; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("VERTICAL"))) {mouse_cursor_style=QB_CURSOR_VERTICAL; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("HORIZONTAL"))) {mouse_cursor_style=QB_CURSOR_HORIZONTAL; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("TOPLEFT_BOTTOMRIGHT"))) {mouse_cursor_style=QB_CURSOR_TOPLEFT_BOTTOMRIGHT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt ("TOPRIGHT_BOTTOMLEFT"))) {mouse_cursor_style=QB_CURSOR_TOPRIGHT_BOTTOMLEFT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt ("WAIT"))) {mouse_cursor_style=QB_CURSOR_WAIT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt ("HELP"))) {mouse_cursor_style=QB_CURSOR_HELP; goto cursor_valid;}
+                    if(qbs_equal(str,qbs_new_txt("CYCLE"))||qbs_equal(str, qbs_new_txt("MOVE"))) {mouse_cursor_style=QB_CURSOR_MOVE; goto cursor_valid;}
                     error(5); return;
                 }
                 cursor_valid:
                 
                 if (!screen_hide){
                     while (!window_exists){Sleep(100);}
-                    qbrt_window_set_cursor(mouse_cursor_style);
+                    qb_window_set_cursor(mouse_cursor_style);
                 }
                 
             #endif
@@ -10884,7 +10884,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 x2*=x_scale; y2*=y_scale;
                 x2+=x_offset; y2+=y_offset;
                 while (!window_exists){Sleep(100);} 
-                qbrt_window_warp_mouse(x2, y2);
+                qb_window_warp_mouse(x2, y2);
                 return;
                 error:
                 error(5);
@@ -11429,7 +11429,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 }else{
                 i=write_page_index;
             }
-            if (int32 e=qbrt_gfx_clearcolor(&img[i],c,passed)) error(e);
+            if (int32 e=qb_gfx_clearcolor(&img[i],c,passed)) error(e);
         }
         
         //Changing/Using an image surface:
@@ -11446,7 +11446,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 }else{
                 i=write_page_index;
             }
-            if (int32 e=qbrt_gfx_setalpha(&img[i],a,c,c2,passed)) error(e);
+            if (int32 e=qb_gfx_setalpha(&img[i],a,c,c2,passed)) error(e);
         }
         
         //Finding infomation about an image surface:
@@ -11587,7 +11587,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 }else{
                 i=write_page_index;
             }
-            int32 e=0; uint32 v=qbrt_gfx_palettecolor_get(&img[i],n,&e);
+            int32 e=0; uint32 v=qb_gfx_palettecolor_get(&img[i],n,&e);
             if (e){error(e); return 0;}
             return v;
         }
@@ -11599,7 +11599,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 }else{
                 i=write_page_index;
             }
-            if (int32 e=qbrt_gfx_palettecolor_set(&img[i],n,c)) error(e);
+            if (int32 e=qb_gfx_palettecolor_set(&img[i],n,c)) error(e);
         }
         
         void sub__copypalette(int32 i,int32 i2,int32 passed){
@@ -12246,29 +12246,29 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         
-        uint32 matchcol(int32 r,int32 g,int32 b){return qbrt_gfx_matchcol(write_page,r,g,b);}
+        uint32 matchcol(int32 r,int32 g,int32 b){return qb_gfx_matchcol(write_page,r,g,b);}
         
-        uint32 matchcol(int32 r,int32 g,int32 b,int32 i){return qbrt_gfx_matchcol(&img[i],r,g,b);}
+        uint32 matchcol(int32 r,int32 g,int32 b,int32 i){return qb_gfx_matchcol(&img[i],r,g,b);}
         
         uint32 func__rgb(int32 r,int32 g,int32 b,int32 i,int32 passed){
             if (new_error) return 0;
             img_struct *im=write_page;
             if (passed){int32 k; if (!resolve_page_or_image_index(i,k)) return 0; im=&img[k];}
-            return qbrt_gfx_rgb(im,r,g,b);
+            return qb_gfx_rgb(im,r,g,b);
         }//rgb
         
         uint32 func__rgba(int32 r,int32 g,int32 b,int32 a,int32 i,int32 passed){
             if (new_error) return 0;
             img_struct *im=write_page;
             if (passed){int32 k; if (!resolve_page_or_image_index(i,k)) return 0; im=&img[k];}
-            return qbrt_gfx_rgba(im,r,g,b,a);
+            return qb_gfx_rgba(im,r,g,b,a);
         }//rgba
         
         int32 func__alpha(uint32 col,int32 i,int32 passed){
             if (new_error) return 0;
             img_struct *im=write_page;
             if (passed){int32 k; if (!resolve_page_or_image_index(i,k)) return 0; im=&img[k];}
-            int32 e=0; int32 v=qbrt_gfx_component(im,col,3,&e);
+            int32 e=0; int32 v=qb_gfx_component(im,col,3,&e);
             if (e){error(e); return 0;}
             return v;
         }
@@ -12277,7 +12277,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (new_error) return 0;
             img_struct *im=write_page;
             if (passed){int32 k; if (!resolve_page_or_image_index(i,k)) return 0; im=&img[k];}
-            int32 e=0; int32 v=qbrt_gfx_component(im,col,0,&e);
+            int32 e=0; int32 v=qb_gfx_component(im,col,0,&e);
             if (e){error(e); return 0;}
             return v;
         }
@@ -12286,7 +12286,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (new_error) return 0;
             img_struct *im=write_page;
             if (passed){int32 k; if (!resolve_page_or_image_index(i,k)) return 0; im=&img[k];}
-            int32 e=0; int32 v=qbrt_gfx_component(im,col,1,&e);
+            int32 e=0; int32 v=qb_gfx_component(im,col,1,&e);
             if (e){error(e); return 0;}
             return v;
         }
@@ -12295,7 +12295,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (new_error) return 0;
             img_struct *im=write_page;
             if (passed){int32 k; if (!resolve_page_or_image_index(i,k)) return 0; im=&img[k];}
-            int32 e=0; int32 v=qbrt_gfx_component(im,col,2,&e);
+            int32 e=0; int32 v=qb_gfx_component(im,col,2,&e);
             if (e){error(e); return 0;}
             return v;
         }
@@ -13069,7 +13069,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             //note: cursor state does not appear to be reset by the RUN command
             //im->cursor_show=0; im->cursor_firstvalue=4; im->cursor_lastvalue=4;
             //Reset RND & RANDOMIZE state
-            qbrt_rnd_reset();
+            qb_rnd_reset();
             //clear keyboard buffers
             sub__keyclear(NULL,0);
         }
@@ -13237,7 +13237,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
         int32 func_screenwidth () {
             #ifdef QBNex_GUI
-                int32 w,h; qbrt_desktop_size(&w,&h); return w;
+                int32 w,h; qb_desktop_size(&w,&h); return w;
             #else
                 #ifdef QBNex_WINDOWS
                     return GetSystemMetrics(0);
@@ -13249,7 +13249,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
         int32 func_screenheight () {
             #ifdef QBNex_GUI
-                int32 w,h; qbrt_desktop_size(&w,&h); return h;
+                int32 w,h; qb_desktop_size(&w,&h); return h;
             #else
                 #ifdef QBNex_WINDOWS
                     return GetSystemMetrics(1);
@@ -13262,7 +13262,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub_screenicon () {
             #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);}
-                qbrt_window_minimize();
+                qb_window_minimize();
             #endif
         }
 
@@ -13279,7 +13279,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 while (!window_exists){Sleep(100);}
                 extern int32 screen_hide;
                 if (screen_hide) {error(5); return 0;}
-                return -qbrt_window_minimized();
+                return -qb_window_minimized();
             #endif
             return 0;
         }
@@ -13293,7 +13293,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         void sub__display(){
-            qbrt_fb_capture(display_page,0);//headless framebuffer capture (QBNEX_FB_CAPTURE)
+            qb_fb_capture(display_page,0);//headless framebuffer capture (QBNEX_FB_CAPTURE)
             
             if (screen_hide) return;
             
@@ -13306,10 +13306,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             display();
         }
         
-        //DRAW and its number parser: Rust (qbrt gfx/draw.rs); VARPTR$ arguments point into cmem
+        //DRAW and its number parser: Rust (qb-runtime gfx/draw.rs); VARPTR$ arguments point into cmem
         void sub_draw(qbs* s){
             if (new_error) return;
-            if (int32 e=qbrt_gfx_draw(write_page,s->chr,s->len,cmem)) error(e);
+            if (int32 e=qb_gfx_draw(write_page,s->chr,s->len,cmem)) error(e);
         }
 
         #ifdef QBNex_WINDOWS
@@ -13319,14 +13319,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #define envp environ
         #endif
 
-        //ENVIRON$, ENVIRON, _ENVIRONCOUNT: implemented in Rust (internal/c/qbrt/src/env.rs)
+        //ENVIRON$, ENVIRON, _ENVIRONCOUNT: implemented in Rust (crates/qb-runtime/src/env.rs)
         int32 func__environcount() {
-            return qbrt_environ_count(envp);
+            return qb_environ_count(envp);
         }
 
         qbs *func_environ(qbs *name) {
             const uint8 *out; int32 len=0;
-            qbrt_environ_get(name->chr,name->len,&out,&len);
+            qb_environ_get(name->chr,name->len,&out,&len);
             qbs *tqbs=qbs_new(len,1);
             memcpy(tqbs->chr,out,len);
             return tqbs;
@@ -13334,7 +13334,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
         qbs *func_environ(int32 number) {
             const uint8 *out; int32 len=0;
-            int32 e=qbrt_environ_index(envp,number,&out,&len);
+            int32 e=qb_environ_index(envp,number,&out,&len);
             qbs *tqbs=qbs_new(len,1);
             memcpy(tqbs->chr,out,len);
             if (e) error(e);
@@ -13342,7 +13342,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
 
         void sub_environ(qbs *str) {
-            int32 e=qbrt_environ_set(str->chr,str->len); if (e) error(e);
+            int32 e=qb_environ_set(str->chr,str->len); if (e) error(e);
         }
         
         #ifdef QBNex_WINDOWS
@@ -13356,7 +13356,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
         
         // TCP/IP sockets, the info-string parser and WHATISMYIP live in the Rust
-        // runtime (internal/c/qbrt/src/net.rs). The handle tables below stay here
+        // runtime (crates/qb-runtime/src/net.rs). The handle tables below stay here
         // because file I/O (GET/PUT/CLOSE) shares them.
 
         struct connection_struct{
@@ -13365,7 +13365,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             int8 type;//1=client, 2=host(listening), 3=host's connection from a client
             ptrszint stream;
             ptrszint handle;
-            void *connection;//qbrt_tcp*
+            void *connection;//qb_tcp*
             //---------------------------------
             int32 port;
         };
@@ -13375,7 +13375,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (st->type==1){//Network
                 static connection_struct *co; co=(connection_struct*)st->index;
                 if ((co->type==1)||(co->type==3)){//client or host's connection from a client
-                    if (co->protocol==1) qbrt_tcp_send((qbrt_tcp*)co->connection,(const uint8_t*)offset,bytes);
+                    if (co->protocol==1) qb_tcp_send((qb_tcp*)co->connection,(const uint8_t*)offset,bytes);
                 }
             }//Network
         }//stream_out
@@ -13384,17 +13384,17 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #ifdef DEPENDENCY_SOCKETS
                 //assume tcp
                 connection_struct *connection=(connection_struct*)(stream->index);
-                qbrt_tcp *tcp=(qbrt_tcp*)(connection->connection);
+                qb_tcp *tcp=(qb_tcp*)(connection->connection);
                 if (!stream->in_limit){
                     stream->in_size=0;
                     resize_stream_input_buffer(stream,1024);
                 }
                 expand_and_retry:
-                //expand buffer if 'in' stream is full (the request to qbrt_tcp_recv is never 0 bytes)
+                //expand buffer if 'in' stream is full (the request to qb_tcp_recv is never 0 bytes)
                 if (stream->in_size==stream->in_limit){
                     resize_stream_input_buffer(stream,stream->in_limit*2);
                 }
-                ptrszint bytes=qbrt_tcp_recv(tcp,stream->in+stream->in_size,stream->in_limit-stream->in_size);
+                ptrszint bytes=qb_tcp_recv(tcp,stream->in+stream->in_size,stream->in_limit-stream->in_size);
                 if (bytes>0){
                     stream->in_size+=bytes;
                     if (stream->in_size==stream->in_limit) goto expand_and_retry;
@@ -13409,7 +13409,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
             if (sh->type==2){//host listener
                 static connection_struct *cs; cs=(connection_struct*)sh->index;
-                if (cs->protocol==1) qbrt_tcp_close((qbrt_tcp*)cs->connection);
+                if (cs->protocol==1) qb_tcp_close((qb_tcp*)cs->connection);
                 list_remove(connection_handles,list_get_index(connection_handles,cs));
                 list_remove(special_handles,list_get_index(special_handles,sh));
                 return;
@@ -13420,7 +13420,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 static stream_struct *ss; ss=(stream_struct*)sh->index;
                 if (ss->type==1){//network
                     static connection_struct *cs; cs=(connection_struct*)ss->index;
-                    if (cs->protocol==1) qbrt_tcp_close((qbrt_tcp*)cs->connection);
+                    if (cs->protocol==1) qb_tcp_close((qb_tcp*)cs->connection);
                     list_remove(connection_handles,list_get_index(connection_handles,cs));
                     stream_free(ss);
                     list_remove(special_handles,list_get_index(special_handles,sh));
@@ -13466,17 +13466,17 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             void *connection;
             if ((method==0)||(method==1)){
                 int32 port,host_off,host_len,val_error=0;
-                int32 r=qbrt_net_parse_info(info->chr,info->len,method,vwatch==-1,&port,&host_off,&host_len,&val_error);
+                int32 r=qb_net_parse_info(info->chr,info->len,method,vwatch==-1,&port,&host_off,&host_len,&val_error);
                 if (val_error) error(val_error);//legacy: VAL raised it and the open went on
                 if (r) return -1;
                 if (method==0){//_OPENCLIENT
-                    connection=qbrt_tcp_client_open(info->chr+host_off,host_len,port);
+                    connection=qb_tcp_client_open(info->chr+host_off,host_len,port);
                     if (!connection) return 0;
                     int32 my_handle=connection_register(connection,1,port);
                     if (vwatch==-1) vwatch=my_handle;
                     return my_handle;
                 }
-                connection=qbrt_tcp_host_open(port);//_OPENHOST
+                connection=qb_tcp_host_open(port);//_OPENHOST
                 if (!connection) return 0;
                 return connection_register(connection,2,port);
             }
@@ -13484,7 +13484,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,value); if (!sh) return -1;
             if (sh->type!=2) return -1;//listening host?
             static connection_struct *co; co=(connection_struct*)sh->index;
-            connection=qbrt_tcp_accept((qbrt_tcp*)co->connection);
+            connection=qb_tcp_accept((qb_tcp*)co->connection);
             if (!connection) return 0;
             return connection_register(connection,3,0);
         }//connection_new
@@ -13518,9 +13518,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
         static qbs *tcp_address(void *connection,int32 type){
             uint8 buf[512];
-            int32 n=qbrt_tcp_address((qbrt_tcp*)connection,type,buf,sizeof(buf));
+            int32 n=qb_tcp_address((qb_tcp*)connection,type,buf,sizeof(buf));
             qbs *tqbs=qbs_new(n,1);
-            if (n<=(int32)sizeof(buf)) memcpy(tqbs->chr,buf,n); else qbrt_tcp_address((qbrt_tcp*)connection,type,tqbs->chr,n);
+            if (n<=(int32)sizeof(buf)) memcpy(tqbs->chr,buf,n); else qb_tcp_address((qb_tcp*)connection,type,tqbs->chr,n);
             return tqbs;
         }
 
@@ -13565,7 +13565,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                     static stream_struct *ss; ss=(stream_struct*)sh->index;
                     if (ss->type==1){//network
                         static connection_struct *cs; cs=(connection_struct*)ss->index;
-                        if (cs->protocol==1) return qbrt_tcp_connected((qbrt_tcp*)cs->connection);
+                        if (cs->protocol==1) return qb_tcp_connected((qb_tcp*)cs->connection);
                     }//network
                 }//stream
             }//i<0
@@ -13589,11 +13589,11 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         // Clipboard text and images live in the Rust runtime
-        // (internal/c/qbrt/src/clipboard.rs): CF_TEXT/CF_BITMAP on Windows,
+        // (crates/qb-runtime/src/clipboard.rs): CF_TEXT/CF_BITMAP on Windows,
         // arboard on Linux and macOS.
 
         void sub__clipboard(qbs *text){
-            qbrt_clipboard_set_text(text->chr,text->len);
+            qb_clipboard_set_text(text->chr,text->len);
         }
 
         #ifdef DEPENDENCY_SCREENIMAGE
@@ -13610,7 +13610,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 //Transfer the source image to a new 32-bit image to avoid incompatible formats
                 i2=func__newimage(w,h,32,1);
                 sub__putimage(NULL,NULL,NULL,NULL,-i,i2,NULL,NULL,NULL,NULL,8+32);
-                if (i2<-1) qbrt_clipboard_set_image(img[-i2].offset32,w,h);
+                if (i2<-1) qb_clipboard_set_image(img[-i2].offset32,w,h);
                 sub__freeimage(i2,1);
             }
         #endif
@@ -13619,23 +13619,23 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             int32 func__clipboardimage(){
                 if (new_error) return -1;
                 int32 w,h;
-                uint32 *pixels=qbrt_clipboard_get_image(&w,&h);
+                uint32 *pixels=qb_clipboard_get_image(&w,&h);
                 if (!pixels) return -1;
                 static int32 i;
                 i=func__newimage(w,h,32,1);
                 if (i<-1) memcpy(img[-i].offset32,pixels,(size_t)w*h*4);
-                qbrt_free_pixels(pixels,(int64)w*h);
+                qb_free_pixels(pixels,(int64)w*h);
                 return i;
             }
         #endif
 
         qbs *func__clipboard(){
             int64 len;
-            uint8 *text=qbrt_clipboard_get_text(&len);
+            uint8 *text=qb_clipboard_get_text(&len);
             qbs *tqbs=qbs_new(len,1);
             if (text){
                 memcpy(tqbs->chr,text,len);
-                qbrt_free_bytes(text,len);
+                qb_free_bytes(text,len);
             }
             return tqbs;
         }
@@ -13834,37 +13834,37 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         
-        //GFS file layer: implemented in Rust (internal/c/qbrt/src/gfs.rs)
-        int32 gfs_fileno_valid(int32 f){ return qbrt_gfs_fileno_valid(f); }
-        int32 gfs_fileno_freefile(){ return qbrt_gfs_fileno_freefile(); }
-        void gfs_fileno_use(int32 f, int32 i){ qbrt_gfs_fileno_use(f,i); }
-        int32 gfs_open(qbs *filename,int32 access,int32 restrictions, int32 how){ return qbrt_gfs_open(filename->chr,filename->len,access,restrictions,how); }
-        int32 gfs_close(int32 i){ return qbrt_gfs_close(i); }
-        int64 gfs_lof(int32 i){ return qbrt_gfs_lof(i); }
-        int32 gfs_setpos(int32 i, int64 position){ return qbrt_gfs_setpos(i,position); }
-        int64 gfs_getpos(int32 i){ return qbrt_gfs_getpos(i); }
-        int32 gfs_write(int32 i,int64 position,uint8 *data,int64 size){ return qbrt_gfs_write(i,position,data,size); }
-        int32 gfs_read(int32 i,int64 position,uint8 *data,int64 size){ return qbrt_gfs_read(i,position,data,size); }
-        int64 gfs_read_bytes(){ return qbrt_gfs_read_bytes(); }
-        int32 gfs_eof_reached(int32 i){ return qbrt_gfs_eof_reached(i); }
-        int32 gfs_eof_passed(int32 i){ return qbrt_gfs_eof_passed(i); }
+        //GFS file layer: implemented in Rust (crates/qb-runtime/src/gfs.rs)
+        int32 gfs_fileno_valid(int32 f){ return qb_gfs_fileno_valid(f); }
+        int32 gfs_fileno_freefile(){ return qb_gfs_fileno_freefile(); }
+        void gfs_fileno_use(int32 f, int32 i){ qb_gfs_fileno_use(f,i); }
+        int32 gfs_open(qbs *filename,int32 access,int32 restrictions, int32 how){ return qb_gfs_open(filename->chr,filename->len,access,restrictions,how); }
+        int32 gfs_close(int32 i){ return qb_gfs_close(i); }
+        int64 gfs_lof(int32 i){ return qb_gfs_lof(i); }
+        int32 gfs_setpos(int32 i, int64 position){ return qb_gfs_setpos(i,position); }
+        int64 gfs_getpos(int32 i){ return qb_gfs_getpos(i); }
+        int32 gfs_write(int32 i,int64 position,uint8 *data,int64 size){ return qb_gfs_write(i,position,data,size); }
+        int32 gfs_read(int32 i,int64 position,uint8 *data,int64 size){ return qb_gfs_read(i,position,data,size); }
+        int64 gfs_read_bytes(){ return qb_gfs_read_bytes(); }
+        int32 gfs_eof_reached(int32 i){ return qb_gfs_eof_reached(i); }
+        int32 gfs_eof_passed(int32 i){ return qb_gfs_eof_passed(i); }
 
         void sub_lock(int32 i,int64 start,int64 end,int32 passed){
             if (new_error) return;
-            int32 e=qbrt_file_lock(i,start,end,passed,1); if (e) error(e);
+            int32 e=qb_file_lock(i,start,end,passed,1); if (e) error(e);
         }
 
         void sub_unlock(int32 i,int64 start,int64 end,int32 passed){
             if (new_error) return;
-            int32 e=qbrt_file_lock(i,start,end,passed,0); if (e) error(e);
+            int32 e=qb_file_lock(i,start,end,passed,0); if (e) error(e);
         }
         
         // _SCREENIMAGE, _SCREENCLICK and _SCREENPRINT live in the Rust runtime
-        // (internal/c/qbrt/src/screen.rs).
+        // (crates/qb-runtime/src/screen.rs).
         #ifdef DEPENDENCY_SCREENIMAGE
             int32 func__screenimage(int32 x1,int32 y1,int32 x2,int32 y2,int32 passed){
                 int32 w,h;
-                uint32 *pixels=qbrt_screenimage(x1,y1,x2,y2,passed,&w,&h);
+                uint32 *pixels=qb_screenimage(x1,y1,x2,y2,passed,&w,&h);
                 if (!pixels&&w>0&&h>0){//no screen capture on this OS: blank image
                     return func__newimage(func_screenwidth(), func_screenheight(), 32, 1);
                 }
@@ -13872,21 +13872,21 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 i=func__newimage(w,h,32,1);
                 if (pixels){
                     if (i<-1) memcpy(img[-i].offset32,pixels,(size_t)w*h*4);
-                    qbrt_free_pixels(pixels,(int64)w*h);
+                    qb_free_pixels(pixels,(int64)w*h);
                 }
                 return i;
             }
         #endif //DEPENDENCY_SCREENIMAGE
 
         void sub__screenclick(int32 x,int32 y, int32 button, int32 passed){
-            qbrt_screenclick(x,y,button,passed);
+            qb_screenclick(x,y,button,passed);
         }
 
         void sub__screenprint(qbs *txt){
-            qbrt_screenprint(txt->chr,txt->len);
+            qb_screenprint(txt->chr,txt->len);
         }
 
-        // Printer output lives in the Rust runtime (internal/c/qbrt/src/printer.rs,
+        // Printer output lives in the Rust runtime (crates/qb-runtime/src/printer.rs,
         // Windows only); scaling the image to the page stays here.
         #ifndef DEPENDENCY_PRINTER
             void sub__printimage(int32 i){
@@ -13905,23 +13905,23 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                         s=&img[x];
                         if (!s->valid){error(258); return;}
                     }
-                    void *printer=qbrt_printer_begin(&w,&h);
+                    void *printer=qb_printer_begin(&w,&h);
                     if (!printer) return;
                     i2=func__newimage(w,h,32,1);
-                    if (i2>=-1){qbrt_printer_abort(printer); return;}//legacy only checked -1; 0 (error) would read img[0]
+                    if (i2>=-1){qb_printer_abort(printer); return;}//legacy only checked -1; 0 (error) would read img[0]
                     sub__dontblend(i2,1);
                     sub__putimage(NULL,NULL,NULL,NULL,i,i2,NULL,NULL,NULL,NULL,8+32);
-                    qbrt_printer_finish(printer,img[-i2].offset32,w,h);
+                    qb_printer_finish(printer,img[-i2].offset32,w,h);
                     sub__freeimage(i2,1);
                 #endif
             }
         #endif
         
         void sub_files(qbs *str,int32 passed){
-            //FILES: the listing is built in Rust (internal/c/qbrt/src/fsops.rs), printed here
+            //FILES: the listing is built in Rust (crates/qb-runtime/src/fsops.rs), printed here
             if (new_error) return;
             const uint8 *out; int32 len=0;
-            int32 e=qbrt_files(passed?str->chr:NULL,passed?str->len:0,passed,&out,&len);
+            int32 e=qb_files(passed?str->chr:NULL,passed?str->len:0,passed,&out,&len);
             if (e==5){error(5); return;}
             std::vector<std::pair<int32,int32>> lines;//(start,length) of each '\n'-separated line
             if (len){
@@ -13949,7 +13949,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         int32 func__keyhit(){
-            return qbrt_keyhit_pop();//R8: keybuf.rs
+            return qb_keyhit_pop();//R8: keybuf.rs
         }
 
         int32 func__keydown(int32 x){
@@ -13965,9 +13965,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         //FIELD: the record buffer and the list of linked strings live in Rust
-        //(internal/c/qbrt/src/fileio.rs); only the qbs updates stay here.
+        //(crates/qb-runtime/src/fileio.rs); only the qbs updates stay here.
         void field_new(int32 fileno){
-            int32 e=qbrt_field_new(fileno,new_error?1:0); if (e) error(e);
+            int32 e=qb_field_new(fileno,new_error?1:0); if (e) error(e);
         }
 
         void field_update(int32 fileno){
@@ -13992,7 +13992,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
 
         void lrset_field(qbs *str){
-            if (qbrt_field_store(str->field->fileno,str->field->fileid,str->field->size,str->field->offset,str->chr,str->len)){
+            if (qb_field_store(str->field->fileno,str->field->fileid,str->field->size,str->field->offset,str->chr,str->len)){
                 field_update(str->field->fileno);
                 return;
             }
@@ -14001,14 +14001,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
 
         void field_free(qbs* str){
-            qbrt_field_forget(str->field->fileno,str->field->fileid,str);
+            qb_field_forget(str->field->fileno,str->field->fileid,str);
             delete str->field;
             str->field=NULL;
         }
 
         void field_add(qbs *str,int64 size){
-            qbrt_field_slot s;
-            int32 e=qbrt_field_add(size,new_error?1:0,&s);
+            qb_field_slot s;
+            int32 e=qb_field_add(size,new_error?1:0,&s);
             if (e==-1) return;//an earlier part of this FIELD statement failed
             if (e){error(e); return;}
             if (str->field) field_free(str);
@@ -14018,20 +14018,20 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             str->field->fileid=s.fileid;
             str->field->size=s.size;
             str->field->offset=s.offset;
-            qbrt_field_link(s.fileno,str,size);
+            qb_field_link(s.fileno,str,size);
             field_update(s.fileno);
         }
 
         void field_get(int32 fileno,int64 offset,int32 passed){
             if (new_error) return;
-            int32 e=qbrt_field_get(fileno,offset,passed);
+            int32 e=qb_field_get(fileno,offset,passed);
             if (e){error(e); return;}
             field_update(fileno);
         }
 
         void field_put(int32 fileno,int64 offset,int32 passed){
             if (new_error) return;
-            int32 e=qbrt_field_put(fileno,offset,passed); if (e) error(e);
+            int32 e=qb_field_put(fileno,offset,passed); if (e) error(e);
         }
         
         
@@ -14085,7 +14085,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__screenx(){
             #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);} //Wait for window to be created before checking position
-                int32 x,y; qbrt_window_position(&x,&y); return x;
+                int32 x,y; qb_window_position(&x,&y); return x;
             #endif
             return 0;
         }
@@ -14093,7 +14093,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         int32 func__screeny(){
             #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);} //Wait for window to be created before checking position
-                int32 x,y; qbrt_window_position(&x,&y); return y;
+                int32 x,y; qb_window_position(&x,&y); return y;
             #endif
             return 0;
         }
@@ -14107,14 +14107,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);} //wait for window to be created before moving it.
                 if (passed==2){
-                    qbrt_window_set_position(x,y);
+                    qb_window_set_position(x,y);
                 }else{
                     int32 SW,SH,WW,WH;
-                    qbrt_desktop_size(&SW,&SH);
-                    qbrt_window_size(&WW,&WH);
+                    qb_desktop_size(&SW,&SH);
+                    qb_window_size(&WW,&WH);
                     x = (SW - WW)/2;
                     y = (SH - WH)/2;
-                    qbrt_window_set_position(x,y);
+                    qb_window_set_position(x,y);
                 }
             #endif
 
@@ -14640,10 +14640,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 }else{
                 dst=write_page;
             }
-            //clipping, texture mapping and the pixel loops: Rust (qbrt gfx/maptri.rs)
+            //clipping, texture mapping and the pixel loops: Rust (qb-runtime gfx/maptri.rs)
             float s6[6]={sx1,sy1,sx2,sy2,sx3,sy3};
             float d6[6]={fdx1,fdy1,fdx2,fdy2,fdx3,fdy3};
-            if (int32 e=qbrt_gfx_maptriangle(src,dst,s6,d6,passed&1)) error(e);
+            if (int32 e=qb_gfx_maptriangle(src,dst,s6,d6,passed&1)) error(e);
         }//sub__maptriangle
         
         extern int32 func__devices();
@@ -14728,14 +14728,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return 0;
         }
         
-        int32 func__fileexists(qbs* file){//Rust: internal/c/qbrt/src/fsops.rs
+        int32 func__fileexists(qbs* file){//Rust: crates/qb-runtime/src/fsops.rs
             if (new_error) return 0;
-            return qbrt_exists(file->chr,file->len,0);
+            return qb_exists(file->chr,file->len,0);
         }
 
-        int32 func__direxists(qbs* file){//Rust: internal/c/qbrt/src/fsops.rs
+        int32 func__direxists(qbs* file){//Rust: crates/qb-runtime/src/fsops.rs
             if (new_error) return 0;
-            return qbrt_exists(file->chr,file->len,1);
+            return qb_exists(file->chr,file->len,1);
         }
         
         int32 func__console(){
@@ -14772,7 +14772,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         void sub__screenshow(){
             #ifdef QBNex_GUI
-                qbrt_window_show(1);
+                qb_window_show(1);
             #endif
             create_window=1;
             screen_hide=0;
@@ -14780,7 +14780,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
 
         void sub__screenhide(){
             #ifdef QBNex_GUI
-                qbrt_window_show(0);
+                qb_window_show(0);
             #endif
             screen_hide=1;
         }
@@ -14799,13 +14799,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         
-        //_MEMFREE, _MEM(offset,size), _MEMNEW: implemented in Rust (internal/c/qbrt/src/mem.rs)
-        void sub__memfree(void *mem){ int32 e=qbrt_memfree((qbrt_mem_block*)mem); if (e) error(e); }
+        //_MEMFREE, _MEM(offset,size), _MEMNEW: implemented in Rust (crates/qb-runtime/src/mem.rs)
+        void sub__memfree(void *mem){ int32 e=qb_memfree((qb_mem_block*)mem); if (e) error(e); }
         extern mem_block func__mem_at_offset(ptrszint offset,ptrszint size){
-            mem_block b; int32 e=qbrt_mem_at_offset(offset,size,new_error?1:0,(qbrt_mem_block*)&b); if (e) error(e); return b;
+            mem_block b; int32 e=qb_mem_at_offset(offset,size,new_error?1:0,(qb_mem_block*)&b); if (e) error(e); return b;
         }
         mem_block func__memnew(ptrszint bytes){
-            mem_block b; int32 e=qbrt_memnew(bytes,new_error?1:0,(qbrt_mem_block*)&b); if (e) error(e); return b;
+            mem_block b; int32 e=qb_memnew(bytes,new_error?1:0,(qb_mem_block*)&b); if (e) error(e); return b;
         }
         
         
@@ -14859,14 +14859,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return b;
         }
         
-        //_MEM functions: implemented in Rust (internal/c/qbrt/src/mem.rs)
-        int32 func__memexists(void* void_blk){ return qbrt_memexists((qbrt_mem_block*)void_blk); }
+        //_MEM functions: implemented in Rust (crates/qb-runtime/src/mem.rs)
+        int32 func__memexists(void* void_blk){ return qb_memexists((qb_mem_block*)void_blk); }
         void *func__memget(mem_block* blk,ptrszint off,ptrszint bytes){
-            int32 e=0; void *p=qbrt_memget((qbrt_mem_block*)blk,off,bytes,&e); if (e) error(e); return p;
+            int32 e=0; void *p=qb_memget((qb_mem_block*)blk,off,bytes,&e); if (e) error(e); return p;
         }
-        void sub__memfill_nochecks(ptrszint doff,ptrszint dbytes,ptrszint soff,ptrszint sbytes){ qbrt_memfill_nochecks(doff,dbytes,(const uint8*)soff,sbytes); }
+        void sub__memfill_nochecks(ptrszint doff,ptrszint dbytes,ptrszint soff,ptrszint sbytes){ qb_memfill_nochecks(doff,dbytes,(const uint8*)soff,sbytes); }
         void sub__memfill(mem_block* dblk,ptrszint doff,ptrszint dbytes,ptrszint soff,ptrszint sbytes){
-            int32 e=qbrt_memfill((qbrt_mem_block*)dblk,doff,dbytes,(const uint8*)soff,sbytes); if (e) error(e);
+            int32 e=qb_memfill((qb_mem_block*)dblk,doff,dbytes,(const uint8*)soff,sbytes); if (e) error(e);
         }
         void sub__memfill_1(mem_block* dblk,ptrszint doff,ptrszint dbytes,int8 val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,1); }
         void sub__memfill_nochecks_1(ptrszint doff,ptrszint dbytes,int8 val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,1); }
@@ -14886,10 +14886,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         void sub__memfill_OFFSET(mem_block* dblk,ptrszint doff,ptrszint dbytes,ptrszint val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,sizeof(ptrszint)); }
         void sub__memfill_nochecks_OFFSET(ptrszint doff,ptrszint dbytes,ptrszint val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,sizeof(ptrszint)); }
         void sub__memcopy(void *sblk,ptrszint soff,ptrszint bytes,void *dblk,ptrszint doff){
-            int32 e=qbrt_memcopy((qbrt_mem_block*)sblk,soff,bytes,(qbrt_mem_block*)dblk,doff); if (e) error(e);
+            int32 e=qb_memcopy((qb_mem_block*)sblk,soff,bytes,(qb_mem_block*)dblk,doff); if (e) error(e);
         }
         mem_block func__mem(ptrszint offset,ptrszint size,int32 type,ptrszint elementsize,mem_lock *lock){
-            mem_block b; qbrt_mem(offset,size,type,elementsize,(qbrt_mem_lock*)lock,(qbrt_mem_block*)&b); return b;
+            mem_block b; qb_mem(offset,size,type,elementsize,(qb_mem_lock*)lock,(qb_mem_block*)&b); return b;
         }
         
         /* Extra maths functions - we do what we must because we can */
@@ -14970,7 +14970,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         
-//R8: GLUT keyboard/timer callbacks replaced by qbrt keymap.rs + window_bridge.cpp
+//R8: GLUT keyboard/timer callbacks replaced by qb-runtime keymap.rs + window_bridge.cpp
 #include "libqb/window_bridge.cpp"
 
 void sub__title(qbs *title){
@@ -14984,7 +14984,7 @@ void sub__title(qbs *title){
     window_title=window_title_storage.empty()?NULL:window_title_storage.data();
     
     #ifdef QBNex_GUI
-        qbrt_window_set_title(window_title?(char*)window_title:"");
+        qb_window_set_title(window_title?(char*)window_title:"");
     #endif
     
 }//title
@@ -15016,15 +15016,15 @@ int32 func__filedrop() {
 }
 
 void sub__finishdrop() {
-    qbrt_input_lock();
+    qb_input_lock();
     dropped_files.clear();
-    qbrt_input_unlock();
+    qb_input_unlock();
 }
 
 int32 func__totaldroppedfiles() {
-    qbrt_input_lock();
+    qb_input_lock();
     int32 n=(int32)dropped_files.size();
-    qbrt_input_unlock();
+    qb_input_unlock();
     return n;
 }
 
@@ -15041,9 +15041,9 @@ qbs *func__droppedfile(int32 fileIndex, int32 passed) {
             index=-1;
             return qbs_new_txt("");
         }
-        qbrt_input_lock();
+        qb_input_lock();
         name=dropped_files[index];
-        qbrt_input_unlock();
+        qb_input_unlock();
         if ((!passed)&&(index==total-1)) {
             //last file read sequentially
             sub__finishdrop();
@@ -15096,9 +15096,9 @@ int32 func__scaledheight(){
 
 
 //Get Current Working Directory
-qbs *func__cwd(){//Get Current Working Directory (Rust: internal/c/qbrt/src/fsops.rs)
+qbs *func__cwd(){//Get Current Working Directory (Rust: crates/qb-runtime/src/fsops.rs)
     const uint8 *out; int32 len=0;
-    int32 e=qbrt_cwd(&out,&len);
+    int32 e=qb_cwd(&out,&len);
     if (e==7){error(7); return NULL;}//"Out of memory" (legacy returned no string)
     if (e){qbs *tqbs=qbs_new(0,1); error(e); return tqbs;}//51 "Internal error"
     qbs *final=qbs_new(len,1);
@@ -15557,8 +15557,8 @@ int main( int argc, char* argv[] ){
     
     
     // TIMER reference: tick count and local time of day, taken right after the
-    // wall clock's second ticks over (internal/c/qbrt/src/systime.rs).
-    qbrt_time_init(&clock_firsttimervalue,&qbnex_firsttimervalue);
+    // wall clock's second ticks over (crates/qb-runtime/src/systime.rs).
+    qb_time_init(&clock_firsttimervalue,&qbnex_firsttimervalue);
     
     //init truetype .ttf/.fon font library
     
@@ -15576,7 +15576,7 @@ int main( int argc, char* argv[] ){
         if (GetKeyState(VK_CAPITAL)&1){bindkey=QBVK_CAPSLOCK; keydown_vk(VK+QBVK_CAPSLOCK);}
         if (GetKeyState(VK_NUMLOCK)&1){bindkey=QBVK_NUMLOCK; keydown_vk(VK+QBVK_NUMLOCK);}
         update_shift_state();
-        qbrt_keyhit_clear();//skip hitkey events generated by above code
+        qb_keyhit_clear();//skip hitkey events generated by above code
     #endif
     
     
@@ -15586,7 +15586,7 @@ int main( int argc, char* argv[] ){
     
     ifstream fh;
     
-    //default palettes, SCREEN 10 pseudo colors and 8x8/8x16 fonts: Rust statics (qbrt gfx/data.rs)
+    //default palettes, SCREEN 10 pseudo colors and 8x8/8x16 fonts: Rust statics (qb-runtime gfx/data.rs)
     
     qbg_screen(0,NULL,NULL,NULL,NULL,1);
     width8050switch=1;//reaffirm switch reset by above command
@@ -15698,7 +15698,7 @@ int main( int argc, char* argv[] ){
     
     if (!screen_hide) create_window=1;
 
-    //R8: winit event loop + softbuffer presenter (internal/c/qbrt/src/window.rs)
+    //R8: winit event loop + softbuffer presenter (crates/qb-runtime/src/window.rs)
     window_main();
     while (1) Sleep(1000);//headless: MAIN_LOOP ends the program with exit()
     
@@ -15821,7 +15821,7 @@ if (update==0){
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     };
     
-    qbrt_input_lock();
+    qb_input_lock();
     #ifdef QBNex_WINDOWS
         //manage important external keyboard lock/state changes
         if ((GetKeyState(VK_SCROLL)&1)!=keyheld(QBK+QBK_SCROLL_LOCK_MODE)){
@@ -15849,7 +15849,7 @@ if (update==0){
             update_shift_state();
         }
     #endif
-    qbrt_input_unlock();
+    qb_input_unlock();
 
     if (shell_call_in_progress) goto main_loop;
     
@@ -16695,7 +16695,7 @@ void display(){
 void update_shift_state(){
     //R8: keybuf.rs computes 0:417h, 0:418h and 0:496h from the held keys
     uint8 b[3];
-    qbrt_shift_state(b);
+    qb_shift_state(b);
     cmem[0x417]=b[0];
     cmem[0x418]=b[1];
     cmem[0x496]=b[2];
@@ -16756,7 +16756,7 @@ void keyup(uint32 x){
         //add x2 to keyhit buffer
         static int32 sx;
         sx=x2; sx=-sx; x2=sx;//negate x2
-        qbrt_keyhit_push(x2|numpadkey);
+        qb_keyhit_push(x2|numpadkey);
     }//asciicode_reading!=2
     
     
@@ -17225,7 +17225,7 @@ void keydown(uint32 x){
             //note: if full, the oldest message is discarded to make way for the new message
         */
         //add x2 to keyhit buffer
-        qbrt_keyhit_push(x2|numpadkey);
+        qb_keyhit_push(x2|numpadkey);
     }//asciicode_reading!=2
     
     

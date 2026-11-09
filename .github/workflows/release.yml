@@ -34,12 +34,12 @@ jobs:
             runs_on: ubuntu-latest
             artifact_suffix: lnx
             artifact_path: qb
-            build_command: QBNEX_CI=1 bash ./setup_lnx.sh
+            build_command: QBNEX_CI=1 bash ./scripts/setup_lnx.sh
           - target: macos
             runs_on: macos-latest
             artifact_suffix: osx
             artifact_path: qb
-            build_command: QBNEX_CI=1 bash ./setup_osx.command
+            build_command: QBNEX_CI=1 bash ./scripts/setup_osx.command
           - target: windows-x64
             runs_on: windows-latest
             artifact_suffix: win-x64
@@ -67,7 +67,7 @@ jobs:
       - name: Build compiler (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: setup_win.cmd
+        run: scripts\setup_win.cmd
 
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
@@ -77,7 +77,7 @@ jobs:
       - name: Stage portable bundle (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd"
+        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd" -AliasWrapperPath "qbnex.cmd"
 
       - name: Package compiler artifact (Unix)
         if: runner.os != 'Windows'

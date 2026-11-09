@@ -269,7 +269,7 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 
 Download the appropriate package for your operating system from the repository releases page, or build from source using the provided setup scripts. Tagged releases publish per-platform archives such as `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz`, and `qbnex_<tag>_win-x64.zip`.
 
-`windows-x86` / 32-bit packages are not published by the GitHub release workflow. If you need a 32-bit Windows build, compile it locally with the scripts in this repository by running `setup_win.cmd` and choosing the 32-bit MinGW toolchain, or by setting `QBNEX_MINGW_ARCH=x86` before running the script.
+`windows-x86` / 32-bit packages are not published by the GitHub release workflow. If you need a 32-bit Windows build, compile it locally with the scripts in this repository by running `scripts\setup_win.cmd` and choosing the 32-bit MinGW toolchain, or by setting `QBNEX_MINGW_ARCH=x86` before running the script.
 
 ### Windows Setup
 
@@ -279,20 +279,20 @@ It is advisable to whitelist the QBNex folder in your antivirus or antimalware s
 
 **Building from source:**
 ```cmd
-setup_win.cmd
+scripts\setup_win.cmd
 ```
 
 To force a 32-bit Windows build without the interactive prompt:
 ```cmd
 set QBNEX_MINGW_ARCH=x86
-setup_win.cmd
+scripts\setup_win.cmd
 ```
 
 The setup script will:
 1. Download MinGW compiler (64-bit or 32-bit based on your choice)
 2. Build library files (LibQB, FreeType, FreeGLUT)
 3. Compile the QBNex compiler
-4. Create `qb.exe` in the project root
+4. Create `qb.exe` in the project root (run it as `qb` or `qbnex`)
 
 **Note:** The script downloads ~150MB of MinGW binaries. Internet connection required.
 
@@ -307,15 +307,15 @@ xcode-select --install
 Run the setup script:
 
 ```bash
-chmod +x setup_osx.command
-./setup_osx.command
+chmod +x scripts/setup_osx.command
+./scripts/setup_osx.command
 ```
 
 The script will:
 - Verify Xcode Command Line Tools are available
 - Build the bundled runtime objects required for macOS
 - Build the stage0 compiler and self-host the final compiler
-- Create `qb` in the project root
+- Create `qb` in the project root (run it as `qb` or `qbnex`)
 
 **Required components:** Xcode Command Line Tools, OpenGL, GLUT, CoreAudio, Cocoa
 
@@ -324,8 +324,8 @@ The script will:
 Run the setup script:
 
 ```bash
-chmod +x setup_lnx.sh
-./setup_lnx.sh
+chmod +x scripts/setup_lnx.sh
+./scripts/setup_lnx.sh
 ```
 
 **Required packages:**
@@ -340,7 +340,7 @@ sudo dnf install gcc-c++ xmessage mesa-libGLU-devel alsa-lib-devel zlib-devel nc
 sudo pacman -S gcc xorg-xmessage glu alsa-lib zlib ncurses
 ```
 
-The setup script compiles all libraries and creates the `qb` compiler binary.
+The setup script compiles all libraries and creates the `qb` compiler binary (run it as `qb` or `qbnex`).
 
 ### Docker Setup
 
@@ -350,10 +350,10 @@ QBNex provides Docker support for consistent cross-platform builds without insta
 
 ```bash
 # Build the Docker image
-docker build -t qbnex .
+docker build -f docker/Dockerfile -t qbnex .
 
 # Or using docker-compose
-docker-compose build
+docker-compose -f docker/docker-compose.yml build
 ```
 
 **Compile a program:**
@@ -383,31 +383,31 @@ docker run --rm -v $(pwd):/project qbnex qb yourfile.bas -x
 ```cmd
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-setup_win.cmd
+scripts\setup_win.cmd
 ```
 
 **Linux:**
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-chmod +x setup_lnx.sh
-./setup_lnx.sh
+chmod +x scripts/setup_lnx.sh
+./scripts/setup_lnx.sh
 ```
 
 **macOS:**
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-chmod +x setup_osx.command
-./setup_osx.command
+chmod +x scripts/setup_osx.command
+./scripts/setup_osx.command
 ```
 
 **Docker:**
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-docker build -t qbnex .
-docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
+docker build -f docker/Dockerfile -t qbnex .
+docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 ```
 
 ### CMake Build
@@ -442,14 +442,14 @@ cmake --build --preset linux-gcc-stage0
 cmake --preset macos-clang
 cmake --build --preset macos-clang-stage0
 
-# Windows (after setup_win.cmd)
+# Windows (after scripts\setup_win.cmd)
 cmake --preset windows-mingw
 cmake --build --preset windows-mingw-stage0
 ```
 
 Notes:
-- The CMake flow reuses existing runtime setup scripts under `internal/c/*/os/*/setup_build.*`.
-- Existing `setup_win.cmd`, `setup_lnx.sh`, and `setup_osx.command` scripts remain available for bootstrapping and troubleshooting.
+- The CMake flow reuses existing runtime setup scripts under `crates/*/os/<windows|linux|macos>/setup_build.*` and `internal/c/**/os/*/`.
+- Existing `scripts\setup_win.cmd`, `scripts/setup_lnx.sh`, and `scripts/setup_osx.command` scripts remain available for bootstrapping and troubleshooting.
 - On Windows, CMake currently expects a MinGW-based toolchain.
 - `qbnex` is the stable top-level target. It builds `qb-stage0` by default, or `qb-selfhost` when configured with `-DQBNEX_SELF_HOST=ON`.
 - To keep stage0 for debugging, configure with `-DQBNEX_KEEP_STAGE0=ON`.
@@ -457,7 +457,7 @@ Notes:
 Windows MinGW example:
 
 ```cmd
-setup_win.cmd
+scripts\setup_win.cmd
 set PATH=%CD%\internal\c\c_compiler\bin;%PATH%
 cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build --target qb-stage0
@@ -485,6 +485,8 @@ PRINT "Done!"
 ```bash
 qb hello.bas
 ```
+
+The compiler can be run as either `qb` or `qbnex` (for example `qbnex hello.bas`).
 
 **3. Run the executable:**
 ```bash
@@ -851,10 +853,10 @@ QBNex provides Docker containers for easy deployment without local dependencies 
 **Building the Image:**
 ```bash
 # Build using Dockerfile directly
-docker build -t qbnex .
+docker build -f docker/Dockerfile -t qbnex .
 
 # Or using docker-compose (recommended)
-docker-compose build
+docker-compose -f docker/docker-compose.yml build
 ```
 
 **Running Basic Commands:**
@@ -886,7 +888,7 @@ docker run --rm -v %cd%:/project qbnex qb yourfile.bas
 
 ### Docker Compose Workflow
 
-**docker-compose.yml** provides simplified management:
+**docker/docker-compose.yml** provides simplified management (pass `-f docker/docker-compose.yml`, or set `COMPOSE_FILE=docker/docker-compose.yml`):
 
 ```yaml
 version: '3.8'
@@ -905,37 +907,37 @@ services:
 
 ```bash
 # Build the image
-docker-compose build
+docker-compose -f docker/docker-compose.yml build
 
 # Compile a program
-docker-compose run --rm qbnex qb yourfile.bas
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas
 
 # Compile and run immediately
-docker-compose run --rm qbnex qb yourfile.bas -x
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -x
 
 # Generate C code without compiling
-docker-compose run --rm qbnex qb yourfile.bas -z
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -z
 
 # Compile with custom output name
-docker-compose run --rm qbnex qb yourfile.bas -o myprogram
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -o myprogram
 
 # Compile with warnings
-docker-compose run --rm qbnex qb yourfile.bas -w
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -w
 
 # Quiet mode compilation
-docker-compose run --rm qbnex qb yourfile.bas -q
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -q
 ```
 
 **Complete Workflow Example:**
 ```bash
 # 1. Build image once
-docker-compose build
+docker-compose -f docker/docker-compose.yml build
 
 # 2. Create hello.bas
 echo 'PRINT "Hello from Docker!"' > hello.bas
 
 # 3. Compile and run
-docker-compose run --rm qbnex qb hello.bas -x
+docker-compose -f docker/docker-compose.yml run --rm qbnex qb hello.bas -x
 
 # 4. Check compiled binary
 ls -la hello
@@ -959,7 +961,7 @@ docker run --rm \
   qbnex qb graphics.bas -x
 
 # Or with docker-compose
-docker-compose run --rm \
+docker-compose -f docker/docker-compose.yml run --rm \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   qbnex qb graphics.bas -x
@@ -1020,7 +1022,7 @@ SCREEN 0
 
 Compile and run:
 ```bash
-docker-compose run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix qbnex qb graphics.bas -x
+docker-compose -f docker/docker-compose.yml run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix qbnex qb graphics.bas -x
 ```
 
 ### Network Programs in Docker
@@ -1035,7 +1037,7 @@ docker run --rm \
   qbnex qb server.bas -x
 
 # Using docker-compose with host network
-docker-compose run --rm --network host qbnex qb server.bas -x
+docker-compose -f docker/docker-compose.yml run --rm --network host qbnex qb server.bas -x
 ```
 
 **Server Example:**
@@ -1081,12 +1083,12 @@ CLOSE #clientHandle
 
 Run server:
 ```bash
-docker-compose run --rm --network host qbnex qb server.bas -x
+docker-compose -f docker/docker-compose.yml run --rm --network host qbnex qb server.bas -x
 ```
 
 Run client (in another terminal):
 ```bash
-docker-compose run --rm --network host qbnex qb client.bas -x
+docker-compose -f docker/docker-compose.yml run --rm --network host qbnex qb client.bas -x
 ```
 
 ### Interactive Development
@@ -1095,7 +1097,7 @@ For development with shell access:
 
 ```bash
 # Start interactive shell
-docker-compose run --rm qbnex bash
+docker-compose -f docker/docker-compose.yml run --rm qbnex bash
 
 # Inside container:
 # - Compile programs: qb myfile.bas
@@ -1106,7 +1108,7 @@ docker-compose run --rm qbnex bash
 
 **Interactive Session Example:**
 ```bash
-$ docker-compose run --rm qbnex bash
+$ docker-compose -f docker/docker-compose.yml run --rm qbnex bash
 root@abc123:/project# ls
 hello.bas  test.bas
 
@@ -1122,10 +1124,10 @@ root@abc123:/project# exit
 
 **Development Mode with Extended Image:**
 
-Use `Dockerfile.dev` for development with build cache:
+Use `docker/Dockerfile.dev` for development with build cache:
 ```bash
 # Build development image (~500MB with build cache)
-docker build -f Dockerfile.dev -t qbnex-dev .
+docker build -f docker/Dockerfile.dev -t qbnex-dev .
 
 # Run with dev image
 docker run --rm -v $(pwd):/project qbnex-dev qb yourfile.bas -z
@@ -1133,7 +1135,7 @@ docker run --rm -v $(pwd):/project qbnex-dev qb yourfile.bas -z
 
 ### Advanced Docker Configuration
 
-**Dockerfile (Production):**
+**docker/Dockerfile (Production):**
 ```dockerfile
 FROM ubuntu:22.04
 
@@ -1152,7 +1154,7 @@ WORKDIR /opt/qbnex
 COPY . .
 
 # Build compiler
-RUN chmod +x setup_lnx.sh && ./setup_lnx.sh
+RUN chmod +x scripts/setup_lnx.sh && ./scripts/setup_lnx.sh
 
 # Add to PATH
 ENV PATH="/opt/qbnex:${PATH}"
@@ -1161,7 +1163,7 @@ ENV PATH="/opt/qbnex:${PATH}"
 CMD ["bash"]
 ```
 
-**Dockerfile.dev (Development):**
+**docker/Dockerfile.dev (Development):**
 ```dockerfile
 FROM ubuntu:22.04
 
@@ -1180,13 +1182,13 @@ WORKDIR /opt/qbnex
 COPY . .
 
 # Build with debug info
-RUN chmod +x setup_lnx.sh && ./setup_lnx.sh
+RUN chmod +x scripts/setup_lnx.sh && ./scripts/setup_lnx.sh
 
 ENV PATH="/opt/qbnex:${PATH}"
 CMD ["bash"]
 ```
 
-**docker-compose.yml:**
+**docker/docker-compose.yml:**
 ```yaml
 services:
   qbnex:
@@ -1218,7 +1220,7 @@ jobs:
       - uses: actions/checkout@<ref>
       
       - name: Build Docker image
-        run: docker build -t qbnex .
+        run: docker build -f docker/Dockerfile -t qbnex .
       
       - name: Compile test program
         run: docker run --rm -v $(pwd):/project qbnex qb test.bas
@@ -1244,7 +1246,7 @@ docker run --rm -v $(pwd):/project -u $(id -u):$(id -g) qbnex qb yourfile.bas
 docker run --rm qbnex dpkg -l | grep -E "libgl|libasound|x11"
 
 # Rebuild without cache
-docker-compose build --no-cache qbnex
+docker-compose -f docker/docker-compose.yml build --no-cache qbnex
 ```
 
 **Display/Graphics Issues:**
@@ -1281,10 +1283,10 @@ docker run --rm -v /absolute/path:/project qbnex qb yourfile.bas
 
 | File | Purpose | Size | Use Case |
 |------|---------|------|----------|
-| `Dockerfile` | Production image | ~300MB | Final builds, CI/CD |
-| `Dockerfile.dev` | Development image | ~500MB | Development, debugging |
+| `docker/Dockerfile` | Production image | ~300MB | Final builds, CI/CD |
+| `docker/Dockerfile.dev` | Development image | ~500MB | Development, debugging |
 | `.dockerignore` | Build exclusions | - | Optimizes build context |
-| `docker-compose.yml` | Easy management | - | Recommended workflow |
+| `docker/docker-compose.yml` | Easy management | - | Recommended workflow |
 
 **Best Practices:**
 
@@ -1306,7 +1308,7 @@ docker run --rm -v /absolute/path:/project qbnex qb yourfile.bas
 
 ## Standard Library Reference
 
-QBNex includes a comprehensive standard library with modern data structures, I/O utilities, and OOP support. All libraries use Python-style import syntax and are located in `source/stdlib/`.
+QBNex includes a comprehensive standard library with modern data structures, I/O utilities, and OOP support. All libraries use Python-style import syntax and are located in `compiler/stdlib/`.
 
 ### Collection Libraries
 
@@ -1765,7 +1767,7 @@ QBNex includes comprehensive test suites to verify compiler and library function
 
 ### Comprehensive Test Suite
 
-QBNex ships with runnable smoke scripts under `tests/` for both Windows (`.cmd`) and Linux/macOS (`.sh`).
+QBNex ships with runnable smoke scripts under `tests/smoke/` for both Windows (`.cmd`) and Linux/macOS (`.sh`).
 
 Current script coverage includes:
 - Diagnostics formatting and include-chain reporting
@@ -1779,68 +1781,73 @@ Current script coverage includes:
 
 Supporting fixture sources live in `tests/fixtures/` (15 `.bas` files).
 
+The native runtime has its own suites:
+- `cargo test --workspace` runs the unit tests of the `crates/` workspace (`cargo test -p qb-runtime`, `-p qb-audio` or `-p qb-exec` for one crate)
+- `cargo run --release -p qbnex-conformance` compiles every program in `tests/conformance/cases/` with the built `qb` and compares the output with the golden files
+- `tests/diff/run_diff.sh` (Linux/macOS) or `tests\diff\run_diff.cmd` (Windows) compares the runtime against the legacy C++ reference code
+
 ### Running Individual Tests
 
 **Smoke Tests:**
 ```bash
 # Linux/macOS
 chmod +x tests/*.sh
-./tests/diagnostics_smoke.sh
-./tests/warnings_smoke.sh
-./tests/labels_smoke.sh
-./tests/encoding_smoke.sh
-./tests/cli_smoke.sh
-./tests/stdlib_smoke.sh
-./tests/audio_smoke.sh
-./tests/benchmark_smoke.sh
+./tests/smoke/diagnostics_smoke.sh
+./tests/smoke/warnings_smoke.sh
+./tests/smoke/labels_smoke.sh
+./tests/smoke/encoding_smoke.sh
+./tests/smoke/cli_smoke.sh
+./tests/smoke/stdlib_smoke.sh
+./tests/smoke/audio_smoke.sh
+./tests/smoke/benchmark_smoke.sh
 ```
 
 ```cmd
 :: Windows
-tests\diagnostics_smoke.cmd
-tests\warnings_smoke.cmd
-tests\labels_smoke.cmd
-tests\encoding_smoke.cmd
-tests\cli_smoke.cmd
-tests\stdlib_smoke.cmd
-tests\audio_smoke.cmd
-tests\benchmark_smoke.cmd
+tests\smoke\diagnostics_smoke.cmd
+tests\smoke\warnings_smoke.cmd
+tests\smoke\labels_smoke.cmd
+tests\smoke\encoding_smoke.cmd
+tests\smoke\cli_smoke.cmd
+tests\smoke\stdlib_smoke.cmd
+tests\smoke\audio_smoke.cmd
+tests\smoke\benchmark_smoke.cmd
 ```
 
 **Diagnostics Smoke Test Only (Windows):**
 ```cmd
-tests\diagnostics_smoke.cmd
+tests\smoke\diagnostics_smoke.cmd
 ```
 
 **Diagnostics Smoke Test Only (Linux/macOS):**
 ```bash
-chmod +x tests/diagnostics_smoke.sh
-./tests/diagnostics_smoke.sh
+chmod +x tests/smoke/diagnostics_smoke.sh
+./tests/smoke/diagnostics_smoke.sh
 ```
 
 **Compiler Smoke Suite (Windows):**
 ```cmd
 set QBNEX_CI=1
 set QBNEX_BOOTSTRAP=1
-setup_win.cmd
-tests\diagnostics_smoke.cmd
-tests\warnings_smoke.cmd
-tests\labels_smoke.cmd
-tests\encoding_smoke.cmd
-tests\cli_smoke.cmd
-tests\stdlib_smoke.cmd
+scripts\setup_win.cmd
+tests\smoke\diagnostics_smoke.cmd
+tests\smoke\warnings_smoke.cmd
+tests\smoke\labels_smoke.cmd
+tests\smoke\encoding_smoke.cmd
+tests\smoke\cli_smoke.cmd
+tests\smoke\stdlib_smoke.cmd
 ```
 
 **Benchmark Smoke Test (manual):**
 ```bash
 # Linux/macOS
-chmod +x tests/benchmark_smoke.sh
-./tests/benchmark_smoke.sh
+chmod +x tests/smoke/benchmark_smoke.sh
+./tests/smoke/benchmark_smoke.sh
 ```
 
 ```cmd
 :: Windows
-tests\benchmark_smoke.cmd
+tests\smoke\benchmark_smoke.cmd
 ```
 
 Current CLI smoke coverage includes:
@@ -1881,7 +1888,7 @@ Current compilation status:
 - OOP: Class, Interface (2/2)
 - Core: qbnex_stdlib.bas (1/1)
 
-The `tests/stdlib_smoke.*` scripts validate representative stdlib entry points using:
+The `tests/smoke/stdlib_smoke.*` scripts validate representative stdlib entry points using:
 - `tests/fixtures/stdlib_import_success.bas`
 - `tests/fixtures/qbnex_stdlib_include_success.bas`
 - `tests/fixtures/url_import_success.bas`
@@ -1899,13 +1906,13 @@ Use this checklist to verify your QBNex installation:
 
 - [ ] **Compiler executable exists**: `qb --version` prints compiler version
 - [ ] **Help works**: `qb --help` displays usage
-- [ ] **Diagnostics smoke**: `tests\diagnostics_smoke.cmd` or `./tests/diagnostics_smoke.sh`
-- [ ] **Warnings smoke**: `tests\warnings_smoke.cmd` or `./tests/warnings_smoke.sh`
-- [ ] **Labels smoke**: `tests\labels_smoke.cmd` or `./tests/labels_smoke.sh`
-- [ ] **Encoding smoke**: `tests\encoding_smoke.cmd` or `./tests/encoding_smoke.sh`
-- [ ] **CLI smoke**: `tests\cli_smoke.cmd` or `./tests/cli_smoke.sh`
-- [ ] **Stdlib smoke**: `tests\stdlib_smoke.cmd` or `./tests/stdlib_smoke.sh`
-- [ ] **Benchmark smoke (optional)**: `tests\benchmark_smoke.cmd` or `./tests/benchmark_smoke.sh`
+- [ ] **Diagnostics smoke**: `tests\smoke\diagnostics_smoke.cmd` or `./tests/smoke/diagnostics_smoke.sh`
+- [ ] **Warnings smoke**: `tests\smoke\warnings_smoke.cmd` or `./tests/smoke/warnings_smoke.sh`
+- [ ] **Labels smoke**: `tests\smoke\labels_smoke.cmd` or `./tests/smoke/labels_smoke.sh`
+- [ ] **Encoding smoke**: `tests\smoke\encoding_smoke.cmd` or `./tests/smoke/encoding_smoke.sh`
+- [ ] **CLI smoke**: `tests\smoke\cli_smoke.cmd` or `./tests/smoke/cli_smoke.sh`
+- [ ] **Stdlib smoke**: `tests\smoke\stdlib_smoke.cmd` or `./tests/smoke/stdlib_smoke.sh`
+- [ ] **Benchmark smoke (optional)**: `tests\smoke\benchmark_smoke.cmd` or `./tests/smoke/benchmark_smoke.sh`
 - [ ] **Docker (optional)**: Docker image builds successfully
 
 ### Test Documentation
@@ -2008,7 +2015,7 @@ When the release workflow succeeds, GitHub Releases will contain:
 - `qbnex_<tag>_osx.tar.gz`
 - `qbnex_<tag>_win-x64.zip`
 
-If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build it locally with `setup_win.cmd`.
+If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build it locally with `scripts\setup_win.cmd`.
 
 ### Test Output Interpretation
 
@@ -2028,12 +2035,12 @@ Preparing build files... [########################################] 100%
 **Compilation Error:**
 ```
 [x] QBNex :: Error [E1203]  Expression mixes incompatible types
-  [@] source/qbnex.bas(1708,28)
+  [@] compiler/qbnex.bas(1708,28)
   [#] source
     1708 | IF UserDefine(0, i) = l$ THEN
          |                            ^ string value compared against incompatible type
   [>] next     Convert the value to the correct type using an explicit conversion function.
-  [::] flow    Parsing :: parse source file -> file: source/qbnex.bas
+  [::] flow    Parsing :: parse source file -> file: compiler/qbnex.bas
 ```
 
 **Detailed Diagnostics (default):**
@@ -2425,7 +2432,7 @@ PLAY "MB T180 O3 L8 CEG"
 docker run --rm -v /absolute/path:/project qbnex qb file.bas
 
 # Check Docker Compose config
-docker-compose config
+docker-compose -f docker/docker-compose.yml config
 
 # Verify files mounted
 docker run --rm -v $(pwd):/project qbnex ls -la /project
@@ -2451,14 +2458,14 @@ brew install --cask xquartz
 **Solution:**
 ```bash
 # Rebuild without cache
-docker-compose build --no-cache
+docker-compose -f docker/docker-compose.yml build --no-cache
 
 # Check Dockerfile syntax
-docker build --no-cache -t qbnex .
+docker build --no-cache -f docker/Dockerfile -t qbnex .
 
 # Verify all files present
 ls -la
-# Should include: Dockerfile, docker-compose.yml, source/
+# Should include: docker/ (Dockerfile, docker-compose.yml), compiler/
 ```
 
 ### Standard Library Issues
@@ -2481,15 +2488,15 @@ IMPORT:'qbnex'            ' Missing $ prefix
 **Problem: "Module not found"**
 
 **Solution:**
-- Modules are in `source/stdlib/` relative to compiler root
+- Modules are in `compiler/stdlib/` relative to compiler root
 - Ensure compiler installation is complete
-- Check file exists: `source/stdlib/collections/list.bas`
+- Check file exists: `compiler/stdlib/collections/list.bas`
 
 ```bash
 # Verify stdlib files exist
-ls -la source/stdlib/collections/
-ls -la source/stdlib/strings/
-ls -la source/stdlib/sys/
+ls -la compiler/stdlib/collections/
+ls -la compiler/stdlib/strings/
+ls -la compiler/stdlib/sys/
 ```
 
 **Problem: "QBNex_List not defined"**
@@ -2509,7 +2516,7 @@ List_Init myList
 **Windows:**
 
 **Problem: "g++ not found"**
-- Run `setup_win.cmd` to download MinGW
+- Run `scripts\setup_win.cmd` to download MinGW
 - Check antivirus isn't blocking download
 - Whitelist QBNex folder in antivirus
 
@@ -3200,9 +3207,9 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ## Development
 
-Primary compiler modules now live under `source/utilities/` with `source/qbnex.bas`
+Primary compiler modules now live under `compiler/utilities/` with `compiler/qbnex.bas`
 acting mainly as the main orchestrator. Shared startup/build/temp-workspace state is
-grouped in `source/utilities/state.bas`.
+grouped in `compiler/utilities/state.bas`.
 
 For rebuild steps, minimum verification, and module-splitting guidance, see
 `CONTRIBUTING.md`.
@@ -3212,7 +3219,7 @@ For rebuild steps, minimum verification, and module-splitting guidance, see
 QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). The compilation process:
 
 1. **Bootstrap Phase**: A minimal C++ compiler (`internal/c/qbx.cpp`) compiles the bootstrap data in `internal/source/` into a stage0 compiler
-2. **Self-Hosting Phase**: The build generates a stage0-compatible source from `source/qbnex.bas` and its modules, then the stage0 compiler recompiles that source into the final `qb` / `qb.exe`
+2. **Self-Hosting Phase**: The build generates a stage0-compatible source from `compiler/qbnex.bas` and its modules, then the stage0 compiler recompiles that source into the final `qb` / `qb.exe`
 3. **Code Generation**: The QBNex compiler translates BASIC source code into optimized C++ code
 4. **Native Compilation**: Platform C++ compiler (g++/clang++) compiles the generated C++ to native binary
 5. **Runtime Linking**: Generated code links against OpenGL, miniaudio, FreeType, and platform libraries
@@ -3226,22 +3233,7 @@ QBNex/
 │   └── workflows/              # pull_request.yml, push.yml, release.yml
 ├── assets/
 │   └── icons/                  # Platform icon assets (linux/macos/windows)
-├── installer/
-│   └── qbnex_setup.iss         # Inno Setup installer script
-├── internal/                   # Bootstrap/runtime build workspace
-│   ├── c/                      # Native runtime sources and build scripts
-│   │   ├── c_compiler/         # Downloaded MinGW toolchain (Windows setup)
-│   │   ├── libqb/              # Runtime core (common + os/win|lnx|osx)
-│   │   ├── parts/              # Runtime modules (audio/core/input/network/video/zlib)
-│   │   ├── qbx.cpp             # Stage0 C++ compiler entry point
-│   │   ├── build_cache/        # Native build cache
-│   │   └── pch/                # Precompiled header artifacts
-│   ├── source/                 # Bootstrap templates/data files consumed by stage0
-│   ├── support/                # Terminal color + watch support data
-│   ├── temp/                   # Generated intermediate files during builds
-│   └── config.ini              # Compiler settings
-├── licenses/                   # Third-party license files
-├── source/                     # QBNex compiler source (BASIC)
+├── compiler/                   # QBNex compiler source (BASIC)
 │   ├── qbnex.bas               # Main orchestrator entry point
 │   ├── icon.rc                 # Windows resource script
 │   ├── qbnex.ico               # Compiler icon
@@ -3257,17 +3249,40 @@ QBNex/
 │   │   └── sys/
 │   ├── subs_functions/         # Built-in functions/subroutines
 │   └── utilities/              # Compiler utility modules
+├── crates/                     # Native runtime crates (Cargo workspace)
+│   ├── qb-runtime/             # Runtime library (C ABI, headers in include/, builds in os/<windows|linux|macos>/)
+│   ├── qb-audio/               # Audio engine
+│   └── qb-exec/                # Runner for compiled QIR programs (bin/<os>/qb-exec)
+├── docker/
+│   ├── Dockerfile
+│   ├── Dockerfile.dev
+│   └── docker-compose.yml
+├── docs/                       # Design notes and port progress
+├── internal/                   # Bootstrap/runtime build workspace
+│   ├── c/                      # C++ runtime glue and build scripts
+│   │   ├── c_compiler/         # Downloaded MinGW toolchain (Windows setup)
+│   │   ├── libqb/              # Runtime core (common + os/win|lnx|osx)
+│   │   ├── parts/              # Runtime modules (audio/core/input/network/video/zlib)
+│   │   ├── qbx.cpp             # Stage0 C++ compiler entry point
+│   │   ├── build_cache/        # Native build cache
+│   │   └── pch/                # Precompiled header artifacts
+│   ├── source/                 # Bootstrap templates/data files consumed by stage0
+│   ├── support/                # Terminal color + watch support data
+│   ├── temp/                   # Generated intermediate files during builds
+│   └── config.ini              # Compiler settings
+├── licenses/                   # Third-party license files
+├── packaging/
+│   └── installer/
+│       └── qbnex_setup.iss     # Inno Setup installer script
+├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, self-host helpers
 ├── tests/
-│   ├── *.cmd / *.sh            # Smoke and benchmark test runners
-│   └── fixtures/               # Test input programs
+│   ├── conformance/            # Conformance runner + cases (golden outputs)
+│   ├── diff/                   # Legacy-vs-runtime differential tests (run_diff.sh / run_diff.cmd)
+│   ├── fixtures/               # Test input programs
+│   └── smoke/                  # Smoke and benchmark test runners (*.cmd / *.sh)
+├── Cargo.toml                  # Cargo workspace
 ├── CMakeLists.txt              # CMake build graph
 ├── CMakePresets.json           # Cross-platform CMake presets
-├── docker-compose.yml
-├── Dockerfile
-├── Dockerfile.dev
-├── setup_lnx.sh
-├── setup_osx.command
-├── setup_win.cmd
 ├── qb.cmd                      # Windows wrapper command
 ├── README.md
 ├── CONTRIBUTING.md
@@ -3285,39 +3300,39 @@ QBNex/
 ```cmd
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-setup_win.cmd
+scripts\setup_win.cmd
 ```
 
 **Linux:**
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-chmod +x setup_lnx.sh
-./setup_lnx.sh
+chmod +x scripts/setup_lnx.sh
+./scripts/setup_lnx.sh
 ```
 
 **macOS:**
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-chmod +x setup_osx.command
-./setup_osx.command
+chmod +x scripts/setup_osx.command
+./scripts/setup_osx.command
 ```
 
 **Docker:**
 ```bash
 git clone https://github.com/thirawat27/QBNex.git
 cd QBNex
-docker build -t qbnex .
-docker run --rm -v $(pwd):/project qbnex qb source/qbnex.bas -w
+docker build -f docker/Dockerfile -t qbnex .
+docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 ```
 
 ### Adding New Features
 
-- **Built-in Functions/Subs**: Add to `source/subs_functions/subs_functions.bas`
+- **Built-in Functions/Subs**: Add to `compiler/subs_functions/subs_functions.bas`
 - **Runtime Library**: Modify C++ code in `internal/c/` and `internal/c/parts/`
-- **Graphics Extensions**: Edit `source/subs_functions/extensions/opengl/`
-- **Compiler Core**: Main compiler logic in `source/qbnex.bas`
+- **Graphics Extensions**: Edit `compiler/subs_functions/extensions/opengl/`
+- **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`
 
 ### Continuous Integration
 
@@ -3327,7 +3342,7 @@ QBNex uses GitHub Actions for automated builds:
 - **Pull requests to `main`**: Linux, macOS, Windows x64 artifact builds
 - **Release tags (`v*`)**: Package and publish GitHub Releases for Linux, macOS, and Windows x64
 
-CI workflows call the platform `setup_*` scripts directly in CI mode. Push and pull-request workflows can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases. `windows-x86` / 32-bit builds must be compiled manually with `setup_win.cmd`.
+CI workflows call the platform `setup_*` scripts directly in CI mode. Push and pull-request workflows can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases. `windows-x86` / 32-bit builds must be compiled manually with `scripts\setup_win.cmd`.
 
 ---
 

@@ -14,6 +14,7 @@ internal/c/mingw64/
 # Generated files
 qb.exe
 qb
+qbnex
 internal/config.ini
 internal/version.txt
 tempfoldersearch.bin
@@ -33,13 +34,18 @@ docs/
 README.docker.md
 
 # Scripts (not needed in container)
-setup_win.cmd
-setup_osx.command
-findcurl.cmd
-reset.cmd
+scripts/setup_win.cmd
+scripts/setup_osx.command
+scripts/findcurl.cmd
+scripts/reset.cmd
+qb.cmd
+qbnex.cmd
+packaging/
 
 # Assets (not needed at runtime)
 assets/
 
 # Rust build output
 target/
+crates/*/os/*/*.stamp
+crates/qb-exec/bin/
