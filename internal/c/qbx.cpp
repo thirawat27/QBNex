@@ -34,7 +34,7 @@ extern int32 sub_gl_called;
 
 //forward references
 void QBMAIN(void *);
-void TIMERTHREAD();
+
 
 extern int32 requestedKeyboardOverlayImage;
 void requestKeyboardOverlayImage(int32 handle){
@@ -652,44 +652,46 @@ int32 key_event_occurred=0;//inc/dec as each GOSUB to QBMAIN () begins/ends
 int32 key_event_id=0;
 int32 strig_event_occurred=0;//inc/dec as each GOSUB to QBMAIN () begins/ends
 int32 strig_event_id=0;
-uint32 ercl;
-uint32 inclercl;
-char* includedfilename;
+//Error state, qbevent, stop/suspend/close_program, mem_static*, the GOSUB stack,
+//onkey/onstrig and exit codes are defined by the Rust runtime
+//(crates/qb-runtime/src/{error,program,alloc,events}.rs).
+extern uint32 ercl;
+extern uint32 inclercl;
+extern char* includedfilename;
 uint16 call_absolute_offsets[256];
 uint32 dbgline;
 extern uint32 qbs_cmem_sp;//=256, defined by the Rust string engine (crates/qb-runtime/src/qbs.rs)
 uint32 cmem_sp=65536;
 ptrszint dblock;//32bit offset of dblock
-uint8 close_program=0;
+extern uint8 close_program;
 int32 tab_spc_cr_size=1;//1=PRINT(default), 2=FILE
 int32 tab_fileno=0;//only valid if tab_spc_cr_size=2
 int32 tab_LPRINT=0;//1=dest is LPRINT image
 
 uint64 *nothingvalue;//a pointer to 8 empty bytes in dblock
-uint32 error_err=0;
-double error_erl=0;
+extern uint32 error_err;
+extern double error_erl;
 extern uint32 qbs_tmp_list_nexti;//=1, defined by the Rust string engine (crates/qb-runtime/src/qbs.rs)
-uint32 error_occurred=0;
-uint32 new_error=0;
-uint32 bkp_new_error=0;
+extern uint32 error_occurred;
+extern uint32 new_error;
+extern uint32 bkp_new_error;
 qbs* nothingstring;
-uint32 qbevent=0;
-uint8 suspend_program=0;
-uint8 stop_program=0;
-uint32 error_retry=0;
+extern uint32 qbevent;
+extern uint8 suspend_program;
+extern uint8 stop_program;
+extern uint32 error_retry;
 uint8 cmem[1114099];//16*65535+65535+3 (enough for highest referencable dword in conv memory)
 uint8 *cmem_static_pointer=&cmem[0]+1280+65536;
 uint8 *cmem_dynamic_base=&cmem[0]+655360;
-uint8 *mem_static;
-uint8 *mem_static_pointer;
-uint8 *mem_static_limit;
-double last_line=0;
-uint32 error_goto_line=0;
-uint32 error_handling=0;
-uint32 next_return_point=0;
-std::vector<uint32> return_point_storage(16384,0);
-uint32 *return_point=return_point_storage.data();
-uint32 return_points=16384;
+extern uint8 *mem_static;
+extern uint8 *mem_static_pointer;
+extern uint8 *mem_static_limit;
+extern double last_line;
+extern uint32 error_goto_line;
+extern uint32 error_handling;
+extern uint32 next_return_point;
+extern uint32 *return_point;
+extern uint32 return_points;
 void *qbs_input_variableoffsets[257];
 int32 qbs_input_variabletypes[257];
 
@@ -1695,249 +1697,38 @@ int32 func__lastwheel(int32 di,int32 passed){
 }
 
 
-static std::vector<onstrig_struct> onstrig_storage(65536);
-onstrig_struct *onstrig=onstrig_storage.data();//note: up to 256 controllers with up to 256 buttons each supported
-int32 onstrig_inprogress=0;
-
-void onstrig_setup(int32 i,int32 controller,int32 controller_passed,uint32 id,int64 pass){
-    //note: pass is ignored by ids not requiring a pass value
-    if (new_error) return;
-    if (i<0||i>65535){error(5); return;}
-    if (controller_passed){
-        if (controller<1||controller>65535){error(5); return;}
-        }else{
-        controller=1; if (i&2){controller=2; i-=2;}
-    }
-    int32 button;
-    button=(i>>2)+1;
-    if (i&1){error(5); return;}//'currently down' state cannot be used as an ON STRIG event
-    if (controller>256||button>256) return;//error-less exit for (currently) unsupported ranges
-    i=(controller-1)*256+(button-1);//reindex
-    onstrig[i].state=0;
-    onstrig[i].pass=pass;
-    onstrig[i].id=id;//id must be set last because it is the trigger variable
-    if (device_last==0) func__devices();//init device interface (if not already setup)
+//ON STRIG / ON KEY / ON TIMER state and statements: crates/qb-runtime/src/events.rs.
+//The onkey/onstrig arrays keep the common.h layout (keyboard and gamepad code update them).
+extern "C" {
+    void qb_onstrig_setup(int32 i,int32 controller,int32 controller_passed,uint32 id,int64 pass);
+    void qb_strig_statement(int32 i,int32 controller,int32 option,int32 passed);
+    void qb_onkey_setup(int32 i,uint32 id,int64 pass);
+    void qb_key_statement(int32 i,int32 option);
+    int32 qb_freetimer_new();
+    void qb_freetimer(int32 i);
+    void qb_ontimer_setup(int32 i,double seconds,uint32 id,int64 pass);
+    void qb_timer_statement(int32 i,int32 option,int32 passed);
+    void qb_timers_pause(int32 pause);
+    int32 qb_timer_count();
+    uint32 qb_timer_take(int32 i,int64 *pass);
+    void qb_timer_done(int32 i);
 }
+extern onstrig_struct *onstrig;
+extern int32 onstrig_inprogress;
+extern onkey_struct *onkey;
+extern int32 onkey_inprogress;
 
-void sub_strig(int32 i,int32 controller,int32 option,int32 passed){
-    //ref: "[(?[,?])]{ON|OFF|STOP}"
-    if (new_error) return;
-    //Note: QuickBASIC ignores STRIG ON and STRIG OFF statements--the statements are provided for compatibility with earlier versions,
-    //      Reference: http://www.antonis.de/qbebooks/gwbasman/strig.html
-    //      QBNex makes STRIG ON/OFF/STOP change the checking status for all buttons
-    static int32 i1,i2;
-    if (passed>0){
-        if (i<0||i>65535){error(5); return;}
-        if (passed&2){
-            if (controller<1||controller>65535){error(5); return;}
-            }else{
-            controller=1; if (i&2){controller=2; i-=2;}
-        }
-        static int32 button;
-        button=(i>>2)+1;
-        if (i&1){error(5); return;}//'currently down' state cannot be used as an ON STRIG event
-        if (controller>256||button>256) return;//error-less exit for (currently) unsupported ranges
-        i=(controller-1)*256+(button-1);//reindex
-        i1=i; i2=i;
-        }else{
-        i1=0; i2=65535;
-    }
-    for (i=i1;i<=i2;i++){
-        //ref: uint8 active;//0=OFF, 1=ON, 2=STOP
-        if (option==1){//ON
-            onstrig[i].active=1;
-            if (onstrig[i].state) qbevent=1;
-        }
-        if (option==2){//OFF
-            onstrig[i].active=0;
-            onstrig[i].state=0;
-        }
-        if (option==3){//STOP
-            onstrig[i].active=2;
-            if (onstrig[i].state) onstrig[i].state=1;
-        }
-    }//i
-}
-
-
-static std::vector<onkey_struct> onkey_storage(32);
-onkey_struct *onkey=onkey_storage.data();
-int32 onkey_inprogress=0;
-
-void onkey_setup(int32 i,uint32 id,int64 pass){
-    //note: pass is ignored by ids not requiring a pass value
-    if (new_error) return;
-    if ((i<1)||(i>31)){error(5); return;}
-    onkey[i].state=0;
-    onkey[i].pass=pass;
-    onkey[i].id=id;//id must be set last because it is the trigger variable
-}
-
-void sub_key(int32 i,int32 option){
-    //ref: "(?){ON|OFF|STOP}"
-    if (new_error) return;
-    if ((i<0)||(i>31)){error(5); return;}
-    static int32 i1,i2;
-    i1=i; i2=i;
-    if (!i){i1=i; i2=31;}//set all keys!
-    for (i=i1;i<=i2;i++){
-        //ref: uint8 active;//0=OFF, 1=ON, 2=STOP
-        if (option==1){//ON
-            onkey[i].active=1;
-            if (onkey[i].state) qbevent=1;
-        }
-        if (option==2){//OFF
-            onkey[i].active=0;
-            onkey[i].state=0;
-        }
-        if (option==3){//STOP
-            onkey[i].active=2;
-            if (onkey[i].state) onkey[i].state=1;
-        }
-    }//i
-}
-
-int32 ontimer_nextfree=1;
-std::vector<int32> ontimer_freelist;
-std::vector<ontimer_struct> ontimer(1);
-//note: index 0 of the above cannot be allocated/freed
-
-static std::mutex ontimer_mutex;
-static std::unique_ptr<std::unique_lock<std::mutex>> ontimer_pause_lock;
-
-void stop_timers() {
-    if (!ontimer_pause_lock){
-        ontimer_pause_lock.reset(new std::unique_lock<std::mutex>(ontimer_mutex));
-    }
-}
-
-void start_timers() {
-    ontimer_pause_lock.reset();
-}
-
-static void freetimer_locked(int32 i){
-    ontimer[i].allocated=0;
-    ontimer[i].id=0;
-    ontimer_freelist.push_back(i);
-}
-
-int32 func__freetimer(){
-    if (new_error) return 0;
-    std::lock_guard<std::mutex> lock(ontimer_mutex);
-    int32 i;
-    if (!ontimer_freelist.empty()){
-        i=ontimer_freelist.back();
-        ontimer_freelist.pop_back();
-        }else{
-        i=ontimer_nextfree;
-        ontimer.resize(static_cast<size_t>(ontimer_nextfree)+1);
-        ontimer[i].state=0;//state is not set to 0 if reusing an existing index as event could still be in progress
-        ontimer_nextfree++;
-    }
-    ontimer[i].active=0;
-    ontimer[i].id=0;
-    ontimer[i].allocated=1;
-    return i;
-}
-
-void freetimer(int32 i){
-    std::lock_guard<std::mutex> lock(ontimer_mutex);
-    freetimer_locked(i);
-}
-
-void ontimer_setup(int32 i,double sec,uint32 id,int64 pass){
-    //note: pass is ignored by ids not requiring a pass value
-    if (new_error) return;
-    std::lock_guard<std::mutex> lock(ontimer_mutex);
-    if ((i<0)||(i>=ontimer_nextfree)){error(5); return;}
-    if (!ontimer[i].allocated){error(5); return;}
-    if (ontimer[i].state==1) ontimer[i].state=0;//retract prev event if not in progress
-    ontimer[i].seconds=sec;
-    ontimer[i].pass=pass;
-    ontimer[i].last_time=0;
-    ontimer[i].id=id;//id must be set last because it is the trigger variable
-}
-
-void sub_timer(int32 i,int32 option,int32 passed){
-    //ref: "[(?)]{ON|OFF|STOP|FREE}"
-    if (new_error) return;
-    if (!passed) i=0;
-    std::lock_guard<std::mutex> lock(ontimer_mutex);
-    if ((i<0)||(i>=ontimer_nextfree)){error(5); return;}
-    if (!ontimer[i].allocated){error(5); return;}
-    //ref: uint8 active;//0=OFF, 1=ON, 2=STOP
-    if (option==1){//ON
-        ontimer[i].active=1;
-        return;
-    }
-    if (option==2){//OFF
-        ontimer[i].active=0;
-        if (ontimer[i].state==1) ontimer[i].state=0;//retract event if not in progress
-        ontimer[i].last_time=0;//when ON is next used, event will be triggered immediately
-        return;
-    }
-    if (option==3){//STOP
-        ontimer[i].active=2;
-        return;
-    }
-    if (option==4){//FREE
-        if (i==0){error(5); return;}
-        ontimer[i].active=0;
-        if (ontimer[i].state==1) ontimer[i].state=0;//retract event if not in progress
-        freetimer_locked(i);
-        //note: if an event is still in progress, it will set state to 0 when it finishes
-        //      which may delay the first instance of this index if it is immediately reused
-        return;
-    }
-}
-
-
-#ifdef QBNex_WINDOWS
-    void TIMERTHREAD_WINDOWS(void *unused){
-        TIMERTHREAD();
-        return;
-    }
-    #else
-    void *TIMERTHREAD_LINUX(void *unused){
-        TIMERTHREAD();
-        return NULL;
-    }
-#endif
-void TIMERTHREAD(){
-    int32 i;
-    double time_now = 100000.0;
-    while(1){
-        {
-            std::lock_guard<std::mutex> lock(ontimer_mutex);
-            time_now=((double)GetTicks())*0.001;
-            for (i=0;i<ontimer_nextfree;i++){
-                if (ontimer[i].allocated){
-                    if (ontimer[i].id){
-                        if (ontimer[i].active){
-                            if (!ontimer[i].state){
-                                if (time_now-ontimer[i].last_time>ontimer[i].seconds){
-                                    if (!ontimer[i].last_time){
-                                        ontimer[i].last_time=time_now;
-                                        }else{
-                                        //keep measured time for accurate number of calls overall
-                                        ontimer[i].last_time+=ontimer[i].seconds;
-                                        //if difference between actual time and measured time is beyond 'seconds' set measured to actual
-                                        if (fabs(time_now-ontimer[i].last_time)>=ontimer[i].seconds) ontimer[i].last_time=time_now;
-                                        ontimer[i].state=1;
-                                        qbevent=1;
-                                    }
-                                }//time check
-                            }//state==0
-                        }//active
-                    }//id
-                }//allocated
-            }//i
-        }
-        Sleep(1);
-        if (stop_program){exit_ok|=2; return;}//close thread #2
-    }//while(1)
-    return;
-}
+void onstrig_setup(int32 i,int32 controller,int32 controller_passed,uint32 id,int64 pass){qb_onstrig_setup(i,controller,controller_passed,id,pass);}
+void sub_strig(int32 i,int32 controller,int32 option,int32 passed){qb_strig_statement(i,controller,option,passed);}
+void onkey_setup(int32 i,uint32 id,int64 pass){qb_onkey_setup(i,id,pass);}
+void sub_key(int32 i,int32 option){qb_key_statement(i,option);}
+void stop_timers(){qb_timers_pause(1);}
+void start_timers(){qb_timers_pause(0);}
+int32 func__freetimer(){return qb_freetimer_new();}
+void freetimer(int32 i){qb_freetimer(i);}
+void ontimer_setup(int32 i,double sec,uint32 id,int64 pass){qb_ontimer_setup(i,sec,id,pass);}
+void sub_timer(int32 i,int32 option,int32 passed){qb_timer_statement(i,option,passed);}
+extern "C" void qb_host_devices_init(){if (device_last==0) func__devices();}//ON STRIG setup
 
 void events(){
     int32 i,x,d,di;
@@ -2021,28 +1812,9 @@ void events(){
     
     //ontimer events
     if (!error_handling){//no new on timer calls happen whilst error handling
-        int32 ontimer_limit;
-        {
-            std::lock_guard<std::mutex> lock(ontimer_mutex);
-            ontimer_limit=ontimer_nextfree;
-        }
+        int32 ontimer_limit=qb_timer_count();
         for (i=0;i<ontimer_limit;i++){
-            x=0;
-            i64=0;
-            {
-                std::lock_guard<std::mutex> lock(ontimer_mutex);
-                if (ontimer[i].allocated){
-                    if (ontimer[i].id){
-                        if (ontimer[i].active==1){//if timer STOPped, event will be postponed
-                            if (ontimer[i].state==1){
-                                ontimer[i].state=2;//event in progress
-                                x=ontimer[i].id;
-                                i64=ontimer[i].pass;
-                            }//state==1
-                        }//active==1
-                    }//id
-                }//allocated
-            }
+            x=qb_timer_take(i,&i64);//sets the timer's state to "in progress"
             if (!x) continue;
             switch(x){
                 
@@ -2059,12 +1831,7 @@ void events(){
                 default:
                 break;
             }//switch
-            {
-                std::lock_guard<std::mutex> lock(ontimer_mutex);
-                if ((i<ontimer_nextfree)&&ontimer[i].allocated){
-                    ontimer[i].state=0;//event finished
-                }
-            }
+            qb_timer_done(i);//event finished
             sleep_break=1;
         }//i
     }//!error_handling
@@ -2078,7 +1845,9 @@ extern int64 display_lock_confirmed;
 extern int64 display_lock_released;
 
 uint32 r;
-void evnt(uint32 linenumber, uint32 inclinenumber = 0, const char* incfilename = NULL){
+void evnt(uint32 linenumber, uint32 inclinenumber = 0, const char* incfilename = NULL);
+extern "C" void qb_host_evnt(){evnt(0);}//SLEEP/_DELAY/_LIMIT loops in Rust
+void evnt(uint32 linenumber, uint32 inclinenumber, const char* incfilename){
     if (disableEvents) return;
     
     qbevent=0;
