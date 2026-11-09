@@ -1,4 +1,5 @@
-if(oldstr3675){
-if(oldstr3675->fixed)qbs_set(oldstr3675,_FUNC_REMOVECAST_STRING_A);
-qbs_free(_FUNC_REMOVECAST_STRING_A);
+if(oldstr3061){
+if(oldstr3061->fixed)qbs_set(oldstr3061,_FUNC_CLASSSYNTAX_FIRSTTOKEN_STRING_TEXT);
+qbs_free(_FUNC_CLASSSYNTAX_FIRSTTOKEN_STRING_TEXT);
 }
+qbs_free(_FUNC_CLASSSYNTAX_FIRSTTOKEN_STRING_C);

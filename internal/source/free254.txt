@@ -1,4 +1,4 @@
-if(oldstr6459){
-if(oldstr6459->fixed)qbs_set(oldstr6459,_FUNC_WIKIGETLINE_STRING_A);
-qbs_free(_FUNC_WIKIGETLINE_STRING_A);
+if(oldstr4334){
+if(oldstr4334->fixed)qbs_set(oldstr4334,_FUNC_SCASE_STRING_T);
+qbs_free(_FUNC_SCASE_STRING_T);
 }

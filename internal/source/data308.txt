@@ -1,0 +1,9 @@
+int16 *_SUB_CLEARERRORCONTEXTSTACK_INTEGER_I=NULL;
+if(_SUB_CLEARERRORCONTEXTSTACK_INTEGER_I==NULL){
+_SUB_CLEARERRORCONTEXTSTACK_INTEGER_I=(int16*)mem_static_malloc(2);
+*_SUB_CLEARERRORCONTEXTSTACK_INTEGER_I=0;
+}
+int32 fornext_value4529;
+int32 fornext_finalvalue4529;
+int32 fornext_step4529;
+uint8 fornext_step_negative4529;

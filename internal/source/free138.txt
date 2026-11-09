@@ -1,4 +1,0 @@
-if(oldstr3954){
-if(oldstr3954->fixed)qbs_set(oldstr3954,_SUB_DEBUGPRINT_STRING_TEXT);
-qbs_free(_SUB_DEBUGPRINT_STRING_TEXT);
-}

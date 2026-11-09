@@ -1,0 +1,4 @@
+if(oldstr4556){
+if(oldstr4556->fixed)qbs_set(oldstr4556,_FUNC_ISIDENTIFIERBODYCHAR_STRING_CH);
+qbs_free(_FUNC_ISIDENTIFIERBODYCHAR_STRING_CH);
+}

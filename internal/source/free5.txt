@@ -1,6 +1,0 @@
-if(oldstr2290){
-if(oldstr2290->fixed)qbs_set(oldstr2290,_SUB_ASSIGN_STRING_A);
-qbs_free(_SUB_ASSIGN_STRING_A);
-}
-qbs_free(_SUB_ASSIGN_STRING_A2);
-qbs_free(_SUB_ASSIGN_STRING_L);

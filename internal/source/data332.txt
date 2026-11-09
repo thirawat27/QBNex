@@ -1,0 +1,21 @@
+qbs*oldstr4603=NULL;
+if(_SUB_REPORTERROR_STRING_MESSAGE->tmp||_SUB_REPORTERROR_STRING_MESSAGE->fixed||_SUB_REPORTERROR_STRING_MESSAGE->readonly){
+oldstr4603=_SUB_REPORTERROR_STRING_MESSAGE;
+if (oldstr4603->cmem_descriptor){
+_SUB_REPORTERROR_STRING_MESSAGE=qbs_new_cmem(oldstr4603->len,0);
+}else{
+_SUB_REPORTERROR_STRING_MESSAGE=qbs_new(oldstr4603->len,0);
+}
+memcpy(_SUB_REPORTERROR_STRING_MESSAGE->chr,oldstr4603->chr,oldstr4603->len);
+}
+qbs*oldstr4604=NULL;
+if(_SUB_REPORTERROR_STRING_CONTEXT->tmp||_SUB_REPORTERROR_STRING_CONTEXT->fixed||_SUB_REPORTERROR_STRING_CONTEXT->readonly){
+oldstr4604=_SUB_REPORTERROR_STRING_CONTEXT;
+if (oldstr4604->cmem_descriptor){
+_SUB_REPORTERROR_STRING_CONTEXT=qbs_new_cmem(oldstr4604->len,0);
+}else{
+_SUB_REPORTERROR_STRING_CONTEXT=qbs_new(oldstr4604->len,0);
+}
+memcpy(_SUB_REPORTERROR_STRING_CONTEXT->chr,oldstr4604->chr,oldstr4604->len);
+}
+int16 pass4605;

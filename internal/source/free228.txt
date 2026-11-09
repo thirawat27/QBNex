@@ -1,1 +1,5 @@
-qbs_free(_SUB_SORT_STRING_X);
+if(oldstr4169){
+if(oldstr4169->fixed)qbs_set(oldstr4169,_FUNC_HASHFIND_STRING_A);
+qbs_free(_FUNC_HASHFIND_STRING_A);
+}
+qbs_free(_FUNC_HASHFIND_STRING_UA);

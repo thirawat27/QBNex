@@ -1,0 +1,11 @@
+qbs*oldstr4624=NULL;
+if(_SUB_REPORTINFO_STRING_MESSAGE->tmp||_SUB_REPORTINFO_STRING_MESSAGE->fixed||_SUB_REPORTINFO_STRING_MESSAGE->readonly){
+oldstr4624=_SUB_REPORTINFO_STRING_MESSAGE;
+if (oldstr4624->cmem_descriptor){
+_SUB_REPORTINFO_STRING_MESSAGE=qbs_new_cmem(oldstr4624->len,0);
+}else{
+_SUB_REPORTINFO_STRING_MESSAGE=qbs_new(oldstr4624->len,0);
+}
+memcpy(_SUB_REPORTINFO_STRING_MESSAGE->chr,oldstr4624->chr,oldstr4624->len);
+}
+int16 pass4625;

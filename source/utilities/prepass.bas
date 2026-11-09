@@ -33,6 +33,7 @@ SUB ResetPrepassManagers
     topLevelRuntimeProcDepth = 0
     topLevelRuntimeTypeDepth = 0
     topLevelRuntimeDeclareDepth = 0
+    topLevelRuntimeSeenProc = 0
     ClassSyntax_ClearRegistry
     ClassSyntax_ClearScopes
 END SUB

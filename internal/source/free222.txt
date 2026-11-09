@@ -1,6 +1,7 @@
-if(oldstr6161){
-if(oldstr6161->fixed)qbs_set(oldstr6161,_SUB_IDEADDRECENT_STRING_F2);
-qbs_free(_SUB_IDEADDRECENT_STRING_F2);
+if(oldstr4136){
+if(oldstr4136->fixed)qbs_set(oldstr4136,_SUB_BUILD_STRING_PATH);
+qbs_free(_SUB_BUILD_STRING_PATH);
 }
-qbs_free(_SUB_IDEADDRECENT_STRING_F);
-qbs_free(_SUB_IDEADDRECENT_STRING_A);
+qbs_free(_SUB_BUILD_STRING_PREVIOUS_DIR);
+qbs_free(_SUB_BUILD_STRING_RETURN_PATH);
+qbs_free(_SUB_BUILD_STRING_C);

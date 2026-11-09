@@ -18,6 +18,26 @@ FUNCTION TopLevelRuntime_ShouldCapture% (trimmedLine$, upperLine$)
     TopLevelRuntime_ShouldCapture = -1
 END FUNCTION
 
+FUNCTION TopLevelRuntime_IsKeyword% (upperLine$, keyword$)
+    'keyword alone, or followed by a space or a comment
+    IF LEFT$(upperLine$, LEN(keyword$)) <> keyword$ THEN EXIT FUNCTION
+    IF LEN(upperLine$) = LEN(keyword$) THEN TopLevelRuntime_IsKeyword = -1: EXIT FUNCTION
+    SELECT CASE MID$(upperLine$, LEN(keyword$) + 1, 1)
+        CASE " ", "'", CHR$(9): TopLevelRuntime_IsKeyword = -1
+    END SELECT
+END FUNCTION
+
+FUNCTION TopLevelRuntime_IsDeclareLibrary% (upperLine$)
+    DIM rest AS STRING
+
+    IF LEFT$(upperLine$, 8) <> "DECLARE " THEN EXIT FUNCTION
+    rest = LTRIM$(MID$(upperLine$, 9))
+    IF LEFT$(rest, 8) = "DYNAMIC " THEN rest = LTRIM$(MID$(rest, 9))
+    IF LEFT$(rest, 11) = "CUSTOMTYPE " THEN rest = LTRIM$(MID$(rest, 12))
+    IF LEFT$(rest, 7) = "STATIC " THEN rest = LTRIM$(MID$(rest, 8))
+    IF rest = "LIBRARY" OR LEFT$(rest, 8) = "LIBRARY " OR LEFT$(rest, 8) = "LIBRARY'" THEN TopLevelRuntime_IsDeclareLibrary = -1
+END FUNCTION
+
 SUB TopLevelRuntime_Finalize
     DIM remainingLines AS STRING
     DIM nextBreak AS LONG
@@ -46,6 +66,8 @@ SUB TopLevelRuntime_InjectMainHook (mainPath$)
     DIM insertPos AS LONG
     DIM runtimeCall AS STRING
     DIM fh AS LONG
+    DIM scanPos AS LONG
+    DIM afterPos AS LONG
 
     runtimeCall = "SUB_QBNEX_TOPLEVEL_RUNTIME0();"
 
@@ -56,8 +78,19 @@ SUB TopLevelRuntime_InjectMainHook (mainPath$)
 
     IF INSTR(fileText, runtimeCall) THEN EXIT SUB
 
+    'Call the runtime where main closes ("sub_end();" followed by "return;"), not at the
+    'first END statement of the main body
     insertPos = INSTR(fileText, "sub_end();")
     IF insertPos = 0 THEN EXIT SUB
+    scanPos = insertPos
+    DO WHILE scanPos
+        afterPos = scanPos + 10
+        DO WHILE MID$(fileText, afterPos, 1) = CHR$(13) OR MID$(fileText, afterPos, 1) = CHR$(10)
+            afterPos = afterPos + 1
+        LOOP
+        IF MID$(fileText, afterPos, 7) = "return;" THEN insertPos = scanPos: EXIT DO
+        scanPos = INSTR(scanPos + 10, fileText, "sub_end();")
+    LOOP
 
     fileText = LEFT$(fileText, insertPos - 1) + runtimeCall + CHR$(13) + CHR$(10) + MID$(fileText, insertPos)
 
@@ -79,24 +112,29 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     trimmedLine = LTRIM$(RTRIM$(rawLine$))
     upperLine = UCASE$(trimmedLine)
 
-    IF upperLine = "END SUB" OR upperLine = "END FUNCTION" THEN
+    IF TopLevelRuntime_IsKeyword%(upperLine, "END SUB") OR TopLevelRuntime_IsKeyword%(upperLine, "END FUNCTION") THEN
         IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
-    IF upperLine = "END TYPE" THEN
+    IF TopLevelRuntime_IsKeyword%(upperLine, "END TYPE") THEN
         IF topLevelRuntimeTypeDepth > 0 THEN topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth - 1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
-    IF upperLine = "END DECLARE" THEN
+    IF TopLevelRuntime_IsKeyword%(upperLine, "END DECLARE") THEN
         IF topLevelRuntimeDeclareDepth > 0 THEN topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth - 1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
 
-    IF LEFT$(upperLine, 16) = "DECLARE LIBRARY " OR upperLine = "DECLARE LIBRARY" THEN
+    IF TopLevelRuntime_IsDeclareLibrary%(upperLine) THEN
         topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth + 1
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+    'SUB/FUNCTION lines inside DECLARE LIBRARY are prototypes, not procedure bodies (L-00)
+    IF topLevelRuntimeDeclareDepth THEN
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
@@ -107,11 +145,19 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     END IF
     IF LEFT$(upperLine, 4) = "SUB " OR LEFT$(upperLine, 9) = "FUNCTION " THEN
         topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
+        topLevelRuntimeSeenProc = -1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
 
     IF topLevelRuntimeProcDepth OR topLevelRuntimeTypeDepth OR topLevelRuntimeDeclareDepth THEN
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    'Code before the first SUB/FUNCTION is ordinary main-module code and stays in place
+    '(L-00, L-01); only code that follows a procedure is moved into the runtime SUB
+    IF topLevelRuntimeSeenProc = 0 THEN
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF

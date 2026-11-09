@@ -1,0 +1,17 @@
+int32 *_SUB_EXITCOMPILERPROCESS_LONG_CLOSEALL=NULL;
+if(_SUB_EXITCOMPILERPROCESS_LONG_CLOSEALL==NULL){
+_SUB_EXITCOMPILERPROCESS_LONG_CLOSEALL=(int32*)mem_static_malloc(4);
+*_SUB_EXITCOMPILERPROCESS_LONG_CLOSEALL=0;
+}
+int64 fornext_value1992;
+int64 fornext_finalvalue1992;
+int64 fornext_step1992;
+uint8 fornext_step_negative1992;
+int64 fornext_value1994;
+int64 fornext_finalvalue1994;
+int64 fornext_step1994;
+uint8 fornext_step_negative1994;
+int64 fornext_value1996;
+int64 fornext_finalvalue1996;
+int64 fornext_step1996;
+uint8 fornext_step_negative1996;

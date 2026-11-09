@@ -1,0 +1,4 @@
+if(oldstr3524){
+if(oldstr3524->fixed)qbs_set(oldstr3524,_FUNC_UTF8BYTEAT_STRING_TEXT);
+qbs_free(_FUNC_UTF8BYTEAT_STRING_TEXT);
+}

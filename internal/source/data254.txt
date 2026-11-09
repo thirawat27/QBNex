@@ -1,12 +1,12 @@
-qbs *_FUNC_WIKIGETLINE_STRING_WIKIGETLINE=NULL;
-if (!_FUNC_WIKIGETLINE_STRING_WIKIGETLINE)_FUNC_WIKIGETLINE_STRING_WIKIGETLINE=qbs_new(0,0);
-qbs*oldstr6459=NULL;
-if(_FUNC_WIKIGETLINE_STRING_A->tmp||_FUNC_WIKIGETLINE_STRING_A->fixed||_FUNC_WIKIGETLINE_STRING_A->readonly){
-oldstr6459=_FUNC_WIKIGETLINE_STRING_A;
-if (oldstr6459->cmem_descriptor){
-_FUNC_WIKIGETLINE_STRING_A=qbs_new_cmem(oldstr6459->len,0);
+qbs *_FUNC_SCASE_STRING_SCASE=NULL;
+if (!_FUNC_SCASE_STRING_SCASE)_FUNC_SCASE_STRING_SCASE=qbs_new(0,0);
+qbs*oldstr4334=NULL;
+if(_FUNC_SCASE_STRING_T->tmp||_FUNC_SCASE_STRING_T->fixed||_FUNC_SCASE_STRING_T->readonly){
+oldstr4334=_FUNC_SCASE_STRING_T;
+if (oldstr4334->cmem_descriptor){
+_FUNC_SCASE_STRING_T=qbs_new_cmem(oldstr4334->len,0);
 }else{
-_FUNC_WIKIGETLINE_STRING_A=qbs_new(oldstr6459->len,0);
+_FUNC_SCASE_STRING_T=qbs_new(oldstr4334->len,0);
 }
-memcpy(_FUNC_WIKIGETLINE_STRING_A->chr,oldstr6459->chr,oldstr6459->len);
+memcpy(_FUNC_SCASE_STRING_T->chr,oldstr4334->chr,oldstr4334->len);
 }

@@ -1,0 +1,8 @@
+if(oldstr4353){
+if(oldstr4353->fixed)qbs_set(oldstr4353,_FUNC_TEXT_ENDSWITH_STRING_VALUETEXT);
+qbs_free(_FUNC_TEXT_ENDSWITH_STRING_VALUETEXT);
+}
+if(oldstr4354){
+if(oldstr4354->fixed)qbs_set(oldstr4354,_FUNC_TEXT_ENDSWITH_STRING_SUFFIXTEXT);
+qbs_free(_FUNC_TEXT_ENDSWITH_STRING_SUFFIXTEXT);
+}

@@ -17,6 +17,7 @@
 
 pub mod mbf;
 pub mod numfmt;
+pub mod qbs;
 pub mod rnd;
 pub mod round;
 pub mod timer;

@@ -1,0 +1,10 @@
+qbs*oldstr4425=NULL;
+if(_SUB_PATH_SLASH_CORRECT_STRING_A->tmp||_SUB_PATH_SLASH_CORRECT_STRING_A->fixed||_SUB_PATH_SLASH_CORRECT_STRING_A->readonly){
+oldstr4425=_SUB_PATH_SLASH_CORRECT_STRING_A;
+if (oldstr4425->cmem_descriptor){
+_SUB_PATH_SLASH_CORRECT_STRING_A=qbs_new_cmem(oldstr4425->len,0);
+}else{
+_SUB_PATH_SLASH_CORRECT_STRING_A=qbs_new(oldstr4425->len,0);
+}
+memcpy(_SUB_PATH_SLASH_CORRECT_STRING_A->chr,oldstr4425->chr,oldstr4425->len);
+}
