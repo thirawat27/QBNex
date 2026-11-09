@@ -14,7 +14,7 @@ out="${TMPDIR:-/tmp}/qbrt_diff_$$"
 mkdir -p "$out"
 cxx="${CXX:-c++}"
 
-for t in diff_msbin diff_str; do
+for t in diff_msbin diff_str diff_mem; do
   $cxx -O2 -std=c++17 -w "$t.cpp" "$lib" $libs -o "$out/$t"
   "$out/$t" $mode
 done
@@ -31,4 +31,5 @@ case "$(uname -m)" in
     ;;
   *) echo "diff_round/diff_val/diff_timer skipped: legacy reference needs x87 long double ($(uname -m))" ;;
 esac
+# diff_files / diff_sys compare against the legacy Win32 code paths: Windows only (run_diff.cmd).
 rm -rf "$out"

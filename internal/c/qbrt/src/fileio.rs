@@ -1739,7 +1739,7 @@ mod tests {
         assert_eq!(file_print(f, b"ab", false, true, false), 0); // comma zone
         assert_eq!(file_print(f, b"c", true, false, true), 0);
         assert_eq!(file_print(f, b"\"x, y\",  plain text  ,last", false, false, true), 0);
-        assert_eq!(file_print(f, b"1", false, false, false), 54 * 0);
+        assert_eq!(file_print(f, b"1", false, false, false), 0);
         close(f);
         assert_eq!(std::fs::read(d.join("s.txt")).unwrap(), b"ab            c \r\n\"x, y\",  plain text  ,last\r\n1");
         assert_eq!(open(&name, 3, 0, 0, f, 0, false), 0);

@@ -2437,13 +2437,6 @@ int32 lprint_locked=0;//set to 1 to deny access by QBNex program
     -11 bad file name
 */
 
-#ifdef QBNex_WINDOWS
-    #define GFS_WINDOWS
-#endif
-#ifndef GFS_WINDOWS
-    #define GFS_C
-#endif
-
 //GFS file table: owned by the Rust runtime (internal/c/qbrt/src/gfs.rs).
 //The C++ code that still looks at open files (PRINT # TAB, FIELD strings)
 //reads entries through these two views.
