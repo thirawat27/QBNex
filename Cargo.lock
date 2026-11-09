@@ -1657,6 +1657,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-ffi"
+version = "0.1.0"
+
+[[package]]
 name = "qb-float80"
 version = "0.1.0"
 

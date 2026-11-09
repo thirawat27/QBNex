@@ -280,6 +280,7 @@ fn nan2(x: F80, y: F80) -> Option<F80> {
 mod tests {
     use super::*;
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn ulps(a: F80, b: F80) -> u64 {
         let k = |v: F80| -> i128 {
             let mag = ((v.exp() as i128) << 64) | v.mant as i128;
