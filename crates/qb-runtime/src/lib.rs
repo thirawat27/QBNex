@@ -16,6 +16,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod clipboard;
+pub mod console;
 mod cmem;
 pub mod env;
 pub mod fileio;
