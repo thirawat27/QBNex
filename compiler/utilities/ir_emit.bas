@@ -1129,7 +1129,11 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             END IF
             r$ = IrRt$("RND", "", "f32")
         CASE "TIMER"
-            r$ = IrRt$("TIMER", "", "f64")
+            IF nargs >= 1 THEN
+                IF LEN(sv(1)) THEN r$ = IrRt$("TIMER.n", " " + IrArgAs$(sv(1), "f64"), "f64") ELSE r$ = IrRt$("TIMER", "", "f64")
+            ELSE
+                r$ = IrRt$("TIMER", "", "f64")
+            END IF
             IF IrTy$(typ) = "f32" THEN r$ = IrCvt$(r$, "f64", "f32"): IrT = "f32"
         CASE "ERR", "ERL", "_ERRORLINE", "FREEFILE", "POS", "CSRLIN"
             IF nm$ = "POS" THEN
@@ -1227,16 +1231,74 @@ SUB IrUsingItem (e$)
     END IF
 END SUB
 
+'ON expr GOTO/GOSUB
+SUB IrOnStart (e$)
+    DIM r$
+    r$ = IrEvalTo$(e$, LONGTYPE - ISPOINTER)
+    IrFix3 = IrTemp$("i32")
+    IrE "store.i32 " + IrFix3 + " " + r$
+END SUB
+
+SUB IrOnItem (g AS LONG, ln AS LONG, l$, u$)
+    DIM x$, c$
+    x$ = IrReg$: IrE "load.i32 " + x$ + " " + IrFix3
+    c$ = IrCmp$("eq", x$, "i32", IrI32$(ln), "i32")
+    IF g THEN
+        IrE "jz " + c$ + " ~O" + u$ + "." + str2$(ln)
+        IrE "gosub " + IrLbl$(l$)
+        IrE "jmp ~O" + u$ + ".S"
+        IrE "label ~O" + u$ + "." + str2$(ln)
+    ELSE
+        IrE "jnz " + c$ + " " + IrLbl$(l$)
+    END IF
+END SUB
+
+SUB IrOnEnd (g AS LONG, u$)
+    DIM x$, c$
+    x$ = IrReg$: IrE "load.i32 " + x$ + " " + IrFix3
+    c$ = IrCmp$("lt", x$, "i32", IrI32$(0), "i32")
+    IrE "jz " + c$ + " ~O" + u$ + ".S"
+    IrE "error " + IrI32$(5)
+    IrE "label ~O" + u$ + ".S"
+END SUB
+
+'READ target (fixed)
+SUB IrRead (e$)
+    DIM p$, t AS LONG, rt$, d$
+    p$ = IrPlace$(e$, t)
+    IF p$ = "" THEN EXIT SUB
+    rt$ = IrRegOf$(IrPlaceSTy$(p$))
+    d$ = IrReg$
+    IrE "read." + rt$ + " " + d$
+    IrStore p$, d$
+END SUB
+
 'DIM/REDIM statement for id idn; elements$ raw bounds ("" = not an array)
-SUB IrDimStmt (idn AS LONG, elements$, redimopt AS LONG)
-    DIM nm$, k$
-    nm$ = IrVar$(idn)
-    IF LEN(elements$) = 0 OR LEFT$(elements$, 1) = "?" THEN EXIT SUB
-    IF ids(idn).arraytype = 0 THEN EXIT SUB
+SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
+    DIM nm$, k$, aid AS LONG, p$, t AS LONG, saveid AS idstruct, savecur AS LONG
+    aid = idn0
+    IF aid >= 1 AND aid <= idn THEN
+        IF ids(aid).arraytype = 0 AND LEN(elements$) THEN aid = 0
+    ELSE
+        aid = 0
+    END IF
+    IF LEN(elements$) = 0 OR LEFT$(elements$, 1) = "?" THEN
+        IF aid THEN nm$ = IrVar$(aid)
+        EXIT SUB
+    END IF
+    IF aid = 0 THEN
+        saveid = id: savecur = currentid
+        IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + sp + "(" + sp + ")", t): IrQuiet = 0
+        id = saveid: currentid = savecur
+        IF LEFT$(p$, 1) <> "A" THEN IrNotSup "REDIM of an unknown array": EXIT SUB
+        nm$ = IrPart$(p$, 2)
+    ELSE
+        nm$ = IrVar$(aid)
+    END IF
     k$ = "dim"
     IF redimopt = 1 THEN k$ = "redim"
     IF redimopt = 2 THEN k$ = "redimp"
-    IrDimArray idn, elements$, k$
+    IrDimArray nm$, elements$, k$
 END SUB
 
 'statement call of a SUB (user or builtin); raw arguments in IrArgs()
@@ -1259,6 +1321,8 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             'screen state: no visible effect on redirected console output
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
+        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT"
+            'lowered by IrStmtEnd
         CASE "ERROR"
             IrE "error " + IrArgAs$(sv(1), "i32")
         CASE "RANDOMIZE"
@@ -1393,9 +1457,9 @@ SUB IrNext (cid AS LONG)
 END SUB
 
 '--- SELECT CASE
-SUB IrSelect (e$)
+SUB IrSelect (e$, cid AS LONG)
     DIM r$, t AS LONG, nm$, bid AS LONG
-    bid = controlid(controllevel)
+    bid = cid
     IrCtlId(controllevel) = bid: IrCtlPart(controllevel) = 0
     r$ = IrEval$(e$, t)
     nm$ = IrTemp$(IrT)
@@ -1489,10 +1553,9 @@ SUB IrEndSelect
 END SUB
 
 '--- DIM / REDIM of an array: idn, raw bounds "a TO b, c"
-SUB IrDimArray (idn AS LONG, e$, kind$)
-    DIM c AS LONG, k AS LONG, it$, n AS LONG, i AS LONG, lo$, hi$, regs$, k2 AS LONG, nm$
+SUB IrDimArray (nm$, e$, kind$)
+    DIM c AS LONG, k AS LONG, it$, n AS LONG, i AS LONG, lo$, hi$, regs$, k2 AS LONG
     DIM sv(1 TO 64) AS STRING
-    nm$ = IrVar$(idn)
     c = IrSplitArgs(e$)
     FOR k = 1 TO c: sv(k) = IrArgs(k): NEXT
     FOR k = 1 TO c

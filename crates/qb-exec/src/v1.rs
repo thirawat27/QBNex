@@ -432,7 +432,7 @@ impl<'a> Vm<'a> {
         ptr(self.alloc(b), 0)
     }
 
-    fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
+    pub(crate) fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
         let (b, o) = split(p);
         match self.blocks.get_mut(b) {
             Some(Block::Bytes { data, .. }) if o + len <= data.len() => Ok(&mut data[o..o + len]),

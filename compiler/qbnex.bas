@@ -4826,7 +4826,7 @@ IF closedmain <> 0 AND subfunc = "" THEN a$ = "Statement cannot be placed betwee
 'executable section:
 
 statementn = statementn + 1
-IF IrEmitMode THEN IrLine
+IF IrEmitMode THEN IrLine2 ca$, n, firstelement$
 
 
 IF n >= 1 THEN
@@ -5534,7 +5534,7 @@ IF n >= 1 THEN
         controlref(controllevel) = linenumber
         controltype(controllevel) = 10 + t
         controlid(controllevel) = u
-        IF IrEmitMode THEN IrSelect IrFix
+        IF IrEmitMode THEN IrSelect IrFix, u
         IF EveryCaseSet(SelectCaseCounter) THEN PRINT #13, "int32 sc_" + str2$(controlid(controllevel)) + "_var;"
         IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "sc_" + str2$(controlid(controllevel)) + "_var=0;"
         GOTO finishedline
@@ -7762,7 +7762,7 @@ END IF
 dimcommonarray:
 retval = dim2(varname$, typ$, dimmethod, elements$)
 IF Error_Happened THEN GOTO errmes
-IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption
+IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption, varname$
 skipdim:
 IF dimshared >= 2 THEN dimshared = dimshared - 2
 
@@ -10555,6 +10555,7 @@ IF RIGHT$(a$, 2) = sp + "=" THEN a$ = "Expected ... = expression": GOTO errmes
 a$ = "Syntax error": GOTO errmes
 
 finishedline:
+IF IrEmitMode THEN IrStmtEnd
 THENGOTO = 0
 finishedline2:
 
@@ -11574,6 +11575,7 @@ IF recompile THEN
         '_ECHO "linefragment = {" + linefragment+ "}"
 
         IF Debug THEN ShowQbErrorDebugDisplay
+        IF IrEmitMode THEN PRINT "QIR: internal error"; ERR; "at line"; _ERRORLINE; _INCLERRORLINE; _INCLERRORFILE$
 
         qberrorhappenedvalue = qberrorhappened
         qberrorhappened = 1
@@ -12851,6 +12853,7 @@ SUB xongotogosub (a$, ca$, n)
     e$ = fixoperationorder(e$)
     IF Error_Happened THEN EXIT SUB
     l$ = l$ + sp + tlayout$
+    IrFix = e$
     e$ = evaluate(e$, typ)
     IF Error_Happened THEN EXIT SUB
     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
@@ -12863,6 +12866,7 @@ SUB xongotogosub (a$, ca$, n)
     u$ = str2$(uniquenumber)
     PRINT #13, "static int32 ongo_" + u$ + "=0;"
     PRINT #12, "ongo_" + u$ + "=" + e$ + ";"
+    IF IrEmitMode THEN IrOnStart IrFix
     ln = 1
     labelwaslast = 0
     FOR i = i + 1 TO n
@@ -12905,6 +12909,7 @@ SUB xongotogosub (a$, ca$, n)
         IF g THEN 'gosub
         lb$ = e$
         PRINT #12, "if (ongo_" + u$ + "==" + str2$(ln) + "){"
+        IF IrEmitMode THEN IrOnItem 1, ln, lb$, u$
         'note: This code fragment also used by ON ... GOTO/GOSUB
         'assume label is reachable (revise)
         PRINT #12, "return_point[next_return_point++]=" + str2(gosubid) + ";"
@@ -12920,11 +12925,13 @@ SUB xongotogosub (a$, ca$, n)
         PRINT #12, "}"
     ELSE 'goto
         PRINT #12, "if (ongo_" + u$ + "==" + str2$(ln) + ") goto LABEL_" + e$ + ";"
+        IF IrEmitMode THEN IrOnItem 0, ln, e$, u$
     END IF
     labelwaslast = 1
 END IF
 NEXT
 PRINT #12, "if (ongo_" + u$ + "<0) error(5);"
+IF IrEmitMode THEN IrOnEnd g, u$
 IF g = 1 THEN PRINT #12, "ongo_" + u$ + "_skip:;"
 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
 END SUB
@@ -13174,6 +13181,7 @@ SUB xread (ca$, n)
             IF a3$ = "" THEN Give_Error "Expected , ...": EXIT SUB
             e$ = fixoperationorder$(a3$)
             IF Error_Happened THEN EXIT SUB
+            IrFix = e$
             l$ = l$ + sp + tlayout$: IF i <> n THEN l$ = l$ + sp2 + ","
             e$ = evaluate(e$, t)
             IF Error_Happened THEN EXIT SUB
@@ -13204,6 +13212,7 @@ SUB xread (ca$, n)
                     END IF
                 END IF
             END IF 'string/numeric
+            IF IrEmitMode THEN IrRead IrFix
             IF i = n THEN EXIT FOR
             a3$ = "": a2$ = ""
         END IF
@@ -13567,6 +13576,7 @@ END FUNCTION
 
 '$INCLUDE:'utilities\udts.bas'
 '$INCLUDE:'utilities\ir_emit.bas'
+'$INCLUDE:'utilities\ir_stmt.bas'
 
 SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
     DIM findItem AS LONG, cname$, i AS LONG, j AS LONG, name$, temp$
