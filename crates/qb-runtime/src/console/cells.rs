@@ -242,7 +242,7 @@ pub extern "C" fn qb_text_cells_has_content(image: i32) -> i32 {
     -(has_content(image) as i32)
 }
 #[no_mangle]
-pub extern "C" fn qb_text_cell_span(image: i32, cell: i32) -> i32 {
+pub extern "C" fn qb_text_cells_span(image: i32, cell: i32) -> i32 {
     span(image, cell)
 }
 /// Copies up to `cap` bytes of the cell's UTF-8 content to `out`; returns
