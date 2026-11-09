@@ -278,6 +278,7 @@ flowchart LR
 - **D13 JIT:** Cranelift JIT เป็นงานบังคับก่อน cutover (gate: loop benchmark ≤ 2x ของ C++ path, front end ของ compiler ≤ 2x)
 - **D14 `SUB _GL`:** คงเป็น deviation D-09 ตอน cutover; นำกลับผ่าน OpenGL จาก Rust เป็นงานหลัง port
 - **D15 Native AOT:** `qb file.bas` สร้าง exe แบบ native เป็นค่าเริ่มต้น: Cranelift สร้าง machine code ตอน compile (`cranelift-object`), linker เล็กที่เขียนเอง (`crates/qb-link`, crate `object`) เขียน PE/ELF/Mach-O ที่รวมโค้ดโปรแกรมกับ runtime ที่ build ไว้ — ไม่ต้องมี linker ภายนอก ไม่มี C/C++. `qb run` ใช้ VM+JIT. Gate: ผลตรงกับ VM ทุก case, ไม่มี warm-up, loop ≤ 2x ของ C++ path
+- **D16 Rust ล่าสุด:** Rust edition 2024 ทุก crate, toolchain stable ล่าสุด (ตอนนี้ 1.99.1) ปักใน `rust-toolchain.toml`, `rust-version` = toolchain นั้น, dependency ทุกตัวเป็นเวอร์ชันล่าสุด (`cargo upgrade --incompatible` + `cargo update`), `cargo deny`/`cargo audit` ใน CI. ทำเป็นขั้นแยกทันทีหลัง merge R10–R12/R11 (ก่อน cutover) เพราะ migration edition 2024 แตะทุก `#[no_mangle]`/`extern` และจะ conflict กับ session ที่กำลังทำงาน; crate ใหม่ที่สร้างระหว่างนี้ใช้ edition 2024 + dependency ล่าสุดได้เลย
 
 ### 9.4 R13 — ฟีเจอร์ภาษาใหม่ที่ QBasic ยังขาด (ทำในข้อจำกัดปัจจุบัน)
 
