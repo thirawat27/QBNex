@@ -1653,8 +1653,13 @@ dependencies = [
 name = "qb-exec"
 version = "0.1.0"
 dependencies = [
+ "qb-ir",
  "qb-runtime",
 ]
+
+[[package]]
+name = "qb-ir"
+version = "0.1.0"
 
 [[package]]
 name = "qb-runtime"

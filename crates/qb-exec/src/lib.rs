@@ -16,6 +16,7 @@
 pub mod bytecode;
 mod builtins;
 mod lower;
+pub mod v1;
 mod value;
 mod vm;
 
@@ -53,6 +54,12 @@ pub struct RunError {
     pub msg: String,
 }
 
+impl RunError {
+    pub(crate) fn load(msg: impl Into<String>) -> Self {
+        RunError { code: -1, line: 0, msg: msg.into() }
+    }
+}
+
 /// Loads QIR text into typed register bytecode (validated, ready to run).
 pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
     lower::compile_v0(src)
@@ -60,7 +67,18 @@ pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
 
 /// Parses and runs a QIR program, writing console output to `out`.
 pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
+    run_ir_status(src, out).map(|_| ())
+}
+
+/// Like [`run_ir`] but returns the program's exit code (`SYSTEM n`).
+/// The `QIR <n>` header selects the loader.
+pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
+    let head = src.trim_start().lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
+    if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
+        let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
+        return v1::run(&m, out);
+    }
     let m = compile(src)?;
     let mut vm = Vm::new(&m, out);
-    vm.run()
+    vm.run().map(|_| 0)
 }

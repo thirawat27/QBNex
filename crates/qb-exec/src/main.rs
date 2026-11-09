@@ -36,8 +36,11 @@ fn main() {
     let src = String::from_utf8_lossy(&src);
     let stdout = std::io::stdout();
     let mut out = BufWriter::new(stdout.lock());
-    let result = qb_exec::run_ir(&src, &mut out);
+    let result = qb_exec::run_ir_status(&src, &mut out);
     let _ = out.flush();
+    if let Ok(code) = result {
+        std::process::exit(code);
+    }
     if let Err(e) = result {
         if e.code < 0 {
             eprintln!("qb-exec: invalid program: {}", e.msg);

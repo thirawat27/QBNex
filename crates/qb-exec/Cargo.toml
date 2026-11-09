@@ -17,3 +17,4 @@ path = "src/main.rs"
 
 [dependencies]
 qb-runtime = { path = "../qb-runtime" }
+qb-ir = { path = "../qb-ir" }
