@@ -88,14 +88,13 @@ pub fn text_layout(prev_w: i32, prev_h: i32, ov: &mut Overrides) -> TextLayout {
         };
     }
     let mut granularity = x.wrapping_mul(y).wrapping_mul(2);
-    // Legacy writes `(f=(16+1))` and `(f=16)`: assignments, not comparisons.
-    // A 40x25 screen therefore always gets font 17 and 80x25 font 16.
-    if x == 40 && y == 25 {
-        f = 17;
+    // D-08: legacy wrote `(f=(16+1))` and `(f=16)` (assignments), forcing
+    // fonts 17/16 on any 40x25/80x25 screen. Every WIDTH path passes those
+    // fonts anyway, so the comparison changes nothing reachable today.
+    if x == 40 && y == 25 && f == 17 {
         granularity = 2048;
     }
-    if x == 80 && y == 25 {
-        f = 16;
+    if x == 80 && y == 25 && f == 16 {
         granularity = 4096;
     }
     // Widths/heights are validated by WIDTH, so granularity is positive;
@@ -214,12 +213,17 @@ mod tests {
     }
 
     #[test]
-    fn screen0_full_override_and_assignment_bug() {
-        // 40x25 with an explicit 8x8 font still ends up with font 17
+    fn screen0_full_override_keeps_requested_font() {
+        // D-08: legacy `(f=(16+1))` / `(f=16)` overwrote the font; the fixed
+        // granularities apply only to the standard 40x25/80x25 fonts
         let (l, o) = layout(80, 25, Overrides { width: 40, height: 25, font: 8 });
-        assert_eq!((l.font, l.granularity), (17, 2048));
+        assert_eq!((l.font, l.granularity), (8, 2000));
         assert_eq!(o, NONE);
         let (l, _) = layout(80, 25, Overrides { width: 80, height: 25, font: 8 });
+        assert_eq!((l.font, l.granularity), (8, 4000));
+        let (l, _) = layout(80, 25, Overrides { width: 40, height: 25, font: 17 });
+        assert_eq!((l.font, l.granularity), (17, 2048));
+        let (l, _) = layout(40, 25, Overrides { width: 80, height: 25, font: 16 });
         assert_eq!((l.font, l.granularity), (16, 4096));
         let (l, _) = layout(80, 25, Overrides { width: 100, height: 60, font: 8 });
         assert_eq!((l.font, l.granularity, l.cmem_pages), (8, 12000, 5));

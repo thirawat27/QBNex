@@ -803,6 +803,7 @@ static void op_putimage(Twin &t) {
 }
 
 // --- GET / PUT / printchr / PCOPY -----------------------------------------------
+static long get2_skipped = 0, screen0_skipped = 0;
 static void op_getput(Twin &t) {
     // STEP from an absurd cursor overflows the int32 size computations (legacy UB)
     // (and a rectangle of 2^31 pixels overflows them too: keep coordinates small)
@@ -821,6 +822,7 @@ static void op_getput(Twin &t) {
     uint32 mask = rcolor(t);
     int32 passed = (int32)(next() % 8);
     int32 len = (next() % 6) ? N : rint_(0, 200);
+    int64 gw, gh;
     {
         // Same mapping as legacy GET; a rectangle whose byte size overflows
         // int32 passes the legacy size check and writes anywhere (UB): skip.
@@ -836,6 +838,7 @@ static void op_getput(Twin &t) {
         int64 w = llabs(mp(a2, im.scaling_x, im.scaling_offset_x, im.view_offset_x) - mp(a1, im.scaling_x, im.scaling_offset_x, im.view_offset_x)) + 1;
         int64 h = llabs(mp(b2, im.scaling_y, im.scaling_offset_y, im.view_offset_y) - mp(b1, im.scaling_y, im.scaling_offset_y, im.view_offset_y)) + 1;
         if (w * h * 4 + 64 > 0x7FFFFFFFll) return;
+        gw = w; gh = h;
     }
     legacy::byte_element_struct le = {(uint64)lb.data(), len};
     legacy::last_error = 0;
@@ -845,6 +848,14 @@ static void op_getput(Twin &t) {
     int32 e = qbrt_gfx_get(&t.R, mutate ? x1 + 1 : x1, y1, x2, y2, rb.data(), len, mask, passed);
     std::string args = fmt("GET %.9g,%.9g,%.9g,%.9g mask=%08x passed=%d len=%d", x1, y1, x2, y2, mask, passed, len);
     ++checks;
+    // D-07: the 2-bit layout differs on purpose when a row ends in a partial
+    // byte (legacy stored a stale byte) or the array is between the legacy
+    // and the real size (legacy overran it)
+    if (t.L.bits_per_pixel == 2 && (gw % 4 || (len >= ((gw + 7) >> 3) * gh + 4 && len < ((gw * 2 + 7) >> 3) * gh + 4))) {
+        ++get2_skipped;
+        rb = lb;
+        e = legacy::last_error;
+    }
     if (lb != rb) { report("GET", t, "array bytes", args); return; }
     check("GET", t, legacy::last_error, e, args);
     // PUT the captured array back somewhere (sometimes a random array)
@@ -1010,6 +1021,12 @@ static void check_screen() {
             for (int i = 0; i < no; i++)
                 for (int j = 0; j < no; j++)
                     for (int k = 0; k < no; k++) {
+                        // D-08: legacy forced fonts 17/16 on 40x25/80x25; WIDTH never asks for others
+                        if (ov[i] != -1 && ov[j] == 25 && ov[k] != -1 &&
+                            ((ov[i] == 40 && ov[k] != 17) || (ov[i] == 80 && ov[k] != 16))) {
+                            ++screen0_skipped;
+                            continue;
+                        }
                         ++n;
                         L::sub_screen_width_in_characters = ov[i];
                         L::sub_screen_height_in_characters = ov[j];
@@ -1110,6 +1127,8 @@ int main(int argc, char **argv) {
     }
     for (auto &kv : failures_by_op) printf("  %-16s %ld mismatches\n", kv.first.c_str(), kv.second);
     printf("  PUTIMAGE cases skipped (legacy reads outside the source, D-06): %ld\n", put_skipped);
+    printf("  2-bit GET cases skipped (partial row byte / legacy overrun, D-07): %ld\n", get2_skipped);
+    printf("  SCREEN 0 layouts skipped (non-standard font for 40x25/80x25, D-08): %ld\n", screen0_skipped);
     printf("diff_gfx: %s%s, %ld checks, %ld mismatches\n", quick ? "quick" : "full", mutate ? " (mutated)" : "", checks, failures);
     return failures == 0 ? 0 : 1;
 }

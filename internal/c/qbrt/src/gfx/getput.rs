@@ -4,12 +4,6 @@
 //! 8 bit (SCREEN 13/256) and 32-bit pixels, after a 4-byte width/height header.
 
 use super::{map_point_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
-use std::sync::atomic::{AtomicU32, Ordering};
-
-/// Legacy `static uint32 col2` of `sub_graphics_get`: the 2-bit layout writes
-/// it (instead of the pending byte) for a row whose width is not a multiple
-/// of 4, so its value from earlier GETs (1-bit and 4-plane layouts) leaks in.
-static GET_COL2: AtomicU32 = AtomicU32::new(0);
 
 /// `GET [STEP](x1,y1)-[STEP](x2,y2), array`; passed: 1 STEP 1, 2 STEP 2,
 /// 4 out-of-range pixels allowed (read as `mask`). `data`/`len` is the array
@@ -100,12 +94,13 @@ pub unsafe fn graphics_get(
                         cp = cp.add(1);
                     }
                 }
-                GET_COL2.store(col2, Ordering::Relaxed);
             }
         }
         2 => {
             mask &= 3;
-            let z = (w + 7) >> 3;
+            // D-07: legacy checked (w+7)>>3 bytes per row but writes (2w+7)>>3,
+            // overrunning arrays sized by the check.
+            let z = (w.wrapping_mul(2).wrapping_add(7)) >> 3;
             if z.wrapping_mul(h).wrapping_add(4) > len {
                 return ERR;
             }
@@ -129,9 +124,10 @@ pub unsafe fn graphics_get(
                     x3 += 1;
                 }
                 if x3 & 3 != 0 {
-                    // legacy bug: writes col2, not the pending byte
+                    // D-07: the pending pixels, left-aligned as PUT reads them
+                    // (legacy wrote a stale static `col2` here)
                     unsafe {
-                        *cp = GET_COL2.load(Ordering::Relaxed) as u8;
+                        *cp = (byte << (2 * (4 - (x3 & 3)))) as u8;
                         cp = cp.add(1);
                     }
                 }
@@ -175,7 +171,6 @@ pub unsafe fn graphics_get(
                         unsafe { *cp.add(base + zu * p + k) = *cv as u8 };
                     }
                 }
-                GET_COL2.store(c[1], Ordering::Relaxed);
             }
         }
         8 => {
@@ -490,6 +485,44 @@ mod tests {
                 graphics_put(&mut b.img, 3.0, 2.0, buf.as_ptr(), 2000, 0, 0, 0);
             }
             assert_eq!(b.p8(3, 2) as u32, if mode == 32 { b.p8(3, 2) as u32 } else { a.p8(2, 1) as u32 });
+        }
+    }
+
+    // D-07: 2-bit GET checks ceil(w/4) bytes per row (it writes that many)
+    #[test]
+    fn get_2bit_size_check_covers_written_bytes() {
+        let mut a = TestImage::new(16, 1, 1);
+        let mut buf = vec![0xEEu8; 16];
+        // 16 pixels = 4 bytes + 4 header: a 6-byte array is too small
+        assert_eq!(unsafe { graphics_get(&mut a.img, 0.0, 0.0, 15.0, 0.0, buf.as_mut_ptr(), 6, 0, 0) }, 5);
+        assert!(buf[6..].iter().all(|&b| b == 0xEE), "wrote past the array");
+        assert_eq!(unsafe { graphics_get(&mut a.img, 0.0, 0.0, 15.0, 0.0, buf.as_mut_ptr(), 8, 0, 0) }, 0);
+        assert!(buf[8..].iter().all(|&b| b == 0xEE));
+    }
+
+    // D-07: 2-bit GET stores the last partial byte of a row left-aligned, so
+    // PUT gets back every pixel of a width that is not a multiple of 4
+    #[test]
+    fn get_put_2bit_odd_width_roundtrip() {
+        let mut a = TestImage::new(20, 4, 1);
+        for i in 0..80 {
+            unsafe { crate::gfx::blend::pset(&a.img, i % 20, i / 20, (i * 5 + 1) as u32 & 3) };
+        }
+        let mut buf = vec![0u8; 64];
+        // GET a 1-bit layout first so a stale value is around
+        let mut m2 = TestImage::new(16, 4, 2);
+        unsafe { *m2.img.offset = 1 };
+        unsafe { graphics_get(&mut m2.img, 0.0, 0.0, 9.0, 0.0, buf.as_mut_ptr(), 64, 0, 0) };
+        for w in 1..=7 {
+            buf.fill(0);
+            assert_eq!(unsafe { graphics_get(&mut a.img, 1.0, 0.0, w as f32, 3.0, buf.as_mut_ptr(), 64, 0, 0) }, 0);
+            let mut b = TestImage::new(20, 4, 1);
+            assert_eq!(unsafe { graphics_put(&mut b.img, 1.0, 0.0, buf.as_ptr(), 64, 1, 0, 0) }, 0);
+            for y in 0..4 {
+                for x in 1..=w {
+                    assert_eq!(a.p8(x, y), b.p8(x, y), "width {w} at {x},{y}");
+                }
+            }
         }
     }
 
