@@ -130,6 +130,14 @@ void qbrt_img_release_owned(int32_t i);
 int32_t qbrt_imgframe(uint8_t *o, int32_t x, int32_t y, int32_t bpp, int32_t *err);
 int32_t qbrt_imgnew(int32_t x, int32_t y, int32_t bpp, int32_t *err);
 void qbrt_imgrevert(int32_t i);
+// DRAW: cmem is the conventional memory block (VARPTR$ arguments point into it).
+int32_t qbrt_gfx_draw(struct img_struct *im, const uint8_t *s, int32_t len, const uint8_t *cmem);
+// _PUTIMAGE on resolved, distinct surfaces (passed: legacy bits). With hw_out
+// (8 int32: sx1,sy1,sx2,sy2,dx1,dy1,dx2,dy2) only the coordinates are resolved.
+typedef struct qbrt_put_coords { double dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2; } qbrt_put_coords;
+int32_t qbrt_gfx_putimage(struct img_struct *s, struct img_struct *d, const qbrt_put_coords *c, int32_t passed,
+                          int32_t *hw_out);
+uint64_t qbrt_gfx_putimage_oob_count(void); // diagnostics (deviation D-06)
 // Headless framebuffer capture (QBNEX_FB_CAPTURE); kind 0 = _DISPLAY, 1 = end.
 void qbrt_fb_capture(const struct img_struct *display_page, int32_t kind);
 

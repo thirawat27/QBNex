@@ -123,6 +123,27 @@ inline int32 resolve_page_or_image_index(int32 handle, int32 &resolved_index) { 
 using std::swap;
 #include "legacy/gfx_registry.inc"
 #include "legacy/gfx_imgops.inc"
+static uint8 cmem[1114099];
+#include "legacy/gfx_draw.inc"
+// _PUTIMAGE: hardware-image plumbing is stubbed out (software surfaces only)
+struct hardware_img_struct { int32 w, h; uint8 alpha_disabled; };
+struct hardware_graphics_command_struct {
+    int32 remove, command, src_img, dst_img, smooth, use_alpha, next_command;
+    int64 order;
+    float src_x1, src_y1, src_x2, src_y2, dst_x1, dst_y1, dst_x2, dst_y2;
+};
+#define HARDWARE_IMG_HANDLE_OFFSET -8388608
+#define HARDWARE_GRAPHICS_COMMAND__PUTIMAGE 1
+static ptrszint *hardware_img_handles = NULL, *hardware_graphics_command_handles = NULL;
+static void *list_get(ptrszint *, int32) { return NULL; }
+static int32 list_add(ptrszint *) { return 0; }
+static void flush_old_hardware_commands() {}
+static int64 display_frame_order_next = 0;
+static int32 last_hardware_command_added = 0, first_hardware_command = 0;
+static img_struct *display_page = NULL;
+static void validatepage(int32) {}
+static int32 func__copyimage(int32, int32, int32) { return 0; }
+#include "legacy/gfx_putimage.inc"
 } // namespace legacy
 
 #include "../include/qbrt.h"
@@ -149,6 +170,8 @@ static float rcoord(int32 size) {
 }
 
 static bool quick = false, mutate = false;
+static uint32 t_mask_hint = 255;
+static long put_skipped = 0;
 static long failures = 0, checks = 0;
 static std::vector<std::string> mutated_ops;
 
@@ -225,8 +248,11 @@ static const char *diff_state(const Twin &t) {
     return NULL;
 }
 
+#include <map>
+static std::map<std::string, long> failures_by_op;
 static void report(const char *op, const Twin &t, const char *why, const std::string &args) {
     ++failures;
+    failures_by_op[op]++;
     if (failures <= 25)
         printf("MISMATCH %s mode=%d %dx%d: %s  [%s]\n", op, t.L.compatible_mode, t.L.width, t.L.height, why, args.c_str());
 }
@@ -512,6 +538,7 @@ static void check_registry(const std::string &args, int32 lr, int32 rr, int32 le
     }
     if (why) {
         ++failures;
+        failures_by_op["registry"]++;
         if (failures <= 25) printf("MISMATCH registry: %s [%s]\n", why, args.c_str());
     }
 }
@@ -575,6 +602,169 @@ static void registry_test(long steps) {
     }
 }
 
+// --- DRAW: random command strings, including VARPTR$ numbers and X sub-strings ---
+static void put_var(std::string &out, int type, uint16 offset) {
+    // VARPTR$ form: type byte, offset low, offset high (offset from DBLOCK = cmem+1280)
+    out += (char)type; out += (char)(offset & 255); out += (char)(offset >> 8);
+}
+
+static std::string draw_number() {
+    switch (next() % 8) {
+    case 0: return "";
+    case 1: return fmt("%d", rint_(-5, 5));
+    case 2: return fmt("%d.%d", rint_(0, 9), rint_(0, 99));
+    case 3: return fmt("-%d", rint_(0, 300));
+    case 4: return fmt("+%d", rint_(0, 50));
+    case 5: { // =VARPTR$
+        static const int types[] = {1, 129, 2, 130, 4, 5, 133, 6, 8, 20, 148, 3};
+        int type = types[next() % 12];
+        uint16 off = (uint16)rint_(0, 4000);
+        uint8 *at = &legacy::cmem[1280 + off];
+        switch (type) {
+        case 1: case 129: *at = (uint8)rint_(0, 255); break;
+        case 2: case 130: { int16 v = (int16)rint_(-400, 400); memcpy(at, &v, 2); break; }
+        case 4: { float v = (float)(runit() * 80 - 20); memcpy(at, &v, 4); break; }
+        case 5: case 133: { int64 v = rint_(-100, 400); memcpy(at, &v, 8); break; }
+        case 6: { long double v = runit() * 50; memcpy(at, &v, 10); break; }
+        case 8: { double v = runit() * 90 - 10; memcpy(at, &v, 8); break; }
+        default: { int32 v = rint_(-300, 300); memcpy(at, &v, 4); break; }
+        }
+        std::string o = "=";
+        put_var(o, type, off);
+        return o;
+    }
+    default: return fmt("%d", rint_(0, 60));
+    }
+}
+
+static std::string draw_string(int depth) {
+    static const char *cmds[] = {"U", "D", "L", "R", "E", "F", "G", "H", "u", "r"};
+    std::string s;
+    int n = rint_(1, 25);
+    for (int k = 0; k < n; k++) {
+        int c = (int)(next() % 22);
+        if (next() % 6 == 0) s += (next() % 2) ? "B" : "N";
+        if (c < 10) s += std::string(cmds[next() % 10]) + draw_number();
+        else if (c < 13) s += fmt("M%s%d,%s%d", (next() % 2) ? "+" : "", rint_(-200, 400), (next() % 3) ? "" : "-", rint_(-200, 300));
+        else if (c == 13) s += "C" + draw_number();
+        else if (c == 14) s += "S" + draw_number();
+        else if (c == 15) s += "A" + fmt("%d", rint_(-1, 4));
+        else if (c == 16) s += "TA" + draw_number();
+        else if (c == 17) s += "P" + draw_number() + "," + draw_number();
+        else if (c == 18) s += (next() % 2) ? " " : ";";
+        else if (c == 19 && depth < 3) {
+            // X + VARPTR$(sub$): descriptor (len, offset) at DBLOCK+off, text at DBLOCK+txt
+            std::string sub = draw_string(depth + 1);
+            uint16 off = (uint16)rint_(5000, 6000), txt = (uint16)rint_(8000 + depth * 2000, 9000 + depth * 2000);
+            uint8 *d = &legacy::cmem[1280 + off];
+            d[0] = sub.size() & 255; d[1] = sub.size() >> 8; d[2] = txt & 255; d[3] = txt >> 8;
+            memcpy(&legacy::cmem[1280 + txt], sub.data(), sub.size());
+            s += "X";
+            put_var(s, 3, off);
+        } else if (c == 20 && next() % 10 == 0) s += "Q";
+        else s += "C" + fmt("%u", (unsigned)(next() % (t_mask_hint + 1)));
+    }
+    return s;
+}
+
+static void op_draw(Twin &t) {
+    t_mask_hint = t.L.bytes_per_pixel == 4 ? 0xFFFFFF : t.L.mask;
+    std::string str = draw_string(0);
+    std::string rs = str;
+    if (mutate && !rs.empty()) rs[0] = 'R';
+    legacy::qbs q = {(uint8 *)str.data(), (int32)str.size()};
+    legacy::last_error = 0;
+    legacy::write_page = &t.L;
+    legacy::sub_draw(&q);
+    int32 e = qbrt_gfx_draw(&t.R, (const uint8 *)rs.data(), (int32)rs.size(), legacy::cmem);
+    std::string shown;
+    for (unsigned char ch : str) shown += (ch >= 32 && ch < 127) ? std::string(1, (char)ch) : fmt("\\x%02x", ch);
+    check("DRAW", t, legacy::last_error, e, shown);
+}
+
+// --- _PUTIMAGE between two twins (source twin S, destination twin t) -------
+static void op_putimage(Twin &t) {
+    Twin S;
+    static const int compat8[] = {13, 12, 7, 9, 256, 1, 2};
+    int sbpp = t.L.bytes_per_pixel == 4 ? ((next() % 3) ? 32 : compat8[next() % 7]) : t.L.compatible_mode;
+    if (t.L.bytes_per_pixel == 1 && next() % 3 == 0) sbpp = compat8[next() % 7];
+    int sw = (next() % 3) ? rint_(1, 40) : rint_(1, 200), sh = (next() % 3) ? rint_(1, 30) : rint_(1, 150);
+    make_twin(S, sw, sh, sbpp);
+    if (sbpp == 32) {
+        for (size_t i = 0; i + 3 < S.lpix.size(); i += 4) {
+            static const uint8 alphas[] = {0, 127, 128, 255, 255, 255, 40};
+            S.lpix[i + 3] = alphas[next() % 7];
+        }
+        if (next() % 4 == 0) S.L.alpha_disabled = 1;
+    } else if (next() % 3 == 0) {
+        S.L.transparent_color = rint_(0, (int)S.L.mask);
+    }
+    if (next() % 4 == 0) { // source with its own WINDOW/VIEW mapping
+        legacy::write_page = &S.L;
+        legacy::qbg_sub_window(0, 0, (float)(sw * 2), (float)(sh * 2), 1);
+    }
+    // A WINDOW on a 1-pixel wide/high source has scale 0 and leaves the cursor
+    // at +-inf/NaN; STEP from it overflows int32 coordinates (legacy UB).
+    if (!(fabsf(S.L.x) <= 1e6f) || !(fabsf(S.L.y) <= 1e6f)) { S.L.x = 0.5f; S.L.y = 0.5f; }
+    S.R = S.L; S.rpix = S.lpix; S.rpal = S.lpal;
+    S.R.offset = S.rpix.data(); S.R.pal = S.L.pal ? S.rpal.data() : NULL;
+
+    double c[8];
+    for (int k = 0; k < 8; k++) {
+        int size = (k & 1) ? (k < 4 ? t.L.height : sh) : (k < 4 ? t.L.width : sw);
+        c[k] = (next() % 3) ? (double)rint_(-size / 2, size + size / 2) : runit() * size * 2 - size / 2;
+    }
+    // A STEP from an absurd graphics cursor overflows int32 coordinates and
+    // makes the legacy code write anywhere (undefined behaviour): keep the
+    // cursors within +-1e6 for this operation.
+    if (!(fabsf(t.L.x) <= 1e6f) || !(fabsf(t.L.y) <= 1e6f)) {
+        t.L.x = t.R.x = 3.5f; t.L.y = t.R.y = 2.0f;
+    }
+    int32 passed = 0;
+    static const int bits[] = {1, 2, 4, 16, 64, 256, 512, 1024, 128};
+    for (int b : bits) if (next() % 2) passed |= b;
+        // Rust first: if a stretched sample falls outside the source, legacy would
+    // read outside its buffer (D-06, undefined behaviour); skip such cases.
+    bool rust_first = !((sbpp == 32) && (t.L.bytes_per_pixel == 1));
+    int32 e = 5;
+    if (rust_first) {
+        uint64_t oob = qbrt_gfx_putimage_oob_count();
+        double rc[8];
+        memcpy(rc, c, sizeof rc);
+        if (mutate) rc[0] += 1;
+        e = qbrt_gfx_putimage(&S.R, &t.R, (const qbrt_put_coords *)rc, passed, NULL);
+        if (qbrt_gfx_putimage_oob_count() != oob) {
+            put_skipped++;
+            t.R = t.L; t.rpix = t.lpix; t.rpal = t.lpal;
+            t.R.offset = t.rpix.data(); t.R.pal = t.L.pal ? t.rpal.data() : NULL;
+            return;
+        }
+    }
+    img_struct slots[4];
+    memset(slots, 0, sizeof slots);
+    slots[2] = S.L; slots[3] = t.L;
+    img_struct *saved = legacy::img;
+    int32 saved_next = legacy::nextimg;
+    legacy::img = slots;
+    legacy::nextimg = 4;
+    legacy::last_error = 0;
+    if (getenv("DIFF_TRACE")) {
+        fprintf(stderr, "PUT src %dx%d m%d clear=%d win=%d dst %dx%d m%d win=%d x=%g y=%g passed=%d c=%.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g\n",
+                sw, sh, sbpp, S.L.transparent_color, S.L.clipping_or_scaling, t.L.width, t.L.height, t.L.compatible_mode,
+                t.L.clipping_or_scaling, t.L.x, t.L.y, passed, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
+        fflush(stderr);
+    }
+    legacy::sub__putimage(c[0], c[1], c[2], c[3], -2, -3, c[4], c[5], c[6], c[7], passed | 8 | 32);
+    S.L = slots[2]; t.L = slots[3];
+    legacy::img = saved;
+    legacy::nextimg = saved_next;
+    // (32-bit onto 8-bit: the shim raises error 5 before calling Rust)
+    std::string args = fmt("src %dx%d mode %d clear %d -> passed=%d (%g,%g)-(%g,%g) src (%g,%g)-(%g,%g)", sw, sh, sbpp,
+                           S.L.transparent_color, passed, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
+    if (S.L.x != S.R.x || S.L.y != S.R.y) { ++checks; report("PUTIMAGE", t, "source cursor", args); return; }
+    check("PUTIMAGE", t, legacy::last_error, e, args);
+}
+
 static void check_tables() {
     // Built-in data: legacy start-up code (libqb.cpp main init) vs Rust statics.
     memcpy(&legacy::palette_256, &legacy::file_qbnex_pal[0], legacy::file_qbnex_pal_len);
@@ -619,7 +809,7 @@ int main(int argc, char **argv) {
         make_twin(t, w, h, bpp);
         if (bpp == 32 && next() % 4 == 0) { t.L.alpha_disabled = t.R.alpha_disabled = 1; }
         for (int k = 0; k < ops_per_round; k++) {
-            int op = (int)(next() % 14);
+            int op = (int)(next() % 19);
             per_op[op]++;
             switch (op) {
             case 0: case 1: op_line(t); break;
@@ -634,6 +824,8 @@ int main(int argc, char **argv) {
             case 10: op_palette(t); op_color(t); break;
             case 11: op_defaults(t); break;
             case 12: case 13: op_imgops(t); break;
+            case 14: case 15: op_draw(t); break;
+            case 16: case 17: case 18: op_putimage(t); break;
             }
             if (diff_state(t)) { // resynchronise after a reported mismatch
                 t.R = t.L; t.rpix = t.lpix; t.rpal = t.lpal;
@@ -641,6 +833,8 @@ int main(int argc, char **argv) {
             }
         }
     }
+    for (auto &kv : failures_by_op) printf("  %-16s %ld mismatches\n", kv.first.c_str(), kv.second);
+    printf("  PUTIMAGE cases skipped (legacy reads outside the source, D-06): %ld\n", put_skipped);
     printf("diff_gfx: %s%s, %ld checks, %ld mismatches\n", quick ? "quick" : "full", mutate ? " (mutated)" : "", checks, failures);
     return failures == 0 ? 0 : 1;
 }

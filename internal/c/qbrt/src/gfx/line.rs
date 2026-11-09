@@ -21,8 +21,8 @@ pub struct Clip {
 pub fn lineclip(
     mut x1: i32,
     mut y1: i32,
-    mut x2: i32,
-    mut y2: i32,
+    x2: i32,
+    y2: i32,
     xmin: i32,
     ymin: i32,
     xmax: i32,
