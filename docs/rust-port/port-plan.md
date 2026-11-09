@@ -277,6 +277,7 @@ flowchart LR
 - **D12 `_FLOAT`:** จำลอง x87 80-bit ในซอฟต์แวร์ให้ผลตรงทุก bit (ไม่ยอมให้ผลต่าง)
 - **D13 JIT:** Cranelift JIT เป็นงานบังคับก่อน cutover (gate: loop benchmark ≤ 2x ของ C++ path, front end ของ compiler ≤ 2x)
 - **D14 `SUB _GL`:** คงเป็น deviation D-09 ตอน cutover; นำกลับผ่าน OpenGL จาก Rust เป็นงานหลัง port
+- **D15 Native AOT:** `qb file.bas` สร้าง exe แบบ native เป็นค่าเริ่มต้น: Cranelift สร้าง machine code ตอน compile (`cranelift-object`), linker เล็กที่เขียนเอง (`crates/qb-link`, crate `object`) เขียน PE/ELF/Mach-O ที่รวมโค้ดโปรแกรมกับ runtime ที่ build ไว้ — ไม่ต้องมี linker ภายนอก ไม่มี C/C++. `qb run` ใช้ VM+JIT. Gate: ผลตรงกับ VM ทุก case, ไม่มี warm-up, loop ≤ 2x ของ C++ path
 
 ### 9.4 R13 — ฟีเจอร์ภาษาใหม่ที่ QBasic ยังขาด (ทำในข้อจำกัดปัจจุบัน)
 
