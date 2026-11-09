@@ -68,7 +68,7 @@ static SINK: Mutex<Sink> = Mutex::new(Sink::Unopened);
 ///
 /// # Safety
 /// `im` must be null or point to a valid surface.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
     let mut sink = match SINK.lock() {
         Ok(s) => s,

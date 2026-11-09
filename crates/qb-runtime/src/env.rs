@@ -7,11 +7,11 @@
 
 use std::ffi::{c_char, CStr};
 
-extern "C" {
+unsafe extern "C" {
     fn getenv(name: *const c_char) -> *const c_char;
 }
 #[cfg(windows)]
-extern "C" {
+unsafe extern "C" {
     fn _putenv(s: *const c_char) -> i32;
     fn _putenv_s(name: *const c_char, value: *const c_char) -> i32;
 }
@@ -137,7 +137,7 @@ unsafe fn publish(v: Vec<u8>, out: *mut *const u8, out_len: *mut i32) {
 
 /// # Safety
 /// `name` readable for `len` bytes; out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_environ_get(name: *const u8, len: i32, out: *mut *const u8, out_len: *mut i32) {
     // SAFETY: caller contract.
     unsafe { publish(get(crate::ffi_bytes(name, len.max(0) as usize)), out, out_len) }
@@ -145,7 +145,7 @@ pub unsafe extern "C" fn qb_environ_get(name: *const u8, len: i32, out: *mut *co
 
 /// # Safety
 /// See [`by_index`]; out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_environ_index(
     envp: *const *const c_char,
     number: i32,
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn qb_environ_index(
 
 /// # Safety
 /// See [`count`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_environ_count(envp: *const *const c_char) -> i32 {
     // SAFETY: caller contract.
     unsafe { count(envp) }
@@ -170,7 +170,7 @@ pub unsafe extern "C" fn qb_environ_count(envp: *const *const c_char) -> i32 {
 
 /// # Safety
 /// `s` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_environ_set(s: *const u8, len: i32) -> i32 {
     // SAFETY: caller contract.
     set(unsafe { crate::ffi_bytes(s, len.max(0) as usize) })
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn qb_environ_set(s: *const u8, len: i32) -> i32 {
 
 /// # Safety
 /// See [`command_arg`]; out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_command_arg(
     array: *const *const c_char,
     count: i32,

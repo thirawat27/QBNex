@@ -145,7 +145,7 @@ pub struct SHELLEXECUTEINFOA {
 }
 
 #[link(name = "kernel32")]
-extern "system" {
+unsafe extern "system" {
     pub fn CreateFileA(
         name: *const u8,
         access: DWORD,
@@ -192,7 +192,7 @@ extern "system" {
 }
 
 #[link(name = "shell32")]
-extern "system" {
+unsafe extern "system" {
     pub fn ShellExecuteExA(info: *mut SHELLEXECUTEINFOA) -> BOOL;
 }
 

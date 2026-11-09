@@ -52,7 +52,7 @@ pub fn inflate(src: &[u8], dst: &mut [u8]) -> (i32, usize) {
 // ---------------------------------------------------------------------------
 
 /// `compressBound(len)`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_deflate_bound(len: u32) -> u32 {
     deflate_bound(len as usize) as u32
 }
@@ -62,7 +62,7 @@ pub extern "C" fn qb_deflate_bound(len: u32) -> u32 {
 ///
 /// # Safety
 /// `src` must be readable for `len` bytes, `dst` writable for `*dst_len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_deflate(src: *const u8, len: u32, dst: *mut u8, dst_len: *mut u32) -> i32 {
     // SAFETY: the caller guarantees the buffer sizes (see above).
     unsafe {
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn qb_deflate(src: *const u8, len: u32, dst: *mut u8, dst_
 ///
 /// # Safety
 /// `src` must be readable for `len` bytes, `dst` writable for `*dst_len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_inflate(src: *const u8, len: u32, dst: *mut u8, dst_len: *mut u32) -> i32 {
     // SAFETY: the caller guarantees the buffer sizes (see above).
     unsafe {

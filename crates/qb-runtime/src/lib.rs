@@ -58,7 +58,7 @@ pub const QB_ABI_VERSION: u32 = 1;
 
 /// Returns [`QB_ABI_VERSION`]; lets libqb.cpp assert it links the runtime it
 /// was compiled against.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_abi_version() -> u32 {
     QB_ABI_VERSION
 }

@@ -319,7 +319,7 @@ pub fn whatismyip() -> Vec<u8> {
 ///
 /// # Safety
 /// `info` must be readable for `len` bytes; the outputs must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_net_parse_info(
     info: *const u8,
     len: i32,
@@ -368,14 +368,14 @@ fn into_raw(c: Option<Box<Conn>>) -> *mut Conn {
 
 /// # Safety
 /// Always safe; returns NULL on failure.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_tcp_host_open(port: i64) -> *mut Conn {
     into_raw(host_open(port))
 }
 
 /// # Safety
 /// `host` must be readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_client_open(host: *const u8, len: i32, port: i64) -> *mut Conn {
     // SAFETY: caller guarantees `host` covers `len` bytes.
     into_raw(client_open(unsafe { bytes(host, len) }, port))
@@ -383,7 +383,7 @@ pub unsafe extern "C" fn qb_tcp_client_open(host: *const u8, len: i32, port: i64
 
 /// # Safety
 /// `host` must come from `qb_tcp_host_open` and not be closed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_accept(host: *mut Conn) -> *mut Conn {
     // SAFETY: caller guarantees a live connection.
     into_raw(accept(unsafe { &*host }))
@@ -391,7 +391,7 @@ pub unsafe extern "C" fn qb_tcp_accept(host: *mut Conn) -> *mut Conn {
 
 /// # Safety
 /// `c` must come from this module and not be used afterwards.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_close(c: *mut Conn) {
     if !c.is_null() {
         // SAFETY: ownership returns to Rust exactly once.
@@ -401,7 +401,7 @@ pub unsafe extern "C" fn qb_tcp_close(c: *mut Conn) {
 
 /// # Safety
 /// `c` must be live; `data` readable for `bytes` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_send(c: *mut Conn, data: *const u8, bytes_: i64) {
     // SAFETY: caller guarantees both.
     unsafe { (*c).send(bytes(data, bytes_)) }
@@ -409,7 +409,7 @@ pub unsafe extern "C" fn qb_tcp_send(c: *mut Conn, data: *const u8, bytes_: i64)
 
 /// # Safety
 /// `c` must be live; `buf` writable for `cap` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_recv(c: *mut Conn, buf: *mut u8, cap: i64) -> i64 {
     let cap = usize::try_from(cap).unwrap_or(0);
     if buf.is_null() || cap == 0 {
@@ -421,7 +421,7 @@ pub unsafe extern "C" fn qb_tcp_recv(c: *mut Conn, buf: *mut u8, cap: i64) -> i6
 
 /// # Safety
 /// `c` must be live.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_connected(c: *mut Conn) -> i32 {
     // SAFETY: caller guarantees a live connection.
     unsafe { (*c).connected }
@@ -433,7 +433,7 @@ pub unsafe extern "C" fn qb_tcp_connected(c: *mut Conn) -> i32 {
 ///
 /// # Safety
 /// `c` must be live; `out` writable for `cap` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_address(c: *mut Conn, conn_type: i32, out: *mut u8, cap: i32) -> i32 {
     // SAFETY: caller guarantees a live connection.
     let conn = unsafe { &*c };
@@ -449,7 +449,7 @@ pub unsafe extern "C" fn qb_tcp_address(c: *mut Conn, conn_type: i32, out: *mut 
 ///
 /// # Safety
 /// All pointers must cover their lengths; `out` writable for `cap` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_net_format_address(
     conn_type: i32,
     port: i32,

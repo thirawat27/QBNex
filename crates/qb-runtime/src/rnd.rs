@@ -70,25 +70,25 @@ fn with_global<T>(f: impl FnOnce(&mut RndState) -> T) -> T {
 }
 
 /// `RND` (`passed == 0`) or `RND(n)`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_rnd(n: f32, passed: i32) -> f32 {
     with_global(|s| s.rnd(if passed != 0 { Some(n) } else { None }))
 }
 
 /// `RANDOMIZE seed` (`using == 0`) or `RANDOMIZE USING seed`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_randomize(seed: f64, using: i32) {
     with_global(|s| if using != 0 { s.randomize_using(seed) } else { s.randomize(seed) });
 }
 
 /// Seed entered at the interactive `RANDOMIZE` prompt.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_randomize_prompt(seed: i16) {
     with_global(|s| s.randomize_prompt(seed));
 }
 
 /// Restores the start-up seed (program start and `RUN`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_rnd_reset() {
     with_global(|s| *s = RndState::default());
 }

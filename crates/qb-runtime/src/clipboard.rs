@@ -247,7 +247,7 @@ mod platform {
 
 /// # Safety
 /// `text` must be readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_clipboard_set_text(text: *const u8, len: i32) {
     let text = if text.is_null() || len <= 0 {
         &[][..]
@@ -263,7 +263,7 @@ pub unsafe extern "C" fn qb_clipboard_set_text(text: *const u8, len: i32) {
 ///
 /// # Safety
 /// `len` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_clipboard_get_text(len: *mut i64) -> *mut u8 {
     let t = get_text();
     // SAFETY: caller guarantees `len` is writable.
@@ -273,7 +273,7 @@ pub unsafe extern "C" fn qb_clipboard_get_text(len: *mut i64) -> *mut u8 {
 
 /// # Safety
 /// `pixels` must be readable for `w * h` values.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_clipboard_set_image(pixels: *const u32, w: i32, h: i32) {
     if pixels.is_null() || w <= 0 || h <= 0 {
         return;
@@ -288,7 +288,7 @@ pub unsafe extern "C" fn qb_clipboard_set_image(pixels: *const u32, w: i32, h: i
 ///
 /// # Safety
 /// `w` and `h` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_clipboard_get_image(w: *mut i32, h: *mut i32) -> *mut u32 {
     let img = get_image().filter(|i| i.width > 0 && i.height > 0);
     let (iw, ih, px) = img.map_or((0, 0, Vec::new()), |i| (i.width, i.height, i.pixels));
