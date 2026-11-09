@@ -303,6 +303,7 @@ FUNCTION getpid& ()
 
     ConsoleMode = -1
     _DEST _CONSOLE
+    IF IrEmitMode THEN IrCompileProgram CMDLineFile, outputfile_cmd$ 'R11 spike, ends the process
 
     'Hash table layout. Keep this near the top-level declarations because the
     'hash arrays are shared across parser, semantic, and build phases.
@@ -13491,6 +13492,7 @@ FUNCTION VerifyNumber (text$)
 END FUNCTION
 
 '$INCLUDE:'utilities\udts.bas'
+'$INCLUDE:'utilities\ir_emit.bas'
 
 SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
     DIM findItem AS LONG, cname$, i AS LONG, j AS LONG, name$, temp$

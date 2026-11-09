@@ -20,6 +20,7 @@
 | R8 Window / input / threads | **done (Windows), Linux/macOS unverified** | freeglut, GLEW, `libqb/gui.cpp` and `parts/input/game_controller` deleted; Rust `window.rs` (winit + softbuffer), `keymap.rs`, `keybuf.rs`, `raster.rs`, `script.rs`, `gamepad.rs` (gilrs); see "R8" below |
 | R9 Net, clipboard, screen, printer, clock | **done (Windows)**, Linux/macOS unverified | TCP (`std::net`), clipboard (Win32 `CF_TEXT`/`CF_BITMAP`, `arboard` elsewhere), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer page output, `GetTicks` + TIMER start-of-day. Deleted: socket layer, X11/Cocoa/Win32 clipboard, screen code, `libqb/printer.{cpp,h}`, `myip.cpp`, `time64.{c,cpp,h}`; `libqb.cpp` ~1,860 lines shorter. See [R9 notes](#r9-notes) |
 | R10 | pending | — |
+| R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `internal/c/qbrun`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
@@ -161,10 +162,6 @@ Build changes: makelines/CMake/setup scripts no longer build or link `parts/core
 | D-15 | Game controller buttons/axes use gilrs' standard layout (fixed indices, 19 buttons, 8 axes, Y axes down-positive); legacy reported raw driver order. |
 | D-16 | Attaching more controllers than `device_max` no longer overflows the heap (legacy assigned `realloc` to a local). |
 | D-17 | The process is per-monitor DPI aware (winit), so a 640x480 SCREEN is 640x480 physical pixels; legacy was DPI-unaware and got scaled by Windows. A non-ASCII key no longer emits a stray ANSI keyup on release. |
-| D-18 | The millisecond clock (`GetTicks`) is 64-bit everywhere. Legacy Windows used `clock()`, a 32-bit count that overflows after 24.8 days of uptime of the program. | No conformance case (needs 25 days); `systime.rs` unit tests. |
-| D-19 | `_CLIPBOARD$` on Linux/macOS goes through `arboard`: the system clipboard is UTF-8, so bytes that are not valid UTF-8 are stored as U+FFFD; without a display a clipboard private to the process is used (legacy: empty, or a GUI-only X11 owner). Windows keeps `CF_TEXT` bytes exactly. | No conformance case (needs a desktop clipboard). |
-| D-20 | `_CLIPBOARDIMAGE` (read and write) works on Linux/macOS through `arboard`; legacy did nothing there. | Closes a platform gap; no conformance case (desktop). |
-| D-21 | `_OPENCLIENT` tries every IPv4 address of the host until one connects; legacy Windows used only the first (`gethostbyname`), legacy Linux/macOS already tried all. | One behaviour on all OSes. |
 
 Open: `_DEVICEINPUT` keyboard device events (legacy `qbnex_os_event_windows` scan codes) are not generated; Linux `_CLIPBOARD$` lost its X11 hook (`x11filter`); macOS `libqb.mm` not adapted; `qbevent`/`lock_display`/mouse-queue readers still unsynchronised; during early manual runs a windowed program aborted twice with `std::bad_alloc` while another `qb.exe` build was running, not reproduced in 20+ later runs (stress included) — watch for it.
 
@@ -182,7 +179,17 @@ Where the legacy behaviour is a clear defect against QBasic, the Rust code fixes
 
 ### What "remove all C/C++" can reach under D10
 
-With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`, the generated fragments and a C++ compiler at user compile time remain. Everything else can go: `libqb.cpp` shrinks to shims and then disappears, and every library under `internal/c/parts` is replaced by Rust crates. Removing the last C++ needs a separate phase (proposed **R11**): change the BASIC compiler's emitter to generate Rust (or an IR the Rust runtime executes) instead of C++. That keeps D10 (compiler stays BASIC) but needs `rustc` instead of `g++` on the user's machine. Not started; needs approval.
+With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`, the generated fragments and a C++ compiler at user compile time remain. Everything else can go: `libqb.cpp` shrinks to shims and then disappears, and every library under `internal/c/parts` is replaced by Rust crates. Removing the last C++ is phase **R11** (approved). Recommendation after the spike: the BASIC compiler emits **QIR**, a text IR that the prebuilt Rust runner `qbrun` (linked with `qbrt`) executes; the executable is the runner with the IR appended, so users need **no** compiler toolchain. A Cranelift JIT tier on the same IR is the later performance step. See [`r11-emitter-design.md`](r11-emitter-design.md).
+
+### R11 spike status (2026-11-09)
+
+- `qb.exe prog.bas --ir -o prog.exe` (also `-ir`, `--emit-ir`) uses a separate small emitter (`source/utilities/ir_emit.bas`); the default C++ path is unchanged.
+- `cargo test -p qbrun`: 18 interpreter unit tests + 3 end-to-end tests. `spike.bas` (PRINT, numeric types, IF, FOR, GOSUB/RETURN, SUB with BYREF + `DIM SHARED`, string functions) gives the same output through both backends; `onerror.bas` (`ON ERROR GOTO` + `RESUME NEXT` in the main module, legacy defect L-01 in the C++ path) runs under QIR.
+- Verified with MinGW removed: an IR executable compiles and runs; `qb.exe` and C++-backend executables do not start without the MinGW DLLs on PATH (`0xC0000135`).
+- Measured: hello world 0.14 s vs 1.11 s, executable 0.25 MB vs 2.6 MB, but a tight loop costs ~95 ns per iteration in the untyped spike VM (C++ loop below noise). Typed VM + JIT are required before QIR can be the default or run the compiler itself.
+- Round 2: `cargo run --release -p qbnex-conformance -- --qb-arg --ir` passes **15 of 33** cases (C++ backend: 26 + 7 xfail). Added loops, SELECT CASE, FUNCTION/STATIC, arrays, DATA/READ/RESTORE, RND/RANDOMIZE, MK$/CV/MBF, DEFtype and more builtins (TDD, `qbrun` tests 18 + 19 + 7 unit, 4 end-to-end). The L-01, L-03 and L-04 cases run correctly under QIR (`internal/c/qbrun/tests/fixtures/legacy_defects`).
+- The CMake target `qbrun` (built with `qb-selfhost`) produces `internal/c/qbrun/bin/<os>/qbrun`; on Windows it imports only system DLLs.
+- Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
 
 ## How the pieces fit
 
@@ -281,6 +288,10 @@ Intentional deviations (Rust differs from legacy on purpose):
 | D-10 | Stretched `_PUTIMAGE` skips source samples that fall outside the source image. Legacy skipped source clipping when the destination is one pixel wide or high and read past the source buffer. | Defined behaviour instead of reading foreign memory; results inside the source are unchanged. |
 | D-11 | Graphics `GET` in 2-bit modes (SCREEN 1) checks the array size it really writes (ceil(w/4) bytes per row, legacy checked ceil(w/8) and overran the array) and stores the last partial byte of a row left-aligned (legacy stored a stale static byte, so `PUT` drew wrong pixels). | Memory safety and QBasic array layout; `graphics/get_2bit_partial` (`.deviation`). |
 | D-12 | SCREEN 0 layout compares the font in the 40x25/80x25 granularity test (legacy `(f=(16+1))` / `(f=16)` assigned it). | Code defect; every WIDTH path already passes fonts 17/16, so no reachable output changes. |
+| D-18 | The millisecond clock (`GetTicks`) is 64-bit everywhere. Legacy Windows used `clock()`, a 32-bit count that overflows after 24.8 days of uptime of the program. | No conformance case (needs 25 days); `systime.rs` unit tests. |
+| D-19 | `_CLIPBOARD$` on Linux/macOS goes through `arboard`: the system clipboard is UTF-8, so bytes that are not valid UTF-8 are stored as U+FFFD; without a display a clipboard private to the process is used (legacy: empty, or a GUI-only X11 owner). Windows keeps `CF_TEXT` bytes exactly. | No conformance case (needs a desktop clipboard). |
+| D-20 | `_CLIPBOARDIMAGE` (read and write) works on Linux/macOS through `arboard`; legacy did nothing there. | Closes a platform gap; no conformance case (desktop). |
+| D-21 | `_OPENCLIENT` tries every IPv4 address of the host until one connects; legacy Windows used only the first (`gethostbyname`), legacy Linux/macOS already tried all. | One behaviour on all OSes. |
 
 ## R4: files, file system, ENVIRON, SHELL, `_MEM`
 

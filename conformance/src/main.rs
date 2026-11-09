@@ -43,6 +43,8 @@ struct Options {
     timeout: Duration,
     verbose: bool,
     fb_dump: Option<PathBuf>,
+    /// Extra compiler flags, e.g. `--qb-arg --ir` for the R11 QIR backend.
+    qb_args: Vec<String>,
 }
 
 enum Outcome {
@@ -53,7 +55,7 @@ enum Outcome {
 
 fn usage() -> &'static str {
     "usage: conformance [--qb <path>] [--cases <dir>] [--work <dir>] [--filter <text>] \
-     [--timeout <secs>] [--bless] [--verbose] [--fb-dump <dir>]"
+     [--timeout <secs>] [--qb-arg <flag>]... [--bless] [--verbose] [--fb-dump <dir>]"
 }
 
 fn repo_root() -> PathBuf {
@@ -83,6 +85,7 @@ fn parse_args() -> Result<Options, String> {
         timeout: Duration::from_secs(30),
         verbose: false,
         fb_dump: None,
+        qb_args: Vec::new(),
     };
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -99,6 +102,7 @@ fn parse_args() -> Result<Options, String> {
                 opts.timeout = Duration::from_secs(secs);
             }
             "--fb-dump" => opts.fb_dump = Some(PathBuf::from(value("--fb-dump")?)),
+            "--qb-arg" => opts.qb_args.push(value("--qb-arg")?),
             "--bless" => opts.bless = true,
             "--verbose" | "-v" => opts.verbose = true,
             "--help" | "-h" => return Err(usage().to_string()),
@@ -229,6 +233,7 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     let mut compile = Command::new(&opts.qb);
     compile
         .arg(case)
+        .args(&opts.qb_args)
         .arg("-o")
         .arg(&exe)
         .arg("-q")

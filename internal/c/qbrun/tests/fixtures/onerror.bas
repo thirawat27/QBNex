@@ -1,0 +1,9 @@
+ON ERROR GOTO Handler
+PRINT "start"
+PRINT 10 \ 0
+PRINT "after"
+SYSTEM
+
+Handler:
+PRINT "caught"; ERR
+RESUME NEXT
