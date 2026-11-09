@@ -114,11 +114,10 @@ fn parse_args() -> Result<Options, String> {
     // process creation does not search the current directory when
     // NoDefaultCurrentDirectoryInExePath is set, so it would silently pick another
     // qb.exe from PATH (e.g. an installed QBNex release).
-    if opts.qb.is_relative() {
-        if let Ok(cwd) = env::current_dir() {
+    if opts.qb.is_relative()
+        && let Ok(cwd) = env::current_dir() {
             opts.qb = cwd.join(&opts.qb);
         }
-    }
     if !opts.qb.exists() {
         return Err(format!("qb compiler not found: {}", opts.qb.display()));
     }
@@ -284,12 +283,11 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     let _ = fs::remove_file(&exe);
     let raw = fs::read(&capture).unwrap_or_default();
     let _ = fs::remove_file(&capture);
-    if let Some(dir) = &opts.fb_dump {
-        if !raw.is_empty() {
+    if let Some(dir) = &opts.fb_dump
+        && !raw.is_empty() {
             let _ = fs::create_dir_all(dir);
             let _ = fs::write(dir.join(format!("{tag}.fbraw")), &raw);
         }
-    }
     let frames = match summarise_frames(&raw) {
         Ok(f) => f,
         Err(e) => return Outcome::Fail(format!("framebuffer capture: {e}")),

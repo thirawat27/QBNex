@@ -206,7 +206,7 @@ pub unsafe fn sub_circle(
 ///
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_circle(
     im: *mut ImgStruct,
     x: f64,

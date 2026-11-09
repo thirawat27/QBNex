@@ -1,0 +1,6 @@
+# Rust toolchain for every crate in this workspace (decision D16 in docs/rust-port/port-plan.md).
+# The Windows build scripts add the MinGW target (x86_64/i686-pc-windows-gnu) themselves.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

@@ -479,7 +479,7 @@ impl Scan<'_> {
 ///
 /// # Safety
 /// See [`maptriangle`]; `s` and `d` readable for 6 floats.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_maptriangle(
     src: *const ImgStruct,
     dst: *const ImgStruct,

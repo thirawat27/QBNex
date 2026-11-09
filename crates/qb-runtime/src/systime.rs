@@ -70,7 +70,7 @@ static ORIGIN: OnceLock<Instant> = OnceLock::new();
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 
 /// `GetTicks()`: monotonic milliseconds.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_get_ticks() -> i64 {
     ticks()
 }
@@ -79,7 +79,7 @@ pub extern "C" fn qb_get_ticks() -> i64 {
 ///
 /// # Safety
 /// Both pointers must be writable for one `uint32_t`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_time_init(clock_first: *mut u32, day_first: *mut u32) {
     let (c, d) = time_init();
     // SAFETY: caller guarantees both pointers are writable.
@@ -90,7 +90,7 @@ pub unsafe extern "C" fn qb_time_init(clock_first: *mut u32, day_first: *mut u32
 }
 
 /// `day_ms` for the differential test: `valid == 0` means localtime failed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_day_ms(hour: u32, minute: u32, second: u32, valid: i32) -> u32 {
     day_ms((valid != 0).then_some((hour, minute, second)))
 }

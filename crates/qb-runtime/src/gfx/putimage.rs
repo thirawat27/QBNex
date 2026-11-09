@@ -549,7 +549,7 @@ unsafe fn stretch(
 pub static SOURCE_OUT_OF_RANGE: AtomicU64 = AtomicU64::new(0);
 
 /// Diagnostic for the differential test: see [`SOURCE_OUT_OF_RANGE`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfx_putimage_oob_count() -> u64 {
     SOURCE_OUT_OF_RANGE.load(Ordering::Relaxed)
 }
@@ -559,7 +559,7 @@ pub extern "C" fn qb_gfx_putimage_oob_count() -> u64 {
 ///
 /// # Safety
 /// See [`putimage`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_putimage(
     s: *mut ImgStruct,
     d: *mut ImgStruct,
