@@ -2,7 +2,8 @@
 //!
 //! Every `cases/**/<name>.bas` is compiled with `qb`, executed, and its stdout is
 //! compared with `<name>.out` (line endings normalised to `\n`). An optional
-//! `<name>.in` is piped to stdin. `--bless` rewrites the `.out` files from the
+//! `<name>.in` is piped to stdin; `<name>.input` is an input script (keys/mouse)
+//! replayed by the Rust runtime in headless mode. `--bless` rewrites the `.out` files from the
 //! current compiler, which is how golden output is captured from a trusted build.
 //!
 //! A `<name>.xfail` file marks a known defect of the legacy implementation; its
@@ -251,6 +252,13 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     let _ = fs::remove_file(&capture);
     let mut run = Command::new(&exe);
     run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture);
+    // GUI programs run without a window; `<name>.input` is replayed as keyboard/mouse
+    // events (QBNEX_INPUT_SCRIPT, see internal/c/qbrt/src/script.rs). The legacy
+    // runtime ignores both variables.
+    run.env("QBNEX_HEADLESS", "1");
+    if let Ok(script) = case.with_extension("input").canonicalize() {
+        run.env("QBNEX_INPUT_SCRIPT", script);
+    }
     let (code, stdout, stderr) = match run_with_timeout(run, stdin, opts.timeout) {
         Ok(r) => r,
         Err(e) => return Outcome::Fail(format!("run: {e}")),

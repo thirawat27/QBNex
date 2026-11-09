@@ -146,18 +146,12 @@ rm -f src.o
 ./setup_build.sh
 popd >/dev/null
 
-echo "Building library 'Core:FreeGLUT'"
-pushd internal/c/parts/core/os/lnx >/dev/null
-rm -f src.a
-./setup_build.sh
-popd >/dev/null
-
 echo "Building 'QBNex'"
 mkdir -p ./internal/temp
 cp -r ./internal/source/* ./internal/temp/
 cp -r ./source/* ./internal/temp/
 pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o qbrt/os/lnx/libqbrt.a -lpthread -ldl -lm -lrt -lutil parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb-stage0
+g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o qbrt/os/lnx/libqbrt.a -lpthread -ldl -lm -lrt -lutil parts/video/font/ttf/os/lnx/src.o -ludev -lpthread -ldl -lrt -o ../../qb-stage0
 popd
 
 if [ -x "./qb-stage0" ]; then

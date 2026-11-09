@@ -27,24 +27,9 @@ extern int32 vWatchHandle();
 extern void error(int32 error_number);
 extern int32 sub_gl_called;
 
-#ifdef QBNex_GUI
-    #ifdef DEPENDENCY_GL
-        
-        #include "parts/core/gl_header_for_parsing/temp/gl_helper_code.h"
-        
-        double pi_as_double=3.14159265358979;
-        void gluPerspective(double fovy, double aspect, double zNear, double zFar)
-        {
-            double xmin, xmax, ymin, ymax;
-            ymax = zNear * tan(fovy * pi_as_double / 360.0);
-            ymin = -ymax;
-            xmin = ymin * aspect;
-            xmax = ymax * aspect;
-            glFrustum(xmin, xmax, ymin, ymax, zNear, zFar);
-            
-        }
-        
-    #endif
+#ifdef DEPENDENCY_GL
+    //R8 / deviation D-14: OpenGL (SUB _GL, _GL* statements) is not available with the Rust window layer.
+    #error "SUB _GL / OpenGL is not supported by this QBNex runtime (deviation D-14, see docs/rust-port/progress.md)"
 #endif
 
 //forward references

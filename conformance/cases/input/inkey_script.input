@@ -1,0 +1,14 @@
+# scripted keys for inkey_script.bas
+wait 700
+type Hi
+key f1
+key left
+keydown lshift
+key A
+keyup lshift
+keydown lctrl
+key c
+keyup lctrl
+key enter
+key delete
+key esc

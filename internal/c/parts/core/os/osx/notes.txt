@@ -1,1 +1,0 @@
-QBNex uses Apple's GLUT implementation, not FreeGLUT, therefore the 'core' section is unrequired.

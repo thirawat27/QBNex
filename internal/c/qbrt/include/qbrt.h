@@ -404,4 +404,6 @@ void qbrt_font_free(int32_t font);
 }
 #endif
 
+#include "qbrt_window.h" // R8 window/input layer
+
 #endif // QBNEX_QBRT_H

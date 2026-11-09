@@ -1,10 +1,6 @@
 del libqb\os\win\*.o
 del libqb\os\lnx\*.o
 
-del parts\core\os\win\src.a
-del parts\core\os\lnx\src.a
-del parts\core\os\win\temp\*.o
-del parts\core\os\lnx\temp\*.o
 
 del parts\audio\decode\mp3\os\win\src.a
 del parts\audio\decode\mp3\os\lnx\src.a

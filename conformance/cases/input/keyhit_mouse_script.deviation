@@ -1,0 +1,1 @@
+Input scripts (QBNEX_INPUT_SCRIPT) exist only in the Rust runtime (R8). Golden checked by hand: _KEYHIT down/up codes (x = 120/-120, LShift = 100304/-100304 with _KEYDOWN(100304)), left button press/release at window pixel (100,50) in SCREEN 12 (1:1), wheel up = -1 and down = +1.
