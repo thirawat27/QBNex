@@ -5,7 +5,7 @@
 
 use std::os::raw::c_void;
 
-extern "C" {
+unsafe extern "C" {
     fn malloc(size: usize) -> *mut c_void;
 }
 

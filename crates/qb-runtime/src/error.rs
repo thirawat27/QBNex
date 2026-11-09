@@ -16,40 +16,40 @@ use core::ptr::{addr_of, addr_of_mut};
 use std::ffi::c_char;
 
 /// Error raised by the current statement (0 = none). Generated code tests it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut new_error: u32 = 0;
 /// Backup of [`new_error`] used by `$DEBUG` (vWATCH) code.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut bkp_new_error: u32 = 0;
 /// `ERR`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut error_err: u32 = 0;
 /// `ERL`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut error_erl: f64 = 0.0;
 /// Set when the error handler is entered; `RESUME` checks it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut error_occurred: u32 = 0;
 /// Label number of the active `ON ERROR GOTO` (0 = none).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut error_goto_line: u32 = 0;
 /// 1 while an `ON ERROR` handler runs.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut error_handling: u32 = 0;
 /// Set by `RESUME` (retry the failing line).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut error_retry: u32 = 0;
 /// `_ERRORLINE`: source line of the last error.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut ercl: u32 = 0;
 /// `_INCLERRORLINE`: line inside an `$INCLUDE` file (0 = main module).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut inclercl: u32 = 0;
 /// `_INCLERRORFILE$` (NUL-terminated, owned by generated code).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut includedfilename: *mut c_char = core::ptr::null_mut();
 /// Last numbered line passed (`ERL`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut last_line: f64 = 0.0;
 
 /// Win32 `MessageBox` flags/results the legacy dialogs used.
@@ -260,7 +260,7 @@ pub enum FixError {
 #[cfg(not(test))]
 mod host {
     use std::ffi::c_char;
-    extern "C" {
+    unsafe extern "C" {
         /// `MessageBox2` (window owner, headless mode) in libqb.cpp.
         fn qb_host_message_box(message: *const c_char, title: *const c_char, kind: i32) -> i32;
         /// `end()` in libqb.cpp: waits for the window thread, never returns.
@@ -359,7 +359,7 @@ pub fn fix_error(command0: &[u8]) -> FixError {
 // ---------------------------------------------------------------- C ABI
 
 /// `error(n)`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_error(code: i32) {
     raise(code);
 }
@@ -369,7 +369,7 @@ pub extern "C" fn qb_error(code: i32) {
 ///
 /// # Safety
 /// `command0` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_fix_error(command0: *const u8, len: i32) -> i32 {
     let c = unsafe { crate::ffi_bytes(command0, len.max(0) as usize) };
     match fix_error(c) {
@@ -379,7 +379,7 @@ pub unsafe extern "C" fn qb_fix_error(command0: *const u8, len: i32) -> i32 {
 }
 
 /// `human_error`: NUL-terminated static message text.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_human_error(code: i32) -> *const c_char {
     human_error_z(code).as_ptr().cast()
 }
@@ -391,7 +391,7 @@ pub extern "C" fn qb_human_error(code: i32) -> *const c_char {
 /// # Safety
 /// `msg` and `title` valid.
 #[doc(hidden)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_test_critical_error(code: i32, msg: *mut *const c_char, title: *mut *const c_char) -> i32 {
     match critical_error(code) {
         Some((m, t)) => {
@@ -412,7 +412,7 @@ pub unsafe extern "C" fn qb_test_critical_error(code: i32, msg: *mut *const c_ch
 /// `file` null or NUL-terminated; `command0` readable for `len`; `title`
 /// and `body` writable for `cap` bytes.
 #[doc(hidden)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn qb_test_error_dialog(
     code: u32,

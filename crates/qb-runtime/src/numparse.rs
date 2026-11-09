@@ -584,7 +584,7 @@ unsafe fn data_args<'a>(data: *const u8, size: isize, offset: *mut isize) -> (&'
 ///
 /// # Safety
 /// `data` readable for `size` bytes; `offset` and `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_read_float(
     data: *const u8,
     size: isize,
@@ -608,7 +608,7 @@ pub unsafe extern "C" fn qb_read_float(
 ///
 /// # Safety
 /// As [`qb_read_float`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_read_int64(data: *const u8, size: isize, offset: *mut isize, out: *mut i64) -> i32 {
     let (d, mut o) = unsafe { data_args(data, size, offset) };
     let r = read_int64(d, &mut o);
@@ -626,7 +626,7 @@ pub unsafe extern "C" fn qb_read_int64(data: *const u8, size: isize, offset: *mu
 ///
 /// # Safety
 /// As [`qb_read_float`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_read_uint64(data: *const u8, size: isize, offset: *mut isize, out: *mut u64) -> i32 {
     let (d, mut o) = unsafe { data_args(data, size, offset) };
     let r = read_uint64(d, &mut o);
@@ -649,7 +649,7 @@ thread_local! {
 ///
 /// # Safety
 /// As [`qb_read_float`]; `out` and `len` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_read_string(
     data: *const u8,
     size: isize,
@@ -675,7 +675,7 @@ pub unsafe extern "C" fn qb_read_string(
 ///
 /// # Safety
 /// `n` and `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_num_to_float(n: *const NumRepr, typ: i32, out: *mut QbNumValue) -> i32 {
     match input_float(unsafe { &*n }, typ) {
         Ok(v) => {
@@ -690,7 +690,7 @@ pub unsafe extern "C" fn qb_num_to_float(n: *const NumRepr, typ: i32, out: *mut 
 ///
 /// # Safety
 /// `n` and `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_num_to_int64(n: *const NumRepr, out: *mut i64) -> i32 {
     match n_int64(unsafe { &*n }) {
         Some(v) => {
@@ -705,7 +705,7 @@ pub unsafe extern "C" fn qb_num_to_int64(n: *const NumRepr, out: *mut i64) -> i3
 ///
 /// # Safety
 /// `n` and `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_num_to_uint64(n: *const NumRepr, out: *mut u64) -> i32 {
     match n_uint64(unsafe { &*n }) {
         Some(v) => {

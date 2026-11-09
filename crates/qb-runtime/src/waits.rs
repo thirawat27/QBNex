@@ -146,7 +146,7 @@ pub fn sleep(h: &mut impl WaitHost, prev: f64, ms: f64) {
 pub struct RuntimeHost;
 
 #[cfg(not(test))]
-extern "C" {
+unsafe extern "C" {
     /// `evnt(0)` in qbx.cpp (handles errors and dispatches events).
     fn qb_host_evnt();
 }
@@ -176,13 +176,13 @@ impl WaitHost for RuntimeHost {
 static mut LIMIT: Limit = Limit { prev: 0.0 };
 
 /// `sub__delay`; returns the BASIC error.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_delay(seconds: f64) -> i32 {
     delay(&mut RuntimeHost, seconds).err().unwrap_or(0)
 }
 
 /// `sub__limit`; returns the BASIC error.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_limit(fps: f64) -> i32 {
     // SAFETY: `_LIMIT` runs on the program thread only.
     let l = unsafe { &mut *core::ptr::addr_of_mut!(LIMIT) };
@@ -190,7 +190,7 @@ pub extern "C" fn qb_limit(fps: f64) -> i32 {
 }
 
 /// Timed part of `sub_sleep` (see [`sleep`]).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_sleep_wait(prev: f64, ms: f64) {
     sleep(&mut RuntimeHost, prev, ms);
 }
@@ -240,7 +240,7 @@ impl WaitHost for TraceHost<'_> {
 /// `times` readable for `n` (> 0) values, `trace` writable for `cap`,
 /// `prev`/`err`/`ticks_used` valid.
 #[doc(hidden)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn qb_test_wait(
     kind: i32,

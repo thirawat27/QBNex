@@ -32,7 +32,7 @@ pub fn timer(ticks: u32, clock_first: u32, day_first: u32, accuracy: Option<f64>
 ///
 /// # Safety
 /// `out` must be writable for one `double`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_timer(
     ticks: u32,
     clock_first: u32,

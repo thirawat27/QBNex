@@ -326,7 +326,7 @@ impl Big {
             }
         }
         if limbs != 0 {
-            self.0.splice(0..0, std::iter::repeat(0).take(limbs));
+            self.0.splice(0..0, std::iter::repeat_n(0, limbs));
         }
     }
 
@@ -431,7 +431,7 @@ pub fn f64_from_f80(f: F80) -> f64 {
 ///
 /// # Safety
 /// `chr` must be readable for `len` bytes (or `len <= 0`); `out_f80` writable for 10.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_val(chr: *const u8, len: i32, out_f80: *mut u8) -> i32 {
     let s: &[u8] = if len <= 0 || chr.is_null() {
         &[]
@@ -450,7 +450,7 @@ pub unsafe extern "C" fn qb_val(chr: *const u8, len: i32, out_f80: *mut u8) -> i
 
 /// # Safety
 /// `f80` must be readable for 10 bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_f80_to_f64(f80: *const u8) -> f64 {
     let mut b = [0u8; 10];
     // SAFETY: caller guarantees 10 readable bytes.

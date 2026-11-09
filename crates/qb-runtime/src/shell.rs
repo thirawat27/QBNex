@@ -53,7 +53,7 @@ pub fn split(s: &[u8]) -> (&[u8], &[u8]) {
     (s, &[])
 }
 
-extern "C" {
+unsafe extern "C" {
     fn system(cmd: *const std::ffi::c_char) -> i32;
 }
 
@@ -104,20 +104,18 @@ pub fn run(cmd: &[u8], mode: Mode) -> i64 {
     };
 
     if cmd_ok() {
-        if !cmd_command(cmd) {
-            if let Some(rc) = exec(cmd, None) {
+        if !cmd_command(cmd)
+            && let Some(rc) = exec(cmd, None) {
                 return rc;
             }
-        }
         let (file, params) = split(cmd);
         if file.is_empty() {
             return 1;
         }
-        if !params.is_empty() && !cmd_command(file) {
-            if let Some(rc) = exec(file, Some(params)) {
+        if !params.is_empty() && !cmd_command(file)
+            && let Some(rc) = exec(file, Some(params)) {
                 return rc;
             }
-        }
         let mut line = b" /c ".to_vec();
         line.extend_from_slice(file);
         if !params.is_empty() {
@@ -190,7 +188,7 @@ pub fn cmd_ok() -> bool {
 pub fn interactive(use_console: bool) -> i64 {
     #[cfg(windows)]
     {
-        extern "system" {
+        unsafe extern "system" {
             fn AllocConsole() -> i32;
             fn FreeConsole() -> i32;
         }
@@ -219,14 +217,14 @@ pub fn interactive(use_console: bool) -> i64 {
 ///
 /// # Safety
 /// `cmd` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_shell_run(cmd: *const u8, len: i32, show: i32, wait: i32, use_console: i32) -> i64 {
     // SAFETY: caller contract.
     let cmd = unsafe { crate::ffi_bytes(cmd, len.max(0) as usize) };
     run(cmd, Mode { show: show != 0, wait: wait != 0, use_console: use_console != 0 })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_shell_interactive(use_console: i32) -> i64 {
     interactive(use_console != 0)
 }

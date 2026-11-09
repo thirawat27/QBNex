@@ -126,7 +126,7 @@ pub unsafe fn pset_and_clip(im: &ImgStruct, x: i32, y: i32, col: u32) {
 ///
 /// # Safety
 /// `im` must be a valid surface and `(x, y)` inside it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_pset(im: *const ImgStruct, x: i32, y: i32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { pset(&*im, x, y, col) }
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn qb_gfx_pset(im: *const ImgStruct, x: i32, y: i32, col: 
 ///
 /// # Safety
 /// The out pointers must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_blend_tables(cblend: *mut *const u8, ablend: *mut *const u8) {
     let t = tables();
     // SAFETY: guaranteed by the caller.

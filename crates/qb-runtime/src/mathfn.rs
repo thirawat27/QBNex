@@ -169,7 +169,7 @@ pub fn hex(value: i64, neg_size: i32) -> Vec<u8> {
 ///
 /// # Safety
 /// `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_log(x: f64, out: *mut f64) -> i32 {
     put(log(x), out)
 }
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn qb_log(x: f64, out: *mut f64) -> i32 {
 ///
 /// # Safety
 /// `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_exp_single(x: f64, out: *mut f64) -> i32 {
     put(exp_single(x), out)
 }
@@ -187,13 +187,13 @@ pub unsafe extern "C" fn qb_exp_single(x: f64, out: *mut f64) -> i32 {
 ///
 /// # Safety
 /// `out` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_sqr(x: f64, out: *mut f64) -> i32 {
     put(sqr(x), out)
 }
 
 /// `func_fix_double`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_fix_double(x: f64) -> f64 {
     fix(x)
 }
@@ -218,7 +218,7 @@ fn put(r: Result<f64, i32>, out: *mut f64) -> i32 {
 ///
 /// # Safety
 /// `buf` writable for 64 bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_radix_string(value: i64, neg_bits: i32, radix: i32, buf: *mut u8) -> i32 {
     let s = match radix {
         16 => hex(value, neg_bits),

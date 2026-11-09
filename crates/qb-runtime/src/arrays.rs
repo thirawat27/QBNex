@@ -87,7 +87,7 @@ pub unsafe fn setbits(bsize: u32, base: *mut u8, i: isize, val: i64) {
 /// # Safety
 /// `desc` is a descriptor with at least `4*(num_indexes+1)+2` entries when
 /// `index` is in range.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_array_bound(desc: *const isize, index: i32, num_indexes: i32, upper: i32, out: *mut isize) -> i32 {
     let len = if index >= 1 && index <= num_indexes { 4 * (num_indexes as usize + 1) + 2 } else { 3 };
     let d = unsafe { core::slice::from_raw_parts(desc, len) };
@@ -104,7 +104,7 @@ pub unsafe extern "C" fn qb_array_bound(desc: *const isize, index: i32, num_inde
 ///
 /// # Safety
 /// See [`getubits`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_getubits(bsize: u32, base: *const u8, i: isize) -> u64 {
     unsafe { getubits(bsize, base, i) }
 }
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn qb_getubits(bsize: u32, base: *const u8, i: isize) -> u
 ///
 /// # Safety
 /// See [`getbits`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_getbits(bsize: u32, base: *const u8, i: isize) -> i64 {
     unsafe { getbits(bsize, base, i) }
 }
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn qb_getbits(bsize: u32, base: *const u8, i: isize) -> i6
 ///
 /// # Safety
 /// See [`setbits`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_setbits(bsize: u32, base: *mut u8, i: isize, val: i64) {
     unsafe { setbits(bsize, base, i, val) }
 }

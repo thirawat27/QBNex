@@ -19,7 +19,7 @@ fn osname(name: &[u8]) -> Vec<u8> {
 
 #[cfg(windows)]
 mod crt {
-    extern "C" {
+    unsafe extern "C" {
         pub fn rename(old: *const u8, new: *const u8) -> i32;
         pub fn _chdir(dir: *const u8) -> i32;
         pub fn _mkdir(dir: *const u8) -> i32;
@@ -316,7 +316,7 @@ use crate::ffi_bytes;
 
 /// # Safety
 /// `s` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_kill(s: *const u8, len: i32) -> i32 {
     // SAFETY: caller contract.
     kill(unsafe { ffi_bytes(s, len.max(0) as usize) })
@@ -324,7 +324,7 @@ pub unsafe extern "C" fn qb_kill(s: *const u8, len: i32) -> i32 {
 
 /// # Safety
 /// Both names readable for their lengths.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_name(a: *const u8, alen: i32, b: *const u8, blen: i32) -> i32 {
     // SAFETY: caller contract.
     unsafe { name(ffi_bytes(a, alen.max(0) as usize), ffi_bytes(b, blen.max(0) as usize)) }
@@ -332,7 +332,7 @@ pub unsafe extern "C" fn qb_name(a: *const u8, alen: i32, b: *const u8, blen: i3
 
 /// # Safety
 /// `s` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_chdir(s: *const u8, len: i32) -> i32 {
     // SAFETY: caller contract.
     chdir(unsafe { ffi_bytes(s, len.max(0) as usize) })
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn qb_chdir(s: *const u8, len: i32) -> i32 {
 
 /// # Safety
 /// `s` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_mkdir(s: *const u8, len: i32) -> i32 {
     // SAFETY: caller contract.
     mkdir(unsafe { ffi_bytes(s, len.max(0) as usize) })
@@ -348,7 +348,7 @@ pub unsafe extern "C" fn qb_mkdir(s: *const u8, len: i32) -> i32 {
 
 /// # Safety
 /// `s` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_rmdir(s: *const u8, len: i32) -> i32 {
     // SAFETY: caller contract.
     rmdir(unsafe { ffi_bytes(s, len.max(0) as usize) })
@@ -356,7 +356,7 @@ pub unsafe extern "C" fn qb_rmdir(s: *const u8, len: i32) -> i32 {
 
 /// # Safety
 /// `s` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_exists(s: *const u8, len: i32, dir: i32) -> i32 {
     // SAFETY: caller contract.
     exists(unsafe { ffi_bytes(s, len.max(0) as usize) }, dir != 0)
@@ -369,7 +369,7 @@ static OUT: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
 ///
 /// # Safety
 /// Out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_cwd(out: *mut *const u8, out_len: *mut i32) -> i32 {
     let (e, v) = cwd();
     let mut o = OUT.lock().unwrap_or_else(|e| e.into_inner());
@@ -387,7 +387,7 @@ pub unsafe extern "C" fn qb_cwd(out: *mut *const u8, out_len: *mut i32) -> i32 {
 ///
 /// # Safety
 /// `s` readable for `len` bytes; out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_files(s: *const u8, len: i32, passed: i32, out: *mut *const u8, out_len: *mut i32) -> i32 {
     // SAFETY: caller contract.
     let spec = (passed != 0).then(|| unsafe { ffi_bytes(s, len.max(0) as usize) });

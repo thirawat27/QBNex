@@ -438,7 +438,7 @@ mod platform {
 ///
 /// # Safety
 /// `w` and `h` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_screenimage(x1: i32, y1: i32, x2: i32, y2: i32, passed: i32, w: *mut i32, h: *mut i32) -> *mut u32 {
     #[cfg(windows)]
     {
@@ -470,7 +470,7 @@ pub unsafe extern "C" fn qb_screenimage(x1: i32, y1: i32, x2: i32, y2: i32, pass
 }
 
 /// `_SCREENCLICK x, y[, button]`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_screenclick(x: i32, y: i32, button: i32, passed: i32) {
     #[cfg(windows)]
     {
@@ -490,7 +490,7 @@ pub extern "C" fn qb_screenclick(x: i32, y: i32, button: i32, passed: i32) {
 ///
 /// # Safety
 /// `txt` must be readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_screenprint(txt: *const u8, len: i32) {
     let txt = if txt.is_null() || len <= 0 {
         &[][..]
@@ -512,7 +512,7 @@ pub unsafe extern "C" fn qb_screenprint(txt: *const u8, len: i32) {
 ///
 /// # Safety
 /// `out` must be writable for 4 `int32_t`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_test_screen_region(sw: i32, sh: i32, x1: i32, y1: i32, x2: i32, y2: i32, passed: i32, out: *mut i32) {
     let (a, b, c, d) = screen_region(sw, sh, x1, y1, x2, y2, passed != 0);
     for (i, v) in [a, b, c, d].into_iter().enumerate() {
@@ -526,7 +526,7 @@ pub unsafe extern "C" fn qb_test_screen_region(sw: i32, sh: i32, x1: i32, y1: i3
 ///
 /// # Safety
 /// `out` must be writable for `3 * cap` `int32_t`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_test_win_screenclick(x: i32, y: i32, button: i32, passed: i32, sw: i32, sh: i32, out: *mut i32, cap: i32) -> i32 {
     let ev = win_screenclick(x, y, button, passed != 0, sw, sh);
     for (i, e) in ev.iter().take(cap.max(0) as usize).enumerate() {
@@ -545,7 +545,7 @@ pub unsafe extern "C" fn qb_test_win_screenclick(x: i32, y: i32, button: i32, pa
 ///
 /// # Safety
 /// `txt` readable for `len` bytes, `scan` for 256 values, `out` writable for `cap`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_test_win_screenprint(txt: *const u8, len: i32, scan: *const i16, out: *mut i32, cap: i32) -> i32 {
     // SAFETY: caller guarantees the buffers.
     let (txt, scan) = unsafe { (std::slice::from_raw_parts(txt, len.max(0) as usize), std::slice::from_raw_parts(scan, 256)) };
@@ -562,7 +562,7 @@ pub unsafe extern "C" fn qb_test_win_screenprint(txt: *const u8, len: i32, scan:
 ///
 /// # Safety
 /// `txt` readable for `len` bytes, `out` writable for `3 * cap`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_test_mac_screenprint(txt: *const u8, len: i32, out: *mut i32, cap: i32) -> i32 {
     // SAFETY: caller guarantees the buffers.
     let txt = unsafe { std::slice::from_raw_parts(txt, len.max(0) as usize) };

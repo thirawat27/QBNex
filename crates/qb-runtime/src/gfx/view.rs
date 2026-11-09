@@ -216,7 +216,7 @@ pub fn pmap(im: &ImgStruct, val: f32, option: i32) -> (f32, i32) {
 
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_window(im: *mut ImgStruct, x1: f32, y1: f32, x2: f32, y2: f32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { window(&mut *im, x1, y1, x2, y2, passed) }
@@ -224,7 +224,7 @@ pub unsafe extern "C" fn qb_gfx_window(im: *mut ImgStruct, x1: f32, y1: f32, x2:
 
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_view(
     im: *mut ImgStruct,
     x1: i32,
@@ -241,7 +241,7 @@ pub unsafe extern "C" fn qb_gfx_view(
 
 /// # Safety
 /// `im` must be `write_page`; `err` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_pmap(im: *const ImgStruct, val: f32, option: i32, err: *mut i32) -> f32 {
     // SAFETY: guaranteed by the caller.
     unsafe {

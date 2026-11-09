@@ -15,28 +15,28 @@ use core::ptr::{addr_of, addr_of_mut};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Set to 1 when the program thread must call `evnt()` at the next line.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut qbevent: u32 = 0;
 /// 1 = program must stop (window closed, END finished, fatal error).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut stop_program: u8 = 0;
 /// 1 = program thread is paused (`evnt()` spins).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut suspend_program: u8 = 0;
 /// 1 = the user chose to close the program (error dialog "No", `_EXIT`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut close_program: u8 = 0;
 /// Bit 0: program thread finished, bit 1: timer thread finished.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut exit_ok: i32 = 0;
 /// Process exit code (`SYSTEM n`, `END n`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut exit_code: i64 = 0;
 /// `_EXIT` request bits (1 = window close box, 2 = CTRL+BREAK).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut exit_value: i32 = 0;
 /// Set by events and key presses to end a SLEEP early.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut sleep_break: i32 = 0;
 
 // GOSUB/RETURN stack used by generated code.
@@ -45,13 +45,13 @@ static mut RETURN_POINT_INITIAL: [u32; RETURN_POINTS_INITIAL] = [0; RETURN_POINT
 static mut RETURN_POINT_GROWN: Vec<u32> = Vec::new();
 
 /// Index of the next free GOSUB return slot.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut next_return_point: u32 = 0;
 /// GOSUB return stack (`return_points` entries).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut return_point: *mut u32 = addr_of_mut!(RETURN_POINT_INITIAL) as *mut u32;
 /// Capacity of [`return_point`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut return_points: u32 = RETURN_POINTS_INITIAL as u32;
 
 /// Volatile read of a global another thread may change.
@@ -119,13 +119,13 @@ pub fn grow_return_points() -> i32 {
 }
 
 /// C ABI of [`take_exit_request`] (`func__exit`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_take_exit_request() -> i32 {
     take_exit_request()
 }
 
 /// C ABI of [`grow_return_points`] (`more_return_points`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_more_return_points() -> i32 {
     grow_return_points()
 }

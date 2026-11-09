@@ -1098,70 +1098,70 @@ mod os {
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 
 /// Pointer to table entry `i` (stable until the program ends).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_file_at(i: i32) -> *mut GfsFile {
     let mut t = table();
     t.f(i) as *mut GfsFile
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_fileno_valid(f: i32) -> i32 {
     table().fileno_valid(f)
 }
 
 /// Table index of file number `f` (must have been validated).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_fileno(f: i32) -> i32 {
     table().fileno_index(f)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_fileno_freefile() -> i32 {
     table().freefile()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_fileno_use(f: i32, i: i32) {
     table().fileno_use(f, i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_fileno_n() -> i32 {
     table().max_fileno()
 }
 
 /// # Safety
 /// `name` must be readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfs_open(name: *const u8, len: i32, access: i32, restrictions: i32, how: i32) -> i32 {
     // SAFETY: caller contract.
     let name = unsafe { crate::ffi_bytes(name, len.max(0) as usize) };
     table().open(name, access, restrictions, how)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_close(i: i32) -> i32 {
     table().close(i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_lof(i: i32) -> i64 {
     table().lof(i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_setpos(i: i32, position: i64) -> i32 {
     table().setpos(i, position)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_getpos(i: i32) -> i64 {
     table().getpos(i)
 }
 
 /// # Safety
 /// `data` must be readable for `size` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfs_write(i: i32, position: i64, data: *const u8, size: i64) -> i32 {
     let mut t = table();
     if !t.valid(i) {
@@ -1180,7 +1180,7 @@ pub unsafe extern "C" fn qb_gfs_write(i: i32, position: i64, data: *const u8, si
 
 /// # Safety
 /// `data` must be writable for `size` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfs_read(i: i32, position: i64, data: *mut u8, size: i64) -> i32 {
     let mut t = table();
     t.read_bytes = 0;
@@ -1198,27 +1198,27 @@ pub unsafe extern "C" fn qb_gfs_read(i: i32, position: i64, data: *mut u8, size:
     t.read(i, position, data)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_read_bytes() -> i64 {
     table().read_bytes()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_eof_reached(i: i32) -> i32 {
     table().eof_reached(i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_eof_passed(i: i32) -> i32 {
     table().eof_passed(i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_lock(i: i32, start: i64, end: i64) -> i32 {
     table().lock(i, start, end, true)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfs_unlock(i: i32, start: i64, end: i64) -> i32 {
     table().lock(i, start, end, false)
 }

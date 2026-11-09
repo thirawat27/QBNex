@@ -351,11 +351,10 @@ impl Engine {
     pub fn play_copy(&mut self, src: i32, volume: f64, passed: i32) {
         let dst = self.copy(src);
         if dst > 0 {
-            if passed != 0 {
-                if let Some(s) = self.handles[dst as usize].sound.as_mut() {
+            if passed != 0
+                && let Some(s) = self.handles[dst as usize].sound.as_mut() {
                     s.volume = volume as f32;
                 }
-            }
             self.play_sound(dst);
             self.handles[dst as usize].auto_kill = true;
         }
@@ -364,11 +363,10 @@ impl Engine {
     /// `_SNDPLAYFILE` after `open_decoded(.., FLAG_STREAM)`.
     pub fn play_file(&mut self, h: i32, volume: f64, passed: i32) {
         if h > 0 {
-            if passed & 2 != 0 {
-                if let Some(s) = self.handles[h as usize].sound.as_mut() {
+            if passed & 2 != 0
+                && let Some(s) = self.handles[h as usize].sound.as_mut() {
                     s.volume = volume as f32;
                 }
-            }
             self.play_sound(h);
             self.handles[h as usize].auto_kill = true;
         }
@@ -532,11 +530,10 @@ impl Engine {
         if !passed {
             h = self.snd_internal_raw;
         }
-        if self.valid_kind(h, SoundKind::Raw) {
-            if let Some(q) = self.handles[h as usize].raw.as_mut() {
+        if self.valid_kind(h, SoundKind::Raw)
+            && let Some(q) = self.handles[h as usize].raw.as_mut() {
                 q.force_last();
             }
-        }
     }
 
     pub fn raw_len(&mut self, mut h: i32, passed: bool) -> f64 {
@@ -544,15 +541,14 @@ impl Engine {
             h = self.snd_internal_raw;
         }
         let rate = self.rate;
-        if self.valid_kind(h, SoundKind::Raw) {
-            if let Some(q) = self.handles[h as usize].raw.as_mut() {
+        if self.valid_kind(h, SoundKind::Raw)
+            && let Some(q) = self.handles[h as usize].raw.as_mut() {
                 if q.block_count() > 1 {
                     q.force_last();
                 }
                 let f = q.frames_remaining();
                 return if f == 0 || rate == 0 { 0.0 } else { f as f64 / rate as f64 };
             }
-        }
         0.0
     }
 
@@ -668,13 +664,12 @@ fn mix_sound(s: &mut Playback, out: &mut [f32], time: u64) {
     };
     let vol = s.volume * gain;
     for (k, f) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
-        if let Some(t) = s.stop_time {
-            if time + k as u64 >= t {
+        if let Some(t) = s.stop_time
+            && time + k as u64 >= t {
                 s.playing = false;
                 s.stop_time = None;
                 return;
             }
-        }
         if s.cursor >= s.data.frames {
             if s.looping && s.data.frames > 0 {
                 s.cursor = 0;

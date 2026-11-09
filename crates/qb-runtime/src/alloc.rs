@@ -20,16 +20,16 @@
 use core::ptr::{addr_of, addr_of_mut, null_mut};
 
 /// Start of the current `mem_static` block.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut mem_static: *mut u8 = null_mut();
 /// Next free byte of the current block.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut mem_static_pointer: *mut u8 = null_mut();
 /// End of the current block.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut mem_static_limit: *mut u8 = null_mut();
 /// Size of the current block.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut mem_static_size: u32 = 0;
 
 /// Every block ever allocated (old blocks stay alive, see module docs).
@@ -210,7 +210,7 @@ static mut CMEM_DYNAMIC: CmemDynamic = CmemDynamic::new();
 
 #[cfg(not(test))]
 mod host {
-    extern "C" {
+    unsafe extern "C" {
         pub static mut cmem: [u8; 0];
         pub static mut cmem_static_pointer: *mut u8;
         pub static mut cmem_dynamic_base: *mut u8;
@@ -233,7 +233,7 @@ fn cmem_base() -> *mut u8 {
 // ---------------------------------------------------------------- C ABI
 
 /// `allocate_mem_static_block` (program start uses 1 MB).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_mem_static_new_block(size: u32) -> i32 {
     mem_static_new_block(size)
 }
@@ -242,7 +242,7 @@ pub extern "C" fn qb_mem_static_new_block(size: u32) -> i32 {
 ///
 /// # Safety
 /// `err` valid.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_mem_static_malloc(size: u32, err: *mut i32) -> *mut u8 {
     match mem_static_malloc(size) {
         Ok(p) => p,
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn qb_mem_static_malloc(size: u32, err: *mut i32) -> *mut 
 }
 
 /// `mem_static_restore`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_mem_static_restore(restore_point: *mut u8) {
     mem_static_restore(restore_point);
 }
@@ -263,7 +263,7 @@ pub extern "C" fn qb_mem_static_restore(restore_point: *mut u8) {
 ///
 /// # Safety
 /// `err` valid; `cmem_static_pointer` points into `cmem`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_cmem_dynamic_malloc(size: u32, err: *mut i32) -> *mut u8 {
     let base = cmem_base();
     unsafe {
@@ -283,7 +283,7 @@ pub unsafe extern "C" fn qb_cmem_dynamic_malloc(size: u32, err: *mut i32) -> *mu
 }
 
 /// `cmem_dynamic_free`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_cmem_dynamic_free(block: *mut u8) {
     if block.is_null() {
         return;
@@ -298,7 +298,7 @@ pub extern "C" fn qb_cmem_dynamic_free(block: *mut u8) {
 
 /// Empties the `cmem_dynamic` block list (tests/diff only).
 #[doc(hidden)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_test_cmem_dynamic_reset() {
     // SAFETY: test hook, single-threaded.
     unsafe { *addr_of_mut!(CMEM_DYNAMIC) = CmemDynamic::new() };
