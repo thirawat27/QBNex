@@ -1,5 +1,5 @@
 === IMPORTANT LICENSING NOTE FOR QB64 PROGRAMMERS ===
-If you are using fonts, you are bound by the terms of FreeType's license. Somewhere in your software package should include a notice that your program includes the FreeType library (see licence_freetype_ftl.txt for details).
+Fonts are rendered by the QBNex Rust runtime (libqbrt) since 2026; FreeType is no longer included, so its license no longer applies to your programs.
 Other components are licensed under various permissive licences.
 In all cases, you should distribute the licenses folder with your program.
 
@@ -36,12 +36,21 @@ License Website: http://www.gnu.org/licenses/licenses.html#GPL
 License File: license_gnu_gpl_3.txt
 Location in QB64 distribution: internal/c/c_compiler/
 
-Software/Library Name: STB Image
-Website: http://nothings.org/
-License: MIT License or Public Domain
+Software/Library Name: STB Image (ported to Rust: BMP, TGA, GIF and PNM loaders) and dr_pcx
+Website: http://nothings.org/ and https://github.com/mackron/dr_pcx
+License: MIT License or Public Domain (stb_image); Public Domain / Unlicense (dr_pcx)
 License Website: https://github.com/nothings/stb/blob/master/LICENSE
 License File: license_stb_image.txt
-Location in QB64 distribution: internal/c/parts/video/image/
+Location in QB64 distribution: internal/c/qbrt/src/image/ (compiled into internal/c/qbrt/os/*/libqbrt.a)
+
+Software/Library Name: Rust crates linked into the QBNex runtime (libqbrt)
+Website: https://crates.io/ (exact versions in Cargo.lock)
+License: skrifa, read-fonts, font-types, png, fdeflate, flate2, crc32fast, bitflags, bytemuck, cfg-if, adler2: MIT or Apache-2.0;
+miniz_oxide, zune-core, zune-jpeg: MIT, Apache-2.0 or Zlib; simd-adler32: MIT; zlib-rs: Zlib;
+ab_glyph_rasterizer: Apache-2.0
+License Website(s): https://opensource.org/licenses/MIT https://www.apache.org/licenses/LICENSE-2.0 https://opensource.org/licenses/Zlib
+License File(s): license_apache_2_0.txt (MIT terms as above for QBNex; Zlib needs no text in binaries)
+Location in QB64 distribution: internal/c/qbrt/os/*/libqbrt.a
 
 Software/Library Name: FreeGLUT
 Website: http://freeglut.sourceforge.net/
@@ -49,17 +58,6 @@ License: LGPL (note: website states LGPL, license file is not a copy of GNU LGPL
 License Website: http://www.gnu.org/licenses/licenses.html#LGPL
 License File: license_freeglut.txt
 Location in QB64 distribution: internal/c/parts/core/
-
-Software/Library Name: FreeTYPE
-Website: http://www.freetype.org/
-License: GPL or FreeTYPE's FTL (programs must abide by one of these licenses)
-License Website(s): (see below)
-http://www.freetype.org/license.html
-http://www.gnu.org/licenses/licenses.html#GPL
-License File(s): (see below)
-license_freetype_ftl.txt
-license_gnu_gpl_2.txt
-Location in QB64 distribution: internal/c/parts/video/font/ttf/
 
 Software/Library Name: cpal (Rust crate, audio output)
 Website: https://github.com/RustAudio/cpal

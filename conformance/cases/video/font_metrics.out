@@ -1,0 +1,13 @@
+ 10  0 : fontwidth 0 fontheight 10 printwidth 8  24 
+ 10  1 : fontwidth 6 fontheight 10 printwidth 6  18 
+ 16  0 : fontwidth 0 fontheight 16 printwidth 13  39 
+ 16  1 : fontwidth 10 fontheight 16 printwidth 10  30 
+ 22  0 : fontwidth 0 fontheight 22 printwidth 18  54 
+ 22  1 : fontwidth 13 fontheight 22 printwidth 13  39 
+ 28  0 : fontwidth 0 fontheight 28 printwidth 23  69 
+ 28  1 : fontwidth 17 fontheight 28 printwidth 17  51 
+ 34  0 : fontwidth 0 fontheight 34 printwidth 28  84 
+ 34  1 : fontwidth 20 fontheight 34 printwidth 20  60 
+ 40  0 : fontwidth 0 fontheight 40 printwidth 33  99 
+ 40  1 : fontwidth 24 fontheight 40 printwidth 24  72 
+missing font:-1 

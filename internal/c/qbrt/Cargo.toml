@@ -17,3 +17,7 @@ path = "src/lib.rs"
 # Audio runtime (R6). Its own crate so that its object file is only pulled into
 # programs whose libqb references qbrt_snd_* (DEPENDENCY_AUDIO_OUT).
 qbrt-audio = { path = "audio" }
+ab_glyph_rasterizer = "0.1.10"
+png = "0.18"
+skrifa = "0.36.0"
+zune-jpeg = "0.5.15"

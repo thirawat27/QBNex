@@ -32,4 +32,35 @@ case "$(uname -m)" in
   *) echo "diff_round/diff_val/diff_timer skipped: legacy reference needs x87 long double ($(uname -m))" ;;
 esac
 # diff_files / diff_sys compare against the legacy Win32 code paths: Windows only (run_diff.cmd).
+
+# R7: FreeType, stb_image and dr_pcx were deleted from the tree; the references are
+# taken from git history (the last commit that still had them).
+rev=4aa6f1f037277585c381fda9c956e1ddcc411033
+leg="$out/legacy"
+mkdir -p "$leg"
+have_legacy=1
+for f in image/stb_image.h image/dr_pcx.h font/ttf/src/freetypeamalgam.c font/ttf/src/freetypeamalgam.h; do
+  git show "$rev:internal/c/parts/video/$f" > "$leg/$(basename "$f")" 2>/dev/null || have_legacy=0
+done
+if [ "$have_legacy" = 1 ]; then
+  $cxx -O2 -std=c++17 -w -I"$leg" diff_image.cpp "$lib" $libs -o "$out/diff_image"
+  "$out/diff_image" data/images $mode
+  case "$(uname -m)" in
+    x86_64|i?86)
+      # the font baseline uses the legacy x87 qbr
+      $cxx -O1 -c -w -x c++ "$leg/freetypeamalgam.c" -o "$out/freetype.o"
+      $cxx -O2 -std=c++17 -w -I"$leg" diff_font.cpp "$out/freetype.o" "$lib" $libs -o "$out/diff_font"
+      fonts="data/fonts/NotoSans-Subset.ttf data/fonts/NotoSansSymbols2-Subset.ttf data/fonts/NotoSansThai-Regular.ttf"
+      for f in /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf /usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf \
+               /System/Library/Fonts/Supplemental/Arial.ttf; do
+        [ -f "$f" ] && fonts="$fonts $f"
+      done
+      # shellcheck disable=SC2086
+      "$out/diff_font" $mode $fonts
+      ;;
+    *) echo "diff_font skipped: legacy baseline needs x87 long double ($(uname -m))" ;;
+  esac
+else
+  echo "diff_image/diff_font skipped: legacy sources not in git history (shallow clone?)"
+fi
 rm -rf "$out"
