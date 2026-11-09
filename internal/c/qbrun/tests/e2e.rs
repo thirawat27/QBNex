@@ -107,6 +107,30 @@ fn on_error_resume_next_works_in_main_module() {
     assert_eq!(out, expected);
 }
 
+/// Conformance cases the legacy C++ backend cannot run (L-01 ON ERROR in the
+/// main module, L-03 RESTORE label, L-04 relational operators in PRINT).
+/// The `.out` files were checked by hand against QBasic semantics.
+#[test]
+fn legacy_defect_cases_run_correctly_under_qir() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("legacy");
+    let fixtures = fixture("legacy_defects");
+    let mut cases: Vec<_> = std::fs::read_dir(&fixtures)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "bas"))
+        .collect();
+    cases.sort();
+    assert!(cases.len() >= 5);
+    for src in cases {
+        let stem = src.file_stem().unwrap().to_string_lossy().to_string();
+        let expected = normalize(&std::fs::read(src.with_extension("out")).unwrap());
+        let out = compile_and_run(&qb, &src, &dir.join(format!("{stem}.exe")), &["--ir"]);
+        assert_eq!(out, expected, "{stem}");
+    }
+}
+
 #[test]
 fn ir_flag_rejects_unsupported_statement_with_line() {
     let Some(qb) = qb() else { return };

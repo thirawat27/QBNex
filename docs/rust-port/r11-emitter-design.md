@@ -137,15 +137,15 @@ Loader resolve label เป็น index และ intern ชื่อตัว�
 | `GOTO` | `JMP` | spike ✔ |
 | `IF ... THEN ... ELSE` บรรทัดเดียว | `cond; JZ else; then; JMP end; LABEL else; else; LABEL end` | spike ✔ (statement ใน THEN ไม่มี `LINE` เพื่อไม่ให้ RESUME NEXT กระโดดเข้า ELSE) |
 | block `IF/ELSEIF/ELSE/END IF` | ต่อ part: `JMP end; LABEL part_k; cond; JZ part_k+1` | spike ✔ |
-| `SELECT CASE` | ประเมิน selector ครั้งเดียวลง temp, แต่ละ CASE = ชุด compare + `JZ`; `CASE IS`, ช่วง `a TO b` | ยังไม่ทำ |
+| `SELECT CASE` | selector ลง temp `~Sn.V` ครั้งเดียว, แต่ละ CASE = compare (`IS`, `a TO b`, list) รวมด้วย `OP OR` + `JZ`; `EVERYCASE` ไม่กระโดดออกหลัง match, flag `~Sn.M` สำหรับ `CASE ELSE` | ✔ (รอบ 2) |
 | `FOR/NEXT` | limit/step ประเมินครั้งเดียวลง temp, `FORTEST` เลือกทิศตามเครื่องหมาย step, `NEXT` = add + `JMP` | spike ✔ (ตรงกับ `fornext_step_negative` ของ C++) |
-| `DO/LOOP [WHILE/UNTIL]`, `WHILE/WEND` | test ที่หัวหรือท้าย + `JMP` | ยังไม่ทำ (ตรงไปตรงมา) |
+| `DO/LOOP [WHILE/UNTIL]`, `WHILE/WEND` | `LABEL T` + test หัว (`JZ/JNZ X`) หรือท้าย (`JNZ/JZ T`); `_CONTINUE` → label `C` | ✔ (รอบ 2) |
 | `EXIT FOR/DO/SUB/FUNCTION` | `JMP` ไป label ปลาย block | `EXIT SUB` ✔ |
 | `GOSUB`/`RETURN` | runner เก็บ stack `(return pc, frame depth)`; `RETURN` ที่ไม่ตรง frame → error 3 | spike ✔ |
 | `RETURN label` | pop แล้ว `JMP label` | ยังไม่ทำ |
-| `ON n GOTO/GOSUB` | `JMPTABLE n, l1, l2...` (นอกช่วง = ผ่านไป) | ยังไม่ทำ |
-| `SUB`/`FUNCTION` | frame ใหม่, BYREF = `REF` cell เดิม, ค่าคงที่/expression = cell ใหม่; FUNCTION คืนค่าผ่าน slot ชื่อฟังก์ชัน; recursion ได้ (locals คืนเมื่อออกจาก frame) | SUB ✔, FUNCTION ยังไม่ทำ; `STATIC` = slot ระดับโปรแกรม |
-| `ON ERROR GOTO`/`RESUME`/`RESUME NEXT`/`RESUME label` | error → บันทึก `(pc ของ LINE ปัจจุบัน, line)` แล้ว `pc = handler`; `RESUME` = pc เดิม, `NEXT` = `LINE` ถัดไป | spike ✔ ใน main module. error ใน SUB ที่ handler อยู่ main: ต้อง **ไม่ unwind frame** แต่รัน handler ด้วยมุมมองตัวแปรระดับ module แล้ว `RESUME` กลับ frame เดิม (ตาม QBasic) |
+| `ON n GOTO/GOSUB` | selector ลง temp แล้วชุด `EQ k` + `JZ` (นอกช่วง = ผ่านไป); `GOSUB` ตามด้วย `JMP end` | ✔ (รอบ 2) |
+| `SUB`/`FUNCTION` | frame ใหม่, BYREF = `REF` cell เดิม, ค่าคงที่/expression = cell ใหม่; FUNCTION คืนค่าผ่าน slot ชื่อฟังก์ชัน; recursion ได้ (locals คืนเมื่อออกจาก frame) | ✔ ทั้ง SUB/FUNCTION/recursion/`STATIC` (รอบ 2; STATIC locals อยู่ใน heap ของ runner) |
+| `ON ERROR GOTO`/`RESUME`/`RESUME NEXT`/`RESUME label` | error → บันทึก `(pc ของ LINE ปัจจุบัน, line)` แล้ว `pc = handler`; `RESUME` = pc เดิม, `NEXT` = `LINE` ถัดไป | ✔ รวม error ใน SUB: runner **ไม่ unwind frame**, รัน handler ด้วยมุมมองตัวแปรระดับ module (`view = 0`) แล้ว `RESUME` กลับ frame เดิม (ตาม QBasic); `ERROR n` ✔ |
 | `ERR`, `ERL`, `ERROR n`, `_ERRORLINE` | runner state | `ERR` ✔ |
 | `ON TIMER/KEY/STRIG GOSUB` + `TIMER ON/OFF/STOP` | thread ของ timer ตั้ง flag; runner poll flag ที่ทุก `LINE` (เท่ากับ `qbevent`/`evnt`) แล้วทำ implicit `GOSUB`; ไม่ปล่อย event ซ้อนระหว่าง handler/ระหว่าง error handling | ยังไม่ทำ; จุด poll มีแล้ว (`LINE`) |
 | `END`/`SYSTEM`/`STOP` | `END` op + shutdown ของ runtime (`END` ใน console ของ C++ พิมพ์ "Press any key" — ต้องทำตาม) | ✔ (ยังไม่พิมพ์ข้อความ "Press any key") |
@@ -168,7 +168,7 @@ Loader resolve label เป็น index และ intern ชื่อตัว�
 
 - spike: `out.exe = qbrun.exe + QIR + u64 LE length + "QBNEXIR0"`; runner อ่านไฟล์ตัวเองตอนเริ่ม (`qbrun/src/main.rs`). ใช้ได้ทุก OS (Linux/macOS `chmod +x` จาก compiler)
 - ระยะยาว: ใส่ QIR ใน PE resource / ELF section (ลดโอกาส anti-virus มองว่าเป็น packer) และ sign runner ตอน release
-- runner ที่แจกอยู่ที่ `internal/c/qbrun/bin/<win|lnx|osx>/qbrun[.exe]` (gitignored เหมือน `libqbrt.a`); spike ให้ test copy จาก cargo ไปไว้; R11.2 ต้องเพิ่มใน `CMakeLists.txt`/`setup_build.*` และ release bundle
+- runner ที่แจกอยู่ที่ `internal/c/qbrun/bin/<win|lnx|osx>/qbrun[.exe]` (gitignored เหมือน `libqbrt.a`); CMake target `qbrun` (ALL และ dependency ของ `qb-selfhost`) เรียก `internal/c/qbrun/os/<os>/setup_build.*` — Windows build ด้วย target `x86_64-pc-windows-gnu` เหมือน qbrt, import แค่ DLL ของระบบ (KERNEL32, UCRT `api-ms-win-crt-*`, ntdll, USERENV, WS2_32, bcryptprimitives); ยังไม่ได้ใส่ใน release bundle
 - **Self-host:** compiler (`source/qbnex.bas`) ก็คือโปรแกรม BASIC → เมื่อ QIR ครอบคลุมภาษาที่ compiler ใช้, `qb.exe` = `qbrun` (+JIT) + `qbnex.qir` และ snapshot bootstrap = `internal/source/qbnex.qir` ไฟล์เดียว แทน C++ 818 ไฟล์ (แก้ปัญหา refresh snapshot ของ L-00 ในเชิงโครงสร้าง แต่ต้องแก้ fixpoint ของ L-00 ก่อน)
 
 ## 8. Migration steps
@@ -177,7 +177,7 @@ Loader resolve label เป็น index และ intern ชื่อตัว�
 | --- | --- | --- |
 | R11.0 (เสร็จ: spike นี้) | QIR v0, `qbrun`, `--ir` emitter แยก (tokenizer + parser เล็กของตัวเอง) | `cargo test -p qbrun`: 18 unit + 3 e2e, e2e differential เทียบ C++ path |
 | R11.1 | QIR v1 spec (typed, register) + emitter **ใน pipeline จริง**: main pass ของ `qbnex.bas` มีชั้น `Emit*` แทน `PRINT #12, ...` ตรงๆ; `evaluate$` คืน operand QIR เมื่อ `IrEmitMode` (ใช้ symbol table, type, UDT, `$INCLUDE`, `$IF`, CONST, DEFxxx เดิมทั้งหมด) แล้วลบ parser ของ spike | corpus `conformance/` ที่ใช้แค่ core statements ผ่านทั้งสอง backend |
-| R11.2 | Build/packaging: runner ใน CMake + setup scripts + release bundle; flag `--ir` ยัง opt-in | CI build runner ทั้ง 3 OS |
+| R11.2 (บางส่วน: CMake + scripts ✔ บน Windows) | Build/packaging: runner ใน CMake + setup scripts + release bundle; flag `--ir` ยัง opt-in | CI build runner ทั้ง 3 OS |
 | R11.3 | ครอบคลุมภาษา: arrays, UDT, FUNCTION, SELECT, DO, DATA, file I/O, events, CHAIN/COMMON, `_MEM`, metacommands; builtin 405 regid ผ่านตาราง dispatch ไปยัง qbrt | conformance ทั้งหมดผ่าน **differential** (C++ vs QIR) + smoke tests |
 | R11.4 | `DECLARE LIBRARY` / `DECLARE DYNAMIC LIBRARY`: dynamic library = dlopen + call thunk ตาม signature; static C header = deprecate หรือคง C++ path เป็น opt-in | ตัดสินใจ (ต้องการ owner) |
 | R11.5 | Performance: typed register VM, superinstructions, inline cache ของ builtin | loop benchmark ≤ 10x ของ C++ |
@@ -258,4 +258,25 @@ cargo test -p qbrun
 cargo build --release -p qbrun && cp target/release/qbrun.exe internal/c/qbrun/bin/win/ && ./qb.exe prog.bas --ir -o prog.exe
 ```
 
-ข้อจำกัดของ spike (ตั้งใจ): parser ของ emitter แยกจาก pipeline จริง (ไม่มี `$INCLUDE`, CONST, DEFxxx, array, UDT, FUNCTION, SELECT, DO); ตัวเลขเป็น value แบบ tag เช็กตอนรัน; `END` ไม่พิมพ์ "Press any key"; e2e ใช้ runner แบบ debug build
+### 12.1 รอบ 2: ขยาย coverage (วัดด้วย conformance corpus)
+
+conformance runner รับ `--qb-arg <flag>` แล้ว จึงรัน corpus เดิมผ่าน IR backend ได้:
+
+```bash
+cargo run --release -p qbnex-conformance -- --qb-arg --ir
+```
+
+| | ผ่าน | xfail | fail |
+| --- | --- | --- | --- |
+| C++ backend (default) | 26 | 7 | 0 |
+| QIR รอบ 1 | 1 | 7 | 25 |
+| **QIR รอบ 2** | **15** | 7 | 11 |
+
+เพิ่มในรอบ 2 (TDD: `tests/vm_lang.rs` 19 tests, `tests/vm_data.rs` 7 tests เขียนก่อนและเห็น fail ก่อน implement):
+DO/LOOP, WHILE/WEND, EXIT FOR/DO/SUB/FUNCTION, `_CONTINUE`, SELECT CASE [EVERYCASE], ON n GOTO/GOSUB, `IF x THEN <line>`, FUNCTION + recursion, `SUB ... STATIC`, array หลายมิติ (DIM/REDIM [_PRESERVE]/LBOUND/UBOUND/auto-DIM 0..10/error 9), SWAP, BYREF ของ array element, `MID$` statement, ERROR n, error ใน SUB → handler ใน main, DEFINT/DEFLNG/DEFSNG/DEFDBL/DEFSTR, OPTION BASE, `&H/&O/&B`, EQV/IMP, DATA/READ/RESTORE [label], RND/RANDOMIZE [USING] (state จาก `qbrt::rnd`), VAL (`qbrt::val`), MKI$/MKL$/MKS$/MKD$/CVx, MKSMBF$/MKDMBF$/CVSMBF/CVDMBF (`qbrt::mbf`), INSTR, LTRIM$/RTRIM$/_TRIM$, SPACE$, STRING$, HEX$/OCT$, ABS/SGN/SQR/LOG/EXP/SIN/COS/TAN/ATN/INT/FIX/CINT/CLNG/CSNG/CDBL/_ROUND
+
+case ที่ C++ path ทำไม่ได้ (L-01 `ON ERROR` ใน main, L-03 `RESTORE label`, L-04 relational ใน PRINT) รันถูกต้องใน QIR — เก็บเป็น `tests/fixtures/legacy_defects/*.bas` + `.out` (ตรวจด้วยมือเทียบ QBasic) ใน e2e
+
+ที่ยัง fail (11): `TYPE` (UDT: `udt`, `binary_random`), file I/O (`sequential`), `PRINT USING` (`print_using`, `rnd_sequence`, `val_parse`), `_INTEGER64`/`_FLOAT`/`&&` (`rounding_limits`, `str_format`, `print_format`, `mkcv`), `STRING * n` (`fixed_length`) — ทั้งหมดรอ R3/R4 (string engine, file I/O, PRINT USING) และชนิดตัวเลข 64/80 bit ใน runner
+
+ข้อจำกัดของ spike (ตั้งใจ): parser ของ emitter แยกจาก pipeline จริง (ไม่มี `$INCLUDE`, CONST, UDT); ตัวเลขเป็น value แบบ tag เช็กตอนรัน; `END` ไม่พิมพ์ "Press any key"; e2e ใช้ runner แบบ debug build; array ที่ DIM ใน SUB ไม่ถูกคืนหน่วยความจำเมื่อออกจาก SUB

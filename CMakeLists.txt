@@ -107,6 +107,19 @@ qbnex_add_script_output(
   "${QBNEX_INTERNAL_C}/qbrt/Cargo.toml"
 )
 
+# R11 spike: prebuilt QIR runner used by `qb --ir` (internal/c/qbrun).
+set(QBNEX_QBRUN_EXE "${QBNEX_INTERNAL_C}/qbrun/bin/${QBNEX_OS_DIR}/qbrun${CMAKE_EXECUTABLE_SUFFIX}")
+file(GLOB_RECURSE QBNEX_QBRUN_SOURCES CONFIGURE_DEPENDS "${QBNEX_INTERNAL_C}/qbrun/src/*.rs")
+qbnex_add_script_output(
+  "${QBNEX_QBRUN_EXE}"
+  "${QBNEX_INTERNAL_C}/qbrun/os/${QBNEX_OS_DIR}"
+  "${QBNEX_QBRT_SCRIPT}"
+  ${QBNEX_QBRUN_SOURCES}
+  ${QBNEX_QBRT_SOURCES}
+  "${QBNEX_INTERNAL_C}/qbrun/Cargo.toml"
+)
+add_custom_target(qbrun ALL DEPENDS "${QBNEX_QBRUN_EXE}")
+
 set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_TTF_OBJ}" "${QBNEX_QBRT_LIB}")
 
 if(NOT APPLE)
@@ -234,6 +247,8 @@ add_custom_target(
   COMMENT "Self-hosting final QBNex compiler"
   VERBATIM
 )
+
+add_dependencies(qb-selfhost qbrun)
 
 if(UNIX)
   add_custom_command(TARGET qb-selfhost POST_BUILD COMMAND "${CMAKE_COMMAND}" -E chmod +x "${QBNEX_FINAL_BIN}")

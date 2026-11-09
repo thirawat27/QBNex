@@ -1,10 +1,15 @@
 ' R11 spike: QIR emitter, selected with `qb --ir file.bas`.
 '
-' Lowers a small BASIC subset (PRINT, numeric/string variables, IF, FOR,
-' GOTO/GOSUB/RETURN, SUB, ON ERROR/RESUME, a few string functions) to QIR text
-' and packages it with the prebuilt Rust runner internal/c/qbrun/bin/<os>/qbrun.
-' No C++ is generated and no C++ compiler runs. Format and lowering rules:
-' docs/rust-port/r11-emitter-design.md. The default C++ path is unchanged.
+' Lowers a BASIC subset to QIR text and packages it with the prebuilt Rust
+' runner internal/c/qbrun/bin/<os>/qbrun. No C++ is generated and no C++
+' compiler runs. Format and lowering rules: docs/rust-port/r11-emitter-design.md.
+' The default C++ path is unchanged.
+'
+' Supported: PRINT, LET, IF (line/block), FOR/NEXT, DO/LOOP, WHILE/WEND,
+' SELECT CASE [EVERYCASE], EXIT, _CONTINUE, GOTO/GOSUB/RETURN, ON n GOTO/GOSUB,
+' SUB/FUNCTION (+STATIC), CALL, DIM/REDIM [SHARED] scalars and arrays, SWAP,
+' MID$ statement, ON ERROR/RESUME/ERROR, END/SYSTEM, DEFtype, OPTION BASE,
+' string/math builtins (see IrIsBuiltin%).
 
 SUB IrCompileProgram (src$, outExe$)
     DIM fh AS INTEGER, l$, i AS LONG, runner$, outPath$, ir$, r$, q$
@@ -21,16 +26,24 @@ SUB IrCompileProgram (src$, outExe$)
     LOOP
     CLOSE #fh
 
-    'pass 1: SUB signatures (calls may precede the definition)
+    'pass 1: DEFtype and SUB/FUNCTION signatures (calls may precede definitions)
+    IrResetDefaults
     IrScope = "MAIN"
     FOR i = 1 TO IrSrcN
         IrLine = i
         IrTokenize IrSrc(i)
         IrP = 1
-        IF IrPeek$ = "SUB" THEN IrP = IrP + 1: IrDeclareSub
+        IF IrTokN > 0 THEN
+            SELECT CASE IrTokV(1)
+                CASE "SUB": IrP = 2: IrDeclareSub "S"
+                CASE "FUNCTION": IrP = 2: IrDeclareSub "F"
+                CASE "DEFINT", "DEFLNG", "DEFSNG", "DEFDBL", "DEFSTR": IrP = 2: IrDefType IrTokV(1)
+            END SELECT
+        END IF
     NEXT
 
     'pass 2: emit QIR
+    IrResetDefaults
     ir$ = tmpdir$ + "program.qir"
     IrOut = FREEFILE
     OPEN ir$ FOR OUTPUT AS #IrOut
@@ -45,7 +58,7 @@ SUB IrCompileProgram (src$, outExe$)
     NEXT
     IrLine = IrSrcN
     IF IrBlkN > 0 THEN IrFail IrBlkKind(IrBlkN) + " without end"
-    IF IrScope <> "MAIN" THEN IrFail "SUB without END SUB"
+    IF IrScope <> "MAIN" THEN IrFail "SUB/FUNCTION without END"
     CLOSE #IrOut
 
     'package: runner + QIR + u64 length + magic
@@ -108,6 +121,12 @@ FUNCTION IrHex$ (s$)
     IrHex$ = h$
 END FUNCTION
 
+SUB IrResetDefaults
+    DIM i AS LONG
+    FOR i = 1 TO 26: IrDefSfx(i) = "!": NEXT
+    IrOptBase = 0
+END SUB
+
 '---------------------------------------------------------------- tokens
 
 SUB IrTokenize (l$)
@@ -127,6 +146,14 @@ SUB IrTokenize (l$)
             IF j = 0 THEN j = n + 1
             IrAddTok 3, MID$(l$, i + 1, j - i - 1)
             i = j + 1
+        ELSEIF c$ = "&" AND IrCharIn%(UCASE$(MID$(l$, i + 1, 1)), "HOB") THEN
+            j = i + 2
+            DO WHILE j <= n
+                IF IrCharIn%(UCASE$(MID$(l$, j, 1)), "0123456789ABCDEF") THEN j = j + 1 ELSE EXIT DO
+            LOOP
+            IF IrCharIn%(MID$(l$, j, 1), "%&") THEN j = j + 1
+            IrAddTok 2, UCASE$(MID$(l$, i, j - i))
+            i = j
         ELSEIF (c$ >= "0" AND c$ <= "9") OR (c$ = "." AND MID$(l$, i + 1, 1) >= "0" AND MID$(l$, i + 1, 1) <= "9") THEN
             j = i
             DO WHILE j <= n
@@ -185,6 +212,11 @@ FUNCTION IrPeek$ ()
     IF IrTokT(IrP) = 3 THEN IrPeek$ = CHR$(34) + IrTokV(IrP) ELSE IrPeek$ = IrTokV(IrP)
 END FUNCTION
 
+FUNCTION IrPeekAt$ (k AS LONG)
+    IF k > IrTokN THEN IrPeekAt$ = "": EXIT FUNCTION
+    IF IrTokT(k) = 3 THEN IrPeekAt$ = CHR$(34) + IrTokV(k) ELSE IrPeekAt$ = IrTokV(k)
+END FUNCTION
+
 FUNCTION IrAccept% (v$)
     IF IrPeek$ = v$ THEN IrP = IrP + 1: IrAccept% = -1
 END FUNCTION
@@ -206,6 +238,21 @@ FUNCTION IrIdent$ ()
     IrP = IrP + 1
 END FUNCTION
 
+'Index of the token after the ")" matching the "(" at token k.
+FUNCTION IrAfterParens& (k AS LONG)
+    DIM depth AS LONG, j AS LONG
+    FOR j = k TO IrTokN
+        IF IrTokT(j) = 4 THEN
+            IF IrTokV(j) = "(" THEN depth = depth + 1
+            IF IrTokV(j) = ")" THEN
+                depth = depth - 1
+                IF depth = 0 THEN IrAfterParens& = j + 1: EXIT FUNCTION
+            END IF
+        END IF
+    NEXT
+    IrAfterParens& = IrTokN + 1
+END FUNCTION
+
 '---------------------------------------------------------------- names
 
 FUNCTION IrTypeSfx$ (t$)
@@ -219,6 +266,42 @@ FUNCTION IrTypeSfx$ (t$)
     END SELECT
 END FUNCTION
 
+FUNCTION IrHasSfx% (id$)
+    IrHasSfx% = IrCharIn%(RIGHT$(id$, 1), "%&!#$")
+END FUNCTION
+
+FUNCTION IrBase$ (id$)
+    IF IrHasSfx%(id$) THEN IrBase$ = LEFT$(id$, LEN(id$) - 1) ELSE IrBase$ = id$
+END FUNCTION
+
+'Default suffix from DEFtype by first letter.
+FUNCTION IrDefault$ (id$)
+    DIM c AS LONG
+    c = ASC(id$) - 64
+    IF c >= 1 AND c <= 26 THEN IrDefault$ = IrDefSfx(c) ELSE IrDefault$ = "!"
+END FUNCTION
+
+'DEFINT A-C, X ...
+SUB IrDefType (k$)
+    DIM sfx$, a$, b$, i AS LONG
+    SELECT CASE k$
+        CASE "DEFINT": sfx$ = "%"
+        CASE "DEFLNG": sfx$ = "&"
+        CASE "DEFSNG": sfx$ = "!"
+        CASE "DEFDBL": sfx$ = "#"
+        CASE "DEFSTR": sfx$ = "$"
+    END SELECT
+    DO
+        a$ = LEFT$(IrIdent$, 1)
+        b$ = a$
+        IF IrAccept%("-") THEN b$ = LEFT$(IrIdent$, 1)
+        FOR i = ASC(a$) - 64 TO ASC(b$) - 64
+            IF i >= 1 AND i <= 26 THEN IrDefSfx(i) = sfx$
+        NEXT
+        IF IrAccept%(",") = 0 THEN EXIT DO
+    LOOP
+END SUB
+
 SUB IrAddDim (n$, sfx$, irScope$)
     IrDimN = IrDimN + 1
     IF IrDimN > UBOUND(IrDimName) THEN
@@ -229,17 +312,33 @@ SUB IrAddDim (n$, sfx$, irScope$)
     IrDimName(IrDimN) = n$: IrDimSfx(IrDimN) = sfx$: IrDimScope(IrDimN) = irScope$
 END SUB
 
+'Suffix recorded by DIM ... AS for key$ (scalar name or "NAME()"), "" if none.
+FUNCTION IrDimLookup$ (key$)
+    DIM i AS LONG
+    FOR i = IrDimN TO 1 STEP -1
+        IF IrDimName(i) = key$ AND IrDimScope(i) = IrScope THEN IrDimLookup$ = IrDimSfx(i): EXIT FUNCTION
+    NEXT
+    FOR i = IrDimN TO 1 STEP -1
+        IF IrDimName(i) = key$ AND IrDimScope(i) = "*" THEN IrDimLookup$ = IrDimSfx(i): EXIT FUNCTION
+    NEXT
+END FUNCTION
+
 'Variable name as the runner sees it: always carries its type suffix.
 FUNCTION IrVarName$ (id$)
-    DIM i AS LONG
-    IF INSTR("%&!#$", RIGHT$(id$, 1)) THEN IrVarName$ = id$: EXIT FUNCTION
-    FOR i = IrDimN TO 1 STEP -1
-        IF IrDimName(i) = id$ AND IrDimScope(i) = IrScope THEN IrVarName$ = id$ + IrDimSfx(i): EXIT FUNCTION
-    NEXT
-    FOR i = IrDimN TO 1 STEP -1
-        IF IrDimName(i) = id$ AND IrDimScope(i) = "*" THEN IrVarName$ = id$ + IrDimSfx(i): EXIT FUNCTION
-    NEXT
-    IrVarName$ = id$ + "!"
+    DIM s$
+    IF IrHasSfx%(id$) THEN IrVarName$ = id$: EXIT FUNCTION
+    s$ = IrDimLookup$(id$)
+    IF s$ = "" THEN s$ = IrDefault$(id$)
+    IrVarName$ = id$ + s$
+END FUNCTION
+
+'Array name as the runner sees it: NAME<suffix>().
+FUNCTION IrArrName$ (id$)
+    DIM s$
+    IF IrHasSfx%(id$) THEN IrArrName$ = id$ + "()": EXIT FUNCTION
+    s$ = IrDimLookup$(id$ + "()")
+    IF s$ = "" THEN s$ = IrDefault$(id$)
+    IrArrName$ = id$ + s$ + "()"
 END FUNCTION
 
 FUNCTION IrLabel$ (n$)
@@ -259,34 +358,45 @@ FUNCTION IrTarget$ (irScope$)
     IrP = IrP + 1
 END FUNCTION
 
-FUNCTION IrFindSub& (n$)
-    DIM i AS LONG
+'SUB/FUNCTION by identifier (suffix ignored), 0 if none.
+FUNCTION IrFindSub& (id$)
+    DIM i AS LONG, b$
+    b$ = IrBase$(id$)
     FOR i = 1 TO IrSubN
-        IF IrSubName(i) = n$ THEN IrFindSub& = i: EXIT FUNCTION
+        IF IrSubName(i) = b$ THEN IrFindSub& = i: EXIT FUNCTION
     NEXT
 END FUNCTION
 
 FUNCTION IrIsKeyword% (k$)
     SELECT CASE k$
-        CASE "PRINT", "IF", "THEN", "ELSE", "ELSEIF", "END", "FOR", "TO", "STEP", "NEXT", "GOTO", "GOSUB", "RETURN", "SUB", "CALL", "DIM", "SHARED", "AS", "ON", "ERROR", "RESUME", "SYSTEM", "LET", "EXIT", "DECLARE", "AND", "OR", "XOR", "NOT", "MOD"
+        CASE "PRINT", "IF", "THEN", "ELSE", "ELSEIF", "END", "FOR", "TO", "STEP", "NEXT", "GOTO", "GOSUB", "RETURN", "SUB", "FUNCTION", "CALL", "DIM", "REDIM", "SHARED", "AS", "ON", "ERROR", "RESUME", "SYSTEM", "LET", "EXIT", "DECLARE", "AND", "OR", "XOR", "EQV", "IMP", "NOT", "MOD", "DO", "LOOP", "WHILE", "WEND", "UNTIL", "SELECT", "CASE", "IS", "SWAP", "OPTION", "BASE", "STATIC", "_PRESERVE", "EVERYCASE", "_CONTINUE", "DATA", "READ", "RESTORE", "RANDOMIZE", "USING"
             IrIsKeyword% = -1
     END SELECT
 END FUNCTION
 
-'pass 1: SUB name [(p [AS type], ...)] [STATIC]
-SUB IrDeclareSub
-    DIM n$, p$, plist$, argc AS LONG
+FUNCTION IrIsBuiltin% (k$)
+    SELECT CASE k$
+        CASE "LEN", "LEFT$", "RIGHT$", "MID$", "UCASE$", "LCASE$", "LTRIM$", "RTRIM$", "_TRIM$", "SPACE$", "STRING$", "INSTR", "STR$", "VAL", "CHR$", "ASC", "HEX$", "OCT$", "ABS", "SGN", "SQR", "LOG", "EXP", "SIN", "COS", "TAN", "ATN", "INT", "FIX", "CINT", "CLNG", "CSNG", "CDBL", "_ROUND", "MKI$", "MKL$", "MKS$", "MKD$", "CVI", "CVL", "CVS", "CVD", "MKSMBF$", "MKDMBF$", "CVSMBF", "CVDMBF"
+            IrIsBuiltin% = -1
+    END SELECT
+END FUNCTION
+
+'pass 1: SUB|FUNCTION name [(p [AS type], ...)] [STATIC]
+SUB IrDeclareSub (kind$)
+    DIM n$, p$, plist$, argc AS LONG, b$
     n$ = IrIdent$
-    IF IrFindSub&(n$) THEN IrFail "duplicate SUB " + n$
+    b$ = IrBase$(n$)
+    IF IrFindSub&(b$) THEN IrFail "duplicate SUB/FUNCTION " + b$
     IF IrAccept%("(") THEN
         IF IrAccept%(")") = 0 THEN
             DO
                 p$ = IrIdent$
+                IF IrPeek$ = "(" THEN IrFail "array parameters are not supported by the IR spike"
                 IF IrAccept%("AS") THEN
-                    IrAddDim p$, IrTypeSfx$(IrIdent$), n$
+                    IrAddDim p$, IrTypeSfx$(IrIdent$), b$
                     p$ = p$ + IrDimSfx(IrDimN)
-                ELSEIF INSTR("%&!#$", RIGHT$(p$, 1)) = 0 THEN
-                    p$ = p$ + "!"
+                ELSEIF IrHasSfx%(p$) = 0 THEN
+                    p$ = p$ + IrDefault$(p$)
                 END IF
                 plist$ = plist$ + " " + p$
                 argc = argc + 1
@@ -295,25 +405,61 @@ SUB IrDeclareSub
             LOOP
         END IF
     END IF
+    IF IrAccept%("STATIC") THEN plist$ = plist$ + " STATIC"
     IrSubN = IrSubN + 1
     IF IrSubN > UBOUND(IrSubName) THEN
         REDIM _PRESERVE IrSubName(IrSubN * 2) AS STRING
+        REDIM _PRESERVE IrSubIr(IrSubN * 2) AS STRING
+        REDIM _PRESERVE IrSubKind(IrSubN * 2) AS STRING
         REDIM _PRESERVE IrSubParams(IrSubN * 2) AS STRING
         REDIM _PRESERVE IrSubArgc(IrSubN * 2) AS LONG
     END IF
-    IrSubName(IrSubN) = n$: IrSubParams(IrSubN) = plist$: IrSubArgc(IrSubN) = argc
+    IrSubName(IrSubN) = b$: IrSubKind(IrSubN) = kind$
+    IF kind$ = "F" AND IrHasSfx%(n$) = 0 THEN n$ = n$ + IrDefault$(n$)
+    IrSubIr(IrSubN) = n$
+    IrSubParams(IrSubN) = plist$: IrSubArgc(IrSubN) = argc
 END SUB
+
+'---------------------------------------------------------------- blocks
+
+SUB IrPushBlock (kind$, id AS LONG, v$)
+    IrBlkN = IrBlkN + 1
+    IF IrBlkN > UBOUND(IrBlkKind) THEN
+        REDIM _PRESERVE IrBlkKind(IrBlkN * 2) AS STRING
+        REDIM _PRESERVE IrBlkId(IrBlkN * 2) AS LONG
+        REDIM _PRESERVE IrBlkPart(IrBlkN * 2) AS LONG
+        REDIM _PRESERVE IrBlkVar(IrBlkN * 2) AS STRING
+    END IF
+    IrBlkKind(IrBlkN) = kind$: IrBlkId(IrBlkN) = id: IrBlkPart(IrBlkN) = 0: IrBlkVar(IrBlkN) = v$
+END SUB
+
+SUB IrTopBlock (kind$, what$)
+    IF IrBlkN = 0 THEN IrFail what$
+    IF IrBlkKind(IrBlkN) <> kind$ THEN IrFail what$
+END SUB
+
+'Innermost loop of the given kinds ("FOR", "DO WHILE"), 0 if none.
+FUNCTION IrFindLoop& (kinds$)
+    DIM i AS LONG
+    FOR i = IrBlkN TO 1 STEP -1
+        IF INSTR(" " + kinds$ + " ", " " + IrBlkKind(i) + " ") THEN IrFindLoop& = i: EXIT FUNCTION
+    NEXT
+END FUNCTION
+
+FUNCTION IrLoopPrefix$ (b AS LONG)
+    IF IrBlkKind(b) = "FOR" THEN IrLoopPrefix$ = "~F" + IrNum$(IrBlkId(b)) ELSE IrLoopPrefix$ = "~D" + IrNum$(IrBlkId(b))
+END FUNCTION
 
 '---------------------------------------------------------------- statements
 
-'Line number or "name:" at the start of a line.
+'Line number or "name:" at the start of a line (a SUB name is a call).
 SUB IrLineLabels
     IF IrTokN = 0 THEN EXIT SUB
     IF IrTokT(1) = 2 THEN
         IrEmit "LABEL " + IrLabel$("L" + IrTokV(1))
         IrP = 2
     ELSEIF IrTokT(1) = 1 AND IrTokN >= 2 THEN
-        IF IrTokV(2) = ":" AND IrIsKeyword%(IrTokV(1)) = 0 THEN
+        IF IrTokV(2) = ":" AND IrIsKeyword%(IrTokV(1)) = 0 AND IrFindSub&(IrTokV(1)) = 0 THEN
             IrEmit "LABEL " + IrLabel$(IrTokV(1))
             IrP = 3
         END IF
@@ -336,7 +482,7 @@ SUB IrStatementList (top AS INTEGER, stopAtElse AS INTEGER)
 END SUB
 
 SUB IrStatement (top AS INTEGER)
-    DIM k$, n$, id AS LONG, s AS LONG
+    DIM k$, n$, id AS LONG, s AS LONG, b AS LONG
     k$ = IrPeek$
     IF top THEN IrEmit "LINE " + IrNum$(IrLine)
     IF IrTokT(IrP) <> 1 AND k$ <> "?" THEN IrFail "statement expected near '" + k$ + "'"
@@ -349,8 +495,7 @@ SUB IrStatement (top AS INTEGER)
         CASE "IF"
             IrIf top
         CASE "ELSEIF"
-            IF IrBlkN = 0 THEN IrFail "ELSEIF without IF"
-            IF IrBlkKind(IrBlkN) <> "IF" THEN IrFail "ELSEIF without IF"
+            IrTopBlock "IF", "ELSEIF without IF"
             id = IrBlkId(IrBlkN)
             IrEmit "JMP ~IF" + IrNum$(id) + ".END"
             IrEmit "LABEL ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
@@ -359,8 +504,7 @@ SUB IrStatement (top AS INTEGER)
             IrExpect "THEN"
             IrEmit "JZ ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
         CASE "ELSE"
-            IF IrBlkN = 0 THEN IrFail "ELSE without IF"
-            IF IrBlkKind(IrBlkN) <> "IF" THEN IrFail "ELSE without IF"
+            IrTopBlock "IF", "ELSE without IF"
             id = IrBlkId(IrBlkN)
             IrEmit "JMP ~IF" + IrNum$(id) + ".END"
             IrEmit "LABEL ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
@@ -370,15 +514,21 @@ SUB IrStatement (top AS INTEGER)
             n$ = IrPeek$
             IF n$ = "IF" THEN
                 IrP = IrP + 1
-                IF IrBlkN = 0 THEN IrFail "END IF without IF"
-                IF IrBlkKind(IrBlkN) <> "IF" THEN IrFail "END IF without IF"
+                IrTopBlock "IF", "END IF without IF"
                 id = IrBlkId(IrBlkN)
                 IrEmit "LABEL ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
                 IrEmit "LABEL ~IF" + IrNum$(id) + ".END"
                 IrBlkN = IrBlkN - 1
-            ELSEIF n$ = "SUB" THEN
+            ELSEIF n$ = "SELECT" THEN
                 IrP = IrP + 1
-                IF IrScope = "MAIN" THEN IrFail "END SUB without SUB"
+                IrTopBlock "SELECT", "END SELECT without SELECT CASE"
+                id = IrBlkId(IrBlkN)
+                IrEmit "LABEL ~S" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
+                IrEmit "LABEL ~S" + IrNum$(id) + ".END"
+                IrBlkN = IrBlkN - 1
+            ELSEIF n$ = "SUB" OR n$ = "FUNCTION" THEN
+                IrP = IrP + 1
+                IF IrScope = "MAIN" THEN IrFail "END " + n$ + " without " + n$
                 IF IrBlkN > 0 THEN IrFail IrBlkKind(IrBlkN) + " without end"
                 IrEmit "LABEL " + IrLabel$("~EXIT")
                 IrEmit "ENDSUB"
@@ -392,35 +542,81 @@ SUB IrStatement (top AS INTEGER)
             IrFor
         CASE "NEXT"
             IrNext
+        CASE "DO"
+            IrDo
+        CASE "LOOP"
+            IrLoop
+        CASE "WHILE"
+            id = IrNewId&
+            IrEmit "LABEL ~D" + IrNum$(id) + ".T"
+            IrExpr
+            IrEmit "JZ ~D" + IrNum$(id) + ".X"
+            IrPushBlock "WHILE", id, ""
+        CASE "WEND"
+            IrTopBlock "WHILE", "WEND without WHILE"
+            n$ = "~D" + IrNum$(IrBlkId(IrBlkN))
+            IrEmit "LABEL " + n$ + ".C"
+            IrEmit "JMP " + n$ + ".T"
+            IrEmit "LABEL " + n$ + ".X"
+            IrBlkN = IrBlkN - 1
+        CASE "SELECT"
+            IrSelect
+        CASE "CASE"
+            IrCase
         CASE "GOTO"
             IrEmit "JMP " + IrTarget$(IrScope)
         CASE "GOSUB"
             IrEmit "GOSUB " + IrTarget$(IrScope)
         CASE "RETURN"
             IrEmit "RETURN"
-        CASE "SUB"
-            IF top = 0 OR IrScope <> "MAIN" THEN IrFail "SUB not allowed here"
+        CASE "SUB", "FUNCTION"
+            IF top = 0 OR IrScope <> "MAIN" THEN IrFail k$ + " not allowed here"
             n$ = IrIdent$
             s = IrFindSub&(n$)
-            IrEmit RTRIM$("SUB " + n$ + " " + IrNum$(IrSubArgc(s)) + IrSubParams(s))
-            IrScope = n$
+            IrEmit RTRIM$(k$ + " " + IrSubIr(s) + " " + IrNum$(IrSubArgc(s)) + IrSubParams(s))
+            IrScope = IrSubName(s)
             IrP = IrTokN + 1 'parameters were read in pass 1
         CASE "EXIT"
-            IrExpect "SUB"
-            IF IrScope = "MAIN" THEN IrFail "EXIT SUB outside SUB"
-            IrEmit "JMP " + IrLabel$("~EXIT")
+            n$ = IrIdent$
+            IF n$ = "SUB" OR n$ = "FUNCTION" THEN
+                IF IrScope = "MAIN" THEN IrFail "EXIT " + n$ + " outside " + n$
+                IrEmit "JMP " + IrLabel$("~EXIT")
+            ELSEIF n$ = "FOR" THEN
+                b = IrFindLoop&("FOR")
+                IF b = 0 THEN IrFail "EXIT FOR outside FOR"
+                IrEmit "JMP " + IrLoopPrefix$(b) + ".X"
+            ELSEIF n$ = "DO" THEN
+                b = IrFindLoop&("DO")
+                IF b = 0 THEN IrFail "EXIT DO outside DO"
+                IrEmit "JMP " + IrLoopPrefix$(b) + ".X"
+            ELSE
+                IrFail "EXIT " + n$ + " not supported"
+            END IF
+        CASE "_CONTINUE"
+            b = IrFindLoop&("FOR DO WHILE")
+            IF b = 0 THEN IrFail "_CONTINUE outside a loop"
+            IrEmit "JMP " + IrLoopPrefix$(b) + ".C"
         CASE "DECLARE"
             IrP = IrTokN + 1
+        CASE "DEFINT", "DEFLNG", "DEFSNG", "DEFDBL", "DEFSTR"
+            IrDefType k$
+        CASE "OPTION"
+            IrExpect "BASE"
+            IrOptBase = VAL(IrTokV(IrP)): IrP = IrP + 1
         CASE "DIM"
-            IrDim
+            IrDim 0
+        CASE "REDIM"
+            IrDim -1
+        CASE "SWAP"
+            IrRefArg
+            IrExpect ","
+            IrRefArg
+            IrEmit "SWAP"
         CASE "ON"
-            IrExpect "ERROR"
-            IrExpect "GOTO"
-            IF IrPeek$ = "0" THEN
-                IrEmit "ONERROR 0": IrP = IrP + 1
-            ELSE
-                IrEmit "ONERROR " + IrTarget$("MAIN")
-            END IF
+            IrOn
+        CASE "ERROR"
+            IrExpr
+            IrEmit "ERROR"
         CASE "RESUME"
             IF IrAtEnd% THEN
                 IrEmit "RESUME 0"
@@ -435,22 +631,126 @@ SUB IrStatement (top AS INTEGER)
             END IF
         CASE "CALL"
             IrCall IrIdent$, -1
+        CASE "DATA"
+            IrData
+        CASE "READ"
+            DO
+                n$ = IrIdent$
+                IF IrAccept%("(") THEN
+                    s = IrIndices&
+                    IrEmit "READ " + IrNum$(-(RIGHT$(IrArrName$(n$), 3) = "$()"))
+                    IrEmit "STOREE " + IrArrName$(n$) + " " + IrNum$(s)
+                ELSE
+                    IrEmit "READ " + IrNum$(-(RIGHT$(IrVarName$(n$), 1) = "$"))
+                    IrEmit "STORE " + IrVarName$(n$)
+                END IF
+                IF IrAccept%(",") = 0 THEN EXIT DO
+            LOOP
+        CASE "RESTORE"
+            IF IrAtEnd% THEN IrEmit "RESTORE" ELSE IrEmit "RESTORE " + IrTarget$(IrScope)
+        CASE "RANDOMIZE"
+            IF IrAccept%("USING") THEN
+                IrExpr: IrEmit "RANDOMIZE 1"
+            ELSE
+                IF IrAtEnd% THEN IrFail "RANDOMIZE without a seed (prompt) is not supported by the IR spike"
+                IrExpr: IrEmit "RANDOMIZE 0"
+            END IF
+        CASE "MID$"
+            'MID$(v$, start[, n]) = r$
+            IrExpect "("
+            n$ = IrVarName$(IrIdent$)
+            IrEmit "LOAD " + n$
+            IrExpect ","
+            IrExpr
+            s = 3
+            IF IrAccept%(",") THEN IrExpr: s = 4
+            IrExpect ")"
+            IrExpect "="
+            IrExpr
+            IrEmit "FN MID$SET " + IrNum$(s)
+            IrEmit "STORE " + n$
         CASE ELSE
             IF IrPeek$ = "=" THEN
                 IrAssign k$
             ELSEIF IrFindSub&(k$) THEN
                 IrCall k$, 0
+            ELSEIF IrPeek$ = "(" THEN
+                IrAssign k$
             ELSE
                 IrFail "statement not supported by the IR spike: " + k$
             END IF
     END SELECT
 END SUB
 
+'DATA items come from the raw source line (case and spaces matter); DATA
+'takes the rest of the line. Each item becomes `DATA <hex>`.
+SUB IrData
+    DIM raw$, i AS LONG, n AS LONG, c$, q AS INTEGER, item$, dataPos AS LONG, quoted AS INTEGER
+    raw$ = IrSrc(IrLine)
+    n = LEN(raw$)
+    FOR i = 1 TO n - 3
+        c$ = MID$(raw$, i, 1)
+        IF c$ = CHR$(34) THEN q = NOT q
+        IF q = 0 AND UCASE$(MID$(raw$, i, 4)) = "DATA" THEN
+            IF i = 1 OR IrCharIn%(MID$(raw$, i - 1, 1), " :" + CHR$(9)) THEN
+                IF i + 4 > n OR IrCharIn%(MID$(raw$, i + 4, 1), " " + CHR$(9)) THEN dataPos = i + 4: EXIT FOR
+            END IF
+        END IF
+    NEXT
+    IF dataPos = 0 THEN IrFail "DATA must be the first statement of its line in the IR spike"
+    q = 0: item$ = "": quoted = 0
+    FOR i = dataPos TO n + 1
+        IF i <= n THEN c$ = MID$(raw$, i, 1) ELSE c$ = ","
+        IF c$ = CHR$(34) THEN
+            q = NOT q: quoted = -1
+        ELSEIF c$ = "," AND q = 0 THEN
+            IF quoted = 0 THEN item$ = LTRIM$(RTRIM$(item$))
+            IF item$ = "" THEN IrEmit "DATA" ELSE IrEmit "DATA " + IrHex$(item$)
+            item$ = "": quoted = 0
+        ELSEIF q OR quoted = 0 THEN
+            item$ = item$ + c$
+        END IF
+    NEXT
+    IrP = IrTokN + 1
+END SUB
+
 SUB IrAssign (id$)
-    IF IrPeek$ = "(" THEN IrFail "arrays are not supported by the IR spike: " + id$
+    DIM n AS LONG, a$
+    IF IrAccept%("(") THEN
+        a$ = IrArrName$(id$)
+        n = IrIndices&
+        IrExpect "="
+        IrExpr
+        IrEmit "STOREE " + a$ + " " + IrNum$(n)
+        EXIT SUB
+    END IF
     IrExpect "="
     IrExpr
     IrEmit "STORE " + IrVarName$(id$)
+END SUB
+
+'Index expressions after "(" up to ")"; returns how many.
+FUNCTION IrIndices& ()
+    DIM n AS LONG
+    DO
+        IrExpr
+        n = n + 1
+        IF IrAccept%(",") = 0 THEN EXIT DO
+    LOOP
+    IrExpect ")"
+    IrIndices& = n
+END FUNCTION
+
+'Reference to a variable or array element (SWAP, BYREF arguments).
+SUB IrRefArg
+    DIM id$, n AS LONG
+    id$ = IrIdent$
+    IF IrAccept%("(") THEN
+        n = IrIndices&
+        IrEmit "REFE " + IrArrName$(id$) + " " + IrNum$(n)
+    ELSE
+        IrEmit "REF " + IrVarName$(id$)
+    END IF
 END SUB
 
 SUB IrPrint
@@ -473,31 +773,37 @@ SUB IrPrint
     IF nl THEN IrEmit "PRINTNL"
 END SUB
 
+'THEN/ELSE part of a single-line IF: a line number means GOTO.
+SUB IrThenPart
+    IF IrP <= IrTokN THEN
+        IF IrTokT(IrP) = 2 THEN IrEmit "JMP " + IrTarget$(IrScope): EXIT SUB
+    END IF
+    IrStatementList 0, -1
+END SUB
+
 SUB IrIf (top AS INTEGER)
     DIM id AS LONG, t$
     id = IrNewId&
     t$ = "~IF" + IrNum$(id)
     IrExpr
+    IF IrAccept%("GOTO") THEN
+        IrEmit "JNZ " + IrTarget$(IrScope)
+        EXIT SUB
+    END IF
     IrExpect "THEN"
     IF IrPeek$ = "" THEN
         IF top = 0 THEN IrFail "block IF inside a single-line IF"
-        IrBlkN = IrBlkN + 1
-        IF IrBlkN > UBOUND(IrBlkKind) THEN
-            REDIM _PRESERVE IrBlkKind(IrBlkN * 2) AS STRING
-            REDIM _PRESERVE IrBlkId(IrBlkN * 2) AS LONG
-            REDIM _PRESERVE IrBlkPart(IrBlkN * 2) AS LONG
-            REDIM _PRESERVE IrBlkVar(IrBlkN * 2) AS STRING
-        END IF
-        IrBlkKind(IrBlkN) = "IF": IrBlkId(IrBlkN) = id: IrBlkPart(IrBlkN) = 1
+        IrPushBlock "IF", id, ""
+        IrBlkPart(IrBlkN) = 1
         IrEmit "JZ " + t$ + ".1"
         EXIT SUB
     END IF
     IrEmit "JZ " + t$ + ".ELSE"
-    IrStatementList 0, -1
+    IrThenPart
     IF IrAccept%("ELSE") THEN
         IrEmit "JMP " + t$ + ".END"
         IrEmit "LABEL " + t$ + ".ELSE"
-        IrStatementList 0, 0
+        IrThenPart
     ELSE
         IrEmit "LABEL " + t$ + ".ELSE"
     END IF
@@ -525,79 +831,233 @@ SUB IrFor
     IrEmit "LOAD " + t$ + ".S"
     IrEmit "FORTEST"
     IrEmit "JZ " + t$ + ".X"
-    IrBlkN = IrBlkN + 1
-    IF IrBlkN > UBOUND(IrBlkKind) THEN
-        REDIM _PRESERVE IrBlkKind(IrBlkN * 2) AS STRING
-        REDIM _PRESERVE IrBlkId(IrBlkN * 2) AS LONG
-        REDIM _PRESERVE IrBlkPart(IrBlkN * 2) AS LONG
-        REDIM _PRESERVE IrBlkVar(IrBlkN * 2) AS STRING
-    END IF
-    IrBlkKind(IrBlkN) = "FOR": IrBlkId(IrBlkN) = id: IrBlkVar(IrBlkN) = v$
+    IrPushBlock "FOR", id, v$
 END SUB
 
 SUB IrNext
     DIM t$, v$
-    IF IrBlkN = 0 THEN IrFail "NEXT without FOR"
-    IF IrBlkKind(IrBlkN) <> "FOR" THEN IrFail "NEXT without FOR"
-    v$ = IrBlkVar(IrBlkN)
-    IF IrAtEnd% = 0 THEN
-        IF IrVarName$(IrIdent$) <> v$ THEN IrFail "NEXT variable does not match FOR"
-    END IF
-    t$ = "~F" + IrNum$(IrBlkId(IrBlkN))
-    IrEmit "LOAD " + v$
-    IrEmit "LOAD " + t$ + ".S"
-    IrEmit "OP ADD"
-    IrEmit "STORE " + v$
-    IrEmit "JMP " + t$ + ".T"
-    IrEmit "LABEL " + t$ + ".X"
-    IrBlkN = IrBlkN - 1
-END SUB
-
-SUB IrDim
-    DIM isShared AS INTEGER, n$, irScope$, nm$
-    IF IrAccept%("SHARED") THEN isShared = -1
-    irScope$ = IrScope
-    IF isShared THEN irScope$ = "*"
     DO
-        n$ = IrIdent$
-        IF IrPeek$ = "(" THEN IrFail "arrays are not supported by the IR spike: " + n$
-        IF IrAccept%("AS") THEN
-            IrAddDim n$, IrTypeSfx$(IrIdent$), irScope$
-            nm$ = n$ + IrDimSfx(IrDimN)
-        ELSEIF INSTR("%&!#$", RIGHT$(n$, 1)) THEN
-            nm$ = n$
-        ELSE
-            IrAddDim n$, "!", irScope$
-            nm$ = n$ + "!"
+        IrTopBlock "FOR", "NEXT without FOR"
+        v$ = IrBlkVar(IrBlkN)
+        IF IrAtEnd% = 0 AND IrPeek$ <> "ELSE" THEN
+            IF IrVarName$(IrIdent$) <> v$ THEN IrFail "NEXT variable does not match FOR"
         END IF
-        IF isShared THEN IrEmit "SHARED " + nm$
+        t$ = "~F" + IrNum$(IrBlkId(IrBlkN))
+        IrEmit "LABEL " + t$ + ".C"
+        IrEmit "LOAD " + v$
+        IrEmit "LOAD " + t$ + ".S"
+        IrEmit "OP ADD"
+        IrEmit "STORE " + v$
+        IrEmit "JMP " + t$ + ".T"
+        IrEmit "LABEL " + t$ + ".X"
+        IrBlkN = IrBlkN - 1
         IF IrAccept%(",") = 0 THEN EXIT DO
     LOOP
 END SUB
 
-'Arguments that are a bare variable are passed by reference (QBasic rule).
-SUB IrCall (n$, parens AS INTEGER)
-    DIM s AS LONG, argc AS LONG, closer$
-    s = IrFindSub&(n$)
-    IF s = 0 THEN IrFail "SUB not found: " + n$
-    IF parens THEN
-        IF IrAccept%("(") = 0 THEN parens = 0
+SUB IrDo
+    DIM id AS LONG, t$
+    id = IrNewId&
+    t$ = "~D" + IrNum$(id)
+    IrEmit "LABEL " + t$ + ".T"
+    IF IrAccept%("WHILE") THEN
+        IrExpr: IrEmit "JZ " + t$ + ".X"
+    ELSEIF IrAccept%("UNTIL") THEN
+        IrExpr: IrEmit "JNZ " + t$ + ".X"
     END IF
-    IF parens THEN closer$ = ")" ELSE closer$ = ""
+    IrPushBlock "DO", id, ""
+END SUB
+
+SUB IrLoop
+    DIM t$
+    IrTopBlock "DO", "LOOP without DO"
+    t$ = "~D" + IrNum$(IrBlkId(IrBlkN))
+    IrEmit "LABEL " + t$ + ".C"
+    IF IrAccept%("WHILE") THEN
+        IrExpr: IrEmit "JNZ " + t$ + ".T"
+    ELSEIF IrAccept%("UNTIL") THEN
+        IrExpr: IrEmit "JZ " + t$ + ".T"
+    ELSE
+        IrEmit "JMP " + t$ + ".T"
+    END IF
+    IrEmit "LABEL " + t$ + ".X"
+    IrBlkN = IrBlkN - 1
+END SUB
+
+'SELECT [CASE|EVERYCASE] expr: selector in ~Sn.V, "matched" flag in ~Sn.M.
+'IrBlkVar holds "E" for EVERYCASE.
+SUB IrSelect
+    DIM id AS LONG, t$, every$
+    IF IrAccept%("EVERYCASE") THEN every$ = "E" ELSE IrExpect "CASE"
+    id = IrNewId&
+    t$ = "~S" + IrNum$(id)
+    IrExpr
+    IrEmit "STORE " + t$ + ".V"
+    IrEmit "PUSH I 0"
+    IrEmit "STORE " + t$ + ".M"
+    IrPushBlock "SELECT", id, every$
+END SUB
+
+SUB IrCase
+    DIM t$, o$, items AS LONG
+    IrTopBlock "SELECT", "CASE without SELECT CASE"
+    t$ = "~S" + IrNum$(IrBlkId(IrBlkN))
+    IF IrBlkPart(IrBlkN) > 0 AND IrBlkVar(IrBlkN) <> "E" THEN IrEmit "JMP " + t$ + ".END"
+    IrEmit "LABEL " + t$ + "." + IrNum$(IrBlkPart(IrBlkN))
+    IrBlkPart(IrBlkN) = IrBlkPart(IrBlkN) + 1
+    IF IrAccept%("ELSE") THEN
+        IrEmit "LOAD " + t$ + ".M"
+        IrEmit "JNZ " + t$ + "." + IrNum$(IrBlkPart(IrBlkN))
+        EXIT SUB
+    END IF
+    DO
+        IrEmit "LOAD " + t$ + ".V"
+        IF IrAccept%("IS") THEN
+            SELECT CASE IrPeek$
+                CASE "=": o$ = "EQ"
+                CASE "<>": o$ = "NE"
+                CASE "<": o$ = "LT"
+                CASE ">": o$ = "GT"
+                CASE "<=": o$ = "LE"
+                CASE ">=": o$ = "GE"
+                CASE ELSE: IrFail "relational operator expected after IS"
+            END SELECT
+            IrP = IrP + 1
+            IrExpr
+            IrEmit "OP " + o$
+        ELSE
+            IrExpr
+            IF IrAccept%("TO") THEN
+                IrEmit "OP GE"
+                IrEmit "LOAD " + t$ + ".V"
+                IrExpr
+                IrEmit "OP LE"
+                IrEmit "OP AND"
+            ELSE
+                IrEmit "OP EQ"
+            END IF
+        END IF
+        items = items + 1
+        IF items > 1 THEN IrEmit "OP OR"
+        IF IrAccept%(",") = 0 THEN EXIT DO
+    LOOP
+    IrEmit "JZ " + t$ + "." + IrNum$(IrBlkPart(IrBlkN))
+    IrEmit "PUSH I -1"
+    IrEmit "STORE " + t$ + ".M"
+END SUB
+
+'ON ERROR GOTO label|0, ON n GOTO|GOSUB l1, l2, ...
+SUB IrOn
+    DIM id AS LONG, t$, how$, k AS LONG
+    IF IrAccept%("ERROR") THEN
+        IrExpect "GOTO"
+        IF IrPeek$ = "0" THEN
+            IrEmit "ONERROR 0": IrP = IrP + 1
+        ELSE
+            IrEmit "ONERROR " + IrTarget$("MAIN")
+        END IF
+        EXIT SUB
+    END IF
+    id = IrNewId&
+    t$ = "~O" + IrNum$(id)
+    IrExpr
+    IrEmit "STORE " + t$ + ".V"
+    how$ = IrIdent$
+    IF how$ <> "GOTO" AND how$ <> "GOSUB" THEN IrFail "GOTO or GOSUB expected"
+    DO
+        k = k + 1
+        IrEmit "LOAD " + t$ + ".V"
+        IrEmit "PUSH I " + IrNum$(k)
+        IrEmit "OP EQ"
+        IrEmit "JZ " + t$ + "." + IrNum$(k)
+        IF how$ = "GOTO" THEN
+            IrEmit "JMP " + IrTarget$(IrScope)
+        ELSE
+            IrEmit "GOSUB " + IrTarget$(IrScope)
+            IrEmit "JMP " + t$ + ".END"
+        END IF
+        IrEmit "LABEL " + t$ + "." + IrNum$(k)
+        IF IrAccept%(",") = 0 THEN EXIT DO
+    LOOP
+    IrEmit "LABEL " + t$ + ".END"
+END SUB
+
+'DIM/REDIM [SHARED] [_PRESERVE] name[(dims)] [AS type], ...
+SUB IrDim (isRedim AS INTEGER)
+    DIM isShared AS INTEGER, preserve AS INTEGER, n$, irScope$, nm$, sfx$, isArr AS INTEGER, dims AS LONG
+    IF IrAccept%("SHARED") THEN isShared = -1
+    IF IrAccept%("_PRESERVE") THEN preserve = -1
+    irScope$ = IrScope
+    IF isShared THEN irScope$ = "*"
+    DO
+        n$ = IrIdent$
+        isArr = 0: dims = 0
+        IF IrAccept%("(") THEN
+            isArr = -1
+            IF IrAccept%(")") = 0 THEN
+                DO
+                    IF IrDimHasTo% = 0 THEN IrEmit "PUSH I " + IrNum$(IrOptBase) 'lower bound = OPTION BASE
+                    IrExpr
+                    IF IrAccept%("TO") THEN IrExpr
+                    dims = dims + 1
+                    IF IrAccept%(",") = 0 THEN EXIT DO
+                LOOP
+                IrExpect ")"
+            END IF
+        END IF
+        sfx$ = ""
+        IF IrAccept%("AS") THEN sfx$ = IrTypeSfx$(IrIdent$)
+        IF isArr THEN
+            IF sfx$ <> "" THEN IrAddDim n$ + "()", sfx$, irScope$
+            nm$ = IrArrName$(n$)
+        ELSE
+            IF sfx$ <> "" THEN IrAddDim n$, sfx$, irScope$
+            nm$ = IrVarName$(n$)
+        END IF
+        IF isShared THEN IrEmit "SHARED " + nm$
+        IF isArr AND dims > 0 THEN
+            IF isRedim THEN
+                IF preserve THEN IrEmit "REDIMA " + nm$ + " " + IrNum$(dims) + " 1" ELSE IrEmit "REDIMA " + nm$ + " " + IrNum$(dims) + " 0"
+            ELSE
+                IrEmit "DIMA " + nm$ + " " + IrNum$(dims)
+            END IF
+        END IF
+        IF IrAccept%(",") = 0 THEN EXIT DO
+    LOOP
+END SUB
+
+'-1 when the current array dimension is written `lb TO ub`.
+FUNCTION IrDimHasTo% ()
+    DIM j AS LONG, depth AS LONG
+    FOR j = IrP TO IrTokN
+        IF IrTokT(j) = 4 THEN
+            IF IrTokV(j) = "(" THEN depth = depth + 1
+            IF IrTokV(j) = ")" THEN
+                IF depth = 0 THEN EXIT FUNCTION
+                depth = depth - 1
+            END IF
+            IF IrTokV(j) = "," AND depth = 0 THEN EXIT FUNCTION
+        ELSEIF IrTokT(j) = 1 THEN
+            IF IrTokV(j) = "TO" AND depth = 0 THEN IrDimHasTo% = -1: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+'Arguments that are a bare variable or array element are passed by reference
+'(QBasic rule); `name (x)` without CALL passes (x) as a value. Returns argc.
+FUNCTION IrArgs& (parens AS INTEGER)
+    DIM argc AS LONG, j AS LONG, nx$
     DO
         IF parens THEN
             IF IrAccept%(")") THEN EXIT DO
         ELSE
             IF IrAtEnd% OR IrPeek$ = "ELSE" THEN EXIT DO
         END IF
-        IF IrTokT(IrP) = 1 AND IrP < IrTokN THEN
-            IF IrTokV(IrP + 1) = "," OR IrTokV(IrP + 1) = ")" OR IrTokV(IrP + 1) = ":" THEN
-                IrEmit "REF " + IrVarName$(IrTokV(IrP)): IrP = IrP + 1
-            ELSE
-                IrExpr
-            END IF
-        ELSEIF IrTokT(IrP) = 1 AND IrP = IrTokN THEN
-            IrEmit "REF " + IrVarName$(IrTokV(IrP)): IrP = IrP + 1
+        IF IrTokT(IrP) = 1 AND IrIsBuiltin%(IrTokV(IrP)) = 0 AND IrFindSub&(IrTokV(IrP)) = 0 AND IrIsKeyword%(IrTokV(IrP)) = 0 THEN
+            j = IrP + 1
+            IF IrPeekAt$(j) = "(" THEN j = IrAfterParens&(j)
+            nx$ = IrPeekAt$(j)
+            IF nx$ = "," OR nx$ = ")" OR nx$ = ":" OR nx$ = "" OR nx$ = "ELSE" THEN IrRefArg ELSE IrExpr
         ELSE
             IrExpr
         END IF
@@ -607,16 +1067,37 @@ SUB IrCall (n$, parens AS INTEGER)
             EXIT DO
         END IF
     LOOP
+    IrArgs& = argc
+END FUNCTION
+
+SUB IrCall (n$, parens AS INTEGER)
+    DIM s AS LONG, argc AS LONG
+    s = IrFindSub&(n$)
+    IF s = 0 THEN IrFail "SUB not found: " + n$
+    IF parens THEN
+        IF IrAccept%("(") = 0 THEN parens = 0
+    END IF
+    argc = IrArgs&(parens)
     IF argc <> IrSubArgc(s) THEN IrFail "wrong number of arguments for " + n$
-    IrEmit "CALL " + n$ + " " + IrNum$(argc)
+    IrEmit "CALL " + IrSubIr(s) + " " + IrNum$(argc)
 END SUB
 
 '---------------------------------------------------------------- expressions
-'Precedence, lowest first: XOR, OR, AND, NOT, relational, + -, MOD, \, * /,
-'unary -, ^. Each level emits its operands first (postfix order).
+'Precedence, lowest first: IMP, EQV, XOR, OR, AND, NOT, relational, + -, MOD,
+'\, * /, unary -, ^. Each level emits its operands first (postfix order).
 
 SUB IrExpr
+    IrImp
+END SUB
+
+SUB IrImp
+    IrEqv
+    DO WHILE IrAccept%("IMP"): IrEqv: IrEmit "OP IMP": LOOP
+END SUB
+
+SUB IrEqv
     IrXor
+    DO WHILE IrAccept%("EQV"): IrXor: IrEmit "OP EQV": LOOP
 END SUB
 
 SUB IrXor
@@ -726,7 +1207,7 @@ SUB IrPow
 END SUB
 
 SUB IrPrimary
-    DIM v$, t AS INTEGER, argc AS LONG
+    DIM v$, t AS INTEGER, argc AS LONG, s AS LONG, a$
     IF IrP > IrTokN THEN IrFail "expression expected"
     t = IrTokT(IrP)
     v$ = IrTokV(IrP)
@@ -739,23 +1220,48 @@ SUB IrPrimary
         IrExpr
         IrExpect ")"
     ELSEIF t = 1 THEN
-        SELECT CASE v$
-            CASE "ERR", "ERL"
-                IrEmit "FN " + v$ + " 0"
-            CASE "LEN", "LEFT$", "RIGHT$", "MID$", "UCASE$", "LCASE$", "STR$", "CHR$", "ASC"
-                IrExpect "("
-                DO
-                    IrExpr
-                    argc = argc + 1
-                    IF IrAccept%(",") = 0 THEN EXIT DO
-                LOOP
+        IF v$ = "ERR" OR v$ = "ERL" THEN
+            IrEmit "FN " + v$ + " 0"
+        ELSEIF v$ = "RND" THEN
+            IF IrAccept%("(") THEN
+                IrExpr
                 IrExpect ")"
-                IrEmit "FN " + v$ + " " + IrNum$(argc)
-            CASE ELSE
-                IF IrIsKeyword%(v$) THEN IrFail "unexpected " + v$
-                IF IrPeek$ = "(" THEN IrFail "arrays/functions are not supported by the IR spike: " + v$
+                IrEmit "FN RND 1"
+            ELSE
+                IrEmit "FN RND 0"
+            END IF
+        ELSEIF v$ = "LBOUND" OR v$ = "UBOUND" THEN
+            IrExpect "("
+            a$ = IrArrName$(IrIdent$)
+            IF IrAccept%(",") THEN IrExpr ELSE IrEmit "PUSH I 1"
+            IrExpect ")"
+            IF v$ = "UBOUND" THEN IrEmit "BOUND " + a$ + " U" ELSE IrEmit "BOUND " + a$ + " L"
+        ELSEIF IrIsBuiltin%(v$) THEN
+            IrExpect "("
+            DO
+                IrExpr
+                argc = argc + 1
+                IF IrAccept%(",") = 0 THEN EXIT DO
+            LOOP
+            IrExpect ")"
+            IrEmit "FN " + v$ + " " + IrNum$(argc)
+        ELSE
+            s = IrFindSub&(v$)
+            IF s THEN
+                IF IrSubKind(s) <> "F" THEN IrFail "SUB " + v$ + " used as a value"
+                IF IrAccept%("(") THEN argc = IrArgs&(-1)
+                IF argc <> IrSubArgc(s) THEN IrFail "wrong number of arguments for " + v$
+                IrEmit "CALL " + IrSubIr(s) + " " + IrNum$(argc)
+            ELSEIF IrIsKeyword%(v$) THEN
+                IrFail "unexpected " + v$
+            ELSEIF IrAccept%("(") THEN
+                a$ = IrArrName$(v$)
+                argc = IrIndices&
+                IrEmit "LOADE " + a$ + " " + IrNum$(argc)
+            ELSE
                 IrEmit "LOAD " + IrVarName$(v$)
-        END SELECT
+            END IF
+        END IF
     ELSE
         IrFail "unexpected '" + v$ + "'"
     END IF
@@ -763,11 +1269,32 @@ END SUB
 
 'Numeric literal -> "<type> <text>": suffix wins; integers are INTEGER/LONG
 'by range; decimals are SINGLE up to 7 digits, DOUBLE beyond or with D.
+'&H/&O/&B literals of up to 16 bits are INTEGER (so &HFFFF = -1), else LONG.
 FUNCTION IrNumLit$ (v$)
-    DIM s$, body$, digits AS LONG, i AS LONG, c$, d AS DOUBLE
+    DIM s$, body$, digits AS LONG, i AS LONG, c$, d AS DOUBLE, radix AS LONG, lv AS LONG
     s$ = RIGHT$(v$, 1)
     body$ = v$
-    IF INSTR("%&!#", s$) THEN body$ = LEFT$(v$, LEN(v$) - 1) ELSE s$ = ""
+    IF IrCharIn%(s$, "%&!#") THEN body$ = LEFT$(v$, LEN(v$) - 1) ELSE s$ = ""
+    IF LEFT$(body$, 1) = "&" THEN
+        SELECT CASE MID$(body$, 2, 1)
+            CASE "H": radix = 16
+            CASE "O": radix = 8
+            CASE ELSE: radix = 2
+        END SELECT
+        FOR i = 3 TO LEN(body$)
+            d = d * radix + INSTR("0123456789ABCDEF", MID$(body$, i, 1)) - 1
+        NEXT
+        IF s$ = "" AND d <= 65535 THEN
+            IF d > 32767 THEN d = d - 65536
+            lv = d
+            IrNumLit$ = "I " + LTRIM$(STR$(lv))
+        ELSE
+            IF d > 2147483647 THEN d = d - 4294967296#
+            lv = d
+            IrNumLit$ = "L " + LTRIM$(STR$(lv))
+        END IF
+        EXIT FUNCTION
+    END IF
     FOR i = 1 TO LEN(body$)
         c$ = MID$(body$, i, 1)
         IF c$ = "E" OR c$ = "D" THEN EXIT FOR
