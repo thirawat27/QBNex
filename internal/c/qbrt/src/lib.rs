@@ -16,6 +16,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod mbf;
+pub mod mem;
 pub mod numfmt;
 pub mod rnd;
 pub mod round;

@@ -57,6 +57,43 @@ int32_t qbrt_str_f64(double v, unsigned char *out);
 int32_t qbrt_timer(uint32_t ticks, uint32_t clock_first, uint32_t day_first,
                    double accuracy, int32_t passed, double *out);
 
+// ============================================================================
+// R4: files, file system, environment, SHELL, _MEM
+// Functions return 0 or a QBasic error code that the C++ shim raises.
+// ============================================================================
+
+// --- _MEM (was new_mem_lock / free_mem_lock / func__mem* / sub__mem*) --------
+// Same layout as mem_block / mem_lock in common.h (generated code uses them).
+typedef struct qbrt_mem_block {
+    intptr_t offset, size;
+    int64_t lock_id;
+    intptr_t lock_offset, type, elementsize;
+    int32_t image, sound;
+} qbrt_mem_block;
+typedef struct qbrt_mem_lock {
+    uint64_t id;
+    int32_t type;
+    void *offset;
+} qbrt_mem_lock;
+// Defined in Rust; generated code reads and writes them directly.
+extern uint64_t mem_lock_id;
+extern qbrt_mem_lock *mem_lock_tmp;
+extern qbrt_mem_lock *mem_lock_base;
+qbrt_mem_lock *qbrt_new_mem_lock(void); // also sets mem_lock_tmp
+void qbrt_free_mem_lock(qbrt_mem_lock *lock);
+qbrt_mem_lock *qbrt_mem_lock_invalid(void);
+int32_t qbrt_memfree(qbrt_mem_block *blk);
+int32_t qbrt_mem_at_offset(intptr_t offset, intptr_t size, int32_t new_error, qbrt_mem_block *out);
+int32_t qbrt_memnew(intptr_t bytes, int32_t new_error, qbrt_mem_block *out);
+int32_t qbrt_memexists(const qbrt_mem_block *blk);
+void *qbrt_memget(const qbrt_mem_block *blk, intptr_t off, intptr_t bytes, int32_t *err);
+int32_t qbrt_memfill(const qbrt_mem_block *blk, intptr_t doff, intptr_t dbytes, const uint8_t *src, intptr_t sbytes);
+void qbrt_memfill_nochecks(intptr_t doff, intptr_t dbytes, const uint8_t *src, intptr_t sbytes);
+int32_t qbrt_memcopy(const qbrt_mem_block *sblk, intptr_t soff, intptr_t bytes, const qbrt_mem_block *dblk,
+                     intptr_t doff);
+void qbrt_mem(intptr_t offset, intptr_t size, int32_t type, intptr_t elementsize, qbrt_mem_lock *lock,
+              qbrt_mem_block *out);
+
 #ifdef __cplusplus
 }
 #endif
