@@ -1,0 +1,14 @@
+[package]
+name = "qb-ir"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "QIR v1: the typed, register-based IR the QBNex compiler emits. Data types, text parser/printer, validator and the builtin signature table."
+publish = false
+
+[lib]
+name = "qb_ir"
+path = "src/lib.rs"
+
+[dependencies]
