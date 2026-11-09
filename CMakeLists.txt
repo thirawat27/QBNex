@@ -47,9 +47,9 @@ function(qbnex_add_script_output output_file work_dir script_name)
     add_custom_command(
       OUTPUT "${output_file}"
       COMMAND "${CMAKE_COMMAND}" -E rm -f "${output_file}"
-      COMMAND cmd /c "${script_name}"
+      COMMAND cmd /c ".\\${script_name}"
       WORKING_DIRECTORY "${work_dir}"
-      DEPENDS "${work_dir}/${script_name}"
+      DEPENDS "${work_dir}/${script_name}" ${ARGN}
       VERBATIM
       COMMENT "Building ${output_file}"
     )
@@ -59,7 +59,7 @@ function(qbnex_add_script_output output_file work_dir script_name)
       COMMAND "${CMAKE_COMMAND}" -E rm -f "${output_file}"
       COMMAND /bin/sh "./${script_name}"
       WORKING_DIRECTORY "${work_dir}"
-      DEPENDS "${work_dir}/${script_name}"
+      DEPENDS "${work_dir}/${script_name}" ${ARGN}
       VERBATIM
       COMMENT "Building ${output_file}"
     )
@@ -72,6 +72,10 @@ qbnex_add_script_output(
   "${QBNEX_LIBQB_OBJ}"
   "${QBNEX_INTERNAL_C}/libqb/os/${QBNEX_OS_DIR}"
   "${QBNEX_LIBQB_SCRIPT}"
+  "${QBNEX_INTERNAL_C}/libqb.cpp"
+  "${QBNEX_INTERNAL_C}/libqb.h"
+  "${QBNEX_INTERNAL_C}/common.h"
+  "${QBNEX_INTERNAL_C}/qbrt/include/qbrt.h"
 )
 qbnex_add_script_output(
   "${QBNEX_TTF_OBJ}"
@@ -79,7 +83,31 @@ qbnex_add_script_output(
   "${QBNEX_TTF_SCRIPT}"
 )
 
-set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_TTF_OBJ}")
+# Rust runtime (internal/c/qbrt): static library linked after libqb.
+if(WIN32)
+  set(QBNEX_QBRT_SCRIPT "setup_build.bat")
+  set(QBNEX_QBRT_NATIVE_LIBS kernel32 ntdll userenv ws2_32 dbghelp)
+elseif(APPLE)
+  set(QBNEX_QBRT_SCRIPT "setup_build.command")
+  set(QBNEX_QBRT_NATIVE_LIBS System c m)
+else()
+  set(QBNEX_QBRT_SCRIPT "setup_build.sh")
+  set(QBNEX_QBRT_NATIVE_LIBS pthread dl m rt util)
+endif()
+set(QBNEX_QBRT_LIB "${QBNEX_INTERNAL_C}/qbrt/os/${QBNEX_OS_DIR}/libqbrt.a")
+file(GLOB_RECURSE QBNEX_QBRT_SOURCES CONFIGURE_DEPENDS
+  "${QBNEX_INTERNAL_C}/qbrt/src/*.rs"
+  "${QBNEX_INTERNAL_C}/qbrt/include/*.h"
+)
+qbnex_add_script_output(
+  "${QBNEX_QBRT_LIB}"
+  "${QBNEX_INTERNAL_C}/qbrt/os/${QBNEX_OS_DIR}"
+  "${QBNEX_QBRT_SCRIPT}"
+  ${QBNEX_QBRT_SOURCES}
+  "${QBNEX_INTERNAL_C}/qbrt/Cargo.toml"
+)
+
+set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_TTF_OBJ}" "${QBNEX_QBRT_LIB}")
 
 if(NOT APPLE)
   set(QBNEX_CORE_LIB "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}/src.a")
@@ -89,7 +117,7 @@ if(NOT APPLE)
     add_custom_command(
       OUTPUT "${QBNEX_CORE_LIB}"
       COMMAND "${CMAKE_COMMAND}" -E rm -f "${QBNEX_CORE_LIB}"
-      COMMAND cmd /c "${QBNEX_CORE_SCRIPT}"
+      COMMAND cmd /c ".\\${QBNEX_CORE_SCRIPT}"
       WORKING_DIRECTORY "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}"
       DEPENDS "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}/${QBNEX_CORE_SCRIPT}" ${QBNEX_CORE_SOURCES}
       VERBATIM
@@ -144,6 +172,8 @@ if(WIN32)
     qb-stage0
     PRIVATE
       "${QBNEX_LIBQB_OBJ}"
+      "${QBNEX_QBRT_LIB}"
+      ${QBNEX_QBRT_NATIVE_LIBS}
       "${QBNEX_TTF_OBJ}"
       "${QBNEX_CORE_LIB}"
       opengl32
@@ -159,6 +189,8 @@ elseif(APPLE)
     qb-stage0
     PRIVATE
       "${QBNEX_LIBQB_OBJ}"
+      "${QBNEX_QBRT_LIB}"
+      ${QBNEX_QBRT_NATIVE_LIBS}
       "${QBNEX_TTF_OBJ}"
       "-framework GLUT"
       "-framework OpenGL"
@@ -170,6 +202,8 @@ else()
     qb-stage0
     PRIVATE
       "${QBNEX_LIBQB_OBJ}"
+      "${QBNEX_QBRT_LIB}"
+      ${QBNEX_QBRT_NATIVE_LIBS}
       "${QBNEX_TTF_OBJ}"
       "${QBNEX_CORE_LIB}"
       GL

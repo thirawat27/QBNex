@@ -1,0 +1,20 @@
+$CONSOLE:ONLY
+FOR i = 1 TO 10 STEP 3: PRINT i;: NEXT: PRINT "->"; i
+FOR i = 5 TO 1 STEP -2: PRINT i;: NEXT: PRINT
+FOR x! = 0 TO 1 STEP 0.25: PRINT x!;: NEXT: PRINT
+n = 0
+DO WHILE n < 3: n = n + 1: PRINT "w"; n;: LOOP: PRINT
+DO: n = n - 1: PRINT "u"; n;: LOOP UNTIL n <= 0: PRINT
+WHILE n < 2: n = n + 1: WEND: PRINT n
+FOR i = 1 TO 100
+    IF i = 4 THEN EXIT FOR
+NEXT
+PRINT i
+DO
+    k = k + 1
+    IF k > 7 THEN EXIT DO
+    IF k MOD 2 = 0 THEN _CONTINUE
+    PRINT k;
+LOOP
+PRINT
+SYSTEM

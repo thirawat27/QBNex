@@ -1,0 +1,9 @@
+$CONSOLE:ONLY
+DEFINT A-C
+DEFSTR S
+a = 7.6: b = 2: sx = "text"
+PRINT a; b / 2; sx
+OPTION BASE 1
+DIM arr(3)
+PRINT LBOUND(arr); UBOUND(arr)
+SYSTEM

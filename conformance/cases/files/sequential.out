@@ -1,0 +1,6 @@
+[line one]
+[ 1  2  3 ]
+["quoted",4.5,-6]
+[appended]
+ 6 quoted 4.5 -6 
+ 0 

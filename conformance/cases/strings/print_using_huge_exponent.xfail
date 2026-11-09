@@ -1,0 +1,1 @@
+legacy defect L-06: PRINT USING "^^^^" on a _FLOAT near 1E4932 prints "%0.118973149535723F+4984" and corrupts the heap (exit 0xC0000374)

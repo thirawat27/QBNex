@@ -126,6 +126,20 @@ rm -f libqb_setup.o
 ./setup_build.sh
 popd >/dev/null
 
+echo "Building library 'qbrt' (Rust runtime)"
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo was not found. Install Rust from https://rustup.rs and run setup_lnx.sh again."
+  exit 1
+fi
+pushd internal/c/qbrt/os/lnx >/dev/null
+rm -f libqbrt.a
+sh ./setup_build.sh
+popd >/dev/null
+if [ ! -f internal/c/qbrt/os/lnx/libqbrt.a ]; then
+  echo "Compilation of internal/c/qbrt/os/lnx/libqbrt.a failed!"
+  exit 1
+fi
+
 echo "Building library 'FreeType'"
 pushd internal/c/parts/video/font/ttf/os/lnx >/dev/null
 rm -f src.o
@@ -143,7 +157,7 @@ mkdir -p ./internal/temp
 cp -r ./internal/source/* ./internal/temp/
 cp -r ./source/* ./internal/temp/
 pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb-stage0
+g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o qbrt/os/lnx/libqbrt.a -lpthread -ldl -lm -lrt -lutil parts/video/font/ttf/os/lnx/src.o parts/core/os/lnx/src.a -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC -o ../../qb-stage0
 popd
 
 if [ -x "./qb-stage0" ]; then

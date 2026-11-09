@@ -22,15 +22,22 @@ RUN apt-get update && apt-get install -y \
     inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# Rust toolchain for the qbrt runtime library (internal/c/qbrt)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 # Set working directory
 WORKDIR /app
 
 # Copy only necessary files for building
+COPY Cargo.toml Cargo.lock ./
+COPY conformance/ ./conformance/
 COPY internal/ ./internal/
 COPY source/ ./source/
 
 # Build QBNex compiler
 RUN (cd internal/c/libqb/os/lnx && rm -f libqb_setup.o && chmod +x setup_build.sh && ./setup_build.sh) && \
+    (cd internal/c/qbrt/os/lnx && rm -f libqbrt.a && sh ./setup_build.sh) && \
     (cd internal/c/parts/video/font/ttf/os/lnx && rm -f src.o && chmod +x setup_build.sh && ./setup_build.sh) && \
     (cd internal/c/parts/core/os/lnx && rm -f src.a && chmod +x setup_build.sh && ./setup_build.sh) && \
     (mkdir -p internal/temp && \
@@ -39,6 +46,7 @@ RUN (cd internal/c/libqb/os/lnx && rm -f libqb_setup.o && chmod +x setup_build.s
      cd internal/c && \
      g++ -no-pie -w qbx.cpp \
        libqb/os/lnx/libqb_setup.o \
+       qbrt/os/lnx/libqbrt.a -lpthread -ldl -lm -lrt -lutil \
        parts/video/font/ttf/os/lnx/src.o \
        parts/core/os/lnx/src.a \
        -lGL -lGLU -lX11 -lpthread -ldl -lrt -D FREEGLUT_STATIC \

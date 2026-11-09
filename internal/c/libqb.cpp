@@ -1,5 +1,6 @@
 #include "common.h"
 #include "libqb.h"
+#include "qbrt/include/qbrt.h" // Rust runtime (internal/c/qbrt)
 
 #ifdef QBNex_GUI
     #include "parts/core/glew/src/glew.c"
@@ -145,70 +146,18 @@ return (word << shift) | (word >> (32 - shift));
         memset(ptr,0,bytes);
     }
 #endif
-#ifdef QBNex_NOT_X86
-    int64 qbr(long double f){
-        int64 i; int temp=0;
-        if (f>9223372036854775807) {temp=1;f=f-9223372036854775808u;} //if it's too large for a signed int64, make it an unsigned int64 and return that value if possible.
-        if (f<0) i=f-0.5f; else i=f+0.5f;
-        if (temp) return i|0x8000000000000000;//+9223372036854775808;
-        return i;
-    }
-    uint64 qbr_longdouble_to_uint64(long double f){if (f<0) return(f-0.5f); else return(f+0.5f);}
-    int32 qbr_float_to_long(float f){if (f<0) return(f-0.5f); else return(f+0.5f);}
-    int32 qbr_double_to_long(double f){if (f<0) return(f-0.5f); else return(f+0.5f);}
-    void fpu_reinit() { } // do nothing
-    #else
-    //QBASIC compatible rounding via FPU:
-    //FLDS=load single
-    //FLDL=load double
-    //FLDT=load long double
-    int64 qbr(long double f){
-        int64 i; int temp=0;
-        if (f>9223372036854775807) {temp=1;f=f-9223372036854775808u;} //if it's too large for a signed int64, make it an unsigned int64 and return that value if possible.
-        __asm__ (
-            "fldt %1;"
-            "fistpll %0;"              
-            :"=m" (i)
-            :"m" (f)
-        );
-        if (temp) return i|0x8000000000000000;// if it's an unsigned int64, manually set the bit flag
-        return i;
-    }
-    uint64 qbr_longdouble_to_uint64(long double f){
-        uint64 i;
-        __asm__ (
-            "fldt %1;"
-            "fistpll %0;"              
-            :"=m" (i)
-            :"m" (f)
-        );
-        return i;
-    }
-    int32 qbr_float_to_long(float f){
-        int32 i;
-        __asm__ (
-            "flds %1;"
-            "fistpl %0;"              
-            :"=m" (i)
-            :"m" (f)
-        );
-        return i;
-    }
-    int32 qbr_double_to_long(double f){
-        int32 i;
-        __asm__ (
-            "fldl %1;"
-            "fistpl %0;"              
-            :"=m" (i)
-            :"m" (f)
-        );
-        return i;
-    }
-    void fpu_reinit(){
-        unsigned int mode = 0x37F;
-        asm("fldcw %0" : : "m" (*&mode));
-    }
-#endif //x86 support
+// QBasic-compatible rounding lives in the Rust runtime (internal/c/qbrt/src/round.rs).
+#include <float.h>
+#if LDBL_MANT_DIG == 64
+    int64 qbr(long double f){return qbrt_qbr_f80((const unsigned char*)&f);}
+    uint64 qbr_longdouble_to_uint64(long double f){return (uint64)qbrt_fistp_i64_f80((const unsigned char*)&f);}
+#else
+    int64 qbr(long double f){return qbrt_qbr_f64((double)f);}
+    uint64 qbr_longdouble_to_uint64(long double f){return (uint64)qbrt_fistp_i64_f64((double)f);}
+#endif
+int32 qbr_float_to_long(float f){return qbrt_fistp_i32(f);}
+int32 qbr_double_to_long(double f){return qbrt_fistp_i32(f);}
+void fpu_reinit(){qbrt_fpu_reinit();}
 //bit-array access functions (note: used to be included through 'bit.cpp')
 uint64 getubits(uint32 bsize,uint8 *base,ptrszint i){
     int64 bmask;
@@ -6199,7 +6148,7 @@ int32 lock_display_required=0;
 #define cost_delay 0
 uint32 cost=0;
 
-#include "msbin.cpp"
+// MBF <-> IEEE conversion lives in the Rust runtime (internal/c/qbrt/src/mbf.rs).
 
 //#include "time64.c"
 //#include "time64.h"
@@ -7770,264 +7719,23 @@ void sub__keyclear(int32 buf, int32 passed) {
 
 }
 
-//STR() functions
-//singed integers
-qbs *qbs_str(int64 value){
-    qbs *tqbs;
-    tqbs=qbs_new(20,1);
-    #ifdef QBNex_WINDOWS
-        tqbs->len=sprintf((char*)tqbs->chr,"% I64i",value);
-        #else
-        tqbs->len=sprintf((char*)tqbs->chr,"% lli",value);
-    #endif
+//STR() functions: number formatting lives in the Rust runtime (internal/c/qbrt/src/numfmt.rs).
+static qbs *qbs_str_from_rust(const unsigned char *text, int32 len){
+    qbs *tqbs=qbs_new(len,1);
+    memcpy(tqbs->chr,text,len);
     return tqbs;
 }
-qbs *qbs_str(int32 value){
-    qbs *tqbs;
-    tqbs=qbs_new(11,1);
-    tqbs->len=sprintf((char*)tqbs->chr,"% i",value);
-    return tqbs;
-}
-qbs *qbs_str(int16 value){
-    qbs *tqbs;
-    tqbs=qbs_new(6,1);
-    tqbs->len=sprintf((char*)tqbs->chr,"% i",value);
-    return tqbs;
-}
-qbs *qbs_str(int8 value){
-    qbs *tqbs;
-    tqbs=qbs_new(4,1);
-    tqbs->len=sprintf((char*)tqbs->chr,"% i",value);
-    return tqbs;
-}
-//unsigned integers
-qbs *qbs_str(uint64 value){
-    qbs *tqbs;
-    tqbs=qbs_new(21,1);
-    #ifdef QBNex_WINDOWS
-        tqbs->len=sprintf((char*)tqbs->chr," %I64u",value);
-        #else
-        tqbs->len=sprintf((char*)tqbs->chr," %llu",value);
-    #endif
-    return tqbs;
-}
-qbs *qbs_str(uint32 value){
-    qbs *tqbs;
-    tqbs=qbs_new(11,1);
-    tqbs->len=sprintf((char*)tqbs->chr," %u",value);
-    return tqbs;
-}
-qbs *qbs_str(uint16 value){
-    qbs *tqbs;
-    tqbs=qbs_new(6,1);
-    tqbs->len=sprintf((char*)tqbs->chr," %u",value);
-    return tqbs;
-}
-qbs *qbs_str(uint8 value){
-    qbs *tqbs;
-    tqbs=qbs_new(4,1);
-    tqbs->len=sprintf((char*)tqbs->chr," %u",value);
-    return tqbs;
-}
-
-
-
-uint8 func_str_fmt[7];
-uint8 qbs_str_buffer[32];
-uint8 qbs_str_buffer2[32];
-
-qbs *qbs_str(float value){
-    static qbs *tqbs;
-    tqbs=qbs_new(16,1);
-    static int32 l,i,i2,i3,digits,exponent;
-    l=sprintf((char*)&qbs_str_buffer,"% .6E",value);
-    //IMPORTANT: assumed l==14
-    if (l==13){memmove(&qbs_str_buffer[12],&qbs_str_buffer[11],2); qbs_str_buffer[11]=48; l=14;}
-    
-    digits=7;
-    for (i=8;i>=1;i--){
-        if (qbs_str_buffer[i]==48){
-            digits--;
-            }else{
-            if (qbs_str_buffer[i]!=46) break;
-        }
-    }//i
-    //no significant digits? simply return 0
-    if (digits==0){
-        tqbs->len=2; tqbs->chr[0]=32; tqbs->chr[1]=48;//tqbs=[space][0]
-        return tqbs;
-    }
-    //calculate exponent
-    exponent=(qbs_str_buffer[11]-48)*100+(qbs_str_buffer[12]-48)*10+(qbs_str_buffer[13]-48);
-    if (qbs_str_buffer[10]==45) exponent=-exponent;
-    if ((exponent<=6)&&((exponent-digits)>=-8)) goto asdecimal;
-    //fix up exponent to conform to QBASIC standards
-    //i. cull trailing 0's after decimal point (use digits to help)
-    //ii. cull leading 0's of exponent
-    
-    i3=0;
-    i2=digits+2;
-    if (digits==1) i2--;//don't include decimal point
-    for (i=0;i<i2;i++) {tqbs->chr[i3]=qbs_str_buffer[i]; i3++;}
-    for (i=9;i<=10;i++) {tqbs->chr[i3]=qbs_str_buffer[i]; i3++;}
-    exponent=abs(exponent);
-    //i2=13;
-    //if (exponent>9) i2=12;
-    i2=12;//override: if exponent is less than 10 still display a leading 0
-    if (exponent>99) i2=11;
-    for (i=i2;i<=13;i++) {tqbs->chr[i3]=qbs_str_buffer[i]; i3++;}
-    tqbs->len=i3;
-    return tqbs;
-    /////////////////////
-    asdecimal:
-    //calculate digits after decimal point in var. i
-    i=-(exponent-digits+1);
-    if (i<0) i=0;
-    func_str_fmt[0]=37;//"%"
-    func_str_fmt[1]=32;//" "
-    func_str_fmt[2]=46;//"."
-    func_str_fmt[3]=i+48;
-    func_str_fmt[4]=102;//"f"
-    func_str_fmt[5]=0;
-    tqbs->len=sprintf((char*)tqbs->chr,(const char*)&func_str_fmt,value);
-    if (tqbs->chr[1]==48){//must manually cull leading 0
-        memmove(tqbs->chr+1,tqbs->chr+2,tqbs->len-2);
-        tqbs->len--;
-    }
-    return tqbs;
-}
-
-qbs *qbs_str(double value){
-    static qbs *tqbs;
-    tqbs=qbs_new(32,1);
-    static char ch;
-    static int32 l,i,i2,i3,digits,exponent;
-    static int32 mult,exp,index;
-    
-    l=sprintf((char*)&qbs_str_buffer,"% .15E",value);
-    
-    // the "new version"...
-
-    // scan the result (in reverse) to determine the exponent.
-    exponent = 0; mult = 1;
-    for (i = l; i > 0; i--) {
-        if (!(qbs_str_buffer[i] == 0 || qbs_str_buffer[i] == 32)) { // not null or space...
-            if (qbs_str_buffer[i] == 43) {
-                break; // if a +, exit for.
-            } else if (qbs_str_buffer[i] == 45) {
-                exponent = -exponent;
-                break; // a -, negate exponent and exit for.
-            } else {
-                exponent += (qbs_str_buffer[i] - 48) * mult;
-                mult *= 10;
-            }
-        }
-    }
-    digits = 0; exp = 0; 
-    for (i = l; i > 0; i--) {
-        if (exp == 0) {
-            if (qbs_str_buffer[i] == 69) { exp = i; } // location of the E
-        } else if (qbs_str_buffer[i] != 48 && qbs_str_buffer[i] != 46) {
-            digits = i; break;
-        }
-    }
-    if (digits==0){
-        tqbs->len=2; tqbs->chr[0]=32; tqbs->chr[1]=48; // tqbs=[space][0]
-        return tqbs;
-    }
-    if (exponent >= 16 || exponent <= -17) {
-        index=0;
-        for (i = 0; i < digits + 1; i++) {
-          ch = qbs_str_buffer[i];
-          tqbs->chr[index++] = ch;
-        }
-        tqbs->chr[index++] = 68;
-        for (i = exp + 1; i < l; i++) {
-          ch = qbs_str_buffer[i];
-          tqbs->chr[index++] = ch;
-        }
-        tqbs->len=index;
-        return tqbs;
-    }
-
-    /* ----- the "old way"; which has problems with formatting certain exponents properly.
-
-    //IMPORTANT: assumed l==23
-    if (l==22){memmove(&qbs_str_buffer[21],&qbs_str_buffer[20],2); qbs_str_buffer[20]=48; l=23;}
-    
-    //check if the 16th significant digit is 9, if it is round to 15 significant digits
-    if (qbs_str_buffer[17]==57){
-        sprintf((char*)&qbs_str_buffer2,"% .14E",value);
-        memmove(&qbs_str_buffer,&qbs_str_buffer2,17);
-        qbs_str_buffer[17]=48;
-    }
-    qbs_str_buffer[18]=68; //change E to D (QBASIC standard)
-    digits=16;
-    for (i=17;i>=1;i--){
-        if (qbs_str_buffer[i]==48){
-            digits--;
-            }else{
-            if (qbs_str_buffer[i]!=46) break;
-        }
-    }//i
-    //no significant digits? simply return 0
-    if (digits==0){
-        tqbs->len=2; tqbs->chr[0]=32; tqbs->chr[1]=48;//tqbs=[space][0]
-        return tqbs;
-    }
-    //calculate exponent
-    exponent=(qbs_str_buffer[20]-48)*100+(qbs_str_buffer[21]-48)*10+(qbs_str_buffer[22]-48);
-    if (qbs_str_buffer[19]==45) exponent=-exponent;
-    //OLD if ((exponent<=15)&&((exponent-digits)>=-16)) goto asdecimal;
-    if ((exponent<=15)&&((exponent-digits)>=-17)) goto asdecimal;
-    
-    //fix up exponent to conform to QBASIC standards
-    //i. cull trailing 0's after decimal point (use digits to help)
-    //ii. cull leading 0's of exponent
-    i3=0;
-    i2=digits+2;
-    if (digits==1) i2--;//don't include decimal point
-    for (i=0;i<i2;i++) {tqbs->chr[i3]=qbs_str_buffer[i]; i3++;}
-    for (i=18;i<=19;i++) {tqbs->chr[i3]=qbs_str_buffer[i]; i3++;}
-    exponent=abs(exponent);
-    //i2=22;
-    //if (exponent>9) i2=21;
-    i2=21;//override: if exponent is less than 10 still display a leading 0
-    if (exponent>99) i2=20;
-    for (i=i2;i<=22;i++) {tqbs->chr[i3]=qbs_str_buffer[i]; i3++;}
-    tqbs->len=i3;
-    return tqbs;
-    /////////////////////
-    asdecimal:
-    */    
-
-    //calculate digits after decimal point in var. i
-    i=-(exponent-digits+1);
-    if (i<0) i=0;
-    func_str_fmt[0]=37;//"%"
-    func_str_fmt[1]=32;//" "
-    func_str_fmt[2]=46;//"."
-    if (i>9){
-        func_str_fmt[3]=49;//"1"
-        func_str_fmt[4]=(i-10)+48;
-        }else{
-        func_str_fmt[3]=48;//"0"
-        func_str_fmt[4]=i+48;
-    }
-    func_str_fmt[5]=102;//"f"
-    func_str_fmt[6]=0;
-    tqbs->len=sprintf((char*)tqbs->chr,(const char*)&func_str_fmt,value);
-    if (tqbs->chr[1]==48){//must manually cull leading 0
-        memmove(tqbs->chr+1,tqbs->chr+2,tqbs->len-2);
-        tqbs->len--;
-    }
-    return tqbs;
-}
-
-qbs *qbs_str(long double value){
-    //not fully implemented
-    return qbs_str((double)value);
-}
+qbs *qbs_str(int64 value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_i64(value,b));}
+qbs *qbs_str(int32 value){return qbs_str((int64)value);}
+qbs *qbs_str(int16 value){return qbs_str((int64)value);}
+qbs *qbs_str(int8 value){return qbs_str((int64)value);}
+qbs *qbs_str(uint64 value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_u64(value,b));}
+qbs *qbs_str(uint32 value){return qbs_str((uint64)value);}
+qbs *qbs_str(uint16 value){return qbs_str((uint64)value);}
+qbs *qbs_str(uint8 value){return qbs_str((uint64)value);}
+qbs *qbs_str(float value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_f32(value,b));}
+qbs *qbs_str(double value){unsigned char b[QBRT_STR_MAX]; return qbs_str_from_rust(b,qbrt_str_f64(value,b));}
+qbs *qbs_str(long double value){return qbs_str((double)value);}
 
 
 int32 qbs_equal(qbs *str1,qbs *str2){
@@ -13631,224 +13339,18 @@ void qbs_input(int32 numvariables,uint8 newline){
         
 }//qbs_input
 
+// VAL lives in the Rust runtime (internal/c/qbrt/src/val.rs).
 long double func_val(qbs *s){
-    char c;
-    static int32 i,i2,step,num_significant_digits,most_significant_digit_position;
-    static int32 num_exponent_digits;
-    static int32 negate,negate_exponent;
-    static uint8 significant_digits[256];
-    static int64 exponent_value;
-    static uint8 built_number[256];
-    static long double return_value;
-    static int64 value;
-    static int64 hex_value;
-    static int32 hex_digits;
-    if (!s->len) return 0;
-    value=0;
-    negate_exponent=0;
-    num_exponent_digits=0;
-    num_significant_digits=0;
-    most_significant_digit_position=0;
-    step=0;
-    exponent_value=0;
-    negate=0;
-    
-    i=0;
-    for (i=0;i<s->len;i++){
-        c=(char)s->chr[i];
-        switch (c) {
-            case ' ':
-            case '\t':
-            goto whitespace;
-            break;
-            
-            case '&':
-            if (step==0) goto hex;
-            goto finish;
-            break;
-            
-            case '-':
-            if (step==0) {
-                negate = 1;
-                step = 1;
-                goto checked;
-            }
-            else if (step==3) {
-                negate_exponent = 1;
-                step = 4;
-                goto checked;
-            }
-            goto finish;
-            break;
-            
-            case '+':
-            if (step==0 || step==3) {
-                step++;
-                goto checked;
-            }
-            goto finish;
-            break;
-            
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
-            if (step<=1){//before decimal point
-                step=1;
-                if ((num_significant_digits)||(c>48)){
-                    most_significant_digit_position++;
-                    significant_digits[num_significant_digits]=c;
-                    num_significant_digits++;
-                    value=value*10+c-48;
-                }
-            }      
-            else if (step==2){//after decimal point
-                if ((num_significant_digits==0)&&(c==48)) most_significant_digit_position--;
-                if ((num_significant_digits)||(c>48)){
-                    significant_digits[num_significant_digits]=c;
-                    num_significant_digits++;
-                }
-            }
-            
-            else if (step>=3){//exponent
-                step=4;
-                if ((num_exponent_digits)||(c>48)){
-                    if (num_exponent_digits>=18) goto finish;
-                    exponent_value*=10; exponent_value=exponent_value+c-48;//precalculate
-                    num_exponent_digits++;
-                }
-            }
-            goto checked;
-            break;
-            
-            case '.':
-            if (step>1) goto finish;
-            step=2; goto checked;
-            break;
-            
-            case 'D':
-            case 'E':
-            case 'd':
-            case 'e':
-            if (step>2) goto finish;
-            step=3; goto checked;
-            break;
-            
-            default:
-            goto finish;//invalid character
-            break;
-        }
-        
-        checked:
-        whitespace:;
-    }
-    finish:;
-    
-    //Check for all-zero mantissa
-    if (num_significant_digits==0) return 0;
-    
-    //If no exponent (or E0) and no decimal part and no chance of overflowing value, return straight away
-    if (exponent_value==0 && num_significant_digits==most_significant_digit_position && num_significant_digits < 19){
-        return negate ? -value : value;
-    }
-    
-    //normalise number (change 123.456E2 to 1.23456E4, or 123.456 to 1.23456E2)
-    exponent_value=exponent_value+most_significant_digit_position-1;
-    
-    if (negate_exponent) exponent_value=-exponent_value;
-    i=0;
-    //we are now building a floating point number in ascii characters
-    if (negate) {built_number[i]=45; i++;}//-
-    if (num_significant_digits){
-        //build nomalised mantissa 
-        for (i2=0;i2<num_significant_digits;i2++){
-            if (i2==1){
-                built_number[i]=46;
-                i++;
-            }
-            built_number[i]=significant_digits[i2]; i++;
-        }
-        built_number[i]=69; i++;//E
-        //add exponent
-        #ifdef QBNex_WINDOWS
-            i2=sprintf((char*)&built_number[i],"%I64i",exponent_value);
-            #else
-            i2=sprintf((char*)&built_number[i],"%lli",exponent_value);
-        #endif
-        i=i+i2;
-        }else{
-        built_number[i]=48; i++;//0
-    }
-    built_number[i]=0;//NULL terminate
-    
-    #ifdef QBNex_MINGW
-        __mingw_sscanf((char*)&built_number[0],"%Lf",&return_value);
-        #else 
-        sscanf((char*)&built_number[0],"%Lf",&return_value);
+    unsigned char result[10];
+    int32 code=qbrt_val(s->chr,s->len,result);
+    if (code){error(code); return 0;}
+    #if LDBL_MANT_DIG == 64
+        long double value=0;
+        memcpy(&value,result,10);
+        return value;
+    #else
+        return qbrt_f80_to_f64(result);
     #endif
-    return return_value;
-    
-    hex://hex/oct
-    if (i>=(s->len-2)) return 0;
-    c=s->chr[i+1];
-    if ((c==79)||(c==111)){//"O"or"o"
-        hex_digits=0;
-        hex_value=0;
-        for (i=i+2;i<s->len;i++){
-            c=s->chr[i];
-            if ((c>=48)&&(c<=55)){//0-7
-                c-=48;
-                hex_value<<=3;
-                hex_value|=c;
-                if (hex_digits||c) hex_digits++; 
-                if (hex_digits>=22){
-                    if ((hex_digits>22)||(s->chr[i-21]>49)){error(6); return 0;}
-                }
-            }else break;
-        }//i
-        return hex_value;
-    }
-    if ((c==66)||(c==98)){//"B"or"b"
-        hex_digits=0;
-        hex_value=0;
-        for (i=i+2;i<s->len;i++){
-            c=s->chr[i];
-            if ((c>47)&&(c<50)){//0-1
-                c-=48;
-                hex_value<<=1;
-                hex_value|=c;
-                if (hex_digits||c) hex_digits++; 
-                if (hex_digits>64){error(6); return 0;}
-            }else 
-            break;
-        }//i
-        return hex_value;
-    }
-    if ((c==72)||(c==104)){//"H"or"h"
-        hex_digits=0;
-        hex_value=0;
-        for (i=i+2;i<s->len;i++){
-            c=s->chr[i];
-            if ( ((c>=48)&&(c<=57)) || ((c>=65)&&(c<=70)) || ((c>=97)&&(c<=102)) ){//0-9 or A-F or a-f
-                if ((c>=48)&&(c<=57)) c-=48;
-                if ((c>=65)&&(c<=70)) c-=55;
-                
-                if ((c>=97)&&(c<=102)) c-=87;
-                hex_value<<=4;
-                hex_value|=c;
-                if (hex_digits||c) hex_digits++;
-                if (hex_digits>16) {error(6); return 0;}
-            }else break;
-        }//i
-        return hex_value;
-    }
-    return 0;//& followied by unknown
 }
 
 
@@ -13974,84 +13476,30 @@ void sub_out(int32 port,int32 data){
     error(5);
 }
 
-uint32 rnd_seed=327680;
-uint32 rnd_seed_first=327680;//Note: must contain the same value as rnd_seed
-
+// RND / RANDOMIZE live in the Rust runtime (internal/c/qbrt/src/rnd.rs).
 void sub_randomize (double seed,int32 passed){
     if (new_error) return;
-    
-    if (passed==3){//USING
-        //Dim As Uinteger m = cptr(Uinteger Ptr, @n)[1]
-        static uint32 m;
-        m=((uint32*)&seed)[1];
-        //m Xor= (m Shr 16)
-        m^=(m>>16);
-        //rnd_seed = (m And &hffff) Shl 8 Or (rnd_seed And &hff)
-        rnd_seed=((m&0xffff)<<8)|(rnd_seed_first&0xff);//Note: rnd_seed changed to rnd_seed_first
-        return;
-    }
-    
-    if (passed==1){
-        //Dim As Uinteger m = cptr(Uinteger Ptr, @n)[1]
-        static uint32 m;
-        m=((uint32*)&seed)[1];
-        //m Xor= (m Shr 16)
-        m^=(m>>16);
-        //rnd_seed = (m And &hffff) Shl 8 Or (rnd_seed And &hff)
-        rnd_seed=((m&0xffff)<<8)|(rnd_seed&0xff);
-        return;
-    }
-    
+    if (passed==3||passed==1){qbrt_randomize(seed,passed==3); return;}
     qbs_print(qbs_new_txt("Random-number seed (-32768 to 32767)? "),0);
     static int16 integerseed;
     qbs_input_variabletypes[1]=16;//id.t=16 'a signed 16 bit integer
     qbs_input_variableoffsets[1]=&integerseed;
     qbs_input(1,1);
-    //rnd_seed = (m And &hffff) Shl 8 Or (rnd_seed And &hff) 'nb. same as above
-    rnd_seed=((integerseed&0xffff)<<8)|(rnd_seed&0xff);
-    return;
+    qbrt_randomize_prompt(integerseed);
 }
 
 float func_rnd(float n,int32 passed){
     if (new_error) return 0;
-    
-    static uint32 m;
-    if (!passed) n=1.0f;
-    if (n!=0.0){
-        if (n<0.0){
-            m=*((uint32*)&n);
-            rnd_seed=(m&0xFFFFFF)+((m&0xFF000000)>>24);
-        }
-        rnd_seed=(rnd_seed*16598013+12820163)&0xFFFFFF;
-    }     
-    return (double)rnd_seed/0x1000000;
+    return qbrt_rnd(n,passed);
 }
 
+// TIMER arithmetic lives in the Rust runtime (internal/c/qbrt/src/timer.rs).
 double func_timer(double accuracy,int32 passed){
     if (new_error) return 0;
-    static uint32 x;
-    static double d;
-    static float f;
-    x=GetTicks();
-    x-=clock_firsttimervalue;
-    x+=qbnex_firsttimervalue;
-    //make timer value loop after midnight
-    //note: there are 86400000 milliseconds in 24hrs(1 day)
-    x%=86400000;
-    d=x;//convert to double
-    d/=1000.0;//convert from ms to sec
-    //reduce accuracy
-    if (!passed){
-        accuracy=18.2;
-        }else{
-        if (accuracy<=0.0){error(5); return 0;}
-        accuracy=1.0/accuracy;
-    }
-    d*=accuracy;
-    d=qbr(d);
-    d/=accuracy;
-    if (!passed){f=d; d=f;}
-    return d;
+    double value;
+    int32 code=qbrt_timer(GetTicks(),clock_firsttimervalue,qbnex_firsttimervalue,accuracy,passed,&value);
+    if (code){error(code); return 0;}
+    return value;
 }
 
 void sub__delay(double seconds){
@@ -21846,8 +21294,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             //note: cursor state does not appear to be reset by the RUN command
             //im->cursor_show=0; im->cursor_firstvalue=4; im->cursor_lastvalue=4;
             //Reset RND & RANDOMIZE state
-            rnd_seed=327680;
-            rnd_seed_first=327680;//Note: must contain the same value as rnd_seed
+            qbrt_rnd_reset();
             //clear keyboard buffers
             sub__keyclear(NULL,0);
         }

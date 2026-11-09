@@ -59,6 +59,15 @@ FUNCTION HashTextFingerprint$ (textValue AS STRING)
     HashTextFingerprint$ = HEX$(h1) + "_" + HEX$(h2) + "_" + str2$(LEN(textValue))
 END FUNCTION
 
+FUNCTION QbrtStampPath$
+    DIM qbrtOs AS STRING
+    qbrtOs = LCASE$(os$)
+    IF MacOSX THEN qbrtOs = "osx"
+    p$ = "internal\c\qbrt\os\" + qbrtOs + "\libqbrt.stamp"
+    PATH_SLASH_CORRECT p$
+    QbrtStampPath$ = p$
+END FUNCTION
+
 FUNCTION HashFileFingerprint$ (filePath AS STRING)
     DIM fh AS LONG
     DIM fileLength AS _INTEGER64
@@ -195,6 +204,9 @@ FUNCTION GetNativeBuildCacheKey$ (libqb$, libs$, defines$, pchOptions$)
     keyMaterial = keyMaterial + "|" + libqb$ + "|" + libs$ + "|" + defines$ + "|" + pchOptions$
     keyMaterial = keyMaterial + "|" + mylibopt$ + "|" + HashFileFingerprint$(generatedSource)
     keyMaterial = keyMaterial + "|" + GeneratedTempSourcesFingerprint$
+    'libqbrt.stamp is rewritten on every Rust runtime build, so cached executables
+    'linked against an older libqbrt.a are not reused.
+    keyMaterial = keyMaterial + "|" + HashFileFingerprint$(QbrtStampPath$)
 
     IF inline_DATA = 0 AND DataOffset THEN
         keyMaterial = keyMaterial + "|" + HashFileFingerprint$(tmpdir2$ + "data.o")

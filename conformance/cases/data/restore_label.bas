@@ -1,0 +1,8 @@
+$CONSOLE:ONLY
+DATA 5
+second:
+DATA 99
+RESTORE second
+READ q
+PRINT q
+SYSTEM

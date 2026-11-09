@@ -1,0 +1,14 @@
+[package]
+name = "qbrt"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "QBNex runtime in Rust. Replaces libqb.cpp subsystems through a C ABI (strangler migration)."
+publish = false
+
+[lib]
+# staticlib: linked into qb-stage0, qb and every user program next to libqb_*.o
+# rlib: used by Rust unit tests and tools
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"

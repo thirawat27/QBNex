@@ -28,9 +28,18 @@ build.cmd
 !ENGINEERING_BACKLOG.md
 !docs/
 !docs/*.md
+!docs/**/*.md
+!internal/c/qbrt/**/*.md
 dist/
 dist-*
 *.log
 *.bak
 *.tmp
 build/
+
+# Rust workspace
+/target/
+
+# Legacy oracle build (conformance golden source)
+/.oracle/
+/internal/c/qbrt/os/*/libqbrt.stamp

@@ -1,3 +1,5 @@
+// Verbatim copy of legacy internal/c/msbin.cpp (commit 545b859). Test-only reference
+// oracle for diff_msbin.cpp; production code uses internal/c/qbrt/src/mbf.rs.
 // msbin.cpp — migrated from C to C++ (originally msbin.c)
 //
 // Implementations of Microsoft Binary Format (MBF) <-> IEEE floating point conversion.

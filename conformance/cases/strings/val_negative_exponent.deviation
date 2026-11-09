@@ -1,0 +1,1 @@
+Fixes legacy defect L-05: libqb negated the exponent after normalising, so VAL("123E-2") was .000123 and VAL("0.5E-1") was 5. QBasic semantics (expected output here) give 1.23 and .05.

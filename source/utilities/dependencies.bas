@@ -333,6 +333,13 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     PATH_SLASH_CORRECT libqb$
 
     libqbObjectPath = "internal\c\" + LTRIM$(RTRIM$(libqb$))
+
+    'Rust runtime (internal/c/qbrt) replaces libqb.cpp subsystems through a C ABI.
+    'libqb_*.o references its symbols. The archive and its native libraries are on the
+    'first line of internal/c/makeline_*.txt (so the bootstrap stage0 links it too);
+    'here we only make sure the archive exists.
+    qbrtDir$ = "internal\c\qbrt\os\" + o$
+    IF _FILEEXISTS(qbrtDir$ + "\libqbrt.a") = 0 THEN Build qbrtDir$
     libqbSourcePath = "internal\c\libqb.cpp"
     libqbHeaderPath = "internal\c\libqb.h"
     commonHeaderPath = "internal\c\common.h"

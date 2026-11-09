@@ -1,0 +1,4 @@
+$CONSOLE:ONLY
+PRINT 1, 2
+PRINT "a", "b"
+SYSTEM

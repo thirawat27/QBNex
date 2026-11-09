@@ -50,6 +50,40 @@ jobs:
         shell: cmd
         run: setup_win.cmd
 
+      - name: Rust runtime unit tests
+        shell: bash
+        run: cargo test --workspace --locked
+
+      - name: Differential tests, legacy C++ vs Rust (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh internal/c/qbrt/tests/run_diff.sh --quick
+
+      - name: Differential tests, legacy C++ vs Rust (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call internal\c\qbrt\tests\run_diff.cmd --quick
+
+      - name: Smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          for t in cli diagnostics warnings labels encoding stdlib audio; do
+            echo "::group::${t}_smoke"; sh "tests/${t}_smoke.sh"; echo "::endgroup::"
+          done
+
+      - name: Smoke tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for %%t in (cli diagnostics warnings labels encoding stdlib audio) do (
+            call tests\%%t_smoke.cmd || exit /b 1
+          )
+
+      - name: Conformance (golden output from the legacy C++ runtime)
+        shell: bash
+        run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
+
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
         shell: bash

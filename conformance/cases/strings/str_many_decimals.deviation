@@ -1,0 +1,1 @@
+D-04 fixes legacy defect L-07: libqb built the printf format "% .1<c>f" from a single character, so more than 19 decimals produced a broken format and STR$ returned " .0f". Expected output = the legacy algorithm with a correct "% .Nf" (computed with Python's exact '% .32f', leading zero culled).

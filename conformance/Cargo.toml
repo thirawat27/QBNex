@@ -1,0 +1,12 @@
+[package]
+name = "qbnex-conformance"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Differential conformance runner: compiles BASIC cases with qb and compares program output with golden files."
+publish = false
+
+[[bin]]
+name = "conformance"
+path = "src/main.rs"

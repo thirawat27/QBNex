@@ -40,3 +40,6 @@ reset.cmd
 
 # Assets (not needed at runtime)
 assets/
+
+# Rust build output
+target/

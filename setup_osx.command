@@ -53,6 +53,22 @@ if [ ! -f ./libqb_setup.o ]; then
 fi
 popd >/dev/null
 
+echo "Building library 'qbrt' (Rust runtime)"
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo was not found. Install Rust from https://rustup.rs and run this setup script again."
+  Pause
+  exit 1
+fi
+pushd internal/c/qbrt/os/osx >/dev/null
+rm -f libqbrt.a
+sh ./setup_build.command
+if [ ! -f ./libqbrt.a ]; then
+  echo "Compilation of ./internal/c/qbrt/os/osx/libqbrt.a failed!"
+  Pause
+  exit 1
+fi
+popd >/dev/null
+
 echo "Building library 'FreeType'"
 pushd internal/c/parts/video/font/ttf/os/osx >/dev/null
 rm -f src.o
@@ -69,7 +85,7 @@ mkdir -p ./internal/temp
 cp ./internal/source/* ./internal/temp/
 cp -r ./source/* ./internal/temp/
 pushd internal/c >/dev/null
-clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb-stage0
+clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o qbrt/os/osx/libqbrt.a -lSystem -lc -lm parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb-stage0
 popd >/dev/null
 
 echo ""
