@@ -12,3 +12,9 @@ publish = false
 # rlib: used by Rust unit tests and tools
 crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
+
+[dependencies]
+ab_glyph_rasterizer = "0.1.10"
+png = "0.18"
+skrifa = "0.36.0"
+zune-jpeg = "0.5.15"

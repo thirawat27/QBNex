@@ -57,6 +57,30 @@ int32_t qbrt_str_f64(double v, unsigned char *out);
 int32_t qbrt_timer(uint32_t ticks, uint32_t clock_first, uint32_t day_first,
                    double accuracy, int32_t passed, double *out);
 
+// --- _LOADIMAGE codecs (was dr_pcx + stb_image in parts/video/image/src.c) -------
+// Decodes PCX (dr_pcx rules) or BMP/PNG/JPEG/GIF/TGA/PNM (stb_image rules).
+// Returns w*h*4 bytes of BGRA allocated with malloc (release with free) or NULL.
+uint8_t *qbrt_image_decode(const uint8_t *data, int32_t len, int32_t *w, int32_t *h);
+// 32bpp BGRA -> 8bpp with ordered dithering; fills palette_out[256] (BGRA).
+// Returns w*h bytes allocated with malloc, or NULL.
+uint8_t *qbrt_image_to_8bpp(const uint8_t *bgra, int32_t w, int32_t h, uint32_t *palette_out);
+// Rewrites the indices of an 8bpp image from src_pal to the nearest colours of dst_pal.
+void qbrt_image_remap_palette(uint8_t *pixels, int32_t w, int32_t h, const uint32_t *src_pal,
+                              const uint32_t *dst_pal);
+
+// --- _LOADFONT fonts (was the FreeType wrapper parts/video/font/ttf/src.c) -------
+// Same contracts as the legacy FontLoad / FontRenderTextUTF32 / FontWidth / FontFree.
+// qbrt_font_load returns a handle >= 1 or 0; options 16 = monospace.
+// qbrt_font_render_utf32 returns 1/0; options 1 = monochrome; *out_data is malloc'ed
+// (NULL for an empty string) and released by the caller with free.
+int32_t qbrt_font_load(const uint8_t *content, int32_t bytes, int32_t pixel_height, int32_t which_font,
+                       int32_t options);
+int32_t qbrt_font_render_utf32(int32_t font, const uint32_t *codepoint, int32_t codepoints, int32_t options,
+                               uint8_t **out_data, int32_t *out_x, int32_t *out_y, int32_t *out_x_pre_increment,
+                               int32_t *out_x_post_increment);
+int32_t qbrt_font_width(int32_t font);
+void qbrt_font_free(int32_t font);
+
 #ifdef __cplusplus
 }
 #endif

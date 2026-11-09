@@ -15,6 +15,9 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod cmem;
+pub mod font;
+pub mod image;
 pub mod mbf;
 pub mod numfmt;
 pub mod rnd;
