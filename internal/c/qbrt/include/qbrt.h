@@ -184,6 +184,28 @@ int32_t qbrt_field_put(int32_t fileno, int64_t offset, int32_t passed);
 void qbrt_lset(uint8_t *dest, int32_t dlen, const uint8_t *src, int32_t slen);
 void qbrt_rset(uint8_t *dest, int32_t dlen, const uint8_t *src, int32_t slen);
 
+// --- File system (was sub_kill/name/chdir/mkdir/rmdir/files, _FILEEXISTS, _DIREXISTS, _CWD$)
+int32_t qbrt_kill(const uint8_t *s, int32_t len);
+int32_t qbrt_name(const uint8_t *a, int32_t alen, const uint8_t *b, int32_t blen);
+int32_t qbrt_chdir(const uint8_t *s, int32_t len);
+int32_t qbrt_mkdir(const uint8_t *s, int32_t len);
+int32_t qbrt_rmdir(const uint8_t *s, int32_t len);
+int32_t qbrt_exists(const uint8_t *s, int32_t len, int32_t dir); // -1 / 0
+int32_t qbrt_cwd(const uint8_t **out, int32_t *out_len);
+// FILES: lines to print joined with '\n' (directory, entries, "n Bytes free").
+int32_t qbrt_files(const uint8_t *s, int32_t len, int32_t passed, const uint8_t **out, int32_t *out_len);
+
+// --- ENVIRON$ / ENVIRON / COMMAND$ (was func_environ, sub_environ, func_command)
+void qbrt_environ_get(const uint8_t *name, int32_t len, const uint8_t **out, int32_t *out_len);
+int32_t qbrt_environ_index(char **envp, int32_t number, const uint8_t **out, int32_t *out_len);
+int32_t qbrt_environ_count(char **envp);
+int32_t qbrt_environ_set(const uint8_t *s, int32_t len);
+void qbrt_command_arg(char **array, int32_t count, int32_t index, const uint8_t **out, int32_t *out_len);
+
+// --- SHELL family (was func_shell, func__shellhide, sub_shell, sub_shell2-4)
+int64_t qbrt_shell_run(const uint8_t *cmd, int32_t len, int32_t show, int32_t wait, int32_t use_console);
+int64_t qbrt_shell_interactive(int32_t use_console);
+
 #ifdef __cplusplus
 }
 #endif

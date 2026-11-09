@@ -15,13 +15,16 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod env;
 pub mod fileio;
+pub mod fsops;
 pub mod gfs;
 pub mod mbf;
 pub mod mem;
 pub mod numfmt;
 pub mod rnd;
 pub mod round;
+pub mod shell;
 pub mod timer;
 pub mod val;
 #[cfg(windows)]
