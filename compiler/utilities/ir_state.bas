@@ -1,25 +1,21 @@
-' R11 spike: shared state of the QIR emitter (utilities/ir_emit.bas).
-' Module-level because QB64 needs DIM SHARED before the SUB/FUNCTION area.
-' See docs/rust-port/r11-emitter-design.md.
+' QIR v1 emitter state (utilities/ir_emit.bas). Module-level because QB64
+' needs DIM SHARED before the SUB/FUNCTION area. Spec: docs/rust-port/qir-v1.md
 DIM SHARED IrEmitMode AS _BYTE
-REDIM SHARED IrSrc(0) AS STRING
-DIM SHARED IrSrcN AS LONG
-REDIM SHARED IrTokT(0) AS INTEGER 'token kind: 1 identifier, 2 number, 3 string, 4 punctuation
-REDIM SHARED IrTokV(0) AS STRING
-DIM SHARED IrTokN AS LONG
-DIM SHARED IrP AS LONG
-DIM SHARED IrOut AS INTEGER
-DIM SHARED IrLine AS LONG
-DIM SHARED IrScope AS STRING
+'functions: 1 = main
+DIM SHARED IrFnN AS LONG, IrFnCur AS LONG
+REDIM SHARED IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING
+REDIM SHARED IrFnHead(1 TO 16) AS STRING, IrFnBody(1 TO 16) AS STRING
+REDIM SHARED IrFnDecls(1 TO 16) AS STRING, IrFnRetVar(1 TO 16) AS STRING
+REDIM SHARED IrFnRegs(1 TO 16) AS LONG
+'module level text (types, globals, data) and declared names
+DIM SHARED IrMod AS STRING, IrModDecls AS STRING, IrUdtDone AS STRING
+DIM SHARED IrT AS STRING 'register type of the last value produced by IrEval$
+DIM SHARED IrFailMsg AS STRING 'first unsupported construct
 DIM SHARED IrUniq AS LONG
-DIM SHARED IrOptBase AS LONG
-DIM SHARED IrDefSfx(1 TO 26) AS STRING 'DEFINT/DEFLNG/DEFSNG/DEFDBL/DEFSTR per letter
-REDIM SHARED IrDimName(0) AS STRING, IrDimSfx(0) AS STRING, IrDimScope(0) AS STRING
-DIM SHARED IrDimN AS LONG
-'SUB/FUNCTION table: base name (no suffix), QIR name, kind "S"/"F", params, argc
-REDIM SHARED IrSubName(0) AS STRING, IrSubIr(0) AS STRING, IrSubKind(0) AS STRING
-REDIM SHARED IrSubParams(0) AS STRING, IrSubArgc(0) AS LONG
-DIM SHARED IrSubN AS LONG
-'open blocks: IF, FOR, DO, WHILE, SELECT
-REDIM SHARED IrBlkKind(0) AS STRING, IrBlkId(0) AS LONG, IrBlkPart(0) AS LONG, IrBlkVar(0) AS STRING
-DIM SHARED IrBlkN AS LONG
+DIM SHARED IrFix AS STRING, IrFix2 AS STRING, IrFix3 AS STRING 'fixed expressions captured by hooks
+DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
+DIM SHARED IrDataN AS LONG
+'per control level (IF/SELECT/FOR...) state, indexed by controllevel
+REDIM SHARED IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
+DIM SHARED IrDefSeg AS LONG
+REDIM SHARED IrArgs(1 TO 100) AS STRING

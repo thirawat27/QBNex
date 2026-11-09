@@ -303,7 +303,6 @@ FUNCTION getpid& ()
 
     ConsoleMode = -1
     _DEST _CONSOLE
-    IF IrEmitMode THEN IrCompileProgram CMDLineFile, outputfile_cmd$ 'R11 spike, ends the process
 
     'Hash table layout. Keep this near the top-level declarations because the
     'hash arrays are shared across parser, semantic, and build phases.
@@ -2540,6 +2539,7 @@ FUNCTION getpid& ()
                         '1... a global number representing a return point after a gosub
                         'note: RETURN [label] should fail if a "return [NULL];" type return is required
                         StartMainPassSession
+                        IF IrEmitMode THEN IrInit
 
 
                         DO
@@ -2732,6 +2732,7 @@ FUNCTION getpid& ()
 
                     layout$ = tlayout$
                     PRINT #12, "LABEL_" + label$ + ":;"
+                    IF IrEmitMode THEN IrLabelDef label$
 
 
                     IF INSTR(label$, "p") THEN MID$(label$, INSTR(label$, "p"), 1) = "."
@@ -2798,6 +2799,7 @@ FUNCTION getpid& ()
                     IF LEN(layout$) THEN layout$ = layout$ + sp + tlayout$ + ":" ELSE layout$ = tlayout$ + ":"
 
                     PRINT #12, "LABEL_" + a$ + ":;"
+                    IF IrEmitMode THEN IrLabelDef a$
                     inclinenump$ = ""
                     IF inclinenumber(inclevel) THEN
                         inclinenump$ = "," + str2$(inclinenumber(inclevel))
@@ -3027,6 +3029,7 @@ FUNCTION getpid& ()
                     IF v2 < 65 THEN v2 = v2 - 48 ELSE v2 = v2 - 55
                     ASC(e$, x) = v1 + v2 * 16
                 NEXT
+                IF IrEmitMode THEN IrData e$
                 l$ = l$ + sp + e$
             END IF 'n=2
 
@@ -4077,6 +4080,7 @@ IF n >= 1 THEN
     END IF
 
     subfunc = RTRIM$(id.callname) 'SUB_..."
+    IF IrEmitMode THEN IrBeginFn LTRIM$(RTRIM$(removecast$(RTRIM$(id.callname)))), ""
     IF id.subfunc = 1 THEN subfuncoriginalname$ = "FUNCTION " ELSE subfuncoriginalname$ = "SUB "
     subfuncoriginalname$ = subfuncoriginalname$ + RTRIM$(id.cn)
     subfuncn = subfuncn + 1
@@ -4150,6 +4154,7 @@ IF n >= 1 THEN
         ignore = dim2(e$, symbol$, 0, "")
         IF Error_Happened THEN GOTO errmes
         reginternalvariable = 0
+        IF IrEmitMode THEN IrFnRet(IrFnCur) = IrTy$(rettyp): IrFnRetVar(IrFnCur) = IrVar$(currentid)
         'the following line stops the return variable from being free'd before being returned
         CLOSE #19: OPEN tmpdir$ + "free" + str2$(subfuncn) + ".txt" FOR OUTPUT AS #19
         'create return
@@ -4329,6 +4334,7 @@ IF n >= 1 THEN
 
                     ignore = dim2(n2$, t2$, dimmethod, str2$(nele))
                     IF Error_Happened THEN GOTO errmes
+                    IF IrEmitMode THEN IrParam currentid
                 ELSE
                     nele = 1
                     MID$(id2.nele, params, 1) = CHR$(nele)
@@ -4337,6 +4343,7 @@ IF n >= 1 THEN
 
                     ignore = dim2(n2$, t2$, dimmethod, "?")
                     IF Error_Happened THEN GOTO errmes
+                    IF IrEmitMode THEN IrParam currentid
                 END IF
 
                 dimsfarray = 0
@@ -4373,6 +4380,7 @@ IF n >= 1 THEN
                 dimsfarray = 1
                 ignore = dim2(n2$, t2$, dimmethod, "")
                 IF Error_Happened THEN GOTO errmes
+                IF IrEmitMode THEN IrParam currentid
 
 
                 dimsfarray = 0
@@ -4585,6 +4593,7 @@ IF n = 2 THEN
         staticarraylist = "": staticarraylistn = 0 'remove previously listed arrays
         dimstatic = 0
         PRINT #12, "exit_subfunc:;"
+        IF IrEmitMode THEN IrEndFn
         IF vWatchOn = 1 THEN
             IF NoChecks = 0 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
@@ -4817,6 +4826,7 @@ IF closedmain <> 0 AND subfunc = "" THEN a$ = "Statement cannot be placed betwee
 'executable section:
 
 statementn = statementn + 1
+IF IrEmitMode THEN IrLine
 
 
 IF n >= 1 THEN
@@ -4855,6 +4865,7 @@ IF n >= 1 THEN
                 IF controltype(controllevel) <> 2 THEN a$ = "NEXT without FOR": GOTO errmes
                 IF n <> 1 AND controlvalue(controllevel) <> currentid THEN a$ = "Incorrect variable after NEXT": GOTO errmes
                 PRINT #12, "fornext_continue_" + str2$(controlid(controllevel)) + ":;"
+                IF IrEmitMode THEN IrNext controlid(controllevel)
                 IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 AND NoChecks = 0 THEN
                     vWatchAddLabel linenumber, 0
                     PRINT #12, "*__LONG_VWATCH_LINENUMBER= " + str2$(linenumber) + "; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars); if (*__LONG_VWATCH_GOTO>0) goto VWATCH_SETNEXTLINE; if (*__LONG_VWATCH_GOTO<0) goto VWATCH_SKIPLINE;"
@@ -4898,6 +4909,7 @@ IF n >= 1 THEN
             e$ = fixoperationorder(getelements$(ca$, 2, n))
             IF Error_Happened THEN GOTO errmes
             l$ = SCase$("While") + sp + tlayout$
+            IrFix = e$
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             e$ = evaluate(e$, typ)
             IF Error_Happened THEN GOTO errmes
@@ -4909,6 +4921,7 @@ IF n >= 1 THEN
                 vWatchAddLabel linenumber, 0
                 PRINT #12, "*__LONG_VWATCH_LINENUMBER= " + str2$(linenumber) + "; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars); if (*__LONG_VWATCH_GOTO>0) goto VWATCH_SETNEXTLINE; if (*__LONG_VWATCH_GOTO<0) goto VWATCH_SKIPLINE;"
             END IF
+            IF IrEmitMode THEN IrWhile controlid(controllevel), IrFix, 0
             PRINT #12, "while((" + e$ + ")||new_error){"
         ELSE
             a$ = "WHILE ERROR! Expected expression after WHILE.": GOTO errmes
@@ -4924,6 +4937,7 @@ IF n = 1 THEN
 
         IF controltype(controllevel) <> 5 THEN a$ = "WEND without WHILE": GOTO errmes
         PRINT #12, "ww_continue_" + str2$(controlid(controllevel)) + ":;"
+        IF IrEmitMode THEN IrLoop controlid(controllevel), 0, "", -1
         PRINT #12, "}"
         PRINT #12, "ww_exit_" + str2$(controlid(controllevel)) + ":;"
         controllevel = controllevel - 1
@@ -4958,6 +4972,7 @@ IF n >= 1 THEN
             e$ = fixoperationorder(getelements$(ca$, 3, n))
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + tlayout$
+            IrFix = e$
             e$ = evaluate(e$, typ)
             IF Error_Happened THEN GOTO errmes
             IF (typ AND ISREFERENCE) THEN e$ = refer$(e$, typ, 0)
@@ -4980,6 +4995,10 @@ IF n >= 1 THEN
             END IF
         END IF
         controlid(controllevel) = uniquenumber
+        IF IrEmitMode THEN
+            IrDo controlid(controllevel)
+            IF controltype(controllevel) = 4 THEN IrWhile controlid(controllevel), IrFix, whileuntil - 1
+        END IF
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         GOTO finishedline
     END IF
@@ -5000,6 +5019,7 @@ IF n >= 1 THEN
             e$ = fixoperationorder(getelements$(ca$, 3, n))
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + tlayout$
+            IrFix = e$
             e$ = evaluate(e$, typ)
             IF Error_Happened THEN GOTO errmes
             IF (typ AND ISREFERENCE) THEN e$ = refer$(e$, typ, 0)
@@ -5025,6 +5045,9 @@ IF n >= 1 THEN
             ELSE
                 PRINT #12, "}while(1);" 'infinite loop!
             END IF
+        END IF
+        IF IrEmitMode THEN
+            IF n >= 2 THEN IrLoop controlid(controllevel), whileuntil, IrFix, 0 ELSE IrLoop controlid(controllevel), 0, "", (controltype(controllevel) = 4)
         END IF
         PRINT #12, "dl_exit_" + str2$(controlid(controllevel)) + ":;"
         controllevel = controllevel - 1
@@ -5096,6 +5119,7 @@ IF n >= 1 THEN
         e$ = fixoperationorder(v$)
         IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp + tlayout$
+        IrFix = e$
         e$ = evaluate(e$, typ)
         IF Error_Happened THEN GOTO errmes
         IF (typ AND ISREFERENCE) THEN
@@ -5193,6 +5217,7 @@ IF n >= 1 THEN
         PRINT #12, "if (fornext_value" + u$ + ">fornext_finalvalue" + u$ + ") break;"
         PRINT #12, "}"
         PRINT #12, "fornext_error" + u$ + ":;"
+        IF IrEmitMode THEN IrFor controlid(controllevel), IrFix, ctyp, startvalue$, p2$, p3$
 
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
 
@@ -5241,6 +5266,7 @@ IF n = 1 THEN
                 IF controlstate(controllevel) = 2 THEN a$ = "IF-THEN already contains an ELSE statement": GOTO errmes
                 PRINT #12, "}else{"
                 controlstate(controllevel) = 2
+                IF IrEmitMode THEN IrElse
                 IF lineelseused = 0 THEN lhscontrollevel = lhscontrollevel - 1
                 l$ = SCase$("Else")
                 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -5270,6 +5296,7 @@ IF n >= 3 THEN
                 IF e$ <> "THEN" THEN a$ = "Expected ELSEIF expression THEN": GOTO errmes
                 PRINT #12, "}else{"
                 e$ = fixoperationorder$(getelements$(ca$, 2, n - 1))
+                IrFix = e$
                 IF Error_Happened THEN GOTO errmes
                 l$ = SCase$("ElseIf") + sp + tlayout$ + sp + SCase$("Then")
                 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -5285,6 +5312,7 @@ IF n >= 3 THEN
                 ELSE
                     PRINT #12, "if (" + e$ + "){"
                 END IF
+                IF IrEmitMode THEN IrElseIf IrFix
                 lhscontrollevel = lhscontrollevel - 1
                 GOTO finishedline
             END IF
@@ -5321,6 +5349,7 @@ IF n >= 3 THEN
         controlstate(controllevel) = 0
 
         e$ = fixoperationorder$(getelements(ca$, 2, n - 1))
+        IrFix = e$
         IF Error_Happened THEN GOTO errmes
         l$ = SCase$("If") + sp + tlayout$
         e$ = evaluate(e$, typ)
@@ -5337,6 +5366,7 @@ IF n >= 3 THEN
         ELSE
             PRINT #12, "if ((" + e$ + ")||new_error){"
         END IF
+        IF IrEmitMode THEN IrIf IrFix
 
         IF iftype = 1 THEN l$ = l$ + sp + SCase$("Then") 'note: 'GOTO' will be added when iftype=2
         layoutdone = 1: IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
@@ -5358,6 +5388,8 @@ IF n = 1 AND getelement(a$, 1) = "ENDIF" THEN
         l$ = SCase$("End If")
         IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
     END IF
+
+    IF IrEmitMode THEN IrEndIf
 
     PRINT #12, "}"
     FOR i = 1 TO controlvalue(controllevel)
@@ -5384,6 +5416,8 @@ IF n = 2 THEN
             vWatchAddLabel linenumber, 0
             PRINT #12, "*__LONG_VWATCH_LINENUMBER= " + str2$(linenumber) + "; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars); if (*__LONG_VWATCH_GOTO>0) goto VWATCH_SETNEXTLINE; if (*__LONG_VWATCH_GOTO<0) goto VWATCH_SKIPLINE;"
         END IF
+
+        IF IrEmitMode THEN IrEndIf
 
         PRINT #12, "}"
         FOR i = 1 TO controlvalue(controllevel)
@@ -5432,6 +5466,7 @@ IF n >= 1 THEN
         END IF
 
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+        IrFix = e$
         e$ = evaluate(e$, typ)
         IF Error_Happened THEN GOTO errmes
         u = uniquenumber
@@ -5499,6 +5534,7 @@ IF n >= 1 THEN
         controlref(controllevel) = linenumber
         controltype(controllevel) = 10 + t
         controlid(controllevel) = u
+        IF IrEmitMode THEN IrSelect IrFix
         IF EveryCaseSet(SelectCaseCounter) THEN PRINT #13, "int32 sc_" + str2$(controlid(controllevel)) + "_var;"
         IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "sc_" + str2$(controlid(controllevel)) + "_var=0;"
         GOTO finishedline
@@ -5524,6 +5560,7 @@ IF n = 2 THEN
             IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "} /* End of SELECT EVERYCASE ELSE */"
         END IF
 
+        IF IrEmitMode THEN IrEndSelect
         PRINT #12, "sc_" + str2$(controlid(controllevel)) + "_end:;"
         IF controltype(controllevel) < 10 OR controltype(controllevel) > 17 THEN a$ = "END SELECT without SELECT CASE": GOTO errmes
 
@@ -5581,6 +5618,7 @@ IF n >= 1 THEN
         IF controltype(controllevel) <> 6 AND (controltype(controllevel) < 10 OR controltype(controllevel) > 17) THEN a$ = "CASE without SELECT CASE": GOTO errmes
         IF n = 1 THEN a$ = "Expected CASE expression": GOTO errmes
         SelectCaseHasCaseBlock(SelectCaseCounter) = -1
+        IF IrEmitMode THEN IrCase getelements$(ca$, 2, n), EveryCaseSet(SelectCaseCounter), (secondelement$ = "C-EL")
 
 
         'upgrade:
@@ -5771,6 +5809,7 @@ IF n >= 1 THEN
             e$ = fixoperationorder(e$)
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + tlayout$
+            IrFix = e$
             e$ = evaluate(e$, typ)
             IF Error_Happened THEN GOTO errmes
             IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
@@ -6063,7 +6102,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 3 OR t = 4 THEN
-                    PRINT #12, "goto dl_exit_" + str2$(controlid(i)) + ";"
+                    PRINT #12, "goto dl_exit_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".X"
                     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                     GOTO finishedline
                 END IF
@@ -6077,7 +6116,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 2 THEN
-                    PRINT #12, "goto fornext_exit_" + str2$(controlid(i)) + ";"
+                    PRINT #12, "goto fornext_exit_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~F" + str2$(controlid(i)) + ".X"
                     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                     GOTO finishedline
                 END IF
@@ -6091,7 +6130,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 5 THEN
-                    PRINT #12, "goto ww_exit_" + str2$(controlid(i)) + ";"
+                    PRINT #12, "goto ww_exit_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".X"
                     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                     GOTO finishedline
                 END IF
@@ -6105,7 +6144,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 18 OR t = 19 THEN 'CASE/CASE ELSE
-                PRINT #12, "goto sc_" + str2$(controlid(i - 1)) + "_end;"
+                PRINT #12, "goto sc_" + str2$(controlid(i - 1)) + "_end;": IF IrEmitMode THEN IrE "jmp ~S" + str2$(controlid(i - 1)) + ".E"
                 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                 GOTO finishedline
             END IF
@@ -6123,7 +6162,7 @@ IF n = 2 THEN
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         ELSEIF t = 19 THEN 'CASE ELSE
-            PRINT #12, "goto sc_" + str2$(controlid(i - 1)) + "_end;"
+            PRINT #12, "goto sc_" + str2$(controlid(i - 1)) + "_end;": IF IrEmitMode THEN IrE "jmp ~S" + str2$(controlid(i - 1)) + ".E"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         END IF
@@ -6955,6 +6994,7 @@ IF n = 2 THEN
             IF LEN(subfunc) = 0 THEN a$ = "EXIT " + secondelement$ + " must be used within a " + secondelement$: GOTO errmes
 
             PRINT #12, "goto exit_subfunc;"
+            IF IrEmitMode THEN IrE "jmp ~EXIT"
             IF LEFT$(subfunc, 4) = "SUB_" THEN secondelement$ = SCase$("Sub") ELSE secondelement$ = SCase$("Function")
             l$ = SCase$("Exit") + sp + secondelement$
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -7722,6 +7762,7 @@ END IF
 dimcommonarray:
 retval = dim2(varname$, typ$, dimmethod, elements$)
 IF Error_Happened THEN GOTO errmes
+IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption
 skipdim:
 IF dimshared >= 2 THEN dimshared = dimshared - 2
 
@@ -8032,6 +8073,7 @@ IF n = 2 THEN
     IF LEN(l$) THEN l$ = l$ + sp + tlayout$ ELSE l$ = tlayout$
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     PRINT #12, "goto LABEL_" + a2$ + ";"
+    IF IrEmitMode THEN IrGoto a2$
     GOTO finishedline
 END IF
 END IF
@@ -8043,15 +8085,15 @@ IF n = 1 THEN
         FOR i = controllevel TO 1 STEP -1
             t = controltype(i)
             IF t = 2 THEN 'for...next
-            PRINT #12, "goto fornext_continue_" + str2$(controlid(i)) + ";"
+            PRINT #12, "goto fornext_continue_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~F" + str2$(controlid(i)) + ".C"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         ELSEIF t = 3 OR t = 4 THEN 'do...loop
-            PRINT #12, "goto dl_continue_" + str2$(controlid(i)) + ";"
+            PRINT #12, "goto dl_continue_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".C"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         ELSEIF t = 5 THEN 'while...wend
-            PRINT #12, "goto ww_continue_" + str2$(controlid(i)) + ";"
+            PRINT #12, "goto ww_continue_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".C"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         END IF
@@ -8168,6 +8210,7 @@ IF firstelement$ = "END" THEN
         l$ = l$ + sp + l2$
     END IF
     xend
+    IF IrEmitMode THEN IrE "end"
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     GOTO finishedline
 END IF
@@ -8202,6 +8245,9 @@ IF firstelement$ = "SYSTEM" THEN
     PRINT #12, "if (sub_gl_called) error(271);"
     PRINT #12, "close_program=1;"
     PRINT #12, "end();"
+    IF IrEmitMode THEN
+        IF n > 1 THEN IrE "system " + IrEvalTo$(fixoperationorder$(getelements$(ca$, 2, n)), INTEGER64TYPE - ISPOINTER) ELSE IrE "system"
+    END IF
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     GOTO finishedline
 END IF
@@ -8226,6 +8272,7 @@ IF n >= 1 THEN
             PRINT #12, "close_program=1;"
             PRINT #12, "end();"
         END IF
+        IF IrEmitMode THEN IrE "stop"
         GOTO finishedline
     END IF
 END IF
@@ -8243,6 +8290,7 @@ IF n >= 1 THEN
     IF firstelement$ = "RETURN" THEN
         IF n = 1 THEN
             PRINT #12, "#include " + CHR$(34) + "ret" + str2$(subfuncn) + ".txt" + CHR$(34)
+            IF IrEmitMode THEN IrE "gret"
             l$ = SCase$("Return")
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
@@ -8281,6 +8329,7 @@ IF n >= 1 THEN
         END IF 'x
 
         PRINT #12, "goto LABEL_" + a2$ + ";"
+        IF IrEmitMode THEN IrE "gretl " + IrLbl$(a2$)
         l$ = SCase$("Return") + sp + tlayout$
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         GOTO finishedline
@@ -8296,6 +8345,7 @@ IF n >= 1 THEN
 
 
             PRINT #12, "if (!error_handling){error(20);}else{error_retry=1; qbevent=1; error_handling=0; error_err=0; return;}"
+            IF IrEmitMode THEN IrE "resume"
 
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
@@ -8306,6 +8356,7 @@ IF n >= 1 THEN
 
 
             PRINT #12, "if (!error_handling){error(20);}else{error_handling=0; error_err=0; return;}"
+            IF IrEmitMode THEN IrE "resume next"
 
             l$ = l$ + sp + SCase$("Next")
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -8342,6 +8393,7 @@ IF n >= 1 THEN
     l$ = l$ + sp + tlayout$
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     PRINT #12, "if (!error_handling){error(20);}else{error_handling=0; error_err=0; goto LABEL_" + s$ + ";}"
+    IF IrEmitMode THEN IrE "resume " + IrLbl$(s$)
     GOTO finishedline
 END IF
 END IF
@@ -8352,6 +8404,7 @@ IF n = 4 THEN
         lbl$ = getelement$(ca$, 4)
         IF lbl$ = "0" THEN
             PRINT #12, "error_goto_line=0;"
+            IF IrEmitMode THEN IrE "onerror 0"
             l$ = l$ + sp + "0"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
@@ -8391,6 +8444,7 @@ IF n = 4 THEN
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     errorlabels = errorlabels + 1
     PRINT #12, "error_goto_line=" + str2(errorlabels) + ";"
+    IF IrEmitMode THEN IrE "onerror " + IrLbl$(lbl$)
     PRINT #14, "if (error_goto_line==" + str2(errorlabels) + "){error_handling=1; goto LABEL_" + lbl$ + ";}"
     GOTO finishedline
 END IF
@@ -8401,6 +8455,7 @@ IF n >= 1 THEN
         l$ = SCase$("Restore")
         IF n = 1 THEN
             PRINT #12, "data_offset=0;"
+            IF IrEmitMode THEN IrE "restore"
         ELSE
             IF n > 2 THEN a$ = "Syntax error - too many parameters (expected RESTORE label/line number)": GOTO errmes
             lbl$ = getelement$(ca$, 2)
@@ -8430,6 +8485,7 @@ IF n >= 1 THEN
 
         l$ = l$ + sp + tlayout$
         PRINT #12, "data_offset=data_at_LABEL_" + lbl$ + ";"
+        IF IrEmitMode THEN IrE "restore " + IrLbl$(lbl$)
     END IF
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     GOTO finishedline
@@ -10432,6 +10488,10 @@ IF firstelement$ = "SLEEP" THEN
 END IF
 
 PRINT #12, subcall$
+IF IrEmitMode THEN
+    FOR i = 1 TO id2.args: IrArgs(i) = separgs_local$(i): NEXT
+    IrSubCall targetid, id2.args, passed&
+END IF
 
 IF firstelement$ = "SLEEP" THEN
     IF vWatchOn = 1 THEN
@@ -10696,6 +10756,8 @@ END IF
 IF ideindentsubs = 0 THEN
     IF LEN(subfunc) THEN a$ = "SUB/FUNCTION without END SUB/FUNCTION": GOTO errmes
 END IF
+
+IF IrEmitMode THEN IrFinish CMDLineFile, outputfile_cmd$
 
 'close the error handler (cannot be put in 'closemain' because subs/functions can also add error jumps to this file)
 PRINT #14, "exit(99);" 'in theory this line should never be run!
@@ -11664,6 +11726,7 @@ IF recompile THEN
         END SUB
 
         SUB closemain
+            IF IrEmitMode THEN IrCloseMain
             xend
 
             PRINT #12, "return;"
@@ -12760,6 +12823,7 @@ IF recompile THEN
     'note: This code fragment also used by ON ... GOTO/GOSUB
     'assume label is reachable (revise)
     PRINT #12, "return_point[next_return_point++]=" + str2(gosubid) + ";"
+    IF IrEmitMode THEN IrGosub a2$
     PRINT #12, "if (next_return_point>=return_points) more_return_points();"
     PRINT #12, "goto LABEL_" + a2$ + ";"
     'add return point jump
@@ -12888,6 +12952,7 @@ SUB xprint (a$, ca$, n)
                     IF a2$ = ";" THEN
                         e$ = fixoperationorder$(e$)
                         IF Error_Happened THEN EXIT SUB
+                        IrFix2 = e$
                         l$ = l$ + sp + tlayout$ + sp2 + ";"
                         e$ = evaluate(e$, typ)
                         IF Error_Happened THEN EXIT SUB
@@ -12902,6 +12967,7 @@ SUB xprint (a$, ca$, n)
             NEXT
             IF puformat$ = "" THEN Give_Error "Expected PRINT USING formatstring ; ...": EXIT SUB
             IF i = n THEN Give_Error "Expected PRINT USING formatstring ; ...": EXIT SUB
+            IF IrEmitMode THEN IrE "rt USINGBEGIN " + IrI32$(0) + " " + IrEvalTo$(IrFix2, ISSTRING)
             'create build string
             IF TQBSset = 0 THEN
                 PRINT #12, "tqbs=qbs_new(0,0);"
@@ -12935,6 +13001,7 @@ SUB xprint (a$, ca$, n)
                         printulast:
                         e$ = fixoperationorder$(e$)
                         IF Error_Happened THEN EXIT SUB
+                        IF IrEmitMode THEN IrUsingItem e$
                         IF last THEN l$ = l$ + sp + tlayout$ ELSE l$ = l$ + sp + tlayout$ + sp2 + a2$
                         e$ = evaluate(e$, typ)
                         IF Error_Happened THEN EXIT SUB
@@ -12989,6 +13056,10 @@ SUB xprint (a$, ca$, n)
             NEXT
             IF e$ <> "" THEN a2$ = "": last = 1: GOTO printulast
             PRINT #12, "skip_pu" + u$ + ":"
+            IF IrEmitMode THEN
+                IrE "rt USINGEND"
+                IF a2$ <> "," AND a2$ <> ";" THEN IrRtCh "PRINTNL", "0"
+            END IF
             'check for errors
             PRINT #12, "if (new_error){"
             PRINT #12, "g_tmp_long=new_error; new_error=0; qbs_" + lp$ + "print(tqbs,0); new_error=g_tmp_long;"
@@ -13030,6 +13101,7 @@ SUB xprint (a$, ca$, n)
                     printnumber:
                     e$ = fixoperationorder$(e$)
                     IF Error_Happened THEN EXIT SUB
+                    IrFix = e$
                     IF pnrtnum = 0 THEN
                         IF last THEN l$ = l$ + sp + tlayout$ ELSE l$ = l$ + sp + tlayout$ + sp2 + a2$
                     END IF
@@ -13044,6 +13116,7 @@ SUB xprint (a$, ca$, n)
                     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                     IF Error_Happened THEN EXIT SUB
                     PRINT #12, "qbs_set(tqbs," + e$ + ");"
+                    IF IrEmitMode THEN IrPrintStr "0", IrFix
                     PRINT #12, "if (new_error) goto skip" + u$ + ";"
                     IF lp THEN PRINT #12, "lprint_makefit(tqbs);" ELSE PRINT #12, "makefit(tqbs);"
                     PRINT #12, "qbs_" + lp$ + "print(tqbs,0);"
@@ -13053,13 +13126,14 @@ SUB xprint (a$, ca$, n)
                         IF RIGHT$(l$, 1) <> ";" THEN l$ = l$ + sp + a2$ 'concat ;; to ;
                     END IF
                 END IF 'len(e$)
-                IF a2$ = "," THEN PRINT #12, "tab();"
+                IF a2$ = "," THEN PRINT #12, "tab();": IF IrEmitMode THEN IrRtCh "PRINTZONE", "0"
                 e$ = ""
 
                 IF gotopu THEN i = i + 1: GOTO pujump
 
                 IF last THEN
                     PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);" 'go to new line
+                    IF IrEmitMode THEN IrRtCh "PRINTNL", "0"
                     EXIT FOR
                 END IF
 
@@ -13071,7 +13145,7 @@ SUB xprint (a$, ca$, n)
         printnext:
     NEXT
     IF LEN(e$) THEN a2$ = "": last = 1: GOTO printlast
-    IF n = 1 THEN PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);"
+    IF n = 1 THEN PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);": IF IrEmitMode THEN IrRtCh "PRINTNL", "0"
     PRINT #12, "skip" + u$ + ":"
     PRINT #12, "qbs_free(tqbs);"
     PRINT #12, cleanupstringprocessingcall$ + "0);"

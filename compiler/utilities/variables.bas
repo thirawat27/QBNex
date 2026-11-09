@@ -533,6 +533,7 @@ SUB assign (a$, n)
 
         a2$ = fixoperationorder(getelements$(a$, 1, i - 1))
         IF Error_Happened THEN EXIT SUB
+        irlhs$ = a2$
         l$ = tlayout$ + sp + "=" + sp
 
         'note: evaluating a2$ will fail if it is setting a function's return value without this check (as the function, not the return-variable) will be found by evaluate)
@@ -558,6 +559,7 @@ assignsimplevariable:
 IF (typ AND ISREFERENCE) = 0 THEN Give_Error "Expected variable =": EXIT SUB
 setrefer a2$, typ, getelements$(a$, i + 1, n), 0
 IF Error_Happened THEN EXIT SUB
+IF IrEmitMode THEN IrAssign irlhs$, getelements$(a$, i + 1, n)
 tlayout$ = l$ + tlayout$
 
 EXIT SUB
