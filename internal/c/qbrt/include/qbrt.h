@@ -147,6 +147,9 @@ int32_t qbrt_gfx_put(struct img_struct *im, float x1, float y1, const uint8_t *d
 // PCOPY on resolved pages; built-in font glyph at the text cursor of a graphics page.
 int32_t qbrt_gfx_pcopy(const struct img_struct *s, const struct img_struct *d);
 void qbrt_gfx_printchr(const struct img_struct *im, int32_t character);
+// Software _MAPTRIANGLE on resolved surfaces: s = sx1,sy1,..,sy3; d = dx1,dy1,..,dy3.
+int32_t qbrt_gfx_maptriangle(const struct img_struct *src, const struct img_struct *dst, const float *s, const float *d,
+                             int32_t seamless);
 // Headless framebuffer capture (QBNEX_FB_CAPTURE); kind 0 = _DISPLAY, 1 = end.
 void qbrt_fb_capture(const struct img_struct *display_page, int32_t kind);
 

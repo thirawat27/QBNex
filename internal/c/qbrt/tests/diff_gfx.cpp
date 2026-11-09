@@ -126,12 +126,20 @@ using std::swap;
 static uint8 cmem[1114099];
 #include "legacy/gfx_draw.inc"
 // _PUTIMAGE: hardware-image plumbing is stubbed out (software surfaces only)
-struct hardware_img_struct { int32 w, h; uint8 alpha_disabled; };
+struct hardware_img_struct { int32 w, h; uint8 alpha_disabled; int32 depthbuffer_mode; };
 struct hardware_graphics_command_struct {
     int32 remove, command, src_img, dst_img, smooth, use_alpha, next_command;
     int64 order;
     float src_x1, src_y1, src_x2, src_y2, dst_x1, dst_y1, dst_x2, dst_y2;
+    float src_x3, src_y3, dst_x3, dst_y3, dst_z1, dst_z2, dst_z3;
+    int32 cull_mode, depthbuffer_mode;
 };
+#define HARDWARE_GRAPHICS_COMMAND__MAPTRIANGLE 2
+#define HARDWARE_GRAPHICS_COMMAND__MAPTRIANGLE3D 3
+#define CULL_MODE__NONE 0
+#define CULL_MODE__CLOCKWISE_ONLY 1
+#define CULL_MODE__ANTICLOCKWISE_ONLY 2
+static int32 depthbuffer_mode0 = 0, depthbuffer_mode1 = 0;
 #define HARDWARE_IMG_HANDLE_OFFSET -8388608
 #define HARDWARE_GRAPHICS_COMMAND__PUTIMAGE 1
 static ptrszint *hardware_img_handles = NULL, *hardware_graphics_command_handles = NULL;
@@ -154,6 +162,7 @@ static uint8 qb_unicode_to_screen_byte(int32) { return 0; }
 static void qb_store_text_cell_utf8(img_struct *, int32, uint32, int32) {}
 inline img_struct *resolve_page_or_image_ptr(int32 handle, int32 &resolved_index) { resolved_index = -handle; return &img[-handle]; }
 #include "legacy/gfx_getput_text.inc"
+#include "legacy/gfx_maptri.inc"
 } // namespace legacy
 
 #include "../include/qbrt.h"
@@ -912,6 +921,58 @@ static void check_f80() {
     if (bad) { ++failures; failures_by_op["f80 load"] += bad; printf("MISMATCH f80 load: %ld\n", bad); }
 }
 
+// --- _MAPTRIANGLE (software) between a source twin and t -----------------------
+static void op_maptri(Twin &t) {
+    Twin S;
+    static const int compat8[] = {13, 12, 7, 9, 256, 1, 2};
+    int sbpp = t.L.bytes_per_pixel == 4 ? 32 : t.L.compatible_mode;
+    if (next() % 8 == 0) sbpp = (next() % 2) ? 32 : compat8[next() % 7]; // depth mismatch -> error
+    int sw = (next() % 3) ? rint_(1, 40) : rint_(1, 300), sh = (next() % 3) ? rint_(1, 30) : rint_(1, 200);
+    make_twin(S, sw, sh, sbpp);
+    if (sbpp == 32) {
+        for (size_t i = 0; i + 3 < S.lpix.size(); i += 4) {
+            static const uint8 alphas[] = {0, 127, 128, 255, 255, 255, 40};
+            S.lpix[i + 3] = alphas[next() % 7];
+        }
+        if (next() % 4 == 0) S.L.alpha_disabled = 1;
+    } else if (next() % 3 == 0) {
+        S.L.transparent_color = rint_(0, (int)S.L.mask);
+    }
+    S.R = S.L; S.rpix = S.lpix; S.rpal = S.lpal;
+    S.R.offset = S.rpix.data(); S.R.pal = S.L.pal ? S.rpal.data() : NULL;
+    float sc[6], dc[6];
+    for (int k = 0; k < 6; k++) {
+        int size = (k & 1) ? sh : sw;
+        sc[k] = (next() % 4) ? (float)(runit() * (size - 1)) : (float)(runit() * size * 3 - size);
+        if (next() % 6 == 0) sc[k] = (float)rint_(0, size - 1);
+        int dsize = (k & 1) ? t.L.height : t.L.width;
+        dc[k] = (next() % 4) ? (float)(runit() * dsize * 1.4 - dsize * 0.2) : (float)(runit() * 40000 - 20000);
+        if (next() % 6 == 0) dc[k] = (float)rint_(0, dsize);
+    }
+    bool seamless = next() % 3 == 0;
+    img_struct slots[4];
+    memset(slots, 0, sizeof slots);
+    slots[2] = S.L; slots[3] = t.L;
+    img_struct *saved = legacy::img;
+    int32 saved_next = legacy::nextimg;
+    legacy::img = slots;
+    legacy::nextimg = 4;
+    legacy::last_error = 0;
+    // passed: 1 seamless, 2 source handle, 32 (-> 4) destination handle
+    legacy::sub__maptriangle(0, sc[0], sc[1], sc[2], sc[3], sc[4], sc[5], -2, dc[0], dc[1], 0, dc[2], dc[3], 0, dc[4], dc[5], 0,
+                             -3, 0, (seamless ? 1 : 0) | 2 | 32);
+    t.L = slots[3];
+    legacy::img = saved;
+    legacy::nextimg = saved_next;
+    float rd[6];
+    memcpy(rd, dc, sizeof rd);
+    if (mutate) rd[0] += 1;
+    int32 e = qbrt_gfx_maptriangle(&S.R, &t.R, sc, rd, seamless ? 1 : 0);
+    check("MAPTRIANGLE", t, legacy::last_error, e,
+          fmt("src %dx%d m%d clear %d seamless %d s=(%.9g,%.9g)-(%.9g,%.9g)-(%.9g,%.9g) d=(%.9g,%.9g)-(%.9g,%.9g)-(%.9g,%.9g)", sw, sh,
+              sbpp, S.L.transparent_color, seamless, sc[0], sc[1], sc[2], sc[3], sc[4], sc[5], dc[0], dc[1], dc[2], dc[3], dc[4], dc[5]));
+}
+
 static void check_tables() {
     // Built-in data: legacy start-up code (libqb.cpp main init) vs Rust statics.
     memcpy(&legacy::palette_256, &legacy::file_qbnex_pal[0], legacy::file_qbnex_pal_len);
@@ -960,7 +1021,7 @@ int main(int argc, char **argv) {
         make_twin(t, w, h, bpp);
         if (bpp == 32 && next() % 4 == 0) { t.L.alpha_disabled = t.R.alpha_disabled = 1; }
         for (int k = 0; k < ops_per_round; k++) {
-            int op = (int)(next() % 23);
+            int op = (int)(next() % 25);
             per_op[op]++;
             switch (op) {
             case 0: case 1: op_line(t); break;
@@ -980,6 +1041,7 @@ int main(int argc, char **argv) {
             case 19: case 20: op_getput(t); break;
             case 21: op_printchr(t); break;
             case 22: op_pcopy(t); break;
+            case 23: case 24: op_maptri(t); break;
             }
             if (diff_state(t)) { // resynchronise after a reported mismatch
                 t.R = t.L; t.rpix = t.lpix; t.rpal = t.lpal;
