@@ -155,7 +155,7 @@ cd ..\..
 if exist qb-stage0.exe (
     echo Self-hosting 'QBNex'
     if exist qb.exe del /q qb.exe >nul 2>nul
-    qb-stage0.exe compiler\qbnex.bas -o qb.exe
+    .\qb-stage0.exe compiler\qbnex.bas -o qb.exe
 )
 
 echo.
