@@ -15,6 +15,7 @@
 //! handler looks at module level live in `heap`; arrays live in `arrays`.
 
 mod builtins;
+pub mod v1;
 
 /// `qb-runtime` is linked as a whole: its string engine (R3) refers to symbols that
 /// libqb.cpp/qbx.cpp define for C++ programs. qb-exec never calls that code, so
@@ -56,9 +57,20 @@ impl RunError {
 
 /// Parses and runs a QIR program, writing console output to `out`.
 pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
+    run_ir_status(src, out).map(|_| ())
+}
+
+/// Like [`run_ir`] but returns the program's exit code (`SYSTEM n`).
+/// A `QIR 1` header selects the v1 interpreter, anything else the v0 spike.
+pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
+    let head = src.trim_start().lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
+    if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
+        let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
+        return v1::run(&m, out);
+    }
     let prog = Program::parse(src)?;
     let mut vm = Vm::new(&prog, out);
-    vm.run()
+    vm.run().map(|_| 0)
 }
 
 // ---------------------------------------------------------------- values
