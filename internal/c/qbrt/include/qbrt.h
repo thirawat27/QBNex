@@ -57,6 +57,52 @@ int32_t qbrt_str_f64(double v, unsigned char *out);
 int32_t qbrt_timer(uint32_t ticks, uint32_t clock_first, uint32_t day_first,
                    double accuracy, int32_t passed, double *out);
 
+// --- Software graphics (R5, was the drawing code of libqb.cpp) ----------------
+// Surfaces are `struct img_struct` (common.h); Rust mirrors its layout exactly.
+// Statement entry points act on the page passed in (the C++ shims pass
+// write_page/read_page) and return a QBasic error code (0 = none) that the
+// shim raises with error().
+struct img_struct;
+// Built-in data (were filled from embedded arrays at start-up).
+extern const uint32_t palette_256[256];
+extern const uint32_t palette_64[64];
+extern const uint32_t pal_mode10[2][9];
+// The fonts are immutable Rust statics; they are declared non-const because
+// legacy text code walks them with plain uint8* cursors. Never write to them.
+extern uint8_t charset8x8[256][8][8];
+extern uint8_t charset8x16[256][16][8];
+// Blending tables (cblend: 16M, ablend: 64K), built on first use.
+void qbrt_gfx_blend_tables(const uint8_t **cblend, const uint8_t **ablend);
+// Pixel writers (no range check beyond the VIEW for pset_and_clip).
+void qbrt_gfx_pset(const struct img_struct *im, int32_t x, int32_t y, uint32_t col);
+uint32_t qbrt_gfx_point_raw(const struct img_struct *im, int32_t x, int32_t y);
+void qbrt_gfx_fast_boxfill(const struct img_struct *im, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint32_t col);
+void qbrt_gfx_boxfill(const struct img_struct *im, float x1, float y1, float x2, float y2, uint32_t col);
+void qbrt_gfx_fast_line(const struct img_struct *im, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint32_t col);
+// Palettes and colors.
+void qbrt_gfx_restorepalette(const struct img_struct *im);
+int32_t qbrt_gfx_palette(struct img_struct *im, uint32_t attribute, uint32_t col, int32_t passed);
+int32_t qbrt_gfx_color(struct img_struct *im, uint32_t col1, uint32_t col2, int32_t passed);
+void qbrt_gfx_defaultcolors(struct img_struct *im);
+// Statements and functions.
+int32_t qbrt_gfx_line(struct img_struct *im, float x1, float y1, float x2, float y2, uint32_t col, int32_t bf,
+                      uint32_t style, int32_t passed);
+int32_t qbrt_gfx_circle(struct img_struct *im, double x, double y, double r, uint32_t col, double start, double end,
+                        double aspect, int32_t passed);
+int32_t qbrt_gfx_paint(struct img_struct *im, float x, float y, uint32_t fillcol, uint32_t bordercol, int32_t passed);
+int32_t qbrt_gfx_paint_tile(struct img_struct *im, float x, float y, const uint8_t *tile, int32_t len,
+                            uint32_t bordercol, int32_t passed);
+int32_t qbrt_gfx_pset_stmt(struct img_struct *im, float x, float y, uint32_t col, int32_t passed);
+int32_t qbrt_gfx_preset_stmt(struct img_struct *im, float x, float y, uint32_t col, int32_t passed);
+double qbrt_gfx_point(const struct img_struct *write_page, const struct img_struct *read_page, float x, float y,
+                      int32_t passed, int32_t *err);
+int32_t qbrt_gfx_window(struct img_struct *im, float x1, float y1, float x2, float y2, int32_t passed);
+int32_t qbrt_gfx_view(struct img_struct *im, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t fillcolor,
+                      int32_t bordercolor, int32_t passed);
+float qbrt_gfx_pmap(const struct img_struct *im, float val, int32_t option, int32_t *err);
+// Headless framebuffer capture (QBNEX_FB_CAPTURE); kind 0 = _DISPLAY, 1 = end.
+void qbrt_fb_capture(const struct img_struct *display_page, int32_t kind);
+
 #ifdef __cplusplus
 }
 #endif
