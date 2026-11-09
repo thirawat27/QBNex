@@ -14,7 +14,7 @@ out="${TMPDIR:-/tmp}/qbrt_diff_$$"
 mkdir -p "$out"
 cxx="${CXX:-c++}"
 
-for t in diff_msbin diff_str; do
+for t in diff_msbin diff_str diff_qbs; do
   $cxx -O2 -std=c++17 -w "$t.cpp" "$lib" $libs -o "$out/$t"
   "$out/$t" $mode
 done
