@@ -61,4 +61,6 @@ int32_t qbrt_timer(uint32_t ticks, uint32_t clock_first, uint32_t day_first,
 }
 #endif
 
+#include "qbrt_window.h" // R8 window/input layer
+
 #endif // QBNEX_QBRT_H

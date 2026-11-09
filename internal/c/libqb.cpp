@@ -2,9 +2,6 @@
 #include "libqb.h"
 #include "qbrt/include/qbrt.h" // Rust runtime (internal/c/qbrt)
 
-#ifdef QBNex_GUI
-    #include "parts/core/glew/src/glew.c"
-#endif
 
 #ifdef QBNex_WINDOWS
     #include <fcntl.h>
@@ -260,8 +257,6 @@ void *generic_window_handle=NULL;
 int32 acceptFileDrop=0;
 #ifdef QBNex_WINDOWS
     HWND window_handle=NULL;
-    HDROP hdrop=NULL;
-    int32 totalDroppedFiles=0;
 #endif
 //...
 
@@ -279,7 +274,6 @@ extern "C" void QBNex_Window_Handle(void *handle){
 void set_view(int32 new_mode);
 void set_render_source(int32 new_handle);
 void set_render_dest(int32 new_handle);
-void reinit_glut_callbacks();
 
 int32 framebufferobjects_supported=0;
 
@@ -302,6 +296,7 @@ int32 environment_2d__letterbox=0;//1=vertical black stripes required, 2=horizon
 
 
 int32 window_exists=0;
+std::vector<std::string> dropped_files;//R8: _DROPPEDFILE$ list (was a Win32 HDROP)
 int32 create_window=0;
 int32 window_focused=0; //Not used on Windows
 uint8 *window_title=NULL;
@@ -342,13 +337,12 @@ int32 sub_gl_called=0;
 
 extern void evnt(uint32 linenumber, uint32 inclinenumber = 0, const char* incfilename = NULL);
 
-extern "C" int qbnex_custom_event(int event,int v1,int v2,int v3,int v4,int v5,int v6,int v7,int v8,void *p1,void *p2);
 #ifdef QBNex_WINDOWS
-    extern "C" LRESULT qbnex_os_event_windows(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, int *qbnex_os_event_info);
+    //R8: the freeglut OS event hooks (qbnex_os_event_*) are gone
 #endif
 
 #if defined(QBNex_LINUX) && defined(QBNex_GUI)
-    extern "C" void qbnex_os_event_linux(XEvent *event, Display *display, int *qbnex_os_event_info);
+
 #endif
 
 #define QBNex_EVENT_CLOSE 1
@@ -385,15 +379,6 @@ static int32 display_required_y=400;
 
 int32 dont_call_sub_gl=0;
 
-void GLUT_DISPLAY_REQUEST();
-
-void timerCB(int millisec)//not currently being used
-{
-    #ifdef QBNex_GLUT
-        glutPostRedisplay();
-        glutTimerFunc(millisec, timerCB, millisec);
-    #endif
-}
 
 
 struct display_frame_struct{
@@ -737,7 +722,12 @@ int32 HARDWARE_IMG_HANDLE_OFFSET=-16777216;//added to all hardware image handles
 #define NEW_HARDWARE_IMG__BUFFER_CONTENT 1
 #define NEW_HARDWARE_IMG__DUPLICATE_PROVIDED_BUFFER 2
 
-#include "libqb/gui.h"
+//R8: libqb/gui.h + gui.cpp replaced by libqb/window_bridge.cpp (Rust window layer)
+int32 requestedKeyboardOverlayImage=0;
+int32 new_hardware_img(int32 x, int32 y, uint32 *pixels, int32 flags);
+void free_hardware_img(int32 handle, int32 caller_id);
+void present_frame();
+std::recursive_mutex present_mutex;
 
 //these lock values increment
 int64 display_lock_request=0;
@@ -1339,7 +1329,7 @@ extern int32 onstrig_inprogress;
 extern uint32 qbevent;
 
 #ifdef DEPENDENCY_DEVICEINPUT
-    #include "parts/input/game_controller/src.c"
+    #include "libqb/gamepad_bridge.cpp" //R8: gilrs backend (qbrt gamepad.rs)
 #endif
 
 extern int32 console;
@@ -1519,13 +1509,9 @@ std::vector<int32> fontheight(lastfont+1,0);
 std::vector<int32> fontwidth(lastfont+1,0);
 std::vector<int32> fontflags(lastfont+1,0);
 
-//keyhit cyclic buffer
-int64 keyhit[8192];
+//keyhit cyclic buffer: R8 moved to qbrt keybuf.rs (qbrt_keyhit_*)
 //    keyhit specific internal flags: (stored in high 32-bits)
 //    &4294967296->numpad was used
-int32 keyhit_nextfree=0;
-int32 keyhit_next=0;
-//note: if full, the oldest message is discarded to make way for the new message
 
 
 
@@ -2137,66 +2123,19 @@ static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_widt
 static int32 qb_render_text_cell_freetype(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride);
 #endif
 
-static std::vector<uint32> keyheld_buffer;
-static std::vector<uint32> keyheld_bind_buffer;
-
 int32 keyheld(uint32 x){
-    for (std::vector<uint32>::const_iterator it=keyheld_buffer.begin(); it!=keyheld_buffer.end(); ++it){
-        if (*it==x) return 1;
-    }
-    //check multimapped NUMPAD keys
-    if ((x>=42)&&(x<=57)){
-        if ((x>=48)&&(x<=57)) return keyheld(VK+QBVK_KP0+(x-48));//0-9
-        if (x==46) return keyheld(VK+QBVK_KP_PERIOD);
-        if (x==47) return keyheld(VK+QBVK_KP_DIVIDE);
-        if (x==42) return keyheld(VK+QBVK_KP_MULTIPLY);
-        if (x==45) return keyheld(VK+QBVK_KP_MINUS);
-        if (x==43) return keyheld(VK+QBVK_KP_PLUS);
-    }
-    if (x==13) return keyheld(VK+QBVK_KP_ENTER);
-    if (x&0xFF00){
-        static uint32 x2;
-        x2=(x>>8)&255;
-        if ((x2>=71)&&(x2<=83)){
-            if (x2==82) return keyheld(QBK+QBVK_KP0-QBVK_KP0);
-            if (x2==79) return keyheld(QBK+QBVK_KP1-QBVK_KP0);
-            if (x2==80) return keyheld(QBK+QBVK_KP2-QBVK_KP0);
-            if (x2==81) return keyheld(QBK+QBVK_KP3-QBVK_KP0);
-            if (x2==75) return keyheld(QBK+QBVK_KP4-QBVK_KP0);
-            if (x2==76) return keyheld(QBK+QBVK_KP5-QBVK_KP0);
-            if (x2==77) return keyheld(QBK+QBVK_KP6-QBVK_KP0);
-            if (x2==71) return keyheld(QBK+QBVK_KP7-QBVK_KP0);
-            if (x2==72) return keyheld(QBK+QBVK_KP8-QBVK_KP0);
-            if (x2==73) return keyheld(QBK+QBVK_KP9-QBVK_KP0);
-            if (x2==83) return keyheld(QBK+QBVK_KP_PERIOD-QBVK_KP0);
-        }
-    }
-    return 0;
+    return qbrt_keyheld(x);//R8: keybuf.rs (numpad multimapping included)
 }
-
-
 void keyheld_add(uint32 x){
-    if (std::find(keyheld_buffer.begin(), keyheld_buffer.end(), x)!=keyheld_buffer.end()) return;//already in buffer
-    keyheld_buffer.push_back(x);//add entry
-    keyheld_bind_buffer.push_back(bindkey);//add binded key (0=none)
+    qbrt_keyheld_add(x,bindkey);
     bindkey=0;
 }
 void keyheld_remove(uint32 x){
-    for (std::vector<uint32>::size_type i=0; i<keyheld_buffer.size(); ++i){
-        if (keyheld_buffer[i]==x){//exists
-            keyheld_buffer.erase(keyheld_buffer.begin()+static_cast<std::vector<uint32>::difference_type>(i));
-            keyheld_bind_buffer.erase(keyheld_bind_buffer.begin()+static_cast<std::vector<uint32>::difference_type>(i));
-            return;
-        }
-    }
+    qbrt_keyheld_remove(x);
 }
 void keyheld_unbind(uint32 x){
-    for (std::vector<uint32>::size_type i=0; i<keyheld_bind_buffer.size(); ++i){
-        if (keyheld_bind_buffer[i]==x){//exists
-            keyup(keyheld_buffer[i]);
-            return;
-        }
-    }
+    uint32 held;
+    if (qbrt_keyheld_bound_to(x,&held)) keyup(held);
 }
 
 
@@ -2404,8 +2343,6 @@ void MAIN_LOOP();
     void *MAIN_LOOP_LINUX(void *);
 #endif
 
-void GLUT_MAINLOOP_THREAD(void *);
-void GLUT_DISPLAY_REQUEST();
 
 
 extern qbs* WHATISMYIP();
@@ -7704,8 +7641,7 @@ void sub__keyclear(int32 buf, int32 passed) {
     }
     if ((buf == 2 && passed) || !passed) {
         //_KEYHIT buffer
-        keyhit_nextfree = 0;
-        keyhit_next = 0;
+        qbrt_keyhit_clear();
     }
     if ((buf == 3 && passed) || !passed) {
         //INP(&H60) buffer
@@ -18806,48 +18742,42 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         void sub__mousehide(){
-            #ifdef QBNex_GUI    
+            #ifdef QBNex_GUI
                 if (!screen_hide){
-                    while (!window_exists){Sleep(100);}      
-                    #ifdef QBNex_GLUT
-                        glutSetCursor(GLUT_CURSOR_NONE);
-                    #endif
+                    while (!window_exists){Sleep(100);}
+                    qbrt_window_set_cursor(QBRT_CURSOR_HIDDEN);
                 }
             #endif
         }
-        
-        #ifdef QBNex_GLUT
-            int mouse_cursor_style=GLUT_CURSOR_LEFT_ARROW;
-            #else
-            int mouse_cursor_style=1;
-        #endif
-        
+
+        int mouse_cursor_style=QBRT_CURSOR_DEFAULT;
+
         void sub__mouseshow(qbs *style, int32 passed){
             if (new_error) return;
             
-            #ifdef QBNex_GLUT
+            #ifdef QBNex_GUI
                 
                 static qbs *str=NULL; if (str==NULL) str=qbs_new(0,0);
                 if (passed){
                     qbs_set(str,qbs_ucase(style));
-                    if (qbs_equal(str,qbs_new_txt("DEFAULT"))) {mouse_cursor_style=GLUT_CURSOR_LEFT_ARROW; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("LINK"))) {mouse_cursor_style=GLUT_CURSOR_INFO; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("TEXT"))) {mouse_cursor_style=GLUT_CURSOR_TEXT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("CROSSHAIR"))) {mouse_cursor_style=GLUT_CURSOR_CROSSHAIR; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("VERTICAL"))) {mouse_cursor_style=GLUT_CURSOR_UP_DOWN; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("HORIZONTAL"))) {mouse_cursor_style=GLUT_CURSOR_LEFT_RIGHT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt("TOPLEFT_BOTTOMRIGHT"))) {mouse_cursor_style=GLUT_CURSOR_TOP_LEFT_CORNER; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt ("TOPRIGHT_BOTTOMLEFT"))) {mouse_cursor_style=GLUT_CURSOR_TOP_RIGHT_CORNER; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt ("WAIT"))) {mouse_cursor_style=GLUT_CURSOR_WAIT; goto cursor_valid;}
-                    if (qbs_equal(str,qbs_new_txt ("HELP"))) {mouse_cursor_style=GLUT_CURSOR_HELP; goto cursor_valid;}
-                    if(qbs_equal(str,qbs_new_txt("CYCLE"))||qbs_equal(str, qbs_new_txt("MOVE"))) {mouse_cursor_style=GLUT_CURSOR_CYCLE; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("DEFAULT"))) {mouse_cursor_style=QBRT_CURSOR_DEFAULT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("LINK"))) {mouse_cursor_style=QBRT_CURSOR_LINK; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("TEXT"))) {mouse_cursor_style=QBRT_CURSOR_TEXT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("CROSSHAIR"))) {mouse_cursor_style=QBRT_CURSOR_CROSSHAIR; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("VERTICAL"))) {mouse_cursor_style=QBRT_CURSOR_VERTICAL; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("HORIZONTAL"))) {mouse_cursor_style=QBRT_CURSOR_HORIZONTAL; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt("TOPLEFT_BOTTOMRIGHT"))) {mouse_cursor_style=QBRT_CURSOR_TOPLEFT_BOTTOMRIGHT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt ("TOPRIGHT_BOTTOMLEFT"))) {mouse_cursor_style=QBRT_CURSOR_TOPRIGHT_BOTTOMLEFT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt ("WAIT"))) {mouse_cursor_style=QBRT_CURSOR_WAIT; goto cursor_valid;}
+                    if (qbs_equal(str,qbs_new_txt ("HELP"))) {mouse_cursor_style=QBRT_CURSOR_HELP; goto cursor_valid;}
+                    if(qbs_equal(str,qbs_new_txt("CYCLE"))||qbs_equal(str, qbs_new_txt("MOVE"))) {mouse_cursor_style=QBRT_CURSOR_MOVE; goto cursor_valid;}
                     error(5); return;
                 }
                 cursor_valid:
                 
                 if (!screen_hide){
                     while (!window_exists){Sleep(100);}
-                    glutSetCursor(mouse_cursor_style);
+                    qbrt_window_set_cursor(mouse_cursor_style);
                 }
                 
             #endif
@@ -18872,7 +18802,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         void sub__mousemove(float x,float y){
-            #ifdef QBNex_GLUT
+            #ifdef QBNex_GUI
                 int32 x2,y2,sx,sy;
                 if (display_page->text){
                     sx=fontwidth[display_page->font]*display_page->width; sy=fontheight[display_page->font]*display_page->height;
@@ -18900,7 +18830,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 x2*=x_scale; y2*=y_scale;
                 x2+=x_offset; y2+=y_offset;
                 while (!window_exists){Sleep(100);} 
-                glutWarpPointer(x2, y2);
+                qbrt_window_warp_mouse(x2, y2);
                 return;
                 error:
                 error(5);
@@ -21461,12 +21391,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         #endif //DEPENDENCY_ICON
 
         int32 func_screenwidth () {
-            #ifdef QBNex_GLUT
-                while (!window_exists){Sleep(100);}
-                #ifdef QBNex_WINDOWS
-                    while (!window_handle){Sleep(100);}
-                #endif
-                return glutGet(GLUT_SCREEN_WIDTH);
+            #ifdef QBNex_GUI
+                int32 w,h; qbrt_desktop_size(&w,&h); return w;
             #else
                 #ifdef QBNex_WINDOWS
                     return GetSystemMetrics(0);
@@ -21477,12 +21403,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
 
         int32 func_screenheight () {
-            #ifdef QBNex_GLUT
-                while (!window_exists){Sleep(100);}
-                #ifdef QBNex_WINDOWS
-                    while (!window_handle){Sleep(100);}
-                #endif
-                return glutGet(GLUT_SCREEN_HEIGHT);
+            #ifdef QBNex_GUI
+                int32 w,h; qbrt_desktop_size(&w,&h); return h;
             #else
                 #ifdef QBNex_WINDOWS
                     return GetSystemMetrics(1);
@@ -21493,56 +21415,30 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
 
         void sub_screenicon () {
-            #ifdef QBNex_GLUT
+            #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);}
-                #ifdef QBNex_WINDOWS
-                    while (!window_handle){Sleep(100);}
-                #endif  
-                glutIconifyWindow();
-                return;
+                qbrt_window_minimize();
             #endif
         }
-        
+
         int32 func_windowexists () {
-            #ifdef QBNex_GLUT
-                #ifdef QBNex_WINDOWS
-                    if (!window_handle){return 0;}
-                #endif
+            #ifdef QBNex_GUI
                 return -window_exists;
-                #else
+            #else
                 return -1;
             #endif
         }
-        
+
         int32 func_screenicon () {
-            #ifdef QBNex_GLUT
+            #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);}
-                #ifdef QBNex_WINDOWS
-                    while (!window_handle){Sleep(100);}
-                #endif
                 extern int32 screen_hide;
                 if (screen_hide) {error(5); return 0;}
-                #ifdef QBNex_WINDOWS
-                    return -IsIconic(window_handle);
-                    #else
-                    /*     
-                        Linux code not compiling for now
-                        #include <X11/X.h>
-                        #include <X11/Xlib.h>
-                        extern Display *X11_display;
-                        extern Window X11_window;
-                        extern int32 screen_hide;
-                        XWindowAttributes attribs;
-                        while (!(X11_display && X11_window));
-                        XGetWindowAttributes(X11_display, X11_window, &attribs);
-                        if (attribs.map_state == IsUnmapped) return -1;
-                        return 0;
-                    #endif */
-                    return 0; //if we get here and haven't exited already, we failed somewhere along the way.
-                #endif
+                return -qbrt_window_minimized();
             #endif
+            return 0;
         }
-        
+
         int32 func__autodisplay () {
             if (autodisplay) {return -1;}
             return 0;
@@ -25476,24 +25372,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         int32 func__keyhit(){
-            /*
-                //keyhit cyclic buffer
-                int64 keyhit[8192];
-                //    keyhit specific internal flags: (stored in high 32-bits)
-                //    &4294967296->numpad was used
-                int32 keyhit_nextfree=0;
-                int32 keyhit_next=0;
-                //note: if full, the oldest message is discarded to make way for the new message
-            */
-            if (keyhit_next!=keyhit_nextfree){
-                static int32 x;
-                x=*(int32*)&keyhit[keyhit_next];
-                keyhit_next=(keyhit_next+1)&0x1FFF;
-                return x;
-            }
-            return 0;
+            return qbrt_keyhit_pop();//R8: keybuf.rs
         }
-        
+
         int32 func__keydown(int32 x){
             if (x<=0){error(5); return 0;}
             if (keyheld(x)) return -1;
@@ -25787,49 +25668,41 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         int32 func__screenx(){
-            #if defined(QBNex_GUI) && defined(QBNex_WINDOWS) && defined(QBNex_GLUT)
+            #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);} //Wait for window to be created before checking position
-                return glutGet(GLUT_WINDOW_X) - glutGet(GLUT_WINDOW_BORDER_WIDTH);
-            #elif defined(QBNex_GUI) && defined(QBNex_MACOSX) && defined(QBNex_GLUT)
-                while (!window_exists){Sleep(100);} //Wait for window to be created before checking position
-                return glutGet(GLUT_WINDOW_X);
+                int32 x,y; qbrt_window_position(&x,&y); return x;
             #endif
-            return 0; //if not windows then return 0
+            return 0;
         }
-        
+
         int32 func__screeny(){
-            #if defined(QBNex_GUI) && defined(QBNex_WINDOWS) && defined(QBNex_GLUT)
+            #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);} //Wait for window to be created before checking position
-                return glutGet(GLUT_WINDOW_Y) - glutGet(GLUT_WINDOW_BORDER_WIDTH) - glutGet(GLUT_WINDOW_HEADER_HEIGHT);
-            #elif defined(QBNex_GUI) && defined(QBNex_MACOSX) && defined(QBNex_GLUT)
-                while (!window_exists){Sleep(100);} //Wait for window to be created before checking position
-                return glutGet(GLUT_WINDOW_Y);
+                int32 x,y; qbrt_window_position(&x,&y); return y;
             #endif
-            return 0; //if not windows then return 0
+            return 0;
         }
-        
+
         void sub__screenmove(int32 x,int32 y,int32 passed){
             if (new_error) return;
             if (!passed) goto error;
             if (passed==3) goto error;
             if (full_screen) return;
-            
-            #if defined(QBNex_GUI) && defined(QBNex_GLUT)
+
+            #ifdef QBNex_GUI
                 while (!window_exists){Sleep(100);} //wait for window to be created before moving it.
                 if (passed==2){
-                glutPositionWindow (x,y);}
-                else{
-                    int32 SW=-1, SH, WW, WH;
-                    while (SW==-1){SW = glutGet(GLUT_SCREEN_WIDTH);}
-                    SH = glutGet(GLUT_SCREEN_HEIGHT);
-                    WW = glutGet(GLUT_WINDOW_WIDTH);
-                    WH = glutGet(GLUT_WINDOW_HEIGHT);
+                    qbrt_window_set_position(x,y);
+                }else{
+                    int32 SW,SH,WW,WH;
+                    qbrt_desktop_size(&SW,&SH);
+                    qbrt_window_size(&WW,&WH);
                     x = (SW - WW)/2;
                     y = (SH - WH)/2;
-                    glutPositionWindow (x,y);
+                    qbrt_window_set_position(x,y);
                 }
             #endif
-            
+
             return;
             
             error:
@@ -26823,25 +26696,20 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         void sub__screenshow(){
-            if (!window_exists){
-                create_window=1;
-                }else{
-                #ifdef QBNex_GLUT
-                    glutShowWindow();
-                #endif
-            }
+            #ifdef QBNex_GUI
+                qbrt_window_show(1);
+            #endif
+            create_window=1;
             screen_hide=0;
         }
-        
+
         void sub__screenhide(){
-            if (window_exists){
-                #ifdef QBNex_GLUT
-                    glutHideWindow();
-                #endif
-            }
+            #ifdef QBNex_GUI
+                qbrt_window_show(0);
+            #endif
             screen_hide=1;
         }
-        
+
         int32 func__screenhide(){return -screen_hide;}
         
         void sub__consoletitle(qbs* s){
@@ -27235,218 +27103,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         
         
-        void GLUT_key_ascii(int32 key,int32 down){
-            #ifdef QBNex_GLUT
-                static int32 v;
-                
-                static int32 mod;
-                mod=glutGetModifiers();//shift=1, control=2, alt=4
-                
-                #ifndef CORE_FREEGLUT
-                    /*
-                        if (mod&GLUT_ACTIVE_SHIFT){
-                        keydown_vk(VK+QBVK_LSHIFT);
-                        }else{
-                        keyup_vk(VK+QBVK_LSHIFT);
-                        }
-                        
-                        if (mod&GLUT_ACTIVE_CTRL){
-                        keydown_vk(VK+QBVK_LCTRL);
-                        }else{
-                        keyup_vk(VK+QBVK_LCTRL);
-                        }
-                        
-                        if (mod&GLUT_ACTIVE_ALT){
-                        keydown_vk(VK+QBVK_LALT);
-                        }else{
-                        keyup_vk(VK+QBVK_LALT);
-                        }
-                    */
-                #endif 
-                
-                //Note: The following is required regardless of whether FREEGLUT is/isn't being used          
-                //#ifdef CORE_FREEGLUT          
-                //Is CTRL key down? If so, unencode character (applying shift as required)
-                if (mod&2){
-                    //if (key==127){ //Removed: Might clash with CTRL+DELETE
-                    // key=8;
-                    // goto ctrl_mod;
-                //}//127
-                //if (key==3){//CTRL+(BREAK|SCROLL-LOCK)
-                //if (down) keydown_vk(VK+QBVK_BREAK); else keyup_vk(VK+QBVK_BREAK);
-                //return;
-            //}
-            if (key==10){
-                key=13;
-                goto ctrl_mod;
-            }//10
-            if ((key>=1)&&(key<=26)){
-                if (mod&1) key=key-1+65; else key=key-1+97;//assume caps lock off
-                goto ctrl_mod;
-            }//1-26
-        }
-        ctrl_mod:
-        //#endif
-        
-        #ifdef QBNex_MACOSX
-            
-            //swap DEL and backspace keys
-            
-            if (key==8){
-                key=127;
-                }else{
-                if (key==127){
-                    key=8;
-                }
-            }
-            
-        #endif
-        
-        if (key==127){//delete
-            if (down) keydown_vk(0x5300); else keyup_vk(0x5300);
-            return;
-        }
-        if (down) keydown_ascii(key); else keyup_ascii(key);
-    #endif
-}
-
-void GLUT_KEYBOARD_FUNC(unsigned char key,int x, int y){
-    
-    
-    
-    
-    
-    
-    //glutPostRedisplay();
-    
-    //qbs_print(qbs_str(key),0);
-    //qbs_print(qbs_str((int32)glutGetModifiers()),1);
-    
-    GLUT_key_ascii(key,1);
-}
-void GLUT_KEYBOARDUP_FUNC(unsigned char key,int x, int y){
-    GLUT_key_ascii(key,0);
-}
-
-void GLUT_key_special(int32 key,int32 down){
-    
-    #ifdef QBNex_GLUT
-        #ifndef CORE_FREEGLUT
-            /*
-                static int32 mod;
-                mod=glutGetModifiers();//shift=1, control=2, alt=4
-                if (mod&GLUT_ACTIVE_SHIFT){
-                keydown_vk(VK+QBVK_LSHIFT);
-                }else{
-                keyup_vk(VK+QBVK_LSHIFT);
-                }
-                
-                if (mod&GLUT_ACTIVE_CTRL){
-                keydown_vk(VK+QBVK_LCTRL);
-                }else{
-                keyup_vk(VK+QBVK_LCTRL);
-                }
-                
-                if (mod&GLUT_ACTIVE_ALT){
-                keydown_vk(VK+QBVK_LALT);
-                }else{
-                keyup_vk(VK+QBVK_LALT);
-                }
-            */
-        #endif
-        
-        static int32 vk;
-        vk=-1;
-        if (key==GLUT_KEY_F1){vk=0x3B00;}
-        if (key==GLUT_KEY_F2){vk=0x3C00;}
-        if (key==GLUT_KEY_F3){vk=0x3D00;}
-        if (key==GLUT_KEY_F4){vk=0x3E00;}
-        if (key==GLUT_KEY_F5){vk=0x3F00;}
-        if (key==GLUT_KEY_F6){vk=0x4000;}
-        if (key==GLUT_KEY_F7){vk=0x4100;}
-        if (key==GLUT_KEY_F8){vk=0x4200;}
-        if (key==GLUT_KEY_F9){vk=0x4300;}
-        if (key==GLUT_KEY_F10){vk=0x4400;}
-        if (key==GLUT_KEY_F11){vk=0x8500;}
-        if (key==GLUT_KEY_F12){vk=0x8600;}
-        if (key==GLUT_KEY_LEFT){vk=0x4B00;}
-        if (key==GLUT_KEY_UP){vk=0x4800;}
-        if (key==GLUT_KEY_RIGHT){vk=0x4D00;}
-        if (key==GLUT_KEY_DOWN){vk=0x5000;}
-        if (key==GLUT_KEY_PAGE_UP){vk=0x4900;}
-        if (key==GLUT_KEY_PAGE_DOWN){vk=0x5100;}
-        if (key==GLUT_KEY_HOME){vk=0x4700;}
-        if (key==GLUT_KEY_END){vk=0x4F00;}
-        if (key==GLUT_KEY_INSERT){vk=0x5200;}
-        
-        #ifdef CORE_FREEGLUT
-            if (key==112){vk=VK+QBVK_LSHIFT;}
-            if (key==113){vk=VK+QBVK_RSHIFT;}
-            if (key==114){vk=VK+QBVK_LCTRL;}
-            if (key==115){vk=VK+QBVK_RCTRL;}
-            if (key==116){vk=VK+QBVK_LALT;}
-            if (key==117){vk=VK+QBVK_RALT;}
-        #endif
-        
-        if (vk!=-1){
-            if (down) keydown_vk(vk); else keyup_vk(vk);
-        }
-        
-    #endif
-}
-
-void GLUT_SPECIAL_FUNC(int key, int x, int y){
-    
-    //qbs_print(qbs_str((int32)glutGetModifiers()),1);
-    
-    GLUT_key_special(key,1);
-}
-void GLUT_SPECIALUP_FUNC(int key, int x, int y){
-    GLUT_key_special(key,0);
-}
-
-
-#ifdef QBNex_WINDOWS
-    void GLUT_TIMER_EVENT(int ignore){
-        #ifdef QBNex_GLUT
-            glutPostRedisplay();
-            int32 msdelay=1000.0/max_fps;
-            Sleep(4); msdelay-=4;//this forces GLUT to relinquish some CPU time to other threads but still allow for _FPS 100+ 
-            if (msdelay<1) msdelay=1;
-            glutTimerFunc(msdelay,GLUT_TIMER_EVENT,0);
-        #endif
-    }
-    #else
-    void GLUT_IDLEFUNC(){
-        
-        #ifdef QBNex_MACOSX          
-            #ifdef DEPENDENCY_DEVICEINPUT
-                //must be in same thread as GLUT for OSX
-                QBNex_GAMEPAD_POLL();
-                //[[[[NSApplication sharedApplication] mainWindow] standardWindowButton:NSWindowCloseButton] setEnabled:YES];
-            #endif         
-        #endif
-        
-        #ifdef QBNex_GLUT
-            {
-                std::unique_lock<std::mutex> lock(x11_lock_mutex);
-                if (x11_lock_request){
-                    x11_locked=true;
-                    x11_lock_request=false;
-                    x11_lock_cv.notify_all();
-                    x11_lock_cv.wait(lock, [](){ return !x11_locked; });
-                }
-            }
-            
-            glutPostRedisplay();
-            int32 msdelay=1000.0/max_fps;
-            if (msdelay<1) msdelay=1;
-            Sleep(msdelay);
-        #endif
-    }
-#endif
-
-#include "libqb/gui.cpp"
+//R8: GLUT keyboard/timer callbacks replaced by qbrt keymap.rs + window_bridge.cpp
+#include "libqb/window_bridge.cpp"
 
 void sub__title(qbs *title){
     if (new_error) return;
@@ -27458,15 +27116,9 @@ void sub__title(qbs *title){
     window_title_storage.assign(str->chr,str->chr+str->len);
     window_title=window_title_storage.empty()?NULL:window_title_storage.data();
     
-    if (window_exists){
-        #ifdef QBNex_GLUT
-            #ifdef QBNex_MACOSX
-                temp_window_title_set=1;
-            #else
-                glutSetWindowTitle((char*)window_title);
-            #endif
-        #endif
-    }
+    #ifdef QBNex_GUI
+        qbrt_window_set_title(window_title?(char*)window_title:"");
+    #endif
     
 }//title
 
@@ -27487,14 +27139,8 @@ void sub__echo(qbs *message){
 
 void sub__filedrop(int32 on_off=NULL) {
     #ifdef QBNex_WINDOWS
-        if ((on_off==NULL)||(on_off==1)) {
-            DragAcceptFiles((HWND)func__handle(), TRUE);
-            acceptFileDrop=-1;
-        }
-        if ((on_off==2)) {
-            DragAcceptFiles((HWND)func__handle(), FALSE);
-            acceptFileDrop=0;
-        }
+        if ((on_off==NULL)||(on_off==1)) acceptFileDrop=-1;
+        if ((on_off==2)) acceptFileDrop=0;
     #endif
 }
 
@@ -27503,52 +27149,42 @@ int32 func__filedrop() {
 }
 
 void sub__finishdrop() {
-    #ifdef QBNex_WINDOWS
-        DragFinish(hdrop);
-        totalDroppedFiles=0;
-    #endif
+    qbrt_input_lock();
+    dropped_files.clear();
+    qbrt_input_unlock();
 }
 
 int32 func__totaldroppedfiles() {
-    #ifdef QBNex_WINDOWS
-        return totalDroppedFiles;
-    #endif
-    return 0;
+    qbrt_input_lock();
+    int32 n=(int32)dropped_files.size();
+    qbrt_input_unlock();
+    return n;
 }
 
 qbs *func__droppedfile(int32 fileIndex, int32 passed) {
-    #ifdef QBNex_WINDOWS
-        static int32 index=-1;
-        static char szNextFile[MAX_PATH];
-
-        if (totalDroppedFiles > 0) {
-            index++;
-            if (passed) index=fileIndex-1;
-            if ((index>totalDroppedFiles-1)||(index<0)) {
-                // out of bounds;
-                // if reading _DROPPEDFILE$ sequentially (without an
-                // index), hdrop is reset and the list is cleared.
-                if (!passed) sub__finishdrop();
-                index=-1;
-                return qbs_new_txt("");
-            }
-            // fetch file[index] from hdrop:
-            if ( DragQueryFile ( hdrop, index, szNextFile, MAX_PATH ) > 0 ) {
-                if ((!passed)&&(index==totalDroppedFiles-1)) {
-                    // last file read sequentially
-                    sub__finishdrop();
-                    index=-1;
-                }
-                return qbs_new_txt(szNextFile);
-            } else {
-                // error fetching file from hdrop;
-                sub__finishdrop();
-                index=-1;
-            }
-        } else {
+    static int32 index=-1;
+    std::string name;
+    int32 total=func__totaldroppedfiles();
+    if (total > 0) {
+        index++;
+        if (passed) index=fileIndex-1;
+        if ((index>total-1)||(index<0)) {
+            //out of bounds; reading sequentially (without an index) clears the list
+            if (!passed) sub__finishdrop();
+            index=-1;
+            return qbs_new_txt("");
+        }
+        qbrt_input_lock();
+        name=dropped_files[index];
+        qbrt_input_unlock();
+        if ((!passed)&&(index==total-1)) {
+            //last file read sequentially
+            sub__finishdrop();
             index=-1;
         }
-    #endif
+        return qbs_new_txt(name.c_str());
+    }
+    index=-1;
     return qbs_new_txt("");
 }
 
@@ -28146,7 +27782,7 @@ int main( int argc, char* argv[] ){
         if (GetKeyState(VK_CAPITAL)&1){bindkey=QBVK_CAPSLOCK; keydown_vk(VK+QBVK_CAPSLOCK);}
         if (GetKeyState(VK_NUMLOCK)&1){bindkey=QBVK_NUMLOCK; keydown_vk(VK+QBVK_NUMLOCK);}
         update_shift_state();
-        keyhit_next=keyhit_nextfree;//skip hitkey events generated by above code
+        qbrt_keyhit_clear();//skip hitkey events generated by above code
     #endif
     
     
@@ -28300,176 +27936,10 @@ int main( int argc, char* argv[] ){
     });
     
     if (!screen_hide) create_window=1;
-    
-    while (!create_window){Sleep(100);}
-    
-    
-    #ifdef QBNex_GLUT
-        glutInit(&argc, argv);
-        
-        #ifdef QBNex_MACOSX  
-            //This is a global keydown handler for OSX, it requires assistive devices in asseccibility to be enabled
-            //becuase of security concerns (QBNex will not use this)
-            /*
-                [NSEvent addGlobalMonitorForEventsMatchingMask:NSKeyDownMask
-                handler:^(NSEvent *event){
-                NSString *chars = [[event characters] lowercaseString];
-                unichar character = [chars characterAtIndex:0];
-                NSLog(@"keydown globally! Which key? This key: %c", character);
-                }];
-            */
-            
-            /*
-                [NSEvent addLocalMonitorForEventsMatchingMask:NSKeyDownMask handler:^NSEvent* (NSEvent* event){
-                //NSString *keyPressed = event.charactersIgnoringModifiers;
-                //[self.keystrokes appendString:keyPressed];
-                NSString *chars = [[event characters] lowercaseString];
-                unichar character = [chars characterAtIndex:0];
-                NSLog(@"keydown locally! Which key? This key: %c", character);
-                return event;
-                }];
-            */
-            
-            //[[[[NSApplication sharedApplication] mainWindow] standardWindowButton:NSWindowCloseButton] setEnabled:YES];
-            
-            [NSEvent addLocalMonitorForEventsMatchingMask:NSFlagsChangedMask handler:^NSEvent* (NSEvent* event){
-                
-                //notes on bitfields:
-                //if ([event modifierFlags] == 131330) keydown_vk(VK+QBVK_LSHIFT);// 100000000100000010
-                //if ([event modifierFlags] == 131332) keydown_vk(VK+QBVK_RSHIFT);// 100000000100000100                      
-                //if ([event modifierFlags] == 262401) keydown_vk(VK+QBVK_LCTRL); //1000000000100000001
-                //if ([event modifierFlags] == 270592) keydown_vk(VK+QBVK_RCTRL); //1000010000100000000           
-                //if ([event modifierFlags] == 524576) keydown_vk(VK+QBVK_LALT); //10000000000100100000
-                //if ([event modifierFlags] == 524608) keydown_vk(VK+QBVK_RALT); //10000000000101000000
-                //caps lock                                                      //   10000000100000000
-                
-                int x=[event modifierFlags];
-                
-                if (x&(1<<0)){
-                    if (!keyheld(VK+QBVK_LCTRL)) keydown_vk(VK+QBVK_LCTRL);
-                    }else{
-                    if (keyheld(VK+QBVK_LCTRL)) keyup_vk(VK+QBVK_LCTRL);
-                }
-                if (x&(1<<13)){
-                    if (!keyheld(VK+QBVK_RCTRL)) keydown_vk(VK+QBVK_RCTRL);
-                    }else{
-                    if (keyheld(VK+QBVK_RCTRL)) keyup_vk(VK+QBVK_RCTRL);
-                }
-                
-                if (x&(1<<1)){
-                    if (!keyheld(VK+QBVK_LSHIFT)) keydown_vk(VK+QBVK_LSHIFT);
-                    }else{
-                    if (keyheld(VK+QBVK_LSHIFT)) keyup_vk(VK+QBVK_LSHIFT);
-                }
-                if (x&(1<<2)){
-                    if (!keyheld(VK+QBVK_RSHIFT)) keydown_vk(VK+QBVK_RSHIFT);
-                    }else{
-                    if (keyheld(VK+QBVK_RSHIFT)) keyup_vk(VK+QBVK_RSHIFT);
-                }
-                
-                if (x&(1<<5)){
-                    if (!keyheld(VK+QBVK_LALT)) keydown_vk(VK+QBVK_LALT);
-                    }else{
-                    if (keyheld(VK+QBVK_LALT)) keyup_vk(VK+QBVK_LALT);
-                }
-                if (x&(1<<6)){
-                    if (!keyheld(VK+QBVK_RALT)) keydown_vk(VK+QBVK_RALT);
-                    }else{
-                    if (keyheld(VK+QBVK_RALT)) keyup_vk(VK+QBVK_RALT);
-                }
-                
-                if (x&(1<<16)){
-                    if (!keyheld(VK+QBVK_CAPSLOCK)) keydown_vk(VK+QBVK_CAPSLOCK);
-                    }else{
-                    if (keyheld(VK+QBVK_CAPSLOCK)) keyup_vk(VK+QBVK_CAPSLOCK);
-                }
-                
-                return event;
-            }];
-            
-            /*
-                [NSEvent addLocalMonitorForEventsMatchingMask:NSKeyDownMask|NSFlagsChangedMask handler:^NSEvent *(NSEvent *incomingEvent) {
-                if (incomingEvent.type == NSFlagsChanged && (incomingEvent.modifierFlags & NSDeviceIndependentModifierFlagsMask)) {
-                NSLog(@"modifier key down");
-                } else if (incomingEvent.type == NSKeyDown) {
-                NSLog(@"other key down");
-                }           
-                return incomingEvent;
-                }];
-            */          
-            
-            /*
-                if (NSApp){
-                NSMenu      *menu;
-                NSMenuItem  *menuItem;  
-                
-                [NSApp setMainMenu:[[NSMenu alloc] init]];
-                
-                menu = [[NSMenu alloc] initWithTitle:@""];
-                [menu addItemWithTitle:@"About..." action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""]; 
-                
-                menuItem = [[NSMenuItem alloc] initWithTitle:@"Apple" action:nil keyEquivalent:@""];
-                [menuItem setSubmenu:menu];
-                [[NSApp mainMenu] addItem:menuItem];
-                [NSApp setAppleMenu:menu];
-                }  
-            */
-            
-        #endif 
-        
-        
-        #ifdef QBNex_WINDOWS
-            glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH | GLUT_MULTISAMPLE);
-        #else
-            glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
-        #endif
 
-        glutInitWindowSize(640,400);//cannot be changed unless display_x(etc) are modified
-        
-        //glutInitWindowPosition(300, 200);
-        
-        if (!glutGet(GLUT_DISPLAY_MODE_POSSIBLE))//must be called on Linux or GLUT crashes
-        { 
-            exit(1);
-        }
-        
-        if (!window_title){
-            glutCreateWindow("Untitled");
-            }else{
-            glutCreateWindow((char*)window_title);
-        }
-        window_exists=1;
-        
-        GLenum err = glewInit();
-        if (GLEW_OK != err) {
-            alert( (char*)glewGetErrorString(err));
-        }
-        if (glewIsSupported("GL_EXT_framebuffer_object")) framebufferobjects_supported=1;
-        
-        glutDisplayFunc(GLUT_DISPLAY_REQUEST);
-        
-        #ifdef QBNex_WINDOWS
-            glutTimerFunc(8,GLUT_TIMER_EVENT,0);
-            #else
-            glutIdleFunc(GLUT_IDLEFUNC);
-        #endif
-        
-        glutKeyboardFunc(GLUT_KEYBOARD_FUNC);
-        glutKeyboardUpFunc(GLUT_KEYBOARDUP_FUNC);
-        glutSpecialFunc(GLUT_SPECIAL_FUNC);
-        glutSpecialUpFunc(GLUT_SPECIALUP_FUNC);
-        glutMouseFunc(GLUT_MOUSE_FUNC);
-        glutMotionFunc(GLUT_MOTION_FUNC);
-        glutPassiveMotionFunc(GLUT_PASSIVEMOTION_FUNC);
-        glutReshapeFunc(GLUT_RESHAPE_FUNC);
-        
-        #ifdef CORE_FREEGLUT
-            glutMouseWheelFunc(GLUT_MOUSEWHEEL_FUNC);
-        #endif
-        
-        glutMainLoop();
-        
-    #endif //QBNex_GLUT
+    //R8: winit event loop + softbuffer presenter (internal/c/qbrt/src/window.rs)
+    window_main();
+    while (1) Sleep(1000);//headless: MAIN_LOOP ends the program with exit()
     
 }
 
@@ -28573,6 +28043,7 @@ if (!lprint){//not currently performing an LPRINT operation
 if (update==1){
     update_display_only:
     if (autodisplay) display();//occurs every 32ms or 31.25 times per second
+    else if (os_resize_event||full_screen_set!=-1) present_frame();
     frame++;//~32 fps
 }//update==1
 
@@ -28589,7 +28060,8 @@ if (update==0){
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     };
     
-    #ifdef QBNex_WINDOWS 
+    qbrt_input_lock();
+    #ifdef QBNex_WINDOWS
         //manage important external keyboard lock/state changes
         if ((GetKeyState(VK_SCROLL)&1)!=keyheld(QBK+QBK_SCROLL_LOCK_MODE)){
             if (keyheld(QBK+QBK_SCROLL_LOCK_MODE)){
@@ -28616,7 +28088,8 @@ if (update==0){
             update_shift_state();
         }
     #endif
-    
+    qbrt_input_unlock();
+
     if (shell_call_in_progress) goto main_loop;
     
 }//update==0
@@ -28693,9 +28166,11 @@ void display(){
     
     
     if (lock_display==1){lock_display=2; Sleep(0);}
-    
+
     if (screen_hide) {display_called=1; return;}
-    
+
+    std::lock_guard<std::recursive_mutex> present_guard(present_mutex);
+
     if (lock_display==0){
         
         
@@ -29372,9 +28847,7 @@ void display(){
             last_hardware_display_frame_order=display_frame[frame_i].order;
             display_frame[frame_i].state=DISPLAY_FRAME_STATE__EMPTY;
         }
-        
-        
-        
+        present_frame();//R8: compose + hand to the window thread
     }//lock_display==0
     if (lock_display==1){lock_display=2; Sleep(0);}
     if (autodisplay==-1) autodisplay=0;
@@ -29459,72 +28932,12 @@ void display(){
 */
 
 void update_shift_state(){
-    int32 x;
-    /*
-        0:417h                   Shift Status
-        7 6 5 4 3 2 1 0
-        x . . . . . . .      Insert locked
-        . x . . . . . .      Caps Lock locked
-        . . x . . . . .      Num Lock locked
-        . . . x . . . .      Scroll Lock locked
-        . . . . x . . .      Alt key is pressed
-        . . . . . x . .      Ctrl key is pressed
-        . . . . . . x .      Left Shift key is pressed
-        . . . . . . . x      Right Shift key is pressed
-    */
-    x=0;
-    if (keyheld(VK+QBVK_RSHIFT)) x|=1;
-    if (keyheld(VK+QBVK_LSHIFT)) x|=2;
-    if (keyheld(VK+QBVK_LCTRL)||keyheld(VK+QBVK_RCTRL)) x|=4;
-    if (keyheld(VK+QBVK_LALT)||keyheld(VK+QBVK_RALT)) x|=8;
-    if (keyheld(QBK+QBK_SCROLL_LOCK_MODE)) x|=16;
-    if (keyheld(VK+QBVK_NUMLOCK)) x|=32;
-    if (keyheld(VK+QBVK_CAPSLOCK)) x|=64;
-    //note: insert state is emulated (off by default)
-    if (keyheld(QBK+QBK_INSERT_MODE)) x|=128;
-    cmem[0x417]=x;
-    /*
-        0:418h                   Extended Shift Status
-        (interpret the word 'pressed' as "being held down")
-        7 6 5 4 3 2 1 0
-        x . . . . . . .      Ins key is pressed
-        . x . . . . . .      Caps Lock key is pressed (detection not possible, return 0)
-        . . x . . . . .      Num Lock key is pressed (detection not possible, return 0)
-        . . . x . . . .      Scroll Lock key is pressed
-        . . . . x . . .      Pause key locked
-        . . . . . x . .      SysReq key is pressed
-        . . . . . . x .      Left Alt key is pressed
-        . . . . . . . x      Left Ctrl key is pressed
-    */
-    x=0;
-    if (keyheld(VK+QBVK_LCTRL)) x|=1;
-    if (keyheld(VK+QBVK_LALT)) x|=2;
-    if (keyheld(VK+QBVK_SYSREQ)) x|=4;
-    if (keyheld(VK+QBVK_PAUSE)) x|=8;
-    if (keyheld(VK+QBVK_SCROLLOCK)) x|=16;
-    //if (keyheld(VK+QBVK_NUMLOCK)) x|=32;
-    //if (keyheld(VK+QBVK_CAPSLOCK)) x|=64;
-    if (keyheld(0x5200)) x|=128;
-    cmem[0x418]=x;
-    /*
-        0:496h                   Keyboard Status and Type Flags
-        This byte holds keyboard status information.
-        Keyboard Status Information
-        7 6 5 4 3 2 1 0
-        x . . . . . . .       Read ID in progress (always 0)
-        . x . . . . . .       Last character was first ID character (always 0)
-        . . x . . . . .       Force Num Lock if read ID and KBX (always 0)
-        . . . x . . . .       101/102-key keyboard installed (always 1)
-        . . . . x . . .       Right Alt key is pressed
-        . . . . . x . .       Right Ctrl key is pressed
-        . . . . . . x .       Last code was E0 Hidden Code (always 0)
-        . . . . . . . x       last code was E1 Hidden Code (always 0)
-    */
-    x=0;
-    if (keyheld(VK+QBVK_RCTRL)) x|=1;
-    if (keyheld(VK+QBVK_RALT)) x|=2;
-    x|=16;
-    cmem[0x496]=x;
+    //R8: keybuf.rs computes 0:417h, 0:418h and 0:496h from the held keys
+    uint8 b[3];
+    qbrt_shift_state(b);
+    cmem[0x417]=b[0];
+    cmem[0x418]=b[1];
+    cmem[0x496]=b[2];
 }
 
 
@@ -29580,15 +28993,9 @@ void keyup(uint32 x){
         }
         
         //add x2 to keyhit buffer
-        static int32 z;
-        z=(keyhit_nextfree+1)&0x1FFF;
-        if (z==keyhit_next){//remove oldest message when cyclic buffer is full
-            keyhit_next=(keyhit_next+1)&0x1FFF;
-        }
         static int32 sx;
         sx=x2; sx=-sx; x2=sx;//negate x2
-        keyhit[keyhit_nextfree]=x2|numpadkey;
-        keyhit_nextfree=z;
+        qbrt_keyhit_push(x2|numpadkey);
     }//asciicode_reading!=2
     
     
@@ -30057,13 +29464,7 @@ void keydown(uint32 x){
             //note: if full, the oldest message is discarded to make way for the new message
         */
         //add x2 to keyhit buffer
-        static int32 z;
-        z=(keyhit_nextfree+1)&0x1FFF;
-        if (z==keyhit_next){//remove oldest message when cyclic buffer is full
-            keyhit_next=(keyhit_next+1)&0x1FFF;
-        }
-        keyhit[keyhit_nextfree]=x2|numpadkey;
-        keyhit_nextfree=z;
+        qbrt_keyhit_push(x2|numpadkey);
     }//asciicode_reading!=2
     
     
@@ -30256,229 +29657,9 @@ void scancodeup(uint8 scancode){
     port60h_events++;
 }
 
-#define OS_EVENT_PRE_PROCESSING 1
-#define OS_EVENT_POST_PROCESSING 2
-#define OS_EVENT_RETURN_IMMEDIATELY 3
 
-#ifdef QBNex_WINDOWS
-    extern "C" LRESULT qbnex_os_event_windows(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, int *qbnex_os_event_info){
-        if (*qbnex_os_event_info==OS_EVENT_PRE_PROCESSING){
-            //example usage
-            /*
-                if (uMsg==WM_CLOSE){
-                alert("goodbye");
-                *qbnex_os_event_info=OS_EVENT_RETURN_IMMEDIATELY;
-                }
-            */
-            
-            
-            if (uMsg==WM_KEYDOWN){
-                
-                if (device_last){//core devices required?
-                    
-                    /*
-                        16-23        The scan code. The value depends on the OEM.
-                        24        Indicates whether the key is an extended key, such as the right-hand ALT and CTRL keys that appear on an enhanced 101- or 102-key keyboard. The value is 1 if it is an extended key; otherwise, it is 0.
-                    */
-                    
-                    static int32 code,special;
-                    special=0;//set to 2 for keys which we cannot detect a release for
-                    code=(lParam>>16)&511;          
-                    
-                    keydown_special:
-                    static device_struct *d;
-                    d=&devices[1];//keyboard
-                    if (getDeviceEventButtonValue(d,d->queued_events-1,code)!=1){//don't add message if already on
-                        
-                        int32 eventIndex=createDeviceEvent(d);
-                        setDeviceEventButtonValue(d,eventIndex,code,1);
-                        if (special==2){special=1; commitDeviceEvent(d); goto keydown_special;}//jump to ~5 lines above to add a 2nd key event
-                        if (special==1) setDeviceEventButtonValue(d,eventIndex,code,0);
-                        commitDeviceEvent(d);
-                        
-                    }//not 1          
-                }//core devices required
-                
-            }//WM_KEYDOWN
-            
-            
-            if (uMsg==WM_KEYUP){
-                
-                if (device_last){//core devices required?
-                    
-                    /*
-                        16-23        The scan code. The value depends on the OEM.
-                        24        Indicates whether the key is an extended key, such as the right-hand ALT and CTRL keys that appear on an enhanced 101- or 102-key keyboard. The value is 1 if it is an extended key; otherwise, it is 0.
-                    */
-                    
-                    static int32 code;
-                    
-                    code=(lParam>>16)&511;          
-                    
-                    static device_struct *d;
-                    d=&devices[1];//keyboard
-                    if (getDeviceEventButtonValue(d,d->queued_events-1,code)!=0){//don't add message if already off
-                        
-                        int32 eventIndex=createDeviceEvent(d);
-                        setDeviceEventButtonValue(d,eventIndex,code,0);
-                        commitDeviceEvent(d);
-                        
-                    }//not 1          
-                }//core devices required
-                
-            }//WM_KEYUP
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-        }
-        if (*qbnex_os_event_info==OS_EVENT_POST_PROCESSING){
-            
-            
-            
-        }
-        return 0;
-    }
-#endif
 
-#if defined(QBNex_LINUX) && defined(QBNex_GUI)
-    extern "C" void qbnex_os_event_linux(XEvent *event, Display *display, int *qbnex_os_event_info){
-        if (*qbnex_os_event_info==OS_EVENT_PRE_PROCESSING){
-            
-            if (X11_display==NULL){
-                X11_display=display;
-                X11_window=event->xexpose.window;
-            }
-            
-            x11filter(event);//handles clipboard request events from other applications
-        }
-        
-        if (*qbnex_os_event_info==OS_EVENT_POST_PROCESSING){
-            switch (event->type) {
-                case EnterNotify:
-                window_focused = -1;
-                break;
-                
-                case LeaveNotify:
-                window_focused = 0;
-                //Iterate over all modifiers
-                for (uint32 key = VK + QBVK_RSHIFT; key <= VK + QBVK_MODE; key++) {
-                    if (keyheld(key)) keyup(key);
-                }
-                break;
-            }
-        }
-        return;
-    }
-#endif
 
-extern "C" int qbnex_custom_event(int event,int v1,int v2,int v3,int v4,int v5,int v6,int v7,int v8,void *p1,void *p2){
-    if (event==QBNex_EVENT_CLOSE){
-        exit_value|=1;
-        return NULL;
-    }//close
-    if (event==QBNex_EVENT_KEY){
-        if (v1&UC){
-            if (v2>0){
-                keydown_unicode(v1&~UC);
-            }else{
-                keyup_unicode(v1&~UC);
-            }
-            return NULL;
-        }
-        if (v1==VK+QBVK_PAUSE){
-            if (v2>0) keydown_vk(v1); else keyup_vk(v1);
-            return NULL;
-        }
-        if (v1==VK+QBVK_BREAK){
-            if (v2>0) keydown_vk(v1); else keyup_vk(v1);
-            return NULL;
-        }
-        return -1;
-    }//key
-    
-    
-    if (event==QBNex_EVENT_RELATIVE_MOUSE_MOVEMENT){ //qbnex_custom_event(QBNex_EVENT_RELATIVE_MOUSE_MOVEMENT,xPosRelative,yPosRelative,0,0,0,0,0,0,NULL,NULL);
-        static int32 i;
-        int32 handle;
-        handle=mouse_message_queue_first;
-        mouse_message_queue_struct *queue=(mouse_message_queue_struct*)list_get(mouse_message_queue_handles,handle);
-        //message #1
-        i=queue->last+1; if (i>queue->lastIndex) i=0;
-        if (i==queue->current){
-            int32 nextIndex=queue->last+1; if (nextIndex>queue->lastIndex) nextIndex=0;
-            queue->current=nextIndex;
-        }
-        queue->queue[i].x=queue->queue[queue->last].x;
-        queue->queue[i].y=queue->queue[queue->last].y;
-        queue->queue[i].movementx=v1;
-        queue->queue[i].movementy=v2;
-        queue->queue[i].buttons=queue->queue[queue->last].buttons;
-        queue->last=i;
-        //message #2 (clears movement values to avoid confusion)
-        i=queue->last+1; if (i>queue->lastIndex) i=0;
-        if (i==queue->current){
-            int32 nextIndex=queue->last+1; if (nextIndex>queue->lastIndex) nextIndex=0;
-            queue->current=nextIndex;
-        }
-        queue->queue[i].x=queue->queue[queue->last].x;
-        queue->queue[i].y=queue->queue[queue->last].y;
-        queue->queue[i].movementx=0;
-        queue->queue[i].movementy=0;
-        queue->queue[i].buttons=queue->queue[queue->last].buttons;
-        queue->last=i;
-        return NULL;
-    }//QBNex_EVENT_RELATIVE_MOUSE_MOVEMENT
-    
-    if (event==QBNex_EVENT_FILE_DROP){
-        #ifdef QBNex_WINDOWS
-            if (totalDroppedFiles > 0) sub__finishdrop();
-
-            hdrop=(HDROP)p1;
-            totalDroppedFiles = DragQueryFile ( hdrop, -1, NULL, 0 );
-        #endif
-        return NULL;
-    }
-    
-    return -1;//Unknown command (use for debugging purposes only)
-}//qbnex_custom_event
-
-void reinit_glut_callbacks(){
-    
-    #ifdef QBNex_GLUT
-        
-        
-        glutDisplayFunc(GLUT_DISPLAY_REQUEST);
-        #ifdef QBNex_WINDOWS
-            glutTimerFunc(8,GLUT_TIMER_EVENT,0);
-            #else
-            glutIdleFunc(GLUT_IDLEFUNC);
-        #endif
-        glutKeyboardFunc(GLUT_KEYBOARD_FUNC);
-        glutKeyboardUpFunc(GLUT_KEYBOARDUP_FUNC);
-        glutSpecialFunc(GLUT_SPECIAL_FUNC);
-        glutSpecialUpFunc(GLUT_SPECIALUP_FUNC);
-        glutMouseFunc(GLUT_MOUSE_FUNC);
-        glutMotionFunc(GLUT_MOTION_FUNC);
-        glutPassiveMotionFunc(GLUT_PASSIVEMOTION_FUNC);
-        glutReshapeFunc(GLUT_RESHAPE_FUNC);
-        #ifdef CORE_FREEGLUT
-            glutMouseWheelFunc(GLUT_MOUSEWHEEL_FUNC);
-        #endif
-        
-    #endif
-}
 
 int32 func__capslock(){
     #ifdef QBNex_WINDOWS

@@ -1,0 +1,1 @@
+Input scripts (QBNEX_INPUT_SCRIPT) exist only in the Rust runtime (R8), so the legacy oracle cannot produce this output. Golden written by hand from the QBasic INKEY$ codes: H, i, F1 (0;59), Left (0;75), Shift+A, Ctrl+C (3), Enter, Delete (0;83), Esc.

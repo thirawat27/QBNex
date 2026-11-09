@@ -5,10 +5,10 @@ rem Usage: internal\c\qbrt\tests\run_diff.cmd [--quick]
 setlocal
 cd /d "%~dp0"
 set "CXX=..\..\c_compiler\bin\g++"
-set "LIBS=..\os\win\libqbrt.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -static-libgcc -static-libstdc++"
+set "LIBS=..\os\win\libqbrt.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput -static-libgcc -static-libstdc++"
 set "OUT=%TEMP%\qbrt_diff_%RANDOM%"
 mkdir "%OUT%" >nul 2>&1
-for %%t in (diff_msbin diff_round diff_val diff_str diff_timer) do (
+for %%t in (diff_msbin diff_round diff_val diff_str diff_timer diff_keymap diff_keybuf diff_layout) do (
     "%CXX%" -O2 -std=c++17 -w %%t.cpp %LIBS% -o "%OUT%\%%t.exe" || exit /b 1
     "%OUT%\%%t.exe" %1 || exit /b 1
 )

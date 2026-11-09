@@ -19,31 +19,18 @@
     #define INC_COMMON_CPP
     #include "os.h"
     
-    #define QBNex_GL1
-    #define QBNex_GLUT
-    
-    #ifdef DEPENDENCY_CONSOLE_ONLY
-        #undef QBNex_GLUT
-        #else
+    //R8: the window is provided by the Rust runtime (qbrt window.rs: winit + softbuffer);
+    //freeglut/GLEW/OpenGL are no longer compiled or linked.
+    #ifndef DEPENDENCY_CONSOLE_ONLY
         #define QBNex_GUI
-    #endif
-    
-    //core
-    #ifdef QBNex_GUI
-        #ifdef QBNex_GLUT
-            //This file only contains header stuff
-            #include "parts/core/src.c"
-        #endif
     #endif
     
     #ifdef QBNex_WINDOWS
         
-        #ifndef QBNex_GUI
-            #undef int64 //definition of int64 from os.h conflicts with a definition within windows.h, temporarily undefine then redefine
-            #include <windows.h>
-            #define int64 __int64
-        #endif
-        
+        #undef int64 //definition of int64 from os.h conflicts with a definition within windows.h, temporarily undefine then redefine
+        #include <windows.h>
+        #define int64 __int64
+
         #include <shfolder.h>
         
         #include <float.h>
@@ -110,12 +97,7 @@
         
     #endif
     
-    #ifdef QBNex_GUI
-        #ifdef QBNex_GLUT
-            #include "parts/core/gl_headers/opengl_org_registery/glext.h"
-        #endif
-    #endif
-    
+
     
     //QBNex string descriptor structure
     struct qbs_field{

@@ -15,12 +15,18 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod gamepad;
+pub mod keybuf;
+pub mod keymap;
 pub mod mbf;
 pub mod numfmt;
+pub mod raster;
 pub mod rnd;
 pub mod round;
+pub mod script;
 pub mod timer;
 pub mod val;
+pub mod window;
 
 /// Version of the C ABI exposed by this crate. Bumped whenever a declaration in
 /// `include/qbrt.h` changes incompatibly.

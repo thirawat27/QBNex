@@ -85,7 +85,7 @@ mkdir -p ./internal/temp
 cp ./internal/source/* ./internal/temp/
 cp -r ./source/* ./internal/temp/
 pushd internal/c >/dev/null
-clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o qbrt/os/osx/libqbrt.a -lSystem -lc -lm parts/video/font/ttf/os/osx/src.o -framework GLUT -framework OpenGL -framework Cocoa -o ../../qb-stage0
+clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o qbrt/os/osx/libqbrt.a -lSystem -lc -lm parts/video/font/ttf/os/osx/src.o -framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -framework Cocoa -o ../../qb-stage0
 popd >/dev/null
 
 echo ""

@@ -1,0 +1,19 @@
+# scripted keys and mouse for keyhit_mouse_script.bas
+wait 700
+mousemove 100 50
+wait 100
+mousedown 1
+wait 100
+mouseup 1
+wait 100
+wheel -1
+wait 100
+wheel 1
+wait 100
+key x
+wait 100
+keydown lshift
+wait 100
+keyup lshift
+wait 100
+key esc

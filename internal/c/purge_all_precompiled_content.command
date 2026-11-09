@@ -3,10 +3,6 @@ cd "$(dirname "$0")"
 rm libqb/os/win/*.o
 rm libqb/os/lnx/*.o
 
-rm parts/core/os/win/src.a
-rm parts/core/os/lnx/src.a
-rm parts/core/os/win/temp/*.o
-rm parts/core/os/lnx/temp/*.o
 
 rm parts/audio/decode/mp3/os/win/src.a
 rm parts/audio/decode/mp3/os/lnx/src.a

@@ -260,11 +260,7 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
 
     IF DEPENDENCY(DEPENDENCY_DEVICEINPUT) THEN
         defines$ = defines$ + defines_header$ + "DEPENDENCY_DEVICEINPUT"
-        libname$ = "input\game_controller"
-        libpath$ = "parts\" + libname$ + "\os\" + o$
-        libfile$ = libpath$ + "\src.a"
-        IF _FILEEXISTS(localpath$ + libfile$) = 0 THEN Build localpath$ + libpath$
-        libs$ = libs$ + " " + libfile$
+        'R8: controllers come from the Rust runtime (qbrt gamepad.rs); nothing extra to link
     END IF
 
     IF DEPENDENCY(DEPENDENCY_AUDIO_DECODE) THEN DEPENDENCY(DEPENDENCY_AUDIO_CONVERSION) = 1
@@ -318,12 +314,7 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     PATH_SLASH_CORRECT libs$
     IF LEN(defines$) THEN defines$ = defines$ + " "
 
-    IF mac = 0 THEN
-        d1$ = "parts\core"
-        d2$ = d1$ + "\os\" + o$
-        d3$ = "internal\c\" + d2$
-        IF _FILEEXISTS(d3$ + "\src.a") = 0 THEN Build d3$
-    END IF
+    'R8: freeglut/GLEW (parts\core) are gone; the window is part of the Rust runtime (qbrt)
 
     depstr$ = ver$ + "_"
     FOR i = 1 TO DEPENDENCY_LAST
@@ -365,12 +356,12 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
         IF _FILEEXISTS(libqbSignaturePath) THEN KILL libqbSignaturePath
         CHDIR "internal\c"
         IF os$ = "WIN" THEN
-            SHELL _HIDE GDB_Fix("cmd /c c_compiler\bin\g++ -c -s -w -Wall libqb.cpp -D FREEGLUT_STATIC " + defines$ + " -o libqb\os\" + o$ + "\libqb_" + depstr$ + ".o") + " 2>> ..\..\" + compilelog$
+            SHELL _HIDE GDB_Fix("cmd /c c_compiler\bin\g++ -c -s -w -Wall libqb.cpp " + defines$ + " -o libqb\os\" + o$ + "\libqb_" + depstr$ + ".o") + " 2>> ..\..\" + compilelog$
         ELSE
             IF mac THEN
                 SHELL _HIDE GDB_Fix("g++ -c -s -w -Wall libqb.mm " + defines$ + " -o libqb/os/" + o$ + "/libqb_" + depstr$ + ".o") + " 2>> ../../" + compilelog$
             ELSE
-                SHELL _HIDE GDB_Fix("g++ -c -s -w -Wall libqb.cpp -D FREEGLUT_STATIC " + defines$ + " -o libqb/os/" + o$ + "/libqb_" + depstr$ + ".o") + " 2>> ../../" + compilelog$
+                SHELL _HIDE GDB_Fix("g++ -c -s -w -Wall libqb.cpp " + defines$ + " -o libqb/os/" + o$ + "/libqb_" + depstr$ + ".o") + " 2>> ../../" + compilelog$
             END IF
         END IF
         CHDIR "..\.."

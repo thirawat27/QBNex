@@ -30,7 +30,6 @@ if(WIN32)
   set(QBNEX_OS_DIR "win")
   set(QBNEX_LIBQB_SCRIPT "setup_build.bat")
   set(QBNEX_TTF_SCRIPT "setup_build.bat")
-  set(QBNEX_CORE_SCRIPT "setup_build.bat")
 elseif(APPLE)
   set(QBNEX_OS_DIR "osx")
   set(QBNEX_LIBQB_SCRIPT "setup_build.command")
@@ -39,7 +38,6 @@ else()
   set(QBNEX_OS_DIR "lnx")
   set(QBNEX_LIBQB_SCRIPT "setup_build.sh")
   set(QBNEX_TTF_SCRIPT "setup_build.sh")
-  set(QBNEX_CORE_SCRIPT "setup_build.sh")
 endif()
 
 function(qbnex_add_script_output output_file work_dir script_name)
@@ -86,13 +84,17 @@ qbnex_add_script_output(
 # Rust runtime (internal/c/qbrt): static library linked after libqb.
 if(WIN32)
   set(QBNEX_QBRT_SCRIPT "setup_build.bat")
-  set(QBNEX_QBRT_NATIVE_LIBS kernel32 ntdll userenv ws2_32 dbghelp)
+  set(QBNEX_QBRT_NATIVE_LIBS kernel32 ntdll userenv ws2_32 dbghelp
+    # R8 window layer (winit, softbuffer, gilrs/xinput)
+    user32 gdi32 ole32 oleaut32 shell32 imm32 dwmapi uxtheme comctl32 advapi32 xinput)
 elseif(APPLE)
   set(QBNEX_QBRT_SCRIPT "setup_build.command")
-  set(QBNEX_QBRT_NATIVE_LIBS System c m)
+  set(QBNEX_QBRT_NATIVE_LIBS System c m
+    "-framework AppKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Foundation"
+    "-framework IOKit" "-framework CoreFoundation")
 else()
   set(QBNEX_QBRT_SCRIPT "setup_build.sh")
-  set(QBNEX_QBRT_NATIVE_LIBS pthread dl m rt util)
+  set(QBNEX_QBRT_NATIVE_LIBS pthread dl m rt util udev)
 endif()
 set(QBNEX_QBRT_LIB "${QBNEX_INTERNAL_C}/qbrt/os/${QBNEX_OS_DIR}/libqbrt.a")
 file(GLOB_RECURSE QBNEX_QBRT_SOURCES CONFIGURE_DEPENDS
@@ -109,34 +111,7 @@ qbnex_add_script_output(
 
 set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_TTF_OBJ}" "${QBNEX_QBRT_LIB}")
 
-if(NOT APPLE)
-  set(QBNEX_CORE_LIB "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}/src.a")
-  file(GLOB QBNEX_CORE_SOURCES CONFIGURE_DEPENDS "${QBNEX_INTERNAL_C}/parts/core/src/*.c")
-
-  if(WIN32)
-    add_custom_command(
-      OUTPUT "${QBNEX_CORE_LIB}"
-      COMMAND "${CMAKE_COMMAND}" -E rm -f "${QBNEX_CORE_LIB}"
-      COMMAND cmd /c ".\\${QBNEX_CORE_SCRIPT}"
-      WORKING_DIRECTORY "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}"
-      DEPENDS "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}/${QBNEX_CORE_SCRIPT}" ${QBNEX_CORE_SOURCES}
-      VERBATIM
-      COMMENT "Building ${QBNEX_CORE_LIB}"
-    )
-  else()
-    add_custom_command(
-      OUTPUT "${QBNEX_CORE_LIB}"
-      COMMAND "${CMAKE_COMMAND}" -E rm -f "${QBNEX_CORE_LIB}"
-      COMMAND /bin/sh "./${QBNEX_CORE_SCRIPT}"
-      WORKING_DIRECTORY "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}"
-      DEPENDS "${QBNEX_INTERNAL_C}/parts/core/os/${QBNEX_OS_DIR}/${QBNEX_CORE_SCRIPT}" ${QBNEX_CORE_SOURCES}
-      VERBATIM
-      COMMENT "Building ${QBNEX_CORE_LIB}"
-    )
-  endif()
-
-  list(APPEND QBNEX_RUNTIME_DEPENDS "${QBNEX_CORE_LIB}")
-endif()
+# R8: freeglut/GLEW (internal/c/parts/core) are no longer built; the window is qbrt (Rust).
 
 add_custom_target(qbnex_runtime_objects DEPENDS ${QBNEX_RUNTIME_DEPENDS})
 
@@ -164,8 +139,6 @@ if(WIN32)
       DEPENDENCY_SOCKETS
       DEPENDENCY_NO_PRINTER
       DEPENDENCY_NO_SCREENIMAGE
-      GLEW_STATIC
-      FREEGLUT_STATIC
   )
 
   target_link_libraries(
@@ -175,9 +148,6 @@ if(WIN32)
       "${QBNEX_QBRT_LIB}"
       ${QBNEX_QBRT_NATIVE_LIBS}
       "${QBNEX_TTF_OBJ}"
-      "${QBNEX_CORE_LIB}"
-      opengl32
-      glu32
       ws2_32
       winmm
       gdi32
@@ -192,8 +162,6 @@ elseif(APPLE)
       "${QBNEX_QBRT_LIB}"
       ${QBNEX_QBRT_NATIVE_LIBS}
       "${QBNEX_TTF_OBJ}"
-      "-framework GLUT"
-      "-framework OpenGL"
       "-framework Cocoa"
   )
 else()
@@ -205,10 +173,6 @@ else()
       "${QBNEX_QBRT_LIB}"
       ${QBNEX_QBRT_NATIVE_LIBS}
       "${QBNEX_TTF_OBJ}"
-      "${QBNEX_CORE_LIB}"
-      GL
-      GLU
-      X11
       pthread
       dl
       rt
