@@ -144,6 +144,16 @@ static img_struct *display_page = NULL;
 static void validatepage(int32) {}
 static int32 func__copyimage(int32, int32, int32) { return 0; }
 #include "legacy/gfx_putimage.inc"
+// GET/PUT, printchr (built-in fonts), PCOPY
+struct byte_element_struct { uint64 offset; int32 length; };
+static int32 fontwidth[256], fontheight[256], fontflags[256], font[256];
+static uint8 charset8x8[256][8][8];
+static uint8 charset8x16[256][16][8];
+static int32 FontRenderTextASCII(int32, uint8 *, int32, int32, uint8 **, int32 *, int32 *, int32 *, int32 *) { return 0; }
+static uint8 qb_unicode_to_screen_byte(int32) { return 0; }
+static void qb_store_text_cell_utf8(img_struct *, int32, uint32, int32) {}
+inline img_struct *resolve_page_or_image_ptr(int32 handle, int32 &resolved_index) { resolved_index = -handle; return &img[-handle]; }
+#include "legacy/gfx_getput_text.inc"
 } // namespace legacy
 
 #include "../include/qbrt.h"
@@ -679,7 +689,24 @@ static void op_draw(Twin &t) {
     int32 e = qbrt_gfx_draw(&t.R, (const uint8 *)rs.data(), (int32)rs.size(), legacy::cmem);
     std::string shown;
     for (unsigned char ch : str) shown += (ch >= 32 && ch < 127) ? std::string(1, (char)ch) : fmt("\\x%02x", ch);
+    long before = failures;
     check("DRAW", t, legacy::last_error, e, shown);
+    if (failures != before && getenv("DIFF_TRACE")) {
+        fprintf(stderr, "DRAW mismatch: legacy err %d rust err %d\n", legacy::last_error, e);
+        for (size_t i = 0; i + 3 < str.size(); i++) {
+            if (str[i] == 'X' && str[i + 1] == 3) {
+                unsigned off = (uint8)str[i + 2] + 256u * (uint8)str[i + 3];
+                uint8 *d = &legacy::cmem[1280 + off];
+                unsigned l = d[0] + 256u * d[1], o = d[2] + 256u * d[3];
+                fprintf(stderr, "  X desc@%u len=%u text@%u: ", off, l, o);
+                for (unsigned k = 0; k < l && k < 200; k++) {
+                    uint8 ch = legacy::cmem[1280 + o + k];
+                    if (ch >= 32 && ch < 127) fputc(ch, stderr); else fprintf(stderr, "\\x%02x", ch);
+                }
+                fprintf(stderr, " | next byte %u\n", legacy::cmem[1280 + o + l]);
+            }
+        }
+    }
 }
 
 // --- _PUTIMAGE between two twins (source twin S, destination twin t) -------
@@ -765,6 +792,126 @@ static void op_putimage(Twin &t) {
     check("PUTIMAGE", t, legacy::last_error, e, args);
 }
 
+// --- GET / PUT / printchr / PCOPY -----------------------------------------------
+static void op_getput(Twin &t) {
+    // STEP from an absurd cursor overflows the int32 size computations (legacy UB)
+    // (and a rectangle of 2^31 pixels overflows them too: keep coordinates small)
+    if (!(fabsf(t.L.x) <= 1e4f) || !(fabsf(t.L.y) <= 1e4f)) { t.L.x = t.R.x = 1.5f; t.L.y = t.R.y = 2.5f; }
+    // The legacy size check of the 2-bit layout counts half of what it
+    // writes, so a "large enough" array can be overrun by 2x: give both sides
+    // slack beyond the length they are told about.
+    const int N = 70000;
+    std::vector<uint8> lb(3 * N), rb;
+    for (int i = 0; i < 3 * N; i++) lb[i] = (uint8)next();
+    rb = lb;
+    auto small = [](float v) { return v > 3000 ? 3000.0f : v < -3000 ? -3000.0f : v; };
+    float x1 = small(rcoord(t.L.width)), y1 = small(rcoord(t.L.height)), x2 = small(rcoord(t.L.width)), y2 = small(rcoord(t.L.height));
+    if (next() % 2) { x1 = (float)rint_(0, t.L.width - 1); y1 = (float)rint_(0, t.L.height - 1);
+                      x2 = (float)rint_(0, t.L.width - 1); y2 = (float)rint_(0, t.L.height - 1); }
+    uint32 mask = rcolor(t);
+    int32 passed = (int32)(next() % 8);
+    int32 len = (next() % 6) ? N : rint_(0, 200);
+    {
+        // Same mapping as legacy GET; a rectangle whose byte size overflows
+        // int32 passes the legacy size check and writes anywhere (UB): skip.
+        const img_struct &im = t.L;
+        float a1 = x1, b1 = y1, a2 = x2, b2 = y2;
+        if (passed & 1) { a1 = im.x + a1; b1 = im.y + b1; }
+        if (passed & 2) { a2 = a1 + a2; b2 = b1 + b2; }
+        auto mp = [&](float v, float sc, float of, int32 vo) -> int64 {
+            if (im.clipping_or_scaling == 2) return (int64)legacy::qbr_float_to_long(v * sc + of) + vo;
+            if (im.clipping_or_scaling) return (int64)legacy::qbr_float_to_long(v) + vo;
+            return legacy::qbr_float_to_long(v);
+        };
+        int64 w = llabs(mp(a2, im.scaling_x, im.scaling_offset_x, im.view_offset_x) - mp(a1, im.scaling_x, im.scaling_offset_x, im.view_offset_x)) + 1;
+        int64 h = llabs(mp(b2, im.scaling_y, im.scaling_offset_y, im.view_offset_y) - mp(b1, im.scaling_y, im.scaling_offset_y, im.view_offset_y)) + 1;
+        if (w * h * 4 + 64 > 0x7FFFFFFFll) return;
+    }
+    legacy::byte_element_struct le = {(uint64)lb.data(), len};
+    legacy::last_error = 0;
+    legacy::read_page = &t.L;
+    if (getenv("DIFF_TRACE")) { fprintf(stderr, "GET cur=%g,%g mode %d %dx%d win=%d %.9g,%.9g,%.9g,%.9g mask=%08x passed=%d len=%d\n", t.L.x, t.L.y, t.L.compatible_mode, t.L.width, t.L.height, t.L.clipping_or_scaling, x1, y1, x2, y2, mask, passed, len); fflush(stderr); }
+    legacy::sub_graphics_get(x1, y1, x2, y2, &le, mask, passed);
+    int32 e = qbrt_gfx_get(&t.R, mutate ? x1 + 1 : x1, y1, x2, y2, rb.data(), len, mask, passed);
+    std::string args = fmt("GET %.9g,%.9g,%.9g,%.9g mask=%08x passed=%d len=%d", x1, y1, x2, y2, mask, passed, len);
+    ++checks;
+    if (lb != rb) { report("GET", t, "array bytes", args); return; }
+    check("GET", t, legacy::last_error, e, args);
+    // PUT the captured array back somewhere (sometimes a random array)
+    if (next() % 5 == 0) { for (int i = 0; i < 400; i++) lb[i] = (uint8)next(); rb = lb; }
+    // a header of up to 65535x65535 overflows the int32 size check in legacy
+    // PUT (undefined behaviour): keep headers that did not come from GET small
+    if (legacy::last_error || lb[1] || lb[3] > 1) {
+        uint16 dims[2] = {(uint16)rint_(0, 300), (uint16)rint_(0, 100)};
+        memcpy(lb.data(), dims, 4);
+        rb = lb;
+    }
+    float px = rcoord(t.L.width), py = rcoord(t.L.height);
+    if (next() % 2) { px = (float)rint_(0, t.L.width - 1); py = (float)rint_(0, t.L.height - 1); }
+    int32 option = rint_(0, 5);
+    uint32 pmask = (next() % 2) ? rcolor(t) : (uint32)(next() % 4);
+    int32 ppassed = (int32)(next() % 8);
+    legacy::byte_element_struct pe = {(uint64)lb.data(), len};
+    legacy::last_error = 0;
+    legacy::write_page = &t.L;
+    legacy::sub_graphics_put(px, py, &pe, option, pmask, ppassed);
+    e = qbrt_gfx_put(&t.R, px, py, rb.data(), len, mutate ? (option + 1) % 6 : option, pmask, ppassed);
+    check("PUT", t, legacy::last_error, e, fmt("PUT %.9g,%.9g option=%d mask=%08x passed=%d", px, py, option, pmask, ppassed));
+}
+
+static void op_printchr(Twin &t) {
+    int f = t.L.font;
+    if (f != 8 && f != 14 && f != 16) return;
+    int cols = t.L.width / 8, rows = t.L.height / f;
+    if (cols < 1 || rows < 1) return;
+    t.L.cursor_x = t.R.cursor_x = (int16)rint_(1, cols);
+    t.L.cursor_y = t.R.cursor_y = (int16)rint_(1, rows);
+    t.L.print_mode = t.R.print_mode = (uint8)rint_(0, 4);
+    int32 ch = (next() % 4) ? rint_(0, 255) : (int32)next();
+    legacy::write_page = &t.L;
+    legacy::printchr(ch, 1);
+    qbrt_gfx_printchr(&t.R, mutate ? ch + 1 : ch);
+    check("printchr", t, 0, 0, fmt("ch=%d font=%d mode=%d at %d,%d", ch, f, t.L.print_mode, t.L.cursor_x, t.L.cursor_y));
+}
+
+static void op_pcopy(Twin &t) {
+    Twin S;
+    int bpp = (next() % 3) ? t.L.compatible_mode : (int)((next() % 2) ? 13 : 32);
+    int w = (next() % 4) ? t.L.width : rint_(1, 50), h = (next() % 4) ? t.L.height : rint_(1, 50);
+    make_twin(S, w, h, bpp);
+    img_struct slots[4];
+    memset(slots, 0, sizeof slots);
+    slots[2] = S.L; slots[3] = t.L;
+    img_struct *saved = legacy::img;
+    legacy::img = slots;
+    legacy::last_error = 0;
+    legacy::sub_pcopy(-2, -3);
+    t.L = slots[3];
+    legacy::img = saved;
+    if (mutate && S.rpix.size()) S.rpix[0] ^= 1;
+    int32 e = qbrt_gfx_pcopy(&S.R, &t.R);
+    check("PCOPY", t, legacy::last_error, e, fmt("src %dx%d mode %d", w, h, bpp));
+}
+
+static void check_f80() {
+    // DRAW reads VARPTR$ long doubles: x87 load/store vs Rust, random bit
+    // patterns (unnormals, pseudo-NaNs, denormals, NaN payloads included)
+    long bad = 0;
+    for (long i = 0; i < 4000000; i++) {
+        uint8 b[16] = {0};
+        for (int k = 0; k < 10; k++) b[k] = (uint8)next();
+        if (i % 4 == 1) b[9] = (b[9] & 0x80) | 0x7F, b[8] |= 0xFF;     // exponent 0x7FFF
+        if (i % 4 == 2) b[9] &= 0x80, b[8] = 0;                         // exponent 0
+        long double v;
+        memcpy(&v, b, 10);
+        double a = (double)v, r = qbrt_gfx_draw_f80(b);
+        if (mutate && i == 5) r += 1;
+        if (memcmp(&a, &r, 8)) bad++;
+    }
+    ++checks;
+    if (bad) { ++failures; failures_by_op["f80 load"] += bad; printf("MISMATCH f80 load: %ld\n", bad); }
+}
+
 static void check_tables() {
     // Built-in data: legacy start-up code (libqb.cpp main init) vs Rust statics.
     memcpy(&legacy::palette_256, &legacy::file_qbnex_pal[0], legacy::file_qbnex_pal_len);
@@ -795,6 +942,10 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--mutate")) mutate = true;
     }
     check_tables();
+    check_f80();
+    for (int f : {8, 14, 16}) { legacy::fontwidth[f] = 8; legacy::fontheight[f] = f; legacy::fontflags[f] = 16; }
+    memcpy(legacy::charset8x8, legacy::file_charset8_raw, 16384);
+    memcpy(legacy::charset8x16, legacy::file_chrset16_raw, 32768);
     legacy_registry_base = legacy::img;
     registry_test(quick ? 3000 : 40000);
     static const int modes[] = {1, 2, 7, 8, 9, 10, 11, 12, 13, 256, 32, 32, 13, 12};
@@ -809,7 +960,7 @@ int main(int argc, char **argv) {
         make_twin(t, w, h, bpp);
         if (bpp == 32 && next() % 4 == 0) { t.L.alpha_disabled = t.R.alpha_disabled = 1; }
         for (int k = 0; k < ops_per_round; k++) {
-            int op = (int)(next() % 19);
+            int op = (int)(next() % 23);
             per_op[op]++;
             switch (op) {
             case 0: case 1: op_line(t); break;
@@ -826,6 +977,9 @@ int main(int argc, char **argv) {
             case 12: case 13: op_imgops(t); break;
             case 14: case 15: op_draw(t); break;
             case 16: case 17: case 18: op_putimage(t); break;
+            case 19: case 20: op_getput(t); break;
+            case 21: op_printchr(t); break;
+            case 22: op_pcopy(t); break;
             }
             if (diff_state(t)) { // resynchronise after a reported mismatch
                 t.R = t.L; t.rpix = t.lpix; t.rpal = t.lpal;

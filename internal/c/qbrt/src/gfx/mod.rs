@@ -20,6 +20,7 @@ pub mod capture;
 pub mod circle;
 pub mod data;
 pub mod draw;
+pub mod getput;
 pub mod image;
 pub mod imgops;
 pub mod line;

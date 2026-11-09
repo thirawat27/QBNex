@@ -132,12 +132,21 @@ int32_t qbrt_imgnew(int32_t x, int32_t y, int32_t bpp, int32_t *err);
 void qbrt_imgrevert(int32_t i);
 // DRAW: cmem is the conventional memory block (VARPTR$ arguments point into it).
 int32_t qbrt_gfx_draw(struct img_struct *im, const uint8_t *s, int32_t len, const uint8_t *cmem);
+double qbrt_gfx_draw_f80(const uint8_t *p); // diagnostics: x87 long double -> double load
 // _PUTIMAGE on resolved, distinct surfaces (passed: legacy bits). With hw_out
 // (8 int32: sx1,sy1,sx2,sy2,dx1,dy1,dx2,dy2) only the coordinates are resolved.
 typedef struct qbrt_put_coords { double dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2; } qbrt_put_coords;
 int32_t qbrt_gfx_putimage(struct img_struct *s, struct img_struct *d, const qbrt_put_coords *c, int32_t passed,
                           int32_t *hw_out);
 uint64_t qbrt_gfx_putimage_oob_count(void); // diagnostics (deviation D-06)
+// Graphics GET/PUT on read_page/write_page; data/len = the array memory.
+int32_t qbrt_gfx_get(struct img_struct *im, float x1, float y1, float x2, float y2, uint8_t *data, int32_t len,
+                     uint32_t mask, int32_t passed);
+int32_t qbrt_gfx_put(struct img_struct *im, float x1, float y1, const uint8_t *data, int32_t len, int32_t option,
+                     uint32_t mask, int32_t passed);
+// PCOPY on resolved pages; built-in font glyph at the text cursor of a graphics page.
+int32_t qbrt_gfx_pcopy(const struct img_struct *s, const struct img_struct *d);
+void qbrt_gfx_printchr(const struct img_struct *im, int32_t character);
 // Headless framebuffer capture (QBNEX_FB_CAPTURE); kind 0 = _DISPLAY, 1 = end.
 void qbrt_fb_capture(const struct img_struct *display_page, int32_t kind);
 

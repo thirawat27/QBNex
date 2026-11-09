@@ -22,6 +22,29 @@ fn cvt_i64(v: f64) -> i64 {
     }
 }
 
+/// `double d = *(long double*)p` on x87: unsupported encodings (unnormals,
+/// pseudo-NaN/infinity) load as the "indefinite" QNaN and NaNs keep their
+/// payload, quietened; finite values round to nearest.
+fn f80_load_store(b: [u8; 10]) -> f64 {
+    let mant = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
+    let se = u16::from_le_bytes([b[8], b[9]]);
+    let exp = se & 0x7FFF;
+    let sign = u64::from(se >> 15) << 63;
+    const INDEFINITE: u64 = 0xFFF8_0000_0000_0000;
+    if exp != 0 && mant >> 63 == 0 {
+        return f64::from_bits(INDEFINITE);
+    }
+    if exp == 0x7FFF {
+        let frac = mant & 0x7FFF_FFFF_FFFF_FFFF;
+        if frac == 0 {
+            return f64::from_bits(sign | 0x7FF0_0000_0000_0000);
+        }
+        return f64::from_bits(sign | 0x7FF8_0000_0000_0000 | (frac >> 11));
+    }
+    // SAFETY: b is a 10-byte x87 extended value.
+    unsafe { crate::val::qbrt_f80_to_f64(b.as_ptr()) }
+}
+
 struct Parser {
     cp: *const u8,
     len: i32,
@@ -71,11 +94,7 @@ impl Parser {
                     4 => f64::from(self.cmem_at::<f32>(offset)),
                     5 => self.cmem_at::<i64>(offset) as f64,
                     133 => self.cmem_at::<u64>(offset) as f64,
-                    6 => {
-                        let b: [u8; 10] = self.cmem_at(offset);
-                        // SAFETY: b is a 10-byte x87 extended value.
-                        unsafe { crate::val::qbrt_f80_to_f64(b.as_ptr()) }
-                    }
+                    6 => f80_load_store(self.cmem_at(offset)),
                     8 => self.cmem_at::<f64>(offset),
                     20 => f64::from(self.cmem_at::<i32>(offset)),
                     148 => f64::from(self.cmem_at::<u32>(offset)),
@@ -165,7 +184,8 @@ fn vectors(r: f64, ta: f64) -> [f64; 8] {
 /// # Safety
 /// `im` must be a valid surface whose VIEW lies inside it; `s` readable for
 /// `len` bytes; `cmem` must be the conventional memory block when the string
-/// uses `VARPTR$` (it may be null otherwise).
+/// uses `VARPTR$` (it may be null otherwise). The byte after the end of each
+/// (sub-)string must be readable: `M` and `P` peek at it like legacy did.
 pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
     const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
     if im.text != 0 {
@@ -253,8 +273,9 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 if p.bad() {
                     return ERR;
                 }
-                if p.i >= p.len || p.at(p.i) != 44 {
-                    // legacy reads the byte after the string here (its terminator)
+                // legacy reads the byte at p.i even when it is one past the end
+                // of the string (usually a terminator, sometimes a comma)
+                if p.at(p.i) != 44 {
                     return ERR;
                 }
                 p.i += 1;
@@ -357,7 +378,8 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 if fill as f64 != d {
                     return ERR;
                 }
-                if p.i >= p.len || p.at(p.i) != 44 {
+                if p.at(p.i) != 44 {
+                    // (may read one byte past the end, as legacy)
                     return ERR;
                 }
                 p.i += 1;
@@ -448,6 +470,18 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
     }
 }
 
+/// Diagnostic for the differential test: [`f80_load_store`] on 10 bytes.
+///
+/// # Safety
+/// `p` must be readable for 10 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn qbrt_gfx_draw_f80(p: *const u8) -> f64 {
+    let mut b = [0u8; 10];
+    // SAFETY: guaranteed by the caller.
+    unsafe { core::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 10) };
+    f80_load_store(b)
+}
+
 /// C ABI: `DRAW` on `write_page`.
 ///
 /// # Safety
@@ -464,7 +498,9 @@ mod tests {
     use crate::gfx::testutil::TestImage;
 
     fn run(t: &mut TestImage, s: &str) -> i32 {
-        unsafe { draw(&mut t.img, s.as_ptr(), s.len() as i32, core::ptr::null()) }
+        let mut b = s.as_bytes().to_vec();
+        b.push(0); // terminator, as qbs strings provide
+        unsafe { draw(&mut t.img, b.as_ptr(), s.len() as i32, core::ptr::null()) }
     }
 
     #[test]
