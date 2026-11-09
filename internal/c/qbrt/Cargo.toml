@@ -12,3 +12,8 @@ publish = false
 # rlib: used by Rust unit tests and tools
 crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
+
+[dependencies]
+# Audio runtime (R6). Its own crate so that its object file is only pulled into
+# programs whose libqb references qbrt_snd_* (DEPENDENCY_AUDIO_OUT).
+qbrt-audio = { path = "audio" }

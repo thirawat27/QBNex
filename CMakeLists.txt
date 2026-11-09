@@ -97,6 +97,7 @@ endif()
 set(QBNEX_QBRT_LIB "${QBNEX_INTERNAL_C}/qbrt/os/${QBNEX_OS_DIR}/libqbrt.a")
 file(GLOB_RECURSE QBNEX_QBRT_SOURCES CONFIGURE_DEPENDS
   "${QBNEX_INTERNAL_C}/qbrt/src/*.rs"
+  "${QBNEX_INTERNAL_C}/qbrt/audio/src/*.rs"
   "${QBNEX_INTERNAL_C}/qbrt/include/*.h"
 )
 qbnex_add_script_output(
@@ -105,6 +106,7 @@ qbnex_add_script_output(
   "${QBNEX_QBRT_SCRIPT}"
   ${QBNEX_QBRT_SOURCES}
   "${QBNEX_INTERNAL_C}/qbrt/Cargo.toml"
+  "${QBNEX_INTERNAL_C}/qbrt/audio/Cargo.toml"
 )
 
 set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_TTF_OBJ}" "${QBNEX_QBRT_LIB}")

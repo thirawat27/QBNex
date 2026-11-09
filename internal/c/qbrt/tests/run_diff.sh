@@ -24,7 +24,7 @@ case "$(uname -m)" in
   x86_64|i?86)
     $cxx -O1 -std=c++17 -w diff_round.cpp "$lib" $libs -o "$out/diff_round"
     "$out/diff_round" $mode
-    for t in diff_val diff_timer; do
+    for t in diff_val diff_timer diff_audio; do
       $cxx -O1 -std=c++17 -w "$t.cpp" "$lib" $libs -o "$out/$t"
       "$out/$t" $mode
     done
