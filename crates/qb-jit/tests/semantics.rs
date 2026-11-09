@@ -472,3 +472,14 @@ fn cross_targets_compile() {
         qb_jit::compile(&m, t).unwrap_or_else(|e| panic!("{t:?}: {e:?}"));
     }
 }
+
+#[test]
+fn temporaries_beyond_frame_len_are_never_written_back() {
+    let mut f = Fb::new("t");
+    let (a, t) = (f.slot(Ty::I64), f.slot(Ty::I64));
+    f.f.frame_len = Some(1);
+    f.ci(t, 5);
+    f.i(Inst::Mov { dst: a, src: t });
+    let o = both(&module(vec![f.f], vec![]), 0, &Setup::default());
+    assert_eq!(o.frame, vec![5, 0]);
+}

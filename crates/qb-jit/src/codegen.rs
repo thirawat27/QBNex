@@ -168,7 +168,8 @@ fn var(r: Reg) -> Variable {
 impl<'a> Gen<'a> {
     fn new(m: &'a Module, f: &'a Func, b: FunctionBuilder<'a>, cc: CallConv) -> Gen<'a> {
         let n = f.slots.len();
-        let mut resident = vec![n > MAX_REG_SLOTS; n];
+        let nf = f.frame_len();
+        let mut resident: Vec<bool> = (0..n).map(|r| r < nf && nf > MAX_REG_SLOTS).collect();
         let mut defined = vec![false; n];
         for blk in &f.blocks {
             for i in &blk.insts {
@@ -332,12 +333,21 @@ impl<'a> Gen<'a> {
         }
 
         self.globals = self.ctx_load(types::I64, OFF_GLOBALS);
-        // Load register slots.
+        // Load register slots; temporaries start at zero.
+        let nf = self.f.frame_len();
         for r in 0..self.f.slots.len() as u32 {
             if !self.resident[r as usize] {
                 let t = self.ty(r);
-                let fr = self.frame;
-                let v = self.b.ins().load(clif_ty(t), MemFlags::trusted(), fr, (r * 8) as i32);
+                let v = if (r as usize) < nf {
+                    let fr = self.frame;
+                    self.b.ins().load(clif_ty(t), MemFlags::trusted(), fr, (r * 8) as i32)
+                } else {
+                    match t {
+                        Ty::F32 => self.b.ins().f32const(0.0),
+                        Ty::F64 => self.b.ins().f64const(0.0),
+                        _ => self.b.ins().iconst(clif_ty(t), 0),
+                    }
+                };
                 self.b.def_var(var(r), v);
             }
         }
@@ -439,7 +449,7 @@ impl<'a> Gen<'a> {
         self.b.switch_to_block(self.exit_blk);
         let st = self.b.block_params(self.exit_blk)[0];
         for r in 0..self.f.slots.len() as u32 {
-            if !self.resident[r as usize] && self.defined[r as usize] {
+            if !self.resident[r as usize] && self.defined[r as usize] && (r as usize) < self.f.frame_len() {
                 let v = self.b.use_var(var(r));
                 let t = self.ty(r);
                 let fr = self.frame;

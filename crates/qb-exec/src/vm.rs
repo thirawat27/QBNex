@@ -239,6 +239,8 @@ pub struct Vm<'m, 'o> {
     in_event: bool,
     /// pending bits examined at safe points
     poll_mask: u32,
+    /// JIT tier (R11.6); `None` = interpret only (`QB_JIT=off`).
+    jit: Option<Box<crate::jit::JitState>>,
     timer_interval: f64,
     timer: Option<Arc<AtomicBool>>,
 }
@@ -308,9 +310,48 @@ impl<'m, 'o> Vm<'m, 'o> {
             ev_handler: [NONE; 32],
             in_event: false,
             poll_mask: u32::MAX,
+            jit: crate::jit::JitState::from_env(m),
             timer_interval: 0.0,
             timer: None,
         }
+    }
+
+    /// Selects the JIT mode (overrides `QB_JIT`).
+    pub fn set_jit(&mut self, mode: qb_jit::tier::Mode, threshold: u32) {
+        self.jit = crate::jit::JitState::new(self.m, mode, threshold);
+    }
+
+    /// Why the JIT is not running native code, if it tried and failed.
+    pub fn jit_failure(&self) -> Option<String> {
+        self.jit.as_ref().and_then(|j| j.failure())
+    }
+
+    /// Number of times native code was entered.
+    pub fn jit_entries(&self) -> u64 {
+        self.jit.as_ref().map_or(0, |j| j.entries)
+    }
+
+    /// Runs native code for the function containing `pc`, entered at `pc`
+    /// (a back-edge target) on the current register window. `None` = not
+    /// compiled (yet); `Ok((pc, event))` = continue interpreting at `pc`
+    /// (dispatch events first when `event`).
+    #[inline(never)]
+    fn jit_enter(&mut self, pc: u32, np: *mut u64) -> Option<Result<(u32, bool), (i32, u32)>> {
+        let me = self as *mut Self as *mut core::ffi::c_void;
+        let globals = self.nums.as_mut_ptr();
+        let ev: *const AtomicU32 = &self.ev.pending;
+        let mask = self.poll_mask;
+        let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
+        // SAFETY: native code works on the current window `np` and calls back
+        // into this VM only through `vm_op` (one non-control instruction).
+        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, vm_op)? };
+        Some(st)
+    }
+
+    /// Executes exactly the instruction at `pc` (used by native code for
+    /// everything it does not compile itself). Returns the next pc.
+    pub(crate) fn step_one(&mut self, pc: u32) -> Result<u32, (i32, u32)> {
+        self.exec_impl::<true>(pc)
     }
 
     /// Handle for raising events from other threads.
@@ -873,8 +914,15 @@ impl<'m, 'o> Vm<'m, 'o> {
     // ------------------------------------------------------------ hot loop
 
     /// Runs from `pc` until END (`Ok`) or an error (`Err((code, pc))`).
-    fn exec(&mut self, mut pc: u32) -> Result<(), (i32, u32)> {
+    fn exec(&mut self, pc: u32) -> Result<(), (i32, u32)> {
+        self.exec_impl::<false>(pc).map(|_| ())
+    }
+
+    /// The interpreter loop. `STEP`: return after one instruction with the next pc.
+    #[inline(always)]
+    fn exec_impl<const STEP: bool>(&mut self, mut pc: u32) -> Result<u32, (i32, u32)> {
         let m: &'m Module = self.m;
+        let mut stepped = false;
         let code = m.code.as_slice();
         let evp: *const AtomicU32 = &self.ev.pending;
         let mut np = self.np();
@@ -940,7 +988,30 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
             };
         }
+        macro_rules! jit {
+            () => {
+                if !STEP && self.jit.is_some() {
+                    match self.jit_enter(pc, np) {
+                        None => {}
+                        Some(Ok((p, ev))) => {
+                            pc = p;
+                            reload!();
+                            if ev {
+                                poll!();
+                            }
+                        }
+                        Some(Err(e)) => return Err(e),
+                    }
+                }
+            };
+        }
         loop {
+            if STEP {
+                if stepped {
+                    return Ok(pc);
+                }
+                stepped = true;
+            }
             // SAFETY: every jump target is inside its function and every function
             // ends with ret/end (Module::validate), so pc stays in bounds
             let ins = unsafe { *code.get_unchecked(pc as usize) };
@@ -1046,6 +1117,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::Loop { t } => {
                     pc = t;
                     poll!();
+                    jit!();
                 }
                 Ins::JzI { s, t } => {
                     if r!(s) == 0 {
@@ -1102,6 +1174,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if if s < 0 { x >= l } else { x <= l } {
                         pc = body;
                         poll!();
+                        jit!();
                     }
                 }
                 Ins::Gosub { t } => {
@@ -1131,7 +1204,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     pc = tryc!(self.ret());
                     reload!();
                 }
-                Ins::End => return Ok(()),
+                Ins::End => return Ok(u32::MAX),
                 Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
                 Ins::Resume { k, t } => {
                     pc = tryc!(self.resume(k, t));
@@ -1350,5 +1423,26 @@ mod tests {
         f.set(f.off1(2).unwrap(), 0.1f64.to_bits());
         assert_eq!(f64::from_bits(f.get(1)), f64::from(0.1f32));
         assert_eq!(f.off1(3), Err(9));
+    }
+}
+
+/// VmOp callback for native code: executes the VM instruction `pc` on the
+/// window `frame` (which is the VM's current one).
+extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
+    // SAFETY: `user` was set by `jit_enter` to the VM that entered native code.
+    let ctx = unsafe { &mut *ctx };
+    let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
+    debug_assert_eq!(frame, vm.np());
+    match vm.step_one(pc) {
+        Ok(next) if next == pc + 1 => qb_jit::status::OK,
+        Ok(next) => {
+            ctx.exit_pc = next;
+            qb_jit::status::DEOPT
+        }
+        Err((code, at)) => {
+            ctx.err = code;
+            ctx.exit_pc = at;
+            qb_jit::status::ERROR
+        }
     }
 }

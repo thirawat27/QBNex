@@ -273,7 +273,16 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
     let mut line = 0u32;
     let ty = |r: Reg| f.slots[r as usize];
     // SAFETY (all slot accesses below): validated slot indices into `frame`.
-    let slot = |r: Reg| unsafe { frame.add(r as usize) };
+    let nf = f.frame_len();
+    let mut temps = vec![0u64; f.slots.len() - nf];
+    let tp = temps.as_mut_ptr();
+    let slot = |r: Reg| unsafe {
+        if (r as usize) < nf {
+            frame.add(r as usize)
+        } else {
+            tp.add(r as usize - nf)
+        }
+    };
     let get = |r: Reg| unsafe { read(slot(r) as *const u8, ty(r)) };
     let set = |r: Reg, v: V| unsafe { write_slot(slot(r), ty(r), v) };
     let globals = ctx.globals;

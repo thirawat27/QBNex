@@ -213,6 +213,16 @@ pub struct Func {
     /// Slot holding the FUNCTION result, copied to the caller's `dst`.
     pub ret: Option<Reg>,
     pub blocks: Vec<Block>,
+    /// Slots backed by the frame memory; slots from here on are temporaries
+    /// that live only in native registers (start at 0, never written back).
+    /// `None` = every slot is in the frame.
+    pub frame_len: Option<u32>,
+}
+
+impl Func {
+    pub fn frame_len(&self) -> usize {
+        self.frame_len.map_or(self.slots.len(), |n| n as usize)
+    }
 }
 
 /// Host function signature.

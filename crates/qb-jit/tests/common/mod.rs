@@ -44,6 +44,7 @@ impl Fb {
                 params: vec![],
                 ret: None,
                 blocks: vec![Block { pc: Some(0), insts: vec![], term: Term::End }],
+                frame_len: None,
             },
             cur: 0,
         }
