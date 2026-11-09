@@ -489,7 +489,7 @@ mod tests {
                 graphics_put(&mut b.img, 3.0, 2.0, buf.as_ptr(), 2000, 0, 0, 0);
                 graphics_put(&mut b.img, 3.0, 2.0, buf.as_ptr(), 2000, 0, 0, 0);
             }
-            assert_eq!(b.p8(3, 2) as u32 | 0, if mode == 32 { b.p8(3, 2) as u32 } else { a.p8(2, 1) as u32 });
+            assert_eq!(b.p8(3, 2) as u32, if mode == 32 { b.p8(3, 2) as u32 } else { a.p8(2, 1) as u32 });
         }
     }
 

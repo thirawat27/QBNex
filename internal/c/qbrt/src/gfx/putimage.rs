@@ -584,7 +584,7 @@ mod tests {
     }
 
     fn src8() -> Box<TestImage> {
-        let mut s = TestImage::new(4, 2, 13);
+        let s = TestImage::new(4, 2, 13);
         // row 0: 1 2 3 4, row 1: 5 6 7 8
         for i in 0..8u8 {
             unsafe { *s.img.offset.add(i as usize) = i + 1 };

@@ -164,6 +164,7 @@ inline img_struct *resolve_page_or_image_ptr(int32 handle, int32 &resolved_index
 #include "legacy/gfx_getput_text.inc"
 #include "legacy/gfx_maptri.inc"
 } // namespace legacy
+#include "legacy/gfx_screen.inc"
 
 #include "../include/qbrt.h"
 
@@ -973,6 +974,63 @@ static void op_maptri(Twin &t) {
               sbpp, S.L.transparent_color, seamless, sc[0], sc[1], sc[2], sc[3], sc[4], sc[5], dc[0], dc[1], dc[2], dc[3], dc[4], dc[5]));
 }
 
+// --- SCREEN decisions: mode check, graphics sizes, SCREEN 0 layout --------------
+static void check_screen() {
+    namespace L = legacy_screen;
+    long bad = 0, n = 0;
+    static const int32 dims[] = {0, 1, 2, 8, 20, 25, 30, 40, 43, 50, 60, 64, 80, 100, 120, 200, 255, 400, 1000};
+    const int nd = sizeof dims / sizeof dims[0];
+    for (int32 mode = -3; mode <= 300; mode++) {
+        ++n;
+        int32 m = mutate && mode == 4 ? 2 : mode;
+        if (L::mode_valid(mode) != qbrt_gfx_screen_mode_valid(m)) {
+            bad++;
+            printf("MISMATCH SCREEN mode check %d\n", mode);
+        }
+        if (mode < 0 || mode > 13 || mode == 0) continue;
+        for (int a = 0; a < nd; a++)
+            for (int b = 0; b < nd; b++) {
+                ++n;
+                int32 out[3] = {0, 0, 0};
+                int32 lok = L::graphics(mode, dims[a], dims[b]);
+                int32 rok = qbrt_gfx_screen_geometry(m, dims[a], dims[b], out);
+                bool same = lok == rok && (!lok || (L::rec_w == out[0] && L::rec_h == out[1] && L::rec_mode == mode &&
+                                                    L::rec_font == out[2] && L::rec_frame == (mode == 13)));
+                if (!same) {
+                    bad++;
+                    if (bad < 20) printf("MISMATCH SCREEN %d prev %dx%d\n", mode, dims[a], dims[b]);
+                }
+            }
+    }
+    // SCREEN 0: every combination of previous size and the three pending overrides
+    static const int32 ov[] = {-1, 1, 8, 9, 14, 15, 16, 17, 25, 40, 43, 50, 60, 80, 100, 200, 400};
+    const int no = sizeof ov / sizeof ov[0];
+    for (int a = 0; a < nd; a++)
+        for (int b = 0; b < nd; b++)
+            for (int i = 0; i < no; i++)
+                for (int j = 0; j < no; j++)
+                    for (int k = 0; k < no; k++) {
+                        ++n;
+                        L::sub_screen_width_in_characters = ov[i];
+                        L::sub_screen_height_in_characters = ov[j];
+                        L::sub_screen_font = ov[k];
+                        int32 lo[5];
+                        L::screen0(dims[a], dims[b], lo);
+                        int32 w = ov[i], h = ov[j], f = ov[k], ro[5];
+                        qbrt_gfx_screen0_layout(mutate && a == 3 ? dims[a] + 1 : dims[a], dims[b], &w, &h, &f, ro);
+                        if (memcmp(lo, ro, sizeof lo) || w != L::sub_screen_width_in_characters ||
+                            h != L::sub_screen_height_in_characters || f != L::sub_screen_font) {
+                            bad++;
+                            if (bad < 20)
+                                printf("MISMATCH SCREEN 0 prev %dx%d ov %d,%d,%d: legacy %d %d %d %d %d rust %d %d %d %d %d\n",
+                                       dims[a], dims[b], ov[i], ov[j], ov[k], lo[0], lo[1], lo[2], lo[3], lo[4], ro[0], ro[1],
+                                       ro[2], ro[3], ro[4]);
+                        }
+                    }
+    checks += n;
+    if (bad) { ++failures; failures_by_op["SCREEN"] += bad; }
+}
+
 static void check_tables() {
     // Built-in data: legacy start-up code (libqb.cpp main init) vs Rust statics.
     memcpy(&legacy::palette_256, &legacy::file_qbnex_pal[0], legacy::file_qbnex_pal_len);
@@ -1004,6 +1062,7 @@ int main(int argc, char **argv) {
     }
     check_tables();
     check_f80();
+    check_screen();
     for (int f : {8, 14, 16}) { legacy::fontwidth[f] = 8; legacy::fontheight[f] = f; legacy::fontflags[f] = 16; }
     memcpy(legacy::charset8x8, legacy::file_charset8_raw, 16384);
     memcpy(legacy::charset8x16, legacy::file_chrset16_raw, 32768);

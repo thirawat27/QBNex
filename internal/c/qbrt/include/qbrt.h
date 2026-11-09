@@ -146,6 +146,13 @@ int32_t qbrt_gfx_put(struct img_struct *im, float x1, float y1, const uint8_t *d
                      uint32_t mask, int32_t passed);
 // PCOPY on resolved pages; built-in font glyph at the text cursor of a graphics page.
 int32_t qbrt_gfx_pcopy(const struct img_struct *s, const struct img_struct *d);
+/* SCREEN decisions (gfx/screen.rs): mode check (mode >= 0), graphics mode
+   size + font override (out[3] = w, h, font or 0; returns 0 if not a graphics
+   mode), SCREEN 0 layout (out[5] = cols, rows, font, cmem bytes per page,
+   cmem pages); the override pointers are reset to -1 where legacy did. */
+int32_t qbrt_gfx_screen_mode_valid(int32_t mode);
+int32_t qbrt_gfx_screen_geometry(int32_t mode, int32_t prev_w, int32_t prev_h, int32_t *out);
+void qbrt_gfx_screen0_layout(int32_t prev_w, int32_t prev_h, int32_t *width, int32_t *height, int32_t *font, int32_t *out);
 void qbrt_gfx_printchr(const struct img_struct *im, int32_t character);
 // Software _MAPTRIANGLE on resolved surfaces: s = sx1,sy1,..,sy3; d = dx1,dy1,..,dy3.
 int32_t qbrt_gfx_maptriangle(const struct img_struct *src, const struct img_struct *dst, const float *s, const float *d,

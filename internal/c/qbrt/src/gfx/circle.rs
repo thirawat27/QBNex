@@ -9,6 +9,9 @@ use super::{cvt_i32, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
 ///
 /// # Safety
 /// `im` must be a valid surface whose VIEW lies inside it.
+// The aspect expressions copy the legacy arithmetic; the one-shot loop is
+// the legacy `plot:` goto target.
+#[allow(clippy::eq_op, clippy::never_loop)]
 pub unsafe fn sub_circle(
     im: &mut ImgStruct,
     mut x: f64,
@@ -20,8 +23,9 @@ pub unsafe fn sub_circle(
     mut aspect: f64,
     passed: i32,
 ) -> i32 {
-    const PI: f64 = 3.1415926535897932;
-    const PI2: f64 = 6.2831853071795865;
+    // legacy literals 3.1415926535897932 / 6.2831853071795865: same bits
+    const PI: f64 = std::f64::consts::PI;
+    const PI2: f64 = std::f64::consts::TAU;
     if im.text != 0 {
         return ERR_ILLEGAL_FUNCTION_CALL;
     }
@@ -242,7 +246,7 @@ mod tests {
         let pts = lit(&t);
         assert!(pts.len() > 40);
         for (x, y) in &pts {
-            let d = (((*x as f64 - 32.0).powi(2) + (*y as f64 - 32.0).powi(2)) as f64).sqrt();
+            let d = ((*x as f64 - 32.0).powi(2) + (*y as f64 - 32.0).powi(2)).sqrt();
             assert!((d - 10.0).abs() < 1.0, "({x},{y}) d={d}");
             assert_eq!(t.p8(64 - x, *y), 3, "mirror of ({x},{y})");
         }

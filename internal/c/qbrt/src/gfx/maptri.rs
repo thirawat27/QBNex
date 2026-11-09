@@ -46,6 +46,7 @@ enum Op {
 ///
 /// # Safety
 /// `src` and `dst` must be valid surfaces.
+#[allow(clippy::needless_range_loop)] // 1-based vertex indices as in legacy
 pub unsafe fn maptriangle(
     src: &ImgStruct,
     dst: &ImgStruct,

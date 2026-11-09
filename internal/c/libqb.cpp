@@ -6386,11 +6386,7 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             if (!img[i3].valid){error(258); return;}//valid? 
             if (i3!=i2) i=1; //is mode changing?
             }else{
-            if (mode==3) goto error;
-            if (mode==4) goto error;
-            if (mode==5) goto error;
-            if (mode==6) goto error;
-            if (mode>13) goto error;
+            if (!qbrt_gfx_screen_mode_valid(mode)) goto error;//modes 3-6 and >13
             //is mode changing?
             if (i2){
                 if (img[i2].compatible_mode!=mode) i=1;
@@ -6488,11 +6484,20 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             //320 x 200 graphics
             //40 x 25 text format, character box size of 8 x 8
             //Assignment of up to 256K colors to up to 256 attributes
-            if (mode==13){
-                i=imgframe(&cmem[655360],320,200,13);
-                memset(img[i].offset,0,320*200);
-                page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
-            }//13
+            //graphics modes: size and 8x8 font override from Rust (qbrt gfx/screen.rs)
+            if (mode>0){
+                int32 geo[3];
+                if (qbrt_gfx_screen_geometry(mode,prev_width_in_characters,prev_height_in_characters,geo)){
+                    if (mode==13){
+                        i=imgframe(&cmem[655360],geo[0],geo[1],13);
+                        memset(img[i].offset,0,320*200);
+                    }else{
+                        i=imgnew(geo[0],geo[1],mode);
+                        if (geo[2]) selectfont(geo[2],&img[i]);//override default font
+                    }
+                    page[0]=i; img[i].flags|=IMG_SCREEN; select_all_pages(i);
+                }
+            }
             
             //640 x 480 graphics
             //80 x 30 or 80 x 60 text format, character box size of 8 x 16 or 8 x 8
@@ -6643,52 +6648,10 @@ void qbg_screen(int32 mode,int32 color_switch,int32 active_page,int32 visual_pag
             */
             if (mode==0){
                 
-                if ((sub_screen_width_in_characters!=-1)&&(sub_screen_height_in_characters!=-1)&&(sub_screen_font!=-1)){
-                    x=sub_screen_width_in_characters; y=sub_screen_height_in_characters; f=sub_screen_font;
-                    sub_screen_width_in_characters=-1; sub_screen_height_in_characters=-1; sub_screen_font=-1;
-                    goto gotwidth;
-                }
-                if (sub_screen_width_in_characters!=-1){
-                    x=sub_screen_width_in_characters; sub_screen_width_in_characters=-1;
-                    y=25; f=16;//default
-                    if (prev_height_in_characters==43){y=43; f=14;}
-                    if (prev_height_in_characters==50){y=50; f=8;}
-                    if (x==40) f++;
-                    goto gotwidth;
-                }
-                if (sub_screen_height_in_characters!=-1){
-                    y=sub_screen_height_in_characters; sub_screen_height_in_characters=-1;
-                    f=16;//default
-                    if (y==43) f=14;
-                    if (y==50) f=8;
-                    x=80;//default
-                    if (prev_width_in_characters==40){f++; x=40;}
-                    goto gotwidth;
-                }
-                
-                if ((prev_width_in_characters==80)&&(prev_height_in_characters==50)){
-                    x=80; y=50; f=8; goto gotwidth;
-                }
-                if ((prev_width_in_characters==40)&&(prev_height_in_characters==50)){
-                    x=40; y=50; f=8+1; goto gotwidth;
-                }
-                if ((prev_width_in_characters==80)&&(prev_height_in_characters==43)){
-                    x=80; y=43; f=8; goto gotwidth;
-                }
-                if ((prev_width_in_characters==40)&&(prev_height_in_characters==43)){
-                    x=40; y=43; f=8+1; goto gotwidth;
-                }
-                if ((prev_width_in_characters==40)&&(prev_height_in_characters==25)){
-                    x=40; y=25; f=16+1; goto gotwidth;
-                }
-                x=80; y=25; f=16;
-                gotwidth:;
-                i2=x*y*2;//default granularity
-                //specific granularities which cannot be calculated
-                if ((x==40)&&(y==25)&&(f=(16+1))) i2=2048;
-                if ((x==80)&&(y==25)&&(f=16)) i2=4096;
-                p=65536/i2;//number of pages to allocate in cmem
-                if (p>8) p=8;//limit cmem pages to 8
+                //text layout, font and cmem page granularity: Rust (qbrt gfx/screen.rs)
+                {int32 lay[5];
+                qbrt_gfx_screen0_layout(prev_width_in_characters,prev_height_in_characters,&sub_screen_width_in_characters,&sub_screen_height_in_characters,&sub_screen_font,lay);
+                x=lay[0]; y=lay[1]; f=lay[2]; i2=lay[3]; p=lay[4];}
                 //make sure 8 page indexes exist
                 if (7>=pages){
                     ensure_page_entries(8);

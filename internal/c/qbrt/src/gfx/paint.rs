@@ -15,6 +15,7 @@ use super::{map_point_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
 /// Breadth-first fill shared by every PAINT variant. `test(offset)` decides
 /// whether a not-yet-visited pixel is filled; `plot(offset)` paints it. The
 /// start pixel is painted by the caller.
+#[allow(clippy::int_plus_one)] // same comparisons as legacy
 fn flood(
     im: &ImgStruct,
     ix: i32,

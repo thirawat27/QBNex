@@ -15,7 +15,7 @@ const STACK_MAX: usize = 8192;
 
 /// C/C++ `int64 = double` (`cvttsd2si`): truncation, `INT64_MIN` when out of range.
 fn cvt_i64(v: f64) -> i64 {
-    if v.is_nan() || v >= 9.223_372_036_854_775_808e18 || v < -9.223_372_036_854_775_808e18 {
+    if v.is_nan() || v >= -(i64::MIN as f64) || v < i64::MIN as f64 {
         i64::MIN
     } else {
         v as i64
@@ -186,6 +186,7 @@ fn vectors(r: f64, ta: f64) -> [f64; 8] {
 /// `len` bytes; `cmem` must be the conventional memory block when the string
 /// uses `VARPTR$` (it may be null otherwise). The byte after the end of each
 /// (sub-)string must be readable: `M` and `P` peek at it like legacy did.
+#[allow(clippy::eq_op)] // aspect expressions copy the legacy arithmetic
 pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
     const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
     if im.text != 0 {

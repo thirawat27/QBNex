@@ -30,6 +30,7 @@ pub mod palette;
 pub mod point;
 pub mod putimage;
 pub mod registry;
+pub mod screen;
 pub mod text;
 pub mod view;
 
@@ -214,9 +215,6 @@ pub(crate) mod testutil {
         }
         pub fn count_nonzero(&self) -> usize {
             self.bytes().iter().filter(|b| **b != 0).count()
-        }
-        pub fn ptr(&mut self) -> *mut ImgStruct {
-            &mut self.img
         }
     }
 }
