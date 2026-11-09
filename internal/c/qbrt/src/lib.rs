@@ -15,13 +15,21 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod env;
+pub mod fileio;
+pub mod fsops;
+pub mod gfs;
 pub mod mbf;
+pub mod mem;
 pub mod numfmt;
 pub mod qbs;
 pub mod rnd;
 pub mod round;
+pub mod shell;
 pub mod timer;
 pub mod val;
+#[cfg(windows)]
+pub mod win32;
 
 /// Version of the C ABI exposed by this crate. Bumped whenever a declaration in
 /// `include/qbrt.h` changes incompatibly.
@@ -32,4 +40,30 @@ pub const QBRT_ABI_VERSION: u32 = 1;
 #[no_mangle]
 pub extern "C" fn qbrt_abi_version() -> u32 {
     QBRT_ABI_VERSION
+}
+
+/// Borrows `len` bytes at `p` (a null or dangling pointer is fine when `len` is 0).
+///
+/// # Safety
+/// `p` must be readable for `len` bytes when `len > 0`.
+pub(crate) unsafe fn ffi_bytes<'a>(p: *const u8, len: usize) -> &'a [u8] {
+    if len == 0 || p.is_null() {
+        &[]
+    } else {
+        // SAFETY: caller contract.
+        unsafe { std::slice::from_raw_parts(p, len) }
+    }
+}
+
+/// Mutable variant of [`ffi_bytes`].
+///
+/// # Safety
+/// `p` must be writable for `len` bytes when `len > 0`.
+pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
+    if len == 0 || p.is_null() {
+        &mut []
+    } else {
+        // SAFETY: caller contract.
+        unsafe { std::slice::from_raw_parts_mut(p, len) }
+    }
 }

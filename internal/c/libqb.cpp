@@ -1168,68 +1168,12 @@ typedef enum {
     
 */
 
-namespace {
-    constexpr uint64 MEM_LOCK_INVALID_ID = 1073741821;
-    constexpr uint64 MEM_LOCK_INITIAL_ID = 1073741823; // this value should never be 0 or 1
-    constexpr int32 MEM_LOCK_BLOCK_SIZE = 10000;
-    constexpr std::size_t MEM_LOCK_FREED_RESERVE = 1000;
-    
-    mem_lock mem_lock_invalid{};
-    std::vector<std::unique_ptr<mem_lock[]>> mem_lock_blocks;
-    std::vector<mem_lock*> mem_lock_freed;
-    std::unordered_map<mem_lock*, std::vector<uint8>> memnew_storage;
-    
-    void allocate_mem_lock_block();
-    
-    struct mem_lock_storage_initializer {
-        mem_lock_storage_initializer(){
-            mem_lock_blocks.reserve(4);
-            mem_lock_freed.reserve(MEM_LOCK_FREED_RESERVE);
-            allocate_mem_lock_block();
-        }
-    };
-}
-
-//QBNex memory blocks
-uint64 mem_lock_id=MEM_LOCK_INITIAL_ID;
-int32 mem_lock_max=MEM_LOCK_BLOCK_SIZE;
-int32 mem_lock_next=0;
-mem_lock *mem_lock_base=NULL;
-mem_lock *mem_lock_tmp;
-
-namespace {
-    void allocate_mem_lock_block(){
-        std::unique_ptr<mem_lock[]> block(new(std::nothrow) mem_lock[mem_lock_max]);
-        if (!block) error(504);
-        mem_lock_base=block.get();
-        mem_lock_blocks.push_back(std::move(block));
-        mem_lock_next=0;
-    }
-    
-    mem_lock_storage_initializer mem_lock_storage;
-}
-
-void new_mem_lock(){
-    if (!mem_lock_freed.empty()){
-        mem_lock_tmp=mem_lock_freed.back();
-        mem_lock_freed.pop_back();
-        }else{
-        if (mem_lock_next==mem_lock_max){allocate_mem_lock_block();}
-        mem_lock_tmp=&mem_lock_base[mem_lock_next++];
-    }
-    mem_lock_tmp->id=++mem_lock_id;
-    mem_lock_tmp->type=0;
-    mem_lock_tmp->offset=NULL;
-}
-
-void free_mem_lock(mem_lock *lock){
-    lock->id=0;//invalidate lock
-    if (lock->type==1) free(lock->offset);//malloc type
-    lock->type=0;
-    lock->offset=NULL;
-    //add to freed list
-    mem_lock_freed.push_back(lock);
-}
+//QBNex memory blocks: lock tags, mem_lock_id, mem_lock_tmp and mem_lock_base live in
+//the Rust runtime (internal/c/qbrt/src/mem.rs); generated code uses them directly.
+static constexpr uint64 MEM_LOCK_INVALID_ID = 1073741821;
+#define mem_lock_invalid (*(mem_lock*)qbrt_mem_lock_invalid())
+void new_mem_lock(){ qbrt_new_mem_lock(); }
+void free_mem_lock(mem_lock *lock){ qbrt_free_mem_lock((qbrt_mem_lock*)lock); }
 
 
 
@@ -2493,88 +2437,16 @@ int32 lprint_locked=0;//set to 1 to deny access by QBNex program
     -11 bad file name
 */
 
-#ifdef QBNex_WINDOWS
-    #define GFS_WINDOWS
-#endif
-#ifndef GFS_WINDOWS
-    #define GFS_C
-#endif
-
-struct gfs_file_struct{//info applicable to all files
-    int64 id;//a unique ID given to all files (currently only referenced by the FIELD statement to remove old field conditions)
-    uint8 open;
-    uint8 read;
-    uint8 write;
-    uint8 lock_read;
-    uint8 lock_write;
-    int64 pos;//-1=unknown
-    uint8 eof_reached;//read last character of file (set/reset by gfs_read only)
-    uint8 eof_passed;//attempted to read past eof (set/reset by gfs_read only)
-    int32 fileno;//link to fileno index
-    uint8 type;//qb access method (1=RANDOM,2=BINARY,3=INPUT,4=OUTPUT)
-    int64 record_length;//used by RANDOM
-    uint8 *field_buffer;
-    qbs **field_strings;//list of qbs pointers linked to this file
-    int32 field_strings_n;//number of linked strings
-    int64 column;//used by OUTPUT/APPEND to tab correctly (base 0)
-    //GFS_C data follows: (unused by custom GFS interfaces)
-    fstream *file_handle;
-    ofstream *file_handle_o;
-    //COM port data follows (*=default)
-    uint8 com_port;//0=not a com port
-    int32 com_baud_rate;//(bits per second)75,110,150,300*,600,1200,1800,2400,9600,?
-    int8 com_parity;//[0]N,[1]E*,[2]O,[3]S,[4]M,[5]PE(none,even*,odd,space,mark,error-checking)
-    int8 com_data_bits_per_byte;//5,6,7*,8
-    int8 com_stop_bits;//[10]1,[15]1.5,[20]2
-    //The default value is 1 for baud rates greater than 110. For
-    //baud rates less than or equal to 110, the default value is
-    //1.5 when data is 5; otherwise, the value is 2.
-    int8 com_bin_asc;//[0]=BIN*,[1]=ASC
-    int8 com_asc_lf;//[0]omit*,[1]LF(only valid with ASC)
-    //note: rb_x and tb_x are ignored by QBNex (receive and transmit buffer sizes)
-    int8 com_rs;//[0]detect*,[1]dont-detect
-    int32 com_cd_x;//0*-65535
-    int32 com_cs_x;//1000*,0-65535
-    int32 com_ds_x;//1000*,0-65535
-    int32 com_op_x;
-    //                 OP not used:          x omitted:     x specified:
-    //                 10 times the CD or    10000 ms       0 - 65,535 milliseconds
-    //                 DS timeout value,
-    //                 whichever is greater
-    
-    //SCRN: support follows
-    uint8 scrn; //0 = not a file opened as "SCRN:"
-};
-
-#ifdef GFS_WINDOWS
-    struct gfs_file_win_struct{//info applicable to WINDOWS OS files
-        HANDLE file_handle;
-    };
-    std::vector<gfs_file_win_struct> gfs_file_win;
-#endif
-
-int64 gfs_nextid=1;
-
-std::vector<gfs_file_struct> gfs_file;
-static std::vector<std::vector<uint8>> gfs_field_buffer_storage;
-static std::vector<std::vector<qbs*>> gfs_field_string_storage;
-
-int32 gfs_n=0;
-std::vector<int32> gfs_freed;
-
-std::vector<int32> gfs_fileno(1, -1);
-int32 gfs_fileno_n=0;
-
-static void sync_gfs_field_strings(int32 index){
-    std::vector<qbs*> &buffer=gfs_field_string_storage[index];
-    gfs_file[index].field_strings=buffer.empty()?NULL:buffer.data();
-    gfs_file[index].field_strings_n=static_cast<int32>(buffer.size());
-}
-
-static void sync_gfs_field_buffer(int32 index){
-    std::vector<uint8> &buffer=gfs_field_buffer_storage[index];
-    gfs_file[index].field_buffer=buffer.empty()?NULL:buffer.data();
-}
+//GFS file table: owned by the Rust runtime (internal/c/qbrt/src/gfs.rs).
+//The C++ code that still looks at open files (PRINT # TAB, FIELD strings)
+//reads entries through these two views.
+typedef qbrt_gfs_file gfs_file_struct;
+static const struct gfs_file_view{
+    gfs_file_struct &operator[](int32 i) const { return *qbrt_gfs_file_at(i); }
+} gfs_file{};
+static const struct gfs_fileno_view{
+    int32 operator[](int32 f) const { return qbrt_gfs_fileno(f); }
+} gfs_fileno{};
 
 static int32 file_charset8_raw_len=16384;
 static const uint8 file_charset8_raw[]={
@@ -6829,25 +6701,13 @@ void lrset_field(qbs *str);
 
 void sub_lset(qbs *dest,qbs *source){
     if (new_error) return;
-    if (source->len>=dest->len){
-        if (dest->len) memcpy(dest->chr,source->chr,dest->len);
-        goto field_check;
-    }
-    if (source->len) memcpy(dest->chr,source->chr,source->len);
-    memset(dest->chr+source->len,32,dest->len-source->len);
-    field_check:
+    qbrt_lset(dest->chr,dest->len,source->chr,source->len);//Rust: internal/c/qbrt/src/fileio.rs
     if (dest->field) lrset_field(dest);
 }
 
 void sub_rset(qbs *dest,qbs *source){
     if (new_error) return;
-    if (source->len>=dest->len){
-        if (dest->len) memcpy(dest->chr,source->chr,dest->len);
-        goto field_check;
-    }
-    if (source->len) memcpy(dest->chr+dest->len-source->len,source->chr,source->len);
-    memset(dest->chr,32,dest->len-source->len);
-    field_check:
+    qbrt_rset(dest->chr,dest->len,source->chr,source->len);//Rust: internal/c/qbrt/src/fileio.rs
     if (dest->field) lrset_field(dest);
 }
 
@@ -12724,181 +12584,38 @@ void sub__limit(double fps){
 
 
 
+//generic_put/get, OPEN, CLOSE, PRINT #: implemented in Rust (internal/c/qbrt/src/fileio.rs)
 int32 generic_put(int32 i,int32 offset,uint8 *cp,int32 bytes){
-    //note: generic_put & generic_get have been made largely redundant by gfs_read & gfs_write
-    //      offset is a byte-offset from base 0 (-1=current pos)
-    //      generic_put has been kept 32-bit for compatibility
-    //      the return value of generic_put is always 0
-    //      though errors are handled, generic_put should only be called in error-less situations
+    //offset is a byte-offset from base 0 (-1=current pos); the return value is always 0
     if (new_error) return 0;
-    if (gfs_fileno_valid(i)!=1){error(52); return 0;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    if (!gfs->write){error(75); return 0;}//Path/file access error
-    static int32 e;
-    e=gfs_write(i,offset,(uint8*)cp,bytes);
-    if (e){
-        if (e==-2){error(258); return 0;}//invalid handle
-        if (e==-3){error(54); return 0;}//bad file mode
-        if (e==-4){error(5); return 0;}//illegal function call
-        if (e==-7){error(70); return 0;}//permission denied
-        error(75); return 0;//assume[-9]: path/file access error
-    }
+    int32 e=qbrt_generic_put(i,offset,cp,bytes); if (e) error(e);
     return 0;
 }
 
 int32 generic_get_bytes_read;
 int32 generic_get(int32 i,int32 offset,uint8 *cp,int32 bytes){
-    //note: generic_put & generic_get have been made largely redundant by gfs_read & gfs_write
-    //      offset is a byte-offset from base 0 (-1=current pos)
-    //      generic_get has been kept 32-bit for compatibility
-    //      the return value of generic_get is always 0
-    //      though errors are handled, generic_get should only be called in error-less situations
     generic_get_bytes_read=0;
     if (new_error) return 0;
-    if (gfs_fileno_valid(i)!=1){error(52); return 0;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    if (!gfs->read){error(75); return 0;}//Path/file access error
-    static int32 e;
-    e=gfs_read(i,offset,(uint8*)cp,bytes);
-    generic_get_bytes_read=gfs_read_bytes();
-    if (e){
-        if (e!=-10){//note: on eof, unread buffer area becomes NULL
-            if (e==-2){error(258); return 0;}//invalid handle
-            if (e==-3){error(54); return 0;}//bad file mode
-            if (e==-4){error(5); return 0;}//illegal function call
-            if (e==-7){error(70); return 0;}//permission denied
-            error(75); return 0;//assume[-9]: path/file access error
-        }
-    }
+    int32 e=qbrt_generic_get(i,offset,cp,bytes,&generic_get_bytes_read); if (e) error(e);
     return 0;
 }
 
-
-
 void sub_open(qbs *name,int32 type,int32 access,int32 sharing,int32 i,int64 record_length,int32 passed){
     if (new_error) return;
-    //?[{FOR RANDOM|FOR BINARY|FOR INPUT|FOR OUTPUT|FOR APPEND}]
-    //1 2
-    //[{ACCESS READ WRITE|ACCESS READ|ACCESS WRITE}]
-    //  3
-    //[{SHARED|LOCK READ WRITE|LOCK READ|LOCK WRITE}]{AS}[#]?[{LEN =}?]
-    //  4                                                   5        6[1]
-    static int32 x;
-    static int32 g_access,g_restrictions,g_how;
-    
-    if (type==0) type=1;
-    if (passed) if ((record_length==0)||(record_length<-1)){error(5); return;}//Illegal function call
-    //note: valid record_length values are allowable but ignored by QB for non-RANDOM modes too!
-    
-    x=gfs_fileno_valid(i);
-    if (x==-2){error(52); return;}//Bad file name or number
-    if (x==1){error(55); return;}//File already open
-    
-    if (type<=2){g_access=3; g_restrictions=0; g_how=3;}
-    if (type==3){g_access=1; g_restrictions=0; g_how=0;}
-    if (type==4){g_access=2; g_restrictions=0; g_how=2;}
-    if (type==5){g_access=2; g_restrictions=0; g_how=1;}
-    
-    if (access==1) g_access=3;
-    if (access==2) g_access=1;
-    if (access==3) g_access=2;
-    if (access&&(g_how==3)) g_how=1;//undefined access not possible when ACCESS is explicitly specified
-    
-    if (sharing==1) g_restrictions=0;
-    if (sharing==2) g_restrictions=3;
-    if (sharing==3) g_restrictions=1;
-    if (sharing==4) g_restrictions=2;
-    //note: In QB, opening a file already open for OUTPUT/APPEND created the 'file already open' error.
-    
-    //      However, from a new cmd window (or a SHELLed QB program) it can be opened!
-    //      So it is not a true OS restriction/lock, just a block applied internally by QB.
-    //      This is currently unsupported by QBNex.
-    
-    x=gfs_open(name,g_access,g_restrictions,g_how);
-    if (x<0){
-        if (x==-5){error(53); return;}
-        if (x==-6){error(76); return;}
-        if (x==-7){error(70); return;}
-        if (x==-8){error(68); return;}
-        if (x==-11){error(64); return;}
-        if (x==-12){error(54); return;}
-        error(53); return;//default assumption: 'file not found'
-    }
-    
-    gfs_fileno_use(i,x);
-    
-    static gfs_file_struct *f; f=&gfs_file[x];
-    
-    f->type=type; if (type==5) f->type=4;
-    
-    f->column=1;
-    
-    if (type==1){//set record length
-        f->record_length=128;
-        if (passed) if (record_length!=-1) f->record_length=record_length;
-        gfs_field_buffer_storage[x].assign(f->record_length,0);
-        sync_gfs_field_buffer(x);
-    }
-    
-    if (type==5){//seek eof
-        static int64 x64;
-        x64=gfs_lof(x);
-        if (x64>0) gfs_setpos(x,x64);//not an error and not null length
-    }
-    
-    if (type==3){//check if eof character, CHR$(26), is the first byte and set EOF accordingly
-        static int64 x64;
-        x64=gfs_lof(x);
-        if (x64){
-            //read first byte 
-            static uint8 c;
-            static int32 e;
-            if (e=gfs_read(x,-1,&c,1)){
-                //if (e==-10) return -1;
-                //if (e==-2){error(258); return -2;}//invalid handle
-                //if (e==-3){error(54); return -2;}//bad file mode
-                //if (e==-4){error(5); return -2;}//illegal function call
-                if (e==-7){error(70); return;}//permission denied
-                error(75); return;//assume[-9]: path/file access error
-            }
-            if (c==26){
-                gfs_file[x].eof_passed=1;//set EOF flag
-            }
-            gfs_setpos(x,0);
-        }
-    }//type==3
-    
+    int32 e=qbrt_file_open(name->chr,name->len,type,access,sharing,i,record_length,passed); if (e) error(e);
 }
 
 void sub_open_gwbasic(qbs *typestr,int32 i,qbs *name,int64 record_length,int32 passed){
     if (new_error) return;
-    static int32 a,type;
-    if (!typestr->len){error(54); return;}//bad file mode
-    a=typestr->chr[0]&223;
-    type=0;
-    if (a==82) type=1;//R
-    if (a==66) type=2;//B
-    if (a==73) type=3;//I
-    if (a==79) type=4;//O
-    if (a==65) type=5;//A
-    if (!type){error(54); return;}//bad file mode
-    if (passed){
-        sub_open(name,type,NULL,NULL,i,record_length,1);
-        }else{
-        sub_open(name,type,NULL,NULL,i,NULL,0);
-    }
+    int32 e=qbrt_file_open_gwbasic(typestr->chr,typestr->len,i,name->chr,name->len,record_length,passed); if (e) error(e);
 }
 
 void sub_close(int32 i2,int32 passed){
     if (new_error) return;
     int32 i,x;//<--RECURSIVE function - do not make this static
-    
+
     if (passed){
-        
+
         if (i2<0){//special handle
             //determine which close procedure to call
             x=-(i2+1);
@@ -12909,24 +12626,20 @@ void sub_close(int32 i2,int32 passed){
                     connection_close(x);
                 }//connection
             }//stream
-            
+
             if (sh->type==2){//host listener
                 connection_close(x);
             }//host listener
-            
+
             return;
         }//special handle
-        
-        
-        if (gfs_fileno_valid(i2)==1) gfs_close(gfs_fileno[i2]);
+
+        qbrt_file_close(i2);
         return;
-        
+
     }//passed
-    
+
     //special handles
-    
-    
-    
     for (i=1;i<=special_handles->indexes;i++){
         if (vwatch>0 && vwatch==i) {
             //keep the debug connection open for $DEBUG mode
@@ -12934,174 +12647,24 @@ void sub_close(int32 i2,int32 passed){
             sub_close(-i-1,1);
         }
     }
-    
-    
-    for (i=1;i<=gfs_fileno_n;i++){
-        if (gfs_fileno_valid(i)==1) gfs_close(gfs_fileno[i]);
-    }
-    
+
+    qbrt_file_close_all();
+
 }//close
 
-int32 file_input_chr(int32 i){
-    //returns the ASCII value of the character (0-255)
-    //returns -1 if eof reached (error to be externally handled)
-    //returns -2 for other errors (internally handled), the calling function should abort
-    
-    static uint8 c;
-    static int32 e;
-    if (e=gfs_read(i,-1,&c,1)){
-        if (e==-10) return -1;
-        if (e==-2){error(258); return -2;}//invalid handle
-        if (e==-3){error(54); return -2;}//bad file mode
-        if (e==-4){error(5); return -2;}//illegal function call
-        if (e==-7){error(70); return -2;}//permission denied
-        error(75); return -2;//assume[-9]: path/file access error
-    }
-    if (c==26){//eof character (go back 1 byte so subsequent reads will re-encounter the eof character)
-        gfs_setpos(i,gfs_getpos(i)-1);
-        gfs_file[i].eof_passed=1;//also set EOF flag
-        return -1;
-    }
-    return c;
-    
-}
-
-void file_input_skip1310(int32 i,int32 c){
-    //assumes a character of value 13 or 10 has just been read (passed)
-    //peeks next character and skips it too if it is a corresponding 13 or 10 pair
-    static int32 nextc;
-    nextc=file_input_chr(i);
-    if (nextc==-2) return;
-    if (nextc==-1) return;
-    if (((c==10)&&(nextc!=13))||((c==13)&&(nextc!=10))){
-        gfs_setpos(i,gfs_getpos(i)-1);//go back 1 character
-        }else{
-        //check next character for EOF CHR$(26)
-        nextc=file_input_chr(i);
-        if (nextc==-2) return;
-        if (nextc==-1) return;
-        gfs_setpos(i,gfs_getpos(i)-1);//go back 1 character
-    }
-}
-
-void file_input_nextitem(int32 i,int32 lastc){
-    if (i<0) return;
-    //this may require reversing a bit too!
-    int32 c,nextc;
-    c=lastc;
-    nextchr:
-    if (c==-1) return;
-    if (c==32){
-        nextc=file_input_chr(i); if (nextc==-2) return;
-        if (nextc==-1) return;
-        if ( (nextc!=32)&&(nextc!=44)&&(nextc!=10)&&(nextc!=13) ){
-            gfs_setpos(i,gfs_getpos(i)-1);
-            return;
-            }else{
-            c=nextc;
-            goto nextchr;
-        }
-    }
-    if (c==44) return;//,
-    if ((c==10)||(c==13)){//lf cr
-        file_input_skip1310(i,c);
-        return;
-    }
-    c=file_input_chr(i); if (c==-2) return;
-    goto nextchr;
-}
-
-uint8 sub_file_print_spaces[32];
 void sub_file_print(int32 i,qbs *str,int32 extraspace,int32 tab,int32 newline){
     if (new_error) return;
-    static int32 x,x2,x3,x4;
-    static int32 e;
-    
     //tcp/ip?
     //note: spacing considerations such as 'extraspace' & 'tab' are ignored
     if (i<0){
-        
         return;
     }
-    if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    
-    if (gfs->scrn==1) {
+    int32 e=qbrt_file_print(i,str->chr,str->len,extraspace,tab,newline);
+    if (e==QBRT_PRINT_TO_SCREEN){
         qbs_print (str, newline);
         return;
-    };
-    
-    if (gfs->type!=4){error(54); return;}//Bad file mode
-    if (!gfs->write){error(75); return;}//Path/file access error
-    
-    e=gfs_write(i,-1,str->chr,str->len);
-    if (e){
-        if (e==-2){error(258); return;}//invalid handle
-        if (e==-3){error(54); return;}//bad file mode
-        if (e==-4){error(5); return;}//illegal function call
-        if (e==-7){error(70); return;}//permission denied
-        error(75); return;//assume[-9]: path/file access error
     }
-    
-    //move column if carriage return found in content
-    static int32 stri,strl;
-    static uint8 c;
-    strl=str->len;
-    for (stri=0;stri<strl;stri++){
-        c=str->chr[stri];
-        if ((c!=13)&&(c!=10)){
-            gfs->column++;
-            }else{
-            if (c==13) gfs->column=1;
-        }
-    }
-    
-    //add extra spaces as needed
-    static int32 nspaces;
-    static int16 cr_lf=13+10*256; 
-    nspaces=0;
-    if (extraspace){
-        nspaces++;
-        gfs->column++;
-    }
-    if (tab){
-        //a space MUST be added
-        nspaces++;
-        gfs->column++;
-        x=(gfs->column-1)%14;
-        if (x!=0){
-            x=14-x;
-            nspaces+=x;
-            gfs->column+=x;
-        }
-    }
-    if (nspaces){
-        
-        e=gfs_write(i,-1,sub_file_print_spaces,nspaces);
-        if (e){
-            if (e==-2){error(258); return;}//invalid handle
-            if (e==-3){error(54); return;}//bad file mode
-            if (e==-4){error(5); return;}//illegal function call
-            if (e==-7){error(70); return;}//permission denied
-            error(75); return;//assume[-9]: path/file access error
-        }
-        
-    }
-    if (newline){
-        
-        e=gfs_write(i,-1,(uint8*)&cr_lf,2);
-        if (e){
-            if (e==-2){error(258); return;}//invalid handle
-            if (e==-3){error(54); return;}//bad file mode
-            if (e==-4){error(5); return;}//illegal function call
-            if (e==-7){error(70); return;}//permission denied
-            error(75); return;//assume[-9]: path/file access error
-        }
-        
-        gfs->column=1;
-    }
+    if (e) error(e);
 }
 
 //number limits
@@ -13612,179 +13175,16 @@ int32 n_inputnumberfromdata(uint8 *data,ptrszint *data_offset,ptrszint data_size
 
 
 
+//INPUT # readers: implemented in Rust (internal/c/qbrt/src/fileio.rs). The
+//number reader fills the universal number representation used by n_float.
 int32 n_inputnumberfromfile(int32 fileno){
-    //return values:
-    //0=success
-    //1=overflow
-    //2=eof
-    //3=failed (no further errors)
-    
-    //data
-    static int32 i,i2;
-    static int32 step,c;
-    static int32 exponent_digits;
-    static uint8 negate_exponent;
-    static int64 exponent_value;
-    static int32 return_value;
-    
-    //tcp/ip specific data
-    static qbs *str,*character;
-    int32 nextc,x,x2,x3,x4;
-    int32 i1;
-    int32 inspeechmarks;
-    static uint8 *ucbuf;
-    static uint32 ucbufsiz;
-    static int32 info;
-    
-    if (fileno>=0){
-        if (gfs_fileno_valid(fileno)!=1){error(52); return 3;}//Bad file name or number
-        fileno=gfs_fileno[fileno];//convert fileno to gfs index
-        static gfs_file_struct *gfs;
-        gfs=&gfs_file[fileno];
-        if (gfs->type!=3){error(54); return 3;}//Bad file mode
-        if (!gfs->read){error(75); return 3;}//Path/file access error
-    }
-    
-    return_value=1;//overflow (default)
-    step=0;
-    negate_exponent=0;
-    exponent_value=0;
-    exponent_digits=0;
-    
-    //prepare universal number representation
-    n_digits=0; n_exp=0; n_neg=0; n_hex=0;
-    
-    //skip any leading spaces
-    do{
-        c=file_input_chr(fileno); if (c==-2) return 3;
-        if (c==-1){return_value=2; goto error;}//input past end of file
-    }while(c==32);
-    
-    // hex/oct/bin
-    if (c == 38) {  // "&"
-      c = file_input_chr(fileno);
-      if (c == -2) return 3;
-      if (c == -1) goto gotnumber;
-      if ((c == 72) || (c == 104)) {  // "H" or "h"
-      nexthexchr:
-        c = file_input_chr(fileno);
-        if (c == -2) return 3;
-        if (((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 70)) ||
-            ((c >= 97) && (c <= 102))) {    // 0-9 or A-F or a-f
-          if (n_digits == 256) goto error;  // overflow
-          n_digit[n_digits] = c;
-          n_digits++;
-          n_hex = 1;
-          goto nexthexchr;
-        }
-        goto gotnumber;
-      }
-      if ((c == 79) || (c == 111)) {  // "O" or "o"
-      nexthexchr2:
-        c = file_input_chr(fileno);
-        if (c == -2) return 3;
-        if ((c >= 48) && (c <= 55)) {       // 0-7
-          if (n_digits == 256) goto error;  // overflow
-          n_digit[n_digits] = c;
-          n_digits++;
-          n_hex = 2;
-          goto nexthexchr2;
-        }
-        goto gotnumber;
-      }
-      if ((c == 66) || (c == 98)) {  // "B" or "b"
-      nexthexchr3:
-        c = file_input_chr(fileno);
-        if (c == -2) return 3;
-        if ((c >= 48) && (c <= 49)) {       // 0-1
-          if (n_digits == 256) goto error;  // overflow
-          n_digit[n_digits] = c;
-          n_digits++;
-          n_hex = 3;
-          goto nexthexchr3;
-        }
-        goto gotnumber;
-      }
-      goto gotnumber;
-    }  // "&"
-    
-    readnextchr:
-    if (c==-1) goto gotnumber;
-    
-    if (c==45){//-
-        if (step==0){n_neg=1; step=1; goto nextchr;}
-        if (step==3){negate_exponent=1; step=4; goto nextchr;}
-        goto gotnumber;
-    }
-    
-    if (c==43){//+
-        if (step==0){step=1; goto nextchr;}
-        if (step==3){step=4; goto nextchr;}
-        goto gotnumber;
-    }
-    
-    if ((c>=48)&&(c<=57)){//0-9
-        
-        if (step<=1){//before decimal point
-            step=1;
-            if (n_digits||(c>48)){
-                if (n_digits) n_exp++;
-                if (n_digits==256) goto error;//overflow
-                n_digit[n_digits]=c;
-                n_digits++;
-            }
-        }
-        
-        if (step==2){//after decimal point
-            if ((n_digits==0)&&(c==48)) n_exp--;
-            if ((n_digits)||(c>48)){
-                if (n_digits==256) goto error;//overflow
-                n_digit[n_digits]=c;
-                n_digits++;
-            }
-        }
-        
-        if (step>=3){//exponent
-            step=4;
-            if ((exponent_digits)||(c>48)){
-                if (exponent_digits==18) goto error;//overflow
-                exponent_value*=10;
-                exponent_value=exponent_value+(c-48);
-                exponent_digits++;
-            }
-        }
-        
-        goto nextchr;
-    }
-    
-    if (c==46){//.
-        if (step>1) goto gotnumber;
-        if (n_digits==0) n_exp=-1;
-        step=2; goto nextchr;
-    }
-    
-    if ((c==68)||(c==69)||(c==100)||(c==101)){//D,E,d,e
-        if (step>2) goto gotnumber;
-        step=3; goto nextchr;
-    }
-    
-    goto gotnumber;//invalid character
-    nextchr:
-    c=file_input_chr(fileno); if (c==-2) return 3;
-    goto readnextchr;
-    
-    gotnumber:;
-    if (negate_exponent) n_exp-=exponent_value; else n_exp+=exponent_value;//complete exponent
-    if (n_digits==0) {n_exp=0; n_neg=0;}//clarify number
-    file_input_nextitem(fileno,c);
-    return 0;//success
-    
-    error:
-    file_input_nextitem(fileno,c);
-    if (fileno<0){
-        
-    }
-    return return_value;
+    //return values: 0=success, 1=overflow, 2=eof, 3=failed (no further errors)
+    static qbrt_num_repr n;
+    int32 r=3;
+    int32 e=qbrt_file_input_number(fileno,&n,&r);
+    n_digits=n.digits; memcpy(n_digit,n.digit,n.digits); n_exp=n.exp; n_neg=n.neg; n_hex=n.hex;
+    if (e) error(e);
+    return r;
 }
 
 
@@ -13793,85 +13193,15 @@ void revert_input_check(){
 
 void sub_file_input_string(int32 fileno,qbs *deststr){
     if (new_error) return;
-    static qbs *str,*character;
-    int32 c,nextc,x,x2,x3,x4;
-    int32 i,i1;
-    int32 inspeechmarks;
-    static uint8 *ucbuf;
-    static uint32 ucbufsiz;
-    static int32 info;
-    
     //tcp/ip?
     //note: spacing considerations are ignored
     if (fileno<0){
         return;
     }
-    
-    if (gfs_fileno_valid(fileno)!=1){error(52); return;}//Bad file name or number
-    fileno=gfs_fileno[fileno];//convert fileno to gfs index
-    
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[fileno];
-    if (gfs->type!=3){error(54); return;}//Bad file mode
-    if (!gfs->read){error(75); return;}//Path/file access error
-    
-    str=qbs_new(0,0);
-    //skip whitespace (spaces & tabs)
-    do{
-        c=file_input_chr(fileno); if (c==-2) return;
-        if (c==-1){
-            qbs_set(deststr,str);
-            qbs_free(str);
-            error(62);//input past end of file
-            return;
-        }
-    }while((c==32)||(c==9));
-    //quoted string?
-    inspeechmarks=0;
-    if (c==34){//"
-        inspeechmarks=1;
-        c=file_input_chr(fileno);
-    }
-    //read string
-    character=qbs_new(1,0);
-    nextchr:
-    if (c==-2) return;
-    if (c==-1) goto gotstr;
-    if (inspeechmarks){
-        if (c==34) goto gotstr;//"
-        }else{
-        if (c==44) goto gotstr;//,
-        if (c==10) goto gotstr;
-        if (c==13) goto gotstr;
-    }
-    character->chr[0]=c; qbs_set(str,qbs_add(str,character));
-    c=file_input_chr(fileno);
-    goto nextchr;
-    gotstr:
-    //cull trailing whitespace
-    if (!inspeechmarks){
-        cullstr:
-        if (str->len){
-            if ((str->chr[str->len-1]==32)||(str->chr[str->len-1]==9)){str->len--; goto cullstr;}
-        }
-    }
-    nextstr:
-    //scan until next item (or eof) reached
-    if (c==-2) return;
-    if (c==-1) goto returnstr;
-    if (c==44) goto returnstr;
-    if ((c==10)||(c==13)){//lf cr
-        file_input_skip1310(fileno,c);
-        goto returnstr;
-    }
-    c=file_input_chr(fileno);
-    goto nextstr;
-    //return string
-    returnstr:
-    qbs_set(deststr,str);
-    qbs_free(str);
-    qbs_free(character);
-    return;
+    const uint8 *out; int32 len=0,assign=0;
+    int32 e=qbrt_file_input_string(fileno,&out,&len,&assign);
+    if (assign) qbs_set(deststr,qbs_new_txt_len((const char*)out,len));
+    if (e) error(e);
 }
 
 int64 func_file_input_int64(int32 fileno){
@@ -14230,11 +13560,13 @@ void call_interruptx(int32 intno, void *inregs,void *outregs){
     return;
 }
 
+//GET / PUT: file numbers are handled in Rust (internal/c/qbrt/src/fileio.rs);
+//TCP/IP streams (negative handles) stay here.
 void sub_get(int32 i,int64 offset,void *element,int32 passed){
     if (new_error) return;
     static byte_element_struct *ele;
     static int32 x,x2;
-    
+
     if (i<0){//special handle?
         x=-(i+1);
         static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,x); if (!sh){error(52); return;}
@@ -14251,66 +13583,15 @@ void sub_get(int32 i,int64 offset,void *element,int32 passed){
         }//stream
         error(52); return;
     }//special handle
-    
-    if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    if (gfs->type>2){error(54); return;}//Bad file mode
-    if (!gfs->read){error(75); return;}//Path/file access error
-    
+
     ele=(byte_element_struct*)element;
-    
-    if (gfs->type==1){//RANDOM
-        if (ele->length>gfs->record_length){error(59); return;}//Bad record length
-        if (passed){
-            offset--;
-            if (offset<0){error(63); return;}//Bad record number
-            offset*=gfs->record_length;
-            }else{
-            offset=-1;
-        }
-        }else{//BINARY
-        if (passed){
-            offset--;
-            if (offset<0){error(63); return;}//Bad record number
-        }else{offset=-1;}
-    }
-    
-    static int32 e;
-    
-    e=gfs_read(i,offset,(uint8*)ele->offset,ele->length);
-    if (e){
-        if (e!=-10){//note: on eof, unread buffer area becomes NULL
-            if (e==-2){error(258); return;}//invalid handle
-            if (e==-3){error(54); return;}//bad file mode
-            if (e==-4){error(5); return;}//illegal function call
-            if (e==-7){error(70); return;}//permission denied
-            error(75); return;//assume[-9]: path/file access error
-        }
-    }
-    
-    //seek to beginning of next field
-    if (gfs->type==1){
-        if (e!=-10){//note: seek index not advanced if record did not exist
-            if (ele->length<gfs->record_length){
-                if (offset!=-1){
-                    e=gfs_setpos(i,offset+gfs->record_length);
-                    }else{
-                    e=gfs_setpos(i,gfs_getpos(i)-ele->length+gfs->record_length);
-                }
-                if (e){error(54); return;}//assume[-3]: bad file mode
-            }
-        }//e!=-10
-    }
-    
-}//get
+    int32 e=qbrt_file_get(i,offset,(uint8*)ele->offset,ele->length,passed); if (e) error(e);
+}
 
 void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
     if (new_error) return;
-    static int32 x,x2,x3,x4;
-    
-    
+    static int32 x;
+
     if (i<0){//special handle?
         if (str->fixed){//following method is only for variable length strings
             static byte_element_struct tbyte_element_struct;
@@ -14332,97 +13613,18 @@ void sub_get2(int32 i,int64 offset,qbs *str,int32 passed){
         }//stream
         error(52); return;
     }//special handle
-    
-    
-    if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    if (gfs->type>2){error(54); return;}//Bad file mode
-    if (!gfs->read){error(75); return;}//Path/file access error
-    
-    if (gfs->type==2){//BINARY (use normal sub_get)
-        static byte_element_struct tbyte_element_struct;
-        sub_get(gfs->fileno,offset,byte_element((uint64)str->chr,str->len,&tbyte_element_struct),passed);
-        return;
-    }
-    
-    if (gfs->record_length<2){error(59); return;}//Bad record length
-    
-    if (passed){
-        offset--;
-        if (offset<0){error(63); return;}//Bad record number
-        offset*=gfs->record_length;
-        }else{
-        offset=-1;
-    }
-    
-    static int32 e;
-    
-    static std::vector<uint8> data_storage;
-    static uint64 l,bytes;
-    data_storage.resize(gfs->record_length);
-    uint8 *data=data_storage.data();
-    e=gfs_read(i,offset,data,gfs->record_length);//read the whole record (including header & data)
-    if (e){
-        if (e!=-10){//note: on eof, unread buffer area becomes NULL
-            if (e==-2){error(258); return;}//invalid handle
-            if (e==-3){error(54); return;}//bad file mode
-            if (e==-4){error(5); return;}//illegal function call
-            if (e==-7){error(70); return;}//permission denied
-            error(75); return;//assume[-9]: path/file access error
-        }
-    }
-    
-    bytes=gfs_read_bytes();//note: any unread part of the buffer is set to NULL (by gfs_read) and is treated as valid record data
-    if (!bytes){qbs_set(str,qbs_new(0,1)); return;}//as in QB when 0 bytes read, NULL string returned and (as no bytes read) no seek advancement
-    
-    //seek to beginning of next field
-    //note: advancement occurs even if e==-10 (eof reached)
-    if (bytes<gfs->record_length){
-        if (offset!=-1){
-            e=gfs_setpos(i,offset+gfs->record_length);
-            }else{
-            e=gfs_setpos(i,gfs_getpos(i)-bytes+gfs->record_length);
-        }
-        if (e){error(54); return;}//assume[-3]: bad file mode
-    }
-    
-    x=2;//offset where string data will be read from
-    l=((uint16*)data)[0];
-    if (l&32768){
-        if (gfs->record_length<8){//record length is too small to read the length!
-            //restore seek to original location
-            if (offset!=-1){
-                e=gfs_setpos(i,offset);
-                }else{
-                e=gfs_setpos(i,gfs_getpos(i)-gfs->record_length);
-            }
-            error(59); return;//Bad record length
-        }
-        x=8;
-        l=(l&0x7FFF)+( ( (((uint64*)data)[0]) >> 16) << 15 );
-    }
-    
-    //can record_length cannot fit the required string data?
-    if ((gfs->record_length-x2)<l){
-        //restore seek to original location
-        if (offset!=-1){
-            e=gfs_setpos(i,offset);
-            }else{
-            e=gfs_setpos(i,gfs_getpos(i)-gfs->record_length);
-        }
-        error(59); return;//Bad record length
-    }
-    
-    qbs_set(str,qbs_new_txt_len((char*)(data+x),l));
+
+    const uint8 *out; int32 len=0,assign=0;
+    int32 e=qbrt_file_get_string(i,offset,str->chr,str->len,passed,&out,&len,&assign);
+    if (assign) qbs_set(str,qbs_new_txt_len((const char*)out,len));
+    if (e) error(e);
 }
 
 void sub_put(int32 i,int64 offset,void *element,int32 passed){
     if (new_error) return;
     static byte_element_struct *ele;
-    static int32 x,x2;
-    
+    static int32 x;
+
     if (i<0){//special handle?
         x=-(i+1);
         static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,x); if (!sh){error(52); return;}
@@ -14434,111 +13636,23 @@ void sub_put(int32 i,int64 offset,void *element,int32 passed){
         }//stream
         error(52); return;
     }//special handle
-    
-    if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    if (gfs->type>2){error(54); return;}//Bad file mode
-    if (!gfs->write){error(75); return;}//Path/file access error
-    
+
     ele=(byte_element_struct*)element;
-    
-    if (gfs->type==1){//RANDOM
-        if (ele->length>gfs->record_length){error(59); return;}//Bad record length
-        if (passed){
-            offset--;
-            if (offset<0){error(63); return;}//Bad record number
-            offset*=gfs->record_length;
-            }else{
-            offset=-1;
-        }
-        }else{//BINARY
-        if (passed){
-            offset--;
-            if (offset<0){error(63); return;}//Bad record number
-        }else{offset=-1;}
-    }
-    
-    static int32 e;
-    
-    e=gfs_write(i,offset,(uint8*)ele->offset,ele->length);
-    if (e){
-        if (e==-2){error(258); return;}//invalid handle
-        if (e==-3){error(54); return;}//bad file mode
-        if (e==-4){error(5); return;}//illegal function call
-        if (e==-7){error(70); return;}//permission denied
-        error(75); return;//assume[-9]: path/file access error
-    }
-    
-    //seek to beginning of next field
-    if (gfs->type==1){
-        if (ele->length<gfs->record_length){
-            if (offset!=-1){
-                e=gfs_setpos(i,offset+gfs->record_length);
-                }else{
-                e=gfs_setpos(i,gfs_getpos(i)-ele->length+gfs->record_length);
-            }
-            if (e) error(54); return;//assume[-3]: bad file mode
-        }
-    }
-    
+    int32 e=qbrt_file_put(i,offset,(const uint8*)ele->offset,ele->length,passed); if (e) error(e);
 }
 
 //put2 adds a 2-4 byte length descriptor to the data
 //(used to PUT variable length strings in RANDOM mode)
 void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     if (new_error) return;
-    static byte_element_struct *ele;
-    static int32 x;
-    static std::vector<uint8> data_storage;
-    
     if (i<0){//special handle?
         sub_put(i,offset,element,passed);//(use standard put call)
         return;
     }
-    
-    if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-    i=gfs_fileno[i];//convert fileno to gfs index
-    static gfs_file_struct *gfs;
-    gfs=&gfs_file[i];
-    if (gfs->type>2){error(54); return;}//Bad file mode
-    if (!gfs->write){error(75); return;}//Path/file access error
-    
-    if (gfs->type==2){//BINARY (use normal sub_put)
-        sub_put(gfs->fileno,offset,element,passed);
-        return;
-    }
-    
-    //RANDOM
-    static uint64 l;
-    static int64 lmask;
-    lmask=-1;
-    lmask>>=16;
+    static byte_element_struct *ele;
     ele=(byte_element_struct*)element;
-    l=ele->length;//note: ele->length is currently 32-bit, but sub_put2 is 64-bit compliant
-    //{15}{1}[{48}]
-        if (l>32767){
-            data_storage.resize(static_cast<size_t>(l)+8);
-            uint8 *data=data_storage.data();
-            memcpy(&data[8],(void*)(ele->offset),l);
-            ((uint64*)data)[0]=0;
-            ((uint16*)data)[0]=(l&32767)+32768;
-            l=((l>>15)&lmask);
-            ((uint64*)(data+2))[0]|=l;
-            ele->length+=8;
-            }else{
-            data_storage.resize(static_cast<size_t>(l)+2);
-            uint8 *data=data_storage.data();
-            memcpy(&data[2],(void*)(ele->offset),l);
-            ((uint16*)data)[0]=l;
-            ele->length+=2;
-        }
-        uint8 *data=data_storage.data();
-        ele->offset=(uint64)&data[0];
-        sub_put(gfs->fileno,offset,element,passed);
-        
-    }//put2
+    int32 e=qbrt_file_put_string(i,offset,(const uint8*)ele->offset,ele->length,passed); if (e) error(e);
+}
     
     
     
@@ -15998,9 +15112,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         error(54);//Bad file mode
     }
     
+    //LOF, EOF, SEEK, LOC, INPUT$(n,#f), LINE INPUT #: implemented in Rust
+    //(internal/c/qbrt/src/fileio.rs); TCP/IP handles and the keyboard stay here.
     int64 func_lof(int32 i){
-        static int64 size;
-        
         if (i<0){//special handle?
             static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,-(i+1)); if (!sh){error(52); return 0;}
             if (sh->type==1){//stream
@@ -16010,25 +15124,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }//stream
             error(52); return 0;
         }//special handle
-        
-        if (gfs_fileno_valid(i)!=1){error(52); return 0;}//Bad file name or number
-        i=gfs_fileno[i];//convert fileno to gfs index
-        size=gfs_lof(i);
-        if (size<0){
-            if (size==-2){error(258); return 0;}//invalid handle
-            if (size==-3){error(54); return 0;}//bad file mode
-            if (size==-4){error(5); return 0;}//illegal function call
-            error(75); return 0;//assume[-9]: path/file access error
-        }
-        return size;
+        int64 v; int32 e=qbrt_file_lof(i,&v); if (e) error(e);
+        return v;
     }
-    
+
     int32 func_eof(int32 i){
-        static int32 pos,lof,x;
-        
         if (i<0){//special handle?
-            x=-(i+1);
-            static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,x); if (!sh){error(52); return 0;}
+            static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,-(i+1)); if (!sh){error(52); return 0;}
             if (sh->type==1){//stream
                 static stream_struct *st; st=(stream_struct*)sh->index;
                 if (st->eof) return -1;
@@ -16036,151 +15138,36 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             }//stream
             error(52); return 0;
         }//special handle
-        
-        if (gfs_fileno_valid(i)!=1){error(52); return 0;}//Bad file name or number
-        i=gfs_fileno[i];//convert fileno to gfs index
-        static gfs_file_struct *gfs;
-        gfs=&gfs_file[i];
-        if (gfs->scrn){error(5); return 0;}
-        if (gfs->type!=3){  //uint8 type;//qb access method (1=RANDOM,2=BINARY,3=INPUT,4=OUTPUT)
-            if (gfs_eof_passed(i)==1) return -1;
-            }else{
-            if (gfs_eof_reached(i)==1) return -1;
-            if (gfs_eof_passed(i)==1) return -1;
-        }
-        return 0;
-        
+        int32 v; int32 e=qbrt_file_eof(i,&v); if (e) error(e);
+        return v;
     }
-    
+
     void sub_seek(int32 i,int64 pos){
         if (new_error) return;
-        if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-        i=gfs_fileno[i];//convert fileno to gfs index
-        static gfs_file_struct *gfs;
-        gfs=&gfs_file[i];
-        if (gfs->type==1){//RANDOM
-            pos--;
-            if (pos<0){error(63); return;}//Bad record number
-            pos*=gfs->record_length;
-            pos++;
-        }
-        pos--;
-        if (pos<0){error(63); return;}//Bad record number
-        int32 e;
-        e=gfs_setpos(i,pos);
-        if (e<0){
-            if (e==-2){error(258); return;}//invalid handle
-            if (e==-3){error(54); return;}//bad file mode
-            if (e==-4){error(5); return;}//illegal function call
-            error(75); return;//assume[-9]: path/file access error
-        }
+        int32 e=qbrt_file_seek_set(i,pos); if (e) error(e);
     }
-    
+
     int64 func_seek(int32 i){
-        if (gfs_fileno_valid(i)!=1){error(52); return 0;}//Bad file name or number
-        i=gfs_fileno[i];//convert fileno to gfs index
-        static gfs_file_struct *gfs;
-        gfs=&gfs_file[i];
-        if (gfs->scrn) return 0;
-        if (gfs->type==1){//RANDOM
-            return gfs_getpos(i)/gfs->record_length+1;
-        }
-        return gfs_getpos(i)+1;
+        int64 v; int32 e=qbrt_file_seek_get(i,&v); if (e) error(e);
+        return v;
     }
-    
+
     int64 func_loc(int32 i){
-        if (gfs_fileno_valid(i)!=1){error(52); return 0;}//Bad file name or number
-        i=gfs_fileno[i];//convert fileno to gfs index
-        static gfs_file_struct *gfs;
-        gfs=&gfs_file[i];
-        
-        if (gfs->scrn){error(5); return 0;}
-        if (gfs->com_port){
-            #ifdef QBNex_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                static COMSTAT c;
-                ZeroMemory(&c,sizeof(COMSTAT));
-                static DWORD ignore;
-                if (!ClearCommError(f_w->file_handle,&ignore,&c)) return 0;
-                return c.cbInQue;//bytes in COM input buffer
-            #endif
-        }
-        
-        if (gfs->type==1){//RANDOM
-            return gfs_getpos(i)/gfs->record_length;
-        }
-        if (gfs->type==2){//BINARY
-            return gfs_getpos(i);
-        }
-        //APPEND/OUTPUT/INPUT
-        return gfs_getpos(i)/128;
+        int64 v; int32 e=qbrt_file_loc(i,&v); if (e) error(e);
+        return v;
     }
-    
+
     qbs *func_input(int32 n,int32 i,int32 passed){
         if (new_error) return qbs_new(0,1);
         static qbs *str,*str2;
-        static int32 x,c;
+        static int32 x;
         if (n<0) str=qbs_new(0,1); else str=qbs_new(n,1);
         if (passed){
-            
-            if (gfs_fileno_valid(i)!=1){error(52); return str;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            static gfs_file_struct *gfs;
-            gfs=&gfs_file[i];
-            if ((gfs->type<2)||(gfs->type>3)){error(62); return str;}//Input past end of file
-            //note: RANDOM should be supported
-            //note: Unusually, QB returns "Input past end of file" instead of "Bad file mode"
-            if (!gfs->read){error(75); return str;}//Path/file access error
-            
-            if (n<0){error(52); return str;}//Bad file name or number
-            if (n==0) return str;
-            
-            //INPUT -> Input past end of file at EOF or CHR$(26)
-            //         unlike BINARY, partial strings cannot be returned
-            //         (use input_file_chr and modify it to support CHR$(26)
-            if (gfs->type==3){
-                x=0;
-                do{
-                    c=file_input_chr(i);
-                    if (c==-1){error(62); return str;}//Input past end of file
-                    if (c==-2){error(75); return str;}//path/file access error
-                    str->chr[x]=c;
-                    
-                    if (gfs_file[i].eof_passed!=1) { //If we haven't declared the End of the File, check to see if the next byte is an EOF byte
-                        c=file_input_chr(i); //read the next byte
-                        if (gfs_file[i].eof_passed!=1) {gfs_setpos(i,gfs_getpos(i)-1);} //and if it's not EOF, move our position back to where it should be
-                    }
-                    
-                    x++;
-                }while(x<n);
-                return str;
-            }
-            
-            //BINARY -> If past EOF, returns a NULL length string!
-            //          or as much of the data that was valid as possible
-            //          Seek POS is only advanced as far as was read!
-            //          Binary can read past CHR$(26)
-            //          (simply call C's read statement and manage via .eof
-            if (gfs->type==2){
-                static int32 e;
-                e=gfs_read(i,-1,str->chr,n);
-                if (e){
-                    if (e!=-10){//note: on eof, unread buffer area becomes NULL
-                        str->len=0;
-                        if (e==-2){error(258); return str;}//invalid handle
-                        if (e==-3){error(54); return str;}//bad file mode
-                        if (e==-4){error(5); return str;}//illegal function call
-                        if (e==-7){error(70); return str;}//permission denied
-                        error(75); return str;//assume[-9]: path/file access error
-                    }
-                }
-                str->len=gfs_read_bytes();//adjust if not enough data was available
-                return str;
-            }
-            
-            //RANDOM (todo)
-            
+            int32 len=str->len;
+            int32 e=qbrt_file_input_n(n,i,str->chr,str->len,&len);
+            str->len=len;
+            if (e) error(e);
+            return str;
             }else{
             //keyboard/piped
             //      For extended-two-byte character codes, only the first, CHR$(0), is returned and counts a 1 byte
@@ -16203,114 +15190,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return str;
         }
     }
-    
-    void file_line_input_string_character(int32 filehandle, qbs *deststr) {
-        static qbs *str,*character;
-        int32 c,nextc;
-        int32 inspeechmarks;
-        
-        str=qbs_new(0,0);
-        c=file_input_chr(filehandle); if (c==-2) return;
-        if (c==-1){
-            qbs_set(deststr,str);
-            qbs_free(str);
-            error(62);//input past end of file
-            return;
-        }
-        character=qbs_new(1,0);
-        nextchr:
-        if (c==-1) goto gotstr;
-        if (c==10) goto gotstr;
-        if (c==13) goto gotstr;
-        character->chr[0]=c; qbs_set(str,qbs_add(str,character));
-        c=file_input_chr(filehandle); if (c==-2) return;
-        goto nextchr;
-        gotstr:
-        nextstr:
-        //scan until next item (or eof) reached
-        if (c==-1) goto returnstr;
-        if ((c==10)||(c==13)){//lf cr
-            file_input_skip1310(filehandle,c);
-            goto returnstr;
-        }
-        c=file_input_chr(filehandle); if (c==-2) return;
-        goto nextstr;
-        //return string
-        returnstr:
-        qbs_set(deststr,str);
-        qbs_free(str);
-        qbs_free(character);
-        return;
-    }
-    
-    
-    void file_line_input_string_binary(int32 fileno, qbs *deststr) {
-        int32 filebuf_size = 512;
-        int32 filehandle;
-        qbs *eol;
-        
-        filehandle=gfs_fileno[fileno];//convert fileno to gfs index
-        eol = qbs_new_txt_len("\n", 1);
-        
-        int64 start_byte = func_seek(fileno);
-        int64 filelength = func_lof(fileno);
-        if (start_byte > filelength) {
-            error(62);//input past end of file
-            return;
-        }
-        qbs *buffer = qbs_new(filebuf_size, 0);
-        qbs_set(deststr, qbs_new_txt_len("", 0));
-        do {
-            if (start_byte + filebuf_size > filelength) filebuf_size = filelength - start_byte + 1;
-            qbs_set(buffer,func_space(qbr(filebuf_size))); 
-            
-            sub_get2(fileno, start_byte, buffer, 1);
-            int32 eol_pos = func_instr(0, buffer, eol, 0);
-            if (eol_pos == 0) {
-                if ((start_byte + filebuf_size)>=filelength) {
-                    qbs_set(deststr, buffer);
-                    gfs_setpos(filehandle,filelength); //set the position right before the EOF marker
-                    gfs_file[filehandle].eof_passed=1;//also set EOF flag;
-                    qbs_free(buffer);
-                    return;
-                }
-                filebuf_size += 512;
-            }
-            else {
-                qbs_set(deststr, qbs_add(deststr, qbs_left(buffer, eol_pos - 1)));
-                break;
-            }
-        } while (!func_eof(fileno));
-        qbs_free(buffer);
-        if (start_byte + deststr->len + 2 >= filelength) { //if we've read to the end of the line
-            gfs_setpos(filehandle,filelength); //set the position right before the EOF marker
-            gfs_file[filehandle].eof_passed=1;//also set EOF flag;
-            if (deststr->chr[deststr->len - 1] == '\r') qbs_set(deststr, qbs_left(deststr, deststr->len-1));
-            return;
-        }
-        gfs_setpos(filehandle,start_byte + deststr->len); //set the position at the end of the text
-        if (deststr->chr[deststr->len - 1] == '\r') qbs_set(deststr, qbs_left(deststr, deststr->len-1));
-    }
-    
-    
+
     void sub_file_line_input_string(int32 fileno, qbs *deststr){
-        int32 filehandle;
         if (new_error) return;
-        if (gfs_fileno_valid(fileno)!=1){error(52); return;}//Bad file name or number
-        filehandle=gfs_fileno[fileno];//convert fileno to gfs index
-        static gfs_file_struct *gfs;
-        gfs=&gfs_file[filehandle];
-        if (!gfs->read){error(75); return;}//Path/file access error
-        
-        if (gfs->type == 2) {
-            file_line_input_string_binary(fileno, deststr);
-        }
-        else if (gfs->type == 3) {
-            file_line_input_string_character(filehandle, deststr);
-            } else {
-            error(54); //Bad file mode
-        }
-        return;
+        const uint8 *out; int32 len=0,assign=0;
+        int32 e=qbrt_file_line_input(fileno,&out,&len,&assign);
+        if (assign) qbs_set(deststr,qbs_new_txt_len((const char*)out,len));
+        if (e) error(e);
     }
     
     double func_sqr(double value){
@@ -16341,16 +15227,16 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     qbs *func_command_str=NULL;
     char **func_command_array = NULL;
     int32 func_command_count = 0;
-    
+
+    //COMMAND$, SHELL family, KILL, NAME, CHDIR, MKDIR, RMDIR: implemented in Rust
+    //(internal/c/qbrt/src/{env,shell,fsops}.rs). Full screen and console state stay here.
     qbs *func_command(int32 index, int32 passed){
         static qbs *tqbs;
-        if (passed) { //Get specific parameter
-            //If out of bounds or error getting cmdline args, return empty string.
-            if (index >= func_command_count || index < 0 || func_command_array==NULL) {tqbs = qbs_new(0, 1); return tqbs;}
-            int len = strlen(func_command_array[index]);
-            //Create new temp qbs and copy data into it.
-            tqbs=qbs_new(len, 1);
-            memcpy(tqbs->chr, func_command_array[index], len);
+        if (passed) { //Get specific parameter ("" when out of bounds)
+            const uint8 *out; int32 len=0;
+            qbrt_command_arg(func_command_array,func_command_count,index,&out,&len);
+            tqbs=qbs_new(len,1);
+            memcpy(tqbs->chr,out,len);
         }
         else { //Legacy support; return whole commandline
             tqbs=qbs_new(func_command_str->len,1);
@@ -16358,1570 +15244,121 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         }
         return tqbs;
     }
-    
+
     int32 func__commandcount(){
         return func_command_count - 1;
     }
-    
+
     int32 shell_call_in_progress=0;
-    
-    #ifdef QBNex_WINDOWS
-        int32 cmd_available=-1;
-        int32 cmd_ok(){
-            if (cmd_available==-1){
-                static STARTUPINFO si;
-                static PROCESS_INFORMATION pi;
-                ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                if(
-                CreateProcess(
-                NULL,           // No module name (use command line)
-                "cmd.exe /c ver",// Command line
-                NULL,           // Process handle not inheritable
-                NULL,           // Thread handle not inheritable
-                FALSE,          // Set handle inheritance to FALSE
-                CREATE_NO_WINDOW, // No creation flags
-                NULL,           // Use parent's environment block
-                NULL,           // Use parent's starting directory 
-                &si,            // Pointer to STARTUPINFO structure
-                &pi             // Pointer to PROCESS_INFORMATION structure
-                )
-                ){
-                    WaitForSingleObject(pi.hProcess,INFINITE);
-                    CloseHandle(pi.hProcess);
-                    CloseHandle(pi.hThread);
-                    cmd_available=1;
-                    }else{
-                    cmd_available=0;
-                }
-            }//-1
-            return cmd_available;
-        }
-    #endif
-    
-    
-    
-    
-    
-    
-    int32 cmd_command(qbs *str2){
-        static qbs *str=NULL;
-        static int32 s;
-        if (!str) str=qbs_new(0,0);
-        qbs_set(str,qbs_ucase(str2));
-        s=0;
-        if (qbs_equal(str,qbs_new_txt("ASSOC")))s=1;
-        if (qbs_equal(str,qbs_new_txt("BREAK")))s=1;
-        if (qbs_equal(str,qbs_new_txt("BCDBOOT")))s=1;
-        if (qbs_equal(str,qbs_new_txt("BCDEDIT")))s=1;
-        if (qbs_equal(str,qbs_new_txt("CALL")))s=1;
-        if (qbs_equal(str,qbs_new_txt("CD")))s=1;
-        if (qbs_equal(str,qbs_new_txt("CHDIR")))s=1;
-        if (qbs_equal(str,qbs_new_txt("CLS")))s=1;
-        if (qbs_equal(str,qbs_new_txt("COLOR")))s=1;
-        if (qbs_equal(str,qbs_new_txt("COPY")))s=1;
-        if (qbs_equal(str,qbs_new_txt("DATE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("DEFRAG")))s=1;
-        if (qbs_equal(str,qbs_new_txt("DEL")))s=1;
-        if (qbs_equal(str,qbs_new_txt("DIR")))s=1;
-        if (qbs_equal(str,qbs_new_txt("ECHO")))s=1;
-        if (qbs_equal(str,qbs_new_txt("ENDLOCAL")))s=1;
-        if (qbs_equal(str,qbs_new_txt("ERASE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("FOR")))s=1;
-        if (qbs_equal(str,qbs_new_txt("FTYPE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("GOTO")))s=1;
-        if (qbs_equal(str,qbs_new_txt("GRAFTABL")))s=1;
-        if (qbs_equal(str,qbs_new_txt("IF")))s=1;
-        if (qbs_equal(str,qbs_new_txt("MD")))s=1;
-        if (qbs_equal(str,qbs_new_txt("MKDIR")))s=1;
-        if (qbs_equal(str,qbs_new_txt("MKLINK")))s=1;
-        if (qbs_equal(str,qbs_new_txt("MOVE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("PATH")))s=1;
-        if (qbs_equal(str,qbs_new_txt("PAUSE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("POPD")))s=1;
-        if (qbs_equal(str,qbs_new_txt("PROMPT")))s=1;
-        if (qbs_equal(str,qbs_new_txt("PUSHD")))s=1;
-        if (qbs_equal(str,qbs_new_txt("RD")))s=1;
-        if (qbs_equal(str,qbs_new_txt("REM")))s=1;
-        if (qbs_equal(str,qbs_new_txt("REN")))s=1;
-        if (qbs_equal(str,qbs_new_txt("RENAME")))s=1;
-        if (qbs_equal(str,qbs_new_txt("RMDIR")))s=1;
-        if (qbs_equal(str,qbs_new_txt("SET")))s=1;
-        if (qbs_equal(str,qbs_new_txt("SETLOCAL")))s=1;
-        if (qbs_equal(str,qbs_new_txt("SHIFT")))s=1;
-        if (qbs_equal(str,qbs_new_txt("START")))s=1;
-        if (qbs_equal(str,qbs_new_txt("TIME")))s=1;
-        if (qbs_equal(str,qbs_new_txt("TITLE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("TYPE")))s=1;
-        if (qbs_equal(str,qbs_new_txt("VER")))s=1;
-        if (qbs_equal(str,qbs_new_txt("VERIFY")))s=1;
-        if (qbs_equal(str,qbs_new_txt("VOL")))s=1;
-        return s;
+
+    static int32 shell_use_console(){
+        return (console&&console_active)?1:0;
     }
-    
+
+    static int32 shell_leave_full_screen(){//exit full screen mode if necessary
+        int32 mode=full_screen;
+        if (mode){
+            full_screen_set=0;
+            do{ Sleep(0); }while(full_screen);
+        }
+        return mode;
+    }
+
+    static void shell_restore_full_screen(int32 mode){
+        if (mode){
+            full_screen_set=mode;
+            do{ Sleep(0); }while(!full_screen);
+        }
+    }
+
+    static int64 shell_run(qbs *str,int32 show,int32 wait,int32 use_console){
+        int64 rc;
+        if (wait) shell_call_in_progress=1;
+        rc=qbrt_shell_run(str->chr,str->len,show,wait,use_console);
+        if (wait) shell_call_in_progress=0;
+        return rc;
+    }
+
+    static int64 shell_interactive(int32 use_console){
+        int64 rc;
+        shell_call_in_progress=1;
+        rc=qbrt_shell_interactive(use_console);
+        shell_call_in_progress=0;
+        return rc;
+    }
+
     int64 func_shell(qbs *str){
         if (new_error) return 1;
-        
-        int64 return_code;
-        
-        //exit full screen mode if necessary
-        static int32 full_screen_mode;
-        full_screen_mode=full_screen;
-        if (full_screen_mode){
-            full_screen_set=0;
-            do{
-                Sleep(0);
-            }while(full_screen);
-        }//full_screen_mode
-        static qbs *strz=NULL;
-        static qbs *str1=NULL;
-        static qbs *str1z=NULL;
-        static qbs *str2=NULL;
-        static qbs *str2z=NULL;
-        static int32 i;
-        
-        static int32 use_console;
-        use_console=0;
-        if (console){
-            if (console_active){
-                use_console=1;
-            }
-        }
-        
-        if (!strz) strz=qbs_new(0,0);
-        if (!str1) str1=qbs_new(0,0);
-        if (!str1z) str1z=qbs_new(0,0);
-        if (!str2) str2=qbs_new(0,0);
-        if (!str2z) str2z=qbs_new(0,0);
-        
-        if (str->len){
-            
-            #ifdef QBNex_WINDOWS
-                
-                
-                if (use_console){
-                    qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-                    shell_call_in_progress=1;
-                    /*
-                        freopen("stdout.buf", "w", stdout);
-                        freopen("stderr.buf", "w", stderr);
-                    */
-                    return_code=system((char*)strz->chr);
-                    /*
-                        freopen("CON", "w", stdout);
-                        freopen("CON", "w", stderr);
-                        static char buf[1024];
-                        static int buflen;
-                        static int fd;
-                        fd = open("stdout.buf", O_RDONLY);
-                        while((buflen = read(fd, buf, 1024)) > 0)
-                        {
-                        write(1, buf, buflen);
-                        }
-                        close(fd);
-                        fd = open("stderr.buf", O_RDONLY);
-                        while((buflen = read(fd, buf, 1024)) > 0)
-                        {
-                        write(1, buf, buflen);
-                        }
-                        close(fd);
-                        remove("stdout.buf");
-                        remove("stderr.buf");
-                    */
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                }
-                
-                static STARTUPINFO si;
-                static PROCESS_INFORMATION pi;
-                
-                if (cmd_ok()){
-                    
-                    static SHELLEXECUTEINFO shi;
-                    static char cmd[10]="cmd\0";
-                    
-                    //attempt to separate file name (if any) from parameters
-                    static int32 x,quotes;
-                    
-                    qbs_set(str1,str);
-                    qbs_set(str2,qbs_new_txt(""));
-                    if (!str1->len) goto shell_complete;//failed!
-                    
-                    if (!cmd_command(str1)){
-                        //try directly, as is
-                        qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                        ZeroMemory( &shi, sizeof(shi) );
-                        shi.cbSize = sizeof(shi);
-                        shi.lpFile=(char*)&str1z->chr[0];
-                        shi.lpParameters=NULL;
-                        shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                        shi.nShow=SW_SHOW;
-                        if(ShellExecuteEx(&shi)){
-                            shell_call_in_progress=1;
-                            // Wait until child process exits.
-                            WaitForSingleObject( shi.hProcess, INFINITE );
-                            GetExitCodeProcess(shi.hProcess,(DWORD*)&return_code);
-                            CloseHandle(shi.hProcess);
-                            shell_call_in_progress=0;
-                            goto shell_complete;
-                        }
-                    }
-                    
-                    x=0;
-                    quotes=0;
-                    while (x<str1->len){
-                        if (str1->chr[x]==34){
-                            if (!quotes) quotes=1; else quotes=0;
-                        }
-                        if (str1->chr[x]==32){
-                            if (quotes==0){
-                                qbs_set(str2,qbs_right(str1,str1->len-x-1));
-                                qbs_set(str1,qbs_left(str1,x));
-                                goto split;
-                            }
-                        }
-                        x++;
-                    }
-                    split:
-                    if (!str1->len) goto shell_complete;//failed!
-                    
-                    if (str2->len){ if (!cmd_command(str1)){
-                        qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                        qbs_set(str2z,qbs_add(str2,qbs_new_txt_len("\0",1)));
-                        ZeroMemory( &shi, sizeof(shi) );
-                        shi.cbSize = sizeof(shi);
-                        shi.lpFile=(char*)&str1z->chr[0];
-                        shi.lpParameters=(char*)&str2z->chr[0];
-                        //if (str2->len<=1) shi.lpParameters=NULL;
-                        shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                        shi.nShow=SW_SHOW;
-                        if(ShellExecuteEx(&shi)){
-                            shell_call_in_progress=1;
-                            // Wait until child process exits.
-                            WaitForSingleObject( shi.hProcess, INFINITE );
-                            GetExitCodeProcess(shi.hProcess,(DWORD*)&return_code);
-                            CloseHandle(shi.hProcess);
-                            shell_call_in_progress=0;
-                            goto shell_complete;
-                        }
-                    }}
-                    
-                    //failed, try cmd /c method...
-                    if (str2->len) qbs_set(str2,qbs_add(qbs_new_txt(" "),str2));
-                    qbs_set(strz,qbs_add(str1,str2));
-                    qbs_set(strz,qbs_add(qbs_new_txt(" /c "),strz));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=&cmd[0];
-                    shi.lpParameters=(char*)&strz->chr[0];
-                    shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_SHOW;
-                    if(ShellExecuteEx(&shi)){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( shi.hProcess, INFINITE );
-                        GetExitCodeProcess(shi.hProcess,(DWORD*)&return_code);
-                        CloseHandle(shi.hProcess);
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                    
-                    /*
-                        qbs_set(strz,qbs_add(qbs_new_txt("cmd.exe /c "),str));
-                        qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                        ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                        if(CreateProcess(
-                        NULL,           // No module name (use command line)
-                        (char*)&strz->chr[0], // Command line
-                        NULL,           // Process handle not inheritable
-                        NULL,           // Thread handle not inheritable
-                        FALSE,          // Set handle inheritance to FALSE
-                        DETACHED_PROCESS, // No creation flags
-                        NULL,           // Use parent's environment block
-                        NULL,           // Use parent's starting directory 
-                        &si,            // Pointer to STARTUPINFO structure
-                        &pi )           // Pointer to PROCESS_INFORMATION structure
-                        ){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( pi.hProcess, INFINITE );
-                        // Close process and thread handles. 
-                        CloseHandle( pi.hProcess );
-                        CloseHandle( pi.hThread );
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                        }
-                    */
-                    
-                    return_code=1;
-                    goto shell_complete;//failed
-                    
-                    }else{
-                    
-                    qbs_set(strz,qbs_add(qbs_new_txt("command.com /c "),str));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                    if(CreateProcess(
-                    NULL,           // No module name (use command line)
-                    (char*)&strz->chr[0], // Command line
-                    NULL,           // Process handle not inheritable
-                    NULL,           // Thread handle not inheritable
-                    FALSE,          // Set handle inheritance to FALSE
-                    CREATE_NEW_CONSOLE, // No creation flags
-                    NULL,           // Use parent's environment block
-                    NULL,           // Use parent's starting directory 
-                    &si,            // Pointer to STARTUPINFO structure
-                    &pi )           // Pointer to PROCESS_INFORMATION structure
-                    ){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( pi.hProcess, INFINITE );
-                        // Close process and thread handles. 
-                        CloseHandle( pi.hProcess );
-                        CloseHandle( pi.hThread );
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                    goto shell_complete;//failed
-                    
-                }//cmd_ok()
-                
-                #else
-                
-                qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-                shell_call_in_progress=1;
-                return_code = system((char*)strz->chr);
-                shell_call_in_progress=0;
-                if (return_code == -1) {/* do nothing */}
-                else {
-                    return_code = WEXITSTATUS(return_code);
-                }
-                
-            #endif
-            
-            }else{
-            
-            //SHELL (with no parameters)
-            //note: opening a new shell is only available in windows atm via cmd
-            //note: assumes cmd available
-            #ifdef QBNex_WINDOWS
-                if (!use_console) AllocConsole();
-                qbs_set(strz,qbs_new_txt_len("cmd\0",4));
-                shell_call_in_progress=1;
-                return_code = system((char*)strz->chr);
-                shell_call_in_progress=0;
-                if (!use_console) FreeConsole();
-                goto shell_complete;
-            #endif
-            
-        }
-        
-        shell_complete:
-        //reenter full screen mode if necessary
-        if (full_screen_mode){
-            full_screen_set=full_screen_mode;
-            do{
-                Sleep(0);
-            }while(!full_screen);
-        }//full_screen_mode
-        
+        int32 full_screen_mode=shell_leave_full_screen();
+        int32 use_console=shell_use_console();
+        int64 return_code=str->len?shell_run(str,1,1,use_console):shell_interactive(use_console);
+        shell_restore_full_screen(full_screen_mode);
         return return_code;
-    }//func SHELL(...
-    
-    
-    
-    
-    
+    }
+
     int64 func__shellhide(qbs *str){ //func _SHELLHIDE(...
         if (new_error) return 1;
-        
-        static int64 return_code;
-        return_code=0;
-        
-        static qbs *strz=NULL;
-        static int32 i;
-        if (!strz) strz=qbs_new(0,0);
         if (!str->len){error(5); return 1;}//cannot launch a hidden console
-        
-        static qbs *str1=NULL;
-        static qbs *str2=NULL;
-        static qbs *str1z=NULL;
-        static qbs *str2z=NULL;
-        if (!str1) str1=qbs_new(0,0);
-        if (!str2) str2=qbs_new(0,0);
-        if (!str1z) str1z=qbs_new(0,0);
-        if (!str2z) str2z=qbs_new(0,0);
-        
-        #ifdef QBNex_WINDOWS
-            
-            static STARTUPINFO si;
-            static PROCESS_INFORMATION pi;
-            
-            if (cmd_ok()){
-                
-                static SHELLEXECUTEINFO shi;
-                static char cmd[10]="cmd\0";
-                
-                //attempt to separate file name (if any) from parameters
-                static int32 x,quotes;
-                
-                qbs_set(str1,str);
-                qbs_set(str2,qbs_new_txt(""));
-                
-                if (!cmd_command(str1)){
-                    //try directly, as is
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_HIDE;
-                    if(ShellExecuteEx(&shi)){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( shi.hProcess, INFINITE );
-                        GetExitCodeProcess(shi.hProcess,(DWORD*)&return_code);
-                        CloseHandle(shi.hProcess);
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                }
-                
-                x=0;
-                quotes=0;
-                while (x<str1->len){
-                    if (str1->chr[x]==34){
-                        if (!quotes) quotes=1; else quotes=0;
-                    }
-                    if (str1->chr[x]==32){
-                        if (quotes==0){
-                            qbs_set(str2,qbs_right(str1,str1->len-x-1));
-                            qbs_set(str1,qbs_left(str1,x));
-                            goto split;
-                        }
-                    }
-                    x++;
-                }
-                split:
-                if (!str1->len) {return_code=1; goto shell_complete;}//failed!
-                
-                if (str2->len){ if (!cmd_command(str1)){
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    qbs_set(str2z,qbs_add(str2,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=(char*)&str2z->chr[0];
-                    //if (str2->len<=1) shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_HIDE;
-                    if(ShellExecuteEx(&shi)){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( shi.hProcess, INFINITE );
-                        GetExitCodeProcess(shi.hProcess,(DWORD*)&return_code);
-                        CloseHandle(shi.hProcess);
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                }}
-                
-                //failed, try cmd /c method...
-                if (str2->len) qbs_set(str2,qbs_add(qbs_new_txt(" "),str2));
-                qbs_set(strz,qbs_add(str1,str2));
-                qbs_set(strz,qbs_add(qbs_new_txt(" /c "),strz));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &shi, sizeof(shi) );
-                shi.cbSize = sizeof(shi);
-                shi.lpFile=&cmd[0];
-                shi.lpParameters=(char*)&strz->chr[0];
-                shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                shi.nShow=SW_HIDE;
-                if(ShellExecuteEx(&shi)){
-                    shell_call_in_progress=1;
-                    // Wait until child process exits.
-                    WaitForSingleObject( shi.hProcess, INFINITE );
-                    GetExitCodeProcess(shi.hProcess,(DWORD*)&return_code);
-                    CloseHandle(shi.hProcess);
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                }
-                
-                /*
-                    qbs_set(strz,qbs_add(qbs_new_txt("cmd.exe /c "),str));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                    if(CreateProcess(
-                    NULL,           // No module name (use command line)
-                    (char*)&strz->chr[0], // Command line
-                    NULL,           // Process handle not inheritable
-                    NULL,           // Thread handle not inheritable
-                    FALSE,          // Set handle inheritance to FALSE
-                    CREATE_NO_WINDOW, // No creation flags
-                    NULL,           // Use parent's environment block
-                    NULL,           // Use parent's starting directory 
-                    &si,            // Pointer to STARTUPINFO structure
-                    &pi )           // Pointer to PROCESS_INFORMATION structure
-                    ){
-                    shell_call_in_progress=1;
-                    // Wait until child process exits.
-                    WaitForSingleObject( pi.hProcess, INFINITE );
-                    // Close process and thread handles. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                    }
-                */
-                
-                return_code=1;
-                goto shell_complete;//failed
-                
-                }else{
-                
-                qbs_set(strz,qbs_add(qbs_new_txt("command.com /c "),str));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                if(CreateProcess(
-                
-                NULL,           // No module name (use command line)
-                (char*)&strz->chr[0], // Command line
-                NULL,           // Process handle not inheritable
-                NULL,           // Thread handle not inheritable
-                FALSE,          // Set handle inheritance to FALSE
-                CREATE_NEW_CONSOLE, //note: cannot hide new console, but can preserve existing one
-                NULL,           // Use parent's environment block
-                NULL,           // Use parent's starting directory 
-                &si,            // Pointer to STARTUPINFO structure
-                &pi )           // Pointer to PROCESS_INFORMATION structure
-                ){
-                    shell_call_in_progress=1;
-                    // Wait until child process exits.
-                    WaitForSingleObject( pi.hProcess, INFINITE );
-                    // Close process and thread handles. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                }
-                goto shell_complete;//failed
-                
-            }//cmd_ok()
-            
-            #else
-            
-            qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-            shell_call_in_progress=1;
-            return_code=system((char*)strz->chr);
-            shell_call_in_progress=0;
-            return return_code;
-            
-        #endif
-        
-        shell_complete:;
-        
-        return return_code;
-    }//func _SHELLHIDE(...
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+        return shell_run(str,0,1,0);
+    }
+
     void sub_shell(qbs *str,int32 passed){
         if (new_error) return;
-        
-        //exit full screen mode if necessary
-        static int32 full_screen_mode;
-        full_screen_mode=full_screen;
-        if (full_screen_mode){
-            full_screen_set=0;
-            do{
-                Sleep(0);
-            }while(full_screen);
-        }//full_screen_mode
-        static qbs *strz=NULL;
-        static qbs *str1=NULL;
-        static qbs *str1z=NULL;
-        static qbs *str2=NULL;
-        static qbs *str2z=NULL;
-        static int32 i;
-        
-        static int32 use_console;
-        use_console=0;
-        if (console){
-            if (console_active){
-                use_console=1;
-            }
-        }
-        
-        if (!strz) strz=qbs_new(0,0);
-        if (!str1) str1=qbs_new(0,0);
-        if (!str1z) str1z=qbs_new(0,0);
-        if (!str2) str2=qbs_new(0,0);
-        if (!str2z) str2z=qbs_new(0,0);
-        
+        int32 full_screen_mode=shell_leave_full_screen();
+        int32 use_console=shell_use_console();
         if (passed) if (str->len==0) passed=0;//"" means launch a CONSOLE
-        if (passed){
-            
-            
-            
-            #ifdef QBNex_WINDOWS
-                
-                
-                if (use_console){
-                    qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-                    shell_call_in_progress=1;
-                    /*
-                        freopen("stdout.buf", "w", stdout);
-                        freopen("stderr.buf", "w", stderr);
-                    */
-                    system((char*)strz->chr);
-                    /*
-                        freopen("CON", "w", stdout);
-                        freopen("CON", "w", stderr);
-                        static char buf[1024];
-                        static int buflen;
-                        static int fd;
-                        fd = open("stdout.buf", O_RDONLY);
-                        while((buflen = read(fd, buf, 1024)) > 0)
-                        {
-                        write(1, buf, buflen);
-                        }
-                        close(fd);
-                        fd = open("stderr.buf", O_RDONLY);
-                        while((buflen = read(fd, buf, 1024)) > 0)
-                        {
-                        write(1, buf, buflen);
-                        }
-                        close(fd);
-                        remove("stdout.buf");
-                        remove("stderr.buf");
-                    */
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                }
-                
-                
-                
-                static STARTUPINFO si;
-                static PROCESS_INFORMATION pi;
-                
-                if (cmd_ok()){
-                    
-                    static SHELLEXECUTEINFO shi;
-                    static char cmd[10]="cmd\0";
-                    
-                    //attempt to separate file name (if any) from parameters
-                    static int32 x,quotes;
-                    
-                    qbs_set(str1,str);
-                    qbs_set(str2,qbs_new_txt(""));
-                    if (!str1->len) goto shell_complete;//failed!
-                    
-                    if (!cmd_command(str1)){
-                        //try directly, as is
-                        qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                        ZeroMemory( &shi, sizeof(shi) );
-                        shi.cbSize = sizeof(shi);
-                        shi.lpFile=(char*)&str1z->chr[0];
-                        shi.lpParameters=NULL;
-                        shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                        shi.nShow=SW_SHOW;
-                        if(ShellExecuteEx(&shi)){
-                            shell_call_in_progress=1;
-                            // Wait until child process exits.
-                            WaitForSingleObject( shi.hProcess, INFINITE );
-                            CloseHandle(shi.hProcess);
-                            shell_call_in_progress=0;
-                            goto shell_complete;
-                        }
-                    }
-                    
-                    x=0;
-                    quotes=0;
-                    while (x<str1->len){
-                        if (str1->chr[x]==34){
-                            if (!quotes) quotes=1; else quotes=0;
-                        }
-                        if (str1->chr[x]==32){
-                            if (quotes==0){
-                                qbs_set(str2,qbs_right(str1,str1->len-x-1));
-                                qbs_set(str1,qbs_left(str1,x));
-                                goto split;
-                            }
-                        }
-                        x++;
-                    }
-                    split:
-                    if (!str1->len) goto shell_complete;//failed!
-                    
-                    if (str2->len){ if (!cmd_command(str1)){
-                        qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                        qbs_set(str2z,qbs_add(str2,qbs_new_txt_len("\0",1)));
-                        ZeroMemory( &shi, sizeof(shi) );
-                        shi.cbSize = sizeof(shi);
-                        shi.lpFile=(char*)&str1z->chr[0];
-                        shi.lpParameters=(char*)&str2z->chr[0];
-                        //if (str2->len<=1) shi.lpParameters=NULL;
-                        shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                        shi.nShow=SW_SHOW;
-                        if(ShellExecuteEx(&shi)){
-                            shell_call_in_progress=1;
-                            // Wait until child process exits.
-                            WaitForSingleObject( shi.hProcess, INFINITE );
-                            CloseHandle(shi.hProcess);
-                            shell_call_in_progress=0;
-                            goto shell_complete;
-                        }
-                    }}
-                    
-                    //failed, try cmd /c method...
-                    if (str2->len) qbs_set(str2,qbs_add(qbs_new_txt(" "),str2));
-                    qbs_set(strz,qbs_add(str1,str2));
-                    qbs_set(strz,qbs_add(qbs_new_txt(" /c "),strz));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=&cmd[0];
-                    shi.lpParameters=(char*)&strz->chr[0];
-                    shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_SHOW;
-                    if(ShellExecuteEx(&shi)){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( shi.hProcess, INFINITE );
-                        CloseHandle(shi.hProcess);
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                    
-                    /*
-                        qbs_set(strz,qbs_add(qbs_new_txt("cmd.exe /c "),str));
-                        qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                        ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                        if(CreateProcess(
-                        NULL,           // No module name (use command line)
-                        (char*)&strz->chr[0], // Command line
-                        NULL,           // Process handle not inheritable
-                        NULL,           // Thread handle not inheritable
-                        FALSE,          // Set handle inheritance to FALSE
-                        DETACHED_PROCESS, // No creation flags
-                        NULL,           // Use parent's environment block
-                        NULL,           // Use parent's starting directory 
-                        &si,            // Pointer to STARTUPINFO structure
-                        &pi )           // Pointer to PROCESS_INFORMATION structure
-                        ){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( pi.hProcess, INFINITE );
-                        // Close process and thread handles. 
-                        CloseHandle( pi.hProcess );
-                        CloseHandle( pi.hThread );
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                        }
-                    */
-                    
-                    goto shell_complete;//failed
-                    
-                    }else{
-                    
-                    qbs_set(strz,qbs_add(qbs_new_txt("command.com /c "),str));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                    if(CreateProcess(
-                    NULL,           // No module name (use command line)
-                    (char*)&strz->chr[0], // Command line
-                    NULL,           // Process handle not inheritable
-                    NULL,           // Thread handle not inheritable
-                    FALSE,          // Set handle inheritance to FALSE
-                    CREATE_NEW_CONSOLE, // No creation flags
-                    NULL,           // Use parent's environment block
-                    NULL,           // Use parent's starting directory 
-                    &si,            // Pointer to STARTUPINFO structure
-                    &pi )           // Pointer to PROCESS_INFORMATION structure
-                    ){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( pi.hProcess, INFINITE );
-                        // Close process and thread handles. 
-                        CloseHandle( pi.hProcess );
-                        CloseHandle( pi.hThread );
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                    goto shell_complete;//failed
-                    
-                }//cmd_ok()
-                
-                #else
-                
-                qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-                shell_call_in_progress=1;
-                system((char*)strz->chr);
-                shell_call_in_progress=0;
-                
-            #endif
-            
-            }else{
-            
-            //SHELL (with no parameters)
-            //note: opening a new shell is only available in windows atm via cmd
-            //note: assumes cmd available
-            #ifdef QBNex_WINDOWS
-                if (!use_console) AllocConsole();
-                qbs_set(strz,qbs_new_txt_len("cmd\0",4));
-                shell_call_in_progress=1;
-                system((char*)strz->chr);
-                shell_call_in_progress=0;
-                if (!use_console) FreeConsole();
-                goto shell_complete;
-            #endif
-            
-        }
-        
-        shell_complete:
-        //reenter full screen mode if necessary
-        if (full_screen_mode){
-            full_screen_set=full_screen_mode;
-            do{
-                Sleep(0);
-            }while(!full_screen);
-        }//full_screen_mode
+        if (passed) shell_run(str,1,1,use_console); else shell_interactive(use_console);
+        shell_restore_full_screen(full_screen_mode);
     }
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     void sub_shell2(qbs *str,int32 passed){ //HIDE
         if (new_error) return;
-        
         if (passed&1){sub_shell4(str,passed&2); return;}
         if (!(passed&2)){error(5); return;}//should not hide a shell waiting for input
-        
-        static qbs *strz=NULL;
-        static int32 i;
-        if (!strz) strz=qbs_new(0,0);
         if (!str->len){error(5); return;}//cannot launch a hidden console
-        
-        static qbs *str1=NULL;
-        static qbs *str2=NULL;
-        static qbs *str1z=NULL;
-        static qbs *str2z=NULL;
-        if (!str1) str1=qbs_new(0,0);
-        if (!str2) str2=qbs_new(0,0);
-        if (!str1z) str1z=qbs_new(0,0);
-        if (!str2z) str2z=qbs_new(0,0);
-        
-        #ifdef QBNex_WINDOWS
-            
-            static STARTUPINFO si;
-            static PROCESS_INFORMATION pi;
-            
-            if (cmd_ok()){
-                
-                static SHELLEXECUTEINFO shi;
-                static char cmd[10]="cmd\0";
-                
-                //attempt to separate file name (if any) from parameters
-                static int32 x,quotes;
-                
-                qbs_set(str1,str);
-                qbs_set(str2,qbs_new_txt(""));
-                
-                if (!cmd_command(str1)){
-                    //try directly, as is
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_HIDE;
-                    if(ShellExecuteEx(&shi)){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( shi.hProcess, INFINITE );
-                        CloseHandle(shi.hProcess);
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                }
-                
-                x=0;
-                quotes=0;
-                while (x<str1->len){
-                    if (str1->chr[x]==34){
-                        if (!quotes) quotes=1; else quotes=0;
-                    }
-                    if (str1->chr[x]==32){
-                        if (quotes==0){
-                            qbs_set(str2,qbs_right(str1,str1->len-x-1));
-                            qbs_set(str1,qbs_left(str1,x));
-                            goto split;
-                        }
-                    }
-                    x++;
-                }
-                split:
-                if (!str1->len) goto shell_complete;//failed!
-                
-                if (str2->len){ if (!cmd_command(str1)){
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    qbs_set(str2z,qbs_add(str2,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=(char*)&str2z->chr[0];
-                    //if (str2->len<=1) shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_HIDE;
-                    if(ShellExecuteEx(&shi)){
-                        shell_call_in_progress=1;
-                        // Wait until child process exits.
-                        WaitForSingleObject( shi.hProcess, INFINITE );
-                        CloseHandle(shi.hProcess);
-                        shell_call_in_progress=0;
-                        goto shell_complete;
-                    }
-                }}
-                
-                //failed, try cmd /c method...
-                if (str2->len) qbs_set(str2,qbs_add(qbs_new_txt(" "),str2));
-                qbs_set(strz,qbs_add(str1,str2));
-                qbs_set(strz,qbs_add(qbs_new_txt(" /c "),strz));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &shi, sizeof(shi) );
-                shi.cbSize = sizeof(shi);
-                shi.lpFile=&cmd[0];
-                shi.lpParameters=(char*)&strz->chr[0];
-                shi.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI;
-                shi.nShow=SW_HIDE;
-                if(ShellExecuteEx(&shi)){
-                    shell_call_in_progress=1;
-                    // Wait until child process exits.
-                    WaitForSingleObject( shi.hProcess, INFINITE );
-                    CloseHandle(shi.hProcess);
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                }
-                
-                /*
-                    qbs_set(strz,qbs_add(qbs_new_txt("cmd.exe /c "),str));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                    if(CreateProcess(
-                    NULL,           // No module name (use command line)
-                    (char*)&strz->chr[0], // Command line
-                    NULL,           // Process handle not inheritable
-                    NULL,           // Thread handle not inheritable
-                    FALSE,          // Set handle inheritance to FALSE
-                    CREATE_NO_WINDOW, // No creation flags
-                    NULL,           // Use parent's environment block
-                    NULL,           // Use parent's starting directory 
-                    &si,            // Pointer to STARTUPINFO structure
-                    &pi )           // Pointer to PROCESS_INFORMATION structure
-                    ){
-                    shell_call_in_progress=1;
-                    // Wait until child process exits.
-                    WaitForSingleObject( pi.hProcess, INFINITE );
-                    // Close process and thread handles. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                    }
-                */
-                
-                goto shell_complete;//failed
-                
-                }else{
-                
-                qbs_set(strz,qbs_add(qbs_new_txt("command.com /c "),str));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                if(CreateProcess(
-                
-                NULL,           // No module name (use command line)
-                (char*)&strz->chr[0], // Command line
-                NULL,           // Process handle not inheritable
-                NULL,           // Thread handle not inheritable
-                FALSE,          // Set handle inheritance to FALSE
-                CREATE_NEW_CONSOLE, //note: cannot hide new console, but can preserve existing one
-                NULL,           // Use parent's environment block
-                NULL,           // Use parent's starting directory 
-                &si,            // Pointer to STARTUPINFO structure
-                &pi )           // Pointer to PROCESS_INFORMATION structure
-                ){
-                    shell_call_in_progress=1;
-                    // Wait until child process exits.
-                    WaitForSingleObject( pi.hProcess, INFINITE );
-                    // Close process and thread handles. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    shell_call_in_progress=0;
-                    goto shell_complete;
-                }
-                goto shell_complete;//failed
-                
-            }//cmd_ok()
-            
-            #else
-            
-            qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-            shell_call_in_progress=1;
-            system((char*)strz->chr);
-            shell_call_in_progress=0;
-            return;
-            
-        #endif
-        
-        shell_complete:;
+        shell_run(str,0,1,0);
     }
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     void sub_shell3(qbs *str,int32 passed){//_DONTWAIT
         //shell3 launches 'str' but does not wait for it to complete
         if (new_error) return;
-        
         if (passed&1){sub_shell4(str,passed&2); return;}
-        
-        static qbs *strz=NULL;
-        static int32 i;
-        
-        static qbs *str1=NULL;
-        static qbs *str2=NULL;
-        static qbs *str1z=NULL;
-        static qbs *str2z=NULL;
-        if (!str1) str1=qbs_new(0,0);
-        if (!str2) str2=qbs_new(0,0);
-        if (!str1z) str1z=qbs_new(0,0);
-        if (!str2z) str2z=qbs_new(0,0);
-        
-        if (!strz) strz=qbs_new(0,0);
-        
-        #ifdef QBNex_WINDOWS
-            
-            static STARTUPINFO si;
-            static PROCESS_INFORMATION pi;
-            
-            if (cmd_ok()){
-                
-                static SHELLEXECUTEINFO shi;
-                static char cmd[10]="cmd\0";
-                
-                //attempt to separate file name (if any) from parameters
-                static int32 x,quotes;
-                
-                //allow for launching of a console
-                if (!(passed&2)){
-                    qbs_set(str1,qbs_new_txt("cmd"));
-                    }else{
-                    qbs_set(str1,str);
-                    if (!str1->len) qbs_set(str1,qbs_new_txt("cmd"));
-                }
-                qbs_set(str2,qbs_new_txt(""));
-                
-                if (!cmd_command(str1)){
-                    //try directly, as is
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_SHOW;
-                    if(ShellExecuteEx(&shi)){
-                        goto shell_complete;
-                    }
-                }
-                
-                x=0;
-                quotes=0;
-                while (x<str1->len){
-                    if (str1->chr[x]==34){
-                        if (!quotes) quotes=1; else quotes=0;
-                    }
-                    if (str1->chr[x]==32){
-                        if (quotes==0){
-                            qbs_set(str2,qbs_right(str1,str1->len-x-1));
-                            qbs_set(str1,qbs_left(str1,x));
-                            goto split;
-                        }
-                    }
-                    x++;
-                }
-                split:
-                if (!str1->len) goto shell_complete;//failed!
-                
-                if (str2->len){ if (!cmd_command(str1)){
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    qbs_set(str2z,qbs_add(str2,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=(char*)&str2z->chr[0];
-                    //if (str2->len<=1) shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_SHOW;
-                    if(ShellExecuteEx(&shi)){
-                        goto shell_complete;
-                    }
-                }}
-                
-                //failed, try cmd /c method...
-                if (str2->len) qbs_set(str2,qbs_add(qbs_new_txt(" "),str2));
-                qbs_set(strz,qbs_add(str1,str2));
-                qbs_set(strz,qbs_add(qbs_new_txt(" /c "),strz));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &shi, sizeof(shi) );
-                shi.cbSize = sizeof(shi);
-                shi.lpFile=&cmd[0];
-                shi.lpParameters=(char*)&strz->chr[0];
-                shi.fMask=SEE_MASK_FLAG_NO_UI;
-                shi.nShow=SW_SHOW;
-                if(ShellExecuteEx(&shi)){
-                    goto shell_complete;
-                }
-                
-                /*
-                    qbs_set(strz,qbs_add(qbs_new_txt("cmd.exe /c "),str));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                    if(CreateProcess(
-                    NULL,           // No module name (use command line)
-                    (char*)&strz->chr[0], // Command line
-                    NULL,           // Process handle not inheritable
-                    NULL,           // Thread handle not inheritable
-                    FALSE,          // Set handle inheritance to FALSE
-                    DETACHED_PROCESS, // No creation flags
-                    NULL,           // Use parent's environment block
-                    NULL,           // Use parent's starting directory 
-                    &si,            // Pointer to STARTUPINFO structure
-                    &pi )           // Pointer to PROCESS_INFORMATION structure
-                    ){
-                    //ref: The created process remains in the system until all threads within the process have terminated and all handles to the process and any of its threads have been closed through calls to CloseHandle. The handles for both the process and the main thread must be closed through calls to CloseHandle. If these handles are not needed, it is best to close them immediately after the process is created. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    goto shell_complete;
-                    }
-                */
-                
-                goto shell_complete;//failed
-                
-                }else{
-                
-                qbs_set(strz,qbs_add(qbs_new_txt("command.com /c "),str));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                if(CreateProcess(
-                NULL,           // No module name (use command line)
-                (char*)&strz->chr[0], // Command line
-                NULL,           // Process handle not inheritable
-                NULL,           // Thread handle not inheritable
-                FALSE,          // Set handle inheritance to FALSE
-                CREATE_NEW_CONSOLE, //note: cannot hide new console, but can preserve existing one
-                NULL,           // Use parent's environment block
-                NULL,           // Use parent's starting directory 
-                &si,            // Pointer to STARTUPINFO structure
-                &pi )           // Pointer to PROCESS_INFORMATION structure
-                ){
-                    //ref: The created process remains in the system until all threads within the process have terminated and all handles to the process and any of its threads have been closed through calls to CloseHandle. The handles for both the process and the main thread must be closed through calls to CloseHandle. If these handles are not needed, it is best to close them immediately after the process is created. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    goto shell_complete;
-                }
-                goto shell_complete;//failed
-                
-            }//cmd_ok()
-            
-            #else
-            
-            qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-            pid_t pid = fork ();
-            if (pid == 0)
-            _exit (system((char*)strz->chr));
-            return;
-            
-        #endif
-        
-        shell_complete:;
-    }//SHELL _DONTWAIT
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+        static qbs *cmd=NULL; if (!cmd) cmd=qbs_new_txt("cmd");
+        if (!(passed&2)||!str->len) str=cmd;//no command: open a console window
+        shell_run(str,1,0,0);
+    }
+
     void sub_shell4(qbs *str,int32 passed){//_DONTWAIT & _HIDE
         //if passed&2 set a string was given
         if (!(passed&2)){error(5); return;}//should not hide a shell waiting for input
-        
-        static qbs *strz=NULL;
-        static int32 i;
-        
-        static qbs *str1=NULL;
-        static qbs *str2=NULL;
-        static qbs *str1z=NULL;
-        static qbs *str2z=NULL;
-        if (!str1) str1=qbs_new(0,0);
-        if (!str2) str2=qbs_new(0,0);
-        if (!str1z) str1z=qbs_new(0,0);
-        if (!str2z) str2z=qbs_new(0,0);
-        
-        if (!strz) strz=qbs_new(0,0);
-        
         if (!str->len){error(5); return;}//console unsupported
-        
-        #ifdef QBNex_WINDOWS
-            
-            static STARTUPINFO si;
-            static PROCESS_INFORMATION pi;
-            
-            if (cmd_ok()){
-                
-                static SHELLEXECUTEINFO shi;
-                static char cmd[10]="cmd\0";
-                
-                //attempt to separate file name (if any) from parameters
-                static int32 x,quotes;
-                
-                qbs_set(str1,str);
-                qbs_set(str2,qbs_new_txt(""));
-                
-                if (!cmd_command(str1)){
-                    //try directly, as is
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_HIDE;
-                    if(ShellExecuteEx(&shi)){
-                        goto shell_complete;
-                    }
-                }
-                
-                x=0;
-                quotes=0;
-                while (x<str1->len){
-                    if (str1->chr[x]==34){
-                        if (!quotes) quotes=1; else quotes=0;
-                    }
-                    if (str1->chr[x]==32){
-                        if (quotes==0){
-                            qbs_set(str2,qbs_right(str1,str1->len-x-1));
-                            qbs_set(str1,qbs_left(str1,x));
-                            goto split;
-                        }
-                    }
-                    x++;
-                }
-                split:
-                if (!str1->len) goto shell_complete;//failed!
-                
-                if (str2->len){ if (!cmd_command(str1)){
-                    qbs_set(str1z,qbs_add(str1,qbs_new_txt_len("\0",1)));
-                    qbs_set(str2z,qbs_add(str2,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &shi, sizeof(shi) );
-                    shi.cbSize = sizeof(shi);
-                    shi.lpFile=(char*)&str1z->chr[0];
-                    shi.lpParameters=(char*)&str2z->chr[0];
-                    //if (str2->len<=1) shi.lpParameters=NULL;
-                    shi.fMask=SEE_MASK_FLAG_NO_UI;
-                    shi.nShow=SW_HIDE;
-                    if(ShellExecuteEx(&shi)){
-                        goto shell_complete;
-                    }
-                }}
-                
-                //failed, try cmd /c method...
-                if (str2->len) qbs_set(str2,qbs_add(qbs_new_txt(" "),str2));
-                qbs_set(strz,qbs_add(str1,str2));
-                qbs_set(strz,qbs_add(qbs_new_txt(" /c "),strz));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &shi, sizeof(shi) );
-                shi.cbSize = sizeof(shi);
-                shi.lpFile=&cmd[0];
-                shi.lpParameters=(char*)&strz->chr[0];
-                shi.fMask=SEE_MASK_FLAG_NO_UI;
-                shi.nShow=SW_HIDE;
-                if(ShellExecuteEx(&shi)){
-                    goto shell_complete;
-                }
-                
-                /*
-                    qbs_set(strz,qbs_add(qbs_new_txt("cmd.exe /c "),str));
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                    ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                    if(CreateProcess(
-                    NULL,           // No module name (use command line)
-                    (char*)&strz->chr[0], // Command line
-                    NULL,           // Process handle not inheritable
-                    NULL,           // Thread handle not inheritable
-                    FALSE,          // Set handle inheritance to FALSE
-                    DETACHED_PROCESS, // No creation flags
-                    NULL,           // Use parent's environment block
-                    NULL,           // Use parent's starting directory 
-                    &si,            // Pointer to STARTUPINFO structure
-                    &pi )           // Pointer to PROCESS_INFORMATION structure
-                    ){
-                    //ref: The created process remains in the system until all threads within the process have terminated and all handles to the process and any of its threads have been closed through calls to CloseHandle. The handles for both the process and the main thread must be closed through calls to CloseHandle. If these handles are not needed, it is best to close them immediately after the process is created. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    goto shell_complete;
-                    }
-                */
-                
-                goto shell_complete;//failed
-                
-                }else{
-                
-                qbs_set(strz,qbs_add(qbs_new_txt("command.com /c "),str));
-                qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1)));
-                ZeroMemory( &si, sizeof(si) ); si.cb = sizeof(si); ZeroMemory( &pi, sizeof(pi) );
-                if(CreateProcess(
-                NULL,           // No module name (use command line)
-                (char*)&strz->chr[0], // Command line
-                NULL,           // Process handle not inheritable
-                NULL,           // Thread handle not inheritable
-                FALSE,          // Set handle inheritance to FALSE
-                CREATE_NEW_CONSOLE, //note: cannot hide new console, but can preserve existing one
-                NULL,           // Use parent's environment block
-                NULL,           // Use parent's starting directory 
-                &si,            // Pointer to STARTUPINFO structure
-                &pi )           // Pointer to PROCESS_INFORMATION structure
-                ){
-                    //ref: The created process remains in the system until all threads within the process have terminated and all handles to the process and any of its threads have been closed through calls to CloseHandle. The handles for both the process and the main thread must be closed through calls to CloseHandle. If these handles are not needed, it is best to close them immediately after the process is created. 
-                    CloseHandle( pi.hProcess );
-                    CloseHandle( pi.hThread );
-                    goto shell_complete;
-                }
-                goto shell_complete;//failed
-                
-            }//cmd_ok()
-            
-            #else
-            
-            qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-            pid_t pid = fork ();
-            if (pid == 0)
-            _exit (system((char*)strz->chr));
-            return;
-            
-        #endif
-        
-        shell_complete:;
-        
-    }//_DONTWAIT & _HIDE
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    void sub_kill(qbs *str){
-        //note: file not found returned for non-existant paths too
-        //      file already open returned if access unavailable
-        if (new_error) return;
-        static int32 i;
-        static qbs *strz=NULL;
-        if (!strz) strz=qbs_new(0,0);
-        qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-        #ifdef QBNex_WINDOWS
-            static WIN32_FIND_DATA fd;
-            static HANDLE hFind;
-            static qbs *strpath=NULL; if (!strpath) strpath=qbs_new(0,0);
-            static qbs *strfullz=NULL; if (!strfullz) strfullz=qbs_new(0,0);
-            //find path
-            qbs_set(strpath,strz);
-            for(i=strpath->len;i>0;i--){
-                if ((strpath->chr[i-1]==47)||(strpath->chr[i-1]==92)){strpath->len=i; break;}
-            }//i
-            if (i==0) strpath->len=0;//no path specified
-            static int32 count;
-            count=0;
-            hFind = FindFirstFile(fixdir(strz), &fd);
-            if(hFind==INVALID_HANDLE_VALUE){error(53); return;}//file not found
-            do{
-                if ((fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)==0){
-                    qbs_set(strfullz,qbs_add(strpath,qbs_new_txt_len(fd.cFileName,strlen(fd.cFileName)+1)));
-                    if (!DeleteFile((char*)strfullz->chr)){
-                        i=GetLastError();
-                        if ((i==5)||(i==19)||(i==33)||(i==32)){FindClose(hFind); error(55); return;}//file already open
-                        FindClose(hFind); error(53); return;//file not found
-                    }
-                    count++;
-                }//not a directory
-            }while(FindNextFile(hFind,&fd));
-            FindClose(hFind);
-            if (!count){error(53); return;}//file not found 
-            return;
-            #else
-            if (remove(fixdir(strz))){
-                i=errno;
-                if (i==ENOENT){error(53); return;}//file not found
-                if (i==EACCES){error(75); return;}//path/file access error
-                error(64);//bad file name (assumed)
-            }
-        #endif
+        shell_run(str,0,0,0);
     }
-    
+
+    void sub_kill(qbs *str){
+        if (new_error) return;
+        int32 e=qbrt_kill(str->chr,str->len); if (e) error(e);
+    }
+
     void sub_name(qbs *oldname,qbs *newname){
         if (new_error) return;
-        static qbs *strz=NULL;
-        if (!strz) strz=qbs_new(0,0);
-        static qbs *strz2=NULL;
-        if (!strz2) strz2=qbs_new(0,0);
-        static int32 i;
-        qbs_set(strz,qbs_add(oldname,qbs_new_txt_len("\0",1)));
-        qbs_set(strz2,qbs_add(newname,qbs_new_txt_len("\0",1)));
-        if (rename(fixdir(strz),fixdir(strz2))){
-            i=errno;
-            if (i==ENOENT){error(53); return;}//file not found
-            if (i==EINVAL){error(64); return;}//bad file name
-            if (i==EACCES){error(75); return;}//path/file access error
-            error(5);//Illegal function call (assumed)
-        }
+        int32 e=qbrt_name(oldname->chr,oldname->len,newname->chr,newname->len); if (e) error(e);
     }
-    
+
     void sub_chdir(qbs *str){
-        
-        
-        
         if (new_error) return;
-        static qbs *strz=NULL;
-        if (!strz) strz=qbs_new(0,0);
-        qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-        if (chdir(fixdir(strz))==-1){
-            //assume errno==ENOENT
-            error(76);//path not found
-        }
-        
-        static int32 tmp_long;
-        static int32 got_ports=0;
-        
+        int32 e=qbrt_chdir(str->chr,str->len); if (e) error(e);
     }
-    
+
     void sub_mkdir(qbs *str){
         if (new_error) return;
-        static qbs *strz=NULL;
-        if (!strz) strz=qbs_new(0,0);
-        qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-        #ifdef QBNex_UNIX
-            if (mkdir(fixdir(strz),0770)==-1){
-                #else
-                if (mkdir(fixdir(strz))==-1){
-                #endif
-                if (errno==EEXIST){error(75); return;}//path/file access error
-                //assume errno==ENOENT
-                error(76);//path not found
-            }
-            
-        }
-        
-        void sub_rmdir(qbs *str){
-            if (new_error) return;
-            static qbs *strz=NULL;
-            if (!strz) strz=qbs_new(0,0);
-            qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-            if (rmdir(fixdir(strz))==-1){
-                if (errno==ENOTEMPTY){error(75); return;}//path/file access error
-                //assume errno==ENOENT
-                error(76);//path not found
-            }
-        }
+        int32 e=qbrt_mkdir(str->chr,str->len); if (e) error(e);
+    }
+
+    void sub_rmdir(qbs *str){
+        if (new_error) return;
+        int32 e=qbrt_rmdir(str->chr,str->len); if (e) error(e);
+    }
         
         long double pow2(long double x,long double y){
             if (x<0){
@@ -21142,90 +18579,30 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             #define envp environ
         #endif
 
+        //ENVIRON$, ENVIRON, _ENVIRONCOUNT: implemented in Rust (internal/c/qbrt/src/env.rs)
         int32 func__environcount() {
-            //count array bound
-             char **p = envp;
-             while (*++p);
-             return p - envp;
-         }
-             
+            return qbrt_environ_count(envp);
+        }
+
         qbs *func_environ(qbs *name) {
-            char *result;
-            qbs *tqbs;
-            std::string query((char*)name->chr, (char*)name->chr + name->len);
-            result = getenv(query.c_str());
-            if (result) {
-                int result_length = strlen(result);
-                tqbs = qbs_new(result_length, 1);
-                memcpy(tqbs->chr, result, result_length);
-            }
-            else {
-                tqbs = qbs_new(0, 1);
-            }
+            const uint8 *out; int32 len=0;
+            qbrt_environ_get(name->chr,name->len,&out,&len);
+            qbs *tqbs=qbs_new(len,1);
+            memcpy(tqbs->chr,out,len);
             return tqbs;
         }
 
         qbs *func_environ(int32 number) {
-            char *result;
-            qbs *tqbs;
-            int result_length;
-            if (number <= 0) {
-                tqbs = qbs_new(0, 1);
-                error(5);
-                return tqbs;
-            }
-            //Check we do not go beyond array bound
-            char **p = envp;
-            while (*++p);
-            if (number > p - envp) {
-                tqbs = qbs_new(0, 1);
-                return tqbs;
-            }
-            result = envp[number - 1];
-            result_length = strlen(result);
-            tqbs = qbs_new(result_length, 1);
-            memcpy(tqbs->chr, result, result_length);
+            const uint8 *out; int32 len=0;
+            int32 e=qbrt_environ_index(envp,number,&out,&len);
+            qbs *tqbs=qbs_new(len,1);
+            memcpy(tqbs->chr,out,len);
+            if (e) error(e);
             return tqbs;
         }
-        
+
         void sub_environ(qbs *str) {
-            char *separator;
-            std::string buffer((char*)str->chr, (char*)str->chr + str->len);
-            buffer.push_back('\0');
-            char *buf=&buffer[0];
-            //Name and value may be separated by = or space
-            separator = strchr(buf, ' ');
-            if (!separator) {
-                separator = strchr(buf, '=');
-            }
-            if (!separator) {
-                //It is an error is there is no separator
-                error(5);
-                return;
-            }
-            // Split into two separate strings
-            *separator = '\0';
-            if (separator == &buf[str->len] - 1) {
-                //Separator is at end of string, so remove the variable
-				#ifdef QBNex_WINDOWS
-					*separator = '=';
-					_putenv(buf);
-				#else
-					unsetenv(buf);
-				#endif
-            }
-            else {
-				#ifdef QBNex_WINDOWS
-					#if WINVER >= 0x0600
-					_putenv_s(buf, separator + 1);
-					#else
-					*separator = '=';
-					_putenv(buf);
-					#endif
-				#else
-					setenv(buf, separator + 1, 1);
-				#endif
-            }
+            int32 e=qbrt_environ_set(str->chr,str->len); if (e) error(e);
         }
         
         #ifdef QBNex_WINDOWS
@@ -22581,945 +19958,29 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         
-        int32 gfs_new(){
-            static int32 i;
-            if (!gfs_freed.empty()){
-                i=gfs_freed.back();
-                gfs_freed.pop_back();
-                }else{
-                i=gfs_n;
-                gfs_n++;
-                gfs_file.resize(gfs_n);
-                gfs_field_buffer_storage.resize(gfs_n);
-                gfs_field_string_storage.resize(gfs_n);
-                #ifdef GFS_WINDOWS
-                    gfs_file_win.resize(gfs_n);
-                #endif
-            }
-            memset(&gfs_file[i],0,sizeof(gfs_file_struct));
-            gfs_field_buffer_storage[i].clear();
-            sync_gfs_field_buffer(i);
-            gfs_field_string_storage[i].clear();
-            sync_gfs_field_strings(i);
-            #ifdef GFS_WINDOWS
-                ZeroMemory(&gfs_file_win[i],sizeof(gfs_file_win_struct));
-            #endif
-            gfs_file[i].id=gfs_nextid++;
-            return i;
-        }
-        
-        int32 gfs_validhandle(int32 i){
-            if ((i<0)||(i>=gfs_n)) return 0;
-            if (gfs_file[i].scrn) return 1;
-            if (gfs_file[i].open) return 1;
-            return 0;
-        }
-        
-        int32 gfs_fileno_valid(int32 f){
-            //returns: -2   invalid handle
-            //          1   in use
-            //          0   unused
-            
-            if (f<=0) return -2;
-            if (f<=gfs_fileno_n){
-                if (gfs_fileno[f]==-1) return 0; else return 1;
-            }
-            gfs_fileno.resize(f+1,-1);
-            gfs_fileno_n=f;
-            return 0;
-        }
-        
-        int32 gfs_fileno_freefile(){//like FREEFILE
-            //note: for QBASIC compatibility the lowest available file number is returned
-            static int32 x;
-            for (x=1;x<=gfs_fileno_n;x++) if (gfs_fileno[x]==-1) return x;
-            return gfs_fileno_n+1;
-        }
-        
-        
-        void gfs_fileno_use(int32 f, int32 i){
-            //assumes valid handles
-            gfs_fileno[f]=i;
-            gfs_file[i].fileno=f;
-        }
-        
-        void gfs_fileno_free(int32 f){//note: called by gfs_free (DO NOT CALL THIS FUNCTION)
-            gfs_fileno[f]=-1;
-        }
-        
-        int32 gfs_free(int32 i){
-            
-            if (!gfs_validhandle(i)) return -2;//invalid handle    
-            gfs_file[i].open=0;
-            if (gfs_file[i].fileno) gfs_fileno_free(gfs_file[i].fileno);
-            gfs_freed.push_back(i);
-            return 0;
-        }
-        
-        int32 gfs_close(int32 i){
-            static int32 x;
-            if (x=gfs_free(i)) return x;
-            
-            if (gfs_file[i].scrn) return 0; //No further action needed
-            gfs_field_buffer_storage[i].clear();
-            sync_gfs_field_buffer(i);
-            gfs_field_string_storage[i].clear();
-            sync_gfs_field_strings(i);
-            
-            #ifdef GFS_C
-                static gfs_file_struct *f;
-                f=&gfs_file[i];
-                f->file_handle->close();
-                delete f->file_handle;
-                return 0;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                CloseHandle(f_w->file_handle);
-                return 0;
-            #endif
-            
-            return -1;
-        }
-        
-        int64 gfs_lof(int32 i){
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            if (f->scrn) return -4;
-            #ifdef GFS_C
-                f->file_handle->clear();
-                if (f->read){
-                    static int64 bytes;
-                    f->file_handle->seekg(0,ios::end);
-                    bytes=f->file_handle->tellg();
-                    f->file_handle->seekg(f->pos);
-                    return bytes;
-                }
-                if (f->write){
-                    static int64 bytes;
-                    f->file_handle->seekp(0,ios::end);
-                    bytes=f->file_handle->tellp();
-                    f->file_handle->seekp(f->pos);
-                    return bytes;
-                }
-                return -1;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                static int64 bytes;
-                *((int32*)&bytes)=GetFileSize(f_w->file_handle,(DWORD*)(((int32*)&bytes)+1));
-                if ((bytes&0xFFFFFFFF)==0xFFFFFFFF){
-                    if (GetLastError()!=NO_ERROR) return -3;//bad/incorrect file mode
-                }
-                return bytes;
-            #endif
-            
-            return -1;
-        }
-        
-        int32 gfs_open_com_syntax(qbs *fstr,gfs_file_struct *f){
-            //0=not an open com statement
-            //-1=syntax error
-            //1=valid
-            //check if filename is a COM open command
-            static int32 x,i;
-            static int32 v,c,z;
-            f->com_port=0;
-            if (fstr->len<=3) return 0;
-            if ((fstr->chr[0]&223)!=67) return 0;//"C"/"c"
-            if ((fstr->chr[1]&223)!=79) return 0;//"O"/"o"
-            if ((fstr->chr[2]&223)!=77) return 0;//"M"/"m"
-            v=-1;
-            for (i=3;i<fstr->len-1;i++){
-                c=fstr->chr[i];
-                if (c==58) goto comstatment;
-                if ((c<48)||(c>57)) return 0;//not 0-9
-                if (v==-1){
-                    if (c==48) return 0;//first digit 0
-                    v=0;
-                }
-                v=v*10+(c-48);
-            }
-            return 0;//no ":"
-            comstatment:
-            if ((x>=7)||(v<=0)||(v>255)) return -1;//invalid port number (1-255)
-            f->com_port=v;
-            
-            //COM open confirmed
-            static qbs *str=NULL;
-            if (!str) str=qbs_new(0,0);
-            qbs_set(str,qbs_ucase(fstr));
-            str->len--;//remove null term.
-            
-            //set option values to uninitialized
-            //---group 1
-            f->com_baud_rate=-1;
-            f->com_parity=-1;
-            f->com_data_bits_per_byte=-1;
-            f->com_stop_bits=-1;
-            //---group 2
-            f->com_rs=-1;
-            f->com_bin_asc=-1;
-            f->com_asc_lf=-1;
-            f->com_cd_x=-1;
-            f->com_cs_x=-1;
-            f->com_ds_x=-1;
-            f->com_op_x=-1;
-            
-            static int32 str_or_num;
-            static int64 strv;
-            static int32 stage;
-            static int32 com_rb_used,com_tb_used;
-            com_rb_used=0; com_tb_used=0; stage=1;
-            str_or_num=1; strv=0; v=-1;
-            for (i=i+1;i<str->len;i++){ c=str->chr[i];
-                if (c!=44){
-                    if ((c<48)||((c>57)&&(c<65))||(c>90)) return -1;//invalid character
-                    if ((str_or_num==2)&&(c>=65)) return -1;//invalid character
-                    if (c<65) str_or_num=2;//ABC->123
-                    if ((str_or_num==1)||(stage==4)){//note: stage 4 is interpreted as a string
-                        if (strv&0xFF0000) strv=strv|(c<<24); else
-                        if (strv&0x00FF00) strv=strv|(c<<16); else
-                        if (strv&0x0000FF) strv=strv|(c<<8); else
-                        strv=strv=c;
-                        if (strv>16777216) return -1;//string option too long (max 3 characters)
-                        }else{
-                        if ((c>48)&&(c<=57)){
-                            if (v==-2) return -1;//leading 0s are invalid
-                            if (v==-1) v=0;
-                            v=v*10+(c-48);
-                            }else{//0
-                            if (v==-2) return -1;//leading 0s are invalid
-                            if (v==-1) v=-2;//0...
-                            if (v>0) v=v*10; 
-                        }
-                        if (v>2147483647) return -1;//numeric value too large (LONG values only)
-                    }
-                }//c!=44
-                if ((c==44)||(i==str->len-1)){
-                    if (v==-2) v=0;
-                    //note: v==-1 means omit
-                    if (stage==1){
-                        if (f->com_baud_rate!=-1) return -1;
-                        if (strv) return -1;
-                        if (v==0) return -1;
-                        if (v==-1) v=300;
-                        f->com_baud_rate=v;
-                        stage++; goto done_stage;
-                    }
-                    if (stage==2){
-                        if (f->com_parity!=-1) return -1;
-                        if (v!=-1) return -1;
-                        x=-1;
-                        if (strv==78) x=0;//N
-                        if (strv==0) x=1;//E*
-                        if (strv==69) x=1;//E
-                        if (strv==79) x=2;//O
-                        if (strv==83) x=3;//S
-                        if (strv==77) x=4;//M
-                        if (strv==17744) x=5;//PE
-                        if (x==-1) return -1;
-                        f->com_parity=x;
-                        stage++; goto done_stage;
-                    }
-                    if (stage==3){
-                        if (f->com_data_bits_per_byte!=-1) return -1;
-                        if (strv) return -1;
-                        x=-1;
-                        if (v==-1) x=7;
-                        if (v==5) x=5;
-                        if (v==6) x=6;
-                        if (v==7) x=7;
-                        if (v==8) x=8;
-                        if (x==-1) return -1;
-                        f->com_data_bits_per_byte=x;
-                        stage++; goto done_stage;
-                    }
-                    if (stage==4){
-                        if (f->com_stop_bits!=-1) return -1;
-                        if (v!=-1) return -1;
-                        x=-1;
-                        if (strv==0){
-                            x=10;
-                            if (f->com_baud_rate<=110){
-                                x=20;
-                                if (f->com_data_bits_per_byte==5) x=15;
-                            }
-                        }//0
-                        if (strv==49) x=10;//"1"
-                        if (strv==3485233) x=15;//"1.5"
-                        if (strv==50) x=20;//"2"
-                        if (x==-1) return -1;
-                        f->com_stop_bits=x;
-                        stage++; goto done_stage;
-                    }
-                    //stage>4
-                    if (!strv) return -1;//all options after 4 require a string
-                    if (strv==21330){ if (f->com_rs!=-1) return -1;//RS
-                        f->com_rs=1; 
-                    goto done_stage;}
-                    if (strv==5130562){ if (f->com_bin_asc!=-1) return -1;//BIN
-                        f->com_bin_asc=0;
-                    goto done_stage;}
-                    if (strv==4412225){ if (f->com_bin_asc!=-1) return -1;//ASC
-                        f->com_bin_asc=1;
-                    goto done_stage;}
-                    if (strv==16980){ if (com_tb_used) return -1;//TB
-                        com_tb_used=1;
-                    goto done_stage;}
-                    if (strv==16978){ if (com_rb_used) return -1;//RB
-                        com_rb_used=1;
-                    goto done_stage;}
-                    if (strv==17996){ if (f->com_asc_lf!=-1) return -1;//LF
-                        f->com_asc_lf=1;
-                    goto done_stage;}
-                    if (strv==17475){ if (f->com_cd_x!=-1) return -1;//CD
-                        if (v==-1) v=0;
-                        if (v>65535) return -1;
-                        f->com_cd_x=v;
-                    goto done_stage;}
-                    if (strv==21315){ if (f->com_cs_x!=-1) return -1;//CS
-                        if (v==-1) v=1000;
-                        if (v>65535) return -1;
-                        f->com_cs_x=v;
-                    goto done_stage;}
-                    if (strv==21316){ if (f->com_ds_x!=-1) return -1;//DS
-                        if (v==-1) v=1000;
-                        if (v>65535) return -1;
-                        f->com_ds_x=v;
-                    goto done_stage;}
-                    if (strv==20559){ if (f->com_op_x!=-1) return -1;//OP
-                        if (v==-1) v=10000;
-                        if (v>65535) return -1;
-                        f->com_op_x=v;
-                    goto done_stage;}
-                    return -1;//invalid option
-                    done_stage:
-                    str_or_num=1; strv=0; v=-1;
-                }
-            }//i
-            
-            //complete omitted options with defaults
-            if (f->com_baud_rate==-1) f->com_baud_rate=300;
-            if (f->com_parity==-1) f->com_parity=1;
-            if (f->com_data_bits_per_byte==-1) f->com_data_bits_per_byte=7;
-            if (f->com_stop_bits==-1){
-                x=10;
-                if (f->com_baud_rate<=110){
-                    x=20;
-                    if (f->com_data_bits_per_byte==5) x=15;
-                }
-                f->com_stop_bits=x; 
-            }
-            if (f->com_bin_asc==-1) f->com_bin_asc=0;
-            if (f->com_asc_lf==-1) f->com_asc_lf=0;
-            if (f->com_asc_lf==1){
-                if (f->com_bin_asc==0) f->com_asc_lf=0;
-            }
-            if (f->com_rs==-1) f->com_rs=0;
-            if (f->com_cd_x==-1) f->com_cd_x=0;
-            if (f->com_cs_x==-1) f->com_cs_x=1000;
-            if (f->com_ds_x==-1) f->com_ds_x=1000;
-            if (f->com_op_x==-1){
-                x=f->com_cd_x*10; z=f->com_ds_x*10;
-                if (z>x) x=z;
-                if (x>65535) x=65535;
-                f->com_op_x=x;
-            }
-            
-        }
-        
-        
-        int32 gfs_open(qbs *filename,int32 access,int32 restrictions, int32 how){
-            //filename - an OS compatible filename (doesn't need to be NULL terminated)
-            //access - 1=read, 2=write, 3=read and write
-            //restrictions - 1=others cannot read, 2=others cannot write, 3=others cannot read or write(exclusive access)
-            //how - 1=create(if it doesn't exist), 2=create(if it doesn't exist) & truncate
-            //      3=create(if it doesn't exist)+undefined access[get whatever access is available]
-            static int32 i,x,x2,x3,e;
-            static qbs *filenamez=NULL;
-            static gfs_file_struct *f;
-            
-            if (!filenamez) filenamez=qbs_new(0,0);
-            qbs_set(filenamez,qbs_add(filename,qbs_new_txt_len("\0",1)));
-            
-            i=gfs_new();
-            f=&gfs_file[i];
-            
-            int32 v1;                
-            unsigned char *c1=filename->chr;                
-            v1=*c1;                
-            if (v1==83||v1==115) {  //S                
-                c1++;                
-                v1=*c1;                
-                if (v1==67||v1==99) {  //C                
-                    c1++;                
-                    v1=*c1;                
-                    if (v1==82||v1==114) {  //R                
-                        c1++;                
-                        v1=*c1;                
-                        if (v1==78||v1==110) {  //N                
-                            c1++;                
-                            v1=*c1;                
-                            if (v1==58) {  //:                
-                                f->scrn=1;                
-                                return i;                
-                            };                
-                        };                
-                    };                
-                };                
-            };
-            
-            
-            if (access&1) f->read=1;
-            if (access&2) f->write=1;
-            if (restrictions&1) f->lock_read=1;
-            if (restrictions&2) f->lock_write=1;
-            f->pos=0;
-            
-            //check for OPEN COM syntax
-            if (x=gfs_open_com_syntax(filenamez,f)){
-                if (x==-1){gfs_free(i); return -11;}//-11 bad file name
-                //note: each GFS implementation will handle COM communication differently
-            }
-            
-            
-            #ifdef GFS_C
-                //note: GFS_C ignores restrictions/locking
-                f->file_handle=new fstream();
-                //attempt as if it exists:
-                if (how==2){
-                    //with truncate
-                    if (access==1) f->file_handle->open(fixdir(filenamez),ios::in|ios::binary|ios::trunc);
-                    if (access==2) f->file_handle->open(fixdir(filenamez),ios::out|ios::binary|ios::trunc);
-                    if (access==3) f->file_handle->open(fixdir(filenamez),ios::in|ios::out|ios::binary|ios::trunc);
-                    }else{
-                    //without truncate
-                    if (access==1) f->file_handle->open(fixdir(filenamez),ios::in|ios::binary);
-                    if (access==2) f->file_handle->open(fixdir(filenamez),ios::out|ios::binary|ios::app);
-                    if (access==3) f->file_handle->open(fixdir(filenamez),ios::in|ios::out|ios::binary);
-                }
-                if (how){
-                    if (!f->file_handle->is_open()){//couldn't open file, so attempt creation
-                        f->file_handle_o=new ofstream();
-                        f->file_handle_o->open(fixdir(filenamez),ios::out);
-                        if (f->file_handle_o->is_open()){//created new file
-                            f->file_handle_o->close();
-                            //retry open 
-                            f->file_handle->clear();
-                            if (how==2){
-                                //with truncate
-                                if (access==1) f->file_handle->open(fixdir(filenamez),ios::in|ios::binary|ios::trunc);
-                                if (access==2) f->file_handle->open(fixdir(filenamez),ios::out|ios::binary|ios::trunc);
-                                if (access==3) f->file_handle->open(fixdir(filenamez),ios::in|ios::out|ios::binary|ios::trunc);
-                                }else{
-                                //without truncate
-                                if (access==1) f->file_handle->open(fixdir(filenamez),ios::in|ios::binary);
-                                if (access==2) f->file_handle->open(fixdir(filenamez),ios::out|ios::binary|ios::app);
-                                if (access==3) f->file_handle->open(fixdir(filenamez),ios::in|ios::out|ios::binary);
-                            }
-                        }
-                        delete f->file_handle_o;
-                    }
-                }//how 
-                if (!f->file_handle->is_open()){//couldn't open file
-                    delete f->file_handle;
-                    gfs_free(i);
-                    if (how) return -11;//Bad file name
-                    return -5;//File not found
-                }
-                //file opened successfully
-                f->open=1;
-                return i;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                x=0;
-                if (access&1)x|=GENERIC_READ;
-                if (access&2)x|=GENERIC_WRITE;
-                x2=FILE_SHARE_READ|FILE_SHARE_WRITE;
-                if (restrictions&1)x2^=FILE_SHARE_READ;
-                if (restrictions&2)x2^=FILE_SHARE_WRITE;
-                
-                if (f->com_port){//open a com port
-                    static qbs *portname=NULL; if (!portname) portname=qbs_new(0,0);
-                    qbs_set(portname,qbs_add(qbs_new_txt("CO"),qbs_str(f->com_port)));
-                    qbs_set(portname,qbs_add(portname,qbs_new_txt_len(":\0",2)));
-                    portname->chr[2]=77;//replace " " with "M"
-                    f_w->file_handle=CreateFile((char*)portname->chr,x,0,NULL,OPEN_EXISTING,0,NULL);
-                    if (f_w->file_handle==INVALID_HANDLE_VALUE){gfs_free(i); return -8;}//device unavailable
-                    static DCB cs;
-                    ZeroMemory(&cs,sizeof(DCB));
-                    cs.DCBlength=sizeof(DCB);
-                    if (!GetCommState(f_w->file_handle,&cs)){CloseHandle(f_w->file_handle); gfs_free(i); return -8;}//device unavailable
-                    static COMMTIMEOUTS ct;
-                    ZeroMemory(&ct,sizeof(COMMTIMEOUTS));
-                    /*dump port state and return "file not found" (used for debugging only)
-                        if (!GetCommTimeouts(f_w->file_handle,&ct)){CloseHandle(f_w->file_handle); gfs_free(i); return -8;}//device unavailable
-                        ofstream mydump("f:\\comdump.bin");
-                        mydump.write((char*)&cs,sizeof(cs));
-                        mydump.write((char*)&ct,sizeof(ct));
-                        mydump.close();
-                        CloseHandle(f_w->file_handle); gfs_free(i);
-                        return -4;
-                    */
-                    cs.BaudRate=f->com_baud_rate;
-                    x=f->com_stop_bits;
-                    if (x==10) x2=0;
-                    if (x==15) x2=1;
-                    if (x==20) x2=2;
-                    cs.StopBits=x2;
-                    cs.ByteSize=f->com_data_bits_per_byte; 
-                    x=f->com_parity;
-                    if (x==0) x2=0;
-                    if (x==1) x2=2;
-                    if (x==2) x2=1;
-                    if (x==3) x2=4;
-                    if (x==4) x2=3;
-                    //if (x==5) x2=... ***"PE" will be supported later***
-                    //0-4=None,Odd,Even,Mark,Space  
-                    cs.Parity=x2; if (x2==0) cs.fParity=0; else cs.fParity=1;
-                    if (f->com_rs) cs.fRtsControl=RTS_CONTROL_DISABLE;
-                    if (f->com_bin_asc==0) cs.fBinary=1; else cs.fBinary=0;
-                    cs.EofChar=26;
-                    if(!SetCommState(f_w->file_handle,&cs)){CloseHandle(f_w->file_handle); gfs_free(i); return -8;}//device unavailable
-                    if (f->com_ds_x==0){
-                        //A value of MAXDWORD, combined with zero values for both the ReadTotalTimeoutConstant and ReadTotalTimeoutMultiplier members, specifies that the read operation is to return immediately with the characters that have already been received, even if no characters have been received.
-                        ct.ReadIntervalTimeout=MAXDWORD;
-                        ct.ReadTotalTimeoutMultiplier=0;
-                        ct.ReadTotalTimeoutConstant=0;
-                        }else{
-                        ct.ReadIntervalTimeout=0;
-                        ct.ReadTotalTimeoutMultiplier=0;
-                        ct.ReadTotalTimeoutConstant=f->com_ds_x;
-                    }
-                    ct.WriteTotalTimeoutMultiplier=0;
-                    ct.WriteTotalTimeoutConstant=f->com_cs_x;
-                    if (!SetCommTimeouts(f_w->file_handle,&ct)){CloseHandle(f_w->file_handle); gfs_free(i); return -8;}//device unavailable
-                    f->open=1;
-                    return i;
-                }
-                
-                /*
-                    #define CREATE_NEW          1
-                    #define CREATE_ALWAYS       2
-                    #define OPEN_EXISTING       3
-                    #define OPEN_ALWAYS         4
-                    #define TRUNCATE_EXISTING   5
-                */ 
-                x3=OPEN_EXISTING;
-                if (how) x3=OPEN_ALWAYS;
-                undefined_retry: 
-                f_w->file_handle=CreateFile(fixdir(filenamez),x,x2,NULL,x3,FILE_ATTRIBUTE_NORMAL,NULL);
-                if (f_w->file_handle==INVALID_HANDLE_VALUE){
-                    
-                    if (how==3){
-                        //attempt read access only
-                        x=GENERIC_READ;
-                        f->read=1;
-                        f->write=0;
-                        how++;
-                        goto undefined_retry;
-                    }
-                    
-                    if (how==4){
-                        //attempt write access only
-                        x=GENERIC_WRITE;
-                        f->read=0;
-                        f->write=1;
-                        how++;
-                        goto undefined_retry;
-                    }
-                    
-                    gfs_free(i);
-                    e=GetLastError();
-                    if (e==3) return -6;
-                    if ((e==4)||(e==29)||(e==30)) return -9;
-                    if ((e==5)||(e==19)||(e==33)||(e==32)) return -7;
-                    if ((e==15)||(e==21)) return -8;
-                    if (e==2) return -5;
-                    //showvalue(e);
-                    return -5;//assume (2)
-                }//invalid handle
-                
-                if (how==2){
-                    //truncate file if size is not 0
-                    static DWORD GetFileSize_low,GetFileSize_high;
-                    GetFileSize_low=GetFileSize(f_w->file_handle,&GetFileSize_high);
-                    if (GetFileSize_low||GetFileSize_high){
-                        CloseHandle(f_w->file_handle);
-                        x3=TRUNCATE_EXISTING;
-                        f_w->file_handle=CreateFile(fixdir(filenamez),x,x2,NULL,x3,FILE_ATTRIBUTE_NORMAL,NULL);
-                        
-                        if (f_w->file_handle==INVALID_HANDLE_VALUE){
-                            gfs_free(i);
-                            e=GetLastError();
-                            if (e==3) return -6;
-                            if ((e==4)||(e==29)||(e==30)) return -9;
-                            if ((e==5)||(e==19)||(e==33)||(e==32)) return -7;
-                            if ((e==15)||(e==21)) return -8;
-                            if (e==2) return -5;
-                            //showvalue(e);
-                            return -5;//assume (2)
-                        }//invalid handle
-                        
-                    }
-                }//how==2
-                f->open=1;
-                return i;
-            #endif
-            
-            
-            return -1;//non-specific fail
-            
-        }
-        
-        int32 gfs_setpos(int32 i, int64 position){
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            if (position<0) return -4;//illegal function call
-            
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            
-            #ifdef GFS_C
-                if (f->read){
-                    f->file_handle->clear();
-                    f->file_handle->seekg(position);
-                }
-                if (f->write){
-                    f->file_handle->clear();
-                    f->file_handle->seekp(position);
-                }
-                f->pos=position;
-                if (f->pos<=gfs_lof(i)){
-                    f->eof_passed=0;
-                    f->eof_reached=0;
-                }
-                return 0;
-            #endif
-            
-            
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                if (SetFilePointer(f_w->file_handle,(int32)position,(long*)(((int32*)&position)+1),FILE_BEGIN)==0xFFFFFFFF){/*Note that it is not an error to set the file pointer to a position beyond the end of the file. The size of the file does not increase until you call the SetEndOfFile, WriteFile, or WriteFileEx function.*/
-                    if (GetLastError()!=NO_ERROR){
-                        return -3;//bad file mode
-                    }
-                }
-                f->pos=position;
-                if (f->pos<=gfs_lof(i)){
-                    f->eof_passed=0;
-                    f->eof_reached=0;
-                }
-                return 0;
-            #endif
-            
-            return -1;
-        }
-        
-        int64 gfs_getpos(int32 i){
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            return f->pos;
-        }
-        
-        int32 gfs_write(int32 i,int64 position,uint8 *data,int64 size){
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static int32 e;
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            if (!f->write) return -3;//bad file mode
-            if (size<0) return -4;//illegal function call
-            static int32 x;
-            if (position!=-1){
-                if (x=gfs_setpos(i,position)) return x;//(pass on error)
-            }
-            
-            #ifdef GFS_C
-                f->file_handle->clear();
-                f->file_handle->write((char*)data,size);
-                if (f->file_handle->bad()){
-                    return -7;//assume: permission denied
-                }
-                f->pos+=size;
-                return 0;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                static uint32 size2;
-                static int64 written=0;
-                while(size){
-                    if (size>4294967295){
-                        size2=4294967295;
-                        size-=4294967295;
-                        }else{
-                        size2=size; size=0;
-                    }
-                    if (!WriteFile(f_w->file_handle,data,size2,(unsigned long*)&written,NULL)){
-                        e=GetLastError();
-                        if ((e==5)||(e==33)) return -7;//permission denied
-                        return -9;//assume: path/file access error
-                    }
-                    data+=written; f->pos+=written;
-                    if (written!=size2) return -1;
-                }
-                return 0;
-            #endif
-            
-            return -1;
-        }
-        
-        
-        int64 gfs_read_bytes_value;
-        int64 gfs_read_bytes(){
-            return gfs_read_bytes_value;
-        }
-        
-        int32 gfs_read(int32 i,int64 position,uint8 *data,int64 size){
-            gfs_read_bytes_value=0;
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static int32 e;
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            if (!f->read) return -3;//bad file mode
-            if (size<0) return -4;//illegal function call
-            static int32 x;
-            if (position!=-1){
-                if (x=gfs_setpos(i,position)) return x;//(pass on error)
-            }
-            
-            #ifdef GFS_C
-                f->file_handle->clear();
-                f->file_handle->read((char*)data,size); 
-                if (f->file_handle->bad()){//note: 'eof' also sets the 'fail' flag, so only the the 'bad' flag is checked
-                    return -7;//assume: permission denied
-                }
-                static int64 bytesread;
-                bytesread=f->file_handle->gcount();
-                gfs_read_bytes_value=bytesread;
-                f->pos+=bytesread;
-                if (bytesread<size){
-                    memset(data+bytesread,0,size-bytesread);
-                    f->eof_passed=1;
-                    return -10;
-                }
-                f->eof_passed=0;
-                return 0;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                static uint32 size2;
-                static int64 bytesread=0;
-                while(size){
-                    if (size>4294967295){
-                        size2=4294967295;
-                        size-=4294967295;
-                        }else{
-                        size2=size; size=0;
-                    }
-                    
-                    if (ReadFile(f_w->file_handle,data,size2,(unsigned long*)&bytesread,NULL)){
-                        data+=bytesread; f->pos+=bytesread; gfs_read_bytes_value+=bytesread;
-                        if (bytesread!=size2){   
-                            ZeroMemory(data,size+(size2-bytesread));//nullify remaining buffer
-                            f->eof_passed=1; return -10;
-                        }//eof passed
-                        }else{
-                        //error
-                        e=GetLastError();
-                        if ((e==5)||(e==33)) return -7;//permission denied
-                        //showvalue(e);
-                        return -9;//assume: path/file access error
-                    }
-                }
-                f->eof_passed=0;
-                return 0;
-            #endif
-            
-            return -1;
-        }
-        
-        int32 gfs_eof_reached(int32 i){
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            if (gfs_getpos(i)>=gfs_lof(i)) return 1;
-            return 0;
-        }
-        
-        int32 gfs_eof_passed(int32 i){
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            if (f->eof_passed) return 1;
-            return 0;
-        }
-        
-        int32 gfs_lock(int32 i,int64 offset_start,int64 offset_end){
-            //if offset_start==-1, 'from beginning' (typically offset 0) is assumed
-            //if offset_end==-1, 'to end/infinity' is assumed
-            //range is inclusive of start and end
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            
-            if (offset_start==-1) offset_start=0;
-            if (offset_start<0) return -4;//illegal function call
-            if (offset_end<-1) return -4;//illegal function call
-            //note: -1 equates to highest uint64 value (infinity)
-            //      All other negative end values are illegal
-            
-            #ifdef GFS_C
-                return 0;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                uint64 bytes;
-                bytes=offset_end;
-                if (bytes!=-1) bytes=bytes-offset_start+1;
-                if (!LockFile(f_w->file_handle,*((DWORD*)(&offset_start)),*(((DWORD*)(&offset_start))+1),*((DWORD*)(&bytes)),*(((DWORD*)(&bytes))+1))){
-                    //failed
-                    static int32 e;
-                    e=GetLastError();
-                    if ((e==5)||(e==33)) return -7;//permission denied
-                    //showvalue(e);
-                    return -9;//assume: path/file access error
-                }
-                return 0;
-            #endif
-            
-            return -1;
-        }
-        
-        int32 gfs_unlock(int32 i,int64 offset_start,int64 offset_end){
-            //if offset_start==-1, 'from beginning' (typically offset 0) is assumed
-            //if offset_end==-1, 'to end/infinity' is assumed
-            //range is inclusive of start and end
-            if (!gfs_validhandle(i)) return -2;//invalid handle
-            static gfs_file_struct *f;
-            f=&gfs_file[i];
-            
-            if (offset_start==-1) offset_start=0;
-            if (offset_start<0) return -4;//illegal function call
-            if (offset_end<-1) return -4;//illegal function call
-            //note: -1 equates to highest uint64 value (infinity)
-            //      All other negative end values are illegal
-            
-            #ifdef GFS_C
-                return 0;
-            #endif
-            
-            #ifdef GFS_WINDOWS
-                static gfs_file_win_struct *f_w;
-                f_w=&gfs_file_win[i];
-                uint64 bytes;
-                bytes=offset_end;
-                if (bytes!=-1) bytes=bytes-offset_start+1;
-                if (!UnlockFile(f_w->file_handle,*((DWORD*)(&offset_start)),*(((DWORD*)(&offset_start))+1),*((DWORD*)(&bytes)),*(((DWORD*)(&bytes))+1))){
-                    //failed
-                    static int32 e;
-                    e=GetLastError(); 
-                    if ((e==5)||(e==33)||(e==158)) return -7;//permission denied
-                    //showvalue(e);
-                    return -9;//assume: path/file access error
-                }
-                return 0;
-            #endif
-            
-            return -1;
-        }
-        
+        //GFS file layer: implemented in Rust (internal/c/qbrt/src/gfs.rs)
+        int32 gfs_fileno_valid(int32 f){ return qbrt_gfs_fileno_valid(f); }
+        int32 gfs_fileno_freefile(){ return qbrt_gfs_fileno_freefile(); }
+        void gfs_fileno_use(int32 f, int32 i){ qbrt_gfs_fileno_use(f,i); }
+        int32 gfs_open(qbs *filename,int32 access,int32 restrictions, int32 how){ return qbrt_gfs_open(filename->chr,filename->len,access,restrictions,how); }
+        int32 gfs_close(int32 i){ return qbrt_gfs_close(i); }
+        int64 gfs_lof(int32 i){ return qbrt_gfs_lof(i); }
+        int32 gfs_setpos(int32 i, int64 position){ return qbrt_gfs_setpos(i,position); }
+        int64 gfs_getpos(int32 i){ return qbrt_gfs_getpos(i); }
+        int32 gfs_write(int32 i,int64 position,uint8 *data,int64 size){ return qbrt_gfs_write(i,position,data,size); }
+        int32 gfs_read(int32 i,int64 position,uint8 *data,int64 size){ return qbrt_gfs_read(i,position,data,size); }
+        int64 gfs_read_bytes(){ return qbrt_gfs_read_bytes(); }
+        int32 gfs_eof_reached(int32 i){ return qbrt_gfs_eof_reached(i); }
+        int32 gfs_eof_passed(int32 i){ return qbrt_gfs_eof_passed(i); }
+
         void sub_lock(int32 i,int64 start,int64 end,int32 passed){
             if (new_error) return;
-            if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            static gfs_file_struct *gfs;
-            gfs=&gfs_file[i];
-            
-            //If the file has been opened for sequential input or output, LOCK and UNLOCK affect the entire file, regardless of the range specified by start& and end&.
-            if (gfs->type>2) passed=0;
-            
-            if (passed&1){
-                start--;
-                if (start<0){error(5); return;}
-                if (gfs->type==1) start*=gfs->record_length;
-                }else{
-                start=-1;
-            }
-            
-            if (passed&2){
-                end--;
-                if (end<0){error(5); return;}
-                if (gfs->type==1) end=end*gfs->record_length+gfs->record_length-1;
-                }else{
-                end=start;
-                if (gfs->type==1) end=start+gfs->record_length-1;
-                if (!(passed&1)) end=-1;
-            }
-            
-            
-            int32 e;
-            e=gfs_lock(i,start,end);
-            if (e){
-                if (e==-2){error(258); return;}//invalid handle
-                if (e==-4){error(5); return;}//illegal function call
-                if (e==-7){error(70); return;}//permission denied
-                error(75); return;//assume[-9]: path/file access error
-            }
-            
+            int32 e=qbrt_file_lock(i,start,end,passed,1); if (e) error(e);
         }
-        
+
         void sub_unlock(int32 i,int64 start,int64 end,int32 passed){
             if (new_error) return;
-            if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            static gfs_file_struct *gfs;
-            gfs=&gfs_file[i];
-            
-            //If the file has been opened for sequential input or output, LOCK and UNLOCK affect the entire file, regardless of the range specified by start& and end&.
-            if (gfs->type>2) passed=0;
-            
-            if (passed&1){
-                start--;
-                if (start<0){error(5); return;}
-                if (gfs->type==1) start*=gfs->record_length;
-                }else{
-                start=-1;
-            }
-            
-            if (passed&2){
-                end--;
-                if (end<0){error(5); return;}
-                if (gfs->type==1) end=end*gfs->record_length+gfs->record_length-1;
-                }else{
-                end=start;
-                if (gfs->type==1) end=start+gfs->record_length-1;
-                if (!(passed&1)) end=-1;
-            }
-            
-            int32 e;
-            e=gfs_unlock(i,start,end);
-            if (e){
-                if (e==-2){error(258); return;}//invalid handle
-                if (e==-4){error(5); return;}//illegal function call
-                if (e==-7){error(70); return;}//permission denied
-                error(75); return;//assume[-9]: path/file access error
-            }
-            
+            int32 e=qbrt_file_lock(i,start,end,passed,0); if (e) error(e);
         }
         
         #ifdef DEPENDENCY_SCREENIMAGE
@@ -24496,111 +20957,33 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         #include "libqb/printer.cpp"
         
         void sub_files(qbs *str,int32 passed){
+            //FILES: the listing is built in Rust (internal/c/qbrt/src/fsops.rs), printed here
             if (new_error) return;
-            
-            static int32 i,i2,i3;
-            static qbs *strz=NULL; if (!strz) strz=qbs_new(0,0);
-            
-            if (passed){
-                qbs_set(strz,qbs_add(str,qbs_new_txt_len("\0",1)));
-                }else{
-                qbs_set(strz,qbs_new_txt_len("\0",1));
+            const uint8 *out; int32 len=0;
+            int32 e=qbrt_files(passed?str->chr:NULL,passed?str->len:0,passed,&out,&len);
+            if (e==5){error(5); return;}
+            std::vector<std::pair<int32,int32>> lines;//(start,length) of each '\n'-separated line
+            if (len){
+                int32 start=0;
+                for (int32 i=0;i<=len;i++){
+                    if (i==len||out[i]==10){lines.push_back(std::make_pair(start,i-start)); start=i+1;}
+                }
             }
-            
-            
-            
-            #ifdef QBNex_WINDOWS
-                static WIN32_FIND_DATA fd;
-                static HANDLE hFind;
-                static qbs *strpath=NULL; if (!strpath) strpath=qbs_new(0,0);
-                static qbs *strz2=NULL; if (!strz2) strz2=qbs_new(0,0);
-                
-                i=0;
-                if (strz->len>=2){
-                    if (strz->chr[strz->len-2]==92) i=1;
-                }else i=1;
-                if (i){//add * (and new NULL term.)
-                    strz->chr[strz->len-1]=42;//"*"
-                    qbs_set(strz,qbs_add(strz,qbs_new_txt_len("\0",1))); 
-                }
-                
-                qbs_set(strpath,strz);
-                
-                for(i=strpath->len;i>0;i--){
-                    if ((strpath->chr[i-1]==47)||(strpath->chr[i-1]==92)){strpath->len=i; break;}
-                }//i
-                if (i==0) strpath->len=0;//no path specified
-                
-                //print the current path
-                //note: for QBASIC compatibility reasons it does not print the directory name of the files being displayed
-                static uint8 curdir[4096];
-                static uint8 curdir2[4096];
-                i2=GetCurrentDirectory(4096,(char*)curdir);
-                if (i2){
-                    i2=GetShortPathName((char*)curdir,(char*)curdir2,4096);
-                    if (i2){
-                        qbs_set(strz2,qbs_ucase(qbs_new_txt_len((char*)curdir2,i2)));
-                        qbs_print(strz2,1);
-                        }else{
-                        error(5); return;
-                    }
-                    }else{
-                    error(5); return;
-                }
-                
-                hFind = FindFirstFile(fixdir(strz), &fd);
-                if(hFind==INVALID_HANDLE_VALUE){error(53); return;}//file not found
-                do{
-                    
-                    if (!fd.cAlternateFileName[0]){//no alternate filename exists
-                        qbs_set(strz2,qbs_ucase(qbs_new_txt_len(fd.cFileName,strlen(fd.cFileName))));
-                        }else{
-                        qbs_set(strz2,qbs_ucase(qbs_new_txt_len(fd.cAlternateFileName,strlen(fd.cAlternateFileName))));
-                    }
-                    
-                    if (strz2->len<12){//padding required
-                        qbs_set(strz2,qbs_add(strz2,func_space(12-strz2->len)));
-                        i2=0;
-                        for (i=0;i<12;i++){
-                            if (strz2->chr[i]==46){
-                                memmove(&strz2->chr[8],&strz2->chr[i],4);
-                                memset(&strz2->chr[i],32,8-i);
-                                break;
-                            }
-                        }//i
-                    }//padding
-                    
-                    //add "      " or "<DIR> "
-                    if (fd.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY){
-                        qbs_set(strz2,qbs_add(strz2,qbs_new_txt_len("<DIR> ",6)));
-                        }else{
-                        qbs_set(strz2,qbs_add(strz2,func_space(6)));
-                    }
-                    
-                    makefit(strz2);
-                    qbs_print(strz2,0);
-                    
-                }while(FindNextFile(hFind,&fd));
-                FindClose(hFind);
-                
-                static ULARGE_INTEGER FreeBytesAvailableToCaller;
-                static ULARGE_INTEGER TotalNumberOfBytes;
-                static ULARGE_INTEGER TotalNumberOfFreeBytes;
-                static int64 bytes;
-                static char *cp;
-                qbs_set(strpath,qbs_add(strpath,qbs_new_txt_len("\0",1)));
-                cp=(char*)strpath->chr;
-                if (strpath->len==1) cp=NULL;
-                if (GetDiskFreeSpaceEx(cp,&FreeBytesAvailableToCaller,&TotalNumberOfBytes,&TotalNumberOfFreeBytes)){
-                    bytes=*(int64*)(void*)&FreeBytesAvailableToCaller;
-                    }else{
-                    bytes=0;
-                }
-                if (func_pos(NULL)>1){strz2->len=0; qbs_print(strz2,1);}//new line if necessary
-                qbs_set(strz2,qbs_add(qbs_str(bytes),qbs_new_txt_len(" Bytes free",11)));
-                qbs_print(strz2,1);
-                
-            #endif
+            if (lines.empty()) return;//nothing to list on this OS
+            static qbs *strz2=NULL; if (!strz2) strz2=qbs_new(0,0);
+            //the current directory
+            qbs_set(strz2,qbs_new_txt_len((const char*)out+lines[0].first,lines[0].second));
+            qbs_print(strz2,1);
+            if (e){error(e); return;}//file not found
+            //the entries
+            for (size_t k=1;k+1<lines.size();k++){
+                qbs_set(strz2,qbs_new_txt_len((const char*)out+lines[k].first,lines[k].second));
+                makefit(strz2);
+                qbs_print(strz2,0);
+            }
+            if (func_pos(NULL)>1){strz2->len=0; qbs_print(strz2,1);}//new line if necessary
+            qbs_set(strz2,qbs_new_txt_len((const char*)out+lines.back().first,lines.back().second));
+            qbs_print(strz2,1);
         }
         
         
@@ -24635,35 +21018,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         
-        static int32 field_failed=1;
-        static int32 field_fileno;
-        static int32 field_totalsize;
-        static int32 field_maxsize;
-        
+        //FIELD: the record buffer and the list of linked strings live in Rust
+        //(internal/c/qbrt/src/fileio.rs); only the qbs updates stay here.
         void field_new(int32 fileno){
-            field_failed=1;
-            if (new_error) return;
-            //validate file
-            static int32 i;
-            static gfs_file_struct *gfs;
-            i=fileno;
-            if (i<0){error(54); return;}//bad file mode (TCP/IP exclusion)
-            if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            gfs=&gfs_file[i];
-            if (gfs->type!=1){error(54); return;}//Bad file mode (note: must have RANDOM access)
-            //set global variables for field_add
-            field_fileno=fileno;
-            field_totalsize=0;
-            field_maxsize=gfs->record_length;
-            field_failed=0;
-            return;
+            int32 e=qbrt_field_new(fileno,new_error?1:0); if (e) error(e);
         }
-        
-        
+
         void field_update(int32 fileno){
-            
-            //validate file
+            //copies the FIELD buffer into every string linked to the file
             static int32 i;
             static gfs_file_struct *gfs;
             i=fileno;
@@ -24672,199 +21034,58 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             i=gfs_fileno[i];//convert fileno to gfs index
             gfs=&gfs_file[i];
             if (gfs->type!=1){exit(7703);}//Bad file mode (note: must have RANDOM access)
-            
             static qbs *str;
             for (i=0;i<gfs->field_strings_n;i++){
-                str=gfs->field_strings[i];
+                str=(qbs*)gfs->field_strings[i];
                 if (!str) exit(7704);
-                
-                //fix length if necessary
                 if (str->len!=str->field->size){
                     if (str->len>str->field->size) str->len=str->field->size; else qbs_set(str,qbs_new(str->field->size,1));
                 }
-                
-                //copy data from field into string
                 memmove(str->chr,gfs->field_buffer+str->field->offset,str->field->size);
-                
-            }//i
-            
-        }
-        
-        void lrset_field(qbs *str){
-            //validate file
-            static int32 i;
-            static gfs_file_struct *gfs;
-            i=str->field->fileno;
-            if (gfs_fileno_valid(i)!=1) goto remove;
-            i=gfs_fileno[i];//convert fileno to gfs index
-            
-            gfs=&gfs_file[i];
-            if (gfs->type!=1) goto remove;
-            //check file ID
-            if (gfs->id!=str->field->fileid) goto remove;
-            
-            //store in field buffer, padding with spaces or truncating data if necessary
-            if (str->field->size<=str->len){
-                
-                memmove(gfs->field_buffer+str->field->offset,str->chr,str->field->size);
-                }else{
-                memmove(gfs->field_buffer+str->field->offset,str->chr,str->len);
-                memset(gfs->field_buffer+str->field->offset+str->len,32,str->field->size-str->len);
             }
-            
-            //update field strings for this file
-            field_update(str->field->fileno);
-            
-            return;
-            remove:;
+        }
+
+        void lrset_field(qbs *str){
+            if (qbrt_field_store(str->field->fileno,str->field->fileid,str->field->size,str->field->offset,str->chr,str->len)){
+                field_update(str->field->fileno);
+                return;
+            }
             delete str->field;
             str->field=NULL;
         }
-        
+
         void field_free(qbs* str){
-            
-            //validate file
-            static int32 i;
-            static gfs_file_struct *gfs;
-            i=str->field->fileno;
-            if (gfs_fileno_valid(i)!=1) goto remove;
-            i=gfs_fileno[i];//convert fileno to gfs index
-            gfs=&gfs_file[i];
-            if (gfs->type!=1) goto remove;
-            //check file ID
-            if (gfs->id!=str->field->fileid) goto remove;
-            
-            //remove from string list
-            static qbs *str2;
-            for (i=0;i<gfs->field_strings_n;i++){
-                str2=gfs->field_strings[i];
-                if (str==str2){//match found
-                    std::vector<qbs*> &fields=gfs_field_string_storage[gfs_fileno[str->field->fileno]];
-                    fields.erase(fields.begin()+i);
-                    sync_gfs_field_strings(gfs_fileno[str->field->fileno]);
-                    goto remove;
-                }
-            }//i
-            
-            remove:
+            qbrt_field_forget(str->field->fileno,str->field->fileid,str);
             delete str->field;
             str->field=NULL;
         }
-        
+
         void field_add(qbs *str,int64 size){
-            if (field_failed) return;
-            if (new_error) goto fail;
-            if (size<0){error(5); goto fail;}
-            if ((field_totalsize+size)>field_maxsize){error(50); goto fail;}
-            
-            //revalidate file
-            static int32 i;
-            static gfs_file_struct *gfs;
-            i=field_fileno;
-            //TCP/IP exclusion (reason: multi-reading from same TCP/IP position would require a more complex implementation)
-            if (i<0){error(54); goto fail;}//bad file mode
-            if (gfs_fileno_valid(i)!=1){error(52); goto fail;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            gfs=&gfs_file[i];
-            if (gfs->type!=1){error(54); goto fail;}//Bad file mode (note: must have RANDOM access)
-            
-            //1) Remove str from any previous FIELD allocations
+            qbrt_field_slot s;
+            int32 e=qbrt_field_add(size,new_error?1:0,&s);
+            if (e==-1) return;//an earlier part of this FIELD statement failed
+            if (e){error(e); return;}
             if (str->field) field_free(str);
-            
-            //2) Setup qbs field info
             str->field=new(std::nothrow) qbs_field{};
-            if (!str->field){error(518); goto fail;}
-            str->field->fileno=field_fileno;
-            str->field->fileid=gfs->id;
-            str->field->size=size;
-            str->field->offset=field_totalsize;
-            
-            //3) Add str to qbs list of gfs
-            gfs_field_string_storage[i].push_back(str);
-            sync_gfs_field_strings(i);
-            
-            //4) Update field strings for this file
-            field_update(field_fileno);
-            
-            field_totalsize+=size;
-            return;
-            fail:
-            field_failed=1;
-            return;
+            if (!str->field){error(518); return;}
+            str->field->fileno=s.fileno;
+            str->field->fileid=s.fileid;
+            str->field->size=s.size;
+            str->field->offset=s.offset;
+            qbrt_field_link(s.fileno,str,size);
+            field_update(s.fileno);
         }
-        
+
         void field_get(int32 fileno,int64 offset,int32 passed){
             if (new_error) return;
-            
-            //validate file
-            static int32 i;
-            static gfs_file_struct *gfs;
-            i=fileno;
-            if (i<0){error(54); return;}//bad file mode (TCP/IP exclusion)
-            if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            gfs=&gfs_file[i];
-            if (gfs->type!=1){error(54); return;}//Bad file mode (note: must have RANDOM access)
-            
-            if (!gfs->read){error(75); return;}//Path/file access error
-            
-            if (passed){
-                offset--;
-                if (offset<0){error(63); return;}//Bad record number
-                offset*=gfs->record_length;
-                }else{
-                offset=-1;
-            }
-            
-            static int32 e;
-            e=gfs_read(i,offset,gfs->field_buffer,gfs->record_length);
-            if (e){
-                if (e!=-10){//note: on eof, unread buffer area becomes NULL
-                    if (e==-2){error(258); return;}//invalid handle
-                    if (e==-3){error(54); return;}//bad file mode
-                    if (e==-4){error(5); return;}//illegal function call
-                    if (e==-7){error(70); return;}//permission denied
-                    error(75); return;//assume[-9]: path/file access error
-                }
-            }
-            
+            int32 e=qbrt_field_get(fileno,offset,passed);
+            if (e){error(e); return;}
             field_update(fileno);
-            
         }
-        
+
         void field_put(int32 fileno,int64 offset,int32 passed){
             if (new_error) return;
-            
-            //validate file
-            static int32 i;
-            static gfs_file_struct *gfs;
-            i=fileno;
-            if (i<0){error(54); return;}//bad file mode (TCP/IP exclusion)
-            if (gfs_fileno_valid(i)!=1){error(52); return;}//Bad file name or number
-            i=gfs_fileno[i];//convert fileno to gfs index
-            gfs=&gfs_file[i];
-            if (gfs->type!=1){error(54); return;}//Bad file mode (note: must have RANDOM access)
-            
-            if (!gfs->write){error(75); return;}//Path/file access error
-            
-            if (passed){
-                offset--;
-                if (offset<0){error(63); return;}//Bad record number
-                offset*=gfs->record_length;
-                }else{
-                offset=-1;
-            }
-            
-            static int32 e;
-            e=gfs_write(i,offset,gfs->field_buffer,gfs->record_length);
-            if (e){
-                if (e==-2){error(258); return;}//invalid handle
-                if (e==-3){error(54); return;}//bad file mode
-                if (e==-4){error(5); return;}//illegal function call
-                if (e==-7){error(70); return;}//permission denied
-                error(75); return;//assume[-9]: path/file access error
-            }
-            
+            int32 e=qbrt_field_put(fileno,offset,passed); if (e) error(e);
         }
         
         
@@ -25873,50 +22094,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return 0;
         }
         
-        int32 func__fileexists(qbs* file){
+        int32 func__fileexists(qbs* file){//Rust: internal/c/qbrt/src/fsops.rs
             if (new_error) return 0;
-            static qbs *strz=NULL;
-            if (!strz) strz=qbs_new(0,0);
-            qbs_set(strz,qbs_add(file,qbs_new_txt_len("\0",1)));
-            #ifdef QBNex_WINDOWS
-                static int32 x;
-                x=GetFileAttributes(fixdir(strz));
-                if (x==INVALID_FILE_ATTRIBUTES) return 0;
-                if (x&FILE_ATTRIBUTE_DIRECTORY) return 0;
-                return -1;
-                #elif defined(QBNex_UNIX)
-                struct stat sb;
-                if (stat(fixdir(strz),&sb) == 0 && S_ISREG(sb.st_mode)) return -1;
-                return 0;
-                #else
-                //generic method (not currently used)
-                static ifstream fh;
-                fh.open(fixdir(strz),ios::binary|ios::in);
-                if (fh.is_open()==NULL){fh.clear(ios::goodbit); return 0;}
-                fh.clear(ios::goodbit);
-                fh.close();
-                return -1;
-            #endif
+            return qbrt_exists(file->chr,file->len,0);
         }
-        
-        int32 func__direxists(qbs* file){
+
+        int32 func__direxists(qbs* file){//Rust: internal/c/qbrt/src/fsops.rs
             if (new_error) return 0;
-            static qbs *strz=NULL;
-            if (!strz) strz=qbs_new(0,0);
-            qbs_set(strz,qbs_add(file,qbs_new_txt_len("\0",1)));
-            #ifdef QBNex_WINDOWS
-                static int32 x;
-                x=GetFileAttributes(fixdir(strz));
-                if (x==INVALID_FILE_ATTRIBUTES) return 0;
-                if (x&FILE_ATTRIBUTE_DIRECTORY) return -1;
-                return 0;
-                #elif defined(QBNex_UNIX)
-                struct stat sb;
-                if (stat(fixdir(strz),&sb) == 0 && S_ISDIR(sb.st_mode)) return -1;
-                return 0;
-                #else
-                return 0;//default response
-            #endif
+            return qbrt_exists(file->chr,file->len,1);
         }
         
         int32 func__console(){
@@ -25985,78 +22170,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         
-        void sub__memfree(void *mem){
-            //1:malloc: memory will be freed if it still exists
-            //2:images: will not be freed, no action will be taken
-            //exists?
-            if (((mem_block*)(mem))->lock_offset==NULL){error(309); return;}
-            if (((mem_lock*)(((mem_block*)(mem))->lock_offset))->id!=((mem_block*)(mem))->lock_id){error(307); return;}//memory has been freed
-            if ( ((mem_lock*)(((mem_block*)(mem))->lock_offset))->type ==0){//no security
-                free_mem_lock( (mem_lock*)((mem_block*)(mem))->lock_offset );
-            }
-            if ( ((mem_lock*)(((mem_block*)(mem))->lock_offset))->type ==1){//malloc
-                memnew_storage.erase((mem_lock*)((mem_block*)(mem))->lock_offset);
-                free_mem_lock( (mem_lock*)((mem_block*)(mem))->lock_offset );
-            }
-            //note: type 2(image) is freed when the image is freed
-            //invalidate caller's mem structure (avoids misconception that _MEMFREE failed)
-            ((mem_block*)(mem))->lock_id=MEM_LOCK_INVALID_ID;
-        }
-        
-        
+        //_MEMFREE, _MEM(offset,size), _MEMNEW: implemented in Rust (internal/c/qbrt/src/mem.rs)
+        void sub__memfree(void *mem){ int32 e=qbrt_memfree((qbrt_mem_block*)mem); if (e) error(e); }
         extern mem_block func__mem_at_offset(ptrszint offset,ptrszint size){
-            static mem_block b;
-            new_mem_lock();
-            mem_lock_tmp->type=0;//unsecured
-            b.lock_offset=(ptrszint)mem_lock_tmp; b.lock_id=mem_lock_id;
-            b.offset=offset;
-            b.size=size;
-            b.type=16384;//_MEMNEW type
-            b.elementsize=1;
-            b.image=-1;
-            if ((size<0)||new_error){
-                b.type=0;
-                b.size=0;
-                b.offset=0;
-                if (size<0) error(301);
-            }
-            return b;
+            mem_block b; int32 e=qbrt_mem_at_offset(offset,size,new_error?1:0,(qbrt_mem_block*)&b); if (e) error(e); return b;
         }
-        
         mem_block func__memnew(ptrszint bytes){
-            static mem_block b;
-            new_mem_lock();
-            b.lock_offset=(ptrszint)mem_lock_tmp;
-            b.lock_id=mem_lock_id;
-            b.type=16384;//_MEMNEW type
-            b.elementsize=1;
-            b.image=-1;
-            if (new_error){
-                b.type=0;
-                b.offset=0;
-                b.size=0;
-                mem_lock_tmp->type=0;
-                return b;
-            }
-            
-            if (bytes<0){
-                //still create a block, but an invalid one and generate an error
-                error(5);
-                b.offset=0;
-                b.size=0;
-                mem_lock_tmp->type=0;
-                }else{
-                if (!bytes){
-                    b.offset=1;//non-zero=success
-                    b.size=0;
-                    }else{
-                    std::vector<uint8> &buffer=memnew_storage[mem_lock_tmp];
-                    buffer.assign(static_cast<size_t>(bytes),0);
-                    b.offset=(ptrszint)(buffer.empty()?NULL:buffer.data());
-                    if (!b.offset){b.size=0; mem_lock_tmp->type=0; memnew_storage.erase(mem_lock_tmp);} else {b.size=bytes; mem_lock_tmp->type=1; mem_lock_tmp->offset=(void*)b.offset;}
-                }
-            }
-            return b;
+            mem_block b; int32 e=qbrt_memnew(bytes,new_error?1:0,(qbrt_mem_block*)&b); if (e) error(e); return b;
         }
         
         
@@ -26110,180 +22230,37 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return b;
         }
         
-        int32 func__memexists(void* void_blk){
-            static mem_block *blk;
-            blk=(mem_block*)void_blk;
-            if ( ((mem_block*)(blk))->lock_offset==NULL ) return 0;
-            if ( ((mem_lock*)(((mem_block*)(blk))->lock_offset))->id == ((mem_block*)(blk))->lock_id ) return -1;
-            return 0;
-        }
-        
+        //_MEM functions: implemented in Rust (internal/c/qbrt/src/mem.rs)
+        int32 func__memexists(void* void_blk){ return qbrt_memexists((qbrt_mem_block*)void_blk); }
         void *func__memget(mem_block* blk,ptrszint off,ptrszint bytes){
-            //checking A
-            if ( ((mem_block*)(blk))->lock_offset==NULL ){error(309); goto fail;}
-            //checking B
-            if ( 
-            off< ((mem_block*)(blk))->offset || (off+bytes)> (((mem_block*)(blk))->offset+((mem_block*)(blk))->size) ||
-            ((mem_lock*)(((mem_block*)(blk))->lock_offset))->id!=((mem_block*)(blk))->lock_id
-            ){
-                //error reporting
-                if ( ((mem_lock*)(((mem_block*)(blk))->lock_offset))->id!=((mem_block*)(blk))->lock_id ){error(308); goto fail;}
-                error(300); goto fail;
-            }
-            return (void*)off;
-            //------------------------------------------------------------
-            fail:
-            static std::vector<uint8> fail_buffer_storage;
-            fail_buffer_storage.assign(static_cast<size_t>(bytes),0);
-            void *fail_buffer=fail_buffer_storage.empty()?NULL:fail_buffer_storage.data();
-            if (!fail_buffer) error(518);//critical error: out of memory
-            return fail_buffer;
+            int32 e=0; void *p=qbrt_memget((qbrt_mem_block*)blk,off,bytes,&e); if (e) error(e); return p;
         }
-        
-        
-        void sub__memfill_nochecks(ptrszint doff,ptrszint dbytes,ptrszint soff,ptrszint sbytes){
-            if (sbytes==1){
-                memset((void*)doff,*(uint8*)soff,dbytes);
-                return;
-            }
-            static ptrszint si;
-            si=0;
-            while(dbytes--){
-                *(int8*)(doff++)=*(int8*)(soff+si++);
-                if (si>=sbytes) si=0;
-            }
-        }
-        
+        void sub__memfill_nochecks(ptrszint doff,ptrszint dbytes,ptrszint soff,ptrszint sbytes){ qbrt_memfill_nochecks(doff,dbytes,(const uint8*)soff,sbytes); }
         void sub__memfill(mem_block* dblk,ptrszint doff,ptrszint dbytes,ptrszint soff,ptrszint sbytes){
-            if ( ((mem_block*)(dblk))->lock_offset==NULL ){error(309); return;}
-            if ( ((mem_lock*)(((mem_block*)(dblk))->lock_offset))->id!=((mem_block*)(dblk))->lock_id ){error(308); return;}
-            if ( (dbytes<0) || (sbytes==0) ){error(301); return;}
-            if ( doff< ((mem_block*)(dblk))->offset || (doff+dbytes)> (((mem_block*)(dblk))->offset+((mem_block*)(dblk))->size) ){error(300); return;}
-            sub__memfill_nochecks(doff,dbytes,soff,sbytes);
+            int32 e=qbrt_memfill((qbrt_mem_block*)dblk,doff,dbytes,(const uint8*)soff,sbytes); if (e) error(e);
         }
-        
-        void sub__memfill_1(mem_block* dblk,ptrszint doff,ptrszint dbytes,int8 val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,1);
-        }
-        void sub__memfill_nochecks_1(ptrszint doff,ptrszint dbytes,int8 val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,1);
-        }
-        void sub__memfill_2(mem_block* dblk,ptrszint doff,ptrszint dbytes,int16 val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,2);
-        }
-        void sub__memfill_nochecks_2(ptrszint doff,ptrszint dbytes,int16 val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,2);
-        }
-        void sub__memfill_4(mem_block* dblk,ptrszint doff,ptrszint dbytes,int32 val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,4);
-        }
-        void sub__memfill_nochecks_4(ptrszint doff,ptrszint dbytes,int32 val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,4);
-        }
-        void sub__memfill_8(mem_block* dblk,ptrszint doff,ptrszint dbytes,int64 val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,8);
-        }
-        void sub__memfill_nochecks_8(ptrszint doff,ptrszint dbytes,int64 val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,8);
-        }
-        void sub__memfill_SINGLE(mem_block* dblk,ptrszint doff,ptrszint dbytes,float val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,4);
-        }
-        void sub__memfill_nochecks_SINGLE(ptrszint doff,ptrszint dbytes,float val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,4);
-        }
-        void sub__memfill_DOUBLE(mem_block* dblk,ptrszint doff,ptrszint dbytes,double val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,8);
-        }
-        void sub__memfill_nochecks_DOUBLE(ptrszint doff,ptrszint dbytes,double val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,8);
-        }
-        
-        static uint8 memfill_FLOAT_padding[]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};//32 null bytes
-        void sub__memfill_FLOAT(mem_block* dblk,ptrszint doff,ptrszint dbytes,long double val){
-            *(long double*)memfill_FLOAT_padding=val;
-            sub__memfill(dblk,doff,dbytes,(ptrszint)memfill_FLOAT_padding,32);
-        }
-        void sub__memfill_nochecks_FLOAT(ptrszint doff,ptrszint dbytes,long double val){
-            *(long double*)memfill_FLOAT_padding=val;
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)memfill_FLOAT_padding,32);
-        }
-        
-        void sub__memfill_OFFSET(mem_block* dblk,ptrszint doff,ptrszint dbytes,ptrszint val){
-            sub__memfill(dblk,doff,dbytes,(ptrszint)&val,sizeof(ptrszint));
-        }
-        void sub__memfill_nochecks_OFFSET(ptrszint doff,ptrszint dbytes,ptrszint val){
-            sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,sizeof(ptrszint));
-        }
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        void sub__memfill_1(mem_block* dblk,ptrszint doff,ptrszint dbytes,int8 val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,1); }
+        void sub__memfill_nochecks_1(ptrszint doff,ptrszint dbytes,int8 val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,1); }
+        void sub__memfill_2(mem_block* dblk,ptrszint doff,ptrszint dbytes,int16 val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,2); }
+        void sub__memfill_nochecks_2(ptrszint doff,ptrszint dbytes,int16 val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,2); }
+        void sub__memfill_4(mem_block* dblk,ptrszint doff,ptrszint dbytes,int32 val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,4); }
+        void sub__memfill_nochecks_4(ptrszint doff,ptrszint dbytes,int32 val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,4); }
+        void sub__memfill_8(mem_block* dblk,ptrszint doff,ptrszint dbytes,int64 val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,8); }
+        void sub__memfill_nochecks_8(ptrszint doff,ptrszint dbytes,int64 val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,8); }
+        void sub__memfill_SINGLE(mem_block* dblk,ptrszint doff,ptrszint dbytes,float val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,4); }
+        void sub__memfill_nochecks_SINGLE(ptrszint doff,ptrszint dbytes,float val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,4); }
+        void sub__memfill_DOUBLE(mem_block* dblk,ptrszint doff,ptrszint dbytes,double val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,8); }
+        void sub__memfill_nochecks_DOUBLE(ptrszint doff,ptrszint dbytes,double val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,8); }
+        static uint8 memfill_FLOAT_padding[32];//_FLOAT pattern: the value followed by null bytes (32 bytes)
+        void sub__memfill_FLOAT(mem_block* dblk,ptrszint doff,ptrszint dbytes,long double val){ *(long double*)memfill_FLOAT_padding=val; sub__memfill(dblk,doff,dbytes,(ptrszint)memfill_FLOAT_padding,32); }
+        void sub__memfill_nochecks_FLOAT(ptrszint doff,ptrszint dbytes,long double val){ *(long double*)memfill_FLOAT_padding=val; sub__memfill_nochecks(doff,dbytes,(ptrszint)memfill_FLOAT_padding,32); }
+        void sub__memfill_OFFSET(mem_block* dblk,ptrszint doff,ptrszint dbytes,ptrszint val){ sub__memfill(dblk,doff,dbytes,(ptrszint)&val,sizeof(ptrszint)); }
+        void sub__memfill_nochecks_OFFSET(ptrszint doff,ptrszint dbytes,ptrszint val){ sub__memfill_nochecks(doff,dbytes,(ptrszint)&val,sizeof(ptrszint)); }
         void sub__memcopy(void *sblk,ptrszint soff,ptrszint bytes,void *dblk,ptrszint doff){
-            //checking A
-            if ( ((mem_block*)(sblk))->lock_offset==NULL || ((mem_block*)(dblk))->lock_offset==NULL ){
-                //error reporting
-                if ( ((mem_block*)(sblk))->lock_offset==NULL && ((mem_block*)(dblk))->lock_offset==NULL ){error(312); return;}
-                if ( ((mem_block*)(sblk))->lock_offset==NULL ){error(310); return;}
-                error(311); return;
-            }
-            //checking B
-            if ( bytes<0 ||
-            soff< ((mem_block*)(sblk))->offset || (soff+bytes)> (((mem_block*)(sblk))->offset+((mem_block*)(sblk))->size) ||
-            doff< ((mem_block*)(dblk))->offset || (doff+bytes)> (((mem_block*)(dblk))->offset+((mem_block*)(dblk))->size) ||
-            ((mem_lock*)(((mem_block*)(sblk))->lock_offset))->id!=((mem_block*)(sblk))->lock_id ||
-            ((mem_lock*)(((mem_block*)(dblk))->lock_offset))->id!=((mem_block*)(dblk))->lock_id
-            ){
-                //error reporting
-                if (((mem_lock*)(((mem_block*)(sblk))->lock_offset))->id!=((mem_block*)(sblk))->lock_id && ((mem_lock*)(((mem_block*)(dblk))->lock_offset))->id!=((mem_block*)(dblk))->lock_id){error(313); return;}
-                if (((mem_lock*)(((mem_block*)(sblk))->lock_offset))->id!=((mem_block*)(sblk))->lock_id){error(305); return;}
-                if (((mem_lock*)(((mem_block*)(dblk))->lock_offset))->id!=((mem_block*)(dblk))->lock_id){error(306); return;}
-                if (bytes<0){error(301); return;}
-                if ( soff< ((mem_block*)(sblk))->offset || (soff+bytes)> (((mem_block*)(sblk))->offset+((mem_block*)(sblk))->size) ){
-                    if ( doff< ((mem_block*)(dblk))->offset || (doff+bytes)> (((mem_block*)(dblk))->offset+((mem_block*)(dblk))->size) ){error(304); return;}
-                    error(302);
-                    return;
-                }
-                error(303); return;
-            }
-            memmove((char*)doff,(char*)soff,bytes);
+            int32 e=qbrt_memcopy((qbrt_mem_block*)sblk,soff,bytes,(qbrt_mem_block*)dblk,doff); if (e) error(e);
         }
-        
-        
         mem_block func__mem(ptrszint offset,ptrszint size,int32 type,ptrszint elementsize,mem_lock *lock){
-            static mem_block b;
-            b.lock_offset=(ptrszint)lock; b.lock_id=lock->id;
-            b.offset=offset;
-            b.size=size;
-            b.type=type;
-            b.elementsize=elementsize;
-            b.image=-1;
-            return b;
+            mem_block b; qbrt_mem(offset,size,type,elementsize,(qbrt_mem_lock*)lock,(qbrt_mem_block*)&b); return b;
         }
         
         /* Extra maths functions - we do what we must because we can */
@@ -26722,45 +22699,13 @@ int32 func__scaledheight(){
 
 
 //Get Current Working Directory
-qbs *func__cwd(){
-    qbs *final=NULL, *tqbs=NULL;
-    int length;
-    std::vector<char> buf;
-    
-    #if defined QBNex_WINDOWS
-        length = GetCurrentDirectoryA(0, NULL);
-        buf.resize(length);
-        if (buf.empty()) {
-            error(7); //"Out of memory"
-            return tqbs;
-        }
-        if (GetCurrentDirectoryA(length, buf.data()) != --length) { //Sanity check
-            tqbs = qbs_new(0, 1);
-            error(51); //"Internal error"
-            return tqbs;
-        }
-        #elif defined QBNex_UNIX
-        length = 512;
-        while(1) {
-            buf.resize(length);
-            if (buf.empty()) {
-                tqbs = qbs_new(0, 1);
-                error(7);
-                return tqbs;
-            }
-            char *ret = getcwd(buf.data(), length);
-            if (ret) break;
-            if (errno != ERANGE) {
-                tqbs = qbs_new(0, 1);
-                error(51);
-                return tqbs;
-            }
-            length += 512;
-        }
-        length = strlen(buf.data());
-    #endif
-    final = qbs_new(length, 1);
-    memcpy(final->chr, buf.data(), length);
+qbs *func__cwd(){//Get Current Working Directory (Rust: internal/c/qbrt/src/fsops.rs)
+    const uint8 *out; int32 len=0;
+    int32 e=qbrt_cwd(&out,&len);
+    if (e==7){error(7); return NULL;}//"Out of memory" (legacy returned no string)
+    if (e){qbs *tqbs=qbs_new(0,1); error(e); return tqbs;}//51 "Internal error"
+    qbs *final=qbs_new(len,1);
+    memcpy(final->chr,out,len);
     return final;
 }
 
@@ -27119,7 +23064,7 @@ int main( int argc, char* argv[] ){
         
     #endif
     
-    for (i=0;i<32;i++) sub_file_print_spaces[i]=32;
+
     
     
     port60h_event[0]=128+1;//simulate release of ESC
