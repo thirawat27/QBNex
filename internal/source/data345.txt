@@ -1,8 +1,30 @@
-qbs *_FUNC_PADLEFTZERO_STRING_PADLEFTZERO=NULL;
-if (!_FUNC_PADLEFTZERO_STRING_PADLEFTZERO)_FUNC_PADLEFTZERO_STRING_PADLEFTZERO=qbs_new(0,0);
-qbs *_FUNC_PADLEFTZERO_STRING_S=NULL;
-if (!_FUNC_PADLEFTZERO_STRING_S)_FUNC_PADLEFTZERO_STRING_S=qbs_new(0,0);
-byte_element_struct *byte_element_4645=NULL;
-if (!byte_element_4645){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4645=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4645=(byte_element_struct*)mem_static_malloc(12);
+qbs*oldstr4545=NULL;
+if(_SUB_WRITECONFIGSETTING_STRING_SECTION->tmp||_SUB_WRITECONFIGSETTING_STRING_SECTION->fixed||_SUB_WRITECONFIGSETTING_STRING_SECTION->readonly){
+oldstr4545=_SUB_WRITECONFIGSETTING_STRING_SECTION;
+if (oldstr4545->cmem_descriptor){
+_SUB_WRITECONFIGSETTING_STRING_SECTION=qbs_new_cmem(oldstr4545->len,0);
+}else{
+_SUB_WRITECONFIGSETTING_STRING_SECTION=qbs_new(oldstr4545->len,0);
+}
+memcpy(_SUB_WRITECONFIGSETTING_STRING_SECTION->chr,oldstr4545->chr,oldstr4545->len);
+}
+qbs*oldstr4546=NULL;
+if(_SUB_WRITECONFIGSETTING_STRING_ITEM->tmp||_SUB_WRITECONFIGSETTING_STRING_ITEM->fixed||_SUB_WRITECONFIGSETTING_STRING_ITEM->readonly){
+oldstr4546=_SUB_WRITECONFIGSETTING_STRING_ITEM;
+if (oldstr4546->cmem_descriptor){
+_SUB_WRITECONFIGSETTING_STRING_ITEM=qbs_new_cmem(oldstr4546->len,0);
+}else{
+_SUB_WRITECONFIGSETTING_STRING_ITEM=qbs_new(oldstr4546->len,0);
+}
+memcpy(_SUB_WRITECONFIGSETTING_STRING_ITEM->chr,oldstr4546->chr,oldstr4546->len);
+}
+qbs*oldstr4547=NULL;
+if(_SUB_WRITECONFIGSETTING_STRING_VALUE->tmp||_SUB_WRITECONFIGSETTING_STRING_VALUE->fixed||_SUB_WRITECONFIGSETTING_STRING_VALUE->readonly){
+oldstr4547=_SUB_WRITECONFIGSETTING_STRING_VALUE;
+if (oldstr4547->cmem_descriptor){
+_SUB_WRITECONFIGSETTING_STRING_VALUE=qbs_new_cmem(oldstr4547->len,0);
+}else{
+_SUB_WRITECONFIGSETTING_STRING_VALUE=qbs_new(oldstr4547->len,0);
+}
+memcpy(_SUB_WRITECONFIGSETTING_STRING_VALUE->chr,oldstr4547->chr,oldstr4547->len);
 }

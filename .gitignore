@@ -47,3 +47,4 @@ build/
 
 # Prebuilt QIR runner (crates/qb-exec/os/<os>/setup_build output)
 /crates/qb-exec/bin/
+/temp/

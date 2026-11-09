@@ -1,32 +1,19 @@
-qbs *_FUNC_PATH_JOIN_STRING_PATH_JOIN=NULL;
-if (!_FUNC_PATH_JOIN_STRING_PATH_JOIN)_FUNC_PATH_JOIN_STRING_PATH_JOIN=qbs_new(0,0);
-qbs*oldstr4373=NULL;
-if(_FUNC_PATH_JOIN_STRING_BASEPATH->tmp||_FUNC_PATH_JOIN_STRING_BASEPATH->fixed||_FUNC_PATH_JOIN_STRING_BASEPATH->readonly){
-oldstr4373=_FUNC_PATH_JOIN_STRING_BASEPATH;
-if (oldstr4373->cmem_descriptor){
-_FUNC_PATH_JOIN_STRING_BASEPATH=qbs_new_cmem(oldstr4373->len,0);
-}else{
-_FUNC_PATH_JOIN_STRING_BASEPATH=qbs_new(oldstr4373->len,0);
+int32 *_FUNC_IRAFTERPARENS_LONG_IRAFTERPARENS=NULL;
+if(_FUNC_IRAFTERPARENS_LONG_IRAFTERPARENS==NULL){
+_FUNC_IRAFTERPARENS_LONG_IRAFTERPARENS=(int32*)mem_static_malloc(4);
+*_FUNC_IRAFTERPARENS_LONG_IRAFTERPARENS=0;
 }
-memcpy(_FUNC_PATH_JOIN_STRING_BASEPATH->chr,oldstr4373->chr,oldstr4373->len);
+int32 *_FUNC_IRAFTERPARENS_LONG_DEPTH=NULL;
+if(_FUNC_IRAFTERPARENS_LONG_DEPTH==NULL){
+_FUNC_IRAFTERPARENS_LONG_DEPTH=(int32*)mem_static_malloc(4);
+*_FUNC_IRAFTERPARENS_LONG_DEPTH=0;
 }
-qbs*oldstr4374=NULL;
-if(_FUNC_PATH_JOIN_STRING_LEAFPATH->tmp||_FUNC_PATH_JOIN_STRING_LEAFPATH->fixed||_FUNC_PATH_JOIN_STRING_LEAFPATH->readonly){
-oldstr4374=_FUNC_PATH_JOIN_STRING_LEAFPATH;
-if (oldstr4374->cmem_descriptor){
-_FUNC_PATH_JOIN_STRING_LEAFPATH=qbs_new_cmem(oldstr4374->len,0);
-}else{
-_FUNC_PATH_JOIN_STRING_LEAFPATH=qbs_new(oldstr4374->len,0);
+int32 *_FUNC_IRAFTERPARENS_LONG_J=NULL;
+if(_FUNC_IRAFTERPARENS_LONG_J==NULL){
+_FUNC_IRAFTERPARENS_LONG_J=(int32*)mem_static_malloc(4);
+*_FUNC_IRAFTERPARENS_LONG_J=0;
 }
-memcpy(_FUNC_PATH_JOIN_STRING_LEAFPATH->chr,oldstr4374->chr,oldstr4374->len);
-}
-qbs *_FUNC_PATH_JOIN_STRING_SEPARATOR=NULL;
-if (!_FUNC_PATH_JOIN_STRING_SEPARATOR)_FUNC_PATH_JOIN_STRING_SEPARATOR=qbs_new(0,0);
-byte_element_struct *byte_element_4375=NULL;
-if (!byte_element_4375){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4375=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4375=(byte_element_struct*)mem_static_malloc(12);
-}
-byte_element_struct *byte_element_4376=NULL;
-if (!byte_element_4376){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4376=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4376=(byte_element_struct*)mem_static_malloc(12);
-}
+int64 fornext_value4321;
+int64 fornext_finalvalue4321;
+int64 fornext_step4321;
+uint8 fornext_step_negative4321;

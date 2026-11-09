@@ -1,9 +1,7 @@
-int16 *_SUB_INITERRORHANDLER_INTEGER_I=NULL;
-if(_SUB_INITERRORHANDLER_INTEGER_I==NULL){
-_SUB_INITERRORHANDLER_INTEGER_I=(int16*)mem_static_malloc(2);
-*_SUB_INITERRORHANDLER_INTEGER_I=0;
+int32 *_SUB_IRDO_LONG_ID=NULL;
+if(_SUB_IRDO_LONG_ID==NULL){
+_SUB_IRDO_LONG_ID=(int32*)mem_static_malloc(4);
+*_SUB_IRDO_LONG_ID=0;
 }
-int32 fornext_value4524;
-int32 fornext_finalvalue4524;
-int32 fornext_step4524;
-uint8 fornext_step_negative4524;
+qbs *_SUB_IRDO_STRING_T=NULL;
+if (!_SUB_IRDO_STRING_T)_SUB_IRDO_STRING_T=qbs_new(0,0);

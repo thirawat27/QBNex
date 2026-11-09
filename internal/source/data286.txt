@@ -1,17 +1,2 @@
-byte_element_struct *byte_element_4475=NULL;
-if (!byte_element_4475){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4475=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4475=(byte_element_struct*)mem_static_malloc(12);
-}
-int16 *_SUB_INICOMMIT_INTEGER_FILENUM=NULL;
-if(_SUB_INICOMMIT_INTEGER_FILENUM==NULL){
-_SUB_INICOMMIT_INTEGER_FILENUM=(int16*)mem_static_malloc(2);
-*_SUB_INICOMMIT_INTEGER_FILENUM=0;
-}
-byte_element_struct *byte_element_4476=NULL;
-if (!byte_element_4476){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4476=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4476=(byte_element_struct*)mem_static_malloc(12);
-}
-byte_element_struct *byte_element_4477=NULL;
-if (!byte_element_4477){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4477=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4477=(byte_element_struct*)mem_static_malloc(12);
-}
+qbs *_SUB_IRSTATEMENTLIST_STRING_P=NULL;
+if (!_SUB_IRSTATEMENTLIST_STRING_P)_SUB_IRSTATEMENTLIST_STRING_P=qbs_new(0,0);

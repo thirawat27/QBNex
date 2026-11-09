@@ -1,6 +1,4 @@
-if(oldstr4381){
-if(oldstr4381->fixed)qbs_set(oldstr4381,_FUNC_PATH_DIRNAME_STRING_RAWPATH);
-qbs_free(_FUNC_PATH_DIRNAME_STRING_RAWPATH);
+if(oldstr4324){
+if(oldstr4324->fixed)qbs_set(oldstr4324,_FUNC_IRHASSFX_STRING_ID);
+qbs_free(_FUNC_IRHASSFX_STRING_ID);
 }
-qbs_free(_FUNC_PATH_DIRNAME_STRING_NORMALIZED);
-qbs_free(_FUNC_PATH_DIRNAME_STRING_SEPARATOR);

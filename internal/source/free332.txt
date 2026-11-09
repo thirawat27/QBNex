@@ -1,8 +1,8 @@
-if(oldstr4603){
-if(oldstr4603->fixed)qbs_set(oldstr4603,_SUB_REPORTERROR_STRING_MESSAGE);
-qbs_free(_SUB_REPORTERROR_STRING_MESSAGE);
+if(oldstr4490){
+if(oldstr4490->fixed)qbs_set(oldstr4490,_FUNC_TEXT_STARTSWITH_STRING_VALUETEXT);
+qbs_free(_FUNC_TEXT_STARTSWITH_STRING_VALUETEXT);
 }
-if(oldstr4604){
-if(oldstr4604->fixed)qbs_set(oldstr4604,_SUB_REPORTERROR_STRING_CONTEXT);
-qbs_free(_SUB_REPORTERROR_STRING_CONTEXT);
+if(oldstr4491){
+if(oldstr4491->fixed)qbs_set(oldstr4491,_FUNC_TEXT_STARTSWITH_STRING_PREFIXTEXT);
+qbs_free(_FUNC_TEXT_STARTSWITH_STRING_PREFIXTEXT);
 }

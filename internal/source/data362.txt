@@ -1,5 +1,22 @@
-int16 *_FUNC_GETERRORCOUNT_INTEGER_GETERRORCOUNT=NULL;
-if(_FUNC_GETERRORCOUNT_INTEGER_GETERRORCOUNT==NULL){
-_FUNC_GETERRORCOUNT_INTEGER_GETERRORCOUNT=(int16*)mem_static_malloc(2);
-*_FUNC_GETERRORCOUNT_INTEGER_GETERRORCOUNT=0;
+qbs *_FUNC_INIFORMATSECTION_STRING_INIFORMATSECTION=NULL;
+if (!_FUNC_INIFORMATSECTION_STRING_INIFORMATSECTION)_FUNC_INIFORMATSECTION_STRING_INIFORMATSECTION=qbs_new(0,0);
+qbs*oldstr4632=NULL;
+if(_FUNC_INIFORMATSECTION_STRING___SECTION->tmp||_FUNC_INIFORMATSECTION_STRING___SECTION->fixed||_FUNC_INIFORMATSECTION_STRING___SECTION->readonly){
+oldstr4632=_FUNC_INIFORMATSECTION_STRING___SECTION;
+if (oldstr4632->cmem_descriptor){
+_FUNC_INIFORMATSECTION_STRING___SECTION=qbs_new_cmem(oldstr4632->len,0);
+}else{
+_FUNC_INIFORMATSECTION_STRING___SECTION=qbs_new(oldstr4632->len,0);
+}
+memcpy(_FUNC_INIFORMATSECTION_STRING___SECTION->chr,oldstr4632->chr,oldstr4632->len);
+}
+qbs *_FUNC_INIFORMATSECTION_STRING_SECTION=NULL;
+if (!_FUNC_INIFORMATSECTION_STRING_SECTION)_FUNC_INIFORMATSECTION_STRING_SECTION=qbs_new(0,0);
+byte_element_struct *byte_element_4633=NULL;
+if (!byte_element_4633){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4633=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4633=(byte_element_struct*)mem_static_malloc(12);
+}
+byte_element_struct *byte_element_4634=NULL;
+if (!byte_element_4634){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4634=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4634=(byte_element_struct*)mem_static_malloc(12);
 }

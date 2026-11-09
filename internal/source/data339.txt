@@ -1,17 +1,32 @@
-qbs *_FUNC_GETSUGGESTION_STRING_GETSUGGESTION=NULL;
-if (!_FUNC_GETSUGGESTION_STRING_GETSUGGESTION)_FUNC_GETSUGGESTION_STRING_GETSUGGESTION=qbs_new(0,0);
-int32 *_FUNC_GETSUGGESTION_LONG_ERR_INVALID_SYNTAX=NULL;
-if(_FUNC_GETSUGGESTION_LONG_ERR_INVALID_SYNTAX==NULL){
-_FUNC_GETSUGGESTION_LONG_ERR_INVALID_SYNTAX=(int32*)mem_static_malloc(4);
-*_FUNC_GETSUGGESTION_LONG_ERR_INVALID_SYNTAX=0;
+qbs *_FUNC_PATH_JOIN_STRING_PATH_JOIN=NULL;
+if (!_FUNC_PATH_JOIN_STRING_PATH_JOIN)_FUNC_PATH_JOIN_STRING_PATH_JOIN=qbs_new(0,0);
+qbs*oldstr4516=NULL;
+if(_FUNC_PATH_JOIN_STRING_BASEPATH->tmp||_FUNC_PATH_JOIN_STRING_BASEPATH->fixed||_FUNC_PATH_JOIN_STRING_BASEPATH->readonly){
+oldstr4516=_FUNC_PATH_JOIN_STRING_BASEPATH;
+if (oldstr4516->cmem_descriptor){
+_FUNC_PATH_JOIN_STRING_BASEPATH=qbs_new_cmem(oldstr4516->len,0);
+}else{
+_FUNC_PATH_JOIN_STRING_BASEPATH=qbs_new(oldstr4516->len,0);
 }
-int32 *_FUNC_GETSUGGESTION_LONG_ERR_ENCODING_ISSUE=NULL;
-if(_FUNC_GETSUGGESTION_LONG_ERR_ENCODING_ISSUE==NULL){
-_FUNC_GETSUGGESTION_LONG_ERR_ENCODING_ISSUE=(int32*)mem_static_malloc(4);
-*_FUNC_GETSUGGESTION_LONG_ERR_ENCODING_ISSUE=0;
+memcpy(_FUNC_PATH_JOIN_STRING_BASEPATH->chr,oldstr4516->chr,oldstr4516->len);
 }
-int32 *_FUNC_GETSUGGESTION_LONG_ERR_INVALID_UTF8=NULL;
-if(_FUNC_GETSUGGESTION_LONG_ERR_INVALID_UTF8==NULL){
-_FUNC_GETSUGGESTION_LONG_ERR_INVALID_UTF8=(int32*)mem_static_malloc(4);
-*_FUNC_GETSUGGESTION_LONG_ERR_INVALID_UTF8=0;
+qbs*oldstr4517=NULL;
+if(_FUNC_PATH_JOIN_STRING_LEAFPATH->tmp||_FUNC_PATH_JOIN_STRING_LEAFPATH->fixed||_FUNC_PATH_JOIN_STRING_LEAFPATH->readonly){
+oldstr4517=_FUNC_PATH_JOIN_STRING_LEAFPATH;
+if (oldstr4517->cmem_descriptor){
+_FUNC_PATH_JOIN_STRING_LEAFPATH=qbs_new_cmem(oldstr4517->len,0);
+}else{
+_FUNC_PATH_JOIN_STRING_LEAFPATH=qbs_new(oldstr4517->len,0);
+}
+memcpy(_FUNC_PATH_JOIN_STRING_LEAFPATH->chr,oldstr4517->chr,oldstr4517->len);
+}
+qbs *_FUNC_PATH_JOIN_STRING_SEPARATOR=NULL;
+if (!_FUNC_PATH_JOIN_STRING_SEPARATOR)_FUNC_PATH_JOIN_STRING_SEPARATOR=qbs_new(0,0);
+byte_element_struct *byte_element_4518=NULL;
+if (!byte_element_4518){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4518=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4518=(byte_element_struct*)mem_static_malloc(12);
+}
+byte_element_struct *byte_element_4519=NULL;
+if (!byte_element_4519){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4519=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4519=(byte_element_struct*)mem_static_malloc(12);
 }

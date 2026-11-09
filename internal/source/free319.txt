@@ -1,4 +1,0 @@
-if(oldstr4554){
-if(oldstr4554->fixed)qbs_set(oldstr4554,_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH);
-qbs_free(_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH);
-}

@@ -1,1 +1,4 @@
-qbs_free(_FUNC_COMPILERPROGRESSLINE_STRING_A);
+if(oldstr4292){
+if(oldstr4292->fixed)qbs_set(oldstr4292,_SUB_IRFAIL_STRING_M);
+qbs_free(_SUB_IRFAIL_STRING_M);
+}

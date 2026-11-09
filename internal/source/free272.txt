@@ -1,12 +1,4 @@
-if(oldstr4405){
-if(oldstr4405->fixed)qbs_set(oldstr4405,_FUNC_READCONFIGSETTING_STRING_SECTION);
-qbs_free(_FUNC_READCONFIGSETTING_STRING_SECTION);
-}
-if(oldstr4406){
-if(oldstr4406->fixed)qbs_set(oldstr4406,_FUNC_READCONFIGSETTING_STRING_ITEM);
-qbs_free(_FUNC_READCONFIGSETTING_STRING_ITEM);
-}
-if(oldstr4407){
-if(oldstr4407->fixed)qbs_set(oldstr4407,_FUNC_READCONFIGSETTING_STRING_VALUE);
-qbs_free(_FUNC_READCONFIGSETTING_STRING_VALUE);
+if(oldstr4336){
+if(oldstr4336->fixed)qbs_set(oldstr4336,_FUNC_IRDIMLOOKUP_STRING_KEY);
+qbs_free(_FUNC_IRDIMLOOKUP_STRING_KEY);
 }

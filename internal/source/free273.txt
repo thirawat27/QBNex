@@ -1,0 +1,5 @@
+if(oldstr4341){
+if(oldstr4341->fixed)qbs_set(oldstr4341,_FUNC_IRVARNAME_STRING_ID);
+qbs_free(_FUNC_IRVARNAME_STRING_ID);
+}
+qbs_free(_FUNC_IRVARNAME_STRING_S);

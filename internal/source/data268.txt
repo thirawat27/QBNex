@@ -1,32 +1,16 @@
-qbs *_FUNC_PATH_EXTENSION_STRING_PATH_EXTENSION=NULL;
-if (!_FUNC_PATH_EXTENSION_STRING_PATH_EXTENSION)_FUNC_PATH_EXTENSION_STRING_PATH_EXTENSION=qbs_new(0,0);
-qbs*oldstr4385=NULL;
-if(_FUNC_PATH_EXTENSION_STRING_RAWPATH->tmp||_FUNC_PATH_EXTENSION_STRING_RAWPATH->fixed||_FUNC_PATH_EXTENSION_STRING_RAWPATH->readonly){
-oldstr4385=_FUNC_PATH_EXTENSION_STRING_RAWPATH;
-if (oldstr4385->cmem_descriptor){
-_FUNC_PATH_EXTENSION_STRING_RAWPATH=qbs_new_cmem(oldstr4385->len,0);
+qbs *_FUNC_IRBASE_STRING_IRBASE=NULL;
+if (!_FUNC_IRBASE_STRING_IRBASE)_FUNC_IRBASE_STRING_IRBASE=qbs_new(0,0);
+qbs*oldstr4325=NULL;
+if(_FUNC_IRBASE_STRING_ID->tmp||_FUNC_IRBASE_STRING_ID->fixed||_FUNC_IRBASE_STRING_ID->readonly){
+oldstr4325=_FUNC_IRBASE_STRING_ID;
+if (oldstr4325->cmem_descriptor){
+_FUNC_IRBASE_STRING_ID=qbs_new_cmem(oldstr4325->len,0);
 }else{
-_FUNC_PATH_EXTENSION_STRING_RAWPATH=qbs_new(oldstr4385->len,0);
+_FUNC_IRBASE_STRING_ID=qbs_new(oldstr4325->len,0);
 }
-memcpy(_FUNC_PATH_EXTENSION_STRING_RAWPATH->chr,oldstr4385->chr,oldstr4385->len);
+memcpy(_FUNC_IRBASE_STRING_ID->chr,oldstr4325->chr,oldstr4325->len);
 }
-int32 *_FUNC_PATH_EXTENSION_LONG_I=NULL;
-if(_FUNC_PATH_EXTENSION_LONG_I==NULL){
-_FUNC_PATH_EXTENSION_LONG_I=(int32*)mem_static_malloc(4);
-*_FUNC_PATH_EXTENSION_LONG_I=0;
-}
-qbs *_FUNC_PATH_EXTENSION_STRING_FILENAME=NULL;
-if (!_FUNC_PATH_EXTENSION_STRING_FILENAME)_FUNC_PATH_EXTENSION_STRING_FILENAME=qbs_new(0,0);
-int32 *_FUNC_PATH_EXTENSION_LONG_POSITION=NULL;
-if(_FUNC_PATH_EXTENSION_LONG_POSITION==NULL){
-_FUNC_PATH_EXTENSION_LONG_POSITION=(int32*)mem_static_malloc(4);
-*_FUNC_PATH_EXTENSION_LONG_POSITION=0;
-}
-int64 fornext_value4387;
-int64 fornext_finalvalue4387;
-int64 fornext_step4387;
-uint8 fornext_step_negative4387;
-byte_element_struct *byte_element_4388=NULL;
-if (!byte_element_4388){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4388=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4388=(byte_element_struct*)mem_static_malloc(12);
+byte_element_struct *byte_element_4326=NULL;
+if (!byte_element_4326){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4326=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4326=(byte_element_struct*)mem_static_malloc(12);
 }

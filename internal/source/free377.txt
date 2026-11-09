@@ -1,0 +1,4 @@
+if(oldstr4669){
+if(oldstr4669->fixed)qbs_set(oldstr4669,_SUB_SETERRORPHASE_STRING_PHASENAME);
+qbs_free(_SUB_SETERRORPHASE_STRING_PHASENAME);
+}

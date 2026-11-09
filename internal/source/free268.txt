@@ -1,5 +1,4 @@
-if(oldstr4385){
-if(oldstr4385->fixed)qbs_set(oldstr4385,_FUNC_PATH_EXTENSION_STRING_RAWPATH);
-qbs_free(_FUNC_PATH_EXTENSION_STRING_RAWPATH);
+if(oldstr4325){
+if(oldstr4325->fixed)qbs_set(oldstr4325,_FUNC_IRBASE_STRING_ID);
+qbs_free(_FUNC_IRBASE_STRING_ID);
 }
-qbs_free(_FUNC_PATH_EXTENSION_STRING_FILENAME);

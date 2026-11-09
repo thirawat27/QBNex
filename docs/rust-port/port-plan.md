@@ -256,3 +256,24 @@ flowchart LR
 2. Phase 0 ข้อแรก: เอา `tests/*.sh|cmd` เข้า CI (เล็ก, ไม่เปลี่ยนพฤติกรรม)
 3. Regenerate + ตรวจ `internal/source` snapshot (debt F1)
 4. Spike 1–2 สัปดาห์: lexer + parser ของ subset (PRINT/IF/FOR/GOSUB/SUB) + VM ที่รัน "hello world" — วัดว่า architecture ใน §3 ใช้ได้จริงก่อนลงทุนเต็ม
+
+## 9. Revision 3 — โครงสร้างใหม่และการตัดสินใจที่เหลือ (2026-11-09)
+
+เจ้าของอนุมัติให้ตัดสินใจเองและทำจนจบ บันทึกการตัดสินใจไว้ที่นี่
+
+### 9.1 โครงสร้าง (ทำแล้ว)
+`compiler/` (BASIC), `crates/qb-runtime`, `crates/qb-audio`, `crates/qb-exec`, `tests/{conformance,diff,smoke,fixtures}`, `scripts/`, `docker/`, `packaging/installer/`. ชื่อโปรแกรมคือ QBNex เรียกได้ทั้ง `qb` และ `qbnex`; ห้ามมีชื่อที่สื่อว่าเป็น Rust (`qbrt`/`qbrun` เลิกใช้). C ABI prefix `qb_`. โฟลเดอร์ OS ใช้ชื่อเต็ม `windows`/`linux`/`macos`.
+
+### 9.2 เฟสที่เหลือ
+| เฟส | งาน | Exit gate |
+| --- | --- | --- |
+| R10 | ลบ third-party และไฟล์ค้าง (`internal/c/parts/**` ที่ไม่ใช้, `gl.h`, bridge ที่ไม่จำเป็น, zlib, license ของ lib ที่ถูกลบ) | build + conformance + smoke ผ่าน |
+| R12 | port ส่วนที่เหลือของ `libqb.cpp` (PRINT/INPUT/LOCATE/COLOR/text mode, keyboard, error handler, DATA/READ, arrays, event loop) เข้า `qb-runtime` เป็น Rust API ที่ `qb-exec` เรียกได้ตรง; C++ เหลือแค่ shim | `libqb.cpp` เหลือเฉพาะ shim; diff/conformance ผ่าน |
+| R11 เต็ม | QIR v1 ใน pipeline จริง (`evaluate$` → QIR), ครอบคลุมภาษาเต็ม, typed VM, Cranelift JIT, self-host ผ่าน QIR | conformance ทุก case ผ่านทั้งสอง backend; compiler self-host ผ่าน QIR |
+| Cutover | QIR เป็น default; ลบ `qbx.cpp`, `libqb.cpp`, `internal/source` C++ (แทนด้วย `bootstrap/qbnex.qir`), `makeline_*`, การดาวน์โหลด MinGW, `tests/diff` legacy | ไม่มีไฟล์ `.c/.cpp/.h` ใน repo; build ไม่ต้องใช้ C/C++ compiler |
+
+### 9.3 การตัดสินใจ (D11–D14)
+- **D11 `DECLARE LIBRARY`:** รองรับแบบไม่มี header และ `DECLARE DYNAMIC LIBRARY` ด้วยการหา symbol ตอนรัน (LoadLibrary/GetProcAddress, dlopen/dlsym) + call thunk ตาม signature. แบบที่อ้าง header `.h` ของผู้ใช้ (มีโค้ด C/macro) **ไม่รองรับ** → compile error ที่ชัดเจน + deviation D-10. compiler เองใช้ `getpid` ผ่าน DECLARE LIBRARY → ต้องทำงานได้
+- **D12 `_FLOAT`:** จำลอง x87 80-bit ในซอฟต์แวร์ให้ผลตรงทุก bit (ไม่ยอมให้ผลต่าง)
+- **D13 JIT:** Cranelift JIT เป็นงานบังคับก่อน cutover (gate: loop benchmark ≤ 2x ของ C++ path, front end ของ compiler ≤ 2x)
+- **D14 `SUB _GL`:** คงเป็น deviation D-09 ตอน cutover; นำกลับผ่าน OpenGL จาก Rust เป็นงานหลัง port

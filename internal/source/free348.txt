@@ -1,0 +1,4 @@
+if(oldstr4552){
+if(oldstr4552->fixed)qbs_set(oldstr4552,_FUNC_TFSTRINGTOBOOL_STRING_S);
+qbs_free(_FUNC_TFSTRINGTOBOOL_STRING_S);
+}

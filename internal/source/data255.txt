@@ -1,14 +1,9 @@
-qbs *_SUB_UPDATECOMPILERPROGRESS_STRING_PROGRESSLINE=NULL;
-if (!_SUB_UPDATECOMPILERPROGRESS_STRING_PROGRESSLINE)_SUB_UPDATECOMPILERPROGRESS_STRING_PROGRESSLINE=qbs_new(0,0);
-byte_element_struct *byte_element_4336=NULL;
-if (!byte_element_4336){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4336=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4336=(byte_element_struct*)mem_static_malloc(12);
+int32 *_SUB_IRRESETDEFAULTS_LONG_I=NULL;
+if(_SUB_IRRESETDEFAULTS_LONG_I==NULL){
+_SUB_IRRESETDEFAULTS_LONG_I=(int32*)mem_static_malloc(4);
+*_SUB_IRRESETDEFAULTS_LONG_I=0;
 }
-byte_element_struct *byte_element_4338=NULL;
-if (!byte_element_4338){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4338=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4338=(byte_element_struct*)mem_static_malloc(12);
-}
-byte_element_struct *byte_element_4339=NULL;
-if (!byte_element_4339){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4339=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4339=(byte_element_struct*)mem_static_malloc(12);
-}
+int64 fornext_value4301;
+int64 fornext_finalvalue4301;
+int64 fornext_step4301;
+uint8 fornext_step_negative4301;

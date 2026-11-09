@@ -1,0 +1,43 @@
+int16 *_FUNC_COUNTCHAR_INTEGER_COUNTCHAR=NULL;
+if(_FUNC_COUNTCHAR_INTEGER_COUNTCHAR==NULL){
+_FUNC_COUNTCHAR_INTEGER_COUNTCHAR=(int16*)mem_static_malloc(2);
+*_FUNC_COUNTCHAR_INTEGER_COUNTCHAR=0;
+}
+qbs*oldstr4712=NULL;
+if(_FUNC_COUNTCHAR_STRING_TEXT->tmp||_FUNC_COUNTCHAR_STRING_TEXT->fixed||_FUNC_COUNTCHAR_STRING_TEXT->readonly){
+oldstr4712=_FUNC_COUNTCHAR_STRING_TEXT;
+if (oldstr4712->cmem_descriptor){
+_FUNC_COUNTCHAR_STRING_TEXT=qbs_new_cmem(oldstr4712->len,0);
+}else{
+_FUNC_COUNTCHAR_STRING_TEXT=qbs_new(oldstr4712->len,0);
+}
+memcpy(_FUNC_COUNTCHAR_STRING_TEXT->chr,oldstr4712->chr,oldstr4712->len);
+}
+qbs*oldstr4713=NULL;
+if(_FUNC_COUNTCHAR_STRING_TARGET->tmp||_FUNC_COUNTCHAR_STRING_TARGET->fixed||_FUNC_COUNTCHAR_STRING_TARGET->readonly){
+oldstr4713=_FUNC_COUNTCHAR_STRING_TARGET;
+if (oldstr4713->cmem_descriptor){
+_FUNC_COUNTCHAR_STRING_TARGET=qbs_new_cmem(oldstr4713->len,0);
+}else{
+_FUNC_COUNTCHAR_STRING_TARGET=qbs_new(oldstr4713->len,0);
+}
+memcpy(_FUNC_COUNTCHAR_STRING_TARGET->chr,oldstr4713->chr,oldstr4713->len);
+}
+int32 *_FUNC_COUNTCHAR_LONG_I=NULL;
+if(_FUNC_COUNTCHAR_LONG_I==NULL){
+_FUNC_COUNTCHAR_LONG_I=(int32*)mem_static_malloc(4);
+*_FUNC_COUNTCHAR_LONG_I=0;
+}
+int16 *_FUNC_COUNTCHAR_INTEGER_TOTAL=NULL;
+if(_FUNC_COUNTCHAR_INTEGER_TOTAL==NULL){
+_FUNC_COUNTCHAR_INTEGER_TOTAL=(int16*)mem_static_malloc(2);
+*_FUNC_COUNTCHAR_INTEGER_TOTAL=0;
+}
+int64 fornext_value4715;
+int64 fornext_finalvalue4715;
+int64 fornext_step4715;
+uint8 fornext_step_negative4715;
+byte_element_struct *byte_element_4716=NULL;
+if (!byte_element_4716){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4716=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4716=(byte_element_struct*)mem_static_malloc(12);
+}

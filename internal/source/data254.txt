@@ -1,12 +1,27 @@
-qbs *_FUNC_SCASE_STRING_SCASE=NULL;
-if (!_FUNC_SCASE_STRING_SCASE)_FUNC_SCASE_STRING_SCASE=qbs_new(0,0);
-qbs*oldstr4334=NULL;
-if(_FUNC_SCASE_STRING_T->tmp||_FUNC_SCASE_STRING_T->fixed||_FUNC_SCASE_STRING_T->readonly){
-oldstr4334=_FUNC_SCASE_STRING_T;
-if (oldstr4334->cmem_descriptor){
-_FUNC_SCASE_STRING_T=qbs_new_cmem(oldstr4334->len,0);
+qbs *_FUNC_IRHEX_STRING_IRHEX=NULL;
+if (!_FUNC_IRHEX_STRING_IRHEX)_FUNC_IRHEX_STRING_IRHEX=qbs_new(0,0);
+qbs*oldstr4296=NULL;
+if(_FUNC_IRHEX_STRING_S->tmp||_FUNC_IRHEX_STRING_S->fixed||_FUNC_IRHEX_STRING_S->readonly){
+oldstr4296=_FUNC_IRHEX_STRING_S;
+if (oldstr4296->cmem_descriptor){
+_FUNC_IRHEX_STRING_S=qbs_new_cmem(oldstr4296->len,0);
 }else{
-_FUNC_SCASE_STRING_T=qbs_new(oldstr4334->len,0);
+_FUNC_IRHEX_STRING_S=qbs_new(oldstr4296->len,0);
 }
-memcpy(_FUNC_SCASE_STRING_T->chr,oldstr4334->chr,oldstr4334->len);
+memcpy(_FUNC_IRHEX_STRING_S->chr,oldstr4296->chr,oldstr4296->len);
+}
+int32 *_FUNC_IRHEX_LONG_I=NULL;
+if(_FUNC_IRHEX_LONG_I==NULL){
+_FUNC_IRHEX_LONG_I=(int32*)mem_static_malloc(4);
+*_FUNC_IRHEX_LONG_I=0;
+}
+qbs *_FUNC_IRHEX_STRING_H=NULL;
+if (!_FUNC_IRHEX_STRING_H)_FUNC_IRHEX_STRING_H=qbs_new(0,0);
+int64 fornext_value4298;
+int64 fornext_finalvalue4298;
+int64 fornext_step4298;
+uint8 fornext_step_negative4298;
+byte_element_struct *byte_element_4299=NULL;
+if (!byte_element_4299){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4299=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4299=(byte_element_struct*)mem_static_malloc(12);
 }

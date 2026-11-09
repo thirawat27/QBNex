@@ -1,4 +1,2 @@
-if(oldstr4521){
-if(oldstr4521->fixed)qbs_set(oldstr4521,_SUB_INILOAD_STRING_FILE);
-qbs_free(_SUB_INILOAD_STRING_FILE);
-}
+qbs_free(_SUB_IRNEXT_STRING_T);
+qbs_free(_SUB_IRNEXT_STRING_V);

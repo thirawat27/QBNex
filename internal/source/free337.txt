@@ -1,4 +1,0 @@
-if(oldstr4624){
-if(oldstr4624->fixed)qbs_set(oldstr4624,_SUB_REPORTINFO_STRING_MESSAGE);
-qbs_free(_SUB_REPORTINFO_STRING_MESSAGE);
-}

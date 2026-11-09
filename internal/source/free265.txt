@@ -1,9 +1,0 @@
-if(oldstr4373){
-if(oldstr4373->fixed)qbs_set(oldstr4373,_FUNC_PATH_JOIN_STRING_BASEPATH);
-qbs_free(_FUNC_PATH_JOIN_STRING_BASEPATH);
-}
-if(oldstr4374){
-if(oldstr4374->fixed)qbs_set(oldstr4374,_FUNC_PATH_JOIN_STRING_LEAFPATH);
-qbs_free(_FUNC_PATH_JOIN_STRING_LEAFPATH);
-}
-qbs_free(_FUNC_PATH_JOIN_STRING_SEPARATOR);

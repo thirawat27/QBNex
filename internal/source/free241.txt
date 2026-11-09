@@ -1,4 +1,6 @@
-if(oldstr4241){
-if(oldstr4241->fixed)qbs_set(oldstr4241,_SUB_INITIALISE_UDT_VARSTRINGS_STRING_N);
-qbs_free(_SUB_INITIALISE_UDT_VARSTRINGS_STRING_N);
+if(oldstr4240){
+if(oldstr4240->fixed)qbs_set(oldstr4240,_FUNC_VERIFYNUMBER_STRING_TEXT);
+qbs_free(_FUNC_VERIFYNUMBER_STRING_TEXT);
 }
+qbs_free(_FUNC_VERIFYNUMBER_STRING_T);
+qbs_free(_FUNC_VERIFYNUMBER_STRING_T1);

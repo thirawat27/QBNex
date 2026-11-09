@@ -1,5 +1,8 @@
-if(oldstr4344){
-if(oldstr4344->fixed)qbs_set(oldstr4344,_FUNC_TEXT_REPEAT_STRING_VALUETEXT);
-qbs_free(_FUNC_TEXT_REPEAT_STRING_VALUETEXT);
+if(oldstr4314){
+if(oldstr4314->fixed)qbs_set(oldstr4314,_FUNC_IRCHARIN_STRING_C);
+qbs_free(_FUNC_IRCHARIN_STRING_C);
 }
-qbs_free(_FUNC_TEXT_REPEAT_STRING_RESULTTEXT);
+if(oldstr4315){
+if(oldstr4315->fixed)qbs_set(oldstr4315,_FUNC_IRCHARIN_STRING_SET);
+qbs_free(_FUNC_IRCHARIN_STRING_SET);
+}

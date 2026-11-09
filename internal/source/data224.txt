@@ -1,36 +1,46 @@
-int32 *_FUNC_COUNTMATCHINGLABELS_LONG_COUNTMATCHINGLABELS=NULL;
-if(_FUNC_COUNTMATCHINGLABELS_LONG_COUNTMATCHINGLABELS==NULL){
-_FUNC_COUNTMATCHINGLABELS_LONG_COUNTMATCHINGLABELS=(int32*)mem_static_malloc(4);
-*_FUNC_COUNTMATCHINGLABELS_LONG_COUNTMATCHINGLABELS=0;
-}
-qbs*oldstr4152=NULL;
-if(_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME->tmp||_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME->fixed||_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME->readonly){
-oldstr4152=_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME;
-if (oldstr4152->cmem_descriptor){
-_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME=qbs_new_cmem(oldstr4152->len,0);
+qbs *_FUNC_GDB_FIX_STRING_GDB_FIX=NULL;
+if (!_FUNC_GDB_FIX_STRING_GDB_FIX)_FUNC_GDB_FIX_STRING_GDB_FIX=qbs_new(0,0);
+qbs*oldstr4145=NULL;
+if(_FUNC_GDB_FIX_STRING_G_COMMAND->tmp||_FUNC_GDB_FIX_STRING_G_COMMAND->fixed||_FUNC_GDB_FIX_STRING_G_COMMAND->readonly){
+oldstr4145=_FUNC_GDB_FIX_STRING_G_COMMAND;
+if (oldstr4145->cmem_descriptor){
+_FUNC_GDB_FIX_STRING_G_COMMAND=qbs_new_cmem(oldstr4145->len,0);
 }else{
-_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME=qbs_new(oldstr4152->len,0);
+_FUNC_GDB_FIX_STRING_G_COMMAND=qbs_new(oldstr4145->len,0);
 }
-memcpy(_FUNC_COUNTMATCHINGLABELS_STRING_LABELNAME->chr,oldstr4152->chr,oldstr4152->len);
+memcpy(_FUNC_GDB_FIX_STRING_G_COMMAND->chr,oldstr4145->chr,oldstr4145->len);
 }
-int32 *_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPMODE=NULL;
-if(_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPMODE==NULL){
-_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPMODE=(int32*)mem_static_malloc(4);
-*_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPMODE=0;
+qbs *_FUNC_GDB_FIX_STRING_C=NULL;
+if (!_FUNC_GDB_FIX_STRING_C)_FUNC_GDB_FIX_STRING_C=qbs_new(0,0);
+byte_element_struct *byte_element_4146=NULL;
+if (!byte_element_4146){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4146=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4146=(byte_element_struct*)mem_static_malloc(12);
 }
-int32 *_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPRESULT=NULL;
-if(_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPRESULT==NULL){
-_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPRESULT=(int32*)mem_static_malloc(4);
-*_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPRESULT=0;
+int32 *_FUNC_GDB_FIX_LONG_O=NULL;
+if(_FUNC_GDB_FIX_LONG_O==NULL){
+_FUNC_GDB_FIX_LONG_O=(int32*)mem_static_malloc(4);
+*_FUNC_GDB_FIX_LONG_O=0;
 }
-int32 *_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPREF=NULL;
-if(_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPREF==NULL){
-_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPREF=(int32*)mem_static_malloc(4);
-*_FUNC_COUNTMATCHINGLABELS_LONG_LOOKUPREF=0;
+int64 fornext_value4148;
+int64 fornext_finalvalue4148;
+int64 fornext_step4148;
+uint8 fornext_step_negative4148;
+qbs *_FUNC_GDB_FIX_STRING_O=NULL;
+if (!_FUNC_GDB_FIX_STRING_O)_FUNC_GDB_FIX_STRING_O=qbs_new(0,0);
+int32 *_FUNC_GDB_FIX_LONG_X=NULL;
+if(_FUNC_GDB_FIX_LONG_X==NULL){
+_FUNC_GDB_FIX_LONG_X=(int32*)mem_static_malloc(4);
+*_FUNC_GDB_FIX_LONG_X=0;
 }
-int32 *_FUNC_COUNTMATCHINGLABELS_LONG_LABELCOUNT=NULL;
-if(_FUNC_COUNTMATCHINGLABELS_LONG_LABELCOUNT==NULL){
-_FUNC_COUNTMATCHINGLABELS_LONG_LABELCOUNT=(int32*)mem_static_malloc(4);
-*_FUNC_COUNTMATCHINGLABELS_LONG_LABELCOUNT=0;
+byte_element_struct *byte_element_4149=NULL;
+if (!byte_element_4149){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4149=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4149=(byte_element_struct*)mem_static_malloc(12);
 }
-int32 pass4153;
+byte_element_struct *byte_element_4150=NULL;
+if (!byte_element_4150){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4150=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4150=(byte_element_struct*)mem_static_malloc(12);
+}
+byte_element_struct *byte_element_4151=NULL;
+if (!byte_element_4151){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4151=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4151=(byte_element_struct*)mem_static_malloc(12);
+}

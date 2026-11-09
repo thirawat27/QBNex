@@ -1,1 +1,4 @@
-qbs_free(_SUB_FINISHCOMPILERPROGRESS_STRING_PROGRESSLINE);
+if(oldstr4294){
+if(oldstr4294->fixed)qbs_set(oldstr4294,_SUB_IREMIT_STRING_S);
+qbs_free(_SUB_IREMIT_STRING_S);
+}

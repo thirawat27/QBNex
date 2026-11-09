@@ -1,0 +1,29 @@
+int32 *_SUB_GL_INCLUDE_CONTENT_LONG_D=NULL;
+if(_SUB_GL_INCLUDE_CONTENT_LONG_D==NULL){
+_SUB_GL_INCLUDE_CONTENT_LONG_D=(int32*)mem_static_malloc(4);
+*_SUB_GL_INCLUDE_CONTENT_LONG_D=0;
+}
+int32 *_SUB_GL_INCLUDE_CONTENT_LONG_I=NULL;
+if(_SUB_GL_INCLUDE_CONTENT_LONG_I==NULL){
+_SUB_GL_INCLUDE_CONTENT_LONG_I=(int32*)mem_static_malloc(4);
+*_SUB_GL_INCLUDE_CONTENT_LONG_I=0;
+}
+int32 *_SUB_GL_INCLUDE_CONTENT_LONG_C=NULL;
+if(_SUB_GL_INCLUDE_CONTENT_LONG_C==NULL){
+_SUB_GL_INCLUDE_CONTENT_LONG_C=(int32*)mem_static_malloc(4);
+*_SUB_GL_INCLUDE_CONTENT_LONG_C=0;
+}
+int64 fornext_value4614;
+int64 fornext_finalvalue4614;
+int64 fornext_step4614;
+uint8 fornext_step_negative4614;
+int32 pass4615;
+int64 fornext_value4617;
+int64 fornext_finalvalue4617;
+int64 fornext_step4617;
+uint8 fornext_step_negative4617;
+int32 *_SUB_GL_INCLUDE_CONTENT_LONG_S=NULL;
+if(_SUB_GL_INCLUDE_CONTENT_LONG_S==NULL){
+_SUB_GL_INCLUDE_CONTENT_LONG_S=(int32*)mem_static_malloc(4);
+*_SUB_GL_INCLUDE_CONTENT_LONG_S=0;
+}

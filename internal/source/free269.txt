@@ -1,10 +1,4 @@
-if(oldstr4389){
-if(oldstr4389->fixed)qbs_set(oldstr4389,_FUNC_STRREMOVE_STRING_MYSTRING);
-qbs_free(_FUNC_STRREMOVE_STRING_MYSTRING);
+if(oldstr4327){
+if(oldstr4327->fixed)qbs_set(oldstr4327,_FUNC_IRDEFAULT_STRING_ID);
+qbs_free(_FUNC_IRDEFAULT_STRING_ID);
 }
-if(oldstr4390){
-if(oldstr4390->fixed)qbs_set(oldstr4390,_FUNC_STRREMOVE_STRING_WHATTOREMOVE);
-qbs_free(_FUNC_STRREMOVE_STRING_WHATTOREMOVE);
-}
-qbs_free(_FUNC_STRREMOVE_STRING_A);
-qbs_free(_FUNC_STRREMOVE_STRING_B);

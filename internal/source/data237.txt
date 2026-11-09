@@ -1,45 +1,10 @@
-uint32 *_FUNC_VRGBS_ULONG_VRGBS=NULL;
-if(_FUNC_VRGBS_ULONG_VRGBS==NULL){
-_FUNC_VRGBS_ULONG_VRGBS=(uint32*)mem_static_malloc(4);
-*_FUNC_VRGBS_ULONG_VRGBS=0;
-}
-qbs*oldstr4202=NULL;
-if(_FUNC_VRGBS_STRING_TEXT->tmp||_FUNC_VRGBS_STRING_TEXT->fixed||_FUNC_VRGBS_STRING_TEXT->readonly){
-oldstr4202=_FUNC_VRGBS_STRING_TEXT;
-if (oldstr4202->cmem_descriptor){
-_FUNC_VRGBS_STRING_TEXT=qbs_new_cmem(oldstr4202->len,0);
+qbs*oldstr4201=NULL;
+if(_SUB_GIVE_ERROR_STRING_A->tmp||_SUB_GIVE_ERROR_STRING_A->fixed||_SUB_GIVE_ERROR_STRING_A->readonly){
+oldstr4201=_SUB_GIVE_ERROR_STRING_A;
+if (oldstr4201->cmem_descriptor){
+_SUB_GIVE_ERROR_STRING_A=qbs_new_cmem(oldstr4201->len,0);
 }else{
-_FUNC_VRGBS_STRING_TEXT=qbs_new(oldstr4202->len,0);
+_SUB_GIVE_ERROR_STRING_A=qbs_new(oldstr4201->len,0);
 }
-memcpy(_FUNC_VRGBS_STRING_TEXT->chr,oldstr4202->chr,oldstr4202->len);
-}
-int32 *_FUNC_VRGBS_LONG_RPOS=NULL;
-if(_FUNC_VRGBS_LONG_RPOS==NULL){
-_FUNC_VRGBS_LONG_RPOS=(int32*)mem_static_malloc(4);
-*_FUNC_VRGBS_LONG_RPOS=0;
-}
-int32 *_FUNC_VRGBS_LONG_GPOS=NULL;
-if(_FUNC_VRGBS_LONG_GPOS==NULL){
-_FUNC_VRGBS_LONG_GPOS=(int32*)mem_static_malloc(4);
-*_FUNC_VRGBS_LONG_GPOS=0;
-}
-int32 *_FUNC_VRGBS_LONG_BPOS=NULL;
-if(_FUNC_VRGBS_LONG_BPOS==NULL){
-_FUNC_VRGBS_LONG_BPOS=(int32*)mem_static_malloc(4);
-*_FUNC_VRGBS_LONG_BPOS=0;
-}
-int32 *_FUNC_VRGBS_LONG_RED=NULL;
-if(_FUNC_VRGBS_LONG_RED==NULL){
-_FUNC_VRGBS_LONG_RED=(int32*)mem_static_malloc(4);
-*_FUNC_VRGBS_LONG_RED=0;
-}
-int32 *_FUNC_VRGBS_LONG_GREEN=NULL;
-if(_FUNC_VRGBS_LONG_GREEN==NULL){
-_FUNC_VRGBS_LONG_GREEN=(int32*)mem_static_malloc(4);
-*_FUNC_VRGBS_LONG_GREEN=0;
-}
-int32 *_FUNC_VRGBS_LONG_BLUE=NULL;
-if(_FUNC_VRGBS_LONG_BLUE==NULL){
-_FUNC_VRGBS_LONG_BLUE=(int32*)mem_static_malloc(4);
-*_FUNC_VRGBS_LONG_BLUE=0;
+memcpy(_SUB_GIVE_ERROR_STRING_A->chr,oldstr4201->chr,oldstr4201->len);
 }

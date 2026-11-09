@@ -1,0 +1,9 @@
+if(oldstr4516){
+if(oldstr4516->fixed)qbs_set(oldstr4516,_FUNC_PATH_JOIN_STRING_BASEPATH);
+qbs_free(_FUNC_PATH_JOIN_STRING_BASEPATH);
+}
+if(oldstr4517){
+if(oldstr4517->fixed)qbs_set(oldstr4517,_FUNC_PATH_JOIN_STRING_LEAFPATH);
+qbs_free(_FUNC_PATH_JOIN_STRING_LEAFPATH);
+}
+qbs_free(_FUNC_PATH_JOIN_STRING_SEPARATOR);

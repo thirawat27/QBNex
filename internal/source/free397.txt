@@ -1,0 +1,8 @@
+if(oldstr4712){
+if(oldstr4712->fixed)qbs_set(oldstr4712,_FUNC_COUNTCHAR_STRING_TEXT);
+qbs_free(_FUNC_COUNTCHAR_STRING_TEXT);
+}
+if(oldstr4713){
+if(oldstr4713->fixed)qbs_set(oldstr4713,_FUNC_COUNTCHAR_STRING_TARGET);
+qbs_free(_FUNC_COUNTCHAR_STRING_TARGET);
+}

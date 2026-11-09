@@ -1,0 +1,2 @@
+qbs_free(_SUB_IRCASE_STRING_T);
+qbs_free(_SUB_IRCASE_STRING_O);

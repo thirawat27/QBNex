@@ -1,8 +1,4 @@
-if(oldstr4430){
-if(oldstr4430->fixed)qbs_set(oldstr4430,_FUNC_READCHUNK_STRING_A);
-qbs_free(_FUNC_READCHUNK_STRING_A);
-}
-if(oldstr4431){
-if(oldstr4431->fixed)qbs_set(oldstr4431,_FUNC_READCHUNK_STRING_LAST_CHARACTER);
-qbs_free(_FUNC_READCHUNK_STRING_LAST_CHARACTER);
+if(oldstr4358){
+if(oldstr4358->fixed)qbs_set(oldstr4358,_FUNC_IRFINDLOOP_STRING_KINDS);
+qbs_free(_FUNC_IRFINDLOOP_STRING_KINDS);
 }

@@ -1,0 +1,15 @@
+if(oldstr4635){
+if(oldstr4635->fixed)qbs_set(oldstr4635,_FUNC_READSETTING_STRING_FILE);
+qbs_free(_FUNC_READSETTING_STRING_FILE);
+}
+if(oldstr4636){
+if(oldstr4636->fixed)qbs_set(oldstr4636,_FUNC_READSETTING_STRING___SECTION);
+qbs_free(_FUNC_READSETTING_STRING___SECTION);
+}
+if(oldstr4637){
+if(oldstr4637->fixed)qbs_set(oldstr4637,_FUNC_READSETTING_STRING___KEY);
+qbs_free(_FUNC_READSETTING_STRING___KEY);
+}
+qbs_free(_FUNC_READSETTING_STRING_TEMPVALUE);
+qbs_free(_FUNC_READSETTING_STRING_KEY);
+qbs_free(_FUNC_READSETTING_STRING_SECTION);

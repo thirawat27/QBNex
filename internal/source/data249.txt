@@ -1,83 +1,73 @@
-qbs*oldstr4286=NULL;
-if(_SUB_ADDWARNING_STRING_INCFILENAME->tmp||_SUB_ADDWARNING_STRING_INCFILENAME->fixed||_SUB_ADDWARNING_STRING_INCFILENAME->readonly){
-oldstr4286=_SUB_ADDWARNING_STRING_INCFILENAME;
-if (oldstr4286->cmem_descriptor){
-_SUB_ADDWARNING_STRING_INCFILENAME=qbs_new_cmem(oldstr4286->len,0);
+qbs*oldstr4274=NULL;
+if(_SUB_IRCOMPILEPROGRAM_STRING_SRC->tmp||_SUB_IRCOMPILEPROGRAM_STRING_SRC->fixed||_SUB_IRCOMPILEPROGRAM_STRING_SRC->readonly){
+oldstr4274=_SUB_IRCOMPILEPROGRAM_STRING_SRC;
+if (oldstr4274->cmem_descriptor){
+_SUB_IRCOMPILEPROGRAM_STRING_SRC=qbs_new_cmem(oldstr4274->len,0);
 }else{
-_SUB_ADDWARNING_STRING_INCFILENAME=qbs_new(oldstr4286->len,0);
+_SUB_IRCOMPILEPROGRAM_STRING_SRC=qbs_new(oldstr4274->len,0);
 }
-memcpy(_SUB_ADDWARNING_STRING_INCFILENAME->chr,oldstr4286->chr,oldstr4286->len);
+memcpy(_SUB_IRCOMPILEPROGRAM_STRING_SRC->chr,oldstr4274->chr,oldstr4274->len);
 }
-qbs*oldstr4287=NULL;
-if(_SUB_ADDWARNING_STRING_HEADER->tmp||_SUB_ADDWARNING_STRING_HEADER->fixed||_SUB_ADDWARNING_STRING_HEADER->readonly){
-oldstr4287=_SUB_ADDWARNING_STRING_HEADER;
-if (oldstr4287->cmem_descriptor){
-_SUB_ADDWARNING_STRING_HEADER=qbs_new_cmem(oldstr4287->len,0);
+qbs*oldstr4275=NULL;
+if(_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE->tmp||_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE->fixed||_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE->readonly){
+oldstr4275=_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE;
+if (oldstr4275->cmem_descriptor){
+_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE=qbs_new_cmem(oldstr4275->len,0);
 }else{
-_SUB_ADDWARNING_STRING_HEADER=qbs_new(oldstr4287->len,0);
+_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE=qbs_new(oldstr4275->len,0);
 }
-memcpy(_SUB_ADDWARNING_STRING_HEADER->chr,oldstr4287->chr,oldstr4287->len);
+memcpy(_SUB_IRCOMPILEPROGRAM_STRING_OUTEXE->chr,oldstr4275->chr,oldstr4275->len);
 }
-qbs*oldstr4288=NULL;
-if(_SUB_ADDWARNING_STRING_TEXT->tmp||_SUB_ADDWARNING_STRING_TEXT->fixed||_SUB_ADDWARNING_STRING_TEXT->readonly){
-oldstr4288=_SUB_ADDWARNING_STRING_TEXT;
-if (oldstr4288->cmem_descriptor){
-_SUB_ADDWARNING_STRING_TEXT=qbs_new_cmem(oldstr4288->len,0);
-}else{
-_SUB_ADDWARNING_STRING_TEXT=qbs_new(oldstr4288->len,0);
+int16 *_SUB_IRCOMPILEPROGRAM_INTEGER_FH=NULL;
+if(_SUB_IRCOMPILEPROGRAM_INTEGER_FH==NULL){
+_SUB_IRCOMPILEPROGRAM_INTEGER_FH=(int16*)mem_static_malloc(2);
+*_SUB_IRCOMPILEPROGRAM_INTEGER_FH=0;
 }
-memcpy(_SUB_ADDWARNING_STRING_TEXT->chr,oldstr4288->chr,oldstr4288->len);
+qbs *_SUB_IRCOMPILEPROGRAM_STRING_L=NULL;
+if (!_SUB_IRCOMPILEPROGRAM_STRING_L)_SUB_IRCOMPILEPROGRAM_STRING_L=qbs_new(0,0);
+int32 *_SUB_IRCOMPILEPROGRAM_LONG_I=NULL;
+if(_SUB_IRCOMPILEPROGRAM_LONG_I==NULL){
+_SUB_IRCOMPILEPROGRAM_LONG_I=(int32*)mem_static_malloc(4);
+*_SUB_IRCOMPILEPROGRAM_LONG_I=0;
 }
-qbs *_SUB_ADDWARNING_STRING_WARNINGCONTEXT=NULL;
-if (!_SUB_ADDWARNING_STRING_WARNINGCONTEXT)_SUB_ADDWARNING_STRING_WARNINGCONTEXT=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_WARNINGSECONDARY=NULL;
-if (!_SUB_ADDWARNING_STRING_WARNINGSECONDARY)_SUB_ADDWARNING_STRING_WARNINGSECONDARY=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_WARNINGFILE=NULL;
-if (!_SUB_ADDWARNING_STRING_WARNINGFILE)_SUB_ADDWARNING_STRING_WARNINGFILE=qbs_new(0,0);
-int32 *_SUB_ADDWARNING_LONG_WARNINGLINE=NULL;
-if(_SUB_ADDWARNING_LONG_WARNINGLINE==NULL){
-_SUB_ADDWARNING_LONG_WARNINGLINE=(int32*)mem_static_malloc(4);
-*_SUB_ADDWARNING_LONG_WARNINGLINE=0;
+qbs *_SUB_IRCOMPILEPROGRAM_STRING_RUNNER=NULL;
+if (!_SUB_IRCOMPILEPROGRAM_STRING_RUNNER)_SUB_IRCOMPILEPROGRAM_STRING_RUNNER=qbs_new(0,0);
+qbs *_SUB_IRCOMPILEPROGRAM_STRING_OUTPATH=NULL;
+if (!_SUB_IRCOMPILEPROGRAM_STRING_OUTPATH)_SUB_IRCOMPILEPROGRAM_STRING_OUTPATH=qbs_new(0,0);
+qbs *_SUB_IRCOMPILEPROGRAM_STRING_IR=NULL;
+if (!_SUB_IRCOMPILEPROGRAM_STRING_IR)_SUB_IRCOMPILEPROGRAM_STRING_IR=qbs_new(0,0);
+qbs *_SUB_IRCOMPILEPROGRAM_STRING_R=NULL;
+if (!_SUB_IRCOMPILEPROGRAM_STRING_R)_SUB_IRCOMPILEPROGRAM_STRING_R=qbs_new(0,0);
+qbs *_SUB_IRCOMPILEPROGRAM_STRING_Q=NULL;
+if (!_SUB_IRCOMPILEPROGRAM_STRING_Q)_SUB_IRCOMPILEPROGRAM_STRING_Q=qbs_new(0,0);
+int64 fornext_value4279;
+int64 fornext_finalvalue4279;
+int64 fornext_step4279;
+uint8 fornext_step_negative4279;
+static qbs *sc_4280=qbs_new(0,0);
+int64 fornext_value4283;
+int64 fornext_finalvalue4283;
+int64 fornext_step4283;
+uint8 fornext_step_negative4283;
+int16 pass4284;
+int16 pass4285;
+byte_element_struct *byte_element_4286=NULL;
+if (!byte_element_4286){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4286=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4286=(byte_element_struct*)mem_static_malloc(12);
 }
-qbs *_SUB_ADDWARNING_STRING_WARNINGLOCATION=NULL;
-if (!_SUB_ADDWARNING_STRING_WARNINGLOCATION)_SUB_ADDWARNING_STRING_WARNINGLOCATION=qbs_new(0,0);
-int16 *_SUB_ADDWARNING_INTEGER_WARNINGCODE=NULL;
-if(_SUB_ADDWARNING_INTEGER_WARNINGCODE==NULL){
-_SUB_ADDWARNING_INTEGER_WARNINGCODE=(int16*)mem_static_malloc(2);
-*_SUB_ADDWARNING_INTEGER_WARNINGCODE=0;
+byte_element_struct *byte_element_4287=NULL;
+if (!byte_element_4287){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4287=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4287=(byte_element_struct*)mem_static_malloc(12);
 }
-qbs *_SUB_ADDWARNING_STRING_WARNINGMESSAGE=NULL;
-if (!_SUB_ADDWARNING_STRING_WARNINGMESSAGE)_SUB_ADDWARNING_STRING_WARNINGMESSAGE=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_ACTIVEPHASE=NULL;
-if (!_SUB_ADDWARNING_STRING_ACTIVEPHASE)_SUB_ADDWARNING_STRING_ACTIVEPHASE=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_FLOWTEXT=NULL;
-if (!_SUB_ADDWARNING_STRING_FLOWTEXT)_SUB_ADDWARNING_STRING_FLOWTEXT=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_SUGGESTIONTEXT=NULL;
-if (!_SUB_ADDWARNING_STRING_SUGGESTIONTEXT)_SUB_ADDWARNING_STRING_SUGGESTIONTEXT=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_CAUSETEXT=NULL;
-if (!_SUB_ADDWARNING_STRING_CAUSETEXT)_SUB_ADDWARNING_STRING_CAUSETEXT=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_EXAMPLETEXT=NULL;
-if (!_SUB_ADDWARNING_STRING_EXAMPLETEXT)_SUB_ADDWARNING_STRING_EXAMPLETEXT=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_LOCATIONTEXT=NULL;
-if (!_SUB_ADDWARNING_STRING_LOCATIONTEXT)_SUB_ADDWARNING_STRING_LOCATIONTEXT=qbs_new(0,0);
-qbs *_SUB_ADDWARNING_STRING_LINESTR=NULL;
-if (!_SUB_ADDWARNING_STRING_LINESTR)_SUB_ADDWARNING_STRING_LINESTR=qbs_new(0,0);
-static qbs *sc_4289=qbs_new(0,0);
-int16 pass4290;
-int16 pass4293;
-qbs *_SUB_ADDWARNING_STRING_THISSOURCE=NULL;
-if (!_SUB_ADDWARNING_STRING_THISSOURCE)_SUB_ADDWARNING_STRING_THISSOURCE=qbs_new(0,0);
-byte_element_struct *byte_element_4307=NULL;
-if (!byte_element_4307){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4307=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4307=(byte_element_struct*)mem_static_malloc(12);
+byte_element_struct *byte_element_4288=NULL;
+if (!byte_element_4288){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4288=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4288=(byte_element_struct*)mem_static_malloc(12);
 }
-qbs *_SUB_ADDWARNING_STRING_THISINCNAME=NULL;
-if (!_SUB_ADDWARNING_STRING_THISINCNAME)_SUB_ADDWARNING_STRING_THISINCNAME=qbs_new(0,0);
-byte_element_struct *byte_element_4308=NULL;
-if (!byte_element_4308){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4308=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4308=(byte_element_struct*)mem_static_malloc(12);
+byte_element_struct *byte_element_4289=NULL;
+if (!byte_element_4289){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4289=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4289=(byte_element_struct*)mem_static_malloc(12);
 }
-byte_element_struct *byte_element_4315=NULL;
-if (!byte_element_4315){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4315=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4315=(byte_element_struct*)mem_static_malloc(12);
+byte_element_struct *byte_element_4290=NULL;
+if (!byte_element_4290){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4290=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4290=(byte_element_struct*)mem_static_malloc(12);
 }

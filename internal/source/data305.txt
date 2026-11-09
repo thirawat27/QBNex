@@ -1,2 +1,20 @@
-qbs *_FUNC_GETERRORPHASE_STRING_GETERRORPHASE=NULL;
-if (!_FUNC_GETERRORPHASE_STRING_GETERRORPHASE)_FUNC_GETERRORPHASE_STRING_GETERRORPHASE=qbs_new(0,0);
+qbs*oldstr4392=NULL;
+if(_SUB_IRCALL_STRING_N->tmp||_SUB_IRCALL_STRING_N->fixed||_SUB_IRCALL_STRING_N->readonly){
+oldstr4392=_SUB_IRCALL_STRING_N;
+if (oldstr4392->cmem_descriptor){
+_SUB_IRCALL_STRING_N=qbs_new_cmem(oldstr4392->len,0);
+}else{
+_SUB_IRCALL_STRING_N=qbs_new(oldstr4392->len,0);
+}
+memcpy(_SUB_IRCALL_STRING_N->chr,oldstr4392->chr,oldstr4392->len);
+}
+int32 *_SUB_IRCALL_LONG_S=NULL;
+if(_SUB_IRCALL_LONG_S==NULL){
+_SUB_IRCALL_LONG_S=(int32*)mem_static_malloc(4);
+*_SUB_IRCALL_LONG_S=0;
+}
+int32 *_SUB_IRCALL_LONG_ARGC=NULL;
+if(_SUB_IRCALL_LONG_ARGC==NULL){
+_SUB_IRCALL_LONG_ARGC=(int32*)mem_static_malloc(4);
+*_SUB_IRCALL_LONG_ARGC=0;
+}

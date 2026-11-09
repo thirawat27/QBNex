@@ -1,0 +1,19 @@
+int16 *_FUNC_ISIDENTIFIERSTARTCHAR_INTEGER_ISIDENTIFIERSTARTCHAR=NULL;
+if(_FUNC_ISIDENTIFIERSTARTCHAR_INTEGER_ISIDENTIFIERSTARTCHAR==NULL){
+_FUNC_ISIDENTIFIERSTARTCHAR_INTEGER_ISIDENTIFIERSTARTCHAR=(int16*)mem_static_malloc(2);
+*_FUNC_ISIDENTIFIERSTARTCHAR_INTEGER_ISIDENTIFIERSTARTCHAR=0;
+}
+qbs*oldstr4697=NULL;
+if(_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH->tmp||_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH->fixed||_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH->readonly){
+oldstr4697=_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH;
+if (oldstr4697->cmem_descriptor){
+_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH=qbs_new_cmem(oldstr4697->len,0);
+}else{
+_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH=qbs_new(oldstr4697->len,0);
+}
+memcpy(_FUNC_ISIDENTIFIERSTARTCHAR_STRING_CH->chr,oldstr4697->chr,oldstr4697->len);
+}
+byte_element_struct *byte_element_4698=NULL;
+if (!byte_element_4698){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4698=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4698=(byte_element_struct*)mem_static_malloc(12);
+}

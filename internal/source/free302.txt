@@ -1,4 +1,4 @@
-if(oldstr4525){
-if(oldstr4525->fixed)qbs_set(oldstr4525,_SUB_SETCURRENTFILE_STRING_FILENAME);
-qbs_free(_SUB_SETCURRENTFILE_STRING_FILENAME);
-}
+qbs_free(_SUB_IRDIM_STRING_N);
+qbs_free(_SUB_IRDIM_STRING_IRSCOPE);
+qbs_free(_SUB_IRDIM_STRING_NM);
+qbs_free(_SUB_IRDIM_STRING_SFX);

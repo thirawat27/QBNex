@@ -1,10 +1,20 @@
-qbs*oldstr4425=NULL;
-if(_SUB_PATH_SLASH_CORRECT_STRING_A->tmp||_SUB_PATH_SLASH_CORRECT_STRING_A->fixed||_SUB_PATH_SLASH_CORRECT_STRING_A->readonly){
-oldstr4425=_SUB_PATH_SLASH_CORRECT_STRING_A;
-if (oldstr4425->cmem_descriptor){
-_SUB_PATH_SLASH_CORRECT_STRING_A=qbs_new_cmem(oldstr4425->len,0);
+qbs*oldstr4354=NULL;
+if(_SUB_IRPUSHBLOCK_STRING_KIND->tmp||_SUB_IRPUSHBLOCK_STRING_KIND->fixed||_SUB_IRPUSHBLOCK_STRING_KIND->readonly){
+oldstr4354=_SUB_IRPUSHBLOCK_STRING_KIND;
+if (oldstr4354->cmem_descriptor){
+_SUB_IRPUSHBLOCK_STRING_KIND=qbs_new_cmem(oldstr4354->len,0);
 }else{
-_SUB_PATH_SLASH_CORRECT_STRING_A=qbs_new(oldstr4425->len,0);
+_SUB_IRPUSHBLOCK_STRING_KIND=qbs_new(oldstr4354->len,0);
 }
-memcpy(_SUB_PATH_SLASH_CORRECT_STRING_A->chr,oldstr4425->chr,oldstr4425->len);
+memcpy(_SUB_IRPUSHBLOCK_STRING_KIND->chr,oldstr4354->chr,oldstr4354->len);
+}
+qbs*oldstr4355=NULL;
+if(_SUB_IRPUSHBLOCK_STRING_V->tmp||_SUB_IRPUSHBLOCK_STRING_V->fixed||_SUB_IRPUSHBLOCK_STRING_V->readonly){
+oldstr4355=_SUB_IRPUSHBLOCK_STRING_V;
+if (oldstr4355->cmem_descriptor){
+_SUB_IRPUSHBLOCK_STRING_V=qbs_new_cmem(oldstr4355->len,0);
+}else{
+_SUB_IRPUSHBLOCK_STRING_V=qbs_new(oldstr4355->len,0);
+}
+memcpy(_SUB_IRPUSHBLOCK_STRING_V->chr,oldstr4355->chr,oldstr4355->len);
 }
