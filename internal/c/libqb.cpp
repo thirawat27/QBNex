@@ -2209,7 +2209,14 @@ int32 exit_ok=0;
 #endif
 
 int MessageBox2(int ignore,char* message,char* title,int type){
-    
+
+    //headless (QBNEX_HEADLESS / no display): nothing can answer a modal box.
+    //The legacy GLUT build got 0 back here (no usable owner window) and went
+    //on, so do the same and report the message on stderr instead.
+    if (qbrt_window_headless()){
+        fprintf(stderr,"%s: %s\n",title,message);
+        return 0;
+    }
     #ifdef QBNex_WINDOWS
         return MessageBox(window_handle,message,title,type);
         #else
