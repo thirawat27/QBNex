@@ -1,0 +1,10 @@
+[plain text]
+[a, quoted]
+[next]
+[x	y]
+[lf-only]
+[z]
+ 12.0 -350  255.0  15.0  5  5  1  0 
+[after]-1 
+ 36 [  plain text  ,"a, quoted" tail,next]
+ 0  39  111 

@@ -1,0 +1,1 @@
+D-06 / L-08: legacy _MEMFREE of a _MEMNEW block erased the buffer and then called free() on it again, corrupting the heap (exit 0xC0000374 after the first _MEMFREE). Rust frees the block once. Golden output written by hand: the result QBasic/QB64 semantics give.
