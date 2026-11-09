@@ -98,8 +98,8 @@ impl FaceMetrics {
         let mut ascender = hhea.ascender().to_i16() as i64;
         let mut descender = hhea.descender().to_i16() as i64;
         let mut height = (ascender - descender + hhea.line_gap().to_i16() as i64) as i16 as i64;
-        if ascender == 0 && descender == 0 {
-            if let Ok(os2) = font.os2() {
+        if ascender == 0 && descender == 0
+            && let Ok(os2) = font.os2() {
                 if os2.s_typo_ascender() != 0 || os2.s_typo_descender() != 0 {
                     ascender = os2.s_typo_ascender() as i64;
                     descender = os2.s_typo_descender() as i64;
@@ -110,7 +110,6 @@ impl FaceMetrics {
                     height = (ascender - descender) as u16 as i64;
                 }
             }
-        }
         Some(FaceMetrics {
             units_per_em: head.units_per_em() as i64,
             ascender,
@@ -457,11 +456,10 @@ impl Font {
                 pix_round(mul_fix(units, self.size.x_scale))
             }
         };
-        if !self.fixed_pitch {
-            if let Some(w) = hdmx_width(&font, self.size.ppem, gid.to_u32()) {
+        if !self.fixed_pitch
+            && let Some(w) = hdmx_width(&font, self.size.ppem, gid.to_u32()) {
                 advance = w << 6;
             }
-        }
         // Control box in 26.6 (on- and off-curve points), as FreeType's cbox.
         let (mut x_min, mut y_min, mut x_max, mut y_max) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
         let mut add = |x: f32, y: f32| {
@@ -725,7 +723,7 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
 
 /// # Safety
 /// `content` must point to `bytes` readable bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_font_load(
     content: *const u8,
     bytes: i32,
@@ -745,12 +743,12 @@ pub unsafe extern "C" fn qb_font_load(
     )
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_font_free(i: i32) {
     free(i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_font_width(i: i32) -> i32 {
     width(i)
 }
@@ -760,7 +758,7 @@ pub extern "C" fn qb_font_width(i: i32) -> i32 {
 ///
 /// # Safety
 /// `codepoint` must hold `codepoints` values; the out-pointers must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_font_render_utf32(
     i: i32,
     codepoint: *const u32,
@@ -1050,7 +1048,7 @@ mod tests {
                 1
             );
             assert_eq!((x, y), (2 * qb_font_width(h), 16));
-            extern "C" {
+            unsafe extern "C" {
                 fn free(p: *mut std::os::raw::c_void);
             }
             free(p as *mut _);

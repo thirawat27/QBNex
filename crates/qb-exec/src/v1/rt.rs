@@ -548,7 +548,8 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         "ENVIRON" => {
             let t = String::from_utf8_lossy(s(0)).into_owned();
             if let Some((k, v)) = t.split_once('=') {
-                std::env::set_var(k.trim(), v);
+                // SAFETY: the program thread is the only one touching the environment
+                unsafe { std::env::set_var(k.trim(), v) };
             }
         }
         "SHELL" => {

@@ -27,17 +27,17 @@ pub use vm::{EventHandle, Vm};
 /// it only needs the symbols to exist.
 #[allow(non_upper_case_globals)]
 mod libqb_host {
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut cmem_sp: u32 = 0;
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut dblock: isize = 0;
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut cmem: [u8; 1] = [0];
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn qb_host_error(_n: i32) {
         std::process::abort()
     }
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }

@@ -10,7 +10,7 @@ pub fn to_8bpp(bgra: &[u8], w: usize, h: usize, palette: &mut [u32; 256]) -> Opt
     let mut cubes = [[0u32; 4]; 256]; // r, g, b sums and count
     let mut out = Vec::new();
     out.try_reserve_exact(w * h).ok()?;
-    let mut src = bgra.chunks_exact(4);
+    let mut src = bgra.as_chunks::<4>().0.iter();
     for y in 0..h {
         for x in 0..w {
             let p = src.next().unwrap_or(&[0; 4]);
@@ -81,7 +81,7 @@ pub fn remap_palette(pixels: &mut [u8], src_pal: &[u32; 256], dst_pal: &[u32; 25
 ///
 /// # Safety
 /// `bgra` must hold `w*h*4` bytes and `palette_out` 256 writable entries.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_image_to_8bpp(
     bgra: *const u8,
     w: i32,
@@ -109,7 +109,7 @@ pub unsafe extern "C" fn qb_image_to_8bpp(
 ///
 /// # Safety
 /// `pixels` must hold `w*h` bytes; both palettes 256 entries.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_image_remap_palette(
     pixels: *mut u8,
     w: i32,

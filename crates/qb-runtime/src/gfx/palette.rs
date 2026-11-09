@@ -232,7 +232,7 @@ pub fn defaultcolors(im: &mut ImgStruct) {
 
 /// # Safety
 /// `im` must be a valid surface.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_restorepalette(im: *const ImgStruct) {
     // SAFETY: guaranteed by the caller.
     unsafe { restorepalette(&*im) }
@@ -240,7 +240,7 @@ pub unsafe extern "C" fn qb_gfx_restorepalette(im: *const ImgStruct) {
 
 /// # Safety
 /// `im` must be a valid surface.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_palette(im: *mut ImgStruct, attribute: u32, col: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { palette(&mut *im, attribute, col, passed) }
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn qb_gfx_palette(im: *mut ImgStruct, attribute: u32, col:
 
 /// # Safety
 /// `im` must be a valid, non-console surface.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_color(im: *mut ImgStruct, col1: u32, col2: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { color(&mut *im, col1, col2, passed) }
@@ -256,7 +256,7 @@ pub unsafe extern "C" fn qb_gfx_color(im: *mut ImgStruct, col1: u32, col2: u32, 
 
 /// # Safety
 /// `im` must be a valid surface.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_defaultcolors(im: *mut ImgStruct) {
     // SAFETY: guaranteed by the caller.
     defaultcolors(unsafe { &mut *im })
