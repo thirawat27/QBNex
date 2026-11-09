@@ -144,3 +144,19 @@ fn print_inside_loop_and_hex_strings() {
     let p = format!("QIR 0\n{}PRINTNL\nEND\n", for_loop(1, "I%", "I 1", "I 5", "I 1", &body));
     assert_eq!(same(&p), " 1 , 2 , 3 , 4 , 5 ,\n");
 }
+
+#[test]
+fn array_bounds_errors_from_native_code() {
+    // DIM a%(5): ON ERROR GOTO H: FOR i% = 0 TO 8: a%(i%) = i%: s% = s% + a%(i%): NEXT: PRINT s%; e%: END
+    // H: e% = e% + 1: RESUME NEXT       (2-D: DIM m#(2, 3) filled the same way)
+    let body = "LINE 3\nLOAD I%\nLOAD I%\nSTOREE A%() 1\nLINE 4\nLOAD S%\nLOAD I%\nLOADE A%() 1\nOP ADD\nSTORE S%\n\
+                LINE 5\nPUSH I 1\nLOAD I%\nLOAD I%\nSTOREE M#() 2\nLINE 6\nLOAD T#\nPUSH I 1\nLOAD I%\nLOADE M#() 2\nOP ADD\nSTORE T#";
+    let p = format!(
+        "QIR 0\nLINE 1\nPUSH I 0\nPUSH I 5\nDIMA A%() 1\nPUSH I 0\nPUSH I 2\nPUSH I 0\nPUSH I 3\nDIMA M#() 2\nONERROR MAIN.H\nLINE 2\n{}\
+         LINE 7\nLOAD S%\nPRINT\nLOAD T#\nPRINT\nLOAD E%\nPRINT\nPRINTNL\nEND\n\
+         LABEL MAIN.H\nLINE 9\nLOAD E%\nPUSH I 1\nOP ADD\nSTORE E%\nRESUME NEXT\n",
+        for_loop(1, "I%", "I 0", "I 8", "I 1", body)
+    );
+    // At i% = 4 the 2-D store fails; RESUME NEXT skips to LINE 7 (NEXT has no LINE of its own).
+    assert_eq!(same(&p), " 10  6  2 \n");
+}

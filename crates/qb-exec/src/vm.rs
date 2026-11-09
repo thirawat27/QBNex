@@ -344,7 +344,14 @@ impl<'m, 'o> Vm<'m, 'o> {
         let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
         // SAFETY: native code works on the current window `np` and calls back
         // into this VM only through `vm_op` (one non-control instruction).
-        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, vm_op)? };
+        let hosts = crate::jit::Hosts {
+            vm_op,
+            lde1: jit_lde1 as *const () as usize,
+            ste1: jit_ste1 as *const () as usize,
+            lde2: jit_lde2 as *const () as usize,
+            ste2: jit_ste2 as *const () as usize,
+        };
+        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts)? };
         Some(st)
     }
 
@@ -1444,5 +1451,49 @@ extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
             ctx.exit_pc = at;
             qb_jit::status::ERROR
         }
+    }
+}
+
+fn host_vm<'a>(ctx: *mut qb_jit::Ctx) -> (&'a mut qb_jit::Ctx, &'a mut Vm<'static, 'static>) {
+    // SAFETY: called only by native code entered through `jit_enter`, which set `user`.
+    let ctx = unsafe { &mut *ctx };
+    let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
+    (ctx, vm)
+}
+
+/// Native `ld_e1` (numeric element of a 1-D array) as register bits.
+extern "C" fn jit_lde1(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.get(o))) {
+        Ok(v) => v as i64,
+        Err(c) => {
+            ctx.err = c;
+            0
+        }
+    }
+}
+
+extern "C" fn jit_ste1(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
+    let (ctx, vm) = host_vm(ctx);
+    if let Err(c) = vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.set(o, v as u64))) {
+        ctx.err = c;
+    }
+}
+
+extern "C" fn jit_lde2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.get(o))) {
+        Ok(v) => v as i64,
+        Err(c) => {
+            ctx.err = c;
+            0
+        }
+    }
+}
+
+extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
+    let (ctx, vm) = host_vm(ctx);
+    if let Err(c) = vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.set(o, v as u64))) {
+        ctx.err = c;
     }
 }

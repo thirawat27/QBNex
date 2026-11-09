@@ -476,6 +476,32 @@ impl Lower<'_> {
                 }
                 self.put(d, dd);
             }
+            LdE1 { d, a, i } | LdE { d, a, i, n: 1 } => {
+                self.insts.push(Inst::At { pc });
+                let (ar, ir) = (self.konst_i(i64::from(a)), self.get(i, Class::Int));
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Host { f: H_LDE1, args: vec![ar, ir], dst: Some(dd) });
+                self.put(d, dd);
+            }
+            StE1 { a, i, s } | StE { a, i, n: 1, s } => {
+                self.insts.push(Inst::At { pc });
+                let (ar, ir, sr) = (self.konst_i(i64::from(a)), self.get(i, Class::Int), self.get(s, Class::Int));
+                self.insts.push(Inst::Host { f: H_STE1, args: vec![ar, ir, sr], dst: None });
+            }
+            LdE { d, a, i, n: 2 } => {
+                self.insts.push(Inst::At { pc });
+                let ar = self.konst_i(i64::from(a));
+                let (i1, i2) = (self.get(i, Class::Int), self.get(i + 1, Class::Int));
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Host { f: H_LDE2, args: vec![ar, i1, i2], dst: Some(dd) });
+                self.put(d, dd);
+            }
+            StE { a, i, n: 2, s } => {
+                self.insts.push(Inst::At { pc });
+                let ar = self.konst_i(i64::from(a));
+                let (i1, i2, sr) = (self.get(i, Class::Int), self.get(i + 1, Class::Int), self.get(s, Class::Int));
+                self.insts.push(Inst::Host { f: H_STE2, args: vec![ar, i1, i2, sr], dst: None });
+            }
             _ => {
                 let regs = frame_regs(self.m, ins, self.m.funcs[self.fi].n_num(), self.is_main());
                 self.insts.push(Inst::VmOp { op: pc, reads: regs.clone(), writes: regs });
@@ -604,6 +630,28 @@ use core::sync::atomic::AtomicU32;
 
 pub(crate) type VmOpFn = extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
 
+/// VM entry points native code calls.
+pub(crate) struct Hosts {
+    pub vm_op: VmOpFn,
+    pub lde1: usize,
+    pub ste1: usize,
+    pub lde2: usize,
+    pub ste2: usize,
+}
+
+const H_LDE1: u32 = 0;
+const H_STE1: u32 = 1;
+const H_LDE2: u32 = 2;
+const H_STE2: u32 = 3;
+
+fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
+    let f = |name: &str, n: usize, ret: bool, addr: usize| mir::HostFn {
+        sig: mir::HostSig { name: name.into(), params: vec![Ty::I64; n], ret: ret.then_some(Ty::I64), may_error: true },
+        addr,
+    };
+    vec![f("lde1", 2, true, h.lde1), f("ste1", 3, false, h.ste1), f("lde2", 3, true, h.lde2), f("ste2", 4, false, h.ste2)]
+}
+
 /// JIT state owned by a VM.
 pub struct JitState {
     tier: Tiering,
@@ -658,11 +706,13 @@ impl JitState {
         ev: *const AtomicU32,
         mask: u32,
         user: *mut core::ffi::c_void,
-        cb: VmOpFn,
+        hosts: &Hosts,
     ) -> Option<Result<(u32, bool), (i32, u32)>> {
         if self.mir.is_none() {
             // SAFETY: the bytecode module outlives the VM that owns this state.
-            self.mir = Some(lower(unsafe { &*self.bc }, cb as *const () as usize));
+            let mut m = lower(unsafe { &*self.bc }, hosts.vm_op as *const () as usize);
+            m.hosts = host_table(hosts);
+            self.mir = Some(m);
         }
         let func = self.func_of(pc);
         let mir = self.mir.as_ref().expect("lowered");
