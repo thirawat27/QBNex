@@ -1,5 +1,5 @@
 //! C ABI of the audio runtime. Called by the thin shims in
-//! `internal/c/parts/audio/out/src.c` (compiled into libqb when
+//! `internal/c/libqb/audio_bridge.cpp` (compiled into libqb when
 //! DEPENDENCY_AUDIO_OUT is defined), which keep the legacy `sub_*`/`func_*`
 //! signatures, raise BASIC errors and manage `_MEM` locks.
 //!

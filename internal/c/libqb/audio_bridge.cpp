@@ -8,7 +8,7 @@
 // else happens in Rust (qb_audio.h).
 //-----------------------------------------------------------------------------------------------------
 
-#include "audio.h"
+#include "audio_bridge.h"
 
 #ifndef DEPENDENCY_AUDIO_OUT
 // Just stubs if no audio support is required
@@ -17,7 +17,7 @@ void snd_init() { return; }
 void snd_un_init() { return; }
 #else
 
-#include "../../../../../crates/qb-runtime/include/qb_audio.h"
+#include "../../../crates/qb-runtime/include/qb_audio.h"
 
 #define QB_INVALID_MEM_LOCK 1073741821
 #define QB_MEM_TYPE_SOUND 5

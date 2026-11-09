@@ -7,7 +7,7 @@
 //
 //  QBNex Audio Engine: declarations used by libqb/qbx. Implemented in Rust
 //  (crates/qb-audio, C ABI in crates/qb-runtime/include/qb_audio.h) via the shims
-//  in src.c. The original miniaudio-based engine was written by Samuel Gomes.
+//  in audio_bridge.cpp. The original miniaudio-based engine was written by Samuel Gomes.
 //
 //  Copyright (c) 2022 Samuel Gomes
 //  https://github.com/a740g

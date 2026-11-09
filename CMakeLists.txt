@@ -32,17 +32,14 @@ if(WIN32)
   # crates/*/os/<dir> and crates/qb-exec/bin/<dir> use full OS names
   set(QBNEX_CRATE_OS_DIR "windows")
   set(QBNEX_LIBQB_SCRIPT "setup_build.bat")
-  set(QBNEX_TTF_SCRIPT "setup_build.bat")
 elseif(APPLE)
   set(QBNEX_OS_DIR "osx")
   set(QBNEX_CRATE_OS_DIR "macos")
   set(QBNEX_LIBQB_SCRIPT "setup_build.command")
-  set(QBNEX_TTF_SCRIPT "setup_build.command")
 else()
   set(QBNEX_OS_DIR "lnx")
   set(QBNEX_CRATE_OS_DIR "linux")
   set(QBNEX_LIBQB_SCRIPT "setup_build.sh")
-  set(QBNEX_TTF_SCRIPT "setup_build.sh")
 endif()
 
 function(qbnex_add_script_output output_file work_dir script_name)
@@ -70,7 +67,6 @@ function(qbnex_add_script_output output_file work_dir script_name)
 endfunction()
 
 set(QBNEX_LIBQB_OBJ "${QBNEX_INTERNAL_C}/libqb/os/${QBNEX_OS_DIR}/libqb_setup.o")
-set(QBNEX_TTF_OBJ "${QBNEX_INTERNAL_C}/parts/video/font/ttf/os/${QBNEX_OS_DIR}/src.o")
 qbnex_add_script_output(
   "${QBNEX_LIBQB_OBJ}"
   "${QBNEX_INTERNAL_C}/libqb/os/${QBNEX_OS_DIR}"
@@ -79,11 +75,6 @@ qbnex_add_script_output(
   "${QBNEX_INTERNAL_C}/libqb.h"
   "${QBNEX_INTERNAL_C}/common.h"
   "${QBNEX_CRATES}/qb-runtime/include/qb_runtime.h"
-)
-qbnex_add_script_output(
-  "${QBNEX_TTF_OBJ}"
-  "${QBNEX_INTERNAL_C}/parts/video/font/ttf/os/${QBNEX_OS_DIR}"
-  "${QBNEX_TTF_SCRIPT}"
 )
 
 # Rust runtime (crates/qb-runtime): static library linked after libqb.
@@ -129,9 +120,9 @@ qbnex_add_script_output(
 )
 add_custom_target(qb-exec ALL DEPENDS "${QBNEX_QB_EXEC_EXE}")
 
-set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_TTF_OBJ}" "${QBNEX_QB_RUNTIME_LIB}")
+set(QBNEX_RUNTIME_DEPENDS "${QBNEX_LIBQB_OBJ}" "${QBNEX_QB_RUNTIME_LIB}")
 
-# R8: freeglut/GLEW (internal/c/parts/core) are no longer built; the window is qb-runtime (Rust).
+# R8: the window is qb-runtime (Rust); R10: internal/c/parts is gone.
 
 add_custom_target(qbnex_runtime_objects DEPENDS ${QBNEX_RUNTIME_DEPENDS})
 
@@ -167,7 +158,6 @@ if(WIN32)
       "${QBNEX_LIBQB_OBJ}"
       "${QBNEX_QB_RUNTIME_LIB}"
       ${QBNEX_QB_RUNTIME_NATIVE_LIBS}
-      "${QBNEX_TTF_OBJ}"
       ws2_32
       winmm
       gdi32
@@ -181,7 +171,6 @@ elseif(APPLE)
       "${QBNEX_LIBQB_OBJ}"
       "${QBNEX_QB_RUNTIME_LIB}"
       ${QBNEX_QB_RUNTIME_NATIVE_LIBS}
-      "${QBNEX_TTF_OBJ}"
       "-framework Cocoa"
   )
 else()
@@ -192,7 +181,6 @@ else()
       "${QBNEX_LIBQB_OBJ}"
       "${QBNEX_QB_RUNTIME_LIB}"
       ${QBNEX_QB_RUNTIME_NATIVE_LIBS}
-      "${QBNEX_TTF_OBJ}"
       pthread
       dl
       rt

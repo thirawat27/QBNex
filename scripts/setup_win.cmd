@@ -27,8 +27,6 @@ if not exist internal\temp mkdir internal\temp
 
 del /q /s internal\c\libqb\*.o >nul 2>nul
 del /q /s internal\c\libqb\*.a >nul 2>nul
-del /q /s internal\c\parts\*.o >nul 2>nul
-del /q /s internal\c\parts\*.a >nul 2>nul
 del /q /s internal\temp\*.* >nul 2>nul
 if exist "%ARCHIVE_FILE%" del /q "%ARCHIVE_FILE%" >nul 2>nul
 if exist "%ARCHIVE_STAGE%" rd /s /q "%ARCHIVE_STAGE%" >nul 2>nul
@@ -135,12 +133,6 @@ if not exist crates\qb-runtime\os\windows\libqb_runtime.a (
     goto end
 )
 
-echo Building library 'FreeType'
-cd internal/c/parts/video/font/ttf/os/win
-if exist src.o del src.o
-call .\setup_build.bat
-cd ../../../../../../../..
-
 echo Building 'QBNex'
 if not exist internal\temp mkdir internal\temp
 copy internal\source\*.* internal\temp\ >nul
@@ -149,7 +141,7 @@ copy compiler\qbnex.ico internal\temp\ >nul
 copy compiler\icon.rc internal\temp\ >nul
 cd internal\c
 c_compiler\bin\windres.exe -i ../temp/icon.rc -o ../temp/icon.o
-c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput ..\temp\icon.o -D DEPENDENCY_LOADFONT  parts\video\font\ttf\os\win\src.o -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE -static-libgcc -static-libstdc++ -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
+c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput ..\temp\icon.o -D DEPENDENCY_LOADFONT -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE -static-libgcc -static-libstdc++ -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
 cd ..\..
 
 if exist qb-stage0.exe (
