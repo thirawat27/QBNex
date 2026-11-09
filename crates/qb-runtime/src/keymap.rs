@@ -294,7 +294,7 @@ fn action_out(a: KeyAction, out_code: *mut u32) -> i32 {
 ///
 /// # Safety
 /// `out_code` is null or writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_keymap_glut_special(key: i32, down: i32, out_code: *mut u32) -> i32 {
     glut_special(key, down != 0).map_or(0, |a| action_out(a, out_code))
 }
@@ -304,7 +304,7 @@ pub unsafe extern "C" fn qb_keymap_glut_special(key: i32, down: i32, out_code: *
 ///
 /// # Safety
 /// `out_code` is null or writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_keymap_glut_ascii(
     key: i32,
     mods: i32,

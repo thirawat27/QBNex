@@ -32,7 +32,7 @@ pub fn decode(data: &[u8]) -> Option<Bgra> {
             (img.w, img.h, img.px)
         }
     };
-    for p in px.chunks_exact_mut(4) {
+    for p in px.as_chunks_mut::<4>().0 {
         p.swap(0, 2);
     }
     Some(Bgra { w, h, px })
@@ -66,7 +66,7 @@ fn decode_stb(data: &[u8]) -> Option<stb::Rgba> {
 /// # Safety
 /// `data` must point to `len` readable bytes (or be null with `len <= 0`);
 /// `w` and `h` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_image_decode(
     data: *const u8,
     len: i32,
@@ -289,7 +289,7 @@ mod tests {
             assert!(!p.is_null());
             assert_eq!((w, h), (1, 1));
             assert_eq!(std::slice::from_raw_parts(p, 4), &[3, 2, 1, 4]);
-            extern "C" {
+            unsafe extern "C" {
                 fn free(p: *mut std::os::raw::c_void);
             }
             free(p as *mut _);

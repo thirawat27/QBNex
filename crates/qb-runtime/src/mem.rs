@@ -48,18 +48,18 @@ pub struct MemLock {
 const EMPTY_LOCK: MemLock = MemLock { id: 0, type_: 0, offset: null_mut() };
 
 /// Last lock id handed out. Generated code also increments it directly.
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 pub static mut mem_lock_id: u64 = MEM_LOCK_INITIAL_ID;
 
 /// Lock created by the last `new_mem_lock()` call (read by generated code).
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 pub static mut mem_lock_tmp: *mut MemLock = null_mut();
 
 /// First lock of the newest lock block (legacy global; `_MEMSOUND` uses it as
 /// the lock of an invalid block).
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 pub static mut mem_lock_base: *mut MemLock = null_mut();
 
@@ -405,27 +405,27 @@ pub unsafe fn mem(offset: isize, size: isize, type_: i32, elementsize: isize, lo
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_new_mem_lock() -> *mut MemLock {
     new_mem_lock()
 }
 
 /// # Safety
 /// `lock` must come from `qb_new_mem_lock`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_free_mem_lock(lock: *mut MemLock) {
     // SAFETY: caller contract.
     unsafe { free_mem_lock(lock) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_mem_lock_invalid() -> *mut MemLock {
     addr_of_mut!(MEM_LOCK_INVALID)
 }
 
 /// # Safety
 /// `blk` must point to a `mem_block`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memfree(blk: *mut MemBlock) -> i32 {
     // SAFETY: caller contract.
     unsafe { memfree(&mut *blk) }
@@ -433,7 +433,7 @@ pub unsafe extern "C" fn qb_memfree(blk: *mut MemBlock) -> i32 {
 
 /// # Safety
 /// `out` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_mem_at_offset(offset: isize, size: isize, new_error: i32, out: *mut MemBlock) -> i32 {
     let (b, e) = mem_at_offset(offset, size, new_error != 0);
     // SAFETY: caller contract.
@@ -443,7 +443,7 @@ pub unsafe extern "C" fn qb_mem_at_offset(offset: isize, size: isize, new_error:
 
 /// # Safety
 /// `out` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memnew(bytes: isize, new_error: i32, out: *mut MemBlock) -> i32 {
     let (b, e) = memnew(bytes, new_error != 0);
     // SAFETY: caller contract.
@@ -453,7 +453,7 @@ pub unsafe extern "C" fn qb_memnew(bytes: isize, new_error: i32, out: *mut MemBl
 
 /// # Safety
 /// `blk` must point to a `mem_block`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memexists(blk: *const MemBlock) -> i32 {
     // SAFETY: caller contract.
     unsafe { memexists(&*blk) }
@@ -461,7 +461,7 @@ pub unsafe extern "C" fn qb_memexists(blk: *const MemBlock) -> i32 {
 
 /// # Safety
 /// `blk` must point to a `mem_block`; `err` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memget(blk: *const MemBlock, off: isize, bytes: isize, err: *mut i32) -> *mut c_void {
     // SAFETY: caller contract.
     let (p, e) = unsafe { memget(&*blk, off, bytes) };
@@ -472,7 +472,7 @@ pub unsafe extern "C" fn qb_memget(blk: *const MemBlock, off: isize, bytes: isiz
 
 /// # Safety
 /// See [`memfill`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memfill(
     blk: *const MemBlock,
     doff: isize,
@@ -486,7 +486,7 @@ pub unsafe extern "C" fn qb_memfill(
 
 /// # Safety
 /// See [`memfill_nochecks`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memfill_nochecks(doff: isize, dbytes: isize, src: *const u8, sbytes: isize) {
     // SAFETY: caller contract.
     unsafe { memfill_nochecks(doff, dbytes, src, sbytes) }
@@ -494,7 +494,7 @@ pub unsafe extern "C" fn qb_memfill_nochecks(doff: isize, dbytes: isize, src: *c
 
 /// # Safety
 /// See [`memcopy`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_memcopy(
     sblk: *const MemBlock,
     soff: isize,
@@ -508,7 +508,7 @@ pub unsafe extern "C" fn qb_memcopy(
 
 /// # Safety
 /// See [`mem`]; `out` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_mem(
     offset: isize,
     size: isize,

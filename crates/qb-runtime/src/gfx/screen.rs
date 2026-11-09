@@ -104,7 +104,7 @@ pub fn text_layout(prev_w: i32, prev_h: i32, ov: &mut Overrides) -> TextLayout {
 }
 
 /// C ABI: 1 when `SCREEN mode` (mode >= 0) is legal.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gfx_screen_mode_valid(mode: i32) -> i32 {
     mode_valid(mode) as i32
 }
@@ -114,7 +114,7 @@ pub extern "C" fn qb_gfx_screen_mode_valid(mode: i32) -> i32 {
 ///
 /// # Safety
 /// `out` must point to 3 writable `int32`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_screen_geometry(mode: i32, prev_w: i32, prev_h: i32, out: *mut i32) -> i32 {
     match graphics_geometry(mode, prev_w, prev_h) {
         Some((w, h, f)) => {
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn qb_gfx_screen_geometry(mode: i32, prev_w: i32, prev_h: 
 ///
 /// # Safety
 /// All pointers must be valid; `out` must hold 5 `int32`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_screen0_layout(
     prev_w: i32,
     prev_h: i32,

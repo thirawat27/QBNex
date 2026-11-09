@@ -20,7 +20,7 @@ path = "src/lib.rs"
 qb-audio = { path = "../qb-audio" }
 ab_glyph_rasterizer = "0.1.10"
 png = "0.18"
-skrifa = "0.36.0"
+skrifa = "0.49.0"
 zune-jpeg = "0.5.15"
 # R8: window + input (replaces freeglut/GLEW/gui.cpp)
 winit = "0.30"
@@ -51,4 +51,4 @@ windows-sys = { version = "0.61", features = [
 
 [target.'cfg(not(windows))'.dependencies]
 # Clipboard text and images on Linux (X11/Wayland) and macOS.
-arboard = { version = "3.6", default-features = false, features = ["image-data"] }
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }

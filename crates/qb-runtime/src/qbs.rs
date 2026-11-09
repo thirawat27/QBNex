@@ -46,19 +46,19 @@ const DATA_INITIAL: usize = 1_048_576;
 
 /// Next free index of the tmp tracking list; generated code saves it as the
 /// scope base (`uint32 qbs_tmp_base=qbs_tmp_list_nexti;`). Index 0 is a sentinel.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut qbs_tmp_list_nexti: u32 = 1;
 /// Top of the string area in DBLOCK (strings grow up from here).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut qbs_cmem_sp: u32 = 256;
 /// Start of the DBLOCK string area (room for 64 string descriptors).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut qbs_cmem_descriptor_space: u32 = 256;
 
 #[cfg(not(test))]
 mod host {
     use super::Qbs;
-    extern "C" {
+    unsafe extern "C" {
         pub static mut cmem_sp: u32;
         pub static mut dblock: isize;
         pub static mut cmem: [u8; 0];
@@ -682,59 +682,59 @@ unsafe fn bytes<'a>(s: *mut Qbs) -> &'a [u8] {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void;
     fn strlen(s: *const c_char) -> usize;
 }
 
 // --- C ABI (include/qb_runtime.h); libqb.cpp keeps one-line shims with the old names ---
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new_descriptor() -> *mut Qbs {
     unsafe { eng().new_descriptor() }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_free_descriptor(s: *mut Qbs) {
     unsafe { eng().free_descriptor(s) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_free(s: *mut Qbs) {
     unsafe { eng().free(s) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_cmem_concat_list() {
     unsafe { eng().cmem_concat_list() }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_concat_list() {
     unsafe { eng().concat_list() }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_tmp_concat_list() {
     unsafe { eng().tmp_concat_list() }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_concat(bytesrequired: u32) {
     unsafe { eng().concat(bytesrequired) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_concat_cmem(bytesrequired: u32) {
     unsafe { eng().concat_cmem(bytesrequired) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new_cmem(size: i32, tmp: u8) -> *mut Qbs {
     unsafe { eng().new_cmem(size, tmp) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new_txt(txt: *const c_char) -> *mut Qbs {
     unsafe {
         let len = if txt.is_null() { 0 } else { strlen(txt) as i32 };
@@ -742,33 +742,33 @@ pub unsafe extern "C" fn qb_qbs_new_txt(txt: *const c_char) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new_txt_len(txt: *const c_char, len: i32) -> *mut Qbs {
     unsafe { eng().new_txt_len(txt.cast(), len) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new_fixed(offset: *mut u8, size: u32, tmp: u8) -> *mut Qbs {
     unsafe { eng().new_fixed(offset, size, tmp) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new(size: i32, tmp: u8) -> *mut Qbs {
     unsafe { eng().new_str(size, tmp) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_maketmp(s: *mut Qbs) {
     unsafe { eng().tmp_add(s) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_set(dest: *mut Qbs, src: *mut Qbs) -> *mut Qbs {
     unsafe { eng().set(dest, src) }
 }
 
 /// Body of qbx.cpp's `qbs_cleanup`: frees the tmp strings created since `base`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_cleanup(base: u32) {
     unsafe {
         let e = eng();
@@ -783,7 +783,7 @@ pub unsafe extern "C" fn qb_qbs_cleanup(base: u32) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_add(a: *mut Qbs, b: *mut Qbs) -> *mut Qbs {
     unsafe {
         if (*b).len == 0 {
@@ -828,17 +828,17 @@ unsafe fn change_case(s: *mut Qbs, upper: bool) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_ucase(s: *mut Qbs) -> *mut Qbs {
     unsafe { change_case(s, true) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_lcase(s: *mut Qbs) -> *mut Qbs {
     unsafe { change_case(s, false) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_chr(value: i32) -> *mut Qbs {
     unsafe {
         if !(0..=255).contains(&value) {
@@ -853,7 +853,7 @@ pub unsafe extern "C" fn qb_func_chr(value: i32) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_varptr_helper(ty: u8, offset: u16) -> *mut Qbs {
     unsafe {
         let t = eng().new_str(3, 1);
@@ -865,7 +865,7 @@ pub unsafe extern "C" fn qb_func_varptr_helper(ty: u8, offset: u16) -> *mut Qbs 
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_left(s: *mut Qbs, l: i32) -> *mut Qbs {
     unsafe {
         let l = l.min((*s).len).max(0);
@@ -884,7 +884,7 @@ pub unsafe extern "C" fn qb_qbs_left(s: *mut Qbs, l: i32) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_right(s: *mut Qbs, l: i32) -> *mut Qbs {
     unsafe {
         let l = l.min((*s).len).max(0);
@@ -904,12 +904,12 @@ pub unsafe extern "C" fn qb_qbs_right(s: *mut Qbs, l: i32) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_space(spaces: i32) -> *mut Qbs {
     unsafe { qb_func_string(spaces, 32) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_string(characters: i32, asciivalue: i32) -> *mut Qbs {
     unsafe {
         let n = characters.max(0);
@@ -921,14 +921,14 @@ pub unsafe extern "C" fn qb_func_string(characters: i32, asciivalue: i32) -> *mu
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_set_qbs_size(target: *mut isize, newlength: i32) {
     unsafe {
         qb_qbs_set(*target as *mut Qbs, qb_func_space(newlength));
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_instr(start: i32, s: *mut Qbs, sub: *mut Qbs, passed: i32) -> i32 {
     // QBNex difference: start can be 0 or negative
     unsafe {
@@ -975,7 +975,7 @@ pub unsafe extern "C" fn qb_func_instr(start: i32, s: *mut Qbs, sub: *mut Qbs, p
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func__instrrev(start: i32, s: *mut Qbs, sub: *mut Qbs, passed: i32) -> i32 {
     unsafe {
         let (slen, sublen) = ((*s).len, (*sub).len);
@@ -1020,7 +1020,7 @@ pub unsafe extern "C" fn qb_func__instrrev(start: i32, s: *mut Qbs, sub: *mut Qb
 }
 
 /// MID$ statement after the `new_error` / `nothingstring` checks the C++ shim does.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_sub_mid(dest: *mut Qbs, start: i32, l: i32, src: *mut Qbs, passed: i32) {
     unsafe {
         let mut l = if passed == 0 { (*src).len } else { l };
@@ -1050,7 +1050,7 @@ pub unsafe extern "C" fn qb_sub_mid(dest: *mut Qbs, start: i32, l: i32, src: *mu
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_mid(s: *mut Qbs, start: i32, l: i32, passed: i32) -> *mut Qbs {
     unsafe {
         let (mut start, mut l) = (start, l);
@@ -1094,7 +1094,7 @@ pub unsafe extern "C" fn qb_func_mid(s: *mut Qbs, start: i32, l: i32, passed: i3
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_ltrim(s: *mut Qbs) -> *mut Qbs {
     unsafe {
         if (*s).len == 0 || *(*s).chr != 32 {
@@ -1120,7 +1120,7 @@ pub unsafe extern "C" fn qb_qbs_ltrim(s: *mut Qbs) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_rtrim(s: *mut Qbs) -> *mut Qbs {
     unsafe {
         if (*s).len == 0 || *(*s).chr.add((*s).len as usize - 1) != 32 {
@@ -1145,12 +1145,12 @@ pub unsafe extern "C" fn qb_qbs_rtrim(s: *mut Qbs) -> *mut Qbs {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs__trim(s: *mut Qbs) -> *mut Qbs {
     unsafe { qb_qbs_rtrim(qb_qbs_ltrim(s)) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func__str_nc_compare(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe {
         let (x, y) = (bytes(a), bytes(b));
@@ -1170,7 +1170,7 @@ pub unsafe extern "C" fn qb_func__str_nc_compare(a: *mut Qbs, b: *mut Qbs) -> i3
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func__str_compare(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe {
         let (x, y) = (bytes(a), bytes(b));
@@ -1184,12 +1184,12 @@ pub unsafe extern "C" fn qb_func__str_compare(a: *mut Qbs, b: *mut Qbs) -> i32 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_equal(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe { -i32::from((*a).len == (*b).len && bytes(a) == bytes(b)) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_notequal(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe { -i32::from(!((*a).len == (*b).len && bytes(a) == bytes(b))) }
 }
@@ -1212,28 +1212,28 @@ unsafe fn less(s1: *mut Qbs, s2: *mut Qbs, or_equal: bool) -> i32 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_lessthan(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe { less(a, b, false) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_greaterthan(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe { less(b, a, false) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_lessorequal(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe { less(a, b, true) }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_greaterorequal(a: *mut Qbs, b: *mut Qbs) -> i32 {
     unsafe { less(b, a, true) }
 }
 
 /// `ASC(s$, i)`; `i` is unsigned so 0 and negatives fail like out-of-range indexes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_asc(s: *mut Qbs, i: u32) -> i32 {
     unsafe {
         let i = i.wrapping_sub(1);
@@ -1245,7 +1245,7 @@ pub unsafe extern "C" fn qb_qbs_asc(s: *mut Qbs, i: u32) -> i32 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_asc1(s: *mut Qbs) -> i32 {
     unsafe {
         if (*s).len != 0 {
@@ -1256,7 +1256,7 @@ pub unsafe extern "C" fn qb_qbs_asc1(s: *mut Qbs) -> i32 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_len(s: *mut Qbs) -> i32 {
     unsafe { (*s).len }
 }
@@ -1283,7 +1283,7 @@ pub struct QbsDebugState {
     pub malloc_next: u32,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_debug_state(out: *mut QbsDebugState) {
     unsafe {
         let e = eng();
@@ -1308,7 +1308,7 @@ pub unsafe extern "C" fn qb_qbs_debug_state(out: *mut QbsDebugState) {
 }
 
 /// Position of a descriptor in the pool (block * 65536 + slot), or -1.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_debug_descriptor_index(s: *const Qbs) -> i64 {
     unsafe {
         let e = eng();
@@ -1322,19 +1322,19 @@ pub unsafe extern "C" fn qb_qbs_debug_descriptor_index(s: *const Qbs) -> i64 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_debug_sp() -> u32 {
     unsafe { eng().sp }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_debug_data_size() -> u32 {
     unsafe { eng().data_size }
 }
 
 /// Drops all strings and returns the engine to its start-up state (tests only;
 /// every outstanding `qbs*` becomes dangling).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_reset() {
     unsafe {
         let e = &mut *addr_of_mut!(ENGINE);

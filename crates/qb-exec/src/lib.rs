@@ -21,17 +21,17 @@ mod builtins;
 /// it only needs the symbols to exist.
 #[allow(non_upper_case_globals)]
 mod libqb_host {
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut cmem_sp: u32 = 0;
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut dblock: isize = 0;
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut cmem: [u8; 1] = [0];
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn qb_host_error(_n: i32) {
         std::process::abort()
     }
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }
@@ -358,7 +358,7 @@ fn parse_val(ty: &str, text: &str) -> Result<Val, RunError> {
         "F" => Val::F(f64::from(text.parse::<f32>().map_err(|_| bad())?)),
         "D" => Val::D(text.parse().map_err(|_| bad())?),
         "S" => {
-            if text.len() % 2 != 0 {
+            if !text.len().is_multiple_of(2) {
                 return Err(bad());
             }
             let mut s = Vec::with_capacity(text.len() / 2);

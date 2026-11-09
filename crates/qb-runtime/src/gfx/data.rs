@@ -25,26 +25,26 @@ const fn argb_palette<const N: usize>(raw: &[u8]) -> [u32; N] {
 }
 
 /// Default VGA 256-color palette (ARGB, alpha forced to 255 as in legacy init).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static palette_256: [u32; 256] = argb_palette::<256>(include_bytes!("data/pal256.bin"));
 
 /// Default EGA 64-color palette.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static palette_64: [u32; 64] = argb_palette::<64>(include_bytes!("data/pal64.bin"));
 
 /// SCREEN 10 pseudo colors: `[blink phase][0..8]` (no alpha, as in legacy).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static pal_mode10: [[u32; 9]; 2] = [
     [0, 0, 0, 0x808080, 0x808080, 0x808080, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF],
     [0, 0x808080, 0xFFFFFF, 0, 0x808080, 0xFFFFFF, 0, 0x808080, 0xFFFFFF],
 ];
 
 /// 8x8 font, `[char][row][col]`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static charset8x8: [u8; 256 * 8 * 8] = *include_bytes!("data/charset8.bin");
 
 /// 8x16 font, `[char][row][col]` (the 8x14 font is rows 1..=14 of it).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static charset8x16: [u8; 256 * 16 * 8] = *include_bytes!("data/charset16.bin");
 
 #[cfg(test)]

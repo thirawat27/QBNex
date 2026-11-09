@@ -118,7 +118,7 @@ pub unsafe fn func_point(write: &ImgStruct, read: &ImgStruct, x: f32, y: f32, pa
 
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_pset_stmt(im: *mut ImgStruct, x: f32, y: f32, col: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { sub_pset(&mut *im, x, y, col, passed) }
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn qb_gfx_pset_stmt(im: *mut ImgStruct, x: f32, y: f32, co
 
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_preset_stmt(im: *mut ImgStruct, x: f32, y: f32, col: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { sub_preset(&mut *im, x, y, col, passed) }
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn qb_gfx_preset_stmt(im: *mut ImgStruct, x: f32, y: f32, 
 
 /// # Safety
 /// `(x, y)` must lie inside `im`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_point_raw(im: *const ImgStruct, x: i32, y: i32) -> u32 {
     // SAFETY: guaranteed by the caller.
     unsafe { point(&*im, x, y) }
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn qb_gfx_point_raw(im: *const ImgStruct, x: i32, y: i32) 
 
 /// # Safety
 /// `write`/`read` must be `write_page`/`read_page`; `err` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_point(
     write: *const ImgStruct,
     read: *const ImgStruct,
