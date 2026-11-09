@@ -19,6 +19,9 @@
 #include <cstring>
 #include <vector>
 #include <string>
+#include <memory>
+#include <algorithm>
+#include <cstdarg>
 
 typedef int8_t int8;
 typedef uint8_t uint8;
@@ -77,6 +80,9 @@ static_assert(offsetof(img_struct, clipping_or_scaling) == 128, "layout");
 static_assert(offsetof(img_struct, draw_ta) == 168, "layout");
 static_assert(offsetof(img_struct, apm_p2) == 184, "layout");
 static_assert(sizeof(img_struct) == 192, "layout");
+#define IMG_FREEPAL 1 //free palette data before freeing image (common.h)
+#define IMG_SCREEN 2 //img is linked to other screen pages
+#define IMG_FREEMEM 4 //if set, it means memory must be freed
 
 namespace legacy {
 struct qbs { uint8 *chr; int32 len; }; // the only fields the legacy code reads
@@ -103,6 +109,20 @@ return (word << shift) | (word >> (32 - shift));
 #include "legacy/gfx_primitives.inc"
 #include "legacy/gfx_window_view.inc"
 #include "legacy/gfx_pmap.inc"
+// --- registry (newimg/freeimg/grow/imgframe/imgnew/imgrevert) and image ops ---
+typedef intptr_t ptrszint;
+struct mem_lock { int dummy; };
+static void free_mem_lock(mem_lock *) {}
+static void qb_init_text_utf8_cells(int32) {}
+static void qb_release_text_utf8_cells(int32) {}
+static void refresh_selected_pages() {}
+static void sub__freeimage(int32, int32) {}
+static std::vector<int32> page(1, 0);
+static uint32 write_page_index = 0, read_page_index = 0;
+inline int32 resolve_page_or_image_index(int32 handle, int32 &resolved_index) { resolved_index = -handle; return -1; }
+using std::swap;
+#include "legacy/gfx_registry.inc"
+#include "legacy/gfx_imgops.inc"
 } // namespace legacy
 
 #include "../include/qbrt.h"
@@ -398,6 +418,163 @@ static void op_defaults(Twin &t) {
     check("restorepalette", t, 0, 0, "");
 }
 
+// --- image ops: the legacy functions run on legacy::img[write_page_index] ----
+static img_struct *legacy_registry_base;
+
+static void op_imgops(Twin &t) {
+    legacy::img = &t.L;
+    legacy::write_page_index = 0;
+    legacy::write_page = &t.L;
+    int k = (int)(next() % 7);
+    int32 r = rint_(-20, 280), g = rint_(-20, 280), b = rint_(-20, 280), a = rint_(-20, 280);
+    uint32 col = (next() % 2) ? rcolor(t) : (uint32)rint_(0, 300);
+    int32 n = rint_(-2, 258);
+    legacy::last_error = 0;
+    std::string args = fmt("k=%d r=%d g=%d b=%d a=%d col=%08x n=%d", k, r, g, b, a, col, n);
+    uint32 lv = 0, rv = 0;
+    int32 re = 0;
+    switch (k) {
+    case 0: lv = legacy::func__rgb(r, g, b, 0, 0); rv = qbrt_gfx_rgb(&t.R, mutate ? r + 9 : r, g, b); break;
+    case 1: lv = legacy::func__rgba(r, g, b, a, 0, 0); rv = qbrt_gfx_rgba(&t.R, mutate ? r + 9 : r, g, b, a); break;
+    case 2: {
+        int which = rint_(0, 3);
+        args += fmt(" which=%d", which);
+        lv = which == 0 ? legacy::func__red(col, 0, 0) : which == 1 ? legacy::func__green(col, 0, 0)
+           : which == 2 ? legacy::func__blue(col, 0, 0) : legacy::func__alpha(col, 0, 0);
+        rv = (uint32)qbrt_gfx_component(&t.R, mutate ? col ^ 0x10101 : col, which, &re);
+        break;
+    }
+    case 3: {
+        int32 passed = (int32)(next() % 8) & ~2;
+        uint32 c2 = (next() % 4) ? rcolor(t) : col;
+        int32 alpha = (next() % 10) ? rint_(0, 255) : rint_(-5, 300);
+        args += fmt(" passed=%d c2=%08x alpha=%d", passed, c2, alpha);
+        legacy::sub__setalpha(alpha, col, c2, 0, passed);
+        re = qbrt_gfx_setalpha(&t.R, mutate ? alpha ^ 1 : alpha, col, c2, passed);
+        break;
+    }
+    case 4: {
+        int32 passed = (int32)(next() % 4);
+        args += fmt(" passed=%d", passed);
+        legacy::sub__clearcolor(col, 0, passed);
+        re = qbrt_gfx_clearcolor(&t.R, mutate ? col ^ 1 : col, passed);
+        break;
+    }
+    case 5: lv = legacy::func__palettecolor(n, 0, 0); rv = qbrt_gfx_palettecolor_get(&t.R, mutate ? n ^ 1 : n, &re); break;
+    case 6:
+        legacy::sub__palettecolor(n, col, 0, 0);
+        re = qbrt_gfx_palettecolor_set(&t.R, n, mutate ? col ^ 1 : col);
+        break;
+    }
+    legacy::img = legacy_registry_base;
+    ++checks;
+    if (lv != rv) { report("image op", t, "value", args + fmt(" legacy=%08x rust=%08x", lv, rv)); return; }
+    check("image op", t, legacy::last_error, re, args);
+}
+
+// --- registry: legacy newimg/freeimg/imgframe/imgnew/imgrevert vs Rust ---------
+static std::vector<std::vector<uint8>> external_buffers;
+
+static const char *diff_slot(int i) {
+    static char buf[160];
+    const img_struct &a = legacy::img[i], &b = img[i];
+    F(valid) F(text) F(width) F(height) F(bytes_per_pixel) F(bits_per_pixel) F(mask) F(compatible_mode)
+    F(color) F(background_color) F(draw_color) F(font) F(top_row) F(bottom_row) F(cursor_x) F(cursor_y)
+    F(cursor_show) F(cursor_firstvalue) F(cursor_lastvalue)
+    F(flags) F(transparent_color) F(alpha_disabled) F(print_mode)
+    F(view_x1) F(view_y1) F(view_x2) F(view_y2) F(view_offset_x) F(view_offset_y) F(x) F(y)
+    F(clipping_or_scaling) F(scaling_x) F(scaling_y) F(scaling_offset_x) F(scaling_offset_y)
+    F(window_x1) F(window_y1) F(window_x2) F(window_y2) F(draw_ta) F(draw_scale)
+    if ((a.offset == NULL) != (b.offset == NULL)) return "offset null-ness";
+    if ((a.pal == NULL) != (b.pal == NULL)) return "pal null-ness";
+    if (!(a.flags & 4) && a.offset != b.offset) return "external offset";
+    if (a.offset && a.valid && (a.flags & 4)) {
+        size_t n = (size_t)a.width * a.height * a.bytes_per_pixel;
+        if (memcmp(a.offset, b.offset, n)) return "pixels";
+    }
+    if (a.pal && b.pal && memcmp(a.pal, b.pal, 1024)) return "palette";
+    return NULL;
+}
+
+static void check_registry(const std::string &args, int32 lr, int32 rr, int32 le, int32 re) {
+    ++checks;
+    const char *why = NULL;
+    char b[200];
+    if (lr != rr) { snprintf(b, sizeof b, "result legacy=%d rust=%d", lr, rr); why = b; }
+    else if (le != re) { snprintf(b, sizeof b, "error legacy=%d rust=%d", le, re); why = b; }
+    else if (legacy::nimg != nimg || legacy::nextimg != nextimg) {
+        snprintf(b, sizeof b, "nimg/nextimg %d/%d vs %d/%d", legacy::nimg, legacy::nextimg, nimg, nextimg);
+        why = b;
+    } else {
+        for (int i = 0; i < legacy::nextimg && !why; i++) {
+            if (const char *d = diff_slot(i)) { snprintf(b, sizeof b, "slot %d: %s", i, d); why = b; }
+        }
+    }
+    if (why) {
+        ++failures;
+        if (failures <= 25) printf("MISMATCH registry: %s [%s]\n", why, args.c_str());
+    }
+}
+
+static void registry_test(long steps) {
+    // start-up as in libqb.cpp: indexes 0 and 1 reserved
+    memset(legacy::img, 0, IMG_BUFFERSIZE * sizeof(img_struct));
+    int32 x = legacy::newimg(); legacy::img[x].valid = 0;
+    x = legacy::newimg(); legacy::img[x].valid = 0;
+    qbrt_img_init();
+    int32 e = 0;
+    x = qbrt_img_new(&e); img[x].valid = 0;
+    x = qbrt_img_new(&e); img[x].valid = 0;
+    static const int modes[] = {0, 1, 2, 7, 8, 9, 10, 11, 12, 13, 256, 32, 3, 33, -1};
+    std::vector<int32> live;
+    for (long st = 0; st < steps; st++) {
+        int op = (int)(next() % 10);
+        int32 w = (next() % 8) ? rint_(1, 64) : rint_(-2, 300), h = (next() % 8) ? rint_(1, 48) : rint_(-2, 200);
+        int bpp = modes[next() % (sizeof modes / sizeof modes[0])];
+        legacy::last_error = 0;
+        int32 re = 0, lr = 0, rr = 0;
+        std::string args;
+        if (op <= 3) {
+            args = fmt("imgnew %d,%d,%d", w, h, bpp);
+            lr = legacy::imgnew(w, h, bpp);
+            rr = qbrt_imgnew(mutate ? w + 1 : w, h, bpp, &re);
+            if (lr) live.push_back(lr);
+        } else if (op == 4) {
+            external_buffers.emplace_back((size_t)std::max(w, 1) * std::max(h, 1) * 4 + 4, (uint8)0);
+            uint8 *o = external_buffers.back().data();
+            args = fmt("imgframe %d,%d,%d", w, h, bpp);
+            lr = legacy::imgframe(o, w, h, bpp);
+            rr = qbrt_imgframe(o, w, h, bpp, &re);
+            if (lr) live.push_back(lr);
+        } else if (op <= 7 && !live.empty()) {
+            size_t k = next() % live.size();
+            int32 i = live[k];
+            live.erase(live.begin() + k);
+            args = fmt("free %d", i);
+            // legacy sub__freeimage path: release owned resources, then freeimg
+            legacy::qb_release_img_owned_resources(i);
+            lr = legacy::freeimg(i);
+            qbrt_img_release_owned(i);
+            if (i < nimg && img[i].valid) { qbrt_img_free(mutate ? i ^ 1 : i); rr = 1; }
+        } else if (op == 8 && !live.empty()) {
+            int32 i = live[next() % live.size()];
+            args = fmt("imgrevert %d", i);
+            if (legacy::img[i].compatible_mode != 0 && legacy::img[i].offset) {
+                legacy::imgrevert(i);
+                qbrt_imgrevert(i);
+            }
+        } else {
+            int32 req = legacy::nimg < 40000 ? legacy::nimg + rint_(-10, 3000) : rint_(0, legacy::nimg);
+            args = fmt("grow %d", req);
+            lr = legacy::grow_img_registry(req) ? 0 : 502;
+            rr = qbrt_img_grow(req);
+        }
+        legacy_registry_base = legacy::img;
+        check_registry(args, lr, rr, legacy::last_error, re);
+        if (failures > 25) return;
+    }
+}
+
 static void check_tables() {
     // Built-in data: legacy start-up code (libqb.cpp main init) vs Rust statics.
     memcpy(&legacy::palette_256, &legacy::file_qbnex_pal[0], legacy::file_qbnex_pal_len);
@@ -428,6 +605,8 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--mutate")) mutate = true;
     }
     check_tables();
+    legacy_registry_base = legacy::img;
+    registry_test(quick ? 3000 : 40000);
     static const int modes[] = {1, 2, 7, 8, 9, 10, 11, 12, 13, 256, 32, 32, 13, 12};
     const long rounds = quick ? 300 : 6000;
     const int ops_per_round = 60;
@@ -440,7 +619,7 @@ int main(int argc, char **argv) {
         make_twin(t, w, h, bpp);
         if (bpp == 32 && next() % 4 == 0) { t.L.alpha_disabled = t.R.alpha_disabled = 1; }
         for (int k = 0; k < ops_per_round; k++) {
-            int op = (int)(next() % 12);
+            int op = (int)(next() % 14);
             per_op[op]++;
             switch (op) {
             case 0: case 1: op_line(t); break;
@@ -454,6 +633,7 @@ int main(int argc, char **argv) {
             case 9: op_pmap(t); break;
             case 10: op_palette(t); op_color(t); break;
             case 11: op_defaults(t); break;
+            case 12: case 13: op_imgops(t); break;
             }
             if (diff_state(t)) { // resynchronise after a reported mismatch
                 t.R = t.L; t.rpix = t.lpix; t.rpal = t.lpal;

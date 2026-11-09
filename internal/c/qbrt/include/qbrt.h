@@ -100,6 +100,36 @@ int32_t qbrt_gfx_window(struct img_struct *im, float x1, float y1, float x2, flo
 int32_t qbrt_gfx_view(struct img_struct *im, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t fillcolor,
                       int32_t bordercolor, int32_t passed);
 float qbrt_gfx_pmap(const struct img_struct *im, float val, int32_t option, int32_t *err);
+// Image operations (handles resolved by the C++ shims). which: 0 red 1 green 2 blue 3 alpha.
+uint32_t qbrt_gfx_rgb(const struct img_struct *im, int32_t r, int32_t g, int32_t b);
+uint32_t qbrt_gfx_rgba(const struct img_struct *im, int32_t r, int32_t g, int32_t b, int32_t a);
+uint32_t qbrt_gfx_matchcol(const struct img_struct *im, int32_t r, int32_t g, int32_t b);
+int32_t qbrt_gfx_component(const struct img_struct *im, uint32_t col, int32_t which, int32_t *err);
+int32_t qbrt_gfx_setalpha(struct img_struct *im, int32_t a, uint32_t c, uint32_t c2, int32_t passed);
+int32_t qbrt_gfx_clearcolor(struct img_struct *im, uint32_t c, int32_t passed);
+uint32_t qbrt_gfx_palettecolor_get(const struct img_struct *im, int32_t n, int32_t *err);
+int32_t qbrt_gfx_palettecolor_set(struct img_struct *im, int32_t n, uint32_t c);
+// Image registry. `img`/`nimg`/`nextimg` are owned by Rust; `img` moves when
+// the registry grows (compare nimg before/after a call and refresh cached
+// page pointers). Index 0 is never returned by a successful allocation once
+// libqb has reserved slots 0 and 1 at start-up.
+extern struct img_struct *img;
+extern int32_t nimg;
+extern int32_t nextimg;
+void qbrt_img_init(void);
+uint32_t qbrt_img_new(int32_t *err);
+void qbrt_img_free(uint32_t i);
+int32_t qbrt_img_grow(int32_t required);
+void qbrt_img_alloc_pixels(int32_t i, intptr_t bytes);
+void qbrt_img_alloc_palette(int32_t i);
+void qbrt_img_release_pixels(int32_t i);
+void qbrt_img_release_palette(int32_t i);
+void qbrt_img_set_external_offset(int32_t i, uint8_t *offset);
+void qbrt_img_set_external_palette(int32_t i, uint32_t *pal);
+void qbrt_img_release_owned(int32_t i);
+int32_t qbrt_imgframe(uint8_t *o, int32_t x, int32_t y, int32_t bpp, int32_t *err);
+int32_t qbrt_imgnew(int32_t x, int32_t y, int32_t bpp, int32_t *err);
+void qbrt_imgrevert(int32_t i);
 // Headless framebuffer capture (QBNEX_FB_CAPTURE); kind 0 = _DISPLAY, 1 = end.
 void qbrt_fb_capture(const struct img_struct *display_page, int32_t kind);
 

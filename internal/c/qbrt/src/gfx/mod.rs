@@ -21,12 +21,14 @@ pub mod circle;
 pub mod data;
 pub mod draw;
 pub mod image;
+pub mod imgops;
 pub mod line;
 pub mod maptri;
 pub mod paint;
 pub mod palette;
 pub mod point;
 pub mod putimage;
+pub mod registry;
 pub mod text;
 pub mod view;
 
@@ -192,7 +194,7 @@ pub(crate) mod testutil {
                 palette: vec![0u32; 256],
             });
             t.img.offset = t.pixels.as_mut_ptr() as *mut u8;
-            t.img.pal = t.palette.as_mut_ptr();
+            t.img.pal = if mode == 32 { core::ptr::null_mut() } else { t.palette.as_mut_ptr() };
             image::setup_new_image(&mut t.img, w, h, mode);
             t
         }
