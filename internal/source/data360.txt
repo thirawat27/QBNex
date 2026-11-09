@@ -1,17 +1,25 @@
-byte_element_struct *byte_element_4618=NULL;
-if (!byte_element_4618){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4618=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4618=(byte_element_struct*)mem_static_malloc(12);
+qbs *_FUNC_INICURRENTSECTION_STRING_INICURRENTSECTION=NULL;
+if (!_FUNC_INICURRENTSECTION_STRING_INICURRENTSECTION)_FUNC_INICURRENTSECTION_STRING_INICURRENTSECTION=qbs_new(0,0);
+uint32 *_FUNC_INICURRENTSECTION_ULONG_GLOBALPOSITION=NULL;
+if(_FUNC_INICURRENTSECTION_ULONG_GLOBALPOSITION==NULL){
+_FUNC_INICURRENTSECTION_ULONG_GLOBALPOSITION=(uint32*)mem_static_malloc(4);
+*_FUNC_INICURRENTSECTION_ULONG_GLOBALPOSITION=0;
 }
-int16 *_SUB_INICOMMIT_INTEGER_FILENUM=NULL;
-if(_SUB_INICOMMIT_INTEGER_FILENUM==NULL){
-_SUB_INICOMMIT_INTEGER_FILENUM=(int16*)mem_static_malloc(2);
-*_SUB_INICOMMIT_INTEGER_FILENUM=0;
+uint32 *_FUNC_INICURRENTSECTION_ULONG_I=NULL;
+if(_FUNC_INICURRENTSECTION_ULONG_I==NULL){
+_FUNC_INICURRENTSECTION_ULONG_I=(uint32*)mem_static_malloc(4);
+*_FUNC_INICURRENTSECTION_ULONG_I=0;
 }
-byte_element_struct *byte_element_4619=NULL;
-if (!byte_element_4619){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4619=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4619=(byte_element_struct*)mem_static_malloc(12);
+uint32 *_FUNC_INICURRENTSECTION_ULONG_CLOSINGBRACKET=NULL;
+if(_FUNC_INICURRENTSECTION_ULONG_CLOSINGBRACKET==NULL){
+_FUNC_INICURRENTSECTION_ULONG_CLOSINGBRACKET=(uint32*)mem_static_malloc(4);
+*_FUNC_INICURRENTSECTION_ULONG_CLOSINGBRACKET=0;
 }
-byte_element_struct *byte_element_4620=NULL;
-if (!byte_element_4620){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4620=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4620=(byte_element_struct*)mem_static_malloc(12);
-}
+int64 fornext_value4599;
+int64 fornext_finalvalue4599;
+int64 fornext_step4599;
+uint8 fornext_step_negative4599;
+int64 fornext_value4601;
+int64 fornext_finalvalue4601;
+int64 fornext_step4601;
+uint8 fornext_step_negative4601;
