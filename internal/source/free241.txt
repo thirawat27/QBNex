@@ -1,4 +1,4 @@
-if(oldstr6297){
-if(oldstr6297->fixed)qbs_set(oldstr6297,_SUB_SETSTATUSMESSAGE_STRING_TEXT);
-qbs_free(_SUB_SETSTATUSMESSAGE_STRING_TEXT);
+if(oldstr4241){
+if(oldstr4241->fixed)qbs_set(oldstr4241,_SUB_INITIALISE_UDT_VARSTRINGS_STRING_N);
+qbs_free(_SUB_INITIALISE_UDT_VARSTRINGS_STRING_N);
 }

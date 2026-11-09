@@ -703,6 +703,7 @@ FUNCTION getpid& ()
     DIM SHARED topLevelRuntimeProcDepth AS LONG
     DIM SHARED topLevelRuntimeTypeDepth AS LONG
     DIM SHARED topLevelRuntimeDeclareDepth AS LONG
+    DIM SHARED topLevelRuntimeSeenProc AS LONG
 
     DIM SHARED closedmain AS INTEGER
     DIM SHARED module AS STRING
@@ -1179,6 +1180,7 @@ FUNCTION getpid& ()
             topLevelRuntimeProcDepth = 0
             topLevelRuntimeTypeDepth = 0
             topLevelRuntimeDeclareDepth = 0
+            topLevelRuntimeSeenProc = 0
             classSyntaxActive = 0
             classSyntaxTypeOpen = 0
             classSyntaxInMethod = 0

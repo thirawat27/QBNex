@@ -1,29 +1,42 @@
-int32 *_FUNC_HASHVALUE_LONG_HASHVALUE=NULL;
-if(_FUNC_HASHVALUE_LONG_HASHVALUE==NULL){
-_FUNC_HASHVALUE_LONG_HASHVALUE=(int32*)mem_static_malloc(4);
-*_FUNC_HASHVALUE_LONG_HASHVALUE=0;
+int16 *_FUNC_TOPLEVELRUNTIME_ISKEYWORD_INTEGER_TOPLEVELRUNTIME_ISKEYWORD=NULL;
+if(_FUNC_TOPLEVELRUNTIME_ISKEYWORD_INTEGER_TOPLEVELRUNTIME_ISKEYWORD==NULL){
+_FUNC_TOPLEVELRUNTIME_ISKEYWORD_INTEGER_TOPLEVELRUNTIME_ISKEYWORD=(int16*)mem_static_malloc(2);
+*_FUNC_TOPLEVELRUNTIME_ISKEYWORD_INTEGER_TOPLEVELRUNTIME_ISKEYWORD=0;
 }
-qbs*oldstr3657=NULL;
-if(_FUNC_HASHVALUE_STRING_A->tmp||_FUNC_HASHVALUE_STRING_A->fixed||_FUNC_HASHVALUE_STRING_A->readonly){
-oldstr3657=_FUNC_HASHVALUE_STRING_A;
-if (oldstr3657->cmem_descriptor){
-_FUNC_HASHVALUE_STRING_A=qbs_new_cmem(oldstr3657->len,0);
+qbs*oldstr3033=NULL;
+if(_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE->tmp||_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE->fixed||_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE->readonly){
+oldstr3033=_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE;
+if (oldstr3033->cmem_descriptor){
+_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE=qbs_new_cmem(oldstr3033->len,0);
 }else{
-_FUNC_HASHVALUE_STRING_A=qbs_new(oldstr3657->len,0);
+_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE=qbs_new(oldstr3033->len,0);
 }
-memcpy(_FUNC_HASHVALUE_STRING_A->chr,oldstr3657->chr,oldstr3657->len);
+memcpy(_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_UPPERLINE->chr,oldstr3033->chr,oldstr3033->len);
 }
-int32 *_FUNC_HASHVALUE_LONG_L=NULL;
-if(_FUNC_HASHVALUE_LONG_L==NULL){
-_FUNC_HASHVALUE_LONG_L=(int32*)mem_static_malloc(4);
-*_FUNC_HASHVALUE_LONG_L=0;
+qbs*oldstr3034=NULL;
+if(_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD->tmp||_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD->fixed||_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD->readonly){
+oldstr3034=_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD;
+if (oldstr3034->cmem_descriptor){
+_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD=qbs_new_cmem(oldstr3034->len,0);
+}else{
+_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD=qbs_new(oldstr3034->len,0);
 }
-byte_element_struct *byte_element_3658=NULL;
-if (!byte_element_3658){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3658=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3658=(byte_element_struct*)mem_static_malloc(12);
+memcpy(_FUNC_TOPLEVELRUNTIME_ISKEYWORD_STRING_KEYWORD->chr,oldstr3034->chr,oldstr3034->len);
 }
-int32 *_FUNC_HASHVALUE_LONG_A=NULL;
-if(_FUNC_HASHVALUE_LONG_A==NULL){
-_FUNC_HASHVALUE_LONG_A=(int32*)mem_static_malloc(4);
-*_FUNC_HASHVALUE_LONG_A=0;
+byte_element_struct *byte_element_3035=NULL;
+if (!byte_element_3035){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3035=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3035=(byte_element_struct*)mem_static_malloc(12);
 }
+byte_element_struct *byte_element_3036=NULL;
+if (!byte_element_3036){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3036=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3036=(byte_element_struct*)mem_static_malloc(12);
+}
+byte_element_struct *byte_element_3037=NULL;
+if (!byte_element_3037){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3037=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3037=(byte_element_struct*)mem_static_malloc(12);
+}
+byte_element_struct *byte_element_3038=NULL;
+if (!byte_element_3038){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3038=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3038=(byte_element_struct*)mem_static_malloc(12);
+}
+static qbs *sc_3039=qbs_new(0,0);

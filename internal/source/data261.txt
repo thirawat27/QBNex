@@ -1,0 +1,37 @@
+qbs *_FUNC_TEXT_PADLEFT_STRING_TEXT_PADLEFT=NULL;
+if (!_FUNC_TEXT_PADLEFT_STRING_TEXT_PADLEFT)_FUNC_TEXT_PADLEFT_STRING_TEXT_PADLEFT=qbs_new(0,0);
+qbs*oldstr4361=NULL;
+if(_FUNC_TEXT_PADLEFT_STRING_VALUETEXT->tmp||_FUNC_TEXT_PADLEFT_STRING_VALUETEXT->fixed||_FUNC_TEXT_PADLEFT_STRING_VALUETEXT->readonly){
+oldstr4361=_FUNC_TEXT_PADLEFT_STRING_VALUETEXT;
+if (oldstr4361->cmem_descriptor){
+_FUNC_TEXT_PADLEFT_STRING_VALUETEXT=qbs_new_cmem(oldstr4361->len,0);
+}else{
+_FUNC_TEXT_PADLEFT_STRING_VALUETEXT=qbs_new(oldstr4361->len,0);
+}
+memcpy(_FUNC_TEXT_PADLEFT_STRING_VALUETEXT->chr,oldstr4361->chr,oldstr4361->len);
+}
+qbs*oldstr4362=NULL;
+if(_FUNC_TEXT_PADLEFT_STRING_PADTEXT->tmp||_FUNC_TEXT_PADLEFT_STRING_PADTEXT->fixed||_FUNC_TEXT_PADLEFT_STRING_PADTEXT->readonly){
+oldstr4362=_FUNC_TEXT_PADLEFT_STRING_PADTEXT;
+if (oldstr4362->cmem_descriptor){
+_FUNC_TEXT_PADLEFT_STRING_PADTEXT=qbs_new_cmem(oldstr4362->len,0);
+}else{
+_FUNC_TEXT_PADLEFT_STRING_PADTEXT=qbs_new(oldstr4362->len,0);
+}
+memcpy(_FUNC_TEXT_PADLEFT_STRING_PADTEXT->chr,oldstr4362->chr,oldstr4362->len);
+}
+qbs *_FUNC_TEXT_PADLEFT_STRING_RESULTTEXT=NULL;
+if (!_FUNC_TEXT_PADLEFT_STRING_RESULTTEXT)_FUNC_TEXT_PADLEFT_STRING_RESULTTEXT=qbs_new(0,0);
+int32 *_FUNC_TEXT_PADLEFT_LONG_DEFICIT=NULL;
+if(_FUNC_TEXT_PADLEFT_LONG_DEFICIT==NULL){
+_FUNC_TEXT_PADLEFT_LONG_DEFICIT=(int32*)mem_static_malloc(4);
+*_FUNC_TEXT_PADLEFT_LONG_DEFICIT=0;
+}
+byte_element_struct *byte_element_4363=NULL;
+if (!byte_element_4363){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4363=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4363=(byte_element_struct*)mem_static_malloc(12);
+}
+byte_element_struct *byte_element_4364=NULL;
+if (!byte_element_4364){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4364=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4364=(byte_element_struct*)mem_static_malloc(12);
+}

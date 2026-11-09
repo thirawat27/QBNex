@@ -1,0 +1,9 @@
+if(oldstr4361){
+if(oldstr4361->fixed)qbs_set(oldstr4361,_FUNC_TEXT_PADLEFT_STRING_VALUETEXT);
+qbs_free(_FUNC_TEXT_PADLEFT_STRING_VALUETEXT);
+}
+if(oldstr4362){
+if(oldstr4362->fixed)qbs_set(oldstr4362,_FUNC_TEXT_PADLEFT_STRING_PADTEXT);
+qbs_free(_FUNC_TEXT_PADLEFT_STRING_PADTEXT);
+}
+qbs_free(_FUNC_TEXT_PADLEFT_STRING_RESULTTEXT);

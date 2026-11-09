@@ -1,4 +1,8 @@
-if(oldstr6475){
-if(oldstr6475->fixed)qbs_set(oldstr6475,_SUB_DEBUGPRINT_STRING_TEXT);
-qbs_free(_SUB_DEBUGPRINT_STRING_TEXT);
+if(oldstr4359){
+if(oldstr4359->fixed)qbs_set(oldstr4359,_FUNC_TEXT_CONTAINS_STRING_VALUETEXT);
+qbs_free(_FUNC_TEXT_CONTAINS_STRING_VALUETEXT);
+}
+if(oldstr4360){
+if(oldstr4360->fixed)qbs_set(oldstr4360,_FUNC_TEXT_CONTAINS_STRING_SEARCHTEXT);
+qbs_free(_FUNC_TEXT_CONTAINS_STRING_SEARCHTEXT);
 }

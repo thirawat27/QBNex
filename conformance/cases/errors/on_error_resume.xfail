@@ -1,1 +1,0 @@
-legacy defect L-01: a main-module ON ERROR handler label makes compilation fail with "Unknown statement 'END'" past the last line (TopLevelRuntime lowering)

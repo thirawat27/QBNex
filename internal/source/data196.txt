@@ -1,30 +1,20 @@
-qbs *_FUNC_IDEZGETFILEPATH_STRING_IDEZGETFILEPATH=NULL;
-if (!_FUNC_IDEZGETFILEPATH_STRING_IDEZGETFILEPATH)_FUNC_IDEZGETFILEPATH_STRING_IDEZGETFILEPATH=qbs_new(0,0);
-qbs*oldstr5757=NULL;
-if(_FUNC_IDEZGETFILEPATH_STRING_ROOT->tmp||_FUNC_IDEZGETFILEPATH_STRING_ROOT->fixed||_FUNC_IDEZGETFILEPATH_STRING_ROOT->readonly){
-oldstr5757=_FUNC_IDEZGETFILEPATH_STRING_ROOT;
-if (oldstr5757->cmem_descriptor){
-_FUNC_IDEZGETFILEPATH_STRING_ROOT=qbs_new_cmem(oldstr5757->len,0);
+qbs *_FUNC_STRIPTRAILINGLINEBREAKS_STRING_STRIPTRAILINGLINEBREAKS=NULL;
+if (!_FUNC_STRIPTRAILINGLINEBREAKS_STRING_STRIPTRAILINGLINEBREAKS)_FUNC_STRIPTRAILINGLINEBREAKS_STRING_STRIPTRAILINGLINEBREAKS=qbs_new(0,0);
+qbs*oldstr3892=NULL;
+if(_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE->tmp||_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE->fixed||_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE->readonly){
+oldstr3892=_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE;
+if (oldstr3892->cmem_descriptor){
+_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE=qbs_new_cmem(oldstr3892->len,0);
 }else{
-_FUNC_IDEZGETFILEPATH_STRING_ROOT=qbs_new(oldstr5757->len,0);
+_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE=qbs_new(oldstr3892->len,0);
 }
-memcpy(_FUNC_IDEZGETFILEPATH_STRING_ROOT->chr,oldstr5757->chr,oldstr5757->len);
+memcpy(_FUNC_STRIPTRAILINGLINEBREAKS_STRING_TEXTVALUE->chr,oldstr3892->chr,oldstr3892->len);
 }
-qbs*oldstr5758=NULL;
-if(_FUNC_IDEZGETFILEPATH_STRING_F->tmp||_FUNC_IDEZGETFILEPATH_STRING_F->fixed||_FUNC_IDEZGETFILEPATH_STRING_F->readonly){
-oldstr5758=_FUNC_IDEZGETFILEPATH_STRING_F;
-if (oldstr5758->cmem_descriptor){
-_FUNC_IDEZGETFILEPATH_STRING_F=qbs_new_cmem(oldstr5758->len,0);
-}else{
-_FUNC_IDEZGETFILEPATH_STRING_F=qbs_new(oldstr5758->len,0);
+byte_element_struct *byte_element_3893=NULL;
+if (!byte_element_3893){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3893=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3893=(byte_element_struct*)mem_static_malloc(12);
 }
-memcpy(_FUNC_IDEZGETFILEPATH_STRING_F->chr,oldstr5758->chr,oldstr5758->len);
+byte_element_struct *byte_element_3895=NULL;
+if (!byte_element_3895){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3895=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3895=(byte_element_struct*)mem_static_malloc(12);
 }
-qbs *_FUNC_IDEZGETFILEPATH_STRING_P=NULL;
-if (!_FUNC_IDEZGETFILEPATH_STRING_P)_FUNC_IDEZGETFILEPATH_STRING_P=qbs_new(0,0);
-byte_element_struct *byte_element_5759=NULL;
-if (!byte_element_5759){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_5759=(byte_element_struct*)(mem_static_pointer-12); else byte_element_5759=(byte_element_struct*)mem_static_malloc(12);
-}
-qbs *_FUNC_IDEZGETFILEPATH_STRING_P2=NULL;
-if (!_FUNC_IDEZGETFILEPATH_STRING_P2)_FUNC_IDEZGETFILEPATH_STRING_P2=qbs_new(0,0);

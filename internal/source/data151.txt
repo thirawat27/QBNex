@@ -1,9 +1,19 @@
-int32 *_SUB_IDEBOX_LONG_Y2=NULL;
-if(_SUB_IDEBOX_LONG_Y2==NULL){
-_SUB_IDEBOX_LONG_Y2=(int32*)mem_static_malloc(4);
-*_SUB_IDEBOX_LONG_Y2=0;
+int16 *_FUNC_UTF8BYTEAT_INTEGER_UTF8BYTEAT=NULL;
+if(_FUNC_UTF8BYTEAT_INTEGER_UTF8BYTEAT==NULL){
+_FUNC_UTF8BYTEAT_INTEGER_UTF8BYTEAT=(int16*)mem_static_malloc(2);
+*_FUNC_UTF8BYTEAT_INTEGER_UTF8BYTEAT=0;
 }
-int64 fornext_value5199;
-int64 fornext_finalvalue5199;
-int64 fornext_step5199;
-uint8 fornext_step_negative5199;
+qbs*oldstr3524=NULL;
+if(_FUNC_UTF8BYTEAT_STRING_TEXT->tmp||_FUNC_UTF8BYTEAT_STRING_TEXT->fixed||_FUNC_UTF8BYTEAT_STRING_TEXT->readonly){
+oldstr3524=_FUNC_UTF8BYTEAT_STRING_TEXT;
+if (oldstr3524->cmem_descriptor){
+_FUNC_UTF8BYTEAT_STRING_TEXT=qbs_new_cmem(oldstr3524->len,0);
+}else{
+_FUNC_UTF8BYTEAT_STRING_TEXT=qbs_new(oldstr3524->len,0);
+}
+memcpy(_FUNC_UTF8BYTEAT_STRING_TEXT->chr,oldstr3524->chr,oldstr3524->len);
+}
+byte_element_struct *byte_element_3525=NULL;
+if (!byte_element_3525){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3525=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3525=(byte_element_struct*)mem_static_malloc(12);
+}

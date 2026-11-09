@@ -1,41 +1,28 @@
-int32 *_FUNC_ISUINTEGER_LONG_ISUINTEGER=NULL;
-if(_FUNC_ISUINTEGER_LONG_ISUINTEGER==NULL){
-_FUNC_ISUINTEGER_LONG_ISUINTEGER=(int32*)mem_static_malloc(4);
-*_FUNC_ISUINTEGER_LONG_ISUINTEGER=0;
+int32 *_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINERETURN=NULL;
+if(_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINERETURN==NULL){
+_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINERETURN=(int32*)mem_static_malloc(4);
+*_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINERETURN=0;
 }
-qbs*oldstr2910=NULL;
-if(_FUNC_ISUINTEGER_STRING_I->tmp||_FUNC_ISUINTEGER_STRING_I->fixed||_FUNC_ISUINTEGER_STRING_I->readonly){
-oldstr2910=_FUNC_ISUINTEGER_STRING_I;
-if (oldstr2910->cmem_descriptor){
-_FUNC_ISUINTEGER_STRING_I=qbs_new_cmem(oldstr2910->len,0);
-}else{
-_FUNC_ISUINTEGER_STRING_I=qbs_new(oldstr2910->len,0);
+int32 *_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINE=NULL;
+if(_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINE==NULL){
+_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINE=(int32*)mem_static_malloc(4);
+*_SUB_RESETPOSTPREPASSSTATE_LONG_LASTLINE=0;
 }
-memcpy(_FUNC_ISUINTEGER_STRING_I->chr,oldstr2910->chr,oldstr2910->len);
+int32 *_SUB_RESETPOSTPREPASSSTATE_LONG_FIRSTLINE=NULL;
+if(_SUB_RESETPOSTPREPASSSTATE_LONG_FIRSTLINE==NULL){
+_SUB_RESETPOSTPREPASSSTATE_LONG_FIRSTLINE=(int32*)mem_static_malloc(4);
+*_SUB_RESETPOSTPREPASSSTATE_LONG_FIRSTLINE=0;
 }
-byte_element_struct *byte_element_2911=NULL;
-if (!byte_element_2911){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_2911=(byte_element_struct*)(mem_static_pointer-12); else byte_element_2911=(byte_element_struct*)mem_static_malloc(12);
+int32 *_SUB_RESETPOSTPREPASSSTATE_LONG_I=NULL;
+if(_SUB_RESETPOSTPREPASSSTATE_LONG_I==NULL){
+_SUB_RESETPOSTPREPASSSTATE_LONG_I=(int32*)mem_static_malloc(4);
+*_SUB_RESETPOSTPREPASSSTATE_LONG_I=0;
 }
-byte_element_struct *byte_element_2912=NULL;
-if (!byte_element_2912){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_2912=(byte_element_struct*)(mem_static_pointer-12); else byte_element_2912=(byte_element_struct*)mem_static_malloc(12);
-}
-int32 *_FUNC_ISUINTEGER_LONG_C=NULL;
-if(_FUNC_ISUINTEGER_LONG_C==NULL){
-_FUNC_ISUINTEGER_LONG_C=(int32*)mem_static_malloc(4);
-*_FUNC_ISUINTEGER_LONG_C=0;
-}
-int64 fornext_value2914;
-int64 fornext_finalvalue2914;
-int64 fornext_step2914;
-uint8 fornext_step_negative2914;
-byte_element_struct *byte_element_2915=NULL;
-if (!byte_element_2915){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_2915=(byte_element_struct*)(mem_static_pointer-12); else byte_element_2915=(byte_element_struct*)mem_static_malloc(12);
-}
-int32 *_FUNC_ISUINTEGER_LONG_V=NULL;
-if(_FUNC_ISUINTEGER_LONG_V==NULL){
-_FUNC_ISUINTEGER_LONG_V=(int32*)mem_static_malloc(4);
-*_FUNC_ISUINTEGER_LONG_V=0;
-}
+int64 fornext_value1961;
+int64 fornext_finalvalue1961;
+int64 fornext_step1961;
+uint8 fornext_step_negative1961;
+int64 fornext_value1963;
+int64 fornext_finalvalue1963;
+int64 fornext_step1963;
+uint8 fornext_step_negative1963;

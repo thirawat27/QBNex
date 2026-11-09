@@ -1,4 +1,5 @@
-if(oldstr5238){
-if(oldstr5238->fixed)qbs_set(oldstr5238,_SUB_FINDQUOTECOMMENT_STRING_TEXT);
-qbs_free(_SUB_FINDQUOTECOMMENT_STRING_TEXT);
+if(oldstr3551){
+if(oldstr3551->fixed)qbs_set(oldstr3551,_SUB_LINEINPUT3LOAD_STRING_F);
+qbs_free(_SUB_LINEINPUT3LOAD_STRING_F);
 }
+qbs_free(_SUB_LINEINPUT3LOAD_STRING_INVALIDCONTEXT);

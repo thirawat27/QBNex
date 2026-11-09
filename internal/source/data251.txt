@@ -1,9 +1,11 @@
-int32 *_SUB_HELP_NEWLINE_LONG_W=NULL;
-if(_SUB_HELP_NEWLINE_LONG_W==NULL){
-_SUB_HELP_NEWLINE_LONG_W=(int32*)mem_static_malloc(4);
-*_SUB_HELP_NEWLINE_LONG_W=0;
+qbs *_SUB_FINISHCOMPILERPROGRESS_STRING_PROGRESSLINE=NULL;
+if (!_SUB_FINISHCOMPILERPROGRESS_STRING_PROGRESSLINE)_SUB_FINISHCOMPILERPROGRESS_STRING_PROGRESSLINE=qbs_new(0,0);
+int32 pass4317;
+byte_element_struct *byte_element_4319=NULL;
+if (!byte_element_4319){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4319=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4319=(byte_element_struct*)mem_static_malloc(12);
 }
-int32 pass6352;
-int32 pass6353;
-int32 pass6354;
-int32 pass6355;
+byte_element_struct *byte_element_4321=NULL;
+if (!byte_element_4321){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4321=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4321=(byte_element_struct*)mem_static_malloc(12);
+}

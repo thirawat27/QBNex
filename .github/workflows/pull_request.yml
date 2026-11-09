@@ -84,6 +84,16 @@ jobs:
         shell: bash
         run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
 
+      - name: Self-host fixpoint (gen2 == gen3, both pass conformance; L-00)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh tests/selfhost_fixpoint.sh
+
+      - name: Self-host fixpoint (gen2 == gen3, both pass conformance; L-00) (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call tests\selfhost_fixpoint.cmd
+
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
         shell: bash

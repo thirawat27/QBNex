@@ -1,0 +1,4 @@
+if(oldstr3244){
+if(oldstr3244->fixed)qbs_set(oldstr3244,_SUB_MAKEIDREFER_STRING_REF);
+qbs_free(_SUB_MAKEIDREFER_STRING_REF);
+}

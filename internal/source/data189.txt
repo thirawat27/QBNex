@@ -1,29 +1,23 @@
-int32 *_FUNC_IDEVBAR_LONG_IDEVBAR=NULL;
-if(_FUNC_IDEVBAR_LONG_IDEVBAR==NULL){
-_FUNC_IDEVBAR_LONG_IDEVBAR=(int32*)mem_static_malloc(4);
-*_FUNC_IDEVBAR_LONG_IDEVBAR=0;
+qbs*oldstr3831=NULL;
+if(_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME->tmp||_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME->fixed||_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME->readonly){
+oldstr3831=_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME;
+if (oldstr3831->cmem_descriptor){
+_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME=qbs_new_cmem(oldstr3831->len,0);
+}else{
+_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME=qbs_new(oldstr3831->len,0);
 }
-int32 *_FUNC_IDEVBAR_LONG_I=NULL;
-if(_FUNC_IDEVBAR_LONG_I==NULL){
-_FUNC_IDEVBAR_LONG_I=(int32*)mem_static_malloc(4);
-*_FUNC_IDEVBAR_LONG_I=0;
+memcpy(_SUB_APPENDVERSIONINFORESOURCE_STRING_OUTPUTBASENAME->chr,oldstr3831->chr,oldstr3831->len);
 }
-int32 *_FUNC_IDEVBAR_LONG_N=NULL;
-if(_FUNC_IDEVBAR_LONG_N==NULL){
-_FUNC_IDEVBAR_LONG_N=(int32*)mem_static_malloc(4);
-*_FUNC_IDEVBAR_LONG_N=0;
+int32 *_SUB_APPENDVERSIONINFORESOURCE_LONG_ICONFILEHANDLE=NULL;
+if(_SUB_APPENDVERSIONINFORESOURCE_LONG_ICONFILEHANDLE==NULL){
+_SUB_APPENDVERSIONINFORESOURCE_LONG_ICONFILEHANDLE=(int32*)mem_static_malloc(4);
+*_SUB_APPENDVERSIONINFORESOURCE_LONG_ICONFILEHANDLE=0;
 }
-int32 *_FUNC_IDEVBAR_LONG_Y2=NULL;
-if(_FUNC_IDEVBAR_LONG_Y2==NULL){
-_FUNC_IDEVBAR_LONG_Y2=(int32*)mem_static_malloc(4);
-*_FUNC_IDEVBAR_LONG_Y2=0;
+byte_element_struct *byte_element_3838=NULL;
+if (!byte_element_3838){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3838=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3838=(byte_element_struct*)mem_static_malloc(12);
 }
-int64 fornext_value5707;
-int64 fornext_finalvalue5707;
-int64 fornext_step5707;
-uint8 fornext_step_negative5707;
-float *_FUNC_IDEVBAR_SINGLE_P=NULL;
-if(_FUNC_IDEVBAR_SINGLE_P==NULL){
-_FUNC_IDEVBAR_SINGLE_P=(float*)mem_static_malloc(4);
-*_FUNC_IDEVBAR_SINGLE_P=0;
+byte_element_struct *byte_element_3840=NULL;
+if (!byte_element_3840){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3840=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3840=(byte_element_struct*)mem_static_malloc(12);
 }

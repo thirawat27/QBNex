@@ -1,4 +1,6 @@
-if(oldstr6165){
-if(oldstr6165->fixed)qbs_set(oldstr6165,_FUNC_REMOVEDOUBLESLASHES_STRING_F);
-qbs_free(_FUNC_REMOVEDOUBLESLASHES_STRING_F);
+if(oldstr4145){
+if(oldstr4145->fixed)qbs_set(oldstr4145,_FUNC_GDB_FIX_STRING_G_COMMAND);
+qbs_free(_FUNC_GDB_FIX_STRING_G_COMMAND);
 }
+qbs_free(_FUNC_GDB_FIX_STRING_C);
+qbs_free(_FUNC_GDB_FIX_STRING_O);

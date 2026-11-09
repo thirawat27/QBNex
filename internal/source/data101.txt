@@ -1,32 +1,32 @@
-qbs*oldstr3758=NULL;
-if(_SUB_COPY_FULL_UDT_STRING_DST->tmp||_SUB_COPY_FULL_UDT_STRING_DST->fixed||_SUB_COPY_FULL_UDT_STRING_DST->readonly){
-oldstr3758=_SUB_COPY_FULL_UDT_STRING_DST;
-if (oldstr3758->cmem_descriptor){
-_SUB_COPY_FULL_UDT_STRING_DST=qbs_new_cmem(oldstr3758->len,0);
+qbs *_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSSYNTAX_SELFPARAMS=NULL;
+if (!_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSSYNTAX_SELFPARAMS)_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSSYNTAX_SELFPARAMS=qbs_new(0,0);
+qbs*oldstr3116=NULL;
+if(_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE->tmp||_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE->fixed||_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE->readonly){
+oldstr3116=_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE;
+if (oldstr3116->cmem_descriptor){
+_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE=qbs_new_cmem(oldstr3116->len,0);
 }else{
-_SUB_COPY_FULL_UDT_STRING_DST=qbs_new(oldstr3758->len,0);
+_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE=qbs_new(oldstr3116->len,0);
 }
-memcpy(_SUB_COPY_FULL_UDT_STRING_DST->chr,oldstr3758->chr,oldstr3758->len);
+memcpy(_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_PARAMSCLAUSE->chr,oldstr3116->chr,oldstr3116->len);
 }
-qbs*oldstr3759=NULL;
-if(_SUB_COPY_FULL_UDT_STRING_SRC->tmp||_SUB_COPY_FULL_UDT_STRING_SRC->fixed||_SUB_COPY_FULL_UDT_STRING_SRC->readonly){
-oldstr3759=_SUB_COPY_FULL_UDT_STRING_SRC;
-if (oldstr3759->cmem_descriptor){
-_SUB_COPY_FULL_UDT_STRING_SRC=qbs_new_cmem(oldstr3759->len,0);
+qbs*oldstr3117=NULL;
+if(_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME->tmp||_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME->fixed||_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME->readonly){
+oldstr3117=_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME;
+if (oldstr3117->cmem_descriptor){
+_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME=qbs_new_cmem(oldstr3117->len,0);
 }else{
-_SUB_COPY_FULL_UDT_STRING_SRC=qbs_new(oldstr3759->len,0);
+_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME=qbs_new(oldstr3117->len,0);
 }
-memcpy(_SUB_COPY_FULL_UDT_STRING_SRC->chr,oldstr3759->chr,oldstr3759->len);
+memcpy(_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_CLASSNAME->chr,oldstr3117->chr,oldstr3117->len);
 }
-int32 *_SUB_COPY_FULL_UDT_LONG_OFFSET=NULL;
-if(_SUB_COPY_FULL_UDT_LONG_OFFSET==NULL){
-_SUB_COPY_FULL_UDT_LONG_OFFSET=(int32*)mem_static_malloc(4);
-*_SUB_COPY_FULL_UDT_LONG_OFFSET=0;
+qbs *_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_INNERTEXT=NULL;
+if (!_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_INNERTEXT)_FUNC_CLASSSYNTAX_SELFPARAMS_STRING_INNERTEXT=qbs_new(0,0);
+byte_element_struct *byte_element_3118=NULL;
+if (!byte_element_3118){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3118=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3118=(byte_element_struct*)mem_static_malloc(12);
 }
-int32 *_SUB_COPY_FULL_UDT_LONG_ELEMENT=NULL;
-if(_SUB_COPY_FULL_UDT_LONG_ELEMENT==NULL){
-_SUB_COPY_FULL_UDT_LONG_ELEMENT=(int32*)mem_static_malloc(4);
-*_SUB_COPY_FULL_UDT_LONG_ELEMENT=0;
+byte_element_struct *byte_element_3119=NULL;
+if (!byte_element_3119){
+if ((mem_static_pointer+=12)<mem_static_limit) byte_element_3119=(byte_element_struct*)(mem_static_pointer-12); else byte_element_3119=(byte_element_struct*)mem_static_malloc(12);
 }
-int32 pass3763;
-int32 pass3764;

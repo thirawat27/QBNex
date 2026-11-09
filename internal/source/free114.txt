@@ -1,4 +1,8 @@
-if(oldstr3825){
-if(oldstr3825->fixed)qbs_set(oldstr3825,_FUNC_TFSTRINGTOBOOL_STRING_S);
-qbs_free(_FUNC_TFSTRINGTOBOOL_STRING_S);
+if(oldstr3156){
+if(oldstr3156->fixed)qbs_set(oldstr3156,_SUB_CLASSSYNTAX_APPENDLINE_STRING_TARGET);
+qbs_free(_SUB_CLASSSYNTAX_APPENDLINE_STRING_TARGET);
+}
+if(oldstr3157){
+if(oldstr3157->fixed)qbs_set(oldstr3157,_SUB_CLASSSYNTAX_APPENDLINE_STRING_LINE);
+qbs_free(_SUB_CLASSSYNTAX_APPENDLINE_STRING_LINE);
 }
