@@ -1,0 +1,1 @@
+Fixes legacy 2-bit GET (D-11): the last partial byte of each row was a stale static byte, so PUT drew wrong pixels (legacy prints 9 mismatches and row words 1B 6C B1 C6). Expected output is the QBasic layout: pixels packed from the high bits, partial byte left-aligned, 2 bytes per 7-pixel row.

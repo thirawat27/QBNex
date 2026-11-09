@@ -19,6 +19,7 @@ pub mod env;
 pub mod fileio;
 pub mod fsops;
 pub mod gfs;
+pub mod gfx;
 pub mod mbf;
 pub mod mem;
 pub mod numfmt;

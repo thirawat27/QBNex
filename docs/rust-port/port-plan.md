@@ -19,7 +19,7 @@
 > | R2 | Leaf functions ไม่แตะ allocator: math, rounding (`qbr`), number↔string formatting, `VAL`, RND/TIMER | differential test Rust vs C++ legacy ผ่านบน input สุ่ม | **เสร็จ (Windows)** · rounding + `fpu_reinit`, RND/RANDOMIZE, VAL, STR$ formatting, TIMER — C++ legacy ลบแล้ว |
 > | R3 | String engine `qbs` (`#[repr(C)]`, allocator, tmp list, cleanup) | corpus ทั้งหมดผ่าน + benchmark ไม่ช้ากว่า 10% | pending |
 > | R4 | File I/O (`gfs_*`, OPEN/GET/PUT/FIELD), SHELL/ENV, `_MEM` | corpus file group ผ่าน | pending |
-> | R5 | Graphics software (`img_struct`, SCREEN, LINE/CIRCLE/PAINT/DRAW, palette, `_PUTIMAGE`) | framebuffer hash ตรง | pending |
+> | R5 | Graphics software (`img_struct`, SCREEN, LINE/CIRCLE/PAINT/DRAW, palette, `_PUTIMAGE`) | framebuffer hash ตรง | **เสร็จ (Windows)** · software graphics ทั้งหมดอยู่ใน `qbrt/src/gfx`, C++ legacy ลบแล้ว (เหลือ orchestration ของ SCREEN/hardware images ไว้ให้ R8) |
 > | R6 | Audio (`audio.cpp` + miniaudio → cpal + synth Rust) | PCM offline ตรงภายใน tolerance | pending |
 > | R7 | Fonts + image codec (FreeType → fontdue, stb_image → `image`) | glyph/decoded image tests | pending |
 > | R8 | Window/input/threads (freeglut+GLEW+gui.cpp → winit + softbuffer, atomic event flags) | interactive scripted tests 3 OS | pending |

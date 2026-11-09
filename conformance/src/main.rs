@@ -14,6 +14,14 @@
 //! runtime (a fixed legacy defect). Its `.out` is written by hand from QBasic
 //! semantics, so `--bless` leaves it alone.
 //!
+//! Graphics: every program runs with `QBNEX_FB_CAPTURE` pointing at a scratch
+//! file. The runtime appends one record per `_DISPLAY` call and one at program
+//! end (graphics pages only); see `internal/c/qbrt/src/gfx/capture.rs`. Each
+//! record is summarised as one line (size, depth, mode, FNV-1a 64 hash of the
+//! whole record). When records exist they are compared with `<name>.fb`, so the
+//! golden framebuffer is pixel- and palette-exact. `--fb-dump <dir>` keeps the
+//! raw captures (`<tag>.fbraw`) for debugging a mismatch.
+//!
 //! The runner only uses `std` so it builds offline and on every CI host.
 
 use std::env;
@@ -33,6 +41,7 @@ struct Options {
     filter: Option<String>,
     timeout: Duration,
     verbose: bool,
+    fb_dump: Option<PathBuf>,
 }
 
 enum Outcome {
@@ -43,7 +52,7 @@ enum Outcome {
 
 fn usage() -> &'static str {
     "usage: conformance [--qb <path>] [--cases <dir>] [--work <dir>] [--filter <text>] \
-     [--timeout <secs>] [--bless] [--verbose]"
+     [--timeout <secs>] [--bless] [--verbose] [--fb-dump <dir>]"
 }
 
 fn repo_root() -> PathBuf {
@@ -72,6 +81,7 @@ fn parse_args() -> Result<Options, String> {
         filter: None,
         timeout: Duration::from_secs(30),
         verbose: false,
+        fb_dump: None,
     };
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -87,6 +97,7 @@ fn parse_args() -> Result<Options, String> {
                     .map_err(|_| "--timeout expects whole seconds".to_string())?;
                 opts.timeout = Duration::from_secs(secs);
             }
+            "--fb-dump" => opts.fb_dump = Some(PathBuf::from(value("--fb-dump")?)),
             "--bless" => opts.bless = true,
             "--verbose" | "-v" => opts.verbose = true,
             "--help" | "-h" => return Err(usage().to_string()),
@@ -236,13 +247,27 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
 
     let stdin = fs::read(case.with_extension("in")).ok();
     // Programs run inside the scratch dir so file-I/O cases never touch the repo.
+    let capture = opts.work.join(format!("{tag}.fbraw"));
+    let _ = fs::remove_file(&capture);
     let mut run = Command::new(&exe);
-    run.current_dir(&opts.work);
+    run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture);
     let (code, stdout, stderr) = match run_with_timeout(run, stdin, opts.timeout) {
         Ok(r) => r,
         Err(e) => return Outcome::Fail(format!("run: {e}")),
     };
     let _ = fs::remove_file(&exe);
+    let raw = fs::read(&capture).unwrap_or_default();
+    let _ = fs::remove_file(&capture);
+    if let Some(dir) = &opts.fb_dump {
+        if !raw.is_empty() {
+            let _ = fs::create_dir_all(dir);
+            let _ = fs::write(dir.join(format!("{tag}.fbraw")), &raw);
+        }
+    }
+    let frames = match summarise_frames(&raw) {
+        Ok(f) => f,
+        Err(e) => return Outcome::Fail(format!("framebuffer capture: {e}")),
+    };
     let mut actual = normalise(&stdout);
     if code != Some(0) {
         actual.extend_from_slice(format!("[exit {code:?}]\n").as_bytes());
@@ -252,8 +277,17 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     }
 
     let expected_path = case.with_extension("out");
+    let fb_path = case.with_extension("fb");
     if opts.bless {
-        return match fs::write(&expected_path, &actual) {
+        let fb_result = if frames.is_empty() {
+            match fs::remove_file(&fb_path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            }
+        } else {
+            fs::write(&fb_path, &frames)
+        };
+        return match fs::write(&expected_path, &actual).and(fb_result) {
             Ok(()) => Outcome::Blessed,
             Err(e) => Outcome::Fail(format!("bless write failed: {e}")),
         };
@@ -261,17 +295,74 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     match fs::read(&expected_path) {
         Ok(expected) => {
             let expected = normalise(&expected);
-            if expected == actual {
-                Outcome::Pass
-            } else {
-                Outcome::Fail(first_difference(&expected, &actual))
+            if expected != actual {
+                return Outcome::Fail(first_difference(&expected, &actual));
             }
         }
-        Err(_) => Outcome::Fail(format!(
-            "missing golden file {} (run with --bless on a trusted build)",
-            expected_path.display()
-        )),
+        Err(_) => {
+            return Outcome::Fail(format!(
+                "missing golden file {} (run with --bless on a trusted build)",
+                expected_path.display()
+            ))
+        }
     }
+    let expected_frames = fs::read(&fb_path).map(|b| normalise(&b)).unwrap_or_default();
+    if expected_frames == frames {
+        Outcome::Pass
+    } else if expected_frames.is_empty() {
+        Outcome::Fail(format!(
+            "program captured framebuffer output but {} is missing (run with --bless on a trusted build)",
+            fb_path.display()
+        ))
+    } else {
+        Outcome::Fail(format!(
+            "framebuffer differs, {}",
+            first_difference(&expected_frames, &frames)
+        ))
+    }
+}
+
+/// FNV-1a, 64-bit.
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Turns a raw capture (records written by the runtime, see the module docs)
+/// into one text line per frame.
+fn summarise_frames(raw: &[u8]) -> Result<Vec<u8>, String> {
+    let u32_at = |pos: usize| -> Result<u32, String> {
+        raw.get(pos..pos + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .ok_or_else(|| format!("truncated record at byte {pos}"))
+    };
+    let mut out = String::new();
+    let mut pos = 0usize;
+    let mut index = 0usize;
+    while pos < raw.len() {
+        let start = pos;
+        if u32_at(pos)? != 0x4246_5142 {
+            return Err(format!("bad record magic at byte {pos}"));
+        }
+        let kind = u32_at(pos + 4)?;
+        let (w, h, bpp, mode) = (u32_at(pos + 8)?, u32_at(pos + 12)?, u32_at(pos + 16)?, u32_at(pos + 20)?);
+        pos += 24 + (w as usize) * (h as usize) * (bpp as usize);
+        let npal = u32_at(pos)?;
+        pos += 4 + 4 * npal as usize;
+        let record = raw
+            .get(start..pos)
+            .ok_or_else(|| format!("truncated record {index}"))?;
+        out.push_str(&format!(
+            "frame {index} kind={kind} {w}x{h} bpp={bpp} mode={mode} pal={npal} fnv={:016x}\n",
+            fnv1a64(record)
+        ));
+        index += 1;
+    }
+    Ok(out.into_bytes())
 }
 
 fn main() -> ExitCode {

@@ -1,0 +1,5 @@
+frame 0 kind=0 320x200 bpp=1 mode=1 pal=256 fnv=96a664be4ed251ea
+frame 1 kind=0 640x480 bpp=1 mode=12 pal=256 fnv=f8ef5b2f93ccf27e
+frame 2 kind=0 320x200 bpp=1 mode=13 pal=256 fnv=2946f018d8de8340
+frame 3 kind=0 160x120 bpp=4 mode=32 pal=0 fnv=c1e7288cca9a12d8
+frame 4 kind=1 160x120 bpp=4 mode=32 pal=0 fnv=8d34f520733483f9
