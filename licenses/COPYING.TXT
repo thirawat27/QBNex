@@ -36,20 +36,6 @@ License Website: http://www.gnu.org/licenses/licenses.html#GPL
 License File: license_gnu_gpl_3.txt
 Location in QB64 distribution: internal/c/c_compiler/
 
-Software/Library Name: miniaudio
-Website(s): https://miniaud.io
-License: MIT No Attribution or Public Domain
-License Website: https://github.com/mackron/miniaudio/blob/master/LICENSE
-License File: license_miniaudio.txt
-Location in QB64 distribution: internal/c/parts/audio/out/
-
-Software/Library Name: STB Vorbis
-Website: http://nothings.org/stb_vorbis/
-License: MIT License or Public Domain
-License Website: https://github.com/nothings/stb/blob/master/LICENSE
-License File: license_stb_vorbis.txt
-Location in QB64 distribution: internal/c/parts/audio/decode/ogg/
-
 Software/Library Name: STB Image
 Website: http://nothings.org/
 License: MIT License or Public Domain
@@ -75,16 +61,27 @@ license_freetype_ftl.txt
 license_gnu_gpl_2.txt
 Location in QB64 distribution: internal/c/parts/video/font/ttf/
 
-Software/Library Name: Libxmp-lite
-Website: http://xmp.sourceforge.net/
-License: MIT
-License website: https://github.com/libxmp/libxmp/blob/master/lite/README
-License File: license_libxmp-lite.txt
-Location in QB64 distribution: internal/c/parts/audio/out/extras/libxmp-lite
+Software/Library Name: cpal (Rust crate, audio output)
+Website: https://github.com/RustAudio/cpal
+License: Apache-2.0
+License Website: https://www.apache.org/licenses/LICENSE-2.0
+License File: license_apache_2_0.txt
+Location in QB64 distribution: linked into internal/c/qbrt/os/*/libqbrt.a (crate internal/c/qbrt/audio); used by programs that use SOUND, PLAY or _SND*
 
-Software/Library Name: TinySoundFont
-Website: https://github.com/schellingb/TinySoundFont
+Software/Library Name: Symphonia (Rust crates symphonia*, audio decoding: WAV, FLAC, MP3, Ogg Vorbis)
+Website: https://github.com/pdeljanov/Symphonia
+License: MPL-2.0 (file-level copyleft; used unmodified, source available at https://crates.io/crates/symphonia)
+License Website: https://www.mozilla.org/en-US/MPL/2.0/
+License File: license_mpl_2_0.txt
+Location in QB64 distribution: linked into internal/c/qbrt/os/*/libqbrt.a (crate internal/c/qbrt/audio)
+
+Software/Library Name: xmrs / xmrsplayer (Rust crates, MOD/XM/S3M/IT playback)
+Website: https://codeberg.org/sbechet/xmrsplayer
 License: MIT
-License website: https://github.com/schellingb/TinySoundFont/blob/master/LICENSE
-License File: license_tinysoundfont.txt
-Location in QB64 distribution: internal/c/parts/audio/out/extras/tinysoundfont
+License File: license_xmrs.txt
+Location in QB64 distribution: linked into internal/c/qbrt/os/*/libqbrt.a (crate internal/c/qbrt/audio)
+
+Software/Library Name: Other Rust crates used by the audio runtime (windows-rs, alsa, coreaudio-rs, objc2, bytemuck, dasp_sample, encoding_rs, serde, ...)
+License: MIT and/or Apache-2.0 (some also Zlib, BSD-2-Clause, BSD-3-Clause or Unicode-3.0)
+License File(s): license_apache_2_0.txt (MIT texts are in each crate; the full list is Cargo.lock)
+Location in QB64 distribution: linked into internal/c/qbrt/os/*/libqbrt.a

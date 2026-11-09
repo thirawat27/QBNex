@@ -5,7 +5,9 @@
 //   \__\_\___/\___/ |_| /_/ \_\_,_\__,_|_\___/ |___|_||_\__, |_|_||_\___|
 //                                                       |___/
 //
-//  QBNex Audio Engine powered by miniaudio (https://miniaud.io/)
+//  QBNex Audio Engine: declarations used by libqb/qbx. Implemented in Rust
+//  (internal/c/qbrt/audio, C ABI in qbrt/include/qbrt_audio.h) via the shims
+//  in src.c. The original miniaudio-based engine was written by Samuel Gomes.
 //
 //  Copyright (c) 2022 Samuel Gomes
 //  https://github.com/a740g

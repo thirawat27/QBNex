@@ -1,0 +1,18 @@
+$CONSOLE:ONLY
+_VOICE 1
+_ADSR .01, .04, .7, .05
+_WAVE "SINE"
+_VOICE 2
+_ADSR .02, .08, 50, .08, 2
+_WAVE "CUSTOM:0,1,0,-1", 2
+_WAVE "pink noise", 3
+_WAVE "LFSR", 4
+_VOICE 0
+_WAVE "brownian"
+SOUND 440, .5
+SOUND 0, .5
+BEEP
+PLAY "MB T255 L64 O3 CDE P64 N40 C#D-E+"
+PLAY "MB ML O2 A8. > A16 < MS A, C MN"
+PRINT "synth ok"
+SYSTEM

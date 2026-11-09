@@ -271,38 +271,15 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     IF DEPENDENCY(DEPENDENCY_AUDIO_CONVERSION) THEN DEPENDENCY(DEPENDENCY_AUDIO_OUT) = 1
     IF DEPENDENCY(DEPENDENCY_AUDIO_DECODE) THEN DEPENDENCY(DEPENDENCY_AUDIO_OUT) = 1
 
-    IF DEPENDENCY(DEPENDENCY_AUDIO_CONVERSION) THEN
-        defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_CONVERSION"
-        d1$ = "parts\audio\conversion"
-        d2$ = d1$ + "\os\" + o$
-        d3$ = "internal\c\" + d2$
-        IF _FILEEXISTS(d3$ + "\src.a") = 0 THEN Build d3$
-        libs$ = libs$ + " " + d2$ + "\src.a"
-    END IF
-
-    IF DEPENDENCY(DEPENDENCY_AUDIO_DECODE) THEN
-        defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_DECODE"
-
-        d1$ = "parts\audio\decode\mp3_mini"
-        d2$ = d1$ + "\os\" + o$
-        d3$ = "internal\c\" + d2$
-        IF _FILEEXISTS(d3$ + "\src.a") = 0 THEN Build d3$
-        libs$ = libs$ + " " + d2$ + "\src.a"
-
-        d1$ = "parts\audio\decode\ogg"
-        d2$ = d1$ + "\os\" + o$
-        d3$ = "internal\c\" + d2$
-        IF _FILEEXISTS(d3$ + "\src.o") = 0 THEN Build d3$
-        libs$ = libs$ + " " + d2$ + "\src.o"
-    END IF
-
+    ' Audio (SOUND/PLAY/_SND*) is implemented in the Rust runtime (libqbrt.a,
+    ' crate internal/c/qbrt/audio), which is always on the link line; the old
+    ' parts/audio libraries are gone. The defines select the shims in
+    ' parts/audio/out/src.c, and only those reference the audio code.
+    IF DEPENDENCY(DEPENDENCY_AUDIO_CONVERSION) THEN defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_CONVERSION"
+    IF DEPENDENCY(DEPENDENCY_AUDIO_DECODE) THEN defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_DECODE"
     IF DEPENDENCY(DEPENDENCY_AUDIO_OUT) THEN
         defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_OUT"
-        d1$ = "parts\audio\out"
-        d2$ = d1$ + "\os\" + o$
-        d3$ = "internal\c\" + d2$
-        IF _FILEEXISTS(d3$ + "\src.a") = 0 THEN Build d3$
-        libs$ = libs$ + " " + d2$ + "\src.a"
+        IF lnx THEN libs$ = libs$ + " -lasound" ' cpal ALSA backend
     END IF
 
     IF DEPENDENCY(DEPENDENCY_ZLIB) THEN
@@ -382,7 +359,7 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     END IF
 
     IF DEPENDENCY(DEPENDENCY_AUDIO_OUT) THEN
-        IF mac THEN defines$ = defines$ + " -framework AudioUnit -framework AudioToolbox "
+        IF mac THEN defines$ = defines$ + " -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework CoreFoundation "
     END IF
 
     EnsureWindowsCommonPCH depstr$, defines$, pchOptions$

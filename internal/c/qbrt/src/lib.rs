@@ -32,6 +32,10 @@ pub mod val;
 #[cfg(windows)]
 pub mod win32;
 
+// Audio runtime (R6): linked into libqbrt.a but kept in its own crate (own
+// object file) so only programs that reference qbrt_snd_* pull it in.
+extern crate qbrt_audio;
+
 /// Version of the C ABI exposed by this crate. Bumped whenever a declaration in
 /// `include/qbrt.h` changes incompatibly.
 pub const QBRT_ABI_VERSION: u32 = 1;
