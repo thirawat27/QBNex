@@ -1,0 +1,23 @@
+[package]
+name = "qb-float80"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+rust-version = "1.85"
+description = "Software x87 80-bit extended float (`_FLOAT`) with the exact results of the legacy MinGW build."
+publish = false
+
+[lib]
+name = "qb_float80"
+path = "src/lib.rs"
+
+[features]
+# Use the software transcendental primitives (f2xm1, fyl2x, fyl2xp1) on x86 too.
+# Default: x86/x86_64 run those three primitives on the x87 unit (bit-identical to
+# the legacy build on the same CPU); other targets always use the software path.
+soft-transcendentals = []
+# Exports `qb_f80_diff_op`, the single entry point the differential harness
+# (tests/diff/diff_float80.cpp) drives every operation through.
+diff-hooks = []
+
+[dependencies]

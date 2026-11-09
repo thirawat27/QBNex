@@ -18,6 +18,8 @@ path = "src/lib.rs"
 # Audio runtime (R6). Its own crate so that its object file is only pulled into
 # programs whose libqb references the audio entry points (DEPENDENCY_AUDIO_OUT).
 qb-audio = { path = "../qb-audio" }
+# R11d: software x87 80-bit float (`_FLOAT`): VAL rounding, f80 -> f64, STR$ of _FLOAT.
+qb-float80 = { path = "../qb-float80" }
 ab_glyph_rasterizer = "0.1.10"
 png = "0.18"
 skrifa = "0.36.0"

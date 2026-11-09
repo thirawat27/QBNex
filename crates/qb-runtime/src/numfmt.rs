@@ -203,6 +203,22 @@ pub unsafe extern "C" fn qb_str_f64(v: f64, out: *mut u8) -> i32 {
     unsafe { emit(&str_f64(v), out) }
 }
 
+/// `STR$` of a `_FLOAT` given as the 10 bytes of an x87 `long double`: legacy
+/// `qbs_str(long double)` formats `(double)value`.
+pub fn str_f80(v: [u8; 10]) -> Vec<u8> {
+    str_f64(qb_float80::F80::from_bytes(v).to_f64())
+}
+
+/// # Safety
+/// `v` readable for 10 bytes; `out` writable for `STR_MAX` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn qb_str_f80(v: *const u8, out: *mut u8) -> i32 {
+    // SAFETY: caller guarantees 10 readable bytes.
+    let x = unsafe { qb_float80::F80::read(v) };
+    // SAFETY: caller guarantees STR_MAX writable bytes.
+    unsafe { emit(&str_f80(x.to_bytes()), out) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +316,17 @@ mod tests {
         let got = s(str_f64(1.234567890123456e-16));
         assert!(got.starts_with(" .000000000000000123456789012345"), "{got}");
         assert_eq!(got.len(), 2 + 32);
+    }
+
+    #[test]
+    fn float_formats_through_double() {
+        let tenth = qb_float80::dec::parse(b"0.1").0;
+        assert_eq!(s(str_f80(tenth.to_bytes())), " .1");
+        let third = qb_float80::F80::ONE / qb_float80::F80::from_i64(3);
+        assert_eq!(str_f80(third.to_bytes()), str_f64(1.0 / 3.0));
+        let mut buf = [0u8; STR_MAX];
+        let n = unsafe { qb_str_f80(third.to_bytes().as_ptr(), buf.as_mut_ptr()) } as usize;
+        assert_eq!(&buf[..n], str_f64(1.0 / 3.0).as_slice());
     }
 
     #[test]

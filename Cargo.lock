@@ -1657,6 +1657,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-float80"
+version = "0.1.0"
+
+[[package]]
 name = "qb-runtime"
 version = "0.1.0"
 dependencies = [
@@ -1666,6 +1670,7 @@ dependencies = [
  "gilrs",
  "png",
  "qb-audio",
+ "qb-float80",
  "skrifa",
  "softbuffer",
  "windows-sys 0.61.2",

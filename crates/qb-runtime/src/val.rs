@@ -186,242 +186,17 @@ fn encode(neg: bool, exp: u32, mant: u64) -> F80 {
 }
 
 /// Correctly rounded (nearest, ties to even) conversion of
-/// `(-1)^neg * (digits + tail) * 10^e10` to x87 extended precision.
+/// `(-1)^neg * (digits + tail) * 10^e10` to x87 extended precision
+/// (`qb_float80::dec::decimal_to_f80`, the R11d crate).
 fn decimal_to_f80(neg: bool, digits: &[u8], e10: i64, inexact_tail: bool) -> F80 {
-    let inf = encode(neg, 0x7FFF, 1 << 63);
-    let zero = encode(neg, 0, 0);
-    let n = digits.len() as i64;
-    // f80 spans roughly 3.6e-4951 .. 1.19e4932.
-    if e10 + n - 1 > 4933 {
-        return inf;
-    }
-    if e10 + n < -4952 {
-        return zero;
-    }
-    let mut num = Big::from_digits(digits);
-    let mut den = Big::one();
-    if e10 >= 0 {
-        num.mul_pow10(e10 as u32);
-    } else {
-        den.mul_pow10((-e10) as u32);
-    }
-    // Scale so that the quotient has 66..=67 bits.
-    let b = num.bit_len() as i64 - den.bit_len() as i64;
-    let scale = 66 - b; // value = q * 2^-scale
-    if scale >= 0 {
-        num.shl(scale as u32);
-    } else {
-        den.shl((-scale) as u32);
-    }
-    let (q, rem_nonzero) = num.div_small_quotient(&den, 68);
-    let sticky = rem_nonzero || inexact_tail;
-    let top = 127 - q.leading_zeros() as i64; // q in [2^top, 2^(top+1))
-    let e2 = top - scale; // value in [2^e2, 2^(e2+1))
-    let biased = e2 + 16383;
-    let (mant, exp) = if biased >= 1 {
-        let mut m = round_shift(q, (top - 63) as u32, sticky);
-        let mut biased = biased;
-        if m >> 64 != 0 {
-            m >>= 1;
-            biased += 1;
-        }
-        (m as u64, biased)
-    } else {
-        // Denormal: the unit is 2^-16445.
-        let shift = scale - 16445;
-        let m = if shift >= 128 { 0 } else { round_shift(q, shift as u32, sticky) };
-        let exp = if m >> 63 != 0 { 1 } else { 0 };
-        (m as u64, exp)
-    };
-    if exp >= 0x7FFF {
-        return inf;
-    }
-    if mant == 0 {
-        return zero;
-    }
-    encode(neg, exp as u32, mant)
-}
-
-/// `q >> k` rounded to nearest, ties to even; `sticky` = value is a bit more than q.
-fn round_shift(q: u128, k: u32, sticky: bool) -> u128 {
-    if k == 0 {
-        return q;
-    }
-    if k > 127 {
-        return 0;
-    }
-    let kept = q >> k;
-    let rem = q & ((1u128 << k) - 1);
-    let half = 1u128 << (k - 1);
-    if rem > half || (rem == half && (sticky || kept & 1 == 1)) {
-        kept + 1
-    } else {
-        kept
-    }
-}
-
-/// Minimal unsigned big integer (little-endian u64 limbs) for `VAL`.
-#[derive(Clone, PartialEq, Eq)]
-struct Big(Vec<u64>);
-
-impl Big {
-    fn one() -> Self {
-        Big(vec![1])
-    }
-
-    fn from_digits(digits: &[u8]) -> Self {
-        let mut b = Big(vec![0]);
-        for &d in digits {
-            b.mul_add_small(10, u64::from(d));
-        }
-        b
-    }
-
-    fn mul_add_small(&mut self, m: u64, add: u64) {
-        let mut carry = u128::from(add);
-        for limb in &mut self.0 {
-            let t = u128::from(*limb) * u128::from(m) + carry;
-            *limb = t as u64;
-            carry = t >> 64;
-        }
-        if carry != 0 {
-            self.0.push(carry as u64);
-        }
-    }
-
-    fn mul_pow10(&mut self, mut e: u32) {
-        while e >= 19 {
-            self.mul_add_small(10_000_000_000_000_000_000, 0);
-            e -= 19;
-        }
-        if e > 0 {
-            self.mul_add_small(10u64.pow(e), 0);
-        }
-    }
-
-    fn bit_len(&self) -> u32 {
-        let mut i = self.0.len();
-        while i > 0 && self.0[i - 1] == 0 {
-            i -= 1;
-        }
-        if i == 0 {
-            0
-        } else {
-            (i as u32 - 1) * 64 + (64 - self.0[i - 1].leading_zeros())
-        }
-    }
-
-    fn shl(&mut self, bits: u32) {
-        let limbs = (bits / 64) as usize;
-        let rest = bits % 64;
-        if rest != 0 {
-            let mut carry = 0u64;
-            for limb in &mut self.0 {
-                let next = *limb >> (64 - rest);
-                *limb = (*limb << rest) | carry;
-                carry = next;
-            }
-            if carry != 0 {
-                self.0.push(carry);
-            }
-        }
-        if limbs != 0 {
-            self.0.splice(0..0, std::iter::repeat(0).take(limbs));
-        }
-    }
-
-    fn shr1(&mut self) {
-        let mut carry = 0u64;
-        for limb in self.0.iter_mut().rev() {
-            let next = *limb << 63;
-            *limb = (*limb >> 1) | carry;
-            carry = next;
-        }
-    }
-
-    fn ge(&self, other: &Big) -> bool {
-        let len = self.0.len().max(other.0.len());
-        for i in (0..len).rev() {
-            let a = self.0.get(i).copied().unwrap_or(0);
-            let b = other.0.get(i).copied().unwrap_or(0);
-            if a != b {
-                return a > b;
-            }
-        }
-        true
-    }
-
-    fn sub_assign(&mut self, other: &Big) {
-        let mut borrow = false;
-        for i in 0..self.0.len() {
-            let b = other.0.get(i).copied().unwrap_or(0);
-            let (r1, o1) = self.0[i].overflowing_sub(b);
-            let (r2, o2) = r1.overflowing_sub(u64::from(borrow));
-            self.0[i] = r2;
-            borrow = o1 || o2;
-        }
-    }
-
-    fn is_zero(&self) -> bool {
-        self.0.iter().all(|l| *l == 0)
-    }
-
-    /// Quotient `self / den`, known to be below 2^`bits`, and whether the
-    /// remainder is non-zero. Consumes `self` as the running remainder.
-    fn div_small_quotient(mut self, den: &Big, bits: u32) -> (u128, bool) {
-        let mut d = den.clone();
-        d.shl(bits - 1);
-        let mut q = 0u128;
-        for bit in (0..bits).rev() {
-            if self.ge(&d) {
-                self.sub_assign(&d);
-                q |= 1u128 << bit;
-            }
-            d.shr1();
-        }
-        (q, !self.is_zero())
-    }
+    qb_float80::dec::decimal_to_f80(neg, digits, e10, inexact_tail).to_bytes()
 }
 
 /// Nearest-even conversion of an x87 extended value to `f64`, for platforms
-/// whose C `long double` is a plain double.
+/// whose C `long double` is a plain double and for the QIR backend.
 pub fn f64_from_f80(f: F80) -> f64 {
-    let mut m8 = [0u8; 8];
-    m8.copy_from_slice(&f[..8]);
-    let mant = u64::from_le_bytes(m8);
-    let se = u16::from_le_bytes([f[8], f[9]]);
-    let sign = u64::from(se >> 15) << 63;
-    let exp = i64::from(se & 0x7FFF);
-    if exp == 0x7FFF {
-        return f64::from_bits(sign | if mant << 1 == 0 { 0x7FF0_0000_0000_0000 } else { 0x7FF8_0000_0000_0000 | ((mant << 1) >> 12) });
-    }
-    if exp != 0 && mant >> 63 == 0 {
-        return f64::NAN; // unnormal: invalid operand on x87
-    }
-    if mant == 0 {
-        return f64::from_bits(sign);
-    }
-    let lz = i64::from(mant.leading_zeros());
-    let m = u128::from(mant << lz);
-    let e = exp.max(1) - 16383 - 63 - lz; // value = m * 2^e, m has 64 bits
-    let top = e + 63; // value in [2^top, 2^(top+1))
-    let bits = if top >= -1022 {
-        let mut r = round_shift(m, 11, false);
-        let mut top = top;
-        if r >> 53 != 0 {
-            r >>= 1;
-            top += 1;
-        }
-        if top > 1023 {
-            0x7FF0_0000_0000_0000
-        } else {
-            (((top + 1023) as u64) << 52) | (r as u64 & ((1 << 52) - 1))
-        }
-    } else {
-        let k = -(e + 1074);
-        if k > 127 { 0 } else { round_shift(m, k as u32, false) as u64 }
-    };
-    f64::from_bits(sign | bits)
+    // x87 `fst qword` (an unnormal gives the indefinite NaN).
+    qb_float80::F80::from_bytes(f).to_f64()
 }
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
@@ -448,15 +223,7 @@ pub unsafe extern "C" fn qb_val(chr: *const u8, len: i32, out_f80: *mut u8) -> i
     code
 }
 
-/// # Safety
-/// `f80` must be readable for 10 bytes.
-#[no_mangle]
-pub unsafe extern "C" fn qb_f80_to_f64(f80: *const u8) -> f64 {
-    let mut b = [0u8; 10];
-    // SAFETY: caller guarantees 10 readable bytes.
-    unsafe { core::ptr::copy_nonoverlapping(f80, b.as_mut_ptr(), 10) };
-    f64_from_f80(b)
-}
+// `qb_f80_to_f64` (declared in qb_runtime.h) is exported by the qb-float80 crate.
 
 #[cfg(test)]
 mod tests {
@@ -498,7 +265,7 @@ mod tests {
         assert_eq!((rc, out), (0, [0; 10]));
         let tenth = v("0.1");
         // SAFETY: 10-byte array.
-        assert_eq!(unsafe { qb_f80_to_f64(tenth.as_ptr()) }, 0.1);
+        assert_eq!(unsafe { qb_float80::capi::qb_f80_to_f64(tenth.as_ptr()) }, 0.1);
     }
 
     fn raw(neg: bool, exp: u16, mant: u64) -> F80 {

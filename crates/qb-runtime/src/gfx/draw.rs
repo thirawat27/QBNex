@@ -26,23 +26,7 @@ fn cvt_i64(v: f64) -> i64 {
 /// pseudo-NaN/infinity) load as the "indefinite" QNaN and NaNs keep their
 /// payload, quietened; finite values round to nearest.
 fn f80_load_store(b: [u8; 10]) -> f64 {
-    let mant = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
-    let se = u16::from_le_bytes([b[8], b[9]]);
-    let exp = se & 0x7FFF;
-    let sign = u64::from(se >> 15) << 63;
-    const INDEFINITE: u64 = 0xFFF8_0000_0000_0000;
-    if exp != 0 && mant >> 63 == 0 {
-        return f64::from_bits(INDEFINITE);
-    }
-    if exp == 0x7FFF {
-        let frac = mant & 0x7FFF_FFFF_FFFF_FFFF;
-        if frac == 0 {
-            return f64::from_bits(sign | 0x7FF0_0000_0000_0000);
-        }
-        return f64::from_bits(sign | 0x7FF8_0000_0000_0000 | (frac >> 11));
-    }
-    // SAFETY: b is a 10-byte x87 extended value.
-    unsafe { crate::val::qb_f80_to_f64(b.as_ptr()) }
+    qb_float80::F80::from_bytes(b).to_f64()
 }
 
 struct Parser {
