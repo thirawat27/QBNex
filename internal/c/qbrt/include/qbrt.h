@@ -94,6 +94,96 @@ int32_t qbrt_memcopy(const qbrt_mem_block *sblk, intptr_t soff, intptr_t bytes, 
 void qbrt_mem(intptr_t offset, intptr_t size, int32_t type, intptr_t elementsize, qbrt_mem_lock *lock,
               qbrt_mem_block *out);
 
+// --- GFS file table (was gfs_* in libqb.cpp) ---------------------------------
+// Entry of the Rust-owned file table; same fields as the legacy
+// gfs_file_struct minus the fstream pointers.
+typedef struct qbrt_gfs_file {
+    int64_t id;
+    uint8_t open, read, write, lock_read, lock_write;
+    int64_t pos;
+    uint8_t eof_reached, eof_passed;
+    int32_t fileno;
+    uint8_t type; // 1 RANDOM, 2 BINARY, 3 INPUT, 4 OUTPUT/APPEND
+    int64_t record_length;
+    uint8_t *field_buffer;
+    void **field_strings; // qbs* linked by FIELD
+    int32_t field_strings_n;
+    int64_t column;
+    uint8_t com_port;
+    int32_t com_baud_rate;
+    int8_t com_parity, com_data_bits_per_byte, com_stop_bits, com_bin_asc, com_asc_lf, com_rs;
+    int32_t com_cd_x, com_cs_x, com_ds_x, com_op_x;
+    uint8_t scrn;
+} qbrt_gfs_file;
+qbrt_gfs_file *qbrt_gfs_file_at(int32_t i);
+int32_t qbrt_gfs_fileno_valid(int32_t f);
+int32_t qbrt_gfs_fileno(int32_t f);
+int32_t qbrt_gfs_fileno_freefile(void);
+void qbrt_gfs_fileno_use(int32_t f, int32_t i);
+int32_t qbrt_gfs_fileno_n(void);
+int32_t qbrt_gfs_open(const uint8_t *name, int32_t len, int32_t access, int32_t restrictions, int32_t how);
+int32_t qbrt_gfs_close(int32_t i);
+int64_t qbrt_gfs_lof(int32_t i);
+int32_t qbrt_gfs_setpos(int32_t i, int64_t position);
+int64_t qbrt_gfs_getpos(int32_t i);
+int32_t qbrt_gfs_write(int32_t i, int64_t position, const uint8_t *data, int64_t size);
+int32_t qbrt_gfs_read(int32_t i, int64_t position, uint8_t *data, int64_t size);
+int64_t qbrt_gfs_read_bytes(void);
+int32_t qbrt_gfs_eof_reached(int32_t i);
+int32_t qbrt_gfs_eof_passed(int32_t i);
+int32_t qbrt_gfs_lock(int32_t i, int64_t start, int64_t end);
+int32_t qbrt_gfs_unlock(int32_t i, int64_t start, int64_t end);
+
+// --- File statements (OPEN, CLOSE, PRINT #, INPUT #, GET/PUT, FIELD, ...) ----
+// i / fileno are QBasic file numbers (> 0); TCP/IP handles stay in C++.
+// Functions producing a new string set *assign=1 and point *out at a buffer
+// that stays valid until the next such call.
+typedef struct qbrt_num_repr { // n_digits, n_digit, n_exp, n_neg, n_hex
+    uint16_t digits;
+    uint8_t digit[256];
+    int64_t exp;
+    uint8_t neg, hex;
+} qbrt_num_repr;
+typedef struct qbrt_field_slot {
+    int32_t fileno;
+    int64_t fileid, size, offset;
+} qbrt_field_slot;
+#define QBRT_PRINT_TO_SCREEN (-1)
+int32_t qbrt_file_open(const uint8_t *name, int32_t len, int32_t type, int32_t access, int32_t sharing, int32_t i,
+                       int64_t record_length, int32_t passed);
+int32_t qbrt_file_open_gwbasic(const uint8_t *typestr, int32_t typelen, int32_t i, const uint8_t *name, int32_t len,
+                               int64_t record_length, int32_t passed);
+void qbrt_file_close(int32_t i);
+void qbrt_file_close_all(void);
+int32_t qbrt_file_freefile(void);
+int32_t qbrt_file_print(int32_t i, const uint8_t *data, int32_t len, int32_t extraspace, int32_t tab, int32_t newline);
+int32_t qbrt_file_input_number(int32_t fileno, qbrt_num_repr *n, int32_t *result);
+int32_t qbrt_file_input_string(int32_t fileno, const uint8_t **out, int32_t *out_len, int32_t *assign);
+int32_t qbrt_file_line_input(int32_t fileno, const uint8_t **out, int32_t *out_len, int32_t *assign);
+int32_t qbrt_file_input_n(int32_t n, int32_t fileno, uint8_t *buf, int32_t buflen, int32_t *len);
+int32_t qbrt_file_get(int32_t i, int64_t offset, uint8_t *data, int32_t len, int32_t passed);
+int32_t qbrt_file_put(int32_t i, int64_t offset, const uint8_t *data, int32_t len, int32_t passed);
+int32_t qbrt_file_get_string(int32_t i, int64_t offset, uint8_t *chr, int32_t len, int32_t passed, const uint8_t **out,
+                             int32_t *out_len, int32_t *assign);
+int32_t qbrt_file_put_string(int32_t i, int64_t offset, const uint8_t *data, int32_t len, int32_t passed);
+int32_t qbrt_file_lof(int32_t i, int64_t *out);
+int32_t qbrt_file_eof(int32_t i, int32_t *out);
+int32_t qbrt_file_seek_set(int32_t i, int64_t pos);
+int32_t qbrt_file_seek_get(int32_t i, int64_t *out);
+int32_t qbrt_file_loc(int32_t i, int64_t *out);
+int32_t qbrt_file_lock(int32_t i, int64_t start, int64_t end, int32_t passed, int32_t lock_it);
+int32_t qbrt_generic_put(int32_t i, int32_t offset, const uint8_t *data, int32_t bytes);
+int32_t qbrt_generic_get(int32_t i, int32_t offset, uint8_t *data, int32_t bytes, int32_t *read);
+int32_t qbrt_field_new(int32_t fileno, int32_t new_error);
+int32_t qbrt_field_add(int64_t size, int32_t new_error, qbrt_field_slot *slot); // -1 skip, 0 ok, else error
+void qbrt_field_link(int32_t fileno, void *qbs_ptr, int64_t size);
+int32_t qbrt_field_store(int32_t fileno, int64_t fileid, int64_t size, int64_t offset, const uint8_t *data, int32_t len);
+void qbrt_field_forget(int32_t fileno, int64_t fileid, void *qbs_ptr);
+int32_t qbrt_field_get(int32_t fileno, int64_t offset, int32_t passed);
+int32_t qbrt_field_put(int32_t fileno, int64_t offset, int32_t passed);
+void qbrt_lset(uint8_t *dest, int32_t dlen, const uint8_t *src, int32_t slen);
+void qbrt_rset(uint8_t *dest, int32_t dlen, const uint8_t *src, int32_t slen);
+
 #ifdef __cplusplus
 }
 #endif
