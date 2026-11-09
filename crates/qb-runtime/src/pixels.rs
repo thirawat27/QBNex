@@ -23,7 +23,7 @@ pub fn bytes_into_raw(v: Vec<u8>) -> *mut u8 {
 ///
 /// # Safety
 /// `p` must come from this module with the same `count`, or be NULL.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_free_pixels(p: *mut u32, count: i64) {
     if !p.is_null() {
         // SAFETY: rebuilds the boxed slice leaked by `into_raw`.
@@ -35,7 +35,7 @@ pub unsafe extern "C" fn qb_free_pixels(p: *mut u32, count: i64) {
 ///
 /// # Safety
 /// `p` must come from this module with the same `count`, or be NULL.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_free_bytes(p: *mut u8, count: i64) {
     if !p.is_null() {
         // SAFETY: rebuilds the boxed slice leaked by `bytes_into_raw`.

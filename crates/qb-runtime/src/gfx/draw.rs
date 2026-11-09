@@ -459,7 +459,7 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
 ///
 /// # Safety
 /// `p` must be readable for 10 bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_draw_f80(p: *const u8) -> f64 {
     let mut b = [0u8; 10];
     // SAFETY: guaranteed by the caller.
@@ -471,7 +471,7 @@ pub unsafe extern "C" fn qb_gfx_draw_f80(p: *const u8) -> f64 {
 ///
 /// # Safety
 /// See [`draw`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_draw(im: *mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { draw(&mut *im, s, len, cmem) }

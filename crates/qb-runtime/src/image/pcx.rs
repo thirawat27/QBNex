@@ -257,7 +257,7 @@ impl Pcx<'_> {
                     let mut palette = [0u8; 768];
                     palette.copy_from_slice(pal);
                     let n = self.width * self.height;
-                    for px in self.px[..n * 3].chunks_exact_mut(3) {
+                    for px in self.px[..n * 3].as_chunks_mut::<3>().0 {
                         let i = px[0] as usize * 3;
                         px.copy_from_slice(&palette[i..i + 3]);
                     }
@@ -341,7 +341,7 @@ pub fn decode(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     } else {
         let mut out = Vec::new();
         out.try_reserve_exact(width * height * 4).ok()?;
-        for p in pcx.px.chunks_exact(3) {
+        for p in pcx.px.as_chunks::<3>().0 {
             out.extend_from_slice(&[p[0], p[1], p[2], 0xFF]);
         }
         out

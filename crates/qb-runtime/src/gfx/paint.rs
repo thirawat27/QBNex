@@ -219,7 +219,7 @@ pub unsafe fn paint_tile(im: &mut ImgStruct, x: f32, y: f32, tile: &[u8], mut bo
 
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_paint(im: *mut ImgStruct, x: f32, y: f32, fillcol: u32, bordercol: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { paint_color(&mut *im, x, y, fillcol, bordercol, passed) }
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn qb_gfx_paint(im: *mut ImgStruct, x: f32, y: f32, fillco
 
 /// # Safety
 /// `im` must be `write_page`; `tile` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_paint_tile(
     im: *mut ImgStruct,
     x: f32,

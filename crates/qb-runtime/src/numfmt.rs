@@ -173,7 +173,7 @@ unsafe fn emit(text: &[u8], out: *mut u8) -> i32 {
 
 /// # Safety
 /// `out` must be writable for `STR_MAX` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_str_i64(v: i64, out: *mut u8) -> i32 {
     // SAFETY: forwarded caller contract.
     unsafe { emit(&str_i64(v), out) }
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn qb_str_i64(v: i64, out: *mut u8) -> i32 {
 
 /// # Safety
 /// `out` must be writable for `STR_MAX` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_str_u64(v: u64, out: *mut u8) -> i32 {
     // SAFETY: forwarded caller contract.
     unsafe { emit(&str_u64(v), out) }
@@ -189,7 +189,7 @@ pub unsafe extern "C" fn qb_str_u64(v: u64, out: *mut u8) -> i32 {
 
 /// # Safety
 /// `out` must be writable for `STR_MAX` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_str_f32(v: f32, out: *mut u8) -> i32 {
     // SAFETY: forwarded caller contract.
     unsafe { emit(&str_f32(v), out) }
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn qb_str_f32(v: f32, out: *mut u8) -> i32 {
 
 /// # Safety
 /// `out` must be writable for `STR_MAX` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_str_f64(v: f64, out: *mut u8) -> i32 {
     // SAFETY: forwarded caller contract.
     unsafe { emit(&str_f64(v), out) }
@@ -211,7 +211,7 @@ pub fn str_f80(v: [u8; 10]) -> Vec<u8> {
 
 /// # Safety
 /// `v` readable for 10 bytes; `out` writable for `STR_MAX` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_str_f80(v: *const u8, out: *mut u8) -> i32 {
     // SAFETY: caller guarantees 10 readable bytes.
     let x = unsafe { qb_float80::F80::read(v) };

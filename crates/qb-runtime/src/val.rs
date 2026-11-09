@@ -206,7 +206,7 @@ pub fn f64_from_f80(f: F80) -> f64 {
 ///
 /// # Safety
 /// `chr` must be readable for `len` bytes (or `len <= 0`); `out_f80` writable for 10.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_val(chr: *const u8, len: i32, out_f80: *mut u8) -> i32 {
     let s: &[u8] = if len <= 0 || chr.is_null() {
         &[]

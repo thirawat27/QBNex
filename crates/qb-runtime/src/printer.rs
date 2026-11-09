@@ -155,7 +155,7 @@ pub mod gdi {
 ///
 /// # Safety
 /// `w` and `h` must be writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_printer_begin(w: *mut i32, h: *mut i32) -> *mut std::ffi::c_void {
     #[cfg(windows)]
     {
@@ -178,7 +178,7 @@ pub unsafe extern "C" fn qb_printer_begin(w: *mut i32, h: *mut i32) -> *mut std:
 ///
 /// # Safety
 /// `p` must come from `qb_printer_begin`; `pixels` readable for `w * h`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_printer_finish(p: *mut std::ffi::c_void, pixels: *const u32, w: i32, h: i32) {
     #[cfg(windows)]
     if !p.is_null() {
@@ -196,7 +196,7 @@ pub unsafe extern "C" fn qb_printer_finish(p: *mut std::ffi::c_void, pixels: *co
 ///
 /// # Safety
 /// `p` must come from `qb_printer_begin`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_printer_abort(p: *mut std::ffi::c_void) {
     #[cfg(windows)]
     if !p.is_null() {
@@ -266,7 +266,7 @@ impl Device for Trace {
 ///
 /// # Safety
 /// `out` must be writable for `cap` values.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_test_printer_trace(fail: u32, page_w: i32, page_h: i32, image_ok: i32, out: *mut i32, cap: i32) -> i32 {
     let mut t = Trace { fail, size: (page_w, page_h), ..Trace::default() };
     if let Some((w, h)) = begin(&mut t) {

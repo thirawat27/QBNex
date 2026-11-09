@@ -277,3 +277,49 @@ flowchart LR
 - **D12 `_FLOAT`:** จำลอง x87 80-bit ในซอฟต์แวร์ให้ผลตรงทุก bit (ไม่ยอมให้ผลต่าง)
 - **D13 JIT:** Cranelift JIT เป็นงานบังคับก่อน cutover (gate: loop benchmark ≤ 2x ของ C++ path, front end ของ compiler ≤ 2x)
 - **D14 `SUB _GL`:** คงเป็น deviation D-09 ตอน cutover; นำกลับผ่าน OpenGL จาก Rust เป็นงานหลัง port
+- **D15 Native AOT:** `qb file.bas` สร้าง exe แบบ native เป็นค่าเริ่มต้น: Cranelift สร้าง machine code ตอน compile (`cranelift-object`), linker เล็กที่เขียนเอง (`crates/qb-link`, crate `object`) เขียน PE/ELF/Mach-O ที่รวมโค้ดโปรแกรมกับ runtime ที่ build ไว้ — ไม่ต้องมี linker ภายนอก ไม่มี C/C++. `qb run` ใช้ VM+JIT. Gate: ผลตรงกับ VM ทุก case, ไม่มี warm-up, loop ≤ 2x ของ C++ path
+- **D16 Rust ล่าสุด:** Rust edition 2024 ทุก crate, toolchain stable ล่าสุด (ตอนนี้ 1.99.1) ปักใน `rust-toolchain.toml`, `rust-version` = toolchain นั้น, dependency ทุกตัวเป็นเวอร์ชันล่าสุด (`cargo upgrade --incompatible` + `cargo update`), `cargo deny`/`cargo audit` ใน CI. ทำเป็นขั้นแยกทันทีหลัง merge R10–R12/R11 (ก่อน cutover) เพราะ migration edition 2024 แตะทุก `#[no_mangle]`/`extern` และจะ conflict กับ session ที่กำลังทำงาน; crate ใหม่ที่สร้างระหว่างนี้ใช้ edition 2024 + dependency ล่าสุดได้เลย
+
+### 9.4 R13 — ฟีเจอร์ภาษาใหม่ที่ QBasic ยังขาด (ทำในข้อจำกัดปัจจุบัน)
+
+ข้อจำกัดที่ต้องเคารพ: compiler ยังเป็น BASIC; ไม่มี C/C++ และไม่มี dependency ที่ bundle C (เช่น SQLite แบบ C, libcurl) — ใช้ pure-Rust crate เท่านั้น; **backward compatible 100%** (โปรแกรม QBasic/QB64 เดิมต้อง compile และให้ผลเหมือนเดิม: keyword ใหม่ที่อาจชนชื่อตัวแปรเดิมใช้รูป `_KEYWORD` หรือเปิดด้วย `$` metacommand); ทำบน QIR backend (หลัง cutover) ไม่ต้องรองรับ C++ path; ทุกฟีเจอร์มี conformance case + เอกสารใน README.
+
+มีอยู่แล้ว (ไม่ต้องทำ): `IMPORT`, `+=`, `#` comment, `FUNCTION f AS type`, CLASS/EXTENDS/IMPLEMENTS (text lowering), `_CONTINUE`, stdlib collections/strings/io/json-generation/sys/math/result.
+
+| กลุ่ม | ฟีเจอร์ | หมายเหตุ |
+| --- | --- | --- |
+| Control flow | `_IIF(cond, a, b)`, `_ANDALSO`/`_ORELSE` (short-circuit), `FOR EACH x IN arr()`, `EXIT`/`_CONTINUE` ระบุ loop ได้ | QIR = jump ธรรมดา |
+| Error handling | `TRY ... CATCH [e] ... FINALLY ... END TRY` บนกลไก ON ERROR เดิม; `_THROW code[, msg$]`; `_ERRORMESSAGE$` | ON ERROR GOTO เดิมทำงานเหมือนเดิม |
+| Types | `ENUM ... END ENUM`; STRING ความยาวแปรผันใน TYPE; array ใน TYPE; array literal `DIM a() AS LONG = {1, 2, 3}`; CONST ทุกชนิด | descriptor ใหม่ใน qb-runtime |
+| Procedures | `OPTIONAL` + ค่า default ของพารามิเตอร์; overload ตามชนิด (opt-in); function pointer `@SubName` + `CALL ptr(...)`; recursion ลึกโดยไม่ stack overflow (heap frames ใน VM) | |
+| OOP | CLASS แบบจริงใน QIR: method dispatch (virtual), constructor/destructor อัตโนมัติ, `NEW`/`DELETE`, property | แทน text lowering เดิม; syntax เดิมยังใช้ได้ |
+| Strings | string interpolation `$"Hello {name$}"`; UTF-8 helpers (`_ULEN`, `_UMID$`, `_UCHR$`, `_UASC`); `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`, `_ENDSWITH`, `_FORMAT$` | ASCII เดิมไม่เปลี่ยน |
+| Collections ในตัว | `_LIST`, `_DICT` (hash map) เป็นชนิดของภาษา (ไม่ใช่แค่ stdlib) + FOR EACH | pure Rust ใน qb-runtime |
+| Library (pure Rust) | JSON parse+generate, regex (`_REGEX`), HTTP/HTTPS client (`rustls`), base64/hex, SHA-256/MD5/CRC32, zip/unzip, UUID, random ที่ดีกว่า (`_RANDOMSEED`), date/time แบบ ISO | ไม่มี C dependency |
+| Debug/quality | `$ASSERTS` + `_ASSERT cond, msg$`; `$CHECKING:ON` (bounds/overflow ละเอียด); stack trace ตอน error (บรรทัด .bas + SUB chain) | |
+| Tooling | debugger (breakpoint/step/watch ผ่าน qb-exec), `qb run file.bas` (ไม่สร้าง exe), REPL, LSP server สำหรับ VS Code, formatter (`qb fmt`) | |
+| Platform | WebAssembly target (`qb --target wasm`) รันในเบราว์เซอร์; cross-compile Windows/Linux/macOS จากเครื่องเดียว; `_GL` กลับมาผ่าน wgpu/OpenGL จาก Rust (D14) | |
+
+ลำดับ: control flow/errors/types/procedures ก่อน (แตะ emitter) → strings/collections/library (แตะ runtime) → OOP → tooling/platform. Exit gate ต่อฟีเจอร์: spec ใน `docs/language/*.md`, conformance case, ไม่มี regression ใน corpus เดิม.
+
+### 9.5 R14 — Hardening: สแกนบั๊กทุกจุด + ขัดเกลาความเสถียร (เฟสสุดท้าย)
+
+เริ่มหลัง cutover และ R13 (โค้ดต้องนิ่ง, ไม่มี C/C++ แล้ว, ฟีเจอร์ใหม่ต้องถูกสแกนด้วย). Scan Mode note ของ senior-architect pass:
+
+**หลักฐานตั้งต้น (Direct, 2026-11-10):** `unsafe` 998 จุดใน 49 ไฟล์ของ `crates/` (ส่วนใหญ่เป็น C ABI shim ที่จะหายหลัง cutover); debt register เดิม F0–F16 ใน `debt-and-risks.md` (F3 data race, F8 error re-entry, F13/F16 flow conflicts ยังต้องยืนยันว่าหายจริงในระบบใหม่); xfail ค้าง L-02/L-03/L-04/L-06; ทดสอบเฉพาะ Windows x64 (Linux/macOS/ARM/32-bit ไม่เคยรัน).
+
+| งาน | วิธี | Exit gate |
+| --- | --- | --- |
+| H1 unsafe audit | ลด `unsafe` ที่เหลือหลัง cutover ให้เหลือเฉพาะ FFI/JIT; ทุกจุดมี `// SAFETY:`; `cargo miri test` กับ crate ที่ไม่แตะ OS | 0 miri error; ทุก unsafe มีเหตุผล |
+| H2 Lint เข้ม | `cargo clippy --workspace -- -D warnings -W clippy::pedantic` (ยกเว้นที่มีเหตุผล), `cargo deny` (license/advisory), `cargo audit` | 0 warning ใน CI |
+| H3 Fuzzing | `cargo-fuzz` บน: QIR parser/validator, VAL, STR$/PRINT USING, image/font decoder, file I/O (GFS), DRAW/PLAY parser, compiler front end (โปรแกรม BASIC สุ่ม/กลายพันธุ์) | ≥ 1 ชม./target ไม่มี crash/hang/OOM |
+| H4 Differential สุ่ม | expression generator → VM vs JIT vs C++ oracle (`.oracle/qb.exe`) สำหรับตัวเลข/สตริง | 0 mismatch นอก deviation ที่บันทึกไว้ |
+| H5 Corpus โปรแกรมจริง | รวมโปรแกรม QBasic/QB64 จริง (ตัวอย่าง, เกม, utility) เป็น smoke + golden; compile ทุกตัว, รันแบบ headless/script input | ไม่มี crash; output ตรง oracle |
+| H6 Concurrency | ตรวจ thread model (main/QBMAIN/timer/audio/window) ด้วย `loom` หรือ stress + ThreadSanitizer บน Linux | 0 race; ยืนยัน F3 หาย |
+| H7 Error paths | ทดสอบทุก error code (ERR 1–255), ON ERROR/RESUME ซ้อน, error ใน SUB/handler, หน่วยความจำหมด, ไฟล์หาย/สิทธิ์ไม่พอ, disk เต็ม | ไม่มี panic หลุดถึงผู้ใช้; ข้อความ error ตรง QB |
+| H8 Cross-platform | CI จริงบน Windows x64/x86, Linux x64/ARM64, macOS ARM64; conformance + smoke ทุก OS | เขียวทุก OS |
+| H9 xfail ค้าง | แก้ L-02/L-03/L-04/L-06 และ deviation ที่แก้ได้ | xfail เหลือเฉพาะที่ตั้งใจ |
+| H10 Performance regression | benchmark ใน CI (loop, string, graphics, compile time) เทียบ baseline | ไม่ช้าลงเกิน 5% ต่อ commit |
+| H11 Debt register ปิดงาน | ไล่ F0–F16 + finding ใหม่จาก H1–H10 ทีละข้อ: ปิด / ยอมรับพร้อมเหตุผล | ทุกข้อมีสถานะ |
+
+ผลลัพธ์: `docs/rust-port/hardening-report.md` (finding ทุกข้อมี evidence/impact/severity/confidence ตามรูปแบบ debt register) และทุก fix มี regression test.
