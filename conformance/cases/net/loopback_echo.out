@@ -1,0 +1,13 @@
+host opened-1 
+host connected-1 
+nothing pending 0 
+client opened-1 
+TCP/IP:47391:localhost
+client connected-1 
+accepted-1 
+TCP/IP:<port>:127.0.0.1
+server got 14 -1 
+client got 20000 -1 
+empty read 0 
+server sees close 0 
+done

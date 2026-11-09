@@ -15,24 +15,30 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod clipboard;
+mod cmem;
 pub mod env;
 pub mod fileio;
+pub mod font;
 pub mod fsops;
+pub mod gamepad;
 pub mod gfs;
 pub mod gfx;
-mod cmem;
-pub mod font;
 pub mod image;
-pub mod gamepad;
 pub mod keybuf;
 pub mod keymap;
 pub mod mbf;
 pub mod mem;
+pub mod net;
 pub mod numfmt;
+pub mod pixels;
+pub mod printer;
 pub mod qbs;
 pub mod rnd;
 pub mod round;
+pub mod screen;
 pub mod shell;
+pub mod systime;
 pub mod timer;
 pub mod val;
 #[cfg(windows)]

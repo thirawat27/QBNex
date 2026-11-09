@@ -2112,8 +2112,6 @@ void evnt(uint32 linenumber, uint32 inclinenumber = 0, const char* incfilename =
 static std::vector<uint8> redim_preserve_cmem_buffer_storage(65536,0);
 uint8 *redim_preserve_cmem_buffer=redim_preserve_cmem_buffer_storage.data();//used for temporary storage only (move to libqbx?)
 
-#include "myip.cpp"
-
 void division_by_zero_handler(int ignore){
     error(11);
 }

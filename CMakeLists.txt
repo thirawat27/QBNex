@@ -91,7 +91,7 @@ elseif(APPLE)
   set(QBNEX_QBRT_SCRIPT "setup_build.command")
   set(QBNEX_QBRT_NATIVE_LIBS System c m
     "-framework AppKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Foundation"
-    "-framework IOKit" "-framework CoreFoundation")
+    "-framework IOKit" "-framework CoreFoundation" objc)
 else()
   set(QBNEX_QBRT_SCRIPT "setup_build.sh")
   set(QBNEX_QBRT_NATIVE_LIBS pthread dl m rt util udev)

@@ -1,3 +1,4 @@
+// Verbatim copy of legacy internal/c/libqb/printer.cpp (commit 545b859). Test-only.
 #ifndef DEPENDENCY_PRINTER
     
     //stubs

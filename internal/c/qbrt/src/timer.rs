@@ -1,8 +1,8 @@
 //! `TIMER` / `TIMER(accuracy)`: seconds since midnight.
 //!
-//! Replaces the arithmetic of `func_timer` in libqb.cpp. Reading the clock
-//! (`GetTicks`) and the start-up time of day stay in the C++ shim until the
-//! system layer is ported.
+//! Replaces the arithmetic of `func_timer` in libqb.cpp. The clock reads it
+//! takes as arguments (`GetTicks` and the start-up time of day) come from
+//! [`crate::systime`].
 
 /// Milliseconds in a day; TIMER wraps at midnight.
 const DAY_MS: u32 = 86_400_000;
