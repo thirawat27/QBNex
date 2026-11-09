@@ -250,10 +250,8 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     END IF
 
     IF DEPENDENCY(DEPENDENCY_LOADFONT) THEN
-        d$ = "internal\c\parts\video\font\ttf\"
-        IF _FILEEXISTS(d$ + "os\" + o$ + "\src.o") = 0 THEN Build d$ + "os\" + o$
+        'fonts are rendered by the Rust runtime (libqbrt.a, always linked); no FreeType object since R7
         defines$ = defines$ + defines_header$ + "DEPENDENCY_LOADFONT"
-        libs$ = libs$ + " " + "parts\video\font\ttf\os\" + o$ + "\src.o"
     END IF
 
     localpath$ = "internal\c\"

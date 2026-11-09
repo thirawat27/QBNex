@@ -1,5 +1,5 @@
 #!/bin/sh
-g++ -s -c -w -Wall ../../src/freetypeamalgam.c -o src.o
+g++ -s -c -w -Wall ../../placeholder.c -o src.o
 echo "Press any key to continue..."
 Pause()
 {

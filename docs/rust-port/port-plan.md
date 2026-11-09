@@ -21,7 +21,7 @@
 > | R4 | File I/O (`gfs_*`, OPEN/GET/PUT/FIELD), SHELL/ENV, `_MEM` | corpus file group ผ่าน | pending |
 > | R5 | Graphics software (`img_struct`, SCREEN, LINE/CIRCLE/PAINT/DRAW, palette, `_PUTIMAGE`) | framebuffer hash ตรง | pending |
 > | R6 | Audio (`audio.cpp` + miniaudio → cpal + synth Rust) | PCM offline ตรงภายใน tolerance | pending |
-> | R7 | Fonts + image codec (FreeType → fontdue, stb_image → `image`) | glyph/decoded image tests | pending |
+> | R7 | Fonts + image codec (FreeType → skrifa + ab_glyph_rasterizer, stb_image/dr_pcx → Rust ports + `png`/`zune-jpeg`) | glyph/decoded image tests | done (Windows), ดู progress.md |
 > | R8 | Window/input/threads (freeglut+GLEW+gui.cpp → winit + softbuffer, atomic event flags) | interactive scripted tests 3 OS | pending |
 > | R9 | Net, clipboard, screen capture, printer | loopback + platform tests | pending |
 > | R10 | ลบ C++ legacy, vendored third-party, `download/` dirs; เหลือแค่ `qbx.cpp` + glue | repo ไม่มี third-party C ที่ไม่ใช้ | pending |
