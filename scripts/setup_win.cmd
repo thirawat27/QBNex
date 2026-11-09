@@ -117,7 +117,7 @@ if exist "mingw64" rd /s /q "mingw64" >nul 2>nul
 echo Building library 'LibQB'
 cd internal/c/libqb/os/win
 if exist libqb_setup.o del libqb_setup.o
-call setup_build.bat
+call .\setup_build.bat
 cd ../../../../..
 
 echo Building library 'qb-runtime' (Rust runtime)
@@ -128,7 +128,7 @@ if errorlevel 1 (
 )
 cd crates/qb-runtime/os/windows
 if exist libqb_runtime.a del libqb_runtime.a
-call setup_build.bat
+call .\setup_build.bat
 cd ../../../..
 if not exist crates\qb-runtime\os\windows\libqb_runtime.a (
     echo Error: failed to build crates\qb-runtime\os\windows\libqb_runtime.a
@@ -138,7 +138,7 @@ if not exist crates\qb-runtime\os\windows\libqb_runtime.a (
 echo Building library 'FreeType'
 cd internal/c/parts/video/font/ttf/os/win
 if exist src.o del src.o
-call setup_build.bat
+call .\setup_build.bat
 cd ../../../../../../../..
 
 echo Building 'QBNex'
