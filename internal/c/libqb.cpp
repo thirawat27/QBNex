@@ -246,7 +246,7 @@ void log_event(int32 x){
 }
 
 
-#include "libqb/printer.h"
+void sub__printimage(int32 i);//internal/c/qbrt/src/printer.rs via the shim near sub_files
 
 void alert(int32 x);
 void alert(char *x);
@@ -806,43 +806,8 @@ static uint16 codepage437_to_unicode16[] = {
     #include "parts/video/font/ttf/src.c"
 #endif
 
-#ifdef QBNex_MACOSX
-    #include <mach/mach_time.h>
-    #define ORWL_NANO (+1.0E-9)
-    #define ORWL_GIGA UINT64_C(1000000000)
-    static double orwl_timebase = 0.0;
-    static uint64_t orwl_timestart = 0;
-    int64 orwl_gettime(void) {
-        if (!orwl_timestart) {
-            mach_timebase_info_data_t tb = { 0 };
-            mach_timebase_info(&tb);
-            orwl_timebase = tb.numer;
-            orwl_timebase /= tb.denom;
-            orwl_timestart = mach_absolute_time();
-        }
-        struct timespec t;
-        double diff = (mach_absolute_time() - orwl_timestart) * orwl_timebase;
-        t.tv_sec = diff * ORWL_NANO;
-        t.tv_nsec = diff - (t.tv_sec * ORWL_GIGA);                
-        return t.tv_sec * 1000 + t.tv_nsec / 1000000;                
-    }
-#endif
-
-#ifdef QBNex_LINUX
-    int64 GetTicks(){
-        struct timespec tp;
-        clock_gettime(CLOCK_MONOTONIC, &tp);
-        return tp.tv_sec * 1000 + tp.tv_nsec / 1000000;
-    }
-    #elif defined QBNex_MACOSX
-    int64 GetTicks(){
-        return orwl_gettime();
-    }
-    #else
-    int64 GetTicks(){
-        return ( ( ((int64)clock()) * ((int64)1000) ) / ((int64)CLOCKS_PER_SEC) );        
-    }
-#endif
+// Clock reads live in the Rust runtime (internal/c/qbrt/src/systime.rs).
+int64 GetTicks(){return qbrt_get_ticks();}
 
 
 #define QBK 200000
@@ -2408,7 +2373,6 @@ void GLUT_MAINLOOP_THREAD(void *);
 void GLUT_DISPLAY_REQUEST();
 
 
-extern qbs* WHATISMYIP();
 
 static void qb_set_background_thread_priority(std::thread &thread){
     #ifdef QBNex_WINDOWS
@@ -6150,8 +6114,6 @@ uint32 cost=0;
 
 // MBF <-> IEEE conversion lives in the Rust runtime (internal/c/qbrt/src/mbf.rs).
 
-//#include "time64.c"
-//#include "time64.h"
 
 
 int64 build_int64(uint32 val2, uint32 val1){
@@ -22109,573 +22071,140 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         #endif
 
         
-        //Referenced: http://johnnie.jerrata.com/winsocktutorial/
-        //Much of the unix sockets code based on http://beej.us/guide/bgnet/
-        #ifdef QBNex_WINDOWS
-            #include <winsock2.h>
-            WSADATA wsaData;
-            WORD sockVersion;
-            #else
-            #include <sys/types.h>
-            #include <sys/socket.h>
-            #include <netdb.h>
-        #endif
-        
-        #define NETWORK_ERROR -1
-        #define NETWORK_OK     0
-        
-        void tcp_init(){
-            static int32 init=0;
-            if (!init){
-                init=1;
-                #if !defined(DEPENDENCY_SOCKETS)
-                    #elif defined(QBNex_WINDOWS)
-                    sockVersion = MAKEWORD(1, 1);
-                    WSAStartup(sockVersion, &wsaData);
-                #endif
-            }
-        }
-        
-        void tcp_done(){
-            #if !defined(DEPENDENCY_SOCKETS)
-                #elif defined(QBNex_WINDOWS)
-                WSACleanup();
-            #endif
-        }
-        
-        struct tcp_connection{
-            #if !defined(DEPENDENCY_SOCKETS)
-                #elif defined(QBNex_WINDOWS)
-                SOCKET socket;
-                #elif defined(QBNex_UNIX)
-                int socket;
-                #else
-            #endif
-            int32 port;//connection to host & clients only
-            uint8 ip4[4];//connection to host only
-            uint8* hostname;//clients only
-            int connected;
-        };
-        static std::unordered_map<tcp_connection*, std::vector<uint8>> tcp_hostname_storage;
+        // TCP/IP sockets, the info-string parser and WHATISMYIP live in the Rust
+        // runtime (internal/c/qbrt/src/net.rs). The handle tables below stay here
+        // because file I/O (GET/PUT/CLOSE) shares them.
 
-        static tcp_connection *create_tcp_connection(){
-            return new(std::nothrow) tcp_connection{};
-        }
-
-        static void assign_tcp_hostname(tcp_connection *connection, uint8 *host){
-            auto &buffer=tcp_hostname_storage[connection];
-            size_t host_length=strlen((char*)host);
-            buffer.resize(host_length+1);
-            memcpy(buffer.data(),host,host_length+1);
-            connection->hostname=buffer.data();
-        }
-        
-        void *tcp_host_open(int64 port){
-            tcp_init();
-            if ((port<0)||(port>65535)) return NULL;
-            #if !defined(DEPENDENCY_SOCKETS)
-                return NULL;
-                #elif defined(QBNex_WINDOWS)
-                //Ref. from 'winsock.h': typedef u_int SOCKET;
-                static SOCKET listeningSocket;
-                listeningSocket = socket(AF_INET,       // Go over TCP/IP
-                SOCK_STREAM,       // This is a stream-oriented socket
-                IPPROTO_TCP);      // Use TCP rather than UDP
-                if (listeningSocket==INVALID_SOCKET) return NULL;
-                static SOCKADDR_IN serverInfo;
-                serverInfo.sin_family=AF_INET;
-                serverInfo.sin_addr.s_addr=INADDR_ANY;  // Since this socket is listening for connections,
-                // any local address will do
-                serverInfo.sin_port=htons(port);    // Convert integer port to network-byte order
-                // and insert into the port field
-                // Bind the socket to our local server address
-                static int nret;
-                nret=bind(listeningSocket,(LPSOCKADDR)&serverInfo,sizeof(struct sockaddr));
-                if (nret==SOCKET_ERROR){closesocket(listeningSocket); return NULL;}
-                nret=listen(listeningSocket,SOMAXCONN);     // Up to x connections may wait at any
-                // one time to be accept()'ed
-                if (nret==SOCKET_ERROR){closesocket(listeningSocket); return NULL;}
-                static u_long iMode;
-                iMode=1;
-                ioctlsocket(listeningSocket, FIONBIO,&iMode);
-                
-                static tcp_connection *connection;
-                connection=create_tcp_connection();
-                if (!connection){closesocket(listeningSocket); return NULL;}
-                connection->socket=listeningSocket;
-                connection->connected = -1;
-                return (void*)connection;
-                #elif defined(QBNex_UNIX)
-                struct addrinfo hints, *servinfo, *p;
-                int sockfd;
-                char str_port[6];
-                int yes = 1;
-                snprintf(str_port, 6, "%d", port);
-                memset(&hints, 0, sizeof(hints));
-                hints.ai_family = AF_INET;
-                hints.ai_socktype = SOCK_STREAM;
-                hints.ai_flags = AI_PASSIVE;
-                if (getaddrinfo(NULL, str_port, &hints, &servinfo) != 0) return NULL;
-                for(p = servinfo; p != NULL; p = p->ai_next) {
-                    sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-                    if (sockfd == -1) continue;
-                    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-                    if (::bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-                        close(sockfd);
-                        continue;
-                    }
-                    break; //if we get here, all is good
-                }
-                freeaddrinfo(servinfo);
-                if (p == NULL) return NULL; //indicates none of the entries succeeded
-                fcntl(sockfd, F_SETFL, O_NONBLOCK); //make socket non-blocking
-                
-                if (listen(sockfd, SOMAXCONN) == -1) {
-                    close(sockfd);
-                    return NULL;
-                }    
-                
-                tcp_connection *connection;
-                connection=create_tcp_connection();
-                if (!connection){close(sockfd); return NULL;}
-                connection->socket=sockfd;
-                connection->connected = -1;
-                return (void*)connection;
-                #else
-                return NULL;
-            #endif
-        }
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        void *tcp_client_open(uint8 *host,int64 port){
-            
-            tcp_init();
-            
-            if ((port<0)||(port>65535)) return NULL;
-            #if !defined(DEPENDENCY_SOCKETS)
-                return NULL;
-                #elif defined(QBNex_WINDOWS)
-                static LPHOSTENT hostEntry;
-                hostEntry=gethostbyname((char*)host);
-                if (!hostEntry) return NULL;
-                //Ref. from 'winsock.h': typedef u_int SOCKET;
-                static SOCKET theSocket;
-                theSocket = socket(AF_INET,     // Go over TCP/IP
-                SOCK_STREAM,     // This is a stream-oriented socket
-                IPPROTO_TCP);    // Use TCP rather than UDP
-                if (theSocket==INVALID_SOCKET) return NULL;
-                static SOCKADDR_IN serverInfo;
-                serverInfo.sin_family=AF_INET;
-                serverInfo.sin_addr=*((LPIN_ADDR)*hostEntry->h_addr_list);
-                serverInfo.sin_port=htons(port);
-                static int nret;
-                nret = connect(theSocket,
-                (LPSOCKADDR)&serverInfo,
-                sizeof(struct sockaddr));
-                if (nret==SOCKET_ERROR){closesocket(theSocket); return NULL;}
-                //Reference: http://msdn.microsoft.com/en-us/library/windows/desktop/ms738573%28v=vs.85%29.aspx
-                // Set the socket I/O mode: In this case FIONBIO
-                // enables or disables the blocking mode for the 
-                // socket based on the numerical value of iMode.
-                // If iMode = 0, blocking is enabled; 
-                // If iMode != 0, non-blocking mode is enabled.
-                static u_long iMode;
-                iMode=1;
-                ioctlsocket(theSocket, FIONBIO,&iMode);
-                
-                static tcp_connection *connection;
-                connection=create_tcp_connection();
-                if (!connection){closesocket(theSocket); return NULL;}
-                connection->socket=theSocket;
-                connection->port=port;
-                connection->connected = -1;
-                assign_tcp_hostname(connection,host);
-                return (void*)connection;
-                #elif defined(QBNex_UNIX)
-                struct addrinfo hints, *servinfo, *p;
-                int sockfd;
-                char str_port[6];
-                snprintf(str_port, 6, "%d", port);
-                memset(&hints, 0, sizeof(hints));
-                hints.ai_family = AF_INET;
-                hints.ai_socktype = SOCK_STREAM;
-                if (getaddrinfo((char*)host, str_port, &hints, &servinfo) != 0) return NULL;
-                for(p = servinfo; p != NULL; p = p->ai_next) {
-                    sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-                    if (sockfd == -1) continue;
-                    if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-                        close(sockfd);
-                        continue;
-                    }
-                    break; //if we get here, all is good
-                }
-                freeaddrinfo(servinfo);
-                if (p == NULL) return NULL; //indicates none of the entries succeeded
-                fcntl(sockfd, F_SETFL, O_NONBLOCK); //make socket non-blocking
-                
-                //now we just need to create a struct tcp_connection to return
-                tcp_connection *connection;
-                connection=create_tcp_connection();
-                if (!connection){close(sockfd); return NULL;}
-                connection->socket=sockfd;
-                connection->port=port;
-                connection->connected = -1;
-                assign_tcp_hostname(connection,host);
-                return (void*)connection;
-                #else
-                return NULL;
-            #endif
-        }
-        
-        
-        void *tcp_connection_open(void *host_tcp){
-            #if !defined(DEPENDENCY_SOCKETS)
-                return NULL;
-                #elif defined(QBNex_WINDOWS)
-                static tcp_connection *host; host=(tcp_connection*)host_tcp;
-                static sockaddr sa;
-                static int sa_size;
-                sa_size=sizeof(sa);
-                static SOCKET new_socket;
-                new_socket = accept(host->socket,
-                &sa,             // Optionally, address of a SOCKADDR_IN struct
-                &sa_size);       //             sizeof ( struct SOCKADDR_IN )                        
-                if (new_socket==INVALID_SOCKET) return NULL;
-                static u_long iMode;
-                iMode=1;
-                ioctlsocket(new_socket, FIONBIO,&iMode);
-                static tcp_connection *connection;
-                connection=create_tcp_connection();
-                if (!connection){closesocket(new_socket); return NULL;}
-                connection->socket=new_socket;
-                //IPv4: port,port,ip,ip,ip,ip
-                connection->port=*((uint16*)sa.sa_data);
-                connection->connected = -1;
-                *((uint32*)(connection->ip4))=*((uint32*)(sa.sa_data+2));
-                return (void*)connection;
-                #elif defined(QBNex_UNIX)
-                tcp_connection *host; host=(tcp_connection*)host_tcp;
-                struct sockaddr remote_addr;
-                socklen_t addr_size;
-                int fd;
-                
-                addr_size = sizeof(remote_addr);
-                fd = accept(host->socket, &remote_addr, &addr_size);
-                if (fd == -1) return NULL;
-                fcntl(fd, F_SETFL, O_NONBLOCK); //make socket non-blocking
-                
-                tcp_connection *connection;
-                connection=create_tcp_connection();
-                if (!connection){close(fd); return NULL;}
-                connection->socket=fd;
-                connection->connected = -1;
-                //IPv4: port,port,ip,ip,ip,ip
-                connection->port=*((uint16*)remote_addr.sa_data);
-                *((uint32*)(connection->ip4))=*((uint32*)(remote_addr.sa_data+2));
-                return (void*)connection;
-                #else
-                return NULL:
-            #endif
-        }
-        
-        void tcp_close(void* connection){
-            tcp_connection *tcp=(tcp_connection*)connection;
-            #if !defined(DEPENDENCY_SOCKETS)
-                #elif defined(QBNex_WINDOWS)
-                if (tcp->socket) {
-                    shutdown(tcp->socket,SD_BOTH);
-                    closesocket(tcp->socket);
-                }
-                #elif defined(QBNex_UNIX)
-                if (tcp->socket) {
-                    shutdown(tcp->socket, SHUT_RDWR);
-                    close(tcp->socket);
-                }
-            #endif
-            tcp_hostname_storage.erase(tcp);
-            tcp->hostname=NULL;
-            delete tcp;
-        }
-        
-        void tcp_out(void *connection,void *offset,ptrszint bytes){
-            #if !defined(DEPENDENCY_SOCKETS)
-            #elif defined(QBNex_WINDOWS) || defined(QBNex_UNIX)
-                // Handle Windows which might not have this flag (it would be a no-op anyway)
-                #if !defined(MSG_NOSIGNAL)
-                #define MSG_NOSIGNAL 0
-                #endif
-                tcp_connection *tcp; tcp=(tcp_connection*)connection;
-                int total = 0;        // how many bytes we've sent
-                int bytesleft = bytes; // how many we have left to send
-                int n;
-                
-                while(total < bytes) {
-                    n = send(tcp->socket, (char*)((char *)offset + total), bytesleft, MSG_NOSIGNAL);
-                    if (n < 0) {
-                        tcp->connected = 0;
-                        return;
-                    }
-                    total += n;
-                    bytesleft -= n;
-                }
-                #else
-            #endif
-        }
-        
         struct connection_struct{
             int8 in_use;//0=not being used, 1=in use
             int8 protocol;//1=TCP/IP
             int8 type;//1=client, 2=host(listening), 3=host's connection from a client
             ptrszint stream;
             ptrszint handle;
-            void *connection;
+            void *connection;//qbrt_tcp*
             //---------------------------------
             int32 port;
         };
         list *connection_handles=NULL;
-        
+
         void stream_out(stream_struct *st,void *offset,ptrszint bytes){
             if (st->type==1){//Network
                 static connection_struct *co; co=(connection_struct*)st->index;
                 if ((co->type==1)||(co->type==3)){//client or host's connection from a client
-                    
-                    if (co->protocol==1){//TCP/IP
-                        tcp_out((void*)co->connection,offset,bytes);
-                    }
-                }//client or host's connection from a client
+                    if (co->protocol==1) qbrt_tcp_send((qbrt_tcp*)co->connection,(const uint8_t*)offset,bytes);
+                }
             }//Network
         }//stream_out
-        
-        
+
         void stream_update(stream_struct *stream){
             #ifdef DEPENDENCY_SOCKETS
                 //assume tcp
-                
-                static connection_struct *connection;
-                connection=(connection_struct*)(stream->index);
-                static tcp_connection *tcp;
-                tcp=(tcp_connection*)(connection->connection);
-                static ptrszint bytes;
-                
+                connection_struct *connection=(connection_struct*)(stream->index);
+                qbrt_tcp *tcp=(qbrt_tcp*)(connection->connection);
                 if (!stream->in_limit){
                     stream->in_size=0;
                     resize_stream_input_buffer(stream,1024);
                 }
-                
                 expand_and_retry:
-                
-                //expand buffer if 'in' stream is full
-                //also guarantees that bytes requested from recv() is not 0
+                //expand buffer if 'in' stream is full (the request to qbrt_tcp_recv is never 0 bytes)
                 if (stream->in_size==stream->in_limit){
                     resize_stream_input_buffer(stream,stream->in_limit*2);
                 }
-                
-                
-                bytes = recv(tcp->socket,(char*)(stream->in+stream->in_size),
-                stream->in_limit-stream->in_size,
-                0);
-                if (bytes < 0) { //some kind of error
-                    #ifdef QBNex_WINDOWS
-                        if (WSAGetLastError() != WSAEWOULDBLOCK) tcp->connected = 0; //fatal error
-                        #else
-                        if (errno != EAGAIN && errno != EWOULDBLOCK) tcp->connected = 0;
-                    #endif
-                }
-                else if (bytes == 0) { //graceful shutdown occured
-                    tcp->connected = 0;
-                }
-                else {
+                ptrszint bytes=qbrt_tcp_recv(tcp,stream->in+stream->in_size,stream->in_limit-stream->in_size);
+                if (bytes>0){
                     stream->in_size+=bytes;
                     if (stream->in_size==stream->in_limit) goto expand_and_retry;
                 }
-            #endif    
+            #endif
         }
-        
-        
-        
-        
+
         void connection_close(ptrszint i){
             //Note: 'i' is a positive integer 1 or greater
             //      'i' must be a valid handle
             static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,i);
-            
+
             if (sh->type==2){//host listener
                 static connection_struct *cs; cs=(connection_struct*)sh->index;
-                if (cs->protocol==1) tcp_close(cs->connection);
+                if (cs->protocol==1) qbrt_tcp_close((qbrt_tcp*)cs->connection);
                 list_remove(connection_handles,list_get_index(connection_handles,cs));
                 list_remove(special_handles,list_get_index(special_handles,sh));
                 return;
             }//host listener
-            
+
             //client or connection to host
             if (sh->type==1){//stream
                 static stream_struct *ss; ss=(stream_struct*)sh->index;
                 if (ss->type==1){//network
                     static connection_struct *cs; cs=(connection_struct*)ss->index;
-                    if (cs->protocol==1) tcp_close(cs->connection);
+                    if (cs->protocol==1) qbrt_tcp_close((qbrt_tcp*)cs->connection);
                     list_remove(connection_handles,list_get_index(connection_handles,cs));
                     stream_free(ss);
                     list_remove(special_handles,list_get_index(special_handles,sh));
                     return;
                 }//network
             }//stream
-            
+
         }
-        
-        int32 connection_new(int32 method, qbs *info_in, int32 value){
+
+        static int32 connection_register(void *connection,int32 type,int32 port){
+            //type: 1=client, 2=host(listening), 3=host's connection from a client
+            static int32 my_handle; my_handle=list_add(special_handles);
+            static special_handle_struct *my_handle_struct; my_handle_struct=(special_handle_struct*)list_get(special_handles,my_handle);
+            static int32 my_connection; my_connection=list_add(connection_handles);
+            static connection_struct *my_connection_struct; my_connection_struct=(connection_struct*)list_get(connection_handles,my_connection);
+            my_connection_struct->protocol=1;//tcp/ip
+            my_connection_struct->type=type;
+            my_connection_struct->connection=connection;
+            my_connection_struct->port=port;
+            if (type==2){
+                my_handle_struct->type=2;//host listener
+                my_handle_struct->index=(ptrszint)my_connection_struct;
+                return my_handle;
+            }
+            static int32 my_stream; my_stream=list_add(stream_handles);
+            static stream_struct *my_stream_struct; my_stream_struct=(stream_struct*)list_get(stream_handles,my_stream);
+            my_handle_struct->type=1;//stream
+            my_handle_struct->index=(ptrszint)my_stream_struct;
+            my_stream_struct->type=1;//network
+            my_stream_struct->index=(ptrszint)my_connection_struct;
+            //init stream
+            my_stream_struct->in=NULL; my_stream_struct->in_size=0; my_stream_struct->in_limit=0;
+            return my_handle;
+        }
+
+        int32 connection_new(int32 method, qbs *info, int32 value){
             //method: 0=_OPENCLIENT [info=~"TCP/IP:12345:23.96.32.123], value=NULL"
             //        1=_OPENHOST [info=~"TCP/IP:12345", value=NULL]
             //        2=_OPENCONNECTION [info=NULL, value=host's handle]
             //returns: -1=invalid arguments passed
             //          0=failed to open
             //         >0=handle of successfully opened connection
-            
-            static int32 i,x;
-            
-            //generic division of parts
-            static qbs *info_part[10+1];
-            static qbs *str;
-            static qbs *strz;
-            static qbs *info;
-            
-            static int32 first_call=1;
-            if (first_call){
-                first_call=0;
-                for(i=1;i<=10;i++){info_part[i]=qbs_new(0,0);}
-                str=qbs_new(0,0);
-                strz=qbs_new(1,0); strz->chr[0]=0;
-                info=qbs_new(0,0);
-            }//first call
-            
-            //split info string
-            static int32 parts;
-            parts=0;
+            void *connection;
             if ((method==0)||(method==1)){
-                qbs_set(info,info_in);
-                qbs_set(str,qbs_new_txt(":"));
-                i=1;
-                next_part:
-                x=func_instr(i,info,str,1);
-                if (x){
-                    parts++; qbs_set(info_part[parts],func_mid(info,i,x-i,1));
-                    i=x+1;
-                    goto next_part;
-                }
-                parts++; qbs_set(info_part[parts],func_mid(info,i,NULL,NULL));
-            }//split info string
-            
-            static double d;
-            static int32 port;
-            
-            if ((method==0)||(method==1)){
-                
-                if (parts<2) return -1;
-                if (qbs_equal(qbs_ucase(info_part[1]),qbs_new_txt("TCP/IP"))==0) {
-                    if (qbs_equal(qbs_ucase(info_part[1]),qbs_new_txt("QBNEXIDE"))==0 || vwatch!=-1) {
-                        return -1;
-                    }
-                }
-                
-                d=func_val(info_part[2]);
-                port=qbr_double_to_long(d);//***assume*** port number is within valid range
-                
+                int32 port,host_off,host_len,val_error=0;
+                int32 r=qbrt_net_parse_info(info->chr,info->len,method,vwatch==-1,&port,&host_off,&host_len,&val_error);
+                if (val_error) error(val_error);//legacy: VAL raised it and the open went on
+                if (r) return -1;
                 if (method==0){//_OPENCLIENT
-                    if (parts!=3) return -1;
-                    
-                    static void *connection;
-                    qbs_set(str,qbs_add(info_part[3],strz));
-                    connection=tcp_client_open(str->chr,port);
+                    connection=qbrt_tcp_client_open(info->chr+host_off,host_len,port);
                     if (!connection) return 0;
-                    
-                    static int32 my_handle; my_handle=list_add(special_handles);
-                    static special_handle_struct *my_handle_struct; my_handle_struct=(special_handle_struct*)list_get(special_handles,my_handle);
-                    static int32 my_stream; my_stream=list_add(stream_handles);
-                    static stream_struct *my_stream_struct; my_stream_struct=(stream_struct*)list_get(stream_handles,my_stream);
-                    static int32 my_connection; my_connection=list_add(connection_handles);
-                    static connection_struct *my_connection_struct; my_connection_struct=(connection_struct*)list_get(connection_handles,my_connection);
-                    my_handle_struct->type=1;//stream
-                    my_handle_struct->index=(ptrszint)my_stream_struct;
-                    my_stream_struct->type=1;//network
-                    my_stream_struct->index=(ptrszint)my_connection_struct;
-                    my_connection_struct->protocol=1;//tcp/ip
-                    my_connection_struct->type=1;//client
-                    my_connection_struct->connection=connection;
-                    my_connection_struct->port=port;
-                    
-                    //init stream
-                    my_stream_struct->in=NULL; my_stream_struct->in_size=0; my_stream_struct->in_limit=0;
-                    
+                    int32 my_handle=connection_register(connection,1,port);
                     if (vwatch==-1) vwatch=my_handle;
                     return my_handle;
-                }//client
-                
-                
-                if (method==1){//_OPENHOST
-                    if (parts!=2) return -1;
-
-                    static void *connection;
-                    connection=tcp_host_open(port);
-                    if (!connection) return 0;
-                    
-                    static int32 my_handle; my_handle=list_add(special_handles);
-                    static special_handle_struct *my_handle_struct; my_handle_struct=(special_handle_struct*)list_get(special_handles,my_handle);
-                    static int32 my_connection; my_connection=list_add(connection_handles);
-                    static connection_struct *my_connection_struct; my_connection_struct=(connection_struct*)list_get(connection_handles,my_connection);
-                    my_handle_struct->type=2;//host listener
-                    my_handle_struct->index=(ptrszint)my_connection_struct;
-                    my_connection_struct->protocol=1;//tcp/ip
-                    my_connection_struct->type=2;//host(listening)
-                    my_connection_struct->connection=connection;
-                    my_connection_struct->port=port;
-                    return my_handle;
-                    
                 }
-            }//0 or 1
-            
-            if (method==2){//_OPENCONNECTION
-                static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,value); if (!sh) return -1;
-                if (sh->type!=2) return -1;//listening host?
-                static connection_struct *co; co=(connection_struct*)sh->index;
-                static void *connection;
-                connection=tcp_connection_open(co->connection);
+                connection=qbrt_tcp_host_open(port);//_OPENHOST
                 if (!connection) return 0;
-                
-                static int32 my_handle; my_handle=list_add(special_handles);
-                static special_handle_struct *my_handle_struct; my_handle_struct=(special_handle_struct*)list_get(special_handles,my_handle);
-                static int32 my_stream; my_stream=list_add(stream_handles);
-                static stream_struct *my_stream_struct; my_stream_struct=(stream_struct*)list_get(stream_handles,my_stream);
-                static int32 my_connection; my_connection=list_add(connection_handles);
-                static connection_struct *my_connection_struct; my_connection_struct=(connection_struct*)list_get(connection_handles,my_connection);
-                my_handle_struct->type=1;//stream
-                my_handle_struct->index=(ptrszint)my_stream_struct;
-                my_stream_struct->type=1;//network
-                my_stream_struct->index=(ptrszint)my_connection_struct;
-                my_connection_struct->protocol=1;//tcp/ip
-                my_connection_struct->type=3;//host's client connection
-                my_connection_struct->connection=connection;
-                my_connection_struct->port=port;
-                
-                //init stream
-                my_stream_struct->in=NULL; my_stream_struct->in_size=0; my_stream_struct->in_limit=0;
-                
-                return my_handle;
-                
-            }//_OPENCONNECTION
-            
+                return connection_register(connection,2,port);
+            }
+            //_OPENCONNECTION
+            static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,value); if (!sh) return -1;
+            if (sh->type!=2) return -1;//listening host?
+            static connection_struct *co; co=(connection_struct*)sh->index;
+            connection=qbrt_tcp_accept((qbrt_tcp*)co->connection);
+            if (!connection) return 0;
+            return connection_register(connection,3,0);
         }//connection_new
-        
-        
-        //network prototype:
-        
-        
-        
+
         int32 func__openclient(qbs* info){
             if (new_error) return 0;
             static int32 i;
@@ -22684,7 +22213,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (i==0) return 0;
             return -1-i;
         }
-        
+
         int32 func__openhost(qbs* info){
             if (new_error) return 0;
             static int32 i;
@@ -22693,9 +22222,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (i==0) return 0;
             return -1-i;
         }
-        
+
         int32 func__openconnection(int32 i){
-            
             if (new_error) return 0;
             i=-(i+1);
             i=connection_new(2,NULL,i);
@@ -22703,107 +22231,59 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             if (i==0) return 0;//no new connections
             return -1-i;
         }
-        
-        
-        
+
+        static qbs *tcp_address(void *connection,int32 type){
+            uint8 buf[512];
+            int32 n=qbrt_tcp_address((qbrt_tcp*)connection,type,buf,sizeof(buf));
+            qbs *tqbs=qbs_new(n,1);
+            if (n<=(int32)sizeof(buf)) memcpy(tqbs->chr,buf,n); else qbrt_tcp_address((qbrt_tcp*)connection,type,tqbs->chr,n);
+            return tqbs;
+        }
+
         qbs *func__connectionaddress(int32 i){
-            static qbs *tqbs,*tqbs2,*str=NULL,*str2=NULL;
             static int32 x;
             if (new_error) goto error;
-            if (!str) str=qbs_new(0,0);
-            if (!str2) str2=qbs_new(0,0);
-            
             if (i<0){
                 x=-(i+1);
                 static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,x); if (!sh){error(52); goto error;}
-                
                 if (sh->type==2){//host listener
                     static connection_struct *cs; cs=(connection_struct*)sh->index;
-                    if (cs->protocol==1){//TCP/IP
-                        qbs_set(str,qbs_new_txt("TCP/IP:"));//network type
-                        qbs_set(str,qbs_add(str,qbs_ltrim(qbs_str(cs->port))));//port
-                        qbs_set(str,qbs_add(str,qbs_new_txt(":")));
-                        tqbs2=WHATISMYIP();
-                        if (tqbs2->len){qbs_set(str,qbs_add(str,tqbs2));
-                            }else{
-                            qbs_set(str,qbs_add(str,qbs_new_txt("127.0.0.1")));//localhost
-                        }
-                        return str;
-                    }//TCP/IP
+                    if (cs->protocol==1) return tcp_address(cs->connection,2);
                 }//host listener
-                
                 //client or connection to host
                 if (sh->type==1){//stream
                     static stream_struct *ss; ss=(stream_struct*)sh->index;
                     if (ss->type==1){//network
                         static connection_struct *cs; cs=(connection_struct*)ss->index;
                         if (cs->protocol==1){//TCP/IP
-                            if (cs->type==1||cs->type==3){//1=client, 2=host(listening), 3=host's connection from a client
-                                
-                                static tcp_connection *tcp; tcp=(tcp_connection*)cs->connection;
-                                qbs_set(str,qbs_new_txt("TCP/IP:"));//network type
-                                qbs_set(str,qbs_add(str,qbs_ltrim(qbs_str(tcp->port))));//port
-                                qbs_set(str,qbs_add(str,qbs_new_txt(":")));
-                                if (cs->type==3){
-                                    qbs_set(str,qbs_add(str,qbs_ltrim(qbs_str(tcp->ip4[0]))));//ip
-                                    qbs_set(str,qbs_add(str,qbs_new_txt(".")));
-                                    qbs_set(str,qbs_add(str,qbs_ltrim(qbs_str(tcp->ip4[1]))));//ip
-                                    qbs_set(str,qbs_add(str,qbs_new_txt(".")));
-                                    qbs_set(str,qbs_add(str,qbs_ltrim(qbs_str(tcp->ip4[2]))));//ip
-                                    qbs_set(str,qbs_add(str,qbs_new_txt(".")));
-                                    qbs_set(str,qbs_add(str,qbs_ltrim(qbs_str(tcp->ip4[3]))));//ip
-                                    }else{
-                                    qbs_set(str,qbs_add(str,qbs_new_txt((char*)tcp->hostname)));
-                                }
-                                return str;
-                            }
-                        }//TCP/IP
+                            if (cs->type==1||cs->type==3) return tcp_address(cs->connection,cs->type);
+                        }
                     }//network
                 }//stream
-                
             }//i<0
-            error(52); goto error;
-            
+            error(52);
             error:
-            tqbs=qbs_new(0,1);
-            return tqbs;
-            
+            return qbs_new(0,1);
         }
-        
-        int32 tcp_connected (void *connection){
-            tcp_connection *tcp=(tcp_connection*)connection;
-            #ifndef DEPENDENCY_SOCKETS
-                return 0;
-                #else
-                return tcp->connected;
-            #endif
-        }
-        
+
         int32 func__connected(int32 i){
             if (new_error) return 0;
             if (i<0){
                 static int32 x;
                 x=-(i+1);
                 static special_handle_struct *sh; sh=(special_handle_struct*)list_get(special_handles,x); if (!sh) goto error;
-                
                 if (sh->type==2){//host listener
                     static connection_struct *cs; cs=(connection_struct*)sh->index;
-                    if (cs->protocol==1){//TCP/IP
-                        return -1;
-                    }//TCP/IP
+                    if (cs->protocol==1) return -1;
                 }//host listener
-                
                 //client or connection to host
                 if (sh->type==1){//stream
                     static stream_struct *ss; ss=(stream_struct*)sh->index;
                     if (ss->type==1){//network
                         static connection_struct *cs; cs=(connection_struct*)ss->index;
-                        if (cs->protocol==1){//TCP/IP
-                            return tcp_connected(cs->connection);
-                        }//TCP/IP
+                        if (cs->protocol==1) return qbrt_tcp_connected((qbrt_tcp*)cs->connection);
                     }//network
                 }//stream
-                
             }//i<0
             error: error(52); return 0;
         }
@@ -22824,439 +22304,57 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         
         
-        #if defined(QBNex_LINUX) && defined(QBNex_GUI)
-            
-            //X11 clipboard interface for Linux
-            //SDL_SysWMinfo syswminfo;
-            Atom targets,utf8string,compoundtext,clipboard;
-            
-            int x11filter(XEvent *x11event){
-                static int i;
-                static char *cp;
-                static XSelectionRequestEvent *x11request;
-                static XSelectionEvent x11selectionevent;
-                static Atom mytargets[]={XA_STRING,utf8string,compoundtext};
-                if (x11event->type==SelectionRequest){
-                    x11request=&x11event->xselectionrequest;
-                    x11selectionevent.type=SelectionNotify;
-                    x11selectionevent.serial=x11event->xany.send_event;
-                    x11selectionevent.send_event=True;
-                    x11selectionevent.display=X11_display;
-                    x11selectionevent.requestor=x11request->requestor;
-                    x11selectionevent.selection=x11request->selection;
-                    x11selectionevent.target=None;
-                    x11selectionevent.property=x11request->property;
-                    x11selectionevent.time=x11request->time;
-                    if (x11request->target==targets){
-                        XChangeProperty(X11_display,x11request->requestor,x11request->property,XA_ATOM,32,PropModeReplace,(unsigned char*)mytargets,3);
-                        }else{
-                        if (x11request->target==compoundtext||x11request->target==utf8string||x11request->target==XA_STRING){
-                            cp=XFetchBytes(X11_display,&i);
-                            XChangeProperty(X11_display,x11request->requestor,x11request->property,x11request->target,8,PropModeReplace,(unsigned char*)cp,i);
-                            XFree(cp);
-                            }else{
-                            x11selectionevent.property=None;
-                        }
-                    }
-                    XSendEvent(x11request->display,x11request->requestor,0,NoEventMask,(XEvent*)&x11selectionevent);
-                    XSync(X11_display,False);
-                }
-                return 1;
-            }
-            
-            void setupx11clipboard(){
-                static int32 setup=0;
-                if (!setup){
-                    setup=1;
-                    //SDL_GetWMInfo(&syswminfo);
-                    //SDL_EventState(SDL_SYSWMEVENT,SDL_ENABLE);
-                    //SDL_SetEventFilter(x11filter);
-                    x11_lock();
-                    targets=XInternAtom(X11_display,"TARGETS",False);
-                    utf8string=XInternAtom(X11_display,"UTF8_STRING",False);
-                    compoundtext=XInternAtom(X11_display,"COMPOUND_TEXT",False);
-                    clipboard=XInternAtom(X11_display,"CLIPBOARD",False);
-                    x11_unlock();
-                }
-            }
-            
-            void x11clipboardcopy(const char *text){
-                setupx11clipboard();
-                x11_lock();
-                XStoreBytes(X11_display,text,strlen(text)+1);
-                XSetSelectionOwner(X11_display,clipboard,X11_window,CurrentTime);
-                x11_unlock();
-                return; 
-            }
-            
-            char *x11clipboardpaste(){
-                static int32 i;
-                static char *cp;
-                static unsigned char *cp2;
-                static Window x11selectionowner;
-                static XEvent x11event;
-                static unsigned long data_items,bytes_remaining,ignore;
-                static int format;
-                static Atom type;
-                cp=NULL; cp2=NULL;
-                setupx11clipboard();
-                //syswminfo.info.x11.lock_func();
-                x11_lock();
-                x11selectionowner=XGetSelectionOwner(X11_display,clipboard);
-                if (x11selectionowner!=None){
-                    //The XGetSelectionOwner() function returns the window ID associated with the window
-                    if (x11selectionowner==X11_window){//we are the provider, so just return buffered content
-                        x11_unlock();
-                        int bytes;
-                        cp=XFetchBytes(X11_display,&bytes);
-                        return cp;
-                    }
-                    XConvertSelection(X11_display,clipboard,utf8string,clipboard,X11_window,CurrentTime);
-                    XFlush(X11_display);
-                    bool gotReply = false;
-                    int timeoutMs = 10000;//10sec
-                    do {
-                        XEvent event;
-                        gotReply = XCheckTypedWindowEvent(X11_display, X11_window, SelectionNotify, &event);
-                        if (gotReply) {
-                            if (event.xselection.property == clipboard) {
-                                XGetWindowProperty(X11_display,X11_window,clipboard,0,0,False,AnyPropertyType,&type,&format,&data_items,&bytes_remaining,&cp2);
-                                if (cp2){XFree(cp2); cp2=NULL;}
-                                if (bytes_remaining){
-                                    if (XGetWindowProperty(X11_display,X11_window,clipboard,0,bytes_remaining,False,AnyPropertyType,&type,&format,&data_items, &ignore,&cp2)==Success){
-                                        cp=strdup((char*)cp2);
-                                        XFree(cp2);
-                                        XDeleteProperty(X11_display,X11_window,clipboard);
-                                        x11_unlock();
-                                        return cp;  
-                                    }
-                                }  
-                                x11_unlock();
-                                return NULL;
-                                
-                                } else {
-                                x11_unlock();
-                                return NULL;
-                            }
-                        }      
-                        Sleep(1);
-                        timeoutMs -= 1;
-                    } while (timeoutMs > 0);    
-                }//x11selectionowner!=None
-                x11_unlock();
-                return NULL;
-            }
-            
-        #elif defined(QBNex_LINUX)
-            void x11clipboardcopy(const char *text){ }
-            char *x11clipboardpaste(){ return NULL; }
-        #endif
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        qbs *internal_clipboard=NULL;//used only if clipboard services unavailable
-        int32 linux_clipboard_init=0;
-        
+        // Clipboard text and images live in the Rust runtime
+        // (internal/c/qbrt/src/clipboard.rs): CF_TEXT/CF_BITMAP on Windows,
+        // arboard on Linux and macOS.
+
         void sub__clipboard(qbs *text){
-            
-            #ifdef QBNex_WINDOWS
-                static uint8 *textz;
-                static HGLOBAL h;
-                if (OpenClipboard(NULL)){
-                    EmptyClipboard();
-                    h=GlobalAlloc(GMEM_MOVEABLE,text->len+1); if (h){
-                        textz=(uint8*)GlobalLock(h); if (textz){
-                            memcpy(textz,text->chr,text->len);
-                            textz[text->len]=0;
-                            GlobalUnlock(h);
-                            SetClipboardData(CF_TEXT,h);
-                        }
-                    }
-                    CloseClipboard();
-                }
-                return;
-            #endif
-            
-            #ifdef QBNex_MACOSX
-                PasteboardRef clipboard;
-                if (PasteboardCreate(kPasteboardClipboard, &clipboard) != noErr) {
-                    return;
-                }
-                if (PasteboardClear(clipboard) != noErr) {
-                    CFRelease(clipboard);
-                    return;
-                }
-                CFDataRef data = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, text->chr, 
-                text->len, kCFAllocatorNull);
-                if (data == NULL) {
-                    CFRelease(clipboard);
-                    return;
-                }
-                OSStatus err;
-                err = PasteboardPutItemFlavor(clipboard, NULL, kUTTypeUTF8PlainText, data, 0);
-                CFRelease(clipboard);
-                CFRelease(data);
-                return;
-            #endif
-            
-            #if defined(QBNex_LINUX)
-                static qbs *textz=NULL; if (!textz) textz=qbs_new(0,0);
-                qbs_set(textz,qbs_add(text,qbs_new_txt_len("\0",1)));
-                x11clipboardcopy((char*)textz->chr);
-                return;
-            #endif
-            
-            if (internal_clipboard==NULL) internal_clipboard=qbs_new(0,0);
-            qbs_set(internal_clipboard,text);
+            qbrt_clipboard_set_text(text->chr,text->len);
         }
-        
+
         #ifdef DEPENDENCY_SCREENIMAGE
             void sub__clipboardimage(int32 src) {
-                #ifdef QBNex_WINDOWS
-                    
-                    if (new_error) return;
-                    
-                    static int32 i,i2,ii,w,h;
-                    static uint32 *o,*o2;
-                    static int32 x,y,n,c,i3,c2;
-                    
-                    //validation
-                    i=src;
-                    if (!resolve_page_or_image_index(i,i)) return;
-                    
-                    if (img[i].text){error(5); return;}
-                    //end of validation
-                    
-                    w=img[i].width;
-                    h=img[i].height;
-                    
-                    //source[http://support.microsoft.com/kb/318876]
-                    HDC hdc;
-                    BITMAPV5HEADER bi;
-                    HBITMAP hBitmap;
-                    void *lpBits;
-                    ZeroMemory(&bi,sizeof(BITMAPV5HEADER));
-                    bi.bV5Size           = sizeof(BITMAPV5HEADER);
-                    bi.bV5Width           = w;
-                    bi.bV5Height          = h;
-                    bi.bV5Planes = 1;
-                    bi.bV5BitCount = 32;
-                    bi.bV5Compression = BI_RGB;
-                    
-                    hdc = GetDC(NULL);
-                    // Create the DIB section with an alpha channel.
-                    hBitmap = CreateDIBSection(hdc, (BITMAPINFO *)&bi, DIB_RGB_COLORS, 
-                    (void **)&lpBits, NULL, (DWORD)0);
-                    
-                    //Transfer the source image to a new 32-bit image to avoid incompatible formats)
-                    i2=func__newimage(w,h,32,1);
-                    sub__putimage(NULL,NULL,NULL,NULL,-i,i2,NULL,NULL,NULL,NULL,8+32);
-                    
-                    o=img[-i2].offset32;
-                    o2=(uint32*)lpBits;
-                    for (y=0;y<h;y++){
-                        for (x=0;x<w;x++){
-                            c=o[(h-1-y)*w+x];
-                            o2[y*w+x]=c;
-                        }}
-                        
-                        sub__freeimage(i2,1);
-                        
-                        //Create copy of hBitmap to send to the clipboard
-                        HBITMAP bitmapCopy;
-                        HDC hdc2, hdc3;
-                        bitmapCopy = CreateCompatibleBitmap(hdc, w, h);
-                        hdc2=CreateCompatibleDC(hdc);
-                        hdc3=CreateCompatibleDC(hdc);
-                        SelectObject(hdc2,bitmapCopy);
-                        SelectObject(hdc3,hBitmap);
-                        BitBlt(hdc2,0,0,w,h,hdc3,0,0,SRCCOPY);
-                        
-                        ReleaseDC(NULL,hdc);
-                        ReleaseDC(NULL,hdc2);
-                        ReleaseDC(NULL,hdc3);
-                        
-                        //Send bitmapCopy to the clipboard
-                        if (OpenClipboard(NULL)) {
-                            EmptyClipboard();
-                            SetClipboardData(CF_BITMAP, bitmapCopy);
-                            CloseClipboard();
-                        }
-                        
-                        DeleteObject(hBitmap);
-                        DeleteObject(bitmapCopy);
-                #endif
+                if (new_error) return;
+                static int32 i,i2,w,h;
+                //validation
+                i=src;
+                if (!resolve_page_or_image_index(i,i)) return;
+                if (img[i].text){error(5); return;}
+                //end of validation
+                w=img[i].width;
+                h=img[i].height;
+                //Transfer the source image to a new 32-bit image to avoid incompatible formats
+                i2=func__newimage(w,h,32,1);
+                sub__putimage(NULL,NULL,NULL,NULL,-i,i2,NULL,NULL,NULL,NULL,8+32);
+                if (i2<-1) qbrt_clipboard_set_image(img[-i2].offset32,w,h);
+                sub__freeimage(i2,1);
             }
         #endif
-        
+
         #ifdef DEPENDENCY_SCREENIMAGE
             int32 func__clipboardimage(){
-                #ifdef QBNex_WINDOWS
-                    
-                    if (new_error) return -1;
-                    
-                    static HBITMAP bitmap;
-                    static BITMAP bitmapInfo;
-                    static HDC hdc;
-                    static int32 w, h;
-                    
-                    if ( OpenClipboard(NULL) )
-                    {        
-                        if (IsClipboardFormatAvailable(CF_BITMAP) == 0) {
-                            CloseClipboard();
-                            return -1;
-                        }
-                        
-                        bitmap = (HBITMAP)GetClipboardData(CF_BITMAP);
-                        CloseClipboard();
-                        GetObject(bitmap,sizeof( BITMAP ), &bitmapInfo);
-                        h = bitmapInfo.bmHeight;
-                        w = bitmapInfo.bmWidth;         
-                        
-                        static BITMAPFILEHEADER   bmfHeader;  
-                        static BITMAPINFOHEADER   bi;
-                        bi.biSize = sizeof(BITMAPINFOHEADER);    
-                        bi.biWidth = w;    
-                        bi.biHeight = -h;
-                        bi.biPlanes = 1;    
-                        bi.biBitCount = 32;    
-                        bi.biCompression = BI_RGB;    
-                        bi.biSizeImage = 0;  
-                        bi.biXPelsPerMeter = 0;    
-                        bi.biYPelsPerMeter = 0;    
-                        bi.biClrUsed = 0;    
-                        bi.biClrImportant = 0;
-                        
-                        static int32 i,i2;
-                        i2=func__dest();
-                        i=func__newimage(w,h,32,1);
-                        sub__dest(i);
-                        
-                        hdc=GetDC(NULL);
-                        
-                        GetDIBits(hdc,bitmap,0,h,write_page->offset,(BITMAPINFO*)&bi, DIB_RGB_COLORS);
-                        sub__setalpha(255,NULL,NULL,NULL,0); // required as some images come
-                        // with alpha 0 from the clipboard
-                        sub__dest(i2);
-                        
-                        ReleaseDC(NULL,hdc);
-                        DeleteObject(bitmap);
-                        return i;
-                        
-                    } else return -1;
-                #endif
-                return -1;
+                if (new_error) return -1;
+                int32 w,h;
+                uint32 *pixels=qbrt_clipboard_get_image(&w,&h);
+                if (!pixels) return -1;
+                static int32 i;
+                i=func__newimage(w,h,32,1);
+                if (i<-1) memcpy(img[-i].offset32,pixels,(size_t)w*h*4);
+                qbrt_free_pixels(pixels,(int64)w*h);
+                return i;
             }
         #endif
-        
+
         qbs *func__clipboard(){
-            #ifdef QBNex_WINDOWS
-                static qbs *text;
-                static uint8 *textz;
-                static HGLOBAL h;
-                if (OpenClipboard(NULL)){
-                    if (IsClipboardFormatAvailable(CF_TEXT)){
-                        h=GetClipboardData(CF_TEXT); if (h){
-                            textz=(uint8*)GlobalLock(h); if (textz){
-                                text=qbs_new(strlen((char*)textz),1);
-                                memcpy(text->chr,textz,text->len);
-                                GlobalUnlock(h);
-                                CloseClipboard();
-                                return text;
-                            }
-                        }
-                    }
-                    CloseClipboard();
-                }
-                text=qbs_new(0,1);
-                return text;
-            #endif
-            
-            #ifdef QBNex_MACOSX
-                static qbs *text;
-                OSStatus             err = noErr;
-                ItemCount            itemCount;
-                PasteboardSyncFlags  syncFlags;
-                static PasteboardRef inPasteboard = NULL;
-                PasteboardCreate( kPasteboardClipboard, &inPasteboard );
-                char* data;
-                data = "";   
-                syncFlags = PasteboardSynchronize( inPasteboard );
-                err = badPasteboardSyncErr;
-                
-                err = PasteboardGetItemCount( inPasteboard, &itemCount );
-                if ( (err) != noErr ) goto CantGetPasteboardItemCount;
-                
-                for( int itemIndex = 1; itemIndex <= itemCount; itemIndex++ ) {
-                    PasteboardItemID  itemID;
-                    CFDataRef  flavorData;
-                    
-                    err = PasteboardGetItemIdentifier( inPasteboard, itemIndex, &itemID );
-                    if ( (err) != noErr ) goto CantGetPasteboardItemIdentifier;
-                    
-                    err = PasteboardCopyItemFlavorData( inPasteboard, itemID, CFSTR("public.utf8-plain-text"), &flavorData );      
-                    if ( (err) != noErr ) goto CantGetPasteboardItemCount;
-                    data = (char*)CFDataGetBytePtr(flavorData);
-                    
-                    uint32 size;
-                    size=CFDataGetLength( flavorData );
-                    
-                    
-                    
-                    text=qbs_new(size,1);
-                    memcpy(text->chr,data,text->len);
-                    //CFRelease (flavorData);
-                    //CFRelease (flavorTypeArray);
-                    //CFRelease(inPasteboard);
-                    return text;
-                    
-                    
-                    
-                    
-                    CantGetPasteboardItemIdentifier:
-                    ;
-                }
-                
-                CantGetPasteboardItemCount:
-                text=qbs_new(0,1);
-                return text;
-                return NULL;
-            #endif
-            
-            #if defined(QBNex_LINUX)
-                qbs *text;
-                char *cp=x11clipboardpaste();
-                cp=x11clipboardpaste();
-                if (!cp){
-                    text=qbs_new(0,1);
-                    }else{
-                    text=qbs_new(strlen(cp),1);
-                    memcpy(text->chr,cp,text->len);
-                    free(cp);
-                }
-                return text;
-            #endif
-            
-            if (internal_clipboard==NULL) internal_clipboard=qbs_new(0,0);
-            return internal_clipboard;
+            int64 len;
+            uint8 *text=qbrt_clipboard_get_text(&len);
+            qbs *tqbs=qbs_new(len,1);
+            if (text){
+                memcpy(tqbs->chr,text,len);
+                qbrt_free_bytes(text,len);
+            }
+            return tqbs;
         }
-        
-        
         int32 display_called=0;
         void display_now(){
             if (autodisplay){
@@ -24393,978 +23491,63 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             
         }
         
+        // _SCREENIMAGE, _SCREENCLICK and _SCREENPRINT live in the Rust runtime
+        // (internal/c/qbrt/src/screen.rs).
         #ifdef DEPENDENCY_SCREENIMAGE
             int32 func__screenimage(int32 x1,int32 y1,int32 x2,int32 y2,int32 passed){
-                
-                #ifdef QBNex_WINDOWS
-                    
-                    static int32 init=0;
-                    static int32 x,y,w,h;
-                    
-                    static HWND hwnd;
-                    static RECT rect;
-                    static HDC hdc;
-                    
-                    if (!init){
-                        hwnd=GetDesktopWindow();
-                        GetWindowRect(hwnd,&rect);
-                        x=rect.right-rect.left; y=rect.bottom-rect.top;
-                    }
-                    
-                    hdc=GetDC(NULL);
-                    
-                    static HDC hdc2=NULL;
-                    static HBITMAP bitmap;
-                    static int32 bx,by;
-                    
-                    if (passed){
-                        if (x1<0) x1=0;
-                        if (y1<0) y1=0;
-                        if (x2>x-1) x2=x-1;
-                        if (y2>y-1) y2=y-1;
-                        w=x2-x1+1; h=y2-y1+1;
-                        }else{
-                        x1=0; x2=x-1; y1=0; y2=y-1; w=x; h=y;
-                    }
-                    
-                    
-                    
-                    if (hdc2){
-                        if ((w!=bx)||(h!=by)){
-                            DeleteObject(bitmap);
-                            ReleaseDC(NULL,hdc2);
-                            hdc2=CreateCompatibleDC(hdc);
-                            bitmap=CreateCompatibleBitmap(hdc,w,h); bx=w; by=h;
-                            SelectObject(hdc2,bitmap);
-                        }
-                        }else{
-                        hdc2=CreateCompatibleDC(hdc);
-                        bitmap=CreateCompatibleBitmap(hdc,w,h); bx=w; by=h;
-                        SelectObject(hdc2,bitmap);
-                    }
-                    
-                    init=1;
-                    
-                    BitBlt(        hdc2, 
-                    0,0, 
-                    w,h,
-                    hdc, 
-                    x1,y1,
-                    SRCCOPY);
-                    
-                    static BITMAPFILEHEADER   bmfHeader;  
-                    static BITMAPINFOHEADER   bi;
-                    bi.biSize = sizeof(BITMAPINFOHEADER);    
-                    bi.biWidth = w;    
-                    bi.biHeight = -h; //A bottom-up DIB is specified by setting the height to a positive number, while a top-down DIB is specified by setting the height to a negative number. The bitmap color table will be appended to the BITMAPINFO structure.
-                    bi.biPlanes = 1;    
-                    bi.biBitCount = 32;    
-                    bi.biCompression = BI_RGB;    
-                    bi.biSizeImage = 0;  
-                    bi.biXPelsPerMeter = 0;    
-                    bi.biYPelsPerMeter = 0;    
-                    bi.biClrUsed = 0;    
-                    bi.biClrImportant = 0;
-                    
-                    static int32 i,i2;
-                    i2=func__dest();
-                    i=func__newimage(w,h,32,1);
-                    sub__dest(i);
-                    
-                    GetDIBits(hdc2,bitmap,0,h,write_page->offset,(BITMAPINFO*)&bi, DIB_RGB_COLORS);
-                    sub__setalpha(255,NULL,NULL,NULL,0);
-                    sub__dest(i2);
-                    
-                    ReleaseDC(NULL,hdc);
-                    return i;
-                    #else
+                int32 w,h;
+                uint32 *pixels=qbrt_screenimage(x1,y1,x2,y2,passed,&w,&h);
+                if (!pixels&&w>0&&h>0){//no screen capture on this OS: blank image
                     return func__newimage(func_screenwidth(), func_screenheight(), 32, 1);
-                #endif
+                }
+                static int32 i;
+                i=func__newimage(w,h,32,1);
+                if (pixels){
+                    if (i<-1) memcpy(img[-i].offset32,pixels,(size_t)w*h*4);
+                    qbrt_free_pixels(pixels,(int64)w*h);
+                }
+                return i;
             }
         #endif //DEPENDENCY_SCREENIMAGE
-        
-        void sub__screenclick(int32 x,int32 y, int32 button, int32 passed){
 
-            #ifdef QBNex_WINDOWS
-                
-                static INPUT input;
-                
-                ZeroMemory(&input,sizeof(INPUT));
-                input.type=INPUT_MOUSE;
-                input.mi.dwFlags=MOUSEEVENTF_ABSOLUTE|MOUSEEVENTF_MOVE;
-                static HWND hwnd;
-                hwnd=GetDesktopWindow();
-                static RECT rect;
-                GetWindowRect(hwnd,&rect);
-                static double x2,y2,fx,fy;
-                x2=rect.right-rect.left;
-                y2=rect.bottom-rect.top;
-                fx=x*(65535.0f/x2);
-                fy=y*(65535.0f/y2);
-                input.mi.dx=fx;
-                input.mi.dy=fy;
-                SendInput(1,&input,sizeof(INPUT));
-                
-                ZeroMemory(&input,sizeof(INPUT));
-                input.type=INPUT_MOUSE;
-                input.mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
-                SendInput(1,&input,sizeof(INPUT));
-                
-                ZeroMemory(&input,sizeof(INPUT));
-                input.type=INPUT_MOUSE;
-                
-                if (passed){
-                    if (button==1) {input.mi.dwFlags=MOUSEEVENTF_LEFTDOWN;}
-                    if (button==2) {input.mi.dwFlags=MOUSEEVENTF_RIGHTDOWN;}
-                    if (button==3) {input.mi.dwFlags=MOUSEEVENTF_MIDDLEDOWN;}
-                    SendInput(1,&input,sizeof(INPUT));
-                    
-                    ZeroMemory(&input,sizeof(INPUT));
-                    input.type=INPUT_MOUSE;
-                    
-                    if (button==1) {input.mi.dwFlags=MOUSEEVENTF_LEFTUP;}
-                    if (button==2) {input.mi.dwFlags=MOUSEEVENTF_RIGHTUP;}
-                    if (button==3) {input.mi.dwFlags=MOUSEEVENTF_MIDDLEUP;}
-                    }else {
-                    input.mi.dwFlags=MOUSEEVENTF_LEFTDOWN;
-                    
-                    SendInput(1,&input,sizeof(INPUT));
-                    
-                    ZeroMemory(&input,sizeof(INPUT));
-                    input.type=INPUT_MOUSE;
-                    
-                    input.mi.dwFlags=MOUSEEVENTF_LEFTUP;
-                }
-                SendInput(1,&input,sizeof(INPUT));
-                
-            #endif
-            
-            #ifdef QBNex_MACOSX
-                CGEventRef click1_down = CGEventCreateMouseEvent(
-                NULL, kCGEventLeftMouseDown,
-                CGPointMake(x, y),
-                kCGMouseButtonLeft
-                );
-                CGEventRef click1_up = CGEventCreateMouseEvent(
-                NULL, kCGEventLeftMouseUp,
-                CGPointMake(x, y),
-                kCGMouseButtonLeft
-                );
-                CGEventPost(kCGHIDEventTap, click1_down);
-                CGEventPost(kCGHIDEventTap, click1_up);
-                CFRelease(click1_up);
-                CFRelease(click1_down);
-            #endif
-            
+        void sub__screenclick(int32 x,int32 y, int32 button, int32 passed){
+            qbrt_screenclick(x,y,button,passed);
         }
-        
-        #ifdef QBNex_MACOSX
-            //128 indicates SHIFT must be held to achieve the indexed ASCII character
-            static uint16 ASCII_TO_MACVK[]={
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0x3300+8,
-                0x3000+9,
-                0,
-                0,
-                0,
-                0x2400+13,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0x3500+27,
-                0,
-                0,
-                0,
-                0,
-                0x3100+32,
-                0x1200+33+128,
-                0x2700+34+128,
-                0x1400+35+128,
-                0x1500+36+128,
-                0x1700+37+128,
-                0x1A00+38+128,
-                0x2700+39,
-                0x1900+40+128,
-                0x1D00+41+128,
-                0x1C00+42+128,
-                0x1800+43+128,
-                0x2B00+44,
-                0x1B00+45,
-                0x2F00+46,
-                0x2C00+47,
-                0x1D00+48,
-                0x1200+49,
-                0x1300+50,
-                0x1400+51,
-                0x1500+52,
-                0x1700+53,
-                0x1600+54,
-                0x1A00+55,
-                0x1C00+56,
-                0x1900+57,
-                0x2900+58+128,
-                0x2900+59,
-                0x2B00+60+128,
-                0x1800+61,
-                0x2F00+62+128,
-                0x2C00+63+128,
-                0x1300+64+128,
-                0x0000+65+128,
-                0x0B00+66+128,
-                0x0800+67+128,
-                0x0200+68+128,
-                0x0E00+69+128,
-                0x0300+70+128,
-                0x0500+71+128,
-                0x0400+72+128,
-                0x2200+73+128,
-                0x2600+74+128,
-                0x2800+75+128,
-                0x2500+76+128,
-                0x2E00+77+128,
-                0x2D00+78+128,
-                0x1F00+79+128,
-                0x2300+80+128,
-                0x0C00+81+128,
-                0x0F00+82+128,
-                0x0100+83+128,
-                0x1100+84+128,
-                0x2000+85+128,
-                0x0900+86+128,
-                0x0D00+87+128,
-                0x0700+88+128,
-                0x1000+89+128,
-                0x0600+90+128,
-                0x2100+91,
-                0x2A00+92,
-                0x1E00+93,
-                0x1600+94+128,
-                0x1B00+95+128,
-                0x3200+96,
-                0x0000+65+32,
-                0x0B00+66+32,
-                0x0800+67+32,
-                0x0200+68+32,
-                0x0E00+69+32,
-                0x0300+70+32,
-                0x0500+71+32,
-                0x0400+72+32,
-                0x2200+73+32,
-                0x2600+74+32,
-                0x2800+75+32,
-                0x2500+76+32,
-                0x2E00+77+32,
-                0x2D00+78+32,
-                0x1F00+79+32,
-                0x2300+80+32,
-                0x0C00+81+32,
-                0x0F00+82+32,
-                0x0100+83+32,
-                0x1100+84+32,
-                0x2000+85+32,
-                0x0900+86+32,
-                0x0D00+87+32,
-                0x0700+88+32,
-                0x1000+89+32,
-                0x0600+90+32,
-                0x2100+123+128,
-                0x2A00+124+128,
-                0x1E00+125+128,
-                0x3200+126+128,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0
-            };
-        #endif
-        
-        int32 MACVK_ANSI_A                    = 0x00;
-        int32 MACVK_ANSI_S                    = 0x01;
-        int32 MACVK_ANSI_D                    = 0x02;
-        int32 MACVK_ANSI_F                    = 0x03;
-        int32 MACVK_ANSI_H                    = 0x04;
-        int32 MACVK_ANSI_G                    = 0x05;
-        int32 MACVK_ANSI_Z                    = 0x06;
-        int32 MACVK_ANSI_X                    = 0x07;
-        int32 MACVK_ANSI_C                    = 0x08;
-        int32 MACVK_ANSI_V                    = 0x09;
-        int32 MACVK_ANSI_B                    = 0x0B;
-        int32 MACVK_ANSI_Q                    = 0x0C;
-        int32 MACVK_ANSI_W                    = 0x0D;
-        int32 MACVK_ANSI_E                    = 0x0E;
-        int32 MACVK_ANSI_R                    = 0x0F;
-        int32 MACVK_ANSI_Y                    = 0x10;
-        int32 MACVK_ANSI_T                    = 0x11;
-        int32 MACVK_ANSI_1                    = 0x12;
-        int32 MACVK_ANSI_2                    = 0x13;
-        int32 MACVK_ANSI_3                    = 0x14;
-        int32 MACVK_ANSI_4                    = 0x15;
-        int32 MACVK_ANSI_6                    = 0x16;
-        int32 MACVK_ANSI_5                    = 0x17;
-        int32 MACVK_ANSI_Equal                = 0x18;
-        int32 MACVK_ANSI_9                    = 0x19;
-        int32 MACVK_ANSI_7                    = 0x1A;
-        int32 MACVK_ANSI_Minus                = 0x1B;
-        int32 MACVK_ANSI_8                    = 0x1C;
-        int32 MACVK_ANSI_0                    = 0x1D;
-        int32 MACVK_ANSI_RightBracket         = 0x1E;
-        int32 MACVK_ANSI_O                    = 0x1F;
-        int32 MACVK_ANSI_U                    = 0x20;
-        int32 MACVK_ANSI_LeftBracket          = 0x21;
-        int32 MACVK_ANSI_I                    = 0x22;
-        int32 MACVK_ANSI_P                    = 0x23;
-        int32 MACVK_ANSI_L                    = 0x25;
-        int32 MACVK_ANSI_J                    = 0x26;
-        int32 MACVK_ANSI_Quote                = 0x27;
-        int32 MACVK_ANSI_K                    = 0x28;
-        int32 MACVK_ANSI_Semicolon            = 0x29;
-        int32 MACVK_ANSI_Backslash            = 0x2A;
-        int32 MACVK_ANSI_Comma                = 0x2B;
-        int32 MACVK_ANSI_Slash                = 0x2C;
-        int32 MACVK_ANSI_N                    = 0x2D;
-        int32 MACVK_ANSI_M                    = 0x2E;
-        int32 MACVK_ANSI_Period               = 0x2F;
-        int32 MACVK_ANSI_Grave                = 0x32;
-        int32 MACVK_ANSI_KeypadDecimal        = 0x41;
-        int32 MACVK_ANSI_KeypadMultiply       = 0x43;
-        int32 MACVK_ANSI_KeypadPlus           = 0x45;
-        int32 MACVK_ANSI_KeypadClear          = 0x47;
-        int32 MACVK_ANSI_KeypadDivide         = 0x4B;
-        int32 MACVK_ANSI_KeypadEnter          = 0x4C;
-        int32 MACVK_ANSI_KeypadMinus          = 0x4E;
-        int32 MACVK_ANSI_KeypadEquals         = 0x51;
-        int32 MACVK_ANSI_Keypad0              = 0x52;
-        int32 MACVK_ANSI_Keypad1              = 0x53;
-        int32 MACVK_ANSI_Keypad2              = 0x54;
-        int32 MACVK_ANSI_Keypad3              = 0x55;
-        int32 MACVK_ANSI_Keypad4              = 0x56;
-        int32 MACVK_ANSI_Keypad5              = 0x57;
-        int32 MACVK_ANSI_Keypad6              = 0x58;
-        int32 MACVK_ANSI_Keypad7              = 0x59;
-        int32 MACVK_ANSI_Keypad8              = 0x5B;
-        int32 MACVK_ANSI_Keypad9              = 0x5C;
-        int32 MACVK_Return                    = 0x24;
-        int32 MACVK_Tab                       = 0x30;
-        int32 MACVK_Space                     = 0x31;
-        int32 MACVK_Delete                    = 0x33;
-        int32 MACVK_Escape                    = 0x35;
-        int32 MACVK_Command                   = 0x37;
-        int32 MACVK_Shift                     = 0x38;
-        int32 MACVK_CapsLock                  = 0x39;
-        int32 MACVK_Option                    = 0x3A;
-        int32 MACVK_Control                   = 0x3B;
-        int32 MACVK_RightShift                = 0x3C;
-        int32 MACVK_RightOption               = 0x3D;
-        int32 MACVK_RightControl              = 0x3E;
-        int32 MACVK_Function                  = 0x3F;
-        int32 MACVK_F17                       = 0x40;
-        int32 MACVK_VolumeUp                  = 0x48;
-        int32 MACVK_VolumeDown                = 0x49;
-        int32 MACVK_Mute                      = 0x4A;
-        int32 MACVK_F18                       = 0x4F;
-        int32 MACVK_F19                       = 0x50;
-        int32 MACVK_F20                       = 0x5A;
-        int32 MACVK_F5                        = 0x60;
-        int32 MACVK_F6                        = 0x61;
-        int32 MACVK_F7                        = 0x62;
-        int32 MACVK_F3                        = 0x63;
-        int32 MACVK_F8                        = 0x64;
-        int32 MACVK_F9                        = 0x65;
-        int32 MACVK_F11                       = 0x67;
-        int32 MACVK_F13                       = 0x69;
-        int32 MACVK_F16                       = 0x6A;
-        int32 MACVK_F14                       = 0x6B;
-        int32 MACVK_F10                       = 0x6D;
-        int32 MACVK_F12                       = 0x6F;
-        int32 MACVK_F15                       = 0x71;
-        int32 MACVK_Help                      = 0x72;
-        int32 MACVK_Home                      = 0x73;
-        int32 MACVK_PageUp                    = 0x74;
-        int32 MACVK_ForwardDelete             = 0x75;
-        int32 MACVK_F4                        = 0x76;
-        int32 MACVK_End                       = 0x77;
-        int32 MACVK_F2                        = 0x78;
-        int32 MACVK_PageDown                  = 0x79;
-        int32 MACVK_F1                        = 0x7A;
-        int32 MACVK_LeftArrow                 = 0x7B;
-        int32 MACVK_RightArrow                = 0x7C;
-        int32 MACVK_DownArrow                 = 0x7D;
-        int32 MACVK_UpArrow                   = 0x7E;
-        int32 MACVK_ISO_Section               = 0x0A;
-        int32 MACVK_JIS_Yen                   = 0x5D;
-        int32 MACVK_JIS_Underscore            = 0x5E;
-        int32 MACVK_JIS_KeypadComma           = 0x5F;
-        int32 MACVK_JIS_Eisu                  = 0x66;
-        int32 MACVK_JIS_Kana                  = 0x68;
-        
-        
-        
+
         void sub__screenprint(qbs *txt){
-            
-            static int32 i,s,x,vk,c;
-            
-            #ifdef QBNex_MACOSX
-                /* MACOSX virtual key code reference (with ASCII value & shift state):
-                    static int32 MACVK_ANSI_A                    = 0x0000+65+32;
-                    static int32 MACVK_ANSI_S                    = 0x0100+83+32;
-                    static int32 MACVK_ANSI_D                    = 0x0200+68+32;
-                    static int32 MACVK_ANSI_F                    = 0x0300+70+32;
-                    static int32 MACVK_ANSI_H                    = 0x0400+72+32;
-                    static int32 MACVK_ANSI_G                    = 0x0500+71+32;
-                    static int32 MACVK_ANSI_Z                    = 0x0600+90+32;
-                    static int32 MACVK_ANSI_X                    = 0x0700+88+32;
-                    static int32 MACVK_ANSI_C                    = 0x0800+67+32;
-                    static int32 MACVK_ANSI_V                    = 0x0900+86+32;
-                    static int32 MACVK_ANSI_B                    = 0x0B00+66+32;
-                    static int32 MACVK_ANSI_Q                    = 0x0C00+81+32;
-                    static int32 MACVK_ANSI_W                    = 0x0D00+87+32;
-                    static int32 MACVK_ANSI_E                    = 0x0E00+69+32;
-                    static int32 MACVK_ANSI_R                    = 0x0F00+82+32;
-                    static int32 MACVK_ANSI_Y                    = 0x1000+89+32;
-                    static int32 MACVK_ANSI_T                    = 0x1100+84+32;
-                    static int32 MACVK_ANSI_1                    = 0x1200+49;
-                    static int32 MACVK_ANSI_2                    = 0x1300+50;
-                    static int32 MACVK_ANSI_3                    = 0x1400+51;
-                    static int32 MACVK_ANSI_4                    = 0x1500+52;
-                    static int32 MACVK_ANSI_6                    = 0x1600+54;
-                    static int32 MACVK_ANSI_5                    = 0x1700+53;
-                    static int32 MACVK_ANSI_Equal                = 0x1800+61;
-                    static int32 MACVK_ANSI_9                    = 0x1900+57;
-                    static int32 MACVK_ANSI_7                    = 0x1A00+55;
-                    static int32 MACVK_ANSI_Minus                = 0x1B00+45;
-                    static int32 MACVK_ANSI_8                    = 0x1C00+56;
-                    static int32 MACVK_ANSI_0                    = 0x1D00+48;
-                    static int32 MACVK_ANSI_RightBracket         = 0x1E00+93;
-                    static int32 MACVK_ANSI_O                    = 0x1F00+79+32;
-                    static int32 MACVK_ANSI_U                    = 0x2000+85+32;
-                    static int32 MACVK_ANSI_LeftBracket          = 0x2100+91;
-                    static int32 MACVK_ANSI_I                    = 0x2200+73+32;
-                    static int32 MACVK_ANSI_P                    = 0x2300+80+32;
-                    static int32 MACVK_ANSI_L                    = 0x2500+76+32;
-                    static int32 MACVK_ANSI_J                    = 0x2600+74+32;
-                    static int32 MACVK_ANSI_Quote                = 0x2700+39;
-                    static int32 MACVK_ANSI_K                    = 0x2800+75+32;
-                    static int32 MACVK_ANSI_Semicolon            = 0x2900+59;
-                    static int32 MACVK_ANSI_Backslash            = 0x2A00+92;
-                    static int32 MACVK_ANSI_Comma                = 0x2B00+44;
-                    static int32 MACVK_ANSI_Slash                = 0x2C00+47;
-                    static int32 MACVK_ANSI_N                    = 0x2D00+78+32;
-                    static int32 MACVK_ANSI_M                    = 0x2E00+77+32;
-                    static int32 MACVK_ANSI_Period               = 0x2F00+46;
-                    static int32 MACVK_ANSI_Grave                = 0x3200+96;
-                    static int32 MACVK_ANSI_KeypadDecimal        = 0x4100;
-                    static int32 MACVK_ANSI_KeypadMultiply       = 0x4300;
-                    static int32 MACVK_ANSI_KeypadPlus           = 0x4500;
-                    static int32 MACVK_ANSI_KeypadClear          = 0x4700;
-                    static int32 MACVK_ANSI_KeypadDivide         = 0x4B00;
-                    static int32 MACVK_ANSI_KeypadEnter          = 0x4C00;
-                    static int32 MACVK_ANSI_KeypadMinus          = 0x4E00;
-                    static int32 MACVK_ANSI_KeypadEquals         = 0x5100;
-                    static int32 MACVK_ANSI_Keypad0              = 0x5200;
-                    static int32 MACVK_ANSI_Keypad1              = 0x5300;
-                    static int32 MACVK_ANSI_Keypad2              = 0x5400;
-                    static int32 MACVK_ANSI_Keypad3              = 0x5500;
-                    static int32 MACVK_ANSI_Keypad4              = 0x5600;
-                    static int32 MACVK_ANSI_Keypad5              = 0x5700;
-                    static int32 MACVK_ANSI_Keypad6              = 0x5800;
-                    static int32 MACVK_ANSI_Keypad7              = 0x5900;
-                    static int32 MACVK_ANSI_Keypad8              = 0x5B00;
-                    static int32 MACVK_ANSI_Keypad9              = 0x5C00;
-                    static int32 MACVK_Return                    = 0x2400+13;
-                    static int32 MACVK_Tab                       = 0x3000+9;
-                    static int32 MACVK_Space                     = 0x3100+32;
-                    static int32 MACVK_Delete                    = 0x3300+8;
-                    static int32 MACVK_Escape                    = 0x3500+27;
-                    static int32 MACVK_Command                   = 0x3700;
-                    static int32 MACVK_Shift                     = 0x3800;
-                    static int32 MACVK_CapsLock                  = 0x3900;
-                    static int32 MACVK_Option                    = 0x3A00;
-                    static int32 MACVK_Control                   = 0x3B00;
-                    static int32 MACVK_RightShift                = 0x3C00;
-                    static int32 MACVK_RightOption               = 0x3D00;
-                    static int32 MACVK_RightControl              = 0x3E00;
-                    static int32 MACVK_Function                  = 0x3F00;
-                    static int32 MACVK_F17                       = 0x4000;
-                    static int32 MACVK_VolumeUp                  = 0x4800;
-                    static int32 MACVK_VolumeDown                = 0x4900;
-                    static int32 MACVK_Mute                      = 0x4A00;
-                    static int32 MACVK_F18                       = 0x4F00;
-                    static int32 MACVK_F19                       = 0x5000;
-                    static int32 MACVK_F20                       = 0x5A00;
-                    static int32 MACVK_F5                        = 0x6000;
-                    static int32 MACVK_F6                        = 0x6100;
-                    static int32 MACVK_F7                        = 0x6200;
-                    static int32 MACVK_F3                        = 0x6300;
-                    static int32 MACVK_F8                        = 0x6400;
-                    static int32 MACVK_F9                        = 0x6500;
-                    static int32 MACVK_F11                       = 0x6700;
-                    static int32 MACVK_F13                       = 0x6900;
-                    static int32 MACVK_F16                       = 0x6A00;
-                    static int32 MACVK_F14                       = 0x6B00;
-                    static int32 MACVK_F10                       = 0x6D00;
-                    static int32 MACVK_F12                       = 0x6F00;
-                    static int32 MACVK_F15                       = 0x7100;
-                    static int32 MACVK_Help                      = 0x7200;
-                    static int32 MACVK_Home                      = 0x7300;
-                    static int32 MACVK_PageUp                    = 0x7400;
-                    static int32 MACVK_ForwardDelete             = 0x7500;
-                    static int32 MACVK_F4                        = 0x7600;
-                    static int32 MACVK_End                       = 0x7700;
-                    static int32 MACVK_F2                        = 0x7800;
-                    static int32 MACVK_PageDown                  = 0x7900;
-                    static int32 MACVK_F1                        = 0x7A00;
-                    static int32 MACVK_LeftArrow                 = 0x7B00;
-                    static int32 MACVK_RightArrow                = 0x7C00;
-                    static int32 MACVK_DownArrow                 = 0x7D00;
-                    static int32 MACVK_UpArrow                   = 0x7E00;
-                    static int32 MACVK_ISO_Section               = 0x0A00;
-                    static int32 MACVK_JIS_Yen                   = 0x5D00;
-                    static int32 MACVK_JIS_Underscore            = 0x5E00;
-                    static int32 MACVK_JIS_KeypadComma           = 0x5F00;
-                    static int32 MACVK_JIS_Eisu                  = 0x6600;
-                    static int32 MACVK_JIS_Kana                  = 0x6800;
-                    static int32 MACVKS_ANSI_A                    = 0x0000+65+128;
-                    static int32 MACVKS_ANSI_S                    = 0x0100+83+128;
-                    static int32 MACVKS_ANSI_D                    = 0x0200+68+128;
-                    static int32 MACVKS_ANSI_F                    = 0x0300+70+128;
-                    static int32 MACVKS_ANSI_H                    = 0x0400+72+128;
-                    static int32 MACVKS_ANSI_G                    = 0x0500+71+128;
-                    static int32 MACVKS_ANSI_Z                    = 0x0600+90+128;
-                    static int32 MACVKS_ANSI_X                    = 0x0700+88+128;
-                    static int32 MACVKS_ANSI_C                    = 0x0800+67+128;
-                    static int32 MACVKS_ANSI_V                    = 0x0900+86+128;
-                    static int32 MACVKS_ANSI_B                    = 0x0B00+66+128;
-                    static int32 MACVKS_ANSI_Q                    = 0x0C00+81+128;
-                    
-                    static int32 MACVKS_ANSI_W                    = 0x0D00+87+128;
-                    static int32 MACVKS_ANSI_E                    = 0x0E00+69+128;
-                    static int32 MACVKS_ANSI_R                    = 0x0F00+82+128;
-                    static int32 MACVKS_ANSI_Y                    = 0x1000+89+128;
-                    static int32 MACVKS_ANSI_T                    = 0x1100+84+128;
-                    static int32 MACVKS_ANSI_1                    = 0x1200+33+128;
-                    static int32 MACVKS_ANSI_2                    = 0x1300+64+128;
-                    static int32 MACVKS_ANSI_3                    = 0x1400+35+128;
-                    static int32 MACVKS_ANSI_4                    = 0x1500+36+128;
-                    static int32 MACVKS_ANSI_6                    = 0x1600+94+128;
-                    static int32 MACVKS_ANSI_5                    = 0x1700+37+128;
-                    static int32 MACVKS_ANSI_Equal                = 0x1800+43+128;
-                    static int32 MACVKS_ANSI_9                    = 0x1900+40+128;
-                    static int32 MACVKS_ANSI_7                    = 0x1A00+38+128;
-                    static int32 MACVKS_ANSI_Minus                = 0x1B00+95+128;
-                    static int32 MACVKS_ANSI_8                    = 0x1C00+42+128;
-                    static int32 MACVKS_ANSI_0                    = 0x1D00+41+128;
-                    static int32 MACVKS_ANSI_RightBracket         = 0x1E00+125+128;
-                    static int32 MACVKS_ANSI_O                    = 0x1F00+79+128;
-                    static int32 MACVKS_ANSI_U                    = 0x2000+85+128;
-                    static int32 MACVKS_ANSI_LeftBracket          = 0x2100+123+128;
-                    static int32 MACVKS_ANSI_I                    = 0x2200+73+128;
-                    static int32 MACVKS_ANSI_P                    = 0x2300+80+128;
-                    static int32 MACVKS_ANSI_L                    = 0x2500+76+128;
-                    static int32 MACVKS_ANSI_J                    = 0x2600+74+128;
-                    static int32 MACVKS_ANSI_Quote                = 0x2700+34+128;
-                    static int32 MACVKS_ANSI_K                    = 0x2800+75+128;
-                    static int32 MACVKS_ANSI_Semicolon            = 0x2900+58+128;
-                    static int32 MACVKS_ANSI_Backslash            = 0x2A00+124+128;
-                    static int32 MACVKS_ANSI_Comma                = 0x2B00+60+128;
-                    static int32 MACVKS_ANSI_Slash                = 0x2C00+63+128;
-                    static int32 MACVKS_ANSI_N                    = 0x2D00+78+128;
-                    static int32 MACVKS_ANSI_M                    = 0x2E00+77+128;
-                    static int32 MACVKS_ANSI_Period               = 0x2F00+62+128;
-                    static int32 MACVKS_ANSI_Grave                = 0x3200+126+128;
-                */
-                
-                
-                static CGEventSourceRef es;
-                static CGEventRef e;
-                
-                for (i=0;i<txt->len;i++){
-                    c=txt->chr[i];
-                    
-                    //static int32 i,s,x,vk,c;
-                    
-                    /*
-                        CONTROL+{A-Z} 
-                        The following 'x' letters cannot be simulated this way because they map to implemented control code (8,9,13) functionality:
-                        ABCDEFGHIJKLMNOPQRSTUVWXYZ
-                        .......xx...x.............
-                        Common/standard CTRL+? combinations for copying, pasting, undoing, cutting, etc. are available
-                    */
-                    
-                    if ((c>=1)&&(c<=26)){ if ((c!=8)&&(c!=9)&&(c!=13)){
-                        //Note: Under MacOSX, COMMAND is used instead of control for general tasks
-                        vk=ASCII_TO_MACVK[c+96]>>8;
-                        es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                        e=CGEventCreateKeyboardEvent(es,(CGKeyCode)MACVK_Command,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                        e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventSetFlags(e, kCGEventFlagMaskCommand);
-                        CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                        e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                        e=CGEventCreateKeyboardEvent(es,(CGKeyCode)MACVK_Command,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                        goto special_character;
-                    }}
-                    
-                    //custom extended characters
-                    if (c==0){
-                        if (i==(txt->len-1)) goto special_character;
-                        i++;
-                        c=txt->chr[i];
-                        if (c==15){//SHIFT+TAB
-                            vk=MACVK_Tab;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)MACVK_Shift,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventSetFlags(e, kCGEventFlagMaskShift);
-                            CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)MACVK_Shift,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        //4 arrows
-                        if (c==75){
-                            vk=MACVK_LeftArrow;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==77){
-                            vk=MACVK_RightArrow;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==72){
-                            vk=MACVK_UpArrow;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==80){
-                            vk=MACVK_DownArrow;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        //6 control keys
-                        if (c==82){
-                            vk=MACVK_Help;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==71){
-                            vk=MACVK_Home;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==83){
-                            vk=MACVK_ForwardDelete;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==79){
-                            vk=MACVK_End;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==81){
-                            vk=MACVK_PageDown;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        if (c==73){
-                            vk=MACVK_PageUp;
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                        //...
-                        //todo: F1-F12, shift/control/alt+above
-                        goto special_character;
-                    }
-                    
-                    //standard ASCII character output
-                    x=ASCII_TO_MACVK[c];
-                    if (x&127){//available character
-                        vk=x>>8;
-                        if (x&128){
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)MACVK_Shift,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventSetFlags(e, kCGEventFlagMaskShift);
-                            CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)MACVK_Shift,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                            }else{
-                            es=CGEventSourceCreate(kCGEventSourceStateCombinedSessionState);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,1); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            e=CGEventCreateKeyboardEvent(es,(CGKeyCode)vk,0); CGEventPost(kCGAnnotatedSessionEventTap,e); CFRelease(e);
-                            CFRelease(es);
-                        }
-                    }//available character
-                    
-                    special_character:;
-                    
-                }//i
-                
-            #endif //QBNex_MACOSX
-            
-            
-            
-            #ifdef QBNex_WINDOWS
-                
-                static INPUT input;
-                
-                /*VK reference:
-                    http://msdn.microsoft.com/en-us/library/ms927178.aspx
-                */
-                
-                for (i=0;i<txt->len;i++){
-                    c=txt->chr[i];
-                    //custom characters
-                    if (c==9){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_TAB; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT)); goto special_character;}
-                    if (c==8){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_BACK; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT)); goto special_character;}
-                    if (c==13){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_RETURN; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT)); goto special_character;}
-                    //...
-                    
-                    /*
-                        CONTROL+{A-Z} 
-                        The following 'x' letters cannot be simulated this way because they map to above functionality:
-                        ABCDEFGHIJKLMNOPQRSTUVWXYZ
-                        .......xx...x.............
-                        Common/standard CTRL+? combinations for copying, pasting, undoing, cutting, etc. are available
-                    */
-                    if ((c>=1)&&(c<=26)){
-                        ZeroMemory(&input,sizeof(INPUT)); input.type=INPUT_KEYBOARD; input.ki.wVk=VK_CONTROL; SendInput(1,&input,sizeof(INPUT));
-                        ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VkKeyScan(64+c)&255; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));
-                        ZeroMemory(&input,sizeof(INPUT)); input.type=INPUT_KEYBOARD; input.ki.wVk=VK_CONTROL; input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));
-                        goto special_character;
-                    }
-                    
-                    //custom extended characters
-                    if (c==0){
-                        if (i==(txt->len-1)) goto special_character;
-                        i++;
-                        c=txt->chr[i];
-                        if (c==15){//SHIFT+TAB
-                            ZeroMemory(&input,sizeof(INPUT)); input.type=INPUT_KEYBOARD; input.ki.wVk=VK_SHIFT; SendInput(1,&input,sizeof(INPUT));
-                            ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_TAB; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));
-                            ZeroMemory(&input,sizeof(INPUT)); input.type=INPUT_KEYBOARD; input.ki.wVk=VK_SHIFT; input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));
-                        }
-                        if (c==75){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_LEFT; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==77){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_RIGHT; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==72){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_UP; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==80){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_DOWN; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==82){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_INSERT; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==71){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_HOME; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==83){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_DELETE; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==79){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_END; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==81){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_NEXT; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        if (c==73){ZeroMemory(&input,sizeof(INPUT)); input.ki.wVk=VK_PRIOR; input.type=INPUT_KEYBOARD; SendInput(1,&input,sizeof(INPUT)); input.ki.dwFlags = KEYEVENTF_KEYUP; SendInput(1,&input,sizeof(INPUT));}
-                        //...
-                        //todo: F1-F12, shift/control/alt+above
-                        
-                        goto special_character;
-                    }
-                    
-                    if ((c>126)||(c<32)) goto special_character;
-                    
-                    x=VkKeyScan(txt->chr[i]);
-                    vk=x&255;
-                    
-                    s=(x>>8)&255;
-                    //1 Either shift key is pressed. 
-                    //2 Either CTRL key is pressed. 
-                    //4 Either ALT key is pressed. 
-                    if (s&1){
-                        ZeroMemory(&input,sizeof(INPUT));
-                        input.type=INPUT_KEYBOARD;
-                        input.ki.wVk=VK_SHIFT;
-                        SendInput(1,&input,sizeof(INPUT));
-                    }
-                    
-                    ZeroMemory(&input,sizeof(INPUT));
-                    input.type=INPUT_KEYBOARD;
-                    input.ki.wVk=vk;
-                    SendInput(1,&input,sizeof(INPUT));
-                    
-                    ZeroMemory(&input,sizeof(INPUT));
-                    input.type=INPUT_KEYBOARD;
-                    input.ki.wVk=vk;
-                    input.ki.dwFlags = KEYEVENTF_KEYUP;
-                    SendInput(1,&input,sizeof(INPUT));
-                    
-                    if (s&1){
-                        ZeroMemory(&input,sizeof(INPUT));
-                        input.type=INPUT_KEYBOARD;
-                        input.ki.wVk=VK_SHIFT;
-                        input.ki.dwFlags = KEYEVENTF_KEYUP;
-                        SendInput(1,&input,sizeof(INPUT));
-                    }
-                    
-                    special_character:;
-                    
-                }//i
-                
-            #endif
-            
+            qbrt_screenprint(txt->chr,txt->len);
         }
-        
-        
-        #include "libqb/printer.cpp"
+
+        // Printer output lives in the Rust runtime (internal/c/qbrt/src/printer.rs,
+        // Windows only); scaling the image to the page stays here.
+        #ifndef DEPENDENCY_PRINTER
+            void sub__printimage(int32 i){
+                return;
+            }
+        #else
+            void sub__printimage(int32 i){
+                #ifdef QBNex_WINDOWS
+                    img_struct *s;
+                    int32 x,w,h,i2;
+                    if (i>=0){
+                        validatepage(i); s=&img[page[i]];
+                        }else{
+                        x=-i;
+                        if (x>=nextimg){error(258); return;}
+                        s=&img[x];
+                        if (!s->valid){error(258); return;}
+                    }
+                    void *printer=qbrt_printer_begin(&w,&h);
+                    if (!printer) return;
+                    i2=func__newimage(w,h,32,1);
+                    if (i2>=-1){qbrt_printer_abort(printer); return;}//legacy only checked -1; 0 (error) would read img[0]
+                    sub__dontblend(i2,1);
+                    sub__putimage(NULL,NULL,NULL,NULL,i,i2,NULL,NULL,NULL,NULL,8+32);
+                    qbrt_printer_finish(printer,img[-i2].offset32,w,h);
+                    sub__freeimage(i2,1);
+                #endif
+            }
+        #endif
         
         void sub_files(qbs *str,int32 passed){
             if (new_error) return;
@@ -28085,50 +26268,9 @@ int main( int argc, char* argv[] ){
     func_command_array = argv;
     
     
-    //struct tm:
-    //        int tm_sec;     /* seconds after the minute - [0,59] */
-    //        int tm_min;     /* minutes after the hour - [0,59] */
-    //        int tm_hour;    /* hours since midnight - [0,23] */
-    //        int tm_mday;    /* day of the month - [1,31] */
-    //        int tm_mon;     /* months since January - [0,11] */
-    //        int tm_year;    /* years since 1900 */
-    //        int tm_wday;    /* days since Sunday - [0,6] */
-    //        int tm_yday;    /* days since January 1 - [0,365] */
-    //        int tm_isdst;   /* daylight savings time flag */
-    tm *qbnex_tm;
-    time_t qbnex_tm_val;
-    time_t qbnex_tm_val_old;
-    //call both timing routines as close as possible to each other to maximize accuracy
-    //wait for second "hand" to "tick over"/move
-    time(&qbnex_tm_val_old);
-    //note: time() returns the time as seconds elapsed since midnight, January 1, 1970, or -1 in the case of an error. 
-    if (qbnex_tm_val_old!=-1){
-        do{
-            time(&qbnex_tm_val);
-        }while(qbnex_tm_val==qbnex_tm_val_old);
-        }else{
-        qbnex_tm_val=0;//time unknown! (set to midnight, January 1, 1970)
-    }
-    clock_firsttimervalue=GetTicks();
-    //calculate localtime as milliseconds past midnight
-    qbnex_tm=localtime(&qbnex_tm_val);
-    /* re: localtime()
-        Return a pointer to the structure result, or NULL if the date passed to the function is:
-        Before midnight, January 1, 1970.
-        After 03:14:07, January 19, 2038, UTC (using _time32 and time32_t).
-        After 23:59:59, December 31, 3000, UTC (using _time64 and __time64_t).
-    */
-    if (qbnex_tm){
-        qbnex_firsttimervalue=qbnex_tm->tm_hour*3600+qbnex_tm->tm_min*60+qbnex_tm->tm_sec;
-        qbnex_firsttimervalue*=1000;
-        }else{
-        qbnex_firsttimervalue=0;//time unknown! (set to midnight)
-    }
-    /* Used as follows for calculating TIMER value:
-        x=GetTicks();
-        x-=clock_firsttimervalue;
-        x+=qbnex_firsttimervalue;
-    */
+    // TIMER reference: tick count and local time of day, taken right after the
+    // wall clock's second ticks over (internal/c/qbrt/src/systime.rs).
+    qbrt_time_init(&clock_firsttimervalue,&qbnex_firsttimervalue);
     
     //init truetype .ttf/.fon font library
     
@@ -30361,7 +28503,6 @@ void scancodeup(uint8 scancode){
                 X11_window=event->xexpose.window;
             }
             
-            x11filter(event);//handles clipboard request events from other applications
         }
         
         if (*qbnex_os_event_info==OS_EVENT_POST_PROCESSING){

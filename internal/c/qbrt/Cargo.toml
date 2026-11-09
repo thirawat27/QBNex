@@ -12,3 +12,27 @@ publish = false
 # rlib: used by Rust unit tests and tools
 crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
+
+[dependencies]
+# Local time of day for TIMER's start-up reference (replaces localtime()).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[target.'cfg(windows)'.dependencies]
+# Clipboard (CF_TEXT/CF_BITMAP), _SCREENIMAGE/_SCREENCLICK/_SCREENPRINT and the
+# printer use Win32 directly, exactly like the legacy runtime. windows-sys links
+# through raw-dylib import stubs, so libqbrt.a needs no extra -l flags for them.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Printing",
+    "Win32_Storage_Xps",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Clipboard text and images on Linux (X11/Wayland) and macOS.
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }

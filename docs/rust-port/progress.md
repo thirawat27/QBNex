@@ -11,7 +11,8 @@
 | R0 Oracle + CI | **done (local), CI unverified** | `conformance/` runner + 25 cases (19 golden, 6 xfail); smoke + conformance + unit + differential steps in `.github/workflows/{push,pull_request}.yml` |
 | R1 `qbrt` foundation + MBF slice | **done (Windows), Linux/macOS unverified** | `internal/c/qbrt`; `libqb.cpp` includes `qbrt.h` instead of `msbin.cpp`; exhaustive differential test 0 mismatches |
 | R2 Leaf numeric code | **done (Windows)** | TDD + differential + legacy deleted for rounding (`qbr*`, `fpu_reinit`), RND/RANDOMIZE, VAL, STR$ number formatting (all `qbs_str` overloads), TIMER arithmetic. `libqb.cpp` is ~600 lines shorter |
-| R3–R10 | pending | — |
+| R3–R8, R10 | pending | — |
+| R9 Net, clipboard, screen, printer, clock | **done (Windows)**, Linux/macOS unverified | TCP (`std::net`), clipboard (Win32 `CF_TEXT`/`CF_BITMAP`, `arboard` elsewhere), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer page output, `GetTicks` + TIMER start-of-day. Deleted: socket layer, X11/Cocoa/Win32 clipboard, screen code, `libqb/printer.{cpp,h}`, `myip.cpp`, `time64.{c,cpp,h}`; `libqb.cpp` ~1,860 lines shorter. See [R9 notes](#r9-notes) |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
@@ -25,11 +26,34 @@
 - `conformance`: 30 cases — 23 passed, 7 xfail (known legacy defects), 0 failed; golden output from the unmodified legacy build, plus one hand-written `.deviation` case.
 - `tests/*_smoke.cmd` (cli, diagnostics, warnings, labels, encoding, stdlib, audio): 7/7 pass.
 
+### R9 notes
+
+Rust modules (`internal/c/qbrt/src`): `net.rs`, `clipboard.rs`, `screen.rs`, `printer.rs`, `systime.rs`, `pixels.rs` (buffers handed to C). `libqb.cpp` keeps thin shims with the old signatures plus the handle tables (`special_handles`, streams) that file I/O shares; LPRINT text layout and image scaling stay in the graphics engine (R5).
+
+Verified on Windows:
+
+- `cargo test --workspace`: 82/82 (34 new: loopback host/client echo, non-blocking accept/recv, close detection, byte-swapped remote port, info-string parsing, `WHATISMYIP` against a local HTTP server and its reply parser, key/mouse event sequences, capture region, printer call flow, clock); `cargo clippy --workspace --all-targets`: 0 warnings.
+- `diff_net` (legacy `connection_new`/`func__openclient`/`func__openhost`/`func__connectionaddress`, verbatim, on a mock qbs/list runtime, vs `qbrt_net_parse_info`/`qbrt_net_format_address`; 400k random info strings incl. VAL errors, embedded NULs, `$DEBUG` kind, 100k address texts): **0 mismatches**; mutation run 1,760.
+- `diff_screen` (legacy `sub__screenprint` compiled as the Windows *and* the macOS build, `sub__screenclick`, `func__screenimage`, all against recording mocks of `SendInput`/`VkKeyScan`/CoreGraphics/GDI; 500k strings with random keyboard layouts, 500k clicks, 500k capture regions): **0 mismatches**; mutation run 56k.
+- `diff_printer` (verbatim `printer.cpp` vs `qbrt::printer` page flow, every combination of failing GDI calls, page heights and image failure; 4,096 call sequences): **0 mismatches**; mutation run 2,048.
+- `diff_systime` (verbatim start-of-day block from `main()` with scripted `time()`/`localtime()`, 2M scripts, plus a live check against the C library clock): **0 mismatches**; mutation run 98k.
+- Conformance (whole corpus: 36 cases, 28 passed, 8 xfail, 0 failed): `net/loopback_echo` (host + client in one program: `_OPENHOST`, `_OPENCLIENT`, `_OPENCONNECTION`, `_CONNECTED`, `_CONNECTIONADDRESS`, binary-safe `PUT`/`GET` both ways, 20 KB transfer, close detection), `net/open_failures` (out-of-range ports, refused and unknown hosts, port in use, VAL-style port text), `net/send_buffer_full` (`.xfail`, L-08). Golden output from the legacy build.
+- End to end against the legacy build (same output): `_CLIPBOARD$` set/get with a non-ASCII byte, `_CLIPBOARDIMAGE` write/read of a 32-bit image, `_SCREENIMAGE` whole screen and region. `_SCREENCLICK`, `_SCREENPRINT`, `_PRINTIMAGE` and `LPRINT` were compiled and linked but not run (they would inject input into, or print from, the desktop of the machine running the tests); their logic is covered by the differential tests above.
+- `tests/*_smoke.cmd`: 8/8 pass (`benchmark_smoke` failed once with `std::bad_alloc` inside the compiler and passed on the rerun and on the R2 build; not investigated).
+
+Notes:
+
+- **Runtime error paths cannot be conformance cases yet.** An unhandled error opens a modal `MessageBox` ("Unhandled Error #… Continue?"); headless it hangs until the timeout, on a desktop it waits for a click. With L-01 (`ON ERROR GOTO` does not compile) there is no way to observe error codes from BASIC. The error codes of the network functions are covered by `diff_net` instead.
+- **Precompiled `libqb_*.o` are not rebuilt when `libqb.cpp` changes.** After pulling this branch delete `internal/c/libqb/os/<os>/libqb_*.o` (or run `internal/c/purge_libqb_only.*`); a stale object still references the deleted `WHATISMYIP` and fails to link.
+- `windows-sys` links through raw-dylib import stubs, so `libqbrt.a` needs no new `-l` flags on Windows (`--print native-static-libs` unchanged). macOS now needs `-framework AppKit -framework CoreGraphics -framework CoreFoundation -framework Foundation -lobjc` (added to CMake, `makeline_osx.txt`, `setup_osx.command`, `run_diff.sh`; not built). Linux needs nothing new (`arboard` uses the pure-Rust X11 client).
+- Platform gaps kept from legacy: `_SCREENIMAGE` is a blank image of the screen size on Linux and macOS; `_SCREENCLICK`/`_SCREENPRINT` do nothing on Linux; the printer is Windows only (D8).
+
 ### Not verified yet
 
 - Linux and macOS builds (native-library lists for the Rust staticlib are taken from rustc docs, not run).
 - GitHub Actions runs of the new CI steps.
 - Docker images (Rust toolchain added, not built).
+- R9 on Linux/macOS: `net.rs`, `systime.rs` (chrono local time) and the `arboard` clipboard compile only for Windows here (the installed Linux std is a metadata stub). The macOS CoreGraphics key/mouse code and the new framework flags are untested.
 - 32-bit Windows (`i686-pc-windows-gnu` selected automatically, not built).
 
 ## Porting workflow (TDD, legacy C++ deleted)
@@ -104,6 +128,7 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-05 | `VAL` negates the exponent after normalising: `VAL("123E-2")` = `.000123`, `VAL("0.5E-1")` = `5`. **Fixed in Rust** (intentional deviation). | `strings/val_negative_exponent` (`.deviation`) | High |
 | L-06 | `PRINT USING "#.##^^^^"` on a `_FLOAT` near 1E4932 prints `%0.118973149535723F+4984` and corrupts the heap (exit `0xC0000374`). | `strings/print_using_huge_exponent` | High |
 | L-07 | `STR$` of a DOUBLE that needs more than 19 decimals (e.g. `1.234567890123456D-16`) builds a broken printf format and returns ` .0f`. **Fixed in Rust** (D-04). | `strings/str_many_decimals` (`.deviation`) | Medium |
+| L-08 | `PUT` on a network handle treats a full send buffer ("would block" on the non-blocking socket) as a lost connection: `_CONNECTED` drops to 0 and the rest of the data is lost. Ported as is. | `net/send_buffer_full` | Medium |
 
 Output quirks that are preserved bug-for-bug (golden files depend on them):
 
@@ -112,6 +137,10 @@ Output quirks that are preserved bug-for-bug (golden files depend on them):
 - `MKDMBF$(-0#)` and tiny/huge doubles raise overflow (error 5).
 - DOUBLE `STR$`/`PRINT` adds one decimal when there are two or more significant digits (` 42.0`, `-.250`, ` 123456789012345.59`, ` .33333333333333331`): legacy uses a buffer index as the digit count. Ported as is (`numfmt.rs`).
 - `STR$` of infinity or NaN is ` 0`.
+- `_CONNECTIONADDRESS` of an accepted connection shows the remote port with its two bytes swapped on little-endian CPUs (legacy read the network-order field as a native `uint16`).
+- `_CONNECTIONADDRESS` of a host asks `api.ipify.org` for the public address (sending `GET api.ipify.org HTTP/1.1`, as legacy did) and waits up to 5 s; it falls back to `127.0.0.1`.
+- `_SCREENCLICK` always presses the left button once before the requested button; `_SCREENPRINT` sends SHIFT + key 255 for characters the keyboard layout cannot type.
+- TIMER's start-up waits for the wall clock's second to tick over (up to one second at program start).
 
 Intentional deviations (Rust differs from legacy on purpose):
 
@@ -122,6 +151,11 @@ Intentional deviations (Rust differs from legacy on purpose):
 | D-03 | `VAL` keeps 1000 significant digits exactly and treats further non-zero digits as "slightly more". Legacy overran a 256-byte buffer past 256 digits (undefined behaviour). | Defined behaviour; correctly rounded up to 1000 digits. |
 | D-04 | `STR$` prints all decimals the legacy algorithm asks for, also beyond 19 (fixes L-07). | Legacy output was garbage from a malformed printf format. |
 | D-05 | `STR$` of a non-finite SINGLE is ` 0`. Legacy read a stale static buffer (result depended on the previous call). | Defined result, same as DOUBLE. |
+| D-06 | The millisecond clock (`GetTicks`) is 64-bit everywhere. Legacy Windows used `clock()`, a 32-bit count that overflows after 24.8 days of uptime of the program. | No conformance case (needs 25 days); `systime.rs` unit tests. |
+| D-07 | `_CLIPBOARD$` on Linux/macOS goes through `arboard`: the system clipboard is UTF-8, so bytes that are not valid UTF-8 are stored as U+FFFD; without a display a clipboard private to the process is used (legacy: empty, or a GUI-only X11 owner). Windows keeps `CF_TEXT` bytes exactly. | No conformance case (needs a desktop clipboard). |
+| D-08 | `_CLIPBOARDIMAGE` (read and write) works on Linux/macOS through `arboard`; legacy did nothing there. | Closes a platform gap; no conformance case (desktop). |
+| D-09 | `_OPENCLIENT` tries every IPv4 address of the host until one connects; legacy Windows used only the first (`gethostbyname`), legacy Linux/macOS already tried all. | One behaviour on all OSes. |
+
 
 ## Next steps
 

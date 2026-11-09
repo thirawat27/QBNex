@@ -6,7 +6,7 @@ set -eu
 cd "$(dirname "$0")"
 mode="${1:-}"
 case "$(uname -s)" in
-  Darwin) os=osx; libs="" ;;
+  Darwin) os=osx; libs="-framework AppKit -framework CoreGraphics -framework CoreFoundation -framework Foundation -lobjc" ;;
   *) os=lnx; libs="-lpthread -ldl -lm" ;;
 esac
 lib="../os/$os/libqbrt.a"
@@ -14,7 +14,7 @@ out="${TMPDIR:-/tmp}/qbrt_diff_$$"
 mkdir -p "$out"
 cxx="${CXX:-c++}"
 
-for t in diff_msbin diff_str; do
+for t in diff_msbin diff_str diff_systime diff_net diff_screen diff_printer; do
   $cxx -O2 -std=c++17 -w "$t.cpp" "$lib" $libs -o "$out/$t"
   "$out/$t" $mode
 done

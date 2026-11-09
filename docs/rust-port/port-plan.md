@@ -23,7 +23,7 @@
 > | R6 | Audio (`audio.cpp` + miniaudio → cpal + synth Rust) | PCM offline ตรงภายใน tolerance | pending |
 > | R7 | Fonts + image codec (FreeType → fontdue, stb_image → `image`) | glyph/decoded image tests | pending |
 > | R8 | Window/input/threads (freeglut+GLEW+gui.cpp → winit + softbuffer, atomic event flags) | interactive scripted tests 3 OS | pending |
-> | R9 | Net, clipboard, screen capture, printer | loopback + platform tests | pending |
+> | R9 | Net, clipboard, screen capture, printer | loopback + platform tests | **เสร็จ (Windows)** · TCP (`std::net`), clipboard (Win32 / `arboard`), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer, `GetTicks` + start-of-day time — C++ legacy ลบแล้ว (`printer.cpp`, `myip.cpp`, `time64.*`) |
 > | R10 | ลบ C++ legacy, vendored third-party, `download/` dirs; เหลือแค่ `qbx.cpp` + glue | repo ไม่มี third-party C ที่ไม่ใช้ | pending |
 > | R11 (เสนอ) | ให้ compiler BASIC emit Rust (หรือ IR ที่ runtime Rust รัน) แทน C++ → ลบ `qbx.cpp` และ C++ สุดท้าย; ผู้ใช้ต้องมี `rustc` แทน `g++` | ไม่มีไฟล์ C/C++ ใน repo | ต้องอนุมัติ |
 >
