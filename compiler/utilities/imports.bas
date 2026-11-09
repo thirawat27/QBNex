@@ -53,7 +53,7 @@ FUNCTION StdLib_ImportPath$ (module$)
     IF LEN(normalizedKey) = 0 THEN EXIT FUNCTION
 
     IF normalizedKey = "qbnex" THEN
-        StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "source" + pathsep$ + "stdlib" + pathsep$ + "stdlib.bas"
+        StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "stdlib" + pathsep$ + "stdlib.bas"
         EXIT FUNCTION
     END IF
 
@@ -63,7 +63,7 @@ FUNCTION StdLib_ImportPath$ (module$)
         relativeModulePath = relativeModulePath + importChar
     NEXT
 
-    StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "source" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
+    StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
 END FUNCTION
 
 FUNCTION StdLib_QueueImport$ (module$)
