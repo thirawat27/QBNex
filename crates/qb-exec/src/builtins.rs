@@ -1,7 +1,7 @@
 //! Builtin functions called with `FN <name> <argc>`. Result types follow the
 //! QB64 C++ backend (checked against conformance golden output).
 
-use crate::{float_result, str_of, Val};
+use crate::value::{float_result, str_of, Val};
 
 /// First N bytes of a string argument (CVx); shorter strings are error 5.
 fn fixed<const N: usize>(v: Val) -> Result<[u8; N], i32> {
@@ -135,6 +135,7 @@ pub(crate) fn call(name: &str, mut a: Vec<Val>) -> Result<Val, i32> {
         ("OCT$", 1) => radix(&a[0], false)?,
         ("ABS", 1) => match a.pop().unwrap() {
             Val::I(v) => Val::I(v.wrapping_abs()),
+            Val::Q(v) => Val::Q(v.wrapping_abs()),
             Val::L(v) => Val::L(v.wrapping_abs()),
             Val::F(v) => Val::F(v.abs()),
             Val::D(v) => Val::D(v.abs()),

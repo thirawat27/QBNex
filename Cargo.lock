@@ -1832,6 +1832,7 @@ dependencies = [
 name = "qb-exec"
 version = "0.1.0"
 dependencies = [
+ "qb-ir",
  "qb-runtime",
 ]
 
