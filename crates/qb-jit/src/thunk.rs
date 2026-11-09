@@ -16,8 +16,17 @@ use cranelift_module::{default_libcall_names, Linkage, Module as _};
 type Tramp = unsafe extern "C" fn(usize, *mut Ctx, *const u64) -> u64;
 
 pub struct Thunks {
-    _jit: JITModule,
+    jit: Option<JITModule>,
     tramps: Vec<(usize, Tramp)>,
+}
+
+impl Drop for Thunks {
+    fn drop(&mut self) {
+        if let Some(j) = self.jit.take() {
+            // SAFETY: trampolines die with `self`.
+            unsafe { j.free_memory() };
+        }
+    }
 }
 
 impl Thunks {
@@ -88,7 +97,7 @@ impl Thunks {
                 (h.addr, unsafe { core::mem::transmute::<*const u8, Tramp>(p) })
             })
             .collect();
-        Thunks { _jit: jit, tramps }
+        Thunks { jit: Some(jit), tramps }
     }
 
     /// Calls host `h` with raw slot values; returns the result in slot encoding.

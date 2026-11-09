@@ -86,7 +86,7 @@ impl Fb {
 }
 
 pub fn module(funcs: Vec<Func>, globals: Vec<Ty>) -> Module {
-    Module { funcs, hosts: rt::host_table(), globals }
+    Module { funcs, hosts: rt::host_table(), globals, vm_op: 0 }
 }
 
 #[derive(Debug, PartialEq)]
@@ -146,8 +146,13 @@ fn outcome(m: &Module, func: FuncId, st: u32, ctx: &Ctx, frame: Vec<u64>, global
 /// Handles/pointers differ between runs: compare only null vs non-null.
 fn mask(tys: &[Ty], mut v: Vec<u64>) -> Vec<u64> {
     for (x, t) in v.iter_mut().zip(tys) {
-        if *t == Ty::Ptr {
-            *x = u64::from(*x != 0);
+        match t {
+            Ty::Ptr => *x = u64::from(*x != 0),
+            // NaN sign/payload is platform-dependent (x86 makes -NaN, aarch64 and
+            // Cranelift constant folding +NaN): compare NaN-ness only.
+            Ty::F64 if f64::from_bits(*x).is_nan() => *x = 0x7FF8_0000_0000_0000,
+            Ty::F32 if f32::from_bits(*x as u32).is_nan() => *x = 0x7FC0_0000,
+            _ => {}
         }
     }
     v

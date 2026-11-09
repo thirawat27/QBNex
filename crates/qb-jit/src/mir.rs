@@ -70,8 +70,10 @@ pub enum BinOp {
     Add,
     Sub,
     Mul,
-    /// Float only.
+    /// Float only; divisor 0 raises error 11 (`/` in the VM).
     Div,
+    /// Float only; IEEE division (QIR `div`).
+    FDiv,
     /// Float only.
     Pow,
     /// Integer only.
@@ -83,6 +85,22 @@ pub enum BinOp {
     Xor,
     Eqv,
     Imp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MathOp {
+    /// Same type in/out (int: wrapping).
+    Abs,
+    /// Result: any int type (-1/0/1).
+    Sgn,
+    /// INT(): floor, float in/out.
+    Floor,
+    /// FIX(): truncate, float in/out.
+    Fix,
+    /// SQR: float; negative raises error 5.
+    Sqrt,
+    /// F64 -> F64 rounded through f32 (store into SINGLE held as double).
+    RoundF32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -139,6 +157,18 @@ pub enum Inst {
     Host { f: HostId, args: Vec<Reg>, dst: Option<Reg> },
     /// Raise QB error `code` (ERROR n).
     Raise { code: Reg },
+    /// Float -> integer: QB rounding then C cast to the target width (no
+    /// overflow check; QIR `cvt`). Int sources: same as `Conv`.
+    ConvWrap { dst: Reg, src: Reg },
+    /// Float -> integer truncating toward zero, saturating (QIR `trunc`).
+    Trunc { dst: Reg, src: Reg },
+    /// Unary math; types per [`MathOp`].
+    Math { op: MathOp, dst: Reg, src: Reg },
+    /// Let the VM execute its instruction `op` on this frame (anything the
+    /// JIT does not compile natively). `reads` are flushed to the frame before,
+    /// `writes` reloaded after. The VM callback returns a status; non-OK
+    /// leaves native code with that status (ctx fields set by the VM).
+    VmOp { op: u32, reads: Vec<Reg>, writes: Vec<Reg> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,6 +228,8 @@ pub struct Module {
     pub hosts: Vec<HostFn>,
     /// Type of every global slot.
     pub globals: Vec<Ty>,
+    /// VM callback for `VmOp`: `extern "C" fn(*mut Ctx, frame: *mut u64, op: u32) -> u32`.
+    pub vm_op: usize,
 }
 
 /// Validation error.
@@ -244,7 +276,7 @@ impl Module {
                             if ty(*a)? != t || ty(*b)? != t || t == Ty::Ptr {
                                 return Err(e(format!("block {bi}: Bin operand types")));
                             }
-                            let float_only = matches!(op, BinOp::Div | BinOp::Pow);
+                            let float_only = matches!(op, BinOp::Div | BinOp::FDiv | BinOp::Pow);
                             let int_only = !float_only && !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul);
                             if (float_only && !t.is_float()) || (int_only && t.is_float()) {
                                 return Err(e(format!("block {bi}: {op:?} on {t:?}")));
@@ -343,6 +375,33 @@ impl Module {
                                 (Some(d), Some(t)) if ty(*d)? != t => return Err(e("host ret type".into())),
                                 (Some(_), None) => return Err(e("host has no result".into())),
                                 _ => {}
+                            }
+                        }
+                        Inst::ConvWrap { dst, src } | Inst::Trunc { dst, src } => {
+                            ty(*dst)?;
+                            ty(*src)?;
+                            if matches!(i, Inst::Trunc { .. }) && !(ty(*src)?.is_float() && ty(*dst)? != Ty::Ptr && !ty(*dst)?.is_float()) {
+                                return Err(e("Trunc is float -> int".into()));
+                            }
+                        }
+                        Inst::Math { op, dst, src } => {
+                            let (d, s) = (ty(*dst)?, ty(*src)?);
+                            let ok = match op {
+                                MathOp::Abs => d == s && d != Ty::Ptr,
+                                MathOp::Sgn => d.is_int() && d != Ty::Ptr && s != Ty::Ptr,
+                                MathOp::Floor | MathOp::Fix | MathOp::Sqrt => d == s && d.is_float(),
+                                MathOp::RoundF32 => d == Ty::F64 && s == Ty::F64,
+                            };
+                            if !ok {
+                                return Err(e(format!("block {bi}: Math {op:?} types")));
+                            }
+                        }
+                        Inst::VmOp { reads, writes, .. } => {
+                            if self.vm_op == 0 {
+                                return Err(e("VmOp without a VM callback".into()));
+                            }
+                            for r in reads.iter().chain(writes) {
+                                ty(*r)?;
                             }
                         }
                         Inst::Raise { code } => {

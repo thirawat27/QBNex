@@ -10,6 +10,9 @@ use crate::mir::*;
 use crate::thunk::Thunks;
 use core::sync::atomic::Ordering;
 
+/// VM callback executing one VM instruction on a frame.
+pub type VmOpFn = unsafe extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum V {
     I(i64),
@@ -113,6 +116,57 @@ fn conv(from: Ty, to: Ty, v: V) -> Result<V, i32> {
     })
 }
 
+fn conv_wrap(from: Ty, to: Ty, v: V) -> V {
+    if from.is_float() && !to.is_float() {
+        V::I(wrap(to, qb_runtime::round::qb_qbr_f64(as_f64(v))))
+    } else {
+        conv(from, to, v).expect("non-checking conversion")
+    }
+}
+
+fn trunc(to: Ty, v: V) -> V {
+    let x = as_f64(v);
+    V::I(match to {
+        Ty::I16 => i64::from(x as i16),
+        Ty::I32 => i64::from(x as i32),
+        _ => x as i64,
+    })
+}
+
+fn math(op: MathOp, t: Ty, v: V) -> Result<V, i32> {
+    Ok(match (op, v) {
+        (MathOp::Abs, V::I(x)) => V::I(wrap(t, x.wrapping_abs())),
+        (MathOp::Abs, V::F32(x)) => V::F32(x.abs()),
+        (MathOp::Abs, V::F64(x)) => V::F64(x.abs()),
+        (MathOp::Sgn, V::I(x)) => V::I(x.signum()),
+        (MathOp::Sgn, f) => {
+            let x = as_f64(f);
+            V::I(if x > 0.0 {
+                1
+            } else if x < 0.0 {
+                -1
+            } else {
+                0
+            })
+        }
+        (MathOp::Floor, V::F32(x)) => V::F32(x.floor()),
+        (MathOp::Floor, V::F64(x)) => V::F64(x.floor()),
+        (MathOp::Fix, V::F32(x)) => V::F32(x.trunc()),
+        (MathOp::Fix, V::F64(x)) => V::F64(x.trunc()),
+        (MathOp::Sqrt, f) => {
+            if as_f64(f) < 0.0 {
+                return Err(qberr::ILLEGAL_CALL);
+            }
+            match f {
+                V::F32(x) => V::F32(x.sqrt()),
+                _ => V::F64(as_f64(f).sqrt()),
+            }
+        }
+        (MathOp::RoundF32, V::F64(x)) => V::F64(f64::from(x as f32)),
+        _ => unreachable!("validated"),
+    })
+}
+
 fn bin(op: BinOp, t: Ty, a: V, b: V) -> Result<V, i32> {
     use BinOp::*;
     Ok(match (a, b) {
@@ -137,7 +191,7 @@ fn bin(op: BinOp, t: Ty, a: V, b: V) -> Result<V, i32> {
                 Xor => x ^ y,
                 Eqv => !(x ^ y),
                 Imp => !x | y,
-                Div | Pow => unreachable!("validated"),
+                Div | FDiv | Pow => unreachable!("validated"),
             },
         )),
         (V::F64(x), V::F64(y)) => V::F64(match op {
@@ -151,6 +205,7 @@ fn bin(op: BinOp, t: Ty, a: V, b: V) -> Result<V, i32> {
                 x / y
             }
             Pow => crate::ctx::pow_f64(x, y),
+            FDiv => x / y,
             _ => unreachable!("validated"),
         }),
         (V::F32(x), V::F32(y)) => V::F32(match op {
@@ -164,6 +219,7 @@ fn bin(op: BinOp, t: Ty, a: V, b: V) -> Result<V, i32> {
                 x / y
             }
             Pow => crate::ctx::pow_f32(x, y),
+            FDiv => x / y,
             _ => unreachable!("validated"),
         }),
         _ => unreachable!("validated"),
@@ -358,6 +414,20 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                     }
                 }
                 Inst::Raise { code } => fail!(get(*code).i() as i32),
+                Inst::ConvWrap { dst, src } => set(*dst, conv_wrap(ty(*src), ty(*dst), get(*src))),
+                Inst::Trunc { dst, src } => set(*dst, trunc(ty(*dst), get(*src))),
+                Inst::Math { op, dst, src } => {
+                    let v = tryq!(math(*op, ty(*dst), get(*src)));
+                    set(*dst, v)
+                }
+                Inst::VmOp { op, .. } => {
+                    // SAFETY: validated non-zero callback with the documented signature.
+                    let cb: VmOpFn = unsafe { core::mem::transmute::<usize, VmOpFn>(m.vm_op) };
+                    let st = unsafe { cb(ctx, frame, *op) };
+                    if st != status::OK {
+                        return st;
+                    }
+                }
             }
         }
         let poll = |ctx: &Ctx, t: BlockId| -> Option<u32> {

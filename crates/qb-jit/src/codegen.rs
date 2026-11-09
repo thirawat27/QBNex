@@ -64,10 +64,19 @@ pub(crate) fn clif_ty(t: Ty) -> ir::Type {
 
 pub type NativeFn = unsafe extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
 
-/// Compiled module: keeps the code memory alive.
+/// Compiled module: owns the code memory (released on drop).
 pub struct Compiled {
-    _jit: JITModule,
+    jit: Option<JITModule>,
     pub fns: Vec<NativeFn>,
+}
+
+impl Drop for Compiled {
+    fn drop(&mut self) {
+        if let Some(j) = self.jit.take() {
+            // SAFETY: the function pointers die with `self`; nothing can call them afterwards.
+            unsafe { j.free_memory() };
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -122,7 +131,7 @@ pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
             unsafe { core::mem::transmute::<*const u8, NativeFn>(p) }
         })
         .collect();
-    Ok(Compiled { _jit: jit, fns })
+    Ok(Compiled { jit: Some(jit), fns })
 }
 
 struct Gen<'a> {
@@ -176,6 +185,11 @@ impl<'a> Gen<'a> {
                 }
                 if let Some(d) = inst_def(i) {
                     defined[d as usize] = true;
+                }
+                if let Inst::VmOp { writes, .. } = i {
+                    for w in writes {
+                        defined[*w as usize] = true;
+                    }
                 }
             }
         }
@@ -667,6 +681,94 @@ impl<'a> Gen<'a> {
                     self.b.switch_to_block(cont);
                 }
             }
+            Inst::ConvWrap { dst, src } => {
+                let (from, to) = (self.ty(*src), self.ty(*dst));
+                let v = self.get(*src);
+                let r = if from.is_float() && !to.is_float() && to != Ty::I64 && to != Ty::Ptr {
+                    let q = self.conv(from, Ty::I64, v);
+                    self.b.ins().ireduce(clif_ty(to), q)
+                } else {
+                    self.conv(from, to, v)
+                };
+                self.set(*dst, r);
+            }
+            Inst::Trunc { dst, src } => {
+                let to = self.ty(*dst);
+                let v = self.get(*src);
+                let d = if self.ty(*src) == Ty::F32 { self.b.ins().fpromote(types::F64, v) } else { v };
+                let r = match to {
+                    Ty::I16 => {
+                        let i = self.b.ins().fcvt_to_sint_sat(types::I32, d);
+                        let lo = self.b.ins().iconst(types::I32, -32768);
+                        let hi = self.b.ins().iconst(types::I32, 32767);
+                        let c = self.b.ins().smax(i, lo);
+                        let c = self.b.ins().smin(c, hi);
+                        self.b.ins().ireduce(types::I16, c)
+                    }
+                    t => self.b.ins().fcvt_to_sint_sat(clif_ty(t), d),
+                };
+                self.set(*dst, r);
+            }
+            Inst::Math { op, dst, src } => {
+                let v = self.get(*src);
+                let st = self.ty(*src);
+                let dt = clif_ty(self.ty(*dst));
+                let r = match op {
+                    MathOp::Abs if st.is_float() => self.b.ins().fabs(v),
+                    MathOp::Abs => self.b.ins().iabs(v),
+                    MathOp::Sgn => {
+                        let (gt, lt) = if st.is_float() {
+                            let z = if st == Ty::F32 { self.b.ins().f32const(0.0) } else { self.b.ins().f64const(0.0) };
+                            (self.b.ins().fcmp(FloatCC::GreaterThan, v, z), self.b.ins().fcmp(FloatCC::LessThan, v, z))
+                        } else {
+                            (self.b.ins().icmp_imm(IntCC::SignedGreaterThan, v, 0), self.b.ins().icmp_imm(IntCC::SignedLessThan, v, 0))
+                        };
+                        let one = self.b.ins().iconst(dt, 1);
+                        let m1 = self.b.ins().iconst(dt, -1);
+                        let z = self.b.ins().iconst(dt, 0);
+                        let n = self.b.ins().select(lt, m1, z);
+                        self.b.ins().select(gt, one, n)
+                    }
+                    MathOp::Floor => self.b.ins().floor(v),
+                    MathOp::Fix => self.b.ins().trunc(v),
+                    MathOp::Sqrt => {
+                        let z = if st == Ty::F32 { self.b.ins().f32const(0.0) } else { self.b.ins().f64const(0.0) };
+                        let neg = self.b.ins().fcmp(FloatCC::LessThan, v, z);
+                        self.guard(neg, qberr::ILLEGAL_CALL);
+                        self.b.ins().sqrt(v)
+                    }
+                    MathOp::RoundF32 => {
+                        let f = self.b.ins().fdemote(types::F32, v);
+                        self.b.ins().fpromote(types::F64, f)
+                    }
+                };
+                self.set(*dst, r);
+            }
+            Inst::VmOp { op, reads, writes } => {
+                for r in reads.iter().chain(writes) {
+                    if !self.resident[*r as usize] {
+                        let v = self.b.use_var(var(*r));
+                        let t = self.ty(*r);
+                        let fr = self.frame;
+                        self.slot_store(t, v, fr, (*r * 8) as i32);
+                    }
+                }
+                let (ctx, fr) = (self.ctx, self.frame);
+                let opv = self.b.ins().iconst(types::I32, i64::from(*op));
+                let st = self
+                    .helper_call(self.m.vm_op, &[types::I64, types::I64, types::I32], Some(types::I32), &[ctx, fr, opv])
+                    .expect("status");
+                for w in writes {
+                    if !self.resident[*w as usize] {
+                        let t = self.ty(*w);
+                        let v = self.b.ins().load(clif_ty(t), MemFlags::trusted(), fr, (*w * 8) as i32);
+                        self.b.def_var(var(*w), v);
+                    }
+                }
+                let cont = self.b.create_block();
+                self.b.ins().brif(st, self.exit_blk, &[st], cont, &[]);
+                self.b.switch_to_block(cont);
+            }
             Inst::Raise { code } => {
                 let v = self.get(*code);
                 let c = match self.ty(*code) {
@@ -778,6 +880,7 @@ impl<'a> Gen<'a> {
                     self.guard(isz, qberr::DIV_ZERO);
                     self.b.ins().fdiv(x, y)
                 }
+                FDiv => self.b.ins().fdiv(x, y),
                 Pow => {
                     let (addr, ct) =
                         if t == Ty::F32 { (pow_f32 as *const () as usize, types::F32) } else { (pow_f64 as *const () as usize, types::F64) };
@@ -826,7 +929,7 @@ impl<'a> Gen<'a> {
                     self.b.ins().ireduce(ct, r)
                 }
             }
-            Div | Pow => unreachable!("validated"),
+            Div | FDiv | Pow => unreachable!("validated"),
         }
     }
 
@@ -953,7 +1056,10 @@ fn inst_def(i: &Inst) -> Option<Reg> {
         | Inst::AddrOf { dst, .. }
         | Inst::GAddrOf { dst, .. }
         | Inst::LoadPtr { dst, .. }
-        | Inst::ALoad { dst, .. } => Some(*dst),
+        | Inst::ALoad { dst, .. }
+        | Inst::ConvWrap { dst, .. }
+        | Inst::Trunc { dst, .. }
+        | Inst::Math { dst, .. } => Some(*dst),
         Inst::Call { dst, .. } | Inst::Host { dst, .. } => *dst,
         _ => None,
     }
