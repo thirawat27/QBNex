@@ -4,6 +4,7 @@ members = [
     "crates/qb-runtime",
     "crates/qb-audio",
     "crates/qb-exec",
+    "crates/qb-jit",
     "tests/conformance",
 ]
 
