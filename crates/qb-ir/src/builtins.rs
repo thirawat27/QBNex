@@ -181,6 +181,15 @@ pub static TABLE: &[Builtin] = &[
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
     b!("_DEST", [I32]),
+    // ---- conventional memory (1 MB, DBLOCK at segment 0x1000)
+    // string variable address -> offset of its descriptor (length, offset) in DBLOCK
+    b!("VARPTR.s", [Ptr], I32),
+    b!("SADD", [Ptr], I32),
+    b!("VARSEG", [], I32),
+    b!("PEEK", [I32], I32),
+    b!("POKE", [I32, I32]),
+    b!("DEFSEG", [I32]),
+    b!("DEFSEG.d", []),
     b!("_DEFLATE$", [Str], Str),
     b!("_INFLATE$", [Str], Str),
     b!("_INFLATE$.n", [Str, I64], Str),

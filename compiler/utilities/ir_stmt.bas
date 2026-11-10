@@ -137,6 +137,10 @@ SUB IrStmtEnd
             x$ = IrEvalTo$(fixoperationorder$(IrEls$(2, j - 1)), ISSTRING)
             y$ = IrEvalTo$(fixoperationorder$(IrEls$(j + 1, n)), ISSTRING)
             IrE "rt NAME " + x$ + " " + y$
+        CASE "DEF"
+            IF s2$ = "SEG" THEN
+                IF n > 2 THEN IrE "rt DEFSEG " + IrCvt$(IrExprAt$(4, n, t), IrT, "i32") ELSE IrE "rt DEFSEG.d"
+            END IF
         CASE "_MEMFILL", "_MEMPUT", "_MEMGET", "_MEMCOPY", "_MEMFREE"
             IrMemStmt f$
         CASE "PALETTE", "KEY", "FIELD", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "PLAY", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"

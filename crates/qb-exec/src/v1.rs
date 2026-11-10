@@ -355,6 +355,9 @@ struct Arr {
     data: Option<u32>,
 }
 
+/// Byte offset of the DBLOCK segment (0x1000) in conventional memory.
+pub(crate) const DBLOCK: usize = 0x1000 * 16;
+
 /// Tag of an array-descriptor reference (`aref`); every other `ptr` is a real address.
 const ARR_TAG: u64 = 1 << 63;
 
@@ -387,6 +390,13 @@ pub(crate) struct Vm<'a> {
     pub(crate) errline: u32,
     /// last numeric line label executed (legacy `last_line`)
     pub(crate) last_line: u32,
+    /// conventional memory (VARPTR/SADD/PEEK/POKE)
+    pub(crate) cmem: Vec<u8>,
+    pub(crate) cmem_next: usize,
+    /// string variable address -> DBLOCK offset of its descriptor
+    pub(crate) cmem_strs: HashMap<u64, usize>,
+    /// DEF SEG base (bytes); None = DBLOCK
+    pub(crate) def_seg: Option<usize>,
     data_pos: usize,
     pub(crate) rt: rt::RtState<'a>,
 }
@@ -519,6 +529,10 @@ impl<'a> Vm<'a> {
             Ty::F64 => v.f().to_bits(),
             Ty::Ptr => v.p(),
             Ty::Str => {
+                if let Some(&d) = self.cmem_strs.get(&p) {
+                    let len = (v.s().len() as u16).to_le_bytes();
+                    self.cmem[DBLOCK + d..DBLOCK + d + 2].copy_from_slice(&len);
+                }
                 let old = match self.ld(Ty::U64, p)? {
                     V::I(h) => h as u64,
                     _ => 0,
@@ -1133,6 +1147,10 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         erl: 0,
         errline: 0,
         last_line: 0,
+        cmem: vec![0; 1 << 20],
+        cmem_next: 16,
+        cmem_strs: HashMap::new(),
+        def_seg: None,
         data_pos: 0,
         rt: rt::RtState::new(out),
     };

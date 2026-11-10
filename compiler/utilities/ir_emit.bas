@@ -1223,6 +1223,16 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 IF LEN(sv(2)) THEN r$ = IrRt$("_INFLATE$.n", " " + x$ + " " + IrArgAs$(sv(2), "i64"), "str"): GOTO irfdone
             END IF
             r$ = IrRt$("_INFLATE$", " " + x$, "str")
+        CASE "VARPTR", "SADD"
+            IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
+            IF x$ = "" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF IrPlaceSTy$(x$) <> "str" THEN IrNotSup nm$ + " of a non-STRING variable": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF nm$ = "VARPTR" THEN y$ = "VARPTR.s" ELSE y$ = "SADD"
+            r$ = IrRt$(y$, " " + IrAddr$(x$), "i32")
+        CASE "VARSEG"
+            r$ = IrRt$("VARSEG", "", "i32")
+        CASE "PEEK"
+            r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
         CASE "_CWD$", "_STARTDIR$"
             r$ = IrRt$(nm$, "", "str")
         CASE "_MK$", "_CV"
@@ -1406,7 +1416,10 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             'screen state: no visible effect on redirected console output
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
-        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET"
+        CASE "POKE"
+            x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "i32")
+            IrE "rt POKE " + x$ + " " + y$
+        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET", "DEF"
             'lowered by IrStmtEnd
         CASE "ERROR"
             IrE "error " + IrArgAs$(sv(1), "i32")

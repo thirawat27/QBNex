@@ -549,6 +549,34 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
                 return ok(V::S(dst));
             }
         }
+        "VARPTR.s" | "SADD" => {
+            let p = a[0].p();
+            let d = match vm.cmem_strs.get(&p) {
+                Some(&d) => d,
+                None => {
+                    let d = vm.cmem_next;
+                    vm.cmem_next += 4;
+                    vm.cmem_strs.insert(p, d);
+                    let len = vm.ld(Ty::Str, p)?.s().len() as u16;
+                    let base = super::DBLOCK + d;
+                    vm.cmem[base..base + 2].copy_from_slice(&len.to_le_bytes());
+                    d
+                }
+            };
+            return ok(V::I(if name == "SADD" { (d + 4) as i64 } else { d as i64 }));
+        }
+        "VARSEG" => return ok(V::I(0x1000)),
+        "DEFSEG" => vm.def_seg = Some((i(0) as u16 as usize) * 16),
+        "DEFSEG.d" => vm.def_seg = None,
+        "PEEK" | "POKE" => {
+            let at = vm.def_seg.unwrap_or(super::DBLOCK) + (i(0) as u16 as usize);
+            let at = at % vm.cmem.len();
+            if name == "POKE" {
+                vm.cmem[at] = i(1) as u8;
+            } else {
+                return ok(V::I(vm.cmem[at].into()));
+            }
+        }
         "_STRCMP" | "_STRICMP" => {
             let (x, y) = if name == "_STRICMP" {
                 (s(0).to_ascii_lowercase(), s(1).to_ascii_lowercase())
