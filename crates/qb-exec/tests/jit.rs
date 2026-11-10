@@ -156,3 +156,9 @@ fn return_from_native_code_to_a_gosub_the_vm_made() {
 fn gosub_entries_survive_a_vm_call_from_native_code() {
     same("gosub_calls_vm_sub");
 }
+
+#[test]
+fn string_select_case_and_rt_builtins_in_native_code() {
+    let b: i64 = (1..=3000i64).filter(|i| i % 3 == 1).sum();
+    assert_eq!(same("select_string_in_loop").out, format!(" 1000  {b}  1000 \n"));
+}

@@ -126,6 +126,9 @@ fn light(ins: &Ins) -> bool {
         // float -> integer with qbr (CINT), wrapped: no error
         CvtFI { w, trunc: false, .. } => matches!(w, W::W16 | W::W32 | W::W64),
         Un { .. } => true,
+        // IEEE division; string compare through `jit_cmps` (no register flush)
+        DivFI { .. } => true,
+        CmpS { .. } | BrS { .. } => true,
         _ => false,
     }
 }
@@ -189,6 +192,7 @@ fn vm_safe(ins: &Ins) -> bool {
             | Raise { .. }
             | Un { .. }
             | Call { .. }
+            | Rt { .. }
     )
 }
 
@@ -201,7 +205,6 @@ fn exits(ins: &Ins) -> bool {
             | End
             | OnError { .. }
             | Resume { .. }
-            | BrS { .. }
     )
 }
 
@@ -264,6 +267,11 @@ fn frame_regs(m: &bc::Module, ins: &Ins, n: u32, is_main: bool) -> Vec<u32> {
         }
     }
     ins.operands(&mut |o| match o {
+        Opnd::Rt(b, d) => {
+            if matches!(m.rtfns[b as usize].1, Some(t) if t != bc::Ty::Str) {
+                add(d)
+            }
+        }
         Opnd::N(r) => add(r),
         Opnd::NRun(r, k) => (r..r.saturating_add(k)).for_each(&mut add),
         Opnd::NG(g) if is_main => add(g),
@@ -318,7 +326,7 @@ fn classes(m: &bc::Module, f: &bc::Func) -> Vec<Class> {
             | Xor { d, a, b }
 
  => (vec![d, a, b], vec![]),
-            AddF { d, a, b } | SubF { d, a, b } | MulF { d, a, b } | PowF { d, a, b } => {
+            AddF { d, a, b } | SubF { d, a, b } | MulF { d, a, b } | PowF { d, a, b } | DivFI { d, a, b } => {
                 (vec![], vec![d, a, b])
             }
             CmpI { d, a, b, .. } => (vec![d, a, b], vec![]),
@@ -528,6 +536,15 @@ impl Lower<'_> {
         r
     }
 
+    /// `a c b` on strings of the current frame (operands may be constants): -1 / 0.
+    fn cmps(&mut self, c: Cmp, a: u32, b: u32) -> u32 {
+        let code = self.konst_i(cmp_code(c));
+        let (x, y) = (self.konst_i(i64::from(a)), self.konst_i(i64::from(b)));
+        let r = self.tmp(Class::Int);
+        self.insts.push(Inst::Host { f: H_CMPS, args: vec![code, x, y], dst: Some(r) });
+        r
+    }
+
     /// CALL of a numeric-only function: arguments copied into the callee
     /// frame (BYREF copied back after a normal return), like `Vm::call`/`ret`.
     fn native_call(&mut self, pc: u32, f: u32, desc: u32) {
@@ -715,6 +732,7 @@ impl Lower<'_> {
             Or { d, a, b } => self.ibin(BinOp::Or, d, a, b, W::W64),
             Xor { d, a, b } => self.ibin(BinOp::Xor, d, a, b, W::W64),
             AddF { d, a, b } => self.fbin(BinOp::Add, d, a, b),
+            DivFI { d, a, b } => self.fbin(BinOp::FDiv, d, a, b),
             SubF { d, a, b } => self.fbin(BinOp::Sub, d, a, b),
             MulF { d, a, b } => self.fbin(BinOp::Mul, d, a, b),
             PowF { d, a, b } => self.fbin(BinOp::Pow, d, a, b),
@@ -790,6 +808,12 @@ impl Lower<'_> {
                 let ar = self.konst_i(i64::from(a));
                 let (i1, i2, sr) = (self.get(i, Class::Int), self.get(i + 1, Class::Int), self.get(s, Class::Int));
                 self.insts.push(Inst::Host { f: H_STE2, args: vec![ar, i1, i2, sr], dst: None });
+            }
+            CmpS { c, d, a, b } => {
+                let r = self.cmps(c, a, b);
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Mov { dst: dd, src: r });
+                self.put(d, dd);
             }
             Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, desc, self.is_main()) => {
                 self.native_call(pc, f, desc)
@@ -1050,6 +1074,10 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                             lw.insts.push(Inst::At { pc });
                             Some(Term::Return { pc })
                         }
+                        BrS { c, a, b, t } => {
+                            let r = lw.cmps(c, a, b);
+                            Some(branch(&mut lw, r, t, next))
+                        }
                         _ => {
                             lw.inst(pc, ins);
                             None
@@ -1112,6 +1140,7 @@ pub(crate) struct Hosts {
     pub lde2: usize,
     pub ste2: usize,
     pub lde1g: usize,
+    pub cmps: usize,
     pub ste1g: usize,
     /// offset of the `ArrView` inside the VM's array object
     pub view_off: u32,
@@ -1123,6 +1152,30 @@ const H_LDE2: u32 = 2;
 const H_STE2: u32 = 3;
 const H_LDE1G: u32 = 4;
 const H_STE1G: u32 = 5;
+const H_CMPS: u32 = 6;
+
+/// `Cmp` as the integer `jit_cmps` receives.
+pub(crate) fn cmp_code(c: Cmp) -> i64 {
+    match c {
+        Cmp::Eq => 0,
+        Cmp::Ne => 1,
+        Cmp::Lt => 2,
+        Cmp::Le => 3,
+        Cmp::Gt => 4,
+        Cmp::Ge => 5,
+    }
+}
+
+pub(crate) fn cmp_of(code: i64) -> Cmp {
+    match code {
+        0 => Cmp::Eq,
+        1 => Cmp::Ne,
+        2 => Cmp::Lt,
+        3 => Cmp::Le,
+        4 => Cmp::Gt,
+        _ => Cmp::Ge,
+    }
+}
 
 fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
     let f = |name: &str, n: usize, ret: bool, addr: usize| mir::HostFn {
@@ -1136,6 +1189,10 @@ fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
         f("ste2", 4, false, h.ste2),
         f("lde1g", 2, true, h.lde1g),
         f("ste1g", 3, false, h.ste1g),
+        mir::HostFn {
+            sig: mir::HostSig { name: "cmps".into(), params: vec![Ty::I64; 3], ret: Some(Ty::I64), may_error: false },
+            addr: h.cmps,
+        },
             ]
 }
 

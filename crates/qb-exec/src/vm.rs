@@ -1755,7 +1755,20 @@ pub(crate) fn vm_hosts() -> crate::jit::Hosts {
         lde2: jit_lde2 as *const () as usize,
         ste2: jit_ste2 as *const () as usize,
         lde1g: jit_lde1g as *const () as usize,
+        cmps: jit_cmps as *const () as usize,
         ste1g: jit_ste1g as *const () as usize,
         view_off: core::mem::offset_of!(Arr, view) as u32,
+    }
+}
+
+/// Native string compare: `a c b` on the current frame's string operands
+/// (constants allowed), -1 / 0 like `Ins::CmpS`.
+extern "C" fn jit_cmps(ctx: *mut qb_jit::Ctx, c: i64, a: i64, b: i64) -> i64 {
+    let (_, vm) = host_vm(ctx);
+    let t = crate::jit::cmp_of(c).test(vm.sget(a as R), vm.sget(b as R));
+    if t {
+        -1
+    } else {
+        0
     }
 }
