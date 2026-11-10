@@ -284,15 +284,17 @@ Findings (each fixed with a failing test first):
 | --- | --- | --- | --- |
 | R14-1 | `qb_radix_string` (HEX$/OCT$/_BIN$) trusted `neg_bits`: a width outside 0..=64 allocated gigabytes and would overrun the 64-byte C buffer. | Medium (not reachable from compiled BASIC: the compiler passes type widths) | Clamp to 0..=64. |
 | R14-2 | `MID$(a$, 2, 2147483647)` read past the string, `MID$(d$, 2, 2147483647) = s$` wrote past `d$`: `start + length` was ported with `wrapping_add` from the legacy `int` code (same bug in legacy). | **High** (heap overread/overwrite from plain BASIC) | Bounds in i64. |
+| R14-4 | A failed `_MEMGET` check with an absurd byte count aborted the program while allocating the zeroed scratch buffer. | Low | Fallible reserve; reports 518 (out of memory). |
 | R14-3 | `_MEM` range check `off + bytes` wrapped for offsets near the top of the address space, so `_MEMFILL`/`_MEMCOPY`/`_MEMGET` with a bad offset touched foreign memory instead of raising error 300. | High (BASIC computes `_OFFSET`s) | Check in i128. |
 
-Lints: `#![cfg_attr(not(test), deny(clippy::unwrap_used))]` in all four crates (the 12 remaining non-test `unwrap`s replaced); `cargo clippy --all-targets` clean for the four crates. Tests: qb-runtime 334, qb-audio 41, qb-float80 23, qb-ffi 18 (release, Windows).
+Property tests: `qb-float80/tests/props.rs` (proptest, 20k cases each; decimal round trips 400): f64 widening, integer round trips, commutativity, `a-b = a+(-b)`, decimal and shortest text round trips, ordering vs subtraction sign, exact square roots, integer powers, rounding brackets, no panic on any encoding.
+
+Lints: `-W clippy::pedantic` clean for qb-float80 and qb-ffi library code (cast lints, one-letter names, legacy literals and x87-table match arms allowed with a reason in `lib.rs`). `#![cfg_attr(not(test), deny(clippy::unwrap_used))]` in all four crates (the 12 remaining non-test `unwrap`s replaced); `cargo clippy --all-targets` clean for the four crates. Tests: qb-runtime 334, qb-audio 41, qb-float80 23, qb-ffi 18 (release, Windows).
 
 Reviewed without findings: fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
 
 Open (not done in this pass):
 
-- `_MEMGET` with an out-of-range block still allocates a zeroed scratch buffer of `bytes` bytes (legacy behaviour); a huge byte count would abort on allocation.
 - String engine arithmetic is u32 like legacy: strings near 2 GB (`STRING$(2^31-1, 65)`) are not tested (they need the RAM); QB45 raised "Out of string space" (14).
 - QB45 vs legacy error codes: `LEFT$`/`SPACE$`/`STRING$` with negative counts return "" as the legacy QB64 build did (QB45: error 5); kept for golden compatibility.
 - H1 `cargo miri` (needs a nightly toolchain, not installed), H6 loom/ThreadSanitizer, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
