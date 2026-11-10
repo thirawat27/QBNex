@@ -19,3 +19,4 @@ path = "src/main.rs"
 qb-runtime = { path = "../qb-runtime" }
 qb-ir = { path = "../qb-ir" }
 qb-float80 = { path = "../qb-float80" }
+qb-audio = { path = "../qb-audio" }

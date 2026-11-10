@@ -15,6 +15,7 @@ use qb_float80::{F80, Round};
 use std::collections::HashMap;
 use std::io::Write;
 
+mod audiox;
 mod files;
 mod memx;
 mod netx;

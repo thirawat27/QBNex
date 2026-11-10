@@ -60,7 +60,7 @@ FUNCTION IrMemAssign% (dst$, rhs$)
     DIM sv(1 TO 4) AS STRING
     n = numelements(rhs$)
     f$ = UCASE$(getelement$(rhs$, 1))
-    IF (f$ <> "_MEMNEW" AND f$ <> "_MEM") OR getelement$(rhs$, 2) <> "(" THEN EXIT FUNCTION
+    IF (f$ <> "_MEMNEW" AND f$ <> "_MEM" AND f$ <> "_MEMSOUND") OR getelement$(rhs$, 2) <> "(" THEN EXIT FUNCTION
     j = IrMatch(rhs$, 2, n)
     IF j <> n THEN EXIT FUNCTION
     IrMemAssign% = -1
@@ -71,6 +71,12 @@ FUNCTION IrMemAssign% (dst$, rhs$)
     END IF
     k = IrSplitArgs(inner$)
     FOR j = 1 TO k: sv(j) = IrArgs(j): NEXT
+    IF f$ = "_MEMSOUND" THEN
+        x$ = IrCvt$(IrEval$(sv(1), t), IrT, "i32")
+        IF k >= 2 THEN y$ = IrCvt$(IrEval$(sv(2), t), IrT, "i32") ELSE y$ = IrI32$(0)
+        IrE "rt _MEMSOUND " + dst$ + " " + x$ + " " + y$
+        EXIT FUNCTION
+    END IF
     IF k = 2 THEN
         IrE "rt _MEMAT " + dst$ + " " + IrI64At$(sv(1)) + " " + IrI64At$(sv(2))
         EXIT FUNCTION

@@ -159,7 +159,7 @@ SUB IrStmtEnd
                 IrE "rt FIELD " + ch$ + " " + x$ + " " + IrAddr$(p$)
                 i = j + 1
             LOOP
-        CASE "PALETTE", "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "PLAY", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
+        CASE "PALETTE", "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN

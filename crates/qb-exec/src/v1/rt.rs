@@ -76,6 +76,8 @@ pub(crate) struct RtState<'a> {
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
     pub(crate) net_pending_error: i32,
+    /// qb-audio started (snd_init)
+    pub(crate) snd_started: bool,
 }
 
 struct Using {
@@ -99,6 +101,7 @@ impl<'a> RtState<'a> {
             field_cur: (0, 0),
             net: super::netx::Net::default(),
             net_pending_error: 0,
+            snd_started: false,
         }
     }
     pub(crate) fn flush(&mut self) {
@@ -260,6 +263,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::audiox::call(vm, name, &a) {
+        return r;
+    }
     if let Some(r) = super::netx::call(vm, name, &a) {
         return r;
     }
