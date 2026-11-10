@@ -2,7 +2,7 @@
 ' QBNex Standard Library - OOP Foundation: Interfaces
 ' ============================================================================
 
-$IMPORT:'oop.class'
+'$IMPORT:'oop.class'
 
 TYPE QBNex_InterfaceInfo
     InterfaceName AS STRING * 64
