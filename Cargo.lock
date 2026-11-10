@@ -2483,6 +2483,7 @@ dependencies = [
  "qb-audio",
  "qb-ext",
  "qb-float80",
+ "qb-gpu",
  "skrifa",
  "softbuffer",
  "windows-sys 0.61.2",
