@@ -396,6 +396,21 @@ Open (not done in this pass):
 - QB45 vs legacy error codes: `LEFT$`/`SPACE$`/`STRING$` with negative counts return "" as the legacy QB64 build did (QB45: error 5); kept for golden compatibility.
 - miri for the rest of qb-runtime (GFS, gfx, console; needs a machine with spare memory), H6 loom/ThreadSanitizer for net, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
 - rustc on this machine crashed a few times while compiling dependencies (`STATUS_STACK_BUFFER_OVERRUN` in rustc, with plenty of free RAM); a rerun with `CARGO_BUILD_JOBS=1` worked.
+
+### Round 6: compiler front end (`compiler/*.bas`)
+
+Mutation fuzz of `qb -z` (front end only) over `tests/conformance`, `tests/fixtures` and the compiler's own sources: about 700 mutated files (line deletion/duplication, token insertion, truncation), 120 s timeout each, plus about 40 targeted edge cases (deep nesting, huge lines/identifiers/literals, NUL bytes, unterminated constructs, self-include). The random mutations found no crash; the targeted cases did. Regression fixtures in `tests/fixtures/robustness/`, checked by `tests/smoke/compiler_robustness_smoke.{cmd,sh}` (exit 1, the expected message, `file.bas(line)`, no "INTERNAL COMPILER ERROR"; valid deep code still compiles).
+
+| ID | Bug | Severity | Fix |
+| --- | --- | --- | --- |
+| R14-14 | `$IF`/`$ELSEIF`/`$ELSE`/`$END IF` broken since the refactor that moved directive handling into FUNCTIONs in `utilities/directives.bas` (d9d09b7): they wrote `a$` and other main-module `DIM` (not SHARED) variables, which QB scoping makes local inside a FUNCTION. Valid `$IF` blocks failed or the error had no text. | High (valid programs rejected) | Shared `ModuleError$` for helper messages; `$IF` condition errors returned through it. |
+| R14-15 | Same scoping bug in `labels.bas` (undefined/ambiguous labels), `artifacts.bas` and `linker.bas`: the message was lost, so the user saw the next statement's text ("END SUB", "Unknown statement ...") instead of "Label 'X' not defined". The label smoke accepted "Unknown statement" and hid it. | Medium | `ModuleError$`; labels smoke now requires the real message. |
+| R14-16 | Thousands of nested brackets overflowed the native stack in the recursive expression evaluator (crash, no message). | Medium | `lineformat$` rejects more than 255 nested brackets (quoted text ignored): "Expression is nested too deeply". |
+| R14-17 | More than 1000 nested blocks (IF/FOR/DO/WHILE/SELECT/SUB...) or 255 nested `$IF` wrote past `controltype()`/`ExecLevel()`: internal error / subscript out of range. | Medium | "Too many nested blocks (the limit is 1000)", "Too many nested $IF blocks (the limit is 255)" with the line. |
+| R14-18 | The typo suggester offered a neighbour for a correctly spelled keyword ("Unknown statement 'PRINT'. Did you mean 'PAINT'?") whenever an earlier stage had failed with a lost message (e.g. invalid UTF-8). | Low | No suggestion when the token is itself a keyword; the UTF-8 message now shows. |
+
+Open: a single expression with 60000 terms (`a = 1+1+...`) takes more than 120 s (quadratic, not a crash); "Overflow"-type messages still map to code E0000.
+
 How the pieces fit
 
 ```mermaid

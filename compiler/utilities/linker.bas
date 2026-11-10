@@ -294,7 +294,7 @@ FUNCTION ResolveBuildLinkSymbols%
                 LOOP
                 CLOSE #fh
                 IF n > 1 THEN
-                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
+                    ModuleError$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                     ResolveBuildLinkSymbols% = -1
                     EXIT FUNCTION
                 END IF
@@ -351,7 +351,7 @@ FUNCTION ResolveBuildLinkSymbols%
                     LOOP
                     CLOSE #fh
                     IF n > 1 THEN
-                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
+                        ModuleError$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                         ResolveBuildLinkSymbols% = -1
                         EXIT FUNCTION
                     END IF
@@ -384,7 +384,7 @@ FUNCTION ResolveBuildLinkSymbols%
                     LOOP
                     CLOSE #fh
                     IF n = 0 THEN
-                        a$ = "Could not find sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
+                        ModuleError$ = "Could not find sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                         ResolveBuildLinkSymbols% = -1
                         EXIT FUNCTION
                     END IF
@@ -424,7 +424,7 @@ FUNCTION ResolveBuildLinkSymbols%
                 LOOP
                 CLOSE #fh
                 IF n > 1 THEN
-                    a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
+                    ModuleError$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                     ResolveBuildLinkSymbols% = -1
                     EXIT FUNCTION
                 END IF
@@ -485,7 +485,7 @@ FUNCTION ResolveBuildLinkSymbols%
                     LOOP
                     CLOSE #fh
                     IF n > 1 THEN
-                        a$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
+                        ModuleError$ = "Unable to resolve multiple instances of sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                         ResolveBuildLinkSymbols% = -1
                         EXIT FUNCTION
                     END IF
@@ -521,7 +521,7 @@ FUNCTION ResolveBuildLinkSymbols%
             END IF
 
             IF n = 0 THEN
-                a$ = "Could not find sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
+                ModuleError$ = "Could not find sub/function '" + ResolveStaticFunction_Name$(x) + "' in '" + ResolveStaticFunction_File$(x) + "'"
                 ResolveBuildLinkSymbols% = -1
                 EXIT FUNCTION
             END IF

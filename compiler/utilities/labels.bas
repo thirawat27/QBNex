@@ -41,7 +41,7 @@ FUNCTION ValidatePendingLabels% ()
             DO WHILE lookupResult
                 IF Labels(lookupRef).Scope = Labels(r).Scope_Restriction THEN
                     linenumber = Labels(r).Error_Line
-                    a$ = "Common label within a SUB/FUNCTION"
+                    ModuleError$ = "Common label within a SUB/FUNCTION"
                     ValidatePendingLabels% = 2
                     EXIT FUNCTION
                 END IF
@@ -67,7 +67,7 @@ FUNCTION ValidatePendingLabels% ()
             END IF
 
             linenumber = Labels(r).Error_Line
-            a$ = "Label '" + RTRIM$(Labels(r).cn) + "' not defined"
+            ModuleError$ = "Label '" + RTRIM$(Labels(r).cn) + "' not defined"
             ValidatePendingLabels% = 2
             EXIT FUNCTION
         END IF
@@ -76,7 +76,7 @@ FUNCTION ValidatePendingLabels% ()
             labelName = RTRIM$(Labels(r).cn)
             IF CountMatchingLabels&(labelName) <> 1 THEN
                 linenumber = Labels(r).Error_Line
-                a$ = "Ambiguous DATA label"
+                ModuleError$ = "Ambiguous DATA label"
                 ValidatePendingLabels% = 2
                 EXIT FUNCTION
             END IF
