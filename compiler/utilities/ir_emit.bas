@@ -1121,8 +1121,16 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 END IF
             END IF
         CASE "CINT", "CLNG", "CSNG", "CDBL", "_ROUND"
+            'register type = the C function's return type (the registry's typ is not always it)
+            SELECT CASE nm$
+                CASE "CINT": sx$ = "i16"
+                CASE "CLNG": sx$ = "i32"
+                CASE "CSNG": sx$ = "f32"
+                CASE "CDBL": sx$ = "f64"
+                CASE ELSE: sx$ = "i64"
+            END SELECT
             x$ = IrEval$(sv(1), t)
-            r$ = IrCvt$(x$, IrT, IrTy$(typ)): IrT = IrTy$(typ)
+            r$ = IrCvt$(x$, IrT, sx$): IrT = sx$
         CASE "RND"
             IF nargs >= 1 THEN
                 IF LEN(sv(1)) THEN r$ = IrRt$("RND.n", " " + IrArgAs$(sv(1), "f64"), "f32"): GOTO irfdone
