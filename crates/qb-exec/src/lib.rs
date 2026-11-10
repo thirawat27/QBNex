@@ -25,6 +25,9 @@ mod rt;
 mod vm;
 
 pub use vm::{EventHandle, Vm};
+/// Debugger hook (feature `debug`), used by `qb-dap`.
+#[cfg(feature = "debug")]
+pub use vm::debug;
 
 /// `qb-runtime` is linked as a whole: its string engine (R3) refers to symbols that
 /// libqb.cpp/qbx.cpp define for C++ programs. qb-exec never calls that code, so
@@ -113,6 +116,19 @@ pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32
     let m = compile(src)?;
     let mut vm = Vm::new(&m, out);
     vm.load_native(image).map_err(RunError::load)?;
+    vm.run_status()
+}
+
+/// Runs a compiled program as its executable does (`qb-exec`): unhandled
+/// errors are reported on stderr and the program continues, like the
+/// headless C++ runtime. `image`: native image from [`build_native`].
+pub fn run_program(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Result<i32, RunError> {
+    let m = compile(src)?;
+    let mut vm = Vm::new(&m, out);
+    if let Some(img) = image {
+        vm.load_native(img).map_err(RunError::load)?;
+    }
+    vm.set_continue_unhandled(true);
     vm.run_status()
 }
 

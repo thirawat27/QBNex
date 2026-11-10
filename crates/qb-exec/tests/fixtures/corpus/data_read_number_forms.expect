@@ -1,16 +1,17 @@
  2  350 -.125  .001250 
 -1  511  5  0 
 -32768 -1  255 -128 
--9223372036854775808  18446744073709551615 
+ 9223372036854775807  18446744073709551615 
 -9223372036854775808  0 
 [spaced]
 [quoted]
-after overflow-32768 
+error 6 
+after overflow 0 
+error 6 
 after overflow 2 0 
-error 13 
-syntax?-1 
-[last]
-error 4 
+syntax? 32768 
+[&H10000]
+error 2 
 out? 0 
 done
 <exit 0>

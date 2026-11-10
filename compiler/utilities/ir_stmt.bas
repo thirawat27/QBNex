@@ -72,6 +72,8 @@ SUB IrStmtEnd
                 m$ = IrRt$("MIDSET", " " + x$ + " " + y$ + " " + z$, "str")
             END IF
             IrStore p$, m$
+        CASE "CALL"
+            IF s2$ = "ABSOLUTE" THEN IrCallAbsolute
         CASE "LSET", "RSET"
             j = IrFindSep(2, "|=|")
             p$ = IrPlaceAtRaw$(2, j - 1, t)
@@ -125,7 +127,7 @@ SUB IrStmtEnd
         CASE "INPUT"
             IrInput 0
         CASE "LINE"
-            IF s2$ = "INPUT" THEN IrInput 1 ELSE IrNotSup "LINE (graphics)"
+            IF s2$ = "INPUT" THEN IrInput 1 'graphics LINE: generic call (IrSubCall)
         CASE "GET", "PUT"
             IrGetPut f$
         CASE "SEEK"
@@ -159,11 +161,11 @@ SUB IrStmtEnd
                 IrE "rt FIELD " + ch$ + " " + x$ + " " + IrAddr$(p$)
                 i = j + 1
             LOOP
-        CASE "PALETTE", "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
+        CASE "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "STRIG"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN
-                IF s2$ = "TIMER" OR s2$ = "KEY" OR s2$ = "STRIG" OR s2$ = "PLAY" OR IrFindSep(3, "|GOTO|GOSUB|") > n THEN IrNotSup "ON " + s2$
+                IF s2$ = "KEY" OR s2$ = "STRIG" OR (s2$ <> "PLAY" AND s2$ <> "TIMER" AND IrFindSep(3, "|GOTO|GOSUB|") > n) THEN IrNotSup "ON " + s2$ 'ON PLAY: checked only, the event is not raised (D-24), as in the C++ path
             END IF
     END SELECT
 END SUB
@@ -323,7 +325,7 @@ END SUB
 SUB IrGetPut (f$)
     DIM n AS LONG, j AS LONG, k AS LONG, ch$, t AS LONG, p$, pos$, st$, r$, sz AS LONG
     n = IrStmtN
-    IF IrEl$(2) = "(" OR UCASE$(IrEl$(2)) = "STEP" THEN IrNotSup f$ + " (graphics)": EXIT SUB
+    IF IrEl$(2) = "(" OR UCASE$(IrEl$(2)) = "STEP" THEN EXIT SUB 'graphics: generic call (IrSubCall)
     j = IrFindSep(2, "|,|")
     ch$ = IrChan$(2, j - 1)
     k = IrFindSep(j + 1, "|,|")
@@ -351,4 +353,52 @@ SUB IrGetPut (f$)
     END IF
     sz = IrSize&(st$)
     IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + IrAddr$(p$) + " " + IrI32$(sz)
+END SUB
+
+'ON TIMER([slot,] secs) GOSUB label (raw slot/secs expressions, label as written)
+SUB IrOnTimer (slot$, secs$, lbl$)
+    DIM a$, b$
+    IF LEN(slot$) THEN a$ = IrArgAs$(fixoperationorder$(slot$), "i32") ELSE a$ = IrI32$(0)
+    b$ = IrArgAs$(fixoperationorder$(secs$), "f64")
+    IrE "ontimer " + a$ + " " + b$ + " " + IrLbl$(lbl$)
+END SUB
+
+'CALL ABSOLUTE([args,] offset): numeric arguments are copied into DBLOCK slots (variables
+'are copied back after the call), then the x86 code at DEF SEG:offset runs (rt/cpu.rs)
+SUB IrCallAbsolute
+    DIM n AS LONG, j AS LONG, k AS LONG, i AS LONG, t AS LONG, p$, ty$, x$, o$
+    DIM av(1 TO 64) AS STRING, ap(1 TO 64) AS STRING, ao(1 TO 64) AS STRING, at(1 TO 64) AS STRING
+    n = IrStmtN
+    IF IrEl$(3) <> "(" THEN IrNotSup "CALL ABSOLUTE": EXIT SUB
+    j = IrMatch(IrStmt, 3, n)
+    k = IrSplitArgs(IrEls$(4, j - 1))
+    FOR i = 1 TO k: av(i) = IrArgs(i): NEXT
+    FOR i = 1 TO k - 1
+        IrQuiet = -1: p$ = IrPlace$(fixoperationorder$(av(i)), t): IrQuiet = 0
+        IF LEN(p$) AND LEFT$(p$, 1) <> "A" THEN
+            ty$ = IrPlaceSTy$(p$)
+        ELSE
+            p$ = ""
+            x$ = IrEval$(fixoperationorder$(av(i)), t)
+            ty$ = IrT
+        END IF
+        SELECT CASE ty$
+            CASE "i16", "i32", "i64", "f32", "f64"
+            CASE "f80": ty$ = "f64"
+            CASE "i8", "u8", "u16": ty$ = "i16"
+            CASE "u32": ty$ = "i32"
+            CASE "u64": ty$ = "i64"
+            CASE ELSE: IrNotSup "CALL ABSOLUTE argument": EXIT SUB
+        END SELECT
+        IF LEN(p$) THEN x$ = IrLoad$(p$): x$ = IrCvt$(x$, IrT, ty$) ELSE x$ = IrCvt$(x$, IrT, ty$)
+        o$ = IrReg$: IrE "rt " + o$ + " ABSARG." + ty$ + " " + x$
+        ap(i) = p$: ao(i) = o$: at(i) = ty$
+    NEXT
+    IrE "rt ABSCALL " + IrArgAs$(fixoperationorder$(av(k)), "i32")
+    FOR i = 1 TO k - 1
+        IF LEN(ap(i)) THEN
+            x$ = IrReg$: IrE "rt " + x$ + " ABSGET." + at(i) + " " + ao(i)
+            IrStore ap(i), IrCvt$(x$, at(i), IrRegOf$(IrPlaceSTy$(ap(i))))
+        END IF
+    NEXT
 END SUB

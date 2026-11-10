@@ -117,9 +117,22 @@ pub(crate) mod host {
 
 use host::{cmem_sp, dblock};
 
+/// A block of 65536 string descriptors, owned through a raw pointer: generated
+/// code keeps `qbs*` into it, and moving a `Box<[Qbs]>` into `blocks` retagged
+/// it and invalidated those pointers under Rust's aliasing rules (found by
+/// miri, R14). Freed when the engine is dropped (`qb_qbs_reset`).
+pub(crate) struct DescBlock(*mut [Qbs]);
+
+impl Drop for DescBlock {
+    fn drop(&mut self) {
+        // SAFETY: created by Box::into_raw and dropped once.
+        drop(unsafe { Box::from_raw(self.0) });
+    }
+}
+
 struct Engine {
     ready: bool,
-    blocks: Vec<Box<[Qbs]>>,
+    blocks: Vec<DescBlock>,
     malloc: *mut Qbs,
     malloc_next: u32,
     freed: Vec<*mut Qbs>,
@@ -232,8 +245,8 @@ impl Engine {
                 ptr::write_bytes(block.as_mut_ptr(), 0, DESCRIPTOR_BLOCK as usize);
                 block.set_len(DESCRIPTOR_BLOCK as usize);
             }
-            let mut block = block.into_boxed_slice();
-            self.malloc = block.as_mut_ptr();
+            let block = DescBlock(Box::into_raw(block.into_boxed_slice()));
+            self.malloc = block.0.cast();
             self.blocks.push(block);
             self.malloc_next = 0;
         }
@@ -682,9 +695,25 @@ unsafe fn bytes<'a>(s: *mut Qbs) -> &'a [u8] {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void;
     fn strlen(s: *const c_char) -> usize;
+}
+
+/// Browser build (R13-wasm): no C library; same contract as C `memchr`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void {
+    // SAFETY: caller guarantees `n` readable bytes at `s`.
+    let b = unsafe { std::slice::from_raw_parts(s.cast::<u8>(), n) };
+    b.iter().position(|&x| x == c as u8).map_or(std::ptr::null_mut(), |i| b[i..].as_ptr().cast_mut().cast())
+}
+
+/// Browser build: C `strlen`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn strlen(s: *const c_char) -> usize {
+    // SAFETY: caller passes a NUL-terminated string.
+    unsafe { std::ffi::CStr::from_ptr(s).to_bytes().len() }
 }
 
 // --- C ABI (include/qb_runtime.h); libqb.cpp keeps one-line shims with the old names ---
@@ -1320,8 +1349,8 @@ pub unsafe extern "C" fn qb_qbs_debug_descriptor_index(s: *const Qbs) -> i64 {
     unsafe {
         let e = eng();
         for (b, block) in e.blocks.iter().enumerate() {
-            let base = block.as_ptr();
-            if s >= base && s < base.add(block.len()) {
+            let base = block.0.cast::<Qbs>().cast_const();
+            if s >= base && s < base.add(block.0.len()) {
                 return (b as i64) * i64::from(DESCRIPTOR_BLOCK) + s.offset_from(base) as i64;
             }
         }

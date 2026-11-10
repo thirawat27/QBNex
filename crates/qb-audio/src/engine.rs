@@ -640,14 +640,25 @@ impl Engine {
     }
 }
 
+/// Adds one source's frame. A NaN or infinite contribution (`_SNDVOL` or
+/// `_SNDRAW` given NaN/infinity) is dropped instead of turning the whole mix
+/// into NaN, which reached f32 output devices (R14).
+fn add_finite(f: &mut [f32; 2], l: f32, r: f32) {
+    if l.is_finite() {
+        f[0] += l;
+    }
+    if r.is_finite() {
+        f[1] += r;
+    }
+}
+
 fn mix_queue(q: &mut RawQueue, out: &mut [f32]) {
     let (vol, pan) = (q.volume, q.pan);
     for f in out.as_chunks_mut::<2>().0 {
         match q.next_frame() {
             Some((l, r)) => {
                 let (l, r) = apply_pan(pan, l * vol, r * vol);
-                f[0] += l;
-                f[1] += r;
+                add_finite(f, l, r);
             }
             None => break,
         }
@@ -681,8 +692,7 @@ fn mix_sound(s: &mut Playback, out: &mut [f32], time: u64) {
         }
         let (l, r) = s.data.stereo(s.cursor);
         let (l, r) = apply_pan(pan, l * vol, r * vol);
-        f[0] += l;
-        f[1] += r;
+        add_finite(f, l, r);
         s.cursor += 1;
     }
     if s.cursor >= s.data.frames && !s.looping {
@@ -843,4 +853,72 @@ mod tests {
         assert_eq!(apply_pan(-1.0, 1.0, 1.0), (2.0, 0.0));
         assert_eq!(spatial([2.0, 0.0, 0.0]), (0.5, 1.0));
     }
-}
+
+    /// R14 H6: the BASIC thread and the device callback share the engine through
+    /// one mutex. Hammer every handle operation from one thread while another
+    /// renders; nothing may panic and the counters must stay consistent.
+    #[test]
+    fn concurrent_basic_thread_and_mixer() {
+        use std::sync::{Arc, Mutex};
+        let shared = Arc::new(Mutex::new(engine()));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mixer = {
+            let (shared, stop) = (shared.clone(), stop.clone());
+            std::thread::spawn(move || {
+                let mut buf = vec![0f32; 2 * 64];
+                let mut n = 0u64;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    shared.lock().unwrap_or_else(|e| e.into_inner()).render(&mut buf);
+                    assert!(buf.iter().all(|x| x.is_finite()));
+                    n += 1;
+                }
+                n
+            })
+        };
+        let mut seed: u64 = 0xC0FF_EE00_1234_5678;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..30_000 {
+            let mut e = shared.lock().unwrap_or_else(|e| e.into_inner());
+            let h = (next() % 12) as i32 - 2;
+            let x = f64::from_bits(next());
+            match next() % 18 {
+                0 => {
+                    let _ = e.open_decoded(Some(pcm((next() % 300) as usize)), [0, FLAG_DECODE][(next() % 2) as usize]);
+                }
+                1 => e.close(h),
+                2 => {
+                    let _ = e.copy(h);
+                }
+                3 => e.play_sound(h),
+                4 => e.loop_sound(h),
+                5 => e.pause(h),
+                6 => e.set_volume(h, x as f32),
+                7 => e.balance(h, x, (next() % 7) as f64 - 3.0, 0.0, (next() % 8) as i32),
+                8 => e.set_pos(h, x),
+                9 => e.limit(h, (next() % 5) as f64 * 0.01),
+                10 => e.stop_sound(h),
+                11 => {
+                    let _ = e.open_raw();
+                }
+                12 => e.raw(x as f32, 0.25, h, (next() % 4) as i32),
+                13 => e.raw_done(h, next() % 2 == 0),
+                14 => assert!(e.raw_len(h, next() % 2 == 0) >= 0.0),
+                15 => {
+                    let _ = e.sound((next() % 2000) as f64 + 37.0, (next() % 3) as f64 * 0.1);
+                    let _ = e.play(b"T255L64CDE", &crate::mml::NoVars);
+                }
+                16 => {
+                    let _ = (e.length(h), e.get_pos(h), e.playing(h), e.paused(h), e.mem_sound(h, (next() % 3) as i32));
+                }
+                _ => e.housekeeping(),
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let renders = mixer.join().expect("mixer thread panicked");
+        assert!(renders > 0);
+    }}

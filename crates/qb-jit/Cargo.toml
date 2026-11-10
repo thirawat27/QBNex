@@ -13,6 +13,9 @@ path = "src/lib.rs"
 
 [dependencies]
 qb-runtime = { path = "../qb-runtime" }
+
+# Cranelift is native-only; a browser build (R13-wasm) uses src/off.rs.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cranelift-codegen = { version = "0.137", features = ["x86", "arm64"] }
 cranelift-frontend = "0.137"
 cranelift-jit = "0.137"

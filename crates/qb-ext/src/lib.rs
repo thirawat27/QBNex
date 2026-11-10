@@ -13,8 +13,11 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod codec;
+pub mod coll;
+pub mod datetime;
 pub mod ffi;
 pub mod hash;
 pub mod http;
 pub mod re;
+pub mod utf8;
 pub mod ziparc;

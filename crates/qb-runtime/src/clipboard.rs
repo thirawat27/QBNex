@@ -163,7 +163,7 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_arch = "wasm32")))]
 mod platform {
     use super::Image;
     use std::sync::Mutex;
@@ -242,6 +242,35 @@ mod platform {
     }
 }
 
+/// Browser build (R13-wasm): no system clipboard reachable synchronously, so
+/// the clipboard is private to the page.
+#[cfg(target_arch = "wasm32")]
+mod platform {
+    use super::Image;
+    use std::sync::Mutex;
+
+    static CLIP: Mutex<(Vec<u8>, Option<Image>)> = Mutex::new((Vec::new(), None));
+
+    fn with<T>(f: impl FnOnce(&mut (Vec<u8>, Option<Image>)) -> T) -> T {
+        f(&mut CLIP.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    pub fn set_text(text: &[u8]) {
+        with(|c| c.0 = text.to_vec());
+    }
+
+    pub fn get_text() -> Vec<u8> {
+        with(|c| c.0[..c.0.iter().position(|&b| b == 0).unwrap_or(c.0.len())].to_vec())
+    }
+
+    pub fn set_image(img: &Image) {
+        with(|c| c.1 = Some(img.clone()));
+    }
+
+    pub fn get_image() -> Option<Image> {
+        with(|c| c.1.clone())
+    }
+}
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 

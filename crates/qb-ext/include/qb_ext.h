@@ -39,6 +39,48 @@ int32_t qb_ext_http(intptr_t method, int64_t ml, intptr_t url, int64_t ul, intpt
 int64_t qb_ext_http_headers(void);
 int32_t qb_ext_test_http_server(int32_t count); // test hook: local echo server, returns its port
 
+int64_t qb_ext_utf8_len(intptr_t p, int64_t l);
+int64_t qb_ext_utf8_slice(int32_t op, intptr_t p, int64_t l, int64_t a, int64_t b);
+int64_t qb_ext_utf8_transform(int32_t op, intptr_t p, int64_t l);
+int32_t qb_ext_utf8_valid(intptr_t p, int64_t l);
+int64_t qb_ext_utf8_codepoint(intptr_t p, int64_t l, int64_t index);
+int64_t qb_ext_utf8_chr(int64_t cp);
+int64_t qb_ext_cp437(int32_t op, intptr_t p, int64_t l);
+
+int32_t qb_ext_list_new(void);
+int32_t qb_ext_dict_new(void);
+int32_t qb_ext_coll_free(int32_t h);
+int32_t qb_ext_coll_clear(int32_t h);
+int64_t qb_ext_list_count(int32_t h);
+int64_t qb_ext_list_add_str(int32_t h, intptr_t p, int64_t l);
+int64_t qb_ext_list_add_num(int32_t h, double n);
+int32_t qb_ext_list_put_str(int32_t h, int64_t i, intptr_t p, int64_t l, int32_t insert);
+int32_t qb_ext_list_put_num(int32_t h, int64_t i, double n, int32_t insert);
+int32_t qb_ext_list_type(int32_t h, int64_t i);
+int64_t qb_ext_list_get_str(int32_t h, int64_t i);
+double qb_ext_list_get_num(int32_t h, int64_t i);
+int32_t qb_ext_list_remove(int32_t h, int64_t i);
+int64_t qb_ext_list_find_str(int32_t h, intptr_t p, int64_t l);
+int64_t qb_ext_list_find_num(int32_t h, double n);
+int64_t qb_ext_list_join(int32_t h, intptr_t p, int64_t l);
+int32_t qb_ext_list_sort(int32_t h, int32_t descending, int32_t ignore_case);
+int64_t qb_ext_dict_count(int32_t h);
+int32_t qb_ext_dict_set_str(int32_t h, intptr_t k, int64_t kl, intptr_t p, int64_t l);
+int32_t qb_ext_dict_set_num(int32_t h, intptr_t k, int64_t kl, double n);
+int32_t qb_ext_dict_type(int32_t h, intptr_t k, int64_t kl);
+int64_t qb_ext_dict_get_str(int32_t h, intptr_t k, int64_t kl);
+double qb_ext_dict_get_num(int32_t h, intptr_t k, int64_t kl);
+int32_t qb_ext_dict_remove(int32_t h, intptr_t k, int64_t kl);
+int64_t qb_ext_dict_key(int32_t h, int64_t i);
+
+double qb_ext_dt_now(void);
+int32_t qb_ext_dt_offset(double ms);
+int64_t qb_ext_dt_iso(double ms, int32_t local);
+int64_t qb_ext_dt_format(double ms, intptr_t f, int64_t fl, int32_t local);
+double qb_ext_dt_parse(intptr_t t, int64_t tl, intptr_t f, int64_t fl, int32_t local);
+double qb_ext_dt_make(int32_t year, int32_t month, int32_t day, int32_t hour, int32_t minute, int32_t second,
+                      int32_t millis, int32_t local);
+int64_t qb_ext_dt_part(double ms, int32_t part, int32_t local);
 #ifdef __cplusplus
 }
 #endif
