@@ -36,8 +36,10 @@ pub(crate) struct Display {
     /// error raised through the console Host
     pub pending: i32,
     pub started: bool,
-    /// browser runner: ticks of the last `_LIMIT`
-    pub limit_last: i64,
+    /// `$SCREENHIDE`
+    pub screen_hide: bool,
+    /// `_TITLE` (window_title)
+    pub title: Vec<u8>,
 }
 
 impl Default for Display {
@@ -61,7 +63,8 @@ impl Default for Display {
             fontflags: vec![0; 49],
             pending: 0,
             started: false,
-            limit_last: 0,
+            title: Vec::new(),
+            screen_hide: false,
         };
         d.fontwidth[8] = 8;
         d.fontwidth[14] = 8;
@@ -401,6 +404,64 @@ impl Display {
         self.fontwidth[i] = qb_runtime::font::width(h);
         self.fontflags[i] = options;
         i as i32
+    }
+
+    /// `func__loadimage(file$, mode, passed)` (image_bridge.cpp): 32, 256 or 257 (no
+    /// palette remap); 33 (hardware) loads a software 32bpp image here
+    pub(crate) fn loadimage(&mut self, file: &[u8], mut bpp: i32, passed: i32) -> i32 {
+        let mut keep_palette = false;
+        if bpp == 33 {
+            bpp = 32;
+        } else if bpp == 257 {
+            bpp = 256;
+            keep_palette = true;
+        }
+        if passed != 0 {
+            if bpp != 32 && bpp != 256 {
+                self.err(5);
+                return 0;
+            }
+        } else {
+            // SAFETY: valid write page.
+            if unsafe { (*self.wp()).text } != 0 {
+                self.err(5);
+                return 0;
+            }
+            bpp = -1;
+        }
+        if file.is_empty() {
+            return -1;
+        }
+        let Ok(content) = std::fs::read(String::from_utf8_lossy(file).as_ref()) else { return -1 };
+        let Some(img) = qb_runtime::image::decode(&content) else { return -1 };
+        let (w, h) = (img.w as usize, img.h as usize);
+        if bpp == 256 {
+            let i = self.newimage(w as i32, h as i32, 256, 1);
+            if i == -1 {
+                return -1;
+            }
+            let mut pal = [0u32; 256];
+            let Some(mut px8) = qb_runtime::image::quant::to_8bpp(&img.px, w, h, &mut pal) else { return -1 };
+            if !keep_palette {
+                let default = &qb_runtime::gfx::data::palette_256;
+                qb_runtime::image::quant::remap_palette(&mut px8, &pal, default);
+                pal = *default;
+            }
+            // SAFETY: a fresh w x h 8bpp surface with a 256-entry palette.
+            unsafe {
+                let p = im((-i) as u32);
+                core::ptr::copy_nonoverlapping(px8.as_ptr(), (*p).offset, w * h);
+                core::ptr::copy_nonoverlapping(pal.as_ptr(), (*p).pal, 256);
+            }
+            return i;
+        }
+        let i = self.newimage(w as i32, h as i32, 32, 1);
+        if i == -1 {
+            return -1;
+        }
+        // SAFETY: a fresh w x h 32bpp surface.
+        unsafe { core::ptr::copy_nonoverlapping(img.px.as_ptr(), (*im((-i) as u32)).offset, w * h * 4) };
+        i
     }
 
     /// `sub__freefont`
@@ -1213,6 +1274,23 @@ impl Display {
         }
     }
 
+    /// Pixel size of the display page (text pages in font cells).
+    pub(crate) fn display_size(&self) -> (i32, i32) {
+        if !self.started {
+            return (640, 400);
+        }
+        // SAFETY: valid display page.
+        unsafe {
+            let p = &*self.dp();
+            let (mut w, mut h) = (i32::from(p.width), i32::from(p.height));
+            if p.text != 0 {
+                w *= self.fontwidth[p.font as usize].max(1);
+                h *= self.fontheight[p.font as usize].max(1);
+            }
+            (w, h)
+        }
+    }
+
     /// The destination is a surface (not the `$CONSOLE` stdout image).
     pub(crate) fn write_is_screen(&self) -> bool {
         // SAFETY: valid write page.
@@ -1382,10 +1460,10 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "func__alpha" | "func__rgb32" | "func__rgba32" | "func__red32" | "func__green32" | "func__blue32"
             | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put"
             | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
-            | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" | "sub__limit"
+            | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
             | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
-            | "func__printwidth"
+            | "func__printwidth" | "func__loadimage" | "func__title"
     );
     if !known {
         return None;
@@ -1400,7 +1478,6 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
     let cmem = rt.cmem.as_mut_ptr();
     let console_on = rt.console_on;
     let console_only = rt.console_only;
-    let web = rt.web;
     let d = &mut rt.display;
     d.start(cmem, console_on, console_only);
     let wp = d.wp();
@@ -1496,7 +1573,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "func__newimage" => out = Some(V::I(d.newimage(i(0), i(1), i(2), i(3)).into())),
             "sub__freeimage" => d.freeimage(i(0), i(1)),
             "func__copyimage" => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
-            "sub__display" => d.capture(gfx::capture::KIND_DISPLAY),
+            "sub__display" => {
+                d.capture(gfx::capture::KIND_DISPLAY);
+                // with a window, _DISPLAY switches _AUTODISPLAY off (sub__display)
+                if !d.screen_hide {
+                    d.autodisplay = 0;
+                }
+            }
             "sub__autodisplay" => d.autodisplay = 1,
             "func__autodisplay" => out = Some(V::I(if d.autodisplay != 0 { -1 } else { 0 })),
             "func__width" | "func__height" | "func__pixelsize" => {
@@ -1624,6 +1707,10 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(v.into()));
             }
             "sub__freefont" => d.freefont(i(0)),
+            "func__loadimage" => {
+                let v = d.loadimage(a[0].s(), i(1), i(2));
+                out = Some(V::I(v.into()));
+            }
             "func__printwidth" => {
                 let v = d.printwidth(cmem, a[0].s(), i(1), i(2));
                 out = Some(V::I(v.into()));
@@ -1737,28 +1824,9 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 }
             }
             "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
-            // headless runs do not wait; the browser runner shows the frame and waits
-            "sub__delay" if web => {
-                if d.autodisplay != 0 {
-                    d.capture(gfx::capture::KIND_DISPLAY);
-                }
-                qb_runtime::systime::sleep_ms((f(0) * 1000.0).clamp(0.0, 86_400_000.0) as u64);
-            }
-            "sub__limit" if web => {
-                if d.autodisplay != 0 {
-                    d.capture(gfx::capture::KIND_DISPLAY);
-                }
-                let fps = f(0);
-                if fps > 0.0 {
-                    let next = d.limit_last + (1000.0 / fps) as i64;
-                    let now = qb_runtime::systime::ticks();
-                    if now < next {
-                        qb_runtime::systime::sleep_ms((next - now) as u64);
-                    }
-                    d.limit_last = qb_runtime::systime::ticks();
-                }
-            }
-            "sub__limit" | "sub__delay" | "sub__title" => {}
+            "sub__title" => d.title = a[0].s().to_vec(),
+            "func__title" => out = Some(V::S(d.title.clone())),
+            "sub__delay" => {}
             _ => {}
         }
     }

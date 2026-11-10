@@ -15,6 +15,7 @@ members = [
     "crates/qb-lsp",
     "crates/qb-ext",
     "crates/qb-web",
+    "crates/qb-dap",
     "tests/conformance",
 ]
 

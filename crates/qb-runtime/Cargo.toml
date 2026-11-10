@@ -35,6 +35,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 [features]
 default = ["ext"]
 ext = ["dep:qb-ext"]
+# GPU window presentation (wgpu). Off by default: the software path is the reference.
+gpu = ["dep:qb-gpu"]
 
 [target.'cfg(windows)'.dependencies]
 # Clipboard (CF_TEXT/CF_BITMAP), _SCREENIMAGE/_SCREENCLICK/_SCREENPRINT and the
@@ -62,7 +64,13 @@ windows-sys = { version = "0.61", features = [
 winit = "0.30"
 softbuffer = "0.4"
 gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
+# R15 G2: present the window frame through the GPU (wgpu) when the feature is on;
+# softbuffer stays the default and the fallback when no adapter/surface is available.
+qb-gpu = { path = "../qb-gpu", optional = true }
 
 [target.'cfg(all(not(windows), not(target_arch = "wasm32")))'.dependencies]
 # Clipboard text and images on Linux (X11/Wayland) and macOS.
 arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+
+[dev-dependencies]
+proptest = "1.12.0"

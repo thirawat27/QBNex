@@ -185,7 +185,8 @@ FUNCTION IrUdt$ (u AS LONG)
         ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) <> 0 THEN
             fty$ = "fstr:" + str2$(udtetypesize(e))
         ELSEIF ft AND ISSTRING THEN
-            IrNotSup "variable-length STRING inside TYPE": fty$ = "str"
+            'a string handle in memory (assignment copies it field by field: IrCopyUdt)
+            fty$ = "str"
         ELSE
             fty$ = IrTy$(ft)
         END IF
@@ -196,6 +197,59 @@ FUNCTION IrUdt$ (u AS LONG)
     LOOP
     IrMod = IrMod + s$ + "endtype" + CHR$(10)
 END FUNCTION
+
+FUNCTION IrUdtIdx& (st$)
+    DIM i AS LONG
+    FOR i = 1 TO lasttype
+        IF "udt:T_" + RTRIM$(udtxname(i)) = st$ THEN IrUdtIdx& = i: EXIT FUNCTION
+    NEXT
+END FUNCTION
+
+'the TYPE (storage type "udt:...") has a variable-length STRING field, also nested
+FUNCTION IrUdtHasStr% (st$)
+    DIM u AS LONG, e AS LONG, ft AS LONG
+    u = IrUdtIdx&(st$): IF u = 0 THEN EXIT FUNCTION
+    e = udtxnext(u)
+    DO WHILE e
+        ft = udtetype(e)
+        IF ft AND ISUDT THEN
+            IF IrUdtHasStr%("udt:T_" + RTRIM$(udtxname(ft AND 511))) THEN IrUdtHasStr% = -1: EXIT FUNCTION
+        ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) = 0 THEN
+            IrUdtHasStr% = -1: EXIT FUNCTION
+        END IF
+        e = udtenext(e)
+    LOOP
+END FUNCTION
+
+'TYPE assignment with string fields: strings by value (ld.str/st.str), the rest by bytes;
+'d$/s$ are the ptr registers of the whole values, off0 the byte offset of this TYPE in them
+SUB IrCopyUdt (d$, s$, st$, off0 AS LONG)
+    DIM u AS LONG, e AS LONG, ft AS LONG, o AS LONG, x$, a$, b$, nb AS LONG, fo AS LONG
+    u = IrUdtIdx&(st$): IF u = 0 THEN EXIT SUB
+    o = 0: e = udtxnext(u)
+    DO WHILE e
+        IF udtebytealign(e) THEN
+            IF o MOD 8 THEN o = o + (8 - (o MOD 8))
+        END IF
+        ft = udtetype(e)
+        fo = off0 + o \ 8
+        IF (ft AND ISUDT) <> 0 AND IrUdtHasStr%("udt:T_" + RTRIM$(udtxname(ft AND 511))) THEN
+            IrCopyUdt d$, s$, "udt:T_" + RTRIM$(udtxname(ft AND 511)), fo
+        ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) = 0 AND (ft AND ISUDT) = 0 THEN
+            x$ = IrReg$: IrE "ld.str " + x$ + " " + s$ + " " + str2$(fo)
+            IrE "st.str " + d$ + " " + str2$(fo) + " " + x$
+        ELSE
+            nb = (udtesize(e) + 7) \ 8
+            IF nb > 0 THEN
+                a$ = IrReg$: IrE "padd " + a$ + " " + d$ + " " + IrConst$("i64", str2$(fo))
+                b$ = IrReg$: IrE "padd " + b$ + " " + s$ + " " + IrConst$("i64", str2$(fo))
+                IrE "copy " + a$ + " " + b$ + " " + str2$(nb)
+            END IF
+        END IF
+        o = o + udtesize(e)
+        e = udtenext(e)
+    LOOP
+END SUB
 
 FUNCTION IrIsFloat% (t$)
     IrIsFloat% = (LEFT$(t$, 1) = "f")
@@ -1110,7 +1164,9 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub_graphics_put|qbsub_width|sub__font|func__font|func__fontwidth|func__fontheight|"
     l$ = l$ + "sub__limit|sub__delay|sub__title|"
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
-    l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|"
+    l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
+    l$ = l$ + "func__freetimer|sub_timer|sub_key|"
+    l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 
@@ -1486,8 +1542,10 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$("VARSEG", "", "i32")
         CASE "PEEK"
             r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
-        CASE "_CWD$", "_STARTDIR$"
+        CASE "_CWD$", "_STARTDIR$", "_OS$"
             r$ = IrRt$(nm$, "", "str")
+        CASE "_COMMANDCOUNT"
+            r$ = IrRt$(nm$, "", "i32")
         CASE "_MK$", "_CV"
             t = typname2typ(UCASE$(sv(1)))
             IF t AND ISPOINTER THEN t = t - ISPOINTER
@@ -1552,7 +1610,11 @@ SUB IrAssign (lhs$, rhs$)
         IF IrMemAssign%(IrAddr$(p$), e$) THEN EXIT SUB
         q$ = IrPlace$(e$, t2)
         IF q$ = "" THEN EXIT SUB
-        IrE "copy " + IrAddr$(p$) + " " + IrAddr$(q$) + " " + str2$(IrSize&(st$))
+        IF IrUdtHasStr%(st$) THEN
+            IrCopyUdt IrAddr$(p$), IrAddr$(q$), st$, 0
+        ELSE
+            IrE "copy " + IrAddr$(p$) + " " + IrAddr$(q$) + " " + str2$(IrSize&(st$))
+        END IF
         EXIT SUB
     END IF
     IF LEFT$(st$, 5) = "fstr:" THEN t = ISSTRING
@@ -1710,6 +1772,15 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "_SNDSETPOS", "_SNDLIMIT": IrE "rt " + nm$ + IrArgList$("i32,f64", nargs, -1, 0)
         CASE "_SNDRAW": IrE "rt _SNDRAW" + IrArgList$("f32,f32,i32", nargs, passed, 1)
         CASE "_SNDRAWDONE": IrE "rt _SNDRAWDONE" + IrArgList$("i32", nargs, passed, 1)
+        CASE "_DELAY"
+            'wait in steps with a back edge, so ON TIMER handlers run during the delay
+            x$ = IrReg$: IrE "rt " + x$ + " DELAYBEGIN " + IrArgAs$(sv(1), "f64")
+            y$ = "~Y" + str2$(IrNew)
+            IrE "label " + y$
+            z$ = IrReg$: IrE "rt " + z$ + " DELAYSTEP " + x$
+            IrE "jz " + z$ + " " + y$ + ".E"
+            IrE "jmp " + y$
+            IrE "label " + y$ + ".E"
         CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE"
             'window state: no visible effect headless
         CASE "SLEEP"
@@ -1993,6 +2064,7 @@ SUB IrFinish (src$, outExe$)
     ELSEIF Console THEN
         PRINT #fh, "meta console"
     END IF
+    IF ScreenHide THEN PRINT #fh, "meta screenhide"
     PRINT #fh, IrMod;
     top = 0
     FOR i = 2 TO IrFnN

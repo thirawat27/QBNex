@@ -110,7 +110,7 @@ fn main() {
         Err(e) => {
             if e.code < 0 {
                 eprintln!("qb-exec: invalid program: {}", e.msg);
-            } else {
+            } else if e.msg != "reported" {
                 eprintln!("Unhandled error #{} on line {}", e.code, e.line);
             }
             std::process::exit(1);

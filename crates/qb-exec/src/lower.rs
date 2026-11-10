@@ -73,6 +73,7 @@ fn regs(i: &Inst) -> (Option<u32>, Vec<u32>) {
         Line(_) | Label(_) | Jmp(_) | Gosub(_) | GRet | GRetL(_) | OnError(_) | Resume(_) | Restore(_) | End | Stop => {
             (None, vec![])
         }
+        OnTimer { slot, secs, .. } => (None, vec![*slot, *secs]),
         Const { dst, .. } => (Some(*dst), vec![]),
         Mov { dst, src, .. } | Cvt { dst, src, .. } | Trunc { dst, src, .. } => (Some(*dst), vec![*src]),
         Bin { dst, a, b, .. } | Cmp { dst, a, b, .. } | Concat { dst, a, b } => (Some(*dst), vec![*a, *b]),
@@ -319,6 +320,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         m: Module {
                 data: src.data.clone(),
                 console: src.meta("console").map(|v| v == "only"),
+                screenhide: src.meta("screenhide").is_some(),
                 ..Module::default()
             },
         kstr: HashMap::new(),
@@ -1473,6 +1475,11 @@ impl<'a> Lw<'a> {
                         self.fixups.push((pc, format!("0\u{1}{l}")));
                     }
                 },
+                Inst::OnTimer { slot, secs, target } => {
+                    let (s, x) = (nreg!(*slot), nreg!(*secs));
+                    let pc = self.emit(Ins::OnTimer { s, x, t: 0 });
+                    self.fixups.push((pc, format!("0\u{1}{target}")));
+                }
                 Inst::Resume(r) => match r {
                     ResumeKind::Same => {
                         self.emit(Ins::Resume { k: ResumeK::Same, t: 0 });
@@ -1630,7 +1637,7 @@ fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
         let refers = match i {
             Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
             Inst::Gosub(t) | Inst::GRetL(t) => return t != l,
-            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) => return t != l,
+            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } => return t != l,
             _ => false,
         };
         !refers || (k > at && k < here)

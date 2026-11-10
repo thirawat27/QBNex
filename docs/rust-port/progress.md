@@ -263,26 +263,19 @@ The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner:
 
 ## R11a — QIR v1 จาก pipeline จริง (branch `claude/r11a-emitter-09276c`, 2026-11-10)
 
-- **Spec + crate:** `docs/rust-port/qir-v1.md` (typed, register-based) และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer ข้อความ, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative) — 16 tests (เขียนก่อน, เห็น fail ก่อน implement). R11b/R11c merge commit `57138e8`
-- **Emitter ใน pipeline จริง:** ลบ tokenizer/parser ของ spike ทิ้ง; main pass ของ `qbnex.bas` ทำงานเหมือนเดิมทุกอย่าง (symbol table, type, UDT, `$INCLUDE`, `$IF`, CONST, DEFxxx, C++ fragment ที่ไม่ถูก compile) แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, state ใน `ir_state.bas`). `IrEval$` เดิน element string ชุดเดียวกับที่ `evaluate$` ได้ (หลัง `fixoperationorder`) และใช้ `operatorusage` + กฎ markup ชุดเดียวกัน พร้อม C integer promotion → register มีชนิด C เดียวกับที่ C++ backend คำนวณ (เช่น literal `1.5E+0` เป็น double, `INTEGER*INTEGER` เป็น int32, `/` ไปเป็น long double)
-- statement ที่ operand อาจถูกสร้างโดย C++ handler (MID$, LSET/RSET, SWAP, ERASE, OPEN/CLOSE, PRINT #, WRITE, INPUT, LINE INPUT, GET/PUT, SEEK, NAME) lower ตอนถึง `finishedline`; construct ที่ยังไม่รองรับ → compile ล้มพร้อมเลขบรรทัด (ไม่เงียบ)
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 13 tests. R11b แทนที่ได้
-- **Conformance (`--qb-arg --ir`):** ดูตารางท้ายหัวข้อนี้ ; C++ default path ของ compiler เดียวกัน: ดูตาราง
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ
-- **ยังไม่ทำ / รู้แล้วว่าต่าง:** `_FLOAT` ใน VM เป็น f64 (รอ F80 ของ R11d) → `rounding_limits`, `val_parse`; graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
-
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 15 unit + 5 e2e tests. R11b แทนที่ได้
-- **Conformance** (69 cases, Windows, compiler เดียวกัน):
+- **Spec + crate:** `docs/rust-port/qir-v1.md` และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative)
+- **Emitter ใน pipeline จริง:** main pass ของ `qbnex.bas` ทำงานเหมือนเดิม แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, `ir_mem.bas`, state ใน `ir_state.bas`); `IrEval$` ใช้กฎ promotion ของ C++ backend. builtin ของ libqb ที่เป็น graphics/รูป/ฟอนต์/input/timer ถูก lower แบบ generic เป็น `rt <callname>` ด้วยชนิด argument จาก registry (`IrGeneric$`, รายชื่อใน `IrGenOK%`)
+- **Executor:** unified VM ของ R11b (`crates/qb-exec`: lower → bytecode → VM/JIT); runtime ที่ R11a เพิ่มอยู่ใน `rt/`: `display.rs` (หน้า SCREEN/รูป/กราฟิก/ข้อความบนหน้า, WIDTH, ฟอนต์ `_LOADFONT`, `_LOADIMAGE`, `_PUTIMAGE`, `_MAPTRIANGLE`, frame capture), `input.rs` (port `keydown`/`keyup` + mouse queue, input script ผ่าน headless window ของ qb-runtime), `scancodes.rs` (ตาราง scancode_lookup), audiox/netx/memx/files. ทุกอย่างเรียก qb-runtime (Rust) ตรง ไม่ผ่าน libqb.cpp
+- **QIR ใหม่:** `ontimer %slot %secs L` (ON TIMER), `meta screenhide`; builtin ใหม่ใน table (graphics callnames, `READCHK`, `VARPTR$`, `EXP.s`, `DELAYBEGIN`/`DELAYSTEP`, `func__*` ของ input/timer)
+- **- **Conformance** (89 cases, Windows, 2026-11-10 หลัง merge rust-port `ae57d8c`, compiler `60d3689`):
 
   | backend | ผ่าน | xfail | fail |
   | --- | --- | --- | --- |
-  | C++ (default) | 63 | 6 | **0** |
-  | QIR (`--qb-arg --ir`) | **40** | 6 | 23 |
+  | QIR (`--qb-arg --ir`) | **84** | 5 | **0** |
 
-  23 case ที่ยัง fail ใช้ subsystem ที่ยังผูกกับ main loop/หน้าต่างของ C++ ทั้งหมด: graphics 10, audio 2, net 2, `_MEM` 2, input script (INKEY$/_KEYHIT) 2, fonts/images 2, `VARPTR`/cmem 1, `FIELD` 1, `SCREEN` + `_NEWIMAGE` ใน video 1. Case ภาษา/ตัวเลข/สตริง/ไฟล์/error/DATA ผ่านครบ
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ: ทุก case ที่ QIR compile ได้ให้ output เหมือน C++ ทุก byte (ยกเว้น `inkey_script` ที่ต้องมี input script ของหน้าต่าง); `crates/qb-exec/tests/fixtures/qir/lang1-3.bas` (INCLUDE, CONST, DEFxxx, nested UDT, array param, STATIC, recursion, SELECT, ON GOSUB, DATA, error/RESUME) เทียบสอง backend ใน `cargo test --release -p qb-exec`
-- `_FLOAT` ใน VM ใช้ `qb-float80` (R11d) ตรงทุก bit; `VAL` คืน long double เหมือน `func_val`; ERL = line-number label ล่าสุด (`LASTLINE`)
-- **ยังไม่ทำ:** graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
+  xfail 5 ตัวเป็น legacy defect/deviation ชุดเดียวกับ C++ path (L-02, L-03, L-06, L-14, D-14). `call_absolute_sub_arg` รันบน `rt/cpu.rs` (port x86 subset ของ `cpu_call`), `stdlib_helpers` ใช้ STRING ความยาวแปรผันใน TYPE (string handle ใน memory, assignment ของ TYPE copy ทีละ field), `timers_and_waits` ใช้ ON TIMER ของ VM. `cargo test --release -p qb-exec -p qb-ir` ผ่านทั้งหมด (e2e รันหลาย thread ได้)พฤติกรรมที่ตรงกับ C++:** READ ใช้ `numparse::read_*` (overflow 6, syntax 2, ค่า 0 ก่อน error), ERASE ทำให้ array ไม่มีมิติ (error 9), unhandled error ตาม no-dialog policy ของ runtime (stderr + exit 1), HEX$/OCT$/_BIN$ ความกว้างตาม semantics.bas, `_BIT * n`
+- **Compiler:** lock ของโฟลเดอร์ `internal/tempN` (#26) ไม่ถูกปล่อยระหว่าง recompile อีกแล้ว (เดิมทำให้ qb ที่รันพร้อมกันชนกัน, error 70 ใน e2e แบบหลาย thread)
+- **ยังไม่ทำ:** ON KEY/ON STRIG trapping, CHAIN/COMMON, PLAY event, VARPTR$ ของ string (DRAW/PLAY "X"); string ใน TYPE ที่ตายไปพร้อม scope ยังไม่ถูกคืน (leak เล็กน้อย, ไม่กระทบผลลัพธ์)
 
 ## R11d: `_FLOAT` and `DECLARE LIBRARY`
 
@@ -374,19 +367,26 @@ Findings (each fixed with a failing test first):
 | R14-1 | `qb_radix_string` (HEX$/OCT$/_BIN$) trusted `neg_bits`: a width outside 0..=64 allocated gigabytes and would overrun the 64-byte C buffer. | Medium (not reachable from compiled BASIC: the compiler passes type widths) | Clamp to 0..=64. |
 | R14-2 | `MID$(a$, 2, 2147483647)` read past the string, `MID$(d$, 2, 2147483647) = s$` wrote past `d$`: `start + length` was ported with `wrapping_add` from the legacy `int` code (same bug in legacy). | **High** (heap overread/overwrite from plain BASIC) | Bounds in i64. |
 | R14-4 | A failed `_MEMGET` check with an absurd byte count aborted the program while allocating the zeroed scratch buffer. | Low | Fallible reserve; reports 518 (out of memory). |
+| R14-5 | `_MEMNEW` buffers and the `qbs` descriptor blocks handed out pointers derived from a `Box<[T]>` and then moved the Box into the pool (map/vector), which invalidates those pointers under Rust's aliasing model (miri, Stacked Borrows). | Medium (UB the optimiser may exploit) | Owned through raw pointers, never moved. |
+| R14-6 | `_SNDVOL`/`_SNDRAW` with NaN or infinity turned every mixed frame into NaN (`clamp` keeps NaN) and sent it to f32 output devices; found by a 2-thread stress test (BASIC thread vs mixer). A device reporting 0 channels would panic in the callback. | Medium | Non-finite contributions dropped per source; 0-channel devices refused. |
+| R14-7 | The UTF-8 side table of text screens (`console/cells.rs`) indexed `(top_row - 1) * width` without bounds checks in `scroll_up` (top row 0, a bottom row past the table or width <= 0 panicked) and `clear_range` could overflow `first + count`. | Medium (abort from VIEW PRINT / WIDTH sequences) | i64 arithmetic, clipped to the table. |
 | R14-3 | `_MEM` range check `off + bytes` wrapped for offsets near the top of the address space, so `_MEMFILL`/`_MEMCOPY`/`_MEMGET` with a bad offset touched foreign memory instead of raising error 300. | High (BASIC computes `_OFFSET`s) | Check in i128. |
 
 Property tests: `qb-float80/tests/props.rs` (proptest, 20k cases each; decimal round trips 400): f64 widening, integer round trips, commutativity, `a-b = a+(-b)`, decimal and shortest text round trips, ordering vs subtraction sign, exact square roots, integer powers, rounding brackets, no panic on any encoding.
 
 Lints: `-W clippy::pedantic` clean for qb-float80 and qb-ffi library code (cast lints, one-letter names, legacy literals and x87-table match arms allowed with a reason in `lib.rs`). `#![cfg_attr(not(test), deny(clippy::unwrap_used))]` in all four crates (the 12 remaining non-test `unwrap`s replaced); `cargo clippy --all-targets` clean for the four crates. Tests: qb-runtime 334, qb-audio 41, qb-float80 23, qb-ffi 18 (release, Windows).
 
-Reviewed without findings: fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
+Miri (nightly, `-Zmiri-disable-isolation`): qb-float80 21/21 (software transcendentals; x87 asm tests skipped), qb-ffi 7/7 pure tests, qb-runtime `qbs::` + `mem::` 26/26 after R14-5 (the 300k-string arena test and the huge-allocation test are skipped: too slow / resource exhaustion by design). No UB left in those.
+
+Property tests in qb-runtime (`src/props_tests.rs`): MBF single/double round trips (signed zero and underflow to MBF zero as legacy), HEX$/OCT$/_BIN$ parse back, STR$ of integers, VAL(STR$(x)) within 1e-14 for doubles, DEFLATE/INFLATE round trip within `deflate_bound`. No findings.
+
+Reviewed without findings: events ON KEY/ON STRIG slot ranges, net send/recv/address buffers, fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
 
 Open (not done in this pass):
 
 - String engine arithmetic is u32 like legacy: strings near 2 GB (`STRING$(2^31-1, 65)`) are not tested (they need the RAM); QB45 raised "Out of string space" (14).
 - QB45 vs legacy error codes: `LEFT$`/`SPACE$`/`STRING$` with negative counts return "" as the legacy QB64 build did (QB45: error 5); kept for golden compatibility.
-- H1 `cargo miri` (needs a nightly toolchain, not installed), H6 loom/ThreadSanitizer, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
+- miri for the rest of qb-runtime (GFS, gfx, console; needs a machine with spare memory), H6 loom/ThreadSanitizer for net, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
 - rustc on this machine crashed a few times while compiling dependencies (`STATUS_STACK_BUFFER_OVERRUN` in rustc, with plenty of free RAM); a rerun with `CARGO_BUILD_JOBS=1` worked.
 How the pieces fit
 
@@ -795,7 +795,7 @@ Status: **first cut working** (VM only, no JIT). The qb-exec pipeline (QIR → b
 - **Runner mode** (`Vm::set_web_console`):
   - The program draws on the SCREEN 0 page from its first statement, as in a window: PRINT, CLS, LOCATE, COLOR, CSRLIN/POS, SCREEN 13 and the other graphics go through R11a's display code.
   - INPUT and LINE INPUT read the stdin text given with the run. The prompt and the text consumed are echoed on the screen.
-  - `_DELAY`, `_LIMIT` and `SLEEP n` really wait and present the frame. Headless qb-exec still skips them.
+  - `_DELAY` and `_LIMIT` wait through R11a's code (now on `qb_runtime::systime`, so the page's clock and sleep serve them) and present the frame drawn so far. `SLEEP n` waits only here; headless qb-exec still skips it.
   - `Vm::screen_record` returns the visible page as a `QBFB` record.
 - **qb-web:**
   - `screen.rs` turns the visible page into RGBA. Text pages use the builtin 8x16 font (8x8 above 30 rows, double width at 40 columns); palette pages and 32-bit pages are also handled. It also returns the text of a text page.
@@ -819,7 +819,7 @@ node crates/qb-web/tests/run.mjs        # 33 checks: text screen, COLOR/LOCATE p
                                         # SCREEN 13 pixels (PSET/LINE/CIRCLE/BF), TIMER + _DELAY, OPEN error, load error, fresh instance
 ```
 
-To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file.
+To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file. `timer.qir` was edited by hand to the current `_DELAY` form (DELAYBEGIN/DELAYSTEP loop): the qb-ir.exe build used for the fixtures still emitted `sub__delay`.
 
 Limits / next:
 - No interactive keyboard: INKEY$ is empty, and INPUT needs the text up front. A wasm call cannot wait for page events. Doing this needs a SharedArrayBuffer key queue (cross-origin isolation) or an async VM step.
@@ -828,6 +828,17 @@ Limits / next:
 - No JIT: Cranelift could emit wasm in a later step.
 - `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
 
+## R13 debugger (qb-dap)
+
+New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.
+
+- `qb-exec` feature `debug` (off by default): `src/debug.rs` (new) and 13 lines in `vm.rs` (module, field, init, one call at the top of the dispatch loop). The VM calls the attached `Debugger` at statement starts of the existing line table (`stmts`, from QIR `line N`); `Stop` exposes the call stack (SUB/FUNCTION frames with lines) and variables of each frame plus globals: numbers, strings, `_FLOAT`, register arrays, memory-mode variables (`STRING * n`, TYPEs with nested fields, arrays of TYPEs). `rt/` and `lower.rs` are not touched: locations are found by repeating lower's allocation order, verified by unit tests on `control_subs_functions.qir` (registers, BYREF copy, STATIC) and `data_udt.qir` (memory mode). Attaching turns the JIT off. Note: Cargo unifies features, so `cargo build --workspace` builds qb-exec with the hook compiled in (inactive, one `Option` check per instruction); `-p qb-exec` builds and benchmarks are unaffected.
+- `qb-dap`: DAP adapter on stdio; the program runs in a child debuggee process (same binary, `--debuggee`) whose stdin/stdout are the program's, connected to the adapter by loopback TCP. Launch takes `program` and either `qir` or compiles with `qb <file> --ir -o <temp>` and reads the QIR payload back. Breakpoints by line (snapped to the next statement line of the QIR line table), continue, pause, step in/over/out, stack trace, scopes (frame locals + globals), variables with expandable arrays and TYPEs, evaluate/hover for `name`, `name.field`, `name(i, j)`; names demangled from QIR and spelled as in the source.
+- VS Code: `contributes.debuggers` type `qbnex` (F5 debugs the current file without a launch.json; snippet; `qbnex.dap.path`), `QBNex: Run` moved to Ctrl+F5, `npm run bundle-server` copies qb-dap too.
+
+Verified (Windows, `CARGO_BUILD_JOBS=1`): `cargo test -p qb-exec --features debug --lib debug` 2/2; `cargo test -p qb-dap` 4 unit + 3 stdio integration tests (breakpoint in a SUB, step over out of it, second call with a copied argument, step out, step into recursive FUNCTION, STATIC variable, run to exit with output; TYPE/array expansion and evaluate; stop on entry); `cargo clippy -p qb-dap --all-targets` clean; `npm test` in packaging/vscode 6/6. Not tried in a running VS Code window (no GUI here) and not with a real `qb --ir` compile (tests use the qb-exec QIR fixtures).
+
+Needs from the emitter (R11a): file information in the QIR line table for `$INCLUDE`d code (see qb-dap-plan.md, item 1); until then breakpoints work in the launched file only.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

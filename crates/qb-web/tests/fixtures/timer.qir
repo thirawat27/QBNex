@@ -9,7 +9,12 @@ rt %1 TIMER.n %0
 store.f64 $__DOUBLE_T1 %1
 line 2
 const.f64 %2 0.2E+0
-rt sub__delay %2
+rt %900 DELAYBEGIN %2
+label ~Y900
+rt %901 DELAYSTEP %900
+jz %901 ~Y900.E
+jmp ~Y900
+label ~Y900.E
 line 3
 const.f64 %3 0.001E+0
 rt %4 TIMER.n %3

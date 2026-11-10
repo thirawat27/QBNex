@@ -117,9 +117,22 @@ pub(crate) mod host {
 
 use host::{cmem_sp, dblock};
 
+/// A block of 65536 string descriptors, owned through a raw pointer: generated
+/// code keeps `qbs*` into it, and moving a `Box<[Qbs]>` into `blocks` retagged
+/// it and invalidated those pointers under Rust's aliasing rules (found by
+/// miri, R14). Freed when the engine is dropped (`qb_qbs_reset`).
+pub(crate) struct DescBlock(*mut [Qbs]);
+
+impl Drop for DescBlock {
+    fn drop(&mut self) {
+        // SAFETY: created by Box::into_raw and dropped once.
+        drop(unsafe { Box::from_raw(self.0) });
+    }
+}
+
 struct Engine {
     ready: bool,
-    blocks: Vec<Box<[Qbs]>>,
+    blocks: Vec<DescBlock>,
     malloc: *mut Qbs,
     malloc_next: u32,
     freed: Vec<*mut Qbs>,
@@ -232,8 +245,8 @@ impl Engine {
                 ptr::write_bytes(block.as_mut_ptr(), 0, DESCRIPTOR_BLOCK as usize);
                 block.set_len(DESCRIPTOR_BLOCK as usize);
             }
-            let mut block = block.into_boxed_slice();
-            self.malloc = block.as_mut_ptr();
+            let block = DescBlock(Box::into_raw(block.into_boxed_slice()));
+            self.malloc = block.0.cast();
             self.blocks.push(block);
             self.malloc_next = 0;
         }
@@ -1336,8 +1349,8 @@ pub unsafe extern "C" fn qb_qbs_debug_descriptor_index(s: *const Qbs) -> i64 {
     unsafe {
         let e = eng();
         for (b, block) in e.blocks.iter().enumerate() {
-            let base = block.as_ptr();
-            if s >= base && s < base.add(block.len()) {
+            let base = block.0.cast::<Qbs>().cast_const();
+            if s >= base && s < base.add(block.0.len()) {
                 return (b as i64) * i64::from(DESCRIPTOR_BLOCK) + s.offset_from(base) as i64;
             }
         }

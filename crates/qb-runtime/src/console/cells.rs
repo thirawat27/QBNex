@@ -79,8 +79,10 @@ pub fn clear_range(image: i32, first: i32, count: i32) {
         if t.cells.is_empty() || count <= 0 {
             return;
         }
-        let first = first.max(0);
-        let end = (first + count).min(t.cells.len() as i32);
+        // i64: `first + count` cannot overflow (R14).
+        let len = t.cells.len() as i64;
+        let first = i64::from(first).max(0);
+        let end = (first + i64::from(count)).min(len);
         for i in first..end {
             t.cells[i as usize].clear();
             t.state[i as usize] = 0;
@@ -96,16 +98,26 @@ pub fn scroll_up(image: i32, width: i32, top_row: i32, bottom_row: i32) {
         if t.cells.is_empty() {
             return;
         }
-        let dst = (top_row - 1) * width;
-        let src = top_row * width;
-        let moved = (bottom_row - top_row) * width;
-        for c in 0..moved {
-            let (d, s) = ((dst + c) as usize, (src + c) as usize);
-            t.cells[d] = t.cells[s].clone();
-            t.state[d] = t.state[s];
+        // R14: rows outside the table (VIEW PRINT ranges, a WIDTH change before
+        // the table was resized) are skipped instead of indexing out of range.
+        let len = t.cells.len() as i64;
+        let (width, top, bottom) = (i64::from(width), i64::from(top_row), i64::from(bottom_row));
+        if width <= 0 || top < 1 || bottom < top {
+            return;
         }
-        let first = ((bottom_row - 1) * width).max(0);
-        let end = (first + width).min(t.cells.len() as i32);
+        let dst = (top - 1) * width;
+        let src = top * width;
+        let moved = (bottom - top) * width;
+        for c in 0..moved {
+            let (d, s) = (dst + c, src + c);
+            if s >= len {
+                break;
+            }
+            t.cells[d as usize] = t.cells[s as usize].clone();
+            t.state[d as usize] = t.state[s as usize];
+        }
+        let first = ((bottom - 1) * width).max(0);
+        let end = (first + width).min(len);
         for i in first..end {
             t.cells[i as usize].clear();
             t.state[i as usize] = 0;
@@ -295,5 +307,24 @@ mod tests {
         release(im);
         assert!(!append(im, 1, 0x301, |_| 0));
         assert_eq!(span(im, 1), 1);
+    }
+
+    /// R14: scroll and clear with rows/counts outside the table must not
+    /// panic (VIEW PRINT ranges, a WIDTH change before the table is resized).
+    #[test]
+    fn out_of_range_scroll_and_clear_are_ignored() {
+        let im = 9002;
+        init(im, 8); // e.g. 4 x 2
+        store(im, 6, 0x0E01, 1);
+        scroll_up(im, 4, 0, 2); // top row 0: destination before the table
+        scroll_up(im, 4, 1, 5); // bottom row past the table
+        scroll_up(im, 4, 3, 1); // inverted range
+        scroll_up(im, i32::MAX, 1, 2);
+        scroll_up(im, -4, 1, 2);
+        clear_range(im, 1, i32::MAX);
+        clear_range(im, i32::MAX, i32::MAX);
+        clear_range(im, i32::MIN, 3);
+        assert_eq!(content(im, 6), b"");
+        release(im);
     }
 }

@@ -126,6 +126,20 @@ pub static TABLE: &[Builtin] = &[
     b!("EXP.s", [F64], F64),
     // raises the error of the numeric READ just stored (C++ assigns 0, then errors)
     b!("READCHK", []),
+    b!("_OS$", [], Str),
+    b!("_COMMANDCOUNT", [], I32),
+    // CALL ABSOLUTE: arguments copied into DBLOCK (offset back), read back, then the call
+    b!("ABSARG.i16", [I16], I32),
+    b!("ABSARG.i32", [I32], I32),
+    b!("ABSARG.i64", [I64], I32),
+    b!("ABSARG.f32", [F32], I32),
+    b!("ABSARG.f64", [F64], I32),
+    b!("ABSGET.i16", [I32], I16),
+    b!("ABSGET.i32", [I32], I32),
+    b!("ABSGET.i64", [I32], I64),
+    b!("ABSGET.f32", [I32], F32),
+    b!("ABSGET.f64", [I32], F64),
+    b!("ABSCALL", [I32]),
     // VARPTR$ of a numeric value: (VARPTR$ type code, value)
     b!("VARPTR$", [I32, F64], Str),
     b!("_ROUND.f64", [F64], I64),
@@ -265,6 +279,21 @@ pub static TABLE: &[Builtin] = &[
     b!("func__loadfont", [Str, F64, Str, I32], I32),
     b!("sub__freefont", [I32, I32]),
     b!("func__printwidth", [Str, I32, I32], I32),
+    b!("func__loadimage", [Str, I32, I32], I32),
+    b!("func__title", [], Str),
+    b!("func__keyhit", [], I32),
+    b!("func__freetimer", [], I32),
+    b!("sub_timer", [I32, I32, I32]),
+    b!("sub_key", [I32, I32, I32]),
+    // _DELAY: deadline (ms clock) and one wait step (1 = still waiting); the emitter loops
+    b!("DELAYBEGIN", [F64], F64),
+    b!("DELAYSTEP", [F64], I32),
+    b!("func__keydown", [I32], I32),
+    b!("func__mouseinput", [I32, I32], I32),
+    b!("func__mousebutton", [I32, I32, I32], I32),
+    b!("func__mousex", [I32, I32], F32),
+    b!("func__mousey", [I32, I32], F32),
+    b!("func__mousewheel", [I32, I32], I32),
 
     // ---- sound (qb-audio); trailing I32 `passed` = optional-argument flags of the C++ backend
     b!("SOUND", [F64, F64]),

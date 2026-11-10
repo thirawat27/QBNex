@@ -129,6 +129,7 @@ pub fn inst_text(i: &Inst) -> String {
         Inst::Resume(ResumeKind::Next) => "resume next".into(),
         Inst::Resume(ResumeKind::Label(l)) => format!("resume {l}"),
         Inst::Error(r) => format!("error %{r}"),
+        Inst::OnTimer { slot, secs, target } => format!("ontimer %{slot} %{secs} {target}"),
         Inst::Read { ty, dst } => format!("read.{} %{dst}", ty.name()),
         Inst::Restore(None) => "restore".into(),
         Inst::Restore(Some(l)) => format!("restore {l}"),

@@ -25,6 +25,9 @@ mod rt;
 mod vm;
 
 pub use vm::{EventHandle, Vm};
+/// Debugger hook (feature `debug`), used by `qb-dap`.
+#[cfg(feature = "debug")]
+pub use vm::debug;
 
 /// `qb-runtime` is linked as a whole: its string engine (R3) refers to symbols that
 /// libqb.cpp/qbx.cpp define for C++ programs. qb-exec never calls that code, so
