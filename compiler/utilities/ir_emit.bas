@@ -296,7 +296,7 @@ SUB IrParam (idn AS LONG)
     DIM nm$, st$
     nm$ = "$" + LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
     IF ids(idn).arraytype THEN
-        st$ = "array " + IrSTy$(ids(idn).arraytype, ids(idn).tsize)
+        st$ = "array " + IrSTy$(ids(idn).arraytype, ids(idn).tsize) + " byref"
     ELSE
         st$ = IrSTy$(ids(idn).t, ids(idn).tsize) + " byref"
     END IF
