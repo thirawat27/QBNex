@@ -13,7 +13,7 @@
 //!   name: the C runtime, the program itself and the system libraries the
 //!   legacy build linked (kernel32, user32, gdi32, ... / libc, libm);
 //! - [`call`] calls any function pointer with a [`Signature`] of QB types on
-//!   Win64, SysV x86-64 and AArch64 (AAPCS64, including Apple's variant).
+//!   Win64, `SysV` x86-64 and `AArch64` (AAPCS64, including Apple's variant).
 //!
 //! `DECLARE LIBRARY "name"` where the legacy compiler would have found a C
 //! header (`name.h` / `name.hpp`) is rejected at compile time with
@@ -24,6 +24,24 @@
 //! emitter (R11a) and the VM (R11b).
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
+// R14 H2: clippy::pedantic is clean except for the lints below. Bit-level x87
+// emulation and C ABI glue cast between integer widths on purpose (every cast
+// is a deliberate truncation, sign reinterpretation or widening of a field),
+// and the one-letter names follow the instruction manuals (a, b, m, e, x, y).
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    // legacy literals and x87 constants are kept digit for digit
+    clippy::unreadable_literal,
+    // match arms mirror the x87 special-case tables row by row
+    clippy::match_same_arms,
+    clippy::items_after_statements
+)]
 mod abi;
 mod loader;
 
@@ -56,6 +74,7 @@ pub enum Ty {
 }
 
 impl Ty {
+    #[must_use]
     pub fn is_float(self) -> bool {
         matches!(self, Ty::F32 | Ty::F64)
     }
@@ -71,10 +90,12 @@ pub struct Signature {
 }
 
 impl Signature {
+    #[must_use]
     pub fn new(args: Vec<Ty>, ret: Ty) -> Signature {
         Signature { args, ret, variadic_from: None }
     }
 
+    #[must_use]
     pub fn variadic(args: Vec<Ty>, ret: Ty, fixed: usize) -> Signature {
         Signature { args, ret, variadic_from: Some(fixed) }
     }
@@ -184,6 +205,10 @@ fn ret_value(ty: Ty, gpr: u64, fpr: u64) -> Value {
 
 /// Calls `func` with `args` as described by `sig`.
 ///
+/// # Errors
+/// [`CallError`] for a null pointer, a wrong argument count or a value of the
+/// wrong kind for its slot; nothing is called then.
+///
 /// # Safety
 /// `func` must point to a function with exactly this C signature, and every
 /// pointer argument must be valid for what the function does with it.
@@ -212,6 +237,9 @@ pub struct Function {
 }
 
 impl Function {
+    /// # Errors
+    /// As [`call`].
+    ///
     /// # Safety
     /// See [`call`].
     pub unsafe fn call(&self, args: &[Value]) -> Result<Value, CallError> {

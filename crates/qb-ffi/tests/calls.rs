@@ -3,6 +3,8 @@
 //! and system library symbols found without a header, and a DLL / shared
 //! object built from Rust source during the test.
 
+#![allow(clippy::pedantic)] // test code: casts and short names on purpose
+
 use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol};
 use std::ffi::c_void;
 

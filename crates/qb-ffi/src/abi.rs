@@ -190,7 +190,7 @@ pub(crate) unsafe fn invoke(func: *const c_void, args: &[(Ty, u64)], variadic_fr
     };
     // SAFETY: the frame is fully initialised; the thunk follows the platform
     // ABI; the callee contract is the caller's.
-    unsafe { qb_ffi_thunk(&mut f) };
+    unsafe { qb_ffi_thunk(&raw mut f) };
     let _ = f.ret_gpr2;
     (f.ret_gpr, f.ret_fpr)
 }

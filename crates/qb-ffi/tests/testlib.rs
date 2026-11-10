@@ -1,5 +1,7 @@
 //! Test library for `tests/calls.rs` (built as a cdylib by the test itself).
 
+#![allow(clippy::pedantic)] // test code: casts and short names on purpose
+
 /// # Safety
 /// `s` must point to a NUL-terminated string.
 #[unsafe(no_mangle)]

@@ -2,6 +2,8 @@
 //! reference is `tests/diff/diff_float80.cpp`; these check algebraic
 //! invariants that must hold on every target, including the software path.
 
+#![allow(clippy::pedantic)] // test code: casts and short names on purpose
+
 use proptest::prelude::*;
 use qb_float80::{F80, Round, dec, libm};
 
