@@ -38,6 +38,14 @@ if exist internal\c\c_compiler\bin\c++.exe if exist internal\c\c_compiler\includ
 if exist internal\c\c_compiler\bin\c++.exe if exist internal\c\c_compiler\x86_64-w64-mingw32\include\windows.h goto skipccompsetup
 if exist internal\c\c_compiler\bin\c++.exe if exist internal\c\c_compiler\i686-w64-mingw32\include\windows.h goto skipccompsetup
 
+rem internal\c\c_compiler may be a junction/symlink to a shared toolchain (worktrees,
+rem scoop). Never delete through a link: a broken linked toolchain must be repaired
+rem where it lives, so stop here instead of downloading over it.
+dir /al /b internal\c 2>nul | findstr /x /i "c_compiler" >nul && (
+    echo Error: internal\c\c_compiler is a link to a toolchain without c++.exe or windows.h.
+    echo Repair or reinstall that toolchain, or remove the link, then run this script again.
+    goto end
+)
 if exist internal\c\c_compiler rd /s /q internal\c\c_compiler >nul 2>nul
 mkdir internal\c\c_compiler
 mkdir "%ARCHIVE_STAGE%"
