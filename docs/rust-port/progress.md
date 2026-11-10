@@ -394,7 +394,15 @@ Gate "loop benchmark <= 2x of the C++ path": met (1.0x). Not met yet: SUB/FUNCTI
 - Native calls: compile callee frames in the JIT arena (MIR `Call` exists and is tested in qb-jit) once the VM's frame/BYREF copy-back can be mirrored; needed for the compiler front end goal.
 - Compiler front end (`qbnex.bas` through QIR) <= 2x native: not measurable yet (R11a emits QIR v1, the typed VM runs v0 bytecode).
 - Event polling: native code also polls at backward conditional branches to resumable blocks (the VM only at `loop`/`for_next`/CALL) — events can be delivered at a few more safe points.
-- D15 (AOT exe through Cranelift + `qb-link`): not started in this branch.
+- Native calls are still the main gap (see the table).
+
+### D15 — native executables without a linker (first cut)
+- `qb_jit::aot::compile_object`: the same code generator, written as an object file by `cranelift-object` (functions `qb_func_<i>`, runtime calls as undefined symbols `qb_jit_*`, `qb_host_<i>`, `qb_vm_op`).
+- `crates/qb-link`: reads the object (COFF/ELF/Mach-O via `object`), lays out its sections into an image, keeps relocations (Abs64, Rel32, AArch64 Call26; runtime ones by name), serialises it, and at start-up copies it into executable memory and patches the addresses of the running process. No external linker, no C toolchain, no code generation at run time.
+- `qb-exec build prog.qir -o prog.exe` = runner + QIR + image (`QBNEXAO1` footer, fingerprinted against program and runner layout); native code is used from the first loop iteration.
+- Tests: every qb-jit semantics test compares interpreter, JIT and AOT; AOT on every 10th random program; objects for host, x86-64 ELF and AArch64 ELF link (`aot_objects_link_for_every_target`); `qb-exec/tests/aot.rs` runs programs from images and a real `qb-exec build` exe against the VM.
+- Measured (whole process, warm file cache): 50M-iteration loop 111 ms native exe vs 880 ms C++ exe (mostly C++ start-up) and 108 ms JIT; array loop 74 ms vs 800 ms; float loop 75 ms vs 930 ms.
+- Not yet: the exe is still the runner (VM present for strings/builtins/calls) rather than a PE/ELF written from scratch; `qb file.bas` does not call `build` yet (R11a/packaging); Linux/macOS/aarch64 load not run here (code generation and linking are tested).
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
