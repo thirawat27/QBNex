@@ -5,7 +5,7 @@ rem Usage: tests\diff\run_diff.cmd [--quick]
 setlocal
 cd /d "%~dp0"
 set "CXX=..\..\internal\c\c_compiler\bin\g++"
-set "LIBS=..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput -lbcrypt -static-libgcc -static-libstdc++"
+set "LIBS=..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput -static-libgcc -static-libstdc++"
 set "OUT=%TEMP%\qb_diff_%RANDOM%"
 mkdir "%OUT%" >nul 2>&1
 rem: the host symbols libqb_runtime.a imports from libqb.cpp (diff_qbs defines its own).
