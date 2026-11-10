@@ -238,5 +238,3 @@ pub extern "C" fn qb_web_poll_stdout() -> usize {
     let v = lock(&OUT).clone();
     publish(v)
 }
-
-///
