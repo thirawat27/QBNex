@@ -99,7 +99,7 @@ grep -F "Build Halted" "$OUT_FAIL" >/dev/null 2>&1 || {
   echo "[FAIL] Missing-label fixture is missing blocking diagnostic output."
   FAIL=1
 }
-if ! grep -F "Label 'MissingLabel' not defined" "$OUT_FAIL" >/dev/null 2>&1 && ! grep -F "Unknown statement" "$OUT_FAIL" >/dev/null 2>&1; then
+if ! grep -iF "Label 'MissingLabel' not defined" "$OUT_FAIL" >/dev/null 2>&1; then
   echo "[FAIL] Missing-label fixture should report a blocking label-path failure."
   FAIL=1
 fi
