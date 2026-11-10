@@ -132,6 +132,8 @@ pub static TABLE: &[Builtin] = &[
     b!("ERR", [], I32),
     b!("ERL", [], I32),
     b!("_ERRORLINE", [], I32),
+    // numeric line label reached (ERL reports the last one before the error)
+    b!("LASTLINE", [I32]),
     // ---- files
     b!("OPEN", [Str, I32, I32, I32]),
     b!("OPENOLD", [Str, I32, Str]),

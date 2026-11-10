@@ -224,3 +224,29 @@ fn print_zone() {
     let o = run("const.i32 %9 0\nconst.str %0 x41\nrt PRINTS %9 %0\nrt PRINTZONE %9\nrt PRINTS %9 %0\nrt PRINTNL %9");
     assert_eq!(o, "A             A\n");
 }
+
+#[test]
+fn erl_is_last_numeric_label_errorline_is_source_line() {
+    let src = "QIR 1
+func main
+onerror H
+rt LASTLINE %9
+line 7
+const.i32 %0 6
+error %0
+end
+label H
+const.i32 %1 0
+rt %2 ERL
+cvt.i64.i32 %3 %2
+rt PRINTN.i64 %1 %3
+rt %4 _ERRORLINE
+cvt.i64.i32 %5 %4
+rt PRINTN.i64 %1 %5
+rt PRINTNL %1
+end
+endfunc
+";
+    let src = src.replace("rt LASTLINE %9", "const.i32 %9 40\nrt LASTLINE %9");
+    assert_eq!(run_full(&src), " 40  7 \n");
+}

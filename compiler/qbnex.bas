@@ -2732,7 +2732,7 @@ FUNCTION getpid& ()
 
                     layout$ = tlayout$
                     PRINT #12, "LABEL_" + label$ + ":;"
-                    IF IrEmitMode THEN IrLabelDef label$
+                    IF IrEmitMode THEN IrLabelDef label$: IrE "rt LASTLINE " + IrI32$(VAL(label$))
 
 
                     IF INSTR(label$, "p") THEN MID$(label$, INSTR(label$, "p"), 1) = "."

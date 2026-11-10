@@ -357,6 +357,10 @@ pub(crate) struct Vm<'a> {
     in_handler: Option<(usize, usize)>,
     pub(crate) err: i32,
     pub(crate) erl: u32,
+    /// source line of the last error (`_ERRORLINE`)
+    pub(crate) errline: u32,
+    /// last numeric line label executed (legacy `last_line`)
+    pub(crate) last_line: u32,
     data_pos: usize,
     pub(crate) rt: rt::RtState<'a>,
 }
@@ -672,7 +676,8 @@ impl<'a> Vm<'a> {
             return Err(RunError { code, line, msg: format!("error {code}") });
         };
         self.err = code;
-        self.erl = line;
+        self.erl = self.last_line;
+        self.errline = line;
         let k = self.frames.len() - 1;
         let lpc = self.frames[k].line_pc;
         self.in_handler = Some((k, lpc));
@@ -1023,6 +1028,8 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         in_handler: None,
         err: 0,
         erl: 0,
+        errline: 0,
+        last_line: 0,
         data_pos: 0,
         rt: rt::RtState::new(out),
     };

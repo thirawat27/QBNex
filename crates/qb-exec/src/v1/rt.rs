@@ -394,7 +394,9 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
             return ok(V::F(t % 86400.0));
         }
         "ERR" => return ok(V::I(vm.err.into())),
-        "ERL" | "_ERRORLINE" => return ok(V::I(vm.erl.into())),
+        "ERL" => return ok(V::I(vm.erl.into())),
+        "_ERRORLINE" => return ok(V::I(vm.errline.into())),
+        "LASTLINE" => vm.last_line = i(0) as u32,
         "LINEINPUT" => {
             let ch = i(0) as i32;
             let _ = ch;
