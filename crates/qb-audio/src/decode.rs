@@ -272,12 +272,12 @@ pub fn load_file(path: &Path, device_rate: u32) -> Option<Pcm> {
     decode_symphonia(path, device_rate).or_else(|| decode_module(path, device_rate))
 }
 
-#[/// First 4 bytes of `b` (callers index inside the sample buffer).
+/// First 4 bytes of `b` (callers index inside the sample buffer).
 fn le4(b: &[u8]) -> [u8; 4] {
     [b[0], b[1], b[2], b[3]]
 }
 
-cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
 
