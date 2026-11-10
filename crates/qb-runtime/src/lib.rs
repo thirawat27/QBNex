@@ -31,6 +31,10 @@ pub mod fsops;
 pub mod gamepad;
 pub mod gfs;
 pub mod gfx;
+#[cfg(feature = "gpu")]
+pub mod gpu_present;
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_tests;
 pub mod image;
 pub mod keybuf;
 pub mod keymap;
@@ -104,3 +108,5 @@ pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
 
 #[cfg(test)]
 mod robustness_tests;
+#[cfg(test)]
+mod props_tests;

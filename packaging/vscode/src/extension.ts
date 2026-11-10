@@ -1,11 +1,12 @@
-// QBNex BASIC extension: starts qb-lsp and provides Run/Compile commands.
+// QBNex BASIC extension: starts qb-lsp, registers the qb-dap debugger and
+// provides Run/Compile commands.
 
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
-import { expandArgs, exeExtension, serverCandidates } from './util';
+import { completeDebugConfig, expandArgs, exeExtension, serverCandidates } from './util';
 
 let client: LanguageClient | undefined;
 let output: vscode.OutputChannel;
@@ -21,6 +22,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.commands.registerCommand('qbnex.restartServer', async () => {
             await stopServer();
             await startServer(context);
+        }),
+        vscode.debug.registerDebugAdapterDescriptorFactory('qbnex', {
+            createDebugAdapterDescriptor: () => new vscode.DebugAdapterExecutable(toolCommand(context, 'dap.path', 'qb-dap')),
+        }),
+        vscode.debug.registerDebugConfigurationProvider('qbnex', {
+            resolveDebugConfiguration: async (_folder, cfg) => {
+                const editor = vscode.window.activeTextEditor;
+                const file = editor?.document.languageId === 'qbasic' ? editor.document.uri.fsPath : undefined;
+                if (editor?.document.isDirty && file) {
+                    await editor.document.save();
+                }
+                const done = completeDebugConfig(cfg, file, config().get<string>('compilerPath', 'qb'));
+                if (!done) {
+                    void vscode.window.showErrorMessage('QBNex: open a .bas file to debug.');
+                }
+                return done as vscode.DebugConfiguration | undefined;
+            },
         }),
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('qbnex.lsp')) {
@@ -40,15 +58,19 @@ function config(): vscode.WorkspaceConfiguration {
     return vscode.workspace.getConfiguration('qbnex');
 }
 
-/** The qb-lsp command: setting, then bundled copy, then PATH. */
-function serverCommand(context: vscode.ExtensionContext): string {
-    const configured = config().get<string>('lsp.path', '').trim();
-    for (const c of serverCandidates(configured, context.extensionPath, process.platform)) {
+/** A tool's command (qb-lsp, qb-dap): setting, then bundled copy, then PATH. */
+function toolCommand(context: vscode.ExtensionContext, setting: string, tool: string): string {
+    const configured = config().get<string>(setting, '').trim();
+    for (const c of serverCandidates(configured, context.extensionPath, process.platform, tool)) {
         if (!path.isAbsolute(c) || fs.existsSync(c)) {
             return c;
         }
     }
-    return 'qb-lsp';
+    return tool;
+}
+
+function serverCommand(context: vscode.ExtensionContext): string {
+    return toolCommand(context, 'lsp.path', 'qb-lsp');
 }
 
 async function startServer(context: vscode.ExtensionContext): Promise<void> {

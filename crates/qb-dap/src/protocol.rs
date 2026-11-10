@@ -1,0 +1,55 @@
+//! DAP base protocol: `Content-Length: n\r\n\r\n<json>` messages.
+
+use std::io::{self, BufRead, Write};
+
+use serde_json::Value;
+
+/// Reads one message; `Ok(None)` at end of input.
+pub fn read_message(r: &mut impl BufRead) -> io::Result<Option<Value>> {
+    let mut len: Option<usize> = None;
+    loop {
+        let mut line = String::new();
+        if r.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
+            if len.is_some() {
+                break;
+            }
+            continue;
+        }
+        if let Some((k, v)) = line.split_once(':')
+            && k.trim().eq_ignore_ascii_case("Content-Length")
+        {
+            len = v.trim().parse().ok();
+        }
+    }
+    let mut buf = vec![0; len.unwrap_or(0)];
+    r.read_exact(&mut buf)?;
+    serde_json::from_slice(&buf).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// Writes one message.
+pub fn write_message(w: &mut impl Write, msg: &Value) -> io::Result<()> {
+    let body = serde_json::to_vec(msg)?;
+    write!(w, "Content-Length: {}\r\n\r\n", body.len())?;
+    w.write_all(&body)?;
+    w.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trip() {
+        let mut buf = Vec::new();
+        write_message(&mut buf, &serde_json::json!({"a": 1})).unwrap();
+        write_message(&mut buf, &serde_json::json!({"b": "é"})).unwrap();
+        let mut r = io::BufReader::new(&buf[..]);
+        assert_eq!(read_message(&mut r).unwrap().unwrap()["a"], 1);
+        assert_eq!(read_message(&mut r).unwrap().unwrap()["b"], "é");
+        assert!(read_message(&mut r).unwrap().is_none());
+    }
+}

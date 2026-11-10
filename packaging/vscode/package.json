@@ -58,7 +58,77 @@
         "path": "./snippets/qbasic.json"
       }
     ],
-    "commands": [
+    "breakpoints": [
+      {
+        "language": "qbasic"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "qbnex",
+        "label": "QBNex",
+        "languages": [
+          "qbasic"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "The .bas file to debug.",
+                "default": "${file}"
+              },
+              "qir": {
+                "type": "string",
+                "description": "Use this QIR file instead of compiling the program with `qb --ir`."
+              },
+              "compiler": {
+                "type": "string",
+                "description": "Compiler command used to produce QIR (default: the qbnex.compilerPath setting)."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory of the program (default: the program's folder)."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at the first statement.",
+                "default": false
+              },
+              "input": {
+                "type": "string",
+                "description": "File whose contents the program reads as standard input (INPUT, LINE INPUT)."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "qbnex",
+            "request": "launch",
+            "name": "Debug QBNex program",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "QBNex: Debug program",
+            "description": "Debug a .bas file on the qb-exec VM",
+            "body": {
+              "type": "qbnex",
+              "request": "launch",
+              "name": "Debug QBNex program",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false
+            }
+          }
+        ]
+      }
+    ],    "commands": [
       {
         "command": "qbnex.run",
         "title": "QBNex: Run",
@@ -94,7 +164,8 @@
     "keybindings": [
       {
         "command": "qbnex.run",
-        "key": "f5",
+        "key": "ctrl+f5",
+        "mac": "cmd+f5",
         "when": "editorLangId == qbasic && !inDebugMode"
       },
       {
@@ -141,6 +212,11 @@
           "type": "string",
           "default": "",
           "description": "Path of the qb-lsp language server. Empty: the copy bundled in the extension's server folder, else `qb-lsp` on PATH."
+        },
+        "qbnex.dap.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path of the qb-dap debug adapter. Empty: the copy bundled in the extension's server folder, else `qb-dap` on PATH."
         },
         "qbnex.lsp.enabled": {
           "type": "boolean",

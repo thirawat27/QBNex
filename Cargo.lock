@@ -2377,6 +2377,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-dap"
+version = "0.1.0"
+dependencies = [
+ "qb-exec",
+ "qb-ir",
+ "qb-syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "qb-exec"
 version = "0.1.0"
 dependencies = [
@@ -2483,9 +2494,11 @@ dependencies = [
  "chrono",
  "gilrs",
  "png",
+ "proptest",
  "qb-audio",
  "qb-ext",
  "qb-float80",
+ "qb-gpu",
  "skrifa",
  "softbuffer",
  "windows-sys 0.61.2",

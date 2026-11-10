@@ -72,7 +72,7 @@ struct Pool {
     next: usize,
     freed: Vec<*mut MemLock>,
     /// `_MEMNEW` allocations keyed by the address of their lock.
-    memnew: BTreeMap<usize, Box<[u8]>>,
+    memnew: BTreeMap<usize, RawBuf>,
     /// Zeroed buffer returned by `_MEMGET` when a check fails.
     fail_buffer: Vec<u8>,
 }
@@ -217,6 +217,33 @@ pub fn mem_at_offset(offset: isize, size: isize, new_error: bool) -> (MemBlock, 
     (b, err)
 }
 
+/// A `_MEMNEW` buffer owned through a raw pointer. BASIC keeps the address
+/// as an integer and reads/writes it later; moving a `Box<[u8]>` (into the
+/// pool map) retags it and invalidates that address under Rust's aliasing
+/// rules (found by miri, R14). The raw allocation is never moved.
+pub(crate) struct RawBuf(*mut [u8]);
+
+// SAFETY: the buffer is plain bytes owned by the pool; access is serialised by
+// the pool mutex or by the BASIC thread that owns the block.
+unsafe impl Send for RawBuf {}
+
+impl RawBuf {
+    fn new(b: Box<[u8]>) -> RawBuf {
+        RawBuf(Box::into_raw(b))
+    }
+
+    fn ptr(&self) -> *mut u8 {
+        self.0.cast()
+    }
+}
+
+impl Drop for RawBuf {
+    fn drop(&mut self) {
+        // SAFETY: created by Box::into_raw in `new` and dropped once.
+        drop(unsafe { Box::from_raw(self.0) });
+    }
+}
+
 /// `_MEMNEW(bytes)`. A negative size still returns a (useless) block plus error 5.
 pub fn memnew(bytes: isize, new_error: bool) -> (MemBlock, i32) {
     let lock = new_mem_lock();
@@ -248,8 +275,8 @@ pub fn memnew(bytes: isize, new_error: bool) -> (MemBlock, i32) {
         return (b, 0);
     }
     v.resize(bytes as usize, 0);
-    let mut buf = v.into_boxed_slice();
-    let ptr = buf.as_mut_ptr();
+    let buf = RawBuf::new(v.into_boxed_slice());
+    let ptr = buf.ptr();
     pool().memnew.insert(lock as usize, buf);
     b.offset = ptr as isize;
     b.size = bytes;
