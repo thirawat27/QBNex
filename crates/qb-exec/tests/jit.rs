@@ -42,9 +42,12 @@ fn run_mode(src: &str, mode: Mode) -> Run {
 /// Runs both ways, checks equality and that native code ran; returns the output.
 fn same(src: &str) -> String {
     let vm = run_mode(src, Mode::Off);
-    let jit = run_mode(src, Mode::Hot);
-    assert_eq!((&vm.out, &vm.result), (&jit.out, &jit.result), "VM vs JIT\n{src}");
-    assert!(jit.entries > 0, "native code never entered\n{src}");
+    let hot = run_mode(src, Mode::Hot);
+    let eager = run_mode(src, Mode::Eager);
+    assert_eq!((&vm.out, &vm.result), (&hot.out, &hot.result), "VM vs JIT (hot)\n{src}");
+    assert_eq!((&vm.out, &vm.result), (&eager.out, &eager.result), "VM vs JIT (eager)\n{src}");
+    // Eager enters every loop (hot mode may leave VM-bound loops to the interpreter).
+    assert!(eager.entries > 0, "native code never entered\n{src}");
     vm.out
 }
 

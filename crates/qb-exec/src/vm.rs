@@ -369,6 +369,9 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// (dispatch events first when `event`).
     #[inline(never)]
     fn jit_enter(&mut self, pc: u32, np: *mut u64) -> Option<Result<(u32, bool), (i32, u32)>> {
+        if !self.jit.as_deref()?.wants(pc) {
+            return None;
+        }
         let me = self as *mut Self as *mut core::ffi::c_void;
         let globals = self.nums.as_mut_ptr();
         let ev: *const AtomicU32 = &self.ev.pending;
@@ -1059,7 +1062,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         macro_rules! jit {
             () => {
-                if !STEP && self.jit.is_some() {
+                if !STEP && self.jit.as_deref().is_some_and(|j| j.wants(pc)) {
                     match self.jit_enter(pc, np) {
                         None => {}
                         Some(Ok((p, _))) if p == u32::MAX => return Ok(u32::MAX),

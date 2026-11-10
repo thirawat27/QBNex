@@ -36,6 +36,47 @@ fn cc(c: Cmp) -> Cc {
     }
 }
 
+/// Compiled to native code (no VM callback).
+fn light(ins: &Ins) -> bool {
+    use Ins::*;
+    match ins {
+        Ldi { .. } | Ldk { .. } | Mov { .. } | GetG { .. } | SetG { .. } | IToF { .. } | FToI { .. } | Wrap { .. }
+        | RoundF32 { .. } | AddI16 { .. } | AddI32 { .. } | AddI64 { .. } | SubI16 { .. } | SubI32 { .. }
+        | SubI64 { .. } | MulI16 { .. } | MulI32 { .. } | MulI64 { .. } | IDiv { .. } | Mod { .. } | And { .. }
+        | Or { .. } | Xor { .. } | Eqv { .. } | Imp { .. } | AddF { .. } | SubF { .. } | MulF { .. } | DivF { .. }
+        | PowF { .. } | CmpI { .. } | CmpF { .. } | Jmp { .. } | Loop { .. } | JzI { .. } | JnzI { .. }
+        | JzF { .. } | JnzF { .. } | BrI { .. } | BrF { .. } | ForTestI { .. } | ForTestF { .. }
+        | ForNextI { .. } | LdE1 { .. } | StE1 { .. } | Gosub { .. } | Return => true,
+        LdE { n, .. } | StE { n, .. } => *n <= 2,
+        Un { op, .. } => !matches!(op, bc::Un::Log | bc::Un::Exp | bc::Un::Sin | bc::Un::Cos | bc::Un::Tan | bc::Un::Atn),
+        _ => false,
+    }
+}
+
+/// Loop headers where native code would mostly call back into the VM
+/// (string-heavy loops): entering there is slower than interpreting.
+fn vm_bound_headers(m: &bc::Module) -> Vec<bool> {
+    let mut v = vec![false; m.code.len()];
+    for (pc, ins) in m.code.iter().enumerate() {
+        let t = match *ins {
+            Ins::Loop { t } => t,
+            Ins::ForNextI { body, .. } => body,
+            _ => continue,
+        };
+        if t as usize > pc {
+            continue;
+        }
+        let body = &m.code[t as usize..=pc];
+        let heavy = body.iter().filter(|i| !light(i) && !exits(i) && !matches!(i, Ins::Call { .. })).count();
+        let lite = body.iter().filter(|i| light(i)).count();
+        // Each VM callback costs about as much as interpreting several numeric instructions.
+        if heavy * 4 > lite {
+            v[t as usize] = true;
+        }
+    }
+    v
+}
+
 /// Control the VM owns: native code stops here and the VM continues at this pc.
 fn exits(ins: &Ins) -> bool {
     use Ins::*;
@@ -806,10 +847,12 @@ pub struct JitState {
     /// Lowered on first use (needs the VM callback address).
     mir: Option<mir::Module>,
     ctx: Box<Ctx>,
-    /// (entry, end) of every function, by function index.
-    ranges: Vec<(u32, u32)>,
+    /// function index of every pc
+    func_at: Vec<u32>,
     pub entries: u64,
     bc: *const bc::Module,
+    /// loop headers left to the interpreter (see [`vm_bound_headers`])
+    skip: Vec<bool>,
 }
 
 impl JitState {
@@ -821,9 +864,16 @@ impl JitState {
             tier: Tiering::new(mode, threshold),
             mir: None,
             ctx: Ctx::with_capacity(core::ptr::null_mut(), 1, 1),
-            ranges: m.funcs.iter().map(|f| (f.entry, f.end)).collect(),
+            func_at: {
+                let mut v = vec![0u32; m.code.len()];
+                for (i, f) in m.funcs.iter().enumerate() {
+                    v[f.entry as usize..f.end as usize].fill(i as u32);
+                }
+                v
+            },
             entries: 0,
             bc: m,
+            skip: if mode == Mode::Eager { vec![false; m.code.len()] } else { vm_bound_headers(m) },
         }))
     }
 
@@ -836,8 +886,14 @@ impl JitState {
         self.tier.failure().map(str::to_string)
     }
 
+    /// Cheap pre-check at every back-edge: is this loop header ever entered natively?
+    #[inline(always)]
+    pub(crate) fn wants(&self, pc: u32) -> bool {
+        !self.skip[pc as usize]
+    }
+
     fn func_of(&self, pc: u32) -> u32 {
-        self.ranges.iter().position(|&(lo, hi)| (lo..hi).contains(&pc)).unwrap_or(0) as u32
+        self.func_at[pc as usize]
     }
 
     /// Enters native code at `pc` once it is compiled.
@@ -862,6 +918,9 @@ impl JitState {
             let mut m = lower(unsafe { &*self.bc }, hosts.vm_op as *const () as usize, hosts.view_off);
             m.hosts = host_table(hosts);
             self.mir = Some(m);
+        }
+        if self.skip[pc as usize] {
+            return None;
         }
         let func = self.func_of(pc);
         let mir = self.mir.as_ref().expect("lowered");
