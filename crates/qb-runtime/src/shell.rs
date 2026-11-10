@@ -249,7 +249,8 @@ mod tests {
     fn exit_codes() {
         let wait_hidden = Mode { show: false, wait: true, use_console: false };
         assert_eq!(run(b"exit 3", wait_hidden), 3);
-        assert_eq!(run(b"cmd /c exit 7", wait_hidden), 7);
+        let nested: &[u8] = if cfg!(windows) { b"cmd /c exit 7" } else { b"sh -c 'exit 7'" };
+        assert_eq!(run(nested, wait_hidden), 7);
         let console = Mode { show: true, wait: true, use_console: true };
         assert_eq!(run(b"exit 5", console), 5);
         assert_eq!(run(b"exit 0", Mode { show: false, wait: false, use_console: false }), 0);
