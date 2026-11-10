@@ -509,8 +509,17 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 return Ok(None);
             }
             let col = rt.col;
-            let next = ((col - 1) / 14 + 1) * 14 + 1;
-            rt.write(ch, &vec![b' '; next - col])?
+            if ch == 0 {
+                // screen/stdout: QBasic's 14-column zones in 80 columns, a new line
+                // when no whole zone is left (same rule as qb-runtime's console)
+                match qb_runtime::console::text::zone_spaces(col as i32, 80) {
+                    Some(n) => rt.write(ch, &vec![b' '; n as usize])?,
+                    None => rt.nl(ch)?,
+                }
+            } else {
+                let next = ((col - 1) / 14 + 1) * 14 + 1;
+                rt.write(ch, &vec![b' '; next - col])?
+            }
         }
         "PRINTNL" => rt.nl(i(0) as i32)?,
         "PRINTTAB" => {
