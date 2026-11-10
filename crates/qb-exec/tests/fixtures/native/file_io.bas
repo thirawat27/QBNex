@@ -1,3 +1,4 @@
+$CONSOLE:ONLY
 OPEN "qb_native_io.txt" FOR OUTPUT AS #1
 FOR i = 1 TO 5
     PRINT #1, "line"; i; i * i

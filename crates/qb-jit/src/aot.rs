@@ -7,7 +7,7 @@
 //!   table, for a standard linker (rust-lld) to link with the `qb-native`
 //!   runtime library into an ordinary executable.
 
-use crate::codegen::{define_all, make_isa, CompileError, Target};
+use crate::codegen::{define_all, make_isa_pic, CompileError, Target};
 use crate::mir::Module;
 use cranelift_module::{default_libcall_names, DataDescription, Linkage, Module as _};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -29,8 +29,21 @@ pub struct NativeEntry {
     pub funcs: *const crate::NativeFn,
 }
 
+/// Native objects are position-independent except on Windows (COFF code is
+/// relocated by the loader; Linux PIEs and every macOS executable need PIC).
+fn native_pic(target: Target) -> bool {
+    match target {
+        Target::Host => !cfg!(windows),
+        _ => true,
+    }
+}
+
 fn new_module(target: Target) -> Result<ObjectModule, CompileError> {
-    let isa = make_isa(target);
+    new_module_pic(target, false)
+}
+
+fn new_module_pic(target: Target, pic: bool) -> Result<ObjectModule, CompileError> {
+    let isa = make_isa_pic(target, pic);
     let ob = ObjectBuilder::new(isa, "qbnex_program", default_libcall_names()).map_err(|e| CompileError(e.to_string()))?;
     Ok(ObjectModule::new(ob))
 }
@@ -51,7 +64,7 @@ pub fn compile_object(m: &Module, target: Target) -> Result<Vec<u8>, CompileErro
 /// the entry table [`ENTRY_SYMBOL`] ([`NativeEntry`]) pointing at it and at
 /// every function. The runtime library finds the program through that table.
 pub fn compile_native_object(m: &Module, target: Target, program: &[u8], fingerprint: u64) -> Result<Vec<u8>, CompileError> {
-    let mut om = new_module(target)?;
+    let mut om = new_module_pic(target, native_pic(target))?;
     let ids = define_all(&mut om, m, Linkage::Local)?;
 
     let prog = om.declare_data("qb_native_program", Linkage::Local, false, false).map_err(err)?;
