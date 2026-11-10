@@ -1,0 +1,6 @@
+$CONSOLE:ONLY
+TRY: ERROR 53: PRINT "no": CATCH e: PRINT "caught"; e: END TRY
+TRY: PRINT "fine": CATCH: PRINT "x": FINALLY: PRINT "fin": END TRY
+ENUM: Alpha, Beta: END ENUM
+PRINT Alpha; Beta
+SYSTEM

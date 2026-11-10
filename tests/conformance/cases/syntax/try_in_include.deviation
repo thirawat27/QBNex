@@ -1,0 +1,1 @@
+QBNex extension (R13): TRY in an $INCLUDE (or $IMPORT) file; the module-level handler is generated when any of them uses TRY. Expected output written by hand.

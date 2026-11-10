@@ -698,7 +698,7 @@ FUNCTION getpid& ()
     DIM SHARED addmetainclude AS STRING
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
-DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING 'syntax_ext.bas (R13)
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG 'syntax_ext.bas (R13)
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -1180,6 +1180,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             classSyntaxDeferredQueue$ = ""
             SyntaxExt_Reset
             syntaxExtOptional$ = "" 'OPTIONAL defaults: built in the prepass, used in the main pass
+            syntaxExtArrays$ = "" 'array ranks for FOR EACH, same lifetime
             topLevelRuntimeLines = ""
             topLevelRuntimeCallInjected = 0
             topLevelRuntimeFinalized = 0

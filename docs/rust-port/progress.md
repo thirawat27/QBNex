@@ -938,7 +938,7 @@ Verified: `cargo test -p qb-dap` (with `QB_COMPILER`) 4 unit + 4 stdio; `cargo t
 | `_ANDALSO`, `_ORELSE` | reserved operators at AND/OR precedence; C++ `-((l)&&(r))`, `-((l)||(r))`; CONST folding | `syntax/andalso_orelse` |
 | `$ASSERTS`, `_ASSERT` | already existed | `syntax/assert_on` |
 
-The text lowerings need no QIR work; R11a adds `_IIF`, `_ANDALSO`/`_ORELSE` and `_TOSTR$` (callnames `func__iif`, `func__tostr`) to `ir_emit.bas`. Limits: TRY only in the main source file, each TRY keyword on its own line; FOR EACH over one-dimensional arrays; an interpolated expression cannot contain `"`. `ERROR 11` (division by zero) is a critical error in the runtime and cannot be caught by ON ERROR or TRY.
+The text lowerings need no QIR work; R11a adds `_IIF`, `_ANDALSO`/`_ORELSE` and `_TOSTR$` (callnames `func__iif`, `func__tostr`) to `ir_emit.bas`. Earlier limits removed later: TRY works in `$INCLUDE`/`$IMPORT` files (the prescan follows them and the hoisted modules), TRY/CATCH/FINALLY/END TRY/ENUM/END ENUM may share a line with other statements (the line is lowered one statement at a time), FOR EACH visits every element of a multi-dimensional array (rank recorded from DIM/REDIM/STATIC/COMMON lines, first index outermost), and `{...}` of an interpolated string may contain string literals. Under `--ir` the text lowerings pass; `_IIF`, `_TOSTR$` (so interpolation), `_ANDALSO`/`_ORELSE` and `_ASSERT` still need the QIR emitter (R11a). `ERROR 11` (division by zero) is a critical error in the runtime and cannot be caught by ON ERROR or TRY.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
