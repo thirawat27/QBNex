@@ -2,9 +2,11 @@
 //!
 //! The runtime draws into `u32` pixels `0xAARRGGBB`; in memory (little
 //! endian) that is B, G, R, A — uploaded as-is into a `Bgra8Unorm` texture and
-//! drawn with nearest filtering into the largest rectangle of the target
-//! that keeps the framebuffer's aspect ratio (black bars elsewhere). With
-//! [`Fit::Integer`] the scale is a whole number (crisp pixels).
+//! drawn into a rectangle of the target, black elsewhere. [`Blitter::draw`]
+//! picks the rectangle with [`fit_rect`]; [`Blitter::draw_rect`] takes one
+//! from the caller (the runtime passes its own window layout). The rectangle
+//! may extend past the target; the part outside is clipped. Filtering is
+//! nearest unless [`Blitter::smooth`] is set (bilinear).
 
 use crate::{Frame, Gpu};
 
@@ -43,19 +45,31 @@ pub fn fit_rect(fw: u32, fh: u32, tw: u32, th: u32, fit: Fit) -> (u32, u32, u32,
 }
 
 const SHADER: &str = r#"
+struct U {
+    // destination rectangle in target pixels: x, y, w, h
+    rect: vec4<f32>,
+    // target size in pixels
+    size: vec4<f32>,
+};
+@group(0) @binding(2) var<uniform> u: U;
+
 struct Out {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
 };
 
-// One triangle covering the viewport; uv 0..1 over the visible part.
+// Two triangles covering the rectangle; uv 0..1 over it.
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> Out {
-    let x = f32((i << 1u) & 2u);
-    let y = f32(i & 2u);
+    var cs = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0),
+        vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0),
+    );
+    let c = cs[i];
+    let p = u.rect.xy + c * u.rect.zw;
     var o: Out;
-    o.pos = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-    o.uv = vec2<f32>(x, y);
+    o.pos = vec4<f32>(p.x / u.size.x * 2.0 - 1.0, 1.0 - p.y / u.size.y * 2.0, 0.0, 1.0);
+    o.uv = c;
     return o;
 }
 
@@ -69,14 +83,25 @@ fn fs(o: Out) -> @location(0) vec4<f32> {
 }
 "#;
 
+struct FbTexture {
+    texture: wgpu::Texture,
+    /// bind groups with the nearest and the linear sampler
+    groups: [wgpu::BindGroup; 2],
+    width: u32,
+    height: u32,
+}
+
 /// Framebuffer presenter. Keeps the texture between frames (recreated when the size changes).
 pub struct Blitter {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
-    tex: Option<(wgpu::Texture, wgpu::BindGroup, u32, u32)>,
+    samplers: [wgpu::Sampler; 2],
+    uniform: wgpu::Buffer,
+    tex: Option<FbTexture>,
     format: wgpu::TextureFormat,
     pub fit: Fit,
+    /// Bilinear filtering (`_SMOOTH`, smooth full screen) instead of nearest.
+    pub smooth: bool,
 }
 
 impl Blitter {
@@ -103,6 +128,16 @@ impl Blitter {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -137,13 +172,22 @@ impl Blitter {
             multiview_mask: None,
             cache: None,
         });
-        let sampler = d.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = |f: wgpu::FilterMode| {
+            d.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("qb-gpu blit"),
+                mag_filter: f,
+                min_filter: f,
+                ..Default::default()
+            })
+        };
+        let samplers = [sampler(wgpu::FilterMode::Nearest), sampler(wgpu::FilterMode::Linear)];
+        let uniform = d.create_buffer(&wgpu::BufferDescriptor {
             label: Some("qb-gpu blit"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        Blitter { pipeline, layout, sampler, tex: None, format: target_format, fit: Fit::Aspect }
+        Blitter { pipeline, layout, samplers, uniform, tex: None, format: target_format, fit: Fit::Aspect, smooth: false }
     }
 
     /// Target format this blitter was made for.
@@ -151,10 +195,21 @@ impl Blitter {
         self.format
     }
 
-    /// Uploads `pixels` (`width`×`height`, `0xAARRGGBB`) and draws them into `frame`.
+    /// Uploads `pixels` (`width`×`height`, `0xAARRGGBB`) and draws them into
+    /// `frame` at the rectangle [`fit_rect`] gives for [`Blitter::fit`].
     pub fn draw(&mut self, gpu: &Gpu, frame: &Frame, pixels: &[u32], width: u32, height: u32) {
+        let (x, y, w, h) = fit_rect(width, height, frame.width, frame.height, self.fit);
+        self.draw_rect(gpu, frame, pixels, width, height, (x as i32, y as i32, w, h));
+    }
+
+    /// Uploads `pixels` and draws them into `frame` at `rect` (x, y, w, h in
+    /// target pixels; parts outside the target are clipped). Black elsewhere.
+    pub fn draw_rect(&mut self, gpu: &Gpu, frame: &Frame, pixels: &[u32], width: u32, height: u32, rect: (i32, i32, u32, u32)) {
         assert_eq!(pixels.len(), (width * height) as usize, "framebuffer size");
-        if self.tex.as_ref().is_none_or(|t| t.2 != width || t.3 != height) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        if self.tex.as_ref().is_none_or(|t| t.width != width || t.height != height) {
             let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("qb-gpu framebuffer"),
                 size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -166,24 +221,30 @@ impl Blitter {
                 view_formats: &[],
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-            let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("qb-gpu blit"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                ],
-            });
-            self.tex = Some((texture, bg, width, height));
+            let group = |s: &wgpu::Sampler| {
+                gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("qb-gpu blit"),
+                    layout: &self.layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(s) },
+                        wgpu::BindGroupEntry { binding: 2, resource: self.uniform.as_entire_binding() },
+                    ],
+                })
+            };
+            let groups = [group(&self.samplers[0]), group(&self.samplers[1])];
+            self.tex = Some(FbTexture { texture, groups, width, height });
         }
-        let (texture, bg, _, _) = self.tex.as_ref().expect("texture");
+        let t = self.tex.as_ref().expect("texture");
         gpu.queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: &t.texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
             bytemuck::cast_slice(pixels),
             wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(width * 4), rows_per_image: Some(height) },
             wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
-        let (x, y, w, h) = fit_rect(width, height, frame.width, frame.height, self.fit);
+        let (x, y, w, h) = rect;
+        let u: [f32; 8] = [x as f32, y as f32, w as f32, h as f32, frame.width as f32, frame.height as f32, 0.0, 0.0];
+        gpu.queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&u));
         let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qb-gpu blit") });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -199,11 +260,10 @@ impl Blitter {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if w > 0 && h > 0 {
+            if w > 0 && h > 0 && frame.width > 0 && frame.height > 0 {
                 pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, bg, &[]);
-                pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
-                pass.draw(0..3, 0..1);
+                pass.set_bind_group(0, &t.groups[usize::from(self.smooth)], &[]);
+                pass.draw(0..6, 0..1);
             }
         }
         gpu.queue.submit([enc.finish()]);
