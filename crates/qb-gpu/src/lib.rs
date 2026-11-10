@@ -24,6 +24,7 @@ pub mod three;
 
 use std::sync::Arc;
 
+pub use glam;
 pub use wgpu;
 
 /// GPU context.

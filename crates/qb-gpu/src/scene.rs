@@ -186,6 +186,23 @@ impl Model {
         Ok(Model::build(gpu, vec![PartData { verts, idx, material, local: Mat4::IDENTITY }], images))
     }
 
+    /// `_MESHTEXTURE`: every part uses `image` from now on.
+    pub fn set_texture(&mut self, gpu: &Gpu, image: Image) {
+        self.textures.push(upload(gpu, &image));
+        self.images.push(image);
+        let i = self.images.len() - 1;
+        for p in &mut self.parts {
+            p.material.texture = Some(i);
+        }
+    }
+
+    /// `_MESHCOLOR`: every part's base colour.
+    pub fn set_color(&mut self, color: [f32; 4]) {
+        for p in &mut self.parts {
+            p.material.base_color = color;
+        }
+    }
+
     /// `_MESHCUBE`: a cube of edge `size` centred on the origin, flat faces.
     pub fn cube(gpu: &Gpu, size: f32, material: Material) -> Model {
         let h = size / 2.0;
