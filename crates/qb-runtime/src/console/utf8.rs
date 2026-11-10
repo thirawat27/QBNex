@@ -4,7 +4,7 @@
 
 /// Code page 437 -> Unicode (BMP). Generated code and libqb.cpp (`_MAPUNICODE`,
 /// `_UPRINTSTRING`, the text renderer) read and write it through this symbol.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut codepage437_to_unicode16: [u16; 256] = CP437_DEFAULT;
 
 const CP437_DEFAULT: [u16; 256] = [
@@ -155,7 +155,7 @@ pub fn screen_byte(c: u32) -> u8 {
 }
 
 /// C ABI: `unicode_to_cp437`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_unicode_to_cp437(x: u32) -> u32 {
     unicode_to_cp437(x)
 }
@@ -164,7 +164,7 @@ pub extern "C" fn qb_unicode_to_cp437(x: u32) -> u32 {
 ///
 /// # Safety
 /// `text` valid for `len` bytes; `codepoint` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_utf8_decode(text: *const u8, len: i32, codepoint: *mut u32) -> i32 {
     if text.is_null() || len <= 0 || codepoint.is_null() {
         return 0;
@@ -176,13 +176,13 @@ pub unsafe extern "C" fn qb_utf8_decode(text: *const u8, len: i32, codepoint: *m
 }
 
 /// C ABI: `qb_is_zero_width_codepoint` (-1 / 0).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_utf8_is_zero_width(cp: u32) -> i32 {
     -(is_zero_width(cp) as i32)
 }
 
 /// C ABI: `qb_is_emoji_like_codepoint` (-1 / 0).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_utf8_is_emoji_like(cp: u32) -> i32 {
     -(is_emoji_like(cp) as i32)
 }

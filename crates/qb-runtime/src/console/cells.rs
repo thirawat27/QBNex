@@ -221,27 +221,27 @@ pub fn cell(image: i32, cell: i32) -> (Vec<u8>, u8) {
 
 // --- C ABI (libqb.cpp: image life cycle and the text renderer) ---
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_text_cells_init(image: i32, cells: i32) {
     init(image, cells.max(0) as usize)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_text_cells_release(image: i32) {
     release(image)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_text_cells_copy(src: i32, dst: i32) {
     copy(src, dst)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_text_cells_present(image: i32) -> i32 {
     present(image) as i32
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_text_cells_has_content(image: i32) -> i32 {
     -(has_content(image) as i32)
 }
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_text_cells_span(image: i32, cell: i32) -> i32 {
     span(image, cell)
 }
@@ -250,7 +250,7 @@ pub extern "C" fn qb_text_cells_span(image: i32, cell: i32) -> i32 {
 ///
 /// # Safety
 /// `out` must be valid for `cap` bytes (or null when `cap` is 0).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_text_cell_utf8(image: i32, cell: i32, out: *mut u8, cap: i32) -> i32 {
     let c = content(image, cell);
     let n = c.len().min(cap.max(0) as usize);

@@ -10,14 +10,14 @@
 use super::Host;
 use core::ffi::c_void;
 
-extern "C" {
+unsafe extern "C" {
     fn fwrite(p: *const c_void, size: usize, n: usize, f: *mut c_void) -> usize;
     fn fflush(f: *mut c_void) -> i32;
     fn fgetc(f: *mut c_void) -> i32;
 }
 
 #[cfg(windows)]
-extern "C" {
+unsafe extern "C" {
     fn __acrt_iob_func(index: u32) -> *mut c_void;
 }
 #[cfg(windows)]
@@ -29,7 +29,7 @@ unsafe fn c_stdin() -> *mut c_void {
     __acrt_iob_func(0)
 }
 #[cfg(all(unix, not(target_os = "macos")))]
-extern "C" {
+unsafe extern "C" {
     static stdout: *mut c_void;
     static stdin: *mut c_void;
 }
@@ -42,7 +42,7 @@ unsafe fn c_stdin() -> *mut c_void {
     stdin
 }
 #[cfg(target_os = "macos")]
-extern "C" {
+unsafe extern "C" {
     static __stdoutp: *mut c_void;
     static __stdinp: *mut c_void;
 }
@@ -437,13 +437,13 @@ pub fn console_cursor(visible: i32, size: i32, passed: i32) {
 }
 
 /// Last console key event (`_CINP`) and mouse state (`_MOUSEX` etc. on `_CONSOLE`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut consolekey: i32 = 0;
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut consolemousex: i32 = 0;
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut consolemousey: i32 = 0;
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut consolebutton: i32 = 0;
 
 /// `_CONSOLEINPUT`: waits for one console input event; 1 = key, 2 = mouse, 0 = other.

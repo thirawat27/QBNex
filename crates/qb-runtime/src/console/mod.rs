@@ -90,22 +90,22 @@ pub trait Host {
 // --- state shared with libqb.cpp (LPRINT, _CONTROLCHR) ---
 
 /// Set to 1 while LPRINT prints to its page image.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut lprint: i32 = 0;
 /// LPOS: column of the printer head.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut lpos: i32 = 1;
 /// `WIDTH LPRINT`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut width_lprint: i32 = 80;
 /// Content is waiting on the LPRINT page.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut lprint_buffered: i32 = 0;
 /// Control characters are printed as glyphs (internal use).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut no_control_characters: i32 = 0;
 /// `_CONTROLCHR OFF`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static mut no_control_characters2: i32 = 0;
 
 #[cfg(test)]
