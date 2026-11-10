@@ -212,7 +212,23 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 | concat | `a$ = a$ + "x"`, 2M | 14–23 | 93 000–124 000 | **~5000x faster** (C++ path copies the whole string each time) |
 
   Calibration on the same machine: the loop case in native Rust with a runtime divisor = 1.4 ns/iter; the remaining cost is interpreter dispatch (~1.7 ns per instruction). Gate "loop ≤ 10x C++" met, target ≤ 3x met for every case.
-- QIR v1 (R11a, `docs/rust-port/qir-v1.md`) is merged; `QIR 1` programs still run on R11a's reference interpreter (`crates/qb-exec/src/v1.rs`). Next for R11b: v1 loader onto this VM (variables in addressable blocks only when `addr`/byref/UDT need it, everything else promoted to registers; `rt` calls through the shared runtime state).
+- **QIR v1 on the VM** (`crates/qb-exec/src/lower1.rs`): `QIR 1` programs are loaded onto the same VM. Scalars become registers (globals and statics in the main frame, SUBs reach them with `getg`/`setg`; BYREF = copy-in/out), `addr`/`aref`/`aaddr` are symbolic (accepted as call arguments and as `ld`/`st` of array elements), constants are frame registers, loads alias the variable register and widening `cvt` reuses its source when the value cannot change before its last use, stores retarget the producing instruction. Emitter-specific superinstructions: the two-way FOR test (`for_test +k`), the FOR back edge with its increment (`loop_for`), `acc`, native LEN/LEFT$/RIGHT$/MID$/CHR$/ASC; every other `rt` builtin runs through the shared R11a runtime (`v1/rt.rs` now takes any executor via `rt::Host`, so PRINT columns, files and PRINT USING are one implementation).
+- Programs that need real memory (TYPE/UDT, `STRING * n`, pointer arithmetic, GET/PUT of variables) or `_UNSIGNED _INTEGER64` still run on R11a's reference interpreter; `QB_EXEC_TRACE=1` prints why, `QB_EXEC_REFERENCE=1` forces it, `QB_EXEC_DISASM=1` prints the bytecode.
+- Conformance programs: `crates/qb-exec/tests/fixtures/qir1/` = 32 conformance cases compiled with `qb --ir` (R11a emitter, real pipeline); `tests/qir1_corpus.rs` requires identical output/exit/error on the VM and on the reference interpreter. **26 of 32 run on the VM, all 32 identical**; the 6 on the reference: UDT (2), `STRING * n` (2), `_UNSIGNED _INTEGER64` (2). `print_using_huge_exponent` is left out: the reference interpreter panics on it (reported to R11a).
+- Benchmarks through the real emitter (`crates/qb-exec/benches/qir1/*.qir` = `benches/bas/*.bas` compiled with `qb --ir`; `qb-exec <file>.qir`, each program prints its own `TIMER(.001)` time). C++ and VM runs interleaved, best of 5, same moment (machine shared with other builds, so absolute times vary ±30 %):
+
+| case | C++ ms | VM ms (QIR v1) | VM / C++ |
+| --- | --- | --- | --- |
+| loop | 102–116 | 306 | **2.6–3.0x** (967 ms before the v1 superinstructions) |
+| float | 58 | 175 | 3.0x |
+| array | 129 | 319 | 2.5x |
+| sub | 64 | 189 | 3.0x |
+| func | 75 | 208 | 2.8x |
+| gosub | 16 | 43 | 2.7x |
+| strfn | 120 | 56 | **0.47x** (510 ms before native MID$/CHR$/LEN) |
+| concat | 93 000+ | 15 | ~6000x faster |
+
+- Not done in R11b: memory-backed variables (UDT, `STRING * n`, `_MEM`-style pointers) on the VM, `_UNSIGNED _INTEGER64`, `_FLOAT` as 80-bit (carried as f64 exactly like the reference interpreter; R11d's `qb-float80` is the next step), events in v1 (no QIR op yet).
 
 ## How the pieces fit
 
