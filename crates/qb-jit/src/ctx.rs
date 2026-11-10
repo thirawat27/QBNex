@@ -147,6 +147,9 @@ pub struct Ctx {
     pub ev_ptr: *const AtomicU32,
     pub ev_mask: u32,
     pub _pad2: u32,
+    /// Embedder tables of array pointers (`VAElem`): entry = null or a
+    /// pointer to a structure holding an [`ArrView`] at `view_off`.
+    pub tables: [*mut u64; 2],
     // ---- not accessed by native code ----
     pub chain: Vec<ChainRec>,
     gosub_buf: Vec<u32>,
@@ -155,6 +158,25 @@ pub struct Ctx {
 
 pub(crate) const OFF_EV_PTR: i32 = offset_of!(Ctx, ev_ptr) as i32;
 pub(crate) const OFF_EV_MASK: i32 = offset_of!(Ctx, ev_mask) as i32;
+pub(crate) const OFF_TABLES: i32 = offset_of!(Ctx, tables) as i32;
+pub(crate) const OFF_VIEW_DATA: i32 = offset_of!(ArrView, data) as i32;
+pub(crate) const OFF_VIEW_LB: i32 = offset_of!(ArrView, lbound) as i32;
+pub(crate) const OFF_VIEW_COUNT: i32 = offset_of!(ArrView, count) as i32;
+
+/// Non-owning view of a 1-D array an embedder keeps (see `Inst::VAElem`).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ArrView {
+    /// Null = no fast path (always take the slow host call).
+    pub data: *mut u8,
+    pub lbound: i64,
+    /// Element count; 0 for arrays with more than one dimension.
+    pub count: i64,
+}
+
+impl ArrView {
+    pub const NONE: ArrView = ArrView { data: core::ptr::null_mut(), lbound: 0, count: 0 };
+}
 pub(crate) const OFF_ERR: i32 = offset_of!(Ctx, err) as i32;
 pub(crate) const OFF_ERR_LINE: i32 = offset_of!(Ctx, err_line) as i32;
 pub(crate) const OFF_EXIT_PC: i32 = offset_of!(Ctx, exit_pc) as i32;
@@ -201,6 +223,7 @@ impl Ctx {
             user: core::ptr::null_mut(),
             ev_ptr: core::ptr::null(),
             ev_mask: u32::MAX,
+            tables: [core::ptr::null_mut(); 2],
             _pad2: 0,
             chain: Vec::new(),
             gosub_buf,

@@ -176,6 +176,13 @@ pub enum Inst {
     /// `writes` reloaded after. The VM callback returns a status; non-OK
     /// leaves native code with that status (ctx fields set by the VM).
     VmOp { op: u32, reads: Vec<Reg>, writes: Vec<Reg> },
+    /// Element `idx` of a 1-D numeric array kept by the embedder:
+    /// `p = ctx.tables[table][index]`; when `p` is non-null, `p + view_off`
+    /// holds an [`crate::ctx::ArrView`] and in-bounds accesses are done inline.
+    /// Everything else calls host `slow(index, idx[, bits])`, which has the
+    /// embedder's full semantics (auto-DIM, error 9). `reg` (I64 for integer
+    /// elements, F64 for float) is the destination (`load`) or source.
+    VAElem { load: bool, reg: Reg, table: u32, index: u32, view_off: u32, elem: Ty, idx: Reg, slow: HostId },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -428,6 +435,17 @@ impl Module {
                             }
                             for r in reads.iter().chain(writes) {
                                 ty(*r)?;
+                            }
+                        }
+                        Inst::VAElem { load, reg, table, elem, idx, slow, .. } => {
+                            let rt = ty(*reg)?;
+                            let ok_reg = if elem.is_float() { rt == Ty::F64 } else { rt == Ty::I64 };
+                            let hf = self.hosts.get(*slow as usize).ok_or_else(|| e("VAElem slow host".into()))?;
+                            let ok_slow = hf.sig.params.len() == if *load { 2 } else { 3 }
+                                && hf.sig.params.iter().all(|t| *t == Ty::I64)
+                                && hf.sig.ret == load.then_some(Ty::I64);
+                            if !ok_reg || *elem == Ty::Ptr || *table > 1 || !ok_slow || !ty(*idx)?.is_int() {
+                                return Err(e(format!("block {bi}: VAElem")));
                             }
                         }
                         Inst::Raise { code } => {

@@ -425,6 +425,49 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                     }
                 }
                 Inst::Raise { code } => fail!(get(*code).i() as i32),
+                Inst::VAElem { load, reg, table, index, view_off, elem, idx, slow } => {
+                    let i = get(*idx).i();
+                    // SAFETY: the embedder keeps the table and the views valid while code runs.
+                    let fast = unsafe {
+                        let p = *ctx.tables[*table as usize].add(*index as usize);
+                        if p == 0 {
+                            None
+                        } else {
+                            let v = *((p as usize + *view_off as usize) as *const crate::ctx::ArrView);
+                            let k = i.wrapping_sub(v.lbound);
+                            (!v.data.is_null() && (k as u64) < (v.count as u64))
+                                .then(|| v.data.add(k as usize * elem.size() as usize))
+                        }
+                    };
+                    match fast {
+                        Some(ep) => {
+                            if *load {
+                                let x = unsafe { read(ep, *elem) };
+                                set(*reg, if elem.is_float() { V::F64(as_f64(x)) } else { x })
+                            } else {
+                                let x = get(*reg);
+                                let x = match (*elem, x) {
+                                    (Ty::F32, V::F64(f)) => V::F32(f as f32),
+                                    (_, v) => v,
+                                };
+                                unsafe { write_mem(ep, *elem, x) }
+                            }
+                        }
+                        None => {
+                            let bits = unsafe { *slot(*reg) };
+                            let args = if *load { vec![u64::from(*index), i as u64] } else { vec![u64::from(*index), i as u64, bits] };
+                            let ret = unsafe { thunks.call(*slow, ctx, &args) };
+                            if *load {
+                                unsafe { *slot(*reg) = ret };
+                            }
+                            if ctx.err != 0 {
+                                ctx.err_line = line;
+                                ctx.exit_pc = pc;
+                                return status::ERROR;
+                            }
+                        }
+                    }
+                }
                 Inst::ConvWrap { dst, src } => set(*dst, conv_wrap(ty(*src), ty(*dst), get(*src))),
                 Inst::At { pc: p } => pc = *p,
                 Inst::Bitcast { dst, src } => set(

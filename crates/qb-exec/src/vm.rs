@@ -37,10 +37,19 @@ enum ArrData {
     Str(Vec<Vec<u8>>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Arr {
     dims: Vec<(i64, i64)>,
     data: ArrData,
+    /// What JIT'd code reads for inline 1-D numeric element access
+    /// (`data` never reallocates: REDIM builds a new `Arr`).
+    pub(crate) view: qb_jit::ctx::ArrView,
+}
+
+impl Clone for Arr {
+    fn clone(&self) -> Arr {
+        Arr::with_data(self.dims.clone(), self.data.clone())
+    }
 }
 
 impl Arr {
@@ -63,7 +72,23 @@ impl Arr {
             Ty::F64 => ArrData::F64(vec![0.0; count]),
             Ty::Str => ArrData::Str(vec![Vec::new(); count]),
         };
-        Ok(Arr { dims, data })
+        Ok(Arr::with_data(dims, data))
+    }
+
+    fn with_data(dims: Vec<(i64, i64)>, mut data: ArrData) -> Arr {
+        let ptr = match &mut data {
+            ArrData::I16(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::I32(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::I64(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::F32(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::F64(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::Str(_) => core::ptr::null_mut(),
+        };
+        let view = match dims.as_slice() {
+            [(lb, ub)] if !ptr.is_null() => qb_jit::ctx::ArrView { data: ptr, lbound: *lb, count: ub - lb + 1 },
+            _ => qb_jit::ctx::ArrView::NONE,
+        };
+        Arr { dims, data, view }
     }
 
     #[cfg(test)]
@@ -350,8 +375,14 @@ impl<'m, 'o> Vm<'m, 'o> {
             ste1: jit_ste1 as *const () as usize,
             lde2: jit_lde2 as *const () as usize,
             ste2: jit_ste2 as *const () as usize,
+            lde1g: jit_lde1g as *const () as usize,
+            ste1g: jit_ste1g as *const () as usize,
+            view_off: core::mem::offset_of!(Arr, view) as u32,
         };
-        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts)? };
+        let arrs = self.arrs.as_mut_ptr() as *mut u64;
+        // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<Box<Arr>> is one nullable pointer.
+        let tables = [unsafe { arrs.add(self.ab) }, arrs];
+        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables)? };
         Some(st)
     }
 
@@ -1497,3 +1528,14 @@ extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
         ctx.err = c;
     }
 }
+
+extern "C" fn jit_lde1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
+    jit_lde1(ctx, a | G as i64, i)
+}
+
+extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
+    jit_ste1(ctx, a | G as i64, i, v)
+}
+
+// Native code reads `Option<Box<Arr>>` table entries as plain pointers.
+const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);

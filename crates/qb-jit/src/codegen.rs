@@ -809,6 +809,9 @@ impl<'a> Gen<'a> {
                 self.b.ins().brif(st, self.exit_blk, &[st], cont, &[]);
                 self.b.switch_to_block(cont);
             }
+            Inst::VAElem { load, reg, table, index, view_off, elem, idx, slow } => {
+                self.va_elem(*load, *reg, *table, *index, *view_off, *elem, *idx, *slow)
+            }
             Inst::Raise { code } => {
                 let v = self.get(*code);
                 let c = match self.ty(*code) {
@@ -973,6 +976,90 @@ impl<'a> Gen<'a> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn va_elem(&mut self, load: bool, reg: Reg, table: u32, index: u32, view_off: u32, elem: Ty, idx: Reg, slow: HostId) {
+        let iv = self.get(idx);
+        let i = match self.ty(idx) {
+            Ty::I16 | Ty::I32 => self.b.ins().sextend(types::I64, iv),
+            _ => iv,
+        };
+        let tab = self.ctx_load(types::I64, OFF_TABLES + table as i32 * 8);
+        let p = self.b.ins().load(types::I64, MemFlags::trusted(), tab, (index * 8) as i32);
+        let fast = self.b.create_block();
+        let fast2 = self.b.create_block();
+        let slowb = self.b.create_block();
+        let join = self.b.create_block();
+        self.b.set_cold_block(slowb);
+        let rt = clif_ty(self.ty(reg));
+        if load {
+            self.b.append_block_param(join, rt);
+        }
+        self.b.ins().brif(p, fast, &[], slowb, &[]);
+        // fast: in-bounds element
+        self.b.switch_to_block(fast);
+        let vo = view_off as i32;
+        let data = self.b.ins().load(types::I64, MemFlags::trusted(), p, vo + OFF_VIEW_DATA);
+        let lb = self.b.ins().load(types::I64, MemFlags::trusted(), p, vo + OFF_VIEW_LB);
+        let cnt = self.b.ins().load(types::I64, MemFlags::trusted(), p, vo + OFF_VIEW_COUNT);
+        let k = self.b.ins().isub(i, lb);
+        let inb = self.b.ins().icmp(IntCC::UnsignedLessThan, k, cnt);
+        let nz = self.b.ins().icmp_imm(IntCC::NotEqual, data, 0);
+        let ok = self.b.ins().band(inb, nz);
+        self.b.ins().brif(ok, fast2, &[], slowb, &[]);
+        self.b.switch_to_block(fast2);
+        let off = self.b.ins().ishl_imm(k, i64::from(elem.size().trailing_zeros()));
+        let ea = self.b.ins().iadd(data, off);
+        if load {
+            let x = self.mem_load(elem, ea, 0);
+            let v = match elem {
+                Ty::I16 | Ty::I32 => self.b.ins().sextend(types::I64, x),
+                Ty::F32 => self.b.ins().fpromote(types::F64, x),
+                _ => x,
+            };
+            self.b.ins().jump(join, &[v]);
+        } else {
+            let x = self.get(reg);
+            let v = match elem {
+                Ty::I16 | Ty::I32 => self.b.ins().ireduce(clif_ty(elem), x),
+                Ty::F32 => self.b.ins().fdemote(types::F32, x),
+                _ => x,
+            };
+            self.mem_store(elem, v, ea, 0);
+            self.b.ins().jump(join, &[]);
+        }
+        // slow: the embedder's full semantics
+        self.b.switch_to_block(slowb);
+        let h = &self.m.hosts[slow as usize];
+        let addr = h.addr;
+        let ctx = self.ctx;
+        let ix = self.b.ins().iconst(types::I64, i64::from(index));
+        let mut args = vec![ctx, ix, i];
+        let mut params = vec![types::I64, types::I64, types::I64];
+        if !load {
+            let x = self.get(reg);
+            let bits = if rt == types::F64 { self.b.ins().bitcast(types::I64, MemFlags::new(), x) } else { x };
+            args.push(bits);
+            params.push(types::I64);
+        }
+        let r = self.helper_call(addr, &params, load.then_some(types::I64), &args);
+        let e = self.ctx_load(types::I32, OFF_ERR);
+        let cont = self.b.create_block();
+        self.b.ins().brif(e, self.host_err_blk, &[], cont, &[]);
+        self.b.switch_to_block(cont);
+        if load {
+            let bits = r.expect("result");
+            let v = if rt == types::F64 { self.b.ins().bitcast(types::F64, MemFlags::new(), bits) } else { bits };
+            self.b.ins().jump(join, &[v]);
+        } else {
+            self.b.ins().jump(join, &[]);
+        }
+        self.b.switch_to_block(join);
+        if load {
+            let v = self.b.block_params(join)[0];
+            self.set(reg, v);
+        }
+    }
+
     /// Bounds-checked element address.
     fn elem_addr(&mut self, arr: Reg, idx: &[Reg], t: Ty) -> Value {
         let d = self.get(arr);
@@ -1101,6 +1188,7 @@ fn inst_def(i: &Inst) -> Option<Reg> {
         | Inst::Trunc { dst, .. }
         | Inst::Math { dst, .. }
         | Inst::Bitcast { dst, .. } => Some(*dst),
+        Inst::VAElem { load: true, reg, .. } => Some(*reg),
         Inst::Call { dst, .. } | Inst::Host { dst, .. } => *dst,
         _ => None,
     }

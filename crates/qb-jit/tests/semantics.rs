@@ -483,3 +483,74 @@ fn temporaries_beyond_frame_len_are_never_written_back() {
     let o = both(&module(vec![f.f], vec![]), 0, &Setup::default());
     assert_eq!(o.frame, vec![5, 0]);
 }
+
+/// Embedder-owned array for `VAElem`: a header with an `ArrView` at offset 8.
+#[repr(C)]
+struct FakeArr {
+    tag: u64,
+    view: qb_jit::ctx::ArrView,
+}
+
+extern "C" fn slow_load(ctx: *mut qb_jit::Ctx, index: i64, i: i64) -> i64 {
+    // "auto-DIM" semantics: index 99 is error 9, otherwise 1000 * slot + i
+    if i == 99 {
+        unsafe { (*ctx).err = 9 };
+        return 0;
+    }
+    1000 * index + i
+}
+
+extern "C" fn slow_store(ctx: *mut qb_jit::Ctx, _index: i64, i: i64, _bits: i64) {
+    if i == 99 {
+        unsafe { (*ctx).err = 9 };
+    }
+}
+
+#[test]
+fn embedder_array_elements_fast_and_slow_paths() {
+    let data = vec![0i16; 4];
+    let mut data = std::mem::ManuallyDrop::new(data);
+    let mut fdata = vec![0f32; 4];
+    let a = Box::new(FakeArr { tag: 7, view: qb_jit::ctx::ArrView { data: data.as_mut_ptr() as *mut u8, lbound: 1, count: 4 } });
+    let b = Box::new(FakeArr { tag: 8, view: qb_jit::ctx::ArrView { data: fdata.as_mut_ptr() as *mut u8, lbound: 0, count: 4 } });
+    let mut table: Vec<u64> = vec![&*a as *const FakeArr as u64, 0, &*b as *const FakeArr as u64];
+    let mut f = Fb::new("va");
+    let (i, v, out1, out2, x, y) = (f.slot(Ty::I32), f.slot(Ty::I64), f.slot(Ty::I64), f.slot(Ty::I64), f.slot(Ty::F64), f.slot(Ty::F64));
+    let mut m = module(vec![], vec![]);
+    let hl = m.hosts.len() as u32;
+    m.hosts.push(qb_jit::mir::HostFn {
+        sig: HostSig { name: "slow_load".into(), params: vec![Ty::I64; 2], ret: Some(Ty::I64), may_error: true },
+        addr: slow_load as *const () as usize,
+    });
+    m.hosts.push(qb_jit::mir::HostFn {
+        sig: HostSig { name: "slow_store".into(), params: vec![Ty::I64; 3], ret: None, may_error: true },
+        addr: slow_store as *const () as usize,
+    });
+    let va = |load, reg, index, elem, idx, slow| Inst::VAElem { load, reg, table: 0, index, view_off: 8, elem, idx, slow };
+    f.ci(i, 3);
+    f.ci(v, 70000); // wraps to i16 on store
+    f.i(va(false, v, 0, Ty::I16, i, hl + 1));
+    f.i(va(true, out1, 0, Ty::I16, i, hl));
+    f.i(va(true, out2, 1, Ty::I16, i, hl)); // null entry: slow path
+    f.cf(x, 0.1);
+    f.i(va(false, x, 2, Ty::F32, i, hl + 1));
+    f.i(va(true, y, 2, Ty::F32, i, hl));
+    f.ci(i, 9); // out of bounds: slow path returns 1000*0 + 9
+    f.i(va(true, out2, 0, Ty::I16, i, hl));
+    f.line(5, 50);
+    f.ci(i, 99);
+    f.i(va(true, v, 0, Ty::I16, i, hl));
+    m.funcs.push(f.f);
+    let s = Setup::default();
+    for e in [Engine::Interp, Engine::Jit] {
+        // SAFETY: the view points into `data`; go through it so no reference aliases native writes.
+        unsafe { core::ptr::write_bytes(a.view.data, 0, 8) };
+        let o = run_with_tables(&m, &s, e, [table.as_mut_ptr(), core::ptr::null_mut()]);
+        assert_eq!((o.status, o.err, o.err_line), (qb_jit::status::ERROR, 9, 5));
+        assert_eq!(o.frame[2] as i64, 70000i64 as i16 as i64);
+        assert_eq!(o.frame[3] as i64, 9);
+        assert_eq!(f64s(o.frame[5]), f64::from(0.1f32));
+        assert_eq!(unsafe { core::ptr::read_volatile((a.view.data as *const i16).add(2)) }, 70000i64 as i16);
+    }
+    let _ = (a.tag, b.tag);
+}

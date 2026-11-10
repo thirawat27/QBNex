@@ -165,6 +165,14 @@ pub enum Engine {
 }
 
 pub fn run_one(m: &Module, func: FuncId, s: &Setup, e: Engine) -> Outcome {
+    run_full(m, func, s, e, [core::ptr::null_mut(); 2])
+}
+
+pub fn run_with_tables(m: &Module, s: &Setup, e: Engine, tables: [*mut u64; 2]) -> Outcome {
+    run_full(m, 0, s, e, tables)
+}
+
+fn run_full(m: &Module, func: FuncId, s: &Setup, e: Engine, tables: [*mut u64; 2]) -> Outcome {
     let n = m.funcs[func as usize].slots.len();
     let mut frame = vec![0u64; n];
     frame[..s.frame.len()].copy_from_slice(s.frame);
@@ -178,6 +186,7 @@ pub fn run_one(m: &Module, func: FuncId, s: &Setup, e: Engine) -> Outcome {
         ctx.gosub_len += 1;
     }
     ctx.gosub_base = s.gosub_base;
+    ctx.tables = tables;
     ctx.event.store(s.event, core::sync::atomic::Ordering::Relaxed);
     let st = match e {
         Engine::Interp => {

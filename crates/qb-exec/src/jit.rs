@@ -217,6 +217,7 @@ struct Lower<'a> {
     gcls: &'a [Class],
     slots: Vec<Ty>,
     insts: Vec<Inst>,
+    view_off: u32,
 }
 
 fn ty_of(c: Class) -> Ty {
@@ -333,6 +334,19 @@ impl Lower<'_> {
         let r = self.tmp(Class::Int);
         self.insts.push(Inst::Bin { op: BinOp::Or, dst: r, a: t1, b: t2 });
         r
+    }
+
+    /// Element type of numeric array operand `a` (None for string arrays).
+    fn elem_ty(&self, a: u32) -> Option<Ty> {
+        let (f, k) = if a & bc::G != 0 { (0, a & !bc::G) } else { (self.fi, a) };
+        match self.m.funcs[f].arr_tys.get(k as usize)? {
+            bc::Ty::I16 => Some(Ty::I16),
+            bc::Ty::I32 => Some(Ty::I32),
+            bc::Ty::I64 => Some(Ty::I64),
+            bc::Ty::F32 => Some(Ty::F32),
+            bc::Ty::F64 => Some(Ty::F64),
+            bc::Ty::Str => None,
+        }
     }
 
     fn global(&mut self, g: u32) -> Class {
@@ -476,6 +490,29 @@ impl Lower<'_> {
                 }
                 self.put(d, dd);
             }
+            LdE1 { d, a, i } | StE1 { a, i, s: d } if self.elem_ty(a).is_some() => {
+                let load = matches!(ins, LdE1 { .. });
+                let et = self.elem_ty(a).expect("numeric");
+                let c = if et.is_float() { Class::Float } else { Class::Int };
+                self.insts.push(Inst::At { pc });
+                let ir = self.get(i, Class::Int);
+                let global = a & bc::G != 0;
+                let slow = match (load, global) {
+                    (true, false) => H_LDE1,
+                    (true, true) => H_LDE1G,
+                    (false, false) => H_STE1,
+                    (false, true) => H_STE1G,
+                };
+                let (table, index, view_off) = (u32::from(global), a & !bc::G, self.view_off);
+                if load {
+                    let dd = self.dst(d, c);
+                    self.insts.push(Inst::VAElem { load, reg: dd, table, index, view_off, elem: et, idx: ir, slow });
+                    self.put(d, dd);
+                } else {
+                    let sr = self.get(d, c);
+                    self.insts.push(Inst::VAElem { load, reg: sr, table, index, view_off, elem: et, idx: ir, slow });
+                }
+            }
             LdE1 { d, a, i } | LdE { d, a, i, n: 1 } => {
                 self.insts.push(Inst::At { pc });
                 let (ar, ir) = (self.konst_i(i64::from(a)), self.get(i, Class::Int));
@@ -511,7 +548,7 @@ impl Lower<'_> {
 }
 
 /// Lowers every function of `m`. `vm_op` = address of the VM step callback.
-pub(crate) fn lower(m: &bc::Module, vm_op: usize) -> mir::Module {
+pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module {
     let gcls = classes(m, &m.funcs[0]);
     let mut funcs = Vec::new();
     for (fi, f) in m.funcs.iter().enumerate() {
@@ -534,7 +571,8 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize) -> mir::Module {
         }
         let leaders: Vec<u32> = leaders.into_iter().collect();
         let bidx = |pc: u32| leaders.binary_search(&pc).ok().map(|i| i as u32);
-        let mut lw = Lower { m, fi, slots: cls.iter().map(|c| ty_of(*c)).collect(), cls, gcls: &gcls, insts: vec![] };
+        let mut lw =
+            Lower { m, fi, slots: cls.iter().map(|c| ty_of(*c)).collect(), cls, gcls: &gcls, insts: vec![], view_off };
         let mut blocks = Vec::new();
         for (bi, &start) in leaders.iter().enumerate() {
             let end = leaders.get(bi + 1).copied().unwrap_or(hi);
@@ -637,19 +675,32 @@ pub(crate) struct Hosts {
     pub ste1: usize,
     pub lde2: usize,
     pub ste2: usize,
+    pub lde1g: usize,
+    pub ste1g: usize,
+    /// offset of the `ArrView` inside the VM's array object
+    pub view_off: u32,
 }
 
 const H_LDE1: u32 = 0;
 const H_STE1: u32 = 1;
 const H_LDE2: u32 = 2;
 const H_STE2: u32 = 3;
+const H_LDE1G: u32 = 4;
+const H_STE1G: u32 = 5;
 
 fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
     let f = |name: &str, n: usize, ret: bool, addr: usize| mir::HostFn {
         sig: mir::HostSig { name: name.into(), params: vec![Ty::I64; n], ret: ret.then_some(Ty::I64), may_error: true },
         addr,
     };
-    vec![f("lde1", 2, true, h.lde1), f("ste1", 3, false, h.ste1), f("lde2", 3, true, h.lde2), f("ste2", 4, false, h.ste2)]
+    vec![
+        f("lde1", 2, true, h.lde1),
+        f("ste1", 3, false, h.ste1),
+        f("lde2", 3, true, h.lde2),
+        f("ste2", 4, false, h.ste2),
+        f("lde1g", 2, true, h.lde1g),
+        f("ste1g", 3, false, h.ste1g),
+    ]
 }
 
 /// JIT state owned by a VM.
@@ -707,10 +758,11 @@ impl JitState {
         mask: u32,
         user: *mut core::ffi::c_void,
         hosts: &Hosts,
+        tables: [*mut u64; 2],
     ) -> Option<Result<(u32, bool), (i32, u32)>> {
         if self.mir.is_none() {
             // SAFETY: the bytecode module outlives the VM that owns this state.
-            let mut m = lower(unsafe { &*self.bc }, hosts.vm_op as *const () as usize);
+            let mut m = lower(unsafe { &*self.bc }, hosts.vm_op as *const () as usize, hosts.view_off);
             m.hosts = host_table(hosts);
             self.mir = Some(m);
         }
@@ -723,6 +775,7 @@ impl JitState {
         ctx.ev_ptr = ev;
         ctx.ev_mask = mask;
         ctx.user = user;
+        ctx.tables = tables;
         self.entries += 1;
         // SAFETY: caller contract; the frame layout is the VM window.
         let st = unsafe { code.run(ctx, func, np, pc) };
