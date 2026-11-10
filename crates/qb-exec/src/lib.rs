@@ -15,6 +15,7 @@
 
 pub mod bytecode;
 mod builtins;
+mod jit;
 mod lower;
 mod lower1;
 mod mem;
@@ -99,6 +100,22 @@ pub fn compile_v1(m: &qb_ir::Module) -> Result<bytecode::Module, String> {
     lower1::compile_v1(m)
 }
 
+/// Compiles a QIR (v0) program ahead of time into a native image for this
+/// executable (D15): `qb-exec build` stores it next to the program, and
+/// [`run_ir_native`] runs it without any compilation at start-up.
+pub fn build_native(src: &str) -> Result<Vec<u8>, RunError> {
+    let m = compile(src)?;
+    jit::build_image(&m, &vm::vm_hosts()).map_err(RunError::load)
+}
+
+/// Runs a QIR (v0) program with its native image (from [`build_native`]).
+pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32, RunError> {
+    let m = compile(src)?;
+    let mut vm = Vm::new(&m, out);
+    vm.load_native(image).map_err(RunError::load)?;
+    vm.run().map(|_| 0)
+}
+
 /// Parses and runs a QIR program, writing console output to `out`.
 pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
     run_ir_status(src, out).map(|_| ())
@@ -107,7 +124,7 @@ pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
 /// Like [`run_ir`] but returns the program's exit code (`SYSTEM n`).
 /// The `QIR <n>` header selects the loader.
 pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
-    let head = src.lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
+    let head = src.trim_start().lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
     if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
         let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
         if std::env::var_os("QB_EXEC_REFERENCE").is_none() {

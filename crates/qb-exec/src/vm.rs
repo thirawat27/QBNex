@@ -39,10 +39,19 @@ enum ArrData {
     Str(Vec<Vec<u8>>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Arr {
     dims: Vec<(i64, i64)>,
     data: ArrData,
+    /// What JIT'd code reads for inline 1-D numeric element access
+    /// (`data` never reallocates: REDIM builds a new `Arr`).
+    pub(crate) view: qb_jit::ctx::ArrView,
+}
+
+impl Clone for Arr {
+    fn clone(&self) -> Arr {
+        Arr::with_data(self.dims.clone(), self.data.clone())
+    }
 }
 
 impl Arr {
@@ -66,7 +75,23 @@ impl Arr {
             Ty::Str => ArrData::Str(vec![Vec::new(); count]),
             Ty::F80 => return Err(5), // _FLOAT arrays live in memory mode
         };
-        Ok(Arr { dims, data })
+        Ok(Arr::with_data(dims, data))
+    }
+
+    fn with_data(dims: Vec<(i64, i64)>, mut data: ArrData) -> Arr {
+        let ptr = match &mut data {
+            ArrData::I16(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::I32(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::I64(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::F32(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::F64(v) => v.as_mut_ptr() as *mut u8,
+            ArrData::Str(_) => core::ptr::null_mut(),
+        };
+        let view = match dims.as_slice() {
+            [(lb, ub)] if !ptr.is_null() => qb_jit::ctx::ArrView { data: ptr, lbound: *lb, count: ub - lb + 1 },
+            _ => qb_jit::ctx::ArrView::NONE,
+        };
+        Arr { dims, data, view }
     }
 
     #[cfg(test)]
@@ -237,6 +262,8 @@ pub struct Vm<'m, 'o> {
     in_handler: Option<(u32, usize)>,
     err: i32,
     erl: u32,
+    /// SYSTEM n / exit code of the program once it ended
+    exit_code: i32,
     /// source line of the last error (_ERRORLINE)
     errline: u32,
     /// last numeric line label passed (QIR v1 LASTLINE; ERL reports it)
@@ -249,6 +276,13 @@ pub struct Vm<'m, 'o> {
     in_event: bool,
     /// pending bits examined at safe points
     poll_mask: u32,
+    /// JIT tier (R11.6); `None` = interpret only (`QB_JIT=off`).
+    jit: Option<Box<crate::jit::JitState>>,
+    /// `exec` returns when a RET brings the frame count back to this
+    /// (calls made from native code run the callee to completion).
+    stop_depth: usize,
+    /// native -> VM -> native nesting of such calls
+    jit_nest: u32,
     timer_interval: f64,
     timer: Option<Arc<AtomicBool>>,
     /// addressable memory (QIR v1 TYPE / STRING * n / pointers)
@@ -397,6 +431,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             in_handler: None,
             err: 0,
             erl: 0,
+            exit_code: 0,
             errline: 0,
             last_line: 0,
             rnd: qb_runtime::rnd::RndState::default(),
@@ -406,11 +441,110 @@ impl<'m, 'o> Vm<'m, 'o> {
             ev_handler: [NONE; 32],
             in_event: false,
             poll_mask: u32::MAX,
+            jit: crate::jit::JitState::from_env(m),
+            stop_depth: usize::MAX,
+            jit_nest: 0,
             timer_interval: 0.0,
             timer: None,
             mem: crate::mem::Mem::new(),
             owned: Vec::new(),
         }
+    }
+
+    /// Uses native code compiled ahead of time (an image made by
+    /// [`crate::build_native`] for this program); no JIT compilation happens.
+    pub fn load_native(&mut self, image: &[u8]) -> Result<(), String> {
+        let st = crate::jit::JitState::from_image(self.m, image, &vm_hosts())?;
+        self.jit = Some(st);
+        Ok(())
+    }
+
+    /// Selects the JIT mode (overrides `QB_JIT`).
+    pub fn set_jit(&mut self, mode: qb_jit::tier::Mode, threshold: u32) {
+        self.jit = crate::jit::JitState::new(self.m, mode, threshold);
+    }
+
+    /// Why the JIT is not running native code, if it tried and failed.
+    pub fn jit_failure(&self) -> Option<String> {
+        self.jit.as_ref().and_then(|j| j.failure())
+    }
+
+    /// Number of times native code was entered.
+    pub fn jit_entries(&self) -> u64 {
+        self.jit.as_ref().map_or(0, |j| j.entries)
+    }
+
+    /// Runs native code for the function containing `pc`, entered at `pc`
+    /// (a back-edge target) on the current register window. `None` = not
+    /// compiled (yet); `Ok((pc, event))` = continue interpreting at `pc`
+    /// (dispatch events first when `event`).
+    #[inline(never)]
+    fn jit_enter(&mut self, pc: u32, np: *mut u64) -> Option<Result<(u32, bool), (i32, u32)>> {
+        if !self.jit.as_deref()?.wants(pc) {
+            return None;
+        }
+        let me = self as *mut Self as *mut core::ffi::c_void;
+        let globals = self.nums.as_mut_ptr();
+        let ev: *const AtomicU32 = &self.ev.pending;
+        let mask = self.poll_mask;
+        let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
+        // SAFETY: native code works on the current window `np` and calls back
+        // into this VM only through `vm_op` (one non-control instruction).
+        let hosts = vm_hosts();
+        let arrs = self.arrs.as_mut_ptr() as *mut u64;
+        // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<Box<Arr>> is one nullable pointer.
+        let tables = [unsafe { arrs.add(self.ab) }, arrs];
+        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables)? };
+        let frames = js.take_frames(self.m.funcs.len());
+        if !frames.is_empty() {
+            self.push_native_frames(frames);
+        }
+        Some(st)
+    }
+
+    /// Rebuilds the VM frames of native calls that were still active when
+    /// native code stopped (error, event, deopt), so the VM continues inside
+    /// the innermost callee exactly as if it had made the calls itself.
+    #[cold]
+    fn push_native_frames(&mut self, frames: Vec<(u32, Vec<u64>, u32)>) {
+        for (f, regs, call_pc) in frames {
+            let Ins::Call { desc, .. } = self.m.code[call_pc as usize] else { unreachable!("chain points at a CALL") };
+            let func = &self.m.funcs[f as usize];
+            let (nb, sb, ab) = (self.nums.len(), self.strs.len(), self.arrs.len());
+            self.nums.extend_from_slice(&regs[..func.n_num() as usize]);
+            self.strs.resize_with(sb + func.n_str as usize, Vec::new);
+            self.arrs.resize_with(ab + func.n_arr() as usize, || None);
+            self.frames.push(Frame { owned: self.owned.len(), func: f, ret: call_pc + 1, nb, sb, ab, caller_view: self.view, desc });
+            self.set_view(self.frames.len() - 1);
+        }
+    }
+
+    /// CALL at `pc` made from native code: the VM pushes the frame and runs
+    /// the callee to its RET (entering native code again for its loops).
+    /// `Ok(next)`: back in the caller; `Ok(u32::MAX)`: END inside the callee.
+    /// Deep native/VM nesting is left to the VM (`Ok(pc)`: not executed).
+    fn call_from_native(&mut self, pc: u32) -> Result<u32, (i32, u32)> {
+        if self.jit_nest >= 16 {
+            return Ok(pc);
+        }
+        let depth = self.frames.len();
+        let entry = self.step_one(pc)?;
+        if self.frames.len() == depth {
+            return Ok(entry);
+        }
+        let saved = self.stop_depth;
+        self.stop_depth = depth;
+        self.jit_nest += 1;
+        let r = self.exec_impl::<false>(entry);
+        self.jit_nest -= 1;
+        self.stop_depth = saved;
+        r
+    }
+
+    /// Executes exactly the instruction at `pc` (used by native code for
+    /// everything it does not compile itself). Returns the next pc.
+    pub(crate) fn step_one(&mut self, pc: u32) -> Result<u32, (i32, u32)> {
+        self.exec_impl::<true>(pc)
     }
 
     /// Handle for raising events from other threads.
@@ -1060,8 +1194,15 @@ impl<'m, 'o> Vm<'m, 'o> {
     // ------------------------------------------------------------ hot loop
 
     /// Runs from `pc` until END (`Ok`) or an error (`Err((code, pc))`).
-    fn exec(&mut self, mut pc: u32) -> Result<i32, (i32, u32)> {
+    fn exec(&mut self, pc: u32) -> Result<i32, (i32, u32)> {
+        self.exec_impl::<false>(pc).map(|_| self.exit_code)
+    }
+
+    /// The interpreter loop. `STEP`: return after one instruction with the next pc.
+    #[inline(always)]
+    fn exec_impl<const STEP: bool>(&mut self, mut pc: u32) -> Result<u32, (i32, u32)> {
         let m: &'m Module = self.m;
+        let mut stepped = false;
         let code = m.code.as_slice();
         let evp: *const AtomicU32 = &self.ev.pending;
         let mut np = self.np();
@@ -1127,7 +1268,31 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
             };
         }
+        macro_rules! jit {
+            () => {
+                if !STEP && self.jit.as_deref().is_some_and(|j| j.wants(pc)) {
+                    match self.jit_enter(pc, np) {
+                        None => {}
+                        Some(Ok((p, _))) if p == u32::MAX => return Ok(u32::MAX),
+                        Some(Ok((p, ev))) => {
+                            pc = p;
+                            reload!();
+                            if ev {
+                                poll!();
+                            }
+                        }
+                        Some(Err(e)) => return Err(e),
+                    }
+                }
+            };
+        }
         loop {
+            if STEP {
+                if stepped {
+                    return Ok(pc);
+                }
+                stepped = true;
+            }
             // SAFETY: every jump target is inside its function and every function
             // ends with ret/end (Module::validate), so pc stays in bounds
             let ins = unsafe { *code.get_unchecked(pc as usize) };
@@ -1260,6 +1425,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::Loop { t } => {
                     pc = t;
                     poll!();
+                    jit!();
                 }
                 Ins::JzI { s, t } => {
                     if r!(s) == 0 {
@@ -1335,6 +1501,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if if s < 0 { x >= l } else { x <= l } {
                         pc = body;
                         poll!();
+                        jit!();
                     }
                 }
                 Ins::Gosub { t } => {
@@ -1364,12 +1531,22 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::Ret => {
                     pc = tryc!(self.ret());
                     reload!();
+                    if !STEP && self.frames.len() == self.stop_depth {
+                        return Ok(pc);
+                    }
                 }
-                Ins::End => return Ok(0),
-                Ins::System { s } => return Ok(if s == NONE { 0 } else { ri!(s) as i32 }),
+                Ins::End => {
+                    self.exit_code = 0;
+                    return Ok(u32::MAX);
+                }
+                Ins::System { s } => {
+                    self.exit_code = if s == NONE { 0 } else { ri!(s) as i32 };
+                    return Ok(u32::MAX);
+                }
                 Ins::Rt { f, d, args } => {
                     if let Some(code) = tryc!(self.rt_call(f, d, args)) {
-                        return Ok(code);
+                        self.exit_code = code;
+                        return Ok(u32::MAX);
                     }
                 }
                 Ins::CvtFI { d, s, w, trunc } => {
@@ -1759,5 +1936,142 @@ mod tests {
         f.set(f.off1(2).unwrap(), 0.1f64.to_bits());
         assert_eq!(f64::from_bits(f.get(1)), f64::from(0.1f32));
         assert_eq!(f.off1(3), Err(9));
+    }
+}
+
+/// VmOp callback for native code: executes the VM instruction `pc` on the
+/// window `frame` (which is the VM's current one).
+extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
+    // SAFETY: `user` was set by `jit_enter` to the VM that entered native code.
+    let ctx = unsafe { &mut *ctx };
+    let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
+    debug_assert_eq!(frame, vm.np());
+    let r = if matches!(vm.m.code[pc as usize], Ins::Call { .. }) { vm.call_from_native(pc) } else { vm.step_one(pc) };
+    // Nested native code may have reused the context; the register file may have moved.
+    ctx.user = vm as *mut Vm<'static, 'static> as *mut core::ffi::c_void;
+    ctx.frame = vm.np();
+    ctx.globals = vm.nums.as_mut_ptr();
+    let arrs = vm.arrs.as_mut_ptr() as *mut u64;
+    // SAFETY: `ab` is inside `arrs`.
+    ctx.tables = [unsafe { arrs.add(vm.ab) }, arrs];
+    ctx.ev_ptr = &vm.ev.pending;
+    ctx.ev_mask = vm.poll_mask;
+    match r {
+        Ok(next) if next == pc + 1 => {
+            ctx.err = 0;
+            qb_jit::status::OK
+        }
+        Ok(u32::MAX) => {
+            ctx.exit_pc = 0;
+            qb_jit::status::END
+        }
+        Ok(next) => {
+            ctx.exit_pc = next;
+            qb_jit::status::DEOPT
+        }
+        Err((code, at)) => {
+            ctx.err = code;
+            ctx.exit_pc = at;
+            qb_jit::status::ERROR
+        }
+    }
+}
+
+fn host_vm<'a>(ctx: *mut qb_jit::Ctx) -> (&'a mut qb_jit::Ctx, &'a mut Vm<'static, 'static>) {
+    // SAFETY: called only by native code entered through `jit_enter`, which set `user`.
+    let ctx = unsafe { &mut *ctx };
+    let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
+    (ctx, vm)
+}
+
+/// Native `ld_e1` (numeric element of a 1-D array) as register bits.
+extern "C" fn jit_lde1(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.get(o))) {
+        Ok(v) => v as i64,
+        Err(c) => {
+            ctx.err = c;
+            0
+        }
+    }
+}
+
+extern "C" fn jit_ste1(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
+    let (ctx, vm) = host_vm(ctx);
+    if let Err(c) = vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.set(o, v as u64))) {
+        ctx.err = c;
+    }
+}
+
+extern "C" fn jit_lde2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.get(o))) {
+        Ok(v) => v as i64,
+        Err(c) => {
+            ctx.err = c;
+            0
+        }
+    }
+}
+
+extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
+    let (ctx, vm) = host_vm(ctx);
+    if let Err(c) = vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.set(o, v as u64))) {
+        ctx.err = c;
+    }
+}
+
+extern "C" fn jit_lde1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
+    jit_lde1(ctx, a | G as i64, i)
+}
+
+extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
+    jit_ste1(ctx, a | G as i64, i, v)
+}
+
+// Native code reads `Option<Box<Arr>>` table entries as plain pointers.
+const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);
+
+/// Native GOSUB: push the return pc like `Ins::Gosub`.
+extern "C" fn jit_gosub(ctx: *mut qb_jit::Ctx, ret: i64) {
+    let (_, vm) = host_vm(ctx);
+    vm.gosub.push(Gs { ret: ret as u32, depth: vm.frames.len(), view: vm.view, event: false });
+}
+
+/// Native RETURN at pc `at`: the pc to continue at. When the VM has to do
+/// more than pop (event handler return, view switch) nothing is popped and
+/// `at` comes back, so native code exits and the VM executes the RETURN.
+extern "C" fn jit_return(ctx: *mut qb_jit::Ctx, at: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.gosub.last().copied() {
+        Some(g) if g.depth == vm.frames.len() => {
+            if g.event || g.view != vm.view {
+                at
+            } else {
+                vm.gosub.pop();
+                i64::from(g.ret)
+            }
+        }
+        _ => {
+            ctx.err = 3;
+            0
+        }
+    }
+}
+
+/// The VM entry points native code calls (same addresses for JIT and AOT code
+/// of this executable).
+pub(crate) fn vm_hosts() -> crate::jit::Hosts {
+    crate::jit::Hosts {
+        vm_op,
+        lde1: jit_lde1 as *const () as usize,
+        ste1: jit_ste1 as *const () as usize,
+        lde2: jit_lde2 as *const () as usize,
+        ste2: jit_ste2 as *const () as usize,
+        lde1g: jit_lde1g as *const () as usize,
+        gosub: jit_gosub as *const () as usize,
+        greturn: jit_return as *const () as usize,
+        ste1g: jit_ste1g as *const () as usize,
+        view_off: core::mem::offset_of!(Arr, view) as u32,
     }
 }

@@ -5,6 +5,8 @@ members = [
     "crates/qb-audio",
     "crates/qb-exec",
     "crates/qb-ir",
+    "crates/qb-jit",
+    "crates/qb-link",
     "crates/qb-float80",
     "crates/qb-ffi",
     "tests/conformance",
