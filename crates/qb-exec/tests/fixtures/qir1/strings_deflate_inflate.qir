@@ -1,0 +1,270 @@
+QIR 1
+meta console only
+global $__STRING_A str
+global $__STRING_Z str
+global $__STRING_B str
+global $__STRING_C str
+global $__SINGLE_I f32
+global $__STRING_D str
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+line 5
+const.str %0 x51424E657820
+const.i32 %1 200
+const.str %2 x78
+rt %3 STRING$.s %1 %2
+const.str %4 x656E64
+concat %5 %0 %3
+concat %6 %5 %4
+store.str $__STRING_A %6
+line 6
+load.str %7 $__STRING_A
+rt %8 _DEFLATE$ %7
+store.str $__STRING_Z %8
+line 7
+load.str %9 $__STRING_A
+rt %10 LEN %9
+cvt.i64.i32 %11 %10
+rt %12 STR$.i64 %11
+const.str %13 x20
+concat %14 %12 %13
+const.i32 %15 0
+rt PRINTS %15 %14
+load.str %16 $__STRING_Z
+rt %17 LEN %16
+load.str %18 $__STRING_A
+rt %19 LEN %18
+lt.i32 %20 %17 %19
+cvt.i64.i32 %21 %20
+rt %22 STR$.i64 %21
+const.str %23 x20
+concat %24 %22 %23
+const.i32 %25 0
+rt PRINTS %25 %24
+load.str %26 $__STRING_Z
+const.i32 %27 1
+rt %28 ASC.n %26 %27
+cvt.i64.i32 %29 %28
+rt %30 STR$.i64 %29
+const.str %31 x20
+concat %32 %30 %31
+const.i32 %33 0
+rt PRINTS %33 %32
+const.i32 %34 0
+rt PRINTNL %34
+line 8
+load.str %35 $__STRING_Z
+rt %36 _INFLATE$ %35
+load.str %37 $__STRING_A
+eq.str %38 %36 %37
+cvt.i64.i32 %39 %38
+rt %40 STR$.i64 %39
+const.str %41 x20
+concat %42 %40 %41
+const.i32 %43 0
+rt PRINTS %43 %42
+const.i32 %44 0
+rt PRINTNL %44
+line 9
+load.str %45 $__STRING_Z
+load.str %46 $__STRING_A
+rt %47 LEN %46
+cvt.i64.i32 %48 %47
+rt %49 _INFLATE$.n %45 %48
+load.str %50 $__STRING_A
+eq.str %51 %49 %50
+cvt.i64.i32 %52 %51
+rt %53 STR$.i64 %52
+const.str %54 x20
+concat %55 %53 %54
+const.i32 %56 0
+rt PRINTS %56 %55
+const.i32 %57 0
+rt PRINTNL %57
+line 10
+load.str %58 $__STRING_Z
+const.i32 %59 10
+cvt.i64.i32 %60 %59
+rt %61 _INFLATE$.n %58 %60
+store.str $__STRING_B %61
+line 11
+load.str %62 $__STRING_B
+rt %63 LEN %62
+cvt.i64.i32 %64 %63
+rt %65 STR$.i64 %64
+const.str %66 x20
+concat %67 %65 %66
+const.i32 %68 0
+rt PRINTS %68 %67
+load.str %69 $__STRING_B
+const.i32 %70 0
+rt PRINTS %70 %69
+const.i32 %71 0
+rt PRINTNL %71
+line 12
+load.str %72 $__STRING_Z
+const.i32 %73 0
+cvt.i64.i32 %74 %73
+rt %75 _INFLATE$.n %72 %74
+rt %76 LEN %75
+cvt.i64.i32 %77 %76
+rt %78 STR$.i64 %77
+const.str %79 x20
+concat %80 %78 %79
+const.i32 %81 0
+rt PRINTS %81 %80
+const.i32 %82 0
+rt PRINTNL %82
+line 13
+const.str %83 x
+rt %84 _DEFLATE$ %83
+rt %85 _INFLATE$ %84
+rt %86 LEN %85
+cvt.i64.i32 %87 %86
+rt %88 STR$.i64 %87
+const.str %89 x20
+concat %90 %88 %89
+const.i32 %91 0
+rt PRINTS %91 %90
+const.str %92 x
+rt %93 _DEFLATE$ %92
+rt %94 LEN %93
+const.i32 %95 0
+gt.i32 %96 %94 %95
+cvt.i64.i32 %97 %96
+rt %98 STR$.i64 %97
+const.str %99 x20
+concat %100 %98 %99
+const.i32 %101 0
+rt PRINTS %101 %100
+const.i32 %102 0
+rt PRINTNL %102
+line 14
+const.i32 %103 5000
+rt %104 SPACE$ %103
+store.str $__STRING_C %104
+line 15
+const.i32 %105 1
+cvt.f64.i32 %106 %105
+store.f64 $~T1 %106
+const.i32 %107 5000
+cvt.f64.i32 %108 %107
+store.f64 $~T2 %108
+const.i32 %109 1
+cvt.f64.i32 %110 %109
+store.f64 $~T3 %110
+jmp ~F17.E
+label ~F17.T
+load.f32 %111 $__SINGLE_I
+cvt.f64.f32 %112 %111
+load.f64 %113 $~T3
+add.f64 %114 %113 %112
+store.f64 $~T1 %114
+label ~F17.E
+load.f64 %115 $~T1
+cvt.f32.f64 %116 %115
+store.f32 $__SINGLE_I %116
+load.f64 %117 $~T3
+const.f64 %118 0
+lt.f64 %119 %117 %118
+jz %119 ~F17.P
+load.f64 %120 $~T2
+lt.f64 %121 %115 %120
+jnz %121 ~F17.X
+jmp ~F17.B
+label ~F17.P
+load.f64 %122 $~T2
+gt.f64 %123 %115 %122
+jnz %123 ~F17.X
+label ~F17.B
+line 15
+load.str %124 $__STRING_C
+load.f32 %125 $__SINGLE_I
+cvt.i32.f32 %126 %125
+load.f32 %127 $__SINGLE_I
+const.i32 %128 7
+cvt.f32.i32 %129 %128
+mul.f32 %130 %127 %129
+load.f32 %131 $__SINGLE_I
+const.i32 %132 13
+cvt.i64.f32 %133 %131
+cvt.i64.i32 %134 %132
+idiv.i64 %135 %133 %134
+cvt.f32.i64 %136 %135
+add.f32 %137 %130 %136
+const.i32 %138 256
+cvt.i64.f32 %139 %137
+cvt.i64.i32 %140 %138
+mod.i64 %141 %139 %140
+cvt.i32.i64 %142 %141
+rt %143 CHR$ %142
+const.i32 %144 1
+rt %145 MIDSET.n %124 %126 %144 %143
+store.str $__STRING_C %145
+line 15
+label ~F17.C
+jmp ~F17.T
+label ~F17.X
+line 16
+load.str %146 $__STRING_C
+rt %147 _DEFLATE$ %146
+store.str $__STRING_D %147
+line 17
+load.str %148 $__STRING_D
+rt %149 _INFLATE$ %148
+load.str %150 $__STRING_C
+eq.str %151 %149 %150
+cvt.i64.i32 %152 %151
+rt %153 STR$.i64 %152
+const.str %154 x20
+concat %155 %153 %154
+const.i32 %156 0
+rt PRINTS %156 %155
+load.str %157 $__STRING_D
+const.i32 %158 6000
+cvt.i64.i32 %159 %158
+rt %160 _INFLATE$.n %157 %159
+load.str %161 $__STRING_C
+eq.str %162 %160 %161
+cvt.i64.i32 %163 %162
+rt %164 STR$.i64 %163
+const.str %165 x20
+concat %166 %164 %165
+const.i32 %167 0
+rt PRINTS %167 %166
+load.str %168 $__STRING_D
+const.i32 %169 4999
+cvt.i64.i32 %170 %169
+rt %171 _INFLATE$.n %168 %170
+rt %172 LEN %171
+cvt.i64.i32 %173 %172
+rt %174 STR$.i64 %173
+const.str %175 x20
+concat %176 %174 %175
+const.i32 %177 0
+rt PRINTS %177 %176
+const.i32 %178 0
+rt PRINTNL %178
+line 18
+const.str %179 x6E6F74207A6C69622064617461
+rt %180 _INFLATE$ %179
+rt %181 LEN %180
+cvt.i64.i32 %182 %181
+rt %183 STR$.i64 %182
+const.str %184 x20
+concat %185 %183 %184
+const.i32 %186 0
+rt PRINTS %186 %185
+const.i32 %187 0
+rt PRINTNL %187
+line 19
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

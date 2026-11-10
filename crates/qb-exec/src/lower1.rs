@@ -1432,6 +1432,8 @@ impl<'a> Lw<'a> {
                             Ty::Str
                         } else if t == IT::F80 {
                             Ty::F80
+                        } else if t == IT::Ptr && self.mem {
+                            Ty::I64
                         } else if t.is_float() {
                             vty(t)?
                         } else {
