@@ -237,6 +237,9 @@ SUB StdLib_PrepareHoistedImports
     DIM fh AS LONG
     DIM p AS LONG
     DIM nl AS LONG
+    DIM usesTry AS INTEGER
+    DIM codeText AS STRING
+    DIM commentText AS STRING
 
     stdlibHoisted$ = "@"
     stdlibHeadFile$ = ""
@@ -252,11 +255,19 @@ SUB StdLib_PrepareHoistedImports
         p = nl + 1
         moduleName = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(moduleName) THEN StdLib_HoistModule moduleName, headText, bodyText
+        IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
+        codeText = SyntaxExt_CodePart$(lineText, commentText)
+        IF UCASE$(LTRIM$(RTRIM$(codeText))) = "TRY" THEN usesTry = -1
     LOOP
-    IF stdlibHoisted$ = "@" THEN EXIT SUB
+    IF stdlibHoisted$ = "@" AND usesTry = 0 THEN EXIT SUB
 
     'the in-place $IMPORT lines become no-ops
-    importedModules$ = stdlibHoisted$
+    IF stdlibHoisted$ <> "@" THEN importedModules$ = stdlibHoisted$
+
+    'TRY ... END TRY (syntax_ext.bas) needs one module-level error handler
+    IF usesTry THEN
+        headText = "DIM SHARED QBNEX_TRYERR AS LONG" + CHR$(13) + CHR$(10) + "GOTO QBNEX_TRY_SKIP" + CHR$(13) + CHR$(10) + "QBNEX_TRY_HANDLER:" + CHR$(13) + CHR$(10) + "QBNEX_TRYERR = ERR" + CHR$(13) + CHR$(10) + "RESUME NEXT" + CHR$(13) + CHR$(10) + "QBNEX_TRY_SKIP:" + CHR$(13) + CHR$(10) + headText
+    END IF
 
     'these files take the place of the vwatch includes at the first/last line
     vwatchDir = getfilepath$(COMMAND$(0)) + "internal" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$

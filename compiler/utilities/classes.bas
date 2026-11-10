@@ -686,9 +686,14 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
     'R13 statement extensions (ENUM, FOR EACH, TRY) lower to plain lines first (syntax_ext.bas)
     IF classSyntaxActive = 0 THEN
         syntaxExtLine$ = SyntaxExt_ProcessLine$(rawLine$)
-        IF syntaxExtLine$ <> rawLine$ OR LEN(classSyntaxQueue$) THEN
-            ClassSyntax_ProcessLine$ = syntaxExtLine$
-            EXIT FUNCTION
+        IF syntaxExtLine$ <> rawLine$ THEN
+            'a rewritten SUB/FUNCTION header (OPTIONAL parameters) still goes through the class scope tracking
+            IF LEFT$(UCASE$(LTRIM$(syntaxExtLine$)), 4) = "SUB " OR LEFT$(UCASE$(LTRIM$(syntaxExtLine$)), 9) = "FUNCTION " THEN
+                rawLine$ = syntaxExtLine$
+            ELSE
+                ClassSyntax_ProcessLine$ = syntaxExtLine$
+                EXIT FUNCTION
+            END IF
         END IF
     END IF
 

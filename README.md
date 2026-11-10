@@ -3202,6 +3202,34 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ---
 
+### Language Extensions
+
+QBNex adds these to QBasic. Existing programs are unaffected: the new words start with `_` or are only recognised where QBasic would have reported a syntax error.
+
+| Feature | Example | Notes |
+| --- | --- | --- |
+| `_IIF` | `PRINT _IIF(n > 1, "items", "item")` | Only the chosen value is evaluated. Both values are strings or both are numbers. |
+| `_ANDALSO`, `_ORELSE` | `IF i <= UBOUND(a) _ANDALSO a(i) > 0 THEN` | Short-circuit logic, result -1 or 0. |
+| String interpolation | `PRINT $"Hello {name$}, you are {age%}"` | Numbers are formatted like `LTRIM$(STR$(x))` (`_TOSTR$`). `{{` and `}}` are literal braces. |
+| `FOR EACH` | `FOR EACH v IN scores()` ... `NEXT` | One-dimensional arrays, LBOUND to UBOUND; `v` is a copy of the element. |
+| `ENUM` | `ENUM Color` / `Red, Green = 5, Blue` / `END ENUM` | Members become integer `CONST`s, counting up from 0 or from the last `= value`. |
+| `TRY` / `CATCH` / `FINALLY` | see below | Built on `ON ERROR`; `CATCH e` stores the error number in `e`. Without `CATCH`, the error is raised again after `FINALLY`. |
+| `OPTIONAL` parameters | `SUB Greet (who$, OPTIONAL greeting$ = "Hello")` | Trailing arguments may be left out; the default is any expression valid at the call site. |
+| `$ASSERTS` + `_ASSERT` | `_ASSERT total >= 0, "negative total"` | Checked only when `$ASSERTS` is present. |
+
+```basic
+TRY
+    OPEN "data.txt" FOR INPUT AS #1
+    LINE INPUT #1, first$
+CATCH e
+    PRINT "could not read data.txt, error"; e
+FINALLY
+    CLOSE
+END TRY
+```
+
+`TRY` blocks must be written in the main source file (not in an `$INCLUDE` file), each keyword on its own line.
+
 ## Development
 
 Primary compiler modules now live under `compiler/utilities/` with `compiler/qbnex.bas`

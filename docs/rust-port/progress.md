@@ -784,6 +784,21 @@ Status: **groundwork done**, not wired into the runtime yet (the CPU renderer st
 - Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
 
 Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
+## R13 language extensions in the compiler (branch `claude/corpus-fixes-70d56e`)
+
+| Feature | How | Conformance |
+| --- | --- | --- |
+| `ENUM ... END ENUM` | text lowering (`compiler/utilities/syntax_ext.bas`) to `CONST` lines | `syntax/enum_basic` |
+| `FOR EACH v IN a() ... NEXT [v]` | text lowering to `FOR QBNEX_EACHn& = LBOUND(a) TO UBOUND(a): v = a(QBNEX_EACHn&)`; `NEXT v` is renamed | `syntax/for_each` |
+| `TRY / CATCH [e] / FINALLY / END TRY` | text lowering onto one module-level handler (`QBNEX_TRY_HANDLER: QBNEX_TRYERR = ERR: RESUME NEXT`, written into the hoisted head when the main file uses TRY) and a check line after every TRY-body line; works inside SUBs because only GOTO targets are local | `syntax/try_catch` |
+| `OPTIONAL p AS T = default` | headers lose `OPTIONAL`/`= default`; the defaults are recorded in the prepass and appended as text to calls that leave trailing arguments out (statement, `CALL` and expression calls) | `syntax/optional_params` |
+| `$"..{expr}.."` | text lowering to `("..." + _TOSTR$(expr) + "...")` | `syntax/interpolation` |
+| `_TOSTR$(x)` | evaluatefunc special case: string unchanged, number `qbs_ltrim(qbs_str(x))` | `syntax/interpolation` |
+| `_IIF(c, a, b)` | evaluatefunc special case: C `?:`, only the chosen value runs; numbers become INTEGER/LONG/INTEGER64/DOUBLE/_FLOAT as needed | `syntax/iif` |
+| `_ANDALSO`, `_ORELSE` | reserved operators at AND/OR precedence; C++ `-((l)&&(r))`, `-((l)||(r))`; CONST folding | `syntax/andalso_orelse` |
+| `$ASSERTS`, `_ASSERT` | already existed | `syntax/assert_on` |
+
+The text lowerings need no QIR work; R11a adds `_IIF`, `_ANDALSO`/`_ORELSE` and `_TOSTR$` (callnames `func__iif`, `func__tostr`) to `ir_emit.bas`. Limits: TRY only in the main source file, each TRY keyword on its own line; FOR EACH over one-dimensional arrays; an interpolated expression cannot contain `"`. `ERROR 11` (division by zero) is a critical error in the runtime and cannot be caught by ON ERROR or TRY.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

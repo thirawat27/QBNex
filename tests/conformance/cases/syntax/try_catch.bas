@@ -1,6 +1,6 @@
 $CONSOLE:ONLY
 TRY
-    ERROR 11
+    ERROR 53
     PRINT "not here"
 CATCH e
     PRINT "caught"; e

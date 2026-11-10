@@ -698,7 +698,7 @@ FUNCTION getpid& ()
     DIM SHARED addmetainclude AS STRING
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
-DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG 'syntax_ext.bas (R13)
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING 'syntax_ext.bas (R13)
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -1025,6 +1025,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             HashAdd "AND", f, 0
             HashAdd "OR", f, 0
             HashAdd "XOR", f, 0
+            HashAdd "_ANDALSO", f, 0 'short-circuit AND/OR (R13)
+            HashAdd "_ORELSE", f, 0
             HashAdd "MOD", f, 0
 
             f = HASHFLAG_RESERVED + HASHFLAG_CUSTOMSYNTAX
@@ -1175,6 +1177,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             classSyntaxQueue$ = ""
             classSyntaxDeferredQueue$ = ""
             SyntaxExt_Reset
+            syntaxExtOptional$ = "" 'OPTIONAL defaults: built in the prepass, used in the main pass
             topLevelRuntimeLines = ""
             topLevelRuntimeCallInjected = 0
             topLevelRuntimeFinalized = 0
@@ -11888,8 +11891,8 @@ IF recompile THEN
             l = l + 1: IF a$ = "IMP" THEN GOTO opfound
             l = l + 1: IF a$ = "EQV" THEN GOTO opfound
             l = l + 1: IF a$ = "XOR" THEN GOTO opfound
-            l = l + 1: IF a$ = "OR" THEN GOTO opfound
-            l = l + 1: IF a$ = "AND" THEN GOTO opfound
+            l = l + 1: IF a$ = "OR" OR a$ = "_ORELSE" THEN GOTO opfound
+            l = l + 1: IF a$ = "AND" OR a$ = "_ANDALSO" THEN GOTO opfound
             l = l + 1: IF a$ = "NOT" THEN GOTO opfound
             l = l + 1
             IF a$ = "=" THEN GOTO opfound
@@ -12035,6 +12038,9 @@ IF recompile THEN
             IF operator$ = "<>" THEN info$ = "!=": operatorusage = 3: EXIT FUNCTION
             IF operator$ = "<=" THEN info$ = "<=": operatorusage = 3: EXIT FUNCTION
             IF operator$ = ">=" THEN info$ = ">=": operatorusage = 3: EXIT FUNCTION
+            'short-circuit: C++ && / || give 1/0, usage 3 negates to the BASIC -1/0
+            IF UCASE$(operator$) = "_ANDALSO" THEN info$ = "&&": operatorusage = 3: EXIT FUNCTION
+            IF UCASE$(operator$) = "_ORELSE" THEN info$ = "||": operatorusage = 3: EXIT FUNCTION
 
             lhs = 1: rhs = 1: result = 1
             operator$ = UCASE$(operator$)

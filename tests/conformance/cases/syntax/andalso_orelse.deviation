@@ -1,0 +1,1 @@
+QBNex extension (R13): _ANDALSO / _ORELSE are short-circuit logical operators returning -1/0 (the right side is not evaluated when the left side decides). Not in the legacy compiler; expected output written by hand.
