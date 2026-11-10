@@ -208,15 +208,16 @@ FUNCTION Result_Describe$ (resultRef AS QBNex_Result)
 END FUNCTION
 
 FUNCTION Result_Expect$ (resultRef AS QBNex_Result, expectationText AS STRING)
+    DIM messageText AS STRING
+
     IF resultRef.Ok THEN
         Result_Expect$ = resultRef.Value
         EXIT FUNCTION
     END IF
 
-    expectationText = Result_TrimText$(expectationText)
-    IF expectationText = "" THEN expectationText = "called Result_Expect on an error"
-
-    PRINT "panic: "; expectationText
+    messageText = Result_TrimText$(expectationText)
+    IF messageText = "" THEN messageText = "called Result_Expect on an error"
+    PRINT "panic: "; messageText
     PRINT "error: "; Result_ErrorChain$(resultRef)
     SYSTEM 1
 END FUNCTION

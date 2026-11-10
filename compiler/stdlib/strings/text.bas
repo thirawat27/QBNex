@@ -57,29 +57,30 @@ FUNCTION Text_Contains& (valueText AS STRING, searchText AS STRING)
 END FUNCTION
 
 FUNCTION Text_PadLeft$ (valueText AS STRING, totalWidth AS LONG, padText AS STRING)
-    DIM resultText AS STRING
+    DIM fillText AS STRING
     DIM deficit AS LONG
 
-    resultText = valueText
-    IF LEN(padText) = 0 THEN padText = " "
-    deficit = totalWidth - LEN(resultText)
+    fillText = padText
+    IF LEN(fillText) = 0 THEN fillText = " "
+    deficit = totalWidth - LEN(valueText)
     IF deficit <= 0 THEN
-        Text_PadLeft = resultText
+        Text_PadLeft = valueText
         EXIT FUNCTION
     END IF
-    Text_PadLeft = Text_Repeat$(padText, deficit) + resultText
+    ' A multi-character pad is repeated and cut to the exact width.
+    Text_PadLeft = LEFT$(Text_Repeat$(fillText, (deficit + LEN(fillText) - 1) \ LEN(fillText)), deficit) + valueText
 END FUNCTION
 
 FUNCTION Text_PadRight$ (valueText AS STRING, totalWidth AS LONG, padText AS STRING)
-    DIM resultText AS STRING
+    DIM fillText AS STRING
     DIM deficit AS LONG
 
-    resultText = valueText
-    IF LEN(padText) = 0 THEN padText = " "
-    deficit = totalWidth - LEN(resultText)
+    fillText = padText
+    IF LEN(fillText) = 0 THEN fillText = " "
+    deficit = totalWidth - LEN(valueText)
     IF deficit <= 0 THEN
-        Text_PadRight = resultText
+        Text_PadRight = valueText
         EXIT FUNCTION
     END IF
-    Text_PadRight = resultText + Text_Repeat$(padText, deficit)
+    Text_PadRight = valueText + LEFT$(Text_Repeat$(fillText, (deficit + LEN(fillText) - 1) \ LEN(fillText)), deficit)
 END FUNCTION

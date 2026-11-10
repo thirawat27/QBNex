@@ -119,12 +119,12 @@ FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
         EXIT FUNCTION
     END IF
 
-    QBNEX_ClassCount = QBNEX_ClassCount + 1
-    IF QBNEX_ClassCount > 256 THEN
+    IF QBNEX_ClassCount >= 256 THEN
         PRINT "ERROR: Maximum class limit exceeded"
         QBNEX_RegisterClass = 0
         EXIT FUNCTION
     END IF
+    QBNEX_ClassCount = QBNEX_ClassCount + 1
 
     QBNEX_ClassRegistry(QBNEX_ClassCount).ClassName = RTRIM$(className)
     QBNEX_ClassRegistry(QBNEX_ClassCount).BaseClassID = baseClassID
@@ -245,12 +245,12 @@ FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
         EXIT FUNCTION
     END IF
 
-    QBNEX_InterfaceCount = QBNEX_InterfaceCount + 1
-    IF QBNEX_InterfaceCount > 256 THEN
+    IF QBNEX_InterfaceCount >= 256 THEN
         PRINT "ERROR: Maximum interface limit exceeded"
         QBNEX_RegisterInterfaceName = 0
         EXIT FUNCTION
     END IF
+    QBNEX_InterfaceCount = QBNEX_InterfaceCount + 1
 
     QBNEX_InterfaceRegistry(QBNEX_InterfaceCount).InterfaceName = RTRIM$(interfaceName)
     QBNEX_RegisterInterfaceName = QBNEX_InterfaceCount
@@ -744,53 +744,60 @@ FUNCTION Text_Contains& (valueText AS STRING, searchText AS STRING)
 END FUNCTION
 
 FUNCTION Text_PadLeft$ (valueText AS STRING, totalWidth AS LONG, padText AS STRING)
-    DIM resultText AS STRING
+    DIM fillText AS STRING
     DIM deficit AS LONG
 
-    resultText = valueText
-    IF LEN(padText) = 0 THEN padText = " "
-    deficit = totalWidth - LEN(resultText)
+    fillText = padText
+    IF LEN(fillText) = 0 THEN fillText = " "
+    deficit = totalWidth - LEN(valueText)
     IF deficit <= 0 THEN
-        Text_PadLeft = resultText
+        Text_PadLeft = valueText
         EXIT FUNCTION
     END IF
-    Text_PadLeft = Text_Repeat$(padText, deficit) + resultText
+    ' A multi-character pad is repeated and cut to the exact width.
+    Text_PadLeft = LEFT$(Text_Repeat$(fillText, (deficit + LEN(fillText) - 1) \ LEN(fillText)), deficit) + valueText
 END FUNCTION
 
 FUNCTION Text_PadRight$ (valueText AS STRING, totalWidth AS LONG, padText AS STRING)
-    DIM resultText AS STRING
+    DIM fillText AS STRING
     DIM deficit AS LONG
 
-    resultText = valueText
-    IF LEN(padText) = 0 THEN padText = " "
-    deficit = totalWidth - LEN(resultText)
+    fillText = padText
+    IF LEN(fillText) = 0 THEN fillText = " "
+    deficit = totalWidth - LEN(valueText)
     IF deficit <= 0 THEN
-        Text_PadRight = resultText
+        Text_PadRight = valueText
         EXIT FUNCTION
     END IF
-    Text_PadRight = resultText + Text_Repeat$(padText, deficit)
+    Text_PadRight = valueText + LEFT$(Text_Repeat$(fillText, (deficit + LEN(fillText) - 1) \ LEN(fillText)), deficit)
 END FUNCTION
 
 FUNCTION Json_Escape$ (valueText AS STRING)
     DIM index AS LONG
-    DIM currentChar AS STRING
+    DIM code AS LONG
     DIM resultText AS STRING
 
     FOR index = 1 TO LEN(valueText)
-        currentChar = MID$(valueText, index, 1)
-        SELECT CASE ASC(currentChar)
-        CASE 34
-            resultText = resultText + CHR$(92) + CHR$(34)
-        CASE 92
-            resultText = resultText + CHR$(92) + CHR$(92)
-        CASE 9
-            resultText = resultText + CHR$(92) + "t"
-        CASE 10
-            resultText = resultText + CHR$(92) + "n"
-        CASE 13
-            resultText = resultText + CHR$(92) + "r"
-        CASE ELSE
-            resultText = resultText + currentChar
+        code = ASC(valueText, index)
+        SELECT CASE code
+            CASE 34
+                resultText = resultText + CHR$(92) + CHR$(34)
+            CASE 92
+                resultText = resultText + CHR$(92) + CHR$(92)
+            CASE 8
+                resultText = resultText + CHR$(92) + "b"
+            CASE 9
+                resultText = resultText + CHR$(92) + "t"
+            CASE 10
+                resultText = resultText + CHR$(92) + "n"
+            CASE 12
+                resultText = resultText + CHR$(92) + "f"
+            CASE 13
+                resultText = resultText + CHR$(92) + "r"
+            CASE IS < 32
+                resultText = resultText + CHR$(92) + "u00" + RIGHT$("0" + LCASE$(HEX$(code)), 2)
+            CASE ELSE
+                resultText = resultText + CHR$(code)
         END SELECT
     NEXT
 
@@ -983,16 +990,23 @@ FUNCTION Date_ValueOf# (dateRef AS QBNex_Date)
     DIM monthValue AS LONG
     DIM totalDays AS DOUBLE
 
-    FOR yearValue = 1970 TO dateRef.Year - 1
-        totalDays = totalDays + 365
-        IF Date_IsLeapYear&(yearValue) THEN totalDays = totalDays + 1
-    NEXT
-
+    ' Days since 1970-01-01 (negative before 1970).
+    IF dateRef.Year >= 1970 THEN
+        FOR yearValue = 1970 TO dateRef.Year - 1
+            totalDays = totalDays + 365
+            IF Date_IsLeapYear&(yearValue) THEN totalDays = totalDays + 1
+        NEXT
+    ELSE
+        FOR yearValue = dateRef.Year TO 1969
+            totalDays = totalDays - 365
+            IF Date_IsLeapYear&(yearValue) THEN totalDays = totalDays - 1
+        NEXT
+    END IF
     FOR monthValue = 1 TO dateRef.Month - 1
         totalDays = totalDays + Date_DaysInMonth&(dateRef.Year, monthValue)
     NEXT
-
     totalDays = totalDays + (dateRef.Day - 1)
+
     Date_ValueOf = (((((totalDays * 24#) + dateRef.Hour) * 60# + dateRef.Minute) * 60# + dateRef.Second) * 1000#) + dateRef.Millisecond
 END FUNCTION
 
@@ -1011,13 +1025,19 @@ SUB Date_FromUnixMs (dateRef AS QBNex_Date, epochMs AS DOUBLE)
     DIM monthValue AS LONG
     DIM yearDays AS LONG
 
+    ' INT rounds toward minus infinity, so times before 1970 work too.
     totalSeconds = INT(epochMs / 1000#)
     dateRef.Millisecond = epochMs - totalSeconds * 1000#
-
     wholeDays = INT(totalSeconds / 86400#)
-    secondsOfDay = totalSeconds - wholeDays * 86400
+    secondsOfDay = totalSeconds - wholeDays * 86400#
 
     yearValue = 1970
+    DO WHILE wholeDays < 0
+        yearValue = yearValue - 1
+        yearDays = 365
+        IF Date_IsLeapYear&(yearValue) THEN yearDays = 366
+        wholeDays = wholeDays + yearDays
+    LOOP
     DO
         yearDays = 365
         IF Date_IsLeapYear&(yearValue) THEN yearDays = 366
@@ -1037,9 +1057,9 @@ SUB Date_FromUnixMs (dateRef AS QBNex_Date, epochMs AS DOUBLE)
     dateRef.Year = yearValue
     dateRef.Month = monthValue
     dateRef.Day = wholeDays + 1
-    dateRef.Hour = INT(secondsOfDay / 3600)
+    dateRef.Hour = secondsOfDay \ 3600
     secondsOfDay = secondsOfDay - dateRef.Hour * 3600
-    dateRef.Minute = INT(secondsOfDay / 60)
+    dateRef.Minute = secondsOfDay \ 60
     dateRef.Second = secondsOfDay - dateRef.Minute * 60
 END SUB
 
@@ -1073,9 +1093,12 @@ END FUNCTION
 
 FUNCTION Date_GetDay& (dateRef AS QBNex_Date)
     DIM daysSinceEpoch AS DOUBLE
+    DIM weekday AS LONG
 
+    ' 1970-01-01 was a Thursday (4); keep the result in 0..6 before 1970 too.
     daysSinceEpoch = INT(Date_ValueOf#(dateRef) / 86400000#)
-    Date_GetDay = (daysSinceEpoch + 4) MOD 7
+    weekday = (daysSinceEpoch + 4) - 7 * INT((daysSinceEpoch + 4) / 7)
+    Date_GetDay = weekday
 END FUNCTION
 
 FUNCTION Date_ToISOString$ (dateRef AS QBNex_Date)
@@ -1123,24 +1146,28 @@ END FUNCTION
 
 FUNCTION Path_Join$ (basePath AS STRING, leafPath AS STRING)
     DIM separator AS STRING
+    DIM baseText AS STRING
+    DIM leafText AS STRING
 
+    ' Work on copies: the arguments are passed by reference.
     separator = Path_Separator$
-    basePath = Path_Normalize$(basePath)
-    leafPath = Path_Normalize$(leafPath)
+    baseText = Path_Normalize$(basePath)
+    leafText = Path_Normalize$(leafPath)
 
-    IF LEN(basePath) = 0 THEN
-        Path_Join = leafPath
+    IF LEN(baseText) = 0 THEN
+        Path_Join = leafText
         EXIT FUNCTION
     END IF
-    IF LEN(leafPath) = 0 THEN
-        Path_Join = basePath
+    IF LEN(leafText) = 0 THEN
+        Path_Join = baseText
         EXIT FUNCTION
     END IF
 
-    IF RIGHT$(basePath, 1) = separator THEN
-        Path_Join = basePath + leafPath
+    IF LEFT$(leafText, 1) = separator THEN leafText = MID$(leafText, 2)
+    IF RIGHT$(baseText, 1) = separator THEN
+        Path_Join = baseText + leafText
     ELSE
-        Path_Join = basePath + separator + leafPath
+        Path_Join = baseText + separator + leafText
     END IF
 END FUNCTION
 
@@ -1172,13 +1199,15 @@ FUNCTION Path_DirName$ (rawPath AS STRING)
 
     normalized = Path_Normalize$(rawPath)
     separator = Path_Separator$
-
+    position = 0
     FOR i = 1 TO LEN(normalized)
         IF MID$(normalized, i, 1) = separator THEN position = i
     NEXT
 
     IF position = 0 THEN
         Path_DirName = ""
+    ELSEIF position = 1 THEN
+        Path_DirName = separator ' the root itself
     ELSE
         Path_DirName = LEFT$(normalized, position - 1)
     END IF
@@ -1461,15 +1490,16 @@ FUNCTION Result_Describe$ (resultRef AS QBNex_Result)
 END FUNCTION
 
 FUNCTION Result_Expect$ (resultRef AS QBNex_Result, expectationText AS STRING)
+    DIM messageText AS STRING
+
     IF resultRef.Ok THEN
         Result_Expect$ = resultRef.Value
         EXIT FUNCTION
     END IF
 
-    expectationText = Result_TrimText$(expectationText)
-    IF expectationText = "" THEN expectationText = "called Result_Expect on an error"
-
-    PRINT "panic: "; expectationText
+    messageText = Result_TrimText$(expectationText)
+    IF messageText = "" THEN messageText = "called Result_Expect on an error"
+    PRINT "panic: "; messageText
     PRINT "error: "; Result_ErrorChain$(resultRef)
     SYSTEM 1
 END FUNCTION

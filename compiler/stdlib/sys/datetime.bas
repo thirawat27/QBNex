@@ -109,16 +109,23 @@ FUNCTION Date_ValueOf# (dateRef AS QBNex_Date)
     DIM monthValue AS LONG
     DIM totalDays AS DOUBLE
 
-    FOR yearValue = 1970 TO dateRef.Year - 1
-        totalDays = totalDays + 365
-        IF Date_IsLeapYear&(yearValue) THEN totalDays = totalDays + 1
-    NEXT
-
+    ' Days since 1970-01-01 (negative before 1970).
+    IF dateRef.Year >= 1970 THEN
+        FOR yearValue = 1970 TO dateRef.Year - 1
+            totalDays = totalDays + 365
+            IF Date_IsLeapYear&(yearValue) THEN totalDays = totalDays + 1
+        NEXT
+    ELSE
+        FOR yearValue = dateRef.Year TO 1969
+            totalDays = totalDays - 365
+            IF Date_IsLeapYear&(yearValue) THEN totalDays = totalDays - 1
+        NEXT
+    END IF
     FOR monthValue = 1 TO dateRef.Month - 1
         totalDays = totalDays + Date_DaysInMonth&(dateRef.Year, monthValue)
     NEXT
-
     totalDays = totalDays + (dateRef.Day - 1)
+
     Date_ValueOf = (((((totalDays * 24#) + dateRef.Hour) * 60# + dateRef.Minute) * 60# + dateRef.Second) * 1000#) + dateRef.Millisecond
 END FUNCTION
 
@@ -137,13 +144,19 @@ SUB Date_FromUnixMs (dateRef AS QBNex_Date, epochMs AS DOUBLE)
     DIM monthValue AS LONG
     DIM yearDays AS LONG
 
+    ' INT rounds toward minus infinity, so times before 1970 work too.
     totalSeconds = INT(epochMs / 1000#)
     dateRef.Millisecond = epochMs - totalSeconds * 1000#
-
     wholeDays = INT(totalSeconds / 86400#)
-    secondsOfDay = totalSeconds - wholeDays * 86400
+    secondsOfDay = totalSeconds - wholeDays * 86400#
 
     yearValue = 1970
+    DO WHILE wholeDays < 0
+        yearValue = yearValue - 1
+        yearDays = 365
+        IF Date_IsLeapYear&(yearValue) THEN yearDays = 366
+        wholeDays = wholeDays + yearDays
+    LOOP
     DO
         yearDays = 365
         IF Date_IsLeapYear&(yearValue) THEN yearDays = 366
@@ -163,9 +176,9 @@ SUB Date_FromUnixMs (dateRef AS QBNex_Date, epochMs AS DOUBLE)
     dateRef.Year = yearValue
     dateRef.Month = monthValue
     dateRef.Day = wholeDays + 1
-    dateRef.Hour = INT(secondsOfDay / 3600)
+    dateRef.Hour = secondsOfDay \ 3600
     secondsOfDay = secondsOfDay - dateRef.Hour * 3600
-    dateRef.Minute = INT(secondsOfDay / 60)
+    dateRef.Minute = secondsOfDay \ 60
     dateRef.Second = secondsOfDay - dateRef.Minute * 60
 END SUB
 
@@ -199,9 +212,12 @@ END FUNCTION
 
 FUNCTION Date_GetDay& (dateRef AS QBNex_Date)
     DIM daysSinceEpoch AS DOUBLE
+    DIM weekday AS LONG
 
+    ' 1970-01-01 was a Thursday (4); keep the result in 0..6 before 1970 too.
     daysSinceEpoch = INT(Date_ValueOf#(dateRef) / 86400000#)
-    Date_GetDay = (daysSinceEpoch + 4) MOD 7
+    weekday = (daysSinceEpoch + 4) - 7 * INT((daysSinceEpoch + 4) / 7)
+    Date_GetDay = weekday
 END FUNCTION
 
 FUNCTION Date_ToISOString$ (dateRef AS QBNex_Date)
