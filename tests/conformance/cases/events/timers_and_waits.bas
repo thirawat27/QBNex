@@ -3,7 +3,7 @@ t = _FREETIMER
 ON TIMER(t, 0.03) GOSUB tick
 TIMER(t) ON
 DO: _LIMIT 200: LOOP UNTIL n >= 3
-TIMER(t) STOP
+TIMER(t) OFF
 m = n
 _DELAY 0.1
 PRINT "stopped"; n = m
@@ -18,9 +18,9 @@ _DELAY -1
 _LIMIT 0
 ON TIMER(0.02) GOSUB tick0
 TIMER ON
-SLEEP 1
+_DELAY 0.2
 TIMER OFF
-PRINT "sleep broken"; k >= 1
+PRINT "timer 0 fired"; k >= 1
 KEY(5) ON
 KEY(0) OFF
 KEY(40) ON
