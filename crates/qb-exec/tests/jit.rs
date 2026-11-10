@@ -160,3 +160,27 @@ fn array_bounds_errors_from_native_code() {
     // At i% = 4 the 2-D store fails; RESUME NEXT skips to LINE 7 (NEXT has no LINE of its own).
     assert_eq!(same(&p), " 10  6  2 \n");
 }
+
+#[test]
+fn gosub_return_in_a_hot_loop() {
+    // FOR i% = 1 TO 300: GOSUB A: IF i% MOD 7 = 0 THEN GOSUB B: NEXT: PRINT c&; d&: END
+    // A: c& = c& + i%: RETURN      B: d& = d& + 1: GOSUB A: RETURN
+    let body = "LINE 2\nGOSUB A\nLOAD I%\nPUSH I 7\nOP MOD\nPUSH I 0\nOP EQ\nJZ ~N\nGOSUB B\nLABEL ~N";
+    let p = format!(
+        "QIR 0\nLINE 1\n{}LINE 3\nLOAD C&\nPRINT\nLOAD D&\nPRINT\nPRINTNL\nEND\n\
+         LABEL A\nLINE 5\nLOAD C&\nLOAD I%\nOP ADD\nSTORE C&\nRETURN\n\
+         LABEL B\nLINE 6\nLOAD D&\nPUSH I 1\nOP ADD\nSTORE D&\nGOSUB A\nRETURN\n",
+        for_loop(1, "I%", "I 1", "I 300", "I 1", body)
+    );
+    let c: i64 = (1..=300).sum::<i64>() + (1..=300).filter(|i| i % 7 == 0).sum::<i64>();
+    assert_eq!(same(&p), format!(" {c}  42 \n"));
+}
+
+#[test]
+fn return_without_gosub_from_native_code() {
+    let body = "LINE 2\nLOAD I%\nPUSH I 5\nOP EQ\nJZ ~N\nRETURN\nLABEL ~N";
+    let p = format!("QIR 0\nLINE 1\n{}END\n", for_loop(1, "I%", "I 1", "I 9", "I 1", body));
+    let r = run_mode(&p, Mode::Hot);
+    assert_eq!(r.result.map_err(|e| e.0), Err(3));
+    same(&p);
+}

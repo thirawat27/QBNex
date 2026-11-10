@@ -483,6 +483,23 @@ impl<'a> Gen<'a> {
                 let st = self.b.ins().iconst(types::I32, i64::from(status::OK));
                 self.b.ins().return_(&[st]);
             }
+            Term::Dispatch { val, cases } => {
+                let v = self.get(*val);
+                let v32 = match self.ty(*val) {
+                    Ty::I16 => self.b.ins().uextend(types::I32, v),
+                    Ty::I32 => v,
+                    _ => self.b.ins().ireduce(types::I32, v),
+                };
+                let mut sw = Switch::new();
+                for (c, t) in cases {
+                    sw.set_entry(u128::from(*c), self.blocks[*t as usize]);
+                }
+                let other = self.b.create_block();
+                self.b.set_cold_block(other);
+                sw.emit(&mut self.b, v32, other);
+                self.b.switch_to_block(other);
+                self.b.ins().jump(self.deopt_blk, &[v32]);
+            }
             Term::Exit { pc } => {
                 let pcv = self.b.ins().iconst(types::I32, i64::from(*pc));
                 self.b.ins().jump(self.deopt_blk, &[pcv]);

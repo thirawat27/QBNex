@@ -376,6 +376,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             lde2: jit_lde2 as *const () as usize,
             ste2: jit_ste2 as *const () as usize,
             lde1g: jit_lde1g as *const () as usize,
+            gosub: jit_gosub as *const () as usize,
+            greturn: jit_return as *const () as usize,
             ste1g: jit_ste1g as *const () as usize,
             view_off: core::mem::offset_of!(Arr, view) as u32,
         };
@@ -1539,3 +1541,30 @@ extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
 
 // Native code reads `Option<Box<Arr>>` table entries as plain pointers.
 const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);
+
+/// Native GOSUB: push the return pc like `Ins::Gosub`.
+extern "C" fn jit_gosub(ctx: *mut qb_jit::Ctx, ret: i64) {
+    let (_, vm) = host_vm(ctx);
+    vm.gosub.push(Gs { ret: ret as u32, depth: vm.frames.len(), view: vm.view, event: false });
+}
+
+/// Native RETURN at pc `at`: the pc to continue at. When the VM has to do
+/// more than pop (event handler return, view switch) nothing is popped and
+/// `at` comes back, so native code exits and the VM executes the RETURN.
+extern "C" fn jit_return(ctx: *mut qb_jit::Ctx, at: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.gosub.last().copied() {
+        Some(g) if g.depth == vm.frames.len() => {
+            if g.event || g.view != vm.view {
+                at
+            } else {
+                vm.gosub.pop();
+                i64::from(g.ret)
+            }
+        }
+        _ => {
+            ctx.err = 3;
+            0
+        }
+    }
+}

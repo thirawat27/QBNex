@@ -200,6 +200,10 @@ pub enum Term {
     End,
     /// Leave native code: the VM continues at `pc` (status DEOPT).
     Exit { pc: u32 },
+    /// Continue at the block whose case value equals `val` (an integer
+    /// slot); any other value leaves native code with the VM continuing at
+    /// pc `val` (status DEOPT). Never polls events.
+    Dispatch { val: Reg, cases: Vec<(u32, BlockId)> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -470,6 +474,18 @@ impl Module {
                         chk(*ret)?;
                     }
                     Term::Ret | Term::Return { .. } | Term::End | Term::Exit { .. } => {}
+                    Term::Dispatch { val, cases } => {
+                        if !ty(*val)?.is_int() {
+                            return Err(e("Dispatch on float".into()));
+                        }
+                        let mut seen = std::collections::HashSet::new();
+                        for (v, t) in cases {
+                            chk(*t)?;
+                            if !seen.insert(*v) {
+                                return Err(e(format!("block {bi}: duplicate Dispatch case {v}")));
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -44,8 +44,6 @@ fn exits(ins: &Ins) -> bool {
         Call { .. }
             | Ret
             | End
-            | Gosub { .. }
-            | Return
             | OnError { .. }
             | Resume { .. }
             | OnEvent { .. }
@@ -83,6 +81,8 @@ fn ends_block(ins: &Ins) -> bool {
                 | ForTestF { .. }
                 | ForNextI { .. }
                 | RaiseK { .. }
+                | Gosub { .. }
+                | Return
         )
 }
 
@@ -624,6 +624,30 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                             let ex = lw.for_exit(v, lim, step, Class::Int);
                             Some(branch(&mut lw, ex, next, body))
                         }
+                        Gosub { t } => {
+                            let r = lw.konst_i(i64::from(next));
+                            lw.insts.push(Inst::Host { f: H_GOSUB, args: vec![r], dst: None });
+                            Some(match blk(t) {
+                                Some(b) => Term::Jmp(b),
+                                None => Term::Exit { pc: t },
+                            })
+                        }
+                        Return => {
+                            lw.insts.push(Inst::At { pc });
+                            let at = lw.konst_i(i64::from(pc));
+                            let r = lw.tmp(Class::Int);
+                            lw.insts.push(Inst::Host { f: H_RETURN, args: vec![at], dst: Some(r) });
+                            let cases = code
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, x)| matches!(x, Gosub { .. }))
+                                .filter_map(|(k, _)| {
+                                    let rp = lo + k as u32 + 1;
+                                    blk(rp).map(|b| (rp, b))
+                                })
+                                .collect();
+                            Some(Term::Dispatch { val: r, cases })
+                        }
                         RaiseK { code } => {
                             lw.insts.push(Inst::At { pc });
                             let r = lw.konst_i(i64::from(code));
@@ -676,6 +700,8 @@ pub(crate) struct Hosts {
     pub lde2: usize,
     pub ste2: usize,
     pub lde1g: usize,
+    pub gosub: usize,
+    pub greturn: usize,
     pub ste1g: usize,
     /// offset of the `ArrView` inside the VM's array object
     pub view_off: u32,
@@ -687,6 +713,8 @@ const H_LDE2: u32 = 2;
 const H_STE2: u32 = 3;
 const H_LDE1G: u32 = 4;
 const H_STE1G: u32 = 5;
+const H_GOSUB: u32 = 6;
+const H_RETURN: u32 = 7;
 
 fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
     let f = |name: &str, n: usize, ret: bool, addr: usize| mir::HostFn {
@@ -700,6 +728,11 @@ fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
         f("ste2", 4, false, h.ste2),
         f("lde1g", 2, true, h.lde1g),
         f("ste1g", 3, false, h.ste1g),
+        mir::HostFn {
+            sig: mir::HostSig { name: "gosub".into(), params: vec![Ty::I64], ret: None, may_error: false },
+            addr: h.gosub,
+        },
+        f("return", 1, true, h.greturn),
     ]
 }
 

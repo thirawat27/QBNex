@@ -510,6 +510,19 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 }
             }
             Term::Ret => return status::OK,
+            Term::Dispatch { val, cases } => {
+                let v = get(*val).i() as u32;
+                match cases.iter().find(|(c, _)| *c == v) {
+                    Some((_, t)) => {
+                        bi = *t as usize;
+                        continue;
+                    }
+                    None => {
+                        ctx.exit_pc = v;
+                        return status::DEOPT;
+                    }
+                }
+            }
             Term::Exit { pc: p } => {
                 ctx.exit_pc = *p;
                 return status::DEOPT;
