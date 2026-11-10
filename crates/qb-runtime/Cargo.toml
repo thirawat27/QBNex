@@ -22,6 +22,8 @@ qb-audio = { path = "../qb-audio" }
 qb-float80 = { path = "../qb-float80" }
 ab_glyph_rasterizer = "0.1.10"
 png = "0.18"
+# R10: _DEFLATE/_INFLATE (replaces the system zlib); a Rust port of zlib, already used by png via flate2.
+zlib-rs = { version = "0.6", default-features = false, features = ["std", "rust-allocator"] }
 skrifa = "0.49.0"
 zune-jpeg = "0.5.15"
 # R8: window + input (replaces freeglut/GLEW/gui.cpp)

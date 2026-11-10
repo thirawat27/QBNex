@@ -836,9 +836,6 @@ FUNCTION getpid& ()
 
 
 
-    '----------------ripgl.bas--------------------------------------------------------------------------------
-    gl_scan_header
-    '----------------ripgl.bas--------------------------------------------------------------------------------
 
 
 
@@ -2331,7 +2328,7 @@ FUNCTION getpid& ()
                                                         id.nele = nele$
                                                         id.nelereq = nelereq$
 
-                                                        IF UCASE$(n$) = "_GL" AND params = 0 AND UseGL = 0 THEN reginternalsubfunc = 1: UseGL = 1: id.n = "_GL": DEPENDENCY(DEPENDENCY_GL) = 1
+                                                        IF UCASE$(n$) = "_GL" AND params = 0 AND UseGL = 0 THEN a$ = "SUB _GL (OpenGL) is not supported by this QBNex runtime (deviation D-14)": GOTO errmes
                                                         regid
                                                         reginternalsubfunc = 0
 

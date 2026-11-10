@@ -77,25 +77,25 @@ fi
 #Find and install packages
 if [ "$DISTRO" == "arch" ]; then
   echo "ArchLinux detected."
-  pkg_list="gcc zlib xorg-xmessage $GET_WGET"
+  pkg_list="gcc alsa-lib systemd-libs pkgconf xorg-xmessage $GET_WGET"
   installed_packages=`pacman -Q`
   installer_command="sudo pacman -S "
   pkg_install
 elif [ "$DISTRO" == "linuxmint" ] || [ "$DISTRO" == "ubuntu" ] || [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "zorin" ]; then
   echo "Debian based distro detected."
-  pkg_list="g++ x11-utils mesa-common-dev libglu1-mesa-dev libasound2-dev zlib1g-dev $GET_WGET"
+  pkg_list="g++ x11-utils libasound2-dev libudev-dev pkg-config $GET_WGET"
   installed_packages=`dpkg -l`
   installer_command="sudo apt-get -y install "
   pkg_install
 elif [ "$DISTRO" == "fedora" ] || [ "$DISTRO" == "redhat" ] || [ "$DISTRO" == "centos" ]; then
   echo "Fedora/Redhat based distro detected."
-  pkg_list="gcc-c++ xmessage mesa-libGLU-devel alsa-lib-devel zlib-devel $GET_WGET"
+  pkg_list="gcc-c++ xmessage alsa-lib-devel systemd-devel pkgconf-pkg-config $GET_WGET"
   installed_packages=`yum list installed`
   installer_command="sudo yum install "
   pkg_install
 elif [ "$DISTRO" == "voidlinux" ]; then
    echo "VoidLinux detected."
-   pkg_list="gcc xmessage glu-devel zlib-devel alsa-lib-devel $GET_WGET"
+   pkg_list="gcc xmessage alsa-lib-devel eudev-libudev-devel pkg-config $GET_WGET"
    installed_packages=`xbps-query -l |grep -v libgcc`
    installer_command="sudo xbps-install -Sy "
    pkg_install
@@ -103,11 +103,11 @@ elif [ "$DISTRO" == "voidlinux" ]; then
 elif [ -z "$DISTRO" ]; then
   echo "Unable to detect distro, skipping package installation"
   echo "Please be aware that QBNex requires the following to compile:"
-  echo "  OpenGL developement libraries"
   echo "  ALSA development libraries"
+  echo "  libudev development libraries"
+  echo "  pkg-config"
   echo "  GNU C++ Compiler (g++)"
   echo "  xmessage (x11-utils)"
-  echo "  zlib"
 fi
 
 echo "Compiling and installing QBNex..."
@@ -115,8 +115,6 @@ echo "Compiling and installing QBNex..."
 ### Build process
 cleanup_setup_artifacts
 find . -name "*.sh" -exec chmod +x {} \;
-find internal/c/parts -type f -iname "*.a" -exec rm -f {} \;
-find internal/c/parts -type f -iname "*.o" -exec rm -f {} \;
 find internal/c/libqb -type f -iname "*.o" -exec rm -f {} \;
 mkdir -p ./internal/temp
 find ./internal/temp -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
@@ -141,18 +139,12 @@ if [ ! -f crates/qb-runtime/os/linux/libqb_runtime.a ]; then
   exit 1
 fi
 
-echo "Building library 'FreeType'"
-pushd internal/c/parts/video/font/ttf/os/lnx >/dev/null
-rm -f src.o
-./setup_build.sh
-popd >/dev/null
-
 echo "Building 'QBNex'"
 mkdir -p ./internal/temp
 cp -r ./internal/source/* ./internal/temp/
 cp -r ./compiler/* ./internal/temp/
 pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil parts/video/font/ttf/os/lnx/src.o -ludev -lpthread -ldl -lrt -o ../../qb-stage0
+g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil -ludev -lpthread -ldl -lrt -o ../../qb-stage0
 popd
 
 if [ -x "./qb-stage0" ]; then

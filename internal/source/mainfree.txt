@@ -147,69 +147,6 @@ while(tmp_long--) qbs_free((qbs*)((uint64*)(__ARRAY_STRING_IRBLKVAR[0]))[tmp_lon
 free((void*)(__ARRAY_STRING_IRBLKVAR[0]));
 }
 free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_STRING_IRBLKVAR)[8] );
-if (__ARRAY_STRING64_GL_COMMAND_CN[2]&1){
-if (__ARRAY_STRING64_GL_COMMAND_CN[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_STRING64_GL_COMMAND_CN[0]));
-}else{
-free((void*)(__ARRAY_STRING64_GL_COMMAND_CN[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_STRING64_GL_COMMAND_CN)[8] );
-if (__ARRAY_INTEGER_GL_COMMAND_SUBFUNC[2]&1){
-if (__ARRAY_INTEGER_GL_COMMAND_SUBFUNC[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_INTEGER_GL_COMMAND_SUBFUNC[0]));
-}else{
-free((void*)(__ARRAY_INTEGER_GL_COMMAND_SUBFUNC[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_INTEGER_GL_COMMAND_SUBFUNC)[8] );
-if (__ARRAY_STRING64_GL_COMMAND_CALLNAME[2]&1){
-if (__ARRAY_STRING64_GL_COMMAND_CALLNAME[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_STRING64_GL_COMMAND_CALLNAME[0]));
-}else{
-free((void*)(__ARRAY_STRING64_GL_COMMAND_CALLNAME[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_STRING64_GL_COMMAND_CALLNAME)[8] );
-if (__ARRAY_INTEGER_GL_COMMAND_ARGS[2]&1){
-if (__ARRAY_INTEGER_GL_COMMAND_ARGS[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_INTEGER_GL_COMMAND_ARGS[0]));
-}else{
-free((void*)(__ARRAY_INTEGER_GL_COMMAND_ARGS[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_INTEGER_GL_COMMAND_ARGS)[8] );
-if (__ARRAY_STRING80_GL_COMMAND_ARG[2]&1){
-if (__ARRAY_STRING80_GL_COMMAND_ARG[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_STRING80_GL_COMMAND_ARG[0]));
-}else{
-free((void*)(__ARRAY_STRING80_GL_COMMAND_ARG[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_STRING80_GL_COMMAND_ARG)[8] );
-if (__ARRAY_LONG_GL_COMMAND_RET[2]&1){
-if (__ARRAY_LONG_GL_COMMAND_RET[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_LONG_GL_COMMAND_RET[0]));
-}else{
-free((void*)(__ARRAY_LONG_GL_COMMAND_RET[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_LONG_GL_COMMAND_RET)[8] );
-qbs_free(__STRING_GL_HELPER_CODE);
-if (__ARRAY_STRING_GL_DEFINES[2]&1){
-tmp_long=__ARRAY_STRING_GL_DEFINES[5];
-while(tmp_long--) qbs_free((qbs*)((uint64*)(__ARRAY_STRING_GL_DEFINES[0]))[tmp_long]);
-free((void*)(__ARRAY_STRING_GL_DEFINES[0]));
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_STRING_GL_DEFINES)[8] );
-if (__ARRAY_INTEGER64_GL_DEFINES_VALUE[2]&1){
-if (__ARRAY_INTEGER64_GL_DEFINES_VALUE[2]&4){
-cmem_dynamic_free((uint8*)(__ARRAY_INTEGER64_GL_DEFINES_VALUE[0]));
-}else{
-free((void*)(__ARRAY_INTEGER64_GL_DEFINES_VALUE[0]));
-}
-}
-free_mem_lock( (mem_lock*)((ptrszint*)__ARRAY_INTEGER64_GL_DEFINES_VALUE)[8] );
 qbs_free(__STRING_CURRENTINIFILENAME);
 qbs_free(__STRING_INIWHOLEFILE);
 qbs_free(__STRING_INISECTIONDATA);
