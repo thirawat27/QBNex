@@ -5,6 +5,7 @@
 The standard library is BASIC source under `compiler/stdlib`, imported per
 module:
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'json'
 '$IMPORT:'ext.regex'
@@ -35,7 +36,7 @@ runner does not export their native functions), and in the
 | `ext.collections` | Lists and dictionaries of strings and numbers (handles) |
 | `ext.datetime` | Dates as Unix milliseconds: ISO 8601, formatting, parsing, parts |
 | `ext.core` | Shared helpers: `Ext_LastError$` |
-| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | Collections in BASIC (TYPE based) |
+| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | Collections in BASIC (TYPE based); import `qbnex` for all but `collections.list` (on their own they fail to compile for now) |
 | `strings.text`, `strings.strbuilder` | Text helpers, string builder |
 | `io.path`, `io.csv`, `io.json` | Paths, CSV rows, small JSON builders |
 | `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, degrees/radians |
@@ -120,6 +121,7 @@ Also `UrlNormalizePath$`, `UrlBasename$`, `UrlExtname$`, `UrlDirname$`,
 ## ext.regex
 
 <!-- docs-test: output -->
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.regex'
 PRINT Regex_IsMatch&("^\d{3}-\d{4}$", "555-1234")           ' -1
@@ -152,6 +154,7 @@ folding). Positions are 1-based byte positions.
 ## ext.hash
 
 <!-- docs-test: output -->
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.hash'
 PRINT Hash_SHA256$("abc")
@@ -181,6 +184,7 @@ Digests are lower-case hex. `Hash_CRC32Value~&` returns the number.
 
 ## ext.zip
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.zip'
 h& = Zip_Create&("out.zip")
@@ -195,6 +199,7 @@ r& = Zip_Extract&("out.zip", "outdir")     ' refuses ../ names
 
 ## ext.http
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.http'
 st& = Http_Get&("https://example.com/", 5000)          ' status code, 0 = failed
@@ -209,6 +214,7 @@ followed. Bodies are binary-safe strings.
 
 ## ext.utf8
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.utf8'
 s$ = "สวัสดี"
@@ -225,6 +231,7 @@ Invalid bytes count as one character each and are kept.
 ## ext.collections
 
 <!-- docs-test: output -->
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.collections'
 l& = XList_New&
@@ -261,6 +268,7 @@ Lists are 0-based; dictionaries keep insertion order. `XList_Type&` /
 
 ## ext.datetime
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.datetime'
 t# = DT_Now#                                  ' Unix milliseconds (UTC)
@@ -276,6 +284,8 @@ local one. `DT_IsValid&` checks for the "invalid" value parsing returns.
 
 ## BASIC-only modules
 
+<!-- docs-test: run -->
+<!-- docs-test: no-ir qbnex needs _OS$, missing in QIR -->
 ```basic
 '$IMPORT:'qbnex'
 DIM names AS QBNex_List

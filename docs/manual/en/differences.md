@@ -72,7 +72,10 @@ Windows only.
 ## The QIR back end (`--ir`) and the web build
 
 - Not every statement is supported yet; the compiler names the line.
-- `ext.*` modules are not available with `--ir` yet.
+- Not in the QIR back end yet (the compiler names the line): `_IIF`, string
+  interpolation (`_TOSTR$`), `_ASSERT`, `_DEPTHBUFFER` (so 3D
+  `_MAPTRIANGLE`), the `ext.*` modules (`_OFFSET`), and `_OS$` (so a
+  program that imports `qbnex` or `sys.env` stops at start-up).
 - BYREF parameters are copied in and out: different from QB64 only when a
   SUB changes the same variable both through a parameter and through SHARED.
 - GPU 3D clips at the far plane (as QB64's OpenGL did); the software

@@ -16,6 +16,7 @@ The examples on this page are compiled and run by `tests/docs/check_docs.ps1`
 
 ### `_IIF`: inline IF
 
+<!-- docs-test: no-ir _IIF is not in QIR yet -->
 ```basic
 x = 7
 PRINT _IIF(x > 5, "big", "small"); _IIF(x < 5, 1, 2)
@@ -48,6 +49,7 @@ The right side runs only when needed. The result is -1 or 0.
 
 ### String interpolation
 
+<!-- docs-test: no-ir _TOSTR$ (interpolation) is not in QIR yet -->
 ```basic
 name$ = "Ada"
 n% = 3
@@ -175,6 +177,7 @@ Skips to the next iteration of the innermost `FOR`, `DO` or `WHILE` loop.
 
 ### `$ASSERTS` and `_ASSERT`
 
+<!-- docs-test: no-ir _ASSERT is not in QIR yet -->
 ```basic
 $ASSERTS
 _ASSERT 1 + 1 = 2, "math works"

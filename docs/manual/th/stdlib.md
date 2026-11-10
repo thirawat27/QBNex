@@ -4,6 +4,7 @@
 
 ไลบรารีมาตรฐานเป็นโค้ด BASIC อยู่ใน `compiler/stdlib` และ import ทีละโมดูล
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'json'
 '$IMPORT:'ext.regex'
@@ -33,7 +34,7 @@
 | `ext.collections` | list และ dictionary ของ string และตัวเลข (ใช้ handle) |
 | `ext.datetime` | วันเวลาในรูปมิลลิวินาทีแบบ Unix: ISO 8601, จัดรูปแบบ, parse, แยกส่วน |
 | `ext.core` | ตัวช่วยที่ใช้ร่วมกัน: `Ext_LastError$` |
-| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | collection เขียนด้วย BASIC (อิง TYPE) |
+| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | collection เขียนด้วย BASIC (อิง TYPE) ตัวอื่นนอกจาก `collections.list` ให้ import ผ่าน `qbnex` (ตอนนี้ import แยกเดี่ยวแล้วคอมไพล์ไม่ผ่าน) |
 | `strings.text`, `strings.strbuilder` | ตัวช่วยจัดการข้อความ, string builder |
 | `io.path`, `io.csv`, `io.json` | path, แถว CSV, ตัวสร้าง JSON ขนาดเล็ก |
 | `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, องศา/เรเดียน |
@@ -118,6 +119,7 @@ http://a/b/g
 ## ext.regex
 
 <!-- docs-test: output -->
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.regex'
 PRINT Regex_IsMatch&("^\d{3}-\d{4}$", "555-1234")           ' -1
@@ -150,6 +152,7 @@ c
 ## ext.hash
 
 <!-- docs-test: output -->
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.hash'
 PRINT Hash_SHA256$("abc")
@@ -179,6 +182,7 @@ digest เป็น hex ตัวพิมพ์เล็ก ส่วน `Hash_
 
 ## ext.zip
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.zip'
 h& = Zip_Create&("out.zip")
@@ -193,6 +197,7 @@ r& = Zip_Extract&("out.zip", "outdir")     ' ไม่ยอมแตกไฟ�
 
 ## ext.http
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.http'
 st& = Http_Get&("https://example.com/", 5000)          ' status code, 0 = ล้มเหลว
@@ -207,6 +212,7 @@ body เป็น string ที่เก็บไบต์ได้ทุกค�
 
 ## ext.utf8
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.utf8'
 s$ = "สวัสดี"
@@ -223,6 +229,7 @@ u$ = Cp437_ToUtf8$(old$): back$ = Utf8_ToCp437$(u$)
 ## ext.collections
 
 <!-- docs-test: output -->
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.collections'
 l& = XList_New&
@@ -259,6 +266,7 @@ list เริ่มนับที่ 0 dictionary เก็บลำดับ�
 
 ## ext.datetime
 
+<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.datetime'
 t# = DT_Now#                                  ' มิลลิวินาทีแบบ Unix (UTC)
@@ -275,6 +283,8 @@ PRINT DT_DiffDays#(DT_AddDays#(t2#, 10), t2#)
 
 ## โมดูลที่เขียนด้วย BASIC ล้วน
 
+<!-- docs-test: run -->
+<!-- docs-test: no-ir qbnex needs _OS$, missing in QIR -->
 ```basic
 '$IMPORT:'qbnex'
 DIM names AS QBNex_List

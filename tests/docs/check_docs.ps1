@@ -15,6 +15,8 @@
 #   <!-- docs-test: run -->              compile, run, exit code 0
 #   <!-- docs-test: output -->           compile, run, and compare stdout with the
 #                                        next ```text block after the code block
+#   <!-- docs-test: no-ir <reason> -->   with -Backend ir: must NOT compile yet (a QIR gap);
+#                                        when it compiles the marker is out of date
 #   <!-- docs-test: prepend NAME -->     prefix the block with the snippet NAME
 #                                        defined by <!-- docs-test: define NAME --> above
 #                                        another block in the same file
@@ -37,6 +39,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$Files = @($Files | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { (Resolve-Path $_).Path })
 if (-not $Files) {
     $Files = @((Join-Path $root 'README.md')) + (Get-ChildItem (Join-Path $root 'docs/manual') -Recurse -Filter *.md | Sort-Object FullName | ForEach-Object FullName)
 }
@@ -59,7 +62,7 @@ foreach ($file in $Files) {
         # markers: comment lines directly above the fence
         $markers = @()
         for ($j = $start - 1; $j -ge 0 -and $lines[$j] -match '^\s*<!--\s*docs-test:\s*(.*?)\s*-->\s*$'; $j--) { $markers += $matches[1] }
-        $mode = 'compile'; $reason = ''; $prepend = $null; $define = $null
+        $mode = 'compile'; $reason = ''; $prepend = $null; $define = $null; $noIr = $null
         foreach ($m in $markers) {
             switch -Regex ($m) {
                 '^skip\b\s*(.*)$' { $mode = 'skip'; $reason = $matches[1] }
@@ -68,6 +71,7 @@ foreach ($file in $Files) {
                 '^output\b' { $mode = 'output' }
                 '^prepend\s+(\S+)' { $prepend = $matches[1] }
                 '^define\s+(\S+)' { $define = $matches[1] }
+                '^no-ir\b\s*(.*)$' { $noIr = $matches[1] }
             }
         }
         $expected = $null
@@ -90,7 +94,7 @@ foreach ($file in $Files) {
             if (-not $defines.ContainsKey($prepend)) { throw "${rel}:$($start + 1): prepend $prepend is not defined above" }
             $code = $defines[$prepend] + "`n" + $code
         }
-        $blocks.Add([pscustomobject]@{ File = $rel; Line = $start + 1; Mode = $mode; Reason = $reason; Code = $code; Expected = $expected })
+        $blocks.Add([pscustomobject]@{ File = $rel; Line = $start + 1; Mode = $mode; Reason = $reason; Code = $code; Expected = $expected; NoIr = $noIr })
     }
 }
 if ($Match) { $blocks = @($blocks | Where-Object { $_.Code -like "*$Match*" -or "$($_.File):$($_.Line)" -like "*$Match*" }) }
@@ -143,6 +147,9 @@ foreach ($b in $blocks) {
     if ($b.Mode -eq 'skip') { $results.Add([pscustomobject]@{ Tag = $tag; Status = 'SKIP'; Detail = $b.Reason }); continue }
     $code = $b.Code
     if ($b.Mode -in 'run', 'output' -and $code -notmatch '(?im)^\s*\$CONSOLE') { $code = "`$CONSOLE:ONLY`n" + $code }
+    # END in a console program waits at "Press any key" even without a console;
+    # SYSTEM ends it at once (only possible when no SUB/FUNCTION follows).
+    if ($b.Mode -in 'run', 'output' -and $code -notmatch '(?im)^\s*(SUB|FUNCTION)\s') { $code += "`nSYSTEM" }
     $key = "$($b.Mode)|$Backend|$code|$($b.Expected)"
     if ($cache.ContainsKey($key)) {
         $r = $cache[$key]
@@ -161,8 +168,16 @@ foreach ($b in $blocks) {
     Write-Host ('[{0}/{1}] {2} {3}' -f $n, $blocks.Count, $tag, $b.Mode)
     $c = Invoke-Proc $Compiler $cargs (Split-Path $Compiler) 600
     $compiled = ($c.Code -eq 0) -and ($CheckOnly -or (Test-Path $exe))
-    $msg = (($c.Out + $c.Err) -split "`n" | Where-Object { $_ -match 'error|Error|ERROR|\[E\d+\]|Expected|Unknown|not' } | Select-Object -First 3) -join ' | '
+    $msg = ((($c.Out + $c.Err) -replace 'Preparing build files\.\.\. \[[#.]+\] \d+%', '') -split "`n" | Where-Object { $_ -match 'error|Error|ERROR|\[E\d+\]|Expected|Unknown|not|unsupported' } | Select-Object -First 3) -join ' | '
     $status = 'PASS'; $detail = ''
+    if ($Backend -eq 'ir' -and $null -ne $b.NoIr -and $b.Mode -ne 'compile-error') {
+        $works = $compiled
+        if ($compiled -and $b.Mode -in 'run', 'output') { $rr = Invoke-Proc $exe @() $dir 30; $works = $rr.Code -eq 0; $msg = ($rr.Err.Trim() -split "`n")[0] }
+        if ($works) { $status = 'FAIL'; $detail = 'works with --ir now: remove the no-ir marker' } else { $status = 'XFAIL'; $detail = "no-ir ($($b.NoIr)): $msg" }
+        $res = [pscustomobject]@{ Tag = $tag; Status = $status; Detail = $detail }; $cache[$key] = $res; $results.Add($res)
+        if (-not $Keep) { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
+        continue
+    }
     switch ($b.Mode) {
         'compile' { if (-not $compiled) { $status = 'FAIL'; $detail = "does not compile: $msg" } }
         'compile-error' { if ($compiled) { $status = 'FAIL'; $detail = 'compiles now: the doc calls this planned; update the doc and the marker' } else { $status = 'XFAIL'; $detail = $msg } }

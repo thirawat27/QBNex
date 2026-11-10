@@ -16,6 +16,7 @@ QBNex รับโปรแกรม QBasic / QuickBASIC 4.5 และภาษ�
 
 ### `_IIF`: IF แบบบรรทัดเดียวในนิพจน์
 
+<!-- docs-test: no-ir _IIF is not in QIR yet -->
 ```basic
 x = 7
 PRINT _IIF(x > 5, "big", "small"); _IIF(x < 5, 1, 2)
@@ -47,6 +48,7 @@ no subscript error
 
 ### String interpolation
 
+<!-- docs-test: no-ir _TOSTR$ (interpolation) is not in QIR yet -->
 ```basic
 name$ = "Ada"
 n% = 3
@@ -173,6 +175,7 @@ NEXT
 
 ### `$ASSERTS` และ `_ASSERT`
 
+<!-- docs-test: no-ir _ASSERT is not in QIR yet -->
 ```basic
 $ASSERTS
 _ASSERT 1 + 1 = 2, "math works"
