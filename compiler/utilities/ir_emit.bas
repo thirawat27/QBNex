@@ -1801,8 +1801,8 @@ SUB IrRead (e$)
 END SUB
 
 'DIM/REDIM statement for id idn; elements$ raw bounds ("" = not an array)
-SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
-    DIM nm$, k$, aid AS LONG, p$, t AS LONG, saveid AS idstruct, savecur AS LONG
+SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
+    DIM nm$, k$, aid AS LONG, p$, t AS LONG, saveid AS idstruct, savecur AS LONG, vs$
     aid = idn0
     IF aid >= 1 AND aid <= idn THEN
         IF ids(aid).arraytype = 0 AND LEN(elements$) THEN aid = 0
@@ -1813,9 +1813,23 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
         IF aid THEN nm$ = IrVar$(aid)
         EXIT SUB
     END IF
+    'c%() and c!() share the name c: the statement's type symbol picks the array (currentid
+    'can be the other one when REDIM c%() follows DIM c%(), c!())
+    vs$ = UCASE$(vn$)
+    IF LEN(sy0$) THEN
+        IF INSTR("$%&!#~`", LEFT$(sy0$, 1)) THEN vs$ = vs$ + sy0$
+    END IF
+    IF aid <> 0 AND vs$ <> UCASE$(vn$) THEN
+        saveid = id: savecur = currentid
+        IrQuiet = -1: p$ = IrPlace$(vs$ + sp + "(" + sp + ")", t): IrQuiet = 0
+        id = saveid: currentid = savecur
+        IF LEFT$(p$, 1) = "A" THEN
+            IF IrPart$(p$, 2) <> IrVar$(aid) THEN aid = 0
+        END IF
+    END IF
     IF aid = 0 THEN
         saveid = id: savecur = currentid
-        IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + sp + "(" + sp + ")", t): IrQuiet = 0
+        IrQuiet = -1: p$ = IrPlace$(vs$ + sp + "(" + sp + ")", t): IrQuiet = 0
         IF LEFT$(p$, 1) <> "A" THEN
             'the name came without its type symbol (REDIM of a SHARED array inside a SUB)
             DIM sy$, si AS LONG

@@ -7823,7 +7823,7 @@ END IF
 dimcommonarray:
 retval = dim2(varname$, typ$, dimmethod, elements$)
 IF Error_Happened THEN GOTO errmes
-IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption, varname$
+IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption, varname$, typ$
 skipdim:
 IF dimshared >= 2 THEN dimshared = dimshared - 2
 
