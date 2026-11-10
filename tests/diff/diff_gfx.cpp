@@ -1132,3 +1132,5 @@ int main(int argc, char **argv) {
     printf("diff_gfx: %s%s, %ld checks, %ld mismatches\n", quick ? "quick" : "full", mutate ? " (mutated)" : "", checks, failures);
     return failures == 0 ? 0 : 1;
 }
+
+#include "host_stubs.h"

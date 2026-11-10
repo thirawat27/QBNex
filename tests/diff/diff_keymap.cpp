@@ -108,3 +108,5 @@ int main(int argc, char **argv) {
     printf("diff_keymap: %ld cases, %ld mismatches\n", checked, mismatches);
     return mismatches ? 1 : 0;
 }
+
+#include "host_stubs.h"

@@ -387,7 +387,7 @@ Host functions the Rust side calls: `qb_host_message_box`, `qb_host_end` (libqb.
 
 Verified on Windows (MinGW g++ 15.2, rustc 1.99.1, after merging rust-port `d05cc0f`):
 
-- Unit tests: 34 new (numparse 9, error 7, alloc 3, arrays 2, mathfn 3, events 4, waits 3, program 2); `cargo test -p qb-runtime` 297/297, `cargo clippy --all-targets` 0 warnings.
+- Unit tests: 33 new (numparse 9, error 7, alloc 3, arrays 2, mathfn 3, events 4, waits 3, program 2); `cargo test -p qb-runtime` 297/297, `cargo clippy --all-targets` 0 warnings.
 - `diff_core` (verbatim legacy code in `tests/diff/legacy/core_*.inc` vs Rust; full run): **338.9M checks, 0 mismatches**. Parts: READ/DATA + INPUT # conversions on 600k random DATA blocks (2.26M checks; 3,089 reads skipped by D-R12b-1, 1 by D-R12b-2), errors (all codes -20..1100, critical table, error latch, 200k `fix_error` states incl. dialog texts and answers), allocators (mem_static block growth/restore, cmem_dynamic first-fit with frees, 40 runs to the first critical error), LBOUND/UBOUND/bit arrays/LOG/EXP/SQR/FIX/HEX$/OCT$/_BIN$ (12.6M), `_DELAY`/`_LIMIT`/SLEEP call traces against scripted clocks (400k), ON TIMER table + timer-thread passes + dispatch, ON KEY/ON STRIG arrays (323M). `--mutate` (one perturbation per part) reports mismatches in every part (3,313 / 1 / 85 / 5,009 / 9,867 / 476,022 in the quick run).
 - Conformance: 4 new cases blessed from the legacy build `ce58afd`: `errors/err_erl_messages`, `data/read_number_forms`, `data/bounds_bits_radix`, `events/timers_and_waits`. Whole-corpus result below.
 - Self-hosted `qb.exe` built by `scripts/setup_win.cmd` with the Rust core.

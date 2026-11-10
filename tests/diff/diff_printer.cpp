@@ -136,3 +136,5 @@ int main(int argc, char **argv) {
     printf("diff_printer: %ld call sequences: %ld mismatches\n", cases, failures);
     return failures ? 1 : 0;
 }
+
+#include "host_stubs.h"

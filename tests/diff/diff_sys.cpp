@@ -301,3 +301,5 @@ int main(int argc, char **argv) {
     printf("diff_sys: %s, %ld operations, %ld mismatches\n", quick ? "quick" : "full", op_index, failures);
     return failures == 0 ? 0 : 1;
 }
+
+#include "host_stubs.h"

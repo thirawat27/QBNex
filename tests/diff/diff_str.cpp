@@ -127,3 +127,5 @@ int main(int argc, char **argv) {
     printf("diff_str: %s, %ld mismatches, %ld skipped (L-07/D-05)\n", quick ? "quick" : "full", failures, skipped);
     return failures == 0 ? 0 : 1;
 }
+
+#include "host_stubs.h"
