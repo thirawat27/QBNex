@@ -111,6 +111,25 @@ pub fn build_native(src: &str) -> Result<Vec<u8>, RunError> {
     jit::build_image(&m, &vm::vm_hosts()).map_err(RunError::load)
 }
 
+/// Compiles a QIR program into an object file for a standard linker (D15
+/// final): its functions, the program text and the `qb_native_entry` table.
+/// Linked with the `qb-native` runtime library it is a native executable.
+pub fn build_native_object(src: &str) -> Result<Vec<u8>, RunError> {
+    let m = compile(src)?;
+    jit::build_object(&m, src.as_bytes(), &vm::vm_hosts()).map_err(RunError::load)
+}
+
+/// Runs a program linked into this executable (qb-native): `fns` and
+/// `fingerprint` come from the object's entry table. Same behaviour as
+/// [`run_program`].
+pub fn run_linked(src: &str, fns: &[qb_jit::NativeFn], fingerprint: u64, out: &mut dyn Write) -> Result<i32, RunError> {
+    let m = compile(src)?;
+    let mut vm = Vm::new(&m, out);
+    vm.load_linked(fns, fingerprint).map_err(RunError::load)?;
+    vm.set_continue_unhandled(true);
+    vm.run_status()
+}
+
 /// Runs a QIR program with its native image (from [`build_native`]).
 pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32, RunError> {
     let m = compile(src)?;

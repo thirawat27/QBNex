@@ -414,6 +414,12 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     /// Uses native code compiled ahead of time (an image made by
     /// [`crate::build_native`] for this program); no JIT compilation happens.
+    /// Uses native functions linked into this executable (qb-native).
+    pub fn load_linked(&mut self, fns: &[qb_jit::NativeFn], fingerprint: u64) -> Result<(), String> {
+        self.jit = Some(crate::jit::JitState::from_linked(self.m, fns, fingerprint, &vm_hosts())?);
+        Ok(())
+    }
+
     pub fn load_native(&mut self, image: &[u8]) -> Result<(), String> {
         let st = crate::jit::JitState::from_image(self.m, image, &vm_hosts())?;
         self.jit = Some(st);
@@ -1783,6 +1789,7 @@ mod tests {
 
 /// VmOp callback for native code: executes the VM instruction `pc` on the
 /// window `frame` (which is the VM's current one).
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_vm_op"))]
 extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
     // SAFETY: `user` was set by `jit_enter` to the VM that entered native code.
     let ctx = unsafe { &mut *ctx };
@@ -1854,6 +1861,7 @@ fn host_vm<'a>(ctx: *mut qb_jit::Ctx) -> (&'a mut qb_jit::Ctx, &'a mut Vm<'stati
 }
 
 /// Native `ld_e1` (numeric element of a 1-D array) as register bits.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_0"))]
 extern "C" fn jit_lde1(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
     let (ctx, vm) = host_vm(ctx);
     match vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.get(o))) {
@@ -1865,6 +1873,7 @@ extern "C" fn jit_lde1(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_1"))]
 extern "C" fn jit_ste1(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     let (ctx, vm) = host_vm(ctx);
     if let Err(c) = vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.set(o, v as u64))) {
@@ -1872,6 +1881,7 @@ extern "C" fn jit_ste1(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_2"))]
 extern "C" fn jit_lde2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64) -> i64 {
     let (ctx, vm) = host_vm(ctx);
     match vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.get(o))) {
@@ -1883,6 +1893,7 @@ extern "C" fn jit_lde2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64) -> i64 {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_3"))]
 extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
     let (ctx, vm) = host_vm(ctx);
     if let Err(c) = vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.set(o, v as u64))) {
@@ -1890,10 +1901,12 @@ extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_4"))]
 extern "C" fn jit_lde1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
     jit_lde1(ctx, a | G as i64, i)
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_5"))]
 extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     jit_ste1(ctx, a | G as i64, i, v)
 }
@@ -1921,6 +1934,7 @@ pub(crate) fn vm_hosts() -> crate::jit::Hosts {
 
 /// Native string compare: `a c b` on the current frame's string operands
 /// (constants allowed), -1 / 0 like `Ins::CmpS`.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_6"))]
 extern "C" fn jit_cmps(ctx: *mut qb_jit::Ctx, c: i64, a: i64, b: i64) -> i64 {
     let (_, vm) = host_vm(ctx);
     let t = crate::jit::cmp_of(c).test(vm.sget(a as R), vm.sget(b as R));
