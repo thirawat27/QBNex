@@ -1463,7 +1463,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
             | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
-            | "func__printwidth" | "func__loadimage" | "func__title"
+            | "func__printwidth" | "func__loadimage" | "func__title" | "sub__depthbuffer"
     );
     if !known {
         return None;
@@ -1821,6 +1821,20 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     let s6 = [f32_(1), f32_(2), f32_(3), f32_(4), f32_(5), f32_(6)];
                     let d6 = [f32_(8), f32_(9), f32_(11), f32_(12), f32_(14), f32_(15)];
                     gerr(d, gfx::maptri::qb_gfx_maptriangle(im(sx), im(tx), s6.as_ptr(), d6.as_ptr(), passed & 1));
+                }
+            }
+            "sub__depthbuffer" => {
+                // (option, handle, passed). The depth buffer belongs to hardware images, which
+                // the QIR runtime does not have (_MAPTRIANGLE draws on software surfaces, and
+                // qb_gpu::maptri::DepthBuffer has no caller outside qb-runtime's GPU tests):
+                // only legacy's handle checks remain. 0/1 = the hardware screen, no-op.
+                if i(2) & 1 != 0 {
+                    let dst = i(1);
+                    if dst < 0 {
+                        gerr(d, 258);
+                    } else if dst > 1 {
+                        gerr(d, 5);
+                    }
                 }
             }
             "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
