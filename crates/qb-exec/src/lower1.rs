@@ -678,14 +678,31 @@ impl<'a> Lw<'a> {
                 Inst::AAddr { dst, var, idx } => {
                     let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
                     let n = idx.len() as u32;
-                    let base = self.frames[k].num_init.len() as R;
-                    for _ in 0..n {
-                        self.frames[k].new_n(0);
-                    }
-                    for (j, r) in idx.iter().enumerate() {
-                        let s = nreg!(*r);
-                        self.emit(Ins::Mov { d: base + j as R, s });
-                    }
+                    // one subscript that stays unchanged until the address is used: read it in place
+                    let direct = match idx.as_slice() {
+                        [x] => {
+                            let x = *x;
+                            let cnt = uses_before_redef(body, ii, *dst);
+                            let var = alias_var.get(&x).copied();
+                            stable_until_uses(body, ii, *dst, cnt, &|i: &Inst| {
+                                regs(i).0 == Some(x) || matches!((i, var), (Inst::Store { var: v, .. }, Some(w)) if v == w)
+                            })
+                        }
+                        _ => false,
+                    };
+                    let base = if direct {
+                        nreg!(idx[0])
+                    } else {
+                        let base = self.frames[k].num_init.len() as R;
+                        for _ in 0..n {
+                            self.frames[k].new_n(0);
+                        }
+                        for (j, r) in idx.iter().enumerate() {
+                            let s = nreg!(*r);
+                            self.emit(Ins::Mov { d: base + j as R, s });
+                        }
+                        base
+                    };
                     reg!(*dst);
                     ptrs.insert(*dst, Ptr::Elem { a, i: base, n, ety });
                     if !used_before_redef(body, ii, *dst) {
@@ -1183,6 +1200,19 @@ fn stable_until_uses(body: &[Inst], at: usize, d: u32, total: u32, kill: &dyn Fn
         }
     }
     false
+}
+
+/// Number of reads of register `r` (defined at `at`) before it is defined again.
+fn uses_before_redef(body: &[Inst], at: usize, r: u32) -> u32 {
+    let mut n = 0;
+    for i in &body[at + 1..] {
+        let (d, us) = regs(i);
+        n += us.iter().filter(|&&u| u == r).count() as u32;
+        if d == Some(r) {
+            break;
+        }
+    }
+    n
 }
 
 /// Whether register `r` (defined at `at`) is read before it is defined again.
