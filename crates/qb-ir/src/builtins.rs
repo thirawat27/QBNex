@@ -126,6 +126,18 @@ pub static TABLE: &[Builtin] = &[
     b!("EXP.s", [F64], F64),
     // raises the error of the numeric READ just stored (C++ assigns 0, then errors)
     b!("READCHK", []),
+    // CALL ABSOLUTE: arguments copied into DBLOCK (offset back), read back, then the call
+    b!("ABSARG.i16", [I16], I32),
+    b!("ABSARG.i32", [I32], I32),
+    b!("ABSARG.i64", [I64], I32),
+    b!("ABSARG.f32", [F32], I32),
+    b!("ABSARG.f64", [F64], I32),
+    b!("ABSGET.i16", [I32], I16),
+    b!("ABSGET.i32", [I32], I32),
+    b!("ABSGET.i64", [I32], I64),
+    b!("ABSGET.f32", [I32], F32),
+    b!("ABSGET.f64", [I32], F64),
+    b!("ABSCALL", [I32]),
     // VARPTR$ of a numeric value: (VARPTR$ type code, value)
     b!("VARPTR$", [I32, F64], Str),
     b!("_ROUND.f64", [F64], I64),

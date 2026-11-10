@@ -9,6 +9,7 @@ use qb_float80::{F80, Round};
 use qb_ir::Ty;
 
 mod audiox;
+mod cpu;
 pub(crate) mod display;
 mod input;
 mod scancodes;

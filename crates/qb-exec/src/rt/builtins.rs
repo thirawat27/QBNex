@@ -83,6 +83,10 @@ pub(crate) struct RtState<'a> {
     /// VARPTR$ value slots in DBLOCK (offset, next slot)
     pub(crate) varptr_slots: usize,
     pub(crate) varptr_next: usize,
+    /// SADD character areas in DBLOCK: string variable -> (offset, capacity)
+    pub(crate) cmem_sdata: HashMap<u64, (usize, usize)>,
+    /// CALL ABSOLUTE argument offsets being collected (ABSARG.*)
+    pub(crate) abs_args: Vec<u16>,
     /// error of the last numeric READ, raised by READCHK after the store
     pub(crate) read_err: i32,
     /// screen pages and images (SCREEN, graphics, `_NEWIMAGE`, ...)
@@ -104,7 +108,8 @@ struct Using {
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
         RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
-            cmem: vec![0; 1 << 20],
+            // 1 MB + 64 KB like libqb cmem (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
+            cmem: vec![0; 0x110000],
             cmem_next: 16,
             cmem_strs: HashMap::new(),
             def_seg: None,
@@ -117,6 +122,8 @@ impl<'a> RtState<'a> {
             net_pending_error: 0,
             snd_started: false,
             read_err: 0,
+            cmem_sdata: HashMap::new(),
+            abs_args: Vec::new(),
             input: super::input::Input::default(),
             limit_last: None,
             varptr_slots: 0,
@@ -386,7 +393,72 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 d
             }
         };
-        return Ok(Some(V::I(if name == "SADD" { (d + 4) as i64 } else { d as i64 })));
+        if name == "SADD" {
+            // the characters are copied into DBLOCK too (CALL ABSOLUTE runs code from there)
+            let s = vm.load_str(p)?;
+            let rt = vm.rt();
+            let (off, cap) = rt.cmem_sdata.get(&p).copied().unwrap_or((0, 0));
+            let off = if s.len() <= cap && off != 0 {
+                off
+            } else if rt.cmem_next == d + 4 && cap == 0 {
+                let o = d + 4;
+                rt.cmem_next = o + s.len().max(1);
+                rt.cmem_sdata.insert(p, (o, s.len().max(1)));
+                o
+            } else {
+                let o = rt.cmem_next;
+                rt.cmem_next = o + s.len().max(1);
+                rt.cmem_sdata.insert(p, (o, s.len().max(1)));
+                o
+            };
+            if DBLOCK + off + s.len() > rt.cmem.len() {
+                return e(7);
+            }
+            rt.cmem[DBLOCK + off..DBLOCK + off + s.len()].copy_from_slice(&s);
+            rt.cmem[DBLOCK + d + 2..DBLOCK + d + 4].copy_from_slice(&(off as u16).to_le_bytes());
+            return Ok(Some(V::I(off as i64)));
+        }
+        return Ok(Some(V::I(d as i64)));
+    }
+    if let Some(ty) = name.strip_prefix("ABSARG.") {
+        // CALL ABSOLUTE argument: the value in a DBLOCK slot (copied back by ABSGET)
+        let v = a[0].clone();
+        let rt = vm.rt();
+        let size = if ty == "i16" { 2 } else if ty == "i32" || ty == "f32" { 4 } else { 8 };
+        let off = rt.cmem_next;
+        rt.cmem_next += size;
+        let b = DBLOCK + off;
+        match ty {
+            "i16" => rt.cmem[b..b + 2].copy_from_slice(&(v.i() as i16).to_le_bytes()),
+            "i32" => rt.cmem[b..b + 4].copy_from_slice(&(v.i() as i32).to_le_bytes()),
+            "f32" => rt.cmem[b..b + 4].copy_from_slice(&(v.f() as f32).to_le_bytes()),
+            "f64" => rt.cmem[b..b + 8].copy_from_slice(&v.f().to_le_bytes()),
+            _ => rt.cmem[b..b + 8].copy_from_slice(&v.i().to_le_bytes()),
+        }
+        rt.abs_args.push(off as u16);
+        return Ok(Some(V::I(off as i64)));
+    }
+    if let Some(ty) = name.strip_prefix("ABSGET.") {
+        let off = a[0].i() as usize;
+        let rt = vm.rt();
+        let b = DBLOCK + off;
+        let m = &rt.cmem;
+        let v = match ty {
+            "i16" => V::I(i64::from(i16::from_le_bytes([m[b], m[b + 1]]))),
+            "i32" => V::I(i64::from(i32::from_le_bytes(m[b..b + 4].try_into().unwrap()))),
+            "f32" => V::F(f64::from(f32::from_le_bytes(m[b..b + 4].try_into().unwrap()))),
+            "f64" => V::F(f64::from_le_bytes(m[b..b + 8].try_into().unwrap())),
+            _ => V::I(i64::from_le_bytes(m[b..b + 8].try_into().unwrap())),
+        };
+        return Ok(Some(v));
+    }
+    if name == "ABSCALL" {
+        // call_absolute: code at DEF SEG:offset, data segment = DBLOCK
+        let rt = vm.rt();
+        let args = std::mem::take(&mut rt.abs_args);
+        let seg = rt.def_seg.unwrap_or(DBLOCK);
+        super::cpu::call_absolute(&mut rt.cmem, seg, (DBLOCK >> 4) as u16, a[0].i() as u16, &args).or_else(|c| e(c))?;
+        return Ok(None);
     }
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
     let rt = vm.rt();
