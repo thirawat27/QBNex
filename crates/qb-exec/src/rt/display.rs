@@ -40,6 +40,8 @@ pub(crate) struct Display {
     pub screen_hide: bool,
     /// `_TITLE` (window_title)
     pub title: Vec<u8>,
+    /// GUI program with a window (rt/window.rs): `_DISPLAY` and `_TITLE` reach it
+    pub window: bool,
 }
 
 impl Default for Display {
@@ -65,6 +67,7 @@ impl Default for Display {
             started: false,
             title: Vec::new(),
             screen_hide: false,
+            window: false,
         };
         d.fontwidth[8] = 8;
         d.fontwidth[14] = 8;
@@ -110,6 +113,10 @@ impl Display {
     }
     fn dp(&self) -> *mut ImgStruct {
         im(self.display_index)
+    }
+    /// The page the screen shows (`_DISPLAY`).
+    pub(crate) fn display_page(&self) -> *mut ImgStruct {
+        self.dp()
     }
     fn select_all(&mut self, i: u32) {
         self.write_index = i;
@@ -1575,6 +1582,10 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "func__copyimage" => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
             "sub__display" => {
                 d.capture(gfx::capture::KIND_DISPLAY);
+                #[cfg(not(target_arch = "wasm32"))]
+                if d.window {
+                    super::window::present(d);
+                }
                 // with a window, _DISPLAY switches _AUTODISPLAY off (sub__display)
                 if !d.screen_hide {
                     d.autodisplay = 0;
@@ -1824,7 +1835,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 }
             }
             "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
-            "sub__title" => d.title = a[0].s().to_vec(),
+            "sub__title" => {
+                d.title = a[0].s().to_vec();
+                #[cfg(not(target_arch = "wasm32"))]
+                if d.window {
+                    super::window::set_title(&d.title);
+                }
+            }
             "func__title" => out = Some(V::S(d.title.clone())),
             "sub__delay" => {}
             _ => {}

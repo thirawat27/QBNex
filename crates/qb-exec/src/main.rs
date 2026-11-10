@@ -100,11 +100,38 @@ fn main() {
             }
         },
     };
-    let src = String::from_utf8_lossy(&src);
+    let src = String::from_utf8_lossy(&src).into_owned();
+    if qb_exec::wants_window(&src) {
+        // GUI program (no $CONSOLE): the window layer needs the main thread,
+        // the program runs on its own thread and ends the process
+        let hidden = qb_exec::screen_hidden(&src);
+        let program = std::thread::Builder::new()
+            .name("qb-program".into())
+            .stack_size(64 << 20)
+            .spawn(move || {
+                // stdout stays unlocked: the window thread writes `snapshot` lines of input scripts
+                let mut out = BufWriter::new(std::io::stdout());
+                let result = qb_exec::run_program_window(&src, image.as_deref(), &mut out);
+                let _ = out.flush();
+                finish(result)
+            })
+            .unwrap_or_else(|e| {
+                eprintln!("qb-exec: cannot start the program thread: {e}");
+                std::process::exit(2)
+            });
+        qb_exec::run_window_main("Untitled", hidden);
+        let _ = program.join();
+        std::process::exit(1);
+    }
     let stdout = std::io::stdout();
     let mut out = BufWriter::new(stdout.lock());
     let result = qb_exec::run_program(&src, image.as_deref(), &mut out);
     let _ = out.flush();
+    finish(result)
+}
+
+/// Exit status of a finished program (the error report goes to stderr).
+fn finish(result: Result<i32, qb_exec::RunError>) -> ! {
     match result {
         Ok(code) => std::process::exit(code),
         Err(e) => {
