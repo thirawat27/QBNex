@@ -267,16 +267,15 @@ The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner:
 - **Emitter ใน pipeline จริง:** main pass ของ `qbnex.bas` ทำงานเหมือนเดิม แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, `ir_mem.bas`, state ใน `ir_state.bas`); `IrEval$` ใช้กฎ promotion ของ C++ backend. builtin ของ libqb ที่เป็น graphics/รูป/ฟอนต์/input/timer ถูก lower แบบ generic เป็น `rt <callname>` ด้วยชนิด argument จาก registry (`IrGeneric$`, รายชื่อใน `IrGenOK%`)
 - **Executor:** unified VM ของ R11b (`crates/qb-exec`: lower → bytecode → VM/JIT); runtime ที่ R11a เพิ่มอยู่ใน `rt/`: `display.rs` (หน้า SCREEN/รูป/กราฟิก/ข้อความบนหน้า, WIDTH, ฟอนต์ `_LOADFONT`, `_LOADIMAGE`, `_PUTIMAGE`, `_MAPTRIANGLE`, frame capture), `input.rs` (port `keydown`/`keyup` + mouse queue, input script ผ่าน headless window ของ qb-runtime), `scancodes.rs` (ตาราง scancode_lookup), audiox/netx/memx/files. ทุกอย่างเรียก qb-runtime (Rust) ตรง ไม่ผ่าน libqb.cpp
 - **QIR ใหม่:** `ontimer %slot %secs L` (ON TIMER), `meta screenhide`; builtin ใหม่ใน table (graphics callnames, `READCHK`, `VARPTR$`, `EXP.s`, `DELAYBEGIN`/`DELAYSTEP`, `func__*` ของ input/timer)
-- **Conformance** (89 cases, Windows, 2026-11-10 หลัง merge rust-port `ae57d8c`):
+- **- **Conformance** (89 cases, Windows, 2026-11-10 หลัง merge rust-port `ae57d8c`, compiler `60d3689`):
 
   | backend | ผ่าน | xfail | fail |
   | --- | --- | --- | --- |
-  | QIR (`--qb-arg --ir`) | **82** | 5 | 2 |
+  | QIR (`--qb-arg --ir`) | **84** | 5 | **0** |
 
-  หลังรอบเต็ม (81) แก้ `timers_and_waits` ผ่านเพิ่ม. ที่ยัง fail: `stdlib_helpers` (STRING ความยาวแปรผันใน TYPE: ต้องให้ memory model ของ VM copy/free string ใน UDT), `call_absolute_sub_arg` (CALL ABSOLUTE ต้องมี CPU emulator x86 16-bit ของ libqb `cpu_call`). ยังไม่ได้รันรอบเต็มของ C++ path หลัง merge ล่าสุด
-- **พฤติกรรมที่ตรงกับ C++:** READ ใช้ `numparse::read_*` (overflow 6, syntax 2, ค่า 0 ก่อน error), ERASE ทำให้ array ไม่มีมิติ (error 9), unhandled error ตาม no-dialog policy ของ runtime (stderr + exit 1), HEX$/OCT$/_BIN$ ความกว้างตาม semantics.bas, `_BIT * n`
+  xfail 5 ตัวเป็น legacy defect/deviation ชุดเดียวกับ C++ path (L-02, L-03, L-06, L-14, D-14). `call_absolute_sub_arg` รันบน `rt/cpu.rs` (port x86 subset ของ `cpu_call`), `stdlib_helpers` ใช้ STRING ความยาวแปรผันใน TYPE (string handle ใน memory, assignment ของ TYPE copy ทีละ field), `timers_and_waits` ใช้ ON TIMER ของ VM. `cargo test --release -p qb-exec -p qb-ir` ผ่านทั้งหมด (e2e รันหลาย thread ได้)พฤติกรรมที่ตรงกับ C++:** READ ใช้ `numparse::read_*` (overflow 6, syntax 2, ค่า 0 ก่อน error), ERASE ทำให้ array ไม่มีมิติ (error 9), unhandled error ตาม no-dialog policy ของ runtime (stderr + exit 1), HEX$/OCT$/_BIN$ ความกว้างตาม semantics.bas, `_BIT * n`
 - **Compiler:** lock ของโฟลเดอร์ `internal/tempN` (#26) ไม่ถูกปล่อยระหว่าง recompile อีกแล้ว (เดิมทำให้ qb ที่รันพร้อมกันชนกัน, error 70 ใน e2e แบบหลาย thread)
-- **ยังไม่ทำ:** ON KEY/ON STRIG trapping, CHAIN/COMMON, PLAY event, VARPTR$ ของ string (DRAW/PLAY "X")
+- **ยังไม่ทำ:** ON KEY/ON STRIG trapping, CHAIN/COMMON, PLAY event, VARPTR$ ของ string (DRAW/PLAY "X"); string ใน TYPE ที่ตายไปพร้อม scope ยังไม่ถูกคืน (leak เล็กน้อย, ไม่กระทบผลลัพธ์)
 
 ## R11d: `_FLOAT` and `DECLARE LIBRARY`
 
