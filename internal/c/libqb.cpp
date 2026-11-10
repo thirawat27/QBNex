@@ -156,29 +156,9 @@ int32 qbr_float_to_long(float f){return qb_fistp_i32(f);}
 int32 qbr_double_to_long(double f){return qb_fistp_i32(f);}
 void fpu_reinit(){qb_fpu_reinit();}
 //bit-array access functions (note: used to be included through 'bit.cpp')
-uint64 getubits(uint32 bsize,uint8 *base,ptrszint i){
-    int64 bmask;
-    bmask=~(-(((int64)1)<<bsize));
-    i*=bsize;
-    return ((*(uint64*)(base+(i>>3)))>>(i&7))&bmask;
-}
-int64 getbits(uint32 bsize,uint8 *base,ptrszint i){
-    int64 bmask, bval64;
-    bmask=~(-(((int64)1)<<bsize));
-    i*=bsize;
-    bval64=((*(uint64*)(base+(i>>3)))>>(i&7))&bmask;
-    if (bval64&(((int64)1)<<(bsize-1))) return bval64|(~bmask);
-    return bval64;
-}
-void setbits(uint32 bsize,uint8 *base,ptrszint i,int64 val){
-    int64 bmask;
-    uint64 *bptr64;
-    bmask=(((uint64)1)<<bsize)-1;
-    i*=bsize;
-    bptr64=(uint64*)(base+(i>>3));
-    *bptr64=(*bptr64&( ( (bmask<<(i&7)) ^-1)  )) | ((val&bmask)<<(i&7));
-}
-
+uint64 getubits(uint32 bsize,uint8 *base,ptrszint i){return qb_getubits(bsize,base,i);}
+int64 getbits(uint32 bsize,uint8 *base,ptrszint i){return qb_getbits(bsize,base,i);}
+void setbits(uint32 bsize,uint8 *base,ptrszint i,int64 val){qb_setbits(bsize,base,i,val);}
 
 #ifdef QBNex_UNIX
     #include <pthread.h>
@@ -1225,8 +1205,7 @@ extern void commitDeviceEvent(device_struct *device);
 
 
 
-extern ontimer_struct *ontimer;
-extern onkey_struct *onkey;
+extern onkey_struct *onkey;//defined in Rust (crates/qb-runtime/src/events.rs)
 extern int32 onkey_inprogress;
 extern onstrig_struct *onstrig;
 extern int32 onstrig_inprogress;
@@ -1243,7 +1222,7 @@ extern int32 asserts;
 extern int32 vwatch;
 //...
 
-int64 exit_code=0;
+extern int64 exit_code;//defined in Rust (crates/qb-runtime/src/program.rs)
 
 int32 console_active=1;
 int32 console_child=0;//set if console is only being used by this program
@@ -2083,7 +2062,7 @@ void keyup_vk(uint32 x){
 }
 
 
-int32 exit_ok=0;
+extern int32 exit_ok;//defined in Rust (crates/qb-runtime/src/program.rs)
 
 //substitute Windows functionality
 #ifndef QBNex_WINDOWS
@@ -2242,16 +2221,13 @@ void alert(char *x){
 
 
 extern void QBMAIN(void *);
-extern void TIMERTHREAD();
 void MAIN_LOOP();
 
 #ifdef QBNex_WINDOWS
     extern void QBMAIN_WINDOWS(void *);
-    extern void TIMERTHREAD_WINDOWS(void *);
     void MAIN_LOOP_WINDOWS(void *);
     #else
     extern void *QBMAIN_LINUX(void *);
-    extern void *TIMERTHREAD_LINUX(void *);
     void *MAIN_LOOP_LINUX(void *);
 #endif
 
@@ -2381,7 +2357,7 @@ extern uint32 inclercl;
 extern char* includedfilename;
 
 int32 exit_blocked=0;
-int32 exit_value=0;
+extern int32 exit_value;//defined in Rust (crates/qb-runtime/src/program.rs)
 //1=X-button
 //2=CTRL-BREAK
 //3=X-button and CTRL-BREAK
@@ -4479,190 +4455,24 @@ void sub__assert(int32 expression, qbs *assert_message, int32 passed) {
     return;
 }
 
-char *human_error(int32 errorcode) {
-    switch (errorcode) {
-        case 0: return "No error";
-        case 1: return "NEXT without FOR";
-        case 2: return "Syntax error";
-        case 3: return "RETURN without GOSUB";
-        case 4: return "Out of DATA";
-        case 5: return "Illegal function call";
-        case 6: return "Overflow";
-        case 7: return "Out of memory";
-        case 8: return "Label not defined";
-        case 9: return "Subscript out of range";
-        case 10: return "Duplicate definition";
-        case 12: return "Illegal in direct mode";
-        case 13: return "Type mismatch";
-        case 14: return "Out of string space";
-        //error 15 undefined
-        case 16: return "String formula too complex";
-        case 17: return "Cannot continue";
-        case 18: return "Function not defined";
-        case 19: return "No RESUME";
-        case 20: return "RESUME without error";
-        //error 21-23 undefined
-        case 24: return "Device timeout";
-        case 25: return "Device fault";
-        case 26: return "FOR without NEXT";
-        case 27: return "Out of paper";
-        //error 28 undefined
-        case 29: return "WHILE without WEND";
-        case 30: return "WEND without WHILE";
-        //error 31-32 undefined
-        case 33: return "Duplicate label";
-        //error 34 undefined
-        case 35: return "Subprogram not defined";
-        //error 36 undefined
-        case 37: return "Argument-count mismatch";
-        case 38: return "Array not defined";
-        case 40: return "Variable required";
-        case 50: return "FIELD overflow";
-        case 51: return "Internal error";
-        case 52: return "Bad file name or number";
-        case 53: return "File not found";
-        case 54: return "Bad file mode";
-        case 55: return "File already open";
-        case 56: return "FIELD statement active";
-        case 57: return "Device I/O error";
-        case 58: return "File already exists";
-        case 59: return "Bad record length";
-        case 61: return "Disk full";
-        case 62: return "Input past end of file";
-        case 63: return "Bad record number";
-        case 64: return "Bad file name";
-        case 67: return "Too many files";
-        case 68: return "Device unavailable";
-        case 69: return "Communication-buffer overflow";
-        case 70: return "Permission denied";
-        case 71: return "Disk not ready";
-        case 72: return "Disk-media error";
-        case 73: return "Feature unavailable";
-        case 74: return "Rename across disks";
-        case 75: return "Path/File access error";
-        case 76: return "Path not found";
-        case 258: return "Invalid handle";
-        case 300: return "Memory region out of range";
-        case 301: return "Invalid size";
-        case 302: return "Source memory region out of range";
-        case 303: return "Destination memory region out of range";
-        case 304: return "Source and destination memory regions out of range";
-        case 305: return "Source memory has been freed";
-        case 306: return "Destination memory has been freed";
-        case 307: return "Memory already freed";
-        case 308: return "Memory has been freed";
-        case 309: return "Memory not initialized";
-        case 310: return "Source memory not initialized";
-        case 311: return "Destination memory not initialized";
-        case 312: return "Source and destination memory not initialized";
-        case 313: return "Source and destination memory have been freed";
-        case 314: return "_ASSERT failed";
-        case 315: return "_ASSERT failed (check console for description)";
-        default: return "Unprintable error";
-    }
-}
+//Error machinery: messages, error(), fix_error()'s decisions and the error
+//globals live in Rust (crates/qb-runtime/src/error.rs).
+char *human_error(int32 errorcode){return (char*)qb_human_error(errorcode);}
 
-qbs *func_mid(qbs *str,int32 start,int32 l,int32 passed);
-qbs *qbs_new_txt_len(const char *txt,int32 len);
 qbs *func_command(int32 index, int32 passed);
+void QBMAIN(void *);
 
 void fix_error(){
-    const char *cp;
-    int prevent_handling = 0, len, v;
-    if ((new_error >= 300) && (new_error <= 315)) prevent_handling = 1;
-    if (!error_goto_line || error_handling || prevent_handling) {
-        //strip path from binary name
-        static int32 i;
-        static qbs *binary_name=NULL;
-        if (!binary_name) binary_name=qbs_new(0,0);
-        qbs_set(binary_name,qbs_add(func_command( 0 ,1),qbs_new_txt_len("\0",1)));
-        for(i=binary_name->len;i>0;i--){
-            if ((binary_name->chr[i-1]==47)||(binary_name->chr[i-1]==92)) {
-                qbs_set(binary_name,func_mid(binary_name, i + 1,NULL,0));
-                break;
-            }
-        }
-        
-        cp = human_error(new_error);        
-        #define FIXERRMSG_TITLE "%s%u - %s"
-        #define FIXERRMSG_BODY "Line: %u (in %s)\n%s%s"
-        #define FIXERRMSG_MAINFILE "main module"
-        #define FIXERRMSG_CONT "\nContinue?"
-        #define FIXERRMSG_UNHAND "Unhandled Error #"
-        #define FIXERRMSG_CRIT "Critical Error #"
-        
-        len = snprintf(NULL, 0, FIXERRMSG_BODY, (inclercl ? inclercl : ercl), (inclercl ? includedfilename : FIXERRMSG_MAINFILE), cp, (!prevent_handling ? FIXERRMSG_CONT : ""));
-        std::vector<char> errmess(static_cast<size_t>(len) + 1, '\0');
-        snprintf(errmess.data(), errmess.size(), FIXERRMSG_BODY, (inclercl ? inclercl : ercl), (inclercl ? includedfilename : FIXERRMSG_MAINFILE), cp, (!prevent_handling ? FIXERRMSG_CONT : ""));
-        
-        len = snprintf(NULL, 0, FIXERRMSG_TITLE, (!prevent_handling ? FIXERRMSG_UNHAND : FIXERRMSG_CRIT), new_error, binary_name->chr);
-        std::vector<char> errtitle(static_cast<size_t>(len) + 1, '\0');
-        snprintf(errtitle.data(), errtitle.size(), FIXERRMSG_TITLE, (!prevent_handling ? FIXERRMSG_UNHAND : FIXERRMSG_CRIT), new_error, binary_name->chr);
-        
-        if (prevent_handling){
-            v=MessageBox2(NULL,errmess.data(),errtitle.data(),MB_OK);
-            exit(0);
-            }else{
-            v=MessageBox2(NULL,errmess.data(),errtitle.data(),MB_YESNO|MB_SYSTEMMODAL);
-        }
-        
-        if ((v==IDNO)||(v==IDOK)){close_program=1; end();}
-        new_error=0;
-        return;
-    }
-    error_err=new_error;
-    new_error=0;
-    error_erl=last_line;
-    error_occurred=1;
-    QBMAIN (NULL);
-    return;
+    qbs *c=func_command(0,1);
+    if (qb_fix_error(c->chr,c->len)) QBMAIN(NULL);//enter the ON ERROR handler
 }
 
-
-
-void error(int32 error_number){
-    
-    //critical errors:
-    
-    //out of memory errors
-    if (error_number==257){MessageBox2(NULL,"Out of memory","Critical Error #1",MB_OK|MB_SYSTEMMODAL); exit(0);}//generic "Out of memory" error
-    //tracable "Out of memory" errors
-    if (error_number==502){MessageBox2(NULL,"Out of memory","Critical Error #2",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==503){MessageBox2(NULL,"Out of memory","Critical Error #3",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==504){MessageBox2(NULL,"Out of memory","Critical Error #4",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==505){MessageBox2(NULL,"Out of memory","Critical Error #5",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==506){MessageBox2(NULL,"Out of memory","Critical Error #6",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==507){MessageBox2(NULL,"Out of memory","Critical Error #7",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==508){MessageBox2(NULL,"Out of memory","Critical Error #8",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==509){MessageBox2(NULL,"Out of memory","Critical Error #9",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==510){MessageBox2(NULL,"Out of memory","Critical Error #10",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==511){MessageBox2(NULL,"Out of memory","Critical Error #11",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==512){MessageBox2(NULL,"Out of memory","Critical Error #12",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==513){MessageBox2(NULL,"Out of memory","Critical Error #13",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==514){MessageBox2(NULL,"Out of memory","Critical Error #14",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==515){MessageBox2(NULL,"Out of memory","Critical Error #15",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==516){MessageBox2(NULL,"Out of memory","Critical Error #16",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==517){MessageBox2(NULL,"Out of memory","Critical Error #17",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==518){MessageBox2(NULL,"Out of memory","Critical Error #18",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    
-    //other critical errors
-    if (error_number==11){MessageBox2(NULL,"Division by zero","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==256){MessageBox2(NULL,"Out of stack space","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==259){MessageBox2(NULL,"Cannot find dynamic library file","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==260){MessageBox2(NULL,"Sub/Function does not exist in dynamic library","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==261){MessageBox2(NULL,"Sub/Function does not exist in dynamic library","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    
-    if (error_number==270){MessageBox2(NULL,"_GL command called outside of SUB _GL's scope","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    if (error_number==271){MessageBox2(NULL,"END/SYSTEM called within SUB _GL's scope","Critical Error",MB_OK|MB_SYSTEMMODAL); exit(0);}
-    
-    
-    if (!new_error){
-        if ((new_error==256)||(new_error==257)) fix_error();//critical error!
-        if (error_number<=0) error_number=5;//Illegal function call
-        new_error=error_number;
-        qbevent=1;
-    }
+extern "C" int32 qb_host_message_box(const char *message,const char *title,int32 type){
+    return MessageBox2(NULL,(char*)message,(char*)title,type);
 }
+extern "C" void qb_host_end(){end();}
+
+void error(int32 error_number){qb_error(error_number);}
 
 double get_error_erl(){
     return error_erl;
@@ -4703,41 +4513,17 @@ int32 stop_program_state() {
     XXXXXXXXXXXXXXXX
     etc.
 */
-uint32 mem_static_size;
+//mem_static allocator: crates/qb-runtime/src/alloc.rs (globals mem_static,
+//mem_static_pointer, mem_static_limit are defined there).
 extern uint8 *mem_static;
 extern uint8 *mem_static_pointer;
 extern uint8 *mem_static_limit;
-
-namespace {
-    std::vector<std::unique_ptr<uint8[]>> mem_static_blocks;
-
-    void allocate_mem_static_block(uint32 size){
-        std::unique_ptr<uint8[]> block(new(std::nothrow) uint8[size]);
-        if (!block) error(504);
-        mem_static=block.get();
-        mem_static_blocks.push_back(std::move(block));
-        mem_static_size=size;
-        mem_static_pointer=mem_static;
-        mem_static_limit=mem_static+mem_static_size;
-    }
-}
-
 uint8 *mem_static_malloc(uint32 size){
-    size+=7; size-=(size&7);//align to 8 byte boundry
-    if ((mem_static_pointer+=size)<mem_static_limit) return mem_static_pointer-size;
-    mem_static_size=(mem_static_size<<1)+size;
-    allocate_mem_static_block(mem_static_size);
-    mem_static_pointer=mem_static+size;
-    return mem_static_pointer-size;
+    int32 e=0; uint8 *p=qb_mem_static_malloc(size,&e);
+    if (e) error(e);
+    return p;
 }
-void mem_static_restore(uint8* restore_point){
-    if ((restore_point>=mem_static)&&(restore_point<=mem_static_limit)){
-        mem_static_pointer=restore_point;
-        }else{
-        //if restore_point is not in the current block, use t=start of current block as a new base
-        mem_static_pointer=mem_static;
-    }
-}
+void mem_static_restore(uint8* restore_point){qb_mem_static_restore(restore_point);}
 
 //CMEM_FAR_DYNAMIC memory manager
 /*
@@ -4748,99 +4534,13 @@ void mem_static_restore(uint8* restore_point){
 //links limited to 588544/4=147136 (do not have enough links if avg. block size less than 4 bytes)
 //stores blocks, not free memory, because blocks are easier to identify
 //always scanned from beginning to end, so prev. pointer is unnecessary
-struct cmem_dynamic_link_type{
-    uint8 *offset;
-    uint8 *top;
-    uint32 size;
-    uint32 i;
-    cmem_dynamic_link_type *next;
-};
-cmem_dynamic_link_type cmem_dynamic_link[147136+1]; //+1 is added because array is used from index 1
-
-//i=cmem_dynamic_next_link++; if (i>=147136) error(257);//not enough blocks
-//newlink=(cmem_dynamic_link_type*)&cmem_dynamic_link[i];
-
-cmem_dynamic_link_type *cmem_dynamic_link_first=NULL;
-int32 cmem_dynamic_next_link=0;
-int32 cmem_dynamic_free_link=0;
-uint32 cmem_dynamic_free_list[147136];
+//cmem_dynamic allocator: crates/qb-runtime/src/alloc.rs
 uint8 *cmem_dynamic_malloc(uint32 size){
-    static int32 i;
-    static uint8 *top;
-    static cmem_dynamic_link_type *link;
-    static cmem_dynamic_link_type *newlink;
-    static cmem_dynamic_link_type *prev_link;
-    if (size>65536) error(505);//>64K
-    //to avoid mismatches between offsets, all 0-byte blocks are given the special offset A000h (the top of the heap)
-    if (!size) return(&cmem[0]+655360);//top of heap
-    //forces blocks to be multiples of 16 bytes so they align with segment boundaries
-    if (size&15) size=size-(size&15)+16;
-    //is a space large enough between existing blocks available?
-    //(if not, memory will be allocated at bottom of heap)
-    top=&cmem[0]+655360;//top is the base of the higher block
-    prev_link=NULL;
-    if (link=cmem_dynamic_link_first){
-        cmem_dynamic_findspace:
-        if ((top-link->top)>=size){ //gpf
-            //found free space
-            goto cmem_dynamic_make_new_link;
-        }
-        prev_link=link; top=link->offset;//set top to the base of current block for future comparisons
-        if (link=link->next) goto cmem_dynamic_findspace;
-    }
-    //no space between existing blocks is large enough, alloc below 'top'
-    if ((top-cmem_static_pointer)<size) error(506);//a large enough block cannot be created!
-    cmem_dynamic_base=top-size;
-    //get a new link index
-    cmem_dynamic_make_new_link:
-    if (cmem_dynamic_free_link){
-        i=cmem_dynamic_free_list[cmem_dynamic_free_link--];
-        }else{
-        i=cmem_dynamic_next_link++; if (i>=147136) error(507);//not enough blocks
-    }
-    newlink=(cmem_dynamic_link_type*)&cmem_dynamic_link[i];
-    //set link info
-    newlink->i=i;
-    newlink->offset=top-size;
-    newlink->size=size;
-    newlink->top=top;
-    //attach below prev_link
-    if (prev_link){
-        newlink->next=prev_link->next;//NULL if none
-        prev_link->next=newlink;
-        }else{
-        newlink->next=cmem_dynamic_link_first;//NULL if none
-        cmem_dynamic_link_first=newlink;
-    }
-    return newlink->offset;
+    int32 e=0; uint8 *p=qb_cmem_dynamic_malloc(size,&e);
+    if (e) error(e);
+    return p;
 }
-
-void cmem_dynamic_free(uint8 *block){
-    static cmem_dynamic_link_type *link;
-    static cmem_dynamic_link_type *prev_link;
-    if (!cmem_dynamic_link_first) return;
-    if (!block) return;
-    if (block==(&cmem[0]+655360)) return;//to avoid mismatches between offsets, all 0-byte blocks are given the special offset A000h (the top of the heap)
-    prev_link=NULL;
-    link=cmem_dynamic_link_first;
-    check_next:
-    if (link->offset==block){
-        //unlink
-        if (prev_link){
-            prev_link->next=link->next;
-            }else{
-            cmem_dynamic_link_first=link->next;
-        }
-        //free link
-        cmem_dynamic_free_link++;
-        cmem_dynamic_free_list[cmem_dynamic_free_link]=link->i;
-        //memory freed successfully!
-        return;
-    }
-    prev_link=link;
-    if (link=link->next) goto check_next;
-    return;
-}
+void cmem_dynamic_free(uint8 *block){qb_cmem_dynamic_free(block);}
 
 uint8 *defseg=&cmem[1280];//set to base of DBLOCK
 
@@ -4877,16 +4577,10 @@ void sub_poke(int32 offset,int32 value){
 
 int32 array_ok=1;//kept to compile legacy versions
 
-//gosub-return handling
-extern uint32 next_return_point; //=0;
-extern std::vector<uint32> return_point_storage;
-extern uint32 *return_point; //=(uint32*)malloc(4*16384);
-extern uint32 return_points; //=16384;
+//gosub-return handling: the stack (next_return_point, return_point, return_points)
+//lives in Rust (crates/qb-runtime/src/program.rs).
 void more_return_points(){
-    if (return_points>2147483647) error(256);
-    return_points*=2;
-    return_point_storage.resize(return_points,0);
-    return_point=return_point_storage.data();
+    int32 e=qb_more_return_points(); if (e) error(e);
 }
 
 
@@ -8457,34 +8151,10 @@ double func_timer(double accuracy,int32 passed){
     return value;
 }
 
+//_DELAY, _LIMIT: crates/qb-runtime/src/waits.rs
 void sub__delay(double seconds){
-    double ms,base,elapsed,prev_now,now;//cannot be static
-    base=GetTicks();
     if (new_error) return;
-    if (seconds<0){error(5); return;}
-    if (seconds>2147483.647){error(5); return;}
-    ms=seconds*1000.0;
-    now=base;//force first prev=... assignment to equal base
-    recalculate:
-    prev_now=now;
-    now=GetTicks();
-    elapsed=now-base;
-    if (elapsed<0){//GetTicks looped
-        base=now-(prev_now-base);//calculate new base
-    }
-    if (elapsed<ms){
-        int64 wait;//cannot be static
-        wait=ms-elapsed;
-        if (!wait) wait=1;
-        if (wait>=10){
-            Sleep(9);
-            evnt(0);//check for new events
-            //recalculate time
-            goto recalculate;
-            }else{
-            Sleep(wait);
-        }
-    }
+    if (int32 e=qb_delay(seconds)) error(e);
 }
 
 void sub__fps(double fps, int32 passed){
@@ -8505,47 +8175,8 @@ void sub__fps(double fps, int32 passed){
 
 void sub__limit(double fps){
     if (new_error) return;
-    static double prev=0;
-    double ms,now,elapsed;//cannot be static
-    if (fps<=0.0){error(5); return;}
-    ms=1000.0/fps;
-    if (ms>60000.0){error(5); return;}//max. 1 min delay between frames allowed to avoid accidental lock-up of program
-    recalculate:
-    now=GetTicks();
-    if (prev==0.0){//first call?
-        prev=now;
-        return;
-    }
-    if (now<prev){//value looped?
-        prev=now;
-        return;
-    }
-    elapsed=now-prev;//elapsed time since prev
-    
-    if (elapsed==ms){
-        prev=prev+ms;
-        return; 
-    }
-    
-    if (elapsed<ms){
-        int64 wait;//cannot be static
-        wait=ms-elapsed;
-        if (!wait) wait=1;
-        if (wait>=10){
-            Sleep(9);
-            evnt(0);//check for new events
-            }else{
-            Sleep(wait);  
-        }
-        //recalculate time
-        goto recalculate;
-    }
-    
-    //too long since last call, adjust prev to current time
-    //minor overshoot up to 32ms is recovered, otherwise time is re-seeded
-    if (elapsed<=(ms+32.0)) prev=prev+ms; else prev=now;
+    if (int32 e=qb_limit(fps)) error(e);
 }
-
 
 
 
@@ -8633,524 +8264,22 @@ void sub_file_print(int32 i,qbs *str,int32 extraspace,int32 tab,int32 newline){
     if (e) error(e);
 }
 
-//number limits
-const char *range_int64_max[]={"9223372036854775807"};//19 digits
-const char *range_int64_neg_max[]={"9223372036854775808"};//19 digits
-const char *range_uint64_max[]={"18446744073709551615"};//20 digits
-const char *range_float_max[]=    {"17976931348623157"};//17 digits
-
-//universal number representation
-uint16 n_digits;
-uint8 n_digit[256];
-int64 n_exp;//if 0, there is one digit in front of the decimal place
-uint8 n_neg;//if 1, the number is negative
-uint8 n_hex;//if 1, the digits are in hexidecimal and n_exp should be ignored
-            //if 2, the digits are in octal and n_exp should be ignored
-            //if 3, the digits are in binary and n_exp should be ignored
-            //(consider revising variable name n_hex)
-
-int32 n_roundincrement(){
-    static int32 i,i2,i3;
-    if (n_digits==0) return 0;
-    if (n_digits>(n_exp+1)){//numbers exist after the decimal point
-        i=n_digit[n_exp+1]-48;
-        if (i>=5) return 1;
-    }
-    return 0;
-}
-
-long double n_float_value;
-int32 n_float(){
-    //return value: Bit 0=successful
-    //data
-    static uint8 built[256];
-    static int64 value;
-    uint64 uvalue;
-    static int32 i,i2,i3;
-    static uint8 *max;
-    max=(uint8*)range_float_max[0];
-    n_float_value=0; value=0; uvalue=0;
-    if (n_digits==0) return 1;
-    //hex?
-    if (n_hex==1){
-        if (n_digits>16) return 0;
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i];
-            if ((i2>=48)&&(i2<=57)) i2-=48;
-            if ((i2>=65)&&(i2<=70)) i2-=55;
-            if ((i2>=97)&&(i2<=102)) i2-=87;
-            value<<=4;
-            value|=i2;
-        }
-        n_float_value=value;
-        return 1;
-    }
-    //oct?
-    if (n_hex==2){
-        if (n_digits>=22){
-            if ((n_digits>22)||(n_digit[0]>49)) return 0;
-        }
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i]-48;
-            value<<=3;
-            value|=i2;
-        }
-        n_float_value=value;
-        return 1;
-    }
-    //bin?
-    if (n_hex==3){
-        if (n_digits>64) return 0;
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i]-48;
-            value<<=1;
-            value|=i2;
-        }
-        n_float_value=value;
-        return 1;
-    }
-    
-    //max range check (+-1.7976931348623157E308)
-    if (n_exp>308)return 0;//overflow
-    if (n_exp==308){
-        i2=n_digits; if (i2>17) i2=17;
-        for (i=0;i<i2;i++){
-            if (n_digit[i]>max[i]) return 0;//overflow
-            if (n_digit[i]<max[i]) break;
-        }
-    }
-    //too close to 0?
-    if (n_exp<-324) return 1;
-    //read & return value (via C++ function)
-    //build number
-    i=0;
-    if (n_neg){built[i]=45; i++;}//-
-    built[i]=n_digit[0]; i++;
-    built[i]=46; i++;//.
-    if (n_digits==1){
-        built[i]=48; i++;//0
-        }else{
-        i3=n_digits; if (i3>17) i3=17;
-        for (i2=1;i2<i3;i2++){
-            built[i]=n_digit[i2]; i++;
-        }
-    }
-    built[i]=69; i++;//E
-    #ifdef QBNex_WINDOWS
-        i2=sprintf((char*)&built[i],"%I64i",n_exp);
-        #else
-        i2=sprintf((char*)&built[i],"%lli",n_exp);
-    #endif
-    i=i+i2;
-    built[i]=0;//NULL terminate for sscanf
-    
-    static double sscanf_fix;
-    sscanf((char*)&built[0],"%lf",&sscanf_fix);
-    n_float_value=sscanf_fix;
-    
-    return 1;
-}
-
-int64 n_int64_value;
-int32 n_int64(){
-    //return value: Bit 0=successful
-    //data
-    static int64 value;
-    uint64 uvalue;
-    static int32 i,i2;
-    static uint8 *max; static uint8 *neg_max;
-    static int64 v0=build_int64(0x80000000,0x00000000);
-    static int64 v1=build_int64(0x7FFFFFFF,0xFFFFFFFF);
-    max=(uint8*)range_int64_max[0]; neg_max=(uint8*)range_int64_neg_max[0];
-    n_int64_value=0; value=0; uvalue=0;
-    if (n_digits==0) return 1;
-    //hex
-    if (n_hex==1){
-        if (n_digits>16) return 0;
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i];
-            if ((i2>=48)&&(i2<=57)) i2-=48;
-            if ((i2>=65)&&(i2<=70)) i2-=55;
-            if ((i2>=97)&&(i2<=102)) i2-=87;
-            value<<=4;
-            value|=i2;
-        }
-        n_int64_value=value;
-        return 1;
-    }
-    //oct
-    if (n_hex==2){
-        if (n_digits>=22){
-            
-            if ((n_digits>22)||(n_digit[0]>49)) return 0;
-        }
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i]-48;
-            value<<=3;
-            value|=i2;
-        }
-        n_int64_value=value;
-        return 1;
-    }
-    //bin
-    if (n_hex==3){
-        if (n_digits>64) return 0;
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i]-48;
-            value<<=1;
-            value|=i2;
-        }
-        n_int64_value=value;
-        return 1;
-    }
-    
-    //range check: int64 (-9,223,372,036,854,775,808 to 9,223,372,036,854,775,807)
-    if (n_exp>18)return 0;//overflow
-    if (n_exp==18){
-        i2=n_digits; if (i2>19) i2=19;//only scan integeral digits
-        for (i=0;i<i2;i++){
-            if (n_neg){
-                if (n_digit[i]>neg_max[i]) return 0;//overflow
-                if (n_digit[i]<neg_max[i]) break;
-                }else{
-                if (n_digit[i]>max[i]) return 0;//overflow
-                if (n_digit[i]<max[i]) break;
-            }
-        }
-    }
-    //calculate integeral value
-    i2=n_digits; if (i2>(n_exp+1)) i2=n_exp+1;
-    for (i=0;i<(n_exp+1);i++){
-        uvalue*=10;
-        if (i<i2) uvalue=uvalue+(n_digit[i]-48);
-    }
-    if (n_neg){
-        value=-uvalue;
-        }else{
-        value=uvalue;
-    }
-    //apply rounding
-    if (n_roundincrement()){
-        if (n_neg){
-            if (value==v0) return 0;
-            value--;
-            }else{
-            if (value==v1) return 0;
-            value++;
-        }
-    }
-    //return value
-    n_int64_value=value;
-    return 1;
-}
-
-uint64 n_uint64_value;
-int32 n_uint64(){
-    //return value: Bit 0=successful
-    //data
-    static int64 value;
-    uint64 uvalue;
-    static int32 i,i2;
-    static uint8 *max;
-    static int64 v0=build_uint64(0xFFFFFFFF,0xFFFFFFFF);
-    max=(uint8*)range_uint64_max[0];
-    n_uint64_value=0; value=0; uvalue=0;
-    if (n_digits==0) return 1;
-    //hex
-    if (n_hex==1){
-        if (n_digits>16) return 0;
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i];
-            if ((i2>=48)&&(i2<=57)) i2-=48;
-            if ((i2>=65)&&(i2<=70)) i2-=55;
-            if ((i2>=97)&&(i2<=102)) i2-=87;
-            uvalue<<=4;
-            uvalue|=i2;
-        }
-        n_uint64_value=uvalue;
-        return 1;
-    }
-    //oct
-    if (n_hex==2){
-        if (n_digits>=22){
-            if ((n_digits>22)||(n_digit[0]>49)) return 0;
-        }
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i]-48;
-            uvalue<<=3;
-            uvalue|=i2;
-        }
-        n_uint64_value=uvalue;
-        return 1;
-    }
-    //bin
-    if (n_hex==3){
-        if (n_digits>64) return 0;
-        for (i=0;i<n_digits;i++){
-            i2=n_digit[i]-48;
-            uvalue<<=1;
-            uvalue|=i2;
-        }
-        n_uint64_value=uvalue;
-        return 1;
-    }
-    
-    //negative?
-    if (n_neg){
-        if (n_exp>=0) return 0;//cannot return a negative number!
-    }
-    //range check: int64 (0 to 18446744073709551615)
-    if (n_exp>19)return 0;//overflow
-    if (n_exp==19){
-        i2=n_digits; if (i2>20) i2=20;//only scan integeral digits
-        for (i=0;i<i2;i++){ 
-            if (n_digit[i]>max[i]) return 0;//overflow
-            if (n_digit[i]<max[i]) break; 
-        }
-    }
-    //calculate integeral value
-    i2=n_digits; if (i2>(n_exp+1)) i2=n_exp+1;
-    for (i=0;i<(n_exp+1);i++){
-        uvalue*=10;
-        if (i<i2) uvalue=uvalue+(n_digit[i]-48);
-    }
-    //apply rounding
-    if (n_roundincrement()){
-        if (n_neg){
-            return 0;
-            }else{
-            if (uvalue==v0) return 0;
-            uvalue++;
-        }
-    }
-    //return value
-    n_uint64_value=uvalue;
-    
-    
-    
-    return 1;
-}
-
-int32 n_inputnumberfromdata(uint8 *data,ptrszint *data_offset,ptrszint data_size){
-    //return values:
-    //0=success!
-    //1=Overflow
-    //2=Out of DATA
-    //3=Syntax error
-    //note: when read fails the data_offset MUST be restored to its old position
-    
-    //data
-    static int32 i,i2;
-    static int32 step,c;
-    static int32 exponent_digits;
-    static uint8 negate_exponent;
-    static int64 exponent_value;
-    static int32 return_value;
-    
-    return_value=1;//overflow (default)
-    step=0;
-    negate_exponent=0;
-    exponent_value=0;
-    exponent_digits=0;
-    
-    //prepare universal number representation
-    n_digits=0; n_exp=0; n_neg=0; n_hex=0;
-    
-    //Out of DATA?
-    if (*data_offset>=data_size) return 2;
-    
-    //read character
-    c=data[*data_offset];
-    
-    // hex/oct/bin
-    if (c == 38) {  // "&"
-      (*data_offset)++;
-      if (*data_offset >= data_size) return 3; // Syntax error (missing H/O/B after &)
-      c = data[*data_offset];
-      if (c == 44) {
-        (*data_offset)++;
-        return 3; // Syntax error (missing H/O/B after &)
-      }
-      if ((c == 72) || (c == 104)) {  // "H" or "h"
-      nexthexchr:
-        (*data_offset)++;
-        if (*data_offset >= data_size) goto gotnumber;
-        c = data[*data_offset];
-        if (c == 44) {
-          (*data_offset)++;
-          goto gotnumber;
-        }
-        if (((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 70)) ||
-            ((c >= 97) && (c <= 102))) {  // 0-9 or A-F or a-f
-          if (step == 5) return 3;        // Syntax error (digits after type suffix)
-          if (n_digits == 256) return 1;  // Overflow
-          n_digit[n_digits] = c;
-          n_digits++;
-          n_hex = 1;
-          goto nexthexchr;
-        }
-        if ((c == 33) || (c == 35) || (c == 36) ||
-            (c == 37) || (c == 38) || (c == 96) || (c == 126)) { // type suffix
-            if (step <= 5) {step = 5; goto nexthexchr;}
-        }
-        return 3;  // Syntax error (invalid HEX char)
-      }
-      if ((c == 79) || (c == 111)) {  // "O" or "o"
-      nexthexchr2:
-        (*data_offset)++;
-        if (*data_offset >= data_size) goto gotnumber;
-        c = data[*data_offset];
-        if (c == 44) {
-          (*data_offset)++;
-          goto gotnumber;
-        }
-        if ((c >= 48) && (c <= 55)) {     // 0-7
-          if (step == 5) return 3;        // Syntax error (digits after type suffix)
-          if (n_digits == 256) return 1;  // Overflow
-          n_digit[n_digits] = c;
-          n_digits++;
-          n_hex = 2;
-          goto nexthexchr2;
-        }
-        if ((c == 33) || (c == 35) || (c == 36) ||
-            (c == 37) || (c == 38) || (c == 96) || (c == 126)) { // type suffix
-            if (step <= 5) {step = 5; goto nexthexchr2;}
-        }
-        return 3;  // Syntax error (invalid OCT char)
-      }
-      if ((c == 66) || (c == 98)) {  // "B" or "b"
-      nexthexchr3:
-        (*data_offset)++;
-        if (*data_offset >= data_size) goto gotnumber;
-        c = data[*data_offset];
-        if (c == 44) {
-          (*data_offset)++;
-          goto gotnumber;
-        }
-        if ((c >= 48) && (c <= 49)) {     // 0-1
-          if (step == 5) return 3;        // Syntax error (digits after type suffix)
-          if (n_digits == 256) return 1;  // Overflow
-          n_digit[n_digits] = c;
-          n_digits++;
-          n_hex = 3;
-          goto nexthexchr3;
-        }
-        if ((c == 33) || (c == 35) || (c == 36) ||
-            (c == 37) || (c == 38) || (c == 96) || (c == 126)) { // type suffix
-            if (step <= 5) {step = 5; goto nexthexchr3;}
-        }
-        return 3;  // Syntax error (invalid BIN char)
-      }
-      return 3;  // Syntax error (missing H/O/B after &)
-    }  // "&"
-    
-    readnextchr:
-    if (c==44){(*data_offset)++; goto gotnumber;}
-    
-    if (c==45){//-
-        if (step==0){n_neg=1; step=1; goto nextchr;}//sign before integer part
-        if (step==3){negate_exponent=1; step=4; goto nextchr;}//exponent sign
-        return 3;//Syntax error (no - allowed in fraction part of number or after type suffix)
-    }
-    
-    if (c==43){//+
-        if (step==0){step=1; goto nextchr;}//sign before integer part
-        if (step==3){step=4; goto nextchr;}//exponent sign
-        return 3;//Syntax error (no + allowed in fraction part of number or after type suffix)
-    }
-    
-    if ((c>=48)&&(c<=57)){//0-9
-        if (step == 5) return 3; // Syntax error (digit after type suffix)
-        
-        if (step<=1){//before decimal point
-            step=1;
-            if (n_digits||(c>48)){
-                if (n_digits) n_exp++;
-                if (n_digits==256) return 1;//Overflow
-                n_digit[n_digits]=c;
-                n_digits++;
-            }
-        }
-        
-        if (step==2){//after decimal point
-            if ((n_digits==0)&&(c==48)) n_exp--;
-            if ((n_digits)||(c>48)){
-                if (n_digits==256) return 1;//Overflow
-                n_digit[n_digits]=c;
-                n_digits++;
-            }
-        }
-        
-        if (step>=3){//exponent
-            step=4;
-            if ((exponent_digits)||(c>48)){
-                if (exponent_digits==18) return 1;//Overflow
-                exponent_value*=10;
-                exponent_value=exponent_value+(c-48);
-                exponent_digits++;
-            }
-        }
-        
-        goto nextchr;
-    }
-    
-    if (c==46){//.
-        if (step>1) return 3;//Syntax error (multiple . or after type suffix)
-        if (n_digits==0) n_exp=-1;
-        step=2; goto nextchr;
-    }
-    
-    if ((c==68)||(c==69)||(c==100)||(c==101)){//D,E,d,e
-        if (step>2) return 3;//Syntax error (multiple exponents or after type suffix)
-        step=3; goto nextchr;
-    }
-    
-    if ((c == 33) || (c == 35) || (c == 36) ||
-        (c == 37) || (c == 38) || (c == 96) || (c == 126)) { // type suffix
-        if (step <= 5) {step = 5; goto nextchr;}
-    }
-    return 3;//Syntax error (invalid number char)
-    nextchr:
-    (*data_offset)++; if (*data_offset>=data_size) goto gotnumber;
-    c=data[*data_offset];
-    goto readnextchr;
-    
-    gotnumber:;
-    if (negate_exponent) n_exp-=exponent_value; else n_exp+=exponent_value;//complete exponent
-    if (n_digits==0) {n_exp=0; n_neg=0;}//clarify number
-    return 0;//success
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+//READ/DATA and the universal number representation (n_float, n_int64, n_uint64):
+//crates/qb-runtime/src/numparse.rs
 
 //INPUT # readers: implemented in Rust (crates/qb-runtime/src/fileio.rs). The
 //number reader fills the universal number representation used by n_float.
+static qb_num_repr n_input;//number read by INPUT #
 int32 n_inputnumberfromfile(int32 fileno){
     //return values: 0=success, 1=overflow, 2=eof, 3=failed (no further errors)
-    static qb_num_repr n;
     int32 r=3;
-    int32 e=qb_file_input_number(fileno,&n,&r);
-    n_digits=n.digits; memcpy(n_digit,n.digit,n.digits); n_exp=n.exp; n_neg=n.neg; n_hex=n.hex;
+    int32 e=qb_file_input_number(fileno,&n_input,&r);
     if (e) error(e);
     return r;
+}
+
+static long double num_value(const qb_num_value &v){
+    return v.is_int?(long double)v.i:(long double)v.f;
 }
 
 
@@ -9177,7 +8306,7 @@ int64 func_file_input_int64(int32 fileno){
     if (i==1){error(6); return 0;}//overflow
     if (i==2){error(62); return 0;}//input past end of file
     if (i==3) return 0;//failed
-    if (n_int64()) return n_int64_value;
+    int64 v; if (qb_num_to_int64(&n_input,&v)) return v;
     error(6);//overflow
     return 0;
 }
@@ -9189,7 +8318,7 @@ uint64 func_file_input_uint64(int32 fileno){
     if (i==1){error(6); return 0;}//overflow
     if (i==2){error(62); return 0;}//input past end of file
     if (i==3) return 0;//failed
-    if (n_uint64()) return n_uint64_value;
+    uint64 v; if (qb_num_to_uint64(&n_input,&v)) return v;
     error(6);//overflow
     return 0;
 }
@@ -9199,208 +8328,43 @@ uint64 func_file_input_uint64(int32 fileno){
 
 void sub_read_string(uint8 *data,ptrszint *data_offset,ptrszint data_size,qbs *deststr){
     if (new_error) return;
-    static qbs *str,*character;
-    static int32 c,inspeechmarks;
-    str=qbs_new(0,0);
-    character=qbs_new(1,0);
-    inspeechmarks=0;
-    
-    if (*data_offset>=data_size){error(4); goto gotstr;}//Out of DATA
-    
-    c=data[*data_offset];
-    nextchr:
-    
-    if (c==44){//,
-        if (inspeechmarks!=1){
-            (*data_offset)++;
-            goto gotstr;
-        }
-    }
-    if (inspeechmarks==2){error(4); str->len=0; goto gotstr;}//syntax error (expected , after closing " unless at end of data in which " is assumed by QB)
-    
-    if (c==34){//"
-        if (inspeechmarks) {inspeechmarks=2; goto skipchr;}
-        if (!str->len){inspeechmarks=1; goto skipchr;}
-    }
-    
-    character->chr[0]=c; qbs_set(str,qbs_add(str,character));
-    skipchr:
-    
-    (*data_offset)++; if (*data_offset>=data_size) goto gotstr;
-    c=data[*data_offset];
-    goto nextchr;
-    
-    gotstr:
-    qbs_set(deststr,str);
-    qbs_free(str);
-    qbs_free(character);
-    return;
+    const uint8 *out; int32 len=0;
+    int32 e=qb_read_string(data,data_size,data_offset,&out,&len);
+    if (e) error(e);
+    qbs_set(deststr,qbs_new_txt_len((const char*)out,len));
 }
 
 long double func_read_float(uint8 *data,ptrszint *data_offset,ptrszint data_size,int32 typ){
     if (new_error) return 0;
-    static int32 i;
-    static int64 maxval,minval;
-    static int64 value;
-    static ptrszint old_data_offset;
-    old_data_offset=*data_offset;
-    i=n_inputnumberfromdata(data,data_offset,data_size);
-    
-    
-    //return values:
-    //0=success!
-    //1=Overflow
-    //2=Out of DATA
-    //3=Syntax error
-    //note: when read fails the data_offset MUST be restored to its old position
-    if (i==1){//Overflow
-        goto overflow;
-    }
-    if (i==2){//Out of DATA
-        error(4);
-        return 0;
-    }
-    if (i==3){//Syntax error
-        *data_offset=old_data_offset;
-        error(2); 
-        return 0;
-    }
-    
-    
-    
-    if (!n_float()) goto overflow; //returns n_float_value
-    
-    //range test & return value
-    if (typ&ISFLOAT){
-        if ((typ&511)>=64) return n_float_value;
-        if (n_float_value>3.402823466E+38) goto overflow;
-        return n_float_value;
-        }else{
-        if (n_float_value<(-(9.2233720368547758E+18)))goto overflow;//too low to store!
-        if (n_float_value>   9.2233720368547758E+18)  goto overflow;//too high to store!
-        value=qbr(n_float_value);
-        if ((typ&ISUNSIGNED)||n_hex){
-            maxval=(((int64)1)<<(typ&511))-1;
-            minval=0;
-            }else{
-            maxval=(((int64)1)<<((typ&511)-1))-1;
-            minval=-(((int64)1)<<((typ&511)-1));
-        }
-        if ((value>maxval)||(value<minval)) goto overflow;
-        
-        if (((typ&ISUNSIGNED)==0)&&n_hex){//signed hex/oct/bin/...  
-            if (  ( ((int64)1) << ((typ&511)-1) )  &value){//if top bit is set, set all bits above it to form a negative value
-                value=(maxval^((int64)-1))+value;
-            }
-        }
-        
-        return value;
-    }
-    
-    overflow:
-    *data_offset=old_data_offset;
-    error(6); 
-    return 0;
+    qb_num_value v;
+    if (int32 e=qb_read_float(data,data_size,data_offset,typ,&v)){error(e); return 0;}
+    return num_value(v);
 }
 
 int64 func_read_int64(uint8 *data,ptrszint *data_offset,ptrszint data_size){
     if (new_error) return 0;
-    static int32 i;
-    static ptrszint old_data_offset;
-    old_data_offset=*data_offset;
-    i=n_inputnumberfromdata(data,data_offset,data_size);
-    //return values:
-    //0=success!
-    //1=Overflow
-    //2=Out of DATA
-    //3=Syntax error
-    //note: when read fails the data_offset MUST be restored to its old position
-    if (i==1){//Overflow
-        goto overflow;
-    }
-    if (i==2){//Out of DATA
-        error(4);
-        return 0;
-    }
-    if (i==3){//Syntax error
-        *data_offset=old_data_offset;
-        error(2); 
-        return 0;
-    }
-    if (n_int64()) return n_int64_value;
-    overflow:
-    *data_offset=old_data_offset;
-    error(6); 
-    return 0;
+    int64 v;
+    if (int32 e=qb_read_int64(data,data_size,data_offset,&v)){error(e); return 0;}
+    return v;
 }
 
 uint64 func_read_uint64(uint8 *data,ptrszint *data_offset,ptrszint data_size){
     if (new_error) return 0;
-    static int32 i;
-    static ptrszint old_data_offset;
-    old_data_offset=*data_offset;
-    i=n_inputnumberfromdata(data,data_offset,data_size);
-    //return values:
-    //0=success!
-    //1=Overflow
-    //2=Out of DATA
-    //3=Syntax error
-    //note: when read fails the data_offset MUST be restored to its old position
-    if (i==1){//Overflow
-        goto overflow;
-    }
-    if (i==2){//Out of DATA
-        error(4);
-        return 0;
-    }
-    if (i==3){//Syntax error
-        *data_offset=old_data_offset;
-        error(2); 
-        return 0;
-    }
-    if (n_uint64()) return n_uint64_value;
-    overflow:
-    *data_offset=old_data_offset;
-    error(6); 
-    return 0;
+    uint64 v;
+    if (int32 e=qb_read_uint64(data,data_size,data_offset,&v)){error(e); return 0;}
+    return v;
 }
 
 long double func_file_input_float(int32 fileno,int32 typ){
     if (new_error) return 0;
     static int32 i;
-    static int64 maxval,minval;
-    static int64 value;
     i=n_inputnumberfromfile(fileno);
     if (i==1){error(6); return 0;}//overflow
     if (i==2){error(62); return 0;}//input past end of file
     if (i==3) return 0;//failed
-    if (!n_float()){error(6); return 0;} //returns n_float_value
-    //range test & return value
-    if (typ&ISFLOAT){
-        if ((typ&511)>=64) return n_float_value;
-        if (n_float_value>3.402823466E+38){error(6); return 0;}
-        return n_float_value;
-        }else{
-        if (n_float_value<(-(9.2233720368547758E+18))){error(6); return 0;}//too low to store!
-        if (n_float_value>   9.2233720368547758E+18)  {error(6); return 0;}//too high to store!
-        value=qbr(n_float_value);
-        if (typ&ISUNSIGNED){
-            maxval=(((int64)1)<<(typ&511))-1;
-            minval=0;
-            }else{
-            maxval=(((int64)1)<<((typ&511)-1))-1;
-            minval=-(((int64)1)<<((typ&511)-1));
-        }
-        if ((value>maxval)||(value<minval)){error(6); return 0;}
-        
-        if (((typ&ISUNSIGNED)==0)&&n_hex){//signed hex/oct/bin/...  
-            if (  ( ((int64)1) << ((typ&511)-1) )  &value){//if top bit is set, set all bits above it to form a negative value
-                value=(maxval^((int64)-1))+value;
-            }
-        }
-        
-        return value;
-    }
+    qb_num_value v;
+    if (int32 e=qb_num_to_float(&n_input,typ,&v)){error(e); return 0;}
+    return num_value(v);
 }//func_file_input_float
 
 void *byte_element(uint64 offset,int32 length){
@@ -9756,26 +8720,15 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     
     
-    double func_log(double value){
-        if (value<=0){error(5);return 0;}
-        return log(value);
-    }
-    
-    //FIX
-    double func_fix_double(double value){
-        if (value<0) return ceil(value); else return floor(value);
-    }
+    //LOG, FIX, EXP (SINGLE/DOUBLE), SQR: crates/qb-runtime/src/mathfn.rs
+    double func_log(double value){double r; if (int32 e=qb_log(value,&r)) error(e); return r;}
+    double func_fix_double(double value){return qb_fix_double(value);}
     long double func_fix_float(long double value){
         if (value<0) return ceil(value); else return floor(value);
     }
     
     //EXP
-    double func_exp_single(double value){
-        if (value<=88.02969){
-            return exp(value);
-        }
-        error(6); return 0;
-    }
+    double func_exp_single(double value){double r; if (int32 e=qb_exp_single(value,&r)) error(e); return r;}
     long double func_exp_float(long double value){
         if (value<=709.782712893){
             return exp(value);
@@ -9785,7 +8738,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     
     
-    int32 sleep_break=0;
+    extern int32 sleep_break;//defined in Rust (crates/qb-runtime/src/program.rs)
     
     void sub_sleep(int32 seconds,int32 passed){
         if (new_error) return;
@@ -9834,84 +8787,18 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         #endif
 
 
-        recalculate:
-        wait:
-        evnt(0);//handle general events
-        //exit condition checks/events
-        if (sleep_break) return;
-        if (stop_program) return;
-        if (ms<=0){//untimed SLEEP
-            Sleep(9);
-            goto wait;
-        }
-        now=GetTicks();
-        if (now<prev){//value looped?
-            return;
-        }
-        elapsed=now-prev;//elapsed time since prev
-        if (elapsed<ms){
-            int64 wait;//cannot be static
-            wait=ms-elapsed;
-            if (!wait) wait=1;
-            if (wait>=10){
-                Sleep(9);  
-                //recalculate time
-                goto recalculate;
-                }else{
-                Sleep(wait);
-            }
-        }
-        return;
+        qb_sleep_wait(prev,ms);//crates/qb-runtime/src/waits.rs
     }
     
-        qbs *func__bin(int64 value,int32 neg_bits){
-        
-        static int32 i,i2,i3,neg;
-        static int64 value2;
-        static qbs *str;
-        
-        str=qbs_new(64,1);
-        
-        //negative?
-        if ((value>>63)&1) neg=1; else neg=0;
-        
-        //calc. most significant bit
-        i2=0;
-        value2=value;
-        if (neg){
-            for (i=1;i<=64;i++){
-                if (!(value2&1)) i2=i;
-                value2>>=1;
-            }
-            if (i2>=neg_bits){
-                //doesn't fit in neg_bits, so expand to next 16/32/64 boundary
-                i3=64;
-                if (i2<32) i3=32;
-                if (i2<16) i3=16;
-                i2=i3;
-            }else i2=neg_bits;
-            }else{
-            for (i=1;i<=64;i++){
-                if (value2&1) i2=i;
-                value2>>=1;
-            }
-        }
-        
-        if (!i2){str->chr[0]=48; str->len=1; return str;}//"0"
-        
-        //calc. number of characters required in i3
-        i3=i2; // equal for BIN$ because one bit = one char
-        
-        //build string
-        str->len=i3; i3--;
-        for (i=1;i<=i2;i++){
-            str->chr[i3--]=(value&1)+48;
-            value>>=1;
-        }
-        
+    //HEX$, OCT$, _BIN$ digits: crates/qb-runtime/src/mathfn.rs
+    static qbs *radix_string(int64 value,int32 neg_bits,int32 radix){
+        uint8 buf[64];
+        int32 n=qb_radix_string(value,neg_bits,radix,buf);
+        qbs *str=qbs_new(n,1);
+        memcpy(str->chr,buf,n);
         return str;
-        
     }
+    qbs *func__bin(int64 value,int32 neg_bits){return radix_string(value,neg_bits,2);}
     
     //note: QBASIC doesn't have a BIN$ function
     //      QBNex   uses 32 bin digits for SINGLE/DOUBLE/FLOAT but if this range is exceeded
@@ -9938,59 +8825,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         return func__bin(ivalue,32);
     }
     
-    qbs *func_oct(int64 value,int32 neg_bits){
-        
-        static int32 i,i2,i3,x,x2,neg;
-        static int64 value2;
-        static qbs *str;
-        
-        str=qbs_new(22,1);
-        
-        //negative?
-        if ((value>>63)&1) neg=1; else neg=0;
-        
-        //calc. most significant bit
-        i2=0;
-        value2=value;
-        if (neg){
-            for (i=1;i<=64;i++){
-                if (!(value2&1)) i2=i;
-                value2>>=1;
-            }
-            if (i2>=neg_bits){
-                //doesn't fit in neg_bits, so expand to next 16/32/64 boundary
-                i3=64;
-                if (i2<32) i3=32;
-                if (i2<16) i3=16;
-                i2=i3;
-            }else i2=neg_bits;
-            }else{
-            for (i=1;i<=64;i++){
-                if (value2&1) i2=i;
-                value2>>=1;
-            }
-        }
-        
-        if (!i2){str->chr[0]=48; str->len=1; return str;}//"0"
-        
-        //calc. number of characters required in i3
-        i3=i2/3; if ((i3*3)!=i2) i3++;
-        
-        //build string
-        str->len=i3;
-        i3--;
-        x=0; x2=0;
-        for (i=1;i<=i2;i++){
-            if (value&1) x2|=(1<<x);
-            value>>=1;
-            x++;
-            if (x==3){str->chr[i3--]=x2+48; x2=0; x=0;}
-        }
-        if (x) str->chr[i3]=x2+48;
-        
-        return str;
-        
-    }
+    qbs *func_oct(int64 value,int32 neg_bits){return radix_string(value,neg_bits,8);}
     
     //note: QBASIC uses 11 oct digits for SINGLE/DOUBLE or generates "OVERFLOW" if this range is exceeded
     //      QBNex   uses 11 oct digits for SINGLE/DOUBLE/FLOAT but if this range is exceeded
@@ -10017,52 +8852,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         return func_oct(ivalue,32);
     }
     
-    qbs *func_hex(int64 value,int32 neg_size){
-        //note: negative int64 values can be treated as positive uint64 values (and vise versa)
-        
-        static int32 i,i2,i3,x,neg;
-        static int64 value2;
-        static qbs *str;
-        
-        str=qbs_new(16,1);
-        
-        value2=value;
-        i2=0; i3=0;
-        for (i=1;i<=16;i++){
-            if (value2&15) i2=i;//most significant digit of positive value
-            if ((value2&15)!=15){
-                i3=i;//most significant digit of negative value
-                if ((((value2&8)==0)&&(i!=16))) i3++;//for a negative number to fit into 4/8 characters, its top bit must be on
-            }
-            x=value2&15; if (x>9) x+=55; else x+=48; str->chr[16-i]=x;
-            value2>>=4;
-        }
-        if (!i2){str->chr[0]=48; str->len=1; return str;}//"0"
-        
-        //negative?
-        if ((value>>63)&1) neg=1; else neg=0;
-        
-        //change i2 from sig-digits to string-output-digits
-        if (neg){
-            if (i3<=neg_size){
-                i2=neg_size;//extend to minimum character size
-                }else{
-                //didn't fit in recommended size, expand to either 4, 8 or 16 appropriately
-                i2=16;
-                if (i3<=8) i2=8;
-                if (i3<=4) i2=4;
-            }
-        }//neg
-        
-        //adjust string to the left to remove unnecessary characters
-        if (i2!=16){
-            memmove(str->chr,str->chr+(16-i2),i2);
-            str->len=i2;
-        }
-        
-        return str;
-        
-    }
+    qbs *func_hex(int64 value,int32 neg_size){return radix_string(value,neg_size,16);}
     
     //note: QBASIC uses 8 hex digits for SINGLE/DOUBLE or generates "OVERFLOW" if this range is exceeded
     //      QBNex   uses 8 hex digits for SINGLE/DOUBLE/FLOAT but if this range is exceeded
@@ -10089,20 +8879,14 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         return func_hex(ivalue,8);
     }
     
+    //LBOUND/UBOUND: crates/qb-runtime/src/arrays.rs
     ptrszint func_lbound(ptrszint *array,int32 index,int32 num_indexes){
-        if ((index<1)||(index>num_indexes)||((array[2]&1)==0)){
-            error(9); return 0;
-        }
-        index=num_indexes-index+1;
-        return array[4*index];
+        ptrszint v=0; if (int32 e=qb_array_bound(array,index,num_indexes,0,&v)){error(e); return 0;}
+        return v;
     }
-    
     ptrszint func_ubound(ptrszint *array,int32 index,int32 num_indexes){
-        if ((index<1)||(index>num_indexes)||((array[2]&1)==0)){
-            error(9); return 0;
-        }
-        index=num_indexes-index+1;
-        return array[4*index]+array[4*index+1]-1;
+        ptrszint v=0; if (int32 e=qb_array_bound(array,index,num_indexes,1,&v)){error(e); return 0;}
+        return v;
     }
     
     uint8 port60h_event[256];
@@ -10619,10 +9403,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         if (e) error(e);
     }
     
-    double func_sqr(double value){
-        if (value<0){error(5); return 0;}
-        return sqrt(value);
-    }
+    double func_sqr(double value){double r; if (int32 e=qb_sqr(value,&r)) error(e); return r;}
     
     
     
@@ -13563,10 +12344,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
         
         int32 func__exit(){
             exit_blocked=1;
-            static int32 x;
-            x=exit_value;
-            if (x) exit_value = 0;
-            return x;
+            return qb_take_exit_request();
         }
         
         
@@ -15344,10 +14122,7 @@ int main( int argc, char* argv[] ){
     onkey[30].keycode=133<<8;//F11,F12
     onkey[31].keycode=134<<8;
     
-    ontimer[0].allocated=1;
-    ontimer[0].id=0;
-    ontimer[0].state=0;
-    ontimer[0].active=0;
+    //ON TIMER slot 0 is allocated by the Rust timer table (crates/qb-runtime/src/events.rs)
     
     fontwidth[8]=8; fontwidth[14]=8; fontwidth[16]=8;
     fontheight[8]=8; fontheight[14]=14; fontheight[16]=16;
@@ -15455,7 +14230,7 @@ int main( int argc, char* argv[] ){
     port60h_event[0]=128+1;//simulate release of ESC
     
     
-    allocate_mem_static_block(1048576);//1MEG
+    if (int32 e=qb_mem_static_new_block(1048576)) error(e);//1MEG
     
     memset(&cmem[0],0,sizeof(cmem));
     
@@ -15634,7 +14409,7 @@ int main( int argc, char* argv[] ){
     });
     
     qb_start_detached_thread([](){
-        TIMERTHREAD();
+        qb_timer_thread();
     });
     
     

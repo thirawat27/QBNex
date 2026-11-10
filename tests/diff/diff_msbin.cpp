@@ -95,3 +95,5 @@ int main(int argc, char **argv) {
     printf("diff_msbin: %s, %ld mismatches\n", quick ? "quick" : "exhaustive", failures);
     return failures == 0 ? 0 : 1;
 }
+
+#include "host_stubs.h"

@@ -21,6 +21,7 @@
 #include <zlib.h>
 
 #include "../../crates/qb-runtime/include/qb_runtime.h"
+#include "host_stubs.h"
 
 static uint64_t rng = 0x9E3779B97F4A7C15ull;
 static uint64_t next() {
