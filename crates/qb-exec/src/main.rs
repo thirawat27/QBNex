@@ -17,6 +17,29 @@
 
 use std::io::{BufWriter, Write};
 
+/// Program stdout. On Windows a line ends with CR LF, as the C runtime's text-mode
+/// stdout wrote it (tools such as `findstr /x` need the CR on redirected output).
+struct Stdout<W: Write>(W);
+
+impl<W: Write> Write for Stdout<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if cfg!(windows) {
+            for (k, seg) in buf.split(|&c| c == b'\n').enumerate() {
+                if k > 0 {
+                    self.0.write_all(b"\r\n")?;
+                }
+                self.0.write_all(seg)?;
+            }
+            Ok(buf.len())
+        } else {
+            self.0.write(buf)
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
 const MAGIC: &[u8; 8] = b"QBNEXIR0";
 const MAGIC_NATIVE: &[u8; 8] = b"QBNEXAO1";
 
@@ -175,7 +198,7 @@ fn main() {
             .stack_size(64 << 20)
             .spawn(move || {
                 // stdout stays unlocked: the window thread writes `snapshot` lines of input scripts
-                let mut out = BufWriter::new(std::io::stdout());
+                let mut out = Stdout(BufWriter::new(std::io::stdout()));
                 let result = qb_exec::run_program_window(&src, image.as_deref(), &mut out);
                 let _ = out.flush();
                 finish(result)
@@ -189,7 +212,7 @@ fn main() {
         std::process::exit(1);
     }
     let stdout = std::io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
+    let mut out = Stdout(BufWriter::new(stdout.lock()));
     let result = qb_exec::run_program(&src, image.as_deref(), &mut out);
     let _ = out.flush();
     finish(result)
