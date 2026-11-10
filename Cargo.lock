@@ -2954,6 +2954,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-native"
+version = "0.1.0"
+dependencies = [
+ "qb-exec",
+ "qb-jit",
+]
+
+[[package]]
 name = "qb-runtime"
 version = "0.1.0"
 dependencies = [

@@ -21,6 +21,9 @@ path = "src/main.rs"
 debug = []
 # R15 G4: draw the 3D layer (_DRAW3D) on the GPU in captured frames.
 gpu = ["qb-runtime/gpu"]
+# Export the VM entry points native code calls under their AOT import names
+# (qb_host_<i>, qb_vm_op); used by the qb-native runtime library.
+native-syms = ["qb-jit/native-syms"]
 
 [dependencies]
 qb-runtime = { path = "../qb-runtime" }

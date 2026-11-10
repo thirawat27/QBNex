@@ -11,6 +11,10 @@ publish = false
 name = "qb_jit"
 path = "src/lib.rs"
 
+[features]
+# Export the runtime helpers under the names AOT objects import (qb-native).
+native-syms = []
+
 [dependencies]
 qb-runtime = { path = "../qb-runtime" }
 

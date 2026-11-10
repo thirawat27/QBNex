@@ -877,6 +877,37 @@ pub(crate) fn build_image(m: &bc::Module, hosts: &Hosts) -> Result<Vec<u8>, Stri
     Ok(out)
 }
 
+/// Object file for a standard linker (D15 final): the program's functions,
+/// the QIR text `src` and the entry table (`qb_jit::aot::NativeEntry`).
+pub(crate) fn build_object(m: &bc::Module, src: &[u8], hosts: &Hosts) -> Result<Vec<u8>, String> {
+    let mir = lower_full(m, hosts);
+    let names: Vec<String> = qb_jit::symbols(&mir).into_iter().map(|(n, _)| n).collect();
+    for n in &names {
+        if !NATIVE_IMPORTS.contains(&n.as_str()) {
+            return Err(format!("runtime symbol {n} is not exported by qb-native"));
+        }
+    }
+    qb_jit::aot::compile_native_object(&mir, qb_jit::Target::Host, src, fingerprint(m, hosts)).map_err(|e| e.0)
+}
+
+/// Every runtime symbol native code may import; `native-syms` exports each
+/// (qb-jit `ctx.rs`, `vm.rs`). `qb_host_<i>` = index `i` of [`host_table`].
+pub(crate) const NATIVE_IMPORTS: &[&str] = &[
+    "qb_jit_qbr_f64",
+    "qb_jit_pow_f32",
+    "qb_jit_pow_f64",
+    "qb_jit_zero_slots",
+    "qb_jit_chain_push",
+    "qb_host_0",
+    "qb_host_1",
+    "qb_host_2",
+    "qb_host_3",
+    "qb_host_4",
+    "qb_host_5",
+    "qb_host_6",
+    "qb_vm_op",
+];
+
 /// Identifies the program and the runner layout an image was built for
 /// (addresses are not part of it: they are resolved by name at load time).
 fn fingerprint(m: &bc::Module, hosts: &Hosts) -> u64 {
@@ -1250,6 +1281,31 @@ impl JitState {
         }
         // SAFETY: as above; `loaded` owns the code memory.
         let code = unsafe { qb_jit::Compiled::from_loaded(fns, Box::new(loaded)) };
+        let mut st = JitState::new(m, Mode::Hot, 1).expect("hot mode");
+        st.tier.preload(code);
+        st.mir = Some(mir);
+        Ok(st)
+    }
+
+    /// State running functions linked into this executable by a standard
+    /// linker (qb-native, see [`build_object`]); `fingerprint` comes from
+    /// the object's entry table.
+    pub(crate) fn from_linked(
+        m: &bc::Module,
+        fns: &[qb_jit::NativeFn],
+        fingerprint_of_object: u64,
+        hosts: &Hosts,
+    ) -> Result<Box<JitState>, String> {
+        if fingerprint_of_object != fingerprint(m, hosts) {
+            return Err("native code was built for another program or runtime".into());
+        }
+        let mir = lower_full(m, hosts);
+        if mir.funcs.len() != fns.len() {
+            return Err("native code does not match this program".into());
+        }
+        // SAFETY: the functions were compiled from this program's MIR (same
+        // fingerprint) and are part of this executable's code.
+        let code = unsafe { qb_jit::Compiled::from_loaded(fns.to_vec(), Box::new(())) };
         let mut st = JitState::new(m, Mode::Hot, 1).expect("hot mode");
         st.tier.preload(code);
         st.mir = Some(mir);

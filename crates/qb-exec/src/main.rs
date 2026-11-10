@@ -7,6 +7,12 @@
 //!   `<QIR text><native image><u64 QIR length><u64 image length>QBNEXAO1`;
 //!   the machine code was generated at build time, so nothing is compiled
 //!   when the program starts.
+//! - Native executable (D15 final, default when the native kit is present):
+//!   `qb-exec build program.qir -o program.exe` compiles the program into an
+//!   object file and links it with rust-lld and the `qb-native` runtime
+//!   library into an ordinary executable (`qb_link::toolchain`). The two
+//!   payload forms above are the fallback (`--payload`).
+//! - `qb-exec native-kit ...` builds the kit (see `qb_link::toolchain`).
 //! - Development: `qb-exec program.qir` runs a QIR file directly.
 
 use std::io::{BufWriter, Write};
@@ -46,13 +52,64 @@ fn read(path: &std::ffi::OsStr) -> Vec<u8> {
     })
 }
 
-/// `qb-exec build <program.qir> -o <out.exe>`
+fn opt<'a>(args: &'a [std::ffi::OsString], name: &str) -> Option<&'a std::ffi::OsString> {
+    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1))
+}
+
+/// `qb-exec native-kit --staticlib <qb_native.lib> --lld <rust-lld> [--system <dir>] -o <kit dir>`
+fn native_kit(args: &[std::ffi::OsString]) -> ! {
+    let (Some(lib), Some(lld), Some(out)) = (opt(args, "--staticlib"), opt(args, "--lld"), opt(args, "-o")) else {
+        eprintln!("usage: qb-exec native-kit --staticlib <qb_native.lib> --lld <rust-lld> [--system <dir>] -o <kit dir>");
+        std::process::exit(2)
+    };
+    let sys = opt(args, "--system").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32")
+    });
+    match qb_link::toolchain::make_kit_windows(lib.as_ref(), lld.as_ref(), &sys, out.as_ref()) {
+        Ok(s) => {
+            println!("{s}");
+            std::process::exit(0)
+        }
+        Err(e) => {
+            eprintln!("qb-exec: {e}");
+            std::process::exit(1)
+        }
+    }
+}
+
+/// `qb-exec build <program.qir> -o <out.exe> [--native-link | --payload]`
+///
+/// Default: a standard executable linked by rust-lld with the native kit
+/// when the kit is present (`--native-link` requires it), else the runner
+/// with the program appended (`--payload` forces that).
 fn build(args: &[std::ffi::OsString]) -> ! {
-    let (Some(input), Some(out)) = (args.first(), args.iter().position(|a| a == "-o").and_then(|i| args.get(i + 1))) else {
-        eprintln!("usage: qb-exec build <program.qir> -o <program.exe>");
+    let (Some(input), Some(out)) = (args.first(), opt(args, "-o")) else {
+        eprintln!("usage: qb-exec build <program.qir> -o <program.exe> [--native-link | --payload]");
         std::process::exit(2)
     };
     let qir = read(input);
+    let force_link = args.iter().any(|a| a == "--native-link");
+    let payload_only = args.iter().any(|a| a == "--payload");
+    let me_path = std::env::current_exe().ok();
+    let kit = if payload_only { None } else { qb_link::toolchain::find_kit(me_path.as_deref()) };
+    if force_link && kit.is_none() {
+        eprintln!("qb-exec: --native-link: no native kit (set QBNEX_NATIVE_KIT or install native/ next to qb-exec)");
+        std::process::exit(2)
+    }
+    if let Some(kit) = kit {
+        let obj = qb_exec::build_native_object(&String::from_utf8_lossy(&qir)).unwrap_or_else(|e| {
+            eprintln!("qb-exec: cannot build: {}", e.msg);
+            std::process::exit(1)
+        });
+        match qb_link::toolchain::link_native(&kit, &obj, out.as_ref()) {
+            Ok(()) => std::process::exit(0),
+            Err(e) if force_link => {
+                eprintln!("qb-exec: {e}");
+                std::process::exit(1)
+            }
+            Err(e) => eprintln!("qb-exec: {e}; writing the runner with the program instead"),
+        }
+    }
     let image = qb_exec::build_native(&String::from_utf8_lossy(&qir)).unwrap_or_else(|e| {
         eprintln!("qb-exec: cannot build: {}", e.msg);
         std::process::exit(1)
@@ -89,6 +146,9 @@ fn main() {
     if packaged.is_none() && args.first().is_some_and(|a| a == "build") {
         build(&args[1..]);
     }
+    if packaged.is_none() && args.first().is_some_and(|a| a == "native-kit") {
+        native_kit(&args[1..]);
+    }
     let (src, image) = match packaged {
         Some(Payload::Ir(p)) => (p.to_vec(), None),
         Some(Payload::Native(q, i)) => (q.to_vec(), Some(i.to_vec())),
@@ -100,11 +160,38 @@ fn main() {
             }
         },
     };
-    let src = String::from_utf8_lossy(&src);
+    let src = String::from_utf8_lossy(&src).into_owned();
+    if qb_exec::wants_window(&src) {
+        // GUI program (no $CONSOLE): the window layer needs the main thread,
+        // the program runs on its own thread and ends the process
+        let hidden = qb_exec::screen_hidden(&src);
+        let program = std::thread::Builder::new()
+            .name("qb-program".into())
+            .stack_size(64 << 20)
+            .spawn(move || {
+                // stdout stays unlocked: the window thread writes `snapshot` lines of input scripts
+                let mut out = BufWriter::new(std::io::stdout());
+                let result = qb_exec::run_program_window(&src, image.as_deref(), &mut out);
+                let _ = out.flush();
+                finish(result)
+            })
+            .unwrap_or_else(|e| {
+                eprintln!("qb-exec: cannot start the program thread: {e}");
+                std::process::exit(2)
+            });
+        qb_exec::run_window_main("Untitled", hidden);
+        let _ = program.join();
+        std::process::exit(1);
+    }
     let stdout = std::io::stdout();
     let mut out = BufWriter::new(stdout.lock());
     let result = qb_exec::run_program(&src, image.as_deref(), &mut out);
     let _ = out.flush();
+    finish(result)
+}
+
+/// Exit status of a finished program (the error report goes to stderr).
+fn finish(result: Result<i32, qb_exec::RunError>) -> ! {
     match result {
         Ok(code) => std::process::exit(code),
         Err(e) => {

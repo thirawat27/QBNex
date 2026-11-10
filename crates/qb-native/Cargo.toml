@@ -1,0 +1,19 @@
+[package]
+name = "qb-native"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "D15 final: runtime library of native QBNex executables. A standard linker (rust-lld) links it with the program's object file (qb-exec build --native-link)."
+publish = false
+
+[lib]
+name = "qb_native"
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+test = false
+doctest = false
+
+[dependencies]
+qb-exec = { path = "../qb-exec", features = ["native-syms"] }
+qb-jit = { path = "../qb-jit", features = ["native-syms"] }

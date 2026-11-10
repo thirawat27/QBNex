@@ -59,7 +59,9 @@ PRINT "x"
 ```
 cpp: `x` + `\nPress any key to continue`, exit 0. QIR (vm/jit): `x`, exit 0.
 
-**Q2. qb-exec has no window and ignores `QBNEX_INPUT_SCRIPT`.** A GUI program built with `--ir` prints its
+**Q2. qb-exec has no window and ignores `QBNEX_INPUT_SCRIPT`.** Fixed on branch `claude/r11b-win` (progress.md "Q2"):
+GUI programs now get qb-runtime's window (headless with `QBNEX_HEADLESS=1`), keys from the window or the script, and `close`
+ends them; MAGIC exits 0 after the scripted close. Original report: a GUI program built with `--ir` prints its
 text screen to stdout, its keyboard reads come from stdin, `close` never arrives. MAGIC/MAGIC.BAS (`DO ... LOOP`
 drawing cards): cpp exits 0 after the scripted close, QIR runs to the timeout writing 3.8 MB to stdout. Side effects seen
 in the corpus: `LOCATE 32, 28` / `LOCATE 29, 30` give error 5 (25-row console: alyman, nlcm), INPUT hits end of stdin (bj, move, rats1, nib64, mrguessit).

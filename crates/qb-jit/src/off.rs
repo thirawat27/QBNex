@@ -70,4 +70,8 @@ pub mod aot {
     pub fn compile_object(_m: &Module, _target: Target) -> Result<Vec<u8>, CompileError> {
         Err(CompileError(NO_JIT.into()))
     }
+
+    pub fn compile_native_object(_m: &Module, _t: Target, _p: &[u8], _fp: u64) -> Result<Vec<u8>, CompileError> {
+        Err(CompileError(NO_JIT.into()))
+    }
 }

@@ -1,3 +1,4 @@
+$CONSOLE:ONLY
 ON ERROR GOTO Handler
 PRINT "start"
 PRINT 10 \ 0

@@ -1,0 +1,157 @@
+QIR 1
+global $__SINGLE_I f32
+global $__SINGLE_N f32
+global $__STRING_L str
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+line 1
+const.str %0 x71625F6E61746976655F696F2E747874
+const.i32 %1 1
+const.i32 %2 0
+const.i32 %3 2
+rt OPEN %0 %3 %1 %2
+line 2
+const.i32 %4 1
+cvt.f64.i32 %5 %4
+store.f64 $~T1 %5
+const.i32 %6 5
+cvt.f64.i32 %7 %6
+store.f64 $~T2 %7
+const.i32 %8 1
+cvt.f64.i32 %9 %8
+store.f64 $~T3 %9
+jmp ~F1.E
+label ~F1.T
+load.f32 %10 $__SINGLE_I
+cvt.f64.f32 %11 %10
+load.f64 %12 $~T3
+add.f64 %13 %12 %11
+store.f64 $~T1 %13
+label ~F1.E
+load.f64 %14 $~T1
+cvt.f32.f64 %15 %14
+store.f32 $__SINGLE_I %15
+load.f64 %16 $~T3
+const.f64 %17 0
+lt.f64 %18 %16 %17
+jz %18 ~F1.P
+load.f64 %19 $~T2
+lt.f64 %20 %14 %19
+jnz %20 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.f64 %21 $~T2
+gt.f64 %22 %14 %21
+jnz %22 ~F1.X
+label ~F1.B
+line 3
+const.i32 %23 1
+const.str %24 x6C696E65
+rt PRINTS %23 %24
+load.f32 %25 $__SINGLE_I
+rt PRINTN.f32 %23 %25
+load.f32 %26 $__SINGLE_I
+load.f32 %27 $__SINGLE_I
+mul.f32 %28 %26 %27
+rt PRINTN.f32 %23 %28
+rt PRINTNL %23
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+const.i32 %29 1
+rt CLOSE %29
+line 6
+const.str %30 x71625F6E61746976655F696F2E747874
+const.i32 %31 1
+const.i32 %32 0
+const.i32 %33 3
+rt OPEN %30 %33 %31 %32
+line 7
+const.i32 %34 1
+const.str %35 x7461696C
+rt WRITES %34 %35
+rt WRITESEP %34
+const.f64 %36 3.5E+0
+cvt.f32.f64 %37 %36
+rt WRITEN.f32 %34 %37
+rt PRINTNL %34
+line 8
+const.i32 %38 1
+rt CLOSE %38
+line 9
+const.str %39 x71625F6E61746976655F696F2E747874
+const.i32 %40 1
+const.i32 %41 0
+const.i32 %42 1
+rt OPEN %39 %42 %40 %41
+line 10
+const.i32 %43 0
+cvt.f32.i32 %44 %43
+store.f32 $__SINGLE_N %44
+line 11
+label ~W5.T
+label ~W5.C
+const.i32 %45 1
+rt %46 EOF %45
+not.i32 %47 %46
+jz %47 ~W5.X
+line 12
+const.i32 %48 1
+rt %49 LINEINPUT %48
+store.str $__STRING_L %49
+line 13
+load.f32 %50 $__SINGLE_N
+const.i32 %51 1
+cvt.f32.i32 %52 %51
+add.f32 %53 %50 %52
+store.f32 $__SINGLE_N %53
+line 14
+load.f32 %54 $__SINGLE_N
+rt %55 STR$.f32 %54
+const.str %56 x20
+concat %57 %55 %56
+const.i32 %58 0
+rt PRINTS %58 %57
+load.str %59 $__STRING_L
+const.i32 %60 0
+rt PRINTS %60 %59
+const.i32 %61 0
+rt PRINTNL %61
+line 15
+jmp ~W5.C
+label ~W5.X
+line 16
+const.i32 %62 1
+rt CLOSE %62
+line 17
+const.str %63 x6279746573
+const.i32 %64 0
+rt PRINTS %64 %63
+load.str %65 $__STRING_L
+rt %66 LEN %65
+cvt.i64.i32 %67 %66
+rt %68 STR$.i64 %67
+const.str %69 x20
+concat %70 %68 %69
+const.i32 %71 0
+rt PRINTS %71 %70
+const.i32 %72 0
+rt PRINTNL %72
+line 18
+const.str %73 x71625F6E61746976655F696F2E747874
+rt KILL %73
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

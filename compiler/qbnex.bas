@@ -50,13 +50,15 @@ DIM SHARED qbnexprefix_set_recompileAttempts, qbnexprefix_set_desiredState
 DIM SHARED opex_recompileAttempts, opex_desiredState
 DIM SHARED opexarray_recompileAttempts, opexarray_desiredState
 
-REDIM EveryCaseSet(100), SelectCaseCounter AS _UNSIGNED LONG
-REDIM SelectCaseHasCaseBlock(100)
-DIM ExecLevel(255), ExecCounter AS INTEGER
+REDIM SHARED EveryCaseSet(100), SelectCaseCounter AS _UNSIGNED LONG
+REDIM SHARED SelectCaseHasCaseBlock(100)
+DIM SHARED ExecLevel(255), ExecCounter AS INTEGER
+'R14: error message set by helper FUNCTIONs in the modules (they cannot set a$, which is not SHARED)
+DIM SHARED ModuleError$
 DIM SHARED UserDefineName(0 TO 1000) AS STRING
 DIM SHARED UserDefineValue(0 TO 1000) AS STRING
 DIM SHARED InValidLine(10000) AS _BYTE
-DIM DefineElse(255) AS _BYTE
+DIM SHARED DefineElse(255) AS _BYTE
 DIM SHARED UserDefineCount AS INTEGER, UserDefineList$
 UserDefineList$ = "@DEFINED@UNDEFINED@WINDOWS@WIN@LINUX@MAC@MACOSX@32BIT@64BIT@VERSION@"
 UserDefineName$(0) = "WINDOWS": UserDefineName$(1) = "WIN"
@@ -1526,7 +1528,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                             directiveResult = HandlePrepassConditionalDirective%(temp$)
                             IF directiveResult = 1 THEN GOTO finishedlinepp
-                            IF directiveResult = 2 THEN GOTO errmes
+                            IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
                         END IF
 
                         IF ExecLevel(ExecCounter) THEN
@@ -1537,7 +1539,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                         directiveResult = HandlePrepassMetaDirective%(temp$)
                         IF directiveResult = 1 THEN GOTO finishedlinepp
-                        IF directiveResult = 2 THEN GOTO errmes
+                        IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
 
 
                         cwholeline$ = wholeline$
@@ -2666,7 +2668,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             'precompiler commands should always be executed FIRST.
                             directiveResult = HandleMainPassConditionalDirective%(a3u$)
                             IF directiveResult = 1 THEN GOTO finishednonexec
-                            IF directiveResult = 2 THEN GOTO errmes
+                            IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
 
                             IF ExecLevel(ExecCounter) THEN 'don't check for any more metacommands except the one's which worth with the precompiler
                             layoutdone = 0
@@ -2675,15 +2677,15 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                         directiveResult = HandleSimpleDirective%(a3u$)
                         IF directiveResult = 1 THEN GOTO finishednonexec
-                        IF directiveResult = 2 THEN GOTO errmes
+                        IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
                         IF directiveResult = 3 THEN GOTO finishedline2
 
                         directiveResult = HandleVersionInfoDirective%(a3u$, a3$)
                         IF directiveResult = 1 THEN GOTO finishednonexec
-                        IF directiveResult = 2 THEN GOTO errmes
+                        IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
 
                         directiveResult = HandleExeIconDirective%(a3u$, a3$)
-                        IF directiveResult = 2 THEN GOTO errmes
+                        IF directiveResult = 2 THEN a$ = ModuleError$: GOTO errmes
                         IF directiveResult = 3 THEN GOTO finishedline2
 
                     END IF 'QBNex Metacommands
@@ -4102,6 +4104,7 @@ IF n >= 1 THEN
     END IF
 
     IF ideindentsubs THEN
+        IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
         controllevel = controllevel + 1
         controltype(controllevel) = 32
         controlref(controllevel) = linenumber
@@ -4929,6 +4932,7 @@ IF n >= 1 THEN
             a$ = "Expected CASE expression": GOTO errmes
         END IF
 
+        IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
         controllevel = controllevel + 1
         controlref(controllevel) = linenumber
         controltype(controllevel) = 5
@@ -4988,6 +4992,7 @@ IF n >= 1 THEN
             a$ = "Expected CASE expression": GOTO errmes
         END IF
 
+        IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
         controllevel = controllevel + 1
         controlref(controllevel) = linenumber
         l$ = SCase$("Do")
@@ -5104,6 +5109,7 @@ IF n >= 1 THEN
             a$ = "Expected CASE expression": GOTO errmes
         END IF
 
+        IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
         controllevel = controllevel + 1
         controlref(controllevel) = linenumber
         controltype(controllevel) = 2
@@ -5370,6 +5376,7 @@ IF n >= 3 THEN
         IF e$ = "GOTO" THEN iftype = 2
         IF iftype = 0 THEN a$ = "Expected IF expression THEN/GOTO": GOTO errmes
 
+        IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
         controllevel = controllevel + 1
         controlref(controllevel) = linenumber
         controltype(controllevel) = 1
@@ -5499,6 +5506,7 @@ IF n >= 1 THEN
         IF Error_Happened THEN GOTO errmes
         u = uniquenumber
 
+        IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
         controllevel = controllevel + 1
         controlvalue(controllevel) = 0 'id
 
@@ -5702,6 +5710,7 @@ IF n >= 1 THEN
         IF n = 2 THEN
             IF getelement$(a$, 2) = "C-EL" THEN
                 IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "if (sc_" + str2$(controlid(controllevel)) + "_var==0) {"
+                IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
                 controllevel = controllevel + 1: controltype(controllevel) = 19
                 controlref(controllevel) = controlref(controllevel - 1)
                 l$ = l$ + sp + SCase$("Else")
@@ -5881,6 +5890,7 @@ IF n >= 1 THEN
     END IF
 
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+    IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
     controllevel = controllevel + 1
     controlref(controllevel) = controlref(controllevel - 1)
     controltype(controllevel) = 18
@@ -11106,7 +11116,7 @@ IF recompile THEN
 
     labelValidationResult = ValidatePendingLabels%
     IF labelValidationResult = 1 THEN GOTO do_recompile
-    IF labelValidationResult = 2 THEN GOTO errmes
+    IF labelValidationResult = 2 THEN a$ = ModuleError$: GOTO errmes
 
     IF AutoConsoleOnlyEligible THEN
         IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 THEN
@@ -11637,17 +11647,17 @@ IF recompile THEN
         FinishCompilerProgress
 
         IF No_C_Compile_Mode = 0 THEN
-            IF PrepareExecutableOutputTarget%(file$) THEN GOTO errmes
+            IF PrepareExecutableOutputTarget%(file$) THEN a$ = ModuleError$: GOTO errmes
         END IF
 
 
         IF os$ = "WIN" THEN
-            IF PrepareWindowsResourceArtifacts%(file$) THEN GOTO errmes
+            IF PrepareWindowsResourceArtifacts%(file$) THEN a$ = ModuleError$: GOTO errmes
         END IF
 
         PrepareDependencyBuildInputs defines$, libs$, libqb$, pchOptions$, o$, win, lnx, mac
 
-        IF RunNativeBuild%(file$, libqb$, libs$, defines$, pchOptions$) THEN GOTO errmes
+        IF RunNativeBuild%(file$, libqb$, libs$, defines$, pchOptions$) THEN a$ = ModuleError$: GOTO errmes
         FinalizeCompilerRun file$
 
         qberror_test:

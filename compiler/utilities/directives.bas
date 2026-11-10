@@ -9,7 +9,7 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         temp$ = LTRIM$(MID$(upperLine, 5))
         tempPos = INSTR(temp$, "=")
         IF tempPos = 0 THEN
-            a$ = "Invalid Syntax.  $LET <flag> = <value>"
+            ModuleError$ = "Invalid Syntax.  $LET <flag> = <value>"
             HandleSimpleDirective% = 2
             EXIT FUNCTION
         END IF
@@ -191,7 +191,7 @@ FUNCTION HandlePrepassConditionalDirective% (upperLine AS STRING)
 
     IF upperLine = "$END IF" OR upperLine = "$ENDIF" THEN
         IF DefineElse(ExecCounter) = 0 THEN
-            a$ = "$END IF without $IF"
+            ModuleError$ = "$END IF without $IF"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -204,7 +204,7 @@ FUNCTION HandlePrepassConditionalDirective% (upperLine AS STRING)
 
     IF LEFT$(upperLine, 4) = "$IF " THEN
         IF RIGHT$(upperLine, 5) <> " THEN" THEN
-            a$ = "$IF without THEN"
+            ModuleError$ = "$IF without THEN"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -212,12 +212,17 @@ FUNCTION HandlePrepassConditionalDirective% (upperLine AS STRING)
         conditionText = LTRIM$(MID$(upperLine, 4))
         conditionText = RTRIM$(LEFT$(conditionText, LEN(conditionText) - 4))
 
+        IF ExecCounter >= 255 THEN
+            ModuleError$ = "Too many nested $IF blocks (the limit is 255)"
+            HandlePrepassConditionalDirective% = 2
+            EXIT FUNCTION
+        END IF
         ExecCounter = ExecCounter + 1
         ExecLevel(ExecCounter) = -1
         DefineElse(ExecCounter) = 1
 
-        conditionResult = EvalPreIF(conditionText, a$)
-        IF a$ <> "" THEN
+        ModuleError$ = "": conditionResult = EvalPreIF(conditionText, ModuleError$)
+        IF ModuleError$ <> "" THEN
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -233,13 +238,13 @@ FUNCTION HandlePrepassConditionalDirective% (upperLine AS STRING)
 
     IF upperLine = "$ELSE" THEN
         IF DefineElse(ExecCounter) = 0 THEN
-            a$ = "$ELSE without $IF"
+            ModuleError$ = "$ELSE without $IF"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
 
         IF DefineElse(ExecCounter) AND 2 THEN
-            a$ = "$IF block already has $ELSE statement in it"
+            ModuleError$ = "$IF block already has $ELSE statement in it"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -260,19 +265,19 @@ FUNCTION HandlePrepassConditionalDirective% (upperLine AS STRING)
         IF LEFT$(conditionText, 3) <> "IF " THEN EXIT FUNCTION
 
         IF DefineElse(ExecCounter) = 0 THEN
-            a$ = "$ELSE IF without $IF"
+            ModuleError$ = "$ELSE IF without $IF"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
 
         IF DefineElse(ExecCounter) AND 2 THEN
-            a$ = "$ELSE IF cannot follow $ELSE"
+            ModuleError$ = "$ELSE IF cannot follow $ELSE"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
 
         IF RIGHT$(conditionText, 5) <> " THEN" THEN
-            a$ = "$ELSE IF without THEN"
+            ModuleError$ = "$ELSE IF without THEN"
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -286,8 +291,8 @@ FUNCTION HandlePrepassConditionalDirective% (upperLine AS STRING)
             EXIT FUNCTION
         END IF
 
-        conditionResult = EvalPreIF(conditionText, a$)
-        IF a$ <> "" THEN
+        ModuleError$ = "": conditionResult = EvalPreIF(conditionText, ModuleError$)
+        IF ModuleError$ <> "" THEN
             HandlePrepassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -312,7 +317,7 @@ FUNCTION HandlePrepassMetaDirective% (upperLine AS STRING)
     HandlePrepassMetaDirective% = 0
 
     IF LEFT$(upperLine, 7) = "$ERROR " THEN
-        a$ = "Compilation check failed: " + LTRIM$(MID$(upperLine, 7))
+        ModuleError$ = "Compilation check failed: " + LTRIM$(MID$(upperLine, 7))
         HandlePrepassMetaDirective% = 2
         EXIT FUNCTION
     END IF
@@ -322,7 +327,7 @@ FUNCTION HandlePrepassMetaDirective% (upperLine AS STRING)
     defineValue = LTRIM$(MID$(upperLine, 5))
     equalPos = INSTR(defineValue, "=")
     IF equalPos = 0 THEN
-        a$ = "Invalid Syntax.  $LET <flag> = <value>"
+        ModuleError$ = "Invalid Syntax.  $LET <flag> = <value>"
         HandlePrepassMetaDirective% = 2
         EXIT FUNCTION
     END IF
@@ -330,7 +335,7 @@ FUNCTION HandlePrepassMetaDirective% (upperLine AS STRING)
     defineName = RTRIM$(LEFT$(defineValue, equalPos - 1))
     defineValue = LTRIM$(MID$(defineValue, equalPos + 1))
     IF validname(defineName) = 0 THEN
-        a$ = "Invalid flag name"
+        ModuleError$ = "Invalid flag name"
         HandlePrepassMetaDirective% = 2
         EXIT FUNCTION
     END IF
@@ -351,7 +356,7 @@ FUNCTION HandlePrepassMetaDirective% (upperLine AS STRING)
         CASE 46
             normalizedValue = normalizedValue + "."
         CASE IS < 48, IS > 90
-            a$ = "Invalid value"
+            ModuleError$ = "Invalid value"
             HandlePrepassMetaDirective% = 2
             EXIT FUNCTION
         CASE ELSE
@@ -387,7 +392,7 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
 
     IF upperLine = "$END IF" OR upperLine = "$ENDIF" THEN
         IF DefineElse(ExecCounter) = 0 THEN
-            a$ = "$END IF without $IF"
+            ModuleError$ = "$END IF without $IF"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -403,7 +408,7 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
 
     IF LEFT$(upperLine, 4) = "$IF " THEN
         IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
-            a$ = "Expected CASE expression"
+            ModuleError$ = "Expected CASE expression"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -422,12 +427,17 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
         IF comparePos = 0 THEN compareOp = ">": comparePos = INSTR(conditionText, compareOp)
         IF comparePos = 0 THEN compareOp = "<": comparePos = INSTR(conditionText, compareOp)
 
+        IF ExecCounter >= 255 THEN
+            ModuleError$ = "Too many nested $IF blocks (the limit is 255)"
+            HandleMainPassConditionalDirective% = 2
+            EXIT FUNCTION
+        END IF
         ExecCounter = ExecCounter + 1
         ExecLevel(ExecCounter) = -1
         DefineElse(ExecCounter) = 1
 
-        conditionResult = EvalPreIF(conditionText, a$)
-        IF a$ <> "" THEN
+        ModuleError$ = "": conditionResult = EvalPreIF(conditionText, ModuleError$)
+        IF ModuleError$ <> "" THEN
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -437,7 +447,13 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
             IF ExecLevel(ExecCounter) = 0 THEN DefineElse(ExecCounter) = DefineElse(ExecCounter) OR 4
         END IF
 
+        IF controllevel >= 1000 THEN
+            ModuleError$ = "Too many nested blocks (the limit is 1000)"
+            HandleMainPassConditionalDirective% = 2
+            EXIT FUNCTION
+        END IF
         controllevel = controllevel + 1
+        controlref(controllevel) = linenumber
         controltype(controllevel) = 6
 
         IF comparePos = 0 THEN
@@ -454,13 +470,13 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
 
     IF upperLine = "$ELSE" THEN
         IF DefineElse(ExecCounter) = 0 THEN
-            a$ = "$ELSE without $IF"
+            ModuleError$ = "$ELSE without $IF"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
 
         IF DefineElse(ExecCounter) AND 2 THEN
-            a$ = "$IF block already has $ELSE statement in it"
+            ModuleError$ = "$IF block already has $ELSE statement in it"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -483,19 +499,19 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
         IF LEFT$(conditionText, 3) <> "IF " THEN EXIT FUNCTION
 
         IF DefineElse(ExecCounter) = 0 THEN
-            a$ = "$ELSE IF without $IF"
+            ModuleError$ = "$ELSE IF without $IF"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
 
         IF DefineElse(ExecCounter) AND 2 THEN
-            a$ = "$ELSE IF cannot follow $ELSE"
+            ModuleError$ = "$ELSE IF cannot follow $ELSE"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
 
         IF RIGHT$(conditionText, 5) <> " THEN" THEN
-            a$ = "$ELSE IF without THEN"
+            ModuleError$ = "$ELSE IF without THEN"
             HandleMainPassConditionalDirective% = 2
             EXIT FUNCTION
         END IF
@@ -506,8 +522,8 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
         IF DefineElse(ExecCounter) AND 4 THEN
             ExecLevel(ExecCounter) = -1
         ELSE
-            conditionResult = EvalPreIF(conditionText, a$)
-            IF a$ <> "" THEN
+            ModuleError$ = "": conditionResult = EvalPreIF(conditionText, ModuleError$)
+            IF ModuleError$ <> "" THEN
                 HandleMainPassConditionalDirective% = 2
                 EXIT FUNCTION
             END IF
@@ -538,7 +554,7 @@ FUNCTION ValidateVersionInfoValue% (versionInfoKey AS STRING, versionInfoValue A
 
     ValidateVersionInfoValue% = 0
     IF LEN(versionInfoValue) = 0 THEN
-        a$ = "Expected $VERSIONINFO:" + versionInfoKey + "=#,#,#,# (4 comma-separated numeric values: major, minor, revision and build)"
+        ModuleError$ = "Expected $VERSIONINFO:" + versionInfoKey + "=#,#,#,# (4 comma-separated numeric values: major, minor, revision and build)"
         ValidateVersionInfoValue% = -1
         EXIT FUNCTION
     END IF
@@ -547,7 +563,7 @@ FUNCTION ValidateVersionInfoValue% (versionInfoKey AS STRING, versionInfoValue A
     FOR i = 1 TO LEN(versionInfoValue)
         IF ASC(versionInfoValue, i) = 44 THEN viCommas = viCommas + 1
         IF INSTR("0123456789,", MID$(versionInfoValue, i, 1)) = 0 OR (i = LEN(versionInfoValue) AND viCommas <> 3) OR RIGHT$(versionInfoValue, 1) = "," THEN
-            a$ = "Expected $VERSIONINFO:" + versionInfoKey + "=#,#,#,# (4 comma-separated numeric values: major, minor, revision and build)"
+            ModuleError$ = "Expected $VERSIONINFO:" + versionInfoKey + "=#,#,#,# (4 comma-separated numeric values: major, minor, revision and build)"
             ValidateVersionInfoValue% = -1
             EXIT FUNCTION
         END IF
@@ -566,7 +582,7 @@ FUNCTION HandleVersionInfoDirective% (upperLine AS STRING, rawLine AS STRING)
     firstDelimiter = INSTR(upperLine, ":")
     secondDelimiter = INSTR(firstDelimiter + 1, upperLine, "=")
     IF firstDelimiter = 0 OR secondDelimiter = 0 OR secondDelimiter = firstDelimiter + 1 THEN
-        a$ = "Expected $VERSIONINFO:key=value"
+        ModuleError$ = "Expected $VERSIONINFO:key=value"
         HandleVersionInfoDirective% = 2
         EXIT FUNCTION
     END IF
@@ -623,7 +639,7 @@ FUNCTION HandleVersionInfoDirective% (upperLine AS STRING, rawLine AS STRING)
         viWeb$ = versionInfoValue
         layout$ = SCase$("$VersionInfo:") + "Web=" + versionInfoValue
     CASE ELSE
-        a$ = "Invalid key. (Use FILEVERSION#, PRODUCTVERSION#, CompanyName, FileDescription, FileVersion, InternalName, LegalCopyright, LegalTrademarks, OriginalFilename, ProductName, ProductVersion, Comments or Web)"
+        ModuleError$ = "Invalid key. (Use FILEVERSION#, PRODUCTVERSION#, CompanyName, FileDescription, FileVersion, InternalName, LegalCopyright, LegalTrademarks, OriginalFilename, ProductName, ProductVersion, Comments or Web)"
         HandleVersionInfoDirective% = 2
         EXIT FUNCTION
     END SELECT
@@ -644,28 +660,28 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     IF LEFT$(upperLine, 8) <> "$EXEICON" THEN EXIT FUNCTION
 
     IF ExeIconSet THEN
-        a$ = "$EXEICON already defined"
+        ModuleError$ = "$EXEICON already defined"
         HandleExeIconDirective% = 2
         EXIT FUNCTION
     END IF
 
     firstDelimiter = INSTR(upperLine, "'")
     IF firstDelimiter = 0 THEN
-        a$ = "Expected $EXEICON:'filename'"
+        ModuleError$ = "Expected $EXEICON:'filename'"
         HandleExeIconDirective% = 2
         EXIT FUNCTION
     END IF
 
     secondDelimiter = INSTR(firstDelimiter + 1, upperLine, "'")
     IF secondDelimiter = 0 THEN
-        a$ = "Expected $EXEICON:'filename'"
+        ModuleError$ = "Expected $EXEICON:'filename'"
         HandleExeIconDirective% = 2
         EXIT FUNCTION
     END IF
 
     exeIconFile = RTRIM$(LTRIM$(MID$(rawLine, firstDelimiter + 1, secondDelimiter - firstDelimiter - 1)))
     IF LEN(exeIconFile) = 0 THEN
-        a$ = "Expected $EXEICON:'filename'"
+        ModuleError$ = "Expected $EXEICON:'filename'"
         HandleExeIconDirective% = 2
         EXIT FUNCTION
     END IF
@@ -685,7 +701,7 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
                     exeIconFileOnly = MID$(exeIconFile, i + 1)
 
                     IF _DIREXISTS(iconPath) = 0 THEN
-                        a$ = "File '" + exeIconFileOnly + "' not found"
+                        ModuleError$ = "File '" + exeIconFileOnly + "' not found"
                         HandleExeIconDirective% = 2
                         EXIT FUNCTION
                     END IF
@@ -703,9 +719,9 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
 
         IF _FILEEXISTS(exeIconFile) = 0 THEN
             IF LEN(iconPath) THEN
-                a$ = "File '" + MID$(exeIconFile, LEN(iconPath) + 1) + "' not found"
+                ModuleError$ = "File '" + MID$(exeIconFile, LEN(iconPath) + 1) + "' not found"
             ELSE
-                a$ = "File '" + exeIconFile + "' not found"
+                ModuleError$ = "File '" + exeIconFile + "' not found"
             END IF
             HandleExeIconDirective% = 2
             EXIT FUNCTION
@@ -716,7 +732,7 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
         PRINT #iconfilehandle, "0 ICON " + QuotedFilename$(StrReplace$(exeIconFile, "\", "/"))
         CLOSE #iconfilehandle
         IF _FILEEXISTS(tmpdir$ + "icon.rc") = 0 THEN
-            a$ = "Error creating icon resource file"
+            ModuleError$ = "Error creating icon resource file"
             HandleExeIconDirective% = 2
             EXIT FUNCTION
         END IF
