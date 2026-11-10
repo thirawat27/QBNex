@@ -19,7 +19,7 @@ There were no warnings.
 
 | File:line | Targets | Cause | Fix |
 |---|---|---|---|
-| crates/qb-runtime/src/env.rs:19 | linux, macos | `extern "C"` block without `unsafe` in the `cfg(not(windows))` branch. Edition 2024 rejects it, and it was never compiled on Windows. | Changed to `unsafe extern "C"` (commit 1a1c9e7, "unsafe extern blocks"). |
+| crates/qb-runtime/src/env.rs:19 | linux, macos | `extern "C"` block without `unsafe` in the `cfg(not(windows))` branch. Edition 2024 rejects it, and it was never compiled on Windows. | Changed to `unsafe extern "C"` (commit 23722fe). |
 | crates/qb-runtime/src/screen.rs:383, 391 | macos | Same cause, in the CoreGraphics / CoreFoundation blocks. | Same fix. |
 
 No other Rust-level errors in any crate.
