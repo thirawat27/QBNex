@@ -364,6 +364,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
     }
+    if name == "_COMMANDCOUNT" {
+        return Ok(Some(V::I(std::env::args().count().saturating_sub(1) as i64)));
+    }
     if name == "_OS$" {
         // func__os
         let bits = if cfg!(target_pointer_width = "32") { "[32BIT]" } else { "[64BIT]" };

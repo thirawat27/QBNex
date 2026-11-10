@@ -1544,6 +1544,8 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
         CASE "_CWD$", "_STARTDIR$", "_OS$"
             r$ = IrRt$(nm$, "", "str")
+        CASE "_COMMANDCOUNT"
+            r$ = IrRt$(nm$, "", "i32")
         CASE "_MK$", "_CV"
             t = typname2typ(UCASE$(sv(1)))
             IF t AND ISPOINTER THEN t = t - ISPOINTER

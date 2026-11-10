@@ -127,6 +127,7 @@ pub static TABLE: &[Builtin] = &[
     // raises the error of the numeric READ just stored (C++ assigns 0, then errors)
     b!("READCHK", []),
     b!("_OS$", [], Str),
+    b!("_COMMANDCOUNT", [], I32),
     // CALL ABSOLUTE: arguments copied into DBLOCK (offset back), read back, then the call
     b!("ABSARG.i16", [I16], I32),
     b!("ABSARG.i32", [I32], I32),
