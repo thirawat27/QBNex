@@ -1904,6 +1904,7 @@ dependencies = [
 name = "qb-exec"
 version = "0.1.0"
 dependencies = [
+ "qb-float80",
  "qb-ir",
  "qb-jit",
  "qb-link",

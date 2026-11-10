@@ -20,3 +20,4 @@ qb-runtime = { path = "../qb-runtime" }
 qb-ir = { path = "../qb-ir" }
 qb-jit = { path = "../qb-jit" }
 qb-link = { path = "../qb-link" }
+qb-float80 = { path = "../qb-float80" }

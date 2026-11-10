@@ -58,6 +58,8 @@ pub static TABLE: &[Builtin] = &[
     b!("STR$.f64", [F64], Str),
     b!("STR$.f80", [F80], Str),
     b!("VAL", [Str], F64),
+    // legacy func_val returns long double
+    b!("VAL.f80", [Str], F80),
     b!("HEX$", [I64], Str),
     b!("OCT$", [I64], Str),
     b!("BIN$", [I64], Str),
@@ -127,10 +129,13 @@ pub static TABLE: &[Builtin] = &[
     b!("RANDOMIZE", [F64]),
     b!("RANDOMIZEUSING", [F64]),
     b!("TIMER", [], F64),
+    b!("TIMER.n", [F64], F64),
     // ---- error state
     b!("ERR", [], I32),
     b!("ERL", [], I32),
     b!("_ERRORLINE", [], I32),
+    // numeric line label reached (ERL reports the last one before the error)
+    b!("LASTLINE", [I32]),
     // ---- files
     b!("OPEN", [Str, I32, I32, I32]),
     b!("OPENOLD", [Str, I32, Str]),
@@ -144,7 +149,7 @@ pub static TABLE: &[Builtin] = &[
     b!("SEEKSET", [I32, I64]),
     b!("GETREC", [I32, I64, Ptr, I32]),
     b!("PUTREC", [I32, I64, Ptr, I32]),
-    b!("GETSTR", [I32, I64, Ptr]),
+    b!("GETSTR", [I32, I64, I32], Str),
     b!("PUTSTR", [I32, I64, Str]),
     b!("FIELD", [I32, I32, Ptr]),
     b!("INPUT$", [I32, I32], Str),
@@ -176,6 +181,10 @@ pub static TABLE: &[Builtin] = &[
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
     b!("_DEST", [I32]),
+    b!("_STRCMP", [Str, Str], I32),
+    b!("_STRICMP", [Str, Str], I32),
+    b!("_CWD$", [], Str),
+    b!("_STARTDIR$", [], Str),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
