@@ -63,3 +63,6 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(not(windows))'.dependencies]
 # Clipboard text and images on Linux (X11/Wayland) and macOS.
 arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+
+[dev-dependencies]
+proptest = "1.12.0"

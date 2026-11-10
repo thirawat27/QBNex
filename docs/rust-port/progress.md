@@ -374,19 +374,26 @@ Findings (each fixed with a failing test first):
 | R14-1 | `qb_radix_string` (HEX$/OCT$/_BIN$) trusted `neg_bits`: a width outside 0..=64 allocated gigabytes and would overrun the 64-byte C buffer. | Medium (not reachable from compiled BASIC: the compiler passes type widths) | Clamp to 0..=64. |
 | R14-2 | `MID$(a$, 2, 2147483647)` read past the string, `MID$(d$, 2, 2147483647) = s$` wrote past `d$`: `start + length` was ported with `wrapping_add` from the legacy `int` code (same bug in legacy). | **High** (heap overread/overwrite from plain BASIC) | Bounds in i64. |
 | R14-4 | A failed `_MEMGET` check with an absurd byte count aborted the program while allocating the zeroed scratch buffer. | Low | Fallible reserve; reports 518 (out of memory). |
+| R14-5 | `_MEMNEW` buffers and the `qbs` descriptor blocks handed out pointers derived from a `Box<[T]>` and then moved the Box into the pool (map/vector), which invalidates those pointers under Rust's aliasing model (miri, Stacked Borrows). | Medium (UB the optimiser may exploit) | Owned through raw pointers, never moved. |
+| R14-6 | `_SNDVOL`/`_SNDRAW` with NaN or infinity turned every mixed frame into NaN (`clamp` keeps NaN) and sent it to f32 output devices; found by a 2-thread stress test (BASIC thread vs mixer). A device reporting 0 channels would panic in the callback. | Medium | Non-finite contributions dropped per source; 0-channel devices refused. |
+| R14-7 | The UTF-8 side table of text screens (`console/cells.rs`) indexed `(top_row - 1) * width` without bounds checks in `scroll_up` (top row 0, a bottom row past the table or width <= 0 panicked) and `clear_range` could overflow `first + count`. | Medium (abort from VIEW PRINT / WIDTH sequences) | i64 arithmetic, clipped to the table. |
 | R14-3 | `_MEM` range check `off + bytes` wrapped for offsets near the top of the address space, so `_MEMFILL`/`_MEMCOPY`/`_MEMGET` with a bad offset touched foreign memory instead of raising error 300. | High (BASIC computes `_OFFSET`s) | Check in i128. |
 
 Property tests: `qb-float80/tests/props.rs` (proptest, 20k cases each; decimal round trips 400): f64 widening, integer round trips, commutativity, `a-b = a+(-b)`, decimal and shortest text round trips, ordering vs subtraction sign, exact square roots, integer powers, rounding brackets, no panic on any encoding.
 
 Lints: `-W clippy::pedantic` clean for qb-float80 and qb-ffi library code (cast lints, one-letter names, legacy literals and x87-table match arms allowed with a reason in `lib.rs`). `#![cfg_attr(not(test), deny(clippy::unwrap_used))]` in all four crates (the 12 remaining non-test `unwrap`s replaced); `cargo clippy --all-targets` clean for the four crates. Tests: qb-runtime 334, qb-audio 41, qb-float80 23, qb-ffi 18 (release, Windows).
 
-Reviewed without findings: fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
+Miri (nightly, `-Zmiri-disable-isolation`): qb-float80 21/21 (software transcendentals; x87 asm tests skipped), qb-ffi 7/7 pure tests, qb-runtime `qbs::` + `mem::` 26/26 after R14-5 (the 300k-string arena test and the huge-allocation test are skipped: too slow / resource exhaustion by design). No UB left in those.
+
+Property tests in qb-runtime (`src/props_tests.rs`): MBF single/double round trips (signed zero and underflow to MBF zero as legacy), HEX$/OCT$/_BIN$ parse back, STR$ of integers, VAL(STR$(x)) within 1e-14 for doubles, DEFLATE/INFLATE round trip within `deflate_bound`. No findings.
+
+Reviewed without findings: events ON KEY/ON STRIG slot ranges, net send/recv/address buffers, fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
 
 Open (not done in this pass):
 
 - String engine arithmetic is u32 like legacy: strings near 2 GB (`STRING$(2^31-1, 65)`) are not tested (they need the RAM); QB45 raised "Out of string space" (14).
 - QB45 vs legacy error codes: `LEFT$`/`SPACE$`/`STRING$` with negative counts return "" as the legacy QB64 build did (QB45: error 5); kept for golden compatibility.
-- H1 `cargo miri` (needs a nightly toolchain, not installed), H6 loom/ThreadSanitizer, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
+- miri for the rest of qb-runtime (GFS, gfx, console; needs a machine with spare memory), H6 loom/ThreadSanitizer for net, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
 - rustc on this machine crashed a few times while compiling dependencies (`STATUS_STACK_BUFFER_OVERRUN` in rustc, with plenty of free RAM); a rerun with `CARGO_BUILD_JOBS=1` worked.
 How the pieces fit
 
