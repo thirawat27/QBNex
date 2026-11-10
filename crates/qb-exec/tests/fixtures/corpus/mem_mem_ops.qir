@@ -1,0 +1,348 @@
+QIR 1
+meta console only
+type T__MEM 56
+field OFFSET i64 0
+field SIZE i64 8
+field __LOCK_ID i64 16
+field __LOCK_OFFSET i64 24
+field TYPE i64 32
+field ELEMENTSIZE i64 40
+field IMAGE i32 48
+field SOUND i32 52
+endtype
+global $__UDT_M udt:T__MEM
+global $__UDT_V udt:T__MEM
+global $__UDT_W udt:T__MEM
+global $__SINGLE_I f32
+global $__ARRAY_LONG_A array i32
+global $__DOUBLE_X f64
+global $__UDT_N udt:T__MEM
+func main
+local $~T1 u8
+local $~T2 f64
+local $~T3 f64
+local $~T4 f64
+local $~T5 i32
+line 4
+line 5
+addr %0 $__UDT_M
+const.i32 %1 16
+cvt.i64.i32 %2 %1
+rt _MEMNEW %0 %2
+line 6
+addr %3 $__UDT_M
+ld.i64 %4 %3 8
+rt %5 STR$.i64 %4
+const.str %6 x20
+concat %7 %5 %6
+const.i32 %8 0
+rt PRINTS %8 %7
+addr %9 $__UDT_M
+ld.i64 %10 %9 32
+rt %11 STR$.i64 %10
+const.str %12 x20
+concat %13 %11 %12
+const.i32 %14 0
+rt PRINTS %14 %13
+addr %15 $__UDT_M
+ld.i64 %16 %15 40
+rt %17 STR$.i64 %16
+const.str %18 x20
+concat %19 %17 %18
+const.i32 %20 0
+rt PRINTS %20 %19
+addr %21 $__UDT_M
+rt %22 _MEMEXISTS %21
+cvt.i64.i32 %23 %22
+rt %24 STR$.i64 %23
+const.str %25 x20
+concat %26 %24 %25
+const.i32 %27 0
+rt PRINTS %27 %26
+const.i32 %28 0
+rt PRINTNL %28
+line 7
+addr %29 $__UDT_M
+addr %30 $__UDT_M
+ld.i64 %31 %30 0
+const.i32 %32 16
+cvt.i64.i32 %33 %32
+const.i32 %34 65
+cvt.u8.i32 %35 %34
+store.u8 $~T1 %35
+addr %36 $~T1
+const.i64 %37 1
+rt _MEMFILLP %29 %31 %33 %36 %37
+line 8
+addr %38 $__UDT_M
+addr %39 $__UDT_M
+ld.i64 %40 %39 0
+const.i32 %41 2
+cvt.i64.i32 %42 %41
+add.i64 %43 %40 %42
+const.i32 %44 5
+cvt.i64.i32 %45 %44
+const.str %46 x78797A
+rt _MEMFILLS %38 %43 %45 %46
+line 9
+addr %47 $__UDT_M
+addr %48 $__UDT_M
+ld.i64 %49 %48 0
+const.i32 %50 10
+cvt.i64.i32 %51 %50
+add.i64 %52 %49 %51
+const.i32 %53 513
+cvt.i16.i32 %54 %53
+const.i64 %56 2
+rt %55 _MEMGETP %47 %52 %56
+st.i16 %55 0 %54
+line 10
+addr %57 $__UDT_M
+addr %58 $__UDT_M
+ld.i64 %59 %58 0
+const.i32 %60 6
+cvt.i64.i32 %61 %60
+addr %62 $__UDT_M
+addr %63 $__UDT_M
+ld.i64 %64 %63 0
+const.i32 %65 1
+cvt.i64.i32 %66 %65
+add.i64 %67 %64 %66
+rt _MEMCOPY %57 %59 %61 %62 %67
+line 11
+const.i32 %68 0
+cvt.f64.i32 %69 %68
+store.f64 $~T2 %69
+const.i32 %70 15
+cvt.f64.i32 %71 %70
+store.f64 $~T3 %71
+const.i32 %72 1
+cvt.f64.i32 %73 %72
+store.f64 $~T4 %73
+jmp ~F6.E
+label ~F6.T
+load.f32 %74 $__SINGLE_I
+cvt.f64.f32 %75 %74
+load.f64 %76 $~T4
+add.f64 %77 %76 %75
+store.f64 $~T2 %77
+label ~F6.E
+load.f64 %78 $~T2
+cvt.f32.f64 %79 %78
+store.f32 $__SINGLE_I %79
+load.f64 %80 $~T4
+const.f64 %81 0
+lt.f64 %82 %80 %81
+jz %82 ~F6.P
+load.f64 %83 $~T3
+lt.f64 %84 %78 %83
+jnz %84 ~F6.X
+jmp ~F6.B
+label ~F6.P
+load.f64 %85 $~T3
+gt.f64 %86 %78 %85
+jnz %86 ~F6.X
+label ~F6.B
+line 11
+addr %87 $__UDT_M
+addr %88 $__UDT_M
+ld.i64 %89 %88 0
+load.f32 %90 $__SINGLE_I
+cvt.i64.f32 %91 %90
+add.i64 %92 %89 %91
+const.i64 %94 1
+rt %93 _MEMGETP %87 %92 %94
+ld.u8 %95 %93 0
+cvt.i64.u8 %96 %95
+rt %97 STR$.i64 %96
+const.str %98 x20
+concat %99 %97 %98
+const.i32 %100 0
+rt PRINTS %100 %99
+line 11
+label ~F6.C
+jmp ~F6.T
+label ~F6.X
+line 12
+const.i32 %101 0
+rt PRINTNL %101
+line 13
+addr %102 $__UDT_M
+addr %103 $__UDT_M
+ld.i64 %104 %103 0
+const.i32 %105 10
+cvt.i64.i32 %106 %105
+add.i64 %107 %104 %106
+const.i64 %109 2
+rt %108 _MEMGETP %102 %107 %109
+ld.i16 %110 %108 0
+cvt.i64.i16 %111 %110
+rt %112 STR$.i64 %111
+const.str %113 x20
+concat %114 %112 %113
+const.i32 %115 0
+rt PRINTS %115 %114
+const.i32 %116 0
+rt PRINTNL %116
+line 14
+const.i32 %117 1
+const.i32 %118 4
+dim $__ARRAY_LONG_A 1 %117 %118
+line 15
+addr %119 $__UDT_V
+aref %120 $__ARRAY_LONG_A
+rt %121 _ARRADDR %120
+rt %122 _ARRBYTES %120
+const.i64 %123 4
+const.i64 %124 65668
+rt _MEMVAR %119 %121 %122 %124 %123
+line 16
+addr %125 $__UDT_V
+ld.i64 %126 %125 8
+rt %127 STR$.i64 %126
+const.str %128 x20
+concat %129 %127 %128
+const.i32 %130 0
+rt PRINTS %130 %129
+addr %131 $__UDT_V
+ld.i64 %132 %131 40
+rt %133 STR$.i64 %132
+const.str %134 x20
+concat %135 %133 %134
+const.i32 %136 0
+rt PRINTS %136 %135
+addr %137 $__UDT_V
+ld.i64 %138 %137 32
+rt %139 STR$.i64 %138
+const.str %140 x20
+concat %141 %139 %140
+const.i32 %142 0
+rt PRINTS %142 %141
+const.i32 %143 0
+rt PRINTNL %143
+line 17
+addr %144 $__UDT_V
+addr %145 $__UDT_V
+ld.i64 %146 %145 0
+addr %147 $__UDT_V
+ld.i64 %148 %147 8
+const.i32 %149 -1
+store.i32 $~T5 %149
+addr %150 $~T5
+const.i64 %151 4
+rt _MEMFILLP %144 %146 %148 %150 %151
+line 18
+addr %152 $__UDT_V
+addr %153 $__UDT_V
+ld.i64 %154 %153 0
+const.i32 %155 4
+cvt.i64.i32 %156 %155
+add.i64 %157 %154 %156
+const.i32 %158 12345
+const.i64 %160 4
+rt %159 _MEMGETP %152 %157 %160
+st.i32 %159 0 %158
+line 19
+const.i32 %161 1
+aaddr %162 $__ARRAY_LONG_A %161
+ld.i32 %163 %162 0
+cvt.i64.i32 %164 %163
+rt %165 STR$.i64 %164
+const.str %166 x20
+concat %167 %165 %166
+const.i32 %168 0
+rt PRINTS %168 %167
+const.i32 %169 2
+aaddr %170 $__ARRAY_LONG_A %169
+ld.i32 %171 %170 0
+cvt.i64.i32 %172 %171
+rt %173 STR$.i64 %172
+const.str %174 x20
+concat %175 %173 %174
+const.i32 %176 0
+rt PRINTS %176 %175
+const.i32 %177 3
+aaddr %178 $__ARRAY_LONG_A %177
+ld.i32 %179 %178 0
+cvt.i64.i32 %180 %179
+rt %181 STR$.i64 %180
+const.str %182 x20
+concat %183 %181 %182
+const.i32 %184 0
+rt PRINTS %184 %183
+const.i32 %185 0
+rt PRINTNL %185
+line 20
+const.f64 %186 2.5E+0
+store.f64 $__DOUBLE_X %186
+line 21
+addr %187 $__UDT_W
+addr %188 $__DOUBLE_X
+const.i64 %189 8
+const.i64 %190 264
+const.i64 %191 8
+rt _MEMVAR %187 %188 %191 %190 %189
+line 22
+addr %192 $__UDT_W
+ld.i64 %193 %192 8
+rt %194 STR$.i64 %193
+const.str %195 x20
+concat %196 %194 %195
+const.i32 %197 0
+rt PRINTS %197 %196
+addr %198 $__UDT_W
+ld.i64 %199 %198 32
+rt %200 STR$.i64 %199
+const.str %201 x20
+concat %202 %200 %201
+const.i32 %203 0
+rt PRINTS %203 %202
+addr %204 $__UDT_W
+addr %205 $__UDT_W
+ld.i64 %206 %205 0
+const.i64 %208 8
+rt %207 _MEMGETP %204 %206 %208
+ld.f64 %209 %207 0
+rt %210 STR$.f64 %209
+const.str %211 x20
+concat %212 %210 %211
+const.i32 %213 0
+rt PRINTS %213 %212
+const.i32 %214 0
+rt PRINTNL %214
+line 23
+line 24
+addr %215 $__UDT_N
+const.i32 %216 0
+cvt.i64.i32 %217 %216
+rt _MEMNEW %215 %217
+line 25
+addr %218 $__UDT_N
+ld.i64 %219 %218 8
+rt %220 STR$.i64 %219
+const.str %221 x20
+concat %222 %220 %221
+const.i32 %223 0
+rt PRINTS %223 %222
+addr %224 $__UDT_N
+ld.i64 %225 %224 0
+const.i32 %226 0
+cvt.i64.i32 %227 %226
+ne.i64 %228 %225 %227
+cvt.i64.i32 %229 %228
+rt %230 STR$.i64 %229
+const.str %231 x20
+concat %232 %230 %231
+const.i32 %233 0
+rt PRINTS %233 %232
+const.i32 %234 0
+rt PRINTNL %234
+line 26
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

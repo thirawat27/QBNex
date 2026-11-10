@@ -269,7 +269,7 @@ flowchart LR
 | --- | --- | --- |
 | R10 | ลบ third-party และไฟล์ค้าง (`internal/c/parts/**` ที่ไม่ใช้, `gl.h`, bridge ที่ไม่จำเป็น, zlib, license ของ lib ที่ถูกลบ) | build + conformance + smoke ผ่าน |
 | R12 | port ส่วนที่เหลือของ `libqb.cpp` (PRINT/INPUT/LOCATE/COLOR/text mode, keyboard, error handler, DATA/READ, arrays, event loop) เข้า `qb-runtime` เป็น Rust API ที่ `qb-exec` เรียกได้ตรง; C++ เหลือแค่ shim | `libqb.cpp` เหลือเฉพาะ shim; diff/conformance ผ่าน |
-| R11 เต็ม | QIR v1 ใน pipeline จริง (`evaluate$` → QIR), ครอบคลุมภาษาเต็ม, typed VM, Cranelift JIT, self-host ผ่าน QIR | conformance ทุก case ผ่านทั้งสอง backend; compiler self-host ผ่าน QIR |
+| R11 เต็ม | QIR ใน pipeline จริง (`evaluate$` → QIR), ครอบคลุมภาษาเต็ม, typed VM, Cranelift JIT — **pipeline เดียว (§9.3a)**, self-host ผ่าน QIR | conformance ทุก case ผ่านทั้งสอง backend; compiler self-host ผ่าน QIR |
 | Cutover | QIR เป็น default; ลบ `qbx.cpp`, `libqb.cpp`, `internal/source` C++ (แทนด้วย `bootstrap/qbnex.qir`), `makeline_*`, การดาวน์โหลด MinGW, `tests/diff` legacy | ไม่มีไฟล์ `.c/.cpp/.h` ใน repo; build ไม่ต้องใช้ C/C++ compiler |
 
 ### 9.3 การตัดสินใจ (D11–D14)
@@ -279,6 +279,13 @@ flowchart LR
 - **D14 `SUB _GL`:** คงเป็น deviation D-09 ตอน cutover; นำกลับผ่าน OpenGL จาก Rust เป็นงานหลัง port
 - **D15 Native AOT:** `qb file.bas` สร้าง exe แบบ native เป็นค่าเริ่มต้น: Cranelift สร้าง machine code ตอน compile (`cranelift-object`), linker เล็กที่เขียนเอง (`crates/qb-link`, crate `object`) เขียน PE/ELF/Mach-O ที่รวมโค้ดโปรแกรมกับ runtime ที่ build ไว้ — ไม่ต้องมี linker ภายนอก ไม่มี C/C++. `qb run` ใช้ VM+JIT. Gate: ผลตรงกับ VM ทุก case, ไม่มี warm-up, loop ≤ 2x ของ C++ path
 - **D16 Rust ล่าสุด:** Rust edition 2024 ทุก crate, toolchain stable ล่าสุด (ตอนนี้ 1.99.1) ปักใน `rust-toolchain.toml`, `rust-version` = toolchain นั้น, dependency ทุกตัวเป็นเวอร์ชันล่าสุด (`cargo upgrade --incompatible` + `cargo update`), `cargo deny`/`cargo audit` ใน CI. ทำเป็นขั้นแยกทันทีหลัง merge R10–R12/R11 (ก่อน cutover) เพราะ migration edition 2024 แตะทุก `#[no_mangle]`/`extern` และจะ conflict กับ session ที่กำลังทำงาน; crate ใหม่ที่สร้างระหว่างนี้ใช้ edition 2024 + dependency ล่าสุดได้เลย
+
+### 9.3a R11 — pipeline เดียว (ทำแล้ว 2026-11-11)
+เจ้าของสั่งว่า "ไม่ต้องแยกเวอร์ชั่นแบบนั้น ทำรวมกันมาเป็นอันเดียว" จึงเหลือทางรันเดียว:
+
+`compiler (BASIC) --ir` → **QIR** (ข้อความ, `crates/qb-ir`: parse + validate + ตาราง builtin) → `qb-exec::lower` → **bytecode แบบ typed register ชุดเดียว** (`crates/qb-exec/src/bytecode.rs`) → **VM ตัวเดียว** (`vm.rs`) ซึ่งเรียก runtime ผ่าน `rt::Host` อันเดียว (`rt/`: PRINT, ไฟล์, string, `_MEM`, TCP, เสียง) → ส่วนที่ร้อนของ bytecode **เดียวกัน** ถูก compile เป็น native ด้วย Cranelift (`jit.rs` + `qb-jit`, ทั้ง JIT และ AOT `qb-exec build` ผ่าน `qb-link`)
+
+ลบออกแล้ว: format/loader QIR v0 (`lower.rs` เดิม, `value.rs`, `builtins.rs`), reference interpreter แบบ tree-walk (`v1.rs`), คำสั่ง bytecode ที่ใช้เฉพาะ v0, test ของ v0. MIR ของ `qb-jit` คงไว้เพราะเป็น IR สำหรับ codegen ของ Cranelift; interpreter ของ MIR ย้ายไปเป็น oracle ใน test (`crates/qb-jit/tests/common/interp.rs`) ไม่อยู่ใน library. เลข version ใน header `QIR 1` เป็น version ของ file format เท่านั้น
 
 ### 9.4 R13 — ฟีเจอร์ภาษาใหม่ที่ QBasic ยังขาด (ทำในข้อจำกัดปัจจุบัน)
 

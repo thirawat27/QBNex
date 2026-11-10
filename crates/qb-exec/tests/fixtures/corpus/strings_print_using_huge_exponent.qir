@@ -1,0 +1,32 @@
+QIR 1
+meta console only
+global $__FLOAT_X f80
+func main
+line 2
+const.str %0 x312E31383937333134393533353732333137363530324534393332
+rt %1 VAL.f80 %0
+store.f80 $__FLOAT_X %1
+line 3
+const.str %2 x232E2323232323232323232323232323235E5E5E5E
+const.i32 %3 0
+rt USINGBEGIN %3 %2
+load.f80 %4 $__FLOAT_X
+rt USINGN.f80 %4
+rt USINGEND
+const.i32 %5 0
+rt PRINTNL %5
+line 4
+const.str %6 x7374696C6C20616C697665
+const.i32 %7 0
+rt PRINTS %7 %6
+const.i32 %8 0
+rt PRINTNL %8
+line 5
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

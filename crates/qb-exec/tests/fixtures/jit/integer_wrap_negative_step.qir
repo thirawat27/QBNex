@@ -1,0 +1,80 @@
+QIR 1
+global $__INTEGER_K i16
+global $__INTEGER_I i16
+func main
+local $~T1 i32
+local $~T2 i32
+local $~T3 i32
+line 1
+const.i32 %0 30000
+cvt.i16.i32 %1 %0
+store.i16 $__INTEGER_K %1
+line 2
+const.i32 %2 10
+store.i32 $~T1 %2
+const.i32 %3 1
+store.i32 $~T2 %3
+const.i32 %4 -3
+store.i32 $~T3 %4
+jmp ~F1.E
+label ~F1.T
+load.i16 %5 $__INTEGER_I
+cvt.i32.i16 %6 %5
+load.i32 %7 $~T3
+add.i32 %8 %7 %6
+store.i32 $~T1 %8
+label ~F1.E
+load.i32 %9 $~T1
+cvt.i16.i32 %10 %9
+store.i16 $__INTEGER_I %10
+load.i32 %11 $~T3
+const.i32 %12 0
+lt.i32 %13 %11 %12
+jz %13 ~F1.P
+load.i32 %14 $~T2
+lt.i32 %15 %9 %14
+jnz %15 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i32 %16 $~T2
+gt.i32 %17 %9 %16
+jnz %17 ~F1.X
+label ~F1.B
+line 3
+load.i16 %18 $__INTEGER_K
+const.i32 %19 3
+cvt.i32.i16 %20 %18
+mul.i32 %21 %20 %19
+load.i16 %22 $__INTEGER_I
+cvt.i32.i16 %23 %22
+add.i32 %24 %21 %23
+cvt.i16.i32 %25 %24
+store.i16 $__INTEGER_K %25
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+load.i16 %26 $__INTEGER_K
+cvt.i64.i16 %27 %26
+rt %28 STR$.i64 %27
+const.str %29 x20
+concat %30 %28 %29
+const.i32 %31 0
+rt PRINTS %31 %30
+load.i16 %32 $__INTEGER_I
+cvt.i64.i16 %33 %32
+rt %34 STR$.i64 %33
+const.str %35 x20
+concat %36 %34 %35
+const.i32 %37 0
+rt PRINTS %37 %36
+const.i32 %38 0
+rt PRINTNL %38
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

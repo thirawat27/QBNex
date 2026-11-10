@@ -23,6 +23,9 @@ SRC_UTF16="$TMPDIR/utf16_source.bas"
 SRC_INVALID="$TMPDIR/invalid_utf8_source.bas"
 SRC_INVALID_MID="$TMPDIR/invalid_utf8_mid_source.bas"
 SRC_BOM="$TMPDIR/utf8_bom_source.bas"
+SRC_CP437="$TMPDIR/cp437_source.bas"
+BIN_CP437="$TMPDIR/cp437_output"
+OUT_CP437="$TMPDIR/cp437_output.txt"
 SRC_EMPTY="$TMPDIR/empty_source.bas"
 SRC_SPACE_DIR="$TMPDIR/source with spaces"
 SRC_SPACE="$SRC_SPACE_DIR/hello world.bas"
@@ -46,8 +49,9 @@ OUT_QUOTE="$TMPDIR/apostrophe_path_output.txt"
 OUT_STALE="$TMPDIR/stale_output.txt"
 
 printf '\377\376P\000R\000I\000N\000T\000 \000"\000h\000i\000"\000\r\000\n\000' > "$SRC_UTF16"
-printf 'PRINT "\377"\r\n' > "$SRC_INVALID"
-printf 'PRINT "ok"\r\nPRINT "\377"\r\n' > "$SRC_INVALID_MID"
+printf '\357\273\277PRINT "\377"\r\n' > "$SRC_INVALID"
+printf 'PRINT "\342\224\200\342\224\202"\r\nPRINT "\377"\r\n' > "$SRC_INVALID_MID"
+printf "' \272 comment\r\nPRINT \"\311\315\273\"\r\n" > "$SRC_CP437"
 printf '\357\273\277PRINT "hi"\r\n' > "$SRC_BOM"
 : > "$SRC_EMPTY"
 mkdir -p "$SRC_SPACE_DIR" "$TMPDIR/output with spaces"
@@ -67,6 +71,9 @@ EC_INVALID_MID=$?
 
 "$QB" "$SRC_BOM" -o "$BIN_BOM" > "$OUT_BOM" 2>&1
 EC_BOM=$?
+
+"$QB" "$SRC_CP437" -o "$BIN_CP437" > "$OUT_CP437" 2>&1
+EC_CP437=$?
 
 "$QB" "$SRC_EMPTY" -o "$BIN_EMPTY" > "$OUT_EMPTY" 2>&1
 EC_EMPTY=$?
@@ -102,7 +109,7 @@ if [ -f "$BIN_UTF16" ]; then
 fi
 
 if [ "$EC_INVALID" -eq 0 ]; then
-  echo "[FAIL] Invalid UTF-8 source should fail compilation."
+  echo "[FAIL] UTF-8 BOM source with an invalid byte should fail compilation."
   FAIL=1
 fi
 grep -F "Invalid UTF-8 byte sequence detected in source file" "$OUT_INVALID" >/dev/null 2>&1 || {
@@ -119,7 +126,7 @@ if [ -f "$BIN_INVALID" ]; then
 fi
 
 if [ "$EC_INVALID_MID" -eq 0 ]; then
-  echo "[FAIL] Mid-file invalid UTF-8 source should fail compilation."
+  echo "[FAIL] UTF-8 source with a stray invalid byte should fail compilation."
   FAIL=1
 fi
 grep -F "Invalid UTF-8 byte sequence detected in source file" "$OUT_INVALID_MID" >/dev/null 2>&1 || {
@@ -132,6 +139,11 @@ grep -F "Build complete:" "$OUT_INVALID_MID" >/dev/null 2>&1 && {
 }
 if [ -f "$BIN_INVALID_MID" ]; then
   echo "[FAIL] Mid-file invalid UTF-8 compilation should not emit an executable."
+  FAIL=1
+fi
+
+if [ "$EC_CP437" -ne 0 ] || [ ! -f "$BIN_CP437" ]; then
+  echo "[FAIL] CP437 source should compile successfully."
   FAIL=1
 fi
 

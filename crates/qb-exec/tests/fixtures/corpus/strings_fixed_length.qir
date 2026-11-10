@@ -1,0 +1,88 @@
+QIR 1
+meta console only
+global $__STRING5_F fstr:5
+global $__STRING6_L fstr:6
+func main
+line 2
+line 3
+const.str %0 x6162
+store.str $__STRING5_F %0
+line 4
+const.str %1 x5B
+const.i32 %2 0
+rt PRINTS %2 %1
+load.str %3 $__STRING5_F
+const.i32 %4 0
+rt PRINTS %4 %3
+const.str %5 x5D
+const.i32 %6 0
+rt PRINTS %6 %5
+load.str %7 $__STRING5_F
+rt %8 LEN %7
+cvt.i64.i32 %9 %8
+rt %10 STR$.i64 %9
+const.str %11 x20
+concat %12 %10 %11
+const.i32 %13 0
+rt PRINTS %13 %12
+const.i32 %14 0
+rt PRINTNL %14
+line 5
+const.str %15 x6162636465666768
+store.str $__STRING5_F %15
+line 6
+const.str %16 x5B
+const.i32 %17 0
+rt PRINTS %17 %16
+load.str %18 $__STRING5_F
+const.i32 %19 0
+rt PRINTS %19 %18
+const.str %20 x5D
+const.i32 %21 0
+rt PRINTS %21 %20
+const.i32 %22 0
+rt PRINTNL %22
+line 7
+line 8
+load.str %23 $__STRING6_L
+const.str %24 x7879
+rt %25 LSET %23 %24
+store.str $__STRING6_L %25
+line 8
+const.str %26 x5B
+const.i32 %27 0
+rt PRINTS %27 %26
+load.str %28 $__STRING6_L
+const.i32 %29 0
+rt PRINTS %29 %28
+const.str %30 x5D
+const.i32 %31 0
+rt PRINTS %31 %30
+const.i32 %32 0
+rt PRINTNL %32
+line 9
+load.str %33 $__STRING6_L
+const.str %34 x7879
+rt %35 RSET %33 %34
+store.str $__STRING6_L %35
+line 9
+const.str %36 x5B
+const.i32 %37 0
+rt PRINTS %37 %36
+load.str %38 $__STRING6_L
+const.i32 %39 0
+rt PRINTS %39 %38
+const.str %40 x5D
+const.i32 %41 0
+rt PRINTS %41 %40
+const.i32 %42 0
+rt PRINTNL %42
+line 10
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

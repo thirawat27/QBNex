@@ -1,0 +1,87 @@
+QIR 1
+meta console only
+global $__STRING_M str
+datalabel L_OV
+func main
+line 2
+onerror L_OV
+line 3
+const.f64 %0 3.0E+38
+cvt.f32.f64 %1 %0
+rt %2 MKSMBF$ %1
+store.str $__STRING_M %2
+line 4
+const.str %3 x73696E676C652033452B3338206C656E
+const.i32 %4 0
+rt PRINTS %4 %3
+load.str %5 $__STRING_M
+rt %6 LEN %5
+cvt.i64.i32 %7 %6
+rt %8 STR$.i64 %7
+const.str %9 x20
+concat %10 %8 %9
+const.i32 %11 0
+rt PRINTS %11 %10
+const.i32 %12 0
+rt PRINTNL %12
+line 5
+const.f64 %13 1.0E+300
+rt %14 MKDMBF$ %13
+store.str $__STRING_M %14
+line 6
+const.str %15 x646F75626C652031442B333030206C656E
+const.i32 %16 0
+rt PRINTS %16 %15
+load.str %17 $__STRING_M
+rt %18 LEN %17
+cvt.i64.i32 %19 %18
+rt %20 STR$.i64 %19
+const.str %21 x20
+concat %22 %20 %21
+const.i32 %23 0
+rt PRINTS %23 %22
+const.i32 %24 0
+rt PRINTNL %24
+line 7
+const.f64 %25 -0E+0
+rt %26 MKDMBF$ %25
+store.str $__STRING_M %26
+line 8
+const.str %27 x646F75626C65202D30206C656E
+const.i32 %28 0
+rt PRINTS %28 %27
+load.str %29 $__STRING_M
+rt %30 LEN %29
+cvt.i64.i32 %31 %30
+rt %32 STR$.i64 %31
+const.str %33 x20
+concat %34 %32 %33
+const.i32 %35 0
+rt PRINTS %35 %34
+const.i32 %36 0
+rt PRINTNL %36
+line 9
+system
+label L_OV
+line 11
+const.str %37 x6F766572666C6F77206572726F72
+const.i32 %38 0
+rt PRINTS %38 %37
+rt %39 ERR
+cvt.i64.i32 %40 %39
+rt %41 STR$.i64 %40
+const.str %42 x20
+concat %43 %41 %42
+const.i32 %44 0
+rt PRINTS %44 %43
+const.i32 %45 0
+rt PRINTNL %45
+line 12
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
