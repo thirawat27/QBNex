@@ -111,10 +111,9 @@ pub fn run(src: &str, stdin: &[u8]) -> Outcome {
 /// Allocates `n` bytes for the page to write into (freed by [`qb_web_free`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_web_alloc(n: usize) -> *mut u8 {
-    let mut v = vec![0u8; n.max(1)];
-    let p = v.as_mut_ptr();
-    std::mem::forget(v);
-    p
+    // A boxed slice has exactly `n` bytes, which `qb_web_free` relies on
+    // (R14: Vec::from_raw_parts needs the original capacity).
+    Box::into_raw(vec![0u8; n.max(1)].into_boxed_slice()).cast()
 }
 
 /// # Safety
@@ -123,7 +122,7 @@ pub extern "C" fn qb_web_alloc(n: usize) -> *mut u8 {
 pub unsafe extern "C" fn qb_web_free(p: *mut u8, n: usize) {
     if !p.is_null() {
         // SAFETY: allocated by qb_web_alloc with this length.
-        drop(unsafe { Vec::from_raw_parts(p, n.max(1), n.max(1)) });
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, n.max(1))) });
     }
 }
 
