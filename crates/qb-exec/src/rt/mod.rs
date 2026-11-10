@@ -91,7 +91,6 @@ pub(crate) fn fround(t: Ty, v: f64) -> f64 {
 
 pub(crate) enum Stop {
     Err(i32),
-    Exit(i32),
 }
 
 pub(crate) type R<T> = Result<T, Stop>;

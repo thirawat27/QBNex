@@ -308,13 +308,6 @@ fn irem(x: i64, y: i64, w: W) -> i64 {
     }
 }
 
-fn stop_code(s: Stop) -> i32 {
-    match s {
-        Stop::Err(c) => c,
-        Stop::Exit(_) => 0,
-    }
-}
-
 fn rt_f(v: &V) -> f64 {
     match v {
         V::F(f) => *f,
@@ -621,10 +614,6 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
-    fn emit(&mut self, bytes: &[u8]) -> Result<(), i32> {
-        self.rt.write(0, bytes).map_err(stop_code)
-    }
-
     /// QIR v1 `rt` builtin through the shared runtime. `Ok(Some(code))` = the program exits.
     fn rt_call(&mut self, f: u32, d: R, args: u32) -> Result<Option<i32>, i32> {
         let m = self.m;
@@ -659,7 +648,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ok(None)
             }
-            Err(Stop::Exit(c)) => Ok(Some(c)),
             Err(Stop::Err(c)) => Err(c),
         }
     }
@@ -775,21 +763,6 @@ impl<'m, 'o> Vm<'m, 'o> {
             _ => return Err(13),
         }
         Ok(())
-    }
-
-    fn swap(&mut self, p: u32, q: u32) -> Result<(), i32> {
-        let (p, q) = (self.m.places[p as usize], self.m.places[q as usize]);
-        let cx = self.cur_ctx();
-        let x = self.place_take(p, cx)?;
-        let y = match self.place_take(q, cx) {
-            Ok(y) => y,
-            Err(e) => {
-                self.place_put(p, cx, x)?;
-                return Err(e);
-            }
-        };
-        self.place_put(p, cx, y)?;
-        self.place_put(q, cx, x)
     }
 
     // ------------------------------------------------------------ calls
@@ -1241,6 +1214,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if if s < 0 { x >= l } else { x <= l } {
                         pc = body;
                         poll!();
+                        jit!();
                     }
                 }
                 Ins::Gosub { t } => {

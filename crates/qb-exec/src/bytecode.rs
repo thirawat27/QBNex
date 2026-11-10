@@ -533,7 +533,6 @@ pub enum Opnd {
     Place(u32),
     Call(u32),
     Func(u32),
-    Bi(u32),
     /// rt builtin + destination (bank from its result type, `NONE` = none)
     Rt(u32, R),
     BArgs(u32),
@@ -578,12 +577,9 @@ impl Ins {
             | And { d, a, b }
             | Or { d, a, b }
             | Xor { d, a, b }
-
-
             | AddF { d, a, b }
             | SubF { d, a, b }
             | MulF { d, a, b }
-
             | PowF { d, a, b }
             | CmpI { d, a, b, .. }
             | CmpF { d, a, b, .. }
@@ -806,6 +802,7 @@ impl Ins {
                 f(O::N(dim))
             }
             Restore { i } => f(O::Data(i)),
+            ReadS { d } => f(O::S(d)),
         }
     }
 
@@ -915,6 +912,7 @@ impl Ins {
             StE1S { .. } => "ste1.s".into(),
             Bound { upper, .. } => if upper { "ubound" } else { "lbound" }.into(),
             Restore { .. } => "restore".into(),
+            ReadS { .. } => "read.s".into(),
         }
     }
 
@@ -930,7 +928,6 @@ impl Ins {
             | IToF { d, .. }
             | IToFU { d, .. }
             | CmpU { d, .. }
-
             | Wrap { d, .. }
             | RoundF32 { d, .. }
             | CvtFI { d, .. }
@@ -951,12 +948,9 @@ impl Ins {
             | And { d, .. }
             | Or { d, .. }
             | Xor { d, .. }
-
-
             | AddF { d, .. }
             | SubF { d, .. }
             | MulF { d, .. }
-
             | PowF { d, .. }
             | Un { d, .. }
             | CmpI { d, .. }
@@ -992,14 +986,10 @@ impl Ins {
             | Loop { t }
             | JzI { t, .. }
             | JnzI { t, .. }
-
-
             | BrI { t, .. }
             | BrF { t, .. }
             | BrS { t, .. }
             | BrU { t, .. }
-
-
             | ForTestKI { t, .. }
             | ForTestKF { t, .. }
             | Gosub { t }
@@ -1029,7 +1019,6 @@ fn fmt_opnd(o: Opnd) -> String {
         Opnd::Place(p) => format!("place{p}"),
         Opnd::Call(c) => format!("desc{c}"),
         Opnd::Func(f) => format!("f{f}"),
-        Opnd::Bi(b) => format!("bi{b}"),
         Opnd::Rt(b, d) if d == NONE => format!("rt{b}"),
         Opnd::Rt(b, d) => format!("rt{b} -> {d}"),
         Opnd::BArgs(a) => format!("args{a}"),
@@ -1121,11 +1110,6 @@ impl Module {
                         }
                     }
                 }
-                if let Ins::Swap { p, q } = *ins {
-                    for x in [p, q] {
-                        self.check_place(f, main, &self.places[x as usize])?;
-                    }
-                }
                 if let Ins::Rt { args, .. } = *ins {
                     for &(r, ty) in &self.bargs[args as usize] {
                         let ok = match ty {
@@ -1194,7 +1178,6 @@ impl Module {
             Opnd::Place(p) => (p as usize) < self.places.len(),
             Opnd::Call(c) => (c as usize) < self.calls.len(),
             Opnd::Func(x) => (x as usize) < self.funcs.len(),
-            Opnd::Bi(b) => (b as usize) < self.bfns.len(),
             Opnd::Rt(b, d) => match self.rtfns.get(b as usize) {
                 None => false,
                 Some((_, None)) => d == NONE,

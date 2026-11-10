@@ -41,16 +41,21 @@ fn light(ins: &Ins) -> bool {
     use Ins::*;
     match ins {
         // native code wraps to INTEGER / LONG / _INTEGER64 only
-        FToI { w, .. } | Wrap { w, .. } | IDiv { w, .. } | Mod { w, .. } if !matches!(w, W::W16 | W::W32 | W::W64) => false,
-        Ldi { .. } | Ldk { .. } | Mov { .. } | GetG { .. } | SetG { .. } | IToF { .. } | FToI { .. } | Wrap { .. }
+        Wrap { w, .. } | IDiv { w, .. } | Mod { w, .. } if !matches!(w, W::W16 | W::W32 | W::W64) => false,
+        Ldi { .. } | Ldk { .. } | Mov { .. } | GetG { .. } | SetG { .. } | IToF { .. } | Wrap { .. }
         | RoundF32 { .. } | AddI16 { .. } | AddI32 { .. } | AddI64 { .. } | SubI16 { .. } | SubI32 { .. }
         | SubI64 { .. } | MulI16 { .. } | MulI32 { .. } | MulI64 { .. } | IDiv { .. } | Mod { .. } | And { .. }
-        | Or { .. } | Xor { .. } | Eqv { .. } | Imp { .. } | AddF { .. } | SubF { .. } | MulF { .. } | DivF { .. }
+        | Or { .. } | Xor { .. } | AddF { .. } | SubF { .. } | MulF { .. }
         | PowF { .. } | CmpI { .. } | CmpF { .. } | Jmp { .. } | Loop { .. } | JzI { .. } | JnzI { .. }
-        | JzF { .. } | JnzF { .. } | BrI { .. } | BrF { .. } | ForTestI { .. } | ForTestF { .. }
-        | ForNextI { .. } | LdE1 { .. } | StE1 { .. } | Gosub { .. } | Return => true,
+        | BrI { .. } | BrF { .. }
+        | LdE1 { .. } | StE1 { .. } | Gosub { .. } | Return => true,
         LdE { n, .. } | StE { n, .. } => *n <= 2,
-        Un { op, .. } => !matches!(op, bc::Un::Log | bc::Un::Exp | bc::Un::Sin | bc::Un::Cos | bc::Un::Tan | bc::Un::Atn),
+        // the emitter's FOR loop and accumulation shapes
+        ForTestKI { .. } | ForTestKF { .. } => true,
+        LoopForI { w, .. } | Acc { wi: w, .. } => matches!(w, W::W16 | W::W32 | W::W64),
+        // float -> integer with qbr (CINT), wrapped: no error
+        CvtFI { w, trunc: false, .. } => matches!(w, W::W16 | W::W32 | W::W64),
+        Un { .. } => true,
         _ => false,
     }
 }
@@ -62,7 +67,7 @@ fn vm_bound_headers(m: &bc::Module) -> Vec<bool> {
     for (pc, ins) in m.code.iter().enumerate() {
         let t = match *ins {
             Ins::Loop { t } => t,
-            Ins::ForNextI { body, .. } => body,
+            Ins::LoopForI { body, .. } => body,
             _ => continue,
         };
         if t as usize > pc {
@@ -99,11 +104,6 @@ fn vm_safe(ins: &Ins) -> bool {
             | Left { .. }
             | Right { .. }
             | Mid { .. }
-            | Bi { .. }
-            | PrintS { .. }
-            | PrintN { .. }
-            | PrintZone
-            | PrintNl
             | CmpS { .. }
             | Dim { .. }
             | LdE { .. }
@@ -115,13 +115,7 @@ fn vm_safe(ins: &Ins) -> bool {
             | LdE1S { .. }
             | StE1S { .. }
             | Bound { .. }
-            | Swap { .. }
-            | Read { .. }
             | Restore { .. }
-            | Randomize { .. }
-            | Rnd { .. }
-            | Err { .. }
-            | Erl { .. }
             | Raise { .. }
             | Un { .. }
             | Call { .. }
@@ -137,9 +131,6 @@ fn exits(ins: &Ins) -> bool {
             | End
             | OnError { .. }
             | Resume { .. }
-            | OnEvent { .. }
-            | EventCtl { .. }
-            | OnTimer { .. }
             | BrS { .. }
     )
 }
@@ -164,14 +155,11 @@ fn ends_block(ins: &Ins) -> bool {
                 | Loop { .. }
                 | JzI { .. }
                 | JnzI { .. }
-                | JzF { .. }
-                | JnzF { .. }
                 | BrI { .. }
                 | BrF { .. }
-                | ForTestI { .. }
-                | ForTestF { .. }
-                | ForNextI { .. }
-                | RaiseK { .. }
+                | ForTestKI { .. }
+                | ForTestKF { .. }
+                | LoopForI { .. }
                 | Gosub { .. }
                 | Return
         )
@@ -203,11 +191,6 @@ fn frame_regs(m: &bc::Module, ins: &Ins, n: u32, is_main: bool) -> Vec<u32> {
         }
         if let (Some(d), Some((bc::Slot::N(_), _))) = (c.dest, m.funcs[*f as usize].ret) {
             add(d);
-        }
-    }
-    if let Ins::Bi { f, d, .. } = ins {
-        if m.bfns[*f as usize].1 != bc::Ty::Str {
-            add(*d);
         }
     }
     ins.operands(&mut |o| match o {
@@ -247,7 +230,6 @@ fn classes(m: &bc::Module, f: &bc::Func) -> Vec<Class> {
         use Ins::*;
         let (iv, fv): (Vec<u32>, Vec<u32>) = match *ins {
             IToF { d, s } => (vec![s], vec![d]),
-            FToI { d, s, .. } => (vec![d], vec![s]),
             Wrap { d, s, .. } => (vec![d, s], vec![]),
             RoundF32 { d, s } => (vec![], vec![d, s]),
             AddI16 { d, a, b }
@@ -264,23 +246,18 @@ fn classes(m: &bc::Module, f: &bc::Func) -> Vec<Class> {
             | And { d, a, b }
             | Or { d, a, b }
             | Xor { d, a, b }
-            | Eqv { d, a, b }
-            | Imp { d, a, b } => (vec![d, a, b], vec![]),
-            AddF { d, a, b } | SubF { d, a, b } | MulF { d, a, b } | DivF { d, a, b } | PowF { d, a, b } => {
+
+ => (vec![d, a, b], vec![]),
+            AddF { d, a, b } | SubF { d, a, b } | MulF { d, a, b } | PowF { d, a, b } => {
                 (vec![], vec![d, a, b])
             }
             CmpI { d, a, b, .. } => (vec![d, a, b], vec![]),
             CmpF { d, a, b, .. } => (vec![d], vec![a, b]),
             JzI { s, .. } | JnzI { s, .. } => (vec![s], vec![]),
-            JzF { s, .. } | JnzF { s, .. } => (vec![], vec![s]),
             BrI { a, b, .. } => (vec![a, b], vec![]),
             BrF { a, b, .. } => (vec![], vec![a, b]),
-            ForTestI { v, lim, step, .. } => (vec![v, lim, step], vec![]),
-            ForTestF { v, lim, step, .. } => (vec![], vec![v, lim, step]),
-            ForNextI { v, step, lim, .. } => (vec![v, step, lim], vec![]),
             Un { op, d, s } => match op {
-                bc::Un::NegI(_) | bc::Un::Not | bc::Un::AbsI(_) | bc::Un::SgnI => (vec![d, s], vec![]),
-                bc::Un::SgnF => (vec![d], vec![s]),
+                bc::Un::NegI(_) | bc::Un::Not => (vec![d, s], vec![]),
                 _ => (vec![], vec![d, s]),
             },
             _ => (vec![], vec![]),
@@ -381,6 +358,7 @@ impl Lower<'_> {
         t
     }
 
+    #[allow(dead_code)]
     fn konst_f(&mut self, v: f64) -> u32 {
         let t = self.tmp(Class::Float);
         self.insts.push(Inst::Const { dst: t, imm: Imm::F(v) });
@@ -571,22 +549,6 @@ impl Lower<'_> {
                 self.insts.push(Inst::Conv { dst: dd, src: s });
                 self.put(d, dd);
             }
-            FToI { d, s, w } => {
-                self.insts.push(Inst::At { pc });
-                let s = self.get(s, Class::Float);
-                let dd = self.dst(d, Class::Int);
-                match w {
-                    W::W64 => self.insts.push(Inst::Conv { dst: dd, src: s }),
-                    _ => {
-                        self.cls.push(Class::Int);
-                        self.slots.push(if w == W::W16 { Ty::I16 } else { Ty::I32 });
-                        let n = (self.slots.len() - 1) as u32;
-                        self.insts.push(Inst::Conv { dst: n, src: s });
-                        self.insts.push(Inst::Conv { dst: dd, src: n });
-                    }
-                }
-                self.put(d, dd);
-            }
             Wrap { d, s, w } => {
                 let s = self.get(s, Class::Int);
                 let dd = self.dst(d, Class::Int);
@@ -617,18 +579,41 @@ impl Lower<'_> {
                 self.insts.push(Inst::At { pc });
                 self.ibin(BinOp::Mod, d, a, b, w)
             }
+            Acc { op, d, a, b, wi, wo } => {
+                let bop = match op {
+                    bc::AccOp::Mul => BinOp::Mul,
+                    bc::AccOp::IDiv => BinOp::IDiv,
+                    bc::AccOp::Mod => BinOp::Mod,
+                    bc::AccOp::And => BinOp::And,
+                    bc::AccOp::Or => BinOp::Or,
+                    bc::AccOp::Xor => BinOp::Xor,
+                };
+                if matches!(op, bc::AccOp::IDiv | bc::AccOp::Mod) {
+                    self.insts.push(Inst::At { pc });
+                }
+                let (x, y) = (self.get(a, Class::Int), self.get(b, Class::Int));
+                let t = self.tmp(Class::Int);
+                self.insts.push(Inst::Bin { op: bop, dst: t, a: x, b: y });
+                self.wrap(t, wi);
+                let acc = self.get(d, Class::Int);
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Bin { op: BinOp::Add, dst: dd, a: acc, b: t });
+                self.wrap(dd, wo);
+                self.put(d, dd);
+            }
+            CvtFI { d, s, w, .. } => {
+                let s = self.get(s, Class::Float);
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Conv { dst: dd, src: s });
+                self.wrap(dd, w);
+                self.put(d, dd);
+            }
             And { d, a, b } => self.ibin(BinOp::And, d, a, b, W::W64),
             Or { d, a, b } => self.ibin(BinOp::Or, d, a, b, W::W64),
             Xor { d, a, b } => self.ibin(BinOp::Xor, d, a, b, W::W64),
-            Eqv { d, a, b } => self.ibin(BinOp::Eqv, d, a, b, W::W64),
-            Imp { d, a, b } => self.ibin(BinOp::Imp, d, a, b, W::W64),
             AddF { d, a, b } => self.fbin(BinOp::Add, d, a, b),
             SubF { d, a, b } => self.fbin(BinOp::Sub, d, a, b),
             MulF { d, a, b } => self.fbin(BinOp::Mul, d, a, b),
-            DivF { d, a, b } => {
-                self.insts.push(Inst::At { pc });
-                self.fbin(BinOp::Div, d, a, b)
-            }
             PowF { d, a, b } => self.fbin(BinOp::Pow, d, a, b),
             CmpI { c, d, a, b } | CmpF { c, d, a, b } => {
                 let cls = if matches!(ins, CmpI { .. }) { Class::Int } else { Class::Float };
@@ -639,8 +624,7 @@ impl Lower<'_> {
             }
             Un { op, d, s } => {
                 let (sc, dc) = match op {
-                    bc::Un::NegI(_) | bc::Un::Not | bc::Un::AbsI(_) | bc::Un::SgnI => (Class::Int, Class::Int),
-                    bc::Un::SgnF => (Class::Float, Class::Int),
+                    bc::Un::NegI(_) | bc::Un::Not => (Class::Int, Class::Int),
                     _ => (Class::Float, Class::Float),
                 };
                 let s = self.get(s, sc);
@@ -652,19 +636,6 @@ impl Lower<'_> {
                     }
                     bc::Un::NegF => self.insts.push(Inst::Neg { dst: dd, src: s }),
                     bc::Un::Not => self.insts.push(Inst::Not { dst: dd, src: s }),
-                    bc::Un::AbsI(w) => {
-                        self.insts.push(Inst::Math { op: MathOp::Abs, dst: dd, src: s });
-                        self.wrap(dd, w);
-                    }
-                    bc::Un::AbsF => self.insts.push(Inst::Math { op: MathOp::Abs, dst: dd, src: s }),
-                    bc::Un::SgnI | bc::Un::SgnF => self.insts.push(Inst::Math { op: MathOp::Sgn, dst: dd, src: s }),
-                    bc::Un::Int => self.insts.push(Inst::Math { op: MathOp::Floor, dst: dd, src: s }),
-                    bc::Un::Fix => self.insts.push(Inst::Math { op: MathOp::Fix, dst: dd, src: s }),
-                    bc::Un::Sqr => {
-                        self.insts.push(Inst::At { pc });
-                        self.insts.push(Inst::Math { op: MathOp::Sqrt, dst: dd, src: s })
-                    }
-                    _ => unreachable!("not native"),
                 }
                 self.put(d, dd);
             }
@@ -734,10 +705,6 @@ impl Lower<'_> {
 /// them (handlers run main code at any safe point).
 fn main_shared(m: &bc::Module) -> Vec<u32> {
     let n = m.funcs[0].n_num();
-    let events = m.code.iter().any(|i| matches!(i, Ins::OnEvent { .. } | Ins::OnTimer { .. }));
-    if events {
-        return (0..n).collect();
-    }
     let mut v = BTreeSet::new();
     for f in &m.funcs[1..] {
         for ins in &m.code[f.entry as usize..f.end as usize] {
@@ -812,7 +779,6 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
             i != 0
                 && f.n_str == 0
                 && f.n_arr() == 0
-                && !f.is_static
                 && f.params.iter().all(|p| matches!(p, bc::Slot::N(_)))
                 && matches!(f.ret, None | Some((bc::Slot::N(_), _)))
         })
@@ -825,7 +791,7 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
             }
             let good = m.code[f.entry as usize..f.end as usize].iter().all(|ins| match *ins {
                 Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, desc, false),
-                Ins::RaiseK { .. } | Ins::Gosub { .. } | Ins::Return => true,
+                Ins::Gosub { .. } | Ins::Return => true,
                 ref x => light(x) || exits(x) || !vm_safe(x),
             });
             if !good {
@@ -868,6 +834,9 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 if (lo..hi).contains(&t) {
                     leaders.insert(t);
                 }
+            }
+            if let Ins::ForTestKI { skip, .. } | Ins::ForTestKF { skip, .. } = *ins {
+                leaders.insert(pc + u32::from(skip));
             }
             if ends_block(ins) && pc + 1 < hi {
                 leaders.insert(pc + 1);
@@ -926,7 +895,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 } else if callver && matches!(ins, Gosub { .. } | Return) {
                     // the VM's GOSUB stack belongs to VM frames
                     Some(Term::Exit { pc })
-                } else if exits(ins) || !(light(ins) || vm_safe(ins) || matches!(ins, RaiseK { .. } | Gosub { .. } | Return)) {
+                } else if exits(ins) || !(light(ins) || vm_safe(ins) || matches!(ins, Gosub { .. } | Return)) {
                     Some(Term::Exit { pc })
                 } else {
                     match *ins {
@@ -939,26 +908,21 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                             let (a, b) = if matches!(ins, JnzI { .. }) { (t, next) } else { (next, t) };
                             Some(branch(&mut lw, c, a, b))
                         }
-                        JzF { s, t } | JnzF { s, t } => {
-                            let z = lw.konst_f(0.0);
-                            let c = lw.cmp(Cmp::Ne, s, z, Class::Float);
-                            let (a, b) = if matches!(ins, JnzF { .. }) { (t, next) } else { (next, t) };
-                            Some(branch(&mut lw, c, a, b))
-                        }
                         BrI { c, a, b, t } | BrF { c, a, b, t } => {
                             let cls = if matches!(ins, BrI { .. }) { Class::Int } else { Class::Float };
                             let r = lw.cmp(c, a, b, cls);
                             Some(branch(&mut lw, r, t, next))
                         }
-                        ForTestI { v, lim, step, t } | ForTestF { v, lim, step, t } => {
-                            let cls = if matches!(ins, ForTestI { .. }) { Class::Int } else { Class::Float };
+                        ForTestKI { v, lim, step, t, skip } | ForTestKF { v, lim, step, t, skip } => {
+                            let cls = if matches!(ins, ForTestKI { .. }) { Class::Int } else { Class::Float };
                             let r = lw.for_exit(v, lim, step, cls);
-                            Some(branch(&mut lw, r, t, next))
+                            Some(branch(&mut lw, r, t, pc + u32::from(skip)))
                         }
-                        ForNextI { v, step, lim, body, w } => {
-                            lw.ibin(BinOp::Add, v, v, step, w);
-                            // continue while !(step < 0 ? v < lim : v > lim)
-                            let ex = lw.for_exit(v, lim, step, Class::Int);
+                        LoopForI { c, iv, lim, body, w } => {
+                            // c = iv + step (64-bit counter); iv = w(c); continue while in range
+                            lw.ibin(BinOp::Add, c, iv, lim + 1, W::W64);
+                            lw.inst(pc, &Wrap { d: iv, s: c, w });
+                            let ex = lw.for_exit(c, lim, lim + 1, Class::Int);
                             Some(branch(&mut lw, ex, next, body))
                         }
                         Gosub { t } => {
@@ -984,12 +948,6 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                                 })
                                 .collect();
                             Some(Term::Dispatch { val: r, cases })
-                        }
-                        RaiseK { code } => {
-                            lw.insts.push(Inst::At { pc });
-                            let r = lw.konst_i(i64::from(code));
-                            lw.insts.push(Inst::Raise { code: r });
-                            Some(Term::Exit { pc })
                         }
                         _ => {
                             lw.inst(pc, ins);
