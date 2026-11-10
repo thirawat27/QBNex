@@ -137,7 +137,11 @@ FUNCTION IrTy$ (t AS LONG)
     DIM b AS LONG, r$
     IF t AND ISSTRING THEN IrTy$ = "str": EXIT FUNCTION
     IF t AND ISUDT THEN IrTy$ = "ptr": EXIT FUNCTION
-    IF t AND ISOFFSETINBITS THEN IrNotSup "_BIT types": IrTy$ = "i64": EXIT FUNCTION
+    'a _BIT * n value lives in a whole i64 (u64); stores wrap it to n bits (IrBitWrap$)
+    IF t AND ISOFFSETINBITS THEN
+        IF t AND ISUNSIGNED THEN IrTy$ = "u64" ELSE IrTy$ = "i64"
+        EXIT FUNCTION
+    END IF
     b = t AND 511
     IF t AND ISFLOAT THEN
         IF b = 32 THEN r$ = "f32" ELSE IF b = 64 THEN r$ = "f64" ELSE r$ = "f80"
@@ -1018,6 +1022,53 @@ FUNCTION IrArgAs$ (e$, t$)
 END FUNCTION
 
 
+'nm$(x): x as a 32-bit value when -2^31 <= x < 0, else as i64
+FUNCTION IrRadix32$ (nm$, x$)
+    DIM tmp$, l$, c$, r$, d$, y$
+    l$ = "~H" + str2$(IrNew)
+    tmp$ = IrTemp$("str")
+    r$ = IrRt$(nm$, " " + x$, "str"): IrE "store.str " + tmp$ + " " + r$
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "0")
+    IrE "jz " + c$ + " " + l$ + ".E"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-2147483648")
+    IrE "jnz " + c$ + " " + l$ + ".E"
+    y$ = IrCvt$(x$, "i64", "u32"): y$ = IrCvt$(y$, "u32", "i64")
+    r$ = IrRt$(nm$, " " + y$, "str"): IrE "store.str " + tmp$ + " " + r$
+    IrE "label " + l$ + ".E"
+    d$ = IrReg$: IrE "load.str " + d$ + " " + tmp$
+    IrT = "str"
+    IrRadix32$ = d$
+END FUNCTION
+
+'HEX$(x) with neg_size 0 (libqb radix_string): negative values take 4, 8 or 16 digits, -1 gives ""
+FUNCTION IrHex64$ (x$)
+    DIM tmp$, l$, c$, r$, d$, y$
+    l$ = "~H" + str2$(IrNew)
+    tmp$ = IrTemp$("str")
+    r$ = IrRt$("HEX$", " " + x$, "str"): IrE "store.str " + tmp$ + " " + r$
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "0")
+    IrE "jz " + c$ + " " + l$ + ".E"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-1")
+    IrE "jnz " + c$ + " " + l$ + ".A"
+    IrE "store.str " + tmp$ + " " + IrConstStr$("")
+    IrE "jmp " + l$ + ".E"
+    IrE "label " + l$ + ".A"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-32768")
+    IrE "jnz " + c$ + " " + l$ + ".B"
+    y$ = IrCvt$(x$, "i64", "u16"): y$ = IrCvt$(y$, "u16", "i64")
+    r$ = IrRt$("HEX$", " " + y$, "str"): IrE "store.str " + tmp$ + " " + r$
+    IrE "jmp " + l$ + ".E"
+    IrE "label " + l$ + ".B"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-2147483648")
+    IrE "jnz " + c$ + " " + l$ + ".E"
+    y$ = IrCvt$(x$, "i64", "u32"): y$ = IrCvt$(y$, "u32", "i64")
+    r$ = IrRt$("HEX$", " " + y$, "str"): IrE "store.str " + tmp$ + " " + r$
+    IrE "label " + l$ + ".E"
+    d$ = IrReg$: IrE "load.str " + d$ + " " + tmp$
+    IrT = "str"
+    IrHex64$ = d$
+END FUNCTION
+
 ' callnames lowered generically (registry argument types; VM: crates/qb-exec/src/v1/display.rs)
 FUNCTION IrGenOK% (cn$)
     DIM l$
@@ -1210,8 +1261,21 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             END IF
         CASE "HEX$", "OCT$", "_BIN$"
             x$ = IrEval$(sv(1), t)
-            IF IrIsFloat(IrT) THEN x$ = IrCvt$(x$, IrT, "i64"): IrT = "i64": t = INTEGER64TYPE - ISPOINTER
-            IF (t AND 511) <= 16 AND (t AND ISFLOAT) = 0 THEN
+            sx$ = IrT
+            IF LEFT$(sx$, 1) = "f" THEN
+                'func_*_float: rounded; negative values in LONG range use 32-bit digits
+                x$ = IrCvt$(x$, IrT, "i64"): IrT = "i64"
+                IF nm$ = "_BIN$" THEN nm$ = "BIN$"
+                r$ = IrRadix32$(nm$, x$): GOTO irfdone
+            END IF
+            IF nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 AND (t AND 511) = 64 AND (t AND ISUNSIGNED) = 0 THEN
+                'C++: a 64-bit HEX$ argument that is not a variable gets neg_size 0 (semantics.bas)
+                IrQuiet = -1: y$ = IrPlace$(sv(1), t2): IrQuiet = 0
+                IF y$ = "" THEN r$ = IrHex64$(IrCvt$(x$, IrT, "i64")): GOTO irfdone
+            END IF
+            IF (t AND 511) <= 8 AND (t AND ISFLOAT) = 0 AND nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 THEN
+                x$ = IrCvt$(x$, IrT, "u8"): IrT = "u8"
+            ELSEIF (t AND 511) <= 16 AND (t AND ISFLOAT) = 0 THEN
                 x$ = IrCvt$(x$, IrT, "u16"): IrT = "u16"
             ELSEIF (t AND 511) <= 32 AND (t AND ISFLOAT) = 0 THEN
                 x$ = IrCvt$(x$, IrT, "u32"): IrT = "u32"
@@ -1439,12 +1503,39 @@ SUB IrAssign (lhs$, rhs$)
     END IF
     IF LEFT$(st$, 5) = "fstr:" THEN t = ISSTRING
     r$ = IrEvalTo$(e$, t)
+    IF t AND ISOFFSETINBITS THEN r$ = IrBitWrap$(r$, t)
     IrStore p$, r$
 END SUB
 
+'value r$ (of IrTy$(t)) wrapped to the n bits of a _BIT * n type: masked, sign-extended if signed
+FUNCTION IrBitWrap$ (r$, t AS LONG)
+    DIM n AS LONG, ty$, m$, x$, s$, y$, k AS LONG, h AS _INTEGER64
+    n = t AND 511
+    ty$ = IrTy$(t)
+    IF n >= 64 THEN IrBitWrap$ = r$: EXIT FUNCTION
+    h = 1
+    FOR k = 2 TO n: h = h * 2: NEXT 'h = 2^(n-1)
+    m$ = IrConst$(ty$, _TRIM$(STR$(h * 2 - 1)))
+    x$ = IrReg$: IrE "and." + ty$ + " " + x$ + " " + r$ + " " + m$
+    IF (t AND ISUNSIGNED) = 0 THEN
+        s$ = IrConst$(ty$, _TRIM$(STR$(h)))
+        y$ = IrReg$: IrE "xor." + ty$ + " " + y$ + " " + x$ + " " + s$
+        x$ = IrReg$: IrE "sub." + ty$ + " " + x$ + " " + y$ + " " + s$
+    END IF
+    IrBitWrap$ = x$
+END FUNCTION
+
 'PRINT item: a fixed string expression
 SUB IrPrintStr (ch$, e$)
-    DIM r$
+    DIM r$, u$, t AS LONG
+    u$ = UCASE$(getelement$(e$, 1))
+    IF (u$ = "TAB" OR u$ = "SPC") AND getelement$(e$, 2) = "(" AND getelement$(e$, numelements(e$)) = ")" THEN
+        'TAB(n) / SPC(n): position-dependent, not a string value
+        r$ = IrEval$(getelements$(e$, 3, numelements(e$) - 1), t)
+        r$ = IrCvt$(r$, IrT, "i64")
+        IrE "rt PRINT" + u$ + " " + IrI32$(VAL(ch$)) + " " + r$
+        EXIT SUB
+    END IF
     r$ = IrEvalTo$(e$, ISSTRING)
     IrE "rt PRINTS " + IrI32$(VAL(ch$)) + " " + r$
 END SUB
