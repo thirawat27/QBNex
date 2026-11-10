@@ -33,7 +33,9 @@ param(
     [string]$Filter = '*',
     [int]$Timeout = 8,
     [string[]]$Variants = @('cpp', 'oracle', 'vm', 'jit'),
-    [switch]$KeepExe
+    [switch]$KeepExe,
+    # Keep the entries of an earlier results.json and only run programs it does not have.
+    [switch]$Resume
 )
 
 $ErrorActionPreference = 'Stop'
@@ -142,9 +144,14 @@ $nondetRe = 'RANDOMIZE\s+TIMER|\bTIMER\b|TIME\$|DATE\$|RANDOMIZE\s*$'
 
 $files = Get-ChildItem $Corpus -Recurse -File -Filter *.bas | Sort-Object FullName
 $results = [System.Collections.Generic.List[object]]::new()
+$done = @{}
+$prev = Join-Path $Out 'results.json'
+if ($Resume -and (Test-Path $prev)) {
+    foreach ($o in @(Get-Content $prev -Raw | ConvertFrom-Json -AsHashtable)) { $results.Add([pscustomobject]$o); $done[$o.id] = $true }
+}
 foreach ($f in $files) {
     $id = Get-Id $f.FullName
-    if ($id -notlike $Filter) { continue }
+    if ($id -notlike $Filter -or $done[$id]) { continue }
     $w = Join-Path $Out $id
     if (Test-Path $w) { Remove-Item $w -Recurse -Force }
     New-Item -ItemType Directory -Force $w | Out-Null
