@@ -793,9 +793,14 @@ impl<'m, 'o> Vm<'m, 'o> {
         let func = &m.funcs[fr.func as usize];
         let cd = &m.calls[fr.desc as usize];
         let cx = self.ctx(fr.caller_view);
-        if let (Some(d), Some((slot, _))) = (cd.dest, func.ret) {
+        if let (Some(d), Some((slot, rty))) = (cd.dest, func.ret) {
             match slot {
-                Slot::N(r) => self.nums[cx.nb + d as usize] = self.nums[fr.nb + r as usize],
+                Slot::N(r) => {
+                    self.nums[cx.nb + d as usize] = self.nums[fr.nb + r as usize];
+                    if rty == Ty::F80 {
+                        self.nums[cx.nb + d as usize + 1] = self.nums[fr.nb + r as usize + 1];
+                    }
+                }
                 Slot::S(r) => self.strs[cx.sb + d as usize] = std::mem::take(&mut self.strs[fr.sb + r as usize]),
                 Slot::A(_) => {}
             }

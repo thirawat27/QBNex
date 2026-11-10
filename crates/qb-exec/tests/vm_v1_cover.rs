@@ -221,3 +221,31 @@ endfunc
 ",
     );
 }
+
+#[test]
+fn float80_byval_parameters_and_function_results() {
+    same_full(
+        "QIR 1
+func main
+const.i32 %0 0
+const.f80 %1 1
+const.f80 %2 7
+div.f80 %3 %1 %2
+const.i32 %4 2
+call %5 TWICE %3 %4
+rt PRINTN.f80 %0 %5
+rt PRINTNL %0
+end
+endfunc
+func TWICE -> f80
+param $V f80 byval
+param $N i32 byval
+load.f80 %0 $V
+load.i32 %1 $N
+cvt.f80.i32 %2 %1
+mul.f80 %3 %0 %2
+ret %3
+endfunc
+",
+    );
+}

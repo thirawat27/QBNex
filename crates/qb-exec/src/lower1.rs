@@ -477,6 +477,12 @@ impl<'a> Lw<'a> {
                     let sr = self.frames[k].new_s();
                     params.push(Slot::S(sr));
                     self.prologue[k].push(Ins::StM { t: MTy::Str, p: ptr_r, off: 0, s: sr });
+                } else if t == IT::F80 {
+                    let nr = self.frames[k].new_n(0);
+                    self.frames[k].new_n(0);
+                    params.push(Slot::N(nr));
+                    params.push(Slot::N(nr + 1));
+                    self.prologue[k].push(Ins::StM { t: MTy::F80, p: ptr_r, off: 0, s: nr });
                 } else {
                     let nr = self.frames[k].new_n(0);
                     params.push(Slot::N(nr));
@@ -485,8 +491,13 @@ impl<'a> Lw<'a> {
                 vars.insert(p.name.clone(), Var::M(ptr_r, mk));
                 continue;
             }
-            if matches!(p.ty, StoreTy::Scalar(IT::F80)) {
-                return Err("_FLOAT parameter".into());
+            if matches!(p.ty, StoreTy::Scalar(IT::F80)) && !p.array {
+                // BYVAL _FLOAT: the register pair is passed as two arguments
+                let Var::N(r, _) = self.alloc_var(k, p, k)? else { return Err("bad _FLOAT parameter".into()) };
+                params.push(Slot::N(r));
+                params.push(Slot::N(r + 1));
+                vars.insert(p.name.clone(), Var::N(r, IT::F80));
+                continue;
             }
             let v = self.alloc_var(k, p, k)?;
             params.push(match v {
@@ -519,6 +530,11 @@ impl<'a> Lw<'a> {
         let ret = match f.ret {
             None => None,
             Some(IT::Str) => Some((Slot::S(self.frames[k].new_s()), Ty::Str)),
+            Some(IT::F80) => {
+                let r = self.frames[k].new_n(0);
+                self.frames[k].new_n(0);
+                Some((Slot::N(r), Ty::F80))
+            }
             Some(t) => {
                 let ty = vty(t)?;
                 Some((Slot::N(self.frames[k].new_n(0)), ty))
@@ -791,13 +807,17 @@ impl<'a> Lw<'a> {
                             match reg!(*r) {
                                 Rg::N(x) => out.push(Arg::N(x)),
                                 Rg::S(x) => out.push(Arg::S(x)),
-                                Rg::P | Rg::X(_) => return Err("pointer argument".into()),
+                                Rg::X(x) => {
+                                    out.push(Arg::N(x));
+                                    out.push(Arg::N(x + 1));
+                                }
+                                Rg::P => return Err("pointer argument".into()),
                             }
                         }
                         let dest = match dst {
                             Some(d) => Some(match reg!(*d) {
-                                Rg::N(x) | Rg::S(x) => x,
-                                Rg::P | Rg::X(_) => return Err("pointer result".into()),
+                                Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
+                                Rg::P => return Err("pointer result".into()),
                             }),
                             None => None,
                         };
@@ -1327,14 +1347,18 @@ impl<'a> Lw<'a> {
                             match reg!(*r) {
                                 Rg::N(x) => out.push(Arg::N(x)),
                                 Rg::S(x) => out.push(Arg::S(x)),
-                                Rg::P | Rg::X(_) => return Err("pointer passed by value".into()),
+                                Rg::X(x) => {
+                                    out.push(Arg::N(x));
+                                    out.push(Arg::N(x + 1));
+                                }
+                                Rg::P => return Err("pointer passed by value".into()),
                             }
                         }
                     }
                     let dest = match dst {
                         Some(d) => Some(match reg!(*d) {
-                            Rg::N(x) | Rg::S(x) => x,
-                            Rg::P | Rg::X(_) => return Err("pointer result".into()),
+                            Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
+                            Rg::P => return Err("pointer result".into()),
                         }),
                         None => None,
                     };
@@ -1354,6 +1378,9 @@ impl<'a> Lw<'a> {
                             }
                             (Slot::S(d), Rg::S(s)) => {
                                 self.emit(Ins::MovS { d, s });
+                            }
+                            (Slot::N(d), Rg::X(s)) => {
+                                self.emit(Ins::MovX { d, s });
                             }
                             _ => return Err("bad return value".into()),
                         }

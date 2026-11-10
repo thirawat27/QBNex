@@ -1223,9 +1223,9 @@ impl Module {
                             return Err(format!("pc {pc}: bad argument"));
                         }
                     }
-                    if let (Some(d), Some((s, _))) = (cd.dest, cf.ret) {
+                    if let (Some(d), Some((s, rty))) = (cd.dest, cf.ret) {
                         let ok = match s {
-                            Slot::N(_) => d < f.n_num(),
+                            Slot::N(_) => d + u32::from(rty == Ty::F80) < f.n_num(),
                             Slot::S(_) => d < f.n_str,
                             Slot::A(_) => false,
                         };
