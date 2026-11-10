@@ -73,6 +73,7 @@ fn regs(i: &Inst) -> (Option<u32>, Vec<u32>) {
         Line(_) | Label(_) | Jmp(_) | Gosub(_) | GRet | GRetL(_) | OnError(_) | Resume(_) | Restore(_) | End | Stop => {
             (None, vec![])
         }
+        OnTimer { slot, secs, .. } => (None, vec![*slot, *secs]),
         Const { dst, .. } => (Some(*dst), vec![]),
         Mov { dst, src, .. } | Cvt { dst, src, .. } | Trunc { dst, src, .. } => (Some(*dst), vec![*src]),
         Bin { dst, a, b, .. } | Cmp { dst, a, b, .. } | Concat { dst, a, b } => (Some(*dst), vec![*a, *b]),
@@ -316,7 +317,12 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
     let fidx: HashMap<&str, usize> = order.iter().enumerate().map(|(k, &i)| (src.funcs[i].name.as_str(), k)).collect();
     let mut lw = Lw {
         ir: src,
-        m: Module { data: src.data.clone(), ..Module::default() },
+        m: Module {
+                data: src.data.clone(),
+                console: src.meta("console").map(|v| v == "only"),
+                screenhide: src.meta("screenhide").is_some(),
+                ..Module::default()
+            },
         kstr: HashMap::new(),
         labels: HashMap::new(),
         fixups: Vec::new(),
@@ -934,9 +940,10 @@ impl<'a> Lw<'a> {
                         _ => return Err("bad _FLOAT variable".into()),
                     },
                     Inst::Read { dst, .. } => {
+                        // func_read_float(.., FLOATTYPE): the double value
                         let d = xreg!(*dst);
                         let t = self.frames[k].new_n(0);
-                        self.emit(Ins::ReadN { d: t });
+                        self.emit(Ins::ReadN { d: t, typ: qb_runtime::numparse::ISFLOAT | 256 });
                         self.emit(Ins::XFromF { d, s: t });
                     }
                     _ => return Err("unsupported _FLOAT instruction".into()),
@@ -1468,6 +1475,11 @@ impl<'a> Lw<'a> {
                         self.fixups.push((pc, format!("0\u{1}{l}")));
                     }
                 },
+                Inst::OnTimer { slot, secs, target } => {
+                    let (s, x) = (nreg!(*slot), nreg!(*secs));
+                    let pc = self.emit(Ins::OnTimer { s, x, t: 0 });
+                    self.fixups.push((pc, format!("0\u{1}{target}")));
+                }
                 Inst::Resume(r) => match r {
                     ResumeKind::Same => {
                         self.emit(Ins::Resume { k: ResumeK::Same, t: 0 });
@@ -1489,15 +1501,22 @@ impl<'a> Lw<'a> {
                         let d = sreg!(*dst);
                         self.emit(Ins::ReadS { d });
                     } else {
+                        // QB type code of the target (subs_functions: bits | ISFLOAT | ISUNSIGNED)
+                        use qb_runtime::numparse::{ISFLOAT, ISUNSIGNED};
+                        let typ = match *ty {
+                            IT::I8 => 8,
+                            IT::U8 => 8 | ISUNSIGNED,
+                            IT::I16 => 16,
+                            IT::U16 => 16 | ISUNSIGNED,
+                            IT::I32 => 32,
+                            IT::U32 => 32 | ISUNSIGNED,
+                            IT::I64 => 64,
+                            IT::U64 => 64 | ISUNSIGNED,
+                            IT::F32 => 32 | ISFLOAT,
+                            _ => 64 | ISFLOAT,
+                        };
                         let d = nreg!(*dst);
-                        self.emit(Ins::ReadN { d });
-                        if ty.is_float() {
-                            if *ty == IT::F32 {
-                                self.emit(Ins::RoundF32 { d, s: d });
-                            }
-                        } else {
-                            self.emit(Ins::CvtFI { d, s: d, w: width(*ty)?, trunc: false });
-                        }
+                        self.emit(Ins::ReadN { d, typ });
                     }
                 }
                 Inst::Restore(l) => {
@@ -1618,7 +1637,7 @@ fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
         let refers = match i {
             Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
             Inst::Gosub(t) | Inst::GRetL(t) => return t != l,
-            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) => return t != l,
+            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } => return t != l,
             _ => false,
         };
         !refers || (k > at && k < here)

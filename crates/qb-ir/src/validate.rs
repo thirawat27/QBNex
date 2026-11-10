@@ -328,6 +328,11 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
         Inst::Resume(ResumeKind::Label(l)) => label(l, main_labels)?,
         Inst::Resume(_) => {}
         Inst::Error(r) => s.int(*r, ctx)?,
+        Inst::OnTimer { slot, secs, target } => {
+            s.int(*slot, ctx)?;
+            s.reg(*secs, Some(Ty::F64), ctx)?;
+            label(target, main_labels)?;
+        }
         Inst::Read { ty, .. } => {
             if *ty == Ty::Ptr {
                 op_err("cannot READ a ptr")?;

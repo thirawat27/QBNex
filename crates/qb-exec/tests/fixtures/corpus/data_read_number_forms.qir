@@ -41,12 +41,16 @@ line 4
 line 5
 read.i16 %0
 store.i16 $__INTEGER_I %0
+rt READCHK
 read.i32 %1
 store.i32 $__LONG_L %1
+rt READCHK
 read.f32 %2
 store.f32 $__SINGLE_S %2
+rt READCHK
 read.f64 %3
 store.f64 $__DOUBLE_D %3
+rt READCHK
 line 5
 load.i16 %4 $__INTEGER_I
 cvt.i64.i16 %5 %4
@@ -79,12 +83,16 @@ rt PRINTNL %26
 line 6
 read.i16 %27
 store.i16 $__INTEGER_I %27
+rt READCHK
 read.i32 %28
 store.i32 $__LONG_L %28
+rt READCHK
 read.f32 %29
 store.f32 $__SINGLE_S %29
+rt READCHK
 read.f64 %30
 store.f64 $__DOUBLE_D %30
+rt READCHK
 line 6
 load.i16 %31 $__INTEGER_I
 cvt.i64.i16 %32 %31
@@ -117,12 +125,16 @@ rt PRINTNL %53
 line 7
 read.i16 %54
 store.i16 $__INTEGER_I %54
+rt READCHK
 read.i32 %55
 store.i32 $__LONG_L %55
+rt READCHK
 read.u8 %56
 store.u8 $__UBYTE_UB %56
+rt READCHK
 read.i8 %57
 store.i8 $__BYTE_B %57
+rt READCHK
 line 7
 load.i16 %58 $__INTEGER_I
 cvt.i64.i16 %59 %58
@@ -157,8 +169,10 @@ rt PRINTNL %82
 line 8
 read.i64 %83
 store.i64 $__INTEGER64_I64 %83
+rt READCHK
 read.u64 %84
 store.u64 $__UINTEGER64_U64 %84
+rt READCHK
 line 8
 load.i64 %85 $__INTEGER64_I64
 rt %86 STR$.i64 %85
@@ -177,8 +191,10 @@ rt PRINTNL %95
 line 9
 read.i64 %96
 store.i64 $__INTEGER64_I64 %96
+rt READCHK
 read.u64 %97
 store.u64 $__UINTEGER64_U64 %97
+rt READCHK
 line 9
 load.i64 %98 $__INTEGER64_I64
 rt %99 STR$.i64 %98
@@ -229,6 +245,7 @@ rt PRINTNL %125
 line 12
 read.i16 %126
 store.i16 $__INTEGER_I %126
+rt READCHK
 line 12
 const.str %127 x6166746572206F766572666C6F77
 const.i32 %128 0
@@ -245,6 +262,7 @@ rt PRINTNL %135
 line 13
 read.i16 %136
 store.i16 $__INTEGER_I %136
+rt READCHK
 line 13
 const.str %137 x6166746572206F766572666C6F772032
 const.i32 %138 0
@@ -261,6 +279,7 @@ rt PRINTNL %145
 line 14
 read.i32 %146
 store.i32 $__LONG_L %146
+rt READCHK
 line 14
 const.str %147 x73796E7461783F
 const.i32 %148 0
@@ -292,6 +311,7 @@ rt PRINTNL %163
 line 16
 read.i16 %164
 store.i16 $__INTEGER_I %164
+rt READCHK
 line 16
 const.str %165 x6F75743F
 const.i32 %166 0
