@@ -77,6 +77,55 @@ fn vm_bound_headers(m: &bc::Module) -> Vec<bool> {
     v
 }
 
+/// Straight-line VM instructions native code may hand to the VM one at a
+/// time (`VmOp`): they only touch the current frame's banks and runtime
+/// state, never frames, the GOSUB stack or the pc. Anything not listed
+/// (including instructions added to the VM later) makes native code stop
+/// and the VM continue at that pc.
+fn vm_safe(ins: &Ins) -> bool {
+    use Ins::*;
+    matches!(
+        ins,
+        MovS { .. }
+            | TakeS { .. }
+            | GetGS { .. }
+            | SetGS { .. }
+            | Concat { .. }
+            | LenS { .. }
+            | Chr { .. }
+            | Asc { .. }
+            | Left { .. }
+            | Right { .. }
+            | Mid { .. }
+            | Bi { .. }
+            | PrintS { .. }
+            | PrintN { .. }
+            | PrintZone
+            | PrintNl
+            | CmpS { .. }
+            | Dim { .. }
+            | LdE { .. }
+            | StE { .. }
+            | LdES { .. }
+            | StES { .. }
+            | LdE1 { .. }
+            | StE1 { .. }
+            | LdE1S { .. }
+            | StE1S { .. }
+            | Bound { .. }
+            | Swap { .. }
+            | Read { .. }
+            | Restore { .. }
+            | Randomize { .. }
+            | Rnd { .. }
+            | Err { .. }
+            | Erl { .. }
+            | Raise { .. }
+            | Un { .. }
+            | Call { .. }
+    )
+}
+
 /// Control the VM owns: native code stops here and the VM continues at this pc.
 fn exits(ins: &Ins) -> bool {
     use Ins::*;
@@ -775,7 +824,7 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
             let good = m.code[f.entry as usize..f.end as usize].iter().all(|ins| match *ins {
                 Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, desc, false),
                 Ins::RaiseK { .. } | Ins::Gosub { .. } | Ins::Return => true,
-                ref x => light(x) || exits(x),
+                ref x => light(x) || exits(x) || !vm_safe(x),
             });
             if !good {
                 ok[i] = false;
@@ -875,7 +924,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 } else if callver && matches!(ins, Gosub { .. } | Return) {
                     // the VM's GOSUB stack belongs to VM frames
                     Some(Term::Exit { pc })
-                } else if exits(ins) {
+                } else if exits(ins) || !(light(ins) || vm_safe(ins) || matches!(ins, RaiseK { .. } | Gosub { .. } | Return)) {
                     Some(Term::Exit { pc })
                 } else {
                     match *ins {
