@@ -2229,6 +2229,8 @@ IF linteger = 1 AND rinteger = 1 THEN
     IF o$ = "XOR" THEN r&& = l&& XOR r&&: GOTO econstmarkupi
     IF o$ = "OR" THEN r&& = l&& OR r&&: GOTO econstmarkupi
     IF o$ = "AND" THEN r&& = l&& AND r&&: GOTO econstmarkupi
+    IF o$ = "_ANDALSO" THEN r&& = (l&& <> 0) AND (r&& <> 0): GOTO econstmarkupi16
+    IF o$ = "_ORELSE" THEN r&& = (l&& <> 0) OR (r&& <> 0): GOTO econstmarkupi16
 END IF
 
 IF o$ = "+" THEN r## = l## + r##: GOTO econstmarkupf
@@ -2249,6 +2251,8 @@ IF o$ = "EQV" THEN r&& = l## EQV r##: GOTO econstmarkupi32
 IF o$ = "XOR" THEN r&& = l## XOR r##: GOTO econstmarkupi32
 IF o$ = "OR" THEN r&& = l## OR r##: GOTO econstmarkupi32
 IF o$ = "AND" THEN r&& = l## AND r##: GOTO econstmarkupi32
+IF o$ = "_ANDALSO" THEN r&& = (l## <> 0) AND (r## <> 0): GOTO econstmarkupi16
+IF o$ = "_ORELSE" THEN r&& = (l## <> 0) OR (r## <> 0): GOTO econstmarkupi16
 
 Give_Error "Invalid CONST expression.13": EXIT FUNCTION
 

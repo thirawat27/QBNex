@@ -1,0 +1,1 @@
+QBNex extension (R13): FOR EACH v IN array() ... NEXT [v] visits LBOUND..UBOUND of a one-dimensional array, copying each element into v. The legacy compiler has no FOR EACH; expected output written by hand.

@@ -698,6 +698,8 @@ FUNCTION getpid& ()
     DIM SHARED addmetainclude AS STRING
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING 'syntax_ext.bas (R13)
+DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
     DIM SHARED topLevelRuntimeFinalized AS LONG
@@ -1025,6 +1027,8 @@ DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS 
             HashAdd "AND", f, 0
             HashAdd "OR", f, 0
             HashAdd "XOR", f, 0
+            HashAdd "_ANDALSO", f, 0 'short-circuit AND/OR (R13)
+            HashAdd "_ORELSE", f, 0
             HashAdd "MOD", f, 0
 
             f = HASHFLAG_RESERVED + HASHFLAG_CUSTOMSYNTAX
@@ -1174,6 +1178,8 @@ DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS 
             importedModules$ = "@"
             classSyntaxQueue$ = ""
             classSyntaxDeferredQueue$ = ""
+            SyntaxExt_Reset
+            syntaxExtOptional$ = "" 'OPTIONAL defaults: built in the prepass, used in the main pass
             topLevelRuntimeLines = ""
             topLevelRuntimeCallInjected = 0
             topLevelRuntimeFinalized = 0
@@ -2379,6 +2385,7 @@ DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS 
                                         END IF
                                     END IF
 
+                                    StdLib_SplitIncludeRange a$, incRangeFrom, incRangeTo
                                     IF inclevel = 100 THEN a$ = "Too many indwelling INCLUDE files": GOTO errmes
                                     '1. Verify file exists (location is either (a)relative to source file or (b)absolute)
                                     fh = 99 + inclevel + 1
@@ -2408,6 +2415,13 @@ DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS 
                                     IF qberrorhappened <> -3 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
                                     qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
                                     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
+                                    incRangeEnd(inclevel) = incRangeTo
+                                    IF incRangeFrom > 1 THEN
+                                        FOR incRangeSkip = 2 TO incRangeFrom
+                                            IF EOF(fh) = 0 THEN LINE INPUT #fh, x$
+                                        NEXT
+                                        inclinenumber(inclevel) = incRangeFrom - 1
+                                    END IF
                                 END IF 'fall through to next section...
                                 '--------------------
                                 DO WHILE inclevel
@@ -2423,7 +2437,7 @@ DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS 
 
                                         GOTO prepassline
                                     END IF
-                                    IF EOF(fh) = 0 THEN
+                                    IF EOF(fh) = 0 AND (incRangeEnd(inclevel) = 0 OR inclinenumber(inclevel) < incRangeEnd(inclevel)) THEN
                                         LINE INPUT #fh, x$
 
                                         wholeline$ = ClassSyntax_ProcessLine$(x$)
@@ -7431,6 +7445,8 @@ IF n >= 2 THEN
             i = i + 1 'set i to point to the next element
 
             IF commonoption THEN elements$ = "?"
+            'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM (L-21)
+            IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
             IF Debug THEN PRINT #9, "DIM2:array:elements$:[" + elements$ + "]"
@@ -8013,6 +8029,8 @@ ELSE
         i = i + 1 'set i to point to the next element
 
         IF commonoption THEN elements$ = "?"
+        'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM (L-21)
+        IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
         IF Debug THEN PRINT #9, "DIM2:array:elements$:[" + elements$ + "]"
@@ -10676,6 +10694,7 @@ IF LEN(addmetainclude$) THEN
         END IF
     END IF
 
+    StdLib_SplitIncludeRange a$, incRangeFrom, incRangeTo
     IF inclevel = 100 THEN a$ = "Too many indwelling INCLUDE files": GOTO errmes
     '1. Verify file exists (location is either (a)relative to source file or (b)absolute)
     fh = 99 + inclevel + 1
@@ -10703,6 +10722,13 @@ IF LEN(addmetainclude$) THEN
     IF qberrorhappened <> -2 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
     qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
+    incRangeEnd(inclevel) = incRangeTo
+    IF incRangeFrom > 1 THEN
+        FOR incRangeSkip = 2 TO incRangeFrom
+            IF EOF(fh) = 0 THEN LINE INPUT #fh, x$
+        NEXT
+        inclinenumber(inclevel) = incRangeFrom - 1
+    END IF
 END IF 'fall through to next section...
 '--------------------
 DO WHILE inclevel
@@ -10715,7 +10741,7 @@ DO WHILE inclevel
         linenumber = linenumber - 1 'lower official linenumber to counter later increment
         GOTO includeline
     END IF
-    IF EOF(fh) = 0 THEN
+    IF EOF(fh) = 0 AND (incRangeEnd(inclevel) = 0 OR inclinenumber(inclevel) < incRangeEnd(inclevel)) THEN
         LINE INPUT #fh, x$
         a3$ = ClassSyntax_ProcessLine$(x$)
         a3$ = TopLevelRuntime_ProcessLine$(a3$)
@@ -11874,8 +11900,8 @@ IF recompile THEN
             l = l + 1: IF a$ = "IMP" THEN GOTO opfound
             l = l + 1: IF a$ = "EQV" THEN GOTO opfound
             l = l + 1: IF a$ = "XOR" THEN GOTO opfound
-            l = l + 1: IF a$ = "OR" THEN GOTO opfound
-            l = l + 1: IF a$ = "AND" THEN GOTO opfound
+            l = l + 1: IF a$ = "OR" OR a$ = "_ORELSE" THEN GOTO opfound
+            l = l + 1: IF a$ = "AND" OR a$ = "_ANDALSO" THEN GOTO opfound
             l = l + 1: IF a$ = "NOT" THEN GOTO opfound
             l = l + 1
             IF a$ = "=" THEN GOTO opfound
@@ -11950,6 +11976,7 @@ IF recompile THEN
         '$INCLUDE:'utilities\tokens.bas'
         '$INCLUDE:'utilities\imports.bas'
         '$INCLUDE:'utilities\classes.bas'
+        '$INCLUDE:'utilities\syntax_ext.bas'
 
 
 
@@ -12020,6 +12047,9 @@ IF recompile THEN
             IF operator$ = "<>" THEN info$ = "!=": operatorusage = 3: EXIT FUNCTION
             IF operator$ = "<=" THEN info$ = "<=": operatorusage = 3: EXIT FUNCTION
             IF operator$ = ">=" THEN info$ = ">=": operatorusage = 3: EXIT FUNCTION
+            'short-circuit: C++ && / || give 1/0, usage 3 negates to the BASIC -1/0
+            IF UCASE$(operator$) = "_ANDALSO" THEN info$ = "&&": operatorusage = 3: EXIT FUNCTION
+            IF UCASE$(operator$) = "_ORELSE" THEN info$ = "||": operatorusage = 3: EXIT FUNCTION
 
             lhs = 1: rhs = 1: result = 1
             operator$ = UCASE$(operator$)

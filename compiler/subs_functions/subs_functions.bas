@@ -3160,6 +3160,26 @@ id.hr_syntax = "ASC(text$[, position%])"
 regid
 
 clearid
+id.n = qbnexprefix$ + "IIf" 'R13; special case in evaluatefunc (only the chosen value is evaluated)
+id.subfunc = 1
+id.callname = "func__iif"
+id.args = 3
+id.arg = MKL$(-1) + MKL$(-1) + MKL$(-1)
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_IIF(condition, valueIfTrue, valueIfFalse)"
+regid
+
+clearid
+id.n = qbnexprefix$ + "ToStr" 'R13; special case in evaluatefunc (string interpolation)
+id.musthave = "$"
+id.subfunc = 1
+id.callname = "func__tostr"
+id.args = 1
+id.arg = MKL$(-1)
+id.ret = STRINGTYPE - ISPOINTER
+id.hr_syntax = "_TOSTR$(value)"
+regid
+clearid
 id.n = "Len"
 id.subfunc = 1
 id.callname = "" 'callname is not used
