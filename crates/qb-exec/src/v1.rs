@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 mod files;
+mod memx;
 mod rt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -354,13 +355,9 @@ struct Arr {
     data: Option<u32>,
 }
 
-fn ptr(b: u32, off: u32) -> u64 {
-    (u64::from(b) << 32) | u64::from(off)
-}
+/// Tag of an array-descriptor reference (`aref`); every other `ptr` is a real address.
+const ARR_TAG: u64 = 1 << 63;
 
-fn split(p: u64) -> (usize, usize) {
-    ((p >> 32) as usize, (p & 0xFFFF_FFFF) as usize)
-}
 
 struct Frame {
     f: usize,
@@ -457,21 +454,35 @@ impl<'a> Vm<'a> {
         }
     }
     fn new_var(&mut self, vi: usize) -> u64 {
+        self.new_var_b(vi).0
+    }
+    /// Storage for variable `vi`: (address, block id).
+    fn new_var_b(&mut self, vi: usize) -> (u64, u32) {
         let v = &self.prog.vars[vi];
-        let b = if v.array {
-            Block::Arr(Arr { elem: v.ty.clone(), esize: v.size, dims: vec![], data: None })
-        } else {
-            Block::Bytes { data: Self::zero_bytes(&v.ty, v.size), strs: v.ty == StoreTy::Scalar(Ty::Str) }
-        };
-        ptr(self.alloc(b), 0)
+        if v.array {
+            let id = self.alloc(Block::Arr(Arr { elem: v.ty.clone(), esize: v.size, dims: vec![], data: None }));
+            return (ARR_TAG | u64::from(id), id);
+        }
+        let data = Self::zero_bytes(&v.ty, v.size.max(1));
+        let id = self.alloc(Block::Bytes { data, strs: v.ty == StoreTy::Scalar(Ty::Str) });
+        (self.block_addr(id), id)
+    }
+    fn block_addr(&self, id: u32) -> u64 {
+        match &self.blocks[id as usize] {
+            Block::Bytes { data, .. } => data.as_ptr() as u64,
+            _ => 0,
+        }
     }
 
+    /// `len` bytes of memory at the real address `p` (like the C++ backend,
+    /// addresses are not checked beyond null and array references).
     pub(crate) fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
-        let (b, o) = split(p);
-        match self.blocks.get_mut(b) {
-            Some(Block::Bytes { data, .. }) if o + len <= data.len() => Ok(&mut data[o..o + len]),
-            _ => e(7),
+        if p == 0 || p & ARR_TAG != 0 {
+            return e(5);
         }
+        // SAFETY: QIR pointers come from `addr`/`aaddr`/`padd` on live storage
+        // (or _MEM blocks of qb-runtime); validated programs keep them in range.
+        Ok(unsafe { std::slice::from_raw_parts_mut(p as *mut u8, len) })
     }
     fn ld(&mut self, t: Ty, p: u64) -> R<V> {
         let n = t.size().min(8) as usize;
@@ -574,8 +585,11 @@ impl<'a> Vm<'a> {
         }
     }
     fn arr(&mut self, l: Loc) -> R<&mut Arr> {
-        let (b, _) = split(self.var_ptr(l));
-        match self.blocks.get_mut(b) {
+        let p = self.var_ptr(l);
+        if p & ARR_TAG == 0 {
+            return e(9);
+        }
+        match self.blocks.get_mut((p & !ARR_TAG) as usize) {
             Some(Block::Arr(a)) => Ok(a),
             _ => e(9),
         }
@@ -629,6 +643,23 @@ impl<'a> Vm<'a> {
         Ok(())
     }
 
+    /// (address of the first element, total bytes) of the array whose descriptor `p` references.
+    pub(crate) fn array_extent(&mut self, p: u64) -> R<(u64, u64)> {
+        if p & ARR_TAG == 0 {
+            return e(9);
+        }
+        let (data, n, esize) = match self.blocks.get((p & !ARR_TAG) as usize) {
+            Some(Block::Arr(a)) => {
+                let n: i64 = a.dims.iter().map(|(lo, hi)| hi - lo + 1).product();
+                (a.data, n, a.esize)
+            }
+            _ => return e(9),
+        };
+        match data {
+            Some(d) => Ok((self.block_addr(d), n as u64 * u64::from(esize))),
+            None => Ok((0, 0)),
+        }
+    }
     fn aaddr(&mut self, l: Loc, idx: &[i64]) -> R<u64> {
         let a = self.arr(l)?;
         let Some(d) = a.data else { return e(9) };
@@ -644,7 +675,8 @@ impl<'a> Vm<'a> {
             off += (i - lo) * mul;
             mul *= hi - lo + 1;
         }
-        Ok(ptr(d, (off * i64::from(a.esize)) as u32))
+        let esize = i64::from(a.esize);
+        Ok(self.block_addr(d).wrapping_add((off * esize) as u64))
     }
 
     fn enter(&mut self, fi: usize, args: Vec<V>, ret_to: Option<usize>) -> R<()> {
@@ -659,8 +691,8 @@ impl<'a> Vm<'a> {
             match s {
                 SlotInit::Param { byref: true, .. } => slots.push(args[k].p()),
                 SlotInit::Param { byref: false, var } | SlotInit::Local(var) => {
-                    let p = self.new_var(*var);
-                    owned.push(split(p).0 as u32);
+                    let (p, id) = self.new_var_b(*var);
+                    owned.push(id);
                     if k < f.nparams {
                         let t = prog.vars[*var].ty.reg_ty().unwrap_or(Ty::Ptr);
                         self.st(t, p, &args[k])?;
