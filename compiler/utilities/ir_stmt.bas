@@ -163,7 +163,7 @@ SUB IrStmtEnd
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN
-                IF s2$ = "TIMER" OR s2$ = "KEY" OR s2$ = "STRIG" OR s2$ = "PLAY" OR IrFindSep(3, "|GOTO|GOSUB|") > n THEN IrNotSup "ON " + s2$
+                IF s2$ = "TIMER" OR s2$ = "KEY" OR s2$ = "STRIG" OR (s2$ <> "PLAY" AND IrFindSep(3, "|GOTO|GOSUB|") > n) THEN IrNotSup "ON " + s2$ 'ON PLAY: checked only, the event is not raised (D-24), as in the C++ path
             END IF
     END SELECT
 END SUB
