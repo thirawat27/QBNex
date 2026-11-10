@@ -171,6 +171,7 @@ SUB StdLib_HoistModule (module$, headText$, bodyText$)
     DIM upperText AS STRING
     DIM depKey AS STRING
     DIM inBody AS INTEGER
+    DIM inDeclare AS INTEGER
     DIM p AS LONG
     DIM nl AS LONG
 
@@ -201,7 +202,15 @@ SUB StdLib_HoistModule (module$, headText$, bodyText$)
         ELSE
             upperText = UCASE$(LTRIM$(lineText))
             IF inBody = 0 THEN
-                IF LEFT$(upperText, 4) = "SUB " OR LEFT$(upperText, 9) = "FUNCTION " THEN inBody = -1
+                'SUB/FUNCTION prototypes inside DECLARE [DYNAMIC|CUSTOMTYPE|STATIC] LIBRARY
+                '... END DECLARE are declarations: they stay in the head.
+                IF inDeclare THEN
+                    IF LEFT$(upperText, 11) = "END DECLARE" THEN inDeclare = 0
+                ELSEIF LEFT$(upperText, 8) = "DECLARE " AND INSTR(upperText, " LIBRARY") > 0 THEN
+                    inDeclare = -1
+                ELSEIF LEFT$(upperText, 4) = "SUB " OR LEFT$(upperText, 9) = "FUNCTION " THEN
+                    inBody = -1
+                END IF
             END IF
             IF inBody THEN
                 bodyText$ = bodyText$ + lineText + CHR$(13) + CHR$(10)
