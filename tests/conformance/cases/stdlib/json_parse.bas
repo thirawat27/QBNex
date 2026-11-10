@@ -2,7 +2,6 @@ $CONSOLE:ONLY
 '$IMPORT:'json'
 ' JSON (RFC 8259) parser, tree access and serializer (fixes L-13).
 Json_Init
-DIM SHARED q$
 q$ = CHR$(34)
 
 doc$ = "{ " + q$ + "name" + q$ + ": " + q$ + "QBNex" + q$ + ", " + q$ + "version" + q$ + ": 1.25e2,"
@@ -22,7 +21,7 @@ FOR i% = 0 TO JsonArrayLength%(tags%) - 1
     v% = JsonArrayGet%(tags%, i%)
     PRINT " tag"; i%; "type"; JsonGetType%(v%); "="; JSON_Stringify$(v%)
 NEXT
-PRINT "deep 3 ="; JsonGetNumber#(JsonArrayGet%(JsonArrayGet%(JsonArrayGet%(JsonArrayGet%(JsonObjectGet%(JsonObjectGet%(JsonObjectGet%(root%, "nested"), "a"), "b"), 1), 1), 0), 0))
+PRINT "deep 3 ="; JsonGetNumber#(JsonArrayGet%(JsonArrayGet%(JsonArrayGet%(JsonObjectGet%(JsonObjectGet%(JsonObjectGet%(root%, "nested"), "a"), "b"), 1), 1), 0))
 PRINT "missing key ="; JsonObjectGet%(root%, "nope"); " out of range ="; JsonArrayGet%(tags%, 99)
 e$ = JsonGetString$(JsonObjectGet%(root%, "esc"))
 PRINT "esc bytes:";

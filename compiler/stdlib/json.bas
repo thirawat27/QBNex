@@ -31,7 +31,6 @@ CONST JSON_STRING = 3
 CONST JSON_ARRAY = 4
 CONST JSON_OBJECT = 5
 
-CONST JSON_POOL_INITIAL = 500
 CONST JSON_POOL_MAX = 32767
 CONST JSON_MAX_DEPTH = 500
 
@@ -44,16 +43,18 @@ TYPE JsonParser
     hasError AS _BYTE
 END TYPE
 
-REDIM SHARED JsonValueType%(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonBoolValue%(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonNumValue#(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonStrValue$(1 TO JSON_POOL_INITIAL) ' string value, or the source text of a parsed number
-REDIM SHARED JsonKey$(1 TO JSON_POOL_INITIAL) ' member name when the parent is an object
-REDIM SHARED JsonParent%(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonFirstChild%(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonLastChild%(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonNextSibling%(1 TO JSON_POOL_INITIAL)
-REDIM SHARED JsonChildCount%(1 TO JSON_POOL_INITIAL)
+' Value pool (fixed size: an import is placed after the program's SUBs, where
+' only declarations are allowed, and REDIM there would make local arrays).
+DIM SHARED JsonValueType%(1 TO JSON_POOL_MAX)
+DIM SHARED JsonBoolValue%(1 TO JSON_POOL_MAX)
+DIM SHARED JsonNumValue#(1 TO JSON_POOL_MAX)
+DIM SHARED JsonStrValue$(1 TO JSON_POOL_MAX) ' string value, or the source text of a parsed number
+DIM SHARED JsonKey$(1 TO JSON_POOL_MAX) ' member name when the parent is an object
+DIM SHARED JsonParent%(1 TO JSON_POOL_MAX)
+DIM SHARED JsonFirstChild%(1 TO JSON_POOL_MAX)
+DIM SHARED JsonLastChild%(1 TO JSON_POOL_MAX)
+DIM SHARED JsonNextSibling%(1 TO JSON_POOL_MAX)
+DIM SHARED JsonChildCount%(1 TO JSON_POOL_MAX)
 DIM SHARED JsonPoolCapacity%
 DIM SHARED JsonValuePoolSize%
 DIM SHARED JsonPrettyPrint AS _BYTE
@@ -79,27 +80,8 @@ END SUB
 
 FUNCTION JsonAllocValue% ()
     DIM n%
-    IF JsonPoolCapacity% = 0 THEN JsonPoolCapacity% = UBOUND(JsonValueType%)
-    IF JsonValuePoolSize% >= JsonPoolCapacity% THEN
-        IF JsonPoolCapacity% >= JSON_POOL_MAX THEN
-            JsonAllocValue% = 0
-            EXIT FUNCTION
-        END IF
-        IF JsonPoolCapacity% > JSON_POOL_MAX \ 2 THEN n% = JSON_POOL_MAX ELSE n% = JsonPoolCapacity% * 2
-        REDIM _PRESERVE JsonValueType%(1 TO n%)
-        REDIM _PRESERVE JsonBoolValue%(1 TO n%)
-        REDIM _PRESERVE JsonNumValue#(1 TO n%)
-        REDIM _PRESERVE JsonStrValue$(1 TO n%)
-        REDIM _PRESERVE JsonKey$(1 TO n%)
-        REDIM _PRESERVE JsonParent%(1 TO n%)
-        REDIM _PRESERVE JsonFirstChild%(1 TO n%)
-        REDIM _PRESERVE JsonLastChild%(1 TO n%)
-        REDIM _PRESERVE JsonNextSibling%(1 TO n%)
-        REDIM _PRESERVE JsonChildCount%(1 TO n%)
-        JsonPoolCapacity% = n%
-    END IF
-
-    JsonValuePoolSize% = JsonValuePoolSize% + 1
+    IF JsonValuePoolSize% >= JSON_POOL_MAX THEN EXIT FUNCTION
+JsonValuePoolSize% = JsonValuePoolSize% + 1
     n% = JsonValuePoolSize%
     JsonValueType%(n%) = JSON_NULL
     JsonBoolValue%(n%) = 0
@@ -449,10 +431,11 @@ FUNCTION JsonEscapeString$ (s AS STRING)
 END FUNCTION
 
 FUNCTION JsonNewLine$ ()
-    IF JsonPrettyPrint THEN JsonNewLine$ = CHR$(13) + CHR$(10) ELSE JsonNewLine$ = ""
+    IF JsonPrettyPrint THEN JsonNewLine$ = CHR$(10) ELSE JsonNewLine$ = ""
 END FUNCTION
 
 FUNCTION JsonIndent$ (level AS INTEGER)
+    IF JsonIndentSize% = 0 THEN JsonIndentSize% = 2
     IF JsonIndentSize% = 0 THEN JsonIndentSize% = 2
     JsonIndent$ = SPACE$(level * JsonIndentSize%)
 END FUNCTION
