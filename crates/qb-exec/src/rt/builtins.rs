@@ -740,6 +740,34 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
+        "INPUT$" => {
+            // INPUT$(n) from the keyboard: keys of the window, or stdin bytes on the
+            // console (none left at its end: what was read, like INPUT's empty line)
+            let n = i(0);
+            if n < 0 {
+                return e(5);
+            }
+            let n = n as usize;
+            if rt.display.started {
+                let mut got = Vec::new();
+                while got.len() < n {
+                    let rt = vm.rt();
+                    let cm = &mut rt.cmem[..];
+                    let k = rt.input.inkey(cm);
+                    if k.is_empty() {
+                        qb_runtime::systime::sleep_ms(10);
+                    }
+                    got.extend_from_slice(&k);
+                }
+                return ok(V::S(got));
+            }
+            fill(&mut std::io::stdin(), &mut rt.stdin);
+            let s = &mut rt.stdin;
+            let end = (s.rpos + n).min(s.rbuf.len());
+            let got = s.rbuf[s.rpos..end].to_vec();
+            s.rpos = end;
+            return ok(V::S(got));
+        }
         "INPUTPROMPT" => {
             if i(1) == 0 {
                 rt.input_line = None;

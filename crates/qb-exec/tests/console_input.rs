@@ -4,6 +4,7 @@
 //!   next INPUT reads the next line (Q3 of docs/rust-port/corpus-run.md)
 //! - at the end of stdin INPUT and LINE INPUT give empty values instead of
 //!   error 62 "Input past end of file" (Q4)
+//! - INPUT$(n) without a file number reads the keyboard / stdin, not error 52 (Q5)
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -97,4 +98,38 @@ fn input_at_end_of_stdin_gives_empty_values() {
 fn line_input_at_end_of_stdin_gives_an_empty_line() {
     let qir = "QIR 1\nmeta console only\nfunc main\nline 1\nconst.i32 %0 0\nconst.str %1 x\nrt INPUTPROMPT %1 %0\nrt %2 LINEINPUT %0\nconst.str %3 x5B\nconst.str %4 x5D\nrt PRINTS %0 %3\nrt PRINTS %0 %2\nrt PRINTS %0 %4\nrt PRINTNL %0\nsystem\nendfunc\n";
     assert_eq!(run("q4l", qir, b""), "[]\n<exit 0>");
+}
+
+/// `A$ = INPUT$(1)` twice, each printed as [A$].
+const INPUTN: &str = r#"QIR 1
+meta console only
+func main
+line 1
+const.i32 %0 0
+const.i32 %1 1
+const.str %3 x5B
+const.str %4 x5D
+rt %2 INPUT$ %1 %0
+rt PRINTS %0 %3
+rt PRINTS %0 %2
+rt PRINTS %0 %4
+rt PRINTNL %0
+line 2
+rt %5 INPUT$ %1 %0
+rt PRINTS %0 %3
+rt PRINTS %0 %5
+rt PRINTS %0 %4
+rt PRINTNL %0
+system
+endfunc
+"#;
+
+#[test]
+fn input_dollar_without_a_file_number_reads_stdin() {
+    assert_eq!(run("q5", INPUTN, b"xy"), "[x]\n[y]\n<exit 0>");
+}
+
+#[test]
+fn input_dollar_at_end_of_stdin_is_empty() {
+    assert_eq!(run("q5e", INPUTN, b"x"), "[x]\n[]\n<exit 0>");
 }
