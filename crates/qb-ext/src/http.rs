@@ -80,22 +80,32 @@ pub mod testserver {
     /// Serves `count` requests on 127.0.0.1 in a thread; each response
     /// echoes the method, path, a request header and the body. Returns the
     /// base URL ("http://127.0.0.1:port").
+    /// An empty string when no port can be bound. Malformed requests are
+    /// dropped: the server thread never panics (R14; with panic=abort that
+    /// would end the BASIC program).
     pub fn start(count: usize) -> String {
-        let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = l.local_addr().unwrap().port();
+        let Ok(l) = TcpListener::bind("127.0.0.1:0") else { return String::new() };
+        let Ok(port) = l.local_addr().map(|a| a.port()) else { return String::new() };
         std::thread::spawn(move || {
             for _ in 0..count {
                 let Ok((s, _)) = l.accept() else { return };
-                let mut r = BufReader::new(s.try_clone().unwrap());
+                let Ok(clone) = s.try_clone() else { continue };
+                let mut r = BufReader::new(clone);
                 let mut line = String::new();
-                r.read_line(&mut line).unwrap();
+                if r.read_line(&mut line).is_err() {
+                    continue;
+                }
                 let mut parts = line.split_whitespace();
                 let method = parts.next().unwrap_or("").to_string();
                 let path = parts.next().unwrap_or("").to_string();
                 let (mut len, mut xtest) = (0usize, String::new());
+                let mut bad = false;
                 loop {
                     let mut h = String::new();
-                    r.read_line(&mut h).unwrap();
+                    if r.read_line(&mut h).is_err() {
+                        bad = true;
+                        break;
+                    }
                     let h = h.trim_end();
                     if h.is_empty() {
                         break;
@@ -108,8 +118,13 @@ pub mod testserver {
                         xtest = v.trim().to_string();
                     }
                 }
-                let mut body = vec![0; len];
-                r.read_exact(&mut body).unwrap();
+                if bad {
+                    continue;
+                }
+                let mut body = vec![0; len.min(64 * 1024 * 1024)];
+                if r.read_exact(&mut body).is_err() {
+                    continue;
+                }
                 let mut s = s;
                 if path == "/redirect" {
                     let _ = s.write_all(b"HTTP/1.1 302 Found\r\nLocation: /target\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -151,6 +166,23 @@ mod tests {
         let r = request("GET", &format!("{base}/redirect"), "", b"", 5000).unwrap();
         assert_eq!((r.status, r.body.as_slice()), (200, &b"GET /target x-test= body="[..]));
         assert!(request("GET", &format!("{base}/x"), "no colon", b"", 5000).unwrap_err().contains("bad header"));
+    }
+
+    /// R14: the test server is reachable from BASIC; a malformed request
+    /// (non-UTF-8 request line, early close) must not kill it (with
+    /// panic=abort a panic in its thread aborts the whole program).
+    #[test]
+    fn test_server_survives_malformed_requests() {
+        use std::io::Write;
+        let base = testserver::start(3);
+        let addr = base.trim_start_matches("http://").to_string();
+        let mut s = std::net::TcpStream::connect(&addr).unwrap();
+        s.write_all(b"\xff\xfe GET / HTTP/1.1\r\n\r\n").unwrap();
+        drop(s);
+        let s = std::net::TcpStream::connect(&addr).unwrap();
+        drop(s); // connect and close without a request
+        let r = request("GET", &format!("{base}/after"), "", b"", 5000).unwrap();
+        assert_eq!(r.body, b"GET /after x-test= body=");
     }
 
     #[test]
