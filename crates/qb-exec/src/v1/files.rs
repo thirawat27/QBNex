@@ -2,7 +2,8 @@
 //! same Rust code the C++ backend links), so file numbers, INPUT # parsing,
 //! PRINT # zones, GET/PUT records and EOF/LOC/SEEK follow legacy exactly.
 
-use super::{e, Stop, Vm, R, V};
+use super::rt::Host;
+use super::{e, Stop, R, V};
 use qb_runtime::fileio as fio;
 
 fn chk(err: i32) -> R<()> {
@@ -77,7 +78,7 @@ fn num_value(n: &fio::NumRepr) -> R<f64> {
 }
 
 /// Handles `name` if it is a file builtin; `None` otherwise.
-pub(crate) fn call(vm: &mut Vm, name: &str, a: &[V]) -> Option<R<Option<V>>> {
+pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let i = |k: usize| a[k].i();
     let s = |k: usize| a[k].s();
     let some = |v: V| Some(Ok(Some(v)));

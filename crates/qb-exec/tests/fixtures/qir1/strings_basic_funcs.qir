@@ -1,0 +1,316 @@
+QIR 1
+meta console only
+global $__STRING_A str
+global $__STRING_B str
+global $__SINGLE_I f32
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+line 2
+const.str %0 x48656C6C6F2C20576F726C64
+store.str $__STRING_A %0
+line 3
+load.str %1 $__STRING_A
+rt %2 LEN %1
+cvt.i64.i32 %3 %2
+rt %4 STR$.i64 %3
+const.str %5 x20
+concat %6 %4 %5
+const.i32 %7 0
+rt PRINTS %7 %6
+load.str %8 $__STRING_A
+const.i32 %9 5
+rt %10 LEFT$ %8 %9
+const.i32 %11 0
+rt PRINTS %11 %10
+const.str %12 x7C
+const.i32 %13 0
+rt PRINTS %13 %12
+load.str %14 $__STRING_A
+const.i32 %15 5
+rt %16 RIGHT$ %14 %15
+const.i32 %17 0
+rt PRINTS %17 %16
+const.str %18 x7C
+const.i32 %19 0
+rt PRINTS %19 %18
+load.str %20 $__STRING_A
+const.i32 %21 8
+const.i32 %22 3
+rt %23 MID$.n %20 %21 %22
+const.i32 %24 0
+rt PRINTS %24 %23
+const.i32 %25 0
+rt PRINTNL %25
+line 4
+load.str %26 $__STRING_A
+rt %27 UCASE$ %26
+const.i32 %28 0
+rt PRINTS %28 %27
+const.str %29 x20
+const.i32 %30 0
+rt PRINTS %30 %29
+load.str %31 $__STRING_A
+rt %32 LCASE$ %31
+const.i32 %33 0
+rt PRINTS %33 %32
+const.i32 %34 0
+rt PRINTNL %34
+line 5
+load.str %35 $__STRING_A
+const.str %36 x6F
+rt %37 INSTR %35 %36
+cvt.i64.i32 %38 %37
+rt %39 STR$.i64 %38
+const.str %40 x20
+concat %41 %39 %40
+const.i32 %42 0
+rt PRINTS %42 %41
+const.i32 %43 6
+load.str %44 $__STRING_A
+const.str %45 x6F
+rt %46 INSTR.n %43 %44 %45
+cvt.i64.i32 %47 %46
+rt %48 STR$.i64 %47
+const.str %49 x20
+concat %50 %48 %49
+const.i32 %51 0
+rt PRINTS %51 %50
+load.str %52 $__STRING_A
+const.str %53 x7A7A
+rt %54 INSTR %52 %53
+cvt.i64.i32 %55 %54
+rt %56 STR$.i64 %55
+const.str %57 x20
+concat %58 %56 %57
+const.i32 %59 0
+rt PRINTS %59 %58
+const.i32 %60 0
+rt PRINTNL %60
+line 6
+const.str %61 x5B
+const.i32 %62 0
+rt PRINTS %62 %61
+const.str %63 x202020782020
+rt %64 LTRIM$ %63
+const.i32 %65 0
+rt PRINTS %65 %64
+const.str %66 x5D5B
+const.i32 %67 0
+rt PRINTS %67 %66
+const.str %68 x202079202020
+rt %69 RTRIM$ %68
+const.i32 %70 0
+rt PRINTS %70 %69
+const.str %71 x5D
+const.i32 %72 0
+rt PRINTS %72 %71
+const.i32 %73 0
+rt PRINTNL %73
+line 7
+const.i32 %74 5
+const.str %75 x2A
+rt %76 STRING$.s %74 %75
+const.i32 %77 0
+rt PRINTS %77 %76
+const.i32 %78 3
+rt %79 SPACE$ %78
+const.i32 %80 0
+rt PRINTS %80 %79
+const.str %81 x7C
+const.i32 %82 0
+rt PRINTS %82 %81
+const.i32 %83 3
+const.i32 %84 65
+rt %85 STRING$ %83 %84
+const.i32 %86 0
+rt PRINTS %86 %85
+const.i32 %87 0
+rt PRINTNL %87
+line 8
+const.str %88 x41
+rt %89 ASC %88
+cvt.i64.i32 %90 %89
+rt %91 STR$.i64 %90
+const.str %92 x20
+concat %93 %91 %92
+const.i32 %94 0
+rt PRINTS %94 %93
+const.i32 %95 66
+rt %96 CHR$ %95
+const.i32 %97 0
+rt PRINTS %97 %96
+load.str %98 $__STRING_A
+const.i32 %99 2
+rt %100 ASC.n %98 %99
+cvt.i64.i32 %101 %100
+rt %102 STR$.i64 %101
+const.str %103 x20
+concat %104 %102 %103
+const.i32 %105 0
+rt PRINTS %105 %104
+const.i32 %106 0
+rt PRINTNL %106
+line 9
+load.str %107 $__STRING_A
+const.i32 %108 1
+const.str %109 x4A656C6C6F
+const.i32 %110 5
+rt %111 MIDSET.n %107 %108 %110 %109
+store.str $__STRING_A %111
+line 10
+load.str %112 $__STRING_A
+const.i32 %113 0
+rt PRINTS %113 %112
+const.i32 %114 0
+rt PRINTNL %114
+line 11
+const.i32 %115 42
+cvt.i64.i32 %116 %115
+rt %117 STR$.i64 %116
+const.i32 %118 0
+rt PRINTS %118 %117
+const.str %119 x7C
+const.i32 %120 0
+rt PRINTS %120 %119
+const.i32 %121 -42
+cvt.i64.i32 %122 %121
+rt %123 STR$.i64 %122
+const.i32 %124 0
+rt PRINTS %124 %123
+const.str %125 x7C
+const.i32 %126 0
+rt PRINTS %126 %125
+const.f64 %127 3.25E+0
+cvt.f32.f64 %128 %127
+rt %129 STR$.f32 %128
+const.i32 %130 0
+rt PRINTS %130 %129
+const.i32 %131 0
+rt PRINTNL %131
+line 12
+const.str %132 x202031322E35616263
+rt %133 VAL %132
+cvt.f80.f64 %134 %133
+rt %135 STR$.f80 %134
+const.str %136 x20
+concat %137 %135 %136
+const.i32 %138 0
+rt PRINTS %138 %137
+const.str %139 x26483130
+rt %140 VAL %139
+cvt.f80.f64 %141 %140
+rt %142 STR$.f80 %141
+const.str %143 x20
+concat %144 %142 %143
+const.i32 %145 0
+rt PRINTS %145 %144
+const.str %146 x2D336532
+rt %147 VAL %146
+cvt.f80.f64 %148 %147
+rt %149 STR$.f80 %148
+const.str %150 x20
+concat %151 %149 %150
+const.i32 %152 0
+rt PRINTS %152 %151
+const.str %153 x78
+rt %154 VAL %153
+cvt.f80.f64 %155 %154
+rt %156 STR$.f80 %155
+const.str %157 x20
+concat %158 %156 %157
+const.i32 %159 0
+rt PRINTS %159 %158
+const.i32 %160 0
+rt PRINTNL %160
+line 13
+const.str %161 x
+store.str $__STRING_B %161
+line 14
+const.i32 %162 1
+cvt.f64.i32 %163 %162
+store.f64 $~T1 %163
+const.i32 %164 1000
+cvt.f64.i32 %165 %164
+store.f64 $~T2 %165
+const.i32 %166 1
+cvt.f64.i32 %167 %166
+store.f64 $~T3 %167
+jmp ~F12.E
+label ~F12.T
+load.f32 %168 $__SINGLE_I
+cvt.f64.f32 %169 %168
+load.f64 %170 $~T3
+add.f64 %171 %170 %169
+store.f64 $~T1 %171
+label ~F12.E
+load.f64 %172 $~T1
+cvt.f32.f64 %173 %172
+store.f32 $__SINGLE_I %173
+load.f64 %174 $~T3
+const.f64 %175 0
+lt.f64 %176 %174 %175
+jz %176 ~F12.P
+load.f64 %177 $~T2
+lt.f64 %178 %172 %177
+jnz %178 ~F12.X
+jmp ~F12.B
+label ~F12.P
+load.f64 %179 $~T2
+gt.f64 %180 %172 %179
+jnz %180 ~F12.X
+label ~F12.B
+line 14
+load.str %181 $__STRING_B
+const.i32 %182 48
+load.f32 %183 $__SINGLE_I
+const.i32 %184 10
+cvt.i64.f32 %185 %183
+cvt.i64.i32 %186 %184
+mod.i64 %187 %185 %186
+cvt.i64.i32 %188 %182
+add.i64 %189 %188 %187
+cvt.i32.i64 %190 %189
+rt %191 CHR$ %190
+concat %192 %181 %191
+store.str $__STRING_B %192
+line 14
+label ~F12.C
+jmp ~F12.T
+label ~F12.X
+line 15
+load.str %193 $__STRING_B
+rt %194 LEN %193
+cvt.i64.i32 %195 %194
+rt %196 STR$.i64 %195
+const.str %197 x20
+concat %198 %196 %197
+const.i32 %199 0
+rt PRINTS %199 %198
+load.str %200 $__STRING_B
+const.i32 %201 10
+rt %202 RIGHT$ %200 %201
+const.i32 %203 0
+rt PRINTS %203 %202
+const.i32 %204 0
+rt PRINTNL %204
+line 16
+const.str %205 x2020626F74682020
+rt %206 _TRIM$ %205
+const.i32 %207 0
+rt PRINTS %207 %206
+const.str %208 x7C
+const.i32 %209 0
+rt PRINTS %209 %208
+const.i32 %210 0
+rt PRINTNL %210
+line 17
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

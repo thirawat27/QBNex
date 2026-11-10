@@ -1,0 +1,92 @@
+QIR 1
+meta console only
+func main
+line 4
+const.str %0 x313233452D32
+rt %1 VAL %0
+cvt.f80.f64 %2 %1
+const.i32 %3 10000
+cvt.f80.i32 %4 %3
+mul.f80 %5 %2 %4
+cvt.i32.f80 %6 %5
+cvt.i64.i32 %7 %6
+rt %8 STR$.i64 %7
+const.str %9 x20
+concat %10 %8 %9
+const.i32 %11 0
+rt PRINTS %11 %10
+const.i32 %12 0
+rt PRINTNL %12
+line 5
+const.str %13 x302E35452D31
+rt %14 VAL %13
+cvt.f80.f64 %15 %14
+const.i32 %16 10000
+cvt.f80.i32 %17 %16
+mul.f80 %18 %15 %17
+cvt.i32.f80 %19 %18
+cvt.i64.i32 %20 %19
+rt %21 STR$.i64 %20
+const.str %22 x20
+concat %23 %21 %22
+const.i32 %24 0
+rt PRINTS %24 %23
+const.i32 %25 0
+rt PRINTNL %25
+line 6
+const.str %26 x3132452D31
+rt %27 VAL %26
+cvt.f80.f64 %28 %27
+const.i32 %29 10000
+cvt.f80.i32 %30 %29
+mul.f80 %31 %28 %30
+cvt.i32.f80 %32 %31
+cvt.i64.i32 %33 %32
+rt %34 STR$.i64 %33
+const.str %35 x20
+concat %36 %34 %35
+const.i32 %37 0
+rt PRINTS %37 %36
+const.i32 %38 0
+rt PRINTNL %38
+line 7
+const.str %39 x2D323530452D32
+rt %40 VAL %39
+cvt.f80.f64 %41 %40
+const.i32 %42 10000
+cvt.f80.i32 %43 %42
+mul.f80 %44 %41 %43
+cvt.i32.f80 %45 %44
+cvt.i64.i32 %46 %45
+rt %47 STR$.i64 %46
+const.str %48 x20
+concat %49 %47 %48
+const.i32 %50 0
+rt PRINTS %50 %49
+const.i32 %51 0
+rt PRINTNL %51
+line 8
+const.str %52 x302E3035452D31
+rt %53 VAL %52
+cvt.f80.f64 %54 %53
+const.i32 %55 100000
+cvt.f80.i32 %56 %55
+mul.f80 %57 %54 %56
+cvt.i32.f80 %58 %57
+cvt.i64.i32 %59 %58
+rt %60 STR$.i64 %59
+const.str %61 x20
+concat %62 %60 %61
+const.i32 %63 0
+rt PRINTS %63 %62
+const.i32 %64 0
+rt PRINTNL %64
+line 9
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

@@ -1,0 +1,25 @@
+QIR 1
+meta console only
+func main
+line 3
+const.str %0 x5B
+const.i32 %1 0
+rt PRINTS %1 %0
+const.f64 %2 1.234567890123456E-16
+rt %3 STR$.f64 %2
+const.i32 %4 0
+rt PRINTS %4 %3
+const.str %5 x5D
+const.i32 %6 0
+rt PRINTS %6 %5
+const.i32 %7 0
+rt PRINTNL %7
+line 4
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

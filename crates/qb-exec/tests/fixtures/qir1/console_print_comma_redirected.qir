@@ -1,0 +1,42 @@
+QIR 1
+meta console only
+func main
+line 2
+const.i32 %0 1
+cvt.i64.i32 %1 %0
+rt %2 STR$.i64 %1
+const.str %3 x20
+concat %4 %2 %3
+const.i32 %5 0
+rt PRINTS %5 %4
+const.i32 %6 0
+rt PRINTZONE %6
+const.i32 %7 2
+cvt.i64.i32 %8 %7
+rt %9 STR$.i64 %8
+const.str %10 x20
+concat %11 %9 %10
+const.i32 %12 0
+rt PRINTS %12 %11
+const.i32 %13 0
+rt PRINTNL %13
+line 3
+const.str %14 x61
+const.i32 %15 0
+rt PRINTS %15 %14
+const.i32 %16 0
+rt PRINTZONE %16
+const.str %17 x62
+const.i32 %18 0
+rt PRINTS %18 %17
+const.i32 %19 0
+rt PRINTNL %19
+line 4
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

@@ -65,6 +65,12 @@ pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
     lower::compile_v0(src)
 }
 
+/// Whether a QIR v1 module runs on the typed VM (otherwise the R11a
+/// reference interpreter runs it; see `lower1.rs` for what is not lowered yet).
+pub fn v1_on_vm(_m: &qb_ir::Module) -> bool {
+    false
+}
+
 /// Parses and runs a QIR program, writing console output to `out`.
 pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
     run_ir_status(src, out).map(|_| ())

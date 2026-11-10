@@ -936,6 +936,21 @@ impl<'a> Vm<'a> {
     }
 }
 
+impl<'a> rt::Host<'a> for Vm<'a> {
+    fn rt(&mut self) -> &mut rt::RtState<'a> {
+        &mut self.rt
+    }
+    fn err(&self) -> i32 {
+        self.err
+    }
+    fn erl(&self) -> u32 {
+        self.erl
+    }
+    fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
+        Vm::bytes(self, p, len)
+    }
+}
+
 fn bin(o: BinOp, t: Ty, a: &V, b: &V) -> R<V> {
     if t.is_float() {
         let (x, y) = (a.f(), b.f());

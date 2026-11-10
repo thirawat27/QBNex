@@ -1,6 +1,6 @@
 //! `rt` builtins of the v1 reference interpreter (table: `qb_ir::builtins`).
 
-use super::{cvt, e, Stop, Vm, R, V};
+use super::{cvt, e, Stop, R, V};
 use qb_ir::Ty;
 use qb_runtime::numfmt;
 use std::io::{Read, Write};
@@ -11,6 +11,16 @@ pub(crate) struct Reader {
     rbuf: Vec<u8>,
     rpos: usize,
     eof: bool,
+}
+
+/// What the builtins need from the executor that runs them (the reference
+/// interpreter or the typed VM).
+pub(crate) trait Host<'a> {
+    fn rt(&mut self) -> &mut RtState<'a>;
+    fn err(&self) -> i32;
+    fn erl(&self) -> u32;
+    /// `len` bytes of memory at `p` (GET/PUT of variables); error 5 when unsupported.
+    fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]>;
 }
 
 pub(crate) struct RtState<'a> {
@@ -185,7 +195,7 @@ fn write_num(t: Ty, v: &V) -> Vec<u8> {
     }
 }
 
-pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
+pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     let s = |i: usize| a[i].s();
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
@@ -193,7 +203,8 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     if let Some(r) = super::files::call(vm, name, &a) {
         return r;
     }
-    let rt = &mut vm.rt;
+    let (err, erl) = (vm.err(), vm.erl());
+    let rt = vm.rt();
     match name {
         "PRINTS" => rt.write(i(0) as i32, s(1))?,
         n if n.starts_with("PRINTN.") => {
@@ -393,8 +404,8 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
             let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
             return ok(V::F(t % 86400.0));
         }
-        "ERR" => return ok(V::I(vm.err.into())),
-        "ERL" | "_ERRORLINE" => return ok(V::I(vm.erl.into())),
+        "ERR" => return ok(V::I(err.into())),
+        "ERL" | "_ERRORLINE" => return ok(V::I(erl.into())),
         "LINEINPUT" => {
             let ch = i(0) as i32;
             let _ = ch;
@@ -636,15 +647,15 @@ fn read_item(f: &mut Reader, numeric: bool) -> R<Vec<u8>> {
 }
 
 /// Minimal PRINT USING: literal text, `&`, `!`, `\ \`, and numeric fields `#.#`, `+`, `-`, `$$`, `**`, `,`, `^^^^`.
-fn using(vm: &mut Vm, name: &str, a: &[V]) -> R<Option<V>> {
-    let Some(mut u) = vm.rt.using.take() else { return e(5) };
+fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<V>> {
+    let Some(mut u) = vm.rt().using.take() else { return e(5) };
     let ch = u.ch;
     let mut out = Vec::new();
     if name == "USINGEND" {
         // literal text up to the next field (or the end)
         let (lit, _) = scan_literal(&u.fmt, u.pos);
         out.extend_from_slice(&lit);
-        vm.rt.write(ch, &out)?;
+        vm.rt().write(ch, &out)?;
         return Ok(None);
     }
     let mut wrapped = false;
@@ -685,8 +696,8 @@ fn using(vm: &mut Vm, name: &str, a: &[V]) -> R<Option<V>> {
         }
         _ => return e(13),
     }
-    vm.rt.write(ch, &out)?;
-    vm.rt.using = Some(u);
+    vm.rt().write(ch, &out)?;
+    vm.rt().using = Some(u);
     Ok(None)
 }
 
