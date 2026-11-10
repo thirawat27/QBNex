@@ -160,9 +160,11 @@ impl<'a> Lexer<'a> {
         // Newlines.
         if c == '\r' || c == '\n' {
             let len = if self.rest().starts_with("\r\n") { 2 } else { 1 };
+            let continued = self.tokens.iter().rev().find(|t| t.kind != TokenKind::Whitespace).is_some_and(|t| t.kind == TokenKind::LineContinuation);
             self.push(TokenKind::Newline, start + len);
-            self.line_start = true;
-            self.stmt_start = true;
+            // A continued line does not start a new line for line numbers/labels.
+            self.line_start = !continued;
+            self.stmt_start = !continued;
             return;
         }
         if is_hspace(c) {
