@@ -1197,6 +1197,198 @@ id.specialformat = "{On|Off|Lock|_Clear}[,?]"
 id.hr_syntax = "_DEPTHBUFFER {On|Off|Lock|_Clear}[,handle&]"
 regid
 
+'R15 G4 3D API (docs/rust-port/r15-g4-3d-api.md; libqb/scene3d_bridge.cpp, qb_runtime::scene3d)
+
+clearid
+id.n = qbnexprefix$ + "LoadModel"
+id.subfunc = 1
+id.callname = "func__loadmodel"
+id.args = 1
+id.arg = MKL$(STRINGTYPE - ISPOINTER)
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_LOADMODEL(fileName$)"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshCube"
+id.subfunc = 1
+id.callname = "func__meshcube"
+id.args = 1
+id.arg = MKL$(SINGLETYPE - ISPOINTER)
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_MESHCUBE(size!)"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshPlane"
+id.subfunc = 1
+id.callname = "func__meshplane"
+id.args = 2
+id.arg = MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_MESHPLANE(width!, depth!)"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshBegin"
+id.subfunc = 2
+id.callname = "sub__meshbegin"
+id.args = 0
+id.hr_syntax = "_MESHBEGIN"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshVertex"
+id.subfunc = 2
+id.callname = "sub__meshvertex"
+id.args = 5
+id.arg = MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.specialformat = "?,?,?[,?,?]"
+id.hr_syntax = "_MESHVERTEX x!, y!, z![, u!, v!]"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshTriangle"
+id.subfunc = 2
+id.callname = "sub__meshtriangle"
+id.args = 3
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_MESHTRIANGLE vertex1&, vertex2&, vertex3&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshEnd"
+id.subfunc = 1
+id.callname = "func__meshend"
+id.args = 0
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_MESHEND"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshColor"
+id.subfunc = 2
+id.callname = "sub__meshcolor"
+id.args = 2
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(ULONGTYPE - ISPOINTER)
+id.hr_syntax = "_MESHCOLOR mesh&, colour~&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshTexture"
+id.subfunc = 2
+id.callname = "sub__meshtexture"
+id.args = 2
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_MESHTEXTURE mesh&, image&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "FreeMesh"
+id.subfunc = 2
+id.callname = "sub__freemesh"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_FREEMESH mesh&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Draw3D"
+id.subfunc = 2
+id.callname = "sub__draw3d"
+id.args = 10
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.specialformat = "?[,?,?,?][,?,?,?][,?,?,?]"
+id.hr_syntax = "_DRAW3D mesh&[, x!, y!, z!][, rx!, ry!, rz!][, sx!, sy!, sz!]"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Camera"
+id.subfunc = 2
+id.callname = "sub__camera"
+id.args = 7
+id.arg = MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.specialformat = "(?,?,?){To}(?,?,?)[,?]"
+id.hr_syntax = "_CAMERA (x!, y!, z!) TO (tx!, ty!, tz!)[, fov!]"
+regid
+
+clearid
+id.n = qbnexprefix$ + "CameraOrtho"
+id.subfunc = 2
+id.callname = "sub__cameraortho"
+id.args = 7
+id.arg = MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.specialformat = "(?,?,?){To}(?,?,?),?"
+id.hr_syntax = "_CAMERAORTHO (x!, y!, z!) TO (tx!, ty!, tz!), height!"
+regid
+
+clearid
+id.n = qbnexprefix$ + "CameraRange"
+id.subfunc = 2
+id.callname = "sub__camerarange"
+id.args = 2
+id.arg = MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.hr_syntax = "_CAMERARANGE near!, far!"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Ambient"
+id.subfunc = 2
+id.callname = "sub__ambient"
+id.args = 2
+id.arg = MKL$(ULONGTYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.specialformat = "?[,?]"
+id.hr_syntax = "_AMBIENT colour~&[, intensity!]"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Light"
+id.subfunc = 1
+id.callname = "func__light"
+id.args = 7
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(ULONGTYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.specialformat = "?,?,?,?,?,?[,?]"
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_LIGHT(kind&, x!, y!, z!, colour~&, intensity![, range!])"
+regid
+
+clearid
+id.n = qbnexprefix$ + "LightOn"
+id.subfunc = 2
+id.callname = "sub__lighton"
+id.args = 2
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_LIGHTON light&, on&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "FreeLight"
+id.subfunc = 2
+id.callname = "sub__freelight"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_FREELIGHT light&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "Clear3D"
+id.subfunc = 2
+id.callname = "sub__clear3d"
+id.args = 1
+id.arg = MKL$(ULONGTYPE - ISPOINTER)
+id.specialformat = "[?]"
+id.hr_syntax = "_CLEAR3D [colour~&]"
+regid
+
+clearid
+id.n = qbnexprefix$ + "GPU3D"
+id.subfunc = 1
+id.callname = "func__gpu3d"
+id.args = 0
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_GPU3D"
+regid
+
 clearid
 id.n = qbnexprefix$ + "SetAlpha"
 id.subfunc = 2
