@@ -214,3 +214,72 @@ fn recursive_function_from_native_loop_and_end_inside_sub() {
     let out = same(&p);
     assert!(!out.contains("no"), "{out}");
 }
+
+// ---------------------------------------------------------------- native calls
+
+#[test]
+fn native_sub_with_byref_and_function_results() {
+    // FOR i& = 1 TO 2000: INC c&: t& = t& + SQ&(i&): NEXT: PRINT c&; t&
+    let body = "LINE 2\nREF C&\nCALL INC 1\nLOAD T&\nLOAD I&\nCALL SQ& 1\nOP ADD\nSTORE T&";
+    let p = format!(
+        "QIR 0\n{}LOAD C&\nPRINT\nLOAD T&\nPRINT\nPRINTNL\nEND\n\
+         SUB INC 1 N&\nLOAD N&\nPUSH I 1\nOP ADD\nSTORE N&\nENDSUB\n\
+         FUNCTION SQ& 1 X&\nLOAD X&\nLOAD X&\nOP MUL\nPUSH I 1000\nOP MOD\nSTORE SQ&\nENDSUB\n",
+        for_loop(1, "I&", "I 1", "I 2000", "I 1", body)
+    );
+    let t: i64 = (1..=2000i64).map(|i| i * i % 1000).sum();
+    assert_eq!(same(&p), format!(" 2000  {t} \n"));
+}
+
+#[test]
+fn error_inside_native_callee_resumes_next_in_the_callee() {
+    // ON ERROR GOTO H: FOR i% = 1 TO 30: s& = s& + F&(i%): NEXT: PRINT s&; e%: END
+    // FUNCTION F&(n%): F& = 100: F& = 1000 \ (n% MOD 4): END FUNCTION     H: e% = e% + 1: RESUME NEXT
+    let body = "LINE 3\nLOAD S&\nLOAD I%\nCALL F& 1\nOP ADD\nSTORE S&";
+    let p = format!(
+        "QIR 0\nLINE 1\nONERROR MAIN.H\nLINE 2\n{}LINE 4\nLOAD S&\nPRINT\nLOAD E%\nPRINT\nPRINTNL\nEND\n\
+         LABEL MAIN.H\nLINE 9\nLOAD E%\nPUSH I 1\nOP ADD\nSTORE E%\nRESUME NEXT\n\
+         FUNCTION F& 1 N%\nLINE 20\nPUSH I 100\nSTORE F&\nLINE 21\nPUSH I 1000\nLOAD N%\nPUSH I 4\nOP MOD\nOP IDIV\nSTORE F&\nLINE 22\nENDSUB\n",
+        for_loop(1, "I%", "I 1", "I 30", "I 1", body)
+    );
+    same(&p);
+}
+
+#[test]
+fn deep_native_recursion_hands_over_to_the_vm() {
+    // FOR k% = 1 TO 3: t& = t& + DOWN&(3000): NEXT   FUNCTION DOWN&(n&): IF n& > 0 THEN DOWN& = DOWN&(n& - 1) + 1
+    let body = "LOAD T&\nPUSH I 3000\nCALL DOWN& 1\nOP ADD\nSTORE T&";
+    let p = format!(
+        "QIR 0\n{}LOAD T&\nPRINT\nPRINTNL\nEND\n\
+         FUNCTION DOWN& 1 N&\nLOAD N&\nPUSH I 0\nOP GT\nJZ X\nLOAD N&\nPUSH I 1\nOP SUB\nCALL DOWN& 1\nPUSH I 1\nOP ADD\nSTORE DOWN&\nLABEL X\nENDSUB\n",
+        for_loop(1, "K%", "I 1", "I 3", "I 1", body)
+    );
+    assert_eq!(same(&p), " 9000 \n");
+}
+
+#[test]
+fn end_and_gosub_inside_native_callee() {
+    // FOR i% = 1 TO 50: CALL S(i%): NEXT    SUB S(n%): GOSUB G: IF n% = 40 THEN END: G: c& = c& + n%: RETURN
+    let body = "LOAD I%\nCALL S 1";
+    let p = format!(
+        "QIR 0\nSHARED C&\n{}PUSH S 6E6F\nPRINT\nPRINTNL\nEND\n\
+         SUB S 1 N%\nGOSUB G\nLOAD C&\nPRINT\nLOAD N%\nPUSH I 40\nOP EQ\nJZ Y\nEND\nLABEL Y\nJMP Z\n\
+         LABEL G\nLOAD C&\nLOAD N%\nOP ADD\nSTORE C&\nRETURN\nLABEL Z\nENDSUB\n",
+        for_loop(1, "I%", "I 1", "I 50", "I 1", body)
+    );
+    let out = same(&p);
+    assert!(!out.contains("no"), "{out}");
+}
+
+#[test]
+fn byref_shared_variable_through_two_native_levels() {
+    // FOR i% = 1 TO 100: CALL A: NEXT: PRINT G&     SUB A: SHARED G&: CALL B(G&)    SUB B(x&): x& = x& * 3 MOD 1000 + 1
+    let body = "CALL A 0";
+    let p = format!(
+        "QIR 0\nSHARED G&\n{}LOAD G&\nPRINT\nPRINTNL\nEND\n\
+         SUB A 0\nREF G&\nCALL B 1\nENDSUB\n\
+         SUB B 1 X&\nLOAD X&\nPUSH I 3\nOP MUL\nPUSH I 1000\nOP MOD\nPUSH I 1\nOP ADD\nSTORE X&\nENDSUB\n",
+        for_loop(1, "I%", "I 1", "I 100", "I 1", body)
+    );
+    same(&p);
+}

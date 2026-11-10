@@ -276,6 +276,8 @@ struct Lower<'a> {
     slots: Vec<Ty>,
     insts: Vec<Inst>,
     view_off: u32,
+    /// VM function -> MIR index of its native call version (None: VM calls it)
+    natcall: &'a [Option<u32>],
 }
 
 fn ty_of(c: Class) -> Ty {
@@ -392,6 +394,73 @@ impl Lower<'_> {
         let r = self.tmp(Class::Int);
         self.insts.push(Inst::Bin { op: BinOp::Or, dst: r, a: t1, b: t2 });
         r
+    }
+
+    /// CALL of a numeric-only function: arguments copied into the callee
+    /// frame (BYREF copied back after a normal return), like `Vm::call`/`ret`.
+    fn native_call(&mut self, pc: u32, f: u32, desc: u32) {
+        let callee = &self.m.funcs[f as usize];
+        let ccls = classes(self.m, callee);
+        let cd = &self.m.calls[desc as usize];
+        let mut args = Vec::new();
+        let mut back = Vec::new();
+        let mut after = Vec::new();
+        for (a, slot) in cd.args.iter().zip(&callee.params) {
+            let bc::Slot::N(ps) = *slot else { unreachable!("numeric callee") };
+            let pc_cls = ccls[ps as usize];
+            match *a {
+                bc::Arg::N(r) => args.push(mir::Arg::Val(self.get(r, pc_cls))),
+                bc::Arg::Ref(p) => match self.m.places[p as usize] {
+                    bc::Place::N(r, _) => {
+                        args.push(mir::Arg::Val(self.get(r, pc_cls)));
+                        let d = self.dst(r, pc_cls);
+                        back.push((ps, d));
+                        if d != r {
+                            after.push(Inst::Bitcast { dst: r, src: d });
+                        }
+                    }
+                    bc::Place::NG(g, _) if self.is_main() => {
+                        args.push(mir::Arg::Val(self.get(g, pc_cls)));
+                        let d = self.dst(g, pc_cls);
+                        back.push((ps, d));
+                        if d != g {
+                            after.push(Inst::Bitcast { dst: g, src: d });
+                        }
+                    }
+                    bc::Place::NG(g, _) => {
+                        let gc = self.global(g);
+                        let t = self.tmp(gc);
+                        self.insts.push(Inst::GLoad { dst: t, slot: g });
+                        args.push(mir::Arg::Val(self.get(t, pc_cls)));
+                        let d = self.tmp(pc_cls);
+                        back.push((ps, d));
+                        let v = self.get(d, gc);
+                        // `get` emitted its bitcast now; it must run after the call.
+                        if v != d {
+                            let bc_inst = self.insts.pop().expect("bitcast");
+                            after.push(bc_inst);
+                        }
+                        after.push(Inst::GStore { slot: g, src: v });
+                    }
+                    _ => unreachable!("checked by call_args_native"),
+                },
+                _ => unreachable!("checked by call_args_native"),
+            }
+        }
+        let dst = match (cd.dest, callee.ret) {
+            (Some(d), Some((bc::Slot::N(r), _))) => {
+                let c = ccls[r as usize];
+                let dd = self.dst(d, c);
+                if dd != d {
+                    after.push(Inst::Bitcast { dst: d, src: dd });
+                }
+                Some(dd)
+            }
+            _ => None,
+        };
+        let func = self.natcall[f as usize].expect("native callee");
+        self.insts.push(Inst::Call { func, args, dst, pc, back });
+        self.insts.extend(after);
     }
 
     /// Element type of numeric array operand `a` (None for string arrays).
@@ -597,6 +666,9 @@ impl Lower<'_> {
                 let (i1, i2, sr) = (self.get(i, Class::Int), self.get(i + 1, Class::Int), self.get(s, Class::Int));
                 self.insts.push(Inst::Host { f: H_STE2, args: vec![ar, i1, i2, sr], dst: None });
             }
+            Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, desc, self.is_main()) => {
+                self.native_call(pc, f, desc)
+            }
             _ => {
                 let regs = frame_regs(self.m, ins, self.m.funcs[self.fi].n_num(), self.is_main());
                 self.insts.push(Inst::VmOp { op: pc, reads: regs.clone(), writes: regs });
@@ -668,10 +740,71 @@ fn fingerprint(m: &bc::Module, hosts: &Hosts) -> u64 {
 }
 
 /// Lowers every function of `m`. `vm_op` = address of the VM step callback.
+/// Arguments a native call can pass: numbers and BYREF numeric variables.
+fn call_args_native(m: &bc::Module, desc: u32, _is_main: bool) -> bool {
+    m.calls[desc as usize].args.iter().all(|a| match *a {
+        bc::Arg::N(_) => true,
+        bc::Arg::Ref(p) => matches!(m.places[p as usize], bc::Place::N(..) | bc::Place::NG(..)),
+        _ => false,
+    })
+}
+
+/// Functions that can run entirely as native code with their frame in the
+/// JIT arena: numbers only (no string/array locals, not STATIC), and every
+/// instruction is native, a VM exit, or a call of another such function.
+fn native_callees(m: &bc::Module) -> Vec<bool> {
+    let mut ok: Vec<bool> = m
+        .funcs
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            i != 0
+                && f.n_str == 0
+                && f.n_arr() == 0
+                && !f.is_static
+                && f.params.iter().all(|p| matches!(p, bc::Slot::N(_)))
+                && matches!(f.ret, None | Some((bc::Slot::N(_), _)))
+        })
+        .collect();
+    loop {
+        let mut changed = false;
+        for (i, f) in m.funcs.iter().enumerate() {
+            if !ok[i] {
+                continue;
+            }
+            let good = m.code[f.entry as usize..f.end as usize].iter().all(|ins| match *ins {
+                Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, desc, false),
+                Ins::RaiseK { .. } | Ins::Gosub { .. } | Ins::Return => true,
+                ref x => light(x) || exits(x),
+            });
+            if !good {
+                ok[i] = false;
+                changed = true;
+            }
+        }
+        if !changed {
+            return ok;
+        }
+    }
+}
+
 pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module {
     let gcls = classes(m, &m.funcs[0]);
+    let simple = native_callees(m);
+    let n = m.funcs.len();
+    let mut natcall = vec![None; n];
+    let mut k = n as u32;
+    for (i, s) in simple.iter().enumerate() {
+        if *s {
+            natcall[i] = Some(k);
+            k += 1;
+        }
+    }
     let mut funcs = Vec::new();
-    for (fi, f) in m.funcs.iter().enumerate() {
+    let order: Vec<(usize, bool)> =
+        (0..n).map(|i| (i, false)).chain((0..n).filter(|&i| simple[i]).map(|i| (i, true))).collect();
+    for (fi, callver) in order {
+        let f = &m.funcs[fi];
         let cls = if fi == 0 { gcls.clone() } else { classes(m, f) };
         let (lo, hi) = (f.entry, f.end);
         let code = &m.code[lo as usize..hi as usize];
@@ -690,11 +823,30 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
             }
         }
         let leaders: Vec<u32> = leaders.into_iter().collect();
-        let bidx = |pc: u32| leaders.binary_search(&pc).ok().map(|i| i as u32);
-        let mut lw =
-            Lower { m, fi, slots: cls.iter().map(|c| ty_of(*c)).collect(), cls, gcls: &gcls, insts: vec![], view_off };
+        // A call version starts with a prologue block (the frame's constants).
+        let base = u32::from(callver);
+        let bidx = |pc: u32| leaders.binary_search(&pc).ok().map(|i| i as u32 + base);
+        let mut lw = Lower {
+            m,
+            fi,
+            slots: cls.iter().map(|c| ty_of(*c)).collect(),
+            cls,
+            gcls: &gcls,
+            insts: vec![],
+            view_off,
+            natcall: &natcall,
+        };
         let mut blocks = Vec::new();
-        if fi == 0 {
+        if callver {
+            let params: Vec<u32> = f.params.iter().map(|p| if let bc::Slot::N(r) = *p { r } else { unreachable!() }).collect();
+            for (r, &bits) in f.num_init.iter().enumerate() {
+                if bits != 0 && !params.contains(&(r as u32)) {
+                    lw.raw_const(r as u32, bits);
+                }
+            }
+            blocks.push(Block { pc: None, insts: std::mem::take(&mut lw.insts), term: Term::Jmp(1) });
+        }
+        if fi == 0 && !callver {
             // Keep these registers in memory (an address-taken slot is never cached).
             for g in main_shared(m) {
                 lw.slots.push(Ty::Ptr);
@@ -718,7 +870,12 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                     }
                 };
                 use Ins::*;
-                let t: Option<Term> = if exits(ins) {
+                let t: Option<Term> = if callver && matches!(ins, Ret) {
+                    Some(Term::Ret)
+                } else if callver && matches!(ins, Gosub { .. } | Return) {
+                    // the VM's GOSUB stack belongs to VM frames
+                    Some(Term::Exit { pc })
+                } else if exits(ins) {
                     Some(Term::Exit { pc })
                 } else {
                     match *ins {
@@ -800,11 +957,22 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
             });
             blocks.push(Block { pc: Some(start), insts: std::mem::take(&mut lw.insts), term });
         }
+        let (params, ret) = if callver {
+            (
+                f.params.iter().map(|p| if let bc::Slot::N(r) = *p { r } else { unreachable!() }).collect(),
+                match f.ret {
+                    Some((bc::Slot::N(r), _)) => Some(r),
+                    _ => None,
+                },
+            )
+        } else {
+            (vec![], None)
+        };
         funcs.push(mir::Func {
-            name: f.name.clone(),
+            name: if callver { format!("{}.call", f.name) } else { f.name.clone() },
             slots: lw.slots,
-            params: vec![],
-            ret: None,
+            params,
+            ret,
             blocks,
             frame_len: Some(f.n_num()),
         });
@@ -887,7 +1055,7 @@ impl JitState {
         Some(Box::new(JitState {
             tier: Tiering::new(mode, threshold),
             mir: None,
-            ctx: Ctx::with_capacity(core::ptr::null_mut(), 1, 1),
+            ctx: Ctx::with_capacity(core::ptr::null_mut(), 1, 1 << 18),
             func_at: {
                 let mut v = vec![0u32; m.code.len()];
                 for (i, f) in m.funcs.iter().enumerate() {
@@ -978,6 +1146,7 @@ impl JitState {
         ctx.ev_mask = mask;
         ctx.user = user;
         ctx.tables = tables;
+        ctx.call_budget = qb_jit::ctx::DEFAULT_CALL_BUDGET;
         self.entries += 1;
         // SAFETY: caller contract; the frame layout is the VM window.
         let st = unsafe { code.run(ctx, func, np, pc) };
@@ -988,5 +1157,26 @@ impl JitState {
             status::END => Ok((u32::MAX, false)),
             other => unreachable!("native status {other} from VM-lowered code"),
         })
+    }
+
+    /// Native call frames left behind by the last exit, outermost first:
+    /// (VM function, its registers, pc of the CALL in the parent).
+    pub(crate) fn take_frames(&mut self, vm_funcs: usize) -> Vec<(u32, Vec<u64>, u32)> {
+        let mir = self.mir.as_ref().expect("lowered");
+        let ctx = &mut *self.ctx;
+        let mut v: Vec<(u32, Vec<u64>, u32)> = ctx
+            .chain
+            .drain(..)
+            .map(|c| {
+                let name = &mir.funcs[c.func as usize].name;
+                let vf = mir.funcs[..vm_funcs].iter().position(|f| format!("{}.call", f.name) == *name).expect("call version") as u32;
+                let n = mir.funcs[c.func as usize].frame_len();
+                // SAFETY: the frame is in the context arena, untouched since the exit.
+                let regs = unsafe { core::slice::from_raw_parts(c.frame, n) }.to_vec();
+                (vf, regs, c.ret_pc)
+            })
+            .collect();
+        v.reverse();
+        v
     }
 }

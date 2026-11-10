@@ -392,7 +392,26 @@ impl<'m, 'o> Vm<'m, 'o> {
         // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<Box<Arr>> is one nullable pointer.
         let tables = [unsafe { arrs.add(self.ab) }, arrs];
         let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables)? };
+        let frames = js.take_frames(self.m.funcs.len());
+        if !frames.is_empty() {
+            self.push_native_frames(frames);
+        }
         Some(st)
+    }
+
+    /// Rebuilds the VM frames of native calls that were still active when
+    /// native code stopped (error, event, deopt), so the VM continues inside
+    /// the innermost callee exactly as if it had made the calls itself.
+    #[cold]
+    fn push_native_frames(&mut self, frames: Vec<(u32, Vec<u64>, u32)>) {
+        for (f, regs, call_pc) in frames {
+            let Ins::Call { desc, .. } = self.m.code[call_pc as usize] else { unreachable!("chain points at a CALL") };
+            let func = &self.m.funcs[f as usize];
+            let (nb, sb, ab) = (self.nums.len(), self.strs.len(), self.arrs.len());
+            self.nums.extend_from_slice(&regs[..func.n_num() as usize]);
+            self.frames.push(Frame { func: f, ret: call_pc + 1, nb, sb, ab, caller_view: self.view, desc });
+            self.set_view(self.frames.len() - 1);
+        }
     }
 
     /// CALL at `pc` made from native code: the VM pushes the frame and runs
