@@ -461,6 +461,10 @@ impl<'m, 'o> Vm<'m, 'o> {
         if (base + k as u32 + 1) >= crate::jit::GOSUB_CAP {
             return None;
         }
+        // an ON TIMER handler's GOSUB keeps its slot (done() at RETURN): stay in the VM
+        if self.gosub[n - k..].iter().any(|g| g.ev >= 0) {
+            return None;
+        }
         if self.gosub[..n - k].last().is_some_and(|g| g.depth == depth) {
             js.gosub_push(crate::jit::GOSUB_VM_BELOW);
         }
