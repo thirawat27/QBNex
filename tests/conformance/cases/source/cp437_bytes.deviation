@@ -1,0 +1,1 @@
+Fixes legacy defect L-15: the compiler rejected every source file that is not well-formed UTF-8 ("Invalid UTF-8 byte sequence"), so QBasic programs saved as CP437 (box drawing in strings or comments) did not compile. QBasic and QB64 read source bytes as they are; string literals keep the CP437 bytes exactly.
