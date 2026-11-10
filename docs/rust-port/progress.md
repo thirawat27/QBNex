@@ -195,6 +195,95 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 - The CMake target `qb-exec` (built with `qb-selfhost`) produces `crates/qb-exec/bin/<os>/qb-exec`; on Windows it imports only system DLLs.
 - Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
 
+### R11 one pipeline (branch `claude/r11b-vm-d353b8`, 2026-11-11)
+
+The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner: "no separate versions, make it one"):
+
+- **QIR** (`crates/qb-ir`) → `qb_exec::lower` (`crates/qb-exec/src/lower.rs`) → **one typed register bytecode** (`bytecode.rs`) → **one VM** (`vm.rs`); every runtime operation goes through `rt::Host` (`crates/qb-exec/src/rt/`: builtins, files, `_MEM`, TCP, sound). Hot loops and numeric SUB/FUNCTIONs of the same bytecode are compiled by Cranelift (`jit.rs` + `qb-jit`), at run time (JIT, `QB_JIT=off|eager|<threshold>`) or ahead of time (`qb-exec build`, `qb-link`).
+- Removed: the QIR v0 format and its loader, the tree-walking reference interpreter, v0-only bytecode instructions (FToI, EQV/IMP, DivF, float jumps, the v0 FOR instructions, PRINT/RND/ERR/event ops, math unary ops, STATIC frames), the v0 tests. qb-jit keeps MIR (its codegen IR); its MIR interpreter is a test oracle only.
+- JIT on the unified bytecode: `for_test +k`, `loop_for` (the back edge also enters native code), `acc` and `cvt` (CINT-style float -> int) are native; `_FLOAT` pairs, unsigned widths, memory-mode and string/rt instructions exit to the VM (safe default of R11c's guide).
+- Oracles after the reference interpreter was retired: `tests/fixtures/corpus/*.expect` (39 conformance programs) and `tests/fixtures/cover/*.expect` were recorded from it while VM and reference agreed.
+- Tests: `cargo test -p qb-exec` passes with `QB_JIT=off`, `1`, `eager` and the default (corpus, cover, fusion, qir_ops, jit 19 fixtures from `tests/fixtures/jit` = BASIC + QIR, jit_random 300 generated QIR programs incl. AOT, aot); `cargo test -p qb-jit` passes.
+- Benchmarks of the single pipeline (`cargo run --release -p qb-exec --example bench`: `benches/qir/*.qir` = `benches/bas/*.bas` compiled with `qb --ir`, each program times itself with `TIMER(.001)`; C++ = the same `.bas` built by the C++ backend; best of 3, console only, stdin from NUL, same machine and moment):
+
+| case | C++ ms | VM ms | VM + JIT ms | JIT / C++ |
+| --- | --- | --- | --- | --- |
+| loop | 97 | 333 | 115 | 1.19x |
+| float | 57 | 164 | 25 | 0.44x |
+| array | 126 | 332 | 84 | 0.67x |
+| sub | 58 | 179 | 20 | 0.34x |
+| func | 91 | 204 | 28 | 0.31x |
+| gosub | 15 | 33 | 27 | 1.8x |
+| strfn | 118 | 58 | 61 | 0.52x |
+| concat | 93 000+ | 15 | 16 | ~6000x faster |
+
+  Gate D13 (loop <= 2x C++) met with the JIT; every case is within 2x.
+- `cargo test --workspace` passes (31 test binaries).
+- Conformance under the QIR backend (`conformance --qb qb-ir.exe --qb-arg --ir`, R11a's compiler build of 2026-11-10 10:55): **51 of 81 pass**, 6 xfail, 24 fail. None is a VM difference: 10 do not compile with `--ir` (emitter), 11 use builtins that compiler build emits but the committed `qb_ir` table does not have yet (`qbg_screen`, `sub__delay`: R11a work in progress), 3 differ in emitter/runtime semantics (OCT$ width, READ into `_INTEGER64` saturation, CALL ABSOLUTE).
+
+### R11b typed register VM (R11.5, branch `claude/r11b-vm-d353b8`, 2026-11-10)
+
+- The untyped stack interpreter is gone. QIR is loaded once into typed register bytecode (`crates/qb-exec/src/bytecode.rs`): numeric registers are 64-bit cells (integers stored wrapped to their QB width, SINGLE/DOUBLE as f64), separate string and array banks, constant registers, one frame per SUB/FUNCTION call, labels resolved to pc, builtins resolved at load (hot ones are instructions: LEN, CHR$, ASC, LEFT$, RIGHT$, MID$, ABS/SGN/INT/FIX/SQR/LOG/EXP/SIN/COS/TAN/ATN; the rest go through one resolved table entry). `Module::validate` checks every operand, so the hot loop indexes registers without bounds checks.
+- `lower.rs` runs QIR v0 abstractly (static types from suffixes / first store) and fuses: result written straight into the variable, compare + branch (`br.*`), `FORTEST`+`JZ` (`for_test.*`), `NEXT` (`for_next.*`, one instruction per iteration), `s = s + a op b` (`acc`), in-place `a$ = a$ + x$`, backward jumps as `loop` (event safe point). Fusion never crosses `LINE` or a label; statement starts live in a side table, so `LINE` costs nothing and RESUME / RESUME NEXT / error lines are unchanged.
+- BYREF = copy-in / copy-out (strings and arrays are moved, not copied); differs from pointer semantics only when a SUB changes one variable through a parameter and through SHARED at once. GOSUB/RETURN and ON ERROR/RESUME are jumps with a return stack; the error handler sees module level without unwinding frames (QBasic). `_INTEGER64` (`&&`, `PUSH Q`) is typed.
+- Events: `ONEVENT id label`, `EVENTON/EVENTOFF/EVENTSTOP id`, `ONTIMER label` (interval on the stack, timer thread) — other threads set bits in an atomic mask, the VM looks only at safe points (back edges, NEXT, CALL) and runs the handler as an implicit GOSUB; STOP remembers, OFF discards (`Vm::events()` gives a handle).
+- Tests: `cargo test -p qb-exec` — all v0 tests unchanged (18 + 19 + 7) plus 14 in `tests/vm_typed.rs` (fusion shapes, wrap rules, events, BYREF strings, shared arrays) and the merged QIR v1 tests of R11a (13, still on the reference interpreter, see below).
+- Microbenchmarks: `cargo run --release -p qb-exec --example bench`; the same programs for the C++ path are `crates/qb-exec/benches/bas/*.bas` (time measured inside the program with `TIMER(.001)`, so start-up is excluded on both sides). Same machine, best of 3, outputs identical:
+
+| case | BASIC | VM ms | C++ ms | VM / C++ |
+| --- | --- | --- | --- | --- |
+| loop | `FOR i& = 1 TO 50M: s& = s& + i& MOD 7: NEXT` | 255 (5.1 ns/iter) | 96 | **2.7x** (spike VM: ~95 ns/iter, 19x slower than now) |
+| float | `x# = x# + i& * 0.5`, 20M | 146 | 58 | 2.5x |
+| array | `j& = i& MOD 1000: a&(j&) = a&(j&) + i&`, 20M | 313–347 | 133 | 2.4–2.6x |
+| sub | `inc c&` (BYREF LONG), 5M calls | 161–176 | 57 | 2.8–3.1x |
+| func | `t& = t& + sq&(i&)`, 5M calls | 210–218 | 79 | 2.7x |
+| gosub | `GOSUB g` / `RETURN`, 5M | 39–52 | 15 | 2.6–3.4x |
+| strfn | `MID$(...) + CHR$(65)`, `LEN`, 2M | 54 | 124 | **0.43x** (faster) |
+| concat | `a$ = a$ + "x"`, 2M | 14–23 | 93 000–124 000 | **~5000x faster** (C++ path copies the whole string each time) |
+
+  Calibration on the same machine: the loop case in native Rust with a runtime divisor = 1.4 ns/iter; the remaining cost is interpreter dispatch (~1.7 ns per instruction). Gate "loop ≤ 10x C++" met, target ≤ 3x met for every case.
+- **QIR v1 on the VM** (`crates/qb-exec/src/lower1.rs`): `QIR 1` programs are loaded onto the same VM. Scalars become registers (globals and statics in the main frame, SUBs reach them with `getg`/`setg`; BYREF = copy-in/out), `addr`/`aref`/`aaddr` are symbolic (accepted as call arguments and as `ld`/`st` of array elements), constants are frame registers, loads alias the variable register and widening `cvt` reuses its source when the value cannot change before its last use, stores retarget the producing instruction. Emitter-specific superinstructions: the two-way FOR test (`for_test +k`), the FOR back edge with its increment (`loop_for`), `acc`, native LEN/LEFT$/RIGHT$/MID$/CHR$/ASC; every other `rt` builtin runs through the shared R11a runtime (`v1/rt.rs` now takes any executor via `rt::Host`, so PRINT columns, files and PRINT USING are one implementation).
+- **Whole QIR v1 on the VM** (2026-11-10, second round): `_UNSIGNED _INTEGER64` (`W::U64`: unsigned division/remainder/shift, `cmp.u`/`br.u`, `itof.u64`); **memory mode** (`crates/qb-exec/src/mem.rs`) for TYPE, `STRING * n`, pointer arithmetic and GET/PUT of variables: only arrays, TYPE / `STRING * n` variables and variables whose address is taken live in memory blocks (same layout as the reference: pointer = block << 32 | offset, string handles in memory), everything else stays in registers; BYREF/array parameters are the caller's pointers, module-level addresses are fetched once per call; **`_FLOAT` bit-exact** (x87 80-bit through `qb-float80`, like R11a's reference since `3bc6cfc`): an f80 value is a register pair (significand, sign/exponent), BYVAL `_FLOAT` arguments are passed as two registers, `_FLOAT` FUNCTIONs return a pair. ERL / `_ERRORLINE` / `LASTLINE` follow the reference. The loader tries register mode first and falls back to memory mode; the reference interpreter is only used when both refuse (`QB_EXEC_TRACE=1` prints why, `QB_EXEC_REFERENCE=1` forces it, `QB_EXEC_DISASM=1` prints the bytecode).
+- Conformance programs: `crates/qb-exec/tests/fixtures/qir1/` = the 39 deterministic conformance cases compiled with the current `qb --ir` (R11a emitter, real pipeline, incl. `_MEM`); `tests/qir1_corpus.rs` requires identical output/exit/error on the VM and on the reference interpreter: **39 of 39 run on the VM, all identical**. All 55 cases the emitter can compile (incl. files, FIELD, SHELL, ENVIRON, INPUT scripts, TCP loopback, VARPTR/PEEK/POKE, `_DEFLATE$`) were also run by hand in empty directories: **53 of 55 on the VM, 55 of 55 identical** (the 2 others call `_SNDOPEN`/`_VOICE`, not in the builtin table yet). Since R11a `b0123c3` both executors hand out real addresses for variable/element storage (array descriptors are tagged references); per-program builtin state (conventional memory, FIELD, record lengths, TCP handles, DEF SEG) lives in `rt::RtState`, `rt::Host` = rt/err/erl/errline/set_last_line/bytes/array_extent/load_str/store_str. The other conformance cases do not compile with `--ir` yet (SCREEN/graphics, sound, `_MEM`, network, `FIELD`, `_DEFLATE$`, `VARPTR`: emitter work, R11a). Hand-written cases for each new feature: `tests/vm_v1_cover.rs` (u64, TYPE fields/arrays/BYREF TYPE, `STRING * n`, BYREF in memory mode, `_FLOAT`).
+- Benchmarks through the real emitter (`crates/qb-exec/benches/qir1/*.qir` = `benches/bas/*.bas` compiled with `qb --ir`; `qb-exec <file>.qir`, each program prints its own `TIMER(.001)` time). C++ and VM runs interleaved, best of 5, same moment (machine shared with other builds, so absolute times vary ±30 %):
+
+| case | C++ ms | VM ms (QIR v1) | VM / C++ |
+| --- | --- | --- | --- |
+| loop | 102–116 | 306 | **2.6–3.0x** (967 ms before the v1 superinstructions) |
+| float | 58 | 175 | 3.0x |
+| array | 129 | 319 | 2.5x |
+| sub | 64 | 189 | 3.0x |
+| func | 75 | 208 | 2.8x |
+| gosub | 16 | 43 | 2.7x |
+| strfn | 120 | 56 | **0.47x** (510 ms before native MID$/CHR$/LEN) |
+| concat | 93 000+ | 15 | ~6000x faster |
+
+- Not done in R11b: events in v1 (no QIR op yet; the VM side exists for v0: `ONEVENT`/`ONTIMER`, polled at safe points); a FUNCTION returning a pointer (the spec allows no such program today). v0 (the spike format) still runs on the same VM until the spike emitter is removed.
+
+
+## R11a — QIR v1 จาก pipeline จริง (branch `claude/r11a-emitter-09276c`, 2026-11-10)
+
+- **Spec + crate:** `docs/rust-port/qir-v1.md` (typed, register-based) และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer ข้อความ, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative) — 16 tests (เขียนก่อน, เห็น fail ก่อน implement). R11b/R11c merge commit `57138e8`
+- **Emitter ใน pipeline จริง:** ลบ tokenizer/parser ของ spike ทิ้ง; main pass ของ `qbnex.bas` ทำงานเหมือนเดิมทุกอย่าง (symbol table, type, UDT, `$INCLUDE`, `$IF`, CONST, DEFxxx, C++ fragment ที่ไม่ถูก compile) แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, state ใน `ir_state.bas`). `IrEval$` เดิน element string ชุดเดียวกับที่ `evaluate$` ได้ (หลัง `fixoperationorder`) และใช้ `operatorusage` + กฎ markup ชุดเดียวกัน พร้อม C integer promotion → register มีชนิด C เดียวกับที่ C++ backend คำนวณ (เช่น literal `1.5E+0` เป็น double, `INTEGER*INTEGER` เป็น int32, `/` ไปเป็น long double)
+- statement ที่ operand อาจถูกสร้างโดย C++ handler (MID$, LSET/RSET, SWAP, ERASE, OPEN/CLOSE, PRINT #, WRITE, INPUT, LINE INPUT, GET/PUT, SEEK, NAME) lower ตอนถึง `finishedline`; construct ที่ยังไม่รองรับ → compile ล้มพร้อมเลขบรรทัด (ไม่เงียบ)
+- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 13 tests. R11b แทนที่ได้
+- **Conformance (`--qb-arg --ir`):** ดูตารางท้ายหัวข้อนี้ ; C++ default path ของ compiler เดียวกัน: ดูตาราง
+- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ
+- **ยังไม่ทำ / รู้แล้วว่าต่าง:** `_FLOAT` ใน VM เป็น f64 (รอ F80 ของ R11d) → `rounding_limits`, `val_parse`; graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
+
+- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 15 unit + 5 e2e tests. R11b แทนที่ได้
+- **Conformance** (69 cases, Windows, compiler เดียวกัน):
+
+  | backend | ผ่าน | xfail | fail |
+  | --- | --- | --- | --- |
+  | C++ (default) | 63 | 6 | **0** |
+  | QIR (`--qb-arg --ir`) | **40** | 6 | 23 |
+
+  23 case ที่ยัง fail ใช้ subsystem ที่ยังผูกกับ main loop/หน้าต่างของ C++ ทั้งหมด: graphics 10, audio 2, net 2, `_MEM` 2, input script (INKEY$/_KEYHIT) 2, fonts/images 2, `VARPTR`/cmem 1, `FIELD` 1, `SCREEN` + `_NEWIMAGE` ใน video 1. Case ภาษา/ตัวเลข/สตริง/ไฟล์/error/DATA ผ่านครบ
+- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ: ทุก case ที่ QIR compile ได้ให้ output เหมือน C++ ทุก byte (ยกเว้น `inkey_script` ที่ต้องมี input script ของหน้าต่าง); `crates/qb-exec/tests/fixtures/qir/lang1-3.bas` (INCLUDE, CONST, DEFxxx, nested UDT, array param, STATIC, recursion, SELECT, ON GOSUB, DATA, error/RESUME) เทียบสอง backend ใน `cargo test --release -p qb-exec`
+- `_FLOAT` ใน VM ใช้ `qb-float80` (R11d) ตรงทุก bit; `VAL` คืน long double เหมือน `func_val`; ERL = line-number label ล่าสุด (`LASTLINE`)
+- **ยังไม่ทำ:** graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
+
 ## R11d: `_FLOAT` and `DECLARE LIBRARY`
 
 API contract for the emitter and the VM: [`r11d-ffi-float80.md`](r11d-ffi-float80.md).
@@ -445,6 +534,48 @@ Not verified: Linux/macOS (`GFS_C` replacement on `std::fs`, `setenv`, `system()
 tests/diff/run_diff.cmd
 ```
 
+
+## R11c — Cranelift JIT tier (branch `claude/r11c-jit-e29a55`)
+
+Status: **JIT runs inside the typed VM** (R11b bytecode), results identical to the VM on every qb-exec test and on randomized differential programs. Calls are not yet native (see gaps).
+
+### Design
+- `crates/qb-jit`: MIR (typed slots, blocks), reference interpreter of the same MIR (oracle), Cranelift codegen (0.137, in-memory, no linker), tiering policy. Slots are the VM's own register window (`nums[nb..]`, 8 bytes each), so every native exit (error, event, deopt) leaves the exact frame at a VM pc.
+- `crates/qb-exec/src/jit.rs`: bytecode -> MIR. Numeric ops, branches, FOR, GOSUB/RETURN, 1-D numeric array elements (inline `ArrView`, slow path = VM host call) are native. Strings, builtins, PRINT, multi-dim arrays run through `VmOp` (the VM executes that one instruction: `exec_impl::<STEP>`). CALL runs the callee in the VM to its RET and returns to native code (frame reloaded: the register file may move). RET/END/ON ERROR/RESUME/event setup/string branches exit to the VM.
+- Tiering: entered at loop back-edges (`loop`, `for_next`) after `QB_JIT=<n>` arrivals (default 1000); `QB_JIT=off`, `QB_JIT=eager` (enter every loop). Loops whose body is mostly VM callbacks stay interpreted in hot mode.
+- QB semantics copied from the VM: integer ops wrap per width, float -> int rounds with `qb_runtime::round::qb_qbr_f64` (inline `nearest` when |x| < 2^63, else the helper), error 6/11/9/5/3 with the failing pc, SINGLE kept as double and rounded on store.
+- Targets: x86-64 runs; aarch64 code generation is checked in tests (`cross_targets_compile`).
+
+### Evidence (Windows, rustc 1.99.1, Cranelift 0.137, `CARGO_BUILD_JOBS=2`)
+- `cargo test -p qb-jit`: 25 semantics tests (interp vs JIT, both must agree field by field) + randomized differential test (`QB_JIT_RANDOM=30000`: 30000 generated programs pass; NaN compared by NaN-ness: its sign differs between x86 hardware and constant folding/aarch64).
+- `cargo test -p qb-exec` passes with `QB_JIT=off`, `QB_JIT=1` and `QB_JIT=eager`; `tests/jit.rs` (14 tests) compares VM vs hot vs eager output/errors and checks native code ran.
+- Benchmarks (`cargo run --release -p qb-exec --example bench`, ns per iteration; C++ = `crates/qb-exec/benches/bas/*.bas` built with `qb.exe -x`, loop time from `TIMER(.001)`):
+
+| case | VM | JIT | C++ | JIT / C++ |
+| --- | --- | --- | --- | --- |
+| loop `s& = s& + i& MOD 7` | 6.4 | 1.9 | 1.9 | 1.0x |
+| float `x# = x# + i& * 0.5` | 8.4 | 1.6 | 3.1 | 0.5x |
+| array `a&(j&) = a&(j&) + i&` | 14.1 | 4.0 | 6.9 | 0.6x |
+| gosub | 9.5 | 5.2 | 3.0 | 1.7x |
+| strfn (MID$/CHR$/LEN) | 25 | 25 | 79 | 0.3x |
+| concat | 7.7 | 7.7 | 46000 (quadratic in C++) | — |
+| sub call | 56 | 3.9 | 11.8 | 0.33x |
+| function call | 53 | 5.3 | 16.2 | 0.33x |
+
+Gate "loop benchmark <= 2x of the C++ path": met (loop 1.0x; every case <= 2x, gosub 1.7x).
+
+### Gaps / next
+- Native calls (done): numeric-only SUB/FUNCTIONs get a MIR call version (frame in the JIT arena, BYREF copy-in/copy-out like `Vm::call`/`ret`, constants from `num_init`); if native code stops inside a call (error, event, END, GOSUB, budget of 1000 nested native calls) the VM rebuilds the frames from the chain and continues in the callee. Functions with strings/arrays still go through the VM call (`call_from_native`). `tests/jit_random.rs`: 4000 generated call programs (BYVAL/BYREF/SHARED/recursion/errors with and without handler) equal in VM, hot, eager and AOT.
+- Compiler front end (`qbnex.bas` through QIR) <= 2x native: not measurable yet (R11a emits QIR v1, the typed VM runs v0 bytecode).
+- Event polling: native code also polls at backward conditional branches to resumable blocks (the VM only at `loop`/`for_next`/CALL) — events can be delivered at a few more safe points.
+
+### D15 — native executables without a linker (first cut)
+- `qb_jit::aot::compile_object`: the same code generator, written as an object file by `cranelift-object` (functions `qb_func_<i>`, runtime calls as undefined symbols `qb_jit_*`, `qb_host_<i>`, `qb_vm_op`).
+- `crates/qb-link`: reads the object (COFF/ELF/Mach-O via `object`), lays out its sections into an image, keeps relocations (Abs64, Rel32, AArch64 Call26; runtime ones by name), serialises it, and at start-up copies it into executable memory and patches the addresses of the running process. No external linker, no C toolchain, no code generation at run time.
+- `qb-exec build prog.qir -o prog.exe` = runner + QIR + image (`QBNEXAO1` footer, fingerprinted against program and runner layout); native code is used from the first loop iteration.
+- Tests: every qb-jit semantics test compares interpreter, JIT and AOT; AOT on every 10th random program; objects for host, x86-64 ELF and AArch64 ELF link (`aot_objects_link_for_every_target`); `qb-exec/tests/aot.rs` runs programs from images and a real `qb-exec build` exe against the VM.
+- Measured (whole process, warm file cache): 50M-iteration loop 111 ms native exe vs 880 ms C++ exe (mostly C++ start-up) and 108 ms JIT; array loop 74 ms vs 800 ms; float loop 75 ms vs 930 ms.
+- Not yet: the exe is still the runner (VM present for strings/builtins/calls) rather than a PE/ELF written from scratch; `qb file.bas` does not call `build` yet (R11a/packaging); Linux/macOS/aarch64 load not run here (code generation and linking are tested).
 
 ## Corpus fixes (branch `claude/corpus-fixes-70d56e`)
 

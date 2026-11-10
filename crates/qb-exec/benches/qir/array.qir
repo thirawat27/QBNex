@@ -1,0 +1,112 @@
+QIR 1
+meta console only
+global $__LONG_N i32
+global $__ARRAY_LONG_A array i32
+global $__DOUBLE_T f64
+global $__LONG_I i32
+global $__LONG_J i32
+global $__DOUBLE_E f64
+func main
+local $~T1 i64
+local $~T2 i64
+local $~T3 i64
+line 2
+const.i32 %0 20000000
+store.i32 $__LONG_N %0
+line 2
+const.i64 %1 0
+const.i32 %2 999
+dim $__ARRAY_LONG_A 1 %1 %2
+line 3
+const.f64 %3 0.001E+0
+rt %4 TIMER.n %3
+store.f64 $__DOUBLE_T %4
+line 4
+const.i32 %5 1
+cvt.i64.i32 %6 %5
+store.i64 $~T1 %6
+load.i32 %7 $__LONG_N
+cvt.i64.i32 %8 %7
+store.i64 $~T2 %8
+const.i32 %9 1
+cvt.i64.i32 %10 %9
+store.i64 $~T3 %10
+jmp ~F1.E
+label ~F1.T
+load.i32 %11 $__LONG_I
+cvt.i64.i32 %12 %11
+load.i64 %13 $~T3
+add.i64 %14 %13 %12
+store.i64 $~T1 %14
+label ~F1.E
+load.i64 %15 $~T1
+cvt.i32.i64 %16 %15
+store.i32 $__LONG_I %16
+load.i64 %17 $~T3
+const.i64 %18 0
+lt.i64 %19 %17 %18
+jz %19 ~F1.P
+load.i64 %20 $~T2
+lt.i64 %21 %15 %20
+jnz %21 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i64 %22 $~T2
+gt.i64 %23 %15 %22
+jnz %23 ~F1.X
+label ~F1.B
+line 4
+load.i32 %24 $__LONG_I
+const.i32 %25 1000
+mod.i32 %26 %24 %25
+store.i32 $__LONG_J %26
+line 4
+load.i32 %27 $__LONG_J
+aaddr %28 $__ARRAY_LONG_A %27
+load.i32 %29 $__LONG_J
+aaddr %30 $__ARRAY_LONG_A %29
+ld.i32 %31 %30 0
+load.i32 %32 $__LONG_I
+add.i32 %33 %31 %32
+st.i32 %28 0 %33
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+const.f64 %34 0.001E+0
+rt %35 TIMER.n %34
+load.f64 %36 $__DOUBLE_T
+sub.f64 %37 %35 %36
+store.f64 $__DOUBLE_E %37
+line 6
+const.i32 %38 7
+aaddr %39 $__ARRAY_LONG_A %38
+ld.i32 %40 %39 0
+cvt.i64.i32 %41 %40
+rt %42 STR$.i64 %41
+const.str %43 x20
+concat %44 %42 %43
+const.i32 %45 0
+rt PRINTS %45 %44
+load.f64 %46 $__DOUBLE_E
+const.i32 %47 1000
+cvt.f64.i32 %48 %47
+mul.f64 %49 %46 %48
+rt %50 INT.f64 %49
+rt %51 STR$.f64 %50
+const.str %52 x20
+concat %53 %51 %52
+const.i32 %54 0
+rt PRINTS %54 %53
+const.i32 %55 0
+rt PRINTNL %55
+line 7
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

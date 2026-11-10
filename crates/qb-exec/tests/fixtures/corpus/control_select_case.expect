@@ -1,0 +1,9 @@
+-1 neg
+ 2 low
+ 5 five-or-eight
+ 8 five-or-eight
+ 11 else
+B-range
+gt1
+gt5
+<exit 0>

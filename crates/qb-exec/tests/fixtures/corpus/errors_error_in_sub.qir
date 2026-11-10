@@ -1,0 +1,58 @@
+QIR 1
+meta console only
+datalabel L_H
+func main
+line 2
+onerror L_H
+line 3
+call SUB_WORK
+line 4
+const.str %0 x6D61696E20636F6E74696E756573
+const.i32 %1 0
+rt PRINTS %1 %0
+const.i32 %2 0
+rt PRINTNL %2
+line 5
+system
+label L_H
+line 7
+const.str %3 x68616E646C6564
+const.i32 %4 0
+rt PRINTS %4 %3
+rt %5 ERR
+cvt.i64.i32 %6 %5
+rt %7 STR$.i64 %6
+const.str %8 x20
+concat %9 %7 %8
+const.i32 %10 0
+rt PRINTS %10 %9
+const.i32 %11 0
+rt PRINTNL %11
+line 8
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_WORK
+line 11
+const.str %0 x776F726B207374617274
+const.i32 %1 0
+rt PRINTS %1 %0
+const.i32 %2 0
+rt PRINTNL %2
+line 12
+const.i32 %3 7
+error %3
+line 13
+const.str %4 x776F726B206166746572206572726F72
+const.i32 %5 0
+rt PRINTS %5 %4
+const.i32 %6 0
+rt PRINTNL %6
+label ~EXIT
+ret
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

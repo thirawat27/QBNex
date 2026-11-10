@@ -1,0 +1,120 @@
+QIR 1
+meta console only
+func main
+line 2
+const.str %0 x2323232E2323
+const.i32 %1 0
+rt USINGBEGIN %1 %0
+const.f64 %2 3.14159E+0
+cvt.f32.f64 %3 %2
+rt USINGN.f32 %3
+rt USINGEND
+const.i32 %4 0
+rt PRINTNL %4
+line 3
+const.str %5 x2B2323232E2323
+const.i32 %6 0
+rt USINGBEGIN %6 %5
+const.f64 %7 -3.14159E+0
+cvt.f32.f64 %8 %7
+rt USINGN.f32 %8
+rt USINGEND
+const.i32 %9 0
+rt PRINTNL %9
+line 4
+const.str %10 x232C2323232C232323
+const.i32 %11 0
+rt USINGBEGIN %11 %10
+const.i32 %12 1234567
+cvt.i64.i32 %13 %12
+rt USINGN.i64 %13
+rt USINGEND
+const.i32 %14 0
+rt PRINTNL %14
+line 5
+const.str %15 x24242323232E2323
+const.i32 %16 0
+rt USINGBEGIN %16 %15
+const.f64 %17 12.5E+0
+cvt.f32.f64 %18 %17
+rt USINGN.f32 %18
+rt USINGEND
+const.i32 %19 0
+rt PRINTNL %19
+line 6
+const.str %20 x2A2A2323232E2323
+const.i32 %21 0
+rt USINGBEGIN %21 %20
+const.f64 %22 12.5E+0
+cvt.f32.f64 %23 %22
+rt USINGN.f32 %23
+rt USINGEND
+const.i32 %24 0
+rt PRINTNL %24
+line 7
+const.str %25 x23232E23235E5E5E5E
+const.i32 %26 0
+rt USINGBEGIN %26 %25
+const.f64 %27 12345.678E+0
+rt USINGN.f64 %27
+rt USINGEND
+const.i32 %28 0
+rt PRINTNL %28
+line 8
+const.str %29 x21
+const.i32 %30 0
+rt USINGBEGIN %30 %29
+const.str %31 x5A65627261
+rt USINGS %31
+rt USINGEND
+const.i32 %32 0
+rt PRINTNL %32
+line 9
+const.str %33 x5C20205C
+const.i32 %34 0
+rt USINGBEGIN %34 %33
+const.str %35 x41424344454647
+rt USINGS %35
+rt USINGEND
+const.i32 %36 0
+rt PRINTNL %36
+line 10
+const.str %37 x2621
+const.i32 %38 0
+rt USINGBEGIN %38 %37
+const.str %39 x66756C6C
+rt USINGS %39
+const.str %40 x58
+rt USINGS %40
+rt USINGEND
+const.i32 %41 0
+rt PRINTNL %41
+line 11
+const.str %42 x232323
+const.i32 %43 0
+rt USINGBEGIN %43 %42
+const.i32 %44 12345
+cvt.i64.i32 %45 %44
+rt USINGN.i64 %45
+rt USINGEND
+const.i32 %46 0
+rt PRINTNL %46
+line 12
+const.str %47 x546F74616C3A202323232E232320756E697473
+const.i32 %48 0
+rt USINGBEGIN %48 %47
+const.f64 %49 7.5E+0
+cvt.f32.f64 %50 %49
+rt USINGN.f32 %50
+rt USINGEND
+const.i32 %51 0
+rt PRINTNL %51
+line 13
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

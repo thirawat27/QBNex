@@ -1,0 +1,74 @@
+QIR 1
+meta console only
+global $__INTEGER_A i16
+global $__INTEGER_B i16
+global $__STRING_SX str
+global $__ARRAY_INTEGER_ARR array i16
+func main
+line 4
+const.f64 %0 7.6E+0
+cvt.i16.f64 %1 %0
+store.i16 $__INTEGER_A %1
+line 4
+const.i32 %2 2
+cvt.i16.i32 %3 %2
+store.i16 $__INTEGER_B %3
+line 4
+const.str %4 x74657874
+store.str $__STRING_SX %4
+line 5
+load.i16 %5 $__INTEGER_A
+cvt.i64.i16 %6 %5
+rt %7 STR$.i64 %6
+const.str %8 x20
+concat %9 %7 %8
+const.i32 %10 0
+rt PRINTS %10 %9
+load.i16 %11 $__INTEGER_B
+const.i32 %12 2
+cvt.f80.i32 %13 %12
+cvt.f80.i16 %14 %11
+div.f80 %15 %14 %13
+rt %16 STR$.f80 %15
+const.str %17 x20
+concat %18 %16 %17
+const.i32 %19 0
+rt PRINTS %19 %18
+load.str %20 $__STRING_SX
+const.i32 %21 0
+rt PRINTS %21 %20
+const.i32 %22 0
+rt PRINTNL %22
+line 6
+line 7
+const.i64 %23 1
+const.i32 %24 3
+dim $__ARRAY_INTEGER_ARR 1 %23 %24
+line 8
+const.i32 %25 1
+lbound %26 $__ARRAY_INTEGER_ARR %25
+cvt.i64.i32 %27 %26
+rt %28 STR$.i64 %27
+const.str %29 x20
+concat %30 %28 %29
+const.i32 %31 0
+rt PRINTS %31 %30
+const.i32 %32 1
+ubound %33 $__ARRAY_INTEGER_ARR %32
+cvt.i64.i32 %34 %33
+rt %35 STR$.i64 %34
+const.str %36 x20
+concat %37 %35 %36
+const.i32 %38 0
+rt PRINTS %38 %37
+const.i32 %39 0
+rt PRINTNL %39
+line 9
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

@@ -1,0 +1,76 @@
+QIR 1
+global $__LONG_T i32
+global $__INTEGER_I i16
+func main
+local $~T1 i32
+local $~T2 i32
+local $~T3 i32
+line 1
+line 2
+const.i32 %0 1
+store.i32 $~T1 %0
+const.i32 %1 50
+store.i32 $~T2 %1
+const.i32 %2 1
+store.i32 $~T3 %2
+jmp ~F1.E
+label ~F1.T
+load.i16 %3 $__INTEGER_I
+cvt.i32.i16 %4 %3
+load.i32 %5 $~T3
+add.i32 %6 %5 %4
+store.i32 $~T1 %6
+label ~F1.E
+load.i32 %7 $~T1
+cvt.i16.i32 %8 %7
+store.i16 $__INTEGER_I %8
+load.i32 %9 $~T3
+const.i32 %10 0
+lt.i32 %11 %9 %10
+jz %11 ~F1.P
+load.i32 %12 $~T2
+lt.i32 %13 %7 %12
+jnz %13 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i32 %14 $~T2
+gt.i32 %15 %7 %14
+jnz %15 ~F1.X
+label ~F1.B
+line 3
+addr %16 $__INTEGER_I
+call SUB_ADDTO %16
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+load.i32 %17 $__LONG_T
+cvt.i64.i32 %18 %17
+rt %19 STR$.i64 %18
+const.str %20 x20
+concat %21 %19 %20
+const.i32 %22 0
+rt PRINTS %22 %21
+const.i32 %23 0
+rt PRINTNL %23
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_ADDTO
+param $_SUB_ADDTO_INTEGER_N i16 byref
+line 7
+load.i32 %0 $__LONG_T
+load.i16 %1 $_SUB_ADDTO_INTEGER_N
+const.i32 %2 2
+cvt.i32.i16 %3 %1
+mul.i32 %4 %3 %2
+add.i32 %5 %0 %4
+store.i32 $__LONG_T %5
+label ~EXIT
+ret
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

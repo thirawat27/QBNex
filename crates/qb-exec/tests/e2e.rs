@@ -108,7 +108,7 @@ fn on_error_resume_next_works_in_main_module() {
 }
 
 /// Conformance cases the legacy C++ backend cannot run (L-01 ON ERROR in the
-/// main module, L-03 RESTORE label, L-04 relational operators in PRINT).
+/// main module, L-03 RESTORE label). L-04 (relational operators in PRINT) is a\n/// front-end defect, so since the emitter uses the real front end it affects both backends.
 /// The `.out` files were checked by hand against QBasic semantics.
 #[test]
 fn legacy_defect_cases_run_correctly_under_qir() {
@@ -122,7 +122,7 @@ fn legacy_defect_cases_run_correctly_under_qir() {
         .filter(|p| p.extension().is_some_and(|e| e == "bas"))
         .collect();
     cases.sort();
-    assert!(cases.len() >= 5);
+    assert!(cases.len() >= 4);
     for src in cases {
         let stem = src.file_stem().unwrap().to_string_lossy().to_string();
         let expected = normalize(&std::fs::read(src.with_extension("out")).unwrap());
@@ -149,4 +149,22 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     let text = normalize(&out.stdout) + &normalize(&out.stderr);
     assert!(!out.status.success(), "should fail: {text}");
     assert!(text.contains("line 2"), "message should name the line: {text}");
+}
+
+/// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
+/// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
+/// golden is the C++ backend's output; QIR must match it and the C++ backend.
+#[test]
+fn language_programs_match_cpp_backend() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("lang");
+    for n in 1..=3 {
+        let src = fixture(&format!("qir/lang{n}.bas"));
+        let expected = normalize(&std::fs::read(src.with_extension("out")).unwrap());
+        let ir = compile_and_run(&qb, &src, &dir.join(format!("lang{n}_ir.exe")), &["--ir"]);
+        assert_eq!(ir, expected, "lang{n} under QIR");
+        let cpp = compile_and_run(&qb, &src, &dir.join(format!("lang{n}_cpp.exe")), &[]);
+        assert_eq!(cpp, ir, "lang{n}: C++ and QIR differ");
+    }
 }

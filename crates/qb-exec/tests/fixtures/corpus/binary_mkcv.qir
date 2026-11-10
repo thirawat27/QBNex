@@ -1,0 +1,183 @@
+QIR 1
+meta console only
+func main
+local $~T1 str
+local $~T2 str
+local $~T3 str
+local $~T4 str
+local $~T5 str
+line 2
+const.i32 %0 -2
+cvt.i16.i32 %1 %0
+rt %2 MKI$ %1
+store.str $~T1 %2
+addr %3 $~T1
+call %4 FUNC_HEXBYTES %3
+const.i32 %5 0
+rt PRINTS %5 %4
+const.i32 %6 305419896
+rt %7 MKL$ %6
+store.str $~T2 %7
+addr %8 $~T2
+call %9 FUNC_HEXBYTES %8
+const.i32 %10 0
+rt PRINTS %10 %9
+const.i32 %11 0
+rt PRINTNL %11
+line 3
+const.f64 %12 1.5E+0
+cvt.f32.f64 %13 %12
+rt %14 MKS$ %13
+store.str $~T3 %14
+addr %15 $~T3
+call %16 FUNC_HEXBYTES %15
+const.i32 %17 0
+rt PRINTS %17 %16
+const.f64 %18 -0.1E+0
+rt %19 MKD$ %18
+store.str $~T4 %19
+addr %20 $~T4
+call %21 FUNC_HEXBYTES %20
+const.i32 %22 0
+rt PRINTS %22 %21
+const.i32 %23 0
+rt PRINTNL %23
+line 4
+const.i32 %24 12345
+cvt.i16.i32 %25 %24
+rt %26 MKI$ %25
+rt %27 CVI %26
+cvt.i64.i16 %28 %27
+rt %29 STR$.i64 %28
+const.str %30 x20
+concat %31 %29 %30
+const.i32 %32 0
+rt PRINTS %32 %31
+const.i32 %33 -7
+rt %34 MKL$ %33
+rt %35 CVL %34
+cvt.i64.i32 %36 %35
+rt %37 STR$.i64 %36
+const.str %38 x20
+concat %39 %37 %38
+const.i32 %40 0
+rt PRINTS %40 %39
+const.f64 %41 2.5E+0
+cvt.f32.f64 %42 %41
+rt %43 MKS$ %42
+rt %44 CVS %43
+rt %45 STR$.f32 %44
+const.str %46 x20
+concat %47 %45 %46
+const.i32 %48 0
+rt PRINTS %48 %47
+const.f64 %49 1.0E+300
+rt %50 MKD$ %49
+rt %51 CVD %50
+rt %52 STR$.f64 %51
+const.str %53 x20
+concat %54 %52 %53
+const.i32 %55 0
+rt PRINTS %55 %54
+const.i32 %56 0
+rt PRINTNL %56
+line 5
+const.i32 %57 1
+cvt.i64.i32 %58 %57
+rt %59 _MK$.i64 %58
+store.str $~T5 %59
+addr %60 $~T5
+call %61 FUNC_HEXBYTES %60
+const.i32 %62 0
+rt PRINTS %62 %61
+const.i32 %63 -5
+cvt.i64.i32 %64 %63
+rt %65 _MK$.i64 %64
+rt %66 _CV.i64 %65
+rt %67 STR$.i64 %66
+const.str %68 x20
+concat %69 %67 %68
+const.i32 %70 0
+rt PRINTS %70 %69
+const.i32 %71 0
+rt PRINTNL %71
+line 6
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func FUNC_HEXBYTES -> str
+local $_FUNC_HEXBYTES_STRING_HEXBYTES str
+param $_FUNC_HEXBYTES_STRING_S str byref
+local $_FUNC_HEXBYTES_SINGLE_I f32
+local $~T6 f64
+local $~T7 f64
+local $~T8 f64
+local $_FUNC_HEXBYTES_STRING_H str
+line 9
+const.i32 %0 1
+cvt.f64.i32 %1 %0
+store.f64 $~T6 %1
+load.str %2 $_FUNC_HEXBYTES_STRING_S
+rt %3 LEN %2
+cvt.f64.i32 %4 %3
+store.f64 $~T7 %4
+const.i32 %5 1
+cvt.f64.i32 %6 %5
+store.f64 $~T8 %6
+jmp ~F6.E
+label ~F6.T
+load.f32 %7 $_FUNC_HEXBYTES_SINGLE_I
+cvt.f64.f32 %8 %7
+load.f64 %9 $~T8
+add.f64 %10 %9 %8
+store.f64 $~T6 %10
+label ~F6.E
+load.f64 %11 $~T6
+cvt.f32.f64 %12 %11
+store.f32 $_FUNC_HEXBYTES_SINGLE_I %12
+load.f64 %13 $~T8
+const.f64 %14 0
+lt.f64 %15 %13 %14
+jz %15 ~F6.P
+load.f64 %16 $~T7
+lt.f64 %17 %11 %16
+jnz %17 ~F6.X
+jmp ~F6.B
+label ~F6.P
+load.f64 %18 $~T7
+gt.f64 %19 %11 %18
+jnz %19 ~F6.X
+label ~F6.B
+line 9
+load.str %20 $_FUNC_HEXBYTES_STRING_H
+const.str %21 x30
+load.str %22 $_FUNC_HEXBYTES_STRING_S
+load.f32 %23 $_FUNC_HEXBYTES_SINGLE_I
+cvt.i32.f32 %24 %23
+rt %25 ASC.n %22 %24
+cvt.u32.i32 %26 %25
+cvt.i64.u32 %27 %26
+rt %28 HEX$ %27
+concat %29 %21 %28
+const.i32 %30 2
+rt %31 RIGHT$ %29 %30
+const.str %32 x20
+concat %33 %20 %31
+concat %34 %33 %32
+store.str $_FUNC_HEXBYTES_STRING_H %34
+line 9
+label ~F6.C
+jmp ~F6.T
+label ~F6.X
+line 10
+load.str %35 $_FUNC_HEXBYTES_STRING_H
+store.str $_FUNC_HEXBYTES_STRING_HEXBYTES %35
+label ~EXIT
+load.str %36 $_FUNC_HEXBYTES_STRING_HEXBYTES
+ret %36
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
