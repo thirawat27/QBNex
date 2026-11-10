@@ -1,0 +1,33 @@
+$CONSOLE:ONLY
+t = _FREETIMER
+ON TIMER(t, 0.03) GOSUB tick
+TIMER(t) ON
+DO: _LIMIT 200: LOOP UNTIL n >= 3
+TIMER(t) STOP
+m = n
+_DELAY 0.1
+PRINT "stopped"; n = m
+TIMER(t) ON
+DO: _LIMIT 200: LOOP UNTIL n >= m + 2
+TIMER(t) FREE
+PRINT "fired"; n >= 5
+ON ERROR GOTO handler
+TIMER(t) ON
+TIMER(0) FREE
+_DELAY -1
+_LIMIT 0
+ON TIMER(0.02) GOSUB tick0
+TIMER ON
+SLEEP 1
+TIMER OFF
+PRINT "sleep broken"; k >= 1
+KEY(5) ON
+KEY(0) OFF
+KEY(40) ON
+PRINT "done"
+SYSTEM
+tick: n = n + 1: RETURN
+tick0: k = k + 1: RETURN
+handler:
+PRINT "error"; ERR
+RESUME NEXT

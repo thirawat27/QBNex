@@ -1,0 +1,30 @@
+$CONSOLE:ONLY
+ON ERROR GOTO handler
+DIM i AS INTEGER, l AS LONG, s AS SINGLE, d AS DOUBLE, b AS _BYTE, ub AS _UNSIGNED _BYTE
+DIM i64 AS _INTEGER64, u64 AS _UNSIGNED _INTEGER64, t AS STRING
+READ i, l, s, d: PRINT i; l; s; d
+READ i, l, s, d: PRINT i; l; s; d
+READ i, l, ub, b: PRINT i; l; ub; b
+READ i64, u64: PRINT i64; u64
+READ i64, u64: PRINT i64; u64
+READ t, t: PRINT "["; t; "]"
+READ t: PRINT "["; t; "]"
+READ i: PRINT "after overflow"; i
+READ i: PRINT "after overflow 2"; i
+READ l: PRINT "syntax?"; l
+READ t: PRINT "["; t; "]"
+READ i: PRINT "out?"; i
+PRINT "done"
+SYSTEM
+handler:
+PRINT "error"; ERR
+RESUME NEXT
+DATA 2.5,3.5E2,-.125,1.25D-3
+DATA &HFFFF,&O777,&B101%,1E-400
+DATA -32768,&HFFFFFFFF,255,-128
+DATA 9223372036854775807,18446744073709551615
+DATA -9223372036854775808,0.4
+DATA "a,b",  spaced  ,"quoted"
+DATA 32768,&H10000
+DATA 1x2
+DATA last
