@@ -76,6 +76,9 @@ pub(crate) struct RtState<'a> {
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
     pub(crate) net_pending_error: i32,
+    /// VARPTR$ value slots in DBLOCK (offset, next slot)
+    pub(crate) varptr_slots: usize,
+    pub(crate) varptr_next: usize,
     /// error of the last numeric READ, raised by READCHK after the store
     pub(crate) read_err: i32,
     /// screen pages and images (SCREEN, graphics, `_NEWIMAGE`, ...)
@@ -110,6 +113,8 @@ impl<'a> RtState<'a> {
             net_pending_error: 0,
             snd_started: false,
             read_err: 0,
+            varptr_slots: 0,
+            varptr_next: 0,
             display: super::display::Display::default(),
             console_on: false,
             console_only: false,
@@ -317,6 +322,31 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     }
     if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
         return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
+    }
+    if name == "VARPTR$" {
+        // VARPTR$ of a numeric variable for DRAW/PLAY "=": the value goes to one of
+        // 16 rotating DBLOCK slots (the program reads it in the same statement)
+        let (ty, v) = (a[0].i() as i32, a[1].f());
+        let rt = vm.rt();
+        if rt.varptr_slots == 0 {
+            rt.varptr_slots = rt.cmem_next;
+            rt.cmem_next += 16 * 16;
+        }
+        let off = rt.varptr_slots + 16 * (rt.varptr_next % 16);
+        rt.varptr_next += 1;
+        let b = DBLOCK + off;
+        let m = &mut rt.cmem[b..b + 16];
+        match ty {
+            1 | 129 => m[0] = v as i64 as u8,
+            2 | 130 => m[..2].copy_from_slice(&(v as i64 as u16).to_le_bytes()),
+            20 | 148 => m[..4].copy_from_slice(&(v as i64 as u32).to_le_bytes()),
+            5 => m[..8].copy_from_slice(&(v as i64).to_le_bytes()),
+            133 => m[..8].copy_from_slice(&(v as u64).to_le_bytes()),
+            4 => m[..4].copy_from_slice(&(v as f32).to_le_bytes()),
+            6 => m[..10].copy_from_slice(&qb_float80::F80::from_f64(v).to_bytes()),
+            _ => m[..8].copy_from_slice(&v.to_le_bytes()),
+        }
+        return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
     }
     if name == "READCHK" {
         let c = std::mem::take(&mut vm.rt().read_err);

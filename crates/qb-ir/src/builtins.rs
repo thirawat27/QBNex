@@ -126,6 +126,8 @@ pub static TABLE: &[Builtin] = &[
     b!("EXP.s", [F64], F64),
     // raises the error of the numeric READ just stored (C++ assigns 0, then errors)
     b!("READCHK", []),
+    // VARPTR$ of a numeric value: (VARPTR$ type code, value)
+    b!("VARPTR$", [I32, F64], Str),
     b!("_ROUND.f64", [F64], I64),
     b!("RND", [], F32),
     b!("RND.n", [F64], F32),

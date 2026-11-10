@@ -1287,6 +1287,26 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 y$ = IrCvt$(y$, IrT, "i32")
                 r$ = IrRt$("STRING$", " " + x$ + " " + y$, "str")
             END IF
+        CASE "VARPTR$"
+            'type code as semantics.bas (func_varptr_helper); the value is snapshotted in DBLOCK
+            x$ = IrEval$(sv(1), t)
+            sx$ = IrT
+            IF sx$ = "str" THEN IrNotSup "VARPTR$ of a string": r$ = IrConstStr$(""): IrT = "str": GOTO irfdone
+            k = 0
+            IF t AND ISUNSIGNED THEN k = k + 128
+            IF t AND ISOFFSETINBITS THEN
+                k = k + 64 + (t AND 63)
+            ELSEIF t AND ISFLOAT THEN
+                IF (t AND 511) = 32 THEN k = k + 4
+                IF (t AND 511) = 64 THEN k = k + 8
+                IF (t AND 511) = 256 THEN k = k + 6
+            ELSE
+                IF (t AND 511) = 8 THEN k = k + 1
+                IF (t AND 511) = 16 THEN k = k + 2
+                IF (t AND 511) = 32 THEN k = k + 20
+                IF (t AND 511) = 64 THEN k = k + 5
+            END IF
+            r$ = IrRt$("VARPTR$", " " + IrI32$(k) + " " + IrCvt$(x$, sx$, "f64"), "str")
         CASE "HEX$", "OCT$", "_BIN$"
             x$ = IrEval$(sv(1), t)
             sx$ = IrT

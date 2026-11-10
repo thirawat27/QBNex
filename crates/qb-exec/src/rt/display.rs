@@ -1186,7 +1186,9 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "sub_pcopy" => d.pcopy(i(0), i(1)),
             "sub_draw" => {
                 let s = a[0].s();
-                gerr(d, gfx::draw::qb_gfx_draw(wp, s.as_ptr(), s.len() as i32, cmem));
+                // DRAW reads VARPTR$ offsets at cmem + 1280 (the C++ DBLOCK); the VM's DBLOCK is elsewhere
+                let base = cmem.wrapping_add(super::builtins::DBLOCK - 1280);
+                gerr(d, gfx::draw::qb_gfx_draw(wp, s.as_ptr(), s.len() as i32, base));
             }
             "sub_cls" => {
                 let mut h = VmHost { d, cmem };
