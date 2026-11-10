@@ -2,7 +2,7 @@
 cd "$(dirname "$0")/.."
 set -u
 
-# QIR pipeline (no C/C++ toolchain), opt-in until the cutover: see docs/rust-port/cutover-plan.md
+# QIR pipeline (no C/C++ toolchain), opt-in until the cutover: see docs/rust-port/port-plan.md
 if [ "${QBNEX_QIR_CUTOVER:-}" = "1" ]; then
   exec sh scripts/setup_qir.sh --enable
 fi
