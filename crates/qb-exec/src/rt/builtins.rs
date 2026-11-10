@@ -57,6 +57,9 @@ pub(crate) struct RtState<'a> {
     rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
     stdin: Reader,
+    /// the stdin line the console INPUT statement being run takes its values
+    /// from (read by its first item; INPUTPROMPT starts a new statement)
+    input_line: Option<Reader>,
     /// conventional memory (VARPTR/SADD/PEEK/POKE)
     pub(crate) cmem: Vec<u8>,
     pub(crate) cmem_next: usize,
@@ -116,6 +119,7 @@ struct Using {
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
         RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
+            input_line: None,
             // 1 MB + 64 KB like libqb cmem (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
             cmem: vec![0; 0x110000],
             cmem_next: 16,
@@ -738,6 +742,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "INPUTPROMPT" => {
             if i(1) == 0 {
+                rt.input_line = None;
                 if rt.web && screen_out(vm) {
                     return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
                 }
@@ -747,12 +752,22 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
             let _ = ch;
-            fill(&mut std::io::stdin(), &mut rt.stdin);
-            web_type_line(vm, name == "INPUTITEM.n")?;
+            let numeric = name == "INPUTITEM.n";
+            if rt.input_line.is_none() {
+                // first item: the statement reads one line; its values come from
+                // that line only (missing ones are empty / 0, as in the C++ backend)
+                fill(&mut std::io::stdin(), &mut rt.stdin);
+                web_type_line(vm, numeric)?;
+                let rt = vm.rt();
+                let start = rt.stdin.rpos;
+                let line = read_line(&mut rt.stdin)?;
+                rt.input_line = Some(Reader { rbuf: line, rpos: 0, eof: true });
+                echo_input(vm, start, true)?;
+            }
             let rt = vm.rt();
-            let start = rt.stdin.rpos;
-            let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
-            echo_input(vm, start, false)?;
+            let line = rt.input_line.as_mut().expect("read above");
+            // past the end of the line: an empty value
+            let item = read_item(line, numeric).unwrap_or_default();
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
