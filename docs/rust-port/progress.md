@@ -781,6 +781,53 @@ Status: **groundwork done**, not wired into the runtime yet (the CPU renderer st
 - Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
 
 Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
+## R13-wasm — QBNex programs in a browser (`crates/qb-web`)
+
+Status: **first cut working** (VM only, no JIT). The qb-exec pipeline (QIR → bytecode → VM) builds for `wasm32-unknown-unknown` as `qb_web.wasm` (3.8 MB release). A static page `crates/qb-web/www` loads a `.qir` file and runs it.
+
+- **Build gates (wasm32 only; native builds unchanged):**
+  - qb-runtime: no winit/softbuffer/gilrs/arboard; the clipboard, ENVIRON and the C stdout path stay inside the page; `malloc`/`memchr`/`strlen` are Rust; `system()` fails, so SHELL returns an error.
+  - qb-jit: `src/off.rs` replaces Cranelift, and every compile declines, so the VM keeps interpreting.
+  - qb-link: `load` refuses native images.
+  - qb-ext: HTTP reports "not available" (ureq/ring need a C compiler).
+  - qb-exec: one static assert is native-only.
+- **Page imports** (wasm module `qbnex`, in `qb_runtime::systime::web`): `qb_web_now_ms` (TIMER), `qb_web_monotonic_ms` (ticks), `qb_web_sleep_ms`, and `qb_web_present`, which `_DISPLAY` calls when a frame is ready. The page stubs any other import so it throws "unsupported in the browser build". The current build also imports four `__wbindgen_*` placeholders, pulled in by a dependency; nothing calls them.
+- **Runner mode** (`Vm::set_web_console`):
+  - The program draws on the SCREEN 0 page from its first statement, as in a window: PRINT, CLS, LOCATE, COLOR, CSRLIN/POS, SCREEN 13 and the other graphics go through R11a's display code.
+  - INPUT and LINE INPUT read the stdin text given with the run. The prompt and the text consumed are echoed on the screen.
+  - `_DELAY` and `_LIMIT` wait through R11a's code (now on `qb_runtime::systime`, so the page's clock and sleep serve them) and present the frame drawn so far. `SLEEP n` waits only here; headless qb-exec still skips it.
+  - `Vm::screen_record` returns the visible page as a `QBFB` record.
+- **qb-web:**
+  - `screen.rs` turns the visible page into RGBA. Text pages use the builtin 8x16 font (8x8 above 30 rows, double width at 40 columns); palette pages and 32-bit pages are also handled. It also returns the text of a text page.
+  - C ABI exports `qb_web_*`: run, exit code, error, texts, frames, and the stdout written so far.
+- **www:**
+  - `qbnex.js` is the loader. It makes a fresh instance per run, so no runtime state leaks between programs.
+  - `worker.js` runs programs off the page thread: sleeps really wait, and frames stream to the page while the program runs.
+  - `index.html` has a canvas screen, a stdin box and a console pane.
+- **Fix found on the way:** a fresh image registry handed slot 0 to the SCREEN 0 page, but `imgframe` treats 0 as failure, so page 0 had no surface (LOCATE raised error 5). `Display::start` now reserves slot 0, like the C++ registry.
+- **Unsupported calls end in QBasic errors, not traps:**
+  - files: OPEN fails with an error (`unsupported.bas` traps it with ON ERROR)
+  - TCP/HTTP, SHELL
+  - sound is silent
+
+Build and test (Windows; any OS with node ≥ 18):
+
+```
+$env:CARGO_BUILD_JOBS=1; $env:CARGO_TARGET_DIR="$PWD\target\wasm"
+cargo build -p qb-web --release --target wasm32-unknown-unknown
+node crates/qb-web/tests/run.mjs        # 33 checks: text screen, COLOR/LOCATE pixels, INPUT echo + error 62 past the end,
+                                        # SCREEN 13 pixels (PSET/LINE/CIRCLE/BF), TIMER + _DELAY, OPEN error, load error, fresh instance
+```
+
+To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file. `timer.qir` was edited by hand to the current `_DELAY` form (DELAYBEGIN/DELAYSTEP loop): the qb-ir.exe build used for the fixtures still emitted `sub__delay`.
+
+Limits / next:
+- No interactive keyboard: INKEY$ is empty, and INPUT needs the text up front. A wasm call cannot wait for page events. Doing this needs a SharedArrayBuffer key queue (cross-origin isolation) or an async VM step.
+- No file system (an in-memory one would fit qb-runtime's file layer).
+- No audio.
+- No JIT: Cranelift could emit wasm in a later step.
+- `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
+
 ## R13 debugger (qb-dap)
 
 New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.

@@ -2515,6 +2515,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-web"
+version = "0.1.0"
+dependencies = [
+ "qb-exec",
+ "qb-runtime",
+]
+
+[[package]]
 name = "qbnex-conformance"
 version = "0.1.0"
 

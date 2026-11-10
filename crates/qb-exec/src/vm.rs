@@ -427,6 +427,31 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.continue_unhandled = on;
     }
 
+    /// Browser runner (qb-web, R13-wasm): the program runs on the screen page
+    /// from its first statement (PRINT draws there, as in a window), INPUT
+    /// reads `stdin` and echoes what it consumed on the screen, and only the
+    /// VM runs (no native code in a browser).
+    pub fn set_web_console(&mut self, stdin: &[u8]) {
+        self.jit = None;
+        let rt = &mut self.rt;
+        rt.set_stdin(stdin);
+        rt.web = true;
+        let cmem = rt.cmem.as_mut_ptr();
+        let (on, only) = (rt.console_on, rt.console_only);
+        rt.display.start(cmem, on, only);
+    }
+
+    /// The visible screen page as a `QBFB` record (format of
+    /// `qb_runtime::gfx::capture`: size, mode, pixels or text cells, palette).
+    pub fn screen_record(&self) -> Option<Vec<u8>> {
+        if !self.rt.display.started {
+            return None;
+        }
+        // SAFETY: the display index is a live registry entry once the screen started.
+        let im = unsafe { &*qb_runtime::gfx::registry::img.add(self.rt.display.display_index as usize) };
+        qb_runtime::gfx::capture::record(im, qb_runtime::gfx::capture::KIND_DISPLAY)
+    }
+
     /// Selects the JIT mode (overrides `QB_JIT`).
     pub fn set_jit(&mut self, mode: qb_jit::tier::Mode, threshold: u32) {
         self.jit = crate::jit::JitState::new(self.m, mode, threshold);
@@ -1084,7 +1109,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             if qb_runtime::events::timers().tick(now) {
                 ev.raise(0);
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            qb_runtime::systime::sleep_ms(1);
         });
     }
 
@@ -1873,7 +1898,9 @@ extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     jit_ste1(ctx, a | G as i64, i, v)
 }
 
-// Native code reads `Option<Box<Arr>>` table entries as plain pointers.
+// Native code reads `Option<Box<Arr>>` table entries as plain pointers
+// (no native code in a browser build, where pointers are 4 bytes).
+#[cfg(not(target_arch = "wasm32"))]
 const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);
 
 /// The VM entry points native code calls (same addresses for JIT and AOT code

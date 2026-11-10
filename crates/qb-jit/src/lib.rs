@@ -10,11 +10,23 @@
 //! (`tests/common/interp.rs`) as the oracle of differential tests; it is not
 //! part of the library: the VM is the only interpreter.
 
+// browser build: the code generator's layout tables have no reader
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod aot;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod codegen;
+/// Browser build (R13-wasm): no Cranelift; every compile declines.
+#[cfg(target_arch = "wasm32")]
+#[path = "off.rs"]
+pub mod codegen;
+#[cfg(target_arch = "wasm32")]
+pub use codegen::aot;
 pub mod ctx;
 pub mod mir;
 pub mod rt;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod thunk;
 pub mod tier;
 

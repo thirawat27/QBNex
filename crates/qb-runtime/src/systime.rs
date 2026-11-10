@@ -5,7 +5,9 @@
 //! start-of-day setup in libqb.cpp's `main` (wait for the wall clock's second
 //! to tick over, then record the tick count and the local time of day).
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Milliseconds since the first clock read of the process (monotonic).
@@ -13,8 +15,65 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// Legacy Windows used `clock()`, which also counts from process start;
 /// Linux/macOS used an arbitrary monotonic origin. Only differences are ever
 /// observable (TIMER subtracts the start value), so one origin serves all OSes.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn ticks() -> i64 {
     ORIGIN.get_or_init(Instant::now).elapsed().as_millis() as i64
+}
+
+/// Browser build: the page's monotonic clock (`performance.now()`).
+#[cfg(target_arch = "wasm32")]
+pub fn ticks() -> i64 {
+    web::monotonic_ms() as i64
+}
+
+/// Wall-clock seconds since 1970-01-01 UTC (fractional), 0 when unknown.
+pub fn unix_time() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::now_ms() / 1000.0
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+    }
+}
+
+/// Blocks the program for `ms` milliseconds (`_DELAY`, `SLEEP`, `_LIMIT`).
+pub fn sleep_ms(ms: u64) {
+    #[cfg(target_arch = "wasm32")]
+    web::sleep_ms(ms as f64);
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::sleep(std::time::Duration::from_millis(ms));
+}
+
+/// Browser build (R13-wasm): wasm32-unknown-unknown has no clock or sleep,
+/// so the page supplies them as imports of module `qbnex` (see
+/// `crates/qb-web/www/qbnex.js`).
+#[cfg(target_arch = "wasm32")]
+pub mod web {
+    #[link(wasm_import_module = "qbnex")]
+    unsafe extern "C" {
+        /// `Date.now()`
+        safe fn qb_web_now_ms() -> f64;
+        /// `performance.now()`
+        safe fn qb_web_monotonic_ms() -> f64;
+        /// Waits (a worker can block; the main thread returns at once).
+        safe fn qb_web_sleep_ms(ms: f64);
+        /// A frame is ready (`_DISPLAY`): the page may draw the screen now.
+        safe fn qb_web_present();
+    }
+    pub fn now_ms() -> f64 {
+        qb_web_now_ms()
+    }
+    pub fn monotonic_ms() -> f64 {
+        qb_web_monotonic_ms()
+    }
+    pub fn sleep_ms(ms: f64) {
+        qb_web_sleep_ms(ms)
+    }
+    pub fn present() {
+        qb_web_present()
+    }
 }
 
 /// Busy-waits until `now()` (wall-clock seconds, `-1` = unknown) changes and
@@ -54,7 +113,14 @@ pub fn local_hms(unix_seconds: i64) -> Option<(u32, u32, u32)> {
 }
 
 fn wall_seconds() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(-1)
+    #[cfg(target_arch = "wasm32")]
+    {
+        (web::now_ms() / 1000.0) as i64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(-1)
+    }
 }
 
 /// Start-up reference for TIMER: `(clock_first, day_first)` = tick count and
@@ -65,6 +131,7 @@ pub fn time_init() -> (u32, u32) {
     (clock_first, day_ms(local_hms(secs)))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 static ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------

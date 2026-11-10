@@ -452,7 +452,7 @@ pub extern "C" fn qb_timer_thread() {
         if timers().tick(now) {
             program::signal_event();
         }
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        crate::systime::sleep_ms(1);
         if program::stop_requested() {
             program::exit_ok_or(2);
             return;

@@ -1,0 +1,65 @@
+QIR 1
+global $__STRING_N str
+global $__SINGLE_A f32
+global $__SINGLE_B f32
+global $__STRING_L str
+func main
+line 1
+const.i32 %0 0
+const.str %1 x4E616D653F20
+rt INPUTPROMPT %1 %0
+rt %2 INPUTITEM.s %0
+store.str $__STRING_N %2
+line 2
+const.str %3 x486920
+const.i32 %4 0
+rt PRINTS %4 %3
+load.str %5 $__STRING_N
+const.i32 %6 0
+rt PRINTS %6 %5
+const.i32 %7 0
+rt PRINTNL %7
+line 3
+const.i32 %8 0
+const.str %9 x3F20
+rt INPUTPROMPT %9 %8
+rt %10 INPUTITEM.n %8
+cvt.f32.f64 %11 %10
+store.f32 $__SINGLE_A %11
+rt %12 INPUTITEM.n %8
+cvt.f32.f64 %13 %12
+store.f32 $__SINGLE_B %13
+line 4
+load.f32 %14 $__SINGLE_A
+load.f32 %15 $__SINGLE_B
+add.f32 %16 %14 %15
+rt %17 STR$.f32 %16
+const.str %18 x20
+concat %19 %17 %18
+const.i32 %20 0
+rt PRINTS %20 %19
+const.i32 %21 0
+rt PRINTNL %21
+line 5
+const.i32 %22 0
+const.str %23 x
+rt INPUTPROMPT %23 %22
+rt %24 LINEINPUT %22
+store.str $__STRING_L %24
+line 6
+const.str %25 x5B
+load.str %26 $__STRING_L
+const.str %27 x5D
+concat %28 %25 %26
+concat %29 %28 %27
+const.i32 %30 0
+rt PRINTS %30 %29
+const.i32 %31 0
+rt PRINTNL %31
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

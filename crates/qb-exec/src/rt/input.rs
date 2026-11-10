@@ -9,6 +9,9 @@
 //! keybuf) and the mouse path of window_bridge.cpp (one message queue);
 //! ON KEY trapping, CTRL+BREAK, PAUSE and ALT+ENTER are not handled here.
 
+// browser build: the window callbacks that feed events are not compiled in
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 use super::scancodes::SCANCODE_LOOKUP;
 use qb_runtime::console::{keyboard, utf8};
 use qb_runtime::keybuf;
@@ -75,6 +78,13 @@ pub(crate) fn start() {
     if std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
         return;
     }
+    // browser build (R13-wasm): no window layer and no threads; the page feeds keys instead
+    #[cfg(not(target_arch = "wasm32"))]
+    start_window();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn start_window() {
     // no window here: the window layer must run headless (it then only replays the script)
     // SAFETY: set before the window thread starts; no other thread reads the environment yet.
     unsafe { std::env::set_var("QBNEX_HEADLESS", "1") };
