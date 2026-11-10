@@ -262,6 +262,9 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__putimage", [F64, F64, F64, F64, I32, I32, F64, F64, F64, F64, I32]),
     b!("sub__maptriangle", [I32, F32, F32, F32, F32, F32, F32, I32, F32, F32, F32, F32, F32, F32, F32, F32, F32, I32, I32, I32]),
     b!("func__errormessage", [I32, I32], Str),
+    b!("func__loadfont", [Str, F64, Str, I32], I32),
+    b!("sub__freefont", [I32, I32]),
+    b!("func__printwidth", [Str, I32, I32], I32),
 
     // ---- sound (qb-audio); trailing I32 `passed` = optional-argument flags of the C++ backend
     b!("SOUND", [F64, F64]),

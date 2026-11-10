@@ -27,9 +27,12 @@ pub(crate) struct Display {
     pub sub_screen_font: i32,
     pub sub_screen_keep_page0: bool,
     pub last_active_page: i32,
-    pub fontwidth: [i32; 64],
-    pub fontheight: [i32; 64],
-    pub fontflags: [i32; 64],
+    /// font tables of libqb (`font`, `fontwidth`, `fontheight`, `fontflags`):
+    /// 8/9/14/15/16/17 are builtin, 32.. are `_LOADFONT` handles (`font` = qb_runtime::font handle)
+    pub font: Vec<i32>,
+    pub fontwidth: Vec<i32>,
+    pub fontheight: Vec<i32>,
+    pub fontflags: Vec<i32>,
     /// error raised through the console Host
     pub pending: i32,
     pub started: bool,
@@ -50,9 +53,10 @@ impl Default for Display {
             sub_screen_font: -1,
             sub_screen_keep_page0: false,
             last_active_page: 0,
-            fontwidth: [0; 64],
-            fontheight: [0; 64],
-            fontflags: [0; 64],
+            font: vec![0; 49],
+            fontwidth: vec![0; 49],
+            fontheight: vec![0; 49],
+            fontflags: vec![0; 49],
             pending: 0,
             started: false,
         };
@@ -294,7 +298,7 @@ impl Display {
         } else {
             self.write_index
         };
-        let ok = matches!(f, 8 | 9 | 14 | 15 | 16 | 17) || ((32..64).contains(&f) && self.fontwidth[f as usize] != 0);
+        let ok = matches!(f, 8 | 9 | 14 | 15 | 16 | 17) || (f >= 32 && self.font.get(f as usize).is_some_and(|&h| h != 0));
         if !ok {
             self.err(258);
             return;
@@ -316,6 +320,254 @@ impl Display {
             }
         }
         self.selectfont(f, p);
+    }
+
+    /// `func__loadfont(file$, size, requirements$, passed)`
+    pub(crate) fn loadfont(&mut self, file: &[u8], size: i32, req: &[u8], passed: i32) -> i32 {
+        if size < 1 {
+            self.err(5);
+            return 0;
+        }
+        if size > 2048 || file.is_empty() {
+            return -1;
+        }
+        let path = String::from_utf8_lossy(file).into_owned();
+        let content = match std::fs::read(&path) {
+            Ok(c) => c,
+            Err(_) => {
+                #[cfg(windows)]
+                {
+                    match std::fs::read(format!("C:/Windows/Fonts/{path}")) {
+                        Ok(c) => c,
+                        Err(_) => return -1,
+                    }
+                }
+                #[cfg(not(windows))]
+                return -1;
+            }
+        };
+        let mut r = [0u8; 6];
+        if passed != 0 && !req.is_empty() {
+            let up = String::from_utf8_lossy(req).to_uppercase();
+            for part in up.split(',') {
+                let k = match part.trim() {
+                    "BOLD" => 0,
+                    "ITALIC" => 1,
+                    "UNDERLINE" => 2,
+                    "DONTBLEND" => 3,
+                    "MONOSPACE" => 4,
+                    "UNICODE" => 5,
+                    _ => {
+                        self.err(5);
+                        return 0;
+                    }
+                };
+                r[k] += 1;
+            }
+            if r.iter().any(|&c| c > 1) {
+                self.err(5);
+                return 0;
+            }
+        }
+        let options = r.iter().enumerate().map(|(k, &c)| i32::from(c) << k).sum::<i32>();
+        let i = match (32..self.font.len()).find(|&k| self.font[k] == 0) {
+            Some(k) => k,
+            None => {
+                for t in [&mut self.font, &mut self.fontwidth, &mut self.fontheight, &mut self.fontflags] {
+                    t.push(0);
+                }
+                self.font.len() - 1
+            }
+        };
+        let h = qb_runtime::font::load(&content, size, -1, options);
+        if h == 0 {
+            return -1;
+        }
+        self.font[i] = h;
+        self.fontheight[i] = size;
+        self.fontwidth[i] = qb_runtime::font::width(h);
+        self.fontflags[i] = options;
+        i as i32
+    }
+
+    /// `sub__freefont`
+    pub(crate) fn freefont(&mut self, f: i32) {
+        if f < 32 || self.font.get(f as usize).is_none_or(|&h| h == 0) {
+            self.err(258);
+            return;
+        }
+        // SAFETY: registry reads.
+        unsafe {
+            for k in 1..nextimg() {
+                let p = &*im(k as u32);
+                if p.valid != 0 && p.font == f as u32 {
+                    self.err(5);
+                    return;
+                }
+            }
+        }
+        qb_runtime::font::free(self.font[f as usize]);
+        self.font[f as usize] = 0;
+    }
+
+    /// Glyph bitmap of a custom font (FontRenderTextASCII / UTF32); `mono`: 0/255 pixels.
+    fn render(&self, f: u32, ch: u32, mono: bool) -> Option<qb_runtime::font::Rendered> {
+        let cp = if self.fontflags[f as usize] & 32 != 0 { ch } else { console::utf8::cp437((ch & 255) as u8) };
+        qb_runtime::font::render(self.font[f as usize], &[cp], i32::from(mono))
+    }
+
+    /// 8-bit, alpha-disabled 32-bit or DONTBLEND: monochrome rendering
+    unsafe fn mono_target(&self, p: *const ImgStruct, f: u32) -> bool {
+        // SAFETY: valid surface.
+        unsafe { (*p).bytes_per_pixel == 1 || ((*p).bytes_per_pixel == 4 && (*p).alpha_disabled != 0) || self.fontflags[f as usize] & 8 != 0 }
+    }
+
+    /// `printchr_custom`: a custom-font glyph at the cursor of the write page.
+    unsafe fn printchr_custom(&self, ch: u32) {
+        let w = self.wp();
+        // SAFETY: valid write page; pixels go through qb_gfx_pset like libqb's pset().
+        unsafe {
+            let (color, bg, f) = ((*w).color, (*w).background_color, (*w).font);
+            let fw = self.fontwidth[f as usize];
+            let x = if fw != 0 { fw * (i32::from((*w).cursor_x) - 1) } else { i32::from((*w).cursor_x) - 1 };
+            let y = (i32::from((*w).cursor_y) - 1) * self.fontheight[f as usize];
+            let h = self.fontheight[f as usize];
+            let mono = self.mono_target(w, f);
+            let Some(r) = self.render(f, ch, mono) else { return };
+            let gw = r.w;
+            let px = |x2: i32, y2: i32| r.data[(y2 * gw + x2) as usize];
+            let pset = |xx: i32, yy: i32, c: u32| gfx::blend::qb_gfx_pset(w, xx, yy, c);
+            let mode = (*w).print_mode;
+            if mono {
+                for y2 in 0..h {
+                    for x2 in 0..gw {
+                        let on = px(x2, y2) != 0;
+                        match mode {
+                            3 => pset(x + x2, y + y2, if on { color } else { bg }),
+                            1 if on => pset(x + x2, y + y2, color),
+                            2 if !on => pset(x + x2, y + y2, bg),
+                            _ => {}
+                        }
+                    }
+                }
+                return;
+            }
+            let (a, a2) = ((color >> 24) + 1, (bg >> 24) + 1);
+            let (z, z2) = (color & 0xFF_FFFF, bg & 0xFF_FFFF);
+            match mode {
+                3 => {
+                    let c1 = [(color >> 24) & 255, (color >> 16) & 255, (color >> 8) & 255, color & 255].map(|v| v as f32);
+                    let c2 = [(bg >> 24) & 255, (bg >> 16) & 255, (bg >> 8) & 255, bg & 255].map(|v| v as f32);
+                    let (alpha1, r1, g1, b1) = (c1[0], c1[1], c1[2], c1[3]);
+                    let (da, dr, dg, db) = (c2[0] - alpha1, c2[1] - r1, c2[2] - g1, c2[3] - b1);
+                    let cw = if alpha1 != 0.0 { c2[0] / alpha1 } else { 100000.0 };
+                    let q = |v: f32| qb_runtime::round::qb_qbr_f64(f64::from(v)) as i32 as u32;
+                    for y2 in 0..h {
+                        for x2 in 0..gw {
+                            let mut d = (255.0 - f32::from(px(x2, y2))) / 255.0;
+                            let alpha3 = alpha1 + da * d;
+                            d *= cw;
+                            if d > 1.0 {
+                                d = 1.0;
+                            }
+                            let (r3, g3, b3) = (r1 + dr * d, g1 + dg * d, b1 + db * d);
+                            pset(x + x2, y + y2, q(b3).wrapping_add(q(g3) << 8).wrapping_add(q(r3) << 16).wrapping_add(q(alpha3) << 24));
+                        }
+                    }
+                }
+                1 => {
+                    for y2 in 0..h {
+                        for x2 in 0..gw {
+                            let z3 = u32::from(px(x2, y2));
+                            if z3 != 0 {
+                                pset(x + x2, y + y2, (((z3 * a) >> 8) << 24) + z);
+                            }
+                        }
+                    }
+                }
+                2 => {
+                    for y2 in 0..h {
+                        for x2 in 0..gw {
+                            let z3 = u32::from(px(x2, y2));
+                            if z3 != 255 {
+                                pset(x + x2, y + y2, ((((255 - z3) * a2) >> 8) << 24) + z2);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// `func__fontwidth` / `func__fontheight` with an explicit font: builtin 8/14/16 or a loaded one
+    fn font_metric(&mut self, f: i32, height: bool) -> i32 {
+        let ok = matches!(f, 8 | 14 | 16) || (f >= 32 && self.font.get(f as usize).is_some_and(|&h| h != 0));
+        if !ok {
+            self.err(258);
+            return 0;
+        }
+        if height { self.fontheight[f as usize] } else { self.fontwidth[f as usize] }
+    }
+
+    /// `func__printwidth(text$, handle, passed)`: a proportional font is measured by
+    /// printing on a 65535-pixel wide temporary image, as libqb does
+    pub(crate) fn printwidth(&mut self, cmem: *mut u8, text: &[u8], handle: i32, passed: i32) -> i32 {
+        let idx = if passed != 0 {
+            match self.resolve(handle) {
+                Some(x) => x,
+                None => return 0,
+            }
+        } else {
+            self.write_index
+        };
+        // SAFETY: valid surfaces throughout.
+        unsafe {
+            if (*im(idx)).text != 0 {
+                return text.len() as i32;
+            }
+            if text.is_empty() {
+                return 0;
+            }
+            let f = (*im(idx)).font as i32;
+            let fw = self.font_metric(f, false);
+            if fw != 0 {
+                return fw * text.len() as i32;
+            }
+            let fh = self.font_metric(f, true);
+            let tmp = self.newimage(65535, fh, 32, 1);
+            let Some(t) = self.resolve(tmp) else { return 0 };
+            let (ow, or) = (self.write_index, self.read_index);
+            self.write_index = t;
+            self.read_index = t;
+            self.font(f, 0, 0);
+            {
+                let mut h = VmHost { d: self, cmem };
+                console::text::print(&mut h, text, false);
+            }
+            let mut xpos = 0;
+            for i in (0..65535).rev() {
+                if gfx::point::qb_gfx_point_raw(im(t), i, 0) != 0 {
+                    xpos = i;
+                    break;
+                }
+            }
+            self.freeimage(tmp, 1);
+            self.write_index = ow;
+            self.read_index = or;
+            if xpos == 0 { 0 } else { xpos + 1 }
+        }
+    }
+
+    /// `chrwidth_custom`
+    unsafe fn chrwidth_custom(&self, ch: u32) -> i32 {
+        let w = self.wp();
+        // SAFETY: valid write page.
+        unsafe {
+            let f = (*w).font;
+            let mono = self.mono_target(w, f);
+            self.render(f, ch, mono).map_or(0, |r| r.w)
+        }
     }
 
     pub(crate) fn freeimage(&mut self, i: i32, passed: i32) {
@@ -996,15 +1248,17 @@ impl Host for VmHost<'_> {
     fn font_flags(&mut self, f: u32) -> i32 {
         self.d.fontflags.get(f as usize).copied().unwrap_or(0)
     }
-    fn printchr_custom(&mut self, _ch: u32) {}
-    fn chrwidth_custom(&mut self, _ch: u32) -> i32 {
-        0
+    fn printchr_custom(&mut self, ch: u32) {
+        // SAFETY: the console calls this for a custom font on the write page.
+        unsafe { self.d.printchr_custom(ch) }
+    }
+    fn chrwidth_custom(&mut self, ch: u32) -> i32 {
+        // SAFETY: as above.
+        unsafe { self.d.chrwidth_custom(ch) }
     }
     fn printwidth(&mut self, text: &[u8]) -> i32 {
-        let w = self.d.wp();
-        // SAFETY: valid write page.
-        let f = unsafe { (*w).font } as usize;
-        self.d.fontwidth.get(f).copied().unwrap_or(8) * text.len() as i32
+        let cmem = self.cmem;
+        self.d.printwidth(cmem, text, 0, 0)
     }
     fn lprint_print_page(&mut self) {}
     fn key_redraw(&mut self) {}
@@ -1117,7 +1371,8 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" | "sub__limit"
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
-            | "func__clearcolor" | "sub__putimage" | "sub__maptriangle"
+            | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
+            | "func__printwidth"
     );
     if !known {
         return None;
@@ -1340,17 +1595,24 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(idx.map_or(0, |x| i64::from((*im(x)).font))));
             }
             "func__fontwidth" | "func__fontheight" => {
-                let mut fnt = i(0);
-                if i(1) != 0 {
-                    if !(matches!(fnt, 8 | 14 | 16) || ((32..64).contains(&fnt) && d.fontwidth[fnt as usize] != 0)) {
-                        d.err(258);
-                        fnt = 0;
-                    }
+                let height = name == "func__fontheight";
+                let v = if i(1) != 0 {
+                    d.font_metric(i(0), height)
                 } else {
-                    fnt = (*wp).font as i32;
-                }
-                let tbl = if name == "func__fontwidth" { &d.fontwidth } else { &d.fontheight };
-                out = Some(V::I(tbl[fnt as usize].into()));
+                    let f = (*wp).font as usize;
+                    if height { d.fontheight[f] } else { d.fontwidth[f] }
+                };
+                out = Some(V::I(v.into()));
+            }
+            "func__loadfont" => {
+                // size: the C++ int32 parameter of a DOUBLE argument (truncated)
+                let v = d.loadfont(a[0].s(), f(1) as i32, a[2].s(), i(3));
+                out = Some(V::I(v.into()));
+            }
+            "sub__freefont" => d.freefont(i(0)),
+            "func__printwidth" => {
+                let v = d.printwidth(cmem, a[0].s(), i(1), i(2));
+                out = Some(V::I(v.into()));
             }
             "SCREENPRINT" => {
                 // one PRINT item: makefit (new line first when it does not fit), then print
