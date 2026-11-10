@@ -290,6 +290,14 @@ pub enum Ins {
     /// FOR test: jump to `t` (loop exit) when `v` is past `lim` in the direction of `step`
     ForTestI { v: R, lim: R, step: R, t: u32 },
     ForTestF { v: R, lim: R, step: R, t: u32 },
+    /// FOR test with an explicit continue point: exit to `t` when done, else
+    /// continue at this pc + `skip` (replaces the emitter's two-way step test)
+    ForTestKI { v: R, lim: R, step: R, t: u32, skip: u8 },
+    ForTestKF { v: R, lim: R, step: R, t: u32, skip: u8 },
+    /// Back edge of an emitter FOR loop: `c = lim+1 (step) + iv` (i64 counter),
+    /// `iv = w(c)`, then jump to `body` (safe point) while in range, else fall
+    /// through to the loop exit. `lim` and `step` are registers `lim`, `lim + 1`.
+    LoopForI { c: R, iv: R, lim: R, body: u32, w: W },
     /// NEXT + FOR test: `v += step` (wrapping `w`); jump to `body` while in range (safe point)
     ForNextI { v: R, step: R, lim: R, body: u32, w: W },
     Gosub { t: u32 },
@@ -567,11 +575,17 @@ impl Ins {
                 f(O::SK(b));
                 f(O::T(t))
             }
-            ForTestI { v, lim, step, t } | ForTestF { v, lim, step, t } => {
+            ForTestI { v, lim, step, t } | ForTestF { v, lim, step, t } | ForTestKI { v, lim, step, t, .. } | ForTestKF { v, lim, step, t, .. } => {
                 f(O::N(v));
                 f(O::N(lim));
                 f(O::N(step));
                 f(O::T(t))
+            }
+            LoopForI { c, iv, lim, body, .. } => {
+                f(O::N(c));
+                f(O::N(iv));
+                f(O::NRun(lim, 2));
+                f(O::T(body))
             }
             ForNextI { v, step, lim, body, .. } => {
                 f(O::N(v));
@@ -782,6 +796,9 @@ impl Ins {
             BrS { c, .. } => format!("br.s {}", c.name()),
             ForTestI { .. } => "for_test.i".into(),
             ForTestF { .. } => "for_test.f".into(),
+            ForTestKI { skip, .. } => format!("for_test.i +{skip}"),
+            ForTestKF { skip, .. } => format!("for_test.f +{skip}"),
+            LoopForI { w, .. } => format!("loop_for.{}", w.name()),
             ForNextI { w, .. } => format!("for_next.{}", w.name()),
             Gosub { .. } => "gosub".into(),
             Return => "return".into(),
@@ -910,13 +927,15 @@ impl Ins {
             | BrS { t, .. }
             | ForTestI { t, .. }
             | ForTestF { t, .. }
+            | ForTestKI { t, .. }
+            | ForTestKF { t, .. }
             | Gosub { t }
             | ReturnL { t }
             | OnError { t }
             | Resume { t, .. }
             | OnEvent { t, .. }
             | OnTimer { t, .. } => Some(t),
-            ForNextI { body, .. } => Some(body),
+            ForNextI { body, .. } | LoopForI { body, .. } => Some(body),
             _ => None,
         }
     }

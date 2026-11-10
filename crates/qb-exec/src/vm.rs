@@ -1217,6 +1217,25 @@ impl<'m, 'o> Vm<'m, 'o> {
                         pc = t
                     }
                 }
+                Ins::ForTestKI { v, lim, step, t, skip } => {
+                    let (x, l) = (ri!(v), ri!(lim));
+                    pc = if if ri!(step) < 0 { x < l } else { x > l } { t } else { pc - 1 + skip as u32 };
+                }
+                Ins::ForTestKF { v, lim, step, t, skip } => {
+                    let (x, l) = (rf!(v), rf!(lim));
+                    pc = if if rf!(step) < 0.0 { x < l } else { x > l } { t } else { pc - 1 + skip as u32 };
+                }
+                Ins::LoopForI { c, iv, lim, body, w } => {
+                    let s = ri!(lim + 1);
+                    let x = ri!(iv).wrapping_add(s);
+                    seti!(c, x);
+                    seti!(iv, w.wrap(x));
+                    let l = ri!(lim);
+                    if if s < 0 { x >= l } else { x <= l } {
+                        pc = body;
+                        poll!();
+                    }
+                }
                 Ins::ForNextI { v, step, lim, body, w } => {
                     let s = ri!(step);
                     let x = w.wrap(ri!(v).wrapping_add(s));

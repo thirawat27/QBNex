@@ -247,12 +247,14 @@ pub fn compile_v1(src: &ir::Module) -> Res<Module> {
         }
     }
     let mut funcs = Vec::new();
+    let mut const_sets: Vec<std::collections::HashSet<R>> = Vec::new();
     for (k, &fi) in order.iter().enumerate() {
         let f = &src.funcs[fi];
         let entry = lw.m.code.len() as u32;
         let (params, ret) = lw.function(k, f, &statics[k])?;
         let end = lw.m.code.len() as u32;
         let fr = std::mem::take(&mut lw.frames[k]);
+        const_sets.push(fr.consts.values().copied().collect());
         funcs.push(Func {
             name: f.name.clone(),
             entry,
@@ -270,6 +272,10 @@ pub fn compile_v1(src: &ir::Module) -> Res<Module> {
         *lw.m.code[pc as usize].target_mut().expect("fixup on a jump") = t;
     }
     let mut m = lw.m;
+    for (f, consts) in funcs.iter().zip(&const_sets) {
+        let zero = |r: R| consts.contains(&r) && f.num_init[r as usize] == 0;
+        fuse_for_tests(&mut m.code, f.entry as usize..f.end as usize, &zero);
+    }
     m.funcs = funcs;
     m.validate().map_err(|e| format!("internal: {e}"))?;
     Ok(m)
@@ -383,6 +389,8 @@ impl<'a> Lw<'a> {
             }
         }
         let mut ptrs: HashMap<u32, Ptr> = HashMap::new();
+        // v1 register -> variable whose register it aliases
+        let mut alias_var: HashMap<u32, &str> = HashMap::new();
         self.barrier = self.pc();
         let body = &f.body;
         for (ii, ins) in body.iter().enumerate() {
@@ -540,6 +548,22 @@ impl<'a> Lw<'a> {
                 }
                 Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
                     let trunc = matches!(ins, Inst::Trunc { .. });
+                    if to.is_int() && from.is_int() && widens(*from, *to) && defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
+                        // widening an already normalized integer changes nothing: reuse the register
+                        let s = nreg!(*src);
+                        let n_uses = uses.get(dst).copied().unwrap_or(0);
+                        let ok = match alias_var.get(src).copied() {
+                            Some(v) => alias_ok(body, ii, *dst, v, n_uses),
+                            None => stable_until_uses(body, ii, *dst, n_uses, &|i: &Inst| regs(i).0 == Some(*src)),
+                        };
+                        if ok {
+                            rmap.insert(*dst, Rg::N(s));
+                            if let Some(v) = alias_var.get(src).copied() {
+                                alias_var.insert(*dst, v);
+                            }
+                            continue;
+                        }
+                    }
                     let (d, s) = (nreg!(*dst), nreg!(*src));
                     match (to.is_float(), from.is_float()) {
                         (true, true) => {
@@ -571,6 +595,7 @@ impl<'a> Lw<'a> {
                             let is_s = matches!(v, Var::S(_));
                             if alias {
                                 rmap.insert(*dst, if is_s { Rg::S(r) } else { Rg::N(r) });
+                                alias_var.insert(*dst, var.as_str());
                             } else if is_s {
                                 let d = sreg!(*dst);
                                 self.emit(Ins::MovS { d, s: r });
@@ -1020,6 +1045,75 @@ impl<'a> Lw<'a> {
     }
 }
 
+/// Every reference to label `l` is a jump located strictly between `at` and `here`.
+fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
+    body.iter().enumerate().all(|(k, i)| {
+        let refers = match i {
+            Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
+            Inst::Gosub(t) | Inst::GRetL(t) => return t != l,
+            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) => return t != l,
+            _ => false,
+        };
+        !refers || (k > at && k < here)
+    })
+}
+
+/// Every value of integer type `from` has the same normalized bits in `to`.
+fn widens(from: IT, to: IT) -> bool {
+    use IT::*;
+    from == to
+        || matches!(
+            (from, to),
+            (I8, I16 | I32 | I64) | (I16, I32 | I64) | (I32, I64) | (U8, I16 | U16 | I32 | U32 | I64) | (U16, I32 | U32 | I64) | (U32, I64)
+        )
+}
+
+/// The emitter's FOR test (direction chosen by the sign of STEP each
+/// iteration) as one instruction:
+/// `br ge step,0 -> P; br lt v,lim -> X; jmp B; P: br gt v,lim -> X; B:`
+fn fuse_for_tests(code: &mut [Ins], range: std::ops::Range<usize>, zero: &dyn Fn(R) -> bool) {
+    for i in range.start..range.end.saturating_sub(4) {
+        let w = &code[i..i + 4];
+        let fused = match (w[0], w[1], w[2], w[3]) {
+            (
+                Ins::BrI { c: Cmp::Ge, a: step, b: z, t: p },
+                Ins::BrI { c: Cmp::Lt, a: v, b: lim, t: x },
+                Ins::Jmp { t: bb },
+                Ins::BrI { c: Cmp::Gt, a: v2, b: lim2, t: x2 },
+            ) if zero(z) && p as usize == i + 3 && bb as usize == i + 4 && v == v2 && lim == lim2 && x == x2 => {
+                Some(Ins::ForTestKI { v, lim, step, t: x, skip: 4 })
+            }
+            (
+                Ins::BrF { c: Cmp::Ge, a: step, b: z, t: p },
+                Ins::BrF { c: Cmp::Lt, a: v, b: lim, t: x },
+                Ins::Jmp { t: bb },
+                Ins::BrF { c: Cmp::Gt, a: v2, b: lim2, t: x2 },
+            ) if zero(z) && p as usize == i + 3 && bb as usize == i + 4 && v == v2 && lim == lim2 && x == x2 => {
+                Some(Ins::ForTestKF { v, lim, step, t: x, skip: 4 })
+            }
+            _ => None,
+        };
+        if let Some(f) = fused {
+            code[i] = f;
+        }
+    }
+    // back edge `loop t` where t: add.i64 c, step, iv; wrap iv, c; for_test.i +k c, lim, step -> exit
+    for l in range.clone() {
+        let Ins::Loop { t } = code[l] else { continue };
+        let t = t as usize;
+        if t + 2 >= range.end || l + 1 >= range.end {
+            continue;
+        }
+        let (Ins::AddI64 { d: c, a, b }, Ins::Wrap { d: iv, s: c2, w }, Ins::ForTestKI { v, lim, step, t: exit, skip }) = (code[t], code[t + 1], code[t + 2]) else {
+            continue;
+        };
+        let iv_ok = (a == step && b == iv) || (b == step && a == iv);
+        if c == c2 && v == c && iv_ok && step == lim + 1 && exit as usize == l + 1 && c != iv && c != lim && c != step && iv != lim && iv != step {
+            code[l] = Ins::LoopForI { c, iv, lim, body: (t + 2) as u32 + u32::from(skip), w };
+        }
+    }
+}
+
 fn to_global(v: Var) -> Var {
     match v {
         Var::N(r, t) => Var::NG(r, t),
@@ -1032,22 +1126,31 @@ fn to_global(v: Var) -> Var {
 /// `load %d $x` may reuse `$x`'s register when every use of `%d` comes
 /// before anything that could change `$x` (store, call, control flow).
 fn alias_ok(body: &[Inst], at: usize, d: u32, var: &str, total: u32) -> bool {
+    stable_until_uses(body, at, d, total, &|i: &Inst| matches!(i, Inst::Store { var: v, .. } if v == var))
+}
+
+/// Every use of `d` (defined at `at`) comes, in straight-line order, before
+/// any instruction for which `kill` holds and before any merge point
+/// (label), call or GOSUB. Jumps *out* of the run are fine: a path that leaves
+/// cannot come back without passing a label.
+fn stable_until_uses(body: &[Inst], at: usize, d: u32, total: u32, kill: &dyn Fn(&Inst) -> bool) -> bool {
     let mut seen = 0;
     if total == 0 {
         return true;
     }
-    for i in &body[at + 1..] {
+    for (j, i) in body.iter().enumerate().skip(at + 1) {
         let (_, us) = regs(i);
         seen += us.iter().filter(|&&u| u == d).count() as u32;
         if seen >= total {
             return true;
         }
+        if kill(i) {
+            return false;
+        }
         match i {
-            Inst::Store { var: v, .. } if v == var => return false,
+            // a merge point is harmless when every jump to it comes from inside the run
+            Inst::Label(l) if local_label(body, l, at, j) => {}
             Inst::Label(_)
-            | Inst::Jmp(_)
-            | Inst::Jz { .. }
-            | Inst::Jnz { .. }
             | Inst::Gosub(_)
             | Inst::GRet
             | Inst::GRetL(_)

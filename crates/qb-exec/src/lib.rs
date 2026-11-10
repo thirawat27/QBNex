@@ -90,7 +90,12 @@ pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
         let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
         if std::env::var_os("QB_EXEC_REFERENCE").is_none() {
             match lower1::compile_v1(&m) {
-                Ok(bc) => return Vm::new(&bc, out).run_status(),
+                Ok(bc) => {
+                    if std::env::var_os("QB_EXEC_DISASM").is_some() {
+                        eprint!("{}", bc.disasm());
+                    }
+                    return Vm::new(&bc, out).run_status();
+                }
                 Err(why) => {
                     if std::env::var_os("QB_EXEC_TRACE").is_some() {
                         eprintln!("qb-exec: reference interpreter ({why})");
