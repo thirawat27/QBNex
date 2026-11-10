@@ -129,7 +129,27 @@ pub fn run_program(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Resu
         vm.load_native(img).map_err(RunError::load)?;
     }
     vm.set_continue_unhandled(true);
+    // END waits for a key only when somebody could press one (the runtime's END
+    // policy: stdin and stdout on the console, QBNEX_NO_ERROR_DIALOG unset)
+    if qb_runtime::error::qb_end_prompt_wanted(0) != 0 {
+        vm.set_end_prompt(Some(wait_end_key));
+    }
     vm.run_status()
+}
+
+/// The key END waits for (console branch of sub_end).
+fn wait_end_key() {
+    #[cfg(windows)]
+    {
+        use qb_runtime::console::stdio;
+        stdio::flush_input();
+        while stdio::console_input() != 1 {}
+    }
+    #[cfg(not(windows))]
+    {
+        let mut line = String::new();
+        let _ = std::io::stdin().read_line(&mut line);
+    }
 }
 
 /// Parses and runs a QIR program, writing console output to `out`.

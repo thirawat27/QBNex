@@ -260,6 +260,11 @@ pub struct Vm<'m, 'o> {
     erl: u32,
     /// SYSTEM n / exit code of the program once it ended
     exit_code: i32,
+    /// the program ended with END (or by running off main), not SYSTEM
+    ended: bool,
+    /// END's "Press any key to continue": None = no prompt (nobody could press
+    /// a key); Some(wait) = print it, then wait for a key with `wait`
+    end_prompt: Option<fn()>,
     /// source line of the last error (_ERRORLINE)
     errline: u32,
     /// last numeric line label passed (QIR LASTLINE; ERL reports it)
@@ -395,6 +400,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             err: 0,
             erl: 0,
             exit_code: 0,
+            ended: false,
+            end_prompt: None,
             errline: 0,
             last_line: 0,
             continue_unhandled: false,
@@ -425,6 +432,12 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// C++ program does; off by default (the error ends the run).
     pub fn set_continue_unhandled(&mut self, on: bool) {
         self.continue_unhandled = on;
+    }
+
+    /// END's "Press any key to continue" (sub_end of the C++ runtime): `None`
+    /// ends silently, `Some(wait)` prints the prompt and calls `wait` for the key.
+    pub fn set_end_prompt(&mut self, wait: Option<fn()>) {
+        self.end_prompt = wait;
     }
 
     /// Browser runner (qb-web, R13-wasm): the program runs on the screen page
@@ -588,9 +601,18 @@ impl<'m, 'o> Vm<'m, 'o> {
                 },
             }
         };
-        self.rt.flush();
         // frame record of the screen at END/SYSTEM (end() of the C++ runtime)
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
+        if r.is_ok() && self.ended {
+            if let Some(wait) = self.end_prompt {
+                // console branch of sub_end: "\nPress any key to continue", then a key
+                let text: &[u8] = if cfg!(windows) { b"\nPress any key to continue" } else { b"\nPress enter to continue" };
+                let _ = self.rt.write(0, text);
+                self.rt.flush();
+                wait();
+            }
+        }
+        self.rt.flush();
         r
     }
 
@@ -1386,6 +1408,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ins::End => {
                     self.exit_code = 0;
+                    self.ended = true;
                     return Ok(u32::MAX);
                 }
                 Ins::System { s } => {
