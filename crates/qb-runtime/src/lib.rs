@@ -58,6 +58,9 @@ pub mod win32;
 // Audio runtime (R6): linked into libqb_runtime.a but kept in its own crate (own
 // object file) so only programs that reference qb_snd_* pull it in.
 extern crate qb_audio;
+// Extension library (R13-ext): pulled into libqb_runtime.a for the stdlib's ext.* modules.
+#[cfg(feature = "ext")]
+extern crate qb_ext;
 pub mod raster;
 pub mod script;
 pub mod window;

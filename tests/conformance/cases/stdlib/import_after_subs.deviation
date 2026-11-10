@@ -1,0 +1,1 @@
+Fixes legacy defect L-20: an $IMPORT placed after the program's SUBs put the module's DIM SHARED between SUB/FUNCTIONs (compile error). Module declarations are now hoisted before the program (D-25). Expected output is QBasic behaviour.
