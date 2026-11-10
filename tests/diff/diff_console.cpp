@@ -7,7 +7,7 @@
 // INPUT variables are compared after every step.
 //
 //   g++ -O2 -std=c++17 -w tests/diff/diff_console.cpp <libqb_runtime.a> <native libs> -o diff_console
-//   ./diff_console [--quick] [--mutate]
+//   ./diff_console [--quick] [--ops <n> <inputs>]   (QBDIFF_TRACE=1 traces every step)
 //
 // The $CONSOLE (stdout / Windows console) paths are not covered here; the
 // conformance corpus runs them.
@@ -110,7 +110,7 @@ extern uint32 qbs_tmp_list_nexti;
 
 static uint64_t rng = 0x2545F4914F6CDD1Dull;
 static uint32 rnd() { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return (uint32)rng; }
-static bool mutate = false;
+static bool trace = getenv("QBDIFF_TRACE") != NULL;
 
 // shared deterministic stand-ins
 static uint8 charset8x8_data[256 * 64], charset8x16_data[256 * 128];
@@ -296,9 +296,9 @@ static void make(int32 i, int32 kind) {
     s.transparent_color = -1;
     switch (kind) {
     case 1: s.text = 1; s.width = 80; s.height = 25; s.bytes_per_pixel = 2; s.font = 16; s.mask = 15; s.color = 7; break;
-    case 2: s.text = 1; s.width = 20; s.height = 6; s.bytes_per_pixel = 2; s.font = 8; s.mask = 15; s.color = 7; break;
+    case 2: s.text = 1; s.width = 24; s.height = 6; s.bytes_per_pixel = 2; s.font = 8; s.mask = 15; s.color = 7; break;
     case 3: s.width = 64; s.height = 48; s.bytes_per_pixel = 1; s.compatible_mode = 13; s.font = 8; s.mask = 255; s.color = 15; break;
-    case 4: s.width = 48; s.height = 32; s.bytes_per_pixel = 4; s.compatible_mode = 32; s.font = 16; s.mask = 0xFFFFFFFF; s.color = 0xFFFFFFFF; s.alpha_disabled = 1; break;
+    case 4: s.width = 64; s.height = 32; s.bytes_per_pixel = 4; s.compatible_mode = 32; s.font = 16; s.mask = 0xFFFFFFFF; s.color = 0xFFFFFFFF; s.alpha_disabled = 1; break;
     default: s.width = 60; s.height = 36; s.bytes_per_pixel = 1; s.compatible_mode = 13; s.font = 32; s.mask = 255; s.color = 15; break;
     }
     int32 fh = s.text ? 1 : legacy::fontheight[s.font];
@@ -321,7 +321,7 @@ static long op_no = 0;
 static const char *op_name = "";
 static void fail(const char *what) {
     mismatches++;
-    if (mismatches <= 25) printf("mismatch #%ld op %ld (%s): %s\n", mismatches, op_no, op_name, what);
+    if (mismatches <= 25) { printf("mismatch #%ld op %ld (%s): %s\n", mismatches, op_no, op_name, what); fflush(stdout); }
 }
 static bool same_img(int32 i) {
     img_struct a = legacy::img[i], b = rimg[i];
@@ -453,7 +453,7 @@ static void input_case(int32 surf) {
     bool line = rnd() % 6 == 0;
     if (line) n = 1;
     int32 types[2][257]; void *offs[2][257];
-    static uint8 store[2][4][16];
+    static uint8 store[2][4][32];
     qbs *strs[2][4];
     static uint8 fixed[2][4][4];
     int32 kinds[4];
@@ -462,7 +462,7 @@ static void input_case(int32 surf) {
         kinds[v] = k;
         for (int s = 0; s < 2; s++) {
             types[s][v] = vtypes[k].type | (line ? 512 : 0);
-            memset(store[s][v], 0xAB, 16);
+            memset(store[s][v], 0xAB, 32);
             if (k == 11) { strs[s][v] = qb_qbs_new(0, 0); offs[s][v] = strs[s][v]; }
             else if (k == 12) { strs[s][v] = qb_qbs_new_fixed(fixed[s][v], 4, 0); offs[s][v] = strs[s][v]; types[s][v] = 1073741824; }
             else offs[s][v] = store[s][v];
@@ -471,11 +471,28 @@ static void input_case(int32 surf) {
     static const char keys[] = "0123456789000-+.,,eEdD&HhOoBb\" abcxyz\x08\x08\x08\x09";
     std::string script;
     int32 len = rnd() % 16;
-    for (int32 i = 0; i < len; i++) script += keys[rnd() % (sizeof(keys) - 1)];
+    // legacy reads an uninitialised "max" for &H/&O/&B entries of _INTEGER64 variables
+    // (D-R12a-1): no '&' in entries for them
+    bool has64 = false;
+    for (int32 v = 1; v <= n; v++) has64 |= kinds[v] == 6 || kinds[v] == 7;
+    static const char *tokens[] = {"0.0000000001", "0.00000000000000000000000000000000000000000000012", "&HFF", "&H1FF",
+        "&HFFFF", "&HFFFFFFFF", "&O377", "&O777", "&B11111111", "&B111111111", "1E38", "3.402823E+38", "3.402824E38",
+        "1.401298E-45", "1.401297E-45", "-32768", "32767", "32768", "65535", "-2147483648", "4294967295",
+        "1.5D300", "1.7976931D308", "1.7976932D308", "4.940656D-324", "9223372036854775807", "-9223372036854775808",
+        "18446744073709551615", "12345678", "123456789", "1234567890123456", "12345678901234567", ".5", "-.25E-3", "0.",
+        "00", "1E", "1E-", "2E+", "1e5", "7d2", ",", "\"a,b\"", "\"x\"y"};
+    for (int32 i = 0; i < len; i++) {
+        if (rnd() % 3 == 0) {
+            const char *t = tokens[rnd() % (sizeof(tokens) / sizeof(tokens[0]))];
+            for (; *t; t++) script += (has64 && *t == '&') ? '1' : *t;
+            continue;
+        }
+        char ch = keys[rnd() % (sizeof(keys) - 1)];
+        if (has64 && ch == '&') ch = '1';
+        script += ch;
+    }
     script += '\r';
-    if (mutate && script.size() > 1) script[0] = script[0] == '1' ? '2' : script[0];
     keyscript[0] = (uint8 *)script.data(); keyscript[1] = (uint8 *)script.data();
-    if (mutate) { static std::string m; m = script; if (m[0] == '2') m[0] = '1'; keyscript[1] = (uint8 *)m.data(); }
     keyscript_len[0] = keyscript_len[1] = (int32)script.size();
     keyscript_pos[0] = keyscript_pos[1] = 0;
     legacy::write_page = legacy::read_page = &legacy::img[surf]; legacy::write_page_index = legacy::read_page_index = surf;
@@ -490,8 +507,10 @@ static void input_case(int32 surf) {
         if (k >= 11) {
             qbs *a = strs[0][v], *b = strs[1][v];
             if (a->len != b->len || memcmp(a->chr, b->chr, a->len)) fail("INPUT string variable");
-        } else if (memcmp(store[0][v], store[1][v], 16)) {
-            char m[128]; sprintf(m, "INPUT variable type %d, keys \"%s\"", vtypes[k].type, script.c_str()); fail(m);
+        } else if (memcmp(store[0][v], store[1][v], 32)) {
+            char m[400]; int o = sprintf(m, "INPUT variable %d/%d type %d, keys \"%s\":", v, n, vtypes[k].type, script.c_str());
+            for (int q = 0; q < 12; q++) o += sprintf(m + o, " %02x/%02x", store[0][v][q], store[1][v][q]);
+            fail(m);
         }
     }
     if (legacy::qbs_input_variabletypes[1] != types[1][1]) fail("LINE INPUT type marker");
@@ -513,7 +532,7 @@ int main(int argc, char **argv) {
     long iters = 400000, inputs = 20000;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--quick")) { iters = 40000; inputs = 2000; }
-        if (!strcmp(argv[i], "--mutate")) mutate = true;
+        if (!strcmp(argv[i], "--ops") && i + 2 < argc) { iters = atol(argv[i + 1]); inputs = atol(argv[i + 2]); }
     }
     if (!load("../../crates/qb-runtime/src/gfx/data/charset8.bin", charset8x8_data, sizeof(charset8x8_data)) ||
         !load("../../crates/qb-runtime/src/gfx/data/charset16.bin", charset8x16_data, sizeof(charset8x16_data))) {
@@ -527,14 +546,14 @@ int main(int argc, char **argv) {
     legacy::fontwidth[8] = legacy::fontwidth[14] = legacy::fontwidth[16] = 8;
     legacy::fontheight[8] = 8; legacy::fontheight[14] = 14; legacy::fontheight[16] = 16;
     legacy::fontwidth[32] = 0; legacy::fontheight[32] = 12;
-    legacy::singlespace = qb_qbs_new_txt_len(" ", 1);
+    legacy::singlespace = qb_qbs_new(1, 0); legacy::singlespace->chr[0] = 32;
     legacy::cmem[0x41a] = 30; legacy::cmem[0x41c] = 30;
     qb_inkey_clear(r_bios);
     const int32 nsurf = 5;
     for (int32 i = 1; i <= nsurf; i++) make(i, i);
     legacy::write_page = legacy::read_page = &legacy::img[1]; legacy::write_page_index = legacy::read_page_index = 1;
-    if (mutate) iters = 0;
     for (op_no = 0; op_no < iters && mismatches < 25; op_no++) {
+        if (trace) { fprintf(stderr, "op %ld\n", op_no); fflush(stderr); }
         step(nsurf);
         compare_all(nsurf);
     }
@@ -543,7 +562,6 @@ int main(int argc, char **argv) {
         input_case(rnd() % 3 ? 1 : 3);
         compare_all(nsurf);
     }
-    printf("diff_console: %ld operations, %ld INPUT entries, %ld mismatches%s\n", checked, op_no - checked, mismatches,
-           mutate ? " (mutation run: mismatches expected)" : "");
-    return mutate ? (mismatches ? 0 : 1) : (mismatches ? 1 : 0);
+    printf("diff_console: %ld operations, %ld INPUT entries, %ld mismatches\n", checked, op_no - checked, mismatches);
+    return mismatches ? 1 : 0;
 }

@@ -489,9 +489,14 @@ pub unsafe fn check_and_store(arg: &mut Vec<u8>, t: i32, var: *mut c_void, max: 
             64 => (322, 309, 8, 16, -323, 7, DOUBLE_MAX, DOUBLE_MAX_NEG),
             _ => {
                 if store && bits == 256 {
+                    // legacy scanned into a function-static double and always stored it,
+                    // so an entry sscanf cannot read ("." or "-.") repeats the previous value
+                    static mut SSCANF_FIX: f64 = 0.0;
                     if let Some(d) = scan_float(arg) {
-                        store_long_double(var, crate::round::f80_from_f64(d), d);
+                        SSCANF_FIX = d;
                     }
+                    let d = SSCANF_FIX;
+                    store_long_double(var, crate::round::f80_from_f64(d), d);
                 }
                 return Check::Valid;
             }
