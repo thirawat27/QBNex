@@ -1134,7 +1134,6 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             ELSE
                 r$ = IrRt$("TIMER", "", "f64")
             END IF
-            IF IrTy$(typ) = "f32" THEN r$ = IrCvt$(r$, "f64", "f32"): IrT = "f32"
         CASE "ERR", "ERL", "_ERRORLINE", "FREEFILE", "POS", "CSRLIN"
             IF nm$ = "POS" THEN
                 IF nargs >= 1 THEN x$ = IrArgAs$(sv(1), "i32")
@@ -1151,7 +1150,12 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "i64")
         CASE "INPUT$"
             x$ = IrArgAs$(sv(1), "i32")
-            IF nargs >= 2 THEN y$ = IrArgAs$(sv(2), "i32") ELSE y$ = IrI32$(0)
+            IF nargs >= 2 THEN
+                IF getelement$(sv(2), 1) = "#" THEN sv(2) = getelements$(sv(2), 2, numelements(sv(2)))
+                y$ = IrArgAs$(sv(2), "i32")
+            ELSE
+                y$ = IrI32$(0)
+            END IF
             r$ = IrRt$("INPUT$", " " + x$ + " " + y$, "str")
         CASE "_FILEEXISTS", "_DIREXISTS"
             r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i32")
@@ -1163,8 +1167,34 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         CASE "CVL": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i32")
         CASE "CVS", "CVSMBF": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "f32")
         CASE "CVD", "CVDMBF": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "f64")
-        CASE "SHELL"
+        CASE "SHELL", "_SHELLHIDE"
             r$ = IrRt$("SHELL", " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "_STRCMP", "_STRICMP"
+            x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "str")
+            r$ = IrRt$(nm$, " " + x$ + " " + y$, "i32")
+        CASE "_CWD$", "_STARTDIR$"
+            r$ = IrRt$(nm$, "", "str")
+        CASE "_MK$", "_CV"
+            t = typname2typ(UCASE$(sv(1)))
+            IF t AND ISPOINTER THEN t = t - ISPOINTER
+            sx$ = IrTy$(t)
+            SELECT CASE sx$
+                CASE "i16": z$ = "I"
+                CASE "i32": z$ = "L"
+                CASE "f32": z$ = "S"
+                CASE "f64": z$ = "D"
+                CASE "i64": z$ = "i64"
+                CASE ELSE: z$ = ""
+            END SELECT
+            IF z$ = "" THEN IrNotSup nm$ + " of " + sv(1): r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF nm$ = "_MK$" THEN
+                x$ = IrArgAs$(sv(2), sx$)
+                IF z$ = "i64" THEN r$ = IrRt$("_MK$.i64", " " + x$, "str") ELSE r$ = IrRt$("MK" + z$ + "$", " " + x$, "str")
+            ELSE
+                x$ = IrArgAs$(sv(2), "str")
+                IF z$ = "i64" THEN r$ = IrRt$("_CV.i64", " " + x$, "i64") ELSE r$ = IrRt$("CV" + z$, " " + x$, sx$)
+                typ = t
+            END IF
         CASE "LBOUND", "UBOUND"
             IrQuiet = -1: x$ = IrPlace$(sv(1) + sp + "(" + sp + ")", t): IrQuiet = 0
             IF LEFT$(x$, 1) <> "A" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone

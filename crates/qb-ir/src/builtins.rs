@@ -177,6 +177,10 @@ pub static TABLE: &[Builtin] = &[
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
     b!("_DEST", [I32]),
+    b!("_STRCMP", [Str, Str], I32),
+    b!("_STRICMP", [Str, Str], I32),
+    b!("_CWD$", [], Str),
+    b!("_STARTDIR$", [], Str),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
