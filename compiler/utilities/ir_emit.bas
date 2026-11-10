@@ -94,6 +94,7 @@ SUB IrCloseMain
 END SUB
 
 SUB IrLine
+    IrFlushCase
     IrE "line " + str2$(linenumber)
     IF IrPendLL THEN IrE "rt LASTLINE " + IrI32$(IrPendLL): IrPendLL = 0
 END SUB
@@ -1759,6 +1760,16 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
     IF aid = 0 THEN
         saveid = id: savecur = currentid
         IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + sp + "(" + sp + ")", t): IrQuiet = 0
+        IF LEFT$(p$, 1) <> "A" THEN
+            'the name came without its type symbol (REDIM of a SHARED array inside a SUB)
+            DIM sy$, si AS LONG
+            sy$ = "$|%|&|!|#|##|&&|%%|~%|~&|~&&|~%%|%&|~%&|"
+            si = 1
+            DO WHILE si < LEN(sy$) AND LEFT$(p$, 1) <> "A"
+                IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + MID$(sy$, si, INSTR(si, sy$, "|") - si) + sp + "(" + sp + ")", t): IrQuiet = 0
+                si = INSTR(si, sy$, "|") + 1
+            LOOP
+        END IF
         id = saveid: currentid = savecur
         IF LEFT$(p$, 1) <> "A" THEN IrNotSup "REDIM of an unknown array": EXIT SUB
         nm$ = IrPart$(p$, 2)
@@ -2080,6 +2091,7 @@ SUB IrFinish (src$, outExe$)
     DIM fh AS INTEGER, i AS LONG, runner$, outPath$, ir$, r$, q$, l$, top AS LONG
     IF IrFailMsg <> "" THEN
         PRINT "QIR: unsupported: " + IrFailMsg
+        IF ENVIRON$("QBNEX_IR_DEBUG") = "1" THEN PRINT RIGHT$(IrFnBody(IrFnCur), 600)
         SYSTEM 1
     END IF
     ir$ = tmpdir$ + "program.qir"

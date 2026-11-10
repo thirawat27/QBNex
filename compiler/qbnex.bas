@@ -5631,7 +5631,7 @@ IF n >= 1 THEN
         IF controltype(controllevel) <> 6 AND (controltype(controllevel) < 10 OR controltype(controllevel) > 17) THEN a$ = "CASE without SELECT CASE": GOTO errmes
         IF n = 1 THEN a$ = "Expected CASE expression": GOTO errmes
         SelectCaseHasCaseBlock(SelectCaseCounter) = -1
-        IF IrEmitMode THEN IrCase getelements$(ca$, 2, n), EveryCaseSet(SelectCaseCounter), (secondelement$ = "C-EL")
+        IF IrEmitMode THEN IrPendCase$ = getelements$(ca$, 2, n): IrPendEvery = EveryCaseSet(SelectCaseCounter): IrPendElse = (secondelement$ = "C-EL"): IrPendLevel = controllevel: IrPendCaseOn = -1 'emitted at finishedline: the CASE values may create implicit variables
 
 
         'upgrade:
