@@ -1,7 +1,7 @@
 //! Sound builtins of the v1 interpreter, routed to the `qb-audio` C ABI
 //! (the same functions libqb's audio_bridge.cpp forwards to).
 
-use super::rt::Host;
+use super::builtins::Host;
 use super::{Stop, R, V};
 use qb_audio::ffi as snd;
 use qb_runtime::mem::{self, MemBlock};
@@ -32,7 +32,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         "SOUND" => Some(raise(snd::qb_snd_sound(f(0), f(1)))),
         "BEEP" => Some(raise(snd::qb_snd_sound(900.0, 5.0))),
         "PLAY" => {
-            let dblock = vm.rt().cmem[super::rt::DBLOCK..].as_ptr();
+            let dblock = vm.rt().cmem[super::builtins::DBLOCK..].as_ptr();
             Some(raise(unsafe { snd::qb_snd_play(s(0).as_ptr(), s(0).len() as i32, dblock) }))
         }
         "PLAY.f" => some(V::I(snd::qb_snd_play_count().into())),

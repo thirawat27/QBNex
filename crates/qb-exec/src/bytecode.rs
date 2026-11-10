@@ -179,21 +179,6 @@ pub enum Un {
     NegF,
     /// bitwise NOT of a normalized integer (stays normalized)
     Not,
-    AbsI(W),
-    AbsF,
-    /// SGN -> INTEGER
-    SgnI,
-    SgnF,
-    /// INT / FIX of a float
-    Int,
-    Fix,
-    Sqr,
-    Log,
-    Exp,
-    Sin,
-    Cos,
-    Tan,
-    Atn,
 }
 
 /// Scalar type of a memory access (QIR v1 `ld`/`st`, memory-backed variables).
@@ -276,13 +261,6 @@ pub enum ResumeK {
     Label,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EvMode {
-    On,
-    Off,
-    Stop,
-}
-
 /// One instruction. `d` = destination, `a`/`b`/`s` = sources, `t` = jump target.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Ins {
@@ -296,8 +274,6 @@ pub enum Ins {
     IToF { d: R, s: R },
     /// unsigned 64-bit integer -> float
     IToFU { d: R, s: R },
-    /// float -> integer with QBasic rounding (half to even); out of range = error 6
-    FToI { d: R, s: R, w: W },
     /// integer -> narrower integer (C cast, wraps)
     Wrap { d: R, s: R, w: W },
     /// f64 -> f32 -> f64 (store into SINGLE)
@@ -324,8 +300,6 @@ pub enum Ins {
     And { d: R, a: R, b: R },
     Or { d: R, a: R, b: R },
     Xor { d: R, a: R, b: R },
-    Eqv { d: R, a: R, b: R },
-    Imp { d: R, a: R, b: R },
     /// `d = wo(d + wi(a op b))` — superinstruction for `s = s + a op b`
     /// (reads `d`; never retargeted)
     Acc { op: AccOp, d: R, a: R, b: R, wi: W, wo: W },
@@ -333,7 +307,6 @@ pub enum Ins {
     AddF { d: R, a: R, b: R },
     SubF { d: R, a: R, b: R },
     MulF { d: R, a: R, b: R },
-    DivF { d: R, a: R, b: R },
     PowF { d: R, a: R, b: R },
     Un { op: Un, d: R, s: R },
     // ---- comparisons: d = -1 / 0 (INTEGER)
@@ -348,16 +321,11 @@ pub enum Ins {
     Loop { t: u32 },
     JzI { s: R, t: u32 },
     JnzI { s: R, t: u32 },
-    JzF { s: R, t: u32 },
-    JnzF { s: R, t: u32 },
     /// jump when `a c b` holds (compare fused with JZ/JNZ)
     BrI { c: Cmp, a: R, b: R, t: u32 },
     BrF { c: Cmp, a: R, b: R, t: u32 },
     BrS { c: Cmp, a: R, b: R, t: u32 },
     BrU { c: Cmp, a: R, b: R, t: u32 },
-    /// FOR test: jump to `t` (loop exit) when `v` is past `lim` in the direction of `step`
-    ForTestI { v: R, lim: R, step: R, t: u32 },
-    ForTestF { v: R, lim: R, step: R, t: u32 },
     /// FOR test with an explicit continue point: exit to `t` when done, else
     /// continue at this pc + `skip` (replaces the emitter's two-way step test)
     ForTestKI { v: R, lim: R, step: R, t: u32, skip: u8 },
@@ -366,8 +334,6 @@ pub enum Ins {
     /// `iv = w(c)`, then jump to `body` (safe point) while in range, else fall
     /// through to the loop exit. `lim` and `step` are registers `lim`, `lim + 1`.
     LoopForI { c: R, iv: R, lim: R, body: u32, w: W },
-    /// NEXT + FOR test: `v += step` (wrapping `w`); jump to `body` while in range (safe point)
-    ForNextI { v: R, step: R, lim: R, body: u32, w: W },
     Gosub { t: u32 },
     Return,
     /// RETURN label
@@ -382,8 +348,6 @@ pub enum Ins {
     Resume { k: ResumeK, t: u32 },
     /// raise the error whose code is in register `s`
     Raise { s: R },
-    /// raise a constant error code (type mismatch found by the loader, ...)
-    RaiseK { code: u32 },
     // ---- strings
     MovS { d: R, s: R },
     /// move (swap buffers) — source is a dead temporary
@@ -399,14 +363,8 @@ pub enum Ins {
     Right { d: R, s: R, n: R },
     /// MID$(s, start[, n]); `n == NONE` = to the end
     Mid { d: R, s: R, start: R, n: R },
-    /// generic builtin `Module::bfns[f]` with args `Module::bargs[args]`
-    Bi { f: u32, d: R, args: u32 },
     /// QIR v1 `rt` builtin `Module::rtfns[f]` (shared runtime, `qb_ir::builtins`); `d == NONE` = no result
     Rt { f: u32, d: R, args: u32 },
-    PrintS { s: R },
-    PrintN { s: R, ty: Ty },
-    PrintZone,
-    PrintNl,
     // ---- arrays (`i`/`dims` = first of `n` / `2n` consecutive integer registers)
     Dim { a: R, dims: R, n: u32, mode: DimMode },
     LdE { d: R, a: R, i: R, n: u32 },
@@ -446,27 +404,17 @@ pub enum Ins {
     AAddrM { d: R, a: R, i: R, n: u32 },
     BoundM { d: R, a: R, dim: R, upper: bool },
     EraseM { a: R },
-    /// SWAP two places of `Module::places`
-    Swap { p: u32, q: u32 },
     // ---- misc runtime
     /// READ: next DATA item as string (`str`) into s-register, else its VAL into r-register (f64)
-    Read { d: R, str: bool },
+    /// READ of a string: next DATA item
+    ReadS { d: R },
     Restore { i: u32 },
     /// QIR v1 numeric READ: next DATA item as f64 (non-numeric text = error 13)
     ReadN { d: R },
-    Randomize { s: R, using: bool },
-    /// RND [(s)] -> SINGLE; `s == NONE` = no argument
-    Rnd { d: R, s: R },
-    Err { d: R },
-    Erl { d: R },
     // ---- events (ON TIMER / ON KEY / ...), delivered at safe points
-    OnEvent { id: u32, t: u32 },
-    EventCtl { id: u32, mode: EvMode },
-    /// ON TIMER(interval in f64 register `s`) GOSUB t  (event id 0)
-    OnTimer { s: R, t: u32 },
 }
 
-/// Where a BYREF argument or SWAP operand lives.
+/// Where a BYREF argument lives.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Place {
     /// numeric register of the frame
@@ -532,7 +480,6 @@ pub struct Func {
     pub arr_tys: Vec<Ty>,
     pub params: Vec<Slot>,
     pub ret: Option<(Slot, Ty)>,
-    pub is_static: bool,
 }
 
 impl Func {
@@ -553,13 +500,9 @@ pub struct Module {
     pub kstr: Vec<Vec<u8>>,
     pub places: Vec<Place>,
     pub calls: Vec<CallDesc>,
-    /// generic builtins: name, result type
-    pub bfns: Vec<(String, Ty)>,
     pub bargs: Vec<Vec<(R, Ty)>>,
     /// QIR v1 `rt` builtins: name, result type (`None` = no result)
     pub rtfns: Vec<(&'static str, Option<Ty>)>,
-    /// QIR v1 semantics: `RESUME label` unwinds to the main module
-    pub v1: bool,
     /// memory-backed variables (`NewV`)
     pub mvars: Vec<MVar>,
     /// statement starts: (pc, source line), sorted by pc
@@ -609,7 +552,7 @@ impl Ins {
                 f(O::N(d));
                 f(O::NConst(k))
             }
-            Mov { d, s } | IToF { d, s } | IToFU { d, s } | FToI { d, s, .. } | Wrap { d, s, .. } | RoundF32 { d, s } | Un { d, s, .. } | CvtFI { d, s, .. } => {
+            Mov { d, s } | IToF { d, s } | IToFU { d, s } | Wrap { d, s, .. } | RoundF32 { d, s } | Un { d, s, .. } | CvtFI { d, s, .. } => {
                 f(O::N(d));
                 f(O::N(s))
             }
@@ -635,12 +578,12 @@ impl Ins {
             | And { d, a, b }
             | Or { d, a, b }
             | Xor { d, a, b }
-            | Eqv { d, a, b }
-            | Imp { d, a, b }
+
+
             | AddF { d, a, b }
             | SubF { d, a, b }
             | MulF { d, a, b }
-            | DivF { d, a, b }
+
             | PowF { d, a, b }
             | CmpI { d, a, b, .. }
             | CmpF { d, a, b, .. }
@@ -659,7 +602,7 @@ impl Ins {
                 f(O::SK(b))
             }
             Jmp { t } | Loop { t } | Gosub { t } | ReturnL { t } => f(O::T(t)),
-            JzI { s, t } | JnzI { s, t } | JzF { s, t } | JnzF { s, t } => {
+            JzI { s, t } | JnzI { s, t } => {
                 f(O::N(s));
                 f(O::T(t))
             }
@@ -673,7 +616,7 @@ impl Ins {
                 f(O::SK(b));
                 f(O::T(t))
             }
-            ForTestI { v, lim, step, t } | ForTestF { v, lim, step, t } | ForTestKI { v, lim, step, t, .. } | ForTestKF { v, lim, step, t, .. } => {
+            ForTestKI { v, lim, step, t, .. } | ForTestKF { v, lim, step, t, .. } => {
                 f(O::N(v));
                 f(O::N(lim));
                 f(O::N(step));
@@ -685,13 +628,7 @@ impl Ins {
                 f(O::NRun(lim, 2));
                 f(O::T(body))
             }
-            ForNextI { v, step, lim, body, .. } => {
-                f(O::N(v));
-                f(O::N(step));
-                f(O::N(lim));
-                f(O::T(body))
-            }
-            Return | Ret | End | PrintZone | PrintNl => {}
+            Return | Ret | End => {}
             System { s } => {
                 if s != NONE {
                     f(O::N(s))
@@ -781,7 +718,6 @@ impl Ins {
                 }
             }
             Raise { s } => f(O::N(s)),
-            RaiseK { .. } => {}
             MovS { d, s } | TakeS { d, s } => {
                 f(O::S(d));
                 f(O::SK(s))
@@ -820,12 +756,6 @@ impl Ins {
                     f(O::N(n))
                 }
             }
-            Bi { f: b, args, .. } => {
-                f(O::Bi(b));
-                f(O::BArgs(args))
-            }
-            PrintS { s } => f(O::SK(s)),
-            PrintN { s, .. } => f(O::N(s)),
             Dim { a, dims, n, .. } => {
                 f(O::A(a));
                 f(O::NRun(dims, 2 * n))
@@ -875,26 +805,7 @@ impl Ins {
                 f(O::A(a));
                 f(O::N(dim))
             }
-            Swap { p, q } => {
-                f(O::Place(p));
-                f(O::Place(q))
-            }
-            Read { d, str } => f(if str { O::S(d) } else { O::N(d) }),
             Restore { i } => f(O::Data(i)),
-            Randomize { s, .. } => f(O::N(s)),
-            Rnd { d, s } => {
-                f(O::N(d));
-                if s != NONE {
-                    f(O::N(s))
-                }
-            }
-            Err { d } | Erl { d } => f(O::N(d)),
-            OnEvent { t, .. } => f(O::TMain(t)),
-            EventCtl { .. } => {}
-            OnTimer { s, t } => {
-                f(O::N(s));
-                f(O::TMain(t))
-            }
         }
     }
 
@@ -911,7 +822,6 @@ impl Ins {
             IToFU { .. } => "itof.u64".into(),
             CmpU { c, .. } => format!("cmp.u {}", c.name()),
             BrU { c, .. } => format!("br.u {}", c.name()),
-            FToI { w, .. } => format!("ftoi.{}", w.name()),
             Wrap { w, .. } => format!("wrap.{}", w.name()),
             RoundF32 { .. } => "round.f32".into(),
             CvtFI { w, trunc, .. } => format!("{}.{}", if trunc { "trunc" } else { "cvt" }, w.name()),
@@ -956,13 +866,10 @@ impl Ins {
             And { .. } => "and".into(),
             Or { .. } => "or".into(),
             Xor { .. } => "xor".into(),
-            Eqv { .. } => "eqv".into(),
-            Imp { .. } => "imp".into(),
             Acc { op, wi, wo, .. } => format!("acc.{} {}.{}", wo.name(), format!("{op:?}").to_lowercase(), wi.name()),
             AddF { .. } => "add.f".into(),
             SubF { .. } => "sub.f".into(),
             MulF { .. } => "mul.f".into(),
-            DivF { .. } => "div.f".into(),
             PowF { .. } => "pow.f".into(),
             Un { op, .. } => format!("un.{op:?}").to_lowercase(),
             CmpI { c, .. } => format!("cmp.i {}", c.name()),
@@ -972,17 +879,12 @@ impl Ins {
             Loop { .. } => "loop".into(),
             JzI { .. } => "jz.i".into(),
             JnzI { .. } => "jnz.i".into(),
-            JzF { .. } => "jz.f".into(),
-            JnzF { .. } => "jnz.f".into(),
             BrI { c, .. } => format!("br.i {}", c.name()),
             BrF { c, .. } => format!("br.f {}", c.name()),
             BrS { c, .. } => format!("br.s {}", c.name()),
-            ForTestI { .. } => "for_test.i".into(),
-            ForTestF { .. } => "for_test.f".into(),
             ForTestKI { skip, .. } => format!("for_test.i +{skip}"),
             ForTestKF { skip, .. } => format!("for_test.f +{skip}"),
             LoopForI { w, .. } => format!("loop_for.{}", w.name()),
-            ForNextI { w, .. } => format!("for_next.{}", w.name()),
             Gosub { .. } => "gosub".into(),
             Return => "return".into(),
             Call { .. } => "call".into(),
@@ -991,7 +893,6 @@ impl Ins {
             OnError { .. } => "on_error".into(),
             Resume { k, .. } => format!("resume.{k:?}").to_lowercase(),
             Raise { .. } => "raise".into(),
-            RaiseK { code } => format!("raise {code}"),
             MovS { .. } => "mov.s".into(),
             TakeS { .. } => "take.s".into(),
             GetGS { .. } => "getg.s".into(),
@@ -1003,11 +904,6 @@ impl Ins {
             Left { .. } => "left".into(),
             Right { .. } => "right".into(),
             Mid { .. } => "mid".into(),
-            Bi { .. } => "bi".into(),
-            PrintS { .. } => "print.s".into(),
-            PrintN { ty, .. } => format!("print.{}", ty.name()),
-            PrintZone => "print_zone".into(),
-            PrintNl => "print_nl".into(),
             Dim { mode, .. } => format!("dim.{mode:?}").to_lowercase(),
             LdE { .. } => "lde".into(),
             StE { .. } => "ste".into(),
@@ -1018,16 +914,7 @@ impl Ins {
             LdE1S { .. } => "lde1.s".into(),
             StE1S { .. } => "ste1.s".into(),
             Bound { upper, .. } => if upper { "ubound" } else { "lbound" }.into(),
-            Swap { .. } => "swap".into(),
-            Read { .. } => "read".into(),
             Restore { .. } => "restore".into(),
-            Randomize { using, .. } => if using { "randomize_using" } else { "randomize" }.into(),
-            Rnd { .. } => "rnd".into(),
-            Err { .. } => "err".into(),
-            Erl { .. } => "erl".into(),
-            OnEvent { id, .. } => format!("on_event {id}"),
-            EventCtl { id, mode } => format!("event.{mode:?} {id}").to_lowercase(),
-            OnTimer { .. } => "on_timer".into(),
         }
     }
 
@@ -1043,7 +930,7 @@ impl Ins {
             | IToF { d, .. }
             | IToFU { d, .. }
             | CmpU { d, .. }
-            | FToI { d, .. }
+
             | Wrap { d, .. }
             | RoundF32 { d, .. }
             | CvtFI { d, .. }
@@ -1064,12 +951,12 @@ impl Ins {
             | And { d, .. }
             | Or { d, .. }
             | Xor { d, .. }
-            | Eqv { d, .. }
-            | Imp { d, .. }
+
+
             | AddF { d, .. }
             | SubF { d, .. }
             | MulF { d, .. }
-            | DivF { d, .. }
+
             | PowF { d, .. }
             | Un { d, .. }
             | CmpI { d, .. }
@@ -1080,9 +967,9 @@ impl Ins {
             | LdE { d, .. }
             | LdE1 { d, .. }
             | Bound { d, .. }
-            | Rnd { d, .. }
-            | Err { d, .. }
-            | Erl { d, .. } => Some((false, d)),
+
+
+ => Some((false, d)),
             MovS { d, .. }
             | TakeS { d, .. }
             | GetGS { d, .. }
@@ -1105,23 +992,23 @@ impl Ins {
             | Loop { t }
             | JzI { t, .. }
             | JnzI { t, .. }
-            | JzF { t, .. }
-            | JnzF { t, .. }
+
+
             | BrI { t, .. }
             | BrF { t, .. }
             | BrS { t, .. }
             | BrU { t, .. }
-            | ForTestI { t, .. }
-            | ForTestF { t, .. }
+
+
             | ForTestKI { t, .. }
             | ForTestKF { t, .. }
             | Gosub { t }
             | ReturnL { t }
             | OnError { t }
             | Resume { t, .. }
-            | OnEvent { t, .. }
-            | OnTimer { t, .. } => Some(t),
-            ForNextI { body, .. } | LoopForI { body, .. } => Some(body),
+
+ => Some(t),
+            LoopForI { body, .. } => Some(body),
             _ => None,
         }
     }
@@ -1239,7 +1126,7 @@ impl Module {
                         self.check_place(f, main, &self.places[x as usize])?;
                     }
                 }
-                if let Ins::Bi { args, .. } | Ins::Rt { args, .. } = *ins {
+                if let Ins::Rt { args, .. } = *ins {
                     for &(r, ty) in &self.bargs[args as usize] {
                         let ok = match ty {
                             Ty::Str => self.sk_ok(f, r),

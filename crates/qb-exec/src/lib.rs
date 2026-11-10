@@ -1,26 +1,27 @@
-//! `qb-exec` — runs QIR, the IR the BASIC compiler emits with `--ir`
-//! (see docs/rust-port/r11-emitter-design.md for the format).
+//! `qb-exec` — runs QBNex programs: the compiler (`qb --ir`) emits QIR
+//! (`docs/rust-port/qir-v1.md`, crate `qb-ir`), and qb-exec executes it.
 //!
-//! R11.5: the program is loaded once into typed register bytecode
-//! ([`bytecode`], produced by `lower.rs`) and executed by the register VM
-//! ([`Vm`]). Labels are resolved to instruction indices and names to
-//! registers at load time, so GOTO/GOSUB/RESUME/ON ERROR are plain jumps and
-//! the interpreter never looks at names or type tags.
+//! One pipeline:
 //!
-//! Numbers keep their QBasic type statically (INTEGER, LONG, _INTEGER64,
-//! SINGLE, DOUBLE). SINGLE values are held at double precision until they are
-//! stored or printed, matching what the C++ backend does (`y# = 1 / 3` keeps
-//! 53 bits). Formatting and rounding come from `qb-runtime`, the same code the
-//! C++ path links.
+//! 1. `qb_ir::parse` + `qb_ir::validate` — QIR text to a checked module
+//! 2. [`compile`] (`lower.rs`) — QIR to typed register bytecode ([`bytecode`]):
+//!    variables promoted to registers, labels to pcs, builtins resolved,
+//!    superinstructions for the hot shapes; memory mode only for what needs
+//!    an address (TYPE, `STRING * n`, pointers)
+//! 3. [`Vm`] (`vm.rs`) — the register VM runs the bytecode; the QBasic
+//!    runtime (`rt/`: PRINT, files, strings, `_MEM`, TCP, sound) sits behind
+//!    one `rt::Host` interface
+//! 4. `jit.rs` + `qb-jit` — hot loops and numeric SUB/FUNCTIONs of the same
+//!    bytecode are compiled to native code with Cranelift (JIT), or ahead of
+//!    time into an image stored next to the program ([`build_native`], `qb-exec build`)
+//!
+//! Environment: `QB_JIT=off|eager|<threshold>`, `QB_EXEC_DISASM=1` prints the bytecode.
 
 pub mod bytecode;
-mod builtins;
 mod jit;
 mod lower;
-mod lower1;
 mod mem;
-pub mod v1;
-mod value;
+mod rt;
 mod vm;
 
 pub use vm::{EventHandle, Vm};
@@ -84,23 +85,22 @@ impl RunError {
     }
 }
 
-/// Loads QIR text into typed register bytecode (validated, ready to run).
+/// Lowers a parsed QIR module to validated bytecode.
+pub fn lower(m: &qb_ir::Module) -> Result<bytecode::Module, RunError> {
+    lower::compile(m).map_err(RunError::load)
+}
+
+/// Parses QIR text and lowers it to validated bytecode.
 pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
-    lower::compile_v0(src)
+    let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
+    let bc = lower(&m)?;
+    if std::env::var_os("QB_EXEC_DISASM").is_some() {
+        eprint!("{}", bc.disasm());
+    }
+    Ok(bc)
 }
 
-/// Whether a QIR v1 module runs on the typed VM (otherwise the R11a
-/// reference interpreter runs it; see `lower1.rs` for what is not lowered yet).
-pub fn v1_on_vm(m: &qb_ir::Module) -> bool {
-    lower1::compile_v1(m).is_ok()
-}
-
-/// Loads a QIR v1 module onto the typed VM; `Err` says why it cannot run there.
-pub fn compile_v1(m: &qb_ir::Module) -> Result<bytecode::Module, String> {
-    lower1::compile_v1(m)
-}
-
-/// Compiles a QIR (v0) program ahead of time into a native image for this
+/// Compiles a QIR program ahead of time into a native image for this
 /// executable (D15): `qb-exec build` stores it next to the program, and
 /// [`run_ir_native`] runs it without any compilation at start-up.
 pub fn build_native(src: &str) -> Result<Vec<u8>, RunError> {
@@ -108,12 +108,12 @@ pub fn build_native(src: &str) -> Result<Vec<u8>, RunError> {
     jit::build_image(&m, &vm::vm_hosts()).map_err(RunError::load)
 }
 
-/// Runs a QIR (v0) program with its native image (from [`build_native`]).
+/// Runs a QIR program with its native image (from [`build_native`]).
 pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32, RunError> {
     let m = compile(src)?;
     let mut vm = Vm::new(&m, out);
     vm.load_native(image).map_err(RunError::load)?;
-    vm.run().map(|_| 0)
+    vm.run_status()
 }
 
 /// Parses and runs a QIR program, writing console output to `out`.
@@ -122,29 +122,7 @@ pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
 }
 
 /// Like [`run_ir`] but returns the program's exit code (`SYSTEM n`).
-/// The `QIR <n>` header selects the loader.
 pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
-    let head = src.trim_start().lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
-    if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
-        let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
-        if std::env::var_os("QB_EXEC_REFERENCE").is_none() {
-            match lower1::compile_v1(&m) {
-                Ok(bc) => {
-                    if std::env::var_os("QB_EXEC_DISASM").is_some() {
-                        eprint!("{}", bc.disasm());
-                    }
-                    return Vm::new(&bc, out).run_status();
-                }
-                Err(why) => {
-                    if std::env::var_os("QB_EXEC_TRACE").is_some() {
-                        eprintln!("qb-exec: reference interpreter ({why})");
-                    }
-                }
-            }
-        }
-        return v1::run(&m, out);
-    }
     let m = compile(src)?;
-    let mut vm = Vm::new(&m, out);
-    vm.run().map(|_| 0)
+    Vm::new(&m, out).run_status()
 }

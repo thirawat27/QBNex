@@ -18,13 +18,11 @@
 //!   runs the handler as an implicit GOSUB at module level.
 
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use crate::bytecode::*;
-use crate::v1::rt::{self as v1rt, Host, RtState};
-use crate::v1::{Stop, V};
-use crate::value::{str_of, Val};
+use crate::rt::{self, Host, RtState, Stop, V};
 use crate::RunError;
 
 // ---------------------------------------------------------------- arrays
@@ -219,7 +217,6 @@ struct Gs {
     ret: u32,
     depth: usize,
     view: usize,
-    event: bool,
 }
 
 /// Register window of a frame (for places evaluated in the caller).
@@ -237,12 +234,6 @@ enum PVal {
     A(Option<Box<Arr>>),
 }
 
-struct Saved {
-    nums: Vec<u64>,
-    strs: Vec<Vec<u8>>,
-    arrs: Vec<Option<Box<Arr>>>,
-}
-
 pub struct Vm<'m, 'o> {
     m: &'m Module,
     /// console/file output and the v1 runtime state (shared with the reference interpreter)
@@ -256,7 +247,6 @@ pub struct Vm<'m, 'o> {
     sb: usize,
     ab: usize,
     gosub: Vec<Gs>,
-    statics: Vec<Option<Saved>>,
     on_error: Option<u32>,
     /// (pc of the failing instruction, view) while an error handler runs
     in_handler: Option<(u32, usize)>,
@@ -268,12 +258,8 @@ pub struct Vm<'m, 'o> {
     errline: u32,
     /// last numeric line label passed (QIR v1 LASTLINE; ERL reports it)
     last_line: u32,
-    rnd: qb_runtime::rnd::RndState,
     data_ptr: usize,
     ev: Arc<EvShared>,
-    ev_mode: [EvMode; 32],
-    ev_handler: [u32; 32],
-    in_event: bool,
     /// pending bits examined at safe points
     poll_mask: u32,
     /// JIT tier (R11.6); `None` = interpret only (`QB_JIT=off`).
@@ -283,17 +269,9 @@ pub struct Vm<'m, 'o> {
     stop_depth: usize,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
-    timer_interval: f64,
-    timer: Option<Arc<AtomicBool>>,
     /// addressable memory (QIR v1 TYPE / STRING * n / pointers)
     mem: crate::mem::Mem,
     owned: Vec<u32>,
-}
-
-impl Drop for Vm<'_, '_> {
-    fn drop(&mut self) {
-        self.stop_timer();
-    }
 }
 
 #[inline(always)]
@@ -372,43 +350,19 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn set_last_line(&mut self, n: u32) {
         self.last_line = n;
     }
-    fn bytes(&mut self, p: u64, len: usize) -> crate::v1::R<&mut [u8]> {
+    fn bytes(&mut self, p: u64, len: usize) -> crate::rt::R<&mut [u8]> {
         self.mem.bytes(p, len).map_err(Stop::Err)
     }
-    fn array_extent(&mut self, p: u64) -> crate::v1::R<(u64, u64)> {
+    fn array_extent(&mut self, p: u64) -> crate::rt::R<(u64, u64)> {
         self.mem.array_extent(p).map_err(Stop::Err)
     }
-    fn load_str(&mut self, p: u64) -> crate::v1::R<Vec<u8>> {
+    fn load_str(&mut self, p: u64) -> crate::rt::R<Vec<u8>> {
         self.mem.ld_str(p).map(|s| s.to_vec()).map_err(Stop::Err)
     }
-    fn store_str(&mut self, p: u64, s: &[u8]) -> crate::v1::R<()> {
-        v1rt::str_store_hook(&mut self.rt, p, s.len());
+    fn store_str(&mut self, p: u64, s: &[u8]) -> crate::rt::R<()> {
+        rt::str_store_hook(&mut self.rt, p, s.len());
         self.mem.st_str(p, s).map_err(Stop::Err)
     }
-}
-
-fn to_val(bits: u64, ty: Ty) -> Val {
-    match ty {
-        Ty::I16 => Val::I(bits as i64 as i16),
-        Ty::I32 => Val::L(bits as i64 as i32),
-        Ty::I64 => Val::Q(bits as i64),
-        Ty::F32 => Val::F(f64::from_bits(bits)),
-        Ty::F64 => Val::D(f64::from_bits(bits)),
-        Ty::Str => Val::S(Vec::new()),
-        Ty::F80 => Val::D(f64::from_bits(bits)),
-    }
-}
-
-/// Builtin result -> register bits of the static result type.
-fn from_val(v: &Val, ty: Ty) -> Result<u64, i32> {
-    Ok(match ty {
-        Ty::I16 | Ty::I32 | Ty::I64 => {
-            let x = v.i()?;
-            ty.width().wrap(x) as u64
-        }
-        Ty::F32 | Ty::F64 | Ty::F80 => v.f()?.to_bits(),
-        Ty::Str => return Err(13),
-    })
 }
 
 impl<'m, 'o> Vm<'m, 'o> {
@@ -426,7 +380,6 @@ impl<'m, 'o> Vm<'m, 'o> {
             sb: 0,
             ab: 0,
             gosub: Vec::new(),
-            statics: (0..m.funcs.len()).map(|_| None).collect(),
             on_error: None,
             in_handler: None,
             err: 0,
@@ -434,18 +387,12 @@ impl<'m, 'o> Vm<'m, 'o> {
             exit_code: 0,
             errline: 0,
             last_line: 0,
-            rnd: qb_runtime::rnd::RndState::default(),
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
-            ev_mode: [EvMode::Off; 32],
-            ev_handler: [NONE; 32],
-            in_event: false,
             poll_mask: u32::MAX,
             jit: crate::jit::JitState::from_env(m),
             stop_depth: usize::MAX,
             jit_nest: 0,
-            timer_interval: 0.0,
-            timer: None,
             mem: crate::mem::Mem::new(),
             owned: Vec::new(),
         }
@@ -568,7 +515,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                 },
             }
         };
-        self.stop_timer();
         self.rt.flush();
         r
     }
@@ -692,7 +638,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 _ => V::I(self.nums[self.nb + r as usize] as i64),
             })
             .collect();
-        match v1rt::call(self, name, vals) {
+        match rt::call(self, name, vals) {
             Ok(v) => {
                 if let (Some(ty), Some(v)) = (rty, v) {
                     match (ty, v) {
@@ -716,18 +662,6 @@ impl<'m, 'o> Vm<'m, 'o> {
             Err(Stop::Exit(c)) => Ok(Some(c)),
             Err(Stop::Err(c)) => Err(c),
         }
-    }
-
-    fn print_s(&mut self, s: R) -> Result<(), i32> {
-        let p: *const [u8] = self.sget(s);
-        // SAFETY: emit does not touch the string registers
-        self.emit(unsafe { &*p })
-    }
-
-    fn print_n(&mut self, bits: u64, ty: Ty) -> Result<(), i32> {
-        let mut t = str_of(&to_val(bits, ty))?;
-        t.push(b' ');
-        self.emit(&t)
     }
 
     // ------------------------------------------------------------ arrays
@@ -890,22 +824,6 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nums.extend_from_slice(&func.num_init);
         self.strs.resize_with(sb + func.n_str as usize, Vec::new);
         self.arrs.resize_with(ab + func.n_arr() as usize, || None);
-        if func.is_static {
-            if let Some(s) = self.statics[f as usize].take() {
-                self.nums[nb..].copy_from_slice(&s.nums);
-                for (d, x) in self.strs[sb..].iter_mut().zip(s.strs) {
-                    *d = x;
-                }
-                for (d, x) in self.arrs[ab..].iter_mut().zip(s.arrs) {
-                    *d = x;
-                }
-                match func.ret {
-                    Some((Slot::N(r), _)) => self.nums[nb + r as usize] = 0,
-                    Some((Slot::S(r), _)) => self.strs[sb + r as usize].clear(),
-                    _ => {}
-                }
-            }
-        }
         for (arg, &slot) in cd.args.iter().zip(&func.params) {
             let v = match *arg {
                 Arg::N(r) => PVal::N(self.nums[cx.nb + r as usize]),
@@ -955,13 +873,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                 // the element may be gone (array erased/redimmed inside the SUB)
                 let _ = self.place_put(m.places[p as usize], cx, v);
             }
-        }
-        if func.is_static {
-            self.statics[fr.func as usize] = Some(Saved {
-                nums: self.nums[fr.nb..].to_vec(),
-                strs: self.strs.drain(fr.sb..).collect(),
-                arrs: self.arrs.drain(fr.ab..).collect(),
-            });
         }
         self.nums.truncate(fr.nb);
         self.strs.truncate(fr.sb);
@@ -1047,10 +958,9 @@ impl<'m, 'o> Vm<'m, 'o> {
             (Some(h), None) => {
                 self.err = code;
                 self.errline = self.line_of(at);
-                self.erl = if self.m.v1 { self.last_line } else { self.errline };
+                self.erl = self.last_line;
                 self.in_handler = Some((at, self.view));
                 self.set_view(0);
-                self.update_poll_mask();
                 Ok(h)
             }
             _ => Err(RunError { code, line: self.line_of(at), msg: format!("error {code}") }),
@@ -1059,7 +969,6 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     fn resume(&mut self, k: ResumeK, t: u32) -> Result<u32, i32> {
         let (at, view) = self.in_handler.take().ok_or(20)?; // RESUME without error
-        self.update_poll_mask();
         Ok(match k {
             ResumeK::Same => {
                 self.set_view(view);
@@ -1070,17 +979,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                 self.next_stmt(at)
             }
             ResumeK::Label => {
-                if self.m.v1 {
-                    // QIR v1: RESUME label unwinds to the main module
-                    while self.frames.len() > 1 {
-                        let fr = self.frames.pop().unwrap();
-                        self.free_owned(fr.owned);
-                        self.nums.truncate(fr.nb);
-                        self.strs.truncate(fr.sb);
-                        self.arrs.truncate(fr.ab);
-                    }
-                    self.gosub.retain(|g| g.depth <= 1);
+                // RESUME label unwinds to the main module
+                while self.frames.len() > 1 {
+                    let fr = self.frames.pop().unwrap();
+                    self.free_owned(fr.owned);
+                    self.nums.truncate(fr.nb);
+                    self.strs.truncate(fr.sb);
+                    self.arrs.truncate(fr.ab);
                 }
+                self.gosub.retain(|g| g.depth <= 1);
                 self.set_view(0);
                 t
             }
@@ -1089,107 +996,16 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     // ------------------------------------------------------------ events
 
-    fn update_poll_mask(&mut self) {
-        let mut on = 0u32;
-        let mut off = 0u32;
-        for (i, m) in self.ev_mode.iter().enumerate() {
-            match m {
-                EvMode::On => on |= 1 << i,
-                EvMode::Off => off |= 1 << i,
-                EvMode::Stop => {}
-            }
-        }
-        self.poll_mask = if self.in_event || self.in_handler.is_some() { off } else { on | off };
-    }
-
     /// Safe point with pending events: discard events that are OFF, run the
     /// handler of one that is ON as an implicit GOSUB at module level.
     #[cold]
-    fn dispatch_events(&mut self, pc: u32) -> Option<u32> {
-        let pending = self.ev.pending.load(Ordering::Acquire) & self.poll_mask;
-        for id in 0..32u32 {
-            if pending & (1 << id) == 0 {
-                continue;
-            }
-            match self.ev_mode[id as usize] {
-                EvMode::Off => {
-                    self.ev.pending.fetch_and(!(1 << id), Ordering::AcqRel);
-                }
-                EvMode::Stop => {}
-                EvMode::On => {
-                    self.ev.pending.fetch_and(!(1 << id), Ordering::AcqRel);
-                    let h = self.ev_handler[id as usize];
-                    if h == NONE {
-                        continue;
-                    }
-                    self.gosub.push(Gs { ret: pc, depth: self.frames.len(), view: self.view, event: true });
-                    self.in_event = true;
-                    self.set_view(0);
-                    self.update_poll_mask();
-                    return Some(h);
-                }
-            }
-        }
+    fn dispatch_events(&mut self, _pc: u32) -> Option<u32> {
+        // QIR has no event statements yet (ON TIMER / ON KEY): nothing handles them
+        self.ev.pending.store(0, Ordering::Release);
         None
     }
 
-    fn event_ctl(&mut self, id: u32, mode: EvMode) {
-        self.ev_mode[id as usize] = mode;
-        if mode == EvMode::Off {
-            self.ev.pending.fetch_and(!(1 << id), Ordering::AcqRel);
-        }
-        if id == 0 {
-            match mode {
-                EvMode::Off => self.stop_timer(),
-                _ => self.start_timer(),
-            }
-        }
-        self.update_poll_mask();
-    }
-
-    fn start_timer(&mut self) {
-        if self.timer.is_some() || self.timer_interval <= 0.0 || !self.timer_interval.is_finite() {
-            return;
-        }
-        let stop = Arc::new(AtomicBool::new(false));
-        let (s, ev) = (stop.clone(), self.ev.clone());
-        let iv = std::time::Duration::from_secs_f64(self.timer_interval);
-        std::thread::spawn(move || {
-            while !s.load(Ordering::Acquire) {
-                std::thread::sleep(iv);
-                if s.load(Ordering::Acquire) {
-                    break;
-                }
-                ev.pending.fetch_or(1, Ordering::Release);
-            }
-        });
-        self.timer = Some(stop);
-    }
-
-    fn stop_timer(&mut self) {
-        if let Some(s) = self.timer.take() {
-            s.store(true, Ordering::Release);
-        }
-    }
-
     // ------------------------------------------------------------ builtins
-
-    fn builtin(&mut self, f: u32, d: R, args: u32) -> Result<(), i32> {
-        let m = self.m;
-        let (name, rt) = &m.bfns[f as usize];
-        let vals: Vec<Val> = m.bargs[args as usize]
-            .iter()
-            .map(|&(r, ty)| if ty == Ty::Str { Val::S(self.sget(r).to_vec()) } else { to_val(self.nums[self.nb + r as usize], ty) })
-            .collect();
-        let v = crate::builtins::call(name, vals)?;
-        if *rt == Ty::Str {
-            *self.sdst(d) = v.s()?;
-        } else {
-            let bits = from_val(&v, *rt)?;
-            self.nums[self.nb + d as usize] = bits;
-        }
-        Ok(())
-    }
 
     // ------------------------------------------------------------ hot loop
 
@@ -1314,13 +1130,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                         pc = t
                     }
                 }
-                Ins::FToI { d, s, w } => {
-                    let x = qb_runtime::round::qb_qbr_f64(rf!(s));
-                    if w != W::W64 && w.wrap(x) != x {
-                        fail!(6);
-                    }
-                    seti!(d, x)
-                }
                 Ins::Wrap { d, s, w } => seti!(d, w.wrap(ri!(s))),
                 Ins::RoundF32 { d, s } => setf!(d, f64::from(rf!(s) as f32)),
                 Ins::AddI16 { d, a, b } => seti!(d, (ri!(a) + ri!(b)) as i16 as i64),
@@ -1349,8 +1158,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::And { d, a, b } => seti!(d, ri!(a) & ri!(b)),
                 Ins::Or { d, a, b } => seti!(d, ri!(a) | ri!(b)),
                 Ins::Xor { d, a, b } => seti!(d, ri!(a) ^ ri!(b)),
-                Ins::Eqv { d, a, b } => seti!(d, !(ri!(a) ^ ri!(b))),
-                Ins::Imp { d, a, b } => seti!(d, !ri!(a) | ri!(b)),
                 Ins::Acc { op, d, a, b: y, wi, wo } => {
                     let (x, z) = (ri!(a), ri!(y));
                     let v = match op {
@@ -1374,46 +1181,11 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::AddF { d, a, b } => setf!(d, rf!(a) + rf!(b)),
                 Ins::SubF { d, a, b } => setf!(d, rf!(a) - rf!(b)),
                 Ins::MulF { d, a, b } => setf!(d, rf!(a) * rf!(b)),
-                Ins::DivF { d, a, b } => {
-                    let y = rf!(b);
-                    if y == 0.0 {
-                        fail!(11);
-                    }
-                    setf!(d, rf!(a) / y)
-                }
                 Ins::PowF { d, a, b } => setf!(d, rf!(a).powf(rf!(b))),
                 Ins::Un { op, d, s } => match op {
                     Un::NegI(w) => seti!(d, w.wrap(ri!(s).wrapping_neg())),
                     Un::NegF => setf!(d, -rf!(s)),
                     Un::Not => seti!(d, !ri!(s)),
-                    Un::AbsI(w) => seti!(d, w.wrap(ri!(s).wrapping_abs())),
-                    Un::AbsF => setf!(d, rf!(s).abs()),
-                    Un::SgnI => seti!(d, ri!(s).signum()),
-                    Un::SgnF => {
-                        let x = rf!(s);
-                        seti!(d, if x > 0.0 { 1i64 } else if x < 0.0 { -1 } else { 0 })
-                    }
-                    Un::Int => setf!(d, rf!(s).floor()),
-                    Un::Fix => setf!(d, rf!(s).trunc()),
-                    Un::Sqr => {
-                        let x = rf!(s);
-                        if x < 0.0 {
-                            fail!(5);
-                        }
-                        setf!(d, x.sqrt())
-                    }
-                    Un::Log => {
-                        let x = rf!(s);
-                        if x <= 0.0 {
-                            fail!(5);
-                        }
-                        setf!(d, x.ln())
-                    }
-                    Un::Exp => setf!(d, rf!(s).exp()),
-                    Un::Sin => setf!(d, rf!(s).sin()),
-                    Un::Cos => setf!(d, rf!(s).cos()),
-                    Un::Tan => setf!(d, rf!(s).tan()),
-                    Un::Atn => setf!(d, rf!(s).atan()),
                 },
                 Ins::CmpI { c, d, a, b: y } => set!(d, b(c.test(ri!(a), ri!(y)))),
                 Ins::CmpF { c, d, a, b: y } => set!(d, b(c.test(rf!(a), rf!(y)))),
@@ -1437,16 +1209,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                         pc = t
                     }
                 }
-                Ins::JzF { s, t } => {
-                    if rf!(s) == 0.0 {
-                        pc = t
-                    }
-                }
-                Ins::JnzF { s, t } => {
-                    if rf!(s) != 0.0 {
-                        pc = t
-                    }
-                }
                 Ins::BrI { c, a, b: y, t } => {
                     if c.test(ri!(a), ri!(y)) {
                         pc = t
@@ -1459,18 +1221,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ins::BrS { c, a, b: y, t } => {
                     if c.test(self.sget(a), self.sget(y)) {
-                        pc = t
-                    }
-                }
-                Ins::ForTestI { v, lim, step, t } => {
-                    let (x, l) = (ri!(v), ri!(lim));
-                    if if ri!(step) < 0 { x < l } else { x > l } {
-                        pc = t
-                    }
-                }
-                Ins::ForTestF { v, lim, step, t } => {
-                    let (x, l) = (rf!(v), rf!(lim));
-                    if if rf!(step) < 0.0 { x < l } else { x > l } {
                         pc = t
                     }
                 }
@@ -1493,30 +1243,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                         poll!();
                     }
                 }
-                Ins::ForNextI { v, step, lim, body, w } => {
-                    let s = ri!(step);
-                    let x = w.wrap(ri!(v).wrapping_add(s));
-                    seti!(v, x);
-                    let l = ri!(lim);
-                    if if s < 0 { x >= l } else { x <= l } {
-                        pc = body;
-                        poll!();
-                        jit!();
-                    }
-                }
                 Ins::Gosub { t } => {
-                    self.gosub.push(Gs { ret: pc, depth: self.frames.len(), view: self.view, event: false });
+                    self.gosub.push(Gs { ret: pc, depth: self.frames.len(), view: self.view });
                     pc = t;
                 }
                 Ins::Return => match self.gosub.last().copied() {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
                         pc = g.ret;
-                        if g.event {
-                            self.in_event = false;
-                            self.update_poll_mask();
-                        }
-                        if g.view != self.view || g.event {
+                        if g.view != self.view {
                             self.set_view(g.view);
                             reload!();
                         }
@@ -1574,11 +1309,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
                         pc = t;
-                        if g.event {
-                            self.in_event = false;
-                            self.update_poll_mask();
-                        }
-                        if g.view != self.view || g.event {
+                        if g.view != self.view {
                             self.set_view(g.view);
                             reload!();
                         }
@@ -1667,7 +1398,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         let v: *const [u8] = self.sget(s);
                         // SAFETY: the string registers are not touched by memory stores
                         let v = unsafe { &*v };
-                        v1rt::str_store_hook(&mut self.rt, a, v.len());
+                        rt::str_store_hook(&mut self.rt, a, v.len());
                         tryc!(self.mem.st_str(a, v));
                     } else if t == MTy::F80 {
                         let raw = self.xget(s).to_bytes();
@@ -1711,10 +1442,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                     let t: Vec<u8> = item.iter().copied().filter(|c| *c != b' ').collect();
                     let v = if t.is_empty() {
                         0.0
-                    } else if !v1rt::numeric_text(&t) {
+                    } else if !rt::numeric_text(&t) {
                         fail!(13)
                     } else {
-                        v1rt::val(&t)
+                        rt::val(&t)
                     };
                     setf!(d, v)
                 }
@@ -1730,7 +1461,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                     fail!(c as i32);
                 }
-                Ins::RaiseK { code } => fail!(code as i32),
                 Ins::MovS { d, s } => self.smov(d, s),
                 Ins::TakeS { d, s } => {
                     let (i, j) = (self.sb + d as usize, self.sb + s as usize);
@@ -1801,15 +1531,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                     };
                     self.ssub(d, s, from, to);
                 }
-                Ins::Bi { f, d, args } => tryc!(self.builtin(f, d, args)),
-                Ins::PrintS { s } => tryc!(self.print_s(s)),
-                Ins::PrintN { s, ty } => tryc!(self.print_n(r!(s), ty)),
-                Ins::PrintZone => {
-                    if let Err(e) = v1rt::call(self, "PRINTZONE", vec![V::I(0)]) {
-                        fail!(stop_code(e));
-                    }
-                }
-                Ins::PrintNl => tryc!(self.emit(b"\n")),
                 Ins::Dim { a, dims, n, mode } => tryc!(self.dim(a, dims, n, mode)),
                 Ins::LdE1 { d, a, i } => {
                     let x = ri!(i);
@@ -1872,46 +1593,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                     let (lb, ub) = arr.dims[k as usize - 1];
                     seti!(d, if upper { ub } else { lb } as i32 as i64)
                 }
-                Ins::Swap { p, q } => {
-                    tryc!(self.swap(p, q));
-                }
-                Ins::Read { d, str } => {
+                Ins::ReadS { d } => {
                     let Some(item) = m.data.get(self.data_ptr) else { fail!(4) }; // out of DATA
                     self.data_ptr += 1;
-                    if str {
-                        let dst = self.sdst(d);
-                        dst.clear();
-                        dst.extend_from_slice(item);
-                    } else {
-                        let v = tryc!(qb_runtime::val::val(item));
-                        setf!(d, qb_runtime::val::f64_from_f80(v))
-                    }
+                    let dst = self.sdst(d);
+                    dst.clear();
+                    dst.extend_from_slice(item);
                 }
                 Ins::Restore { i } => self.data_ptr = i as usize,
-                Ins::Randomize { s, using } => {
-                    let seed = rf!(s);
-                    if using {
-                        self.rnd.randomize_using(seed);
-                    } else {
-                        self.rnd.randomize(seed);
-                    }
-                }
-                Ins::Rnd { d, s } => {
-                    let n = (s != NONE).then(|| rf!(s) as f32);
-                    setf!(d, f64::from(self.rnd.rnd(n)))
-                }
-                Ins::Err { d } => seti!(d, self.err as i64),
-                Ins::Erl { d } => seti!(d, 0i64),
-                Ins::OnEvent { id, t } => self.ev_handler[id as usize] = t,
-                Ins::EventCtl { id, mode } => self.event_ctl(id, mode),
-                Ins::OnTimer { s, t } => {
-                    self.timer_interval = rf!(s);
-                    self.ev_handler[0] = t;
-                    if self.timer.is_some() {
-                        self.stop_timer();
-                        self.start_timer();
-                    }
-                }
             }
         }
     }
@@ -2035,7 +1724,7 @@ const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);
 /// Native GOSUB: push the return pc like `Ins::Gosub`.
 extern "C" fn jit_gosub(ctx: *mut qb_jit::Ctx, ret: i64) {
     let (_, vm) = host_vm(ctx);
-    vm.gosub.push(Gs { ret: ret as u32, depth: vm.frames.len(), view: vm.view, event: false });
+    vm.gosub.push(Gs { ret: ret as u32, depth: vm.frames.len(), view: vm.view });
 }
 
 /// Native RETURN at pc `at`: the pc to continue at. When the VM has to do
@@ -2045,7 +1734,7 @@ extern "C" fn jit_return(ctx: *mut qb_jit::Ctx, at: i64) -> i64 {
     let (ctx, vm) = host_vm(ctx);
     match vm.gosub.last().copied() {
         Some(g) if g.depth == vm.frames.len() => {
-            if g.event || g.view != vm.view {
+            if g.view != vm.view {
                 at
             } else {
                 vm.gosub.pop();

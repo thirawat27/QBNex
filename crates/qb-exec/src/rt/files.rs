@@ -2,7 +2,7 @@
 //! same Rust code the C++ backend links), so file numbers, INPUT # parsing,
 //! PRINT # zones, GET/PUT records and EOF/LOC/SEEK follow legacy exactly.
 
-use super::rt::Host;
+use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::fileio as fio;
 

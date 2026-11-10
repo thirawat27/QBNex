@@ -4,7 +4,7 @@
 //! `qb_runtime::net`; this is the handle table libqb.cpp kept in C++
 //! (`connection_new`, `connection_register`, `stream_update`, `sub_get2`...).
 
-use super::rt::Host;
+use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::net::{self as qnet, Conn};
 

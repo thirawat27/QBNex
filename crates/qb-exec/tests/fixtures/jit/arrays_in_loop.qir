@@ -1,0 +1,118 @@
+QIR 1
+global $__ARRAY_LONG_A array i32
+global $__INTEGER_I i16
+global $__LONG_T i32
+func main
+local $~T1 i32
+local $~T2 i32
+local $~T3 i32
+local $~T4 i32
+local $~T5 i32
+local $~T6 i32
+line 1
+const.i64 %0 0
+const.i32 %1 100
+dim $__ARRAY_LONG_A 1 %0 %1
+line 2
+const.i32 %2 1
+store.i32 $~T1 %2
+const.i32 %3 100
+store.i32 $~T2 %3
+const.i32 %4 1
+store.i32 $~T3 %4
+jmp ~F1.E
+label ~F1.T
+load.i16 %5 $__INTEGER_I
+cvt.i32.i16 %6 %5
+load.i32 %7 $~T3
+add.i32 %8 %7 %6
+store.i32 $~T1 %8
+label ~F1.E
+load.i32 %9 $~T1
+cvt.i16.i32 %10 %9
+store.i16 $__INTEGER_I %10
+load.i32 %11 $~T3
+const.i32 %12 0
+lt.i32 %13 %11 %12
+jz %13 ~F1.P
+load.i32 %14 $~T2
+lt.i32 %15 %9 %14
+jnz %15 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i32 %16 $~T2
+gt.i32 %17 %9 %16
+jnz %17 ~F1.X
+label ~F1.B
+line 3
+load.i16 %18 $__INTEGER_I
+aaddr %19 $__ARRAY_LONG_A %18
+load.i16 %20 $__INTEGER_I
+load.i16 %21 $__INTEGER_I
+cvt.i32.i16 %22 %20
+cvt.i32.i16 %23 %21
+mul.i32 %24 %22 %23
+st.i32 %19 0 %24
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+const.i32 %25 1
+store.i32 $~T4 %25
+const.i32 %26 100
+store.i32 $~T5 %26
+const.i32 %27 1
+store.i32 $~T6 %27
+jmp ~F3.E
+label ~F3.T
+load.i16 %28 $__INTEGER_I
+cvt.i32.i16 %29 %28
+load.i32 %30 $~T6
+add.i32 %31 %30 %29
+store.i32 $~T4 %31
+label ~F3.E
+load.i32 %32 $~T4
+cvt.i16.i32 %33 %32
+store.i16 $__INTEGER_I %33
+load.i32 %34 $~T6
+const.i32 %35 0
+lt.i32 %36 %34 %35
+jz %36 ~F3.P
+load.i32 %37 $~T5
+lt.i32 %38 %32 %37
+jnz %38 ~F3.X
+jmp ~F3.B
+label ~F3.P
+load.i32 %39 $~T5
+gt.i32 %40 %32 %39
+jnz %40 ~F3.X
+label ~F3.B
+line 6
+load.i32 %41 $__LONG_T
+load.i16 %42 $__INTEGER_I
+aaddr %43 $__ARRAY_LONG_A %42
+ld.i32 %44 %43 0
+add.i32 %45 %41 %44
+store.i32 $__LONG_T %45
+line 7
+label ~F3.C
+jmp ~F3.T
+label ~F3.X
+line 8
+load.i32 %46 $__LONG_T
+cvt.i64.i32 %47 %46
+rt %48 STR$.i64 %47
+const.str %49 x20
+concat %50 %48 %49
+const.i32 %51 0
+rt PRINTS %51 %50
+const.i32 %52 0
+rt PRINTNL %52
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

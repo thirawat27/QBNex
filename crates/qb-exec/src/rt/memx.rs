@@ -2,7 +2,7 @@
 //! Rust port the C++ backend links). A `_MEM` variable is the `mem_block`
 //! UDT (`MemBlock`, 56 bytes); QIR passes its address.
 
-use super::rt::Host;
+use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::mem::{self, MemBlock};
 use std::sync::atomic::{AtomicUsize, Ordering};
