@@ -29,14 +29,15 @@ fn payload(exe: &[u8]) -> Option<Payload<'_>> {
         let (ql, il) = (le(&exe[n - 24..n - 16])?, le(&exe[n - 16..n - 8])?);
         let end = n - 24;
         let img = exe.get(end.checked_sub(il)?..end)?;
-        let qir = exe.get(end - il - ql..end - il)?;
+        let qir = exe.get(end.checked_sub(il)?.checked_sub(ql)?..end - il)?;
         return Some(Payload::Native(qir, img));
     }
     if n < 16 || &exe[n - 8..] != MAGIC {
         return None;
     }
     let len = le(&exe[n - 16..n - 8])?;
-    exe.get(n - 16 - len..n - 16).map(Payload::Ir)
+    // a length that does not fit inside the file is not a payload
+    exe.get((n - 16).checked_sub(len)?..n - 16).map(Payload::Ir)
 }
 
 fn read(path: &std::ffi::OsStr) -> Vec<u8> {

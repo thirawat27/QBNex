@@ -202,21 +202,46 @@ fn float1(a: &V, f: impl Fn(f64) -> f64) -> V {
 }
 
 fn mid(s: &[u8], start: i64, len: Option<i64>) -> R<Vec<u8>> {
-    if start < 1 {
-        return e(5);
-    }
-    if let Some(l) = len {
-        if l < 0 {
-            return e(5);
+    let (a, b) = mid_range(s.len(), start, len);
+    Ok(s[a..b].to_vec())
+}
+
+/// Byte range of `MID$(s, start[, l])` exactly as `qb_func_mid` (no errors:
+/// start < 1 shortens the length, out-of-range parts are empty).
+pub(crate) fn mid_range(len: usize, start: i64, l: Option<i64>) -> (usize, usize) {
+    let len64 = len as i64;
+    let mut start = start;
+    let l = match l {
+        Some(mut l) => {
+            if start < 1 {
+                l = l - 1 + start;
+                start = 1;
+            }
+            if l >= 1 && start <= len64 {
+                if start + l > len64 {
+                    l = len64 - start + 1;
+                }
+                l
+            } else {
+                start = 1;
+                0
+            }
         }
-    }
-    let st = (start - 1) as usize;
-    if st >= s.len() {
-        return Ok(vec![]);
-    }
-    let rest = &s[st..];
-    let n = len.map_or(rest.len(), |l| (l as usize).min(rest.len()));
-    Ok(rest[..n].to_vec())
+        None => {
+            if start < 1 {
+                start = 1;
+            }
+            let l = len64 - start + 1;
+            if l < 1 {
+                start = 1;
+                0
+            } else {
+                l
+            }
+        }
+    };
+    let a = (start - 1) as usize;
+    (a, a + l as usize)
 }
 
 fn midset(t: &[u8], start: i64, len: Option<i64>, r: &[u8]) -> R<Vec<u8>> {
@@ -577,14 +602,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             return ok(V::F(f64::from_le_bytes(b)));
         }
         "LEN" => return ok(V::I(s(0).len() as i64)),
+        // qbs_left / qbs_right: the count is clamped to 0..LEN
         "LEFT$" => {
-            let n = count(&a[1])?;
-            return ok(V::S(s(0)[..n.min(s(0).len())].to_vec()));
+            let n = i(1).clamp(0, s(0).len() as i64) as usize;
+            return ok(V::S(s(0)[..n].to_vec()));
         }
         "RIGHT$" => {
-            let n = count(&a[1])?;
             let t = s(0);
-            return ok(V::S(t[t.len() - n.min(t.len())..].to_vec()));
+            let n = i(1).clamp(0, t.len() as i64) as usize;
+            return ok(V::S(t[t.len() - n..].to_vec()));
         }
         "MID$" => return ok(V::S(mid(s(0), i(1), None)?)),
         "MID$.n" => return ok(V::S(mid(s(0), i(1), Some(i(2)))?)),

@@ -354,7 +354,9 @@ SUB IrGetPut (f$)
         EXIT SUB
     END IF
     sz = IrSize&(st$)
-    IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + IrAddr$(p$) + " " + IrI32$(sz)
+    'operands first: the order of the emitted registers must not depend on the evaluation order of +
+    q$ = IrAddr$(p$): r$ = IrI32$(sz)
+    IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + q$ + " " + r$
 END SUB
 
 'ON TIMER([slot,] secs) GOSUB label (raw slot/secs expressions, label as written)

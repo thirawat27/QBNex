@@ -1626,37 +1626,21 @@ impl<'m, 'o> Vm<'m, 'o> {
                     seti!(d, c as i64)
                 }
                 Ins::Left { d, s, n } => {
-                    let k = ri!(n);
-                    if k < 0 {
-                        fail!(5);
-                    }
+                    // qbs_left: the count is clamped
                     let len = self.sget(s).len();
-                    self.ssub(d, s, 0, (k as usize).min(len));
+                    let k = ri!(n).clamp(0, len as i64) as usize;
+                    self.ssub(d, s, 0, k);
                 }
                 Ins::Right { d, s, n } => {
-                    let k = ri!(n);
-                    if k < 0 {
-                        fail!(5);
-                    }
                     let len = self.sget(s).len();
-                    self.ssub(d, s, len - (k as usize).min(len), len);
+                    let k = ri!(n).clamp(0, len as i64) as usize;
+                    self.ssub(d, s, len - k, len);
                 }
                 Ins::Mid { d, s, start, n } => {
-                    let st = ri!(start);
-                    if st < 1 {
-                        fail!(5);
-                    }
+                    // qb_func_mid: no errors
                     let len = self.sget(s).len();
-                    let from = (st as usize - 1).min(len);
-                    let to = if n == NONE {
-                        len
-                    } else {
-                        let k = ri!(n);
-                        if k < 0 {
-                            fail!(5);
-                        }
-                        from.saturating_add(k as usize).min(len)
-                    };
+                    let l = if n == NONE { None } else { Some(ri!(n)) };
+                    let (from, to) = rt::builtins::mid_range(len, ri!(start), l);
                     self.ssub(d, s, from, to);
                 }
                 Ins::Dim { a, dims, n, mode } => tryc!(self.dim(a, dims, n, mode)),
