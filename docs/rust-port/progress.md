@@ -197,10 +197,18 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 - **Spec + crate:** `docs/rust-port/qir-v1.md` (typed, register-based) และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer ข้อความ, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative) — 16 tests (เขียนก่อน, เห็น fail ก่อน implement). R11b/R11c merge commit `57138e8`
 - **Emitter ใน pipeline จริง:** ลบ tokenizer/parser ของ spike ทิ้ง; main pass ของ `qbnex.bas` ทำงานเหมือนเดิมทุกอย่าง (symbol table, type, UDT, `$INCLUDE`, `$IF`, CONST, DEFxxx, C++ fragment ที่ไม่ถูก compile) แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, state ใน `ir_state.bas`). `IrEval$` เดิน element string ชุดเดียวกับที่ `evaluate$` ได้ (หลัง `fixoperationorder`) และใช้ `operatorusage` + กฎ markup ชุดเดียวกัน พร้อม C integer promotion → register มีชนิด C เดียวกับที่ C++ backend คำนวณ (เช่น literal `1.5E+0` เป็น double, `INTEGER*INTEGER` เป็น int32, `/` ไปเป็น long double)
 - statement ที่ operand อาจถูกสร้างโดย C++ handler (MID$, LSET/RSET, SWAP, ERASE, OPEN/CLOSE, PRINT #, WRITE, INPUT, LINE INPUT, GET/PUT, SEEK, NAME) lower ตอนถึง `finishedline`; construct ที่ยังไม่รองรับ → compile ล้มพร้อมเลขบรรทัด (ไม่เงียบ)
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 13 tests. R11b แทนที่ได้
-- **Conformance (`--qb-arg --ir`):** ดูตารางท้ายหัวข้อนี้ ; C++ default path ของ compiler เดียวกัน: ดูตาราง
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ
-- **ยังไม่ทำ / รู้แล้วว่าต่าง:** `_FLOAT` ใน VM เป็น f64 (รอ F80 ของ R11d) → `rounding_limits`, `val_parse`; graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
+- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 15 unit + 5 e2e tests. R11b แทนที่ได้
+- **Conformance** (69 cases, Windows, compiler เดียวกัน):
+
+  | backend | ผ่าน | xfail | fail |
+  | --- | --- | --- | --- |
+  | C++ (default) | 63 | 6 | **0** |
+  | QIR (`--qb-arg --ir`) | **40** | 6 | 23 |
+
+  23 case ที่ยัง fail ใช้ subsystem ที่ยังผูกกับ main loop/หน้าต่างของ C++ ทั้งหมด: graphics 10, audio 2, net 2, `_MEM` 2, input script (INKEY$/_KEYHIT) 2, fonts/images 2, `VARPTR`/cmem 1, `FIELD` 1, `SCREEN` + `_NEWIMAGE` ใน video 1. Case ภาษา/ตัวเลข/สตริง/ไฟล์/error/DATA ผ่านครบ
+- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ: ทุก case ที่ QIR compile ได้ให้ output เหมือน C++ ทุก byte (ยกเว้น `inkey_script` ที่ต้องมี input script ของหน้าต่าง); `crates/qb-exec/tests/fixtures/qir/lang1-3.bas` (INCLUDE, CONST, DEFxxx, nested UDT, array param, STATIC, recursion, SELECT, ON GOSUB, DATA, error/RESUME) เทียบสอง backend ใน `cargo test --release -p qb-exec`
+- `_FLOAT` ใน VM ใช้ `qb-float80` (R11d) ตรงทุก bit; `VAL` คืน long double เหมือน `func_val`; ERL = line-number label ล่าสุด (`LASTLINE`)
+- **ยังไม่ทำ:** graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
 
 ## R11d: `_FLOAT` and `DECLARE LIBRARY`
 

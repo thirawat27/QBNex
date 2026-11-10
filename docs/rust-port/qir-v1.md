@@ -217,6 +217,7 @@ statement ในส่วน THEN/ELSE ของ IF บรรทัดเดี�
 2. ถ้ามี handler: บันทึก (F, ตำแหน่ง `line` ของ statement, N), ตั้ง ERR/ERL, แล้วรันโค้ดของ `main` ที่ label L **โดยไม่ unwind frame** (handler เห็น global ตามปกติ; frame ของ SUB ค้างอยู่)
 3. `resume` กลับ F ที่ `line` เดิม; `resume next` กลับ F ที่ `line` ถัดไปของ F; `resume L` unwind กลับ frame ของ main แล้ว jmp L
 4. handler จบด้วย `end`/`system` ได้ตามปกติ
+5. `ERL` = หมายเลขบรรทัดแบบ line-number label ตัวล่าสุดที่ทำงานก่อน error (compiler emit `rt LASTLINE n` ที่ label ตัวเลข; ไม่มีเลย = 0, เหมือน `last_line` ของ C++); `_ERRORLINE` = บรรทัด source จาก `line N`
 
 JIT: ฟังก์ชันที่อาจเกิด error ใน handler ภายนอกต้องสามารถ "หยุดที่ `line` แล้วกลับมาต่อ" — วิธีที่ง่ายที่สุดคือ JIT เฉพาะ function ที่ไม่มี op ที่เกิด error ได้ หรือ fallback ไป VM ตอนเกิด error (deopt ที่ `line`)
 
