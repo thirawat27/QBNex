@@ -364,7 +364,20 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
     }
-    if name == "READCHK" {
+    if name == "_OS$" {
+        // func__os
+        let bits = if cfg!(target_pointer_width = "32") { "[32BIT]" } else { "[64BIT]" };
+        let os = if cfg!(windows) {
+            format!("[WINDOWS]{bits}")
+        } else if cfg!(target_os = "macos") {
+            format!("[MACOSX]{bits}[LINUX]")
+        } else if cfg!(target_os = "linux") {
+            format!("[LINUX]{bits}")
+        } else {
+            bits.to_string()
+        };
+        return Ok(Some(V::S(os.into_bytes())));
+    }    if name == "READCHK" {
         let c = std::mem::take(&mut vm.rt().read_err);
         return if c != 0 { e(c) } else { Ok(None) };
     }
