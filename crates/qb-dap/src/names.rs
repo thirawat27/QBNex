@@ -62,10 +62,10 @@ pub fn func_name(qir: &str, casing: &Casing) -> String {
 pub fn var_name(qir: &str, func: &str, casing: &Casing) -> String {
     let mut s = qir.strip_prefix('$').unwrap_or(qir);
     let own = format!("_{func}_");
-    if func != "main" {
-        if let Some(r) = s.strip_prefix(&own) {
-            s = r;
-        }
+    if func != "main"
+        && let Some(r) = s.strip_prefix(&own)
+    {
+        s = r;
     }
     let s = s.trim_start_matches('_');
     let s = s.strip_prefix("ARRAY_").unwrap_or(s);

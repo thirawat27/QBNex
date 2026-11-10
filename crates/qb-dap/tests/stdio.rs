@@ -206,11 +206,24 @@ fn breakpoints_steps_stack_and_variables() {
     d.request("stepIn", json!({"threadId": 1}));
     assert_eq!(d.stopped(), "step");
     assert_eq!(d.stack(), vec![("Fact".to_string(), 20), ("<module>".to_string(), 9)]);
-    d.request("stepIn", json!({"threadId": 1}));
-    assert_eq!(d.stopped(), "step");
-    let st = d.stack();
+    // Line 20 is one single-line IF holding several statements: step in
+    // statement by statement until the recursive call is entered.
+    let mut st = d.stack();
+    for _ in 0..8 {
+        if st.len() == 3 {
+            break;
+        }
+        d.request("stepIn", json!({"threadId": 1}));
+        assert_eq!(d.stopped(), "step");
+        st = d.stack();
+    }
     assert_eq!(st.len(), 3, "{st:?}");
+    assert_eq!(st[0].0, "Fact");
     assert_eq!(d.eval("n"), "9");
+    // step out returns to the outer Fact (depth 2)
+    d.request("stepOut", json!({"threadId": 1}));
+    assert_eq!(d.stopped(), "step");
+    assert_eq!(d.stack().len(), 2);
 
     // STATIC variable of SUB Counter, then run to the end
     d.request("setBreakpoints", json!({"source": {"path": bas}, "breakpoints": [{"line": 29}]}));

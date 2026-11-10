@@ -163,7 +163,7 @@ impl Adapter {
         }));
     }
 
-    fn to_child(&mut self, msg: Value) {
+    fn send_child(&mut self, msg: Value) {
         if let Some(c) = self.conn.as_mut() {
             let _ = writeln!(c, "{msg}");
         }
@@ -235,7 +235,7 @@ impl Adapter {
                     .collect();
                 if ours {
                     self.breakpoints = actual.clone();
-                    self.to_child(json!({"t": "bp", "lines": actual}));
+                    self.send_child(json!({"t": "bp", "lines": actual}));
                 }
                 self.respond(&req, json!({"breakpoints": bps}));
             }
@@ -312,11 +312,11 @@ impl Adapter {
                 };
                 self.snapshot = None;
                 self.refs.clear();
-                self.to_child(json!({"t": "resume", "mode": mode}));
+                self.send_child(json!({"t": "resume", "mode": mode}));
                 self.respond(&req, json!({"allThreadsContinued": true}));
             }
             "pause" => {
-                self.to_child(json!({"t": "pause"}));
+                self.send_child(json!({"t": "pause"}));
                 self.respond(&req, json!({}));
             }
             "terminate" => {
@@ -392,13 +392,12 @@ impl Adapter {
                 let end = r.find(['.', '(']).unwrap_or(r.len());
                 val = val.field(r[..end].trim())?.clone();
                 rest = r[end..].trim();
-            } else if let Some(r) = rest.strip_prefix('(') {
+            } else {
+                let r = rest.strip_prefix('(')?;
                 let end = r.find(')')?;
                 let idx: Option<Vec<i64>> = r[..end].split(',').map(|x| x.trim().parse().ok()).collect();
                 val = val.element(&idx?)?.clone();
                 rest = r[end + 1..].trim();
-            } else {
-                return None;
             }
         }
         Some(val)
@@ -512,7 +511,7 @@ impl Adapter {
                     Ok((c, _)) => break c,
                     Err(_) if started.elapsed() < Duration::from_secs(20) => {
                         if let Ok(Some(_)) = child.lock().unwrap().try_wait() {
-                            break Err("the debuggee exited before connecting".to_string())?;
+                            return Err("the debuggee exited before connecting".to_string());
                         }
                         std::thread::sleep(Duration::from_millis(10));
                     }
@@ -523,8 +522,8 @@ impl Adapter {
             let reader = conn.try_clone().map_err(|e| e.to_string())?;
             self.conn = Some(conn);
             let bps = self.breakpoints.clone();
-            self.to_child(json!({"t": "bp", "lines": bps}));
-            self.to_child(json!({"t": "go"}));
+            self.send_child(json!({"t": "bp", "lines": bps}));
+            self.send_child(json!({"t": "go"}));
             let tx = self.tx.clone();
             std::thread::spawn(move || {
                 let mut r = BufReader::new(reader);
