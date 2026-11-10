@@ -131,8 +131,14 @@ function Get-ConsoleOnly([string]$tempDir) {
 function Compile([string]$compiler, [string]$root, [string]$src, [string]$exe, [string[]]$extra, [string]$log) {
     if (Test-Path $exe) { Remove-Item $exe -Force }
     $argv = @($src) + $extra + @('-o', $exe, '-q', '-m')
-    $r = Invoke-Bounded $compiler $argv $root @{ QBNEX_NO_ERROR_DIALOG = '1' } $null 900
-    $text = (Get-Normalised $r.out) + (Get-Normalised $r.err)
+    # "Build failed" (g++ step) on this shared machine is nearly always the commit limit
+    # (cc1plus dies); a second try after a pause tells it apart from a real failure.
+    for ($try = 1; $try -le 2; $try++) {
+        $r = Invoke-Bounded $compiler $argv $root @{ QBNEX_NO_ERROR_DIALOG = '1' } $null 900
+        $text = (Get-Normalised $r.out) + (Get-Normalised $r.err)
+        if ($text -notmatch 'Build failed') { break }
+        Start-Sleep -Seconds 30
+    }
     Set-Content -LiteralPath $log -Value $text -NoNewline
     $ok = ($r.code -eq 0) -and (Test-Path $exe)
     $first = ($text -split "`n" | Where-Object { $_ -match '\S' } | Select-Object -First 3) -join ' | '
