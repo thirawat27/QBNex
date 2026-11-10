@@ -238,3 +238,21 @@ pub extern "C" fn qb_web_poll_stdout() -> usize {
     let v = lock(&OUT).clone();
     publish(v)
 }
+
+/// Mixes the next `frames` stereo frames of the program's sound (SOUND,
+/// PLAY, BEEP, `_SND*`) into the result buffer as f32 pairs; returns the
+/// mixer rate, or 0 while no sound has been started (nothing to play).
+/// `frames` 0 only asks for the rate.
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_web_audio(frames: usize) -> u32 {
+    if !qb_audio::device::web_active() {
+        return 0;
+    }
+    let mut pcm = vec![0f32; frames.min(1 << 16) * 2];
+    if !qb_audio::device::web_render(&mut pcm) {
+        return 0;
+    }
+    publish(pcm.iter().flat_map(|x| x.to_le_bytes()).collect());
+    qb_audio::device::WEB_RATE
+}

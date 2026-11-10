@@ -821,10 +821,30 @@ node crates/qb-web/tests/run.mjs        # 33 checks: text screen, COLOR/LOCATE p
 
 To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file. `timer.qir` was edited by hand to the current `_DELAY` form (DELAYBEGIN/DELAYSTEP loop): the qb-ir.exe build used for the fixtures still emitted `sub__delay`.
 
+**Demo page and more host services (second round):**
+
+- **Demo page:** `crates/qb-web/README.md` explains building, compiling with `qb --ir` and serving. `www/serve.mjs` is a local static server: it sends the COOP/COEP headers and serves `qb_web.wasm` straight from the cargo output.
+- **Examples** in `www/examples/*.bas`, each with the `.qir` made by `qb-ir.exe --ir`; the page has an example picker:
+  - `hello`: text, COLOR, BEEP
+  - `graphics`: a SCREEN 13 animation with `_DISPLAY` + `_LIMIT 60`; a key stops it
+  - `guess`: an INPUT number game with SOUND and PLAY
+- **Keyboard and mouse:**
+  - The page writes canvas events into a `SharedArrayBuffer` ring, and the worker reads it through the import `qb_web_poll_event`. A busy worker cannot receive messages, so this needs a cross-origin isolated page.
+  - `rt/input.rs` turns them into the same events the desktop window delivers. Keys go through `qb_runtime::keymap::translate`, so INKEY$, `_KEYHIT` and `_KEYDOWN` see the desktop codes; mouse buttons, moves and the wheel go through the same queue (`_MOUSEINPUT`, `_MOUSEX/Y`, `_MOUSEBUTTON`, `_MOUSEWHEEL`).
+  - A program polling input in a loop still shows its frames: one frame at most every 33 ms.
+- **INPUT / LINE INPUT:** the prepared stdin text is read first. After that, with live keys (`qb_web_interactive`), the program waits for a typed line drawn on the screen: Backspace edits, Enter ends, and an empty answer to a numeric INPUT is 0.
+- **Sound:**
+  - On wasm, qb-audio's device is the page: `device.rs` stores the mixer, and there is no cpal.
+  - The loader pulls stereo f32 at 44.1 kHz through `qb_web_audio`. It pulls from every import call, mixing 0.25 s ahead of the clock, plus the tail after the program ends. The page plays the chunks back to back with WebAudio.
+  - This covers SOUND, BEEP, PLAY, `_SNDRAW` and `_SND*` through one path.
+- **Checked in the in-app browser** (served by `serve.mjs`): the graphics example animates and stops on a key; in the guess game typed answers appear and get "Too low", and an empty answer counts as 0. Sound output was not listened to; the node test checks PCM length and level.
+- **Tests:** `node crates/qb-web/tests/run.mjs` passes 45/45. It adds scripted keys and mouse (`keys.qir`), live-typed LINE INPUT with Backspace, SOUND/PLAY PCM (`sound.qir`), and the three examples.
+- **Hand-edited QIR:** the qb-ir.exe build used here does not emit `_MOUSE*`, so `keys.qir` has its mouse lines added by hand.
+
 Limits / next:
-- No interactive keyboard: INKEY$ is empty, and INPUT needs the text up front. A wasm call cannot wait for page events. Doing this needs a SharedArrayBuffer key queue (cross-origin isolation) or an async VM step.
+- Live keys need cross-origin isolation (`serve.mjs`, or the same headers from another server). Without it, INKEY$ is empty and INPUT uses the prepared answers.
+- `_DISPLAY`-less programs that never poll input or wait show their screen only at the end.
 - No file system (an in-memory one would fit qb-runtime's file layer).
-- No audio.
 - No JIT: Cranelift could emit wasm in a later step.
 - `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
 

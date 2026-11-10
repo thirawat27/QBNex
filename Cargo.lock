@@ -2578,6 +2578,7 @@ dependencies = [
 name = "qb-web"
 version = "0.1.0"
 dependencies = [
+ "qb-audio",
  "qb-exec",
  "qb-runtime",
 ]

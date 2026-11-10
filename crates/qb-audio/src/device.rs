@@ -6,13 +6,71 @@
 //! takes the engine lock) and maps it to the device's channel count and
 //! sample format.
 
+pub type RenderFn = std::sync::Arc<dyn Fn(&mut [f32]) + Send + Sync>;
+
+#[cfg(target_arch = "wasm32")]
+pub use web::{web_active, web_render, Device, WEB_RATE};
+
+/// Browser build (R13-wasm): no device thread. The page pulls stereo f32
+/// from the mixer ([`web_render`]) and plays it through WebAudio.
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use super::RenderFn;
+    use std::sync::Mutex;
+
+    /// Mixer rate in the browser (WebAudio resamples to the device).
+    pub const WEB_RATE: u32 = 44_100;
+
+    static RENDER: Mutex<Option<RenderFn>> = Mutex::new(None);
+
+    pub struct Device {
+        pub rate: u32,
+    }
+
+    impl Device {
+        pub fn open(render: RenderFn) -> Option<Device> {
+            *RENDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(render);
+            Some(Device { rate: WEB_RATE })
+        }
+
+        pub fn close(self) {
+            *RENDER.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
+    }
+
+    /// A program has started sound (the mixer has something to render).
+    pub fn web_active() -> bool {
+        RENDER.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+
+    /// Fills `out` (interleaved stereo) with the next frames of the mix;
+    /// false (and silence) while no sound has been started.
+    pub fn web_render(out: &mut [f32]) -> bool {
+        let r = RENDER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        match r {
+            Some(f) => {
+                f(out);
+                true
+            }
+            None => {
+                out.fill(0.0);
+                false
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::Device;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod native {
+use super::RenderFn;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
-
-pub type RenderFn = std::sync::Arc<dyn Fn(&mut [f32]) + Send + Sync>;
 
 pub struct Device {
     pub rate: u32,
@@ -113,4 +171,5 @@ where
             None,
         )
         .ok()
+}
 }

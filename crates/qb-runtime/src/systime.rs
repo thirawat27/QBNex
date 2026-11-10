@@ -61,6 +61,11 @@ pub mod web {
         safe fn qb_web_sleep_ms(ms: f64);
         /// A frame is ready (`_DISPLAY`): the page may draw the screen now.
         safe fn qb_web_present();
+        /// Next keyboard/mouse event into `out[0..6]`; 0 when there is none
+        /// (layout: `crates/qb-web/www/qbnex.js`, `EVENT_*`).
+        fn qb_web_poll_event(out: *mut i32) -> i32;
+        /// 1 when the page delivers live keyboard events (INPUT may wait for typing).
+        safe fn qb_web_interactive() -> i32;
     }
     pub fn now_ms() -> f64 {
         qb_web_now_ms()
@@ -73,6 +78,16 @@ pub mod web {
     }
     pub fn present() {
         qb_web_present()
+    }
+    /// The page delivers live keyboard events.
+    pub fn interactive() -> bool {
+        qb_web_interactive() != 0
+    }
+    /// Next page input event: `[kind, a, b, c, d, mods]`.
+    pub fn poll_event() -> Option<[i32; 6]> {
+        let mut e = [0i32; 6];
+        // SAFETY: `e` has the 6 slots the page writes.
+        (unsafe { qb_web_poll_event(e.as_mut_ptr()) } != 0).then_some(e)
     }
 }
 
