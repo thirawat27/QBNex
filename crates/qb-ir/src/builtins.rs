@@ -151,7 +151,14 @@ pub static TABLE: &[Builtin] = &[
     b!("PUTREC", [I32, I64, Ptr, I32]),
     b!("GETSTR", [I32, I64, I32], Str),
     b!("PUTSTR", [I32, I64, Str]),
+    // FIELD #ch: FIELDNEW ch, then FIELD ch size var (string variable address) per item
+    b!("FIELDNEW", [I32]),
     b!("FIELD", [I32, I32, Ptr]),
+    // GET/PUT #ch[, record] without a variable (FIELD buffer)
+    b!("GETFIELD", [I32, I64]),
+    b!("PUTFIELD", [I32, I64]),
+    // LSET/RSET result stored into a string variable (and its FIELD buffer)
+    b!("LSETVAR", [Ptr, Str]),
     b!("INPUT$", [I32, I32], Str),
     b!("LINEINPUT", [I32], Str),
     b!("INPUTITEM.s", [I32], Str),
@@ -181,6 +188,41 @@ pub static TABLE: &[Builtin] = &[
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
     b!("_DEST", [I32]),
+    // ---- TCP/IP (negative handles; GET/PUT/CLOSE accept them too)
+    b!("_OPENHOST", [Str], I32),
+    b!("_OPENCLIENT", [Str], I32),
+    b!("_OPENCONNECTION", [I32], I32),
+    b!("_CONNECTED", [I32], I32),
+    b!("_CONNECTIONADDRESS$", [I32], Str),
+    // ---- conventional memory (1 MB, DBLOCK at segment 0x1000)
+    // string variable address -> offset of its descriptor (length, offset) in DBLOCK
+    b!("VARPTR.s", [Ptr], I32),
+    b!("SADD", [Ptr], I32),
+    b!("VARSEG", [], I32),
+    b!("PEEK", [I32], I32),
+    b!("POKE", [I32, I32]),
+    b!("DEFSEG", [I32]),
+    b!("DEFSEG.d", []),
+    b!("_DEFLATE$", [Str], Str),
+    b!("_INFLATE$", [Str], Str),
+    b!("_INFLATE$.n", [Str, I64], Str),
+    // ---- _MEM (the Ptr arguments are mem_block addresses unless named otherwise)
+    b!("_MEMNEW", [Ptr, I64]),
+    b!("_MEMAT", [Ptr, I64, I64]),
+    // dst, address, size, type value, element size
+    b!("_MEMVAR", [Ptr, Ptr, I64, I64, I64]),
+    b!("_MEMEXISTS", [Ptr], I32),
+    b!("_MEMFREE", [Ptr]),
+    // checked address of `bytes` bytes at offset in a block
+    b!("_MEMGETP", [Ptr, I64, I64], Ptr),
+    // block, offset, bytes, source address, source bytes
+    b!("_MEMFILLP", [Ptr, I64, I64, Ptr, I64]),
+    b!("_MEMFILLS", [Ptr, I64, I64, Str]),
+    b!("_MEMPUTS", [Ptr, I64, Str]),
+    b!("_MEMCOPY", [Ptr, I64, I64, Ptr, I64]),
+    // array descriptor (aref) -> address of the first element / total bytes
+    b!("_ARRADDR", [Ptr], Ptr),
+    b!("_ARRBYTES", [Ptr], I64),
     b!("_STRCMP", [Str, Str], I32),
     b!("_STRICMP", [Str, Str], I32),
     b!("_CWD$", [], Str),

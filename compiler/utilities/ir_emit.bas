@@ -184,7 +184,8 @@ FUNCTION IrUdt$ (u AS LONG)
         ELSE
             fty$ = IrTy$(ft)
         END IF
-        s$ = s$ + "field " + RTRIM$(udtename(e)) + " " + fty$ + " " + str2$(o \ 8) + CHR$(10)
+        fn$ = RTRIM$(udtename(e)): DO WHILE INSTR(fn$, "$"): MID$(fn$, INSTR(fn$, "$"), 1) = "_": LOOP
+        s$ = s$ + "field " + fn$ + " " + fty$ + " " + str2$(o \ 8) + CHR$(10)
         o = o + udtesize(e)
         e = udtenext(e)
     LOOP
@@ -753,6 +754,35 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
             ELSE
                 oldtyp = typ: lr$ = blk(i - 1): lq$ = bq(i - 1)
             END IF
+            'offset protection (same rules as evaluate$)
+            offmode = 0: offcvi = 0
+            IF (oldtyp AND ISOFFSET) <> 0 OR (newtyp AND ISOFFSET) <> 0 THEN
+                offmode = 2
+                IF newtyp AND ISOFFSET THEN
+                    IF (newtyp AND ISUNSIGNED) = 0 THEN offmode = 1
+                END IF
+                IF oldtyp AND ISOFFSET THEN
+                    IF (oldtyp AND ISUNSIGNED) = 0 THEN offmode = 1
+                END IF
+                IF o$ = "*" OR o$ = "/" OR o$ = "^" THEN
+                    IF o$ = "*" OR o$ = "^" THEN
+                        IF (newtyp AND ISFLOAT) <> 0 OR (oldtyp AND ISFLOAT) <> 0 THEN
+                            offcvi = 1
+                            IF (oldtyp AND ISFLOAT) = 0 THEN lhs = 2
+                            IF (newtyp AND ISFLOAT) = 0 THEN rhs = 2
+                        END IF
+                    END IF
+                    IF o$ = "/" OR o$ = "^" THEN
+                        offcvi = 1
+                        IF (oldtyp AND ISFLOAT) = 0 THEN lhs = 2
+                        IF (newtyp AND ISFLOAT) = 0 THEN rhs = 2
+                    END IF
+                ELSE
+                    IF lhs AND 2 THEN lhs = 1
+                    IF rhs AND 2 THEN rhs = 1
+                END IF
+                IF result = 2 THEN result = 1
+            END IF
             'STEP 1: conversions demanded by the operator
             IF unary = 0 AND (oldtyp AND ISSTRING) = 0 THEN
                 IF oldtyp AND ISFLOAT THEN
@@ -800,7 +830,6 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
                     END IF
                 END IF
             END IF
-            IF (oldtyp AND ISOFFSET) <> 0 OR (newtyp AND ISOFFSET) <> 0 THEN IrNotSup "_OFFSET arithmetic"
             IF result = 1 THEN
                 IF (typ AND ISFLOAT) <> 0 OR (typ AND ISSTRING) <> 0 THEN typ = 64
             END IF
@@ -809,6 +838,11 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
             END IF
             IF result = 4 THEN typ = ISSTRING
             IF result = 8 THEN typ = 32
+            IF offmode THEN
+                IF result <> 8 THEN
+                    typ = OFFSETTYPE - ISPOINTER: IF offmode = 2 THEN typ = typ + ISUNSIGNED
+                END IF
+            END IF
             IF u = 2 AND info$ = "pow2" THEN
                 b = oldtyp AND 511
                 IF (oldtyp AND ISFLOAT) = 0 THEN
@@ -885,6 +919,7 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
                     d$ = IrArith$(op$, d$, q$, rr$, rq$)
             END SELECT
             IF d$ = "" THEN IrNotSup "operator " + o$: d$ = IrI32$(0): IrT = "i32"
+            IF offcvi THEN d$ = IrCvt$(d$, IrT, "i64"): IrT = "i64"
             blk(i + 1) = d$: bq(i + 1) = IrT: bty(i + 1) = typ: bop(i + 1) = 0
             i = i + 2
         ELSE
@@ -1180,6 +1215,30 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         CASE "_STRCMP", "_STRICMP"
             x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "str")
             r$ = IrRt$(nm$, " " + x$ + " " + y$, "i32")
+        CASE "_DEFLATE$"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "str")
+        CASE "_INFLATE$"
+            x$ = IrArgAs$(sv(1), "str")
+            IF nargs >= 2 THEN
+                IF LEN(sv(2)) THEN r$ = IrRt$("_INFLATE$.n", " " + x$ + " " + IrArgAs$(sv(2), "i64"), "str"): GOTO irfdone
+            END IF
+            r$ = IrRt$("_INFLATE$", " " + x$, "str")
+        CASE "_OPENHOST", "_OPENCLIENT"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "_OPENCONNECTION", "_CONNECTED"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "i32")
+        CASE "_CONNECTIONADDRESS$", "_CONNECTIONADDRESS"
+            r$ = IrRt$("_CONNECTIONADDRESS$", " " + IrArgAs$(sv(1), "i32"), "str")
+        CASE "VARPTR", "SADD"
+            IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
+            IF x$ = "" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF IrPlaceSTy$(x$) <> "str" THEN IrNotSup nm$ + " of a non-STRING variable": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF nm$ = "VARPTR" THEN y$ = "VARPTR.s" ELSE y$ = "SADD"
+            r$ = IrRt$(y$, " " + IrAddr$(x$), "i32")
+        CASE "VARSEG"
+            r$ = IrRt$("VARSEG", "", "i32")
+        CASE "PEEK"
+            r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
         CASE "_CWD$", "_STARTDIR$"
             r$ = IrRt$(nm$, "", "str")
         CASE "_MK$", "_CV"
@@ -1203,6 +1262,9 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 IF z$ = "i64" THEN r$ = IrRt$("_CV.i64", " " + x$, "i64") ELSE r$ = IrRt$("CV" + z$, " " + x$, sx$)
                 typ = t
             END IF
+        CASE "_MEMEXISTS", "_MEMGET"
+            FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+            r$ = IrMemFunc$(nm$, nargs, typ)
         CASE "LBOUND", "UBOUND"
             IrQuiet = -1: x$ = IrPlace$(sv(1) + sp + "(" + sp + ")", t): IrQuiet = 0
             IF LEFT$(x$, 1) <> "A" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
@@ -1235,6 +1297,7 @@ SUB IrAssign (lhs$, rhs$)
     e$ = fixoperationorder$(rhs$)
     st$ = IrPlaceSTy$(p$)
     IF LEFT$(st$, 4) = "udt:" THEN
+        IF IrMemAssign%(IrAddr$(p$), e$) THEN EXIT SUB
         q$ = IrPlace$(e$, t2)
         IF q$ = "" THEN EXIT SUB
         IrE "copy " + IrAddr$(p$) + " " + IrAddr$(q$) + " " + str2$(IrSize&(st$))
@@ -1359,7 +1422,10 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             'screen state: no visible effect on redirected console output
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
-        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT"
+        CASE "POKE"
+            x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "i32")
+            IrE "rt POKE " + x$ + " " + y$
+        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET", "DEF", "FIELD"
             'lowered by IrStmtEnd
         CASE "ERROR"
             IrE "error " + IrArgAs$(sv(1), "i32")

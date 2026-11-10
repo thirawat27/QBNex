@@ -2,6 +2,7 @@
 
 use super::{cvt, e, Stop, R, V};
 use qb_ir::Ty;
+use std::collections::HashMap;
 use qb_runtime::numfmt;
 use std::io::{Read, Write};
 
@@ -24,9 +25,31 @@ pub(crate) trait Host<'a> {
     fn errline(&self) -> u32;
     /// LASTLINE builtin: a numeric line label was passed
     fn set_last_line(&mut self, n: u32);
-    /// `len` bytes of memory at `p` (GET/PUT of variables); error 5 when unsupported.
+    /// `len` bytes of memory at the address `p` (GET/PUT, _MEM, TCP buffers).
     fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]>;
+    /// (address of the first element, total bytes) of the array whose descriptor `p` references.
+    fn array_extent(&mut self, p: u64) -> R<(u64, u64)>;
+    /// Value of the string variable whose storage is at `p`.
+    fn load_str(&mut self, p: u64) -> R<Vec<u8>>;
+    /// Assigns the string variable whose storage is at `p` (runs `str_store_hook`).
+    fn store_str(&mut self, p: u64, s: &[u8]) -> R<()>;
 }
+
+/// Bookkeeping every executor runs before a string is stored into memory at
+/// `p`: a plain assignment breaks a FIELD link, and a string whose descriptor
+/// was exposed with VARPTR/SADD gets its length updated in DBLOCK.
+pub(crate) fn str_store_hook(rt: &mut RtState<'_>, p: u64, len: usize) {
+    if !rt.field_vars.is_empty() && !rt.field_store {
+        rt.field_vars.retain(|f| f.0 != p);
+    }
+    if let Some(&d) = rt.cmem_strs.get(&p) {
+        let l = (len as u16).to_le_bytes();
+        rt.cmem[DBLOCK + d..DBLOCK + d + 2].copy_from_slice(&l);
+    }
+}
+
+/// Byte offset of the DBLOCK segment (0x1000) in conventional memory.
+pub(crate) const DBLOCK: usize = 0x1000 * 16;
 
 pub(crate) struct RtState<'a> {
     out: &'a mut dyn Write,
@@ -34,6 +57,25 @@ pub(crate) struct RtState<'a> {
     rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
     stdin: Reader,
+    /// conventional memory (VARPTR/SADD/PEEK/POKE)
+    pub(crate) cmem: Vec<u8>,
+    pub(crate) cmem_next: usize,
+    /// string variable address -> DBLOCK offset of its descriptor
+    pub(crate) cmem_strs: HashMap<u64, usize>,
+    /// DEF SEG base (bytes); None = DBLOCK
+    pub(crate) def_seg: Option<usize>,
+    /// set while LSETVAR/GETFIELD store into FIELD variables
+    pub(crate) field_store: bool,
+    /// RANDOM record length per open file number (FIELD buffers)
+    pub(crate) reclen: HashMap<i32, usize>,
+    /// FIELD buffer per file number and the variables linked to it (address, offset, size)
+    pub(crate) field_buf: HashMap<i32, Vec<u8>>,
+    pub(crate) field_vars: Vec<(u64, i32, usize, usize)>,
+    /// FIELD statement in progress: (file number, bytes used)
+    pub(crate) field_cur: (i32, usize),
+    /// TCP/IP handles
+    pub(crate) net: super::netx::Net,
+    pub(crate) net_pending_error: i32,
 }
 
 struct Using {
@@ -45,7 +87,19 @@ struct Using {
 
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
-        RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default() }
+        RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
+            cmem: vec![0; 1 << 20],
+            cmem_next: 16,
+            cmem_strs: HashMap::new(),
+            def_seg: None,
+            field_store: false,
+            reclen: HashMap::new(),
+            field_buf: HashMap::new(),
+            field_vars: Vec::new(),
+            field_cur: (0, 0),
+            net: super::netx::Net::default(),
+            net_pending_error: 0,
+        }
     }
     pub(crate) fn flush(&mut self) {
         let _ = self.out.flush();
@@ -206,12 +260,36 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::netx::call(vm, name, &a) {
+        return r;
+    }
     if let Some(r) = super::files::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = super::memx::call(vm, name, &a) {
         return r;
     }
     if name == "LASTLINE" {
         vm.set_last_line(a[0].i() as u32);
         return Ok(None);
+    }
+    if name == "VARPTR.s" || name == "SADD" {
+        let p = a[0].p();
+        let known = vm.rt().cmem_strs.get(&p).copied();
+        let d = match known {
+            Some(d) => d,
+            None => {
+                let len = vm.load_str(p)?.len() as u16;
+                let rt = vm.rt();
+                let d = rt.cmem_next;
+                rt.cmem_next += 4;
+                rt.cmem_strs.insert(p, d);
+                let base = DBLOCK + d;
+                rt.cmem[base..base + 2].copy_from_slice(&len.to_le_bytes());
+                d
+            }
+        };
+        return Ok(Some(V::I(if name == "SADD" { (d + 4) as i64 } else { d as i64 })));
     }
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
     let rt = vm.rt();
@@ -537,6 +615,46 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
         "DATE$" | "TIME$" => return ok(V::S(vec![])),
+        "_DEFLATE$" => {
+            let src = s(0);
+            let mut cap = qb_runtime::compress::qb_deflate_bound(src.len() as u32);
+            let mut dst = vec![0u8; cap as usize];
+            // SAFETY: buffers of the given sizes.
+            unsafe { qb_runtime::compress::qb_deflate(src.as_ptr(), src.len() as u32, dst.as_mut_ptr(), &mut cap) };
+            dst.truncate(cap as usize);
+            return ok(V::S(dst));
+        }
+        "_INFLATE$" | "_INFLATE$.n" => {
+            // legacy compress_bridge.cpp: a given size is used as is, otherwise 10 MB steps
+            let src = s(0);
+            let mut size: u64 = if name == "_INFLATE$.n" { i(1).max(0) as u64 } else { 0 };
+            loop {
+                if name == "_INFLATE$" {
+                    size += 10_000_000;
+                }
+                let mut out_len = size as u32;
+                let mut dst = vec![0u8; size as usize];
+                // SAFETY: buffers of the given sizes.
+                let r = unsafe { qb_runtime::compress::qb_inflate(src.as_ptr(), src.len() as u32, dst.as_mut_ptr(), &mut out_len) };
+                if name == "_INFLATE$" && r == -5 {
+                    continue;
+                }
+                dst.truncate(out_len as usize);
+                return ok(V::S(dst));
+            }
+        }
+        "VARSEG" => return ok(V::I(0x1000)),
+        "DEFSEG" => rt.def_seg = Some((i(0) as u16 as usize) * 16),
+        "DEFSEG.d" => rt.def_seg = None,
+        "PEEK" | "POKE" => {
+            let at = rt.def_seg.unwrap_or(DBLOCK) + (i(0) as u16 as usize);
+            let at = at % rt.cmem.len();
+            if name == "POKE" {
+                rt.cmem[at] = i(1) as u8;
+            } else {
+                return ok(V::I(rt.cmem[at].into()));
+            }
+        }
         "_STRCMP" | "_STRICMP" => {
             let (x, y) = if name == "_STRICMP" {
                 (s(0).to_ascii_lowercase(), s(1).to_ascii_lowercase())
@@ -553,7 +671,6 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let d = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
             return ok(V::S(d.into_bytes()));
         }
-        "FIELD" => return e(73),
         _ => return e(73),
     }
     Ok(None)

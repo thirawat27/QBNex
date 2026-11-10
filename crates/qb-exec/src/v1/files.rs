@@ -84,6 +84,70 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
     let some = |v: V| Some(Ok(Some(v)));
     let ch0 = a.first().map_or(0, |v| v.i()) as i32;
     match name {
+        "FIELDNEW" => {
+            if vm.rt().reclen.get(&ch0).is_none() {
+                return Some(e(if fio::eof(ch0).1 == 52 { 52 } else { 54 }));
+            }
+            vm.rt().field_cur = (ch0, 0);
+            Some(Ok(None))
+        }
+        "FIELD" => {
+            let (size, var) = (i(1), a[2].p());
+            let rl = vm.rt().reclen.get(&ch0).copied().unwrap_or(0);
+            if size < 0 {
+                return Some(e(5));
+            }
+            let off = vm.rt().field_cur.1;
+            if off + size as usize > rl {
+                return Some(e(50));
+            }
+            vm.rt().field_cur.1 += size as usize;
+            let buf = vm.rt().field_buf.entry(ch0).or_insert_with(|| vec![0u8; rl]);
+            let val = buf[off..off + size as usize].to_vec();
+            vm.rt().field_vars.retain(|f| f.0 != var);
+            vm.rt().field_vars.push((var, ch0, off, size as usize));
+            vm.rt().field_store = true;
+            let r = vm.store_str(var, &val);
+            vm.rt().field_store = false;
+            Some(r.map(|_| None))
+        }
+        "GETFIELD" | "PUTFIELD" => {
+            let pos = i(1);
+            let rl = vm.rt().reclen.get(&ch0).copied().unwrap_or(0);
+            let passed = i32::from(pos != -1);
+            let mut buf = vm.rt().field_buf.remove(&ch0).unwrap_or_else(|| vec![0u8; rl]);
+            buf.resize(rl, 0);
+            // SAFETY: buf holds rl bytes.
+            let err = unsafe {
+                if name == "GETFIELD" {
+                    fio::qb_file_get(ch0, pos, buf.as_mut_ptr(), rl as i32, passed)
+                } else {
+                    fio::qb_file_put(ch0, pos, buf.as_ptr(), rl as i32, passed)
+                }
+            };
+            let links: Vec<_> = vm.rt().field_vars.iter().filter(|f| f.1 == ch0).copied().collect();
+            vm.rt().field_store = true;
+            for (var, _, off, size) in links {
+                let _ = vm.store_str(var, &buf[off..off + size].to_vec());
+            }
+            vm.rt().field_store = false;
+            vm.rt().field_buf.insert(ch0, buf);
+            Some(chk(err).map(|_| None))
+        }
+        "LSETVAR" => {
+            let var = a[0].p();
+            let val = a[1].s().to_vec();
+            if let Some(&(_, ch, off, size)) = vm.rt().field_vars.iter().find(|f| f.0 == var) {
+                if let Some(b) = vm.rt().field_buf.get_mut(&ch) {
+                    let n = size.min(val.len());
+                    b[off..off + n].copy_from_slice(&val[..n]);
+                }
+            }
+            vm.rt().field_store = true;
+            let r = vm.store_str(var, &val);
+            vm.rt().field_store = false;
+            Some(r.map(|_| None))
+        }
         "OPEN" => {
             let ty = match i(1) {
                 1 => 3,
@@ -93,15 +157,25 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 _ => 1,
             };
             let reclen = i(3);
-            Some(chk(fio::open(s(0), ty, 0, 0, i(2) as i32, reclen, reclen > 0)).map(|_| None))
+            let r = chk(fio::open(s(0), ty, 0, 0, i(2) as i32, reclen, reclen > 0));
+            if r.is_ok() && ty == 1 {
+                vm.rt().reclen.insert(i(2) as i32, if reclen > 0 { reclen as usize } else { 128 });
+            }
+            Some(r.map(|_| None))
         }
         "OPENOLD" => Some(chk(fio::open_gwbasic(s(2), i(1) as i32, s(0), 0, false)).map(|_| None)),
         "CLOSE" => {
             fio::close(ch0);
+            vm.rt().reclen.remove(&ch0);
+            vm.rt().field_buf.remove(&ch0);
+            vm.rt().field_vars.retain(|f| f.1 != ch0);
             Some(Ok(None))
         }
         "CLOSEALL" => {
             fio::close_all();
+            vm.rt().reclen.clear();
+            vm.rt().field_buf.clear();
+            vm.rt().field_vars.clear();
             Some(Ok(None))
         }
         "FREEFILE" => some(V::I(fio::freefile().into())),

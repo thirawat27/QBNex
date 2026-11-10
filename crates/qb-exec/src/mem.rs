@@ -3,7 +3,9 @@
 //! interpreter (`v1.rs`), so both give identical results:
 //!
 //! - every memory-backed variable, array descriptor and array data area is a
-//!   block; a pointer is `(block << 32) | offset`
+//!   block; a pointer to variable or element storage is its real address (so
+//!   `_MEM`, `_OFFSET` arithmetic and qb-runtime routines work on it, like the
+//!   C++ backend); an array descriptor reference is `ARR_TAG | block id`
 //! - a `str` slot in memory is an 8-byte handle into `strs` (0 = empty string)
 //! - element layout: first subscript varies fastest (QB64)
 
@@ -31,13 +33,8 @@ pub(crate) struct Mem {
     free_strs: Vec<u64>,
 }
 
-pub(crate) fn ptr(b: u32, off: u32) -> u64 {
-    (u64::from(b) << 32) | u64::from(off)
-}
-
-fn split(p: u64) -> (usize, usize) {
-    ((p >> 32) as usize, (p & 0xFFFF_FFFF) as usize)
-}
+/// Tag of an array-descriptor reference; every other pointer is a real address.
+pub(crate) const ARR_TAG: u64 = 1 << 63;
 
 type R<T> = Result<T, i32>;
 
@@ -56,9 +53,16 @@ impl Mem {
         }
     }
 
-    /// Frees the block a pointer of a variable points at.
-    pub(crate) fn free_var(&mut self, p: u64) {
-        self.free(split(p).0 as u32);
+    /// Frees a variable's block (id from `new_var`).
+    pub(crate) fn free_var(&mut self, id: u32) {
+        self.free(id);
+    }
+
+    fn block_addr(&self, id: u32) -> u64 {
+        match &self.blocks[id as usize] {
+            Block::Bytes { data, .. } => data.as_ptr() as u64,
+            _ => 0,
+        }
     }
 
     fn free(&mut self, i: u32) {
@@ -101,22 +105,25 @@ impl Mem {
         }
     }
 
-    /// New zero-initialized storage for a variable; returns its pointer.
-    pub(crate) fn new_var(&mut self, v: &MVar) -> u64 {
-        let b = if v.array {
-            Block::Arr(MArr { esize: v.size, fill: v.fill, strs: v.strs, dims: vec![], data: None })
-        } else {
-            Block::Bytes { data: vec![v.fill; v.size as usize], strs: v.strs }
-        };
-        ptr(self.alloc(b), 0)
+    /// New zero-initialized storage for a variable: (pointer, block id).
+    pub(crate) fn new_var(&mut self, v: &MVar) -> (u64, u32) {
+        if v.array {
+            let id = self.alloc(Block::Arr(MArr { esize: v.size, fill: v.fill, strs: v.strs, dims: vec![], data: None }));
+            return (ARR_TAG | u64::from(id), id);
+        }
+        let id = self.alloc(Block::Bytes { data: vec![v.fill; v.size.max(1) as usize], strs: v.strs });
+        (self.block_addr(id), id)
     }
 
+    /// `len` bytes at the real address `p` (like the C++ backend, addresses are
+    /// not checked beyond null and array references).
     pub(crate) fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
-        let (b, o) = split(p);
-        match self.blocks.get_mut(b) {
-            Some(Block::Bytes { data, .. }) if o + len <= data.len() => Ok(&mut data[o..o + len]),
-            _ => Err(7),
+        if p == 0 || p & ARR_TAG != 0 {
+            return Err(5);
         }
+        // SAFETY: QIR pointers come from addr/aaddr/padd on live storage (or
+        // _MEM blocks of qb-runtime); validated programs keep them in range.
+        Ok(unsafe { std::slice::from_raw_parts_mut(p as *mut u8, len) })
     }
 
     /// Numeric load: register bits (integers sign/zero-extended, floats as f64).
@@ -181,7 +188,10 @@ impl Mem {
     }
 
     fn arr(&mut self, desc: u64) -> R<&mut MArr> {
-        match self.blocks.get_mut(split(desc).0) {
+        if desc & ARR_TAG == 0 {
+            return Err(9);
+        }
+        match self.blocks.get_mut((desc & !ARR_TAG) as usize) {
             Some(Block::Arr(a)) => Ok(a),
             _ => Err(9),
         }
@@ -260,7 +270,21 @@ impl Mem {
             off += (i - lo) * mul;
             mul *= hi - lo + 1;
         }
-        Ok(ptr(d, (off * i64::from(a.esize)) as u32))
+        let esize = i64::from(a.esize);
+        Ok(self.block_addr(d).wrapping_add((off * esize) as u64))
+    }
+
+    /// (address of the first element, total bytes) of an array.
+    pub(crate) fn array_extent(&mut self, desc: u64) -> R<(u64, u64)> {
+        let (data, n, esize) = {
+            let a = self.arr(desc)?;
+            let n: i64 = a.dims.iter().map(|(lo, hi)| hi - lo + 1).product();
+            (a.data, n, a.esize)
+        };
+        Ok(match data {
+            Some(d) => (self.block_addr(d), n as u64 * u64::from(esize)),
+            None => (0, 0),
+        })
     }
 
     pub(crate) fn bound(&mut self, desc: u64, k: i64, upper: bool) -> R<i64> {

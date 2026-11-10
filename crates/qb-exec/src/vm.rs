@@ -253,7 +253,7 @@ pub struct Vm<'m, 'o> {
     timer: Option<Arc<AtomicBool>>,
     /// addressable memory (QIR v1 TYPE / STRING * n / pointers)
     mem: crate::mem::Mem,
-    owned: Vec<u64>,
+    owned: Vec<u32>,
 }
 
 impl Drop for Vm<'_, '_> {
@@ -340,6 +340,16 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     }
     fn bytes(&mut self, p: u64, len: usize) -> crate::v1::R<&mut [u8]> {
         self.mem.bytes(p, len).map_err(Stop::Err)
+    }
+    fn array_extent(&mut self, p: u64) -> crate::v1::R<(u64, u64)> {
+        self.mem.array_extent(p).map_err(Stop::Err)
+    }
+    fn load_str(&mut self, p: u64) -> crate::v1::R<Vec<u8>> {
+        self.mem.ld_str(p).map(|s| s.to_vec()).map_err(Stop::Err)
+    }
+    fn store_str(&mut self, p: u64, s: &[u8]) -> crate::v1::R<()> {
+        v1rt::str_store_hook(&mut self.rt, p, s.len());
+        self.mem.st_str(p, s).map_err(Stop::Err)
     }
 }
 
@@ -1457,8 +1467,8 @@ impl<'m, 'o> Vm<'m, 'o> {
                     seti!(d, w.wrap(n))
                 }
                 Ins::NewV { d, v } => {
-                    let p = self.mem.new_var(&m.mvars[v as usize]);
-                    self.owned.push(p);
+                    let (p, id) = self.mem.new_var(&m.mvars[v as usize]);
+                    self.owned.push(id);
                     set!(d, p)
                 }
                 Ins::LdM { t, d, p, off } => {
@@ -1479,7 +1489,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if t == MTy::Str {
                         let v: *const [u8] = self.sget(s);
                         // SAFETY: the string registers are not touched by memory stores
-                        tryc!(self.mem.st_str(a, unsafe { &*v }));
+                        let v = unsafe { &*v };
+                        v1rt::str_store_hook(&mut self.rt, a, v.len());
+                        tryc!(self.mem.st_str(a, v));
                     } else if t == MTy::F80 {
                         let raw = self.xget(s).to_bytes();
                         tryc!(self.mem.bytes(a, 10)).copy_from_slice(&raw);
