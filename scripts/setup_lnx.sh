@@ -163,9 +163,10 @@ if [ -e "./qb" ]; then
   if [ -z "${QBNEX_KEEP_STAGE0:-}" ]; then
     rm -f ./qb-stage0
   fi
-  # Product-name alias: users can run either ./qb or ./qbnex.
+  # Product-name front end: ./qbnex runs the compiler like ./qb, plus the
+  # developer tools (qbnex fmt / lsp / dap; see scripts/qbnex-launcher.sh).
   rm -f ./qbnex
-  ln -s qb ./qbnex 2>/dev/null || cp ./qb ./qbnex
+  if cp scripts/qbnex-launcher.sh ./qbnex 2>/dev/null; then chmod +x ./qbnex; else ln -s qb ./qbnex 2>/dev/null || cp ./qb ./qbnex; fi
   cleanup_setup_artifacts
   echo "Done compiling!!"
   echo

@@ -119,7 +119,11 @@ impl Dap {
     }
 
     fn eval(&mut self, expr: &str) -> String {
-        self.request("evaluate", json!({"expression": expr, "frameId": 0, "context": "watch"}))["result"].as_str().unwrap().to_string()
+        self.eval_in(expr, 0)
+    }
+
+    fn eval_in(&mut self, expr: &str, frame: u64) -> String {
+        self.request("evaluate", json!({"expression": expr, "frameId": frame, "context": "watch"}))["result"].as_str().unwrap().to_string()
     }
 
     fn launch(&mut self, bas: &Path, qir: &Path, extra: Value, breakpoints: &[u64]) {
@@ -280,4 +284,83 @@ fn stop_on_entry_and_register_arrays() {
     assert!(d.stack()[0].1 >= first);
     d.request("continue", json!({"threadId": 1}));
     d.finish();
+}
+
+/// The real compiler: `QB_COMPILER`, else `qb(.exe)` at the repository root.
+fn real_compiler() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("QB_COMPILER") {
+        return Some(PathBuf::from(p));
+    }
+    let p = repo().join(if cfg!(windows) { "qb.exe" } else { "qb" });
+    p.is_file().then_some(p)
+}
+
+const DEMO: &str = "TYPE Pt
+    x AS INTEGER
+    y AS INTEGER
+END TYPE
+DIM SHARED total AS LONG
+DIM p AS Pt
+DIM a(3) AS INTEGER
+p.x = 3: p.y = 4
+FOR i% = 1 TO 3
+    a(i%) = i% * 10
+    Add i%
+NEXT
+PRINT total; Hyp!(p)
+SUB Add (n AS INTEGER)
+    total = total + n
+END SUB
+FUNCTION Hyp! (q AS Pt)
+    Hyp! = SQR(q.x * q.x + q.y * q.y)
+END FUNCTION
+";
+
+/// End to end with `qb --ir`: the adapter compiles the program itself.
+#[test]
+fn real_compiler_end_to_end() {
+    let Some(qb) = real_compiler() else {
+        eprintln!("skipped: no qb compiler (set QB_COMPILER or build qb at the repository root)");
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("qb-dap-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let bas = dir.join("demo.bas");
+    std::fs::write(&bas, DEMO).unwrap();
+
+    let mut d = Dap::start();
+    let init = d.request("initialize", json!({"adapterID": "qbnex"}));
+    assert_eq!(init["supportsConfigurationDoneRequest"], true);
+    d.event("initialized");
+    d.request("launch", json!({"program": bas, "compiler": qb}));
+    // line 15: `total = total + n` in SUB Add; line 11 has no breakpoint
+    let r = d.request("setBreakpoints", json!({"source": {"path": bas}, "breakpoints": [{"line": 15}, {"line": 4}]}));
+    assert_eq!(r["breakpoints"][0]["verified"], true, "{r}");
+    // line 4 (END TYPE) holds no statement: moved to the next one
+    assert!(r["breakpoints"][1]["line"].as_u64().unwrap() > 4, "{r}");
+    d.request("setBreakpoints", json!({"source": {"path": bas}, "breakpoints": [{"line": 15}]}));
+    d.request("configurationDone", json!({}));
+
+    assert_eq!(d.stopped(), "breakpoint");
+    assert_eq!(d.stack(), vec![("Add".to_string(), 15), ("<module>".to_string(), 11)]);
+    assert_eq!(d.eval("n"), "1");
+    assert_eq!(d.eval("total"), "0");
+    assert_eq!(d.eval_in("p.x", 1), "3");
+    assert_eq!(d.eval_in("a(1)", 1), "10");
+    assert_eq!(d.eval_in("i%", 1), "1");
+
+    d.request("continue", json!({"threadId": 1}));
+    assert_eq!(d.stopped(), "breakpoint");
+    assert_eq!(d.eval("n"), "2");
+    assert_eq!(d.eval("total"), "1");
+
+    d.request("stepOut", json!({"threadId": 1}));
+    assert_eq!(d.stopped(), "step");
+    assert_eq!(d.stack().len(), 1);
+
+    d.request("setBreakpoints", json!({"source": {"path": bas}, "breakpoints": []}));
+    d.request("continue", json!({"threadId": 1}));
+    let out = d.finish();
+    assert!(out.contains(" 6  5"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
