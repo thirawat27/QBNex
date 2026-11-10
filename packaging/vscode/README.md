@@ -80,6 +80,9 @@ npx vsce package --target win32-x64  # or linux-x64, darwin-arm64, ...
 
 Install a package with `code --install-extension qbnex-0.1.0.vsix`.
 
+The tools also run from the command line through the launch scripts:
+`qbnex fmt file.bas` (or `qb.cmd fmt` on Windows), `qbnex lsp`, `qbnex dap`.
+
 `syntaxes/qbasic.tmLanguage.json` is generated: after the keyword tables in
 `crates/qb-syntax` change, run `npm run grammar`.
 

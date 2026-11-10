@@ -1,0 +1,90 @@
+QIR 1
+global $__STRING_K str
+global $__STRING_A str
+global $__STRING_N str
+func main
+line 1
+const.str %0 x7072657373
+const.i32 %1 0
+rt PRINTS %1 %0
+const.i32 %2 0
+rt PRINTNL %2
+line 2
+const.str %3 x
+store.str $__STRING_K %3
+line 3
+label ~W2.T
+line 4
+rt %4 INKEY$
+store.str $__STRING_A %4
+line 5
+load.str %5 $__STRING_A
+const.str %6 x
+ne.str %7 %5 %6
+jz %7 ~I1.1
+line 5
+load.str %8 $__STRING_K
+load.str %9 $__STRING_A
+concat %10 %8 %9
+store.str $__STRING_K %10
+line 5
+label ~I1.1
+label ~I1.E
+line 6
+label ~W2.C
+load.str %11 $__STRING_K
+rt %12 LEN %11
+const.i32 %13 3
+ge.i32 %14 %12 %13
+jz %14 ~W2.T
+label ~W2.X
+line 7
+const.str %15 x6B6579733A
+const.i32 %16 0
+rt PRINTS %16 %15
+load.str %17 $__STRING_K
+const.i32 %18 0
+rt PRINTS %18 %17
+const.i32 %19 0
+rt PRINTNL %19
+line 8
+const.i32 %100 0
+label ~M1.T
+rt %101 func__mouseinput %100 %100
+jz %101 ~M1.X
+jmp ~M1.T
+label ~M1.X
+const.str %105 x6D6F757365
+rt PRINTS %100 %105
+rt %102 func__mousex %100 %100
+rt PRINTN.f32 %100 %102
+rt %103 func__mousey %100 %100
+rt PRINTN.f32 %100 %103
+const.i32 %106 1
+rt %104 func__mousebutton %106 %100 %100
+cvt.i64.i32 %107 %104
+rt PRINTN.i64 %100 %107
+rt PRINTNL %100
+line 9
+const.i32 %20 0
+const.str %21 x6E616D653F20
+rt INPUTPROMPT %21 %20
+rt %22 LINEINPUT %20
+store.str $__STRING_N %22
+line 10
+const.str %23 x5B
+load.str %24 $__STRING_N
+const.str %25 x5D
+concat %26 %23 %24
+concat %27 %26 %25
+const.i32 %28 0
+rt PRINTS %28 %27
+const.i32 %29 0
+rt PRINTNL %29
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

@@ -1119,6 +1119,61 @@ END IF
 
 skipargnumchk:
 
+'***special case*** R13: _IIF(condition, a, b) evaluates only the chosen value (C ?:);
+'_TOSTR$(x) is x for a string and LTRIM$(STR$(x)) for a number (string interpolation)
+IF UCASE$(n$) = "_IIF" OR UCASE$(n$) = "_TOSTR" THEN
+    DIM iifArg(1 TO 3) AS STRING
+    DIM iifTyp(1 TO 3) AS LONG
+    iifn = 0: b = 0: firsti = 1
+    n = numelements(a$)
+    FOR i = 1 TO n
+        l$ = getelement(a$, i)
+        IF l$ = "(" THEN b = b + 1
+        IF l$ = ")" THEN b = b - 1
+        IF (l$ = "," AND b = 0) OR i = n THEN
+            iifn = iifn + 1
+            IF iifn > 3 THEN EXIT FOR
+            IF i = n THEN e$ = getelements$(a$, firsti, i) ELSE e$ = getelements$(a$, firsti, i - 1)
+            e$ = evaluate(e$, sourcetyp)
+            IF Error_Happened THEN EXIT FUNCTION
+            IF (sourcetyp AND ISUDT) OR (sourcetyp AND ISARRAY) THEN Give_Error "Expected a number or a string in " + UCASE$(n$): EXIT FUNCTION
+            IF (sourcetyp AND ISREFERENCE) THEN e$ = refer(e$, sourcetyp, 0)
+            IF Error_Happened THEN EXIT FUNCTION
+            iifArg(iifn) = e$: iifTyp(iifn) = sourcetyp
+            firsti = i + 1
+        END IF
+    NEXT
+    IF UCASE$(n$) = "_TOSTR" THEN
+        IF iifn <> 1 THEN Give_Error "Expected _TOSTR$(value)": EXIT FUNCTION
+        IF iifTyp(1) AND ISSTRING THEN
+            r$ = iifArg(1)
+        ELSE
+            r$ = "qbs_ltrim(qbs_str(" + iifArg(1) + "))"
+        END IF
+        typ = STRINGTYPE - ISPOINTER
+        evaluatefunc$ = r$
+        EXIT FUNCTION
+    END IF
+    IF iifn <> 3 THEN Give_Error "Expected _IIF(condition, value-if-true, value-if-false)": EXIT FUNCTION
+    IF iifTyp(1) AND ISSTRING THEN Give_Error "_IIF condition must be numeric": EXIT FUNCTION
+    IF (iifTyp(2) AND ISSTRING) <> (iifTyp(3) AND ISSTRING) THEN Give_Error "_IIF values must both be strings or both be numbers": EXIT FUNCTION
+    IF iifTyp(2) AND ISSTRING THEN
+        typ = STRINGTYPE - ISPOINTER
+        r$ = "((" + iifArg(1) + ")?(" + iifArg(2) + "):(" + iifArg(3) + "))"
+    ELSE
+        IF (iifTyp(2) AND ISFLOAT) OR (iifTyp(3) AND ISFLOAT) THEN
+            typ = DOUBLETYPE - ISPOINTER: ct$ = "double"
+            IF ((iifTyp(2) AND ISFLOAT) <> 0 AND (iifTyp(2) AND 511) > 64) OR ((iifTyp(3) AND ISFLOAT) <> 0 AND (iifTyp(3) AND 511) > 64) THEN typ = FLOATTYPE - ISPOINTER: ct$ = "long double"
+        ELSE
+            typ = INTEGER64TYPE - ISPOINTER: ct$ = "int64"
+            IF (iifTyp(2) AND 511) <= 32 AND (iifTyp(3) AND 511) <= 32 AND (iifTyp(2) AND ISUNSIGNED) = 0 AND (iifTyp(3) AND ISUNSIGNED) = 0 THEN typ = LONGTYPE - ISPOINTER: ct$ = "int32"
+        END IF
+        r$ = "((" + iifArg(1) + ")?((" + ct$ + ")(" + iifArg(2) + ")):((" + ct$ + ")(" + iifArg(3) + ")))"
+    END IF
+    evaluatefunc$ = r$
+    EXIT FUNCTION
+END IF
+
 r$ = RTRIM$(id2.callname) + "("
 
 

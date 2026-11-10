@@ -155,7 +155,7 @@ copy compiler\qbnex.ico internal\temp\ >nul
 copy compiler\icon.rc internal\temp\ >nul
 cd internal\c
 c_compiler\bin\windres.exe -i ../temp/icon.rc -o ../temp/icon.o
-c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput -lbcrypt ..\temp\icon.o -D DEPENDENCY_LOADFONT -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE -static-libgcc -static-libstdc++ -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
+c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput ..\temp\icon.o -D DEPENDENCY_LOADFONT -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE -static-libgcc -static-libstdc++ -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
 cd ..\..
 
 if exist qb-stage0.exe (

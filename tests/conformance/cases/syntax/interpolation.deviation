@@ -1,0 +1,1 @@
+QBNex extension (R13): $"...{expr}..." string interpolation; numbers are formatted as LTRIM$(STR$(x)) (_TOSTR$). Not in the legacy compiler; expected output written by hand.

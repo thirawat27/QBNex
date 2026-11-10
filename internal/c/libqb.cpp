@@ -7110,6 +7110,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     
     #include "libqb/audio_bridge.cpp" //R6: audio shims over qb-audio
+    #include "libqb/scene3d_bridge.cpp" //R15 G4: 3D API shims over qb-runtime scene3d
 
     #ifdef DEPENDENCY_ZLIB
         #include "libqb/compress_bridge.cpp" //R10: _DEFLATE/_INFLATE over qb-runtime compress.rs

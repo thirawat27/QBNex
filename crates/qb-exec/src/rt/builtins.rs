@@ -100,6 +100,10 @@ pub(crate) struct RtState<'a> {
     /// drawn on the screen page, as if typed; `_DELAY`, `_LIMIT` and `SLEEP n`
     /// show the frame drawn so far, and `SLEEP n` waits
     pub(crate) web: bool,
+    /// browser runner: ticks of the last frame shown while polling input
+    pub(crate) web_frame_at: i64,
+    /// browser runner: stdin bytes before this offset were typed (and drawn) live
+    pub(crate) web_typed_end: usize,
 }
 
 struct Using {
@@ -136,6 +140,8 @@ impl<'a> RtState<'a> {
             console_on: false,
             console_only: false,
             web: false,
+            web_frame_at: 0,
+            web_typed_end: 0,
         }
     }
     /// Text INPUT reads instead of the process stdin (browser runner).
@@ -331,6 +337,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
     }
     if let Some(r) = super::audiox::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = super::scene3d::call(vm, name, &a) {
         return r;
     }
     if let Some(r) = super::netx::call(vm, name, &a) {
@@ -711,6 +720,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            web_type_line(vm, false)?;
+            let rt = vm.rt();
             let start = rt.stdin.rpos;
             let line = read_line(&mut rt.stdin)?;
             echo_input(vm, start, true)?;
@@ -728,6 +739,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            web_type_line(vm, name == "INPUTITEM.n")?;
+            let rt = vm.rt();
             let start = rt.stdin.rpos;
             let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
             echo_input(vm, start, false)?;
@@ -918,10 +931,15 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
 
 /// Browser runner: draws the stdin bytes INPUT consumed since `start` on the
 /// screen page (line breaks as newlines), like a typed answer.
-fn echo_input(vm: &mut dyn Host<'_>, start: usize, line: bool) -> R<()> {
+fn echo_input(vm: &mut dyn Host<'_>, mut start: usize, mut line: bool) -> R<()> {
     let rt = vm.rt();
     if !rt.web {
         return Ok(());
+    }
+    if start < rt.web_typed_end {
+        // typed live: already on the screen, with its newline
+        start = rt.web_typed_end;
+        line = false;
     }
     let mut text = rt.stdin.rbuf[start.min(rt.stdin.rpos)..rt.stdin.rpos].to_vec();
     if line && text.last() != Some(&b'\n') {
@@ -943,6 +961,75 @@ fn echo_input(vm: &mut dyn Host<'_>, start: usize, line: bool) -> R<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Browser runner: when INPUT has used up the given stdin text and the page
+/// delivers live keys, waits for a typed line (drawn as it is typed;
+/// Backspace edits, Enter ends) and appends it to the stdin text.
+#[cfg(target_arch = "wasm32")]
+fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
+    {
+        let rt = vm.rt();
+        if !rt.web || rt.stdin.rpos < rt.stdin.rbuf.len() || !qb_runtime::systime::web::interactive() {
+            return Ok(());
+        }
+    }
+    let mut line: Vec<u8> = Vec::new();
+    let draw = |vm: &mut dyn Host<'_>, b: &[u8]| -> R<()> {
+        if screen_out(vm) {
+            if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(b.to_vec())]) {
+                r?;
+            }
+        }
+        Ok(())
+    };
+    loop {
+        let k = {
+            let rt = vm.rt();
+            let cm = &mut rt.cmem[..];
+            rt.input.inkey(cm)
+        };
+        match k.as_slice() {
+            [] => {
+                let rt = vm.rt();
+                if rt.display.started && rt.display.autodisplay != 0 {
+                    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+                }
+                qb_runtime::systime::sleep_ms(15);
+            }
+            [13] => break,
+            [8] => {
+                if line.pop().is_some() {
+                    // cursor left, blank, cursor left (PRINT control characters)
+                    draw(vm, &[29, b' ', 29])?;
+                }
+            }
+            [c] if *c >= 32 => {
+                line.push(*c);
+                draw(vm, &[*c])?;
+            }
+            _ => {}
+        }
+    }
+    if screen_out(vm) {
+        if let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+            r?;
+        }
+    }
+    if numeric && line.is_empty() {
+        // an empty answer to a numeric INPUT is 0, as in QBasic
+        line.push(b'0');
+    }
+    let rt = vm.rt();
+    rt.stdin.rbuf.extend_from_slice(&line);
+    rt.stdin.rbuf.push(b'\n');
+    rt.web_typed_end = rt.stdin.rbuf.len();
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn web_type_line(_vm: &mut dyn Host<'_>, _numeric: bool) -> R<()> {
     Ok(())
 }
 
@@ -1266,6 +1353,14 @@ fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
 /// Keyboard, mouse and frame-rate builtins (rt/input.rs).
 fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let rt = vm.rt();
+    if rt.web && matches!(name, "INKEY$" | "qbs_inkey" | "func__keyhit" | "func__keydown" | "func__mouseinput") {
+        // browser runner: a program polling the keyboard in a loop still shows its frames
+        let now = qb_runtime::systime::ticks();
+        if now - rt.web_frame_at >= 33 && rt.display.started && rt.display.autodisplay != 0 {
+            rt.web_frame_at = now;
+            rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+        }
+    }
     let cm = &mut rt.cmem[..];
     let v = match name {
         "INKEY$" | "qbs_inkey" => V::S(rt.input.inkey(cm)),

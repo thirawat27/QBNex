@@ -407,6 +407,12 @@ impl Server {
             }
             v.push_str(&format!("**{}** — {}", info.name, info.doc));
             v
+        } else if let Some(p) = qb_syntax::library::lookup(&name) {
+            let mut v = format!("```qbasic\n{}\n```\n`{}` from **{}** (`$IMPORT:'{}'`)", p.syntax, p.name, p.module, p.module);
+            if !p.doc.is_empty() {
+                v.push_str(&format!("\n\n{}", p.doc));
+            }
+            v
         } else {
             return None;
         };
@@ -450,6 +456,20 @@ impl Server {
                     KeywordKind::Statement => lt::CompletionItemKind::KEYWORD,
                 }),
                 detail: (!k.syntax.is_empty()).then(|| k.syntax.clone()),
+                ..Default::default()
+            });
+        }
+        let mut libs: Vec<_> = qb_syntax::library::all().collect();
+        libs.sort_by(|a, b| a.name.cmp(b.name));
+        for p in libs {
+            if !seen.insert(p.name.to_ascii_uppercase()) {
+                continue;
+            }
+            items.push(lt::CompletionItem {
+                label: p.name.to_string(),
+                kind: Some(if p.is_function { lt::CompletionItemKind::FUNCTION } else { lt::CompletionItemKind::METHOD }),
+                detail: Some(format!("{} — {}", p.module, p.syntax)),
+                documentation: (!p.doc.is_empty()).then(|| lt::Documentation::String(p.doc.to_string())),
                 ..Default::default()
             });
         }

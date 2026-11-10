@@ -85,6 +85,10 @@ pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
         }
         return;
     }
+    // R15 G4: _DISPLAY shows the queued 3D draws (scene3d)
+    if kind == KIND_DISPLAY {
+        crate::scene3d::frame_done();
+    }
     let mut sink = match SINK.lock() {
         Ok(s) => s,
         Err(p) => p.into_inner(),
@@ -98,7 +102,8 @@ pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
     let Sink::Open(file) = &mut *sink else { return };
     // SAFETY: guaranteed by the caller.
     let Some(im) = (unsafe { im.as_ref() }) else { return };
-    if let Some(rec) = record(im, kind) {
+    if let Some(mut rec) = record(im, kind) {
+        crate::scene3d::apply_to_record(&mut rec, u32::from(im.width), u32::from(im.height), u32::from(im.bytes_per_pixel));
         let _ = file.write_all(&rec);
         let _ = file.flush();
     }

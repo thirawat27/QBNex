@@ -5,9 +5,29 @@
   
   **Modern QBasic/QuickBASIC Compiler**
   
-  > **QBNex is a modern QBasic compiler built to keep the QuickBASIC/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding self-hosted performance, OpenGL graphics, modern syntax, and native binaries for Windows, Linux, and macOS.
+  > **QBNex is a modern QBasic compiler built to keep the QuickBASIC/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding a Rust runtime, a standard library, editor tools, and native binaries for Windows, Linux, and macOS.
   
 </div>
+
+---
+
+## Documentation / เอกสาร
+
+The user manual is in [`docs/manual`](docs/manual/README.md), in English and Thai.
+คู่มือผู้ใช้อยู่ที่ [`docs/manual`](docs/manual/README.md) มีทั้งภาษาอังกฤษและภาษาไทย
+
+| English | ภาษาไทย |
+| --- | --- |
+| [Installation](docs/manual/en/installation.md) | [การติดตั้ง](docs/manual/th/installation.md) |
+| [Commands: compile, `--ir`, fmt, lsp, dap](docs/manual/en/commands.md) | [คำสั่ง: คอมไพล์, `--ir`, fmt, lsp, dap](docs/manual/th/commands.md) |
+| [Language extensions (available and planned)](docs/manual/en/language.md) | [ส่วนขยายของภาษา (ใช้ได้แล้วและวางแผนไว้)](docs/manual/th/language.md) |
+| [Standard library: json, url, ext.*](docs/manual/en/stdlib.md) | [ไลบรารีมาตรฐาน: json, url, ext.*](docs/manual/th/stdlib.md) |
+| [Graphics and 3D](docs/manual/en/graphics-3d.md) | [กราฟิกและ 3 มิติ](docs/manual/th/graphics-3d.md) |
+| [Web (WebAssembly) build](docs/manual/en/web.md) | [รันบนเว็บ (WebAssembly)](docs/manual/th/web.md) |
+| [VS Code, formatter, language server, debugger](docs/manual/en/vscode.md) | [VS Code, formatter, language server, debugger](docs/manual/th/vscode.md) |
+| [Differences from QB64](docs/manual/en/differences.md) | [ความแตกต่างจาก QB64](docs/manual/th/differences.md) |
+
+Where this README and the manual disagree, the manual is the current one.
 
 ---
 
@@ -15,6 +35,7 @@
 
 - [QBNex](#qbnex)
   - [Table of Contents](#table-of-contents)
+  - [Documentation / เอกสาร](#documentation--เอกสาร)
   - [About](#about)
   - [Features](#features)
   - [System Requirements](#system-requirements)
@@ -135,11 +156,11 @@
 
 ## About
 
-**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into optimized C++ and compiles to native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components.
+**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into C++ and compiles to native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runtime is being ported to Rust (`crates/qb-*`), and a second back end (`qb file.bas --ir`) runs programs through the QIR intermediate language on a Rust VM with a Cranelift JIT, without a C++ compiler.
 
 **Version**: See release tags and `qb --version`
 
-The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. It features comprehensive graphics via OpenGL/FreeGLUT, sound synthesis via miniaudio, and full file I/O operations.
+The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. Graphics, windowing, sound, fonts and images come from the Rust runtime (winit, softbuffer, cpal, and wgpu for the optional GPU path); no OpenGL, FreeGLUT, FreeType or miniaudio is linked.
 
 Repository: https://github.com/thirawat27/QBNex
 
@@ -151,12 +172,12 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 
 - **Comprehensive Language Support**
   - Full support for classic QBasic/QB4.5 syntax (100% backward compatible)
-  - Modern extended syntax: `IMPORT module`, `x += 1`, `# comments`
-  - AS TYPE syntax: `FUNCTION name AS STRING` instead of `FUNCTION name$`
+  - QBNex extensions: `'$IMPORT:'module'` standard library modules, `_CONTINUE`, CLASS (with `'$IMPORT:'qbnex'`), CP437 or UTF-8 source files
+  - Planned extensions (ENUM, FOR EACH, TRY/CATCH, `_IIF`, string interpolation, `x += 1`...): see [docs/manual/en/language.md](docs/manual/en/language.md)
   - User-defined types (TYPE...END TYPE) with nested structures
   - Subroutines and functions with parameters
   - Multi-dimensional arrays with REDIM PRESERVE
-  - Standard library imports via `IMPORT module` or `'$IMPORT:'module.name'`
+  - Standard library imports via `'$IMPORT:'module.name'`: json, url, collections, and the Rust-backed `ext.*` modules (regex, hash, zip, http, utf8, collections, datetime)
   - 150+ QBasic/QB64 keywords and functions
   - Extended data types: BIT, BYTE, _INTEGER64, _FLOAT, OFFSET (pointers)
   - Unsigned integer types (UNSIGNED BYTE, UNSIGNED INTEGER, UNSIGNED LONG, UNSIGNED _INTEGER64)
@@ -174,13 +195,14 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - SCREEN modes with VGA and hi-res graphics support (SCREEN 0-12+)
   - Drawing primitives (LINE, CIRCLE, PAINT, DRAW with macro strings)
   - Image manipulation (GET/PUT with PSET, AND, OR, XOR transfer modes)
-  - TrueType font rendering via FreeType library
-  - Image format loading (BMP, PCX, PNG, JPEG, etc.) via STB Image
-  - Sound synthesis via miniaudio library (SOUND, PLAY, BEEP)
+  - TrueType font rendering (Rust: skrifa)
+  - Image format loading (BMP, PCX, PNG, JPEG, etc.) in Rust
+  - 3D `_MAPTRIANGLE` with depth buffer; optional wgpu GPU path; high-level `_MESH`/`_CAMERA`/`_LIGHT` API planned
+  - Sound synthesis in Rust (SOUND, PLAY, BEEP; cpal output)
   - 4-voice polyphonic SOUND/PLAY synthesis via `_VOICE`
   - ADSR envelopes via `_ADSR attack, decay, sustain, release`
   - Custom and noise waveforms via `_WAVE` (`SINE`, `SQUARE`, `SAW`, `PINK`, `BROWN`, `LFSR`, `CUSTOM:...`)
-  - Cross-platform audio: ALSA (Linux), CoreAudio (macOS), Windows Multimedia
+  - Cross-platform audio through cpal: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux)
 
 - **Network Capabilities**
   - TCP/IP networking with socket support
@@ -212,6 +234,8 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - Custom output naming (`-o` flag)
   - Debug mode with GDB information
   - Configurable compiler settings via INI file
+  - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`) and a VS Code extension (`packaging/vscode`)
+  - Browser build of the QIR runner (WebAssembly, preview)
 
 - **System Integration**
   - Timer and date/time functions
@@ -235,7 +259,6 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 **macOS:**
 - macOS with Xcode Command Line Tools installed
 - Install with: `xcode-select --install`
-- OpenGL and GLUT libraries (typically pre-installed)
 - CoreAudio for sound output
 
 **Linux:**
@@ -317,7 +340,7 @@ The script will:
 - Build the stage0 compiler and self-host the final compiler
 - Create `qb` in the project root (run it as `qb` or `qbnex`)
 
-**Required components:** Xcode Command Line Tools, OpenGL, GLUT, CoreAudio, Cocoa
+**Required components:** Xcode Command Line Tools and Rust (`cargo`); CoreAudio and Cocoa come with macOS
 
 ### Linux Setup
 
@@ -703,7 +726,9 @@ END CLASS
 
 **Modern QBNex Syntax (QBasic + Extended):**
 
-QBNex now supports a modern, cleaner syntax while maintaining full backward compatibility with traditional QBasic:
+> **Note:** the current compiler accepts only the `'$IMPORT:'module'` form below. `IMPORT module`, `FUNCTION name AS STRING`, `x += 1` and `# comment` are planned; see [docs/manual/en/language.md](docs/manual/en/language.md) for what compiles today.
+
+QBNex is gaining a modern syntax while keeping full backward compatibility with traditional QBasic (planned forms):
 
 | Feature | Modern Syntax | Traditional Syntax | Description |
 |---------|--------------|-------------------|-------------|
@@ -3201,6 +3226,34 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 | `>=`     | Greater or equal | `IF x >= 10 THEN` |
 
 ---
+
+### Language Extensions
+
+QBNex adds these to QBasic. Existing programs are unaffected: the new words start with `_` or are only recognised where QBasic would have reported a syntax error.
+
+| Feature | Example | Notes |
+| --- | --- | --- |
+| `_IIF` | `PRINT _IIF(n > 1, "items", "item")` | Only the chosen value is evaluated. Both values are strings or both are numbers. |
+| `_ANDALSO`, `_ORELSE` | `IF i <= UBOUND(a) _ANDALSO a(i) > 0 THEN` | Short-circuit logic, result -1 or 0. |
+| String interpolation | `PRINT $"Hello {name$}, you are {age%}"` | Numbers are formatted like `LTRIM$(STR$(x))` (`_TOSTR$`). `{{` and `}}` are literal braces. |
+| `FOR EACH` | `FOR EACH v IN scores()` ... `NEXT` | One-dimensional arrays, LBOUND to UBOUND; `v` is a copy of the element. |
+| `ENUM` | `ENUM Color` / `Red, Green = 5, Blue` / `END ENUM` | Members become integer `CONST`s, counting up from 0 or from the last `= value`. |
+| `TRY` / `CATCH` / `FINALLY` | see below | Built on `ON ERROR`; `CATCH e` stores the error number in `e`. Without `CATCH`, the error is raised again after `FINALLY`. |
+| `OPTIONAL` parameters | `SUB Greet (who$, OPTIONAL greeting$ = "Hello")` | Trailing arguments may be left out; the default is any expression valid at the call site. |
+| `$ASSERTS` + `_ASSERT` | `_ASSERT total >= 0, "negative total"` | Checked only when `$ASSERTS` is present. |
+
+```basic
+TRY
+    OPEN "data.txt" FOR INPUT AS #1
+    LINE INPUT #1, first$
+CATCH e
+    PRINT "could not read data.txt, error"; e
+FINALLY
+    CLOSE
+END TRY
+```
+
+`TRY` blocks must be written in the main source file (not in an `$INCLUDE` file), each keyword on its own line.
 
 ## Development
 

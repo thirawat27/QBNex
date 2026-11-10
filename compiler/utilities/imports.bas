@@ -130,17 +130,49 @@ FUNCTION StdLib_ReadText$ (path$)
     StdLib_ReadText$ = text
 END FUNCTION
 
-FUNCTION StdLib_ExpandIncludes$ (path$, depth AS LONG)
-    'module text with its relative '$INCLUDE files inlined (they would not resolve from the temp file)
+SUB StdLib_SplitIncludeRange (spec$, fromLine AS LONG, toLine AS LONG)
+    'an include written as 'file|from|to' reads only that line range of the file (hoisted imports);
+    'the reader keeps the real file name and line numbers for diagnostics
+    DIM p AS LONG
+    DIM q AS LONG
+
+    fromLine = 0
+    toLine = 0
+    p = INSTR(spec$, "|")
+    IF p = 0 THEN EXIT SUB
+    q = INSTR(p + 1, spec$, "|")
+    IF q = 0 THEN EXIT SUB
+    fromLine = VAL(MID$(spec$, p + 1, q - p - 1))
+    toLine = VAL(MID$(spec$, q + 1))
+    spec$ = LEFT$(spec$, p - 1)
+END SUB
+
+SUB StdLib_EmitRange (path$, fromLine AS LONG, toLine AS LONG, inBody AS INTEGER, headText$, bodyText$)
+    DIM directive AS STRING
+
+    IF fromLine > toLine THEN EXIT SUB
+    directive = "'$INCLUDE:'" + path$ + "|" + LTRIM$(STR$(fromLine)) + "|" + LTRIM$(STR$(toLine)) + "'" + CHR$(13) + CHR$(10)
+    IF inBody THEN bodyText$ = bodyText$ + directive ELSE headText$ = headText$ + directive
+END SUB
+
+SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
+    'split one file into declaration ranges (before its first SUB/FUNCTION) and procedure ranges;
+    'its relative $INCLUDE files are split the same way, its $IMPORT dependencies are hoisted first
     DIM text AS STRING
-    DIM result AS STRING
     DIM lineText AS STRING
+    DIM upperText AS STRING
+    DIM depKey AS STRING
     DIM incName AS STRING
     DIM incPath AS STRING
+    DIM inBody AS INTEGER
+    DIM inDeclare AS INTEGER
+    DIM lineNo AS LONG
+    DIM segStart AS LONG
     DIM p AS LONG
     DIM nl AS LONG
 
     text = StdLib_ReadText$(path$)
+    segStart = 1
     p = 1
     DO WHILE p <= LEN(text)
         nl = INSTR(p, text, CHR$(10))
@@ -148,32 +180,42 @@ FUNCTION StdLib_ExpandIncludes$ (path$, depth AS LONG)
         lineText = MID$(text, p, nl - p)
         IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
         p = nl + 1
-        incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
+        lineNo = lineNo + 1
+
+        depKey = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
+        IF LEN(depKey) THEN StdLib_HoistModule depKey, headText$, bodyText$ 'the line itself stays, as a no-op
+
         incPath = ""
+        incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(incName) AND depth < 20 THEN
             incPath = getfilepath$(path$) + incName
             IF _FILEEXISTS(incPath) = 0 THEN incPath = ""
         END IF
         IF LEN(incPath) THEN
-            result = result + StdLib_ExpandIncludes$(incPath, depth + 1)
-        ELSE
-            result = result + lineText + CHR$(13) + CHR$(10)
+            StdLib_EmitRange path$, segStart, lineNo - 1, inBody, headText$, bodyText$
+            StdLib_HoistFile incPath, headText$, bodyText$, depth + 1
+            segStart = lineNo + 1
+        ELSEIF inBody = 0 THEN
+            upperText = UCASE$(LTRIM$(lineText))
+            'SUB/FUNCTION prototypes inside DECLARE [DYNAMIC|CUSTOMTYPE|STATIC] LIBRARY
+            '... END DECLARE are declarations: they stay in the head (R12b 541f49d).
+            IF inDeclare THEN
+                IF LEFT$(upperText, 11) = "END DECLARE" THEN inDeclare = 0
+            ELSEIF LEFT$(upperText, 8) = "DECLARE " AND INSTR(upperText, " LIBRARY") > 0 THEN
+                inDeclare = -1
+            ELSEIF LEFT$(upperText, 4) = "SUB " OR LEFT$(upperText, 9) = "FUNCTION " THEN
+                StdLib_EmitRange path$, segStart, lineNo - 1, 0, headText$, bodyText$
+                segStart = lineNo
+                inBody = -1
+            END IF
         END IF
     LOOP
-    StdLib_ExpandIncludes$ = result
-END FUNCTION
+    StdLib_EmitRange path$, segStart, lineNo, inBody, headText$, bodyText$
+END SUB
 
 SUB StdLib_HoistModule (module$, headText$, bodyText$)
     DIM moduleKey AS STRING
     DIM modulePath AS STRING
-    DIM text AS STRING
-    DIM lineText AS STRING
-    DIM upperText AS STRING
-    DIM depKey AS STRING
-    DIM inBody AS INTEGER
-    DIM inDeclare AS INTEGER
-    DIM p AS LONG
-    DIM nl AS LONG
 
     moduleKey = StdLib_CanonicalImportKey$(module$)
     IF LEN(moduleKey) = 0 THEN EXIT SUB
@@ -187,38 +229,9 @@ SUB StdLib_HoistModule (module$, headText$, bodyText$)
     modulePath = StdLib_ImportPath$(moduleKey)
     IF _FILEEXISTS(modulePath) = 0 THEN EXIT SUB 'left to the in-place $IMPORT, which reports it
     stdlibHoisted$ = stdlibHoisted$ + moduleKey + "@"
-
-    text = StdLib_ExpandIncludes$(modulePath, 0)
-    p = 1
-    DO WHILE p <= LEN(text)
-        nl = INSTR(p, text, CHR$(10))
-        IF nl = 0 THEN nl = LEN(text) + 1
-        lineText = MID$(text, p, nl - p)
-        IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
-        p = nl + 1
-        depKey = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
-        IF LEN(depKey) THEN
-            StdLib_HoistModule depKey, headText$, bodyText$ 'dependencies first
-        ELSE
-            upperText = UCASE$(LTRIM$(lineText))
-            IF inBody = 0 THEN
-                'SUB/FUNCTION prototypes inside DECLARE [DYNAMIC|CUSTOMTYPE|STATIC] LIBRARY
-                '... END DECLARE are declarations: they stay in the head.
-                IF inDeclare THEN
-                    IF LEFT$(upperText, 11) = "END DECLARE" THEN inDeclare = 0
-                ELSEIF LEFT$(upperText, 8) = "DECLARE " AND INSTR(upperText, " LIBRARY") > 0 THEN
-                    inDeclare = -1
-                ELSEIF LEFT$(upperText, 4) = "SUB " OR LEFT$(upperText, 9) = "FUNCTION " THEN
-                    inBody = -1
-                END IF
-            END IF
-            IF inBody THEN
-                bodyText$ = bodyText$ + lineText + CHR$(13) + CHR$(10)
-            ELSE
-                headText$ = headText$ + lineText + CHR$(13) + CHR$(10)
-            END IF
-        END IF
-    LOOP
+    'the in-place $IMPORT lines (also inside modules) become no-ops
+    importedModules$ = stdlibHoisted$
+    StdLib_HoistFile modulePath, headText$, bodyText$, 0
 END SUB
 
 SUB StdLib_PrepareHoistedImports
@@ -231,6 +244,9 @@ SUB StdLib_PrepareHoistedImports
     DIM fh AS LONG
     DIM p AS LONG
     DIM nl AS LONG
+    DIM usesTry AS INTEGER
+    DIM codeText AS STRING
+    DIM commentText AS STRING
 
     stdlibHoisted$ = "@"
     stdlibHeadFile$ = ""
@@ -246,11 +262,19 @@ SUB StdLib_PrepareHoistedImports
         p = nl + 1
         moduleName = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(moduleName) THEN StdLib_HoistModule moduleName, headText, bodyText
+        IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
+        codeText = SyntaxExt_CodePart$(lineText, commentText)
+        IF UCASE$(LTRIM$(RTRIM$(codeText))) = "TRY" THEN usesTry = -1
     LOOP
-    IF stdlibHoisted$ = "@" THEN EXIT SUB
+    IF stdlibHoisted$ = "@" AND usesTry = 0 THEN EXIT SUB
 
     'the in-place $IMPORT lines become no-ops
-    importedModules$ = stdlibHoisted$
+    IF stdlibHoisted$ <> "@" THEN importedModules$ = stdlibHoisted$
+
+    'TRY ... END TRY (syntax_ext.bas) needs one module-level error handler
+    IF usesTry THEN
+        headText = "DIM SHARED QBNEX_TRYERR AS LONG" + CHR$(13) + CHR$(10) + "GOTO QBNEX_TRY_SKIP" + CHR$(13) + CHR$(10) + "QBNEX_TRY_HANDLER:" + CHR$(13) + CHR$(10) + "QBNEX_TRYERR = ERR" + CHR$(13) + CHR$(10) + "RESUME NEXT" + CHR$(13) + CHR$(10) + "QBNEX_TRY_SKIP:" + CHR$(13) + CHR$(10) + headText
+    END IF
 
     'these files take the place of the vwatch includes at the first/last line
     vwatchDir = getfilepath$(COMMAND$(0)) + "internal" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$

@@ -1,0 +1,1 @@
+Fixes legacy defect L-04 (string comparison in parentheses inside a PRINT list). Expected output is QBasic.
