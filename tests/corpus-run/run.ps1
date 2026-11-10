@@ -98,7 +98,7 @@ function Invoke-Bounded([string]$exe, [string[]]$argv, [string]$cwd, [hashtable]
 
 function Format-Code($code) {
     if ($null -eq $code) { return 'timeout' }
-    if ($code -lt 0 -or $code -gt 0x7FFFFFFF) { return ('0x{0:X8}' -f ([uint32]([int64]$code -band 0xFFFFFFFF))) }
+    if ($code -lt 0 -or $code -gt 0x7FFFFFFF) { return ('0x{0:X8}' -f ([int64]$code -band 0xFFFFFFFFL)) }
     return [string]$code
 }
 
@@ -193,7 +193,20 @@ foreach ($f in $files) {
         $envs = @{ QBNEX_NO_ERROR_DIALOG = '1'; QBNEX_HEADLESS = '1'; QBNEX_FB_CAPTURE = $fb; QBNEX_INPUT_SCRIPT = $script; QB_JIT = $null }
         if ($v -eq 'vm') { $envs.QB_JIT = 'off' }
         if ($v -eq 'jit') { $envs.QB_JIT = 'eager' }
-        $x = Invoke-Bounded $exes[$v] @() $cwd $envs $stdin $Timeout
+        # QB64-style executables chdir to their own folder at startup, so the exe sits next to
+        # the program's data files, as it would for a user.
+        $runExe = Join-Path $cwd "qbnex_corpus_$v.exe"
+        Copy-Item $exes[$v] $runExe
+        # The machine is shared with large builds: a run that dies because the system commit
+        # limit is reached ("memory allocation of N bytes failed") is retried, not counted.
+        for ($try = 1; $try -le 3; $try++) {
+            $x = Invoke-Bounded $runExe @() $cwd $envs $stdin $Timeout
+            if ((Get-Normalised $x.err) -notmatch 'memory allocation of \d+ bytes failed') { break }
+            $r.notes.Add("$v hit the system memory limit (try $try)")
+            Start-Sleep -Seconds 20
+            Remove-Item $cwd -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item $f.DirectoryName $cwd -Recurse; Copy-Item $exes[$v] $runExe
+        }
         [System.IO.File]::WriteAllBytes((Join-Path $w "$v.stdout"), $x.out)
         [System.IO.File]::WriteAllBytes((Join-Path $w "$v.stderr"), $x.err)
         $fbHash = ''
@@ -225,6 +238,12 @@ foreach ($f in $files) {
         foreach ($v in @('oracle', 'vm', 'jit')) {
             $o = $r.run[$v]
             if (-not $o -or $o -eq $base) { continue }
+            # qb-exec has no window yet: a GUI program prints its text screen to stdout and never
+            # sees the input script, so only crashes/errors are meaningful there.
+            if ($v -in 'vm', 'jit' -and -not $r.consoleOnly -and $base -ne $r.run.vm) {
+                if ($o.exit -match '^0x' -or ($o.exit -notin '0', 'timeout') -or $o.stderr -match 'error|panick') { $r.notes.Add("$v (no window): exit $($o.exit) $($o.stderr)") }
+                continue
+            }
             if ($o.exit -eq 'timeout' -or $base.exit -eq 'timeout') {
                 if ($o.exit -ne $base.exit) { $r.notes.Add("$v exit $($o.exit) vs $($base.exit)") }
                 continue
