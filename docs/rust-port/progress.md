@@ -792,6 +792,26 @@ New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limit
 Verified (Windows, `CARGO_BUILD_JOBS=1`): `cargo test -p qb-exec --features debug --lib debug` 2/2; `cargo test -p qb-dap` 4 unit + 3 stdio integration tests (breakpoint in a SUB, step over out of it, second call with a copied argument, step out, step into recursive FUNCTION, STATIC variable, run to exit with output; TYPE/array expansion and evaluate; stop on entry); `cargo clippy -p qb-dap --all-targets` clean; `npm test` in packaging/vscode 6/6. Not tried in a running VS Code window (no GUI here) and not with a real `qb --ir` compile (tests use the qb-exec QIR fixtures).
 
 Needs from the emitter (R11a): file information in the QIR line table for `$INCLUDE`d code (see qb-dap-plan.md, item 1); until then breakpoints work in the launched file only.
+## R13-ext: extension library (`crates/qb-ext`) and `ext.*` stdlib modules
+
+Pure Rust, latest crates: `regex`, `crc32fast`, `md-5`, `sha1`, `sha2`, `base64`, `hex`, `zip` (deflate), `ureq` 3 + rustls/ring with the webpki roots (no OpenSSL), `unicode-normalization`, `indexmap`, `chrono`. Exposed as a `qb_*` C ABI (`qb_ext_*`, prototypes in `crates/qb-ext/include/qb_ext.h`), linked into `libqb_runtime.a` through qb-runtime's default `ext` feature. `qbx.cpp` includes the header, so the stdlib modules call it from header-less `DECLARE LIBRARY` blocks with `_OFFSET(s$)`/`LEN(s$)` pairs; string results come back through a per-thread buffer (`Ext_Result$`), errors through `Ext_LastError$`.
+
+| Module | Functions |
+| --- | --- |
+| `ext.core` | `Ext_LastError$`, `Ext_PartCount&`, `Ext_Part$` (shared plumbing) |
+| `ext.regex` | `Regex_IsMatch&`, `Regex_Find&` (1-based, `Regex_Match$`, `Regex_Group$`, `Regex_GroupCount&`), `Regex_Replace$`, `Regex_ReplaceFirst$`, `Regex_Split&`/`Regex_Part$` |
+| `ext.hash` | `Hash_CRC32$`/`Hash_CRC32Value~&`, `Hash_MD5$`, `Hash_SHA1$`, `Hash_SHA256$`, `Hash_SHA512$`, `Base64_Encode$`/`Decode$`, `Base64Url_Encode$`, `Hex_Encode$`/`Decode$` |
+| `ext.zip` | `Zip_List&`/`Zip_EntryName$`/`Zip_EntrySize&&`, `Zip_ReadEntry$`, `Zip_Extract&` (rejects `../` names), `Zip_Create&`/`Zip_AddData&`/`Zip_AddFile&`/`Zip_AddFolder&`/`Zip_Close&` |
+| `ext.http` | `Http_Get&`, `Http_Post&`, `Http_Request&` (any method, header lines, timeout, redirects), `Http_Body$`, `Http_Headers$`, `Http_Header$` |
+| `ext.utf8` | `Utf8_Len&`, `Utf8_Mid$`/`Left$`/`Right$` by code point (invalid bytes kept, one each), `Utf8_Upper$`/`Lower$`, `Utf8_Normalize$` (NFC/NFD/NFKC/NFKD), `Utf8_IsValid&`, `Utf8_CodePoint&`, `Utf8_Chr$`, `Cp437_ToUtf8$`, `Cp437_ToUtf8Graphics$`, `Utf8_ToCp437$` |
+| `ext.collections` | lists and insertion-ordered dictionaries of strings and numbers behind handles: `XList_*` (add/insert/set/get/type/remove/index-of/join/sort), `XDict_*` (set/get/type/has/remove/key), `XColl_Clear`/`XColl_Free` |
+| `ext.datetime` | Unix milliseconds (DOUBLE): `DT_Now#`, `DT_ISO$`/`DT_ISOLocal$`, `DT_Format$` (strftime-like), `DT_Parse#` (ISO 8601 or a pattern), `DT_Make#`, parts (`DT_Year&` ... `DT_IsoWeek&`), `DT_OffsetSeconds&`, `DT_AddDays#`, `DT_DiffDays#` |
+
+Fixes needed on the way: the import hoisting (`StdLib_HoistModule`, `compiler/utilities/imports.bas`) split a module at the first `FUNCTION` line, which included the prototypes inside `DECLARE LIBRARY ... END DECLARE`, so no stdlib module could use `DECLARE LIBRARY`; such lines now stay in the hoisted head. User programs on Windows link `-lbcrypt` (getrandom, used by rustls/ring); added to `makeline_win.txt`, `setup_win.cmd`, CMake and `run_diff.cmd`.
+
+Tests: `cargo test -p qb-ext` 19 tests (digest/Base64/hex vectors, regex, zip round trip and path traversal, HTTP GET/POST/404/redirect/timeout/refused against an in-process server, UTF-8 slicing and case/normalization, CP437 round trip of all 256 bytes, collections, ISO/strftime/parse/make). Conformance `stdlib/ext_regex_hash`, `stdlib/ext_zip_http` (the HTTP part talks to the in-process test server through the hidden `qb_ext_test_http_server` hook, no internet) and `stdlib/ext_utf8_coll_dt` (UTC only), goldens hand-checked (`.deviation`, no legacy equivalent); all 10 `stdlib/*` cases pass on the self-hosted `qb.exe`.
+
+Not covered: the QIR backend (`qb-exec`) resolves `DECLARE LIBRARY` at run time and does not export the `qb_ext_*` symbols from its own executable yet; Linux/macOS builds of qb-ext are unverified.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

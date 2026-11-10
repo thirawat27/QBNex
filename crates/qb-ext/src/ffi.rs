@@ -13,7 +13,7 @@
 //! - Text arguments that must be UTF-8 (URLs, header lines, file paths,
 //!   zip member names) are decoded lossily.
 
-use crate::{codec, hash, http, re, ziparc};
+use crate::{codec, coll, datetime, hash, http, re, utf8, ziparc};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -412,6 +412,475 @@ pub extern "C" fn qb_ext_http_headers() -> i64 {
     })
 }
 
+// ------------------------------------------------------------- UTF-8, CP437
+
+/// Number of characters (invalid bytes count one each).
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_utf8_len(p: *const u8, l: i64) -> i64 {
+    utf8::len(unsafe { bytes(p, l) }) as i64
+}
+
+/// Slices by character: `op` 1 = MID$(s, a, b) (b < 0: to the end),
+/// 2 = LEFT$(s, a), 3 = RIGHT$(s, a). Returns the result length.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_utf8_slice(op: i32, p: *const u8, l: i64, a: i64, b: i64) -> i64 {
+    let s = unsafe { bytes(p, l) };
+    match op {
+        1 => ok_result(utf8::mid(s, a, b)),
+        2 => ok_result(utf8::left(s, a)),
+        3 => ok_result(utf8::right(s, a)),
+        _ => fail(format!("unknown slice op {op}")),
+    }
+}
+
+/// `op` 1 = upper case, 2 = lower case, 11..14 = normalize to NFC, NFD,
+/// NFKC, NFKD. Returns the result length (-1 for an unknown op).
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_utf8_transform(op: i32, p: *const u8, l: i64) -> i64 {
+    let s = unsafe { bytes(p, l) };
+    match op {
+        1 => ok_result(utf8::upper(s)),
+        2 => ok_result(utf8::lower(s)),
+        11..=14 => match utf8::Form::from_code(op - 10) {
+            Some(f) => ok_result(utf8::normalize(s, f)),
+            None => fail("bad form"),
+        },
+        _ => fail(format!("unknown transform {op}")),
+    }
+}
+
+/// 1 when the bytes are valid UTF-8, else 0.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_utf8_valid(p: *const u8, l: i64) -> i32 {
+    i32::from(utf8::is_valid(unsafe { bytes(p, l) }))
+}
+
+/// Code point of character `index` (1-based); -1 if there is none.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_utf8_codepoint(p: *const u8, l: i64, index: i64) -> i64 {
+    utf8::codepoint(unsafe { bytes(p, l) }, index)
+}
+
+/// UTF-8 encoding of a code point; returns its length (0 if invalid).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_utf8_chr(cp: i64) -> i64 {
+    ok_result(utf8::from_codepoint(cp))
+}
+
+/// `op` 1 = CP437 to UTF-8 (control bytes stay ASCII), 2 = CP437 to UTF-8
+/// with the PC symbols for 0x01-0x1F/0x7F, 3 = UTF-8 to CP437 (`?` for
+/// characters without a CP437 form). Returns the result length.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_cp437(op: i32, p: *const u8, l: i64) -> i64 {
+    let s = unsafe { bytes(p, l) };
+    match op {
+        1 => ok_result(utf8::cp437_to_utf8(s, false)),
+        2 => ok_result(utf8::cp437_to_utf8(s, true)),
+        3 => ok_result(utf8::utf8_to_cp437(s, b'?')),
+        _ => fail(format!("unknown CP437 op {op}")),
+    }
+}
+
+// ------------------------------------------------------------- lists, dictionaries
+
+thread_local! {
+    static COLL: RefCell<coll::Store> = RefCell::new(coll::Store::default());
+}
+
+fn coll_with<R>(f: impl FnOnce(&mut coll::Store) -> R) -> R {
+    COLL.with(|c| f(&mut c.borrow_mut()))
+}
+
+const BAD_HANDLE: &str = "not a list/dictionary handle";
+
+/// New empty list; returns its handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_new() -> i32 {
+    coll_with(coll::Store::list_new)
+}
+
+/// New empty dictionary; returns its handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dict_new() -> i32 {
+    coll_with(coll::Store::dict_new)
+}
+
+/// Frees a list or dictionary: 0, or -1 for an unknown handle.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_coll_free(h: i32) -> i32 {
+    if coll_with(|c| c.free(h)) { 0 } else { fail(BAD_HANDLE) as i32 }
+}
+
+fn list_op<R>(h: i32, bad: R, f: impl FnOnce(&mut Vec<coll::Value>) -> R) -> R {
+    match coll_with(|c| c.list(h).map(f)) {
+        Some(r) => {
+            with(|s| s.error.clear());
+            r
+        }
+        None => {
+            fail(BAD_HANDLE);
+            bad
+        }
+    }
+}
+
+fn dict_op<R>(h: i32, bad: R, f: impl FnOnce(&mut indexmap::IndexMap<Vec<u8>, coll::Value>) -> R) -> R {
+    match coll_with(|c| c.dict(h).map(f)) {
+        Some(r) => {
+            with(|s| s.error.clear());
+            r
+        }
+        None => {
+            fail(BAD_HANDLE);
+            bad
+        }
+    }
+}
+
+/// Number of items (-1 for a bad handle).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_count(h: i32) -> i64 {
+    list_op(h, -1, |l| l.len() as i64)
+}
+
+/// Appends a string; returns the new count.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_list_add_str(h: i32, p: *const u8, l: i64) -> i64 {
+    let v = unsafe { bytes(p, l) }.to_vec();
+    list_op(h, -1, |list| {
+        list.push(coll::Value::Str(v));
+        list.len() as i64
+    })
+}
+
+/// Appends a number; returns the new count.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_add_num(h: i32, n: f64) -> i64 {
+    list_op(h, -1, |list| {
+        list.push(coll::Value::Num(n));
+        list.len() as i64
+    })
+}
+
+fn list_put(h: i32, i: i64, v: coll::Value, insert: bool) -> i32 {
+    let r = list_op(h, Err(BAD_HANDLE), |list| {
+        if insert {
+            match usize::try_from(i).ok().filter(|&i| i <= list.len()) {
+                Some(i) => {
+                    list.insert(i, v);
+                    Ok(())
+                }
+                None => Err("index out of range"),
+            }
+        } else {
+            match coll::index(list.len(), i) {
+                Some(i) => {
+                    list[i] = v;
+                    Ok(())
+                }
+                None => Err("index out of range"),
+            }
+        }
+    });
+    match r {
+        Ok(()) => 0,
+        Err(e) => fail(e) as i32,
+    }
+}
+
+/// Replaces (`insert` = 0) or inserts before (`insert` <> 0) item `i` with a
+/// string. 0 or -1.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_list_put_str(h: i32, i: i64, p: *const u8, l: i64, insert: i32) -> i32 {
+    list_put(h, i, coll::Value::Str(unsafe { bytes(p, l) }.to_vec()), insert != 0)
+}
+
+/// As [`qb_ext_list_put_str`] with a number.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_put_num(h: i32, i: i64, n: f64, insert: i32) -> i32 {
+    list_put(h, i, coll::Value::Num(n), insert != 0)
+}
+
+/// Type of item `i`: 0 none, 1 string, 2 number.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_type(h: i32, i: i64) -> i32 {
+    list_op(h, 0, |l| coll::index(l.len(), i).map_or(0, |i| l[i].kind()))
+}
+
+/// Item `i` as a string (numbers as text); returns its length, -1 if none.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_get_str(h: i32, i: i64) -> i64 {
+    match list_op(h, None, |l| coll::index(l.len(), i).map(|i| l[i].as_bytes())) {
+        Some(v) => ok_result(v),
+        None => -1,
+    }
+}
+
+/// Item `i` as a number (strings read like VAL); 0 if none.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_get_num(h: i32, i: i64) -> f64 {
+    list_op(h, 0.0, |l| coll::index(l.len(), i).map_or(0.0, |i| l[i].as_num()))
+}
+
+/// Removes item `i`: 0, or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_remove(h: i32, i: i64) -> i32 {
+    match list_op(h, None, |l| coll::index(l.len(), i).map(|i| l.remove(i))) {
+        Some(_) => 0,
+        None => fail("index out of range") as i32,
+    }
+}
+
+/// Removes every item (lists and dictionaries): 0, or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_coll_clear(h: i32) -> i32 {
+    let done = coll_with(|c| {
+        if let Some(l) = c.list(h) {
+            l.clear();
+            true
+        } else if let Some(d) = c.dict(h) {
+            d.clear();
+            true
+        } else {
+            false
+        }
+    });
+    if done { 0 } else { fail(BAD_HANDLE) as i32 }
+}
+
+/// First index of a string item equal to the bytes (-1 if none).
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_list_find_str(h: i32, p: *const u8, l: i64) -> i64 {
+    let needle = unsafe { bytes(p, l) };
+    list_op(h, -1, |list| list.iter().position(|v| matches!(v, coll::Value::Str(s) if s.as_slice() == needle)).map_or(-1, |i| i as i64))
+}
+
+/// First index of a number item equal to `n` (-1 if none).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_find_num(h: i32, n: f64) -> i64 {
+    list_op(h, -1, |list| list.iter().position(|v| matches!(v, coll::Value::Num(x) if *x == n)).map_or(-1, |i| i as i64))
+}
+
+/// Joins the items as text with a separator; returns the length.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_list_join(h: i32, p: *const u8, l: i64) -> i64 {
+    let sep = unsafe { bytes(p, l) }.to_vec();
+    match list_op(h, None, |list| Some(list.iter().map(coll::Value::as_bytes).collect::<Vec<_>>().join(sep.as_slice()))) {
+        Some(v) => ok_result(v),
+        None => -1,
+    }
+}
+
+/// Sorts: numbers first (by value), then strings (by bytes, or ignoring
+/// ASCII case with `ignore_case`). 0 or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_list_sort(h: i32, descending: i32, ignore_case: i32) -> i32 {
+    list_op(h, -1, |l| {
+        coll::sort(l, descending != 0, ignore_case != 0);
+        0
+    })
+}
+
+/// Number of keys (-1 for a bad handle).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dict_count(h: i32) -> i64 {
+    dict_op(h, -1, |d| d.len() as i64)
+}
+
+/// Sets a key to a string. 0 or -1.
+///
+/// # Safety
+/// Pointer/length pairs valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dict_set_str(h: i32, k: *const u8, kl: i64, p: *const u8, l: i64) -> i32 {
+    let (k, v) = (unsafe { bytes(k, kl) }.to_vec(), unsafe { bytes(p, l) }.to_vec());
+    dict_op(h, -1, |d| {
+        d.insert(k, coll::Value::Str(v));
+        0
+    })
+}
+
+/// Sets a key to a number. 0 or -1.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dict_set_num(h: i32, k: *const u8, kl: i64, n: f64) -> i32 {
+    let k = unsafe { bytes(k, kl) }.to_vec();
+    dict_op(h, -1, |d| {
+        d.insert(k, coll::Value::Num(n));
+        0
+    })
+}
+
+/// Type of a key's value: 0 missing, 1 string, 2 number.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dict_type(h: i32, k: *const u8, kl: i64) -> i32 {
+    let k = unsafe { bytes(k, kl) };
+    dict_op(h, 0, |d| d.get(k).map_or(0, coll::Value::kind))
+}
+
+/// A key's value as a string; returns its length, -1 if missing.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dict_get_str(h: i32, k: *const u8, kl: i64) -> i64 {
+    let k = unsafe { bytes(k, kl) };
+    match dict_op(h, None, |d| d.get(k).map(coll::Value::as_bytes)) {
+        Some(v) => ok_result(v),
+        None => -1,
+    }
+}
+
+/// A key's value as a number; 0 if missing.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dict_get_num(h: i32, k: *const u8, kl: i64) -> f64 {
+    let k = unsafe { bytes(k, kl) };
+    dict_op(h, 0.0, |d| d.get(k).map_or(0.0, coll::Value::as_num))
+}
+
+/// Removes a key: 1 removed, 0 missing, -1 bad handle.
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dict_remove(h: i32, k: *const u8, kl: i64) -> i32 {
+    let k = unsafe { bytes(k, kl) };
+    dict_op(h, -1, |d| i32::from(d.shift_remove(k).is_some()))
+}
+
+/// Key number `i` (0-based, insertion order); returns its length, -1 if none.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dict_key(h: i32, i: i64) -> i64 {
+    match dict_op(h, None, |d| usize::try_from(i).ok().and_then(|i| d.get_index(i)).map(|(k, _)| k.clone())) {
+        Some(k) => ok_result(k),
+        None => -1,
+    }
+}
+
+// ------------------------------------------------------------- date and time
+
+/// Current time, milliseconds since 1970-01-01 UTC.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dt_now() -> f64 {
+    datetime::now_ms()
+}
+
+/// Local time zone offset at `ms`, in seconds east of UTC.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dt_offset(ms: f64) -> i32 {
+    datetime::local_offset_seconds(ms).unwrap_or(0)
+}
+
+/// ISO 8601 text of `ms` (UTC with `Z`, or local with its offset).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dt_iso(ms: f64, local: i32) -> i64 {
+    match datetime::iso(ms, local != 0) {
+        Some(s) => ok_result(s.into_bytes()),
+        None => fail("time out of range"),
+    }
+}
+
+/// strftime-like formatting; returns the length (-1 on a bad format).
+///
+/// # Safety
+/// Pointer/length pair valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dt_format(ms: f64, f: *const u8, fl: i64, local: i32) -> i64 {
+    match datetime::format(ms, &unsafe { text(f, fl) }, local != 0) {
+        Ok(s) => ok_result(s.into_bytes()),
+        Err(e) => fail(e),
+    }
+}
+
+/// Parses text (empty format: ISO 8601); NaN on error.
+///
+/// # Safety
+/// Pointer/length pairs valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_ext_dt_parse(t: *const u8, tl: i64, f: *const u8, fl: i64, local: i32) -> f64 {
+    match datetime::parse(&unsafe { text(t, tl) }, &unsafe { text(f, fl) }, local != 0) {
+        Ok(v) => {
+            with(|s| s.error.clear());
+            v
+        }
+        Err(e) => {
+            fail(e);
+            f64::NAN
+        }
+    }
+}
+
+/// Time from calendar parts (month 1-12); NaN for an invalid date.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn qb_ext_dt_make(year: i32, month: i32, day: i32, hour: i32, minute: i32, second: i32, millis: i32, local: i32) -> f64 {
+    let u = |v: i32| u32::try_from(v).unwrap_or(u32::MAX);
+    match datetime::make(year, u(month), u(day), u(hour), u(minute), u(second), u(millis), local != 0) {
+        Ok(v) => {
+            with(|s| s.error.clear());
+            v
+        }
+        Err(e) => {
+            fail(e);
+            f64::NAN
+        }
+    }
+}
+
+/// A calendar part of `ms` (1 year, 2 month, 3 day, 4 hour, 5 minute,
+/// 6 second, 7 millisecond, 8 weekday 0=Sunday, 9 day of year, 10 ISO
+/// week). Returns 0 and sets the error for a bad part or time.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_ext_dt_part(ms: f64, part: i32, local: i32) -> i64 {
+    match datetime::Part::from_code(part).and_then(|p| datetime::part(ms, p, local != 0)) {
+        Some(v) => {
+            with(|s| s.error.clear());
+            v
+        }
+        None => {
+            fail("bad part or time");
+            0
+        }
+    }
+}
 /// Test hook: starts the in-process HTTP test server for `count` requests
 /// on 127.0.0.1 and returns its port (conformance tests, no internet).
 #[doc(hidden)]

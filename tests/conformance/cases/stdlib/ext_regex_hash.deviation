@@ -1,0 +1,1 @@
+New R13-ext module (qb-ext); no legacy equivalent. Golden from the current build, checked by hand against known vectors (RFC 1321/3174/6234 digests, RFC 4648 Base64, CRC-32 check value) and the calendar.
