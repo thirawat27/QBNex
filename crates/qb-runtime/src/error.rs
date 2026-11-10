@@ -316,14 +316,8 @@ mod host {
     /// True when error dialogs must not be shown (see [`super::no_dialog_policy`]).
     pub fn no_dialog() -> bool {
         static NO_DIALOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *NO_DIALOG.get_or_init(|| {
-            use std::io::IsTerminal;
-            super::no_dialog_policy(
-                std::env::var_os("QBNEX_NO_ERROR_DIALOG").as_deref().and_then(|v| v.to_str()),
-                std::io::stdout().is_terminal(),
-                std::io::stderr().is_terminal(),
-            )
-        })
+        *NO_DIALOG.get_or_init(super::no_dialog_now)
+
     }
     pub fn report(line: &[u8]) {
         use std::io::Write;
@@ -366,17 +360,87 @@ pub(crate) mod host {
     }
 }
 
-/// Error dialogs are replaced by a line on stderr (and the program ends with
-/// exit code 1) when `QBNEX_NO_ERROR_DIALOG` is set to anything but "" or "0",
-/// or when stdout or stderr is not a terminal (redirected: test runners,
-/// pipes, CI). Interactive runs keep the QBasic-style dialog.
-pub fn no_dialog_policy(env: Option<&str>, stdout_tty: bool, stderr_tty: bool) -> bool {
-    if let Some(v) = env {
-        return !v.is_empty() && v != "0";
-    }
-    !(stdout_tty && stderr_tty)
+/// /// How a standard stream of the process is connected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stream {
+    /// An interactive console / terminal.
+    Terminal,
+    /// A file, pipe or device such as NUL (`prog > out.txt`, test runners, CI).
+    Redirected,
+    /// Not there: a GUI program started without a console (Windows Explorer).
+    Absent,
 }
 
+/// State of stdin (0), stdout (1) or stderr (2).
+pub fn stream_state(fd: u32) -> Stream {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::System::Console::{GetConsoleMode, GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+        let which = match fd {
+            0 => STD_INPUT_HANDLE,
+            1 => STD_OUTPUT_HANDLE,
+            _ => STD_ERROR_HANDLE,
+        };
+        // SAFETY: Win32 queries without preconditions.
+        unsafe {
+            let h = GetStdHandle(which);
+            if h.is_null() || h == INVALID_HANDLE_VALUE {
+                return Stream::Absent;
+            }
+            let mut mode = 0;
+            if GetConsoleMode(h, &mut mode) != 0 { Stream::Terminal } else { Stream::Redirected }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        use std::io::IsTerminal;
+        let tty = match fd {
+            0 => std::io::stdin().is_terminal(),
+            1 => std::io::stdout().is_terminal(),
+            _ => std::io::stderr().is_terminal(),
+        };
+        if tty { Stream::Terminal } else { Stream::Redirected }
+    }
+}
+
+/// `QBNEX_NO_ERROR_DIALOG`: `Some(true)` set (not "" or "0"), `Some(false)`
+/// set to "" or "0", `None` not set.
+fn env_flag(env: Option<&str>) -> Option<bool> {
+    env.map(|v| !v.is_empty() && v != "0")
+}
+
+/// Error dialogs are replaced by a line on stderr (and the program ends with
+/// exit code 1) when `QBNEX_NO_ERROR_DIALOG` is set to anything but "" or "0",
+/// or when stdout or stderr is redirected (test runners, pipes, CI). A
+/// program without console streams (GUI) and interactive runs keep the
+/// QBasic-style dialog.
+pub fn no_dialog_policy(env: Option<&str>, stdout: Stream, stderr: Stream) -> bool {
+    env_flag(env).unwrap_or(stdout == Stream::Redirected || stderr == Stream::Redirected)
+}
+
+/// Whether END shows "Press any key to continue" and waits. A console
+/// program waits only when stdin and stdout are both the console; a window
+/// program waits in its window unless `QBNEX_NO_ERROR_DIALOG` is set.
+pub fn end_prompt_policy(env: Option<&str>, window: bool, stdin: Stream, stdout: Stream) -> bool {
+    if env_flag(env) == Some(true) {
+        return false;
+    }
+    window || (stdin == Stream::Terminal && stdout == Stream::Terminal)
+}
+
+/// [`no_dialog_policy`] for this process.
+pub fn no_dialog_now() -> bool {
+    no_dialog_policy(std::env::var("QBNEX_NO_ERROR_DIALOG").ok().as_deref(), stream_state(1), stream_state(2))
+}
+
+/// C ABI of [`end_prompt_policy`] for this process (`sub_end` in libqb.cpp):
+/// 1 = show the prompt and wait, 0 = end at once.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_end_prompt_wanted(window: i32) -> i32 {
+    let env = std::env::var("QBNEX_NO_ERROR_DIALOG").ok();
+    i32::from(end_prompt_policy(env.as_deref(), window != 0, stream_state(0), stream_state(1)))
+}
 /// One-line form of a dialog: "<title>: <body lines joined with ': '>",
 /// without the "Continue?" question.
 pub fn report_line(title: &[u8], body: &[u8]) -> Vec<u8> {
@@ -674,12 +738,31 @@ mod tests {
 
     #[test]
     fn no_dialog_policy_env_and_redirection() {
-        assert!(no_dialog_policy(Some("1"), true, true));
-        assert!(!no_dialog_policy(Some("0"), false, false));
-        assert!(!no_dialog_policy(Some(""), false, false));
-        assert!(!no_dialog_policy(None, true, true));
-        assert!(no_dialog_policy(None, false, true));
-        assert!(no_dialog_policy(None, true, false));
+        use Stream::*;
+        assert!(no_dialog_policy(Some("1"), Terminal, Terminal));
+        assert!(!no_dialog_policy(Some("0"), Redirected, Redirected));
+        assert!(!no_dialog_policy(Some(""), Redirected, Redirected));
+        assert!(!no_dialog_policy(None, Terminal, Terminal));
+        assert!(no_dialog_policy(None, Redirected, Terminal));
+        assert!(no_dialog_policy(None, Terminal, Redirected));
+        // A GUI program started without a console has no standard streams at
+        // all: it keeps its dialogs.
+        assert!(!no_dialog_policy(None, Absent, Absent));
+    }
+
+    #[test]
+    fn end_prompt_only_when_interactive() {
+        use Stream::*;
+        // console program: prompt only when both stdin and stdout are the console
+        assert!(end_prompt_policy(None, false, Terminal, Terminal));
+        assert!(!end_prompt_policy(None, false, Redirected, Terminal));
+        assert!(!end_prompt_policy(None, false, Terminal, Redirected));
+        assert!(!end_prompt_policy(Some("1"), false, Terminal, Terminal));
+        assert!(end_prompt_policy(Some("0"), false, Terminal, Terminal));
+        // window program: the prompt is in the window; only the variable turns it off
+        assert!(end_prompt_policy(None, true, Absent, Absent));
+        assert!(end_prompt_policy(None, true, Redirected, Redirected));
+        assert!(!end_prompt_policy(Some("1"), true, Absent, Absent));
     }
 
     #[test]

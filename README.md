@@ -505,6 +505,7 @@ DebugInfo=false
 QBNex supports both traditional and modern import syntax for the bundled standard library:
 
 **Modern Syntax (Recommended):**
+<!-- docs-test: compile-error -->
 ```basic
 ' Modern import syntax - cleaner and easier to read
 IMPORT qbnex
@@ -513,6 +514,7 @@ IMPORT url
 ```
 
 **Traditional Syntax (Still Supported):**
+<!-- docs-test: define qbnex -->
 ```basic
 ' Traditional import syntax
 '$IMPORT:'qbnex'
@@ -584,6 +586,7 @@ QBNex is gaining a modern syntax while keeping full backward compatibility with 
 
 **Modern API Examples:**
 
+<!-- docs-test: compile-error -->
 ```basic
 # Import standard library
 IMPORT qbnex
@@ -706,8 +709,7 @@ SUB Demo_Data ()
     Dict_Free metadata
 END SUB
 
-'$IMPORT:'io.json'
-'$IMPORT:'error.result'
+'$IMPORT:'qbnex'
 ```
 
 ---
@@ -1194,6 +1196,7 @@ Dynamic array with automatic resizing.
 - `List_Free(list)` - Free memory
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM myList AS QBNex_List
 List_Init myList
@@ -1221,6 +1224,7 @@ LIFO (Last In, First Out) data structure.
 - `Stack_Free(stack)` - Free memory
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM history AS QBNex_Stack
 Stack_Init history
@@ -1249,6 +1253,7 @@ FIFO (First In, First Out) data structure.
 - `Queue_Free(queue)` - Free memory
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM loadOrder AS QBNex_Queue
 Queue_Init loadOrder
@@ -1276,6 +1281,7 @@ Hash-based collection with unique values.
 - `HashSet_Free(set)` - Free memory
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM features AS QBNex_HashSet
 HashSet_Init features
@@ -1305,6 +1311,7 @@ Key-value store with string keys.
 - `Dict_Free(dict)` - Free memory
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM metadata AS QBNex_Dictionary
 Dict_Init metadata
@@ -1334,6 +1341,7 @@ Efficient string concatenation for building large strings.
 - `SB_Free(sb)` - Free memory
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM report AS QBNex_StringBuilder
 SB_Init report
@@ -1362,6 +1370,7 @@ String manipulation and formatting utilities.
 - Additional text manipulation functions
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT Text_PadRight$("QBNex", 10, ".")
 ' Output: QBNex.....
@@ -1383,6 +1392,7 @@ Cross-platform file path manipulation.
 - `Path_WithoutExtension$(path$)` - Remove extension
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT Path_Join$("src", "stdlib/demo.bas")
 ' Output: src/stdlib/demo.bas
@@ -1402,6 +1412,7 @@ CSV row creation and parsing.
 - Additional CSV parsing functions
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT CSV_Row3$("name", "score", "status")
 ' Output: name,score,status
@@ -1420,6 +1431,7 @@ JSON object creation.
 - Additional JSON builders
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT Json_Object3$("name", Json_String$("QBNex"), "version", Json_String$("current"), "status", Json_String$("ok"))
 ' Output: {"name":"QBNex","version":"current","status":"ok"}
@@ -1437,6 +1449,7 @@ Platform detection and environment variables.
 - Additional environment functions
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT "Platform: "; Env_Platform$
 PRINT "64-bit: "; Env_Is64Bit&
@@ -1455,10 +1468,11 @@ Command-line argument access.
 - `Args_Get$(index)` - Get argument at index
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT "Argument count: "; Args_Count&
 FOR i = 0 TO Args_Count& - 1
-    PRINT "Arg "; i; ": "; Args_Get$(i)
+    PRINT "Arg "; i; ": "; Args_Get$(i, "")
 NEXT i
 ```
 
@@ -1474,6 +1488,7 @@ Date and time utilities.
 - `Date_NowMs#` - Get current timestamp in milliseconds
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM now AS QBNex_Date
 Date_SetNow now
@@ -1497,6 +1512,7 @@ Mathematical helper functions.
 - Additional numeric utilities
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 PRINT Math_Clamp#(15#, 0#, 10#)
 ' Output: 10
@@ -1530,6 +1546,7 @@ Structured error handling with typed failures, propagation context, and readable
 - `Result_Expect$(result, expectation$)` - Abort with a panic-style message if the result is an error
 
 **Example:**
+<!-- docs-test: prepend qbnex -->
 ```basic
 DIM outcome AS QBNex_Result
 DIM startup AS QBNex_Result
@@ -1574,6 +1591,7 @@ END CLASS
 ```
 
 **Inheritance:**
+<!-- docs-test: skip continues the CLASS Animal example above -->
 ```basic
 CLASS Dog EXTENDS Animal
     Breed AS STRING * 32
@@ -1589,6 +1607,7 @@ END CLASS
 ```
 
 **Using Classes:**
+<!-- docs-test: skip continues the CLASS example above -->
 ```basic
 DIM pet AS Dog
 New_Dog pet, "Buddy", 3, "Collie"
@@ -1599,6 +1618,7 @@ PRINT "Sound: "; pet.Bark$
 ```
 
 **Interfaces:**
+<!-- docs-test: skip fragment of a CLASS header -->
 ```basic
 IMPLEMENTS IPet
 ' Class implements IPet interface
@@ -1617,6 +1637,7 @@ IMPLEMENTS IPet
 - `QBNEX_FindMethodSlot&(classID, methodName$)` - Find method slot
 
 **Example:**
+<!-- docs-test: skip continues the CLASS example above -->
 ```basic
 DIM pet AS Dog
 New_Dog pet, "Buddy", 3, "Collie"
@@ -2009,6 +2030,7 @@ During the pre-pass stage, the compiler:
 5. **Handles metacommands**: Processes `OPTION _EXPLICIT`, etc.
 
 **Example:**
+<!-- docs-test: skip needs mylib.bas -->
 ```basic
 ' This is processed during pre-pass
 '$IMPORT:'qbnex'
@@ -2267,6 +2289,7 @@ ls -la
 **Problem: "Import not working"**
 
 **Solution:**
+<!-- docs-test: skip shows wrong syntax on purpose -->
 ```basic
 ' Correct syntax (note the quotes and colon)
 '$IMPORT:'qbnex'
@@ -2462,8 +2485,8 @@ QBNex supports a comprehensive range of data types:
 
 ```basic
 ' types_demo.bas
-DIM bitVar AS BIT
-DIM byteVar AS BYTE
+DIM bitVar AS _BIT
+DIM byteVar AS _BYTE
 DIM intVar AS INTEGER
 DIM longVar AS LONG
 DIM int64Var AS _INTEGER64
@@ -2471,17 +2494,17 @@ DIM singleVar AS SINGLE
 DIM doubleVar AS DOUBLE
 DIM floatVar AS _FLOAT
 DIM stringVar AS STRING * 20
-DIM offsetVar AS OFFSET
+DIM offsetVar AS _OFFSET
 
 ' Unsigned types
-DIM uByte AS UNSIGNED BYTE
-DIM uInt AS UNSIGNED INTEGER
-DIM uLong AS UNSIGNED LONG
-DIM uInt64 AS UNSIGNED _INTEGER64
+DIM uByte AS _UNSIGNED _BYTE
+DIM uInt AS _UNSIGNED INTEGER
+DIM uLong AS _UNSIGNED LONG
+DIM uInt64 AS _UNSIGNED _INTEGER64
 
 ' Type conversion
 DIM num AS INTEGER
-num = CINT("123")
+num = CINT(VAL("123"))
 PRINT "Converted: "; num
 ```
 
@@ -2581,7 +2604,7 @@ PRINT "Average "; average
 ' Dynamic arrays
 REDIM dynamic(5) AS INTEGER
 dynamic(1) = 100
-REDIM PRESERVE dynamic(10) AS INTEGER
+REDIM _PRESERVE dynamic(10) AS INTEGER
 PRINT "Dynamic array element "; dynamic(1)
 ```
 
@@ -2589,7 +2612,7 @@ PRINT "Dynamic array element "; dynamic(1)
 
 ```basic
 ' fileio.bas
-DIM line$ AS STRING
+DIM text$
 DIM count AS INTEGER
 
 ' Write to file
@@ -2606,9 +2629,9 @@ PRINT
 OPEN "data.txt" FOR INPUT AS #1
 count = 0
 WHILE NOT EOF(1)
-    LINE INPUT #1, line$
+    LINE INPUT #1, text$
     count = count + 1
-    PRINT "Read line "; count; " "; line$
+    PRINT "Read line "; count; " "; text$
 WEND
 CLOSE #1
 
