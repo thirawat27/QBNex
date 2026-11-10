@@ -1110,7 +1110,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub_graphics_put|qbsub_width|sub__font|func__font|func__fontwidth|func__fontheight|"
     l$ = l$ + "sub__limit|sub__delay|sub__title|"
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
-    l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|"
+    l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 

@@ -390,6 +390,64 @@ impl Display {
         i as i32
     }
 
+    /// `func__loadimage(file$, mode, passed)` (image_bridge.cpp): 32, 256 or 257 (no
+    /// palette remap); 33 (hardware) loads a software 32bpp image here
+    pub(crate) fn loadimage(&mut self, file: &[u8], mut bpp: i32, passed: i32) -> i32 {
+        let mut keep_palette = false;
+        if bpp == 33 {
+            bpp = 32;
+        } else if bpp == 257 {
+            bpp = 256;
+            keep_palette = true;
+        }
+        if passed != 0 {
+            if bpp != 32 && bpp != 256 {
+                self.err(5);
+                return 0;
+            }
+        } else {
+            // SAFETY: valid write page.
+            if unsafe { (*self.wp()).text } != 0 {
+                self.err(5);
+                return 0;
+            }
+            bpp = -1;
+        }
+        if file.is_empty() {
+            return -1;
+        }
+        let Ok(content) = std::fs::read(String::from_utf8_lossy(file).as_ref()) else { return -1 };
+        let Some(img) = qb_runtime::image::decode(&content) else { return -1 };
+        let (w, h) = (img.w as usize, img.h as usize);
+        if bpp == 256 {
+            let i = self.newimage(w as i32, h as i32, 256, 1);
+            if i == -1 {
+                return -1;
+            }
+            let mut pal = [0u32; 256];
+            let Some(mut px8) = qb_runtime::image::quant::to_8bpp(&img.px, w, h, &mut pal) else { return -1 };
+            if !keep_palette {
+                let default = &qb_runtime::gfx::data::palette_256;
+                qb_runtime::image::quant::remap_palette(&mut px8, &pal, default);
+                pal = *default;
+            }
+            // SAFETY: a fresh w x h 8bpp surface with a 256-entry palette.
+            unsafe {
+                let p = im((-i) as u32);
+                core::ptr::copy_nonoverlapping(px8.as_ptr(), (*p).offset, w * h);
+                core::ptr::copy_nonoverlapping(pal.as_ptr(), (*p).pal, 256);
+            }
+            return i;
+        }
+        let i = self.newimage(w as i32, h as i32, 32, 1);
+        if i == -1 {
+            return -1;
+        }
+        // SAFETY: a fresh w x h 32bpp surface.
+        unsafe { core::ptr::copy_nonoverlapping(img.px.as_ptr(), (*im((-i) as u32)).offset, w * h * 4) };
+        i
+    }
+
     /// `sub__freefont`
     pub(crate) fn freefont(&mut self, f: i32) {
         if f < 32 || self.font.get(f as usize).is_none_or(|&h| h == 0) {
@@ -1372,7 +1430,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" | "sub__limit"
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
             | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
-            | "func__printwidth"
+            | "func__printwidth" | "func__loadimage"
     );
     if !known {
         return None;
@@ -1610,6 +1668,10 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(v.into()));
             }
             "sub__freefont" => d.freefont(i(0)),
+            "func__loadimage" => {
+                let v = d.loadimage(a[0].s(), i(1), i(2));
+                out = Some(V::I(v.into()));
+            }
             "func__printwidth" => {
                 let v = d.printwidth(cmem, a[0].s(), i(1), i(2));
                 out = Some(V::I(v.into()));
