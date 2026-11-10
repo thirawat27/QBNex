@@ -88,6 +88,9 @@ pub(crate) struct RtState<'a> {
     pub(crate) console_only: bool,
     /// qb-audio started (snd_init)
     pub(crate) snd_started: bool,
+    /// browser runner (qb-web): INPUT prompts and the consumed stdin text are
+    /// drawn on the screen page, as if typed
+    pub(crate) input_echo: bool,
 }
 
 struct Using {
@@ -118,7 +121,12 @@ impl<'a> RtState<'a> {
             display: super::display::Display::default(),
             console_on: false,
             console_only: false,
+            input_echo: false,
         }
+    }
+    /// Text INPUT reads instead of the process stdin (browser runner).
+    pub(crate) fn set_stdin(&mut self, b: &[u8]) {
+        self.stdin = Reader { rbuf: b.to_vec(), rpos: 0, eof: true };
     }
     pub(crate) fn flush(&mut self) {
         let _ = self.out.flush();
@@ -590,14 +598,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "RANDOMIZE" => rt.rnd.randomize(f(0)),
         "RANDOMIZEUSING" => rt.rnd.randomize_using(f(0)),
         "TIMER.n" => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0) % 86400.0;
+            let t = qb_runtime::systime::unix_time() % 86400.0;
             let acc = f(0);
             return ok(V::F(if acc > 0.0 { (t / acc).round() * acc } else { t }));
         }
         "TIMER" => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+            let t = qb_runtime::systime::unix_time();
             return ok(V::F(t % 86400.0));
         }
         "ERR" => return ok(V::I(err.into())),
@@ -607,19 +613,26 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            let start = rt.stdin.rpos;
             let line = read_line(&mut rt.stdin)?;
+            echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
         "INPUTPROMPT" => {
             if i(1) == 0 {
-                rt.write(0, s(0))?;
+                if rt.input_echo && screen_out(vm) {
+                    return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
+                }
+                vm.rt().write(0, s(0))?;
             }
         }
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            let start = rt.stdin.rpos;
             let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
+            echo_input(vm, start, false)?;
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
@@ -796,6 +809,36 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+/// Browser runner: draws the stdin bytes INPUT consumed since `start` on the
+/// screen page (line breaks as newlines), like a typed answer.
+fn echo_input(vm: &mut dyn Host<'_>, start: usize, line: bool) -> R<()> {
+    let rt = vm.rt();
+    if !rt.input_echo {
+        return Ok(());
+    }
+    let mut text = rt.stdin.rbuf[start.min(rt.stdin.rpos)..rt.stdin.rpos].to_vec();
+    if line && text.last() != Some(&b'\n') {
+        text.push(b'\n');
+    }
+    if !screen_out(vm) {
+        return Ok(());
+    }
+    for (k, seg) in text.split(|&c| c == b'\n').enumerate() {
+        if k > 0 {
+            if let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+                r?;
+            }
+        }
+        let seg: Vec<u8> = seg.iter().copied().filter(|&c| c != b'\r').collect();
+        if !seg.is_empty() {
+            if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(seg)]) {
+                r?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn fill(f: &mut dyn Read, rd: &mut Reader) {

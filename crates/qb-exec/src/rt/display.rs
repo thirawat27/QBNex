@@ -1332,7 +1332,7 @@ impl Host for VmHost<'_> {
     }
     fn events(&mut self) {}
     fn sleep(&mut self, ms: u32) {
-        std::thread::sleep(std::time::Duration::from_millis(u64::from(ms)));
+        qb_runtime::systime::sleep_ms(u64::from(ms));
     }
     fn ticks(&mut self) -> i64 {
         qb_runtime::systime::qb_get_ticks()

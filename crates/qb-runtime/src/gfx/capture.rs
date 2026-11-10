@@ -64,12 +64,27 @@ enum Sink {
 
 static SINK: Mutex<Sink> = Mutex::new(Sink::Unopened);
 
+/// Browser build: the record of the last `_DISPLAY` frame, read by the page
+/// when `qb_web_present` fires.
+#[cfg(target_arch = "wasm32")]
+pub static WEB_FRAME: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
 /// Appends a record for `display_page` when capturing is enabled.
 ///
 /// # Safety
 /// `im` must be null or point to a valid surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
+    // browser build (R13-wasm): a finished frame is the page's cue to draw it
+    #[cfg(target_arch = "wasm32")]
+    if kind == KIND_DISPLAY {
+        // SAFETY: guaranteed by the caller.
+        if let Some(rec) = unsafe { im.as_ref() }.and_then(|im| record(im, kind)) {
+            *WEB_FRAME.lock().unwrap_or_else(|e| e.into_inner()) = rec;
+            crate::systime::web::present();
+        }
+        return;
+    }
     let mut sink = match SINK.lock() {
         Ok(s) => s,
         Err(p) => p.into_inner(),
