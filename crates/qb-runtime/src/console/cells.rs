@@ -1,0 +1,299 @@
+//! UTF-8 side table of SCREEN 0 surfaces. The character plane of a text
+//! surface holds one code page 437 byte per cell; characters that code page
+//! 437 cannot show (Thai, CJK, emoji, combining marks) are kept here as UTF-8
+//! so the text renderer can draw them. Was `qb_text_utf8_cells` /
+//! `qb_text_utf8_cell_state` (two `std::vector`s per image) in libqb.cpp.
+//!
+//! Cell state: 0 = plain, 1 = UTF-8 cluster, 2 = first half of a wide cluster,
+//! 3 = second half of a wide cluster (no content of its own).
+
+use super::utf8::{cp437, push_utf8, unicode_to_cp437};
+use std::sync::Mutex;
+
+#[derive(Default, Clone)]
+struct Table {
+    cells: Vec<Vec<u8>>,
+    state: Vec<u8>,
+}
+
+/// Indexed by image number. A missing or empty table means "no side table"
+/// (graphics surface, or a text surface before `init`).
+static TABLES: Mutex<Vec<Table>> = Mutex::new(Vec::new());
+
+fn with<R>(f: impl FnOnce(&mut Vec<Table>) -> R) -> R {
+    let mut g = TABLES.lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut g)
+}
+
+fn table(v: &mut [Table], image: i32) -> Option<&mut Table> {
+    if image < 0 {
+        return None;
+    }
+    v.get_mut(image as usize)
+}
+
+/// `qb_init_text_utf8_cells`: a fresh, empty table of `cells` entries
+/// (`width*height` of a text surface).
+pub fn init(image: i32, cells: usize) {
+    if image < 0 {
+        return;
+    }
+    with(|v| {
+        if v.len() <= image as usize {
+            v.resize(image as usize + 1, Table::default());
+        }
+        v[image as usize] = Table { cells: vec![Vec::new(); cells], state: vec![0; cells] };
+    })
+}
+
+/// `qb_release_text_utf8_cells`.
+pub fn release(image: i32) {
+    with(|v| {
+        if let Some(t) = table(v, image) {
+            *t = Table::default();
+        }
+    })
+}
+
+/// `_COPYIMAGE` of a text surface copies its side table.
+pub fn copy(src: i32, dst: i32) {
+    with(|v| {
+        let t = match table(v, src) {
+            Some(t) => t.clone(),
+            None => return,
+        };
+        if dst < 0 {
+            return;
+        }
+        if v.len() <= dst as usize {
+            v.resize(dst as usize + 1, Table::default());
+        }
+        v[dst as usize] = t;
+    })
+}
+
+/// `qb_clear_text_utf8_cells_range`.
+pub fn clear_range(image: i32, first: i32, count: i32) {
+    with(|v| {
+        let Some(t) = table(v, image) else { return };
+        if t.cells.is_empty() || count <= 0 {
+            return;
+        }
+        let first = first.max(0);
+        let end = (first + count).min(t.cells.len() as i32);
+        for i in first..end {
+            t.cells[i as usize].clear();
+            t.state[i as usize] = 0;
+        }
+    })
+}
+
+/// Scroll of the text window: rows `top+1..=bottom` move up one row and the
+/// bottom row is cleared (`newline`).
+pub fn scroll_up(image: i32, width: i32, top_row: i32, bottom_row: i32) {
+    with(|v| {
+        let Some(t) = table(v, image) else { return };
+        if t.cells.is_empty() {
+            return;
+        }
+        let dst = (top_row - 1) * width;
+        let src = top_row * width;
+        let moved = (bottom_row - top_row) * width;
+        for c in 0..moved {
+            let (d, s) = ((dst + c) as usize, (src + c) as usize);
+            t.cells[d] = t.cells[s].clone();
+            t.state[d] = t.state[s];
+        }
+        let first = ((bottom_row - 1) * width).max(0);
+        let end = (first + width).min(t.cells.len() as i32);
+        for i in first..end {
+            t.cells[i as usize].clear();
+            t.state[i as usize] = 0;
+        }
+    })
+}
+
+fn normalize(t: &mut Table, i: usize) {
+    if t.state[i] == 3 && i > 0 && t.state[i - 1] == 2 {
+        t.cells[i - 1].clear();
+        t.state[i - 1] = 0;
+    }
+    if t.state[i] == 2 && i + 1 < t.cells.len() && t.state[i + 1] == 3 {
+        t.cells[i + 1].clear();
+        t.state[i + 1] = 0;
+    }
+    t.cells[i].clear();
+    t.state[i] = 0;
+}
+
+/// `qb_store_text_cell_utf8`: records the code point written to `cell`.
+pub fn store(image: i32, cell: i32, character: u32, span: i32) {
+    with(|v| {
+        let Some(t) = table(v, image) else { return };
+        if cell < 0 || cell as usize >= t.cells.len() {
+            return;
+        }
+        let i = cell as usize;
+        normalize(t, i);
+        if span > 1 && i + 1 < t.cells.len() {
+            normalize(t, i + 1);
+        }
+        if character <= 0x7F || unicode_to_cp437(character) != 0 {
+            t.state[i] = 0;
+            return;
+        }
+        push_utf8(&mut t.cells[i], character);
+        t.state[i] = if span > 1 { 2 } else { 1 };
+        if span > 1 && i + 1 < t.cells.len() {
+            t.cells[i + 1].clear();
+            t.state[i + 1] = 3;
+        }
+    })
+}
+
+/// `qb_append_text_cell_utf8`: attaches a zero-width code point to the
+/// cluster that `cell` belongs to. `raw` is the cell's byte in the character
+/// plane (used when the cell has no UTF-8 content yet). Returns false when
+/// there is no side table or the cell is out of range.
+pub fn append(image: i32, cell: i32, character: u32, raw: impl FnOnce(usize) -> u8) -> bool {
+    with(|v| {
+        let Some(t) = table(v, image) else { return false };
+        let mut cell = cell;
+        if cell >= 0 && (cell as usize) < t.state.len() && t.state[cell as usize] == 3 && cell > 0 {
+            cell -= 1;
+        }
+        if cell < 0 || cell as usize >= t.cells.len() {
+            return false;
+        }
+        let i = cell as usize;
+        if t.cells[i].is_empty() {
+            let r = raw(i);
+            if r != 32 {
+                push_utf8(&mut t.cells[i], cp437(r));
+            }
+            t.state[i] = 1;
+        }
+        push_utf8(&mut t.cells[i], character);
+        true
+    })
+}
+
+/// True when the side table of `image` exists (not empty).
+pub fn present(image: i32) -> bool {
+    with(|v| table(v, image).is_some_and(|t| !t.cells.is_empty()))
+}
+
+/// `qb_text_page_has_utf8_content`.
+pub fn has_content(image: i32) -> bool {
+    with(|v| table(v, image).is_some_and(|t| t.cells.iter().any(|c| !c.is_empty())))
+}
+
+/// `qb_text_cell_span`: 2 (wide), 0 (second half of a wide cell) or 1.
+pub fn span(image: i32, cell: i32) -> i32 {
+    with(|v| {
+        let Some(t) = table(v, image) else { return 1 };
+        match t.state.get(cell.max(-1) as usize) {
+            Some(2) if cell >= 0 => 2,
+            Some(3) if cell >= 0 => 0,
+            _ => 1,
+        }
+    })
+}
+
+/// UTF-8 content of a cell (empty if none).
+pub fn content(image: i32, cell: i32) -> Vec<u8> {
+    with(|v| {
+        table(v, image)
+            .and_then(|t| if cell < 0 { None } else { t.cells.get(cell as usize) })
+            .cloned()
+            .unwrap_or_default()
+    })
+}
+
+/// Raw view for tests: (content, state) of a cell.
+pub fn cell(image: i32, cell: i32) -> (Vec<u8>, u8) {
+    with(|v| {
+        table(v, image)
+            .and_then(|t| if cell < 0 { None } else { Some((t.cells.get(cell as usize)?.clone(), t.state[cell as usize])) })
+            .unwrap_or_default()
+    })
+}
+
+// --- C ABI (libqb.cpp: image life cycle and the text renderer) ---
+
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_text_cells_init(image: i32, cells: i32) {
+    init(image, cells.max(0) as usize)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_text_cells_release(image: i32) {
+    release(image)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_text_cells_copy(src: i32, dst: i32) {
+    copy(src, dst)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_text_cells_present(image: i32) -> i32 {
+    present(image) as i32
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_text_cells_has_content(image: i32) -> i32 {
+    -(has_content(image) as i32)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_text_cells_span(image: i32, cell: i32) -> i32 {
+    span(image, cell)
+}
+/// Copies up to `cap` bytes of the cell's UTF-8 content to `out`; returns
+/// the full length (call with `cap` 0 to size the buffer).
+///
+/// # Safety
+/// `out` must be valid for `cap` bytes (or null when `cap` is 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_text_cell_utf8(image: i32, cell: i32, out: *mut u8, cap: i32) -> i32 {
+    let c = content(image, cell);
+    let n = c.len().min(cap.max(0) as usize);
+    if n > 0 {
+        // SAFETY: caller contract.
+        unsafe { core::ptr::copy_nonoverlapping(c.as_ptr(), out, n) };
+    }
+    c.len() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_wide_and_normalize() {
+        let im = 9001;
+        init(im, 8);
+        store(im, 2, 0x4E00, 2);
+        assert_eq!(cell(im, 2), ("一".as_bytes().to_vec(), 2));
+        assert_eq!(cell(im, 3).1, 3);
+        assert_eq!(span(im, 2), 2);
+        assert_eq!(span(im, 3), 0);
+        // overwriting the second half clears the first
+        store(im, 3, b'A' as u32, 1);
+        assert_eq!(cell(im, 2), (vec![], 0));
+        assert_eq!(cell(im, 3), (vec![], 0));
+        // cp437-representable characters leave no UTF-8
+        store(im, 0, 0x2591, 1);
+        assert_eq!(cell(im, 0), (vec![], 0));
+        assert!(!has_content(im));
+        store(im, 1, 0x0E01, 1);
+        assert!(has_content(im));
+        assert!(append(im, 1, 0x0E49, |_| 0));
+        assert_eq!(content(im, 1), "ก้".as_bytes());
+        // append to a plain cell starts from its raw byte
+        assert!(append(im, 5, 0x0301, |_| b'e'));
+        assert_eq!(content(im, 5), "e\u{301}".as_bytes());
+        scroll_up(im, 4, 1, 2);
+        assert_eq!(content(im, 1), "e\u{301}".as_bytes());
+        assert_eq!(content(im, 5), b"");
+        release(im);
+        assert!(!append(im, 1, 0x301, |_| 0));
+        assert_eq!(span(im, 1), 1);
+    }
+}

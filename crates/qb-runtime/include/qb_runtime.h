@@ -530,5 +530,6 @@ int32_t qb_net_format_address(int32_t type, int32_t port, const uint8_t *ip4, co
 #endif
 
 #include "qb_window.h" // R8 window/input layer
+#include "qb_console.h" // R12a text console
 
 #endif // QB_RUNTIME_H

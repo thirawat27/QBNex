@@ -19,6 +19,7 @@ pub mod alloc;
 pub mod arrays;
 pub mod clipboard;
 pub mod compress;
+pub mod console;
 mod cmem;
 pub mod env;
 pub mod error;
