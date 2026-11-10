@@ -542,7 +542,7 @@ Branch `claude/r12b-core-4db168`. Scope: `compiler/stdlib/*.bas` only (the compi
 
 Compiler quirks found (not fixed, compiler core is out of scope): a module pulled in by `$IMPORT` lands after the program's SUBs, so its module level may only hold declarations (a `REDIM SHARED` there is "Statement cannot be placed between SUB/FUNCTIONs", and `REDIM` of such an array inside a FUNCTION creates a local array); `DIM SHARED` in the main program after an `$IMPORT` line fails the same way; a string comparison in parentheses inside a PRINT list is rejected ("Unknown statement 'PRINT'").
 
-Tests: conformance `stdlib/json_parse`, `stdlib/url_parse`, `stdlib/stdlib_helpers` (via `'$IMPORT:'qbnex'`). The legacy oracle only has the broken modules, so their goldens come from the current default C++ build and are marked `.deviation` (checked by hand against RFC 8259, RFC 3986 and the calendar).
+Tests: conformance `stdlib/json_parse`, `stdlib/url_parse`, `stdlib/stdlib_helpers` (via `'$IMPORT:'qbnex'`). Whole corpus on the rebuilt self-hosted `qb.exe` (MinGW 16.2): 80 cases, 74 passed, 6 xfail, 0 failed (`mem/mem_ops` timed out once under load and passed on rerun); `stdlib_smoke` passes. The legacy oracle only has the broken modules, so their goldens come from the current default C++ build and are marked `.deviation` (checked by hand against RFC 8259, RFC 3986 and the calendar).
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
