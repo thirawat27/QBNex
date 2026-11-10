@@ -8794,6 +8794,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 qbg_sub_view_print(y,y,1|2);
                 //3. PRINT 'clears the line without having to worry about its contents/size
                 qbs_print(nothingstring,1);
+                //4.-7. "Press any key to continue" and wait, unless QBNEX_NO_ERROR_DIALOG=1
+                if (qb_end_prompt_wanted(1)){
                 //4. PRINT "Press any key to continue"
                 qbs_print(qbs_new_txt("Press any key to continue"),0);
                 //5. Clear any buffered keypresses
@@ -8809,11 +8811,13 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                     Sleep(100);
                     if (stop_program) end();
                 }while(qbs_cleanup(qbs_tmp_base,qbs_equal(qbs_inkey(),qbs_new_txt(""))));
+                }
                 
                 
                 }else{
-                if (console){
-                        //screen is hidden, console is visible
+                if (console && qb_end_prompt_wanted(0)){
+                        //screen is hidden, console is visible (no prompt when stdin/stdout is
+                        //redirected or QBNEX_NO_ERROR_DIALOG=1: nobody could press the key)
                         #ifdef QBNex_WINDOWS
                             qb_print_cstr("\nPress any key to continue", 0);
                             int32 junk;
