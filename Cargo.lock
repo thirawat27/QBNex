@@ -567,7 +567,7 @@ dependencies = [
  "libc",
  "log",
  "memmap2",
- "region",
+ "region 3.0.2",
  "target-lexicon",
  "wasmtime-internal-jit-icache-coherence",
  "windows-sys 0.61.2",
@@ -594,6 +594,22 @@ dependencies = [
  "cranelift-codegen",
  "libc",
  "mach2 0.6.0",
+ "target-lexicon",
+]
+
+[[package]]
+name = "cranelift-object"
+version = "0.137.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c38304b64d440315410ae0229340dd2087bed7d7e8411a7bb72b4b6a2132db05"
+dependencies = [
+ "anyhow",
+ "cranelift-codegen",
+ "cranelift-control",
+ "cranelift-module",
+ "gimli",
+ "log",
+ "object",
  "target-lexicon",
 ]
 
@@ -1714,6 +1730,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
+dependencies = [
+ "crc32fast",
+ "hashbrown 0.17.1",
+ "indexmap",
+ "memchr",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1894,7 +1922,17 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "cranelift-object",
+ "qb-link",
  "qb-runtime",
+]
+
+[[package]]
+name = "qb-link"
+version = "0.1.0"
+dependencies = [
+ "object",
+ "region 4.0.1",
 ]
 
 [[package]]
@@ -2031,6 +2069,18 @@ dependencies = [
  "libc",
  "mach2 0.4.3",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "region"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bc10200af9f8297cb52df7e0e1db8d9ad3e8782981d69b25eedf858f5455ca2"
+dependencies = [
+ "bitflags 2.13.2",
+ "libc",
+ "mach2 0.6.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

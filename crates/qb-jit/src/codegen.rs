@@ -67,7 +67,21 @@ pub type NativeFn = unsafe extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
 /// Compiled module: owns the code memory (released on drop).
 pub struct Compiled {
     jit: Option<JITModule>,
+    /// Code memory owned elsewhere (an AOT image loaded by `qb-link`).
+    _owner: Option<Box<dyn std::any::Any>>,
     pub fns: Vec<NativeFn>,
+}
+
+impl Compiled {
+    /// Native code that was compiled ahead of time and loaded by the embedder;
+    /// `owner` keeps its memory alive.
+    ///
+    /// # Safety
+    /// Every pointer must be a function compiled from the same MIR module with
+    /// the native signature, resolved against this process.
+    pub unsafe fn from_loaded(fns: Vec<NativeFn>, owner: Box<dyn std::any::Any>) -> Compiled {
+        Compiled { jit: None, _owner: Some(owner), fns }
+    }
 }
 
 impl Drop for Compiled {
@@ -173,7 +187,7 @@ pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
             unsafe { core::mem::transmute::<*const u8, NativeFn>(p) }
         })
         .collect();
-    Ok(Compiled { jit: Some(jit), fns })
+    Ok(Compiled { jit: Some(jit), _owner: None, fns })
 }
 
 struct Gen<'a, M: cranelift_module::Module> {

@@ -1,0 +1,16 @@
+[package]
+name = "qb-link"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "D15: in-house linker/loader for QBNex native code. Turns a Cranelift object into a relocatable image and loads it into executable memory (no external linker, no C toolchain)."
+publish = false
+
+[lib]
+name = "qb_link"
+path = "src/lib.rs"
+
+[dependencies]
+object = { version = "0.40", default-features = false, features = ["read_core", "elf", "coff", "macho", "std"] }
+region = "4"

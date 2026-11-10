@@ -162,6 +162,24 @@ fn mask(tys: &[Ty], mut v: Vec<u64>) -> Vec<u64> {
 pub enum Engine {
     Interp,
     Jit,
+    /// object file -> qb-link image -> bytes -> loaded into executable memory
+    Aot,
+}
+
+/// Ahead-of-time path: compile to an object, link, serialise, load.
+pub fn aot_compile(m: &Module) -> qb_jit::Compiled {
+    let obj = qb_jit::aot::compile_object(m, Target::Host).expect("object");
+    let img = qb_link::link(&obj).expect("link");
+    let img = qb_link::Image::from_bytes(&img.to_bytes()).expect("image bytes");
+    let syms: std::collections::HashMap<String, usize> = qb_jit::symbols(m).into_iter().collect();
+    let loaded = qb_link::load(&img, &|n| syms.get(n).copied()).expect("load");
+    let fns = (0..m.funcs.len())
+        .map(|i| {
+            let p = loaded.symbol(&qb_jit::func_symbol(i)).expect("function symbol");
+            unsafe { core::mem::transmute::<*const u8, qb_jit::NativeFn>(p) }
+        })
+        .collect();
+    unsafe { qb_jit::Compiled::from_loaded(fns, Box::new(loaded)) }
 }
 
 pub fn run_one(m: &Module, func: FuncId, s: &Setup, e: Engine) -> Outcome {
@@ -197,6 +215,10 @@ fn run_full(m: &Module, func: FuncId, s: &Setup, e: Engine, tables: [*mut u64; 2
             let c = compile(m, Target::Host).expect("compile");
             unsafe { c.run(&mut ctx, func, frame.as_mut_ptr(), s.entry) }
         }
+        Engine::Aot => {
+            let c = aot_compile(m);
+            unsafe { c.run(&mut ctx, func, frame.as_mut_ptr(), s.entry) }
+        }
     };
     globals.truncate(m.globals.len());
     outcome(m, func, st, &ctx, frame, globals, &rtst)
@@ -207,6 +229,8 @@ pub fn both(m: &Module, func: FuncId, s: &Setup) -> Outcome {
     let a = run_one(m, func, s, Engine::Interp);
     let b = run_one(m, func, s, Engine::Jit);
     assert_eq!(a, b, "interp vs jit differ");
+    let c = run_one(m, func, s, Engine::Aot);
+    assert_eq!(a, c, "interp vs aot differ");
     a
 }
 

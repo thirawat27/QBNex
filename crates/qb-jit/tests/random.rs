@@ -174,6 +174,10 @@ fn random_programs_match() {
         let m = gen_program(seed);
         let a = run_one(&m, 0, &Setup::default(), Engine::Interp);
         let b = run_one(&m, 0, &Setup::default(), Engine::Jit);
+        if seed % 10 == 0 {
+            let c = run_one(&m, 0, &Setup::default(), Engine::Aot);
+            assert_eq!(a, c, "seed {seed}: interp vs aot differ");
+        }
         if a != b {
             panic!("seed {seed}: interp vs jit differ\ninterp: {a:?}\njit:    {b:?}\nprogram: {:#?}", m.funcs[0]);
         }

@@ -9,6 +9,7 @@
 //! [`interp`] is a reference interpreter of the same MIR used as the oracle
 //! in differential tests.
 
+pub mod aot;
 pub mod codegen;
 pub mod ctx;
 pub mod interp;
@@ -17,7 +18,7 @@ pub mod rt;
 pub mod thunk;
 pub mod tier;
 
-pub use codegen::{compile, CompileError, Compiled, NativeFn, Target};
+pub use codegen::{compile, func_symbol, symbols, CompileError, Compiled, NativeFn, Target};
 pub use ctx::{status, ArrDesc, ChainRec, Ctx};
 
 impl Compiled {

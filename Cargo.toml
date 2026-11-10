@@ -6,6 +6,7 @@ members = [
     "crates/qb-exec",
     "crates/qb-ir",
     "crates/qb-jit",
+    "crates/qb-link",
     "tests/conformance",
 ]
 

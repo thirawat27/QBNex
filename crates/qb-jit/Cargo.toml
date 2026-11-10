@@ -18,3 +18,7 @@ cranelift-frontend = "0.137"
 cranelift-jit = "0.137"
 cranelift-module = "0.137"
 cranelift-native = "0.137"
+cranelift-object = "0.137"
+
+[dev-dependencies]
+qb-link = { path = "../qb-link" }
