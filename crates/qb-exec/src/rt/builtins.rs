@@ -76,6 +76,16 @@ pub(crate) struct RtState<'a> {
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
     pub(crate) net_pending_error: i32,
+    /// VARPTR$ value slots in DBLOCK (offset, next slot)
+    pub(crate) varptr_slots: usize,
+    pub(crate) varptr_next: usize,
+    /// error of the last numeric READ, raised by READCHK after the store
+    pub(crate) read_err: i32,
+    /// screen pages and images (SCREEN, graphics, `_NEWIMAGE`, ...)
+    pub(crate) display: super::display::Display,
+    /// `$CONSOLE` / `$CONSOLE:ONLY`
+    pub(crate) console_on: bool,
+    pub(crate) console_only: bool,
     /// qb-audio started (snd_init)
     pub(crate) snd_started: bool,
 }
@@ -102,6 +112,12 @@ impl<'a> RtState<'a> {
             net: super::netx::Net::default(),
             net_pending_error: 0,
             snd_started: false,
+            read_err: 0,
+            varptr_slots: 0,
+            varptr_next: 0,
+            display: super::display::Display::default(),
+            console_on: false,
+            console_only: false,
         }
     }
     pub(crate) fn flush(&mut self) {
@@ -130,14 +146,20 @@ impl<'a> RtState<'a> {
     }
 }
 
-pub(crate) fn numeric_text(s: &[u8]) -> bool {
-    let t = std::str::from_utf8(s).unwrap_or("").trim();
-    if let Some(h) = t.strip_prefix('&') {
-        return h.len() > 1;
+/// True when PRINT to the screen must draw on a page instead of writing stdout.
+fn screen_out(vm: &mut dyn Host<'_>) -> bool {
+    let rt = vm.rt();
+    if !rt.display.started {
+        // PRINT alone starts the screen only in a `$CONSOLE` program (its window page);
+        // without the meta (hand-written QIR, no window here) it stays on stdout
+        if rt.console_only || !rt.console_on {
+            return false;
+        }
+        let cmem = rt.cmem.as_mut_ptr();
+        let (on, only) = (rt.console_on, rt.console_only);
+        rt.display.start(cmem, on, only);
     }
-    let t = t.trim_end_matches(['#', '!', '%', '&', '~']);
-    let t = t.replace(['D', 'd'], "E");
-    !t.is_empty() && t.parse::<f64>().is_ok()
+    rt.display.write_is_screen()
 }
 
 pub(crate) fn val(s: &[u8]) -> f64 {
@@ -263,6 +285,29 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::display::call(vm, name, &a) {
+        return r;
+    }
+    let is_print = matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.");
+    if is_print && a.first().is_some_and(|c| c.i() == 0) && screen_out(vm) {
+        // console output while a screen page is the destination: draw it
+        let r = match name {
+            "PRINTS" => Some(super::display::call(vm, "SCREENPRINT", &a[1..])),
+            "PRINTZONE" => Some(super::display::call(vm, "SCREENZONE", &[])),
+            "PRINTNL" => Some(super::display::call(vm, "SCREENNL", &[])),
+            "PRINTTAB" => Some(super::display::call(vm, "SCREENTAB", &a[1..])),
+            "PRINTSPC" => Some(super::display::call(vm, "SCREENSPC", &a[1..])),
+            n if n.starts_with("PRINTN.") => {
+                let mut b = str_num(suffix_ty(n), &a[1]);
+                b.push(b' ');
+                Some(super::display::call(vm, "SCREENPRINT", &[V::S(b)]))
+            }
+            _ => None,
+        };
+        if let Some(Some(r)) = r {
+            return r;
+        }
+    }
     if let Some(r) = super::audiox::call(vm, name, &a) {
         return r;
     }
@@ -274,6 +319,43 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     }
     if let Some(r) = super::memx::call(vm, name, &a) {
         return r;
+    }
+    if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
+        return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
+    }
+    if name == "VARPTR$" {
+        // VARPTR$ of a numeric variable for DRAW/PLAY "=": the value goes to one of
+        // 16 rotating DBLOCK slots (the program reads it in the same statement)
+        let (ty, v) = (a[0].i() as i32, a[1].f());
+        let rt = vm.rt();
+        if rt.varptr_slots == 0 {
+            rt.varptr_slots = rt.cmem_next;
+            rt.cmem_next += 16 * 16;
+        }
+        let off = rt.varptr_slots + 16 * (rt.varptr_next % 16);
+        rt.varptr_next += 1;
+        let b = DBLOCK + off;
+        let m = &mut rt.cmem[b..b + 16];
+        match ty {
+            1 | 129 => m[0] = v as i64 as u8,
+            2 | 130 => m[..2].copy_from_slice(&(v as i64 as u16).to_le_bytes()),
+            20 | 148 => m[..4].copy_from_slice(&(v as i64 as u32).to_le_bytes()),
+            5 => m[..8].copy_from_slice(&(v as i64).to_le_bytes()),
+            133 => m[..8].copy_from_slice(&(v as u64).to_le_bytes()),
+            4 => m[..4].copy_from_slice(&(v as f32).to_le_bytes()),
+            6 => m[..10].copy_from_slice(&qb_float80::F80::from_f64(v).to_bytes()),
+            _ => m[..8].copy_from_slice(&v.to_le_bytes()),
+        }
+        return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
+    }
+    if name == "READCHK" {
+        let c = std::mem::take(&mut vm.rt().read_err);
+        return if c != 0 { e(c) } else { Ok(None) };
+    }
+    if name == "func__errormessage" {
+        // _ERRORMESSAGE$[(code)]: without the argument, the current error
+        let code = if a[1].i() != 0 { a[0].i() as i32 } else { vm.err() };
+        return Ok(Some(V::S(qb_runtime::error::human_error(code).as_bytes().to_vec())));
     }
     if name == "LASTLINE" {
         vm.set_last_line(a[0].i() as u32);
@@ -491,6 +573,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
             return ok(float1(&a[0], f64::ln));
         }
+        "EXP.s" => return match qb_runtime::mathfn::exp_single(f(0)) {
+            Ok(v) => ok(V::F(v)),
+            Err(c) => e(c),
+        },
         "EXP" => {
             let r = f(0).exp();
             if r.is_infinite() {

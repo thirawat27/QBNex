@@ -316,7 +316,11 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
     let fidx: HashMap<&str, usize> = order.iter().enumerate().map(|(k, &i)| (src.funcs[i].name.as_str(), k)).collect();
     let mut lw = Lw {
         ir: src,
-        m: Module { data: src.data.clone(), ..Module::default() },
+        m: Module {
+                data: src.data.clone(),
+                console: src.meta("console").map(|v| v == "only"),
+                ..Module::default()
+            },
         kstr: HashMap::new(),
         labels: HashMap::new(),
         fixups: Vec::new(),
@@ -934,9 +938,10 @@ impl<'a> Lw<'a> {
                         _ => return Err("bad _FLOAT variable".into()),
                     },
                     Inst::Read { dst, .. } => {
+                        // func_read_float(.., FLOATTYPE): the double value
                         let d = xreg!(*dst);
                         let t = self.frames[k].new_n(0);
-                        self.emit(Ins::ReadN { d: t });
+                        self.emit(Ins::ReadN { d: t, typ: qb_runtime::numparse::ISFLOAT | 256 });
                         self.emit(Ins::XFromF { d, s: t });
                     }
                     _ => return Err("unsupported _FLOAT instruction".into()),
@@ -1489,15 +1494,22 @@ impl<'a> Lw<'a> {
                         let d = sreg!(*dst);
                         self.emit(Ins::ReadS { d });
                     } else {
+                        // QB type code of the target (subs_functions: bits | ISFLOAT | ISUNSIGNED)
+                        use qb_runtime::numparse::{ISFLOAT, ISUNSIGNED};
+                        let typ = match *ty {
+                            IT::I8 => 8,
+                            IT::U8 => 8 | ISUNSIGNED,
+                            IT::I16 => 16,
+                            IT::U16 => 16 | ISUNSIGNED,
+                            IT::I32 => 32,
+                            IT::U32 => 32 | ISUNSIGNED,
+                            IT::I64 => 64,
+                            IT::U64 => 64 | ISUNSIGNED,
+                            IT::F32 => 32 | ISFLOAT,
+                            _ => 64 | ISFLOAT,
+                        };
                         let d = nreg!(*dst);
-                        self.emit(Ins::ReadN { d });
-                        if ty.is_float() {
-                            if *ty == IT::F32 {
-                                self.emit(Ins::RoundF32 { d, s: d });
-                            }
-                        } else {
-                            self.emit(Ins::CvtFI { d, s: d, w: width(*ty)?, trunc: false });
-                        }
+                        self.emit(Ins::ReadN { d, typ });
                     }
                 }
                 Inst::Restore(l) => {

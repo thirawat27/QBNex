@@ -409,8 +409,11 @@ pub enum Ins {
     /// READ of a string: next DATA item
     ReadS { d: R },
     Restore { i: u32 },
-    /// QIR numeric READ: next DATA item as f64 (non-numeric text = error 13)
-    ReadN { d: R },
+    /// QIR numeric READ of the next DATA item into a target of QB type
+    /// `typ` (`func_read_float` / `func_read_int64` / `func_read_uint64`):
+    /// integer targets get the i64 value, float targets the f64 value;
+    /// overflow = error 6, malformed number = error 2 (the item is not consumed)
+    ReadN { d: R, typ: i32 },
     // ---- events (ON TIMER / ON KEY / ...), delivered at safe points
 }
 
@@ -508,6 +511,8 @@ pub struct Module {
     /// statement starts: (pc, source line), sorted by pc
     pub stmts: Vec<(u32, u32)>,
     pub data: Vec<Vec<u8>>,
+    /// `$CONSOLE` (`Some(false)`) / `$CONSOLE:ONLY` (`Some(true)`)
+    pub console: Option<bool>,
 }
 
 /// Operand roles, for validation and for tools (disassembler, JIT).
@@ -698,7 +703,7 @@ impl Ins {
                 f(O::N(dim))
             }
             EraseM { a } => f(O::N(a)),
-            ReadN { d } => f(O::N(d)),
+            ReadN { d, .. } => f(O::N(d)),
             Call { f: func, desc } => {
                 f(O::Func(func));
                 f(O::Call(desc))
