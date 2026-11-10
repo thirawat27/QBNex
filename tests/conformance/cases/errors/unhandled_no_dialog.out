@@ -1,0 +1,2 @@
+before
+same line [exit Some(1)]
