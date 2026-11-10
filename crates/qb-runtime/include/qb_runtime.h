@@ -51,6 +51,8 @@ int32_t qb_str_i64(int64_t v, unsigned char *out);
 int32_t qb_str_u64(uint64_t v, unsigned char *out);
 int32_t qb_str_f32(float v, unsigned char *out);
 int32_t qb_str_f64(double v, unsigned char *out);
+/* STR$ of a _FLOAT (10-byte x87 value); legacy formats (double)value. */
+int32_t qb_str_f80(const unsigned char *v, unsigned char *out);
 
 // --- TIMER (was the arithmetic of func_timer) ---------------------------------
 // Writes the value to *out and returns 0, or returns a QBasic error code.

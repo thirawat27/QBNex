@@ -13,6 +13,12 @@ for %%t in (diff_msbin diff_round diff_val diff_str diff_timer diff_qbs diff_mem
     "%OUT%\%%t.exe" %1 || exit /b 1
 )
 
+rem R11d: software x87 float (crates/qb-float80) vs real long double. Own staticlib with
+rem the diff-hooks feature; the oracle is MinGW libm, __mingw_snprintf and __mingw_strtold.
+cargo rustc -q -p qb-float80 --release --target x86_64-pc-windows-gnu --features diff-hooks --crate-type staticlib || exit /b 1
+"%CXX%" -O2 -std=c++17 -w diff_float80.cpp ..\..\target\x86_64-pc-windows-gnu\release\libqb_float80.a -lntdll -luserenv -lws2_32 -o "%OUT%\diff_float80.exe" || exit /b 1
+"%OUT%\diff_float80.exe" %1 || exit /b 1
+
 rem R7: FreeType, stb_image and dr_pcx were deleted from the tree; the references are
 rem taken from git history (the last commit that still had them).
 set "LEGACY_REV=4aa6f1f037277585c381fda9c956e1ddcc411033"
