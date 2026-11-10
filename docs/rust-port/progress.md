@@ -191,6 +191,29 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 - The CMake target `qb-exec` (built with `qb-selfhost`) produces `crates/qb-exec/bin/<os>/qb-exec`; on Windows it imports only system DLLs.
 - Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
 
+### R11b typed register VM (R11.5, branch `claude/r11b-vm-d353b8`, 2026-11-10)
+
+- The untyped stack interpreter is gone. QIR is loaded once into typed register bytecode (`crates/qb-exec/src/bytecode.rs`): numeric registers are 64-bit cells (integers stored wrapped to their QB width, SINGLE/DOUBLE as f64), separate string and array banks, constant registers, one frame per SUB/FUNCTION call, labels resolved to pc, builtins resolved at load (hot ones are instructions: LEN, CHR$, ASC, LEFT$, RIGHT$, MID$, ABS/SGN/INT/FIX/SQR/LOG/EXP/SIN/COS/TAN/ATN; the rest go through one resolved table entry). `Module::validate` checks every operand, so the hot loop indexes registers without bounds checks.
+- `lower.rs` runs QIR v0 abstractly (static types from suffixes / first store) and fuses: result written straight into the variable, compare + branch (`br.*`), `FORTEST`+`JZ` (`for_test.*`), `NEXT` (`for_next.*`, one instruction per iteration), `s = s + a op b` (`acc`), in-place `a$ = a$ + x$`, backward jumps as `loop` (event safe point). Fusion never crosses `LINE` or a label; statement starts live in a side table, so `LINE` costs nothing and RESUME / RESUME NEXT / error lines are unchanged.
+- BYREF = copy-in / copy-out (strings and arrays are moved, not copied); differs from pointer semantics only when a SUB changes one variable through a parameter and through SHARED at once. GOSUB/RETURN and ON ERROR/RESUME are jumps with a return stack; the error handler sees module level without unwinding frames (QBasic). `_INTEGER64` (`&&`, `PUSH Q`) is typed.
+- Events: `ONEVENT id label`, `EVENTON/EVENTOFF/EVENTSTOP id`, `ONTIMER label` (interval on the stack, timer thread) — other threads set bits in an atomic mask, the VM looks only at safe points (back edges, NEXT, CALL) and runs the handler as an implicit GOSUB; STOP remembers, OFF discards (`Vm::events()` gives a handle).
+- Tests: `cargo test -p qb-exec` — all v0 tests unchanged (18 + 19 + 7) plus 14 in `tests/vm_typed.rs` (fusion shapes, wrap rules, events, BYREF strings, shared arrays) and the merged QIR v1 tests of R11a (13, still on the reference interpreter, see below).
+- Microbenchmarks: `cargo run --release -p qb-exec --example bench`; the same programs for the C++ path are `crates/qb-exec/benches/bas/*.bas` (time measured inside the program with `TIMER(.001)`, so start-up is excluded on both sides). Same machine, best of 3, outputs identical:
+
+| case | BASIC | VM ms | C++ ms | VM / C++ |
+| --- | --- | --- | --- | --- |
+| loop | `FOR i& = 1 TO 50M: s& = s& + i& MOD 7: NEXT` | 255 (5.1 ns/iter) | 96 | **2.7x** (spike VM: ~95 ns/iter, 19x slower than now) |
+| float | `x# = x# + i& * 0.5`, 20M | 146 | 58 | 2.5x |
+| array | `j& = i& MOD 1000: a&(j&) = a&(j&) + i&`, 20M | 313–347 | 133 | 2.4–2.6x |
+| sub | `inc c&` (BYREF LONG), 5M calls | 161–176 | 57 | 2.8–3.1x |
+| func | `t& = t& + sq&(i&)`, 5M calls | 210–218 | 79 | 2.7x |
+| gosub | `GOSUB g` / `RETURN`, 5M | 39–52 | 15 | 2.6–3.4x |
+| strfn | `MID$(...) + CHR$(65)`, `LEN`, 2M | 54 | 124 | **0.43x** (faster) |
+| concat | `a$ = a$ + "x"`, 2M | 14–23 | 93 000–124 000 | **~5000x faster** (C++ path copies the whole string each time) |
+
+  Calibration on the same machine: the loop case in native Rust with a runtime divisor = 1.4 ns/iter; the remaining cost is interpreter dispatch (~1.7 ns per instruction). Gate "loop ≤ 10x C++" met, target ≤ 3x met for every case.
+- QIR v1 (R11a, `docs/rust-port/qir-v1.md`) is merged; `QIR 1` programs still run on R11a's reference interpreter (`crates/qb-exec/src/v1.rs`). Next for R11b: v1 loader onto this VM (variables in addressable blocks only when `addr`/byref/UDT need it, everything else promoted to registers; `rt` calls through the shared runtime state).
+
 ## How the pieces fit
 
 ```mermaid
