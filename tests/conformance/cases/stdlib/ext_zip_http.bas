@@ -18,7 +18,7 @@ OPEN "ext_zip_out/sub/bin.dat" FOR BINARY AS #1: PRINT "extracted size"; LOF(1):
 PRINT "missing archive"; Zip_List&("no_such_file.zip")
 KILL z$: KILL "ext_zip_out/hello.txt": KILL "ext_zip_out/sub/bin.dat": RMDIR "ext_zip_out/sub": RMDIR "ext_zip_out"
 
-port& = qb_ext_test_http_server&(4)
+port& = qb_ext_test_http_server&(5) ' get, post, put, redirect + its target
 base$ = "http://127.0.0.1:" + LTRIM$(STR$(port&))
 st& = Http_Get&(base$ + "/hello?a=1", 5000)
 PRINT "get"; st&; "["; Http_Body$; "] "; Http_Header$("X-Server"); " "; Http_Header$("content-type")
