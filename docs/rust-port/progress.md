@@ -389,8 +389,12 @@ Bootstrap: the old snapshot read `gl.h` at start-up, so `qb.exe` was built once 
 
 - `cargo test -p qb-runtime --lib compress`: 9 tests (bound, round trips, zlib-produced input, short/exact/zero-length buffers, truncated and garbage input); RED first against stubs (8 failed).
 - `diff_zlib` (MinGW `libz.a` vs Rust, `tests/diff/diff_zlib.cpp`): 75,370 checks, **0 mismatches**: `compressBound`, `uncompress` result code, length and output bytes at capacities 0/1/half/n-1/n/n+1/random, truncated input, 12,000 corrupt streams (bit flips, garbage) incl. partial output, and zlib reading every Rust stream back. A first version on miniz_oxide failed this harness (no "distance too far back" check), which is why zlib-rs is used.
-- Conformance: new case `strings/deflate_inflate`.
-- `tests/diff/host_stub.cpp`: `libqb_runtime.a` is one object (codegen-units = 1) that imports `cmem`, `cmem_sp`, `dblock`, `qb_host_error` and `qb_host_field_free` from libqb, so every harness except `diff_qbs` now links this stub (the harnesses did not link at HEAD before R10).
+- `scripts\setup_win.cmd` from scratch (stage0 from the new snapshot, then `qb.exe`), after merging `rust-port` (Rust 1.99.1, edition 2024).
+- `cargo test --workspace`: all pass (`clipboard_round_trips` fails only while other sessions use the shared clipboard; passes alone). `cargo clippy --workspace --all-targets`: 0 warnings.
+- Conformance: 70 cases, 64 passed, 6 xfail, 0 failed (run per folder because parallel sessions exhausted RAM; one `audio/synth_statements` compile failure was `cc1plus: out of memory` and passed on rerun). New case `strings/deflate_inflate`.
+- `tests/smoke/*_smoke.cmd`: 8/8 pass.
+- `tests/diff/run_diff.cmd --quick`: every harness 0 mismatches (incl. `diff_zlib`, `diff_image`, `diff_font`).
+- Harness fixes found on the way (pre-existing, unrelated to R10): `libqb_runtime.a` is one object (codegen-units = 1) that imports `cmem`, `cmem_sp`, `dblock`, `qb_host_error` and `qb_host_field_free` from libqb, so no harness except `diff_qbs` linked any more; they now link `tests/diff/host_stub.cpp`. `diff_net.cpp` did not compile (`qbs` ambiguous between the global forward declaration in `qb_runtime.h` and `legacy::qbs`); qualified.
 
 ### C/C++ left
 

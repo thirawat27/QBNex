@@ -36,7 +36,7 @@ if defined HAVE_LEGACY (
     "%CXX%" -O2 -std=c++17 -w -I"%LEG%" diff_image.cpp host_stub.cpp %LIBS% -o "%OUT%\diff_image.exe" || exit /b 1
     "%OUT%\diff_image.exe" data\images %1 || exit /b 1
     "%CXX%" -O1 -c -w "%LEG%\freetypeamalgam.c" -o "%OUT%\freetype.o" || exit /b 1
-    "%CXX%" -O2 -std=c++17 -w -I"%LEG%" diff_font.cpp "%OUT%\freetype.o" %LIBS% -o "%OUT%\diff_font.exe" || exit /b 1
+    "%CXX%" -O2 -std=c++17 -w -I"%LEG%" diff_font.cpp "%OUT%\freetype.o" host_stub.cpp %LIBS% -o "%OUT%\diff_font.exe" || exit /b 1
     set "FONTS=data\fonts\NotoSans-Subset.ttf data\fonts\NotoSansSymbols2-Subset.ttf data\fonts\NotoSansThai-Regular.ttf"
     for %%f in (arial.ttf cour.ttf lucon.ttf times.ttf tahoma.ttf verdana.ttf consola.ttf segoeui.ttf) do (
         if exist "%WINDIR%\Fonts\%%f" call set "FONTS=%%FONTS%% %WINDIR%\Fonts\%%f"
