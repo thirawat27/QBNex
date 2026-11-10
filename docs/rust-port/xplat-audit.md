@@ -82,3 +82,26 @@ WSL Debian 13, x86_64, root user, Rust 1.99.1.
   - Suggested fix (qb-runtime image, owner's call because it changes legacy behaviour): cap `width*height` before reserving, for example at 2^28 pixels or a size based on available memory. Or keep the test, but run it under a memory limit in Linux CI.
 - The full `cargo test --workspace` in WSL was stopped on request (memory needed by R11a). The other crates' tests have not run on Linux yet.
 - Scripts: `wsl-build.sh` (copy to `~/xplat` and build), `wsl-rt.sh <ulimitKB> [args]` (qb-runtime lib tests), `wsl-test.sh` (whole workspace under ulimit). They are kept in the session scratchpad and can be copied into `scripts/` on request.
+## macOS code review (read-only, plus cargo check)
+
+Checked by reading the code. After the changes below, `cargo check` passes on aarch64-apple-darwin, x86_64-apple-darwin and x86_64-unknown-linux-gnu.
+
+Fixed:
+
+- **keymap.rs `translate()`**: Backspace and Delete were swapped on macOS. The legacy swap (`glut_ascii(.., macos=true)`) was there because GLUT on macOS reported the backspace key as 0x7F. winit already reports the physical keys (`Key::Backspace` → 8, `Key::Delete` → 127), so `translate` no longer swaps on any OS. The C ABI `qb_keymap_glut_ascii(.., macos)` is unchanged.
+- **screen.rs (`_SCREENPRINT` / `_SCREENCLICK` on macOS)**: `CFRelease(NULL)` crashes, so a CGEvent that could not be created is now skipped. The CoreGraphics prototypes match the SDK: `CGEventSourceCreate(i32)`, `CGEventCreateKeyboardEvent(src, u16, bool)`, `CGEventCreateMouseEvent(src, u32, CGPoint, u32)`, `CGEventPost(u32, e)`.
+- **qb-ffi loader**: on macOS 11+, system dylibs (`/usr/lib/libz.dylib` and similar) exist only in the dyld shared cache, not on disk. `open_dynamic` skipped any candidate that is not a file, so it found only bare names through the fallback. It now also tries `dlopen` on absolute paths on Apple.
+
+Checked, OK:
+
+- `console/stdio.rs` uses `__stdoutp` / `__stdinp` (the correct libc symbols on macOS).
+- qb-ffi `RTLD_NOW=2`, `RTLD_GLOBAL=8`, `RTLD_DEFAULT=-2` are right for Apple. The `thunk_name!` underscore prefix for Mach-O is right.
+- `window.rs` runs the winit `EventLoop` on the main thread (`qb_window_run`), as macOS requires. The program runs on another thread.
+- qb-link `flush_icache` uses `sys_icache_invalidate` on arm64 macOS.
+
+Open (not fixed):
+
+- `_SCREENIMAGE` is not implemented outside Windows. `qb_screenimage` returns NULL, so the program gets a blank image. Legacy macOS captured the screen. A port would use `CGDisplayCreateImage`, which is deprecated in macOS 15 (ScreenCaptureKit replaces it), or a crate.
+- Posting CGEvents needs the Accessibility permission. Without it, macOS drops the events silently, the same as legacy.
+- `crates/qb-link/src/exe/mod.rs` declares `pub mod macho;`, but `macho.rs` does not exist yet. That is fine for now, because `exe` is WIP (commit c0d6d80) and not included from `lib.rs`. The Mach-O writer has not been reviewed. It will need an ad-hoc code signature (arm64 kernel requirement), 16 KiB segment alignment on arm64, and `LC_BUILD_VERSION`.
+- See "Issues to act on" above for the qb-link JIT under the hardened runtime and for qb-ffi variadic calls on arm64.
