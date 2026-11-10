@@ -7,6 +7,11 @@ set -u
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 
+# QIR pipeline (no C/C++ toolchain), opt-in until the cutover: see docs/rust-port/cutover-plan.md
+if [ "${QBNEX_QIR_CUTOVER:-}" = "1" ]; then
+  exec sh scripts/setup_qir.sh --enable
+fi
+
 cleanup_setup_artifacts() {
   rm -f ./temp.7z ./7zr ./7zr.exe >/dev/null 2>&1 || true
   rm -rf ./mingw32 ./mingw64 >/dev/null 2>&1 || true
