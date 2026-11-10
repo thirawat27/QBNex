@@ -276,17 +276,18 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
     let nf = f.frame_len();
     let mut temps = vec![0u64; f.slots.len() - nf];
     let tp = temps.as_mut_ptr();
+    let frame_c = core::cell::Cell::new(frame);
+    let globals_c = core::cell::Cell::new(ctx.globals);
     let slot = |r: Reg| unsafe {
         if (r as usize) < nf {
-            frame.add(r as usize)
+            frame_c.get().add(r as usize)
         } else {
             tp.add(r as usize - nf)
         }
     };
     let get = |r: Reg| unsafe { read(slot(r) as *const u8, ty(r)) };
     let set = |r: Reg, v: V| unsafe { write_slot(slot(r), ty(r), v) };
-    let globals = ctx.globals;
-    let gslot = move |s: u32| unsafe { globals.add(s as usize) };
+    let gslot = |s: u32| unsafe { globals_c.get().add(s as usize) };
     macro_rules! fail {
         ($code:expr) => {{
             ctx.err = $code;
@@ -486,7 +487,9 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 Inst::VmOp { op, .. } => {
                     // SAFETY: validated non-zero callback with the documented signature.
                     let cb: VmOpFn = unsafe { core::mem::transmute::<usize, VmOpFn>(m.vm_op) };
-                    let st = unsafe { cb(ctx, frame, *op) };
+                    let st = unsafe { cb(ctx, frame_c.get(), *op) };
+                    frame_c.set(ctx.frame);
+                    globals_c.set(ctx.globals);
                     if st != status::OK {
                         return st;
                     }

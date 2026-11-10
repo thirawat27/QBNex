@@ -41,8 +41,7 @@ fn exits(ins: &Ins) -> bool {
     use Ins::*;
     matches!(
         ins,
-        Call { .. }
-            | Ret
+        Ret
             | End
             | OnError { .. }
             | Resume { .. }
@@ -96,6 +95,24 @@ fn frame_regs(m: &bc::Module, ins: &Ins, n: u32, is_main: bool) -> Vec<u32> {
             v.insert(r);
         }
     };
+    if let Ins::Call { f, desc } = ins {
+        let c = &m.calls[*desc as usize];
+        for a in &c.args {
+            match *a {
+                bc::Arg::N(r) => add(r),
+                bc::Arg::Ref(p) => match m.places[p as usize] {
+                    bc::Place::N(r, _) => add(r),
+                    bc::Place::NG(g, _) if is_main => add(g),
+                    bc::Place::E { i, n: k, .. } => (i..i + k).for_each(&mut add),
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        if let (Some(d), Some((bc::Slot::N(_), _))) = (c.dest, m.funcs[*f as usize].ret) {
+            add(d);
+        }
+    }
     if let Ins::Bi { f, d, .. } = ins {
         if m.bfns[*f as usize].1 != bc::Ty::Str {
             add(*d);
@@ -547,6 +564,44 @@ impl Lower<'_> {
     }
 }
 
+/// Main-module registers that code outside the main module's own native
+/// code can change while main is in a VM call: SHARED variables (absolute
+/// operands of other functions) and, when the program uses events, all of
+/// them (handlers run main code at any safe point).
+fn main_shared(m: &bc::Module) -> Vec<u32> {
+    let n = m.funcs[0].n_num();
+    let events = m.code.iter().any(|i| matches!(i, Ins::OnEvent { .. } | Ins::OnTimer { .. }));
+    if events {
+        return (0..n).collect();
+    }
+    let mut v = BTreeSet::new();
+    for f in &m.funcs[1..] {
+        for ins in &m.code[f.entry as usize..f.end as usize] {
+            ins.operands(&mut |o| match o {
+                Opnd::NG(g) if g < n => {
+                    v.insert(g);
+                }
+                Opnd::Place(p) => {
+                    if let bc::Place::NG(g, _) = m.places[p as usize] {
+                        v.insert(g);
+                    }
+                }
+                _ => {}
+            });
+            if let Ins::Call { desc, .. } = ins {
+                for a in &m.calls[*desc as usize].args {
+                    if let bc::Arg::Ref(p) = *a {
+                        if let bc::Place::NG(g, _) = m.places[p as usize] {
+                            v.insert(g);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    v.into_iter().filter(|&g| g < n).collect()
+}
+
 /// Lowers every function of `m`. `vm_op` = address of the VM step callback.
 pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module {
     let gcls = classes(m, &m.funcs[0]);
@@ -574,6 +629,15 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
         let mut lw =
             Lower { m, fi, slots: cls.iter().map(|c| ty_of(*c)).collect(), cls, gcls: &gcls, insts: vec![], view_off };
         let mut blocks = Vec::new();
+        if fi == 0 {
+            // Keep these registers in memory (an address-taken slot is never cached).
+            for g in main_shared(m) {
+                lw.slots.push(Ty::Ptr);
+                lw.cls.push(Class::Int);
+                let t = (lw.slots.len() - 1) as u32;
+                lw.insts.push(Inst::AddrOf { dst: t, slot: g });
+            }
+        }
         for (bi, &start) in leaders.iter().enumerate() {
             let end = leaders.get(bi + 1).copied().unwrap_or(hi);
             let mut term = None;
@@ -816,6 +880,7 @@ impl JitState {
             status::DEOPT => Ok((ctx.exit_pc, false)),
             status::EVENT => Ok((ctx.exit_pc, true)),
             status::ERROR => Err((ctx.err, ctx.exit_pc)),
+            status::END => Ok((u32::MAX, false)),
             other => unreachable!("native status {other} from VM-lowered code"),
         })
     }

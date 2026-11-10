@@ -266,6 +266,11 @@ pub struct Vm<'m, 'o> {
     poll_mask: u32,
     /// JIT tier (R11.6); `None` = interpret only (`QB_JIT=off`).
     jit: Option<Box<crate::jit::JitState>>,
+    /// `exec` returns when a RET brings the frame count back to this
+    /// (calls made from native code run the callee to completion).
+    stop_depth: usize,
+    /// native -> VM -> native nesting of such calls
+    jit_nest: u32,
     timer_interval: f64,
     timer: Option<Arc<AtomicBool>>,
 }
@@ -336,6 +341,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             in_event: false,
             poll_mask: u32::MAX,
             jit: crate::jit::JitState::from_env(m),
+            stop_depth: usize::MAX,
+            jit_nest: 0,
             timer_interval: 0.0,
             timer: None,
         }
@@ -386,6 +393,28 @@ impl<'m, 'o> Vm<'m, 'o> {
         let tables = [unsafe { arrs.add(self.ab) }, arrs];
         let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables)? };
         Some(st)
+    }
+
+    /// CALL at `pc` made from native code: the VM pushes the frame and runs
+    /// the callee to its RET (entering native code again for its loops).
+    /// `Ok(next)`: back in the caller; `Ok(u32::MAX)`: END inside the callee.
+    /// Deep native/VM nesting is left to the VM (`Ok(pc)`: not executed).
+    fn call_from_native(&mut self, pc: u32) -> Result<u32, (i32, u32)> {
+        if self.jit_nest >= 16 {
+            return Ok(pc);
+        }
+        let depth = self.frames.len();
+        let entry = self.step_one(pc)?;
+        if self.frames.len() == depth {
+            return Ok(entry);
+        }
+        let saved = self.stop_depth;
+        self.stop_depth = depth;
+        self.jit_nest += 1;
+        let r = self.exec_impl::<false>(entry);
+        self.jit_nest -= 1;
+        self.stop_depth = saved;
+        r
     }
 
     /// Executes exactly the instruction at `pc` (used by native code for
@@ -1033,6 +1062,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 if !STEP && self.jit.is_some() {
                     match self.jit_enter(pc, np) {
                         None => {}
+                        Some(Ok((p, _))) if p == u32::MAX => return Ok(u32::MAX),
                         Some(Ok((p, ev))) => {
                             pc = p;
                             reload!();
@@ -1243,6 +1273,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::Ret => {
                     pc = tryc!(self.ret());
                     reload!();
+                    if !STEP && self.frames.len() == self.stop_depth {
+                        return Ok(pc);
+                    }
                 }
                 Ins::End => return Ok(u32::MAX),
                 Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
@@ -1473,8 +1506,25 @@ extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
     debug_assert_eq!(frame, vm.np());
-    match vm.step_one(pc) {
-        Ok(next) if next == pc + 1 => qb_jit::status::OK,
+    let r = if matches!(vm.m.code[pc as usize], Ins::Call { .. }) { vm.call_from_native(pc) } else { vm.step_one(pc) };
+    // Nested native code may have reused the context; the register file may have moved.
+    ctx.user = vm as *mut Vm<'static, 'static> as *mut core::ffi::c_void;
+    ctx.frame = vm.np();
+    ctx.globals = vm.nums.as_mut_ptr();
+    let arrs = vm.arrs.as_mut_ptr() as *mut u64;
+    // SAFETY: `ab` is inside `arrs`.
+    ctx.tables = [unsafe { arrs.add(vm.ab) }, arrs];
+    ctx.ev_ptr = &vm.ev.pending;
+    ctx.ev_mask = vm.poll_mask;
+    match r {
+        Ok(next) if next == pc + 1 => {
+            ctx.err = 0;
+            qb_jit::status::OK
+        }
+        Ok(u32::MAX) => {
+            ctx.exit_pc = 0;
+            qb_jit::status::END
+        }
         Ok(next) => {
             ctx.exit_pc = next;
             qb_jit::status::DEOPT

@@ -184,3 +184,30 @@ fn return_without_gosub_from_native_code() {
     assert_eq!(r.result.map_err(|e| e.0), Err(3));
     same(&p);
 }
+
+#[test]
+fn shared_variable_changed_by_sub_called_from_native_main() {
+    // T& = 5: FOR i% = 1 TO 40: T& = T& + 1: CALL ADDTO(i%): NEXT: PRINT T&   (SUB ADDTO: SHARED T&: T& = T& * 2 MOD 1000 + n%)
+    let body = "LOAD T&\nPUSH I 1\nOP ADD\nSTORE T&\nLOAD I%\nCALL ADDTO 1";
+    let p = format!(
+        "QIR 0\nSHARED T&\nPUSH I 5\nSTORE T&\n{}LOAD T&\nPRINT\nPRINTNL\nEND\n\
+         SUB ADDTO 1 N%\nLOAD T&\nPUSH I 2\nOP MUL\nPUSH I 1000\nOP MOD\nLOAD N%\nOP ADD\nSTORE T&\nENDSUB\n",
+        for_loop(1, "I%", "I 1", "I 40", "I 1", body)
+    );
+    same(&p);
+}
+
+#[test]
+fn recursive_function_from_native_loop_and_end_inside_sub() {
+    // FOR i% = 1 TO 12: s& = s& + FACT&(i% MOD 8): NEXT: PRINT s&: CALL STOPPER: PRINT "no"
+    let body = "LOAD S&\nLOAD I%\nPUSH I 8\nOP MOD\nCALL FACT& 1\nOP ADD\nSTORE S&";
+    let p = format!(
+        "QIR 0\n{}LOAD S&\nPRINT\nPRINTNL\nCALL STOPPER 0\nPUSH S 6E6F\nPRINT\nPRINTNL\nEND\n\
+         FUNCTION FACT& 1 N&\nLOAD N&\nPUSH I 1\nOP LE\nJZ E\nPUSH I 1\nSTORE FACT&\nJMP X\nLABEL E\n\
+         LOAD N&\nLOAD N&\nPUSH I 1\nOP SUB\nCALL FACT& 1\nOP MUL\nSTORE FACT&\nLABEL X\nENDSUB\n\
+         SUB STOPPER 0\nEND\nENDSUB\n",
+        for_loop(1, "I%", "I 1", "I 12", "I 1", body)
+    );
+    let out = same(&p);
+    assert!(!out.contains("no"), "{out}");
+}

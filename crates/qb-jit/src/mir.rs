@@ -175,6 +175,8 @@ pub enum Inst {
     /// JIT does not compile natively). `reads` are flushed to the frame before,
     /// `writes` reloaded after. The VM callback returns a status; non-OK
     /// leaves native code with that status (ctx fields set by the VM).
+    /// The callback must store the current frame and globals in
+    /// `Ctx::frame` / `Ctx::globals` (native code reloads both).
     VmOp { op: u32, reads: Vec<Reg>, writes: Vec<Reg> },
     /// Element `idx` of a 1-D numeric array kept by the embedder:
     /// `p = ctx.tables[table][index]`; when `p` is non-null, `p + view_off`

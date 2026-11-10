@@ -147,8 +147,8 @@ struct Gen<'a> {
     defined: Vec<bool>,
     blocks: Vec<CBlock>,
     ctx: Value,
-    frame: Value,
-    globals: Value,
+    v_frame: Variable,
+    v_globals: Variable,
     v_line: Variable,
     v_pc: Variable,
     v_base: Variable,
@@ -213,8 +213,8 @@ impl<'a> Gen<'a> {
             defined,
             blocks: Vec::new(),
             ctx: z,
-            frame: z,
-            globals: z,
+            v_frame: Variable::from_u32(0),
+            v_globals: Variable::from_u32(0),
             v_line: Variable::from_u32(0),
             v_pc: Variable::from_u32(0),
             v_base: Variable::from_u32(0),
@@ -258,7 +258,7 @@ impl<'a> Gen<'a> {
     fn get(&mut self, r: Reg) -> Value {
         if self.resident[r as usize] {
             let t = self.ty(r);
-            let fr = self.frame;
+            let fr = self.fr();
             self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), fr, (r * 8) as i32)
         } else {
             self.b.use_var(self.vars[(r) as usize])
@@ -268,11 +268,19 @@ impl<'a> Gen<'a> {
     fn set(&mut self, r: Reg, v: Value) {
         if self.resident[r as usize] {
             let t = self.ty(r);
-            let fr = self.frame;
+            let fr = self.fr();
             self.slot_store(t, v, fr, (r * 8) as i32);
         } else {
             self.b.def_var(self.vars[(r) as usize], v);
         }
+    }
+
+    fn fr(&mut self) -> Value {
+        self.b.use_var(self.v_frame)
+    }
+
+    fn gl(&mut self) -> Value {
+        self.b.use_var(self.v_globals)
     }
 
     fn ctx_load(&mut self, t: ir::Type, off: i32) -> Value {
@@ -329,7 +337,8 @@ impl<'a> Gen<'a> {
         self.b.switch_to_block(entry);
         let p = self.b.block_params(entry).to_vec();
         self.ctx = p[0];
-        self.frame = p[1];
+        self.v_frame = self.b.declare_var(types::I64);
+        self.b.def_var(self.v_frame, p[1]);
         let entry_pc = p[2];
 
         self.v_line = self.b.declare_var(types::I32);
@@ -340,14 +349,16 @@ impl<'a> Gen<'a> {
             self.vars.push(v);
         }
 
-        self.globals = self.ctx_load(types::I64, OFF_GLOBALS);
+        self.v_globals = self.b.declare_var(types::I64);
+        let g = self.ctx_load(types::I64, OFF_GLOBALS);
+        self.b.def_var(self.v_globals, g);
         // Load register slots; temporaries start at zero.
         let nf = self.f.frame_len();
         for r in 0..self.f.slots.len() as u32 {
             if !self.resident[r as usize] {
                 let t = self.ty(r);
                 let v = if (r as usize) < nf {
-                    let fr = self.frame;
+                    let fr = self.fr();
                     self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), fr, (r * 8) as i32)
                 } else {
                     match t {
@@ -460,7 +471,7 @@ impl<'a> Gen<'a> {
             if !self.resident[r as usize] && self.defined[r as usize] && (r as usize) < self.f.frame_len() {
                 let v = self.b.use_var(self.vars[(r) as usize]);
                 let t = self.ty(r);
-                let fr = self.frame;
+                let fr = self.fr();
                 self.slot_store(t, v, fr, (r * 8) as i32);
             }
         }
@@ -484,7 +495,7 @@ impl<'a> Gen<'a> {
                     if !self.resident[r as usize] {
                         let v = self.b.use_var(self.vars[(r) as usize]);
                         let t = self.ty(r);
-                        let fr = self.frame;
+                        let fr = self.fr();
                         self.slot_store(t, v, fr, (r * 8) as i32);
                     }
                 }
@@ -658,23 +669,23 @@ impl<'a> Gen<'a> {
             }
             Inst::GLoad { dst, slot } => {
                 let t = self.ty(*dst);
-                let g = self.globals;
+                let g = self.gl();
                 let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), g, (*slot * 8) as i32);
                 self.set(*dst, v);
             }
             Inst::GStore { slot, src } => {
                 let t = self.ty(*src);
                 let v = self.get(*src);
-                let g = self.globals;
+                let g = self.gl();
                 self.slot_store(t, v, g, (*slot * 8) as i32);
             }
             Inst::AddrOf { dst, slot } => {
-                let fr = self.frame;
+                let fr = self.fr();
                 let a = self.b.ins().iadd_imm_s(fr, i64::from(*slot) * 8);
                 self.set(*dst, a);
             }
             Inst::GAddrOf { dst, slot } => {
-                let g = self.globals;
+                let g = self.gl();
                 let a = self.b.ins().iadd_imm_s(g, i64::from(*slot) * 8);
                 self.set(*dst, a);
             }
@@ -814,15 +825,20 @@ impl<'a> Gen<'a> {
                     if !self.resident[*r as usize] {
                         let v = self.b.use_var(self.vars[(*r) as usize]);
                         let t = self.ty(*r);
-                        let fr = self.frame;
+                        let fr = self.fr();
                         self.slot_store(t, v, fr, (*r * 8) as i32);
                     }
                 }
-                let (ctx, fr) = (self.ctx, self.frame);
+                let (ctx, fr) = (self.ctx, self.fr());
                 let opv = self.b.ins().iconst(types::I32, i64::from(*op));
                 let st = self
                     .helper_call(self.m.vm_op, &[types::I64, types::I64, types::I32], Some(types::I32), &[ctx, fr, opv])
                     .expect("status");
+                // The VM may have moved its register file (calls).
+                let fr = self.ctx_load(types::I64, OFF_FRAME);
+                self.b.def_var(self.v_frame, fr);
+                let g = self.ctx_load(types::I64, OFF_GLOBALS);
+                self.b.def_var(self.v_globals, g);
                 for w in writes {
                     if !self.resident[*w as usize] {
                         let t = self.ty(*w);
@@ -1152,7 +1168,7 @@ impl<'a> Gen<'a> {
             let v = match a {
                 Arg::Val(r) => self.get(*r),
                 Arg::Ref(r) => {
-                    let fr = self.frame;
+                    let fr = self.fr();
                     self.b.ins().iadd_imm_s(fr, i64::from(*r) * 8)
                 }
             };

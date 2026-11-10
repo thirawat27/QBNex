@@ -150,6 +150,10 @@ pub struct Ctx {
     /// Embedder tables of array pointers (`VAElem`): entry = null or a
     /// pointer to a structure holding an [`ArrView`] at `view_off`.
     pub tables: [*mut u64; 2],
+    /// Set by a `VmOp` callback before it returns: the (possibly moved)
+    /// frame and globals of the code that called it. Native code reloads
+    /// both after every `VmOp` (a VM call may grow and move its register file).
+    pub frame: *mut u64,
     // ---- not accessed by native code ----
     pub chain: Vec<ChainRec>,
     gosub_buf: Vec<u32>,
@@ -159,6 +163,7 @@ pub struct Ctx {
 pub(crate) const OFF_EV_PTR: i32 = offset_of!(Ctx, ev_ptr) as i32;
 pub(crate) const OFF_EV_MASK: i32 = offset_of!(Ctx, ev_mask) as i32;
 pub(crate) const OFF_TABLES: i32 = offset_of!(Ctx, tables) as i32;
+pub(crate) const OFF_FRAME: i32 = offset_of!(Ctx, frame) as i32;
 pub(crate) const OFF_VIEW_DATA: i32 = offset_of!(ArrView, data) as i32;
 pub(crate) const OFF_VIEW_LB: i32 = offset_of!(ArrView, lbound) as i32;
 pub(crate) const OFF_VIEW_COUNT: i32 = offset_of!(ArrView, count) as i32;
@@ -224,6 +229,7 @@ impl Ctx {
             ev_ptr: core::ptr::null(),
             ev_mask: u32::MAX,
             tables: [core::ptr::null_mut(); 2],
+            frame: core::ptr::null_mut(),
             _pad2: 0,
             chain: Vec::new(),
             gosub_buf,
