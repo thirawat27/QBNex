@@ -62,6 +62,11 @@ impl Default for Display {
         d.fontheight[8] = 8;
         d.fontheight[14] = 14;
         d.fontheight[16] = 16;
+        // double-width variants (40-column SCREEN 0)
+        for f in [8, 14, 16] {
+            d.fontwidth[f + 1] = 16;
+            d.fontheight[f + 1] = d.fontheight[f];
+        }
         // builtin fonts are monospace
         for f in [8, 9, 14, 15, 16, 17] {
             d.fontflags[f] = 16;
@@ -639,6 +644,310 @@ impl Display {
         self.last_active_page = 0;
     }
 
+    /// Pages 1.. of the screen are freed (WIDTH keeps only the visible page 0).
+    fn width_drop_pages(&mut self) {
+        // SAFETY: valid write page.
+        if unsafe { (*self.wp()).flags } & IMG_SCREEN == 0 {
+            return;
+        }
+        for k in 1..self.page.len() {
+            let i2 = self.page[k];
+            if i2 != 0 {
+                if self.display_index == i2 as u32 {
+                    self.display_index = self.page[0] as u32;
+                }
+                if self.read_index == i2 as u32 {
+                    self.read_index = self.display_index;
+                }
+                if self.write_index == i2 as u32 {
+                    self.write_index = self.display_index;
+                }
+                reg::qb_img_release_owned(i2);
+                self.freeimg(i2 as u32);
+            }
+        }
+    }
+
+    /// Mode defaults again with the colours kept, font `f`; `window`: keep WINDOW scaling (modes 9-12).
+    fn width_revert(&mut self, f: i32, window: bool) {
+        self.width_drop_pages();
+        let w = self.wp();
+        // SAFETY: valid write page.
+        unsafe {
+            let (col, col2) = ((*w).color, (*w).background_color);
+            let (x1, y1, x2, y2) = ((*w).window_x1, (*w).window_y1, (*w).window_x2, (*w).window_y2);
+            reg::qb_imgrevert(self.write_index as i32);
+            if window {
+                gfx::view::qb_gfx_window(w, x1, y1, x2, y2, 1 + 2);
+                (*w).clipping_or_scaling = 0;
+            }
+            (*w).color = col;
+            (*w).background_color = col2;
+        }
+        self.selectfont(f, w);
+    }
+
+    /// SCREEN 0 again with a new text layout.
+    fn width_screen0(&mut self, cmem: *mut u8, w: i32, h: i32, f: i32) {
+        if w != -1 {
+            self.sub_screen_width = w;
+        }
+        if h != -1 {
+            self.sub_screen_height = h;
+        }
+        if f != -1 {
+            self.sub_screen_font = f;
+        }
+        self.screen(cmem, 0, 0, 0, 0, 0, 1);
+    }
+
+    /// `qbsub_width` (WIDTH [w][, h]; option 0 only: files/LPRINT are not routed here).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn width(&mut self, cmem: *mut u8, option: i32, value1: i32, value2: i32, value3: i32, value4: i32, passed: i32) {
+        if option != 0 {
+            if option == 2 && passed == 1 && (1..=255).contains(&value1) {
+                return;
+            }
+            self.err(5);
+            return;
+        }
+        self.width8050switch = false;
+        let (mut width, mut height) = (value1, value2);
+        let w = self.wp();
+        // SAFETY: valid write page (all reads below).
+        unsafe {
+            if (*w).console != 0 {
+                #[cfg(windows)]
+                console::stdio::width(value1, value2, value3, value4);
+                #[cfg(not(windows))]
+                let _ = (value3, value4);
+                return;
+            }
+            if passed & 3 == 0 {
+                self.err(5);
+                return;
+            }
+            let mode = i32::from((*w).compatible_mode);
+            let (pw, ph, font) = (i32::from((*w).width), i32::from((*w).height), (*w).font as i32);
+            if mode == 32 || mode == 256 {
+                if passed & 1 == 0 {
+                    width = pw;
+                } else {
+                    if width <= 0 {
+                        self.err(5);
+                        return;
+                    }
+                    width *= self.fontwidth[font as usize].max(1);
+                }
+                if passed & 2 == 0 {
+                    height = ph;
+                } else {
+                    if height <= 0 {
+                        self.err(5);
+                        return;
+                    }
+                    height *= self.fontheight[font as usize];
+                }
+                if width == pw && height == ph {
+                    return;
+                }
+                self.width_drop_pages();
+                let w = self.wp();
+                let (col, col2) = ((*w).color, (*w).background_color);
+                (*w).width = width as _;
+                (*w).height = height as _;
+                let bytes = (width * height * i32::from((*w).bytes_per_pixel)) as isize;
+                if (*w).flags & gfx::IMG_FREEMEM != 0 {
+                    reg::qb_img_release_pixels(self.write_index as i32);
+                    reg::qb_img_alloc_pixels(self.write_index as i32, bytes);
+                } else {
+                    core::ptr::write_bytes((*w).offset, 0, bytes as usize);
+                }
+                reg::qb_imgrevert(self.write_index as i32);
+                (*w).color = col;
+                (*w).background_color = col2;
+                self.selectfont(font, w);
+                return;
+            }
+            let f0 = |height: i32, width: i32| {
+                let mut f = 8;
+                if height <= 49 {
+                    f = 14;
+                }
+                if height <= 42 {
+                    f = 16;
+                }
+                if width <= 40 {
+                    f += 1;
+                }
+                f
+            };
+            let low = (1..=8).contains(&mode) || mode == 13;
+            let fh = self.fontheight[font as usize];
+            if passed & 1 == 0 {
+                // width omitted
+                if height <= 0 {
+                    self.err(5);
+                    return;
+                }
+                if mode == 0 {
+                    let f = f0(height, pw);
+                    if font == f && ph == height {
+                        return;
+                    }
+                    self.width_screen0(cmem, pw, height, f);
+                    return;
+                }
+                if low && ph == height * 8 {
+                    if font != 8 {
+                        self.width_revert(8, false);
+                    }
+                    return;
+                }
+                if mode == 9 || mode == 10 {
+                    let mut f = 0;
+                    if ph == height * 8 {
+                        f = 8;
+                    }
+                    if ph == height * 14 {
+                        f = 14;
+                    }
+                    if height == 43 && ph == 350 {
+                        f = 8;
+                    }
+                    if f != 0 {
+                        if font != f {
+                            self.width_revert(f, true);
+                        }
+                        return;
+                    }
+                }
+                if mode == 11 || mode == 12 {
+                    let mut f = 0;
+                    if ph == height * 8 {
+                        f = 8;
+                    }
+                    if ph == height * 16 {
+                        f = 16;
+                    }
+                    if f != 0 {
+                        if font != f {
+                            self.width_revert(f, true);
+                        }
+                        return;
+                    }
+                }
+                if height == 25 || height == 50 || height == 43 {
+                    self.width_screen0(cmem, -1, height, -1);
+                    return;
+                }
+                self.err(5);
+                return;
+            }
+            if passed & 2 == 0 {
+                // height omitted
+                if width <= 0 {
+                    self.err(5);
+                    return;
+                }
+                if mode == 0 {
+                    let f = f0(ph, width);
+                    if font == f && pw == width {
+                        return;
+                    }
+                    self.width_screen0(cmem, width, ph, f);
+                    return;
+                }
+                if low && pw == width * 8 {
+                    if font != 8 {
+                        self.width_revert(8, false);
+                    }
+                    return;
+                }
+                if (mode == 9 || mode == 10 || mode == 11 || mode == 12) && pw == width * 8 {
+                    let f = if fh > 8 { if mode <= 10 { 14 } else { 16 } } else { 8 };
+                    if font != f {
+                        self.width_revert(f, true);
+                    }
+                    return;
+                }
+                if width == 40 || width == 80 {
+                    self.width_screen0(cmem, width, -1, -1);
+                    return;
+                }
+                self.err(5);
+                return;
+            }
+            // both passed
+            if width <= 0 || height <= 0 {
+                self.err(5);
+                return;
+            }
+            if mode == 0 {
+                let f = f0(height, width);
+                if font == f && pw == width && ph == height {
+                    return;
+                }
+                self.width_screen0(cmem, width, height, f);
+                return;
+            }
+            if low && pw == width * 8 && ph == height * 8 {
+                if font != 8 {
+                    self.width_revert(8, false);
+                }
+                return;
+            }
+            if (mode == 9 || mode == 10) && pw == width * 8 {
+                let mut f = 0;
+                if ph == height * 8 {
+                    f = 8;
+                }
+                if ph == height * 14 {
+                    f = 14;
+                }
+                if height == 43 && ph == 350 {
+                    f = 8;
+                }
+                if f != 0 {
+                    if font != f {
+                        self.width_revert(f, true);
+                    }
+                    return;
+                }
+            }
+            if (mode == 11 || mode == 12) && pw == width * 8 {
+                let mut f = 0;
+                if ph == height * 8 {
+                    f = 8;
+                }
+                if ph == height * 16 {
+                    f = 16;
+                }
+                if f != 0 {
+                    if font != f {
+                        self.width_revert(f, true);
+                    }
+                    return;
+                }
+            }
+            if (width == 40 || width == 80) && (height == 25 || height == 50 || height == 43) {
+                let mut f = 16;
+                if height == 43 {
+                    f = 14;
+                }
+                if height == 50 {
+                    f = 8;
+                }
+                if width == 40 {
+                    f += 1;
+                }
+                self.width_screen0(cmem, width, height, f);
+                return;
+            }
+            self.err(5);
+        }
+    }
+
     /// The destination is a surface (not the `$CONSOLE` stdout image).
     pub(crate) fn write_is_screen(&self) -> bool {
         // SAFETY: valid write page.
@@ -1064,7 +1373,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "qbsub_width" => {}
+            "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
             "sub__limit" | "sub__delay" | "sub__title" => {}
             _ => {}
         }

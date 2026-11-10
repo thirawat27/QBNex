@@ -200,7 +200,7 @@ pub static TABLE: &[Builtin] = &[
     b!("qbg_palette", [I32, I32, I32]),
     b!("qbg_sub_color", [I32, I32, I32, I32]),
     b!("qbg_sub_view", [I32, I32, I32, I32, I32, I32, I32]),
-    b!("qbg_sub_view_print", [I32, I32, I32, I32]),
+    b!("qbg_sub_view_print", [I32, I32, I32]),
     b!("qbg_sub_window", [F80, F80, F80, F80, I32]),
     b!("func_pmap", [F32, I32], F32),
     b!("func_point", [F32, F32, I32], F64),
