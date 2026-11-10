@@ -13,6 +13,12 @@ echo.
 rem Change to the repository root (this script lives in scripts\)
 cd /d "%~dp0.."
 
+rem QIR pipeline (no C/C++ toolchain), opt-in until the cutover: see docs\rust-port\cutover-plan.md
+if "%QBNEX_QIR_CUTOVER%"=="1" (
+    call scripts\setup_qir_win.cmd
+    goto end
+)
+
 call scripts\findcurl.cmd
 if errorlevel 1 (
     echo Error: curl is required to download the Windows toolchain.
