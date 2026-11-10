@@ -847,6 +847,22 @@ impl<'a> Lw<'a> {
                     }
                     self.emit(Ins::Ret);
                 }
+                Inst::Rt { dst: Some(dst), name, args }
+                    if matches!(name.as_str(), "LEN" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "ASC") =>
+                {
+                    // hot string builtins: dedicated instructions, same errors as the shared runtime
+                    let native = match (name.as_str(), args.as_slice()) {
+                        ("LEN", [x]) => Ins::LenS { d: nreg!(*dst), s: sreg!(*x) },
+                        ("ASC", [x]) => Ins::Asc { d: nreg!(*dst), s: sreg!(*x) },
+                        ("CHR$", [x]) => Ins::Chr { d: sreg!(*dst), s: nreg!(*x) },
+                        ("LEFT$", [x, n]) => Ins::Left { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
+                        ("RIGHT$", [x, n]) => Ins::Right { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
+                        ("MID$", [x, st]) => Ins::Mid { d: sreg!(*dst), s: sreg!(*x), start: nreg!(*st), n: NONE },
+                        ("MID$.n", [x, st, n]) => Ins::Mid { d: sreg!(*dst), s: sreg!(*x), start: nreg!(*st), n: nreg!(*n) },
+                        _ => return Err(format!("bad arguments for {name}")),
+                    };
+                    self.emit(native);
+                }
                 Inst::Rt { dst, name, args } => {
                     let b = ir::builtins::lookup(name).ok_or_else(|| format!("unknown builtin {name}"))?;
                     let mut regs_ = Vec::new();
