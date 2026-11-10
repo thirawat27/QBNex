@@ -48,7 +48,8 @@ fn vty(t: IT) -> Res<Ty> {
         IT::U16 | IT::I32 => Ty::I32,
         IT::U32 | IT::I64 | IT::U64 => Ty::I64,
         IT::F32 => Ty::F32,
-        IT::F64 | IT::F80 => Ty::F64,
+        IT::F64 => Ty::F64,
+        IT::F80 => return Err("_FLOAT (80-bit)".into()),
         IT::Str => Ty::Str,
         IT::Ptr => return Err("pointer value".into()),
     })
@@ -524,7 +525,10 @@ impl<'a> Lw<'a> {
                         let Lit::Str(s) = val else { return Err("bad string const".into()) };
                         Rg::S(self.kstr(s))
                     } else if *ty == IT::Ptr {
-                        return Err("pointer constant".into());
+                        if !self.mem {
+                            return Err("pointer constant".into());
+                        }
+                        Rg::N(self.frames[k].konst(0, false))
                     } else {
                         vty(*ty)?;
                         let bits = lit_num(*ty, val)?;

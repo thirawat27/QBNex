@@ -296,7 +296,7 @@ SUB IrParam (idn AS LONG)
     DIM nm$, st$
     nm$ = "$" + LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
     IF ids(idn).arraytype THEN
-        st$ = "array " + IrSTy$(ids(idn).arraytype, ids(idn).tsize)
+        st$ = "array " + IrSTy$(ids(idn).arraytype, ids(idn).tsize) + " byref"
     ELSE
         st$ = IrSTy$(ids(idn).t, ids(idn).tsize) + " byref"
     END IF
@@ -1043,8 +1043,8 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             x$ = IrCvt$(x$, IrT, sx$)
             r$ = IrRt$("STR$." + sx$, " " + x$, "str")
         CASE "VAL"
-            r$ = IrRt$("VAL", " " + IrArgAs$(sv(1), "str"), "f64")
-            IF IrTy$(typ) = "f80" THEN r$ = IrCvt$(r$, "f64", "f80"): IrT = "f80"
+            'func_val returns long double whatever the registry's type says
+            r$ = IrRt$("VAL.f80", " " + IrArgAs$(sv(1), "str"), "f80")
         CASE "INSTR", "_INSTRREV"
             IF nargs = 3 THEN
                 x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "str"): z$ = IrArgAs$(sv(3), "str")
@@ -1355,7 +1355,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     SELECT CASE nm$
         CASE "CLS", "BEEP"
             IrE "rt " + nm$
-        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "SCREEN", "_FONT", "_CONSOLETITLE", "_CONSOLE"
+        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "_FONT", "_CONSOLETITLE", "_CONSOLE"
             'screen state: no visible effect on redirected console output
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)

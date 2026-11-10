@@ -58,6 +58,8 @@ pub static TABLE: &[Builtin] = &[
     b!("STR$.f64", [F64], Str),
     b!("STR$.f80", [F80], Str),
     b!("VAL", [Str], F64),
+    // legacy func_val returns long double
+    b!("VAL.f80", [Str], F80),
     b!("HEX$", [I64], Str),
     b!("OCT$", [I64], Str),
     b!("BIN$", [I64], Str),
@@ -132,6 +134,8 @@ pub static TABLE: &[Builtin] = &[
     b!("ERR", [], I32),
     b!("ERL", [], I32),
     b!("_ERRORLINE", [], I32),
+    // numeric line label reached (ERL reports the last one before the error)
+    b!("LASTLINE", [I32]),
     // ---- files
     b!("OPEN", [Str, I32, I32, I32]),
     b!("OPENOLD", [Str, I32, Str]),

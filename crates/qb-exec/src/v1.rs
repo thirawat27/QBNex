@@ -11,6 +11,7 @@
 
 use crate::RunError;
 use qb_ir::{self as ir, BinOp, CmpOp, DimKind, Inst, Lit, ResumeKind, StoreTy, Ty, UnOp, VarKind};
+use qb_float80::{F80, Round};
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -21,6 +22,8 @@ pub(crate) mod rt;
 pub(crate) enum V {
     I(i64),
     F(f64),
+    /// `_FLOAT`: x87 80-bit extended (bit-exact with the C++ backend)
+    X(F80),
     S(Vec<u8>),
     P(u64),
 }
@@ -30,15 +33,25 @@ impl V {
         match self {
             V::I(v) => *v,
             V::F(f) => *f as i64,
+            V::X(x) => x.to_i64(Round::Zero),
             V::P(p) => *p as i64,
             V::S(_) => 0,
         }
     }
-    fn f(&self) -> f64 {
+    pub(crate) fn f(&self) -> f64 {
         match self {
             V::F(f) => *f,
+            V::X(x) => x.to_f64(),
             V::I(v) => *v as f64,
             _ => 0.0,
+        }
+    }
+    pub(crate) fn x(&self) -> F80 {
+        match self {
+            V::X(x) => *x,
+            V::F(f) => F80::from_f64(*f),
+            V::I(v) => F80::from_i64(*v),
+            _ => F80::from_i64(0),
         }
     }
     fn s(&self) -> &[u8] {
@@ -175,6 +188,22 @@ fn lit_value(ty: Ty, l: &Lit) -> V {
             }
         }
         Lit::Float(t) => {
+            if ty == Ty::F80 {
+                return V::X(match ir::f80_bits(t) {
+                    Some((se, m)) => {
+                        let mut b = [0u8; 10];
+                        b[..8].copy_from_slice(&m.to_le_bytes());
+                        b[8..].copy_from_slice(&se.to_le_bytes());
+                        F80::from_bytes(b)
+                    }
+                    None => match t.as_str() {
+                        "inf" => F80::from_f64(f64::INFINITY),
+                        "-inf" => F80::from_f64(f64::NEG_INFINITY),
+                        "nan" => F80::from_f64(f64::NAN),
+                        _ => qb_float80::dec::parse(t.as_bytes()).0,
+                    },
+                });
+            }
             let v = if ty == Ty::F32 && !t.starts_with("0x") {
                 t.parse::<f32>().map(f64::from).unwrap_or_else(|_| ir::float_value(t).unwrap_or(0.0))
             } else {
@@ -357,6 +386,10 @@ pub(crate) struct Vm<'a> {
     in_handler: Option<(usize, usize)>,
     pub(crate) err: i32,
     pub(crate) erl: u32,
+    /// source line of the last error (`_ERRORLINE`)
+    pub(crate) errline: u32,
+    /// last numeric line label executed (legacy `last_line`)
+    pub(crate) last_line: u32,
     data_pos: usize,
     pub(crate) rt: rt::RtState<'a>,
 }
@@ -455,15 +488,24 @@ impl<'a> Vm<'a> {
             Ty::U32 => V::I(u as u32 as i64),
             Ty::I64 | Ty::U64 => V::I(u as i64),
             Ty::F32 => V::F(f64::from(f32::from_bits(u as u32))),
-            Ty::F64 | Ty::F80 => V::F(f64::from_bits(u)),
+            Ty::F64 => V::F(f64::from_bits(u)),
+            Ty::F80 => {
+                let b = self.bytes(p, 10)?;
+                V::X(F80::from_bytes(b.try_into().unwrap()))
+            }
             Ty::Ptr => V::P(u),
             Ty::Str => V::S(self.strs[u as usize].clone()),
         })
     }
     fn st(&mut self, t: Ty, p: u64, v: &V) -> R<()> {
+        if t == Ty::F80 {
+            let b = v.x().to_bytes();
+            self.bytes(p, 10)?.copy_from_slice(&b);
+            return Ok(());
+        }
         let u: u64 = match t {
             Ty::F32 => u64::from((v.f() as f32).to_bits()),
-            Ty::F64 | Ty::F80 => v.f().to_bits(),
+            Ty::F64 => v.f().to_bits(),
             Ty::Ptr => v.p(),
             Ty::Str => {
                 let old = match self.ld(Ty::U64, p)? {
@@ -672,7 +714,8 @@ impl<'a> Vm<'a> {
             return Err(RunError { code, line, msg: format!("error {code}") });
         };
         self.err = code;
-        self.erl = line;
+        self.erl = self.last_line;
+        self.errline = line;
         let k = self.frames.len() - 1;
         let lpc = self.frames[k].line_pc;
         self.in_handler = Some((k, lpc));
@@ -747,6 +790,7 @@ impl<'a> Vm<'a> {
             Op::Un(o, t, d, a) => {
                 let x = self.reg(*a);
                 let v = match (o, t.is_float()) {
+                    (UnOp::Neg, true) if *t == Ty::F80 => V::X(-x.x()),
                     (UnOp::Neg, true) => V::F(-x.f()),
                     (UnOp::Neg, false) => V::I(wrap(*t, x.i().wrapping_neg())),
                     (UnOp::Not, _) => V::I(wrap(*t, !x.i())),
@@ -757,6 +801,8 @@ impl<'a> Vm<'a> {
                 let (x, y) = (self.reg(*a), self.reg(*b));
                 let ord = if *t == Ty::Str {
                     Some(x.s().cmp(y.s()))
+                } else if *t == Ty::F80 {
+                    x.x().compare(y.x())
                 } else if t.is_float() {
                     x.f().partial_cmp(&y.f())
                 } else if *t == Ty::U64 {
@@ -946,12 +992,29 @@ impl<'a> rt::Host<'a> for Vm<'a> {
     fn erl(&self) -> u32 {
         self.erl
     }
+    fn errline(&self) -> u32 {
+        self.errline
+    }
+    fn set_last_line(&mut self, n: u32) {
+        self.last_line = n;
+    }
     fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
         Vm::bytes(self, p, len)
     }
 }
 
 fn bin(o: BinOp, t: Ty, a: &V, b: &V) -> R<V> {
+    if t == Ty::F80 {
+        let (x, y) = (a.x(), b.x());
+        return Ok(V::X(match o {
+            BinOp::Add => x + y,
+            BinOp::Sub => x - y,
+            BinOp::Mul => x * y,
+            BinOp::Div => x / y,
+            BinOp::Pow => qb_float80::qb::pow2(x, y).map_err(Stop::Err)?,
+            _ => return e(5),
+        }));
+    }
     if t.is_float() {
         let (x, y) = (a.f(), b.f());
         let r = match o {
@@ -1000,6 +1063,25 @@ fn bin(o: BinOp, t: Ty, a: &V, b: &V) -> R<V> {
 }
 
 pub(crate) fn cvt(to: Ty, from: Ty, v: &V, round: bool) -> V {
+    if to == Ty::F80 {
+        return V::X(match from {
+            Ty::F80 => v.x(),
+            Ty::F32 | Ty::F64 => F80::from_f64(v.f()),
+            Ty::U64 => F80::from_u64(v.i() as u64),
+            _ => F80::from_i64(v.i()),
+        });
+    }
+    if from == Ty::F80 {
+        let x = v.x();
+        if to.is_float() {
+            return V::F(if to == Ty::F32 { f64::from(x.to_f32()) } else { x.to_f64() });
+        }
+        if to == Ty::U64 {
+            return V::I(x.to_u64_cast() as i64);
+        }
+        let n = if round { qb_float80::qb::qbr(x) } else { x.to_i64(Round::Zero) };
+        return V::I(wrap(to, n));
+    }
     if to.is_float() {
         let f = if from.is_float() {
             v.f()
@@ -1038,6 +1120,8 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         in_handler: None,
         err: 0,
         erl: 0,
+        errline: 0,
+        last_line: 0,
         data_pos: 0,
         rt: rt::RtState::new(out),
     };

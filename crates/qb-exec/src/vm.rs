@@ -236,6 +236,10 @@ pub struct Vm<'m, 'o> {
     in_handler: Option<(u32, usize)>,
     err: i32,
     erl: u32,
+    /// source line of the last error (_ERRORLINE)
+    errline: u32,
+    /// last numeric line label passed (QIR v1 LASTLINE; ERL reports it)
+    last_line: u32,
     rnd: qb_runtime::rnd::RndState,
     data_ptr: usize,
     ev: Arc<EvShared>,
@@ -301,6 +305,7 @@ fn stop_code(s: Stop) -> i32 {
 fn rt_f(v: &V) -> f64 {
     match v {
         V::F(f) => *f,
+        V::X(x) => x.to_f64(),
         V::I(i) => *i as f64,
         _ => 0.0,
     }
@@ -310,6 +315,7 @@ fn rt_i(v: &V) -> i64 {
     match v {
         V::I(i) => *i,
         V::F(f) => *f as i64,
+        V::X(x) => x.to_i64(qb_float80::Round::Zero),
         V::P(p) => *p as i64,
         V::S(_) => 0,
     }
@@ -324,6 +330,12 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     }
     fn erl(&self) -> u32 {
         self.erl
+    }
+    fn errline(&self) -> u32 {
+        self.errline
+    }
+    fn set_last_line(&mut self, n: u32) {
+        self.last_line = n;
     }
     fn bytes(&mut self, p: u64, len: usize) -> crate::v1::R<&mut [u8]> {
         self.mem.bytes(p, len).map_err(Stop::Err)
@@ -373,6 +385,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             in_handler: None,
             err: 0,
             erl: 0,
+            errline: 0,
+            last_line: 0,
             rnd: qb_runtime::rnd::RndState::default(),
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
@@ -860,7 +874,8 @@ impl<'m, 'o> Vm<'m, 'o> {
         match (self.on_error, self.in_handler) {
             (Some(h), None) => {
                 self.err = code;
-                self.erl = self.line_of(at);
+                self.errline = self.line_of(at);
+                self.erl = if self.m.v1 { self.last_line } else { self.errline };
                 self.in_handler = Some((at, self.view));
                 self.set_view(0);
                 self.update_poll_mask();
@@ -1321,8 +1336,17 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ins::CvtFI { d, s, w, trunc } => {
                     let f = rf!(s);
-                    let f = if trunc { f.trunc() } else { f.round_ties_even() };
-                    let n = if w == W::U64 || f >= 9.223_372_036_854_776e18 { f as u64 as i64 } else { f as i64 };
+                    let n = if !trunc && w != W::U64 {
+                        // x87 FISTP semantics of the C++ backend's qbr()
+                        qb_runtime::round::qb_qbr_f64(f)
+                    } else {
+                        let f = if trunc { f.trunc() } else { f.round_ties_even() };
+                        if w == W::U64 || f >= 9.223_372_036_854_776e18 {
+                            f as u64 as i64
+                        } else {
+                            f as i64
+                        }
+                    };
                     seti!(d, w.wrap(n))
                 }
                 Ins::Shl { d, a, b: y, w } => seti!(d, w.wrap(ri!(a).wrapping_shl((ri!(y) as u32) % w.bits()))),
