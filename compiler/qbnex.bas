@@ -11100,8 +11100,6 @@ IF recompile THEN
     labelValidationResult = ValidatePendingLabels%
     IF labelValidationResult = 1 THEN GOTO do_recompile
     IF labelValidationResult = 2 THEN a$ = ModuleError$: GOTO errmes
-    'QIR: write the program only after the label/DATA checks (they can end the build)
-    IF IrEmitMode THEN IrFinish CMDLineFile, outputfile_cmd$
 
     IF AutoConsoleOnlyEligible THEN
         IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 THEN
@@ -11630,6 +11628,12 @@ IF recompile THEN
         ReportUnusedVariableWarnings
 
         FinishCompilerProgress
+
+        'QIR: the program is written after every check (labels, DATA, warnings) that can end the build
+        IF IrEmitMode THEN
+            IF HasErrors% THEN ExitCompilerProcess
+            IrFinish CMDLineFile, outputfile_cmd$
+        END IF
 
         IF No_C_Compile_Mode = 0 THEN
             IF PrepareExecutableOutputTarget%(file$) THEN a$ = ModuleError$: GOTO errmes

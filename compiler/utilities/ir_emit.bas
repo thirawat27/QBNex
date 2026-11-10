@@ -2264,5 +2264,5 @@ SUB IrFinish (src$, outExe$)
     CLOSE #fh
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + CHR$(34) + outPath$ + CHR$(34)
     IF QuietMode = 0 THEN PRINT: PRINT "Build complete: " + outPath$
-    SYSTEM 0
+    ExitCompilerProcess
 END SUB

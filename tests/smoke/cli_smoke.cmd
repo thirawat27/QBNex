@@ -10,7 +10,6 @@ set "SRC_OK=%ROOT%..\fixtures\label_recompile_success.bas"
 set "SRC_CONSOLE=%ROOT%..\fixtures\cli_console_output.bas"
 set "BIN_XMODE=%REPO_ROOT%\cli_console_output.exe"
 set "BIN_ZMODE=%REPO_ROOT%\label_recompile_success.exe"
-set "STRINGS=%REPO_ROOT%\internal\c\c_compiler\bin\strings.exe"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -95,10 +94,10 @@ set "EC_CACHE_A=%ERRORLEVEL%"
 "%QB%" "%SRC_CACHE_B%" -q -o "%BIN_CACHE_B%" > "%OUT_CACHE_B%" 2>&1
 set "EC_CACHE_B=%ERRORLEVEL%"
 
-if exist "%STRINGS%" (
-    if exist "%BIN_CACHE_A%" "%STRINGS%" "%BIN_CACHE_A%" > "%OUT_CACHE_A_STRINGS%" 2>&1
-    if exist "%BIN_CACHE_B%" "%STRINGS%" "%BIN_CACHE_B%" > "%OUT_CACHE_B_STRINGS%" 2>&1
-)
+rem each binary must print its own program's text (the QIR payload stores strings hex-encoded,
+rem so the output is checked rather than the bytes of the file)
+if exist "%BIN_CACHE_A%" "%BIN_CACHE_A%" < NUL > "%OUT_CACHE_A_STRINGS%" 2>&1
+if exist "%BIN_CACHE_B%" "%BIN_CACHE_B%" < NUL > "%OUT_CACHE_B_STRINGS%" 2>&1
 
 set "FAIL=0"
 
@@ -204,11 +203,6 @@ findstr /L /C:"Build complete:" "%OUT_EXTERNAL%" >nul || (
 )
 if not exist "%BIN_EXTERNAL%" (
     echo [FAIL] External-cwd compile should emit the requested executable.
-    set "FAIL=1"
-)
-
-if not exist "%STRINGS%" (
-    echo [FAIL] strings.exe not found at "%STRINGS%".
     set "FAIL=1"
 )
 
