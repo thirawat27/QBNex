@@ -967,11 +967,24 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// frames kept so RESUME can return into them) or stop the program.
     fn raise(&mut self, code: i32, at: u32) -> Result<u32, RunError> {
         let unhandled = !matches!((self.on_error, self.in_handler), (Some(_), None));
-        if unhandled && self.continue_unhandled && !(300..=315).contains(&code) {
-            // headless C++ runtime (fix_error + MessageBox2): the "Continue?" dialog is
-            // reported on stderr and gets no answer, so the program goes on after the statement
+        if unhandled && self.continue_unhandled {
+            // the C++ runtime's fix_error: with QBNEX_NO_ERROR_DIALOG or redirected output the
+            // dialog becomes one stderr line and the program ends with exit code 1; otherwise
+            // (headless, MessageBox2 gets no answer) a non-critical error continues after the statement
+            use std::io::IsTerminal;
             let cmd0 = std::env::args().next().unwrap_or_default();
             let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), 0, None, cmd0.as_bytes());
+            let env = std::env::var("QBNEX_NO_ERROR_DIALOG").ok();
+            let nd = qb_runtime::error::no_dialog_policy(env.as_deref(), std::io::stdout().is_terminal(), std::io::stderr().is_terminal());
+            if nd || d.critical {
+                self.rt.flush();
+                let line = qb_runtime::error::report_line(&d.title, &d.body);
+                use std::io::Write;
+                let mut e = std::io::stderr().lock();
+                let _ = e.write_all(&line);
+                let _ = e.write_all(b"\n");
+                return Err(RunError { code, line: self.line_of(at), msg: "reported".into() });
+            }
             eprintln!("{}: {}", String::from_utf8_lossy(&d.title), String::from_utf8_lossy(&d.body));
             return Ok(self.next_stmt(at));
         }
