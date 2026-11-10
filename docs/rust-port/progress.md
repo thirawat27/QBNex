@@ -433,16 +433,15 @@ Status: **JIT runs inside the typed VM** (R11b bytecode), results identical to t
 | gosub | 9.5 | 5.2 | 3.0 | 1.7x |
 | strfn (MID$/CHR$/LEN) | 25 | 25 | 79 | 0.3x |
 | concat | 7.7 | 7.7 | 46000 (quadratic in C++) | — |
-| sub call | 65 | 66 | 11.8 | **5.6x** |
-| function call | 78 | 58 | 16.2 | **3.6x** |
+| sub call | 56 | 3.9 | 11.8 | 0.33x |
+| function call | 53 | 5.3 | 16.2 | 0.33x |
 
-Gate "loop benchmark <= 2x of the C++ path": met (1.0x). Not met yet: SUB/FUNCTION calls (the VM's call sequence itself costs ~65 ns).
+Gate "loop benchmark <= 2x of the C++ path": met (loop 1.0x; every case <= 2x, gosub 1.7x).
 
 ### Gaps / next
-- Native calls: compile callee frames in the JIT arena (MIR `Call` exists and is tested in qb-jit) once the VM's frame/BYREF copy-back can be mirrored; needed for the compiler front end goal.
+- Native calls (done): numeric-only SUB/FUNCTIONs get a MIR call version (frame in the JIT arena, BYREF copy-in/copy-out like `Vm::call`/`ret`, constants from `num_init`); if native code stops inside a call (error, event, END, GOSUB, budget of 1000 nested native calls) the VM rebuilds the frames from the chain and continues in the callee. Functions with strings/arrays still go through the VM call (`call_from_native`). `tests/jit_random.rs`: 4000 generated call programs (BYVAL/BYREF/SHARED/recursion/errors with and without handler) equal in VM, hot, eager and AOT.
 - Compiler front end (`qbnex.bas` through QIR) <= 2x native: not measurable yet (R11a emits QIR v1, the typed VM runs v0 bytecode).
 - Event polling: native code also polls at backward conditional branches to resumable blocks (the VM only at `loop`/`for_next`/CALL) — events can be delivered at a few more safe points.
-- Native calls are still the main gap (see the table).
 
 ### D15 — native executables without a linker (first cut)
 - `qb_jit::aot::compile_object`: the same code generator, written as an object file by `cranelift-object` (functions `qb_func_<i>`, runtime calls as undefined symbols `qb_jit_*`, `qb_host_<i>`, `qb_vm_op`).
