@@ -295,6 +295,7 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__lighton", [I32, I32]),
     b!("sub__freelight", [I32]),
     b!("sub__clear3d", [U32, I32]),
+    b!("sub__depthbuffer", [I32, I32, I32]), // {ON|OFF|LOCK|_CLEAR}, handle, passed
     b!("func__gpu3d", [], I32),
     // R15 G5 _SHADER (user WGSL)
     b!("func__shader", [Str], I32),

@@ -100,6 +100,13 @@ set "EC_INVALID=%ERRORLEVEL%"
 "%QB%" "%SRC_INVALID_MID%" -o "%BIN_INVALID_MID%" > "%OUT_INVALID_MID%" 2>&1
 set "EC_INVALID_MID=%ERRORLEVEL%"
 
+rem binary data (a few NUL bytes among random bytes, like a compressed file): its own message
+set "SRC_BINARY=%TMPDIR%\binary_source.bas"
+set "OUT_BINARY=%TMPDIR%\binary_output.txt"
+powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_BINARY, [byte[]](175,26,177,184,227,31,58,92,46,42,127,98,0,150,80,119,202,23,51,216,106,114,46,10))" >nul
+"%QB%" "%SRC_BINARY%" -o "%TMPDIR%\binary_output.exe" > "%OUT_BINARY%" 2>&1
+set "EC_BINARY=%ERRORLEVEL%"
+
 "%QB%" "%SRC_BOM%" -o "%BIN_BOM%" > "%OUT_BOM%" 2>&1
 set "EC_BOM=%ERRORLEVEL%"
 
@@ -166,6 +173,15 @@ findstr /L /C:"Build complete:" "%OUT_INVALID_MID%" >nul && (
 )
 if exist "%BIN_INVALID_MID%" (
     echo [FAIL] Mid-file invalid UTF-8 compilation should not emit an executable.
+    set "FAIL=1"
+)
+
+if "%EC_BINARY%"=="0" (
+    echo [FAIL] Binary data should fail compilation.
+    set "FAIL=1"
+)
+findstr /L /C:"File contains binary data, not BASIC source text" "%OUT_BINARY%" >nul || (
+    echo [FAIL] Binary data diagnostics are missing the binary-data error.
     set "FAIL=1"
 )
 

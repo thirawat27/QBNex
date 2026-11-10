@@ -1938,7 +1938,12 @@ IF id.t THEN
                 IF LEN(musthave$) = 0 THEN
                     IF RTRIM$(ids(hashresref).musthave) = "$" THEN
                         'a sub/func requiring "$" can co-exist with implicit numeric variables
-                        IF INSTR(id.mayhave, "$") THEN Give_Error "Name already in use (" + n$ + ")": EXIT SUB
+                        'and, as in QBasic, with DIM name AS STRING when it is a built-in function
+                        'with arguments (DIM LCASE AS STRING next to LCASE$(x$)): name$( is then
+                        'always the call, as a scalar cannot be indexed
+                        IF INSTR(id.mayhave, "$") THEN
+                            IF ids(hashresref).subfunc <> 1 OR ids(hashresref).args = 0 THEN Give_Error "Name already in use (" + n$ + ")": EXIT SUB
+                        END IF
                     ELSE
                         Give_Error "Name already in use (" + n$ + ")": EXIT SUB 'Implicitly defined variables cannot conflict with sub/func names
                     END IF

@@ -144,6 +144,20 @@ if [ -f "$BIN_INVALID_MID" ]; then
   FAIL=1
 fi
 
+# binary data (a few NUL bytes among random bytes, like a compressed file): its own message
+SRC_BINARY="$TMPDIR/binary_source.bas"
+OUT_BINARY="$TMPDIR/binary_output.txt"
+printf '\257\032\261\270\343\037:\\.*\177b\000\226Pw\312\0273\330jr.\n' > "$SRC_BINARY"
+"$QB" "$SRC_BINARY" -o "$TMPDIR/binary_output" > "$OUT_BINARY" 2>&1
+if [ $? -eq 0 ]; then
+  echo "[FAIL] Binary data should fail compilation."
+  FAIL=1
+fi
+grep -F "File contains binary data, not BASIC source text" "$OUT_BINARY" >/dev/null 2>&1 || {
+  echo "[FAIL] Binary data diagnostics are missing the binary-data error."
+  FAIL=1
+}
+
 if [ "$EC_CP437" -ne 0 ] || [ ! -f "$BIN_CP437" ]; then
   echo "[FAIL] CP437 source should compile successfully."
   FAIL=1
