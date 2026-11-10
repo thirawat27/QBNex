@@ -790,11 +790,7 @@ static uint16 codepage437_to_unicode16[] = {
 };
 
 
-#ifdef QBNex_BACKSLASH_FILESYSTEM
-    #include "parts\\video\\font\\ttf\\src.c"
-    #else
-    #include "parts/video/font/ttf/src.c"
-#endif
+#include "libqb/font_bridge.cpp" //R7: _LOADFONT shims over qb-runtime font.rs
 
 // Clock reads live in the Rust runtime (crates/qb-runtime/src/systime.rs).
 int64 GetTicks(){return qb_get_ticks();}
@@ -10632,14 +10628,10 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     
     
-    #include "parts/audio/out/src.c"
-    
+    #include "libqb/audio_bridge.cpp" //R6: audio shims over qb-audio
+
     #ifdef DEPENDENCY_ZLIB
-        #ifdef QBNex_BACKSLASH_FILESYSTEM
-            #include "parts\\zlib\\src.c"
-        #else
-            #include "parts/zlib/src.c"
-        #endif
+        #include "libqb/compress_bridge.cpp" //R10: _DEFLATE/_INFLATE over qb-runtime compress.rs
     #endif
     
     
@@ -11245,11 +11237,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             return -i;
         }
         
-        #ifdef QBNex_BACKSLASH_FILESYSTEM
-            #include "parts\\video\\image\\src.c"
-            #else
-            #include "parts/video/image/src.c"
-        #endif
+        #include "libqb/image_bridge.cpp" //R7: _LOADIMAGE over qb-runtime image/
         
         int32 func__copyimage(int32 i,int32 mode,int32 passed){
             static int32 i2,bytes,source_index;

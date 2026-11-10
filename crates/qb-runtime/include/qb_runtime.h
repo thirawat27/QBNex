@@ -389,7 +389,7 @@ uint8_t *qb_image_to_8bpp(const uint8_t *bgra, int32_t w, int32_t h, uint32_t *p
 void qb_image_remap_palette(uint8_t *pixels, int32_t w, int32_t h, const uint32_t *src_pal,
                               const uint32_t *dst_pal);
 
-// --- _LOADFONT fonts (was the FreeType wrapper parts/video/font/ttf/src.c) -------
+// --- _LOADFONT fonts (was the FreeType wrapper in parts/video/font/ttf/src.c) -------
 // Same contracts as the legacy FontLoad / FontRenderTextUTF32 / FontWidth / FontFree.
 // qb_font_load returns a handle >= 1 or 0; options 16 = monospace.
 // qb_font_render_utf32 returns 1/0; options 1 = monochrome; *out_data is malloc'ed
@@ -401,6 +401,12 @@ int32_t qb_font_render_utf32(int32_t font, const uint32_t *codepoint, int32_t co
                                int32_t *out_x_post_increment);
 int32_t qb_font_width(int32_t font);
 void qb_font_free(int32_t font);
+// --- _DEFLATE$/_INFLATE$ (was parts/zlib/src.c + the system zlib) ------------------
+// zlib compressBound/compress/uncompress contracts: *dst_len is the capacity on entry and
+// the output size on return; results 0 = Z_OK, -3 = Z_DATA_ERROR, -5 = Z_BUF_ERROR.
+uint32_t qb_deflate_bound(uint32_t len);
+int32_t qb_deflate(const uint8_t *src, uint32_t len, uint8_t *dst, uint32_t *dst_len);
+int32_t qb_inflate(const uint8_t *src, uint32_t len, uint8_t *dst, uint32_t *dst_len);
 // --- System clock (was GetTicks and the start-of-day setup in main) -----------
 // Monotonic milliseconds; TIMER's start-up reference values.
 int64_t qb_get_ticks(void);

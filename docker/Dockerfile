@@ -7,16 +7,14 @@ FROM ubuntu:22.04 AS base
 RUN apt-get update && apt-get install -y \
     g++ \
     make \
-    libglu1-mesa-dev \
     libasound2-dev \
+    libudev-dev \
+    pkg-config \
     libx11-dev \
-    libgl-dev \
-    libglu-dev \
     libxext-dev \
     libxrandr-dev \
     libxi-dev \
     libxcursor-dev \
-    zlib1g-dev \
     curl \
     wget \
     && rm -rf /var/lib/apt/lists/*
@@ -40,14 +38,13 @@ FROM ubuntu:22.04 AS runtime
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    libglu1-mesa \
     libasound2 \
+    libudev1 \
     libx11-6 \
     libxext6 \
     libxrandr2 \
     libxi6 \
     libxcursor1 \
-    zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy built compiler from base stage
