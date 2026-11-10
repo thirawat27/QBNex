@@ -658,6 +658,12 @@ The program is ordinary code in `.text` of a normal PE, linked by the toolchain'
 - Measured (whole process, 10 runs, median): hello 47.8 ms native vs 47.3 ms payload; 100k-iteration loop 42.5 vs 52.6 ms; 100M-iteration loop 252 vs 228 ms (5 runs, min 231 vs 224) — same generated code, differences are noise. Size: hello 8.43 MB native vs 8.85 MB payload.
 - Gaps: the exe still contains the VM and Cranelift (the VM runs what is not compiled; Cranelift could be dropped behind a feature to shrink it); code uses the host CPU's ISA flags like the existing AOT; Linux/macOS kits (ELF/Mach-O with `ld.lld`/`ld64.lld`) not done; the `ir_emit.bas` switch is not exercised until `qb.exe` is rebuilt (cutover branch) and the kit is shipped under `crates/qb-exec/bin/<os>/native/`.
 
+## R11c-ir2: corpus-run Q7/Q8 in the QIR emitter (branch `claude/r11c-ir2`)
+- Q7: a SUB name used as a GOTO / ON ERROR label needs the compiler's repass; `--ir` wrote the QIR before it. The label check now runs before `IrFinish`, and `IrInit` clears every function body for a repass.
+- Q8: OUT, INP, WAIT, STICK, BLOAD, BSAVE (generic registry calls), VARPTR of numeric variables (DBLOCK mirrors), RUN / RUN label / RUN file$, CLEAR, CHAIN, TIME$ = and REDIM after `DIM name()` lower to QIR; qb-exec `rt/dosx.rs` implements them and `Vm::restart` does RUN/CLEAR. Details and deviations: `docs/rust-port/corpus-run.md` (Q7, Q8).
+- New builtins in `qb_ir::builtins`: `sub_out`, `func_inp`, `sub_wait`, `func_stick`, `sub_bload`, `sub_bsave`, `VARPTR.n`, `RUN`, `CLEAR`, `RUNFROM`, `RUNFILE`, `CHAIN`.
+- Conformance: new `control/sub_name_label`, `system/run_clear`, `graphics/ports_bload` (goldens from the C++ build, identical under `--ir`).
+
 ## Corpus fixes (branch `claude/corpus-fixes-70d56e`)
 
 Local corpus `tests/corpus-local/` (gitignored): 129 `.bas` files from creationix-basic-games (MIT) and the QB64 `programs/samples`. Compile only (`qb file.bas -o x.exe -q -m`), one file at a time.

@@ -54,7 +54,7 @@ pub(crate) const DBLOCK: usize = 0x1000 * 16;
 pub(crate) struct RtState<'a> {
     out: &'a mut dyn Write,
     col: usize,
-    rnd: qb_runtime::rnd::RndState,
+    pub(crate) rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
     stdin: Reader,
     /// conventional memory (VARPTR/SADD/PEEK/POKE)
@@ -107,6 +107,8 @@ pub(crate) struct RtState<'a> {
     pub(crate) web_frame_at: i64,
     /// browser runner: stdin bytes before this offset were typed (and drawn) live
     pub(crate) web_typed_end: usize,
+    /// OUT/INP/WAIT ports, BLOAD/BSAVE, VARPTR mirrors, RUN/CLEAR/CHAIN requests
+    pub(crate) dos: super::dosx::Dos,
 }
 
 struct Using {
@@ -146,6 +148,7 @@ impl<'a> RtState<'a> {
             window: false,
             web_frame_at: 0,
             web_typed_end: 0,
+            dos: Default::default(),
         }
     }
     /// PRINT and INPUT happen on the screen page (browser runner or window).
@@ -322,6 +325,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
     if let Some(r) = super::display::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = super::dosx::call(vm, name, &a) {
         return r;
     }
     let is_print = matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.");
