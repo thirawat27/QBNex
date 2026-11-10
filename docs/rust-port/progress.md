@@ -195,6 +195,32 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 - The CMake target `qb-exec` (built with `qb-selfhost`) produces `crates/qb-exec/bin/<os>/qb-exec`; on Windows it imports only system DLLs.
 - Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
 
+### R11 one pipeline (branch `claude/r11b-vm-d353b8`, 2026-11-11)
+
+The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner: "no separate versions, make it one"):
+
+- **QIR** (`crates/qb-ir`) → `qb_exec::lower` (`crates/qb-exec/src/lower.rs`) → **one typed register bytecode** (`bytecode.rs`) → **one VM** (`vm.rs`); every runtime operation goes through `rt::Host` (`crates/qb-exec/src/rt/`: builtins, files, `_MEM`, TCP, sound). Hot loops and numeric SUB/FUNCTIONs of the same bytecode are compiled by Cranelift (`jit.rs` + `qb-jit`), at run time (JIT, `QB_JIT=off|eager|<threshold>`) or ahead of time (`qb-exec build`, `qb-link`).
+- Removed: the QIR v0 format and its loader, the tree-walking reference interpreter, v0-only bytecode instructions (FToI, EQV/IMP, DivF, float jumps, the v0 FOR instructions, PRINT/RND/ERR/event ops, math unary ops, STATIC frames), the v0 tests. qb-jit keeps MIR (its codegen IR); its MIR interpreter is a test oracle only.
+- JIT on the unified bytecode: `for_test +k`, `loop_for` (the back edge also enters native code), `acc` and `cvt` (CINT-style float -> int) are native; `_FLOAT` pairs, unsigned widths, memory-mode and string/rt instructions exit to the VM (safe default of R11c's guide).
+- Oracles after the reference interpreter was retired: `tests/fixtures/corpus/*.expect` (39 conformance programs) and `tests/fixtures/cover/*.expect` were recorded from it while VM and reference agreed.
+- Tests: `cargo test -p qb-exec` passes with `QB_JIT=off`, `1`, `eager` and the default (corpus, cover, fusion, qir_ops, jit 19 fixtures from `tests/fixtures/jit` = BASIC + QIR, jit_random 300 generated QIR programs incl. AOT, aot); `cargo test -p qb-jit` passes.
+- Benchmarks of the single pipeline (`cargo run --release -p qb-exec --example bench`: `benches/qir/*.qir` = `benches/bas/*.bas` compiled with `qb --ir`, each program times itself with `TIMER(.001)`; C++ = the same `.bas` built by the C++ backend; best of 3, console only, stdin from NUL, same machine and moment):
+
+| case | C++ ms | VM ms | VM + JIT ms | JIT / C++ |
+| --- | --- | --- | --- | --- |
+| loop | 97 | 333 | 115 | 1.19x |
+| float | 57 | 164 | 25 | 0.44x |
+| array | 126 | 332 | 84 | 0.67x |
+| sub | 58 | 179 | 20 | 0.34x |
+| func | 91 | 204 | 28 | 0.31x |
+| gosub | 15 | 33 | 27 | 1.8x |
+| strfn | 118 | 58 | 61 | 0.52x |
+| concat | 93 000+ | 15 | 16 | ~6000x faster |
+
+  Gate D13 (loop <= 2x C++) met with the JIT; every case is within 2x.
+- `cargo test --workspace` passes (31 test binaries).
+- Conformance under the QIR backend (`conformance --qb qb-ir.exe --qb-arg --ir`, R11a's compiler build of 2026-11-10 10:55): **51 of 81 pass**, 6 xfail, 24 fail. None is a VM difference: 10 do not compile with `--ir` (emitter), 11 use builtins that compiler build emits but the committed `qb_ir` table does not have yet (`qbg_screen`, `sub__delay`: R11a work in progress), 3 differ in emitter/runtime semantics (OCT$ width, READ into `_INTEGER64` saturation, CALL ABSOLUTE).
+
 ### R11b typed register VM (R11.5, branch `claude/r11b-vm-d353b8`, 2026-11-10)
 
 - The untyped stack interpreter is gone. QIR is loaded once into typed register bytecode (`crates/qb-exec/src/bytecode.rs`): numeric registers are 64-bit cells (integers stored wrapped to their QB width, SINGLE/DOUBLE as f64), separate string and array banks, constant registers, one frame per SUB/FUNCTION call, labels resolved to pc, builtins resolved at load (hot ones are instructions: LEN, CHR$, ASC, LEFT$, RIGHT$, MID$, ABS/SGN/INT/FIX/SQR/LOG/EXP/SIN/COS/TAN/ATN; the rest go through one resolved table entry). `Module::validate` checks every operand, so the hot loop indexes registers without bounds checks.
