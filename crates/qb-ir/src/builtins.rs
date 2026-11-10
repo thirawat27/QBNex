@@ -181,6 +181,26 @@ pub static TABLE: &[Builtin] = &[
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
     b!("_DEST", [I32]),
+    b!("_DEFLATE$", [Str], Str),
+    b!("_INFLATE$", [Str], Str),
+    b!("_INFLATE$.n", [Str, I64], Str),
+    // ---- _MEM (the Ptr arguments are mem_block addresses unless named otherwise)
+    b!("_MEMNEW", [Ptr, I64]),
+    b!("_MEMAT", [Ptr, I64, I64]),
+    // dst, address, size, type value, element size
+    b!("_MEMVAR", [Ptr, Ptr, I64, I64, I64]),
+    b!("_MEMEXISTS", [Ptr], I32),
+    b!("_MEMFREE", [Ptr]),
+    // checked address of `bytes` bytes at offset in a block
+    b!("_MEMGETP", [Ptr, I64, I64], Ptr),
+    // block, offset, bytes, source address, source bytes
+    b!("_MEMFILLP", [Ptr, I64, I64, Ptr, I64]),
+    b!("_MEMFILLS", [Ptr, I64, I64, Str]),
+    b!("_MEMPUTS", [Ptr, I64, Str]),
+    b!("_MEMCOPY", [Ptr, I64, I64, Ptr, I64]),
+    // array descriptor (aref) -> address of the first element / total bytes
+    b!("_ARRADDR", [Ptr], Ptr),
+    b!("_ARRBYTES", [Ptr], I64),
     b!("_STRCMP", [Str, Str], I32),
     b!("_STRICMP", [Str, Str], I32),
     b!("_CWD$", [], Str),

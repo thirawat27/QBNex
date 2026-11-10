@@ -137,7 +137,9 @@ SUB IrStmtEnd
             x$ = IrEvalTo$(fixoperationorder$(IrEls$(2, j - 1)), ISSTRING)
             y$ = IrEvalTo$(fixoperationorder$(IrEls$(j + 1, n)), ISSTRING)
             IrE "rt NAME " + x$ + " " + y$
-        CASE "PALETTE", "KEY", "FIELD", "ECHO", "CHAIN", "RUN", "MEMGET", "_MEMGET", "MEMPUT", "_MEMPUT", "MEMFILL", "_MEMFILL", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "PLAY", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
+        CASE "_MEMFILL", "_MEMPUT", "_MEMGET", "_MEMCOPY", "_MEMFREE"
+            IrMemStmt f$
+        CASE "PALETTE", "KEY", "FIELD", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "PLAY", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN

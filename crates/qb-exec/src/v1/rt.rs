@@ -194,6 +194,9 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     if let Some(r) = super::files::call(vm, name, &a) {
         return r;
     }
+    if let Some(r) = super::memx::call(vm, name, &a) {
+        return r;
+    }
     let rt = &mut vm.rt;
     match name {
         "PRINTS" => rt.write(i(0) as i32, s(1))?,
@@ -518,6 +521,34 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
         "DATE$" | "TIME$" => return ok(V::S(vec![])),
+        "_DEFLATE$" => {
+            let src = s(0);
+            let mut cap = qb_runtime::compress::qb_deflate_bound(src.len() as u32);
+            let mut dst = vec![0u8; cap as usize];
+            // SAFETY: buffers of the given sizes.
+            unsafe { qb_runtime::compress::qb_deflate(src.as_ptr(), src.len() as u32, dst.as_mut_ptr(), &mut cap) };
+            dst.truncate(cap as usize);
+            return ok(V::S(dst));
+        }
+        "_INFLATE$" | "_INFLATE$.n" => {
+            // legacy compress_bridge.cpp: a given size is used as is, otherwise 10 MB steps
+            let src = s(0);
+            let mut size: u64 = if name == "_INFLATE$.n" { i(1).max(0) as u64 } else { 0 };
+            loop {
+                if name == "_INFLATE$" {
+                    size += 10_000_000;
+                }
+                let mut out_len = size as u32;
+                let mut dst = vec![0u8; size as usize];
+                // SAFETY: buffers of the given sizes.
+                let r = unsafe { qb_runtime::compress::qb_inflate(src.as_ptr(), src.len() as u32, dst.as_mut_ptr(), &mut out_len) };
+                if name == "_INFLATE$" && r == -5 {
+                    continue;
+                }
+                dst.truncate(out_len as usize);
+                return ok(V::S(dst));
+            }
+        }
         "_STRCMP" | "_STRICMP" => {
             let (x, y) = if name == "_STRICMP" {
                 (s(0).to_ascii_lowercase(), s(1).to_ascii_lowercase())
