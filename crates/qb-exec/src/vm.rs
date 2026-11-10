@@ -214,6 +214,8 @@ struct Frame {
 
 #[derive(Debug, Clone, Copy)]
 struct Gs {
+    /// ON TIMER slot whose handler this GOSUB runs (-1 = a plain GOSUB)
+    ev: i32,
     ret: u32,
     depth: usize,
     view: usize,
@@ -258,6 +260,8 @@ pub struct Vm<'m, 'o> {
     errline: u32,
     /// last numeric line label passed (QIR LASTLINE; ERL reports it)
     last_line: u32,
+    /// the ON TIMER ticker thread runs
+    timer_thread: bool,
     /// unhandled errors continue after the statement (the program executable, headless)
     continue_unhandled: bool,
     data_ptr: usize,
@@ -387,6 +391,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             errline: 0,
             last_line: 0,
             continue_unhandled: false,
+            timer_thread: false,
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
             poll_mask: u32::MAX,
@@ -468,7 +473,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
         for r in js.gosub_take(base) {
             if r != crate::jit::GOSUB_VM_BELOW {
-                self.gosub.push(Gs { ret: r, depth, view });
+                self.gosub.push(Gs { ev: -1, ret: r, depth, view });
             }
         }
         let st = st?;
@@ -1033,10 +1038,41 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// Safe point with pending events: discard events that are OFF, run the
     /// handler of one that is ON as an implicit GOSUB at module level.
     #[cold]
-    fn dispatch_events(&mut self, _pc: u32) -> Option<u32> {
-        // QIR has no event statements yet (ON TIMER / ON KEY): nothing handles them
+    fn dispatch_events(&mut self, pc: u32) -> Option<u32> {
         self.ev.pending.store(0, Ordering::Release);
+        // no new handlers while an ON ERROR handler runs (events() of qbx.cpp)
+        if self.in_handler.is_some() {
+            return None;
+        }
+        let mut t = qb_runtime::events::timers();
+        for i in 0..t.count() {
+            if let Some((id, _)) = t.take(i) {
+                drop(t);
+                // the handler runs as a GOSUB at module level and returns here
+                self.gosub.push(Gs { ev: i, ret: pc, depth: self.frames.len(), view: self.view });
+                if self.view != 0 {
+                    self.set_view(0);
+                }
+                return Some(id - 1);
+            }
+        }
         None
+    }
+
+    /// TIMERTHREAD: ticks the ON TIMER table every millisecond and raises event 0.
+    fn start_timer_thread(&mut self) {
+        if self.timer_thread {
+            return;
+        }
+        self.timer_thread = true;
+        let ev = self.events();
+        std::thread::spawn(move || loop {
+            let now = qb_runtime::systime::ticks() as f64 * 0.001;
+            if qb_runtime::events::timers().tick(now) {
+                ev.raise(0);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        });
     }
 
     // ------------------------------------------------------------ builtins
@@ -1279,12 +1315,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::Gosub { t } => {
-                    self.gosub.push(Gs { ret: pc, depth: self.frames.len(), view: self.view });
+                    self.gosub.push(Gs { ev: -1, ret: pc, depth: self.frames.len(), view: self.view });
                     pc = t;
                 }
                 Ins::Return => match self.gosub.last().copied() {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
+                        if g.ev >= 0 {
+                            qb_runtime::events::timers().done(g.ev);
+                        }
                         pc = g.ret;
                         if g.view != self.view {
                             self.set_view(g.view);
@@ -1517,6 +1556,11 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
+                Ins::OnTimer { s, x, t } => {
+                    // event id = handler pc + 1 (0 = no handler)
+                    tryc!(qb_runtime::events::timers().setup(ri!(s) as i32, rf!(x), t + 1, 0));
+                    self.start_timer_thread();
+                }
                 Ins::Resume { k, t } => {
                     pc = tryc!(self.resume(k, t));
                     reload!();
@@ -1714,7 +1758,7 @@ extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
         }
         let moved: Vec<u32> = mine.into_iter().filter(|r| *r != crate::jit::GOSUB_VM_BELOW).collect();
         let count = moved.len();
-        vm.gosub.extend(moved.into_iter().map(|ret| Gs { ret, depth, view }));
+        vm.gosub.extend(moved.into_iter().map(|ret| Gs { ev: -1, ret, depth, view }));
         let r = vm.call_from_native(pc);
         // Back to native: the same entries are on top again after a normal return.
         let n = vm.gosub.len();

@@ -269,6 +269,9 @@ pub enum Inst {
     /// Runtime builtin call (see [`builtins::TABLE`]).
     Rt { dst: Option<Reg>, name: String, args: Vec<Reg> },
     OnError(Option<String>),
+    /// `ON TIMER([slot,] secs) GOSUB target`: `slot` i32 (0 = plain ON TIMER), `secs` f64;
+    /// the handler runs as a GOSUB at module level when the timer fires.
+    OnTimer { slot: Reg, secs: Reg, target: String },
     Resume(ResumeKind),
     Error(Reg),
     Read { ty: Ty, dst: Reg },

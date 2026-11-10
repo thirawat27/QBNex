@@ -345,6 +345,8 @@ pub enum Ins {
     /// SYSTEM [code]: `s == NONE` = 0
     System { s: R },
     OnError { t: u32 },
+    /// ON TIMER(slot, secs) GOSUB t (`s` slot register, `x` seconds register)
+    OnTimer { s: R, x: R, t: u32 },
     Resume { k: ResumeK, t: u32 },
     /// raise the error whose code is in register `s`
     Raise { s: R },
@@ -715,6 +717,11 @@ impl Ins {
                     f(O::TMain(t))
                 }
             }
+            OnTimer { s, x, t } => {
+                f(O::N(s));
+                f(O::N(x));
+                f(O::TMain(t))
+            }
             Resume { k, t } => {
                 if k == ResumeK::Label {
                     f(O::TMain(t))
@@ -895,6 +902,7 @@ impl Ins {
             Ret => "ret".into(),
             End => "end".into(),
             OnError { .. } => "on_error".into(),
+            OnTimer { .. } => "on_timer".into(),
             Resume { k, .. } => format!("resume.{k:?}").to_lowercase(),
             Raise { .. } => "raise".into(),
             MovS { .. } => "mov.s".into(),
@@ -1002,6 +1010,7 @@ impl Ins {
             | Gosub { t }
             | ReturnL { t }
             | OnError { t }
+            | OnTimer { t, .. }
             | Resume { t, .. }
 
  => Some(t),

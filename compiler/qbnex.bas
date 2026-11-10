@@ -6518,6 +6518,7 @@ IF n >= 2 THEN
             Labels(r).Scope_Restriction = subfuncn
         END IF 'x
         l$ = l$ + SCase$("GoSub") + sp + tlayout$
+        IF IrEmitMode THEN IrOnTimer e3$, e2$, a2$
 
         PRINT #25, "if(timer_event_id==" + str2$(ontimerid) + ")goto LABEL_" + a2$ + ";"
 

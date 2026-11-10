@@ -1165,10 +1165,48 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             let v = if name == "func__mousex" { x.clamp(0, (w - 1).max(0)) } else { y.clamp(0, (h - 1).max(0)) };
             V::F(f64::from(v))
         }
+        "func__freetimer" => V::I(i64::from(qb_runtime::events::timers().alloc())),
+        "sub_timer" => {
+            // TIMER[(n)] ON|OFF|STOP|FREE: (n, option 1..4, passed)
+            let i = if a[2].i() == 0 { 0 } else { a[0].i() as i32 };
+            if let Err(c) = qb_runtime::events::timers().statement(i, a[1].i() as i32) {
+                return Some(e(c));
+            }
+            return Some(Ok(None));
+        }
+        "sub_key" => {
+            // KEY(n) ON|OFF|STOP: ON KEY trapping is not handled; the range is checked
+            if !(0..=31).contains(&a[0].i()) {
+                return Some(e(5));
+            }
+            return Some(Ok(None));
+        }
+        "DELAYBEGIN" => {
+            // _DELAY s: the deadline in ms; the emitter loops on DELAYSTEP so events run
+            let s = a[0].f();
+            if !(0.0..=2147483.647).contains(&s) {
+                return Some(e(5));
+            }
+            V::F(qb_runtime::systime::ticks() as f64 + s * 1000.0)
+        }
+        "DELAYSTEP" => {
+            // sleeps at most 9 ms; 1 while the deadline is ahead
+            rt.input.pump(cm);
+            let left = a[0].f() - qb_runtime::systime::ticks() as f64;
+            if left <= 0.0 {
+                V::I(0)
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(left.clamp(1.0, 9.0) as u64));
+                V::I(1)
+            }
+        }
         "sub__limit" => {
             // _LIMIT fps: sleep until 1/fps after the previous frame
             let fps = a[0].f();
             rt.input.pump(cm);
+            if fps <= 0.0 || 1000.0 / fps > 60000.0 {
+                return Some(e(5));
+            }
             if fps > 0.0 {
                 let frame = std::time::Duration::from_secs_f64(1.0 / fps);
                 let now = std::time::Instant::now();

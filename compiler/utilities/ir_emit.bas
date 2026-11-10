@@ -1111,6 +1111,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub__limit|sub__delay|sub__title|"
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
+    l$ = l$ + "func__freetimer|sub_timer|sub_key|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
@@ -1711,6 +1712,15 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "_SNDSETPOS", "_SNDLIMIT": IrE "rt " + nm$ + IrArgList$("i32,f64", nargs, -1, 0)
         CASE "_SNDRAW": IrE "rt _SNDRAW" + IrArgList$("f32,f32,i32", nargs, passed, 1)
         CASE "_SNDRAWDONE": IrE "rt _SNDRAWDONE" + IrArgList$("i32", nargs, passed, 1)
+        CASE "_DELAY"
+            'wait in steps with a back edge, so ON TIMER handlers run during the delay
+            x$ = IrReg$: IrE "rt " + x$ + " DELAYBEGIN " + IrArgAs$(sv(1), "f64")
+            y$ = "~Y" + str2$(IrNew)
+            IrE "label " + y$
+            z$ = IrReg$: IrE "rt " + z$ + " DELAYSTEP " + x$
+            IrE "jz " + z$ + " " + y$ + ".E"
+            IrE "jmp " + y$
+            IrE "label " + y$ + ".E"
         CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE"
             'window state: no visible effect headless
         CASE "SLEEP"

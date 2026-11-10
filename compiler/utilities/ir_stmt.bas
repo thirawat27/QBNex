@@ -159,11 +159,11 @@ SUB IrStmtEnd
                 IrE "rt FIELD " + ch$ + " " + x$ + " " + IrAddr$(p$)
                 i = j + 1
             LOOP
-        CASE "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "STRIG"
+        CASE "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "STRIG"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN
-                IF s2$ = "TIMER" OR s2$ = "KEY" OR s2$ = "STRIG" OR (s2$ <> "PLAY" AND IrFindSep(3, "|GOTO|GOSUB|") > n) THEN IrNotSup "ON " + s2$ 'ON PLAY: checked only, the event is not raised (D-24), as in the C++ path
+                IF s2$ = "KEY" OR s2$ = "STRIG" OR (s2$ <> "PLAY" AND s2$ <> "TIMER" AND IrFindSep(3, "|GOTO|GOSUB|") > n) THEN IrNotSup "ON " + s2$ 'ON PLAY: checked only, the event is not raised (D-24), as in the C++ path
             END IF
     END SELECT
 END SUB
@@ -351,4 +351,12 @@ SUB IrGetPut (f$)
     END IF
     sz = IrSize&(st$)
     IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + IrAddr$(p$) + " " + IrI32$(sz)
+END SUB
+
+'ON TIMER([slot,] secs) GOSUB label (raw slot/secs expressions, label as written)
+SUB IrOnTimer (slot$, secs$, lbl$)
+    DIM a$, b$
+    IF LEN(slot$) THEN a$ = IrArgAs$(fixoperationorder$(slot$), "i32") ELSE a$ = IrI32$(0)
+    b$ = IrArgAs$(fixoperationorder$(secs$), "f64")
+    IrE "ontimer " + a$ + " " + b$ + " " + IrLbl$(lbl$)
 END SUB

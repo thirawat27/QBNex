@@ -268,6 +268,12 @@ pub static TABLE: &[Builtin] = &[
     b!("func__loadimage", [Str, I32, I32], I32),
     b!("func__title", [], Str),
     b!("func__keyhit", [], I32),
+    b!("func__freetimer", [], I32),
+    b!("sub_timer", [I32, I32, I32]),
+    b!("sub_key", [I32, I32, I32]),
+    // _DELAY: deadline (ms clock) and one wait step (1 = still waiting); the emitter loops
+    b!("DELAYBEGIN", [F64], F64),
+    b!("DELAYSTEP", [F64], I32),
     b!("func__keydown", [I32], I32),
     b!("func__mouseinput", [I32, I32], I32),
     b!("func__mousebutton", [I32, I32, I32], I32),
