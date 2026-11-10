@@ -22,17 +22,17 @@ pub mod v1;
 /// it only needs the symbols to exist.
 #[allow(non_upper_case_globals)]
 mod libqb_host {
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut cmem_sp: u32 = 0;
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut dblock: isize = 0;
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub static mut cmem: [u8; 1] = [0];
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn qb_host_error(_n: i32) {
         std::process::abort()
     }
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }
@@ -63,7 +63,7 @@ pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
 /// Like [`run_ir`] but returns the program's exit code (`SYSTEM n`).
 /// A `QIR 1` header selects the v1 interpreter, anything else the v0 spike.
 pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
-    let head = src.trim_start().lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
+    let head = src.lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
     if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
         let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
         return v1::run(&m, out);
@@ -370,7 +370,7 @@ fn parse_val(ty: &str, text: &str) -> Result<Val, RunError> {
         "F" => Val::F(f64::from(text.parse::<f32>().map_err(|_| bad())?)),
         "D" => Val::D(text.parse().map_err(|_| bad())?),
         "S" => {
-            if text.len() % 2 != 0 {
+            if !text.len().is_multiple_of(2) {
                 return Err(bad());
             }
             let mut s = Vec::with_capacity(text.len() / 2);

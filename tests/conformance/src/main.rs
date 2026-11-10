@@ -45,6 +45,9 @@ struct Options {
     fb_dump: Option<PathBuf>,
     /// Extra compiler flags, e.g. `--qb-arg --ir` for the R11 QIR backend.
     qb_args: Vec<String>,
+    /// Differential mode: compile every case a second time with these flags
+    /// (e.g. `--diff-arg --ir`) and compare the two runs with each other.
+    diff_args: Option<Vec<String>>,
 }
 
 enum Outcome {
@@ -55,7 +58,7 @@ enum Outcome {
 
 fn usage() -> &'static str {
     "usage: conformance [--qb <path>] [--cases <dir>] [--work <dir>] [--filter <text>] \
-     [--timeout <secs>] [--qb-arg <flag>]... [--bless] [--verbose] [--fb-dump <dir>]"
+     [--timeout <secs>] [--qb-arg <flag>]... [--diff-arg <flag>]... [--bless] [--verbose] [--fb-dump <dir>]"
 }
 
 fn repo_root() -> PathBuf {
@@ -87,6 +90,7 @@ fn parse_args() -> Result<Options, String> {
         verbose: false,
         fb_dump: None,
         qb_args: Vec::new(),
+        diff_args: None,
     };
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -104,6 +108,7 @@ fn parse_args() -> Result<Options, String> {
             }
             "--fb-dump" => opts.fb_dump = Some(PathBuf::from(value("--fb-dump")?)),
             "--qb-arg" => opts.qb_args.push(value("--qb-arg")?),
+            "--diff-arg" => opts.diff_args.get_or_insert_with(Vec::new).push(value("--diff-arg")?),
             "--bless" => opts.bless = true,
             "--verbose" | "-v" => opts.verbose = true,
             "--help" | "-h" => return Err(usage().to_string()),
@@ -114,11 +119,10 @@ fn parse_args() -> Result<Options, String> {
     // process creation does not search the current directory when
     // NoDefaultCurrentDirectoryInExePath is set, so it would silently pick another
     // qb.exe from PATH (e.g. an installed QBNex release).
-    if opts.qb.is_relative() {
-        if let Ok(cwd) = env::current_dir() {
+    if opts.qb.is_relative()
+        && let Ok(cwd) = env::current_dir() {
             opts.qb = cwd.join(&opts.qb);
         }
-    }
     if !opts.qb.exists() {
         return Err(format!("qb compiler not found: {}", opts.qb.display()));
     }
@@ -228,7 +232,8 @@ fn first_difference(expected: &[u8], actual: &[u8]) -> String {
     "outputs differ".to_string()
 }
 
-fn run_case(opts: &Options, case: &Path) -> Outcome {
+/// Compiles `case` with `qb_args` and runs it: (normalised stdout + exit marker, frame summary).
+fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u8>, Vec<u8>), String> {
     let stem = case.file_stem().unwrap_or_default().to_string_lossy().to_string();
     let rel = case.strip_prefix(&opts.cases).unwrap_or(case);
     let tag: String = rel
@@ -246,7 +251,7 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     let mut compile = Command::new(&opts.qb);
     compile
         .arg(case)
-        .args(&opts.qb_args)
+        .args(qb_args)
         .arg("-o")
         .arg(&exe)
         .arg("-q")
@@ -254,10 +259,10 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
         .current_dir(repo_root());
     let compile_out = match run_with_timeout(compile, None, Duration::from_secs(600)) {
         Ok(r) => r,
-        Err(e) => return Outcome::Fail(format!("compile: {e}")),
+        Err(e) => return Err(format!("compile: {e}")),
     };
     if compile_out.0 != Some(0) || !exe.exists() {
-        return Outcome::Fail(format!(
+        return Err(format!(
             "compile failed (exit {:?})\n{}",
             compile_out.0,
             String::from_utf8_lossy(&compile_out.1)
@@ -279,20 +284,19 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     }
     let (code, stdout, stderr) = match run_with_timeout(run, stdin, opts.timeout) {
         Ok(r) => r,
-        Err(e) => return Outcome::Fail(format!("run: {e}")),
+        Err(e) => return Err(format!("run: {e}")),
     };
     let _ = fs::remove_file(&exe);
     let raw = fs::read(&capture).unwrap_or_default();
     let _ = fs::remove_file(&capture);
-    if let Some(dir) = &opts.fb_dump {
-        if !raw.is_empty() {
+    if let Some(dir) = &opts.fb_dump
+        && !raw.is_empty() {
             let _ = fs::create_dir_all(dir);
             let _ = fs::write(dir.join(format!("{tag}.fbraw")), &raw);
         }
-    }
     let frames = match summarise_frames(&raw) {
         Ok(f) => f,
-        Err(e) => return Outcome::Fail(format!("framebuffer capture: {e}")),
+        Err(e) => return Err(format!("framebuffer capture: {e}")),
     };
     let mut actual = normalise(&stdout);
     if code != Some(0) {
@@ -301,6 +305,36 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     if opts.verbose && !stderr.is_empty() {
         eprintln!("    stderr({stem}): {}", String::from_utf8_lossy(&stderr));
     }
+    Ok((actual, frames))
+}
+
+/// Differential check: the same case under `qb_args` and `diff_args` must behave the same.
+fn diff_case(opts: &Options, case: &Path, diff_args: &[String]) -> Outcome {
+    let a = match run_program(opts, case, &opts.qb_args) {
+        Ok(r) => r,
+        Err(e) => return Outcome::Fail(format!("reference: {e}")),
+    };
+    let b = match run_program(opts, case, diff_args) {
+        Ok(r) => r,
+        Err(e) => return Outcome::Fail(format!("candidate: {e}")),
+    };
+    if a.0 != b.0 {
+        return Outcome::Fail(format!("output differs, {}", first_difference(&a.0, &b.0)));
+    }
+    if a.1 != b.1 {
+        return Outcome::Fail(format!("framebuffer differs, {}", first_difference(&a.1, &b.1)));
+    }
+    Outcome::Pass
+}
+
+fn run_case(opts: &Options, case: &Path) -> Outcome {
+    if let Some(d) = &opts.diff_args {
+        return diff_case(opts, case, d);
+    }
+    let (actual, frames) = match run_program(opts, case, &opts.qb_args) {
+        Ok(r) => r,
+        Err(e) => return Outcome::Fail(e),
+    };
 
     let expected_path = case.with_extension("out");
     let fb_path = case.with_extension("fb");

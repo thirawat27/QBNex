@@ -596,11 +596,10 @@ impl Synth {
         if number_entered != 0 || followup != 0 {
             return Err(ERR_ILLEGAL);
         }
-        if playit {
-            if let Some(w) = &wave {
+        if playit
+            && let Some(w) = &wave {
                 sink.send(voice, w);
             }
-        }
         Ok(())
     }
 }

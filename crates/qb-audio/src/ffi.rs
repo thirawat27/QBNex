@@ -51,7 +51,7 @@ impl VarReader for DBlock {
 // ---- lifecycle ---------------------------------------------------------------
 
 /// `snd_init`. Set QB_AUDIO_DEVICE=none to run without an output device.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_init() {
     {
         let e = engine();
@@ -71,7 +71,7 @@ pub extern "C" fn qb_snd_init() {
 }
 
 /// `snd_un_init`. Afterwards call `qb_snd_take_released_lock` until it returns 0.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_un_init() {
     // Stop the device first and without the engine lock: its callback takes it.
     let dev = DEVICE.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -82,55 +82,55 @@ pub extern "C" fn qb_snd_un_init() {
 }
 
 /// `snd_mainloop`: disposes finished auto-kill sounds.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_mainloop() {
     engine().housekeeping();
 }
 
 /// Pops a `_MEMSOUND` lock released by a freed handle (0 = none left).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_take_released_lock() -> usize {
     engine().released_locks.pop().unwrap_or(0)
 }
 
 // ---- SOUND / BEEP / PLAY / synth ---------------------------------------------
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_sound(frequency: f64, ticks: f64) -> i32 {
     err(engine().sound(frequency, ticks))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_beep() -> i32 {
     err(engine().sound(900.0, 5.0))
 }
 
 /// # Safety
 /// `s` points to `len` bytes; `dblock` is libqb's DBLOCK (or null).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_snd_play(s: *const u8, len: i32, dblock: *const u8) -> i32 {
     let s = unsafe { bytes(s, len) };
     err(engine().play(s, &DBlock(dblock)))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_play_count() -> i32 {
     engine().play_remaining()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_voice(voice: i32) -> i32 {
     err(engine().synth.set_voice(voice))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_adsr(attack: f64, decay: f64, sustain: f64, release: f64, voice: i32, passed: i32) -> i32 {
     err(engine().synth.adsr(attack, decay, sustain, release, voice, passed))
 }
 
 /// # Safety
 /// `spec` points to `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_snd_wave(spec: *const u8, len: i32, voice: i32, passed: i32) -> i32 {
     let s = unsafe { bytes(spec, len) };
     err(engine().synth.wave(s, voice, passed))
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn qb_snd_wave(spec: *const u8, len: i32, voice: i32, pass
 
 // ---- _SND* handles -----------------------------------------------------------
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_rate() -> i32 {
     engine().rate as i32
 }
@@ -167,7 +167,7 @@ fn open(name: &[u8], flags: u32) -> i32 {
 
 /// # Safety
 /// `name`/`req` point to `name_len`/`req_len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_snd_open(name: *const u8, name_len: i32, req: *const u8, req_len: i32, passed: i32) -> i32 {
     let name = unsafe { bytes(name, name_len) };
     let req = unsafe { bytes(req, req_len) };
@@ -184,106 +184,106 @@ pub unsafe extern "C" fn qb_snd_open(name: *const u8, name_len: i32, req: *const
     open(name, flags)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_close(h: i32) {
     engine().close(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_copy(h: i32) -> i32 {
     engine().copy(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_play_handle(h: i32) {
     engine().play_sound(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_play_copy(h: i32, volume: f64, passed: i32) {
     engine().play_copy(h, volume, passed)
 }
 
 /// # Safety
 /// `name` points to `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_snd_play_file(name: *const u8, len: i32, _sync: i32, volume: f64, passed: i32) {
     let name = unsafe { bytes(name, len) };
     let h = open(name, FLAG_STREAM);
     engine().play_file(h, volume, passed)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_pause(h: i32) {
     engine().pause(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_playing(h: i32) -> i32 {
     engine().playing(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_paused(h: i32) -> i32 {
     engine().paused(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_vol(h: i32, volume: f32) {
     engine().set_volume(h, volume)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_loop(h: i32) {
     engine().loop_sound(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_bal(h: i32, x: f64, y: f64, z: f64, _channel: i32, passed: i32) {
     engine().balance(h, x, y, z, passed)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_len(h: i32) -> f64 {
     engine().length(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_getpos(h: i32) -> f64 {
     engine().get_pos(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_setpos(h: i32, seconds: f64) {
     engine().set_pos(h, seconds)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_limit(h: i32, seconds: f64) {
     engine().limit(h, seconds)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_stop(h: i32) {
     engine().stop_sound(h)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_open_raw() -> i32 {
     engine().open_raw()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_raw(left: f32, right: f32, h: i32, passed: i32) {
     engine().raw(left, right, h, passed)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_raw_done(h: i32, passed: i32) {
     engine().raw_done(h, passed != 0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_raw_len(h: i32, passed: i32) -> f64 {
     engine().raw_len(h, passed != 0)
 }
@@ -304,7 +304,7 @@ pub struct QbMemSound {
 ///
 /// # Safety
 /// `out` must point to a writable QbMemSound.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_snd_memsound(h: i32, target_channel: i32, out: *mut QbMemSound) -> i32 {
     let Some(m) = engine().mem_sound(h, target_channel) else { return 0 };
     let (lock_offset, lock_id) = m.lock.unwrap_or((0, 0));
@@ -314,7 +314,7 @@ pub unsafe extern "C" fn qb_snd_memsound(h: i32, target_channel: i32, out: *mut 
     1
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_memsound_set_lock(h: i32, lock_offset: usize, lock_id: i64) {
     engine().set_mem_lock(h, lock_offset, lock_id)
 }
@@ -322,7 +322,7 @@ pub extern "C" fn qb_snd_memsound_set_lock(h: i32, lock_offset: usize, lock_id: 
 // ---- offline synth (differential tests) --------------------------------------
 
 /// A device-less engine at `rate` for rendering SOUND/PLAY offline.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_synth_new(rate: u32) -> *mut Engine {
     let mut e = Engine::default();
     e.start(rate);
@@ -331,7 +331,7 @@ pub extern "C" fn qb_synth_new(rate: u32) -> *mut Engine {
 
 /// # Safety
 /// `e` comes from `qb_synth_new` and is not used afterwards.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_free(e: *mut Engine) {
     if !e.is_null() {
         drop(unsafe { Box::from_raw(e) });
@@ -340,14 +340,14 @@ pub unsafe extern "C" fn qb_synth_free(e: *mut Engine) {
 
 /// # Safety
 /// `e` comes from `qb_synth_new`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_sound(e: *mut Engine, frequency: f64, ticks: f64) -> i32 {
     err(unsafe { &mut *e }.sound(frequency, ticks))
 }
 
 /// # Safety
 /// `e` comes from `qb_synth_new`; `s` points to `len` bytes; `dblock` may be null.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_play(e: *mut Engine, s: *const u8, len: i32, dblock: *const u8) -> i32 {
     let s = unsafe { bytes(s, len) };
     err(unsafe { &mut *e }.play(s, &DBlock(dblock)))
@@ -355,21 +355,21 @@ pub unsafe extern "C" fn qb_synth_play(e: *mut Engine, s: *const u8, len: i32, d
 
 /// # Safety
 /// `e` comes from `qb_synth_new`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_voice(e: *mut Engine, voice: i32) -> i32 {
     err(unsafe { &mut *e }.synth.set_voice(voice))
 }
 
 /// # Safety
 /// `e` comes from `qb_synth_new`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_adsr(e: *mut Engine, a: f64, d: f64, s: f64, r: f64, voice: i32, passed: i32) -> i32 {
     err(unsafe { &mut *e }.synth.adsr(a, d, s, r, voice, passed))
 }
 
 /// # Safety
 /// `e` comes from `qb_synth_new`; `spec` points to `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_wave(e: *mut Engine, spec: *const u8, len: i32, voice: i32, passed: i32) -> i32 {
     let s = unsafe { bytes(spec, len) };
     err(unsafe { &mut *e }.synth.wave(s, voice, passed))
@@ -379,7 +379,7 @@ pub unsafe extern "C" fn qb_synth_wave(e: *mut Engine, spec: *const u8, len: i32
 ///
 /// # Safety
 /// `e` comes from `qb_synth_new`; `out` has room for `2 * max_frames` floats.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_drain(e: *mut Engine, voice: i32, out: *mut f32, max_frames: i32) -> i32 {
     let e = unsafe { &mut *e };
     let Some(q) = e.voices.get_mut(voice as usize) else { return 0 };
@@ -393,7 +393,7 @@ pub unsafe extern "C" fn qb_synth_drain(e: *mut Engine, voice: i32, out: *mut f3
 ///
 /// # Safety
 /// `e` comes from `qb_synth_new`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_synth_queued(e: *mut Engine, voice: i32) -> i32 {
     unsafe { &*e }.voices.get(voice as usize).map(|q| q.frames_remaining() as i32).unwrap_or(0)
 }

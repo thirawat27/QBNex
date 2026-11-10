@@ -50,7 +50,7 @@ pub unsafe fn printchr_builtin(im: &ImgStruct, character: i32) {
 ///
 /// # Safety
 /// See [`printchr_builtin`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_printchr(im: *const ImgStruct, character: i32) {
     // SAFETY: guaranteed by the caller.
     unsafe { printchr_builtin(&*im, character) }

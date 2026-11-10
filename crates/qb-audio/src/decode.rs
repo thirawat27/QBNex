@@ -18,13 +18,13 @@
 use std::fs::File;
 use std::path::Path;
 
-use symphonia::core::audio::{AudioBufferRef, SampleBuffer};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::audio::GenericAudioBufferRef;
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SampleFormat {
@@ -151,19 +151,27 @@ fn decode_symphonia(path: &Path, device_rate: u32) -> Option<Pcm> {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
-    let probed = symphonia::default::get_probe().format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default()).ok()?;
-    let mut reader = probed.format;
-    let track = reader.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL)?.clone();
-    let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default()).ok()?;
-    let is_pcm = symphonia::default::get_codecs().get_codec(track.codec_params.codec).map(|d| d.short_name.starts_with("pcm")).unwrap_or(false);
+    let mut reader = symphonia::default::get_probe()
+        .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
+        .ok()?;
+    let track = reader.default_track(TrackType::Audio)?;
+    let track_id = track.id;
+    let params = track.codec_params.as_ref()?.audio()?.clone();
+    let mut decoder = symphonia::default::get_codecs()
+        .make_audio_decoder(&params, &AudioDecoderOptions::default())
+        .ok()?;
+    let is_pcm = symphonia::default::get_codecs()
+        .get_audio_decoder(params.codec)
+        .map(|d| d.codec.info.short_name.starts_with("pcm"))
+        .unwrap_or(false);
 
     let mut format: Option<SampleFormat> = None;
     let mut channels = 0u16;
-    let mut rate = track.codec_params.sample_rate.unwrap_or(0);
+    let mut rate = params.sample_rate.unwrap_or(0);
     let mut native: Vec<u8> = Vec::new();
 
-    while let Ok(packet) = reader.next_packet() {
-        if packet.track_id() != track.id {
+    while let Ok(Some(packet)) = reader.next_packet() {
+        if packet.track_id != track_id {
             continue;
         }
         let buf = match decoder.decode(&packet) {
@@ -171,57 +179,56 @@ fn decode_symphonia(path: &Path, device_rate: u32) -> Option<Pcm> {
             Err(SymError::DecodeError(_)) => continue,
             Err(_) => break,
         };
-        let spec = *buf.spec();
+        let spec = buf.spec().clone();
         if format.is_none() {
-            channels = spec.channels.count() as u16;
-            rate = spec.rate;
+            channels = spec.channels().count() as u16;
+            rate = spec.rate();
             format = Some(if is_pcm {
                 match &buf {
-                    AudioBufferRef::U8(_) => SampleFormat::U8,
-                    AudioBufferRef::S16(_) => SampleFormat::S16,
-                    AudioBufferRef::S24(_) => SampleFormat::S24,
-                    AudioBufferRef::S32(_) => SampleFormat::S32,
+                    GenericAudioBufferRef::U8(_) => SampleFormat::U8,
+                    GenericAudioBufferRef::S16(_) => SampleFormat::S16,
+                    GenericAudioBufferRef::S24(_) => SampleFormat::S24,
+                    GenericAudioBufferRef::S32(_) => SampleFormat::S32,
                     _ => SampleFormat::F32,
                 }
             } else {
                 SampleFormat::F32
             });
         }
-        if spec.channels.count() as u16 != channels {
+        if spec.channels().count() as u16 != channels {
             break;
         }
-        let dur = buf.capacity() as u64;
         match format.unwrap() {
             SampleFormat::U8 => {
-                let mut sb = SampleBuffer::<u8>::new(dur, spec);
-                sb.copy_interleaved_ref(buf);
-                native.extend_from_slice(sb.samples());
+                let mut v: Vec<u8> = Vec::new();
+                buf.copy_to_vec_interleaved(&mut v);
+                native.extend_from_slice(&v);
             }
             SampleFormat::S16 => {
-                let mut sb = SampleBuffer::<i16>::new(dur, spec);
-                sb.copy_interleaved_ref(buf);
-                for s in sb.samples() {
+                let mut v: Vec<i16> = Vec::new();
+                buf.copy_to_vec_interleaved(&mut v);
+                for s in &v {
                     native.extend_from_slice(&s.to_le_bytes());
                 }
             }
             SampleFormat::S24 => {
-                let mut sb = SampleBuffer::<i32>::new(dur, spec);
-                sb.copy_interleaved_ref(buf);
-                for s in sb.samples() {
+                let mut v: Vec<i32> = Vec::new();
+                buf.copy_to_vec_interleaved(&mut v);
+                for s in &v {
                     native.extend_from_slice(&s.to_le_bytes()[1..4]);
                 }
             }
             SampleFormat::S32 => {
-                let mut sb = SampleBuffer::<i32>::new(dur, spec);
-                sb.copy_interleaved_ref(buf);
-                for s in sb.samples() {
+                let mut v: Vec<i32> = Vec::new();
+                buf.copy_to_vec_interleaved(&mut v);
+                for s in &v {
                     native.extend_from_slice(&s.to_le_bytes());
                 }
             }
             SampleFormat::F32 => {
-                let mut sb = SampleBuffer::<f32>::new(dur, spec);
-                sb.copy_interleaved_ref(buf);
-                for s in sb.samples() {
+                let mut v: Vec<f32> = Vec::new();
+                buf.copy_to_vec_interleaved(&mut v);
+                for s in &v {
                     native.extend_from_slice(&s.to_le_bytes());
                 }
             }

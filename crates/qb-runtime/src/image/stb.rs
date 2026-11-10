@@ -118,7 +118,7 @@ pub fn to_rgba(mut data: Vec<u8>, comp: usize, n: usize) -> Option<Vec<u8>> {
 /// Every other byte (the high byte of big-endian 16-bit samples).
 pub fn high_bytes(raw: &[u8]) -> Option<Vec<u8>> {
     let mut out = alloc(raw.len() / 2)?;
-    for (o, p) in out.iter_mut().zip(raw.chunks_exact(2)) {
+    for (o, p) in out.iter_mut().zip(raw.as_chunks::<2>().0) {
         *o = p[0];
     }
     Some(out)
@@ -471,7 +471,7 @@ pub fn bmp_load(s: &mut Ctx) -> Option<Rgba> {
         }
     }
     if all_a == 0 {
-        for p in out.chunks_exact_mut(4) {
+        for p in out.as_chunks_mut::<4>().0 {
             p[3] = 255;
         }
     }

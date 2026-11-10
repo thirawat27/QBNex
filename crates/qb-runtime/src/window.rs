@@ -398,11 +398,10 @@ impl App {
             }
         }
         // new frame?
-        if let Some(w) = &self.win {
-            if lock(&FRAME).serial != w.last_serial {
+        if let Some(w) = &self.win
+            && lock(&FRAME).serial != w.last_serial {
                 w.window.request_redraw();
             }
-        }
     }
 
     fn on_resize(&mut self, w: u32, h: u32) {
@@ -411,11 +410,10 @@ impl App {
         }
         let changed = (WIN_W.swap(w as i32, Ordering::SeqCst) != w as i32)
             | (WIN_H.swap(h as i32, Ordering::SeqCst) != h as i32);
-        if changed {
-            if let Some(f) = cb().resize {
+        if changed
+            && let Some(f) = cb().resize {
                 f(w as i32, h as i32);
             }
-        }
         if let Some(win) = &mut self.win {
             win.last_serial = u64::MAX;
             win.window.request_redraw();
@@ -525,13 +523,11 @@ impl ApplicationHandler for App {
     }
 
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
-        if let DeviceEvent::MouseMotion { delta } = event {
-            if self.focused {
-                if let Some(f) = cb().mouse_relative {
+        if let DeviceEvent::MouseMotion { delta } = event
+            && self.focused
+                && let Some(f) = cb().mouse_relative {
                     f(delta.0 as i32, delta.1 as i32);
                 }
-            }
-        }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
@@ -739,7 +735,7 @@ fn run_script(cmds: Vec<script::Cmd>) {
 ///
 /// # Safety
 /// `callbacks` must point to a valid struct; `title` is null or a NUL-terminated string.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_window_run(
     callbacks: *const Callbacks,
     width: i32,
@@ -805,11 +801,10 @@ fn run_headless() -> i32 {
                 Cmd::Size(w, h) if w > 0 && h > 0 => {
                     let changed = (WIN_W.swap(w, Ordering::SeqCst) != w)
                         | (WIN_H.swap(h, Ordering::SeqCst) != h);
-                    if changed {
-                        if let Some(f) = cb().resize {
+                    if changed
+                        && let Some(f) = cb().resize {
                             f(w, h);
                         }
-                    }
                 }
                 Cmd::Position(x, y) => {
                     POS_X.store(x, Ordering::SeqCst);
@@ -824,18 +819,18 @@ fn run_headless() -> i32 {
 }
 
 /// 1 when running without a window (`QBNEX_HEADLESS` or no display).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_headless() -> i32 {
     (HEADLESS.load(Ordering::SeqCst) || headless_requested()) as i32
 }
 
 /// 1 once the window (or the headless stand-in) exists.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_exists() -> i32 {
     EXISTS.load(Ordering::SeqCst) as i32
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_create() {
     push(Cmd::Create);
 }
@@ -844,7 +839,7 @@ pub extern "C" fn qb_window_create() {
 ///
 /// # Safety
 /// `px` must point to `w*h` readable `u32`s.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_window_present(
     px: *const u32,
     w: i32,
@@ -875,11 +870,10 @@ pub unsafe extern "C" fn qb_window_present(
             WIN_W.swap(w, Ordering::SeqCst),
             WIN_H.swap(h, Ordering::SeqCst),
         );
-        if (ow, oh) != (w, h) {
-            if let Some(f) = cb().resize {
+        if (ow, oh) != (w, h)
+            && let Some(f) = cb().resize {
                 f(w, h);
             }
-        }
     } else {
         wake();
     }
@@ -887,7 +881,7 @@ pub unsafe extern "C" fn qb_window_present(
 
 /// # Safety
 /// `title` is null or NUL-terminated (bytes are taken as UTF-8, invalid bytes as CP-1252-ish lossy).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_window_set_title(title: *const c_char) {
     let t = if title.is_null() {
         String::new()
@@ -902,49 +896,49 @@ pub unsafe extern "C" fn qb_window_set_title(title: *const c_char) {
     push(Cmd::Title(t));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_set_size(w: i32, h: i32) {
     push(Cmd::Size(w, h));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_set_fullscreen(on: i32) {
     push(Cmd::Fullscreen(on != 0));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_set_position(x: i32, y: i32) {
     push(Cmd::Position(x, y));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_show(visible: i32) {
     push(Cmd::Visible(visible != 0));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_minimize() {
     push(Cmd::Minimize);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_minimized() -> i32 {
     MINIMIZED.load(Ordering::SeqCst) as i32
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_set_cursor(style: i32) {
     push(Cmd::Cursor(style));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_window_warp_mouse(x: i32, y: i32) {
     push(Cmd::Warp(x, y));
 }
 
 /// # Safety
 /// `px` must point to `w*h` readable `u32`s (`0xAARRGGBB`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_window_set_icon(px: *const u32, w: i32, h: i32) {
     if px.is_null() || w <= 0 || h <= 0 {
         return;
@@ -956,7 +950,7 @@ pub unsafe extern "C" fn qb_window_set_icon(px: *const u32, w: i32, h: i32) {
 
 /// # Safety
 /// `w`/`h` must be valid for writes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_window_size(w: *mut i32, h: *mut i32) {
     // SAFETY: caller passes writable pointers.
     unsafe {
@@ -967,7 +961,7 @@ pub unsafe extern "C" fn qb_window_size(w: *mut i32, h: *mut i32) {
 
 /// # Safety
 /// `x`/`y` must be valid for writes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_window_position(x: *mut i32, y: *mut i32) {
     // SAFETY: caller passes writable pointers.
     unsafe {
@@ -980,7 +974,7 @@ pub unsafe extern "C" fn qb_window_position(x: *mut i32, y: *mut i32) {
 ///
 /// # Safety
 /// `w`/`h` must be valid for writes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_desktop_size(w: *mut i32, h: *mut i32) {
     let start = Instant::now();
     while DESK_W.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(2) {
@@ -998,7 +992,7 @@ pub unsafe extern "C" fn qb_desktop_size(w: *mut i32, h: *mut i32) {
 ///
 /// # Safety
 /// `out` must hold 8 `i32`s and `scale` 2 `f32`s.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_layout(
     screen_w: i32,
     screen_h: i32,
@@ -1043,7 +1037,7 @@ pub unsafe extern "C" fn qb_layout(
 ///
 /// # Safety
 /// `dst` holds `dw*dh` pixels, `src` holds `sw*sh` pixels.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_hw_put(
     dst: *mut u32,
     dw: i32,
@@ -1090,7 +1084,7 @@ pub unsafe extern "C" fn qb_hw_put(
 ///
 /// # Safety
 /// As [`qb_hw_put`]; `d` and `s` hold 6 floats.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_hw_tri2d(
     dst: *mut u32,
     dw: i32,
@@ -1139,7 +1133,7 @@ pub unsafe extern "C" fn qb_hw_tri2d(
 ///
 /// # Safety
 /// As [`qb_hw_put`], plus `depth`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_hw_tri3d(
     dst: *mut u32,
     dw: i32,

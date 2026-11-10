@@ -9,9 +9,9 @@ members = [
 ]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 license = "MIT"
-rust-version = "1.80"
+rust-version = "1.99"
 
 [profile.release]
 opt-level = 3

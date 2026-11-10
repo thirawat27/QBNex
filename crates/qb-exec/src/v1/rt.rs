@@ -480,9 +480,11 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
                 let k = t[..p].trim().to_string();
                 let v = if t.as_bytes()[p] == b' ' { t[p + 1..].trim_start() } else { &t[p + 1..] };
                 if v.is_empty() {
-                    std::env::remove_var(&k);
+                    // SAFETY: the program thread is the only one touching the environment.
+                    unsafe { std::env::remove_var(&k) };
                 } else {
-                    std::env::set_var(&k, v);
+                    // SAFETY: as above.
+                    unsafe { std::env::set_var(&k, v) };
                 }
             }
         }
@@ -794,7 +796,12 @@ fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
             digits.push_str(fp);
         }
         let w = if exp >= 5 { 3 } else { 2 };
-        digits.push_str(&format!("E{}{:0w$}", if ex < 0 { '-' } else { '+' }, ex.abs(), w = w));
+        let letter = match t {
+            Ty::F32 => 'E',
+            Ty::F80 => 'F',
+            _ => 'D',
+        };
+        digits.push_str(&format!("{letter}{}{:0w$}", if ex < 0 { '-' } else { '+' }, ex.abs(), w = w));
     } else {
         digits = format!("{:.*}", dec, a);
         if dec == 0 && dot.is_some() {
@@ -821,7 +828,19 @@ fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
     }
     s.push_str(&digits);
     if lead_plus {
-        s.insert(0, if neg { '-' } else { '+' });
+        // the sign takes the first column of the field; the number is right-aligned after it
+        let width = fmt.len() - 1;
+        let body = s.into_bytes();
+        let mut r = vec![if neg { b'-' } else { b'+' }];
+        if body.len() > width {
+            let mut o = vec![b'%'];
+            o.extend_from_slice(&r);
+            o.extend_from_slice(&body);
+            return o;
+        }
+        r.extend(std::iter::repeat_n(if stars { b'*' } else { b' ' }, width - body.len()));
+        r.extend_from_slice(&body);
+        return r;
     } else if neg && trail.is_none() {
         s.insert(0, '-');
     }

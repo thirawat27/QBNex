@@ -98,7 +98,7 @@ fn attach(cb: &Callbacks, g: &Gilrs, id: gilrs::GamepadId) {
 ///
 /// # Safety
 /// `cb` must point to a valid struct.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
     if cb.is_null() {
         return;
@@ -154,7 +154,7 @@ pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
 }
 
 /// Drops the gilrs context (`QBNex_GAMEPAD_SHUTDOWN`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_gamepad_shutdown() {
     GILRS.with(|c| c.borrow_mut().take());
 }
