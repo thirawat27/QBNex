@@ -125,7 +125,7 @@ SUB IrStmtEnd
         CASE "INPUT"
             IrInput 0
         CASE "LINE"
-            IF s2$ = "INPUT" THEN IrInput 1 ELSE IrNotSup "LINE (graphics)"
+            IF s2$ = "INPUT" THEN IrInput 1 'graphics LINE: generic call (IrSubCall)
         CASE "GET", "PUT"
             IrGetPut f$
         CASE "SEEK"
@@ -159,7 +159,7 @@ SUB IrStmtEnd
                 IrE "rt FIELD " + ch$ + " " + x$ + " " + IrAddr$(p$)
                 i = j + 1
             LOOP
-        CASE "PALETTE", "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
+        CASE "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "STRIG"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN
@@ -323,7 +323,7 @@ END SUB
 SUB IrGetPut (f$)
     DIM n AS LONG, j AS LONG, k AS LONG, ch$, t AS LONG, p$, pos$, st$, r$, sz AS LONG
     n = IrStmtN
-    IF IrEl$(2) = "(" OR UCASE$(IrEl$(2)) = "STEP" THEN IrNotSup f$ + " (graphics)": EXIT SUB
+    IF IrEl$(2) = "(" OR UCASE$(IrEl$(2)) = "STEP" THEN EXIT SUB 'graphics: generic call (IrSubCall)
     j = IrFindSep(2, "|,|")
     ch$ = IrChan$(2, j - 1)
     k = IrFindSep(j + 1, "|,|")

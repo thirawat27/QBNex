@@ -58,6 +58,18 @@ impl<'a> RtState<'a> {
     }
 }
 
+/// True when PRINT to the screen must draw on a page instead of writing stdout.
+fn screen_out(vm: &mut Vm) -> bool {
+    if !vm.display.started {
+        if vm.console_only {
+            return false;
+        }
+        let cmem = vm.cmem.as_mut_ptr();
+        vm.display.start(cmem, vm.console_on, vm.console_only);
+    }
+    vm.display.write_is_screen()
+}
+
 pub(crate) fn numeric_text(s: &[u8]) -> bool {
     let t = std::str::from_utf8(s).unwrap_or("").trim();
     if let Some(h) = t.strip_prefix('&') {
@@ -191,6 +203,28 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::display::call(vm, name, &a) {
+        return r;
+    }
+    if a.first().is_some_and(|c| c.i() == 0) && screen_out(vm) {
+        // console output while a screen page is the destination: draw it
+        let r = match name {
+            "PRINTS" => Some(super::display::call(vm, "SCREENPRINT", &a[1..])),
+            "PRINTZONE" => Some(super::display::call(vm, "SCREENZONE", &[])),
+            "PRINTNL" => Some(super::display::call(vm, "SCREENNL", &[])),
+            "PRINTTAB" => Some(super::display::call(vm, "SCREENTAB", &a[1..])),
+            "PRINTSPC" => Some(super::display::call(vm, "SCREENSPC", &a[1..])),
+            n if n.starts_with("PRINTN.") => {
+                let mut b = str_num(suffix_ty(n), &a[1]);
+                b.push(b' ');
+                Some(super::display::call(vm, "SCREENPRINT", &[V::S(b)]))
+            }
+            _ => None,
+        };
+        if let Some(Some(r)) = r {
+            return r;
+        }
+    }
     if let Some(r) = super::audiox::call(vm, name, &a) {
         return r;
     }
@@ -202,6 +236,9 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     }
     if let Some(r) = super::memx::call(vm, name, &a) {
         return r;
+    }
+    if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
+        return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
     }
     let rt = &mut vm.rt;
     match name {

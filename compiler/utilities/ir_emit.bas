@@ -1017,6 +1017,92 @@ FUNCTION IrArgAs$ (e$, t$)
     IrT = t$
 END FUNCTION
 
+
+' callnames lowered generically (registry argument types; VM: crates/qb-exec/src/v1/display.rs)
+FUNCTION IrGenOK% (cn$)
+    DIM l$
+    l$ = "|"
+    l$ = l$ + "qbg_screen|sub_pset|sub_preset|sub_line|sub_circle|sub_paint|"
+    l$ = l$ + "qbg_palette|qbg_sub_color|qbg_sub_view|qbg_sub_view_print|qbg_sub_window|func_pmap|"
+    l$ = l$ + "func_point|sub_pcopy|sub_draw|sub_cls|qbg_sub_locate|func_screen|"
+    l$ = l$ + "sub__dest|sub__source|func__dest|func__source|func__display|func__console|"
+    l$ = l$ + "func__newimage|sub__freeimage|func__copyimage|sub__display|sub__autodisplay|func__autodisplay|"
+    l$ = l$ + "func__width|func__height|func__pixelsize|func__rgb|func__rgba|func__red|"
+    l$ = l$ + "func__green|func__blue|func__alpha|func__rgb32|func__rgba32|func__red32|"
+    l$ = l$ + "func__green32|func__blue32|func__alpha32|func__palettecolor|sub__palettecolor|sub_graphics_get|"
+    l$ = l$ + "sub_graphics_put|qbsub_width|sub__font|func__font|func__fontwidth|func__fontheight|"
+    l$ = l$ + "sub__limit|sub__delay|sub__title|"
+    IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
+END FUNCTION
+
+'generic call of registry builtin idn with fixed arguments IrArgs() ("" = omitted)
+FUNCTION IrGeneric$ (idn AS LONG, nargs AS LONG, passed AS LONG, isfunc AS LONG)
+    DIM cn$, k AS LONG, t AS LONG, r$, x$, p$, nm$, sf$, req AS LONG, j AS LONG, ps AS LONG, d$, t2 AS LONG, q$
+    DIM sv(1 TO 32) AS STRING
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    cn$ = RTRIM$(ids(idn).callname)
+    sf$ = RTRIM$(ids(idn).specialformat)
+    FOR k = 1 TO ids(idn).args
+        t = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
+        IF k <= nargs THEN x$ = sv(k) ELSE x$ = ""
+        IF t = -3 THEN
+            IF x$ = "" THEN IrNotSup cn$ + " without an array": EXIT FUNCTION
+            nm$ = getelement$(x$, 1)
+            IF getelement$(x$, 2) = "(" AND getelement$(x$, 3) <> ")" THEN
+                IrQuiet = -1: p$ = IrPlace$(x$, t2): IrQuiet = 0
+            ELSE
+                p$ = ""
+            END IF
+            IrQuiet = -1: q$ = IrPlace$(nm$ + sp + "(" + sp + ")", t2): IrQuiet = 0
+            IF LEFT$(q$, 1) <> "A" THEN IrNotSup cn$ + " array argument": EXIT FUNCTION
+            d$ = IrAddr$(q$)
+            IF LEN(p$) THEN
+                r$ = r$ + " " + IrAddr$(p$)
+            ELSE
+                x$ = IrReg$: IrE "rt " + x$ + " _ARRADDR " + d$: r$ = r$ + " " + x$
+            END IF
+            r$ = r$ + " " + d$
+        ELSEIF t < 0 THEN
+            IrNotSup cn$ + " argument kind" + STR$(t): EXIT FUNCTION
+        ELSE
+            IF t AND ISPOINTER THEN t = t - ISPOINTER
+            IF cn$ = "sub_paint" AND k = 3 AND LEN(x$) > 0 THEN
+                'PAINT fill: colour, or a tile string (the C++ overload on qbs*)
+                p$ = IrEval$(x$, t2)
+                IF IrT = "str" THEN cn$ = "sub_paint.s": r$ = r$ + " " + p$ ELSE r$ = r$ + " " + IrCvt$(p$, IrT, "u32")
+            ELSEIF t AND ISSTRING THEN
+                IF LEN(x$) THEN r$ = r$ + " " + IrArgAs$(x$, "str") ELSE r$ = r$ + " " + IrConstStr$("")
+            ELSE
+                IF LEN(x$) THEN r$ = r$ + " " + IrArgAs$(x$, IrTy$(t)) ELSE r$ = r$ + " " + IrConst$(IrTy$(t), "0")
+            END IF
+        END IF
+    NEXT
+    IF LEN(sf$) THEN
+        IF isfunc THEN
+            'optional arguments are the ones after the '?' marks outside brackets
+            req = 0: ps = 0
+            FOR j = 1 TO LEN(sf$)
+                IF MID$(sf$, j, 1) = "[" THEN EXIT FOR
+                IF MID$(sf$, j, 1) = "?" THEN req = req + 1
+            NEXT
+            FOR k = req + 1 TO nargs
+                IF LEN(sv(k)) THEN ps = ps OR (2 ^ (k - req - 1))
+            NEXT
+            passed = ps
+        END IF
+        r$ = r$ + " " + IrI32$(passed)
+    END IF
+    IF isfunc THEN
+        d$ = IrReg$
+        IrE "rt " + d$ + " " + cn$ + r$
+        t = ids(idn).ret: IF t AND ISPOINTER THEN t = t - ISPOINTER
+        IrT = IrTy$(t)
+        IrGeneric$ = d$
+    ELSE
+        IrE "rt " + cn$ + r$
+    END IF
+END FUNCTION
+
 ' " %a %b ..." for raw (fixed) arguments IrArgs() converted to the comma-separated QIR types;
 ' missing arguments are zero. withpassed: append the C++ backend's optional-argument flags.
 FUNCTION IrArgList$ (types$, nargs AS LONG, passed AS LONG, withpassed AS LONG)
@@ -1316,8 +1402,13 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             IrE LCASE$(nm$) + " " + r$ + " " + IrPart$(x$, 2) + " " + y$
             IrT = "i32"
         CASE ELSE
-            IrNotSup "function " + nm$
-            r$ = IrI32$(0): IrT = "i32"
+            IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN
+                FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+                r$ = IrGeneric$(idn, nargs, 0, -1)
+            ELSE
+                IrNotSup "function " + nm$
+                r$ = IrI32$(0): IrT = "i32"
+            END IF
     END SELECT
     irfdone:
     IF IrT <> IrTy$(typ) AND (typ AND ISSTRING) = 0 THEN
@@ -1460,8 +1551,6 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
     FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
     SELECT CASE nm$
-        CASE "CLS"
-            IrE "rt " + nm$
         CASE "BEEP": IrE "rt BEEP"
         CASE "SOUND": IrE "rt SOUND" + IrArgList$("f64,f64", nargs, -1, 0)
         CASE "PLAY": IrE "rt PLAY" + IrArgList$("str", nargs, -1, 0)
@@ -1475,15 +1564,16 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "_SNDSETPOS", "_SNDLIMIT": IrE "rt " + nm$ + IrArgList$("i32,f64", nargs, -1, 0)
         CASE "_SNDRAW": IrE "rt _SNDRAW" + IrArgList$("f32,f32,i32", nargs, passed, 1)
         CASE "_SNDRAWDONE": IrE "rt _SNDRAWDONE" + IrArgList$("i32", nargs, passed, 1)
-        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "_FONT", "_CONSOLETITLE", "_CONSOLE"
-            'screen state: no visible effect on redirected console output
+        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE"
+            'window state: no visible effect headless
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
         CASE "POKE"
             x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "i32")
             IrE "rt POKE " + x$ + " " + y$
         CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET", "DEF", "FIELD"
-            'lowered by IrStmtEnd
+            'lowered by IrStmtEnd (graphics LINE/GET/PUT: generic call)
+            IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN x$ = IrGeneric$(idn, nargs, passed, 0)
         CASE "ERROR"
             IrE "error " + IrArgAs$(sv(1), "i32")
         CASE "RANDOMIZE"
@@ -1499,7 +1589,11 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "SHELL"
             x$ = IrReg$: IrE "rt " + x$ + " SHELL " + IrArgAs$(sv(1), "str")
         CASE ELSE
-            IrNotSup "statement " + nm$
+            IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN
+                x$ = IrGeneric$(idn, nargs, passed, 0)
+            ELSE
+                IrNotSup "statement " + nm$
+            END IF
     END SELECT
 END SUB
 

@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 mod audiox;
+mod display;
 mod files;
 mod netx;
 mod memx;
@@ -169,6 +170,7 @@ struct Prog {
     data: Vec<Vec<u8>>,
     main: usize,
     console_only: bool,
+    console_on: bool,
 }
 
 fn store_size(udts: &HashMap<String, u32>, t: &StoreTy) -> u32 {
@@ -323,6 +325,7 @@ fn load(m: &ir::Module) -> Result<Prog, RunError> {
         data: m.data.clone(),
         main,
         console_only: m.meta("console").is_some_and(|v| v == "only"),
+        console_on: m.meta("console").is_some(),
     })
 }
 
@@ -409,6 +412,11 @@ pub(crate) struct Vm<'a> {
     /// TCP/IP handles
     pub(crate) net: netx::Net,
     pub(crate) net_pending_error: i32,
+    /// screen pages and images
+    pub(crate) display: display::Display,
+    /// `$CONSOLE` / `$CONSOLE:ONLY`
+    pub(crate) console_on: bool,
+    pub(crate) console_only: bool,
     /// qb-audio started (snd_init)
     pub(crate) snd_started: bool,
     /// DEF SEG base (bytes); None = DBLOCK
@@ -1024,10 +1032,12 @@ impl<'a> Vm<'a> {
             Op::Restore(i) => self.data_pos = *i,
             Op::End => {
                 self.rt.flush();
+                self.display.capture(qb_runtime::gfx::capture::KIND_END);
                 return Ok(false);
             }
             Op::System(c) => {
                 self.rt.flush();
+                self.display.capture(qb_runtime::gfx::capture::KIND_END);
                 let c = c.map_or(0, |r| self.reg(r).i() as i32);
                 return Err(Stop::Exit(c));
             }
@@ -1038,6 +1048,7 @@ impl<'a> Vm<'a> {
     fn do_ret(&mut self, v: Option<V>) -> R<bool> {
         if self.frames.len() == 1 || self.in_handler.is_some_and(|(k, _)| self.frames.len() == k + 2) {
             self.rt.flush();
+            self.display.capture(qb_runtime::gfx::capture::KIND_END);
             return Ok(false);
         }
         let fr = self.pop_frame();
@@ -1179,6 +1190,9 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         net: netx::Net::default(),
         net_pending_error: 0,
         snd_started: false,
+        display: display::Display::default(),
+        console_on: prog.console_on,
+        console_only: prog.console_only,
         data_pos: 0,
         rt: rt::RtState::new(out),
     };
