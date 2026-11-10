@@ -76,7 +76,6 @@ SUB StartMainPassSession
     percentage = -1
 
     PRINT #12, "S_0:;"
-    IF UseGL THEN gl_include_content
 END SUB
 
 FUNCTION NextPrepassLine$

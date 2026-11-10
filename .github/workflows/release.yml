@@ -57,7 +57,7 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libglu1-mesa-dev libncurses-dev libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libncurses-dev libasound2-dev libudev-dev pkg-config
 
       - name: Build compiler (Unix)
         if: runner.os != 'Windows'

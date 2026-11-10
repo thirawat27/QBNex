@@ -42,9 +42,9 @@ Before contributing, familiarize yourself with:
 
 **For Linux:**
 - GCC (g++) compiler
-- OpenGL development libraries (`libglu1-mesa-dev`)
+- Rust toolchain (`cargo`, from https://rustup.rs)
 - ALSA development libraries (`libasound2-dev`)
-- FreeGLUT development libraries
+- udev development libraries (`libudev-dev`) and `pkg-config`
 - ncurses library
 
 **For macOS:**
@@ -196,7 +196,7 @@ The setup script will:
 If the setup scripts don't work for your environment:
 
 1. Ensure C++ compiler is available (g++ or clang++)
-2. Ensure OpenGL, FreeGLUT, and ALSA development libraries are installed
+2. Ensure the Rust toolchain (`cargo`) and the ALSA and udev development libraries are installed
 3. Compile the compiler bootstrap:
    ```bash
    cd internal/c
@@ -431,8 +431,7 @@ QBNex/
 ├── internal/                   # Internal build files
 │   ├── c/                      # C++ runtime glue
 │   │   ├── qbx.cpp             # C++ compiler entry point
-│   │   ├── libqb/              # Platform-specific runtime
-│   │   └── parts/              # Feature modules (graphics, audio, etc.)
+│   │   └── libqb/              # C++ glue to the Rust runtime (*_bridge.cpp)
 │   └── source/                 # Data files for bootstrap
 ├── tests/
 │   ├── conformance/            # Conformance runner and cases
