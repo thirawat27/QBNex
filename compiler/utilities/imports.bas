@@ -197,15 +197,13 @@ SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
             segStart = lineNo + 1
         ELSEIF inBody = 0 THEN
             upperText = UCASE$(LTRIM$(lineText))
-            'SUB/FUNCTION prototypes inside DECLARE [DYNAMIC|CUSTOMTYPE|STATIC] LIBRARY ... END DECLARE
-            'are declarations: they stay in the head (541f49d)
+            'SUB/FUNCTION prototypes inside DECLARE [DYNAMIC|CUSTOMTYPE|STATIC] LIBRARY
+            '... END DECLARE are declarations: they stay in the head (R12b 541f49d).
             IF inDeclare THEN
                 IF LEFT$(upperText, 11) = "END DECLARE" THEN inDeclare = 0
-                upperText = ""
             ELSEIF LEFT$(upperText, 8) = "DECLARE " AND INSTR(upperText, " LIBRARY") > 0 THEN
                 inDeclare = -1
-            END IF
-            IF LEFT$(upperText, 4) = "SUB " OR LEFT$(upperText, 9) = "FUNCTION " THEN
+            ELSEIF LEFT$(upperText, 4) = "SUB " OR LEFT$(upperText, 9) = "FUNCTION " THEN
                 StdLib_EmitRange path$, segStart, lineNo - 1, 0, headText$, bodyText$
                 segStart = lineNo
                 inBody = -1
