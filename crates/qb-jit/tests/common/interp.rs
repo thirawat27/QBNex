@@ -510,9 +510,22 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 _ => None,
             }
         };
+        let mut polls = true;
         let next = match &b.term {
             Term::Jmp(t) => *t,
             Term::Br { cond, then, els } => {
+                if get(*cond).i() != 0 {
+                    *then
+                } else {
+                    *els
+                }
+            }
+            Term::Goto(t) => {
+                polls = false;
+                *t
+            }
+            Term::BrNoPoll { cond, then, els } => {
+                polls = false;
                 if get(*cond).i() != 0 {
                     *then
                 } else {
@@ -548,6 +561,7 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 // SAFETY: below capacity.
                 unsafe { *ctx.gosub.add(ctx.gosub_len as usize) = *ret_pc };
                 ctx.gosub_len += 1;
+                polls = false;
                 *target
             }
             Term::Return { pc: rpc } => {
@@ -563,6 +577,7 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 match site {
                     Some(r) => {
                         ctx.gosub_len -= 1;
+                        polls = false;
                         r
                     }
                     None => {
@@ -572,7 +587,7 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                 }
             }
         };
-        if let Some(p) = poll(ctx, next) {
+        if let Some(p) = poll(ctx, next).filter(|_| polls) {
             ctx.exit_pc = p;
             return status::EVENT;
         }
