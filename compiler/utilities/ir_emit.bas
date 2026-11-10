@@ -1355,7 +1355,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     SELECT CASE nm$
         CASE "CLS", "BEEP"
             IrE "rt " + nm$
-        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "SCREEN", "_FONT", "_CONSOLETITLE", "_CONSOLE"
+        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "_FONT", "_CONSOLETITLE", "_CONSOLE"
             'screen state: no visible effect on redirected console output
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
