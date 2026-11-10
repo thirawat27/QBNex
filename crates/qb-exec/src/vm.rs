@@ -1014,11 +1014,9 @@ impl<'m, 'o> Vm<'m, 'o> {
             // the C++ runtime's fix_error: with QBNEX_NO_ERROR_DIALOG or redirected output the
             // dialog becomes one stderr line and the program ends with exit code 1; otherwise
             // (headless, MessageBox2 gets no answer) a non-critical error continues after the statement
-            use std::io::IsTerminal;
             let cmd0 = std::env::args().next().unwrap_or_default();
             let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), 0, None, cmd0.as_bytes());
-            let env = std::env::var("QBNEX_NO_ERROR_DIALOG").ok();
-            let nd = qb_runtime::error::no_dialog_policy(env.as_deref(), std::io::stdout().is_terminal(), std::io::stderr().is_terminal());
+            let nd = qb_runtime::error::no_dialog_now();
             if nd || d.critical {
                 self.rt.flush();
                 let line = qb_runtime::error::report_line(&d.title, &d.body);

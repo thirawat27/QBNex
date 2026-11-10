@@ -459,6 +459,7 @@ void qb_printer_abort(void *p);
 // globals with their old C names; qbx.cpp/libqb.cpp only declare them.
 void qb_error(int32_t code);
 int32_t qb_fix_error(const uint8_t *command0, int32_t len); // 1 = enter QBMAIN (ON ERROR)
+int32_t qb_end_prompt_wanted(int32_t window); // END: 1 = show "Press any key" and wait
 const char *qb_human_error(int32_t code);
 int32_t qb_take_exit_request(void);
 int32_t qb_more_return_points(void);
