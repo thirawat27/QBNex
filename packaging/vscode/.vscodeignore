@@ -1,0 +1,9 @@
+src/**
+test/**
+scripts/**
+out/**/*.map
+tsconfig.json
+node_modules/.bin/**
+**/*.ts
+!out/**/*.js
+*.vsix
