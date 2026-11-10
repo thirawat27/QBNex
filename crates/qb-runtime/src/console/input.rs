@@ -188,13 +188,12 @@ pub unsafe fn check_and_store(arg: &mut Vec<u8>, t: i32, var: *mut c_void, max: 
                 }
                 finalvalue = hexvalue as i64;
             } else {
-                let max_neg;
-                if t & ISUNSIGNED != 0 {
-                    max_neg = 0;
+                let max_neg = if t & ISUNSIGNED != 0 {
+                    0
                 } else {
                     *max >>= 1;
-                    max_neg = *max + 1;
-                }
+                    *max + 1
+                };
                 let mut i2 = 0;
                 let mut neg = false;
                 let mut done = false;
@@ -613,6 +612,7 @@ fn split(inp: &[u8], n: usize, lineinput: bool, args: &mut [Vec<u8>]) -> Option<
     Some(argn)
 }
 
+#[allow(clippy::explicit_counter_loop)] // same shape as the legacy loop
 unsafe fn toggle_box_cursor(h: &mut dyn Host, w: *mut ImgStruct) {
     let a = (*w).alpha_disabled;
     (*w).alpha_disabled = 1;

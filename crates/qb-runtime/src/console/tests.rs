@@ -249,11 +249,11 @@ impl Host for Mock {
     }
     fn bios(&mut self) -> *mut u8 {
         // feed one scripted key whenever the buffer is empty
-        if self.bios[0x1a] == self.bios[0x1c] {
-            if let Some((a, b)) = self.key_script.pop_front() {
-                let p = self.bios.as_mut_ptr();
-                unsafe { keyboard::push(p, a, b) };
-            }
+        if self.bios[0x1a] == self.bios[0x1c]
+            && let Some((a, b)) = self.key_script.pop_front()
+        {
+            let p = self.bios.as_mut_ptr();
+            unsafe { keyboard::push(p, a, b) };
         }
         self.bios.as_mut_ptr()
     }

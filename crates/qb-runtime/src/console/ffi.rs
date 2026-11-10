@@ -67,6 +67,8 @@ impl CHost {
     }
 }
 
+// Surface pointers are only passed through to the C host, never read here.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 impl Host for CHost {
     fn write_page(&mut self) -> *mut ImgStruct {
         unsafe { (self.0.write_page)() }
