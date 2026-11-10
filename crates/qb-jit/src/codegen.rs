@@ -559,6 +559,15 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let t2 = self.edge(*els);
                 self.b.ins().brif(c, t1, &[], t2, &[]);
             }
+            Term::Goto(to) => {
+                let b = self.blocks[*to as usize];
+                self.b.ins().jump(b, &[]);
+            }
+            Term::BrNoPoll { cond, then, els } => {
+                let c = self.get(*cond);
+                let (t1, t2) = (self.blocks[*then as usize], self.blocks[*els as usize]);
+                self.b.ins().brif(c, t1, &[], t2, &[]);
+            }
             Term::Ret => {
                 // The caller reads the result and the parameters (BYREF copy-out).
                 let outs: Vec<Reg> = self.f.ret.into_iter().chain(self.f.params.iter().copied()).collect();
@@ -613,7 +622,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.ins().store(MemFlagsData::trusted(), rp, addr, 0);
                 let len1 = self.b.ins().iadd_imm_s(len, 1);
                 self.ctx_store(len1, OFF_GOSUB_LEN);
-                let e = self.edge(*target);
+                let e = self.blocks[*target as usize];
                 self.b.ins().jump(e, &[]);
             }
             Term::Return { pc } => {
@@ -649,7 +658,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 for (pop, rblk) in pending {
                     self.b.switch_to_block(pop);
                     self.ctx_store(len1, OFF_GOSUB_LEN);
-                    let e = self.edge(rblk);
+                    let e = self.blocks[rblk as usize];
                     self.b.ins().jump(e, &[]);
                 }
                 self.b.switch_to_block(unknown);
