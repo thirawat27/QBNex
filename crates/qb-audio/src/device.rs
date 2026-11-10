@@ -84,6 +84,10 @@ where
     T: SizedSample + FromSample<f32>,
 {
     let channels = config.channels as usize;
+    if channels == 0 {
+        // chunks_exact_mut(0) would panic in the callback (R14).
+        return None;
+    }
     let mut stereo: Vec<f32> = Vec::new();
     device
         .build_output_stream(
