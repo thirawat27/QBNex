@@ -150,3 +150,21 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     assert!(!out.status.success(), "should fail: {text}");
     assert!(text.contains("line 2"), "message should name the line: {text}");
 }
+
+/// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
+/// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
+/// golden is the C++ backend's output; QIR must match it and the C++ backend.
+#[test]
+fn language_programs_match_cpp_backend() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("lang");
+    for n in 1..=3 {
+        let src = fixture(&format!("qir/lang{n}.bas"));
+        let expected = normalize(&std::fs::read(src.with_extension("out")).unwrap());
+        let ir = compile_and_run(&qb, &src, &dir.join(format!("lang{n}_ir.exe")), &["--ir"]);
+        assert_eq!(ir, expected, "lang{n} under QIR");
+        let cpp = compile_and_run(&qb, &src, &dir.join(format!("lang{n}_cpp.exe")), &[]);
+        assert_eq!(cpp, ir, "lang{n}: C++ and QIR differ");
+    }
+}

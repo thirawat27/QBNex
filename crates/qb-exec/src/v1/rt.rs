@@ -76,7 +76,8 @@ fn str_num(t: Ty, v: &V) -> Vec<u8> {
     match t {
         Ty::U64 => numfmt::str_u64(v.i() as u64),
         Ty::F32 => numfmt::str_f32(v.f() as f32),
-        Ty::F64 | Ty::F80 => numfmt::str_f64(v.f()),
+        Ty::F64 => numfmt::str_f64(v.f()),
+        Ty::F80 => numfmt::str_f80(v.x().to_bytes()),
         _ => numfmt::str_i64(v.i()),
     }
 }
@@ -241,6 +242,10 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         n if n.starts_with("USINGN.") => return using(vm, name, &a),
         n if n.starts_with("STR$.") => return ok(V::S(str_num(suffix_ty(n), &a[0]))),
         "VAL" => return ok(V::F(val(s(0)))),
+        "VAL.f80" => {
+            let b = qb_runtime::val::val(s(0)).map_err(Stop::Err)?;
+            return ok(V::X(qb_float80::F80::from_bytes(b)));
+        }
         "HEX$" | "OCT$" | "BIN$" => {
             let v = i(0) as u64;
             let t = match name {
@@ -345,15 +350,27 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
             return ok(V::S(r));
         }
         "ABS.i64" => return ok(V::I(i(0).wrapping_abs())),
-        "ABS.f32" | "ABS.f64" | "ABS.f80" => return ok(V::F(f(0).abs())),
+        "ABS.f32" | "ABS.f64" => return ok(V::F(f(0).abs())),
+        "ABS.f80" => return ok(V::X(a[0].x().abs())),
         "SGN.i64" => return ok(V::I(i(0).signum())),
-        "SGN.f64" | "SGN.f80" => {
+        "SGN.f80" => {
+            use std::cmp::Ordering::*;
+            let z = qb_float80::F80::from_i64(0);
+            return ok(V::I(match a[0].x().compare(z) {
+                Some(Greater) => 1,
+                Some(Less) => -1,
+                _ => 0,
+            }));
+        }
+        "SGN.f64" => {
             let x = f(0);
             return ok(V::I(if x > 0.0 { 1 } else if x < 0.0 { -1 } else { 0 }));
         }
         "INT.f32" => return ok(V::F(f64::from((f(0) as f32).floor()))),
-        "INT.f64" | "INT.f80" => return ok(float1(&a[0], f64::floor)),
-        "FIX.f32" | "FIX.f64" | "FIX.f80" => return ok(float1(&a[0], f64::trunc)),
+        "INT.f64" => return ok(float1(&a[0], f64::floor)),
+        "FIX.f32" | "FIX.f64" => return ok(float1(&a[0], f64::trunc)),
+        "INT.f80" => return ok(V::X(qb_float80::qb::int_float(a[0].x()))),
+        "FIX.f80" => return ok(V::X(qb_float80::qb::fix_float(a[0].x()))),
         "SQR" => {
             if f(0) < 0.0 {
                 return e(5);
@@ -683,7 +700,7 @@ fn using(vm: &mut Vm, name: &str, a: &[V]) -> R<Option<V>> {
             }
         }
         (b'N', n) if n.starts_with("USINGN.") => {
-            out.extend_from_slice(&format_num(&fmt, a[0].f(), suffix_ty(n)));
+            out.extend_from_slice(&format_num(&fmt, &a[0], suffix_ty(n)));
         }
         _ => return e(13),
     }
@@ -765,7 +782,9 @@ fn field_at(f: &[u8], p: usize) -> (u8, usize) {
     }
 }
 
-fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
+fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
+    let v = val.f();
+    let x80 = (t == Ty::F80).then(|| val.x().abs());
     let lead_plus = fmt[0] == b'+';
     let trail = match fmt.last() {
         Some(b'+') if !lead_plus => Some(b'+'),
@@ -787,7 +806,10 @@ fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
     let mut digits;
     if exp > 0 {
         let p = int_w.saturating_sub(usize::from(!lead_plus && trail.is_none())).max(1);
-        let s = format!("{:.*e}", p - 1 + dec, a);
+        let s = match x80 {
+            Some(x) => qb_float80::dec::format_e(x, p - 1 + dec),
+            None => format!("{:.*e}", p - 1 + dec, a),
+        };
         let (m, ex) = s.split_once('e').unwrap();
         let ex: i32 = ex.parse().unwrap_or(0) - (p as i32 - 1);
         let m: String = m.chars().filter(|c| *c != '.').collect();
@@ -805,7 +827,10 @@ fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
         };
         digits.push_str(&format!("{letter}{}{:0w$}", if ex < 0 { '-' } else { '+' }, ex.abs(), w = w));
     } else {
-        digits = format!("{:.*}", dec, a);
+        digits = match x80 {
+            Some(x) => qb_float80::dec::format_f(x, dec),
+            None => format!("{:.*}", dec, a),
+        };
         if dec == 0 && dot.is_some() {
             digits.push('.');
         }

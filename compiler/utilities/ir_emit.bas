@@ -1043,8 +1043,8 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             x$ = IrCvt$(x$, IrT, sx$)
             r$ = IrRt$("STR$." + sx$, " " + x$, "str")
         CASE "VAL"
-            r$ = IrRt$("VAL", " " + IrArgAs$(sv(1), "str"), "f64")
-            IF IrTy$(typ) = "f80" THEN r$ = IrCvt$(r$, "f64", "f80"): IrT = "f80"
+            'func_val returns long double whatever the registry's type says
+            r$ = IrRt$("VAL.f80", " " + IrArgAs$(sv(1), "str"), "f80")
         CASE "INSTR", "_INSTRREV"
             IF nargs = 3 THEN
                 x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "str"): z$ = IrArgAs$(sv(3), "str")

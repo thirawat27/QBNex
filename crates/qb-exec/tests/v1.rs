@@ -250,3 +250,9 @@ endfunc
     let src = src.replace("rt LASTLINE %9", "const.i32 %9 40\nrt LASTLINE %9");
     assert_eq!(run_full(&src), " 40  7 \n");
 }
+
+#[test]
+fn float80_is_exact_and_rounds_like_qbr() {
+    let o = run("const.f80 %0 9223372036854775807\ncvt.i64.f80 %1 %0\nconst.i32 %9 0\nrt PRINTN.i64 %9 %1\nconst.f80 %2 4611686018427387905.5\ncvt.i64.f80 %3 %2\nrt PRINTN.i64 %9 %3\nrt PRINTNL %9");
+    assert_eq!(o, " 9223372036854775807  4611686018427387906 \n");
+}
