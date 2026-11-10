@@ -1116,7 +1116,8 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put"
             | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" | "sub__limit"
-            | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width"
+            | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
+            | "func__clearcolor" | "sub__putimage" | "sub__maptriangle"
     );
     if !known {
         return None;
@@ -1373,6 +1374,88 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     if n > 0 && pos < n {
                         console::text::print(&mut h, &vec![b' '; (n - pos) as usize], false);
                     }
+                }
+            }
+            "sub__setalpha" => {
+                // (a, c, c2, image, passed): image passed = 2
+                let t = if i(4) & 2 != 0 { d.resolve(i(3)) } else { Some(d.write_index) };
+                if let Some(x) = t {
+                    gerr(d, gfx::imgops::qb_gfx_setalpha(im(x), i(0), u(1), u(2), i(4)));
+                }
+            }
+            "sub__clearcolor" => {
+                // (c, image, passed): _NONE = 1, colour = 2, image = 4
+                let t = if i(2) & 4 != 0 { d.resolve(i(1)) } else { Some(d.write_index) };
+                if let Some(x) = t {
+                    gerr(d, gfx::imgops::qb_gfx_clearcolor(im(x), u(0), i(2)));
+                }
+            }
+            "func__clearcolor" => {
+                let t = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
+                out = Some(V::I(match t {
+                    None => 0,
+                    Some(x) => {
+                        let p = &*im(x);
+                        if p.text != 0 {
+                            -1
+                        } else if p.compatible_mode == 32 {
+                            0
+                        } else {
+                            i64::from(p.transparent_color)
+                        }
+                    }
+                }));
+            }
+            "sub__putimage" => {
+                // (dx1, dy1, dx2, dy2, src, dst, sx1, sy1, sx2, sy2, passed); software surfaces only
+                let mut passed = i(10);
+                let s = if passed & 8 != 0 { d.resolve(i(4)) } else { Some(d.read_index) };
+                let t = if passed & 32 != 0 { d.resolve(i(5)) } else { Some(d.write_index) };
+                if let (Some(sx), Some(tx)) = (s, t) {
+                    let (sp, tp) = (im(sx), im(tx));
+                    if (*sp).text != 0 || (*tp).text != 0 || ((*sp).bytes_per_pixel == 4 && (*tp).bytes_per_pixel == 1) {
+                        gerr(d, 5);
+                    } else {
+                        let c = gfx::putimage::PutCoords { dx1: f(0), dy1: f(1), dx2: f(2), dy2: f(3), sx1: f(6), sy1: f(7), sx2: f(8), sy2: f(9) };
+                        let mut tmp = 0;
+                        let mut src = sp;
+                        if sx == tx {
+                            // a surface cannot be put onto itself: through a temporary copy
+                            tmp = d.copyimage(-(sx as i32), 0, 0);
+                            passed |= 8;
+                            src = im((-tmp) as u32);
+                        }
+                        if tmp <= 0 {
+                            gerr(d, gfx::putimage::qb_gfx_putimage(src, tp, &c, passed, core::ptr::null_mut()));
+                        }
+                        if tmp < 0 {
+                            d.freeimage(tmp, 1);
+                        }
+                    }
+                }
+            }
+            "sub__maptriangle" => {
+                // (cull, sx1..sy3, si, dx1, dy1, dz1, .., di, smooth, passed); software surfaces only
+                let po = i(19);
+                let mut passed = 0;
+                if po & 1 != 0 {
+                    passed += 1;
+                }
+                if po & 2 != 0 {
+                    passed += 2;
+                }
+                if po & 32 != 0 {
+                    passed += 4;
+                }
+                if po & 64 != 0 {
+                    passed += 8;
+                }
+                let s = if passed & 2 != 0 { d.resolve(i(7)) } else { Some(d.read_index) };
+                let t = if passed & 4 != 0 { d.resolve(i(17)) } else { Some(d.write_index) };
+                if let (Some(sx), Some(tx)) = (s, t) {
+                    let s6 = [f32_(1), f32_(2), f32_(3), f32_(4), f32_(5), f32_(6)];
+                    let d6 = [f32_(8), f32_(9), f32_(11), f32_(12), f32_(14), f32_(15)];
+                    gerr(d, gfx::maptri::qb_gfx_maptriangle(im(sx), im(tx), s6.as_ptr(), d6.as_ptr(), passed & 1));
                 }
             }
             "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),

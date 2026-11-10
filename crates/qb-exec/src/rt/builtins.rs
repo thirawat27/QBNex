@@ -323,6 +323,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
         return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
     }
+    if name == "func__errormessage" {
+        // _ERRORMESSAGE$[(code)]: without the argument, the current error
+        let code = if a[1].i() != 0 { a[0].i() as i32 } else { vm.err() };
+        return Ok(Some(V::S(qb_runtime::error::human_error(code).as_bytes().to_vec())));
+    }
     if name == "LASTLINE" {
         vm.set_last_line(a[0].i() as u32);
         return Ok(None);
@@ -539,6 +544,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
             return ok(float1(&a[0], f64::ln));
         }
+        "EXP.s" => return match qb_runtime::mathfn::exp_single(f(0)) {
+            Ok(v) => ok(V::F(v)),
+            Err(c) => e(c),
+        },
         "EXP" => {
             let r = f(0).exp();
             if r.is_infinite() {

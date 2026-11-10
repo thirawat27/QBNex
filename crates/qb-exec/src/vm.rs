@@ -258,6 +258,8 @@ pub struct Vm<'m, 'o> {
     errline: u32,
     /// last numeric line label passed (QIR LASTLINE; ERL reports it)
     last_line: u32,
+    /// unhandled errors continue after the statement (the program executable, headless)
+    continue_unhandled: bool,
     data_ptr: usize,
     ev: Arc<EvShared>,
     /// pending bits examined at safe points
@@ -383,6 +385,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             exit_code: 0,
             errline: 0,
             last_line: 0,
+            continue_unhandled: false,
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
             poll_mask: u32::MAX,
@@ -400,6 +403,13 @@ impl<'m, 'o> Vm<'m, 'o> {
         let st = crate::jit::JitState::from_image(self.m, image, &vm_hosts())?;
         self.jit = Some(st);
         Ok(())
+    }
+
+    /// Unhandled (non-critical) errors print the C++ runtime's dialog text on
+    /// stderr and the program continues after the statement, as a headless
+    /// C++ program does; off by default (the error ends the run).
+    pub fn set_continue_unhandled(&mut self, on: bool) {
+        self.continue_unhandled = on;
     }
 
     /// Selects the JIT mode (overrides `QB_JIT`).
@@ -932,6 +942,15 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// Error dispatch: jump to the ON ERROR handler (module-level view, SUB
     /// frames kept so RESUME can return into them) or stop the program.
     fn raise(&mut self, code: i32, at: u32) -> Result<u32, RunError> {
+        let unhandled = !matches!((self.on_error, self.in_handler), (Some(_), None));
+        if unhandled && self.continue_unhandled && !(300..=315).contains(&code) {
+            // headless C++ runtime (fix_error + MessageBox2): the "Continue?" dialog is
+            // reported on stderr and gets no answer, so the program goes on after the statement
+            let cmd0 = std::env::args().next().unwrap_or_default();
+            let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), 0, None, cmd0.as_bytes());
+            eprintln!("{}: {}", String::from_utf8_lossy(&d.title), String::from_utf8_lossy(&d.body));
+            return Ok(self.next_stmt(at));
+        }
         match (self.on_error, self.in_handler) {
             (Some(h), None) => {
                 self.err = code;

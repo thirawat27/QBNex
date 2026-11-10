@@ -95,6 +95,7 @@ END SUB
 
 SUB IrLine
     IrE "line " + str2$(linenumber)
+    IF IrPendLL THEN IrE "rt LASTLINE " + IrI32$(IrPendLL): IrPendLL = 0
 END SUB
 
 FUNCTION IrLbl$ (l$)
@@ -1022,6 +1023,31 @@ FUNCTION IrArgAs$ (e$, t$)
 END FUNCTION
 
 
+'nm$ names an array visible here (no code emitted; IrT kept)
+FUNCTION IrIsArrayName% (nm$)
+    DIM x$, t AS LONG, keep$
+    keep$ = IrT
+    IrQuiet = -1: x$ = IrPlace$(nm$ + sp + "(" + sp + ")", t): IrQuiet = 0
+    IrT = keep$
+    IrIsArrayName% = (LEFT$(x$, 1) = "A")
+END FUNCTION
+'the fixed expression e$ is a variable or an array element (C++ evaluate: ISREFERENCE)
+FUNCTION IrIsVarRef% (e$)
+    DIM n AS LONG, c AS LONG, i AS LONG, b AS LONG, nm$
+    n = numelements(e$)
+    nm$ = getelement$(e$, 1)
+    c = ASC(nm$)
+    IF NOT ((c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) OR c = 95) THEN EXIT FUNCTION
+    IF n = 1 THEN IrIsVarRef% = -1: EXIT FUNCTION
+    IF getelement$(e$, 2) <> "(" OR getelement$(e$, n) <> ")" THEN EXIT FUNCTION
+    FOR i = 2 TO n - 1
+        IF getelement$(e$, i) = "(" THEN b = b + 1
+        IF getelement$(e$, i) = ")" THEN b = b - 1
+        IF b = 0 THEN EXIT FUNCTION
+    NEXT
+    'name(...) : an array, not a function call
+    IrIsVarRef% = IrIsArrayName%(nm$)
+END FUNCTION
 'nm$(x): x as a 32-bit value when -2^31 <= x < 0, else as i64
 FUNCTION IrRadix32$ (nm$, x$)
     DIM tmp$, l$, c$, r$, d$, y$
@@ -1083,6 +1109,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "func__green32|func__blue32|func__alpha32|func__palettecolor|sub__palettecolor|sub_graphics_get|"
     l$ = l$ + "sub_graphics_put|qbsub_width|sub__font|func__font|func__fontwidth|func__fontheight|"
     l$ = l$ + "sub__limit|sub__delay|sub__title|"
+    l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 
@@ -1271,8 +1298,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             END IF
             IF nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 AND (t AND 511) = 64 AND (t AND ISUNSIGNED) = 0 THEN
                 'C++: a 64-bit HEX$ argument that is not a variable gets neg_size 0 (semantics.bas)
-                IrQuiet = -1: y$ = IrPlace$(sv(1), t2): IrQuiet = 0
-                IF y$ = "" THEN r$ = IrHex64$(IrCvt$(x$, IrT, "i64")): GOTO irfdone
+                IF IrIsVarRef%(sv(1)) = 0 THEN r$ = IrHex64$(IrCvt$(x$, IrT, "i64")): GOTO irfdone
             END IF
             IF (t AND 511) <= 8 AND (t AND ISFLOAT) = 0 AND nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 THEN
                 x$ = IrCvt$(x$, IrT, "u8"): IrT = "u8"
@@ -1316,7 +1342,13 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             x$ = IrEval$(sv(1), t)
             sx$ = IrT
             x$ = IrCvt$(x$, IrT, "f64")
-            r$ = IrRt$(nm$, " " + x$, "f64")
+            sx$ = nm$
+            IF nm$ = "EXP" AND (t AND ISOFFSETINBITS) = 0 THEN
+                'func_exp_single (overflow above 88.03) for SINGLE and <= 16-bit integer arguments
+                IF (t AND ISFLOAT) <> 0 AND (t AND 511) = 32 THEN sx$ = "EXP.s"
+                IF (t AND ISFLOAT) = 0 AND (t AND 511) <= 16 THEN sx$ = "EXP.s"
+            END IF
+            r$ = IrRt$(sx$, " " + x$, "f64")
             'QB-like result type: single for <= INTEGER/SINGLE arguments
             IF t AND ISFLOAT THEN
                 IF (t AND 511) = 32 THEN r$ = IrCvt$(r$, "f64", "f32"): IrT = "f32"

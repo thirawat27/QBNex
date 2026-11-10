@@ -2730,7 +2730,7 @@ FUNCTION getpid& ()
 
                     layout$ = tlayout$
                     PRINT #12, "LABEL_" + label$ + ":;"
-                    IF IrEmitMode THEN IrLabelDef label$: IrE "rt LASTLINE " + IrI32$(VAL(label$))
+                    IF IrEmitMode THEN IrLabelDef label$: IrPendLL = VAL(label$) 'ERL: set after the "line" marker (IrLine) so RESUME NEXT runs it
 
 
                     IF INSTR(label$, "p") THEN MID$(label$, INSTR(label$, "p"), 1) = "."

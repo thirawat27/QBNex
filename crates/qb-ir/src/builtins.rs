@@ -123,6 +123,7 @@ pub static TABLE: &[Builtin] = &[
     b!("ATN", [F64], F64),
     b!("LOG", [F64], F64),
     b!("EXP", [F64], F64),
+    b!("EXP.s", [F64], F64),
     b!("_ROUND.f64", [F64], I64),
     b!("RND", [], F32),
     b!("RND.n", [F64], F32),
@@ -251,6 +252,12 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__limit", [F64]),
     b!("sub__delay", [F64]),
     b!("sub__title", [Str]),
+    b!("sub__setalpha", [U32, U32, U32, I32, I32]),
+    b!("sub__clearcolor", [U32, I32, I32]),
+    b!("func__clearcolor", [I32, I32], I32),
+    b!("sub__putimage", [F64, F64, F64, F64, I32, I32, F64, F64, F64, F64, I32]),
+    b!("sub__maptriangle", [I32, F32, F32, F32, F32, F32, F32, I32, F32, F32, F32, F32, F32, F32, F32, F32, F32, I32, I32, I32]),
+    b!("func__errormessage", [I32, I32], Str),
 
     // ---- sound (qb-audio); trailing I32 `passed` = optional-argument flags of the C++ backend
     b!("SOUND", [F64, F64]),
