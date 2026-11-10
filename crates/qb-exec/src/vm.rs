@@ -258,6 +258,25 @@ fn b(v: bool) -> u64 {
     }
 }
 
+/// Integer division: 32-bit `idiv` when both operands fit (much cheaper than 64-bit on x86-64).
+#[inline(always)]
+fn idiv(x: i64, y: i64, w: W) -> i64 {
+    if w != W::W64 && x as i32 as i64 == x && y as i32 as i64 == y {
+        (x as i32).wrapping_div(y as i32) as i64
+    } else {
+        x.wrapping_div(y)
+    }
+}
+
+#[inline(always)]
+fn irem(x: i64, y: i64, w: W) -> i64 {
+    if w != W::W64 && x as i32 as i64 == x && y as i32 as i64 == y {
+        (x as i32).wrapping_rem(y as i32) as i64
+    } else {
+        x.wrapping_rem(y)
+    }
+}
+
 fn to_val(bits: u64, ty: Ty) -> Val {
     match ty {
         Ty::I16 => Val::I(bits as i64 as i16),
@@ -346,7 +365,6 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nb = f.nb;
         self.sb = f.sb;
         self.ab = f.ab;
-        self.update_poll_mask();
     }
 
     fn ctx(&self, view: usize) -> Ctx {
@@ -743,6 +761,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 self.err = code;
                 self.in_handler = Some((at, self.view));
                 self.set_view(0);
+                self.update_poll_mask();
                 Ok(h)
             }
             _ => Err(RunError { code, line: self.line_of(at), msg: format!("error {code}") }),
@@ -751,6 +770,7 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     fn resume(&mut self, k: ResumeK, t: u32) -> Result<u32, i32> {
         let (at, view) = self.in_handler.take().ok_or(20)?; // RESUME without error
+        self.update_poll_mask();
         Ok(match k {
             ResumeK::Same => {
                 self.set_view(view);
@@ -805,6 +825,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     self.gosub.push(Gs { ret: pc, depth: self.frames.len(), view: self.view, event: true });
                     self.in_event = true;
                     self.set_view(0);
+                    self.update_poll_mask();
                     return Some(h);
                 }
             }
@@ -978,14 +999,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if y == 0 {
                         fail!(11);
                     }
-                    seti!(d, w.wrap(ri!(a).wrapping_div(y)))
+                    seti!(d, w.wrap(idiv(ri!(a), y, w)))
                 }
                 Ins::Mod { d, a, b, w } => {
                     let y = ri!(b);
                     if y == 0 {
                         fail!(11);
                     }
-                    seti!(d, w.wrap(ri!(a).wrapping_rem(y)))
+                    seti!(d, w.wrap(irem(ri!(a), y, w)))
                 }
                 Ins::And { d, a, b } => seti!(d, ri!(a) & ri!(b)),
                 Ins::Or { d, a, b } => seti!(d, ri!(a) | ri!(b)),
@@ -1114,6 +1135,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         pc = g.ret;
                         if g.event {
                             self.in_event = false;
+                            self.update_poll_mask();
                         }
                         if g.view != self.view || g.event {
                             self.set_view(g.view);

@@ -133,6 +133,15 @@ fn main() {
     let scale: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(1);
     let show = std::env::args().any(|a| a == "--disasm");
     println!("{:<8} {:>12} {:>10} {:>9}  output / BASIC", "case", "iterations", "ms", "ns/iter");
+    // calibration: the loop case in native Rust with a divisor the compiler cannot see
+    let n = 50_000_000 * scale;
+    let t = Instant::now();
+    let (mut s, k) = (0i32, std::hint::black_box(7i32));
+    for i in 1..=n as i32 {
+        s = s.wrapping_add(i % k);
+    }
+    let el = t.elapsed().as_secs_f64();
+    println!("{:<8} {:>12} {:>10.1} {:>9.2}  {s} / native Rust, runtime divisor", "native", n, el * 1e3, el * 1e9 / n as f64);
     for c in cases(scale) {
         let m = qb_exec::compile(&c.qir).unwrap_or_else(|e| panic!("{}: {e:?}", c.name));
         if show {
