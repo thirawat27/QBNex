@@ -66,6 +66,19 @@ Notes, not fixed:
 WSL Debian 13, x86_64, root user, Rust 1.99.1.
 
 - The first attempt failed: `Wsl/Service/CreateInstance/CreateVm/HCS/0x800705aa` (insufficient resources).
-- The second attempt started. apt installed `libasound2-dev` and `libudev-dev`, the repo was copied to ext4, and `cargo build --workspace --all-targets --locked` compiled up to qb-gpu with no errors.
-- Then the WSL process ended with exit 253 (the VM was killed, most likely from host memory pressure). The build did not finish and `cargo test` did not run.
-- To rerun: `scratchpad/wsl-build.sh` (copy to `~/xplat`, build, then `QB_AUDIO_DEVICE=none cargo test --workspace`).
+- - The second attempt got as far as qb-gpu, then the VM was killed (exit 253, host memory pressure).
+- **Third attempt** (`CARGO_BUILD_JOBS=1`, no debuginfo): `cargo build --workspace --all-targets --locked` **passed** (8m34s).
+- `cargo test -p qb-runtime --lib`: 4 tests failed on Linux. All four assert Windows-only behaviour. The non-Windows code matches legacy libqb.cpp (GFS_C / `remove()`). The tests were fixed with `cfg!(windows)`, and they still pass on Windows:
+
+  | Test | Linux result | Cause |
+  |---|---|---|
+  | gfs.rs `open_missing_file_for_input_is_not_found` | -5, expected -6 | Legacy GFS_C only returns -5 (file not found) and -11 (bad file name), never "path not found". |
+  | fileio.rs `open_errors_and_modes` | 64, expected 76 | Same cause (-11 maps to 64). |
+  | fsops.rs `mkdir_rmdir_name_kill_exists` | 53, expected 0 | Legacy KILL accepts wildcards only on Windows (FindFirstFile). Unix uses `remove()` on the literal name. |
+  | shell.rs `exit_codes` | `cmd: not found` | The test ran `cmd /c`. Unix now uses `sh -c`. |
+
+- **`robustness_tests::image_decoders_never_panic_on_mutated_files` kills the WSL VM** when run without a memory limit. The decoders (stb.rs, pcx.rs, codecs.rs) count on `try_reserve_exact` failing for a huge size, the way stb's malloc fails on Windows. Linux overcommits, so the reservation succeeds, the decoder writes into it, and the OOM killer takes down the VM. Under `ulimit -v 8000000`, all 337 qb-runtime lib tests pass (441 s).
+  - This is a real risk for Linux user programs: `_LOADIMAGE` of a corrupt file can OOM the process instead of returning -1.
+  - Suggested fix (qb-runtime image, owner's call because it changes legacy behaviour): cap `width*height` before reserving, for example at 2^28 pixels or a size based on available memory. Or keep the test, but run it under a memory limit in Linux CI.
+- The full `cargo test --workspace` in WSL was stopped on request (memory needed by R11a). The other crates' tests have not run on Linux yet.
+- Scripts: `wsl-build.sh` (copy to `~/xplat` and build), `wsl-rt.sh <ulimitKB> [args]` (qb-runtime lib tests), `wsl-test.sh` (whole workspace under ulimit). They are kept in the session scratchpad and can be copied into `scripts/` on request.

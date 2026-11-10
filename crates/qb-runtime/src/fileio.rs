@@ -1714,7 +1714,8 @@ mod tests {
         let d = tmp("open");
         let f = fresh(100);
         assert_eq!(open(&p(&d, "none.txt"), 3, 0, 0, f, 0, false), 53);
-        assert_eq!(open(&p(&d, "x/none.txt"), 4, 0, 0, f, 0, false), 76);
+        // Path not found (76) on Windows; legacy GFS_C reports bad file name (64).
+        assert_eq!(open(&p(&d, "x/none.txt"), 4, 0, 0, f, 0, false), if cfg!(windows) { 76 } else { 64 });
         assert_eq!(open(&p(&d, "a.txt"), 4, 0, 0, 0, 0, false), 52);
         assert_eq!(open(&p(&d, "a.txt"), 1, 0, 0, f, 0, true), 5);
         assert_eq!(open(&p(&d, "a.txt"), 4, 0, 0, f, 0, false), 0);
