@@ -19,7 +19,7 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, FuncId as CFuncId, Linkage, Module as _};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Functions with more slots than this keep every slot in memory (keeps
 /// SSA construction cheap for huge module-level code).
@@ -91,38 +91,79 @@ fn entry_sig(cc: CallConv) -> Signature {
     s
 }
 
-pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
+/// Every external function native code calls, by stable name: runtime
+/// helpers, the module's host functions (`qb_host_<index>`) and the VM
+/// callback (`qb_vm_op`). JIT code resolves them to these addresses; AOT
+/// objects carry relocations against the names.
+pub fn symbols(m: &Module) -> Vec<(String, usize)> {
+    let mut v: Vec<(String, usize)> = vec![
+        ("qb_jit_qbr_f64".into(), qbr_f64 as *const () as usize),
+        ("qb_jit_pow_f32".into(), pow_f32 as *const () as usize),
+        ("qb_jit_pow_f64".into(), pow_f64 as *const () as usize),
+        ("qb_jit_zero_slots".into(), zero_slots as *const () as usize),
+        ("qb_jit_chain_push".into(), chain_push as *const () as usize),
+    ];
+    for (i, h) in m.hosts.iter().enumerate() {
+        v.push((format!("qb_host_{i}"), h.addr));
+    }
+    if m.vm_op != 0 {
+        v.push(("qb_vm_op".into(), m.vm_op));
+    }
+    v
+}
+
+/// Exported name of function `i` of a module.
+pub fn func_symbol(i: usize) -> String {
+    format!("qb_func_{i}")
+}
+
+/// Declares and defines every function of `m` in `module`.
+pub(crate) fn define_all<M: cranelift_module::Module>(
+    module: &mut M,
+    m: &Module,
+    linkage: Linkage,
+) -> Result<Vec<CFuncId>, CompileError> {
     m.validate().map_err(|e| CompileError(e.0))?;
-    let isa = make_isa(target);
-    let cc = isa.default_call_conv();
-    let frontend = isa.frontend_config();
-    let ptr_bits = isa.pointer_bits();
-    if ptr_bits != 64 {
+    let isa = module.isa();
+    if isa.pointer_bits() != 64 {
         return Err(CompileError("64-bit targets only".into()));
     }
-    let mut jit = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
+    let cc = isa.default_call_conv();
+    let frontend = isa.frontend_config();
     let sig = entry_sig(cc);
-    let ids: Vec<CFuncId> = m
-        .funcs
-        .iter()
-        .enumerate()
-        .map(|(i, f)| jit.declare_function(&format!("qbf{i}_{}", f.name), Linkage::Local, &sig))
+    let ids: Vec<CFuncId> = (0..m.funcs.len())
+        .map(|i| module.declare_function(&func_symbol(i), linkage, &sig))
         .collect::<Result<_, _>>()
         .map_err(|e| CompileError(e.to_string()))?;
+    let mut syms = HashMap::new();
+    for (name, addr) in symbols(m) {
+        syms.entry(addr).or_insert(name);
+    }
     let mut fctx = FunctionBuilderContext::new();
-    let mut cctx = jit.make_context();
+    let mut cctx = module.make_context();
     for (i, f) in m.funcs.iter().enumerate() {
         cctx.func.signature = sig.clone();
         {
             let b = FunctionBuilder::new(&mut cctx.func, &mut fctx);
-            let mut g = Gen::new(m, f, b, cc, frontend);
-            let frefs: Vec<ir::FuncRef> = ids.iter().map(|id| jit.declare_func_in_func(*id, g.b.func)).collect();
+            let mut g = Gen::new(m, f, b, cc, frontend, module, &syms);
+            let frefs: Vec<ir::FuncRef> = ids.iter().map(|id| g.module.declare_func_in_func(*id, g.b.func)).collect();
             g.frefs = frefs;
             g.emit();
         }
-        jit.define_function(ids[i], &mut cctx).map_err(|e| CompileError(format!("{}: {e:?}", f.name)))?;
-        jit.clear_context(&mut cctx);
+        module.define_function(ids[i], &mut cctx).map_err(|e| CompileError(format!("{}: {e:?}", f.name)))?;
+        module.clear_context(&mut cctx);
     }
+    Ok(ids)
+}
+
+pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
+    let isa = make_isa(target);
+    let mut jb = JITBuilder::with_isa(isa, default_libcall_names());
+    for (name, addr) in symbols(m) {
+        jb.symbol(name, addr as *const u8);
+    }
+    let mut jit = JITModule::new(jb);
+    let ids = define_all(&mut jit, m, Linkage::Local)?;
     jit.finalize_definitions().map_err(|e| CompileError(e.to_string()))?;
     let fns = ids
         .iter()
@@ -135,7 +176,11 @@ pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
     Ok(Compiled { jit: Some(jit), fns })
 }
 
-struct Gen<'a> {
+struct Gen<'a, M: cranelift_module::Module> {
+    module: &'a mut M,
+    /// address -> import name (see [`symbols`])
+    syms: &'a HashMap<usize, String>,
+    imported: HashMap<String, ir::FuncRef>,
     m: &'a Module,
     f: &'a Func,
     b: FunctionBuilder<'a>,
@@ -166,14 +211,16 @@ struct Gen<'a> {
 
 
 
-impl<'a> Gen<'a> {
+impl<'a, M: cranelift_module::Module> Gen<'a, M> {
     fn new(
         m: &'a Module,
         f: &'a Func,
         b: FunctionBuilder<'a>,
         cc: CallConv,
         frontend: cranelift_codegen::isa::TargetFrontendConfig,
-    ) -> Gen<'a> {
+        module: &'a mut M,
+        syms: &'a HashMap<usize, String>,
+    ) -> Gen<'a, M> {
         let n = f.slots.len();
         let nf = f.frame_len();
         let mut resident: Vec<bool> = (0..n).map(|r| r < nf && nf > MAX_REG_SLOTS).collect();
@@ -204,6 +251,9 @@ impl<'a> Gen<'a> {
         let dummy = CBlock::from_u32(0);
         let z = Value::from_u32(0);
         Gen {
+            module,
+            syms,
+            imported: HashMap::new(),
             m,
             f,
             b,
@@ -725,9 +775,8 @@ impl<'a> Gen<'a> {
                 if let Some(t) = h.sig.ret {
                     sig.returns.push(abi(t));
                 }
-                let sr = self.b.import_signature(sig);
-                let addr = self.b.ins().iconst(types::I64, h.addr as i64);
-                let call = self.b.ins().call_indirect(sr, addr, &vals);
+                let fref = self.import(h.addr, sig);
+                let call = self.b.ins().call(fref, &vals);
                 if let Some(d) = dst {
                     let r = self.b.inst_results(call)[0];
                     self.set(*d, r);
@@ -876,10 +925,21 @@ impl<'a> Gen<'a> {
         if let Some(r) = ret {
             sig.returns.push(AbiParam::new(r));
         }
-        let sr = self.b.import_signature(sig);
-        let a = self.b.ins().iconst(types::I64, addr as i64);
-        let c = self.b.ins().call_indirect(sr, a, args);
+        let fref = self.import(addr, sig);
+        let c = self.b.ins().call(fref, args);
         self.b.inst_results(c).first().copied()
+    }
+
+    /// Function reference for the external function at `addr` (by its symbol name).
+    fn import(&mut self, addr: usize, sig: Signature) -> ir::FuncRef {
+        let name = self.syms.get(&addr).expect("every called address has a symbol").clone();
+        if let Some(f) = self.imported.get(&name) {
+            return *f;
+        }
+        let id = self.module.declare_function(&name, Linkage::Import, &sig).expect("consistent import signature");
+        let f = self.module.declare_func_in_func(id, self.b.func);
+        self.imported.insert(name, f);
+        f
     }
 
     fn conv(&mut self, from: Ty, to: Ty, v: Value) -> Value {
