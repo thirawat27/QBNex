@@ -81,7 +81,7 @@ fn compile_and_run(qb: &Path, src: &Path, exe: &Path, extra: &[&str]) -> String 
 }
 
 #[test]
-fn spike_program_runs_without_cpp_and_matches_cpp_backend() {
+fn spike_program_runs_and_matches_the_golden() {
     let Some(qb) = qb() else { return };
     install_runner();
     let dir = tmpdir("spike");
@@ -89,10 +89,8 @@ fn spike_program_runs_without_cpp_and_matches_cpp_backend() {
     let expected = normalize(&std::fs::read(fixture("spike.out")).unwrap());
 
     let ir_out = compile_and_run(&qb, &src, &dir.join("spike_ir.exe"), &["--ir"]);
-    assert_eq!(ir_out, expected, "IR backend output");
-
-    let cpp_out = compile_and_run(&qb, &src, &dir.join("spike_cpp.exe"), &[]);
-    assert_eq!(cpp_out, ir_out, "IR backend must match the C++ backend");
+    // the golden was recorded from the C++ backend before the cutover
+    assert_eq!(ir_out, expected, "QIR output");
 }
 
 #[test]
@@ -154,9 +152,9 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
 
 /// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
 /// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
-/// golden is the C++ backend's output; QIR must match it and the C++ backend.
+/// golden is the C++ backend's output (recorded before the cutover); QIR must match it.
 #[test]
-fn language_programs_match_cpp_backend() {
+fn language_programs_match_the_cpp_golden() {
     let Some(qb) = qb() else { return };
     install_runner();
     let dir = tmpdir("lang");
@@ -165,7 +163,5 @@ fn language_programs_match_cpp_backend() {
         let expected = normalize(&std::fs::read(src.with_extension("out")).unwrap());
         let ir = compile_and_run(&qb, &src, &dir.join(format!("lang{n}_ir.exe")), &["--ir"]);
         assert_eq!(ir, expected, "lang{n} under QIR");
-        let cpp = compile_and_run(&qb, &src, &dir.join(format!("lang{n}_cpp.exe")), &[]);
-        assert_eq!(cpp, ir, "lang{n}: C++ and QIR differ");
     }
 }
