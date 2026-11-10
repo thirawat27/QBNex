@@ -866,9 +866,7 @@ SUB Demo_Data ()
     Dict_Free metadata
 END SUB
 
-'$IMPORT:'io.json'
-'$IMPORT:'error.result'
-'$IMPORT:'collections.dictionary'
+'$IMPORT:'qbnex'
 ```
 
 ---
@@ -1631,7 +1629,7 @@ Command-line argument access.
 ```basic
 PRINT "Argument count: "; Args_Count&
 FOR i = 0 TO Args_Count& - 1
-    PRINT "Arg "; i; ": "; Args_Get$(i)
+    PRINT "Arg "; i; ": "; Args_Get$(i, "")
 NEXT i
 ```
 
