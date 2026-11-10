@@ -191,6 +191,9 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::netx::call(vm, name, &a) {
+        return r;
+    }
     if let Some(r) = super::files::call(vm, name, &a) {
         return r;
     }

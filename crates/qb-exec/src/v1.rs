@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 mod files;
+mod netx;
 mod memx;
 mod rt;
 
@@ -404,6 +405,9 @@ pub(crate) struct Vm<'a> {
     pub(crate) field_vars: Vec<(u64, i32, usize, usize)>,
     /// FIELD statement in progress: (file number, bytes used)
     pub(crate) field_cur: (i32, usize),
+    /// TCP/IP handles
+    pub(crate) net: netx::Net,
+    pub(crate) net_pending_error: i32,
     /// DEF SEG base (bytes); None = DBLOCK
     pub(crate) def_seg: Option<usize>,
     data_pos: usize,
@@ -1169,6 +1173,8 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         field_buf: HashMap::new(),
         field_vars: Vec::new(),
         field_cur: (0, 0),
+        net: netx::Net::default(),
+        net_pending_error: 0,
         data_pos: 0,
         rt: rt::RtState::new(out),
     };

@@ -188,6 +188,12 @@ pub static TABLE: &[Builtin] = &[
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
     b!("_DEST", [I32]),
+    // ---- TCP/IP (negative handles; GET/PUT/CLOSE accept them too)
+    b!("_OPENHOST", [Str], I32),
+    b!("_OPENCLIENT", [Str], I32),
+    b!("_OPENCONNECTION", [I32], I32),
+    b!("_CONNECTED", [I32], I32),
+    b!("_CONNECTIONADDRESS$", [I32], Str),
     // ---- conventional memory (1 MB, DBLOCK at segment 0x1000)
     // string variable address -> offset of its descriptor (length, offset) in DBLOCK
     b!("VARPTR.s", [Ptr], I32),

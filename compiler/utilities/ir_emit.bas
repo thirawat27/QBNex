@@ -1223,6 +1223,12 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 IF LEN(sv(2)) THEN r$ = IrRt$("_INFLATE$.n", " " + x$ + " " + IrArgAs$(sv(2), "i64"), "str"): GOTO irfdone
             END IF
             r$ = IrRt$("_INFLATE$", " " + x$, "str")
+        CASE "_OPENHOST", "_OPENCLIENT"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "_OPENCONNECTION", "_CONNECTED"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "i32")
+        CASE "_CONNECTIONADDRESS$", "_CONNECTIONADDRESS"
+            r$ = IrRt$("_CONNECTIONADDRESS$", " " + IrArgAs$(sv(1), "i32"), "str")
         CASE "VARPTR", "SADD"
             IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
             IF x$ = "" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
