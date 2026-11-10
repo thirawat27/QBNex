@@ -760,6 +760,18 @@ Verified on Windows (rustc 1.99.1, `CARGO_BUILD_JOBS=1`):
 - Parse diagnostics over corpus-local only remain in programs that carry binary data inside the `.BAS` (SHIPWAR, SPACE, GRAPHICS, EDIT, ...).
 
 Not done / limits: no expression-level AST (the CST stops at statements, which is all the formatter and server need); symbols are file-global (no per-SUB scopes); references do not look into files that include the current one; `$IF` metacommand blocks are not indented.
+## R15-G1 — GPU backend (`crates/qb-gpu`)
+
+Status: **groundwork done**, not wired into the runtime yet (the CPU renderer stays the reference and the default).
+
+- wgpu 30 (Vulkan / DX12 / Metal / WebGPU), pure Rust; glam for matrices.
+- `Gpu::headless()`: hardware adapter, else the platform software adapter (WARP, llvmpipe, ...), `None` without any — callers and tests skip cleanly. `QB_GPU=off` disables the GPU, `QB_GPU_FALLBACK=1` forces the software adapter. `Gpu::for_window(Arc<winit::Window>)` creates a surface (non-sRGB format preferred so framebuffer values are shown unchanged).
+- `Target`: offscreen RGBA8 texture (readback with `read_rgba`) or window surface (`frame()` / `Frame::present`, resize, lost/outdated surfaces reconfigured).
+- `blit::Blitter`: uploads the runtime's `u32` framebuffer (`0xAARRGGBB` = BGRA bytes) to a `Bgra8Unorm` texture and draws it with nearest filtering into the rectangle `fit_rect` gives: aspect-correct letterbox (default), integer scale, or stretch.
+- `three`: `Vertex` (position, uv, colour), `Mesh` (vertex + index buffers), `Camera` (perspective / orthographic, right-handed, depth 0..1), `Renderer3d` (Depth32Float depth buffer, textured-triangle WGSL pipeline, alpha blending, no culling by default), `Texture` (nearest or linear = `_SMOOTH`).
+- Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
+
+Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
