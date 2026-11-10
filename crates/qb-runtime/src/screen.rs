@@ -380,7 +380,7 @@ mod platform {
     }
 
     #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn CGEventSourceCreate(state: i32) -> *mut c_void;
         fn CGEventCreateKeyboardEvent(src: *mut c_void, key: u16, down: bool) -> *mut c_void;
         fn CGEventCreateMouseEvent(src: *mut c_void, kind: u32, at: CGPoint, button: u32) -> *mut c_void;
@@ -388,7 +388,7 @@ mod platform {
         fn CGEventPost(tap: u32, e: *mut c_void);
     }
     #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn CFRelease(cf: *const c_void);
     }
 
@@ -404,6 +404,9 @@ mod platform {
             let es = CGEventSourceCreate(COMBINED_SESSION_STATE);
             for k in events {
                 let e = CGEventCreateKeyboardEvent(es, k.code, k.down);
+                if e.is_null() {
+                    continue;
+                }
                 if k.flags != 0 {
                     CGEventSetFlags(e, k.flags);
                 }
@@ -422,6 +425,9 @@ mod platform {
             for c in events {
                 let kind = if c.down { LEFT_MOUSE_DOWN } else { LEFT_MOUSE_UP };
                 let e = CGEventCreateMouseEvent(std::ptr::null_mut(), kind, CGPoint { x: c.x as f64, y: c.y as f64 }, 0);
+                if e.is_null() {
+                    continue;
+                }
                 CGEventPost(HID_EVENT_TAP, e);
                 CFRelease(e);
             }

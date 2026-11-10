@@ -147,6 +147,7 @@ fn section_address(file: &object::File, s: Option<object::SectionIndex>) -> u64 
 }
 
 /// Writes relocation `r` given the target value `s` and the image load address `base`.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn patch(code: &mut [u8], r: &Reloc, s: i64, base: i64) -> Result<(), LinkError> {
     let p = r.offset as usize;
     let at = base + r.offset as i64;
@@ -273,15 +274,39 @@ impl<'a> Rd<'a> {
 // ---------------------------------------------------------------- loading
 
 /// An image in executable memory.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Loaded {
     mem: region::Allocation,
     symbols: HashMap<String, u64>,
 }
 
+/// Browser build (R13-wasm): wasm cannot run machine code, so nothing loads.
+#[cfg(target_arch = "wasm32")]
+pub struct Loaded {
+    _never: core::convert::Infallible,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Loaded {
+    /// Address of an exported function (never: nothing loads on wasm).
+    pub fn symbol(&self, _name: &str) -> Option<*const u8> {
+        match self._never {}
+    }
+}
+
+/// Native code cannot be loaded into a browser.
+#[cfg(target_arch = "wasm32")]
+pub fn load(_img: &Image, _resolve: &dyn Fn(&str) -> Option<usize>) -> Result<Loaded, LinkError> {
+    Err(LinkError("native code images cannot run in a browser".into()))
+}
+
 // SAFETY: the code block is immutable after loading.
+#[cfg(not(target_arch = "wasm32"))]
 unsafe impl Send for Loaded {}
+#[cfg(not(target_arch = "wasm32"))]
 unsafe impl Sync for Loaded {}
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Loaded {
     /// Address of an exported function.
     pub fn symbol(&self, name: &str) -> Option<*const u8> {
@@ -291,6 +316,7 @@ impl Loaded {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Copies `img` into executable memory, resolving every external name with `resolve`.
 pub fn load(img: &Image, resolve: &dyn Fn(&str) -> Option<usize>) -> Result<Loaded, LinkError> {
     let mut code = img.code.clone();
@@ -334,5 +360,5 @@ fn flush_icache(p: *const u8, n: usize) {
     unsafe { __clear_cache(p as *mut _, p.add(n) as *mut _) };
 }
 
-#[cfg(not(target_arch = "aarch64"))]
+#[cfg(not(any(target_arch = "aarch64", target_arch = "wasm32")))]
 fn flush_icache(_p: *const u8, _n: usize) {}

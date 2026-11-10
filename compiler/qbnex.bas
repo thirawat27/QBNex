@@ -940,9 +940,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         FrontendErrorHandled = 0
         LastFrontendErrorKey = ""
 
-        FOR closeall = 1 TO 255: CLOSE closeall: NEXT
+        FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
 
-            OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+            'temp folder lock #26 stays held (no close/relock window)
 
             fh = FREEFILE: OPEN tmpdir$ + "dyninfo.txt" FOR OUTPUT AS #fh: CLOSE #fh
 
@@ -1379,8 +1381,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
 
                 'begin compilation
-                FOR closeall = 1 TO 255: CLOSE closeall: NEXT
-                    OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+                FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
+                    'temp folder lock #26 stays held (no close/relock window)
 
                     ff = FREEFILE: OPEN tmpdir$ + "icon.rc" FOR OUTPUT AS #ff: CLOSE #ff
 
@@ -2754,7 +2758,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                     layout$ = tlayout$
                     PRINT #12, "LABEL_" + label$ + ":;"
-                    IF IrEmitMode THEN IrLabelDef label$: IrE "rt LASTLINE " + IrI32$(VAL(label$))
+                    IF IrEmitMode THEN IrLabelDef label$: IrPendLL = VAL(label$) 'ERL: set after the "line" marker (IrLine) so RESUME NEXT runs it
 
 
                     IF INSTR(label$, "p") THEN MID$(label$, INSTR(label$, "p"), 1) = "."
@@ -6528,6 +6532,7 @@ IF n >= 2 THEN
             Labels(r).Scope_Restriction = subfuncn
         END IF 'x
         l$ = l$ + SCase$("GoSub") + sp + tlayout$
+        IF IrEmitMode THEN IrOnTimer e3$, e2$, a2$
 
         PRINT #25, "if(timer_event_id==" + str2$(ontimerid) + ")goto LABEL_" + a2$ + ";"
 
@@ -11085,8 +11090,10 @@ IF recompile THEN
     do_recompile:
     IF Debug THEN PRINT #9, "Recompile required!"
     recompile = 0
-    FOR closeall = 1 TO 255: CLOSE closeall: NEXT
-        OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+    FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
+        'temp folder lock #26 stays held (no close/relock window)
         GOTO recompile
     END IF
 
@@ -11612,8 +11619,10 @@ IF recompile THEN
     IF Debug THEN PRINT #9, "Finished generation of code for saving/sharing common array data!"
 
 
-    FOR closeall = 1 TO 255: CLOSE closeall: NEXT
-        OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+    FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
+        'temp folder lock #26 stays held (no close/relock window)
         InitializeCompilationLog
 
         ReportUnusedVariableWarnings

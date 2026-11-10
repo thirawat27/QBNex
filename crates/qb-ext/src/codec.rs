@@ -27,7 +27,7 @@ pub fn base64_decode(text: &[u8]) -> Option<Vec<u8>> {
             }
         }
     }
-    while clean.len() % 4 != 0 {
+    while !clean.len().is_multiple_of(4) {
         clean.push(b'=');
     }
     STANDARD.decode(&clean).ok()

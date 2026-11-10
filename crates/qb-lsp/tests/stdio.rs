@@ -170,7 +170,7 @@ fn full_session() {
     // Completion: user symbols from the include and built-ins.
     let comp = c.request("textDocument/completion", json!({"textDocument": {"uri": uri}, "position": pos(9, 0)}));
     let labels: Vec<&str> = comp.as_array().unwrap().iter().map(|i| i["label"].as_str().unwrap()).collect();
-    for want in ["helper", "pt", "MAXN", "LEFT$", "_RGB32", "PRINT"] {
+    for want in ["helper", "pt", "MAXN", "LEFT$", "_RGB32", "PRINT", "_IIF", "EACH", "_MESHCUBE", "_DRAW3D", "Http_Get&", "DT_Now#"] {
         assert!(labels.contains(&want), "missing {want}");
     }
 
@@ -223,6 +223,30 @@ fn unknown_method_and_garbage_text() {
         }
     };
     assert_eq!(resp["error"]["code"], -32601);
+    c.request("shutdown", Value::Null);
+    c.notify("exit", Value::Null);
+    assert!(wait(&mut c.child));
+}
+
+#[test]
+fn hover_for_r13_keywords_and_library() {
+    let mut c = Client::start();
+    c.request("initialize", json!({"processId": null, "rootUri": null, "capabilities": {}}));
+    c.notify("initialized", json!({}));
+    let uri = "untitled:lib";
+    let text = "x = _IIF(a > 1, 2, 3)\nr& = Http_Get&(\"http://x\", 500)\n_DRAW3D m&, 0, 0, 0\n";
+    c.notify("textDocument/didOpen", json!({"textDocument": {"uri": uri, "languageId": "qbasic", "version": 1, "text": text}}));
+    c.wait_notification("textDocument/publishDiagnostics");
+    let hover = |c: &mut Client, line: u32, ch: u32| -> String {
+        let h = c.request("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": pos(line, ch)}));
+        h["contents"]["value"].as_str().unwrap_or("").to_string()
+    };
+    let v = hover(&mut c, 0, 6);
+    assert!(v.contains("**_IIF**"), "{v}");
+    let v = hover(&mut c, 1, 7);
+    assert!(v.contains("ext.http") && v.contains("FUNCTION Http_Get&"), "{v}");
+    let v = hover(&mut c, 2, 2);
+    assert!(v.contains("_DRAW3D model&"), "{v}");
     c.request("shutdown", Value::Null);
     c.notify("exit", Value::Null);
     assert!(wait(&mut c.child));

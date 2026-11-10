@@ -1,6 +1,7 @@
 //! The program window: winit event loop on the main thread, software frames
-//! presented with softbuffer. Replaces freeglut + GLEW + the GL half of
-//! `libqb/gui.cpp`.
+//! presented with softbuffer (or, with the `gpu` feature, through wgpu when an
+//! adapter is available; see `gpu_present`). Replaces freeglut + GLEW + the GL
+//! half of `libqb/gui.cpp`.
 //!
 //! Thread model:
 //! * main thread: [`qb_window_run`] owns the event loop and the window;
@@ -18,9 +19,8 @@
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::num::NonZeroU32;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
@@ -247,10 +247,49 @@ fn deliver(actions: &[KeyAction]) {
 
 // ---- event loop --------------------------------------------------------------
 
+/// How frames reach the window.
+enum Presenter {
+    Soft(softbuffer::Surface<Arc<Window>, Arc<Window>>),
+    #[cfg(feature = "gpu")]
+    Gpu(Box<crate::gpu_present::Present>),
+}
+
 struct Win {
-    window: Rc<Window>,
-    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    window: Arc<Window>,
+    presenter: Presenter,
     last_serial: u64,
+}
+
+/// The GPU presenter when the feature is on and an adapter/surface works, else softbuffer.
+fn presenter(window: &Arc<Window>) -> Option<Presenter> {
+    #[cfg(feature = "gpu")]
+    match crate::gpu_present::Present::new(window.clone()) {
+        Ok(p) => {
+            if std::env::var("QB_GPU").is_ok_and(|v| v == "verbose") {
+                eprintln!("qb-runtime: presenting through the GPU ({})", p.adapter_name());
+            }
+            return Some(Presenter::Gpu(Box::new(p)));
+        }
+        Err(e) => {
+            if std::env::var("QB_GPU").is_ok_and(|v| v == "verbose") {
+                eprintln!("qb-runtime: {e}; using the software presenter");
+            }
+        }
+    }
+    let context = match softbuffer::Context::new(window.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("qb-runtime: softbuffer context: {e}");
+            return None;
+        }
+    };
+    match softbuffer::Surface::new(&context, window.clone()) {
+        Ok(s) => Some(Presenter::Soft(s)),
+        Err(e) => {
+            eprintln!("qb-runtime: softbuffer surface: {e}");
+            None
+        }
+    }
 }
 
 struct App {
@@ -279,26 +318,13 @@ impl App {
             .with_resizable(self.resizable)
             .with_visible(!self.hidden);
         let window = match el.create_window(attrs) {
-            Ok(w) => Rc::new(w),
+            Ok(w) => Arc::new(w),
             Err(e) => {
                 eprintln!("qb-runtime: cannot create window: {e}");
                 return;
             }
         };
-        let context = match softbuffer::Context::new(window.clone()) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("qb-runtime: softbuffer context: {e}");
-                return;
-            }
-        };
-        let surface = match softbuffer::Surface::new(&context, window.clone()) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("qb-runtime: softbuffer surface: {e}");
-                return;
-            }
-        };
+        let Some(presenter) = presenter(&window) else { return };
         let size = window.inner_size();
         WIN_W.store(size.width as i32, Ordering::SeqCst);
         WIN_H.store(size.height as i32, Ordering::SeqCst);
@@ -309,7 +335,7 @@ impl App {
         let handle = native_handle(&window);
         self.win = Some(Win {
             window,
-            surface,
+            presenter,
             last_serial: u64::MAX,
         });
         EXISTS.store(true, Ordering::SeqCst);
@@ -427,10 +453,30 @@ impl App {
         else {
             return;
         };
-        if win.surface.resize(nw, nh).is_err() {
+        let surface = match &mut win.presenter {
+            Presenter::Soft(s) => s,
+            #[cfg(feature = "gpu")]
+            Presenter::Gpu(p) => {
+                let frame = lock(&FRAME);
+                let l = raster::layout(
+                    frame.w as i32,
+                    frame.h as i32,
+                    size.width as i32,
+                    size.height as i32,
+                    frame.full_screen,
+                    frame.fullscreen_smooth,
+                    frame.resize_auto,
+                );
+                if p.redraw(nw.get(), nh.get(), &frame.px, frame.w, frame.h, &l) {
+                    win.last_serial = frame.serial;
+                }
+                return;
+            }
+        };
+        if surface.resize(nw, nh).is_err() {
             return;
         }
-        let Ok(mut buffer) = win.surface.buffer_mut() else {
+        let Ok(mut buffer) = surface.buffer_mut() else {
             return;
         };
         let frame = lock(&FRAME);

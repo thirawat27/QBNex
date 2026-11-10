@@ -28,9 +28,14 @@ pub mod events;
 pub mod fileio;
 pub mod font;
 pub mod fsops;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gamepad;
 pub mod gfs;
 pub mod gfx;
+#[cfg(feature = "gpu")]
+pub mod gpu_present;
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_tests;
 pub mod image;
 pub mod keybuf;
 pub mod keymap;
@@ -63,6 +68,7 @@ extern crate qb_audio;
 extern crate qb_ext;
 pub mod raster;
 pub mod script;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod window;
 
 /// Version of the C ABI exposed by this crate. Bumped whenever a declaration in
@@ -104,3 +110,5 @@ pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
 
 #[cfg(test)]
 mod robustness_tests;
+#[cfg(test)]
+mod props_tests;

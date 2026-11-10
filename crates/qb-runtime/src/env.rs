@@ -7,6 +7,7 @@
 
 use std::ffi::{c_char, CStr};
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn getenv(name: *const c_char) -> *const c_char;
 }
@@ -15,11 +16,47 @@ unsafe extern "C" {
     fn _putenv(s: *const c_char) -> i32;
     fn _putenv_s(name: *const c_char, value: *const c_char) -> i32;
 }
-#[cfg(not(windows))]
-extern "C" {
+#[cfg(all(not(windows), not(target_arch = "wasm32")))]
+unsafe extern "C" {
     fn setenv(name: *const c_char, value: *const c_char, overwrite: i32) -> i32;
     fn unsetenv(name: *const c_char) -> i32;
 }
+
+/// Browser build (R13-wasm): no C runtime, so the environment is a table
+/// private to the page, with the same getenv/setenv/unsetenv calls.
+#[cfg(target_arch = "wasm32")]
+mod wasm_env {
+    use std::ffi::{c_char, CStr, CString};
+    use std::sync::Mutex;
+
+    static ENV: Mutex<Vec<(CString, CString)>> = Mutex::new(Vec::new());
+
+    pub unsafe fn getenv(name: *const c_char) -> *const c_char {
+        // SAFETY: NUL-terminated name.
+        let n = unsafe { CStr::from_ptr(name) };
+        let e = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        // the CString's heap buffer outlives the lock until the next set
+        e.iter().find(|(k, _)| k.as_c_str() == n).map_or(std::ptr::null(), |(_, v)| v.as_ptr())
+    }
+
+    pub unsafe fn unsetenv(name: *const c_char) -> i32 {
+        // SAFETY: NUL-terminated name.
+        let n = unsafe { CStr::from_ptr(name) };
+        ENV.lock().unwrap_or_else(|e| e.into_inner()).retain(|(k, _)| k.as_c_str() != n);
+        0
+    }
+
+    pub unsafe fn setenv(name: *const c_char, value: *const c_char, _overwrite: i32) -> i32 {
+        // SAFETY: NUL-terminated strings.
+        let (n, v) = unsafe { (CStr::from_ptr(name).to_owned(), CStr::from_ptr(value).to_owned()) };
+        // SAFETY: as above
+        unsafe { unsetenv(name) };
+        ENV.lock().unwrap_or_else(|e| e.into_inner()).push((n, v));
+        0
+    }
+}
+#[cfg(target_arch = "wasm32")]
+use wasm_env::{getenv, setenv, unsetenv};
 
 /// `ENVIRON$(name$)`; the name ends at its first NUL byte (legacy used
 /// `c_str()`).

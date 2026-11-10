@@ -199,7 +199,10 @@ fn char_code(c: char, ctrl: bool) -> u32 {
 /// Replaces freeglut's Win32 keyboard translation: returns the libqb.cpp
 /// calls legacy made for this event, in order.
 pub fn translate(ev: &KeyInput) -> Vec<KeyAction> {
-    let macos = cfg!(target_os = "macos");
+    // No DEL/backspace swap here, on any OS: legacy macOS swapped because GLUT
+    // reported the backspace key as 0x7F, but `Key::Backspace` / `Key::Delete`
+    // are already the physical keys (mapped to 8 / 127 below).
+    let macos = false;
     let down = ev.pressed;
     let ascii = |code: u32| {
         vec![glut_ascii(

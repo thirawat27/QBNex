@@ -18,6 +18,8 @@
 //! unchanged (offscreen targets use a non-sRGB format, so values round-trip).
 
 pub mod blit;
+pub mod maptri;
+pub mod scene;
 pub mod three;
 
 use std::sync::Arc;
@@ -86,7 +88,11 @@ impl Gpu {
     }
 
     /// A GPU and a surface for `window`.
+    /// `QB_GPU=off` refuses (the caller keeps its software presenter).
     pub fn for_window(window: Arc<winit::window::Window>) -> Result<(Gpu, Target), GpuError> {
+        if std::env::var("QB_GPU").is_ok_and(|v| v == "off") {
+            return Err(GpuError("disabled by QB_GPU=off".into()));
+        }
         let instance = instance();
         let surface = instance.create_surface(window.clone()).map_err(|e| GpuError(e.to_string()))?;
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -130,7 +136,7 @@ impl Gpu {
 
 /// Where frames are drawn.
 pub enum Target {
-    Offscreen { texture: wgpu::Texture, width: u32, height: u32 },
+    Offscreen { texture: wgpu::Texture, width: u32, height: u32, format: wgpu::TextureFormat },
     Window { surface: wgpu::Surface<'static>, config: wgpu::SurfaceConfiguration, window: Arc<winit::window::Window> },
 }
 
@@ -156,17 +162,22 @@ impl Frame {
 
 impl Target {
     pub fn offscreen(gpu: &Gpu, width: u32, height: u32) -> Target {
+        Target::offscreen_with_format(gpu, width, height, OFFSCREEN_FORMAT)
+    }
+
+    /// An offscreen target of a given 4-byte colour format (`Bgra8Unorm` reads back as runtime pixels).
+    pub fn offscreen_with_format(gpu: &Gpu, width: u32, height: u32, format: wgpu::TextureFormat) -> Target {
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("qb-gpu offscreen"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: OFFSCREEN_FORMAT,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        Target::Offscreen { texture, width, height }
+        Target::Offscreen { texture, width, height, format }
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -178,7 +189,7 @@ impl Target {
 
     pub fn format(&self) -> wgpu::TextureFormat {
         match self {
-            Target::Offscreen { .. } => OFFSCREEN_FORMAT,
+            Target::Offscreen { format, .. } => *format,
             Target::Window { config, .. } => config.format,
         }
     }
@@ -195,11 +206,11 @@ impl Target {
     /// The next frame, or `None` when the window cannot draw now (minimized, timeout).
     pub fn frame(&mut self, gpu: &Gpu) -> Option<Frame> {
         match self {
-            Target::Offscreen { texture, width, height } => Some(Frame {
+            Target::Offscreen { texture, width, height, format } => Some(Frame {
                 view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
                 width: *width,
                 height: *height,
-                format: OFFSCREEN_FORMAT,
+                format: *format,
                 surface: None,
             }),
             Target::Window { surface, config, .. } => {
@@ -222,9 +233,10 @@ impl Target {
         }
     }
 
-    /// Reads an offscreen target back as tightly packed RGBA8 rows.
+    /// Reads an offscreen target back as tightly packed rows of its format
+    /// (RGBA8 for [Target::offscreen]).
     pub fn read_rgba(&self, gpu: &Gpu) -> Option<Vec<u8>> {
-        let Target::Offscreen { texture, width, height } = self else { return None };
+        let Target::Offscreen { texture, width, height, .. } = self else { return None };
         let (w, h) = (*width, *height);
         let row = w * 4;
         let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -256,5 +268,11 @@ impl Target {
         drop(data);
         buf.unmap();
         Some(out)
+    }
+
+    /// Reads a `Bgra8Unorm` offscreen target back as runtime pixels (`0xAARRGGBB`).
+    pub fn read_pixels(&self, gpu: &Gpu) -> Option<Vec<u32>> {
+        let bytes = self.read_rgba(gpu)?;
+        Some(bytes.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
     }
 }

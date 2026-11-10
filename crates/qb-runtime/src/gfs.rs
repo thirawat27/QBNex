@@ -1245,8 +1245,11 @@ pub(crate) mod tests {
         let d = tmp("missing");
         let mut t = table();
         assert_eq!(t.open(&p(&d, "nope.txt"), 1, 0, 0), -5);
-        assert_eq!(t.open(&p(&d, "nodir/x.txt"), 1, 0, 0), -6);
-        assert_eq!(t.open(&p(&d, "nodir/x.txt"), 3, 0, 3), -6);
+        // GFS_WINDOWS maps ERROR_PATH_NOT_FOUND to -6; legacy GFS_C (fstream)
+        // only knows "file not found" (-5) and, when creating, "bad file name" (-11).
+        let (missing_dir, missing_dir_create) = if cfg!(windows) { (-6, -6) } else { (-5, -11) };
+        assert_eq!(t.open(&p(&d, "nodir/x.txt"), 1, 0, 0), missing_dir);
+        assert_eq!(t.open(&p(&d, "nodir/x.txt"), 3, 0, 3), missing_dir_create);
     }
 
     #[test]
