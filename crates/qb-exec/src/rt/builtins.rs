@@ -31,6 +31,9 @@ pub(crate) trait Host<'a> {
     fn array_extent(&mut self, p: u64) -> R<(u64, u64)>;
     /// Value of the string variable whose storage is at `p`.
     fn load_str(&mut self, p: u64) -> R<Vec<u8>>;
+    /// Address of the characters of the string variable at `p` (`_OFFSET(s$)`),
+    /// valid until the variable is assigned again; 0 for "".
+    fn str_data(&mut self, p: u64) -> R<u64>;
     /// Assigns the string variable whose storage is at `p` (runs `str_store_hook`).
     fn store_str(&mut self, p: u64, s: &[u8]) -> R<()>;
 }
@@ -366,6 +369,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             _ => m[..8].copy_from_slice(&v.to_le_bytes()),
         }
         return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
+    }
+    if name == "_OFFSET.p" {
+        return Ok(Some(V::I(a[0].p() as i64)));
+    }
+    if name == "_OFFSET.s" {
+        let p = vm.str_data(a[0].p())?;
+        return Ok(Some(V::I(p as i64)));
     }
     if name == "getpid" {
         return Ok(Some(V::I(i64::from(std::process::id()))));

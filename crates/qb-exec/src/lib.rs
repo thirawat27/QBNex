@@ -19,6 +19,7 @@
 
 pub mod bytecode;
 mod jit;
+include!(concat!(env!("OUT_DIR"), "/ext_symbols.rs"));
 mod lower;
 mod mem;
 mod rt;

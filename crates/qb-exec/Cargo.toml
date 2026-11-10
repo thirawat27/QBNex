@@ -27,3 +27,6 @@ qb-jit = { path = "../qb-jit" }
 qb-link = { path = "../qb-link" }
 qb-float80 = { path = "../qb-float80" }
 qb-audio = { path = "../qb-audio" }
+# DECLARE LIBRARY: call thunks, and the extension library resolved in-process
+qb-ffi = { path = "../qb-ffi" }
+qb-ext = { path = "../qb-ext" }

@@ -2856,6 +2856,8 @@ name = "qb-exec"
 version = "0.1.0"
 dependencies = [
  "qb-audio",
+ "qb-ext",
+ "qb-ffi",
  "qb-float80",
  "qb-ir",
  "qb-jit",

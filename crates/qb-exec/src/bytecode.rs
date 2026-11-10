@@ -347,6 +347,8 @@ pub enum Ins {
     OnError { t: u32 },
     /// ON TIMER(slot, secs) GOSUB t (`s` slot register, `x` seconds register)
     OnTimer { s: R, x: R, t: u32 },
+    /// DECLARE LIBRARY call (`Module::xcalls[c]`)
+    XCall { c: u32 },
     Resume { k: ResumeK, t: u32 },
     /// raise the error whose code is in register `s`
     Raise { s: R },
@@ -513,10 +515,52 @@ pub struct Module {
     /// statement starts: (pc, source line), sorted by pc
     pub stmts: Vec<(u32, u32)>,
     pub data: Vec<Vec<u8>>,
+    /// DECLARE LIBRARY functions (QIR `meta extfn`) and their call sites
+    pub xfns: Vec<XFn>,
+    pub xcalls: Vec<XCall>,
     /// `$CONSOLE` (`Some(false)`) / `$CONSOLE:ONLY` (`Some(true)`)
     pub console: Option<bool>,
     /// `$SCREENHIDE`
     pub screenhide: bool,
+}
+
+/// One `DECLARE LIBRARY` function: C name, library (`""` = the runner's own
+/// symbols and the default system libraries), argument and result types.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct XFn {
+    pub name: String,
+    pub lib: String,
+    pub args: Vec<XTy>,
+    pub ret: XTy,
+}
+
+/// C-level type of an extern argument or result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum XTy {
+    #[default]
+    Void,
+    I8,
+    U8,
+    I16,
+    U16,
+    I32,
+    U32,
+    I64,
+    U64,
+    F32,
+    F64,
+    /// address (BYREF, `_OFFSET`)
+    Ptr,
+    /// string: pointer to the bytes (argument) / NUL-terminated `char*` (result)
+    Str,
+}
+
+/// An extern call: function, argument registers (numeric or string), result register.
+#[derive(Clone, Debug, PartialEq)]
+pub struct XCall {
+    pub f: u32,
+    pub args: Vec<R>,
+    pub dest: Option<R>,
 }
 
 /// Operand roles, for validation and for tools (disassembler, JIT).
@@ -722,6 +766,7 @@ impl Ins {
                 f(O::N(x));
                 f(O::TMain(t))
             }
+            XCall { .. } => {}
             Resume { k, t } => {
                 if k == ResumeK::Label {
                     f(O::TMain(t))
@@ -903,6 +948,7 @@ impl Ins {
             End => "end".into(),
             OnError { .. } => "on_error".into(),
             OnTimer { .. } => "on_timer".into(),
+            XCall { .. } => "xcall".into(),
             Resume { k, .. } => format!("resume.{k:?}").to_lowercase(),
             Raise { .. } => "raise".into(),
             MovS { .. } => "mov.s".into(),

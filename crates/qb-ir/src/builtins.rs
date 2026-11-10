@@ -174,6 +174,9 @@ pub static TABLE: &[Builtin] = &[
     b!("_CV.f80", [Str], F80),
     b!("_OS$", [], Str),
     b!("getpid", [], I32),
+    // _OFFSET(variable): the address (numeric) or the characters (STRING)
+    b!("_OFFSET.p", [Ptr], U64),
+    b!("_OFFSET.s", [Ptr], U64),
     b!("COMMAND$.n", [I32], Str),
     b!("_COMMANDCOUNT", [], I32),
     // CALL ABSOLUTE: arguments copied into DBLOCK (offset back), read back, then the call

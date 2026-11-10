@@ -161,6 +161,12 @@ impl Mem {
         Ok(self.strs.get(h as usize).map_or(&[][..], |v| v.as_slice()))
     }
 
+    /// Address of the characters of the string in slot `p` (0 for "").
+    pub(crate) fn str_data(&mut self, p: u64) -> R<u64> {
+        let h = self.ld(MTy::U64, p)?;
+        Ok(self.strs.get_mut(h as usize).filter(|_| h != 0).map_or(0, |v| v.as_mut_ptr() as u64))
+    }
+
     pub(crate) fn st_str(&mut self, p: u64, s: &[u8]) -> R<()> {
         let old = self.ld(MTy::U64, p)?;
         self.free_str(old);

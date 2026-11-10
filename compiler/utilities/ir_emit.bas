@@ -1043,6 +1043,43 @@ FUNCTION IrByRefArg$ (e$, pt AS LONG, ptsize AS LONG)
 END FUNCTION
 
 'user SUB/FUNCTION call; args$ raw elements joined with CHR$(0) per argument
+'DECLARE LIBRARY function/SUB: a QIR call of the C name plus "meta extfn name lib ret args"
+'(BYREF and _OFFSET arguments are addresses, strings pass their characters)
+FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG)
+    DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, tys$, x$, rt$, ty$
+    DIM sv(1 TO 100) AS STRING
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    nm$ = LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    FOR k = 1 TO ids(idn).args
+        pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
+        ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
+        IF k > nargs THEN IrNotSup "missing argument": EXIT FUNCTION
+        IF pt AND ISSTRING THEN
+            x$ = IrArgAs$(sv(k), "str"): ty$ = "str"
+        ELSEIF pt AND ISPOINTER THEN
+            x$ = IrByRefArg$(sv(k), pt, ps): ty$ = "ptr"
+        ELSE
+            ty$ = IrTy$(pt): x$ = IrArgAs$(sv(k), ty$)
+        END IF
+        regs$ = regs$ + " " + x$: tys$ = tys$ + " " + ty$
+    NEXT
+    IF ids(idn).subfunc = 1 THEN
+        k = ids(idn).ret: IF k AND ISPOINTER THEN k = k - ISPOINTER
+        IF k AND ISSTRING THEN rt$ = "str" ELSE rt$ = IrTy$(k)
+    ELSE
+        rt$ = "void"
+    END IF
+    IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " - " + rt$ + tys$ + CHR$(10)
+    IF rt$ = "void" THEN
+        IrE "call " + nm$ + regs$
+    ELSE
+        d$ = IrReg$
+        IrE "call " + d$ + " " + nm$ + regs$
+        IrT = rt$
+        IrExtCall$ = d$
+    END IF
+END FUNCTION
+
 FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
     DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, rt$
     DIM sv(1 TO 100) AS STRING
@@ -1052,6 +1089,7 @@ FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
         'DECLARE LIBRARY ... FUNCTION getpid& (the compiler's temp folder lock): the process id
         IrUserCall$ = IrRt$("getpid", "", "i32"): EXIT FUNCTION
     END IF
+    IF ids(idn).ccall THEN IrUserCall$ = IrExtCall$(idn, nargs): EXIT FUNCTION
     FOR k = 1 TO ids(idn).args
         pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
         ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
@@ -1561,6 +1599,11 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             'qbr of the value as an _INTEGER64
             x$ = IrEval$(sv(1), t)
             r$ = IrCvt$(x$, IrT, "i64"): IrT = "i64"
+        CASE "_OFFSET"
+            IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
+            IF x$ = "" OR LEFT$(x$, 1) = "A" THEN IrNotSup "_OFFSET argument": r$ = IrConst$("u64", "0"): IrT = "u64": GOTO irfdone
+            y$ = IrAddr$(x$)
+            IF IrPlaceSTy$(x$) = "str" THEN r$ = IrRt$("_OFFSET.s", " " + y$, "u64") ELSE r$ = IrRt$("_OFFSET.p", " " + y$, "u64")
         CASE "_INCLERRORLINE"
             'QIR line markers are lines of the main file; no $INCLUDE line/file at run time
             r$ = IrI32$(0): IrT = "i32"
@@ -2123,6 +2166,7 @@ SUB IrFinish (src$, outExe$)
         PRINT #fh, "meta console"
     END IF
     IF ScreenHide THEN PRINT #fh, "meta screenhide"
+    PRINT #fh, IrExtMeta;
     PRINT #fh, IrMod;
     top = 0
     FOR i = 2 TO IrFnN

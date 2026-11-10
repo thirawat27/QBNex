@@ -14,6 +14,7 @@ DIM SHARED IrFailMsg AS STRING 'first unsupported construct
 DIM SHARED IrUniq AS LONG
 DIM SHARED IrFix AS STRING, IrFix2 AS STRING, IrFix3 AS STRING 'fixed expressions captured by hooks
 DIM SHARED IrPendCase$, IrPendEvery AS LONG, IrPendElse AS LONG, IrPendCaseOn AS LONG, IrPendLevel AS LONG 'CASE waiting for finishedline
+DIM SHARED IrExtMeta AS STRING 'meta extfn lines (DECLARE LIBRARY)
 DIM SHARED IrPendLL AS LONG 'numeric line label waiting for its LASTLINE
 DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
 DIM SHARED IrDataN AS LONG
