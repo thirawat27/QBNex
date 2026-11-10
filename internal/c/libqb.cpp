@@ -23,49 +23,10 @@
 
 int32 disableEvents=0;
 
-//Global console vvalues
-static int32 consolekey;
-static int32 consolemousex;
-static int32 consolemousey;
-static int32 consolebutton;
+//Console key/mouse state (consolekey, consolemousex, consolemousey, consolebutton): Rust (console/stdio.rs)
 int32 func__getconsoleinput(); //declare here, so we can use with SLEEP and END commands
 
 #ifdef QBNex_WINDOWS
-static UINT qb_console_original_input_cp = 0;
-static UINT qb_console_original_output_cp = 0;
-static int32 qb_console_utf8_initialized = 0;
-
-static int32 qb_is_console_handle(HANDLE handle) {
-    DWORD mode = 0;
-    if (handle == NULL || handle == INVALID_HANDLE_VALUE) return 0;
-    return GetConsoleMode(handle, &mode) != 0;
-}
-
-static void qb_init_windows_console_utf8() {
-    if (qb_console_utf8_initialized) return;
-    qb_console_utf8_initialized = 1;
-
-    qb_console_original_input_cp = GetConsoleCP();
-    qb_console_original_output_cp = GetConsoleOutputCP();
-
-    if (!qb_console_original_input_cp) qb_console_original_input_cp = GetACP();
-    if (!qb_console_original_output_cp) qb_console_original_output_cp = GetACP();
-
-    HANDLE stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (qb_is_console_handle(stdout_handle)) {
-        SetConsoleOutputCP(CP_UTF8);
-        DWORD output_mode = 0;
-        if (GetConsoleMode(stdout_handle, &output_mode)) {
-            SetConsoleMode(stdout_handle, output_mode | ENABLE_PROCESSED_OUTPUT);
-        }
-    }
-
-    HANDLE stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
-    if (qb_is_console_handle(stdin_handle)) {
-        SetConsoleCP(CP_UTF8);
-    }
-}
-
 static int32 qb_multibyte_to_wide(const char* text, int32 len, UINT codepage, DWORD flags, std::wstring& out) {
     int required;
 
@@ -80,46 +41,10 @@ static int32 qb_multibyte_to_wide(const char* text, int32 len, UINT codepage, DW
 }
 #endif
 
-void qb_write_utf8(const char* text, int32 len, int32 finish_on_new_line) {
+void qb_write_utf8(const char* text, int32 len, int32 finish_on_new_line) {//Rust: console/stdio.rs
     if (!text) len = 0;
     if (len < 0 && text) len = static_cast<int32>(strlen(text));
-
-    #ifdef QBNex_WINDOWS
-    HANDLE stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (qb_is_console_handle(stdout_handle)) {
-        std::wstring wide_text;
-        DWORD written = 0;
-
-        qb_init_windows_console_utf8();
-
-        if (text && len > 0) {
-            if (!qb_multibyte_to_wide(text, len, CP_UTF8, MB_ERR_INVALID_CHARS, wide_text)) {
-                UINT fallback_codepage = qb_console_original_output_cp ? qb_console_original_output_cp : GetACP();
-                if (!qb_multibyte_to_wide(text, len, fallback_codepage, 0, wide_text)) {
-                    wide_text.clear();
-                }
-            }
-
-            if (!wide_text.empty()) {
-                WriteConsoleW(stdout_handle, wide_text.data(), static_cast<DWORD>(wide_text.size()), &written, NULL);
-            }
-        }
-
-        if (finish_on_new_line) {
-            static const wchar_t newline[] = L"\r\n";
-            WriteConsoleW(stdout_handle, newline, 2, &written, NULL);
-        }
-        return;
-    }
-    #endif
-
-    if (text && len > 0) {
-        fwrite(text, 1, len, stdout);
-    }
-    if (finish_on_new_line) {
-        fwrite("\n", 1, 1, stdout);
-    }
-    fflush(stdout);
+    qb_console_write_utf8(reinterpret_cast<const uint8*>(text), len, finish_on_new_line);
 }
 
 //This next block used to be in common.cpp; put here until I can find a better
@@ -750,24 +675,7 @@ int32 get_hardware_img_index(int32 handle){
 
 
 
-static uint16 codepage437_to_unicode16[] = {
-    0x0020,0x263A,0x263B,0x2665,0x2666,0x2663,0x2660,0x2022,0x25D8,0x25CB,0x25D9,0x2642,0x2640,0x266A,0x266B,0x263C,
-    0x25BA,0x25C4,0x2195,0x203C,0x00B6,0x00A7,0x25AC,0x21A8,0x2191,0x2193,0x2192,0x2190,0x221F,0x2194,0x25B2,0x25BC,
-    0x0020,0x0021,0x0022,0x0023,0x0024,0x0025,0x0026,0x0027,0x0028,0x0029,0x002A,0x002B,0x002C,0x002D,0x002E,0x002F,
-    0x0030,0x0031,0x0032,0x0033,0x0034,0x0035,0x0036,0x0037,0x0038,0x0039,0x003A,0x003B,0x003C,0x003D,0x003E,0x003F,
-    0x0040,0x0041,0x0042,0x0043,0x0044,0x0045,0x0046,0x0047,0x0048,0x0049,0x004A,0x004B,0x004C,0x004D,0x004E,0x004F,
-    0x0050,0x0051,0x0052,0x0053,0x0054,0x0055,0x0056,0x0057,0x0058,0x0059,0x005A,0x005B,0x005C,0x005D,0x005E,0x005F,
-    0x0060,0x0061,0x0062,0x0063,0x0064,0x0065,0x0066,0x0067,0x0068,0x0069,0x006A,0x006B,0x006C,0x006D,0x006E,0x006F,
-    0x0070,0x0071,0x0072,0x0073,0x0074,0x0075,0x0076,0x0077,0x0078,0x0079,0x007A,0x007B,0x007C,0x007D,0x007E,0x2302,
-    0x00C7,0x00FC,0x00E9,0x00E2,0x00E4,0x00E0,0x00E5,0x00E7,0x00EA,0x00EB,0x00E8,0x00EF,0x00EE,0x00EC,0x00C4,0x00C5,
-    0x00C9,0x00E6,0x00C6,0x00F4,0x00F6,0x00F2,0x00FB,0x00F9,0x00FF,0x00D6,0x00DC,0x00A2,0x00A3,0x00A5,0x20A7,0x0192,
-    0x00E1,0x00ED,0x00F3,0x00FA,0x00F1,0x00D1,0x00AA,0x00BA,0x00BF,0x2310,0x00AC,0x00BD,0x00BC,0x00A1,0x00AB,0x00BB,
-    0x2591,0x2592,0x2593,0x2502,0x2524,0x2561,0x2562,0x2556,0x2555,0x2563,0x2551,0x2557,0x255D,0x255C,0x255B,0x2510,
-    0x2514,0x2534,0x252C,0x251C,0x2500,0x253C,0x255E,0x255F,0x255A,0x2554,0x2569,0x2566,0x2560,0x2550,0x256C,0x2567,
-    0x2568,0x2564,0x2565,0x2559,0x2558,0x2552,0x2553,0x256B,0x256A,0x2518,0x250C,0x2588,0x2584,0x258C,0x2590,0x2580,
-    0x03B1,0x00DF,0x0393,0x03C0,0x03A3,0x03C3,0x00B5,0x03C4,0x03A6,0x0398,0x03A9,0x03B4,0x221E,0x03C6,0x03B5,0x2229,
-    0x2261,0x00B1,0x2265,0x2264,0x2320,0x2321,0x00F7,0x2248,0x00B0,0x2219,0x00B7,0x221A,0x207F,0x00B2,0x25A0,0x0020
-};
+//codepage437_to_unicode16[256]: Rust (crates/qb-runtime/src/console/utf8.rs), declared in qb_console.h
 
 
 #include "libqb/font_bridge.cpp" //R7: _LOADFONT shims over qb-runtime font.rs
@@ -1132,8 +1040,6 @@ int32 device_mouse_relative=0;
 
 int32 lock_mainloop=0;//0=unlocked, 1=lock requested, 2=locked
 
-int32 lpos=1;
-int32 width_lprint=80;
 
 //forward refs
 void sub_shell4(qbs*,int32);//_DONTWAIT & _HIDE
@@ -1982,25 +1888,14 @@ static const int32 scancode_lookup[]={
 void keydown(uint32 x);
 void keyup(uint32 x);
 
-uint32 unicode_to_cp437(uint32 x){
-    static int32 i;
-    for (i=0;i<=255;i++){
-        if (x==codepage437_to_unicode16[i]) return i;
-    }
-    return 0;
-}
+uint32 unicode_to_cp437(uint32 x){return qb_unicode_to_cp437(x);}//Rust: console/utf8.rs
 
 static int32 qb_img_index(const img_struct *im);
 static void qb_init_text_utf8_cells(int32 image_index);
-static void qb_clear_text_utf8_cells_range(int32 image_index,int32 first_cell,int32 cell_count);
 static int32 qb_text_page_has_utf8_content(int32 image_index);
-static void qb_append_utf8_codepoint(std::string &out,uint32 codepoint);
 static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepoint);
 static int32 qb_is_emoji_like_codepoint(uint32 codepoint);
 static int32 qb_is_zero_width_codepoint(uint32 codepoint);
-static uint8 qb_unicode_to_screen_byte(uint32 character);
-static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character,int32 cell_span);
-static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character);
 #ifdef QBNex_WINDOWS
 static int32 qb_render_text_cell_windows(const std::string &utf8,int32 cell_width,int32 cell_height,uint32 foreground_color,uint32 background_color,uint32 *dest,int32 dest_stride);
 #else
@@ -2290,10 +2185,9 @@ static void qb_start_detached_thread(Fn &&fn){
 #define EILSEQ          42
 
 
-int32 lprint=0;//set to 1 during LPRINT operations
+//lprint, lprint_buffered, lpos, width_lprint: Rust (console/mod.rs)
 int32 lprint_image=0;
 double lprint_last=0;//TIMER(0.001) value at last time LPRINT was used
-int32 lprint_buffered=0;//set to 1 if content is pending to print
 int32 lprint_locked=0;//set to 1 to deny access by QBNex program
 
 /* Generic File System (GFS)
@@ -2416,12 +2310,8 @@ std::vector<int32> page(1, 0);
 //image registry: img, nimg, nextimg and the pixel/palette buffers are owned by
 //Rust (qb-runtime gfx/registry.rs); img moves when the registry grows.
 static const int32 qb_img_registry_ready=(qb_img_init(),1);
-static std::vector<std::vector<std::string>> qb_text_utf8_cells(IMG_BUFFERSIZE);
-static std::vector<std::vector<uint8>> qb_text_utf8_cell_state(IMG_BUFFERSIZE);
 void refresh_selected_pages();
 static void qb_img_registry_grew(){//img may have moved: resize side tables, re-point pages
-    qb_text_utf8_cells.resize(nimg);
-    qb_text_utf8_cell_state.resize(nimg);
     refresh_selected_pages();
 }
 static void qb_set_img_external_offset(int32 index,uint8 *offset){qb_img_set_external_offset(index,offset);}
@@ -2432,253 +2322,25 @@ static void qb_release_img_owned_resources(int32 index){qb_img_release_owned(ind
 static void qb_allocate_img_pixels(int32 index,ptrszint bytes){qb_img_alloc_pixels(index,bytes);}
 static void qb_allocate_img_palette(int32 index){qb_img_alloc_palette(index);}
 
-static void qb_release_text_utf8_cells(int32 image_index){
-    if (image_index < 0) return;
-    if (static_cast<size_t>(image_index) < qb_text_utf8_cells.size()){
-        std::vector<std::string>().swap(qb_text_utf8_cells[image_index]);
-    }
-    if (static_cast<size_t>(image_index) < qb_text_utf8_cell_state.size()){
-        std::vector<uint8>().swap(qb_text_utf8_cell_state[image_index]);
-    }
-}
-
+//UTF-8 side table of SCREEN 0 surfaces and UTF-8 helpers: Rust (crates/qb-runtime/src/console/{cells,utf8}.rs)
+static void qb_release_text_utf8_cells(int32 image_index){qb_text_cells_release(image_index);}
 static int32 qb_img_index(const img_struct *im){
     if (!im || !img) return -1;
     return static_cast<int32>(im - img);
 }
-
 static void qb_init_text_utf8_cells(int32 image_index){
     if (image_index < 0 || image_index >= nimg) return;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) qb_text_utf8_cells.resize(nimg);
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cell_state.size()) qb_text_utf8_cell_state.resize(nimg);
-    if (!img[image_index].text){
-        qb_release_text_utf8_cells(image_index);
-        return;
-    }
-    qb_text_utf8_cells[image_index].assign(static_cast<size_t>(img[image_index].width) * img[image_index].height, std::string());
-    qb_text_utf8_cell_state[image_index].assign(static_cast<size_t>(img[image_index].width) * img[image_index].height, 0);
+    if (!img[image_index].text){qb_text_cells_release(image_index); return;}
+    qb_text_cells_init(image_index,img[image_index].width*img[image_index].height);
 }
-
-static void qb_clear_text_utf8_cells_range(int32 image_index,int32 first_cell,int32 cell_count){
-    if (image_index < 0 || image_index >= nimg) return;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
-    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
-    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-    if (cells.empty() || cell_count <= 0) return;
-    if (first_cell < 0) first_cell=0;
-    int32 end_cell=first_cell+cell_count;
-    if (end_cell > static_cast<int32>(cells.size())) end_cell=static_cast<int32>(cells.size());
-    for (int32 i=first_cell;i<end_cell;i++){
-        cells[i].clear();
-        cell_state[i]=0;
-    }
-}
-
 static int32 qb_text_page_has_utf8_content(int32 image_index){
     if (image_index < 0 || image_index >= nimg) return 0;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 0;
-    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
-    for (size_t i=0;i<cells.size();i++){
-        if (!cells[i].empty()) return -1;
-    }
-    return 0;
+    return qb_text_cells_has_content(image_index);
 }
-
-static void qb_append_utf8_codepoint(std::string &out,uint32 codepoint){
-    if (codepoint > 0x10FFFF) codepoint=0xFFFD;
-    if (codepoint <= 0x7F){
-        out.push_back(static_cast<char>(codepoint));
-        return;
-    }
-    if (codepoint <= 0x7FF){
-        out.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
-        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        return;
-    }
-    if (codepoint <= 0xFFFF){
-        out.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
-        out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-        return;
-    }
-    out.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
-    out.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
-    out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-    out.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-}
-
-static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepoint){
-    if (!text || len <= 0 || !codepoint) return 0;
-
-    const uint8 b0=text[0];
-    if (b0 < 0x80){
-        *codepoint=b0;
-        return 1;
-    }
-
-    if ((b0 >= 0xC2) && (b0 <= 0xDF) && len >= 2){
-        const uint8 b1=text[1];
-        if ((b1 & 0xC0) == 0x80){
-            *codepoint=((b0 & 0x1F) << 6) | (b1 & 0x3F);
-            return 2;
-        }
-    }
-
-    if ((b0 >= 0xE0) && (b0 <= 0xEF) && len >= 3){
-        const uint8 b1=text[1];
-        const uint8 b2=text[2];
-        if (((b1 & 0xC0) == 0x80) && ((b2 & 0xC0) == 0x80)){
-            uint32 value=((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
-            if ((value >= 0x800) && !(value >= 0xD800 && value <= 0xDFFF)){
-                if (!((b0 == 0xE0) && (b1 < 0xA0)) && !((b0 == 0xED) && (b1 >= 0xA0))){
-                    *codepoint=value;
-                    return 3;
-                }
-            }
-        }
-    }
-
-    if ((b0 >= 0xF0) && (b0 <= 0xF4) && len >= 4){
-        const uint8 b1=text[1];
-        const uint8 b2=text[2];
-        const uint8 b3=text[3];
-        if (((b1 & 0xC0) == 0x80) && ((b2 & 0xC0) == 0x80) && ((b3 & 0xC0) == 0x80)){
-            uint32 value=((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
-            if ((value >= 0x10000) && (value <= 0x10FFFF)){
-                if (!((b0 == 0xF0) && (b1 < 0x90)) && !((b0 == 0xF4) && (b1 > 0x8F))){
-                    *codepoint=value;
-                    return 4;
-                }
-            }
-        }
-    }
-
-    *codepoint=codepage437_to_unicode16[b0];
-    return 1;
-}
-
-static int32 qb_is_emoji_like_codepoint(uint32 codepoint){
-    if ((codepoint >= 0x1F1E6 && codepoint <= 0x1F1FF) ||
-        (codepoint >= 0x1F300 && codepoint <= 0x1FAFF) ||
-        (codepoint >= 0x2600 && codepoint <= 0x27BF) ||
-        (codepoint >= 0x2300 && codepoint <= 0x23FF) ||
-        codepoint == 0x20E3) return -1;
-    return 0;
-}
-
-static int32 qb_is_zero_width_codepoint(uint32 codepoint){
-    if ((codepoint >= 0x0300 && codepoint <= 0x036F) ||
-        (codepoint >= 0x1AB0 && codepoint <= 0x1AFF) ||
-        (codepoint >= 0x1DC0 && codepoint <= 0x1DFF) ||
-        (codepoint >= 0x20D0 && codepoint <= 0x20FF) ||
-        (codepoint >= 0xFE20 && codepoint <= 0xFE2F) ||
-        (codepoint >= 0xFE00 && codepoint <= 0xFE0F) ||
-        (codepoint >= 0xE0100 && codepoint <= 0xE01EF)) return -1;
-    if (codepoint == 0x0E31 || codepoint == 0x200C || codepoint == 0x200D || codepoint == 0xFEFF) return -1;
-    if ((codepoint >= 0x0E34 && codepoint <= 0x0E3A) || (codepoint >= 0x0E47 && codepoint <= 0x0E4E)) return -1;
-    return 0;
-}
-
-static int32 qb_is_wide_codepoint(uint32 codepoint){
-    if (qb_is_emoji_like_codepoint(codepoint)) return -1;
-    if ((codepoint >= 0x1100 && codepoint <= 0x115F) ||
-        (codepoint >= 0x2329 && codepoint <= 0x232A) ||
-        (codepoint >= 0x2E80 && codepoint <= 0xA4CF && codepoint != 0x303F) ||
-        (codepoint >= 0xAC00 && codepoint <= 0xD7A3) ||
-        (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
-        (codepoint >= 0xFE10 && codepoint <= 0xFE19) ||
-        (codepoint >= 0xFE30 && codepoint <= 0xFE6F) ||
-        (codepoint >= 0xFF01 && codepoint <= 0xFF60) ||
-        (codepoint >= 0xFFE0 && codepoint <= 0xFFE6)) return -1;
-    return 0;
-}
-
-static uint8 qb_unicode_to_screen_byte(uint32 character){
-    if (character <= 0x7F) return static_cast<uint8>(character);
-    const uint32 mapped=unicode_to_cp437(character);
-    if (mapped <= 0xFF) return static_cast<uint8>(mapped);
-    return '?';
-}
-
-static void qb_normalize_text_cell_state(int32 image_index,int32 cell_index){
-    if (image_index < 0 || image_index >= nimg) return;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
-    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
-    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-    if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return;
-
-    if (cell_state[cell_index] == 3 && cell_index > 0 && cell_state[cell_index - 1] == 2){
-        cells[cell_index - 1].clear();
-        cell_state[cell_index - 1]=0;
-    }
-    if (cell_state[cell_index] == 2 && cell_index + 1 < static_cast<int32>(cells.size()) && cell_state[cell_index + 1] == 3){
-        cells[cell_index + 1].clear();
-        cell_state[cell_index + 1]=0;
-    }
-
-    cells[cell_index].clear();
-    cell_state[cell_index]=0;
-}
-
-static int32 qb_text_cluster_start(int32 image_index,int32 cell_index){
-    if (image_index < 0 || image_index >= nimg) return cell_index;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return cell_index;
-    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-    if (cell_index < 0 || cell_index >= static_cast<int32>(cell_state.size())) return cell_index;
-    if (cell_state[cell_index] == 3 && cell_index > 0) return cell_index - 1;
-    return cell_index;
-}
-
-static int32 qb_text_cell_span(int32 image_index,int32 cell_index){
-    if (image_index < 0 || image_index >= nimg) return 1;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 1;
-    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-    if (cell_index < 0 || cell_index >= static_cast<int32>(cell_state.size())) return 1;
-    if (cell_state[cell_index] == 2) return 2;
-    if (cell_state[cell_index] == 3) return 0;
-    return 1;
-}
-
-static void qb_store_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character,int32 cell_span){
-    const int32 image_index=qb_img_index(im);
-    if (image_index < 0 || image_index >= nimg) return;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return;
-    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
-    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-    if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return;
-
-    qb_normalize_text_cell_state(image_index,cell_index);
-    if (cell_span > 1 && cell_index + 1 < static_cast<int32>(cells.size())) qb_normalize_text_cell_state(image_index,cell_index + 1);
-
-    if (character <= 0x7F || unicode_to_cp437(character)){
-        cell_state[cell_index]=0;
-        return;
-    }
-
-    qb_append_utf8_codepoint(cells[cell_index],character);
-    cell_state[cell_index]=(cell_span > 1) ? 2 : 1;
-    if (cell_span > 1 && cell_index + 1 < static_cast<int32>(cells.size())){
-        cells[cell_index + 1].clear();
-        cell_state[cell_index + 1]=3;
-    }
-}
-
-static int32 qb_append_text_cell_utf8(img_struct *im,int32 cell_index,uint32 character){
-    const int32 image_index=qb_img_index(im);
-    if (image_index < 0 || image_index >= nimg) return 0;
-    if (static_cast<size_t>(image_index) >= qb_text_utf8_cells.size()) return 0;
-    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
-    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-    cell_index=qb_text_cluster_start(image_index,cell_index);
-    if (cell_index < 0 || cell_index >= static_cast<int32>(cells.size())) return 0;
-    if (cells[cell_index].empty()){
-        const uint8 raw_character=im->offset[cell_index<<1];
-        if (raw_character != 32) qb_append_utf8_codepoint(cells[cell_index],codepage437_to_unicode16[raw_character]);
-        cell_state[cell_index]=1;
-    }
-    qb_append_utf8_codepoint(cells[cell_index],character);
-    return 1;
-}
+static int32 qb_decode_utf8_codepoint(const uint8 *text,int32 len,uint32 *codepoint){return qb_utf8_decode(text,len,codepoint);}
+static int32 qb_is_emoji_like_codepoint(uint32 codepoint){return qb_utf8_is_emoji_like(codepoint);}
+static int32 qb_is_zero_width_codepoint(uint32 codepoint){return qb_utf8_is_zero_width(codepoint);}
+static int32 qb_text_cell_span(int32 image_index,int32 cell_index){return qb_text_cells_span(image_index,cell_index);}
 
 #ifdef QBNex_WINDOWS
 static HDC qb_textmode_gdi_dc=NULL;
@@ -4744,48 +4406,18 @@ int32 func__str_compare(qbs *s1, qbs *s2){return qb_func__str_compare(s1,s2);}
 
 qbs *qbs_inkey(){
     if (new_error) return qbs_new(0,1);
-    qbs *tqbs;
-    // Sleep(0);
-    tqbs=qbs_new(2,1);
-    if (cmem[0x41a]!=cmem[0x41c]){
-        tqbs->chr[0]=cmem[0x400+cmem[0x41a]];
-        tqbs->chr[1]=cmem[0x400+cmem[0x41a]+1];
-        if (tqbs->chr[0]){
-            tqbs->len=1;
-            }else{
-            if (tqbs->chr[1]==0) tqbs->len=1;
-        }
-        cmem[0x41a]+=2;
-        if (cmem[0x41a]==62) cmem[0x41a]=30;
-        }else{
-        tqbs->len=0;
-    }
+    qbs *tqbs=qbs_new(2,1);
+    tqbs->len=qb_console_inkey(tqbs->chr);//BIOS ring buffer (Rust: console/keyboard.rs)
     return tqbs;
 }
 
 void sub__keyclear(int32 buf, int32 passed) {
     if (new_error) return;
     if (passed && (buf > 3 || buf < 1)) error(5);
-    //  Sleep(10);
-    if ((buf == 1 && passed) || !passed) {
-        //INKEY$ buffer
-        cmem[0x41a]=30; cmem[0x41b]=0; //head
-        cmem[0x41c]=30; cmem[0x41d]=0; //tail
-    }
-    if ((buf == 2 && passed) || !passed) {
-        //_KEYHIT buffer
-        qb_keyhit_clear();
-    }
-    if ((buf == 3 && passed) || !passed) {
-        //INP(&H60) buffer
-        port60h_events = 0;
-    }
-    #ifdef QBNex_WINDOWS
-        //Windows Console Buffer
-        FlushConsoleInputBuffer(GetStdHandle (STD_INPUT_HANDLE));
-    #endif
-
-
+    if ((buf == 1 && passed) || !passed) qb_inkey_clear(&cmem[0x400]);//INKEY$ buffer
+    if ((buf == 2 && passed) || !passed) qb_keyhit_clear();//_KEYHIT buffer
+    if ((buf == 3 && passed) || !passed) port60h_events = 0;//INP(&H60) buffer
+    qb_console_flush_input();//Windows console buffer
 }
 
 //STR() functions: number formatting lives in the Rust runtime (crates/qb-runtime/src/numfmt.rs).
@@ -4873,44 +4505,7 @@ void qbg_palette(uint32 attribute,uint32 col,int32 passed){
 
 
 
-void qbg_sub_color(uint32 col1,uint32 col2,uint32 bordercolor,int32 passed){
-    if (new_error) return;
-    if (!passed){
-        //performs no action if nothing passed (as in QBASIC for some modes)
-        return;
-    }
-
-	if (write_page->console){
-		#ifdef QBNex_WINDOWS
-			HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-			int color = col2 * 16 + col1;
-			SetConsoleTextAttribute(output, color);
-		#else
-            // Exactly how the colour is rendered depends on your terminal emulator and
-            // colour palette. Themes and user-customisation aside, the first 16 colours
-            // line up with the old VGA colour scheme.
-            // Most terminal emulators can handle 8 bit colour, see
-            // https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit for the 8 bit colour palette.
-            if ((passed & 1 && (col1 > 255 || col1 < 0))
-                    || (passed & 2 && (col2 > 255 || col2 < 0)))
-                goto error;
-
-            if (passed & 1)
-                printf("\033[38;5;%dm", col1);
-
-            if (passed & 2)
-                printf("\033[48;5;%dm", col2);
-		#endif
-        return;
-	}
-    if (int32 e=qb_gfx_color(write_page,col1,col2,passed)) error(e);
-    return;
-    #ifndef QBNex_WINDOWS
-    error:
-    error(5);
-    return;
-    #endif
-}
+void qbg_sub_color(uint32 col1,uint32 col2,uint32 bordercolor,int32 passed){qb_console_color(col1,col2,passed);}//Rust: console/ffi.rs (console) + gfx/palette.rs
 
 void defaultcolors(){qb_gfx_defaultcolors(write_page);}
 
@@ -5380,29 +4975,7 @@ void qbsub_width(int32 option,int32 value1,int32 value2,int32 value3, int32 valu
         
         width=value1; height=value2;
 
-        #ifdef QBNex_WINDOWS
-            if (write_page->console){
-                SECURITY_ATTRIBUTES SecAttribs = {sizeof(SECURITY_ATTRIBUTES), 0, 1};
-                HANDLE cl_conout = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, & SecAttribs, OPEN_EXISTING, 0, 0);
-                HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-                CONSOLE_SCREEN_BUFFER_INFO cl_bufinfo;
-                
-                GetConsoleScreenBufferInfo(cl_conout, &cl_bufinfo); //get the screen buffer information, for blank entries
-
-                if (width<=0) width = cl_bufinfo.srWindow.Right - cl_bufinfo.srWindow.Left + 1;; //if width is omitted, then use existing width
-                if (height<=0) height = cl_bufinfo.srWindow.Bottom - cl_bufinfo.srWindow.Top + 1;; //if height is omitted, then use existing height
-                if (value3<=0) value3 = cl_bufinfo.dwSize.X; //if bufferwidth is omitted, then use existing buffer width
-                if (value4<=0) value4 = cl_bufinfo.dwSize.Y; //same as above, but for height
-                if (value3<value1)value3=value1; //don't make the buffer width smaller than the console width itself
-                if (value4<value2)value4=value2; //and don't make that buffer height smaller than the console height
-
-                SMALL_RECT rect = {0,0, width-1, height-1};
-                COORD bufferSize = {value3, value4};
-                SetConsoleScreenBufferSize(hConsole, bufferSize); //set the buffer
-                SetConsoleWindowInfo(hConsole, TRUE, &rect); //set the console itself
-                return;
-            }
-        #endif
+        if (qb_console_width(value1,value2,value3,value4)) return;//Windows console (Rust: console/stdio.rs)
 
         if ((!(passed&1))&&(!(passed&2))) goto error;//cannot omit both arguments
         
@@ -5928,49 +5501,22 @@ void sub_preset(float x,float y,uint32 col,int32 passed){
 }
 
 
-int32 img_printchr=0;
-int32 img_printchr_i;
-int32 img_printchr_x;
-int32 img_printchr_y;
-char *img_printchr_offset;
+//Text output (printchr, newline, tab, makefit, PRINT) is Rust: crates/qb-runtime/src/console/text.rs.
+//What stays here are custom (_LOADFONT) glyphs and the services the console calls back.
 
-void printchr(int32 character,int32 cell_span){
+//glyph of a custom font at the cursor of write_page (was the f>=32 part of printchr)
+static void printchr_custom(uint32 character_in){
+    int32 character=character_in;
     static uint32 x,x2,y,y2,w,h,z,z2,z3,a,a2,a3,color,background_color,f;
-    static uint32 *lp;
     static uint8 *cp;
     static img_struct *im;
-    
     im=write_page;
     color=im->color;
     background_color=im->background_color;
-    
-    
-    if (im->text){
-        const int32 cell_index=(im->cursor_y-1)*im->width+im->cursor_x-1;
-        im->offset[cell_index<<1]=qb_unicode_to_screen_byte(character);
-        im->offset[(cell_index<<1)+1]=(color&0xF)+background_color*16+(color&16)*8;
-        if (cell_span > 1 && cell_index + 1 < im->width * im->height){
-            im->offset[(cell_index+1)<<1]=32;
-            im->offset[((cell_index+1)<<1)+1]=(color&0xF)+background_color*16+(color&16)*8;
-        }
-        qb_store_text_cell_utf8(im,cell_index,character,cell_span);
-        return;
-    }
-    
-    //precalculations
-    
     f=im->font;
     x=fontwidth[f]; if (x) x*=(im->cursor_x-1); else x=im->cursor_x-1;
     y=(im->cursor_y-1)*fontheight[f];
     h=fontheight[f];
-    if ((fontflags[f]&32)==0) character&=255;//unicodefontsupport
-    
-    //if (mode==1) img[i].print_mode=3;//fill
-    //if (mode==2) img[i].print_mode=1;//keep
-    //if (mode==3) img[i].print_mode=2;//only
-    
-    if (f>=32){//custom font
-        
         //8-bit / alpha-disabled 32-bit / dont-blend(alpha may still be applied)
         if ((im->bytes_per_pixel==1)||((im->bytes_per_pixel==4)&&(im->alpha_disabled))||(fontflags[f]&8)){
             
@@ -6090,26 +5636,12 @@ void printchr(int32 character,int32 cell_span){
         }
         free(rt_data);
         return;
-    }//custom font
-    
-    
-    //default fonts (8x8, 8x14, 8x16): Rust (qb-runtime gfx/text.rs)
-    qb_gfx_printchr(im,character);
-    return;
-}//printchr
+}
 
-
-
-
-
-int32 chrwidth(uint32 character){
-    //Note: Only called by qbs_print()
-    //      Supports "UNICODE" _LOADFONT option
-    static int32 w;
+//width of a custom-font character (was the variable-width part of chrwidth)
+static int32 chrwidth_custom(uint32 character){
     static img_struct *im;
     im=write_page;
-    if (w=fontwidth[im->font]) return w;
-    
     //Custom font
     static int32 render_option,f;
     static int32 ok;
@@ -6136,171 +5668,76 @@ int32 chrwidth(uint32 character){
     free(rt_data);
     return rt_w;
     
-}//chrwidth
-
-
-void newline(){
-    static uint32 *lp;
-    static uint16 *sp;
-    static int32 z,z2;
-    
-    //move cursor to new line
-    write_page->cursor_y++; write_page->cursor_x=1;
-    
-    //scroll up screen if necessary
-    if (write_page->cursor_y>write_page->bottom_row){
-        
-        if (lprint){
-            sub__printimage(lprint_image);
-            sub_cls(NULL,15,2);
-            lprint_buffered=0;
-            return;
-        }
-        
-        if (write_page->text){
-            //text
-            //move lines up
-            memmove(
-            write_page->offset+(write_page->top_row-1)*2*write_page->width,
-            write_page->offset+ write_page->top_row   *2*write_page->width,
-            (write_page->bottom_row-write_page->top_row)*2*write_page->width
-            );
-            {
-                const int32 image_index=qb_img_index(write_page);
-                if (image_index >= 0 && image_index < nimg && image_index < qb_text_utf8_cells.size()){
-                    std::vector<std::string> &cells=qb_text_utf8_cells[image_index];
-                    std::vector<uint8> &cell_state=qb_text_utf8_cell_state[image_index];
-                    if (!cells.empty()){
-                        const int32 row_width=write_page->width;
-                        const int32 dst=(write_page->top_row-1)*row_width;
-                        const int32 src=write_page->top_row*row_width;
-                        const int32 moved=(write_page->bottom_row-write_page->top_row)*row_width;
-                        for (int32 cell=0;cell<moved;cell++){
-                            cells[dst+cell]=cells[src+cell];
-                            cell_state[dst+cell]=cell_state[src+cell];
-                        }
-                        qb_clear_text_utf8_cells_range(image_index,(write_page->bottom_row-1)*row_width,row_width);
-                    }
-                }
-            }
-            //erase bottom line
-            z2=(write_page->color&0xF)+(write_page->background_color&7)*16+(write_page->color&16)*8;
-            z2<<=8;
-            z2+=32;
-            sp=((uint16*)(write_page->offset+(write_page->bottom_row-1)*2*write_page->width));
-            z=write_page->width;
-            while(z--) *sp++=z2;
-            }else{
-            //graphics
-            //move lines up
-            memmove(
-            write_page->offset+(write_page->top_row-1)*write_page->bytes_per_pixel*write_page->width*fontheight[write_page->font],
-            write_page->offset+ write_page->top_row   *write_page->bytes_per_pixel*write_page->width*fontheight[write_page->font],
-            (write_page->bottom_row-write_page->top_row)*write_page->bytes_per_pixel*write_page->width*fontheight[write_page->font]
-            );
-            //erase bottom line
-            if (write_page->bytes_per_pixel==1){
-                memset(write_page->offset+(write_page->bottom_row-1)*write_page->width*fontheight[write_page->font],write_page->background_color,write_page->width*fontheight[write_page->font]);
-                }else{
-                //assume 32-bit
-                z2=write_page->background_color;
-                lp=write_page->offset32+(write_page->bottom_row-1)*write_page->width*fontheight[write_page->font];
-                z=write_page->width*fontheight[write_page->font];
-                while(z--) *lp++=z2;
-            }
-        }//graphics
-        write_page->cursor_y=write_page->bottom_row;
-    }//scroll up
-    
-}//newline
-
-void makefit(qbs *text){
-    static int32 w,x,x2,x3;
-    if (write_page->holding_cursor) return;
-    if (write_page->cursor_x!=1){//if already at left-most, nothing more can be done
-        if (write_page->text){
-            if ((write_page->cursor_x+text->len-1)>write_page->width) newline();
-            }else{
-            w=func__printwidth(text,NULL,NULL);
-            x=fontwidth[write_page->font]; if (!x) x=1; x=x*(write_page->cursor_x-1);
-            if ((x+w)>write_page->width) newline();
-        }
-    }
 }
 
+namespace qb_console_services{
+    static img_struct *write_page_(){return write_page;}
+    static img_struct *read_page_(){return read_page;}
+    static int32 image_index_(const img_struct *im){if (!im||!img) return -1; return (int32)(im-img);}
+    static img_struct *image_(int32 h){return &img[-h];}
+    static int32 new_error_(){return new_error?1:0;}
+    static void error_(int32 n){error(n);}
+    static int32 font_width_(uint32 f){return fontwidth[f];}
+    static int32 font_height_(uint32 f){return fontheight[f];}
+    static int32 font_flags_(uint32 f){return fontflags[f];}
+    static int32 printwidth_(const uint8 *text,int32 len){
+        qbs *s=qbs_new(len,0); if (len) memcpy(s->chr,text,len);
+        int32 w=func__printwidth(s,NULL,NULL);
+        qbs_free(s);
+        return w;
+    }
+    static void lprint_print_page_(){sub__printimage(lprint_image);}
+    static void key_redraw_(){key_display_redraw=1; key_update();}
+    static int32 take_width8050switch_(){int32 r=width8050switch; width8050switch=0; return r;}
+    static void width_80x50_(){//keeps the 80x25 screen contents and colours
+        std::vector<char> buffer(80*25*2);
+        uint32 c,c2;
+        c=write_page->color; c2=write_page->background_color;
+        memcpy(buffer.data(),&cmem[0xB8000],80*25*2);
+        qbsub_width(0,80,50,0,0,3);
+        memcpy(&cmem[0xB8000],buffer.data(),80*25*2);
+        write_page->color=c; write_page->background_color=c2;
+    }
+    static int32 page_count_(){return pages;}
+    //legacy LOCATE set the page-linked cursor attributes on img[i] for every used page slot i (not img[page[i]])
+    static img_struct *page_image_(int32 i){return page[i]?&img[i]:NULL;}
+    static int32 dest_(){return func__dest();}
+    static void set_dest_(int32 h){sub__dest(h);}
+    static int32 source_(){return func__source();}
+    static void set_source_(int32 h){sub__source(h);}
+    static int32 copyimage_(int32 h){return func__copyimage(h,NULL,NULL);}
+    static void freeimage_(int32 h){sub__freeimage(h,1);}
+    static void pcopy_(int32 s,int32 d){sub_pcopy(s,d);}
+    static int32 autodisplay_begin_(){int32 b=autodisplay; autodisplay=1; return b;}
+    static void autodisplay_end_(int32 b){if (b==0){autodisplay=-1; while(autodisplay) Sleep(1);}}
+    static int32 stop_program_(){return stop_program;}
+    static uint8 *bios_(){return &cmem[0x400];}
+    static void events_(){evnt(0);}
+    static void sleep_(uint32 ms){Sleep(ms);}
+}
+static const qb_console_host qb_console_host_table={
+    qb_console_services::write_page_,qb_console_services::read_page_,qb_console_services::image_index_,
+    qb_console_services::image_,qb_console_services::new_error_,qb_console_services::error_,
+    qb_console_services::font_width_,qb_console_services::font_height_,qb_console_services::font_flags_,
+    printchr_custom,chrwidth_custom,qb_console_services::printwidth_,qb_console_services::lprint_print_page_,
+    qb_console_services::key_redraw_,qb_console_services::take_width8050switch_,qb_console_services::width_80x50_,
+    qb_console_services::page_count_,qb_console_services::page_image_,qb_console_services::dest_,
+    qb_console_services::set_dest_,qb_console_services::source_,qb_console_services::set_source_,
+    qb_console_services::copyimage_,qb_console_services::freeimage_,qb_console_services::pcopy_,
+    qb_console_services::autodisplay_begin_,qb_console_services::autodisplay_end_,qb_console_services::stop_program_,
+    qb_console_services::bios_,qb_console_services::events_,qb_console_services::sleep_
+};
+static const int32 qb_console_host_ready=(qb_console_set_host(&qb_console_host_table),1);
+
+void printchr(int32 character,int32 cell_span){qb_console_printchr(character,cell_span);}
+int32 chrwidth(uint32 character){return qb_console_chrwidth(character);}
+void newline(){qb_console_newline();}
+void makefit(qbs *text){qb_console_makefit(text->chr,text->len);}
 void lprint_makefit(qbs *text){
     //stub
     //makefit(text);
 }
-
-void tab(){
-    static int32 x,x2,w;
-    
-    //tab() on a held-cursor only sets the cursor to the left hand position of the next line
-    if (write_page->holding_cursor){
-        newline(); write_page->holding_cursor=0;
-        return;
-    }
-
-    #ifdef QBNex_WINDOWS //if Windows console
-        if (write_page->console){
-            if (func_pos(0)>write_page->width-10){
-                printf("\n");
-                return;
-            }else{
-                do {
-                    printf(" ");
-                }while(func_pos(0) % 10!=0);
-            }
-            return;
-        }
-    #endif
-    
-    //text
-    if (write_page->text){
-        qbs_print(singlespace,0);
-        text:
-        if (write_page->cursor_x!=1){
-            if (((write_page->cursor_x-1)%14)||(write_page->cursor_x>(write_page->width-13))){
-                if (write_page->cursor_x<write_page->width){qbs_print(singlespace,0); goto text;}
-            }
-        }//!=1
-        return;
-    }
-    
-    x=fontwidth[write_page->font]; 
-    if (!x){
-        
-        //variable width
-        x=write_page->cursor_x-1;
-        x2=(x/112+1)*112;//next position
-        if (x2>=write_page->width){//it doesn't fit on line
-            //box fill x to end of line with background color
-            fast_boxfill(x,(write_page->cursor_y-1)*fontheight[write_page->font],write_page->width-1,write_page->cursor_y*fontheight[write_page->font]-1,write_page->background_color);
-            newline();
-            }else{//fits on line
-            //box fill x to x2-1 with background color
-            fast_boxfill(x,(write_page->cursor_y-1)*fontheight[write_page->font],x2-1,write_page->cursor_y*fontheight[write_page->font]-1,write_page->background_color);
-            write_page->cursor_x=x2;
-        }
-        
-        
-        }else{
-        
-        //fixed width
-        w=write_page->width/x;
-        
-        qbs_print(singlespace,0);
-        fixwid:
-        if (write_page->cursor_x!=1){
-            if (((write_page->cursor_x-1)%14)||(write_page->cursor_x>(w-13))){
-                if (write_page->cursor_x<w){qbs_print(singlespace,0); goto fixwid;}
-            }
-        }//!=1
-        
-    }
-    return;
-}
+void tab(){qb_console_tab();}
 
 int32 func_lpos(int32 lpt){
     //lpt values: 0 = LPT1, 1 = LPT1, 2 = LPT2, 3 = LPT3
@@ -6330,9 +5767,6 @@ void qbs_lprint(qbs* str,int32 finish_on_new_line){
     lprint=0;
 }
 
-int32 no_control_characters=0;
-int32 no_control_characters2=0;
-
 void sub__controlchr(int32 onoff){
     if (onoff==2) no_control_characters2=1; else no_control_characters2=0;
 }
@@ -6341,380 +5775,7 @@ int32 func__controlchr () {
     return -no_control_characters2;
 }
 
-void qbs_print(qbs* str,int32 finish_on_new_line){
-    if (new_error) return;
-    int32 i,i2,entered_new_line,x,x2,y,y2,z,z2,w,cell_span;
-    entered_new_line=0;
-    static uint32 character;
-    
-    if (write_page->console){
-        qb_write_utf8(reinterpret_cast<const char*>(str->chr), str->len, finish_on_new_line);
-        return;
-    }
-    
-    /*
-        if (!str->len){
-        if (!newline) return;//no action required
-        if (write_page->holding_cursor){//extra CR required before return
-        write_page->holding_cursor=0;
-        i=-1;
-        write_page->cursor_x++;
-        goto print_unhold_cursor;
-        }
-        }
-        
-        if (!str->len) goto null_length;
-        
-        if (write_page->holding_cursor){
-        write_page->holding_cursor=0;
-        i=-1;
-        write_page->cursor_x++;
-        goto print_unhold_cursor;
-        }
-    */
-    
-    //holding cursor?
-    if (write_page->holding_cursor){
-        if (str->len){
-            write_page->holding_cursor=0;
-            newline();
-            }else{
-            //null length print string
-            if (finish_on_new_line) write_page->holding_cursor=0;//new line will be entered automatically
-        }
-    }
-    
-    
-    for (i=0;i<str->len;i++){
-        
-        character=(uint8)str->chr[i];
-        
-        if (write_page->text){
-            const int32 bytes_used=qb_decode_utf8_codepoint((const uint8*)&str->chr[i],str->len-i,&character);
-            if (!bytes_used) break;
-            i+=bytes_used-1;
-        }else if (fontflags[write_page->font]&32){//unicode font
-            if (i>(str->len-4)) break;//not enough data for a utf32 encoding
-            character=*((int32*)(&str->chr[i]));
-            i+=3;
-        }
-        
-        if (lprint) lprint_buffered=1;
-        entered_new_line=0;//beginning a new line was the last action (so don't add a new one)
-        
-        
-        
-        //###special characters
-        
-        if (no_control_characters||no_control_characters2) goto skip_control_characters;
-        
-        if (character==28){
-            //advance one cursor position
-            if (lprint){
-                if (lpos<width_lprint) lpos++;
-            }
-            //can cursor advance?
-            if (write_page->cursor_y>=write_page->bottom_row){
-                if (write_page->text){
-                    if (write_page->cursor_x>=write_page->width) goto skip;
-                    }else{
-                    if (fontwidth[write_page->font]){
-                        if (write_page->cursor_x>=(write_page->width/fontwidth[write_page->font])) goto skip;
-                        }else{
-                        if (write_page->cursor_x>=write_page->width) goto skip;
-                    }
-                } 
-            }
-            write_page->cursor_x++;
-            if (write_page->text){
-                if (write_page->cursor_x>write_page->width){write_page->cursor_y++; write_page->cursor_x=1;}
-                }else{
-                if (fontwidth[write_page->font]){
-                    if (write_page->cursor_x>(write_page->width/fontwidth[write_page->font])){write_page->cursor_y++; write_page->cursor_x=1;}
-                    }else{
-                    if (write_page->cursor_x>write_page->width){write_page->cursor_y++; write_page->cursor_x=1;}
-                }
-            } 
-            goto skip;
-        }
-        
-        if (character==29){
-            //go back one cursor position
-            if (lprint){
-                if (lpos>1) lpos--;
-            }
-            //can cursor go back?
-            if ((write_page->cursor_y==write_page->top_row)||(write_page->cursor_y>write_page->bottom_row)){
-                if (write_page->cursor_x==1) goto skip;
-            }
-            write_page->cursor_x--;
-            if (write_page->cursor_x<1){
-                write_page->cursor_y--;
-                if (write_page->text){
-                    write_page->cursor_x=write_page->width;
-                    }else{
-                    if (fontwidth[write_page->font]){
-                        write_page->cursor_x=write_page->width/fontwidth[write_page->font];
-                        }else{
-                        write_page->cursor_x=write_page->width;
-                    }
-                } 
-            }
-            goto skip;
-        }
-        
-        if (character==30){
-            //previous row, same column
-            //no change if cursor not within view print boundries
-            if ((write_page->cursor_y>write_page->top_row)&&(write_page->cursor_y<=write_page->bottom_row)){
-                write_page->cursor_y--;
-            }
-            goto skip;
-        }
-        
-        if (character==31){
-            //next row, same column
-            //no change if cursor not within view print boundries
-            if ((write_page->cursor_y>=write_page->top_row)&&(write_page->cursor_y<write_page->bottom_row)){
-                write_page->cursor_y++;
-            }
-            goto skip;
-        }
-        
-        if (character==12){//aka form feed
-            if (lprint){sub__printimage(lprint_image); lprint_buffered=0;}
-            //clears text viewport
-            //clears bottom row
-            //moves cursor to top-left of text viewport
-            sub_cls(NULL,NULL,0);
-            if (lprint) lpos=1;
-            goto skip;
-        }
-        
-        if (character==11){
-            write_page->cursor_x=1; write_page->cursor_y=write_page->top_row;
-            if (lprint) lpos=1;
-            goto skip;
-        }
-        
-        if (character==9){
-            //moves to next multiple of 8 (always advances at least one space)
-            if (!fontwidth[write_page->font]){
-                //variable width!
-                x=write_page->cursor_x-1;
-                x2=(x/64+1)*64;//next position
-                if (x2>=write_page->width){//it doesn't fit on line
-                    //box fill x to end of line with background color
-                    fast_boxfill(x,(write_page->cursor_y-1)*fontheight[write_page->font],write_page->width-1,write_page->cursor_y*fontheight[write_page->font]-1,write_page->background_color);
-                    newline();
-                    entered_new_line=1;
-                    }else{//fits on line
-                    //box fill x to x2-1 with background color
-                    fast_boxfill(x,(write_page->cursor_y-1)*fontheight[write_page->font],x2-1,write_page->cursor_y*fontheight[write_page->font]-1,write_page->background_color);
-                    write_page->cursor_x=x2;
-                }
-                goto skip;
-                }else{
-                if (write_page->cursor_x%8){//next cursor position not a multiple of 8
-                    i--;//more spaces will be required
-                }
-                character=32;//override character 9
-            }
-        }//9
-        
-        if (character==7){
-            //qbnex_generatesound(783.99,0.2,0);
-            Sleep(250);
-            goto skip;
-        }
-        
-        if ((character==10)||(character==13)){
-            newline();
-            if (lprint) lpos=1;
-            //note: entered_new_line not set because these carriage returns compound on each other
-            goto skip;
-        }
-        
-        skip_control_characters:
-        
-        if (write_page->text && qb_is_zero_width_codepoint(character)){
-            int32 previous_cell=-1;
-            if (write_page->cursor_x > 1){
-                previous_cell=(write_page->cursor_y-1)*write_page->width+write_page->cursor_x-2;
-            }else if (write_page->cursor_y > write_page->top_row){
-                previous_cell=(write_page->cursor_y-2)*write_page->width+write_page->width-1;
-            }
-            if (previous_cell >= 0 && qb_append_text_cell_utf8(write_page,previous_cell,character)){
-                goto skip;
-            }
-        }
-
-        cell_span=1;
-        if (write_page->text && qb_is_wide_codepoint(character)) cell_span=2;
-        if (write_page->text && cell_span > 1){
-            if ((write_page->cursor_x + cell_span - 1) > write_page->width){
-                newline();
-            }
-        }
-        
-        //###check if character fits on line, if not move to next line
-        //(only applies to non-fixed width fonts)
-        if (!fontwidth[write_page->font]){//unpredictable width
-            w=chrwidth(character);
-            if ((write_page->cursor_x+w)>write_page->width){
-                newline();
-                //entered_new_line not set, a character will follow
-            }
-        }
-        
-        //###print the character
-        printchr(character,cell_span);
-        
-        //###advance lpos, begin new line if necessary
-        if (lprint){
-            lpos++;
-            if (lpos>width_lprint){
-                newline();
-                entered_new_line=1;
-                lpos=1;
-                goto skip;//skip cursor advancement and checking because new line entered
-            }
-        }
-        
-        //###advance cursor
-        if (fontwidth[write_page->font]){
-            write_page->cursor_x+=cell_span;
-            }else{
-            write_page->cursor_x+=w;
-        }
-        
-        //###check if another character could fit at cursor_x's location
-        if (write_page->compatible_mode){//graphics
-            x=fontwidth[write_page->font]; if (!x) x=1;
-            x2=x*(write_page->cursor_x-1);
-            if (x2>(write_page->width-x)){
-                if (!finish_on_new_line){
-                    if (i==(str->len-1)){//last character
-                        //move horizontal cursor back to right-most valid position
-                        write_page->cursor_x=write_page->width/x;
-                        write_page->holding_cursor=1;
-                        goto held_cursor;
-                    }
-                }
-                newline();
-                entered_new_line=1;
-            }
-            }else{//text
-            if (write_page->cursor_x>write_page->width){
-                if (!finish_on_new_line){
-                    if (i==(str->len-1)){//last character
-                        write_page->cursor_x--;//move horizontal cursor back to right-most valid position
-                        write_page->holding_cursor=1;
-                        goto held_cursor;
-                    }
-                }
-                newline();
-                entered_new_line=1;
-            }
-        }
-        held_cursor:
-        
-        skip:;
-        
-        /*
-            tabbing1:
-            
-            
-            write_page->cursor_x++;
-            
-            
-            
-            //hold cursor?
-            if (write_page->cursor_x>qbg_width_in_characters){//past last x position
-            if (!newline){//don't need a new line
-            if (i==(str->len-1)){//last character
-            write_page->cursor_x--;
-            write_page->holding_cursor=1;
-            goto hold_cursor;
-            }
-            }
-            }
-            
-            
-            
-            
-            qbs_print_skipchar:;
-            
-            print_unhold_cursor:
-            
-            if (write_page->cursor_x>qbg_width_in_characters){
-            qbs_print_newline:
-            newlineadded=1;
-            
-            if (write_page->cursor_y==qbg_height_in_characters) write_page->cursor_y=qbg_bottom_row;
-            
-            write_page->cursor_y++;
-            write_page->cursor_x=1;
-            
-            
-            
-            if (write_page->cursor_y>qbg_bottom_row){
-            //move screen space within view print up 1 row
-            //if (qbg_mode==13){
-            
-            ///memmove(&cmem[655360+(qbg_top_row-1)*2560],&cmem[655360+qbg_top_row*2560],(qbg_bottom_row-qbg_top_row)*2560);
-            ///memset(&cmem[655360+(qbg_bottom_row-1)*2560],0,2560);
-            if (qbg_text_only){
-            
-            memmove(qbg_active_page_offset+(qbg_top_row-1)*qbg_width_in_characters*2,
-            qbg_active_page_offset+(qbg_top_row)*qbg_width_in_characters*2,
-            (qbg_bottom_row-qbg_top_row)*qbg_width_in_characters*2);
-            for (i2=0;i2<qbg_width_in_characters;i2++){
-            qbg_active_page_offset[(qbg_bottom_row-1)*qbg_width_in_characters*2+i2*2]=32;
-            qbg_active_page_offset[(qbg_bottom_row-1)*qbg_width_in_characters*2+i2*2+1]=7;
-            
-            }
-            
-            }else{
-            memmove(qbg_active_page_offset+(qbg_top_row-1)*qbg_bytes_per_pixel*qbg_width*qbg_character_height,
-            qbg_active_page_offset+qbg_top_row*qbg_bytes_per_pixel*qbg_width*qbg_character_height,
-            (qbg_bottom_row-qbg_top_row)*qbg_bytes_per_pixel*qbg_width*qbg_character_height);
-            memset(qbg_active_page_offset+(qbg_bottom_row-1)*qbg_bytes_per_pixel*qbg_width*qbg_character_height,0,qbg_bytes_per_pixel*qbg_width*qbg_character_height);
-            }
-            
-            
-            
-            
-            write_page->cursor_y=qbg_bottom_row;
-            }
-            
-            
-            
-            }
-        */
-        
-    }//i
-    
-    null_length:
-    if (finish_on_new_line&&(!entered_new_line)) newline();
-    if (lprint){
-        if (finish_on_new_line) lpos=1;
-    }
-    
-    
-    /*
-        null_length:
-        
-        //begin new line?
-        if (newline&&(!newlineadded)) {newline=0; goto qbs_print_newline;}
-        
-        //hold cursor
-        hold_cursor:
-    */
-    
-    return;
-    
-}
+void qbs_print(qbs* str,int32 finish_on_new_line){qb_console_print(str->chr,str->len,finish_on_new_line);}
 
 template <typename T> static T qbs_cleanup(uint32 base,T passvalue){
     if (qbs_tmp_list_nexti>base) qb_qbs_cleanup(base);//clear any temp. strings created (Rust, qbs.rs)
@@ -6728,35 +5789,7 @@ void qbg_sub_window(float x1,float y1,float x2,float y2,int32 passed){
 
 
 
-void qbg_sub_view_print(int32 topline,int32 bottomline,int32 passed){
-    if (new_error) return;
-    
-    static int32 maxrows;
-    maxrows=write_page->height; if (!write_page->text) maxrows/=fontheight[write_page->font];
-    
-    if (!passed){//topline and bottomline not passed
-        write_page->top_row=1; write_page->bottom_row=maxrows;
-        write_page->cursor_y=1; write_page->cursor_x=1;
-        write_page->holding_cursor=0;
-        return;
-    }
-    
-    if (topline<=0) goto error;
-    if (topline>maxrows) goto error;
-    if (bottomline<topline) goto error;
-    if (bottomline>maxrows) goto error;
-    
-    write_page->top_row=topline;
-    write_page->bottom_row=bottomline;
-    write_page->cursor_y=write_page->top_row;
-    write_page->cursor_x=1;
-    write_page->holding_cursor=0;
-    return;
-    
-    error:
-    error(5);
-    return;
-}
+void qbg_sub_view_print(int32 topline,int32 bottomline,int32 passed){qb_console_view_print(topline,bottomline,passed);}//Rust: console/text.rs
 
 void qbg_sub_view(int32 x1,int32 y1,int32 x2,int32 y2,int32 fillcolor,int32 bordercolor,int32 passed){
     if (new_error) return;
@@ -6765,323 +5798,10 @@ void qbg_sub_view(int32 x1,int32 y1,int32 x2,int32 y2,int32 fillcolor,int32 bord
 
 
 void qbg_sub_locate(int32 row,int32 column,int32 cursor,int32 start,int32 stop,int32 passed);
-void sub_cls(int32 method,uint32 use_color,int32 passed){
-    if (new_error) return;
-    static int32 characters,i;
-    static uint16 *sp;
-    static uint16 clearvalue;
-    
-	if (write_page->console){ 
-		#ifdef QBNex_WINDOWS
-			system("cls"); //lazy but works
-			qbg_sub_locate(1, 1, 0, 0, 0, 3); //is this really necessary?
-		#else
-			if (passed&2) qbg_sub_color(0, use_color, 0, 2);
-			cout<<"\033[2J";
-			qbg_sub_locate(1, 1, 0, 0, 0, 3);
-		#endif
-		return;
-	}
-
-    //validate
-    if (passed&2){
-        if (write_page->bytes_per_pixel!=4){
-            if (use_color>write_page->mask) goto error;
-        }
-        }else{
-        use_color=write_page->background_color;
-    }
-    
-    if (passed&1){
-        if ((method>2)||(method<0)) goto error;
-    }
-    
-    
-    
-    //all CLS methods reset the cursor position
-    write_page->cursor_y=write_page->top_row;
-    write_page->cursor_x=1;
-    
-    //all CLS methods reset DRAW attributes
-    write_page->draw_ta=0.0; write_page->draw_scale=1.0;
-    
-    if (write_page->text){
-        //precalculate a (int16) value which can be used to clear the screen
-        clearvalue=(write_page->color&0xF)+(use_color&7)*16+(write_page->color&16)*8;
-        clearvalue<<=8;
-        clearvalue+=32;
-    }
-    
-    if ((passed&1)==0){//no method specified
-        //video mode: clear only graphics viewport
-        //text mode: clear text view port AND the bottom line
-        if (write_page->text){
-            //text view port
-            characters=write_page->width*(write_page->bottom_row-write_page->top_row+1);
-            sp=(uint16*)&write_page->offset[(write_page->top_row-1)*write_page->width*2];
-            for (i=0;i<characters;i++){sp[i]=clearvalue;}
-            qb_clear_text_utf8_cells_range(qb_img_index(write_page),(write_page->top_row-1)*write_page->width,characters);
-            //bottom line
-            characters=write_page->width;
-            sp=(uint16*)&write_page->offset[(write_page->height-1)*write_page->width*2];
-            for (i=0;i<characters;i++){sp[i]=clearvalue;}
-            qb_clear_text_utf8_cells_range(qb_img_index(write_page),(write_page->height-1)*write_page->width,characters);
-            key_display_redraw=1; key_update();
-            return;
-            }else{//graphics
-            //graphics view port
-            if (write_page->bytes_per_pixel==1){//8-bit
-                if (write_page->clipping_or_scaling){
-                    qb32_boxfill(write_page->window_x1,write_page->window_y1,write_page->window_x2,write_page->window_y2,use_color);
-                    }else{//fast method (no clipping/scaling)
-                    memset(write_page->offset,use_color,write_page->width*write_page->height);
-                }
-                }else{//32-bit
-                i=write_page->alpha_disabled; write_page->alpha_disabled=1;  
-                if (write_page->clipping_or_scaling){
-                    qb32_boxfill(write_page->window_x1,write_page->window_y1,write_page->window_x2,write_page->window_y2,use_color);
-                    }else{//fast method (no clipping/scaling)
-                    fast_boxfill(0,0,write_page->width-1,write_page->height-1,use_color);
-                }
-                write_page->alpha_disabled=i;
-            }
-        }
-        
-        if (write_page->clipping_or_scaling==2){
-            write_page->x=((float)(write_page->view_x2-write_page->view_x1+1))/write_page->scaling_x/2.0f+write_page->scaling_offset_x;
-            write_page->y=((float)(write_page->view_y2-write_page->view_y1+1))/write_page->scaling_y/2.0f+write_page->scaling_offset_y;
-            }else{
-            write_page->x=((float)(write_page->view_x2-write_page->view_x1+1))/2.0f;
-            write_page->y=((float)(write_page->view_y2-write_page->view_y1+1))/2.0f;
-        }
-        
-        key_display_redraw=1; key_update();
-        return;
-    }
-    
-    if (method==0){//clear everything
-        if (write_page->text){
-            characters=write_page->height*write_page->width;
-            sp=(uint16*)write_page->offset;
-            for (i=0;i<characters;i++){sp[i]=clearvalue;}
-            qb_clear_text_utf8_cells_range(qb_img_index(write_page),0,characters);
-            key_display_redraw=1; key_update();
-            return;
-            }else{
-            if (write_page->bytes_per_pixel==1){
-                memset(write_page->offset,use_color,write_page->width*write_page->height);
-                }else{ 
-                i=write_page->alpha_disabled; write_page->alpha_disabled=1;  
-                fast_boxfill(0,0,write_page->width-1,write_page->height-1,use_color);
-                write_page->alpha_disabled=i;
-            }
-        }
-        
-        if (write_page->clipping_or_scaling==2){
-            write_page->x=((float)(write_page->view_x2-write_page->view_x1+1))/write_page->scaling_x/2.0f+write_page->scaling_offset_x;
-            write_page->y=((float)(write_page->view_y2-write_page->view_y1+1))/write_page->scaling_y/2.0f+write_page->scaling_offset_y;
-            }else{
-            write_page->x=((float)(write_page->view_x2-write_page->view_x1+1))/2.0f;
-            write_page->y=((float)(write_page->view_y2-write_page->view_y1+1))/2.0f;
-        }
-        
-        key_display_redraw=1; key_update();
-        return;
-    }
-    
-    if (method==1){//ONLY clear the graphics viewport
-        if (write_page->text) return;
-        //graphics view port
-        if (write_page->bytes_per_pixel==1){//8-bit
-            if (write_page->clipping_or_scaling){
-                qb32_boxfill(write_page->window_x1,write_page->window_y1,write_page->window_x2,write_page->window_y2,use_color);
-                }else{//fast method (no clipping/scaling)
-                memset(write_page->offset,use_color,write_page->width*write_page->height);
-            }
-            }else{//32-bit
-            i=write_page->alpha_disabled; write_page->alpha_disabled=1;  
-            if (write_page->clipping_or_scaling){
-                qb32_boxfill(write_page->window_x1,write_page->window_y1,write_page->window_x2,write_page->window_y2,use_color);
-                }else{//fast method (no clipping/scaling)
-                fast_boxfill(0,0,write_page->width-1,write_page->height-1,use_color);
-            }
-            write_page->alpha_disabled=i;
-        }
-        
-        if (write_page->clipping_or_scaling==2){
-            write_page->x=((float)(write_page->view_x2-write_page->view_x1+1))/write_page->scaling_x/2.0f+write_page->scaling_offset_x;
-            write_page->y=((float)(write_page->view_y2-write_page->view_y1+1))/write_page->scaling_y/2.0f+write_page->scaling_offset_y;
-            }else{
-            write_page->x=((float)(write_page->view_x2-write_page->view_x1+1))/2.0f;
-            write_page->y=((float)(write_page->view_y2-write_page->view_y1+1))/2.0f;
-        }
-        
-        key_display_redraw=1; key_update();
-        return;
-    }
-    
-    if (method==2){//ONLY clear the VIEW PRINT range text viewport
-        if (write_page->text){
-            //text viewport
-            characters=write_page->width*(write_page->bottom_row-write_page->top_row+1);
-            sp=(uint16*)&write_page->offset[(write_page->top_row-1)*write_page->width*2];
-            for (i=0;i<characters;i++){sp[i]=clearvalue;}
-            qb_clear_text_utf8_cells_range(qb_img_index(write_page),(write_page->top_row-1)*write_page->width,characters);
-            //should not and does not redraw KEY bar
-            return;
-            }else{
-            //text viewport
-            if (write_page->bytes_per_pixel==1){//8-bit
-                memset(&write_page->offset[write_page->width*fontheight[write_page->font]*(write_page->top_row-1)],use_color,write_page->width*fontheight[write_page->font]*(write_page->bottom_row-write_page->top_row+1));
-                }else{//32-bit
-                i=write_page->alpha_disabled; write_page->alpha_disabled=1;  
-                fast_boxfill(0,fontheight[write_page->font]*(write_page->top_row-1),write_page->width-1,fontheight[write_page->font]*write_page->bottom_row-1,use_color);
-                write_page->alpha_disabled=i;
-            }
-            //should not and does not redraw KEY bar
-            return;
-        }
-    }
-    
-    return;
-    error:
-    error(5);
-    return;
-}
+void sub_cls(int32 method,uint32 use_color,int32 passed){qb_console_cls(method,use_color,passed);}//Rust: console/text.rs
 
 
-void qbg_sub_locate(int32 row,int32 column,int32 cursor,int32 start,int32 stop,int32 passed){
-    static int32 h,w,i;
-    if (new_error) return;
-
-	if (write_page->console){
-		#ifdef QBNex_WINDOWS //If trying to locate with windows console
-			CONSOLE_SCREEN_BUFFER_INFO cl_bufinfo;
-			SECURITY_ATTRIBUTES SecAttribs = {sizeof(SECURITY_ATTRIBUTES), 0, 1};
-			HANDLE cl_conout = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, & SecAttribs, OPEN_EXISTING, 0, 0);
-			GetConsoleScreenBufferInfo(cl_conout, & cl_bufinfo);
-			if (column==0)column=cl_bufinfo.dwCursorPosition.X + 1;
-			if (row==0)row=cl_bufinfo.dwCursorPosition.Y + 1;
-			COORD pos = {column-1, row-1};
-			HANDLE output = GetStdHandle (STD_OUTPUT_HANDLE);
-			SetConsoleCursorPosition(output, pos);
-		#else
-            if (passed & 1 && passed & 2){
-                printf("\033[%d;%dH", row, column);
-                return;
-            }
-            if (passed & 1){
-                printf("\033[%dd", row);
-                return;
-            }
-            if (passed & 2){
-                printf("\033[%d;%dG", column);
-                return;
-            }
-        #endif
-        return;
-	}
-
-    //calculate height & width in characters
-    if (write_page->compatible_mode){
-        h=write_page->height/fontheight[write_page->font];
-        if (fontwidth[write_page->font]){
-            w=write_page->width/fontwidth[write_page->font];
-            }else{
-            w=write_page->width;
-        }
-        }else{
-        h=write_page->height;
-        w=write_page->width;
-    }
-    
-    //PRE-ERROR CHECKING
-    if (passed&1){
-        if (row<write_page->top_row) goto error;
-        if ((row!=h)&&(row>write_page->bottom_row)){
-            if (width8050switch){//note: can assume WIDTH 80,25 as no SCREEN or WIDTH statements have been called
-                width8050switch=0;
-                if (row<=50){
-                    if (passed&2){
-                        if (column<1) goto error;
-                        if (column>w) goto error;
-                    }
-                    std::vector<char> buffer(80*25*2);
-                    uint32 c,c2;
-                    c=write_page->color; c2=write_page->background_color;
-                    memcpy(buffer.data(),&cmem[0xB8000],80*25*2);
-                    qbsub_width(0,80,50,0,0,3);
-                    memcpy(&cmem[0xB8000],buffer.data(),80*25*2);
-                    write_page->color=c; write_page->background_color=c2;
-                    goto width8050switch_done;
-                }
-            }
-            goto error;
-        }
-    }
-    width8050switch_done:
-    if (passed&2){
-        if (column<1) goto error;
-        if (column>w) goto error;
-    }
-    if (passed&4){
-        if (cursor<0) goto error;
-        if (cursor>1) goto error;
-    }
-    if (passed&8){
-        if (start<0) goto error;
-        if (start>31) goto error;
-    }
-    if (passed&16){
-        if (stop<0) goto error;
-        if (stop>31) goto error;
-    }
-    
-    if (passed&1) {write_page->cursor_y=row; write_page->holding_cursor=0;}
-    if (passed&2) {write_page->cursor_x=column; write_page->holding_cursor=0;}
-    if ((passed&3)==0){
-        if (write_page->holding_cursor) write_page->holding_cursor=2;//special case[forum/index.php?topic=5255.0]
-    }
-    
-    
-    if (passed&4){
-        if (cursor) cursor=1;
-        write_page->cursor_show=cursor;
-        if (write_page->flags&IMG_SCREEN){//page-linked attribute
-            for (i=0;i<pages;i++){
-                if (page[i]) img[i].cursor_show=cursor;
-            }
-        }//IMG_SCREEN
-    }//passed&4
-    
-    
-    if (passed&8){
-        write_page->cursor_firstvalue=start;
-        }else{
-        start=write_page->cursor_firstvalue;
-    }
-    if (passed&16){
-        write_page->cursor_lastvalue=stop;
-        }else{
-        stop=write_page->cursor_lastvalue;
-    }
-    if (passed&(8+16)){
-        if (write_page->flags&IMG_SCREEN){//page-linked attribute
-            for (i=0;i<pages;i++){
-                if (page[i]){
-                    img[i].cursor_firstvalue=start;
-                    img[i].cursor_lastvalue=stop;
-                }
-            }//i
-        }//IMG_SCREEN
-    }
-    
-    return;
-    
-    error:
-    error(5);
-    return;
-}
+void qbg_sub_locate(int32 row,int32 column,int32 cursor,int32 start,int32 stop,int32 passed){qb_console_locate(row,column,cursor,start,stop,passed);}//Rust: console/text.rs
 
 
 
@@ -7090,903 +5810,13 @@ void qbg_sub_locate(int32 row,int32 column,int32 cursor,int32 start,int32 stop,i
 
 
 
-
-//input helper functions:
-uint64 hexoct2uint64_value;
-int32 hexoct2uint64(qbs *h) {
-  // returns 0 = failed
-  //         1 = HEX value (default if unspecified)
-  //         2 = OCT value
-  //         3 = BIN value
-  static int32 i, i2;
-  static uint64 result;
-  result = 0;
-  static int32 type;
-  type = 0;
-  hexoct2uint64_value = 0;
-  if (!h->len) return 1;
-  if (h->chr[0] != 38) return 0;  // not "&"
-  if (h->len == 1) return 1;      // "&" received, but awaiting further input
-  i = h->chr[1];
-  if ((i == 72) || (i == 104)) type = 1;  // "H" or "h"
-  if ((i == 79) || (i == 111)) type = 2;  // "O" or "o"
-  if ((i == 66) || (i ==  98)) type = 3;  // "B" or "b"
-  if (!type) return 0;
-  if (h->len == 2) return type;
-
-  // unsigned _int64 max = 18446744073709551615   (decimal, 20 chars)
-  //                     = 1111111 etc., max. 64x (binary, 64 chars)
-  //                     = 1777777777777777777777 (octal, 22 chars)
-  //                     = FFFFFFFFFFFFFFFF       (hex, 16 chars)
-
-  if (type == 1) {
-    if (h->len > 18) return 0;  // larger than int64
-    for (i = 2; i < h->len; i++) {
-      result <<= 4;
-      i2 = h->chr[i];
-      //           0      -      9       /       A      -      F       /       a      -      f
-      if (((i2 >= 48) && (i2 <= 57)) || ((i2 >= 65) && (i2 <= 70)) || ((i2 >= 97) && (i2 <= 102))) {
-        if (i2 >= 97) i2 -= 32;
-        if (i2 >= 65) i2 -= 7;
-        i2 -= 48;
-        // i2 is now a values between 0 and 15
-        result += i2;
-      } else
-        return 0;  // invalid character
-    }  // i
-    hexoct2uint64_value = result;
-    return 1;
-  }  // type == 1
-
-  if (type == 2) {
-    if (h->len > 24) return 0;  // larger than int64
-    if (h->len == 24) {
-      if ((h->chr[2] != 48) && (h->chr[2] != 49))
-        return 0;  // larger than int64
-    }
-    for (i = 2; i < h->len; i++) {
-      result <<= 3;
-      i2 = h->chr[i];
-      if ((i2 >= 48) && (i2 <= 55)) {  // 0-7
-        i2 -= 48;
-        result += i2;
-      } else
-        return 0;  // invalid character
-    }  // i
-    hexoct2uint64_value = result;
-    return 2;
-  }  // type == 2
-
-  if (type == 3) {
-    if (h->len > 66) return 0;  // larger than int64
-    for (i = 2; i < h->len; i++) {
-      result <<= 1;
-      i2 = h->chr[i];
-      if ((i2 >= 48) && (i2 <= 49)) {  // 0-1
-        i2 -= 48;
-        result += i2;
-      } else
-        return 0;  // invalid character
-    }  // i
-    hexoct2uint64_value = result;
-    return 3;
-  }  // type == 3
-}
-
-
-//input method (complex, calls other qbs functions)
-const char *uint64_max[] =    {"18446744073709551615"};
-const char *int64_max[] =     {"9223372036854775807"};
-const char *int64_max_neg[] = {"9223372036854775808"};
-const char *single_max[] = {"3402823"};
-const char *single_max_neg[] = {"1401298"};
-const char *double_max[] = {"17976931"};
-const char *double_max_neg[] = {"4940656"};
-uint8 significant_digits[1024];
-int32 num_significant_digits;
 
 extern void *qbs_input_variableoffsets[257];
 extern int32 qbs_input_variabletypes[257];
-qbs *qbs_input_arguements[257];
-int32 cursor_show_last;
-
-void qbs_input(int32 numvariables,uint8 newline){
+void qbs_input(int32 numvariables,uint8 newline){//INPUT / LINE INPUT: Rust (console/input.rs)
     if (new_error) return;
-    int32 i,i2,i3,i4,i5,i6,chr;
-    
-    static int32 autodisplay_backup;
-    autodisplay_backup=autodisplay;
-    autodisplay=1;
-    
-    static int32 source_backup;
-    source_backup=func__source();
-    sub__source(func__dest());
-    
-    //duplicate dest image so any changes can be reverted
-    static int32 dest_image,dest_image_temp,dest_image_holding_cursor;
-    dest_image=func__copyimage(func__dest(),NULL,NULL);
-    if (dest_image==-1) error(516);//out of memory
-    dest_image_temp=func__copyimage(func__dest(),NULL,NULL);
-    if (dest_image_temp==-1) error(517);//out of memory
-    static int32 dest_image_cursor_x,dest_image_cursor_y;
-    dest_image_cursor_x=write_page->cursor_x;
-    dest_image_cursor_y=write_page->cursor_y;
-    dest_image_holding_cursor=write_page->holding_cursor;
-    
-    uint32 qbs_tmp_base=qbs_tmp_list_nexti;
-    
-    static int32 lineinput;
-    lineinput=0;
-    if (qbs_input_variabletypes[1]&ISSTRING){
-        if (qbs_input_variabletypes[1]&512){
-            qbs_input_variabletypes[1]=-512;
-            lineinput=1;
-        }}
-        
-        cursor_show_last=write_page->cursor_show;
-        write_page->cursor_show=1;
-        
-        int32 addspaces;
-        addspaces=0;
-        qbs* inpstr=qbs_new(0,0);//not temp so must be freed
-        qbs* inpstr2=qbs_new(0,0);//not temp so must be freed
-        qbs* key=qbs_new(0,0);//not temp so must be freed
-        qbs* c=qbs_new(1,0);//not temp so must be freed
-        
-        for (i=1;i<=numvariables;i++) qbs_input_arguements[i]=qbs_new(0,0);
-        
-        //init all passed variables to 0 or ""
-        for (i=1;i<=numvariables;i++){
-            
-            if (qbs_input_variabletypes[i]&ISSTRING){//STRING
-                if (((qbs*)qbs_input_variableoffsets[i])->fixed){
-                    memset(((qbs*)qbs_input_variableoffsets[i])->chr,32,((qbs*)qbs_input_variableoffsets[i])->len);
-                    }else{
-                    ((qbs*)qbs_input_variableoffsets[i])->len=0;
-                }
-            }
-            
-            if ((qbs_input_variabletypes[i]&ISOFFSETINBITS)==0){//reg. numeric variable
-                memset(qbs_input_variableoffsets[i],0,(qbs_input_variabletypes[i]&511)>>3);
-            }
-            
-            //bit referenced?
-            
-        }//i
-        
-        
-        
-        
-        qbs_input_next:
-        
-        int32 argn,firstchr,toomany;
-        toomany=0;
-        argn=1;
-        i=0;
-        i2=0;
-        qbs_input_arguements[1]->len=0;
-        firstchr=1;
-        qbs_input_sep_arg:
-        
-        if (i<inpstr->len){
-            
-            if (inpstr->chr[i]==44){//","
-                if (i2!=1){//not in the middle of a string
-                    if (!lineinput){
-                        i2=0;
-                        argn=argn+1;
-                        if (argn>numvariables){toomany=1; goto qbs_input_sep_arg_done;}
-                        qbs_input_arguements[argn]->len=0;
-                        firstchr=1;
-                        goto qbs_input_next_arg;
-                    }
-                }
-            }
-            
-            if (inpstr->chr[i]==34){//"
-                if (firstchr){
-                    if (!lineinput){
-                        i2=1;//requires closure
-                        firstchr=0;
-                        goto qbs_input_next_arg;
-                    }
-                }
-                if (i2==1){
-                    i2=2;
-                    goto qbs_input_next_arg;
-                }
-            }
-            
-            if (i2==2){
-                goto backspace;//INVALID! Cannot have any characters after a closed "..."
-            }
-            
-            c->chr[0]=inpstr->chr[i];
-            qbs_set(qbs_input_arguements[argn],qbs_add(qbs_input_arguements[argn],c));
-            
-            firstchr=0;
-            qbs_input_next_arg:;
-            i++;
-            goto qbs_input_sep_arg;
-        }
-        qbs_input_sep_arg_done:
-        if (toomany) goto backspace;
-        
-        //validate current arguements
-        //ASSUME LEADING & TRALING SPACES REMOVED!
-        uint8 valid;
-        uint8 neg;
-        int32 completewith;
-        int32 l;
-        uint8 *cp,*cp2;
-        uint64 max,max_neg,multiple,value;
-        uint64 hexvalue;
-        
-        completewith=-1;
-        valid=1;
-        l=qbs_input_arguements[argn]->len;
-        cp=qbs_input_arguements[argn]->chr;
-        neg=0;
-        
-        if ((qbs_input_variabletypes[argn]&ISSTRING)==0){
-            if ((qbs_input_variabletypes[argn]&ISFLOAT)==0){
-                if ((qbs_input_variabletypes[argn]&511)<=32){//cannot handle INTEGER64 variables using this method!
-                    int64 finalvalue;
-                    //it's an integer variable!
-                    finalvalue=0;
-                    if (l==0){completewith=48; goto typechecked_integer;}
-                    //calculate max & max_neg (i4 used to store number of bits)
-                    i4=qbs_input_variabletypes[argn]&511;
-                    max=1;
-                    max<<=i4;
-                    max--;
-                    
-                    //check for hex/oct/bin
-                    if (i3=hexoct2uint64(qbs_input_arguements[argn])){
-                        hexvalue=hexoct2uint64_value;
-                        if (hexvalue>max){valid=0; goto typechecked;}
-                        //i. check max num of "digits" required to represent a value, if more exist cull excess
-                        //ii. set completewith value (if necessary)
-                        if (i3==1){
-                            value=max;
-                            i=0;
-                            for (i2=1;i2<=16;i2++){
-                                if (value&0xF) i=i2;
-                                value>>=4;
-                            }
-                            if (l>(2+i)){valid=0; goto typechecked;}
-                            if (l==1) completewith=72;//"H"
-                            if (l==2) completewith=48;//"0"
-                        }
-                        if (i3==2){
-                            value=max;
-                            i=0;
-                            for (i2=1;i2<=22;i2++){
-                                if (value&0x7) i=i2;
-                                value>>=3;
-                            }
-                            if (l>(2+i)){valid=0; goto typechecked;}
-                            if (l==1) completewith=79;//"O"
-                            if (l==2) completewith=48;//"0"
-                        }
-                        if (i3==3){
-                            value=max;
-                            i=0;
-                            for (i2=1;i2<=64;i2++){
-                                if (value&0x1) i=i2;
-                                value>>=1;
-                            }
-                            if (l>(2+i)){valid=0; goto typechecked;}
-                            if (l==1) completewith=66;//"B"
-                            if (l==2) completewith=48;//"0"
-                        }
-                        finalvalue=hexvalue;
-                        goto typechecked_integer;
-                    }
-                    
-                    //max currently contains the largest UNSIGNED value possible, adjust as necessary
-                    if (qbs_input_variabletypes[argn]&ISUNSIGNED){ 
-                        max_neg=0;
-                        }else{
-                        max>>=1;
-                        max_neg=max+1;
-                    }
-                    //check for - sign
-                    i2=0;
-                    if ((qbs_input_variabletypes[argn]&ISUNSIGNED)==0){ 
-                        if (cp[i2]==45){//"-"
-                            if (l==1) {completewith=48; goto typechecked_integer;}
-                            i2++; neg=1;
-                        }
-                    }
-                    //after a leading 0 no other digits are possible, return an error if this is the case
-                    if (cp[i2]==48){
-                        if (l>(i2+1)){valid=0; goto typechecked;}
-                    }
-                    //scan the "number"...
-                    multiple=1;
-                    value=0;
-                    for (i=l-1;i>=i2;i--){
-                        i3=cp[i]-48;
-                        if ((i3>=0)&&(i3<=9)){
-                            value+=multiple*i3;
-                            if (qbs_input_variabletypes[argn]&ISUNSIGNED){ 
-                                if (value>max){valid=0; goto typechecked;}
-                                }else{
-                                if (neg){
-                                    if (value>max_neg){valid=0; goto typechecked;}
-                                    }else{
-                                    if (value>max){valid=0; goto typechecked;}
-                                }
-                            }
-                        }else{valid=0; goto typechecked;}
-                        multiple*=10;
-                    }//next i
-                    if (neg) finalvalue=-value; else finalvalue=value;
-                    typechecked_integer:
-                    //set variable to finalvalue
-                    if ((qbs_input_variabletypes[argn]&ISOFFSETINBITS)==0){//reg. numeric variable
-                        memcpy(qbs_input_variableoffsets[argn],&finalvalue,(qbs_input_variabletypes[argn]&511)>>3);
-                    }
-                    goto typechecked;
-                }
-            }
-        }
-        
-        if (qbs_input_variabletypes[argn]&ISSTRING){
-            if (((qbs*)qbs_input_variableoffsets[argn])->fixed){
-                if (l>((qbs*)qbs_input_variableoffsets[argn])->len) {valid=0; goto typechecked;}
-            }
-            qbs_set((qbs*)qbs_input_variableoffsets[argn],qbs_input_arguements[argn]);
-            goto typechecked;
-        }
-        
-        //INTEGER64 type
-        //int64 range:          \969223372036854775808 to  9223372036854775807
-        //uint64 range: 0                    to 18446744073709551615
-        if ((qbs_input_variabletypes[argn]&ISSTRING)==0){
-            if ((qbs_input_variabletypes[argn]&ISFLOAT)==0){
-                if ((qbs_input_variabletypes[argn]&511)==64){
-                    if (l==0){completewith=48; *(int64*)qbs_input_variableoffsets[argn]=0; goto typechecked;}
-                    
-                    //check for hex/oct/bin
-                    if (i3=hexoct2uint64(qbs_input_arguements[argn])){
-                        hexvalue=hexoct2uint64_value;
-                        if (hexvalue>max){valid=0; goto typechecked;}
-                        //set completewith value (if necessary)
-                        if (i3==1) if (l==1) completewith=72;//"H"
-                        if (i3==2) if (l==1) completewith=79;//"O"
-                        if (i3==3) if (l==1) completewith=66;//"B"
-                        if (l==2) completewith=48;//"0"
-                        *(uint64*)qbs_input_variableoffsets[argn]=hexvalue;
-                        goto typechecked;
-                    }
-                    
-                    //check for - sign
-                    i2=0;
-                    if ((qbs_input_variabletypes[argn]&ISUNSIGNED)==0){ 
-                        if (cp[i2]==45){//"-"
-                            if (l==1) {completewith=48; *(int64*)qbs_input_variableoffsets[argn]=0; goto typechecked;}
-                            i2++; neg=1;
-                        }
-                    }
-                    //after a leading 0 no other digits are possible, return an error if this is the case
-                    if (cp[i2]==48){
-                        if (l>(i2+1)){valid=0; goto typechecked;}
-                    }
-                    //count how many digits are in the number
-                    i4=0;
-                    for (i=l-1;i>=i2;i--){
-                        i3=cp[i]-48;
-                        if ((i3<0)||(i3>9)) {valid=0; goto typechecked;}
-                        i4++;
-                    }//i
-                    if (qbs_input_variabletypes[argn]&ISUNSIGNED){
-                        if (i4<20) goto typechecked_int64;
-                        if (i4>20) {valid=0; goto typechecked;}
-                        
-                        cp2=(uint8*)uint64_max[0];
-                        }else{
-                        if (i4<19) goto typechecked_int64;
-                        if (i4>19) {valid=0; goto typechecked;}
-                        if (neg) cp2=(uint8*)int64_max_neg[0]; else cp2=(uint8*)int64_max[0];
-                    }
-                    //number of digits valid, but exact value requires checking
-                    cp=qbs_input_arguements[argn]->chr;
-                    for (i=0;i<i4;i++){
-                        if (cp[i+i2]<cp2[i]) goto typechecked_int64;
-                        if (cp[i+i2]>cp2[i]) {valid=0; goto typechecked;}
-                    }
-                    typechecked_int64:
-                    //add character 0 to end to make it a null terminated string
-                    c->chr[0]=0; qbs_set(qbs_input_arguements[argn],qbs_add(qbs_input_arguements[argn],c));
-                    if (qbs_input_variabletypes[argn]&ISUNSIGNED){
-                        #ifdef QBNex_WINDOWS
-                            sscanf((char*)qbs_input_arguements[argn]->chr,"%I64u",(uint64*)qbs_input_variableoffsets[argn]);
-                            #else
-                            sscanf((char*)qbs_input_arguements[argn]->chr,"%llu",(uint64*)qbs_input_variableoffsets[argn]);
-                        #endif
-                        }else{
-                        #ifdef QBNex_WINDOWS
-                            sscanf((char*)qbs_input_arguements[argn]->chr,"%I64i",(int64*)qbs_input_variableoffsets[argn]);
-                            #else
-                            sscanf((char*)qbs_input_arguements[argn]->chr,"%lli",(int64*)qbs_input_variableoffsets[argn]);
-                        #endif
-                    }
-                    goto typechecked;
-                }
-            }
-        }
-        
-        //check ISFLOAT type?
-        //[-]9999[.]9999[E/D][+/-]99999
-        if (qbs_input_variabletypes[argn]&ISFLOAT){
-            static int32 digits_before_point;
-            static int32 digits_after_point;
-            static int32 zeros_after_point;
-            static int32 neg_power;
-            digits_before_point=0;
-            digits_after_point=0;
-            neg_power=0;
-            value=0;
-            zeros_after_point=0;
-            num_significant_digits=0;
-            
-            //set variable to 0
-            if ((qbs_input_variabletypes[argn]&511)==32) *(float*)qbs_input_variableoffsets[argn]=0;
-            if ((qbs_input_variabletypes[argn]&511)==64) *(double*)qbs_input_variableoffsets[argn]=0;
-            if ((qbs_input_variabletypes[argn]&511)==256) *(long double*)qbs_input_variableoffsets[argn]=0;
-            
-            //begin with a generic assessment, regardless of whether it is single, double or float
-            if (l==0){completewith=48; goto typechecked;}
-            
-            //check for hex/oct/bin
-            if (i3=hexoct2uint64(qbs_input_arguements[argn])){
-                hexvalue=hexoct2uint64_value;
-                //set completewith value (if necessary)
-                if (i3==1) if (l==1) completewith=72;//"H"
-                if (i3==2) if (l==1) completewith=79;//"O"
-                if (i3==3) if (l==1) completewith=66;//"B"
-                if (l==2) completewith=48;//"0"
-                //nb. because VC6 didn't support...
-                //error C2520: conversion from uint64 to double not implemented, use signed int64
-                //I've implemented a work-around so correct values will be returned
-                static int64 transfer;
-                transfer=0x7FFFFFFF;
-                transfer<<=32;
-                transfer|=0xFFFFFFFF;
-                while(hexvalue>transfer){
-                    hexvalue-=transfer;
-                    if ((qbs_input_variabletypes[argn]&511)==32) *(float*)qbs_input_variableoffsets[argn]+=transfer;
-                    if ((qbs_input_variabletypes[argn]&511)==64) *(double*)qbs_input_variableoffsets[argn]+=transfer;
-                    if ((qbs_input_variabletypes[argn]&511)==256) *(long double*)qbs_input_variableoffsets[argn]+=transfer;
-                }
-                transfer=hexvalue;
-                if ((qbs_input_variabletypes[argn]&511)==32) *(float*)qbs_input_variableoffsets[argn]+=transfer;
-                if ((qbs_input_variabletypes[argn]&511)==64) *(double*)qbs_input_variableoffsets[argn]+=transfer;
-                if ((qbs_input_variabletypes[argn]&511)==256) *(long double*)qbs_input_variableoffsets[argn]+=transfer;
-                goto typechecked;
-            }
-            
-            //check for - sign
-            i2=0;
-            if (cp[i2]==45){//"-"
-                if (l==1) {completewith=48; goto typechecked;}
-                i2++; neg=1;
-            }
-            //if it starts with 0, it may only have one leading 0
-            if (cp[i2]==48){
-                if (l>(i2+1)){
-                    i2++;
-                    if (cp[i2]==46) goto decimal_point;
-                    valid=0; goto typechecked;//expected a decimal point
-                    //nb. of course, user could have typed D or E BUT there is no point
-                    //    calculating 0 to the power of anything!
-                }else goto typechecked;//validate, as no other data is required
-            }
-            //scan digits before decimal place
-            for (i=i2;i<l;i++){
-                i3=cp[i];
-                if ((i3==68)||(i3==(68+32))||(i3==69)||(i3==(69+32))){//d,D,e,E?
-                    if (i==i2){valid=0; goto typechecked;}//cannot begin with d,D,e,E!
-                    i2=i;
-                    goto exponent;
-                }
-                if (i3==46){i2=i; goto decimal_point;}//nb. it can begin with a decimal point!
-                i3-=48;
-                if ((i3<0)||(i3>9)){valid=0; goto typechecked;}
-                digits_before_point++;
-                //nb. because leading 0 is handled differently, all digits are significant
-                significant_digits[num_significant_digits]=i3+48; num_significant_digits++;
-            }
-            goto assess_float;
-            ////////////////////////////////
-            decimal_point:;
-            i4=1;
-            if (i2==(l-1)) {completewith=48; goto assess_float;}
-            i2++;
-            for (i=i2;i<l;i++){
-                i3=cp[i];
-                if ((i3==68)||(i3==(68+32))||(i3==69)||(i3==(69+32))){//d,D,e,E?
-                    if (num_significant_digits){
-                        if (i==i2){valid=0; goto typechecked;}//cannot begin with d,D,e,E just after a decimal point!
-                        i2=i;
-                        goto exponent;
-                    }
-                }
-                i3-=48;
-                if ((i3<0)||(i3>9)){valid=0; goto typechecked;}
-                if (i3) i4=0;
-                if (i4) zeros_after_point++;
-                digits_after_point++;
-                if ((num_significant_digits)||i3){
-                    significant_digits[num_significant_digits]=i3+48; num_significant_digits++;
-                }
-            }//i
-            goto assess_float;
-            ////////////////////////////////
-            exponent:;
-            
-            //ban d/D for SINGLE precision input
-            if ((qbs_input_variabletypes[argn]&511)==32){//SINGLE
-                i3=cp[i2];
-                if ((i3==68)||(i3==(68+32))){//d/D
-                    valid=0; goto typechecked;
-                }
-            }
-            //correct "D" notation for c++ scanf
-            i3=cp[i2];
-            if ((i3==68)||(i3==(68+32))){//d/D
-                cp[i2]=69;//"E"
-            }
-            if (i2==(l-1)) {completewith=48; goto assess_float;}
-            i2++;
-            //check for optional + or -
-            i3=cp[i2];
-            if (i3==45){//"-"
-                if (i2==(l-1)) {completewith=48; goto assess_float;}
-                neg_power=1;
-                i2++;
-            }
-            if (i3==43){//"+"
-                if (i2==(l-1)) {completewith=48; goto assess_float;}
-                i2++;
-            }
-            //nothing valid after a leading 0
-            if (cp[i2]==48){//0
-                if (l>(i2+1)) {valid=0; goto typechecked;}
-            }
-            multiple=1;
-            value=0;
-            for (i=l-1;i>=i2;i--){
-                i3=cp[i]-48;
-                if ((i3>=0)&&(i3<=9)){
-                    
-                    value+=multiple*i3;
-                    }else{
-                    valid=0; goto typechecked;
-                }
-                multiple*=10;
-            }//i
-            //////////////////////////
-            assess_float:;
-            //nb. 0.???? means digits_before_point==0
-            
-            if ((qbs_input_variabletypes[argn]&511)==32){//SINGLE
-                //QB:           \B13.402823    E+38 to \B11.401298    E-45
-                //WIKIPEDIA:    \B13.4028234   E+38 to ?
-                //OTHER SOURCE: \B13.402823466 E+38 to \B11.175494351 E-38
-                if (neg_power) value=-value;
-                //special case->single 0 after point
-                if ((zeros_after_point==1)&&(digits_after_point==1)){
-                    digits_after_point=0;
-                    zeros_after_point=0;
-                }
-                //upper overflow check
-                //i. check that value doesn't consist solely of 0's
-                if (zeros_after_point>43){valid=0; goto typechecked;}//cannot go any further without reversal by exponent
-                if ((digits_before_point==0)&&(digits_after_point==zeros_after_point)) goto nooverflow_float;
-                //ii. calculate the position of the first WHOLE digit (in i)
-                i=digits_before_point;
-                if (!i) i=-zeros_after_point;
-                /*EXAMPLES:
-                    1.0         i=1
-                    12.0        i=2
-                    0.1         i=0
-                    0.01        i=-1
-                */
-                i=i+value;//apply exponent
-                if (i>39){valid=0; goto typechecked;}
-                //nb. the above blocks the ability to type a long-int32 number and use a neg exponent
-                //    to validate it
-                //********IMPORTANT: if i==39 then the first 7 digits MUST be scanned!!!
-                if (i==39){
-                    cp2=(uint8*)single_max[0];
-                    i2=num_significant_digits;
-                    if (i2>7) i2=7;
-                    for (i3=0;i3<i2;i3++){
-                        if (significant_digits[i3]>*cp2){valid=0; goto typechecked;}
-                        if (significant_digits[i3]<*cp2) break;
-                        cp2++;
-                    }
-                }
-                //check for pointless levels of precision (eg. 1.21351273512653625116212!)
-                if (digits_after_point){
-                    if (digits_before_point){
-                        if ((digits_after_point+digits_before_point)>8){valid=0; goto typechecked;}
-                        }else{
-                        if ((digits_after_point-zeros_after_point)>8){valid=0; goto typechecked;}
-                    }
-                }
-                //check for "under-flow"
-                if (i<-44){valid=0; goto typechecked;}
-                //********IMPORTANT: if i==-44 then the first 7 digits MUST be scanned!!!
-                if (i==-44){
-                    cp2=(uint8*)single_max_neg[0];
-                    i2=num_significant_digits;
-                    if (i2>7) i2=7;
-                    for (i3=0;i3<i2;i3++){
-                        if (significant_digits[i3]<*cp2){valid=0; goto typechecked;}
-                        if (significant_digits[i3]>*cp2) break;
-                        cp2++;
-                    }
-                }
-                nooverflow_float:;
-                c->chr[0]=0; qbs_set(qbs_input_arguements[argn],qbs_add(qbs_input_arguements[argn],c));
-                sscanf((char*)qbs_input_arguements[argn]->chr,"%f",(float*)qbs_input_variableoffsets[argn]);
-                goto typechecked;
-            }
-            
-            if ((qbs_input_variabletypes[argn]&511)==64){//DOUBLE
-                //QB: Double (15-digit) precision \B11.7976931 D+308 to \B14.940656 D-324
-                //WIKIPEDIA:    \B11.7976931348623157 D+308 to ???
-                //OTHER SOURCE: \B11.7976931348623157 D+308 to \B12.2250738585072014E-308
-                
-                
-                
-                if (neg_power) value=-value;
-                //special case->single 0 after point
-                if ((zeros_after_point==1)&&(digits_after_point==1)){
-                    digits_after_point=0;
-                    zeros_after_point=0;
-                }
-                //upper overflow check
-                //i. check that value doesn't consist solely of 0's
-                if (zeros_after_point>322){valid=0; goto typechecked;}//cannot go any further without reversal by exponent
-                if ((digits_before_point==0)&&(digits_after_point==zeros_after_point)) goto nooverflow_double;
-                //ii. calculate the position of the first WHOLE digit (in i)
-                i=digits_before_point;
-                if (!i) i=-zeros_after_point;
-                i=i+value;//apply exponent
-                if (i>309){valid=0; goto typechecked;}
-                //nb. the above blocks the ability to type a long-int32 number and use a neg exponent
-                //    to validate it
-                //********IMPORTANT: if i==309 then the first 8 digits MUST be scanned!!!
-                if (i==309){
-                    cp2=(uint8*)double_max[0];
-                    i2=num_significant_digits;
-                    if (i2>8) i2=8;
-                    for (i3=0;i3<i2;i3++){
-                        if (significant_digits[i3]>*cp2){valid=0; goto typechecked;}
-                        if (significant_digits[i3]<*cp2) break;
-                        cp2++;
-                    }
-                }
-                //check for pointless levels of precision (eg. 1.21351273512653625116212!)
-                if (digits_after_point){
-                    if (digits_before_point){
-                        if ((digits_after_point+digits_before_point)>16){valid=0; goto typechecked;}
-                        }else{
-                        if ((digits_after_point-zeros_after_point)>16){valid=0; goto typechecked;}
-                    }
-                }
-                //check for "under-flow"
-                if (i<-323){valid=0; goto typechecked;}
-                //********IMPORTANT: if i==-323 then the first 7 digits MUST be scanned!!!
-                if (i==-323){
-                    cp2=(uint8*)double_max_neg[0];
-                    i2=num_significant_digits;
-                    if (i2>7) i2=7;
-                    for (i3=0;i3<i2;i3++){
-                        if (significant_digits[i3]<*cp2){valid=0; goto typechecked;}
-                        if (significant_digits[i3]>*cp2) break;
-                        cp2++;
-                    }
-                }
-                nooverflow_double:;
-                c->chr[0]=0; qbs_set(qbs_input_arguements[argn],qbs_add(qbs_input_arguements[argn],c));
-                sscanf((char*)qbs_input_arguements[argn]->chr,"%lf",(double*)qbs_input_variableoffsets[argn]);
-                goto typechecked;
-            }
-            
-            if ((qbs_input_variabletypes[argn]&511)==256){//FLOAT
-                //at present, there is no defined limit for FLOAT type numbers, so no restrictions
-                //are applied!
-                c->chr[0]=0; qbs_set(qbs_input_arguements[argn],qbs_add(qbs_input_arguements[argn],c));
-                
-                //sscanf((char*)qbs_input_arguements[argn]->chr,"%lf",(long double*)qbs_input_variableoffsets[argn]);
-                static double sscanf_fix;
-                sscanf((char*)qbs_input_arguements[argn]->chr,"%lf",&sscanf_fix);
-                *(long double*)qbs_input_variableoffsets[argn]=sscanf_fix;
-                
-            }
-            
-            
-        }//ISFLOAT
-        
-        //undefined/uncheckable types fall through as valid!
-        typechecked:;
-        if (!valid) goto backspace;
-        
-        
-        
-        qbs_set(inpstr2,inpstr);
-        
-        
-        //input a key
-        
-        
-        
-        qbs_input_invalidinput:
-        
-        static int32 showing_cursor;
-        showing_cursor=0;
-        
-        qbs_input_wait_for_key:
-        
-        //toggle box cursor
-        if (!write_page->text){
-            i=1;
-            if ((write_page->font>=32)||(write_page->compatible_mode==256)||(write_page->compatible_mode==32)){
-                if (GetTicks()&512) i=0;
-            }
-            if (i!=showing_cursor){
-                showing_cursor^=1;
-                static int32 x,y,x2,y2,fx,fy,alpha,cw;
-                static uint32 c;
-                alpha=write_page->alpha_disabled; write_page->alpha_disabled=1;
-                fy=fontheight[write_page->font];
-                fx=fontwidth[write_page->font]; if (!fx) fx=1;
-                cw=fx; if ((write_page->font>=32)||(write_page->compatible_mode==256)||(write_page->compatible_mode==32)) cw=1;
-                y2=(write_page->cursor_y-1)*fy;
-                for (y=0;y<fy;y++){
-                    x2=(write_page->cursor_x-1)*fx;
-                    for (x=0;x<cw;x++){
-                        pset (x2,y2,point(x2,y2)^write_page->color);
-                        x2++;
-                    }
-                    y2++;
-                }
-                write_page->alpha_disabled=alpha;
-            }
-        }//!write_page->text
-        
-        if (addspaces){
-            addspaces--;
-            c->chr[0]=32; qbs_set(key,c);
-            }else{
-            
-            if (write_page->console){
-                qbs_set(key,qbs_new_txt(""));
-                chr=fgetc(stdin);
-                if (chr!=EOF){
-                    if (chr=='\n') chr=13;
-                    qbs_set(key,qbs_new_txt(" "));  
-                    key->chr[0]=chr;  
-                }else{Sleep(10);}
-                }else{
-                Sleep(10);
-                qbs_set(key,qbs_inkey());
-                
-            }
-            
-            qbs_cleanup(qbs_tmp_base,0);
-        }
-        if (stop_program) return;
-        if (key->len!=1) goto qbs_input_wait_for_key;
-        
-        //remove box cursor
-        if (!write_page->text){
-            if (showing_cursor){
-                showing_cursor=0;
-                static int32 x,y,x2,y2,fx,fy,cw,alpha;
-                static uint32 c;
-                alpha=write_page->alpha_disabled; write_page->alpha_disabled=1;
-                fy=fontheight[write_page->font];
-                fx=fontwidth[write_page->font]; if (!fx) fx=1;
-                cw=fx; if ((write_page->font>=32)||(write_page->compatible_mode==256)||(write_page->compatible_mode==32)) cw=1;
-                y2=(write_page->cursor_y-1)*fy;
-                for (y=0;y<fy;y++){
-                    x2=(write_page->cursor_x-1)*fx;
-                    for (x=0;x<cw;x++){
-                        pset (x2,y2,point(x2,y2)^write_page->color);
-                        x2++;
-                    }
-                    y2++;
-                }
-                write_page->alpha_disabled=alpha;
-            }
-        }//!write_page->text
-        
-        //input should disallow certain characters
-        if (key->chr[0]==7) {qbs_print(key,0); goto qbs_input_next;}//beep!
-        if (key->chr[0]==10) goto qbs_input_next;//linefeed
-        if (key->chr[0]==9){//tab
-            i=8-(inpstr2->len&7);
-            addspaces=i;
-            goto qbs_input_next;
-        }
-        //other ASCII chars that cannot be printed
-        if (key->chr[0]==11) goto qbs_input_next;
-        if (key->chr[0]==12) goto qbs_input_next;
-        if (key->chr[0]==28) goto qbs_input_next;
-        if (key->chr[0]==29) goto qbs_input_next;
-        if (key->chr[0]==30) goto qbs_input_next;
-        if (key->chr[0]==31) goto qbs_input_next;
-        
-        if (key->chr[0]==13){
-            //assume input is valid
-            
-            //autofinish (if necessary)
-            
-            //assume all parts entered
-            
-            for (i=1;i<=numvariables;i++){
-                qbs_free(qbs_input_arguements[i]);
-            }
-            
-            if (newline){
-                c->len=0;
-                if (!write_page->console) qbs_print(c,1);
-            }
-            qbs_free(c);
-            qbs_free(inpstr);
-            qbs_free(inpstr2);
-            qbs_free(key);
-            
-            write_page->cursor_show=cursor_show_last;
-            
-            sub__freeimage(dest_image,1); sub__freeimage(dest_image_temp,1);
-            
-            if (autodisplay_backup==0){
-                autodisplay=-1;//toggle request
-                while(autodisplay) Sleep(1);
-            }
-            
-            sub__source(source_backup);
-            
-            return;
-        }
-        
-        if (key->chr[0]==8){//backspace
-            backspace:
-            if (!inpstr->len) goto qbs_input_invalidinput;
-            inpstr->len--;
-            i2=func__dest();//backup current dest
-            sub_pcopy(dest_image,dest_image_temp);//copy original background to temp
-            //write characters to temp
-            sub__dest(dest_image_temp);
-            write_page->cursor_x=dest_image_cursor_x; write_page->cursor_y=dest_image_cursor_y; write_page->holding_cursor=dest_image_holding_cursor;
-            for (i=0;i<inpstr->len;i++){key->chr[0]=inpstr->chr[i]; qbs_print(key,0);}
-            sub__dest(i2);
-            //copy temp to dest
-            sub_pcopy(dest_image_temp,i2);
-            //update cursor
-            write_page->cursor_x=img[-dest_image_temp].cursor_x; write_page->cursor_y=img[-dest_image_temp].cursor_y;
-            goto qbs_input_next;
-        }
-        
-        //affect inpstr2 with key
-        qbs_set(inpstr2,qbs_add(inpstr2,key));
-        
-        //perform actual update
-        if (!write_page->console) qbs_print(key,0);
-        
-        qbs_set(inpstr,inpstr2);
-        
-        goto qbs_input_next;
-        
-}//qbs_input
+    qb_console_input(qbs_input_variableoffsets,qbs_input_variabletypes,numvariables,newline);
+}
 
 // VAL lives in the Rust runtime (crates/qb-runtime/src/val.rs).
 long double func_val(qbs *s){
@@ -8689,33 +6519,8 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     }
     
     
-    int32 func_csrlin(){
-        #ifdef QBNex_WINDOWS //Windows console CSRLIN support
-            if (write_page->console){
-                CONSOLE_SCREEN_BUFFER_INFO cl_bufinfo;
-                SECURITY_ATTRIBUTES SecAttribs = {sizeof(SECURITY_ATTRIBUTES), 0, 1};
-                HANDLE cl_conout = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, & SecAttribs, OPEN_EXISTING, 0, 0);
-                GetConsoleScreenBufferInfo(cl_conout, & cl_bufinfo);
-                return cl_bufinfo.dwCursorPosition.Y + 1;
-            }
-        #endif
-        if (write_page->holding_cursor){
-            if (write_page->cursor_y>=write_page->bottom_row) return write_page->bottom_row; else return write_page->cursor_y+1;
-        }
-        return write_page->cursor_y;
-    }
-    int32 func_pos(int32 ignore){
-        #ifdef QBNex_WINDOWS
-            if (write_page->console){ //qbnex console CSRLIN 
-                CONSOLE_SCREEN_BUFFER_INFO cl_bufinfo;
-                SECURITY_ATTRIBUTES SecAttribs = {sizeof(SECURITY_ATTRIBUTES), 0, 1};
-                HANDLE cl_conout = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, & SecAttribs, OPEN_EXISTING, 0, 0);
-                GetConsoleScreenBufferInfo(cl_conout, & cl_bufinfo);
-                return cl_bufinfo.dwCursorPosition.X + 1;
-            }
-        #endif
-        if (write_page->holding_cursor) return 1;
-        return write_page->cursor_x;
+    int32 func_csrlin(){return qb_console_csrlin();}//Rust: console/text.rs
+    int32 func_pos(int32 ignore){return qb_console_pos();
     }
     
     
@@ -9155,94 +6960,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     
     
-    uint32 func_screen(int32 y,int32 x,int32 returncol,int32 passed){
-        
-        static uint8 chr[65536];
-        static int32 x2,y2,x3,y3,i,i2,i3;
-        static uint32 col,firstcol;
-        uint8 *cp;
-        
-        if (!passed) returncol=0;
-
-        #ifdef QBNex_WINDOWS
-            if (read_page->console){
-                SECURITY_ATTRIBUTES SecAttribs = {sizeof(SECURITY_ATTRIBUTES), 0, 1};
-                HANDLE cl_conout = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, & SecAttribs, OPEN_EXISTING, 0, 0);
-                COORD cp1 = {x-1, y-1};
-                DWORD t;
-                uint16 a; 
-                if (returncol){
-                    int x1 = ReadConsoleOutputAttribute(cl_conout, &a, 1, cp1, &t) ;
-                    return a;
-                } else {
-                    ReadConsoleOutputCharacterA(cl_conout, (char *) &a, 1, cp1, &t) ;
-                    return a & 0xff;
-                }
-            }
-        #endif
-        
-        if (read_page->text){
-            //on screen?
-            if ((y<1)||(y>read_page->height)){error(5); return 0;}
-            if ((x<1)||(x>read_page->width)){error(5); return 0;}
-            if (returncol){
-                return read_page->offset[((y-1)*read_page->width+x-1)*2+1];
-            }
-            return read_page->offset[((y-1)*read_page->width+x-1)*2];
-        }
-        
-        //only 8x8,8x14,8x16 supported
-        if ((read_page->font!=8)&&(read_page->font!=14)&&(read_page->font!=16)){error(5); return 0;}
-        
-        //on screen?
-        x2=read_page->width/fontwidth[read_page->font];
-        y2=read_page->height/fontheight[read_page->font];
-        if ((y<1)||(y>y2)){error(5); return 0;}
-        if ((x<1)||(x>x2)){error(5); return 0;}
-        
-        //create "signature" of character on screen
-        x--; y--;
-        i=0;
-        i3=1;
-        y3=y*fontheight[read_page->font];
-        for (y2=0;y2<fontheight[read_page->font];y2++){
-            x3=x*fontwidth[read_page->font];
-            for (x2=0;x2<fontwidth[read_page->font];x2++){
-                col=point(x3,y3);
-                if (col){
-                    if (i3){i3=0;firstcol=col;}
-                    col=255;
-                }
-                chr[i]=col;
-                i++;
-                x3++;
-            }
-            y3++;
-        }
-        
-        if (i3){//assume SPACE, no non-zero pixels were found
-            if (returncol) return 1;
-            return 32;
-        }
-        
-        i3=i;//number of bytes per character "signature"
-        
-        //compare signature with all ascii characters
-        for (i=0;i<=255;i++){
-            if (read_page->font==8) cp=&charset8x8[i][0][0];
-            if (read_page->font==14) cp=&charset8x16[i][1][0];
-            if (read_page->font==16) cp=&charset8x16[i][0][0];
-            i2=memcmp(cp,chr,i3);
-            if (!i2){//identical!
-                if (returncol) return firstcol;
-                return i;
-            }
-        }
-        
-        //no match found
-        if (returncol) return 0;
-        return 32;
-    }
+    uint32 func_screen(int32 y,int32 x,int32 returncol,int32 passed){return qb_console_screen(y,x,returncol,passed);}//Rust: console/text.rs
     
     void sub_bsave(qbs *filename,int32 offset,int32 size){
         if (new_error) return;
@@ -9372,27 +7090,9 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
             str->len=len;
             if (e) error(e);
             return str;
-            }else{
-            //keyboard/piped
-            //      For extended-two-byte character codes, only the first, CHR$(0), is returned and counts a 1 byte
-            if (n<0){error(52); return str;}
-            if (n==0) return str;
-            x=0;
-            waitforinput:
-            str2=qbs_inkey();
-            if (str2->len){
-                str->chr[x]=str2->chr[0];
-                x++;
             }
-            qbs_free(str2);
-            if (stop_program) return str;
-            if (x<n){
-                evnt(0);//check for new events
-                Sleep(10);
-                goto waitforinput;
-            }
-            return str;
-        }
+        qb_console_input_n(n,str->chr);//keyboard (Rust: console/keyboard.rs), error 52 if n<0
+        return str;
     }
 
     void sub_file_line_input_string(int32 fileno, qbs *deststr){
@@ -10058,10 +7758,7 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
                 memcpy(d->pal,s->pal,1024);
                 d->flags|=IMG_FREEPAL;
             }
-            if (d->text && source_index < qb_text_utf8_cells.size() && i2 < qb_text_utf8_cells.size()){
-                qb_text_utf8_cells[i2]=qb_text_utf8_cells[source_index];
-                qb_text_utf8_cell_state[i2]=qb_text_utf8_cell_state[source_index];
-            }
+            if (d->text) qb_text_cells_copy(source_index,i2);
             //adjust flags
             if (d->flags&IMG_SCREEN)d->flags^=IMG_SCREEN;
             //return new handle
@@ -14344,8 +12041,7 @@ int main( int argc, char* argv[] ){
     
     
     //init fake keyb. cyclic buffer
-    cmem[0x41a]=30; cmem[0x41b]=0; //head
-    cmem[0x41c]=30; cmem[0x41d]=0; //tail
+    qb_inkey_clear(&cmem[0x400]);
     
     ifstream fh;
     
@@ -14891,12 +12587,7 @@ void display(){
             qbg_y_offset=0;//the screen base offset
             cp=display_page->offset;//read from
             cp_last=screen_last;//written to for future comparisons
-            std::vector<std::string> *text_utf8_cells=NULL;
-            std::vector<uint8> *text_utf8_cell_state=NULL;
-            if (display_page_index >= 0 && display_page_index < qb_text_utf8_cells.size() && !qb_text_utf8_cells[display_page_index].empty()){
-                text_utf8_cells=&qb_text_utf8_cells[display_page_index];
-                text_utf8_cell_state=&qb_text_utf8_cell_state[display_page_index];
-            }
+            int32 text_utf8_cells=qb_text_cells_present(display_page_index);//UTF-8 side table (Rust: console/cells.rs)
             
             
             if (BGRA_to_RGBA) swap_paldata_BGRA_with_RGBA();
@@ -14930,8 +12621,12 @@ void display(){
                                 cell_index=y*display_page->width+x;
                                 cell_span=qb_text_cell_span(display_page_index,cell_index);
                                 if (cell_span == 0) goto skip;
-                                if (cell_index >= 0 && cell_index < static_cast<int32>(text_utf8_cells->size()) && !(*text_utf8_cells)[cell_index].empty()){
-                                    cell_utf8=&((*text_utf8_cells)[cell_index]);
+                                static std::string cell_utf8_copy;
+                                int32 cell_len=qb_text_cell_utf8(display_page_index,cell_index,NULL,0);
+                                if (cell_len>0){
+                                    cell_utf8_copy.resize(cell_len);
+                                    qb_text_cell_utf8(display_page_index,cell_index,(uint8*)&cell_utf8_copy[0],cell_len);
+                                    cell_utf8=&cell_utf8_copy;
                                 }
                             }
                             
@@ -16029,16 +13724,7 @@ void keydown(uint32 x){
                 b1=z;
             }
         }//b2
-        static int32 i,i2,i3;
-        i=cmem[0x41a];
-        i2=cmem[0x41c];
-        i3=i2+2;
-        if (i3==62) i3=30;
-        if (i!=i3){//fits in buffer
-            cmem[0x400+i2]=b1;
-            cmem[0x400+i2+1]=b2;//(scancode)
-            cmem[0x41c]=i3;//fix tail location
-        }
+        qb_inkey_push(&cmem[0x400],b1,b2);//Rust: console/keyboard.rs
         goto key_handled;
     }//x<=255
     
@@ -16095,16 +13781,7 @@ void keydown(uint32 x){
                 b2=scancode_lookup[r*10+1];
             }
         }//z
-        static int32 i,i2,i3;
-        i=cmem[0x41a];
-        i2=cmem[0x41c];
-        i3=i2+2;
-        if (i3==62) i3=30;
-        if (i!=i3){//fits in buffer
-            cmem[0x400+i2]=b1;
-            cmem[0x400+i2+1]=b2;//(scancode)
-            cmem[0x41c]=i3;//fix tail location
-        }
+        qb_inkey_push(&cmem[0x400],b1,b2);//Rust: console/keyboard.rs
         goto key_handled;
     }//x<=65536
     
@@ -16292,63 +13969,8 @@ void sub__consolefont(qbs* FontName, int FontSize){
 }
 
 
-void sub__console_cursor(int32 visible, int32 cursorsize, int32 passed){
-    #ifdef QBNex_WINDOWS
-    HANDLE consoleHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-    CONSOLE_CURSOR_INFO info;
-    
-    GetConsoleCursorInfo(consoleHandle, &info); //get the original info, so we reuse it, unless the user called for a change.
+void sub__console_cursor(int32 visible, int32 cursorsize, int32 passed){qb_console_cursor(visible,cursorsize,passed);}//Rust: console/stdio.rs
 
-    if (visible==1)info.bVisible = TRUE; //cursor is set to show
-    if (visible==2)info.bVisible = FALSE; //set to hide
-    if (passed&&cursorsize>=0&&cursorsize<=100)info.dwSize = cursorsize;  //the user passed the cursor size, of a suitable size
-        
-    SetConsoleCursorInfo(consoleHandle, &info);
-    #endif
-}
+int32 func__getconsoleinput(){return qb_console_input_event();}//Rust: console/stdio.rs
 
-int32 func__getconsoleinput(){
-    #ifdef QBNex_WINDOWS
-    HANDLE hStdin = GetStdHandle (STD_INPUT_HANDLE);
-    INPUT_RECORD irInputRecord;
-    DWORD dwEventsRead, fdwMode, dwMode;
-    CONSOLE_SCREEN_BUFFER_INFO cl_bufinfo;
- 
-    GetConsoleMode(hStdin, (LPDWORD)&dwMode);
-    fdwMode = ENABLE_EXTENDED_FLAGS;
-    SetConsoleMode(hStdin, fdwMode);
-    fdwMode = dwMode | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
-    SetConsoleMode(hStdin, fdwMode);
-
-    ReadConsoleInputA (hStdin, &irInputRecord, 1, &dwEventsRead);
-    switch(irInputRecord.EventType){
-        case KEY_EVENT: //keyboard input
-            consolekey = irInputRecord.Event.KeyEvent.wVirtualScanCode;
-            if (!irInputRecord.Event.KeyEvent.bKeyDown) consolekey = -consolekey; //positive/negative return of scan codes.
-            return 1;
-        case MOUSE_EVENT: //mouse input
-            consolemousex = irInputRecord.Event.MouseEvent.dwMousePosition.X + 1;
-            consolemousey = irInputRecord.Event.MouseEvent.dwMousePosition.Y - cl_bufinfo.srWindow.Top + 1; 
-            consolebutton = irInputRecord.Event.MouseEvent.dwButtonState; //button state for all buttons
-            //SetConsoleMode(hStdin, dwMode);
-            return 2;
-    }
-    #endif
-    return 0; //in case it's some other odd input
-}
-
-int32 func__cinp (int32 toggle, int32 passed){
-    #ifdef QBNex_WINDOWS
-        int32 temp = consolekey;
-        consolekey = 0; //reset the console key, now that we've read it
-        if (passed==0)toggle=1; //default return of positive/negative scan code values
-        if (toggle) {
-            return temp;
-        }else{
-            if (temp>=0)return temp;
-            return -temp + 128;
-        }
-    #else
-        return 0;
-    #endif
-}
+int32 func__cinp (int32 toggle, int32 passed){return qb_console_cinp(toggle,passed);}//Rust: console/stdio.rs

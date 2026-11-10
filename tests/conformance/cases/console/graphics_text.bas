@@ -1,0 +1,21 @@
+' R12a: text in a graphics mode (SCREEN 13): wrap, hold, scroll, CLS, SCREEN() glyph matching.
+$CONSOLE
+SCREEN 13
+COLOR 12
+PRINT "Hello"; 7
+LOCATE 3, 38: PRINT "ABCDE";
+a = CSRLIN: b = POS(0)
+LOCATE 25, 1: PRINT "last";
+c = CSRLIN
+PRINT
+d = CSRLIN
+VIEW PRINT 2 TO 4
+CLS 2
+e = CSRLIN
+VIEW PRINT
+LOCATE 1, 1: PRINT CHR$(219); "Q";
+_DEST _CONSOLE
+PRINT a; b; c; d; e
+PRINT SCREEN(1, 1); SCREEN(1, 1, 1); SCREEN(1, 2); SCREEN(1, 3); SCREEN(25, 1)
+PRINT POINT(0, 0); POINT(7, 7)
+SYSTEM

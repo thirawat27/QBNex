@@ -24,6 +24,7 @@
 | R12b Core runtime (errors, DATA/READ, allocators, arrays, events, waits) | **done (Windows)**, Linux/macOS unverified | `error.rs`, `program.rs`, `numparse.rs`, `alloc.rs`, `arrays.rs`, `mathfn.rs`, `events.rs`, `waits.rs`; legacy C++ deleted from `libqb.cpp`/`qbx.cpp`, one-line shims left. See [R12b](#r12b-core-runtime) |
 | R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `crates/qb-exec`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
 | R11d `_FLOAT` + FFI | **done (Windows x64; Linux x86-64 and AArch64 unit/integration tests)** | `crates/qb-float80` (software x87, `diff_float80` 87.5M checks 0 mismatches) and `crates/qb-ffi` (DECLARE [DYNAMIC] LIBRARY, Win64/SysV/AAPCS64 thunks); see [R11d](#r11d-_float-and-declare-library) |
+| R12a Text console | **done (Windows)**, Linux/macOS unverified | PRINT/LOCATE/CSRLIN/POS/CLS/VIEW PRINT/SCREEN(), SCREEN 0 cells + UTF-8 side table, INPUT/LINE INPUT/INPUT$/INKEY$, `$CONSOLE` paths in `crates/qb-runtime/src/console/`; `diff_console` 0 mismatches; `libqb.cpp` ~2,400 lines shorter. See [R12a](#r12a-text-console-branch-claudr12a-console-5af87c) |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
@@ -240,6 +241,48 @@ Deviations:
 | D-112 | `_FLOAT` parameters or results in `DECLARE LIBRARY` are a compile error in the QIR backend. | `long double` has a compiler-specific C ABI (Win64 MinGW passes it by reference, SysV in x87 memory class, AArch64 Linux as binary128). |
 
 Not done here: the emitter check and the VM calls (R11a/R11b own them; the API above is ready). `DECLARE STATIC LIBRARY`/static `.a`/`.lib`/`.o` cannot be loaded at run time; such programs need a shared library.
+
+## R12a: text console (branch `claude/r12a-console-5af87c`)
+
+`libqb.cpp`: 2,514 lines removed, 136 added (shims and the host table). Rust module `crates/qb-runtime/src/console/`, C ABI in `include/qb_console.h`.
+
+| Rust module | Replaces (libqb.cpp) |
+| --- | --- |
+| `console/text.rs` | `printchr` (text cells; built-in fonts through `gfx/text.rs`), `chrwidth`, `newline` (text and graphics scrolling), `makefit`, `tab` (PRINT `,` zones, Windows console path), `qbs_print` (control characters 7/9-13/28-31, `_CONTROLCHR`, wide and zero-width code points, hold cursor), `qbg_sub_view_print`, `sub_cls`, `qbg_sub_locate` (incl. the 80x50 switch), `func_csrlin`, `func_pos`, `func_screen` |
+| `console/input.rs` | `hexoct2uint64`, `qbs_input` (INPUT / LINE INPUT line editor with per-keystroke type checks, box cursor, backspace redraw) |
+| `console/keyboard.rs` | `qbs_inkey`, the BIOS INKEY$ ring writes in `keydown`, the INKEY$ part of `_KEYCLEAR`, keyboard `INPUT$` |
+| `console/stdio.rs` | `qb_write_utf8` (WriteConsoleW / CRT stdout), `$CONSOLE` LOCATE, CSRLIN, POS, COLOR, CLS, WIDTH, SCREEN(), `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`, console key/mouse state |
+| `console/cells.rs`, `console/utf8.rs` | the UTF-8 side table of SCREEN 0 surfaces (`qb_text_utf8_cells`/`_state`), UTF-8 decoding, width classes, `codepage437_to_unicode16` (now a Rust symbol), `unicode_to_cp437` |
+| `console/ffi.rs` | `qb_console_*` C ABI and `qb_console_host`, the table of services libqb.cpp registers at start-up |
+
+Design: every function takes the surface from a `Host` (`write_page`, `read_page`) and re-reads it after each host call, like the C++ globals did. libqb.cpp provides the host as a static table (fonts, custom `_LOADFONT` glyphs, `_DEST`/`_SOURCE`, `_COPYIMAGE`/`PCOPY` for INPUT, KEY bar redraw, `_AUTODISPLAY`); `qb-exec` can implement the `Host` trait directly. `lprint`, `lpos`, `width_lprint`, `lprint_buffered`, `no_control_characters(2)` and `consolekey`/`consolemouse*` are Rust `#[unsafe(no_mangle)]` statics. stdout/stdin still go through the CRT `FILE` streams (text-mode newline translation and buffering shared with the C++ that still prints).
+
+Stays in C++ on purpose: custom-font glyph rendering (`printchr_custom`, `chrwidth_custom`; R7 owns fonts), the screen-mode part of `WIDTH` (`qbsub_width`, tied to `qbg_screen` orchestration), `qbs_lprint`/LPRINT page handling, `_DEST`/`_SOURCE` selection, `_CONSOLEFONT`, PRINT USING (already Rust via `numfmt.rs`), the text-mode renderer in `display()` (reads the side table through `qb_text_cell_utf8`).
+
+Verified on Windows (Rust 1.99.1, MinGW g++):
+
+- Unit tests: 18 in `console::*` (text cells/attributes, hold cursor, scrolling inside VIEW PRINT, zones and control characters, wide/zero-width cells, LOCATE checks and the 80x50 switch, CLS methods, graphics text and SCREEN(), custom-font host calls, INKEY$ ring, INPUT of integers/strings/doubles/hex, validation rules, INPUT$). All failed on `todo!()` bodies first.
+- `diff_console` (verbatim legacy in `tests/diff/legacy/console_*.inc` vs Rust; text 80x25 and 24x6, 8-bit, 32-bit and custom-font surfaces): 400,000 random operations (PRINT of ASCII/control/CP437/UTF-8 text, `,`, makefit, VIEW PRINT, CLS, LOCATE, CSRLIN/POS, SCREEN(), colours, `_CONTROLCHR`, INKEY$ ring) and 20,000 INPUT/LINE INPUT entries (13 variable types, random and boundary-value key scripts with backspace/tab) compared after every step: surfaces, cursor state, UTF-8 cells, errors, KEY redraws, variable bytes: **0 mismatches**. Mutation runs: PRINT zone width 14 -> 13 gives 25 mismatches in the first 25 operations; SINGLE zero-limit 43 -> 3 in INPUT gives mismatches within 600 entries.
+- Conformance: 3 new cases `console/text_screen0`, `console/graphics_text`, `console/input_stdin` (golden from `.oracle`).
+
+Legacy behaviour kept bug for bug (documented, no case unless noted):
+
+- Characters outside code page 437 are stored as byte 0 in the SCREEN 0 character plane (the `'?'` fallback of `qb_unicode_to_screen_byte` is unreachable); the side table holds the real character.
+- LOCATE's cursor-shape page link writes `img[i]` for every used page slot `i`, not `img[page[i]]`.
+- INPUT validates only the argument being typed: backspacing over a comma leaves the later variable at its last value. A `_FLOAT` entry sscanf cannot read (`"."`) stores the previous `_FLOAT` input (function-static `sscanf_fix`). The exponent arithmetic wraps like legacy `int32 + uint64`.
+- `PRINT a, b` to a redirected console still loops (L-02).
+
+| ID | Defect | Case | Severity |
+| --- | --- | --- | --- |
+| L-R12a-1 | PRINT of a TAB character (CHR$(9)) as the last character of a string never returns when the cursor reaches the right edge of a surface whose width in characters is not a multiple of 8 (the hold-cursor path re-processes the tab forever). Ported as is. | `diff_console` keeps surfaces 8-aligned | Medium |
+
+| ID | Change | Why |
+| --- | --- | --- |
+| D-R12a-1 | INPUT of `&H`/`&O`/`&B` into an `_INTEGER64` variable compares with the "largest value" left by an earlier `INTEGER`/`LONG` argument of the same INPUT, or with 2^64-1 when there is none. Legacy read an uninitialised local in that case. | Undefined in legacy. |
+| D-R12a-2 | `$CONSOLE` CSRLIN/POS/LOCATE/SCREEN() close the `CONOUT$` handle they open and read a zeroed buffer info when there is no console (legacy leaked one handle per call and read an uninitialised structure). `_CONSOLEINPUT` mouse Y subtracts the real window top (legacy: uninitialised). | Resource leak / undefined values. |
+| D-R12a-3 | Non-Windows `$CONSOLE` LOCATE with only a column writes `ESC[<col>G` (legacy passed one argument to a two-argument format). Unverified on Linux/macOS. | Undefined in legacy. |
+
+Not verified: Linux/macOS console paths (ANSI output, CRT stream symbols `stdout`/`__stdoutp`), `_CONSOLECURSOR`/`_CONSOLEINPUT` interactively, LPRINT paging.
 
 ## How the pieces fit
 

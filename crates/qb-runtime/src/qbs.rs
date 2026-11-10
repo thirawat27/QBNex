@@ -1367,4 +1367,4 @@ pub unsafe extern "C" fn qb_qbs_reset() {
 
 #[cfg(test)]
 #[path = "qbs_tests.rs"]
-mod tests;
+pub(crate) mod tests;
