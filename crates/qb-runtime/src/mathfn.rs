@@ -47,7 +47,10 @@ pub fn fix(x: f64) -> f64 {
 
 /// Number of significant bits of a negative value's two's complement
 /// representation, widened to `neg_bits` or the next 16/32/64 boundary.
+/// `neg_bits` is a type width (8..=64); anything else is clamped so the result
+/// always fits the 64-digit buffer of `qb_radix_string` (R14).
 fn neg_width(value: i64, neg_bits: i32) -> i32 {
+    let neg_bits = neg_bits.clamp(0, 64);
     let mut i2 = 0;
     let mut v = value;
     for i in 1..=64 {
@@ -232,6 +235,16 @@ pub unsafe extern "C" fn qb_radix_string(value: i64, neg_bits: i32, radix: i32, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn odd_widths_never_exceed_the_64_byte_buffer() {
+        for w in [-5, 0, 65, 1000, i32::MIN, i32::MAX] {
+            assert!(bin(-1, w).len() <= 64);
+            assert!(oct(-1, w).len() <= 64);
+            assert!(hex(-1, w).len() <= 16);
+        }
+        assert_eq!(bin(-1, 1000).len(), 64);
+    }
 
     #[test]
     fn checked_functions() {

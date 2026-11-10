@@ -97,3 +97,6 @@ pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(p, len) }
     }
 }
+
+#[cfg(test)]
+mod robustness_tests;
