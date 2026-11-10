@@ -1017,6 +1017,29 @@ FUNCTION IrArgAs$ (e$, t$)
     IrT = t$
 END FUNCTION
 
+' " %a %b ..." for raw (fixed) arguments IrArgs() converted to the comma-separated QIR types;
+' missing arguments are zero. withpassed: append the C++ backend's optional-argument flags.
+FUNCTION IrArgList$ (types$, nargs AS LONG, passed AS LONG, withpassed AS LONG)
+    DIM r$, t$, k AS LONG, rest$, p AS LONG
+    DIM sv(1 TO 32) AS STRING
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    rest$ = types$ + ","
+    k = 0
+    DO WHILE LEN(rest$)
+        p = INSTR(rest$, ","): t$ = LEFT$(rest$, p - 1): rest$ = MID$(rest$, p + 1)
+        k = k + 1
+        IF k <= nargs AND LEN(sv(k)) > 0 THEN
+            r$ = r$ + " " + IrArgAs$(sv(k), t$)
+        ELSEIF t$ = "str" THEN
+            r$ = r$ + " " + IrConstStr$("")
+        ELSE
+            r$ = r$ + " " + IrConst$(t$, "0")
+        END IF
+    LOOP
+    IF withpassed THEN r$ = r$ + " " + IrI32$(passed)
+    IrArgList$ = r$
+END FUNCTION
+
 FUNCTION IrRt$ (nm$, args$, rt$)
     DIM d$
     IF LEN(rt$) THEN d$ = IrReg$: IrE "rt " + d$ + " " + nm$ + args$: IrT = rt$ ELSE IrE "rt " + nm$ + args$
@@ -1229,6 +1252,26 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "i32")
         CASE "_CONNECTIONADDRESS$", "_CONNECTIONADDRESS"
             r$ = IrRt$("_CONNECTIONADDRESS$", " " + IrArgAs$(sv(1), "i32"), "str")
+        CASE "_SNDOPEN"
+            x$ = IrArgAs$(sv(1), "str")
+            IF nargs >= 2 THEN y$ = IrArgAs$(sv(2), "str"): z$ = IrI32$(1) ELSE y$ = IrConstStr$(""): z$ = IrI32$(0)
+            r$ = IrRt$("_SNDOPEN", " " + x$ + " " + y$ + " " + z$, "i32")
+            IF IrTy$(typ) <> "i32" THEN r$ = IrCvt$(r$, "i32", IrTy$(typ)): IrT = IrTy$(typ)
+        CASE "_SNDCOPY", "_SNDPLAYING", "_SNDPAUSED"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "i32")
+            IF IrTy$(typ) <> "i32" THEN r$ = IrCvt$(r$, "i32", IrTy$(typ)): IrT = IrTy$(typ)
+        CASE "_SNDLEN", "_SNDGETPOS"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "f64")
+        CASE "_SNDOPENRAW", "_SNDRATE"
+            r$ = IrRt$(nm$, "", "i32")
+            IF IrTy$(typ) <> "i32" THEN r$ = IrCvt$(r$, "i32", IrTy$(typ)): IrT = IrTy$(typ)
+        CASE "_SNDRAWLEN"
+            IF nargs >= 1 THEN
+                IF LEN(sv(1)) THEN r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32") + " " + IrI32$(1), "f64"): GOTO irfdone
+            END IF
+            r$ = IrRt$(nm$, " " + IrI32$(0) + " " + IrI32$(0), "f64")
+        CASE "PLAY"
+            r$ = IrRt$("PLAY.f", " " + IrI32$(0), "i32")
         CASE "VARPTR", "SADD"
             IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
             IF x$ = "" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
@@ -1407,7 +1450,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     DIM k AS LONG, nm$, x$, y$
     DIM sv(1 TO 100) AS STRING
     FOR k = 1 TO nargs
-        IF LEN(IrArgs(k)) THEN sv(k) = fixoperationorder$(IrArgs(k)) ELSE sv(k) = ""
+        IF LEN(IrArgs(k)) AND IrArgs(k) <> "N-LL" THEN sv(k) = fixoperationorder$(IrArgs(k)) ELSE sv(k) = ""
     NEXT
     IF ids(idn).internal_subfunc = 0 THEN
         FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
@@ -1415,9 +1458,23 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         EXIT SUB
     END IF
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
+    FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
     SELECT CASE nm$
-        CASE "CLS", "BEEP"
+        CASE "CLS"
             IrE "rt " + nm$
+        CASE "BEEP": IrE "rt BEEP"
+        CASE "SOUND": IrE "rt SOUND" + IrArgList$("f64,f64", nargs, -1, 0)
+        CASE "PLAY": IrE "rt PLAY" + IrArgList$("str", nargs, -1, 0)
+        CASE "_VOICE", "_SNDCLOSE", "_SNDPLAY", "_SNDPAUSE", "_SNDLOOP", "_SNDSTOP": IrE "rt " + nm$ + IrArgList$("i32", nargs, -1, 0)
+        CASE "_ADSR": IrE "rt _ADSR" + IrArgList$("f64,f64,f64,f64,i32", nargs, passed, 1)
+        CASE "_WAVE": IrE "rt _WAVE" + IrArgList$("str,i32", nargs, passed, 1)
+        CASE "_SNDPLAYCOPY": IrE "rt _SNDPLAYCOPY" + IrArgList$("i32,f64", nargs, passed, 1)
+        CASE "_SNDPLAYFILE": IrE "rt _SNDPLAYFILE" + IrArgList$("str,i32,f64", nargs, passed, 1)
+        CASE "_SNDVOL": IrE "rt _SNDVOL" + IrArgList$("i32,f32", nargs, -1, 0)
+        CASE "_SNDBAL": IrE "rt _SNDBAL" + IrArgList$("i32,f64,f64,f64,i32", nargs, passed, 1)
+        CASE "_SNDSETPOS", "_SNDLIMIT": IrE "rt " + nm$ + IrArgList$("i32,f64", nargs, -1, 0)
+        CASE "_SNDRAW": IrE "rt _SNDRAW" + IrArgList$("f32,f32,i32", nargs, passed, 1)
+        CASE "_SNDRAWDONE": IrE "rt _SNDRAWDONE" + IrArgList$("i32", nargs, passed, 1)
         CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "_FONT", "_CONSOLETITLE", "_CONSOLE"
             'screen state: no visible effect on redirected console output
         CASE "SLEEP"

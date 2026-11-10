@@ -15,6 +15,7 @@ use qb_float80::{F80, Round};
 use std::collections::HashMap;
 use std::io::Write;
 
+mod audiox;
 mod files;
 mod netx;
 mod memx;
@@ -408,6 +409,8 @@ pub(crate) struct Vm<'a> {
     /// TCP/IP handles
     pub(crate) net: netx::Net,
     pub(crate) net_pending_error: i32,
+    /// qb-audio started (snd_init)
+    pub(crate) snd_started: bool,
     /// DEF SEG base (bytes); None = DBLOCK
     pub(crate) def_seg: Option<usize>,
     data_pos: usize,
@@ -1175,6 +1178,7 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         field_cur: (0, 0),
         net: netx::Net::default(),
         net_pending_error: 0,
+        snd_started: false,
         data_pos: 0,
         rt: rt::RtState::new(out),
     };
