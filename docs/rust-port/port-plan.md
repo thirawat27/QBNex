@@ -24,7 +24,7 @@
 > | R7 | Fonts + image codec (FreeType → skrifa + ab_glyph_rasterizer, stb_image/dr_pcx → Rust ports + `png`/`zune-jpeg`) | glyph/decoded image tests | done (Windows), ดู progress.md |
 > | R8 | Window/input/threads (freeglut+GLEW+gui.cpp → winit + softbuffer, atomic event flags) | interactive scripted tests 3 OS | pending |
 > | R9 | Net, clipboard, screen capture, printer | loopback + platform tests | **เสร็จ (Windows)** · TCP (`std::net`), clipboard (Win32 / `arboard`), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer, `GetTicks` + start-of-day time — C++ legacy ลบแล้ว (`printer.cpp`, `myip.cpp`, `time64.*`) |
-> | R10 | ลบ C++ legacy, vendored third-party, `download/` dirs; เหลือแค่ `qbx.cpp` + glue | repo ไม่มี third-party C ที่ไม่ใช้ | pending |
+> | R10 | ลบ C++ legacy, vendored third-party, `download/` dirs; เหลือแค่ `qbx.cpp` + glue | repo ไม่มี third-party C ที่ไม่ใช้ | done (Windows), ดู progress.md |
 > | R11 (เสนอ) | ให้ compiler BASIC emit Rust (หรือ IR ที่ runtime Rust รัน) แทน C++ → ลบ `qbx.cpp` และ C++ สุดท้าย; ผู้ใช้ต้องมี `rustc` แทน `g++` | ไม่มีไฟล์ C/C++ ใน repo | ต้องอนุมัติ |
 >
 > ประมาณการ R1–R10 ≈ 10–14 PM (Assumed). R8 เสี่ยงสุดเพราะเปลี่ยน thread model
@@ -323,3 +323,17 @@ flowchart LR
 | H11 Debt register ปิดงาน | ไล่ F0–F16 + finding ใหม่จาก H1–H10 ทีละข้อ: ปิด / ยอมรับพร้อมเหตุผล | ทุกข้อมีสถานะ |
 
 ผลลัพธ์: `docs/rust-port/hardening-report.md` (finding ทุกข้อมี evidence/impact/severity/confidence ตามรูปแบบ debt register) และทุก fix มี regression test.
+
+### 9.6 R15 — 3D (หลังทุกเฟสก่อนหน้า รวม R14)
+
+คำขอของเจ้าของ (2026-11-10). ยังไม่มีการรองรับ 3D ในระบบตอนนี้: `SUB _GL` ถูกปิดตั้งแต่ R8 (D-09) และ runtime วาดด้วย CPU (softbuffer). ข้อจำกัดเดิมยังใช้: ไม่มี C/C++, pure-Rust crate, backward compatible.
+
+| งาน | วิธี | Exit gate |
+| --- | --- | --- |
+| G1 GPU backend | `wgpu` (Vulkan/DX12/Metal/WebGPU) ใน crate ใหม่ `crates/qb-gpu`; หน้าต่าง winit เดิมได้ surface GPU; 2D ปัจจุบันยัง pixel-exact (CPU path เป็น reference) | conformance กราฟิกเดิมผ่าน; เปิด GPU ได้ทั้ง 3 OS |
+| G2 `SUB _GL` กลับมา | OpenGL บริบทจริงผ่าน `glutin` + `glow` (pure Rust binding) ให้โปรแกรม QB64 เดิมที่ใช้ `_GL*` รันได้ | ปิด D-09; ตัวอย่าง `_GL` ของ QB64 รันได้ |
+| G3 `_MAPTRIANGLE` 3D | โหมด `_DEPTHBUFFER`, `_SMOOTH`, `_CLOCKWISE`, perspective ของ QB64 บน GPU | ผลตรงกับ QB64 oracle |
+| G4 3D API ใหม่ระดับสูง | `_MESH`, `_MODEL3D` (โหลด glTF/OBJ ด้วย `gltf`/`tobj`), `_CAMERA`, `_LIGHT`, `_MATERIAL`, `_TEXTURE`, `_DRAW3D`; คณิต vector/matrix (`glam`) เป็น built-in | conformance + ภาพ golden (render offscreen) |
+| G5 Shader | `_SHADER` รับ WGSL; compile ด้วย `naga` | ตัวอย่าง shader รันได้ |
+| G6 ประสิทธิภาพ | instancing, batching; benchmark ฉาก 10k triangle/วินาที | ≥ 60 fps บนเครื่องทดสอบ |
+

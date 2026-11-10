@@ -595,7 +595,6 @@ FUNCTION PrepareWindowsBuildCommand$ (file$, libqb$, libs$, defines$, pchOptions
         a$ = StrRemove(a$, "-mwindows")
         a$ = StrRemove(a$, "-lopengl32")
         a$ = StrRemove(a$, "-lglu32")
-        a$ = StrRemove(a$, "parts\core\os\win\src.a")
         a$ = StrRemove(a$, "-D FREEGLUT_STATIC")
         a$ = StrRemove(a$, "-D GLEW_STATIC")
     END IF

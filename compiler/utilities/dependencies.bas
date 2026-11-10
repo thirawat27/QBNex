@@ -268,7 +268,7 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     ' Audio (SOUND/PLAY/_SND*) is implemented in the Rust runtime (libqb_runtime.a,
     ' crate crates/qb-audio), which is always on the link line; the old
     ' parts/audio libraries are gone. The defines select the shims in
-    ' parts/audio/out/src.c, and only those reference the audio code.
+    ' internal/c/libqb/audio_bridge.cpp, and only those reference the audio code.
     IF DEPENDENCY(DEPENDENCY_AUDIO_CONVERSION) THEN defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_CONVERSION"
     IF DEPENDENCY(DEPENDENCY_AUDIO_DECODE) THEN defines$ = defines$ + defines_header$ + "DEPENDENCY_AUDIO_DECODE"
     IF DEPENDENCY(DEPENDENCY_AUDIO_OUT) THEN
@@ -276,20 +276,14 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
         IF lnx THEN libs$ = libs$ + " -lasound" ' cpal ALSA backend
     END IF
 
-    IF DEPENDENCY(DEPENDENCY_ZLIB) THEN
-        defines$ = defines$ + defines_header$ + "DEPENDENCY_ZLIB"
-        IF MacOSX THEN
-            libs$ = libs$ + " -lz"
-        ELSE
-            libs$ = libs$ + " -l:libz.a"
-        END IF
-    END IF
+    'R10: _DEFLATE/_INFLATE use qb-runtime (compress.rs); the system zlib is not linked
+    IF DEPENDENCY(DEPENDENCY_ZLIB) THEN defines$ = defines$ + defines_header$ + "DEPENDENCY_ZLIB"
 
     IF LEN(libs$) THEN libs$ = libs$ + " "
     PATH_SLASH_CORRECT libs$
     IF LEN(defines$) THEN defines$ = defines$ + " "
 
-    'R8: freeglut/GLEW (parts\core) are gone; the window is part of the Rust runtime (qb-runtime)
+    'R8: freeglut/GLEW are gone; the window is part of the Rust runtime (qb-runtime)
 
     depstr$ = ver$ + "_"
     FOR i = 1 TO DEPENDENCY_LAST

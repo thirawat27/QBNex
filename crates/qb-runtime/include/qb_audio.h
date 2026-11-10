@@ -1,7 +1,7 @@
 // qb_audio.h — C ABI of the Rust audio runtime (crates/qb-audio).
 //
 // Replaces internal/c/parts/audio/out/audio.cpp + miniaudio. Called only by
-// the shims in internal/c/parts/audio/out/src.c when DEPENDENCY_AUDIO_OUT is
+// the shims in internal/c/libqb/audio_bridge.cpp when DEPENDENCY_AUDIO_OUT is
 // defined, so console-only programs never reference these symbols and do not
 // link the audio code. Functions returning int32_t "err" give a QBasic error
 // number (0 = none). Strings are (pointer, length) pairs.

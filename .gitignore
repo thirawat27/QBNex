@@ -48,3 +48,5 @@ build/
 # Prebuilt QIR runner (crates/qb-exec/os/<os>/setup_build output)
 /crates/qb-exec/bin/
 /temp/
+/tests/corpus-local/*
+!/tests/corpus-local/README.md

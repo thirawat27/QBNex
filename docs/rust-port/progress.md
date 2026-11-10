@@ -19,8 +19,9 @@
 | R7 Fonts + image codecs | **done (Windows)** | FreeType 2.4.9 wrapper → `qb_runtime::font` (skrifa + ab_glyph_rasterizer); stb_image 2.27 + dr_pcx → `qb_runtime::image` (ports + png/zune-jpeg crates). FreeType, stb_image, dr_pcx deleted (~170k lines of C). See [R7](#r7-fonts-and-image-codecs) |
 | R8 Window / input / threads | **done (Windows), Linux/macOS unverified** | freeglut, GLEW, `libqb/gui.cpp` and `parts/input/game_controller` deleted; Rust `window.rs` (winit + softbuffer), `keymap.rs`, `keybuf.rs`, `raster.rs`, `script.rs`, `gamepad.rs` (gilrs); see "R8" below |
 | R9 Net, clipboard, screen, printer, clock | **done (Windows)**, Linux/macOS unverified | TCP (`std::net`), clipboard (Win32 `CF_TEXT`/`CF_BITMAP`, `arboard` elsewhere), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer page output, `GetTicks` + TIMER start-of-day. Deleted: socket layer, X11/Cocoa/Win32 clipboard, screen code, `libqb/printer.{cpp,h}`, `myip.cpp`, `time64.{c,cpp,h}`; `libqb.cpp` ~1,860 lines shorter. See [R9 notes](#r9-notes) |
-| R10 | pending | — |
+| R10 Third-party and leftover C/C++ removal | **done (Windows)** | `internal/c/parts/` deleted, system zlib replaced by `zlib-rs`, gl.h parser removed, licenses rewritten. See [R10](#r10-third-party-and-leftover-cc-removal) |
 | R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `crates/qb-exec`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
+| R11d `_FLOAT` + FFI | **done (Windows x64; Linux x86-64 and AArch64 unit/integration tests)** | `crates/qb-float80` (software x87, `diff_float80` 87.5M checks 0 mismatches) and `crates/qb-ffi` (DECLARE [DYNAMIC] LIBRARY, Win64/SysV/AAPCS64 thunks); see [R11d](#r11d-_float-and-declare-library) |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
@@ -158,7 +159,7 @@ Build changes: makelines/CMake/setup scripts no longer build or link `parts/core
 | ID | Change |
 | --- | --- |
 | D-13 | "Hardware" images are rendered in software at SCREEN resolution and then scaled with the frame; edge pixels and bilinear filtering can differ from the OpenGL output. `_DISPLAYORDER _GLRENDER` layers are ignored. |
-| D-14 | `SUB _GL` / `_gl*` (OpenGL) are not supported: such programs stop at C++ compile time with an `#error` naming D-14 (`graphics/sub_gl` xfail). A `glow`-based GL path would need a GL context next to softbuffer; not done. |
+| D-14 | `SUB _GL` / `_gl*` (OpenGL) are not supported: since R10 the compiler rejects `SUB _GL` with an error naming D-14 (before: C++ `#error`) (`graphics/sub_gl` xfail). A `glow`-based GL path would need a GL context next to softbuffer; not done. |
 | D-15 | Game controller buttons/axes use gilrs' standard layout (fixed indices, 19 buttons, 8 axes, Y axes down-positive); legacy reported raw driver order. |
 | D-16 | Attaching more controllers than `device_max` no longer overflows the heap (legacy assigned `realloc` to a local). |
 | D-17 | The process is per-monitor DPI aware (winit), so a 640x480 SCREEN is 640x480 physical pixels; legacy was DPI-unaware and got scaled by Windows. A non-ASCII key no longer emits a stray ANSI keyup on release. |
@@ -190,6 +191,35 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 - Round 2: `cargo run --release -p qbnex-conformance -- --qb-arg --ir` passes **15 of 33** cases (C++ backend: 26 + 7 xfail). Added loops, SELECT CASE, FUNCTION/STATIC, arrays, DATA/READ/RESTORE, RND/RANDOMIZE, MK$/CV/MBF, DEFtype and more builtins (TDD, `qb-exec` tests 18 + 19 + 7 unit, 4 end-to-end). The L-01, L-03 and L-04 cases run correctly under QIR (`crates/qb-exec/tests/fixtures/legacy_defects`).
 - The CMake target `qb-exec` (built with `qb-selfhost`) produces `crates/qb-exec/bin/<os>/qb-exec`; on Windows it imports only system DLLs.
 - Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
+
+## R11d: `_FLOAT` and `DECLARE LIBRARY`
+
+API contract for the emitter and the VM: [`r11d-ffi-float80.md`](r11d-ffi-float80.md).
+
+What the legacy build really did (checked in the disassembly of `libqb_*.o` and `libmingwex.a`):
+
+- `EXP` of a `_FLOAT` calls `expl`; **every** `^` goes through `pow2(long double, long double)` and `powl`; `FIX`/`INT` use `ceill`/`floorl`.
+- `SIN`, `COS`, `TAN`, `ATN` are emitted into `qbx.cpp`, which has no `using namespace std`, so they call the **double** C functions; `LOG` and `SQR` are `func_log(double)` / `func_sqr(double)`; `STR$`/`PRINT` of `_FLOAT` format `(double)value`. Only `EXP`, `^`, arithmetic, comparisons and conversions are really 80-bit.
+- MinGW-w64's `expl`/`exp2l`/`log2l` use `f2xm1`/`fyl2x`/`fyl2xp1`, which the x87 unit does not round correctly (about 3% of random inputs one ulp off). Bit-exact results therefore need those three instructions on the same CPU; `qb-float80` runs them on the x87 unit on x86 and in software elsewhere (D-111).
+
+Evidence:
+
+- `cargo test -p qb-float80`: 23 tests (Windows), 21 under qemu-aarch64 (the hardware-comparison tests are x86 only); `--features soft-transcendentals` also passes.
+- `diff_float80` (`tests/diff`, in `run_diff.cmd`): real MinGW `long double` vs Rust over random bit patterns (unnormals, pseudo-NaN/infinity, pseudo-denormals), denormals, specials, ties and near-ties, all four rounding modes: `fadd/fsub/fmul/fdiv/fsqrt/frndint/fscale/fucomi`, `fld/fst` f32/f64, `fild`, `fistp`/`fisttp` 16/32/64, u64 casts, legacy `qbr`, `expl`, `exp2l`, `log2l`, `powl`, `__powil`, `ldexpl`, `floorl`, `ceill`, legacy `func_exp_float`/`pow2`/`func_fix_float` incl. error codes, `__mingw_strtold` (value and end pointer, `nan(...)` payloads, hex floats) and `__mingw_snprintf` `%Le/%Lf/%Lg` up to 70 digits: **87,481,972 checks, 0 mismatches**. Mutation run (reference under precision control 53 bits): 573,263 mismatches. Software primitives vs hardware: f2xm1 97.6%, fyl2x 97.4%, fyl2xp1 96.7% identical, none more than 1 ulp off.
+- qb-runtime: `VAL` uses `qb_float80::dec::decimal_to_f80`, `f64_from_f80`/`qb_f80_to_f64` and DRAW's `long double` load use `F80::to_f64`, new `qb_str_f80`; `cargo test -p qb-runtime --lib` 265/265 (the clipboard test failed once while other sessions used the clipboard and passed on rerun).
+- `cargo test -p qb-ffi`: 18 tests (8 unit, 10 integration with real calls: `getpid` and `strlen` without a header, `GetCurrentProcessId`, `MessageBeep`, libc by name, 20 mixed arguments spilling to the stack, return-type narrowing, a cdylib built from Rust by the test). Pass on Windows x64 (msvc and gnu), Linux x86-64 (WSL Debian, rustc 1.99.1) and Linux AArch64 (qemu-aarch64, cross gcc as linker). macOS (x86_64/aarch64) only built.
+- `cargo clippy -p qb-float80 -p qb-ffi --all-targets`: 0 warnings (Windows, Linux, macOS targets).
+- Re-run after merging rust-port d05cc0f (Rust 1.99.1, edition 2024): full `diff_float80` 87,481,972 checks, 0 mismatches; qb-runtime 265/265, qb-float80 23/23, qb-ffi 18/18 on Windows; qb-float80 + qb-ffi pass on WSL Debian x86-64 and under qemu-aarch64; clippy 0 warnings.
+
+Deviations:
+
+| ID | Change | Why |
+| --- | --- | --- |
+| D-110 | `DECLARE LIBRARY "x"` where the legacy compiler finds `x.h`/`x.hpp` is a compile error in the QIR backend (message: `qb_ffi::header_error`). Port-plan D11 calls this D-10; that id was already taken by R5. | Headers can hold macros and inline C; no C compiler. |
+| D-111 | Off x86 (or with `soft-transcendentals`), `f2xm1`/`fyl2x`/`fyl2xp1` inside `EXP` and `^` with a fractional exponent are computed in software: up to one ulp from the x87 result for about 3% of inputs. | The x87 results are not correctly rounded and differ between CPU models. |
+| D-112 | `_FLOAT` parameters or results in `DECLARE LIBRARY` are a compile error in the QIR backend. | `long double` has a compiler-specific C ABI (Win64 MinGW passes it by reference, SysV in x87 memory class, AArch64 Linux as binary128). |
+
+Not done here: the emitter check and the VM calls (R11a/R11b own them; the API above is ready). `DECLARE STATIC LIBRARY`/static `.a`/`.lib`/`.o` cannot be loaded at run time; such programs need a shared library.
 
 ## How the pieces fit
 
@@ -403,6 +433,52 @@ Gate "loop benchmark <= 2x of the C++ path": met (1.0x). Not met yet: SUB/FUNCTI
 - Tests: every qb-jit semantics test compares interpreter, JIT and AOT; AOT on every 10th random program; objects for host, x86-64 ELF and AArch64 ELF link (`aot_objects_link_for_every_target`); `qb-exec/tests/aot.rs` runs programs from images and a real `qb-exec build` exe against the VM.
 - Measured (whole process, warm file cache): 50M-iteration loop 111 ms native exe vs 880 ms C++ exe (mostly C++ start-up) and 108 ms JIT; array loop 74 ms vs 800 ms; float loop 75 ms vs 930 ms.
 - Not yet: the exe is still the runner (VM present for strings/builtins/calls) rather than a PE/ELF written from scratch; `qb file.bas` does not call `build` yet (R11a/packaging); Linux/macOS/aarch64 load not run here (code generation and linking are tested).
+
+## R10 third-party and leftover C/C++ removal
+
+### Removed
+
+| Removed | Why it could go | Replacement |
+| --- | --- | --- |
+| `internal/c/parts/zlib/src.c` + the system zlib (`-l:libz.a` / `-lz`, `#include <zlib.h>` in `qbx.cpp`) | last third-party C library linked into user programs | `crates/qb-runtime/src/compress.rs` (`qb_deflate_bound`/`qb_deflate`/`qb_inflate`, zlib-rs); shim `libqb/compress_bridge.cpp` keeps the legacy buffer logic |
+| `parts/core/gl_header_for_parsing/` (`gl.h` 1,050 lines, `temp/gl_helper_code.h` 1,297 lines) and `compiler/subs_functions/extensions/opengl/` (gl.h parser, `_gl*` keyword table) | `SUB _GL` cannot run on the Rust window layer (D-14); the parser ran at every compiler start | `SUB _GL` is now a compile error: "SUB _GL (OpenGL) is not supported by this QBNex runtime (deviation D-14)" |
+| `parts/core/os/*` (empty `src.a`), `parts/video/font/ttf/os/*` + `placeholder.c` (empty `src.o`) | only the old stage0 snapshot (L-00 workaround) still built and linked them; `internal/source` is regenerated | — |
+| `parts/network/src.c` (empty), `parts/network/log.txt` | unreferenced | — |
+| `libqb/common/common.h` (217 lines), `libqb/os/*/build_test.*`, `purge_all_precompiled_content.{bat,command,sh}`, `purge_libqb_only.bat` | unreferenced (`git grep`) | — |
+| `licenses/license_gnu_lgpl_2.txt`, `license_gnu_lgpl_2_1.txt`, `license_zlib.txt`; FreeGLUT entry and stale paths in `COPYING.TXT` | FreeGLUT and zlib are gone; nothing shipped is (L)GPL | `COPYING.TXT` rewritten; new `licenses/THIRD_PARTY.TXT` lists all 304 runtime crates by license (generated by `scripts/third_party_licenses.py`) |
+| Build references: CMake `QBNEX_TTF_*`, the FreeType step in `setup_win.cmd`/`setup_lnx.sh`/`setup_osx.command`, Docker `parts` steps and `-lGL -lGLU`, CI/Docker/setup apt packages `libglu1-mesa-dev`/`libgl-dev`/`zlib1g-dev`, `linker.bas` `parts\core` removal | nothing builds `parts` any more | Linux needs `libasound2-dev`, `libudev-dev`, `pkg-config` |
+
+Moved (content unchanged except include paths), so `internal/c/parts/` no longer exists: `parts/audio/out/{src.c,audio.h}` -> `libqb/audio_bridge.{cpp,h}`, `parts/video/image/src.c` -> `libqb/image_bridge.cpp`, `parts/video/font/ttf/src.c` -> `libqb/font_bridge.cpp`. `libqb.cpp` only changed its four `#include` lines.
+
+Bootstrap: the old snapshot read `gl.h` at start-up, so `qb.exe` was built once with a temporary untracked copy, `internal/source` regenerated (`scripts/refresh_stage0_snapshot.cmd`), then `scripts\setup_win.cmd` rebuilt stage0 and `qb.exe` from scratch without it; a second refresh left `internal/source` unchanged.
+
+### Deviation
+
+| ID | Deviation | Reason |
+| --- | --- | --- |
+| D-R10-1 | `_DEFLATE$` output bytes can differ from zlib 1.3.1's (identical for about 1 input in 3 in `diff_zlib`); it is always a valid zlib stream that zlib inflates exactly. `_INFLATE$` is unchanged. | zlib-rs compresses with zlib-ng's match finder. |
+
+### Evidence (Windows, MinGW g++ 15.2, rustc 1.99.1)
+
+- `cargo test -p qb-runtime --lib compress`: 9 tests (bound, round trips, zlib-produced input, short/exact/zero-length buffers, truncated and garbage input); RED first against stubs (8 failed).
+- `diff_zlib` (MinGW `libz.a` vs Rust, `tests/diff/diff_zlib.cpp`): 75,370 checks, **0 mismatches**: `compressBound`, `uncompress` result code, length and output bytes at capacities 0/1/half/n-1/n/n+1/random, truncated input, 12,000 corrupt streams (bit flips, garbage) incl. partial output, and zlib reading every Rust stream back. A first version on miniz_oxide failed this harness (no "distance too far back" check), which is why zlib-rs is used.
+- `scripts\setup_win.cmd` from scratch (stage0 from the new snapshot, then `qb.exe`), after merging `rust-port` (Rust 1.99.1, edition 2024).
+- `cargo test --workspace`: all pass (`clipboard_round_trips` fails only while other sessions use the shared clipboard; passes alone). `cargo clippy --workspace --all-targets`: 0 warnings.
+- Conformance: 70 cases, 64 passed, 6 xfail, 0 failed (run per folder because parallel sessions exhausted RAM; one `audio/synth_statements` compile failure was `cc1plus: out of memory` and passed on rerun). New case `strings/deflate_inflate`.
+- `tests/smoke/*_smoke.cmd`: 8/8 pass.
+- `tests/diff/run_diff.cmd --quick`: every harness 0 mismatches (incl. `diff_zlib`, `diff_image`, `diff_font`).
+- Harness fixes found on the way (pre-existing, unrelated to R10): `libqb_runtime.a` is one object (codegen-units = 1) that imports `cmem`, `cmem_sp`, `dblock`, `qb_host_error` and `qb_host_field_free` from libqb, so no harness except `diff_qbs` linked any more; they now link `tests/diff/host_stub.cpp`. `diff_net.cpp` did not compile (`qbs` ambiguous between the global forward declaration in `qb_runtime.h` and `legacy::qbs`); qualified.
+
+### C/C++ left
+
+| Where | Lines | What |
+| --- | --- | --- |
+| `internal/c` (hand-written) | 21,470 (was 24,048) | `libqb.cpp` 17,579 (R12), `qbx.cpp` 2,192, `common.h`/`os.h`/`libqb.h` 457, `libqb/*_bridge.cpp/.h` 1,240, `libqb.mm` 2 |
+| `internal/source` (generated stage0 snapshot, `*.txt`) | 188,065 | C++ emitted by the compiler for itself; replaced by QIR at cutover |
+| `tests/diff` + `crates/*/include` | 24,510 | differential harnesses, verbatim legacy references (`tests/diff/legacy/*.inc`) and the C ABI headers |
+
+No third-party C/C++ remains in the repository; MinGW (`internal/c/c_compiler`) is downloaded by setup and is still needed until cutover.
+
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
