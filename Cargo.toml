@@ -13,7 +13,11 @@ members = [
     "crates/qb-syntax",
     "crates/qb-fmt",
     "crates/qb-lsp",
+<<<<<<< HEAD
     "crates/qb-ext",
+=======
+    "crates/qb-dap",
+>>>>>>> 5d4cb0b
     "tests/conformance",
 ]
 

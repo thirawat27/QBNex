@@ -25,6 +25,10 @@ use crate::bytecode::*;
 use crate::rt::{self, Host, RtState, Stop, V};
 use crate::RunError;
 
+#[cfg(feature = "debug")]
+#[path = "debug.rs"]
+pub mod debug;
+
 // ---------------------------------------------------------------- arrays
 
 #[derive(Debug, Clone)]
@@ -272,6 +276,9 @@ pub struct Vm<'m, 'o> {
     /// addressable memory (QIR TYPE / STRING * n / pointers)
     mem: crate::mem::Mem,
     owned: Vec<u32>,
+    /// attached debugger (feature `debug`)
+    #[cfg(feature = "debug")]
+    dbg: Option<debug::DebugState>,
 }
 
 #[inline(always)]
@@ -388,6 +395,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             jit_nest: 0,
             mem: crate::mem::Mem::new(),
             owned: Vec::new(),
+            #[cfg(feature = "debug")]
+            dbg: None,
         }
     }
 
@@ -1104,6 +1113,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                     return Ok(pc);
                 }
                 stepped = true;
+            }
+            #[cfg(feature = "debug")]
+            if !STEP && self.dbg.is_some() {
+                self.debug_statement(pc);
             }
             // SAFETY: every jump target is inside its function and every function
             // ends with ret/end (Module::validate), so pc stays in bounds

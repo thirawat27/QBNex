@@ -781,6 +781,17 @@ Status: **groundwork done**, not wired into the runtime yet (the CPU renderer st
 - Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
 
 Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
+## R13 debugger (qb-dap)
+
+New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.
+
+- `qb-exec` feature `debug` (off by default): `src/debug.rs` (new) and 13 lines in `vm.rs` (module, field, init, one call at the top of the dispatch loop). The VM calls the attached `Debugger` at statement starts of the existing line table (`stmts`, from QIR `line N`); `Stop` exposes the call stack (SUB/FUNCTION frames with lines) and variables of each frame plus globals: numbers, strings, `_FLOAT`, register arrays, memory-mode variables (`STRING * n`, TYPEs with nested fields, arrays of TYPEs). `rt/` and `lower.rs` are not touched: locations are found by repeating lower's allocation order, verified by unit tests on `control_subs_functions.qir` (registers, BYREF copy, STATIC) and `data_udt.qir` (memory mode). Attaching turns the JIT off. Note: Cargo unifies features, so `cargo build --workspace` builds qb-exec with the hook compiled in (inactive, one `Option` check per instruction); `-p qb-exec` builds and benchmarks are unaffected.
+- `qb-dap`: DAP adapter on stdio; the program runs in a child debuggee process (same binary, `--debuggee`) whose stdin/stdout are the program's, connected to the adapter by loopback TCP. Launch takes `program` and either `qir` or compiles with `qb <file> --ir -o <temp>` and reads the QIR payload back. Breakpoints by line (snapped to the next statement line of the QIR line table), continue, pause, step in/over/out, stack trace, scopes (frame locals + globals), variables with expandable arrays and TYPEs, evaluate/hover for `name`, `name.field`, `name(i, j)`; names demangled from QIR and spelled as in the source.
+- VS Code: `contributes.debuggers` type `qbnex` (F5 debugs the current file without a launch.json; snippet; `qbnex.dap.path`), `QBNex: Run` moved to Ctrl+F5, `npm run bundle-server` copies qb-dap too.
+
+Verified (Windows, `CARGO_BUILD_JOBS=1`): `cargo test -p qb-exec --features debug --lib debug` 2/2; `cargo test -p qb-dap` 4 unit + 3 stdio integration tests (breakpoint in a SUB, step over out of it, second call with a copied argument, step out, step into recursive FUNCTION, STATIC variable, run to exit with output; TYPE/array expansion and evaluate; stop on entry); `cargo clippy -p qb-dap --all-targets` clean; `npm test` in packaging/vscode 6/6. Not tried in a running VS Code window (no GUI here) and not with a real `qb --ir` compile (tests use the qb-exec QIR fixtures).
+
+Needs from the emitter (R11a): file information in the QIR line table for `$INCLUDE`d code (see qb-dap-plan.md, item 1); until then breakpoints work in the launched file only.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

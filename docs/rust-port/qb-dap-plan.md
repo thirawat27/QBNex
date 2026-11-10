@@ -1,71 +1,65 @@
-# qb-dap: debug adapter plan (stub)
+# qb-dap: debug adapter
 
-Status: plan only. Nothing is implemented yet; the VS Code extension
-(`packaging/vscode`) does not register a debugger. This note fixes the shape
-so the work can be picked up later (port-plan §9.4, "Tooling": debugger with
-breakpoints, stepping and watches through qb-exec).
+Status: first version implemented (R13 debugger). This note records the
+design, what works, and what still needs other parts of the port.
 
-## Goal
+## Shape
 
-`qb-dap`, a Debug Adapter Protocol server over stdio, so that VS Code (and any
-DAP client) can run a `.bas` program under the qb-exec VM with:
+```
+VS Code  --DAP/stdio-->  qb-dap (adapter)  --loopback TCP, JSON lines-->  qb-dap --debuggee (child)
+                                  ^                                            |  qb-exec VM + `debug` hook
+                                  +------------- program stdout/stderr --------+  (stdin = launch "input" file)
+```
 
-- line breakpoints (with optional conditions and hit counts), pause, continue;
-- step over / step into / step out at statement granularity;
-- call stack (SUB/FUNCTION frames plus GOSUB return points);
-- variables: module-level (SHARED) and locals of the selected frame, arrays
-  (lazy, paged), UDT fields; watches and hover evaluation of simple
-  expressions;
-- program output in the debug console; `ON ERROR`/unhandled errors reported
-  as stops with ERR/ERL.
+- **Adapter** (`crates/qb-dap/src/adapter.rs`): DAP over stdio. On `launch`
+  it gets QIR — `qir` given, or `qb <program.bas> --ir -o <temp exe>` and the
+  QIR payload read back from the executable — writes it to a temp file and,
+  after `configurationDone`, starts itself as the debuggee. Requests:
+  initialize, launch, setBreakpoints, setExceptionBreakpoints (no-op),
+  configurationDone, threads, stackTrace, scopes, variables, evaluate,
+  continue, next, stepIn, stepOut, pause, terminate, disconnect. Events:
+  initialized, stopped (entry/breakpoint/step/pause), output, exited,
+  terminated.
+- **Debuggee** (`debuggee.rs`): runs the program on the VM with the hook. Its
+  stdin/stdout are the program's, so INPUT and PRINT never touch the DAP
+  stream; output is forwarded as `output` events. When it stops it sends a
+  snapshot (call stack, each frame's locals, globals) and waits for a resume
+  command; breakpoint changes and pause arrive on a reader thread. If the
+  adapter goes away the debuggee exits.
+- **VM hook** (`crates/qb-exec/src/debug.rs`, feature `debug`, off by
+  default): the dispatch loop calls `debug_statement(pc)` at the top of each
+  instruction only when the feature is compiled in and a debugger is attached;
+  it stops only at statement starts of the bytecode line table (`stmts`,
+  from QIR `line N`). Attaching turns the JIT off. `rt/` and `lower.rs` are
+  not touched: variable locations are found by repeating lower's allocation
+  order (globals, statics, then per function params and locals; memory mode
+  when the module has memory variables), and the unit tests check the result
+  on real fixtures.
+- **Stepping** (`Stepper`, unit-tested): step in = next statement; step over
+  = next statement at the same or a shallower frame depth; step out = next
+  statement at a shallower depth; a breakpoint fires when execution arrives
+  on its line (not again for further statements of the same line).
+- **Names**: QIR names are demangled (`$__INTEGER_A` -> `a%`,
+  `$_SUB_BUMP_INTEGER_X` -> `x%`, `FUNC_FACT` -> `Fact`) and spelled as in the
+  source (qb-syntax lexer).
 
-Out of scope for the first version: data breakpoints, editing variables of
-fixed-length string arrays, reverse debugging, attaching to a compiled
-native executable (AOT output). Debug runs always use the VM with the JIT off.
+## Limits and follow-ups
 
-## Pieces
+1. **Include files**: the QIR line table has one line number per statement
+   but no file. Lines of `$INCLUDE`d code use the compiler's running numbering,
+   so breakpoints work in the launched `.bas` only (others are reported as not
+   verified). Needed from the emitter (R11a): a `file <hex path>` directive (or
+   a file index on `line`) whenever the source file changes, so the VM line
+   table can carry (file, line). The adapter already reports unverified
+   breakpoints with a reason, so adding this is backward compatible.
+2. Watches evaluate variable paths only (`name`, `name.field`, `name(i, j)`),
+   not arbitrary expressions; editing variables is not supported.
+3. GOSUB/RETURN does not create stack frames (only SUB/FUNCTION do), and
+   ON ERROR handlers run in the module view as in the VM.
+4. Arrays show at most 1000 elements per array in a stop snapshot.
+5. INPUT reads the launch `input` file (or sees end of file); a
+   `runInTerminal` launch for interactive programs is a later step.
+6. Graphics programs run as usual (the window belongs to the debuggee).
 
-| Piece | Where | Work |
-| --- | --- | --- |
-| Debug hooks in the VM | `crates/qb-exec` (`vm.rs`) | A `Debugger` trait object the VM consults only when a debug session is attached. Stops happen at statement starts, which the VM already knows from the `stmts` side table. |
-| Source mapping | `qb-exec` bytecode + `qb-syntax` | Statement index -> (file, line) including `$INCLUDE`d files; breakpoint lines snap to the next statement start (qb-syntax tells which lines hold statements). |
-| Variable view | `qb-exec` | Read-only views of the register banks (`nums`/`strs`/`arrs`) per frame, with names from the lowering's symbol table (needs keeping names in the module; today they are dropped). |
-| Expression evaluation | `qb-exec` | Compile a watch expression with the same front end in the scope of the stopped frame, run it on a scratch frame with side-effect-free builtins only. |
-| Adapter | new `crates/qb-dap` | DAP over stdio (Content-Length framing like qb-lsp; `serde_json`, pure Rust). Requests: initialize, launch, setBreakpoints, configurationDone, threads, stackTrace, scopes, variables, evaluate, continue, next, stepIn, stepOut, pause, disconnect. Events: initialized, stopped, output, terminated, exited. |
-| VS Code side | `packaging/vscode` | `contributes.debuggers` type `qbnex` launching `qb-dap`, a default `launch.json` snippet, F5 runs under the debugger when a launch config exists (QBNex: Run stays the no-debug path). |
-
-## VM hook design
-
-- **Pause requests** reuse the event mechanism: the adapter thread sets a
-  reserved bit in the VM's atomic event mask; the VM already checks it at
-  safe points (backward jumps, NEXT, CALL), so pausing a busy loop costs
-  nothing when not debugging.
-- **Breakpoints and stepping** need a check at every statement start. Two
-  options, to be measured:
-  1. a debug flavour of the dispatch loop that compares the pc with the next
-     statement start from `stmts` (no change to the bytecode);
-  2. an explicit `Brk` instruction patched over the first instruction of a
-     statement (needs a side table of the replaced instruction).
-  Option 1 first: simpler, and debug runs have no speed target.
-- **Step over/out** use the frame depth at the stop: stop at the next
-  statement start whose depth is <= (over) or < (out) the recorded one.
-  GOSUB counts as a frame for stepping and for the call stack.
-- **Stopped state**: the VM thread blocks on a channel; the adapter thread
-  answers stackTrace/variables/evaluate by sending closures to it, so the
-  register banks are only touched from the VM thread.
-
-## Milestones
-
-1. VM: names kept in the module, statement -> (file, line) map, `Debugger`
-   trait with stop-at-statement and pause; unit tests on the bytecode level.
-2. `qb-dap`: launch, breakpoints, continue, next/stepIn/stepOut, stackTrace,
-   scopes/variables (scalars, strings); stdio integration tests like
-   `crates/qb-lsp/tests/stdio.rs`.
-3. Arrays and UDTs in the variables view, evaluate for watches and hover,
-   conditional breakpoints, hit counts.
-4. VS Code: debugger contribution, launch configuration, docs in
-   `packaging/vscode/README.md`.
-
-Gate for each milestone: the conformance corpus still passes with no
-debugger attached, and the hot loop benchmark (`cargo run --release -p qb-exec
---example bench`) shows no slowdown when not debugging.
+Gate kept: without the `debug` feature the VM is unchanged; qb-dap enables
+the feature only for itself.

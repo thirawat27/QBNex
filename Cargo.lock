@@ -2377,6 +2377,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-dap"
+version = "0.1.0"
+dependencies = [
+ "qb-exec",
+ "qb-ir",
+ "qb-syntax",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "qb-exec"
 version = "0.1.0"
 dependencies = [
