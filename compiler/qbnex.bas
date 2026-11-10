@@ -2402,6 +2402,7 @@ FUNCTION getpid& ()
                                         qberrorhappened = 0
                                     NEXT
                                     IF qberrorhappened <> -3 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
+                                    qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
                                     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
                                 END IF 'fall through to next section...
                                 '--------------------
@@ -10099,7 +10100,7 @@ ELSE
                 IF RIGHT$(e$, 2) <> sp3 + "0" THEN a$ = "Expected arrayname()": GOTO errmes
             END IF
 
-            idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1))
+            idnum = VAL(e$)
             getid idnum
             IF Error_Happened THEN GOTO errmes
 
@@ -10158,7 +10159,7 @@ END IF 'target is an array
 
 IF (targettyp AND ISSTRING) = 0 THEN
     IF (sourcetyp AND ISREFERENCE) THEN
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1)) 'id# of sourcetyp
+        idnum = VAL(e$) 'id# of sourcetyp
 
         targettyp2 = targettyp: sourcetyp2 = sourcetyp
 
@@ -10232,7 +10233,7 @@ END IF 'reference
 ELSE 'not a string
     'its a string
     IF (sourcetyp AND ISREFERENCE) THEN
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1)) 'id# of sourcetyp
+        idnum = VAL(e$) 'id# of sourcetyp
         IF MID$(sfcmemargs(targetid), i, 1) = CHR$(1) THEN 'cmem required?
         IF cmemlist(idnum) = 0 THEN
             cmemlist(idnum) = 1
@@ -10581,6 +10582,7 @@ IF LEN(addmetainclude$) THEN
         qberrorhappened = 0
     NEXT
     IF qberrorhappened <> -2 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
+    qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
 END IF 'fall through to next section...
 '--------------------
@@ -11519,7 +11521,7 @@ IF recompile THEN
         LogQbErrorDetails
 
         IF qberrorhappenedvalue >= 0 THEN
-            a$ = "UNEXPECTED INTERNAL COMPILER ERROR!": GOTO errmes 'internal comiler error
+            a$ = "UNEXPECTED INTERNAL COMPILER ERROR! (error" + STR$(ERR) + " at compiler line" + STR$(_ERRORLINE) + ")": GOTO errmes 'internal comiler error
         END IF
 
 
