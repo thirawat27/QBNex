@@ -184,6 +184,7 @@ SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
 
         depKey = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(depKey) THEN StdLib_HoistModule depKey, headText$, bodyText$ 'the line itself stays, as a no-op
+        IF SyntaxExt_LineHasTry%(lineText) THEN syntaxExtUsesTry = -1
 
         incPath = ""
         incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
@@ -249,6 +250,7 @@ SUB StdLib_PrepareHoistedImports
     DIM commentText AS STRING
 
     stdlibHoisted$ = "@"
+    syntaxExtUsesTry = 0
     stdlibHeadFile$ = ""
     stdlibBodyFile$ = ""
     IF _FILEEXISTS(sourcefile$) = 0 THEN EXIT SUB
@@ -263,9 +265,15 @@ SUB StdLib_PrepareHoistedImports
         moduleName = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
         IF LEN(moduleName) THEN StdLib_HoistModule moduleName, headText, bodyText
         IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
-        codeText = SyntaxExt_CodePart$(lineText, commentText)
-        IF UCASE$(LTRIM$(RTRIM$(codeText))) = "TRY" THEN usesTry = -1
+        IF SyntaxExt_LineHasTry%(lineText) THEN usesTry = -1
+        'TRY inside an $INCLUDE file of the main source needs the handler too
+        moduleName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
+        IF LEN(moduleName) THEN
+            IF StdLib_FileUsesTry%(getfilepath$(sourcefile$) + moduleName, 0) THEN usesTry = -1
+            IF StdLib_FileUsesTry%(moduleName, 0) THEN usesTry = -1
+        END IF
     LOOP
+    IF syntaxExtUsesTry THEN usesTry = -1 'a hoisted module uses TRY
     IF stdlibHoisted$ = "@" AND usesTry = 0 THEN EXIT SUB
 
     'the in-place $IMPORT lines become no-ops
@@ -296,3 +304,28 @@ SUB StdLib_PrepareHoistedImports
     PRINT #fh, bodyText;
     CLOSE #fh
 END SUB
+FUNCTION StdLib_FileUsesTry% (path$, depth AS LONG)
+    'a TRY statement in this file or in one of its relative $INCLUDE files
+    DIM text AS STRING
+    DIM lineText AS STRING
+    DIM incName AS STRING
+    DIM p AS LONG
+    DIM nl AS LONG
+
+    IF depth > 20 THEN EXIT FUNCTION
+    IF _FILEEXISTS(path$) = 0 THEN EXIT FUNCTION
+    text = StdLib_ReadText$(path$)
+    p = 1
+    DO WHILE p <= LEN(text)
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        lineText = MID$(text, p, nl - p)
+        p = nl + 1
+        IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
+        IF SyntaxExt_LineHasTry%(lineText) THEN StdLib_FileUsesTry% = -1: EXIT FUNCTION
+        incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
+        IF LEN(incName) THEN
+            IF StdLib_FileUsesTry%(getfilepath$(path$) + incName, depth + 1) THEN StdLib_FileUsesTry% = -1: EXIT FUNCTION
+        END IF
+    LOOP
+END FUNCTION

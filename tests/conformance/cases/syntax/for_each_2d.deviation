@@ -1,0 +1,1 @@
+QBNex extension (R13): FOR EACH over a multi-dimensional array visits every element, first index outermost (the rank comes from the DIM/REDIM of the array). Expected output written by hand.

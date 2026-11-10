@@ -1,0 +1,1 @@
+Hand-checked golden. The legacy runtime made integer division by zero a critical error (message box, exit), so ON ERROR/TRY could not catch it; now it is error 11 as in QBasic 4.5 (D-R12b-5). Passes on the C++ and QIR backends.

@@ -125,6 +125,9 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
     DIM rebuilt AS STRING
     DIM p AS LONG
     DIM nl AS LONG
+    DIM idxVar AS STRING
+    DIM idxList AS STRING
+    DIM idxNext AS STRING
     REDIM stmts(1 TO 16) AS STRING
     REDIM items(1 TO 16) AS STRING
 
@@ -241,12 +244,26 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
                 p = INSTR(UCASE$(s), " IN ")
                 IF p THEN
                     syntaxExtCounter = syntaxExtCounter + 1
-                    rebuilt = "QBNEX_EACH" + LTRIM$(STR$(syntaxExtCounter)) + "&"
                     su = RTRIM$(LEFT$(s, p - 1)) 'element variable
                     s = LTRIM$(RTRIM$(MID$(s, p + 4))) 'array
                     IF RIGHT$(s, 2) = "()" THEN s = RTRIM$(LEFT$(s, LEN(s) - 2))
-                    stmts(k) = "FOR " + rebuilt + " = LBOUND(" + s + ") TO UBOUND(" + s + "): " + su + " = " + s + "(" + rebuilt + ")"
-                    SyntaxExt_PushEntry syntaxExtForStack$, rebuilt
+                    'one FOR per dimension (rank from the DIM/REDIM seen for the array, else 1);
+                    'the first index is the outermost loop
+                    nl = SyntaxExt_ArrayRank&(s)
+                    rebuilt = "": idxList = "": idxNext = ""
+                    FOR j = 1 TO nl
+                        idxVar = "QBNEX_EACH" + LTRIM$(STR$(syntaxExtCounter)) + "_" + LTRIM$(STR$(j)) + "&"
+                        IF nl = 1 THEN
+                            rebuilt = rebuilt + "FOR " + idxVar + " = LBOUND(" + s + ") TO UBOUND(" + s + "): "
+                        ELSE
+                            rebuilt = rebuilt + "FOR " + idxVar + " = LBOUND(" + s + ", " + LTRIM$(STR$(j)) + ") TO UBOUND(" + s + ", " + LTRIM$(STR$(j)) + "): "
+                        END IF
+                        IF j > 1 THEN idxList = idxList + ", ": idxNext = ", " + idxNext
+                        idxList = idxList + idxVar
+                        idxNext = idxVar + idxNext
+                    NEXT
+                    stmts(k) = rebuilt + su + " = " + s + "(" + idxList + ")"
+                    SyntaxExt_PushEntry syntaxExtForStack$, idxNext
                     changed = -1
                 END IF
             ELSE
@@ -264,7 +281,13 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
                     IF j > 1 THEN rebuilt = rebuilt + ", "
                     rebuilt = rebuilt + LTRIM$(RTRIM$(items(j)))
                 NEXT
-                IF nl = 0 THEN su = SyntaxExt_PopEntry$(syntaxExtForStack$): rebuilt = "": stmts(k) = "NEXT" ELSE stmts(k) = "NEXT " + rebuilt
+                IF nl = 0 THEN
+                    su = SyntaxExt_PopEntry$(syntaxExtForStack$)
+                    IF LEFT$(su, 1) = CHR$(1) THEN su = MID$(su, 2)
+                    IF LEN(su) AND su <> CHR$(0) THEN stmts(k) = "NEXT " + su: changed = -1 ELSE stmts(k) = "NEXT"
+                ELSE
+                    stmts(k) = "NEXT " + rebuilt
+                END IF
             END IF
         END IF
     NEXT
@@ -295,6 +318,94 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
     END IF
 END FUNCTION
 
+FUNCTION SyntaxExt_ArrayKey$ (arrayName$)
+    SyntaxExt_ArrayKey$ = SyntaxExt_OptKey$(arrayName$)
+END FUNCTION
+
+FUNCTION SyntaxExt_ArrayRank& (arrayName$)
+    'number of dimensions recorded for an array by DIM/REDIM/STATIC/COMMON (1 when unknown)
+    DIM k AS LONG
+    k = INSTR(syntaxExtArrays$, CHR$(10) + SyntaxExt_ArrayKey$(arrayName$) + CHR$(9))
+    IF k = 0 THEN SyntaxExt_ArrayRank& = 1: EXIT FUNCTION
+    k = k + LEN(SyntaxExt_ArrayKey$(arrayName$)) + 2
+    SyntaxExt_ArrayRank& = VAL(MID$(syntaxExtArrays$, k))
+    IF VAL(MID$(syntaxExtArrays$, k)) < 1 THEN SyntaxExt_ArrayRank& = 1
+END FUNCTION
+
+SUB SyntaxExt_RecordArrays (codeText$)
+    'remember the rank of arrays declared on this line (for FOR EACH over several dimensions)
+    REDIM stmts(1 TO 16) AS STRING
+    REDIM items(1 TO 16) AS STRING
+    REDIM dims(1 TO 16) AS STRING
+    DIM n AS LONG
+    DIM k AS LONG
+    DIM j AS LONG
+    DIM m AS LONG
+    DIM s AS STRING
+    DIM su AS STRING
+    DIM nm AS STRING
+    DIM p AS LONG
+    DIM q AS LONG
+    DIM arrKey AS STRING
+
+    n = SyntaxExt_SplitTop&(codeText$, ":", stmts())
+    FOR k = 1 TO n
+        s = LTRIM$(RTRIM$(stmts(k)))
+        su = UCASE$(s)
+        IF SyntaxExt_IsWord%(su, "DIM") OR SyntaxExt_IsWord%(su, "REDIM") OR SyntaxExt_IsWord%(su, "STATIC") OR SyntaxExt_IsWord%(su, "COMMON") THEN
+            s = LTRIM$(MID$(s, INSTR(s, " ") + 1))
+            DO
+                su = UCASE$(s)
+                IF SyntaxExt_IsWord%(su, "SHARED") OR SyntaxExt_IsWord%(su, "_PRESERVE") OR SyntaxExt_IsWord%(su, "PRESERVE") THEN
+                    s = LTRIM$(MID$(s, INSTR(s, " ") + 1))
+                ELSE
+                    EXIT DO
+                END IF
+            LOOP
+            m = SyntaxExt_SplitTop&(s, ",", items())
+            FOR j = 1 TO m
+                nm = LTRIM$(items(j))
+                p = INSTR(nm, "(")
+                IF p > 1 THEN
+                    q = _INSTRREV(nm, ")")
+                    IF q > p AND LEN(LTRIM$(MID$(nm, p + 1, q - p - 1))) > 0 THEN
+                        arrKey = SyntaxExt_ArrayKey$(RTRIM$(LEFT$(nm, p - 1)))
+                        q = INSTR(syntaxExtArrays$, CHR$(10) + arrKey + CHR$(9))
+                        IF q = 0 THEN
+                            IF LEN(syntaxExtArrays$) = 0 THEN syntaxExtArrays$ = CHR$(10)
+                            syntaxExtArrays$ = syntaxExtArrays$ + arrKey + CHR$(9) + LTRIM$(STR$(SyntaxExt_SplitTop&(MID$(nm, p + 1, _INSTRREV(nm, ")") - p - 1), ",", dims()))) + CHR$(10)
+                        END IF
+                    END IF
+                END IF
+            NEXT
+        END IF
+    NEXT
+END SUB
+
+FUNCTION SyntaxExt_IsBlockWord% (stmt$)
+    'TRY/CATCH/FINALLY/END TRY and ENUM/END ENUM statements
+    DIM u AS STRING
+    u = UCASE$(LTRIM$(RTRIM$(stmt$)))
+    IF u = "TRY" OR u = "FINALLY" OR u = "END TRY" OR u = "END ENUM" OR u = "CATCH" THEN SyntaxExt_IsBlockWord% = -1: EXIT FUNCTION
+    IF SyntaxExt_IsWord%(u, "CATCH") AND INSTR(u, "=") = 0 THEN SyntaxExt_IsBlockWord% = -1: EXIT FUNCTION
+    IF (u = "ENUM" OR SyntaxExt_IsWord%(u, "ENUM")) AND INSTR(u, "=") = 0 AND INSTR(u, "(") = 0 THEN SyntaxExt_IsBlockWord% = -1
+END FUNCTION
+
+FUNCTION SyntaxExt_LineHasTry% (rawLine$)
+    DIM codeText AS STRING
+    DIM commentText AS STRING
+    DIM n AS LONG
+    DIM k AS LONG
+    REDIM stmts(1 TO 16) AS STRING
+
+    codeText = SyntaxExt_CodePart$(rawLine$, commentText)
+    IF INSTR(UCASE$(codeText), "TRY") = 0 THEN EXIT FUNCTION
+    n = SyntaxExt_SplitTop&(codeText, ":", stmts())
+    FOR k = 1 TO n
+        IF UCASE$(LTRIM$(RTRIM$(stmts(k)))) = "TRY" THEN SyntaxExt_LineHasTry% = -1: EXIT FUNCTION
+    NEXT
+END FUNCTION
+
 FUNCTION SyntaxExt_ProcessLine$ (rawLine$)
     'lower one source line; a line inside a TRY body is followed by the error check
     DIM codeText AS STRING
@@ -302,22 +413,101 @@ FUNCTION SyntaxExt_ProcessLine$ (rawLine$)
     DIM upper AS STRING
     DIM topEntry AS STRING
     DIM checkIt AS INTEGER
+    DIM procLine AS STRING
+    DIM savedQueue AS STRING
+    DIM collected AS STRING
+    DIM piece AS STRING
+    DIM n AS LONG
+    DIM k AS LONG
+    DIM hit AS INTEGER
+    DIM p AS LONG
+    REDIM stmts(1 TO 16) AS STRING
 
     IF rawLine$ = CHR$(13) THEN SyntaxExt_ProcessLine$ = rawLine$: EXIT FUNCTION
-    codeText = SyntaxExt_CodePart$(rawLine$, commentText)
+
+    procLine = rawLine$
+    IF INSTR(procLine, "$" + CHR$(34)) THEN procLine = SyntaxExt_Interpolate$(procLine)
+    codeText = SyntaxExt_CodePart$(procLine, commentText)
     upper = UCASE$(LTRIM$(RTRIM$(codeText)))
+
+    'TRY/CATCH/FINALLY/END TRY/ENUM keywords joined with other statements by ':' are lowered
+    'one statement at a time
+    IF INSTR(codeText, ":") THEN
+        n = SyntaxExt_SplitTop&(codeText, ":", stmts())
+        IF n > 1 THEN
+            FOR k = 1 TO n
+                IF SyntaxExt_IsBlockWord%(stmts(k)) THEN hit = -1
+            NEXT
+            IF hit THEN
+                savedQueue = classSyntaxQueue$
+                classSyntaxQueue$ = ""
+                FOR k = 1 TO n
+                    piece = LTRIM$(RTRIM$(stmts(k)))
+                    'a leading label keeps its colon
+                    IF k = 1 AND LEN(piece) > 0 AND INSTR(piece, " ") = 0 AND SyntaxExt_IsBlockWord%(piece) = 0 THEN piece = piece + ":"
+                    IF LEN(piece) THEN
+                        piece = SyntaxExt_ProcessLine$(piece)
+                        IF LEN(collected) THEN collected = collected + CHR$(10)
+                        collected = collected + piece
+                        IF LEN(classSyntaxQueue$) THEN collected = collected + CHR$(10) + classSyntaxQueue$
+                        classSyntaxQueue$ = ""
+                    END IF
+                NEXT
+                IF LEN(commentText) THEN collected = collected + CHR$(10) + commentText
+                classSyntaxQueue$ = savedQueue
+                p = INSTR(collected, CHR$(10))
+                IF p = 0 THEN SyntaxExt_ProcessLine$ = collected: EXIT FUNCTION
+                SyntaxExt_ProcessLine$ = LEFT$(collected, p - 1)
+                collected = MID$(collected, p + 1)
+                IF LEN(classSyntaxQueue$) THEN classSyntaxQueue$ = classSyntaxQueue$ + CHR$(10)
+                classSyntaxQueue$ = classSyntaxQueue$ + collected
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
     IF LEN(syntaxExtTryStack$) > 0 AND LEN(upper) > 0 THEN
         topEntry = SyntaxExt_TopEntry$(syntaxExtTryStack$)
         IF LEFT$(topEntry, 1) = CHR$(1) THEN topEntry = MID$(topEntry, 2)
         IF VAL(MID$(topEntry, INSTR(topEntry, "|") + 1)) = 0 THEN checkIt = -1
-        IF upper = "TRY" OR upper = "FINALLY" OR upper = "END TRY" OR upper = "CATCH" OR SyntaxExt_IsWord%(upper, "CATCH") THEN checkIt = 0
+        IF SyntaxExt_IsBlockWord%(upper) THEN checkIt = 0
         IF RIGHT$(upper, 1) = "_" OR LEFT$(upper, 1) = "$" OR SyntaxExt_IsWord%(upper, "SELECT") THEN checkIt = 0
     END IF
-    procLine$ = rawLine$
-    IF LEN(syntaxExtOptional$) OR INSTR(UCASE$(rawLine$), "OPTIONAL") THEN procLine$ = SyntaxExt_Optional$(procLine$)
-    IF INSTR(procLine$, "$" + CHR$(34)) THEN procLine$ = SyntaxExt_Interpolate$(procLine$)
-    SyntaxExt_ProcessLine$ = SyntaxExt_LowerLine$(procLine$)
+    IF INSTR(upper, "DIM") OR INSTR(upper, "STATIC") OR INSTR(upper, "COMMON") THEN SyntaxExt_RecordArrays codeText
+    IF LEN(syntaxExtOptional$) OR INSTR(UCASE$(procLine), "OPTIONAL") THEN procLine = SyntaxExt_Optional$(procLine)
+    SyntaxExt_ProcessLine$ = SyntaxExt_LowerLine$(procLine)
     IF checkIt THEN ClassSyntax_QueueLine "IF QBNEX_TRYERR THEN GOTO QBNEX_TRY_C" + LTRIM$(STR$(VAL(topEntry)))
+END FUNCTION
+FUNCTION SyntaxExt_InterpEnd& (text$, startPos AS LONG)
+    'position of the " that closes a $"..." starting at startPos: quotes inside {...} belong to
+    'string literals of the expression
+    DIM i AS LONG
+    DIM depth AS LONG
+    DIM c AS STRING
+
+    i = startPos
+    DO WHILE i <= LEN(text$)
+        c = MID$(text$, i, 1)
+        IF depth = 0 THEN
+            IF c = CHR$(34) THEN SyntaxExt_InterpEnd& = i: EXIT FUNCTION
+            IF (c = "{" OR c = "}") AND MID$(text$, i + 1, 1) = c THEN
+                i = i + 1
+            ELSEIF c = "{" THEN
+                depth = 1
+            END IF
+        ELSE
+            IF c = CHR$(34) THEN
+                i = INSTR(i + 1, text$, CHR$(34))
+                IF i = 0 THEN EXIT DO
+            ELSEIF c = "{" THEN
+                depth = depth + 1
+            ELSEIF c = "}" THEN
+                depth = depth - 1
+            END IF
+        END IF
+        i = i + 1
+    LOOP
+    SyntaxExt_InterpEnd& = LEN(text$) + 1
 END FUNCTION
 FUNCTION SyntaxExt_InterpolateBody$ (body$)
     'text of $"..." -> ("lit" + _TOSTR$(expr) + "lit"); {{ and }} are literal braces
@@ -327,6 +517,7 @@ FUNCTION SyntaxExt_InterpolateBody$ (body$)
     DIM lit AS STRING
     DIM parts AS STRING
     DIM nparts AS LONG
+    DIM depth AS LONG
 
     i = 1
     DO WHILE i <= LEN(body$)
@@ -334,8 +525,21 @@ FUNCTION SyntaxExt_InterpolateBody$ (body$)
         IF c = "{" AND MID$(body$, i + 1, 1) = "{" THEN lit = lit + "{": i = i + 2: GOTO interpnext
         IF c = "}" AND MID$(body$, i + 1, 1) = "}" THEN lit = lit + "}": i = i + 2: GOTO interpnext
         IF c = "{" THEN
-            j = INSTR(i + 1, body$, "}")
-            IF j = 0 THEN j = LEN(body$) + 1
+            'matching } (string literals and nested braces of the expression are skipped)
+            depth = 1: j = i + 1
+            DO WHILE j <= LEN(body$)
+                c = MID$(body$, j, 1)
+                IF c = CHR$(34) THEN
+                    j = INSTR(j + 1, body$, CHR$(34))
+                    IF j = 0 THEN j = LEN(body$) + 1: EXIT DO
+                ELSEIF c = "{" THEN
+                    depth = depth + 1
+                ELSEIF c = "}" THEN
+                    depth = depth - 1
+                    IF depth = 0 THEN EXIT DO
+                END IF
+                j = j + 1
+            LOOP
             IF LEN(lit) THEN
                 IF nparts THEN parts = parts + " + "
                 parts = parts + CHR$(34) + lit + CHR$(34): nparts = nparts + 1
@@ -376,8 +580,7 @@ FUNCTION SyntaxExt_Interpolate$ (text$)
                     prevChar = ""
                     IF i > 2 THEN prevChar = MID$(text$, i - 2, 1)
                     IF ClassSyntax_IsIdentifierChar%(prevChar) = 0 THEN
-                        j = INSTR(i + 1, text$, CHR$(34))
-                        IF j = 0 THEN j = LEN(text$) + 1
+                        j = SyntaxExt_InterpEnd&(text$, i + 1)
                         result = LEFT$(result, LEN(result) - 1) + SyntaxExt_InterpolateBody$(MID$(text$, i + 1, j - i - 1))
                         i = j + 1
                         GOTO interpchar

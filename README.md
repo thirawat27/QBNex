@@ -3258,8 +3258,8 @@ QBNex adds these to QBasic. Existing programs are unaffected: the new words star
 | --- | --- | --- |
 | `_IIF` | `PRINT _IIF(n > 1, "items", "item")` | Only the chosen value is evaluated. Both values are strings or both are numbers. |
 | `_ANDALSO`, `_ORELSE` | `IF i <= UBOUND(a) _ANDALSO a(i) > 0 THEN` | Short-circuit logic, result -1 or 0. |
-| String interpolation | `PRINT $"Hello {name$}, you are {age%}"` | Numbers are formatted like `LTRIM$(STR$(x))` (`_TOSTR$`). `{{` and `}}` are literal braces. |
-| `FOR EACH` | `FOR EACH v IN scores()` ... `NEXT` | One-dimensional arrays, LBOUND to UBOUND; `v` is a copy of the element. |
+| String interpolation | `PRINT $"Hello {name$ + "!"}, you are {age%}"` | Numbers are formatted like `LTRIM$(STR$(x))` (`_TOSTR$`). Expressions may contain string literals. `{{` and `}}` are literal braces. |
+| `FOR EACH` | `FOR EACH v IN grid()` ... `NEXT` | Every element, first index outermost (any number of dimensions, taken from the DIM/REDIM of the array); `v` is a copy of the element. |
 | `ENUM` | `ENUM Color` / `Red, Green = 5, Blue` / `END ENUM` | Members become integer `CONST`s, counting up from 0 or from the last `= value`. |
 | `TRY` / `CATCH` / `FINALLY` | see below | Built on `ON ERROR`; `CATCH e` stores the error number in `e`. Without `CATCH`, the error is raised again after `FINALLY`. |
 | `OPTIONAL` parameters | `SUB Greet (who$, OPTIONAL greeting$ = "Hello")` | Trailing arguments may be left out; the default is any expression valid at the call site. |
@@ -3276,7 +3276,7 @@ FINALLY
 END TRY
 ```
 
-`TRY` blocks must be written in the main source file (not in an `$INCLUDE` file), each keyword on its own line.
+`TRY`, `CATCH`, `FINALLY`, `END TRY`, `ENUM` and `END ENUM` may share a line with other statements (`TRY: x = 1 / d: CATCH e: PRINT e: END TRY`). TRY also works in `$INCLUDE` and `$IMPORT` files.
 
 ## Development
 

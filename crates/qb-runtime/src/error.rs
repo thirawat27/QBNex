@@ -77,6 +77,7 @@ fn human_error_z(code: i32) -> &'static str {
         8 => "Label not defined\0",
         9 => "Subscript out of range\0",
         10 => "Duplicate definition\0",
+        11 => "Division by zero\0", // legacy: "Unprintable error" (D-R12b-5)
         12 => "Illegal in direct mode\0",
         13 => "Type mismatch\0",
         14 => "Out of string space\0",
@@ -167,7 +168,6 @@ pub fn critical_error(code: i32) -> Option<(&'static str, &'static str)> {
     Some(match code {
         257 => ("Out of memory\0", "Critical Error #1\0"),
         502..=518 => ("Out of memory\0", OOM_TITLES[(code - 502) as usize]),
-        11 => ("Division by zero\0", CRIT),
         256 => ("Out of stack space\0", CRIT),
         259 => ("Cannot find dynamic library file\0", CRIT),
         260 | 261 => ("Sub/Function does not exist in dynamic library\0", CRIT),
@@ -177,6 +177,35 @@ pub fn critical_error(code: i32) -> Option<(&'static str, &'static str)> {
     })
 }
 
+/// Message box of a fatal runtime fault that cannot continue: the critical
+/// errors, plus a hardware arithmetic fault in runtime code (11, "Division by
+/// zero"). Integer `\` and `MOD` in BASIC code raise error 11 as an ordinary,
+/// trappable error instead (checked in qbx.cpp, as in QBasic 4.5).
+pub fn fatal_message(code: i32) -> (&'static str, &'static str) {
+    if code == 11 {
+        return ("Division by zero\0", "Critical Error\0");
+    }
+    critical_error(code).unwrap_or(("Internal error\0", "Critical Error\0"))
+}
+
+/// Ends the program after a fatal fault (see [`fatal_message`]): message
+/// box (or one stderr line without dialogs) and exit.
+pub fn fatal(code: i32) -> ! {
+    let (msg, title) = fatal_message(code);
+    let (msg, title) = (msg.trim_end_matches('\0').as_bytes(), title.trim_end_matches('\0').as_bytes());
+    if host::no_dialog() {
+        host::report(&report_line(title, msg));
+        host::exit(NO_DIALOG_EXIT_CODE);
+    }
+    host::message_box(msg, title, MB_OK | MB_SYSTEMMODAL);
+    host::exit(0);
+}
+
+/// C ABI of [`fatal`] (the SIGFPE handler in qbx.cpp).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_fatal_error(code: i32) {
+    fatal(code);
+}
 /// What `error(n)` does to the error state when `n` is not critical:
 /// the first error of a statement wins, numbers <= 0 become 5.
 pub fn latch(current: u32, code: i32) -> Option<u32> {
@@ -539,6 +568,7 @@ mod tests {
         assert_eq!(human_error(0), "No error");
         assert_eq!(human_error(6), "Overflow");
         assert_eq!(human_error(15), "Unprintable error");
+        assert_eq!(human_error(11), "Division by zero");
         assert_eq!(human_error(315), "_ASSERT failed (check console for description)");
         assert_eq!(human_error(-1), "Unprintable error");
         let p = qb_human_error(76);
@@ -549,7 +579,10 @@ mod tests {
     fn critical_table() {
         assert_eq!(critical_error(257).map(|c| c.1), Some("Critical Error #1\0"));
         assert_eq!(critical_error(518).map(|c| c.1), Some("Critical Error #18\0"));
-        assert_eq!(critical_error(11).map(|c| c.0), Some("Division by zero\0"));
+        // Division by zero is an ordinary (trappable) error, as in QBasic 4.5.
+        assert_eq!(critical_error(11), None);
+        assert_eq!(fatal_message(11), ("Division by zero\0", "Critical Error\0"));
+        assert_eq!(fatal_message(256).0, "Out of stack space\0");
         assert_eq!(critical_error(262), None);
         assert_eq!(critical_error(519), None);
         assert_eq!(critical_error(5), None);
@@ -684,6 +717,17 @@ mod tests {
         host::REPORTS.with(|r| assert_eq!(r.borrow()[1], b"Critical Error #1: Out of memory".to_vec()));
         host::NO_DIALOG.with(|n| *n.borrow_mut() = false);
         unsafe { program::exit_code = 0 };
+        reset();
+    }
+
+    #[test]
+    fn division_by_zero_is_trappable() {
+        let _g = program::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        raise(11);
+        assert_eq!(unsafe { new_error }, 11);
+        assert_eq!(unsafe { program::qbevent }, 1);
+        host::BOXES.with(|b| assert!(b.borrow().is_empty()));
         reset();
     }
 }
