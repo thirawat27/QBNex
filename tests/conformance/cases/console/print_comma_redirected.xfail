@@ -1,1 +1,0 @@
-legacy defect L-02: PRINT with ',' (14-column zones) writes spaces forever when stdout is redirected

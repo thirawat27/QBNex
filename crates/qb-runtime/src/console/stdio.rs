@@ -91,11 +91,41 @@ unsafe fn c_stdin() -> *mut c_void {
     __stdinp
 }
 
+/// Column (1-based) of stdout as written by this program, for output that is
+/// not a console (redirected to a file or pipe), where the console cursor
+/// cannot be asked (L-02).
+static COLUMN: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
+
+/// Column after writing `s` from column `col`: line breaks (LF, CR) return
+/// to 1; UTF-8 continuation bytes do not move the column.
+pub fn advance_column(mut col: i32, s: &[u8]) -> i32 {
+    for &b in s {
+        match b {
+            b'\n' | b'\r' => col = 1,
+            0x80..=0xBF => {}
+            _ => col += 1,
+        }
+    }
+    col
+}
+
+fn track(s: &[u8]) {
+    use std::sync::atomic::Ordering;
+    let c = COLUMN.load(Ordering::Relaxed);
+    COLUMN.store(advance_column(c, s), Ordering::Relaxed);
+}
+
+/// Column tracked for non-console stdout (see [`advance_column`]).
+pub fn tracked_column() -> i32 {
+    COLUMN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `printf`-style write to stdout without flushing.
 pub fn write_raw(s: &[u8]) {
     if s.is_empty() {
         return;
     }
+    track(s);
     // SAFETY: valid buffer; the CRT stream is process-global.
     unsafe {
         fwrite(s.as_ptr().cast(), 1, s.len(), c_stdout());
@@ -272,6 +302,10 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
             return;
         }
     }
+    track(text);
+    if finish_on_new_line {
+        track(b"\n");
+    }
     // SAFETY: CRT stream.
     unsafe {
         let f = c_stdout();
@@ -288,8 +322,13 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
 /// POS(0) of the console (column of the console cursor).
 #[cfg(windows)]
 pub fn pos() -> i32 {
-    // SAFETY: Win32 query.
-    unsafe { win::conout_info().dwCursorPosition.X as i32 + 1 }
+    // SAFETY: Win32 queries.
+    unsafe {
+        if !win::is_console(win::std(win::STD_OUTPUT_HANDLE)) {
+            return tracked_column(); // redirected: no console cursor to ask (L-02)
+        }
+        win::conout_info().dwCursorPosition.X as i32 + 1
+    }
 }
 
 /// CSRLIN of the console.
@@ -485,9 +524,22 @@ pub static mut consolebutton: i32 = 0;
 /// `_CONSOLEINPUT`: waits for one console input event; 1 = key, 2 = mouse, 0 = other.
 pub fn console_input() -> i32 {
     #[cfg(windows)]
+    return console_input_on(win::std(win::STD_INPUT_HANDLE));
+    #[cfg(not(windows))]
+    0
+}
+
+/// [`console_input`] on handle `h`. When `h` is not a console (stdin redirected from a file
+/// or pipe, no console attached) there is no keyboard to wait for: report a key event at once
+/// so END's "Press any key to continue" and SLEEP do not spin forever (the legacy loop never
+/// ended, as ReadConsoleInputA fails and the zeroed record reads as "no event").
+#[cfg(windows)]
+pub fn console_input_on(h: windows_sys::Win32::Foundation::HANDLE) -> i32 {
+    if !win::is_console(h) {
+        return 1;
+    }
     // SAFETY: Win32 calls with valid buffers.
     unsafe {
-        let h = win::std(win::STD_INPUT_HANDLE);
         let mut mode = 0u32;
         win::GetConsoleMode(h, &mut mode);
         win::SetConsoleMode(h, win::ENABLE_EXTENDED_FLAGS);
@@ -536,5 +588,24 @@ pub fn cinp(mut toggle: i32, passed: i32) -> i32 {
         } else {
             -temp + 128
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod console_input_tests {
+    use std::os::windows::io::AsRawHandle;
+
+    // END ("Press any key to continue") and SLEEP wait for console_input() == 1. With stdin
+    // redirected from a file or pipe there is no console to read: the wait used to spin forever
+    // (ReadConsoleInputA fails, the zeroed record reads as "no event").
+    #[test]
+    fn non_console_input_handle_ends_the_wait() {
+        let path = std::env::temp_dir().join(format!("qb_console_input_{}.txt", std::process::id()));
+        std::fs::write(&path, b"x").unwrap();
+        let f = std::fs::File::open(&path).unwrap();
+        assert_eq!(super::console_input_on(f.as_raw_handle() as _), 1);
+        drop(f);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(super::console_input_on(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE), 1);
     }
 }

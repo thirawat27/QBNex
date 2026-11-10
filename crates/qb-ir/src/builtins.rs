@@ -296,6 +296,12 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__freelight", [I32]),
     b!("sub__clear3d", [U32, I32]),
     b!("func__gpu3d", [], I32),
+    // R15 G5 _SHADER (user WGSL)
+    b!("func__shader", [Str], I32),
+    b!("func__shadererror", [], Str),
+    b!("sub__shaderparam", [I32, I32, F32]),
+    b!("sub__meshshader", [I32, I32]),
+    b!("sub__freeshader", [I32]),
     b!("func__errormessage", [I32, I32], Str),
     b!("func__loadfont", [Str, F64, Str, I32], I32),
     b!("sub__freefont", [I32, I32]),

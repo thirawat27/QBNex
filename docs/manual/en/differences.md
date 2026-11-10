@@ -37,6 +37,7 @@ and the tests.
 | D-21 | `_OPENCLIENT` tries every IPv4 address of a host on every OS. |
 | D-22 | CP437 source files compile (QBNex used to reject them). |
 | D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile (the PLAY event itself is not raised yet), relational operators inside PRINT. |
+| D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
 | D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |
 | D-R12b-4 | With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog. |
 
@@ -71,7 +72,10 @@ Windows only.
 ## The QIR back end (`--ir`) and the web build
 
 - Not every statement is supported yet; the compiler names the line.
-- `ext.*` modules are not available with `--ir` yet.
+- Not in the QIR back end yet (the compiler names the line): `_IIF`, string
+  interpolation (`_TOSTR$`), `_ASSERT`, `_DEPTHBUFFER` (so 3D
+  `_MAPTRIANGLE`), the `ext.*` modules (`_OFFSET`), and `_OS$` (so a
+  program that imports `qbnex` or `sys.env` stops at start-up).
 - BYREF parameters are copied in and out: different from QB64 only when a
   SUB changes the same variable both through a parameter and through SHARED.
 - GPU 3D clips at the far plane (as QB64's OpenGL did); the software

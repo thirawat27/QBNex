@@ -157,7 +157,9 @@ pub struct DepthBuffer {
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 impl DepthBuffer {
+    /// Sides above the device limit are clamped like [crate::Target::offscreen].
     pub fn new(gpu: &Gpu, width: u32, height: u32) -> DepthBuffer {
+        let (width, height) = crate::fit_size(width, height, gpu.max_texture_size());
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("qb-gpu maptriangle depth"),
             size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
@@ -320,8 +322,12 @@ impl MapTriangle3d {
     }
 
     /// Uploads a source image (`0xAARRGGBB` pixels, `width`×`height`).
+    /// Short data is padded; sides above the device limit are scaled down (texture
+    /// coordinates stay in the original pixels).
     pub fn source(&self, gpu: &Gpu, pixels: &[u32], width: u32, height: u32) -> SourceImage {
-        assert_eq!(pixels.len(), (width * height) as usize, "source size");
+        let (orig_w, orig_h) = (width, height);
+        let (texels, width, height) = crate::fit_texture(pixels, width, height, gpu.max_texture_size());
+        let pixels = &texels[..];
         let size = wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 };
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("qb-gpu maptriangle source"),
@@ -342,7 +348,7 @@ impl MapTriangle3d {
             );
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        SourceImage { _texture: texture, view, width, height }
+        SourceImage { _texture: texture, view, width: orig_w, height: orig_h }
     }
 
     fn pipeline(&mut self, gpu: &Gpu, key: PipelineKey) -> &wgpu::RenderPipeline {
