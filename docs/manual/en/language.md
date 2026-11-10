@@ -6,12 +6,185 @@ QBNex accepts QBasic / QuickBASIC 4.5 programs and the QB64 dialect
 (`_` keywords, `$` metacommands, `_UNSIGNED`, `_INTEGER64`, `_FLOAT`,
 `_MEM`, `DECLARE LIBRARY`, ...). This page lists what QBNex adds. Each item
 has a status (see the [labels](../README.md#status-labels--ป้ายสถานะ)).
+Existing programs are unaffected: the new words start with `_` or are only
+recognised where QBasic would have reported a syntax error.
 
-Checked against the current compiler: a feature marked Available compiles
-today; Planned ones are rejected by the compiler even if the editor already
-highlights them.
+The examples on this page are compiled and run by `tests/docs/check_docs.ps1`
+(the expected output is shown under each one).
 
 ## Available
+
+### `_IIF`: inline IF
+
+```basic
+x = 7
+PRINT _IIF(x > 5, "big", "small"); _IIF(x < 5, 1, 2)
+```
+
+<!-- docs-test: output -->
+```text
+big 2
+```
+
+Only the chosen value is evaluated. Both values are strings, or both are
+numbers.
+
+### `_ANDALSO`, `_ORELSE`: short-circuit logic
+
+```basic
+DIM a(1 TO 3) AS INTEGER
+i = 4
+IF i <= 3 _ANDALSO a(i) = 0 THEN PRINT "in range" ELSE PRINT "index"; i; "skipped"
+IF i > 3 _ORELSE a(i) = 0 THEN PRINT "no subscript error"
+```
+
+<!-- docs-test: output -->
+```text
+index 4 skipped
+no subscript error
+```
+
+The right side runs only when needed. The result is -1 or 0.
+
+### String interpolation
+
+```basic
+name$ = "Ada"
+n% = 3
+PRINT $"Hello {name$}, {n%} new messages, {{braces}}"
+```
+
+<!-- docs-test: output -->
+```text
+Hello Ada, 3 new messages, {braces}
+```
+
+Numbers are written like `LTRIM$(STR$(x))` (the `_TOSTR$` function).
+`{{` and `}}` are literal braces. An expression inside `{}` cannot contain
+a `"`.
+
+### `FOR EACH`
+
+```basic
+DIM scores(1 TO 4) AS INTEGER
+FOR i = 1 TO 4: scores(i) = i * 10: NEXT
+FOR EACH s IN scores()
+    total = total + s
+NEXT s
+PRINT total
+```
+
+<!-- docs-test: output -->
+```text
+ 100
+```
+
+One-dimensional arrays, from LBOUND to UBOUND; the loop variable is a copy
+of the element.
+
+### `ENUM`
+
+```basic
+ENUM Fruit
+    Apple
+    Banana = 5
+    Cherry, Grape
+END ENUM
+PRINT Apple; Banana; Cherry; Grape
+```
+
+<!-- docs-test: output -->
+```text
+ 0  5  6  7
+```
+
+Members become integer `CONST`s, counting up from 0 or from the last
+`= value`. `ENUM` without a name works too.
+
+### `TRY` / `CATCH` / `FINALLY`
+
+```basic
+TRY
+    ERROR 53
+    PRINT "not reached"
+CATCH e
+    PRINT "caught error"; e
+FINALLY
+    PRINT "cleanup"
+END TRY
+```
+
+<!-- docs-test: output -->
+```text
+caught error 53
+cleanup
+```
+
+Built on `ON ERROR`: `CATCH e` stores the error number in `e`; without
+`CATCH` the error is raised again after `FINALLY`. TRY works inside SUBs.
+Limits: TRY only in the main source file (not in `$INCLUDE` files), each
+TRY keyword on its own line. Integer division by zero (`\` and `MOD`) is
+error 11 and can be caught. `ON ERROR GOTO` keeps working as before.
+
+### `OPTIONAL` parameters
+
+```basic
+DECLARE SUB Greet (who$, OPTIONAL greeting$ = "Hello", OPTIONAL times% = 1)
+Greet "Ada"
+Greet "Bob", "Hi", 2
+PRINT Scale(3); Scale(3, 10)
+SYSTEM
+
+SUB Greet (who$, OPTIONAL greeting$ = "Hello", OPTIONAL times% = 1)
+    FOR i% = 1 TO times%
+        PRINT greeting$; ", "; who$
+    NEXT
+END SUB
+
+FUNCTION Scale& (v AS LONG, OPTIONAL factor AS LONG = 2)
+    Scale& = v * factor
+END FUNCTION
+```
+
+<!-- docs-test: output -->
+```text
+Hello, Ada
+Hi, Bob
+Hi, Bob
+ 6  30
+```
+
+Trailing arguments may be left out; the default is any expression valid
+where the procedure is called.
+
+### `_CONTINUE`
+
+```basic
+FOR i = 1 TO 5
+    IF i MOD 2 = 0 THEN _CONTINUE
+    PRINT i;
+NEXT
+```
+
+<!-- docs-test: output -->
+```text
+ 1  3  5
+```
+
+Skips to the next iteration of the innermost `FOR`, `DO` or `WHILE` loop.
+
+### `$ASSERTS` and `_ASSERT`
+
+```basic
+$ASSERTS
+_ASSERT 1 + 1 = 2, "math works"
+PRINT "asserts passed"
+```
+
+<!-- docs-test: output -->
+```text
+asserts passed
+```
 
 ### Source files in CP437 or UTF-8
 
@@ -21,25 +194,19 @@ are; the bytes are kept. UTF-8 files (with or without BOM) work too.
 ### Standard library modules: `'$IMPORT:'name'`
 
 ```basic
-'$IMPORT:'json'
-'$IMPORT:'ext.http'
+'$IMPORT:'url'
+PRINT UrlEncodeComponent$("a b&c")
+```
+
+<!-- docs-test: output -->
+```text
+a%20b%26c
 ```
 
 The line may appear anywhere in the main file. Each module's declarations
 are placed before the program and its procedures after it, so a module's
 `DIM SHARED`, TYPEs and SUBs work wherever the import line is. See
 [Standard library](stdlib.md).
-
-### `_CONTINUE`
-
-Skips to the next iteration of the innermost `FOR`, `DO` or `WHILE` loop.
-
-```basic
-FOR i = 1 TO 5
-    IF i MOD 2 = 0 THEN _CONTINUE
-    PRINT i
-NEXT
-```
 
 ### CLASS (text lowering, with `'$IMPORT:'qbnex'`)
 
@@ -55,8 +222,8 @@ END CLASS
 
 `CLASS ... END CLASS` with fields, `CONSTRUCTOR`, `METHOD`/`SUB`/`FUNCTION`
 members, `EXTENDS` and `IMPLEMENTS` is rewritten into TYPEs and procedures
-before compiling. A real CLASS implementation in QIR (virtual dispatch,
-`NEW`/`DELETE`, properties) is Planned.
+before compiling. A base class must be declared before a class that
+`EXTENDS` it.
 
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
@@ -66,93 +233,41 @@ As in QB64. In the QIR back end external functions are called through
 
 ## Planned (port-plan section 9.4)
 
-These are designed and the editor tools (formatter, language server,
-highlighting) already know the words. The compiler rejects them today.
-All new words start with `_` or appear only in new statement forms, so old
-programs keep compiling.
+Designed, not in the compiler yet (the editor tools already know some of
+the words):
 
-### Control flow
-
+<!-- docs-test: compile-error -->
 ```basic
-x = _IIF(score >= 50, "pass", "fail")      ' only the chosen value is evaluated
-IF a <> 0 _ANDALSO b / a > 2 THEN ...       ' short-circuit AND / OR (_ORELSE)
-
-FOR EACH item IN names$()
-    PRINT item
-NEXT
-```
-
-`EXIT FOR`/`_CONTINUE` naming the loop to leave or continue.
-
-### Errors: TRY / CATCH / FINALLY
-
-```basic
-TRY
-    OPEN "data.txt" FOR INPUT AS #1
-    LINE INPUT #1, first$
-CATCH e
-    PRINT "error"; e; _ERRORMESSAGE$
-FINALLY
-    CLOSE
-END TRY
-
 _THROW 5, "bad argument"
 ```
 
-Built on the existing `ON ERROR` mechanism; `ON ERROR GOTO` keeps working.
-(`_ERRORMESSAGE$` itself is already available.)
-
-### Types
-
+<!-- docs-test: compile-error -->
 ```basic
-ENUM Direction
-    North
-    East
-    South
-    West
-END ENUM
-
 DIM primes() AS LONG = {2, 3, 5, 7}
 ```
 
-Also: variable-length strings and arrays inside TYPE, CONST of every type.
-
-### Procedures
-
-`OPTIONAL` parameters with defaults (`SUB box (w AS LONG, OPTIONAL h AS LONG = 10)`),
-opt-in overloading by type, function pointers (`@SubName`, `CALL ptr(...)`),
-deep recursion without stack overflow (heap frames in the VM).
-
-### Strings
-
+<!-- docs-test: compile-error -->
 ```basic
-name$ = "Ann"
-PRINT $"Hello {name$}, you are {age%} years old"   ' interpolation
-
 n& = _SPLIT("a,b,c", ",", parts$())
-PRINT _JOIN$(parts$(), " | ")
-PRINT _REPLACE$("a-b-c", "-", "+"), _STARTSWITH("QBNex", "QB"), _ENDSWITH(f$, ".bas")
-PRINT _FORMAT$(1234.5, "#,##0.00")
-PRINT _ULEN(s$), _UMID$(s$, 2, 3), _UCHR$(3647), _UASC("ก")      ' UTF-8 by character
+PRINT _JOIN$(parts$(), " | "), _REPLACE$("a-b", "-", "+"), _ULEN("ก")
 ```
 
-Until these land, the [`ext.utf8`](stdlib.md#extutf8) and
-[`ext.regex`](stdlib.md#extregex) modules cover the same needs.
+<!-- docs-test: compile-error -->
+```basic
+x = 1
+x += 2
+```
 
-### Built-in collections
-
-`DIM l AS _LIST`, `DIM d AS _DICT` with `FOR EACH`. Today:
-[`ext.collections`](stdlib.md#extcollections) (handles) or the `collections.*`
-modules.
-
-### Library
-
-`_REGEX`, `_RANDOMSEED`, JSON, HTTP(S), hashes, zip, UUID, ISO dates as
-built-ins. Today all of these except UUID are available as `ext.*` modules.
-
-### Other syntax listed in the old README
-
-`x += 1` (also `-=`, `*=`, `/=`), `# comment` lines, `IMPORT module` without
-the `'$IMPORT:` form, and `FUNCTION name (...) AS STRING` were described in
-earlier READMEs; the current compiler rejects them, so treat them as
-Planned too.
+- `_THROW code[, message$]` (today: `ERROR code`).
+- Array literals, variable-length strings and arrays inside TYPE.
+- String helpers `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`,
+  `_ENDSWITH`, `_FORMAT$` and UTF-8 helpers `_ULEN`, `_UMID$`, `_UCHR$`,
+  `_UASC` (today: the [`ext.utf8`](stdlib.md#extutf8) and
+  [`ext.regex`](stdlib.md#extregex) modules).
+- Built-in `_LIST` / `_DICT` (today: [`ext.collections`](stdlib.md#extcollections)).
+- `_REGEX`, `_RANDOMSEED` and UUIDs as built-ins.
+- CLASS in QIR: virtual dispatch, `NEW`/`DELETE`, properties; function
+  pointers (`@SubName`); overloading by type.
+- `x += 1` (and `-=`, `*=`, `/=`), `# comment` lines, `IMPORT module`
+  without the `'$IMPORT:` form and `FUNCTION name (...) AS type`, which
+  earlier READMEs described.

@@ -37,6 +37,7 @@ QBNex เริ่มต้นจาก QB64 โปรแกรมเดิม�
 | D-21 | `_OPENCLIENT` ลองทุกที่อยู่ IPv4 ของ host บนทุกระบบ |
 | D-22 | ไฟล์ source แบบ CP437 คอมไพล์ได้ (QBNex รุ่นก่อนไม่รับ) |
 | D-23, D-24, D-26 | แก้คอมไพเลอร์: wrapper ของ `CALL ABSOLUTE`, `PLAY ON/OFF/STOP` และ `ON PLAY(n) GOSUB` คอมไพล์ได้ (แต่ตัว event ของ PLAY ยังไม่ถูกยิง), ตัวดำเนินการเปรียบเทียบใน PRINT |
+| D-R12b-5 | `\` และ `MOD` ของจำนวนเต็มเมื่อหารด้วยศูนย์เป็น error 11 ธรรมดาที่ `ON ERROR` และ `TRY`/`CATCH` ดักได้ (เหมือน QBasic 4.5) ขณะที่ QB64 จบโปรแกรม |
 | D-R12b-2 | READ ตัวเลขทศนิยมเข้า DOUBLE/`_FLOAT` ปัดค่าได้ถูกต้อง |
 | D-R12b-4 | เมื่อ output ถูก redirect หรือตั้ง `QBNEX_NO_ERROR_DIALOG=1` runtime error จะพิมพ์หนึ่งบรรทัดทาง stderr แล้วออกด้วย exit code 1 แทนการเปิดกล่องข้อความ |
 

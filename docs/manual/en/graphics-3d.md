@@ -34,54 +34,60 @@ draw 3D triangles with wgpu (Vulkan, DX12, Metal). It falls back to the
 software path when there is no adapter or `QB_GPU=off`. One known
 difference: on the GPU the far plane (10000) clips, as legacy OpenGL did.
 
-## High-level 3D: models, camera, lights (Planned)
+## High-level 3D: models, camera, lights (Preview)
 
-The GPU side is implemented and tested (`crates/qb-gpu`: glTF 2.0 models,
-primitives, Lambert lighting with up to 8 lights, depth); the BASIC
-statements below are not wired into the compiler yet. Design:
+The compiler knows these statements and functions; they draw on a runtime
+built with GPU support (wgpu). Without a GPU every statement still runs
+without an error, `_DRAW3D` draws nothing and `_GPU3D` returns 0. Design:
 `docs/rust-port/r15-g4-3d-api.md`.
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)
-IF NOT _GPU3D THEN PRINT "no GPU: 3D statements do nothing"
+IF _GPU3D = 0 THEN PRINT "no GPU: 3D statements do nothing"
 
-ship& = _LOADMODEL("ship.glb")        ' glTF 2.0 (.gltf/.glb); -1 if it cannot load
 box& = _MESHCUBE(1)
 floor& = _MESHPLANE(20, 20)
 _MESHCOLOR floor&, _RGBA32(80, 120, 80, 255)
-_MESHTEXTURE box&, _LOADIMAGE("crate.png", 32)
+tex& = _NEWIMAGE(64, 64, 32)
+_MESHTEXTURE box&, tex&
 
-_CAMERA 0, 3, 8 TO 0, 0, 0, 60        ' eye TO target, vertical field of view
+' a mesh from vertices (numbered from 0 in the order given)
+_MESHBEGIN
+_MESHVERTEX 0, 1, 0, 0.5, 0
+_MESHVERTEX -1, 0, 0, 0, 1
+_MESHVERTEX 1, 0, 0, 1, 1
+_MESHTRIANGLE 0, 1, 2
+tri& = _MESHEND
+
+_CAMERA (0, 3, 8) TO (0, 0, 0), 60         ' eye TO target, vertical field of view
 _CAMERARANGE 0.1, 1000
 _AMBIENT _RGB32(255, 255, 255), 0.2
-sun& = _LIGHT(_DIRECTIONAL, -1, -2, -1, _RGB32(255, 250, 240), 1)
-lamp& = _LIGHT(_POINT, 2, 2, 0, _RGB32(255, 200, 120), 2, 6)
+sun& = _LIGHT(1, -1, -2, -1, _RGB32(255, 250, 240), 1)       ' 1 = directional
+lamp& = _LIGHT(2, 2, 2, 0, _RGB32(255, 200, 120), 2, 6)       ' 2 = point, range 6
 
-DO
-    _LIMIT 60
+FOR frame = 1 TO 3
     a! = a! + 1
     _CLEAR3D _RGB32(20, 20, 40)
     _DRAW3D floor&
-    _DRAW3D box&, 0, 0.5, 0, 0, a!, 0            ' position, rotation (degrees)
-    _DRAW3D ship&, 3, 1, 0, 0, -a!, 0, 0.5, 0.5, 0.5
+    _DRAW3D box&, 0, 0.5, 0, 0, a!, 0                 ' position, rotation (degrees)
+    _DRAW3D tri&, 3, 1, 0, 0, -a!, 0, 0.5, 0.5, 0.5   ' ... and scale
     _DISPLAY
-LOOP UNTIL _KEYHIT = 27
+NEXT
 _FREEMESH box&: _FREELIGHT lamp&
 ```
 
 | Statement / function | Meaning |
 | --- | --- |
-| `_LOADMODEL(file$)` | Load glTF 2.0. |
+| `_LOADMODEL(file$)` | Load glTF 2.0 (.gltf/.glb); -1 when it cannot be loaded. |
 | `_MESHCUBE(size!)`, `_MESHPLANE(w!, d!)` | Primitives. |
-| `_MESH(px!(), py!(), pz!(), nx!(), ny!(), nz!(), u!(), v!(), idx&())` | Model from arrays; empty normals are computed. |
-| `_MESHCOLOR m&, colour~&` · `_MESHTEXTURE m&, img&` · `_FREEMESH m&` | Material, free. |
-| `_DRAW3D m& [, x, y, z] [, rx, ry, rz] [, sx, sy, sz]` | Queue a draw; drawn at `_DISPLAY`. |
-| `_CAMERA x, y, z TO tx, ty, tz [, fov!]` · `..., _ORTHO height!` | Perspective or orthographic camera. |
+| `_MESHBEGIN` · `_MESHVERTEX x!, y!, z! [, u!, v!]` · `_MESHTRIANGLE a&, b&, c&` · `_MESHEND` | Build a mesh; `_MESHEND` returns its handle (-1 without triangles). Vertices are numbered from 0. |
+| `_MESHCOLOR m&, colour~&` · `_MESHTEXTURE m&, img&` · `_FREEMESH m&` | Material (texture from a 32-bit image), free. |
+| `_DRAW3D m& [, x, y, z] [, rx, ry, rz] [, sx, sy, sz]` | Queue a draw (angles in degrees, order Y-X-Z); drawn at `_DISPLAY`. |
+| `_CAMERA (x, y, z) TO (tx, ty, tz) [, fov!]` | Perspective camera (vertical field of view in degrees, default 60). |
+| `_CAMERAORTHO (x, y, z) TO (tx, ty, tz), height!` | Orthographic camera. |
 | `_CAMERARANGE near!, far!` | Clipping range (default 0.1, 1000). |
 | `_AMBIENT colour~& [, intensity!]` | Ambient light. |
-| `_LIGHT(_DIRECTIONAL|_POINT, ...)` · `_LIGHTON l&, on` · `_FREELIGHT l&` | Lights (8 on at most). |
+| `_LIGHT(kind&, x, y, z, colour~&, intensity! [, range!])` | Light: kind 1 = directional (x, y, z is the direction), 2 = point (x, y, z is the position). |
+| `_LIGHTON l&, on&` · `_FREELIGHT l&` | Switch (at most 8 lights on), free. |
 | `_CLEAR3D [colour~&]` | Clear colour and depth of the 3D layer. |
 | `_GPU3D` | -1 when 3D can be drawn. |
-
-Without a GPU every statement still runs without an error; `_DRAW3D` draws
-nothing and `_GPU3D` returns 0.

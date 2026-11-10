@@ -6,11 +6,183 @@ QBNex รับโปรแกรม QBasic / QuickBASIC 4.5 และภาษ�
 ด้วย `_`, metacommand `$`, `_UNSIGNED`, `_INTEGER64`, `_FLOAT`, `_MEM`,
 `DECLARE LIBRARY` ...) หน้านี้รวบรวมสิ่งที่ QBNex เพิ่มเข้ามา แต่ละหัวข้อมี
 สถานะกำกับ (ดู[ป้ายสถานะ](../README.md#status-labels--ป้ายสถานะ))
+โปรแกรมเดิมไม่ได้รับผลกระทบ เพราะคำใหม่ขึ้นต้นด้วย `_` หรือถูกตีความเฉพาะ
+ในจุดที่ QBasic เดิมจะแจ้ง syntax error
 
-ตรวจกับคอมไพเลอร์ปัจจุบันแล้ว: หัวข้อที่เป็น **ใช้ได้แล้ว** คอมไพล์ได้จริง
-วันนี้ ส่วนหัวข้อ **วางแผนไว้** คอมไพเลอร์ยังไม่รับ แม้ editor จะไฮไลต์ให้แล้วก็ตาม
+ตัวอย่างในหน้านี้ถูกคอมไพล์และรันโดย `tests/docs/check_docs.ps1`
+(ผลลัพธ์ที่ควรได้แสดงไว้ใต้แต่ละตัวอย่าง)
 
 ## ใช้ได้แล้ว
+
+### `_IIF`: IF แบบบรรทัดเดียวในนิพจน์
+
+```basic
+x = 7
+PRINT _IIF(x > 5, "big", "small"); _IIF(x < 5, 1, 2)
+```
+
+<!-- docs-test: output -->
+```text
+big 2
+```
+
+คำนวณเฉพาะค่าที่ถูกเลือก ทั้งสองค่าต้องเป็น string ทั้งคู่ หรือเป็นตัวเลขทั้งคู่
+
+### `_ANDALSO`, `_ORELSE`: ตรรกะแบบ short-circuit
+
+```basic
+DIM a(1 TO 3) AS INTEGER
+i = 4
+IF i <= 3 _ANDALSO a(i) = 0 THEN PRINT "in range" ELSE PRINT "index"; i; "skipped"
+IF i > 3 _ORELSE a(i) = 0 THEN PRINT "no subscript error"
+```
+
+<!-- docs-test: output -->
+```text
+index 4 skipped
+no subscript error
+```
+
+ด้านขวาจะถูกคำนวณเมื่อจำเป็นเท่านั้น ผลลัพธ์เป็น -1 หรือ 0
+
+### String interpolation
+
+```basic
+name$ = "Ada"
+n% = 3
+PRINT $"Hello {name$}, {n%} new messages, {{braces}}"
+```
+
+<!-- docs-test: output -->
+```text
+Hello Ada, 3 new messages, {braces}
+```
+
+ตัวเลขถูกเขียนแบบ `LTRIM$(STR$(x))` (ฟังก์ชัน `_TOSTR$`) ส่วน `{{` และ
+`}}` คือวงเล็บปีกกาตามตัวอักษร นิพจน์ใน `{}` ห้ามมีเครื่องหมาย `"`
+
+### `FOR EACH`
+
+```basic
+DIM scores(1 TO 4) AS INTEGER
+FOR i = 1 TO 4: scores(i) = i * 10: NEXT
+FOR EACH s IN scores()
+    total = total + s
+NEXT s
+PRINT total
+```
+
+<!-- docs-test: output -->
+```text
+ 100
+```
+
+ใช้กับ array หนึ่งมิติ วนจาก LBOUND ถึง UBOUND ตัวแปรของ loop เป็นสำเนา
+ของสมาชิก
+
+### `ENUM`
+
+```basic
+ENUM Fruit
+    Apple
+    Banana = 5
+    Cherry, Grape
+END ENUM
+PRINT Apple; Banana; Cherry; Grape
+```
+
+<!-- docs-test: output -->
+```text
+ 0  5  6  7
+```
+
+สมาชิกกลายเป็น `CONST` จำนวนเต็ม นับขึ้นจาก 0 หรือจาก `= ค่า` ตัวล่าสุด
+`ENUM` แบบไม่มีชื่อก็ใช้ได้
+
+### `TRY` / `CATCH` / `FINALLY`
+
+```basic
+TRY
+    ERROR 53
+    PRINT "not reached"
+CATCH e
+    PRINT "caught error"; e
+FINALLY
+    PRINT "cleanup"
+END TRY
+```
+
+<!-- docs-test: output -->
+```text
+caught error 53
+cleanup
+```
+
+สร้างบน `ON ERROR`: `CATCH e` เก็บหมายเลข error ไว้ใน `e` ถ้าไม่มี
+`CATCH` error จะถูกยกขึ้นอีกครั้งหลัง `FINALLY` TRY ใช้ในตัว SUB ได้
+ข้อจำกัด: TRY ใช้ได้เฉพาะในไฟล์ source หลัก (ไม่ใช่ไฟล์ `$INCLUDE`)
+keyword ของ TRY แต่ละตัวต้องอยู่บรรทัดของตัวเอง การหารจำนวนเต็มด้วยศูนย์
+(`\` และ `MOD`) เป็น error 11 ที่ดักได้ `ON ERROR GOTO` ยังใช้ได้ตามเดิม
+
+### พารามิเตอร์ `OPTIONAL`
+
+```basic
+DECLARE SUB Greet (who$, OPTIONAL greeting$ = "Hello", OPTIONAL times% = 1)
+Greet "Ada"
+Greet "Bob", "Hi", 2
+PRINT Scale(3); Scale(3, 10)
+SYSTEM
+
+SUB Greet (who$, OPTIONAL greeting$ = "Hello", OPTIONAL times% = 1)
+    FOR i% = 1 TO times%
+        PRINT greeting$; ", "; who$
+    NEXT
+END SUB
+
+FUNCTION Scale& (v AS LONG, OPTIONAL factor AS LONG = 2)
+    Scale& = v * factor
+END FUNCTION
+```
+
+<!-- docs-test: output -->
+```text
+Hello, Ada
+Hi, Bob
+Hi, Bob
+ 6  30
+```
+
+ละ argument ท้ายๆ ได้ ค่าเริ่มต้นเป็นนิพจน์อะไรก็ได้ที่ใช้ได้ในจุดที่เรียก
+procedure
+
+### `_CONTINUE`
+
+```basic
+FOR i = 1 TO 5
+    IF i MOD 2 = 0 THEN _CONTINUE
+    PRINT i;
+NEXT
+```
+
+<!-- docs-test: output -->
+```text
+ 1  3  5
+```
+
+ข้ามไปรอบถัดไปของ loop `FOR`, `DO` หรือ `WHILE` ชั้นในสุด
+
+### `$ASSERTS` และ `_ASSERT`
+
+```basic
+$ASSERTS
+_ASSERT 1 + 1 = 2, "math works"
+PRINT "asserts passed"
+```
+
+<!-- docs-test: output -->
+```text
+asserts passed
+```
 
 ### ไฟล์ source แบบ CP437 หรือ UTF-8
 
@@ -21,8 +193,13 @@ QBNex รับโปรแกรม QBasic / QuickBASIC 4.5 และภาษ�
 ### โมดูลไลบรารีมาตรฐาน: `'$IMPORT:'name'`
 
 ```basic
-'$IMPORT:'json'
-'$IMPORT:'ext.http'
+'$IMPORT:'url'
+PRINT UrlEncodeComponent$("a b&c")
+```
+
+<!-- docs-test: output -->
+```text
+a%20b%26c
 ```
 
 วางบรรทัดนี้ตรงไหนของไฟล์หลักก็ได้ ส่วนประกาศของแต่ละโมดูลจะถูกวางไว้
@@ -30,18 +207,7 @@ QBNex รับโปรแกรม QBasic / QuickBASIC 4.5 และภาษ�
 `DIM SHARED`, TYPE และ SUB ของโมดูลใช้ได้ไม่ว่าบรรทัด import จะอยู่ตรงไหน
 ดู[ไลบรารีมาตรฐาน](stdlib.md)
 
-### `_CONTINUE`
-
-ข้ามไปทำรอบถัดไปของ loop `FOR`, `DO` หรือ `WHILE` ชั้นในสุด
-
-```basic
-FOR i = 1 TO 5
-    IF i MOD 2 = 0 THEN _CONTINUE
-    PRINT i
-NEXT
-```
-
-### CLASS (แปลงเป็นโค้ดธรรมดาก่อนคอมไพล์ ต้องใช้คู่กับ `'$IMPORT:'qbnex'`)
+### CLASS (แปลงเป็นโค้ดธรรมดาก่อนคอมไพล์ ใช้คู่กับ `'$IMPORT:'qbnex'`)
 
 ```basic
 '$IMPORT:'qbnex'
@@ -55,8 +221,7 @@ END CLASS
 
 `CLASS ... END CLASS` ที่มี field, `CONSTRUCTOR`, สมาชิกแบบ
 `METHOD`/`SUB`/`FUNCTION`, `EXTENDS` และ `IMPLEMENTS` จะถูกเขียนใหม่เป็น TYPE
-กับ procedure ก่อนคอมไพล์ ส่วน CLASS ตัวจริงใน QIR (virtual dispatch,
-`NEW`/`DELETE`, property) อยู่ในสถานะวางแผนไว้
+กับ procedure ก่อนคอมไพล์ class แม่ต้องประกาศก่อน class ที่ `EXTENDS` มัน
 
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
@@ -66,93 +231,40 @@ END CLASS
 
 ## วางแผนไว้ (port-plan หัวข้อ 9.4)
 
-ออกแบบไว้แล้ว และเครื่องมือของ editor (formatter, language server,
-การไฮไลต์) รู้จักคำเหล่านี้แล้ว แต่คอมไพเลอร์ยังไม่รับ คำใหม่ทุกคำขึ้นต้น
-ด้วย `_` หรือใช้เฉพาะในรูปคำสั่งใหม่ โปรแกรมเดิมจึงยังคอมไพล์ได้เหมือนเดิม
+ออกแบบแล้วแต่ยังไม่อยู่ในคอมไพเลอร์ (เครื่องมือ editor รู้จักบางคำแล้ว)
 
-### การควบคุมลำดับการทำงาน
-
+<!-- docs-test: compile-error -->
 ```basic
-x = _IIF(score >= 50, "pass", "fail")      ' คำนวณเฉพาะค่าที่ถูกเลือก
-IF a <> 0 _ANDALSO b / a > 2 THEN ...       ' AND / OR แบบ short-circuit (_ORELSE)
-
-FOR EACH item IN names$()
-    PRINT item
-NEXT
-```
-
-และ `EXIT FOR`/`_CONTINUE` ที่ระบุได้ว่าจะออกหรือข้ามรอบของ loop ไหน
-
-### จัดการ error: TRY / CATCH / FINALLY
-
-```basic
-TRY
-    OPEN "data.txt" FOR INPUT AS #1
-    LINE INPUT #1, first$
-CATCH e
-    PRINT "error"; e; _ERRORMESSAGE$
-FINALLY
-    CLOSE
-END TRY
-
 _THROW 5, "bad argument"
 ```
 
-สร้างบนกลไก `ON ERROR` เดิม `ON ERROR GOTO` ยังใช้ได้ตามปกติ
-(ตัว `_ERRORMESSAGE$` ใช้ได้แล้ววันนี้)
-
-### ชนิดข้อมูล
-
+<!-- docs-test: compile-error -->
 ```basic
-ENUM Direction
-    North
-    East
-    South
-    West
-END ENUM
-
 DIM primes() AS LONG = {2, 3, 5, 7}
 ```
 
-รวมถึง string ความยาวไม่คงที่และ array ภายใน TYPE และ CONST ได้ทุกชนิด
-
-### Procedure
-
-พารามิเตอร์ `OPTIONAL` พร้อมค่าเริ่มต้น
-(`SUB box (w AS LONG, OPTIONAL h AS LONG = 10)`), overload ตามชนิดแบบ
-เลือกเปิด, function pointer (`@SubName`, `CALL ptr(...)`) และ recursion
-ลึกๆ โดยไม่ stack overflow (frame อยู่บน heap ของ VM)
-
-### String
-
+<!-- docs-test: compile-error -->
 ```basic
-name$ = "Ann"
-PRINT $"Hello {name$}, you are {age%} years old"   ' string interpolation
-
 n& = _SPLIT("a,b,c", ",", parts$())
-PRINT _JOIN$(parts$(), " | ")
-PRINT _REPLACE$("a-b-c", "-", "+"), _STARTSWITH("QBNex", "QB"), _ENDSWITH(f$, ".bas")
-PRINT _FORMAT$(1234.5, "#,##0.00")
-PRINT _ULEN(s$), _UMID$(s$, 2, 3), _UCHR$(3647), _UASC("ก")      ' UTF-8 นับเป็นตัวอักษร
+PRINT _JOIN$(parts$(), " | "), _REPLACE$("a-b", "-", "+"), _ULEN("ก")
 ```
 
-ระหว่างนี้ใช้โมดูล [`ext.utf8`](stdlib.md#extutf8) และ
-[`ext.regex`](stdlib.md#extregex) แทนได้
+<!-- docs-test: compile-error -->
+```basic
+x = 1
+x += 2
+```
 
-### Collection ในตัวภาษา
-
-`DIM l AS _LIST`, `DIM d AS _DICT` ใช้คู่กับ `FOR EACH` ตอนนี้ใช้
-[`ext.collections`](stdlib.md#extcollections) (แบบ handle) หรือโมดูล
-`collections.*` แทน
-
-### ไลบรารีในตัว
-
-`_REGEX`, `_RANDOMSEED`, JSON, HTTP(S), hash, zip, UUID และวันที่แบบ ISO
-เป็น built-in ตอนนี้ทุกอย่างยกเว้น UUID ใช้ได้แล้วผ่านโมดูล `ext.*`
-
-### syntax อื่นที่เคยอยู่ใน README เดิม
-
-`x += 1` (รวม `-=`, `*=`, `/=`), บรรทัด comment แบบ `# comment`,
-`IMPORT module` ที่ไม่ใช้รูป `'$IMPORT:` และ `FUNCTION name (...) AS STRING`
-เคยถูกเขียนไว้ใน README รุ่นก่อน แต่คอมไพเลอร์ปัจจุบันยังไม่รับ จึงให้ถือว่า
-อยู่ในสถานะวางแผนไว้เช่นกัน
+- `_THROW code[, message$]` (ตอนนี้ใช้ `ERROR code`)
+- array literal, string ความยาวไม่คงที่และ array ภายใน TYPE
+- ตัวช่วย string `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`,
+  `_ENDSWITH`, `_FORMAT$` และตัวช่วย UTF-8 `_ULEN`, `_UMID$`, `_UCHR$`,
+  `_UASC` (ตอนนี้ใช้โมดูล [`ext.utf8`](stdlib.md#extutf8) และ
+  [`ext.regex`](stdlib.md#extregex) แทน)
+- `_LIST` / `_DICT` ในตัวภาษา (ตอนนี้ใช้ [`ext.collections`](stdlib.md#extcollections))
+- `_REGEX`, `_RANDOMSEED` และ UUID แบบ built-in
+- CLASS ใน QIR: virtual dispatch, `NEW`/`DELETE`, property, function
+  pointer (`@SubName`), overload ตามชนิด
+- `x += 1` (รวม `-=`, `*=`, `/=`), บรรทัด comment แบบ `# comment`,
+  `IMPORT module` ที่ไม่ใช้รูป `'$IMPORT:` และ `FUNCTION name (...) AS type`
+  ที่ README รุ่นก่อนเคยเขียนไว้

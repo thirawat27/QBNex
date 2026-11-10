@@ -48,10 +48,12 @@
 
 ## json
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'json'
 Json_Init
-root% = JSON_Parse%("{""name"": ""QBNex"", ""tags"": [""basic"", 3]}")
+q$ = CHR$(34)                                 ' QBasic strings have no escapes
+root% = JSON_Parse%("{" + q$ + "name" + q$ + ": " + q$ + "QBNex" + q$ + ", " + q$ + "tags" + q$ + ": [" + q$ + "basic" + q$ + ", 3]}")
 IF root% = 0 THEN PRINT JSON_LastError$; " at byte"; JSON_ErrorPosition&: END
 PRINT JsonGetString$(JsonObjectGet%(root%, "name"))
 tags% = JsonObjectGet%(root%, "tags")
@@ -60,7 +62,15 @@ FOR i% = 0 TO JsonArrayLength%(tags%) - 1
 NEXT
 o% = JsonCreateObject%
 JsonObjectSet o%, "ok", JsonCreateBoolean%(-1)
-PRINT JSON_StringifyPretty$(o%)
+PRINT JSON_Stringify$(o%)                      ' JSON_StringifyPretty$ indents
+```
+
+<!-- expected output -->
+```text
+QBNex
+"basic"
+3
+{"ok":true}
 ```
 
 ค่าทุกค่าเป็น handle (0 = ไม่มี) การ parse รองรับ object, array, escape ของ
@@ -73,17 +83,33 @@ grammar อย่างเคร่งครัด, ซ้อนได้ลึ�
 
 ## url
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'url'
 DIM u AS UrlParts
 UrlParse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top", u
-PRINT RTRIM$(u.hostname), u.port, RTRIM$(u.pathname)
+PRINT RTRIM$(u.hostname)
+PRINT u.port
+PRINT RTRIM$(u.pathname)
 PRINT UrlGetQueryParam$(u, "s")          ' "a b"
 UrlSetQueryParam u, "q", "two words"
 PRINT UrlFormat$(u)
-PRINT UrlEncodeComponent$("a b/c"), UrlDecode$("a%20b")
+PRINT UrlEncodeComponent$("a b/c")
+PRINT UrlDecode$("a%20b")
 DIM r AS UrlParts
 UrlResolve "http://a/b/c/d;p?q", "../g", r: PRINT UrlFormat$(r)   ' http://a/b/g
+```
+
+<!-- expected output -->
+```text
+example.com
+ 8080
+/a/b.txt
+a b
+https://user@example.com:8080/a/b.txt?q=two%20words&s=a+b#top
+a%20b%2Fc
+a b
+http://a/b/g
 ```
 
 มี `UrlNormalizePath$`, `UrlBasename$`, `UrlExtname$`, `UrlDirname$`,
@@ -91,14 +117,31 @@ UrlResolve "http://a/b/c/d;p?q", "../g", r: PRINT UrlFormat$(r)   ' http://a/b/g
 
 ## ext.regex
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'ext.regex'
 PRINT Regex_IsMatch&("^\d{3}-\d{4}$", "555-1234")           ' -1
 p& = Regex_Find&("(\w+)@(\w+)\.com", "mail bob@example.com", 1)
-PRINT p&, Regex_Match$, Regex_Group$(1), Regex_GroupCount&
+PRINT p&
+PRINT Regex_Match$
+PRINT Regex_Group$(1)
+PRINT Regex_GroupCount&
 PRINT Regex_Replace$("(\d+)", "a1b22", "<$1>")               ' a<1>b<22>
 n& = Regex_Split&("\s*,\s*", "a , b,c")
 FOR i& = 0 TO n& - 1: PRINT Regex_Part$(i&): NEXT
+```
+
+<!-- expected output -->
+```text
+-1
+ 6
+bob@example.com
+bob
+ 3
+a<1>b<22>
+a
+b
+c
 ```
 
 ใช้ syntax ของ crate `regex` ใน Rust (ไม่มี backreference และ look-around
@@ -106,12 +149,30 @@ FOR i& = 0 TO n& - 1: PRINT Regex_Part$(i&): NEXT
 
 ## ext.hash
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'ext.hash'
 PRINT Hash_SHA256$("abc")
-PRINT Hash_MD5$("abc"), Hash_SHA1$("abc"), Hash_CRC32$("123456789")
-b$ = Base64_Encode$("bytes" + CHR$(0)): PRINT b$, Base64_Decode$(b$)
-PRINT Base64Url_Encode$(x$), Hex_Encode$("AZ"), Hex_Decode$("41 42")
+PRINT Hash_MD5$("abc")
+PRINT Hash_SHA1$("abc")
+PRINT Hash_CRC32$("123456789")
+b$ = Base64_Encode$("bytes")
+PRINT b$
+PRINT Base64_Decode$(b$)
+PRINT Hex_Encode$("AZ")
+PRINT Hex_Decode$("41 42")
+```
+
+<!-- expected output -->
+```text
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+900150983cd24fb0d6963f7d28e17f72
+a9993e364706816aba3e25717850c26c9cd0d89d
+cbf43926
+Ynl0ZXM=
+bytes
+415a
+AB
 ```
 
 digest เป็น hex ตัวพิมพ์เล็ก ส่วน `Hash_CRC32Value~&` คืนค่าเป็นตัวเลข
@@ -161,18 +222,36 @@ u$ = Cp437_ToUtf8$(old$): back$ = Utf8_ToCp437$(u$)
 
 ## ext.collections
 
+<!-- docs-test: output -->
 ```basic
 '$IMPORT:'ext.collections'
 l& = XList_New&
 XList_Add l&, "pear": XList_AddNum l&, 2.5: XList_Insert l&, 0, "fig"
-PRINT XList_Count&(l&), XList_Get$(l&, 0), XList_GetNum#(l&, 2)
+PRINT XList_Count&(l&)
+PRINT XList_Get$(l&, 0)
+PRINT XList_GetNum#(l&, 2)
 XList_Sort l&, 0, -1                         ' เรียงจากน้อยไปมาก ไม่สนตัวพิมพ์
 PRINT XList_Join$(l&, ",")
 d& = XDict_New&
 XDict_Set d&, "name", "Ann": XDict_SetNum d&, "age", 42
-PRINT XDict_Get$(d&, "name"), XDict_GetNum#(d&, "age"), XDict_Has&(d&, "x")
+PRINT XDict_Get$(d&, "name")
+PRINT XDict_GetNum#(d&, "age")
+PRINT XDict_Has&(d&, "x")
 FOR i& = 0 TO XDict_Count&(d&) - 1: PRINT XDict_Key$(d&, i&): NEXT
 XColl_Free l&: XColl_Free d&
+```
+
+<!-- expected output -->
+```text
+ 3
+fig
+ 2.50
+2.5,fig,pear
+Ann
+ 42.0
+ 0
+name
+age
 ```
 
 list เริ่มนับที่ 0 dictionary เก็บลำดับตามที่ใส่ `XList_Type&` /
@@ -208,4 +287,4 @@ PRINT Path_Join$("dir", "file.txt"), Path_Extension$("a/b.bas")
 PRINT Env_Platform$, Args_Count&
 ```
 
-โมดูลกลุ่มนี้ใช้ได้กับทุก back end รวมถึง `--ir` และรุ่นเว็บ
+โมดูลกลุ่มนี้ใช้ได้กับ back end ค่าเริ่มต้น ส่วนกับ `--ir` (และรุ่นเว็บ) ตอนนี้โปรแกรมที่ import `qbnex` หรือ `sys.env` จะถูกปฏิเสธตอนเริ่มรัน เพราะ runner ของ QIR ยังไม่มี `_OS$` โมดูล BASIC อื่น (`json`, `url`, `collections.*`, `io.*` ...) ใช้ได้

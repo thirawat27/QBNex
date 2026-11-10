@@ -34,54 +34,60 @@ _DISPLAY
 ตั้ง `QB_GPU=off` จะกลับไปใช้ทางซอฟต์แวร์ ข้อแตกต่างที่รู้แล้วคือบน GPU
 ระนาบไกล (10000) จะตัดภาพทิ้ง เหมือนที่ OpenGL ของ QB64 เดิมทำ
 
-## 3 มิติระดับสูง: model, กล้อง, แสง (วางแผนไว้)
+## 3 มิติระดับสูง: model, กล้อง, แสง (ทดลอง)
 
-ฝั่ง GPU ทำเสร็จและมีเทสต์แล้ว (`crates/qb-gpu`: model glTF 2.0,
-รูปทรงพื้นฐาน, แสงแบบ Lambert สูงสุด 8 ดวง, depth) แต่คำสั่ง BASIC
-ด้านล่างยังไม่ได้ต่อเข้ากับคอมไพเลอร์ เอกสารออกแบบอยู่ที่
+คอมไพเลอร์รู้จักคำสั่งและฟังก์ชันเหล่านี้แล้ว และจะวาดได้เมื่อ runtime ถูก
+build พร้อมการรองรับ GPU (wgpu) ถ้าไม่มี GPU ทุกคำสั่งยังรันได้โดยไม่เกิด
+error แต่ `_DRAW3D` จะไม่วาดอะไร และ `_GPU3D` คืน 0 เอกสารออกแบบอยู่ที่
 `docs/rust-port/r15-g4-3d-api.md`
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)
-IF NOT _GPU3D THEN PRINT "no GPU: 3D statements do nothing"
+IF _GPU3D = 0 THEN PRINT "no GPU: 3D statements do nothing"
 
-ship& = _LOADMODEL("ship.glb")        ' glTF 2.0 (.gltf/.glb); -1 ถ้าโหลดไม่ได้
 box& = _MESHCUBE(1)
 floor& = _MESHPLANE(20, 20)
 _MESHCOLOR floor&, _RGBA32(80, 120, 80, 255)
-_MESHTEXTURE box&, _LOADIMAGE("crate.png", 32)
+tex& = _NEWIMAGE(64, 64, 32)
+_MESHTEXTURE box&, tex&
 
-_CAMERA 0, 3, 8 TO 0, 0, 0, 60        ' ตำแหน่งตา TO จุดที่มอง, มุมมองแนวตั้ง
+' a mesh from vertices (numbered from 0 in the order given)
+_MESHBEGIN
+_MESHVERTEX 0, 1, 0, 0.5, 0
+_MESHVERTEX -1, 0, 0, 0, 1
+_MESHVERTEX 1, 0, 0, 1, 1
+_MESHTRIANGLE 0, 1, 2
+tri& = _MESHEND
+
+_CAMERA (0, 3, 8) TO (0, 0, 0), 60         ' eye TO target, vertical field of view
 _CAMERARANGE 0.1, 1000
 _AMBIENT _RGB32(255, 255, 255), 0.2
-sun& = _LIGHT(_DIRECTIONAL, -1, -2, -1, _RGB32(255, 250, 240), 1)
-lamp& = _LIGHT(_POINT, 2, 2, 0, _RGB32(255, 200, 120), 2, 6)
+sun& = _LIGHT(1, -1, -2, -1, _RGB32(255, 250, 240), 1)       ' 1 = directional
+lamp& = _LIGHT(2, 2, 2, 0, _RGB32(255, 200, 120), 2, 6)       ' 2 = point, range 6
 
-DO
-    _LIMIT 60
+FOR frame = 1 TO 3
     a! = a! + 1
     _CLEAR3D _RGB32(20, 20, 40)
     _DRAW3D floor&
-    _DRAW3D box&, 0, 0.5, 0, 0, a!, 0            ' ตำแหน่ง, การหมุน (องศา)
-    _DRAW3D ship&, 3, 1, 0, 0, -a!, 0, 0.5, 0.5, 0.5
+    _DRAW3D box&, 0, 0.5, 0, 0, a!, 0                 ' position, rotation (degrees)
+    _DRAW3D tri&, 3, 1, 0, 0, -a!, 0, 0.5, 0.5, 0.5   ' ... and scale
     _DISPLAY
-LOOP UNTIL _KEYHIT = 27
+NEXT
 _FREEMESH box&: _FREELIGHT lamp&
 ```
 
 | คำสั่ง / ฟังก์ชัน | ความหมาย |
 | --- | --- |
-| `_LOADMODEL(file$)` | โหลด glTF 2.0 |
+| `_LOADMODEL(file$)` | โหลด glTF 2.0 (.gltf/.glb) คืน -1 ถ้าโหลดไม่ได้ |
 | `_MESHCUBE(size!)`, `_MESHPLANE(w!, d!)` | รูปทรงพื้นฐาน |
-| `_MESH(px!(), py!(), pz!(), nx!(), ny!(), nz!(), u!(), v!(), idx&())` | model จาก array ถ้า normal ว่างจะคำนวณให้ |
-| `_MESHCOLOR m&, colour~&` · `_MESHTEXTURE m&, img&` · `_FREEMESH m&` | วัสดุ, คืนหน่วยความจำ |
-| `_DRAW3D m& [, x, y, z] [, rx, ry, rz] [, sx, sy, sz]` | เข้าคิววาด แล้ววาดจริงตอน `_DISPLAY` |
-| `_CAMERA x, y, z TO tx, ty, tz [, fov!]` · `..., _ORTHO height!` | กล้องแบบ perspective หรือ orthographic |
+| `_MESHBEGIN` · `_MESHVERTEX x!, y!, z! [, u!, v!]` · `_MESHTRIANGLE a&, b&, c&` · `_MESHEND` | สร้าง mesh เอง `_MESHEND` คืน handle (-1 ถ้าไม่มีสามเหลี่ยม) จุดยอดนับจาก 0 |
+| `_MESHCOLOR m&, colour~&` · `_MESHTEXTURE m&, img&` · `_FREEMESH m&` | วัสดุ (texture จากภาพ 32-bit), คืนหน่วยความจำ |
+| `_DRAW3D m& [, x, y, z] [, rx, ry, rz] [, sx, sy, sz]` | เข้าคิววาด (มุมเป็นองศา ลำดับ Y-X-Z) แล้ววาดจริงตอน `_DISPLAY` |
+| `_CAMERA (x, y, z) TO (tx, ty, tz) [, fov!]` | กล้องแบบ perspective (มุมมองแนวตั้งเป็นองศา ค่าเริ่มต้น 60) |
+| `_CAMERAORTHO (x, y, z) TO (tx, ty, tz), height!` | กล้องแบบ orthographic |
 | `_CAMERARANGE near!, far!` | ระยะตัดภาพ (ค่าเริ่มต้น 0.1, 1000) |
 | `_AMBIENT colour~& [, intensity!]` | แสงโดยรอบ |
-| `_LIGHT(_DIRECTIONAL|_POINT, ...)` · `_LIGHTON l&, on` · `_FREELIGHT l&` | แหล่งแสง (เปิดได้พร้อมกันสูงสุด 8 ดวง) |
+| `_LIGHT(kind&, x, y, z, colour~&, intensity! [, range!])` | แหล่งแสง: kind 1 = ทิศทาง (x, y, z คือทิศ), 2 = จุด (x, y, z คือตำแหน่ง) |
+| `_LIGHTON l&, on&` · `_FREELIGHT l&` | เปิดปิด (เปิดพร้อมกันได้สูงสุด 8 ดวง), คืนหน่วยความจำ |
 | `_CLEAR3D [colour~&]` | ล้างสีและ depth ของชั้น 3 มิติ |
 | `_GPU3D` | คืน -1 เมื่อวาด 3 มิติได้ |
-
-ถ้าไม่มี GPU ทุกคำสั่งยังรันได้โดยไม่เกิด error แต่ `_DRAW3D` จะไม่วาดอะไร
-และ `_GPU3D` คืน 0

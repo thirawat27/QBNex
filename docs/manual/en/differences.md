@@ -37,6 +37,7 @@ and the tests.
 | D-21 | `_OPENCLIENT` tries every IPv4 address of a host on every OS. |
 | D-22 | CP437 source files compile (QBNex used to reject them). |
 | D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile (the PLAY event itself is not raised yet), relational operators inside PRINT. |
+| D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
 | D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |
 | D-R12b-4 | With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog. |
 
