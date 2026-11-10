@@ -3,7 +3,7 @@
 //! Their hardware results are not always the correctly rounded value (about 3% of
 //! random inputs are one unit in the last place off on the reference machine, and
 //! the pattern differs between CPU generations), so no software algorithm can
-//! reproduce them in general. On x86/x86_64 they therefore run on the x87 unit,
+//! reproduce them in general. On `x86/x86_64` they therefore run on the x87 unit,
 //! with the control word forced to the legacy `0x037F` around the instruction;
 //! everything else around them is software. Elsewhere (or with the feature
 //! `soft-transcendentals`) the software versions in [`crate::soft`] are used
@@ -12,6 +12,7 @@
 use crate::F80;
 
 /// `f2xm1`: `2^x - 1` for `-1 <= x <= 1`.
+#[must_use]
 pub fn f2xm1(x: F80) -> F80 {
     #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), not(feature = "soft-transcendentals")))]
     {
@@ -24,6 +25,7 @@ pub fn f2xm1(x: F80) -> F80 {
 }
 
 /// `fyl2x`: `y * log2(x)` (x in ST0, y in ST1).
+#[must_use]
 pub fn fyl2x(x: F80, y: F80) -> F80 {
     #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), not(feature = "soft-transcendentals")))]
     {
@@ -36,6 +38,7 @@ pub fn fyl2x(x: F80, y: F80) -> F80 {
 }
 
 /// `fyl2xp1`: `y * log2(1 + x)` for `|x| < 1 - sqrt(2)/2`.
+#[must_use]
 pub fn fyl2xp1(x: F80, y: F80) -> F80 {
     #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), not(feature = "soft-transcendentals")))]
     {
@@ -51,7 +54,7 @@ pub fn fyl2xp1(x: F80, y: F80) -> F80 {
 pub const HARDWARE: bool =
     cfg!(all(any(target_arch = "x86", target_arch = "x86_64"), not(feature = "soft-transcendentals")));
 
-/// Direct access to the x87 unit (x86/x86_64 only), used by the primitives above
+/// Direct access to the x87 unit (`x86/x86_64` only), used by the primitives above
 /// and by tests that compare software results with the hardware.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod hw {
@@ -61,6 +64,7 @@ pub mod hw {
     /// Control word of the legacy runtime: 64-bit precision, nearest, all masked.
     const CW: u16 = 0x037F;
 
+    #[must_use]
     pub fn f2xm1(x: F80) -> F80 {
         let mut a = x.to_bytes();
         let mut old: u16 = 0;
@@ -76,7 +80,7 @@ pub mod hw {
                 "fnclex",
                 "fldcw word ptr [{old}]",
                 a = in(reg) a.as_mut_ptr(),
-                old = in(reg) &mut old,
+                old = in(reg) &raw mut old,
                 cw = in(reg) &CW,
                 out("st(0)") _, out("st(1)") _, out("st(2)") _, out("st(3)") _,
                 out("st(4)") _, out("st(5)") _, out("st(6)") _, out("st(7)") _,
@@ -86,10 +90,12 @@ pub mod hw {
         F80::from_bytes(a)
     }
 
+    #[must_use]
     pub fn fyl2x(x: F80, y: F80) -> F80 {
         two(x, y, false)
     }
 
+    #[must_use]
     pub fn fyl2xp1(x: F80, y: F80) -> F80 {
         two(x, y, true)
     }
@@ -112,7 +118,7 @@ pub mod hw {
                     "fldcw word ptr [{old}]",
                     a = in(reg) a.as_mut_ptr(),
                     b = in(reg) b.as_ptr(),
-                    old = in(reg) &mut old,
+                    old = in(reg) &raw mut old,
                     cw = in(reg) &CW,
                     out("st(0)") _, out("st(1)") _, out("st(2)") _, out("st(3)") _,
                     out("st(4)") _, out("st(5)") _, out("st(6)") _, out("st(7)") _,
@@ -130,7 +136,7 @@ pub mod hw {
                     "fldcw word ptr [{old}]",
                     a = in(reg) a.as_mut_ptr(),
                     b = in(reg) b.as_ptr(),
-                    old = in(reg) &mut old,
+                    old = in(reg) &raw mut old,
                     cw = in(reg) &CW,
                     out("st(0)") _, out("st(1)") _, out("st(2)") _, out("st(3)") _,
                     out("st(4)") _, out("st(5)") _, out("st(6)") _, out("st(7)") _,
@@ -142,6 +148,7 @@ pub mod hw {
     }
 
     /// `fldl2e` under the legacy control word (for tests).
+    #[must_use]
     pub fn fldl2e() -> F80 {
         let mut a = [0u8; 10];
         let mut old: u16 = 0;
@@ -154,7 +161,7 @@ pub mod hw {
                 "fstp tbyte ptr [{a}]",
                 "fldcw word ptr [{old}]",
                 a = in(reg) a.as_mut_ptr(),
-                old = in(reg) &mut old,
+                old = in(reg) &raw mut old,
                 cw = in(reg) &CW,
                 out("st(0)") _, out("st(1)") _, out("st(2)") _, out("st(3)") _,
                 out("st(4)") _, out("st(5)") _, out("st(6)") _, out("st(7)") _,

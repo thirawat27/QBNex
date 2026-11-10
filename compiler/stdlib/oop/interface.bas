@@ -36,12 +36,12 @@ FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
         EXIT FUNCTION
     END IF
 
-    QBNEX_InterfaceCount = QBNEX_InterfaceCount + 1
-    IF QBNEX_InterfaceCount > 256 THEN
+    IF QBNEX_InterfaceCount >= 256 THEN
         PRINT "ERROR: Maximum interface limit exceeded"
         QBNEX_RegisterInterfaceName = 0
         EXIT FUNCTION
     END IF
+    QBNEX_InterfaceCount = QBNEX_InterfaceCount + 1
 
     QBNEX_InterfaceRegistry(QBNEX_InterfaceCount).InterfaceName = RTRIM$(interfaceName)
     QBNEX_RegisterInterfaceName = QBNEX_InterfaceCount

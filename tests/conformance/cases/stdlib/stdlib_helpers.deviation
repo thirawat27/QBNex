@@ -1,0 +1,1 @@
+Golden output blessed from the current default C++ path after the R13 stdlib audit fixes (Path_Join$/Text_Pad* no longer change their arguments, multi-character pads, control characters in Json_Escape$, dates before 1970, class registry limit). Checked by hand; the legacy oracle prints the old, wrong results.

@@ -349,3 +349,28 @@ fn set_qbs_size_resizes_a_variable() {
         assert_eq!(text(v), "      ");
     }
 }
+
+/// R14: `start + length` near `i32::MAX` must not wrap (it read and wrote past
+/// the string: `MID$(a$, 2, 2147483647)`, `MID$(a$, 2, 2147483647) = b$`).
+#[test]
+fn mid_with_huge_lengths_stays_inside_the_string() {
+    let _g = fresh();
+    unsafe {
+        assert_eq!(text(qb_func_mid(var("HELLO"), 2, i32::MAX, 1)), "ELLO");
+        assert_eq!(text(qb_func_mid(var("HELLO"), i32::MIN, i32::MAX, 1)), "");
+        assert_eq!(text(qb_func_mid(var("HELLO"), -3, 6, 1)), "HE");
+        assert_eq!(text(qb_func_mid(var("HELLO"), i32::MAX, 5, 1)), "");
+        let d = var("abcde");
+        qb_sub_mid(d, 2, i32::MAX, var("0123456789"), 1);
+        assert_eq!(text(d), "a0123");
+        let d = var("abcde");
+        qb_sub_mid(d, i32::MIN, i32::MAX, var("0123456789"), 1);
+        assert_eq!(text(d), "abcde");
+        let d = var("abcde");
+        qb_sub_mid(d, -1, 4, var("XYZW"), 1);
+        assert_eq!(text(d), "ZWcde"); // positions -1 and 0 are dropped
+        let d = var("abcde");
+        qb_sub_mid(d, 4, 1, var("Q"), 0);
+        assert_eq!(text(d), "abcQe");
+    }
+}

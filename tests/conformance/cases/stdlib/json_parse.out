@@ -1,0 +1,73 @@
+root type 5 members 5 
+ key name type 3 
+ key version type 2 
+ key tags type 4 
+ key nested type 5 
+ key esc type 3 
+name=QBNex
+version= 125.0 
+tags length 9 
+ tag 0 type 3 ="basic"
+ tag 1 type 3 ="rust"
+ tag 2 type 2 =3
+ tag 3 type 2 =-0.5
+ tag 4 type 1 =true
+ tag 5 type 1 =false
+ tag 6 type 0 =null
+ tag 7 type 4 =[]
+ tag 8 type 5 ={}
+deep 3 = 3 
+missing key = 0  out of range = 0 
+esc bytes: 108  105  110  101  10  113  117  111  116  101  34  115  108  97  115  104  47  98  97  99  107  92  116  97  98  9 
+{"name":"QBNex","version":1.25e2,"tags":["basic","rust",3,-0.5,true,false,null,[],{}],"nested":{"a":{"b":[1,[2,[3]]]}},"esc":"line\nquote\"slash/back\\tab\t"}
+round trip same: -1 
+{
+  "a": {
+    "b": [
+      1,
+      [
+        2,
+        [
+          3
+        ]
+      ]
+    ]
+  }
+}
+utf8: 41 C3 A9 E2 82 AC F0 9F 98 80 1
+re-escaped: "Aé€😀\u0001"
+ num 0 -> 0  text 0
+ num -0 -> 0  text -0
+ num 12 -> 12.0  text 12
+ num -3.5 ->-3.50  text -3.5
+ num 1E3 -> 1000  text 1E3
+ num 2.5e-3 -> .00250  text 2.5e-3
+ num 1e400 -> 1.797693134862316D+308  text 1e400
+ num -1e400 ->-1.797693134862316D+308  text -1e400
+ num 1e-400 -> 0  text 1e-400
+ num 123456789012345678 -> 1.234567890123457D+17  text 123456789012345678
+ bad 1 result 0 pos 1 msg unexpected end of input, expected a value
+ bad 2 result 0 pos 4 msg unexpected end of input, expected a value
+ bad 3 result 0 pos 5 msg unexpected end of input in array
+ bad 4 result 0 pos 4 msg expected ',' or ']'
+ bad 5 result 0 pos 8 msg expected a string key
+ bad 6 result 0 pos 2 msg expected a string key
+ bad 7 result 0 pos 2 msg leading zeros are not allowed
+ bad 8 result 0 pos 3 msg expected a digit after the decimal point
+ bad 9 result 0 pos 2 msg expected a digit
+ bad 10 result 0 pos 4 msg expected a digit in the exponent
+ bad 11 result 0 pos 1 msg invalid literal, expected true
+ bad 12 result 0 pos 1 msg invalid literal, expected null
+ bad 13 result 0 pos 4 msg unexpected text after the value
+ bad 14 result 0 pos 5 msg unterminated string
+ bad 15 result 0 pos 3 msg invalid escape \q
+ bad 16 result 0 pos 3 msg invalid \u escape
+ bad 17 result 0 pos 7 msg unpaired surrogate in \u escape
+ bad 18 result 0 pos 3 msg control character in string
+ bad 19 result 0 pos 2 msg unexpected character ','
+ bad 20 result 0 pos 3 msg unexpected text after the value
+{"n":"replaced","big":1E+300,"s":"tab\tnul\u0000\"","list":[true,null,[true,null]],"list2":[true,null,[true,null]]}
+list2 length 3 
+reparse: -1 
+big length 2000 last 2000 same -1 
+done

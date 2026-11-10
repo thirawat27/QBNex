@@ -50,12 +50,12 @@ FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
         EXIT FUNCTION
     END IF
 
-    QBNEX_ClassCount = QBNEX_ClassCount + 1
-    IF QBNEX_ClassCount > 256 THEN
+    IF QBNEX_ClassCount >= 256 THEN
         PRINT "ERROR: Maximum class limit exceeded"
         QBNEX_RegisterClass = 0
         EXIT FUNCTION
     END IF
+    QBNEX_ClassCount = QBNEX_ClassCount + 1
 
     QBNEX_ClassRegistry(QBNEX_ClassCount).ClassName = RTRIM$(className)
     QBNEX_ClassRegistry(QBNEX_ClassCount).BaseClassID = baseClassID

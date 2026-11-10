@@ -5,6 +5,7 @@ use crate::{Class, Round, F80, INT_BIT, QUIET_BIT};
 
 impl F80 {
     /// `fild` (exact).
+    #[must_use]
     pub fn from_i64(v: i64) -> F80 {
         if v == 0 {
             return F80::ZERO;
@@ -12,15 +13,18 @@ impl F80 {
         round_pack(v < 0, 0, v.unsigned_abs() as u128, false)
     }
 
+    #[must_use]
     pub fn from_i32(v: i32) -> F80 {
         F80::from_i64(v as i64)
     }
 
+    #[must_use]
     pub fn from_i16(v: i16) -> F80 {
         F80::from_i64(v as i64)
     }
 
     /// Exact (what g++ emits: `fild` plus 2^64 when the top bit is set).
+    #[must_use]
     pub fn from_u64(v: u64) -> F80 {
         if v == 0 {
             return F80::ZERO;
@@ -29,6 +33,7 @@ impl F80 {
     }
 
     /// `fld qword` (exact; a signalling NaN becomes quiet).
+    #[must_use]
     pub fn from_f64(v: f64) -> F80 {
         let bits = v.to_bits();
         let neg = bits >> 63 != 0;
@@ -50,6 +55,7 @@ impl F80 {
     }
 
     /// `fld dword` (exact; a signalling NaN becomes quiet).
+    #[must_use]
     pub fn from_f32(v: f32) -> F80 {
         let bits = v.to_bits();
         let neg = bits >> 31 != 0;
@@ -71,11 +77,13 @@ impl F80 {
     }
 
     /// `fst qword`: round to nearest even.
+    #[must_use]
     pub fn to_f64(self) -> f64 {
         f64::from_bits(narrow(self, 53, 1023, 11))
     }
 
     /// `fst dword`: round to nearest even.
+    #[must_use]
     pub fn to_f32(self) -> f32 {
         f32::from_bits(narrow(self, 24, 127, 8) as u32)
     }
@@ -83,6 +91,7 @@ impl F80 {
     /// `fistp word` with rounding `mode` (`Nearest` = `fistp` under the default
     /// control word, `Zero` = `fisttp`, the C cast). Out of range, NaN, infinity
     /// and unsupported values give the integer indefinite `-32768`.
+    #[must_use]
     pub fn to_i16(self, mode: Round) -> i16 {
         match to_int(self, mode, 15) {
             Some(v) => v as i16,
@@ -91,6 +100,7 @@ impl F80 {
     }
 
     /// `fistp dword` / `fisttp dword`; indefinite is `i32::MIN`.
+    #[must_use]
     pub fn to_i32(self, mode: Round) -> i32 {
         match to_int(self, mode, 31) {
             Some(v) => v as i32,
@@ -99,6 +109,7 @@ impl F80 {
     }
 
     /// `fistp qword` / `fisttp qword`; indefinite is `i64::MIN`.
+    #[must_use]
     pub fn to_i64(self, mode: Round) -> i64 {
         match to_int(self, mode, 63) {
             Some(v) => v as i64,
@@ -109,6 +120,7 @@ impl F80 {
     /// The C cast `(unsigned long long)x` as MinGW g++ compiles it: values below
     /// 2^63 (and NaN) go through `fisttp qword`, others through
     /// `fisttp(x - 2^63) ^ 2^63`.
+    #[must_use]
     pub fn to_u64_cast(self) -> u64 {
         let two63 = F80::from_parts(false, 0x3FFF + 63, INT_BIT);
         match self.compare(two63) {
