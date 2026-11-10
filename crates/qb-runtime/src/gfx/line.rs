@@ -343,7 +343,7 @@ pub unsafe fn sub_line(
 ///
 /// # Safety
 /// `im` must be `write_page`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_line(
     im: *mut ImgStruct,
     x1: f32,
@@ -363,7 +363,7 @@ pub unsafe extern "C" fn qb_gfx_line(
 ///
 /// # Safety
 /// See the Rust functions.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_boxfill(im: *const ImgStruct, x1: f32, y1: f32, x2: f32, y2: f32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { qb32_boxfill(&*im, x1, y1, x2, y2, col) }
@@ -371,7 +371,7 @@ pub unsafe extern "C" fn qb_gfx_boxfill(im: *const ImgStruct, x1: f32, y1: f32, 
 
 /// # Safety
 /// The rectangle must lie inside `im`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_fast_boxfill(im: *const ImgStruct, x1: i32, y1: i32, x2: i32, y2: i32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { fast_boxfill(&*im, x1, y1, x2, y2, col) }
@@ -379,7 +379,7 @@ pub unsafe extern "C" fn qb_gfx_fast_boxfill(im: *const ImgStruct, x1: i32, y1: 
 
 /// # Safety
 /// `im` must be a valid surface whose VIEW lies inside it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_fast_line(im: *const ImgStruct, x1: i32, y1: i32, x2: i32, y2: i32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { fast_line(&*im, x1, y1, x2, y2, col) }

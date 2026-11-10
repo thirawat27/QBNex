@@ -156,7 +156,7 @@ unsafe fn read_f80(p: *const u8) -> F80 {
 
 /// # Safety
 /// `f80` must be readable for 10 bytes (an x87 `long double`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbr_f80(f80: *const u8) -> i64 {
     // SAFETY: forwarded caller contract.
     qbr(unsafe { read_f80(f80) })
@@ -164,32 +164,32 @@ pub unsafe extern "C" fn qb_qbr_f80(f80: *const u8) -> i64 {
 
 /// # Safety
 /// `f80` must be readable for 10 bytes (an x87 `long double`).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_fistp_i64_f80(f80: *const u8) -> i64 {
     // SAFETY: forwarded caller contract.
     fistp_i64(unsafe { read_f80(f80) })
 }
 
 /// `qbr` for platforms whose `long double` is not x87 extended.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_qbr_f64(v: f64) -> i64 {
     qbr(f80_from_f64(v))
 }
 
 /// `fistp` to int64 for platforms whose `long double` is not x87 extended.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_fistp_i64_f64(v: f64) -> i64 {
     fistp_i64(f80_from_f64(v))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_fistp_i32(v: f64) -> i32 {
     fistp_i32(v)
 }
 
 /// Puts the x87 FPU into the mode QBasic arithmetic expects (was
 /// `fpu_reinit` in libqb.cpp). No-op on other architectures.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_fpu_reinit() {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {

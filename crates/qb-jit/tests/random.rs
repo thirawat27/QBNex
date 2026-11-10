@@ -48,7 +48,7 @@ fn float_val(r: &mut Rng) -> f64 {
 }
 
 /// Builds one random program; returns the module.
-fn gen(seed: u64) -> Module {
+fn gen_program(seed: u64) -> Module {
     let mut r = Rng(seed.wrapping_mul(0x9E3779B97F4A7C15) | 1);
     let mut f = Fb::new("rand");
     let mut by_ty: Vec<(Ty, Vec<Reg>)> = Vec::new();
@@ -171,7 +171,7 @@ fn random_programs_match() {
     let mut ended = 0;
     let mut errored = 0;
     for seed in 0..n {
-        let m = gen(seed);
+        let m = gen_program(seed);
         let a = run_one(&m, 0, &Setup::default(), Engine::Interp);
         let b = run_one(&m, 0, &Setup::default(), Engine::Jit);
         if a != b {

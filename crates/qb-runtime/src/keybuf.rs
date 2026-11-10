@@ -278,42 +278,42 @@ static INPUT_LOCK: InputLock = InputLock::new();
 
 // ---- C ABI -----------------------------------------------------------------
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_input_lock() {
     INPUT_LOCK.lock();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_input_unlock() {
     INPUT_LOCK.unlock();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_keyhit_push(v: i64) {
     with(|s| s.keyhit_push(v));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_keyhit_pop() -> i32 {
     with(|s| s.keyhit_pop())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_keyhit_clear() {
     with(|s| s.keyhit_clear());
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_keyheld(x: u32) -> i32 {
     with(|s| s.keyheld(x)) as i32
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_keyheld_add(x: u32, bind: u32) {
     with(|s| s.keyheld_add(x, bind));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_keyheld_remove(x: u32) {
     with(|s| s.keyheld_remove(x));
 }
@@ -322,7 +322,7 @@ pub extern "C" fn qb_keyheld_remove(x: u32) {
 ///
 /// # Safety
 /// `out` must be valid for a `u32` write.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_keyheld_bound_to(x: u32, out: *mut u32) -> i32 {
     match with(|s| s.keyheld_bound_to(x)) {
         Some(k) => {
@@ -338,7 +338,7 @@ pub unsafe extern "C" fn qb_keyheld_bound_to(x: u32, out: *mut u32) -> i32 {
 ///
 /// # Safety
 /// `out` must be valid for 3 byte writes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_shift_state(out: *mut u8) {
     let b = with(|s| s.shift_state());
     // SAFETY: caller guarantees 3 writable bytes.

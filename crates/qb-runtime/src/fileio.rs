@@ -1364,7 +1364,7 @@ unsafe fn publish(v: Option<Vec<u8>>, out: *mut *const u8, out_len: *mut i32) ->
 
 /// # Safety
 /// `name` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_open(
     name: *const u8,
     len: i32,
@@ -1381,7 +1381,7 @@ pub unsafe extern "C" fn qb_file_open(
 
 /// # Safety
 /// `typestr`/`name` readable for their lengths.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_open_gwbasic(
     typestr: *const u8,
     typelen: i32,
@@ -1397,17 +1397,17 @@ pub unsafe extern "C" fn qb_file_open_gwbasic(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_file_close(i: i32) {
     close(i)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_file_close_all() {
     close_all()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_file_freefile() -> i32 {
     freefile()
 }
@@ -1416,7 +1416,7 @@ pub extern "C" fn qb_file_freefile() -> i32 {
 ///
 /// # Safety
 /// `data` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_print(i: i32, data: *const u8, len: i32, extraspace: i32, tab: i32, newline: i32) -> i32 {
     // SAFETY: caller contract.
     file_print(i, unsafe { ffi_bytes(data, len as usize) }, extraspace != 0, tab != 0, newline != 0)
@@ -1427,7 +1427,7 @@ pub unsafe extern "C" fn qb_file_print(i: i32, data: *const u8, len: i32, extras
 ///
 /// # Safety
 /// `n` and `result` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_input_number(fileno: i32, n: *mut NumRepr, result: *mut i32) -> i32 {
     let mut cx = Ctx::default();
     let mut t = table();
@@ -1441,7 +1441,7 @@ pub unsafe extern "C" fn qb_file_input_number(fileno: i32, n: *mut NumRepr, resu
 ///
 /// # Safety
 /// Out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_input_string(fileno: i32, out: *mut *const u8, out_len: *mut i32, assign: *mut i32) -> i32 {
     let mut cx = Ctx::default();
     let v = input_string(&mut table(), fileno, &mut cx);
@@ -1454,7 +1454,7 @@ pub unsafe extern "C" fn qb_file_input_string(fileno: i32, out: *mut *const u8, 
 ///
 /// # Safety
 /// Out pointers writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_line_input(fileno: i32, out: *mut *const u8, out_len: *mut i32, assign: *mut i32) -> i32 {
     let mut cx = Ctx::default();
     let v = line_input(&mut table(), fileno, &mut cx);
@@ -1468,7 +1468,7 @@ pub unsafe extern "C" fn qb_file_line_input(fileno: i32, out: *mut *const u8, ou
 ///
 /// # Safety
 /// `buf` writable for `buflen` bytes, `len` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_input_n(n: i32, fileno: i32, buf: *mut u8, buflen: i32, len: *mut i32) -> i32 {
     let mut cx = Ctx::default();
     // SAFETY: caller contract.
@@ -1483,7 +1483,7 @@ pub unsafe extern "C" fn qb_file_input_n(n: i32, fileno: i32, buf: *mut u8, bufl
 ///
 /// # Safety
 /// `data` writable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_get(i: i32, offset: i64, data: *mut u8, len: i32, passed: i32) -> i32 {
     let mut cx = Ctx::default();
     // SAFETY: caller contract.
@@ -1495,7 +1495,7 @@ pub unsafe extern "C" fn qb_file_get(i: i32, offset: i64, data: *mut u8, len: i3
 ///
 /// # Safety
 /// `data` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_put(i: i32, offset: i64, data: *const u8, len: i32, passed: i32) -> i32 {
     // SAFETY: caller contract.
     put_bytes(&mut table(), i, offset, unsafe { ffi_bytes(data, len.max(0) as usize) }, passed != 0)
@@ -1506,7 +1506,7 @@ pub unsafe extern "C" fn qb_file_put(i: i32, offset: i64, data: *const u8, len: 
 ///
 /// # Safety
 /// Pointers valid as described.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_get_string(
     i: i32,
     offset: i64,
@@ -1530,7 +1530,7 @@ pub unsafe extern "C" fn qb_file_get_string(
 ///
 /// # Safety
 /// `data` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_put_string(i: i32, offset: i64, data: *const u8, len: i32, passed: i32) -> i32 {
     // SAFETY: caller contract.
     put_string(&mut table(), i, offset, unsafe { ffi_bytes(data, len.max(0) as usize) }, passed != 0)
@@ -1538,7 +1538,7 @@ pub unsafe extern "C" fn qb_file_put_string(i: i32, offset: i64, data: *const u8
 
 /// # Safety
 /// `out` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_lof(i: i32, out: *mut i64) -> i32 {
     let (v, e) = lof(i);
     // SAFETY: caller contract.
@@ -1548,7 +1548,7 @@ pub unsafe extern "C" fn qb_file_lof(i: i32, out: *mut i64) -> i32 {
 
 /// # Safety
 /// `out` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_eof(i: i32, out: *mut i32) -> i32 {
     let (v, e) = eof(i);
     // SAFETY: caller contract.
@@ -1556,14 +1556,14 @@ pub unsafe extern "C" fn qb_file_eof(i: i32, out: *mut i32) -> i32 {
     e
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_file_seek_set(i: i32, pos: i64) -> i32 {
     seek_set(i, pos)
 }
 
 /// # Safety
 /// `out` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_seek_get(i: i32, out: *mut i64) -> i32 {
     let (v, e) = seek_get(i);
     // SAFETY: caller contract.
@@ -1573,7 +1573,7 @@ pub unsafe extern "C" fn qb_file_seek_get(i: i32, out: *mut i64) -> i32 {
 
 /// # Safety
 /// `out` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_loc(i: i32, out: *mut i64) -> i32 {
     let (v, e) = loc(i);
     // SAFETY: caller contract.
@@ -1581,14 +1581,14 @@ pub unsafe extern "C" fn qb_file_loc(i: i32, out: *mut i64) -> i32 {
     e
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_file_lock(i: i32, start: i64, end: i64, passed: i32, lock_it: i32) -> i32 {
     lock(i, start, end, passed, lock_it != 0)
 }
 
 /// # Safety
 /// `data` readable for `bytes` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_generic_put(i: i32, offset: i32, data: *const u8, bytes: i32) -> i32 {
     // SAFETY: caller contract.
     generic_put(i, offset, unsafe { ffi_bytes(data, bytes.max(0) as usize) })
@@ -1596,7 +1596,7 @@ pub unsafe extern "C" fn qb_generic_put(i: i32, offset: i32, data: *const u8, by
 
 /// # Safety
 /// `data` writable for `bytes` bytes; `read` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_generic_get(i: i32, offset: i32, data: *mut u8, bytes: i32, read: *mut i32) -> i32 {
     // SAFETY: caller contract.
     let (e, n) = generic_get(i, offset, unsafe { ffi_bytes_mut(data, bytes.max(0) as usize) });
@@ -1605,7 +1605,7 @@ pub unsafe extern "C" fn qb_generic_get(i: i32, offset: i32, data: *mut u8, byte
     e
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_field_new(fileno: i32, new_error: i32) -> i32 {
     field_new(fileno, new_error != 0)
 }
@@ -1615,7 +1615,7 @@ pub extern "C" fn qb_field_new(fileno: i32, new_error: i32) -> i32 {
 ///
 /// # Safety
 /// `slot` writable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_field_add(size: i64, new_error: i32, slot: *mut FieldSlot) -> i32 {
     match field_add(size, new_error != 0) {
         Ok(None) => -1,
@@ -1628,7 +1628,7 @@ pub unsafe extern "C" fn qb_field_add(size: i64, new_error: i32, slot: *mut Fiel
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_field_link(fileno: i32, s: *mut c_void, size: i64) {
     field_link(fileno, s, size)
 }
@@ -1637,7 +1637,7 @@ pub extern "C" fn qb_field_link(fileno: i32, s: *mut c_void, size: i64) {
 ///
 /// # Safety
 /// `data` readable for `len` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_field_store(
     fileno: i32,
     fileid: i64,
@@ -1651,24 +1651,24 @@ pub unsafe extern "C" fn qb_field_store(
     i32::from(field_store(&slot, unsafe { ffi_bytes(data, len.max(0) as usize) }))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_field_forget(fileno: i32, fileid: i64, s: *mut c_void) {
     field_forget(fileno, fileid, s)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_field_get(fileno: i32, offset: i64, passed: i32) -> i32 {
     field_get(fileno, offset, passed != 0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn qb_field_put(fileno: i32, offset: i64, passed: i32) -> i32 {
     field_put(fileno, offset, passed != 0)
 }
 
 /// # Safety
 /// `dest` writable for `dlen`, `src` readable for `slen` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_lset(dest: *mut u8, dlen: i32, src: *const u8, slen: i32) {
     // SAFETY: caller contract.
     unsafe { lset(ffi_bytes_mut(dest, dlen.max(0) as usize), ffi_bytes(src, slen.max(0) as usize)) }
@@ -1676,7 +1676,7 @@ pub unsafe extern "C" fn qb_lset(dest: *mut u8, dlen: i32, src: *const u8, slen:
 
 /// # Safety
 /// `dest` writable for `dlen`, `src` readable for `slen` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_rset(dest: *mut u8, dlen: i32, src: *const u8, slen: i32) {
     // SAFETY: caller contract.
     unsafe { rset(ffi_bytes_mut(dest, dlen.max(0) as usize), ffi_bytes(src, slen.max(0) as usize)) }
@@ -1837,7 +1837,7 @@ mod tests {
         // FIELD: two 5-byte fields over record 1
         assert_eq!(field_new(f, false), 0);
         let a = field_add(5, false).unwrap().unwrap();
-        field_link(f, 1 as *mut c_void, 5);
+        field_link(f, std::ptr::dangling_mut::<c_void>(), 5);
         let b = field_add(5, false).unwrap().unwrap();
         field_link(f, 2 as *mut c_void, 5);
         assert_eq!((a.offset, b.offset), (0, 5));
@@ -1849,7 +1849,7 @@ mod tests {
         assert_eq!(field_get(f, 1, true), 0);
         let x = table().fileno_index(f);
         assert_eq!(table().f(x).field_strings_n, 2);
-        field_forget(f, a.fileid, 1 as *mut c_void);
+        field_forget(f, a.fileid, std::ptr::dangling_mut::<c_void>());
         assert_eq!(table().f(x).field_strings_n, 1);
         close(f);
         assert!(!field_store(&a, b"zz")); // stale link
