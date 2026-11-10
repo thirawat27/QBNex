@@ -34,6 +34,7 @@ enum Shape {
 }
 
 struct Mesh {
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
     shape: Shape,
     color: Option<[f32; 4]>,
     texture: Option<(Vec<u32>, u32, u32)>,

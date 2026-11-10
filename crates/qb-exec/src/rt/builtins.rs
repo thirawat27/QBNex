@@ -333,6 +333,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     if let Some(r) = super::audiox::call(vm, name, &a) {
         return r;
     }
+    if let Some(r) = super::scene3d::call(vm, name, &a) {
+        return r;
+    }
     if let Some(r) = super::netx::call(vm, name, &a) {
         return r;
     }
