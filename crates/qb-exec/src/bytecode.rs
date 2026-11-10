@@ -79,6 +79,11 @@ pub enum W {
     W16,
     W32,
     W64,
+    /// QIR v1 widths: `_BYTE`, `_UNSIGNED _BYTE / INTEGER / LONG`
+    W8,
+    U8,
+    U16,
+    U32,
 }
 
 impl W {
@@ -88,6 +93,18 @@ impl W {
             W::W16 => v as i16 as i64,
             W::W32 => v as i32 as i64,
             W::W64 => v,
+            W::W8 => v as i8 as i64,
+            W::U8 => v as u8 as i64,
+            W::U16 => v as u16 as i64,
+            W::U32 => v as u32 as i64,
+        }
+    }
+    pub fn bits(self) -> u32 {
+        match self {
+            W::W8 | W::U8 => 8,
+            W::W16 | W::U16 => 16,
+            W::W32 | W::U32 => 32,
+            W::W64 => 64,
         }
     }
     pub fn name(self) -> &'static str {
@@ -95,6 +112,10 @@ impl W {
             W::W16 => "i16",
             W::W32 => "i32",
             W::W64 => "i64",
+            W::W8 => "i8",
+            W::U8 => "u8",
+            W::U16 => "u16",
+            W::U32 => "u32",
         }
     }
 }
@@ -216,6 +237,13 @@ pub enum Ins {
     Wrap { d: R, s: R, w: W },
     /// f64 -> f32 -> f64 (store into SINGLE)
     RoundF32 { d: R, s: R },
+    /// QIR v1 `cvt`/`trunc` float -> int: ties-to-even (or toward zero), C cast, wrap; never an error
+    CvtFI { d: R, s: R, w: W, trunc: bool },
+    /// QIR v1 shifts (count taken modulo the width)
+    Shl { d: R, a: R, b: R, w: W },
+    Shr { d: R, a: R, b: R, w: W },
+    /// IEEE division (QIR v1 `div`: no error on zero)
+    DivFI { d: R, a: R, b: R },
     // ---- integer arithmetic (operands normalized, result wrapped)
     AddI16 { d: R, a: R, b: R },
     AddI32 { d: R, a: R, b: R },
@@ -266,10 +294,14 @@ pub enum Ins {
     ForNextI { v: R, step: R, lim: R, body: u32, w: W },
     Gosub { t: u32 },
     Return,
+    /// RETURN label
+    ReturnL { t: u32 },
     /// call function `f` with argument descriptor `Module::calls[desc]` (safe point)
     Call { f: u32, desc: u32 },
     Ret,
     End,
+    /// SYSTEM [code]: `s == NONE` = 0
+    System { s: R },
     OnError { t: u32 },
     Resume { k: ResumeK, t: u32 },
     /// raise the error whose code is in register `s`
@@ -293,6 +325,8 @@ pub enum Ins {
     Mid { d: R, s: R, start: R, n: R },
     /// generic builtin `Module::bfns[f]` with args `Module::bargs[args]`
     Bi { f: u32, d: R, args: u32 },
+    /// QIR v1 `rt` builtin `Module::rtfns[f]` (shared runtime, `qb_ir::builtins`); `d == NONE` = no result
+    Rt { f: u32, d: R, args: u32 },
     PrintS { s: R },
     PrintN { s: R, ty: Ty },
     PrintZone,
@@ -308,12 +342,15 @@ pub enum Ins {
     LdE1S { d: R, a: R, i: R },
     StE1S { a: R, i: R, s: R },
     Bound { d: R, a: R, dim: R, upper: bool },
+    Erase { a: R },
     /// SWAP two places of `Module::places`
     Swap { p: u32, q: u32 },
     // ---- misc runtime
     /// READ: next DATA item as string (`str`) into s-register, else its VAL into r-register (f64)
     Read { d: R, str: bool },
     Restore { i: u32 },
+    /// QIR v1 numeric READ: next DATA item as f64 (non-numeric text = error 13)
+    ReadN { d: R },
     Randomize { s: R, using: bool },
     /// RND [(s)] -> SINGLE; `s == NONE` = no argument
     Rnd { d: R, s: R },
@@ -416,6 +453,10 @@ pub struct Module {
     /// generic builtins: name, result type
     pub bfns: Vec<(String, Ty)>,
     pub bargs: Vec<Vec<(R, Ty)>>,
+    /// QIR v1 `rt` builtins: name, result type (`None` = no result)
+    pub rtfns: Vec<(&'static str, Option<Ty>)>,
+    /// QIR v1 semantics: `RESUME label` unwinds to the main module
+    pub v1: bool,
     /// statement starts: (pc, source line), sorted by pc
     pub stmts: Vec<(u32, u32)>,
     pub data: Vec<Vec<u8>>,
@@ -445,6 +486,8 @@ pub enum Opnd {
     Call(u32),
     Func(u32),
     Bi(u32),
+    /// rt builtin + destination (bank from its result type, `NONE` = none)
+    Rt(u32, R),
     BArgs(u32),
     NConst(u32),
     Data(u32),
@@ -461,7 +504,7 @@ impl Ins {
                 f(O::N(d));
                 f(O::NConst(k))
             }
-            Mov { d, s } | IToF { d, s } | FToI { d, s, .. } | Wrap { d, s, .. } | RoundF32 { d, s } | Un { d, s, .. } => {
+            Mov { d, s } | IToF { d, s } | FToI { d, s, .. } | Wrap { d, s, .. } | RoundF32 { d, s } | Un { d, s, .. } | CvtFI { d, s, .. } => {
                 f(O::N(d));
                 f(O::N(s))
             }
@@ -496,7 +539,10 @@ impl Ins {
             | PowF { d, a, b }
             | CmpI { d, a, b, .. }
             | CmpF { d, a, b, .. }
-            | Acc { d, a, b, .. } => {
+            | Acc { d, a, b, .. }
+            | Shl { d, a, b, .. }
+            | Shr { d, a, b, .. }
+            | DivFI { d, a, b } => {
                 f(O::N(d));
                 f(O::N(a));
                 f(O::N(b))
@@ -506,7 +552,7 @@ impl Ins {
                 f(O::SK(a));
                 f(O::SK(b))
             }
-            Jmp { t } | Loop { t } | Gosub { t } => f(O::T(t)),
+            Jmp { t } | Loop { t } | Gosub { t } | ReturnL { t } => f(O::T(t)),
             JzI { s, t } | JnzI { s, t } | JzF { s, t } | JnzF { s, t } => {
                 f(O::N(s));
                 f(O::T(t))
@@ -534,6 +580,17 @@ impl Ins {
                 f(O::T(body))
             }
             Return | Ret | End | PrintZone | PrintNl => {}
+            System { s } => {
+                if s != NONE {
+                    f(O::N(s))
+                }
+            }
+            Rt { f: b, d, args } => {
+                f(O::Rt(b, d));
+                f(O::BArgs(args))
+            }
+            Erase { a } => f(O::A(a)),
+            ReadN { d } => f(O::N(d)),
             Call { f: func, desc } => {
                 f(O::Func(func));
                 f(O::Call(desc))
@@ -679,6 +736,15 @@ impl Ins {
             FToI { w, .. } => format!("ftoi.{}", w.name()),
             Wrap { w, .. } => format!("wrap.{}", w.name()),
             RoundF32 { .. } => "round.f32".into(),
+            CvtFI { w, trunc, .. } => format!("{}.{}", if trunc { "trunc" } else { "cvt" }, w.name()),
+            Shl { w, .. } => format!("shl.{}", w.name()),
+            Shr { w, .. } => format!("shr.{}", w.name()),
+            DivFI { .. } => "div.ieee".into(),
+            ReturnL { .. } => "return_l".into(),
+            System { .. } => "system".into(),
+            Rt { .. } => "rt".into(),
+            Erase { .. } => "erase".into(),
+            ReadN { .. } => "read.n".into(),
             AddI16 { .. } => "add.i16".into(),
             AddI32 { .. } => "add.i32".into(),
             AddI64 { .. } => "add.i64".into(),
@@ -778,6 +844,10 @@ impl Ins {
             | FToI { d, .. }
             | Wrap { d, .. }
             | RoundF32 { d, .. }
+            | CvtFI { d, .. }
+            | Shl { d, .. }
+            | Shr { d, .. }
+            | DivFI { d, .. }
             | AddI16 { d, .. }
             | AddI32 { d, .. }
             | AddI64 { d, .. }
@@ -841,6 +911,7 @@ impl Ins {
             | ForTestI { t, .. }
             | ForTestF { t, .. }
             | Gosub { t }
+            | ReturnL { t }
             | OnError { t }
             | Resume { t, .. }
             | OnEvent { t, .. }
@@ -867,6 +938,8 @@ fn fmt_opnd(o: Opnd) -> String {
         Opnd::Call(c) => format!("desc{c}"),
         Opnd::Func(f) => format!("f{f}"),
         Opnd::Bi(b) => format!("bi{b}"),
+        Opnd::Rt(b, d) if d == NONE => format!("rt{b}"),
+        Opnd::Rt(b, d) => format!("rt{b} -> {d}"),
         Opnd::BArgs(a) => format!("args{a}"),
         Opnd::NConst(k) => format!("#{k}"),
         Opnd::Data(i) => format!("data{i}"),
@@ -961,7 +1034,7 @@ impl Module {
                         self.check_place(f, main, &self.places[x as usize])?;
                     }
                 }
-                if let Ins::Bi { args, .. } = *ins {
+                if let Ins::Bi { args, .. } | Ins::Rt { args, .. } = *ins {
                     for &(r, ty) in &self.bargs[args as usize] {
                         let ok = if ty == Ty::Str { self.sk_ok(f, r) } else { r < f.n_num() };
                         if !ok {
@@ -1026,6 +1099,12 @@ impl Module {
             Opnd::Call(c) => (c as usize) < self.calls.len(),
             Opnd::Func(x) => (x as usize) < self.funcs.len(),
             Opnd::Bi(b) => (b as usize) < self.bfns.len(),
+            Opnd::Rt(b, d) => match self.rtfns.get(b as usize) {
+                None => false,
+                Some((_, None)) => d == NONE,
+                Some((_, Some(Ty::Str))) => d < f.n_str,
+                Some((_, Some(_))) => d < f.n_num(),
+            },
             Opnd::BArgs(a) => (a as usize) < self.bargs.len(),
             Opnd::NConst(k) => (k as usize) < self.nconst.len(),
             Opnd::Data(i) => (i as usize) <= self.data.len(),

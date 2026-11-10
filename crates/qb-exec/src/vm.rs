@@ -22,6 +22,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use crate::bytecode::*;
+use crate::v1::rt::{self as v1rt, Host, RtState};
+use crate::v1::{Stop, V};
 use crate::value::{str_of, Val};
 use crate::RunError;
 
@@ -215,7 +217,8 @@ struct Saved {
 
 pub struct Vm<'m, 'o> {
     m: &'m Module,
-    out: &'o mut dyn Write,
+    /// console/file output and the v1 runtime state (shared with the reference interpreter)
+    rt: RtState<'o>,
     nums: Vec<u64>,
     strs: Vec<Vec<u8>>,
     arrs: Vec<Option<Box<Arr>>>,
@@ -226,11 +229,11 @@ pub struct Vm<'m, 'o> {
     ab: usize,
     gosub: Vec<Gs>,
     statics: Vec<Option<Saved>>,
-    col: usize,
     on_error: Option<u32>,
     /// (pc of the failing instruction, view) while an error handler runs
     in_handler: Option<(u32, usize)>,
     err: i32,
+    erl: u32,
     rnd: qb_runtime::rnd::RndState,
     data_ptr: usize,
     ev: Arc<EvShared>,
@@ -277,6 +280,45 @@ fn irem(x: i64, y: i64, w: W) -> i64 {
     }
 }
 
+fn stop_code(s: Stop) -> i32 {
+    match s {
+        Stop::Err(c) => c,
+        Stop::Exit(_) => 0,
+    }
+}
+
+fn rt_f(v: &V) -> f64 {
+    match v {
+        V::F(f) => *f,
+        V::I(i) => *i as f64,
+        _ => 0.0,
+    }
+}
+
+fn rt_i(v: &V) -> i64 {
+    match v {
+        V::I(i) => *i,
+        V::F(f) => *f as i64,
+        V::P(p) => *p as i64,
+        V::S(_) => 0,
+    }
+}
+
+impl<'o> Host<'o> for Vm<'_, 'o> {
+    fn rt(&mut self) -> &mut RtState<'o> {
+        &mut self.rt
+    }
+    fn err(&self) -> i32 {
+        self.err
+    }
+    fn erl(&self) -> u32 {
+        self.erl
+    }
+    fn bytes(&mut self, _p: u64, _len: usize) -> crate::v1::R<&mut [u8]> {
+        Err(Stop::Err(5)) // the loader keeps programs that need memory off the typed VM
+    }
+}
+
 fn to_val(bits: u64, ty: Ty) -> Val {
     match ty {
         Ty::I16 => Val::I(bits as i64 as i16),
@@ -305,7 +347,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         let main = &m.funcs[0];
         Vm {
             m,
-            out,
+            rt: RtState::new(out),
             nums: main.num_init.clone(),
             strs: vec![Vec::new(); main.n_str as usize],
             arrs: (0..main.n_arr()).map(|_| None).collect(),
@@ -316,10 +358,10 @@ impl<'m, 'o> Vm<'m, 'o> {
             ab: 0,
             gosub: Vec::new(),
             statics: (0..m.funcs.len()).map(|_| None).collect(),
-            col: 1,
             on_error: None,
             in_handler: None,
             err: 0,
+            erl: 0,
             rnd: qb_runtime::rnd::RndState::default(),
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
@@ -338,10 +380,15 @@ impl<'m, 'o> Vm<'m, 'o> {
     }
 
     pub fn run(&mut self) -> Result<(), RunError> {
+        self.run_status().map(|_| ())
+    }
+
+    /// Runs the program; returns its exit code (`SYSTEM n`).
+    pub fn run_status(&mut self) -> Result<i32, RunError> {
         let mut pc = self.m.funcs[0].entry;
         let r = loop {
             match self.exec(pc) {
-                Ok(()) => break Ok(()),
+                Ok(code) => break Ok(code),
                 Err((code, at)) => match self.raise(code, at) {
                     Ok(h) => pc = h,
                     Err(e) => break Err(e),
@@ -349,8 +396,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         };
         self.stop_timer();
-        let f = self.out.flush().map_err(|e| RunError { code: 57, line: 0, msg: e.to_string() });
-        r.and(f)
+        self.rt.flush();
+        r
     }
 
     #[inline(always)]
@@ -456,12 +503,36 @@ impl<'m, 'o> Vm<'m, 'o> {
     }
 
     fn emit(&mut self, bytes: &[u8]) -> Result<(), i32> {
-        self.out.write_all(bytes).map_err(|_| 57)?;
-        match bytes.iter().rposition(|&c| c == b'\n') {
-            Some(p) => self.col = bytes.len() - p,
-            None => self.col += bytes.len(),
+        self.rt.write(0, bytes).map_err(stop_code)
+    }
+
+    /// QIR v1 `rt` builtin through the shared runtime. `Ok(Some(code))` = the program exits.
+    fn rt_call(&mut self, f: u32, d: R, args: u32) -> Result<Option<i32>, i32> {
+        let m = self.m;
+        let (name, rty) = m.rtfns[f as usize];
+        let vals: Vec<V> = m.bargs[args as usize]
+            .iter()
+            .map(|&(r, ty)| match ty {
+                Ty::Str => V::S(self.sget(r).to_vec()),
+                Ty::F32 | Ty::F64 => V::F(f64::from_bits(self.nums[self.nb + r as usize])),
+                _ => V::I(self.nums[self.nb + r as usize] as i64),
+            })
+            .collect();
+        match v1rt::call(self, name, vals) {
+            Ok(v) => {
+                if let (Some(ty), Some(v)) = (rty, v) {
+                    match (ty, v) {
+                        (Ty::Str, V::S(s)) => *self.sdst(d) = s,
+                        (Ty::Str, _) => self.sdst(d).clear(),
+                        (Ty::F32 | Ty::F64, v) => self.nums[self.nb + d as usize] = rt_f(&v).to_bits(),
+                        (_, v) => self.nums[self.nb + d as usize] = rt_i(&v) as u64,
+                    }
+                }
+                Ok(None)
+            }
+            Err(Stop::Exit(c)) => Ok(Some(c)),
+            Err(Stop::Err(c)) => Err(c),
         }
-        Ok(())
     }
 
     fn print_s(&mut self, s: R) -> Result<(), i32> {
@@ -759,6 +830,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         match (self.on_error, self.in_handler) {
             (Some(h), None) => {
                 self.err = code;
+                self.erl = self.line_of(at);
                 self.in_handler = Some((at, self.view));
                 self.set_view(0);
                 self.update_poll_mask();
@@ -781,6 +853,16 @@ impl<'m, 'o> Vm<'m, 'o> {
                 self.next_stmt(at)
             }
             ResumeK::Label => {
+                if self.m.v1 {
+                    // QIR v1: RESUME label unwinds to the main module
+                    while self.frames.len() > 1 {
+                        let fr = self.frames.pop().unwrap();
+                        self.nums.truncate(fr.nb);
+                        self.strs.truncate(fr.sb);
+                        self.arrs.truncate(fr.ab);
+                    }
+                    self.gosub.retain(|g| g.depth <= 1);
+                }
                 self.set_view(0);
                 t
             }
@@ -894,7 +976,7 @@ impl<'m, 'o> Vm<'m, 'o> {
     // ------------------------------------------------------------ hot loop
 
     /// Runs from `pc` until END (`Ok`) or an error (`Err((code, pc))`).
-    fn exec(&mut self, mut pc: u32) -> Result<(), (i32, u32)> {
+    fn exec(&mut self, mut pc: u32) -> Result<i32, (i32, u32)> {
         let m: &'m Module = self.m;
         let code = m.code.as_slice();
         let evp: *const AtomicU32 = &self.ev.pending;
@@ -1173,7 +1255,54 @@ impl<'m, 'o> Vm<'m, 'o> {
                     pc = tryc!(self.ret());
                     reload!();
                 }
-                Ins::End => return Ok(()),
+                Ins::End => return Ok(0),
+                Ins::System { s } => return Ok(if s == NONE { 0 } else { ri!(s) as i32 }),
+                Ins::Rt { f, d, args } => {
+                    if let Some(code) = tryc!(self.rt_call(f, d, args)) {
+                        return Ok(code);
+                    }
+                }
+                Ins::CvtFI { d, s, w, trunc } => {
+                    let f = rf!(s);
+                    let f = if trunc { f.trunc() } else { f.round_ties_even() };
+                    let n = if f >= 9.223_372_036_854_776e18 { f as u64 as i64 } else { f as i64 };
+                    seti!(d, w.wrap(n))
+                }
+                Ins::Shl { d, a, b: y, w } => seti!(d, w.wrap(ri!(a).wrapping_shl((ri!(y) as u32) % w.bits()))),
+                Ins::Shr { d, a, b: y, w } => seti!(d, w.wrap(ri!(a) >> ((ri!(y) as u32) % w.bits()))),
+                Ins::DivFI { d, a, b: y } => setf!(d, rf!(a) / rf!(y)),
+                Ins::ReturnL { t } => match self.gosub.last().copied() {
+                    Some(g) if g.depth == self.frames.len() => {
+                        self.gosub.pop();
+                        pc = t;
+                        if g.event {
+                            self.in_event = false;
+                            self.update_poll_mask();
+                        }
+                        if g.view != self.view || g.event {
+                            self.set_view(g.view);
+                            reload!();
+                        }
+                    }
+                    _ => fail!(3),
+                },
+                Ins::Erase { a } => {
+                    let i = self.arr_index(a, self.ab);
+                    self.arrs[i] = None;
+                }
+                Ins::ReadN { d } => {
+                    let Some(item) = m.data.get(self.data_ptr) else { fail!(4) };
+                    self.data_ptr += 1;
+                    let t: Vec<u8> = item.iter().copied().filter(|c| *c != b' ').collect();
+                    let v = if t.is_empty() {
+                        0.0
+                    } else if !v1rt::numeric_text(&t) {
+                        fail!(13)
+                    } else {
+                        v1rt::val(&t)
+                    };
+                    setf!(d, v)
+                }
                 Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
                 Ins::Resume { k, t } => {
                     pc = tryc!(self.resume(k, t));
@@ -1261,9 +1390,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::PrintS { s } => tryc!(self.print_s(s)),
                 Ins::PrintN { s, ty } => tryc!(self.print_n(r!(s), ty)),
                 Ins::PrintZone => {
-                    let next = ((self.col - 1) / 14 + 1) * 14 + 1;
-                    let pad = vec![b' '; next - self.col];
-                    tryc!(self.emit(&pad));
+                    if let Err(e) = v1rt::call(self, "PRINTZONE", vec![V::I(0)]) {
+                        fail!(stop_code(e));
+                    }
                 }
                 Ins::PrintNl => tryc!(self.emit(b"\n")),
                 Ins::Dim { a, dims, n, mode } => tryc!(self.dim(a, dims, n, mode)),

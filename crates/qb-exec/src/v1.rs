@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::io::Write;
 
 mod files;
-mod rt;
+pub(crate) mod rt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum V {
