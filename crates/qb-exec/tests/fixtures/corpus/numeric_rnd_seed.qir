@@ -1,0 +1,91 @@
+QIR 1
+meta console only
+global $__SINGLE_I f32
+global $__SINGLE_X f32
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+line 2
+const.i32 %0 42
+cvt.f64.i32 %1 %0
+rt RANDOMIZE %1
+line 3
+const.i32 %2 1
+cvt.f64.i32 %3 %2
+store.f64 $~T1 %3
+const.i32 %4 5
+cvt.f64.i32 %5 %4
+store.f64 $~T2 %5
+const.i32 %6 1
+cvt.f64.i32 %7 %6
+store.f64 $~T3 %7
+jmp ~F1.E
+label ~F1.T
+load.f32 %8 $__SINGLE_I
+cvt.f64.f32 %9 %8
+load.f64 %10 $~T3
+add.f64 %11 %10 %9
+store.f64 $~T1 %11
+label ~F1.E
+load.f64 %12 $~T1
+cvt.f32.f64 %13 %12
+store.f32 $__SINGLE_I %13
+load.f64 %14 $~T3
+const.f64 %15 0
+lt.f64 %16 %14 %15
+jz %16 ~F1.P
+load.f64 %17 $~T2
+lt.f64 %18 %12 %17
+jnz %18 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.f64 %19 $~T2
+gt.f64 %20 %12 %19
+jnz %20 ~F1.X
+label ~F1.B
+line 4
+rt %21 RND
+const.i32 %22 1000
+cvt.f32.i32 %23 %22
+mul.f32 %24 %21 %23
+rt %25 INT.f32 %24
+rt %26 STR$.f32 %25
+const.str %27 x20
+concat %28 %26 %27
+const.i32 %29 0
+rt PRINTS %29 %28
+line 5
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 6
+const.i32 %30 0
+rt PRINTNL %30
+line 7
+const.i32 %31 -1
+cvt.f64.i32 %32 %31
+rt %33 RND.n %32
+store.f32 $__SINGLE_X %33
+line 8
+rt %34 RND
+const.i32 %35 1000000
+cvt.f32.i32 %36 %35
+mul.f32 %37 %34 %36
+rt %38 INT.f32 %37
+rt %39 STR$.f32 %38
+const.str %40 x20
+concat %41 %39 %40
+const.i32 %42 0
+rt PRINTS %42 %41
+const.i32 %43 0
+rt PRINTNL %43
+line 9
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

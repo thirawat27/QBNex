@@ -1,0 +1,374 @@
+QIR 1
+meta console only
+global $__SINGLE_I f32
+global $__SINGLE_X f32
+global $__SINGLE_N f32
+global $__SINGLE_K f32
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+local $~T4 f64
+local $~T5 f64
+local $~T6 f64
+local $~T7 f64
+local $~T8 f64
+local $~T9 f64
+local $~T10 f64
+local $~T11 f64
+local $~T12 f64
+line 2
+const.i32 %0 1
+cvt.f64.i32 %1 %0
+store.f64 $~T1 %1
+const.i32 %2 10
+cvt.f64.i32 %3 %2
+store.f64 $~T2 %3
+const.i32 %4 3
+cvt.f64.i32 %5 %4
+store.f64 $~T3 %5
+jmp ~F1.E
+label ~F1.T
+load.f32 %6 $__SINGLE_I
+cvt.f64.f32 %7 %6
+load.f64 %8 $~T3
+add.f64 %9 %8 %7
+store.f64 $~T1 %9
+label ~F1.E
+load.f64 %10 $~T1
+cvt.f32.f64 %11 %10
+store.f32 $__SINGLE_I %11
+load.f64 %12 $~T3
+const.f64 %13 0
+lt.f64 %14 %12 %13
+jz %14 ~F1.P
+load.f64 %15 $~T2
+lt.f64 %16 %10 %15
+jnz %16 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.f64 %17 $~T2
+gt.f64 %18 %10 %17
+jnz %18 ~F1.X
+label ~F1.B
+line 2
+load.f32 %19 $__SINGLE_I
+rt %20 STR$.f32 %19
+const.str %21 x20
+concat %22 %20 %21
+const.i32 %23 0
+rt PRINTS %23 %22
+line 2
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 2
+const.str %24 x2D3E
+const.i32 %25 0
+rt PRINTS %25 %24
+load.f32 %26 $__SINGLE_I
+rt %27 STR$.f32 %26
+const.str %28 x20
+concat %29 %27 %28
+const.i32 %30 0
+rt PRINTS %30 %29
+const.i32 %31 0
+rt PRINTNL %31
+line 3
+const.i32 %32 5
+cvt.f64.i32 %33 %32
+store.f64 $~T4 %33
+const.i32 %34 1
+cvt.f64.i32 %35 %34
+store.f64 $~T5 %35
+const.i32 %36 -2
+cvt.f64.i32 %37 %36
+store.f64 $~T6 %37
+jmp ~F5.E
+label ~F5.T
+load.f32 %38 $__SINGLE_I
+cvt.f64.f32 %39 %38
+load.f64 %40 $~T6
+add.f64 %41 %40 %39
+store.f64 $~T4 %41
+label ~F5.E
+load.f64 %42 $~T4
+cvt.f32.f64 %43 %42
+store.f32 $__SINGLE_I %43
+load.f64 %44 $~T6
+const.f64 %45 0
+lt.f64 %46 %44 %45
+jz %46 ~F5.P
+load.f64 %47 $~T5
+lt.f64 %48 %42 %47
+jnz %48 ~F5.X
+jmp ~F5.B
+label ~F5.P
+load.f64 %49 $~T5
+gt.f64 %50 %42 %49
+jnz %50 ~F5.X
+label ~F5.B
+line 3
+load.f32 %51 $__SINGLE_I
+rt %52 STR$.f32 %51
+const.str %53 x20
+concat %54 %52 %53
+const.i32 %55 0
+rt PRINTS %55 %54
+line 3
+label ~F5.C
+jmp ~F5.T
+label ~F5.X
+line 3
+const.i32 %56 0
+rt PRINTNL %56
+line 4
+const.i32 %57 0
+cvt.f64.i32 %58 %57
+store.f64 $~T7 %58
+const.i32 %59 1
+cvt.f64.i32 %60 %59
+store.f64 $~T8 %60
+const.f64 %61 0.25E+0
+store.f64 $~T9 %61
+jmp ~F9.E
+label ~F9.T
+load.f32 %62 $__SINGLE_X
+cvt.f64.f32 %63 %62
+load.f64 %64 $~T9
+add.f64 %65 %64 %63
+store.f64 $~T7 %65
+label ~F9.E
+load.f64 %66 $~T7
+cvt.f32.f64 %67 %66
+store.f32 $__SINGLE_X %67
+load.f64 %68 $~T9
+const.f64 %69 0
+lt.f64 %70 %68 %69
+jz %70 ~F9.P
+load.f64 %71 $~T8
+lt.f64 %72 %66 %71
+jnz %72 ~F9.X
+jmp ~F9.B
+label ~F9.P
+load.f64 %73 $~T8
+gt.f64 %74 %66 %73
+jnz %74 ~F9.X
+label ~F9.B
+line 4
+load.f32 %75 $__SINGLE_X
+rt %76 STR$.f32 %75
+const.str %77 x20
+concat %78 %76 %77
+const.i32 %79 0
+rt PRINTS %79 %78
+line 4
+label ~F9.C
+jmp ~F9.T
+label ~F9.X
+line 4
+const.i32 %80 0
+rt PRINTNL %80
+line 5
+const.i32 %81 0
+cvt.f32.i32 %82 %81
+store.f32 $__SINGLE_N %82
+line 6
+label ~W13.T
+label ~W13.C
+load.f32 %83 $__SINGLE_N
+const.i32 %84 3
+cvt.f32.i32 %85 %84
+lt.f32 %86 %83 %85
+jz %86 ~W13.X
+line 6
+load.f32 %87 $__SINGLE_N
+const.i32 %88 1
+cvt.f32.i32 %89 %88
+add.f32 %90 %87 %89
+store.f32 $__SINGLE_N %90
+line 6
+const.str %91 x77
+const.i32 %92 0
+rt PRINTS %92 %91
+load.f32 %93 $__SINGLE_N
+rt %94 STR$.f32 %93
+const.str %95 x20
+concat %96 %94 %95
+const.i32 %97 0
+rt PRINTS %97 %96
+line 6
+jmp ~W13.C
+label ~W13.X
+line 6
+const.i32 %98 0
+rt PRINTNL %98
+line 7
+label ~W16.T
+line 7
+load.f32 %99 $__SINGLE_N
+const.i32 %100 1
+cvt.f32.i32 %101 %100
+sub.f32 %102 %99 %101
+store.f32 $__SINGLE_N %102
+line 7
+const.str %103 x75
+const.i32 %104 0
+rt PRINTS %104 %103
+load.f32 %105 $__SINGLE_N
+rt %106 STR$.f32 %105
+const.str %107 x20
+concat %108 %106 %107
+const.i32 %109 0
+rt PRINTS %109 %108
+line 7
+label ~W16.C
+load.f32 %110 $__SINGLE_N
+const.i32 %111 0
+cvt.f32.i32 %112 %111
+le.f32 %113 %110 %112
+jz %113 ~W16.T
+label ~W16.X
+line 7
+const.i32 %114 0
+rt PRINTNL %114
+line 8
+label ~W19.C
+load.f32 %115 $__SINGLE_N
+const.i32 %116 2
+cvt.f32.i32 %117 %116
+lt.f32 %118 %115 %117
+jz %118 ~W19.X
+line 8
+load.f32 %119 $__SINGLE_N
+const.i32 %120 1
+cvt.f32.i32 %121 %120
+add.f32 %122 %119 %121
+store.f32 $__SINGLE_N %122
+line 8
+jmp ~W19.C
+label ~W19.X
+line 8
+load.f32 %123 $__SINGLE_N
+rt %124 STR$.f32 %123
+const.str %125 x20
+concat %126 %124 %125
+const.i32 %127 0
+rt PRINTS %127 %126
+const.i32 %128 0
+rt PRINTNL %128
+line 9
+const.i32 %129 1
+cvt.f64.i32 %130 %129
+store.f64 $~T10 %130
+const.i32 %131 100
+cvt.f64.i32 %132 %131
+store.f64 $~T11 %132
+const.i32 %133 1
+cvt.f64.i32 %134 %133
+store.f64 $~T12 %134
+jmp ~F21.E
+label ~F21.T
+load.f32 %135 $__SINGLE_I
+cvt.f64.f32 %136 %135
+load.f64 %137 $~T12
+add.f64 %138 %137 %136
+store.f64 $~T10 %138
+label ~F21.E
+load.f64 %139 $~T10
+cvt.f32.f64 %140 %139
+store.f32 $__SINGLE_I %140
+load.f64 %141 $~T12
+const.f64 %142 0
+lt.f64 %143 %141 %142
+jz %143 ~F21.P
+load.f64 %144 $~T11
+lt.f64 %145 %139 %144
+jnz %145 ~F21.X
+jmp ~F21.B
+label ~F21.P
+load.f64 %146 $~T11
+gt.f64 %147 %139 %146
+jnz %147 ~F21.X
+label ~F21.B
+line 10
+load.f32 %148 $__SINGLE_I
+const.i32 %149 4
+cvt.f32.i32 %150 %149
+eq.f32 %151 %148 %150
+jz %151 ~I13.1
+line 10
+jmp ~F21.X
+line 10
+label ~I13.1
+label ~I13.E
+line 11
+label ~F21.C
+jmp ~F21.T
+label ~F21.X
+line 12
+load.f32 %152 $__SINGLE_I
+rt %153 STR$.f32 %152
+const.str %154 x20
+concat %155 %153 %154
+const.i32 %156 0
+rt PRINTS %156 %155
+const.i32 %157 0
+rt PRINTNL %157
+line 13
+label ~W24.T
+line 14
+load.f32 %158 $__SINGLE_K
+const.i32 %159 1
+cvt.f32.i32 %160 %159
+add.f32 %161 %158 %160
+store.f32 $__SINGLE_K %161
+line 15
+load.f32 %162 $__SINGLE_K
+const.i32 %163 7
+cvt.f32.i32 %164 %163
+gt.f32 %165 %162 %164
+jz %165 ~I14.1
+line 15
+jmp ~W24.X
+line 15
+label ~I14.1
+label ~I14.E
+line 16
+load.f32 %166 $__SINGLE_K
+const.i32 %167 2
+cvt.i64.f32 %168 %166
+cvt.i64.i32 %169 %167
+mod.i64 %170 %168 %169
+const.i32 %171 0
+cvt.i64.i32 %172 %171
+eq.i64 %173 %170 %172
+jz %173 ~I15.1
+line 16
+jmp ~W24.C
+line 16
+label ~I15.1
+label ~I15.E
+line 17
+load.f32 %174 $__SINGLE_K
+rt %175 STR$.f32 %174
+const.str %176 x20
+concat %177 %175 %176
+const.i32 %178 0
+rt PRINTS %178 %177
+line 18
+label ~W24.C
+jmp ~W24.T
+label ~W24.X
+line 19
+const.i32 %179 0
+rt PRINTNL %179
+line 20
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

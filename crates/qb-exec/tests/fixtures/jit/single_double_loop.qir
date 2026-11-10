@@ -1,0 +1,92 @@
+QIR 1
+global $__SINGLE_X f32
+global $__SINGLE_S f32
+global $__DOUBLE_D f64
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+line 1
+const.i32 %0 1
+cvt.f64.i32 %1 %0
+store.f64 $~T1 %1
+const.i32 %2 0
+cvt.f64.i32 %3 %2
+store.f64 $~T2 %3
+const.f64 %4 -0.1E+0
+store.f64 $~T3 %4
+jmp ~F1.E
+label ~F1.T
+load.f32 %5 $__SINGLE_X
+cvt.f64.f32 %6 %5
+load.f64 %7 $~T3
+add.f64 %8 %7 %6
+store.f64 $~T1 %8
+label ~F1.E
+load.f64 %9 $~T1
+cvt.f32.f64 %10 %9
+store.f32 $__SINGLE_X %10
+load.f64 %11 $~T3
+const.f64 %12 0
+lt.f64 %13 %11 %12
+jz %13 ~F1.P
+load.f64 %14 $~T2
+lt.f64 %15 %9 %14
+jnz %15 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.f64 %16 $~T2
+gt.f64 %17 %9 %16
+jnz %17 ~F1.X
+label ~F1.B
+line 2
+load.f32 %18 $__SINGLE_S
+load.f32 %19 $__SINGLE_X
+load.f32 %20 $__SINGLE_X
+mul.f32 %21 %19 %20
+add.f32 %22 %18 %21
+store.f32 $__SINGLE_S %22
+line 3
+load.f64 %23 $__DOUBLE_D
+const.i32 %24 1
+load.f32 %25 $__SINGLE_X
+const.i32 %26 1
+cvt.f32.i32 %27 %26
+add.f32 %28 %25 %27
+cvt.f32.i32 %29 %24
+div.f32 %30 %29 %28
+cvt.f64.f32 %31 %30
+add.f64 %32 %23 %31
+store.f64 $__DOUBLE_D %32
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+load.f32 %33 $__SINGLE_S
+rt %34 STR$.f32 %33
+const.str %35 x20
+concat %36 %34 %35
+const.i32 %37 0
+rt PRINTS %37 %36
+load.f64 %38 $__DOUBLE_D
+rt %39 STR$.f64 %38
+const.str %40 x20
+concat %41 %39 %40
+const.i32 %42 0
+rt PRINTS %42 %41
+load.f32 %43 $__SINGLE_X
+rt %44 STR$.f32 %43
+const.str %45 x20
+concat %46 %44 %45
+const.i32 %47 0
+rt PRINTS %47 %46
+const.i32 %48 0
+rt PRINTNL %48
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

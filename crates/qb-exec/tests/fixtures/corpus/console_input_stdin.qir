@@ -1,0 +1,134 @@
+QIR 1
+meta console only
+global $__INTEGER_A i16
+global $__STRING_B str
+global $__DOUBLE_C f64
+global $__LONG_X i32
+global $__SINGLE_Y f32
+global $__STRING_L str
+global $__UBYTE_U u8
+global $__LONG_H i32
+func main
+line 3
+const.i32 %0 0
+const.str %1 x3F20
+rt INPUTPROMPT %1 %0
+rt %2 INPUTITEM.n %0
+cvt.i16.f64 %3 %2
+store.i16 $__INTEGER_A %3
+rt %4 INPUTITEM.s %0
+store.str $__STRING_B %4
+rt %5 INPUTITEM.n %0
+store.f64 $__DOUBLE_C %5
+line 4
+load.i16 %6 $__INTEGER_A
+cvt.i64.i16 %7 %6
+rt %8 STR$.i64 %7
+const.str %9 x20
+concat %10 %8 %9
+const.i32 %11 0
+rt PRINTS %11 %10
+const.str %12 x5B
+const.i32 %13 0
+rt PRINTS %13 %12
+load.str %14 $__STRING_B
+const.i32 %15 0
+rt PRINTS %15 %14
+const.str %16 x5D
+const.i32 %17 0
+rt PRINTS %17 %16
+load.f64 %18 $__DOUBLE_C
+rt %19 STR$.f64 %18
+const.str %20 x20
+concat %21 %19 %20
+const.i32 %22 0
+rt PRINTS %22 %21
+const.i32 %23 0
+rt PRINTNL %23
+line 5
+const.i32 %24 0
+const.str %25 x70726F6D70743F20
+rt INPUTPROMPT %25 %24
+rt %26 INPUTITEM.n %24
+cvt.i32.f64 %27 %26
+store.i32 $__LONG_X %27
+rt %28 INPUTITEM.n %24
+cvt.f32.f64 %29 %28
+store.f32 $__SINGLE_Y %29
+line 6
+load.i32 %30 $__LONG_X
+cvt.i64.i32 %31 %30
+rt %32 STR$.i64 %31
+const.str %33 x20
+concat %34 %32 %33
+const.i32 %35 0
+rt PRINTS %35 %34
+load.f32 %36 $__SINGLE_Y
+rt %37 STR$.f32 %36
+const.str %38 x20
+concat %39 %37 %38
+const.i32 %40 0
+rt PRINTS %40 %39
+const.i32 %41 0
+rt PRINTNL %41
+line 7
+const.i32 %42 0
+const.str %43 x
+rt INPUTPROMPT %43 %42
+rt %44 LINEINPUT %42
+store.str $__STRING_L %44
+line 8
+const.str %45 x5B
+const.i32 %46 0
+rt PRINTS %46 %45
+load.str %47 $__STRING_L
+const.i32 %48 0
+rt PRINTS %48 %47
+const.str %49 x5D
+const.i32 %50 0
+rt PRINTS %50 %49
+const.i32 %51 0
+rt PRINTNL %51
+line 9
+const.i32 %52 0
+const.str %53 x3F20
+rt INPUTPROMPT %53 %52
+rt %54 INPUTITEM.n %52
+cvt.u8.f64 %55 %54
+store.u8 $__UBYTE_U %55
+line 10
+load.u8 %56 $__UBYTE_U
+cvt.i64.u8 %57 %56
+rt %58 STR$.i64 %57
+const.str %59 x20
+concat %60 %58 %59
+const.i32 %61 0
+rt PRINTS %61 %60
+const.i32 %62 0
+rt PRINTNL %62
+line 11
+const.i32 %63 0
+const.str %64 x3F20
+rt INPUTPROMPT %64 %63
+rt %65 INPUTITEM.n %63
+cvt.i32.f64 %66 %65
+store.i32 $__LONG_H %66
+line 12
+load.i32 %67 $__LONG_H
+cvt.i64.i32 %68 %67
+rt %69 STR$.i64 %68
+const.str %70 x20
+concat %71 %69 %70
+const.i32 %72 0
+rt PRINTS %72 %71
+const.i32 %73 0
+rt PRINTNL %73
+line 13
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

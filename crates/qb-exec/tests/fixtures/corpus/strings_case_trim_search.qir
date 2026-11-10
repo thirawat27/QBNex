@@ -1,0 +1,515 @@
+QIR 1
+meta console only
+global $__STRING_S str
+global $__STRING_X str
+global $__STRING_Y str
+global $__STRING_Z str
+global $__SINGLE_I f32
+global $__STRING_T str
+func main
+local $~T7 f64
+local $~T8 f64
+local $~T9 f64
+line 3
+const.str %0 x202048656C6C6F2C20576F726C642020
+store.str $__STRING_S %0
+line 4
+const.str %1 x5B
+const.i32 %2 0
+rt PRINTS %2 %1
+load.str %3 $__STRING_S
+rt %4 UCASE$ %3
+const.i32 %5 0
+rt PRINTS %5 %4
+const.str %6 x5D5B
+const.i32 %7 0
+rt PRINTS %7 %6
+load.str %8 $__STRING_S
+rt %9 LCASE$ %8
+const.i32 %10 0
+rt PRINTS %10 %9
+const.str %11 x5D
+const.i32 %12 0
+rt PRINTS %12 %11
+const.i32 %13 0
+rt PRINTNL %13
+line 5
+const.str %14 x5B
+const.i32 %15 0
+rt PRINTS %15 %14
+load.str %16 $__STRING_S
+rt %17 LTRIM$ %16
+const.i32 %18 0
+rt PRINTS %18 %17
+const.str %19 x5D5B
+const.i32 %20 0
+rt PRINTS %20 %19
+load.str %21 $__STRING_S
+rt %22 RTRIM$ %21
+const.i32 %23 0
+rt PRINTS %23 %22
+const.str %24 x5D5B
+const.i32 %25 0
+rt PRINTS %25 %24
+load.str %26 $__STRING_S
+rt %27 _TRIM$ %26
+const.i32 %28 0
+rt PRINTS %28 %27
+const.str %29 x5D
+const.i32 %30 0
+rt PRINTS %30 %29
+const.i32 %31 0
+rt PRINTNL %31
+line 6
+const.str %32 x5B
+const.i32 %33 0
+rt PRINTS %33 %32
+const.i32 %34 5
+rt %35 SPACE$ %34
+rt %36 LTRIM$ %35
+const.i32 %37 0
+rt PRINTS %37 %36
+const.str %38 x5D5B
+const.i32 %39 0
+rt PRINTS %39 %38
+const.str %40 x
+rt %41 RTRIM$ %40
+const.i32 %42 0
+rt PRINTS %42 %41
+const.str %43 x5D
+const.i32 %44 0
+rt PRINTS %44 %43
+const.i32 %45 0
+rt PRINTNL %45
+line 7
+load.str %46 $__STRING_S
+const.str %47 x6F
+rt %48 INSTR %46 %47
+cvt.i64.i32 %49 %48
+rt %50 STR$.i64 %49
+const.str %51 x20
+concat %52 %50 %51
+const.i32 %53 0
+rt PRINTS %53 %52
+const.i32 %54 7
+load.str %55 $__STRING_S
+const.str %56 x6F
+rt %57 INSTR.n %54 %55 %56
+cvt.i64.i32 %58 %57
+rt %59 STR$.i64 %58
+const.str %60 x20
+concat %61 %59 %60
+const.i32 %62 0
+rt PRINTS %62 %61
+load.str %63 $__STRING_S
+const.str %64 x
+rt %65 INSTR %63 %64
+cvt.i64.i32 %66 %65
+rt %67 STR$.i64 %66
+const.str %68 x20
+concat %69 %67 %68
+const.i32 %70 0
+rt PRINTS %70 %69
+const.i32 %71 3
+load.str %72 $__STRING_S
+const.str %73 x
+rt %74 INSTR.n %71 %72 %73
+cvt.i64.i32 %75 %74
+rt %76 STR$.i64 %75
+const.str %77 x20
+concat %78 %76 %77
+const.i32 %79 0
+rt PRINTS %79 %78
+const.str %80 x
+const.str %81 x61
+rt %82 INSTR %80 %81
+cvt.i64.i32 %83 %82
+rt %84 STR$.i64 %83
+const.str %85 x20
+concat %86 %84 %85
+const.i32 %87 0
+rt PRINTS %87 %86
+load.str %88 $__STRING_S
+const.str %89 x78797A
+rt %90 INSTR %88 %89
+cvt.i64.i32 %91 %90
+rt %92 STR$.i64 %91
+const.str %93 x20
+concat %94 %92 %93
+const.i32 %95 0
+rt PRINTS %95 %94
+const.i32 %96 0
+rt PRINTNL %96
+line 8
+load.str %97 $__STRING_S
+const.str %98 x6F
+rt %99 _INSTRREV %97 %98
+cvt.i64.i32 %100 %99
+rt %101 STR$.i64 %100
+const.str %102 x20
+concat %103 %101 %102
+const.i32 %104 0
+rt PRINTS %104 %103
+const.i32 %105 9
+load.str %106 $__STRING_S
+const.str %107 x6F
+rt %108 _INSTRREV.n %105 %106 %107
+cvt.i64.i32 %109 %108
+rt %110 STR$.i64 %109
+const.str %111 x20
+concat %112 %110 %111
+const.i32 %113 0
+rt PRINTS %113 %112
+load.str %114 $__STRING_S
+const.str %115 x
+rt %116 _INSTRREV %114 %115
+cvt.i64.i32 %117 %116
+rt %118 STR$.i64 %117
+const.str %119 x20
+concat %120 %118 %119
+const.i32 %121 0
+rt PRINTS %121 %120
+const.str %122 x616161
+const.str %123 x6161
+rt %124 _INSTRREV %122 %123
+cvt.i64.i32 %125 %124
+rt %126 STR$.i64 %125
+const.str %127 x20
+concat %128 %126 %127
+const.i32 %129 0
+rt PRINTS %129 %128
+const.i32 %130 0
+rt PRINTNL %130
+line 9
+load.str %131 $__STRING_S
+const.i32 %132 0
+rt %133 LEFT$ %131 %132
+const.i32 %134 0
+rt PRINTS %134 %133
+const.str %135 x7C
+const.i32 %136 0
+rt PRINTS %136 %135
+load.str %137 $__STRING_S
+const.i32 %138 4
+rt %139 LEFT$ %137 %138
+const.i32 %140 0
+rt PRINTS %140 %139
+const.str %141 x7C
+const.i32 %142 0
+rt PRINTS %142 %141
+load.str %143 $__STRING_S
+const.i32 %144 4
+rt %145 RIGHT$ %143 %144
+const.i32 %146 0
+rt PRINTS %146 %145
+const.str %147 x7C
+const.i32 %148 0
+rt PRINTS %148 %147
+load.str %149 $__STRING_S
+const.i32 %150 100
+rt %151 RIGHT$ %149 %150
+const.i32 %152 0
+rt PRINTS %152 %151
+const.str %153 x7C
+const.i32 %154 0
+rt PRINTS %154 %153
+const.i32 %155 0
+rt PRINTNL %155
+line 10
+load.str %156 $__STRING_S
+const.i32 %157 3
+const.i32 %158 5
+rt %159 MID$.n %156 %157 %158
+const.i32 %160 0
+rt PRINTS %160 %159
+const.str %161 x7C
+const.i32 %162 0
+rt PRINTS %162 %161
+load.str %163 $__STRING_S
+const.i32 %164 14
+rt %165 MID$ %163 %164
+const.i32 %166 0
+rt PRINTS %166 %165
+const.str %167 x7C
+const.i32 %168 0
+rt PRINTS %168 %167
+load.str %169 $__STRING_S
+const.i32 %170 40
+const.i32 %171 2
+rt %172 MID$.n %169 %170 %171
+const.i32 %173 0
+rt PRINTS %173 %172
+const.str %174 x7C
+const.i32 %175 0
+rt PRINTS %175 %174
+load.str %176 $__STRING_S
+const.i32 %177 3
+const.i32 %178 0
+rt %179 MID$.n %176 %177 %178
+const.i32 %180 0
+rt PRINTS %180 %179
+const.str %181 x7C
+const.i32 %182 0
+rt PRINTS %182 %181
+const.i32 %183 0
+rt PRINTNL %183
+line 11
+const.str %184 x41
+rt %185 ASC %184
+cvt.i64.i32 %186 %185
+rt %187 STR$.i64 %186
+const.str %188 x20
+concat %189 %187 %188
+const.i32 %190 0
+rt PRINTS %190 %189
+const.str %191 x5A7A
+const.i32 %192 2
+rt %193 ASC.n %191 %192
+cvt.i64.i32 %194 %193
+rt %195 STR$.i64 %194
+const.str %196 x20
+concat %197 %195 %196
+const.i32 %198 0
+rt PRINTS %198 %197
+const.i32 %199 5
+const.str %200 x71
+rt %201 STRING$.s %199 %200
+rt %202 LEN %201
+cvt.i64.i32 %203 %202
+rt %204 STR$.i64 %203
+const.str %205 x20
+concat %206 %204 %205
+const.i32 %207 0
+rt PRINTS %207 %206
+const.i32 %208 3
+const.i32 %209 66
+rt %210 STRING$ %208 %209
+const.i32 %211 0
+rt PRINTS %211 %210
+const.str %212 x7C
+const.i32 %213 0
+rt PRINTS %213 %212
+const.i32 %214 3
+rt %215 SPACE$ %214
+const.i32 %216 0
+rt PRINTS %216 %215
+const.str %217 x7C
+const.i32 %218 0
+rt PRINTS %218 %217
+const.i32 %219 0
+rt PRINTNL %219
+line 12
+const.str %220 x6170706C65
+store.str $__STRING_X %220
+line 12
+const.str %221 x6170706C6573
+store.str $__STRING_Y %221
+line 12
+const.str %222 x4170706C65
+store.str $__STRING_Z %222
+line 13
+load.str %223 $__STRING_X
+load.str %224 $__STRING_Y
+lt.str %225 %223 %224
+jz %225 ~I1.1
+line 13
+const.str %226 x6C74
+const.i32 %227 0
+rt PRINTS %227 %226
+line 13
+label ~I1.1
+label ~I1.E
+line 14
+load.str %228 $__STRING_Y
+load.str %229 $__STRING_X
+gt.str %230 %228 %229
+jz %230 ~I2.1
+line 14
+const.str %231 x206774
+const.i32 %232 0
+rt PRINTS %232 %231
+line 14
+label ~I2.1
+label ~I2.E
+line 15
+load.str %233 $__STRING_Z
+load.str %234 $__STRING_X
+lt.str %235 %233 %234
+jz %235 ~I3.1
+line 15
+const.str %236 x2075707065722D6669727374
+const.i32 %237 0
+rt PRINTS %237 %236
+line 15
+label ~I3.1
+label ~I3.E
+line 16
+load.str %238 $__STRING_X
+const.str %239 x6170706C65
+le.str %240 %238 %239
+load.str %241 $__STRING_X
+const.str %242 x6170706C65
+ge.str %243 %241 %242
+and.i32 %244 %240 %243
+jz %244 ~I4.1
+line 16
+const.str %245 x206571
+const.i32 %246 0
+rt PRINTS %246 %245
+line 16
+label ~I4.1
+label ~I4.E
+line 17
+const.str %247 x
+load.str %248 $__STRING_X
+lt.str %249 %247 %248
+jz %249 ~I5.1
+line 17
+const.str %250 x20656D7074792D6669727374
+const.i32 %251 0
+rt PRINTS %251 %250
+line 17
+label ~I5.1
+label ~I5.E
+line 18
+load.str %252 $__STRING_X
+load.str %253 $__STRING_Z
+ne.str %254 %252 %253
+jz %254 ~I6.1
+line 18
+const.str %255 x206E65
+const.i32 %256 0
+rt PRINTS %256 %255
+const.i32 %257 0
+rt PRINTNL %257
+line 18
+label ~I6.1
+label ~I6.E
+line 19
+load.str %258 $__STRING_X
+load.str %259 $__STRING_Y
+rt %260 _STRCMP %258 %259
+cvt.i64.i32 %261 %260
+rt %262 STR$.i64 %261
+const.str %263 x20
+concat %264 %262 %263
+const.i32 %265 0
+rt PRINTS %265 %264
+load.str %266 $__STRING_Y
+load.str %267 $__STRING_X
+rt %268 _STRCMP %266 %267
+cvt.i64.i32 %269 %268
+rt %270 STR$.i64 %269
+const.str %271 x20
+concat %272 %270 %271
+const.i32 %273 0
+rt PRINTS %273 %272
+load.str %274 $__STRING_X
+load.str %275 $__STRING_X
+rt %276 _STRCMP %274 %275
+cvt.i64.i32 %277 %276
+rt %278 STR$.i64 %277
+const.str %279 x20
+concat %280 %278 %279
+const.i32 %281 0
+rt PRINTS %281 %280
+load.str %282 $__STRING_X
+load.str %283 $__STRING_Z
+rt %284 _STRICMP %282 %283
+cvt.i64.i32 %285 %284
+rt %286 STR$.i64 %285
+const.str %287 x20
+concat %288 %286 %287
+const.i32 %289 0
+rt PRINTS %289 %288
+const.str %290 x616264
+const.str %291 x414243
+rt %292 _STRICMP %290 %291
+cvt.i64.i32 %293 %292
+rt %294 STR$.i64 %293
+const.str %295 x20
+concat %296 %294 %295
+const.i32 %297 0
+rt PRINTS %297 %296
+const.i32 %298 0
+rt PRINTNL %298
+line 20
+const.i32 %299 0
+cvt.f64.i32 %300 %299
+store.f64 $~T7 %300
+const.i32 %301 255
+cvt.f64.i32 %302 %301
+store.f64 $~T8 %302
+const.i32 %303 51
+cvt.f64.i32 %304 %303
+store.f64 $~T9 %304
+jmp ~F16.E
+label ~F16.T
+load.f32 %305 $__SINGLE_I
+cvt.f64.f32 %306 %305
+load.f64 %307 $~T9
+add.f64 %308 %307 %306
+store.f64 $~T7 %308
+label ~F16.E
+load.f64 %309 $~T7
+cvt.f32.f64 %310 %309
+store.f32 $__SINGLE_I %310
+load.f64 %311 $~T9
+const.f64 %312 0
+lt.f64 %313 %311 %312
+jz %313 ~F16.P
+load.f64 %314 $~T8
+lt.f64 %315 %309 %314
+jnz %315 ~F16.X
+jmp ~F16.B
+label ~F16.P
+load.f64 %316 $~T8
+gt.f64 %317 %309 %316
+jnz %317 ~F16.X
+label ~F16.B
+line 20
+load.f32 %318 $__SINGLE_I
+cvt.i32.f32 %319 %318
+rt %320 CHR$ %319
+rt %321 ASC %320
+cvt.i64.i32 %322 %321
+rt %323 STR$.i64 %322
+const.str %324 x20
+concat %325 %323 %324
+const.i32 %326 0
+rt PRINTS %326 %325
+line 20
+label ~F16.C
+jmp ~F16.T
+label ~F16.X
+line 20
+const.i32 %327 0
+rt PRINTNL %327
+line 21
+const.str %328 x4D695865442031323320214023
+rt %329 UCASE$ %328
+rt %330 LCASE$ %329
+store.str $__STRING_T %330
+line 22
+load.str %331 $__STRING_T
+const.i32 %332 0
+rt PRINTS %332 %331
+load.str %333 $__STRING_T
+rt %334 LEN %333
+cvt.i64.i32 %335 %334
+rt %336 STR$.i64 %335
+const.str %337 x20
+concat %338 %336 %337
+const.i32 %339 0
+rt PRINTS %339 %338
+const.i32 %340 0
+rt PRINTNL %340
+line 23
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

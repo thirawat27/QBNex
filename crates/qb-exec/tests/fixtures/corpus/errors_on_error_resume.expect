@@ -1,0 +1,10 @@
+caught 5 
+after error 5
+caught 9 
+after bounds
+caught 61 
+retrying
+caught 61 
+after retry
+done
+<exit 0>

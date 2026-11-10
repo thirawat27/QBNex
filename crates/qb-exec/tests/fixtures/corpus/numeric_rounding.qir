@@ -1,0 +1,230 @@
+QIR 1
+meta console only
+global $__INTEGER_I i16
+func main
+line 2
+const.f64 %0 0.5E+0
+cvt.i16.f64 %1 %0
+cvt.i64.i16 %2 %1
+rt %3 STR$.i64 %2
+const.str %4 x20
+concat %5 %3 %4
+const.i32 %6 0
+rt PRINTS %6 %5
+const.f64 %7 1.5E+0
+cvt.i16.f64 %8 %7
+cvt.i64.i16 %9 %8
+rt %10 STR$.i64 %9
+const.str %11 x20
+concat %12 %10 %11
+const.i32 %13 0
+rt PRINTS %13 %12
+const.f64 %14 2.5E+0
+cvt.i16.f64 %15 %14
+cvt.i64.i16 %16 %15
+rt %17 STR$.i64 %16
+const.str %18 x20
+concat %19 %17 %18
+const.i32 %20 0
+rt PRINTS %20 %19
+const.f64 %21 -0.5E+0
+cvt.i16.f64 %22 %21
+cvt.i64.i16 %23 %22
+rt %24 STR$.i64 %23
+const.str %25 x20
+concat %26 %24 %25
+const.i32 %27 0
+rt PRINTS %27 %26
+const.f64 %28 -1.5E+0
+cvt.i16.f64 %29 %28
+cvt.i64.i16 %30 %29
+rt %31 STR$.i64 %30
+const.str %32 x20
+concat %33 %31 %32
+const.i32 %34 0
+rt PRINTS %34 %33
+const.i32 %35 0
+rt PRINTNL %35
+line 3
+const.f64 %36 2.5E+0
+cvt.i32.f64 %37 %36
+cvt.i64.i32 %38 %37
+rt %39 STR$.i64 %38
+const.str %40 x20
+concat %41 %39 %40
+const.i32 %42 0
+rt PRINTS %42 %41
+const.f64 %43 3.5E+0
+cvt.i32.f64 %44 %43
+cvt.i64.i32 %45 %44
+rt %46 STR$.i64 %45
+const.str %47 x20
+concat %48 %46 %47
+const.i32 %49 0
+rt PRINTS %49 %48
+const.f64 %50 -2.5E+0
+cvt.i32.f64 %51 %50
+cvt.i64.i32 %52 %51
+rt %53 STR$.i64 %52
+const.str %54 x20
+concat %55 %53 %54
+const.i32 %56 0
+rt PRINTS %56 %55
+const.i32 %57 0
+rt PRINTNL %57
+line 4
+line 5
+const.f64 %58 2.5E+0
+cvt.i16.f64 %59 %58
+store.i16 $__INTEGER_I %59
+line 5
+load.i16 %60 $__INTEGER_I
+cvt.i64.i16 %61 %60
+rt %62 STR$.i64 %61
+const.str %63 x20
+concat %64 %62 %63
+const.i32 %65 0
+rt PRINTS %65 %64
+line 6
+const.f64 %66 3.5E+0
+cvt.i16.f64 %67 %66
+store.i16 $__INTEGER_I %67
+line 6
+load.i16 %68 $__INTEGER_I
+cvt.i64.i16 %69 %68
+rt %70 STR$.i64 %69
+const.str %71 x20
+concat %72 %70 %71
+const.i32 %73 0
+rt PRINTS %73 %72
+line 7
+const.f64 %74 -2.5E+0
+cvt.i16.f64 %75 %74
+store.i16 $__INTEGER_I %75
+line 7
+load.i16 %76 $__INTEGER_I
+cvt.i64.i16 %77 %76
+rt %78 STR$.i64 %77
+const.str %79 x20
+concat %80 %78 %79
+const.i32 %81 0
+rt PRINTS %81 %80
+const.i32 %82 0
+rt PRINTNL %82
+line 8
+const.f64 %83 2.7E+0
+rt %84 INT.f64 %83
+cvt.f32.f64 %85 %84
+rt %86 STR$.f32 %85
+const.str %87 x20
+concat %88 %86 %87
+const.i32 %89 0
+rt PRINTS %89 %88
+const.f64 %90 -2.7E+0
+rt %91 INT.f64 %90
+cvt.f32.f64 %92 %91
+rt %93 STR$.f32 %92
+const.str %94 x20
+concat %95 %93 %94
+const.i32 %96 0
+rt PRINTS %96 %95
+const.f64 %97 2.7E+0
+rt %98 FIX.f64 %97
+cvt.f32.f64 %99 %98
+rt %100 STR$.f32 %99
+const.str %101 x20
+concat %102 %100 %101
+const.i32 %103 0
+rt PRINTS %103 %102
+const.f64 %104 -2.7E+0
+rt %105 FIX.f64 %104
+cvt.f32.f64 %106 %105
+rt %107 STR$.f32 %106
+const.str %108 x20
+concat %109 %107 %108
+const.i32 %110 0
+rt PRINTS %110 %109
+const.i32 %111 0
+rt PRINTNL %111
+line 9
+const.i32 %112 7
+const.i32 %113 2
+idiv.i32 %114 %112 %113
+cvt.i64.i32 %115 %114
+rt %116 STR$.i64 %115
+const.str %117 x20
+concat %118 %116 %117
+const.i32 %119 0
+rt PRINTS %119 %118
+const.i32 %120 -7
+const.i32 %121 2
+idiv.i32 %122 %120 %121
+cvt.i64.i32 %123 %122
+rt %124 STR$.i64 %123
+const.str %125 x20
+concat %126 %124 %125
+const.i32 %127 0
+rt PRINTS %127 %126
+const.i32 %128 7
+const.i32 %129 3
+mod.i32 %130 %128 %129
+cvt.i64.i32 %131 %130
+rt %132 STR$.i64 %131
+const.str %133 x20
+concat %134 %132 %133
+const.i32 %135 0
+rt PRINTS %135 %134
+const.i32 %136 -7
+const.i32 %137 3
+mod.i32 %138 %136 %137
+cvt.i64.i32 %139 %138
+rt %140 STR$.i64 %139
+const.str %141 x20
+concat %142 %140 %141
+const.i32 %143 0
+rt PRINTS %143 %142
+const.i32 %144 7
+const.i32 %145 -3
+mod.i32 %146 %144 %145
+cvt.i64.i32 %147 %146
+rt %148 STR$.i64 %147
+const.str %149 x20
+concat %150 %148 %149
+const.i32 %151 0
+rt PRINTS %151 %150
+const.i32 %152 0
+rt PRINTNL %152
+line 10
+const.i32 %153 2
+const.i32 %154 10
+cvt.f80.i32 %155 %153
+cvt.f80.i32 %156 %154
+pow.f80 %157 %155 %156
+cvt.f32.f80 %158 %157
+rt %159 STR$.f32 %158
+const.str %160 x20
+concat %161 %159 %160
+const.i32 %162 0
+rt PRINTS %162 %161
+const.i32 %163 2
+const.f64 %164 0.5E+0
+cvt.f80.i32 %165 %163
+cvt.f80.f64 %166 %164
+pow.f80 %167 %165 %166
+cvt.f32.f80 %168 %167
+rt %169 STR$.f32 %168
+const.str %170 x20
+concat %171 %169 %170
+const.i32 %172 0
+rt PRINTS %172 %171
+const.i32 %173 0
+rt PRINTNL %173
+line 11
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

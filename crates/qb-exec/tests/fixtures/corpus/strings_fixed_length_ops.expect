@@ -1,0 +1,13 @@
+[name0   ][ABC] 8 
+[name111 ][BCD] 8 
+[name222 ][CDE] 8 
+[name333 ][DEF] 8 
+f=g rtrim=ab
+
+<x   >
+<yyyy>
+<x   >
+ab    |ab    |x    18 
+MIXED 
+[      ] 32 
+<exit 0>
