@@ -6334,6 +6334,46 @@ END IF
 
 
 
+'PLAY event trapping: PLAY {ON|OFF|STOP} and ON PLAY(n) GOSUB label are QBasic statements.
+'They are accepted and checked; the runtime does not raise the PLAY event yet (deviation D-24).
+IF n = 2 AND firstelement$ = "PLAY" THEN
+    IF secondelement$ = "ON" OR secondelement$ = "OFF" OR secondelement$ = "STOP" THEN
+        l$ = SCase$("Play") + sp + SCase$(LEFT$(secondelement$, 1) + LCASE$(MID$(secondelement$, 2)))
+        layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+        addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "PLAY event trapping is accepted but the event is not raised", "PLAY " + secondelement$
+        GOTO finishedline
+    END IF
+END IF
+IF n >= 2 THEN
+    IF firstelement$ = "ON" AND secondelement$ = "PLAY" THEN
+        IF n < 7 THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        IF getelement$(a$, 3) <> "(" THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        B = 0: e$ = ""
+        FOR i = 4 TO n
+            e2$ = getelement$(ca$, i)
+            IF e2$ = "(" THEN B = B + 1
+            IF e2$ = ")" THEN
+                IF B = 0 THEN EXIT FOR
+                B = B - 1
+            END IF
+            IF LEN(e$) THEN e$ = e$ + sp + e2$ ELSE e$ = e2$
+        NEXT
+        IF e$ = "" OR i + 2 <> n THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        IF getelement$(a$, i + 1) <> "GOSUB" THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        e$ = fixoperationorder$(e$)
+        IF Error_Happened THEN GOTO errmes
+        l$ = SCase$("On" + sp + "Play" + sp2 + "(") + sp2 + tlayout$ + sp2 + ")" + sp + SCase$("GoSub")
+        e$ = evaluatetotyp(e$, 32&)
+        IF Error_Happened THEN GOTO errmes
+        a2$ = getelement$(ca$, n)
+        IF validlabel(a2$) = 0 THEN a$ = "Invalid label": GOTO errmes
+        l$ = l$ + sp + a2$
+        layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+        addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "PLAY event trapping is accepted but the event is not raised", "ON PLAY"
+        GOTO finishedline
+    END IF
+END IF
+
 IF n >= 2 THEN
     IF firstelement$ = "ON" AND secondelement$ = "TIMER" THEN
         i = 3
