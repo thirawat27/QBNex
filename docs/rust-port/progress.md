@@ -263,26 +263,20 @@ The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner:
 
 ## R11a — QIR v1 จาก pipeline จริง (branch `claude/r11a-emitter-09276c`, 2026-11-10)
 
-- **Spec + crate:** `docs/rust-port/qir-v1.md` (typed, register-based) และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer ข้อความ, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative) — 16 tests (เขียนก่อน, เห็น fail ก่อน implement). R11b/R11c merge commit `57138e8`
-- **Emitter ใน pipeline จริง:** ลบ tokenizer/parser ของ spike ทิ้ง; main pass ของ `qbnex.bas` ทำงานเหมือนเดิมทุกอย่าง (symbol table, type, UDT, `$INCLUDE`, `$IF`, CONST, DEFxxx, C++ fragment ที่ไม่ถูก compile) แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, state ใน `ir_state.bas`). `IrEval$` เดิน element string ชุดเดียวกับที่ `evaluate$` ได้ (หลัง `fixoperationorder`) และใช้ `operatorusage` + กฎ markup ชุดเดียวกัน พร้อม C integer promotion → register มีชนิด C เดียวกับที่ C++ backend คำนวณ (เช่น literal `1.5E+0` เป็น double, `INTEGER*INTEGER` เป็น int32, `/` ไปเป็น long double)
-- statement ที่ operand อาจถูกสร้างโดย C++ handler (MID$, LSET/RSET, SWAP, ERASE, OPEN/CLOSE, PRINT #, WRITE, INPUT, LINE INPUT, GET/PUT, SEEK, NAME) lower ตอนถึง `finishedline`; construct ที่ยังไม่รองรับ → compile ล้มพร้อมเลขบรรทัด (ไม่เงียบ)
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 13 tests. R11b แทนที่ได้
-- **Conformance (`--qb-arg --ir`):** ดูตารางท้ายหัวข้อนี้ ; C++ default path ของ compiler เดียวกัน: ดูตาราง
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ
-- **ยังไม่ทำ / รู้แล้วว่าต่าง:** `_FLOAT` ใน VM เป็น f64 (รอ F80 ของ R11d) → `rounding_limits`, `val_parse`; graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
-
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 15 unit + 5 e2e tests. R11b แทนที่ได้
-- **Conformance** (69 cases, Windows, compiler เดียวกัน):
+- **Spec + crate:** `docs/rust-port/qir-v1.md` และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative)
+- **Emitter ใน pipeline จริง:** main pass ของ `qbnex.bas` ทำงานเหมือนเดิม แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, `ir_mem.bas`, state ใน `ir_state.bas`); `IrEval$` ใช้กฎ promotion ของ C++ backend. builtin ของ libqb ที่เป็น graphics/รูป/ฟอนต์/input/timer ถูก lower แบบ generic เป็น `rt <callname>` ด้วยชนิด argument จาก registry (`IrGeneric$`, รายชื่อใน `IrGenOK%`)
+- **Executor:** unified VM ของ R11b (`crates/qb-exec`: lower → bytecode → VM/JIT); runtime ที่ R11a เพิ่มอยู่ใน `rt/`: `display.rs` (หน้า SCREEN/รูป/กราฟิก/ข้อความบนหน้า, WIDTH, ฟอนต์ `_LOADFONT`, `_LOADIMAGE`, `_PUTIMAGE`, `_MAPTRIANGLE`, frame capture), `input.rs` (port `keydown`/`keyup` + mouse queue, input script ผ่าน headless window ของ qb-runtime), `scancodes.rs` (ตาราง scancode_lookup), audiox/netx/memx/files. ทุกอย่างเรียก qb-runtime (Rust) ตรง ไม่ผ่าน libqb.cpp
+- **QIR ใหม่:** `ontimer %slot %secs L` (ON TIMER), `meta screenhide`; builtin ใหม่ใน table (graphics callnames, `READCHK`, `VARPTR$`, `EXP.s`, `DELAYBEGIN`/`DELAYSTEP`, `func__*` ของ input/timer)
+- **Conformance** (89 cases, Windows, 2026-11-10 หลัง merge rust-port `ae57d8c`):
 
   | backend | ผ่าน | xfail | fail |
   | --- | --- | --- | --- |
-  | C++ (default) | 63 | 6 | **0** |
-  | QIR (`--qb-arg --ir`) | **40** | 6 | 23 |
+  | QIR (`--qb-arg --ir`) | **82** | 5 | 2 |
 
-  23 case ที่ยัง fail ใช้ subsystem ที่ยังผูกกับ main loop/หน้าต่างของ C++ ทั้งหมด: graphics 10, audio 2, net 2, `_MEM` 2, input script (INKEY$/_KEYHIT) 2, fonts/images 2, `VARPTR`/cmem 1, `FIELD` 1, `SCREEN` + `_NEWIMAGE` ใน video 1. Case ภาษา/ตัวเลข/สตริง/ไฟล์/error/DATA ผ่านครบ
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ: ทุก case ที่ QIR compile ได้ให้ output เหมือน C++ ทุก byte (ยกเว้น `inkey_script` ที่ต้องมี input script ของหน้าต่าง); `crates/qb-exec/tests/fixtures/qir/lang1-3.bas` (INCLUDE, CONST, DEFxxx, nested UDT, array param, STATIC, recursion, SELECT, ON GOSUB, DATA, error/RESUME) เทียบสอง backend ใน `cargo test --release -p qb-exec`
-- `_FLOAT` ใน VM ใช้ `qb-float80` (R11d) ตรงทุก bit; `VAL` คืน long double เหมือน `func_val`; ERL = line-number label ล่าสุด (`LASTLINE`)
-- **ยังไม่ทำ:** graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
+  หลังรอบเต็ม (81) แก้ `timers_and_waits` ผ่านเพิ่ม. ที่ยัง fail: `stdlib_helpers` (STRING ความยาวแปรผันใน TYPE: ต้องให้ memory model ของ VM copy/free string ใน UDT), `call_absolute_sub_arg` (CALL ABSOLUTE ต้องมี CPU emulator x86 16-bit ของ libqb `cpu_call`). ยังไม่ได้รันรอบเต็มของ C++ path หลัง merge ล่าสุด
+- **พฤติกรรมที่ตรงกับ C++:** READ ใช้ `numparse::read_*` (overflow 6, syntax 2, ค่า 0 ก่อน error), ERASE ทำให้ array ไม่มีมิติ (error 9), unhandled error ตาม no-dialog policy ของ runtime (stderr + exit 1), HEX$/OCT$/_BIN$ ความกว้างตาม semantics.bas, `_BIT * n`
+- **Compiler:** lock ของโฟลเดอร์ `internal/tempN` (#26) ไม่ถูกปล่อยระหว่าง recompile อีกแล้ว (เดิมทำให้ qb ที่รันพร้อมกันชนกัน, error 70 ใน e2e แบบหลาย thread)
+- **ยังไม่ทำ:** ON KEY/ON STRIG trapping, CHAIN/COMMON, PLAY event, VARPTR$ ของ string (DRAW/PLAY "X")
 
 ## R11d: `_FLOAT` and `DECLARE LIBRARY`
 

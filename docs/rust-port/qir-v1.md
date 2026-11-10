@@ -210,6 +210,7 @@ statement ในส่วน THEN/ELSE ของ IF บรรทัดเดี�
 | op | ความหมาย |
 | --- | --- |
 | `onerror L` / `onerror 0` | ตั้ง/ยกเลิก handler. **L เป็น label ใน `main` เสมอ** (กฎของ QB) แม้ op อยู่ใน SUB |
+| `ontimer %s %x L` | ON TIMER: `%s` i32 = slot (0 = `ON TIMER(x)`, อื่นๆ จาก `_FREETIMER`), `%x` f64 = วินาที; L เป็น label ใน `main`; handler รันแบบ GOSUB ระดับ module ที่ safe point, RETURN แล้ว slot ยิงได้อีก |
 | `error %c` | ERROR n |
 | `resume` / `resume next` / `resume L` | ใช้ได้ใน handler เท่านั้น (ไม่ใช่ → error 20) |
 
