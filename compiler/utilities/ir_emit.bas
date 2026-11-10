@@ -95,6 +95,7 @@ END SUB
 
 SUB IrLine
     IrE "line " + str2$(linenumber)
+    IF IrPendLL THEN IrE "rt LASTLINE " + IrI32$(IrPendLL): IrPendLL = 0
 END SUB
 
 FUNCTION IrLbl$ (l$)
@@ -137,7 +138,11 @@ FUNCTION IrTy$ (t AS LONG)
     DIM b AS LONG, r$
     IF t AND ISSTRING THEN IrTy$ = "str": EXIT FUNCTION
     IF t AND ISUDT THEN IrTy$ = "ptr": EXIT FUNCTION
-    IF t AND ISOFFSETINBITS THEN IrNotSup "_BIT types": IrTy$ = "i64": EXIT FUNCTION
+    'a _BIT * n value lives in a whole i64 (u64); stores wrap it to n bits (IrBitWrap$)
+    IF t AND ISOFFSETINBITS THEN
+        IF t AND ISUNSIGNED THEN IrTy$ = "u64" ELSE IrTy$ = "i64"
+        EXIT FUNCTION
+    END IF
     b = t AND 511
     IF t AND ISFLOAT THEN
         IF b = 32 THEN r$ = "f32" ELSE IF b = 64 THEN r$ = "f64" ELSE r$ = "f80"
@@ -180,7 +185,8 @@ FUNCTION IrUdt$ (u AS LONG)
         ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) <> 0 THEN
             fty$ = "fstr:" + str2$(udtetypesize(e))
         ELSEIF ft AND ISSTRING THEN
-            IrNotSup "variable-length STRING inside TYPE": fty$ = "str"
+            'a string handle in memory (assignment copies it field by field: IrCopyUdt)
+            fty$ = "str"
         ELSE
             fty$ = IrTy$(ft)
         END IF
@@ -191,6 +197,59 @@ FUNCTION IrUdt$ (u AS LONG)
     LOOP
     IrMod = IrMod + s$ + "endtype" + CHR$(10)
 END FUNCTION
+
+FUNCTION IrUdtIdx& (st$)
+    DIM i AS LONG
+    FOR i = 1 TO lasttype
+        IF "udt:T_" + RTRIM$(udtxname(i)) = st$ THEN IrUdtIdx& = i: EXIT FUNCTION
+    NEXT
+END FUNCTION
+
+'the TYPE (storage type "udt:...") has a variable-length STRING field, also nested
+FUNCTION IrUdtHasStr% (st$)
+    DIM u AS LONG, e AS LONG, ft AS LONG
+    u = IrUdtIdx&(st$): IF u = 0 THEN EXIT FUNCTION
+    e = udtxnext(u)
+    DO WHILE e
+        ft = udtetype(e)
+        IF ft AND ISUDT THEN
+            IF IrUdtHasStr%("udt:T_" + RTRIM$(udtxname(ft AND 511))) THEN IrUdtHasStr% = -1: EXIT FUNCTION
+        ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) = 0 THEN
+            IrUdtHasStr% = -1: EXIT FUNCTION
+        END IF
+        e = udtenext(e)
+    LOOP
+END FUNCTION
+
+'TYPE assignment with string fields: strings by value (ld.str/st.str), the rest by bytes;
+'d$/s$ are the ptr registers of the whole values, off0 the byte offset of this TYPE in them
+SUB IrCopyUdt (d$, s$, st$, off0 AS LONG)
+    DIM u AS LONG, e AS LONG, ft AS LONG, o AS LONG, x$, a$, b$, nb AS LONG, fo AS LONG
+    u = IrUdtIdx&(st$): IF u = 0 THEN EXIT SUB
+    o = 0: e = udtxnext(u)
+    DO WHILE e
+        IF udtebytealign(e) THEN
+            IF o MOD 8 THEN o = o + (8 - (o MOD 8))
+        END IF
+        ft = udtetype(e)
+        fo = off0 + o \ 8
+        IF (ft AND ISUDT) <> 0 AND IrUdtHasStr%("udt:T_" + RTRIM$(udtxname(ft AND 511))) THEN
+            IrCopyUdt d$, s$, "udt:T_" + RTRIM$(udtxname(ft AND 511)), fo
+        ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) = 0 AND (ft AND ISUDT) = 0 THEN
+            x$ = IrReg$: IrE "ld.str " + x$ + " " + s$ + " " + str2$(fo)
+            IrE "st.str " + d$ + " " + str2$(fo) + " " + x$
+        ELSE
+            nb = (udtesize(e) + 7) \ 8
+            IF nb > 0 THEN
+                a$ = IrReg$: IrE "padd " + a$ + " " + d$ + " " + IrConst$("i64", str2$(fo))
+                b$ = IrReg$: IrE "padd " + b$ + " " + s$ + " " + IrConst$("i64", str2$(fo))
+                IrE "copy " + a$ + " " + b$ + " " + str2$(nb)
+            END IF
+        END IF
+        o = o + udtesize(e)
+        e = udtenext(e)
+    LOOP
+END SUB
 
 FUNCTION IrIsFloat% (t$)
     IrIsFloat% = (LEFT$(t$, 1) = "f")
@@ -1017,6 +1076,169 @@ FUNCTION IrArgAs$ (e$, t$)
     IrT = t$
 END FUNCTION
 
+
+'nm$ names an array visible here (no code emitted; IrT kept)
+FUNCTION IrIsArrayName% (nm$)
+    DIM x$, t AS LONG, keep$
+    keep$ = IrT
+    IrQuiet = -1: x$ = IrPlace$(nm$ + sp + "(" + sp + ")", t): IrQuiet = 0
+    IrT = keep$
+    IrIsArrayName% = (LEFT$(x$, 1) = "A")
+END FUNCTION
+'the fixed expression e$ is a variable or an array element (C++ evaluate: ISREFERENCE)
+FUNCTION IrIsVarRef% (e$)
+    DIM n AS LONG, c AS LONG, i AS LONG, b AS LONG, nm$
+    n = numelements(e$)
+    nm$ = getelement$(e$, 1)
+    c = ASC(nm$)
+    IF NOT ((c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) OR c = 95) THEN EXIT FUNCTION
+    IF n = 1 THEN IrIsVarRef% = -1: EXIT FUNCTION
+    IF getelement$(e$, 2) <> "(" OR getelement$(e$, n) <> ")" THEN EXIT FUNCTION
+    FOR i = 2 TO n - 1
+        IF getelement$(e$, i) = "(" THEN b = b + 1
+        IF getelement$(e$, i) = ")" THEN b = b - 1
+        IF b = 0 THEN EXIT FUNCTION
+    NEXT
+    'name(...) : an array, not a function call
+    IrIsVarRef% = IrIsArrayName%(nm$)
+END FUNCTION
+'nm$(x): x as a 32-bit value when -2^31 <= x < 0, else as i64
+FUNCTION IrRadix32$ (nm$, x$)
+    DIM tmp$, l$, c$, r$, d$, y$
+    l$ = "~H" + str2$(IrNew)
+    tmp$ = IrTemp$("str")
+    r$ = IrRt$(nm$, " " + x$, "str"): IrE "store.str " + tmp$ + " " + r$
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "0")
+    IrE "jz " + c$ + " " + l$ + ".E"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-2147483648")
+    IrE "jnz " + c$ + " " + l$ + ".E"
+    y$ = IrCvt$(x$, "i64", "u32"): y$ = IrCvt$(y$, "u32", "i64")
+    r$ = IrRt$(nm$, " " + y$, "str"): IrE "store.str " + tmp$ + " " + r$
+    IrE "label " + l$ + ".E"
+    d$ = IrReg$: IrE "load.str " + d$ + " " + tmp$
+    IrT = "str"
+    IrRadix32$ = d$
+END FUNCTION
+
+'HEX$(x) with neg_size 0 (libqb radix_string): negative values take 4, 8 or 16 digits, -1 gives ""
+FUNCTION IrHex64$ (x$)
+    DIM tmp$, l$, c$, r$, d$, y$
+    l$ = "~H" + str2$(IrNew)
+    tmp$ = IrTemp$("str")
+    r$ = IrRt$("HEX$", " " + x$, "str"): IrE "store.str " + tmp$ + " " + r$
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "0")
+    IrE "jz " + c$ + " " + l$ + ".E"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-1")
+    IrE "jnz " + c$ + " " + l$ + ".A"
+    IrE "store.str " + tmp$ + " " + IrConstStr$("")
+    IrE "jmp " + l$ + ".E"
+    IrE "label " + l$ + ".A"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-32768")
+    IrE "jnz " + c$ + " " + l$ + ".B"
+    y$ = IrCvt$(x$, "i64", "u16"): y$ = IrCvt$(y$, "u16", "i64")
+    r$ = IrRt$("HEX$", " " + y$, "str"): IrE "store.str " + tmp$ + " " + r$
+    IrE "jmp " + l$ + ".E"
+    IrE "label " + l$ + ".B"
+    c$ = IrReg$: IrE "lt.i64 " + c$ + " " + x$ + " " + IrConst$("i64", "-2147483648")
+    IrE "jnz " + c$ + " " + l$ + ".E"
+    y$ = IrCvt$(x$, "i64", "u32"): y$ = IrCvt$(y$, "u32", "i64")
+    r$ = IrRt$("HEX$", " " + y$, "str"): IrE "store.str " + tmp$ + " " + r$
+    IrE "label " + l$ + ".E"
+    d$ = IrReg$: IrE "load.str " + d$ + " " + tmp$
+    IrT = "str"
+    IrHex64$ = d$
+END FUNCTION
+
+' callnames lowered generically (registry argument types; VM: crates/qb-exec/src/v1/display.rs)
+FUNCTION IrGenOK% (cn$)
+    DIM l$
+    l$ = "|"
+    l$ = l$ + "qbg_screen|sub_pset|sub_preset|sub_line|sub_circle|sub_paint|"
+    l$ = l$ + "qbg_palette|qbg_sub_color|qbg_sub_view|qbg_sub_view_print|qbg_sub_window|func_pmap|"
+    l$ = l$ + "func_point|sub_pcopy|sub_draw|sub_cls|qbg_sub_locate|func_screen|"
+    l$ = l$ + "sub__dest|sub__source|func__dest|func__source|func__display|func__console|"
+    l$ = l$ + "func__newimage|sub__freeimage|func__copyimage|sub__display|sub__autodisplay|func__autodisplay|"
+    l$ = l$ + "func__width|func__height|func__pixelsize|func__rgb|func__rgba|func__red|"
+    l$ = l$ + "func__green|func__blue|func__alpha|func__rgb32|func__rgba32|func__red32|"
+    l$ = l$ + "func__green32|func__blue32|func__alpha32|func__palettecolor|sub__palettecolor|sub_graphics_get|"
+    l$ = l$ + "sub_graphics_put|qbsub_width|sub__font|func__font|func__fontwidth|func__fontheight|"
+    l$ = l$ + "sub__limit|sub__delay|sub__title|"
+    l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
+    l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
+    l$ = l$ + "func__freetimer|sub_timer|sub_key|"
+    l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
+    IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
+END FUNCTION
+
+'generic call of registry builtin idn with fixed arguments IrArgs() ("" = omitted)
+FUNCTION IrGeneric$ (idn AS LONG, nargs AS LONG, passed AS LONG, isfunc AS LONG)
+    DIM cn$, k AS LONG, t AS LONG, r$, x$, p$, nm$, sf$, req AS LONG, j AS LONG, ps AS LONG, d$, t2 AS LONG, q$
+    DIM sv(1 TO 32) AS STRING
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    cn$ = RTRIM$(ids(idn).callname)
+    sf$ = RTRIM$(ids(idn).specialformat)
+    FOR k = 1 TO ids(idn).args
+        t = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
+        IF k <= nargs THEN x$ = sv(k) ELSE x$ = ""
+        IF t = -3 THEN
+            IF x$ = "" THEN IrNotSup cn$ + " without an array": EXIT FUNCTION
+            nm$ = getelement$(x$, 1)
+            IF getelement$(x$, 2) = "(" AND getelement$(x$, 3) <> ")" THEN
+                IrQuiet = -1: p$ = IrPlace$(x$, t2): IrQuiet = 0
+            ELSE
+                p$ = ""
+            END IF
+            IrQuiet = -1: q$ = IrPlace$(nm$ + sp + "(" + sp + ")", t2): IrQuiet = 0
+            IF LEFT$(q$, 1) <> "A" THEN IrNotSup cn$ + " array argument": EXIT FUNCTION
+            d$ = IrAddr$(q$)
+            IF LEN(p$) THEN
+                r$ = r$ + " " + IrAddr$(p$)
+            ELSE
+                x$ = IrReg$: IrE "rt " + x$ + " _ARRADDR " + d$: r$ = r$ + " " + x$
+            END IF
+            r$ = r$ + " " + d$
+        ELSEIF t < 0 THEN
+            IrNotSup cn$ + " argument kind" + STR$(t): EXIT FUNCTION
+        ELSE
+            IF t AND ISPOINTER THEN t = t - ISPOINTER
+            IF cn$ = "sub_paint" AND k = 3 AND LEN(x$) > 0 THEN
+                'PAINT fill: colour, or a tile string (the C++ overload on qbs*)
+                p$ = IrEval$(x$, t2)
+                IF IrT = "str" THEN cn$ = "sub_paint.s": r$ = r$ + " " + p$ ELSE r$ = r$ + " " + IrCvt$(p$, IrT, "u32")
+            ELSEIF t AND ISSTRING THEN
+                IF LEN(x$) THEN r$ = r$ + " " + IrArgAs$(x$, "str") ELSE r$ = r$ + " " + IrConstStr$("")
+            ELSE
+                IF LEN(x$) THEN r$ = r$ + " " + IrArgAs$(x$, IrTy$(t)) ELSE r$ = r$ + " " + IrConst$(IrTy$(t), "0")
+            END IF
+        END IF
+    NEXT
+    IF LEN(sf$) THEN
+        IF isfunc THEN
+            'optional arguments are the ones after the '?' marks outside brackets
+            req = 0: ps = 0
+            FOR j = 1 TO LEN(sf$)
+                IF MID$(sf$, j, 1) = "[" THEN EXIT FOR
+                IF MID$(sf$, j, 1) = "?" THEN req = req + 1
+            NEXT
+            FOR k = req + 1 TO nargs
+                IF LEN(sv(k)) THEN ps = ps OR (2 ^ (k - req - 1))
+            NEXT
+            passed = ps
+        END IF
+        r$ = r$ + " " + IrI32$(passed)
+    END IF
+    IF cn$ = "func__rgb32" THEN r$ = r$ + " " + IrI32$(nargs) 'C++ overload by argument count
+    IF isfunc THEN
+        d$ = IrReg$
+        IrE "rt " + d$ + " " + cn$ + r$
+        t = ids(idn).ret: IF t AND ISPOINTER THEN t = t - ISPOINTER
+        IrT = IrTy$(t)
+        IrGeneric$ = d$
+    ELSE
+        IrE "rt " + cn$ + r$
+    END IF
+END FUNCTION
+
 ' " %a %b ..." for raw (fixed) arguments IrArgs() converted to the comma-separated QIR types;
 ' missing arguments are zero. withpassed: append the C++ backend's optional-argument flags.
 FUNCTION IrArgList$ (types$, nargs AS LONG, passed AS LONG, withpassed AS LONG)
@@ -1122,10 +1344,42 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 y$ = IrCvt$(y$, IrT, "i32")
                 r$ = IrRt$("STRING$", " " + x$ + " " + y$, "str")
             END IF
+        CASE "VARPTR$"
+            'type code as semantics.bas (func_varptr_helper); the value is snapshotted in DBLOCK
+            x$ = IrEval$(sv(1), t)
+            sx$ = IrT
+            IF sx$ = "str" THEN IrNotSup "VARPTR$ of a string": r$ = IrConstStr$(""): IrT = "str": GOTO irfdone
+            k = 0
+            IF t AND ISUNSIGNED THEN k = k + 128
+            IF t AND ISOFFSETINBITS THEN
+                k = k + 64 + (t AND 63)
+            ELSEIF t AND ISFLOAT THEN
+                IF (t AND 511) = 32 THEN k = k + 4
+                IF (t AND 511) = 64 THEN k = k + 8
+                IF (t AND 511) = 256 THEN k = k + 6
+            ELSE
+                IF (t AND 511) = 8 THEN k = k + 1
+                IF (t AND 511) = 16 THEN k = k + 2
+                IF (t AND 511) = 32 THEN k = k + 20
+                IF (t AND 511) = 64 THEN k = k + 5
+            END IF
+            r$ = IrRt$("VARPTR$", " " + IrI32$(k) + " " + IrCvt$(x$, sx$, "f64"), "str")
         CASE "HEX$", "OCT$", "_BIN$"
             x$ = IrEval$(sv(1), t)
-            IF IrIsFloat(IrT) THEN x$ = IrCvt$(x$, IrT, "i64"): IrT = "i64": t = INTEGER64TYPE - ISPOINTER
-            IF (t AND 511) <= 16 AND (t AND ISFLOAT) = 0 THEN
+            sx$ = IrT
+            IF LEFT$(sx$, 1) = "f" THEN
+                'func_*_float: rounded; negative values in LONG range use 32-bit digits
+                x$ = IrCvt$(x$, IrT, "i64"): IrT = "i64"
+                IF nm$ = "_BIN$" THEN nm$ = "BIN$"
+                r$ = IrRadix32$(nm$, x$): GOTO irfdone
+            END IF
+            IF nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 AND (t AND 511) = 64 AND (t AND ISUNSIGNED) = 0 THEN
+                'C++: a 64-bit HEX$ argument that is not a variable gets neg_size 0 (semantics.bas)
+                IF IrIsVarRef%(sv(1)) = 0 THEN r$ = IrHex64$(IrCvt$(x$, IrT, "i64")): GOTO irfdone
+            END IF
+            IF (t AND 511) <= 8 AND (t AND ISFLOAT) = 0 AND nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 THEN
+                x$ = IrCvt$(x$, IrT, "u8"): IrT = "u8"
+            ELSEIF (t AND 511) <= 16 AND (t AND ISFLOAT) = 0 THEN
                 x$ = IrCvt$(x$, IrT, "u16"): IrT = "u16"
             ELSEIF (t AND 511) <= 32 AND (t AND ISFLOAT) = 0 THEN
                 x$ = IrCvt$(x$, IrT, "u32"): IrT = "u32"
@@ -1165,7 +1419,13 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             x$ = IrEval$(sv(1), t)
             sx$ = IrT
             x$ = IrCvt$(x$, IrT, "f64")
-            r$ = IrRt$(nm$, " " + x$, "f64")
+            sx$ = nm$
+            IF nm$ = "EXP" AND (t AND ISOFFSETINBITS) = 0 THEN
+                'func_exp_single (overflow above 88.03) for SINGLE and <= 16-bit integer arguments
+                IF (t AND ISFLOAT) <> 0 AND (t AND 511) = 32 THEN sx$ = "EXP.s"
+                IF (t AND ISFLOAT) = 0 AND (t AND 511) <= 16 THEN sx$ = "EXP.s"
+            END IF
+            r$ = IrRt$(sx$, " " + x$, "f64")
             'QB-like result type: single for <= INTEGER/SINGLE arguments
             IF t AND ISFLOAT THEN
                 IF (t AND 511) = 32 THEN r$ = IrCvt$(r$, "f64", "f32"): IrT = "f32"
@@ -1282,8 +1542,10 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$("VARSEG", "", "i32")
         CASE "PEEK"
             r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
-        CASE "_CWD$", "_STARTDIR$"
+        CASE "_CWD$", "_STARTDIR$", "_OS$"
             r$ = IrRt$(nm$, "", "str")
+        CASE "_COMMANDCOUNT"
+            r$ = IrRt$(nm$, "", "i32")
         CASE "_MK$", "_CV"
             t = typname2typ(UCASE$(sv(1)))
             IF t AND ISPOINTER THEN t = t - ISPOINTER
@@ -1316,8 +1578,13 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             IrE LCASE$(nm$) + " " + r$ + " " + IrPart$(x$, 2) + " " + y$
             IrT = "i32"
         CASE ELSE
-            IrNotSup "function " + nm$
-            r$ = IrI32$(0): IrT = "i32"
+            IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN
+                FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+                r$ = IrGeneric$(idn, nargs, 0, -1)
+            ELSE
+                IrNotSup "function " + nm$
+                r$ = IrI32$(0): IrT = "i32"
+            END IF
     END SELECT
     irfdone:
     IF IrT <> IrTy$(typ) AND (typ AND ISSTRING) = 0 THEN
@@ -1343,17 +1610,48 @@ SUB IrAssign (lhs$, rhs$)
         IF IrMemAssign%(IrAddr$(p$), e$) THEN EXIT SUB
         q$ = IrPlace$(e$, t2)
         IF q$ = "" THEN EXIT SUB
-        IrE "copy " + IrAddr$(p$) + " " + IrAddr$(q$) + " " + str2$(IrSize&(st$))
+        IF IrUdtHasStr%(st$) THEN
+            IrCopyUdt IrAddr$(p$), IrAddr$(q$), st$, 0
+        ELSE
+            IrE "copy " + IrAddr$(p$) + " " + IrAddr$(q$) + " " + str2$(IrSize&(st$))
+        END IF
         EXIT SUB
     END IF
     IF LEFT$(st$, 5) = "fstr:" THEN t = ISSTRING
     r$ = IrEvalTo$(e$, t)
+    IF t AND ISOFFSETINBITS THEN r$ = IrBitWrap$(r$, t)
     IrStore p$, r$
 END SUB
 
+'value r$ (of IrTy$(t)) wrapped to the n bits of a _BIT * n type: masked, sign-extended if signed
+FUNCTION IrBitWrap$ (r$, t AS LONG)
+    DIM n AS LONG, ty$, m$, x$, s$, y$, k AS LONG, h AS _INTEGER64
+    n = t AND 511
+    ty$ = IrTy$(t)
+    IF n >= 64 THEN IrBitWrap$ = r$: EXIT FUNCTION
+    h = 1
+    FOR k = 2 TO n: h = h * 2: NEXT 'h = 2^(n-1)
+    m$ = IrConst$(ty$, _TRIM$(STR$(h * 2 - 1)))
+    x$ = IrReg$: IrE "and." + ty$ + " " + x$ + " " + r$ + " " + m$
+    IF (t AND ISUNSIGNED) = 0 THEN
+        s$ = IrConst$(ty$, _TRIM$(STR$(h)))
+        y$ = IrReg$: IrE "xor." + ty$ + " " + y$ + " " + x$ + " " + s$
+        x$ = IrReg$: IrE "sub." + ty$ + " " + x$ + " " + y$ + " " + s$
+    END IF
+    IrBitWrap$ = x$
+END FUNCTION
+
 'PRINT item: a fixed string expression
 SUB IrPrintStr (ch$, e$)
-    DIM r$
+    DIM r$, u$, t AS LONG
+    u$ = UCASE$(getelement$(e$, 1))
+    IF (u$ = "TAB" OR u$ = "SPC") AND getelement$(e$, 2) = "(" AND getelement$(e$, numelements(e$)) = ")" THEN
+        'TAB(n) / SPC(n): position-dependent, not a string value
+        r$ = IrEval$(getelements$(e$, 3, numelements(e$) - 1), t)
+        r$ = IrCvt$(r$, IrT, "i64")
+        IrE "rt PRINT" + u$ + " " + IrI32$(VAL(ch$)) + " " + r$
+        EXIT SUB
+    END IF
     r$ = IrEvalTo$(e$, ISSTRING)
     IrE "rt PRINTS " + IrI32$(VAL(ch$)) + " " + r$
 END SUB
@@ -1415,6 +1713,7 @@ SUB IrRead (e$)
     d$ = IrReg$
     IrE "read." + rt$ + " " + d$
     IrStore p$, d$
+    IF rt$ <> "str" THEN IrE "rt READCHK"
 END SUB
 
 'DIM/REDIM statement for id idn; elements$ raw bounds ("" = not an array)
@@ -1460,8 +1759,6 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
     FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
     SELECT CASE nm$
-        CASE "CLS"
-            IrE "rt " + nm$
         CASE "BEEP": IrE "rt BEEP"
         CASE "SOUND": IrE "rt SOUND" + IrArgList$("f64,f64", nargs, -1, 0)
         CASE "PLAY": IrE "rt PLAY" + IrArgList$("str", nargs, -1, 0)
@@ -1475,15 +1772,25 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "_SNDSETPOS", "_SNDLIMIT": IrE "rt " + nm$ + IrArgList$("i32,f64", nargs, -1, 0)
         CASE "_SNDRAW": IrE "rt _SNDRAW" + IrArgList$("f32,f32,i32", nargs, passed, 1)
         CASE "_SNDRAWDONE": IrE "rt _SNDRAWDONE" + IrArgList$("i32", nargs, passed, 1)
-        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "_FONT", "_CONSOLETITLE", "_CONSOLE"
-            'screen state: no visible effect on redirected console output
+        CASE "_DELAY"
+            'wait in steps with a back edge, so ON TIMER handlers run during the delay
+            x$ = IrReg$: IrE "rt " + x$ + " DELAYBEGIN " + IrArgAs$(sv(1), "f64")
+            y$ = "~Y" + str2$(IrNew)
+            IrE "label " + y$
+            z$ = IrReg$: IrE "rt " + z$ + " DELAYSTEP " + x$
+            IrE "jz " + z$ + " " + y$ + ".E"
+            IrE "jmp " + y$
+            IrE "label " + y$ + ".E"
+        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE"
+            'window state: no visible effect headless
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
         CASE "POKE"
             x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "i32")
             IrE "rt POKE " + x$ + " " + y$
         CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET", "DEF", "FIELD"
-            'lowered by IrStmtEnd
+            'lowered by IrStmtEnd (graphics LINE/GET/PUT: generic call)
+            IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN x$ = IrGeneric$(idn, nargs, passed, 0)
         CASE "ERROR"
             IrE "error " + IrArgAs$(sv(1), "i32")
         CASE "RANDOMIZE"
@@ -1499,7 +1806,11 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "SHELL"
             x$ = IrReg$: IrE "rt " + x$ + " SHELL " + IrArgAs$(sv(1), "str")
         CASE ELSE
-            IrNotSup "statement " + nm$
+            IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN
+                x$ = IrGeneric$(idn, nargs, passed, 0)
+            ELSE
+                IrNotSup "statement " + nm$
+            END IF
     END SELECT
 END SUB
 
@@ -1753,6 +2064,7 @@ SUB IrFinish (src$, outExe$)
     ELSEIF Console THEN
         PRINT #fh, "meta console"
     END IF
+    IF ScreenHide THEN PRINT #fh, "meta screenhide"
     PRINT #fh, IrMod;
     top = 0
     FOR i = 2 TO IrFnN

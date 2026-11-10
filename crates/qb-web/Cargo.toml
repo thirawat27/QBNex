@@ -1,0 +1,18 @@
+[package]
+name = "qb-web"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "R13-wasm: runs QBNex programs (QIR) in a browser. The qb-exec VM compiled to wasm32-unknown-unknown, with a screen renderer and a small C ABI for the page (www/)."
+publish = false
+
+[lib]
+name = "qb_web"
+path = "src/lib.rs"
+# cdylib: the .wasm the page loads; rlib: native unit tests of the renderer
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+qb-exec = { path = "../qb-exec" }
+qb-runtime = { path = "../qb-runtime" }

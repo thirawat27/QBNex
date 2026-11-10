@@ -53,11 +53,20 @@ pub fn split(s: &[u8]) -> (&[u8], &[u8]) {
     (s, &[])
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn system(cmd: *const std::ffi::c_char) -> i32;
 }
 
+/// Browser build (R13-wasm): there is no command processor; `system()`
+/// fails (-1), so SHELL reports an error.
+#[cfg(target_arch = "wasm32")]
+fn c_system(_cmd: &[u8]) -> i32 {
+    -1
+}
+
 /// C `system()` with a NUL-terminated copy of `cmd`.
+#[cfg(not(target_arch = "wasm32"))]
 fn c_system(cmd: &[u8]) -> i32 {
     let mut z = cmd.to_vec();
     z.push(0);
@@ -249,7 +258,8 @@ mod tests {
     fn exit_codes() {
         let wait_hidden = Mode { show: false, wait: true, use_console: false };
         assert_eq!(run(b"exit 3", wait_hidden), 3);
-        assert_eq!(run(b"cmd /c exit 7", wait_hidden), 7);
+        let nested: &[u8] = if cfg!(windows) { b"cmd /c exit 7" } else { b"sh -c 'exit 7'" };
+        assert_eq!(run(nested, wait_hidden), 7);
         let console = Mode { show: true, wait: true, use_console: true };
         assert_eq!(run(b"exit 5", console), 5);
         assert_eq!(run(b"exit 0", Mode { show: false, wait: false, use_console: false }), 0);

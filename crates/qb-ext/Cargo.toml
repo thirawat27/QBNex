@@ -1,0 +1,29 @@
+[package]
+name = "qb-ext"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "QBNex extension library: regex, hashing, Base64/hex, zip and HTTP(S) for the BASIC stdlib (qb_ext_* C ABI)."
+publish = false
+
+[lib]
+name = "qb_ext"
+path = "src/lib.rs"
+
+[dependencies]
+base64 = "0.23.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+crc32fast = "1.5.5"
+hex = "0.4.3"
+indexmap = "2.14.2"
+md-5 = "0.11.0"
+regex = "1.13.1"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+unicode-normalization = "0.1.26"
+zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
+
+# HTTPS needs ring (C code); a browser build (R13-wasm) reports HTTP as unavailable.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = "3.5.1"

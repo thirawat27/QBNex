@@ -28,9 +28,14 @@ pub mod events;
 pub mod fileio;
 pub mod font;
 pub mod fsops;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gamepad;
 pub mod gfs;
 pub mod gfx;
+#[cfg(feature = "gpu")]
+pub mod gpu_present;
+#[cfg(all(test, feature = "gpu"))]
+mod gpu_tests;
 pub mod image;
 pub mod keybuf;
 pub mod keymap;
@@ -58,8 +63,12 @@ pub mod win32;
 // Audio runtime (R6): linked into libqb_runtime.a but kept in its own crate (own
 // object file) so only programs that reference qb_snd_* pull it in.
 extern crate qb_audio;
+// Extension library (R13-ext): pulled into libqb_runtime.a for the stdlib's ext.* modules.
+#[cfg(feature = "ext")]
+extern crate qb_ext;
 pub mod raster;
 pub mod script;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod window;
 
 /// Version of the C ABI exposed by this crate. Bumped whenever a declaration in

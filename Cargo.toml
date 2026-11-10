@@ -7,11 +7,15 @@ members = [
     "crates/qb-ir",
     "crates/qb-jit",
     "crates/qb-link",
+    "crates/qb-gpu",
     "crates/qb-float80",
     "crates/qb-ffi",
     "crates/qb-syntax",
     "crates/qb-fmt",
     "crates/qb-lsp",
+    "crates/qb-ext",
+    "crates/qb-web",
+    "crates/qb-dap",
     "tests/conformance",
 ]
 

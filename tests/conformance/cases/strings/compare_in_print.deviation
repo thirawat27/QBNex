@@ -1,0 +1,1 @@
+Fixes legacy defect L-04: PRINT inserted an implied ';' next to relational operators (it treats `PRINT "a" "b"` as `PRINT "a"; "b"`), so `PRINT a$ < "K"` became `PRINT a$ <; "K"` and failed as an unknown PRINT statement. Expected output is QBasic: comparisons print -1/0.

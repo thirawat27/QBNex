@@ -380,7 +380,7 @@ mod platform {
     }
 
     #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn CGEventSourceCreate(state: i32) -> *mut c_void;
         fn CGEventCreateKeyboardEvent(src: *mut c_void, key: u16, down: bool) -> *mut c_void;
         fn CGEventCreateMouseEvent(src: *mut c_void, kind: u32, at: CGPoint, button: u32) -> *mut c_void;
@@ -388,7 +388,7 @@ mod platform {
         fn CGEventPost(tap: u32, e: *mut c_void);
     }
     #[link(name = "CoreFoundation", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn CFRelease(cf: *const c_void);
     }
 

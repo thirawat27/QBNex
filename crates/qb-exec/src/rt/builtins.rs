@@ -76,8 +76,30 @@ pub(crate) struct RtState<'a> {
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
     pub(crate) net_pending_error: i32,
+    /// keyboard and mouse (INKEY$, _KEYHIT, _MOUSEINPUT, ...)
+    pub(crate) input: super::input::Input,
+    /// _LIMIT: time of the previous frame
+    pub(crate) limit_last: Option<i64>,
+    /// VARPTR$ value slots in DBLOCK (offset, next slot)
+    pub(crate) varptr_slots: usize,
+    pub(crate) varptr_next: usize,
+    /// SADD character areas in DBLOCK: string variable -> (offset, capacity)
+    pub(crate) cmem_sdata: HashMap<u64, (usize, usize)>,
+    /// CALL ABSOLUTE argument offsets being collected (ABSARG.*)
+    pub(crate) abs_args: Vec<u16>,
+    /// error of the last numeric READ, raised by READCHK after the store
+    pub(crate) read_err: i32,
+    /// screen pages and images (SCREEN, graphics, `_NEWIMAGE`, ...)
+    pub(crate) display: super::display::Display,
+    /// `$CONSOLE` / `$CONSOLE:ONLY`
+    pub(crate) console_on: bool,
+    pub(crate) console_only: bool,
     /// qb-audio started (snd_init)
     pub(crate) snd_started: bool,
+    /// browser runner (qb-web): INPUT prompts and the consumed stdin text are
+    /// drawn on the screen page, as if typed; `_DELAY`, `_LIMIT` and `SLEEP n`
+    /// show the frame drawn so far, and `SLEEP n` waits
+    pub(crate) web: bool,
 }
 
 struct Using {
@@ -90,7 +112,8 @@ struct Using {
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
         RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
-            cmem: vec![0; 1 << 20],
+            // 1 MB + 64 KB like libqb cmem (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
+            cmem: vec![0; 0x110000],
             cmem_next: 16,
             cmem_strs: HashMap::new(),
             def_seg: None,
@@ -102,7 +125,22 @@ impl<'a> RtState<'a> {
             net: super::netx::Net::default(),
             net_pending_error: 0,
             snd_started: false,
+            read_err: 0,
+            cmem_sdata: HashMap::new(),
+            abs_args: Vec::new(),
+            input: super::input::Input::default(),
+            limit_last: None,
+            varptr_slots: 0,
+            varptr_next: 0,
+            display: super::display::Display::default(),
+            console_on: false,
+            console_only: false,
+            web: false,
         }
+    }
+    /// Text INPUT reads instead of the process stdin (browser runner).
+    pub(crate) fn set_stdin(&mut self, b: &[u8]) {
+        self.stdin = Reader { rbuf: b.to_vec(), rpos: 0, eof: true };
     }
     pub(crate) fn flush(&mut self) {
         let _ = self.out.flush();
@@ -130,14 +168,20 @@ impl<'a> RtState<'a> {
     }
 }
 
-pub(crate) fn numeric_text(s: &[u8]) -> bool {
-    let t = std::str::from_utf8(s).unwrap_or("").trim();
-    if let Some(h) = t.strip_prefix('&') {
-        return h.len() > 1;
+/// True when PRINT to the screen must draw on a page instead of writing stdout.
+fn screen_out(vm: &mut dyn Host<'_>) -> bool {
+    let rt = vm.rt();
+    if !rt.display.started {
+        // PRINT alone starts the screen only in a `$CONSOLE` program (its window page);
+        // without the meta (hand-written QIR, no window here) it stays on stdout
+        if rt.console_only || !rt.console_on {
+            return false;
+        }
+        let cmem = rt.cmem.as_mut_ptr();
+        let (on, only) = (rt.console_on, rt.console_only);
+        rt.display.start(cmem, on, only);
     }
-    let t = t.trim_end_matches(['#', '!', '%', '&', '~']);
-    let t = t.replace(['D', 'd'], "E");
-    !t.is_empty() && t.parse::<f64>().is_ok()
+    rt.display.write_is_screen()
 }
 
 pub(crate) fn val(s: &[u8]) -> f64 {
@@ -263,6 +307,29 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::display::call(vm, name, &a) {
+        return r;
+    }
+    let is_print = matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.");
+    if is_print && a.first().is_some_and(|c| c.i() == 0) && screen_out(vm) {
+        // console output while a screen page is the destination: draw it
+        let r = match name {
+            "PRINTS" => Some(super::display::call(vm, "SCREENPRINT", &a[1..])),
+            "PRINTZONE" => Some(super::display::call(vm, "SCREENZONE", &[])),
+            "PRINTNL" => Some(super::display::call(vm, "SCREENNL", &[])),
+            "PRINTTAB" => Some(super::display::call(vm, "SCREENTAB", &a[1..])),
+            "PRINTSPC" => Some(super::display::call(vm, "SCREENSPC", &a[1..])),
+            n if n.starts_with("PRINTN.") => {
+                let mut b = str_num(suffix_ty(n), &a[1]);
+                b.push(b' ');
+                Some(super::display::call(vm, "SCREENPRINT", &[V::S(b)]))
+            }
+            _ => None,
+        };
+        if let Some(Some(r)) = r {
+            return r;
+        }
+    }
     if let Some(r) = super::audiox::call(vm, name, &a) {
         return r;
     }
@@ -274,6 +341,62 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     }
     if let Some(r) = super::memx::call(vm, name, &a) {
         return r;
+    }
+    if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
+        return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
+    }
+    if let Some(r) = input_call(vm, name, &a) {
+        return r;
+    }
+    if name == "VARPTR$" {
+        // VARPTR$ of a numeric variable for DRAW/PLAY "=": the value goes to one of
+        // 16 rotating DBLOCK slots (the program reads it in the same statement)
+        let (ty, v) = (a[0].i() as i32, a[1].f());
+        let rt = vm.rt();
+        if rt.varptr_slots == 0 {
+            rt.varptr_slots = rt.cmem_next;
+            rt.cmem_next += 16 * 16;
+        }
+        let off = rt.varptr_slots + 16 * (rt.varptr_next % 16);
+        rt.varptr_next += 1;
+        let b = DBLOCK + off;
+        let m = &mut rt.cmem[b..b + 16];
+        match ty {
+            1 | 129 => m[0] = v as i64 as u8,
+            2 | 130 => m[..2].copy_from_slice(&(v as i64 as u16).to_le_bytes()),
+            20 | 148 => m[..4].copy_from_slice(&(v as i64 as u32).to_le_bytes()),
+            5 => m[..8].copy_from_slice(&(v as i64).to_le_bytes()),
+            133 => m[..8].copy_from_slice(&(v as u64).to_le_bytes()),
+            4 => m[..4].copy_from_slice(&(v as f32).to_le_bytes()),
+            6 => m[..10].copy_from_slice(&qb_float80::F80::from_f64(v).to_bytes()),
+            _ => m[..8].copy_from_slice(&v.to_le_bytes()),
+        }
+        return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
+    }
+    if name == "_COMMANDCOUNT" {
+        return Ok(Some(V::I(std::env::args().count().saturating_sub(1) as i64)));
+    }
+    if name == "_OS$" {
+        // func__os
+        let bits = if cfg!(target_pointer_width = "32") { "[32BIT]" } else { "[64BIT]" };
+        let os = if cfg!(windows) {
+            format!("[WINDOWS]{bits}")
+        } else if cfg!(target_os = "macos") {
+            format!("[MACOSX]{bits}[LINUX]")
+        } else if cfg!(target_os = "linux") {
+            format!("[LINUX]{bits}")
+        } else {
+            bits.to_string()
+        };
+        return Ok(Some(V::S(os.into_bytes())));
+    }    if name == "READCHK" {
+        let c = std::mem::take(&mut vm.rt().read_err);
+        return if c != 0 { e(c) } else { Ok(None) };
+    }
+    if name == "func__errormessage" {
+        // _ERRORMESSAGE$[(code)]: without the argument, the current error
+        let code = if a[1].i() != 0 { a[0].i() as i32 } else { vm.err() };
+        return Ok(Some(V::S(qb_runtime::error::human_error(code).as_bytes().to_vec())));
     }
     if name == "LASTLINE" {
         vm.set_last_line(a[0].i() as u32);
@@ -295,7 +418,72 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 d
             }
         };
-        return Ok(Some(V::I(if name == "SADD" { (d + 4) as i64 } else { d as i64 })));
+        if name == "SADD" {
+            // the characters are copied into DBLOCK too (CALL ABSOLUTE runs code from there)
+            let s = vm.load_str(p)?;
+            let rt = vm.rt();
+            let (off, cap) = rt.cmem_sdata.get(&p).copied().unwrap_or((0, 0));
+            let off = if s.len() <= cap && off != 0 {
+                off
+            } else if rt.cmem_next == d + 4 && cap == 0 {
+                let o = d + 4;
+                rt.cmem_next = o + s.len().max(1);
+                rt.cmem_sdata.insert(p, (o, s.len().max(1)));
+                o
+            } else {
+                let o = rt.cmem_next;
+                rt.cmem_next = o + s.len().max(1);
+                rt.cmem_sdata.insert(p, (o, s.len().max(1)));
+                o
+            };
+            if DBLOCK + off + s.len() > rt.cmem.len() {
+                return e(7);
+            }
+            rt.cmem[DBLOCK + off..DBLOCK + off + s.len()].copy_from_slice(&s);
+            rt.cmem[DBLOCK + d + 2..DBLOCK + d + 4].copy_from_slice(&(off as u16).to_le_bytes());
+            return Ok(Some(V::I(off as i64)));
+        }
+        return Ok(Some(V::I(d as i64)));
+    }
+    if let Some(ty) = name.strip_prefix("ABSARG.") {
+        // CALL ABSOLUTE argument: the value in a DBLOCK slot (copied back by ABSGET)
+        let v = a[0].clone();
+        let rt = vm.rt();
+        let size = if ty == "i16" { 2 } else if ty == "i32" || ty == "f32" { 4 } else { 8 };
+        let off = rt.cmem_next;
+        rt.cmem_next += size;
+        let b = DBLOCK + off;
+        match ty {
+            "i16" => rt.cmem[b..b + 2].copy_from_slice(&(v.i() as i16).to_le_bytes()),
+            "i32" => rt.cmem[b..b + 4].copy_from_slice(&(v.i() as i32).to_le_bytes()),
+            "f32" => rt.cmem[b..b + 4].copy_from_slice(&(v.f() as f32).to_le_bytes()),
+            "f64" => rt.cmem[b..b + 8].copy_from_slice(&v.f().to_le_bytes()),
+            _ => rt.cmem[b..b + 8].copy_from_slice(&v.i().to_le_bytes()),
+        }
+        rt.abs_args.push(off as u16);
+        return Ok(Some(V::I(off as i64)));
+    }
+    if let Some(ty) = name.strip_prefix("ABSGET.") {
+        let off = a[0].i() as usize;
+        let rt = vm.rt();
+        let b = DBLOCK + off;
+        let m = &rt.cmem;
+        let v = match ty {
+            "i16" => V::I(i64::from(i16::from_le_bytes([m[b], m[b + 1]]))),
+            "i32" => V::I(i64::from(i32::from_le_bytes(m[b..b + 4].try_into().unwrap()))),
+            "f32" => V::F(f64::from(f32::from_le_bytes(m[b..b + 4].try_into().unwrap()))),
+            "f64" => V::F(f64::from_le_bytes(m[b..b + 8].try_into().unwrap())),
+            _ => V::I(i64::from_le_bytes(m[b..b + 8].try_into().unwrap())),
+        };
+        return Ok(Some(v));
+    }
+    if name == "ABSCALL" {
+        // call_absolute: code at DEF SEG:offset, data segment = DBLOCK
+        let rt = vm.rt();
+        let args = std::mem::take(&mut rt.abs_args);
+        let seg = rt.def_seg.unwrap_or(DBLOCK);
+        super::cpu::call_absolute(&mut rt.cmem, seg, (DBLOCK >> 4) as u16, a[0].i() as u16, &args).or_else(|c| e(c))?;
+        return Ok(None);
     }
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
     let rt = vm.rt();
@@ -491,6 +679,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
             return ok(float1(&a[0], f64::ln));
         }
+        "EXP.s" => return match qb_runtime::mathfn::exp_single(f(0)) {
+            Ok(v) => ok(V::F(v)),
+            Err(c) => e(c),
+        },
         "EXP" => {
             let r = f(0).exp();
             if r.is_infinite() {
@@ -504,14 +696,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "RANDOMIZE" => rt.rnd.randomize(f(0)),
         "RANDOMIZEUSING" => rt.rnd.randomize_using(f(0)),
         "TIMER.n" => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0) % 86400.0;
+            let t = qb_runtime::systime::unix_time() % 86400.0;
             let acc = f(0);
             return ok(V::F(if acc > 0.0 { (t / acc).round() * acc } else { t }));
         }
         "TIMER" => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+            let t = qb_runtime::systime::unix_time();
             return ok(V::F(t % 86400.0));
         }
         "ERR" => return ok(V::I(err.into())),
@@ -521,19 +711,26 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            let start = rt.stdin.rpos;
             let line = read_line(&mut rt.stdin)?;
+            echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
         "INPUTPROMPT" => {
             if i(1) == 0 {
-                rt.write(0, s(0))?;
+                if rt.web && screen_out(vm) {
+                    return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
+                }
+                vm.rt().write(0, s(0))?;
             }
         }
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            let start = rt.stdin.rpos;
             let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
+            echo_input(vm, start, false)?;
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
@@ -580,8 +777,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "CLS" | "BEEP" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
         "CSRLIN" => return ok(V::I(1)),
-        "INKEY$" => return ok(V::S(vec![])),
-        "SLEEP" => {}
+        "SLEEP" => {
+            // waits only in the browser runner; SLEEP without a time (wait for a key) returns
+            if rt.web && a.first().is_some_and(|v| v.f() > 0.0) {
+                if rt.display.started && rt.display.autodisplay != 0 {
+                    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+                }
+                qb_runtime::systime::sleep_ms((a[0].f() * 1000.0).min(86_400_000.0) as u64);
+            }
+        }
         "COMMAND$" => {
             let args: Vec<String> = std::env::args().skip(1).collect();
             return ok(V::S(args.join(" ").into_bytes()));
@@ -710,6 +914,36 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+/// Browser runner: draws the stdin bytes INPUT consumed since `start` on the
+/// screen page (line breaks as newlines), like a typed answer.
+fn echo_input(vm: &mut dyn Host<'_>, start: usize, line: bool) -> R<()> {
+    let rt = vm.rt();
+    if !rt.web {
+        return Ok(());
+    }
+    let mut text = rt.stdin.rbuf[start.min(rt.stdin.rpos)..rt.stdin.rpos].to_vec();
+    if line && text.last() != Some(&b'\n') {
+        text.push(b'\n');
+    }
+    if !screen_out(vm) {
+        return Ok(());
+    }
+    for (k, seg) in text.split(|&c| c == b'\n').enumerate() {
+        if k > 0 {
+            if let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+                r?;
+            }
+        }
+        let seg: Vec<u8> = seg.iter().copied().filter(|&c| c != b'\r').collect();
+        if !seg.is_empty() {
+            if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(seg)]) {
+                r?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn fill(f: &mut dyn Read, rd: &mut Reader) {
@@ -1027,4 +1261,114 @@ fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
     let mut r = vec![fillc; width - out.len()];
     r.append(&mut out);
     r
+}
+
+/// Keyboard, mouse and frame-rate builtins (rt/input.rs).
+fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
+    let rt = vm.rt();
+    let cm = &mut rt.cmem[..];
+    let v = match name {
+        "INKEY$" | "qbs_inkey" => V::S(rt.input.inkey(cm)),
+        "func__keyhit" => {
+            rt.input.pump(cm);
+            V::I(i64::from(qb_runtime::keybuf::qb_keyhit_pop()))
+        }
+        "func__keydown" => {
+            rt.input.pump(cm);
+            let x = a[0].i();
+            if x <= 0 {
+                return Some(e(5));
+            }
+            V::I(if qb_runtime::keybuf::qb_keyheld(x as u32) != 0 { -1 } else { 0 })
+        }
+        "func__mouseinput" => {
+            rt.input.pump(cm);
+            V::I(if rt.input.mouseinput() { -1 } else { 0 })
+        }
+        "func__mousebutton" => {
+            rt.input.pump(cm);
+            let i = a[0].i();
+            if i < 1 {
+                return Some(e(5));
+            }
+            V::I(if rt.input.mousebutton(i as i32) { -1 } else { 0 })
+        }
+        "func__mousewheel" => {
+            rt.input.pump(cm);
+            V::I(i64::from(rt.input.mousewheel()))
+        }
+        "func__mousex" | "func__mousey" => {
+            rt.input.pump(cm);
+            let (x, y) = rt.input.mouse_xy();
+            // headless window = the display page at scale 1: clamp to the page
+            let (w, h) = rt.display.display_size();
+            let v = if name == "func__mousex" { x.clamp(0, (w - 1).max(0)) } else { y.clamp(0, (h - 1).max(0)) };
+            V::F(f64::from(v))
+        }
+        "func__freetimer" => V::I(i64::from(qb_runtime::events::timers().alloc())),
+        "sub_timer" => {
+            // TIMER[(n)] ON|OFF|STOP|FREE: (n, option 1..4, passed)
+            let i = if a[2].i() == 0 { 0 } else { a[0].i() as i32 };
+            if let Err(c) = qb_runtime::events::timers().statement(i, a[1].i() as i32) {
+                return Some(e(c));
+            }
+            return Some(Ok(None));
+        }
+        "sub_key" => {
+            // KEY(n) ON|OFF|STOP: ON KEY trapping is not handled; the range is checked
+            if !(0..=31).contains(&a[0].i()) {
+                return Some(e(5));
+            }
+            return Some(Ok(None));
+        }
+        "DELAYBEGIN" => {
+            // _DELAY s: the deadline in ms; the emitter loops on DELAYSTEP so events run
+            let s = a[0].f();
+            if !(0.0..=2147483.647).contains(&s) {
+                return Some(e(5));
+            }
+            if rt.web && rt.display.started && rt.display.autodisplay != 0 {
+                rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+            }
+            V::F(qb_runtime::systime::ticks() as f64 + s * 1000.0)
+        }
+        "DELAYSTEP" => {
+            // sleeps at most 9 ms; 1 while the deadline is ahead
+            rt.input.pump(cm);
+            let left = a[0].f() - qb_runtime::systime::ticks() as f64;
+            if left <= 0.0 {
+                V::I(0)
+            } else {
+                qb_runtime::systime::sleep_ms(left.clamp(1.0, 9.0) as u64);
+                V::I(1)
+            }
+        }
+        "sub__limit" => {
+            // _LIMIT fps: sleep until 1/fps after the previous frame
+            let fps = a[0].f();
+            rt.input.pump(cm);
+            if fps <= 0.0 || 1000.0 / fps > 60000.0 {
+                return Some(e(5));
+            }
+            if fps > 0.0 {
+                // browser runner: the frame drawn so far is shown before the wait
+                if rt.web && rt.display.started && rt.display.autodisplay != 0 {
+                    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+                }
+                // monotonic ms (qb_runtime::systime also serves the browser build)
+                let frame = (1000.0 / fps) as i64;
+                let now = qb_runtime::systime::ticks();
+                if let Some(last) = rt.limit_last {
+                    let due = last + frame;
+                    if due > now {
+                        qb_runtime::systime::sleep_ms((due - now) as u64);
+                    }
+                }
+                rt.limit_last = Some(qb_runtime::systime::ticks());
+            }
+            return Some(Ok(None));
+        }
+        _ => return None,
+    };
+    Some(Ok(Some(v)))
 }

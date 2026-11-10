@@ -623,3 +623,29 @@ fn deep_recursion() {
     let o = both(&small, 0, &Setup::default());
     assert_eq!((o.status, o.frame[1]), (status::END, 500));
 }
+
+#[test]
+fn goto_and_brnopoll_are_not_event_safe_points() {
+    // i = i + 1 three times through backward Goto / BrNoPoll edges, then a polling Jmp.
+    let mut f = Fb::new("np");
+    let (i, one, three, c) = (f.slot(Ty::I32), f.slot(Ty::I32), f.slot(Ty::I32), f.slot(Ty::I16));
+    let head = f.block(Some(10));
+    let mid = f.block(None);
+    let tail = f.block(Some(30));
+    f.at(0);
+    f.ci(one, 1);
+    f.ci(three, 3);
+    f.t(Term::Jmp(head));
+    f.at(head);
+    f.bin(BinOp::Add, i, i, one);
+    f.t(Term::Goto(mid));
+    f.at(mid);
+    f.i(Inst::Cmp { cc: Cc::Lt, dst: c, a: i, b: three });
+    f.t(Term::BrNoPoll { cond: c, then: head, els: tail });
+    f.at(tail);
+    f.t(Term::Jmp(head));
+    let o = both(&module(vec![f.f], vec![]), 0, &Setup { event: 1, ..Setup::default() });
+    // The forward Jmp into `head` (block 0 -> 1) does not poll; the backward BrNoPoll edges do not
+    // either; the first poll is the backward Jmp from `tail`, after i reached 3.
+    assert_eq!((o.status, o.exit_pc, o.frame[0]), (status::EVENT, 10, 3));
+}

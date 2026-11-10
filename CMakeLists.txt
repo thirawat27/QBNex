@@ -82,7 +82,9 @@ if(WIN32)
   set(QBNEX_QB_RUNTIME_SCRIPT "setup_build.bat")
   set(QBNEX_QB_RUNTIME_NATIVE_LIBS kernel32 ntdll userenv ws2_32 dbghelp
     # R8 window layer (winit, softbuffer, gilrs/xinput)
-    user32 gdi32 ole32 oleaut32 shell32 imm32 dwmapi uxtheme comctl32 advapi32 xinput)
+    user32 gdi32 ole32 oleaut32 shell32 imm32 dwmapi uxtheme comctl32 advapi32 xinput
+    # R13-ext: getrandom (rustls/ring) uses BCryptGenRandom
+    bcrypt)
 elseif(APPLE)
   set(QBNEX_QB_RUNTIME_SCRIPT "setup_build.command")
   set(QBNEX_QB_RUNTIME_NATIVE_LIBS System c m

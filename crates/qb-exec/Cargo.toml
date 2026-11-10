@@ -15,6 +15,11 @@ path = "src/lib.rs"
 name = "qb-exec"
 path = "src/main.rs"
 
+[features]
+# Statement hook + variable inspection for the debug adapter (qb-dap).
+# Off by default: without it the VM has no debugger code at all.
+debug = []
+
 [dependencies]
 qb-runtime = { path = "../qb-runtime" }
 qb-ir = { path = "../qb-ir" }

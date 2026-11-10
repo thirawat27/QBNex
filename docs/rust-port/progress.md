@@ -263,26 +263,19 @@ The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner:
 
 ## R11a — QIR v1 จาก pipeline จริง (branch `claude/r11a-emitter-09276c`, 2026-11-10)
 
-- **Spec + crate:** `docs/rust-port/qir-v1.md` (typed, register-based) และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer ข้อความ, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative) — 16 tests (เขียนก่อน, เห็น fail ก่อน implement). R11b/R11c merge commit `57138e8`
-- **Emitter ใน pipeline จริง:** ลบ tokenizer/parser ของ spike ทิ้ง; main pass ของ `qbnex.bas` ทำงานเหมือนเดิมทุกอย่าง (symbol table, type, UDT, `$INCLUDE`, `$IF`, CONST, DEFxxx, C++ fragment ที่ไม่ถูก compile) แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, state ใน `ir_state.bas`). `IrEval$` เดิน element string ชุดเดียวกับที่ `evaluate$` ได้ (หลัง `fixoperationorder`) และใช้ `operatorusage` + กฎ markup ชุดเดียวกัน พร้อม C integer promotion → register มีชนิด C เดียวกับที่ C++ backend คำนวณ (เช่น literal `1.5E+0` เป็น double, `INTEGER*INTEGER` เป็น int32, `/` ไปเป็น long double)
-- statement ที่ operand อาจถูกสร้างโดย C++ handler (MID$, LSET/RSET, SWAP, ERASE, OPEN/CLOSE, PRINT #, WRITE, INPUT, LINE INPUT, GET/PUT, SEEK, NAME) lower ตอนถึง `finishedline`; construct ที่ยังไม่รองรับ → compile ล้มพร้อมเลขบรรทัด (ไม่เงียบ)
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 13 tests. R11b แทนที่ได้
-- **Conformance (`--qb-arg --ir`):** ดูตารางท้ายหัวข้อนี้ ; C++ default path ของ compiler เดียวกัน: ดูตาราง
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ
-- **ยังไม่ทำ / รู้แล้วว่าต่าง:** `_FLOAT` ใน VM เป็น f64 (รอ F80 ของ R11d) → `rounding_limits`, `val_parse`; graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
-
-- **Executor ชั่วคราว:** `crates/qb-exec/src/v1.rs` (reference interpreter, เลือกด้วย header `QIR 1`), file builtins ส่งต่อ `qb_runtime::fileio` (โค้ด R4 ที่ C++ path ใช้), float→int ผ่าน `qb_runtime::round::qb_qbr_f64` — 15 unit + 5 e2e tests. R11b แทนที่ได้
-- **Conformance** (69 cases, Windows, compiler เดียวกัน):
+- **Spec + crate:** `docs/rust-port/qir-v1.md` และ `crates/qb-ir` (ชนิดข้อมูล, parser/printer, validator, ตาราง builtin `qb_ir::builtins::TABLE` ที่เป็น normative)
+- **Emitter ใน pipeline จริง:** main pass ของ `qbnex.bas` ทำงานเหมือนเดิม แล้ว handler แต่ละ statement เรียก `Ir*` (`compiler/utilities/ir_emit.bas`, `ir_stmt.bas`, `ir_mem.bas`, state ใน `ir_state.bas`); `IrEval$` ใช้กฎ promotion ของ C++ backend. builtin ของ libqb ที่เป็น graphics/รูป/ฟอนต์/input/timer ถูก lower แบบ generic เป็น `rt <callname>` ด้วยชนิด argument จาก registry (`IrGeneric$`, รายชื่อใน `IrGenOK%`)
+- **Executor:** unified VM ของ R11b (`crates/qb-exec`: lower → bytecode → VM/JIT); runtime ที่ R11a เพิ่มอยู่ใน `rt/`: `display.rs` (หน้า SCREEN/รูป/กราฟิก/ข้อความบนหน้า, WIDTH, ฟอนต์ `_LOADFONT`, `_LOADIMAGE`, `_PUTIMAGE`, `_MAPTRIANGLE`, frame capture), `input.rs` (port `keydown`/`keyup` + mouse queue, input script ผ่าน headless window ของ qb-runtime), `scancodes.rs` (ตาราง scancode_lookup), audiox/netx/memx/files. ทุกอย่างเรียก qb-runtime (Rust) ตรง ไม่ผ่าน libqb.cpp
+- **QIR ใหม่:** `ontimer %slot %secs L` (ON TIMER), `meta screenhide`; builtin ใหม่ใน table (graphics callnames, `READCHK`, `VARPTR$`, `EXP.s`, `DELAYBEGIN`/`DELAYSTEP`, `func__*` ของ input/timer)
+- **- **Conformance** (89 cases, Windows, 2026-11-10 หลัง merge rust-port `ae57d8c`, compiler `60d3689`):
 
   | backend | ผ่าน | xfail | fail |
   | --- | --- | --- | --- |
-  | C++ (default) | 63 | 6 | **0** |
-  | QIR (`--qb-arg --ir`) | **40** | 6 | 23 |
+  | QIR (`--qb-arg --ir`) | **84** | 5 | **0** |
 
-  23 case ที่ยัง fail ใช้ subsystem ที่ยังผูกกับ main loop/หน้าต่างของ C++ ทั้งหมด: graphics 10, audio 2, net 2, `_MEM` 2, input script (INKEY$/_KEYHIT) 2, fonts/images 2, `VARPTR`/cmem 1, `FIELD` 1, `SCREEN` + `_NEWIMAGE` ใน video 1. Case ภาษา/ตัวเลข/สตริง/ไฟล์/error/DATA ผ่านครบ
-- **Differential:** `conformance --diff-arg --ir` คอมไพล์แต่ละ case สองครั้ง (C++ แล้ว QIR) เทียบ output ต่อกันตรงๆ: ทุก case ที่ QIR compile ได้ให้ output เหมือน C++ ทุก byte (ยกเว้น `inkey_script` ที่ต้องมี input script ของหน้าต่าง); `crates/qb-exec/tests/fixtures/qir/lang1-3.bas` (INCLUDE, CONST, DEFxxx, nested UDT, array param, STATIC, recursion, SELECT, ON GOSUB, DATA, error/RESUME) เทียบสอง backend ใน `cargo test --release -p qb-exec`
-- `_FLOAT` ใน VM ใช้ `qb-float80` (R11d) ตรงทุก bit; `VAL` คืน long double เหมือน `func_val`; ERL = line-number label ล่าสุด (`LASTLINE`)
-- **ยังไม่ทำ:** graphics/audio/net/`_MEM`/`VARPTR`/`INKEY$` (ต้อง route ไป subsystem ของ qb-runtime ที่ยังผูกกับ main loop ของ C++); `FIELD`; ON TIMER/KEY; CHAIN/COMMON; variable-length STRING ใน TYPE; `DECLARE LIBRARY` (R11d)
+  xfail 5 ตัวเป็น legacy defect/deviation ชุดเดียวกับ C++ path (L-02, L-03, L-06, L-14, D-14). `call_absolute_sub_arg` รันบน `rt/cpu.rs` (port x86 subset ของ `cpu_call`), `stdlib_helpers` ใช้ STRING ความยาวแปรผันใน TYPE (string handle ใน memory, assignment ของ TYPE copy ทีละ field), `timers_and_waits` ใช้ ON TIMER ของ VM. `cargo test --release -p qb-exec -p qb-ir` ผ่านทั้งหมด (e2e รันหลาย thread ได้)พฤติกรรมที่ตรงกับ C++:** READ ใช้ `numparse::read_*` (overflow 6, syntax 2, ค่า 0 ก่อน error), ERASE ทำให้ array ไม่มีมิติ (error 9), unhandled error ตาม no-dialog policy ของ runtime (stderr + exit 1), HEX$/OCT$/_BIN$ ความกว้างตาม semantics.bas, `_BIT * n`
+- **Compiler:** lock ของโฟลเดอร์ `internal/tempN` (#26) ไม่ถูกปล่อยระหว่าง recompile อีกแล้ว (เดิมทำให้ qb ที่รันพร้อมกันชนกัน, error 70 ใน e2e แบบหลาย thread)
+- **ยังไม่ทำ:** ON KEY/ON STRIG trapping, CHAIN/COMMON, PLAY event, VARPTR$ ของ string (DRAW/PLAY "X"); string ใน TYPE ที่ตายไปพร้อม scope ยังไม่ถูกคืน (leak เล็กน้อย, ไม่กระทบผลลัพธ์)
 
 ## R11d: `_FLOAT` and `DECLARE LIBRARY`
 
@@ -449,7 +442,7 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-01 | A main-module `ON ERROR GOTO` handler label makes compilation fail with `Unknown statement 'END'` on a line past the end of the file (TopLevelRuntime lowering, `classes.bas`). Classic QB error handling does not compile. **Fixed** for main-module code before the first SUB/FUNCTION (D-06); a handler label placed *after* a SUB (or after an `$INCLUDE` that defines SUBs) is still moved into the runtime SUB and still fails. | `errors/*`, `binary/mbf_overflow` (`.deviation`) | High |
 | L-02 | `PRINT a, b` (14-column zones) writes spaces forever when stdout is redirected. | `console/print_comma_redirected` | High |
 | L-03 | `RESTORE <label>` never returns. | `data/restore_label` | High |
-| L-04 | Relational operators inside `PRINT` (`PRINT a$ < "K"`) are rejected as `Unknown statement 'PRINT'`. | `strings/compare_in_print` | Medium |
+| L-04 | Relational operators inside `PRINT` (`PRINT a$ < "K"`) are rejected as `Unknown statement 'PRINT'`: the implied `;` that `PRINT "a" "b"` gets was also inserted next to `<`, `=`, `>`. **Fixed** (D-26). | `strings/compare_in_print` (`.deviation`) | Medium |
 | L-05 | `VAL` negates the exponent after normalising: `VAL("123E-2")` = `.000123`, `VAL("0.5E-1")` = `5`. **Fixed in Rust** (intentional deviation). | `strings/val_negative_exponent` (`.deviation`) | High |
 | L-06 | `PRINT USING "#.##^^^^"` on a `_FLOAT` near 1E4932 prints `%0.118973149535723F+4984` and corrupts the heap (exit `0xC0000374`). | `strings/print_using_huge_exponent` | High |
 | L-07 | `STR$` of a DOUBLE that needs more than 19 decimals (e.g. `1.234567890123456D-16`) builds a broken printf format and returns ` .0f`. **Fixed in Rust** (D-04). | `strings/str_many_decimals` (`.deviation`) | Medium |
@@ -462,6 +455,8 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-16 | The compiler rejects every source file that is not well-formed UTF-8 ("Invalid UTF-8 byte sequence"), so QBasic programs saved in CP437 (box drawing in strings or comments) do not compile. 41 of 129 corpus files. **Fixed** (D-22). | `source/cp437_bytes` (`.deviation`), `source/utf8_bytes` | High |
 | L-17 | Passing a plain variable to a SUB whose parameters go to `CALL ABSOLUTE` (the usual mouse-driver wrapper) is an internal compiler error (`cmemlist(0)`, the id is read from a reference that has no sp3), reported as `File <statement> not found` because a successful `$INCLUDE` open leaves `qberrorhappened` at -2/-3. **Fixed** (D-23). | `control/call_absolute_sub_arg` (`.deviation`) | High |
 | L-18 | `PLAY ON`/`OFF`/`STOP` fail with `'ON' is already defined`; `ON PLAY(n) GOSUB label` compiles as a computed `ON <PLAY(n)> GOSUB`. **Fixed** in the compiler (D-24); the PLAY event itself is not raised yet. | `audio/play_event_trap` (`.deviation`) | Medium |
+| L-19 | An `$IMPORT` module is included in place, so its SUBs make the rest of the program "code after a SUB": `DIM SHARED` there fails ("Statement cannot be placed between SUB/FUNCTIONs") and `REDIM SHARED` is moved into the top-level runtime SUB ("DIM/REDIM SHARED invalid within a SUB/FUNCTION"), which also leaves FUNCTIONs that `REDIM` the array with a local one. **Fixed** (D-25). | `stdlib/import_then_dim_shared`, `stdlib/import_redim_shared` (`.deviation`) | High |
+| L-20 | An `$IMPORT` placed after the program's SUBs puts the module's `DIM SHARED` between SUB/FUNCTIONs (compile error). Also: `firstLine`/`lastLine`/`lastLineReturn` are main-module variables that `ResetPostPrepassState` cannot reset, so the main pass skipped its first-line and last-line forced includes (`vwatch.bi`, `vwatch_stub.bm`). **Fixed** (D-25). | `stdlib/import_after_subs` (`.deviation`) | Medium |
 | L-14 | `PUT` on a network handle treats a full send buffer ("would block" on the non-blocking socket) as a lost connection: `_CONNECTED` drops to 0 and the rest of the data is lost. Ported as is. | `net/send_buffer_full` | Medium |
 | L-15 | `TIMER ON` after `TIMER STOP` with an event queued during the STOP never delivers it: the event stays "triggered", so the timer thread does not set `qbevent` again, and `TIMER ON` does not set it either. The timer stalls until something else (a key, an error) runs `evnt()`. Ported as is. | `events/timers_and_waits` uses OFF/ON | Medium |
 | L-16 | `url.bas` was unusable at run time: the fixed-length `UrlParts` fields were used untrimmed (`UrlFormat$`, `UrlBasename$`, query lookups returned padded text or nothing), `protocol` kept `//` (`origin` became `https:////host`), port 65535 overflowed an INTEGER, `UrlSetQueryParam` appended duplicate keys, `UrlNormalizePath$` returned its input and `UrlResolve` only glued strings. **Fixed** (R13-stdlib). | `stdlib/url_parse` (`.deviation`) | High |
@@ -504,6 +499,8 @@ Intentional deviations (Rust differs from legacy on purpose):
 | D-22 | Compiler: source that is not UTF-8 is read as 8-bit (CP437) bytes, kept exactly as written, like QBasic and QB64 (fixes L-16). The encoding error stays for NUL bytes (UTF-16 without BOM) and for invalid bytes in a file that is otherwise UTF-8 (UTF-8 BOM, or two or more 3-/4-byte UTF-8 sequences). QuickBASIC binary (fast load, `FC 00`) files get their own diagnostic. | QBasic semantics; real programs are CP437. |
 | D-23 | Compiler: the conventional-memory argument check reads the variable id with `VAL(e$)` (fixes L-17); a successful include open clears `qberrorhappened`; an internal compiler error prints the error number and compiler line. | Code defect; the old message hid the real error. |
 | D-24 | Compiler: `PLAY {ON\|OFF\|STOP}` and `ON PLAY(n) GOSUB label` are parsed, checked and laid out with a warning; the runtime does not raise the PLAY event yet, so the handler never runs (fixes the compile side of L-18). | Programs with background music compile; raising the event belongs to the audio runtime (follow-up). |
+| D-25 | Compiler: `'$IMPORT` lines of the main source are resolved before the passes. Each module (with its relative `$INCLUDE` files inlined and its own imports first) is split into its declaration head (before its first SUB/FUNCTION) and its procedure body; all heads are included before the program's first line and all bodies after its last line, and the in-place `$IMPORT` lines are no-ops. Imports inside `$INCLUDE` files keep the old in-place behaviour. Compile errors inside a module now name `internal/temp/imports_head.bas` or `imports_body.bas`. | QBasic modules: module-level declarations belong to the main module wherever the import line is. |
+| D-26 | Compiler: PRINT does not insert an implied `;` next to a relational or logical operator (fixes L-04). | Code defect. |
 | D-21 | `_OPENCLIENT` tries every IPv4 address of the host until one connects; legacy Windows used only the first (`gethostbyname`), legacy Linux/macOS already tried all. | One behaviour on all OSes. |
 | D-R12b-1 | `n_roundincrement` (READ / INPUT # into `_INTEGER64` and `_UNSIGNED _INTEGER64`) no longer reads `n_digit[n_exp+1]` with a negative index for numbers below 0.1; such numbers are not rounded up (0.06 reads as 0). Legacy read memory before the array (undefined; usually no rounding). | Defined behaviour; `diff_core` skips these reads (3,089 of 2.26M). |
 | D-R12b-2 | READ of a decimal number into `_FLOAT` / DOUBLE uses correctly rounded parsing. MinGW `sscanf("%lf")` was one ulp off for some 17-digit inputs (1 in 2.26M random items, e.g. `6.5535595088869763E245`). | Correct IEEE rounding on every OS. |
@@ -767,6 +764,110 @@ Verified on Windows (rustc 1.99.1, `CARGO_BUILD_JOBS=1`):
 - Parse diagnostics over corpus-local only remain in programs that carry binary data inside the `.BAS` (SHIPWAR, SPACE, GRAPHICS, EDIT, ...).
 
 Not done / limits: no expression-level AST (the CST stops at statements, which is all the formatter and server need); symbols are file-global (no per-SUB scopes); references do not look into files that include the current one; `$IF` metacommand blocks are not indented.
+## VS Code extension
+
+`packaging/vscode` (TypeScript; runtime dependency `vscode-languageclient` only). Starts `qb-lsp` (setting `qbnex.lsp.path`, else a copy bundled in `server/`, else `PATH`) for diagnostics, outline, definition/references, hover, completion and formatting; format on save is on by default for QBasic files. TextMate grammar `syntaxes/qbasic.tmLanguage.json` is generated by `scripts/gen-grammar.mjs` from the qb-syntax keyword tables (32 control words, 223 built-in functions, 123 built-in statements, types, operators). 17 snippets. Commands `QBNex: Run` (F5: compile with `qb`, then start the executable in a terminal; or `qb run <file>` with `qbnex.runMode = qbRun`), `QBNex: Compile` (Ctrl+Shift+B, output panel), `QBNex: Restart Language Server`.
+
+Verified: `npm test` (tsc build, grammar tokenized with vscode-textmate + Oniguruma as VS Code does, snippet and helper tests: 5/5); `npx vsce package` builds `qbnex-0.1.0.vsix` (501 KB, platform-neutral, server from `PATH`); `npm run bundle-server` + `vsce package --target <platform>` for a package that carries qb-lsp. Not tried inside a running VS Code window (no GUI on this machine). Debugger: plan only, `docs/rust-port/qb-dap-plan.md`.
+## R15-G1 — GPU backend (`crates/qb-gpu`)
+
+Status: **groundwork done**, not wired into the runtime yet (the CPU renderer stays the reference and the default).
+
+- wgpu 30 (Vulkan / DX12 / Metal / WebGPU), pure Rust; glam for matrices.
+- `Gpu::headless()`: hardware adapter, else the platform software adapter (WARP, llvmpipe, ...), `None` without any — callers and tests skip cleanly. `QB_GPU=off` disables the GPU, `QB_GPU_FALLBACK=1` forces the software adapter. `Gpu::for_window(Arc<winit::Window>)` creates a surface (non-sRGB format preferred so framebuffer values are shown unchanged).
+- `Target`: offscreen RGBA8 texture (readback with `read_rgba`) or window surface (`frame()` / `Frame::present`, resize, lost/outdated surfaces reconfigured).
+- `blit::Blitter`: uploads the runtime's `u32` framebuffer (`0xAARRGGBB` = BGRA bytes) to a `Bgra8Unorm` texture and draws it with nearest filtering into the rectangle `fit_rect` gives: aspect-correct letterbox (default), integer scale, or stretch.
+- `three`: `Vertex` (position, uv, colour), `Mesh` (vertex + index buffers), `Camera` (perspective / orthographic, right-handed, depth 0..1), `Renderer3d` (Depth32Float depth buffer, textured-triangle WGSL pipeline, alpha blending, no culling by default), `Texture` (nearest or linear = `_SMOOTH`).
+- Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
+
+Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
+## R13-wasm — QBNex programs in a browser (`crates/qb-web`)
+
+Status: **first cut working** (VM only, no JIT). The qb-exec pipeline (QIR → bytecode → VM) builds for `wasm32-unknown-unknown` as `qb_web.wasm` (3.8 MB release). A static page `crates/qb-web/www` loads a `.qir` file and runs it.
+
+- **Build gates (wasm32 only; native builds unchanged):**
+  - qb-runtime: no winit/softbuffer/gilrs/arboard; the clipboard, ENVIRON and the C stdout path stay inside the page; `malloc`/`memchr`/`strlen` are Rust; `system()` fails, so SHELL returns an error.
+  - qb-jit: `src/off.rs` replaces Cranelift, and every compile declines, so the VM keeps interpreting.
+  - qb-link: `load` refuses native images.
+  - qb-ext: HTTP reports "not available" (ureq/ring need a C compiler).
+  - qb-exec: one static assert is native-only.
+- **Page imports** (wasm module `qbnex`, in `qb_runtime::systime::web`): `qb_web_now_ms` (TIMER), `qb_web_monotonic_ms` (ticks), `qb_web_sleep_ms`, and `qb_web_present`, which `_DISPLAY` calls when a frame is ready. The page stubs any other import so it throws "unsupported in the browser build". The current build also imports four `__wbindgen_*` placeholders, pulled in by a dependency; nothing calls them.
+- **Runner mode** (`Vm::set_web_console`):
+  - The program draws on the SCREEN 0 page from its first statement, as in a window: PRINT, CLS, LOCATE, COLOR, CSRLIN/POS, SCREEN 13 and the other graphics go through R11a's display code.
+  - INPUT and LINE INPUT read the stdin text given with the run. The prompt and the text consumed are echoed on the screen.
+  - `_DELAY` and `_LIMIT` wait through R11a's code (now on `qb_runtime::systime`, so the page's clock and sleep serve them) and present the frame drawn so far. `SLEEP n` waits only here; headless qb-exec still skips it.
+  - `Vm::screen_record` returns the visible page as a `QBFB` record.
+- **qb-web:**
+  - `screen.rs` turns the visible page into RGBA. Text pages use the builtin 8x16 font (8x8 above 30 rows, double width at 40 columns); palette pages and 32-bit pages are also handled. It also returns the text of a text page.
+  - C ABI exports `qb_web_*`: run, exit code, error, texts, frames, and the stdout written so far.
+- **www:**
+  - `qbnex.js` is the loader. It makes a fresh instance per run, so no runtime state leaks between programs.
+  - `worker.js` runs programs off the page thread: sleeps really wait, and frames stream to the page while the program runs.
+  - `index.html` has a canvas screen, a stdin box and a console pane.
+- **Fix found on the way:** a fresh image registry handed slot 0 to the SCREEN 0 page, but `imgframe` treats 0 as failure, so page 0 had no surface (LOCATE raised error 5). `Display::start` now reserves slot 0, like the C++ registry.
+- **Unsupported calls end in QBasic errors, not traps:**
+  - files: OPEN fails with an error (`unsupported.bas` traps it with ON ERROR)
+  - TCP/HTTP, SHELL
+  - sound is silent
+
+Build and test (Windows; any OS with node ≥ 18):
+
+```
+$env:CARGO_BUILD_JOBS=1; $env:CARGO_TARGET_DIR="$PWD\target\wasm"
+cargo build -p qb-web --release --target wasm32-unknown-unknown
+node crates/qb-web/tests/run.mjs        # 33 checks: text screen, COLOR/LOCATE pixels, INPUT echo + error 62 past the end,
+                                        # SCREEN 13 pixels (PSET/LINE/CIRCLE/BF), TIMER + _DELAY, OPEN error, load error, fresh instance
+```
+
+To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file. `timer.qir` was edited by hand to the current `_DELAY` form (DELAYBEGIN/DELAYSTEP loop): the qb-ir.exe build used for the fixtures still emitted `sub__delay`.
+
+Limits / next:
+- No interactive keyboard: INKEY$ is empty, and INPUT needs the text up front. A wasm call cannot wait for page events. Doing this needs a SharedArrayBuffer key queue (cross-origin isolation) or an async VM step.
+- No file system (an in-memory one would fit qb-runtime's file layer).
+- No audio.
+- No JIT: Cranelift could emit wasm in a later step.
+- `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
+
+## R13 debugger (qb-dap)
+
+New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.
+
+- `qb-exec` feature `debug` (off by default): `src/debug.rs` (new) and 13 lines in `vm.rs` (module, field, init, one call at the top of the dispatch loop). The VM calls the attached `Debugger` at statement starts of the existing line table (`stmts`, from QIR `line N`); `Stop` exposes the call stack (SUB/FUNCTION frames with lines) and variables of each frame plus globals: numbers, strings, `_FLOAT`, register arrays, memory-mode variables (`STRING * n`, TYPEs with nested fields, arrays of TYPEs). `rt/` and `lower.rs` are not touched: locations are found by repeating lower's allocation order, verified by unit tests on `control_subs_functions.qir` (registers, BYREF copy, STATIC) and `data_udt.qir` (memory mode). Attaching turns the JIT off. Note: Cargo unifies features, so `cargo build --workspace` builds qb-exec with the hook compiled in (inactive, one `Option` check per instruction); `-p qb-exec` builds and benchmarks are unaffected.
+- `qb-dap`: DAP adapter on stdio; the program runs in a child debuggee process (same binary, `--debuggee`) whose stdin/stdout are the program's, connected to the adapter by loopback TCP. Launch takes `program` and either `qir` or compiles with `qb <file> --ir -o <temp>` and reads the QIR payload back. Breakpoints by line (snapped to the next statement line of the QIR line table), continue, pause, step in/over/out, stack trace, scopes (frame locals + globals), variables with expandable arrays and TYPEs, evaluate/hover for `name`, `name.field`, `name(i, j)`; names demangled from QIR and spelled as in the source.
+- VS Code: `contributes.debuggers` type `qbnex` (F5 debugs the current file without a launch.json; snippet; `qbnex.dap.path`), `QBNex: Run` moved to Ctrl+F5, `npm run bundle-server` copies qb-dap too.
+
+Verified (Windows, `CARGO_BUILD_JOBS=1`): `cargo test -p qb-exec --features debug --lib debug` 2/2; `cargo test -p qb-dap` 4 unit + 3 stdio integration tests (breakpoint in a SUB, step over out of it, second call with a copied argument, step out, step into recursive FUNCTION, STATIC variable, run to exit with output; TYPE/array expansion and evaluate; stop on entry); `cargo clippy -p qb-dap --all-targets` clean; `npm test` in packaging/vscode 6/6. Not tried in a running VS Code window (no GUI here) and not with a real `qb --ir` compile (tests use the qb-exec QIR fixtures).
+
+Needs from the emitter (R11a): file information in the QIR line table for `$INCLUDE`d code (see qb-dap-plan.md, item 1); until then breakpoints work in the launched file only.
+## R13-ext: extension library (`crates/qb-ext`) and `ext.*` stdlib modules
+
+Pure Rust, latest crates: `regex`, `crc32fast`, `md-5`, `sha1`, `sha2`, `base64`, `hex`, `zip` (deflate), `ureq` 3 + rustls/ring with the webpki roots (no OpenSSL), `unicode-normalization`, `indexmap`, `chrono`. Exposed as a `qb_*` C ABI (`qb_ext_*`, prototypes in `crates/qb-ext/include/qb_ext.h`), linked into `libqb_runtime.a` through qb-runtime's default `ext` feature. `qbx.cpp` includes the header, so the stdlib modules call it from header-less `DECLARE LIBRARY` blocks with `_OFFSET(s$)`/`LEN(s$)` pairs; string results come back through a per-thread buffer (`Ext_Result$`), errors through `Ext_LastError$`.
+
+| Module | Functions |
+| --- | --- |
+| `ext.core` | `Ext_LastError$`, `Ext_PartCount&`, `Ext_Part$` (shared plumbing) |
+| `ext.regex` | `Regex_IsMatch&`, `Regex_Find&` (1-based, `Regex_Match$`, `Regex_Group$`, `Regex_GroupCount&`), `Regex_Replace$`, `Regex_ReplaceFirst$`, `Regex_Split&`/`Regex_Part$` |
+| `ext.hash` | `Hash_CRC32$`/`Hash_CRC32Value~&`, `Hash_MD5$`, `Hash_SHA1$`, `Hash_SHA256$`, `Hash_SHA512$`, `Base64_Encode$`/`Decode$`, `Base64Url_Encode$`, `Hex_Encode$`/`Decode$` |
+| `ext.zip` | `Zip_List&`/`Zip_EntryName$`/`Zip_EntrySize&&`, `Zip_ReadEntry$`, `Zip_Extract&` (rejects `../` names), `Zip_Create&`/`Zip_AddData&`/`Zip_AddFile&`/`Zip_AddFolder&`/`Zip_Close&` |
+| `ext.http` | `Http_Get&`, `Http_Post&`, `Http_Request&` (any method, header lines, timeout, redirects), `Http_Body$`, `Http_Headers$`, `Http_Header$` |
+| `ext.utf8` | `Utf8_Len&`, `Utf8_Mid$`/`Left$`/`Right$` by code point (invalid bytes kept, one each), `Utf8_Upper$`/`Lower$`, `Utf8_Normalize$` (NFC/NFD/NFKC/NFKD), `Utf8_IsValid&`, `Utf8_CodePoint&`, `Utf8_Chr$`, `Cp437_ToUtf8$`, `Cp437_ToUtf8Graphics$`, `Utf8_ToCp437$` |
+| `ext.collections` | lists and insertion-ordered dictionaries of strings and numbers behind handles: `XList_*` (add/insert/set/get/type/remove/index-of/join/sort), `XDict_*` (set/get/type/has/remove/key), `XColl_Clear`/`XColl_Free` |
+| `ext.datetime` | Unix milliseconds (DOUBLE): `DT_Now#`, `DT_ISO$`/`DT_ISOLocal$`, `DT_Format$` (strftime-like), `DT_Parse#` (ISO 8601 or a pattern), `DT_Make#`, parts (`DT_Year&` ... `DT_IsoWeek&`), `DT_OffsetSeconds&`, `DT_AddDays#`, `DT_DiffDays#` |
+
+Fixes needed on the way: the import hoisting (`StdLib_HoistModule`, `compiler/utilities/imports.bas`) split a module at the first `FUNCTION` line, which included the prototypes inside `DECLARE LIBRARY ... END DECLARE`, so no stdlib module could use `DECLARE LIBRARY`; such lines now stay in the hoisted head. User programs on Windows link `-lbcrypt` (getrandom, used by rustls/ring); added to `makeline_win.txt`, `setup_win.cmd`, CMake and `run_diff.cmd`.
+
+Tests: `cargo test -p qb-ext` 19 tests (digest/Base64/hex vectors, regex, zip round trip and path traversal, HTTP GET/POST/404/redirect/timeout/refused against an in-process server, UTF-8 slicing and case/normalization, CP437 round trip of all 256 bytes, collections, ISO/strftime/parse/make). Conformance `stdlib/ext_regex_hash`, `stdlib/ext_zip_http` (the HTTP part talks to the in-process test server through the hidden `qb_ext_test_http_server` hook, no internet) and `stdlib/ext_utf8_coll_dt` (UTC only), goldens hand-checked (`.deviation`, no legacy equivalent); all 10 `stdlib/*` cases pass on the self-hosted `qb.exe`.
+
+Not covered: the QIR backend (`qb-exec`) resolves `DECLARE LIBRARY` at run time and does not export the `qb_ext_*` symbols from its own executable yet; Linux/macOS builds of qb-ext are unverified.
+
+## R15 — runtime GPU presentation, 3D `_MAPTRIANGLE` on the GPU (G3), 3D API (G4)
+
+- **Window presentation** (qb-runtime feature `gpu`, off by default): the window presents the composed frame through `qb_gpu::blit::Blitter::draw_rect` with the runtime's own `raster::layout` rectangle (clipped to the window, bilinear when the layout is smooth). softbuffer stays the fallback when there is no adapter/surface or `QB_GPU=off`; `QB_GPU=verbose` logs the choice. Not yet checked: linking the `gpu` feature into `libqb_runtime.a` with MinGW.
+- **G3 `qb_gpu::maptri`**: 3D `_MAPTRIANGLE` with the legacy projection (90° on the shorter side, near 0.1, far 10000), persistent `DepthBuffer` (`_DEPTHBUFFER ON/LOCK/OFF`, `_CLEAR`), `_CLOCKWISE`/`_ANTICLOCKWISE`, `_SMOOTH`/`_SMOOTHSHRUNK`/`_SMOOTHSTRETCHED`, repeat or clamp, legacy alpha blend. Not yet fed from the hardware command list in `window_bridge.cpp` (runtime still draws 3D with `raster::tri3d`). Deviation: the far plane clips (as legacy OpenGL did), the software path does not.
+- **Tests** (qb-runtime unit tests `gpu_tests`, `cargo test -p qb-runtime --features gpu --lib gpu_tests`): GPU presentation equals `raster::scale_to_window` pixel for pixel in 7 layouts; GPU 3D `_MAPTRIANGLE` against `raster::tri3d` (depth on/lock/off, culling, near clip, wrap, alpha, smooth) — ≤ 3% edge pixels may differ, interior sample points equal. Pass on AMD Radeon 780M and WARP; skip with `QB_GPU=off`. (Integration tests cannot link qb-runtime: the host C symbols only have unit-test stubs.)
+- **G4 design**: `docs/rust-port/r15-g4-3d-api.md` (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA`, `_LIGHT`, `_AMBIENT`, `_CLEAR3D`, `_GPU3D`).
+- **G4 GPU layer `qb_gpu::scene`**: `Model` from glTF 2.0 (`gltf` crate; node transforms, triangles, POSITION/NORMAL/TEXCOORD_0, base colour factor + texture, normals computed when missing), from arrays, cube and plane primitives; `Lighting` (ambient + up to 8 directional/point lights, Lambert, point fall-off `1/(1+(d/range)²)`); `SceneRenderer` with depth; `transform()` for `_DRAW3D`. Tests `crates/qb-gpu/tests/scene.rs` (light angle, colours, point fall-off, depth in both draw orders, textured array mesh, in-memory `.glb`). BASIC keywords are not wired yet.
+- Build note: on this machine rustc may crash compiling `windows`/`naga` (`STATUS_STACK_BUFFER_OVERRUN`, allocation failures) when the commit limit is low; `RUST_MIN_STACK=67108864` fixes the stack case.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

@@ -10,10 +10,46 @@
 use super::Host;
 use core::ffi::c_void;
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn fwrite(p: *const c_void, size: usize, n: usize, f: *mut c_void) -> usize;
     fn fflush(f: *mut c_void) -> i32;
     fn fgetc(f: *mut c_void) -> i32;
+}
+
+/// Browser build (R13-wasm): no C runtime. Console output collects in a
+/// buffer the page drains ([`take_stdout`]); stdin is always at its end.
+#[cfg(target_arch = "wasm32")]
+static WASM_STDOUT: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
+
+/// Console output written since the last call (browser build).
+#[cfg(target_arch = "wasm32")]
+pub fn take_stdout() -> Vec<u8> {
+    std::mem::take(&mut *WASM_STDOUT.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+#[cfg(target_arch = "wasm32")]
+unsafe fn fwrite(p: *const c_void, size: usize, n: usize, _f: *mut c_void) -> usize {
+    // SAFETY: callers pass a buffer of `size * n` bytes.
+    let s = unsafe { std::slice::from_raw_parts(p.cast::<u8>(), size * n) };
+    WASM_STDOUT.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(s);
+    n
+}
+#[cfg(target_arch = "wasm32")]
+unsafe fn fflush(_f: *mut c_void) -> i32 {
+    0
+}
+#[cfg(target_arch = "wasm32")]
+unsafe fn fgetc(_f: *mut c_void) -> i32 {
+    -1
+}
+#[cfg(target_arch = "wasm32")]
+unsafe fn c_stdout() -> *mut c_void {
+    core::ptr::null_mut()
+}
+#[cfg(target_arch = "wasm32")]
+unsafe fn c_stdin() -> *mut c_void {
+    core::ptr::null_mut()
 }
 
 #[cfg(windows)]
