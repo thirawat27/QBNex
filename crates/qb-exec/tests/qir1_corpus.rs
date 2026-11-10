@@ -43,3 +43,20 @@ fn corpus_matches_reference_interpreter() {
     eprintln!("qir1 corpus: {} programs, {on_vm} on the typed VM", files.len());
     assert!(bad.is_empty(), "{}", bad.join("\n\n"));
 }
+
+/// Writes `<name>.expect` (reference interpreter output) next to every fixture.
+#[test]
+#[ignore]
+fn bless_expected_from_reference() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/qir1");
+    for f in std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()) {
+        if f.extension().and_then(|e| e.to_str()) != Some("qir") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&f).unwrap();
+        let m = qb_ir::parse(&src).unwrap();
+        let mut a = Vec::new();
+        let r = qb_exec::v1::run(&m, &mut a);
+        std::fs::write(f.with_extension("expect"), outcome(r, a)).unwrap();
+    }
+}

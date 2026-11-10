@@ -1,28 +1,35 @@
-//! QIR v1 features that need more than registers (u64, memory-backed
-//! variables): each program must run on the typed VM and give exactly what
-//! the R11a reference interpreter gives.
+//! QIR features beyond plain registers (u64, memory-backed variables,
+//! _FLOAT): each program runs on the VM and must give the output recorded in
+//! `tests/fixtures/cover/<test>.expect` (captured from the R11a reference
+//! interpreter before it was retired). `QB_BLESS=1` rewrites the files.
 
-fn both(src: &str) -> (String, String) {
-    let m = qb_ir::parse(src).unwrap();
-    assert!(qb_exec::v1_on_vm(&m), "not on the VM: {:?}", qb_exec::compile_v1(&m).err());
-    let show = |r: Result<i32, qb_exec::RunError>, o: Vec<u8>| {
-        let o = String::from_utf8_lossy(&o).into_owned();
-        match r {
-            Ok(c) => format!("{o}<exit {c}>"),
-            Err(e) => format!("{o}<error {} line {}>", e.code, e.line),
-        }
-    };
-    let mut a = Vec::new();
-    let ra = qb_exec::v1::run(&m, &mut a);
+use std::path::PathBuf;
+
+fn run(src: &str) -> String {
     let mut b = Vec::new();
-    let rb = qb_exec::run_ir_status(src, &mut b);
-    (show(ra, a), show(rb, b))
+    let r = qb_exec::run_ir_status(src, &mut b);
+    let o = String::from_utf8_lossy(&b).into_owned();
+    match r {
+        Ok(c) => format!("{o}<exit {c}>"),
+        Err(e) => format!("{o}<error {} line {}>", e.code, e.line),
+    }
+}
+
+fn same_full(src: &str) {
+    let name = std::thread::current().name().unwrap_or("x").rsplit("::").next().unwrap().to_string();
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cover").join(format!("{name}.expect"));
+    let got = run(src);
+    if std::env::var_os("QB_BLESS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &got).unwrap();
+        return;
+    }
+    let want = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert_eq!(got, want, "{src}");
 }
 
 fn same(body: &str) {
-    let src = format!("QIR 1\nfunc main\nconst.i32 %900 0\n{body}\nrt PRINTNL %900\nend\nendfunc\n");
-    let (reference, vm) = both(&src);
-    assert_eq!(vm, reference, "{src}");
+    same_full(&format!("QIR 1\nfunc main\nconst.i32 %900 0\n{body}\nrt PRINTNL %900\nend\nendfunc\n"));
 }
 
 #[test]
@@ -41,11 +48,6 @@ fn unsigned_compare_branches() {
     same(
         "const.u64 %0 18446744073709551615\nconst.u64 %1 1\nlt.u64 %2 %1 %0\njz %2 NO\nconst.str %3 x6C74\nrt PRINTS %900 %3\nlabel NO",
     );
-}
-
-fn same_full(src: &str) {
-    let (reference, vm) = both(src);
-    assert_eq!(vm, reference, "{src}");
 }
 
 #[test]
