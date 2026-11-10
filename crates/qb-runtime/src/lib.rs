@@ -13,6 +13,7 @@
 //! - Pointers coming from C may be unaligned (they often point into string
 //!   buffers), so reads and writes go through byte copies.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod alloc;
@@ -97,3 +98,6 @@ pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(p, len) }
     }
 }
+
+#[cfg(test)]
+mod robustness_tests;

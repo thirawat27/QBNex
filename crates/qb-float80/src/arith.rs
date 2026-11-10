@@ -99,7 +99,7 @@ pub(crate) fn round_pack_mode(neg: bool, exp: i32, sig: u128, sticky: bool, mode
         // Denormal: unit 2^(1-BIAS-63); shift = 64 + (1 - biased).
         let k = (1 - biased) as u32 + 64;
         let m = shift_mode(sig, k, sticky, mode, neg);
-        let e = if m >> 63 != 0 { 1 } else { 0 };
+        let e = u16::from(m >> 63 != 0);
         F80::from_parts(neg, e, m as u64)
     }
 }
@@ -176,10 +176,12 @@ pub(crate) fn special1(a: F80) -> Option<F80> {
     }
 }
 
+#[must_use]
 pub fn add(a: F80, b: F80) -> F80 {
     add_signed(a, b, false)
 }
 
+#[must_use]
 pub fn sub(a: F80, b: F80) -> F80 {
     add_signed(a, b, true)
 }
@@ -236,6 +238,7 @@ fn add_signed(a: F80, b: F80, negate_b: bool) -> F80 {
     }
 }
 
+#[must_use]
 pub fn mul(a: F80, b: F80) -> F80 {
     if let Some(r) = special2(a, b) {
         return r;
@@ -252,6 +255,7 @@ pub fn mul(a: F80, b: F80) -> F80 {
     round_pack(neg, x.exp + y.exp, x.mant as u128 * y.mant as u128, false)
 }
 
+#[must_use]
 pub fn div(a: F80, b: F80) -> F80 {
     if let Some(r) = special2(a, b) {
         return r;
@@ -278,6 +282,7 @@ pub fn div(a: F80, b: F80) -> F80 {
     round_pack(neg, x.exp - y.exp - 63 - 64, q, r2 != 0)
 }
 
+#[must_use]
 pub fn sqrt(a: F80) -> F80 {
     if let Some(r) = special1(a) {
         return r;
@@ -329,6 +334,7 @@ fn bits2(m: u128, i: u32, k: u32) -> u128 {
 }
 
 /// `frndint`.
+#[must_use]
 pub fn round_int(a: F80, mode: Round) -> F80 {
     if let Some(r) = special1(a) {
         return r;
@@ -351,6 +357,7 @@ pub fn round_int(a: F80, mode: Round) -> F80 {
 }
 
 /// `fscale`: `a * 2^trunc(b)`.
+#[must_use]
 pub fn scale(a: F80, b: F80) -> F80 {
     if let Some(r) = special2(a, b) {
         return r;
@@ -359,26 +366,23 @@ pub fn scale(a: F80, b: F80) -> F80 {
     match (ca, cb) {
         (Class::Zero, Class::Infinity) => return if b.sign() { a } else { F80::INDEFINITE },
         (Class::Infinity, Class::Infinity) => return if b.sign() { F80::INDEFINITE } else { a },
-        (Class::Zero, _) | (Class::Infinity, _) => return a,
+        (Class::Zero | Class::Infinity, _) => return a,
         (_, Class::Infinity) => return if b.sign() { zero(a.sign()) } else { F80::INFINITY.with_sign(a.sign()) },
         _ => {}
     }
-    let n: i64 = match cb {
-        Class::Zero => 0,
-        _ => {
-            let fb = fin(b);
-            let mag: i64 = if fb.exp >= 0 {
-                1 << 40
-            } else if fb.exp <= -64 {
-                0
-            } else {
-                (fb.mant >> (-fb.exp) as u32).min(1 << 40) as i64
-            };
-            if fb.neg {
-                -mag
-            } else {
-                mag
-            }
+    let n: i64 = if cb == Class::Zero { 0 } else {
+        let fb = fin(b);
+        let mag: i64 = if fb.exp >= 0 {
+            1 << 40
+        } else if fb.exp <= -64 {
+            0
+        } else {
+            (fb.mant >> (-fb.exp) as u32).min(1 << 40) as i64
+        };
+        if fb.neg {
+            -mag
+        } else {
+            mag
         }
     };
     let f = fin(a);
@@ -387,6 +391,7 @@ pub fn scale(a: F80, b: F80) -> F80 {
 }
 
 /// `fucomi`: `None` when unordered.
+#[must_use]
 pub fn compare(a: F80, b: F80) -> Option<Ordering> {
     let (ca, cb) = (a.class(), b.class());
     let bad = |c| matches!(c, Class::Unsupported | Class::QuietNaN | Class::SignalingNaN);
