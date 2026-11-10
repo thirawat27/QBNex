@@ -3976,6 +3976,7 @@ layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = 
 GOTO finishednonexec
 END IF
 
+IF n >= 3 AND secondelement$ = "SUB" THEN declaredsubnames$ = declaredsubnames$ + sp + getelement$(a$, 3) + sp 'for the 'Subprogram missing' diagnostic
 GOTO finishednonexec 'note: no layout required
 END IF
 END IF
@@ -10530,6 +10531,7 @@ END IF '>=3
 IF RIGHT$(a$, 2) = sp + "=" THEN a$ = "Expected ... = expression": GOTO errmes
 
 'Syntax error
+IF INSTR(declaredsubnames$, sp + firstelement$ + sp) THEN a$ = "Missing subprogram: SUB " + firstelement$ + " is declared, but this program has no SUB " + firstelement$ + " ... END SUB; it may be in a Quick Library or another module": GOTO errmes
 a$ = "Syntax error": GOTO errmes
 
 finishedline:
