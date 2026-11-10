@@ -36,7 +36,7 @@ pub struct KeywordInfo {
 
 /// (name, kind, syntax, description)
 static LANGUAGE: &[(&str, KeywordKind, &str, &str)] = {
-    use KeywordKind::{Operator as O, Statement as S, Type as T};
+    use KeywordKind::{BuiltinFunction as F, BuiltinSub as B, Operator as O, Statement as S, Type as T};
     &[
         ("ACCESS", S, "OPEN file$ FOR mode ACCESS {READ|WRITE|READ WRITE} AS #n", "Access clause of OPEN."),
         ("ALIAS", S, "DECLARE SUB name ALIAS \"external\" (...)", "Names the external symbol of a DECLARE."),
@@ -134,6 +134,46 @@ static LANGUAGE: &[(&str, KeywordKind, &str, &str)] = {
         ("_ORELSE", O, "a _ORELSE b", "Short-circuit OR."),
         ("_PRESERVE", S, "REDIM _PRESERVE array(bounds)", "Keeps array contents on REDIM."),
         ("_UNSIGNED", T, "AS _UNSIGNED {INTEGER|LONG|_BYTE|_INTEGER64|_OFFSET|_BIT}", "Unsigned variant of an integer type (suffix ~)."),
+        // ---- R13 language features (port-plan section 9.4) ----
+        ("EACH", S, "FOR EACH item IN array() ... NEXT", "Loop over every element of an array or collection."),
+        ("IN", S, "FOR EACH item IN array()", "Collection of a FOR EACH loop."),
+        ("OPTIONAL", S, "SUB s (OPTIONAL x AS LONG = 0)", "Parameter that may be left out (with a default value)."),
+        ("_IIF", F, "_IIF(condition, valueIfTrue, valueIfFalse)", "Inline IF: evaluates only the chosen value."),
+        ("_THROW", B, "_THROW code%[, message$]", "Raises an error that TRY ... CATCH or ON ERROR can handle."),
+        ("_ULEN", F, "_ULEN(text$)", "Length of a UTF-8 string in characters."),
+        ("_UMID$", F, "_UMID$(text$, start&[, count&])", "Characters of a UTF-8 string (by character, not byte)."),
+        ("_UCHR$", F, "_UCHR$(codePoint&)", "UTF-8 encoding of a Unicode code point."),
+        ("_UASC", F, "_UASC(text$[, position&])", "Unicode code point of a character of a UTF-8 string."),
+        ("_SPLIT", F, "count& = _SPLIT(text$, separator$, parts$())", "Splits text into an array; returns the number of parts."),
+        ("_JOIN$", F, "_JOIN$(parts$(), separator$)", "Joins the elements of a string array."),
+        ("_REPLACE$", F, "_REPLACE$(text$, find$, replacement$)", "Replaces every occurrence of find$."),
+        ("_STARTSWITH", F, "_STARTSWITH(text$, prefix$)", "-1 when text$ starts with prefix$."),
+        ("_ENDSWITH", F, "_ENDSWITH(text$, suffix$)", "-1 when text$ ends with suffix$."),
+        ("_FORMAT$", F, "_FORMAT$(value, format$)", "Formats a number or date with a .NET-style format string."),
+        ("_LIST", T, "DIM l AS _LIST", "Built-in list collection (FOR EACH works on it)."),
+        ("_DICT", T, "DIM d AS _DICT", "Built-in dictionary (hash map) collection."),
+        ("_REGEX", F, "_REGEX(pattern$, text$)", "Regular-expression match (pure Rust engine)."),
+        ("_RANDOMSEED", B, "_RANDOMSEED [seed&&]", "Seeds the better random generator (no seed: from the system)."),
+        // ---- R15 3D API (docs/rust-port/r15-g4-3d-api.md) ----
+        ("_LOADMODEL", F, "model& = _LOADMODEL(file$)", "Loads a glTF 2.0 model (.gltf/.glb); -1 when it cannot be loaded."),
+        ("_MESH", F, "model& = _MESH(px!(), py!(), pz!(), nx!(), ny!(), nz!(), u!(), v!(), idx&())", "Model from vertex arrays (normals may be empty: computed)."),
+        ("_MESHCUBE", F, "model& = _MESHCUBE(size!)", "Cube primitive."),
+        ("_MESHPLANE", F, "model& = _MESHPLANE(width!, depth!)", "Flat plane on the XZ axes."),
+        ("_MESHCOLOR", B, "_MESHCOLOR model&, colour~&", "Base colour of the whole model."),
+        ("_MESHTEXTURE", B, "_MESHTEXTURE model&, image&", "Texture from a 32-bit image handle."),
+        ("_FREEMESH", B, "_FREEMESH model&", "Frees a model."),
+        ("_DRAW3D", B, "_DRAW3D model& [, x!, y!, z!] [, rx!, ry!, rz!] [, sx!, sy!, sz!]", "Queues a model to draw at _DISPLAY (angles in degrees, order Y-X-Z)."),
+        ("_CAMERA", B, "_CAMERA x!, y!, z! TO tx!, ty!, tz! [, fov! | , _ORTHO height!]", "Camera position and target (perspective or orthographic)."),
+        ("_CAMERARANGE", B, "_CAMERARANGE near!, far!", "Near and far clipping distances (default 0.1, 1000)."),
+        ("_ORTHO", S, "_CAMERA ... , _ORTHO height!", "Orthographic projection for _CAMERA."),
+        ("_AMBIENT", B, "_AMBIENT colour~& [, intensity!]", "Ambient light."),
+        ("_LIGHT", F, "light& = _LIGHT({_DIRECTIONAL|_POINT}, x!, y!, z!, colour~&, intensity! [, range!])", "Creates a directional or point light."),
+        ("_DIRECTIONAL", S, "_LIGHT(_DIRECTIONAL, dx!, dy!, dz!, colour~&, intensity!)", "Directional light kind."),
+        ("_POINT", S, "_LIGHT(_POINT, x!, y!, z!, colour~&, intensity! [, range!])", "Point light kind."),
+        ("_LIGHTON", B, "_LIGHTON light&, {0|-1}", "Turns a light off or on (at most 8 lights are on)."),
+        ("_FREELIGHT", B, "_FREELIGHT light&", "Frees a light."),
+        ("_CLEAR3D", B, "_CLEAR3D [colour~&]", "Clears the colour and depth of the 3D layer."),
+        ("_GPU3D", F, "f% = _GPU3D", "-1 when a GPU can draw 3D; without one the 3D statements do nothing."),
     ]
 };
 
@@ -202,5 +242,9 @@ mod tests {
         assert!(lookup("string$").is_some());
         assert!(lookup("input").is_some());
         assert!(lookup("myvar").is_none());
+        assert_eq!(lookup("_iif").unwrap().kind, KeywordKind::BuiltinFunction);
+        assert_eq!(lookup("_umid$").unwrap().kind, KeywordKind::BuiltinFunction);
+        assert_eq!(lookup("_draw3d").unwrap().kind, KeywordKind::BuiltinSub);
+        assert!(lookup("each").is_some() && lookup("_meshcube").is_some());
     }
 }
