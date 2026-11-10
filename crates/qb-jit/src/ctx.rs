@@ -154,6 +154,10 @@ pub struct Ctx {
     /// frame and globals of the code that called it. Native code reloads
     /// both after every `VmOp` (a VM call may grow and move its register file).
     pub frame: *mut u64,
+    /// Native calls still allowed before native code hands calls to the VM
+    /// (bounds the native stack). Decremented per active native call.
+    pub call_budget: u32,
+    pub _pad3: u32,
     // ---- not accessed by native code ----
     pub chain: Vec<ChainRec>,
     gosub_buf: Vec<u32>,
@@ -164,6 +168,10 @@ pub(crate) const OFF_EV_PTR: i32 = offset_of!(Ctx, ev_ptr) as i32;
 pub(crate) const OFF_EV_MASK: i32 = offset_of!(Ctx, ev_mask) as i32;
 pub(crate) const OFF_TABLES: i32 = offset_of!(Ctx, tables) as i32;
 pub(crate) const OFF_FRAME: i32 = offset_of!(Ctx, frame) as i32;
+pub(crate) const OFF_CALL_BUDGET: i32 = offset_of!(Ctx, call_budget) as i32;
+
+/// Native call depth allowed per entry into native code.
+pub const DEFAULT_CALL_BUDGET: u32 = 1000;
 pub(crate) const OFF_VIEW_DATA: i32 = offset_of!(ArrView, data) as i32;
 pub(crate) const OFF_VIEW_LB: i32 = offset_of!(ArrView, lbound) as i32;
 pub(crate) const OFF_VIEW_COUNT: i32 = offset_of!(ArrView, count) as i32;
@@ -230,6 +238,8 @@ impl Ctx {
             ev_mask: u32::MAX,
             tables: [core::ptr::null_mut(); 2],
             frame: core::ptr::null_mut(),
+            call_budget: DEFAULT_CALL_BUDGET,
+            _pad3: 0,
             _pad2: 0,
             chain: Vec::new(),
             gosub_buf,

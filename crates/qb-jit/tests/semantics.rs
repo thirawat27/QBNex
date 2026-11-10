@@ -295,7 +295,7 @@ fn fact_func() -> Func {
     f.t(Term::Ret);
     f.at(rec);
     f.bin(BinOp::Sub, m1, n, one);
-    f.i(Inst::Call { func: 1, args: vec![Arg::Val(m1)], dst: Some(sub), pc: 201 });
+    f.i(Inst::Call { func: 1, args: vec![Arg::Val(m1)], dst: Some(sub), pc: 201, back: vec![] });
     f.bin(BinOp::Mul, r, n, sub);
     f.t(Term::Ret);
     f.f
@@ -306,7 +306,7 @@ fn recursive_function_call() {
     let mut f = Fb::new("main");
     let (n, r) = (f.slot(Ty::I32), f.slot(Ty::I32));
     f.ci(n, 10);
-    f.i(Inst::Call { func: 1, args: vec![Arg::Val(n)], dst: Some(r), pc: 5 });
+    f.i(Inst::Call { func: 1, args: vec![Arg::Val(n)], dst: Some(r), pc: 5, back: vec![] });
     let o = both(&module(vec![f.f, fact_func()], vec![]), 0, &Setup::default());
     assert_eq!(o.status, status::END);
     assert_eq!(o.frame[1], 3628800);
@@ -328,7 +328,7 @@ fn error_in_callee_builds_deopt_chain() {
     g.t(Term::Br { cond: c, then: die, els: rec });
     g.at(rec);
     g.bin(BinOp::Sub, m1, n, one);
-    g.i(Inst::Call { func: 1, args: vec![Arg::Val(m1)], dst: None, pc: 301 });
+    g.i(Inst::Call { func: 1, args: vec![Arg::Val(m1)], dst: None, pc: 301, back: vec![] });
     g.t(Term::Ret);
     g.at(die);
     g.line(31, 310);
@@ -337,7 +337,7 @@ fn error_in_callee_builds_deopt_chain() {
     let mut f = Fb::new("main");
     let n0 = f.slot(Ty::I32);
     f.ci(n0, 3);
-    f.i(Inst::Call { func: 1, args: vec![Arg::Val(n0)], dst: None, pc: 9 });
+    f.i(Inst::Call { func: 1, args: vec![Arg::Val(n0)], dst: None, pc: 9, back: vec![] });
     let o = both(&module(vec![f.f, g.f], vec![]), 0, &Setup::default());
     assert_eq!((o.status, o.err, o.err_line, o.exit_pc), (status::ERROR, 11, 31, 310));
     // innermost first: boom(1) called from boom(2) at 301, boom(2) from boom(3) at 301, boom(3) from main at 9
@@ -359,8 +359,8 @@ fn byref_parameter() {
     let mut f = Fb::new("main");
     let x = f.slot(Ty::I32);
     f.ci(x, 41);
-    f.i(Inst::Call { func: 1, args: vec![Arg::Ref(x)], dst: None, pc: 1 });
-    f.i(Inst::Call { func: 1, args: vec![Arg::Ref(x)], dst: None, pc: 2 });
+    f.i(Inst::Call { func: 1, args: vec![Arg::Ref(x)], dst: None, pc: 1, back: vec![] });
+    f.i(Inst::Call { func: 1, args: vec![Arg::Ref(x)], dst: None, pc: 2, back: vec![] });
     let o = both(&module(vec![f.f, g.f], vec![]), 0, &Setup::default());
     assert_eq!(o.frame[0], 43);
 }
@@ -564,4 +564,62 @@ fn aot_objects_link_for_every_target() {
         assert_eq!(img.symbols.iter().filter(|(n, _)| n.starts_with("qb_func_")).count(), 2, "{t:?}");
         assert_eq!(qb_link::Image::from_bytes(&img.to_bytes()).unwrap(), img);
     }
+}
+
+#[test]
+fn byref_copy_out_and_call_budget() {
+    // SUB dbl(x&): x& = x& * 2   called with copy-in/copy-out
+    let mut g = Fb::new("dbl");
+    let p = g.param(Ty::I32);
+    let two = g.slot(Ty::I32);
+    g.ci(two, 2);
+    g.bin(BinOp::Mul, p, p, two);
+    g.t(Term::Ret);
+    let mut f = Fb::new("main");
+    let x = f.slot(Ty::I32);
+    f.ci(x, 21);
+    f.i(Inst::Call { func: 1, args: vec![Arg::Val(x)], dst: None, pc: 7, back: vec![(0, x)] });
+    let m = module(vec![f.f, g.f], vec![]);
+    let o = both(&m, 0, &Setup::default());
+    assert_eq!(o.frame[0], 42);
+}
+
+#[test]
+fn recursion_deeper_than_the_budget_deopts_at_the_call() {
+    // The reference interpreter recurses on the Rust stack: give it room.
+    std::thread::Builder::new().stack_size(512 << 20).spawn(deep_recursion).unwrap().join().unwrap();
+}
+
+fn deep_recursion() {
+    // FUNCTION down&(n&): IF n& > 0 THEN down& = down&(n& - 1) + 1
+    let mut g = Fb::new("down");
+    let n = g.param(Ty::I32);
+    let (r, one, zero, c, m1, sub) = (g.slot(Ty::I32), g.slot(Ty::I32), g.slot(Ty::I32), g.slot(Ty::I16), g.slot(Ty::I32), g.slot(Ty::I32));
+    g.f.ret = Some(r);
+    let rec = g.block(None);
+    let done = g.block(None);
+    g.at(0);
+    g.ci(one, 1);
+    g.ci(zero, 0);
+    g.i(Inst::Cmp { cc: Cc::Gt, dst: c, a: n, b: zero });
+    g.t(Term::Br { cond: c, then: rec, els: done });
+    g.at(rec);
+    g.bin(BinOp::Sub, m1, n, one);
+    g.i(Inst::Call { func: 1, args: vec![Arg::Val(m1)], dst: Some(sub), pc: 77, back: vec![] });
+    g.bin(BinOp::Add, r, sub, one);
+    g.t(Term::Ret);
+    g.at(done);
+    g.t(Term::Ret);
+    let mut f = Fb::new("main");
+    let (k, out) = (f.slot(Ty::I32), f.slot(Ty::I32));
+    f.ci(k, 5000);
+    f.i(Inst::Call { func: 1, args: vec![Arg::Val(k)], dst: Some(out), pc: 3, back: vec![] });
+    let m = module(vec![f.f, g.f], vec![]);
+    let o = both(&m, 0, &Setup::default());
+    // budget 1000: the 1001st nested call leaves for the VM at pc 77 with 1000 frames in the chain
+    assert_eq!((o.status, o.exit_pc), (status::DEOPT, 77));
+    assert_eq!(o.chain.len(), qb_jit::ctx::DEFAULT_CALL_BUDGET as usize);
+    let small = module(vec![{ let mut f = Fb::new("main"); let (k, out) = (f.slot(Ty::I32), f.slot(Ty::I32)); f.ci(k, 500); f.i(Inst::Call { func: 1, args: vec![Arg::Val(k)], dst: Some(out), pc: 3, back: vec![] }); f.f }, m.funcs[1].clone()], vec![]);
+    let o = both(&small, 0, &Setup::default());
+    assert_eq!((o.status, o.frame[1]), (status::END, 500));
 }

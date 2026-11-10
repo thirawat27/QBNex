@@ -255,6 +255,11 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 if let Some(d) = inst_def(i) {
                     defined[d as usize] = true;
                 }
+                if let Inst::Call { back, .. } = i {
+                    for (_, r) in back {
+                        defined[*r as usize] = true;
+                    }
+                }
                 if let Inst::VmOp { writes, .. } = i {
                     for w in writes {
                         defined[*w as usize] = true;
@@ -555,8 +560,10 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.ins().brif(c, t1, &[], t2, &[]);
             }
             Term::Ret => {
-                if let Some(r) = self.f.ret {
-                    if !self.resident[r as usize] {
+                // The caller reads the result and the parameters (BYREF copy-out).
+                let outs: Vec<Reg> = self.f.ret.into_iter().chain(self.f.params.iter().copied()).collect();
+                for r in outs {
+                    if !self.resident[r as usize] && self.defined[r as usize] {
                         let v = self.b.use_var(self.vars[(r) as usize]);
                         let t = self.ty(r);
                         let fr = self.fr();
@@ -775,7 +782,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let v = self.get(*src);
                 self.mem_store(t, v, a, 0);
             }
-            Inst::Call { func, args, dst, pc } => self.call(*func, args, *dst, *pc),
+            Inst::Call { func, args, dst, pc, back } => self.call(*func, args, *dst, *pc, back),
             Inst::Host { f, args, dst } => {
                 let h = &self.m.hosts[*f as usize];
                 let mut sig = Signature::new(self.cc);
@@ -1216,14 +1223,27 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         self.b.ins().iadd(data, bytes)
     }
 
-    fn call(&mut self, func: FuncId, args: &[Arg], dst: Option<Reg>, call_pc: u32) {
+    fn call(&mut self, func: FuncId, args: &[Arg], dst: Option<Reg>, call_pc: u32, back: &[(Reg, Reg)]) {
         let callee = &self.m.funcs[func as usize];
         let need = callee.slots.len() as i64;
         let top = self.ctx_load(types::I64, OFF_ARENA_TOP);
         let cap = self.ctx_load(types::I64, OFF_ARENA_CAP);
+        let budget = self.ctx_load(types::I32, OFF_CALL_BUDGET);
         let end = self.b.ins().iadd_imm_s(top, need);
         let over = self.b.ins().icmp(IntCC::UnsignedGreaterThan, end, cap);
-        self.guard(over, qberr::OUT_OF_STACK);
+        let spent = self.b.ins().icmp_imm_s(IntCC::Equal, budget, 0);
+        let no = self.b.ins().bor(over, spent);
+        // Too deep for native code: the VM makes this call.
+        let go = self.b.create_block();
+        let vm = self.b.create_block();
+        self.b.set_cold_block(vm);
+        self.b.ins().brif(no, vm, &[], go, &[]);
+        self.b.switch_to_block(vm);
+        let pcv = self.b.ins().iconst(types::I32, i64::from(call_pc));
+        self.b.ins().jump(self.deopt_blk, &[pcv.into()]);
+        self.b.switch_to_block(go);
+        let b1 = self.b.ins().iadd_imm_s(budget, -1);
+        self.ctx_store(b1, OFF_CALL_BUDGET);
         let arena = self.ctx_load(types::I64, OFF_ARENA);
         let off = self.b.ins().ishl_imm_s(top, 3);
         let cf = self.b.ins().iadd(arena, off);
@@ -1273,7 +1293,15 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), cf, (r * 8) as i32);
             self.set(d, v);
         }
+        for &(cs, r) in back {
+            let t = callee.slots[cs as usize];
+            let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), cf, (cs * 8) as i32);
+            self.set(r, v);
+        }
         self.ctx_store(top, OFF_ARENA_TOP);
+        let b = self.ctx_load(types::I32, OFF_CALL_BUDGET);
+        let b = self.b.ins().iadd_imm_s(b, 1);
+        self.ctx_store(b, OFF_CALL_BUDGET);
     }
 }
 
@@ -1304,7 +1332,8 @@ fn inst_def(i: &Inst) -> Option<Reg> {
         | Inst::Math { dst, .. }
         | Inst::Bitcast { dst, .. } => Some(*dst),
         Inst::VAElem { load: true, reg, .. } => Some(*reg),
-        Inst::Call { dst, .. } | Inst::Host { dst, .. } => *dst,
+        Inst::Host { dst, .. } => *dst,
+        Inst::Call { dst, .. } => *dst,
         _ => None,
     }
 }

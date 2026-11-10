@@ -196,7 +196,7 @@ fn run_full(m: &Module, func: FuncId, s: &Setup, e: Engine, tables: [*mut u64; 2
     frame[..s.frame.len()].copy_from_slice(s.frame);
     let mut globals = vec![0u64; m.globals.len().max(1)];
     globals[..s.globals.len()].copy_from_slice(s.globals);
-    let mut ctx = Ctx::with_capacity(globals.as_mut_ptr(), 64, 4096);
+    let mut ctx = Ctx::with_capacity(globals.as_mut_ptr(), 64, 1 << 16);
     let mut rtst = Rt::default();
     ctx.user = &mut rtst as *mut Rt as *mut _;
     for &g in s.gosub {

@@ -157,9 +157,12 @@ pub enum Inst {
     /// Array element load; `arr` holds a `*mut ArrDesc`, element type = type of `dst`.
     ALoad { dst: Reg, arr: Reg, idx: Vec<Reg> },
     AStore { arr: Reg, idx: Vec<Reg>, src: Reg },
-    /// Call another function of the same module. `pc` = VM pc of the call
-    /// (recorded in the deopt chain when the callee leaves abnormally).
-    Call { func: FuncId, args: Vec<Arg>, dst: Option<Reg>, pc: u32 },
+    /// Call another function of the same module. `pc` = VM pc of the call:
+    /// recorded in the deopt chain when the callee leaves abnormally, and
+    /// where native code leaves (DEOPT) when the call cannot be made natively
+    /// (frame arena full or `Ctx::call_budget` used up). After a normal
+    /// return, `back` copies callee slots into caller slots (BYREF copy-out).
+    Call { func: FuncId, args: Vec<Arg>, dst: Option<Reg>, pc: u32, back: Vec<(Reg, Reg)> },
     /// Call a host (runtime) function: `extern "C" fn(*mut Ctx, args...) -> ret`.
     Host { f: HostId, args: Vec<Reg>, dst: Option<Reg> },
     /// Raise QB error `code` (ERROR n).
@@ -373,8 +376,13 @@ impl Module {
                                 }
                             }
                         }
-                        Inst::Call { func, args, dst, .. } => {
+                        Inst::Call { func, args, dst, back, .. } => {
                             let callee = self.funcs.get(*func as usize).ok_or_else(|| e("call target".into()))?;
+                            for (cs, r) in back {
+                                if callee.slots.get(*cs as usize) != Some(&ty(*r)?) {
+                                    return Err(e("call copy-back types".into()));
+                                }
+                            }
                             if callee.params.len() != args.len() {
                                 return Err(e(format!("call {}: arity", callee.name)));
                             }

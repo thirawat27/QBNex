@@ -376,13 +376,15 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                         unsafe { write_mem(p, t, get(*dst)) }
                     }
                 }
-                Inst::Call { func: cf, args, dst, pc: call_pc } => {
+                Inst::Call { func: cf, args, dst, pc: call_pc, back } => {
                     let callee = &m.funcs[*cf as usize];
                     let need = callee.slots.len() as u64;
                     let top = ctx.arena_top;
-                    if top + need > ctx.arena_cap {
-                        fail!(qberr::OUT_OF_STACK);
+                    if top + need > ctx.arena_cap || ctx.call_budget == 0 {
+                        ctx.exit_pc = *call_pc;
+                        return status::DEOPT;
                     }
+                    ctx.call_budget -= 1;
                     // SAFETY: within the arena (checked above).
                     let cfr = unsafe { ctx.arena.add(top as usize) };
                     ctx.arena_top = top + need;
@@ -409,7 +411,12 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                         let v = unsafe { read(cfr.add(r as usize) as *const u8, callee.slots[r as usize]) };
                         set(*d, v);
                     }
+                    for &(cs, r) in back {
+                        let v = unsafe { read(cfr.add(cs as usize) as *const u8, callee.slots[cs as usize]) };
+                        set(r, v);
+                    }
                     ctx.arena_top = top;
+                    ctx.call_budget += 1;
                 }
                 Inst::Host { f: h, args, dst } => {
                     let hf = &m.hosts[*h as usize];
