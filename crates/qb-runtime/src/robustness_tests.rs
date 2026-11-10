@@ -206,3 +206,49 @@ fn radix_and_number_formatting_never_panic() {
     }
     report(failures);
 }
+
+#[test]
+fn graphics_with_extreme_arguments_never_panic() {
+    use crate::gfx::testutil::TestImage;
+    let mut rng = Rng(0xFACE_B00C_0000_0001);
+    let mut failures = Vec::new();
+    let pick = |rng: &mut Rng| -> f32 {
+        [0.0, -1.0, 5.0, 31.0, 32.0, 1e9, -1e9, 3e38, -3e38, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 2147483648.0, -2147483904.0]
+            [rng.below(14)]
+            + if rng.below(2) == 0 { (rng.below(64) as f32) - 16.0 } else { 0.0 }
+    };
+    let draw_alphabet = b"UDLRHEFGBNMAT=SCPX0123456789+-,;. ";
+    for k in 0..4000 {
+        let mode = [13u16, 12, 32, 1, 2][rng.below(5)];
+        let mut t = TestImage::new(32, 24, mode);
+        let ops: Vec<u64> = (0..6).map(|_| rng.next()).collect();
+        let fs: Vec<f32> = (0..8).map(|_| pick(&mut rng)).collect();
+        let dl = rng.below(20);
+        let mut ds: Vec<u8> = (0..dl).map(|_| draw_alphabet[rng.below(draw_alphabet.len())]).collect();
+        let what = format!("case {k} mode {mode} f {fs:?} draw {:?}", String::from_utf8_lossy(&ds));
+        ds.push(0);
+        check(&what, &mut failures, || unsafe {
+            let im = &mut t.img;
+            let col = ops[0] as u32;
+            let _ = crate::gfx::line::sub_line(im, fs[0], fs[1], fs[2], fs[3], col, (ops[1] % 3) as i32, ops[2] as u32 & 0xFFFF, (ops[3] % 64) as i32);
+            let _ = crate::gfx::point::sub_pset(im, fs[4], fs[5], col, (ops[4] % 4) as i32);
+            let _ = crate::gfx::circle::sub_circle(
+                im,
+                fs[0] as f64,
+                fs[1] as f64,
+                (fs[6] as f64).clamp(-1e4, 1e4),
+                col,
+                fs[2] as f64,
+                fs[3] as f64,
+                fs[7] as f64,
+                (ops[5] % 64) as i32,
+            );
+            let _ = crate::gfx::view::window(im, fs[0], fs[1], fs[2], fs[3], (ops[1] % 8) as i32);
+            let _ = crate::gfx::paint::paint_color(im, fs[4], fs[5], col, ops[2] as u32, (ops[3] % 8) as i32);
+            let _ = crate::gfx::draw::draw(im, ds.as_ptr(), dl as i32, core::ptr::null());
+            let _ = crate::gfx::point::func_point(&*im, &*im, fs[6], fs[7], (ops[4] % 2) as i32);
+            let _ = crate::gfx::view::pmap(&*im, fs[5], (ops[5] % 6) as i32 - 1);
+        });
+    }
+    report(failures);
+}
