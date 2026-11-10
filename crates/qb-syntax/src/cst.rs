@@ -287,7 +287,9 @@ fn split_statements(text: &str, tokens: &[Token]) -> Vec<Item> {
                     single_if = false;
                 }
             }
-            TokenKind::Colon if single_if && !cur.is_empty() => {
+            // `IF x THEN : stmt` is a single-line IF too.
+            TokenKind::Colon if (single_if || then_seen) && !cur.is_empty() => {
+                single_if = true;
                 cur.append(&mut held);
                 cur.push(i);
             }
@@ -480,7 +482,13 @@ impl Builder<'_> {
     }
 
     fn statement(&mut self, stmt: Vec<u32>) {
-        let role = classify(self.text, self.tokens, &stmt);
+        let mut role = classify(self.text, self.tokens, &stmt);
+        // Inside DECLARE LIBRARY, SUB/FUNCTION lines are declarations, not blocks.
+        if matches!(role, Role::Open(BlockKind::Sub | BlockKind::Function))
+            && self.stack.last().is_some_and(|f| f.kind == BlockKind::DeclareLibrary)
+        {
+            role = Role::Plain;
+        }
         let range = self.range_of(&stmt);
         let node = |role| Node { kind: NodeKind::Statement(role), children: stmt.iter().map(|&t| Element::Token(t)).collect() };
         match role {
@@ -555,10 +563,18 @@ mod tests {
 
     #[test]
     fn single_line_if_and_colons() {
-        let src = "IF a THEN PRINT 1: PRINT 2 ELSE PRINT 3\nFOR i = 1 TO 3: PRINT i: NEXT\n";
+        let src = "IF a THEN PRINT 1: PRINT 2 ELSE PRINT 3\nFOR i = 1 TO 3: PRINT i: NEXT\nIF b THEN : RETURN\n";
         let p = parse(src);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
-        assert_eq!(roles(src).len(), 4);
+        assert_eq!(roles(src).len(), 5);
+    }
+
+    #[test]
+    fn declare_library_bodies() {
+        let p = parse("DECLARE LIBRARY\nFUNCTION GetTicks& ()\nSUB Beep2 (BYVAL f&)\nEND DECLARE\n");
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        let d: Vec<usize> = p.statements().into_iter().map(|s| s.1).collect();
+        assert_eq!(d, vec![0, 1, 1, 0]);
     }
 
     #[test]
