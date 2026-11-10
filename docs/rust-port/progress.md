@@ -255,6 +255,9 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-11 | An unhandled runtime error opens a `MessageBox`. From a console it returns at once and the program continues; under the conformance runner it blocks until the timeout. Error paths therefore cannot be golden cases while L-01 blocks `ON ERROR`; their error numbers are compared by `diff_files` / `diff_sys` instead. | manual | Medium |
 | L-12 | `LINE INPUT #` on a BINARY file treats a line as the last one when it ends within 2 bytes of EOF, so a final 1-character line (`"two" CR LF "x"`) is dropped. Kept. | `files/binary_ops` | Medium |
 | L-13 | `_MEMGET` with a failed check and a 0-byte type raises critical error 518 ("Out of memory") and ends the program: the zero-length scratch vector has no `data()`. Kept. | `diff_mem` | Low |
+| L-15 | The compiler rejects every source file that is not well-formed UTF-8 ("Invalid UTF-8 byte sequence"), so QBasic programs saved in CP437 (box drawing in strings or comments) do not compile. 41 of 129 corpus files. **Fixed** (D-22). | `source/cp437_bytes` (`.deviation`), `source/utf8_bytes` | High |
+| L-16 | Passing a plain variable to a SUB whose parameters go to `CALL ABSOLUTE` (the usual mouse-driver wrapper) is an internal compiler error (`cmemlist(0)`, the id is read from a reference that has no sp3), reported as `File <statement> not found` because a successful `$INCLUDE` open leaves `qberrorhappened` at -2/-3. **Fixed** (D-23). | `control/call_absolute_sub_arg` (`.deviation`) | High |
+| L-17 | `PLAY ON`/`OFF`/`STOP` fail with `'ON' is already defined`; `ON PLAY(n) GOSUB label` compiles as a computed `ON <PLAY(n)> GOSUB`. **Fixed** in the compiler (D-24); the PLAY event itself is not raised yet. | `audio/play_event_trap` (`.deviation`) | Medium |
 | L-14 | `PUT` on a network handle treats a full send buffer ("would block" on the non-blocking socket) as a lost connection: `_CONNECTED` drops to 0 and the rest of the data is lost. Ported as is. | `net/send_buffer_full` | Medium |
 
 Output quirks that are preserved bug-for-bug (golden files depend on them):
@@ -291,6 +294,9 @@ Intentional deviations (Rust differs from legacy on purpose):
 | D-18 | The millisecond clock (`GetTicks`) is 64-bit everywhere. Legacy Windows used `clock()`, a 32-bit count that overflows after 24.8 days of uptime of the program. | No conformance case (needs 25 days); `systime.rs` unit tests. |
 | D-19 | `_CLIPBOARD$` on Linux/macOS goes through `arboard`: the system clipboard is UTF-8, so bytes that are not valid UTF-8 are stored as U+FFFD; without a display a clipboard private to the process is used (legacy: empty, or a GUI-only X11 owner). Windows keeps `CF_TEXT` bytes exactly. | No conformance case (needs a desktop clipboard). |
 | D-20 | `_CLIPBOARDIMAGE` (read and write) works on Linux/macOS through `arboard`; legacy did nothing there. | Closes a platform gap; no conformance case (desktop). |
+| D-22 | Compiler: source that is not UTF-8 is read as 8-bit (CP437) bytes, kept exactly as written, like QBasic and QB64 (fixes L-15). The encoding error stays for NUL bytes (UTF-16 without BOM) and for invalid bytes in a file that is otherwise UTF-8 (UTF-8 BOM, or two or more 3-/4-byte UTF-8 sequences). QuickBASIC binary (fast load, `FC 00`) files get their own diagnostic. | QBasic semantics; real programs are CP437. |
+| D-23 | Compiler: the conventional-memory argument check reads the variable id with `VAL(e$)` (fixes L-16); a successful include open clears `qberrorhappened`; an internal compiler error prints the error number and compiler line. | Code defect; the old message hid the real error. |
+| D-24 | Compiler: `PLAY {ON\|OFF\|STOP}` and `ON PLAY(n) GOSUB label` are parsed, checked and laid out with a warning; the runtime does not raise the PLAY event yet, so the handler never runs (fixes the compile side of L-17). | Programs with background music compile; raising the event belongs to the audio runtime (follow-up). |
 | D-21 | `_OPENCLIENT` tries every IPv4 address of the host until one connects; legacy Windows used only the first (`gethostbyname`), legacy Linux/macOS already tried all. | One behaviour on all OSes. |
 
 ## R4: files, file system, ENVIRON, SHELL, `_MEM`
@@ -360,6 +366,32 @@ Not verified: Linux/macOS (`GFS_C` replacement on `std::fs`, `setenv`, `system()
 tests/diff/run_diff.cmd
 ```
 
+
+## Corpus fixes (branch `claude/corpus-fixes-70d56e`)
+
+Local corpus `tests/corpus-local/` (gitignored): 129 `.bas` files from creationix-basic-games (MIT) and the QB64 `programs/samples`. Compile only (`qb file.bas -o x.exe -q -m`), one file at a time.
+
+| Build | Compiled |
+| --- | --- |
+| Legacy oracle (`.oracle`) | 79/129 |
+| Before (main session run) | 70/129 |
+| After (this branch) | 112/129 |
+
+What was wrong:
+
+- **41 files, CP437 source** (L-15, legacy): every non-UTF-8 file was rejected. Fixed (D-22).
+- **8 files, `CALL ABSOLUTE` wrapper SUBs** called with a variable from another SUB (`MouseDriver` in GIRLS\WAR, MISC\MOUSE, MISC\SCOUTS, RPG3\MOUSE, WARS\MAPEDIT, WARS\MOUSEWAR; `GetIntVector`/`LoadAndPlayMIDI` in RPG2\QMIDI, RPG2\RPG2): internal compiler error shown as `File <statement> not found` (L-16, legacy). Fixed (D-23). The task brief guessed these called SUBs from missing DOS assembly libraries; they define the SUBs themselves.
+- **2 files, `PLAY ON` / `ON PLAY(n) GOSUB`** (GALAXY, MOSS; hidden behind L-15 in the oracle): L-17, fixed in the compiler (D-24).
+- **8 files, "Build failed" at the C++ step** (RPG\CONVERT, RPG2\MAPEDIT/PARTY/SHAPES/TEST, SORCERER, ZENITH\SHIPS/TEST) and **RACE\RACE.BAS** (`memory allocation of 16777216 bytes failed`): do not reproduce on this branch's build or on the oracle; all compile. Most likely the shared main checkout ran out of memory while other sessions were building. No code change.
+
+Still failing, expected (17):
+
+- 13 files are QuickBASIC 4.x binary ("fast load", tokenized, start `FC 00`), not text: BANANA\GRAPH, FOWLER\EDIT, MISC\ARTIF, MISC\SHIPWAR, QUESTLND\BACK/GRAPHICS/QUEST/SHIP/TEST/TESTBACK/TEXTURE3/TEXTURE4, RPG2\CONVERT. QBasic and QB64 cannot read them either; they now get a clear diagnostic.
+- MISC\SPACE.BAS is not BASIC source (binary data; NUL bytes): encoding error.
+- QUESTLND\QUESTLND.BAS calls `colorpalette`, whose body exists only in the binary-format QUESTLND modules.
+- The LABYRINT "string never closed" and ZENITH\BACKS "PRINT not a known statement" messages were follow-on diagnostics of L-15; both compile now.
+
+Follow-ups: raise the PLAY event in the audio runtime (D-24); the corpus run takes about 1 minute per file because each compile rebuilds `qbx.cpp`.
 
 ## Next steps
 
