@@ -72,6 +72,7 @@ endfunc
 | --- | --- |
 | `console only` / `console` | `$CONSOLE:ONLY` / `$CONSOLE` |
 | `source <hex>` | ชื่อไฟล์ต้นฉบับ (สำหรับข้อความ error) |
+| `screenhide` | `$SCREENHIDE` (no window: `_DISPLAY` leaves `_AUTODISPLAY` on) |
 | `endkey 0` | `END` ไม่พิมพ์ "Press any key to continue" |
 
 executor ต้องข้าม meta ที่ไม่รู้จัก

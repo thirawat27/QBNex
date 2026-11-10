@@ -1111,6 +1111,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub__limit|sub__delay|sub__title|"
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
+    l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 
@@ -1993,6 +1994,7 @@ SUB IrFinish (src$, outExe$)
     ELSEIF Console THEN
         PRINT #fh, "meta console"
     END IF
+    IF ScreenHide THEN PRINT #fh, "meta screenhide"
     PRINT #fh, IrMod;
     top = 0
     FOR i = 2 TO IrFnN

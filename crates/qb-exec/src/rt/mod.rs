@@ -10,6 +10,8 @@ use qb_ir::Ty;
 
 mod audiox;
 pub(crate) mod display;
+mod input;
+mod scancodes;
 pub(crate) mod builtins;
 mod files;
 mod memx;

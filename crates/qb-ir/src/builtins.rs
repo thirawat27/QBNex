@@ -266,6 +266,14 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__freefont", [I32, I32]),
     b!("func__printwidth", [Str, I32, I32], I32),
     b!("func__loadimage", [Str, I32, I32], I32),
+    b!("func__title", [], Str),
+    b!("func__keyhit", [], I32),
+    b!("func__keydown", [I32], I32),
+    b!("func__mouseinput", [I32, I32], I32),
+    b!("func__mousebutton", [I32, I32, I32], I32),
+    b!("func__mousex", [I32, I32], F32),
+    b!("func__mousey", [I32, I32], F32),
+    b!("func__mousewheel", [I32, I32], I32),
 
     // ---- sound (qb-audio); trailing I32 `passed` = optional-argument flags of the C++ backend
     b!("SOUND", [F64, F64]),

@@ -513,6 +513,8 @@ pub struct Module {
     pub data: Vec<Vec<u8>>,
     /// `$CONSOLE` (`Some(false)`) / `$CONSOLE:ONLY` (`Some(true)`)
     pub console: Option<bool>,
+    /// `$SCREENHIDE`
+    pub screenhide: bool,
 }
 
 /// Operand roles, for validation and for tools (disassembler, JIT).

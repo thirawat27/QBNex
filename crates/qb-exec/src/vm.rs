@@ -366,6 +366,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         let mut rt = RtState::new(out);
         rt.console_on = m.console.is_some();
         rt.console_only = m.console == Some(true);
+        rt.display.screen_hide = m.screenhide;
         Vm {
             m,
             rt,

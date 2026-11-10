@@ -36,6 +36,10 @@ pub(crate) struct Display {
     /// error raised through the console Host
     pub pending: i32,
     pub started: bool,
+    /// `$SCREENHIDE`
+    pub screen_hide: bool,
+    /// `_TITLE` (window_title)
+    pub title: Vec<u8>,
 }
 
 impl Default for Display {
@@ -59,6 +63,8 @@ impl Default for Display {
             fontflags: vec![0; 49],
             pending: 0,
             started: false,
+            title: Vec::new(),
+            screen_hide: false,
         };
         d.fontwidth[8] = 8;
         d.fontwidth[14] = 8;
@@ -1258,6 +1264,23 @@ impl Display {
         }
     }
 
+    /// Pixel size of the display page (text pages in font cells).
+    pub(crate) fn display_size(&self) -> (i32, i32) {
+        if !self.started {
+            return (640, 400);
+        }
+        // SAFETY: valid display page.
+        unsafe {
+            let p = &*self.dp();
+            let (mut w, mut h) = (i32::from(p.width), i32::from(p.height));
+            if p.text != 0 {
+                w *= self.fontwidth[p.font as usize].max(1);
+                h *= self.fontheight[p.font as usize].max(1);
+            }
+            (w, h)
+        }
+    }
+
     /// The destination is a surface (not the `$CONSOLE` stdout image).
     pub(crate) fn write_is_screen(&self) -> bool {
         // SAFETY: valid write page.
@@ -1427,10 +1450,10 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "func__alpha" | "func__rgb32" | "func__rgba32" | "func__red32" | "func__green32" | "func__blue32"
             | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put"
             | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
-            | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" | "sub__limit"
+            | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
             | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
-            | "func__printwidth" | "func__loadimage"
+            | "func__printwidth" | "func__loadimage" | "func__title"
     );
     if !known {
         return None;
@@ -1540,7 +1563,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "func__newimage" => out = Some(V::I(d.newimage(i(0), i(1), i(2), i(3)).into())),
             "sub__freeimage" => d.freeimage(i(0), i(1)),
             "func__copyimage" => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
-            "sub__display" => d.capture(gfx::capture::KIND_DISPLAY),
+            "sub__display" => {
+                d.capture(gfx::capture::KIND_DISPLAY);
+                // with a window, _DISPLAY switches _AUTODISPLAY off (sub__display)
+                if !d.screen_hide {
+                    d.autodisplay = 0;
+                }
+            }
             "sub__autodisplay" => d.autodisplay = 1,
             "func__autodisplay" => out = Some(V::I(if d.autodisplay != 0 { -1 } else { 0 })),
             "func__width" | "func__height" | "func__pixelsize" => {
@@ -1785,7 +1814,9 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 }
             }
             "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
-            "sub__limit" | "sub__delay" | "sub__title" => {}
+            "sub__title" => d.title = a[0].s().to_vec(),
+            "func__title" => out = Some(V::S(d.title.clone())),
+            "sub__delay" => {}
             _ => {}
         }
     }

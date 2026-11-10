@@ -319,6 +319,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         m: Module {
                 data: src.data.clone(),
                 console: src.meta("console").map(|v| v == "only"),
+                screenhide: src.meta("screenhide").is_some(),
                 ..Module::default()
             },
         kstr: HashMap::new(),

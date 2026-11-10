@@ -76,6 +76,10 @@ pub(crate) struct RtState<'a> {
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
     pub(crate) net_pending_error: i32,
+    /// keyboard and mouse (INKEY$, _KEYHIT, _MOUSEINPUT, ...)
+    pub(crate) input: super::input::Input,
+    /// _LIMIT: time of the previous frame
+    pub(crate) limit_last: Option<std::time::Instant>,
     /// VARPTR$ value slots in DBLOCK (offset, next slot)
     pub(crate) varptr_slots: usize,
     pub(crate) varptr_next: usize,
@@ -113,6 +117,8 @@ impl<'a> RtState<'a> {
             net_pending_error: 0,
             snd_started: false,
             read_err: 0,
+            input: super::input::Input::default(),
+            limit_last: None,
             varptr_slots: 0,
             varptr_next: 0,
             display: super::display::Display::default(),
@@ -322,6 +328,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     }
     if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
         return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
+    }
+    if let Some(r) = input_call(vm, name, &a) {
+        return r;
     }
     if name == "VARPTR$" {
         // VARPTR$ of a numeric variable for DRAW/PLAY "=": the value goes to one of
@@ -666,7 +675,6 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "CLS" | "BEEP" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
         "CSRLIN" => return ok(V::I(1)),
-        "INKEY$" => return ok(V::S(vec![])),
         "SLEEP" => {}
         "COMMAND$" => {
             let args: Vec<String> = std::env::args().skip(1).collect();
@@ -1113,4 +1121,68 @@ fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
     let mut r = vec![fillc; width - out.len()];
     r.append(&mut out);
     r
+}
+
+/// Keyboard, mouse and frame-rate builtins (rt/input.rs).
+fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
+    let rt = vm.rt();
+    let cm = &mut rt.cmem[..];
+    let v = match name {
+        "INKEY$" | "qbs_inkey" => V::S(rt.input.inkey(cm)),
+        "func__keyhit" => {
+            rt.input.pump(cm);
+            V::I(i64::from(qb_runtime::keybuf::qb_keyhit_pop()))
+        }
+        "func__keydown" => {
+            rt.input.pump(cm);
+            let x = a[0].i();
+            if x <= 0 {
+                return Some(e(5));
+            }
+            V::I(if qb_runtime::keybuf::qb_keyheld(x as u32) != 0 { -1 } else { 0 })
+        }
+        "func__mouseinput" => {
+            rt.input.pump(cm);
+            V::I(if rt.input.mouseinput() { -1 } else { 0 })
+        }
+        "func__mousebutton" => {
+            rt.input.pump(cm);
+            let i = a[0].i();
+            if i < 1 {
+                return Some(e(5));
+            }
+            V::I(if rt.input.mousebutton(i as i32) { -1 } else { 0 })
+        }
+        "func__mousewheel" => {
+            rt.input.pump(cm);
+            V::I(i64::from(rt.input.mousewheel()))
+        }
+        "func__mousex" | "func__mousey" => {
+            rt.input.pump(cm);
+            let (x, y) = rt.input.mouse_xy();
+            // headless window = the display page at scale 1: clamp to the page
+            let (w, h) = rt.display.display_size();
+            let v = if name == "func__mousex" { x.clamp(0, (w - 1).max(0)) } else { y.clamp(0, (h - 1).max(0)) };
+            V::F(f64::from(v))
+        }
+        "sub__limit" => {
+            // _LIMIT fps: sleep until 1/fps after the previous frame
+            let fps = a[0].f();
+            rt.input.pump(cm);
+            if fps > 0.0 {
+                let frame = std::time::Duration::from_secs_f64(1.0 / fps);
+                let now = std::time::Instant::now();
+                if let Some(last) = rt.limit_last {
+                    let due = last + frame;
+                    if due > now {
+                        std::thread::sleep(due - now);
+                    }
+                }
+                rt.limit_last = Some(std::time::Instant::now());
+            }
+            return Some(Ok(None));
+        }
+        _ => return None,
+    };
+    Some(Ok(Some(v)))
 }
