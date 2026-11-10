@@ -77,6 +77,7 @@ fn human_error_z(code: i32) -> &'static str {
         8 => "Label not defined\0",
         9 => "Subscript out of range\0",
         10 => "Duplicate definition\0",
+        11 => "Division by zero\0", // legacy: "Unprintable error" (D-R12b-5)
         12 => "Illegal in direct mode\0",
         13 => "Type mismatch\0",
         14 => "Out of string space\0",
@@ -567,6 +568,7 @@ mod tests {
         assert_eq!(human_error(0), "No error");
         assert_eq!(human_error(6), "Overflow");
         assert_eq!(human_error(15), "Unprintable error");
+        assert_eq!(human_error(11), "Division by zero");
         assert_eq!(human_error(315), "_ASSERT failed (check console for description)");
         assert_eq!(human_error(-1), "Unprintable error");
         let p = qb_human_error(76);

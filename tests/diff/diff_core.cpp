@@ -427,7 +427,8 @@ static void test_errors(long cases) {
     for (int32 code = -20; code <= 1100; ++code) {
         const char *a = legacy_err::human_error(code);
         const char *b = qb_human_error(code);
-        CHECK(strcmp(a, b) == 0 && !(g_mutate && code == 61), "human_error(%d) %s/%s", code, a, b);
+        if (code != 11) // D-R12b-5: "Division by zero" (legacy: "Unprintable error")
+            CHECK(strcmp(a, b) == 0 && !(g_mutate && code == 61), "human_error(%d) %s/%s", code, a, b);
         // critical errors
         legacy_err::box_type = -1;
         legacy_err::new_error = 0;

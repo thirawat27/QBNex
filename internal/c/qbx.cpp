@@ -727,15 +727,15 @@ ptrszint data_offset=0;
 //inline functions
 
 //Integer \ and MOD (semantics.bas emits func_idiv/func_imod for them): a zero divisor
-//raises BASIC error 11 and the most negative value \ -1 raises error 6 (Overflow), so
-//ON ERROR and TRY can catch them instead of a hardware fault (SIGFPE). The result of
-//a failed operation is 0. Float operands (never emitted here) divide normally.
+//raises BASIC error 11 that ON ERROR and TRY can catch, instead of a hardware fault
+//(SIGFPE); the result of the failed operation is 0. The most negative value \ -1 wraps
+//to itself and MOD -1 is 0, as in the QIR VM and JIT (x86 idiv would fault).
 template <typename A, typename B> static inline auto func_idiv(A a, B b) -> decltype(a / b) {
     typedef decltype(a / b) R;
     if constexpr (std::is_integral<R>::value) {
         if (b == 0) { error(11); return 0; }
         if constexpr (std::is_signed<R>::value) {
-            if ((R)b == (R)-1 && (R)a == std::numeric_limits<R>::min()) { error(6); return 0; }
+            if ((R)b == (R)-1 && (R)a == std::numeric_limits<R>::min()) return a; //wraps
         }
     }
     return a / b;
