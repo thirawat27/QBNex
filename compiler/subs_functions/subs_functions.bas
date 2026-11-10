@@ -1389,6 +1389,53 @@ id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "_GPU3D"
 regid
 
+'R15 G5 _SHADER: QIR path only (no libqb shim; the C++ backend is being retired)
+clearid
+id.n = qbnexprefix$ + "Shader"
+id.subfunc = 1
+id.callname = "func__shader"
+id.args = 1
+id.arg = MKL$(STRINGTYPE - ISPOINTER)
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "_SHADER(wgsl$)"
+regid
+
+clearid
+id.n = qbnexprefix$ + "ShaderError"
+id.musthave = "$"
+id.subfunc = 1
+id.callname = "func__shadererror"
+id.args = 0
+id.ret = STRINGTYPE - ISPOINTER
+id.hr_syntax = "_SHADERERROR$"
+regid
+
+clearid
+id.n = qbnexprefix$ + "ShaderParam"
+id.subfunc = 2
+id.callname = "sub__shaderparam"
+id.args = 3
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER) + MKL$(SINGLETYPE - ISPOINTER)
+id.hr_syntax = "_SHADERPARAM shader&, index&, value!"
+regid
+
+clearid
+id.n = qbnexprefix$ + "MeshShader"
+id.subfunc = 2
+id.callname = "sub__meshshader"
+id.args = 2
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_MESHSHADER mesh&, shader&"
+regid
+
+clearid
+id.n = qbnexprefix$ + "FreeShader"
+id.subfunc = 2
+id.callname = "sub__freeshader"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.hr_syntax = "_FREESHADER shader&"
+regid
 clearid
 id.n = qbnexprefix$ + "SetAlpha"
 id.subfunc = 2

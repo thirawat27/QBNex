@@ -19,5 +19,7 @@ glam = { version = "0.34", features = ["bytemuck"] }
 winit = "0.30"
 # R15 G4: _LOADMODEL (glTF 2.0 .gltf/.glb, embedded PNG/JPEG textures)
 gltf = "1"
+# R15 G5: _SHADER compiles user WGSL with naga (same version as wgpu's) for clean error messages
+naga = { version = "30", features = ["wgsl-in"] }
 [dev-dependencies]
 glam = "0.34"
