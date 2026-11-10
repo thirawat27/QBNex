@@ -116,3 +116,5 @@ int main(int argc, char **argv) {
     printf("diff_systime: %ld start-up scripts + live clock check: %ld mismatches\n", n, failures);
     return failures ? 1 : 0;
 }
+
+#include "host_stubs.h"

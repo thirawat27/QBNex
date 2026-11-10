@@ -399,3 +399,5 @@ int main(int argc, char **argv) {
     printf("diff_audio: %ld statements, %ld frames compared, %ld mismatches\n", total, frames, failures);
     return failures ? 1 : 0;
 }
+
+#include "host_stubs.h"

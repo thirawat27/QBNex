@@ -10,7 +10,7 @@
 //!   the audio callback reads (fixes debt F3).
 //! - [`decode`]: file decoding (symphonia, xmrsplayer).
 //! - [`device`]: cpal output on its own thread.
-//! - [`ffi`]: the `qb_snd_*` C ABI used by `parts/audio/out/src.c`.
+//! - [`ffi`]: the `qb_snd_*` C ABI used by `internal/c/libqb/audio_bridge.cpp`.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 

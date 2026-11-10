@@ -65,7 +65,7 @@
     extern int32 port60h_events;
     
     extern int32 window_exists;
-    extern int32 no_control_characters2;
+    extern "C" int32 no_control_characters2;//Rust: console/mod.rs
     
     extern qbs *qbs_lcase(qbs *str);
     extern qbs *qbs_ucase(qbs *str);

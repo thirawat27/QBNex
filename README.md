@@ -169,7 +169,7 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - Cross-platform support: Windows (x64 release builds, x86/x64 source builds), Linux, macOS
 
 - **Advanced Graphics & Sound**
-  - OpenGL-based graphics subsystem with FreeGLUT
+  - Graphics window and input from the Rust runtime (winit + softbuffer)
   - Automatic detection of graphics/sound features
   - SCREEN modes with VGA and hi-res graphics support (SCREEN 0-12+)
   - Drawing primitives (LINE, CIRCLE, PAINT, DRAW with macro strings)
@@ -240,27 +240,27 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 
 **Linux:**
 - GNU C++ compiler (`g++`)
-- OpenGL development libraries (`libglu1-mesa-dev`)
+- Rust toolchain (`cargo`, from https://rustup.rs)
 - ALSA development libraries (`libasound2-dev`)
-- FreeGLUT development libraries
+- udev development libraries (`libudev-dev`)
+- `pkg-config`
 - X11 libraries
 - ncurses library
 
 ### Dependencies
 
 **Core Dependencies (installed automatically or required):**
-- OpenGL, GLU, GLEW, FreeGLUT (graphics)
-- miniaudio library (audio)
-- FreeType (TrueType fonts, optional)
-- STB Image (image format loading)
+- Rust toolchain (`cargo`): builds the runtime (`crates/qb-runtime`, `crates/qb-audio`)
+- C++ compiler (MinGW g++ on Windows, g++ on Linux, clang++ on macOS)
+- Window, graphics, audio, fonts, images and compression are Rust crates of the runtime;
+  no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is needed (see `licenses/THIRD_PARTY.TXT`)
 
 **Platform-Specific:**
 - Windows: MinGW g++ (auto-downloaded), Windows Multimedia library
-- Linux: ALSA (`libasound2-dev`), X11
-- macOS: CoreAudio, Apple GLUT, Cocoa
+- Linux: ALSA (`libasound2-dev`), udev (`libudev-dev`), X11
+- macOS: CoreAudio, Cocoa
 
 **Optional:**
-- ZLIB (compression support)
 - Socket libraries (networking support)
 
 ---
@@ -290,7 +290,7 @@ scripts\setup_win.cmd
 
 The setup script will:
 1. Download MinGW compiler (64-bit or 32-bit based on your choice)
-2. Build library files (LibQB, FreeType, FreeGLUT)
+2. Build library files (LibQB and the Rust runtime `libqb_runtime.a`)
 3. Compile the QBNex compiler
 4. Create `qb.exe` in the project root (run it as `qb` or `qbnex`)
 
@@ -331,13 +331,13 @@ chmod +x scripts/setup_lnx.sh
 **Required packages:**
 ```bash
 # Debian/Ubuntu
-sudo apt-get install g++ x11-utils mesa-common-dev libglu1-mesa-dev libasound2-dev zlib1g-dev libncurses-dev
+sudo apt-get install g++ x11-utils libasound2-dev libudev-dev pkg-config libncurses-dev
 
 # Fedora/RHEL
-sudo dnf install gcc-c++ xmessage mesa-libGLU-devel alsa-lib-devel zlib-devel ncurses-devel
+sudo dnf install gcc-c++ xmessage alsa-lib-devel systemd-devel pkgconf-pkg-config ncurses-devel
 
 # Arch Linux
-sudo pacman -S gcc xorg-xmessage glu alsa-lib zlib ncurses
+sudo pacman -S gcc xorg-xmessage alsa-lib systemd-libs pkgconf ncurses
 ```
 
 The setup script compiles all libraries and creates the `qb` compiler binary (run it as `qb` or `qbnex`).
@@ -1142,9 +1142,9 @@ FROM ubuntu:22.04
 # Install dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libglu1-mesa-dev \
     libasound2-dev \
-    freeglut3-dev \
+    libudev-dev \
+    pkg-config \
     libx11-dev \
     libncurses5-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -1170,9 +1170,9 @@ FROM ubuntu:22.04
 # Install dependencies with build cache preserved
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libglu1-mesa-dev \
     libasound2-dev \
-    freeglut3-dev \
+    libudev-dev \
+    pkg-config \
     libx11-dev \
     libncurses5-dev \
     gdb \
@@ -2197,9 +2197,7 @@ The final stage:
    - Linux: `g++` from GCC
    - macOS: `clang++` from Xcode
 2. **Links libraries**:
-   - OpenGL, FreeGLUT, GLEW (graphics)
-   - miniaudio (sound)
-   - FreeType (fonts)
+   - `libqb_runtime.a` (Rust runtime: window, graphics, sound, fonts, images)
    - Platform-specific libraries
 3. **Produces native binary**: Platform-specific executable
 4. **Cleans up**: Removes temporary files (unless `-z` flag used)
@@ -2209,11 +2207,10 @@ The final stage:
 g++ -mconsole -s -Wfatal-errors -w -Wall \
   qbx.cpp \
   libqb\os\win\libqb_setup.o \
-  parts\video\font\ttf\os\win\src.o \
-  parts\core\os\win\src.a \
-  -lopengl32 -lglu32 -static-libgcc -static-libstdc++ \
-  -D GLEW_STATIC -D FREEGLUT_STATIC \
-  -lws2_32 -lwinmm -lgdi32 \
+  ..\..\crates\qb-runtime\os\windows\libqb_runtime.a \
+  -lkernel32 -lntdll -luserenv -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 \
+  -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput \
+  -static-libgcc -static-libstdc++ -lws2_32 -lwinmm \
   -o "output.exe"
 ```
 
@@ -2530,13 +2527,13 @@ List_Init myList
 **Problem: "Missing libraries"**
 ```bash
 # Install dependencies (Debian/Ubuntu)
-sudo apt-get install build-essential libglu1-mesa-dev libasound2-dev freeglut3-dev libx11-dev
+sudo apt-get install build-essential libasound2-dev libudev-dev pkg-config libx11-dev
 
 # Install dependencies (Fedora)
-sudo dnf install gcc-c++ libglu-devel libasound-devel freeglut-devel libX11-devel
+sudo dnf install gcc-c++ alsa-lib-devel systemd-devel pkgconf-pkg-config libX11-devel
 
 # Install dependencies (Arch)
-sudo pacman -S gcc glu alsa-lib freeglut libx11
+sudo pacman -S gcc alsa-lib systemd-libs pkgconf libx11
 ```
 
 **macOS:**
@@ -3261,8 +3258,7 @@ QBNex/
 ├── internal/                   # Bootstrap/runtime build workspace
 │   ├── c/                      # C++ runtime glue and build scripts
 │   │   ├── c_compiler/         # Downloaded MinGW toolchain (Windows setup)
-│   │   ├── libqb/              # Runtime core (common + os/win|lnx|osx)
-│   │   ├── parts/              # Runtime modules (audio/core/input/network/video/zlib)
+│   │   ├── libqb/              # C++ glue to the Rust runtime (*_bridge.cpp, os/win|lnx|osx)
 │   │   ├── qbx.cpp             # Stage0 C++ compiler entry point
 │   │   ├── build_cache/        # Native build cache
 │   │   └── pch/                # Precompiled header artifacts
@@ -3330,8 +3326,7 @@ docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 ### Adding New Features
 
 - **Built-in Functions/Subs**: Add to `compiler/subs_functions/subs_functions.bas`
-- **Runtime Library**: Modify C++ code in `internal/c/` and `internal/c/parts/`
-- **Graphics Extensions**: Edit `compiler/subs_functions/extensions/opengl/`
+- **Runtime Library**: Rust code in `crates/qb-runtime/` and `crates/qb-audio/`; C++ glue in `internal/c/`
 - **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`
 
 ### Continuous Integration
@@ -3382,11 +3377,7 @@ The MIT License is a permissive open source license that allows free use, modifi
 
 - **QBasic/QuickBASIC** - The original BASIC implementation by Microsoft that inspired this project
 - **QB64** - Modern QBasic compiler that served as the foundation for QBNex
-- **FreeGLUT & OpenGL** - Cross-platform window management and graphics rendering
-- **miniaudio** - Single-file audio playback library enabling cross-platform sound
-- **FreeType** - TrueType font rendering engine
-- **STB Image** - Single-header image loading library
-- **GLEW** - OpenGL Extension Wrangler for advanced graphics features
+- **FreeGLUT, miniaudio, FreeType, STB Image, GLEW** - The C libraries the QB64 runtime was built on; the QBNex runtime now uses Rust crates instead (winit, softbuffer, cpal, Symphonia, skrifa, png, zune-jpeg, and more, see `licenses/THIRD_PARTY.TXT`)
 - **Contributors** - Everyone who has contributed code, documentation, or feedback to this project
 
 ---

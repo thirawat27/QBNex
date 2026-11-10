@@ -15,9 +15,15 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod alloc;
+pub mod arrays;
 pub mod clipboard;
+pub mod compress;
+pub mod console;
 mod cmem;
 pub mod env;
+pub mod error;
+pub mod events;
 pub mod fileio;
 pub mod font;
 pub mod fsops;
@@ -27,12 +33,15 @@ pub mod gfx;
 pub mod image;
 pub mod keybuf;
 pub mod keymap;
+pub mod mathfn;
 pub mod mbf;
 pub mod mem;
 pub mod net;
 pub mod numfmt;
+pub mod numparse;
 pub mod pixels;
 pub mod printer;
+pub mod program;
 pub mod qbs;
 pub mod rnd;
 pub mod round;
@@ -41,6 +50,7 @@ pub mod shell;
 pub mod systime;
 pub mod timer;
 pub mod val;
+pub mod waits;
 #[cfg(windows)]
 pub mod win32;
 

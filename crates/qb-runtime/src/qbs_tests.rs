@@ -7,7 +7,7 @@
 use super::*;
 use std::sync::Mutex;
 
-static LOCK: Mutex<()> = Mutex::new(());
+pub(crate) static LOCK: Mutex<()> = Mutex::new(());
 
 fn fresh() -> std::sync::MutexGuard<'static, ()> {
     let g = LOCK.lock().unwrap_or_else(|e| e.into_inner());

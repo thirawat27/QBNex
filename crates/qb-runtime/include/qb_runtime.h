@@ -51,6 +51,8 @@ int32_t qb_str_i64(int64_t v, unsigned char *out);
 int32_t qb_str_u64(uint64_t v, unsigned char *out);
 int32_t qb_str_f32(float v, unsigned char *out);
 int32_t qb_str_f64(double v, unsigned char *out);
+/* STR$ of a _FLOAT (10-byte x87 value); legacy formats (double)value. */
+int32_t qb_str_f80(const unsigned char *v, unsigned char *out);
 
 // --- TIMER (was the arithmetic of func_timer) ---------------------------------
 // Writes the value to *out and returns 0, or returns a QBasic error code.
@@ -387,7 +389,7 @@ uint8_t *qb_image_to_8bpp(const uint8_t *bgra, int32_t w, int32_t h, uint32_t *p
 void qb_image_remap_palette(uint8_t *pixels, int32_t w, int32_t h, const uint32_t *src_pal,
                               const uint32_t *dst_pal);
 
-// --- _LOADFONT fonts (was the FreeType wrapper parts/video/font/ttf/src.c) -------
+// --- _LOADFONT fonts (was the FreeType wrapper in parts/video/font/ttf/src.c) -------
 // Same contracts as the legacy FontLoad / FontRenderTextUTF32 / FontWidth / FontFree.
 // qb_font_load returns a handle >= 1 or 0; options 16 = monospace.
 // qb_font_render_utf32 returns 1/0; options 1 = monochrome; *out_data is malloc'ed
@@ -399,6 +401,12 @@ int32_t qb_font_render_utf32(int32_t font, const uint32_t *codepoint, int32_t co
                                int32_t *out_x_post_increment);
 int32_t qb_font_width(int32_t font);
 void qb_font_free(int32_t font);
+// --- _DEFLATE$/_INFLATE$ (was parts/zlib/src.c + the system zlib) ------------------
+// zlib compressBound/compress/uncompress contracts: *dst_len is the capacity on entry and
+// the output size on return; results 0 = Z_OK, -3 = Z_DATA_ERROR, -5 = Z_BUF_ERROR.
+uint32_t qb_deflate_bound(uint32_t len);
+int32_t qb_deflate(const uint8_t *src, uint32_t len, uint8_t *dst, uint32_t *dst_len);
+int32_t qb_inflate(const uint8_t *src, uint32_t len, uint8_t *dst, uint32_t *dst_len);
 // --- System clock (was GetTicks and the start-of-day setup in main) -----------
 // Monotonic milliseconds; TIMER's start-up reference values.
 int64_t qb_get_ticks(void);
@@ -445,6 +453,63 @@ void *qb_printer_begin(int32_t *w, int32_t *h);
 void qb_printer_finish(void *p, const uint32_t *pixels, int32_t w, int32_t h);
 void qb_printer_abort(void *p);
 
+// --- R12b core runtime: errors, DATA/READ, allocators, arrays, events, waits ---
+// Error state (new_error, error_err, error_erl, ercl, ...), qbevent, stop_program,
+// exit_code, sleep_break, the GOSUB stack, mem_static*, onkey and onstrig are Rust
+// globals with their old C names; qbx.cpp/libqb.cpp only declare them.
+void qb_error(int32_t code);
+int32_t qb_fix_error(const uint8_t *command0, int32_t len); // 1 = enter QBMAIN (ON ERROR)
+const char *qb_human_error(int32_t code);
+int32_t qb_take_exit_request(void);
+int32_t qb_more_return_points(void);
+typedef struct qb_num_value { // a long double: exact int64 or double
+    int32_t is_int;
+    int64_t i;
+    double f;
+} qb_num_value;
+int32_t qb_read_float(const uint8_t *data, intptr_t size, intptr_t *offset, int32_t typ, qb_num_value *out);
+int32_t qb_read_int64(const uint8_t *data, intptr_t size, intptr_t *offset, int64_t *out);
+int32_t qb_read_uint64(const uint8_t *data, intptr_t size, intptr_t *offset, uint64_t *out);
+int32_t qb_read_string(const uint8_t *data, intptr_t size, intptr_t *offset, const uint8_t **out, int32_t *len);
+int32_t qb_num_to_float(const qb_num_repr *n, int32_t typ, qb_num_value *out);
+int32_t qb_num_to_int64(const qb_num_repr *n, int64_t *out);
+int32_t qb_num_to_uint64(const qb_num_repr *n, uint64_t *out);
+int32_t qb_mem_static_new_block(uint32_t size);
+uint8_t *qb_mem_static_malloc(uint32_t size, int32_t *err);
+void qb_mem_static_restore(uint8_t *restore_point);
+uint8_t *qb_cmem_dynamic_malloc(uint32_t size, int32_t *err);
+void qb_cmem_dynamic_free(uint8_t *block);
+int32_t qb_array_bound(const intptr_t *desc, int32_t index, int32_t num_indexes, int32_t upper, intptr_t *out);
+uint64_t qb_getubits(uint32_t bsize, const uint8_t *base, intptr_t i);
+int64_t qb_getbits(uint32_t bsize, const uint8_t *base, intptr_t i);
+void qb_setbits(uint32_t bsize, uint8_t *base, intptr_t i, int64_t val);
+int32_t qb_log(double x, double *out);
+int32_t qb_exp_single(double x, double *out);
+int32_t qb_sqr(double x, double *out);
+double qb_fix_double(double x);
+int32_t qb_radix_string(int64_t value, int32_t neg_bits, int32_t radix, uint8_t *buf64);
+int32_t qb_freetimer_new(void);
+void qb_freetimer(int32_t i);
+void qb_ontimer_setup(int32_t i, double seconds, uint32_t id, int64_t pass);
+void qb_timer_statement(int32_t i, int32_t option, int32_t passed);
+void qb_timers_pause(int32_t pause);
+void qb_timer_thread(void);
+int32_t qb_timer_count(void);
+uint32_t qb_timer_take(int32_t i, int64_t *pass);
+void qb_timer_done(int32_t i);
+void qb_onkey_setup(int32_t i, uint32_t id, int64_t pass);
+void qb_key_statement(int32_t i, int32_t option);
+void qb_onstrig_setup(int32_t i, int32_t controller, int32_t controller_passed, uint32_t id, int64_t pass);
+void qb_strig_statement(int32_t i, int32_t controller, int32_t option, int32_t passed);
+int32_t qb_delay(double seconds);
+int32_t qb_limit(double fps);
+void qb_sleep_wait(double prev, double ms);
+// Host functions the runtime calls (defined in libqb.cpp / qbx.cpp):
+//   int32_t qb_host_message_box(const char *msg, const char *title, int32_t type); // MessageBox2
+//   void qb_host_end(void);           // end()
+//   void qb_host_evnt(void);          // evnt(0)
+//   void qb_host_devices_init(void);  // if (device_last==0) func__devices();
+
 // --- Test hooks used only by tests/diff/diff_*.cpp ------------------
 uint32_t qb_day_ms(uint32_t hour, uint32_t minute, uint32_t second, int32_t valid);
 void qb_test_screen_region(int32_t sw, int32_t sh, int32_t x1, int32_t y1, int32_t x2, int32_t y2,
@@ -465,5 +530,6 @@ int32_t qb_net_format_address(int32_t type, int32_t port, const uint8_t *ip4, co
 #endif
 
 #include "qb_window.h" // R8 window/input layer
+#include "qb_console.h" // R12a text console
 
 #endif // QB_RUNTIME_H

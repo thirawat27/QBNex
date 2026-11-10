@@ -265,7 +265,7 @@ static long check_parse(long n) {
         vwatch = vw;
         opened = 0;
         opened_host.clear();
-        qbs *q = qbs_new((int32)info.size(), 1);
+        legacy::qbs *q = qbs_new((int32)info.size(), 1);
         memcpy(q->chr, info.data(), info.size());
         int32 lr = method == 0 ? func__openclient(q) : func__openhost(q);
         int32 l_err = first_error;
@@ -340,7 +340,7 @@ static long check_address(long n) {
             sh->index = (ptrszint)ss;
         }
         new_error = first_error = 0;
-        qbs *l = func__connectionaddress(-1 - h);
+        legacy::qbs *l = func__connectionaddress(-1 - h);
         std::string ls((char *)l->chr, l->len);
 
         uint8 out[256];
@@ -374,3 +374,5 @@ int main(int argc, char **argv) {
     printf("diff_net: %ld info strings, %ld address texts: %ld + %ld mismatches\n", n, quick ? 5000L : 100000L, f1, f2);
     return (f1 || f2) ? 1 : 0;
 }
+
+#include "host_stubs.h"

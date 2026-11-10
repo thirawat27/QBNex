@@ -77,3 +77,5 @@ int main(int argc, char **argv) {
     printf("diff_layout: %ld cases, %ld mismatches\n", iters, mismatches);
     return mismatches ? 1 : 0;
 }
+
+#include "host_stubs.h"

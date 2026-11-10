@@ -26,11 +26,6 @@ find . -type f -iname "*.a" -exec rm -f {} \;
 find . -type f -iname "*.o" -exec rm -f {} \;
 popd >/dev/null
 
-pushd internal/c/parts >/dev/null
-find . -type f -iname "*.a" -exec rm -f {} \;
-find . -type f -iname "*.o" -exec rm -f {} \;
-popd >/dev/null
-
 mkdir -p ./internal/temp
 find ./internal/temp -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
 
@@ -70,23 +65,12 @@ if [ ! -f ./libqb_runtime.a ]; then
 fi
 popd >/dev/null
 
-echo "Building library 'FreeType'"
-pushd internal/c/parts/video/font/ttf/os/osx >/dev/null
-rm -f src.o
-./setup_build.command
-if [ ! -f ./src.o ]; then
-  echo "Compilation of ./internal/c/parts/video/font/ttf/os/osx/src.o failed!"
-  Pause
-  exit 1
-fi
-popd >/dev/null
-
 echo "Building 'QBNex' (~3 min)"
 mkdir -p ./internal/temp
 cp ./internal/source/* ./internal/temp/
 cp -r ./compiler/* ./internal/temp/
 pushd internal/c >/dev/null
-clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o ../../crates/qb-runtime/os/macos/libqb_runtime.a -lSystem -lc -lm parts/video/font/ttf/os/osx/src.o -framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -lobjc -framework Cocoa -o ../../qb-stage0
+clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o ../../crates/qb-runtime/os/macos/libqb_runtime.a -lSystem -lc -lm -framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -lobjc -framework Cocoa -o ../../qb-stage0
 popd >/dev/null
 
 echo ""
