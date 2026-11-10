@@ -284,7 +284,6 @@ PRINT DT_DiffDays#(DT_AddDays#(t2#, 10), t2#)
 ## โมดูลที่เขียนด้วย BASIC ล้วน
 
 <!-- docs-test: run -->
-<!-- docs-test: no-ir qbnex needs _OS$, missing in QIR -->
 ```basic
 '$IMPORT:'qbnex'
 DIM names AS QBNex_List
@@ -297,4 +296,4 @@ PRINT Path_Join$("dir", "file.txt"), Path_Extension$("a/b.bas")
 PRINT Env_Platform$, Args_Count&
 ```
 
-โมดูลกลุ่มนี้ใช้ได้กับ back end ค่าเริ่มต้น ส่วนกับ `--ir` (และรุ่นเว็บ) ตอนนี้โปรแกรมที่ import `qbnex` หรือ `sys.env` จะถูกปฏิเสธตอนเริ่มรัน เพราะ runner ของ QIR ยังไม่มี `_OS$` โมดูล BASIC อื่น (`json`, `url`, `collections.*`, `io.*` ...) ใช้ได้
+โมดูล BASIC กลุ่มนี้ (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*` ...) ใช้ได้ทั้งกับ back end ค่าเริ่มต้นและ `--ir`
