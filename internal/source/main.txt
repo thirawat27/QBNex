@@ -121647,7 +121647,7 @@ S_34735:;
 if ((*_SUB_PREPAREDEPENDENCYBUILDINPUTS_LONG_MAC)||new_error){
 if(qbevent){evnt(13215,345,"dependencies.bas");if(r)goto S_34735;}
 do{
-qbs_set(_SUB_PREPAREDEPENDENCYBUILDINPUTS_STRING_DEFINES,qbs_add(_SUB_PREPAREDEPENDENCYBUILDINPUTS_STRING_DEFINES,qbs_new_txt_len(" -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework CoreFoundation ",93)));
+qbs_set(_SUB_PREPAREDEPENDENCYBUILDINPUTS_STRING_DEFINES,qbs_add(_SUB_PREPAREDEPENDENCYBUILDINPUTS_STRING_DEFINES,qbs_new_txt_len(" -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework CoreFoundation -framework ApplicationServices -framework CoreVideo -framework Carbon -liconv ",171)));
 qbs_cleanup(qbs_tmp_base,0);
 if(!qbevent)break;evnt(13215,345,"dependencies.bas");}while(r);
 }

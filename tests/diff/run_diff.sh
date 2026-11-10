@@ -6,8 +6,8 @@ set -eu
 cd "$(dirname "$0")"
 mode="${1:-}"
 case "$(uname -s)" in
-  Darwin) os=macos; libs="-framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -lobjc" ;;
-  *) os=linux; libs="-lpthread -ldl -lm -ludev" ;;
+  Darwin) os=macos; libs="-framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework ApplicationServices -framework CoreVideo -framework Carbon -lobjc -liconv" ;;
+  *) os=linux; libs="-lpthread -ldl -lm -ludev -lasound" ;;
 esac
 lib="../../crates/qb-runtime/os/$os/libqb_runtime.a"
 out="${TMPDIR:-/tmp}/qb_diff_$$"

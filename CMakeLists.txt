@@ -87,10 +87,12 @@ elseif(APPLE)
   set(QBNEX_QB_RUNTIME_SCRIPT "setup_build.command")
   set(QBNEX_QB_RUNTIME_NATIVE_LIBS System c m
     "-framework AppKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Foundation"
-    "-framework IOKit" "-framework CoreFoundation" objc)
+    "-framework IOKit" "-framework CoreFoundation" "-framework CoreAudio"
+    "-framework AudioUnit" "-framework AudioToolbox" "-framework ApplicationServices"
+    "-framework CoreVideo" "-framework Carbon" objc iconv)
 else()
   set(QBNEX_QB_RUNTIME_SCRIPT "setup_build.sh")
-  set(QBNEX_QB_RUNTIME_NATIVE_LIBS pthread dl m rt util udev)
+  set(QBNEX_QB_RUNTIME_NATIVE_LIBS pthread dl m rt util udev asound)
 endif()
 set(QBNEX_QB_RUNTIME_LIB "${QBNEX_CRATES}/qb-runtime/os/${QBNEX_CRATE_OS_DIR}/libqb_runtime.a")
 file(GLOB_RECURSE QBNEX_QB_RUNTIME_SOURCES CONFIGURE_DEPENDS
