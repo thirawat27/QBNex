@@ -420,7 +420,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.jit = None;
         let rt = &mut self.rt;
         rt.set_stdin(stdin);
-        rt.input_echo = true;
+        rt.web = true;
         let cmem = rt.cmem.as_mut_ptr();
         let (on, only) = (rt.console_on, rt.console_only);
         rt.display.start(cmem, on, only);

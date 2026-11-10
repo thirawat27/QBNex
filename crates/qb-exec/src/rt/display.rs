@@ -36,6 +36,8 @@ pub(crate) struct Display {
     /// error raised through the console Host
     pub pending: i32,
     pub started: bool,
+    /// browser runner: ticks of the last `_LIMIT`
+    pub limit_last: i64,
 }
 
 impl Default for Display {
@@ -59,6 +61,7 @@ impl Default for Display {
             fontflags: vec![0; 49],
             pending: 0,
             started: false,
+            limit_last: 0,
         };
         d.fontwidth[8] = 8;
         d.fontwidth[14] = 8;
@@ -234,6 +237,16 @@ impl Display {
         }
         self.started = true;
         reg::qb_img_init();
+        // index 0 means "no image" (imgframe/imgnew return 0 on failure), so a
+        // fresh registry hands it out once before the first page
+        if nextimg() == 0 {
+            let mut e = 0;
+            // SAFETY: registry call; the slot stays reserved and invalid.
+            unsafe {
+                reg::qb_img_new(&mut e);
+                (*im(0)).valid = 0;
+            }
+        }
         self.screen(cmem, 0, 0, 0, 0, 0, 1);
         self.width8050switch = true;
         if console_on {
@@ -1387,6 +1400,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
     let cmem = rt.cmem.as_mut_ptr();
     let console_on = rt.console_on;
     let console_only = rt.console_only;
+    let web = rt.web;
     let d = &mut rt.display;
     d.start(cmem, console_on, console_only);
     let wp = d.wp();
@@ -1723,6 +1737,27 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 }
             }
             "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
+            // headless runs do not wait; the browser runner shows the frame and waits
+            "sub__delay" if web => {
+                if d.autodisplay != 0 {
+                    d.capture(gfx::capture::KIND_DISPLAY);
+                }
+                qb_runtime::systime::sleep_ms((f(0) * 1000.0).clamp(0.0, 86_400_000.0) as u64);
+            }
+            "sub__limit" if web => {
+                if d.autodisplay != 0 {
+                    d.capture(gfx::capture::KIND_DISPLAY);
+                }
+                let fps = f(0);
+                if fps > 0.0 {
+                    let next = d.limit_last + (1000.0 / fps) as i64;
+                    let now = qb_runtime::systime::ticks();
+                    if now < next {
+                        qb_runtime::systime::sleep_ms((next - now) as u64);
+                    }
+                    d.limit_last = qb_runtime::systime::ticks();
+                }
+            }
             "sub__limit" | "sub__delay" | "sub__title" => {}
             _ => {}
         }

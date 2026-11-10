@@ -53,11 +53,20 @@ pub fn split(s: &[u8]) -> (&[u8], &[u8]) {
     (s, &[])
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn system(cmd: *const std::ffi::c_char) -> i32;
 }
 
+/// Browser build (R13-wasm): there is no command processor; `system()`
+/// fails (-1), so SHELL reports an error.
+#[cfg(target_arch = "wasm32")]
+fn c_system(_cmd: &[u8]) -> i32 {
+    -1
+}
+
 /// C `system()` with a NUL-terminated copy of `cmd`.
+#[cfg(not(target_arch = "wasm32"))]
 fn c_system(cmd: &[u8]) -> i32 {
     let mut z = cmd.to_vec();
     z.push(0);

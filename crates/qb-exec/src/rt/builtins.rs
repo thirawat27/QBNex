@@ -89,8 +89,9 @@ pub(crate) struct RtState<'a> {
     /// qb-audio started (snd_init)
     pub(crate) snd_started: bool,
     /// browser runner (qb-web): INPUT prompts and the consumed stdin text are
-    /// drawn on the screen page, as if typed
-    pub(crate) input_echo: bool,
+    /// drawn on the screen page, as if typed; `_DELAY`, `_LIMIT` and `SLEEP n`
+    /// really wait (headless runs skip them) and show the frame
+    pub(crate) web: bool,
 }
 
 struct Using {
@@ -121,7 +122,7 @@ impl<'a> RtState<'a> {
             display: super::display::Display::default(),
             console_on: false,
             console_only: false,
-            input_echo: false,
+            web: false,
         }
     }
     /// Text INPUT reads instead of the process stdin (browser runner).
@@ -620,7 +621,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "INPUTPROMPT" => {
             if i(1) == 0 {
-                if rt.input_echo && screen_out(vm) {
+                if rt.web && screen_out(vm) {
                     return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
                 }
                 vm.rt().write(0, s(0))?;
@@ -680,7 +681,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "POS" => return ok(V::I(rt.col as i64)),
         "CSRLIN" => return ok(V::I(1)),
         "INKEY$" => return ok(V::S(vec![])),
-        "SLEEP" => {}
+        "SLEEP" => {
+            // waits only in the browser runner; SLEEP without a time (wait for a key) returns
+            if rt.web && a.first().is_some_and(|v| v.f() > 0.0) {
+                let ms = (a[0].f() * 1000.0).min(86_400_000.0) as u64;
+                return super::display::call(vm, "sub__delay", &[V::F(ms as f64 / 1000.0)]).unwrap();
+            }
+        }
         "COMMAND$" => {
             let args: Vec<String> = std::env::args().skip(1).collect();
             return ok(V::S(args.join(" ").into_bytes()));
@@ -815,7 +822,7 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
 /// screen page (line breaks as newlines), like a typed answer.
 fn echo_input(vm: &mut dyn Host<'_>, start: usize, line: bool) -> R<()> {
     let rt = vm.rt();
-    if !rt.input_echo {
+    if !rt.web {
         return Ok(());
     }
     let mut text = rt.stdin.rbuf[start.min(rt.stdin.rpos)..rt.stdin.rpos].to_vec();
