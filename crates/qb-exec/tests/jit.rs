@@ -1,28 +1,23 @@
-//! R11.6: the JIT tier must give exactly the VM's results. Every program
-//! runs interpreted only and with native code entered at the first loop
-//! back-edge; output, exit status and error must match, and native code must
-//! actually have run.
+//! The JIT tier must give exactly the VM's results. Every program in
+//! `tests/fixtures/jit/` (BASIC source + the QIR `qb --ir` made of it) runs
+//! interpreted only and with native code entered at the first loop back-edge
+//! (hot and eager); output, exit status and error must match, and native code
+//! must actually have run.
+
+use std::path::Path;
 
 use qb_exec::{compile, Vm};
 use qb_jit::tier::Mode;
 
-fn hex(s: &str) -> String {
-    s.bytes().map(|b| format!("{b:02X}")).collect()
-}
-
-/// `FOR v = from TO to STEP step : body : NEXT` in QIR v0.
-fn for_loop(id: u32, v: &str, from: &str, to: &str, step: &str, body: &str) -> String {
-    format!(
-        "PUSH {from}\nSTORE {v}\nPUSH {to}\nSTORE ~F{id}.L\nPUSH {step}\nSTORE ~F{id}.S\nLABEL ~F{id}.T\n\
-         LOAD {v}\nLOAD ~F{id}.L\nLOAD ~F{id}.S\nFORTEST\nJZ ~F{id}.X\n{body}\n\
-         LOAD {v}\nLOAD ~F{id}.S\nOP ADD\nSTORE {v}\nJMP ~F{id}.T\nLABEL ~F{id}.X\n"
-    )
+fn src(name: &str) -> String {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jit").join(format!("{name}.qir"));
+    std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
 }
 
 #[derive(Debug, PartialEq)]
 struct Run {
     out: String,
-    result: Result<(), (i32, u32)>,
+    result: Result<i32, (i32, u32)>,
     entries: u64,
 }
 
@@ -32,254 +27,122 @@ fn run_mode(src: &str, mode: Mode) -> Run {
     let (result, entries, fail) = {
         let mut vm = Vm::new(&m, &mut out);
         vm.set_jit(mode, 1);
-        let r = vm.run().map_err(|e| (e.code, e.line));
+        let r = vm.run_status().map_err(|e| (e.code, e.line));
         (r, vm.jit_entries(), vm.jit_failure())
     };
     assert!(fail.is_none(), "JIT compile failed: {fail:?}");
     Run { out: String::from_utf8(out).unwrap(), result, entries }
 }
 
-/// Runs both ways, checks equality and that native code ran; returns the output.
-fn same(src: &str) -> String {
-    let vm = run_mode(src, Mode::Off);
-    let hot = run_mode(src, Mode::Hot);
-    let eager = run_mode(src, Mode::Eager);
-    assert_eq!((&vm.out, &vm.result), (&hot.out, &hot.result), "VM vs JIT (hot)\n{src}");
-    assert_eq!((&vm.out, &vm.result), (&eager.out, &eager.result), "VM vs JIT (eager)\n{src}");
-    // Eager enters every loop (hot mode may leave VM-bound loops to the interpreter).
-    assert!(eager.entries > 0, "native code never entered\n{src}");
-    vm.out
+/// Runs a fixture all three ways, checks equality and that native code ran.
+fn same(name: &str) -> Run {
+    let p = src(name);
+    let vm = run_mode(&p, Mode::Off);
+    let hot = run_mode(&p, Mode::Hot);
+    let eager = run_mode(&p, Mode::Eager);
+    assert_eq!((&vm.out, &vm.result), (&hot.out, &hot.result), "VM vs JIT (hot): {name}");
+    assert_eq!((&vm.out, &vm.result), (&eager.out, &eager.result), "VM vs JIT (eager): {name}");
+    assert!(eager.entries > 0, "native code never entered: {name}");
+    vm
 }
 
 #[test]
 fn numeric_loop() {
-    let body = "LOAD S&\nLOAD I&\nPUSH I 7\nOP MOD\nOP ADD\nSTORE S&";
-    let p = format!("QIR 0\n{}LOAD S&\nPRINT\nPRINTNL\nEND\n", for_loop(1, "I&", "I 1", "L 100000", "I 1", body));
     let expect: i64 = (1..=100000).map(|i| i % 7).sum();
-    assert_eq!(same(&p), format!(" {expect} \n"));
+    assert_eq!(same("numeric_loop").out, format!(" {expect} \n"));
 }
 
 #[test]
 fn integer_wrap_and_negative_step() {
-    // FOR i% = 10 TO 1 STEP -3: k% = k% * 3 + i%: NEXT  (k% wraps)
-    let body = "LOAD K%\nPUSH I 3\nOP MUL\nLOAD I%\nOP ADD\nSTORE K%";
-    let p = format!(
-        "QIR 0\nPUSH I 30000\nSTORE K%\n{}LOAD K%\nPRINT\nLOAD I%\nPRINT\nPRINTNL\nEND\n",
-        for_loop(1, "I%", "I 10", "I 1", "I -3", body)
-    );
-    same(&p);
+    same("integer_wrap_negative_step");
 }
 
 #[test]
 fn single_and_double_loop() {
-    // FOR x! = 1 TO 0 STEP -.1: s! = s! + x! * x!: d# = d# + 1 / (x! + 1): NEXT
-    let body = "LOAD S!\nLOAD X!\nLOAD X!\nOP MUL\nOP ADD\nSTORE S!\nLOAD D#\nPUSH I 1\nLOAD X!\nPUSH I 1\nOP ADD\nOP DIV\nOP ADD\nSTORE D#";
-    let p = format!(
-        "QIR 0\n{}LOAD S!\nPRINT\nLOAD D#\nPRINT\nLOAD X!\nPRINT\nPRINTNL\nEND\n",
-        for_loop(1, "X!", "I 1", "I 0", "F -0.1", body)
-    );
-    same(&p);
+    same("single_double_loop");
 }
 
 #[test]
 fn strings_in_a_loop_go_through_the_vm() {
-    // FOR i% = 1 TO 60: a$ = a$ + CHR$(65 + i% MOD 26): NEXT: PRINT a$; LEN(a$)
-    let body = "LOAD A$\nPUSH I 65\nLOAD I%\nPUSH I 26\nOP MOD\nOP ADD\nFN CHR$ 1\nOP ADD\nSTORE A$";
-    let p = format!(
-        "QIR 0\n{}LOAD A$\nPRINT\nLOAD A$\nFN LEN 1\nPRINT\nPRINTNL\nEND\n",
-        for_loop(1, "I%", "I 1", "I 60", "I 1", body)
-    );
-    let out = same(&p);
+    let out = same("strings_in_loop").out;
     assert!(out.starts_with("BCD"), "{out}");
 }
 
 #[test]
 fn arrays_in_a_loop() {
-    // DIM a&(100): FOR i = 1 TO 100: a&(i) = i * i: NEXT: FOR i = 1 TO 100: t& = t& + a&(i): NEXT
-    let fill = "LOAD I%\nLOAD I%\nLOAD I%\nOP MUL\nSTOREE A&() 1";
-    let sum = "LOAD T&\nLOAD I%\nLOADE A&() 1\nOP ADD\nSTORE T&";
-    let p = format!(
-        "QIR 0\nPUSH I 0\nPUSH I 100\nDIMA A&() 1\n{}{}LOAD T&\nPRINT\nPRINTNL\nEND\n",
-        for_loop(1, "I%", "I 1", "I 100", "I 1", fill),
-        for_loop(2, "I%", "I 1", "I 100", "I 1", sum)
-    );
-    assert_eq!(same(&p), " 338350 \n");
+    assert_eq!(same("arrays_in_loop").out, " 338350 \n");
 }
 
 #[test]
 fn error_inside_native_loop_resumes_next() {
-    // ON ERROR GOTO H: FOR i% = 1 TO 20: x% = 100 \ (i% MOD 3): s% = s% + x%: NEXT: PRINT s%; e%: END
-    // H: e% = e% + 1: RESUME NEXT
-    let body = "LINE 3\nPUSH I 100\nLOAD I%\nPUSH I 3\nOP MOD\nOP IDIV\nSTORE X%\nLINE 4\nLOAD S%\nLOAD X%\nOP ADD\nSTORE S%";
-    let p = format!(
-        "QIR 0\nLINE 1\nONERROR MAIN.H\nLINE 2\n{}LINE 5\nLOAD S%\nPRINT\nLOAD E%\nPRINT\nPRINTNL\nEND\n\
-         LABEL MAIN.H\nLINE 7\nLOAD E%\nPUSH I 1\nOP ADD\nSTORE E%\nRESUME NEXT\n",
-        for_loop(1, "I%", "I 1", "I 20", "I 1", body)
-    );
-    same(&p);
+    same("error_resume_next_in_loop");
 }
 
 #[test]
-fn unhandled_overflow_in_native_loop() {
-    // FOR i& = 1 TO 10: x% = i& * 5000.5: NEXT   -> error 6 at i& = 7
-    let body = "LINE 2\nLOAD I&\nPUSH D 5000.5\nOP MUL\nSTORE X%";
-    let p = format!("QIR 0\nLINE 1\n{}LOAD X%\nPRINT\nPRINTNL\nEND\n", for_loop(1, "I&", "I 1", "I 10", "I 1", body));
-    let r = run_mode(&p, Mode::Hot);
-    assert_eq!(r.result.map_err(|e| e.0), Err(6));
-    same(&p);
+fn float_to_integer_store_wraps_like_the_cpp_backend() {
+    same("unhandled_overflow_in_loop");
 }
 
 #[test]
 fn sub_called_from_a_hot_loop() {
-    // FOR i% = 1 TO 50: CALL ADDTO(i%): NEXT: PRINT T&  with SUB ADDTO(n%): SHARED T&: T& = T& + n% * 2
-    let body = "LOAD I%\nCALL ADDTO 1";
-    let p = format!(
-        "QIR 0\nSHARED T&\n{}LOAD T&\nPRINT\nPRINTNL\nEND\n\
-         SUB ADDTO 1 N%\nLOAD T&\nLOAD N%\nPUSH I 2\nOP MUL\nOP ADD\nSTORE T&\nENDSUB\n",
-        for_loop(1, "I%", "I 1", "I 50", "I 1", body)
-    );
-    assert_eq!(same(&p), " 2550 \n");
+    assert_eq!(same("sub_from_hot_loop").out, " 2550 \n");
 }
 
 #[test]
-fn print_inside_loop_and_hex_strings() {
-    let body = format!("LOAD I%\nPRINT\nPUSH S {}\nPRINT", hex(","));
-    let p = format!("QIR 0\n{}PRINTNL\nEND\n", for_loop(1, "I%", "I 1", "I 5", "I 1", &body));
-    assert_eq!(same(&p), " 1 , 2 , 3 , 4 , 5 ,\n");
+fn print_inside_loop() {
+    assert_eq!(same("print_in_loop").out, " 1 , 2 , 3 , 4 , 5 ,\n");
 }
 
 #[test]
 fn array_bounds_errors_from_native_code() {
-    // DIM a%(5): ON ERROR GOTO H: FOR i% = 0 TO 8: a%(i%) = i%: s% = s% + a%(i%): NEXT: PRINT s%; e%: END
-    // H: e% = e% + 1: RESUME NEXT       (2-D: DIM m#(2, 3) filled the same way)
-    let body = "LINE 3\nLOAD I%\nLOAD I%\nSTOREE A%() 1\nLINE 4\nLOAD S%\nLOAD I%\nLOADE A%() 1\nOP ADD\nSTORE S%\n\
-                LINE 5\nPUSH I 1\nLOAD I%\nLOAD I%\nSTOREE M#() 2\nLINE 6\nLOAD T#\nPUSH I 1\nLOAD I%\nLOADE M#() 2\nOP ADD\nSTORE T#";
-    let p = format!(
-        "QIR 0\nLINE 1\nPUSH I 0\nPUSH I 5\nDIMA A%() 1\nPUSH I 0\nPUSH I 2\nPUSH I 0\nPUSH I 3\nDIMA M#() 2\nONERROR MAIN.H\nLINE 2\n{}\
-         LINE 7\nLOAD S%\nPRINT\nLOAD T#\nPRINT\nLOAD E%\nPRINT\nPRINTNL\nEND\n\
-         LABEL MAIN.H\nLINE 9\nLOAD E%\nPUSH I 1\nOP ADD\nSTORE E%\nRESUME NEXT\n",
-        for_loop(1, "I%", "I 0", "I 8", "I 1", body)
-    );
-    // At i% = 4 the 2-D store fails; RESUME NEXT skips to LINE 7 (NEXT has no LINE of its own).
-    assert_eq!(same(&p), " 10  6  2 \n");
+    same("array_bounds_errors");
 }
 
 #[test]
 fn gosub_return_in_a_hot_loop() {
-    // FOR i% = 1 TO 300: GOSUB A: IF i% MOD 7 = 0 THEN GOSUB B: NEXT: PRINT c&; d&: END
-    // A: c& = c& + i%: RETURN      B: d& = d& + 1: GOSUB A: RETURN
-    let body = "LINE 2\nGOSUB A\nLOAD I%\nPUSH I 7\nOP MOD\nPUSH I 0\nOP EQ\nJZ ~N\nGOSUB B\nLABEL ~N";
-    let p = format!(
-        "QIR 0\nLINE 1\n{}LINE 3\nLOAD C&\nPRINT\nLOAD D&\nPRINT\nPRINTNL\nEND\n\
-         LABEL A\nLINE 5\nLOAD C&\nLOAD I%\nOP ADD\nSTORE C&\nRETURN\n\
-         LABEL B\nLINE 6\nLOAD D&\nPUSH I 1\nOP ADD\nSTORE D&\nGOSUB A\nRETURN\n",
-        for_loop(1, "I%", "I 1", "I 300", "I 1", body)
-    );
     let c: i64 = (1..=300).sum::<i64>() + (1..=300).filter(|i| i % 7 == 0).sum::<i64>();
-    assert_eq!(same(&p), format!(" {c}  42 \n"));
+    assert_eq!(same("gosub_return_in_loop").out, format!(" {c}  42 \n"));
 }
 
 #[test]
 fn return_without_gosub_from_native_code() {
-    let body = "LINE 2\nLOAD I%\nPUSH I 5\nOP EQ\nJZ ~N\nRETURN\nLABEL ~N";
-    let p = format!("QIR 0\nLINE 1\n{}END\n", for_loop(1, "I%", "I 1", "I 9", "I 1", body));
-    let r = run_mode(&p, Mode::Hot);
-    assert_eq!(r.result.map_err(|e| e.0), Err(3));
-    same(&p);
+    assert_eq!(same("return_without_gosub").result.map_err(|e| e.0), Err(3));
 }
 
 #[test]
 fn shared_variable_changed_by_sub_called_from_native_main() {
-    // T& = 5: FOR i% = 1 TO 40: T& = T& + 1: CALL ADDTO(i%): NEXT: PRINT T&   (SUB ADDTO: SHARED T&: T& = T& * 2 MOD 1000 + n%)
-    let body = "LOAD T&\nPUSH I 1\nOP ADD\nSTORE T&\nLOAD I%\nCALL ADDTO 1";
-    let p = format!(
-        "QIR 0\nSHARED T&\nPUSH I 5\nSTORE T&\n{}LOAD T&\nPRINT\nPRINTNL\nEND\n\
-         SUB ADDTO 1 N%\nLOAD T&\nPUSH I 2\nOP MUL\nPUSH I 1000\nOP MOD\nLOAD N%\nOP ADD\nSTORE T&\nENDSUB\n",
-        for_loop(1, "I%", "I 1", "I 40", "I 1", body)
-    );
-    same(&p);
+    same("shared_changed_by_sub");
 }
 
 #[test]
 fn recursive_function_from_native_loop_and_end_inside_sub() {
-    // FOR i% = 1 TO 12: s& = s& + FACT&(i% MOD 8): NEXT: PRINT s&: CALL STOPPER: PRINT "no"
-    let body = "LOAD S&\nLOAD I%\nPUSH I 8\nOP MOD\nCALL FACT& 1\nOP ADD\nSTORE S&";
-    let p = format!(
-        "QIR 0\n{}LOAD S&\nPRINT\nPRINTNL\nCALL STOPPER 0\nPUSH S 6E6F\nPRINT\nPRINTNL\nEND\n\
-         FUNCTION FACT& 1 N&\nLOAD N&\nPUSH I 1\nOP LE\nJZ E\nPUSH I 1\nSTORE FACT&\nJMP X\nLABEL E\n\
-         LOAD N&\nLOAD N&\nPUSH I 1\nOP SUB\nCALL FACT& 1\nOP MUL\nSTORE FACT&\nLABEL X\nENDSUB\n\
-         SUB STOPPER 0\nEND\nENDSUB\n",
-        for_loop(1, "I%", "I 1", "I 12", "I 1", body)
-    );
-    let out = same(&p);
+    let out = same("recursion_and_end_in_sub").out;
     assert!(!out.contains("no"), "{out}");
 }
 
-// ---------------------------------------------------------------- native calls
-
 #[test]
 fn native_sub_with_byref_and_function_results() {
-    // FOR i& = 1 TO 2000: INC c&: t& = t& + SQ&(i&): NEXT: PRINT c&; t&
-    let body = "LINE 2\nREF C&\nCALL INC 1\nLOAD T&\nLOAD I&\nCALL SQ& 1\nOP ADD\nSTORE T&";
-    let p = format!(
-        "QIR 0\n{}LOAD C&\nPRINT\nLOAD T&\nPRINT\nPRINTNL\nEND\n\
-         SUB INC 1 N&\nLOAD N&\nPUSH I 1\nOP ADD\nSTORE N&\nENDSUB\n\
-         FUNCTION SQ& 1 X&\nLOAD X&\nLOAD X&\nOP MUL\nPUSH I 1000\nOP MOD\nSTORE SQ&\nENDSUB\n",
-        for_loop(1, "I&", "I 1", "I 2000", "I 1", body)
-    );
     let t: i64 = (1..=2000i64).map(|i| i * i % 1000).sum();
-    assert_eq!(same(&p), format!(" 2000  {t} \n"));
+    assert_eq!(same("native_byref_and_function").out, format!(" 2000  {t} \n"));
 }
 
 #[test]
 fn error_inside_native_callee_resumes_next_in_the_callee() {
-    // ON ERROR GOTO H: FOR i% = 1 TO 30: s& = s& + F&(i%): NEXT: PRINT s&; e%: END
-    // FUNCTION F&(n%): F& = 100: F& = 1000 \ (n% MOD 4): END FUNCTION     H: e% = e% + 1: RESUME NEXT
-    let body = "LINE 3\nLOAD S&\nLOAD I%\nCALL F& 1\nOP ADD\nSTORE S&";
-    let p = format!(
-        "QIR 0\nLINE 1\nONERROR MAIN.H\nLINE 2\n{}LINE 4\nLOAD S&\nPRINT\nLOAD E%\nPRINT\nPRINTNL\nEND\n\
-         LABEL MAIN.H\nLINE 9\nLOAD E%\nPUSH I 1\nOP ADD\nSTORE E%\nRESUME NEXT\n\
-         FUNCTION F& 1 N%\nLINE 20\nPUSH I 100\nSTORE F&\nLINE 21\nPUSH I 1000\nLOAD N%\nPUSH I 4\nOP MOD\nOP IDIV\nSTORE F&\nLINE 22\nENDSUB\n",
-        for_loop(1, "I%", "I 1", "I 30", "I 1", body)
-    );
-    same(&p);
+    same("error_inside_callee");
 }
 
 #[test]
 fn deep_native_recursion_hands_over_to_the_vm() {
-    // FOR k% = 1 TO 3: t& = t& + DOWN&(3000): NEXT   FUNCTION DOWN&(n&): IF n& > 0 THEN DOWN& = DOWN&(n& - 1) + 1
-    let body = "LOAD T&\nPUSH I 3000\nCALL DOWN& 1\nOP ADD\nSTORE T&";
-    let p = format!(
-        "QIR 0\n{}LOAD T&\nPRINT\nPRINTNL\nEND\n\
-         FUNCTION DOWN& 1 N&\nLOAD N&\nPUSH I 0\nOP GT\nJZ X\nLOAD N&\nPUSH I 1\nOP SUB\nCALL DOWN& 1\nPUSH I 1\nOP ADD\nSTORE DOWN&\nLABEL X\nENDSUB\n",
-        for_loop(1, "K%", "I 1", "I 3", "I 1", body)
-    );
-    assert_eq!(same(&p), " 9000 \n");
+    assert_eq!(same("deep_recursion").out, " 9000 \n");
 }
 
 #[test]
 fn end_and_gosub_inside_native_callee() {
-    // FOR i% = 1 TO 50: CALL S(i%): NEXT    SUB S(n%): GOSUB G: IF n% = 40 THEN END: G: c& = c& + n%: RETURN
-    let body = "LOAD I%\nCALL S 1";
-    let p = format!(
-        "QIR 0\nSHARED C&\n{}PUSH S 6E6F\nPRINT\nPRINTNL\nEND\n\
-         SUB S 1 N%\nGOSUB G\nLOAD C&\nPRINT\nLOAD N%\nPUSH I 40\nOP EQ\nJZ Y\nEND\nLABEL Y\nJMP Z\n\
-         LABEL G\nLOAD C&\nLOAD N%\nOP ADD\nSTORE C&\nRETURN\nLABEL Z\nENDSUB\n",
-        for_loop(1, "I%", "I 1", "I 50", "I 1", body)
-    );
-    let out = same(&p);
+    let out = same("end_and_gosub_in_callee").out;
     assert!(!out.contains("no"), "{out}");
 }
 
 #[test]
 fn byref_shared_variable_through_two_native_levels() {
-    // FOR i% = 1 TO 100: CALL A: NEXT: PRINT G&     SUB A: SHARED G&: CALL B(G&)    SUB B(x&): x& = x& * 3 MOD 1000 + 1
-    let body = "CALL A 0";
-    let p = format!(
-        "QIR 0\nSHARED G&\n{}LOAD G&\nPRINT\nPRINTNL\nEND\n\
-         SUB A 0\nREF G&\nCALL B 1\nENDSUB\n\
-         SUB B 1 X&\nLOAD X&\nPUSH I 3\nOP MUL\nPUSH I 1000\nOP MOD\nPUSH I 1\nOP ADD\nSTORE X&\nENDSUB\n",
-        for_loop(1, "I%", "I 1", "I 100", "I 1", body)
-    );
-    same(&p);
+    same("byref_shared_two_levels");
 }

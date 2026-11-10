@@ -1,4 +1,4 @@
-//! QIR v1 reference interpreter (`qb_exec::run_ir` with a `QIR 1` header).
+//! QIR instructions and builtins end to end (`qb_exec::run_ir`).
 
 fn run(body: &str) -> String {
     run_full(&format!("QIR 1\nfunc main\n{body}\nend\nendfunc\n"))
