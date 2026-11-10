@@ -376,6 +376,7 @@ Findings (each fixed with a failing test first):
 | R14-4 | A failed `_MEMGET` check with an absurd byte count aborted the program while allocating the zeroed scratch buffer. | Low | Fallible reserve; reports 518 (out of memory). |
 | R14-5 | `_MEMNEW` buffers and the `qbs` descriptor blocks handed out pointers derived from a `Box<[T]>` and then moved the Box into the pool (map/vector), which invalidates those pointers under Rust's aliasing model (miri, Stacked Borrows). | Medium (UB the optimiser may exploit) | Owned through raw pointers, never moved. |
 | R14-6 | `_SNDVOL`/`_SNDRAW` with NaN or infinity turned every mixed frame into NaN (`clamp` keeps NaN) and sent it to f32 output devices; found by a 2-thread stress test (BASIC thread vs mixer). A device reporting 0 channels would panic in the callback. | Medium | Non-finite contributions dropped per source; 0-channel devices refused. |
+| R14-7 | The UTF-8 side table of text screens (`console/cells.rs`) indexed `(top_row - 1) * width` without bounds checks in `scroll_up` (top row 0, a bottom row past the table or width <= 0 panicked) and `clear_range` could overflow `first + count`. | Medium (abort from VIEW PRINT / WIDTH sequences) | i64 arithmetic, clipped to the table. |
 | R14-3 | `_MEM` range check `off + bytes` wrapped for offsets near the top of the address space, so `_MEMFILL`/`_MEMCOPY`/`_MEMGET` with a bad offset touched foreign memory instead of raising error 300. | High (BASIC computes `_OFFSET`s) | Check in i128. |
 
 Property tests: `qb-float80/tests/props.rs` (proptest, 20k cases each; decimal round trips 400): f64 widening, integer round trips, commutativity, `a-b = a+(-b)`, decimal and shortest text round trips, ordering vs subtraction sign, exact square roots, integer powers, rounding brackets, no panic on any encoding.
@@ -384,7 +385,9 @@ Lints: `-W clippy::pedantic` clean for qb-float80 and qb-ffi library code (cast 
 
 Miri (nightly, `-Zmiri-disable-isolation`): qb-float80 21/21 (software transcendentals; x87 asm tests skipped), qb-ffi 7/7 pure tests, qb-runtime `qbs::` + `mem::` 26/26 after R14-5 (the 300k-string arena test and the huge-allocation test are skipped: too slow / resource exhaustion by design). No UB left in those.
 
-Reviewed without findings: fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
+Property tests in qb-runtime (`src/props_tests.rs`): MBF single/double round trips (signed zero and underflow to MBF zero as legacy), HEX$/OCT$/_BIN$ parse back, STR$ of integers, VAL(STR) within 1e-14, DEFLATE/INFLATE round trip within `deflate_bound`. No findings.
+
+Reviewed without findings: events ON KEY/ON STRIG slot ranges, net send/recv/address buffers, fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
 
 Open (not done in this pass):
 
