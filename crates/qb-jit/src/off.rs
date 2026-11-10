@@ -11,6 +11,8 @@ pub enum Target {
     Host,
     X86_64,
     Aarch64,
+    X86_64Darwin,
+    Aarch64Darwin,
 }
 
 pub type NativeFn = unsafe extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;

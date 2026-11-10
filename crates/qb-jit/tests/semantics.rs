@@ -566,6 +566,57 @@ fn aot_objects_link_for_every_target() {
     }
 }
 
+/// `rust-lld` of the active Rust toolchain, if present.
+fn rust_lld() -> Option<std::path::PathBuf> {
+    let out = |args: &[&str]| {
+        std::process::Command::new("rustc").args(args).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let sysroot = out(&["--print", "sysroot"])?.trim().to_string();
+    let host = out(&["-vV"])?.lines().find_map(|l| l.strip_prefix("host: ").map(str::to_string))?;
+    let exe = if cfg!(windows) { "rust-lld.exe" } else { "rust-lld" };
+    let p = std::path::Path::new(&sysroot).join("lib/rustlib").join(host).join("bin").join(exe);
+    p.is_file().then_some(p)
+}
+
+/// D15 final for Linux and macOS: the native object (program + entry table)
+/// of every ELF and Mach-O target is position-independent and accepted by
+/// the system linker (rust-lld as ld.lld / ld64.lld). Runtime symbols are
+/// left undefined here; linking the real executables runs in CI
+/// (`.github/workflows`, job `native-exe`).
+#[test]
+fn native_objects_link_with_lld_for_elf_and_macho() {
+    use qb_jit::Target as T;
+    let Some(lld) = rust_lld() else {
+        eprintln!("skipped: rust-lld not found");
+        return;
+    };
+    let m = module(vec![loop_mod(10).funcs.remove(0), fact_func()], vec![]);
+    let dir = std::env::temp_dir().join(format!("qb-native-obj-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (t, name) in [(T::X86_64, "x64.o"), (T::Aarch64, "a64.o"), (T::X86_64Darwin, "x64m.o"), (T::Aarch64Darwin, "a64m.o")] {
+        let obj = qb_jit::aot::compile_native_object(&m, t, b"QIR 1\n", 7).unwrap_or_else(|e| panic!("{t:?}: {e:?}"));
+        let path = dir.join(name);
+        std::fs::write(&path, &obj).unwrap();
+        let mut cmd = std::process::Command::new(&lld);
+        match t {
+            T::X86_64 | T::Aarch64 => {
+                // `-z text`: refuse text relocations, i.e. the code must be PIC.
+                cmd.args(["-flavor", "gnu", "-shared", "-z", "text", "--unresolved-symbols=ignore-all", "-o"]);
+                cmd.arg(dir.join(format!("{name}.so")));
+            }
+            _ => {
+                let arch = if t == T::X86_64Darwin { "x86_64" } else { "arm64" };
+                cmd.args(["-flavor", "darwin", "-arch", arch, "-platform_version", "macos", "11.0", "11.0"]);
+                cmd.args(["-dylib", "-undefined", "dynamic_lookup", "-o"]);
+                cmd.arg(dir.join(format!("{name}.dylib")));
+            }
+        }
+        let o = cmd.arg(&path).output().unwrap();
+        assert!(o.status.success(), "{t:?}: {}{}", String::from_utf8_lossy(&o.stderr), String::from_utf8_lossy(&o.stdout));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn byref_copy_out_and_call_budget() {
     // SUB dbl(x&): x& = x& * 2   called with copy-in/copy-out

@@ -1,0 +1,82 @@
+name: Native executables (D15)
+
+# Programs linked by rust-lld with the qb-native runtime library into
+# standard executables (PE / ELF / Mach-O) must give the VM's output
+# (crates/qb-exec/tests/native_link.rs). Linux and macOS cannot be run on the
+# development machine, so they are checked here.
+
+on:
+  push:
+    branches: ["main", "rust-port"]
+  pull_request:
+    branches: ["main", "rust-port"]
+  workflow_dispatch:
+
+concurrency:
+  group: native-exe-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-exe:
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs_on: ubuntu-latest
+          - name: linux-arm64
+            runs_on: ubuntu-24.04-arm
+          - name: macos-arm64
+            runs_on: macos-latest
+          - name: windows-x64
+            runs_on: windows-latest
+    name: native-exe (${{ matrix.name }})
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      QBNEX_NO_ERROR_DIALOG: "1"
+      QBNEX_HEADLESS: "1"
+      QB_AUDIO_DEVICE: none
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config
+
+      # rust-toolchain.toml pins the version; rustup installs it (rust-lld ships with it).
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustc -vV
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build native kit (Linux, macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          sh scripts/native-kit.sh target/release/native
+          cat target/release/native/kit.txt
+
+      - name: Build native kit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/native-kit.ps1 -Out target/release/native
+          Get-Content target/release/native/kit.txt
+
+      - name: Native objects link (ELF, Mach-O, PIC)
+        shell: bash
+        run: cargo test --locked --release -p qb-jit --test semantics native_objects
+
+      - name: Linked executables match the VM
+        shell: bash
+        run: |
+          export QBNEX_NATIVE_KIT="$PWD/target/release/native"
+          cargo test --locked --release -p qb-exec --test native_link --test aot -- --nocapture
