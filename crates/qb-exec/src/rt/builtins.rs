@@ -380,7 +380,47 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             bits.to_string()
         };
         return Ok(Some(V::S(os.into_bytes())));
-    }    if name == "READCHK" {
+    }    if let Some(t) = name.strip_prefix("_MK$.") {
+        // little-endian bytes; _FLOAT = the 80-bit value in 32 bytes (f2string)
+        let b: Vec<u8> = match t {
+            "i8" | "u8" => vec![a[0].i() as u8],
+            "u16" => (a[0].i() as u16).to_le_bytes().to_vec(),
+            "u32" => (a[0].i() as u32).to_le_bytes().to_vec(),
+            "u64" => (a[0].i() as u64).to_le_bytes().to_vec(),
+            _ => {
+                let mut v = a[0].x().to_bytes().to_vec();
+                v.resize(32, 0);
+                v
+            }
+        };
+        return Ok(Some(V::S(b)));
+    }
+    if let Some(t) = name.strip_prefix("_CV.") {
+        let s = a[0].s();
+        let need = match t {
+            "i8" | "u8" => 1,
+            "u16" => 2,
+            "u32" => 4,
+            "u64" => 8,
+            _ => 32,
+        };
+        if s.len() < need {
+            return e(5);
+        }
+        let v = match t {
+            "i8" => V::I(i64::from(s[0] as i8)),
+            "u8" => V::I(i64::from(s[0])),
+            "u16" => V::I(i64::from(u16::from_le_bytes([s[0], s[1]]))),
+            "u32" => V::I(i64::from(u32::from_le_bytes(s[..4].try_into().unwrap()))),
+            "u64" => V::I(u64::from_le_bytes(s[..8].try_into().unwrap()) as i64),
+            _ => V::X(qb_float80::F80::from_bytes(s[..10].try_into().unwrap())),
+        };
+        return Ok(Some(v));
+    }
+    if let Some(r) = math_call(name, &a) {
+        return r;
+    }
+    if name == "READCHK" {
         let c = std::mem::take(&mut vm.rt().read_err);
         return if c != 0 { e(c) } else { Ok(None) };
     }
@@ -1311,4 +1351,96 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
         _ => return None,
     };
     Some(Ok(Some(v)))
+}
+
+/// Math and bit builtins named by their libqb/libm callnames (`_ACOS`, `_D2R`,
+/// `_SEC`, `_SHL`, `_STRCMP`, ...). libqb computes these in double.
+fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
+    let x = |k: usize| a[k].f();
+    let f80 = |v: f64| Some(Ok(Some(V::X(qb_float80::F80::from_f64(v)))));
+    let bad = || Some(e(5));
+    let v = x(0);
+    match name {
+        "acos" => f80(v.acos()),
+        "asin" => f80(v.asin()),
+        "ceil" => f80(v.ceil()),
+        "sinh" => f80(v.sinh()),
+        "cosh" => f80(v.cosh()),
+        "tanh" => f80(v.tanh()),
+        "atan2" => f80(v.atan2(x(1))),
+        "hypot" => f80(v.hypot(x(1))),
+        "func_deg2rad" => f80(v * 0.017453292519943295),
+        "func_rad2deg" => f80(v * 57.29577951308232),
+        "func_deg2grad" => f80(v * 1.111111111111111),
+        "func_grad2deg" => f80(v * 0.9),
+        "func_rad2grad" => f80(v * 63.66197723675816),
+        "func_grad2rad" => f80(v * 0.01570796326794896),
+        "func_arcsec" | "func_arccsc" => {
+            if !(-1.0..=1.0).contains(&v) {
+                return bad();
+            }
+            let sign = f64::from(i32::from(v > 0.0) - i32::from(v < 0.0));
+            f80((v / (1.0 - v * v).sqrt()).atan() + (sign - 1.0) * (2.0 * 1f64.atan()))
+        }
+        "func_arccot" => f80(2.0 * 1f64.atan() - v.atan()),
+        "func_sech" | "func_csch" => {
+            if v > 88.02969 {
+                return bad();
+            }
+            let d = if name == "func_sech" { v.exp() + (-v).exp() } else { v.exp() - (-v).exp() };
+            if d == 0.0 {
+                return bad();
+            }
+            f80(2.0 / d)
+        }
+        "func_coth" => {
+            if v > 44.014845 || 2.0 * v.exp() - 1.0 == 0.0 {
+                return bad();
+            }
+            f80(2.0 * v.exp() - 1.0)
+        }
+        "func_sec" | "func_csc" | "func_cot" => {
+            let d = match name {
+                "func_sec" => v.cos(),
+                "func_csc" => v.sin(),
+                _ => v.tan(),
+            };
+            if d == 0.0 {
+                return bad();
+            }
+            f80(1.0 / d)
+        }
+        "func_pi" => {
+            let pi = std::f64::consts::PI;
+            Some(Ok(Some(V::F(if a[1].i() != 0 { pi * v } else { pi }))))
+        }
+        "func__shl" | "func__shr" | "func__setbit" | "func__resetbit" | "func__togglebit" | "func__readbit" => {
+            let (n, b) = (a[0].i() as u64, (a[1].i() as u32) & 63);
+            let r = match name {
+                "func__shl" => n << b,
+                "func__shr" => n >> b,
+                "func__setbit" => n | 1 << b,
+                "func__resetbit" => n & !(1 << b),
+                "func__togglebit" => n ^ 1 << b,
+                _ => {
+                    if n & 1 << b != 0 {
+                        u64::MAX
+                    } else {
+                        0
+                    }
+                }
+            };
+            Some(Ok(Some(V::I(r as i64))))
+        }
+        "func__str_compare" | "func__str_nc_compare" => {
+            let (p, q) = (a[0].s(), a[1].s());
+            let o = if name == "func__str_compare" {
+                p.cmp(q)
+            } else {
+                p.to_ascii_lowercase().cmp(&q.to_ascii_lowercase())
+            };
+            Some(Ok(Some(V::I(o as i64))))
+        }
+        _ => None,
+    }
 }

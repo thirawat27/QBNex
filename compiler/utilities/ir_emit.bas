@@ -1166,6 +1166,11 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
     l$ = l$ + "func__freetimer|sub_timer|sub_key|"
+    l$ = l$ + "acos|asin|ceil|sinh|cosh|tanh|func_deg2rad|func_deg2grad|"
+    l$ = l$ + "func_rad2deg|func_rad2grad|func_grad2deg|func_grad2rad|func_arcsec|func_arccsc|func_arccot|func_sech|"
+    l$ = l$ + "func_csch|func_coth|func_sec|func_csc|func_cot|atan2|hypot|func_pi|"
+    l$ = l$ + "func__shl|func__shr|func__setbit|func__resetbit|func__togglebit|func__readbit|func__str_compare|func__str_nc_compare|"
+    l$ = l$ + "|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
@@ -1544,6 +1549,15 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
         CASE "_CWD$", "_STARTDIR$", "_OS$"
             r$ = IrRt$(nm$, "", "str")
+        CASE "_ROUND"
+            'qbr of the value as an _INTEGER64
+            x$ = IrEval$(sv(1), t)
+            r$ = IrCvt$(x$, IrT, "i64"): IrT = "i64"
+        CASE "_INCLERRORLINE"
+            'QIR line markers are lines of the main file; no $INCLUDE line/file at run time
+            r$ = IrI32$(0): IrT = "i32"
+        CASE "_INCLERRORFILE$"
+            r$ = IrConstStr$(""): IrT = "str"
         CASE "_COMMANDCOUNT"
             r$ = IrRt$(nm$, "", "i32")
         CASE "_MK$", "_CV"
@@ -1556,15 +1570,28 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 CASE "f32": z$ = "S"
                 CASE "f64": z$ = "D"
                 CASE "i64": z$ = "i64"
+                CASE "i8", "u8", "u16", "u32", "u64", "f80": z$ = "." + sx$
                 CASE ELSE: z$ = ""
             END SELECT
             IF z$ = "" THEN IrNotSup nm$ + " of " + sv(1): r$ = IrI32$(0): IrT = "i32": GOTO irfdone
             IF nm$ = "_MK$" THEN
                 x$ = IrArgAs$(sv(2), sx$)
-                IF z$ = "i64" THEN r$ = IrRt$("_MK$.i64", " " + x$, "str") ELSE r$ = IrRt$("MK" + z$ + "$", " " + x$, "str")
+                IF z$ = "i64" THEN
+                    r$ = IrRt$("_MK$.i64", " " + x$, "str")
+                ELSEIF LEFT$(z$, 1) = "." THEN
+                    r$ = IrRt$("_MK$" + z$, " " + x$, "str")
+                ELSE
+                    r$ = IrRt$("MK" + z$ + "$", " " + x$, "str")
+                END IF
             ELSE
                 x$ = IrArgAs$(sv(2), "str")
-                IF z$ = "i64" THEN r$ = IrRt$("_CV.i64", " " + x$, "i64") ELSE r$ = IrRt$("CV" + z$, " " + x$, sx$)
+                IF z$ = "i64" THEN
+                    r$ = IrRt$("_CV.i64", " " + x$, "i64")
+                ELSEIF LEFT$(z$, 1) = "." THEN
+                    r$ = IrRt$("_CV" + z$, " " + x$, sx$)
+                ELSE
+                    r$ = IrRt$("CV" + z$, " " + x$, sx$)
+                END IF
                 typ = t
             END IF
         CASE "_MEMEXISTS", "_MEMGET"
@@ -1781,7 +1808,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             IrE "jz " + z$ + " " + y$ + ".E"
             IrE "jmp " + y$
             IrE "label " + y$ + ".E"
-        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE"
+        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE", "_CONTROLCHR", "_SCREENSHOW", "_SCREENHIDE", "_SCREENICON", "_ICON", "_ACCEPTFILEDROP", "_ALLOWFULLSCREEN", "_RESIZE"
             'window state: no visible effect headless
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
