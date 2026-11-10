@@ -22,6 +22,9 @@ set "SRC_UTF16=%TMPDIR%\utf16_source.bas"
 set "SRC_INVALID=%TMPDIR%\invalid_utf8_source.bas"
 set "SRC_INVALID_MID=%TMPDIR%\invalid_utf8_mid_source.bas"
 set "SRC_BOM=%TMPDIR%\utf8_bom_source.bas"
+set "SRC_CP437=%TMPDIR%\cp437_source.bas"
+set "BIN_CP437=%TMPDIR%\cp437_output.exe"
+set "OUT_CP437=%TMPDIR%\cp437_output.txt"
 set "SRC_EMPTY=%TMPDIR%\empty_source.bas"
 set "SRC_SPACE_DIR=%TMPDIR%\source with spaces"
 set "SRC_SPACE=%SRC_SPACE_DIR%\hello world.bas"
@@ -46,13 +49,13 @@ if errorlevel 1 (
     exit /b 2
 )
 
-powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_INVALID, [byte[]](80,82,73,78,84,32,34,255,34,13,10))" >nul
+powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_INVALID, [byte[]](239,187,191,80,82,73,78,84,32,34,255,34,13,10))" >nul
 if errorlevel 1 (
     echo [FAIL] Could not create invalid UTF-8 fixture.
     exit /b 2
 )
 
-powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_INVALID_MID, [byte[]](80,82,73,78,84,32,34,111,107,34,13,10,80,82,73,78,84,32,34,255,34,13,10))" >nul
+powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_INVALID_MID, [byte[]](80,82,73,78,84,32,34,226,148,128,226,148,130,34,13,10,80,82,73,78,84,32,34,255,34,13,10))" >nul
 if errorlevel 1 (
     echo [FAIL] Could not create mid-file invalid UTF-8 fixture.
     exit /b 2
@@ -61,6 +64,12 @@ if errorlevel 1 (
 powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_BOM, [byte[]](239,187,191,80,82,73,78,84,32,34,104,105,34,13,10))" >nul
 if errorlevel 1 (
     echo [FAIL] Could not create UTF-8 BOM fixture.
+    exit /b 2
+)
+
+powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes($env:SRC_CP437, [byte[]](39,32,186,32,99,111,109,109,101,110,116,13,10,80,82,73,78,84,32,34,201,205,187,34,13,10))" >nul
+if errorlevel 1 (
+    echo [FAIL] Could not create CP437 fixture.
     exit /b 2
 )
 
@@ -92,6 +101,9 @@ set "EC_INVALID_MID=%ERRORLEVEL%"
 "%QB%" "%SRC_BOM%" -o "%BIN_BOM%" > "%OUT_BOM%" 2>&1
 set "EC_BOM=%ERRORLEVEL%"
 
+"%QB%" "%SRC_CP437%" -o "%BIN_CP437%" > "%OUT_CP437%" 2>&1
+set "EC_CP437=%ERRORLEVEL%"
+
 "%QB%" "%SRC_EMPTY%" -o "%BIN_EMPTY%" > "%OUT_EMPTY%" 2>&1
 set "EC_EMPTY=%ERRORLEVEL%"
 
@@ -122,7 +134,7 @@ if exist "%BIN_UTF16%" (
 )
 
 if "%EC_INVALID%"=="0" (
-    echo [FAIL] Invalid UTF-8 source should fail compilation.
+    echo [FAIL] UTF-8 BOM source with an invalid byte should fail compilation.
     set "FAIL=1"
 )
 findstr /L /C:"Invalid UTF-8 byte sequence detected in source file" "%OUT_INVALID%" >nul || (
@@ -139,7 +151,7 @@ if exist "%BIN_INVALID%" (
 )
 
 if "%EC_INVALID_MID%"=="0" (
-    echo [FAIL] Mid-file invalid UTF-8 source should fail compilation.
+    echo [FAIL] UTF-8 source with a stray invalid byte should fail compilation.
     set "FAIL=1"
 )
 findstr /L /C:"Invalid UTF-8 byte sequence detected in source file" "%OUT_INVALID_MID%" >nul || (
@@ -169,6 +181,19 @@ findstr /L /C:"encoding detected" "%OUT_BOM%" >nul && (
 )
 if not exist "%BIN_BOM%" (
     echo [FAIL] UTF-8 BOM compilation should emit an executable.
+    set "FAIL=1"
+)
+
+if not "%EC_CP437%"=="0" (
+    echo [FAIL] CP437 source should compile successfully.
+    set "FAIL=1"
+)
+findstr /L /C:"Invalid UTF-8" "%OUT_CP437%" >nul && (
+    echo [FAIL] CP437 fixture should not report an encoding failure.
+    set "FAIL=1"
+)
+if not exist "%BIN_CP437%" (
+    echo [FAIL] CP437 compilation should emit an executable.
     set "FAIL=1"
 )
 
@@ -223,6 +248,7 @@ echo   UTF-16: "%OUT_UTF16%"
 echo   Invalid UTF-8: "%OUT_INVALID%"
 echo   Mid invalid UTF-8: "%OUT_INVALID_MID%"
 echo   UTF-8 BOM: "%OUT_BOM%"
+echo   CP437: "%OUT_CP437%"
 echo   Empty: "%OUT_EMPTY%"
 echo   Spaced path: "%OUT_SPACE%"
 echo   Stale output: "%OUT_STALE%"

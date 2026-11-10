@@ -2053,7 +2053,7 @@ IF (targettyp AND ISPOINTER) THEN
         END IF
 
 
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1))
+        idnum = VAL(e$)
         getid idnum
         IF Error_Happened THEN EXIT FUNCTION
 
@@ -2129,7 +2129,7 @@ END IF
 
 IF (targettyp AND ISSTRING) = 0 THEN
     IF (sourcetyp AND ISREFERENCE) THEN
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1)) 'id# of sourcetyp
+        idnum = VAL(e$) 'id# of sourcetyp
 
         targettyp2 = targettyp: sourcetyp2 = sourcetyp
 
@@ -2217,7 +2217,7 @@ ELSE 'string
     'its a string
 
     IF (sourcetyp AND ISREFERENCE) THEN
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1)) 'id# of sourcetyp
+        idnum = VAL(e$) 'id# of sourcetyp
         IF MID$(sfcmemargs(targetid), curarg, 1) = CHR$(1) THEN 'cmem required?
         IF cmemlist(idnum) = 0 THEN
             cmemlist(idnum) = 1

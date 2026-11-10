@@ -2398,6 +2398,7 @@ FUNCTION getpid& ()
                                         qberrorhappened = 0
                                     NEXT
                                     IF qberrorhappened <> -3 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
+                                    qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
                                     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
                                 END IF 'fall through to next section...
                                 '--------------------
@@ -6369,6 +6370,46 @@ END IF
 
 
 
+'PLAY event trapping: PLAY {ON|OFF|STOP} and ON PLAY(n) GOSUB label are QBasic statements.
+'They are accepted and checked; the runtime does not raise the PLAY event yet (deviation D-24).
+IF n = 2 AND firstelement$ = "PLAY" THEN
+    IF secondelement$ = "ON" OR secondelement$ = "OFF" OR secondelement$ = "STOP" THEN
+        l$ = SCase$("Play") + sp + SCase$(LEFT$(secondelement$, 1) + LCASE$(MID$(secondelement$, 2)))
+        layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+        addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "PLAY event trapping is accepted but the event is not raised", "PLAY " + secondelement$
+        GOTO finishedline
+    END IF
+END IF
+IF n >= 2 THEN
+    IF firstelement$ = "ON" AND secondelement$ = "PLAY" THEN
+        IF n < 7 THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        IF getelement$(a$, 3) <> "(" THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        B = 0: e$ = ""
+        FOR i = 4 TO n
+            e2$ = getelement$(ca$, i)
+            IF e2$ = "(" THEN B = B + 1
+            IF e2$ = ")" THEN
+                IF B = 0 THEN EXIT FOR
+                B = B - 1
+            END IF
+            IF LEN(e$) THEN e$ = e$ + sp + e2$ ELSE e$ = e2$
+        NEXT
+        IF e$ = "" OR i + 2 <> n THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        IF getelement$(a$, i + 1) <> "GOSUB" THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        e$ = fixoperationorder$(e$)
+        IF Error_Happened THEN GOTO errmes
+        l$ = SCase$("On" + sp + "Play" + sp2 + "(") + sp2 + tlayout$ + sp2 + ")" + sp + SCase$("GoSub")
+        e$ = evaluatetotyp(e$, 32&)
+        IF Error_Happened THEN GOTO errmes
+        a2$ = getelement$(ca$, n)
+        IF validlabel(a2$) = 0 THEN a$ = "Invalid label": GOTO errmes
+        l$ = l$ + sp + a2$
+        layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+        addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "PLAY event trapping is accepted but the event is not raised", "ON PLAY"
+        GOTO finishedline
+    END IF
+END IF
+
 IF n >= 2 THEN
     IF firstelement$ = "ON" AND secondelement$ = "TIMER" THEN
         i = 3
@@ -10152,7 +10193,7 @@ ELSE
                 IF RIGHT$(e$, 2) <> sp3 + "0" THEN a$ = "Expected arrayname()": GOTO errmes
             END IF
 
-            idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1))
+            idnum = VAL(e$)
             getid idnum
             IF Error_Happened THEN GOTO errmes
 
@@ -10211,7 +10252,7 @@ END IF 'target is an array
 
 IF (targettyp AND ISSTRING) = 0 THEN
     IF (sourcetyp AND ISREFERENCE) THEN
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1)) 'id# of sourcetyp
+        idnum = VAL(e$) 'id# of sourcetyp
 
         targettyp2 = targettyp: sourcetyp2 = sourcetyp
 
@@ -10285,7 +10326,7 @@ END IF 'reference
 ELSE 'not a string
     'its a string
     IF (sourcetyp AND ISREFERENCE) THEN
-        idnum = VAL(LEFT$(e$, INSTR(e$, sp3) - 1)) 'id# of sourcetyp
+        idnum = VAL(e$) 'id# of sourcetyp
         IF MID$(sfcmemargs(targetid), i, 1) = CHR$(1) THEN 'cmem required?
         IF cmemlist(idnum) = 0 THEN
             cmemlist(idnum) = 1
@@ -10639,6 +10680,7 @@ IF LEN(addmetainclude$) THEN
         qberrorhappened = 0
     NEXT
     IF qberrorhappened <> -2 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
+    qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
 END IF 'fall through to next section...
 '--------------------
@@ -11580,7 +11622,7 @@ IF recompile THEN
         LogQbErrorDetails
 
         IF qberrorhappenedvalue >= 0 THEN
-            a$ = "UNEXPECTED INTERNAL COMPILER ERROR!": GOTO errmes 'internal comiler error
+            a$ = "UNEXPECTED INTERNAL COMPILER ERROR! (error" + STR$(ERR) + " at compiler line" + STR$(_ERRORLINE) + ")": GOTO errmes 'internal comiler error
         END IF
 
 
