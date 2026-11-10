@@ -36,6 +36,76 @@ fn cc(c: Cmp) -> Cc {
     }
 }
 
+/// Registers of function `fi` that hold a constant for the whole run: a
+/// non-zero initial value (`num_init`; variables start at zero) and no
+/// instruction that may write them. Conservative: every numeric operand of
+/// an instruction native code does not compile itself counts as written,
+/// and so does the first operand (the destination) of every native one
+/// that is not a pure branch.
+fn constant_regs(m: &bc::Module, fi: usize) -> Vec<bool> {
+    let f = &m.funcs[fi];
+    let n = f.n_num() as usize;
+    let mut written = vec![false; n];
+    let mut w = |r: u32| {
+        if (r as usize) < n {
+            written[r as usize] = true;
+        }
+    };
+    for ins in &m.code[f.entry as usize..f.end as usize] {
+        use Ins::*;
+        let branch_only = matches!(
+            ins,
+            Jmp { .. }
+                | Loop { .. }
+                | JzI { .. }
+                | JnzI { .. }
+                | BrI { .. }
+                | BrF { .. }
+                | ForTestKI { .. }
+                | ForTestKF { .. }
+                | Gosub { .. }
+                | Return
+        );
+        match *ins {
+            LoopForI { c, iv, .. } => {
+                w(c);
+                w(iv);
+            }
+            Acc { d, .. } => w(d),
+            SetG { g, .. } if fi == 0 => w(g),
+            _ => {}
+        }
+        if branch_only {
+            continue;
+        }
+        if light(ins) {
+            let mut first = true;
+            ins.operands(&mut |o| {
+                if let Opnd::N(r) = o {
+                    if first {
+                        w(r);
+                    }
+                    first = false;
+                }
+            });
+            if let Some((false, d)) = ins.clone().dest_mut().map(|(s, d)| (s, *d)) {
+                w(d);
+            }
+        } else {
+            for r in frame_regs(m, ins, n as u32, fi == 0) {
+                w(r);
+            }
+        }
+    }
+    // Main-module registers SUBs can change are never constants.
+    if fi == 0 {
+        for g in main_shared(m) {
+            w(g);
+        }
+    }
+    (0..n).map(|r| !written[r] && f.num_init[r] != 0).collect()
+}
+
 /// Compiled to native code (no VM callback).
 fn light(ins: &Ins) -> bool {
     use Ins::*;
@@ -306,6 +376,8 @@ struct Lower<'a> {
     view_off: u32,
     /// VM function -> MIR index of its native call version (None: VM calls it)
     natcall: &'a [Option<u32>],
+    /// registers holding a constant (see [`constant_regs`])
+    konst: Vec<bool>,
 }
 
 fn ty_of(c: Class) -> Ty {
@@ -328,6 +400,17 @@ impl Lower<'_> {
 
     /// Register `r` viewed as class `c` (bitcast into a temporary when it differs).
     fn get(&mut self, r: u32, c: Class) -> u32 {
+        if self.konst.get(r as usize).copied().unwrap_or(false) {
+            // A compile-time constant for Cranelift (folding, division by constants).
+            let bits = self.m.funcs[self.fi].num_init[r as usize];
+            let t = self.tmp(c);
+            let imm = match c {
+                Class::Int => Imm::I(bits as i64),
+                Class::Float => Imm::F(f64::from_bits(bits)),
+            };
+            self.insts.push(Inst::Const { dst: t, imm });
+            return t;
+        }
         if self.cls[r as usize] == c {
             r
         } else {
@@ -385,9 +468,29 @@ impl Lower<'_> {
     fn ibin(&mut self, op: BinOp, d: u32, a: u32, b: u32, w: W) {
         let (a, b) = (self.get(a, Class::Int), self.get(b, Class::Int));
         let dd = self.dst(d, Class::Int);
-        self.insts.push(Inst::Bin { op, dst: dd, a, b });
+        self.int_op(op, dd, a, b, w);
         self.wrap(dd, w);
         self.put(d, dd);
+    }
+
+    /// `dst = a op b` on 64-bit slots holding values normalised to `w`.
+    /// `\` and MOD of INTEGER/LONG values divide in 32 bits (the operands fit,
+    /// and the 64-bit result the VM computes wraps to the same value).
+    fn int_op(&mut self, op: BinOp, dst: u32, a: u32, b: u32, w: W) {
+        if matches!(op, BinOp::IDiv | BinOp::Mod) && matches!(w, W::W16 | W::W32) {
+            let n = |lw: &mut Self| {
+                lw.cls.push(Class::Int);
+                lw.slots.push(Ty::I32);
+                (lw.slots.len() - 1) as u32
+            };
+            let (x, y, r) = (n(self), n(self), n(self));
+            self.insts.push(Inst::Conv { dst: x, src: a });
+            self.insts.push(Inst::Conv { dst: y, src: b });
+            self.insts.push(Inst::Bin { op, dst: r, a: x, b: y });
+            self.insts.push(Inst::Conv { dst, src: r });
+        } else {
+            self.insts.push(Inst::Bin { op, dst, a, b });
+        }
     }
 
     fn fbin(&mut self, op: BinOp, d: u32, a: u32, b: u32) {
@@ -593,7 +696,7 @@ impl Lower<'_> {
                 }
                 let (x, y) = (self.get(a, Class::Int), self.get(b, Class::Int));
                 let t = self.tmp(Class::Int);
-                self.insts.push(Inst::Bin { op: bop, dst: t, a: x, b: y });
+                self.int_op(bop, t, x, y, wi);
                 self.wrap(t, wi);
                 let acc = self.get(d, Class::Int);
                 let dd = self.dst(d, Class::Int);
@@ -855,6 +958,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
             insts: vec![],
             view_off,
             natcall: &natcall,
+            konst: constant_regs(m, fi),
         };
         let mut blocks = Vec::new();
         if callver {

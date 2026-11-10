@@ -208,6 +208,8 @@ struct Gen<'a, M: cranelift_module::Module> {
     ctx: Value,
     v_frame: Variable,
     v_globals: Variable,
+    v_evp: Variable,
+    v_evm: Variable,
     v_line: Variable,
     v_pc: Variable,
     v_base: Variable,
@@ -284,6 +286,8 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             ctx: z,
             v_frame: Variable::from_u32(0),
             v_globals: Variable::from_u32(0),
+            v_evp: Variable::from_u32(0),
+            v_evm: Variable::from_u32(0),
             v_line: Variable::from_u32(0),
             v_pc: Variable::from_u32(0),
             v_base: Variable::from_u32(0),
@@ -357,11 +361,19 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         self.b.ins().load(t, MemFlagsData::trusted(), c, off)
     }
 
+    fn reload_events(&mut self) {
+        let p = self.ctx_load(types::I64, OFF_EV_PTR);
+        self.b.def_var(self.v_evp, p);
+        let m = self.ctx_load(types::I32, OFF_EV_MASK);
+        self.b.def_var(self.v_evm, m);
+    }
+
     /// `*ctx.ev_ptr & ctx.ev_mask` (non-zero = event pending).
     fn event_word(&mut self) -> Value {
-        let p = self.ctx_load(types::I64, OFF_EV_PTR);
+        // ev_ptr / ev_mask are cached in registers (reloaded after VM callbacks).
+        let p = self.b.use_var(self.v_evp);
         let w = self.b.ins().load(types::I32, MemFlagsData::trusted(), p, 0);
-        let m = self.ctx_load(types::I32, OFF_EV_MASK);
+        let m = self.b.use_var(self.v_evm);
         self.b.ins().band(w, m)
     }
 
@@ -421,6 +433,9 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         self.v_globals = self.b.declare_var(types::I64);
         let g = self.ctx_load(types::I64, OFF_GLOBALS);
         self.b.def_var(self.v_globals, g);
+        self.v_evp = self.b.declare_var(types::I64);
+        self.v_evm = self.b.declare_var(types::I32);
+        self.reload_events();
         // Load register slots; temporaries start at zero.
         let nf = self.f.frame_len();
         for r in 0..self.f.slots.len() as u32 {
@@ -918,6 +933,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.def_var(self.v_frame, fr);
                 let g = self.ctx_load(types::I64, OFF_GLOBALS);
                 self.b.def_var(self.v_globals, g);
+                self.reload_events();
                 for w in writes {
                     if !self.resident[*w as usize] {
                         let t = self.ty(*w);
@@ -1081,10 +1097,12 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             IDiv | Mod => {
                 let isz = self.b.ins().icmp_imm_s(IntCC::Equal, y, 0);
                 self.guard(isz, qberr::DIV_ZERO);
-                if t == Ty::I64 {
-                    // i64::MIN / -1 traps in hardware; QB wraps.
+                if t == Ty::I64 || t == Ty::I32 {
+                    // MIN / -1 traps in hardware; QB wraps. (32-bit division is much
+                    // cheaper than 64-bit, so I32 divides in its own width.)
+                    let ct = clif_ty(t);
                     let m1 = self.b.ins().icmp_imm_s(IntCC::Equal, y, -1);
-                    let one = self.b.ins().iconst(types::I64, 1);
+                    let one = self.b.ins().iconst(ct, 1);
                     let ys = self.b.ins().select(m1, one, y);
                     if op == IDiv {
                         let q = self.b.ins().sdiv(x, ys);
@@ -1092,14 +1110,15 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                         self.b.ins().select(m1, nx, q)
                     } else {
                         let r = self.b.ins().srem(x, ys);
-                        let z = self.b.ins().iconst(types::I64, 0);
+                        let z = self.b.ins().iconst(ct, 0);
                         self.b.ins().select(m1, z, r)
                     }
                 } else {
+                    // I16: widen to 32 bits (no overflow possible there).
                     let ct = clif_ty(t);
-                    let x64 = self.b.ins().sextend(types::I64, x);
-                    let y64 = self.b.ins().sextend(types::I64, y);
-                    let r = if op == IDiv { self.b.ins().sdiv(x64, y64) } else { self.b.ins().srem(x64, y64) };
+                    let x32 = self.b.ins().sextend(types::I32, x);
+                    let y32 = self.b.ins().sextend(types::I32, y);
+                    let r = if op == IDiv { self.b.ins().sdiv(x32, y32) } else { self.b.ins().srem(x32, y32) };
                     self.b.ins().ireduce(ct, r)
                 }
             }
