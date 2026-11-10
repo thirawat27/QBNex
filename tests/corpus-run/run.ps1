@@ -139,6 +139,21 @@ function Compile([string]$compiler, [string]$root, [string]$src, [string]$exe, [
     return @{ ok = $ok; msg = $first; ms = $r.ms }
 }
 
+# Fresh working copy of the program's folder in $cwd. QB64 samples refer to
+# ".\programs\samples\<dir>" (CHDIR/OPEN; they expect to run from the QB64 root), so for them the
+# folder goes to $cwd\programs\samples\<dir> and the exe stays at $cwd, the "QB64 root".
+function New-RunDir($f, [string]$srcText, [string]$cwd) {
+    $rel = $f.DirectoryName.Substring($Corpus.Length).TrimStart('\')
+    $m = [regex]::Match($rel, '^qb64-samples\\(programs\\samples\\.*)$')
+    if ($m.Success -and $srcText -match 'programs[\\/]samples') {
+        $dest = Join-Path $cwd $m.Groups[1].Value
+        New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+        Copy-Item $f.DirectoryName $dest -Recurse
+    } else {
+        Copy-Item $f.DirectoryName $cwd -Recurse
+    }
+}
+
 $interactiveRe = 'INKEY\$|\bINPUT\b|_KEYHIT|_KEYDOWN|\bINP\s*\(|_MOUSE|\bSLEEP\b\s*$|LINE\s+INPUT'
 $nondetRe = 'RANDOMIZE\s+TIMER|\bTIMER\b|TIME\$|DATE\$|RANDOMIZE\s*$'
 
@@ -200,7 +215,7 @@ foreach ($f in $files) {
     foreach ($v in @('cpp', 'oracle', 'vm', 'jit')) {
         if (-not ($v -in $Variants) -or -not $exes[$v]) { continue }
         $cwd = Join-Path $w "run-$v"
-        Copy-Item $f.DirectoryName $cwd -Recurse
+        New-RunDir $f $srcText $cwd
         $fb = Join-Path $w "$v.fbraw"
         $envs = @{ QBNEX_NO_ERROR_DIALOG = '1'; QBNEX_HEADLESS = '1'; QBNEX_FB_CAPTURE = $fb; QBNEX_INPUT_SCRIPT = $script; QB_JIT = $null }
         if ($v -eq 'vm') { $envs.QB_JIT = 'off' }
@@ -217,7 +232,7 @@ foreach ($f in $files) {
             $r.notes.Add("$v hit the system memory limit (try $try)")
             Start-Sleep -Seconds 20
             Remove-Item $cwd -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item $f.DirectoryName $cwd -Recurse; Copy-Item $exes[$v] $runExe
+            New-RunDir $f $srcText $cwd; Copy-Item $exes[$v] $runExe
         }
         [System.IO.File]::WriteAllBytes((Join-Path $w "$v.stdout"), $x.out)
         [System.IO.File]::WriteAllBytes((Join-Path $w "$v.stderr"), $x.err)
