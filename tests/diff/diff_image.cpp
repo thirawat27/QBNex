@@ -286,3 +286,5 @@ int main(int argc, char **argv) {
     printf("diff_image: %s\n", failures ? "FAILED" : "OK");
     return failures ? 1 : 0;
 }
+
+#include "host_stubs.h"

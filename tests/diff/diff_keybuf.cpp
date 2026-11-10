@@ -131,3 +131,5 @@ int main(int argc, char **argv) {
     printf("diff_keybuf: %ld iterations, %ld checks, %ld mismatches\n", iters, checked, mismatches);
     return mismatches ? 1 : 0;
 }
+
+#include "host_stubs.h"

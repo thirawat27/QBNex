@@ -39,9 +39,13 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # through raw-dylib import stubs, so libqb_runtime.a needs no extra -l flags for them.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Printing",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
     "Win32_Storage_Xps",
+    "Win32_System_Console",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_System_Ole",

@@ -374,3 +374,5 @@ int main(int argc, char **argv) {
     printf("diff_net: %ld info strings, %ld address texts: %ld + %ld mismatches\n", n, quick ? 5000L : 100000L, f1, f2);
     return (f1 || f2) ? 1 : 0;
 }
+
+#include "host_stubs.h"
