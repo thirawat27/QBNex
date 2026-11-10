@@ -197,37 +197,6 @@ fn count(v: &V) -> R<usize> {
     usize::try_from(v.i()).or_else(|_| e(5))
 }
 
-fn instr(start: usize, s: &[u8], t: &[u8]) -> i32 {
-    if start == 0 || start > s.len() + usize::from(t.is_empty()) {
-        return 0;
-    }
-    if t.is_empty() {
-        return start as i32;
-    }
-    if start > s.len() {
-        return 0;
-    }
-    s[start - 1..].windows(t.len()).position(|w| w == t).map_or(0, |p| (p + start) as i32)
-}
-
-fn instrrev(start: usize, s: &[u8], t: &[u8]) -> i32 {
-    if s.is_empty() {
-        return 0;
-    }
-    let st = if start == 0 || start > s.len() { s.len() } else { start };
-    if t.is_empty() {
-        return st as i32;
-    }
-    let mut i = st.min(s.len().saturating_sub(t.len()) + 1);
-    while i >= 1 {
-        if s[i - 1..].starts_with(t) {
-            return i as i32;
-        }
-        i -= 1;
-    }
-    0
-}
-
 fn float1(a: &V, f: impl Fn(f64) -> f64) -> V {
     V::F(f(a.f()))
 }
@@ -364,8 +333,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
     }
+    if name == "getpid" {
+        return Ok(Some(V::I(i64::from(std::process::id()))));
+    }
     if name == "_COMMANDCOUNT" {
-        return Ok(Some(V::I(std::env::args().count().saturating_sub(1) as i64)));
+        return Ok(Some(V::I(program_args().len().saturating_sub(1) as i64)));
     }
     if name == "_OS$" {
         // func__os
@@ -633,15 +605,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
             return ok(V::I(s(0).get(k as usize - 1).map_or(-1, |c| i64::from(*c))));
         }
-        "INSTR" => return ok(V::I(instr(1, s(0), s(1)).into())),
-        "INSTR.n" => {
-            if i(0) < 1 {
-                return e(5);
-            }
-            return ok(V::I(instr(i(0) as usize, s(1), s(2)).into()));
-        }
-        "_INSTRREV" => return ok(V::I(instrrev(0, s(0), s(1)).into())),
-        "_INSTRREV.n" => return ok(V::I(instrrev(i(0).max(0) as usize, s(1), s(2)).into())),
+        // qb_func_instr / qb_func__instrrev semantics (start < 1 is allowed)
+        "INSTR" => return ok(V::I(qb_instr(1, s(0), s(1), false).into())),
+        "INSTR.n" => return ok(V::I(qb_instr(i(0) as i32, s(1), s(2), true).into())),
+        "_INSTRREV" => return ok(V::I(qb_instrrev(0, s(0), s(1), false).into())),
+        "_INSTRREV.n" => return ok(V::I(qb_instrrev(i(0) as i32, s(1), s(2), true).into())),
         "UCASE$" => return ok(V::S(s(0).to_ascii_uppercase())),
         "LCASE$" => return ok(V::S(s(0).to_ascii_lowercase())),
         "LTRIM$" => return ok(V::S(trim_l(s(0)))),
@@ -804,9 +772,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "POS" => return ok(V::I(rt.col as i64)),
         "CSRLIN" => return ok(V::I(1)),
         "SLEEP" => {}
-        "COMMAND$" => {
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            return ok(V::S(args.join(" ").into_bytes()));
+        "COMMAND$" => return ok(V::S(program_args()[1..].join(" ").into_bytes())),
+        "COMMAND$.n" => {
+            // COMMAND$(n): argument n (0 = the program), "" out of range
+            let a = program_args();
+            let n = i(0);
+            return ok(V::S(if n >= 0 && (n as usize) < a.len() { a[n as usize].clone().into_bytes() } else { vec![] }));
         }
         "ENVIRON$" => {
             return ok(V::S(std::env::var_os(String::from_utf8_lossy(s(0)).as_ref()).map(|v| v.to_string_lossy().into_owned().into_bytes()).unwrap_or_default()))
@@ -1359,7 +1330,7 @@ fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let x = |k: usize| a[k].f();
     let f80 = |v: f64| Some(Ok(Some(V::X(qb_float80::F80::from_f64(v)))));
     let bad = || Some(e(5));
-    let v = x(0);
+    let v = a.first().map_or(0.0, V::f);
     match name {
         "acos" => f80(v.acos()),
         "asin" => f80(v.asin()),
@@ -1443,4 +1414,77 @@ fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
         }
         _ => None,
     }
+}
+
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// The program's argv as BASIC sees it: [program, args...]. `qb-exec prog.qir a b`
+/// sets it to [prog.qir, a, b] (`set_program_args`); a packaged program uses its own argv.
+pub(crate) fn program_args() -> &'static [String] {
+    PROGRAM_ARGS.get_or_init(|| std::env::args().collect())
+}
+
+/// Sets the program's argv (first call wins).
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+/// `qb_func_instr` (qbs.rs) on slices.
+fn qb_instr(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
+    let mut start = if passed { start } else { 1 };
+    let (slen, tlen) = (s.len() as i32, t.len() as i32);
+    if slen == 0 {
+        return 0;
+    }
+    if start < 1 {
+        start = 1;
+        if tlen == 0 {
+            return 0;
+        }
+    }
+    if start > slen {
+        return 0;
+    }
+    if tlen == 0 {
+        return start;
+    }
+    if start + tlen - 1 > slen {
+        return 0;
+    }
+    s[start as usize - 1..].windows(t.len()).position(|w| w == t).map_or(0, |p| p as i32 + start)
+}
+
+/// `qb_func__instrrev` (qbs.rs) on slices.
+fn qb_instrrev(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
+    let (slen, tlen) = (s.len() as i32, t.len() as i32);
+    if slen == 0 || tlen > slen {
+        return 0;
+    }
+    let mut start = start;
+    if !passed {
+        if tlen == slen && s == t {
+            return 1;
+        }
+        start = slen - tlen + 1;
+    }
+    if start < 1 || start > slen {
+        start = slen - tlen + 1;
+    }
+    if tlen == 0 {
+        return start - 1;
+    }
+    if start + tlen - 1 > slen {
+        start = slen - tlen + 1;
+    }
+    let (mut forward, mut result) = (0, 0);
+    loop {
+        forward = qb_instr(forward + 1, s, t, true);
+        if forward > 0 && forward <= start {
+            result = forward;
+        }
+        if forward == 0 || forward > start {
+            break;
+        }
+    }
+    result
 }

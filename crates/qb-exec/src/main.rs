@@ -93,7 +93,11 @@ fn main() {
         Some(Payload::Ir(p)) => (p.to_vec(), None),
         Some(Payload::Native(q, i)) => (q.to_vec(), Some(i.to_vec())),
         None => match args.first() {
-            Some(path) => (read(path), None),
+            Some(path) => {
+                // `qb-exec prog.qir a b`: the program sees [prog.qir, a, b]
+                qb_exec::set_program_args(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
+                (read(path), None)
+            }
             None => {
                 eprintln!("usage: qb-exec <program.qir> | qb-exec build <program.qir> -o <program.exe>");
                 std::process::exit(2)

@@ -173,6 +173,8 @@ pub static TABLE: &[Builtin] = &[
     b!("_MK$.f80", [F80], Str),
     b!("_CV.f80", [Str], F80),
     b!("_OS$", [], Str),
+    b!("getpid", [], I32),
+    b!("COMMAND$.n", [I32], Str),
     b!("_COMMANDCOUNT", [], I32),
     // CALL ABSOLUTE: arguments copied into DBLOCK (offset back), read back, then the call
     b!("ABSARG.i16", [I16], I32),

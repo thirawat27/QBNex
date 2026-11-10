@@ -1048,6 +1048,10 @@ FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
     DIM sv(1 TO 100) AS STRING
     FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
     nm$ = LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    IF nm$ = "getpid" THEN
+        'DECLARE LIBRARY ... FUNCTION getpid& (the compiler's temp folder lock): the process id
+        IrUserCall$ = IrRt$("getpid", "", "i32"): EXIT FUNCTION
+    END IF
     FOR k = 1 TO ids(idn).args
         pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
         ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
@@ -1472,6 +1476,9 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             END IF
             r$ = IrRt$(nm$, "", "i32")
         CASE "INKEY$", "COMMAND$", "DATE$", "TIME$"
+            IF nm$ = "COMMAND$" AND nargs >= 1 THEN
+                IF LEN(sv(1)) THEN r$ = IrRt$("COMMAND$.n", " " + IrArgAs$(sv(1), "i32"), "str"): GOTO irfdone
+            END IF
             r$ = IrRt$(nm$, "", "str")
         CASE "ENVIRON$"
             x$ = IrEval$(sv(1), t)
@@ -1779,6 +1786,18 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
     k$ = "dim"
     IF redimopt = 1 THEN k$ = "redim"
     IF redimopt = 2 THEN k$ = "redimp"
+    IF dimstatic = 1 AND redimopt = 0 THEN
+        'STATIC arr(...) inside a SUB/FUNCTION is dimensioned by the first call only
+        DIM g$, gl$, gx$
+        g$ = "$~SD" + str2$(IrNew): gl$ = "~SD" + str2$(IrNew)
+        IrHead "static " + g$ + " i32"
+        gx$ = IrReg$: IrE "load.i32 " + gx$ + " " + g$
+        IrE "jnz " + gx$ + " " + gl$
+        IrDimArray nm$, elements$, k$
+        IrE "store.i32 " + g$ + " " + IrI32$(1)
+        IrE "label " + gl$
+        EXIT SUB
+    END IF
     IrDimArray nm$, elements$, k$
 END SUB
 
