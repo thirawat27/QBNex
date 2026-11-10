@@ -1,0 +1,73 @@
+QIR 1
+global $__SINGLE_I f32
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+line 1
+const.str %0 x48656C6C6F2C2051424E6578
+const.i32 %1 0
+rt PRINTS %1 %0
+const.i32 %2 0
+rt PRINTNL %2
+line 2
+const.i32 %3 1
+cvt.f64.i32 %4 %3
+store.f64 $~T1 %4
+const.i32 %5 3
+cvt.f64.i32 %6 %5
+store.f64 $~T2 %6
+const.i32 %7 1
+cvt.f64.i32 %8 %7
+store.f64 $~T3 %8
+jmp ~F2.E
+label ~F2.T
+load.f32 %9 $__SINGLE_I
+cvt.f64.f32 %10 %9
+load.f64 %11 $~T3
+add.f64 %12 %11 %10
+store.f64 $~T1 %12
+label ~F2.E
+load.f64 %13 $~T1
+cvt.f32.f64 %14 %13
+store.f32 $__SINGLE_I %14
+load.f64 %15 $~T3
+const.f64 %16 0
+lt.f64 %17 %15 %16
+jz %17 ~F2.P
+load.f64 %18 $~T2
+lt.f64 %19 %13 %18
+jnz %19 ~F2.X
+jmp ~F2.B
+label ~F2.P
+load.f64 %20 $~T2
+gt.f64 %21 %13 %20
+jnz %21 ~F2.X
+label ~F2.B
+line 3
+load.f32 %22 $__SINGLE_I
+rt %23 STR$.f32 %22
+const.str %24 x20
+concat %25 %23 %24
+const.i32 %26 0
+rt PRINTS %26 %25
+line 4
+label ~F2.C
+jmp ~F2.T
+label ~F2.X
+line 5
+const.i32 %27 0
+rt PRINTNL %27
+line 6
+const.str %28 x646F6E65
+const.i32 %29 0
+rt PRINTS %29 %28
+const.i32 %30 0
+rt PRINTNL %30
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

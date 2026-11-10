@@ -1,0 +1,98 @@
+QIR 1
+global $__DOUBLE_T1 f64
+global $__DOUBLE_T2 f64
+global $__DOUBLE_D f64
+func main
+line 1
+const.f64 %0 0.001E+0
+rt %1 TIMER.n %0
+store.f64 $__DOUBLE_T1 %1
+line 2
+const.f64 %2 0.2E+0
+rt sub__delay %2
+line 3
+const.f64 %3 0.001E+0
+rt %4 TIMER.n %3
+store.f64 $__DOUBLE_T2 %4
+line 4
+load.f64 %5 $__DOUBLE_T2
+load.f64 %6 $__DOUBLE_T1
+sub.f64 %7 %5 %6
+store.f64 $__DOUBLE_D %7
+line 5
+load.f64 %8 $__DOUBLE_D
+const.i32 %9 0
+cvt.f64.i32 %10 %9
+lt.f64 %11 %8 %10
+jz %11 ~I1.1
+line 5
+load.f64 %12 $__DOUBLE_D
+const.i32 %13 86400
+cvt.f64.i32 %14 %13
+add.f64 %15 %12 %14
+store.f64 $__DOUBLE_D %15
+line 5
+label ~I1.1
+label ~I1.E
+line 6
+load.f64 %16 $__DOUBLE_D
+const.f64 %17 0.15E+0
+cvt.f32.f64 %18 %16
+cvt.f32.f64 %19 %17
+ge.f32 %20 %18 %19
+load.f64 %21 $__DOUBLE_D
+const.i32 %22 5
+cvt.f64.i32 %23 %22
+lt.f64 %24 %21 %23
+and.i32 %25 %20 %24
+jz %25 ~I2.1
+line 6
+const.str %26 x74696D6572206F6B
+const.i32 %27 0
+rt PRINTS %27 %26
+const.i32 %28 0
+rt PRINTNL %28
+line 6
+jmp ~I2.E
+label ~I2.1
+line 6
+const.str %29 x74696D657220626164
+const.i32 %30 0
+rt PRINTS %30 %29
+load.f64 %31 $__DOUBLE_D
+rt %32 STR$.f64 %31
+const.str %33 x20
+concat %34 %32 %33
+const.i32 %35 0
+rt PRINTS %35 %34
+const.i32 %36 0
+rt PRINTNL %36
+line 6
+label ~I2.E
+line 7
+rt %37 TIMER
+const.i32 %38 0
+cvt.f64.i32 %39 %38
+ge.f64 %40 %37 %39
+rt %41 TIMER
+const.i32 %42 86400
+cvt.f64.i32 %43 %42
+lt.f64 %44 %41 %43
+and.i32 %45 %40 %44
+jz %45 ~I3.1
+line 7
+const.str %46 x72616E6765206F6B
+const.i32 %47 0
+rt PRINTS %47 %46
+const.i32 %48 0
+rt PRINTNL %48
+line 7
+label ~I3.1
+label ~I3.E
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

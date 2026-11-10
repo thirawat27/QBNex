@@ -1,0 +1,8 @@
+CLS
+COLOR 14, 1
+LOCATE 5, 10
+PRINT "Yellow on blue"
+COLOR 7, 0
+LOCATE 7, 1
+PRINT "row"; CSRLIN - 1
+PRINT POS(0)
