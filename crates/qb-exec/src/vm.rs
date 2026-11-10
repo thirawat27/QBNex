@@ -177,6 +177,8 @@ impl EventHandle {
 
 #[derive(Debug, Clone, Copy)]
 struct Frame {
+    /// memory blocks owned by the frame start here in `Vm::owned`
+    owned: usize,
     func: u32,
     ret: u32,
     nb: usize,
@@ -244,6 +246,9 @@ pub struct Vm<'m, 'o> {
     poll_mask: u32,
     timer_interval: f64,
     timer: Option<Arc<AtomicBool>>,
+    /// addressable memory (QIR v1 TYPE / STRING * n / pointers)
+    mem: crate::mem::Mem,
+    owned: Vec<u64>,
 }
 
 impl Drop for Vm<'_, '_> {
@@ -320,8 +325,8 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn erl(&self) -> u32 {
         self.erl
     }
-    fn bytes(&mut self, _p: u64, _len: usize) -> crate::v1::R<&mut [u8]> {
-        Err(Stop::Err(5)) // the loader keeps programs that need memory off the typed VM
+    fn bytes(&mut self, p: u64, len: usize) -> crate::v1::R<&mut [u8]> {
+        self.mem.bytes(p, len).map_err(Stop::Err)
     }
 }
 
@@ -357,7 +362,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             nums: main.num_init.clone(),
             strs: vec![Vec::new(); main.n_str as usize],
             arrs: (0..main.n_arr()).map(|_| None).collect(),
-            frames: vec![Frame { func: 0, ret: 0, nb: 0, sb: 0, ab: 0, caller_view: 0, desc: 0 }],
+            frames: vec![Frame { owned: 0, func: 0, ret: 0, nb: 0, sb: 0, ab: 0, caller_view: 0, desc: 0 }],
             view: 0,
             nb: 0,
             sb: 0,
@@ -377,6 +382,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             poll_mask: u32::MAX,
             timer_interval: 0.0,
             timer: None,
+            mem: crate::mem::Mem::new(),
+            owned: Vec::new(),
         }
     }
 
@@ -746,7 +753,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             };
             self.slot_put(slot, nb, sb, ab, v)?;
         }
-        self.frames.push(Frame { func: f, ret, nb, sb, ab, caller_view: self.view, desc });
+        self.frames.push(Frame { owned: self.owned.len(), func: f, ret, nb, sb, ab, caller_view: self.view, desc });
         self.set_view(self.frames.len() - 1);
         Ok(func.entry)
     }
@@ -784,10 +791,27 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nums.truncate(fr.nb);
         self.strs.truncate(fr.sb);
         self.arrs.truncate(fr.ab);
+        self.free_owned(fr.owned);
         let depth = self.frames.len();
         self.gosub.retain(|g| g.depth <= depth);
         self.set_view(fr.caller_view);
         Ok(fr.ret)
+    }
+
+    fn free_owned(&mut self, from: usize) {
+        while self.owned.len() > from {
+            let p = self.owned.pop().unwrap();
+            self.mem.free_var(p);
+        }
+    }
+
+    fn mem_dims(&self, dims: R, n: u32) -> Vec<(i64, i64)> {
+        (0..n as usize)
+            .map(|k| {
+                let b = self.nb + dims as usize + 2 * k;
+                (self.nums[b] as i64, self.nums[b + 1] as i64)
+            })
+            .collect()
     }
 
     // ------------------------------------------------------------ errors
@@ -863,6 +887,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     // QIR v1: RESUME label unwinds to the main module
                     while self.frames.len() > 1 {
                         let fr = self.frames.pop().unwrap();
+                        self.free_owned(fr.owned);
                         self.nums.truncate(fr.nb);
                         self.strs.truncate(fr.sb);
                         self.arrs.truncate(fr.ab);
@@ -1321,6 +1346,56 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                     _ => fail!(3),
                 },
+                Ins::NewV { d, v } => {
+                    let p = self.mem.new_var(&m.mvars[v as usize]);
+                    self.owned.push(p);
+                    set!(d, p)
+                }
+                Ins::LdM { t, d, p, off } => {
+                    let a = r!(p).wrapping_add(u64::from(off));
+                    if t == MTy::Str {
+                        let v = tryc!(self.mem.ld_str(a)).to_vec();
+                        *self.sdst(d) = v;
+                    } else {
+                        let v = tryc!(self.mem.ld(t, a));
+                        set!(d, v)
+                    }
+                }
+                Ins::StM { t, p, off, s } => {
+                    let a = r!(p).wrapping_add(u64::from(off));
+                    if t == MTy::Str {
+                        let v: *const [u8] = self.sget(s);
+                        // SAFETY: the string registers are not touched by memory stores
+                        tryc!(self.mem.st_str(a, unsafe { &*v }));
+                    } else {
+                        tryc!(self.mem.st(t, a, r!(s)));
+                    }
+                }
+                Ins::LdFs { d, p, off, len } => {
+                    let v = tryc!(self.mem.ldfs(r!(p).wrapping_add(u64::from(off)), len));
+                    *self.sdst(d) = v;
+                }
+                Ins::StFs { p, off, len, s } => {
+                    let v: *const [u8] = self.sget(s);
+                    // SAFETY: as for StM
+                    tryc!(self.mem.stfs(r!(p).wrapping_add(u64::from(off)), len, unsafe { &*v }));
+                }
+                Ins::PAddM { d, p, o } => set!(d, r!(p).wrapping_add(r!(o))),
+                Ins::CopyM { d, s, n } => tryc!(self.mem.copy(r!(d), r!(s), n)),
+                Ins::DimM { a, dims, n, mode } => {
+                    let b = self.mem_dims(dims, n);
+                    tryc!(self.mem.dim(r!(a), mode, b));
+                }
+                Ins::AAddrM { d, a, i, n } => {
+                    let idx: Vec<i64> = (0..n).map(|k| ri!(i + k)).collect();
+                    let p = tryc!(self.mem.aaddr(r!(a), &idx));
+                    set!(d, p)
+                }
+                Ins::BoundM { d, a, dim, upper } => {
+                    let v = tryc!(self.mem.bound(r!(a), ri!(dim), upper));
+                    seti!(d, v)
+                }
+                Ins::EraseM { a } => tryc!(self.mem.erase(r!(a))),
                 Ins::Erase { a } => {
                     let i = self.arr_index(a, self.ab);
                     self.arrs[i] = None;

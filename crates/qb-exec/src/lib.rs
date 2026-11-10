@@ -17,6 +17,7 @@ pub mod bytecode;
 mod builtins;
 mod lower;
 mod lower1;
+mod mem;
 pub mod v1;
 mod value;
 mod vm;

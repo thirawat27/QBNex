@@ -118,6 +118,58 @@ enum Var {
     A(R, IT),
     NG(R, IT),
     SG(R),
+    /// memory mode: register holding the variable's address
+    M(R, MK),
+    /// memory mode: main-frame register holding a module-level variable's address
+    MG(R, MK),
+}
+
+/// Kind of a memory-backed variable.
+#[derive(Clone, Copy, Debug)]
+enum MK {
+    Scalar,
+    FStr(u32),
+    Udt,
+    Arr,
+}
+
+fn mty(t: IT) -> MTy {
+    match t {
+        IT::I8 => MTy::I8,
+        IT::U8 => MTy::U8,
+        IT::I16 => MTy::I16,
+        IT::U16 => MTy::U16,
+        IT::I32 => MTy::I32,
+        IT::U32 => MTy::U32,
+        IT::I64 => MTy::I64,
+        IT::U64 => MTy::U64,
+        IT::F32 => MTy::F32,
+        IT::F64 | IT::F80 => MTy::F64,
+        IT::Str => MTy::Str,
+        IT::Ptr => MTy::Ptr,
+    }
+}
+
+/// Names a function's body refers to through variables.
+fn var_names(f: &ir::Func) -> std::collections::HashSet<&str> {
+    let mut n = std::collections::HashSet::new();
+    for i in &f.body {
+        match i {
+            Inst::Load { var, .. }
+            | Inst::Store { var, .. }
+            | Inst::Addr { var, .. }
+            | Inst::ARef { var, .. }
+            | Inst::AAddr { var, .. }
+            | Inst::Dim { var, .. }
+            | Inst::Erase { var }
+            | Inst::LBound { var, .. }
+            | Inst::UBound { var, .. } => {
+                n.insert(var.as_str());
+            }
+            _ => {}
+        }
+    }
+    n
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -210,12 +262,28 @@ struct Lw<'a> {
     /// module-level variables as seen from main (registers of frame 0)
     globals: HashMap<String, Var>,
     frames: Vec<Frame>,
+    /// memory mode: variables that need an address live in `Mem` blocks
+    mem: bool,
+    /// (scope, name) of variables whose address is taken; scope = function index, MAX = module
+    taken: std::collections::HashSet<(usize, String)>,
+    /// instructions run on entry of each function (storage of memory-backed variables)
+    prologue: Vec<Vec<Ins>>,
 }
 
 /// Lowers a QIR v1 module, or says why it cannot run on the typed VM.
+/// Register mode first; programs that need addressable storage (TYPE,
+/// `STRING * n`, pointer arithmetic, GET/PUT of variables) are lowered in
+/// memory mode, where only the variables that need an address live in memory.
 pub fn compile_v1(src: &ir::Module) -> Res<Module> {
     ir::validate(src).map_err(|e| e.to_string())?;
-    if !src.types.is_empty() {
+    match compile_mode(src, false) {
+        Ok(m) => Ok(m),
+        Err(e1) => compile_mode(src, true).map_err(|e2| format!("{e1}; memory mode: {e2}")),
+    }
+}
+
+fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
+    if !mem && !src.types.is_empty() {
         return Err("TYPE (UDT)".into());
     }
     let main_i = src.funcs.iter().position(|f| f.name == "main").ok_or("no main")?;
@@ -233,16 +301,31 @@ pub fn compile_v1(src: &ir::Module) -> Res<Module> {
         fidx,
         globals: HashMap::new(),
         frames: (0..order.len()).map(|_| Frame::default()).collect(),
+        mem,
+        taken: std::collections::HashSet::new(),
+        prologue: vec![Vec::new(); order.len()],
     };
+    if mem {
+        for (k, &fi) in order.iter().enumerate() {
+            let f = &src.funcs[fi];
+            let own: std::collections::HashSet<&str> = f.params.iter().chain(&f.locals).map(|d| d.name.as_str()).collect();
+            for i in &f.body {
+                if let Inst::Addr { var, .. } | Inst::ARef { var, .. } | Inst::AAddr { var, .. } = i {
+                    let scope = if own.contains(var.as_str()) { k } else { usize::MAX };
+                    lw.taken.insert((scope, var.clone()));
+                }
+            }
+        }
+    }
     // module-level storage in frame 0: globals, then every function's statics
     for g in &src.globals {
-        let v = lw.alloc_var(0, g)?;
+        let v = lw.alloc_var(0, g, usize::MAX)?;
         lw.globals.insert(g.name.clone(), v);
     }
     let mut statics: Vec<HashMap<String, Var>> = vec![HashMap::new(); order.len()];
     for (k, &fi) in order.iter().enumerate() {
         for l in src.funcs[fi].locals.iter().filter(|l| l.kind == VarKind::Static) {
-            let v = lw.alloc_var(0, l)?;
+            let v = lw.alloc_var(0, l, k)?;
             statics[k].insert(l.name.clone(), v);
         }
     }
@@ -302,7 +385,15 @@ impl<'a> Lw<'a> {
     }
 
     /// Storage for a declared variable in frame `k` (0 = module level).
-    fn alloc_var(&mut self, k: usize, d: &ir::VarDecl) -> Res<Var> {
+    fn alloc_var(&mut self, k: usize, d: &ir::VarDecl, scope: usize) -> Res<Var> {
+        if self.mem && (d.array || !matches!(d.ty, StoreTy::Scalar(_)) || self.taken.contains(&(scope, d.name.clone()))) {
+            let (mk, mv) = self.mvar(d)?;
+            self.m.mvars.push(mv);
+            let v = self.m.mvars.len() as u32 - 1;
+            let r = self.frames[k].new_n(0);
+            self.prologue[k].push(Ins::NewV { d: r, v });
+            return Ok(Var::M(r, mk));
+        }
         let t = check_store_ty(&d.ty)?;
         let fr = &mut self.frames[k];
         Ok(if d.array {
@@ -313,6 +404,17 @@ impl<'a> Lw<'a> {
         } else {
             Var::N(fr.new_n(0), t)
         })
+    }
+
+    /// Memory layout of a variable declaration.
+    fn mvar(&self, d: &ir::VarDecl) -> Res<(MK, MVar)> {
+        let (mk, size, fill, strs) = match &d.ty {
+            StoreTy::Scalar(t) => (MK::Scalar, t.size(), 0, *t == IT::Str),
+            StoreTy::FStr(n) => (MK::FStr(*n), *n, b' ', false),
+            StoreTy::Udt(u) => (MK::Udt, self.ir.udt(u).ok_or_else(|| format!("unknown TYPE {u}"))?.size, 0, false),
+        };
+        let mk = if d.array { MK::Arr } else { mk };
+        Ok((mk, MVar { size, fill, strs, array: d.array }))
     }
 
     fn function(&mut self, k: usize, f: &'a ir::Func, statics: &HashMap<String, Var>) -> Res<(Vec<Slot>, Option<(Slot, Ty)>)> {
@@ -327,7 +429,36 @@ impl<'a> Lw<'a> {
         }
         let mut params = Vec::new();
         for p in &f.params {
-            let v = self.alloc_var(k, p)?;
+            let byref = matches!(p.kind, VarKind::Param { byref: true }) || p.array;
+            if self.mem && byref {
+                // memory mode: BYREF / array parameters are the caller's pointers
+                let (mk, _) = self.mvar(p)?;
+                let r = self.frames[k].new_n(0);
+                params.push(Slot::N(r));
+                vars.insert(p.name.clone(), Var::M(r, mk));
+                continue;
+            }
+            if self.mem && (!matches!(p.ty, StoreTy::Scalar(_)) || self.taken.contains(&(k, p.name.clone()))) {
+                // BYVAL parameter whose address is taken: copy the value into memory on entry
+                let t = check_store_ty(&p.ty)?;
+                let (mk, mv) = self.mvar(p)?;
+                self.m.mvars.push(mv);
+                let v = self.m.mvars.len() as u32 - 1;
+                let ptr_r = self.frames[k].new_n(0);
+                self.prologue[k].push(Ins::NewV { d: ptr_r, v });
+                if t == IT::Str {
+                    let sr = self.frames[k].new_s();
+                    params.push(Slot::S(sr));
+                    self.prologue[k].push(Ins::StM { t: MTy::Str, p: ptr_r, off: 0, s: sr });
+                } else {
+                    let nr = self.frames[k].new_n(0);
+                    params.push(Slot::N(nr));
+                    self.prologue[k].push(Ins::StM { t: mty(t), p: ptr_r, off: 0, s: nr });
+                }
+                vars.insert(p.name.clone(), Var::M(ptr_r, mk));
+                continue;
+            }
+            let v = self.alloc_var(k, p, k)?;
             params.push(match v {
                 Var::N(r, _) => Slot::N(r),
                 Var::S(r) => Slot::S(r),
@@ -337,8 +468,23 @@ impl<'a> Lw<'a> {
             vars.insert(p.name.clone(), v);
         }
         for l in f.locals.iter().filter(|l| l.kind != VarKind::Static) {
-            let v = self.alloc_var(k, l)?;
+            let v = self.alloc_var(k, l, k)?;
             vars.insert(l.name.clone(), v);
+        }
+        if self.mem && k > 0 {
+            // module-level memory variables: fetch their addresses once per call
+            let used = var_names(f);
+            let mut fetch = Vec::new();
+            for (n, v) in vars.iter_mut() {
+                if let Var::MG(g, mk) = *v {
+                    if used.contains(n.as_str()) {
+                        let r = self.frames[k].new_n(0);
+                        fetch.push(Ins::GetG { d: r, g });
+                        *v = Var::M(r, mk);
+                    }
+                }
+            }
+            self.prologue[k].extend(fetch);
         }
         let ret = match f.ret {
             None => None,
@@ -391,6 +537,9 @@ impl<'a> Lw<'a> {
         let mut ptrs: HashMap<u32, Ptr> = HashMap::new();
         // v1 register -> variable whose register it aliases
         let mut alias_var: HashMap<u32, &str> = HashMap::new();
+        for i in std::mem::take(&mut self.prologue[k]) {
+            self.emit(i);
+        }
         self.barrier = self.pc();
         let body = &f.body;
         for (ii, ins) in body.iter().enumerate() {
@@ -404,6 +553,7 @@ impl<'a> Lw<'a> {
                             let t = *rty.get(&r).ok_or_else(|| format!("register %{r} has no type"))?;
                             let x = match t {
                                 IT::Str => Rg::S(self.frames[k].new_s()),
+                                IT::Ptr if self.mem => Rg::N(self.frames[k].new_n(0)),
                                 IT::Ptr => Rg::P,
                                 _ => {
                                     vty(t)?;
@@ -438,6 +588,167 @@ impl<'a> Lw<'a> {
                 };
             }
             let single = |r: u32| defs.get(&r) == Some(&1) && uses.get(&r) == Some(&1);
+            if self.mem {
+                let mvar = |n: &String| match vars.get(n.as_str()) {
+                    Some(Var::M(p, mk)) => Some((*p, *mk)),
+                    _ => None,
+                };
+                match ins {
+                    Inst::Load { ty, dst, var } if mvar(var).is_some() => {
+                        let (p, mk) = mvar(var).unwrap();
+                        match mk {
+                            MK::FStr(len) => {
+                                let d = sreg!(*dst);
+                                self.emit(Ins::LdFs { d, p, off: 0, len });
+                            }
+                            _ if *ty == IT::Str => {
+                                let d = sreg!(*dst);
+                                self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
+                            }
+                            _ => {
+                                let d = nreg!(*dst);
+                                self.emit(Ins::LdM { t: mty(*ty), d, p, off: 0 });
+                            }
+                        }
+                        continue;
+                    }
+                    Inst::Store { ty, var, src } if mvar(var).is_some() => {
+                        let (p, mk) = mvar(var).unwrap();
+                        match mk {
+                            MK::FStr(len) => {
+                                let sr = sreg!(*src);
+                                self.emit(Ins::StFs { p, off: 0, len, s: sr });
+                            }
+                            _ if *ty == IT::Str => {
+                                let sr = sreg!(*src);
+                                self.emit(Ins::StM { t: MTy::Str, p, off: 0, s: sr });
+                            }
+                            _ => {
+                                let sr = nreg!(*src);
+                                self.emit(Ins::StM { t: mty(*ty), p, off: 0, s: sr });
+                            }
+                        }
+                        continue;
+                    }
+                    Inst::Addr { dst, var } | Inst::ARef { dst, var } => {
+                        let (p, _) = mvar(var).ok_or_else(|| format!("address of {var} without storage"))?;
+                        if defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
+                            rmap.insert(*dst, Rg::N(p));
+                        } else {
+                            let d = nreg!(*dst);
+                            self.emit(Ins::Mov { d, s: p });
+                        }
+                        continue;
+                    }
+                    Inst::AAddr { dst, var, idx } => {
+                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                        let n = idx.len() as u32;
+                        let base = if n == 1 {
+                            nreg!(idx[0])
+                        } else {
+                            let base = self.frames[k].num_init.len() as R;
+                            for _ in 0..n {
+                                self.frames[k].new_n(0);
+                            }
+                            for (j, r) in idx.iter().enumerate() {
+                                let s = nreg!(*r);
+                                self.emit(Ins::Mov { d: base + j as R, s });
+                            }
+                            base
+                        };
+                        let d = nreg!(*dst);
+                        self.emit(Ins::AAddrM { d, a: p, i: base, n });
+                        continue;
+                    }
+                    Inst::Ld { ty, dst, ptr, off } => {
+                        let pr = nreg!(*ptr);
+                        let d = if *ty == IT::Str { sreg!(*dst) } else { nreg!(*dst) };
+                        self.emit(Ins::LdM { t: mty(*ty), d, p: pr, off: *off });
+                        continue;
+                    }
+                    Inst::St { ty, ptr, off, src } => {
+                        let pr = nreg!(*ptr);
+                        let sr = if *ty == IT::Str { sreg!(*src) } else { nreg!(*src) };
+                        self.emit(Ins::StM { t: mty(*ty), p: pr, off: *off, s: sr });
+                        continue;
+                    }
+                    Inst::LdFs { dst, ptr, off, len } => {
+                        let (pr, d) = (nreg!(*ptr), sreg!(*dst));
+                        self.emit(Ins::LdFs { d, p: pr, off: *off, len: *len });
+                        continue;
+                    }
+                    Inst::StFs { ptr, off, len, src } => {
+                        let (pr, sr) = (nreg!(*ptr), sreg!(*src));
+                        self.emit(Ins::StFs { p: pr, off: *off, len: *len, s: sr });
+                        continue;
+                    }
+                    Inst::PAdd { dst, ptr, off } => {
+                        let (pr, o, d) = (nreg!(*ptr), nreg!(*off), nreg!(*dst));
+                        self.emit(Ins::PAddM { d, p: pr, o });
+                        continue;
+                    }
+                    Inst::Copy { dst, src, size } => {
+                        let (d, sr) = (nreg!(*dst), nreg!(*src));
+                        self.emit(Ins::CopyM { d, s: sr, n: *size });
+                        continue;
+                    }
+                    Inst::Dim { kind, var, bounds } => {
+                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                        let n = bounds.len() as u32;
+                        let base = self.frames[k].num_init.len() as R;
+                        for _ in 0..2 * n {
+                            self.frames[k].new_n(0);
+                        }
+                        for (j, (lo, hi)) in bounds.iter().enumerate() {
+                            let (lo, hi) = (nreg!(*lo), nreg!(*hi));
+                            self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
+                            self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
+                        }
+                        let mode = match kind {
+                            DimKind::Dim => DimMode::Dim,
+                            DimKind::Redim => DimMode::Redim,
+                            DimKind::RedimPreserve => DimMode::RedimPreserve,
+                        };
+                        self.emit(Ins::DimM { a: p, dims: base, n, mode });
+                        continue;
+                    }
+                    Inst::Erase { var } => {
+                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                        self.emit(Ins::EraseM { a: p });
+                        continue;
+                    }
+                    Inst::LBound { dst, var, dim } | Inst::UBound { dst, var, dim } => {
+                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                        let (d, dm) = (nreg!(*dst), nreg!(*dim));
+                        self.emit(Ins::BoundM { d, a: p, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
+                        continue;
+                    }
+                    Inst::Call { dst, func, args } => {
+                        let callee = self.ir.func(func).ok_or_else(|| format!("unknown function {func}"))?;
+                        let fi = self.fidx[func.as_str()] as u32;
+                        let mut out = Vec::new();
+                        for (r, _p) in args.iter().zip(&callee.params) {
+                            match reg!(*r) {
+                                Rg::N(x) => out.push(Arg::N(x)),
+                                Rg::S(x) => out.push(Arg::S(x)),
+                                Rg::P => return Err("pointer argument".into()),
+                            }
+                        }
+                        let dest = match dst {
+                            Some(d) => Some(match reg!(*d) {
+                                Rg::N(x) | Rg::S(x) => x,
+                                Rg::P => return Err("pointer result".into()),
+                            }),
+                            None => None,
+                        };
+                        self.m.calls.push(CallDesc { args: out, dest });
+                        let desc = self.m.calls.len() as u32 - 1;
+                        self.emit(Ins::Call { f: fi, desc });
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             match ins {
                 Inst::Line(n) => {
                     let pc = self.pc();
@@ -619,6 +930,7 @@ impl<'a> Lw<'a> {
                             self.emit(Ins::GetGS { d, g });
                         }
                         Var::A(..) => return Err("load of an array".into()),
+                        Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     }
                     let _ = ty;
                 }
@@ -663,6 +975,7 @@ impl<'a> Lw<'a> {
                             self.emit(Ins::SetGS { g, s });
                         }
                         Var::A(..) => return Err("store to an array".into()),
+                        Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     }
                 }
                 Inst::Addr { dst, var } => {
@@ -672,6 +985,7 @@ impl<'a> Lw<'a> {
                         Var::S(r) => Place::S(r),
                         Var::SG(g) => Place::SG(g),
                         Var::A(..) => return Err("addr of an array".into()),
+                        Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     };
                     reg!(*dst);
                     ptrs.insert(*dst, Ptr::Place(p));
@@ -892,7 +1206,11 @@ impl<'a> Lw<'a> {
                     let mut regs_ = Vec::new();
                     for (r, t) in args.iter().zip(b.args) {
                         if *t == IT::Ptr {
-                            return Err(format!("builtin {name} takes an address"));
+                            if !self.mem {
+                                return Err(format!("builtin {name} takes an address"));
+                            }
+                            regs_.push((nreg!(*r), Ty::I64));
+                            continue;
                         }
                         let vt = vty(*t)?;
                         let x = match (reg!(*r), vt) {
@@ -1159,6 +1477,7 @@ fn to_global(v: Var) -> Var {
         Var::N(r, t) => Var::NG(r, t),
         Var::S(r) => Var::SG(r),
         Var::A(r, t) => Var::A(r | G, t),
+        Var::M(r, mk) => Var::MG(r, mk),
         v => v,
     }
 }

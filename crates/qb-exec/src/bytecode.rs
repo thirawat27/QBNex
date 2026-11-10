@@ -193,6 +193,48 @@ pub enum Un {
     Atn,
 }
 
+/// Scalar type of a memory access (QIR v1 `ld`/`st`, memory-backed variables).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MTy {
+    I8,
+    U8,
+    I16,
+    U16,
+    I32,
+    U32,
+    I64,
+    U64,
+    F32,
+    /// DOUBLE and _FLOAT (8 bytes, like the reference interpreter)
+    F64,
+    Ptr,
+    /// string handle (8 bytes); the register is a string register
+    Str,
+}
+
+impl MTy {
+    pub fn size(self) -> usize {
+        match self {
+            MTy::I8 | MTy::U8 => 1,
+            MTy::I16 | MTy::U16 => 2,
+            MTy::I32 | MTy::U32 | MTy::F32 => 4,
+            _ => 8,
+        }
+    }
+}
+
+/// Storage of a memory-backed variable or array.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MVar {
+    /// bytes of the variable / of one element
+    pub size: u32,
+    /// initial byte (space for `STRING * n`)
+    pub fill: u8,
+    /// holds string handles
+    pub strs: bool,
+    pub array: bool,
+}
+
 /// Inner operation of the accumulate superinstruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccOp {
@@ -361,6 +403,19 @@ pub enum Ins {
     StE1S { a: R, i: R, s: R },
     Bound { d: R, a: R, dim: R, upper: bool },
     Erase { a: R },
+    // ---- memory (QIR v1 programs with TYPE / STRING * n / pointers); `p`, `a` = pointer registers
+    /// d = new storage for `Module::mvars[v]`, freed when the frame returns
+    NewV { d: R, v: u32 },
+    LdM { t: MTy, d: R, p: R, off: u32 },
+    StM { t: MTy, p: R, off: u32, s: R },
+    LdFs { d: R, p: R, off: u32, len: u32 },
+    StFs { p: R, off: u32, len: u32, s: R },
+    PAddM { d: R, p: R, o: R },
+    CopyM { d: R, s: R, n: u32 },
+    DimM { a: R, dims: R, n: u32, mode: DimMode },
+    AAddrM { d: R, a: R, i: R, n: u32 },
+    BoundM { d: R, a: R, dim: R, upper: bool },
+    EraseM { a: R },
     /// SWAP two places of `Module::places`
     Swap { p: u32, q: u32 },
     // ---- misc runtime
@@ -475,6 +530,8 @@ pub struct Module {
     pub rtfns: Vec<(&'static str, Option<Ty>)>,
     /// QIR v1 semantics: `RESUME label` unwinds to the main module
     pub v1: bool,
+    /// memory-backed variables (`NewV`)
+    pub mvars: Vec<MVar>,
     /// statement starts: (pc, source line), sorted by pc
     pub stmts: Vec<(u32, u32)>,
     pub data: Vec<Vec<u8>>,
@@ -615,6 +672,47 @@ impl Ins {
                 f(O::BArgs(args))
             }
             Erase { a } => f(O::A(a)),
+            NewV { d, .. } => f(O::N(d)),
+            LdM { t, d, p, .. } => {
+                f(if t == MTy::Str { O::S(d) } else { O::N(d) });
+                f(O::N(p))
+            }
+            StM { t, p, s, .. } => {
+                f(O::N(p));
+                f(if t == MTy::Str { O::SK(s) } else { O::N(s) })
+            }
+            LdFs { d, p, .. } => {
+                f(O::S(d));
+                f(O::N(p))
+            }
+            StFs { p, s, .. } => {
+                f(O::N(p));
+                f(O::SK(s))
+            }
+            PAddM { d, p, o } => {
+                f(O::N(d));
+                f(O::N(p));
+                f(O::N(o))
+            }
+            CopyM { d, s, .. } => {
+                f(O::N(d));
+                f(O::N(s))
+            }
+            DimM { a, dims, n, .. } => {
+                f(O::N(a));
+                f(O::NRun(dims, 2 * n))
+            }
+            AAddrM { d, a, i, n } => {
+                f(O::N(d));
+                f(O::N(a));
+                f(O::NRun(i, n))
+            }
+            BoundM { d, a, dim, .. } => {
+                f(O::N(d));
+                f(O::N(a));
+                f(O::N(dim))
+            }
+            EraseM { a } => f(O::N(a)),
             ReadN { d } => f(O::N(d)),
             Call { f: func, desc } => {
                 f(O::Func(func));
@@ -772,6 +870,17 @@ impl Ins {
             System { .. } => "system".into(),
             Rt { .. } => "rt".into(),
             Erase { .. } => "erase".into(),
+            NewV { v, .. } => format!("newv mvar{v}"),
+            LdM { t, off, .. } => format!("ld.{} +{off}", format!("{t:?}").to_lowercase()),
+            StM { t, off, .. } => format!("st.{} +{off}", format!("{t:?}").to_lowercase()),
+            LdFs { off, len, .. } => format!("ldfs +{off} {len}"),
+            StFs { off, len, .. } => format!("stfs +{off} {len}"),
+            PAddM { .. } => "padd".into(),
+            CopyM { n, .. } => format!("copy {n}"),
+            DimM { mode, .. } => format!("dim.m.{mode:?}").to_lowercase(),
+            AAddrM { .. } => "aaddr".into(),
+            BoundM { upper, .. } => if upper { "ubound.m" } else { "lbound.m" }.into(),
+            EraseM { .. } => "erase.m".into(),
             ReadN { .. } => "read.n".into(),
             AddI16 { .. } => "add.i16".into(),
             AddI32 { .. } => "add.i32".into(),
