@@ -348,6 +348,14 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
+    /// Uses native code compiled ahead of time (an image made by
+    /// [`crate::build_native`] for this program); no JIT compilation happens.
+    pub fn load_native(&mut self, image: &[u8]) -> Result<(), String> {
+        let st = crate::jit::JitState::from_image(self.m, image, &vm_hosts())?;
+        self.jit = Some(st);
+        Ok(())
+    }
+
     /// Selects the JIT mode (overrides `QB_JIT`).
     pub fn set_jit(&mut self, mode: qb_jit::tier::Mode, threshold: u32) {
         self.jit = crate::jit::JitState::new(self.m, mode, threshold);
@@ -379,18 +387,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
         // SAFETY: native code works on the current window `np` and calls back
         // into this VM only through `vm_op` (one non-control instruction).
-        let hosts = crate::jit::Hosts {
-            vm_op,
-            lde1: jit_lde1 as *const () as usize,
-            ste1: jit_ste1 as *const () as usize,
-            lde2: jit_lde2 as *const () as usize,
-            ste2: jit_ste2 as *const () as usize,
-            lde1g: jit_lde1g as *const () as usize,
-            gosub: jit_gosub as *const () as usize,
-            greturn: jit_return as *const () as usize,
-            ste1g: jit_ste1g as *const () as usize,
-            view_off: core::mem::offset_of!(Arr, view) as u32,
-        };
+        let hosts = vm_hosts();
         let arrs = self.arrs.as_mut_ptr() as *mut u64;
         // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<Box<Arr>> is one nullable pointer.
         let tables = [unsafe { arrs.add(self.ab) }, arrs];
@@ -1619,5 +1616,22 @@ extern "C" fn jit_return(ctx: *mut qb_jit::Ctx, at: i64) -> i64 {
             ctx.err = 3;
             0
         }
+    }
+}
+
+/// The VM entry points native code calls (same addresses for JIT and AOT code
+/// of this executable).
+pub(crate) fn vm_hosts() -> crate::jit::Hosts {
+    crate::jit::Hosts {
+        vm_op,
+        lde1: jit_lde1 as *const () as usize,
+        ste1: jit_ste1 as *const () as usize,
+        lde2: jit_lde2 as *const () as usize,
+        ste2: jit_ste2 as *const () as usize,
+        lde1g: jit_lde1g as *const () as usize,
+        gosub: jit_gosub as *const () as usize,
+        greturn: jit_return as *const () as usize,
+        ste1g: jit_ste1g as *const () as usize,
+        view_off: core::mem::offset_of!(Arr, view) as u32,
     }
 }

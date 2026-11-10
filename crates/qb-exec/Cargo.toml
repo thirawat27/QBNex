@@ -19,3 +19,4 @@ path = "src/main.rs"
 qb-runtime = { path = "../qb-runtime" }
 qb-ir = { path = "../qb-ir" }
 qb-jit = { path = "../qb-jit" }
+qb-link = { path = "../qb-link" }

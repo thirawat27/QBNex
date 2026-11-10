@@ -1906,6 +1906,7 @@ version = "0.1.0"
 dependencies = [
  "qb-ir",
  "qb-jit",
+ "qb-link",
  "qb-runtime",
 ]
 

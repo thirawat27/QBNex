@@ -643,6 +643,30 @@ fn main_shared(m: &bc::Module) -> Vec<u32> {
     v.into_iter().filter(|&g| g < n).collect()
 }
 
+/// MIR of the whole program with the VM's host table.
+pub(crate) fn lower_full(m: &bc::Module, hosts: &Hosts) -> mir::Module {
+    let mut mm = lower(m, hosts.vm_op as *const () as usize, hosts.view_off);
+    mm.hosts = host_table(hosts);
+    mm
+}
+
+/// Native image of program `m` for this executable (AOT, D15).
+pub(crate) fn build_image(m: &bc::Module, hosts: &Hosts) -> Result<Vec<u8>, String> {
+    let mir = lower_full(m, hosts);
+    let obj = qb_jit::aot::compile_object(&mir, qb_jit::Target::Host).map_err(|e| e.0)?;
+    let img = qb_link::link(&obj).map_err(|e| e.to_string())?;
+    let mut out = fingerprint(m, hosts).to_le_bytes().to_vec();
+    out.extend_from_slice(&img.to_bytes());
+    Ok(out)
+}
+
+/// Identifies the program and the runner layout an image was built for
+/// (addresses are not part of it: they are resolved by name at load time).
+fn fingerprint(m: &bc::Module, hosts: &Hosts) -> u64 {
+    let text = format!("{} {} {:?}", env!("CARGO_PKG_VERSION"), hosts.view_off, m);
+    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+}
+
 /// Lowers every function of `m`. `vm_op` = address of the VM step callback.
 pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module {
     let gcls = classes(m, &m.funcs[0]);
@@ -877,6 +901,30 @@ impl JitState {
         }))
     }
 
+    /// State running code compiled ahead of time (see [`build_image`]).
+    pub(crate) fn from_image(m: &bc::Module, image: &[u8], hosts: &Hosts) -> Result<Box<JitState>, String> {
+        let (fp, image) = image.split_at_checked(8).ok_or("truncated native image")?;
+        if u64::from_le_bytes(fp.try_into().expect("8 bytes")) != fingerprint(m, hosts) {
+            return Err("native image was built for another program or runner".into());
+        }
+        let mir = lower_full(m, hosts);
+        let img = qb_link::Image::from_bytes(image).map_err(|e| e.to_string())?;
+        let syms: std::collections::HashMap<String, usize> = qb_jit::symbols(&mir).into_iter().collect();
+        let loaded = qb_link::load(&img, &|n| syms.get(n).copied()).map_err(|e| e.to_string())?;
+        let mut fns = Vec::with_capacity(mir.funcs.len());
+        for i in 0..mir.funcs.len() {
+            let p = loaded.symbol(&qb_jit::func_symbol(i)).ok_or("native image does not match this program")?;
+            // SAFETY: compiled from this program's MIR with the native entry signature.
+            fns.push(unsafe { core::mem::transmute::<*const u8, qb_jit::NativeFn>(p) });
+        }
+        // SAFETY: as above; `loaded` owns the code memory.
+        let code = unsafe { qb_jit::Compiled::from_loaded(fns, Box::new(loaded)) };
+        let mut st = JitState::new(m, Mode::Hot, 1).expect("hot mode");
+        st.tier.preload(code);
+        st.mir = Some(mir);
+        Ok(st)
+    }
+
     pub(crate) fn from_env(m: &bc::Module) -> Option<Box<JitState>> {
         let t = Tiering::from_env();
         JitState::new(m, t.mode, t.threshold)
@@ -915,9 +963,7 @@ impl JitState {
     ) -> Option<Result<(u32, bool), (i32, u32)>> {
         if self.mir.is_none() {
             // SAFETY: the bytecode module outlives the VM that owns this state.
-            let mut m = lower(unsafe { &*self.bc }, hosts.vm_op as *const () as usize, hosts.view_off);
-            m.hosts = host_table(hosts);
-            self.mir = Some(m);
+            self.mir = Some(lower_full(unsafe { &*self.bc }, hosts));
         }
         if self.skip[pc as usize] {
             return None;

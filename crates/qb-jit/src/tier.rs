@@ -48,6 +48,14 @@ impl Tiering {
         }
     }
 
+    /// Installs code compiled ahead of time: every tick returns it at once.
+    pub fn preload(&mut self, c: Compiled) {
+        self.compiled = Some(c);
+        if self.mode == Mode::Off {
+            self.mode = Mode::Hot;
+        }
+    }
+
     pub fn compiled(&self) -> Option<&Compiled> {
         self.compiled.as_ref()
     }

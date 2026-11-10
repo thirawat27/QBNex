@@ -66,6 +66,22 @@ pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
     lower::compile_v0(src)
 }
 
+/// Compiles a QIR (v0) program ahead of time into a native image for this
+/// executable (D15): `qb-exec build` stores it next to the program, and
+/// [`run_ir_native`] runs it without any compilation at start-up.
+pub fn build_native(src: &str) -> Result<Vec<u8>, RunError> {
+    let m = compile(src)?;
+    jit::build_image(&m, &vm::vm_hosts()).map_err(RunError::load)
+}
+
+/// Runs a QIR (v0) program with its native image (from [`build_native`]).
+pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32, RunError> {
+    let m = compile(src)?;
+    let mut vm = Vm::new(&m, out);
+    vm.load_native(image).map_err(RunError::load)?;
+    vm.run().map(|_| 0)
+}
+
 /// Parses and runs a QIR program, writing console output to `out`.
 pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
     run_ir_status(src, out).map(|_| ())
