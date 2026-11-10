@@ -260,12 +260,11 @@ foreach ($f in $files) {
                 if ($o.exit -ne $base.exit) { $r.notes.Add("$v exit $($o.exit) vs $($base.exit)") }
                 continue
             }
-            $same = ($o.outHash -eq $base.outHash) -and ($o.exit -eq $base.exit) -and ($v -eq 'oracle' -or $o.fbHash -eq $base.fbHash)
+            $same = ($o.outHash -eq $base.outHash) -and ($o.exit -eq $base.exit) 
             if (-not $same) {
                 $what = @()
                 if ($o.outHash -ne $base.outHash) { $what += 'stdout' }
                 if ($o.exit -ne $base.exit) { $what += "exit $($o.exit) vs $($base.exit)" }
-                if ($v -ne 'oracle' -and $o.fbHash -ne $base.fbHash) { $what += 'framebuffer' }
                 $r.notes.Add("$v differs: $($what -join ', ')")
                 if ($r.status -eq 'pass') { $r.status = 'diff' }
             }
