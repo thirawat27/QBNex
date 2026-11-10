@@ -1,0 +1,87 @@
+{
+  "IF block": {
+    "prefix": "if",
+    "body": ["IF ${1:condition} THEN", "    $0", "END IF"],
+    "description": "IF ... END IF block"
+  },
+  "IF ELSE block": {
+    "prefix": "ifelse",
+    "body": ["IF ${1:condition} THEN", "    $2", "ELSE", "    $0", "END IF"],
+    "description": "IF ... ELSE ... END IF block"
+  },
+  "FOR loop": {
+    "prefix": "for",
+    "body": ["FOR ${1:i} = ${2:1} TO ${3:10}", "    $0", "NEXT ${1:i}"],
+    "description": "FOR ... NEXT loop"
+  },
+  "DO LOOP": {
+    "prefix": "do",
+    "body": ["DO", "    $0", "LOOP ${1|UNTIL,WHILE|} ${2:condition}"],
+    "description": "DO ... LOOP with a condition at the end"
+  },
+  "DO WHILE": {
+    "prefix": "dowhile",
+    "body": ["DO WHILE ${1:condition}", "    $0", "LOOP"],
+    "description": "DO WHILE ... LOOP"
+  },
+  "WHILE WEND": {
+    "prefix": "while",
+    "body": ["WHILE ${1:condition}", "    $0", "WEND"],
+    "description": "WHILE ... WEND loop"
+  },
+  "SELECT CASE": {
+    "prefix": "select",
+    "body": ["SELECT CASE ${1:expression}", "    CASE ${2:value}", "        $3", "    CASE ELSE", "        $0", "END SELECT"],
+    "description": "SELECT CASE block"
+  },
+  "SUB": {
+    "prefix": "sub",
+    "body": ["SUB ${1:Name} (${2:arg AS INTEGER})", "    $0", "END SUB"],
+    "description": "SUB procedure"
+  },
+  "FUNCTION": {
+    "prefix": "function",
+    "body": ["FUNCTION ${1:Name}${2|%,&,!,#,\\$|} (${3:arg})", "    $0", "    ${1:Name}${2} = ${4:result}", "END FUNCTION"],
+    "description": "FUNCTION procedure"
+  },
+  "TYPE": {
+    "prefix": "type",
+    "body": ["TYPE ${1:Name}", "    ${2:field} AS ${3|INTEGER,LONG,SINGLE,DOUBLE,STRING * 10,_INTEGER64,_UNSIGNED LONG|}", "END TYPE"],
+    "description": "User-defined TYPE"
+  },
+  "DIM SHARED": {
+    "prefix": "dimshared",
+    "body": ["DIM SHARED ${1:name} AS ${2|INTEGER,LONG,SINGLE,DOUBLE,STRING,_INTEGER64|}"],
+    "description": "Module-level variable visible in procedures"
+  },
+  "OPEN file for input": {
+    "prefix": "openin",
+    "body": ["${1:f} = FREEFILE", "OPEN ${2:\"file.txt\"} FOR INPUT AS #${1:f}", "DO UNTIL EOF(${1:f})", "    LINE INPUT #${1:f}, ${3:l\\$}", "    $0", "LOOP", "CLOSE #${1:f}"],
+    "description": "Read a text file line by line"
+  },
+  "OPEN file for output": {
+    "prefix": "openout",
+    "body": ["${1:f} = FREEFILE", "OPEN ${2:\"file.txt\"} FOR OUTPUT AS #${1:f}", "PRINT #${1:f}, ${3:text\\$}", "CLOSE #${1:f}"],
+    "description": "Write a text file"
+  },
+  "ON ERROR handler": {
+    "prefix": "onerror",
+    "body": ["ON ERROR GOTO ${1:handler}", "$0", "END", "", "${1:handler}:", "PRINT \"Error\"; ERR; \"at line\"; ERL", "RESUME NEXT"],
+    "description": "Error trap with a handler label"
+  },
+  "DECLARE LIBRARY": {
+    "prefix": "declib",
+    "body": ["DECLARE LIBRARY ${1:\"header\"}", "    FUNCTION ${2:name}& (BYVAL ${3:x} AS LONG)", "END DECLARE"],
+    "description": "Declare external library functions"
+  },
+  "Game loop": {
+    "prefix": "gameloop",
+    "body": ["SCREEN _NEWIMAGE(${1:640}, ${2:480}, 32)", "DO", "    _LIMIT ${3:60}", "    CLS", "    $0", "    _DISPLAY", "LOOP UNTIL _KEYHIT = 27"],
+    "description": "QB64-style graphics loop at a fixed frame rate"
+  },
+  "INCLUDE": {
+    "prefix": "include",
+    "body": ["'\\$INCLUDE: '${1:file.bi}'"],
+    "description": "Include another source file"
+  }
+}

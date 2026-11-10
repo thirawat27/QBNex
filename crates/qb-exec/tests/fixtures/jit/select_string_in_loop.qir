@@ -1,0 +1,78 @@
+QIR 1
+global $__LONG_I i32
+global $__LONG_A i32
+global $__LONG_B i32
+global $__LONG_C i32
+global $__STRING_K str
+func main
+line 1
+const.i32 %0 1
+store.i32 $__LONG_I %0
+label ~F1.T
+load.i32 %1 $__LONG_I
+const.i32 %2 3000
+gt.i32 %3 %1 %2
+jnz %3 ~F1.X
+line 2
+const.str %4 x616263
+load.i32 %5 $__LONG_I
+const.i32 %6 3
+mod.i32 %7 %5 %6
+const.i32 %8 1
+add.i32 %9 %7 %8
+const.i32 %10 1
+rt %11 MID$.n %4 %9 %10
+store.str $__STRING_K %11
+line 3
+load.str %12 $__STRING_K
+const.str %13 x61
+eq.str %14 %12 %13
+jz %14 ~S1.B
+line 4
+load.i32 %15 $__LONG_A
+add.i32 %16 %15 %8
+store.i32 $__LONG_A %16
+jmp ~S1.E
+label ~S1.B
+const.str %17 x62
+eq.str %18 %12 %17
+jz %18 ~S1.C
+line 5
+load.i32 %19 $__LONG_B
+load.i32 %20 $__LONG_I
+add.i32 %21 %19 %20
+store.i32 $__LONG_B %21
+jmp ~S1.E
+label ~S1.C
+line 6
+load.i32 %22 $__LONG_C
+add.i32 %23 %22 %8
+store.i32 $__LONG_C %23
+label ~S1.E
+line 8
+load.i32 %24 $__LONG_I
+add.i32 %25 %24 %8
+store.i32 $__LONG_I %25
+jmp ~F1.T
+label ~F1.X
+line 9
+load.i32 %26 $__LONG_A
+cvt.i64.i32 %27 %26
+rt %28 STR$.i64 %27
+const.str %29 x20
+concat %30 %28 %29
+const.i32 %31 0
+rt PRINTS %31 %30
+load.i32 %32 $__LONG_B
+cvt.i64.i32 %33 %32
+rt %34 STR$.i64 %33
+concat %35 %34 %29
+rt PRINTS %31 %35
+load.i32 %36 $__LONG_C
+cvt.i64.i32 %37 %36
+rt %38 STR$.i64 %37
+concat %39 %38 %29
+rt PRINTS %31 %39
+rt PRINTNL %31
+end
+endfunc

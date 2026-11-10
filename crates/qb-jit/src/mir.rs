@@ -192,8 +192,15 @@ pub enum Inst {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Term {
+    /// Jump; an edge back to a resumable block (index <= current, `pc` set)
+    /// is an event safe point.
     Jmp(BlockId),
+    /// Conditional jump; back-edges are event safe points like `Jmp`.
     Br { cond: Reg, then: BlockId, els: BlockId },
+    /// Jump that is never an event safe point.
+    Goto(BlockId),
+    /// Conditional jump that is never an event safe point.
+    BrNoPoll { cond: Reg, then: BlockId, els: BlockId },
     /// Leave the function normally (END SUB / END FUNCTION / EXIT SUB).
     Ret,
     /// `GOSUB target`; `ret` continues after RETURN. `ret_pc` = VM pc of `ret`
@@ -471,7 +478,14 @@ impl Module {
                 }
                 let chk = |t: BlockId| if t < nb { Ok(()) } else { Err(e(format!("block {bi}: bad target {t}"))) };
                 match &b.term {
-                    Term::Jmp(t) => chk(*t)?,
+                    Term::Jmp(t) | Term::Goto(t) => chk(*t)?,
+                    Term::BrNoPoll { cond, then, els } => {
+                        if !ty(*cond)?.is_int() {
+                            return Err(e("branch on float".into()));
+                        }
+                        chk(*then)?;
+                        chk(*els)?;
+                    }
                     Term::Br { cond, then, els } => {
                         if !ty(*cond)?.is_int() {
                             return Err(e("branch on float".into()));

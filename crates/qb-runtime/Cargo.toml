@@ -18,6 +18,9 @@ path = "src/lib.rs"
 # Audio runtime (R6). Its own crate so that its object file is only pulled into
 # programs whose libqb references the audio entry points (DEPENDENCY_AUDIO_OUT).
 qb-audio = { path = "../qb-audio" }
+# R13-ext: regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* C ABI),
+# linked into libqb_runtime.a so compiled programs can call it through DECLARE LIBRARY.
+qb-ext = { path = "../qb-ext", optional = true }
 # R11d: software x87 80-bit float (`_FLOAT`): VAL rounding, f80 -> f64, STR$ of _FLOAT.
 qb-float80 = { path = "../qb-float80" }
 ab_glyph_rasterizer = "0.1.10"
@@ -28,6 +31,10 @@ skrifa = "0.49.0"
 zune-jpeg = "0.5.15"
 # Local time of day for TIMER's start-up reference (replaces localtime()).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[features]
+default = ["ext"]
+ext = ["dep:qb-ext"]
 
 [target.'cfg(windows)'.dependencies]
 # Clipboard (CF_TEXT/CF_BITMAP), _SCREENIMAGE/_SCREENCLICK/_SCREENPRINT and the

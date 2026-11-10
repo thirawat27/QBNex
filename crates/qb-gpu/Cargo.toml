@@ -1,0 +1,21 @@
+[package]
+name = "qb-gpu"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "R15 G1: GPU backend for QBNex on wgpu (Vulkan/DX12/Metal/WebGPU): offscreen and window targets, framebuffer blit, 3D groundwork. Pure Rust."
+publish = false
+
+[lib]
+name = "qb_gpu"
+path = "src/lib.rs"
+
+[dependencies]
+wgpu = "30"
+pollster = "1"
+bytemuck = { version = "1", features = ["derive"] }
+glam = { version = "0.34", features = ["bytemuck"] }
+winit = "0.30"
+[dev-dependencies]
+glam = "0.34"
