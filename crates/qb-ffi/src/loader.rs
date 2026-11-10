@@ -220,7 +220,9 @@ impl Library {
         let mut last = String::new();
         for c in &cands {
             let text = c.display().to_string();
-            if c.is_file() {
+            // macOS 11+: system libraries (/usr/lib/libz.dylib, ...) exist only in
+            // the dyld shared cache, not on disk, yet dlopen of that path works.
+            if c.is_file() || (cfg!(target_vendor = "apple") && c.is_absolute()) {
                 match Library::open_path(&text) {
                     Ok(l) => return Ok(l),
                     Err(e) => last = e,
