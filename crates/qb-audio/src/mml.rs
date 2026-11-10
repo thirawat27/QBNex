@@ -866,4 +866,44 @@ mod tests {
         assert_eq!(varptr_value(64 + 4, &r), Some(15.0));
         assert_eq!(varptr_value(64 + 57, &r), None);
     }
+
+    /// R14: arbitrary PLAY / SOUND / _WAVE / _ADSR input never panics.
+    #[test]
+    fn random_statements_never_panic() {
+        struct Count(usize);
+        impl Sink for Count {
+            fn send(&mut self, _voice: usize, frames: &[i16]) {
+                self.0 += frames.len();
+            }
+        }
+        let mut seed: u64 = 0x5EED_1234_ABCD_0001;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let alphabet = b"ABCDEFGOLTNPMBFSN<>#+-.,=;0123456789 XVQIZ\x00\xFF";
+        let mut bad = Vec::new();
+        for k in 0..20_000 {
+            let n = (next() % 24) as usize;
+            let text: Vec<u8> = (0..n).map(|_| alphabet[(next() % alphabet.len() as u64) as usize]).collect();
+            let mut s = Synth::default();
+            let mut c = Count(0);
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = s.play(8000, true, &text, &NoVars, &mut c);
+                let f = f64::from_bits(next());
+                let t = f64::from_bits(next());
+                let _ = s.sound(8000, true, f, t, &mut c);
+                let _ = s.sound(8000, true, (next() % 40000) as f64, (next() % 30) as f64 / 7.0, &mut c);
+                let _ = s.set_voice((next() % 9) as i32 - 2);
+                let _ = s.wave(&text, (next() % 6) as i32 - 1, (next() % 4) as i32);
+                let _ = s.adsr(f64::from_bits(next()), (next() % 5) as f64, f, t, (next() % 6) as i32 - 1, (next() % 16) as i32);
+            }));
+            if r.is_err() {
+                bad.push(format!("{k}: {:?}", String::from_utf8_lossy(&text)));
+            }
+        }
+        assert!(bad.is_empty(), "{} panics: {:?}", bad.len(), &bad[..bad.len().min(10)]);
+    }
 }
