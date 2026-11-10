@@ -355,7 +355,40 @@ Legacy behaviour kept bug for bug (documented, no case unless noted):
 
 Not verified: Linux/macOS console paths (ANSI output, CRT stream symbols `stdout`/`__stdoutp`), `_CONSOLECURSOR`/`_CONSOLEINPUT` interactively, LPRINT paging.
 
-## How the pieces fit
+## ## ## R14-runtime (hardening, started early; branch `r14-runtime`)
+
+Scope: qb-runtime, qb-audio, qb-float80, qb-ffi only (not qb-exec/qb-jit/qb-link/qb-ir/compiler).
+
+No-panic tests with deterministic random and mutated input (`qb-runtime/src/robustness_tests.rs`, `qb-audio` `mml::tests::random_statements_never_panic`), all passing in release and debug (overflow checks on):
+
+- image decoders: 400 mutations per corpus file (bit flips, truncation, insertion, huge size fields) + 2000 random blobs, PCX too;
+- INFLATE on 3000 mutated streams, DEFLATE round trip;
+- VAL (200k strings), READ/DATA/INPUT parsing (100k strings x 8 types), HEX$/OCT$/_BIN$/STR$ (100k);
+- graphics: LINE/PSET/CIRCLE/WINDOW/PAINT/POINT/PMAP with NaN, infinity, +-1e9, +-3e38 and 2^31 edges, plus random DRAW strings, in SCREEN 1/2/12/13/32-bit images (4000 cases);
+- PLAY/SOUND/_WAVE/_ADSR (20k statements).
+
+Findings (each fixed with a failing test first):
+
+| ID | Bug | Severity | Fix |
+| --- | --- | --- | --- |
+| R14-1 | `qb_radix_string` (HEX$/OCT$/_BIN$) trusted `neg_bits`: a width outside 0..=64 allocated gigabytes and would overrun the 64-byte C buffer. | Medium (not reachable from compiled BASIC: the compiler passes type widths) | Clamp to 0..=64. |
+| R14-2 | `MID$(a$, 2, 2147483647)` read past the string, `MID$(d$, 2, 2147483647) = s$` wrote past `d$`: `start + length` was ported with `wrapping_add` from the legacy `int` code (same bug in legacy). | **High** (heap overread/overwrite from plain BASIC) | Bounds in i64. |
+| R14-4 | A failed `_MEMGET` check with an absurd byte count aborted the program while allocating the zeroed scratch buffer. | Low | Fallible reserve; reports 518 (out of memory). |
+| R14-3 | `_MEM` range check `off + bytes` wrapped for offsets near the top of the address space, so `_MEMFILL`/`_MEMCOPY`/`_MEMGET` with a bad offset touched foreign memory instead of raising error 300. | High (BASIC computes `_OFFSET`s) | Check in i128. |
+
+Property tests: `qb-float80/tests/props.rs` (proptest, 20k cases each; decimal round trips 400): f64 widening, integer round trips, commutativity, `a-b = a+(-b)`, decimal and shortest text round trips, ordering vs subtraction sign, exact square roots, integer powers, rounding brackets, no panic on any encoding.
+
+Lints: `-W clippy::pedantic` clean for qb-float80 and qb-ffi library code (cast lints, one-letter names, legacy literals and x87-table match arms allowed with a reason in `lib.rs`). `#![cfg_attr(not(test), deny(clippy::unwrap_used))]` in all four crates (the 12 remaining non-test `unwrap`s replaced); `cargo clippy --all-targets` clean for the four crates. Tests: qb-runtime 334, qb-audio 41, qb-float80 23, qb-ffi 18 (release, Windows).
+
+Reviewed without findings: fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
+
+Open (not done in this pass):
+
+- String engine arithmetic is u32 like legacy: strings near 2 GB (`STRING$(2^31-1, 65)`) are not tested (they need the RAM); QB45 raised "Out of string space" (14).
+- QB45 vs legacy error codes: `LEFT$`/`SPACE$`/`STRING$` with negative counts return "" as the legacy QB64 build did (QB45: error 5); kept for golden compatibility.
+- H1 `cargo miri` (needs a nightly toolchain, not installed), H6 loom/ThreadSanitizer, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
+- rustc on this machine crashed a few times while compiling dependencies (`STATUS_STACK_BUFFER_OVERRUN` in rustc, with plenty of free RAM); a rerun with `CARGO_BUILD_JOBS=1` worked.
+How the pieces fit
 
 ```mermaid
 flowchart LR
@@ -416,7 +449,7 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-08 | Compiled programs exit with `0xC0000409` (fail-fast) about once in 300-400 runs, legacy oracle build included (`control/gosub_goto`, 1/400 with `.oracle`). Probably the exit-time thread race in F3. Can make a conformance run flaky. | none (statistical) | Medium |
 | L-09 | `_MEMFREE` of a `_MEMNEW` block frees the buffer twice (vector erase, then `free()` in `free_mem_lock`); exit `0xC0000374`. **Fixed in Rust** (D-07). | `mem/memfree_memnew` (`.deviation`) | High |
 | L-10 | After one `OPEN "COMn:..."` every later COM name fails with "Bad file name": `gfs_open_com_syntax` checks a function-static `x` before setting it, and the first parse leaves it at the OP timeout (10000). Kept. | unit test `gfs::com_syntax_*` (no COM port on CI) | Medium |
-| L-11 | An unhandled runtime error opens a `MessageBox`. From a console it returns at once and the program continues; under the conformance runner it blocks until the timeout. Error paths therefore cannot be golden cases while L-01 blocks `ON ERROR`; their error numbers are compared by `diff_files` / `diff_sys` instead. | manual | Medium |
+| L-11 | An unhandled runtime error opens a `MessageBox`. From a console it returns at once and the program continues; under the conformance runner it blocks until the timeout. Error paths therefore cannot be golden cases while L-01 blocks `ON ERROR`; their error numbers are compared by `diff_files` / `diff_sys` instead. **Mitigated (D-R12b-4):** with `QBNEX_NO_ERROR_DIALOG=1` or redirected stdout/stderr the message goes to stderr and the program exits with code 1. | `errors/unhandled_no_dialog` (`.deviation`) | Medium |
 | L-12 | `LINE INPUT #` on a BINARY file treats a line as the last one when it ends within 2 bytes of EOF, so a final 1-character line (`"two" CR LF "x"`) is dropped. Kept. | `files/binary_ops` | Medium |
 | L-13 | `_MEMGET` with a failed check and a 0-byte type raises critical error 518 ("Out of memory") and ends the program: the zero-length scratch vector has no `data()`. Kept. | `diff_mem` | Low |
 | L-16 | The compiler rejects every source file that is not well-formed UTF-8 ("Invalid UTF-8 byte sequence"), so QBasic programs saved in CP437 (box drawing in strings or comments) do not compile. 41 of 129 corpus files. **Fixed** (D-22). | `source/cp437_bytes` (`.deviation`), `source/utf8_bytes` | High |
@@ -428,6 +461,8 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-22 | `compiler/stdlib/json.bas` does not compile: `JsonCreateBoolean%`/`Number%`/`String%` read their own FUNCTION name (a recursive call when the FUNCTION has parameters) and `JsonObjectSet`/`JsonObjectGet%` use the reserved word `KEY` as a parameter name. **Fixed** (local variable, `keyName`). | `stdlib/import_json_dim_shared` (`.deviation`) | Medium |
 | L-14 | `PUT` on a network handle treats a full send buffer ("would block" on the non-blocking socket) as a lost connection: `_CONNECTED` drops to 0 and the rest of the data is lost. Ported as is. | `net/send_buffer_full` | Medium |
 | L-15 | `TIMER ON` after `TIMER STOP` with an event queued during the STOP never delivers it: the event stays "triggered", so the timer thread does not set `qbevent` again, and `TIMER ON` does not set it either. The timer stalls until something else (a key, an error) runs `evnt()`. Ported as is. | `events/timers_and_waits` uses OFF/ON | Medium |
+| L-16 | `url.bas` was unusable at run time: the fixed-length `UrlParts` fields were used untrimmed (`UrlFormat$`, `UrlBasename$`, query lookups returned padded text or nothing), `protocol` kept `//` (`origin` became `https:////host`), port 65535 overflowed an INTEGER, `UrlSetQueryParam` appended duplicate keys, `UrlNormalizePath$` returned its input and `UrlResolve` only glued strings. **Fixed** (R13-stdlib). | `stdlib/url_parse` (`.deviation`) | High |
+| L-17 | `JSON_Parse%` in `compiler/stdlib/json.bas` parsed nothing: `[`/`{` input became an empty array/object, `JsonObjectGet%`/`JsonArrayGet%` always returned 0, numbers went through `VAL` without validation and strings kept their escapes. **Fixed** (R13-stdlib): full RFC 8259 parser. | `stdlib/json_parse` (`.deviation`) | High |
 
 Output quirks that are preserved bug-for-bug (golden files depend on them):
 
@@ -473,6 +508,7 @@ Intentional deviations (Rust differs from legacy on purpose):
 | D-R12b-1 | `n_roundincrement` (READ / INPUT # into `_INTEGER64` and `_UNSIGNED _INTEGER64`) no longer reads `n_digit[n_exp+1]` with a negative index for numbers below 0.1; such numbers are not rounded up (0.06 reads as 0). Legacy read memory before the array (undefined; usually no rounding). | Defined behaviour; `diff_core` skips these reads (3,089 of 2.26M). |
 | D-R12b-2 | READ of a decimal number into `_FLOAT` / DOUBLE uses correctly rounded parsing. MinGW `sscanf("%lf")` was one ulp off for some 17-digit inputs (1 in 2.26M random items, e.g. `6.5535595088869763E245`). | Correct IEEE rounding on every OS. |
 | D-R12b-3 | `HEX$` with a minimum width above 16 (never emitted by the compiler) returns at most 16 digits; legacy read before its 16-byte buffer. | Memory safety. |
+| D-R12b-4 | An unhandled or critical runtime error does not open the "Unhandled Error #n ... Continue?" dialog when `QBNEX_NO_ERROR_DIALOG` is set (to anything but `0`) or stdout/stderr is not a console. It writes one line to stderr (`Unhandled Error #53 - prog.exe: Line: 7 (in main module): File not found`), keeps what was printed before, and ends the program with exit code 1 (critical errors: exit 1 at once). Interactive runs keep the dialog (QB4.5 behaviour). The conformance runner and all smoke scripts set the variable. | Test runs and pipes must never block on, or pop up, a modal dialog. |
 
 ## R4: files, file system, ENVIRON, SHELL, `_MEM`
 
@@ -684,6 +720,70 @@ Verified on Windows (MinGW g++ 15.2, rustc 1.99.1, after merging rust-port `d05c
 - `tests/diff/host_stubs.h`: libqb_runtime.a is a single object since D16, so every harness now includes stubs for the libqb.cpp/qbx.cpp symbols it references (`diff_timer` and others did not link before).
 - Self-hosted `qb.exe` built by `scripts/setup_win.cmd` with the Rust core.
 
+## R13-stdlib: BASIC standard library audit
+
+Branch `claude/r12b-core-4db168`. Scope: `compiler/stdlib/*.bas` only (the compiler core, `qb-exec` and `qb-ir` are untouched).
+
+**JSON (`'$IMPORT:'json'`, fixes L-17).** `json.bas` is a complete RFC 8259 implementation: a value pool of up to 32,767 values with linked children (handles, 0 = none), `JSON_Parse%` (objects, arrays, strings with all escapes incl. `\uXXXX` and surrogate pairs to UTF-8, strict number grammar, `true`/`false`/`null`, depth limit 500, trailing-text check) with `JSON_LastError$` and the 1-based byte `JSON_ErrorPosition&`; access (`JsonObjectGet%`, `JsonArrayGet%` 0-based, `JsonObjectKey$`, `JsonObjectCount%`, `JsonObjectHas%`, `JsonObjectRemove`), building (`JsonCreate*`, `JsonArrayPush`, `JsonObjectSet` replaces a key; a value that already has a parent is deep-copied) and `JSON_Stringify$`/`JSON_StringifyPretty$` (escapes control characters, keeps the source text of parsed numbers, so parse -> stringify round-trips byte for byte). Numbers beyond DOUBLE clamp to +-1.797...E308, tiny ones to 0 (`VAL` would raise Overflow). The old `JsonParse*(parser)` facade functions and the `JsonParser` TYPE remain for source compatibility.
+
+**URL (`'$IMPORT:'url'`, fixes L-16).** Trimmed fields, `protocol` as `https:`, LONG `port`, lower-case host, query parameters decoded with `+` as space, `UrlSetQueryParam` replaces an existing key and refreshes `search`/`href`, `%XX` decoding keeps malformed escapes, RFC 3986 `remove_dot_segments` (`UrlNormalizePath$`) and reference resolution (`UrlResolve`: all 36 normal examples of RFC 3986 section 5.4 give the RFC result; `//g` gives `http://g/`), `file:` URL helpers with percent-encoding.
+
+**Audit of the other modules** (fixes applied to the module files and to the monolithic `qbnex_stdlib.bas`, which carries its own copies):
+
+| Module | State |
+| --- | --- |
+| `collections/list, stack, queue, set, dictionary` | Work (length-prefixed string pools; at most 256 live lists, O(n) access). No change. |
+| `strings/strbuilder` | Works. No change. |
+| `strings/text` | **Fixed:** `Text_PadLeft$`/`Text_PadRight$` rewrote the caller's pad argument and overshot the width with multi-character pads. |
+| `io/path` | **Fixed:** `Path_Join$` rewrote both (by-reference) arguments and doubled the separator for a leaf starting with one; `Path_DirName$("/x")` returned "" instead of the root. |
+| `io/csv` | Works. No change. |
+| `io/json` (builders) | **Fixed:** `Json_Escape$` left control characters other than TAB/CR/LF raw (invalid JSON). |
+| `math/numeric`, `sys/args`, `sys/env` | Work. No change. |
+| `sys/datetime` | **Fixed:** `Date_ValueOf#`, `Date_FromUnixMs` and `Date_GetDay&` were wrong before 1970 (negative day of month, negative weekday). |
+| `oop/class`, `oop/interface` | **Fixed:** registering class/interface 257 left the count past the registry, so every later lookup raised "Subscript out of range". |
+| `error/result` | **Fixed:** `Result_Expect$` rewrote its message argument. Otherwise works. |
+
+`io/path.bas` and `strings/text.bas` are also `$INCLUDE`d by the compiler (`compiler/utilities/runtime.bas`); the self-hosted build was rebuilt and checked with them.
+
+Compiler quirks found (not fixed, compiler core is out of scope; reproduced in isolation and handed to the corpus-fixes session): `REDIM a%(...)` inside a FUNCTION, for an array declared `DIM SHARED a%()`, creates a local array instead of sizing the shared one (also without `$IMPORT`; `REDIM _PRESERVE` is fine); `DIM SHARED` in the main program after an `$IMPORT` line is "Statement cannot be placed between SUB/FUNCTIONs"; a string comparison in parentheses inside a PRINT list is rejected ("Unknown statement 'PRINT'"). `REDIM SHARED` at the module level of an imported module works.
+
+Tests: conformance `stdlib/json_parse`, `stdlib/url_parse`, `stdlib/stdlib_helpers` (via `'$IMPORT:'qbnex'`). Whole corpus on the rebuilt self-hosted `qb.exe` (MinGW 16.2): 80 cases, 74 passed, 6 xfail, 0 failed (`mem/mem_ops` timed out once under load and passed on rerun); `stdlib_smoke` passes. The legacy oracle only has the broken modules, so their goldens come from the current default C++ build and are marked `.deviation` (checked by hand against RFC 8259, RFC 3986 and the calendar).
+## R13-tools developer tooling
+
+Branch `claude/r13-tools2-807c75`. Three new standalone crates (port-plan §9.4, "Tooling" row); nothing in `compiler/`, `qb-exec`, `qb-runtime` or the other existing crates changed apart from the workspace member list.
+
+| Crate | What it is |
+| --- | --- |
+| `crates/qb-syntax` | Lossless lexer + concrete syntax tree. Tokens cover every byte: comments (`'`, `REM`, QBNex `#`), metacomments (`'$INCLUDE: 'x'`, `REM $DYNAMIC`), `$` metacommand lines, line numbers, labels, `DATA` items (raw), line continuations, unterminated strings and unknown characters (as tokens plus diagnostics). Statements are grouped into blocks (IF/FOR/DO/WHILE/SELECT/SUB/FUNCTION/TYPE/DEF FN/DECLARE LIBRARY/CLASS/ENUM/TRY), with single-line IF (also `IF x THEN : stmt`), `NEXT j, i` closing several FORs and recovery for missing or stray closers. `encoding` reads UTF-8 (BOM kept) or CP437 and writes the same bytes back. `LineIndex` maps offsets to LSP positions (UTF-16). The keyword table merges hand-written language keywords with the 355 built-ins generated from `compiler/subs_functions/subs_functions.bas` by `crates/qb-syntax/tools/gen-builtins.ps1` (syntax lines included). `examples/diag.rs` prints parse diagnostics for files. |
+| `crates/qb-fmt` | Formatter library + `qb-fmt` command (`--write`, `--check`, `--keyword-case upper|lower|preserve`, `--indent N`, `--tabs`, `--line-ending`; stdin/stdout when no files; keeps the input encoding). Normalises keyword case, indents block bodies (CASE one level inside SELECT), puts line numbers and labels in column 0, continuation lines one level deeper, one space around binary operators and after `,`/`;`/`:`, none inside brackets; strips trailing blanks. Never touches comments, strings, DATA items, metacommands, the case of external names in DECLARE LIBRARY, or the blank between a name and `(`; lines with lexical errors are only re-indented. `equivalent()` compares the meaningful tokens of two texts. |
+| `crates/qb-lsp` | Language server over stdio (`lsp-server` 0.10, `lsp-types` 0.97). Diagnostics (syntax/block errors, include file not found), document symbols (SUB/FUNCTION/TYPE with fields/CONST/labels/line numbers that are jump targets), go-to-definition and references across the file and its `$INCLUDE`s (resolved relative to the including file, depth ≤ 100; dotted names resolve the member to TYPE fields; line numbers after GOTO/GOSUB/THEN/ELSE/RESTORE/RESUME/RETURN and in `ON x GOTO` lists), hover (built-in syntax line and description, or the user definition and its file), completion (file + include symbols, all keywords), whole-document formatting through qb-fmt (client tab size / spaces). |
+
+Verified on Windows (rustc 1.99.1, `CARGO_BUILD_JOBS=1`):
+
+- `cargo test -p qb-syntax -p qb-fmt -p qb-lsp`: all pass; `cargo clippy --all-targets` on the three crates: 0 warnings.
+- qb-syntax: unit tests, proptest (arbitrary strings, arbitrary bytes with byte-exact CP437/UTF-8 round trip, BASIC-flavoured fragment soup; 2,000 cases each): no panic, tokens contiguous, tree visits every token once. All 81 conformance cases parse with no diagnostics and round-trip byte for byte.
+- qb-fmt: every `.bas` in `tests/conformance/cases` plus `QB_CORPUS_DIR` (the main checkout's `tests/corpus-local`, 129 programs) is formatted with two option sets; the output has the same tokens as the input, formatting it again changes nothing, and its parse has the same number of diagnostics. Proptest (3,000 random programs per run, repeated with 30,000) found and fixed four spacing cases that would have changed tokens (`$ IF`, `#REM`, `name :` at line start, `- =`).
+- qb-lsp: `tests/stdio.rs` runs the binary with real JSON-RPC framing: initialize, didOpen diagnostics, documentSymbol, definition (into the include, TYPE field, label), references with and without the declaration, hover (keyword and user TYPE), completion, formatting, didChange/didClose diagnostics, shutdown/exit; a second session feeds garbage text and probes every position, and an unknown method gets -32601.
+- Parse diagnostics over corpus-local only remain in programs that carry binary data inside the `.BAS` (SHIPWAR, SPACE, GRAPHICS, EDIT, ...).
+
+Not done / limits: no expression-level AST (the CST stops at statements, which is all the formatter and server need); symbols are file-global (no per-SUB scopes); references do not look into files that include the current one; `$IF` metacommand blocks are not indented.
+## VS Code extension
+
+`packaging/vscode` (TypeScript; runtime dependency `vscode-languageclient` only). Starts `qb-lsp` (setting `qbnex.lsp.path`, else a copy bundled in `server/`, else `PATH`) for diagnostics, outline, definition/references, hover, completion and formatting; format on save is on by default for QBasic files. TextMate grammar `syntaxes/qbasic.tmLanguage.json` is generated by `scripts/gen-grammar.mjs` from the qb-syntax keyword tables (32 control words, 223 built-in functions, 123 built-in statements, types, operators). 17 snippets. Commands `QBNex: Run` (F5: compile with `qb`, then start the executable in a terminal; or `qb run <file>` with `qbnex.runMode = qbRun`), `QBNex: Compile` (Ctrl+Shift+B, output panel), `QBNex: Restart Language Server`.
+
+Verified: `npm test` (tsc build, grammar tokenized with vscode-textmate + Oniguruma as VS Code does, snippet and helper tests: 5/5); `npx vsce package` builds `qbnex-0.1.0.vsix` (501 KB, platform-neutral, server from `PATH`); `npm run bundle-server` + `vsce package --target <platform>` for a package that carries qb-lsp. Not tried inside a running VS Code window (no GUI on this machine). Debugger: plan only, `docs/rust-port/qb-dap-plan.md`.
+## R15-G1 — GPU backend (`crates/qb-gpu`)
+
+Status: **groundwork done**, not wired into the runtime yet (the CPU renderer stays the reference and the default).
+
+- wgpu 30 (Vulkan / DX12 / Metal / WebGPU), pure Rust; glam for matrices.
+- `Gpu::headless()`: hardware adapter, else the platform software adapter (WARP, llvmpipe, ...), `None` without any — callers and tests skip cleanly. `QB_GPU=off` disables the GPU, `QB_GPU_FALLBACK=1` forces the software adapter. `Gpu::for_window(Arc<winit::Window>)` creates a surface (non-sRGB format preferred so framebuffer values are shown unchanged).
+- `Target`: offscreen RGBA8 texture (readback with `read_rgba`) or window surface (`frame()` / `Frame::present`, resize, lost/outdated surfaces reconfigured).
+- `blit::Blitter`: uploads the runtime's `u32` framebuffer (`0xAARRGGBB` = BGRA bytes) to a `Bgra8Unorm` texture and draws it with nearest filtering into the rectangle `fit_rect` gives: aspect-correct letterbox (default), integer scale, or stretch.
+- `three`: `Vertex` (position, uv, colour), `Mesh` (vertex + index buffers), `Camera` (perspective / orthographic, right-handed, depth 0..1), `Renderer3d` (Depth32Float depth buffer, textured-triangle WGSL pipeline, alpha blending, no culling by default), `Texture` (nearest or linear = `_SMOOTH`).
+- Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
+
+Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

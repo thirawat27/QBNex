@@ -1,0 +1,31 @@
+{
+  "comments": {
+    "lineComment": "'"
+  },
+  "brackets": [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"]
+  ],
+  "autoClosingPairs": [
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "{", "close": "}" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] }
+  ],
+  "surroundingPairs": [
+    ["(", ")"],
+    ["\"", "\""]
+  ],
+  "wordPattern": "[A-Za-z_][\\w.]*[%&!#$~`]*|-?\\d+(\\.\\d+)?([EeDd][+-]?\\d+)?[%&!#]*",
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*(?i:(IF\\b.*\\bTHEN\\s*('.*)?$)|(ELSEIF\\b.*\\bTHEN\\s*('.*)?$)|ELSE\\s*('.*)?$|FOR\\b|DO\\b|WHILE\\b|SELECT\\s+CASE\\b|CASE\\b|SUB\\b|FUNCTION\\b|TYPE\\s+\\w|DECLARE\\s+.*\\bLIBRARY\\b|TRY\\b|CATCH\\b|FINALLY\\b|CLASS\\b|ENUM\\b)",
+    "decreaseIndentPattern": "^\\s*(?i:END\\s*(IF|SUB|FUNCTION|TYPE|SELECT|DECLARE|DEF|TRY|CLASS|ENUM)\\b|NEXT\\b|LOOP\\b|WEND\\b|ELSE\\b|ELSEIF\\b|CASE\\b|CATCH\\b|FINALLY\\b)"
+  },
+  "folding": {
+    "markers": {
+      "start": "^\\s*(?i:(SUB|FUNCTION|TYPE)\\b|'\\s*#region\\b)",
+      "end": "^\\s*(?i:END\\s+(SUB|FUNCTION|TYPE)\\b|'\\s*#endregion\\b)"
+    }
+  }
+}

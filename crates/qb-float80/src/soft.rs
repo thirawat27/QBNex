@@ -183,6 +183,7 @@ fn log2_w(x: F80) -> W {
     W::int(e).add(ln.mul(log2e()))
 }
 
+#[must_use]
 pub fn f2xm1(x: F80) -> F80 {
     match x.class() {
         Class::Unsupported => F80::INDEFINITE,
@@ -199,6 +200,7 @@ pub fn f2xm1(x: F80) -> F80 {
     }
 }
 
+#[must_use]
 pub fn fyl2x(x: F80, y: F80) -> F80 {
     if let Some(r) = nan2(x, y) {
         return r;
@@ -238,6 +240,7 @@ pub fn fyl2x(x: F80, y: F80) -> F80 {
     log2_w(x).mul(W::from_f80(y)).to_f80()
 }
 
+#[must_use]
 pub fn fyl2xp1(x: F80, y: F80) -> F80 {
     if let Some(r) = nan2(x, y) {
         return r;

@@ -13,6 +13,7 @@
 //! - Pointers coming from C may be unaligned (they often point into string
 //!   buffers), so reads and writes go through byte copies.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod alloc;
@@ -57,6 +58,9 @@ pub mod win32;
 // Audio runtime (R6): linked into libqb_runtime.a but kept in its own crate (own
 // object file) so only programs that reference qb_snd_* pull it in.
 extern crate qb_audio;
+// Extension library (R13-ext): pulled into libqb_runtime.a for the stdlib's ext.* modules.
+#[cfg(feature = "ext")]
+extern crate qb_ext;
 pub mod raster;
 pub mod script;
 pub mod window;
@@ -97,3 +101,6 @@ pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
         unsafe { std::slice::from_raw_parts_mut(p, len) }
     }
 }
+
+#[cfg(test)]
+mod robustness_tests;

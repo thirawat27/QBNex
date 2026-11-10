@@ -1,0 +1,180 @@
+{
+  "name": "qbnex",
+  "displayName": "QBNex BASIC",
+  "description": "QBasic / QB64 / QBNex language support: highlighting, snippets, diagnostics, navigation and formatting through qb-lsp, plus Run and Compile commands.",
+  "version": "0.1.0",
+  "publisher": "qbnex",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thirawat27/QBNex"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets",
+    "Formatters"
+  ],
+  "keywords": [
+    "qbasic",
+    "qb64",
+    "qbnex",
+    "basic"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "qbasic",
+        "aliases": [
+          "QBNex BASIC",
+          "QBasic",
+          "QB64"
+        ],
+        "extensions": [
+          ".bas",
+          ".bi",
+          ".bm",
+          ".BAS",
+          ".BI",
+          ".BM"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "qbasic",
+        "scopeName": "source.qbasic",
+        "path": "./syntaxes/qbasic.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "qbasic",
+        "path": "./snippets/qbasic.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "qbnex.run",
+        "title": "QBNex: Run",
+        "icon": "$(play)"
+      },
+      {
+        "command": "qbnex.compile",
+        "title": "QBNex: Compile"
+      },
+      {
+        "command": "qbnex.restartServer",
+        "title": "QBNex: Restart Language Server"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "qbnex.run",
+          "when": "editorLangId == qbasic"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "qbnex.run",
+          "when": "editorLangId == qbasic"
+        },
+        {
+          "command": "qbnex.compile",
+          "when": "editorLangId == qbasic"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "qbnex.run",
+        "key": "f5",
+        "when": "editorLangId == qbasic && !inDebugMode"
+      },
+      {
+        "command": "qbnex.compile",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b",
+        "when": "editorLangId == qbasic"
+      }
+    ],
+    "configuration": {
+      "title": "QBNex",
+      "properties": {
+        "qbnex.compilerPath": {
+          "type": "string",
+          "default": "qb",
+          "description": "The QBNex compiler command (`qb` or `qbnex`, or a full path)."
+        },
+        "qbnex.compileArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${file}",
+            "-o",
+            "${fileDirname}/${fileBasenameNoExtension}${exeExtension}"
+          ],
+          "description": "Arguments for QBNex: Compile. Variables: ${file}, ${fileDirname}, ${fileBasenameNoExtension}, ${exeExtension}, ${workspaceFolder}."
+        },
+        "qbnex.runMode": {
+          "type": "string",
+          "enum": [
+            "compileThenExecute",
+            "qbRun"
+          ],
+          "enumDescriptions": [
+            "Compile with qbnex.compileArgs, then start the executable in a terminal.",
+            "Start `qb run <file>` in a terminal (VM + JIT, no executable written)."
+          ],
+          "default": "compileThenExecute",
+          "description": "How QBNex: Run starts the program."
+        },
+        "qbnex.lsp.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path of the qb-lsp language server. Empty: the copy bundled in the extension's server folder, else `qb-lsp` on PATH."
+        },
+        "qbnex.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the qb-lsp language server."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[qbasic]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "qbnex.qbnex",
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "grammar": "node scripts/gen-grammar.mjs",
+    "bundle-server": "node scripts/bundle-server.mjs",
+    "test": "npm run compile && node --test test/*.test.mjs",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "~1.91.0",
+    "@vscode/vsce": "^4.1.0",
+    "typescript": "^7.0.2",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}

@@ -1,6 +1,8 @@
 //! Decimal text <-> [`F80`], exact (correctly rounded, ties to even), like MinGW
 //! `__mingw_strtold` and `__mingw_snprintf` with `%.*Le` / `%.*Lf` / `%.*Lg`.
 
+use core::fmt::Write as _;
+
 use crate::arith::{fin, round_pack, zero};
 use crate::{F80, INT_BIT, QUIET_BIT};
 
@@ -246,6 +248,7 @@ fn digit_str(d: &[u8]) -> String {
 }
 
 /// `printf("%.*Le", prec, x)`.
+#[must_use]
 pub fn format_e(x: F80, prec: usize) -> String {
     if let Some(s) = special_text(x) {
         return s;
@@ -266,11 +269,12 @@ pub fn format_e(x: F80, prec: usize) -> String {
     }
     out.push('e');
     out.push(if exp10 < 0 { '-' } else { '+' });
-    out.push_str(&format!("{:02}", exp10.abs()));
+    let _ = write!(out, "{:02}", exp10.abs());
     out
 }
 
 /// `printf("%.*Lf", prec, x)`.
+#[must_use]
 pub fn format_f(x: F80, prec: usize) -> String {
     if let Some(s) = special_text(x) {
         return s;
@@ -308,6 +312,7 @@ pub fn format_f(x: F80, prec: usize) -> String {
 }
 
 /// `printf("%.*Lg", prec, x)`.
+#[must_use]
 pub fn format_g(x: F80, prec: usize) -> String {
     if let Some(s) = special_text(x) {
         return s;
@@ -341,6 +346,7 @@ fn strip_zeros(s: &str) -> String {
 }
 
 /// Shortest `%Lg` text (1..=21 significant digits) that parses back to `x`.
+#[must_use]
 pub fn format_shortest(x: F80) -> String {
     if let Some(s) = special_text(x) {
         return s;
@@ -356,6 +362,7 @@ pub fn format_shortest(x: F80) -> String {
 
 /// `__mingw_strtold`: returns the value and the number of bytes consumed
 /// (0 when no number was found; the value is then +0).
+#[must_use]
 pub fn parse(s: &[u8]) -> (F80, usize) {
     let mut i = 0;
     while i < s.len() && matches!(s[i], b' ' | b'\t' | b'\n' | b'\x0B' | b'\x0C' | b'\r') {
@@ -549,6 +556,7 @@ fn parse_hex(s: &[u8], neg: bool) -> Option<(F80, usize)> {
 /// Correctly rounded `(-1)^neg * (digits + tail) * 10^e10`, where `digits`
 /// holds decimal digit values (0..=9) and `inexact_tail` says that non-zero
 /// digits were dropped after them. Used by `VAL`.
+#[must_use]
 pub fn decimal_to_f80(neg: bool, digits: &[u8], e10: i64, inexact_tail: bool) -> F80 {
     let first = digits.iter().position(|&d| d != 0);
     let Some(first) = first else {

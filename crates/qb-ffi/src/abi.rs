@@ -164,7 +164,7 @@ pub(crate) fn layout(abi: Abi, args: &[(Ty, u64)], variadic_from: usize) -> Layo
                 bytes.extend_from_slice(&bits.to_le_bytes()[..size]);
             }
             bytes.resize((bytes.len() + 7) & !7, 0);
-            l.stack = bytes.chunks(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect();
+            l.stack = bytes.chunks_exact(8).map(|c| u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])).collect();
             l.nfpr = nf as u64;
         }
     }
@@ -190,7 +190,7 @@ pub(crate) unsafe fn invoke(func: *const c_void, args: &[(Ty, u64)], variadic_fr
     };
     // SAFETY: the frame is fully initialised; the thunk follows the platform
     // ABI; the callee contract is the caller's.
-    unsafe { qb_ffi_thunk(&mut f) };
+    unsafe { qb_ffi_thunk(&raw mut f) };
     let _ = f.ret_gpr2;
     (f.ret_gpr, f.ret_fpr)
 }

@@ -1,5 +1,8 @@
 $SCREENHIDE
 $CONSOLE
+' LOCATE 18 below raises error 5 (as in the legacy build, where the headless
+' dialog returned at once and the program went on); skip it explicitly.
+ON ERROR GOTO skip_error
 SCREEN _NEWIMAGE(200, 150, 32)
 CLS , _RGB32(0, 0, 40)
 a& = _NEWIMAGE(64, 48, 32)
@@ -41,3 +44,5 @@ PRINT _WIDTH(a&); _HEIGHT(p&); _PIXELSIZE(p&); _PIXELSIZE(a&)
 _FREEIMAGE a&
 _FREEIMAGE b&
 SYSTEM
+skip_error:
+RESUME NEXT

@@ -21,3 +21,6 @@ soft-transcendentals = []
 diff-hooks = []
 
 [dependencies]
+
+[dev-dependencies]
+proptest = "1.11.0"

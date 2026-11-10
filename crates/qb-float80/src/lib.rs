@@ -1,4 +1,4 @@
-//! Software x87 80-bit extended precision float (`_FLOAT` in QBNex).
+//! Software x87 80-bit extended precision float (`_FLOAT` in `QBNex`).
 //!
 //! The legacy runtime stored `_FLOAT` in a C `long double`, which MinGW compiles to
 //! the x87 80-bit format with the FPU control word `0x037F` (64-bit significand,
@@ -14,7 +14,7 @@
 //! - [`libm`] transcribes MinGW-w64's `expl`, `exp2l`, `log2l`, `powl`, `__powil`,
 //!   `ldexpl`, `floorl`, `ceill` step by step. The only steps whose hardware result
 //!   is not the correctly rounded value (`f2xm1`, `fyl2x`, `fyl2xp1`) run on the x87
-//!   unit on x86/x86_64 ([`x87`]); other targets use a software version that is
+//!   unit on `x86/x86_64` ([`x87`]); other targets use a software version that is
 //!   within one unit in the last place (deviation D-111, see the crate docs);
 //! - [`dec`] converts to and from decimal text like MinGW `__mingw_strtold` and
 //!   `__mingw_snprintf("%.*Le" / "%.*Lf" / "%.*Lg")`;
@@ -24,6 +24,25 @@
 //! The differential harness `tests/diff/diff_float80.cpp` checks all of this against
 //! real `long double` code compiled by MinGW g++.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+// R14 H2: clippy::pedantic is clean except for the lints below. Bit-level x87
+// emulation and C ABI glue cast between integer widths on purpose (every cast
+// is a deliberate truncation, sign reinterpretation or widening of a field),
+// and the one-letter names follow the instruction manuals (a, b, m, e, x, y).
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    // legacy literals and x87 constants are kept digit for digit
+    clippy::unreadable_literal,
+    // match arms mirror the x87 special-case tables row by row
+    clippy::match_same_arms,
+    clippy::items_after_statements
+)]
 pub mod arith;
 pub mod capi;
 pub mod conv;
@@ -92,17 +111,20 @@ impl F80 {
     pub const MIN_DENORMAL: F80 = F80 { mant: 1, se: 0 };
 
     /// Builds a value from its raw fields.
+    #[must_use]
     pub const fn from_parts(neg: bool, exp: u16, mant: u64) -> F80 {
         F80 { mant, se: ((neg as u16) << 15) | (exp & 0x7FFF) }
     }
 
     /// From the 10 little-endian bytes of a C `long double`.
+    #[must_use]
     pub const fn from_bytes(b: [u8; 10]) -> F80 {
         let mant = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);
         F80 { mant, se: u16::from_le_bytes([b[8], b[9]]) }
     }
 
     /// The 10 little-endian bytes of a C `long double`.
+    #[must_use]
     pub const fn to_bytes(self) -> [u8; 10] {
         let m = self.mant.to_le_bytes();
         let s = self.se.to_le_bytes();
@@ -113,6 +135,7 @@ impl F80 {
     ///
     /// # Safety
     /// `p` must be readable for 10 bytes.
+    #[must_use]
     pub unsafe fn read(p: *const u8) -> F80 {
         let mut b = [0u8; 10];
         // SAFETY: caller guarantees 10 readable bytes.
@@ -130,26 +153,32 @@ impl F80 {
         unsafe { core::ptr::copy_nonoverlapping(b.as_ptr(), p, 10) };
     }
 
+    #[must_use]
     pub const fn sign(self) -> bool {
         self.se & 0x8000 != 0
     }
 
+    #[must_use]
     pub const fn exp(self) -> u16 {
         self.se & 0x7FFF
     }
 
+    #[must_use]
     pub const fn neg(self) -> F80 {
         F80 { mant: self.mant, se: self.se ^ 0x8000 }
     }
 
+    #[must_use]
     pub const fn abs(self) -> F80 {
         F80 { mant: self.mant, se: self.se & 0x7FFF }
     }
 
+    #[must_use]
     pub const fn with_sign(self, neg: bool) -> F80 {
         F80 { mant: self.mant, se: (self.se & 0x7FFF) | ((neg as u16) << 15) }
     }
 
+    #[must_use]
     pub const fn class(self) -> Class {
         let e = self.exp();
         let int = self.mant & INT_BIT != 0;
@@ -176,19 +205,23 @@ impl F80 {
         }
     }
 
+    #[must_use]
     pub const fn is_nan(self) -> bool {
         matches!(self.class(), Class::QuietNaN | Class::SignalingNaN)
     }
 
+    #[must_use]
     pub const fn is_infinite(self) -> bool {
         matches!(self.class(), Class::Infinity)
     }
 
+    #[must_use]
     pub const fn is_zero(self) -> bool {
         matches!(self.class(), Class::Zero)
     }
 
     /// Finite and supported (zero, denormal or normal).
+    #[must_use]
     pub const fn is_finite(self) -> bool {
         matches!(self.class(), Class::Zero | Class::Denormal | Class::Normal)
     }
@@ -211,6 +244,7 @@ impl F80 {
     }
 
     /// x87 `fucomi`: `None` when unordered (NaN or unsupported operand).
+    #[must_use]
     pub fn compare(self, other: F80) -> Option<Ordering> {
         arith::compare(self, other)
     }
@@ -282,16 +316,19 @@ impl core::ops::Neg for F80 {
 
 impl F80 {
     /// `fsqrt`.
+    #[must_use]
     pub fn sqrt(self) -> F80 {
         arith::sqrt(self)
     }
 
     /// `frndint` with the given rounding control.
+    #[must_use]
     pub fn round_int(self, mode: Round) -> F80 {
         arith::round_int(self, mode)
     }
 
     /// `fscale`: `self * 2^trunc(by)`.
+    #[must_use]
     pub fn scale(self, by: F80) -> F80 {
         arith::scale(self, by)
     }

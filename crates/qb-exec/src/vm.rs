@@ -434,7 +434,30 @@ impl<'m, 'o> Vm<'m, 'o> {
         let arrs = self.arrs.as_mut_ptr() as *mut u64;
         // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<Box<Arr>> is one nullable pointer.
         let tables = [unsafe { arrs.add(self.ab) }, arrs];
-        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables)? };
+        // This frame's GOSUB entries move to the native stack for the native session.
+        let base = js.gosub_len();
+        let (depth, view) = (self.frames.len(), self.view);
+        let n = self.gosub.len();
+        let k = self.gosub.iter().rev().take_while(|g| g.depth == depth && g.view == view).count();
+        if (base + k as u32 + 1) >= crate::jit::GOSUB_CAP {
+            return None;
+        }
+        if self.gosub[..n - k].last().is_some_and(|g| g.depth == depth) {
+            js.gosub_push(crate::jit::GOSUB_VM_BELOW);
+        }
+        for g in &self.gosub[n - k..] {
+            js.gosub_push(g.ret);
+        }
+        self.gosub.truncate(n - k);
+        js.set_gosub_base(base);
+        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables) };
+        let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
+        for r in js.gosub_take(base) {
+            if r != crate::jit::GOSUB_VM_BELOW {
+                self.gosub.push(Gs { ret: r, depth, view });
+            }
+        }
+        let st = st?;
         let frames = js.take_frames(self.m.funcs.len());
         if !frames.is_empty() {
             self.push_native_frames(frames);
@@ -1609,7 +1632,34 @@ extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
     debug_assert_eq!(frame, vm.np());
-    let r = if matches!(vm.m.code[pc as usize], Ins::Call { .. }) { vm.call_from_native(pc) } else { vm.step_one(pc) };
+    let r = if matches!(vm.m.code[pc as usize], Ins::Call { .. }) {
+        // Hand the native GOSUB entries of this frame to the VM around the call.
+        let (depth, view) = (vm.frames.len(), vm.view);
+        let base = ctx.gosub_base;
+        let js = vm.jit.as_deref_mut().expect("native code runs with a JIT state");
+        let mine = js.gosub_take(base);
+        let below = mine.first() == Some(&crate::jit::GOSUB_VM_BELOW);
+        if below {
+            js.gosub_push(crate::jit::GOSUB_VM_BELOW);
+        }
+        let moved: Vec<u32> = mine.into_iter().filter(|r| *r != crate::jit::GOSUB_VM_BELOW).collect();
+        let count = moved.len();
+        vm.gosub.extend(moved.into_iter().map(|ret| Gs { ret, depth, view }));
+        let r = vm.call_from_native(pc);
+        // Back to native: the same entries are on top again after a normal return.
+        let n = vm.gosub.len();
+        let k = vm.gosub.iter().rev().take(count).take_while(|g| g.depth == depth && g.view == view).count();
+        let js = vm.jit.as_deref_mut().expect("JIT state");
+        for g in &vm.gosub[n - k..] {
+            js.gosub_push(g.ret);
+        }
+        vm.gosub.truncate(n - k);
+        // (ctx may have been reused by nested native code: restore this session's base)
+        js.set_gosub_base(base);
+        r
+    } else {
+        vm.step_one(pc)
+    };
     // Nested native code may have reused the context; the register file may have moved.
     ctx.user = vm as *mut Vm<'static, 'static> as *mut core::ffi::c_void;
     ctx.frame = vm.np();
@@ -1695,33 +1745,6 @@ extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
 // Native code reads `Option<Box<Arr>>` table entries as plain pointers.
 const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);
 
-/// Native GOSUB: push the return pc like `Ins::Gosub`.
-extern "C" fn jit_gosub(ctx: *mut qb_jit::Ctx, ret: i64) {
-    let (_, vm) = host_vm(ctx);
-    vm.gosub.push(Gs { ret: ret as u32, depth: vm.frames.len(), view: vm.view });
-}
-
-/// Native RETURN at pc `at`: the pc to continue at. When the VM has to do
-/// more than pop (event handler return, view switch) nothing is popped and
-/// `at` comes back, so native code exits and the VM executes the RETURN.
-extern "C" fn jit_return(ctx: *mut qb_jit::Ctx, at: i64) -> i64 {
-    let (ctx, vm) = host_vm(ctx);
-    match vm.gosub.last().copied() {
-        Some(g) if g.depth == vm.frames.len() => {
-            if g.view != vm.view {
-                at
-            } else {
-                vm.gosub.pop();
-                i64::from(g.ret)
-            }
-        }
-        _ => {
-            ctx.err = 3;
-            0
-        }
-    }
-}
-
 /// The VM entry points native code calls (same addresses for JIT and AOT code
 /// of this executable).
 pub(crate) fn vm_hosts() -> crate::jit::Hosts {
@@ -1732,9 +1755,20 @@ pub(crate) fn vm_hosts() -> crate::jit::Hosts {
         lde2: jit_lde2 as *const () as usize,
         ste2: jit_ste2 as *const () as usize,
         lde1g: jit_lde1g as *const () as usize,
-        gosub: jit_gosub as *const () as usize,
-        greturn: jit_return as *const () as usize,
+        cmps: jit_cmps as *const () as usize,
         ste1g: jit_ste1g as *const () as usize,
         view_off: core::mem::offset_of!(Arr, view) as u32,
+    }
+}
+
+/// Native string compare: `a c b` on the current frame's string operands
+/// (constants allowed), -1 / 0 like `Ins::CmpS`.
+extern "C" fn jit_cmps(ctx: *mut qb_jit::Ctx, c: i64, a: i64, b: i64) -> i64 {
+    let (_, vm) = host_vm(ctx);
+    let t = crate::jit::cmp_of(c).test(vm.sget(a as R), vm.sget(b as R));
+    if t {
+        -1
+    } else {
+        0
     }
 }

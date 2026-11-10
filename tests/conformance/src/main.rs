@@ -249,6 +249,8 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
 
     // Compile from the repository root: qb resolves internal/ relative to itself.
     let mut compile = Command::new(&opts.qb);
+    // Runtime errors print to stderr and fail instead of opening a modal dialog.
+    compile.env("QBNEX_NO_ERROR_DIALOG", "1");
     compile
         .arg(case)
         .args(qb_args)
@@ -274,7 +276,7 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     let capture = opts.work.join(format!("{tag}.fbraw"));
     let _ = fs::remove_file(&capture);
     let mut run = Command::new(&exe);
-    run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture);
+    run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture).env("QBNEX_NO_ERROR_DIALOG", "1");
     // GUI programs run without a window; `<name>.input` is replayed as keyboard/mouse
     // events (QBNEX_INPUT_SCRIPT, see crates/qb-runtime/src/script.rs). The legacy
     // runtime ignores both variables.

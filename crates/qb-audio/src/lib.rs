@@ -12,6 +12,7 @@
 //! - [`device`]: cpal output on its own thread.
 //! - [`ffi`]: the `qb_snd_*` C ABI used by `internal/c/libqb/audio_bridge.cpp`.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod mml;

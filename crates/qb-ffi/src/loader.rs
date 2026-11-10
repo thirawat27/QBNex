@@ -85,6 +85,7 @@ fn parse_spec(spec: &str, source_dir: Option<&Path>, os: Os) -> Spec {
 
 /// Files the legacy compiler probed for `DECLARE DYNAMIC LIBRARY "spec"`, in order.
 /// `source_dir` replaces a leading `./`.
+#[must_use]
 pub fn library_candidates(spec: &str, source_dir: Option<&Path>) -> Vec<PathBuf> {
     candidates_for(spec, source_dir, Os::NATIVE)
 }
@@ -132,6 +133,7 @@ fn candidates_for(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathBuf>
 /// "spec"` (`name.h`, then `name.hpp`; next to the path, then bare, and in
 /// `/usr/include` on Linux/macOS). `Some` means the declaration needs a C
 /// compiler: report [`header_error`].
+#[must_use]
 pub fn find_header(spec: &str, source_dir: Option<&Path>) -> Option<PathBuf> {
     header_candidates(spec, source_dir, Os::NATIVE).into_iter().find(|p| p.is_file())
 }
@@ -154,6 +156,7 @@ fn header_candidates(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathB
 }
 
 /// Compile error for a `DECLARE LIBRARY` that names a C header (deviation D-110).
+#[must_use]
 pub fn header_error(spec: &str, header: &Path) -> String {
     format!(
         "DECLARE LIBRARY \"{spec}\" uses the C header {}, which needs a C compiler; \
@@ -198,6 +201,9 @@ unsafe impl Sync for Library {}
 
 impl Library {
     /// Loads a library file (or a name the OS loader searches for).
+    ///
+    /// # Errors
+    /// The loader's message when the file cannot be loaded.
     pub fn open_path(path: &str) -> Result<Library, String> {
         let h = sys::open(path)?;
         Ok(Library { handle: h, path: path.to_string(), owned: true })
@@ -205,6 +211,9 @@ impl Library {
 
     /// `DECLARE DYNAMIC LIBRARY "spec"`: tries [`library_candidates`] that
     /// exist, then the plain file name through the OS search path.
+    ///
+    /// # Errors
+    /// [`LibraryError`] with every path tried when nothing loads.
     pub fn open_dynamic(spec: &str, source_dir: Option<&Path>) -> Result<Library, LibraryError> {
         let cands = library_candidates(spec, source_dir);
         let mut tried = Vec::new();
@@ -233,11 +242,13 @@ impl Library {
         Err(LibraryError { spec: spec.to_string(), tried, os_error: last })
     }
 
+    #[must_use]
     pub fn path(&self) -> &str {
         &self.path
     }
 
     /// `GetProcAddress` / `dlsym`.
+    #[must_use]
     pub fn symbol(&self, name: &str) -> Option<*const c_void> {
         sys::symbol(self.handle, name)
     }
@@ -254,6 +265,7 @@ impl Drop for Library {
 /// Modules searched by a header-less `DECLARE LIBRARY` without a name, in
 /// order: the program itself, then the C runtime and system libraries the
 /// legacy build linked.
+#[must_use]
 pub fn default_modules() -> &'static [&'static str] {
     if cfg!(windows) {
         &[
@@ -300,6 +312,7 @@ fn defaults() -> &'static Defaults {
 /// [`default_modules`]. On Windows a POSIX name the C runtime only exports
 /// with a leading underscore (`getpid` -> `_getpid`, as MinGW's `oldnames`
 /// mapped it) is found too.
+#[must_use]
 pub fn find_default_symbol(name: &str) -> Option<*const c_void> {
     if let Some(p) = sys::global_symbol(name) {
         return Some(p);
@@ -352,7 +365,7 @@ mod sys {
         let c: Vec<u8> = name.bytes().chain(Some(0)).collect();
         // SAFETY: valid module handle, NUL-terminated name.
         let p = unsafe { GetProcAddress(h, c.as_ptr()) };
-        (!p.is_null()).then_some(p as *const c_void)
+        (!p.is_null()).then_some(p.cast_const())
     }
 
     pub fn close(h: *mut c_void) {
