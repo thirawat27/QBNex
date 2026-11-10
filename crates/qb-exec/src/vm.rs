@@ -272,6 +272,11 @@ pub struct Vm<'m, 'o> {
     erl: u32,
     /// SYSTEM n / exit code of the program once it ended
     exit_code: i32,
+    /// the program ended with END (or by running off main), not SYSTEM
+    ended: bool,
+    /// END's "Press any key to continue": None = no prompt (nobody could press
+    /// a key); Some(wait) = print it, then wait for a key with `wait`
+    end_prompt: Option<fn()>,
     /// the program ended with SYSTEM (a window closes at once; END keeps it open)
     by_system: bool,
     /// source line of the last error (_ERRORLINE)
@@ -409,6 +414,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             err: 0,
             erl: 0,
             exit_code: 0,
+            ended: false,
+            end_prompt: None,
             by_system: false,
             errline: 0,
             last_line: 0,
@@ -446,6 +453,12 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// C++ program does; off by default (the error ends the run).
     pub fn set_continue_unhandled(&mut self, on: bool) {
         self.continue_unhandled = on;
+    }
+
+    /// END's "Press any key to continue" (sub_end of the C++ runtime): `None`
+    /// ends silently, `Some(wait)` prints the prompt and calls `wait` for the key.
+    pub fn set_end_prompt(&mut self, wait: Option<fn()>) {
+        self.end_prompt = wait;
     }
 
     /// Browser runner (qb-web, R13-wasm): the program runs on the screen page
@@ -635,9 +648,19 @@ impl<'m, 'o> Vm<'m, 'o> {
                 },
             }
         };
-        self.rt.flush();
         // frame record of the screen at END/SYSTEM (end() of the C++ runtime)
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
+        // console program: END's "Press any key to continue" (console branch of
+        // sub_end), only when somebody could press the key (see set_end_prompt)
+        if !self.rt.window && r.is_ok() && self.ended {
+            if let Some(wait) = self.end_prompt {
+                let text: &[u8] = if cfg!(windows) { b"\nPress any key to continue" } else { b"\nPress enter to continue" };
+                let _ = self.rt.write(0, text);
+                self.rt.flush();
+                wait();
+            }
+        }
+        self.rt.flush();
         // with a window, END keeps it open until it is closed (end() waits for stop_program)
         #[cfg(not(target_arch = "wasm32"))]
         if self.rt.window && r.is_ok() && !self.by_system {
@@ -1496,6 +1519,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ins::End => {
                     self.exit_code = 0;
+                    self.ended = true;
                     return Ok(u32::MAX);
                 }
                 Ins::System { s } => {

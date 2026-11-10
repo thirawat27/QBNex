@@ -53,6 +53,12 @@ Found by ARTIF/ANT.BAS; also fixed MOSS/MUSIC, misc/replicat, misc/rot13, RPG2/Q
 
 Each with a minimal repro; stdin redirected from a file.
 
+Fixed since on branch `claude/r12b-core-4db168` (test-first, one commit each):
+Q1 `adf15fe` (END prompts only when the runtime's END policy says somebody could press a key, as cpp now does, so
+redirected runs of both backends end without the prompt), Q3 `dceeddd`, Q4 `deb2763` (empty values at the end of stdin;
+the browser runner keeps error 62), Q5 `aafc822` (keyboard / stdin bytes; empty at the end of stdin), Q6 `31c1e4e`
+(emitter: a static array is erased and dimensioned again with its bounds; case `arrays/erase_static`).
+
 **Q1. qb-exec: END does not print "Press any key to continue".** (5 diffs: ANT, MUSIC, QMIDI, replicat, rot13)
 ```basic
 PRINT "x"

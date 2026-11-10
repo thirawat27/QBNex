@@ -57,6 +57,9 @@ pub(crate) struct RtState<'a> {
     pub(crate) rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
     stdin: Reader,
+    /// the stdin line the console INPUT statement being run takes its values
+    /// from (read by its first item; INPUTPROMPT starts a new statement)
+    input_line: Option<Reader>,
     /// conventional memory (VARPTR/SADD/PEEK/POKE)
     pub(crate) cmem: Vec<u8>,
     pub(crate) cmem_next: usize,
@@ -121,6 +124,7 @@ struct Using {
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
         RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
+            input_line: None,
             // 1 MB + 64 KB like libqb cmem (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
             cmem: vec![0; 0x110000],
             cmem_next: 16,
@@ -748,12 +752,43 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             web_type_line(vm, false)?;
             let rt = vm.rt();
             let start = rt.stdin.rpos;
-            let line = read_line(&mut rt.stdin)?;
+            let line = console_line(rt)?;
             echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
+        "INPUT$" => {
+            // INPUT$(n) from the keyboard: keys of the window, or stdin bytes on the
+            // console (none left at its end: what was read, like INPUT's empty line)
+            let n = i(0);
+            if n < 0 {
+                return e(5);
+            }
+            let n = n as usize;
+            if rt.display.started {
+                let mut got = Vec::new();
+                while got.len() < n {
+                    let rt = vm.rt();
+                    let cm = &mut rt.cmem[..];
+                    let k = rt.input.inkey(cm);
+                    if k.is_empty() {
+                        // the window keeps showing; closing it ends the program
+                        idle_frame(rt);
+                        qb_runtime::systime::sleep_ms(10);
+                    }
+                    got.extend_from_slice(&k);
+                }
+                return ok(V::S(got));
+            }
+            fill(&mut std::io::stdin(), &mut rt.stdin);
+            let s = &mut rt.stdin;
+            let end = (s.rpos + n).min(s.rbuf.len());
+            let got = s.rbuf[s.rpos..end].to_vec();
+            s.rpos = end;
+            return ok(V::S(got));
+        }
         "INPUTPROMPT" => {
             if i(1) == 0 {
+                rt.input_line = None;
                 if rt.screen_console() && screen_out(vm) {
                     return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
                 }
@@ -763,14 +798,24 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
             let _ = ch;
-            if !rt.window {
-                fill(&mut std::io::stdin(), &mut rt.stdin);
+            let numeric = name == "INPUTITEM.n";
+            if rt.input_line.is_none() {
+                // first item: the statement reads one line; its values come from
+                // that line only (missing ones are empty / 0, as in the C++ backend)
+                if !rt.window {
+                    fill(&mut std::io::stdin(), &mut rt.stdin);
+                }
+                web_type_line(vm, numeric)?;
+                let rt = vm.rt();
+                let start = rt.stdin.rpos;
+                let line = console_line(rt)?;
+                rt.input_line = Some(Reader { rbuf: line, rpos: 0, eof: true });
+                echo_input(vm, start, true)?;
             }
-            web_type_line(vm, name == "INPUTITEM.n")?;
             let rt = vm.rt();
-            let start = rt.stdin.rpos;
-            let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
-            echo_input(vm, start, false)?;
+            let line = rt.input_line.as_mut().expect("read above");
+            // past the end of the line: an empty value
+            let item = read_item(line, numeric).unwrap_or_default();
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
@@ -1128,6 +1173,17 @@ fn read_line(f: &mut Reader) -> R<Vec<u8>> {
     }
     f.rpos = skip_eol(b, p);
     Ok(line)
+}
+
+/// One line of console input. At the end of stdin the console has no end of
+/// file: the line is empty, as the C++ backend's INPUT never sees an end
+/// either (the browser runner keeps error 62, it has no more keys to wait for).
+fn console_line(rt: &mut RtState<'_>) -> R<Vec<u8>> {
+    let s = &rt.stdin;
+    if !rt.web && (s.rpos >= s.rbuf.len() || s.rbuf[s.rpos] == 26) {
+        return Ok(Vec::new());
+    }
+    read_line(&mut rt.stdin)
 }
 
 /// Consumes one line terminator (CR, LF or CR LF) at `p`.

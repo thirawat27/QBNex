@@ -104,7 +104,7 @@ SUB IrStmtEnd
             DO WHILE i <= n
                 j = IrFindSep(i, "|,|")
                 IrQuiet = -1: p$ = IrPlace$(fixoperationorder$(IrEls$(i, j - 1) + sp + "(" + sp + ")"), t): IrQuiet = 0
-                IF LEFT$(p$, 1) = "A" THEN IrE "erase " + IrPart$(p$, 2) ELSE IrNotSup "ERASE argument"
+                IF LEFT$(p$, 1) = "A" THEN IrErase IrPart$(p$, 2), IrEls$(i, j - 1) ELSE IrNotSup "ERASE argument"
                 i = j + 1
             LOOP
         CASE "CLOSE", "RESET"
@@ -303,6 +303,24 @@ SUB IrWrite
         i = j + 1
     LOOP
     IrE "rt PRINTNL " + ch$
+END SUB
+
+'ERASE of one array. A static array (DIM with constant bounds in the main
+'module) is only cleared, as in QBasic and the C++ backend: it is erased and
+'dimensioned again with the bounds it had. Any other array is freed.
+SUB IrErase (nm$, vn$)
+    DIM saveid AS idstruct, savecur AS LONG, st AS LONG, nd AS LONG, k AS LONG, regs$, lo$, hi$
+    saveid = id: savecur = currentid
+    IF FindArray(vn$) THEN st = id.staticarray: nd = ABS(id.arrayelements)
+    id = saveid: currentid = savecur
+    IF st = 0 OR nd < 1 THEN IrE "erase " + nm$: EXIT SUB
+    FOR k = 1 TO nd
+        lo$ = IrReg$: IrE "lbound " + lo$ + " " + nm$ + " " + IrI32$(k)
+        hi$ = IrReg$: IrE "ubound " + hi$ + " " + nm$ + " " + IrI32$(k)
+        regs$ = regs$ + " " + IrCvt$(lo$, "i32", "i64") + " " + IrCvt$(hi$, "i32", "i64")
+    NEXT
+    IrE "erase " + nm$
+    IrE "dim " + nm$ + " " + str2$(nd) + regs$
 END SUB
 
 'INPUT [#n,] [prompt;|,] vars   /   LINE INPUT [#n,] [prompt;] var
