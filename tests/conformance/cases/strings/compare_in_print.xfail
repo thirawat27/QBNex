@@ -1,1 +1,0 @@
-legacy defect L-04: relational operators inside PRINT are rejected as "Unknown statement 'PRINT'" (QB4.5 prints -1/0)

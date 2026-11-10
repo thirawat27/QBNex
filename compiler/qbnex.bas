@@ -9554,8 +9554,11 @@ IF firstelement$ = "PRINT" OR firstelement$ = "LPRINT" THEN
     redosemi:
     FOR i = elementon TO n - 1
         nextchar$ = getelement$(a$, i + 1)
+        temp1$ = getelement$(a$, i)
+        'no implied ; next to a relational/logical operator: PRINT a$ < "K", PRINT "abc" = "abc" (L-04)
+        IF INSTR(" = < > <> <= >= => =< AND OR XOR EQV IMP MOD NOT ", " " + nextchar$ + " ") THEN GOTO redosemi_next
+        IF INSTR(" = < > <> <= >= => =< AND OR XOR EQV IMP MOD NOT * / \ ^ ", " " + temp1$ + " ") THEN GOTO redosemi_next
         IF nextchar$ <> ";" AND nextchar$ <> "," AND nextchar$ <> "+" AND nextchar$ <> ")" THEN
-            temp1$ = getelement$(a$, i)
             beginpoint = INSTR(beginpoint, temp1$, CHR$(34))
             endpoint = INSTR(beginpoint + 1, temp1$, CHR$(34) + ",")
             IF beginpoint <> 0 AND endpoint <> 0 THEN 'if we have both positions
@@ -9582,6 +9585,7 @@ IF firstelement$ = "PRINT" OR firstelement$ = "LPRINT" THEN
             END IF
         END IF
     END IF
+    redosemi_next:
 NEXT
 END IF
 
