@@ -1350,7 +1350,9 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(tbl[fnt as usize].into()));
             }
             "SCREENPRINT" => {
+                // one PRINT item: makefit (new line first when it does not fit), then print
                 let mut h = VmHost { d, cmem };
+                console::text::makefit(&mut h, a[0].s());
                 console::text::print(&mut h, a[0].s(), false);
             }
             "SCREENNL" => {
