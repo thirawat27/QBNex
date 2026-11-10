@@ -937,9 +937,11 @@ FUNCTION getpid& ()
         FrontendErrorHandled = 0
         LastFrontendErrorKey = ""
 
-        FOR closeall = 1 TO 255: CLOSE closeall: NEXT
+        FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
 
-            OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+            'temp folder lock #26 stays held (no close/relock window)
 
             fh = FREEFILE: OPEN tmpdir$ + "dyninfo.txt" FOR OUTPUT AS #fh: CLOSE #fh
 
@@ -1372,8 +1374,10 @@ FUNCTION getpid& ()
 
 
                 'begin compilation
-                FOR closeall = 1 TO 255: CLOSE closeall: NEXT
-                    OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+                FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
+                    'temp folder lock #26 stays held (no close/relock window)
 
                     ff = FREEFILE: OPEN tmpdir$ + "icon.rc" FOR OUTPUT AS #ff: CLOSE #ff
 
@@ -11045,8 +11049,10 @@ IF recompile THEN
     do_recompile:
     IF Debug THEN PRINT #9, "Recompile required!"
     recompile = 0
-    FOR closeall = 1 TO 255: CLOSE closeall: NEXT
-        OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+    FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
+        'temp folder lock #26 stays held (no close/relock window)
         GOTO recompile
     END IF
 
@@ -11572,8 +11578,10 @@ IF recompile THEN
     IF Debug THEN PRINT #9, "Finished generation of code for saving/sharing common array data!"
 
 
-    FOR closeall = 1 TO 255: CLOSE closeall: NEXT
-        OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26 'relock
+    FOR closeall = 1 TO 255
+        IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
+    NEXT
+        'temp folder lock #26 stays held (no close/relock window)
         InitializeCompilationLog
 
         ReportUnusedVariableWarnings
