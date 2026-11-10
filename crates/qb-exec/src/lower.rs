@@ -793,6 +793,45 @@ impl Lw {
         })
     }
 
+    /// `v = v + (a op b)` as two instructions (inner op into a temporary, add
+    /// into `v`) becomes one `acc`.
+    fn fuse_acc(&mut self, v: R) {
+        let n = self.pc();
+        if n < self.barrier + 2 {
+            return;
+        }
+        let (last, prev) = (self.m.code[n as usize - 1], self.m.code[n as usize - 2]);
+        let (wo, a, b) = match last {
+            Ins::AddI16 { d, a, b } if d == v => (W::W16, a, b),
+            Ins::AddI32 { d, a, b } if d == v => (W::W32, a, b),
+            Ins::AddI64 { d, a, b } if d == v => (W::W64, a, b),
+            _ => return,
+        };
+        let t = if a == v && b != v {
+            b
+        } else if b == v && a != v {
+            a
+        } else {
+            return;
+        };
+        if t < self.fx().tbase_n {
+            return; // not a temporary
+        }
+        let (op, x, y, wi) = match prev {
+            Ins::MulI16 { d, a, b } if d == t => (AccOp::Mul, a, b, W::W16),
+            Ins::MulI32 { d, a, b } if d == t => (AccOp::Mul, a, b, W::W32),
+            Ins::MulI64 { d, a, b } if d == t => (AccOp::Mul, a, b, W::W64),
+            Ins::IDiv { d, a, b, w } if d == t => (AccOp::IDiv, a, b, w),
+            Ins::Mod { d, a, b, w } if d == t => (AccOp::Mod, a, b, w),
+            Ins::And { d, a, b } if d == t => (AccOp::And, a, b, W::W64),
+            Ins::Or { d, a, b } if d == t => (AccOp::Or, a, b, W::W64),
+            Ins::Xor { d, a, b } if d == t => (AccOp::Xor, a, b, W::W64),
+            _ => return,
+        };
+        self.m.code.truncate(n as usize - 2);
+        self.emit(Ins::Acc { op, d: v, a: x, b: y, wi, wo });
+    }
+
     /// Stores a string entry into string register `d`.
     fn store_str(&mut self, e: E, d: R) {
         match e {
@@ -963,6 +1002,7 @@ impl Lw {
                     Var::N { r, ty } | Var::U { n: r, ty: Some(ty @ (Ty::I16 | Ty::I32 | Ty::I64 | Ty::F32 | Ty::F64)), .. } => {
                         self.protect(false, Some(r));
                         self.store_conv(e, ty, Some(r))?;
+                        self.fuse_acc(r);
                     }
                     Var::S { r } | Var::U { s: r, ty: Some(Ty::Str), .. } => {
                         self.protect(true, Some(r));

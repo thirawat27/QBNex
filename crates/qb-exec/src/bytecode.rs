@@ -167,6 +167,17 @@ pub enum Un {
     Atn,
 }
 
+/// Inner operation of the accumulate superinstruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccOp {
+    Mul,
+    IDiv,
+    Mod,
+    And,
+    Or,
+    Xor,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DimMode {
     Dim,
@@ -222,6 +233,9 @@ pub enum Ins {
     Xor { d: R, a: R, b: R },
     Eqv { d: R, a: R, b: R },
     Imp { d: R, a: R, b: R },
+    /// `d = wo(d + wi(a op b))` — superinstruction for `s = s + a op b`
+    /// (reads `d`; never retargeted)
+    Acc { op: AccOp, d: R, a: R, b: R, wi: W, wo: W },
     // ---- float arithmetic
     AddF { d: R, a: R, b: R },
     SubF { d: R, a: R, b: R },
@@ -481,7 +495,8 @@ impl Ins {
             | DivF { d, a, b }
             | PowF { d, a, b }
             | CmpI { d, a, b, .. }
-            | CmpF { d, a, b, .. } => {
+            | CmpF { d, a, b, .. }
+            | Acc { d, a, b, .. } => {
                 f(O::N(d));
                 f(O::N(a));
                 f(O::N(b))
@@ -680,6 +695,7 @@ impl Ins {
             Xor { .. } => "xor".into(),
             Eqv { .. } => "eqv".into(),
             Imp { .. } => "imp".into(),
+            Acc { op, wi, wo, .. } => format!("acc.{} {}.{}", wo.name(), format!("{op:?}").to_lowercase(), wi.name()),
             AddF { .. } => "add.f".into(),
             SubF { .. } => "sub.f".into(),
             MulF { .. } => "mul.f".into(),

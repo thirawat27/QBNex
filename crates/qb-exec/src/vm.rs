@@ -1013,6 +1013,26 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::Xor { d, a, b } => seti!(d, ri!(a) ^ ri!(b)),
                 Ins::Eqv { d, a, b } => seti!(d, !(ri!(a) ^ ri!(b))),
                 Ins::Imp { d, a, b } => seti!(d, !ri!(a) | ri!(b)),
+                Ins::Acc { op, d, a, b: y, wi, wo } => {
+                    let (x, z) = (ri!(a), ri!(y));
+                    let v = match op {
+                        AccOp::Mul => x.wrapping_mul(z),
+                        AccOp::IDiv | AccOp::Mod => {
+                            if z == 0 {
+                                fail!(11);
+                            }
+                            if op == AccOp::Mod {
+                                irem(x, z, wi)
+                            } else {
+                                idiv(x, z, wi)
+                            }
+                        }
+                        AccOp::And => x & z,
+                        AccOp::Or => x | z,
+                        AccOp::Xor => x ^ z,
+                    };
+                    seti!(d, wo.wrap(ri!(d).wrapping_add(wi.wrap(v))))
+                }
                 Ins::AddF { d, a, b } => setf!(d, rf!(a) + rf!(b)),
                 Ins::SubF { d, a, b } => setf!(d, rf!(a) - rf!(b)),
                 Ins::MulF { d, a, b } => setf!(d, rf!(a) * rf!(b)),

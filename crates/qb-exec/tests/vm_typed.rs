@@ -29,9 +29,10 @@ fn for_loop_becomes_one_superinstruction_per_iteration() {
     let d = m.disasm();
     assert!(d.contains("for_test.i"), "{d}");
     assert!(d.contains("for_next.i32"), "{d}");
-    // loop body: MOD + fused ADD into S& + FOR_NEXT, no MOVs, no JMP back
-    let body: Vec<&str> = d.lines().filter(|l| l.contains("mod.i32") || l.contains("mov") || l.contains("jmp")).collect();
-    assert_eq!(body.len(), 1, "{d}");
+    // loop body: `s& = s& + i& MOD 7` is one acc instruction + FOR_NEXT, no MOVs, no JMP back
+    assert!(d.contains("acc.i32 mod"), "{d}");
+    let extra: Vec<&str> = d.lines().filter(|l| !l.contains("acc.")).filter(|l| l.contains("mod.i32") || l.contains("add.i32") || l.contains("mov") || l.contains("jmp")).collect();
+    assert!(extra.is_empty(), "{d}");
     assert_eq!(run(&mod_loop(10)), " 27 \n");
 }
 
@@ -145,4 +146,48 @@ fn shared_array_inside_sub() {
     let p = "QIR 0\nSHARED A%()\nPUSH I 0\nPUSH I 3\nDIMA A%() 1\nCALL FILL 0\nPUSH I 3\nLOADE A%() 1\nPRINT\nPRINTNL\nEND\n\
              SUB FILL 0\nPUSH I 3\nPUSH I 42\nSTOREE A%() 1\nENDSUB\n";
     assert_eq!(run(p), " 42 \n");
+}
+
+#[test]
+fn accumulate_wraps_the_inner_product_to_its_own_type() {
+    // A% = 300: B% = 300: S& = 5: S& = S& + A% * B%  (INTEGER product wraps to 24464 like C++)
+    let p = "QIR 0
+PUSH I 300
+STORE A%
+PUSH I 300
+STORE B%
+PUSH I 5
+STORE S&
+LINE 2
+LOAD S&
+LOAD A%
+LOAD B%
+OP MUL
+OP ADD
+STORE S&
+LOAD S&
+PRINT
+PRINTNL
+END
+";
+    assert!(compile(p).unwrap().disasm().contains("acc.i32 mul.i16"));
+    assert_eq!(run(p), " 24469 
+");
+}
+
+#[test]
+fn accumulate_reports_division_by_zero() {
+    let p = "QIR 0
+LINE 4
+LOAD S&
+LOAD A&
+LOAD B&
+OP MOD
+OP ADD
+STORE S&
+END
+";
+    let mut out = Vec::new();
+    let e = run_ir(p, &mut out).unwrap_err();
+    assert_eq!((e.code, e.line), (11, 4));
 }
