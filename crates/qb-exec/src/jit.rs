@@ -883,7 +883,14 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 let next = pc + 1;
                 // Target block or an exit when the target is outside the function.
                 let blk = |t: u32| bidx(t);
+                // Event safe points exactly where the VM polls (loop, loop_for, CALL).
                 let branch = |_: &mut Lower, cond: u32, then_pc: u32, else_pc: u32| -> Term {
+                    match (blk(then_pc), blk(else_pc)) {
+                        (Some(t), Some(e)) => Term::BrNoPoll { cond, then: t, els: e },
+                        _ => Term::Exit { pc },
+                    }
+                };
+                let loop_branch = |_: &mut Lower, cond: u32, then_pc: u32, else_pc: u32| -> Term {
                     match (blk(then_pc), blk(else_pc)) {
                         (Some(t), Some(e)) => Term::Br { cond, then: t, els: e },
                         _ => Term::Exit { pc },
@@ -899,7 +906,11 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                     Some(Term::Exit { pc })
                 } else {
                     match *ins {
-                        Jmp { t } | Loop { t } => Some(match blk(t) {
+                        Jmp { t } => Some(match blk(t) {
+                            Some(b) => Term::Goto(b),
+                            None => Term::Exit { pc: t },
+                        }),
+                        Loop { t } => Some(match blk(t) {
                             Some(b) => Term::Jmp(b),
                             None => Term::Exit { pc: t },
                         }),
@@ -923,31 +934,17 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                             lw.ibin(BinOp::Add, c, iv, lim + 1, W::W64);
                             lw.inst(pc, &Wrap { d: iv, s: c, w });
                             let ex = lw.for_exit(c, lim, lim + 1, Class::Int);
-                            Some(branch(&mut lw, ex, next, body))
+                            Some(loop_branch(&mut lw, ex, next, body))
                         }
-                        Gosub { t } => {
-                            let r = lw.konst_i(i64::from(next));
-                            lw.insts.push(Inst::Host { f: H_GOSUB, args: vec![r], dst: None });
-                            Some(match blk(t) {
-                                Some(b) => Term::Jmp(b),
-                                None => Term::Exit { pc: t },
-                            })
-                        }
+                        // GOSUB stack in the native context: the VM moves this frame's
+                        // entries in at entry and back at every exit (see vm.rs).
+                        Gosub { t } => Some(match (blk(t), blk(next)) {
+                            (Some(b), Some(r)) => Term::Gosub { target: b, ret: r, ret_pc: next },
+                            _ => Term::Exit { pc },
+                        }),
                         Return => {
                             lw.insts.push(Inst::At { pc });
-                            let at = lw.konst_i(i64::from(pc));
-                            let r = lw.tmp(Class::Int);
-                            lw.insts.push(Inst::Host { f: H_RETURN, args: vec![at], dst: Some(r) });
-                            let cases = code
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, x)| matches!(x, Gosub { .. }))
-                                .filter_map(|(k, _)| {
-                                    let rp = lo + k as u32 + 1;
-                                    blk(rp).map(|b| (rp, b))
-                                })
-                                .collect();
-                            Some(Term::Dispatch { val: r, cases })
+                            Some(Term::Return { pc })
                         }
                         _ => {
                             lw.inst(pc, ins);
@@ -961,7 +958,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 }
             }
             let term = term.unwrap_or_else(|| match bidx(end) {
-                Some(b) => Term::Jmp(b),
+                Some(b) => Term::Goto(b),
                 None => Term::Exit { pc: end },
             });
             blocks.push(Block { pc: Some(start), insts: std::mem::take(&mut lw.insts), term });
@@ -998,6 +995,11 @@ use core::sync::atomic::AtomicU32;
 
 pub(crate) type VmOpFn = extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
 
+/// Native GOSUB stack capacity (deeper GOSUB nesting stays in the VM).
+pub(crate) const GOSUB_CAP: u32 = 1 << 14;
+/// Bottom marker: the VM still has GOSUB entries of this frame it must return through itself.
+pub(crate) const GOSUB_VM_BELOW: u32 = u32::MAX - 1;
+
 /// VM entry points native code calls.
 pub(crate) struct Hosts {
     pub vm_op: VmOpFn,
@@ -1006,8 +1008,6 @@ pub(crate) struct Hosts {
     pub lde2: usize,
     pub ste2: usize,
     pub lde1g: usize,
-    pub gosub: usize,
-    pub greturn: usize,
     pub ste1g: usize,
     /// offset of the `ArrView` inside the VM's array object
     pub view_off: u32,
@@ -1019,8 +1019,6 @@ const H_LDE2: u32 = 2;
 const H_STE2: u32 = 3;
 const H_LDE1G: u32 = 4;
 const H_STE1G: u32 = 5;
-const H_GOSUB: u32 = 6;
-const H_RETURN: u32 = 7;
 
 fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
     let f = |name: &str, n: usize, ret: bool, addr: usize| mir::HostFn {
@@ -1034,12 +1032,7 @@ fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
         f("ste2", 4, false, h.ste2),
         f("lde1g", 2, true, h.lde1g),
         f("ste1g", 3, false, h.ste1g),
-        mir::HostFn {
-            sig: mir::HostSig { name: "gosub".into(), params: vec![Ty::I64], ret: None, may_error: false },
-            addr: h.gosub,
-        },
-        f("return", 1, true, h.greturn),
-    ]
+            ]
 }
 
 /// JIT state owned by a VM.
@@ -1064,7 +1057,7 @@ impl JitState {
         Some(Box::new(JitState {
             tier: Tiering::new(mode, threshold),
             mir: None,
-            ctx: Ctx::with_capacity(core::ptr::null_mut(), 1, 1 << 18),
+            ctx: Ctx::with_capacity(core::ptr::null_mut(), GOSUB_CAP as usize, 1 << 18),
             func_at: {
                 let mut v = vec![0u32; m.code.len()];
                 for (i, f) in m.funcs.iter().enumerate() {
@@ -1166,6 +1159,33 @@ impl JitState {
             status::END => Ok((u32::MAX, false)),
             other => unreachable!("native status {other} from VM-lowered code"),
         })
+    }
+
+    /// GOSUB return pcs on the native stack.
+    pub(crate) fn gosub_len(&self) -> u32 {
+        self.ctx.gosub_len
+    }
+
+    pub(crate) fn gosub_push(&mut self, ret: u32) -> bool {
+        let c = &mut *self.ctx;
+        if c.gosub_len >= c.gosub_cap {
+            return false;
+        }
+        // SAFETY: below capacity.
+        unsafe { *c.gosub.add(c.gosub_len as usize) = ret };
+        c.gosub_len += 1;
+        true
+    }
+
+    /// Removes and returns the entries above `base`, bottom first.
+    pub(crate) fn gosub_take(&mut self, base: u32) -> Vec<u32> {
+        let v = self.ctx.gosub_stack()[base as usize..].to_vec();
+        self.ctx.gosub_len = base;
+        v
+    }
+
+    pub(crate) fn set_gosub_base(&mut self, base: u32) {
+        self.ctx.gosub_base = base;
     }
 
     /// Native call frames left behind by the last exit, outermost first:

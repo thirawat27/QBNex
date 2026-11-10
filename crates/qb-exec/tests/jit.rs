@@ -146,3 +146,13 @@ fn end_and_gosub_inside_native_callee() {
 fn byref_shared_variable_through_two_native_levels() {
     same("byref_shared_two_levels");
 }
+
+#[test]
+fn return_from_native_code_to_a_gosub_the_vm_made() {
+    assert_eq!(same("gosub_into_native_loop").out, " 500500  1 \n");
+}
+
+#[test]
+fn gosub_entries_survive_a_vm_call_from_native_code() {
+    same("gosub_calls_vm_sub");
+}
