@@ -17,5 +17,7 @@ pollster = "1"
 bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.34", features = ["bytemuck"] }
 winit = "0.30"
+# R15 G4: _LOADMODEL (glTF 2.0 .gltf/.glb, embedded PNG/JPEG textures)
+gltf = "1"
 [dev-dependencies]
 glam = "0.34"
