@@ -736,7 +736,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             web_type_line(vm, false)?;
             let rt = vm.rt();
             let start = rt.stdin.rpos;
-            let line = read_line(&mut rt.stdin)?;
+            let line = console_line(rt)?;
             echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
@@ -760,7 +760,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 web_type_line(vm, numeric)?;
                 let rt = vm.rt();
                 let start = rt.stdin.rpos;
-                let line = read_line(&mut rt.stdin)?;
+                let line = console_line(rt)?;
                 rt.input_line = Some(Reader { rbuf: line, rpos: 0, eof: true });
                 echo_input(vm, start, true)?;
             }
@@ -1079,6 +1079,17 @@ fn read_line(f: &mut Reader) -> R<Vec<u8>> {
     }
     f.rpos = skip_eol(b, p);
     Ok(line)
+}
+
+/// One line of console input. At the end of stdin the console has no end of
+/// file: the line is empty, as the C++ backend's INPUT never sees an end
+/// either (the browser runner keeps error 62, it has no more keys to wait for).
+fn console_line(rt: &mut RtState<'_>) -> R<Vec<u8>> {
+    let s = &rt.stdin;
+    if !rt.web && (s.rpos >= s.rbuf.len() || s.rbuf[s.rpos] == 26) {
+        return Ok(Vec::new());
+    }
+    read_line(&mut rt.stdin)
 }
 
 /// Consumes one line terminator (CR, LF or CR LF) at `p`.

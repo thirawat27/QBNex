@@ -2,6 +2,8 @@
 //! redirected, compared with the C++ backend:
 //! - INPUT a$, b, c reads one line; values missing from it are empty / 0, the
 //!   next INPUT reads the next line (Q3 of docs/rust-port/corpus-run.md)
+//! - at the end of stdin INPUT and LINE INPUT give empty values instead of
+//!   error 62 "Input past end of file" (Q4)
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -84,4 +86,15 @@ fn input_with_several_variables_reads_one_line() {
 #[test]
 fn input_with_several_variables_splits_the_line_at_commas() {
     assert_eq!(run("q3b", INPUT3, b"ab, 2, 3\nz\n"), "? ? [ab]\n 2\n 3\n[z]\n<exit 0>");
+}
+
+#[test]
+fn input_at_end_of_stdin_gives_empty_values() {
+    assert_eq!(run("q4", INPUT3, b""), "? ? []\n 0\n 0\n[]\n<exit 0>");
+}
+
+#[test]
+fn line_input_at_end_of_stdin_gives_an_empty_line() {
+    let qir = "QIR 1\nmeta console only\nfunc main\nline 1\nconst.i32 %0 0\nconst.str %1 x\nrt INPUTPROMPT %1 %0\nrt %2 LINEINPUT %0\nconst.str %3 x5B\nconst.str %4 x5D\nrt PRINTS %0 %3\nrt PRINTS %0 %2\nrt PRINTS %0 %4\nrt PRINTNL %0\nsystem\nendfunc\n";
+    assert_eq!(run("q4l", qir, b""), "[]\n<exit 0>");
 }
