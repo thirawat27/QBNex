@@ -1630,6 +1630,7 @@ SUB IrRead (e$)
     d$ = IrReg$
     IrE "read." + rt$ + " " + d$
     IrStore p$, d$
+    IF rt$ <> "str" THEN IrE "rt READCHK"
 END SUB
 
 'DIM/REDIM statement for id idn; elements$ raw bounds ("" = not an array)

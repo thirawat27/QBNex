@@ -15,7 +15,7 @@ mod files;
 mod memx;
 mod netx;
 
-pub(crate) use builtins::{call, numeric_text, str_store_hook, val, Host, RtState};
+pub(crate) use builtins::{call, str_store_hook, Host, RtState};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum V {

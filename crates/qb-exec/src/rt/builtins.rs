@@ -76,6 +76,8 @@ pub(crate) struct RtState<'a> {
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
     pub(crate) net_pending_error: i32,
+    /// error of the last numeric READ, raised by READCHK after the store
+    pub(crate) read_err: i32,
     /// screen pages and images (SCREEN, graphics, `_NEWIMAGE`, ...)
     pub(crate) display: super::display::Display,
     /// `$CONSOLE` / `$CONSOLE:ONLY`
@@ -107,6 +109,7 @@ impl<'a> RtState<'a> {
             net: super::netx::Net::default(),
             net_pending_error: 0,
             snd_started: false,
+            read_err: 0,
             display: super::display::Display::default(),
             console_on: false,
             console_only: false,
@@ -142,7 +145,9 @@ impl<'a> RtState<'a> {
 fn screen_out(vm: &mut dyn Host<'_>) -> bool {
     let rt = vm.rt();
     if !rt.display.started {
-        if rt.console_only {
+        // PRINT alone starts the screen only in a `$CONSOLE` program (its window page);
+        // without the meta (hand-written QIR, no window here) it stays on stdout
+        if rt.console_only || !rt.console_on {
             return false;
         }
         let cmem = rt.cmem.as_mut_ptr();
@@ -150,16 +155,6 @@ fn screen_out(vm: &mut dyn Host<'_>) -> bool {
         rt.display.start(cmem, on, only);
     }
     rt.display.write_is_screen()
-}
-
-pub(crate) fn numeric_text(s: &[u8]) -> bool {
-    let t = std::str::from_utf8(s).unwrap_or("").trim();
-    if let Some(h) = t.strip_prefix('&') {
-        return h.len() > 1;
-    }
-    let t = t.trim_end_matches(['#', '!', '%', '&', '~']);
-    let t = t.replace(['D', 'd'], "E");
-    !t.is_empty() && t.parse::<f64>().is_ok()
 }
 
 pub(crate) fn val(s: &[u8]) -> f64 {
@@ -322,6 +317,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     }
     if (name == "POS" || name == "CSRLIN") && screen_out(vm) {
         return super::display::call(vm, if name == "POS" { "func_pos" } else { "func_csrlin" }, &[]).unwrap();
+    }
+    if name == "READCHK" {
+        let c = std::mem::take(&mut vm.rt().read_err);
+        return if c != 0 { e(c) } else { Ok(None) };
     }
     if name == "func__errormessage" {
         // _ERRORMESSAGE$[(code)]: without the argument, the current error
