@@ -64,8 +64,6 @@ DIM SHARED JsonErrMsg$
 DIM SHARED JsonErrPos&
 DIM SHARED JsonDepth%
 
-JsonPoolCapacity% = JSON_POOL_INITIAL
-JsonIndentSize% = 2
 
 SUB Json_Init
     JsonValuePoolSize% = 0
@@ -81,7 +79,7 @@ END SUB
 
 FUNCTION JsonAllocValue% ()
     DIM n%
-    IF JsonPoolCapacity% = 0 THEN JsonPoolCapacity% = JSON_POOL_INITIAL
+    IF JsonPoolCapacity% = 0 THEN JsonPoolCapacity% = UBOUND(JsonValueType%)
     IF JsonValuePoolSize% >= JsonPoolCapacity% THEN
         IF JsonPoolCapacity% >= JSON_POOL_MAX THEN
             JsonAllocValue% = 0
@@ -236,18 +234,18 @@ SUB JsonArrayPush (arrayIndex AS INTEGER, valueIndex AS INTEGER)
     JsonLinkChild arrayIndex, c%
 END SUB
 
-SUB JsonObjectSet (objectIndex AS INTEGER, key AS STRING, valueIndex AS INTEGER)
+SUB JsonObjectSet (objectIndex AS INTEGER, memberName AS STRING, valueIndex AS INTEGER)
     DIM c%, p%, old%
     IF NOT JsonValid%(objectIndex) THEN EXIT SUB
     IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT SUB
     c% = JsonAdoptable%(objectIndex, valueIndex)
     IF c% = 0 THEN EXIT SUB
-    JsonKey$(c%) = key
+    JsonKey$(c%) = memberName
     ' replace an existing member in place
     p% = 0
     old% = JsonFirstChild%(objectIndex)
     DO WHILE old% > 0
-        IF JsonKey$(old%) = key THEN
+        IF JsonKey$(old%) = memberName THEN
             JsonParent%(c%) = objectIndex
             JsonNextSibling%(c%) = JsonNextSibling%(old%)
             IF p% > 0 THEN JsonNextSibling%(p%) = c% ELSE JsonFirstChild%(objectIndex) = c%
@@ -262,13 +260,13 @@ SUB JsonObjectSet (objectIndex AS INTEGER, key AS STRING, valueIndex AS INTEGER)
     JsonLinkChild objectIndex, c%
 END SUB
 
-SUB JsonObjectRemove (objectIndex AS INTEGER, key AS STRING)
+SUB JsonObjectRemove (objectIndex AS INTEGER, memberName AS STRING)
     DIM p%, c%
     IF NOT JsonValid%(objectIndex) THEN EXIT SUB
     IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT SUB
     c% = JsonFirstChild%(objectIndex)
     DO WHILE c% > 0
-        IF JsonKey$(c%) = key THEN
+        IF JsonKey$(c%) = memberName THEN
             IF p% > 0 THEN JsonNextSibling%(p%) = JsonNextSibling%(c%) ELSE JsonFirstChild%(objectIndex) = JsonNextSibling%(c%)
             IF JsonLastChild%(objectIndex) = c% THEN JsonLastChild%(objectIndex) = p%
             JsonChildCount%(objectIndex) = JsonChildCount%(objectIndex) - 1
@@ -323,13 +321,13 @@ FUNCTION JsonArrayGet% (arrayIndex AS INTEGER, index AS INTEGER)
     JsonArrayGet% = c%
 END FUNCTION
 
-FUNCTION JsonObjectGet% (objectIndex AS INTEGER, key AS STRING)
+FUNCTION JsonObjectGet% (objectIndex AS INTEGER, memberName AS STRING)
     DIM c%
     IF NOT JsonValid%(objectIndex) THEN EXIT FUNCTION
     IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT FUNCTION
     c% = JsonFirstChild%(objectIndex)
     DO WHILE c% > 0
-        IF JsonKey$(c%) = key THEN
+        IF JsonKey$(c%) = memberName THEN
             JsonObjectGet% = c%
             EXIT FUNCTION
         END IF
@@ -337,8 +335,8 @@ FUNCTION JsonObjectGet% (objectIndex AS INTEGER, key AS STRING)
     LOOP
 END FUNCTION
 
-FUNCTION JsonObjectHas% (objectIndex AS INTEGER, key AS STRING)
-    JsonObjectHas% = (JsonObjectGet%(objectIndex, key) > 0)
+FUNCTION JsonObjectHas% (objectIndex AS INTEGER, memberName AS STRING)
+    JsonObjectHas% = (JsonObjectGet%(objectIndex, memberName) > 0)
 END FUNCTION
 
 ' Name of the 0-based member of an object.
@@ -455,6 +453,7 @@ FUNCTION JsonNewLine$ ()
 END FUNCTION
 
 FUNCTION JsonIndent$ (level AS INTEGER)
+    IF JsonIndentSize% = 0 THEN JsonIndentSize% = 2
     JsonIndent$ = SPACE$(level * JsonIndentSize%)
 END FUNCTION
 
