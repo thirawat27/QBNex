@@ -14,6 +14,7 @@ use qb_ir::{self as ir, BinOp, CmpOp, DimKind, Inst, Lit, ResumeKind, StoreTy, T
 use std::collections::HashMap;
 use std::io::Write;
 
+mod files;
 mod rt;
 
 #[derive(Debug, Clone, PartialEq)]

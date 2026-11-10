@@ -3,19 +3,7 @@
 use super::{cvt, e, Stop, Vm, R, V};
 use qb_ir::Ty;
 use qb_runtime::numfmt;
-use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom, Write};
-
-pub(crate) struct File {
-    f: std::fs::File,
-    mode: i32,
-    reclen: i64,
-    col: usize,
-    /// read buffer for INPUT/LINE INPUT
-    rd: Reader,
-    /// a binary/random read hit the end of the file (EOF)
-    hit_eof: bool,
-}
+use std::io::{Read, Write};
 
 /// Sequential text input (INPUT #, LINE INPUT #, stdin).
 #[derive(Default)]
@@ -28,7 +16,6 @@ pub(crate) struct Reader {
 pub(crate) struct RtState<'a> {
     out: &'a mut dyn Write,
     col: usize,
-    files: HashMap<i32, File>,
     rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
     stdin: Reader,
@@ -43,55 +30,31 @@ struct Using {
 
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
-        RtState { out, col: 1, files: HashMap::new(), rnd: Default::default(), using: None, stdin: Reader::default() }
+        RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default() }
     }
     pub(crate) fn flush(&mut self) {
         let _ = self.out.flush();
-        for f in self.files.values_mut() {
-            let _ = f.f.flush();
-        }
     }
-    fn col(&mut self, ch: i32) -> R<usize> {
-        if ch == 0 {
-            return Ok(self.col);
-        }
-        Ok(self.file(ch)?.col)
-    }
-    fn file(&mut self, ch: i32) -> R<&mut File> {
-        match self.files.get_mut(&ch) {
-            Some(f) => Ok(f),
-            None => e(52),
-        }
-    }
+    /// Console output, or file output through qb-runtime (SCRN: falls back to the console).
     pub(crate) fn write(&mut self, ch: i32, b: &[u8]) -> R<()> {
-        let col = if ch == 0 {
-            let _ = self.out.write_all(b);
-            &mut self.col
-        } else {
-            let f = self.file(ch)?;
-            if f.mode == 1 {
-                return e(54);
-            }
-            if f.f.write_all(b).is_err() {
-                return e(57);
-            }
-            &mut f.col
-        };
+        if ch != 0 && super::files::print(ch, b, false, false)? {
+            return Ok(());
+        }
+        let _ = self.out.write_all(b);
         for c in b {
             if *c == b'\n' {
-                *col = 1;
+                self.col = 1;
             } else {
-                *col += 1;
+                self.col += 1;
             }
         }
         Ok(())
     }
     fn nl(&mut self, ch: i32) -> R<()> {
-        if ch == 0 {
-            self.write(0, b"\n")
-        } else {
-            self.write(ch, b"\r\n")
+        if ch != 0 && super::files::print(ch, b"", false, true)? {
+            return Ok(());
         }
+        self.write(0, b"\n")
     }
 }
 
@@ -227,6 +190,9 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::files::call(vm, name, &a) {
+        return r;
+    }
     let rt = &mut vm.rt;
     match name {
         "PRINTS" => rt.write(i(0) as i32, s(1))?,
@@ -237,7 +203,10 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         }
         "PRINTZONE" => {
             let ch = i(0) as i32;
-            let col = rt.col(ch)?;
+            if ch != 0 && super::files::print(ch, b"", true, false)? {
+                return Ok(None);
+            }
+            let col = rt.col;
             let next = ((col - 1) / 14 + 1) * 14 + 1;
             rt.write(ch, &vec![b' '; next - col])?
         }
@@ -245,7 +214,7 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         "PRINTTAB" => {
             let ch = i(0) as i32;
             let n = i(1).max(1) as usize;
-            let col = rt.col(ch)?;
+            let col = if ch == 0 { rt.col } else { 1 };
             if col > n {
                 rt.nl(ch)?;
                 rt.write(ch, &vec![b' '; n - 1])?
@@ -426,91 +395,11 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         }
         "ERR" => return ok(V::I(vm.err.into())),
         "ERL" | "_ERRORLINE" => return ok(V::I(vm.erl.into())),
-        "OPEN" => {
-            let ch = i(2) as i32;
-            if ch < 1 || ch > 32767 {
-                return e(52);
-            }
-            if rt.files.contains_key(&ch) {
-                return e(55);
-            }
-            let path = String::from_utf8_lossy(s(0)).into_owned();
-            let mode = i(1) as i32;
-            let mut o = std::fs::OpenOptions::new();
-            match mode {
-                1 => o.read(true),
-                2 => o.write(true).create(true).truncate(true),
-                3 => o.append(true).create(true),
-                _ => o.read(true).write(true).create(true),
-            };
-            let file = match o.open(&path) {
-                Ok(f) => f,
-                Err(_) => return e(if mode == 1 { 53 } else { 75 }),
-            };
-            let reclen = if i(3) > 0 { i(3) } else { 128 };
-            rt.files.insert(ch, File { f: file, mode, reclen, col: 1, rd: Reader::default(), hit_eof: false });
-        }
-        "CLOSE" => {
-            if let Some(mut f) = rt.files.remove(&(i(0) as i32)) {
-                let _ = f.f.flush();
-            }
-        }
-        "CLOSEALL" => rt.files.clear(),
-        "FREEFILE" => {
-            let n = (1..).find(|n| !rt.files.contains_key(n)).unwrap_or(1);
-            return ok(V::I(n.into()));
-        }
-        "EOF" => {
-            let f = rt.file(i(0) as i32)?;
-            if f.mode == 1 {
-                fill(&mut f.f, &mut f.rd);
-                let at_end = f.rd.rpos >= f.rd.rbuf.len() || f.rd.rbuf[f.rd.rpos] == 26;
-                return ok(V::I(if at_end { -1 } else { 0 }));
-            }
-            if f.mode == 4 || f.mode == 5 {
-                return ok(V::I(if f.hit_eof { -1 } else { 0 }));
-            }
-            let len = f.f.metadata().map(|m| m.len()).unwrap_or(0);
-            let p = f.f.stream_position().unwrap_or(0);
-            return ok(V::I(if p >= len { -1 } else { 0 }));
-        }
-        "LOF" => {
-            let f = rt.file(i(0) as i32)?;
-            return ok(V::I(f.f.metadata().map(|m| m.len() as i64).unwrap_or(0)));
-        }
-        "SEEK" | "LOC" => {
-            let f = rt.file(i(0) as i32)?;
-            let p = if f.mode == 1 { f.rd.rpos as i64 } else { f.f.stream_position().unwrap_or(0) as i64 };
-            if name == "LOC" && f.mode <= 3 {
-                return ok(V::I(p / 128));
-            }
-            let v = if name == "SEEK" {
-                if f.mode == 5 { p / f.reclen + 1 } else { p + 1 }
-            } else if f.mode == 5 {
-                p / f.reclen
-            } else {
-                p
-            };
-            return ok(V::I(v));
-        }
-        "SEEKSET" => {
-            let f = rt.file(i(0) as i32)?;
-            if i(1) < 1 {
-                return e(63);
-            }
-            let pos = if f.mode == 5 { (i(1) - 1) * f.reclen } else { i(1) - 1 };
-            let _ = f.f.seek(SeekFrom::Start(pos as u64));
-        }
         "LINEINPUT" => {
             let ch = i(0) as i32;
-            let line = if ch == 0 {
-                fill(&mut std::io::stdin(), &mut rt.stdin);
-                read_line(&mut rt.stdin)?
-            } else {
-                let f = rt.file(ch)?;
-                fill(&mut f.f, &mut f.rd);
-                read_line(&mut f.rd)?
-            };
+            let _ = ch;
+            fill(&mut std::io::stdin(), &mut rt.stdin);
+            let line = read_line(&mut rt.stdin)?;
             return ok(V::S(line));
         }
         "INPUTPROMPT" => {
@@ -518,95 +407,15 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
                 rt.write(0, s(0))?;
             }
         }
-        "OPENOLD" => {
-            let m = s(2).first().map(|c| c.to_ascii_uppercase());
-            let mode = match m {
-                Some(b'I') => 1,
-                Some(b'O') => 2,
-                Some(b'A') => 3,
-                Some(b'B') => 4,
-                Some(b'R') => 5,
-                _ => return e(54),
-            };
-            let a2 = vec![a[0].clone(), V::I(mode), a[1].clone(), V::I(0)];
-            return call(vm, "OPEN", a2);
-        }
-        "GETREC" | "PUTREC" | "GETSTR" | "PUTSTR" => {
-            let ch = i(0) as i32;
-            let pos = i(1);
-            let f = rt.file(ch)?;
-            if f.mode != 4 && f.mode != 5 {
-                return e(54);
-            }
-            if pos == 0 || pos < -1 {
-                return e(63);
-            }
-            if pos > 0 {
-                let at = if f.mode == 5 { (pos - 1) * f.reclen } else { pos - 1 };
-                let _ = f.f.seek(SeekFrom::Start(at as u64));
-                f.hit_eof = false;
-            }
-            match name {
-                "PUTSTR" => {
-                    if f.f.write_all(s(2)).is_err() {
-                        return e(57);
-                    }
-                }
-                "GETSTR" => {
-                    let want = i(2).max(0) as usize;
-                    let mut b = vec![0u8; want];
-                    let k = read_full(&mut f.f, &mut b);
-                    f.hit_eof = k < want;
-                    return ok(V::S(b));
-                }
-                "PUTREC" => {
-                    let data = vm.bytes(a[2].p(), i(3) as usize)?.to_vec();
-                    let f = vm.rt.file(ch)?;
-                    if f.f.write_all(&data).is_err() {
-                        return e(57);
-                    }
-                }
-                _ => {
-                    let mut b = vec![0u8; i(3) as usize];
-                    let k = read_full(&mut f.f, &mut b);
-                    f.hit_eof = k < b.len();
-                    vm.bytes(a[2].p(), b.len())?.copy_from_slice(&b);
-                }
-            }
-        }
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
-            let item = if ch == 0 {
-                fill(&mut std::io::stdin(), &mut rt.stdin);
-                read_item(&mut rt.stdin, name == "INPUTITEM.n")?
-            } else {
-                let f = rt.file(ch)?;
-                fill(&mut f.f, &mut f.rd);
-                read_item(&mut f.rd, name == "INPUTITEM.n")?
-            };
+            let _ = ch;
+            fill(&mut std::io::stdin(), &mut rt.stdin);
+            let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
             return ok(V::F(val(&item)));
-        }
-        "INPUT$" => {
-            let n = count(&a[0])?;
-            let f = rt.file(i(1) as i32)?;
-            if f.mode != 1 {
-                let mut b = vec![0u8; n];
-                let k = read_full(&mut f.f, &mut b);
-                f.hit_eof = k < n;
-                b.truncate(k);
-                return ok(V::S(b));
-            }
-            fill(&mut f.f, &mut f.rd);
-            let rd = &mut f.rd;
-            if rd.rbuf.len() - rd.rpos < n {
-                return e(62);
-            }
-            let r = rd.rbuf[rd.rpos..rd.rpos + n].to_vec();
-            rd.rpos += n;
-            return ok(V::S(r));
         }
         "KILL" => {
             let spec = String::from_utf8_lossy(s(0)).into_owned();
@@ -738,17 +547,6 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
         }
     }
     out
-}
-
-fn read_full(f: &mut std::fs::File, b: &mut [u8]) -> usize {
-    let mut n = 0;
-    while n < b.len() {
-        match f.read(&mut b[n..]) {
-            Ok(0) | Err(_) => break,
-            Ok(k) => n += k,
-        }
-    }
-    n
 }
 
 fn fill(f: &mut dyn Read, rd: &mut Reader) {
