@@ -88,7 +88,7 @@ impl std::error::Error for LoadError {}
 /// Smooth vertex normals from triangle faces (area weighted).
 pub fn compute_normals(pos: &[[f32; 3]], idx: &[u32]) -> Vec<[f32; 3]> {
     let mut n = vec![Vec3::ZERO; pos.len()];
-    for t in idx.chunks_exact(3) {
+    for t in idx.as_chunks::<3>().0 {
         let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
         if a >= pos.len() || b >= pos.len() || c >= pos.len() {
             continue;
@@ -159,7 +159,7 @@ impl Model {
         image: Option<Image>,
     ) -> Result<Model, LoadError> {
         let idx: Vec<u32> = if indices.is_empty() { (0..positions.len() as u32).collect() } else { indices.to_vec() };
-        if idx.len() % 3 != 0 {
+        if !idx.len().is_multiple_of(3) {
             return Err(LoadError("index count is not a multiple of 3".into()));
         }
         if let Some(&bad) = idx.iter().find(|&&i| i as usize >= positions.len()) {
@@ -324,15 +324,18 @@ fn to_rgba(d: &gltf::image::Data) -> Image {
     let n = (d.width * d.height) as usize;
     let rgba = match d.format {
         F::R8G8B8A8 => d.pixels.clone(),
-        F::R8G8B8 => d.pixels.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+        F::R8G8B8 => d.pixels.as_chunks::<3>().0.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
         F::R8 => d.pixels.iter().flat_map(|&c| [c, c, c, 255]).collect(),
-        F::R8G8 => d.pixels.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
+        F::R8G8 => d.pixels.as_chunks::<2>().0.iter().flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
         _ => vec![255; n * 4],
     };
     Image { width: d.width, height: d.height, rgba }
 }
 
 fn upload(gpu: &Gpu, img: &Image) -> wgpu::TextureView {
+    // short data padded, oversized images scaled down to the device limit (R14)
+    let (texels, w, h) = crate::fit_texture(img.rgba.as_chunks::<4>().0, img.width, img.height, gpu.max_texture_size());
+    let img = &Image { width: w, height: h, rgba: texels.as_flattened().to_vec() };
     let size = wgpu::Extent3d { width: img.width.max(1), height: img.height.max(1), depth_or_array_layers: 1 };
     let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("qb-gpu model texture"),

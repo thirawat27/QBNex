@@ -139,3 +139,40 @@ fn textured_quad_and_stable_checksum() {
     // Same scene, same pixels.
     assert_eq!(fnv(&a), fnv(&render()));
 }
+
+#[test]
+fn fit_size_and_texture_scale_down_to_the_limit() {
+    use qb_gpu::{fit_size, fit_texture};
+    assert_eq!(fit_size(100, 50, 8192), (100, 50));
+    assert_eq!(fit_size(16384, 100, 8192), (8192, 50));
+    assert_eq!(fit_size(10, 40000, 8000), (2, 8000));
+    assert_eq!(fit_size(0, 0, 10), (1, 1));
+    let (t, w, h) = fit_texture(&[1u32, 2, 3, 4], 4, 1, 2);
+    assert_eq!((&t[..], w, h), (&[1u32, 3][..], 2, 1));
+    // short data padded
+    let (t, w, h) = fit_texture(&[7u32], 2, 1, 16);
+    assert_eq!((&t[..], w, h), (&[7u32, 0][..], 2, 1));
+}
+
+#[test]
+fn oversized_and_short_images_do_not_panic() {
+    let Some(g) = gpu() else { return };
+    let max = g.max_texture_size();
+    let w = max + 2;
+    // a framebuffer wider than the device allows, red then green halves
+    let fb: Vec<u32> = (0..w * 2).map(|i| if i % w < w / 2 { 0xFFFF_0000 } else { 0xFF00_FF00 }).collect();
+    let mut t = Target::offscreen(&g, 8, 4);
+    let mut b = Blitter::new(&g, t.format());
+    b.fit = Fit::Stretch;
+    let f = t.frame(&g).expect("frame");
+    b.draw(&g, &f, &fb, w, 2);
+    f.present(&g);
+    let out = t.read_rgba(&g).expect("readback");
+    assert_eq!(px(&out, 8, 1, 1), [255, 0, 0, 255]);
+    assert_eq!(px(&out, 8, 6, 1), [0, 255, 0, 255]);
+    // short texture data and an oversized offscreen target are clamped, not rejected
+    let r = Renderer3d::new(&g, t.format());
+    let _ = Texture::from_rgba(&g, &r, 4, 4, &[255; 8], false);
+    let big = Target::offscreen(&g, w, 1);
+    assert_eq!(big.size().0, max);
+}

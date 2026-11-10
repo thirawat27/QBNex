@@ -640,7 +640,13 @@ mod gpu {
             let clear = wgpu::Color { r: f64::from(c[0]), g: f64::from(c[1]), b: f64::from(c[2]), a: f64::from(c[3]) };
             renderer.render(gpu, &frame, &camera(&s.camera), &lighting, Some(clear), &instances);
             frame.present(gpu);
-            let px = target.read_pixels(gpu)?;
+            let mut px = target.read_pixels(gpu)?;
+            // a frame above the device's texture limit was rendered smaller: scale up
+            let (lw, lh) = target.size();
+            if (lw, lh) != (w, h) {
+                let small = std::mem::take(&mut px);
+                px = (0..w * h).map(|i| small[((i / w) * lh / h * lw + (i % w) * lw / w) as usize]).collect();
+            }
             side.cache = Some((generation, w, h, px.clone()));
             Some(px)
         })

@@ -205,10 +205,12 @@ impl Blitter {
     /// Uploads `pixels` and draws them into `frame` at `rect` (x, y, w, h in
     /// target pixels; parts outside the target are clipped). Black elsewhere.
     pub fn draw_rect(&mut self, gpu: &Gpu, frame: &Frame, pixels: &[u32], width: u32, height: u32, rect: (i32, i32, u32, u32)) {
-        assert_eq!(pixels.len(), (width * height) as usize, "framebuffer size");
         if width == 0 || height == 0 {
             return;
         }
+        // short data padded; a framebuffer above the device limit is scaled down (R14)
+        let (texels, width, height) = crate::fit_texture(pixels, width, height, gpu.max_texture_size());
+        let pixels = &texels[..];
         if self.tex.as_ref().is_none_or(|t| t.width != width || t.height != height) {
             let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("qb-gpu framebuffer"),
