@@ -266,7 +266,14 @@ Legacy behaviour kept bug for bug (documented, no case unless noted):
 
 Not verified: Linux/macOS console paths (ANSI output, CRT stream symbols `stdout`/`__stdoutp`), `_CONSOLECURSOR`/`_CONSOLEINPUT` interactively, LPRINT paging.
 
-## How the pieces fit
+## ## R14-runtime (hardening, started early; branch `r14-runtime`)
+
+Scope: qb-runtime, qb-audio, qb-float80, qb-ffi only.
+
+- No-panic tests with deterministic random and mutated input (`qb-runtime/src/robustness_tests.rs`, `qb-audio` `mml::tests::random_statements_never_panic`): image decoders (400 mutations per corpus file + 2000 random blobs, PCX too), INFLATE (3000 mutated streams) + DEFLATE round trip, VAL (200k strings), READ/DATA/INPUT parsing (100k x 8 types), HEX$/OCT$/_BIN$/STR$ (100k), PLAY/SOUND/_WAVE/_ADSR (20k). Pass in release and in debug (overflow checks on).
+- Finding R14-1 (fixed, regression test): `qb_radix_string` trusted `neg_bits`; a width above 64 or below 0 allocated gigabytes and would overrun the 64-byte C buffer. Clamped to 0..=64.
+- Open: string functions (MID$/LEFT$/STRING$/SPACE$/INSTR), fileio, `_MEM`, graphics with extreme coordinates, DRAW random input, PRINT USING (still C++), unsafe/race/leak review, QB45 error-code comparison, path differences per OS, proptest, `#![deny(clippy::unwrap_used)]` (11 `unwrap` left in qb-audio, 0 in qb-runtime outside tests).
+How the pieces fit
 
 ```mermaid
 flowchart LR
