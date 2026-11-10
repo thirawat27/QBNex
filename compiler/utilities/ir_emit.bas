@@ -1,67 +1,1644 @@
-' R11 spike: QIR emitter, selected with `qb --ir file.bas`.
+' QIR v1 emitter (`qb --ir file.bas`). Spec: docs/rust-port/qir-v1.md
 '
-' Lowers a BASIC subset to QIR text and packages it with the prebuilt Rust
-' runner crates/qb-exec/bin/<os>/qb-exec. No C++ is generated and no C++
-' compiler runs. Format and lowering rules: docs/rust-port/r11-emitter-design.md.
-' The default C++ path is unchanged.
-'
-' Supported: PRINT, LET, IF (line/block), FOR/NEXT, DO/LOOP, WHILE/WEND,
-' SELECT CASE [EVERYCASE], EXIT, _CONTINUE, GOTO/GOSUB/RETURN, ON n GOTO/GOSUB,
-' SUB/FUNCTION (+STATIC), CALL, DIM/REDIM [SHARED] scalars and arrays, SWAP,
-' MID$ statement, ON ERROR/RESUME/ERROR, END/SYSTEM, DEFtype, OPTION BASE,
-' string/math builtins (see IrIsBuiltin%).
+' Runs inside the real compiler pipeline: the main pass still does all of its
+' usual work (symbol table, types, UDTs, $INCLUDE, $IF, CONST, DEFxxx, C++
+' fragments that are simply not compiled) and statement handlers call the
+' Ir* routines below to emit QIR as well. Expressions are lowered by IrEval$,
+' which walks the same element strings evaluate$ gets (after fixoperationorder)
+' and applies the same operator rules (operatorusage), so values carry the C
+' type the C++ backend would compute. At the end the QIR is packaged with the
+' prebuilt runner crates/qb-exec/bin/<os>/qb-exec instead of running g++.
 
-SUB IrCompileProgram (src$, outExe$)
-    DIM fh AS INTEGER, l$, i AS LONG, runner$, outPath$, ir$, r$, q$
+'================================================================ output
 
-    IF _FILEEXISTS(src$) = 0 THEN IrLine = 0: IrFail "source file not found: " + src$
-    fh = FREEFILE
-    OPEN src$ FOR INPUT AS #fh
-    IrSrcN = 0
-    DO UNTIL EOF(fh)
-        LINE INPUT #fh, l$
-        IrSrcN = IrSrcN + 1
-        IF IrSrcN > UBOUND(IrSrc) THEN REDIM _PRESERVE IrSrc(IrSrcN * 2) AS STRING
-        IrSrc(IrSrcN) = l$
+SUB IrInit
+    IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
+    IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
+END SUB
+
+SUB IrNotSup (w$)
+    IF IrFailMsg = "" THEN IrFailMsg = "line" + STR$(linenumber) + ": " + w$
+END SUB
+
+SUB IrE (s$)
+    IF IrFnCur = 0 THEN EXIT SUB
+    IrFnBody(IrFnCur) = IrFnBody(IrFnCur) + s$ + CHR$(10)
+END SUB
+
+SUB IrHead (s$)
+    IF IrFnCur = 0 THEN EXIT SUB
+    IrFnHead(IrFnCur) = IrFnHead(IrFnCur) + s$ + CHR$(10)
+END SUB
+
+FUNCTION IrReg$
+    IF IrFnCur = 0 THEN IrReg$ = "%0": EXIT FUNCTION
+    IrReg$ = "%" + str2$(IrFnRegs(IrFnCur))
+    IrFnRegs(IrFnCur) = IrFnRegs(IrFnCur) + 1
+END FUNCTION
+
+FUNCTION IrNew& ()
+    IrUniq = IrUniq + 1
+    IrNew& = IrUniq
+END FUNCTION
+
+FUNCTION IrHex$ (s$)
+    DIM i AS LONG, h$
+    h$ = SPACE$(LEN(s$) * 2)
+    FOR i = 1 TO LEN(s$)
+        MID$(h$, i * 2 - 1, 2) = RIGHT$("0" + HEX$(ASC(s$, i)), 2)
+    NEXT
+    IrHex$ = "x" + h$
+END FUNCTION
+
+FUNCTION IrFindFn& (nm$)
+    DIM i AS LONG
+    FOR i = 1 TO IrFnN
+        IF IrFnName(i) = nm$ THEN IrFindFn& = i: EXIT FUNCTION
+    NEXT
+    IrFnN = IrFnN + 1
+    IF IrFnN > UBOUND(IrFnName) THEN
+        i = UBOUND(IrFnName) * 2
+        REDIM _PRESERVE IrFnName(1 TO i) AS STRING, IrFnRet(1 TO i) AS STRING
+        REDIM _PRESERVE IrFnHead(1 TO i) AS STRING, IrFnBody(1 TO i) AS STRING
+        REDIM _PRESERVE IrFnDecls(1 TO i) AS STRING, IrFnRetVar(1 TO i) AS STRING
+        REDIM _PRESERVE IrFnRegs(1 TO i) AS LONG
+    END IF
+    IrFnName(IrFnN) = nm$
+    IrFindFn& = IrFnN
+END FUNCTION
+
+'called at SUB/FUNCTION (after the return variable exists)
+SUB IrBeginFn (nm$, ret$)
+    IrFnCur = IrFindFn(nm$)
+    IrFnRet(IrFnCur) = ret$
+END SUB
+
+'END SUB / END FUNCTION
+SUB IrEndFn
+    DIM r$
+    IF IrFnCur <= 1 THEN EXIT SUB
+    IrE "label ~EXIT"
+    IF LEN(IrFnRet(IrFnCur)) THEN
+        r$ = IrReg$
+        IrE "load." + IrFnRet(IrFnCur) + " " + r$ + " " + IrFnRetVar(IrFnCur)
+        IrE "ret " + r$
+    ELSE
+        IrE "ret"
+    END IF
+    IrFnCur = 0
+END SUB
+
+'main module code ends where the first SUB/FUNCTION starts
+SUB IrCloseMain
+    IF IrFnCur = 1 THEN IrFnCur = 0
+END SUB
+
+SUB IrLine
+    IrE "line " + str2$(linenumber)
+END SUB
+
+FUNCTION IrLbl$ (l$)
+    IrLbl$ = "L_" + l$
+END FUNCTION
+
+SUB IrLabelDef (l$)
+    IrE "label " + IrLbl$(l$)
+    IrMod = IrMod + "datalabel " + IrLbl$(l$) + CHR$(10)
+END SUB
+
+'DATA statement: raw text of the items
+SUB IrData (t$)
+    DIM i AS LONG, q AS LONG, c$, item$, started AS LONG
+    i = 1
+    DO
+        item$ = "": q = 0: started = 0
+        DO WHILE i <= LEN(t$)
+            c$ = MID$(t$, i, 1)
+            IF c$ = CHR$(34) THEN
+                q = 1 - q: started = 1
+            ELSEIF c$ = "," AND q = 0 THEN
+                EXIT DO
+            ELSE
+                item$ = item$ + c$
+            END IF
+            i = i + 1
+        LOOP
+        IF started = 0 THEN item$ = LTRIM$(RTRIM$(item$))
+        IrMod = IrMod + "data " + IrHex$(item$) + CHR$(10)
+        IrDataN = IrDataN + 1
+        IF i > LEN(t$) THEN EXIT DO
+        i = i + 1
     LOOP
-    CLOSE #fh
+END SUB
 
-    'pass 1: DEFtype and SUB/FUNCTION signatures (calls may precede definitions)
-    IrResetDefaults
-    IrScope = "MAIN"
-    FOR i = 1 TO IrSrcN
-        IrLine = i
-        IrTokenize IrSrc(i)
-        IrP = 1
-        IF IrTokN > 0 THEN
-            SELECT CASE IrTokV(1)
-                CASE "SUB": IrP = 2: IrDeclareSub "S"
-                CASE "FUNCTION": IrP = 2: IrDeclareSub "F"
-                CASE "DEFINT", "DEFLNG", "DEFSNG", "DEFDBL", "DEFSTR": IrP = 2: IrDefType IrTokV(1)
-            END SELECT
+'================================================================ types
+
+FUNCTION IrTy$ (t AS LONG)
+    DIM b AS LONG, r$
+    IF t AND ISSTRING THEN IrTy$ = "str": EXIT FUNCTION
+    IF t AND ISUDT THEN IrTy$ = "ptr": EXIT FUNCTION
+    IF t AND ISOFFSETINBITS THEN IrNotSup "_BIT types": IrTy$ = "i64": EXIT FUNCTION
+    b = t AND 511
+    IF t AND ISFLOAT THEN
+        IF b = 32 THEN r$ = "f32" ELSE IF b = 64 THEN r$ = "f64" ELSE r$ = "f80"
+        IrTy$ = r$: EXIT FUNCTION
+    END IF
+    IF b <= 8 THEN
+        r$ = "8"
+    ELSEIF b <= 16 THEN
+        r$ = "16"
+    ELSEIF b <= 32 THEN
+        r$ = "32"
+    ELSE
+        r$ = "64"
+    END IF
+    IF t AND ISUNSIGNED THEN r$ = "u" + r$ ELSE r$ = "i" + r$
+    IrTy$ = r$
+END FUNCTION
+
+FUNCTION IrSTy$ (t AS LONG, tsize AS LONG)
+    IF (t AND ISSTRING) <> 0 AND (t AND ISFIXEDLENGTH) <> 0 THEN IrSTy$ = "fstr:" + str2$(tsize): EXIT FUNCTION
+    IF t AND ISUDT THEN IrSTy$ = "udt:" + IrUdt$(t AND 511): EXIT FUNCTION
+    IrSTy$ = IrTy$(t)
+END FUNCTION
+
+FUNCTION IrUdt$ (u AS LONG)
+    DIM nm$, s$, o AS LONG, e AS LONG, ft AS LONG, fty$
+    nm$ = "T_" + RTRIM$(udtxname(u))
+    IrUdt$ = nm$
+    IF INSTR(IrUdtDone, "|" + nm$ + "|") THEN EXIT FUNCTION
+    IrUdtDone = IrUdtDone + nm$ + "|"
+    s$ = "type " + nm$ + " " + str2$((udtxsize(u) + 7) \ 8) + CHR$(10)
+    o = 0: e = udtxnext(u)
+    DO WHILE e
+        IF udtebytealign(e) THEN
+            IF o MOD 8 THEN o = o + (8 - (o MOD 8))
+        END IF
+        ft = udtetype(e)
+        IF ft AND ISUDT THEN
+            fty$ = "udt:" + IrUdt$(ft AND 511)
+        ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) <> 0 THEN
+            fty$ = "fstr:" + str2$(udtetypesize(e))
+        ELSEIF ft AND ISSTRING THEN
+            IrNotSup "variable-length STRING inside TYPE": fty$ = "str"
+        ELSE
+            fty$ = IrTy$(ft)
+        END IF
+        s$ = s$ + "field " + RTRIM$(udtename(e)) + " " + fty$ + " " + str2$(o \ 8) + CHR$(10)
+        o = o + udtesize(e)
+        e = udtenext(e)
+    LOOP
+    IrMod = IrMod + s$ + "endtype" + CHR$(10)
+END FUNCTION
+
+FUNCTION IrIsFloat% (t$)
+    IrIsFloat% = (LEFT$(t$, 1) = "f")
+END FUNCTION
+
+FUNCTION IrIsInt% (t$)
+    IrIsInt% = (LEFT$(t$, 1) = "i" OR LEFT$(t$, 1) = "u")
+END FUNCTION
+
+'C integer promotion
+FUNCTION IrPromote$ (t$)
+    SELECT CASE t$
+        CASE "i8", "u8", "i16", "u16": IrPromote$ = "i32"
+        CASE ELSE: IrPromote$ = t$
+    END SELECT
+END FUNCTION
+
+'C usual arithmetic conversions
+FUNCTION IrCommon$ (a$, b$)
+    DIM pa$, pb$
+    IF IrIsFloat(a$) OR IrIsFloat(b$) THEN
+        IF a$ = "f80" OR b$ = "f80" THEN IrCommon$ = "f80": EXIT FUNCTION
+        IF a$ = "f64" OR b$ = "f64" THEN IrCommon$ = "f64": EXIT FUNCTION
+        IrCommon$ = "f32": EXIT FUNCTION
+    END IF
+    pa$ = IrPromote$(a$): pb$ = IrPromote$(b$)
+    IF pa$ = pb$ THEN IrCommon$ = pa$: EXIT FUNCTION
+    IF pa$ = "u64" OR pb$ = "u64" THEN IrCommon$ = "u64": EXIT FUNCTION
+    IF pa$ = "i64" OR pb$ = "i64" THEN IrCommon$ = "i64": EXIT FUNCTION
+    IF pa$ = "u32" OR pb$ = "u32" THEN IrCommon$ = "u32": EXIT FUNCTION
+    IrCommon$ = "i32"
+END FUNCTION
+
+'numeric conversion (float->int rounds half to even, like qbr)
+FUNCTION IrCvt$ (r$, from$, to$)
+    DIM d$
+    IF from$ = to$ OR to$ = "" THEN IrCvt$ = r$: EXIT FUNCTION
+    IF from$ = "str" OR to$ = "str" OR from$ = "ptr" OR to$ = "ptr" THEN
+        IrNotSup "type mismatch (" + from$ + " -> " + to$ + ")": IrCvt$ = r$: EXIT FUNCTION
+    END IF
+    d$ = IrReg$
+    IrE "cvt." + to$ + "." + from$ + " " + d$ + " " + r$
+    IrCvt$ = d$
+END FUNCTION
+
+'C cast (float->int truncates)
+FUNCTION IrTrunc$ (r$, from$, to$)
+    DIM d$
+    IF from$ = to$ THEN IrTrunc$ = r$: EXIT FUNCTION
+    d$ = IrReg$
+    IF IrIsFloat(from$) AND IrIsInt(to$) THEN
+        IrE "trunc." + to$ + "." + from$ + " " + d$ + " " + r$
+    ELSE
+        IrE "cvt." + to$ + "." + from$ + " " + d$ + " " + r$
+    END IF
+    IrTrunc$ = d$
+END FUNCTION
+
+FUNCTION IrConst$ (t$, v$)
+    DIM d$
+    d$ = IrReg$
+    IrE "const." + t$ + " " + d$ + " " + v$
+    IrConst$ = d$
+END FUNCTION
+
+FUNCTION IrConstStr$ (s$)
+    IrConstStr$ = IrConst$("str", IrHex$(s$))
+END FUNCTION
+
+FUNCTION IrI32$ (v AS LONG)
+    IrI32$ = IrConst$("i32", str2$(v))
+END FUNCTION
+
+'================================================================ variables
+
+FUNCTION IrVar$ (idn AS LONG)
+    DIM nm$, sc$, st$, f AS LONG, kw$
+    nm$ = "$" + LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    IrVar$ = nm$
+    IF ids(idn).sfarg > 0 THEN EXIT FUNCTION 'parameter: declared with its SUB
+    IF ids(idn).arraytype THEN
+        st$ = "array " + IrSTy$(ids(idn).arraytype, ids(idn).tsize)
+    ELSE
+        st$ = IrSTy$(ids(idn).t, ids(idn).tsize)
+    END IF
+    sc$ = RTRIM$(ids(idn).insubfunc)
+    IF sc$ = "" THEN
+        IF INSTR(IrModDecls, "|" + nm$ + "|") = 0 THEN
+            IrModDecls = IrModDecls + nm$ + "|"
+            IrMod = IrMod + "global " + nm$ + " " + st$ + CHR$(10)
+        END IF
+    ELSE
+        f = IrFindFn(sc$)
+        IF INSTR(IrFnDecls(f), "|" + nm$ + "|") = 0 THEN
+            IrFnDecls(f) = IrFnDecls(f) + "|" + nm$ + "|"
+            kw$ = "local": IF ids(idn).staticscope THEN kw$ = "static"
+            IrFnHead(f) = IrFnHead(f) + kw$ + " " + nm$ + " " + st$ + CHR$(10)
+        END IF
+    END IF
+END FUNCTION
+
+'a SUB/FUNCTION parameter, in order
+SUB IrParam (idn AS LONG)
+    DIM nm$, st$
+    nm$ = "$" + LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    IF ids(idn).arraytype THEN
+        st$ = "array " + IrSTy$(ids(idn).arraytype, ids(idn).tsize)
+    ELSE
+        st$ = IrSTy$(ids(idn).t, ids(idn).tsize) + " byref"
+    END IF
+    IrHead "param " + nm$ + " " + st$
+    IrFnDecls(IrFnCur) = IrFnDecls(IrFnCur) + "|" + nm$ + "|"
+END SUB
+
+'temporary local of a storage type, returns its name
+FUNCTION IrTemp$ (st$)
+    DIM nm$
+    nm$ = "$~T" + str2$(IrNew)
+    IrHead "local " + nm$ + " " + st$
+    IrTemp$ = nm$
+END FUNCTION
+
+'================================================================ places
+' "V" sep name sep storagetype        (scalar variable)
+' "P" sep ptrreg sep offset sep stype (memory)
+' "A" sep name                        (whole array, for passing)
+
+FUNCTION IrPart$ (p$, k AS LONG)
+    DIM i AS LONG, j AS LONG, n AS LONG
+    i = 1
+    FOR n = 1 TO k - 1
+        i = INSTR(i, p$, CHR$(2)) + 1
+    NEXT
+    j = INSTR(i, p$, CHR$(2)): IF j = 0 THEN j = LEN(p$) + 1
+    IrPart$ = MID$(p$, i, j - i)
+END FUNCTION
+
+FUNCTION IrPlaceSTy$ (p$)
+    IF LEFT$(p$, 1) = "V" THEN IrPlaceSTy$ = IrPart$(p$, 3) ELSE IrPlaceSTy$ = IrPart$(p$, 4)
+END FUNCTION
+
+'register type used for the value of a storage type
+FUNCTION IrRegOf$ (st$)
+    IF LEFT$(st$, 5) = "fstr:" THEN IrRegOf$ = "str": EXIT FUNCTION
+    IF LEFT$(st$, 4) = "udt:" THEN IrRegOf$ = "": EXIT FUNCTION
+    IrRegOf$ = st$
+END FUNCTION
+
+FUNCTION IrLoad$ (p$)
+    DIM st$, d$
+    st$ = IrPlaceSTy$(p$)
+    IrT = IrRegOf$(st$)
+    IF IrT = "" THEN IrNotSup "user defined type used as a value": IrT = "i32": IrLoad$ = IrI32$(0): EXIT FUNCTION
+    d$ = IrReg$
+    IF LEFT$(p$, 1) = "V" THEN
+        IrE "load." + IrT + " " + d$ + " " + IrPart$(p$, 2)
+    ELSEIF LEFT$(st$, 5) = "fstr:" THEN
+        IrE "ldfs " + d$ + " " + IrPart$(p$, 2) + " " + IrPart$(p$, 3) + " " + MID$(st$, 6)
+    ELSE
+        IrE "ld." + IrT + " " + d$ + " " + IrPart$(p$, 2) + " " + IrPart$(p$, 3)
+    END IF
+    IrLoad$ = d$
+END FUNCTION
+
+'stores r$ (already of the place's register type)
+SUB IrStore (p$, r$)
+    DIM st$, t$
+    st$ = IrPlaceSTy$(p$)
+    t$ = IrRegOf$(st$)
+    IF LEFT$(p$, 1) = "V" THEN
+        IrE "store." + t$ + " " + IrPart$(p$, 2) + " " + r$
+    ELSEIF LEFT$(st$, 5) = "fstr:" THEN
+        IrE "stfs " + IrPart$(p$, 2) + " " + IrPart$(p$, 3) + " " + MID$(st$, 6) + " " + r$
+    ELSE
+        IrE "st." + t$ + " " + IrPart$(p$, 2) + " " + IrPart$(p$, 3) + " " + r$
+    END IF
+END SUB
+
+FUNCTION IrAddr$ (p$)
+    DIM d$, o$
+    IF LEFT$(p$, 1) = "V" THEN
+        d$ = IrReg$: IrE "addr " + d$ + " " + IrPart$(p$, 2): IrAddr$ = d$: EXIT FUNCTION
+    END IF
+    IF LEFT$(p$, 1) = "A" THEN
+        d$ = IrReg$: IrE "aref " + d$ + " " + IrPart$(p$, 2): IrAddr$ = d$: EXIT FUNCTION
+    END IF
+    IF IrPart$(p$, 3) = "0" THEN IrAddr$ = IrPart$(p$, 2): EXIT FUNCTION
+    o$ = IrConst$("i64", IrPart$(p$, 3))
+    d$ = IrReg$: IrE "padd " + d$ + " " + IrPart$(p$, 2) + " " + o$
+    IrAddr$ = d$
+END FUNCTION
+
+'size in bytes of a storage type
+FUNCTION IrSize& (st$)
+    DIM i AS LONG
+    IF LEFT$(st$, 5) = "fstr:" THEN IrSize& = VAL(MID$(st$, 6)): EXIT FUNCTION
+    IF LEFT$(st$, 4) = "udt:" THEN
+        FOR i = 1 TO lasttype
+            IF "T_" + RTRIM$(udtxname(i)) = MID$(st$, 5) THEN IrSize& = (udtxsize(i) + 7) \ 8: EXIT FUNCTION
+        NEXT
+    END IF
+    SELECT CASE st$
+        CASE "i8", "u8": IrSize& = 1
+        CASE "i16", "u16": IrSize& = 2
+        CASE "i32", "u32", "f32": IrSize& = 4
+        CASE "f80": IrSize& = 32
+        CASE ELSE: IrSize& = 8
+    END SELECT
+END FUNCTION
+
+'index of the matching ")" for the "(" at element i
+FUNCTION IrMatch& (a$, i AS LONG, n AS LONG)
+    DIM b AS LONG, j AS LONG, e$
+    FOR j = i TO n
+        e$ = getelement$(a$, j)
+        IF e$ = "(" OR e$ = "{" THEN b = b + 1
+        IF e$ = ")" OR e$ = "}" THEN
+            b = b - 1
+            IF b = 0 THEN IrMatch& = j: EXIT FUNCTION
         END IF
     NEXT
+    IrMatch& = n
+END FUNCTION
 
-    'pass 2: emit QIR
-    IrResetDefaults
-    ir$ = tmpdir$ + "program.qir"
-    IrOut = FREEFILE
-    OPEN ir$ FOR OUTPUT AS #IrOut
-    PRINT #IrOut, "QIR 0"
-    IrScope = "MAIN"
-    FOR i = 1 TO IrSrcN
-        IrLine = i
-        IrTokenize IrSrc(i)
-        IrP = 1
-        IrLineLabels
-        IrStatementList -1, 0
+'splits a$ at top-level commas into IrArgs(); returns count
+FUNCTION IrSplitArgs& (a$)
+    DIM n AS LONG, i AS LONG, b AS LONG, e$, c AS LONG, cur$
+    n = numelements(a$)
+    IF n = 0 THEN IrSplitArgs& = 0: EXIT FUNCTION
+    c = 1: cur$ = ""
+    FOR i = 1 TO n
+        e$ = getelement$(a$, i)
+        IF e$ = "(" OR e$ = "{" THEN b = b + 1
+        IF e$ = ")" OR e$ = "}" THEN b = b - 1
+        IF e$ = "," AND b = 0 THEN
+            IrArgs(c) = cur$: c = c + 1: cur$ = ""
+        ELSE
+            IF LEN(cur$) THEN cur$ = cur$ + sp + e$ ELSE cur$ = e$
+        END IF
     NEXT
-    IrLine = IrSrcN
-    IF IrBlkN > 0 THEN IrFail IrBlkKind(IrBlkN) + " without end"
-    IF IrScope <> "MAIN" THEN IrFail "SUB/FUNCTION without END"
-    CLOSE #IrOut
+    IrArgs(c) = cur$
+    IrSplitArgs& = c
+END FUNCTION
 
-    'package: runner + QIR + u64 length + magic
+'follows ".field.field" (elements i..n of a$) from base place p$ of UDT u
+FUNCTION IrUdtPlace$ (p$, u0 AS LONG, a$, i AS LONG, n AS LONG, typ AS LONG)
+    DIM u AS LONG, e AS LONG, o AS LONG, nm$, base$, boff AS LONG, st$, ft AS LONG, sx$
+    u = u0
+    IF LEFT$(p$, 1) = "V" THEN
+        base$ = IrAddr$(p$): boff = 0
+    ELSE
+        base$ = IrPart$(p$, 2): boff = VAL(IrPart$(p$, 3))
+    END IF
+    typ = u + ISUDT
+    st$ = "udt:" + IrUdt$(u)
+    DO WHILE i <= n
+        IF getelement$(a$, i) <> "." THEN EXIT DO
+        nm$ = UCASE$(getelement$(a$, i + 1))
+        sx$ = removesymbol$(nm$): IF Error_Happened THEN Error_Happened = 0
+        ft = 0
+        e = udtxnext(u): o = 0
+        DO WHILE e
+            IF udtebytealign(e) THEN
+                IF o MOD 8 THEN o = o + (8 - (o MOD 8))
+            END IF
+            IF UCASE$(RTRIM$(udtename(e))) = nm$ THEN EXIT DO
+            o = o + udtesize(e)
+            e = udtenext(e)
+        LOOP
+        IF e = 0 THEN IrNotSup "UDT element " + nm$: EXIT DO
+        boff = boff + o \ 8
+        ft = udtetype(e)
+        IF ft AND ISUDT THEN
+            u = ft AND 511: typ = u + ISUDT: st$ = "udt:" + IrUdt$(u)
+        ELSEIF (ft AND ISSTRING) <> 0 AND (ft AND ISFIXEDLENGTH) <> 0 THEN
+            typ = STRINGTYPE + ISFIXEDLENGTH: st$ = "fstr:" + str2$(udtetypesize(e))
+        ELSE
+            typ = ft: st$ = IrTy$(ft)
+        END IF
+        i = i + 2
+    LOOP
+    IrUdtPlace$ = "P" + CHR$(2) + base$ + CHR$(2) + str2$(boff) + CHR$(2) + st$
+END FUNCTION
+
+FUNCTION IrIndex$ (e$)
+    DIM r$, t AS LONG
+    r$ = IrEval$(e$, t)
+    IF IrIsFloat(IrT) THEN r$ = IrCvt$(r$, IrT, "i64"): IrT = "i64"
+    IrIndex$ = r$
+END FUNCTION
+
+'element of array idn with raw index elements idx$
+FUNCTION IrElemPlace$ (idn AS LONG, idx$, typ AS LONG)
+    DIM c AS LONG, k AS LONG, regs$, nm$, d$, at AS LONG
+    DIM sv(1 TO 64) AS STRING
+    nm$ = IrVar$(idn)
+    c = IrSplitArgs(idx$)
+    FOR k = 1 TO c: sv(k) = IrArgs(k): NEXT
+    FOR k = 1 TO c
+        regs$ = regs$ + " " + IrIndex$(sv(k))
+    NEXT
+    d$ = IrReg$
+    IrE "aaddr " + d$ + " " + nm$ + regs$
+    at = ids(idn).arraytype
+    typ = at
+    IrElemPlace$ = "P" + CHR$(2) + d$ + CHR$(2) + "0" + CHR$(2) + IrSTy$(at, ids(idn).tsize)
+END FUNCTION
+
+'lvalue at elements i.. of a$; advances i. Returns "" (IrQuiet) or fails if not a variable.
+FUNCTION IrPlaceAt$ (a$, i AS LONG, n AS LONG, typ AS LONG)
+    DIM l$, l2$, nextl$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, p$, idn AS LONG
+    l2$ = getelement$(a$, i)
+    IF i < n THEN nextl$ = getelement$(a$, i + 1) ELSE nextl$ = ""
+    FOR try_method = 1 TO 4
+        l$ = l2$
+        IF try_method = 2 OR try_method = 4 THEN
+            dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0
+            IF LEN(dtyp$) = 0 THEN
+                IF isoperator(l$) = 0 AND isvalidvariable(l$) THEN
+                    IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
+                    l$ = l$ + defineextaz(v)
+                END IF
+            ELSE
+                l$ = l2$
+            END IF
+        END IF
+        try = findid(l$)
+        IF Error_Happened THEN Error_Happened = 0: try = 0
+        DO WHILE try
+            IF (subfuncn = id.insubfuncn AND try_method <= 2) OR try_method >= 3 THEN
+                idn = currentid
+                IF nextl$ = "(" AND id.arraytype <> 0 THEN
+                    j = IrMatch(a$, i + 1, n)
+                    IF j = i + 2 THEN 'a() : whole array
+                        i = j + 1: typ = id.arraytype
+                        p$ = IrVar$(idn)
+                        IrPlaceAt$ = "A" + CHR$(2) + p$: EXIT FUNCTION
+                    END IF
+                    p$ = IrElemPlace$(idn, getelements$(a$, i + 2, j - 1), typ)
+                    i = j + 1
+                    IF typ AND ISUDT THEN p$ = IrUdtPlace$(p$, typ AND 511, a$, i, n, typ)
+                    IrPlaceAt$ = p$: EXIT FUNCTION
+                END IF
+                IF nextl$ <> "(" AND id.t <> 0 AND id.subfunc = 0 THEN
+                    IF id.t AND ISUDT THEN
+                        p$ = "V" + CHR$(2) + IrVar$(idn) + CHR$(2) + IrSTy$(id.t, id.tsize)
+                        i = i + 1
+                        p$ = IrUdtPlace$(p$, id.t AND 511, a$, i, n, typ)
+                        IrPlaceAt$ = p$: EXIT FUNCTION
+                    END IF
+                    typ = id.t
+                    i = i + 1
+                    IrPlaceAt$ = "V" + CHR$(2) + IrVar$(idn) + CHR$(2) + IrSTy$(id.t, id.tsize): EXIT FUNCTION
+                END IF
+            END IF
+            IF try = 2 THEN findanotherid = 1: try = findid(l$) ELSE try = 0
+            IF Error_Happened THEN Error_Happened = 0: try = 0
+        LOOP
+    NEXT
+    IF IrQuiet = 0 THEN IrNotSup "not a variable: " + l2$
+    IrPlaceAt$ = ""
+END FUNCTION
+
+'lvalue of a whole fixed expression (assignment target, BYREF argument, INPUT/READ target)
+FUNCTION IrPlace$ (a$, typ AS LONG)
+    DIM i AS LONG, n AS LONG, p$, saveid AS idstruct, savecur AS LONG
+    saveid = id: savecur = currentid
+    n = numelements(a$): i = 1
+    p$ = IrPlaceAt$(a$, i, n, typ)
+    IF i <= n THEN
+        IF IrQuiet = 0 AND LEN(p$) THEN IrNotSup "unexpected element after variable"
+        p$ = ""
+    END IF
+    id = saveid: currentid = savecur
+    IrPlace$ = p$
+END FUNCTION
+
+'================================================================ expressions
+
+'C string literal element -> bytes
+FUNCTION IrStrLit$ (l$)
+    DIM x AS LONG, s$, r$, i AS LONG, c$
+    x = _INSTRREV(l$, CHR$(34))
+    s$ = MID$(l$, 2, x - 2)
+    i = 1
+    DO WHILE i <= LEN(s$)
+        c$ = MID$(s$, i, 1)
+        IF c$ = "\" THEN
+            IF MID$(s$, i + 1, 1) = "\" THEN
+                r$ = r$ + "\": i = i + 2
+            ELSE
+                r$ = r$ + CHR$((ASC(s$, i + 1) - 48) * 64 + (ASC(s$, i + 2) - 48) * 8 + (ASC(s$, i + 3) - 48)): i = i + 4
+            END IF
+        ELSE
+            r$ = r$ + c$: i = i + 1
+        END IF
+    LOOP
+    IrStrLit$ = r$
+END FUNCTION
+
+FUNCTION IrNumLit$ (l$, typ AS LONG)
+    DIM num$, x AS LONG, f AS LONG, sym$, t$, v AS DOUBLE
+    num$ = l$
+    x = INSTR(num$, "E")
+    IF x THEN
+        f = 1: typ = SINGLETYPE - ISPOINTER
+    ELSE
+        x = INSTR(num$, "D")
+        IF x THEN
+            f = 2: typ = DOUBLETYPE - ISPOINTER
+        ELSE
+            x = INSTR(num$, "F")
+            IF x THEN f = 3: typ = FLOATTYPE - ISPOINTER
+        END IF
+    END IF
+    IF f THEN
+        MID$(num$, x, 1) = "E"
+        IF f = 3 THEN t$ = "f80" ELSE t$ = "f64"
+        IrT = t$
+        IrNumLit$ = IrConst$(t$, num$)
+        EXIT FUNCTION
+    END IF
+    sym$ = removesymbol$(num$)
+    typ = typname2typ(sym$)
+    IF typ AND ISPOINTER THEN typ = typ - ISPOINTER
+    IF (typ AND 511) > 32 THEN
+        IF typ AND ISUNSIGNED THEN t$ = "u64" ELSE t$ = "i64"
+    ELSE
+        v = VAL(num$)
+        IF v >= -2147483648# AND v <= 2147483647# THEN t$ = "i32" ELSE t$ = "i64"
+    END IF
+    IrT = t$
+    IrNumLit$ = IrConst$(t$, num$)
+END FUNCTION
+
+FUNCTION IrOperand$ (a$, i AS LONG, n AS LONG, typ AS LONG)
+    DIM l$, c AS LONG, r$, p$, nextl$, l2$, dtyp$, try AS LONG, try_method AS LONG, v AS LONG, j AS LONG, idn AS LONG
+    l$ = getelement$(a$, i)
+    c = ASC(l$)
+    IF c = 34 THEN
+        i = i + 1: typ = ISSTRING: IrT = "str"
+        IrOperand$ = IrConstStr$(IrStrLit$(l$)): EXIT FUNCTION
+    END IF
+    IF c = 45 OR (c >= 48 AND c <= 57) THEN
+        i = i + 1
+        IrOperand$ = IrNumLit$(l$, typ): EXIT FUNCTION
+    END IF
+    'function?
+    l2$ = l$
+    IF i < n THEN nextl$ = getelement$(a$, i + 1) ELSE nextl$ = ""
+    FOR try_method = 1 TO 4
+        l$ = l2$
+        IF try_method = 2 OR try_method = 4 THEN
+            dtyp$ = removesymbol(l$): IF Error_Happened THEN dtyp$ = "": Error_Happened = 0
+            IF LEN(dtyp$) = 0 THEN
+                IF isoperator(l$) = 0 AND isvalidvariable(l$) THEN
+                    IF LEFT$(l$, 1) = "_" THEN v = 27 ELSE v = ASC(UCASE$(l$)) - 64
+                    l$ = l$ + defineextaz(v)
+                END IF
+            ELSE
+                l$ = l2$
+            END IF
+        END IF
+        try = findid(l$)
+        IF Error_Happened THEN Error_Happened = 0: try = 0
+        DO WHILE try
+            IF (subfuncn = id.insubfuncn AND try_method <= 2) OR try_method >= 3 THEN
+                IF (nextl$ = "(" AND id.arraytype <> 0) OR (nextl$ <> "(" AND id.t <> 0 AND id.subfunc = 0) THEN
+                    p$ = IrPlaceAt$(a$, i, n, typ)
+                    IF LEN(p$) = 0 THEN IrT = "i32": IrOperand$ = IrI32$(0): EXIT FUNCTION
+                    IF LEFT$(p$, 1) = "A" THEN IrNotSup "array used as a value": IrT = "i32": IrOperand$ = IrI32$(0): EXIT FUNCTION
+                    r$ = IrLoad$(p$)
+                    IF typ AND ISFIXEDLENGTH THEN typ = ISSTRING
+                    IrOperand$ = r$: EXIT FUNCTION
+                END IF
+            END IF
+            IF id.subfunc = 1 THEN
+                idn = currentid
+                IF nextl$ = "(" THEN
+                    j = IrMatch(a$, i + 1, n)
+                    r$ = IrCallFunc$(idn, getelements$(a$, i + 2, j - 1), typ)
+                    i = j + 1
+                ELSE
+                    r$ = IrCallFunc$(idn, "", typ)
+                    i = i + 1
+                END IF
+                IrOperand$ = r$: EXIT FUNCTION
+            END IF
+            IF try = 2 THEN findanotherid = 1: try = findid(l$) ELSE try = 0
+            IF Error_Happened THEN Error_Happened = 0: try = 0
+        LOOP
+    NEXT
+    IrNotSup "unknown name in expression: " + l2$
+    i = i + 1: IrT = "i32": typ = LONGTYPE - ISPOINTER
+    IrOperand$ = IrI32$(0)
+END FUNCTION
+
+'applies a numeric binary C operator to (a$,ta$) and (b$,tb$)
+FUNCTION IrArith$ (op$, a$, ta$, b$, tb$)
+    DIM ct$, x$, y$, d$
+    ct$ = IrCommon$(ta$, tb$)
+    x$ = IrCvt$(a$, ta$, ct$): y$ = IrCvt$(b$, tb$, ct$)
+    IF op$ = "div" AND IrIsInt(ct$) THEN op$ = "idiv"
+    d$ = IrReg$
+    IrE op$ + "." + ct$ + " " + d$ + " " + x$ + " " + y$
+    IrT = ct$
+    IrArith$ = d$
+END FUNCTION
+
+FUNCTION IrCmp$ (op$, a$, ta$, b$, tb$)
+    DIM ct$, x$, y$, d$
+    IF ta$ = "str" THEN
+        ct$ = "str": x$ = a$: y$ = b$
+    ELSE
+        ct$ = IrCommon$(ta$, tb$)
+        x$ = IrCvt$(a$, ta$, ct$): y$ = IrCvt$(b$, tb$, ct$)
+    END IF
+    d$ = IrReg$
+    IrE op$ + "." + ct$ + " " + d$ + " " + x$ + " " + y$
+    IrT = "i32"
+    IrCmp$ = d$
+END FUNCTION
+
+FUNCTION IrEval$ (a2$, typ AS LONG)
+    DIM blk(1 TO 200) AS STRING, bty(1 TO 200) AS LONG, bq(1 TO 200) AS STRING, bop(1 TO 200) AS INTEGER
+    DIM n AS LONG, i AS LONG, j AS LONG, nb AS LONG, l$, t AS LONG, r$
+    DIM o$, u AS LONG, info$, lhs AS LONG, rhs AS LONG, result AS LONG, isop AS LONG
+    DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
+    DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$
+    saveid = id: savecur = currentid
+    n = numelements(a2$)
+    i = 1: nb = 0
+    DO WHILE i <= n
+        l$ = getelement$(a2$, i)
+        nb = nb + 1
+        IF l$ = "(" OR l$ = "{" THEN
+            j = IrMatch(a2$, i, n)
+            blk(nb) = IrEval$(getelements$(a2$, i + 1, j - 1), t)
+            bty(nb) = t: bq(nb) = IrT: bop(nb) = 0
+            i = j + 1
+        ELSEIF isoperator(l$) THEN
+            blk(nb) = l$: bop(nb) = 1: i = i + 1
+        ELSE
+            blk(nb) = IrOperand$(a2$, i, n, t)
+            bty(nb) = t: bq(nb) = IrT: bop(nb) = 0
+        END IF
+    LOOP
+    IF nb = 0 THEN IrNotSup "empty expression": IrT = "i32": typ = LONGTYPE - ISPOINTER: IrEval$ = IrI32$(0): EXIT FUNCTION
+
+    typ = bty(1): IF bop(1) THEN typ = bty(2)
+    i = 1
+    DO WHILE i <= nb
+        IF bop(i) THEN
+            o$ = blk(i)
+            isop = isoperator(o$)
+            u = operatorusage(o$, typ, info$, lhs, rhs, result)
+            unary = (u = 5)
+            newtyp = bty(i + 1): rr$ = blk(i + 1): rq$ = bq(i + 1)
+            IF unary THEN
+                oldtyp = newtyp: lr$ = "": lq$ = ""
+            ELSE
+                oldtyp = typ: lr$ = blk(i - 1): lq$ = bq(i - 1)
+            END IF
+            'STEP 1: conversions demanded by the operator
+            IF unary = 0 AND (oldtyp AND ISSTRING) = 0 THEN
+                IF oldtyp AND ISFLOAT THEN
+                    IF (lhs AND 2) = 0 THEN lr$ = IrCvt$(lr$, lq$, "i64"): lq$ = "i64": oldtyp = 64&
+                ELSE
+                    IF (lhs AND 1) = 0 THEN lr$ = IrCvt$(lr$, lq$, "f80"): lq$ = "f80": oldtyp = 256& + ISFLOAT
+                END IF
+            END IF
+            IF (newtyp AND ISSTRING) = 0 THEN
+                IF newtyp AND ISFLOAT THEN
+                    IF (rhs AND 2) = 0 THEN rr$ = IrCvt$(rr$, rq$, "i64"): rq$ = "i64": newtyp = 64&
+                ELSE
+                    IF (rhs AND 1) = 0 THEN rr$ = IrCvt$(rr$, rq$, "f80"): rq$ = "f80": newtyp = 256& + ISFLOAT
+                END IF
+            END IF
+            IF unary THEN oldtyp = newtyp
+            IF isop = 7 AND unary = 0 THEN
+                IF (oldtyp AND ISFLOAT) <> 0 AND (newtyp AND ISFLOAT) <> 0 THEN
+                    s1 = oldtyp AND 511: s2 = newtyp AND 511
+                    IF s2 < s1 THEN s1 = s2
+                    IF s1 = 32 THEN
+                        lr$ = IrCvt$(lr$, lq$, "f32"): lq$ = "f32": oldtyp = 32& + ISFLOAT
+                        rr$ = IrCvt$(rr$, rq$, "f32"): rq$ = "f32": newtyp = 32& + ISFLOAT
+                    END IF
+                    IF s1 = 64 THEN
+                        lr$ = IrCvt$(lr$, lq$, "f64"): lq$ = "f64": oldtyp = 64& + ISFLOAT
+                        rr$ = IrCvt$(rr$, rq$, "f64"): rq$ = "f64": newtyp = 64& + ISFLOAT
+                    END IF
+                END IF
+            END IF
+            'STEP 2: markup of the QB type (same rules as evaluate$)
+            typ = newtyp
+            IF (oldtyp AND ISSTRING) = 0 AND (newtyp AND ISSTRING) = 0 THEN
+                IF (oldtyp AND ISFLOAT) <> 0 OR (newtyp AND ISFLOAT) <> 0 THEN
+                    b = 0: IF (oldtyp AND ISFLOAT) THEN b = oldtyp AND 511
+                    IF (newtyp AND ISFLOAT) THEN
+                        b2 = newtyp AND 511: IF b2 > b THEN b = b2
+                    END IF
+                    typ = ISFLOAT + b
+                ELSE
+                    b = oldtyp AND 511: b2 = newtyp AND 511: IF b2 > b THEN b = b2
+                    typ = 64&
+                    IF b = 64 THEN
+                        IF (oldtyp AND ISUNSIGNED) <> 0 AND (newtyp AND ISUNSIGNED) <> 0 THEN typ = 64& + ISUNSIGNED
+                    END IF
+                END IF
+            END IF
+            IF (oldtyp AND ISOFFSET) <> 0 OR (newtyp AND ISOFFSET) <> 0 THEN IrNotSup "_OFFSET arithmetic"
+            IF result = 1 THEN
+                IF (typ AND ISFLOAT) <> 0 OR (typ AND ISSTRING) <> 0 THEN typ = 64
+            END IF
+            IF result = 2 THEN
+                IF (typ AND ISFLOAT) = 0 THEN typ = ISFLOAT + 256
+            END IF
+            IF result = 4 THEN typ = ISSTRING
+            IF result = 8 THEN typ = 32
+            IF u = 2 AND info$ = "pow2" THEN
+                b = oldtyp AND 511
+                IF (oldtyp AND ISFLOAT) = 0 THEN
+                    IF b > 16 THEN b = 64
+                    IF b > 32 THEN b = 256
+                    IF b <= 16 THEN b = 32
+                END IF
+                b2 = newtyp AND 511
+                IF newtyp AND ISFLOAT THEN
+                    IF b2 > b THEN b = b2
+                ELSE
+                    b3 = 32
+                    IF b2 > 16 THEN b3 = 64
+                    IF b2 > 32 THEN b3 = 256
+                    IF b3 > b THEN b = b3
+                END IF
+                typ = ISFLOAT + b
+            END IF
+            'STEP 3: apply
+            d$ = ""
+            SELECT CASE u
+                CASE 5
+                    IF info$ = "-" THEN
+                        d$ = IrReg$: q$ = IrPromote$(rq$)
+                        rr$ = IrCvt$(rr$, rq$, q$)
+                        IrE "neg." + q$ + " " + d$ + " " + rr$: IrT = q$
+                    ELSE
+                        d$ = IrReg$: q$ = IrPromote$(rq$)
+                        rr$ = IrCvt$(rr$, rq$, q$)
+                        IrE "not." + q$ + " " + d$ + " " + rr$: IrT = q$
+                    END IF
+                CASE 1
+                    SELECT CASE info$
+                        CASE "+": op$ = "add"
+                        CASE "-": op$ = "sub"
+                        CASE "*": op$ = "mul"
+                        CASE "/ ": op$ = "div"
+                        CASE "%": op$ = "mod"
+                        CASE "^": op$ = "xor"
+                        CASE "|": op$ = "or"
+                        CASE "&": op$ = "and"
+                        CASE ELSE: IrNotSup "operator " + info$: op$ = "add"
+                    END SELECT
+                    d$ = IrArith$(op$, lr$, lq$, rr$, rq$)
+                CASE 2
+                    SELECT CASE info$
+                        CASE "pow2"
+                            lr$ = IrCvt$(lr$, lq$, "f80"): rr$ = IrCvt$(rr$, rq$, "f80")
+                            d$ = IrReg$: IrE "pow.f80 " + d$ + " " + lr$ + " " + rr$: IrT = "f80"
+                        CASE "qbs_add"
+                            d$ = IrReg$: IrE "concat " + d$ + " " + lr$ + " " + rr$: IrT = "str"
+                        CASE "qbs_equal": d$ = IrCmp$("eq", lr$, "str", rr$, "str")
+                        CASE "qbs_notequal": d$ = IrCmp$("ne", lr$, "str", rr$, "str")
+                        CASE "qbs_greaterthan": d$ = IrCmp$("gt", lr$, "str", rr$, "str")
+                        CASE "qbs_lessthan": d$ = IrCmp$("lt", lr$, "str", rr$, "str")
+                        CASE "qbs_greaterorequal": d$ = IrCmp$("ge", lr$, "str", rr$, "str")
+                        CASE "qbs_lessorequal": d$ = IrCmp$("le", lr$, "str", rr$, "str")
+                    END SELECT
+                CASE 3
+                    SELECT CASE info$
+                        CASE "==": op$ = "eq"
+                        CASE "!=": op$ = "ne"
+                        CASE "<": op$ = "lt"
+                        CASE ">": op$ = "gt"
+                        CASE "<=": op$ = "le"
+                        CASE ">=": op$ = "ge"
+                    END SELECT
+                    d$ = IrCmp$(op$, lr$, lq$, rr$, rq$)
+                CASE 4
+                    q$ = IrPromote$(lq$)
+                    lr$ = IrCvt$(lr$, lq$, q$)
+                    d$ = IrReg$: IrE "not." + q$ + " " + d$ + " " + lr$
+                    IF info$ = "|" THEN op$ = "or" ELSE op$ = "xor"
+                    d$ = IrArith$(op$, d$, q$, rr$, rq$)
+            END SELECT
+            IF d$ = "" THEN IrNotSup "operator " + o$: d$ = IrI32$(0): IrT = "i32"
+            blk(i + 1) = d$: bq(i + 1) = IrT: bty(i + 1) = typ: bop(i + 1) = 0
+            i = i + 2
+        ELSE
+            i = i + 1
+        END IF
+    LOOP
+    IrT = bq(nb)
+    IF nb = 1 THEN typ = bty(1)
+    IrEval$ = blk(nb)
+    id = saveid: currentid = savecur
+END FUNCTION
+
+'value of a$ converted to QB type targettyp the way evaluatetotyp$ does
+FUNCTION IrEvalTo$ (a$, targettyp AS LONG)
+    DIM r$, t AS LONG, tt$
+    r$ = IrEval$(a$, t)
+    tt$ = IrTy$(targettyp)
+    IF targettyp AND ISSTRING THEN tt$ = "str"
+    IF (t AND ISSTRING) <> 0 AND tt$ <> "str" THEN IrNotSup "string used as a number"
+    IF (t AND ISSTRING) = 0 AND tt$ = "str" THEN IrNotSup "number used as a string"
+    r$ = IrCvt$(r$, IrT, tt$)
+    IrT = tt$
+    IrEvalTo$ = r$
+END FUNCTION
+
+'condition (IF/WHILE/...): integer register
+FUNCTION IrCond$ (a$)
+    DIM r$, t AS LONG, z$, d$
+    r$ = IrEval$(a$, t)
+    IF IrIsFloat(IrT) THEN
+        z$ = IrConst$(IrT, "0")
+        d$ = IrReg$: IrE "ne." + IrT + " " + d$ + " " + r$ + " " + z$
+        r$ = d$: IrT = "i32"
+    END IF
+    IrCond$ = r$
+END FUNCTION
+
+'================================================================ calls
+
+'passes one argument to parameter type pt (BYREF: address of a variable of the
+'same type, otherwise of a temporary holding the converted value)
+FUNCTION IrByRefArg$ (e$, pt AS LONG, ptsize AS LONG)
+    DIM p$, t AS LONG, st$, tmp$, r$
+    IrQuiet = -1
+    p$ = IrPlace$(e$, t)
+    IrQuiet = 0
+    IF pt AND ISARRAY THEN
+        IF LEFT$(p$, 1) = "A" THEN IrByRefArg$ = IrAddr$(p$): EXIT FUNCTION
+        IrNotSup "expected array argument": IrByRefArg$ = IrConst$("ptr", "0"): EXIT FUNCTION
+    END IF
+    st$ = IrSTy$(pt, ptsize)
+    IF LEN(p$) THEN
+        IF LEFT$(p$, 1) <> "A" AND IrPlaceSTy$(p$) = st$ THEN IrByRefArg$ = IrAddr$(p$): EXIT FUNCTION
+    END IF
+    IF LEFT$(st$, 4) = "udt:" THEN IrNotSup "UDT argument type mismatch"
+    r$ = IrEvalTo$(e$, pt)
+    tmp$ = IrTemp$(st$)
+    p$ = "V" + CHR$(2) + tmp$ + CHR$(2) + st$
+    IrStore p$, r$
+    IrByRefArg$ = IrAddr$(p$)
+END FUNCTION
+
+'user SUB/FUNCTION call; args$ raw elements joined with CHR$(0) per argument
+FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
+    DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, rt$
+    DIM sv(1 TO 100) AS STRING
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    nm$ = LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    FOR k = 1 TO ids(idn).args
+        pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
+        ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
+        IF k > nargs THEN IrNotSup "missing argument": EXIT FOR
+        regs$ = regs$ + " " + IrByRefArg$(sv(k), pt, ps)
+    NEXT
+    IF ids(idn).subfunc = 1 THEN
+        rt$ = IrTy$(ids(idn).ret)
+        d$ = IrReg$
+        IrE "call " + d$ + " " + nm$ + regs$
+        IrT = rt$
+    ELSE
+        IrE "call " + nm$ + regs$
+    END IF
+    IrUserCall$ = d$
+END FUNCTION
+
+'one numeric/string argument converted to QIR type t$
+FUNCTION IrArgAs$ (e$, t$)
+    DIM r$, ty AS LONG
+    r$ = IrEval$(e$, ty)
+    IF t$ = "str" OR IrT = "str" THEN
+        IF t$ <> IrT THEN IrNotSup "argument type mismatch"
+        IrArgAs$ = r$: EXIT FUNCTION
+    END IF
+    IrArgAs$ = IrCvt$(r$, IrT, t$)
+    IrT = t$
+END FUNCTION
+
+FUNCTION IrRt$ (nm$, args$, rt$)
+    DIM d$
+    IF LEN(rt$) THEN d$ = IrReg$: IrE "rt " + d$ + " " + nm$ + args$: IrT = rt$ ELSE IrE "rt " + nm$ + args$
+    IrRt$ = d$
+END FUNCTION
+
+'suffix for overloaded numeric builtins chosen by QB type
+FUNCTION IrNumSfx$ (t AS LONG)
+    IF t AND ISFLOAT THEN
+        IF (t AND 511) = 32 THEN IrNumSfx$ = "f32" ELSE IF (t AND 511) = 64 THEN IrNumSfx$ = "f64" ELSE IrNumSfx$ = "f80"
+    ELSE
+        IF (t AND 511) = 64 AND (t AND ISUNSIGNED) <> 0 THEN IrNumSfx$ = "u64" ELSE IrNumSfx$ = "i64"
+    END IF
+END FUNCTION
+
+FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
+    DIM nargs AS LONG, nm$, r$, t AS LONG, s$, k AS LONG, x$, y$, z$, sx$
+    DIM sv(1 TO 100) AS STRING
+    nargs = IrSplitArgs(a$)
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    typ = ids(idn).ret
+    IF typ AND ISPOINTER THEN typ = typ - ISPOINTER
+    IF ids(idn).internal_subfunc = 0 THEN
+        FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+        IrCallFunc$ = IrUserCall$(idn, nargs)
+        EXIT FUNCTION
+    END IF
+    nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
+    SELECT CASE nm$
+        CASE "LEN"
+            IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
+            IF LEN(x$) THEN
+                IF (t AND ISSTRING) = 0 THEN
+                    IrCallFunc$ = IrI32$(IrSize&(IrPlaceSTy$(x$))): IrT = "i32": EXIT FUNCTION
+                END IF
+            END IF
+            r$ = IrRt$("LEN", " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "LEFT$", "RIGHT$"
+            x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "i32")
+            r$ = IrRt$(nm$, " " + x$ + " " + y$, "str")
+        CASE "MID$"
+            x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "i32")
+            IF nargs >= 3 THEN
+                IF LEN(sv(3)) THEN z$ = IrArgAs$(sv(3), "i32"): r$ = IrRt$("MID$.n", " " + x$ + " " + y$ + " " + z$, "str"): GOTO irfdone
+            END IF
+            r$ = IrRt$("MID$", " " + x$ + " " + y$, "str")
+        CASE "CHR$", "SPACE$"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "str")
+        CASE "ASC"
+            x$ = IrArgAs$(sv(1), "str")
+            IF nargs >= 2 THEN
+                y$ = IrArgAs$(sv(2), "i32"): r$ = IrRt$("ASC.n", " " + x$ + " " + y$, "i32")
+            ELSE
+                r$ = IrRt$("ASC", " " + x$, "i32")
+            END IF
+        CASE "STR$"
+            x$ = IrEval$(sv(1), t)
+            sx$ = IrNumSfx$(t)
+            x$ = IrCvt$(x$, IrT, sx$)
+            r$ = IrRt$("STR$." + sx$, " " + x$, "str")
+        CASE "VAL"
+            r$ = IrRt$("VAL", " " + IrArgAs$(sv(1), "str"), "f64")
+            IF IrTy$(typ) = "f80" THEN r$ = IrCvt$(r$, "f64", "f80"): IrT = "f80"
+        CASE "INSTR", "_INSTRREV"
+            IF nargs = 3 THEN
+                x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "str"): z$ = IrArgAs$(sv(3), "str")
+                r$ = IrRt$(nm$ + ".n", " " + x$ + " " + y$ + " " + z$, "i32")
+            ELSE
+                x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "str")
+                r$ = IrRt$(nm$, " " + x$ + " " + y$, "i32")
+            END IF
+        CASE "UCASE$", "LCASE$", "LTRIM$", "RTRIM$", "_TRIM$"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "str")
+        CASE "STRING$"
+            x$ = IrArgAs$(sv(1), "i32")
+            y$ = IrEval$(sv(2), t)
+            IF IrT = "str" THEN
+                r$ = IrRt$("STRING$.s", " " + x$ + " " + y$, "str")
+            ELSE
+                y$ = IrCvt$(y$, IrT, "i32")
+                r$ = IrRt$("STRING$", " " + x$ + " " + y$, "str")
+            END IF
+        CASE "HEX$", "OCT$", "_BIN$"
+            x$ = IrEval$(sv(1), t)
+            IF IrIsFloat(IrT) THEN x$ = IrCvt$(x$, IrT, "i64"): IrT = "i64": t = INTEGER64TYPE - ISPOINTER
+            IF (t AND 511) <= 16 AND (t AND ISFLOAT) = 0 THEN
+                x$ = IrCvt$(x$, IrT, "u16"): IrT = "u16"
+            ELSEIF (t AND 511) <= 32 AND (t AND ISFLOAT) = 0 THEN
+                x$ = IrCvt$(x$, IrT, "u32"): IrT = "u32"
+            END IF
+            x$ = IrCvt$(x$, IrT, "i64")
+            IF nm$ = "_BIN$" THEN nm$ = "BIN$"
+            r$ = IrRt$(nm$, " " + x$, "str")
+        CASE "ABS"
+            x$ = IrEval$(sv(1), t)
+            IF IrIsFloat(IrT) THEN
+                r$ = IrRt$("ABS." + IrT, " " + x$, IrT)
+            ELSE
+                sx$ = IrT: x$ = IrCvt$(x$, IrT, "i64")
+                r$ = IrRt$("ABS.i64", " " + x$, "i64")
+                r$ = IrCvt$(r$, "i64", sx$): IrT = sx$
+            END IF
+            typ = t
+        CASE "SGN"
+            x$ = IrEval$(sv(1), t)
+            IF IrIsFloat(IrT) THEN
+                IF IrT = "f80" THEN sx$ = "f80" ELSE sx$ = "f64"
+                x$ = IrCvt$(x$, IrT, sx$)
+                r$ = IrRt$("SGN." + sx$, " " + x$, "i32")
+            ELSE
+                x$ = IrCvt$(x$, IrT, "i64")
+                r$ = IrRt$("SGN.i64", " " + x$, "i32")
+            END IF
+        CASE "INT", "FIX"
+            x$ = IrEval$(sv(1), t)
+            IF IrIsFloat(IrT) THEN
+                r$ = IrRt$(nm$ + "." + IrT, " " + x$, IrT)
+            ELSE
+                r$ = x$
+            END IF
+            typ = t
+        CASE "SQR", "SIN", "COS", "TAN", "ATN", "LOG", "EXP"
+            x$ = IrEval$(sv(1), t)
+            sx$ = IrT
+            x$ = IrCvt$(x$, IrT, "f64")
+            r$ = IrRt$(nm$, " " + x$, "f64")
+            'QB-like result type: single for <= INTEGER/SINGLE arguments
+            IF t AND ISFLOAT THEN
+                IF (t AND 511) = 32 THEN r$ = IrCvt$(r$, "f64", "f32"): IrT = "f32"
+                IF (t AND 511) = 256 THEN r$ = IrCvt$(r$, "f64", "f80"): IrT = "f80"
+                typ = t
+            ELSE
+                IF (t AND 511) <= 16 THEN
+                    r$ = IrCvt$(r$, "f64", "f32"): IrT = "f32": typ = SINGLETYPE - ISPOINTER
+                ELSE
+                    typ = DOUBLETYPE - ISPOINTER
+                END IF
+            END IF
+        CASE "CINT", "CLNG", "CSNG", "CDBL", "_ROUND"
+            x$ = IrEval$(sv(1), t)
+            r$ = IrCvt$(x$, IrT, IrTy$(typ)): IrT = IrTy$(typ)
+        CASE "RND"
+            IF nargs >= 1 THEN
+                IF LEN(sv(1)) THEN r$ = IrRt$("RND.n", " " + IrArgAs$(sv(1), "f64"), "f32"): GOTO irfdone
+            END IF
+            r$ = IrRt$("RND", "", "f32")
+        CASE "TIMER"
+            IF nargs >= 1 THEN
+                IF LEN(sv(1)) THEN r$ = IrRt$("TIMER.n", " " + IrArgAs$(sv(1), "f64"), "f64") ELSE r$ = IrRt$("TIMER", "", "f64")
+            ELSE
+                r$ = IrRt$("TIMER", "", "f64")
+            END IF
+        CASE "ERR", "ERL", "_ERRORLINE", "FREEFILE", "POS", "CSRLIN"
+            IF nm$ = "POS" THEN
+                IF nargs >= 1 THEN x$ = IrArgAs$(sv(1), "i32")
+            END IF
+            r$ = IrRt$(nm$, "", "i32")
+        CASE "INKEY$", "COMMAND$", "DATE$", "TIME$"
+            r$ = IrRt$(nm$, "", "str")
+        CASE "ENVIRON$"
+            x$ = IrEval$(sv(1), t)
+            IF IrT = "str" THEN r$ = IrRt$("ENVIRON$", " " + x$, "str") ELSE r$ = IrRt$("ENVIRON$.n", " " + IrCvt$(x$, IrT, "i32"), "str")
+        CASE "EOF"
+            r$ = IrRt$("EOF", " " + IrArgAs$(sv(1), "i32"), "i32")
+        CASE "LOF", "LOC", "SEEK"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "i64")
+        CASE "INPUT$"
+            x$ = IrArgAs$(sv(1), "i32")
+            IF nargs >= 2 THEN
+                IF getelement$(sv(2), 1) = "#" THEN sv(2) = getelements$(sv(2), 2, numelements(sv(2)))
+                y$ = IrArgAs$(sv(2), "i32")
+            ELSE
+                y$ = IrI32$(0)
+            END IF
+            r$ = IrRt$("INPUT$", " " + x$ + " " + y$, "str")
+        CASE "_FILEEXISTS", "_DIREXISTS"
+            r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "MKI$": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i16"), "str")
+        CASE "MKL$": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "i32"), "str")
+        CASE "MKS$", "MKSMBF$": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "f32"), "str")
+        CASE "MKD$", "MKDMBF$": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "f64"), "str")
+        CASE "CVI": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i16")
+        CASE "CVL": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "CVS", "CVSMBF": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "f32")
+        CASE "CVD", "CVDMBF": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "f64")
+        CASE "SHELL", "_SHELLHIDE"
+            r$ = IrRt$("SHELL", " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "_STRCMP", "_STRICMP"
+            x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "str")
+            r$ = IrRt$(nm$, " " + x$ + " " + y$, "i32")
+        CASE "_CWD$", "_STARTDIR$"
+            r$ = IrRt$(nm$, "", "str")
+        CASE "_MK$", "_CV"
+            t = typname2typ(UCASE$(sv(1)))
+            IF t AND ISPOINTER THEN t = t - ISPOINTER
+            sx$ = IrTy$(t)
+            SELECT CASE sx$
+                CASE "i16": z$ = "I"
+                CASE "i32": z$ = "L"
+                CASE "f32": z$ = "S"
+                CASE "f64": z$ = "D"
+                CASE "i64": z$ = "i64"
+                CASE ELSE: z$ = ""
+            END SELECT
+            IF z$ = "" THEN IrNotSup nm$ + " of " + sv(1): r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF nm$ = "_MK$" THEN
+                x$ = IrArgAs$(sv(2), sx$)
+                IF z$ = "i64" THEN r$ = IrRt$("_MK$.i64", " " + x$, "str") ELSE r$ = IrRt$("MK" + z$ + "$", " " + x$, "str")
+            ELSE
+                x$ = IrArgAs$(sv(2), "str")
+                IF z$ = "i64" THEN r$ = IrRt$("_CV.i64", " " + x$, "i64") ELSE r$ = IrRt$("CV" + z$, " " + x$, sx$)
+                typ = t
+            END IF
+        CASE "LBOUND", "UBOUND"
+            IrQuiet = -1: x$ = IrPlace$(sv(1) + sp + "(" + sp + ")", t): IrQuiet = 0
+            IF LEFT$(x$, 1) <> "A" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF nargs >= 2 THEN y$ = IrArgAs$(sv(2), "i32") ELSE y$ = IrI32$(1)
+            r$ = IrReg$
+            IrE LCASE$(nm$) + " " + r$ + " " + IrPart$(x$, 2) + " " + y$
+            IrT = "i32"
+        CASE ELSE
+            IrNotSup "function " + nm$
+            r$ = IrI32$(0): IrT = "i32"
+    END SELECT
+    irfdone:
+    IF IrT <> IrTy$(typ) AND (typ AND ISSTRING) = 0 THEN
+        IF IrT = "str" THEN
+            IrNotSup "type of " + nm$
+        ELSEIF IrIsFloat(IrT) = 0 OR IrIsFloat(IrTy$(typ)) = 0 OR nm$ = "ABS" OR nm$ = "INT" OR nm$ = "FIX" THEN
+            'keep the C type of the value
+        END IF
+    END IF
+    IrCallFunc$ = r$
+END FUNCTION
+
+'================================================================ statements
+
+'assignment: lhs$ fixed target, rhs$ raw expression
+SUB IrAssign (lhs$, rhs$)
+    DIM p$, t AS LONG, r$, e$, st$, t2 AS LONG, q$
+    p$ = IrPlace$(lhs$, t)
+    IF p$ = "" THEN EXIT SUB
+    e$ = fixoperationorder$(rhs$)
+    st$ = IrPlaceSTy$(p$)
+    IF LEFT$(st$, 4) = "udt:" THEN
+        q$ = IrPlace$(e$, t2)
+        IF q$ = "" THEN EXIT SUB
+        IrE "copy " + IrAddr$(p$) + " " + IrAddr$(q$) + " " + str2$(IrSize&(st$))
+        EXIT SUB
+    END IF
+    IF LEFT$(st$, 5) = "fstr:" THEN t = ISSTRING
+    r$ = IrEvalTo$(e$, t)
+    IrStore p$, r$
+END SUB
+
+'PRINT item: a fixed string expression
+SUB IrPrintStr (ch$, e$)
+    DIM r$
+    r$ = IrEvalTo$(e$, ISSTRING)
+    IrE "rt PRINTS " + IrI32$(VAL(ch$)) + " " + r$
+END SUB
+
+SUB IrRtCh (nm$, ch$)
+    IrE "rt " + nm$ + " " + IrI32$(VAL(ch$))
+END SUB
+
+'PRINT USING item (fixed expression)
+SUB IrUsingItem (e$)
+    DIM r$, t AS LONG, sx$
+    r$ = IrEval$(e$, t)
+    IF t AND ISSTRING THEN
+        IrE "rt USINGS " + r$
+    ELSE
+        sx$ = IrNumSfx$(t)
+        r$ = IrCvt$(r$, IrT, sx$)
+        IrE "rt USINGN." + sx$ + " " + r$
+    END IF
+END SUB
+
+'ON expr GOTO/GOSUB
+SUB IrOnStart (e$)
+    DIM r$
+    r$ = IrEvalTo$(e$, LONGTYPE - ISPOINTER)
+    IrFix3 = IrTemp$("i32")
+    IrE "store.i32 " + IrFix3 + " " + r$
+END SUB
+
+SUB IrOnItem (g AS LONG, ln AS LONG, l$, u$)
+    DIM x$, c$
+    x$ = IrReg$: IrE "load.i32 " + x$ + " " + IrFix3
+    c$ = IrCmp$("eq", x$, "i32", IrI32$(ln), "i32")
+    IF g THEN
+        IrE "jz " + c$ + " ~O" + u$ + "." + str2$(ln)
+        IrE "gosub " + IrLbl$(l$)
+        IrE "jmp ~O" + u$ + ".S"
+        IrE "label ~O" + u$ + "." + str2$(ln)
+    ELSE
+        IrE "jnz " + c$ + " " + IrLbl$(l$)
+    END IF
+END SUB
+
+SUB IrOnEnd (g AS LONG, u$)
+    DIM x$, c$
+    x$ = IrReg$: IrE "load.i32 " + x$ + " " + IrFix3
+    c$ = IrCmp$("lt", x$, "i32", IrI32$(0), "i32")
+    IrE "jz " + c$ + " ~O" + u$ + ".S"
+    IrE "error " + IrI32$(5)
+    IrE "label ~O" + u$ + ".S"
+END SUB
+
+'READ target (fixed)
+SUB IrRead (e$)
+    DIM p$, t AS LONG, rt$, d$
+    p$ = IrPlace$(e$, t)
+    IF p$ = "" THEN EXIT SUB
+    rt$ = IrRegOf$(IrPlaceSTy$(p$))
+    d$ = IrReg$
+    IrE "read." + rt$ + " " + d$
+    IrStore p$, d$
+END SUB
+
+'DIM/REDIM statement for id idn; elements$ raw bounds ("" = not an array)
+SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
+    DIM nm$, k$, aid AS LONG, p$, t AS LONG, saveid AS idstruct, savecur AS LONG
+    aid = idn0
+    IF aid >= 1 AND aid <= idn THEN
+        IF ids(aid).arraytype = 0 AND LEN(elements$) THEN aid = 0
+    ELSE
+        aid = 0
+    END IF
+    IF LEN(elements$) = 0 OR LEFT$(elements$, 1) = "?" THEN
+        IF aid THEN nm$ = IrVar$(aid)
+        EXIT SUB
+    END IF
+    IF aid = 0 THEN
+        saveid = id: savecur = currentid
+        IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + sp + "(" + sp + ")", t): IrQuiet = 0
+        id = saveid: currentid = savecur
+        IF LEFT$(p$, 1) <> "A" THEN IrNotSup "REDIM of an unknown array": EXIT SUB
+        nm$ = IrPart$(p$, 2)
+    ELSE
+        nm$ = IrVar$(aid)
+    END IF
+    k$ = "dim"
+    IF redimopt = 1 THEN k$ = "redim"
+    IF redimopt = 2 THEN k$ = "redimp"
+    IrDimArray nm$, elements$, k$
+END SUB
+
+'statement call of a SUB (user or builtin); raw arguments in IrArgs()
+SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
+    DIM k AS LONG, nm$, x$, y$
+    DIM sv(1 TO 100) AS STRING
+    FOR k = 1 TO nargs
+        IF LEN(IrArgs(k)) THEN sv(k) = fixoperationorder$(IrArgs(k)) ELSE sv(k) = ""
+    NEXT
+    IF ids(idn).internal_subfunc = 0 THEN
+        FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+        x$ = IrUserCall$(idn, nargs)
+        EXIT SUB
+    END IF
+    nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
+    SELECT CASE nm$
+        CASE "CLS", "BEEP"
+            IrE "rt " + nm$
+        CASE "COLOR", "LOCATE", "_DEST", "_SOURCE", "WIDTH", "VIEW", "_DELAY", "_LIMIT", "_DISPLAY", "_TITLE", "_SCREENMOVE", "_AUTODISPLAY", "SCREEN", "_FONT", "_CONSOLETITLE", "_CONSOLE"
+            'screen state: no visible effect on redirected console output
+        CASE "SLEEP"
+            IrE "rt SLEEP " + IrI32$(0)
+        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT"
+            'lowered by IrStmtEnd
+        CASE "ERROR"
+            IrE "error " + IrArgAs$(sv(1), "i32")
+        CASE "RANDOMIZE"
+            IF passed = 3 THEN
+                IrE "rt RANDOMIZEUSING " + IrArgAs$(sv(1), "f64")
+            ELSEIF passed = 1 THEN
+                IrE "rt RANDOMIZE " + IrArgAs$(sv(1), "f64")
+            ELSE
+                IrNotSup "RANDOMIZE without a seed"
+            END IF
+        CASE "KILL", "MKDIR", "RMDIR", "CHDIR", "ENVIRON"
+            IrE "rt " + nm$ + " " + IrArgAs$(sv(1), "str")
+        CASE "SHELL"
+            x$ = IrReg$: IrE "rt " + x$ + " SHELL " + IrArgAs$(sv(1), "str")
+        CASE ELSE
+            IrNotSup "statement " + nm$
+    END SELECT
+END SUB
+
+SUB IrGoto (l$)
+    IrE "jmp " + IrLbl$(l$)
+END SUB
+
+SUB IrGosub (l$)
+    IrE "gosub " + IrLbl$(l$)
+END SUB
+
+'--- IF
+SUB IrIf (e$)
+    DIM c$, bid AS LONG
+    bid = IrNew
+    IrCtlId(controllevel) = bid: IrCtlPart(controllevel) = 1
+    c$ = IrCond$(e$)
+    IrE "jz " + c$ + " ~I" + str2$(bid) + ".1"
+END SUB
+
+SUB IrElseIf (e$)
+    DIM c$, bid AS LONG, p AS LONG
+    bid = IrCtlId(controllevel): p = IrCtlPart(controllevel)
+    IrE "jmp ~I" + str2$(bid) + ".E"
+    IrE "label ~I" + str2$(bid) + "." + str2$(p)
+    p = p + 1: IrCtlPart(controllevel) = p
+    c$ = IrCond$(e$)
+    IrE "jz " + c$ + " ~I" + str2$(bid) + "." + str2$(p)
+END SUB
+
+SUB IrElse
+    DIM bid AS LONG
+    bid = IrCtlId(controllevel)
+    IrE "jmp ~I" + str2$(bid) + ".E"
+    IrE "label ~I" + str2$(bid) + "." + str2$(IrCtlPart(controllevel))
+    IrCtlPart(controllevel) = 0
+END SUB
+
+SUB IrEndIf
+    DIM bid AS LONG
+    bid = IrCtlId(controllevel)
+    IF IrCtlPart(controllevel) THEN IrE "label ~I" + str2$(bid) + "." + str2$(IrCtlPart(controllevel))
+    IrE "label ~I" + str2$(bid) + ".E"
+END SUB
+
+'--- loops (labels use controlid)
+SUB IrWhile (cid AS LONG, e$, untl AS LONG)
+    DIM c$
+    IrE "label ~W" + str2$(cid) + ".C"
+    c$ = IrCond$(e$)
+    IF untl THEN IrE "jnz " + c$ + " ~W" + str2$(cid) + ".X" ELSE IrE "jz " + c$ + " ~W" + str2$(cid) + ".X"
+END SUB
+
+SUB IrDo (cid AS LONG)
+    IrE "label ~W" + str2$(cid) + ".T"
+END SUB
+
+'LOOP [WHILE|UNTIL] (kind 0 none, 1 while, 2 until); pre = DO had the test
+SUB IrLoop (cid AS LONG, kind AS LONG, e$, pre AS LONG)
+    DIM c$
+    IF pre THEN
+        IrE "jmp ~W" + str2$(cid) + ".C"
+    ELSE
+        IrE "label ~W" + str2$(cid) + ".C"
+        IF kind = 0 THEN
+            IrE "jmp ~W" + str2$(cid) + ".T"
+        ELSE
+            c$ = IrCond$(e$)
+            IF kind = 1 THEN IrE "jnz " + c$ + " ~W" + str2$(cid) + ".T" ELSE IrE "jz " + c$ + " ~W" + str2$(cid) + ".T"
+        END IF
+    END IF
+    IrE "label ~W" + str2$(cid) + ".X"
+END SUB
+
+'--- FOR: var$ fixed variable, ctyp loop type (C++ markup), raw start/final/step
+SUB IrFor (cid AS LONG, var$, ctyp AS LONG, st$, fi$, sp$)
+    DIM p$, t AS LONG, ct$, vv$, ff$, ss$, r$, x$, z$, c$, n$
+    p$ = IrPlace$(var$, t)
+    IF p$ = "" THEN EXIT SUB
+    ct$ = IrTy$(ctyp)
+    n$ = str2$(cid)
+    vv$ = IrTemp$(ct$): ff$ = IrTemp$(ct$): ss$ = IrTemp$(ct$)
+    IrCtlVar(controllevel) = p$ + CHR$(3) + vv$ + CHR$(3) + ff$ + CHR$(3) + ss$ + CHR$(3) + ct$
+    r$ = IrEvalTo$(fixoperationorder$(st$), ctyp): IrE "store." + ct$ + " " + vv$ + " " + r$
+    r$ = IrEvalTo$(fixoperationorder$(fi$), ctyp): IrE "store." + ct$ + " " + ff$ + " " + r$
+    r$ = IrEvalTo$(fixoperationorder$(sp$), ctyp): IrE "store." + ct$ + " " + ss$ + " " + r$
+    IrE "jmp ~F" + n$ + ".E"
+    IrE "label ~F" + n$ + ".T"
+    x$ = IrLoad$(p$)
+    x$ = IrCvt$(x$, IrT, ct$)
+    r$ = IrReg$: IrE "load." + ct$ + " " + r$ + " " + ss$
+    z$ = IrReg$: IrE "add." + ct$ + " " + z$ + " " + r$ + " " + x$
+    IrE "store." + ct$ + " " + vv$ + " " + z$
+    IrE "label ~F" + n$ + ".E"
+    r$ = IrReg$: IrE "load." + ct$ + " " + r$ + " " + vv$
+    IrStore p$, IrTrunc$(r$, ct$, IrRegOf$(IrPlaceSTy$(p$)))
+    x$ = IrReg$: IrE "load." + ct$ + " " + x$ + " " + ss$
+    z$ = IrConst$(ct$, "0")
+    c$ = IrReg$: IrE "lt." + ct$ + " " + c$ + " " + x$ + " " + z$
+    IrE "jz " + c$ + " ~F" + n$ + ".P"
+    x$ = IrReg$: IrE "load." + ct$ + " " + x$ + " " + ff$
+    c$ = IrReg$: IrE "lt." + ct$ + " " + c$ + " " + r$ + " " + x$
+    IrE "jnz " + c$ + " ~F" + n$ + ".X"
+    IrE "jmp ~F" + n$ + ".B"
+    IrE "label ~F" + n$ + ".P"
+    x$ = IrReg$: IrE "load." + ct$ + " " + x$ + " " + ff$
+    c$ = IrReg$: IrE "gt." + ct$ + " " + c$ + " " + r$ + " " + x$
+    IrE "jnz " + c$ + " ~F" + n$ + ".X"
+    IrE "label ~F" + n$ + ".B"
+END SUB
+
+SUB IrNext (cid AS LONG)
+    IrE "label ~F" + str2$(cid) + ".C"
+    IrE "jmp ~F" + str2$(cid) + ".T"
+    IrE "label ~F" + str2$(cid) + ".X"
+END SUB
+
+'--- SELECT CASE
+SUB IrSelect (e$, cid AS LONG)
+    DIM r$, t AS LONG, nm$, bid AS LONG
+    bid = cid
+    IrCtlId(controllevel) = bid: IrCtlPart(controllevel) = 0
+    r$ = IrEval$(e$, t)
+    nm$ = IrTemp$(IrT)
+    IrE "store." + IrT + " " + nm$ + " " + r$
+    IrCtlVar(controllevel) = nm$ + CHR$(3) + IrT + CHR$(3) + str2$(t)
+END SUB
+
+'CASE: raw text after CASE (comma separated items)
+SUB IrCase (raw$, everycase AS LONG, iselse AS LONG)
+    DIM bid AS LONG, p AS LONG, nm$, st$, c AS LONG, k AS LONG, it$, acc$, one$, x$, y$, t AS LONG, op$, i AS LONG, n AS LONG, sty AS LONG
+    DIM sv(1 TO 100) AS STRING
+    bid = IrCtlId(controllevel): p = IrCtlPart(controllevel)
+    nm$ = IrPart$(IrCtlVar(controllevel) + CHR$(3), 1)
+    nm$ = LEFT$(IrCtlVar(controllevel), INSTR(IrCtlVar(controllevel), CHR$(3)) - 1)
+    st$ = MID$(IrCtlVar(controllevel), LEN(nm$) + 2)
+    sty = VAL(MID$(st$, INSTR(st$, CHR$(3)) + 1))
+    st$ = LEFT$(st$, INSTR(st$, CHR$(3)) - 1)
+    IF p > 0 THEN
+        IF everycase = 0 THEN IrE "jmp ~S" + str2$(bid) + ".E"
+        IrE "label ~S" + str2$(bid) + "." + str2$(p)
+    END IF
+    p = p + 1: IrCtlPart(controllevel) = p
+    IF iselse THEN
+        IF everycase THEN
+            x$ = IrReg$: IrE "load.i32 " + x$ + " $~SM" + str2$(bid)
+            IrE "jnz " + x$ + " ~S" + str2$(bid) + "." + str2$(p)
+        END IF
+        EXIT SUB
+    END IF
+    c = IrSplitArgs(raw$)
+    FOR k = 1 TO c: sv(k) = IrArgs(k): NEXT
+    acc$ = ""
+    FOR k = 1 TO c
+        it$ = sv(k)
+        n = numelements(it$)
+        one$ = ""
+        IF UCASE$(getelement$(it$, 1)) = "IS" THEN
+            op$ = getelement$(it$, 2)
+            SELECT CASE op$
+                CASE "=": op$ = "eq"
+                CASE "<>": op$ = "ne"
+                CASE "<": op$ = "lt"
+                CASE ">": op$ = "gt"
+                CASE "<=": op$ = "le"
+                CASE ">=": op$ = "ge"
+            END SELECT
+            x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
+            y$ = IrEval$(fixoperationorder$(getelements$(it$, 3, n)), t)
+            one$ = IrCmp$(op$, x$, st$, y$, IrT)
+        ELSE
+            i = 0
+            FOR k2 = 1 TO n
+                IF UCASE$(getelement$(it$, k2)) = "TO" THEN i = k2: EXIT FOR
+            NEXT
+            IF i THEN
+                x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
+                y$ = IrEval$(fixoperationorder$(getelements$(it$, 1, i - 1)), t)
+                one$ = IrCmp$("ge", x$, st$, y$, IrT)
+                x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
+                y$ = IrEval$(fixoperationorder$(getelements$(it$, i + 1, n)), t)
+                y$ = IrCmp$("le", x$, st$, y$, IrT)
+                x$ = IrReg$: IrE "and.i32 " + x$ + " " + one$ + " " + y$
+                one$ = x$
+            ELSE
+                x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
+                y$ = IrEval$(fixoperationorder$(it$), t)
+                one$ = IrCmp$("eq", x$, st$, y$, IrT)
+            END IF
+        END IF
+        IF acc$ = "" THEN
+            acc$ = one$
+        ELSE
+            x$ = IrReg$: IrE "or.i32 " + x$ + " " + acc$ + " " + one$: acc$ = x$
+        END IF
+    NEXT
+    IrE "jz " + acc$ + " ~S" + str2$(bid) + "." + str2$(p)
+    IF everycase THEN
+        IF INSTR(IrFnDecls(IrFnCur), "|$~SM" + str2$(bid) + "|") = 0 THEN
+            IrFnDecls(IrFnCur) = IrFnDecls(IrFnCur) + "|$~SM" + str2$(bid) + "|"
+            IrHead "local $~SM" + str2$(bid) + " i32"
+        END IF
+        x$ = IrI32$(-1): IrE "store.i32 $~SM" + str2$(bid) + " " + x$
+    END IF
+END SUB
+
+SUB IrEndSelect
+    DIM bid AS LONG, p AS LONG
+    bid = IrCtlId(controllevel): p = IrCtlPart(controllevel)
+    IF p > 0 THEN IrE "label ~S" + str2$(bid) + "." + str2$(p)
+    IrE "label ~S" + str2$(bid) + ".E"
+END SUB
+
+'--- DIM / REDIM of an array: idn, raw bounds "a TO b, c"
+SUB IrDimArray (nm$, e$, kind$)
+    DIM c AS LONG, k AS LONG, it$, n AS LONG, i AS LONG, lo$, hi$, regs$, k2 AS LONG
+    DIM sv(1 TO 64) AS STRING
+    c = IrSplitArgs(e$)
+    FOR k = 1 TO c: sv(k) = IrArgs(k): NEXT
+    FOR k = 1 TO c
+        it$ = sv(k): n = numelements(it$): i = 0
+        FOR k2 = 1 TO n
+            IF UCASE$(getelement$(it$, k2)) = "TO" THEN i = k2: EXIT FOR
+        NEXT
+        IF i THEN
+            lo$ = IrIndex$(fixoperationorder$(getelements$(it$, 1, i - 1)))
+            hi$ = IrIndex$(fixoperationorder$(getelements$(it$, i + 1, n)))
+        ELSE
+            lo$ = IrConst$("i64", str2$(optionbase))
+            hi$ = IrIndex$(fixoperationorder$(it$))
+        END IF
+        regs$ = regs$ + " " + lo$ + " " + hi$
+    NEXT
+    IrE kind$ + " " + nm$ + " " + str2$(c) + regs$
+END SUB
+
+'================================================================ packaging
+
+SUB IrFinish (src$, outExe$)
+    DIM fh AS INTEGER, i AS LONG, runner$, outPath$, ir$, r$, q$, l$, top AS LONG
+    IF IrFailMsg <> "" THEN
+        PRINT "QIR: unsupported: " + IrFailMsg
+        SYSTEM 1
+    END IF
+    ir$ = tmpdir$ + "program.qir"
+    fh = FREEFILE
+    OPEN ir$ FOR OUTPUT AS #fh
+    PRINT #fh, "QIR 1"
+    IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
+        PRINT #fh, "meta console only"
+    ELSEIF Console THEN
+        PRINT #fh, "meta console"
+    END IF
+    PRINT #fh, IrMod;
+    top = 0
+    FOR i = 2 TO IrFnN
+        IF IrFnName(i) = "SUB_QBNEX_TOPLEVEL_RUNTIME0" THEN top = i
+    NEXT
+    FOR i = 1 TO IrFnN
+        IF IrFnRet(i) <> "" THEN PRINT #fh, "func " + IrFnName(i) + " -> " + IrFnRet(i) ELSE PRINT #fh, "func " + IrFnName(i)
+        PRINT #fh, IrFnHead(i);
+        PRINT #fh, IrFnBody(i);
+        IF i = 1 THEN
+            IF top THEN PRINT #fh, "call SUB_QBNEX_TOPLEVEL_RUNTIME0"
+            PRINT #fh, "end"
+        END IF
+        PRINT #fh, "endfunc"
+    NEXT
+    CLOSE #fh
+
     IF os$ = "WIN" THEN
         runner$ = "crates\qb-exec\bin\windows\qb-exec.exe"
     ELSEIF MacOSX THEN
@@ -69,7 +1646,7 @@ SUB IrCompileProgram (src$, outExe$)
     ELSE
         runner$ = "crates/qb-exec/bin/linux/qb-exec"
     END IF
-    IF _FILEEXISTS(runner$) = 0 THEN IrFail "runner not found: " + runner$ + " (build it with: cargo build --release -p qb-exec)"
+    IF _FILEEXISTS(runner$) = 0 THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
 
     outPath$ = outExe$
     IF outPath$ = "" THEN
@@ -79,6 +1656,7 @@ SUB IrCompileProgram (src$, outExe$)
     ELSEIF LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
         outPath$ = _STARTDIR$ + pathsep$ + outPath$
     END IF
+    IF outPath$ <> "" AND INSTR(UCASE$(outPath$), ".EXE") = 0 AND os$ = "WIN" THEN outPath$ = outPath$ + ".exe"
 
     fh = FREEFILE: OPEN runner$ FOR BINARY AS #fh: r$ = SPACE$(LOF(fh)): GET #fh, , r$: CLOSE #fh
     fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh
@@ -94,1237 +1672,3 @@ SUB IrCompileProgram (src$, outExe$)
     IF QuietMode = 0 THEN PRINT "QIR: wrote " + outPath$
     SYSTEM 0
 END SUB
-
-SUB IrFail (m$)
-    PRINT "QIR error: line" + STR$(IrLine) + ": " + m$
-    SYSTEM 1
-END SUB
-
-SUB IrEmit (s$)
-    PRINT #IrOut, s$
-END SUB
-
-FUNCTION IrNum$ (n AS LONG)
-    IrNum$ = LTRIM$(STR$(n))
-END FUNCTION
-
-FUNCTION IrNewId& ()
-    IrUniq = IrUniq + 1
-    IrNewId& = IrUniq
-END FUNCTION
-
-FUNCTION IrHex$ (s$)
-    DIM i AS LONG, h$
-    FOR i = 1 TO LEN(s$)
-        h$ = h$ + RIGHT$("0" + HEX$(ASC(s$, i)), 2)
-    NEXT
-    IrHex$ = h$
-END FUNCTION
-
-SUB IrResetDefaults
-    DIM i AS LONG
-    FOR i = 1 TO 26: IrDefSfx(i) = "!": NEXT
-    IrOptBase = 0
-END SUB
-
-'---------------------------------------------------------------- tokens
-
-SUB IrTokenize (l$)
-    DIM i AS LONG, n AS LONG, c$, j AS LONG, two$
-    IrTokN = 0
-    IF LEFT$(LTRIM$(l$), 1) = "$" THEN EXIT SUB 'metacommand ($CONSOLE etc.): no code in the IR spike
-    n = LEN(l$)
-    i = 1
-    DO WHILE i <= n
-        c$ = MID$(l$, i, 1)
-        IF c$ = " " OR c$ = CHR$(9) THEN
-            i = i + 1
-        ELSEIF c$ = "'" THEN
-            EXIT DO
-        ELSEIF c$ = CHR$(34) THEN
-            j = INSTR(i + 1, l$, CHR$(34))
-            IF j = 0 THEN j = n + 1
-            IrAddTok 3, MID$(l$, i + 1, j - i - 1)
-            i = j + 1
-        ELSEIF c$ = "&" AND IrCharIn%(UCASE$(MID$(l$, i + 1, 1)), "HOB") THEN
-            j = i + 2
-            DO WHILE j <= n
-                IF IrCharIn%(UCASE$(MID$(l$, j, 1)), "0123456789ABCDEF") THEN j = j + 1 ELSE EXIT DO
-            LOOP
-            IF IrCharIn%(MID$(l$, j, 1), "%&") THEN j = j + 1
-            IrAddTok 2, UCASE$(MID$(l$, i, j - i))
-            i = j
-        ELSEIF (c$ >= "0" AND c$ <= "9") OR (c$ = "." AND MID$(l$, i + 1, 1) >= "0" AND MID$(l$, i + 1, 1) <= "9") THEN
-            j = i
-            DO WHILE j <= n
-                c$ = UCASE$(MID$(l$, j, 1))
-                IF (c$ >= "0" AND c$ <= "9") OR c$ = "." THEN
-                    j = j + 1
-                ELSEIF (c$ = "E" OR c$ = "D") AND IrCharIn%(MID$(l$, j + 1, 1), "0123456789+-") THEN
-                    j = j + 2
-                ELSE
-                    EXIT DO
-                END IF
-            LOOP
-            IF IrCharIn%(MID$(l$, j, 1), "%&!#") THEN j = j + 1
-            IrAddTok 2, UCASE$(MID$(l$, i, j - i))
-            i = j
-        ELSEIF (UCASE$(c$) >= "A" AND UCASE$(c$) <= "Z") OR c$ = "_" THEN
-            j = i
-            DO WHILE j <= n
-                c$ = UCASE$(MID$(l$, j, 1))
-                IF (c$ >= "A" AND c$ <= "Z") OR (c$ >= "0" AND c$ <= "9") OR c$ = "_" OR c$ = "." THEN j = j + 1 ELSE EXIT DO
-            LOOP
-            IF IrCharIn%(MID$(l$, j, 1), "%&!#$") THEN j = j + 1
-            IF UCASE$(MID$(l$, i, j - i)) = "REM" THEN EXIT DO
-            IrAddTok 1, UCASE$(MID$(l$, i, j - i))
-            i = j
-        ELSE
-            two$ = MID$(l$, i, 2)
-            IF two$ = "<>" OR two$ = "<=" OR two$ = ">=" THEN
-                IrAddTok 4, two$: i = i + 2
-            ELSE
-                IrAddTok 4, c$: i = i + 1
-            END IF
-        END IF
-    LOOP
-END SUB
-
-'-1 when c$ is one character found in set$ (INSTR finds "" anywhere).
-FUNCTION IrCharIn% (c$, set$)
-    IF LEN(c$) = 1 THEN IF INSTR(set$, c$) > 0 THEN IrCharIn% = -1
-END FUNCTION
-
-SUB IrAddTok (t AS INTEGER, v$)
-    IrTokN = IrTokN + 1
-    IF IrTokN > UBOUND(IrTokT) THEN
-        REDIM _PRESERVE IrTokT(IrTokN * 2) AS INTEGER
-        REDIM _PRESERVE IrTokV(IrTokN * 2) AS STRING
-    END IF
-    IrTokT(IrTokN) = t
-    IrTokV(IrTokN) = v$
-END SUB
-
-'Current token text; "" at end of line; strings come back quoted so they never
-'look like keywords or punctuation.
-FUNCTION IrPeek$ ()
-    IF IrP > IrTokN THEN IrPeek$ = "": EXIT FUNCTION
-    IF IrTokT(IrP) = 3 THEN IrPeek$ = CHR$(34) + IrTokV(IrP) ELSE IrPeek$ = IrTokV(IrP)
-END FUNCTION
-
-FUNCTION IrPeekAt$ (k AS LONG)
-    IF k > IrTokN THEN IrPeekAt$ = "": EXIT FUNCTION
-    IF IrTokT(k) = 3 THEN IrPeekAt$ = CHR$(34) + IrTokV(k) ELSE IrPeekAt$ = IrTokV(k)
-END FUNCTION
-
-FUNCTION IrAccept% (v$)
-    IF IrPeek$ = v$ THEN IrP = IrP + 1: IrAccept% = -1
-END FUNCTION
-
-SUB IrExpect (v$)
-    IF IrAccept%(v$) = 0 THEN IrFail "expected " + v$ + " near '" + IrPeek$ + "'"
-END SUB
-
-FUNCTION IrAtEnd% ()
-    DIM p$
-    p$ = IrPeek$
-    IF p$ = "" OR p$ = ":" THEN IrAtEnd% = -1
-END FUNCTION
-
-FUNCTION IrIdent$ ()
-    IF IrP > IrTokN THEN IrFail "identifier expected"
-    IF IrTokT(IrP) <> 1 THEN IrFail "identifier expected near '" + IrPeek$ + "'"
-    IrIdent$ = IrTokV(IrP)
-    IrP = IrP + 1
-END FUNCTION
-
-'Index of the token after the ")" matching the "(" at token k.
-FUNCTION IrAfterParens& (k AS LONG)
-    DIM depth AS LONG, j AS LONG
-    FOR j = k TO IrTokN
-        IF IrTokT(j) = 4 THEN
-            IF IrTokV(j) = "(" THEN depth = depth + 1
-            IF IrTokV(j) = ")" THEN
-                depth = depth - 1
-                IF depth = 0 THEN IrAfterParens& = j + 1: EXIT FUNCTION
-            END IF
-        END IF
-    NEXT
-    IrAfterParens& = IrTokN + 1
-END FUNCTION
-
-'---------------------------------------------------------------- names
-
-FUNCTION IrTypeSfx$ (t$)
-    SELECT CASE t$
-        CASE "INTEGER": IrTypeSfx$ = "%"
-        CASE "LONG": IrTypeSfx$ = "&"
-        CASE "SINGLE": IrTypeSfx$ = "!"
-        CASE "DOUBLE": IrTypeSfx$ = "#"
-        CASE "STRING": IrTypeSfx$ = "$"
-        CASE ELSE: IrFail "type not supported by the IR spike: " + t$
-    END SELECT
-END FUNCTION
-
-FUNCTION IrHasSfx% (id$)
-    IrHasSfx% = IrCharIn%(RIGHT$(id$, 1), "%&!#$")
-END FUNCTION
-
-FUNCTION IrBase$ (id$)
-    IF IrHasSfx%(id$) THEN IrBase$ = LEFT$(id$, LEN(id$) - 1) ELSE IrBase$ = id$
-END FUNCTION
-
-'Default suffix from DEFtype by first letter.
-FUNCTION IrDefault$ (id$)
-    DIM c AS LONG
-    c = ASC(id$) - 64
-    IF c >= 1 AND c <= 26 THEN IrDefault$ = IrDefSfx(c) ELSE IrDefault$ = "!"
-END FUNCTION
-
-'DEFINT A-C, X ...
-SUB IrDefType (k$)
-    DIM sfx$, a$, b$, i AS LONG
-    SELECT CASE k$
-        CASE "DEFINT": sfx$ = "%"
-        CASE "DEFLNG": sfx$ = "&"
-        CASE "DEFSNG": sfx$ = "!"
-        CASE "DEFDBL": sfx$ = "#"
-        CASE "DEFSTR": sfx$ = "$"
-    END SELECT
-    DO
-        a$ = LEFT$(IrIdent$, 1)
-        b$ = a$
-        IF IrAccept%("-") THEN b$ = LEFT$(IrIdent$, 1)
-        FOR i = ASC(a$) - 64 TO ASC(b$) - 64
-            IF i >= 1 AND i <= 26 THEN IrDefSfx(i) = sfx$
-        NEXT
-        IF IrAccept%(",") = 0 THEN EXIT DO
-    LOOP
-END SUB
-
-SUB IrAddDim (n$, sfx$, irScope$)
-    IrDimN = IrDimN + 1
-    IF IrDimN > UBOUND(IrDimName) THEN
-        REDIM _PRESERVE IrDimName(IrDimN * 2) AS STRING
-        REDIM _PRESERVE IrDimSfx(IrDimN * 2) AS STRING
-        REDIM _PRESERVE IrDimScope(IrDimN * 2) AS STRING
-    END IF
-    IrDimName(IrDimN) = n$: IrDimSfx(IrDimN) = sfx$: IrDimScope(IrDimN) = irScope$
-END SUB
-
-'Suffix recorded by DIM ... AS for key$ (scalar name or "NAME()"), "" if none.
-FUNCTION IrDimLookup$ (key$)
-    DIM i AS LONG
-    FOR i = IrDimN TO 1 STEP -1
-        IF IrDimName(i) = key$ AND IrDimScope(i) = IrScope THEN IrDimLookup$ = IrDimSfx(i): EXIT FUNCTION
-    NEXT
-    FOR i = IrDimN TO 1 STEP -1
-        IF IrDimName(i) = key$ AND IrDimScope(i) = "*" THEN IrDimLookup$ = IrDimSfx(i): EXIT FUNCTION
-    NEXT
-END FUNCTION
-
-'Variable name as the runner sees it: always carries its type suffix.
-FUNCTION IrVarName$ (id$)
-    DIM s$
-    IF IrHasSfx%(id$) THEN IrVarName$ = id$: EXIT FUNCTION
-    s$ = IrDimLookup$(id$)
-    IF s$ = "" THEN s$ = IrDefault$(id$)
-    IrVarName$ = id$ + s$
-END FUNCTION
-
-'Array name as the runner sees it: NAME<suffix>().
-FUNCTION IrArrName$ (id$)
-    DIM s$
-    IF IrHasSfx%(id$) THEN IrArrName$ = id$ + "()": EXIT FUNCTION
-    s$ = IrDimLookup$(id$ + "()")
-    IF s$ = "" THEN s$ = IrDefault$(id$)
-    IrArrName$ = id$ + s$ + "()"
-END FUNCTION
-
-FUNCTION IrLabel$ (n$)
-    IrLabel$ = IrScope + "." + n$
-END FUNCTION
-
-'Jump target (name or line number) at the current token, in irScope$.
-FUNCTION IrTarget$ (irScope$)
-    IF IrP > IrTokN THEN IrFail "label expected"
-    IF IrTokT(IrP) = 2 THEN
-        IrTarget$ = irScope$ + ".L" + IrTokV(IrP)
-    ELSEIF IrTokT(IrP) = 1 THEN
-        IrTarget$ = irScope$ + "." + IrTokV(IrP)
-    ELSE
-        IrFail "label expected"
-    END IF
-    IrP = IrP + 1
-END FUNCTION
-
-'SUB/FUNCTION by identifier (suffix ignored), 0 if none.
-FUNCTION IrFindSub& (id$)
-    DIM i AS LONG, b$
-    b$ = IrBase$(id$)
-    FOR i = 1 TO IrSubN
-        IF IrSubName(i) = b$ THEN IrFindSub& = i: EXIT FUNCTION
-    NEXT
-END FUNCTION
-
-FUNCTION IrIsKeyword% (k$)
-    SELECT CASE k$
-        CASE "PRINT", "IF", "THEN", "ELSE", "ELSEIF", "END", "FOR", "TO", "STEP", "NEXT", "GOTO", "GOSUB", "RETURN", "SUB", "FUNCTION", "CALL", "DIM", "REDIM", "SHARED", "AS", "ON", "ERROR", "RESUME", "SYSTEM", "LET", "EXIT", "DECLARE", "AND", "OR", "XOR", "EQV", "IMP", "NOT", "MOD", "DO", "LOOP", "WHILE", "WEND", "UNTIL", "SELECT", "CASE", "IS", "SWAP", "OPTION", "BASE", "STATIC", "_PRESERVE", "EVERYCASE", "_CONTINUE", "DATA", "READ", "RESTORE", "RANDOMIZE", "USING"
-            IrIsKeyword% = -1
-    END SELECT
-END FUNCTION
-
-FUNCTION IrIsBuiltin% (k$)
-    SELECT CASE k$
-        CASE "LEN", "LEFT$", "RIGHT$", "MID$", "UCASE$", "LCASE$", "LTRIM$", "RTRIM$", "_TRIM$", "SPACE$", "STRING$", "INSTR", "STR$", "VAL", "CHR$", "ASC", "HEX$", "OCT$", "ABS", "SGN", "SQR", "LOG", "EXP", "SIN", "COS", "TAN", "ATN", "INT", "FIX", "CINT", "CLNG", "CSNG", "CDBL", "_ROUND", "MKI$", "MKL$", "MKS$", "MKD$", "CVI", "CVL", "CVS", "CVD", "MKSMBF$", "MKDMBF$", "CVSMBF", "CVDMBF"
-            IrIsBuiltin% = -1
-    END SELECT
-END FUNCTION
-
-'pass 1: SUB|FUNCTION name [(p [AS type], ...)] [STATIC]
-SUB IrDeclareSub (kind$)
-    DIM n$, p$, plist$, argc AS LONG, b$
-    n$ = IrIdent$
-    b$ = IrBase$(n$)
-    IF IrFindSub&(b$) THEN IrFail "duplicate SUB/FUNCTION " + b$
-    IF IrAccept%("(") THEN
-        IF IrAccept%(")") = 0 THEN
-            DO
-                p$ = IrIdent$
-                IF IrPeek$ = "(" THEN IrFail "array parameters are not supported by the IR spike"
-                IF IrAccept%("AS") THEN
-                    IrAddDim p$, IrTypeSfx$(IrIdent$), b$
-                    p$ = p$ + IrDimSfx(IrDimN)
-                ELSEIF IrHasSfx%(p$) = 0 THEN
-                    p$ = p$ + IrDefault$(p$)
-                END IF
-                plist$ = plist$ + " " + p$
-                argc = argc + 1
-                IF IrAccept%(")") THEN EXIT DO
-                IrExpect ","
-            LOOP
-        END IF
-    END IF
-    IF IrAccept%("STATIC") THEN plist$ = plist$ + " STATIC"
-    IrSubN = IrSubN + 1
-    IF IrSubN > UBOUND(IrSubName) THEN
-        REDIM _PRESERVE IrSubName(IrSubN * 2) AS STRING
-        REDIM _PRESERVE IrSubIr(IrSubN * 2) AS STRING
-        REDIM _PRESERVE IrSubKind(IrSubN * 2) AS STRING
-        REDIM _PRESERVE IrSubParams(IrSubN * 2) AS STRING
-        REDIM _PRESERVE IrSubArgc(IrSubN * 2) AS LONG
-    END IF
-    IrSubName(IrSubN) = b$: IrSubKind(IrSubN) = kind$
-    IF kind$ = "F" AND IrHasSfx%(n$) = 0 THEN n$ = n$ + IrDefault$(n$)
-    IrSubIr(IrSubN) = n$
-    IrSubParams(IrSubN) = plist$: IrSubArgc(IrSubN) = argc
-END SUB
-
-'---------------------------------------------------------------- blocks
-
-SUB IrPushBlock (kind$, id AS LONG, v$)
-    IrBlkN = IrBlkN + 1
-    IF IrBlkN > UBOUND(IrBlkKind) THEN
-        REDIM _PRESERVE IrBlkKind(IrBlkN * 2) AS STRING
-        REDIM _PRESERVE IrBlkId(IrBlkN * 2) AS LONG
-        REDIM _PRESERVE IrBlkPart(IrBlkN * 2) AS LONG
-        REDIM _PRESERVE IrBlkVar(IrBlkN * 2) AS STRING
-    END IF
-    IrBlkKind(IrBlkN) = kind$: IrBlkId(IrBlkN) = id: IrBlkPart(IrBlkN) = 0: IrBlkVar(IrBlkN) = v$
-END SUB
-
-SUB IrTopBlock (kind$, what$)
-    IF IrBlkN = 0 THEN IrFail what$
-    IF IrBlkKind(IrBlkN) <> kind$ THEN IrFail what$
-END SUB
-
-'Innermost loop of the given kinds ("FOR", "DO WHILE"), 0 if none.
-FUNCTION IrFindLoop& (kinds$)
-    DIM i AS LONG
-    FOR i = IrBlkN TO 1 STEP -1
-        IF INSTR(" " + kinds$ + " ", " " + IrBlkKind(i) + " ") THEN IrFindLoop& = i: EXIT FUNCTION
-    NEXT
-END FUNCTION
-
-FUNCTION IrLoopPrefix$ (b AS LONG)
-    IF IrBlkKind(b) = "FOR" THEN IrLoopPrefix$ = "~F" + IrNum$(IrBlkId(b)) ELSE IrLoopPrefix$ = "~D" + IrNum$(IrBlkId(b))
-END FUNCTION
-
-'---------------------------------------------------------------- statements
-
-'Line number or "name:" at the start of a line (a SUB name is a call).
-SUB IrLineLabels
-    IF IrTokN = 0 THEN EXIT SUB
-    IF IrTokT(1) = 2 THEN
-        IrEmit "LABEL " + IrLabel$("L" + IrTokV(1))
-        IrP = 2
-    ELSEIF IrTokT(1) = 1 AND IrTokN >= 2 THEN
-        IF IrTokV(2) = ":" AND IrIsKeyword%(IrTokV(1)) = 0 AND IrFindSub&(IrTokV(1)) = 0 THEN
-            IrEmit "LABEL " + IrLabel$(IrTokV(1))
-            IrP = 3
-        END IF
-    END IF
-END SUB
-
-'Statements separated by ":". `top` = real statements of the line (they get a
-'LINE marker, the RESUME granularity); stopAtElse ends a single-line THEN part.
-SUB IrStatementList (top AS INTEGER, stopAtElse AS INTEGER)
-    DIM p$
-    DO
-        DO WHILE IrAccept%(":"): LOOP
-        p$ = IrPeek$
-        IF p$ = "" THEN EXIT SUB
-        IF stopAtElse AND p$ = "ELSE" THEN EXIT SUB
-        IrStatement top
-        p$ = IrPeek$
-        IF p$ <> "" AND p$ <> ":" AND NOT (stopAtElse AND p$ = "ELSE") THEN IrFail "unexpected '" + p$ + "'"
-    LOOP
-END SUB
-
-SUB IrStatement (top AS INTEGER)
-    DIM k$, n$, id AS LONG, s AS LONG, b AS LONG
-    k$ = IrPeek$
-    IF top THEN IrEmit "LINE " + IrNum$(IrLine)
-    IF IrTokT(IrP) <> 1 AND k$ <> "?" THEN IrFail "statement expected near '" + k$ + "'"
-    IrP = IrP + 1
-    SELECT CASE k$
-        CASE "PRINT", "?"
-            IrPrint
-        CASE "LET"
-            IrAssign IrIdent$
-        CASE "IF"
-            IrIf top
-        CASE "ELSEIF"
-            IrTopBlock "IF", "ELSEIF without IF"
-            id = IrBlkId(IrBlkN)
-            IrEmit "JMP ~IF" + IrNum$(id) + ".END"
-            IrEmit "LABEL ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
-            IrBlkPart(IrBlkN) = IrBlkPart(IrBlkN) + 1
-            IrExpr
-            IrExpect "THEN"
-            IrEmit "JZ ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
-        CASE "ELSE"
-            IrTopBlock "IF", "ELSE without IF"
-            id = IrBlkId(IrBlkN)
-            IrEmit "JMP ~IF" + IrNum$(id) + ".END"
-            IrEmit "LABEL ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
-            IrBlkPart(IrBlkN) = IrBlkPart(IrBlkN) + 1
-            IF IrAtEnd% = 0 THEN IrStatementList 0, 0
-        CASE "END"
-            n$ = IrPeek$
-            IF n$ = "IF" THEN
-                IrP = IrP + 1
-                IrTopBlock "IF", "END IF without IF"
-                id = IrBlkId(IrBlkN)
-                IrEmit "LABEL ~IF" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
-                IrEmit "LABEL ~IF" + IrNum$(id) + ".END"
-                IrBlkN = IrBlkN - 1
-            ELSEIF n$ = "SELECT" THEN
-                IrP = IrP + 1
-                IrTopBlock "SELECT", "END SELECT without SELECT CASE"
-                id = IrBlkId(IrBlkN)
-                IrEmit "LABEL ~S" + IrNum$(id) + "." + IrNum$(IrBlkPart(IrBlkN))
-                IrEmit "LABEL ~S" + IrNum$(id) + ".END"
-                IrBlkN = IrBlkN - 1
-            ELSEIF n$ = "SUB" OR n$ = "FUNCTION" THEN
-                IrP = IrP + 1
-                IF IrScope = "MAIN" THEN IrFail "END " + n$ + " without " + n$
-                IF IrBlkN > 0 THEN IrFail IrBlkKind(IrBlkN) + " without end"
-                IrEmit "LABEL " + IrLabel$("~EXIT")
-                IrEmit "ENDSUB"
-                IrScope = "MAIN"
-            ELSE
-                IrEmit "END"
-            END IF
-        CASE "SYSTEM"
-            IrEmit "END"
-        CASE "FOR"
-            IrFor
-        CASE "NEXT"
-            IrNext
-        CASE "DO"
-            IrDo
-        CASE "LOOP"
-            IrLoop
-        CASE "WHILE"
-            id = IrNewId&
-            IrEmit "LABEL ~D" + IrNum$(id) + ".T"
-            IrExpr
-            IrEmit "JZ ~D" + IrNum$(id) + ".X"
-            IrPushBlock "WHILE", id, ""
-        CASE "WEND"
-            IrTopBlock "WHILE", "WEND without WHILE"
-            n$ = "~D" + IrNum$(IrBlkId(IrBlkN))
-            IrEmit "LABEL " + n$ + ".C"
-            IrEmit "JMP " + n$ + ".T"
-            IrEmit "LABEL " + n$ + ".X"
-            IrBlkN = IrBlkN - 1
-        CASE "SELECT"
-            IrSelect
-        CASE "CASE"
-            IrCase
-        CASE "GOTO"
-            IrEmit "JMP " + IrTarget$(IrScope)
-        CASE "GOSUB"
-            IrEmit "GOSUB " + IrTarget$(IrScope)
-        CASE "RETURN"
-            IrEmit "RETURN"
-        CASE "SUB", "FUNCTION"
-            IF top = 0 OR IrScope <> "MAIN" THEN IrFail k$ + " not allowed here"
-            n$ = IrIdent$
-            s = IrFindSub&(n$)
-            IrEmit RTRIM$(k$ + " " + IrSubIr(s) + " " + IrNum$(IrSubArgc(s)) + IrSubParams(s))
-            IrScope = IrSubName(s)
-            IrP = IrTokN + 1 'parameters were read in pass 1
-        CASE "EXIT"
-            n$ = IrIdent$
-            IF n$ = "SUB" OR n$ = "FUNCTION" THEN
-                IF IrScope = "MAIN" THEN IrFail "EXIT " + n$ + " outside " + n$
-                IrEmit "JMP " + IrLabel$("~EXIT")
-            ELSEIF n$ = "FOR" THEN
-                b = IrFindLoop&("FOR")
-                IF b = 0 THEN IrFail "EXIT FOR outside FOR"
-                IrEmit "JMP " + IrLoopPrefix$(b) + ".X"
-            ELSEIF n$ = "DO" THEN
-                b = IrFindLoop&("DO")
-                IF b = 0 THEN IrFail "EXIT DO outside DO"
-                IrEmit "JMP " + IrLoopPrefix$(b) + ".X"
-            ELSE
-                IrFail "EXIT " + n$ + " not supported"
-            END IF
-        CASE "_CONTINUE"
-            b = IrFindLoop&("FOR DO WHILE")
-            IF b = 0 THEN IrFail "_CONTINUE outside a loop"
-            IrEmit "JMP " + IrLoopPrefix$(b) + ".C"
-        CASE "DECLARE"
-            IrP = IrTokN + 1
-        CASE "DEFINT", "DEFLNG", "DEFSNG", "DEFDBL", "DEFSTR"
-            IrDefType k$
-        CASE "OPTION"
-            IrExpect "BASE"
-            IrOptBase = VAL(IrTokV(IrP)): IrP = IrP + 1
-        CASE "DIM"
-            IrDim 0
-        CASE "REDIM"
-            IrDim -1
-        CASE "SWAP"
-            IrRefArg
-            IrExpect ","
-            IrRefArg
-            IrEmit "SWAP"
-        CASE "ON"
-            IrOn
-        CASE "ERROR"
-            IrExpr
-            IrEmit "ERROR"
-        CASE "RESUME"
-            IF IrAtEnd% THEN
-                IrEmit "RESUME 0"
-            ELSEIF IrAccept%("NEXT") THEN
-                IrEmit "RESUME NEXT"
-            ELSE
-                IF IrPeek$ = "0" THEN
-                    IrEmit "RESUME 0": IrP = IrP + 1
-                ELSE
-                    IrEmit "RESUME " + IrTarget$("MAIN")
-                END IF
-            END IF
-        CASE "CALL"
-            IrCall IrIdent$, -1
-        CASE "DATA"
-            IrData
-        CASE "READ"
-            DO
-                n$ = IrIdent$
-                IF IrAccept%("(") THEN
-                    s = IrIndices&
-                    IrEmit "READ " + IrNum$(-(RIGHT$(IrArrName$(n$), 3) = "$()"))
-                    IrEmit "STOREE " + IrArrName$(n$) + " " + IrNum$(s)
-                ELSE
-                    IrEmit "READ " + IrNum$(-(RIGHT$(IrVarName$(n$), 1) = "$"))
-                    IrEmit "STORE " + IrVarName$(n$)
-                END IF
-                IF IrAccept%(",") = 0 THEN EXIT DO
-            LOOP
-        CASE "RESTORE"
-            IF IrAtEnd% THEN IrEmit "RESTORE" ELSE IrEmit "RESTORE " + IrTarget$(IrScope)
-        CASE "RANDOMIZE"
-            IF IrAccept%("USING") THEN
-                IrExpr: IrEmit "RANDOMIZE 1"
-            ELSE
-                IF IrAtEnd% THEN IrFail "RANDOMIZE without a seed (prompt) is not supported by the IR spike"
-                IrExpr: IrEmit "RANDOMIZE 0"
-            END IF
-        CASE "MID$"
-            'MID$(v$, start[, n]) = r$
-            IrExpect "("
-            n$ = IrVarName$(IrIdent$)
-            IrEmit "LOAD " + n$
-            IrExpect ","
-            IrExpr
-            s = 3
-            IF IrAccept%(",") THEN IrExpr: s = 4
-            IrExpect ")"
-            IrExpect "="
-            IrExpr
-            IrEmit "FN MID$SET " + IrNum$(s)
-            IrEmit "STORE " + n$
-        CASE ELSE
-            IF IrPeek$ = "=" THEN
-                IrAssign k$
-            ELSEIF IrFindSub&(k$) THEN
-                IrCall k$, 0
-            ELSEIF IrPeek$ = "(" THEN
-                IrAssign k$
-            ELSE
-                IrFail "statement not supported by the IR spike: " + k$
-            END IF
-    END SELECT
-END SUB
-
-'DATA items come from the raw source line (case and spaces matter); DATA
-'takes the rest of the line. Each item becomes `DATA <hex>`.
-SUB IrData
-    DIM raw$, i AS LONG, n AS LONG, c$, q AS INTEGER, item$, dataPos AS LONG, quoted AS INTEGER
-    raw$ = IrSrc(IrLine)
-    n = LEN(raw$)
-    FOR i = 1 TO n - 3
-        c$ = MID$(raw$, i, 1)
-        IF c$ = CHR$(34) THEN q = NOT q
-        IF q = 0 AND UCASE$(MID$(raw$, i, 4)) = "DATA" THEN
-            IF i = 1 OR IrCharIn%(MID$(raw$, i - 1, 1), " :" + CHR$(9)) THEN
-                IF i + 4 > n OR IrCharIn%(MID$(raw$, i + 4, 1), " " + CHR$(9)) THEN dataPos = i + 4: EXIT FOR
-            END IF
-        END IF
-    NEXT
-    IF dataPos = 0 THEN IrFail "DATA must be the first statement of its line in the IR spike"
-    q = 0: item$ = "": quoted = 0
-    FOR i = dataPos TO n + 1
-        IF i <= n THEN c$ = MID$(raw$, i, 1) ELSE c$ = ","
-        IF c$ = CHR$(34) THEN
-            q = NOT q: quoted = -1
-        ELSEIF c$ = "," AND q = 0 THEN
-            IF quoted = 0 THEN item$ = LTRIM$(RTRIM$(item$))
-            IF item$ = "" THEN IrEmit "DATA" ELSE IrEmit "DATA " + IrHex$(item$)
-            item$ = "": quoted = 0
-        ELSEIF q OR quoted = 0 THEN
-            item$ = item$ + c$
-        END IF
-    NEXT
-    IrP = IrTokN + 1
-END SUB
-
-SUB IrAssign (id$)
-    DIM n AS LONG, a$
-    IF IrAccept%("(") THEN
-        a$ = IrArrName$(id$)
-        n = IrIndices&
-        IrExpect "="
-        IrExpr
-        IrEmit "STOREE " + a$ + " " + IrNum$(n)
-        EXIT SUB
-    END IF
-    IrExpect "="
-    IrExpr
-    IrEmit "STORE " + IrVarName$(id$)
-END SUB
-
-'Index expressions after "(" up to ")"; returns how many.
-FUNCTION IrIndices& ()
-    DIM n AS LONG
-    DO
-        IrExpr
-        n = n + 1
-        IF IrAccept%(",") = 0 THEN EXIT DO
-    LOOP
-    IrExpect ")"
-    IrIndices& = n
-END FUNCTION
-
-'Reference to a variable or array element (SWAP, BYREF arguments).
-SUB IrRefArg
-    DIM id$, n AS LONG
-    id$ = IrIdent$
-    IF IrAccept%("(") THEN
-        n = IrIndices&
-        IrEmit "REFE " + IrArrName$(id$) + " " + IrNum$(n)
-    ELSE
-        IrEmit "REF " + IrVarName$(id$)
-    END IF
-END SUB
-
-SUB IrPrint
-    DIM nl AS INTEGER, p$
-    nl = -1
-    DO
-        p$ = IrPeek$
-        IF p$ = "" OR p$ = ":" OR p$ = "ELSE" THEN EXIT DO
-        IF p$ = ";" THEN
-            IrP = IrP + 1: nl = 0
-        ELSEIF p$ = "," THEN
-            IrP = IrP + 1: nl = 0
-            IrEmit "PRINTZONE"
-        ELSE
-            IrExpr
-            IrEmit "PRINT"
-            nl = -1
-        END IF
-    LOOP
-    IF nl THEN IrEmit "PRINTNL"
-END SUB
-
-'THEN/ELSE part of a single-line IF: a line number means GOTO.
-SUB IrThenPart
-    IF IrP <= IrTokN THEN
-        IF IrTokT(IrP) = 2 THEN IrEmit "JMP " + IrTarget$(IrScope): EXIT SUB
-    END IF
-    IrStatementList 0, -1
-END SUB
-
-SUB IrIf (top AS INTEGER)
-    DIM id AS LONG, t$
-    id = IrNewId&
-    t$ = "~IF" + IrNum$(id)
-    IrExpr
-    IF IrAccept%("GOTO") THEN
-        IrEmit "JNZ " + IrTarget$(IrScope)
-        EXIT SUB
-    END IF
-    IrExpect "THEN"
-    IF IrPeek$ = "" THEN
-        IF top = 0 THEN IrFail "block IF inside a single-line IF"
-        IrPushBlock "IF", id, ""
-        IrBlkPart(IrBlkN) = 1
-        IrEmit "JZ " + t$ + ".1"
-        EXIT SUB
-    END IF
-    IrEmit "JZ " + t$ + ".ELSE"
-    IrThenPart
-    IF IrAccept%("ELSE") THEN
-        IrEmit "JMP " + t$ + ".END"
-        IrEmit "LABEL " + t$ + ".ELSE"
-        IrThenPart
-    ELSE
-        IrEmit "LABEL " + t$ + ".ELSE"
-    END IF
-    IrEmit "LABEL " + t$ + ".END"
-END SUB
-
-'FOR v = a TO b [STEP c]: limit and step are evaluated once into hidden
-'untyped temporaries; FORTEST picks the comparison by the sign of the step.
-SUB IrFor
-    DIM id AS LONG, v$, t$
-    id = IrNewId&
-    t$ = "~F" + IrNum$(id)
-    v$ = IrVarName$(IrIdent$)
-    IrExpect "="
-    IrExpr
-    IrEmit "STORE " + v$
-    IrExpect "TO"
-    IrExpr
-    IrEmit "STORE " + t$ + ".L"
-    IF IrAccept%("STEP") THEN IrExpr ELSE IrEmit "PUSH I 1"
-    IrEmit "STORE " + t$ + ".S"
-    IrEmit "LABEL " + t$ + ".T"
-    IrEmit "LOAD " + v$
-    IrEmit "LOAD " + t$ + ".L"
-    IrEmit "LOAD " + t$ + ".S"
-    IrEmit "FORTEST"
-    IrEmit "JZ " + t$ + ".X"
-    IrPushBlock "FOR", id, v$
-END SUB
-
-SUB IrNext
-    DIM t$, v$
-    DO
-        IrTopBlock "FOR", "NEXT without FOR"
-        v$ = IrBlkVar(IrBlkN)
-        IF IrAtEnd% = 0 AND IrPeek$ <> "ELSE" THEN
-            IF IrVarName$(IrIdent$) <> v$ THEN IrFail "NEXT variable does not match FOR"
-        END IF
-        t$ = "~F" + IrNum$(IrBlkId(IrBlkN))
-        IrEmit "LABEL " + t$ + ".C"
-        IrEmit "LOAD " + v$
-        IrEmit "LOAD " + t$ + ".S"
-        IrEmit "OP ADD"
-        IrEmit "STORE " + v$
-        IrEmit "JMP " + t$ + ".T"
-        IrEmit "LABEL " + t$ + ".X"
-        IrBlkN = IrBlkN - 1
-        IF IrAccept%(",") = 0 THEN EXIT DO
-    LOOP
-END SUB
-
-SUB IrDo
-    DIM id AS LONG, t$
-    id = IrNewId&
-    t$ = "~D" + IrNum$(id)
-    IrEmit "LABEL " + t$ + ".T"
-    IF IrAccept%("WHILE") THEN
-        IrExpr: IrEmit "JZ " + t$ + ".X"
-    ELSEIF IrAccept%("UNTIL") THEN
-        IrExpr: IrEmit "JNZ " + t$ + ".X"
-    END IF
-    IrPushBlock "DO", id, ""
-END SUB
-
-SUB IrLoop
-    DIM t$
-    IrTopBlock "DO", "LOOP without DO"
-    t$ = "~D" + IrNum$(IrBlkId(IrBlkN))
-    IrEmit "LABEL " + t$ + ".C"
-    IF IrAccept%("WHILE") THEN
-        IrExpr: IrEmit "JNZ " + t$ + ".T"
-    ELSEIF IrAccept%("UNTIL") THEN
-        IrExpr: IrEmit "JZ " + t$ + ".T"
-    ELSE
-        IrEmit "JMP " + t$ + ".T"
-    END IF
-    IrEmit "LABEL " + t$ + ".X"
-    IrBlkN = IrBlkN - 1
-END SUB
-
-'SELECT [CASE|EVERYCASE] expr: selector in ~Sn.V, "matched" flag in ~Sn.M.
-'IrBlkVar holds "E" for EVERYCASE.
-SUB IrSelect
-    DIM id AS LONG, t$, every$
-    IF IrAccept%("EVERYCASE") THEN every$ = "E" ELSE IrExpect "CASE"
-    id = IrNewId&
-    t$ = "~S" + IrNum$(id)
-    IrExpr
-    IrEmit "STORE " + t$ + ".V"
-    IrEmit "PUSH I 0"
-    IrEmit "STORE " + t$ + ".M"
-    IrPushBlock "SELECT", id, every$
-END SUB
-
-SUB IrCase
-    DIM t$, o$, items AS LONG
-    IrTopBlock "SELECT", "CASE without SELECT CASE"
-    t$ = "~S" + IrNum$(IrBlkId(IrBlkN))
-    IF IrBlkPart(IrBlkN) > 0 AND IrBlkVar(IrBlkN) <> "E" THEN IrEmit "JMP " + t$ + ".END"
-    IrEmit "LABEL " + t$ + "." + IrNum$(IrBlkPart(IrBlkN))
-    IrBlkPart(IrBlkN) = IrBlkPart(IrBlkN) + 1
-    IF IrAccept%("ELSE") THEN
-        IrEmit "LOAD " + t$ + ".M"
-        IrEmit "JNZ " + t$ + "." + IrNum$(IrBlkPart(IrBlkN))
-        EXIT SUB
-    END IF
-    DO
-        IrEmit "LOAD " + t$ + ".V"
-        IF IrAccept%("IS") THEN
-            SELECT CASE IrPeek$
-                CASE "=": o$ = "EQ"
-                CASE "<>": o$ = "NE"
-                CASE "<": o$ = "LT"
-                CASE ">": o$ = "GT"
-                CASE "<=": o$ = "LE"
-                CASE ">=": o$ = "GE"
-                CASE ELSE: IrFail "relational operator expected after IS"
-            END SELECT
-            IrP = IrP + 1
-            IrExpr
-            IrEmit "OP " + o$
-        ELSE
-            IrExpr
-            IF IrAccept%("TO") THEN
-                IrEmit "OP GE"
-                IrEmit "LOAD " + t$ + ".V"
-                IrExpr
-                IrEmit "OP LE"
-                IrEmit "OP AND"
-            ELSE
-                IrEmit "OP EQ"
-            END IF
-        END IF
-        items = items + 1
-        IF items > 1 THEN IrEmit "OP OR"
-        IF IrAccept%(",") = 0 THEN EXIT DO
-    LOOP
-    IrEmit "JZ " + t$ + "." + IrNum$(IrBlkPart(IrBlkN))
-    IrEmit "PUSH I -1"
-    IrEmit "STORE " + t$ + ".M"
-END SUB
-
-'ON ERROR GOTO label|0, ON n GOTO|GOSUB l1, l2, ...
-SUB IrOn
-    DIM id AS LONG, t$, how$, k AS LONG
-    IF IrAccept%("ERROR") THEN
-        IrExpect "GOTO"
-        IF IrPeek$ = "0" THEN
-            IrEmit "ONERROR 0": IrP = IrP + 1
-        ELSE
-            IrEmit "ONERROR " + IrTarget$("MAIN")
-        END IF
-        EXIT SUB
-    END IF
-    id = IrNewId&
-    t$ = "~O" + IrNum$(id)
-    IrExpr
-    IrEmit "STORE " + t$ + ".V"
-    how$ = IrIdent$
-    IF how$ <> "GOTO" AND how$ <> "GOSUB" THEN IrFail "GOTO or GOSUB expected"
-    DO
-        k = k + 1
-        IrEmit "LOAD " + t$ + ".V"
-        IrEmit "PUSH I " + IrNum$(k)
-        IrEmit "OP EQ"
-        IrEmit "JZ " + t$ + "." + IrNum$(k)
-        IF how$ = "GOTO" THEN
-            IrEmit "JMP " + IrTarget$(IrScope)
-        ELSE
-            IrEmit "GOSUB " + IrTarget$(IrScope)
-            IrEmit "JMP " + t$ + ".END"
-        END IF
-        IrEmit "LABEL " + t$ + "." + IrNum$(k)
-        IF IrAccept%(",") = 0 THEN EXIT DO
-    LOOP
-    IrEmit "LABEL " + t$ + ".END"
-END SUB
-
-'DIM/REDIM [SHARED] [_PRESERVE] name[(dims)] [AS type], ...
-SUB IrDim (isRedim AS INTEGER)
-    DIM isShared AS INTEGER, preserve AS INTEGER, n$, irScope$, nm$, sfx$, isArr AS INTEGER, dims AS LONG
-    IF IrAccept%("SHARED") THEN isShared = -1
-    IF IrAccept%("_PRESERVE") THEN preserve = -1
-    irScope$ = IrScope
-    IF isShared THEN irScope$ = "*"
-    DO
-        n$ = IrIdent$
-        isArr = 0: dims = 0
-        IF IrAccept%("(") THEN
-            isArr = -1
-            IF IrAccept%(")") = 0 THEN
-                DO
-                    IF IrDimHasTo% = 0 THEN IrEmit "PUSH I " + IrNum$(IrOptBase) 'lower bound = OPTION BASE
-                    IrExpr
-                    IF IrAccept%("TO") THEN IrExpr
-                    dims = dims + 1
-                    IF IrAccept%(",") = 0 THEN EXIT DO
-                LOOP
-                IrExpect ")"
-            END IF
-        END IF
-        sfx$ = ""
-        IF IrAccept%("AS") THEN sfx$ = IrTypeSfx$(IrIdent$)
-        IF isArr THEN
-            IF sfx$ <> "" THEN IrAddDim n$ + "()", sfx$, irScope$
-            nm$ = IrArrName$(n$)
-        ELSE
-            IF sfx$ <> "" THEN IrAddDim n$, sfx$, irScope$
-            nm$ = IrVarName$(n$)
-        END IF
-        IF isShared THEN IrEmit "SHARED " + nm$
-        IF isArr AND dims > 0 THEN
-            IF isRedim THEN
-                IF preserve THEN IrEmit "REDIMA " + nm$ + " " + IrNum$(dims) + " 1" ELSE IrEmit "REDIMA " + nm$ + " " + IrNum$(dims) + " 0"
-            ELSE
-                IrEmit "DIMA " + nm$ + " " + IrNum$(dims)
-            END IF
-        END IF
-        IF IrAccept%(",") = 0 THEN EXIT DO
-    LOOP
-END SUB
-
-'-1 when the current array dimension is written `lb TO ub`.
-FUNCTION IrDimHasTo% ()
-    DIM j AS LONG, depth AS LONG
-    FOR j = IrP TO IrTokN
-        IF IrTokT(j) = 4 THEN
-            IF IrTokV(j) = "(" THEN depth = depth + 1
-            IF IrTokV(j) = ")" THEN
-                IF depth = 0 THEN EXIT FUNCTION
-                depth = depth - 1
-            END IF
-            IF IrTokV(j) = "," AND depth = 0 THEN EXIT FUNCTION
-        ELSEIF IrTokT(j) = 1 THEN
-            IF IrTokV(j) = "TO" AND depth = 0 THEN IrDimHasTo% = -1: EXIT FUNCTION
-        END IF
-    NEXT
-END FUNCTION
-
-'Arguments that are a bare variable or array element are passed by reference
-'(QBasic rule); `name (x)` without CALL passes (x) as a value. Returns argc.
-FUNCTION IrArgs& (parens AS INTEGER)
-    DIM argc AS LONG, j AS LONG, nx$
-    DO
-        IF parens THEN
-            IF IrAccept%(")") THEN EXIT DO
-        ELSE
-            IF IrAtEnd% OR IrPeek$ = "ELSE" THEN EXIT DO
-        END IF
-        IF IrTokT(IrP) = 1 AND IrIsBuiltin%(IrTokV(IrP)) = 0 AND IrFindSub&(IrTokV(IrP)) = 0 AND IrIsKeyword%(IrTokV(IrP)) = 0 THEN
-            j = IrP + 1
-            IF IrPeekAt$(j) = "(" THEN j = IrAfterParens&(j)
-            nx$ = IrPeekAt$(j)
-            IF nx$ = "," OR nx$ = ")" OR nx$ = ":" OR nx$ = "" OR nx$ = "ELSE" THEN IrRefArg ELSE IrExpr
-        ELSE
-            IrExpr
-        END IF
-        argc = argc + 1
-        IF IrAccept%(",") = 0 THEN
-            IF parens THEN IrExpect ")"
-            EXIT DO
-        END IF
-    LOOP
-    IrArgs& = argc
-END FUNCTION
-
-SUB IrCall (n$, parens AS INTEGER)
-    DIM s AS LONG, argc AS LONG
-    s = IrFindSub&(n$)
-    IF s = 0 THEN IrFail "SUB not found: " + n$
-    IF parens THEN
-        IF IrAccept%("(") = 0 THEN parens = 0
-    END IF
-    argc = IrArgs&(parens)
-    IF argc <> IrSubArgc(s) THEN IrFail "wrong number of arguments for " + n$
-    IrEmit "CALL " + IrSubIr(s) + " " + IrNum$(argc)
-END SUB
-
-'---------------------------------------------------------------- expressions
-'Precedence, lowest first: IMP, EQV, XOR, OR, AND, NOT, relational, + -, MOD,
-'\, * /, unary -, ^. Each level emits its operands first (postfix order).
-
-SUB IrExpr
-    IrImp
-END SUB
-
-SUB IrImp
-    IrEqv
-    DO WHILE IrAccept%("IMP"): IrEqv: IrEmit "OP IMP": LOOP
-END SUB
-
-SUB IrEqv
-    IrXor
-    DO WHILE IrAccept%("EQV"): IrXor: IrEmit "OP EQV": LOOP
-END SUB
-
-SUB IrXor
-    IrOr
-    DO WHILE IrAccept%("XOR"): IrOr: IrEmit "OP XOR": LOOP
-END SUB
-
-SUB IrOr
-    IrAnd
-    DO WHILE IrAccept%("OR"): IrAnd: IrEmit "OP OR": LOOP
-END SUB
-
-SUB IrAnd
-    IrNot
-    DO WHILE IrAccept%("AND"): IrNot: IrEmit "OP AND": LOOP
-END SUB
-
-SUB IrNot
-    IF IrAccept%("NOT") THEN
-        IrNot
-        IrEmit "UN NOT"
-    ELSE
-        IrRel
-    END IF
-END SUB
-
-SUB IrRel
-    DIM o$
-    IrAdd
-    DO
-        SELECT CASE IrPeek$
-            CASE "=": o$ = "EQ"
-            CASE "<>": o$ = "NE"
-            CASE "<": o$ = "LT"
-            CASE ">": o$ = "GT"
-            CASE "<=": o$ = "LE"
-            CASE ">=": o$ = "GE"
-            CASE ELSE: EXIT DO
-        END SELECT
-        IrP = IrP + 1
-        IrAdd
-        IrEmit "OP " + o$
-    LOOP
-END SUB
-
-SUB IrAdd
-    DIM o$
-    IrMod
-    DO
-        o$ = IrPeek$
-        IF o$ = "+" THEN
-            IrP = IrP + 1: IrMod: IrEmit "OP ADD"
-        ELSEIF o$ = "-" THEN
-            IrP = IrP + 1: IrMod: IrEmit "OP SUB"
-        ELSE
-            EXIT DO
-        END IF
-    LOOP
-END SUB
-
-SUB IrMod
-    IrIDiv
-    DO WHILE IrAccept%("MOD"): IrIDiv: IrEmit "OP MOD": LOOP
-END SUB
-
-SUB IrIDiv
-    IrMul
-    DO WHILE IrAccept%("\"): IrMul: IrEmit "OP IDIV": LOOP
-END SUB
-
-SUB IrMul
-    DIM o$
-    IrNeg
-    DO
-        o$ = IrPeek$
-        IF o$ = "*" THEN
-            IrP = IrP + 1: IrNeg: IrEmit "OP MUL"
-        ELSEIF o$ = "/" THEN
-            IrP = IrP + 1: IrNeg: IrEmit "OP DIV"
-        ELSE
-            EXIT DO
-        END IF
-    LOOP
-END SUB
-
-SUB IrNeg
-    IF IrAccept%("-") THEN
-        IrNeg
-        IrEmit "UN NEG"
-    ELSEIF IrAccept%("+") THEN
-        IrNeg
-    ELSE
-        IrPow
-    END IF
-END SUB
-
-SUB IrPow
-    IrPrimary
-    DO WHILE IrAccept%("^")
-        IF IrAccept%("-") THEN
-            IrPrimary: IrEmit "UN NEG"
-        ELSE
-            IrPrimary
-        END IF
-        IrEmit "OP POW"
-    LOOP
-END SUB
-
-SUB IrPrimary
-    DIM v$, t AS INTEGER, argc AS LONG, s AS LONG, a$
-    IF IrP > IrTokN THEN IrFail "expression expected"
-    t = IrTokT(IrP)
-    v$ = IrTokV(IrP)
-    IrP = IrP + 1
-    IF t = 3 THEN
-        IrEmit "PUSH S " + IrHex$(v$)
-    ELSEIF t = 2 THEN
-        IrEmit "PUSH " + IrNumLit$(v$)
-    ELSEIF v$ = "(" THEN
-        IrExpr
-        IrExpect ")"
-    ELSEIF t = 1 THEN
-        IF v$ = "ERR" OR v$ = "ERL" THEN
-            IrEmit "FN " + v$ + " 0"
-        ELSEIF v$ = "RND" THEN
-            IF IrAccept%("(") THEN
-                IrExpr
-                IrExpect ")"
-                IrEmit "FN RND 1"
-            ELSE
-                IrEmit "FN RND 0"
-            END IF
-        ELSEIF v$ = "LBOUND" OR v$ = "UBOUND" THEN
-            IrExpect "("
-            a$ = IrArrName$(IrIdent$)
-            IF IrAccept%(",") THEN IrExpr ELSE IrEmit "PUSH I 1"
-            IrExpect ")"
-            IF v$ = "UBOUND" THEN IrEmit "BOUND " + a$ + " U" ELSE IrEmit "BOUND " + a$ + " L"
-        ELSEIF IrIsBuiltin%(v$) THEN
-            IrExpect "("
-            DO
-                IrExpr
-                argc = argc + 1
-                IF IrAccept%(",") = 0 THEN EXIT DO
-            LOOP
-            IrExpect ")"
-            IrEmit "FN " + v$ + " " + IrNum$(argc)
-        ELSE
-            s = IrFindSub&(v$)
-            IF s THEN
-                IF IrSubKind(s) <> "F" THEN IrFail "SUB " + v$ + " used as a value"
-                IF IrAccept%("(") THEN argc = IrArgs&(-1)
-                IF argc <> IrSubArgc(s) THEN IrFail "wrong number of arguments for " + v$
-                IrEmit "CALL " + IrSubIr(s) + " " + IrNum$(argc)
-            ELSEIF IrIsKeyword%(v$) THEN
-                IrFail "unexpected " + v$
-            ELSEIF IrAccept%("(") THEN
-                a$ = IrArrName$(v$)
-                argc = IrIndices&
-                IrEmit "LOADE " + a$ + " " + IrNum$(argc)
-            ELSE
-                IrEmit "LOAD " + IrVarName$(v$)
-            END IF
-        END IF
-    ELSE
-        IrFail "unexpected '" + v$ + "'"
-    END IF
-END SUB
-
-'Numeric literal -> "<type> <text>": suffix wins; integers are INTEGER/LONG
-'by range; decimals are SINGLE up to 7 digits, DOUBLE beyond or with D.
-'&H/&O/&B literals of up to 16 bits are INTEGER (so &HFFFF = -1), else LONG.
-FUNCTION IrNumLit$ (v$)
-    DIM s$, body$, digits AS LONG, i AS LONG, c$, d AS DOUBLE, radix AS LONG, lv AS LONG
-    s$ = RIGHT$(v$, 1)
-    body$ = v$
-    IF IrCharIn%(s$, "%&!#") THEN body$ = LEFT$(v$, LEN(v$) - 1) ELSE s$ = ""
-    IF LEFT$(body$, 1) = "&" THEN
-        SELECT CASE MID$(body$, 2, 1)
-            CASE "H": radix = 16
-            CASE "O": radix = 8
-            CASE ELSE: radix = 2
-        END SELECT
-        FOR i = 3 TO LEN(body$)
-            d = d * radix + INSTR("0123456789ABCDEF", MID$(body$, i, 1)) - 1
-        NEXT
-        IF s$ = "" AND d <= 65535 THEN
-            IF d > 32767 THEN d = d - 65536
-            lv = d
-            IrNumLit$ = "I " + LTRIM$(STR$(lv))
-        ELSE
-            IF d > 2147483647 THEN d = d - 4294967296#
-            lv = d
-            IrNumLit$ = "L " + LTRIM$(STR$(lv))
-        END IF
-        EXIT FUNCTION
-    END IF
-    FOR i = 1 TO LEN(body$)
-        c$ = MID$(body$, i, 1)
-        IF c$ = "E" OR c$ = "D" THEN EXIT FOR
-        IF c$ >= "0" AND c$ <= "9" THEN digits = digits + 1
-    NEXT
-    IF INSTR(body$, "D") THEN
-        IF s$ = "" THEN s$ = "#"
-        i = INSTR(body$, "D")
-        body$ = LEFT$(body$, i - 1) + "E" + MID$(body$, i + 1)
-    END IF
-    IF s$ = "" THEN
-        IF INSTR(body$, ".") OR INSTR(body$, "E") THEN
-            IF digits > 7 THEN s$ = "#" ELSE s$ = "!"
-        ELSE
-            d = VAL(body$)
-            IF d <= 32767 THEN
-                s$ = "%"
-            ELSEIF d <= 2147483647 THEN
-                s$ = "&"
-            ELSE
-                s$ = "#"
-            END IF
-        END IF
-    END IF
-    IF LEFT$(body$, 1) = "." THEN body$ = "0" + body$
-    IF RIGHT$(body$, 1) = "." THEN body$ = body$ + "0"
-    SELECT CASE s$
-        CASE "%": IrNumLit$ = "I " + body$
-        CASE "&": IrNumLit$ = "L " + body$
-        CASE "!": IrNumLit$ = "F " + body$
-        CASE ELSE: IrNumLit$ = "D " + body$
-    END SELECT
-END FUNCTION

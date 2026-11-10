@@ -14,6 +14,7 @@ use qb_ir::{self as ir, BinOp, CmpOp, DimKind, Inst, Lit, ResumeKind, StoreTy, T
 use std::collections::HashMap;
 use std::io::Write;
 
+mod files;
 mod rt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -432,7 +433,7 @@ impl<'a> Vm<'a> {
         ptr(self.alloc(b), 0)
     }
 
-    fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
+    pub(crate) fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
         let (b, o) = split(p);
         match self.blocks.get_mut(b) {
             Some(Block::Bytes { data, .. }) if o + len <= data.len() => Ok(&mut data[o..o + len]),
@@ -996,8 +997,12 @@ pub(crate) fn cvt(to: Ty, from: Ty, v: &V, round: bool) -> V {
     }
     if from.is_float() {
         let f = v.f();
+        if round && to != Ty::U64 {
+            // x87 FISTP semantics of the C++ backend's qbr()
+            return V::I(wrap(to, qb_runtime::round::qb_qbr_f64(f)));
+        }
         let f = if round { f.round_ties_even() } else { f.trunc() };
-        let n = if to == Ty::U64 { f as u64 as i64 } else if f >= 9.223_372_036_854_776e18 { f as u64 as i64 } else { f as i64 };
+        let n = if to == Ty::U64 { f as u64 as i64 } else { f as i64 };
         return V::I(wrap(to, n));
     }
     V::I(wrap(to, v.i()))

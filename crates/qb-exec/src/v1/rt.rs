@@ -3,15 +3,11 @@
 use super::{cvt, e, Stop, Vm, R, V};
 use qb_ir::Ty;
 use qb_runtime::numfmt;
-use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Write};
 
-pub(crate) struct File {
-    f: std::fs::File,
-    mode: i32,
-    reclen: i64,
-    col: usize,
-    /// read buffer for INPUT/LINE INPUT
+/// Sequential text input (INPUT #, LINE INPUT #, stdin).
+#[derive(Default)]
+pub(crate) struct Reader {
     rbuf: Vec<u8>,
     rpos: usize,
     eof: bool,
@@ -20,9 +16,9 @@ pub(crate) struct File {
 pub(crate) struct RtState<'a> {
     out: &'a mut dyn Write,
     col: usize,
-    files: HashMap<i32, File>,
     rnd: qb_runtime::rnd::RndState,
     using: Option<Using>,
+    stdin: Reader,
 }
 
 struct Using {
@@ -34,55 +30,31 @@ struct Using {
 
 impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
-        RtState { out, col: 1, files: HashMap::new(), rnd: Default::default(), using: None }
+        RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default() }
     }
     pub(crate) fn flush(&mut self) {
         let _ = self.out.flush();
-        for f in self.files.values_mut() {
-            let _ = f.f.flush();
-        }
     }
-    fn col(&mut self, ch: i32) -> R<usize> {
-        if ch == 0 {
-            return Ok(self.col);
-        }
-        Ok(self.file(ch)?.col)
-    }
-    fn file(&mut self, ch: i32) -> R<&mut File> {
-        match self.files.get_mut(&ch) {
-            Some(f) => Ok(f),
-            None => e(52),
-        }
-    }
+    /// Console output, or file output through qb-runtime (SCRN: falls back to the console).
     pub(crate) fn write(&mut self, ch: i32, b: &[u8]) -> R<()> {
-        let col = if ch == 0 {
-            let _ = self.out.write_all(b);
-            &mut self.col
-        } else {
-            let f = self.file(ch)?;
-            if f.mode == 1 {
-                return e(54);
-            }
-            if f.f.write_all(b).is_err() {
-                return e(57);
-            }
-            &mut f.col
-        };
+        if ch != 0 && super::files::print(ch, b, false, false)? {
+            return Ok(());
+        }
+        let _ = self.out.write_all(b);
         for c in b {
             if *c == b'\n' {
-                *col = 1;
+                self.col = 1;
             } else {
-                *col += 1;
+                self.col += 1;
             }
         }
         Ok(())
     }
     fn nl(&mut self, ch: i32) -> R<()> {
-        if ch == 0 {
-            self.write(0, b"\n")
-        } else {
-            self.write(ch, b"\r\n")
+        if ch != 0 && super::files::print(ch, b"", false, true)? {
+            return Ok(());
         }
+        self.write(0, b"\n")
     }
 }
 
@@ -218,6 +190,9 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     let i = |k: usize| a[k].i();
     let f = |k: usize| a[k].f();
     let ok = |v: V| Ok(Some(v));
+    if let Some(r) = super::files::call(vm, name, &a) {
+        return r;
+    }
     let rt = &mut vm.rt;
     match name {
         "PRINTS" => rt.write(i(0) as i32, s(1))?,
@@ -228,7 +203,10 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         }
         "PRINTZONE" => {
             let ch = i(0) as i32;
-            let col = rt.col(ch)?;
+            if ch != 0 && super::files::print(ch, b"", true, false)? {
+                return Ok(None);
+            }
+            let col = rt.col;
             let next = ((col - 1) / 14 + 1) * 14 + 1;
             rt.write(ch, &vec![b' '; next - col])?
         }
@@ -236,7 +214,7 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         "PRINTTAB" => {
             let ch = i(0) as i32;
             let n = i(1).max(1) as usize;
-            let col = rt.col(ch)?;
+            let col = if ch == 0 { rt.col } else { 1 };
             if col > n {
                 rt.nl(ch)?;
                 rt.write(ch, &vec![b' '; n - 1])?
@@ -404,6 +382,12 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         "RND.n" => return ok(V::F(f64::from(rt.rnd.rnd(Some(f(0) as f32))))),
         "RANDOMIZE" => rt.rnd.randomize(f(0)),
         "RANDOMIZEUSING" => rt.rnd.randomize_using(f(0)),
+        "TIMER.n" => {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0) % 86400.0;
+            let acc = f(0);
+            return ok(V::F(if acc > 0.0 { (t / acc).round() * acc } else { t }));
+        }
         "TIMER" => {
             use std::time::{SystemTime, UNIX_EPOCH};
             let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
@@ -411,95 +395,38 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         }
         "ERR" => return ok(V::I(vm.err.into())),
         "ERL" | "_ERRORLINE" => return ok(V::I(vm.erl.into())),
-        "OPEN" => {
-            let ch = i(2) as i32;
-            if ch < 1 || ch > 32767 {
-                return e(52);
-            }
-            if rt.files.contains_key(&ch) {
-                return e(55);
-            }
-            let path = String::from_utf8_lossy(s(0)).into_owned();
-            let mode = i(1) as i32;
-            let mut o = std::fs::OpenOptions::new();
-            match mode {
-                1 => o.read(true),
-                2 => o.write(true).create(true).truncate(true),
-                3 => o.append(true).create(true),
-                _ => o.read(true).write(true).create(true),
-            };
-            let file = match o.open(&path) {
-                Ok(f) => f,
-                Err(_) => return e(if mode == 1 { 53 } else { 75 }),
-            };
-            let reclen = if i(3) > 0 { i(3) } else { 128 };
-            rt.files.insert(ch, File { f: file, mode, reclen, col: 1, rbuf: vec![], rpos: 0, eof: false });
-        }
-        "CLOSE" => {
-            if let Some(mut f) = rt.files.remove(&(i(0) as i32)) {
-                let _ = f.f.flush();
-            }
-        }
-        "CLOSEALL" => rt.files.clear(),
-        "FREEFILE" => {
-            let n = (1..).find(|n| !rt.files.contains_key(n)).unwrap_or(1);
-            return ok(V::I(n.into()));
-        }
-        "EOF" => {
-            let f = rt.file(i(0) as i32)?;
-            fill(f);
-            return ok(V::I(if f.rpos >= f.rbuf.len() { -1 } else { 0 }));
-        }
-        "LOF" => {
-            let f = rt.file(i(0) as i32)?;
-            return ok(V::I(f.f.metadata().map(|m| m.len() as i64).unwrap_or(0)));
-        }
-        "SEEK" | "LOC" => {
-            let f = rt.file(i(0) as i32)?;
-            let p = f.f.stream_position().unwrap_or(0) as i64;
-            let v = if name == "SEEK" {
-                if f.mode == 5 { p / f.reclen + 1 } else { p + 1 }
-            } else if f.mode == 5 {
-                p / f.reclen
-            } else {
-                p
-            };
-            return ok(V::I(v));
-        }
-        "SEEKSET" => {
-            let f = rt.file(i(0) as i32)?;
-            if i(1) < 1 {
-                return e(63);
-            }
-            let pos = if f.mode == 5 { (i(1) - 1) * f.reclen } else { i(1) - 1 };
-            let _ = f.f.seek(SeekFrom::Start(pos as u64));
-        }
         "LINEINPUT" => {
-            let f = rt.file(i(0) as i32)?;
-            return ok(V::S(read_line(f)?));
+            let ch = i(0) as i32;
+            let _ = ch;
+            fill(&mut std::io::stdin(), &mut rt.stdin);
+            let line = read_line(&mut rt.stdin)?;
+            return ok(V::S(line));
+        }
+        "INPUTPROMPT" => {
+            if i(1) == 0 {
+                rt.write(0, s(0))?;
+            }
         }
         "INPUTITEM.s" | "INPUTITEM.n" => {
-            let f = rt.file(i(0) as i32)?;
-            let item = read_item(f)?;
+            let ch = i(0) as i32;
+            let _ = ch;
+            fill(&mut std::io::stdin(), &mut rt.stdin);
+            let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
             return ok(V::F(val(&item)));
         }
-        "INPUT$" => {
-            let f = rt.file(i(1) as i32)?;
-            let n = count(&a[0])?;
-            fill(f);
-            if f.rbuf.len() - f.rpos < n {
-                return e(62);
-            }
-            let r = f.rbuf[f.rpos..f.rpos + n].to_vec();
-            f.rpos += n;
-            return ok(V::S(r));
-        }
         "KILL" => {
-            if std::fs::remove_file(String::from_utf8_lossy(s(0)).as_ref()).is_err() {
+            let spec = String::from_utf8_lossy(s(0)).into_owned();
+            let files = glob_files(&spec);
+            if files.is_empty() {
                 return e(53);
+            }
+            for f in files {
+                if std::fs::remove_file(&f).is_err() {
+                    return e(75);
+                }
             }
         }
         "NAME" => {
@@ -547,9 +474,18 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
         }
         "ENVIRON" => {
             let t = String::from_utf8_lossy(s(0)).into_owned();
-            if let Some((k, v)) = t.split_once('=') {
-                // SAFETY: the program thread is the only one touching the environment
-                unsafe { std::env::set_var(k.trim(), v) };
+            let lead = t.len() - t.trim_start().len();
+            let split = t.find('=').or_else(|| t[lead..].find(' ').map(|p| p + lead));
+            if let Some(p) = split {
+                let k = t[..p].trim().to_string();
+                let v = if t.as_bytes()[p] == b' ' { t[p + 1..].trim_start() } else { &t[p + 1..] };
+                if v.is_empty() {
+                    // SAFETY: the program thread is the only one touching the environment.
+                    unsafe { std::env::remove_var(&k) };
+                } else {
+                    // SAFETY: as above.
+                    unsafe { std::env::set_var(&k, v) };
+                }
             }
         }
         "SHELL" => {
@@ -563,85 +499,137 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
         "DATE$" | "TIME$" => return ok(V::S(vec![])),
-        "GETREC" | "PUTREC" | "GETSTR" | "PUTSTR" | "FIELD" | "OPENOLD" | "INPUTPROMPT" => return e(73),
+        "_STRCMP" | "_STRICMP" => {
+            let (x, y) = if name == "_STRICMP" {
+                (s(0).to_ascii_lowercase(), s(1).to_ascii_lowercase())
+            } else {
+                (s(0).to_vec(), s(1).to_vec())
+            };
+            return ok(V::I(match x.cmp(&y) {
+                std::cmp::Ordering::Less => -1,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            }));
+        }
+        "_CWD$" | "_STARTDIR$" => {
+            let d = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            return ok(V::S(d.into_bytes()));
+        }
+        "FIELD" => return e(73),
         _ => return e(73),
     }
     Ok(None)
 }
 
-fn fill(f: &mut File) {
-    if !f.eof {
+/// Files matching a DOS pattern (`*`, `?` in the last component).
+fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
+    if !spec.contains(['*', '?']) {
+        let p = std::path::PathBuf::from(spec);
+        return if p.is_file() { vec![p] } else { vec![] };
+    }
+    let path = std::path::Path::new(spec);
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+    let pat: Vec<u8> = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase().into_bytes()).unwrap_or_default();
+    fn m(p: &[u8], t: &[u8]) -> bool {
+        match (p.first(), t.first()) {
+            (None, None) => true,
+            (Some(b'*'), _) => m(&p[1..], t) || (!t.is_empty() && m(p, &t[1..])),
+            (Some(b'?'), Some(_)) => m(&p[1..], &t[1..]),
+            (Some(a), Some(b)) if a == b => m(&p[1..], &t[1..]),
+            _ => false,
+        }
+    }
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+            if e.path().is_file() && m(&pat, name.as_bytes()) {
+                out.push(e.path());
+            }
+        }
+    }
+    out
+}
+
+fn fill(f: &mut dyn Read, rd: &mut Reader) {
+    if !rd.eof {
         let mut b = Vec::new();
-        let _ = f.f.read_to_end(&mut b);
-        f.rbuf.extend_from_slice(&b);
-        f.eof = true;
+        let _ = f.read_to_end(&mut b);
+        rd.rbuf.extend_from_slice(&b);
+        rd.eof = true;
     }
 }
 
-fn read_line(f: &mut File) -> R<Vec<u8>> {
-    fill(f);
-    if f.rpos >= f.rbuf.len() {
+fn read_line(f: &mut Reader) -> R<Vec<u8>> {
+    let b = &f.rbuf;
+    let mut p = f.rpos;
+    if p >= b.len() || b[p] == 26 {
         return e(62);
     }
-    let rest = &f.rbuf[f.rpos..];
-    let end = rest.iter().position(|c| *c == b'\n').unwrap_or(rest.len());
-    let mut line = rest[..end].to_vec();
-    f.rpos += (end + 1).min(rest.len());
-    if line.last() == Some(&b'\r') {
-        line.pop();
+    let mut line = Vec::new();
+    while p < b.len() && b[p] != b'\n' && b[p] != b'\r' && b[p] != 26 {
+        line.push(b[p]);
+        p += 1;
     }
+    f.rpos = skip_eol(b, p);
     Ok(line)
 }
 
-fn read_item(f: &mut File) -> R<Vec<u8>> {
-    fill(f);
-    let b = &f.rbuf;
-    let mut p = f.rpos;
-    while p < b.len() && (b[p] == b' ' || b[p] == b'\r' || b[p] == b'\n') {
+/// Consumes one line terminator (CR, LF or CR LF) at `p`.
+fn skip_eol(b: &[u8], mut p: usize) -> usize {
+    if p < b.len() && b[p] == b'\r' {
+        p += 1;
+        if p < b.len() && b[p] == b'\n' {
+            p += 1;
+        }
+    } else if p < b.len() && b[p] == b'\n' {
         p += 1;
     }
-    if p >= b.len() {
+    p
+}
+
+/// One INPUT # item: quoted strings, comma/line separated; numbers also end at a space.
+fn read_item(f: &mut Reader, numeric: bool) -> R<Vec<u8>> {
+    let b = &f.rbuf;
+    let mut p = f.rpos;
+    let end = |p: usize| p >= b.len() || b[p] == 26;
+    while !end(p) && (b[p] == b' ' || (numeric && (b[p] == b'\r' || b[p] == b'\n'))) {
+        p += 1;
+    }
+    if end(p) {
         return e(62);
     }
     let mut item = Vec::new();
     if b[p] == b'"' {
         p += 1;
-        while p < b.len() && b[p] != b'"' {
+        while !end(p) && b[p] != b'"' {
             item.push(b[p]);
             p += 1;
         }
-        p += 1;
-        while p < b.len() && b[p] == b' ' {
+        if !end(p) {
             p += 1;
         }
-        if p < b.len() && b[p] == b',' {
-            p += 1;
-        } else if p < b.len() && b[p] == b'\r' {
-            p += 1;
-            if p < b.len() && b[p] == b'\n' {
-                p += 1;
-            }
-        } else if p < b.len() && b[p] == b'\n' {
+        while !end(p) && b[p] != b',' && b[p] != b'\r' && b[p] != b'\n' {
             p += 1;
         }
     } else {
-        while p < b.len() && b[p] != b',' && b[p] != b'\n' && b[p] != b'\r' {
+        while !end(p) && b[p] != b',' && b[p] != b'\r' && b[p] != b'\n' && !(numeric && b[p] == b' ') {
             item.push(b[p]);
             p += 1;
-        }
-        if p < b.len() && b[p] == b',' {
-            p += 1;
-        } else {
-            if p < b.len() && b[p] == b'\r' {
-                p += 1;
-            }
-            if p < b.len() && b[p] == b'\n' {
-                p += 1;
-            }
         }
         while item.last() == Some(&b' ') {
             item.pop();
         }
+        if numeric {
+            while !end(p) && b[p] == b' ' {
+                p += 1;
+            }
+        }
+    }
+    if !end(p) && b[p] == b',' {
+        p += 1;
+    } else {
+        p = skip_eol(b, p);
     }
     f.rpos = p;
     Ok(item)
@@ -808,7 +796,12 @@ fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
             digits.push_str(fp);
         }
         let w = if exp >= 5 { 3 } else { 2 };
-        digits.push_str(&format!("E{}{:0w$}", if ex < 0 { '-' } else { '+' }, ex.abs(), w = w));
+        let letter = match t {
+            Ty::F32 => 'E',
+            Ty::F80 => 'F',
+            _ => 'D',
+        };
+        digits.push_str(&format!("{letter}{}{:0w$}", if ex < 0 { '-' } else { '+' }, ex.abs(), w = w));
     } else {
         digits = format!("{:.*}", dec, a);
         if dec == 0 && dot.is_some() {
@@ -835,7 +828,19 @@ fn format_num(fmt: &[u8], v: f64, t: Ty) -> Vec<u8> {
     }
     s.push_str(&digits);
     if lead_plus {
-        s.insert(0, if neg { '-' } else { '+' });
+        // the sign takes the first column of the field; the number is right-aligned after it
+        let width = fmt.len() - 1;
+        let body = s.into_bytes();
+        let mut r = vec![if neg { b'-' } else { b'+' }];
+        if body.len() > width {
+            let mut o = vec![b'%'];
+            o.extend_from_slice(&r);
+            o.extend_from_slice(&body);
+            return o;
+        }
+        r.extend(std::iter::repeat_n(if stars { b'*' } else { b' ' }, width - body.len()));
+        r.extend_from_slice(&body);
+        return r;
     } else if neg && trail.is_none() {
         s.insert(0, '-');
     }

@@ -73,7 +73,7 @@ pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
 /// Like [`run_ir`] but returns the program's exit code (`SYSTEM n`).
 /// The `QIR <n>` header selects the loader.
 pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
-    let head = src.trim_start().lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
+    let head = src.lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
     if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
         let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
         return v1::run(&m, out);
