@@ -1,0 +1,77 @@
+# R15 G4 — 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
+
+สถานะ: ออกแบบ + ชั้น GPU (`qb_gpu::scene`) เสร็จ 2026-11-11; ยังไม่มี keyword ใน compiler/runtime.
+เกี่ยวข้อง: port-plan §9.6 (G4), progress.md R15-G1..G4, `crates/qb-gpu`.
+
+## เป้าหมาย
+
+- โปรแกรม BASIC วาดฉาก 3D (model, กล้อง, แสง) ได้โดยไม่ต้องเขียน `_MAPTRIANGLE` ทีละสามเหลี่ยม
+- backward compatible: ไม่มี keyword เดิมเปลี่ยนความหมาย; ทุกชื่อใหม่ขึ้นต้น `_` แบบ QB64
+- handle เป็น `LONG` แบบเดียวกับ `_LOADIMAGE` (ค่าลบ = ไม่ถูกต้อง, `_FREE*` คืนทรัพยากร)
+- ไม่มี GPU: ทุกคำสั่งยังทำงานโดยไม่ error แต่ `_DRAW3D` ไม่วาดอะไร และ `_GPU3D` คืน 0 (โปรแกรมเช็คได้)
+- ฉาก 3D วาดเป็น layer ใต้หรือบน SCREEN ตาม `_DISPLAYORDER` เดิม (`_HARDWARE` layer)
+
+## API (BASIC)
+
+```basic
+' ---- model / mesh ----
+m& = _LOADMODEL("ship.glb")                 ' glTF 2.0 (.gltf/.glb); -1 เมื่อโหลดไม่ได้
+m& = _MESHCUBE(size!)                        ' primitive: กล่อง
+m& = _MESHPLANE(w!, d!)                      ' primitive: พื้น (แกน XZ)
+m& = _MESH(px!(), py!(), pz!(), nx!(), ny!(), nz!(), u!(), v!(), idx&())  ' จาก array; normals ว่างได้ (คำนวณให้)
+_MESHCOLOR m&, _RGBA32(r, g, b, a)           ' base colour ทั้ง model
+_MESHTEXTURE m&, img&                        ' texture จาก image handle (32-bit)
+_FREEMESH m&
+
+' ---- transform (ต่อการวาดหนึ่งครั้ง) ----
+_DRAW3D m& [, x!, y!, z!] [, rx!, ry!, rz!] [, sx!, sy!, sz!]   ' มุมเป็นองศา, ลำดับ Y-X-Z
+
+' ---- กล้อง ----
+_CAMERA x!, y!, z! TO tx!, ty!, tz! [, fov!]          ' perspective (fov แนวตั้ง องศา, ค่าเริ่ม 60)
+_CAMERA x!, y!, z! TO tx!, ty!, tz!, _ORTHO height!   ' orthographic
+_CAMERARANGE near!, far!                               ' ค่าเริ่ม 0.1, 1000
+
+' ---- แสง ----
+_AMBIENT _RGB32(r, g, b) [, intensity!]
+l& = _LIGHT(_DIRECTIONAL, dx!, dy!, dz!, colour~&, intensity!)
+l& = _LIGHT(_POINT, x!, y!, z!, colour~&, intensity! [, range!])
+_LIGHTON l&, 0|-1
+_FREELIGHT l&
+
+' ---- frame ----
+_CLEAR3D [colour~&]          ' ล้าง colour + depth ของ layer 3D
+_DISPLAY                     ' เดิม: ประกอบ SCREEN + layer 3D แล้วแสดง
+f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3D ได้
+```
+
+ความหมาย:
+
+- พิกัดโลกแบบ right-handed, +Y ขึ้น, กล้องมองไป −Z เมื่อไม่ได้ตั้ง (ตรงกับ `_MAPTRIANGLE` 3D)
+- `_DRAW3D` เข้าคิว (เหมือนคำสั่ง hardware เดิม) และวาดตอน `_DISPLAY`; ลำดับในคิว = ลำดับที่วาด
+- แสงสูงสุด 8 ดวงที่เปิดอยู่ (`MAX_LIGHTS`); เกินนั้นดวงหลังถูกข้าม
+- shading: Lambert diffuse + ambient (ไม่มี specular ใน G4; PBR เต็มรอ G5 shader)
+  - `colour = base × texture × (ambient + Σ max(n·l, 0) × light × intensity × atten)`
+  - point light: `atten = 1 / (1 + (d/range)²)` (range ≤ 0 = 1/d²) ไม่มีจุดตัดคม
+- alpha: base/texture alpha < 1 ผสมแบบ alpha blend; ไม่ sort ตามระยะ (ผู้ใช้วาดของทึบก่อน)
+- glTF: อ่าน node tree ของ scene เริ่มต้น (transform สะสม), primitive แบบ triangles, POSITION/NORMAL/TEXCOORD_0, index, `baseColorFactor` + `baseColorTexture`; ข้าม skin/animation/morph/KHR extension (G6+)
+
+## ชั้น implementation
+
+| ชั้น | ที่อยู่ | งาน |
+| --- | --- | --- |
+| GPU | `crates/qb-gpu/src/scene.rs` | `Model` (glTF/array/primitive), `Material`, `Light`, `Lighting`, `SceneRenderer::render` (depth, Lambert) — **เสร็จ** |
+| runtime | `crates/qb-runtime` (feature `gpu`) | ตาราง handle model/light, คิว `_DRAW3D`, render ลง layer 3D ตอนประกอบ frame; ไม่มี GPU = no-op |
+| compiler | `compiler/subs_functions` + qb-syntax builtins | keyword ใหม่, ตรวจ argument |
+| docs/tests | conformance `graphics/3d_*` | ภาพ golden render offscreen (`QBNEX_HEADLESS` + GPU), skip เมื่อไม่มี adapter |
+
+ข้อควรระวัง:
+
+- layer 3D ต้องประกอบบน GPU ถ้าอยากเร็ว; ระยะแรกอ่านกลับ (`read_pixels`) แล้วผสมด้วย CPU เพื่อใช้เส้นทางประกอบ frame เดิม (`window_bridge.cpp`) — ช้าแต่ถูก, ตัดทิ้งเมื่อการประกอบทั้ง frame ย้ายไป GPU (G6)
+- feature `gpu` ของ qb-runtime ยังไม่ได้ตรวจการ link แบบ staticlib กับ MinGW (wgpu ใช้ `windows` crate)
+- golden image ต่างกันได้ระหว่าง GPU vendor ที่ขอบสามเหลี่ยม/การปัดเศษ: test เทียบแบบมี tolerance หรือเฉพาะจุดด้านใน
+
+## Test (qb-gpu, headless)
+
+`crates/qb-gpu/tests/scene.rs`: ความสว่างหน้ากล่องตามมุมแสง directional, point light ใกล้ = สว่างกว่า,
+ambient อย่างเดียว, depth ระหว่างสอง model, โหลด `.glb` ที่สร้างในหน่วยความจำ (node transform + baseColorFactor
++ texture), normals ที่คำนวณให้เมื่อไฟล์ไม่มี. ทุก test skip เมื่อไม่มี adapter.
