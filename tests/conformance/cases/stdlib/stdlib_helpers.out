@@ -1,0 +1,25 @@
+list 3 [a|b|c,d] idx 2  0 
+after remove [b|c,d]
+stack 21 1 
+queue xy 1 
+set  2 k,m
+dict  2 3?b
+sb abcd 4 
+pad [ababa7] [7   ] pad still [ab]
+-1 -1  0 [ababab]
+join ok-1  args kept-1 
+file [c.tar.gz] ext [.gz] root dir ok-1 
+{"k":"a\u0001\b\f\"","n":1}
+plain,"a,b","q""x"
+pre-1970 1969-12-30T23:59:59.999 weekday 2  value-86400001.0 
+1900-01-01 value-2208988800000  weekday 1 
+round trip 1900-01-01T00:00:00.000
+leap 2000-02-29T00:00:00.000 2 
+export -> saving: [E7] disk full [source=file.txt] | cause: saving: [E7] disk full [source=file.txt]
+v [  keep  ]
+ERROR: Maximum class limit exceeded
+ERROR: Maximum class limit exceeded
+ERROR: Maximum class limit exceeded
+ERROR: Maximum class limit exceeded
+classes 256  last id 0  find C256 256  C257 0 
+done

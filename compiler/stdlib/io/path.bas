@@ -36,24 +36,28 @@ END FUNCTION
 
 FUNCTION Path_Join$ (basePath AS STRING, leafPath AS STRING)
     DIM separator AS STRING
+    DIM baseText AS STRING
+    DIM leafText AS STRING
 
+    ' Work on copies: the arguments are passed by reference.
     separator = Path_Separator$
-    basePath = Path_Normalize$(basePath)
-    leafPath = Path_Normalize$(leafPath)
+    baseText = Path_Normalize$(basePath)
+    leafText = Path_Normalize$(leafPath)
 
-    IF LEN(basePath) = 0 THEN
-        Path_Join = leafPath
+    IF LEN(baseText) = 0 THEN
+        Path_Join = leafText
         EXIT FUNCTION
     END IF
-    IF LEN(leafPath) = 0 THEN
-        Path_Join = basePath
+    IF LEN(leafText) = 0 THEN
+        Path_Join = baseText
         EXIT FUNCTION
     END IF
 
-    IF RIGHT$(basePath, 1) = separator THEN
-        Path_Join = basePath + leafPath
+    IF LEFT$(leafText, 1) = separator THEN leafText = MID$(leafText, 2)
+    IF RIGHT$(baseText, 1) = separator THEN
+        Path_Join = baseText + leafText
     ELSE
-        Path_Join = basePath + separator + leafPath
+        Path_Join = baseText + separator + leafText
     END IF
 END FUNCTION
 
@@ -87,13 +91,14 @@ FUNCTION Path_DirName$ (rawPath AS STRING)
     normalized = Path_Normalize$(rawPath)
     separator = Path_Separator$
     position = 0
-
     FOR i = 1 TO LEN(normalized)
         IF MID$(normalized, i, 1) = separator THEN position = i
     NEXT
 
     IF position = 0 THEN
         Path_DirName = ""
+    ELSEIF position = 1 THEN
+        Path_DirName = separator ' the root itself
     ELSE
         Path_DirName = LEFT$(normalized, position - 1)
     END IF

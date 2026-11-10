@@ -424,6 +424,8 @@ These reproduce on the unmodified legacy build. They are kept as `xfail` cases (
 | L-18 | `PLAY ON`/`OFF`/`STOP` fail with `'ON' is already defined`; `ON PLAY(n) GOSUB label` compiles as a computed `ON <PLAY(n)> GOSUB`. **Fixed** in the compiler (D-24); the PLAY event itself is not raised yet. | `audio/play_event_trap` (`.deviation`) | Medium |
 | L-14 | `PUT` on a network handle treats a full send buffer ("would block" on the non-blocking socket) as a lost connection: `_CONNECTED` drops to 0 and the rest of the data is lost. Ported as is. | `net/send_buffer_full` | Medium |
 | L-15 | `TIMER ON` after `TIMER STOP` with an event queued during the STOP never delivers it: the event stays "triggered", so the timer thread does not set `qbevent` again, and `TIMER ON` does not set it either. The timer stalls until something else (a key, an error) runs `evnt()`. Ported as is. | `events/timers_and_waits` uses OFF/ON | Medium |
+| L-16 | `url.bas` was unusable at run time: the fixed-length `UrlParts` fields were used untrimmed (`UrlFormat$`, `UrlBasename$`, query lookups returned padded text or nothing), `protocol` kept `//` (`origin` became `https:////host`), port 65535 overflowed an INTEGER, `UrlSetQueryParam` appended duplicate keys, `UrlNormalizePath$` returned its input and `UrlResolve` only glued strings. **Fixed** (R13-stdlib). | `stdlib/url_parse` (`.deviation`) | High |
+| L-17 | `JSON_Parse%` in `compiler/stdlib/json.bas` parsed nothing: `[`/`{` input became an empty array/object, `JsonObjectGet%`/`JsonArrayGet%` always returned 0, numbers went through `VAL` without validation and strings kept their escapes. **Fixed** (R13-stdlib): full RFC 8259 parser. | `stdlib/json_parse` (`.deviation`) | High |
 
 Output quirks that are preserved bug-for-bug (golden files depend on them):
 
@@ -677,6 +679,34 @@ Verified on Windows (MinGW g++ 15.2, rustc 1.99.1, after merging rust-port `d05c
 - `tests/diff/host_stubs.h`: libqb_runtime.a is a single object since D16, so every harness now includes stubs for the libqb.cpp/qbx.cpp symbols it references (`diff_timer` and others did not link before).
 - Self-hosted `qb.exe` built by `scripts/setup_win.cmd` with the Rust core.
 
+## R13-stdlib: BASIC standard library audit
+
+Branch `claude/r12b-core-4db168`. Scope: `compiler/stdlib/*.bas` only (the compiler core, `qb-exec` and `qb-ir` are untouched).
+
+**JSON (`'$IMPORT:'json'`, fixes L-17).** `json.bas` is a complete RFC 8259 implementation: a value pool of up to 32,767 values with linked children (handles, 0 = none), `JSON_Parse%` (objects, arrays, strings with all escapes incl. `\uXXXX` and surrogate pairs to UTF-8, strict number grammar, `true`/`false`/`null`, depth limit 500, trailing-text check) with `JSON_LastError$` and the 1-based byte `JSON_ErrorPosition&`; access (`JsonObjectGet%`, `JsonArrayGet%` 0-based, `JsonObjectKey$`, `JsonObjectCount%`, `JsonObjectHas%`, `JsonObjectRemove`), building (`JsonCreate*`, `JsonArrayPush`, `JsonObjectSet` replaces a key; a value that already has a parent is deep-copied) and `JSON_Stringify$`/`JSON_StringifyPretty$` (escapes control characters, keeps the source text of parsed numbers, so parse -> stringify round-trips byte for byte). Numbers beyond DOUBLE clamp to +-1.797...E308, tiny ones to 0 (`VAL` would raise Overflow). The old `JsonParse*(parser)` facade functions and the `JsonParser` TYPE remain for source compatibility.
+
+**URL (`'$IMPORT:'url'`, fixes L-16).** Trimmed fields, `protocol` as `https:`, LONG `port`, lower-case host, query parameters decoded with `+` as space, `UrlSetQueryParam` replaces an existing key and refreshes `search`/`href`, `%XX` decoding keeps malformed escapes, RFC 3986 `remove_dot_segments` (`UrlNormalizePath$`) and reference resolution (`UrlResolve`: all 36 normal examples of RFC 3986 section 5.4 give the RFC result; `//g` gives `http://g/`), `file:` URL helpers with percent-encoding.
+
+**Audit of the other modules** (fixes applied to the module files and to the monolithic `qbnex_stdlib.bas`, which carries its own copies):
+
+| Module | State |
+| --- | --- |
+| `collections/list, stack, queue, set, dictionary` | Work (length-prefixed string pools; at most 256 live lists, O(n) access). No change. |
+| `strings/strbuilder` | Works. No change. |
+| `strings/text` | **Fixed:** `Text_PadLeft$`/`Text_PadRight$` rewrote the caller's pad argument and overshot the width with multi-character pads. |
+| `io/path` | **Fixed:** `Path_Join$` rewrote both (by-reference) arguments and doubled the separator for a leaf starting with one; `Path_DirName$("/x")` returned "" instead of the root. |
+| `io/csv` | Works. No change. |
+| `io/json` (builders) | **Fixed:** `Json_Escape$` left control characters other than TAB/CR/LF raw (invalid JSON). |
+| `math/numeric`, `sys/args`, `sys/env` | Work. No change. |
+| `sys/datetime` | **Fixed:** `Date_ValueOf#`, `Date_FromUnixMs` and `Date_GetDay&` were wrong before 1970 (negative day of month, negative weekday). |
+| `oop/class`, `oop/interface` | **Fixed:** registering class/interface 257 left the count past the registry, so every later lookup raised "Subscript out of range". |
+| `error/result` | **Fixed:** `Result_Expect$` rewrote its message argument. Otherwise works. |
+
+`io/path.bas` and `strings/text.bas` are also `$INCLUDE`d by the compiler (`compiler/utilities/runtime.bas`); the self-hosted build was rebuilt and checked with them.
+
+Compiler quirks found (not fixed, compiler core is out of scope): a module pulled in by `$IMPORT` lands after the program's SUBs, so its module level may only hold declarations (a `REDIM SHARED` there is "Statement cannot be placed between SUB/FUNCTIONs", and `REDIM` of such an array inside a FUNCTION creates a local array); `DIM SHARED` in the main program after an `$IMPORT` line fails the same way; a string comparison in parentheses inside a PRINT list is rejected ("Unknown statement 'PRINT'").
+
+Tests: conformance `stdlib/json_parse`, `stdlib/url_parse`, `stdlib/stdlib_helpers` (via `'$IMPORT:'qbnex'`). Whole corpus on the rebuilt self-hosted `qb.exe` (MinGW 16.2): 80 cases, 74 passed, 6 xfail, 0 failed (`mem/mem_ops` timed out once under load and passed on rerun); `stdlib_smoke` passes. The legacy oracle only has the broken modules, so their goldens come from the current default C++ build and are marked `.deviation` (checked by hand against RFC 8259, RFC 3986 and the calendar).
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
