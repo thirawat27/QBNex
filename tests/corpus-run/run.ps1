@@ -71,7 +71,12 @@ function Invoke-Bounded([string]$exe, [string[]]$argv, [string]$cwd, [hashtable]
         if ($null -eq $envs[$k]) { [void]$psi.Environment.Remove($k) } else { $psi.Environment[$k] = [string]$envs[$k] }
     }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $p = [System.Diagnostics.Process]::Start($psi)
+    # "The paging file is too small": the shared machine is out of commit; wait and retry.
+    $p = $null
+    for ($i = 0; $i -lt 10 -and -not $p; $i++) {
+        try { $p = [System.Diagnostics.Process]::Start($psi) } catch { Start-Sleep -Seconds 30 }
+    }
+    if (-not $p) { return @{ code = -1; timedOut = $false; ms = 0; out = [byte[]]@(); err = [System.Text.Encoding]::ASCII.GetBytes('runner: could not start process (system memory)') } }
     $so = [System.IO.MemoryStream]::new(); $se = [System.IO.MemoryStream]::new()
     $t1 = $p.StandardOutput.BaseStream.CopyToAsync($so)
     $t2 = $p.StandardError.BaseStream.CopyToAsync($se)
