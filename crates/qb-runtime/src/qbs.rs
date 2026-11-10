@@ -1023,46 +1023,51 @@ pub unsafe extern "C" fn qb_func__instrrev(start: i32, s: *mut Qbs, sub: *mut Qb
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_sub_mid(dest: *mut Qbs, start: i32, l: i32, src: *mut Qbs, passed: i32) {
     unsafe {
-        let mut l = if passed == 0 { (*src).len } else { l };
-        let mut start = start;
-        let mut src_offset = 0i32;
+        // i64 so that `start + l` cannot wrap (R14: MID$(d$, 2, 2147483647) = s$
+        // wrote past d$).
+        let (dlen, slen) = ((*dest).len as i64, (*src).len as i64);
+        let mut l = if passed == 0 { slen } else { l as i64 };
+        let mut start = start as i64;
+        let mut src_offset = 0i64;
         if start < 1 {
-            l = l.wrapping_add(start).wrapping_sub(1);
-            src_offset = 1i32.wrapping_sub(start);
+            l = l + start - 1;
+            src_offset = 1 - start;
             start = 1;
         }
-        if l <= 0 || start > (*dest).len {
+        if l <= 0 || start > dlen {
             return;
         }
-        if start.wrapping_add(l).wrapping_sub(1) > (*dest).len {
-            l = (*dest).len - start + 1;
+        if start + l - 1 > dlen {
+            l = dlen - start + 1;
         }
-        if src_offset >= (*src).len {
+        if src_offset >= slen {
             return;
         }
-        if l > (*src).len - src_offset {
-            l = (*src).len - src_offset;
+        if l > slen - src_offset {
+            l = slen - src_offset;
         }
         if dest == src && start - 1 == src_offset {
             return;
         }
-        copy((*src).chr.add(src_offset as usize), (*dest).chr.add(start as usize - 1), l);
+        copy((*src).chr.add(src_offset as usize), (*dest).chr.add(start as usize - 1), l as i32);
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_mid(s: *mut Qbs, start: i32, l: i32, passed: i32) -> *mut Qbs {
     unsafe {
-        let (mut start, mut l) = (start, l);
-        let len = (*s).len;
+        // i64 so that `start + l` cannot wrap (R14: MID$(a$, 2, 2147483647)
+        // read past a$).
+        let (mut start, mut l) = (start as i64, l as i64);
+        let len64 = (*s).len as i64;
         if passed != 0 {
             if start < 1 {
-                l = l.wrapping_sub(1).wrapping_add(start);
+                l = l - 1 + start;
                 start = 1;
             }
-            if l >= 1 && start <= len {
-                if start.wrapping_add(l) > len {
-                    l = len - start + 1;
+            if l >= 1 && start <= len64 {
+                if start + l > len64 {
+                    l = len64 - start + 1;
                 }
             } else {
                 l = 0;
@@ -1072,12 +1077,14 @@ pub unsafe extern "C" fn qb_func_mid(s: *mut Qbs, start: i32, l: i32, passed: i3
             if start < 1 {
                 start = 1;
             }
-            l = len.wrapping_sub(start).wrapping_add(1);
+            l = len64 - start + 1;
             if l < 1 {
                 l = 0;
                 start = 1;
             }
         }
+        let (start, l) = (start as i32, l as i32);
+        let len = (*s).len;
         if start == 1 && l == len {
             return s;
         }

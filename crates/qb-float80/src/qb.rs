@@ -27,6 +27,9 @@ pub const ERR_OVERFLOW: i32 = 6;
 
 /// `EXP` of a `_FLOAT` (`func_exp_float`). The bound is the double literal
 /// `709.782712893` widened to long double; NaN fails the test (error 6).
+///
+/// # Errors
+/// 6 (overflow) above the bound or for NaN.
 pub fn exp_float(x: F80) -> Result<F80, i32> {
     let limit = F80::from_f64(709.782712893);
     match x.compare(limit) {
@@ -36,6 +39,9 @@ pub fn exp_float(x: F80) -> Result<F80, i32> {
 }
 
 /// The `^` operator (`pow2`).
+///
+/// # Errors
+/// 5 (illegal function call) for a negative base with a non-integer exponent.
 pub fn pow2(x: F80, y: F80) -> Result<F80, i32> {
     if F80::ZERO.compare(x) == Some(Ordering::Greater) && y.compare(floorl(y)) != Some(Ordering::Equal) {
         return Err(ERR_ILLEGAL_FUNCTION_CALL);
@@ -44,6 +50,7 @@ pub fn pow2(x: F80, y: F80) -> Result<F80, i32> {
 }
 
 /// `FIX` of a `_FLOAT`.
+#[must_use]
 pub fn fix_float(x: F80) -> F80 {
     if F80::ZERO.compare(x) == Some(Ordering::Greater) {
         ceill(x)
@@ -53,12 +60,14 @@ pub fn fix_float(x: F80) -> F80 {
 }
 
 /// `INT` of a `_FLOAT` (`floorl`).
+#[must_use]
 pub fn int_float(x: F80) -> F80 {
     floorl(x)
 }
 
 /// `CINT`/`CLNG`-style rounding of `_FLOAT` (`qbr`: `fistp` round to nearest even
 /// with the legacy wrap for values in `[2^63, 2^64)`).
+#[must_use]
 pub fn qbr(x: F80) -> i64 {
     // if (f > 9223372036854775807) { temp = 1; f = f - 9223372036854775808u; }
     let max = F80::from_i64(i64::MAX);
@@ -89,7 +98,10 @@ pub fn atn(x: F80) -> F80 {
     via_f64(x, f64::atan)
 }
 
-/// `func_log(double)`: error 5 for values `<= 0`.
+/// `func_log(double)`.
+///
+/// # Errors
+/// 5 for values `<= 0`.
 pub fn log(x: F80) -> Result<F80, i32> {
     let v = x.to_f64();
     if v <= 0.0 {
@@ -98,7 +110,10 @@ pub fn log(x: F80) -> Result<F80, i32> {
     Ok(F80::from_f64(v.ln()))
 }
 
-/// `func_sqr(double)`: error 5 for negative values.
+/// `func_sqr(double)`.
+///
+/// # Errors
+/// 5 for negative values.
 pub fn sqr(x: F80) -> Result<F80, i32> {
     let v = x.to_f64();
     if v < 0.0 {

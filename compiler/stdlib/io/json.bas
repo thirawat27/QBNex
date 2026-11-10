@@ -4,24 +4,30 @@
 
 FUNCTION Json_Escape$ (valueText AS STRING)
     DIM index AS LONG
-    DIM currentChar AS STRING
+    DIM code AS LONG
     DIM resultText AS STRING
 
     FOR index = 1 TO LEN(valueText)
-        currentChar = MID$(valueText, index, 1)
-        SELECT CASE ASC(currentChar)
+        code = ASC(valueText, index)
+        SELECT CASE code
             CASE 34
                 resultText = resultText + CHR$(92) + CHR$(34)
             CASE 92
                 resultText = resultText + CHR$(92) + CHR$(92)
+            CASE 8
+                resultText = resultText + CHR$(92) + "b"
             CASE 9
                 resultText = resultText + CHR$(92) + "t"
             CASE 10
                 resultText = resultText + CHR$(92) + "n"
+            CASE 12
+                resultText = resultText + CHR$(92) + "f"
             CASE 13
                 resultText = resultText + CHR$(92) + "r"
+            CASE IS < 32
+                resultText = resultText + CHR$(92) + "u00" + RIGHT$("0" + LCASE$(HEX$(code)), 2)
             CASE ELSE
-                resultText = resultText + currentChar
+                resultText = resultText + CHR$(code)
         END SELECT
     NEXT
 

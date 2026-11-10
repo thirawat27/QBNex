@@ -1,0 +1,1 @@
+Hand-checked golden. With QBNEX_NO_ERROR_DIALOG=1 or redirected output an unhandled error is reported on stderr and ends the program with exit code 1; the legacy runtime opened a modal dialog (L-11), which blocks a headless run.

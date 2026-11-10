@@ -284,6 +284,26 @@ mod host {
         // SAFETY: plain call into libqb.cpp.
         unsafe { qb_host_end() }
     }
+    /// True when error dialogs must not be shown (see [`super::no_dialog_policy`]).
+    pub fn no_dialog() -> bool {
+        static NO_DIALOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *NO_DIALOG.get_or_init(|| {
+            use std::io::IsTerminal;
+            super::no_dialog_policy(
+                std::env::var_os("QBNEX_NO_ERROR_DIALOG").as_deref().and_then(|v| v.to_str()),
+                std::io::stdout().is_terminal(),
+                std::io::stderr().is_terminal(),
+            )
+        })
+    }
+    pub fn report(line: &[u8]) {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let mut e = std::io::stderr().lock();
+        let _ = e.write_all(line);
+        let _ = e.write_all(b"\n");
+        let _ = e.flush();
+    }
 }
 
 #[cfg(test)]
@@ -305,7 +325,43 @@ pub(crate) mod host {
     pub fn end() {
         ENDED.with(|e| *e.borrow_mut() = true);
     }
+    thread_local! {
+        pub static NO_DIALOG: RefCell<bool> = const { RefCell::new(false) };
+        pub static REPORTS: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+    }
+    pub fn no_dialog() -> bool {
+        NO_DIALOG.with(|n| *n.borrow())
+    }
+    pub fn report(line: &[u8]) {
+        REPORTS.with(|r| r.borrow_mut().push(line.to_vec()));
+    }
 }
+
+/// Error dialogs are replaced by a line on stderr (and the program ends with
+/// exit code 1) when `QBNEX_NO_ERROR_DIALOG` is set to anything but "" or "0",
+/// or when stdout or stderr is not a terminal (redirected: test runners,
+/// pipes, CI). Interactive runs keep the QBasic-style dialog.
+pub fn no_dialog_policy(env: Option<&str>, stdout_tty: bool, stderr_tty: bool) -> bool {
+    if let Some(v) = env {
+        return !v.is_empty() && v != "0";
+    }
+    !(stdout_tty && stderr_tty)
+}
+
+/// One-line form of a dialog: "<title>: <body lines joined with ': '>",
+/// without the "Continue?" question.
+pub fn report_line(title: &[u8], body: &[u8]) -> Vec<u8> {
+    let body = body.strip_suffix(b"\nContinue?").unwrap_or(body);
+    let mut line = title.to_vec();
+    for part in body.split(|&c| c == b'\n') {
+        line.extend_from_slice(b": ");
+        line.extend_from_slice(part);
+    }
+    line
+}
+
+/// Exit code of a program ended by an error without a dialog.
+pub const NO_DIALOG_EXIT_CODE: i32 = 1;
 
 
 /// `error(n)`: critical errors show a message box and end the process;
@@ -313,7 +369,12 @@ pub(crate) mod host {
 /// and the program thread is told to check events.
 pub fn raise(code: i32) {
     if let Some((msg, title)) = critical_error(code) {
-        host::message_box(msg.trim_end_matches('\0').as_bytes(), title.trim_end_matches('\0').as_bytes(), MB_OK | MB_SYSTEMMODAL);
+        let (msg, title) = (msg.trim_end_matches('\0').as_bytes(), title.trim_end_matches('\0').as_bytes());
+        if host::no_dialog() {
+            host::report(&report_line(title, msg));
+            host::exit(NO_DIALOG_EXIT_CODE);
+        }
+        host::message_box(msg, title, MB_OK | MB_SYSTEMMODAL);
         host::exit(0);
     }
     if let Some(n) = latch(program::load(addr_of!(new_error)), code) {
@@ -335,6 +396,18 @@ pub fn fix_error(command0: &[u8]) -> FixError {
                 Some(std::ffi::CStr::from_ptr(includedfilename).to_bytes())
             };
             let d = error_dialog(code, ercl, inclercl, file, command0);
+            if host::no_dialog() {
+                // Same as answering "No": end the program, but with a failing exit code.
+                host::report(&report_line(&d.title, &d.body));
+                if d.critical {
+                    host::exit(NO_DIALOG_EXIT_CODE);
+                }
+                program::store(addr_of_mut!(program::exit_code), i64::from(NO_DIALOG_EXIT_CODE));
+                program::store(addr_of_mut!(program::close_program), 1);
+                host::end();
+                new_error = 0;
+                return FixError::Continue;
+            }
             let v = if d.critical {
                 host::message_box(&d.body, &d.title, MB_OK);
                 host::exit(0);
@@ -563,6 +636,54 @@ mod tests {
         }
         host::ANSWER.with(|a| *a.borrow_mut() = 6);
         assert_eq!(fix_error(b"x"), FixError::Continue);
+        reset();
+    }
+
+    #[test]
+    fn no_dialog_policy_env_and_redirection() {
+        assert!(no_dialog_policy(Some("1"), true, true));
+        assert!(!no_dialog_policy(Some("0"), false, false));
+        assert!(!no_dialog_policy(Some(""), false, false));
+        assert!(!no_dialog_policy(None, true, true));
+        assert!(no_dialog_policy(None, false, true));
+        assert!(no_dialog_policy(None, true, false));
+    }
+
+    #[test]
+    fn report_line_drops_the_question() {
+        let d = error_dialog(9, 169, 0, None, b"C:\\x\\j1.exe");
+        assert_eq!(
+            report_line(&d.title, &d.body),
+            b"Unhandled Error #9 - j1.exe: Line: 169 (in main module): Subscript out of range".to_vec()
+        );
+    }
+
+    #[test]
+    fn unhandled_error_without_dialog_ends_with_exit_code() {
+        let _g = program::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        host::NO_DIALOG.with(|n| *n.borrow_mut() = true);
+        host::REPORTS.with(|r| r.borrow_mut().clear());
+        unsafe {
+            new_error = 53;
+            ercl = 12;
+            program::exit_code = 0;
+        }
+        assert_eq!(fix_error(b"prog"), FixError::Continue);
+        host::BOXES.with(|b| assert!(b.borrow().is_empty()));
+        assert!(host::ENDED.with(|e| *e.borrow()));
+        unsafe {
+            assert_eq!((new_error, program::close_program, program::exit_code), (0, 1, 1));
+        }
+        host::REPORTS.with(|r| {
+            assert_eq!(r.borrow()[0], b"Unhandled Error #53 - prog: Line: 12 (in main module): File not found".to_vec())
+        });
+        // A critical error reports and exits with code 1.
+        let r = std::panic::catch_unwind(|| raise(257));
+        assert!(r.is_err());
+        host::REPORTS.with(|r| assert_eq!(r.borrow()[1], b"Critical Error #1: Out of memory".to_vec()));
+        host::NO_DIALOG.with(|n| *n.borrow_mut() = false);
+        unsafe { program::exit_code = 0 };
         reset();
     }
 }

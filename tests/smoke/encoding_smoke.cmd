@@ -1,5 +1,7 @@
 @echo off
 setlocal EnableExtensions
+rem Runtime errors go to stderr (exit code 1) instead of a modal dialog.
+set "QBNEX_NO_ERROR_DIALOG=1"
 
 set "ROOT=%~dp0"
 set "REPO_ROOT=%ROOT%..\.."

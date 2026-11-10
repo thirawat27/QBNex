@@ -65,8 +65,15 @@ pub struct Synth {
     pub play: PlayState,
 }
 
+/// First `N` bytes of `b` (callers pass the 10-byte VARPTR$ value).
+fn le<const N: usize>(b: &[u8]) -> [u8; N] {
+    let mut a = [0u8; N];
+    a.copy_from_slice(&b[..N]);
+    a
+}
+
 fn f80_to_f64(b: &[u8]) -> f64 {
-    let mant = u64::from_le_bytes(b[0..8].try_into().unwrap());
+    let mant = u64::from_le_bytes(le::<8>(b));
     let se = u16::from_le_bytes([b[8], b[9]]);
     let sign = if se & 0x8000 != 0 { -1.0 } else { 1.0 };
     let exp = (se & 0x7fff) as i32;
@@ -100,18 +107,18 @@ fn pow2(e: i32) -> f64 {
 
 /// Value of a VARPTR$ reference; None = illegal type (error 5).
 fn varptr_value(ty: u8, raw: &[u8; 10]) -> Option<f64> {
-    let i64v = i64::from_le_bytes(raw[0..8].try_into().unwrap());
+    let i64v = i64::from_le_bytes(le::<8>(raw));
     Some(match ty {
         1 => raw[0] as i8 as f64,
         129 => raw[0] as f64,
         2 => i16::from_le_bytes([raw[0], raw[1]]) as f64,
         130 => u16::from_le_bytes([raw[0], raw[1]]) as f64,
-        4 => f32::from_le_bytes(raw[0..4].try_into().unwrap()) as f64,
+        4 => f32::from_le_bytes(le::<4>(raw)) as f64,
         5 | 133 => i64v as f64,
         6 => f80_to_f64(&raw[..]),
-        8 => f64::from_le_bytes(raw[0..8].try_into().unwrap()),
-        20 => i32::from_le_bytes(raw[0..4].try_into().unwrap()) as f64,
-        148 => u32::from_le_bytes(raw[0..4].try_into().unwrap()) as f64,
+        8 => f64::from_le_bytes(le::<8>(raw)),
+        20 => i32::from_le_bytes(le::<4>(raw)) as f64,
+        148 => u32::from_le_bytes(le::<4>(raw)) as f64,
         _ => {
             if ty & 64 == 0 {
                 return None;
@@ -865,5 +872,45 @@ mod tests {
         assert_eq!(varptr_value(64 + 128 + 4, &r), Some(-1.0));
         assert_eq!(varptr_value(64 + 4, &r), Some(15.0));
         assert_eq!(varptr_value(64 + 57, &r), None);
+    }
+
+    /// R14: arbitrary PLAY / SOUND / _WAVE / _ADSR input never panics.
+    #[test]
+    fn random_statements_never_panic() {
+        struct Count(usize);
+        impl Sink for Count {
+            fn send(&mut self, _voice: usize, frames: &[i16]) {
+                self.0 += frames.len();
+            }
+        }
+        let mut seed: u64 = 0x5EED_1234_ABCD_0001;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let alphabet = b"ABCDEFGOLTNPMBFSN<>#+-.,=;0123456789 XVQIZ\x00\xFF";
+        let mut bad = Vec::new();
+        for k in 0..20_000 {
+            let n = (next() % 24) as usize;
+            let text: Vec<u8> = (0..n).map(|_| alphabet[(next() % alphabet.len() as u64) as usize]).collect();
+            let mut s = Synth::default();
+            let mut c = Count(0);
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = s.play(8000, true, &text, &NoVars, &mut c);
+                let f = f64::from_bits(next());
+                let t = f64::from_bits(next());
+                let _ = s.sound(8000, true, f, t, &mut c);
+                let _ = s.sound(8000, true, (next() % 40000) as f64, (next() % 30) as f64 / 7.0, &mut c);
+                let _ = s.set_voice((next() % 9) as i32 - 2);
+                let _ = s.wave(&text, (next() % 6) as i32 - 1, (next() % 4) as i32);
+                let _ = s.adsr(f64::from_bits(next()), (next() % 5) as f64, f, t, (next() % 6) as i32 - 1, (next() % 16) as i32);
+            }));
+            if r.is_err() {
+                bad.push(format!("{k}: {:?}", String::from_utf8_lossy(&text)));
+            }
+        }
+        assert!(bad.is_empty(), "{} panics: {:?}", bad.len(), &bad[..bad.len().min(10)]);
     }
 }
