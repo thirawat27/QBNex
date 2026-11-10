@@ -57,16 +57,22 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 fn push(e: Ev) {
     EVENTS.lock().unwrap_or_else(|p| p.into_inner()).push_back(e);
 }
-extern "C" fn cb_key(action: i32, code: u32) {
+/// Key presses seen so far (SLEEP ends at the next one).
+pub(crate) static KEY_PRESSES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub(crate) extern "C" fn cb_key(action: i32, code: u32) {
+    if action == 1 || action == 3 {
+        KEY_PRESSES.fetch_add(1, Ordering::Relaxed);
+    }
     push(Ev::Key(action, code));
 }
-extern "C" fn cb_button(b: i32, down: i32, x: i32, y: i32) {
+pub(crate) extern "C" fn cb_button(b: i32, down: i32, x: i32, y: i32) {
     push(Ev::Button(b, down != 0, x, y));
 }
-extern "C" fn cb_move(x: i32, y: i32) {
+pub(crate) extern "C" fn cb_move(x: i32, y: i32) {
     push(Ev::Move(x, y));
 }
-extern "C" fn cb_wheel(dir: i32, x: i32, y: i32) {
+pub(crate) extern "C" fn cb_wheel(dir: i32, x: i32, y: i32) {
     push(Ev::Wheel(dir, x, y));
 }
 
@@ -76,6 +82,11 @@ pub(crate) fn start() {
         return;
     }
     if std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
+        return;
+    }
+    // a GUI program's window (rt/window.rs) already replays the script on the main thread
+    #[cfg(not(target_arch = "wasm32"))]
+    if super::window::active() {
         return;
     }
     // browser build (R13-wasm): no window layer and no threads; the page feeds keys instead

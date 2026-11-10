@@ -151,6 +151,37 @@ pub fn run_program(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Resu
     vm.run_status()
 }
 
+/// True for a program compiled without `$CONSOLE` / `$CONSOLE:ONLY` (no
+/// `meta console` line): its executable shows a window, as a C++-built one does.
+pub fn wants_window(src: &str) -> bool {
+    !src.lines().map(str::trim).any(|l| l == "meta console" || l.starts_with("meta console "))
+}
+
+/// `meta screenhide` (`$SCREENHIDE`): the window starts hidden.
+pub fn screen_hidden(src: &str) -> bool {
+    src.lines().any(|l| l.trim() == "meta screenhide")
+}
+
+/// [`run_program`] for a GUI program: the screen is a window (or the
+/// headless stand-in, `QBNEX_HEADLESS=1`). Runs on a program thread while
+/// [`run_window_main`] owns the main thread.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_program_window(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Result<i32, RunError> {
+    let m = compile(src)?;
+    let mut vm = Vm::new(&m, out);
+    if let Some(img) = image {
+        vm.load_native(img).map_err(RunError::load)?;
+    }
+    vm.set_continue_unhandled(true);
+    vm.set_window();
+    vm.run_status()
+}
+
+/// The window layer of a GUI program, on the main thread (never returns
+/// while a window or the headless stand-in runs; the program thread ends the
+/// process).
+#[cfg(not(target_arch = "wasm32"))]
+pub use rt::window::run_main as run_window_main;
 /// Parses and runs a QIR program, writing console output to `out`.
 pub fn run_ir(src: &str, out: &mut dyn Write) -> Result<(), RunError> {
     run_ir_status(src, out).map(|_| ())

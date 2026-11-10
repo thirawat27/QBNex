@@ -260,6 +260,8 @@ pub struct Vm<'m, 'o> {
     erl: u32,
     /// SYSTEM n / exit code of the program once it ended
     exit_code: i32,
+    /// the program ended with SYSTEM (a window closes at once; END keeps it open)
+    by_system: bool,
     /// source line of the last error (_ERRORLINE)
     errline: u32,
     /// last numeric line label passed (QIR LASTLINE; ERL reports it)
@@ -395,6 +397,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             err: 0,
             erl: 0,
             exit_code: 0,
+            by_system: false,
             errline: 0,
             last_line: 0,
             continue_unhandled: false,
@@ -447,6 +450,25 @@ impl<'m, 'o> Vm<'m, 'o> {
         rt.display.start(cmem, on, only);
     }
 
+    /// GUI program (no `$CONSOLE`) with a window (rt/window.rs): the screen
+    /// starts at once (PRINT draws on it), INPUT reads typed keys, frames are
+    /// presented while `_AUTODISPLAY` is on, and closing the window ends the
+    /// program. The window layer itself runs on the main thread
+    /// ([`crate::run_window_main`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_window(&mut self) {
+        let rt = &mut self.rt;
+        rt.window = true;
+        rt.display.window = true;
+        let cmem = rt.cmem.as_mut_ptr();
+        let (on, only) = (rt.console_on, rt.console_only);
+        rt.display.start(cmem, on, only);
+        if !rt.display.title.is_empty() {
+            crate::rt::window_set_title(&rt.display.title);
+        }
+        crate::rt::window_activate(self.events());
+        crate::rt::window_present(&self.rt.display);
+    }
     /// The visible screen page as a `QBFB` record (format of
     /// `qb_runtime::gfx::capture`: size, mode, pixels or text cells, palette).
     pub fn screen_record(&self) -> Option<Vec<u8>> {
@@ -597,6 +619,20 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.rt.flush();
         // frame record of the screen at END/SYSTEM (end() of the C++ runtime)
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
+        // with a window, END keeps it open until it is closed (end() waits for stop_program)
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.rt.window && r.is_ok() && !self.by_system {
+            crate::rt::window_present(&self.rt.display);
+            let mut at = qb_runtime::systime::ticks();
+            while !crate::rt::window_closed() {
+                qb_runtime::systime::sleep_ms(16);
+                let now = qb_runtime::systime::ticks();
+                if now - at >= 32 && self.rt.display.autodisplay != 0 {
+                    at = now;
+                    crate::rt::window_present(&self.rt.display);
+                }
+            }
+        }
         r
     }
 
@@ -1081,7 +1117,19 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// handler of one that is ON as an implicit GOSUB at module level.
     #[cold]
     fn dispatch_events(&mut self, pc: u32) -> Option<u32> {
-        self.ev.pending.store(0, Ordering::Release);
+        let bits = self.ev.pending.swap(0, Ordering::AcqRel);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.rt.window {
+            if crate::rt::window_closed() {
+                // the close box ends the program (no `_EXIT` in QIR programs)
+                self.exit_code = 0;
+                return Some(u32::MAX);
+            }
+            if bits & (1 << crate::rt::PRESENT_EVENT) != 0 && self.rt.display.autodisplay != 0 {
+                crate::rt::window_present(&self.rt.display);
+            }
+        }
+        let _ = bits;
         // no new handlers while an ON ERROR handler runs (events() of qbx.cpp)
         if self.in_handler.is_some() {
             return None;
@@ -1190,6 +1238,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                 // SAFETY: evp points into self.ev, alive as long as self
                 if unsafe { (*evp).load(Ordering::Relaxed) } & self.poll_mask != 0 {
                     if let Some(h) = self.dispatch_events(pc) {
+                        if h == u32::MAX {
+                            return Ok(u32::MAX);
+                        }
                         pc = h;
                         reload!();
                     }
@@ -1396,6 +1447,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ins::System { s } => {
                     self.exit_code = if s == NONE { 0 } else { ri!(s) as i32 };
+                    self.by_system = true;
                     return Ok(u32::MAX);
                 }
                 Ins::Rt { f, d, args } => {
