@@ -683,6 +683,15 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
         EXIT FUNCTION
     END IF
 
+    'R13 statement extensions (ENUM, FOR EACH, TRY) lower to plain lines first (syntax_ext.bas)
+    IF classSyntaxActive = 0 THEN
+        syntaxExtLine$ = SyntaxExt_ProcessLine$(rawLine$)
+        IF syntaxExtLine$ <> rawLine$ OR LEN(classSyntaxQueue$) THEN
+            ClassSyntax_ProcessLine$ = syntaxExtLine$
+            EXIT FUNCTION
+        END IF
+    END IF
+
     trimmedLine$ = LTRIM$(RTRIM$(rawLine$))
     upperLine$ = UCASE$(trimmedLine$)
 

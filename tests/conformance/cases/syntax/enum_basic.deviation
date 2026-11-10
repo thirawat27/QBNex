@@ -1,0 +1,1 @@
+QBNex extension (R13): ENUM ... END ENUM declares integer constants (first member 0, each next member previous + 1, `= value` sets one). The legacy compiler has no ENUM; expected output written by hand.

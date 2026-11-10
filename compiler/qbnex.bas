@@ -698,6 +698,7 @@ FUNCTION getpid& ()
     DIM SHARED addmetainclude AS STRING
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG 'syntax_ext.bas (R13)
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -1173,6 +1174,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             importedModules$ = "@"
             classSyntaxQueue$ = ""
             classSyntaxDeferredQueue$ = ""
+            SyntaxExt_Reset
             topLevelRuntimeLines = ""
             topLevelRuntimeCallInjected = 0
             topLevelRuntimeFinalized = 0
@@ -11962,6 +11964,7 @@ IF recompile THEN
         '$INCLUDE:'utilities\tokens.bas'
         '$INCLUDE:'utilities\imports.bas'
         '$INCLUDE:'utilities\classes.bas'
+        '$INCLUDE:'utilities\syntax_ext.bas'
 
 
 
