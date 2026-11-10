@@ -10835,7 +10835,6 @@ IF ideindentsubs = 0 THEN
     IF LEN(subfunc) THEN a$ = "SUB/FUNCTION without END SUB/FUNCTION": GOTO errmes
 END IF
 
-IF IrEmitMode THEN IrFinish CMDLineFile, outputfile_cmd$
 
 'close the error handler (cannot be put in 'closemain' because subs/functions can also add error jumps to this file)
 PRINT #14, "exit(99);" 'in theory this line should never be run!
@@ -11091,6 +11090,8 @@ IF recompile THEN
     labelValidationResult = ValidatePendingLabels%
     IF labelValidationResult = 1 THEN GOTO do_recompile
     IF labelValidationResult = 2 THEN GOTO errmes
+    'QIR: write the program only after the label/DATA checks (they can end the build)
+    IF IrEmitMode THEN IrFinish CMDLineFile, outputfile_cmd$
 
     IF AutoConsoleOnlyEligible THEN
         IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 THEN

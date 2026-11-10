@@ -2215,10 +2215,25 @@ SUB IrFinish (src$, outExe$)
     IF _FILEEXISTS(runner$) = 0 THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
 
     outPath$ = outExe$
+    IF outPath$ <> "" THEN
+        r$ = getfilepath$(outPath$)
+        IF LEN(r$) THEN
+            IF _DIREXISTS(r$) = 0 THEN
+                PRINT
+                PRINT "Can't create output executable - path not found: " + r$
+                SYSTEM 1
+            END IF
+        END IF
+    END IF
     IF outPath$ = "" THEN
-        outPath$ = src$
-        IF UCASE$(RIGHT$(outPath$, 4)) = ".BAS" THEN outPath$ = LEFT$(outPath$, LEN(outPath$) - 4)
-        outPath$ = outPath$ + extension$
+        'no -o: next to the source with -x/exewithsource, else in the compiler's folder
+        IF SaveExeWithSource THEN
+            outPath$ = path.source$
+        ELSE
+            outPath$ = _CWD$
+            IF RIGHT$(outPath$, 1) <> pathsep$ THEN outPath$ = outPath$ + pathsep$
+        END IF
+        outPath$ = outPath$ + file$ + extension$
     ELSEIF LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
         outPath$ = _STARTDIR$ + pathsep$ + outPath$
     END IF
@@ -2235,6 +2250,6 @@ SUB IrFinish (src$, outExe$)
     PUT #fh, , l$
     CLOSE #fh
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + CHR$(34) + outPath$ + CHR$(34)
-    IF QuietMode = 0 THEN PRINT "QIR: wrote " + outPath$
+    IF QuietMode = 0 THEN PRINT: PRINT "Build complete: " + outPath$
     SYSTEM 0
 END SUB
