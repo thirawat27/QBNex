@@ -1,0 +1,1 @@
+Fixes legacy defect L-23: DIM name AS STRING failed with "Name already in use" when a built-in string function has the same name (DIM LCASE AS STRING next to LCASE$(x$), from a QB64 sample program). It is accepted when the function takes arguments, as in QBasic: name$( is the call (a scalar cannot be indexed) and the bare name the variable (D-28).

@@ -80,6 +80,18 @@ impl Arr {
         Ok(Arr::with_data(dims, data))
     }
 
+    /// CLEAR: every element back to 0 / "" (the storage stays where it is).
+    fn zero(&mut self) {
+        match &mut self.data {
+            ArrData::I16(v) => v.fill(0),
+            ArrData::I32(v) => v.fill(0),
+            ArrData::I64(v) => v.fill(0),
+            ArrData::F32(v) => v.fill(0.0),
+            ArrData::F64(v) => v.fill(0.0),
+            ArrData::Str(v) => v.iter_mut().for_each(Vec::clear),
+        }
+    }
+
     fn with_data(dims: Vec<(i64, i64)>, mut data: ArrData) -> Arr {
         let ptr = match &mut data {
             ArrData::I16(v) => v.as_mut_ptr() as *mut u8,
@@ -622,7 +634,14 @@ impl<'m, 'o> Vm<'m, 'o> {
         let mut pc = self.m.funcs[0].entry;
         let r = loop {
             match self.exec(pc) {
-                Ok(code) => break Ok(code),
+                Ok(code) => {
+                    if let Some((k, run)) = self.rt.dos.restart.take() {
+                        self.restart(k, run);
+                        pc = self.m.funcs[0].entry;
+                        continue;
+                    }
+                    break Ok(code);
+                }
                 Err((code, at)) => match self.raise(code, at) {
                     Ok(h) => pc = h,
                     Err(e) => break Err(e),
@@ -657,6 +676,38 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         }
         r
+    }
+
+    /// RUN / CLEAR (`rt::dosx`): `main` starts over with fresh variables (STATIC
+    /// ones live in its frame too); its first statement (RUNFROM) jumps to
+    /// target `k` (0 = the start). RUN also forgets array dimensions (the DIMs
+    /// run again); CLEAR keeps them with zero elements, as static arrays.
+    fn restart(&mut self, k: i32, run: bool) {
+        let m = self.m;
+        let main = &m.funcs[0];
+        self.free_owned(0);
+        self.frames.truncate(1);
+        self.set_view(0);
+        self.nums.clear();
+        self.nums.extend_from_slice(&main.num_init);
+        self.strs.clear();
+        self.strs.resize_with(main.n_str as usize, Vec::new);
+        let n = main.n_arr() as usize;
+        self.arrs.truncate(n);
+        for a in &mut self.arrs {
+            match a {
+                Some(x) if !run => x.zero(),
+                _ => *a = None,
+            }
+        }
+        self.gosub.clear();
+        self.on_error = None;
+        self.in_handler = None;
+        self.err = 0;
+        self.data_ptr = 0;
+        self.stop_depth = usize::MAX;
+        self.jit_nest = 0;
+        self.rt.dos.run_from = k;
     }
 
     #[inline(always)]
@@ -775,6 +826,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             })
             .collect();
         match rt::call(self, name, vals) {
+            // RUN, CLEAR, RUN file$, CHAIN: leave like END (run_status restarts the program)
+            Ok(_) if self.rt.dos.stops() => Ok(Some(0)),
             Ok(v) => {
                 if let (Some(ty), Some(v)) = (rty, v) {
                     match (ty, v) {

@@ -12,8 +12,14 @@
 '================================================================ output
 
 SUB IrInit
+    'also the start of a recompile pass: nothing of the previous pass may remain
+    REDIM IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING
+    REDIM IrFnHead(1 TO 16) AS STRING, IrFnBody(1 TO 16) AS STRING
+    REDIM IrFnDecls(1 TO 16) AS STRING, IrFnRetVar(1 TO 16) AS STRING
+    REDIM IrFnRegs(1 TO 16) AS LONG
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
+    IrDataN = 0: IrPendLL = 0: IrRunN = 0: IrRunTo = ""
 END SUB
 
 SUB IrNotSup (w$)
@@ -1169,9 +1175,10 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "func__freetimer|sub_timer|sub_key|"
     l$ = l$ + "func__loadmodel|func__meshcube|func__meshplane|sub__meshbegin|sub__meshvertex|sub__meshtriangle|func__meshend|"
     l$ = l$ + "sub__meshcolor|sub__meshtexture|sub__freemesh|sub__draw3d|sub__camera|sub__cameraortho|sub__camerarange|"
-    l$ = l$ + "sub__ambient|func__light|sub__lighton|sub__freelight|sub__clear3d|func__gpu3d|"
+    l$ = l$ + "sub__ambient|func__light|sub__lighton|sub__freelight|sub__clear3d|func__gpu3d|sub__depthbuffer|"
     l$ = l$ + "func__shader|func__shadererror|sub__shaderparam|sub__meshshader|sub__freeshader|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
+    l$ = l$ + "sub_out|func_inp|sub_wait|func_stick|sub_bload|sub_bsave|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 
@@ -1541,6 +1548,16 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         CASE "VARPTR", "SADD"
             IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
             IF x$ = "" THEN IrNotSup nm$ + " argument": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
+            IF IrPlaceSTy$(x$) <> "str" AND nm$ = "VARPTR" AND LEFT$(x$, 1) <> "A" THEN
+                'the bytes are mirrored in DBLOCK (an array from this element on, see rt/dosx.rs)
+                y$ = IrConst$("ptr", "0")
+                IF getelement$(sv(1), 2) = "(" THEN
+                    IrQuiet = -1: z$ = IrPlace$(getelement$(sv(1), 1) + sp + "(" + sp + ")", t): IrQuiet = 0
+                    IF LEFT$(z$, 1) = "A" THEN y$ = IrAddr$(z$)
+                END IF
+                r$ = IrRt$("VARPTR.n", " " + IrAddr$(x$) + " " + y$ + " " + IrI32$(IrSize&(IrPlaceSTy$(x$))), "i32")
+                GOTO irfdone
+            END IF
             IF IrPlaceSTy$(x$) <> "str" THEN IrNotSup nm$ + " of a non-STRING variable": r$ = IrI32$(0): IrT = "i32": GOTO irfdone
             IF nm$ = "VARPTR" THEN y$ = "VARPTR.s" ELSE y$ = "SADD"
             r$ = IrRt$(y$, " " + IrAddr$(x$), "i32")
@@ -1731,6 +1748,8 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
     ELSE
         aid = 0
     END IF
+    'DIM [SHARED] name() (elements "?", L-21) leaves currentid elsewhere: find the array by name
+    IF aid = 0 AND LEN(elements$) > 0 THEN aid = IrFindArrId&(vn$)
     IF LEN(elements$) = 0 OR LEFT$(elements$, 1) = "?" THEN
         IF aid THEN nm$ = IrVar$(aid)
         EXIT SUB
@@ -1749,6 +1768,23 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
     IF redimopt = 2 THEN k$ = "redimp"
     IrDimArray nm$, elements$, k$
 END SUB
+
+'id of the array named vn$ (no type symbol) visible here: this SUB's own first, then the
+'module's (DIM SHARED); 0 = none
+FUNCTION IrFindArrId& (vn$)
+    DIM i AS LONG, sc$, u$, glob AS LONG
+    u$ = UCASE$(vn$)
+    FOR i = idn TO 1 STEP -1
+        IF ids(i).arraytype THEN
+            IF UCASE$(RTRIM$(ids(i).n)) = u$ THEN
+                sc$ = RTRIM$(ids(i).insubfunc)
+                IF sc$ = RTRIM$(subfunc) THEN IrFindArrId& = i: EXIT FUNCTION
+                IF sc$ = "" AND glob = 0 THEN glob = i
+            END IF
+        END IF
+    NEXT
+    IrFindArrId& = glob
+END FUNCTION
 
 'statement call of a SUB (user or builtin); raw arguments in IrArgs()
 SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
@@ -1812,6 +1848,16 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             IrE "rt " + nm$ + " " + IrArgAs$(sv(1), "str")
         CASE "SHELL"
             x$ = IrReg$: IrE "rt " + x$ + " SHELL " + IrArgAs$(sv(1), "str")
+        CASE "CLEAR"
+            'main only (checked by the compiler): restart with fresh variables, continue after it
+            k = IrRunTarget&("~CLR" + str2$(IrRunN + 1))
+            IrE "rt CLEAR " + IrI32$(k)
+            IrE "label ~CLR" + str2$(k)
+        CASE "CHAIN"
+            IrE "rt CHAIN " + IrArgAs$(sv(1), "str")
+        CASE "TIME$"
+            'setting the clock is a no-op, as in the C++ runtime (sub_time)
+            x$ = IrArgAs$(sv(1), "str")
         CASE ELSE
             IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN
                 x$ = IrGeneric$(idn, nargs, passed, 0)
@@ -1824,6 +1870,31 @@ END SUB
 SUB IrGoto (l$)
     IrE "jmp " + IrLbl$(l$)
 END SUB
+
+'RUN label / CLEAR: main label l$ where the restarted program continues -> its RUNFROM number
+FUNCTION IrRunTarget& (l$)
+    IrRunN = IrRunN + 1
+    IrRunTo = IrRunTo + l$ + CHR$(10)
+    IrRunTarget& = IrRunN
+END FUNCTION
+
+'first statements of main when RUN label / CLEAR exist: continue where the restart asked
+FUNCTION IrRunDispatch$
+    DIM saved$, code$, k AS LONG, p AS LONG, rest$, r$, c$, savecur AS LONG
+    savecur = IrFnCur: IrFnCur = 1
+    saved$ = IrFnBody(1): IrFnBody(1) = ""
+    r$ = IrRt$("RUNFROM", "", "i32")
+    rest$ = IrRunTo
+    FOR k = 1 TO IrRunN
+        p = INSTR(rest$, CHR$(10))
+        c$ = IrCmp$("eq", r$, "i32", IrI32$(k), "i32")
+        IrE "jnz " + c$ + " " + LEFT$(rest$, p - 1)
+        rest$ = MID$(rest$, p + 1)
+    NEXT
+    code$ = IrFnBody(1)
+    IrFnBody(1) = saved$: IrFnCur = savecur
+    IrRunDispatch$ = code$
+END FUNCTION
 
 SUB IrGosub (l$)
     IrE "gosub " + IrLbl$(l$)
@@ -2080,6 +2151,7 @@ SUB IrFinish (src$, outExe$)
     FOR i = 1 TO IrFnN
         IF IrFnRet(i) <> "" THEN PRINT #fh, "func " + IrFnName(i) + " -> " + IrFnRet(i) ELSE PRINT #fh, "func " + IrFnName(i)
         PRINT #fh, IrFnHead(i);
+        IF i = 1 AND IrRunN > 0 THEN PRINT #fh, IrRunDispatch$;
         PRINT #fh, IrFnBody(i);
         IF i = 1 THEN
             IF top THEN PRINT #fh, "call SUB_QBNEX_TOPLEVEL_RUNTIME0"

@@ -161,13 +161,36 @@ SUB IrStmtEnd
                 IrE "rt FIELD " + ch$ + " " + x$ + " " + IrAddr$(p$)
                 i = j + 1
             LOOP
-        CASE "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "STRIG"
+        CASE "RUN"
+            IrRun
+        CASE "ECHO", "INTERRUPTX", "_GL", "LPRINT", "STRIG"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN
                 IF s2$ = "KEY" OR s2$ = "STRIG" OR (s2$ <> "PLAY" AND s2$ <> "TIMER" AND IrFindSep(3, "|GOTO|GOSUB|") > n) THEN IrNotSup "ON " + s2$ 'ON PLAY: checked only, the event is not raised (D-24), as in the C++ path
             END IF
     END SELECT
+END SUB
+
+'RUN | RUN label/line | RUN file$ (the C++ handler: a single non-string element is a label)
+SUB IrRun
+    DIM n AS LONG, e$, t AS LONG, p$, k AS LONG, isstr AS LONG
+    n = IrStmtN
+    IF n = 1 THEN IrE "rt RUN " + IrI32$(0): EXIT SUB
+    e$ = IrEl$(2)
+    IF n = 2 THEN
+        isstr = (LEFT$(e$, 1) = CHR$(34)) OR (RIGHT$(e$, 1) = "$")
+        IF isstr = 0 THEN
+            IrQuiet = -1: p$ = IrPlace$(e$, t): IrQuiet = 0
+            IF LEN(p$) THEN isstr = (IrPlaceSTy$(p$) = "str")
+        END IF
+        IF isstr = 0 THEN
+            k = IrRunTarget&(IrLbl$(UCASE$(e$)))
+            IrE "rt RUN " + IrI32$(k)
+            EXIT SUB
+        END IF
+    END IF
+    IrE "rt RUNFILE " + IrEvalTo$(fixoperationorder$(IrEls$(2, n)), ISSTRING)
 END SUB
 
 'OPEN f$ FOR mode [ACCESS ...] [LOCK ...] AS [#]n [LEN = r]   |   OPEN mode$, [#]n, f$[, r]
