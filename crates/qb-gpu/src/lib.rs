@@ -19,6 +19,7 @@
 
 pub mod blit;
 pub mod maptri;
+pub mod scene;
 pub mod three;
 
 use std::sync::Arc;

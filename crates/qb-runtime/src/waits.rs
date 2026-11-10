@@ -156,7 +156,7 @@ impl WaitHost for RuntimeHost {
         crate::systime::ticks()
     }
     fn sleep(&mut self, ms: i64) {
-        std::thread::sleep(std::time::Duration::from_millis(ms.max(0) as u64));
+        crate::systime::sleep_ms(ms.max(0) as u64);
     }
     fn evnt(&mut self) {
         // SAFETY: plain call into qbx.cpp.

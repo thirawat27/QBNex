@@ -240,6 +240,16 @@ impl Display {
         }
         self.started = true;
         reg::qb_img_init();
+        // index 0 means "no image" (imgframe/imgnew return 0 on failure), so a
+        // fresh registry hands it out once before the first page
+        if nextimg() == 0 {
+            let mut e = 0;
+            // SAFETY: registry call; the slot stays reserved and invalid.
+            unsafe {
+                reg::qb_img_new(&mut e);
+                (*im(0)).valid = 0;
+            }
+        }
         self.screen(cmem, 0, 0, 0, 0, 0, 1);
         self.width8050switch = true;
         if console_on {
@@ -1413,7 +1423,7 @@ impl Host for VmHost<'_> {
     }
     fn events(&mut self) {}
     fn sleep(&mut self, ms: u32) {
-        std::thread::sleep(std::time::Duration::from_millis(u64::from(ms)));
+        qb_runtime::systime::sleep_ms(u64::from(ms));
     }
     fn ticks(&mut self) -> i64 {
         qb_runtime::systime::qb_get_ticks()

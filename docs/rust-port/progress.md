@@ -781,6 +781,53 @@ Status: **groundwork done**, not wired into the runtime yet (the CPU renderer st
 - Tests (`cargo test -p qb-gpu`, headless only, no windows): `fit_rect` cases; exact 2x blit of a 4x2 framebuffer; letterbox bars; depth test keeps the near surface; textured quad maps texel quadrants to screen quadrants and renders with a stable checksum. Pass on AMD Radeon 780M and on the software adapter (`QB_GPU_FALLBACK=1`: Microsoft Basic Render Driver / WARP); with `QB_GPU=off` every test skips.
 
 Next (G2–G6 in port-plan §9.6): use the blitter from the runtime's window when a GPU is present; `_MAPTRIANGLE` 3D (`_DEPTHBUFFER`, `_CLOCKWISE`, `_SMOOTH`) on `Renderer3d`; `_GL` via glow.
+## R13-wasm — QBNex programs in a browser (`crates/qb-web`)
+
+Status: **first cut working** (VM only, no JIT). The qb-exec pipeline (QIR → bytecode → VM) builds for `wasm32-unknown-unknown` as `qb_web.wasm` (3.8 MB release). A static page `crates/qb-web/www` loads a `.qir` file and runs it.
+
+- **Build gates (wasm32 only; native builds unchanged):**
+  - qb-runtime: no winit/softbuffer/gilrs/arboard; the clipboard, ENVIRON and the C stdout path stay inside the page; `malloc`/`memchr`/`strlen` are Rust; `system()` fails, so SHELL returns an error.
+  - qb-jit: `src/off.rs` replaces Cranelift, and every compile declines, so the VM keeps interpreting.
+  - qb-link: `load` refuses native images.
+  - qb-ext: HTTP reports "not available" (ureq/ring need a C compiler).
+  - qb-exec: one static assert is native-only.
+- **Page imports** (wasm module `qbnex`, in `qb_runtime::systime::web`): `qb_web_now_ms` (TIMER), `qb_web_monotonic_ms` (ticks), `qb_web_sleep_ms`, and `qb_web_present`, which `_DISPLAY` calls when a frame is ready. The page stubs any other import so it throws "unsupported in the browser build". The current build also imports four `__wbindgen_*` placeholders, pulled in by a dependency; nothing calls them.
+- **Runner mode** (`Vm::set_web_console`):
+  - The program draws on the SCREEN 0 page from its first statement, as in a window: PRINT, CLS, LOCATE, COLOR, CSRLIN/POS, SCREEN 13 and the other graphics go through R11a's display code.
+  - INPUT and LINE INPUT read the stdin text given with the run. The prompt and the text consumed are echoed on the screen.
+  - `_DELAY` and `_LIMIT` wait through R11a's code (now on `qb_runtime::systime`, so the page's clock and sleep serve them) and present the frame drawn so far. `SLEEP n` waits only here; headless qb-exec still skips it.
+  - `Vm::screen_record` returns the visible page as a `QBFB` record.
+- **qb-web:**
+  - `screen.rs` turns the visible page into RGBA. Text pages use the builtin 8x16 font (8x8 above 30 rows, double width at 40 columns); palette pages and 32-bit pages are also handled. It also returns the text of a text page.
+  - C ABI exports `qb_web_*`: run, exit code, error, texts, frames, and the stdout written so far.
+- **www:**
+  - `qbnex.js` is the loader. It makes a fresh instance per run, so no runtime state leaks between programs.
+  - `worker.js` runs programs off the page thread: sleeps really wait, and frames stream to the page while the program runs.
+  - `index.html` has a canvas screen, a stdin box and a console pane.
+- **Fix found on the way:** a fresh image registry handed slot 0 to the SCREEN 0 page, but `imgframe` treats 0 as failure, so page 0 had no surface (LOCATE raised error 5). `Display::start` now reserves slot 0, like the C++ registry.
+- **Unsupported calls end in QBasic errors, not traps:**
+  - files: OPEN fails with an error (`unsupported.bas` traps it with ON ERROR)
+  - TCP/HTTP, SHELL
+  - sound is silent
+
+Build and test (Windows; any OS with node ≥ 18):
+
+```
+$env:CARGO_BUILD_JOBS=1; $env:CARGO_TARGET_DIR="$PWD\target\wasm"
+cargo build -p qb-web --release --target wasm32-unknown-unknown
+node crates/qb-web/tests/run.mjs        # 33 checks: text screen, COLOR/LOCATE pixels, INPUT echo + error 62 past the end,
+                                        # SCREEN 13 pixels (PSET/LINE/CIRCLE/BF), TIMER + _DELAY, OPEN error, load error, fresh instance
+```
+
+To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file. `timer.qir` was edited by hand to the current `_DELAY` form (DELAYBEGIN/DELAYSTEP loop): the qb-ir.exe build used for the fixtures still emitted `sub__delay`.
+
+Limits / next:
+- No interactive keyboard: INKEY$ is empty, and INPUT needs the text up front. A wasm call cannot wait for page events. Doing this needs a SharedArrayBuffer key queue (cross-origin isolation) or an async VM step.
+- No file system (an in-memory one would fit qb-runtime's file layer).
+- No audio.
+- No JIT: Cranelift could emit wasm in a later step.
+- `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
+
 ## R13 debugger (qb-dap)
 
 New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.
@@ -792,6 +839,47 @@ New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limit
 Verified (Windows, `CARGO_BUILD_JOBS=1`): `cargo test -p qb-exec --features debug --lib debug` 2/2; `cargo test -p qb-dap` 4 unit + 3 stdio integration tests (breakpoint in a SUB, step over out of it, second call with a copied argument, step out, step into recursive FUNCTION, STATIC variable, run to exit with output; TYPE/array expansion and evaluate; stop on entry); `cargo clippy -p qb-dap --all-targets` clean; `npm test` in packaging/vscode 6/6. Not tried in a running VS Code window (no GUI here) and not with a real `qb --ir` compile (tests use the qb-exec QIR fixtures).
 
 Needs from the emitter (R11a): file information in the QIR line table for `$INCLUDE`d code (see qb-dap-plan.md, item 1); until then breakpoints work in the launched file only.
+## R13-ext: extension library (`crates/qb-ext`) and `ext.*` stdlib modules
+
+Pure Rust, latest crates: `regex`, `crc32fast`, `md-5`, `sha1`, `sha2`, `base64`, `hex`, `zip` (deflate), `ureq` 3 + rustls/ring with the webpki roots (no OpenSSL), `unicode-normalization`, `indexmap`, `chrono`. Exposed as a `qb_*` C ABI (`qb_ext_*`, prototypes in `crates/qb-ext/include/qb_ext.h`), linked into `libqb_runtime.a` through qb-runtime's default `ext` feature. `qbx.cpp` includes the header, so the stdlib modules call it from header-less `DECLARE LIBRARY` blocks with `_OFFSET(s$)`/`LEN(s$)` pairs; string results come back through a per-thread buffer (`Ext_Result$`), errors through `Ext_LastError$`.
+
+| Module | Functions |
+| --- | --- |
+| `ext.core` | `Ext_LastError$`, `Ext_PartCount&`, `Ext_Part$` (shared plumbing) |
+| `ext.regex` | `Regex_IsMatch&`, `Regex_Find&` (1-based, `Regex_Match$`, `Regex_Group$`, `Regex_GroupCount&`), `Regex_Replace$`, `Regex_ReplaceFirst$`, `Regex_Split&`/`Regex_Part$` |
+| `ext.hash` | `Hash_CRC32$`/`Hash_CRC32Value~&`, `Hash_MD5$`, `Hash_SHA1$`, `Hash_SHA256$`, `Hash_SHA512$`, `Base64_Encode$`/`Decode$`, `Base64Url_Encode$`, `Hex_Encode$`/`Decode$` |
+| `ext.zip` | `Zip_List&`/`Zip_EntryName$`/`Zip_EntrySize&&`, `Zip_ReadEntry$`, `Zip_Extract&` (rejects `../` names), `Zip_Create&`/`Zip_AddData&`/`Zip_AddFile&`/`Zip_AddFolder&`/`Zip_Close&` |
+| `ext.http` | `Http_Get&`, `Http_Post&`, `Http_Request&` (any method, header lines, timeout, redirects), `Http_Body$`, `Http_Headers$`, `Http_Header$` |
+| `ext.utf8` | `Utf8_Len&`, `Utf8_Mid$`/`Left$`/`Right$` by code point (invalid bytes kept, one each), `Utf8_Upper$`/`Lower$`, `Utf8_Normalize$` (NFC/NFD/NFKC/NFKD), `Utf8_IsValid&`, `Utf8_CodePoint&`, `Utf8_Chr$`, `Cp437_ToUtf8$`, `Cp437_ToUtf8Graphics$`, `Utf8_ToCp437$` |
+| `ext.collections` | lists and insertion-ordered dictionaries of strings and numbers behind handles: `XList_*` (add/insert/set/get/type/remove/index-of/join/sort), `XDict_*` (set/get/type/has/remove/key), `XColl_Clear`/`XColl_Free` |
+| `ext.datetime` | Unix milliseconds (DOUBLE): `DT_Now#`, `DT_ISO$`/`DT_ISOLocal$`, `DT_Format$` (strftime-like), `DT_Parse#` (ISO 8601 or a pattern), `DT_Make#`, parts (`DT_Year&` ... `DT_IsoWeek&`), `DT_OffsetSeconds&`, `DT_AddDays#`, `DT_DiffDays#` |
+
+Fixes needed on the way: the import hoisting (`StdLib_HoistModule`, `compiler/utilities/imports.bas`) split a module at the first `FUNCTION` line, which included the prototypes inside `DECLARE LIBRARY ... END DECLARE`, so no stdlib module could use `DECLARE LIBRARY`; such lines now stay in the hoisted head. User programs on Windows link `-lbcrypt` (getrandom, used by rustls/ring); added to `makeline_win.txt`, `setup_win.cmd`, CMake and `run_diff.cmd`.
+
+Tests: `cargo test -p qb-ext` 19 tests (digest/Base64/hex vectors, regex, zip round trip and path traversal, HTTP GET/POST/404/redirect/timeout/refused against an in-process server, UTF-8 slicing and case/normalization, CP437 round trip of all 256 bytes, collections, ISO/strftime/parse/make). Conformance `stdlib/ext_regex_hash`, `stdlib/ext_zip_http` (the HTTP part talks to the in-process test server through the hidden `qb_ext_test_http_server` hook, no internet) and `stdlib/ext_utf8_coll_dt` (UTC only), goldens hand-checked (`.deviation`, no legacy equivalent); all 10 `stdlib/*` cases pass on the self-hosted `qb.exe`.
+
+Not covered: the QIR backend (`qb-exec`) resolves `DECLARE LIBRARY` at run time and does not export the `qb_ext_*` symbols from its own executable yet; Linux/macOS builds of qb-ext are unverified.
+
+## R15 — runtime GPU presentation, 3D `_MAPTRIANGLE` on the GPU (G3), 3D API (G4)
+
+- **Window presentation** (qb-runtime feature `gpu`, off by default): the window presents the composed frame through `qb_gpu::blit::Blitter::draw_rect` with the runtime's own `raster::layout` rectangle (clipped to the window, bilinear when the layout is smooth). softbuffer stays the fallback when there is no adapter/surface or `QB_GPU=off`; `QB_GPU=verbose` logs the choice. Not yet checked: linking the `gpu` feature into `libqb_runtime.a` with MinGW.
+- **G3 `qb_gpu::maptri`**: 3D `_MAPTRIANGLE` with the legacy projection (90° on the shorter side, near 0.1, far 10000), persistent `DepthBuffer` (`_DEPTHBUFFER ON/LOCK/OFF`, `_CLEAR`), `_CLOCKWISE`/`_ANTICLOCKWISE`, `_SMOOTH`/`_SMOOTHSHRUNK`/`_SMOOTHSTRETCHED`, repeat or clamp, legacy alpha blend. Not yet fed from the hardware command list in `window_bridge.cpp` (runtime still draws 3D with `raster::tri3d`). Deviation: the far plane clips (as legacy OpenGL did), the software path does not.
+- **Tests** (qb-runtime unit tests `gpu_tests`, `cargo test -p qb-runtime --features gpu --lib gpu_tests`): GPU presentation equals `raster::scale_to_window` pixel for pixel in 7 layouts; GPU 3D `_MAPTRIANGLE` against `raster::tri3d` (depth on/lock/off, culling, near clip, wrap, alpha, smooth) — ≤ 3% edge pixels may differ, interior sample points equal. Pass on AMD Radeon 780M and WARP; skip with `QB_GPU=off`. (Integration tests cannot link qb-runtime: the host C symbols only have unit-test stubs.)
+- **G4 design**: `docs/rust-port/r15-g4-3d-api.md` (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA`, `_LIGHT`, `_AMBIENT`, `_CLEAR3D`, `_GPU3D`).
+- **G4 GPU layer `qb_gpu::scene`**: `Model` from glTF 2.0 (`gltf` crate; node transforms, triangles, POSITION/NORMAL/TEXCOORD_0, base colour factor + texture, normals computed when missing), from arrays, cube and plane primitives; `Lighting` (ambient + up to 8 directional/point lights, Lambert, point fall-off `1/(1+(d/range)²)`); `SceneRenderer` with depth; `transform()` for `_DRAW3D`. Tests `crates/qb-gpu/tests/scene.rs` (light angle, colours, point fall-off, depth in both draw orders, textured array mesh, in-memory `.glb`). BASIC keywords are not wired yet.
+- Build note: on this machine rustc may crash compiling `windows`/`naga` (`STATUS_STACK_BUFFER_OVERRUN`, allocation failures) when the commit limit is low; `RUST_MIN_STACK=67108864` fixes the stack case.
+## Zero-C audit of the Rust dependencies (R13-ext follow-up)
+
+Goal: building QBNex must not compile any C/C++/assembly. Checked with `cargo tree --workspace --target <t> -e build,normal` for `x86_64-pc-windows-gnu`, `i686-pc-windows-gnu`, `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin`, and by reading the build scripts of every `-sys`/`cc` crate in the graph.
+
+- **ring removed.** qb-ext's HTTPS came from `ureq`'s default `rustls` feature, which pulls in `ring` (C and assembly, built with `cc`). ureq now uses `rustls-no-provider` + `rustls-webpki-roots`, and qb-ext passes a `rustls-rustcrypto` `CryptoProvider` (pure-Rust RustCrypto primitives) through `TlsConfig::unversioned_rustls_crypto_provider`. `cargo tree -p qb-ext` has no `ring`, `aws-lc-*`, `cc` or `cmake`. Tests: HTTPS end to end against an in-process rustls server with the same provider and a self-signed P-256 certificate (`crates/qb-ext/tests_data/`), rejection of that certificate with the Mozilla roots, and (ignored, run by hand) a real public HTTPS site: all pass.
+- **`-lbcrypt` removed again** from `makeline_win.txt`, `setup_win.cmd`, CMake and `run_diff.cmd`: it was only for ring's `getrandom` 0.2 (`BCryptGenRandom`); `getrandom` 0.4 links `bcryptprimitives` through `raw-dylib`, which needs no import library.
+- **Windows (gnu, x86 and x64):** no crate compiles C. `windows-sys`/`windows-link` use raw-dylib; `renderdoc-sys` (from wgpu) has no build script.
+- **macOS:** no C. `objc-sys` only compiles `extern/exception.m` with its optional `unstable-exception` feature, which is off; `core-foundation-sys` has no build script.
+- **Linux:** no C is compiled, but some crates link system libraries found with `pkg-config` at build time (headers not needed, the `.pc` files and libraries are): `alsa-sys` (cpal, audio), `libudev-sys` (gilrs, gamepads), `drm-sys` and `wayland-sys` (winit/softbuffer; wayland loads `libwayland` with `dlopen`). `wayland-backend` has `cc` as a build dependency but only compiles its C log shim with its `log` feature, which is off. `inotify-sys` links libc only.
+- **Other platforms:** `iana-time-zone-haiku` (Haiku) and `android-activity` (Android) compile C/C++, but only on those targets, which QBNex does not build for.
+
+Possible pure-Rust replacements for the Linux system libraries (not applied; they are OS interfaces rather than C code we compile): ALSA through a pure-Rust ALSA client is not available in cpal today; gamepads could drop `libudev-sys` by enumerating `/dev/input` and parsing evdev directly (as `evdev-rs` alternatives do); wayland can use the pure-Rust `wayland-backend` "rust" implementation by turning off `client_system` in winit/softbuffer (needs their features exposed).
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.

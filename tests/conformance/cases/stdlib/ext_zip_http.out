@@ -1,0 +1,15 @@
+create-1  0  0  0 -1  0 
+members 3 
+ hello.txt 17 
+ sub/ 0 
+ sub/bin.dat 3 
+[hello hello hello] 3 []
+extract 2 
+extracted size 3 
+missing archive-1 
+get 200 [GET /hello?a=1 x-test= body=] qb-test text/plain
+post 200  27 -1 
+put 404 [PUT /missing x-test=put body=]
+redirect 200 [GET /target x-test= body=]
+bad url-1 -1 []
+done

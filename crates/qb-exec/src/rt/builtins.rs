@@ -79,7 +79,7 @@ pub(crate) struct RtState<'a> {
     /// keyboard and mouse (INKEY$, _KEYHIT, _MOUSEINPUT, ...)
     pub(crate) input: super::input::Input,
     /// _LIMIT: time of the previous frame
-    pub(crate) limit_last: Option<std::time::Instant>,
+    pub(crate) limit_last: Option<i64>,
     /// VARPTR$ value slots in DBLOCK (offset, next slot)
     pub(crate) varptr_slots: usize,
     pub(crate) varptr_next: usize,
@@ -96,6 +96,10 @@ pub(crate) struct RtState<'a> {
     pub(crate) console_only: bool,
     /// qb-audio started (snd_init)
     pub(crate) snd_started: bool,
+    /// browser runner (qb-web): INPUT prompts and the consumed stdin text are
+    /// drawn on the screen page, as if typed; `_DELAY`, `_LIMIT` and `SLEEP n`
+    /// show the frame drawn so far, and `SLEEP n` waits
+    pub(crate) web: bool,
 }
 
 struct Using {
@@ -131,7 +135,12 @@ impl<'a> RtState<'a> {
             display: super::display::Display::default(),
             console_on: false,
             console_only: false,
+            web: false,
         }
+    }
+    /// Text INPUT reads instead of the process stdin (browser runner).
+    pub(crate) fn set_stdin(&mut self, b: &[u8]) {
+        self.stdin = Reader { rbuf: b.to_vec(), rpos: 0, eof: true };
     }
     pub(crate) fn flush(&mut self) {
         let _ = self.out.flush();
@@ -721,14 +730,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "RANDOMIZE" => rt.rnd.randomize(f(0)),
         "RANDOMIZEUSING" => rt.rnd.randomize_using(f(0)),
         "TIMER.n" => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0) % 86400.0;
+            let t = qb_runtime::systime::unix_time() % 86400.0;
             let acc = f(0);
             return ok(V::F(if acc > 0.0 { (t / acc).round() * acc } else { t }));
         }
         "TIMER" => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+            let t = qb_runtime::systime::unix_time();
             return ok(V::F(t % 86400.0));
         }
         "ERR" => return ok(V::I(err.into())),
@@ -738,19 +745,26 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            let start = rt.stdin.rpos;
             let line = read_line(&mut rt.stdin)?;
+            echo_input(vm, start, true)?;
             return ok(V::S(line));
         }
         "INPUTPROMPT" => {
             if i(1) == 0 {
-                rt.write(0, s(0))?;
+                if rt.web && screen_out(vm) {
+                    return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
+                }
+                vm.rt().write(0, s(0))?;
             }
         }
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
             let _ = ch;
             fill(&mut std::io::stdin(), &mut rt.stdin);
+            let start = rt.stdin.rpos;
             let item = read_item(&mut rt.stdin, name == "INPUTITEM.n")?;
+            echo_input(vm, start, false)?;
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
             }
@@ -797,7 +811,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "CLS" | "BEEP" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
         "CSRLIN" => return ok(V::I(1)),
-        "SLEEP" => {}
+        "SLEEP" => {
+            // waits only in the browser runner; SLEEP without a time (wait for a key) returns
+            if rt.web && a.first().is_some_and(|v| v.f() > 0.0) {
+                if rt.display.started && rt.display.autodisplay != 0 {
+                    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+                }
+                qb_runtime::systime::sleep_ms((a[0].f() * 1000.0).min(86_400_000.0) as u64);
+            }
+        }
         "COMMAND$" => return ok(V::S(program_args()[1..].join(" ").into_bytes())),
         "COMMAND$.n" => {
             // COMMAND$(n): argument n (0 = the program), "" out of range
@@ -929,6 +951,36 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+/// Browser runner: draws the stdin bytes INPUT consumed since `start` on the
+/// screen page (line breaks as newlines), like a typed answer.
+fn echo_input(vm: &mut dyn Host<'_>, start: usize, line: bool) -> R<()> {
+    let rt = vm.rt();
+    if !rt.web {
+        return Ok(());
+    }
+    let mut text = rt.stdin.rbuf[start.min(rt.stdin.rpos)..rt.stdin.rpos].to_vec();
+    if line && text.last() != Some(&b'\n') {
+        text.push(b'\n');
+    }
+    if !screen_out(vm) {
+        return Ok(());
+    }
+    for (k, seg) in text.split(|&c| c == b'\n').enumerate() {
+        if k > 0 {
+            if let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+                r?;
+            }
+        }
+        let seg: Vec<u8> = seg.iter().copied().filter(|&c| c != b'\r').collect();
+        if !seg.is_empty() {
+            if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(seg)]) {
+                r?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn fill(f: &mut dyn Read, rd: &mut Reader) {
@@ -1312,6 +1364,9 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             if !(0.0..=2147483.647).contains(&s) {
                 return Some(e(5));
             }
+            if rt.web && rt.display.started && rt.display.autodisplay != 0 {
+                rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+            }
             V::F(qb_runtime::systime::ticks() as f64 + s * 1000.0)
         }
         "DELAYSTEP" => {
@@ -1321,7 +1376,7 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             if left <= 0.0 {
                 V::I(0)
             } else {
-                std::thread::sleep(std::time::Duration::from_millis(left.clamp(1.0, 9.0) as u64));
+                qb_runtime::systime::sleep_ms(left.clamp(1.0, 9.0) as u64);
                 V::I(1)
             }
         }
@@ -1333,15 +1388,20 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
                 return Some(e(5));
             }
             if fps > 0.0 {
-                let frame = std::time::Duration::from_secs_f64(1.0 / fps);
-                let now = std::time::Instant::now();
+                // browser runner: the frame drawn so far is shown before the wait
+                if rt.web && rt.display.started && rt.display.autodisplay != 0 {
+                    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+                }
+                // monotonic ms (qb_runtime::systime also serves the browser build)
+                let frame = (1000.0 / fps) as i64;
+                let now = qb_runtime::systime::ticks();
                 if let Some(last) = rt.limit_last {
                     let due = last + frame;
                     if due > now {
-                        std::thread::sleep(due - now);
+                        qb_runtime::systime::sleep_ms((due - now) as u64);
                     }
                 }
-                rt.limit_last = Some(std::time::Instant::now());
+                rt.limit_last = Some(qb_runtime::systime::ticks());
             }
             return Some(Ok(None));
         }

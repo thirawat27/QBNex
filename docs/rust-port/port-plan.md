@@ -338,10 +338,10 @@ flowchart LR
 
 | งาน | วิธี | Exit gate |
 | --- | --- | --- |
-| G1 GPU backend (**groundwork เสร็จ 2026-11-11**: `crates/qb-gpu` บน wgpu 30, offscreen/window target, blit framebuffer แบบรักษา aspect, camera/depth/textured pipeline, test headless — ดู progress.md R15-G1; ยังไม่ต่อเข้า runtime) | `wgpu` (Vulkan/DX12/Metal/WebGPU) ใน crate ใหม่ `crates/qb-gpu`; หน้าต่าง winit เดิมได้ surface GPU; 2D ปัจจุบันยัง pixel-exact (CPU path เป็น reference) | conformance กราฟิกเดิมผ่าน; เปิด GPU ได้ทั้ง 3 OS |
+| G1 GPU backend (**groundwork เสร็จ 2026-11-11**: `crates/qb-gpu` บน wgpu 30, offscreen/window target, blit framebuffer แบบรักษา aspect, camera/depth/textured pipeline, test headless — ดู progress.md R15-G1; ต่อเข้าหน้าต่าง runtime แล้วผ่าน feature `gpu` 2026-11-11, softbuffer ยังเป็นค่าเริ่มและ fallback) | `wgpu` (Vulkan/DX12/Metal/WebGPU) ใน crate ใหม่ `crates/qb-gpu`; หน้าต่าง winit เดิมได้ surface GPU; 2D ปัจจุบันยัง pixel-exact (CPU path เป็น reference) | conformance กราฟิกเดิมผ่าน; เปิด GPU ได้ทั้ง 3 OS |
 | G2 `SUB _GL` กลับมา | OpenGL บริบทจริงผ่าน `glutin` + `glow` (pure Rust binding) ให้โปรแกรม QB64 เดิมที่ใช้ `_GL*` รันได้ | ปิด D-09; ตัวอย่าง `_GL` ของ QB64 รันได้ |
-| G3 `_MAPTRIANGLE` 3D | โหมด `_DEPTHBUFFER`, `_SMOOTH`, `_CLOCKWISE`, perspective ของ QB64 บน GPU | ผลตรงกับ QB64 oracle |
-| G4 3D API ใหม่ระดับสูง | `_MESH`, `_MODEL3D` (โหลด glTF/OBJ ด้วย `gltf`/`tobj`), `_CAMERA`, `_LIGHT`, `_MATERIAL`, `_TEXTURE`, `_DRAW3D`; คณิต vector/matrix (`glam`) เป็น built-in | conformance + ภาพ golden (render offscreen) |
+| G3 `_MAPTRIANGLE` 3D (**ชั้น GPU เสร็จ 2026-11-11**: `qb_gpu::maptri`, test เทียบกับ `raster::tri3d`; ยังไม่ต่อกับคิวคำสั่ง hardware) | โหมด `_DEPTHBUFFER`, `_SMOOTH`, `_CLOCKWISE`, perspective ของ QB64 บน GPU | ผลตรงกับ QB64 oracle |
+| G4 3D API ใหม่ระดับสูง (**ออกแบบ + ชั้น GPU เสร็จ 2026-11-11**: `r15-g4-3d-api.md`, `qb_gpu::scene`; keyword ยังไม่ต่อ) | `_MESH`, `_MODEL3D` (โหลด glTF/OBJ ด้วย `gltf`/`tobj`), `_CAMERA`, `_LIGHT`, `_MATERIAL`, `_TEXTURE`, `_DRAW3D`; คณิต vector/matrix (`glam`) เป็น built-in | conformance + ภาพ golden (render offscreen) |
 | G5 Shader | `_SHADER` รับ WGSL; compile ด้วย `naga` | ตัวอย่าง shader รันได้ |
 | G6 ประสิทธิภาพ | instancing, batching; benchmark ฉาก 10k triangle/วินาที | ≥ 60 fps บนเครื่องทดสอบ |
 
