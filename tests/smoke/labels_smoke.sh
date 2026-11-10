@@ -8,6 +8,7 @@ SRC_OK_REL="tests/fixtures/label_recompile_success.bas"
 SRC_FAIL_REL="tests/fixtures/label_missing_failure.bas"
 SRC_SCOPE_REL="tests/fixtures/label_scope_conflict.bas"
 SRC_DATA_REL="tests/fixtures/label_ambiguous_data.bas"
+SRC_NOSUB_REL="tests/fixtures/declared_sub_missing.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -49,6 +50,8 @@ OUT_FAIL="$TMPDIR/label_missing_failure.txt"
 OUT_SCOPE="$TMPDIR/label_scope_conflict.txt"
 OUT_DATA="$TMPDIR/label_ambiguous_data.txt"
 OUT_STALE="$TMPDIR/label_stale_failure.txt"
+BIN_NOSUB="$TMPDIR/declared_sub_missing"
+OUT_NOSUB="$TMPDIR/declared_sub_missing.txt"
 
 "$QB" "$SRC_OK_REL" -o "$BIN_OK" >"$OUT_OK" 2>&1
 EC_OK=$?
@@ -56,6 +59,8 @@ EC_OK=$?
 set +e
 "$QB" "$SRC_FAIL_REL" -o "$BIN_FAIL" >"$OUT_FAIL" 2>&1
 EC_FAIL=$?
+"$QB" "$SRC_NOSUB_REL" -o "$BIN_NOSUB" >"$OUT_NOSUB" 2>&1
+EC_NOSUB=$?
 "$QB" "$SRC_SCOPE_REL" -o "$BIN_SCOPE" >"$OUT_SCOPE" 2>&1
 EC_SCOPE=$?
 "$QB" "$SRC_DATA_REL" -o "$BIN_DATA" >"$OUT_DATA" 2>&1
@@ -102,6 +107,11 @@ if grep -F "Build complete:" "$OUT_FAIL" >/dev/null 2>&1; then
 fi
 if [ -f "$BIN_FAIL" ]; then
   echo "[FAIL] Missing-label fixture should not emit an executable."
+  FAIL=1
+fi
+
+if [ "$EC_NOSUB" -eq 0 ] || ! grep -F "Missing subprogram: SUB PALETTEFROMLIBRARY" "$OUT_NOSUB" >/dev/null 2>&1; then
+  echo "[FAIL] Declared but undefined SUB should report a missing subprogram."
   FAIL=1
 fi
 

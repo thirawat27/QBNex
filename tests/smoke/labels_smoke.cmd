@@ -8,6 +8,7 @@ set "SRC_OK=%ROOT%..\fixtures\label_recompile_success.bas"
 set "SRC_FAIL=%ROOT%..\fixtures\label_missing_failure.bas"
 set "SRC_SCOPE=%ROOT%..\fixtures\label_scope_conflict.bas"
 set "SRC_DATA=%ROOT%..\fixtures\label_ambiguous_data.bas"
+set "SRC_NOSUB=%ROOT%..\fixtures\declared_sub_missing.bas"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -52,12 +53,17 @@ set "OUT_FAIL=%TMPDIR%\label_missing_failure.txt"
 set "OUT_SCOPE=%TMPDIR%\label_scope_conflict.txt"
 set "OUT_DATA=%TMPDIR%\label_ambiguous_data.txt"
 set "OUT_STALE=%TMPDIR%\label_stale_failure.txt"
+set "BIN_NOSUB=%TMPDIR%\declared_sub_missing.exe"
+set "OUT_NOSUB=%TMPDIR%\declared_sub_missing.txt"
 
 "%QB%" "%SRC_OK%" -o "%BIN_OK%" > "%OUT_OK%" 2>&1
 set "EC_OK=%ERRORLEVEL%"
 
 "%QB%" "%SRC_FAIL%" -o "%BIN_FAIL%" > "%OUT_FAIL%" 2>&1
 set "EC_FAIL=%ERRORLEVEL%"
+
+"%QB%" "%SRC_NOSUB%" -o "%BIN_NOSUB%" > "%OUT_NOSUB%" 2>&1
+set "EC_NOSUB=%ERRORLEVEL%"
 
 "%QB%" "%SRC_SCOPE%" -o "%BIN_SCOPE%" > "%OUT_SCOPE%" 2>&1
 set "EC_SCOPE=%ERRORLEVEL%"
@@ -106,6 +112,15 @@ findstr /L /C:"Build complete:" "%OUT_FAIL%" >nul && (
 )
 if exist "%BIN_FAIL%" (
     echo [FAIL] Missing-label fixture should not emit an executable.
+    set "FAIL=1"
+)
+
+if "%EC_NOSUB%"=="0" (
+    echo [FAIL] Call to a declared but undefined SUB should fail compilation.
+    set "FAIL=1"
+)
+findstr /L /C:"Missing subprogram: SUB PALETTEFROMLIBRARY" "%OUT_NOSUB%" >nul || (
+    echo [FAIL] Declared but undefined SUB should report a missing subprogram.
     set "FAIL=1"
 )
 

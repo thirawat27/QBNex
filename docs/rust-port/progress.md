@@ -586,6 +586,7 @@ Local corpus `tests/corpus-local/` (gitignored): 129 `.bas` files from creationi
 | Legacy oracle (`.oracle`) | 79/129 |
 | Before (main session run) | 70/129 |
 | After (this branch) | 112/129 |
+| After merging rust-port a33211e (GCC 16.2), with a4f12be | 114/129 |
 
 What was wrong:
 
@@ -594,11 +595,11 @@ What was wrong:
 - **2 files, `PLAY ON` / `ON PLAY(n) GOSUB`** (GALAXY, MOSS; hidden behind L-16 in the oracle): L-18, fixed in the compiler (D-24).
 - **8 files, "Build failed" at the C++ step** (RPG\CONVERT, RPG2\MAPEDIT/PARTY/SHAPES/TEST, SORCERER, ZENITH\SHIPS/TEST) and **RACE\RACE.BAS** (`memory allocation of 16777216 bytes failed`): do not reproduce on this branch's build or on the oracle; all compile. Most likely the shared main checkout ran out of memory while other sessions were building. No code change.
 
-Still failing, expected (17):
+Still failing, expected (15):
 
 - 13 files are QuickBASIC 4.x binary ("fast load", tokenized, start `FC 00`), not text: BANANA\GRAPH, FOWLER\EDIT, MISC\ARTIF, MISC\SHIPWAR, QUESTLND\BACK/GRAPHICS/QUEST/SHIP/TEST/TESTBACK/TEXTURE3/TEXTURE4, RPG2\CONVERT. QBasic and QB64 cannot read them either; they now get a clear diagnostic.
 - MISC\SPACE.BAS is not BASIC source (binary data; NUL bytes): encoding error.
-- QUESTLND\QUESTLND.BAS calls `colorpalette`, whose body exists only in the binary-format QUESTLND modules.
+- QUESTLND\QUESTLND.BAS calls `colorpalette`, whose body exists only in `GRAPHICS.QLB` (a QuickBASIC Quick Library, binary). The compiler now says so (`Missing subprogram: SUB COLORPALETTE is declared, but this program has no SUB ... END SUB`, a4f12be) instead of `Syntax error`.
 - The LABYRINT "string never closed" and ZENITH\BACKS "PRINT not a known statement" messages were follow-on diagnostics of L-16; both compile now.
 
 Follow-ups: raise the PLAY event in the audio runtime (D-24); the corpus run takes about 1 minute per file because each compile rebuilds `qbx.cpp`.
