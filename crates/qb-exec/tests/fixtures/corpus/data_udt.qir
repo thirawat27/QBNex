@@ -1,0 +1,159 @@
+QIR 1
+meta console only
+type T_POINT3 10
+field X i16 0
+field Y f32 2
+field TAG fstr:4 6
+endtype
+type T_BOX 28
+field LO udt:T_POINT3 0
+field HI udt:T_POINT3 10
+field ID i64 20
+endtype
+global $__UDT_B udt:T_BOX
+global $__ARRAY_UDT_PTS array udt:T_POINT3
+func main
+line 12
+line 13
+addr %0 $__UDT_B
+const.i32 %1 1
+cvt.i16.i32 %2 %1
+st.i16 %0 0 %2
+line 13
+addr %3 $__UDT_B
+const.f64 %4 1.5E+0
+cvt.f32.f64 %5 %4
+st.f32 %3 2 %5
+line 13
+addr %6 $__UDT_B
+const.str %7 x6C6F
+stfs %6 6 4 %7
+line 14
+addr %8 $__UDT_B
+const.i32 %9 9
+cvt.i16.i32 %10 %9
+st.i16 %8 10 %10
+line 14
+addr %11 $__UDT_B
+const.f64 %12 9.5E+0
+cvt.f32.f64 %13 %12
+st.f32 %11 12 %13
+line 14
+addr %14 $__UDT_B
+const.str %15 x68696768746167
+stfs %14 16 4 %15
+line 15
+addr %16 $__UDT_B
+const.i64 %17 1234567890123
+st.i64 %16 20 %17
+line 16
+addr %18 $__UDT_B
+ld.i16 %19 %18 0
+cvt.i64.i16 %20 %19
+rt %21 STR$.i64 %20
+const.str %22 x20
+concat %23 %21 %22
+const.i32 %24 0
+rt PRINTS %24 %23
+addr %25 $__UDT_B
+ld.f32 %26 %25 2
+rt %27 STR$.f32 %26
+const.str %28 x20
+concat %29 %27 %28
+const.i32 %30 0
+rt PRINTS %30 %29
+const.str %31 x5B
+const.i32 %32 0
+rt PRINTS %32 %31
+addr %33 $__UDT_B
+ldfs %34 %33 6 4
+const.i32 %35 0
+rt PRINTS %35 %34
+const.str %36 x5D
+const.i32 %37 0
+rt PRINTS %37 %36
+addr %38 $__UDT_B
+ld.i16 %39 %38 10
+cvt.i64.i16 %40 %39
+rt %41 STR$.i64 %40
+const.str %42 x20
+concat %43 %41 %42
+const.i32 %44 0
+rt PRINTS %44 %43
+addr %45 $__UDT_B
+ld.f32 %46 %45 12
+rt %47 STR$.f32 %46
+const.str %48 x20
+concat %49 %47 %48
+const.i32 %50 0
+rt PRINTS %50 %49
+const.str %51 x5B
+const.i32 %52 0
+rt PRINTS %52 %51
+addr %53 $__UDT_B
+ldfs %54 %53 16 4
+const.i32 %55 0
+rt PRINTS %55 %54
+const.str %56 x5D
+const.i32 %57 0
+rt PRINTS %57 %56
+addr %58 $__UDT_B
+ld.i64 %59 %58 20
+rt %60 STR$.i64 %59
+const.str %61 x20
+concat %62 %60 %61
+const.i32 %63 0
+rt PRINTS %63 %62
+const.i32 %64 0
+rt PRINTNL %64
+line 17
+addr %65 $__UDT_B
+const.i32 %66 28
+cvt.i64.i32 %67 %66
+rt %68 STR$.i64 %67
+const.str %69 x20
+concat %70 %68 %69
+const.i32 %71 0
+rt PRINTS %71 %70
+const.i32 %72 0
+rt PRINTNL %72
+line 18
+const.i64 %73 0
+const.i32 %74 2
+dim $__ARRAY_UDT_PTS 1 %73 %74
+line 19
+const.i32 %75 1
+aaddr %76 $__ARRAY_UDT_PTS %75
+const.i32 %77 42
+cvt.i16.i32 %78 %77
+st.i16 %76 0 %78
+line 20
+const.i32 %79 1
+aaddr %80 $__ARRAY_UDT_PTS %79
+ld.i16 %81 %80 0
+cvt.i64.i16 %82 %81
+rt %83 STR$.i64 %82
+const.str %84 x20
+concat %85 %83 %84
+const.i32 %86 0
+rt PRINTS %86 %85
+const.i32 %87 0
+aaddr %88 $__ARRAY_UDT_PTS %87
+ld.i16 %89 %88 0
+cvt.i64.i16 %90 %89
+rt %91 STR$.i64 %90
+const.str %92 x20
+concat %93 %91 %92
+const.i32 %94 0
+rt PRINTS %94 %93
+const.i32 %95 0
+rt PRINTNL %95
+line 21
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

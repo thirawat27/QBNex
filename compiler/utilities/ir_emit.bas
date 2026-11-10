@@ -1143,6 +1143,7 @@ FUNCTION IrGeneric$ (idn AS LONG, nargs AS LONG, passed AS LONG, isfunc AS LONG)
         END IF
         r$ = r$ + " " + IrI32$(passed)
     END IF
+    IF cn$ = "func__rgb32" THEN r$ = r$ + " " + IrI32$(nargs) 'C++ overload by argument count
     IF isfunc THEN
         d$ = IrReg$
         IrE "rt " + d$ + " " + cn$ + r$

@@ -1,0 +1,114 @@
+QIR 1
+meta console only
+global $__ARRAY_SINGLE_A array f32
+global $__SINGLE_ATTEMPT f32
+datalabel L_HANDLER
+func main
+line 2
+onerror L_HANDLER
+line 3
+const.i32 %0 5
+error %0
+line 4
+const.str %1 x6166746572206572726F722035
+const.i32 %2 0
+rt PRINTS %2 %1
+const.i32 %3 0
+rt PRINTNL %3
+line 5
+const.i64 %4 0
+const.i32 %5 5
+dim $__ARRAY_SINGLE_A 1 %4 %5
+line 6
+const.i32 %6 10
+aaddr %7 $__ARRAY_SINGLE_A %6
+const.i32 %8 1
+cvt.f32.i32 %9 %8
+st.f32 %7 0 %9
+line 7
+const.str %10 x616674657220626F756E6473
+const.i32 %11 0
+rt PRINTS %11 %10
+const.i32 %12 0
+rt PRINTNL %12
+line 8
+const.i32 %13 0
+cvt.f32.i32 %14 %13
+store.f32 $__SINGLE_ATTEMPT %14
+line 9
+const.i32 %15 61
+error %15
+line 10
+const.str %16 x6166746572207265747279
+const.i32 %17 0
+rt PRINTS %17 %16
+const.i32 %18 0
+rt PRINTNL %18
+line 11
+onerror 0
+line 12
+const.str %19 x646F6E65
+const.i32 %20 0
+rt PRINTS %20 %19
+const.i32 %21 0
+rt PRINTNL %21
+line 13
+system
+label L_HANDLER
+line 16
+const.str %22 x636175676874
+const.i32 %23 0
+rt PRINTS %23 %22
+rt %24 ERR
+cvt.i64.i32 %25 %24
+rt %26 STR$.i64 %25
+const.str %27 x20
+concat %28 %26 %27
+const.i32 %29 0
+rt PRINTS %29 %28
+const.i32 %30 0
+rt PRINTNL %30
+line 17
+rt %31 ERR
+const.i32 %32 61
+eq.i32 %33 %31 %32
+load.f32 %34 $__SINGLE_ATTEMPT
+const.i32 %35 0
+cvt.f32.i32 %36 %35
+eq.f32 %37 %34 %36
+and.i32 %38 %33 %37
+jz %38 ~I1.1
+line 18
+const.i32 %39 1
+cvt.f32.i32 %40 %39
+store.f32 $__SINGLE_ATTEMPT %40
+line 19
+const.str %41 x7265747279696E67
+const.i32 %42 0
+rt PRINTS %42 %41
+const.i32 %43 0
+rt PRINTNL %43
+line 20
+resume
+line 21
+label ~I1.1
+label ~I1.E
+line 22
+rt %44 ERR
+const.i32 %45 61
+eq.i32 %46 %44 %45
+jz %46 ~I2.1
+line 22
+resume next
+line 22
+label ~I2.1
+label ~I2.E
+line 23
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

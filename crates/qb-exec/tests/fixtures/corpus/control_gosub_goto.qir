@@ -1,0 +1,167 @@
+QIR 1
+meta console only
+global $__SINGLE_N f32
+datalabel L_ONE
+datalabel L_TWO
+datalabel L_THREE
+datalabel L_100
+datalabel L_200
+datalabel L_FIRST
+func main
+local $~T1 i32
+local $~T2 i32
+line 2
+gosub L_FIRST
+line 3
+const.str %0 x6261636B20696E206D61696E
+const.i32 %1 0
+rt PRINTS %1 %0
+const.i32 %2 0
+rt PRINTNL %2
+line 4
+const.i32 %3 2
+cvt.f32.i32 %4 %3
+store.f32 $__SINGLE_N %4
+line 5
+load.f32 %5 $__SINGLE_N
+cvt.i32.f32 %6 %5
+store.i32 $~T1 %6
+load.i32 %7 $~T1
+const.i32 %8 1
+eq.i32 %9 %7 %8
+jz %9 ~O2.1
+gosub L_ONE
+jmp ~O2.S
+label ~O2.1
+load.i32 %10 $~T1
+const.i32 %11 2
+eq.i32 %12 %10 %11
+jz %12 ~O2.2
+gosub L_TWO
+jmp ~O2.S
+label ~O2.2
+load.i32 %13 $~T1
+const.i32 %14 3
+eq.i32 %15 %13 %14
+jz %15 ~O2.3
+gosub L_THREE
+jmp ~O2.S
+label ~O2.3
+load.i32 %16 $~T1
+const.i32 %17 0
+lt.i32 %18 %16 %17
+jz %18 ~O2.S
+const.i32 %19 5
+error %19
+label ~O2.S
+line 6
+const.i32 %20 3
+store.i32 $~T2 %20
+load.i32 %21 $~T2
+const.i32 %22 1
+eq.i32 %23 %21 %22
+jnz %23 L_ONE
+load.i32 %24 $~T2
+const.i32 %25 2
+eq.i32 %26 %24 %25
+jnz %26 L_TWO
+load.i32 %27 $~T2
+const.i32 %28 3
+eq.i32 %29 %27 %28
+jnz %29 L_THREE
+load.i32 %30 $~T2
+const.i32 %31 0
+lt.i32 %32 %30 %31
+jz %32 ~O3.S
+const.i32 %33 5
+error %33
+label ~O3.S
+line 7
+const.str %34 x6E6F742072656163686564
+const.i32 %35 0
+rt PRINTS %35 %34
+const.i32 %36 0
+rt PRINTNL %36
+label L_ONE
+line 8
+const.str %37 x6F6E65
+const.i32 %38 0
+rt PRINTS %38 %37
+const.i32 %39 0
+rt PRINTNL %39
+line 8
+gret
+label L_TWO
+line 9
+const.str %40 x74776F
+const.i32 %41 0
+rt PRINTS %41 %40
+const.i32 %42 0
+rt PRINTNL %42
+line 9
+gret
+label L_THREE
+line 10
+const.str %43 x7468726565
+const.i32 %44 0
+rt PRINTS %44 %43
+const.i32 %45 0
+rt PRINTNL %45
+line 11
+jmp L_100
+line 12
+const.str %46 x736B6970706564
+const.i32 %47 0
+rt PRINTS %47 %46
+const.i32 %48 0
+rt PRINTNL %48
+label L_100
+const.i32 %49 100
+rt LASTLINE %49
+line 13
+const.str %50 x6C696E6520313030
+const.i32 %51 0
+rt PRINTS %51 %50
+const.i32 %52 0
+rt PRINTNL %52
+line 14
+const.i32 %53 1
+jz %53 ~I3.1
+line 14
+jmp L_200
+line 14
+label ~I3.1
+label ~I3.E
+line 15
+const.str %54 x736B697070656420746F6F
+const.i32 %55 0
+rt PRINTS %55 %54
+const.i32 %56 0
+rt PRINTNL %56
+label L_200
+const.i32 %57 200
+rt LASTLINE %57
+line 16
+const.str %58 x646F6E65
+const.i32 %59 0
+rt PRINTS %59 %58
+const.i32 %60 0
+rt PRINTNL %60
+line 17
+system
+label L_FIRST
+line 19
+const.str %61 x696E206669727374
+const.i32 %62 0
+rt PRINTS %62 %61
+const.i32 %63 0
+rt PRINTNL %63
+line 20
+gret
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

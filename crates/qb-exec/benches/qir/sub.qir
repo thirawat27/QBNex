@@ -1,0 +1,104 @@
+QIR 1
+meta console only
+global $__LONG_N i32
+global $__DOUBLE_T f64
+global $__LONG_I i32
+global $__LONG_C i32
+global $__DOUBLE_E f64
+func main
+local $~T1 i64
+local $~T2 i64
+local $~T3 i64
+line 2
+const.i32 %0 5000000
+store.i32 $__LONG_N %0
+line 3
+const.f64 %1 0.001E+0
+rt %2 TIMER.n %1
+store.f64 $__DOUBLE_T %2
+line 4
+const.i32 %3 1
+cvt.i64.i32 %4 %3
+store.i64 $~T1 %4
+load.i32 %5 $__LONG_N
+cvt.i64.i32 %6 %5
+store.i64 $~T2 %6
+const.i32 %7 1
+cvt.i64.i32 %8 %7
+store.i64 $~T3 %8
+jmp ~F1.E
+label ~F1.T
+load.i32 %9 $__LONG_I
+cvt.i64.i32 %10 %9
+load.i64 %11 $~T3
+add.i64 %12 %11 %10
+store.i64 $~T1 %12
+label ~F1.E
+load.i64 %13 $~T1
+cvt.i32.i64 %14 %13
+store.i32 $__LONG_I %14
+load.i64 %15 $~T3
+const.i64 %16 0
+lt.i64 %17 %15 %16
+jz %17 ~F1.P
+load.i64 %18 $~T2
+lt.i64 %19 %13 %18
+jnz %19 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i64 %20 $~T2
+gt.i64 %21 %13 %20
+jnz %21 ~F1.X
+label ~F1.B
+line 4
+addr %22 $__LONG_C
+call SUB_INC %22
+line 4
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 5
+const.f64 %23 0.001E+0
+rt %24 TIMER.n %23
+load.f64 %25 $__DOUBLE_T
+sub.f64 %26 %24 %25
+store.f64 $__DOUBLE_E %26
+line 6
+load.i32 %27 $__LONG_C
+cvt.i64.i32 %28 %27
+rt %29 STR$.i64 %28
+const.str %30 x20
+concat %31 %29 %30
+const.i32 %32 0
+rt PRINTS %32 %31
+load.f64 %33 $__DOUBLE_E
+const.i32 %34 1000
+cvt.f64.i32 %35 %34
+mul.f64 %36 %33 %35
+rt %37 INT.f64 %36
+rt %38 STR$.f64 %37
+const.str %39 x20
+concat %40 %38 %39
+const.i32 %41 0
+rt PRINTS %41 %40
+const.i32 %42 0
+rt PRINTNL %42
+line 7
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_INC
+param $_SUB_INC_LONG_N i32 byref
+line 9
+load.i32 %0 $_SUB_INC_LONG_N
+const.i32 %1 1
+add.i32 %2 %0 %1
+store.i32 $_SUB_INC_LONG_N %2
+label ~EXIT
+ret
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
