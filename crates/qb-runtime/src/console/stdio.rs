@@ -91,11 +91,41 @@ unsafe fn c_stdin() -> *mut c_void {
     __stdinp
 }
 
+/// Column (1-based) of stdout as written by this program, for output that is
+/// not a console (redirected to a file or pipe), where the console cursor
+/// cannot be asked (L-02).
+static COLUMN: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
+
+/// Column after writing `s` from column `col`: line breaks (LF, CR) return
+/// to 1; UTF-8 continuation bytes do not move the column.
+pub fn advance_column(mut col: i32, s: &[u8]) -> i32 {
+    for &b in s {
+        match b {
+            b'\n' | b'\r' => col = 1,
+            0x80..=0xBF => {}
+            _ => col += 1,
+        }
+    }
+    col
+}
+
+fn track(s: &[u8]) {
+    use std::sync::atomic::Ordering;
+    let c = COLUMN.load(Ordering::Relaxed);
+    COLUMN.store(advance_column(c, s), Ordering::Relaxed);
+}
+
+/// Column tracked for non-console stdout (see [`advance_column`]).
+pub fn tracked_column() -> i32 {
+    COLUMN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `printf`-style write to stdout without flushing.
 pub fn write_raw(s: &[u8]) {
     if s.is_empty() {
         return;
     }
+    track(s);
     // SAFETY: valid buffer; the CRT stream is process-global.
     unsafe {
         fwrite(s.as_ptr().cast(), 1, s.len(), c_stdout());
@@ -272,6 +302,10 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
             return;
         }
     }
+    track(text);
+    if finish_on_new_line {
+        track(b"\n");
+    }
     // SAFETY: CRT stream.
     unsafe {
         let f = c_stdout();
@@ -288,8 +322,13 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
 /// POS(0) of the console (column of the console cursor).
 #[cfg(windows)]
 pub fn pos() -> i32 {
-    // SAFETY: Win32 query.
-    unsafe { win::conout_info().dwCursorPosition.X as i32 + 1 }
+    // SAFETY: Win32 queries.
+    unsafe {
+        if !win::is_console(win::std(win::STD_OUTPUT_HANDLE)) {
+            return tracked_column(); // redirected: no console cursor to ask (L-02)
+        }
+        win::conout_info().dwCursorPosition.X as i32 + 1
+    }
 }
 
 /// CSRLIN of the console.
