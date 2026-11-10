@@ -13673,6 +13673,7 @@ END FUNCTION
 '$INCLUDE:'utilities\ir_emit.bas'
 '$INCLUDE:'utilities\ir_stmt.bas'
 '$INCLUDE:'utilities\ir_mem.bas'
+'$INCLUDE:'utilities\ir_ext.bas'
 
 SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
     DIM findItem AS LONG, cname$, i AS LONG, j AS LONG, name$, temp$
