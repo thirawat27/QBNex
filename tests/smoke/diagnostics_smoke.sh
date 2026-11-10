@@ -46,6 +46,8 @@ EC_COMPACT=$?
 "$QB" "$SRC_INCLUDE_REL" > "$OUT_INCLUDE" 2>&1
 EC_INCLUDE=$?
 set -e
+# Runtime errors go to stderr (exit code 1) instead of a modal dialog.
+export QBNEX_NO_ERROR_DIALOG=1
 
 FAIL=0
 

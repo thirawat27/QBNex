@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 set -eu
+# Runtime errors go to stderr (exit code 1) instead of a modal dialog.
+export QBNEX_NO_ERROR_DIALOG=1
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(CDPATH= cd -- "$ROOT/../.." && pwd)"
