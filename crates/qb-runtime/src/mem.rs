@@ -293,6 +293,10 @@ pub unsafe fn memget(blk: &MemBlock, off: isize, bytes: isize) -> (*mut c_void, 
     }
     let mut p = pool();
     p.fail_buffer.clear();
+    // R14: an absurd size reports "out of memory" instead of aborting.
+    if p.fail_buffer.try_reserve_exact(bytes as usize).is_err() {
+        return (null_mut(), 518);
+    }
     p.fail_buffer.resize(bytes as usize, 0);
     (p.fail_buffer.as_mut_ptr().cast(), err)
 }
@@ -551,6 +555,21 @@ mod tests {
             assert_eq!(memfill(&b, b.offset + 1, 16, pat.as_ptr(), 1), 300);
         }
         assert!(bytes_of(&b).iter().all(|&x| x == 7));
+    }
+
+    /// R14: a failed `_MEMGET` check with an absurd byte count reports
+    /// "out of memory" (518) instead of aborting while allocating the scratch.
+    #[test]
+    fn failed_memget_with_huge_size_does_not_abort() {
+        let (b, _) = memnew(4, false);
+        unsafe {
+            let (p, err) = memget(&b, b.offset + 100, isize::MAX / 2);
+            assert!(p.is_null());
+            assert_eq!(err, 518);
+            let (p, err) = memget(&b, b.offset + 100, 8);
+            assert!(!p.is_null());
+            assert_eq!(err, 300);
+        }
     }
 
     #[test]
