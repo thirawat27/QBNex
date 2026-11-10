@@ -1,0 +1,1 @@
+Fixes legacy defects L-19 (DIM SHARED after $IMPORT) and L-22 (compiler/stdlib/json.bas did not compile: it read its own FUNCTION name inside FUNCTIONs with parameters, which is a recursive call, and used the reserved word KEY as a parameter name). Expected output written from QBasic semantics.

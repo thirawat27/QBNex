@@ -7426,6 +7426,8 @@ IF n >= 2 THEN
             i = i + 1 'set i to point to the next element
 
             IF commonoption THEN elements$ = "?"
+            'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM (L-21)
+            IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
             IF Debug THEN PRINT #9, "DIM2:array:elements$:[" + elements$ + "]"
@@ -8008,6 +8010,8 @@ ELSE
         i = i + 1 'set i to point to the next element
 
         IF commonoption THEN elements$ = "?"
+        'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM (L-21)
+        IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
         IF Debug THEN PRINT #9, "DIM2:array:elements$:[" + elements$ + "]"

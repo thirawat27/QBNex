@@ -182,27 +182,33 @@ FUNCTION JsonCreateNull% ()
 END FUNCTION
 
 FUNCTION JsonCreateBoolean% (value AS _BYTE)
-    JsonCreateBoolean% = JsonAllocValue%
-    IF JsonCreateBoolean% > 0 THEN
-        JsonValueType%(JsonCreateBoolean%) = JSON_BOOLEAN
-        JsonBoolValue%(JsonCreateBoolean%) = value
+    DIM idx AS INTEGER
+    idx = JsonAllocValue%
+    IF idx > 0 THEN
+        JsonValueType%(idx) = JSON_BOOLEAN
+        JsonBoolValue%(idx) = value
     END IF
+    JsonCreateBoolean% = idx
 END FUNCTION
 
 FUNCTION JsonCreateNumber% (value AS DOUBLE)
-    JsonCreateNumber% = JsonAllocValue%
-    IF JsonCreateNumber% > 0 THEN
-        JsonValueType%(JsonCreateNumber%) = JSON_NUMBER
-        JsonNumValue#(JsonCreateNumber%) = value
+    DIM idx AS INTEGER
+    idx = JsonAllocValue%
+    IF idx > 0 THEN
+        JsonValueType%(idx) = JSON_NUMBER
+        JsonNumValue#(idx) = value
     END IF
+    JsonCreateNumber% = idx
 END FUNCTION
 
 FUNCTION JsonCreateString% (value AS STRING)
-    JsonCreateString% = JsonAllocValue%
-    IF JsonCreateString% > 0 THEN
-        JsonValueType%(JsonCreateString%) = JSON_STRING
-        JsonStrValue$(JsonCreateString%) = value
+    DIM idx AS INTEGER
+    idx = JsonAllocValue%
+    IF idx > 0 THEN
+        JsonValueType%(idx) = JSON_STRING
+        JsonStrValue$(idx) = value
     END IF
+    JsonCreateString% = idx
 END FUNCTION
 
 FUNCTION JsonCreateArray% ()
@@ -223,12 +229,12 @@ SUB JsonArrayPush (arrayIndex AS INTEGER, valueIndex AS INTEGER)
     JsonArrayCount%(arrayIndex) = JsonArrayCount%(arrayIndex) + 1
 END SUB
 
-SUB JsonObjectSet (objectIndex AS INTEGER, key AS STRING, valueIndex AS INTEGER)
+SUB JsonObjectSet (objectIndex AS INTEGER, keyName AS STRING, valueIndex AS INTEGER)
     IF objectIndex < 1 OR objectIndex > JsonValuePoolSize% THEN EXIT SUB
     IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT SUB
     IF JsonObjectCount%(objectIndex) > 0 THEN JsonObjectValues$(objectIndex) = JsonObjectValues$(objectIndex) + ","
-    JsonObjectValues$(objectIndex) = JsonObjectValues$(objectIndex) + CHR$(34) + JsonEscapeString$(key) + CHR$(34) + ":" + JsonStringifyValue$(valueIndex, 0)
-    JsonObjectKeys$(objectIndex) = JsonObjectKeys$(objectIndex) + CHR$(10) + key
+    JsonObjectValues$(objectIndex) = JsonObjectValues$(objectIndex) + CHR$(34) + JsonEscapeString$(keyName) + CHR$(34) + ":" + JsonStringifyValue$(valueIndex, 0)
+    JsonObjectKeys$(objectIndex) = JsonObjectKeys$(objectIndex) + CHR$(10) + keyName
     JsonObjectCount%(objectIndex) = JsonObjectCount%(objectIndex) + 1
 END SUB
 
@@ -252,7 +258,7 @@ FUNCTION JsonGetString$ (valueIndex AS INTEGER)
     IF valueIndex >= 1 AND valueIndex <= JsonValuePoolSize% THEN JsonGetString$ = JsonStrValue$(valueIndex) ELSE JsonGetString$ = ""
 END FUNCTION
 
-FUNCTION JsonObjectGet% (objectIndex AS INTEGER, key AS STRING)
+FUNCTION JsonObjectGet% (objectIndex AS INTEGER, keyName AS STRING)
     JsonObjectGet% = 0
 END FUNCTION
 
