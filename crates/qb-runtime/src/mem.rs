@@ -159,8 +159,11 @@ unsafe fn lock_of(lock_offset: isize) -> Option<u64> {
 }
 
 /// True when `[off, off+bytes)` lies inside the block.
+/// Computed in i128: legacy `off + bytes` wrapped for offsets near the top of
+/// the address space and passed the check (R14).
 fn in_range(b: &MemBlock, off: isize, bytes: isize) -> bool {
-    !(off < b.offset || off.wrapping_add(bytes) > b.offset.wrapping_add(b.size))
+    let end = off as i128 + bytes as i128;
+    !(off < b.offset || end > b.offset as i128 + b.size as i128)
 }
 
 /// `_MEMFREE`. Returns 0 or the error code (309 no lock, 307 already freed).
@@ -528,6 +531,26 @@ mod tests {
     fn bytes_of(b: &MemBlock) -> &'static [u8] {
         // SAFETY: tests only read blocks they just allocated.
         unsafe { std::slice::from_raw_parts(b.offset as *const u8, b.size as usize) }
+    }
+
+    /// R14: `offset + bytes` past `isize::MAX` must count as out of range
+    /// (it wrapped and let `_MEMFILL`/`_MEMCOPY`/`_MEMGET` touch foreign memory).
+    #[test]
+    fn range_checks_do_not_wrap() {
+        let (b, e) = memnew(16, false);
+        assert_eq!(e, 0);
+        let pat = [7u8];
+        unsafe {
+            assert_eq!(memfill(&b, b.offset + 8, isize::MAX, pat.as_ptr(), 1), 300);
+            assert_eq!(memfill(&b, isize::MAX - 2, 4, pat.as_ptr(), 1), 300);
+            assert_eq!(memcopy(&b, b.offset + 1, isize::MAX, &b, b.offset), 302 + 2);
+            let (p, err) = memget(&b, isize::MAX - 2, 8);
+            assert_eq!(err, 300);
+            assert_ne!(p as isize, isize::MAX - 2);
+            assert_eq!(memfill(&b, b.offset, 16, pat.as_ptr(), 1), 0);
+            assert_eq!(memfill(&b, b.offset + 1, 16, pat.as_ptr(), 1), 300);
+        }
+        assert!(bytes_of(&b).iter().all(|&x| x == 7));
     }
 
     #[test]
