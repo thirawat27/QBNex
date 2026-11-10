@@ -13,6 +13,7 @@ members = [
     "crates/qb-syntax",
     "crates/qb-fmt",
     "crates/qb-lsp",
+    "crates/qb-ext",
     "tests/conformance",
 ]
 

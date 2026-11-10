@@ -1,0 +1,23 @@
+[package]
+name = "qb-ext"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "QBNex extension library: regex, hashing, Base64/hex, zip and HTTP(S) for the BASIC stdlib (qb_ext_* C ABI)."
+publish = false
+
+[lib]
+name = "qb_ext"
+path = "src/lib.rs"
+
+[dependencies]
+base64 = "0.23.1"
+crc32fast = "1.5.5"
+hex = "0.4.3"
+md-5 = "0.11.0"
+regex = "1.13.1"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+ureq = "3.5.1"
+zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
