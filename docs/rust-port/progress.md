@@ -21,6 +21,7 @@
 | R9 Net, clipboard, screen, printer, clock | **done (Windows)**, Linux/macOS unverified | TCP (`std::net`), clipboard (Win32 `CF_TEXT`/`CF_BITMAP`, `arboard` elsewhere), `_SCREENIMAGE`/`_SCREENCLICK`/`_SCREENPRINT`, printer page output, `GetTicks` + TIMER start-of-day. Deleted: socket layer, X11/Cocoa/Win32 clipboard, screen code, `libqb/printer.{cpp,h}`, `myip.cpp`, `time64.{c,cpp,h}`; `libqb.cpp` ~1,860 lines shorter. See [R9 notes](#r9-notes) |
 | R10 | pending | — |
 | R11 No-C++ backend | **design + spike** | [`r11-emitter-design.md`](r11-emitter-design.md): option B (QIR + prebuilt Rust runner `crates/qb-exec`); `qb --ir` runs PRINT/vars/IF/FOR/GOSUB/SUB/strings/ON ERROR end to end without g++; output matches the C++ backend |
+| R11d `_FLOAT` + FFI | **done (Windows x64; Linux x86-64 and AArch64 unit/integration tests)** | `crates/qb-float80` (software x87, `diff_float80` 87.5M checks 0 mismatches) and `crates/qb-ffi` (DECLARE [DYNAMIC] LIBRARY, Win64/SysV/AAPCS64 thunks); see [R11d](#r11d-_float-and-declare-library) |
 
 ### Verified on Windows (MinGW-Builds g++ 15.2.0 ucrt, rustc 1.98.0)
 
@@ -190,6 +191,35 @@ With the compiler kept in BASIC, it still **emits C++**, so `internal/c/qbx.cpp`
 - Round 2: `cargo run --release -p qbnex-conformance -- --qb-arg --ir` passes **15 of 33** cases (C++ backend: 26 + 7 xfail). Added loops, SELECT CASE, FUNCTION/STATIC, arrays, DATA/READ/RESTORE, RND/RANDOMIZE, MK$/CV/MBF, DEFtype and more builtins (TDD, `qb-exec` tests 18 + 19 + 7 unit, 4 end-to-end). The L-01, L-03 and L-04 cases run correctly under QIR (`crates/qb-exec/tests/fixtures/legacy_defects`).
 - The CMake target `qb-exec` (built with `qb-selfhost`) produces `crates/qb-exec/bin/<os>/qb-exec`; on Windows it imports only system DLLs.
 - Not done: UDT, file I/O, PRINT USING, 64/80-bit numbers, emitter inside the real compiler pipeline, release bundle, Linux/macOS runs.
+
+## R11d: `_FLOAT` and `DECLARE LIBRARY`
+
+API contract for the emitter and the VM: [`r11d-ffi-float80.md`](r11d-ffi-float80.md).
+
+What the legacy build really did (checked in the disassembly of `libqb_*.o` and `libmingwex.a`):
+
+- `EXP` of a `_FLOAT` calls `expl`; **every** `^` goes through `pow2(long double, long double)` and `powl`; `FIX`/`INT` use `ceill`/`floorl`.
+- `SIN`, `COS`, `TAN`, `ATN` are emitted into `qbx.cpp`, which has no `using namespace std`, so they call the **double** C functions; `LOG` and `SQR` are `func_log(double)` / `func_sqr(double)`; `STR$`/`PRINT` of `_FLOAT` format `(double)value`. Only `EXP`, `^`, arithmetic, comparisons and conversions are really 80-bit.
+- MinGW-w64's `expl`/`exp2l`/`log2l` use `f2xm1`/`fyl2x`/`fyl2xp1`, which the x87 unit does not round correctly (about 3% of random inputs one ulp off). Bit-exact results therefore need those three instructions on the same CPU; `qb-float80` runs them on the x87 unit on x86 and in software elsewhere (D-111).
+
+Evidence:
+
+- `cargo test -p qb-float80`: 23 tests (Windows), 21 under qemu-aarch64 (the hardware-comparison tests are x86 only); `--features soft-transcendentals` also passes.
+- `diff_float80` (`tests/diff`, in `run_diff.cmd`): real MinGW `long double` vs Rust over random bit patterns (unnormals, pseudo-NaN/infinity, pseudo-denormals), denormals, specials, ties and near-ties, all four rounding modes: `fadd/fsub/fmul/fdiv/fsqrt/frndint/fscale/fucomi`, `fld/fst` f32/f64, `fild`, `fistp`/`fisttp` 16/32/64, u64 casts, legacy `qbr`, `expl`, `exp2l`, `log2l`, `powl`, `__powil`, `ldexpl`, `floorl`, `ceill`, legacy `func_exp_float`/`pow2`/`func_fix_float` incl. error codes, `__mingw_strtold` (value and end pointer, `nan(...)` payloads, hex floats) and `__mingw_snprintf` `%Le/%Lf/%Lg` up to 70 digits: **87,481,972 checks, 0 mismatches**. Mutation run (reference under precision control 53 bits): 573,263 mismatches. Software primitives vs hardware: f2xm1 97.6%, fyl2x 97.4%, fyl2xp1 96.7% identical, none more than 1 ulp off.
+- qb-runtime: `VAL` uses `qb_float80::dec::decimal_to_f80`, `f64_from_f80`/`qb_f80_to_f64` and DRAW's `long double` load use `F80::to_f64`, new `qb_str_f80`; `cargo test -p qb-runtime --lib` 265/265 (the clipboard test failed once while other sessions used the clipboard and passed on rerun).
+- `cargo test -p qb-ffi`: 18 tests (8 unit, 10 integration with real calls: `getpid` and `strlen` without a header, `GetCurrentProcessId`, `MessageBeep`, libc by name, 20 mixed arguments spilling to the stack, return-type narrowing, a cdylib built from Rust by the test). Pass on Windows x64 (msvc and gnu), Linux x86-64 (WSL Debian, rustc 1.99.1) and Linux AArch64 (qemu-aarch64, cross gcc as linker). macOS (x86_64/aarch64) only built.
+- `cargo clippy -p qb-float80 -p qb-ffi --all-targets`: 0 warnings (Windows, Linux, macOS targets).
+- Re-run after merging rust-port d05cc0f (Rust 1.99.1, edition 2024): full `diff_float80` 87,481,972 checks, 0 mismatches; qb-runtime 265/265, qb-float80 23/23, qb-ffi 18/18 on Windows; qb-float80 + qb-ffi pass on WSL Debian x86-64 and under qemu-aarch64; clippy 0 warnings.
+
+Deviations:
+
+| ID | Change | Why |
+| --- | --- | --- |
+| D-110 | `DECLARE LIBRARY "x"` where the legacy compiler finds `x.h`/`x.hpp` is a compile error in the QIR backend (message: `qb_ffi::header_error`). Port-plan D11 calls this D-10; that id was already taken by R5. | Headers can hold macros and inline C; no C compiler. |
+| D-111 | Off x86 (or with `soft-transcendentals`), `f2xm1`/`fyl2x`/`fyl2xp1` inside `EXP` and `^` with a fractional exponent are computed in software: up to one ulp from the x87 result for about 3% of inputs. | The x87 results are not correctly rounded and differ between CPU models. |
+| D-112 | `_FLOAT` parameters or results in `DECLARE LIBRARY` are a compile error in the QIR backend. | `long double` has a compiler-specific C ABI (Win64 MinGW passes it by reference, SysV in x87 memory class, AArch64 Linux as binary128). |
+
+Not done here: the emitter check and the VM calls (R11a/R11b own them; the API above is ready). `DECLARE STATIC LIBRARY`/static `.a`/`.lib`/`.o` cannot be loaded at run time; such programs need a shared library.
 
 ## How the pieces fit
 
