@@ -260,6 +260,8 @@ pub struct Vm<'m, 'o> {
     erl: u32,
     /// SYSTEM n / exit code of the program once it ended
     exit_code: i32,
+    /// the program ended with SYSTEM (a window closes at once; END keeps it open)
+    by_system: bool,
     /// source line of the last error (_ERRORLINE)
     errline: u32,
     /// last numeric line label passed (QIR LASTLINE; ERL reports it)
@@ -401,6 +403,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             err: 0,
             erl: 0,
             exit_code: 0,
+            by_system: false,
             errline: 0,
             last_line: 0,
             continue_unhandled: false,
@@ -422,6 +425,12 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     /// Uses native code compiled ahead of time (an image made by
     /// [`crate::build_native`] for this program); no JIT compilation happens.
+    /// Uses native functions linked into this executable (qb-native).
+    pub fn load_linked(&mut self, fns: &[qb_jit::NativeFn], fingerprint: u64) -> Result<(), String> {
+        self.jit = Some(crate::jit::JitState::from_linked(self.m, fns, fingerprint, &vm_hosts())?);
+        Ok(())
+    }
+
     pub fn load_native(&mut self, image: &[u8]) -> Result<(), String> {
         let st = crate::jit::JitState::from_image(self.m, image, &vm_hosts())?;
         self.jit = Some(st);
@@ -449,6 +458,25 @@ impl<'m, 'o> Vm<'m, 'o> {
         rt.display.start(cmem, on, only);
     }
 
+    /// GUI program (no `$CONSOLE`) with a window (rt/window.rs): the screen
+    /// starts at once (PRINT draws on it), INPUT reads typed keys, frames are
+    /// presented while `_AUTODISPLAY` is on, and closing the window ends the
+    /// program. The window layer itself runs on the main thread
+    /// ([`crate::run_window_main`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_window(&mut self) {
+        let rt = &mut self.rt;
+        rt.window = true;
+        rt.display.window = true;
+        let cmem = rt.cmem.as_mut_ptr();
+        let (on, only) = (rt.console_on, rt.console_only);
+        rt.display.start(cmem, on, only);
+        if !rt.display.title.is_empty() {
+            crate::rt::window_set_title(&rt.display.title);
+        }
+        crate::rt::window_activate(self.events());
+        crate::rt::window_present(&self.rt.display);
+    }
     /// The visible screen page as a `QBFB` record (format of
     /// `qb_runtime::gfx::capture`: size, mode, pixels or text cells, palette).
     pub fn screen_record(&self) -> Option<Vec<u8>> {
@@ -599,6 +627,20 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.rt.flush();
         // frame record of the screen at END/SYSTEM (end() of the C++ runtime)
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
+        // with a window, END keeps it open until it is closed (end() waits for stop_program)
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.rt.window && r.is_ok() && !self.by_system {
+            crate::rt::window_present(&self.rt.display);
+            let mut at = qb_runtime::systime::ticks();
+            while !crate::rt::window_closed() {
+                qb_runtime::systime::sleep_ms(16);
+                let now = qb_runtime::systime::ticks();
+                if now - at >= 32 && self.rt.display.autodisplay != 0 {
+                    at = now;
+                    crate::rt::window_present(&self.rt.display);
+                }
+            }
+        }
         r
     }
 
@@ -1083,7 +1125,19 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// handler of one that is ON as an implicit GOSUB at module level.
     #[cold]
     fn dispatch_events(&mut self, pc: u32) -> Option<u32> {
-        self.ev.pending.store(0, Ordering::Release);
+        let bits = self.ev.pending.swap(0, Ordering::AcqRel);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.rt.window {
+            if crate::rt::window_closed() {
+                // the close box ends the program (no `_EXIT` in QIR programs)
+                self.exit_code = 0;
+                return Some(u32::MAX);
+            }
+            if bits & (1 << crate::rt::PRESENT_EVENT) != 0 && self.rt.display.autodisplay != 0 {
+                crate::rt::window_present(&self.rt.display);
+            }
+        }
+        let _ = bits;
         // no new handlers while an ON ERROR handler runs (events() of qbx.cpp)
         if self.in_handler.is_some() {
             return None;
@@ -1214,6 +1268,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                 // SAFETY: evp points into self.ev, alive as long as self
                 if unsafe { (*evp).load(Ordering::Relaxed) } & self.poll_mask != 0 {
                     if let Some(h) = self.dispatch_events(pc) {
+                        if h == u32::MAX {
+                            return Ok(u32::MAX);
+                        }
                         pc = h;
                         reload!();
                     }
@@ -1420,6 +1477,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
                 Ins::System { s } => {
                     self.exit_code = if s == NONE { 0 } else { ri!(s) as i32 };
+                    self.by_system = true;
                     return Ok(u32::MAX);
                 }
                 Ins::Rt { f, d, args } => {
@@ -1837,6 +1895,7 @@ mod tests {
 
 /// VmOp callback for native code: executes the VM instruction `pc` on the
 /// window `frame` (which is the VM's current one).
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_vm_op"))]
 extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
     // SAFETY: `user` was set by `jit_enter` to the VM that entered native code.
     let ctx = unsafe { &mut *ctx };
@@ -1908,6 +1967,7 @@ fn host_vm<'a>(ctx: *mut qb_jit::Ctx) -> (&'a mut qb_jit::Ctx, &'a mut Vm<'stati
 }
 
 /// Native `ld_e1` (numeric element of a 1-D array) as register bits.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_0"))]
 extern "C" fn jit_lde1(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
     let (ctx, vm) = host_vm(ctx);
     match vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.get(o))) {
@@ -1919,6 +1979,7 @@ extern "C" fn jit_lde1(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_1"))]
 extern "C" fn jit_ste1(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     let (ctx, vm) = host_vm(ctx);
     if let Err(c) = vm.arr(a as R, 1).and_then(|arr| arr.off1(i).map(|o| arr.set(o, v as u64))) {
@@ -1926,6 +1987,7 @@ extern "C" fn jit_ste1(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_2"))]
 extern "C" fn jit_lde2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64) -> i64 {
     let (ctx, vm) = host_vm(ctx);
     match vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.get(o))) {
@@ -1937,6 +1999,7 @@ extern "C" fn jit_lde2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64) -> i64 {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_3"))]
 extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
     let (ctx, vm) = host_vm(ctx);
     if let Err(c) = vm.arr(a as R, 2).and_then(|arr| arr.off([i, j].into_iter(), 2).map(|o| arr.set(o, v as u64))) {
@@ -1944,10 +2007,12 @@ extern "C" fn jit_ste2(ctx: *mut qb_jit::Ctx, a: i64, i: i64, j: i64, v: i64) {
     }
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_4"))]
 extern "C" fn jit_lde1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64) -> i64 {
     jit_lde1(ctx, a | G as i64, i)
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_5"))]
 extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     jit_ste1(ctx, a | G as i64, i, v)
 }
@@ -1975,6 +2040,7 @@ pub(crate) fn vm_hosts() -> crate::jit::Hosts {
 
 /// Native string compare: `a c b` on the current frame's string operands
 /// (constants allowed), -1 / 0 like `Ins::CmpS`.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_6"))]
 extern "C" fn jit_cmps(ctx: *mut qb_jit::Ctx, c: i64, a: i64, b: i64) -> i64 {
     let (_, vm) = host_vm(ctx);
     let t = crate::jit::cmp_of(c).test(vm.sget(a as R), vm.sget(b as R));

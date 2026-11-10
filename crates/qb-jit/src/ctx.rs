@@ -271,6 +271,7 @@ impl Ctx {
 }
 
 /// Called by native code when a callee left abnormally.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_jit_chain_push"))]
 pub(crate) extern "C" fn chain_push(ctx: *mut Ctx, func: u32, frame: *mut u64, ret_pc: u32, dst: u32) {
     // SAFETY: native code passes the context it was entered with.
     let ctx = unsafe { &mut *ctx };
@@ -278,20 +279,24 @@ pub(crate) extern "C" fn chain_push(ctx: *mut Ctx, func: u32, frame: *mut u64, r
 }
 
 /// Zeroes `n` slots (fresh callee frame).
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_jit_zero_slots"))]
 pub(crate) extern "C" fn zero_slots(p: *mut u64, n: u64) {
     // SAFETY: native code passes a frame inside the arena with `n` slots.
     unsafe { core::ptr::write_bytes(p, 0, n as usize) };
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_jit_pow_f64"))]
 pub extern "C" fn pow_f64(a: f64, b: f64) -> f64 {
     a.powf(b)
 }
 
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_jit_pow_f32"))]
 pub extern "C" fn pow_f32(a: f32, b: f32) -> f32 {
     a.powf(b)
 }
 
 /// `qb_runtime::round::qb_qbr_f64` (exact QB rounding to INTEGER64).
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_jit_qbr_f64"))]
 pub(crate) extern "C" fn qbr_f64(v: f64) -> i64 {
     qb_runtime::round::qb_qbr_f64(v)
 }

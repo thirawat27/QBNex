@@ -16,6 +16,10 @@
 use object::{Object, ObjectSection, ObjectSymbol, RelocationEncoding, RelocationKind, RelocationTarget, SectionKind};
 use std::collections::HashMap;
 
+/// Standard-linker path (rust-lld + native kit), see [	oolchain].
+#[cfg(not(target_arch = "wasm32"))]
+pub mod toolchain;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// `S + A` as 64 bits.

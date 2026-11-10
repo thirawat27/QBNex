@@ -232,7 +232,7 @@ FUNCTION PrepareExecutableOutputTarget% (outputBaseName AS STRING)
             KILL targetOutputFile
         END IF
         IF _FILEEXISTS(targetOutputFile) THEN
-            a$ = "CANNOT CREATE " + CHR$(34) + outputBaseName + extension$ + CHR$(34) + " BECAUSE THE FILE IS ALREADY IN USE!"
+            ModuleError$ = "CANNOT CREATE " + CHR$(34) + outputBaseName + extension$ + CHR$(34) + " BECAUSE THE FILE IS ALREADY IN USE!"
             PrepareExecutableOutputTarget% = -1
             EXIT FUNCTION
         END IF
@@ -332,7 +332,7 @@ FUNCTION PrepareWindowsResourceArtifacts% (outputBaseName AS STRING)
         IF _FILEEXISTS(iconObjectPath) THEN
             SHELL _HIDE "cmd /c del /f /q " + QuotedFilename$(iconObjectPath) + " >nul 2>nul"
             IF _FILEEXISTS(iconObjectPath) THEN
-                a$ = "Error creating resource file"
+                ModuleError$ = "Error creating resource file"
                 PrepareWindowsResourceArtifacts% = -1
                 EXIT FUNCTION
             END IF
@@ -356,7 +356,7 @@ FUNCTION PrepareWindowsResourceArtifacts% (outputBaseName AS STRING)
         CLOSE #ffh
         SHELL _HIDE "cmd /c " + QuotedFilename$(tmpdir$ + "call_windres.bat")
         IF _FILEEXISTS(tmpdir$ + "icon.o") = 0 THEN
-            a$ = "Bad icon file"
+            ModuleError$ = "Bad icon file"
             IF VersionInfoSet THEN a$ = a$ + " or invalid $VERSIONINFO values"
             PrepareWindowsResourceArtifacts% = -1
             EXIT FUNCTION

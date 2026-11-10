@@ -285,7 +285,6 @@ local one. `DT_IsValid&` checks for the "invalid" value parsing returns.
 ## BASIC-only modules
 
 <!-- docs-test: run -->
-<!-- docs-test: no-ir qbnex needs _OS$, missing in QIR -->
 ```basic
 '$IMPORT:'qbnex'
 DIM names AS QBNex_List
@@ -298,4 +297,4 @@ PRINT Path_Join$("dir", "file.txt"), Path_Extension$("a/b.bas")
 PRINT Env_Platform$, Args_Count&
 ```
 
-These work with the default back end. With `--ir` (and in the web build) a program that imports `qbnex` or `sys.env` is rejected at start-up for now: the QIR runner does not have `_OS$` yet. The other BASIC modules (`json`, `url`, `collections.*`, `io.*`, ...) work there.
+These BASIC modules (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*`, ...) work with both the default back end and `--ir`.

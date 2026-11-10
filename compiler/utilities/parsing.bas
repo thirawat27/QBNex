@@ -1947,6 +1947,19 @@ IF RIGHT$(a2$, 1) = ":" THEN a2$ = a2$ + sp + "'" 'add nop
 
 IF Debug THEN PRINT #9, "lineformat():return:" + a2$
 IF Error_Happened THEN EXIT FUNCTION
+'R14: the expression evaluator recurses once per bracket level; thousands of
+'nested brackets overflowed the native stack (crash). Brackets inside quoted
+'text are not counted.
+lfdepth = 0: lfmaxdepth = 0: lfinquote = 0
+FOR lfi = 1 TO LEN(a2$)
+    lfc = ASC(a2$, lfi)
+    IF lfc = 34 THEN lfinquote = 1 - lfinquote
+    IF lfinquote = 0 THEN
+        IF lfc = 40 THEN lfdepth = lfdepth + 1: IF lfdepth > lfmaxdepth THEN lfmaxdepth = lfdepth
+        IF lfc = 41 THEN lfdepth = lfdepth - 1
+    END IF
+NEXT
+IF lfmaxdepth > 255 THEN Give_Error "Expression is nested too deeply (the limit is 255 brackets)": EXIT FUNCTION
 lineformat$ = a2$
 
 END FUNCTION

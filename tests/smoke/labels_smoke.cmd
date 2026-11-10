@@ -104,7 +104,7 @@ findstr /L /C:"Build Halted" "%OUT_FAIL%" >nul || (
     echo [FAIL] Missing-label fixture is missing blocking diagnostic output.
     set "FAIL=1"
 )
-findstr /L /C:"Label 'MissingLabel' not defined" "%OUT_FAIL%" >nul || findstr /L /C:"Unknown statement" "%OUT_FAIL%" >nul || (
+findstr /L /I /C:"Label 'MissingLabel' not defined" "%OUT_FAIL%" >nul || (
     echo [FAIL] Missing-label fixture should report a blocking label-path failure.
     set "FAIL=1"
 )

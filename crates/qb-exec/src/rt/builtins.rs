@@ -103,6 +103,9 @@ pub(crate) struct RtState<'a> {
     /// drawn on the screen page, as if typed; `_DELAY`, `_LIMIT` and `SLEEP n`
     /// show the frame drawn so far, and `SLEEP n` waits
     pub(crate) web: bool,
+    /// GUI program with a window (rt/window.rs): PRINT draws on the screen page,
+    /// INPUT reads typed keys (drawn as typed), SLEEP waits for a key
+    pub(crate) window: bool,
     /// browser runner: ticks of the last frame shown while polling input
     pub(crate) web_frame_at: i64,
     /// browser runner: stdin bytes before this offset were typed (and drawn) live
@@ -143,9 +146,14 @@ impl<'a> RtState<'a> {
             console_on: false,
             console_only: false,
             web: false,
+            window: false,
             web_frame_at: 0,
             web_typed_end: 0,
         }
+    }
+    /// PRINT and INPUT happen on the screen page (browser runner or window).
+    pub(crate) fn screen_console(&self) -> bool {
+        self.web || self.window
     }
     /// Text INPUT reads instead of the process stdin (browser runner).
     pub(crate) fn set_stdin(&mut self, b: &[u8]) {
@@ -775,7 +783,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "LINEINPUT" => {
             let ch = i(0) as i32;
             let _ = ch;
-            fill(&mut std::io::stdin(), &mut rt.stdin);
+            if !rt.window {
+                fill(&mut std::io::stdin(), &mut rt.stdin);
+            }
             web_type_line(vm, false)?;
             let rt = vm.rt();
             let start = rt.stdin.rpos;
@@ -785,7 +795,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "INPUTPROMPT" => {
             if i(1) == 0 {
-                if rt.web && screen_out(vm) {
+                if rt.screen_console() && screen_out(vm) {
                     return super::display::call(vm, "SCREENPRINT", &a[..1]).unwrap();
                 }
                 vm.rt().write(0, s(0))?;
@@ -794,7 +804,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "INPUTITEM.s" | "INPUTITEM.n" => {
             let ch = i(0) as i32;
             let _ = ch;
-            fill(&mut std::io::stdin(), &mut rt.stdin);
+            if !rt.window {
+                fill(&mut std::io::stdin(), &mut rt.stdin);
+            }
             web_type_line(vm, name == "INPUTITEM.n")?;
             let rt = vm.rt();
             let start = rt.stdin.rpos;
@@ -847,6 +859,20 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "POS" => return ok(V::I(rt.col as i64)),
         "CSRLIN" => return ok(V::I(1)),
         "SLEEP" => {
+            // with a window: n seconds or until a key is pressed (no time: until a key)
+            #[cfg(not(target_arch = "wasm32"))]
+            if rt.window {
+                let ms = a.first().map(|v| v.f()).filter(|&s| s > 0.0).map(|s| (s * 1000.0).min(86_400_000.0) as i64);
+                let until = ms.map(|m| qb_runtime::systime::ticks() + m);
+                let seen = super::input::KEY_PRESSES.load(std::sync::atomic::Ordering::Relaxed);
+                while until.is_none_or(|u| qb_runtime::systime::ticks() < u)
+                    && super::input::KEY_PRESSES.load(std::sync::atomic::Ordering::Relaxed) == seen
+                {
+                    idle_frame(rt);
+                    qb_runtime::systime::sleep_ms(10);
+                }
+                return Ok(None);
+            }
             // waits only in the browser runner; SLEEP without a time (wait for a key) returns
             if rt.web && a.first().is_some_and(|v| v.f() > 0.0) {
                 if rt.display.started && rt.display.autodisplay != 0 {
@@ -1001,7 +1027,7 @@ fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
 /// screen page (line breaks as newlines), like a typed answer.
 fn echo_input(vm: &mut dyn Host<'_>, mut start: usize, mut line: bool) -> R<()> {
     let rt = vm.rt();
-    if !rt.web {
+    if !rt.screen_console() {
         return Ok(());
     }
     if start < rt.web_typed_end {
@@ -1032,14 +1058,13 @@ fn echo_input(vm: &mut dyn Host<'_>, mut start: usize, mut line: bool) -> R<()> 
     Ok(())
 }
 
-/// Browser runner: when INPUT has used up the given stdin text and the page
-/// delivers live keys, waits for a typed line (drawn as it is typed;
-/// Backspace edits, Enter ends) and appends it to the stdin text.
-#[cfg(target_arch = "wasm32")]
+/// /// Browser runner / window: when INPUT has used up the given stdin text and
+/// keys arrive live (the page, the window), waits for a typed line (drawn as
+/// it is typed; Backspace edits, Enter ends) and appends it to the stdin text.
 fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
     {
         let rt = vm.rt();
-        if !rt.web || rt.stdin.rpos < rt.stdin.rbuf.len() || !qb_runtime::systime::web::interactive() {
+        if !typed_input(rt) || rt.stdin.rpos < rt.stdin.rbuf.len() {
             return Ok(());
         }
     }
@@ -1060,10 +1085,7 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
         };
         match k.as_slice() {
             [] => {
-                let rt = vm.rt();
-                if rt.display.started && rt.display.autodisplay != 0 {
-                    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
-                }
+                idle_frame(vm.rt());
                 qb_runtime::systime::sleep_ms(15);
             }
             [13] => break,
@@ -1096,11 +1118,47 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
     Ok(())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn web_type_line(_vm: &mut dyn Host<'_>, _numeric: bool) -> R<()> {
-    Ok(())
+/// INPUT reads keys typed live (the page delivers them, or the window).
+fn typed_input(rt: &RtState<'_>) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return rt.web && qb_runtime::systime::web::interactive();
+    #[cfg(not(target_arch = "wasm32"))]
+    return rt.window;
 }
 
+/// While the program waits (typed INPUT, SLEEP): the screen keeps showing,
+/// and a closed window ends the program.
+pub(crate) fn idle_frame(rt: &mut RtState<'_>) {
+    if !rt.display.started || rt.display.autodisplay == 0 {
+        #[cfg(not(target_arch = "wasm32"))]
+        if rt.window && super::window::closed() {
+            close_exit(rt);
+        }
+        return;
+    }
+    #[cfg(target_arch = "wasm32")]
+    rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
+    #[cfg(not(target_arch = "wasm32"))]
+    if rt.window {
+        if super::window::closed() {
+            close_exit(rt);
+        }
+        let now = qb_runtime::systime::ticks();
+        if now - rt.web_frame_at >= 32 {
+            rt.web_frame_at = now;
+            super::window::present(&rt.display);
+        }
+    }
+}
+
+/// The window was closed while the program waits: end it (`end_program`).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn close_exit(rt: &mut RtState<'_>) -> ! {
+    rt.flush();
+    rt.display.capture(qb_runtime::gfx::capture::KIND_END);
+    qb_runtime::fileio::close_all();
+    std::process::exit(0)
+}
 fn fill(f: &mut dyn Read, rd: &mut Reader) {
     if !rd.eof {
         let mut b = Vec::new();

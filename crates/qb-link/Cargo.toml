@@ -12,7 +12,7 @@ name = "qb_link"
 path = "src/lib.rs"
 
 [dependencies]
-object = { version = "0.40", default-features = false, features = ["read_core", "elf", "coff", "macho", "std"] }
+object = { version = "0.40", default-features = false, features = ["read_core", "elf", "coff", "macho", "pe", "archive", "std"] }
 
 # No executable memory in a browser build (R13-wasm): load reports an error there.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
