@@ -396,6 +396,21 @@ Open (not done in this pass):
 - QB45 vs legacy error codes: `LEFT$`/`SPACE$`/`STRING$` with negative counts return "" as the legacy QB64 build did (QB45: error 5); kept for golden compatibility.
 - miri for the rest of qb-runtime (GFS, gfx, console; needs a machine with spare memory), H6 loom/ThreadSanitizer for net, PRINT USING (still C++ in libqb.cpp), file-handle leak audit, Linux/macOS path rules, proptest/cargo-fuzz targets with long runs (H3: 1 h per target).
 - rustc on this machine crashed a few times while compiling dependencies (`STATUS_STACK_BUFFER_OVERRUN` in rustc, with plenty of free RAM); a rerun with `CARGO_BUILD_JOBS=1` worked.
+
+### Round 6: compiler front end (`compiler/*.bas`)
+
+Mutation fuzz of `qb -z` (front end only) over `tests/conformance`, `tests/fixtures` and the compiler's own sources: about 700 mutated files (line deletion/duplication, token insertion, truncation), 120 s timeout each, plus about 40 targeted edge cases (deep nesting, huge lines/identifiers/literals, NUL bytes, unterminated constructs, self-include). The random mutations found no crash; the targeted cases did. Regression fixtures in `tests/fixtures/robustness/`, checked by `tests/smoke/compiler_robustness_smoke.{cmd,sh}` (exit 1, the expected message, `file.bas(line)`, no "INTERNAL COMPILER ERROR"; valid deep code still compiles).
+
+| ID | Bug | Severity | Fix |
+| --- | --- | --- | --- |
+| R14-14 | `$IF`/`$ELSEIF`/`$ELSE`/`$END IF` broken since the refactor that moved directive handling into FUNCTIONs in `utilities/directives.bas` (d9d09b7): they wrote `a$` and other main-module `DIM` (not SHARED) variables, which QB scoping makes local inside a FUNCTION. Valid `$IF` blocks failed or the error had no text. | High (valid programs rejected) | Shared `ModuleError$` for helper messages; `$IF` condition errors returned through it. |
+| R14-15 | Same scoping bug in `labels.bas` (undefined/ambiguous labels), `artifacts.bas` and `linker.bas`: the message was lost, so the user saw the next statement's text ("END SUB", "Unknown statement ...") instead of "Label 'X' not defined". The label smoke accepted "Unknown statement" and hid it. | Medium | `ModuleError$`; labels smoke now requires the real message. |
+| R14-16 | Thousands of nested brackets overflowed the native stack in the recursive expression evaluator (crash, no message). | Medium | `lineformat$` rejects more than 255 nested brackets (quoted text ignored): "Expression is nested too deeply". |
+| R14-17 | More than 1000 nested blocks (IF/FOR/DO/WHILE/SELECT/SUB...) or 255 nested `$IF` wrote past `controltype()`/`ExecLevel()`: internal error / subscript out of range. | Medium | "Too many nested blocks (the limit is 1000)", "Too many nested $IF blocks (the limit is 255)" with the line. |
+| R14-18 | The typo suggester offered a neighbour for a correctly spelled keyword ("Unknown statement 'PRINT'. Did you mean 'PAINT'?") whenever an earlier stage had failed with a lost message (e.g. invalid UTF-8). | Low | No suggestion when the token is itself a keyword; the UTF-8 message now shows. |
+
+Open: a single expression with 60000 terms (`a = 1+1+...`) takes more than 120 s (quadratic, not a crash); "Overflow"-type messages still map to code E0000.
+
 How the pieces fit
 
 ```mermaid
@@ -630,6 +645,17 @@ Gate "loop benchmark <= 2x of the C++ path": met (loop 1.0x; every case <= 2x, g
 - Measured (whole process, warm file cache): 50M-iteration loop 111 ms native exe vs 880 ms C++ exe (mostly C++ start-up) and 108 ms JIT; array loop 74 ms vs 800 ms; float loop 75 ms vs 930 ms.
 - Not yet: the exe is still the runner (VM present for strings/builtins/calls) rather than a PE/ELF written from scratch; `qb file.bas` does not call `build` yet (R11a/packaging); Linux/macOS/aarch64 load not run here (code generation and linking are tested).
 
+### D15 final — standard executables linked by rust-lld (branch `claude/native-exe-637030`)
+The program is ordinary code in `.text` of a normal PE, linked by the toolchain's own linker (rust-lld, LLVM), like rustc does. No hand-written linker or PE writer; the payload runner (`QBNEXIR0` / `QBNEXAO1`) stays as fallback.
+- `qb_jit::aot::compile_native_object`: functions local, plus read-only data `qb_native_program` (QIR text), `qb_native_funcs` (function address table) and the exported 40-byte `qb_native_entry` {fingerprint, nfuncs, program, len, funcs}. Runtime calls stay undefined symbols; the set is fixed (13 names: `qb_jit_{qbr_f64,pow_f32,pow_f64,zero_slots,chain_push}`, `qb_host_0..6`, `qb_vm_op`) and `build_object` refuses anything else.
+- Feature `native-syms` (qb-jit, qb-exec) puts `export_name` on the real runtime functions, so the linked symbols are the same functions with no wrapper.
+- `crates/qb-native`: staticlib with the process entry (`qb_native_start` on Windows; reads `qb_native_entry`, checks the fingerprint, `qb_exec::run_linked`) and a minimal C-runtime shim (`crt.rs`: TLS directory `_tls_used`, `_fltused`, `atexit`, `type_info` vtable, `__CxxFrameHandler3` stub), so the link uses `/nodefaultlib` and needs no MSVC, Windows SDK or MinGW.
+- Kit (`qb-exec native-kit`, `scripts/native-kit.ps1`, `qb_link::toolchain`): `qb_native.lib`, `rust-lld.exe` from the Rust toolchain, and import libraries made by `rust-lld /lib` from `.def` files listing the export names of the System32 DLLs the staticlib needs (122 imports from 9 DLLs: dwmapi, imm32, kernel32, ntdll, shell32, ucrtbase, user32, uxtheme, ws2_32). `kit.txt` holds the linker arguments; `LICENSES.txt` records LLVM (Apache-2.0 WITH LLVM-exception) and that no SDK/MinGW file is shipped.
+- `qb-exec build prog.qir -o prog.exe [--native-link | --payload]`: default links natively when a kit is found (`$QBNEX_NATIVE_KIT`, else `native\` next to `qb-exec.exe`) and falls back to the payload runner otherwise or if the link fails; `--native-link` without a kit is an error. Compiler (`ir_emit.bas`, output-mode switch only): passes `--native-link` when `native\kit.txt` exists next to the runner, payload otherwise.
+- Tests: `qb-exec/tests/native_link.rs` (runs when `QBNEX_NATIVE_KIT` is set) builds hello, numeric math, loops, strings, file I/O (OPEN OUTPUT/APPEND/INPUT, PRINT #, WRITE #, LINE INPUT, EOF, KILL), SUB/FUNCTION and native calls both ways, runs them with stdin from NUL and `QBNEX_NO_ERROR_DIALOG=1`, and requires native = VM = payload runner. Passes (7/7), `tests/aot.rs` 4/4.
+- Measured (whole process, 10 runs, median): hello 47.8 ms native vs 47.3 ms payload; 100k-iteration loop 42.5 vs 52.6 ms; 100M-iteration loop 252 vs 228 ms (5 runs, min 231 vs 224) — same generated code, differences are noise. Size: hello 8.43 MB native vs 8.85 MB payload.
+- Gaps: the exe still contains the VM and Cranelift (the VM runs what is not compiled; Cranelift could be dropped behind a feature to shrink it); code uses the host CPU's ISA flags like the existing AOT; Linux/macOS kits (ELF/Mach-O with `ld.lld`/`ld64.lld`) not done; the `ir_emit.bas` switch is not exercised until `qb.exe` is rebuilt (cutover branch) and the kit is shipped under `crates/qb-exec/bin/<os>/native/`.
+
 ## Corpus fixes (branch `claude/corpus-fixes-70d56e`)
 
 Local corpus `tests/corpus-local/` (gitignored): 129 `.bas` files from creationix-basic-games (MIT) and the QB64 `programs/samples`. Compile only (`qb file.bas -o x.exe -q -m`), one file at a time.
@@ -861,6 +887,37 @@ Limits / next:
 - No JIT: Cranelift could emit wasm in a later step.
 - `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
 
+## Q2 — a window for GUI programs built with `--ir` (branch `claude/r11b-win`)
+
+Before, a QIR program without `$CONSOLE` printed its text screen to stdout, read its keys from stdin and never saw `close`
+(corpus-run.md Q2). Now its executable behaves like a C++-built one:
+
+- `qb-exec` (`main.rs`): QIR without `meta console` (`qb_exec::wants_window`) runs the VM on a program thread
+  (`run_program_window`, 64 MB stack) while the main thread runs qb-runtime's window layer (`qb_window_run`: winit +
+  softbuffer, or the headless stand-in with `QBNEX_HEADLESS=1` / no display, which replays `QBNEX_INPUT_SCRIPT`).
+  `$SCREENHIDE` starts it hidden. Console programs and the library API (`run_ir`, `run_program`, qb-web) keep stdout.
+- `rt/window.rs`: `compose` is the frame part of libqb.cpp `display()` (text pages with the builtin 8x8/8x14/8x16 fonts,
+  double width, blink attribute, the text cursor rules of `LOCATE ,,,start,stop`; palette and 32-bit pages); a ticker raises
+  an event every 32 ms and the VM presents at its next safe point while `_AUTODISPLAY` is on (MAIN_LOOP rate). `_DISPLAY`
+  presents too, `_TITLE` sets the window title, mouse positions are mapped from window to page pixels (`qb_layout`).
+- Keys and mouse go through the existing `rt/input.rs` queue (INKEY$, `_KEYHIT`, `_KEYDOWN`, `_MOUSE*`). With a window,
+  INPUT/LINE INPUT read typed keys drawn on the screen (the browser runner's typed line, now shared), `SLEEP n` waits n
+  seconds or until a key, `SLEEP` until a key.
+- Close: the close box or `close` in a script ends the program at its next safe point, or at once while it waits
+  (typed INPUT, SLEEP); `END` keeps the window open until it is closed, `SYSTEM` closes it (libqb `end()` /
+  `end_program`). `_EXIT` is not available to QIR programs, so a close always ends the program.
+- Tests: `crates/qb-exec/tests/window.rs` (6, all headless + input script: PRINT reaches the window not stdout, console
+  programs keep stdout, typed INPUT + SLEEP, SLEEP without a key, SCREEN 13 + INKEY$, close ends a busy loop), unit tests
+  in `rt/window.rs` (text glyphs/attributes/cursor, palette and 32-bit pages, cursor scanline rules). Fixtures
+  `tests/fixtures/window/*.qir` are `qb --ir` output. `onerror.bas` and `jit/aot_mixed.qir` became `$CONSOLE:ONLY`
+  (their tests compare stdout).
+- MAGIC/MAGIC.BAS (corpus, `--ir`, `QBNEX_HEADLESS=1`, `tests/corpus-run/inputs/_default.input`): exits 0 after the
+  scripted `close` in 3.6 s with VM and with `QB_JIT=eager`; stdout holds only the script's `snapshot` line (was: 3.8 MB of
+  text until the timeout).
+
+Limits: `_LOADFONT` fonts and UTF-8 cells of text pages are drawn with the builtin 8x16 font; no `_FULLSCREEN`/resize
+handling beyond what the window layer does itself; frames are composed on the program thread (no hardware images).
+
 ## R13 debugger (qb-dap)
 
 New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.
@@ -944,7 +1001,7 @@ Verified: `cargo test -p qb-dap` (with `QB_COMPILER`) 4 unit + 4 stdio; `cargo t
 The text lowerings need no QIR work; R11a adds `_IIF`, `_ANDALSO`/`_ORELSE` and `_TOSTR$` (callnames `func__iif`, `func__tostr`) to `ir_emit.bas`. Earlier limits removed later: TRY works in `$INCLUDE`/`$IMPORT` files (the prescan follows them and the hoisted modules), TRY/CATCH/FINALLY/END TRY/ENUM/END ENUM may share a line with other statements (the line is lowered one statement at a time), FOR EACH visits every element of a multi-dimensional array (rank recorded from DIM/REDIM/STATIC/COMMON lines, first index outermost), and `{...}` of an interpolated string may contain string literals. QIR: `compiler/utilities/ir_ext.bas` emits `_IIF` (both values generated first to type the result, then placed in their branches), `_TOSTR$`, `_ANDALSO`/`_ORELSE` (jumps and an i32 temp, real short-circuit) and `_ASSERT` (only with `$ASSERTS`; error 314, or 315 after echoing the message in a console program), hooked from IrEval$/IrCallFunc$/IrSubCall; all 12 `syntax/*` cases pass under `--ir`. Known QIR gap outside R13: REDIM of an already declared array whose name has a type suffix (`REDIM c%(0): REDIM c%(1 TO 5)`) is "unknown array", so `arrays/dim_empty_redim_in_function` fails under `--ir` (reported to R11a). `ERROR 11` (division by zero) is a critical error in the runtime and cannot be caught by ON ERROR or TRY.
 ## Documentation tests (`tests/docs`)
 
-`tests/docs/check_docs.ps1` compiles every BASIC block of `README.md` and `docs/manual` (en/th) with the real `qb`, runs the blocks marked `docs-test: output` and compares stdout; `compile-error` marks planned syntax and `no-ir` marks QIR gaps, both of which fail once they start working so the docs get updated (markers in `tests/docs/README.md`). Last run (main checkout `qb.exe` from rust-port c01cfa1): C++ back end 94 pass, 6 skipped fragments, 10 expected compile errors; `--ir` 68 pass, 36 expected failures (QIR gaps), 0 unexpected.
+`tests/docs/check_docs.ps1` compiles every BASIC block of `README.md` and `docs/manual` (en/th) with the real `qb`, runs the blocks marked `docs-test: output` and compares stdout; `compile-error` marks planned syntax and `no-ir` marks QIR gaps, both of which fail once they start working so the docs get updated (markers in `tests/docs/README.md`). Last run (`qb.exe` built from rust-port b825448): C++ back end 94 pass, 6 skipped fragments, 10 expected compile errors (a few blocks failed with `Out of memory` / `Build failed` under memory pressure and passed on rerun); `--ir` 76 pass, 28 expected failures (QIR gaps: `_DEPTHBUFFER`, `ext.*`), 0 unexpected. b825448 made `_IIF`, interpolation, `_ASSERT` and `_OS$` (so `qbnex`/`sys.env` imports) work with `--ir`; their `no-ir` markers are gone.
 
 Doc fixes found by it: the manual described the R13 language extensions and the 3D API as planned although they are in the compiler (rewritten with checked outputs; the 3D syntax is `_CAMERA (x, y, z) TO (...)`, `_CAMERAORTHO`, `_MESHBEGIN`/`_MESHVERTEX`/`_MESHTRIANGLE`/`_MESHEND`, `_LIGHT(kind, ...)`); a JSON example doubled quotes inside a string literal; `x = _IIF(..., "pass", "fail")` assigned a string to a number; README types without `_` (`BIT`, `BYTE`, `UNSIGNED`, `OFFSET`), `REDIM PRESERVE`, `CINT("123")`, a `line$` variable, `Args_Get$(i)` without its default, fragments without their imports.
 

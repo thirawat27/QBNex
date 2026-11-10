@@ -465,6 +465,11 @@ FUNCTION SuggestStatementKeyword$ (token AS STRING)
     END IF
 
     candidates = "PRINT|INPUT|IF|THEN|ELSE|ELSEIF|FOR|NEXT|DO|LOOP|WHILE|WEND|SELECT|CASE|DIM|REDIM|CONST|DECLARE|SUB|FUNCTION|END|TYPE|CLASS|METHOD|CALL|LET|OPEN|CLOSE|READ|DATA|RESTORE|RETURN|GOTO|GOSUB|ON|OPTION|EXIT|SYSTEM|SLEEP|RANDOMIZE|COLOR|LOCATE|LINE|PSET|CIRCLE|PAINT|PLAY|SOUND|BEEP|CLS|WRITE|LPRINT"
+    'R14: a correctly spelled keyword is not a typo of a neighbour (PRINT is not PAINT)
+    IF INSTR("|" + candidates + "|", "|" + token + "|") > 0 THEN
+        SuggestStatementKeyword$ = ""
+        EXIT FUNCTION
+    END IF
     startPos = 1
 
     DO WHILE startPos <= LEN(candidates)

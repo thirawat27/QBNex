@@ -57,7 +57,15 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libncurses-dev libasound2-dev libudev-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libncurses-dev libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config
+
+      # rust-toolchain.toml pins the version; rustup installs it (and its components) here.
+      # No cargo cache here: release builds start clean.
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustc -vV
 
       - name: Build compiler (Unix)
         if: runner.os != 'Windows'

@@ -1,4 +1,5 @@
 QIR 1
+meta console only
 global $__INTEGER_I i16
 global $__LONG_S i32
 global $__STRING_A str

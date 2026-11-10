@@ -1,0 +1,19 @@
+QIR 1
+func main
+line 1
+const.str %0 x48656C6C6F2C20576F726C6421
+const.i32 %1 0
+rt PRINTS %1 %0
+const.i32 %2 0
+rt PRINTNL %2
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

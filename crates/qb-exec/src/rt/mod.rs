@@ -18,8 +18,12 @@ mod files;
 mod memx;
 mod netx;
 mod scene3d;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod window;
 
 pub(crate) use builtins::{call, str_store_hook, Host, RtState};
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use window::{activate as window_activate, closed as window_closed, present as window_present, set_title as window_set_title, PRESENT_EVENT};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum V {

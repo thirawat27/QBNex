@@ -1,0 +1,9 @@
+SCREEN 13
+LINE (0, 0)-(319, 199), 4, BF
+DO
+  k$ = INKEY$
+LOOP UNTIL k$ <> ""
+OPEN "key.txt" FOR OUTPUT AS #1
+PRINT #1, ASC(k$)
+CLOSE #1
+SYSTEM
