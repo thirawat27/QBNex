@@ -16,6 +16,7 @@
 pub mod bytecode;
 mod builtins;
 mod lower;
+mod lower1;
 pub mod v1;
 mod value;
 mod vm;
@@ -67,8 +68,13 @@ pub fn compile(src: &str) -> Result<bytecode::Module, RunError> {
 
 /// Whether a QIR v1 module runs on the typed VM (otherwise the R11a
 /// reference interpreter runs it; see `lower1.rs` for what is not lowered yet).
-pub fn v1_on_vm(_m: &qb_ir::Module) -> bool {
-    false
+pub fn v1_on_vm(m: &qb_ir::Module) -> bool {
+    lower1::compile_v1(m).is_ok()
+}
+
+/// Loads a QIR v1 module onto the typed VM; `Err` says why it cannot run there.
+pub fn compile_v1(m: &qb_ir::Module) -> Result<bytecode::Module, String> {
+    lower1::compile_v1(m)
 }
 
 /// Parses and runs a QIR program, writing console output to `out`.
@@ -82,6 +88,16 @@ pub fn run_ir_status(src: &str, out: &mut dyn Write) -> Result<i32, RunError> {
     let head = src.lines().find(|l| !l.trim().is_empty() && !l.trim_start().starts_with(';'));
     if head.is_some_and(|h| h.split_whitespace().nth(1) != Some("0")) {
         let m = qb_ir::parse(src).map_err(|e| RunError::load(e.to_string()))?;
+        if std::env::var_os("QB_EXEC_REFERENCE").is_none() {
+            match lower1::compile_v1(&m) {
+                Ok(bc) => return Vm::new(&bc, out).run_status(),
+                Err(why) => {
+                    if std::env::var_os("QB_EXEC_TRACE").is_some() {
+                        eprintln!("qb-exec: reference interpreter ({why})");
+                    }
+                }
+            }
+        }
         return v1::run(&m, out);
     }
     let m = compile(src)?;
