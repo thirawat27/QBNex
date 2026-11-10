@@ -2104,6 +2104,19 @@ SUB IrFinish (src$, outExe$)
     END IF
     IF outPath$ <> "" AND INSTR(UCASE$(outPath$), ".EXE") = 0 AND os$ = "WIN" THEN outPath$ = outPath$ + ".exe"
 
+    ' D15 final: with the native kit next to the runner, link a standard
+    ' executable (rust-lld + qb-native); else the runner with the QIR appended.
+    kit$ = LEFT$(runner$, LEN(runner$) - LEN("qb-exec" + extension$)) + "native" + pathsep$ + "kit.txt"
+    IF _FILEEXISTS(kit$) THEN
+        IF _FILEEXISTS(outPath$) THEN KILL outPath$
+        rc = _SHELLHIDE(CHR$(34) + runner$ + CHR$(34) + " build " + CHR$(34) + ir$ + CHR$(34) + " -o " + CHR$(34) + outPath$ + CHR$(34) + " --native-link")
+        IF rc = 0 AND _FILEEXISTS(outPath$) THEN
+            IF QuietMode = 0 THEN PRINT "QIR: linked " + outPath$
+            SYSTEM 0
+        END IF
+        IF QuietMode = 0 THEN PRINT "QIR: native link failed, writing the runner with the program"
+    END IF
+
     fh = FREEFILE: OPEN runner$ FOR BINARY AS #fh: r$ = SPACE$(LOF(fh)): GET #fh, , r$: CLOSE #fh
     fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh
     IF _FILEEXISTS(outPath$) THEN KILL outPath$

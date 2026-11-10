@@ -43,7 +43,7 @@ fn qb_exec_build_writes_a_native_executable() {
     let src = dir.join("prog.qir");
     std::fs::write(&src, p).unwrap();
     let exe = dir.join(if cfg!(windows) { "prog.exe" } else { "prog" });
-    let st = std::process::Command::new(env!("CARGO_BIN_EXE_qb-exec")).arg("build").arg(&src).arg("-o").arg(&exe).status().unwrap();
+    let st = std::process::Command::new(env!("CARGO_BIN_EXE_qb-exec")).arg("build").arg(&src).arg("-o").arg(&exe).arg("--payload").status().unwrap();
     assert!(st.success());
     let out = std::process::Command::new(&exe).output().unwrap();
     let mut vm = Vec::new();
