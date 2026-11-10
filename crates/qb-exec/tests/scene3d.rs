@@ -52,4 +52,12 @@ fn mesh_light_and_draw_builtins_from_qir() {
     assert!(o.ends_with("ERR 5 line 4"), "{o}");
     let q = qb_runtime::scene3d::queued();
     assert!(q.iter().any(|d| d.t == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]), "{q:?}");
-}
+
+    qb_runtime::scene3d::reset();
+    // _SHADER, _SHADERPARAM, _MESHSHADER, _SHADERERROR$
+    let wgsl: String = "fn shade(i: ShadeIn) -> vec4<f32> { return shade_lit(i); }".bytes().map(|b| format!("{b:02x}")).collect();
+    let o = run(&format!(
+        "const.i32 %0 0\nconst.str %1 x{wgsl}\nrt %2 func__shader %1\nconst.f32 %3 1.0\nrt %4 func__meshcube %3\nrt sub__meshshader %4 %2\nconst.i32 %5 3\nrt sub__shaderparam %2 %5 %3\nrt %6 func__shadererror\nrt PRINTS %0 %6\ncvt.i64.i32 %7 %2\nrt PRINTN.i64 %0 %7\nrt PRINTNL %0\nline 6\nconst.i32 %8 16\nrt sub__shaderparam %2 %8 %3"
+    ));
+    assert!(o.starts_with(" 1 \n") && o.ends_with("ERR 5 line 6"), "{o}");
+    assert_eq!(qb_runtime::scene3d::mesh_shader(1), Some(1));}

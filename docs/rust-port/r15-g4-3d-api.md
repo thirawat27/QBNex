@@ -86,3 +86,43 @@ ambient อย่างเดียว, depth ระหว่างสอง mod
 - ไม่มี feature `gpu` หรือไม่มี adapter: handle/error ทำงานครบ, ไม่วาด, `_GPU3D` = 0
 - error: handle ผิด = 258, argument ผิด = 5 (`_LIGHT` kind ผิดก็ 5)
 - ต้องตรวจตอน build compiler จริง: bit ของ `passed` ต่อกลุ่ม `[...]` ใน specialformat ของ `_DRAW3D` (ตั้งใจ 1 ตำแหน่ง, 2 การหมุน, 4 scale), `{To}` ใน `_CAMERA`, และรายการ keyword ใน `crates/qb-syntax` (LSP/formatter) ยังไม่ได้เพิ่ม
+
+## G5 — `_SHADER` (WGSL ของผู้ใช้)
+
+```basic
+sh& = _SHADER(wgsl$)            ' -1 เมื่อ compile ไม่ผ่าน; _SHADERERROR$ บอกเหตุผล
+e$ = _SHADERERROR$              ' "line 2, column 21: ..." (บรรทัดในข้อความของผู้ใช้) หรือ "" หลังสำเร็จ
+_SHADERPARAM sh&, index&, v!    ' index 0..15 -> i.params[index \ 4][index MOD 4]
+_MESHSHADER mesh&, sh&          ' 0 = แสงปกติ
+_FREESHADER sh&                 ' mesh ที่ใช้อยู่กลับไปใช้แสงปกติ
+```
+
+ผู้ใช้เขียนเฉพาะ `fn shade(i: ShadeIn) -> vec4<f32>` (ฟังก์ชันช่วยอื่นได้) — runtime ห่อด้วย prelude
+(binding, vertex stage, `ShadeIn`, `lighting()`, `shade_lit(i)` = หน้าตาปกติ) และ fragment entry ที่เรียก `shade`:
+
+```wgsl
+struct ShadeIn {
+    world: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>,
+    base: vec4<f32>,   // _MESHCOLOR x texture
+    light: vec3<f32>,  // ambient + แสง (Lambert) ที่ pixel นี้
+    params: array<vec4<f32>, 4>,
+};
+```
+
+ตรวจด้วย naga (parse + validate) ตอน `_SHADER` จึงได้ข้อความ error ที่อ่านง่ายพร้อมบรรทัด/คอลัมน์ของผู้ใช้
+ไม่ใช่ panic ของ wgpu; ปัญหาที่ไม่ได้อยู่ในข้อความผู้ใช้ (เช่น `shade` คืนชนิดผิด) แจ้งเป็น line 0 พร้อมคำแนะนำ.
+ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ. Keyword มีเฉพาะเส้นทาง QIR (ไม่มี shim C++ เพราะ libqb กำลังจะถูกลบ).
+
+## G6 — ประสิทธิภาพ
+
+`SceneRenderer` batch ต่อ frame: uniform ของทุก draw อยู่ใน buffer เดียว (dynamic offset), bind group ของ texture
+หนึ่งอันต่อ texture, เปลี่ยน pipeline/vertex buffer เฉพาะเมื่อต่างจาก draw ก่อนหน้า.
+`cargo run --release -p qb-gpu --example bench_scene` (512x512, รอ GPU ทุก frame):
+
+| ฉาก (10k สามเหลี่ยม) | ก่อน batch | หลัง batch | WARP (software) |
+| --- | --- | --- | --- |
+| กล่อง 834 instance (834 draw) | 8.34 ms (120 fps) | 0.91 ms (~1100 fps) | 70.5 ms (14 fps) |
+| mesh เดียว 10 000 สามเหลี่ยม (1 draw) | 0.22 ms | 0.41 ms | 6.4 ms (156 fps) |
+
+เครื่องทดสอบ AMD Radeon 780M: ผ่าน exit gate ≥ 60 fps. ยังไม่ได้ทำ: instancing จริง (instance buffer) สำหรับ
+model เดียวกันหลายพันชิ้น, ซึ่งจะช่วย WARP/GPU อ่อน.
