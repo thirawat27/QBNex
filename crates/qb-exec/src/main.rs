@@ -103,17 +103,14 @@ fn main() {
     let src = String::from_utf8_lossy(&src);
     let stdout = std::io::stdout();
     let mut out = BufWriter::new(stdout.lock());
-    let result = match &image {
-        Some(img) => qb_exec::run_ir_native(&src, img, &mut out),
-        None => qb_exec::run_ir_status(&src, &mut out),
-    };
+    let result = qb_exec::run_program(&src, image.as_deref(), &mut out);
     let _ = out.flush();
     match result {
         Ok(code) => std::process::exit(code),
         Err(e) => {
             if e.code < 0 {
                 eprintln!("qb-exec: invalid program: {}", e.msg);
-            } else {
+            } else if e.msg != "reported" {
                 eprintln!("Unhandled error #{} on line {}", e.code, e.line);
             }
             std::process::exit(1);

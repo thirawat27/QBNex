@@ -423,8 +423,11 @@ mod tests {
         assert_eq!(name(&p(&d, "dir1/a.txt"), &p(&d, "dir1/b.txt")), 0);
         assert_eq!(name(&p(&d, "dir1/a.txt"), &p(&d, "dir1/c.txt")), 53);
         std::fs::write(d.join("dir1").join("c.dat"), b"2").unwrap();
-        assert_eq!(kill(&p(&d, "dir1/*.txt")), 0);
-        assert_eq!(kill(&p(&d, "dir1/*.txt")), 53);
+        // Wildcards are a Windows-only KILL feature (FindFirstFile); legacy
+        // non-Windows KILL is a plain remove() of the literal name.
+        let txt = if cfg!(windows) { "dir1/*.txt" } else { "dir1/b.txt" };
+        assert_eq!(kill(&p(&d, txt)), 0);
+        assert_eq!(kill(&p(&d, txt)), 53);
         assert_eq!(exists(&p(&d, "dir1/c.dat"), false), -1);
         assert_eq!(kill(&p(&d, "dir1/c.dat")), 0);
         assert_eq!(rmdir(&sub), 0);

@@ -19,6 +19,14 @@ pub const MAX_BODY: u64 = 512 * 1024 * 1024;
 /// separated, blank lines ignored). `timeout_ms` <= 0 means 30 seconds; it
 /// bounds the whole request (connect, send, receive). Redirects (up to 10)
 /// are followed.
+#[cfg(target_arch = "wasm32")]
+pub fn request(_method: &str, _url: &str, _headers: &str, _body: &[u8], _timeout_ms: i64) -> Result<Response, String> {
+    let _ = Duration::ZERO;
+    Err("HTTP is not available in a browser build".into())
+}
+
+/// See the browser variant above for the signature contract.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn request(method: &str, url: &str, headers: &str, body: &[u8], timeout_ms: i64) -> Result<Response, String> {
     let timeout = Duration::from_millis(if timeout_ms <= 0 { 30_000 } else { timeout_ms as u64 });
     let agent: ureq::Agent = ureq::Agent::config_builder()

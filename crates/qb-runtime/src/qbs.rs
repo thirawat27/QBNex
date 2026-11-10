@@ -695,9 +695,25 @@ unsafe fn bytes<'a>(s: *mut Qbs) -> &'a [u8] {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void;
     fn strlen(s: *const c_char) -> usize;
+}
+
+/// Browser build (R13-wasm): no C library; same contract as C `memchr`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void {
+    // SAFETY: caller guarantees `n` readable bytes at `s`.
+    let b = unsafe { std::slice::from_raw_parts(s.cast::<u8>(), n) };
+    b.iter().position(|&x| x == c as u8).map_or(std::ptr::null_mut(), |i| b[i..].as_ptr().cast_mut().cast())
+}
+
+/// Browser build: C `strlen`.
+#[cfg(target_arch = "wasm32")]
+unsafe fn strlen(s: *const c_char) -> usize {
+    // SAFETY: caller passes a NUL-terminated string.
+    unsafe { std::ffi::CStr::from_ptr(s).to_bytes().len() }
 }
 
 // --- C ABI (include/qb_runtime.h); libqb.cpp keeps one-line shims with the old names ---

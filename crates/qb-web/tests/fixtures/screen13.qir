@@ -1,0 +1,92 @@
+QIR 1
+func main
+line 1
+const.i32 %0 13
+const.i32 %1 0
+const.i32 %2 0
+const.i32 %3 0
+const.i32 %4 0
+const.i32 %5 1
+rt qbg_screen %0 %1 %2 %3 %4 %5
+line 2
+const.i32 %6 10
+cvt.f80.i32 %7 %6
+const.i32 %8 10
+cvt.f80.i32 %9 %8
+const.i32 %10 4
+const.i32 %11 2
+rt sub_pset %7 %9 %10 %11
+line 3
+const.i32 %12 0
+cvt.f80.i32 %13 %12
+const.i32 %14 199
+cvt.f80.i32 %15 %14
+const.i32 %16 319
+cvt.f80.i32 %17 %16
+const.i32 %18 199
+cvt.f80.i32 %19 %18
+const.i32 %20 15
+const.i32 %21 0
+const.i32 %22 0
+const.i32 %23 9
+rt sub_line %13 %15 %17 %19 %20 %21 %22 %23
+line 4
+const.i32 %24 160
+cvt.f80.i32 %25 %24
+const.i32 %26 100
+cvt.f80.i32 %27 %26
+const.i32 %28 50
+cvt.f80.i32 %29 %28
+const.i32 %30 2
+cvt.u32.i32 %31 %30
+const.f80 %32 0
+const.f80 %33 0
+const.f80 %34 0
+const.i32 %35 2
+rt sub_circle %25 %27 %29 %31 %32 %33 %34 %35
+line 5
+const.i32 %36 20
+cvt.f80.i32 %37 %36
+const.i32 %38 20
+cvt.f80.i32 %39 %38
+const.i32 %40 40
+cvt.f80.i32 %41 %40
+const.i32 %42 30
+cvt.f80.i32 %43 %42
+const.i32 %44 9
+const.i32 %45 2
+const.i32 %46 0
+const.i32 %47 9
+rt sub_line %37 %39 %41 %43 %44 %45 %46 %47
+line 6
+const.i32 %48 10
+cvt.f32.i32 %49 %48
+const.i32 %50 10
+cvt.f32.i32 %51 %50
+const.i32 %52 1
+rt %53 func_point %49 %51 %52
+rt %54 STR$.f64 %53
+const.str %55 x20
+concat %56 %54 %55
+const.i32 %57 0
+rt PRINTS %57 %56
+const.i32 %58 30
+cvt.f32.i32 %59 %58
+const.i32 %60 25
+cvt.f32.i32 %61 %60
+const.i32 %62 1
+rt %63 func_point %59 %61 %62
+rt %64 STR$.f64 %63
+const.str %65 x20
+concat %66 %64 %65
+const.i32 %67 0
+rt PRINTS %67 %66
+const.i32 %68 0
+rt PRINTNL %68
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

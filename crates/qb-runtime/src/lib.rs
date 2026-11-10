@@ -28,6 +28,7 @@ pub mod events;
 pub mod fileio;
 pub mod font;
 pub mod fsops;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod gamepad;
 pub mod gfs;
 pub mod gfx;
@@ -67,6 +68,7 @@ extern crate qb_audio;
 extern crate qb_ext;
 pub mod raster;
 pub mod script;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod window;
 
 /// Version of the C ABI exposed by this crate. Bumped whenever a declaration in
