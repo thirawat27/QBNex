@@ -51,6 +51,7 @@ pub mod program;
 pub mod qbs;
 pub mod rnd;
 pub mod round;
+pub mod scene3d;
 pub mod screen;
 pub mod shell;
 pub mod systime;

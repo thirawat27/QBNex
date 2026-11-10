@@ -17,6 +17,7 @@ messages:
  8 Label not defined
  9 Subscript out of range
  10 Duplicate definition
+ 11 Division by zero
  12 Illegal in direct mode
  13 Type mismatch
  14 Out of string space

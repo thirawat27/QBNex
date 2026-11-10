@@ -111,10 +111,9 @@ pub fn run(src: &str, stdin: &[u8]) -> Outcome {
 /// Allocates `n` bytes for the page to write into (freed by [`qb_web_free`]).
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_web_alloc(n: usize) -> *mut u8 {
-    let mut v = vec![0u8; n.max(1)];
-    let p = v.as_mut_ptr();
-    std::mem::forget(v);
-    p
+    // A boxed slice has exactly `n` bytes, which `qb_web_free` relies on
+    // (R14: Vec::from_raw_parts needs the original capacity).
+    Box::into_raw(vec![0u8; n.max(1)].into_boxed_slice()).cast()
 }
 
 /// # Safety
@@ -123,7 +122,7 @@ pub extern "C" fn qb_web_alloc(n: usize) -> *mut u8 {
 pub unsafe extern "C" fn qb_web_free(p: *mut u8, n: usize) {
     if !p.is_null() {
         // SAFETY: allocated by qb_web_alloc with this length.
-        drop(unsafe { Vec::from_raw_parts(p, n.max(1), n.max(1)) });
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, n.max(1))) });
     }
 }
 
@@ -237,4 +236,22 @@ pub extern "C" fn qb_web_frame_height() -> u32 {
 pub extern "C" fn qb_web_poll_stdout() -> usize {
     let v = lock(&OUT).clone();
     publish(v)
+}
+
+/// Mixes the next `frames` stereo frames of the program's sound (SOUND,
+/// PLAY, BEEP, `_SND*`) into the result buffer as f32 pairs; returns the
+/// mixer rate, or 0 while no sound has been started (nothing to play).
+/// `frames` 0 only asks for the rate.
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_web_audio(frames: usize) -> u32 {
+    if !qb_audio::device::web_active() {
+        return 0;
+    }
+    let mut pcm = vec![0f32; frames.min(1 << 16) * 2];
+    if !qb_audio::device::web_render(&mut pcm) {
+        return 0;
+    }
+    publish(pcm.iter().flat_map(|x| x.to_le_bytes()).collect());
+    qb_audio::device::WEB_RATE
 }

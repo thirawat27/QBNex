@@ -50,7 +50,14 @@ pub unsafe fn graphics_get(
     if passed & 4 == 0 && (x1 < 0 || y1 < 0 || x2 >= sx || y2 >= sy) {
         return ERR;
     }
-    let (w, h) = (x2.wrapping_sub(x1).wrapping_add(1), y2.wrapping_sub(y1).wrapping_add(1));
+    // R14: with off-screen GET allowed the rectangle can be huge; the size
+    // checks below use i32 arithmetic, so reject anything whose 32-bit pixel
+    // data could not fit an array (they wrapped past `len` and overran it).
+    let (w64, h64) = (i64::from(x2) - i64::from(x1) + 1, i64::from(y2) - i64::from(y1) + 1);
+    if w64 > 0xFFFF || h64 > 0xFFFF || w64 * h64 * 4 + 4 > i64::from(i32::MAX) {
+        return ERR;
+    }
+    let (w, h) = (w64 as i32, h64 as i32);
     let inside = |x: i32, y: i32| x >= 0 && y >= 0 && x < sx && y < sy;
     let px8 = |x: i32, y: i32| -> u32 {
         // SAFETY: (x, y) checked by `inside`.
@@ -270,19 +277,25 @@ pub unsafe fn graphics_put(
         }
         w >>= 3;
     }
-    let (x2, y2) = (x1.wrapping_add(w).wrapping_sub(1), y1.wrapping_add(h).wrapping_sub(1));
-    if !clip && (x1 < 0 || y1 < 0 || x2 >= sx || y2 >= sy) {
+    // R14: i64 so that a far-away x1/y1 or a forged 65535 x 65535 header
+    // cannot wrap past the checks (PUT then read outside the array).
+    let (x2l, y2l) = (i64::from(x1) + i64::from(w) - 1, i64::from(y1) + i64::from(h) - 1);
+    if !clip && (x1 < 0 || y1 < 0 || x2l >= i64::from(sx) || y2l >= i64::from(sy)) {
         return ERR;
     }
+    if x2l > i64::from(i32::MAX) || y2l > i64::from(i32::MAX) {
+        return ERR;
+    }
+    let (x2, y2) = (x2l as i32, y2l as i32);
     if bits == 32 {
         z *= 32;
     }
     z = (z + 7) >> 3;
-    let mut bytes = h * z;
+    let mut bytes = i64::from(h) * i64::from(z);
     if bits == 4 {
         bytes *= 4;
     }
-    if bytes + 4 > len {
+    if bytes + 4 > i64::from(len) {
         return ERR;
     }
     let pixelmask = im.mask;
@@ -460,6 +473,29 @@ pub unsafe extern "C" fn qb_gfx_pcopy(s: *const ImgStruct, d: *const ImgStruct) 
 mod tests {
     use super::*;
     use crate::gfx::testutil::TestImage;
+
+    /// R14: huge GET rectangles (allowed off-screen with a fill colour) and
+    /// forged PUT headers must fail the size check instead of wrapping past it
+    /// and writing/reading outside the array.
+    #[test]
+    fn huge_get_and_put_sizes_are_rejected() {
+        for mode in [2u16, 1, 12, 13, 32] {
+            let mut a = TestImage::new(20, 10, mode);
+            let mut buf = vec![0xAAu8; 64];
+            for (x1, y1, x2, y2) in [(-1e9f32, -1e9, 1e9, 1e9), (0.0, 0.0, 70000.0, 70000.0), (0.0, 0.0, 46341.0, 46341.0), (-3e4, -3e4, 3e4, 3e4)] {
+                let r = unsafe { graphics_get(&mut a.img, x1, y1, x2, y2, buf.as_mut_ptr(), 32, 0, 4) };
+                assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode} ({x1},{y1})-({x2},{y2})");
+                assert!(buf[32..].iter().all(|&b| b == 0xAA), "mode {mode} wrote past len");
+            }
+            // PUT: forged 65535 x 65535 header in a 64-byte array.
+            let mut hdr = vec![0u8; 64];
+            hdr[..4].copy_from_slice(&[0xF8, 0xFF, 0xFF, 0xFF]);
+            let r = unsafe { graphics_put(&mut a.img, 0.0, 0.0, hdr.as_ptr(), 64, 0, 0, 2) };
+            assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
+            let r = unsafe { graphics_put(&mut a.img, 2e9, 0.0, hdr.as_ptr(), 64, 0, 0, 0) };
+            assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
+        }
+    }
 
     #[test]
     fn get_put_roundtrip_all_depths() {

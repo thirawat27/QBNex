@@ -186,6 +186,23 @@ impl Model {
         Ok(Model::build(gpu, vec![PartData { verts, idx, material, local: Mat4::IDENTITY }], images))
     }
 
+    /// `_MESHTEXTURE`: every part uses `image` from now on.
+    pub fn set_texture(&mut self, gpu: &Gpu, image: Image) {
+        self.textures.push(upload(gpu, &image));
+        self.images.push(image);
+        let i = self.images.len() - 1;
+        for p in &mut self.parts {
+            p.material.texture = Some(i);
+        }
+    }
+
+    /// `_MESHCOLOR`: every part's base colour.
+    pub fn set_color(&mut self, color: [f32; 4]) {
+        for p in &mut self.parts {
+            p.material.base_color = color;
+        }
+    }
+
     /// `_MESHCUBE`: a cube of edge `size` centred on the origin, flat faces.
     pub fn cube(gpu: &Gpu, size: f32, material: Material) -> Model {
         let h = size / 2.0;
@@ -238,14 +255,7 @@ impl Model {
     fn from_gltf_parts(gpu: &Gpu, doc: &gltf::Document, buffers: &[gltf::buffer::Data], images: &[gltf::image::Data]) -> Result<Model, LoadError> {
         let imgs: Vec<Image> = images.iter().map(to_rgba).collect();
         let mut data = Vec::new();
-        let scene = doc.default_scene().or_else(|| doc.scenes().next());
-        let roots: Vec<gltf::Node> = match scene {
-            Some(s) => s.nodes().collect(),
-            None => doc.nodes().collect(),
-        };
-        let mut stack: Vec<(gltf::Node, Mat4)> = roots.into_iter().map(|n| (n, Mat4::IDENTITY)).collect();
-        while let Some((node, parent)) = stack.pop() {
-            let m = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
+        for (node, m) in scene_nodes(doc) {
             if let Some(mesh) = node.mesh() {
                 for prim in mesh.primitives() {
                     if prim.mode() != gltf::mesh::Mode::Triangles {
@@ -276,15 +286,37 @@ impl Model {
                     data.push(PartData { verts, idx, material, local: m });
                 }
             }
-            for c in node.children() {
-                stack.push((c, m));
-            }
         }
         if data.is_empty() {
             return Err(LoadError("no triangle meshes".into()));
         }
         Ok(Model::build(gpu, data, imgs))
     }
+}
+
+/// Nodes of the default scene (or of the file) with their world matrices.
+/// A node reached twice, e.g. through a cycle in a malformed file, is visited
+/// once (R14: the walk looped forever and grew its stack without bound).
+fn scene_nodes(doc: &gltf::Document) -> Vec<(gltf::Node<'_>, Mat4)> {
+    let scene = doc.default_scene().or_else(|| doc.scenes().next());
+    let roots: Vec<gltf::Node> = match scene {
+        Some(s) => s.nodes().collect(),
+        None => doc.nodes().collect(),
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let mut stack: Vec<(gltf::Node, Mat4)> = roots.into_iter().map(|n| (n, Mat4::IDENTITY)).collect();
+    while let Some((node, parent)) = stack.pop() {
+        if !seen.insert(node.index()) {
+            continue;
+        }
+        let m = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
+        for c in node.children() {
+            stack.push((c, m));
+        }
+        out.push((node, m));
+    }
+    out
 }
 
 fn to_rgba(d: &gltf::image::Data) -> Image {
@@ -659,5 +691,21 @@ impl SceneRenderer {
             }
         }
         gpu.queue.submit([enc.finish()]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// R14: a cycle in the node hierarchy of a malformed file must not hang
+    /// the loader.
+    #[test]
+    fn cyclic_node_hierarchy_terminates() {
+        let json = br#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+            "nodes":[{"children":[1]},{"children":[0,1]}]}"#;
+        let Ok(doc) = gltf::Gltf::from_slice_without_validation(json) else { return };
+        let nodes = scene_nodes(&doc.document);
+        assert_eq!(nodes.len(), 2);
     }
 }

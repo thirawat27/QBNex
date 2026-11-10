@@ -1,4 +1,6 @@
 #include "common.h"
+#include <limits>
+#include <type_traits>
 #include "../../crates/qb-ext/include/qb_ext.h" // R13-ext: qb_ext_* for header-less DECLARE LIBRARY in compiler/stdlib/ext
 
 extern int32 func__cinp (int32 toggle, int32 passed); //Console INP scan code reader
@@ -145,6 +147,27 @@ extern int32 func_stick(int32 i,int32 axis_group,int32 passed);
 extern int32 func_strig(int32 i,int32 controller,int32 passed);
 extern void sub__maptriangle(int32 cull_options,float sx1,float sy1,float sx2,float sy2,float sx3,float sy3,int32 si,float dx1,float dy1,float dz1,float dx2,float dy2,float dz2,float dx3,float dy3,float dz3,int32 di,int32 smooth_options,int32 passed);
 extern void sub__depthbuffer(int32 options,int32 dst,int32 passed);
+//R15 G4 3D API (libqb/scene3d_bridge.cpp)
+extern int32 func__loadmodel(qbs *f);
+extern int32 func__meshcube(float size);
+extern int32 func__meshplane(float w,float d);
+extern void sub__meshbegin();
+extern void sub__meshvertex(float x,float y,float z,float u,float v,int32 passed);
+extern void sub__meshtriangle(int32 a,int32 b,int32 c);
+extern int32 func__meshend();
+extern void sub__meshcolor(int32 h,uint32 col);
+extern void sub__meshtexture(int32 h,int32 i);
+extern void sub__freemesh(int32 h);
+extern void sub__draw3d(int32 h,float x,float y,float z,float rx,float ry,float rz,float sx,float sy,float sz,int32 passed);
+extern void sub__camera(float x,float y,float z,float tx,float ty,float tz,float fov,int32 passed);
+extern void sub__cameraortho(float x,float y,float z,float tx,float ty,float tz,float height,int32 passed);
+extern void sub__camerarange(float n,float f);
+extern void sub__ambient(uint32 col,float intensity,int32 passed);
+extern int32 func__light(int32 kind,float x,float y,float z,uint32 col,float intensity,float range,int32 passed);
+extern void sub__lighton(int32 h,int32 on);
+extern void sub__freelight(int32 h);
+extern void sub__clear3d(uint32 col,int32 passed);
+extern int32 func__gpu3d();
 extern int32 func_play(int32 ignore);
 extern int32 func__sndrate();
 extern int32 func__sndopenraw();
@@ -723,7 +746,29 @@ ptrszint data_offset=0;
 
 
 //inline functions
-inline void swap_8(void *a,void*b){
+
+//Integer \ and MOD (semantics.bas emits func_idiv/func_imod for them): a zero divisor
+//raises BASIC error 11 that ON ERROR and TRY can catch, instead of a hardware fault
+//(SIGFPE); the result of the failed operation is 0. The most negative value \ -1 wraps
+//to itself and MOD -1 is 0, as in the QIR VM and JIT (x86 idiv would fault).
+template <typename A, typename B> static inline auto func_idiv(A a, B b) -> decltype(a / b) {
+    typedef decltype(a / b) R;
+    if constexpr (std::is_integral<R>::value) {
+        if (b == 0) { error(11); return 0; }
+        if constexpr (std::is_signed<R>::value) {
+            if ((R)b == (R)-1 && (R)a == std::numeric_limits<R>::min()) return a; //wraps
+        }
+    }
+    return a / b;
+}
+template <typename A, typename B> static inline auto func_imod(A a, B b) -> decltype(a % b) {
+    typedef decltype(a % b) R;
+    if (b == 0) { error(11); return 0; }
+    if constexpr (std::is_signed<R>::value) {
+        if ((R)b == (R)-1) return 0; //MIN % -1 faults on x86; the remainder is 0
+    }
+    return a % b;
+}inline void swap_8(void *a,void*b){
     uint8 x;
     x=*(uint8*)a;
     *(uint8*)a=*(uint8*)b;
@@ -1881,8 +1926,11 @@ void evnt(uint32 linenumber, uint32 inclinenumber, const char* incfilename){
 static std::vector<uint8> redim_preserve_cmem_buffer_storage(65536,0);
 uint8 *redim_preserve_cmem_buffer=redim_preserve_cmem_buffer_storage.data();//used for temporary storage only (move to libqbx?)
 
+extern "C" void qb_fatal_error(int32 code);
 void division_by_zero_handler(int ignore){
-    error(11);
+    //A hardware arithmetic fault (integer \ and MOD are checked in func_idiv/func_imod,
+    //so this is C++ runtime code): returning would re-run the faulting instruction.
+    qb_fatal_error(11);
 }
 
 //void SIGSEGV_handler(int ignore){

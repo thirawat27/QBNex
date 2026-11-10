@@ -1,0 +1,139 @@
+QIR 1
+global $__SINGLE_TARGET f32
+global $__SINGLE_TRIES f32
+global $__SINGLE_G f32
+func main
+line 1
+rt %0 TIMER
+rt RANDOMIZE %0
+line 2
+const.i32 %1 11
+const.i32 %2 0
+const.i32 %3 0
+const.i32 %4 1
+rt qbg_sub_color %1 %2 %3 %4
+line 2
+const.str %5 x477565737320746865206E756D626572206265747765656E203120616E6420313030
+const.i32 %6 0
+rt PRINTS %6 %5
+const.i32 %7 0
+rt PRINTNL %7
+line 2
+const.i32 %8 7
+const.i32 %9 0
+const.i32 %10 0
+const.i32 %11 1
+rt qbg_sub_color %8 %9 %10 %11
+line 3
+rt %12 RND
+const.i32 %13 100
+cvt.f32.i32 %14 %13
+mul.f32 %15 %12 %14
+rt %16 INT.f32 %15
+const.i32 %17 1
+cvt.f32.i32 %18 %17
+add.f32 %19 %16 %18
+store.f32 $__SINGLE_TARGET %19
+line 4
+const.i32 %20 0
+cvt.f32.i32 %21 %20
+store.f32 $__SINGLE_TRIES %21
+line 5
+label ~W2.T
+line 6
+const.i32 %22 0
+const.str %23 x596F75722067756573733F20
+rt INPUTPROMPT %23 %22
+rt %24 INPUTITEM.n %22
+cvt.f32.f64 %25 %24
+store.f32 $__SINGLE_G %25
+line 7
+load.f32 %26 $__SINGLE_TRIES
+const.i32 %27 1
+cvt.f32.i32 %28 %27
+add.f32 %29 %26 %28
+store.f32 $__SINGLE_TRIES %29
+line 8
+load.f32 %30 $__SINGLE_G
+load.f32 %31 $__SINGLE_TARGET
+lt.f32 %32 %30 %31
+jz %32 ~I1.1
+line 8
+const.str %33 x546F6F206C6F77
+const.i32 %34 0
+rt PRINTS %34 %33
+const.i32 %35 0
+rt PRINTNL %35
+line 8
+const.i32 %36 300
+cvt.f64.i32 %37 %36
+const.i32 %38 2
+cvt.f64.i32 %39 %38
+rt SOUND %37 %39
+line 8
+label ~I1.1
+label ~I1.E
+line 9
+load.f32 %40 $__SINGLE_G
+load.f32 %41 $__SINGLE_TARGET
+gt.f32 %42 %40 %41
+jz %42 ~I2.1
+line 9
+const.str %43 x546F6F2068696768
+const.i32 %44 0
+rt PRINTS %44 %43
+const.i32 %45 0
+rt PRINTNL %45
+line 9
+const.i32 %46 600
+cvt.f64.i32 %47 %46
+const.i32 %48 2
+cvt.f64.i32 %49 %48
+rt SOUND %47 %49
+line 9
+label ~I2.1
+label ~I2.E
+line 10
+label ~W2.C
+load.f32 %50 $__SINGLE_G
+load.f32 %51 $__SINGLE_TARGET
+eq.f32 %52 %50 %51
+jz %52 ~W2.T
+label ~W2.X
+line 11
+const.i32 %53 10
+const.i32 %54 0
+const.i32 %55 0
+const.i32 %56 1
+rt qbg_sub_color %53 %54 %55 %56
+line 11
+const.str %57 x476F7420697420696E
+const.i32 %58 0
+rt PRINTS %58 %57
+load.f32 %59 $__SINGLE_TRIES
+rt %60 STR$.f32 %59
+const.str %61 x20
+concat %62 %60 %61
+const.i32 %63 0
+rt PRINTS %63 %62
+const.str %64 x747269657321
+const.i32 %65 0
+rt PRINTS %65 %64
+const.i32 %66 0
+rt PRINTNL %66
+line 11
+const.i32 %67 7
+const.i32 %68 0
+const.i32 %69 0
+const.i32 %70 1
+rt qbg_sub_color %67 %68 %69 %70
+line 12
+const.str %71 x54313830204C38204320452047203E2043
+rt PLAY %71
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

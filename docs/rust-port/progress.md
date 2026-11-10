@@ -370,6 +370,12 @@ Findings (each fixed with a failing test first):
 | R14-5 | `_MEMNEW` buffers and the `qbs` descriptor blocks handed out pointers derived from a `Box<[T]>` and then moved the Box into the pool (map/vector), which invalidates those pointers under Rust's aliasing model (miri, Stacked Borrows). | Medium (UB the optimiser may exploit) | Owned through raw pointers, never moved. |
 | R14-6 | `_SNDVOL`/`_SNDRAW` with NaN or infinity turned every mixed frame into NaN (`clamp` keeps NaN) and sent it to f32 output devices; found by a 2-thread stress test (BASIC thread vs mixer). A device reporting 0 channels would panic in the callback. | Medium | Non-finite contributions dropped per source; 0-channel devices refused. |
 | R14-7 | The UTF-8 side table of text screens (`console/cells.rs`) indexed `(top_row - 1) * width` without bounds checks in `scroll_up` (top row 0, a bottom row past the table or width <= 0 panicked) and `clear_range` could overflow `first + count`. | Medium (abort from VIEW PRINT / WIDTH sequences) | i64 arithmetic, clipped to the table. |
+| R14-8 | Graphics GET with off-screen coordinates allowed (fill colour) computed the rectangle and array size with wrapping i32 maths: a huge rectangle passed the `len` check and wrote past the array. PUT computed `h * z` in i32 (a forged 65535 x 65535 32-bit header wrapped) and `x1 + w` could wrap past the clip check. | High (heap overflow from BASIC) | i64 sizes and edges; GET rejects rectangles the u16 header cannot store. |
+| R14-9 | qb-exec CALL ABSOLUTE interpreter indexed memory directly: code running to the end of conventional memory (DEF SEG = &HFFFF) or a smaller memory image panicked. | Medium | Reads outside the image give 0, writes are dropped. |
+| R14-10 | qb-ext HTTP test server (callable from BASIC) unwrapped every read; a non-UTF-8 request line aborted the program. | Low | Bad connections skipped; body capped at 64 MB. |
+| R14-11 | qb-web: a screen record with 0 bytes per pixel made `render` index empty data; frame size unchecked on wasm32; `qb_web_free` rebuilt a Vec with an assumed capacity. | Low | Records need 1..=4 bytes per pixel and a frame that fits usize; boxed-slice buffers. |
+| R14-12 | qb-dap allocated the client's `Content-Length` (a huge value aborted the adapter). | Low | Messages above 64 MB rejected. |
+| R14-13 | qb-gpu glTF loader walked nodes without a visited set; `gltf::import_slice` accepts a cyclic hierarchy, so `_LOADMODEL` of such a file hung with an ever-growing stack. | Medium | Each node visited once. |
 | R14-3 | `_MEM` range check `off + bytes` wrapped for offsets near the top of the address space, so `_MEMFILL`/`_MEMCOPY`/`_MEMGET` with a bad offset touched foreign memory instead of raising error 300. | High (BASIC computes `_OFFSET`s) | Check in i128. |
 
 Property tests: `qb-float80/tests/props.rs` (proptest, 20k cases each; decimal round trips 400): f64 widening, integer round trips, commutativity, `a-b = a+(-b)`, decimal and shortest text round trips, ordering vs subtraction sign, exact square roots, integer powers, rounding brackets, no panic on any encoding.
@@ -379,6 +385,8 @@ Lints: `-W clippy::pedantic` clean for qb-float80 and qb-ffi library code (cast 
 Miri (nightly, `-Zmiri-disable-isolation`): qb-float80 21/21 (software transcendentals; x87 asm tests skipped), qb-ffi 7/7 pure tests, qb-runtime `qbs::` + `mem::` 26/26 after R14-5 (the 300k-string arena test and the huge-allocation test are skipped: too slow / resource exhaustion by design). No UB left in those.
 
 Property tests in qb-runtime (`src/props_tests.rs`): MBF single/double round trips (signed zero and underflow to MBF zero as legacy), HEX$/OCT$/_BIN$ parse back, STR$ of integers, VAL(STR$(x)) within 1e-14 for doubles, DEFLATE/INFLATE round trip within `deflate_bound`. No findings.
+
+Crates merged in rust-port 8de500f reviewed (qb-ext C ABI and HTTP timeouts, qb-gpu, qb-dap, qb-web, qb-exec `rt/cpu.rs`): findings R14-9..13 above. HTTP requests have a global timeout (30 s default), 10 redirects and a 512 MB body limit; qb-ext list/dict/zip handles and indexes are range-checked; qb-gpu checks mesh indexes against the vertex count. Not fixed: `Texture::from_rgba`/`upload` pass sizes to wgpu unchecked (a short buffer or a texture above the device limit hits wgpu's validation panic); not reachable from BASIC with mismatched data today.
 
 Reviewed without findings: events ON KEY/ON STRIG slot ranges, net send/recv/address buffers, fileio record GET/PUT bounds (scratch buffers sized from the record length), `_MEMSOUND` (the pointer is guarded by a lock that `_SNDCLOSE` releases), qb-ffi frames.
 
@@ -509,6 +517,7 @@ Intentional deviations (Rust differs from legacy on purpose):
 | D-R12b-2 | READ of a decimal number into `_FLOAT` / DOUBLE uses correctly rounded parsing. MinGW `sscanf("%lf")` was one ulp off for some 17-digit inputs (1 in 2.26M random items, e.g. `6.5535595088869763E245`). | Correct IEEE rounding on every OS. |
 | D-R12b-3 | `HEX$` with a minimum width above 16 (never emitted by the compiler) returns at most 16 digits; legacy read before its 16-byte buffer. | Memory safety. |
 | D-R12b-4 | An unhandled or critical runtime error does not open the "Unhandled Error #n ... Continue?" dialog when `QBNEX_NO_ERROR_DIALOG` is set (to anything but `0`) or stdout/stderr is not a console. It writes one line to stderr (`Unhandled Error #53 - prog.exe: Line: 7 (in main module): File not found`), keeps what was printed before, and ends the program with exit code 1 (critical errors: exit 1 at once). Interactive runs keep the dialog (QB4.5 behaviour). The conformance runner and all smoke scripts set the variable. | Test runs and pipes must never block on, or pop up, a modal dialog. |
+| D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY/CATCH` catch (QBasic 4.5); `_ERRORMESSAGE$(11)` is "Division by zero". The C++ expression builder emits `func_idiv`/`func_imod` (qbx.cpp) instead of C `/`/`%`; the result of a failed operation is 0 on the C++ backend (QBasic and the QIR VM leave the target unchanged). The most negative value `\ -1` wraps, as in the VM and JIT. A hardware arithmetic fault in runtime code still ends the program (`qb_fatal_error`). | Legacy made it a critical error (message box, exit), so programs could not handle it. `errors/div_by_zero_catch` passes on both backends. |
 
 ## R4: files, file system, ENVIRON, SHELL, `_MEM`
 
@@ -824,10 +833,30 @@ node crates/qb-web/tests/run.mjs        # 33 checks: text screen, COLOR/LOCATE p
 
 To try the page, copy `qb_web.wasm` next to `www/index.html` and serve the folder over HTTP: module workers do not load from `file://`. Fixtures in `crates/qb-web/tests/fixtures` are `.bas` files compiled with `qb-ir.exe x.bas --ir -o x.exe`. The QIR is the payload before the `QBNEXIR0` trailer of that file. `timer.qir` was edited by hand to the current `_DELAY` form (DELAYBEGIN/DELAYSTEP loop): the qb-ir.exe build used for the fixtures still emitted `sub__delay`.
 
+**Demo page and more host services (second round):**
+
+- **Demo page:** `crates/qb-web/README.md` explains building, compiling with `qb --ir` and serving. `www/serve.mjs` is a local static server: it sends the COOP/COEP headers and serves `qb_web.wasm` straight from the cargo output.
+- **Examples** in `www/examples/*.bas`, each with the `.qir` made by `qb-ir.exe --ir`; the page has an example picker:
+  - `hello`: text, COLOR, BEEP
+  - `graphics`: a SCREEN 13 animation with `_DISPLAY` + `_LIMIT 60`; a key stops it
+  - `guess`: an INPUT number game with SOUND and PLAY
+- **Keyboard and mouse:**
+  - The page writes canvas events into a `SharedArrayBuffer` ring, and the worker reads it through the import `qb_web_poll_event`. A busy worker cannot receive messages, so this needs a cross-origin isolated page.
+  - `rt/input.rs` turns them into the same events the desktop window delivers. Keys go through `qb_runtime::keymap::translate`, so INKEY$, `_KEYHIT` and `_KEYDOWN` see the desktop codes; mouse buttons, moves and the wheel go through the same queue (`_MOUSEINPUT`, `_MOUSEX/Y`, `_MOUSEBUTTON`, `_MOUSEWHEEL`).
+  - A program polling input in a loop still shows its frames: one frame at most every 33 ms.
+- **INPUT / LINE INPUT:** the prepared stdin text is read first. After that, with live keys (`qb_web_interactive`), the program waits for a typed line drawn on the screen: Backspace edits, Enter ends, and an empty answer to a numeric INPUT is 0.
+- **Sound:**
+  - On wasm, qb-audio's device is the page: `device.rs` stores the mixer, and there is no cpal.
+  - The loader pulls stereo f32 at 44.1 kHz through `qb_web_audio`. It pulls from every import call, mixing 0.25 s ahead of the clock, plus the tail after the program ends. The page plays the chunks back to back with WebAudio.
+  - This covers SOUND, BEEP, PLAY, `_SNDRAW` and `_SND*` through one path.
+- **Checked in the in-app browser** (served by `serve.mjs`): the graphics example animates and stops on a key; in the guess game typed answers appear and get "Too low", and an empty answer counts as 0. Sound output was not listened to; the node test checks PCM length and level.
+- **Tests:** `node crates/qb-web/tests/run.mjs` passes 45/45. It adds scripted keys and mouse (`keys.qir`), live-typed LINE INPUT with Backspace, SOUND/PLAY PCM (`sound.qir`), and the three examples.
+- **Hand-edited QIR:** the qb-ir.exe build used here does not emit `_MOUSE*`, so `keys.qir` has its mouse lines added by hand.
+
 Limits / next:
-- No interactive keyboard: INKEY$ is empty, and INPUT needs the text up front. A wasm call cannot wait for page events. Doing this needs a SharedArrayBuffer key queue (cross-origin isolation) or an async VM step.
+- Live keys need cross-origin isolation (`serve.mjs`, or the same headers from another server). Without it, INKEY$ is empty and INPUT uses the prepared answers.
+- `_DISPLAY`-less programs that never poll input or wait show their screen only at the end.
 - No file system (an in-memory one would fit qb-runtime's file layer).
-- No audio.
 - No JIT: Cranelift could emit wasm in a later step.
 - `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
 
@@ -870,6 +899,7 @@ Not covered: the QIR backend (`qb-exec`) resolves `DECLARE LIBRARY` at run time 
 - **Tests** (qb-runtime unit tests `gpu_tests`, `cargo test -p qb-runtime --features gpu --lib gpu_tests`): GPU presentation equals `raster::scale_to_window` pixel for pixel in 7 layouts; GPU 3D `_MAPTRIANGLE` against `raster::tri3d` (depth on/lock/off, culling, near clip, wrap, alpha, smooth) — ≤ 3% edge pixels may differ, interior sample points equal. Pass on AMD Radeon 780M and WARP; skip with `QB_GPU=off`. (Integration tests cannot link qb-runtime: the host C symbols only have unit-test stubs.)
 - **G4 design**: `docs/rust-port/r15-g4-3d-api.md` (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA`, `_LIGHT`, `_AMBIENT`, `_CLEAR3D`, `_GPU3D`).
 - **G4 GPU layer `qb_gpu::scene`**: `Model` from glTF 2.0 (`gltf` crate; node transforms, triangles, POSITION/NORMAL/TEXCOORD_0, base colour factor + texture, normals computed when missing), from arrays, cube and plane primitives; `Lighting` (ambient + up to 8 directional/point lights, Lambert, point fall-off `1/(1+(d/range)²)`); `SceneRenderer` with depth; `transform()` for `_DRAW3D`. Tests `crates/qb-gpu/tests/scene.rs` (light angle, colours, point fall-off, depth in both draw orders, textured array mesh, in-memory `.glb`). BASIC keywords are not wired yet.
+- **G4 runtime + QIR + keywords**: `qb_runtime::scene3d` (C ABI `qb_3d_*`, header `qb_scene3d.h`): mesh/light handles, camera, ambient, per-frame `_DRAW3D` queue; `_DISPLAY` (capture hook) shows it, the window presenter and capture records blend the GPU-rendered layer (feature `gpu`); no-op without GPU. QIR: 20 callnames in `qb_ir::builtins` + `qb-exec` `rt/scene3d.rs` (feature `gpu` forwards). Compiler: keywords in `subs_functions.bas` + `IrGenOK`, shims `libqb/scene3d_bridge.cpp` — isolated commit, not yet built with the compiler. Tests: qb-runtime `scene3d` (with/without gpu), qb-exec `tests/scene3d.rs`.
 - Build note: on this machine rustc may crash compiling `windows`/`naga` (`STATUS_STACK_BUFFER_OVERRUN`, allocation failures) when the commit limit is low; `RUST_MIN_STACK=67108864` fixes the stack case.
 ## Zero-C audit of the Rust dependencies (R13-ext follow-up)
 

@@ -16,3 +16,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 qb-exec = { path = "../qb-exec" }
 qb-runtime = { path = "../qb-runtime" }
+qb-audio = { path = "../qb-audio" }

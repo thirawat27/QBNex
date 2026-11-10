@@ -351,6 +351,7 @@ void present_frame(){
         }
     }//level
     last_rendered_hardware_display_frame_order=last_hardware_display_frame_order;
+    qb_3d_present(present_buffer.data(),present_w,present_h);//R15 G4: shown _DRAW3D layer over the frame
     if (!suspend_program) qb_window_present(present_buffer.data(),present_w,present_h,full_screen,fullscreen_smooth,resize_auto);
 }
 

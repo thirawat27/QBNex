@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QBNex Web Runner</title>
 <style>
-  :root { --bg: #f4f4f0; --fg: #1d1d1b; --panel: #ffffff; --line: #d6d6cf; --accent: #1f5fbf; }
+  :root { --bg: #f4f4f0; --fg: #1d1d1b; --panel: #ffffff; --line: #d6d6cf; --accent: #1f5fbf; --muted: #6b6b66; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #161615; --fg: #e9e9e4; --panel: #20201f; --line: #3a3a37; --accent: #7aa7ff; }
+    :root { --bg: #161615; --fg: #e9e9e4; --panel: #20201f; --line: #3a3a37; --accent: #7aa7ff; --muted: #9a9a94; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
@@ -17,48 +17,109 @@
   .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; }
   @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
-  label { font-size: 13px; opacity: .8; display: block; margin-bottom: 4px; }
-  canvas { width: 100%; image-rendering: pixelated; background: #000; display: block; border-radius: 4px; }
-  textarea, pre { width: 100%; font: 13px/1.35 ui-monospace, Consolas, monospace; background: var(--bg); color: var(--fg);
+  label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+  canvas { width: 100%; image-rendering: pixelated; background: #000; display: block; border-radius: 4px; outline: none; }
+  canvas:focus { box-shadow: 0 0 0 2px var(--accent); }
+  textarea, pre, select { font: 13px/1.35 ui-monospace, Consolas, monospace; background: var(--bg); color: var(--fg);
     border: 1px solid var(--line); border-radius: 4px; padding: 6px; margin: 0; }
-  textarea { height: 110px; resize: vertical; }
+  textarea, pre { width: 100%; }
+  textarea { height: 90px; resize: vertical; }
   pre { min-height: 60px; max-height: 220px; overflow: auto; white-space: pre-wrap; }
   button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
-  #status { font-size: 13px; opacity: .85; }
+  #status, .note { font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
   <h1>QBNex Web Runner</h1>
   <div class="bar">
-    <input type="file" id="file" accept=".qir,.txt">
+    <select id="example" aria-label="Example program">
+      <option value="">Example…</option>
+      <option value="hello">hello — text, COLOR, BEEP</option>
+      <option value="graphics">graphics — SCREEN 13 animation</option>
+      <option value="guess">guess — INPUT number game</option>
+    </select>
+    <input type="file" id="file" accept=".qir,.txt" aria-label="Open a .qir file">
     <button id="run" disabled>Run</button>
     <span id="status">loading qb_web.wasm…</span>
   </div>
   <div class="grid">
     <section>
-      <label>Screen</label>
-      <canvas id="screen" width="640" height="400"></canvas>
+      <label>Screen — click it, then type (INKEY$, INPUT, _MOUSE)</label>
+      <canvas id="screen" width="640" height="400" tabindex="0"></canvas>
+      <div class="note" id="keysnote"></div>
     </section>
     <section>
-      <label for="stdin">Keyboard input for INPUT / LINE INPUT (one answer per line)</label>
+      <label for="stdin">Prepared answers for INPUT / LINE INPUT (one per line; used before typing)</label>
       <textarea id="stdin" spellcheck="false"></textarea>
       <label style="margin-top:10px">Console output</label>
       <pre id="stdout"></pre>
     </section>
   </div>
   <section>
-    <label for="qir">Program (QIR from <code>qb --ir</code>; pick a .qir file or paste it)</label>
+    <label for="qir">Program (QIR from <code>qb prog.bas --ir</code>; pick an example, open a .qir file or paste it)</label>
     <textarea id="qir" spellcheck="false" style="height:180px"></textarea>
   </section>
 </main>
 <script type="module">
+import { keyEvent, RING, EVENT_BUTTON, EVENT_MOVE, EVENT_WHEEL } from './qbnex.js';
+
 const $ = (id) => document.getElementById(id);
 const canvas = $('screen');
 const ctx = canvas.getContext('2d');
 const worker = new Worker('worker.js', { type: 'module' });
 let busy = false;
+
+// keyboard/mouse ring shared with the worker (needs cross-origin isolation: serve.mjs)
+let ring = null;
+if (globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined') {
+  const sab = new SharedArrayBuffer(4 * (2 + RING * 6));
+  ring = new Int32Array(sab);
+  worker.postMessage({ type: 'events', sab });
+  $('keysnote').textContent = 'Live keyboard and mouse: on.';
+} else {
+  $('keysnote').textContent = 'Live keyboard and mouse need a cross-origin isolated page (node www/serve.mjs). INPUT uses the prepared answers.';
+}
+
+function send(e) {
+  if (!ring || !busy || !e) return;
+  const written = Atomics.load(ring, 0);
+  if (written - Atomics.load(ring, 1) >= RING) return; // full: drop
+  ring.set(e, 2 + (written % RING) * 6);
+  Atomics.store(ring, 0, written + 1);
+}
+
+canvas.addEventListener('keydown', (e) => { if (busy) { e.preventDefault(); send(keyEvent(e, true)); } });
+canvas.addEventListener('keyup', (e) => { if (busy) { e.preventDefault(); send(keyEvent(e, false)); } });
+function at(e) {
+  const r = canvas.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) * canvas.width / r.width), Math.floor((e.clientY - r.top) * canvas.height / r.height)];
+}
+const BUTTON = { 0: 0, 2: 1, 1: 2 }; // DOM left/middle/right -> QBasic 1/3/2
+canvas.addEventListener('mousemove', (e) => send([EVENT_MOVE, ...at(e), 0, 0, 0]));
+canvas.addEventListener('mousedown', (e) => { canvas.focus(); if (e.button in BUTTON) send([EVENT_BUTTON, BUTTON[e.button], 1, ...at(e), 0]); });
+canvas.addEventListener('mouseup', (e) => { if (e.button in BUTTON) send([EVENT_BUTTON, BUTTON[e.button], 0, ...at(e), 0]); });
+canvas.addEventListener('wheel', (e) => { if (busy) { e.preventDefault(); send([EVENT_WHEEL, e.deltaY < 0 ? 1 : -1, ...at(e), 0, 0]); } }, { passive: false });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// sound: PCM chunks from the worker, played back to back
+let audio = null;
+let audioAt = 0;
+function play(pcm, rate) {
+  if (!audio) return;
+  const n = pcm.length / 2;
+  const buf = audio.createBuffer(2, n, rate);
+  const l = buf.getChannelData(0);
+  const r = buf.getChannelData(1);
+  for (let i = 0; i < n; i++) { l[i] = pcm[2 * i]; r[i] = pcm[2 * i + 1]; }
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  src.connect(audio.destination);
+  audioAt = Math.max(audioAt, audio.currentTime + 0.05);
+  src.start(audioAt);
+  audioAt += n / rate;
+}
 
 function draw(f) {
   if (!f) return;
@@ -79,6 +140,8 @@ worker.onmessage = ({ data }) => {
     draw(data.frame);
   } else if (data.type === 'stdout') {
     $('stdout').textContent = data.text;
+  } else if (data.type === 'audio') {
+    play(data.pcm, data.rate);
   } else if (data.type === 'done') {
     const r = data.result;
     busy = false;
@@ -94,6 +157,13 @@ worker.onmessage = ({ data }) => {
   }
 };
 
+$('example').onchange = async () => {
+  const n = $('example').value;
+  if (!n) return;
+  const res = await fetch(`examples/${n}.qir`);
+  $('qir').value = res.ok ? await res.text() : `' could not load examples/${n}.qir`;
+};
+
 $('file').onchange = async () => {
   const f = $('file').files[0];
   if (f) $('qir').value = await f.text();
@@ -101,13 +171,18 @@ $('file').onchange = async () => {
 
 $('run').onclick = () => {
   if (busy) return;
+  if (!audio) {
+    try { audio = new AudioContext(); } catch { audio = null; }
+  }
+  audioAt = 0;
   busy = true;
   $('run').disabled = true;
   $('status').textContent = 'running…';
   $('stdout').textContent = '';
   let stdin = $('stdin').value;
   if (stdin && !stdin.endsWith('\n')) stdin += '\n';
-  worker.postMessage({ qir: $('qir').value, stdin });
+  canvas.focus();
+  worker.postMessage({ type: 'run', qir: $('qir').value, stdin });
 };
 </script>
 </body>
