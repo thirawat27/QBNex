@@ -25,9 +25,48 @@ pub fn request(_method: &str, _url: &str, _headers: &str, _body: &[u8], _timeout
     Err("HTTP is not available in a browser build".into())
 }
 
+/// TLS through rustls with the RustCrypto provider (pure Rust: no ring or
+/// aws-lc, so building QBNex needs no C compiler) and the Mozilla roots.
+#[cfg(not(target_arch = "wasm32"))]
+fn tls_config(extra_roots: Option<&[u8]>) -> ureq::tls::TlsConfig {
+    use std::sync::{Arc, OnceLock};
+    static PROVIDER: OnceLock<Arc<rustls::crypto::CryptoProvider>> = OnceLock::new();
+    let provider = PROVIDER.get_or_init(|| Arc::new(rustls_rustcrypto::provider()));
+    ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        .root_certs(match extra_roots {
+            // Tests: trust exactly the given PEM certificate(s).
+            Some(pem) => ureq::tls::RootCerts::new_with_certs(
+                &ureq::tls::parse_pem(pem)
+                    .filter_map(|i| match i {
+                        Ok(ureq::tls::PemItem::Certificate(c)) => Some(c),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            None => ureq::tls::RootCerts::WebPki,
+        })
+        .unversioned_rustls_crypto_provider(provider.clone())
+        .build()
+}
+
 /// See the browser variant above for the signature contract.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn request(method: &str, url: &str, headers: &str, body: &[u8], timeout_ms: i64) -> Result<Response, String> {
+    request_with_roots(method, url, headers, body, timeout_ms, None)
+}
+
+/// [`request`] that trusts only the PEM certificates in `extra_roots`
+/// instead of the Mozilla roots (`None`: the Mozilla roots). For tests.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn request_with_roots(
+    method: &str,
+    url: &str,
+    headers: &str,
+    body: &[u8],
+    timeout_ms: i64,
+    extra_roots: Option<&[u8]>,
+) -> Result<Response, String> {
     let timeout = Duration::from_millis(if timeout_ms <= 0 { 30_000 } else { timeout_ms as u64 });
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
@@ -35,6 +74,7 @@ pub fn request(method: &str, url: &str, headers: &str, body: &[u8], timeout_ms: 
         .max_redirects(10)
         .user_agent("QBNex")
         .allow_non_standard_methods(true)
+        .tls_config(tls_config(extra_roots))
         .build()
         .into();
     let mut b = ureq::http::Request::builder().method(method.to_ascii_uppercase().as_str()).uri(url);
@@ -163,5 +203,68 @@ mod tests {
         drop(l);
         assert!(request("GET", &format!("http://127.0.0.1:{port}/"), "", b"", 2000).is_err());
         assert!(request("GET", "not a url", "", b"", 2000).is_err());
+    }
+
+    /// HTTPS end to end with the pure-Rust RustCrypto provider on both sides
+    /// (self-signed P-256 certificate for 127.0.0.1 in tests_data/).
+    #[test]
+    fn https_with_rustcrypto_provider() {
+        use rustls::pki_types::pem::PemObject;
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+        use std::io::{Read, Write};
+        use std::sync::Arc;
+
+        let cert_pem = include_bytes!("../tests_data/cert.pem");
+        let key_pem = include_bytes!("../tests_data/key.pem");
+        let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(cert_pem).map(Result::unwrap).collect();
+        let key = PrivateKeyDer::from_pem_slice(key_pem).unwrap();
+        let provider = Arc::new(rustls_rustcrypto::provider());
+        let config = Arc::new(
+            rustls::ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(certs, key)
+                .unwrap(),
+        );
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for _ in 0..2 {
+                let Ok((tcp, _)) = l.accept() else { return };
+                let Ok(conn) = rustls::ServerConnection::new(config.clone()) else { return };
+                let mut tls = rustls::StreamOwned::new(conn, tcp);
+                let mut req = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match tls.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => req.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let body = b"secure hello";
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = tls.write_all(head.as_bytes());
+                let _ = tls.write_all(body);
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            }
+        });
+        let url = format!("https://127.0.0.1:{port}/");
+        let r = request_with_roots("GET", &url, "", b"", 10_000, Some(cert_pem)).unwrap();
+        assert_eq!((r.status, r.body.as_slice()), (200, &b"secure hello"[..]));
+        // With the public roots the self-signed server is rejected.
+        let e = request("GET", &url, "", b"", 10_000).unwrap_err();
+        assert!(e.to_lowercase().contains("certificate") || e.to_lowercase().contains("issuer"), "{e}");
+    }
+
+    /// Real certificate chain against the Mozilla roots (needs internet;
+    /// run by hand: cargo test -p qb-ext public_https -- --ignored).
+    #[test]
+    #[ignore]
+    fn public_https() {
+        let r = request("GET", "https://example.com/", "", b"", 15_000).unwrap();
+        assert_eq!(r.status, 200);
+        assert!(String::from_utf8_lossy(&r.body).contains("Example Domain"));
     }
 }
