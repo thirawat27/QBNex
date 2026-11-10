@@ -101,3 +101,5 @@ pub(crate) unsafe fn ffi_bytes_mut<'a>(p: *mut u8, len: usize) -> &'a mut [u8] {
 
 #[cfg(test)]
 mod robustness_tests;
+#[cfg(test)]
+mod props_tests;

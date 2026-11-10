@@ -2118,6 +2118,7 @@ dependencies = [
  "chrono",
  "gilrs",
  "png",
+ "proptest",
  "qb-audio",
  "qb-float80",
  "skrifa",
