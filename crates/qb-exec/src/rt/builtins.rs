@@ -396,9 +396,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             bits.to_string()
         };
         return Ok(Some(V::S(os.into_bytes())));
-    }    if let Some(t) = name.strip_prefix("_MK$.") {
+    }
+    if let Some(t) = name.strip_prefix("_MK$.") {
         // little-endian bytes; _FLOAT = the 80-bit value in 32 bytes (f2string)
         let b: Vec<u8> = match t {
+            "i64" => a[0].i().to_le_bytes().to_vec(),
             "i8" | "u8" => vec![a[0].i() as u8],
             "u16" => (a[0].i() as u16).to_le_bytes().to_vec(),
             "u32" => (a[0].i() as u32).to_le_bytes().to_vec(),
@@ -417,7 +419,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             "i8" | "u8" => 1,
             "u16" => 2,
             "u32" => 4,
-            "u64" => 8,
+            "u64" | "i64" => 8,
             _ => 32,
         };
         if s.len() < need {
@@ -429,6 +431,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             "u16" => V::I(i64::from(u16::from_le_bytes([s[0], s[1]]))),
             "u32" => V::I(i64::from(u32::from_le_bytes(s[..4].try_into().unwrap()))),
             "u64" => V::I(u64::from_le_bytes(s[..8].try_into().unwrap()) as i64),
+            "i64" => V::I(i64::from_le_bytes(s[..8].try_into().unwrap())),
             _ => V::X(qb_float80::F80::from_bytes(s[..10].try_into().unwrap())),
         };
         return Ok(Some(v));
