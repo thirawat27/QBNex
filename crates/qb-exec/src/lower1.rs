@@ -36,6 +36,7 @@ fn width(t: IT) -> Res<W> {
         IT::I32 => W::W32,
         IT::U32 => W::U32,
         IT::I64 => W::W64,
+        IT::U64 => W::U64,
         _ => return Err(format!("no integer width for {}", t.name())),
     })
 }
@@ -45,11 +46,10 @@ fn vty(t: IT) -> Res<Ty> {
     Ok(match t {
         IT::I8 | IT::U8 | IT::I16 => Ty::I16,
         IT::U16 | IT::I32 => Ty::I32,
-        IT::U32 | IT::I64 => Ty::I64,
+        IT::U32 | IT::I64 | IT::U64 => Ty::I64,
         IT::F32 => Ty::F32,
         IT::F64 | IT::F80 => Ty::F64,
         IT::Str => Ty::Str,
-        IT::U64 => return Err("_UNSIGNED _INTEGER64".into()),
         IT::Ptr => return Err("pointer value".into()),
     })
 }
@@ -543,7 +543,13 @@ impl<'a> Lw<'a> {
                         self.emit(Ins::CmpS { c, d, a: x, b: y });
                     } else {
                         let (x, y) = (nreg!(*a), nreg!(*b));
-                        self.emit(if ty.is_float() { Ins::CmpF { c, d, a: x, b: y } } else { Ins::CmpI { c, d, a: x, b: y } });
+                        self.emit(if ty.is_float() {
+                            Ins::CmpF { c, d, a: x, b: y }
+                        } else if *ty == IT::U64 {
+                            Ins::CmpU { c, d, a: x, b: y }
+                        } else {
+                            Ins::CmpI { c, d, a: x, b: y }
+                        });
                     }
                 }
                 Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
@@ -570,7 +576,7 @@ impl<'a> Lw<'a> {
                             self.emit(if *to == IT::F32 { Ins::RoundF32 { d, s } } else { Ins::Mov { d, s } });
                         }
                         (true, false) => {
-                            self.emit(Ins::IToF { d, s });
+                            self.emit(if *from == IT::U64 { Ins::IToFU { d, s } } else { Ins::IToF { d, s } });
                             if *to == IT::F32 {
                                 self.emit(Ins::RoundF32 { d, s: d });
                             }
@@ -793,6 +799,7 @@ impl<'a> Lw<'a> {
                             Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
                             Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
                             Some(Ins::CmpS { c: op, d, a, b }) if d == r => Some(Ins::BrS { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
+                            Some(Ins::CmpU { c: op, d, a, b }) if d == r => Some(Ins::BrU { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
                             _ => None,
                         };
                         if let Some(b) = fused {
@@ -1097,7 +1104,7 @@ fn widens(from: IT, to: IT) -> bool {
     from == to
         || matches!(
             (from, to),
-            (I8, I16 | I32 | I64) | (I16, I32 | I64) | (I32, I64) | (U8, I16 | U16 | I32 | U32 | I64) | (U16, I32 | U32 | I64) | (U32, I64)
+            (I8, I16 | I32 | I64) | (I16, I32 | I64) | (I32, I64) | (U8, I16 | U16 | I32 | U32 | I64 | U64) | (U16, I32 | U32 | I64 | U64) | (U32, I64 | U64)
         )
 }
 
@@ -1234,6 +1241,7 @@ fn invert(i: Ins) -> Ins {
         Ins::BrI { c, a, b, t } => Ins::BrI { c: c.not(), a, b, t },
         Ins::BrF { c, a, b, t } => Ins::BrF { c: c.not(), a, b, t },
         Ins::BrS { c, a, b, t } => Ins::BrS { c: c.not(), a, b, t },
+        Ins::BrU { c, a, b, t } => Ins::BrU { c: c.not(), a, b, t },
         Ins::JzI { s, t } => Ins::JnzI { s, t },
         Ins::JnzI { s, t } => Ins::JzI { s, t },
         other => other,

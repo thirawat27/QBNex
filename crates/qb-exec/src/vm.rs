@@ -264,6 +264,9 @@ fn b(v: bool) -> u64 {
 /// Integer division: 32-bit `idiv` when both operands fit (much cheaper than 64-bit on x86-64).
 #[inline(always)]
 fn idiv(x: i64, y: i64, w: W) -> i64 {
+    if w == W::U64 {
+        return ((x as u64) / (y as u64)) as i64;
+    }
     if w != W::W64 && x as i32 as i64 == x && y as i32 as i64 == y {
         (x as i32).wrapping_div(y as i32) as i64
     } else {
@@ -273,6 +276,9 @@ fn idiv(x: i64, y: i64, w: W) -> i64 {
 
 #[inline(always)]
 fn irem(x: i64, y: i64, w: W) -> i64 {
+    if w == W::U64 {
+        return ((x as u64) % (y as u64)) as i64;
+    }
     if w != W::W64 && x as i32 as i64 == x && y as i32 as i64 == y {
         (x as i32).wrapping_rem(y as i32) as i64
     } else {
@@ -1058,6 +1064,13 @@ impl<'m, 'o> Vm<'m, 'o> {
                     self.nums[g as usize] = v;
                 }
                 Ins::IToF { d, s } => setf!(d, ri!(s) as f64),
+                Ins::IToFU { d, s } => setf!(d, r!(s) as f64),
+                Ins::CmpU { c, d, a, b: y } => set!(d, b(c.test(r!(a), r!(y)))),
+                Ins::BrU { c, a, b: y, t } => {
+                    if c.test(r!(a), r!(y)) {
+                        pc = t
+                    }
+                }
                 Ins::FToI { d, s, w } => {
                     let x = qb_runtime::round::qb_qbr_f64(rf!(s));
                     if w != W::W64 && w.wrap(x) != x {
@@ -1284,11 +1297,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::CvtFI { d, s, w, trunc } => {
                     let f = rf!(s);
                     let f = if trunc { f.trunc() } else { f.round_ties_even() };
-                    let n = if f >= 9.223_372_036_854_776e18 { f as u64 as i64 } else { f as i64 };
+                    let n = if w == W::U64 || f >= 9.223_372_036_854_776e18 { f as u64 as i64 } else { f as i64 };
                     seti!(d, w.wrap(n))
                 }
                 Ins::Shl { d, a, b: y, w } => seti!(d, w.wrap(ri!(a).wrapping_shl((ri!(y) as u32) % w.bits()))),
-                Ins::Shr { d, a, b: y, w } => seti!(d, w.wrap(ri!(a) >> ((ri!(y) as u32) % w.bits()))),
+                Ins::Shr { d, a, b: y, w } => {
+                    let k = (ri!(y) as u32) % w.bits();
+                    seti!(d, if w == W::U64 { (r!(a) >> k) as i64 } else { w.wrap(ri!(a) >> k) })
+                }
                 Ins::DivFI { d, a, b: y } => setf!(d, rf!(a) / rf!(y)),
                 Ins::ReturnL { t } => match self.gosub.last().copied() {
                     Some(g) if g.depth == self.frames.len() => {

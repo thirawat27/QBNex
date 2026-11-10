@@ -84,6 +84,9 @@ pub enum W {
     U8,
     U16,
     U32,
+    /// `_UNSIGNED _INTEGER64`: same bits as W64; division, shifts, compares and
+    /// float conversion are unsigned
+    U64,
 }
 
 impl W {
@@ -97,6 +100,7 @@ impl W {
             W::U8 => v as u8 as i64,
             W::U16 => v as u16 as i64,
             W::U32 => v as u32 as i64,
+            W::U64 => v,
         }
     }
     pub fn bits(self) -> u32 {
@@ -104,7 +108,7 @@ impl W {
             W::W8 | W::U8 => 8,
             W::W16 | W::U16 => 16,
             W::W32 | W::U32 => 32,
-            W::W64 => 64,
+            W::W64 | W::U64 => 64,
         }
     }
     pub fn name(self) -> &'static str {
@@ -116,6 +120,7 @@ impl W {
             W::U8 => "u8",
             W::U16 => "u16",
             W::U32 => "u32",
+            W::U64 => "u64",
         }
     }
 }
@@ -231,6 +236,8 @@ pub enum Ins {
     GetG { d: R, g: R },
     SetG { g: R, s: R },
     IToF { d: R, s: R },
+    /// unsigned 64-bit integer -> float
+    IToFU { d: R, s: R },
     /// float -> integer with QBasic rounding (half to even); out of range = error 6
     FToI { d: R, s: R, w: W },
     /// integer -> narrower integer (C cast, wraps)
@@ -275,6 +282,8 @@ pub enum Ins {
     CmpI { c: Cmp, d: R, a: R, b: R },
     CmpF { c: Cmp, d: R, a: R, b: R },
     CmpS { c: Cmp, d: R, a: R, b: R },
+    /// unsigned 64-bit compare
+    CmpU { c: Cmp, d: R, a: R, b: R },
     // ---- control flow
     Jmp { t: u32 },
     /// backward jump: event safe point
@@ -287,6 +296,7 @@ pub enum Ins {
     BrI { c: Cmp, a: R, b: R, t: u32 },
     BrF { c: Cmp, a: R, b: R, t: u32 },
     BrS { c: Cmp, a: R, b: R, t: u32 },
+    BrU { c: Cmp, a: R, b: R, t: u32 },
     /// FOR test: jump to `t` (loop exit) when `v` is past `lim` in the direction of `step`
     ForTestI { v: R, lim: R, step: R, t: u32 },
     ForTestF { v: R, lim: R, step: R, t: u32 },
@@ -512,7 +522,7 @@ impl Ins {
                 f(O::N(d));
                 f(O::NConst(k))
             }
-            Mov { d, s } | IToF { d, s } | FToI { d, s, .. } | Wrap { d, s, .. } | RoundF32 { d, s } | Un { d, s, .. } | CvtFI { d, s, .. } => {
+            Mov { d, s } | IToF { d, s } | IToFU { d, s } | FToI { d, s, .. } | Wrap { d, s, .. } | RoundF32 { d, s } | Un { d, s, .. } | CvtFI { d, s, .. } => {
                 f(O::N(d));
                 f(O::N(s))
             }
@@ -547,6 +557,7 @@ impl Ins {
             | PowF { d, a, b }
             | CmpI { d, a, b, .. }
             | CmpF { d, a, b, .. }
+            | CmpU { d, a, b, .. }
             | Acc { d, a, b, .. }
             | Shl { d, a, b, .. }
             | Shr { d, a, b, .. }
@@ -565,7 +576,7 @@ impl Ins {
                 f(O::N(s));
                 f(O::T(t))
             }
-            BrI { a, b, t, .. } | BrF { a, b, t, .. } => {
+            BrI { a, b, t, .. } | BrF { a, b, t, .. } | BrU { a, b, t, .. } => {
                 f(O::N(a));
                 f(O::N(b));
                 f(O::T(t))
@@ -747,6 +758,9 @@ impl Ins {
             GetG { .. } => "getg".into(),
             SetG { .. } => "setg".into(),
             IToF { .. } => "itof".into(),
+            IToFU { .. } => "itof.u64".into(),
+            CmpU { c, .. } => format!("cmp.u {}", c.name()),
+            BrU { c, .. } => format!("br.u {}", c.name()),
             FToI { w, .. } => format!("ftoi.{}", w.name()),
             Wrap { w, .. } => format!("wrap.{}", w.name()),
             RoundF32 { .. } => "round.f32".into(),
@@ -858,6 +872,8 @@ impl Ins {
             | Mov { d, .. }
             | GetG { d, .. }
             | IToF { d, .. }
+            | IToFU { d, .. }
+            | CmpU { d, .. }
             | FToI { d, .. }
             | Wrap { d, .. }
             | RoundF32 { d, .. }
@@ -925,6 +941,7 @@ impl Ins {
             | BrI { t, .. }
             | BrF { t, .. }
             | BrS { t, .. }
+            | BrU { t, .. }
             | ForTestI { t, .. }
             | ForTestF { t, .. }
             | ForTestKI { t, .. }
