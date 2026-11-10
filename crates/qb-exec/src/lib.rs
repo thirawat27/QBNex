@@ -36,6 +36,27 @@ mod libqb_host {
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }
+    // R12b core runtime (allocators, errors, events, waits).
+    #[unsafe(no_mangle)]
+    pub static mut cmem_static_pointer: *mut u8 = core::ptr::null_mut();
+    #[unsafe(no_mangle)]
+    pub static mut cmem_dynamic_base: *mut u8 = core::ptr::null_mut();
+    #[unsafe(no_mangle)]
+    pub extern "C" fn qb_host_message_box(_m: *const core::ffi::c_char, _t: *const core::ffi::c_char, _k: i32) -> i32 {
+        std::process::abort()
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn qb_host_end() {
+        std::process::abort()
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn qb_host_evnt() {
+        std::process::abort()
+    }
+    #[unsafe(no_mangle)]
+    pub extern "C" fn qb_host_devices_init() {
+        std::process::abort()
+    }
 }
 
 use std::collections::HashMap;

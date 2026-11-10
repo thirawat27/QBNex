@@ -294,3 +294,5 @@ int main(int argc, char **argv) {
            failures);
     return failures ? 1 : 0;
 }
+
+#include "host_stubs.h"

@@ -1,0 +1,21 @@
+$CONSOLE:ONLY
+ON ERROR GOTO handler
+10 ERROR 5
+20 x = LOG(-1)
+30 y = SQR(-4)
+40 z% = 40000
+50 ERROR 53
+60 ERROR 0
+70 ERROR 255
+80 x = EXP(100)
+PRINT "messages:"
+FOR i = 0 TO 80
+    m$ = _ERRORMESSAGE$(i)
+    IF m$ <> "Unprintable error" THEN PRINT i; m$
+NEXT
+PRINT _ERRORMESSAGE$(258); "|"; _ERRORMESSAGE$(314); "|"; _ERRORMESSAGE$(999)
+PRINT "done"
+SYSTEM
+handler:
+PRINT "ERR"; ERR; "ERL"; ERL; "line"; _ERRORLINE; _ERRORMESSAGE$
+RESUME NEXT

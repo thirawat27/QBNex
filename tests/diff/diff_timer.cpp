@@ -65,3 +65,5 @@ int main(int argc, char **argv) {
     printf("diff_timer: %s, %ld mismatches\n", quick ? "quick" : "full", failures);
     return failures == 0 ? 0 : 1;
 }
+
+#include "host_stubs.h"

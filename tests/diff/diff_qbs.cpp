@@ -548,3 +548,6 @@ int main(int argc, char **argv) {
     printf("diff_qbs: %ld statements, %ld mismatches\n", statements, mismatches);
     return mismatches ? 1 : 0;
 }
+
+#define QB_DIFF_OWN_STRING_HOST
+#include "host_stubs.h"
