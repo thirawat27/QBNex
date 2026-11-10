@@ -116,42 +116,46 @@ rt PRINTS %47 %46
 const.i32 %48 0
 rt PRINTNL %48
 label L_100
+const.i32 %49 100
+rt LASTLINE %49
 line 13
-const.str %49 x6C696E6520313030
-const.i32 %50 0
-rt PRINTS %50 %49
+const.str %50 x6C696E6520313030
 const.i32 %51 0
-rt PRINTNL %51
+rt PRINTS %51 %50
+const.i32 %52 0
+rt PRINTNL %52
 line 14
-const.i32 %52 1
-jz %52 ~I3.1
+const.i32 %53 1
+jz %53 ~I3.1
 line 14
 jmp L_200
 line 14
 label ~I3.1
 label ~I3.E
 line 15
-const.str %53 x736B697070656420746F6F
-const.i32 %54 0
-rt PRINTS %54 %53
+const.str %54 x736B697070656420746F6F
 const.i32 %55 0
-rt PRINTNL %55
+rt PRINTS %55 %54
+const.i32 %56 0
+rt PRINTNL %56
 label L_200
+const.i32 %57 200
+rt LASTLINE %57
 line 16
-const.str %56 x646F6E65
-const.i32 %57 0
-rt PRINTS %57 %56
-const.i32 %58 0
-rt PRINTNL %58
+const.str %58 x646F6E65
+const.i32 %59 0
+rt PRINTS %59 %58
+const.i32 %60 0
+rt PRINTNL %60
 line 17
 system
 label L_FIRST
 line 19
-const.str %59 x696E206669727374
-const.i32 %60 0
-rt PRINTS %60 %59
-const.i32 %61 0
-rt PRINTNL %61
+const.str %61 x696E206669727374
+const.i32 %62 0
+rt PRINTS %62 %61
+const.i32 %63 0
+rt PRINTNL %63
 line 20
 gret
 call SUB_QBNEX_TOPLEVEL_RUNTIME0

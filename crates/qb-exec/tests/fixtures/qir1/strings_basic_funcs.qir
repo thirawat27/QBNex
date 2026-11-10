@@ -191,120 +191,116 @@ const.i32 %131 0
 rt PRINTNL %131
 line 12
 const.str %132 x202031322E35616263
-rt %133 VAL %132
-cvt.f80.f64 %134 %133
-rt %135 STR$.f80 %134
-const.str %136 x20
-concat %137 %135 %136
-const.i32 %138 0
-rt PRINTS %138 %137
-const.str %139 x26483130
-rt %140 VAL %139
-cvt.f80.f64 %141 %140
-rt %142 STR$.f80 %141
-const.str %143 x20
-concat %144 %142 %143
-const.i32 %145 0
-rt PRINTS %145 %144
-const.str %146 x2D336532
-rt %147 VAL %146
-cvt.f80.f64 %148 %147
-rt %149 STR$.f80 %148
-const.str %150 x20
-concat %151 %149 %150
-const.i32 %152 0
-rt PRINTS %152 %151
-const.str %153 x78
-rt %154 VAL %153
-cvt.f80.f64 %155 %154
-rt %156 STR$.f80 %155
-const.str %157 x20
-concat %158 %156 %157
-const.i32 %159 0
-rt PRINTS %159 %158
-const.i32 %160 0
-rt PRINTNL %160
+rt %133 VAL.f80 %132
+rt %134 STR$.f80 %133
+const.str %135 x20
+concat %136 %134 %135
+const.i32 %137 0
+rt PRINTS %137 %136
+const.str %138 x26483130
+rt %139 VAL.f80 %138
+rt %140 STR$.f80 %139
+const.str %141 x20
+concat %142 %140 %141
+const.i32 %143 0
+rt PRINTS %143 %142
+const.str %144 x2D336532
+rt %145 VAL.f80 %144
+rt %146 STR$.f80 %145
+const.str %147 x20
+concat %148 %146 %147
+const.i32 %149 0
+rt PRINTS %149 %148
+const.str %150 x78
+rt %151 VAL.f80 %150
+rt %152 STR$.f80 %151
+const.str %153 x20
+concat %154 %152 %153
+const.i32 %155 0
+rt PRINTS %155 %154
+const.i32 %156 0
+rt PRINTNL %156
 line 13
-const.str %161 x
-store.str $__STRING_B %161
+const.str %157 x
+store.str $__STRING_B %157
 line 14
+const.i32 %158 1
+cvt.f64.i32 %159 %158
+store.f64 $~T1 %159
+const.i32 %160 1000
+cvt.f64.i32 %161 %160
+store.f64 $~T2 %161
 const.i32 %162 1
 cvt.f64.i32 %163 %162
-store.f64 $~T1 %163
-const.i32 %164 1000
-cvt.f64.i32 %165 %164
-store.f64 $~T2 %165
-const.i32 %166 1
-cvt.f64.i32 %167 %166
-store.f64 $~T3 %167
+store.f64 $~T3 %163
 jmp ~F12.E
 label ~F12.T
-load.f32 %168 $__SINGLE_I
-cvt.f64.f32 %169 %168
-load.f64 %170 $~T3
-add.f64 %171 %170 %169
-store.f64 $~T1 %171
+load.f32 %164 $__SINGLE_I
+cvt.f64.f32 %165 %164
+load.f64 %166 $~T3
+add.f64 %167 %166 %165
+store.f64 $~T1 %167
 label ~F12.E
-load.f64 %172 $~T1
-cvt.f32.f64 %173 %172
-store.f32 $__SINGLE_I %173
-load.f64 %174 $~T3
-const.f64 %175 0
-lt.f64 %176 %174 %175
-jz %176 ~F12.P
-load.f64 %177 $~T2
-lt.f64 %178 %172 %177
-jnz %178 ~F12.X
+load.f64 %168 $~T1
+cvt.f32.f64 %169 %168
+store.f32 $__SINGLE_I %169
+load.f64 %170 $~T3
+const.f64 %171 0
+lt.f64 %172 %170 %171
+jz %172 ~F12.P
+load.f64 %173 $~T2
+lt.f64 %174 %168 %173
+jnz %174 ~F12.X
 jmp ~F12.B
 label ~F12.P
-load.f64 %179 $~T2
-gt.f64 %180 %172 %179
-jnz %180 ~F12.X
+load.f64 %175 $~T2
+gt.f64 %176 %168 %175
+jnz %176 ~F12.X
 label ~F12.B
 line 14
-load.str %181 $__STRING_B
-const.i32 %182 48
-load.f32 %183 $__SINGLE_I
-const.i32 %184 10
-cvt.i64.f32 %185 %183
-cvt.i64.i32 %186 %184
-mod.i64 %187 %185 %186
-cvt.i64.i32 %188 %182
-add.i64 %189 %188 %187
-cvt.i32.i64 %190 %189
-rt %191 CHR$ %190
-concat %192 %181 %191
-store.str $__STRING_B %192
+load.str %177 $__STRING_B
+const.i32 %178 48
+load.f32 %179 $__SINGLE_I
+const.i32 %180 10
+cvt.i64.f32 %181 %179
+cvt.i64.i32 %182 %180
+mod.i64 %183 %181 %182
+cvt.i64.i32 %184 %178
+add.i64 %185 %184 %183
+cvt.i32.i64 %186 %185
+rt %187 CHR$ %186
+concat %188 %177 %187
+store.str $__STRING_B %188
 line 14
 label ~F12.C
 jmp ~F12.T
 label ~F12.X
 line 15
-load.str %193 $__STRING_B
-rt %194 LEN %193
-cvt.i64.i32 %195 %194
-rt %196 STR$.i64 %195
-const.str %197 x20
-concat %198 %196 %197
+load.str %189 $__STRING_B
+rt %190 LEN %189
+cvt.i64.i32 %191 %190
+rt %192 STR$.i64 %191
+const.str %193 x20
+concat %194 %192 %193
+const.i32 %195 0
+rt PRINTS %195 %194
+load.str %196 $__STRING_B
+const.i32 %197 10
+rt %198 RIGHT$ %196 %197
 const.i32 %199 0
 rt PRINTS %199 %198
-load.str %200 $__STRING_B
-const.i32 %201 10
-rt %202 RIGHT$ %200 %201
+const.i32 %200 0
+rt PRINTNL %200
+line 16
+const.str %201 x2020626F74682020
+rt %202 _TRIM$ %201
 const.i32 %203 0
 rt PRINTS %203 %202
-const.i32 %204 0
-rt PRINTNL %204
-line 16
-const.str %205 x2020626F74682020
-rt %206 _TRIM$ %205
-const.i32 %207 0
-rt PRINTS %207 %206
-const.str %208 x7C
-const.i32 %209 0
-rt PRINTS %209 %208
-const.i32 %210 0
-rt PRINTNL %210
+const.str %204 x7C
+const.i32 %205 0
+rt PRINTS %205 %204
+const.i32 %206 0
+rt PRINTNL %206
 line 17
 system
 call SUB_QBNEX_TOPLEVEL_RUNTIME0

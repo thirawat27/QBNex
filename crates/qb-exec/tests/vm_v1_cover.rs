@@ -176,3 +176,48 @@ endfunc
 ",
     );
 }
+
+#[test]
+fn float80_arithmetic_is_bit_exact() {
+    // 1/3, 2^0.5, compare, conversions, a _FLOAT global seen from a SUB
+    same_full(
+        "QIR 1
+global $X f80
+func main
+const.i32 %0 0
+const.f80 %1 1
+const.f80 %2 3
+div.f80 %3 %1 %2
+store.f80 $X %3
+rt %4 STR$.f80 %3
+rt PRINTS %0 %4
+const.f80 %5 2
+const.f80 %6 0.5
+pow.f80 %7 %5 %6
+rt PRINTN.f80 %0 %7
+lt.f80 %8 %3 %7
+cvt.i64.i32 %9 %8
+rt PRINTN.i64 %0 %9
+cvt.f64.f80 %10 %3
+rt PRINTN.f64 %0 %10
+cvt.i64.f80 %11 %7
+rt PRINTN.i64 %0 %11
+neg.f80 %12 %7
+cvt.f80.i32 %13 %0
+sub.f80 %14 %13 %12
+rt PRINTN.f80 %0 %14
+call SHOW
+rt PRINTNL %0
+end
+endfunc
+func SHOW
+load.f80 %0 $X
+const.f80 %1 3
+mul.f80 %2 %0 %1
+const.i32 %3 0
+rt PRINTN.f80 %3 %2
+ret
+endfunc
+",
+    );
+}

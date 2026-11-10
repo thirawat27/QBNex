@@ -492,6 +492,7 @@ fn rank(t: Ty) -> u8 {
         Ty::I64 => 2,
         Ty::F32 => 3,
         Ty::F64 => 4,
+        Ty::F80 => 5,
         Ty::Str => 9,
     }
 }
@@ -511,7 +512,7 @@ fn const_store(k: Kv, to: Ty) -> Option<Kv> {
         (Kv::F(v), Ty::F32) => Kv::F(f64::from(v as f32)),
         (Kv::I(v), Ty::F64) => Kv::F(v as f64),
         (Kv::F(v), Ty::F64) => Kv::F(v),
-        (_, Ty::Str) => return None,
+        (_, Ty::Str | Ty::F80) => return None,
     })
 }
 

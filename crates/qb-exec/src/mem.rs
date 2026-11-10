@@ -136,6 +136,7 @@ impl Mem {
             MTy::I64 | MTy::U64 | MTy::Ptr | MTy::Str => u,
             MTy::F32 => f64::from(f32::from_bits(u as u32)).to_bits(),
             MTy::F64 => u,
+            MTy::F80 => u, // the VM reads _FLOAT through bytes()
         })
     }
 

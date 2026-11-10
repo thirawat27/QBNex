@@ -145,7 +145,8 @@ fn mty(t: IT) -> MTy {
         IT::I64 => MTy::I64,
         IT::U64 => MTy::U64,
         IT::F32 => MTy::F32,
-        IT::F64 | IT::F80 => MTy::F64,
+        IT::F64 => MTy::F64,
+        IT::F80 => MTy::F80,
         IT::Str => MTy::Str,
         IT::Ptr => MTy::Ptr,
     }
@@ -176,6 +177,8 @@ fn var_names(f: &ir::Func) -> std::collections::HashSet<&str> {
 #[derive(Clone, Copy, Debug)]
 enum Rg {
     N(R),
+    /// `_FLOAT` register pair (significand, sign/exponent)
+    X(R),
     /// string register or K constant
     S(R),
     /// pointer register: what it points at (set by addr/aref/aaddr)
@@ -240,8 +243,27 @@ fn lit_num(ty: IT, l: &Lit) -> Res<u64> {
     })
 }
 
+/// Value of an f80 literal (same rules as the reference interpreter).
+fn lit_f80(l: &Lit) -> qb_float80::F80 {
+    use qb_float80::F80;
+    match l {
+        Lit::Int(n) => F80::from_f64(*n as f64),
+        Lit::Float(t) => match ir::f80_bits(t) {
+            Some((se, m)) => F80 { mant: m, se },
+            None => match t.as_str() {
+                "inf" => F80::from_f64(f64::INFINITY),
+                "-inf" => F80::from_f64(f64::NEG_INFINITY),
+                "nan" => F80::from_f64(f64::NAN),
+                _ => qb_float80::dec::parse(t.as_bytes()).0,
+            },
+        },
+        Lit::Str(_) => F80::from_i64(0),
+    }
+}
+
 fn check_store_ty(t: &StoreTy) -> Res<IT> {
     match t {
+        StoreTy::Scalar(IT::F80) => Ok(IT::F80),
         StoreTy::Scalar(t) => {
             vty(*t)?;
             Ok(*t)
@@ -402,6 +424,10 @@ impl<'a> Lw<'a> {
             Var::A(fr.arr_tys.len() as R - 1, t)
         } else if t == IT::Str {
             Var::S(fr.new_s())
+        } else if t == IT::F80 {
+            let r = fr.new_n(0);
+            fr.new_n(0);
+            Var::N(r, t)
         } else {
             Var::N(fr.new_n(0), t)
         })
@@ -458,6 +484,9 @@ impl<'a> Lw<'a> {
                 }
                 vars.insert(p.name.clone(), Var::M(ptr_r, mk));
                 continue;
+            }
+            if matches!(p.ty, StoreTy::Scalar(IT::F80)) {
+                return Err("_FLOAT parameter".into());
             }
             let v = self.alloc_var(k, p, k)?;
             params.push(match v {
@@ -524,6 +553,12 @@ impl<'a> Lw<'a> {
                     let rg = if *ty == IT::Str {
                         let Lit::Str(s) = val else { return Err("bad string const".into()) };
                         Rg::S(self.kstr(s))
+                    } else if *ty == IT::F80 {
+                        let x = lit_f80(val);
+                        let fr = &mut self.frames[k];
+                        let r = fr.new_n(x.mant);
+                        fr.new_n(u64::from(x.se));
+                        Rg::X(r)
                     } else if *ty == IT::Ptr {
                         if !self.mem {
                             return Err("pointer constant".into());
@@ -557,6 +592,11 @@ impl<'a> Lw<'a> {
                             let t = *rty.get(&r).ok_or_else(|| format!("register %{r} has no type"))?;
                             let x = match t {
                                 IT::Str => Rg::S(self.frames[k].new_s()),
+                                IT::F80 => {
+                                    let r = self.frames[k].new_n(0);
+                                    self.frames[k].new_n(0);
+                                    Rg::X(r)
+                                }
                                 IT::Ptr if self.mem => Rg::N(self.frames[k].new_n(0)),
                                 IT::Ptr => Rg::P,
                                 _ => {
@@ -575,6 +615,14 @@ impl<'a> Lw<'a> {
                     match reg!($r) {
                         Rg::N(x) => x,
                         _ => return Err(format!("%{} is not numeric", $r)),
+                    }
+                };
+            }
+            macro_rules! xreg {
+                ($r:expr) => {
+                    match reg!($r) {
+                        Rg::X(x) => x,
+                        _ => return Err(format!("%{} is not _FLOAT", $r)),
                     }
                 };
             }
@@ -610,7 +658,7 @@ impl<'a> Lw<'a> {
                                 self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
                             }
                             _ => {
-                                let d = nreg!(*dst);
+                                let d = if *ty == IT::F80 { xreg!(*dst) } else { nreg!(*dst) };
                                 self.emit(Ins::LdM { t: mty(*ty), d, p, off: 0 });
                             }
                         }
@@ -628,7 +676,7 @@ impl<'a> Lw<'a> {
                                 self.emit(Ins::StM { t: MTy::Str, p, off: 0, s: sr });
                             }
                             _ => {
-                                let sr = nreg!(*src);
+                                let sr = if *ty == IT::F80 { xreg!(*src) } else { nreg!(*src) };
                                 self.emit(Ins::StM { t: mty(*ty), p, off: 0, s: sr });
                             }
                         }
@@ -666,13 +714,21 @@ impl<'a> Lw<'a> {
                     }
                     Inst::Ld { ty, dst, ptr, off } => {
                         let pr = nreg!(*ptr);
-                        let d = if *ty == IT::Str { sreg!(*dst) } else { nreg!(*dst) };
+                        let d = match ty {
+                            IT::Str => sreg!(*dst),
+                            IT::F80 => xreg!(*dst),
+                            _ => nreg!(*dst),
+                        };
                         self.emit(Ins::LdM { t: mty(*ty), d, p: pr, off: *off });
                         continue;
                     }
                     Inst::St { ty, ptr, off, src } => {
                         let pr = nreg!(*ptr);
-                        let sr = if *ty == IT::Str { sreg!(*src) } else { nreg!(*src) };
+                        let sr = match ty {
+                            IT::Str => sreg!(*src),
+                            IT::F80 => xreg!(*src),
+                            _ => nreg!(*src),
+                        };
                         self.emit(Ins::StM { t: mty(*ty), p: pr, off: *off, s: sr });
                         continue;
                     }
@@ -735,13 +791,13 @@ impl<'a> Lw<'a> {
                             match reg!(*r) {
                                 Rg::N(x) => out.push(Arg::N(x)),
                                 Rg::S(x) => out.push(Arg::S(x)),
-                                Rg::P => return Err("pointer argument".into()),
+                                Rg::P | Rg::X(_) => return Err("pointer argument".into()),
                             }
                         }
                         let dest = match dst {
                             Some(d) => Some(match reg!(*d) {
                                 Rg::N(x) | Rg::S(x) => x,
-                                Rg::P => return Err("pointer result".into()),
+                                Rg::P | Rg::X(_) => return Err("pointer result".into()),
                             }),
                             None => None,
                         };
@@ -752,6 +808,121 @@ impl<'a> Lw<'a> {
                     }
                     _ => {}
                 }
+            }
+            // _FLOAT instructions (register pairs)
+            let f80_case = match ins {
+                Inst::Const { ty: IT::F80, .. }
+                | Inst::Mov { ty: IT::F80, .. }
+                | Inst::Bin { ty: IT::F80, .. }
+                | Inst::Un { ty: IT::F80, .. }
+                | Inst::Cmp { ty: IT::F80, .. }
+                | Inst::Load { ty: IT::F80, .. }
+                | Inst::Store { ty: IT::F80, .. }
+                | Inst::Read { ty: IT::F80, .. } => true,
+                Inst::Cvt { to, from, .. } | Inst::Trunc { to, from, .. } => *to == IT::F80 || *from == IT::F80,
+                _ => false,
+            };
+            if f80_case {
+                match ins {
+                    Inst::Const { dst, val, .. } => {
+                        if defs.get(dst) != Some(&1) {
+                            let d = xreg!(*dst);
+                            let x = lit_f80(val);
+                            for (j, bits) in [x.mant, u64::from(x.se)].into_iter().enumerate() {
+                                let kk = self.m.nconst.len() as u32;
+                                self.m.nconst.push(bits);
+                                self.emit(Ins::Ldk { d: d + j as R, k: kk });
+                            }
+                        }
+                    }
+                    Inst::Mov { dst, src, .. } => {
+                        let (d, sr) = (xreg!(*dst), xreg!(*src));
+                        self.emit(Ins::MovX { d, s: sr });
+                    }
+                    Inst::Bin { op, dst, a, b, .. } => {
+                        let (d, x, y) = (xreg!(*dst), xreg!(*a), xreg!(*b));
+                        let op = match op {
+                            BinOp::Add => XOp::Add,
+                            BinOp::Sub => XOp::Sub,
+                            BinOp::Mul => XOp::Mul,
+                            BinOp::Div => XOp::Div,
+                            BinOp::Pow => XOp::Pow,
+                            _ => return Err("bad _FLOAT op".into()),
+                        };
+                        self.emit(Ins::XBin { op, d, a: x, b: y });
+                    }
+                    Inst::Un { op: UnOp::Neg, dst, a, .. } => {
+                        let (d, sr) = (xreg!(*dst), xreg!(*a));
+                        self.emit(Ins::XNeg { d, s: sr });
+                    }
+                    Inst::Cmp { op, dst, a, b, .. } => {
+                        let (d, x, y) = (nreg!(*dst), xreg!(*a), xreg!(*b));
+                        self.emit(Ins::XCmp { c: cmp(*op), d, a: x, b: y });
+                    }
+                    Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
+                        let trunc = matches!(ins, Inst::Trunc { .. });
+                        if *to == IT::F80 {
+                            let d = xreg!(*dst);
+                            if *from == IT::F80 {
+                                let sr = xreg!(*src);
+                                self.emit(Ins::MovX { d, s: sr });
+                            } else if from.is_float() {
+                                let sr = nreg!(*src);
+                                self.emit(Ins::XFromF { d, s: sr });
+                            } else {
+                                let sr = nreg!(*src);
+                                self.emit(Ins::XFromI { d, s: sr, u: *from == IT::U64 });
+                            }
+                        } else {
+                            let (d, sr) = (nreg!(*dst), xreg!(*src));
+                            if to.is_float() {
+                                self.emit(Ins::XToF { d, s: sr, f32: *to == IT::F32 });
+                            } else {
+                                self.emit(Ins::XToI { d, s: sr, w: width(*to)?, trunc });
+                            }
+                        }
+                    }
+                    Inst::Load { dst, var, .. } => match var!(var) {
+                        Var::N(r, _) => {
+                            let d = xreg!(*dst);
+                            self.emit(Ins::MovX { d, s: r });
+                        }
+                        Var::NG(g, _) => {
+                            let d = xreg!(*dst);
+                            self.emit(Ins::GetG { d, g });
+                            self.emit(Ins::GetG { d: d + 1, g: g + 1 });
+                        }
+                        Var::M(p, _) => {
+                            let d = xreg!(*dst);
+                            self.emit(Ins::LdM { t: MTy::F80, d, p, off: 0 });
+                        }
+                        _ => return Err("bad _FLOAT variable".into()),
+                    },
+                    Inst::Store { var, src, .. } => match var!(var) {
+                        Var::N(r, _) => {
+                            let sr = xreg!(*src);
+                            self.emit(Ins::MovX { d: r, s: sr });
+                        }
+                        Var::NG(g, _) => {
+                            let sr = xreg!(*src);
+                            self.emit(Ins::SetG { g, s: sr });
+                            self.emit(Ins::SetG { g: g + 1, s: sr + 1 });
+                        }
+                        Var::M(p, _) => {
+                            let sr = xreg!(*src);
+                            self.emit(Ins::StM { t: MTy::F80, p, off: 0, s: sr });
+                        }
+                        _ => return Err("bad _FLOAT variable".into()),
+                    },
+                    Inst::Read { dst, .. } => {
+                        let d = xreg!(*dst);
+                        let t = self.frames[k].new_n(0);
+                        self.emit(Ins::ReadN { d: t });
+                        self.emit(Ins::XFromF { d, s: t });
+                    }
+                    _ => return Err("unsupported _FLOAT instruction".into()),
+                }
+                continue;
             }
             match ins {
                 Inst::Line(n) => {
@@ -782,7 +953,7 @@ impl<'a> Lw<'a> {
                             let kk = self.kstr(s);
                             self.emit(Ins::MovS { d, s: kk });
                         }
-                        Rg::P => return Err("pointer constant".into()),
+                        Rg::P | Rg::X(_) => return Err("pointer constant".into()),
                     }
                 }
                 Inst::Mov { dst, src, .. } => match (reg!(*dst), reg!(*src)) {
@@ -1156,14 +1327,14 @@ impl<'a> Lw<'a> {
                             match reg!(*r) {
                                 Rg::N(x) => out.push(Arg::N(x)),
                                 Rg::S(x) => out.push(Arg::S(x)),
-                                Rg::P => return Err("pointer passed by value".into()),
+                                Rg::P | Rg::X(_) => return Err("pointer passed by value".into()),
                             }
                         }
                     }
                     let dest = match dst {
                         Some(d) => Some(match reg!(*d) {
                             Rg::N(x) | Rg::S(x) => x,
-                            Rg::P => return Err("pointer result".into()),
+                            Rg::P | Rg::X(_) => return Err("pointer result".into()),
                         }),
                         None => None,
                     };
@@ -1216,6 +1387,10 @@ impl<'a> Lw<'a> {
                             regs_.push((nreg!(*r), Ty::I64));
                             continue;
                         }
+                        if *t == IT::F80 {
+                            regs_.push((xreg!(*r), Ty::F80));
+                            continue;
+                        }
                         let vt = vty(*t)?;
                         let x = match (reg!(*r), vt) {
                             (Rg::S(x), Ty::Str) => x,
@@ -1228,6 +1403,8 @@ impl<'a> Lw<'a> {
                         None => None,
                         Some(t) => Some(if t == IT::Str {
                             Ty::Str
+                        } else if t == IT::F80 {
+                            Ty::F80
                         } else if t.is_float() {
                             vty(t)?
                         } else {
@@ -1237,7 +1414,7 @@ impl<'a> Lw<'a> {
                     };
                     let d = match dst {
                         Some(d) => match reg!(*d) {
-                            Rg::N(x) | Rg::S(x) => x,
+                            Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
                             Rg::P => return Err("pointer result".into()),
                         },
                         None => NONE,

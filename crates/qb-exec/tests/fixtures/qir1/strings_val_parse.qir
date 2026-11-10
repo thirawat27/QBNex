@@ -4,240 +4,214 @@ global $__FLOAT_X f80
 func main
 line 3
 const.str %0 x3432
-rt %1 VAL %0
-cvt.f80.f64 %2 %1
-rt %3 STR$.f80 %2
-const.str %4 x20
-concat %5 %3 %4
-const.i32 %6 0
-rt PRINTS %6 %5
-const.str %7 x2D3432
-rt %8 VAL %7
-cvt.f80.f64 %9 %8
-rt %10 STR$.f80 %9
-const.str %11 x20
-concat %12 %10 %11
-const.i32 %13 0
-rt PRINTS %13 %12
-const.str %14 x2B37
-rt %15 VAL %14
-cvt.f80.f64 %16 %15
-rt %17 STR$.f80 %16
-const.str %18 x20
-concat %19 %17 %18
-const.i32 %20 0
-rt PRINTS %20 %19
-const.str %21 x303037
-rt %22 VAL %21
-cvt.f80.f64 %23 %22
-rt %24 STR$.f80 %23
-const.str %25 x20
-concat %26 %24 %25
-const.i32 %27 0
-rt PRINTS %27 %26
-const.str %28 x3120322033
-rt %29 VAL %28
-cvt.f80.f64 %30 %29
-rt %31 STR$.f80 %30
-const.str %32 x20
-concat %33 %31 %32
-const.i32 %34 0
-rt PRINTS %34 %33
-const.str %35 x203132616263
-rt %36 VAL %35
-cvt.f80.f64 %37 %36
-rt %38 STR$.f80 %37
-const.str %39 x20
-concat %40 %38 %39
-const.i32 %41 0
-rt PRINTS %41 %40
-const.i32 %42 0
-rt PRINTNL %42
+rt %1 VAL.f80 %0
+rt %2 STR$.f80 %1
+const.str %3 x20
+concat %4 %2 %3
+const.i32 %5 0
+rt PRINTS %5 %4
+const.str %6 x2D3432
+rt %7 VAL.f80 %6
+rt %8 STR$.f80 %7
+const.str %9 x20
+concat %10 %8 %9
+const.i32 %11 0
+rt PRINTS %11 %10
+const.str %12 x2B37
+rt %13 VAL.f80 %12
+rt %14 STR$.f80 %13
+const.str %15 x20
+concat %16 %14 %15
+const.i32 %17 0
+rt PRINTS %17 %16
+const.str %18 x303037
+rt %19 VAL.f80 %18
+rt %20 STR$.f80 %19
+const.str %21 x20
+concat %22 %20 %21
+const.i32 %23 0
+rt PRINTS %23 %22
+const.str %24 x3120322033
+rt %25 VAL.f80 %24
+rt %26 STR$.f80 %25
+const.str %27 x20
+concat %28 %26 %27
+const.i32 %29 0
+rt PRINTS %29 %28
+const.str %30 x203132616263
+rt %31 VAL.f80 %30
+rt %32 STR$.f80 %31
+const.str %33 x20
+concat %34 %32 %33
+const.i32 %35 0
+rt PRINTS %35 %34
+const.i32 %36 0
+rt PRINTNL %36
 line 4
-const.str %43 x31322E35
-rt %44 VAL %43
-cvt.f80.f64 %45 %44
-rt %46 STR$.f80 %45
-const.str %47 x20
-concat %48 %46 %47
-const.i32 %49 0
-rt PRINTS %49 %48
-const.str %50 x2E35
-rt %51 VAL %50
-cvt.f80.f64 %52 %51
-rt %53 STR$.f80 %52
-const.str %54 x20
-concat %55 %53 %54
-const.i32 %56 0
-rt PRINTS %56 %55
-const.str %57 x2D302E3235
-rt %58 VAL %57
-cvt.f80.f64 %59 %58
-rt %60 STR$.f80 %59
-const.str %61 x20
-concat %62 %60 %61
-const.i32 %63 0
-rt PRINTS %63 %62
-const.str %64 x312E354533
-rt %65 VAL %64
-cvt.f80.f64 %66 %65
-rt %67 STR$.f80 %66
-const.str %68 x20
-concat %69 %67 %68
-const.i32 %70 0
-rt PRINTS %70 %69
-const.str %71 x324432
-rt %72 VAL %71
-cvt.f80.f64 %73 %72
-rt %74 STR$.f80 %73
-const.str %75 x20
-concat %76 %74 %75
-const.i32 %77 0
-rt PRINTS %77 %76
-const.str %78 x312E3235452D31
-rt %79 VAL %78
-cvt.f80.f64 %80 %79
-rt %81 STR$.f80 %80
-const.str %82 x20
-concat %83 %81 %82
-const.i32 %84 0
-rt PRINTS %84 %83
-const.i32 %85 0
-rt PRINTNL %85
+const.str %37 x31322E35
+rt %38 VAL.f80 %37
+rt %39 STR$.f80 %38
+const.str %40 x20
+concat %41 %39 %40
+const.i32 %42 0
+rt PRINTS %42 %41
+const.str %43 x2E35
+rt %44 VAL.f80 %43
+rt %45 STR$.f80 %44
+const.str %46 x20
+concat %47 %45 %46
+const.i32 %48 0
+rt PRINTS %48 %47
+const.str %49 x2D302E3235
+rt %50 VAL.f80 %49
+rt %51 STR$.f80 %50
+const.str %52 x20
+concat %53 %51 %52
+const.i32 %54 0
+rt PRINTS %54 %53
+const.str %55 x312E354533
+rt %56 VAL.f80 %55
+rt %57 STR$.f80 %56
+const.str %58 x20
+concat %59 %57 %58
+const.i32 %60 0
+rt PRINTS %60 %59
+const.str %61 x324432
+rt %62 VAL.f80 %61
+rt %63 STR$.f80 %62
+const.str %64 x20
+concat %65 %63 %64
+const.i32 %66 0
+rt PRINTS %66 %65
+const.str %67 x312E3235452D31
+rt %68 VAL.f80 %67
+rt %69 STR$.f80 %68
+const.str %70 x20
+concat %71 %69 %70
+const.i32 %72 0
+rt PRINTS %72 %71
+const.i32 %73 0
+rt PRINTNL %73
 line 5
-const.str %86 x26483130
-rt %87 VAL %86
-cvt.f80.f64 %88 %87
-rt %89 STR$.f80 %88
-const.str %90 x20
-concat %91 %89 %90
-const.i32 %92 0
-rt PRINTS %92 %91
-const.str %93 x26686666
-rt %94 VAL %93
-cvt.f80.f64 %95 %94
-rt %96 STR$.f80 %95
-const.str %97 x20
-concat %98 %96 %97
-const.i32 %99 0
-rt PRINTS %99 %98
-const.str %100 x264F3137
-rt %101 VAL %100
-cvt.f80.f64 %102 %101
-rt %103 STR$.f80 %102
-const.str %104 x20
-concat %105 %103 %104
-const.i32 %106 0
-rt PRINTS %106 %105
-const.str %107 x264231303130
-rt %108 VAL %107
-cvt.f80.f64 %109 %108
-rt %110 STR$.f80 %109
-const.str %111 x20
-concat %112 %110 %111
-const.i32 %113 0
-rt PRINTS %113 %112
-const.str %114 x2648
-rt %115 VAL %114
-cvt.f80.f64 %116 %115
-rt %117 STR$.f80 %116
-const.str %118 x20
-concat %119 %117 %118
-const.i32 %120 0
-rt PRINTS %120 %119
-const.str %121 x265831
-rt %122 VAL %121
-cvt.f80.f64 %123 %122
-rt %124 STR$.f80 %123
-const.str %125 x20
-concat %126 %124 %125
-const.i32 %127 0
-rt PRINTS %127 %126
-const.i32 %128 0
-rt PRINTNL %128
+const.str %74 x26483130
+rt %75 VAL.f80 %74
+rt %76 STR$.f80 %75
+const.str %77 x20
+concat %78 %76 %77
+const.i32 %79 0
+rt PRINTS %79 %78
+const.str %80 x26686666
+rt %81 VAL.f80 %80
+rt %82 STR$.f80 %81
+const.str %83 x20
+concat %84 %82 %83
+const.i32 %85 0
+rt PRINTS %85 %84
+const.str %86 x264F3137
+rt %87 VAL.f80 %86
+rt %88 STR$.f80 %87
+const.str %89 x20
+concat %90 %88 %89
+const.i32 %91 0
+rt PRINTS %91 %90
+const.str %92 x264231303130
+rt %93 VAL.f80 %92
+rt %94 STR$.f80 %93
+const.str %95 x20
+concat %96 %94 %95
+const.i32 %97 0
+rt PRINTS %97 %96
+const.str %98 x2648
+rt %99 VAL.f80 %98
+rt %100 STR$.f80 %99
+const.str %101 x20
+concat %102 %100 %101
+const.i32 %103 0
+rt PRINTS %103 %102
+const.str %104 x265831
+rt %105 VAL.f80 %104
+rt %106 STR$.f80 %105
+const.str %107 x20
+concat %108 %106 %107
+const.i32 %109 0
+rt PRINTS %109 %108
+const.i32 %110 0
+rt PRINTNL %110
 line 6
-const.str %129 x39323233333732303336383534373735383037
-rt %130 VAL %129
-cvt.f80.f64 %131 %130
+const.str %111 x39323233333732303336383534373735383037
+rt %112 VAL.f80 %111
+rt %113 STR$.f80 %112
+const.str %114 x20
+concat %115 %113 %114
+const.i32 %116 0
+rt PRINTS %116 %115
+const.i32 %117 0
+rt PRINTNL %117
+line 7
+const.str %118 x78
+rt %119 VAL.f80 %118
+rt %120 STR$.f80 %119
+const.str %121 x20
+concat %122 %120 %121
+const.i32 %123 0
+rt PRINTS %123 %122
+const.str %124 x
+rt %125 VAL.f80 %124
+rt %126 STR$.f80 %125
+const.str %127 x20
+concat %128 %126 %127
+const.i32 %129 0
+rt PRINTS %129 %128
+const.str %130 x2E
+rt %131 VAL.f80 %130
 rt %132 STR$.f80 %131
 const.str %133 x20
 concat %134 %132 %133
 const.i32 %135 0
 rt PRINTS %135 %134
-const.i32 %136 0
-rt PRINTNL %136
-line 7
-const.str %137 x78
-rt %138 VAL %137
-cvt.f80.f64 %139 %138
-rt %140 STR$.f80 %139
-const.str %141 x20
-concat %142 %140 %141
-const.i32 %143 0
-rt PRINTS %143 %142
-const.str %144 x
-rt %145 VAL %144
-cvt.f80.f64 %146 %145
-rt %147 STR$.f80 %146
-const.str %148 x20
-concat %149 %147 %148
+const.str %136 x4535
+rt %137 VAL.f80 %136
+rt %138 STR$.f80 %137
+const.str %139 x20
+concat %140 %138 %139
+const.i32 %141 0
+rt PRINTS %141 %140
+const.str %142 x2D
+rt %143 VAL.f80 %142
+rt %144 STR$.f80 %143
+const.str %145 x20
+concat %146 %144 %145
+const.i32 %147 0
+rt PRINTS %147 %146
+const.i32 %148 0
+rt PRINTNL %148
+line 8
+const.str %149 x23232E232323232323232323232323232323232323
 const.i32 %150 0
-rt PRINTS %150 %149
-const.str %151 x2E
-rt %152 VAL %151
-cvt.f80.f64 %153 %152
-rt %154 STR$.f80 %153
-const.str %155 x20
-concat %156 %154 %155
+rt USINGBEGIN %150 %149
+const.str %151 x302E31
+rt %152 VAL.f80 %151
+rt USINGN.f80 %152
+rt USINGEND
+const.i32 %153 0
+rt PRINTNL %153
+line 9
+const.str %154 x332E33363231303331343331313230393335303633452D34393332
+rt %155 VAL.f80 %154
+store.f80 $__FLOAT_X %155
+line 10
+load.f80 %156 $__FLOAT_X
 const.i32 %157 0
-rt PRINTS %157 %156
-const.str %158 x4535
-rt %159 VAL %158
-cvt.f80.f64 %160 %159
-rt %161 STR$.f80 %160
+cvt.f80.i32 %158 %157
+gt.f80 %159 %156 %158
+cvt.i64.i32 %160 %159
+rt %161 STR$.i64 %160
 const.str %162 x20
 concat %163 %161 %162
 const.i32 %164 0
 rt PRINTS %164 %163
-const.str %165 x2D
-rt %166 VAL %165
-cvt.f80.f64 %167 %166
-rt %168 STR$.f80 %167
-const.str %169 x20
-concat %170 %168 %169
-const.i32 %171 0
-rt PRINTS %171 %170
-const.i32 %172 0
-rt PRINTNL %172
-line 8
-const.str %173 x23232E232323232323232323232323232323232323
-const.i32 %174 0
-rt USINGBEGIN %174 %173
-const.str %175 x302E31
-rt %176 VAL %175
-cvt.f80.f64 %177 %176
-rt USINGN.f80 %177
-rt USINGEND
-const.i32 %178 0
-rt PRINTNL %178
-line 9
-const.str %179 x332E33363231303331343331313230393335303633452D34393332
-rt %180 VAL %179
-cvt.f80.f64 %181 %180
-store.f80 $__FLOAT_X %181
-line 10
-load.f80 %182 $__FLOAT_X
-const.i32 %183 0
-cvt.f80.i32 %184 %183
-gt.f80 %185 %182 %184
-cvt.i64.i32 %186 %185
-rt %187 STR$.i64 %186
-const.str %188 x20
-concat %189 %187 %188
-const.i32 %190 0
-rt PRINTS %190 %189
-const.i32 %191 0
-rt PRINTNL %191
+const.i32 %165 0
+rt PRINTNL %165
 line 11
 system
 call SUB_QBNEX_TOPLEVEL_RUNTIME0

@@ -64,6 +64,7 @@ impl Arr {
             Ty::F32 => ArrData::F32(vec![0.0; count]),
             Ty::F64 => ArrData::F64(vec![0.0; count]),
             Ty::Str => ArrData::Str(vec![Vec::new(); count]),
+            Ty::F80 => return Err(5), // _FLOAT arrays live in memory mode
         };
         Ok(Arr { dims, data })
     }
@@ -350,6 +351,7 @@ fn to_val(bits: u64, ty: Ty) -> Val {
         Ty::F32 => Val::F(f64::from_bits(bits)),
         Ty::F64 => Val::D(f64::from_bits(bits)),
         Ty::Str => Val::S(Vec::new()),
+        Ty::F80 => Val::D(f64::from_bits(bits)),
     }
 }
 
@@ -360,7 +362,7 @@ fn from_val(v: &Val, ty: Ty) -> Result<u64, i32> {
             let x = v.i()?;
             ty.width().wrap(x) as u64
         }
-        Ty::F32 | Ty::F64 => v.f()?.to_bits(),
+        Ty::F32 | Ty::F64 | Ty::F80 => v.f()?.to_bits(),
         Ty::Str => return Err(13),
     })
 }
@@ -541,6 +543,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             .iter()
             .map(|&(r, ty)| match ty {
                 Ty::Str => V::S(self.sget(r).to_vec()),
+                Ty::F80 => V::X(self.xget(r)),
                 Ty::F32 | Ty::F64 => V::F(f64::from_bits(self.nums[self.nb + r as usize])),
                 _ => V::I(self.nums[self.nb + r as usize] as i64),
             })
@@ -551,6 +554,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                     match (ty, v) {
                         (Ty::Str, V::S(s)) => *self.sdst(d) = s,
                         (Ty::Str, _) => self.sdst(d).clear(),
+                        (Ty::F80, v) => {
+                            let x = match v {
+                                V::X(x) => x,
+                                V::F(f) => qb_float80::F80::from_f64(f),
+                                V::I(i) => qb_float80::F80::from_i64(i),
+                                _ => qb_float80::F80::from_i64(0),
+                            };
+                            self.xset(d, x);
+                        }
                         (Ty::F32 | Ty::F64, v) => self.nums[self.nb + d as usize] = rt_f(&v).to_bits(),
                         (_, v) => self.nums[self.nb + d as usize] = rt_i(&v) as u64,
                     }
@@ -810,6 +822,17 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.gosub.retain(|g| g.depth <= depth);
         self.set_view(fr.caller_view);
         Ok(fr.ret)
+    }
+
+    fn xget(&self, r: R) -> qb_float80::F80 {
+        let b = self.nb + r as usize;
+        qb_float80::F80 { mant: self.nums[b], se: self.nums[b + 1] as u16 }
+    }
+
+    fn xset(&mut self, r: R, x: qb_float80::F80) {
+        let b = self.nb + r as usize;
+        self.nums[b] = x.mant;
+        self.nums[b + 1] = u64::from(x.se);
     }
 
     fn free_owned(&mut self, from: usize) {
@@ -1370,6 +1393,64 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                     _ => fail!(3),
                 },
+                Ins::MovX { d, s } => {
+                    let (m, e) = (r!(s), r!(s + 1));
+                    set!(d, m);
+                    set!(d + 1, e)
+                }
+                Ins::XBin { op, d, a, b: y } => {
+                    let (x, z) = (self.xget(a), self.xget(y));
+                    let v = match op {
+                        XOp::Add => x + z,
+                        XOp::Sub => x - z,
+                        XOp::Mul => x * z,
+                        XOp::Div => x / z,
+                        XOp::Pow => tryc!(qb_float80::qb::pow2(x, z)),
+                    };
+                    self.xset(d, v);
+                }
+                Ins::XNeg { d, s } => {
+                    let x = self.xget(s);
+                    self.xset(d, -x);
+                }
+                Ins::XCmp { c, d, a, b: y } => {
+                    use std::cmp::Ordering::*;
+                    let o = self.xget(a).compare(self.xget(y));
+                    let v = match (c, o) {
+                        (Cmp::Ne, None) => true,
+                        (_, None) => false,
+                        (Cmp::Eq, Some(o)) => o == Equal,
+                        (Cmp::Ne, Some(o)) => o != Equal,
+                        (Cmp::Lt, Some(o)) => o == Less,
+                        (Cmp::Le, Some(o)) => o != Greater,
+                        (Cmp::Gt, Some(o)) => o == Greater,
+                        (Cmp::Ge, Some(o)) => o != Less,
+                    };
+                    set!(d, b(v))
+                }
+                Ins::XFromI { d, s, u } => {
+                    let v = if u { qb_float80::F80::from_u64(r!(s)) } else { qb_float80::F80::from_i64(ri!(s)) };
+                    self.xset(d, v);
+                }
+                Ins::XFromF { d, s } => {
+                    let v = qb_float80::F80::from_f64(rf!(s));
+                    self.xset(d, v);
+                }
+                Ins::XToF { d, s, f32 } => {
+                    let x = self.xget(s);
+                    setf!(d, if f32 { f64::from(x.to_f32()) } else { x.to_f64() })
+                }
+                Ins::XToI { d, s, w, trunc } => {
+                    let x = self.xget(s);
+                    let n = if w == W::U64 {
+                        x.to_u64_cast() as i64
+                    } else if trunc {
+                        x.to_i64(qb_float80::Round::Zero)
+                    } else {
+                        qb_float80::qb::qbr(x)
+                    };
+                    seti!(d, w.wrap(n))
+                }
                 Ins::NewV { d, v } => {
                     let p = self.mem.new_var(&m.mvars[v as usize]);
                     self.owned.push(p);
@@ -1380,6 +1461,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if t == MTy::Str {
                         let v = tryc!(self.mem.ld_str(a)).to_vec();
                         *self.sdst(d) = v;
+                    } else if t == MTy::F80 {
+                        let raw: [u8; 10] = tryc!(self.mem.bytes(a, 10)).try_into().unwrap();
+                        self.xset(d, qb_float80::F80::from_bytes(raw));
                     } else {
                         let v = tryc!(self.mem.ld(t, a));
                         set!(d, v)
@@ -1391,6 +1475,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                         let v: *const [u8] = self.sget(s);
                         // SAFETY: the string registers are not touched by memory stores
                         tryc!(self.mem.st_str(a, unsafe { &*v }));
+                    } else if t == MTy::F80 {
+                        let raw = self.xget(s).to_bytes();
+                        tryc!(self.mem.bytes(a, 10)).copy_from_slice(&raw);
                     } else {
                         tryc!(self.mem.st(t, a, r!(s)));
                     }

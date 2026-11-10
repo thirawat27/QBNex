@@ -42,6 +42,8 @@ pub enum Ty {
     F32,
     F64,
     Str,
+    /// `_FLOAT` (x87 80-bit): two numeric registers `r` (significand), `r + 1` (sign/exponent)
+    F80,
 }
 
 impl Ty {
@@ -49,7 +51,7 @@ impl Ty {
         matches!(self, Ty::I16 | Ty::I32 | Ty::I64)
     }
     pub fn is_float(self) -> bool {
-        matches!(self, Ty::F32 | Ty::F64)
+        matches!(self, Ty::F32 | Ty::F64 | Ty::F80)
     }
     pub fn is_num(self) -> bool {
         self != Ty::Str
@@ -69,6 +71,7 @@ impl Ty {
             Ty::F32 => "f32",
             Ty::F64 => "f64",
             Ty::Str => "str",
+            Ty::F80 => "f80",
         }
     }
 }
@@ -205,8 +208,9 @@ pub enum MTy {
     I64,
     U64,
     F32,
-    /// DOUBLE and _FLOAT (8 bytes, like the reference interpreter)
     F64,
+    /// `_FLOAT`: 10 bytes <-> register pair
+    F80,
     Ptr,
     /// string handle (8 bytes); the register is a string register
     Str,
@@ -218,6 +222,7 @@ impl MTy {
             MTy::I8 | MTy::U8 => 1,
             MTy::I16 | MTy::U16 => 2,
             MTy::I32 | MTy::U32 | MTy::F32 => 4,
+            MTy::F80 => 10,
             _ => 8,
         }
     }
@@ -233,6 +238,17 @@ pub struct MVar {
     /// holds string handles
     pub strs: bool,
     pub array: bool,
+}
+
+/// `_FLOAT` binary operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum XOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    /// QB `^` (powl semantics, error 5 on a domain error)
+    Pow,
 }
 
 /// Inner operation of the accumulate superinstruction.
@@ -403,6 +419,20 @@ pub enum Ins {
     StE1S { a: R, i: R, s: R },
     Bound { d: R, a: R, dim: R, upper: bool },
     Erase { a: R },
+    // ---- _FLOAT (register pairs, see Ty::F80)
+    MovX { d: R, s: R },
+    XBin { op: XOp, d: R, a: R, b: R },
+    XNeg { d: R, s: R },
+    /// compare -> -1 / 0 in a numeric register (NaN: only `ne` holds)
+    XCmp { c: Cmp, d: R, a: R, b: R },
+    /// integer register -> F80 (`u` = unsigned 64-bit source)
+    XFromI { d: R, s: R, u: bool },
+    /// f64 register -> F80
+    XFromF { d: R, s: R },
+    /// F80 -> f64 register (`f32` = round to SINGLE)
+    XToF { d: R, s: R, f32: bool },
+    /// F80 -> integer: qbr (or truncation), wrapped to `w`; U64 = C cast
+    XToI { d: R, s: R, w: W, trunc: bool },
     // ---- memory (QIR v1 programs with TYPE / STRING * n / pointers); `p`, `a` = pointer registers
     /// d = new storage for `Module::mvars[v]`, freed when the frame returns
     NewV { d: R, v: u32 },
@@ -673,13 +703,35 @@ impl Ins {
             }
             Erase { a } => f(O::A(a)),
             NewV { d, .. } => f(O::N(d)),
+            MovX { d, s } | XNeg { d, s } => {
+                f(O::NRun(d, 2));
+                f(O::NRun(s, 2))
+            }
+            XBin { d, a, b, .. } => {
+                f(O::NRun(d, 2));
+                f(O::NRun(a, 2));
+                f(O::NRun(b, 2))
+            }
+            XCmp { d, a, b, .. } => {
+                f(O::N(d));
+                f(O::NRun(a, 2));
+                f(O::NRun(b, 2))
+            }
+            XFromI { d, s, .. } | XFromF { d, s } => {
+                f(O::NRun(d, 2));
+                f(O::N(s))
+            }
+            XToF { d, s, .. } | XToI { d, s, .. } => {
+                f(O::N(d));
+                f(O::NRun(s, 2))
+            }
             LdM { t, d, p, .. } => {
-                f(if t == MTy::Str { O::S(d) } else { O::N(d) });
+                f(if t == MTy::Str { O::S(d) } else if t == MTy::F80 { O::NRun(d, 2) } else { O::N(d) });
                 f(O::N(p))
             }
             StM { t, p, s, .. } => {
                 f(O::N(p));
-                f(if t == MTy::Str { O::SK(s) } else { O::N(s) })
+                f(if t == MTy::Str { O::SK(s) } else if t == MTy::F80 { O::NRun(s, 2) } else { O::N(s) })
             }
             LdFs { d, p, .. } => {
                 f(O::S(d));
@@ -871,6 +923,14 @@ impl Ins {
             Rt { .. } => "rt".into(),
             Erase { .. } => "erase".into(),
             NewV { v, .. } => format!("newv mvar{v}"),
+            MovX { .. } => "mov.x".into(),
+            XBin { op, .. } => format!("{}.x", format!("{op:?}").to_lowercase()),
+            XNeg { .. } => "neg.x".into(),
+            XCmp { c, .. } => format!("cmp.x {}", c.name()),
+            XFromI { u, .. } => if u { "x.from_u64" } else { "x.from_int" }.into(),
+            XFromF { .. } => "x.from_f".into(),
+            XToF { f32, .. } => if f32 { "x.to_f32" } else { "x.to_f64" }.into(),
+            XToI { w, trunc, .. } => format!("x.to_{}{}", w.name(), if trunc { ".trunc" } else { "" }),
             LdM { t, off, .. } => format!("ld.{} +{off}", format!("{t:?}").to_lowercase()),
             StM { t, off, .. } => format!("st.{} +{off}", format!("{t:?}").to_lowercase()),
             LdFs { off, len, .. } => format!("ldfs +{off} {len}"),
@@ -1181,7 +1241,11 @@ impl Module {
                 }
                 if let Ins::Bi { args, .. } | Ins::Rt { args, .. } = *ins {
                     for &(r, ty) in &self.bargs[args as usize] {
-                        let ok = if ty == Ty::Str { self.sk_ok(f, r) } else { r < f.n_num() };
+                        let ok = match ty {
+                            Ty::Str => self.sk_ok(f, r),
+                            Ty::F80 => r.checked_add(2).is_some_and(|e| e <= f.n_num()),
+                            _ => r < f.n_num(),
+                        };
                         if !ok {
                             return Err(format!("pc {pc}: bad builtin argument"));
                         }
@@ -1248,6 +1312,7 @@ impl Module {
                 None => false,
                 Some((_, None)) => d == NONE,
                 Some((_, Some(Ty::Str))) => d < f.n_str,
+                Some((_, Some(Ty::F80))) => d.checked_add(2).is_some_and(|e| e <= f.n_num()),
                 Some((_, Some(_))) => d < f.n_num(),
             },
             Opnd::BArgs(a) => (a as usize) < self.bargs.len(),
