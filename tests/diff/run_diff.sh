@@ -32,6 +32,7 @@ case "$(uname -m)" in
   *) echo "diff_round/diff_val/diff_timer skipped: legacy reference needs x87 long double ($(uname -m))" ;;
 esac
 # diff_files / diff_sys compare against the legacy Win32 code paths: Windows only (run_diff.cmd).
+# diff_float80 (R11d) needs MinGW's libm, __mingw_snprintf and __mingw_strtold: run_diff.cmd only.
 
 # R7: FreeType, stb_image and dr_pcx were deleted from the tree; the references are
 # taken from git history (the last commit that still had them).

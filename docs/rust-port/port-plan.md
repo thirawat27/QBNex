@@ -323,3 +323,17 @@ flowchart LR
 | H11 Debt register ปิดงาน | ไล่ F0–F16 + finding ใหม่จาก H1–H10 ทีละข้อ: ปิด / ยอมรับพร้อมเหตุผล | ทุกข้อมีสถานะ |
 
 ผลลัพธ์: `docs/rust-port/hardening-report.md` (finding ทุกข้อมี evidence/impact/severity/confidence ตามรูปแบบ debt register) และทุก fix มี regression test.
+
+### 9.6 R15 — 3D (หลังทุกเฟสก่อนหน้า รวม R14)
+
+คำขอของเจ้าของ (2026-11-10). ยังไม่มีการรองรับ 3D ในระบบตอนนี้: `SUB _GL` ถูกปิดตั้งแต่ R8 (D-09) และ runtime วาดด้วย CPU (softbuffer). ข้อจำกัดเดิมยังใช้: ไม่มี C/C++, pure-Rust crate, backward compatible.
+
+| งาน | วิธี | Exit gate |
+| --- | --- | --- |
+| G1 GPU backend | `wgpu` (Vulkan/DX12/Metal/WebGPU) ใน crate ใหม่ `crates/qb-gpu`; หน้าต่าง winit เดิมได้ surface GPU; 2D ปัจจุบันยัง pixel-exact (CPU path เป็น reference) | conformance กราฟิกเดิมผ่าน; เปิด GPU ได้ทั้ง 3 OS |
+| G2 `SUB _GL` กลับมา | OpenGL บริบทจริงผ่าน `glutin` + `glow` (pure Rust binding) ให้โปรแกรม QB64 เดิมที่ใช้ `_GL*` รันได้ | ปิด D-09; ตัวอย่าง `_GL` ของ QB64 รันได้ |
+| G3 `_MAPTRIANGLE` 3D | โหมด `_DEPTHBUFFER`, `_SMOOTH`, `_CLOCKWISE`, perspective ของ QB64 บน GPU | ผลตรงกับ QB64 oracle |
+| G4 3D API ใหม่ระดับสูง | `_MESH`, `_MODEL3D` (โหลด glTF/OBJ ด้วย `gltf`/`tobj`), `_CAMERA`, `_LIGHT`, `_MATERIAL`, `_TEXTURE`, `_DRAW3D`; คณิต vector/matrix (`glam`) เป็น built-in | conformance + ภาพ golden (render offscreen) |
+| G5 Shader | `_SHADER` รับ WGSL; compile ด้วย `naga` | ตัวอย่าง shader รันได้ |
+| G6 ประสิทธิภาพ | instancing, batching; benchmark ฉาก 10k triangle/วินาที | ≥ 60 fps บนเครื่องทดสอบ |
+
