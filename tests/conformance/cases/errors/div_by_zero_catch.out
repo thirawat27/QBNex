@@ -1,0 +1,10 @@
+ERR 11 Division by zero
+after \
+ERR 11 Division by zero
+after MOD
+min\-1 =-9223372036854775808 
+ 14 -1  1333333333 
+caught 11 
+caught MOD 11 Division by zero
+ 3 -1 
+done

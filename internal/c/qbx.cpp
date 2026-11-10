@@ -1,4 +1,6 @@
 #include "common.h"
+#include <limits>
+#include <type_traits>
 #include "../../crates/qb-ext/include/qb_ext.h" // R13-ext: qb_ext_* for header-less DECLARE LIBRARY in compiler/stdlib/ext
 
 extern int32 func__cinp (int32 toggle, int32 passed); //Console INP scan code reader
@@ -744,7 +746,29 @@ ptrszint data_offset=0;
 
 
 //inline functions
-inline void swap_8(void *a,void*b){
+
+//Integer \ and MOD (semantics.bas emits func_idiv/func_imod for them): a zero divisor
+//raises BASIC error 11 that ON ERROR and TRY can catch, instead of a hardware fault
+//(SIGFPE); the result of the failed operation is 0. The most negative value \ -1 wraps
+//to itself and MOD -1 is 0, as in the QIR VM and JIT (x86 idiv would fault).
+template <typename A, typename B> static inline auto func_idiv(A a, B b) -> decltype(a / b) {
+    typedef decltype(a / b) R;
+    if constexpr (std::is_integral<R>::value) {
+        if (b == 0) { error(11); return 0; }
+        if constexpr (std::is_signed<R>::value) {
+            if ((R)b == (R)-1 && (R)a == std::numeric_limits<R>::min()) return a; //wraps
+        }
+    }
+    return a / b;
+}
+template <typename A, typename B> static inline auto func_imod(A a, B b) -> decltype(a % b) {
+    typedef decltype(a % b) R;
+    if (b == 0) { error(11); return 0; }
+    if constexpr (std::is_signed<R>::value) {
+        if ((R)b == (R)-1) return 0; //MIN % -1 faults on x86; the remainder is 0
+    }
+    return a % b;
+}inline void swap_8(void *a,void*b){
     uint8 x;
     x=*(uint8*)a;
     *(uint8*)a=*(uint8*)b;
@@ -1902,8 +1926,11 @@ void evnt(uint32 linenumber, uint32 inclinenumber, const char* incfilename){
 static std::vector<uint8> redim_preserve_cmem_buffer_storage(65536,0);
 uint8 *redim_preserve_cmem_buffer=redim_preserve_cmem_buffer_storage.data();//used for temporary storage only (move to libqbx?)
 
+extern "C" void qb_fatal_error(int32 code);
 void division_by_zero_handler(int ignore){
-    error(11);
+    //A hardware arithmetic fault (integer \ and MOD are checked in func_idiv/func_imod,
+    //so this is C++ runtime code): returning would re-run the faulting instruction.
+    qb_fatal_error(11);
 }
 
 //void SIGSEGV_handler(int ignore){
