@@ -861,6 +861,37 @@ Limits / next:
 - No JIT: Cranelift could emit wasm in a later step.
 - `wasm-bindgen-test` was not used (no wasm-bindgen CLI here); the node runner drives the same exports the page uses.
 
+## Q2 — a window for GUI programs built with `--ir` (branch `claude/r11b-win`)
+
+Before, a QIR program without `$CONSOLE` printed its text screen to stdout, read its keys from stdin and never saw `close`
+(corpus-run.md Q2). Now its executable behaves like a C++-built one:
+
+- `qb-exec` (`main.rs`): QIR without `meta console` (`qb_exec::wants_window`) runs the VM on a program thread
+  (`run_program_window`, 64 MB stack) while the main thread runs qb-runtime's window layer (`qb_window_run`: winit +
+  softbuffer, or the headless stand-in with `QBNEX_HEADLESS=1` / no display, which replays `QBNEX_INPUT_SCRIPT`).
+  `$SCREENHIDE` starts it hidden. Console programs and the library API (`run_ir`, `run_program`, qb-web) keep stdout.
+- `rt/window.rs`: `compose` is the frame part of libqb.cpp `display()` (text pages with the builtin 8x8/8x14/8x16 fonts,
+  double width, blink attribute, the text cursor rules of `LOCATE ,,,start,stop`; palette and 32-bit pages); a ticker raises
+  an event every 32 ms and the VM presents at its next safe point while `_AUTODISPLAY` is on (MAIN_LOOP rate). `_DISPLAY`
+  presents too, `_TITLE` sets the window title, mouse positions are mapped from window to page pixels (`qb_layout`).
+- Keys and mouse go through the existing `rt/input.rs` queue (INKEY$, `_KEYHIT`, `_KEYDOWN`, `_MOUSE*`). With a window,
+  INPUT/LINE INPUT read typed keys drawn on the screen (the browser runner's typed line, now shared), `SLEEP n` waits n
+  seconds or until a key, `SLEEP` until a key.
+- Close: the close box or `close` in a script ends the program at its next safe point, or at once while it waits
+  (typed INPUT, SLEEP); `END` keeps the window open until it is closed, `SYSTEM` closes it (libqb `end()` /
+  `end_program`). `_EXIT` is not available to QIR programs, so a close always ends the program.
+- Tests: `crates/qb-exec/tests/window.rs` (6, all headless + input script: PRINT reaches the window not stdout, console
+  programs keep stdout, typed INPUT + SLEEP, SLEEP without a key, SCREEN 13 + INKEY$, close ends a busy loop), unit tests
+  in `rt/window.rs` (text glyphs/attributes/cursor, palette and 32-bit pages, cursor scanline rules). Fixtures
+  `tests/fixtures/window/*.qir` are `qb --ir` output. `onerror.bas` and `jit/aot_mixed.qir` became `$CONSOLE:ONLY`
+  (their tests compare stdout).
+- MAGIC/MAGIC.BAS (corpus, `--ir`, `QBNEX_HEADLESS=1`, `tests/corpus-run/inputs/_default.input`): exits 0 after the
+  scripted `close` in 3.6 s with VM and with `QB_JIT=eager`; stdout holds only the script's `snapshot` line (was: 3.8 MB of
+  text until the timeout).
+
+Limits: `_LOADFONT` fonts and UTF-8 cells of text pages are drawn with the builtin 8x16 font; no `_FULLSCREEN`/resize
+handling beyond what the window layer does itself; frames are composed on the program thread (no hardware images).
+
 ## R13 debugger (qb-dap)
 
 New crate `crates/qb-dap` plus a feature-gated hook in qb-exec; design and limits in `docs/rust-port/qb-dap-plan.md`.

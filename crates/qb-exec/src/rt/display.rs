@@ -41,6 +41,7 @@ pub(crate) struct Display {
     /// `_TITLE` (window_title)
     pub title: Vec<u8>,
     /// GUI program with a window (rt/window.rs): `_DISPLAY` and `_TITLE` reach it
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub window: bool,
 }
 
@@ -115,6 +116,7 @@ impl Display {
         im(self.display_index)
     }
     /// The page the screen shows (`_DISPLAY`).
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn display_page(&self) -> *mut ImgStruct {
         self.dp()
     }
