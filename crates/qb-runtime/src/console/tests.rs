@@ -626,3 +626,22 @@ fn input_dollar_from_keyboard() {
     let r = unsafe { keyboard::input_n(&mut m, 3) };
     assert_eq!(r, vec![b'x', 0, b'y']);
 }
+
+#[test]
+fn redirected_column_tracking_and_comma_zones() {
+    use super::stdio::advance_column;
+    use super::text::zone_spaces;
+    assert_eq!(advance_column(1, b"abc"), 4);
+    assert_eq!(advance_column(4, b"x\ny"), 2);
+    assert_eq!(advance_column(9, b"\r"), 1);
+    assert_eq!(advance_column(1, "é€".as_bytes()), 3); // UTF-8 continuation bytes do not move
+    // 14-column zones start at 1, 15, 29, 43, 57; at least one space; no zone
+    // left within the width -> a new line (None).
+    assert_eq!(zone_spaces(1, 80), Some(14));
+    assert_eq!(zone_spaces(3, 80), Some(12));
+    assert_eq!(zone_spaces(15, 80), Some(14));
+    assert_eq!(zone_spaces(14, 80), Some(1));
+    assert_eq!(zone_spaces(57, 80), None);
+    assert_eq!(zone_spaces(60, 80), None);
+    assert_eq!(zone_spaces(43, 80), Some(14));
+}

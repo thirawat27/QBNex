@@ -226,6 +226,20 @@ fn print_zone() {
 }
 
 #[test]
+fn print_zone_wraps_when_no_zone_is_left() {
+    // Five zones fill columns 1..70; a comma after column 57 (no whole 14-column
+    // zone left in 80 columns) starts a new line, as in QBasic and qb-runtime.
+    let mut src = String::from("const.i32 %9 0\nconst.str %0 x41\n");
+    for _ in 0..5 {
+        src.push_str("rt PRINTS %9 %0\nrt PRINTZONE %9\n");
+    }
+    src.push_str("rt PRINTS %9 %0\nrt PRINTNL %9");
+    let o = run(&src);
+    let lines: Vec<&str> = o.split('\n').collect();
+    assert_eq!(lines[0], format!("A{0}A{0}A{0}A{0}A", " ".repeat(13)));
+    assert_eq!(lines[1], "A");
+}
+#[test]
 fn erl_is_last_numeric_label_errorline_is_source_line() {
     let src = "QIR 1
 func main

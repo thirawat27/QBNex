@@ -1213,6 +1213,10 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "func_rad2deg|func_rad2grad|func_grad2deg|func_grad2rad|func_arcsec|func_arccsc|func_arccot|func_sech|"
     l$ = l$ + "func_csch|func_coth|func_sec|func_csc|func_cot|atan2|hypot|func_pi|"
     l$ = l$ + "func__shl|func__shr|func__setbit|func__resetbit|func__togglebit|func__readbit|func__str_compare|func__str_nc_compare|"
+    l$ = l$ + "func__loadmodel|func__meshcube|func__meshplane|sub__meshbegin|sub__meshvertex|sub__meshtriangle|func__meshend|"
+    l$ = l$ + "sub__meshcolor|sub__meshtexture|sub__freemesh|sub__draw3d|sub__camera|sub__cameraortho|sub__camerarange|"
+    l$ = l$ + "sub__ambient|func__light|sub__lighton|sub__freelight|sub__clear3d|func__gpu3d|"
+    l$ = l$ + "func__shader|func__shadererror|sub__shaderparam|sub__meshshader|sub__freeshader|"
     l$ = l$ + "|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0

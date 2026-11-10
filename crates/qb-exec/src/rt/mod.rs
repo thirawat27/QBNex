@@ -17,6 +17,7 @@ pub(crate) mod builtins;
 mod files;
 mod memx;
 mod netx;
+mod scene3d;
 
 pub(crate) use builtins::{call, str_store_hook, Host, RtState};
 

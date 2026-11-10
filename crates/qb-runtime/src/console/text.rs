@@ -142,6 +142,15 @@ pub unsafe fn makefit(h: &mut dyn Host, text: &[u8]) {
     }
 }
 
+/// Spaces that move the console/stdout column `col` to the next 14-column
+/// PRINT zone (zones start at 1, 15, 29, ...; at least one space), or `None`
+/// when no whole zone is left within `width` columns and the output must go
+/// on to a new line.
+pub fn zone_spaces(col: i32, width: i32) -> Option<i32> {
+    let next = ((col.max(1) - 1) / 14 + 1) * 14 + 1;
+    if next > width - 13 { None } else { Some(next - col.max(1)) }
+}
+
 /// `tab`: the `,` separator of PRINT (14-column zones).
 pub unsafe fn tab(h: &mut dyn Host) {
     let w = wp(h);
@@ -152,15 +161,12 @@ pub unsafe fn tab(h: &mut dyn Host) {
     }
     #[cfg(windows)]
     if (*w).console != 0 {
-        if stdio::pos() > (*w).width as i32 - 10 {
-            stdio::write_raw(b"\n");
-            return;
-        }
-        loop {
-            stdio::write_raw(b" ");
-            if stdio::pos() % 10 == 0 {
-                break;
-            }
+        // 14-column zones as in QBasic. The column comes from the console, or,
+        // when stdout is redirected, from what this program wrote (L-02:
+        // asking the console there never advanced, so this looped forever).
+        match zone_spaces(stdio::pos(), (*w).width as i32) {
+            Some(n) => stdio::write_raw(&vec![b' '; n as usize]),
+            None => stdio::write_raw(b"\n"),
         }
         return;
     }

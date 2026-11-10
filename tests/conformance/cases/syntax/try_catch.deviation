@@ -1,0 +1,1 @@
+QBNex extension (R13): TRY ... CATCH [e] ... FINALLY ... END TRY, lowered onto ON ERROR GOTO / RESUME. e receives ERR. The legacy compiler has no TRY; expected output written by hand.

@@ -29,18 +29,37 @@ struct Cpu<'a> {
 }
 
 impl Cpu<'_> {
+    /// Byte at linear address `a`; outside the memory image it reads as 0
+    /// (which also ends the program loop) instead of panicking (R14).
+    fn rd(&self, a: usize) -> u8 {
+        self.m.get(a).copied().unwrap_or(0)
+    }
+    /// Stores a byte; writes outside the memory image are dropped (R14).
+    fn wr(&mut self, a: usize, v: u8) {
+        if let Some(x) = self.m.get_mut(a) {
+            *x = v;
+        }
+    }
+    fn rd_n<const N: usize>(&self, a: usize) -> [u8; N] {
+        core::array::from_fn(|k| self.rd(a + k))
+    }
+    fn wr_n(&mut self, a: usize, bytes: &[u8]) {
+        for (k, &v) in bytes.iter().enumerate() {
+            self.wr(a + k, v);
+        }
+    }
     fn b(&mut self) -> u8 {
-        let v = self.m[self.ip];
+        let v = self.rd(self.ip);
         self.ip += 1;
         v
     }
     fn w(&mut self) -> u16 {
-        let v = u16::from_le_bytes([self.m[self.ip], self.m[self.ip + 1]]);
+        let v = u16::from_le_bytes(self.rd_n(self.ip));
         self.ip += 2;
         v
     }
     fn d(&mut self) -> u32 {
-        let v = u32::from_le_bytes(self.m[self.ip..self.ip + 4].try_into().unwrap());
+        let v = u32::from_le_bytes(self.rd_n(self.ip));
         self.ip += 4;
         v
     }
@@ -113,9 +132,9 @@ impl Cpu<'_> {
                 _ => self.r[k],
             },
             Loc::Mem(a) => match size {
-                8 => u32::from(self.m[a]),
-                16 => u32::from(u16::from_le_bytes([self.m[a], self.m[a + 1]])),
-                _ => u32::from_le_bytes(self.m[a..a + 4].try_into().unwrap()),
+                8 => u32::from(self.rd(a)),
+                16 => u32::from(u16::from_le_bytes(self.rd_n(a))),
+                _ => u32::from_le_bytes(self.rd_n(a)),
             },
         }
     }
@@ -133,9 +152,9 @@ impl Cpu<'_> {
                 _ => self.r[k] = v,
             },
             Loc::Mem(a) => match size {
-                8 => self.m[a] = v as u8,
-                16 => self.m[a..a + 2].copy_from_slice(&(v as u16).to_le_bytes()),
-                _ => self.m[a..a + 4].copy_from_slice(&v.to_le_bytes()),
+                8 => self.wr(a, v as u8),
+                16 => self.wr_n(a, &(v as u16).to_le_bytes()),
+                _ => self.wr_n(a, &v.to_le_bytes()),
             },
         }
     }
@@ -197,7 +216,7 @@ pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, a
             i = c.b();
         }
         let wsz = if b32 { 32 } else { 16 };
-        let r = usize::from(c.m[c.ip] >> 3 & 7);
+        let r = usize::from(c.rd(c.ip) >> 3 & 7);
         match i {
             0x88 => {
                 let l = c.ea();
@@ -233,12 +252,12 @@ pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, a
             0xA0..=0xA3 => {
                 let a = c.seg + usize::from(c.w());
                 match i {
-                    0xA0 => c.r[0] = c.r[0] & !255 | u32::from(c.m[a]),
+                    0xA0 => c.r[0] = c.r[0] & !255 | u32::from(c.rd(a)),
                     0xA1 => {
                         let v = c.get(Loc::Mem(a), wsz);
                         c.set(Loc::Reg(0), wsz, v);
                     }
-                    0xA2 => c.m[a] = c.r[0] as u8,
+                    0xA2 => c.wr(a, c.r[0] as u8),
                     _ => {
                         let v = c.get(Loc::Reg(0), wsz);
                         c.set(Loc::Mem(a), wsz, v);
@@ -323,7 +342,7 @@ pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, a
             }
             _ => return Err(86),
         }
-        if c.m[c.ip] == 0 {
+        if c.rd(c.ip) == 0 {
             return Ok(());
         }
     }
@@ -339,5 +358,29 @@ mod tests {
         m[0x2000..0x2000 + code.len()].copy_from_slice(&code);
         super::call_absolute(&mut m, 0x2000, 0x300, 0, &[0x40]).unwrap();
         assert_eq!(u16::from_le_bytes([m[0x3040], m[0x3041]]), 1234);
+    }
+
+    /// R14: code that runs off the end of conventional memory (no RETF and
+    /// no 0 byte before the end) and accesses near the top must not panic.
+    #[test]
+    fn running_off_the_end_of_memory_does_not_panic() {
+        let mut m = vec![0u8; 0x110000];
+        // DEF SEG = &HFFFF, offset &HFFF0: MOV AX, imm16 repeated to the end.
+        let start = 0xFFFF0 + 0xFFF0;
+        for (k, b) in m[start..].iter_mut().enumerate() {
+            *b = if k % 3 == 0 { 0xB8 } else { 0x11 };
+        }
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut m, 0xFFFF0, 0xFFFF, 0xFFF0, &[])));
+        assert!(r.is_ok(), "panicked");
+        // A memory image smaller than 1 MB + 64 KB (stack at FFFF:xxxx).
+        let mut small = vec![0u8; 0x100];
+        small[0] = 0x50; // push ax
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut small, 0, 0, 0, &[1, 2])));
+        assert!(r.is_ok(), "panicked on a small image");
+        // MOV AX,[FFFF] with DS = FFFF reads the last bytes of the image.
+        let mut m = vec![0u8; 0x110000];
+        m[..5].copy_from_slice(&[0x66, 0xA1, 0xFF, 0xFF, 0xCB]);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut m, 0, 0xFFFF, 0, &[])));
+        assert!(r.is_ok(), "panicked on a 32-bit read at the top");
     }
 }

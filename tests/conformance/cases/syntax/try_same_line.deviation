@@ -1,0 +1,1 @@
+QBNex extension (R13): TRY/CATCH/FINALLY/END TRY and ENUM/END ENUM may share a line with other statements (separated by ':'). Expected output written by hand.

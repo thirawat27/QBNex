@@ -24,6 +24,7 @@ pub mod three;
 
 use std::sync::Arc;
 
+pub use glam;
 pub use wgpu;
 
 /// GPU context.
@@ -117,8 +118,8 @@ impl Gpu {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: fit_size(size.width, size.height, gpu.max_texture_size()).0,
+            height: fit_size(size.width, size.height, gpu.max_texture_size()).1,
             present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto),
@@ -127,6 +128,11 @@ impl Gpu {
         };
         surface.configure(&gpu.device, &config);
         Ok((gpu, Target::Window { surface, config, window }))
+    }
+
+    /// Largest texture side the device accepts.
+    pub fn max_texture_size(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
     }
 
     pub fn adapter_name(&self) -> String {
@@ -166,7 +172,9 @@ impl Target {
     }
 
     /// An offscreen target of a given 4-byte colour format (`Bgra8Unorm` reads back as runtime pixels).
+    /// Sides above the device limit are clamped (keeping the aspect ratio).
     pub fn offscreen_with_format(gpu: &Gpu, width: u32, height: u32, format: wgpu::TextureFormat) -> Target {
+        let (width, height) = fit_size(width, height, gpu.max_texture_size());
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("qb-gpu offscreen"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -197,8 +205,7 @@ impl Target {
     /// Follows a window resize.
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32) {
         if let Target::Window { surface, config, .. } = self {
-            config.width = width.max(1);
-            config.height = height.max(1);
+            (config.width, config.height) = fit_size(width, height, gpu.max_texture_size());
             surface.configure(&gpu.device, config);
         }
     }
@@ -273,6 +280,39 @@ impl Target {
     /// Reads a `Bgra8Unorm` offscreen target back as runtime pixels (`0xAARRGGBB`).
     pub fn read_pixels(&self, gpu: &Gpu) -> Option<Vec<u32>> {
         let bytes = self.read_rgba(gpu)?;
-        Some(bytes.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+        Some(bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect())
     }
+}
+
+/// Size that fits `max` on both sides keeping the aspect ratio (at least 1×1).
+pub fn fit_size(w: u32, h: u32, max: u32) -> (u32, u32) {
+    let (w, h, max) = (w.max(1), h.max(1), max.max(1));
+    if w <= max && h <= max {
+        return (w, h);
+    }
+    let big = w.max(h);
+    let s = |v: u32| ((u64::from(v) * u64::from(max) / u64::from(big)) as u32).clamp(1, max);
+    (s(w), s(h))
+}
+
+/// Texel data ready for a texture of at most `max`×`max`: a `w`×`h` image
+/// (`px` shorter than `w*h` is padded with the default value, extra data is
+/// ignored) scaled down with nearest sampling when a side exceeds `max`
+/// (R14: wgpu panics on textures above `max_texture_dimension_2d`).
+pub fn fit_texture<T: Copy + Default>(px: &[T], w: u32, h: u32, max: u32) -> (std::borrow::Cow<'_, [T]>, u32, u32) {
+    let (fw, fh) = fit_size(w, h, max);
+    let n = w as usize * h as usize;
+    if (fw, fh) == (w, h) && px.len() == n {
+        return (std::borrow::Cow::Borrowed(px), w, h);
+    }
+    let get = |x: usize, y: usize| px.get(y * w as usize + x).copied().unwrap_or_default();
+    let mut out = Vec::with_capacity(fw as usize * fh as usize);
+    for y in 0..fh as usize {
+        let sy = (y * h.max(1) as usize / fh as usize).min(h.max(1) as usize - 1);
+        for x in 0..fw as usize {
+            let sx = (x * w.max(1) as usize / fw as usize).min(w.max(1) as usize - 1);
+            out.push(if w == 0 || h == 0 { T::default() } else { get(sx, sy) });
+        }
+    }
+    (std::borrow::Cow::Owned(out), fw, fh)
 }

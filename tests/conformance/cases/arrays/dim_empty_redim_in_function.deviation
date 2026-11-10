@@ -1,0 +1,1 @@
+Fixes legacy defect L-21: DIM [SHARED] name() with empty parentheses did not create an array, so a REDIM name(...) inside a SUB/FUNCTION created a local array and other procedures saw an undimensioned one (error 9). The empty DIM now declares a dynamic array whose dimensions come with the first REDIM (D-27). Expected output is QBasic/QB64 behaviour.

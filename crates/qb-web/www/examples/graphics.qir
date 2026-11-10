@@ -1,0 +1,411 @@
+QIR 1
+global $__ARRAY_SINGLE_X array f32
+global $__ARRAY_SINGLE_Y array f32
+global $__ARRAY_SINGLE_DX array f32
+global $__ARRAY_SINGLE_DY array f32
+global $__ARRAY_SINGLE_C array f32
+global $__SINGLE_I f32
+global $__SINGLE_FRAME f32
+func main
+local $~T1 f64
+local $~T2 f64
+local $~T3 f64
+local $~T4 f64
+local $~T5 f64
+local $~T6 f64
+local $~T7 f64
+local $~T8 f64
+local $~T9 f64
+line 1
+const.i32 %0 13
+const.i32 %1 0
+const.i32 %2 0
+const.i32 %3 0
+const.i32 %4 0
+const.i32 %5 1
+rt qbg_screen %0 %1 %2 %3 %4 %5
+line 2
+rt %6 TIMER
+rt RANDOMIZE %6
+line 3
+const.i64 %7 0
+const.i32 %8 20
+dim $__ARRAY_SINGLE_X 1 %7 %8
+const.i64 %9 0
+const.i32 %10 20
+dim $__ARRAY_SINGLE_Y 1 %9 %10
+const.i64 %11 0
+const.i32 %12 20
+dim $__ARRAY_SINGLE_DX 1 %11 %12
+const.i64 %13 0
+const.i32 %14 20
+dim $__ARRAY_SINGLE_DY 1 %13 %14
+const.i64 %15 0
+const.i32 %16 20
+dim $__ARRAY_SINGLE_C 1 %15 %16
+line 4
+const.i32 %17 1
+cvt.f64.i32 %18 %17
+store.f64 $~T1 %18
+const.i32 %19 20
+cvt.f64.i32 %20 %19
+store.f64 $~T2 %20
+const.i32 %21 1
+cvt.f64.i32 %22 %21
+store.f64 $~T3 %22
+jmp ~F1.E
+label ~F1.T
+load.f32 %23 $__SINGLE_I
+cvt.f64.f32 %24 %23
+load.f64 %25 $~T3
+add.f64 %26 %25 %24
+store.f64 $~T1 %26
+label ~F1.E
+load.f64 %27 $~T1
+cvt.f32.f64 %28 %27
+store.f32 $__SINGLE_I %28
+load.f64 %29 $~T3
+const.f64 %30 0
+lt.f64 %31 %29 %30
+jz %31 ~F1.P
+load.f64 %32 $~T2
+lt.f64 %33 %27 %32
+jnz %33 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.f64 %34 $~T2
+gt.f64 %35 %27 %34
+jnz %35 ~F1.X
+label ~F1.B
+line 5
+load.f32 %36 $__SINGLE_I
+cvt.i64.f32 %37 %36
+aaddr %38 $__ARRAY_SINGLE_X %37
+rt %39 RND
+const.i32 %40 300
+cvt.f32.i32 %41 %40
+mul.f32 %42 %39 %41
+const.i32 %43 10
+cvt.f32.i32 %44 %43
+add.f32 %45 %42 %44
+st.f32 %38 0 %45
+line 5
+load.f32 %46 $__SINGLE_I
+cvt.i64.f32 %47 %46
+aaddr %48 $__ARRAY_SINGLE_Y %47
+rt %49 RND
+const.i32 %50 170
+cvt.f32.i32 %51 %50
+mul.f32 %52 %49 %51
+const.i32 %53 20
+cvt.f32.i32 %54 %53
+add.f32 %55 %52 %54
+st.f32 %48 0 %55
+line 6
+load.f32 %56 $__SINGLE_I
+cvt.i64.f32 %57 %56
+aaddr %58 $__ARRAY_SINGLE_DX %57
+rt %59 RND
+const.i32 %60 4
+cvt.f32.i32 %61 %60
+mul.f32 %62 %59 %61
+const.i32 %63 2
+cvt.f32.i32 %64 %63
+sub.f32 %65 %62 %64
+st.f32 %58 0 %65
+line 6
+load.f32 %66 $__SINGLE_I
+cvt.i64.f32 %67 %66
+aaddr %68 $__ARRAY_SINGLE_DY %67
+rt %69 RND
+const.i32 %70 4
+cvt.f32.i32 %71 %70
+mul.f32 %72 %69 %71
+const.i32 %73 2
+cvt.f32.i32 %74 %73
+sub.f32 %75 %72 %74
+st.f32 %68 0 %75
+line 6
+load.f32 %76 $__SINGLE_I
+cvt.i64.f32 %77 %76
+aaddr %78 $__ARRAY_SINGLE_C %77
+const.i32 %79 32
+load.f32 %80 $__SINGLE_I
+const.i32 %81 3
+cvt.f32.i32 %82 %81
+mul.f32 %83 %80 %82
+cvt.f32.i32 %84 %79
+add.f32 %85 %84 %83
+st.f32 %78 0 %85
+line 7
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 8
+const.i32 %86 1
+cvt.f64.i32 %87 %86
+store.f64 $~T4 %87
+const.i32 %88 900
+cvt.f64.i32 %89 %88
+store.f64 $~T5 %89
+const.i32 %90 1
+cvt.f64.i32 %91 %90
+store.f64 $~T6 %91
+jmp ~F3.E
+label ~F3.T
+load.f32 %92 $__SINGLE_FRAME
+cvt.f64.f32 %93 %92
+load.f64 %94 $~T6
+add.f64 %95 %94 %93
+store.f64 $~T4 %95
+label ~F3.E
+load.f64 %96 $~T4
+cvt.f32.f64 %97 %96
+store.f32 $__SINGLE_FRAME %97
+load.f64 %98 $~T6
+const.f64 %99 0
+lt.f64 %100 %98 %99
+jz %100 ~F3.P
+load.f64 %101 $~T5
+lt.f64 %102 %96 %101
+jnz %102 ~F3.X
+jmp ~F3.B
+label ~F3.P
+load.f64 %103 $~T5
+gt.f64 %104 %96 %103
+jnz %104 ~F3.X
+label ~F3.B
+line 9
+const.i32 %105 0
+cvt.f80.i32 %106 %105
+const.i32 %107 0
+cvt.f80.i32 %108 %107
+const.i32 %109 319
+cvt.f80.i32 %110 %109
+const.i32 %111 199
+cvt.f80.i32 %112 %111
+const.i32 %113 0
+const.i32 %114 2
+const.i32 %115 0
+const.i32 %116 9
+rt sub_line %106 %108 %110 %112 %113 %114 %115 %116
+line 10
+const.i32 %117 1
+cvt.f64.i32 %118 %117
+store.f64 $~T7 %118
+const.i32 %119 20
+cvt.f64.i32 %120 %119
+store.f64 $~T8 %120
+const.i32 %121 1
+cvt.f64.i32 %122 %121
+store.f64 $~T9 %122
+jmp ~F5.E
+label ~F5.T
+load.f32 %123 $__SINGLE_I
+cvt.f64.f32 %124 %123
+load.f64 %125 $~T9
+add.f64 %126 %125 %124
+store.f64 $~T7 %126
+label ~F5.E
+load.f64 %127 $~T7
+cvt.f32.f64 %128 %127
+store.f32 $__SINGLE_I %128
+load.f64 %129 $~T9
+const.f64 %130 0
+lt.f64 %131 %129 %130
+jz %131 ~F5.P
+load.f64 %132 $~T8
+lt.f64 %133 %127 %132
+jnz %133 ~F5.X
+jmp ~F5.B
+label ~F5.P
+load.f64 %134 $~T8
+gt.f64 %135 %127 %134
+jnz %135 ~F5.X
+label ~F5.B
+line 11
+load.f32 %136 $__SINGLE_I
+cvt.i64.f32 %137 %136
+aaddr %138 $__ARRAY_SINGLE_X %137
+load.f32 %139 $__SINGLE_I
+cvt.i64.f32 %140 %139
+aaddr %141 $__ARRAY_SINGLE_X %140
+ld.f32 %142 %141 0
+load.f32 %143 $__SINGLE_I
+cvt.i64.f32 %144 %143
+aaddr %145 $__ARRAY_SINGLE_DX %144
+ld.f32 %146 %145 0
+add.f32 %147 %142 %146
+st.f32 %138 0 %147
+line 11
+load.f32 %148 $__SINGLE_I
+cvt.i64.f32 %149 %148
+aaddr %150 $__ARRAY_SINGLE_Y %149
+load.f32 %151 $__SINGLE_I
+cvt.i64.f32 %152 %151
+aaddr %153 $__ARRAY_SINGLE_Y %152
+ld.f32 %154 %153 0
+load.f32 %155 $__SINGLE_I
+cvt.i64.f32 %156 %155
+aaddr %157 $__ARRAY_SINGLE_DY %156
+ld.f32 %158 %157 0
+add.f32 %159 %154 %158
+st.f32 %150 0 %159
+line 12
+load.f32 %160 $__SINGLE_I
+cvt.i64.f32 %161 %160
+aaddr %162 $__ARRAY_SINGLE_X %161
+ld.f32 %163 %162 0
+const.i32 %164 6
+cvt.f32.i32 %165 %164
+lt.f32 %166 %163 %165
+load.f32 %167 $__SINGLE_I
+cvt.i64.f32 %168 %167
+aaddr %169 $__ARRAY_SINGLE_X %168
+ld.f32 %170 %169 0
+const.i32 %171 313
+cvt.f32.i32 %172 %171
+gt.f32 %173 %170 %172
+or.i32 %174 %166 %173
+jz %174 ~I10.1
+line 12
+load.f32 %175 $__SINGLE_I
+cvt.i64.f32 %176 %175
+aaddr %177 $__ARRAY_SINGLE_DX %176
+load.f32 %178 $__SINGLE_I
+cvt.i64.f32 %179 %178
+aaddr %180 $__ARRAY_SINGLE_DX %179
+ld.f32 %181 %180 0
+neg.f32 %182 %181
+st.f32 %177 0 %182
+line 12
+label ~I10.1
+label ~I10.E
+line 13
+load.f32 %183 $__SINGLE_I
+cvt.i64.f32 %184 %183
+aaddr %185 $__ARRAY_SINGLE_Y %184
+ld.f32 %186 %185 0
+const.i32 %187 14
+cvt.f32.i32 %188 %187
+lt.f32 %189 %186 %188
+load.f32 %190 $__SINGLE_I
+cvt.i64.f32 %191 %190
+aaddr %192 $__ARRAY_SINGLE_Y %191
+ld.f32 %193 %192 0
+const.i32 %194 193
+cvt.f32.i32 %195 %194
+gt.f32 %196 %193 %195
+or.i32 %197 %189 %196
+jz %197 ~I11.1
+line 13
+load.f32 %198 $__SINGLE_I
+cvt.i64.f32 %199 %198
+aaddr %200 $__ARRAY_SINGLE_DY %199
+load.f32 %201 $__SINGLE_I
+cvt.i64.f32 %202 %201
+aaddr %203 $__ARRAY_SINGLE_DY %202
+ld.f32 %204 %203 0
+neg.f32 %205 %204
+st.f32 %200 0 %205
+line 13
+label ~I11.1
+label ~I11.E
+line 14
+load.f32 %206 $__SINGLE_I
+cvt.i64.f32 %207 %206
+aaddr %208 $__ARRAY_SINGLE_X %207
+ld.f32 %209 %208 0
+cvt.f80.f32 %210 %209
+load.f32 %211 $__SINGLE_I
+cvt.i64.f32 %212 %211
+aaddr %213 $__ARRAY_SINGLE_Y %212
+ld.f32 %214 %213 0
+cvt.f80.f32 %215 %214
+const.i32 %216 5
+cvt.f80.i32 %217 %216
+load.f32 %218 $__SINGLE_I
+cvt.i64.f32 %219 %218
+aaddr %220 $__ARRAY_SINGLE_C %219
+ld.f32 %221 %220 0
+cvt.u32.f32 %222 %221
+const.f80 %223 0
+const.f80 %224 0
+const.f80 %225 0
+const.i32 %226 2
+rt sub_circle %210 %215 %217 %222 %223 %224 %225 %226
+line 15
+load.f32 %227 $__SINGLE_I
+cvt.i64.f32 %228 %227
+aaddr %229 $__ARRAY_SINGLE_X %228
+ld.f32 %230 %229 0
+cvt.f80.f32 %231 %230
+load.f32 %232 $__SINGLE_I
+cvt.i64.f32 %233 %232
+aaddr %234 $__ARRAY_SINGLE_Y %233
+ld.f32 %235 %234 0
+cvt.f80.f32 %236 %235
+load.f32 %237 $__SINGLE_I
+cvt.i64.f32 %238 %237
+aaddr %239 $__ARRAY_SINGLE_C %238
+ld.f32 %240 %239 0
+cvt.u32.f32 %241 %240
+load.f32 %242 $__SINGLE_I
+cvt.i64.f32 %243 %242
+aaddr %244 $__ARRAY_SINGLE_C %243
+ld.f32 %245 %244 0
+cvt.u32.f32 %246 %245
+const.str %247 x
+const.i32 %248 6
+rt sub_paint %231 %236 %241 %246 %247 %248
+line 16
+label ~F5.C
+jmp ~F5.T
+label ~F5.X
+line 17
+const.i32 %249 1
+const.i32 %250 1
+const.i32 %251 0
+const.i32 %252 0
+const.i32 %253 0
+const.i32 %254 3
+rt qbg_sub_locate %249 %250 %251 %252 %253 %254
+line 17
+const.str %255 x53435245454E203133202D2070726573732061206B657920746F2073746F70
+const.i32 %256 0
+rt PRINTS %256 %255
+const.i32 %257 0
+rt PRINTNL %257
+line 18
+rt sub__display
+line 19
+const.i32 %258 60
+cvt.f64.i32 %259 %258
+rt sub__limit %259
+line 20
+rt %260 INKEY$
+const.str %261 x
+ne.str %262 %260 %261
+jz %262 ~I12.1
+line 20
+jmp ~F3.X
+line 20
+label ~I12.1
+label ~I12.E
+line 21
+label ~F3.C
+jmp ~F3.T
+label ~F3.X
+line 22
+const.i32 %263 440
+cvt.f64.i32 %264 %263
+const.i32 %265 3
+cvt.f64.i32 %266 %265
+rt SOUND %264 %266
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc

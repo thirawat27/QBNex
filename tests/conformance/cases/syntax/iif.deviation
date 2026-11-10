@@ -1,0 +1,1 @@
+QBNex extension (R13): _IIF(condition, a, b) returns a or b and evaluates only the chosen value. Not in the legacy compiler; expected output written by hand.

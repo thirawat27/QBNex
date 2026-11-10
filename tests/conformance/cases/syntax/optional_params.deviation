@@ -1,0 +1,1 @@
+QBNex extension (R13): OPTIONAL parameters with default values (`OPTIONAL p AS T = default`); a call may leave out trailing optional arguments. Not in the legacy compiler; expected output written by hand.

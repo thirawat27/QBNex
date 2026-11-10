@@ -10,18 +10,18 @@ const crate = join(here, '..', '..', '..', 'crates', 'qb-syntax', 'src');
 
 const builtins = [...readFileSync(join(crate, 'builtins_data.rs'), 'utf8').matchAll(/^\s+\("([^"]+)", (true|false), "([^"]*)"/gm)]
     .map((m) => ({ name: m[1] + m[3], isFunction: m[2] === 'true' }));
-const language = [...readFileSync(join(crate, 'keywords.rs'), 'utf8').matchAll(/^\s+\("([A-Z_]+)", ([SOT]),/gm)]
+const language = [...readFileSync(join(crate, 'keywords.rs'), 'utf8').matchAll(/^\s+\("([A-Z_0-9$]+)", ([SOTFB]),/gm)]
     .map((m) => ({ name: m[1], kind: m[2] }));
 
-const control = new Set(('IF THEN ELSE ELSEIF END ENDIF FOR NEXT TO STEP DO LOOP WHILE WEND UNTIL SELECT CASE IS ' +
+const control = new Set(('IF THEN ELSE ELSEIF END ENDIF FOR EACH IN NEXT TO STEP DO LOOP WHILE WEND UNTIL SELECT CASE IS _THROW ' +
     'GOTO GOSUB RETURN EXIT ON RESUME CALL STOP SYSTEM TRY CATCH FINALLY _CONTINUE ERROR').split(' '));
 const operators = new Set(language.filter((k) => k.kind === 'O').map((k) => k.name));
 const types = new Set(language.filter((k) => k.kind === 'T').map((k) => k.name));
 const other = new Set(language.filter((k) => k.kind === 'S' && !control.has(k.name) && k.name !== 'REM').map((k) => k.name));
 for (const w of ['DEF', 'DATA', 'LET', 'INPUT', 'PRINT', 'OPEN', 'CLOSE', 'LINE', 'USING', 'SHARED', 'STATIC']) other.add(w);
 for (const w of control) other.delete(w);
-const functions = new Set(builtins.filter((b) => b.isFunction).map((b) => b.name));
-const subs = new Set(builtins.filter((b) => !b.isFunction && !control.has(b.name) && !other.has(b.name)).map((b) => b.name));
+const functions = new Set([...builtins.filter((b) => b.isFunction).map((b) => b.name), ...language.filter((k) => k.kind === 'F').map((k) => k.name)]);
+const subs = new Set([...builtins.filter((b) => !b.isFunction).map((b) => b.name), ...language.filter((k) => k.kind === 'B').map((k) => k.name)].filter((n) => !control.has(n) && !other.has(n)));
 
 const esc = (s) => s.replace(/[$.*+?^()[\]{}|\\]/g, '\\$&');
 /** Case-insensitive alternation of whole words (a trailing `$` is part of the word). */

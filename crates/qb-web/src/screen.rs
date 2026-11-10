@@ -41,6 +41,12 @@ pub fn parse(rec: &[u8]) -> Option<Page> {
         return None;
     }
     let (width, height, bpp, mode) = (u32_at(rec, 8)?, u32_at(rec, 12)?, u32_at(rec, 16)?, u32_at(rec, 20)?);
+    // R14: a page has 1..=4 bytes per pixel, and the RGBA frame (4 bytes per
+    // pixel) must fit usize (wasm32); bpp 0 made `render` index empty data.
+    if !(1..=4).contains(&bpp) {
+        return None;
+    }
+    (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
     let n = (width as usize).checked_mul(height as usize)?.checked_mul(bpp as usize)?;
     let data = rec.get(24..24 + n)?.to_vec();
     let npal = u32_at(rec, 24 + n)? as usize;
@@ -176,5 +182,18 @@ mod tests {
         let mut r = rec(4, 4, 1, 13, &[0; 16], &[]);
         r.truncate(30);
         assert_eq!(parse(&r), None);
+    }
+
+    /// R14: odd pixel sizes must not panic in `render`.
+    #[test]
+    fn odd_pixel_sizes_do_not_panic() {
+        for bpp in [0u32, 2, 3, 5, 9] {
+            let data = vec![1u8; 4 * 4 * bpp as usize];
+            if let Some(p) = parse(&rec(4, 4, bpp, 13, &data, &[0xFF00_0000; 4])) {
+                let f = render(&p);
+                assert_eq!(f.rgba.len(), 4 * 4 * 4);
+            }
+        }
+        assert_eq!(parse(&rec(0x10000, 0x10000, 1, 13, &[], &[])), None);
     }
 }

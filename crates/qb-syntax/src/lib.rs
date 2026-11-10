@@ -14,6 +14,8 @@ pub mod cst;
 pub mod encoding;
 pub mod keywords;
 pub mod lexer;
+pub mod library;
+mod library_data;
 mod line_index;
 
 pub use cst::{BlockKind, Diagnostic, Element, Node, NodeKind, Parse, Role, Severity, parse};

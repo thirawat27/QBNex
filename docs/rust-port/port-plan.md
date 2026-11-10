@@ -342,6 +342,6 @@ flowchart LR
 | G2 `SUB _GL` กลับมา | OpenGL บริบทจริงผ่าน `glutin` + `glow` (pure Rust binding) ให้โปรแกรม QB64 เดิมที่ใช้ `_GL*` รันได้ | ปิด D-09; ตัวอย่าง `_GL` ของ QB64 รันได้ |
 | G3 `_MAPTRIANGLE` 3D (**ชั้น GPU เสร็จ 2026-11-11**: `qb_gpu::maptri`, test เทียบกับ `raster::tri3d`; ยังไม่ต่อกับคิวคำสั่ง hardware) | โหมด `_DEPTHBUFFER`, `_SMOOTH`, `_CLOCKWISE`, perspective ของ QB64 บน GPU | ผลตรงกับ QB64 oracle |
 | G4 3D API ใหม่ระดับสูง (**ออกแบบ + ชั้น GPU เสร็จ 2026-11-11**: `r15-g4-3d-api.md`, `qb_gpu::scene`; keyword ยังไม่ต่อ) | `_MESH`, `_MODEL3D` (โหลด glTF/OBJ ด้วย `gltf`/`tobj`), `_CAMERA`, `_LIGHT`, `_MATERIAL`, `_TEXTURE`, `_DRAW3D`; คณิต vector/matrix (`glam`) เป็น built-in | conformance + ภาพ golden (render offscreen) |
-| G5 Shader | `_SHADER` รับ WGSL; compile ด้วย `naga` | ตัวอย่าง shader รันได้ |
-| G6 ประสิทธิภาพ | instancing, batching; benchmark ฉาก 10k triangle/วินาที | ≥ 60 fps บนเครื่องทดสอบ |
+| G5 Shader (**เสร็จ 2026-11-11**: `_SHADER`/`_SHADERERROR$`/`_SHADERPARAM`/`_MESHSHADER`, ตรวจด้วย naga; เส้นทาง QIR) | `_SHADER` รับ WGSL; compile ด้วย `naga` | ตัวอย่าง shader รันได้ |
+| G6 ประสิทธิภาพ (**batch เสร็จ 2026-11-11**: 10k สามเหลี่ยม 834 draw 0.91 ms/frame บน 780M; instancing ยังไม่ทำ) | instancing, batching; benchmark ฉาก 10k triangle/วินาที | ≥ 60 fps บนเครื่องทดสอบ |
 

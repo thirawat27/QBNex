@@ -36,6 +36,7 @@ SUB ResetPrepassManagers
     topLevelRuntimeSeenProc = 0
     ClassSyntax_ClearRegistry
     ClassSyntax_ClearScopes
+    SyntaxExt_Reset
 END SUB
 
 SUB ResetPostPrepassState

@@ -106,6 +106,68 @@ fn start_window() {
     });
 }
 
+/// Browser build (R13-wasm): the page's keyboard and mouse events, in the
+/// layout of `crates/qb-web/www/qbnex.js` (`[kind, a, b, c, d, mods]`):
+/// 1 key (a pressed, b repeat, c key id, d character or virtual key; mods
+/// 1 shift, 2 ctrl, 4 alt), 2 button (a button 0-2, b down, c x, d y),
+/// 3 move (a x, b y), 4 wheel (a direction, b x, c y). Keys go through the
+/// same translation as the window layer (`qb_runtime::keymap`).
+#[cfg(target_arch = "wasm32")]
+fn web_events() {
+    use qb_runtime::keymap::{self, Key, KeyAction, KeyInput};
+    // at most one ring's worth per pump, so a flooding page cannot stall the program
+    for _ in 0..256 {
+        let Some([kind, a, b, c, d, mods]) = qb_runtime::systime::web::poll_event() else { break };
+        match kind {
+            1 => {
+                let key = match c {
+                    0 => match char::from_u32(d as u32) {
+                        Some(ch) => Key::Char(ch),
+                        None => continue,
+                    },
+                    1..=12 => Key::F(c as u8),
+                    20 => Key::PageUp,
+                    21 => Key::PageDown,
+                    22 => Key::Home,
+                    23 => Key::End,
+                    24 => Key::Left,
+                    25 => Key::Up,
+                    26 => Key::Right,
+                    27 => Key::Down,
+                    28 => Key::Insert,
+                    29 => Key::Delete,
+                    30 => Key::LCtrl,
+                    31 => Key::RCtrl,
+                    32 => Key::LShift,
+                    33 => Key::RShift,
+                    34 => Key::LAlt,
+                    35 => Key::RAlt,
+                    36 => Key::Pause,
+                    37 => Key::Cancel,
+                    38 => Key::Enter,
+                    39 => Key::Escape,
+                    40 => Key::Tab,
+                    41 => Key::Backspace,
+                    _ => Key::Other(d as u32),
+                };
+                let ev = KeyInput { pressed: a != 0, repeat: b != 0, key, shift: mods & 1 != 0, ctrl: mods & 2 != 0, alt: mods & 4 != 0 };
+                for act in keymap::translate(&ev) {
+                    match act {
+                        KeyAction::Down(x) => push(Ev::Key(1, x)),
+                        KeyAction::Up(x) => push(Ev::Key(2, x)),
+                        KeyAction::DownUnicode(x) => push(Ev::Key(3, x)),
+                        KeyAction::UpUnicode(x) => push(Ev::Key(4, x)),
+                    }
+                }
+            }
+            2 => push(Ev::Button(a, b != 0, c, d)),
+            3 => push(Ev::Move(a, b)),
+            4 => push(Ev::Wheel(a, b, c)),
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct MouseMsg {
     x: i32,
@@ -152,6 +214,8 @@ impl Input {
     /// Applies the queued events (program thread).
     pub(crate) fn pump(&mut self, cmem: &mut [u8]) {
         start();
+        #[cfg(target_arch = "wasm32")]
+        web_events();
         if cmem[0x41A] == 0 && cmem[0x41C] == 0 {
             // SAFETY: BIOS data area inside cmem.
             unsafe { keyboard::clear(cmem[0x400..].as_mut_ptr()) };
