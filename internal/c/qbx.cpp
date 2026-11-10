@@ -1,4 +1,5 @@
 #include "common.h"
+#include "../../crates/qb-ext/include/qb_ext.h" // R13-ext: qb_ext_* for header-less DECLARE LIBRARY in compiler/stdlib/ext
 
 extern int32 func__cinp (int32 toggle, int32 passed); //Console INP scan code reader
 extern int func__capslock();

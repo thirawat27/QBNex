@@ -36,6 +36,76 @@ fn cc(c: Cmp) -> Cc {
     }
 }
 
+/// Registers of function `fi` that hold a constant for the whole run: a
+/// non-zero initial value (`num_init`; variables start at zero) and no
+/// instruction that may write them. Conservative: every numeric operand of
+/// an instruction native code does not compile itself counts as written,
+/// and so does the first operand (the destination) of every native one
+/// that is not a pure branch.
+fn constant_regs(m: &bc::Module, fi: usize) -> Vec<bool> {
+    let f = &m.funcs[fi];
+    let n = f.n_num() as usize;
+    let mut written = vec![false; n];
+    let mut w = |r: u32| {
+        if (r as usize) < n {
+            written[r as usize] = true;
+        }
+    };
+    for ins in &m.code[f.entry as usize..f.end as usize] {
+        use Ins::*;
+        let branch_only = matches!(
+            ins,
+            Jmp { .. }
+                | Loop { .. }
+                | JzI { .. }
+                | JnzI { .. }
+                | BrI { .. }
+                | BrF { .. }
+                | ForTestKI { .. }
+                | ForTestKF { .. }
+                | Gosub { .. }
+                | Return
+        );
+        match *ins {
+            LoopForI { c, iv, .. } => {
+                w(c);
+                w(iv);
+            }
+            Acc { d, .. } => w(d),
+            SetG { g, .. } if fi == 0 => w(g),
+            _ => {}
+        }
+        if branch_only {
+            continue;
+        }
+        if light(ins) {
+            let mut first = true;
+            ins.operands(&mut |o| {
+                if let Opnd::N(r) = o {
+                    if first {
+                        w(r);
+                    }
+                    first = false;
+                }
+            });
+            if let Some((false, d)) = ins.clone().dest_mut().map(|(s, d)| (s, *d)) {
+                w(d);
+            }
+        } else {
+            for r in frame_regs(m, ins, n as u32, fi == 0) {
+                w(r);
+            }
+        }
+    }
+    // Main-module registers SUBs can change are never constants.
+    if fi == 0 {
+        for g in main_shared(m) {
+            w(g);
+        }
+    }
+    (0..n).map(|r| !written[r] && f.num_init[r] != 0).collect()
+}
+
 /// Compiled to native code (no VM callback).
 fn light(ins: &Ins) -> bool {
     use Ins::*;
@@ -56,6 +126,9 @@ fn light(ins: &Ins) -> bool {
         // float -> integer with qbr (CINT), wrapped: no error
         CvtFI { w, trunc: false, .. } => matches!(w, W::W16 | W::W32 | W::W64),
         Un { .. } => true,
+        // IEEE division; string compare through `jit_cmps` (no register flush)
+        DivFI { .. } => true,
+        CmpS { .. } | BrS { .. } => true,
         _ => false,
     }
 }
@@ -119,6 +192,7 @@ fn vm_safe(ins: &Ins) -> bool {
             | Raise { .. }
             | Un { .. }
             | Call { .. }
+            | Rt { .. }
     )
 }
 
@@ -131,7 +205,6 @@ fn exits(ins: &Ins) -> bool {
             | End
             | OnError { .. }
             | Resume { .. }
-            | BrS { .. }
     )
 }
 
@@ -194,6 +267,11 @@ fn frame_regs(m: &bc::Module, ins: &Ins, n: u32, is_main: bool) -> Vec<u32> {
         }
     }
     ins.operands(&mut |o| match o {
+        Opnd::Rt(b, d) => {
+            if matches!(m.rtfns[b as usize].1, Some(t) if t != bc::Ty::Str) {
+                add(d)
+            }
+        }
         Opnd::N(r) => add(r),
         Opnd::NRun(r, k) => (r..r.saturating_add(k)).for_each(&mut add),
         Opnd::NG(g) if is_main => add(g),
@@ -248,7 +326,7 @@ fn classes(m: &bc::Module, f: &bc::Func) -> Vec<Class> {
             | Xor { d, a, b }
 
  => (vec![d, a, b], vec![]),
-            AddF { d, a, b } | SubF { d, a, b } | MulF { d, a, b } | PowF { d, a, b } => {
+            AddF { d, a, b } | SubF { d, a, b } | MulF { d, a, b } | PowF { d, a, b } | DivFI { d, a, b } => {
                 (vec![], vec![d, a, b])
             }
             CmpI { d, a, b, .. } => (vec![d, a, b], vec![]),
@@ -306,6 +384,8 @@ struct Lower<'a> {
     view_off: u32,
     /// VM function -> MIR index of its native call version (None: VM calls it)
     natcall: &'a [Option<u32>],
+    /// registers holding a constant (see [`constant_regs`])
+    konst: Vec<bool>,
 }
 
 fn ty_of(c: Class) -> Ty {
@@ -328,6 +408,17 @@ impl Lower<'_> {
 
     /// Register `r` viewed as class `c` (bitcast into a temporary when it differs).
     fn get(&mut self, r: u32, c: Class) -> u32 {
+        if self.konst.get(r as usize).copied().unwrap_or(false) {
+            // A compile-time constant for Cranelift (folding, division by constants).
+            let bits = self.m.funcs[self.fi].num_init[r as usize];
+            let t = self.tmp(c);
+            let imm = match c {
+                Class::Int => Imm::I(bits as i64),
+                Class::Float => Imm::F(f64::from_bits(bits)),
+            };
+            self.insts.push(Inst::Const { dst: t, imm });
+            return t;
+        }
         if self.cls[r as usize] == c {
             r
         } else {
@@ -385,9 +476,29 @@ impl Lower<'_> {
     fn ibin(&mut self, op: BinOp, d: u32, a: u32, b: u32, w: W) {
         let (a, b) = (self.get(a, Class::Int), self.get(b, Class::Int));
         let dd = self.dst(d, Class::Int);
-        self.insts.push(Inst::Bin { op, dst: dd, a, b });
+        self.int_op(op, dd, a, b, w);
         self.wrap(dd, w);
         self.put(d, dd);
+    }
+
+    /// `dst = a op b` on 64-bit slots holding values normalised to `w`.
+    /// `\` and MOD of INTEGER/LONG values divide in 32 bits (the operands fit,
+    /// and the 64-bit result the VM computes wraps to the same value).
+    fn int_op(&mut self, op: BinOp, dst: u32, a: u32, b: u32, w: W) {
+        if matches!(op, BinOp::IDiv | BinOp::Mod) && matches!(w, W::W16 | W::W32) {
+            let n = |lw: &mut Self| {
+                lw.cls.push(Class::Int);
+                lw.slots.push(Ty::I32);
+                (lw.slots.len() - 1) as u32
+            };
+            let (x, y, r) = (n(self), n(self), n(self));
+            self.insts.push(Inst::Conv { dst: x, src: a });
+            self.insts.push(Inst::Conv { dst: y, src: b });
+            self.insts.push(Inst::Bin { op, dst: r, a: x, b: y });
+            self.insts.push(Inst::Conv { dst, src: r });
+        } else {
+            self.insts.push(Inst::Bin { op, dst, a, b });
+        }
     }
 
     fn fbin(&mut self, op: BinOp, d: u32, a: u32, b: u32) {
@@ -422,6 +533,15 @@ impl Lower<'_> {
         self.insts.push(Inst::Bin { op: BinOp::And, dst: t2, a: nn, b: above });
         let r = self.tmp(Class::Int);
         self.insts.push(Inst::Bin { op: BinOp::Or, dst: r, a: t1, b: t2 });
+        r
+    }
+
+    /// `a c b` on strings of the current frame (operands may be constants): -1 / 0.
+    fn cmps(&mut self, c: Cmp, a: u32, b: u32) -> u32 {
+        let code = self.konst_i(cmp_code(c));
+        let (x, y) = (self.konst_i(i64::from(a)), self.konst_i(i64::from(b)));
+        let r = self.tmp(Class::Int);
+        self.insts.push(Inst::Host { f: H_CMPS, args: vec![code, x, y], dst: Some(r) });
         r
     }
 
@@ -593,7 +713,7 @@ impl Lower<'_> {
                 }
                 let (x, y) = (self.get(a, Class::Int), self.get(b, Class::Int));
                 let t = self.tmp(Class::Int);
-                self.insts.push(Inst::Bin { op: bop, dst: t, a: x, b: y });
+                self.int_op(bop, t, x, y, wi);
                 self.wrap(t, wi);
                 let acc = self.get(d, Class::Int);
                 let dd = self.dst(d, Class::Int);
@@ -612,6 +732,7 @@ impl Lower<'_> {
             Or { d, a, b } => self.ibin(BinOp::Or, d, a, b, W::W64),
             Xor { d, a, b } => self.ibin(BinOp::Xor, d, a, b, W::W64),
             AddF { d, a, b } => self.fbin(BinOp::Add, d, a, b),
+            DivFI { d, a, b } => self.fbin(BinOp::FDiv, d, a, b),
             SubF { d, a, b } => self.fbin(BinOp::Sub, d, a, b),
             MulF { d, a, b } => self.fbin(BinOp::Mul, d, a, b),
             PowF { d, a, b } => self.fbin(BinOp::Pow, d, a, b),
@@ -687,6 +808,12 @@ impl Lower<'_> {
                 let ar = self.konst_i(i64::from(a));
                 let (i1, i2, sr) = (self.get(i, Class::Int), self.get(i + 1, Class::Int), self.get(s, Class::Int));
                 self.insts.push(Inst::Host { f: H_STE2, args: vec![ar, i1, i2, sr], dst: None });
+            }
+            CmpS { c, d, a, b } => {
+                let r = self.cmps(c, a, b);
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Mov { dst: dd, src: r });
+                self.put(d, dd);
             }
             Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, desc, self.is_main()) => {
                 self.native_call(pc, f, desc)
@@ -855,6 +982,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
             insts: vec![],
             view_off,
             natcall: &natcall,
+            konst: constant_regs(m, fi),
         };
         let mut blocks = Vec::new();
         if callver {
@@ -883,7 +1011,14 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 let next = pc + 1;
                 // Target block or an exit when the target is outside the function.
                 let blk = |t: u32| bidx(t);
+                // Event safe points exactly where the VM polls (loop, loop_for, CALL).
                 let branch = |_: &mut Lower, cond: u32, then_pc: u32, else_pc: u32| -> Term {
+                    match (blk(then_pc), blk(else_pc)) {
+                        (Some(t), Some(e)) => Term::BrNoPoll { cond, then: t, els: e },
+                        _ => Term::Exit { pc },
+                    }
+                };
+                let loop_branch = |_: &mut Lower, cond: u32, then_pc: u32, else_pc: u32| -> Term {
                     match (blk(then_pc), blk(else_pc)) {
                         (Some(t), Some(e)) => Term::Br { cond, then: t, els: e },
                         _ => Term::Exit { pc },
@@ -899,7 +1034,11 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                     Some(Term::Exit { pc })
                 } else {
                     match *ins {
-                        Jmp { t } | Loop { t } => Some(match blk(t) {
+                        Jmp { t } => Some(match blk(t) {
+                            Some(b) => Term::Goto(b),
+                            None => Term::Exit { pc: t },
+                        }),
+                        Loop { t } => Some(match blk(t) {
                             Some(b) => Term::Jmp(b),
                             None => Term::Exit { pc: t },
                         }),
@@ -923,31 +1062,21 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                             lw.ibin(BinOp::Add, c, iv, lim + 1, W::W64);
                             lw.inst(pc, &Wrap { d: iv, s: c, w });
                             let ex = lw.for_exit(c, lim, lim + 1, Class::Int);
-                            Some(branch(&mut lw, ex, next, body))
+                            Some(loop_branch(&mut lw, ex, next, body))
                         }
-                        Gosub { t } => {
-                            let r = lw.konst_i(i64::from(next));
-                            lw.insts.push(Inst::Host { f: H_GOSUB, args: vec![r], dst: None });
-                            Some(match blk(t) {
-                                Some(b) => Term::Jmp(b),
-                                None => Term::Exit { pc: t },
-                            })
-                        }
+                        // GOSUB stack in the native context: the VM moves this frame's
+                        // entries in at entry and back at every exit (see vm.rs).
+                        Gosub { t } => Some(match (blk(t), blk(next)) {
+                            (Some(b), Some(r)) => Term::Gosub { target: b, ret: r, ret_pc: next },
+                            _ => Term::Exit { pc },
+                        }),
                         Return => {
                             lw.insts.push(Inst::At { pc });
-                            let at = lw.konst_i(i64::from(pc));
-                            let r = lw.tmp(Class::Int);
-                            lw.insts.push(Inst::Host { f: H_RETURN, args: vec![at], dst: Some(r) });
-                            let cases = code
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, x)| matches!(x, Gosub { .. }))
-                                .filter_map(|(k, _)| {
-                                    let rp = lo + k as u32 + 1;
-                                    blk(rp).map(|b| (rp, b))
-                                })
-                                .collect();
-                            Some(Term::Dispatch { val: r, cases })
+                            Some(Term::Return { pc })
+                        }
+                        BrS { c, a, b, t } => {
+                            let r = lw.cmps(c, a, b);
+                            Some(branch(&mut lw, r, t, next))
                         }
                         _ => {
                             lw.inst(pc, ins);
@@ -961,7 +1090,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                 }
             }
             let term = term.unwrap_or_else(|| match bidx(end) {
-                Some(b) => Term::Jmp(b),
+                Some(b) => Term::Goto(b),
                 None => Term::Exit { pc: end },
             });
             blocks.push(Block { pc: Some(start), insts: std::mem::take(&mut lw.insts), term });
@@ -998,6 +1127,11 @@ use core::sync::atomic::AtomicU32;
 
 pub(crate) type VmOpFn = extern "C" fn(*mut Ctx, *mut u64, u32) -> u32;
 
+/// Native GOSUB stack capacity (deeper GOSUB nesting stays in the VM).
+pub(crate) const GOSUB_CAP: u32 = 1 << 14;
+/// Bottom marker: the VM still has GOSUB entries of this frame it must return through itself.
+pub(crate) const GOSUB_VM_BELOW: u32 = u32::MAX - 1;
+
 /// VM entry points native code calls.
 pub(crate) struct Hosts {
     pub vm_op: VmOpFn,
@@ -1006,8 +1140,7 @@ pub(crate) struct Hosts {
     pub lde2: usize,
     pub ste2: usize,
     pub lde1g: usize,
-    pub gosub: usize,
-    pub greturn: usize,
+    pub cmps: usize,
     pub ste1g: usize,
     /// offset of the `ArrView` inside the VM's array object
     pub view_off: u32,
@@ -1019,8 +1152,30 @@ const H_LDE2: u32 = 2;
 const H_STE2: u32 = 3;
 const H_LDE1G: u32 = 4;
 const H_STE1G: u32 = 5;
-const H_GOSUB: u32 = 6;
-const H_RETURN: u32 = 7;
+const H_CMPS: u32 = 6;
+
+/// `Cmp` as the integer `jit_cmps` receives.
+pub(crate) fn cmp_code(c: Cmp) -> i64 {
+    match c {
+        Cmp::Eq => 0,
+        Cmp::Ne => 1,
+        Cmp::Lt => 2,
+        Cmp::Le => 3,
+        Cmp::Gt => 4,
+        Cmp::Ge => 5,
+    }
+}
+
+pub(crate) fn cmp_of(code: i64) -> Cmp {
+    match code {
+        0 => Cmp::Eq,
+        1 => Cmp::Ne,
+        2 => Cmp::Lt,
+        3 => Cmp::Le,
+        4 => Cmp::Gt,
+        _ => Cmp::Ge,
+    }
+}
 
 fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
     let f = |name: &str, n: usize, ret: bool, addr: usize| mir::HostFn {
@@ -1035,11 +1190,10 @@ fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
         f("lde1g", 2, true, h.lde1g),
         f("ste1g", 3, false, h.ste1g),
         mir::HostFn {
-            sig: mir::HostSig { name: "gosub".into(), params: vec![Ty::I64], ret: None, may_error: false },
-            addr: h.gosub,
+            sig: mir::HostSig { name: "cmps".into(), params: vec![Ty::I64; 3], ret: Some(Ty::I64), may_error: false },
+            addr: h.cmps,
         },
-        f("return", 1, true, h.greturn),
-    ]
+            ]
 }
 
 /// JIT state owned by a VM.
@@ -1064,7 +1218,7 @@ impl JitState {
         Some(Box::new(JitState {
             tier: Tiering::new(mode, threshold),
             mir: None,
-            ctx: Ctx::with_capacity(core::ptr::null_mut(), 1, 1 << 18),
+            ctx: Ctx::with_capacity(core::ptr::null_mut(), GOSUB_CAP as usize, 1 << 18),
             func_at: {
                 let mut v = vec![0u32; m.code.len()];
                 for (i, f) in m.funcs.iter().enumerate() {
@@ -1166,6 +1320,33 @@ impl JitState {
             status::END => Ok((u32::MAX, false)),
             other => unreachable!("native status {other} from VM-lowered code"),
         })
+    }
+
+    /// GOSUB return pcs on the native stack.
+    pub(crate) fn gosub_len(&self) -> u32 {
+        self.ctx.gosub_len
+    }
+
+    pub(crate) fn gosub_push(&mut self, ret: u32) -> bool {
+        let c = &mut *self.ctx;
+        if c.gosub_len >= c.gosub_cap {
+            return false;
+        }
+        // SAFETY: below capacity.
+        unsafe { *c.gosub.add(c.gosub_len as usize) = ret };
+        c.gosub_len += 1;
+        true
+    }
+
+    /// Removes and returns the entries above `base`, bottom first.
+    pub(crate) fn gosub_take(&mut self, base: u32) -> Vec<u32> {
+        let v = self.ctx.gosub_stack()[base as usize..].to_vec();
+        self.ctx.gosub_len = base;
+        v
+    }
+
+    pub(crate) fn set_gosub_base(&mut self, base: u32) {
+        self.ctx.gosub_base = base;
     }
 
     /// Native call frames left behind by the last exit, outermost first:

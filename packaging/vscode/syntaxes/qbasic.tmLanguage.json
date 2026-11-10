@@ -1,0 +1,260 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "QBNex BASIC",
+  "scopeName": "source.qbasic",
+  "fileTypes": [
+    "bas",
+    "bi",
+    "bm"
+  ],
+  "patterns": [
+    {
+      "include": "#metacomment"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#metacommand"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#line-start"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#operator"
+    },
+    {
+      "include": "#identifier"
+    }
+  ],
+  "repository": {
+    "metacomment": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.metacomment.qbasic",
+          "match": "(?i)('|(?<![\\w.])REM(?![\\w.]))\\s*(\\$[A-Za-z_]+)(.*)$",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.comment.qbasic"
+            },
+            "2": {
+              "name": "keyword.control.directive.qbasic"
+            },
+            "3": {
+              "name": "string.unquoted.directive.qbasic"
+            }
+          }
+        }
+      ]
+    },
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.apostrophe.qbasic",
+          "match": "'.*$"
+        },
+        {
+          "name": "comment.line.rem.qbasic",
+          "match": "(?i)(?<![\\w.])REM(?![\\w.]).*$"
+        },
+        {
+          "name": "comment.line.number-sign.qbasic",
+          "match": "^\\s*#(?=\\s|$|!).*$"
+        }
+      ]
+    },
+    "metacommand": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.qbasic",
+          "match": "^\\s*(\\$[A-Za-z_]\\w*)(.*)$",
+          "captures": {
+            "1": {
+              "name": "keyword.control.directive.qbasic"
+            },
+            "2": {
+              "name": "string.unquoted.directive.qbasic"
+            }
+          }
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.qbasic",
+          "begin": "\"",
+          "end": "\"|$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.qbasic"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.qbasic"
+            }
+          }
+        }
+      ]
+    },
+    "line-start": {
+      "patterns": [
+        {
+          "name": "entity.name.label.line-number.qbasic",
+          "match": "^\\s*\\d+(?=\\s|$|:|')"
+        },
+        {
+          "match": "(?i)^\\s*(?!(?<![\\w.$])(?:_CONNECTIONADDRESS|_TOTALDROPPEDFILES|_ALLOWFULLSCREEN|_BACKGROUNDCOLOR|_ACCEPTFILEDROP|_CLIPBOARDIMAGE|_INCLERRORFILE\\$|_MOUSEINPUTPIPE|_MOUSEMOVEMENTX|_MOUSEMOVEMENTY|_MOUSEPIPECLOSE|_OPENCONNECTION|_WINDOWHASFOCUS|_CONSOLECURSOR|_DESKTOPHEIGHT|_ERRORMESSAGE\\$|_INCLERRORLINE|_MOUSEPIPEOPEN|_BUTTONCHANGE|_COMMANDCOUNT|_CONSOLEINPUT|_CONSOLETITLE|_DEFAULTCOLOR|_DESKTOPWIDTH|_DISPLAYORDER|_ENVIRONCOUNT|_PALETTECOLOR|_RESIZEHEIGHT|_SCALEDHEIGHT|_SCREENEXISTS|_WINDOWHANDLE|_AUTODISPLAY|_CONSOLEFONT|_COPYPALETTE|_DEPTHBUFFER|_DEVICEINPUT|_DROPPEDFILE|_MAPTRIANGLE|_MOUSEBUTTON|_PRINTSTRING|_RESIZEWIDTH|_SCALEDWIDTH|_SCREENCLICK|_SCREENIMAGE|_SCREENPRINT|_SNDPLAYCOPY|_SNDPLAYFILE|_CLEARCOLOR|_CLIPBOARD\\$|_CONTROLCHR|_FILEEXISTS|_FINISHDROP|_FONTHEIGHT|_FULLSCREEN|_LASTBUTTON|_MAPUNICODE|_MEMELEMENT|_MOUSEINPUT|_MOUSEWHEEL|_OPENCLIENT|_PRINTIMAGE|_PRINTWIDTH|_SCREENHIDE|_SCREENICON|_SCREENMOVE|_SCREENSHOW|_SCROLLLOCK|_SNDOPENRAW|_SNDPLAYING|_SNDRAWDONE|_CONNECTED|_COPYIMAGE|CUSTOMTYPE|_DIREXISTS|_DONTBLEND|_ERRORLINE|_FONTWIDTH|_FREEIMAGE|_FREETIMER|IMPLEMENTS|_LASTWHEEL|_LOADIMAGE|_MEMEXISTS|_MOUSEHIDE|_MOUSEMOVE|_MOUSESHOW|_PIXELSIZE|_PRINTMODE|_SHELLHIDE|_SNDGETPOS|_SNDPAUSED|_SNDRAWLEN|_SNDSETPOS|_STARTDIR\\$|_TOGGLEBIT|_CAPSLOCK|_CONTINUE|_DEFLATE\\$|_EXPLICIT|_FREEFONT|_GLRENDER|_INFLATE\\$|_INSTRREV|_KEYCLEAR|_LASTAXIS|_LOADFONT|_MEMIMAGE|_MEMSOUND|_NEWIMAGE|_OPENHOST|_PRESERVE|_PUTIMAGE|RANDOMIZE|_RESETBIT|_SETALPHA|_SNDCLOSE|_SNDLIMIT|_SNDPAUSE|_UNSIGNED|_ALPHA32|_ANDALSO|COMMAND\\$|_CONSOLE|_DEVICE\\$|_DEVICES|_DISPLAY|ENVIRON\\$|EXPLICIT|FILEATTR|FREEFILE|FUNCTION|_GREEN32|_KEYDOWN|_MEMCOPY|_MEMFILL|_MEMFREE|_NUMLOCK|PRESERVE|_READBIT|_SCREENX|_SCREENY|_SNDCOPY|_SNDLOOP|_SNDOPEN|_SNDPLAY|_SNDRATE|_SNDSTOP|_STRICMP|_ARCCOT|_ARCCSC|_ARCSEC|_ASSERT|_BLUE32|_BUTTON|DECLARE|DYNAMIC|EXTENDS|FINALLY|_HEIGHT|INTEGER|_KEYHIT|LIBRARY|_MEMGET|_MEMNEW|_MEMPUT|MKDMBF\\$|MKSMBF\\$|_MOUSEX|_MOUSEY|_OFFSET|_ORELSE|PALETTE|_RESIZE|RESTORE|_RGBA32|_SETBIT|_SMOOTH|_SNDBAL|_SNDLEN|_SNDRAW|_SNDVOL|_SOURCE|_STRCMP|STRING\\$|_TITLE\\$|VARPTR\\$|ACCESS|_ACOSH|_ALPHA|APPEND|_ASINH|_ATAN2|_ATANH|BINARY|_BLEND|_BLINK|CIRCLE|COMMON|CSRLIN|CVDMBF|CVSMBF|DEFDBL|DEFINT|DEFLNG|DEFSNG|DEFSTR|_DELAY|DOUBLE|ELSEIF|_FLOAT|_GREEN|_HYPOT|IMPORT|INKEY\\$|INPUT\\$|LBOUND|LCASE\\$|_LIMIT|LOCATE|LPRINT|LTRIM\\$|OPTION|OUTPUT|PRESET|RANDOM|_RED32|RESUME|RETURN|_RGB32|RIGHT\\$|_ROUND|RTRIM\\$|SCREEN|SELECT|SETMEM|SHARED|SINGLE|SPACE\\$|STATIC|STRING|SYSTEM|_TRIM\\$|UBOUND|UCASE\\$|UNLOCK|VARSEG|_VOICE|_WHEEL|_WIDTH|WINDOW|_ACOS|_ADSR|ALIAS|_ASIN|_AXIS|_BIN\\$|BLOAD|_BLUE|BSAVE|_BYTE|BYVAL|CATCH|_CEIL|CHAIN|CHDIR|_CINP|CLASS|CLEAR|CLOSE|COLOR|CONST|_COSH|_COTH|_CSCH|_CWD\\$|DATE\\$|_DEST|_DIR\\$|_ECHO|ENDIF|ERASE|ERROR|_EXIT|FILES|_FONT|GOSUB|_ICON|INPUT|INSTR|IOCTL|LEFT\\$|MKDIR|PAINT|PCOPY|POINT|PRINT|REDIM|RESET|_RGBA|RMDIR|_SECH|SHELL|_SINH|SLEEP|SOUND|STICK|STRIG|_TANH|TIME\\$|TIMER|TROFF|UNTIL|USING|_WAVE|WHILE|WIDTH|WRITE|BASE|BEEP|_BIT|CALL|CASE|CDBL|CHR\\$|CINT|CLNG|_COT|_CSC|CSNG|_D2G|_D2R|DATA|DRAW|ELSE|ENUM|EXIT|_FPS|_G2D|_G2R|GOTO|HEX\\$|KILL|LINE|LIST|LOCK|LONG|LOOP|LPOS|LSET|_MEM|MID\\$|_MK\\$|MKD\\$|MKI\\$|MKL\\$|MKS\\$|NAME|NEXT|OCT\\$|OPEN|_OS\\$|PEEK|PLAY|PMAP|POKE|PSET|_R2D|_R2G|READ|_RED|_RGB|RSET|SADD|_SEC|SEEK|_SHL|_SHR|STEP|STOP|STR\\$|SWAP|THEN|TRON|TYPE|VIEW|WAIT|WEND|ABS|AND|ANY|ASC|ATN|CLS|COS|_CV|CVD|CVI|CVL|CVS|DEF|DIM|END|EOF|EQV|ERL|ERR|EXP|FIX|FOR|FRE|GET|IMP|INP|INT|KEY|LEN|LET|LOC|LOF|LOG|MOD|NOT|OFF|OUT|_PI|POS|PUT|REM|RND|SEG|SGN|SIN|SPC|SQR|SUB|TAB|TAN|TRY|VAL|XOR|AS|DO|FN|IF|IS|ON|OR|TO)(?![\\w.$%&!#~`])\\s*:)([A-Za-z_][\\w]*)(:)(?!=)",
+          "captures": {
+            "1": {
+              "name": "entity.name.label.qbasic"
+            },
+            "2": {
+              "name": "punctuation.separator.label.qbasic"
+            }
+          }
+        }
+      ]
+    },
+    "declaration": {
+      "patterns": [
+        {
+          "match": "(?i)(?<![\\w.])(DECLARE\\s+)?(SUB|FUNCTION)\\s+([A-Za-z_][\\w.]*[%&!#$~`]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.qbasic"
+            },
+            "2": {
+              "name": "storage.type.function.qbasic"
+            },
+            "3": {
+              "name": "entity.name.function.qbasic"
+            }
+          }
+        },
+        {
+          "match": "(?i)(?<![\\w.])(DEF)\\s+(FN[A-Za-z_][\\w.]*[%&!#$~`]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.qbasic"
+            },
+            "2": {
+              "name": "entity.name.function.qbasic"
+            }
+          }
+        },
+        {
+          "match": "(?i)^\\s*(TYPE|CLASS|ENUM)\\s+([A-Za-z_][\\w.]*[%&!#$~`]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.qbasic"
+            },
+            "2": {
+              "name": "entity.name.type.qbasic"
+            }
+          }
+        },
+        {
+          "match": "(?i)(?<![\\w.])(AS)\\s+(?!(?<![\\w.$])(?:_CONNECTIONADDRESS|_TOTALDROPPEDFILES|_ALLOWFULLSCREEN|_BACKGROUNDCOLOR|_ACCEPTFILEDROP|_CLIPBOARDIMAGE|_INCLERRORFILE\\$|_MOUSEINPUTPIPE|_MOUSEMOVEMENTX|_MOUSEMOVEMENTY|_MOUSEPIPECLOSE|_OPENCONNECTION|_WINDOWHASFOCUS|_CONSOLECURSOR|_DESKTOPHEIGHT|_ERRORMESSAGE\\$|_INCLERRORLINE|_MOUSEPIPEOPEN|_BUTTONCHANGE|_COMMANDCOUNT|_CONSOLEINPUT|_CONSOLETITLE|_DEFAULTCOLOR|_DESKTOPWIDTH|_DISPLAYORDER|_ENVIRONCOUNT|_PALETTECOLOR|_RESIZEHEIGHT|_SCALEDHEIGHT|_SCREENEXISTS|_WINDOWHANDLE|_AUTODISPLAY|_CONSOLEFONT|_COPYPALETTE|_DEPTHBUFFER|_DEVICEINPUT|_DROPPEDFILE|_MAPTRIANGLE|_MOUSEBUTTON|_PRINTSTRING|_RESIZEWIDTH|_SCALEDWIDTH|_SCREENCLICK|_SCREENIMAGE|_SCREENPRINT|_SNDPLAYCOPY|_SNDPLAYFILE|_CLEARCOLOR|_CLIPBOARD\\$|_CONTROLCHR|_FILEEXISTS|_FINISHDROP|_FONTHEIGHT|_FULLSCREEN|_LASTBUTTON|_MAPUNICODE|_MEMELEMENT|_MOUSEINPUT|_MOUSEWHEEL|_OPENCLIENT|_PRINTIMAGE|_PRINTWIDTH|_SCREENHIDE|_SCREENICON|_SCREENMOVE|_SCREENSHOW|_SCROLLLOCK|_SNDOPENRAW|_SNDPLAYING|_SNDRAWDONE|_CONNECTED|_COPYIMAGE|CUSTOMTYPE|_DIREXISTS|_DONTBLEND|_ERRORLINE|_FONTWIDTH|_FREEIMAGE|_FREETIMER|IMPLEMENTS|_LASTWHEEL|_LOADIMAGE|_MEMEXISTS|_MOUSEHIDE|_MOUSEMOVE|_MOUSESHOW|_PIXELSIZE|_PRINTMODE|_SHELLHIDE|_SNDGETPOS|_SNDPAUSED|_SNDRAWLEN|_SNDSETPOS|_STARTDIR\\$|_TOGGLEBIT|_CAPSLOCK|_CONTINUE|_DEFLATE\\$|_EXPLICIT|_FREEFONT|_GLRENDER|_INFLATE\\$|_INSTRREV|_KEYCLEAR|_LASTAXIS|_LOADFONT|_MEMIMAGE|_MEMSOUND|_NEWIMAGE|_OPENHOST|_PRESERVE|_PUTIMAGE|RANDOMIZE|_RESETBIT|_SETALPHA|_SNDCLOSE|_SNDLIMIT|_SNDPAUSE|_UNSIGNED|_ALPHA32|_ANDALSO|COMMAND\\$|_CONSOLE|_DEVICE\\$|_DEVICES|_DISPLAY|ENVIRON\\$|EXPLICIT|FILEATTR|FREEFILE|FUNCTION|_GREEN32|_KEYDOWN|_MEMCOPY|_MEMFILL|_MEMFREE|_NUMLOCK|PRESERVE|_READBIT|_SCREENX|_SCREENY|_SNDCOPY|_SNDLOOP|_SNDOPEN|_SNDPLAY|_SNDRATE|_SNDSTOP|_STRICMP|_ARCCOT|_ARCCSC|_ARCSEC|_ASSERT|_BLUE32|_BUTTON|DECLARE|DYNAMIC|EXTENDS|FINALLY|_HEIGHT|INTEGER|_KEYHIT|LIBRARY|_MEMGET|_MEMNEW|_MEMPUT|MKDMBF\\$|MKSMBF\\$|_MOUSEX|_MOUSEY|_OFFSET|_ORELSE|PALETTE|_RESIZE|RESTORE|_RGBA32|_SETBIT|_SMOOTH|_SNDBAL|_SNDLEN|_SNDRAW|_SNDVOL|_SOURCE|_STRCMP|STRING\\$|_TITLE\\$|VARPTR\\$|ACCESS|_ACOSH|_ALPHA|APPEND|_ASINH|_ATAN2|_ATANH|BINARY|_BLEND|_BLINK|CIRCLE|COMMON|CSRLIN|CVDMBF|CVSMBF|DEFDBL|DEFINT|DEFLNG|DEFSNG|DEFSTR|_DELAY|DOUBLE|ELSEIF|_FLOAT|_GREEN|_HYPOT|IMPORT|INKEY\\$|INPUT\\$|LBOUND|LCASE\\$|_LIMIT|LOCATE|LPRINT|LTRIM\\$|OPTION|OUTPUT|PRESET|RANDOM|_RED32|RESUME|RETURN|_RGB32|RIGHT\\$|_ROUND|RTRIM\\$|SCREEN|SELECT|SETMEM|SHARED|SINGLE|SPACE\\$|STATIC|STRING|SYSTEM|_TRIM\\$|UBOUND|UCASE\\$|UNLOCK|VARSEG|_VOICE|_WHEEL|_WIDTH|WINDOW|_ACOS|_ADSR|ALIAS|_ASIN|_AXIS|_BIN\\$|BLOAD|_BLUE|BSAVE|_BYTE|BYVAL|CATCH|_CEIL|CHAIN|CHDIR|_CINP|CLASS|CLEAR|CLOSE|COLOR|CONST|_COSH|_COTH|_CSCH|_CWD\\$|DATE\\$|_DEST|_DIR\\$|_ECHO|ENDIF|ERASE|ERROR|_EXIT|FILES|_FONT|GOSUB|_ICON|INPUT|INSTR|IOCTL|LEFT\\$|MKDIR|PAINT|PCOPY|POINT|PRINT|REDIM|RESET|_RGBA|RMDIR|_SECH|SHELL|_SINH|SLEEP|SOUND|STICK|STRIG|_TANH|TIME\\$|TIMER|TROFF|UNTIL|USING|_WAVE|WHILE|WIDTH|WRITE|BASE|BEEP|_BIT|CALL|CASE|CDBL|CHR\\$|CINT|CLNG|_COT|_CSC|CSNG|_D2G|_D2R|DATA|DRAW|ELSE|ENUM|EXIT|_FPS|_G2D|_G2R|GOTO|HEX\\$|KILL|LINE|LIST|LOCK|LONG|LOOP|LPOS|LSET|_MEM|MID\\$|_MK\\$|MKD\\$|MKI\\$|MKL\\$|MKS\\$|NAME|NEXT|OCT\\$|OPEN|_OS\\$|PEEK|PLAY|PMAP|POKE|PSET|_R2D|_R2G|READ|_RED|_RGB|RSET|SADD|_SEC|SEEK|_SHL|_SHR|STEP|STOP|STR\\$|SWAP|THEN|TRON|TYPE|VIEW|WAIT|WEND|ABS|AND|ANY|ASC|ATN|CLS|COS|_CV|CVD|CVI|CVL|CVS|DEF|DIM|END|EOF|EQV|ERL|ERR|EXP|FIX|FOR|FRE|GET|IMP|INP|INT|KEY|LEN|LET|LOC|LOF|LOG|MOD|NOT|OFF|OUT|_PI|POS|PUT|REM|RND|SEG|SGN|SIN|SPC|SQR|SUB|TAB|TAN|TRY|VAL|XOR|AS|DO|FN|IF|IS|ON|OR|TO)(?![\\w.$%&!#~`]))([A-Za-z_][\\w.]*[%&!#$~`]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.as.qbasic"
+            },
+            "2": {
+              "name": "entity.name.type.qbasic"
+            }
+          }
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.qbasic",
+          "match": "&[Hh][0-9A-Fa-f]+[%&!#~`]*"
+        },
+        {
+          "name": "constant.numeric.octal.qbasic",
+          "match": "&[Oo][0-7]+[%&!#~`]*"
+        },
+        {
+          "name": "constant.numeric.binary.qbasic",
+          "match": "&[Bb][01]+[%&!#~`]*"
+        },
+        {
+          "name": "constant.numeric.qbasic",
+          "match": "(?<![\\w.])(?:\\d+\\.?\\d*|\\.\\d+)(?:[EeDdFf][+-]?\\d+)?[%&!#~`]*"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.qbasic",
+          "match": "(?i)(?<![\\w.$])(?:_CONTINUE|FINALLY|ELSEIF|RESUME|RETURN|SELECT|SYSTEM|CATCH|ENDIF|ERROR|GOSUB|UNTIL|WHILE|CALL|CASE|ELSE|EXIT|GOTO|LOOP|NEXT|STEP|STOP|THEN|WEND|END|FOR|TRY|DO|IF|IS|ON|TO)(?![\\w.$%&!#~`])"
+        },
+        {
+          "name": "keyword.operator.word.qbasic",
+          "match": "(?i)(?<![\\w.$])(?:_ANDALSO|_ORELSE|AND|EQV|IMP|MOD|NOT|XOR|OR)(?![\\w.$%&!#~`])"
+        },
+        {
+          "name": "storage.type.qbasic",
+          "match": "(?i)(?<![\\w.$])(?:_UNSIGNED|INTEGER|_OFFSET|DOUBLE|_FLOAT|SINGLE|STRING|_BYTE|_BIT|LONG|_MEM|ANY)(?![\\w.$%&!#~`])"
+        },
+        {
+          "name": "support.function.builtin.qbasic",
+          "match": "(?i)(?<![\\w.$])(?:_CONNECTIONADDRESS|_TOTALDROPPEDFILES|_BACKGROUNDCOLOR|_CLIPBOARDIMAGE|_INCLERRORFILE\\$|_MOUSEMOVEMENTX|_MOUSEMOVEMENTY|_OPENCONNECTION|_WINDOWHASFOCUS|_DESKTOPHEIGHT|_ERRORMESSAGE\\$|_INCLERRORLINE|_MOUSEPIPEOPEN|_BUTTONCHANGE|_COMMANDCOUNT|_CONSOLEINPUT|_DEFAULTCOLOR|_DESKTOPWIDTH|_ENVIRONCOUNT|_PALETTECOLOR|_RESIZEHEIGHT|_SCALEDHEIGHT|_SCREENEXISTS|_WINDOWHANDLE|_DEVICEINPUT|_DROPPEDFILE|_MOUSEBUTTON|_RESIZEWIDTH|_SCALEDWIDTH|_SCREENIMAGE|_FILEEXISTS|_FONTHEIGHT|_LASTBUTTON|_MEMELEMENT|_MOUSEINPUT|_MOUSEWHEEL|_OPENCLIENT|_PRINTWIDTH|_SCROLLLOCK|_SNDOPENRAW|_SNDPLAYING|_CONNECTED|_COPYIMAGE|_DIREXISTS|_ERRORLINE|_FONTWIDTH|_FREETIMER|_LASTWHEEL|_LOADIMAGE|_MEMEXISTS|_PIXELSIZE|_SHELLHIDE|_SNDGETPOS|_SNDPAUSED|_SNDRAWLEN|_STARTDIR\\$|_TOGGLEBIT|_CAPSLOCK|_DEFLATE\\$|_INFLATE\\$|_INSTRREV|_LASTAXIS|_LOADFONT|_MEMIMAGE|_MEMSOUND|_NEWIMAGE|_OPENHOST|_RESETBIT|_ALPHA32|COMMAND\\$|_CONSOLE|_DEVICE\\$|_DEVICES|ENVIRON\\$|FILEATTR|FREEFILE|_GREEN32|_KEYDOWN|_NUMLOCK|_READBIT|_SCREENX|_SCREENY|_SNDCOPY|_SNDOPEN|_SNDRATE|_STRICMP|_ARCCOT|_ARCCSC|_ARCSEC|_BLUE32|_BUTTON|_HEIGHT|_KEYHIT|_MEMGET|_MEMNEW|MKDMBF\\$|MKSMBF\\$|_MOUSEX|_MOUSEY|_OFFSET|_RGBA32|_SETBIT|_SMOOTH|_SNDLEN|_STRCMP|STRING\\$|_TITLE\\$|VARPTR\\$|_ACOSH|_ALPHA|_ASINH|_ATAN2|_ATANH|CSRLIN|CVDMBF|CVSMBF|_GREEN|_HYPOT|INKEY\\$|INPUT\\$|LBOUND|LCASE\\$|LTRIM\\$|_RED32|_RGB32|RIGHT\\$|_ROUND|RTRIM\\$|SCREEN|SETMEM|SPACE\\$|_TRIM\\$|UBOUND|UCASE\\$|VARSEG|_WHEEL|_WIDTH|_ACOS|_ASIN|_AXIS|_BIN\\$|_BLUE|_CEIL|_CINP|_COSH|_COTH|_CSCH|_CWD\\$|_DIR\\$|_EXIT|INSTR|LEFT\\$|POINT|_RGBA|_SECH|_SINH|STICK|STRIG|_TANH|CDBL|CHR\\$|CINT|CLNG|_COT|_CSC|CSNG|_D2G|_D2R|_G2D|_G2R|HEX\\$|LPOS|_MEM|MID\\$|_MK\\$|MKD\\$|MKI\\$|MKL\\$|MKS\\$|OCT\\$|_OS\\$|PEEK|PMAP|_R2D|_R2G|_RED|_RGB|SADD|_SEC|_SHL|_SHR|STR\\$|ABS|ASC|ATN|COS|_CV|CVD|CVI|CVL|CVS|EOF|ERL|ERR|EXP|FIX|FRE|INP|INT|LEN|LOC|LOF|LOG|_PI|POS|RND|SGN|SIN|SPC|SQR|TAB|TAN|VAL)(?![\\w.$%&!#~`])"
+        },
+        {
+          "name": "support.function.statement.qbasic",
+          "match": "(?i)(?<![\\w.$])(?:_ALLOWFULLSCREEN|_ACCEPTFILEDROP|_MOUSEINPUTPIPE|_MOUSEPIPECLOSE|_CONSOLECURSOR|_CONSOLETITLE|_DISPLAYORDER|_AUTODISPLAY|_CONSOLEFONT|_COPYPALETTE|_DEPTHBUFFER|_MAPTRIANGLE|_PRINTSTRING|_SCREENCLICK|_SCREENPRINT|_SNDPLAYCOPY|_SNDPLAYFILE|_CLEARCOLOR|_CLIPBOARD\\$|_CONTROLCHR|_FINISHDROP|_FULLSCREEN|_MAPUNICODE|_PRINTIMAGE|_SCREENHIDE|_SCREENICON|_SCREENMOVE|_SCREENSHOW|_SNDRAWDONE|_DONTBLEND|_FREEIMAGE|_MOUSEHIDE|_MOUSEMOVE|_MOUSESHOW|_PRINTMODE|_SNDSETPOS|_FREEFONT|_GLRENDER|_KEYCLEAR|_PUTIMAGE|RANDOMIZE|_SETALPHA|_SNDCLOSE|_SNDLIMIT|_SNDPAUSE|_DISPLAY|_MEMCOPY|_MEMFILL|_MEMFREE|_SNDLOOP|_SNDPLAY|_SNDSTOP|_ASSERT|_MEMPUT|PALETTE|_RESIZE|_SNDBAL|_SNDRAW|_SNDVOL|_SOURCE|_BLEND|_BLINK|CIRCLE|_DELAY|_LIMIT|LOCATE|LPRINT|OPTION|PRESET|UNLOCK|_VOICE|WINDOW|_ADSR|BLOAD|BSAVE|CHAIN|CHDIR|CLEAR|COLOR|DATE\\$|_DEST|_ECHO|FILES|_FONT|_ICON|IOCTL|MKDIR|PAINT|PCOPY|RESET|RMDIR|SHELL|SLEEP|SOUND|TIME\\$|TIMER|TROFF|_WAVE|WIDTH|WRITE|BEEP|DRAW|_FPS|KILL|LIST|LOCK|LSET|NAME|PLAY|POKE|PSET|READ|RSET|SEEK|SWAP|TRON|VIEW|WAIT|CLS|GET|KEY|OUT|PUT)(?![\\w.$%&!#~`])"
+        },
+        {
+          "name": "keyword.other.qbasic",
+          "match": "(?i)(?<![\\w.$])(?:CUSTOMTYPE|IMPLEMENTS|_EXPLICIT|_PRESERVE|EXPLICIT|FUNCTION|PRESERVE|DECLARE|DYNAMIC|EXTENDS|LIBRARY|RESTORE|ACCESS|APPEND|BINARY|COMMON|DEFDBL|DEFINT|DEFLNG|DEFSNG|DEFSTR|IMPORT|OUTPUT|RANDOM|SHARED|STATIC|ALIAS|BYVAL|CLASS|CLOSE|CONST|ERASE|INPUT|PRINT|REDIM|USING|BASE|DATA|ENUM|LINE|OPEN|TYPE|DEF|DIM|LET|OFF|SEG|SUB|AS|FN)(?![\\w.$%&!#~`])"
+        }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.qbasic",
+          "match": "<>|<=|>=|=<|=>|><|<|>"
+        },
+        {
+          "name": "keyword.operator.assignment.qbasic",
+          "match": "[-+*/\\\\^]?="
+        },
+        {
+          "name": "keyword.operator.arithmetic.qbasic",
+          "match": "[-+*/\\\\^]"
+        },
+        {
+          "name": "punctuation.separator.qbasic",
+          "match": "[,;:]"
+        }
+      ]
+    },
+    "identifier": {
+      "patterns": [
+        {
+          "name": "variable.other.qbasic",
+          "match": "[A-Za-z_][\\w.]*[%&!#$~`]*"
+        }
+      ]
+    }
+  }
+}

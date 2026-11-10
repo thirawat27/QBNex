@@ -697,6 +697,7 @@ FUNCTION getpid& ()
     DIM SHARED addmetadynamic AS INTEGER
     DIM SHARED addmetainclude AS STRING
     DIM SHARED importedModules AS STRING
+DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
     DIM SHARED topLevelRuntimeFinalized AS LONG
@@ -1443,6 +1444,7 @@ FUNCTION getpid& ()
 
                         IF lastLine <> 0 OR firstLine <> 0 THEN
                             lineBackup$ = wholeline$ 'backup the real line (will be blank when lastline is set)
+                            IF firstLine <> 0 THEN StdLib_PrepareHoistedImports
                             forceIncludeFromRoot$ = ""
                             IF vWatchOn THEN
                                 addingvWatch = 1
@@ -1452,6 +1454,8 @@ FUNCTION getpid& ()
                                 'IF firstLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bi"
                                 IF lastLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bm"
                             END IF
+                            IF firstLine <> 0 AND LEN(stdlibHeadFile$) THEN forceIncludeFromRoot$ = stdlibHeadFile$
+                            IF lastLine <> 0 AND LEN(stdlibBodyFile$) THEN forceIncludeFromRoot$ = stdlibBodyFile$
                             firstLine = 0: lastLine = 0
                             IF LEN(forceIncludeFromRoot$) THEN GOTO forceInclude_prepass
                             forceIncludeCompleted_prepass:
@@ -2490,6 +2494,9 @@ FUNCTION getpid& ()
 
                         'reset altered variables
                         ResetPostPrepassState
+                        'firstLine/lastLine/lastLineReturn are main-module variables, not SHARED: the SUB above
+                        'cannot reset them, so the main pass would skip its first/last-line includes
+                        lastLineReturn = 0: lastLine = 0: firstLine = 1
 
                         IF compfailed <> 0 OR HasErrors% THEN
                             CancelCompilerProgress
@@ -2550,6 +2557,7 @@ FUNCTION getpid& ()
 
                             IF lastLine <> 0 OR firstLine <> 0 THEN
                                 lineBackup$ = a3$ 'backup the real first line (will be blank when lastline is set)
+                                IF firstLine <> 0 THEN StdLib_PrepareHoistedImports
                                 forceIncludeFromRoot$ = ""
                                 IF vWatchOn THEN
                                     addingvWatch = 1
@@ -2559,6 +2567,8 @@ FUNCTION getpid& ()
                                     'IF firstLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bi"
                                     IF lastLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bm"
                                 END IF
+                                IF firstLine <> 0 AND LEN(stdlibHeadFile$) THEN forceIncludeFromRoot$ = stdlibHeadFile$
+                                IF lastLine <> 0 AND LEN(stdlibBodyFile$) THEN forceIncludeFromRoot$ = stdlibBodyFile$
                                 firstLine = 0: lastLine = 0
                                 IF LEN(forceIncludeFromRoot$) THEN GOTO forceInclude
                                 forceIncludeCompleted:
@@ -9558,8 +9568,11 @@ IF firstelement$ = "PRINT" OR firstelement$ = "LPRINT" THEN
     redosemi:
     FOR i = elementon TO n - 1
         nextchar$ = getelement$(a$, i + 1)
+        temp1$ = getelement$(a$, i)
+        'no implied ; next to a relational/logical operator: PRINT a$ < "K", PRINT "abc" = "abc" (L-04)
+        IF INSTR(" = < > <> <= >= => =< AND OR XOR EQV IMP MOD NOT ", " " + nextchar$ + " ") THEN GOTO redosemi_next
+        IF INSTR(" = < > <> <= >= => =< AND OR XOR EQV IMP MOD NOT * / \ ^ ", " " + temp1$ + " ") THEN GOTO redosemi_next
         IF nextchar$ <> ";" AND nextchar$ <> "," AND nextchar$ <> "+" AND nextchar$ <> ")" THEN
-            temp1$ = getelement$(a$, i)
             beginpoint = INSTR(beginpoint, temp1$, CHR$(34))
             endpoint = INSTR(beginpoint + 1, temp1$, CHR$(34) + ",")
             IF beginpoint <> 0 AND endpoint <> 0 THEN 'if we have both positions
@@ -9586,6 +9599,7 @@ IF firstelement$ = "PRINT" OR firstelement$ = "LPRINT" THEN
             END IF
         END IF
     END IF
+    redosemi_next:
 NEXT
 END IF
 

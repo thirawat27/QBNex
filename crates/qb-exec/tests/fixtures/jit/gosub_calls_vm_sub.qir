@@ -1,0 +1,60 @@
+QIR 1
+global $__LONG_I i32
+global $__LONG_C i32
+func main
+line 1
+const.i32 %0 1
+store.i32 $__LONG_I %0
+label ~F1.T
+load.i32 %1 $__LONG_I
+const.i32 %2 200
+gt.i32 %3 %1 %2
+jnz %3 ~F1.X
+line 2
+gosub L_G
+line 3
+load.i32 %4 $__LONG_I
+const.i32 %5 1
+add.i32 %6 %4 %5
+store.i32 $__LONG_I %6
+jmp ~F1.T
+label ~F1.X
+line 4
+load.i32 %7 $__LONG_C
+cvt.i64.i32 %8 %7
+rt %9 STR$.i64 %8
+const.str %10 x20
+concat %11 %9 %10
+const.i32 %12 0
+rt PRINTS %12 %11
+rt PRINTNL %12
+line 5
+end
+label L_G
+line 7
+addr %13 $__LONG_C
+call SUB_BUMP %13
+line 8
+gret
+endfunc
+func SUB_BUMP
+param $_SUB_BUMP_LONG_N i32 byref
+local $_SUB_BUMP_STRING_S str
+line 10
+const.str %0 x78
+load.i32 %1 $_SUB_BUMP_LONG_N
+cvt.i64.i32 %2 %1
+rt %3 STR$.i64 %2
+concat %4 %0 %3
+store.str $_SUB_BUMP_STRING_S %4
+line 11
+load.i32 %5 $_SUB_BUMP_LONG_N
+load.str %6 $_SUB_BUMP_STRING_S
+rt %7 LEN %6
+add.i32 %8 %5 %7
+const.i32 %9 2
+sub.i32 %10 %8 %9
+store.i32 $_SUB_BUMP_LONG_N %10
+label ~EXIT
+ret
+endfunc
