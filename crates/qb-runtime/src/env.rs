@@ -16,7 +16,7 @@ unsafe extern "C" {
     fn _putenv_s(name: *const c_char, value: *const c_char) -> i32;
 }
 #[cfg(not(windows))]
-extern "C" {
+unsafe extern "C" {
     fn setenv(name: *const c_char, value: *const c_char, overwrite: i32) -> i32;
     fn unsetenv(name: *const c_char) -> i32;
 }
