@@ -79,7 +79,8 @@ SUB IrStmtEnd
             IF LEFT$(IrPlaceSTy$(p$), 4) = "udt:" THEN IrNotSup f$ + " of a TYPE": EXIT SUB
             x$ = IrLoad$(p$)
             z$ = IrEvalTo$(fixoperationorder$(IrEls$(j + 1, n)), ISSTRING)
-            IrStore p$, IrRt$(f$, " " + x$ + " " + z$, "str")
+            m$ = IrRt$(f$, " " + x$ + " " + z$, "str")
+            IF IrPlaceSTy$(p$) = "str" THEN IrE "rt LSETVAR " + IrAddr$(p$) + " " + m$ ELSE IrStore p$, m$
         CASE "SWAP"
             j = IrFindSep(2, "|,|")
             p$ = IrPlaceAtRaw$(2, j - 1, t)
@@ -143,7 +144,22 @@ SUB IrStmtEnd
             END IF
         CASE "_MEMFILL", "_MEMPUT", "_MEMGET", "_MEMCOPY", "_MEMFREE"
             IrMemStmt f$
-        CASE "PALETTE", "KEY", "FIELD", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "PLAY", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
+        CASE "FIELD"
+            j = IrFindSep(2, "|,|")
+            ch$ = IrChan$(2, j - 1)
+            IrE "rt FIELDNEW " + ch$
+            i = j + 1
+            DO WHILE i <= n
+                j = IrFindSep(i, "|,|")
+                k = IrFindSep(i, "|AS|")
+                x$ = IrCvt$(IrExprAt$(i, k - 1, t), IrT, "i32")
+                p$ = IrPlaceAtRaw$(k + 1, j - 1, t)
+                IF p$ = "" THEN EXIT SUB
+                IF IrPlaceSTy$(p$) <> "str" THEN IrNotSup "FIELD of a non-STRING variable": EXIT SUB
+                IrE "rt FIELD " + ch$ + " " + x$ + " " + IrAddr$(p$)
+                i = j + 1
+            LOOP
+        CASE "PALETTE", "KEY", "ECHO", "CHAIN", "RUN", "INTERRUPTX", "_GL", "LPRINT", "CLEAR", "TIMER", "PLAY", "STRIG", "DRAW", "PSET", "PRESET", "CIRCLE", "PAINT", "WINDOW", "PCOPY"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN
@@ -317,7 +333,7 @@ SUB IrGetPut (f$)
     ELSE
         pos$ = IrConst$("i64", "-1")
     END IF
-    IF k > n THEN IrNotSup f$ + " without a variable": EXIT SUB
+    IF k > n THEN IrE "rt " + f$ + "FIELD " + ch$ + " " + pos$: EXIT SUB
     p$ = IrPlaceAtRaw$(k + 1, n, t)
     IF p$ = "" THEN EXIT SUB
     IF LEFT$(p$, 1) = "A" THEN IrNotSup f$ + " of a whole array": EXIT SUB

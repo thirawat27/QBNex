@@ -151,7 +151,14 @@ pub static TABLE: &[Builtin] = &[
     b!("PUTREC", [I32, I64, Ptr, I32]),
     b!("GETSTR", [I32, I64, I32], Str),
     b!("PUTSTR", [I32, I64, Str]),
+    // FIELD #ch: FIELDNEW ch, then FIELD ch size var (string variable address) per item
+    b!("FIELDNEW", [I32]),
     b!("FIELD", [I32, I32, Ptr]),
+    // GET/PUT #ch[, record] without a variable (FIELD buffer)
+    b!("GETFIELD", [I32, I64]),
+    b!("PUTFIELD", [I32, I64]),
+    // LSET/RSET result stored into a string variable (and its FIELD buffer)
+    b!("LSETVAR", [Ptr, Str]),
     b!("INPUT$", [I32, I32], Str),
     b!("LINEINPUT", [I32], Str),
     b!("INPUTITEM.s", [I32], Str),

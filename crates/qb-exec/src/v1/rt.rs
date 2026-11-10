@@ -593,7 +593,6 @@ pub(crate) fn call(vm: &mut Vm, name: &'static str, a: Vec<V>) -> R<Option<V>> {
             let d = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
             return ok(V::S(d.into_bytes()));
         }
-        "FIELD" => return e(73),
         _ => return e(73),
     }
     Ok(None)

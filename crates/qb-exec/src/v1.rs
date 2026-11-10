@@ -393,8 +393,17 @@ pub(crate) struct Vm<'a> {
     /// conventional memory (VARPTR/SADD/PEEK/POKE)
     pub(crate) cmem: Vec<u8>,
     pub(crate) cmem_next: usize,
+    /// set while LSETVAR/GETFIELD store into FIELD variables
+    pub(crate) field_store: bool,
     /// string variable address -> DBLOCK offset of its descriptor
     pub(crate) cmem_strs: HashMap<u64, usize>,
+    /// RANDOM record length per open file number (FIELD buffers)
+    pub(crate) reclen: HashMap<i32, usize>,
+    /// FIELD buffer per file number and the variables linked to it (address, offset, size)
+    pub(crate) field_buf: HashMap<i32, Vec<u8>>,
+    pub(crate) field_vars: Vec<(u64, i32, usize, usize)>,
+    /// FIELD statement in progress: (file number, bytes used)
+    pub(crate) field_cur: (i32, usize),
     /// DEF SEG base (bytes); None = DBLOCK
     pub(crate) def_seg: Option<usize>,
     data_pos: usize,
@@ -529,6 +538,10 @@ impl<'a> Vm<'a> {
             Ty::F64 => v.f().to_bits(),
             Ty::Ptr => v.p(),
             Ty::Str => {
+                if !self.field_vars.is_empty() && !self.field_store {
+                    // a plain assignment breaks the FIELD link
+                    self.field_vars.retain(|f| f.0 != p);
+                }
                 if let Some(&d) = self.cmem_strs.get(&p) {
                     let len = (v.s().len() as u16).to_le_bytes();
                     self.cmem[DBLOCK + d..DBLOCK + d + 2].copy_from_slice(&len);
@@ -1149,8 +1162,13 @@ pub fn run(m: &ir::Module, out: &mut dyn Write) -> Result<i32, RunError> {
         last_line: 0,
         cmem: vec![0; 1 << 20],
         cmem_next: 16,
+        field_store: false,
         cmem_strs: HashMap::new(),
         def_seg: None,
+        reclen: HashMap::new(),
+        field_buf: HashMap::new(),
+        field_vars: Vec::new(),
+        field_cur: (0, 0),
         data_pos: 0,
         rt: rt::RtState::new(out),
     };

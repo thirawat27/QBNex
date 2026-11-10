@@ -1419,7 +1419,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "POKE"
             x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "i32")
             IrE "rt POKE " + x$ + " " + y$
-        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET", "DEF"
+        CASE "OPEN", "CLOSE", "RESET", "NAME", "SEEK", "GET", "PUT", "LINE", "INPUT", "WRITE", "PRINT", "_MEMCOPY", "_MEMFREE", "_MEMFILL", "_MEMPUT", "_MEMGET", "DEF", "FIELD"
             'lowered by IrStmtEnd
         CASE "ERROR"
             IrE "error " + IrArgAs$(sv(1), "i32")
