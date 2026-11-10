@@ -6,6 +6,9 @@ members = [
     "crates/qb-exec",
     "crates/qb-float80",
     "crates/qb-ffi",
+    "crates/qb-syntax",
+    "crates/qb-fmt",
+    "crates/qb-lsp",
     "tests/conformance",
 ]
 
