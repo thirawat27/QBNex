@@ -182,6 +182,7 @@ pub(crate) struct Input {
     scroll_lock_held: bool,
     glyph: bool,
     port60h: Vec<u8>,
+    port60_last: u8,
     mouse: Vec<MouseMsg>,
     current: usize,
     last: usize,
@@ -195,6 +196,7 @@ impl Default for Input {
             scroll_lock_held: false,
             glyph: false,
             port60h: Vec::new(),
+            port60_last: 0,
             mouse: vec![MouseMsg::default(); 65536],
             current: 0,
             last: 0,
@@ -315,6 +317,15 @@ impl Input {
         } else {
             0
         }
+    }
+
+    /// INP(&H60): the oldest queued scancode event; with none queued, the last one read.
+    pub(crate) fn port60(&mut self) -> u8 {
+        if self.port60h.is_empty() {
+            return self.port60_last;
+        }
+        self.port60_last = self.port60h.remove(0);
+        self.port60_last
     }
 
     fn scancodedown(&mut self, s: i32) {

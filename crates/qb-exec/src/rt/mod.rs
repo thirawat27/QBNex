@@ -11,6 +11,7 @@ use qb_ir::Ty;
 mod audiox;
 mod cpu;
 pub(crate) mod display;
+mod dosx;
 mod input;
 mod scancodes;
 pub(crate) mod builtins;

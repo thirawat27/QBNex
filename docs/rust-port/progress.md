@@ -630,6 +630,12 @@ Gate "loop benchmark <= 2x of the C++ path": met (loop 1.0x; every case <= 2x, g
 - Measured (whole process, warm file cache): 50M-iteration loop 111 ms native exe vs 880 ms C++ exe (mostly C++ start-up) and 108 ms JIT; array loop 74 ms vs 800 ms; float loop 75 ms vs 930 ms.
 - Not yet: the exe is still the runner (VM present for strings/builtins/calls) rather than a PE/ELF written from scratch; `qb file.bas` does not call `build` yet (R11a/packaging); Linux/macOS/aarch64 load not run here (code generation and linking are tested).
 
+## R11c-ir2: corpus-run Q7/Q8 in the QIR emitter (branch `claude/r11c-ir2`)
+- Q7: a SUB name used as a GOTO / ON ERROR label needs the compiler's repass; `--ir` wrote the QIR before it. The label check now runs before `IrFinish`, and `IrInit` clears every function body for a repass.
+- Q8: OUT, INP, WAIT, STICK, BLOAD, BSAVE (generic registry calls), VARPTR of numeric variables (DBLOCK mirrors), RUN / RUN label / RUN file$, CLEAR, CHAIN, TIME$ = and REDIM after `DIM name()` lower to QIR; qb-exec `rt/dosx.rs` implements them and `Vm::restart` does RUN/CLEAR. Details and deviations: `docs/rust-port/corpus-run.md` (Q7, Q8).
+- New builtins in `qb_ir::builtins`: `sub_out`, `func_inp`, `sub_wait`, `func_stick`, `sub_bload`, `sub_bsave`, `VARPTR.n`, `RUN`, `CLEAR`, `RUNFROM`, `RUNFILE`, `CHAIN`.
+- Conformance: new `control/sub_name_label`, `system/run_clear`, `graphics/ports_bload` (goldens from the C++ build, identical under `--ir`).
+
 ## Corpus fixes (branch `claude/corpus-fixes-70d56e`)
 
 Local corpus `tests/corpus-local/` (gitignored): 129 `.bas` files from creationix-basic-games (MIT) and the QB64 `programs/samples`. Compile only (`qb file.bas -o x.exe -q -m`), one file at a time.

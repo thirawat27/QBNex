@@ -393,6 +393,27 @@ pub static TABLE: &[Builtin] = &[
     b!("_STRICMP", [Str, Str], I32),
     b!("_CWD$", [], Str),
     b!("_STARTDIR$", [], Str),
+    // ---- DOS-era statements (registry callnames, generic lowering)
+    // OUT port, value / INP(port) (VGA palette &H3C7-&H3C9, retrace &H3DA, keyboard &H60)
+    b!("sub_out", [I32, I32]),
+    b!("func_inp", [I32], I32),
+    // WAIT port, and[, xor] + passed
+    b!("sub_wait", [I32, I32, I32, I32]),
+    // STICK(n[, axes]) + passed
+    b!("func_stick", [I32, I32, I32], I32),
+    // BLOAD file$[, offset] + passed / BSAVE file$, offset, size (DEF SEG memory)
+    b!("sub_bload", [Str, I32, I32]),
+    b!("sub_bsave", [Str, I32, I32]),
+    // VARPTR of a non-STRING variable: address, array descriptor (0 = not an array element), bytes
+    b!("VARPTR.n", [Ptr, Ptr, I32], I32),
+    // RUN / CLEAR: the program restarts at `main` with fresh variables; `RUNFROM` (first
+    // statement of main) returns where to continue: 0 = the start, k = the k-th RUN/CLEAR target
+    b!("RUN", [I32]),
+    b!("CLEAR", [I32]),
+    b!("RUNFROM", [], I32),
+    // RUN file$ / CHAIN file$: run another program, then end this one
+    b!("RUNFILE", [Str]),
+    b!("CHAIN", [Str]),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
