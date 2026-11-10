@@ -84,8 +84,8 @@ impl Pcm {
                 let v = i32::from_le_bytes([0, b[i], b[i + 1], b[i + 2]]) >> 8;
                 v as f32 / 8388608.0
             }
-            SampleFormat::S32 => i32::from_le_bytes(b[4 * index..4 * index + 4].try_into().unwrap()) as f32 / 2147483648.0,
-            SampleFormat::F32 => f32::from_le_bytes(b[4 * index..4 * index + 4].try_into().unwrap()),
+            SampleFormat::S32 => i32::from_le_bytes(le4(&b[4 * index..])) as f32 / 2147483648.0,
+            SampleFormat::F32 => f32::from_le_bytes(le4(&b[4 * index..])),
         }
     }
 
@@ -198,7 +198,8 @@ fn decode_symphonia(path: &Path, device_rate: u32) -> Option<Pcm> {
         if spec.channels().count() as u16 != channels {
             break;
         }
-        match format.unwrap() {
+        let Some(fmt) = format else { break };
+        match fmt {
             SampleFormat::U8 => {
                 let mut v: Vec<u8> = Vec::new();
                 buf.copy_to_vec_interleaved(&mut v);
@@ -271,7 +272,12 @@ pub fn load_file(path: &Path, device_rate: u32) -> Option<Pcm> {
     decode_symphonia(path, device_rate).or_else(|| decode_module(path, device_rate))
 }
 
-#[cfg(test)]
+#[/// First 4 bytes of `b` (callers index inside the sample buffer).
+fn le4(b: &[u8]) -> [u8; 4] {
+    [b[0], b[1], b[2], b[3]]
+}
+
+cfg(test)]
 mod tests {
     use super::*;
 

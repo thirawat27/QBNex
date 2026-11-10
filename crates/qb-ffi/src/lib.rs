@@ -23,6 +23,7 @@
 //! See `docs/rust-port/r11d-ffi-float80.md` for the API contract used by the
 //! emitter (R11a) and the VM (R11b).
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 mod abi;
 mod loader;
 

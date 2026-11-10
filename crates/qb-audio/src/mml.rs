@@ -65,8 +65,15 @@ pub struct Synth {
     pub play: PlayState,
 }
 
+/// First `N` bytes of `b` (callers pass the 10-byte VARPTR$ value).
+fn le<const N: usize>(b: &[u8]) -> [u8; N] {
+    let mut a = [0u8; N];
+    a.copy_from_slice(&b[..N]);
+    a
+}
+
 fn f80_to_f64(b: &[u8]) -> f64 {
-    let mant = u64::from_le_bytes(b[0..8].try_into().unwrap());
+    let mant = u64::from_le_bytes(le::<8>(b));
     let se = u16::from_le_bytes([b[8], b[9]]);
     let sign = if se & 0x8000 != 0 { -1.0 } else { 1.0 };
     let exp = (se & 0x7fff) as i32;
@@ -100,18 +107,18 @@ fn pow2(e: i32) -> f64 {
 
 /// Value of a VARPTR$ reference; None = illegal type (error 5).
 fn varptr_value(ty: u8, raw: &[u8; 10]) -> Option<f64> {
-    let i64v = i64::from_le_bytes(raw[0..8].try_into().unwrap());
+    let i64v = i64::from_le_bytes(le::<8>(raw));
     Some(match ty {
         1 => raw[0] as i8 as f64,
         129 => raw[0] as f64,
         2 => i16::from_le_bytes([raw[0], raw[1]]) as f64,
         130 => u16::from_le_bytes([raw[0], raw[1]]) as f64,
-        4 => f32::from_le_bytes(raw[0..4].try_into().unwrap()) as f64,
+        4 => f32::from_le_bytes(le::<4>(raw)) as f64,
         5 | 133 => i64v as f64,
         6 => f80_to_f64(&raw[..]),
-        8 => f64::from_le_bytes(raw[0..8].try_into().unwrap()),
-        20 => i32::from_le_bytes(raw[0..4].try_into().unwrap()) as f64,
-        148 => u32::from_le_bytes(raw[0..4].try_into().unwrap()) as f64,
+        8 => f64::from_le_bytes(le::<8>(raw)),
+        20 => i32::from_le_bytes(le::<4>(raw)) as f64,
+        148 => u32::from_le_bytes(le::<4>(raw)) as f64,
         _ => {
             if ty & 64 == 0 {
                 return None;

@@ -42,7 +42,7 @@ impl RawQueue {
         if need_new {
             self.blocks.push_back(Block { samples: Vec::with_capacity(self.block_frames * 2), force: false });
         }
-        let b = self.blocks.back_mut().unwrap();
+        let Some(b) = self.blocks.back_mut() else { return };
         b.samples.push(l);
         b.samples.push(r);
         self.queued += 1;
@@ -84,7 +84,7 @@ impl RawQueue {
         if !self.front_ready() {
             return None;
         }
-        let b = self.blocks.front().unwrap();
+        let b = self.blocks.front()?;
         let frame = (b.samples[2 * self.read], b.samples[2 * self.read + 1]);
         self.read += 1;
         self.queued -= 1;

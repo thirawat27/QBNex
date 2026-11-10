@@ -13,6 +13,7 @@
 //! - Pointers coming from C may be unaligned (they often point into string
 //!   buffers), so reads and writes go through byte copies.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod alloc;

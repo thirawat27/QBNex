@@ -24,6 +24,7 @@
 //! The differential harness `tests/diff/diff_float80.cpp` checks all of this against
 //! real `long double` code compiled by MinGW g++.
 
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 pub mod arith;
 pub mod capi;
 pub mod conv;
