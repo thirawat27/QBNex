@@ -1,0 +1,1 @@
+Golden output blessed from the current default C++ path, not the legacy oracle: the legacy json.bas was a stub (L-13) that returned empty arrays/objects without parsing. Checked by hand against RFC 8259.
