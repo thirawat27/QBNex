@@ -5,8 +5,6 @@ FROM ubuntu:22.04 AS base
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
-    g++ \
-    make \
     libasound2-dev \
     libudev-dev \
     pkg-config \

@@ -11,8 +11,9 @@ programs are new executables, which scanners like to inspect).
 
 ## Building from source
 
-You need [Rust](https://rustup.rs) (`cargo`) on every platform: the runtime
-is a set of Rust crates (`crates/qb-*`).
+You need [Rust](https://rustup.rs) (`cargo`) on every platform. No C or C++
+compiler is used: the compiler is written in BASIC, translated to QIR (a
+text intermediate form) and run by the Rust runner `qb-exec`.
 
 ### Windows
 
@@ -22,32 +23,34 @@ cd QBNex
 scripts\setup_win.cmd
 ```
 
-The script downloads MinGW (about 150 MB) into `internal\c\c_compiler`,
-builds the Rust runtime `libqb_runtime.a`, builds a stage-0 compiler and
-lets it compile `compiler\qbnex.bas` into `qb.exe` in the repository root.
-For a 32-bit build set `QBNEX_MINGW_ARCH=x86` first.
-
 ### Linux
 
 ```bash
-# Debian/Ubuntu
-sudo apt-get install g++ libasound2-dev libudev-dev pkg-config
-chmod +x scripts/setup_lnx.sh
-./scripts/setup_lnx.sh
+# Debian/Ubuntu: libraries for sound and gamepads
+sudo apt-get install libasound2-dev libudev-dev pkg-config
+sh scripts/setup_lnx.sh
 ```
 
-`libasound2-dev` (sound) and `libudev-dev` (gamepads) are only needed for
-their `.pc` files and libraries; nothing in C is compiled from them. Fedora:
-`gcc-c++ alsa-lib-devel systemd-devel pkgconf-pkg-config`; Arch:
-`gcc alsa-lib systemd-libs pkgconf`.
+Fedora: `alsa-lib-devel systemd-devel pkgconf-pkg-config`; Arch:
+`alsa-lib systemd-libs pkgconf`.
 
 ### macOS
 
 ```bash
-xcode-select --install
-chmod +x scripts/setup_osx.command
-./scripts/setup_osx.command
+sh scripts/setup_osx.command
 ```
+
+### What the setup does
+
+1. Builds the runner `qb-exec` (`cargo build --release -p qb-exec`) into
+   `crates/qb-exec/bin/<os>/`.
+2. Packs `bootstrap/qbnex.qir` (the compiler, already translated to QIR)
+   into that runner, giving a stage-0 compiler.
+3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the
+   repository root, then runs a smoke test.
+
+A compiled program is a copy of the runner with the program's QIR appended,
+so it needs no other files.
 
 ### What you get
 
@@ -68,24 +71,6 @@ cargo build --release -p qb-fmt -p qb-lsp -p qb-dap
 `qbnex fmt|lsp|dap` finds them next to the script, then in
 `target/release` or `target/debug` of the checkout, then on `PATH`.
 
-### The QIR back end (Preview)
-
-`qb file.bas --ir` packages the program for the prebuilt Rust runner
-`crates/qb-exec/bin/<os>/qb-exec` instead of calling g++. Build the runner
-once with `crates/qb-exec/os/<os>/setup_build.*` (or
-`cargo build --release -p qb-exec` and copy it there). The setup scripts that
-build QBNex without any C/C++ toolchain (`scripts/setup_qir.sh`,
-`scripts/setup_qir_win.cmd`) are switched off until the cutover:
-`QBNEX_QIR_CUTOVER=1` turns them on for testing.
-
-### CMake
-
-```bash
-cmake --preset windows-mingw && cmake --build --preset windows-mingw-selfhost   # Windows
-cmake --preset linux-gcc && cmake --build --preset linux-gcc-stage0             # Linux
-cmake --preset macos-clang && cmake --build --preset macos-clang-stage0         # macOS
-```
-
 ### Docker
 
 ```bash
@@ -101,5 +86,5 @@ qb hello.bas        # writes hello.exe (Windows) or ./hello
 ```
 
 Platform notes: the Windows build is the one tested most. Linux and macOS
-builds of the Rust runtime are written and reviewed but less tested; see
+builds are written and reviewed but less tested; see
 `docs/rust-port/progress.md`.
