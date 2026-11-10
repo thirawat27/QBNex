@@ -545,6 +545,25 @@ Verified on Windows (MinGW g++ 15.2, rustc 1.99.1, after merging rust-port `d05c
 - `tests/diff/host_stubs.h`: libqb_runtime.a is a single object since D16, so every harness now includes stubs for the libqb.cpp/qbx.cpp symbols it references (`diff_timer` and others did not link before).
 - Self-hosted `qb.exe` built by `scripts/setup_win.cmd` with the Rust core.
 
+## R13-tools developer tooling
+
+Branch `claude/r13-tools2-807c75`. Three new standalone crates (port-plan §9.4, "Tooling" row); nothing in `compiler/`, `qb-exec`, `qb-runtime` or the other existing crates changed apart from the workspace member list.
+
+| Crate | What it is |
+| --- | --- |
+| `crates/qb-syntax` | Lossless lexer + concrete syntax tree. Tokens cover every byte: comments (`'`, `REM`, QBNex `#`), metacomments (`'$INCLUDE: 'x'`, `REM $DYNAMIC`), `$` metacommand lines, line numbers, labels, `DATA` items (raw), line continuations, unterminated strings and unknown characters (as tokens plus diagnostics). Statements are grouped into blocks (IF/FOR/DO/WHILE/SELECT/SUB/FUNCTION/TYPE/DEF FN/DECLARE LIBRARY/CLASS/ENUM/TRY), with single-line IF (also `IF x THEN : stmt`), `NEXT j, i` closing several FORs and recovery for missing or stray closers. `encoding` reads UTF-8 (BOM kept) or CP437 and writes the same bytes back. `LineIndex` maps offsets to LSP positions (UTF-16). The keyword table merges hand-written language keywords with the 355 built-ins generated from `compiler/subs_functions/subs_functions.bas` by `crates/qb-syntax/tools/gen-builtins.ps1` (syntax lines included). `examples/diag.rs` prints parse diagnostics for files. |
+| `crates/qb-fmt` | Formatter library + `qb-fmt` command (`--write`, `--check`, `--keyword-case upper|lower|preserve`, `--indent N`, `--tabs`, `--line-ending`; stdin/stdout when no files; keeps the input encoding). Normalises keyword case, indents block bodies (CASE one level inside SELECT), puts line numbers and labels in column 0, continuation lines one level deeper, one space around binary operators and after `,`/`;`/`:`, none inside brackets; strips trailing blanks. Never touches comments, strings, DATA items, metacommands, the case of external names in DECLARE LIBRARY, or the blank between a name and `(`; lines with lexical errors are only re-indented. `equivalent()` compares the meaningful tokens of two texts. |
+| `crates/qb-lsp` | Language server over stdio (`lsp-server` 0.10, `lsp-types` 0.97). Diagnostics (syntax/block errors, include file not found), document symbols (SUB/FUNCTION/TYPE with fields/CONST/labels/line numbers that are jump targets), go-to-definition and references across the file and its `$INCLUDE`s (resolved relative to the including file, depth ≤ 100; dotted names resolve the member to TYPE fields; line numbers after GOTO/GOSUB/THEN/ELSE/RESTORE/RESUME/RETURN and in `ON x GOTO` lists), hover (built-in syntax line and description, or the user definition and its file), completion (file + include symbols, all keywords), whole-document formatting through qb-fmt (client tab size / spaces). |
+
+Verified on Windows (rustc 1.99.1, `CARGO_BUILD_JOBS=1`):
+
+- `cargo test -p qb-syntax -p qb-fmt -p qb-lsp`: all pass; `cargo clippy --all-targets` on the three crates: 0 warnings.
+- qb-syntax: unit tests, proptest (arbitrary strings, arbitrary bytes with byte-exact CP437/UTF-8 round trip, BASIC-flavoured fragment soup; 2,000 cases each): no panic, tokens contiguous, tree visits every token once. All 81 conformance cases parse with no diagnostics and round-trip byte for byte.
+- qb-fmt: every `.bas` in `tests/conformance/cases` plus `QB_CORPUS_DIR` (the main checkout's `tests/corpus-local`, 129 programs) is formatted with two option sets; the output has the same tokens as the input, formatting it again changes nothing, and its parse has the same number of diagnostics. Proptest (3,000 random programs per run, repeated with 30,000) found and fixed four spacing cases that would have changed tokens (`$ IF`, `#REM`, `name :` at line start, `- =`).
+- qb-lsp: `tests/stdio.rs` runs the binary with real JSON-RPC framing: initialize, didOpen diagnostics, documentSymbol, definition (into the include, TYPE field, label), references with and without the declaration, hover (keyword and user TYPE), completion, formatting, didChange/didClose diagnostics, shutdown/exit; a second session feeds garbage text and probes every position, and an unknown method gets -32601.
+- Parse diagnostics over corpus-local only remain in programs that carry binary data inside the `.BAS` (SHIPWAR, SPACE, GRAPHICS, EDIT, ...).
+
+Not done / limits: no expression-level AST (the CST stops at statements, which is all the formatter and server need); symbols are file-global (no per-SUB scopes); references do not look into files that include the current one; `$IF` metacommand blocks are not indented.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
