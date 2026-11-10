@@ -1,9 +1,0 @@
-if(oldstr4508){
-if(oldstr4508->fixed)qbs_set(oldstr4508,_FUNC_TEXT_PADRIGHT_STRING_VALUETEXT);
-qbs_free(_FUNC_TEXT_PADRIGHT_STRING_VALUETEXT);
-}
-if(oldstr4509){
-if(oldstr4509->fixed)qbs_set(oldstr4509,_FUNC_TEXT_PADRIGHT_STRING_PADTEXT);
-qbs_free(_FUNC_TEXT_PADRIGHT_STRING_PADTEXT);
-}
-qbs_free(_FUNC_TEXT_PADRIGHT_STRING_RESULTTEXT);

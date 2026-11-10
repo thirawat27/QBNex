@@ -1,7 +1,0 @@
-int32 *_SUB_IRIF_LONG_ID=NULL;
-if(_SUB_IRIF_LONG_ID==NULL){
-_SUB_IRIF_LONG_ID=(int32*)mem_static_malloc(4);
-*_SUB_IRIF_LONG_ID=0;
-}
-qbs *_SUB_IRIF_STRING_T=NULL;
-if (!_SUB_IRIF_STRING_T)_SUB_IRIF_STRING_T=qbs_new(0,0);

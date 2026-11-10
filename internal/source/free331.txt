@@ -1,5 +1,0 @@
-if(oldstr4487){
-if(oldstr4487->fixed)qbs_set(oldstr4487,_FUNC_TEXT_REPEAT_STRING_VALUETEXT);
-qbs_free(_FUNC_TEXT_REPEAT_STRING_VALUETEXT);
-}
-qbs_free(_FUNC_TEXT_REPEAT_STRING_RESULTTEXT);

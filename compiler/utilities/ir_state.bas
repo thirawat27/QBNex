@@ -1,6 +1,7 @@
 ' QIR v1 emitter state (utilities/ir_emit.bas). Module-level because QB64
 ' needs DIM SHARED before the SUB/FUNCTION area. Spec: docs/rust-port/qir-v1.md
 DIM SHARED IrEmitMode AS _BYTE
+IrEmitMode = -1 'QIR is the only backend (cutover): --ir is accepted and changes nothing
 'functions: 1 = main
 DIM SHARED IrFnN AS LONG, IrFnCur AS LONG
 REDIM SHARED IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING

@@ -1,2 +1,0 @@
-qbs_free(_SUB_IRPRIMARY_STRING_V);
-qbs_free(_SUB_IRPRIMARY_STRING_A);

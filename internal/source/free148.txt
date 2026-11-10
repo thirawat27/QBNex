@@ -1,4 +1,0 @@
-if(oldstr3507){
-if(oldstr3507->fixed)qbs_set(oldstr3507,_FUNC_ISOCTALTEXT_STRING_TEXT);
-qbs_free(_FUNC_ISOCTALTEXT_STRING_TEXT);
-}

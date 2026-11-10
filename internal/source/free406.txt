@@ -1,8 +1,0 @@
-if(oldstr4715){
-if(oldstr4715->fixed)qbs_set(oldstr4715,_SUB_REPORTWARNING_STRING_MESSAGE);
-qbs_free(_SUB_REPORTWARNING_STRING_MESSAGE);
-}
-if(oldstr4716){
-if(oldstr4716->fixed)qbs_set(oldstr4716,_SUB_REPORTWARNING_STRING_CONTEXT);
-qbs_free(_SUB_REPORTWARNING_STRING_CONTEXT);
-}

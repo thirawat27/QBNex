@@ -1,3 +1,0 @@
-qbs_free(_SUB_IRDATA_STRING_RAW);
-qbs_free(_SUB_IRDATA_STRING_C);
-qbs_free(_SUB_IRDATA_STRING_ITEM);

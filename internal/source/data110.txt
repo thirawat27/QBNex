@@ -1,9 +1,0 @@
-int32 *_SUB_CLASSSYNTAX_CLEARREGISTRY_LONG_I=NULL;
-if(_SUB_CLASSSYNTAX_CLEARREGISTRY_LONG_I==NULL){
-_SUB_CLASSSYNTAX_CLEARREGISTRY_LONG_I=(int32*)mem_static_malloc(4);
-*_SUB_CLASSSYNTAX_CLEARREGISTRY_LONG_I=0;
-}
-int64 fornext_value3151;
-int64 fornext_finalvalue3151;
-int64 fornext_step3151;
-uint8 fornext_step_negative3151;

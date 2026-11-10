@@ -1,4 +1,0 @@
-if(oldstr4477){
-if(oldstr4477->fixed)qbs_set(oldstr4477,_FUNC_SCASE_STRING_T);
-qbs_free(_FUNC_SCASE_STRING_T);
-}

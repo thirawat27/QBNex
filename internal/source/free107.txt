@@ -1,4 +1,0 @@
-if(oldstr3143){
-if(oldstr3143->fixed)qbs_set(oldstr3143,_SUB_CLASSSYNTAX_QUEUELINE_STRING_LINE);
-qbs_free(_SUB_CLASSSYNTAX_QUEUELINE_STRING_LINE);
-}

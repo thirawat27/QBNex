@@ -1,4 +1,0 @@
-if(oldstr1852){
-if(oldstr1852->fixed)qbs_set(oldstr1852,_SUB_HANDLESETTINGSSWITCH_STRING_TOKEN);
-qbs_free(_SUB_HANDLESETTINGSSWITCH_STRING_TOKEN);
-}

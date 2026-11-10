@@ -1,4 +1,0 @@
-if(oldstr4619){
-if(oldstr4619->fixed)qbs_set(oldstr4619,_SUB_SETCURRENTFILE_STRING_FILENAME);
-qbs_free(_SUB_SETCURRENTFILE_STRING_FILENAME);
-}

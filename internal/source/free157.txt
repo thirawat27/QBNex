@@ -1,5 +1,0 @@
-if(oldstr3569){
-if(oldstr3569->fixed)qbs_set(oldstr3569,_FUNC_REMOVESYMBOL_STRING_VARNAME);
-qbs_free(_FUNC_REMOVESYMBOL_STRING_VARNAME);
-}
-qbs_free(_FUNC_REMOVESYMBOL_STRING_SYMBOL);

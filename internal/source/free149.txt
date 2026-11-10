@@ -1,4 +1,0 @@
-if(oldstr3511){
-if(oldstr3511->fixed)qbs_set(oldstr3511,_FUNC_OCTALTEXTVALUE_STRING_TEXT);
-qbs_free(_FUNC_OCTALTEXTVALUE_STRING_TEXT);
-}

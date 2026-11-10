@@ -1,4 +1,0 @@
-if(oldstr3505){
-if(oldstr3505->fixed)qbs_set(oldstr3505,_FUNC_ISDIGITCHAR_STRING_CH);
-qbs_free(_FUNC_ISDIGITCHAR_STRING_CH);
-}

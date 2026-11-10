@@ -1,4 +1,0 @@
-if(oldstr4336){
-if(oldstr4336->fixed)qbs_set(oldstr4336,_FUNC_IRDIMLOOKUP_STRING_KEY);
-qbs_free(_FUNC_IRDIMLOOKUP_STRING_KEY);
-}

@@ -1,5 +1,0 @@
-if(oldstr3681){
-if(oldstr3681->fixed)qbs_set(oldstr3681,_FUNC_DWD_STRING_EXP);
-qbs_free(_FUNC_DWD_STRING_EXP);
-}
-qbs_free(_FUNC_DWD_STRING_T);

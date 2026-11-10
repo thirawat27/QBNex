@@ -1,2 +1,0 @@
-qbs_free(_SUB_IRSTATEMENT_STRING_K);
-qbs_free(_SUB_IRSTATEMENT_STRING_N);

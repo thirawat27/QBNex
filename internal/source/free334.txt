@@ -1,8 +1,0 @@
-if(oldstr4502){
-if(oldstr4502->fixed)qbs_set(oldstr4502,_FUNC_TEXT_CONTAINS_STRING_VALUETEXT);
-qbs_free(_FUNC_TEXT_CONTAINS_STRING_VALUETEXT);
-}
-if(oldstr4503){
-if(oldstr4503->fixed)qbs_set(oldstr4503,_FUNC_TEXT_CONTAINS_STRING_SEARCHTEXT);
-qbs_free(_FUNC_TEXT_CONTAINS_STRING_SEARCHTEXT);
-}
