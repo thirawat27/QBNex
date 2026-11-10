@@ -439,6 +439,8 @@ static void test_errors(long cases) {
         }
         const char *m = nullptr, *t = nullptr;
         int crit = qb_test_critical_error(code, &m, &t);
+        // D-R12b-5: division by zero (11) is no longer critical (trappable, as in QBasic 4.5).
+        if (code == 11) continue;
         CHECK((lexit == 0) == (crit == 1), "critical %d", code);
         if (crit && lexit == 0)
             CHECK(legacy_err::box_msg == m && legacy_err::box_title == t &&
