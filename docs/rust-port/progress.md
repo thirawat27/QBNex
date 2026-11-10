@@ -361,6 +361,40 @@ tests/diff/run_diff.cmd
 ```
 
 
+## R11c — Cranelift JIT tier (branch `claude/r11c-jit-e29a55`)
+
+Status: **JIT runs inside the typed VM** (R11b bytecode), results identical to the VM on every qb-exec test and on randomized differential programs. Calls are not yet native (see gaps).
+
+### Design
+- `crates/qb-jit`: MIR (typed slots, blocks), reference interpreter of the same MIR (oracle), Cranelift codegen (0.137, in-memory, no linker), tiering policy. Slots are the VM's own register window (`nums[nb..]`, 8 bytes each), so every native exit (error, event, deopt) leaves the exact frame at a VM pc.
+- `crates/qb-exec/src/jit.rs`: bytecode -> MIR. Numeric ops, branches, FOR, GOSUB/RETURN, 1-D numeric array elements (inline `ArrView`, slow path = VM host call) are native. Strings, builtins, PRINT, multi-dim arrays run through `VmOp` (the VM executes that one instruction: `exec_impl::<STEP>`). CALL runs the callee in the VM to its RET and returns to native code (frame reloaded: the register file may move). RET/END/ON ERROR/RESUME/event setup/string branches exit to the VM.
+- Tiering: entered at loop back-edges (`loop`, `for_next`) after `QB_JIT=<n>` arrivals (default 1000); `QB_JIT=off`, `QB_JIT=eager` (enter every loop). Loops whose body is mostly VM callbacks stay interpreted in hot mode.
+- QB semantics copied from the VM: integer ops wrap per width, float -> int rounds with `qb_runtime::round::qb_qbr_f64` (inline `nearest` when |x| < 2^63, else the helper), error 6/11/9/5/3 with the failing pc, SINGLE kept as double and rounded on store.
+- Targets: x86-64 runs; aarch64 code generation is checked in tests (`cross_targets_compile`).
+
+### Evidence (Windows, rustc 1.99.1, Cranelift 0.137, `CARGO_BUILD_JOBS=2`)
+- `cargo test -p qb-jit`: 25 semantics tests (interp vs JIT, both must agree field by field) + randomized differential test (`QB_JIT_RANDOM=30000`: 30000 generated programs pass; NaN compared by NaN-ness: its sign differs between x86 hardware and constant folding/aarch64).
+- `cargo test -p qb-exec` passes with `QB_JIT=off`, `QB_JIT=1` and `QB_JIT=eager`; `tests/jit.rs` (14 tests) compares VM vs hot vs eager output/errors and checks native code ran.
+- Benchmarks (`cargo run --release -p qb-exec --example bench`, ns per iteration; C++ = `crates/qb-exec/benches/bas/*.bas` built with `qb.exe -x`, loop time from `TIMER(.001)`):
+
+| case | VM | JIT | C++ | JIT / C++ |
+| --- | --- | --- | --- | --- |
+| loop `s& = s& + i& MOD 7` | 6.4 | 1.9 | 1.9 | 1.0x |
+| float `x# = x# + i& * 0.5` | 8.4 | 1.6 | 3.1 | 0.5x |
+| array `a&(j&) = a&(j&) + i&` | 14.1 | 4.0 | 6.9 | 0.6x |
+| gosub | 9.5 | 5.2 | 3.0 | 1.7x |
+| strfn (MID$/CHR$/LEN) | 25 | 25 | 79 | 0.3x |
+| concat | 7.7 | 7.7 | 46000 (quadratic in C++) | — |
+| sub call | 65 | 66 | 11.8 | **5.6x** |
+| function call | 78 | 58 | 16.2 | **3.6x** |
+
+Gate "loop benchmark <= 2x of the C++ path": met (1.0x). Not met yet: SUB/FUNCTION calls (the VM's call sequence itself costs ~65 ns).
+
+### Gaps / next
+- Native calls: compile callee frames in the JIT arena (MIR `Call` exists and is tested in qb-jit) once the VM's frame/BYREF copy-back can be mirrored; needed for the compiler front end goal.
+- Compiler front end (`qbnex.bas` through QIR) <= 2x native: not measurable yet (R11a emits QIR v1, the typed VM runs v0 bytecode).
+- Event polling: native code also polls at backward conditional branches to resumable blocks (the VM only at `loop`/`for_next`/CALL) — events can be delivered at a few more safe points.
+- D15 (AOT exe through Cranelift + `qb-link`): not started in this branch.
 ## Next steps
 
 2. L-01 remainder: error handler labels after a SUB still end up inside the runtime SUB.
