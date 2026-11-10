@@ -830,6 +830,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 qb_runtime::systime::sleep_ms((a[0].f() * 1000.0).min(86_400_000.0) as u64);
             }
         }
+        "ASCSET" => {
+            let mut t = s(0).to_vec();
+            let p = i(1);
+            if p < 1 || p as usize > t.len() {
+                return e(5);
+            }
+            t[p as usize - 1] = i(2) as u8;
+            return ok(V::S(t));
+        }
         "COMMAND$" => return ok(V::S(program_args()[1..].join(" ").into_bytes())),
         "COMMAND$.n" => {
             // COMMAND$(n): argument n (0 = the program), "" out of range

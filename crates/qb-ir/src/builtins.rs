@@ -126,6 +126,8 @@ pub static TABLE: &[Builtin] = &[
     b!("EXP.s", [F64], F64),
     // raises the error of the numeric READ just stored (C++ assigns 0, then errors)
     b!("READCHK", []),
+    // ASC(s$, position) = code: s$ with that byte replaced (error 5 outside 1..LEN)
+    b!("ASCSET", [Str, I32, I32], Str),
     // _ACOS.., _D2R.., _SEC.. (registry callnames; computed in double like libqb), bit ops, _STRCMP
     b!("acos", [F80], F80),
     b!("asin", [F80], F80),

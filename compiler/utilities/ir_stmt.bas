@@ -76,6 +76,18 @@ SUB IrStmtEnd
             IrStore p$, m$
         CASE "CALL"
             IF s2$ = "ABSOLUTE" THEN IrCallAbsolute
+        CASE "ASC"
+            'ASC(s$[, position]) = code
+            j = IrMatch(IrStmt, 2, n)
+            k = IrSplitArgs(IrEls$(3, j - 1))
+            FOR i = 1 TO k: mv(i) = IrArgs(i): NEXT
+            p$ = IrPlace$(fixoperationorder$(mv(1)), t)
+            IF p$ = "" THEN EXIT SUB
+            x$ = IrLoad$(p$)
+            IF k >= 2 THEN y$ = IrArgAs$(fixoperationorder$(mv(2)), "i32") ELSE y$ = IrI32$(1)
+            z$ = IrArgAs$(fixoperationorder$(IrEls$(j + 2, n)), "i32")
+            m$ = IrRt$("ASCSET", " " + x$ + " " + y$ + " " + z$, "str")
+            IrStore p$, m$
         CASE "LSET", "RSET"
             j = IrFindSep(2, "|=|")
             p$ = IrPlaceAtRaw$(2, j - 1, t)
