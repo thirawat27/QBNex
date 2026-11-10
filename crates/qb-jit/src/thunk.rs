@@ -8,7 +8,7 @@
 use crate::codegen::{clif_ty, make_isa, Target};
 use crate::ctx::Ctx;
 use crate::mir::{Module, Ty};
-use cranelift_codegen::ir::{types, AbiParam, InstBuilder, MemFlags, Signature};
+use cranelift_codegen::ir::{types, AbiParam, InstBuilder, MemFlagsData, Signature};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module as _};
@@ -33,6 +33,7 @@ impl Thunks {
     pub fn new(m: &Module) -> Thunks {
         let isa = make_isa(Target::Host);
         let cc = isa.default_call_conv();
+        let frontend = isa.frontend_config();
         let mut jit = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
         let mut ids = Vec::new();
         let mut fctx = FunctionBuilderContext::new();
@@ -56,7 +57,7 @@ impl Thunks {
                 let mut args = vec![p[1]];
                 for (k, t) in h.sig.params.iter().enumerate() {
                     hsig.params.push(abi(*t));
-                    let v = b.ins().load(clif_ty(*t), MemFlags::trusted(), p[2], (k * 8) as i32);
+                    let v = b.ins().load(clif_ty(*t), MemFlagsData::trusted(), p[2], (k * 8) as i32);
                     args.push(v);
                 }
                 if let Some(t) = h.sig.ret {
@@ -71,9 +72,9 @@ impl Thunks {
                         match t {
                             Ty::I16 | Ty::I32 => b.ins().sextend(types::I64, r),
                             Ty::I64 | Ty::Ptr => r,
-                            Ty::F64 => b.ins().bitcast(types::I64, MemFlags::new(), r),
+                            Ty::F64 => b.ins().bitcast(types::I64, MemFlagsData::new(), r),
                             Ty::F32 => {
-                                let i = b.ins().bitcast(types::I32, MemFlags::new(), r);
+                                let i = b.ins().bitcast(types::I32, MemFlagsData::new(), r);
                                 b.ins().uextend(types::I64, i)
                             }
                         }
@@ -81,7 +82,7 @@ impl Thunks {
                 };
                 b.ins().return_(&[out]);
                 b.seal_all_blocks();
-                b.finalize();
+                b.finalize(frontend);
             }
             jit.define_function(id, &mut c).expect("define thunk");
             jit.clear_context(&mut c);

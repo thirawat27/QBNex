@@ -13,8 +13,8 @@ path = "src/lib.rs"
 
 [dependencies]
 qb-runtime = { path = "../qb-runtime" }
-cranelift-codegen = { version = "0.114", features = ["x86", "arm64"] }
-cranelift-frontend = "0.114"
-cranelift-jit = "0.114"
-cranelift-module = "0.114"
-cranelift-native = "0.114"
+cranelift-codegen = { version = "0.137", features = ["x86", "arm64"] }
+cranelift-frontend = "0.137"
+cranelift-jit = "0.137"
+cranelift-module = "0.137"
+cranelift-native = "0.137"

@@ -13,7 +13,7 @@ use crate::ctx::*;
 use crate::mir::*;
 use crate::thunk::abi;
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
-use cranelift_codegen::ir::{self, types, AbiParam, Block as CBlock, InstBuilder, MemFlags, Signature, Value};
+use cranelift_codegen::ir::{self, types, AbiParam, Block as CBlock, InstBuilder, MemFlagsData, Signature, Value};
 use cranelift_codegen::isa::{CallConv, OwnedTargetIsa};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
@@ -95,6 +95,7 @@ pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
     m.validate().map_err(|e| CompileError(e.0))?;
     let isa = make_isa(target);
     let cc = isa.default_call_conv();
+    let frontend = isa.frontend_config();
     let ptr_bits = isa.pointer_bits();
     if ptr_bits != 64 {
         return Err(CompileError("64-bit targets only".into()));
@@ -114,7 +115,7 @@ pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
         cctx.func.signature = sig.clone();
         {
             let b = FunctionBuilder::new(&mut cctx.func, &mut fctx);
-            let mut g = Gen::new(m, f, b, cc);
+            let mut g = Gen::new(m, f, b, cc, frontend);
             let frefs: Vec<ir::FuncRef> = ids.iter().map(|id| jit.declare_func_in_func(*id, g.b.func)).collect();
             g.frefs = frefs;
             g.emit();
@@ -157,16 +158,22 @@ struct Gen<'a> {
     event_blk: CBlock,
     deopt_blk: CBlock,
     cur: usize,
+    vars: Vec<Variable>,
+    frontend: cranelift_codegen::isa::TargetFrontendConfig,
     /// Event-poll edge blocks, emitted after the body: (poll block, pc, target).
     polls: Vec<(CBlock, u32, CBlock)>,
 }
 
-fn var(r: Reg) -> Variable {
-    Variable::from_u32(r + 3)
-}
+
 
 impl<'a> Gen<'a> {
-    fn new(m: &'a Module, f: &'a Func, b: FunctionBuilder<'a>, cc: CallConv) -> Gen<'a> {
+    fn new(
+        m: &'a Module,
+        f: &'a Func,
+        b: FunctionBuilder<'a>,
+        cc: CallConv,
+        frontend: cranelift_codegen::isa::TargetFrontendConfig,
+    ) -> Gen<'a> {
         let n = f.slots.len();
         let nf = f.frame_len();
         let mut resident: Vec<bool> = (0..n).map(|r| r < nf && nf > MAX_REG_SLOTS).collect();
@@ -209,14 +216,16 @@ impl<'a> Gen<'a> {
             frame: z,
             globals: z,
             v_line: Variable::from_u32(0),
-            v_pc: Variable::from_u32(1),
-            v_base: Variable::from_u32(2),
+            v_pc: Variable::from_u32(0),
+            v_base: Variable::from_u32(0),
             err_blk: dummy,
             host_err_blk: dummy,
             exit_blk: dummy,
             event_blk: dummy,
             deopt_blk: dummy,
             cur: 0,
+            vars: Vec::new(),
+            frontend,
             polls: Vec::new(),
         }
     }
@@ -228,13 +237,13 @@ impl<'a> Gen<'a> {
     // ---------------------------------------------------------- memory helpers
 
     fn mem_load(&mut self, t: Ty, addr: Value, off: i32) -> Value {
-        self.b.ins().load(clif_ty(t), MemFlags::new().with_notrap(), addr, off)
+        self.b.ins().load(clif_ty(t), MemFlagsData::new().with_notrap(), addr, off)
     }
 
     /// Natural-size store.
     fn mem_store(&mut self, t: Ty, v: Value, addr: Value, off: i32) {
         let _ = t;
-        self.b.ins().store(MemFlags::new().with_notrap(), v, addr, off);
+        self.b.ins().store(MemFlagsData::new().with_notrap(), v, addr, off);
     }
 
     /// Slot store: integers sign-extended to 8 bytes.
@@ -243,16 +252,16 @@ impl<'a> Gen<'a> {
             Ty::I16 | Ty::I32 => self.b.ins().sextend(types::I64, v),
             _ => v,
         };
-        self.b.ins().store(MemFlags::trusted(), v, addr, off);
+        self.b.ins().store(MemFlagsData::trusted(), v, addr, off);
     }
 
     fn get(&mut self, r: Reg) -> Value {
         if self.resident[r as usize] {
             let t = self.ty(r);
             let fr = self.frame;
-            self.b.ins().load(clif_ty(t), MemFlags::trusted(), fr, (r * 8) as i32)
+            self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), fr, (r * 8) as i32)
         } else {
-            self.b.use_var(var(r))
+            self.b.use_var(self.vars[(r) as usize])
         }
     }
 
@@ -262,26 +271,26 @@ impl<'a> Gen<'a> {
             let fr = self.frame;
             self.slot_store(t, v, fr, (r * 8) as i32);
         } else {
-            self.b.def_var(var(r), v);
+            self.b.def_var(self.vars[(r) as usize], v);
         }
     }
 
     fn ctx_load(&mut self, t: ir::Type, off: i32) -> Value {
         let c = self.ctx;
-        self.b.ins().load(t, MemFlags::trusted(), c, off)
+        self.b.ins().load(t, MemFlagsData::trusted(), c, off)
     }
 
     /// `*ctx.ev_ptr & ctx.ev_mask` (non-zero = event pending).
     fn event_word(&mut self) -> Value {
         let p = self.ctx_load(types::I64, OFF_EV_PTR);
-        let w = self.b.ins().load(types::I32, MemFlags::trusted(), p, 0);
+        let w = self.b.ins().load(types::I32, MemFlagsData::trusted(), p, 0);
         let m = self.ctx_load(types::I32, OFF_EV_MASK);
         self.b.ins().band(w, m)
     }
 
     fn ctx_store(&mut self, v: Value, off: i32) {
         let c = self.ctx;
-        self.b.ins().store(MemFlags::trusted(), v, c, off);
+        self.b.ins().store(MemFlagsData::trusted(), v, c, off);
     }
 
     // ---------------------------------------------------------- control helpers
@@ -294,7 +303,7 @@ impl<'a> Gen<'a> {
         self.b.ins().brif(cond, bad, &[], ok, &[]);
         self.b.switch_to_block(bad);
         let c = self.b.ins().iconst(types::I32, i64::from(code));
-        self.b.ins().jump(self.err_blk, &[c]);
+        self.b.ins().jump(self.err_blk, &[c.into()]);
         self.b.switch_to_block(ok);
     }
 
@@ -323,13 +332,12 @@ impl<'a> Gen<'a> {
         self.frame = p[1];
         let entry_pc = p[2];
 
-        self.b.declare_var(self.v_line, types::I32);
-        self.b.declare_var(self.v_pc, types::I32);
-        self.b.declare_var(self.v_base, types::I32);
+        self.v_line = self.b.declare_var(types::I32);
+        self.v_pc = self.b.declare_var(types::I32);
+        self.v_base = self.b.declare_var(types::I32);
         for r in 0..self.f.slots.len() as u32 {
-            if !self.resident[r as usize] {
-                self.b.declare_var(var(r), clif_ty(self.ty(r)));
-            }
+            let v = self.b.declare_var(clif_ty(self.ty(r)));
+            self.vars.push(v);
         }
 
         self.globals = self.ctx_load(types::I64, OFF_GLOBALS);
@@ -340,7 +348,7 @@ impl<'a> Gen<'a> {
                 let t = self.ty(r);
                 let v = if (r as usize) < nf {
                     let fr = self.frame;
-                    self.b.ins().load(clif_ty(t), MemFlags::trusted(), fr, (r * 8) as i32)
+                    self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), fr, (r * 8) as i32)
                 } else {
                     match t {
                         Ty::F32 => self.b.ins().f32const(0.0),
@@ -348,12 +356,12 @@ impl<'a> Gen<'a> {
                         _ => self.b.ins().iconst(clif_ty(t), 0),
                     }
                 };
-                self.b.def_var(var(r), v);
+                self.b.def_var(self.vars[(r) as usize], v);
             }
         }
         let zero = self.b.ins().iconst(types::I32, 0);
         self.b.def_var(self.v_line, zero);
-        let is_call = self.b.ins().icmp_imm(IntCC::Equal, entry_pc, i64::from(ENTRY_CALL));
+        let is_call = self.b.ins().icmp_imm_s(IntCC::Equal, entry_pc, i64::from(ENTRY_CALL));
         let pc0 = self.b.ins().select(is_call, zero, entry_pc);
         self.b.def_var(self.v_pc, pc0);
         let glen = self.ctx_load(types::I32, OFF_GOSUB_LEN);
@@ -393,7 +401,7 @@ impl<'a> Gen<'a> {
         let unknown = self.b.create_block();
         sw.emit(&mut self.b, entry_pc, unknown);
         self.b.switch_to_block(unknown);
-        self.b.ins().jump(self.deopt_blk, &[entry_pc]);
+        self.b.ins().jump(self.deopt_blk, &[entry_pc.into()]);
 
         for i in 0..self.f.blocks.len() {
             self.cur = i;
@@ -408,7 +416,7 @@ impl<'a> Gen<'a> {
 
         self.emit_exits();
         self.b.seal_all_blocks();
-        self.b.finalize();
+        self.b.finalize(self.frontend);
     }
 
     fn emit_exits(&mut self) {
@@ -416,7 +424,7 @@ impl<'a> Gen<'a> {
             self.b.switch_to_block(poll);
             let ev = self.event_word();
             let pcv = self.b.ins().iconst(types::I32, i64::from(pc));
-            self.b.ins().brif(ev, self.event_blk, &[pcv], target, &[]);
+            self.b.ins().brif(ev, self.event_blk, &[pcv.into()], target, &[]);
         }
         // err(code): set err, err_line, exit_pc.
         self.b.switch_to_block(self.err_blk);
@@ -431,26 +439,26 @@ impl<'a> Gen<'a> {
         let pc = self.b.use_var(self.v_pc);
         self.ctx_store(pc, OFF_EXIT_PC);
         let st = self.b.ins().iconst(types::I32, i64::from(status::ERROR));
-        self.b.ins().jump(self.exit_blk, &[st]);
+        self.b.ins().jump(self.exit_blk, &[st.into()]);
 
         self.b.switch_to_block(self.event_blk);
         let pc = self.b.block_params(self.event_blk)[0];
         self.ctx_store(pc, OFF_EXIT_PC);
         let st = self.b.ins().iconst(types::I32, i64::from(status::EVENT));
-        self.b.ins().jump(self.exit_blk, &[st]);
+        self.b.ins().jump(self.exit_blk, &[st.into()]);
 
         self.b.switch_to_block(self.deopt_blk);
         let pc = self.b.block_params(self.deopt_blk)[0];
         self.ctx_store(pc, OFF_EXIT_PC);
         let st = self.b.ins().iconst(types::I32, i64::from(status::DEOPT));
-        self.b.ins().jump(self.exit_blk, &[st]);
+        self.b.ins().jump(self.exit_blk, &[st.into()]);
 
         // exit(status): write back every register slot that may have changed.
         self.b.switch_to_block(self.exit_blk);
         let st = self.b.block_params(self.exit_blk)[0];
         for r in 0..self.f.slots.len() as u32 {
             if !self.resident[r as usize] && self.defined[r as usize] && (r as usize) < self.f.frame_len() {
-                let v = self.b.use_var(var(r));
+                let v = self.b.use_var(self.vars[(r) as usize]);
                 let t = self.ty(r);
                 let fr = self.frame;
                 self.slot_store(t, v, fr, (r * 8) as i32);
@@ -474,7 +482,7 @@ impl<'a> Gen<'a> {
             Term::Ret => {
                 if let Some(r) = self.f.ret {
                     if !self.resident[r as usize] {
-                        let v = self.b.use_var(var(r));
+                        let v = self.b.use_var(self.vars[(r) as usize]);
                         let t = self.ty(r);
                         let fr = self.frame;
                         self.slot_store(t, v, fr, (r * 8) as i32);
@@ -498,17 +506,17 @@ impl<'a> Gen<'a> {
                 self.b.set_cold_block(other);
                 sw.emit(&mut self.b, v32, other);
                 self.b.switch_to_block(other);
-                self.b.ins().jump(self.deopt_blk, &[v32]);
+                self.b.ins().jump(self.deopt_blk, &[v32.into()]);
             }
             Term::Exit { pc } => {
                 let pcv = self.b.ins().iconst(types::I32, i64::from(*pc));
-                self.b.ins().jump(self.deopt_blk, &[pcv]);
+                self.b.ins().jump(self.deopt_blk, &[pcv.into()]);
             }
             Term::End => {
                 let z = self.b.ins().iconst(types::I32, 0);
                 self.ctx_store(z, OFF_EXIT_PC);
                 let st = self.b.ins().iconst(types::I32, i64::from(status::END));
-                self.b.ins().jump(self.exit_blk, &[st]);
+                self.b.ins().jump(self.exit_blk, &[st.into()]);
             }
             Term::Gosub { target, ret_pc, .. } => {
                 let len = self.ctx_load(types::I32, OFF_GOSUB_LEN);
@@ -517,11 +525,11 @@ impl<'a> Gen<'a> {
                 self.guard(full, qberr::OUT_OF_MEMORY);
                 let stack = self.ctx_load(types::I64, OFF_GOSUB);
                 let len64 = self.b.ins().uextend(types::I64, len);
-                let off = self.b.ins().ishl_imm(len64, 2);
+                let off = self.b.ins().ishl_imm_s(len64, 2);
                 let addr = self.b.ins().iadd(stack, off);
                 let rp = self.b.ins().iconst(types::I32, i64::from(*ret_pc));
-                self.b.ins().store(MemFlags::trusted(), rp, addr, 0);
-                let len1 = self.b.ins().iadd_imm(len, 1);
+                self.b.ins().store(MemFlagsData::trusted(), rp, addr, 0);
+                let len1 = self.b.ins().iadd_imm_s(len, 1);
                 self.ctx_store(len1, OFF_GOSUB_LEN);
                 let e = self.edge(*target);
                 self.b.ins().jump(e, &[]);
@@ -532,11 +540,11 @@ impl<'a> Gen<'a> {
                 let empty = self.b.ins().icmp(IntCC::UnsignedLessThanOrEqual, len, base);
                 self.guard(empty, qberr::RETURN_WITHOUT_GOSUB);
                 let stack = self.ctx_load(types::I64, OFF_GOSUB);
-                let len1 = self.b.ins().iadd_imm(len, -1);
+                let len1 = self.b.ins().iadd_imm_s(len, -1);
                 let l64 = self.b.ins().uextend(types::I64, len1);
-                let off = self.b.ins().ishl_imm(l64, 2);
+                let off = self.b.ins().ishl_imm_s(l64, 2);
                 let addr = self.b.ins().iadd(stack, off);
-                let to = self.b.ins().load(types::I32, MemFlags::trusted(), addr, 0);
+                let to = self.b.ins().load(types::I32, MemFlagsData::trusted(), addr, 0);
                 let mut sites: Vec<(u32, BlockId)> = Vec::new();
                 let mut seen = HashSet::new();
                 for blk in &self.f.blocks {
@@ -564,7 +572,7 @@ impl<'a> Gen<'a> {
                 }
                 self.b.switch_to_block(unknown);
                 let pcv = self.b.ins().iconst(types::I32, i64::from(*pc));
-                self.b.ins().jump(self.deopt_blk, &[pcv]);
+                self.b.ins().jump(self.deopt_blk, &[pcv.into()]);
             }
         }
     }
@@ -578,7 +586,7 @@ impl<'a> Gen<'a> {
                 self.b.def_var(self.v_pc, p);
                 let ev = self.event_word();
                 let cont = self.b.create_block();
-                self.b.ins().brif(ev, self.event_blk, &[p], cont, &[]);
+                self.b.ins().brif(ev, self.event_blk, &[p.into()], cont, &[]);
                 self.b.switch_to_block(cont);
             }
             Inst::Const { dst, imm } => {
@@ -651,7 +659,7 @@ impl<'a> Gen<'a> {
             Inst::GLoad { dst, slot } => {
                 let t = self.ty(*dst);
                 let g = self.globals;
-                let v = self.b.ins().load(clif_ty(t), MemFlags::trusted(), g, (*slot * 8) as i32);
+                let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), g, (*slot * 8) as i32);
                 self.set(*dst, v);
             }
             Inst::GStore { slot, src } => {
@@ -662,12 +670,12 @@ impl<'a> Gen<'a> {
             }
             Inst::AddrOf { dst, slot } => {
                 let fr = self.frame;
-                let a = self.b.ins().iadd_imm(fr, i64::from(*slot) * 8);
+                let a = self.b.ins().iadd_imm_s(fr, i64::from(*slot) * 8);
                 self.set(*dst, a);
             }
             Inst::GAddrOf { dst, slot } => {
                 let g = self.globals;
-                let a = self.b.ins().iadd_imm(g, i64::from(*slot) * 8);
+                let a = self.b.ins().iadd_imm_s(g, i64::from(*slot) * 8);
                 self.set(*dst, a);
             }
             Inst::LoadPtr { dst, ptr } => {
@@ -727,7 +735,7 @@ impl<'a> Gen<'a> {
             Inst::Bitcast { dst, src } => {
                 let v = self.get(*src);
                 let to = if self.ty(*dst) == Ty::F64 { types::F64 } else { types::I64 };
-                let r = self.b.ins().bitcast(to, MemFlags::new(), v);
+                let r = self.b.ins().bitcast(to, MemFlagsData::new(), v);
                 self.set(*dst, r);
             }
             Inst::ConvWrap { dst, src } => {
@@ -770,7 +778,7 @@ impl<'a> Gen<'a> {
                             let z = if st == Ty::F32 { self.b.ins().f32const(0.0) } else { self.b.ins().f64const(0.0) };
                             (self.b.ins().fcmp(FloatCC::GreaterThan, v, z), self.b.ins().fcmp(FloatCC::LessThan, v, z))
                         } else {
-                            (self.b.ins().icmp_imm(IntCC::SignedGreaterThan, v, 0), self.b.ins().icmp_imm(IntCC::SignedLessThan, v, 0))
+                            (self.b.ins().icmp_imm_s(IntCC::SignedGreaterThan, v, 0), self.b.ins().icmp_imm_s(IntCC::SignedLessThan, v, 0))
                         };
                         let one = self.b.ins().iconst(dt, 1);
                         let m1 = self.b.ins().iconst(dt, -1);
@@ -804,7 +812,7 @@ impl<'a> Gen<'a> {
             Inst::VmOp { op, reads, writes } => {
                 for r in reads.iter().chain(writes) {
                     if !self.resident[*r as usize] {
-                        let v = self.b.use_var(var(*r));
+                        let v = self.b.use_var(self.vars[(*r) as usize]);
                         let t = self.ty(*r);
                         let fr = self.frame;
                         self.slot_store(t, v, fr, (*r * 8) as i32);
@@ -818,12 +826,12 @@ impl<'a> Gen<'a> {
                 for w in writes {
                     if !self.resident[*w as usize] {
                         let t = self.ty(*w);
-                        let v = self.b.ins().load(clif_ty(t), MemFlags::trusted(), fr, (*w * 8) as i32);
-                        self.b.def_var(var(*w), v);
+                        let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), fr, (*w * 8) as i32);
+                        self.b.def_var(self.vars[(*w) as usize], v);
                     }
                 }
                 let cont = self.b.create_block();
-                self.b.ins().brif(st, self.exit_blk, &[st], cont, &[]);
+                self.b.ins().brif(st, self.exit_blk, &[st.into()], cont, &[]);
                 self.b.switch_to_block(cont);
             }
             Inst::VAElem { load, reg, table, index, view_off, elem, idx, slow } => {
@@ -836,7 +844,7 @@ impl<'a> Gen<'a> {
                     Ty::I32 => v,
                     _ => self.b.ins().ireduce(types::I32, v),
                 };
-                self.b.ins().jump(self.err_blk, &[c]);
+                self.b.ins().jump(self.err_blk, &[c.into()]);
                 // Unreachable continuation for any following instructions.
                 let dead = self.b.create_block();
                 self.b.switch_to_block(dead);
@@ -890,7 +898,7 @@ impl<'a> Gen<'a> {
                 let ge = self.b.ins().fcmp(FloatCC::GreaterThanOrEqual, r, lov);
                 let le = self.b.ins().fcmp(FloatCC::LessThanOrEqual, r, hiv);
                 let ok = self.b.ins().band(ge, le);
-                let bad = self.b.ins().bxor_imm(ok, 1);
+                let bad = self.b.ins().bxor_imm_s(ok, 1);
                 self.guard(bad, qberr::OVERFLOW);
                 let i = self.b.ins().fcvt_to_sint_sat(types::I32, r);
                 if to == Ty::I16 {
@@ -915,12 +923,12 @@ impl<'a> Gen<'a> {
                 self.b.ins().brif(ok, fast, &[], slow, &[]);
                 self.b.switch_to_block(fast);
                 let i = self.b.ins().fcvt_to_sint_sat(types::I64, r);
-                self.b.ins().jump(join, &[i]);
+                self.b.ins().jump(join, &[i.into()]);
                 self.b.switch_to_block(slow);
                 let s = self
                     .helper_call(qbr_f64 as *const () as usize, &[types::F64], Some(types::I64), &[d])
                     .expect("result");
-                self.b.ins().jump(join, &[s]);
+                self.b.ins().jump(join, &[s.into()]);
                 self.b.switch_to_block(join);
                 self.b.block_params(join)[0]
             }
@@ -965,11 +973,11 @@ impl<'a> Gen<'a> {
                 self.b.ins().bor(n, y)
             }
             IDiv | Mod => {
-                let isz = self.b.ins().icmp_imm(IntCC::Equal, y, 0);
+                let isz = self.b.ins().icmp_imm_s(IntCC::Equal, y, 0);
                 self.guard(isz, qberr::DIV_ZERO);
                 if t == Ty::I64 {
                     // i64::MIN / -1 traps in hardware; QB wraps.
-                    let m1 = self.b.ins().icmp_imm(IntCC::Equal, y, -1);
+                    let m1 = self.b.ins().icmp_imm_s(IntCC::Equal, y, -1);
                     let one = self.b.ins().iconst(types::I64, 1);
                     let ys = self.b.ins().select(m1, one, y);
                     if op == IDiv {
@@ -1001,7 +1009,7 @@ impl<'a> Gen<'a> {
             _ => iv,
         };
         let tab = self.ctx_load(types::I64, OFF_TABLES + table as i32 * 8);
-        let p = self.b.ins().load(types::I64, MemFlags::trusted(), tab, (index * 8) as i32);
+        let p = self.b.ins().load(types::I64, MemFlagsData::trusted(), tab, (index * 8) as i32);
         let fast = self.b.create_block();
         let fast2 = self.b.create_block();
         let slowb = self.b.create_block();
@@ -1015,16 +1023,16 @@ impl<'a> Gen<'a> {
         // fast: in-bounds element
         self.b.switch_to_block(fast);
         let vo = view_off as i32;
-        let data = self.b.ins().load(types::I64, MemFlags::trusted(), p, vo + OFF_VIEW_DATA);
-        let lb = self.b.ins().load(types::I64, MemFlags::trusted(), p, vo + OFF_VIEW_LB);
-        let cnt = self.b.ins().load(types::I64, MemFlags::trusted(), p, vo + OFF_VIEW_COUNT);
+        let data = self.b.ins().load(types::I64, MemFlagsData::trusted(), p, vo + OFF_VIEW_DATA);
+        let lb = self.b.ins().load(types::I64, MemFlagsData::trusted(), p, vo + OFF_VIEW_LB);
+        let cnt = self.b.ins().load(types::I64, MemFlagsData::trusted(), p, vo + OFF_VIEW_COUNT);
         let k = self.b.ins().isub(i, lb);
         let inb = self.b.ins().icmp(IntCC::UnsignedLessThan, k, cnt);
-        let nz = self.b.ins().icmp_imm(IntCC::NotEqual, data, 0);
+        let nz = self.b.ins().icmp_imm_s(IntCC::NotEqual, data, 0);
         let ok = self.b.ins().band(inb, nz);
         self.b.ins().brif(ok, fast2, &[], slowb, &[]);
         self.b.switch_to_block(fast2);
-        let off = self.b.ins().ishl_imm(k, i64::from(elem.size().trailing_zeros()));
+        let off = self.b.ins().ishl_imm_s(k, i64::from(elem.size().trailing_zeros()));
         let ea = self.b.ins().iadd(data, off);
         if load {
             let x = self.mem_load(elem, ea, 0);
@@ -1033,7 +1041,7 @@ impl<'a> Gen<'a> {
                 Ty::F32 => self.b.ins().fpromote(types::F64, x),
                 _ => x,
             };
-            self.b.ins().jump(join, &[v]);
+            self.b.ins().jump(join, &[v.into()]);
         } else {
             let x = self.get(reg);
             let v = match elem {
@@ -1054,7 +1062,7 @@ impl<'a> Gen<'a> {
         let mut params = vec![types::I64, types::I64, types::I64];
         if !load {
             let x = self.get(reg);
-            let bits = if rt == types::F64 { self.b.ins().bitcast(types::I64, MemFlags::new(), x) } else { x };
+            let bits = if rt == types::F64 { self.b.ins().bitcast(types::I64, MemFlagsData::new(), x) } else { x };
             args.push(bits);
             params.push(types::I64);
         }
@@ -1065,8 +1073,8 @@ impl<'a> Gen<'a> {
         self.b.switch_to_block(cont);
         if load {
             let bits = r.expect("result");
-            let v = if rt == types::F64 { self.b.ins().bitcast(types::F64, MemFlags::new(), bits) } else { bits };
-            self.b.ins().jump(join, &[v]);
+            let v = if rt == types::F64 { self.b.ins().bitcast(types::F64, MemFlagsData::new(), bits) } else { bits };
+            self.b.ins().jump(join, &[v.into()]);
         } else {
             self.b.ins().jump(join, &[]);
         }
@@ -1080,12 +1088,12 @@ impl<'a> Gen<'a> {
     /// Bounds-checked element address.
     fn elem_addr(&mut self, arr: Reg, idx: &[Reg], t: Ty) -> Value {
         let d = self.get(arr);
-        let null = self.b.ins().icmp_imm(IntCC::Equal, d, 0);
+        let null = self.b.ins().icmp_imm_s(IntCC::Equal, d, 0);
         self.guard(null, qberr::SUBSCRIPT);
-        let data = self.b.ins().load(types::I64, MemFlags::trusted(), d, OFF_DESC_DATA);
-        let nd = self.b.ins().load(types::I32, MemFlags::trusted(), d, OFF_DESC_NDIMS);
-        let dnull = self.b.ins().icmp_imm(IntCC::Equal, data, 0);
-        let badn = self.b.ins().icmp_imm(IntCC::NotEqual, nd, idx.len() as i64);
+        let data = self.b.ins().load(types::I64, MemFlagsData::trusted(), d, OFF_DESC_DATA);
+        let nd = self.b.ins().load(types::I32, MemFlagsData::trusted(), d, OFF_DESC_NDIMS);
+        let dnull = self.b.ins().icmp_imm_s(IntCC::Equal, data, 0);
+        let badn = self.b.ins().icmp_imm_s(IntCC::NotEqual, nd, idx.len() as i64);
         let bad = self.b.ins().bor(dnull, badn);
         self.guard(bad, qberr::SUBSCRIPT);
         let mut off: Option<Value> = None;
@@ -1096,15 +1104,15 @@ impl<'a> Gen<'a> {
                 _ => iv,
             };
             let base = OFF_DESC_DIMS + k as i32 * DIM_SIZE;
-            let lb = self.b.ins().load(types::I64, MemFlags::trusted(), d, base + OFF_DIM_LB);
-            let cnt = self.b.ins().load(types::I64, MemFlags::trusted(), d, base + OFF_DIM_COUNT);
+            let lb = self.b.ins().load(types::I64, MemFlagsData::trusted(), d, base + OFF_DIM_LB);
+            let cnt = self.b.ins().load(types::I64, MemFlagsData::trusted(), d, base + OFF_DIM_COUNT);
             let rel = self.b.ins().isub(i64v, lb);
             let oob = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, rel, cnt);
             self.guard(oob, qberr::SUBSCRIPT);
             let term = if k == 0 {
                 rel
             } else {
-                let st = self.b.ins().load(types::I64, MemFlags::trusted(), d, base + OFF_DIM_STRIDE);
+                let st = self.b.ins().load(types::I64, MemFlagsData::trusted(), d, base + OFF_DIM_STRIDE);
                 self.b.ins().imul(rel, st)
             };
             off = Some(match off {
@@ -1114,7 +1122,7 @@ impl<'a> Gen<'a> {
         }
         let off = off.expect("at least one index");
         let shift = t.size().trailing_zeros();
-        let bytes = self.b.ins().ishl_imm(off, i64::from(shift));
+        let bytes = self.b.ins().ishl_imm_s(off, i64::from(shift));
         self.b.ins().iadd(data, bytes)
     }
 
@@ -1123,17 +1131,17 @@ impl<'a> Gen<'a> {
         let need = callee.slots.len() as i64;
         let top = self.ctx_load(types::I64, OFF_ARENA_TOP);
         let cap = self.ctx_load(types::I64, OFF_ARENA_CAP);
-        let end = self.b.ins().iadd_imm(top, need);
+        let end = self.b.ins().iadd_imm_s(top, need);
         let over = self.b.ins().icmp(IntCC::UnsignedGreaterThan, end, cap);
         self.guard(over, qberr::OUT_OF_STACK);
         let arena = self.ctx_load(types::I64, OFF_ARENA);
-        let off = self.b.ins().ishl_imm(top, 3);
+        let off = self.b.ins().ishl_imm_s(top, 3);
         let cf = self.b.ins().iadd(arena, off);
         self.ctx_store(end, OFF_ARENA_TOP);
         if need <= 16 {
             let z = self.b.ins().iconst(types::I64, 0);
             for s in 0..need {
-                self.b.ins().store(MemFlags::trusted(), z, cf, (s * 8) as i32);
+                self.b.ins().store(MemFlagsData::trusted(), z, cf, (s * 8) as i32);
             }
         } else {
             let n = self.b.ins().iconst(types::I64, need);
@@ -1145,7 +1153,7 @@ impl<'a> Gen<'a> {
                 Arg::Val(r) => self.get(*r),
                 Arg::Ref(r) => {
                     let fr = self.frame;
-                    self.b.ins().iadd_imm(fr, i64::from(*r) * 8)
+                    self.b.ins().iadd_imm_s(fr, i64::from(*r) * 8)
                 }
             };
             self.slot_store(pt, v, cf, (*p * 8) as i32);
@@ -1168,11 +1176,11 @@ impl<'a> Gen<'a> {
             None,
             &[ctx, fid, cf, rpc, dv],
         );
-        self.b.ins().jump(self.exit_blk, &[st]);
+        self.b.ins().jump(self.exit_blk, &[st.into()]);
         self.b.switch_to_block(ok);
         if let (Some(d), Some(r)) = (dst, callee.ret) {
             let t = callee.slots[r as usize];
-            let v = self.b.ins().load(clif_ty(t), MemFlags::trusted(), cf, (r * 8) as i32);
+            let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), cf, (r * 8) as i32);
             self.set(d, v);
         }
         self.ctx_store(top, OFF_ARENA_TOP);
