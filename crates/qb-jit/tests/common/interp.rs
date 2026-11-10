@@ -5,9 +5,9 @@
 //! frame encoding, frame arena, GOSUB stack, deopt chain and exit protocol,
 //! so the observable state after a run can be compared field by field.
 
-use crate::ctx::{qberr, status, ArrDesc, ChainRec, Ctx, NO_DST};
-use crate::mir::*;
-use crate::thunk::Thunks;
+use qb_jit::ctx::{qberr, status, ArrDesc, ChainRec, Ctx, NO_DST};
+use qb_jit::mir::*;
+use qb_jit::thunk::Thunks;
 
 
 /// VM callback executing one VM instruction on a frame.
@@ -206,7 +206,7 @@ fn bin(op: BinOp, t: Ty, a: V, b: V) -> Result<V, i32> {
                 }
                 x / y
             }
-            Pow => crate::ctx::pow_f64(x, y),
+            Pow => qb_jit::ctx::pow_f64(x, y),
             FDiv => x / y,
             _ => unreachable!("validated"),
         }),
@@ -220,7 +220,7 @@ fn bin(op: BinOp, t: Ty, a: V, b: V) -> Result<V, i32> {
                 }
                 x / y
             }
-            Pow => crate::ctx::pow_f32(x, y),
+            Pow => qb_jit::ctx::pow_f32(x, y),
             FDiv => x / y,
             _ => unreachable!("validated"),
         }),
@@ -441,7 +441,7 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
                         if p == 0 {
                             None
                         } else {
-                            let v = *((p as usize + *view_off as usize) as *const crate::ctx::ArrView);
+                            let v = *((p as usize + *view_off as usize) as *const qb_jit::ctx::ArrView);
                             let k = i.wrapping_sub(v.lbound);
                             (!v.data.is_null() && (k as u64) < (v.count as u64))
                                 .then(|| v.data.add(k as usize * elem.size() as usize))

@@ -283,11 +283,11 @@ pub(crate) extern "C" fn zero_slots(p: *mut u64, n: u64) {
     unsafe { core::ptr::write_bytes(p, 0, n as usize) };
 }
 
-pub(crate) extern "C" fn pow_f64(a: f64, b: f64) -> f64 {
+pub extern "C" fn pow_f64(a: f64, b: f64) -> f64 {
     a.powf(b)
 }
 
-pub(crate) extern "C" fn pow_f32(a: f32, b: f32) -> f32 {
+pub extern "C" fn pow_f32(a: f32, b: f32) -> f32 {
     a.powf(b)
 }
 

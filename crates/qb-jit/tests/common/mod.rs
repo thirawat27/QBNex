@@ -4,7 +4,8 @@
 //! observable.
 
 use qb_jit::ctx::{ChainRec, Ctx};
-use qb_jit::interp;
+#[path = "interp.rs"]
+mod interp;
 use qb_jit::mir::*;
 use qb_jit::rt::{self, Rt};
 use qb_jit::thunk::Thunks;

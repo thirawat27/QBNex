@@ -6,13 +6,13 @@
 //! and every exit of native code (error, event, unsupported construct) hands
 //! the exact frame state back to the VM at a known pc (see [`ctx`]).
 //!
-//! [`interp`] is a reference interpreter of the same MIR used as the oracle
-//! in differential tests.
+//! The tests carry a reference interpreter of the same MIR
+//! (`tests/common/interp.rs`) as the oracle of differential tests; it is not
+//! part of the library: the VM is the only interpreter.
 
 pub mod aot;
 pub mod codegen;
 pub mod ctx;
-pub mod interp;
 pub mod mir;
 pub mod rt;
 pub mod thunk;
