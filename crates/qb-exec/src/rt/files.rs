@@ -1,4 +1,4 @@
-//! File builtins of the v1 interpreter, routed to `qb_runtime::fileio` (the
+//! File builtins of the runtime, routed to `qb_runtime::fileio` (the
 //! same Rust code the C++ backend links), so file numbers, INPUT # parsing,
 //! PRINT # zones, GET/PUT records and EOF/LOC/SEEK follow legacy exactly.
 

@@ -82,7 +82,7 @@ pub enum W {
     W16,
     W32,
     W64,
-    /// QIR v1 widths: `_BYTE`, `_UNSIGNED _BYTE / INTEGER / LONG`
+    /// QIR widths: `_BYTE`, `_UNSIGNED _BYTE / INTEGER / LONG`
     W8,
     U8,
     U16,
@@ -181,7 +181,7 @@ pub enum Un {
     Not,
 }
 
-/// Scalar type of a memory access (QIR v1 `ld`/`st`, memory-backed variables).
+/// Scalar type of a memory access (QIR `ld`/`st`, memory-backed variables).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MTy {
     I8,
@@ -278,12 +278,12 @@ pub enum Ins {
     Wrap { d: R, s: R, w: W },
     /// f64 -> f32 -> f64 (store into SINGLE)
     RoundF32 { d: R, s: R },
-    /// QIR v1 `cvt`/`trunc` float -> int: ties-to-even (or toward zero), C cast, wrap; never an error
+    /// QIR `cvt`/`trunc` float -> int: ties-to-even (or toward zero), C cast, wrap; never an error
     CvtFI { d: R, s: R, w: W, trunc: bool },
-    /// QIR v1 shifts (count taken modulo the width)
+    /// QIR shifts (count taken modulo the width)
     Shl { d: R, a: R, b: R, w: W },
     Shr { d: R, a: R, b: R, w: W },
-    /// IEEE division (QIR v1 `div`: no error on zero)
+    /// IEEE division (QIR `div`: no error on zero)
     DivFI { d: R, a: R, b: R },
     // ---- integer arithmetic (operands normalized, result wrapped)
     AddI16 { d: R, a: R, b: R },
@@ -363,7 +363,7 @@ pub enum Ins {
     Right { d: R, s: R, n: R },
     /// MID$(s, start[, n]); `n == NONE` = to the end
     Mid { d: R, s: R, start: R, n: R },
-    /// QIR v1 `rt` builtin `Module::rtfns[f]` (shared runtime, `qb_ir::builtins`); `d == NONE` = no result
+    /// QIR `rt` builtin `Module::rtfns[f]` (shared runtime, `qb_ir::builtins`); `d == NONE` = no result
     Rt { f: u32, d: R, args: u32 },
     // ---- arrays (`i`/`dims` = first of `n` / `2n` consecutive integer registers)
     Dim { a: R, dims: R, n: u32, mode: DimMode },
@@ -391,7 +391,7 @@ pub enum Ins {
     XToF { d: R, s: R, f32: bool },
     /// F80 -> integer: qbr (or truncation), wrapped to `w`; U64 = C cast
     XToI { d: R, s: R, w: W, trunc: bool },
-    // ---- memory (QIR v1 programs with TYPE / STRING * n / pointers); `p`, `a` = pointer registers
+    // ---- memory (QIR programs with TYPE / STRING * n / pointers); `p`, `a` = pointer registers
     /// d = new storage for `Module::mvars[v]`, freed when the frame returns
     NewV { d: R, v: u32 },
     LdM { t: MTy, d: R, p: R, off: u32 },
@@ -409,7 +409,7 @@ pub enum Ins {
     /// READ of a string: next DATA item
     ReadS { d: R },
     Restore { i: u32 },
-    /// QIR v1 numeric READ: next DATA item as f64 (non-numeric text = error 13)
+    /// QIR numeric READ: next DATA item as f64 (non-numeric text = error 13)
     ReadN { d: R },
     // ---- events (ON TIMER / ON KEY / ...), delivered at safe points
 }
@@ -501,7 +501,7 @@ pub struct Module {
     pub places: Vec<Place>,
     pub calls: Vec<CallDesc>,
     pub bargs: Vec<Vec<(R, Ty)>>,
-    /// QIR v1 `rt` builtins: name, result type (`None` = no result)
+    /// QIR `rt` builtins: name, result type (`None` = no result)
     pub rtfns: Vec<(&'static str, Option<Ty>)>,
     /// memory-backed variables (`NewV`)
     pub mvars: Vec<MVar>,

@@ -1,6 +1,5 @@
-//! Addressable memory for QIR v1 programs that need it (TYPE, `STRING * n`,
-//! pointer arithmetic, GET/PUT of variables). Same model as the reference
-//! interpreter (`v1.rs`), so both give identical results:
+//! Addressable memory for QIR programs that need it (TYPE, `STRING * n`,
+//! pointer arithmetic, GET/PUT of variables). Same layout as the C++ backend's storage:
 //!
 //! - every memory-backed variable, array descriptor and array data area is a
 //!   block; a pointer to variable or element storage is its real address (so

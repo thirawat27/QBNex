@@ -236,7 +236,7 @@ enum PVal {
 
 pub struct Vm<'m, 'o> {
     m: &'m Module,
-    /// console/file output and the v1 runtime state (shared with the reference interpreter)
+    /// console/file output and the runtime state of the builtins
     rt: RtState<'o>,
     nums: Vec<u64>,
     strs: Vec<Vec<u8>>,
@@ -256,7 +256,7 @@ pub struct Vm<'m, 'o> {
     exit_code: i32,
     /// source line of the last error (_ERRORLINE)
     errline: u32,
-    /// last numeric line label passed (QIR v1 LASTLINE; ERL reports it)
+    /// last numeric line label passed (QIR LASTLINE; ERL reports it)
     last_line: u32,
     data_ptr: usize,
     ev: Arc<EvShared>,
@@ -269,7 +269,7 @@ pub struct Vm<'m, 'o> {
     stop_depth: usize,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
-    /// addressable memory (QIR v1 TYPE / STRING * n / pointers)
+    /// addressable memory (QIR TYPE / STRING * n / pointers)
     mem: crate::mem::Mem,
     owned: Vec<u32>,
 }
@@ -614,7 +614,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
-    /// QIR v1 `rt` builtin through the shared runtime. `Ok(Some(code))` = the program exits.
+    /// QIR `rt` builtin through the shared runtime. `Ok(Some(code))` = the program exits.
     fn rt_call(&mut self, f: u32, d: R, args: u32) -> Result<Option<i32>, i32> {
         let m = self.m;
         let (name, rty) = m.rtfns[f as usize];

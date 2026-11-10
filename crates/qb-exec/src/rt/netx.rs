@@ -1,4 +1,4 @@
-//! TCP/IP handles of the v1 interpreter: `_OPENHOST`, `_OPENCLIENT`,
+//! TCP/IP handles of the runtime: `_OPENHOST`, `_OPENCLIENT`,
 //! `_OPENCONNECTION`, `_CONNECTED`, `_CONNECTIONADDRESS$` and GET/PUT/CLOSE
 //! on negative handles. Sockets, the info parser and addresses are
 //! `qb_runtime::net`; this is the handle table libqb.cpp kept in C++

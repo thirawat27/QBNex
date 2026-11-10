@@ -1,4 +1,4 @@
-//! `rt` builtins of the v1 reference interpreter (table: `qb_ir::builtins`).
+//! `rt` builtins (table: `qb_ir::builtins`), called by the VM through [`Host`].
 
 use super::{cvt, e, Stop, R, V};
 use qb_ir::Ty;

@@ -1,6 +1,6 @@
 //! MIR: the typed, block-structured form the JIT compiles.
 //!
-//! It mirrors QIR v1 (typed registers, labels resolved to blocks) one level
+//! It mirrors QIR (typed registers, labels resolved to blocks) one level
 //! lower: every register is an 8-byte *slot* of the frame the VM and the JIT
 //! share, so leaving native code at any resume point is just "store the
 //! registers back and tell the VM which pc to continue at".

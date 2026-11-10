@@ -1,4 +1,4 @@
-//! `_MEM` builtins of the v1 interpreter, routed to `qb_runtime::mem` (the
+//! `_MEM` builtins of the runtime, routed to `qb_runtime::mem` (the
 //! Rust port the C++ backend links). A `_MEM` variable is the `mem_block`
 //! UDT (`MemBlock`, 56 bytes); QIR passes its address.
 

@@ -1,7 +1,7 @@
-//! Loader for QIR v1 (`docs/rust-port/qir-v1.md`, crate `qb-ir`) onto the
+//! Loader for QIR (`docs/rust-port/qir-v1.md`, crate `qb-ir`) onto the
 //! typed register VM.
 //!
-//! QIR v1 is already typed and register based; what this pass adds:
+//! QIR is already typed and register based; what this pass adds:
 //!
 //! - **Variables become registers.** Scalars (locals, byval params, globals,
 //!   statics) live in registers: globals and statics in the main frame (SUBs
@@ -13,12 +13,12 @@
 //!   accepted are a call argument (BYREF / array parameter) and `ld`/`st` at
 //!   offset 0 of an array element (`lde1`/`ste1`, ...).
 //! - **Constants are registers** of the frame template (no `const` executed).
-//! - The same fusions as the v0 loader (compare + branch, `acc`, backward
+//! - Fusions (compare + branch, `acc`, backward
 //!   jumps as event safe points), never across `line` or `label`.
 //!
-//! Programs that need real memory (UDT, `STRING * n`, pointer arithmetic,
-//! GET/PUT of variables) or `_UNSIGNED _INTEGER64` are refused with a reason;
-//! the caller then runs the R11a reference interpreter (`v1.rs`).
+//! Programs that need addressable storage (TYPE, `STRING * n`, pointer
+//! arithmetic, GET/PUT of variables) are lowered in memory mode, where only
+//! the variables that need an address live in `mem::Mem`.
 
 use std::collections::HashMap;
 
@@ -197,7 +197,7 @@ struct Frame {
     n_str: u32,
     arr_tys: Vec<Ty>,
     consts: HashMap<(u64, bool), R>,
-    /// first numeric register that is not a variable (temporaries, v1 registers, constants)
+    /// first numeric register that is not a variable (temporaries, QIR registers, constants)
     n_vars: u32,
     n_svars: u32,
 }
@@ -243,7 +243,7 @@ fn lit_num(ty: IT, l: &Lit) -> Res<u64> {
     })
 }
 
-/// Value of an f80 literal (same rules as the reference interpreter).
+/// Value of an f80 literal (`0x` bits, inf/nan, or correctly rounded decimal).
 fn lit_f80(l: &Lit) -> qb_float80::F80 {
     use qb_float80::F80;
     match l {
@@ -293,7 +293,7 @@ struct Lw<'a> {
     prologue: Vec<Vec<Ins>>,
 }
 
-/// Lowers a QIR v1 module, or says why it cannot run on the typed VM.
+/// Lowers a QIR module to bytecode, or says why it cannot.
 /// Register mode first; programs that need addressable storage (TYPE,
 /// `STRING * n`, pointer arithmetic, GET/PUT of variables) are lowered in
 /// memory mode, where only the variables that need an address live in memory.
@@ -560,7 +560,7 @@ impl<'a> Lw<'a> {
                 *uses.entry(u).or_default() += 1;
             }
         }
-        // v1 registers: constants defined once become constant registers / K strings
+        // QIR registers: constants defined once become constant registers / K strings
         let mut rmap: HashMap<u32, Rg> = HashMap::new();
         for i in &f.body {
             if let Inst::Const { ty, dst, val } = i {
@@ -589,7 +589,7 @@ impl<'a> Lw<'a> {
             }
         }
         let mut ptrs: HashMap<u32, Ptr> = HashMap::new();
-        // v1 register -> variable whose register it aliases
+        // QIR register -> variable whose register it aliases
         let mut alias_var: HashMap<u32, &str> = HashMap::new();
         for i in std::mem::take(&mut self.prologue[k]) {
             self.emit(i);
@@ -597,7 +597,7 @@ impl<'a> Lw<'a> {
         self.barrier = self.pc();
         let body = &f.body;
         for (ii, ins) in body.iter().enumerate() {
-            // register of a v1 register (allocated on first sight)
+            // VM register of a QIR register (allocated on first sight)
             macro_rules! reg {
                 ($r:expr) => {{
                     let r: u32 = $r;
@@ -1585,7 +1585,7 @@ impl<'a> Lw<'a> {
             Ins::Xor { d, a, b } if d == t => (AccOp::Xor, a, b, W::W64),
             _ => return,
         };
-        // the temporary must not be read again (v1 registers are function-wide)
+        // the temporary must not be read again (QIR registers are function-wide)
         let _ = k;
         self.m.code.truncate(n as usize - 2);
         self.emit(Ins::Acc { op, d: v, a: x, b: y, wi, wo });

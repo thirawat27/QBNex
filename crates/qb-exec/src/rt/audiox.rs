@@ -1,4 +1,4 @@
-//! Sound builtins of the v1 interpreter, routed to the `qb-audio` C ABI
+//! Sound builtins of the runtime, routed to the `qb-audio` C ABI
 //! (the same functions libqb's audio_bridge.cpp forwards to).
 
 use super::builtins::Host;
