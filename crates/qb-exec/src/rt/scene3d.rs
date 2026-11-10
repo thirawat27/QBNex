@@ -41,6 +41,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             | "sub__freelight"
             | "sub__clear3d"
             | "func__gpu3d"
+            | "func__shader"
+            | "func__shadererror"
+            | "sub__shaderparam"
+            | "sub__meshshader"
+            | "sub__freeshader"
     );
     if !known {
         return None;
@@ -122,6 +127,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             Ok(None)
         }
         "func__gpu3d" => return int(s3::qb_3d_available()),
+        "func__shader" => {
+            let src = a[0].s();
+            // SAFETY: live slice of the given length.
+            return int(unsafe { s3::qb_3d_shader(src.as_ptr(), src.len() as i32) });
+        }
+        "func__shadererror" => return Some(Ok(Some(V::S(s3::shader_error().into_bytes())))),
+        "sub__shaderparam" => raise(s3::qb_3d_shader_param(i(0), i(1), f(2))),
+        "sub__meshshader" => raise(s3::qb_3d_mesh_shader(i(0), i(1))),
+        "sub__freeshader" => raise(s3::qb_3d_free_shader(i(0))),
         _ => return None,
     })
 }

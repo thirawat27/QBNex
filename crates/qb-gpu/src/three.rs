@@ -105,7 +105,10 @@ pub struct Texture {
 
 impl Texture {
     /// `rgba`: `width`×`height` pixels, 4 bytes each. `smooth`: linear filtering (`_SMOOTH`).
+    /// Short data is padded, sides above the device limit are scaled down.
     pub fn from_rgba(gpu: &Gpu, r: &Renderer3d, width: u32, height: u32, rgba: &[u8], smooth: bool) -> Texture {
+        let (texels, width, height) = crate::fit_texture(rgba.as_chunks::<4>().0, width, height, gpu.max_texture_size());
+        let rgba = texels.as_flattened();
         let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
         let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("qb-gpu texture"),

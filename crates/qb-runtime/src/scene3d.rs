@@ -38,8 +38,18 @@ struct Mesh {
     shape: Shape,
     color: Option<[f32; 4]>,
     texture: Option<(Vec<u32>, u32, u32)>,
+    /// `_MESHSHADER` handle, 0 = lit
+    shader: i32,
     #[cfg(feature = "gpu")]
     model: Option<Option<qb_gpu::scene::Model>>,
+}
+
+/// A `_SHADER`: the 16 `_SHADERPARAM` values and (with a GPU layer) the
+/// compiled form.
+struct ShaderEntry {
+    params: [f32; 16],
+    #[cfg(feature = "gpu")]
+    compiled: std::sync::Arc<qb_gpu::scene::Shader>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -79,6 +89,9 @@ struct Builder {
 
 struct State {
     meshes: Vec<Option<Mesh>>,
+    shaders: Vec<Option<ShaderEntry>>,
+    /// message of the last `_SHADER` that did not compile (`_SHADERERROR$`)
+    shader_error: String,
     lights: Vec<Option<Light3>>,
     lights_touched: bool,
     ambient: [f32; 3],
@@ -96,6 +109,8 @@ const DEFAULT_CAMERA: Camera3 = Camera3 { eye: [0.0, 0.0, 5.0], target: [0.0; 3]
 
 static STATE: Mutex<State> = Mutex::new(State {
     meshes: Vec::new(),
+    shaders: Vec::new(),
+    shader_error: String::new(),
     lights: Vec::new(),
     lights_touched: false,
     ambient: [0.2; 3],
@@ -137,6 +152,7 @@ fn new_mesh(shape: Shape) -> Mesh {
         shape,
         color: None,
         texture: None,
+        shader: 0,
         #[cfg(feature = "gpu")]
         model: None,
     }
@@ -151,6 +167,8 @@ fn add_mesh(shape: Shape) -> i32 {
 pub fn reset() {
     let mut s = state();
     s.meshes.clear();
+    s.shaders.clear();
+    s.shader_error.clear();
     s.lights.clear();
     s.lights_touched = false;
     s.ambient = [0.2; 3];
@@ -339,6 +357,107 @@ pub extern "C" fn qb_3d_free_mesh(h: i32) -> i32 {
     0
 }
 
+/// `_SHADER(wgsl$)`: user WGSL defining `fn shade(i: ShadeIn) -> vec4<f32>`
+/// (see `qb_gpu::scene::Shader`). Returns the handle, or -1 when it does not
+/// compile (`_SHADERERROR$` tells why). Without the `gpu` feature the text is
+/// kept unchecked.
+///
+/// # Safety
+/// `src` readable for `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_3d_shader(src: *const u8, len: i32) -> i32 {
+    // SAFETY: caller contract.
+    #[cfg_attr(not(feature = "gpu"), allow(unused_variables))]
+    let text = String::from_utf8_lossy(unsafe { crate::ffi_bytes(src, len.max(0) as usize) }).into_owned();
+    #[cfg(feature = "gpu")]
+    let compiled = match qb_gpu::scene::Shader::compile(&text) {
+        Ok(sh) => std::sync::Arc::new(sh),
+        Err(e) => {
+            state().shader_error = e.to_string();
+            return -1;
+        }
+    };
+    let mut s = state();
+    s.shader_error.clear();
+    add(
+        &mut s.shaders,
+        ShaderEntry {
+            params: [0.0; 16],
+            #[cfg(feature = "gpu")]
+            compiled,
+        },
+    )
+}
+
+/// `_SHADERERROR$`: why the last `_SHADER` failed ("" after a success).
+pub fn shader_error() -> String {
+    state().shader_error.clone()
+}
+
+/// C form of [`shader_error`]: copies up to `cap` bytes, returns the full length.
+///
+/// # Safety
+/// `out` writable for `cap` bytes (may be null when `cap` is 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qb_3d_shader_error(out: *mut u8, cap: i32) -> i32 {
+    let e = shader_error();
+    let n = e.len().min(cap.max(0) as usize);
+    if n > 0 {
+        // SAFETY: caller contract.
+        unsafe { std::ptr::copy_nonoverlapping(e.as_ptr(), out, n) };
+    }
+    e.len() as i32
+}
+
+/// `_SHADERPARAM shader&, index&, value!` (index 0..15 = `i.params[index / 4][index % 4]`).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_3d_shader_param(h: i32, index: i32, value: f32) -> i32 {
+    let mut s = state();
+    let Some(sh) = slot(&mut s.shaders, h) else { return ERR_HANDLE };
+    if !(0..16).contains(&index) || !value.is_finite() {
+        return ERR_ILLEGAL;
+    }
+    sh.params[index as usize] = value;
+    s.generation += 1;
+    0
+}
+
+/// `_MESHSHADER mesh&, shader&` (0 = the lit default).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_3d_mesh_shader(mesh: i32, shader: i32) -> i32 {
+    let mut s = state();
+    if shader != 0 && slot(&mut s.shaders, shader).is_none() {
+        return ERR_HANDLE;
+    }
+    let Some(m) = slot(&mut s.meshes, mesh) else { return ERR_HANDLE };
+    m.shader = shader;
+    s.generation += 1;
+    0
+}
+
+/// `_FREESHADER shader&`; meshes using it go back to the lit default.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_3d_free_shader(h: i32) -> i32 {
+    let mut s = state();
+    if slot(&mut s.shaders, h).is_none() {
+        return ERR_HANDLE;
+    }
+    s.shaders[h as usize - 1] = None;
+    for m in s.meshes.iter_mut().flatten() {
+        if m.shader == h {
+            m.shader = 0;
+        }
+    }
+    s.generation += 1;
+    0
+}
+
+/// Shader handle of a mesh (tests).
+pub fn mesh_shader(mesh: i32) -> Option<i32> {
+    let mut s = state();
+    slot(&mut s.meshes, mesh).map(|m| m.shader)
+}
+
 /// `_DRAW3D mesh& [, x!, y!, z!] [, rx!, ry!, rz!] [, sx!, sy!, sz!]`:
 /// queued for the next `_DISPLAY`. Angles in degrees (Y, then X, then Z).
 #[unsafe(no_mangle)]
@@ -506,10 +625,10 @@ pub(crate) fn apply_to_record(rec: &mut [u8], w: u32, h: u32, bytes_per_pixel: u
     }
     let n = (w * h) as usize;
     let Some(body) = rec.get_mut(24..24 + n * 4) else { return };
-    let mut px: Vec<u32> = body.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let mut px: Vec<u32> = body.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
     compose(&mut px, w, h);
-    for (c, p) in body.chunks_exact_mut(4).zip(px) {
-        c.copy_from_slice(&p.to_le_bytes());
+    for (c, p) in body.as_chunks_mut::<4>().0.iter_mut().zip(px) {
+        *c = p.to_le_bytes();
     }
 }
 
@@ -616,6 +735,15 @@ mod gpu {
                     m.model = Some(built);
                 }
             }
+            // _MESHSHADER: the compiled shader and its parameters on each shown model
+            let st = &mut *s;
+            for d in &st.shown {
+                let Some(Some(m)) = st.meshes.get_mut(d.mesh as usize - 1) else { continue };
+                let sh = st.shaders.get(m.shader.max(1) as usize - 1).and_then(Option::as_ref).filter(|_| m.shader > 0);
+                if let Some(Some(model)) = m.model.as_mut() {
+                    model.shader = sh.map(|e| (e.compiled.clone(), e.params));
+                }
+            }
             let lighting = if s.lights_touched {
                 Lighting { ambient: s.ambient, lights: s.lights.iter().flatten().filter(|l| l.on).map(light).collect() }
             } else {
@@ -640,7 +768,13 @@ mod gpu {
             let clear = wgpu::Color { r: f64::from(c[0]), g: f64::from(c[1]), b: f64::from(c[2]), a: f64::from(c[3]) };
             renderer.render(gpu, &frame, &camera(&s.camera), &lighting, Some(clear), &instances);
             frame.present(gpu);
-            let px = target.read_pixels(gpu)?;
+            let mut px = target.read_pixels(gpu)?;
+            // a frame above the device's texture limit was rendered smaller: scale up
+            let (lw, lh) = target.size();
+            if (lw, lh) != (w, h) {
+                let small = std::mem::take(&mut px);
+                px = (0..w * h).map(|i| small[((i / w) * lh / h * lw + (i % w) * lw / w) as usize]).collect();
+            }
             side.cache = Some((generation, w, h, px.clone()));
             Some(px)
         })
@@ -809,5 +943,67 @@ mod tests {
         let mut frame = vec![0u32; 16 * 16];
         unsafe { qb_3d_present(frame.as_mut_ptr(), 16, 16) }; // _AUTODISPLAY: the queue is shown
         assert!(frame.iter().all(|&p| near(p, 0xFF00_FF00)), "{:08x}", frame[0]);
+    }
+
+    fn shader(src: &str) -> i32 {
+        unsafe { qb_3d_shader(src.as_ptr(), src.len() as i32) }
+    }
+
+    #[test]
+    fn shader_handles_params_and_mesh_assignment() {
+        let _g = fresh();
+        let sh = shader("fn shade(i: ShadeIn) -> vec4<f32> { return vec4<f32>(i.params[0].xyz, 1.0); }");
+        assert_eq!(sh, 1);
+        assert_eq!(shader_error(), "");
+        assert_eq!(qb_3d_shader_param(sh, 16, 1.0), ERR_ILLEGAL);
+        assert_eq!(qb_3d_shader_param(sh, 0, 0.5), 0);
+        assert_eq!(qb_3d_shader_param(9, 0, 0.5), ERR_HANDLE);
+        let m = qb_3d_mesh_cube(1.0);
+        assert_eq!(qb_3d_mesh_shader(m, 7), ERR_HANDLE);
+        assert_eq!(qb_3d_mesh_shader(m, sh), 0);
+        assert_eq!(mesh_shader(m), Some(sh));
+        assert_eq!(qb_3d_free_shader(sh), 0);
+        assert_eq!(mesh_shader(m), Some(0), "back to the lit default");
+        assert_eq!(qb_3d_free_shader(sh), ERR_HANDLE);
+        assert_eq!(qb_3d_mesh_shader(m, 0), 0);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn bad_shader_reports_the_line() {
+        let _g = fresh();
+        assert_eq!(shader("fn shade(i: ShadeIn) -> vec4<f32> {\n  return vec4<f32>(oops);\n}"), -1);
+        let e = shader_error();
+        assert!(e.starts_with("line 2"), "{e}");
+        let mut buf = [0u8; 8];
+        let n = unsafe { qb_3d_shader_error(buf.as_mut_ptr(), 8) };
+        assert_eq!((n as usize, &buf[..]), (e.len(), &e.as_bytes()[..8]));
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn shaded_mesh_in_the_layer() {
+        let _g = fresh();
+        if qb_3d_available() == 0 {
+            eprintln!("skipped: no GPU adapter");
+            return;
+        }
+        let sh = shader("fn shade(i: ShadeIn) -> vec4<f32> { return vec4<f32>(i.params[0].xyz, 1.0); }");
+        for (k, v) in [0.0f32, 1.0, 0.0].iter().enumerate() {
+            qb_3d_shader_param(sh, k as i32, *v);
+        }
+        let m = qb_3d_mesh_cube(2.0);
+        qb_3d_mesh_shader(m, sh);
+        qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 4.0, 1);
+        qb_3d_draw(m, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
+        frame_done();
+        let mut frame = vec![0xFF00_0000u32; 16 * 16];
+        compose(&mut frame, 16, 16);
+        assert_eq!(frame[8 * 16 + 8] & 0x00FF_FFFF, 0x0000_FF00);
+        // a new parameter value shows on the next composition
+        qb_3d_shader_param(sh, 2, 1.0);
+        let mut frame = vec![0xFF00_0000u32; 16 * 16];
+        compose(&mut frame, 16, 16);
+        assert_eq!(frame[8 * 16 + 8] & 0x00FF_FFFF, 0x0000_FFFF);
     }
 }

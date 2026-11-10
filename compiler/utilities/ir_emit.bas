@@ -780,6 +780,7 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
     DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
     DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$
     saveid = id: savecur = currentid
+    IF IrExtShortCircuit%(a2$, typ, r$) THEN IrEval$ = r$: EXIT FUNCTION 'R13 _ANDALSO/_ORELSE (ir_ext.bas)
     n = numelements(a2$)
     i = 1: nb = 0
     DO WHILE i <= n
@@ -1169,6 +1170,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "func__loadmodel|func__meshcube|func__meshplane|sub__meshbegin|sub__meshvertex|sub__meshtriangle|func__meshend|"
     l$ = l$ + "sub__meshcolor|sub__meshtexture|sub__freemesh|sub__draw3d|sub__camera|sub__cameraortho|sub__camerarange|"
     l$ = l$ + "sub__ambient|func__light|sub__lighton|sub__freelight|sub__clear3d|func__gpu3d|"
+    l$ = l$ + "func__shader|func__shadererror|sub__shaderparam|sub__meshshader|sub__freeshader|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
@@ -1293,6 +1295,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         EXIT FUNCTION
     END IF
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
+    IF IrExtFunc%(nm$, sv(), nargs, typ, r$) THEN GOTO irfdone 'R13 _IIF/_TOSTR$ (ir_ext.bas)
     SELECT CASE nm$
         CASE "LEN"
             IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
@@ -1761,6 +1764,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     END IF
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
     FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+    IF IrExtSub%(nm$, sv(), nargs) THEN EXIT SUB 'R13 _ASSERT (ir_ext.bas)
     SELECT CASE nm$
         CASE "BEEP": IrE "rt BEEP"
         CASE "SOUND": IrE "rt SOUND" + IrArgList$("f64,f64", nargs, -1, 0)
