@@ -90,7 +90,7 @@ if not exist crates mkdir crates
 "%QB%" rel_src.bas -o rel_out.exe > rel.txt 2>&1
 set "EC_REL=%ERRORLEVEL%"
 set "OUT_REL=missing"
-if exist rel_out.exe for /f "delims=" %%l in ('rel_out.exe ^< NUL') do set "OUT_REL=%%l"
+if exist rel_out.exe for /f "delims=" %%l in ('"%TMPDIR%\rel_out.exe" ^< NUL') do set "OUT_REL=%%l"
 popd >nul
 
 > "%SRC_CACHE_A%" echo PRINT "CACHE_A_UNIQUE"
