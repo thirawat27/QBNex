@@ -1300,6 +1300,20 @@ impl Display {
         }
     }
 
+    /// The display page for the INT 33h mouse driver: (text, mode, width, height,
+    /// font width, font height); `None` before the screen started.
+    pub(crate) fn mouse_page(&self) -> Option<(bool, u16, i32, i32, i32, i32)> {
+        if !self.started {
+            return None;
+        }
+        // SAFETY: the display page of a started screen is valid.
+        let p = unsafe { &*self.dp() };
+        let f = p.font as usize;
+        let fw = self.fontwidth.get(f).copied().unwrap_or(8);
+        let fh = self.fontheight.get(f).copied().unwrap_or(16);
+        Some((p.text != 0, p.compatible_mode, i32::from(p.width), i32::from(p.height), fw, fh))
+    }
+
     /// The destination is a surface (not the `$CONSOLE` stdout image).
     pub(crate) fn write_is_screen(&self) -> bool {
         // SAFETY: valid write page.

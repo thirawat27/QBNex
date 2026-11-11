@@ -133,3 +133,36 @@ fn close_ends_a_busy_loop() {
     assert!(t.elapsed() < Duration::from_secs(10));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Q11: PRINT USING in a GUI program goes to the window like PRINT.
+#[test]
+fn print_using_draws_on_the_window() {
+    let dir = tmpdir("using");
+    let (code, out) = run(&dir, &fixture("q11_using.qir"), "wait 100\n");
+    assert_eq!(code, Some(0), "{out}");
+    assert_eq!(out, "", "PRINT USING reached stdout");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Q12: the INT 33h mouse driver called through CALL ABSOLUTE (reset: AX=-1, BX=2;
+/// status: BX buttons, CX/DX position).
+#[test]
+fn int33_mouse_through_call_absolute() {
+    let dir = tmpdir("int33");
+    let (code, out) = run(&dir, &fixture("q12_mouse.qir"), "wait 200\nmousemove 100 48\nwait 3000\n");
+    assert_eq!(code, Some(0), "{out}");
+    let t = std::fs::read_to_string(dir.join("mouse.txt")).unwrap();
+    let lines: Vec<&str> = t.lines().map(str::trim).collect();
+    // SCREEN 13: CX is twice the pixel x (libqb call_int)
+    assert_eq!(lines, ["-1  2", "0  200  48"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Q13: a CALL ABSOLUTE that fails gives its argument space back (no panic after many calls).
+#[test]
+fn failing_call_absolute_does_not_leak_argument_space() {
+    let dir = tmpdir("absleak");
+    let (code, out) = run(&dir, &fixture("q13_absleak.qir"), "");
+    assert_eq!((code, out.trim()), (Some(0), "done"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

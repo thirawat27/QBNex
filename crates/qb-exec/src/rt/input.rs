@@ -300,6 +300,11 @@ impl Input {
         self.current = (self.current + 1) % self.mouse.len();
         true
     }
+    /// The most recent mouse message: (x, y, buttons) (INT 33h status).
+    pub(crate) fn latest_mouse(&self) -> (i32, i32, u32) {
+        let m = self.mouse[self.last];
+        (m.x, m.y, m.buttons)
+    }
     pub(crate) fn mouse_xy(&self) -> (i32, i32) {
         let m = self.mouse[self.current];
         (m.x, m.y)
