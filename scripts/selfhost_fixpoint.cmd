@@ -20,16 +20,16 @@ mkdir "%WORK%" || (popd & exit /b 2)
 
 echo [fixpoint] gen1 -^> qb-gen2.exe
 .\qb.exe compiler\qbnex.bas -q -o qb-gen2.exe > "%WORK%\gen2.log" 2>&1
-if errorlevel 1 (type "%WORK%\gen2.log" & echo [FAIL] gen1 could not build gen2 & set "RC=1" & goto done)
+if not "%ERRORLEVEL%"=="0" (type "%WORK%\gen2.log" & echo [FAIL] gen1 could not build gen2 & set "RC=1" & goto done)
 copy /y target\qb-temp\program.qir "%WORK%\gen1.qir" > nul
 
 echo [fixpoint] gen2 -^> qb-gen3.exe
 .\qb-gen2.exe compiler\qbnex.bas -q -o qb-gen3.exe > "%WORK%\gen3.log" 2>&1
-if errorlevel 1 (type "%WORK%\gen3.log" & echo [FAIL] gen2 could not build gen3 & set "RC=1" & goto done)
+if not "%ERRORLEVEL%"=="0" (type "%WORK%\gen3.log" & echo [FAIL] gen2 could not build gen3 & set "RC=1" & goto done)
 copy /y target\qb-temp\program.qir "%WORK%\gen2.qir" > nul
 
 .\qb-gen3.exe compiler\qbnex.bas -q -o "%WORK%\qb-gen4.exe" > "%WORK%\gen4.log" 2>&1
-if errorlevel 1 (type "%WORK%\gen4.log" & echo [FAIL] gen3 could not build gen4 & set "RC=1" & goto done)
+if not "%ERRORLEVEL%"=="0" (type "%WORK%\gen4.log" & echo [FAIL] gen3 could not build gen4 & set "RC=1" & goto done)
 copy /y target\qb-temp\program.qir "%WORK%\gen3.qir" > nul
 
 fc /b "%WORK%\gen2.qir" "%WORK%\gen3.qir" > nul
