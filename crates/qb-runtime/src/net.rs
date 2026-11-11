@@ -11,8 +11,10 @@
 //! Semantics kept from legacy:
 //! - IPv4 only; hosts listen on `0.0.0.0`; client connects block, everything
 //!   after that is non-blocking.
-//! - `connected` starts at -1 and drops to 0 on any send error (including
-//!   "would block"), on a receive error other than "would block", and on EOF.
+//! - `connected` starts at -1 and drops to 0 on a send or receive error and on
+//!   EOF. "Would block" is not an error (legacy defect L-14 treated a full send
+//!   buffer as a lost connection): what does not fit is queued, in order, and
+//!   goes out on the next send, receive, `_CONNECTED` or `CLOSE`.
 //! - The remote port of an accepted connection is reported with its bytes
 //!   swapped on little-endian machines (legacy read the network-order field as
 //!   a native `uint16`).
@@ -38,33 +40,84 @@ pub struct Conn {
     pub hostname: Vec<u8>,
     /// -1 while usable, 0 after a failure or remote close.
     pub connected: i32,
+    /// Bytes not yet accepted by the socket (send buffer full); `out_pos` is
+    /// the first unsent one.
+    out: Vec<u8>,
+    out_pos: usize,
 }
 
 impl Conn {
     fn new(sock: Sock, port: i32) -> Box<Conn> {
-        Box::new(Conn { sock, port, ip4: [0; 4], hostname: Vec::new(), connected: -1 })
+        Box::new(Conn { sock, port, ip4: [0; 4], hostname: Vec::new(), connected: -1, out: Vec::new(), out_pos: 0 })
     }
 
-    /// Sends all of `data`; any error marks the connection as lost.
+    /// Sends `data` after anything still queued. What the socket does not
+    /// take now ("would block") is queued; any other error marks the
+    /// connection as lost and drops the queue.
     pub fn send(&mut self, data: &[u8]) {
-        let Sock::Stream(stream) = &mut self.sock else { return };
+        if !matches!(self.sock, Sock::Stream(_)) || self.connected == 0 {
+            return;
+        }
+        if self.flush() {
+            let sent = self.write_some(data);
+            if self.connected != 0 && sent < data.len() {
+                self.out.extend_from_slice(&data[sent..]);
+            }
+        } else if self.connected != 0 {
+            self.out.extend_from_slice(data);
+        }
+    }
+
+    /// Bytes queued behind a full send buffer.
+    pub fn queued(&self) -> usize {
+        self.out.len() - self.out_pos
+    }
+
+    /// Writes as much of the queue as the socket takes; true when it is empty.
+    pub fn flush(&mut self) -> bool {
+        if self.out_pos >= self.out.len() {
+            return true;
+        }
+        let out = std::mem::take(&mut self.out);
+        let n = self.write_some(&out[self.out_pos..]);
+        self.out = out;
+        self.out_pos += n;
+        if self.connected == 0 || self.out_pos >= self.out.len() {
+            self.out.clear();
+            self.out_pos = 0;
+            return self.connected != 0;
+        }
+        // keep the queue from holding sent bytes forever
+        if self.out_pos >= 1 << 20 && self.out_pos * 2 >= self.out.len() {
+            self.out.drain(..self.out_pos);
+            self.out_pos = 0;
+        }
+        false
+    }
+
+    /// Writes until the socket would block; returns the bytes taken.
+    fn write_some(&mut self, data: &[u8]) -> usize {
+        let Sock::Stream(stream) = &mut self.sock else { return 0 };
         let mut sent = 0;
         while sent < data.len() {
             match stream.write(&data[sent..]) {
-                // Legacy treated every send() < 0 as fatal, "would block" included.
+                Ok(0) => break,
+                Ok(n) => sent += n,
+                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == ErrorKind::Interrupted => {}
                 Err(_) => {
                     self.connected = 0;
-                    return;
+                    break;
                 }
-                Ok(0) => return,
-                Ok(n) => sent += n,
             }
         }
+        sent
     }
 
     /// Reads what is available (non-blocking). Returns the byte count; 0 means
     /// nothing arrived (or the connection was lost, see `connected`).
     pub fn recv(&mut self, buf: &mut [u8]) -> usize {
+        self.flush();
         let Sock::Stream(stream) = &mut self.sock else { return 0 };
         match stream.read(buf) {
             Ok(0) => {
@@ -80,8 +133,18 @@ impl Conn {
         }
     }
 
-    /// Shuts both directions down and closes the socket.
-    pub fn close(self) {
+    /// Sends what is still queued (giving up after a second without
+    /// progress), then shuts both directions down and closes the socket.
+    pub fn close(mut self) {
+        let mut last = (self.queued(), Instant::now());
+        while self.connected != 0 && !self.flush() {
+            if self.queued() < last.0 {
+                last = (self.queued(), Instant::now());
+            } else if last.1.elapsed() >= Duration::from_secs(1) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
         if let Sock::Stream(s) = &self.sock {
             let _ = s.shutdown(Shutdown::Both);
         }
@@ -424,7 +487,9 @@ pub unsafe extern "C" fn qb_tcp_recv(c: *mut Conn, buf: *mut u8, cap: i64) -> i6
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_tcp_connected(c: *mut Conn) -> i32 {
     // SAFETY: caller guarantees a live connection.
-    unsafe { (*c).connected }
+    let c = unsafe { &mut *c };
+    c.flush();
+    c.connected
 }
 
 /// Writes the `_CONNECTIONADDRESS` text into `out` (at most `cap` bytes) and
@@ -537,6 +602,84 @@ mod tests {
             (server.connected == 0).then_some(())
         });
         server.close();
+        host.close();
+    }
+
+    #[test]
+    fn full_send_buffer_keeps_the_connection_and_the_data() {
+        // L-14: a send that would block is not a lost connection; the rest is
+        // queued and goes out on later calls, in order.
+        let port = free_port();
+        let host = host_open(i64::from(port)).expect("listen");
+        let mut client = client_open(b"127.0.0.1", i64::from(port)).expect("connect");
+        let mut server = poll(|| accept(&host));
+
+        let block: Vec<u8> = (0..1_048_576u32).map(|i| (i % 251) as u8).collect();
+        let mut blocks = 0usize;
+        // nobody reads: keep sending until the socket buffers are full
+        while client.queued() == 0 {
+            assert!(blocks < 256, "send buffer never filled");
+            client.send(&block);
+            blocks += 1;
+            assert_eq!(client.connected, -1, "full send buffer is not a lost connection");
+        }
+        client.send(&block);
+        client.send(b"tail");
+        blocks += 1;
+        assert_eq!(client.connected, -1);
+
+        // the reader drains; the client's own calls push the queue out
+        let total = blocks * block.len() + 4;
+        let mut got = Vec::with_capacity(total);
+        let mut buf = vec![0u8; 65536];
+        let start = Instant::now();
+        while got.len() < total {
+            assert!(start.elapsed() < Duration::from_secs(60), "timed out at {} of {total}", got.len());
+            let k = server.recv(&mut buf);
+            got.extend_from_slice(&buf[..k]);
+            let mut one = [0u8; 1];
+            client.recv(&mut one);
+            if k == 0 {
+                sleep(Duration::from_millis(1));
+            }
+        }
+        assert_eq!(client.connected, -1);
+        assert_eq!(client.queued(), 0);
+        assert_eq!(got.len(), total);
+        for (i, chunk) in got[..total - 4].chunks(block.len()).enumerate() {
+            assert!(chunk == &block[..], "block {i} differs");
+        }
+        assert_eq!(&got[total - 4..], b"tail");
+        client.close();
+        server.close();
+        host.close();
+    }
+
+    #[test]
+    fn close_sends_what_is_still_queued() {
+        let port = free_port();
+        let host = host_open(i64::from(port)).expect("listen");
+        let mut client = client_open(b"127.0.0.1", i64::from(port)).expect("connect");
+        let mut server = poll(|| accept(&host));
+        let block = vec![7u8; 1_048_576];
+        let mut sent = 0usize;
+        while client.queued() == 0 {
+            assert!(sent < 256 * block.len(), "send buffer never filled");
+            client.send(&block);
+            sent += block.len();
+        }
+        // read on another thread while the client closes
+        let reader = std::thread::spawn(move || {
+            let mut n = 0usize;
+            let mut buf = vec![0u8; 65536];
+            let start = Instant::now();
+            while server.connected != 0 && start.elapsed() < Duration::from_secs(60) {
+                n += server.recv(&mut buf);
+            }
+            n
+        });
+        client.close();
+        assert_eq!(reader.join().unwrap(), sent);
         host.close();
     }
 
