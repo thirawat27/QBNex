@@ -342,7 +342,7 @@ SUB PrepareDependencyBuildInputs (defines$, libs$, libqb$, pchOptions$, o$, win,
     END IF
 
     IF DEPENDENCY(DEPENDENCY_AUDIO_OUT) THEN
-        IF mac THEN defines$ = defines$ + " -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework CoreFoundation "
+        IF mac THEN defines$ = defines$ + " -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework CoreFoundation -framework ApplicationServices -framework CoreVideo -framework Carbon -liconv "
     END IF
 
     EnsureWindowsCommonPCH depstr$, defines$, pchOptions$

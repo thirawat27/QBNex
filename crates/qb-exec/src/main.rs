@@ -56,16 +56,32 @@ fn opt<'a>(args: &'a [std::ffi::OsString], name: &str) -> Option<&'a std::ffi::O
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1))
 }
 
-/// `qb-exec native-kit --staticlib <qb_native.lib> --lld <rust-lld> [--system <dir>] -o <kit dir>`
+/// `qb-exec native-kit --staticlib <lib> --lld <rust-lld> -o <kit dir>` plus
+/// `[--system <dir>]` (Windows: the DLLs, default System32) or
+/// `--libs "<rustc native-static-libs>" [--sdk <dir>]` (Linux, macOS).
 fn native_kit(args: &[std::ffi::OsString]) -> ! {
     let (Some(lib), Some(lld), Some(out)) = (opt(args, "--staticlib"), opt(args, "--lld"), opt(args, "-o")) else {
-        eprintln!("usage: qb-exec native-kit --staticlib <qb_native.lib> --lld <rust-lld> [--system <dir>] -o <kit dir>");
+        eprintln!(
+            "usage: qb-exec native-kit --staticlib <qb_native.lib | libqb_native.a> --lld <rust-lld> -o <kit dir>\n  \
+             Windows: [--system <dir>]   Linux/macOS: --libs \"<native-static-libs>\" [--sdk <macOS SDK>]"
+        );
         std::process::exit(2)
     };
-    let sys = opt(args, "--system").map(std::path::PathBuf::from).unwrap_or_else(|| {
-        std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32")
-    });
-    match qb_link::toolchain::make_kit_windows(lib.as_ref(), lld.as_ref(), &sys, out.as_ref()) {
+    let r = if cfg!(windows) {
+        let sys = opt(args, "--system").map(std::path::PathBuf::from).unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32")
+        });
+        qb_link::toolchain::make_kit_windows(lib.as_ref(), lld.as_ref(), &sys, out.as_ref())
+    } else {
+        let libs = opt(args, "--libs").map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let sdk = opt(args, "--sdk").map(std::path::PathBuf::from).or_else(|| std::env::var_os("SDKROOT").map(Into::into)).or_else(|| {
+            let o = std::process::Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]).output().ok()?;
+            let p = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            (o.status.success() && !p.is_empty()).then(|| p.into())
+        });
+        qb_link::toolchain::make_kit_unix(lib.as_ref(), lld.as_ref(), &libs, sdk.as_deref(), out.as_ref())
+    };
+    match r {
         Ok(s) => {
             println!("{s}");
             std::process::exit(0)

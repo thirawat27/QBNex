@@ -149,7 +149,7 @@ mkdir -p ./internal/temp
 cp -r ./internal/source/* ./internal/temp/
 cp -r ./compiler/* ./internal/temp/
 pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil -ludev -lpthread -ldl -lrt -o ../../qb-stage0
+g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil -ludev -lasound -lpthread -ldl -lrt -o ../../qb-stage0
 popd
 
 if [ -x "./qb-stage0" ]; then

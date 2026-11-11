@@ -4389,7 +4389,7 @@ void sub_rset(qbs *dest,qbs *source){
 
 qbs *func_space(int32 spaces){return qb_func_space(spaces);}
 qbs *func_string(int32 characters,int32 asciivalue){return qb_func_string(characters,asciivalue);}
-void set_qbs_size(ptrszint *target_qbs,int32 newlength){qb_set_qbs_size(target_qbs,newlength);}
+void set_qbs_size(ptrszint *target_qbs,int32 newlength){qb_set_qbs_size((intptr_t*)target_qbs,newlength);}
 int32 func_instr(int32 start,qbs *str,qbs *substr,int32 passed){return qb_func_instr(start,str,substr,passed);}
 int32 func__instrrev(int32 start,qbs *str,qbs *substr,int32 passed){return qb_func__instrrev(start,str,substr,passed);}
 void sub_mid(qbs *dest,int32 start,int32 l,qbs* src,int32 passed){
@@ -6159,7 +6159,7 @@ uint64 func_file_input_uint64(int32 fileno){
 void sub_read_string(uint8 *data,ptrszint *data_offset,ptrszint data_size,qbs *deststr){
     if (new_error) return;
     const uint8 *out; int32 len=0;
-    int32 e=qb_read_string(data,data_size,data_offset,&out,&len);
+    int32 e=qb_read_string(data,data_size,(intptr_t*)data_offset,&out,&len);
     if (e) error(e);
     qbs_set(deststr,qbs_new_txt_len((const char*)out,len));
 }
@@ -6167,21 +6167,21 @@ void sub_read_string(uint8 *data,ptrszint *data_offset,ptrszint data_size,qbs *d
 long double func_read_float(uint8 *data,ptrszint *data_offset,ptrszint data_size,int32 typ){
     if (new_error) return 0;
     qb_num_value v;
-    if (int32 e=qb_read_float(data,data_size,data_offset,typ,&v)){error(e); return 0;}
+    if (int32 e=qb_read_float(data,data_size,(intptr_t*)data_offset,typ,&v)){error(e); return 0;}
     return num_value(v);
 }
 
 int64 func_read_int64(uint8 *data,ptrszint *data_offset,ptrszint data_size){
     if (new_error) return 0;
     int64 v;
-    if (int32 e=qb_read_int64(data,data_size,data_offset,&v)){error(e); return 0;}
+    if (int32 e=qb_read_int64(data,data_size,(intptr_t*)data_offset,&v)){error(e); return 0;}
     return v;
 }
 
 uint64 func_read_uint64(uint8 *data,ptrszint *data_offset,ptrszint data_size){
     if (new_error) return 0;
     uint64 v;
-    if (int32 e=qb_read_uint64(data,data_size,data_offset,&v)){error(e); return 0;}
+    if (int32 e=qb_read_uint64(data,data_size,(intptr_t*)data_offset,&v)){error(e); return 0;}
     return v;
 }
 
@@ -6686,11 +6686,11 @@ void sub_put2(int32 i,int64 offset,void *element,int32 passed){
     
     //LBOUND/UBOUND: crates/qb-runtime/src/arrays.rs
     ptrszint func_lbound(ptrszint *array,int32 index,int32 num_indexes){
-        ptrszint v=0; if (int32 e=qb_array_bound(array,index,num_indexes,0,&v)){error(e); return 0;}
+        ptrszint v=0; if (int32 e=qb_array_bound((const intptr_t*)array,index,num_indexes,0,(intptr_t*)&v)){error(e); return 0;}
         return v;
     }
     ptrszint func_ubound(ptrszint *array,int32 index,int32 num_indexes){
-        ptrszint v=0; if (int32 e=qb_array_bound(array,index,num_indexes,1,&v)){error(e); return 0;}
+        ptrszint v=0; if (int32 e=qb_array_bound((const intptr_t*)array,index,num_indexes,1,(intptr_t*)&v)){error(e); return 0;}
         return v;
     }
     

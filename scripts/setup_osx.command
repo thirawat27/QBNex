@@ -75,7 +75,7 @@ mkdir -p ./internal/temp
 cp ./internal/source/* ./internal/temp/
 cp -r ./compiler/* ./internal/temp/
 pushd internal/c >/dev/null
-clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o ../../crates/qb-runtime/os/macos/libqb_runtime.a -lSystem -lc -lm -framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -lobjc -framework Cocoa -o ../../qb-stage0
+clang++ -w qbx.cpp libqb/os/osx/libqb_setup.o ../../crates/qb-runtime/os/macos/libqb_runtime.a -lSystem -lc -lm -framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework ApplicationServices -framework CoreVideo -framework Carbon -lobjc -liconv -framework Cocoa -o ../../qb-stage0
 popd >/dev/null
 
 echo ""

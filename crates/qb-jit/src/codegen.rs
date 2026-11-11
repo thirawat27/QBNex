@@ -31,25 +31,31 @@ pub enum Target {
     /// Cross targets: code is generated (not run) to check the lowering.
     X86_64,
     Aarch64,
+    /// macOS (Mach-O objects).
+    X86_64Darwin,
+    Aarch64Darwin,
 }
 
 pub(crate) fn make_isa(t: Target) -> OwnedTargetIsa {
+    make_isa_pic(t, false)
+}
+
+/// `pic`: position-independent code (calls and data through the GOT), for
+/// objects a system linker links into a PIE (ELF) or any Mach-O executable.
+pub(crate) fn make_isa_pic(t: Target, pic: bool) -> OwnedTargetIsa {
     let mut fb = settings::builder();
     fb.set("opt_level", "speed").expect("flag");
-    fb.set("is_pic", "false").expect("flag");
+    fb.set("is_pic", if pic { "true" } else { "false" }).expect("flag");
     fb.set("use_colocated_libcalls", "false").expect("flag");
     let flags = settings::Flags::new(fb);
-    match t {
-        Target::Host => cranelift_native::builder().expect("host ISA").finish(flags).expect("isa"),
-        Target::X86_64 => cranelift_codegen::isa::lookup_by_name("x86_64-unknown-linux-gnu")
-            .expect("x86_64")
-            .finish(flags)
-            .expect("isa"),
-        Target::Aarch64 => cranelift_codegen::isa::lookup_by_name("aarch64-unknown-linux-gnu")
-            .expect("aarch64")
-            .finish(flags)
-            .expect("isa"),
-    }
+    let triple = match t {
+        Target::Host => return cranelift_native::builder().expect("host ISA").finish(flags).expect("isa"),
+        Target::X86_64 => "x86_64-unknown-linux-gnu",
+        Target::Aarch64 => "aarch64-unknown-linux-gnu",
+        Target::X86_64Darwin => "x86_64-apple-darwin",
+        Target::Aarch64Darwin => "aarch64-apple-darwin",
+    };
+    cranelift_codegen::isa::lookup_by_name(triple).expect(triple).finish(flags).expect("isa")
 }
 
 pub(crate) fn clif_ty(t: Ty) -> ir::Type {

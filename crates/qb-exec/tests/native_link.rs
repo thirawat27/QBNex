@@ -17,14 +17,23 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("native_calls", "jit/native_byref_and_function.qir"),
 ];
 
+/// The program as a console program (`meta console only`): without it the
+/// payload runner opens a window (GUI program) and stdout stays empty.
 fn fixture(p: &str) -> String {
-    std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(p)).unwrap()
+    let src = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(p)).unwrap();
+    if src.lines().any(|l| l.starts_with("meta console")) {
+        return src;
+    }
+    let (head, rest) = src.split_once('\n').unwrap();
+    format!("{head}\nmeta console only\n{rest}")
 }
 
 fn run(exe: &Path, dir: &Path) -> (String, Option<i32>) {
     let o = Command::new(exe)
         .current_dir(dir)
         .env("QBNEX_NO_ERROR_DIALOG", "1")
+        // never a window on the screen, whatever the program is
+        .env("QBNEX_HEADLESS", "1")
         .stdin(Stdio::null())
         .output()
         .unwrap();

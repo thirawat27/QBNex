@@ -1,4 +1,5 @@
 QIR 1
+meta console only
 global $__SINGLE_I f32
 global $__SINGLE_N f32
 global $__STRING_L str

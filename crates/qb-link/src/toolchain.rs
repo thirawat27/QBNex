@@ -11,10 +11,16 @@
 //!   from the names the runtime library imports and the export tables of the
 //!   system DLLs (no MSVC, Windows SDK or MinGW files)
 //!
+//! On Linux and macOS ([`make_kit_unix`]) the kit holds `libqb_native.a`,
+//! `rust-lld` (run as `ld.lld` / `ld64.lld`) and `kit.txt`; the C library
+//! (glibc start files and shared libraries) or the macOS SDK are referenced
+//! where the system has them, not copied.
+//!
 //! `kit.txt`: first line `qbnex-native-kit 1 <target triple>`, then one item
 //! per line: `flavor <lld flavor>`, `arg <linker argument>`, `input <file
-//! relative to the kit>`. The object file and `/out:` are added by
-//! [`link_native`].
+//! relative to the kit>`, `after <linker argument after the inputs>`. The
+//! object file and the output are added by [`link_native`]:
+//! `rust-lld -flavor F <arg>... <object> <input>... <after>... -o <out>`.
 
 use crate::LinkError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,6 +41,7 @@ struct KitFile {
     flavor: String,
     args: Vec<String>,
     inputs: Vec<PathBuf>,
+    after: Vec<String>,
 }
 
 fn read_kit(dir: &Path) -> Result<KitFile, LinkError> {
@@ -43,12 +50,13 @@ fn read_kit(dir: &Path) -> Result<KitFile, LinkError> {
     if !lines.next().is_some_and(|l| l.starts_with(KIT_HEADER)) {
         return Err(LinkError("native kit: kit.txt has an unknown format".into()));
     }
-    let mut k = KitFile { flavor: "link".into(), args: vec![], inputs: vec![] };
+    let mut k = KitFile { flavor: "link".into(), args: vec![], inputs: vec![], after: vec![] };
     for l in lines {
         match l.split_once(' ') {
             Some(("flavor", v)) => k.flavor = v.to_string(),
             Some(("arg", v)) => k.args.push(v.to_string()),
             Some(("input", v)) => k.inputs.push(dir.join(v)),
+            Some(("after", v)) => k.after.push(v.to_string()),
             _ if l.trim().is_empty() => {}
             _ => return Err(LinkError(format!("native kit: bad line in kit.txt: {l}"))),
         }
@@ -66,7 +74,7 @@ pub fn link_native(kit: &Path, obj: &[u8], out: &Path) -> Result<(), LinkError> 
     let obj_path = out.with_extension("qbnex.o");
     std::fs::write(&obj_path, obj).map_err(|e| LinkError(format!("cannot write {}: {e}", obj_path.display())))?;
     let mut cmd = std::process::Command::new(lld_in(kit));
-    cmd.arg("-flavor").arg(&k.flavor).args(&k.args).arg(&obj_path).args(&k.inputs);
+    cmd.arg("-flavor").arg(&k.flavor).args(&k.args).arg(&obj_path).args(&k.inputs).args(&k.after);
     if k.flavor == "link" {
         cmd.arg(format!("/out:{}", out.display()));
     } else {
@@ -208,6 +216,127 @@ pub fn make_kit_windows(staticlib: &Path, lld: &Path, system_dir: &Path, out: &P
     let n: usize = by_dll.values().map(BTreeSet::len).sum();
     Ok(format!("native kit: {} imports from {} DLLs ({})", n, by_dll.len(), by_dll.keys().copied().collect::<Vec<_>>().join(", ")))
 }
+
+/// Linker command of a Linux (ELF) or macOS (Mach-O) native kit for the
+/// host: `(triple, flavor, args, after)`. `native_libs` is the
+/// `native-static-libs` line rustc prints for `qb-native` (`-lc -lm ...`,
+/// `-framework AppKit ...`); `sdk` is the macOS SDK (`xcrun --show-sdk-path`).
+pub fn unix_link_command(native_libs: &str, sdk: Option<&Path>) -> Result<(String, String, Vec<String>, Vec<String>), LinkError> {
+    if cfg!(target_os = "macos") {
+        let sdk = sdk.ok_or_else(|| LinkError("macOS native kit: no SDK (pass --sdk or install the Xcode command line tools)".into()))?;
+        let (arch, min) = if cfg!(target_arch = "aarch64") { ("arm64", "11.0") } else { ("x86_64", "10.12") };
+        let ver = sdk_version(sdk).unwrap_or_else(|| min.to_string());
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let mut args = s(&["-arch", arch, "-platform_version", "macos", min, &ver, "-dead_strip"]);
+        args.push("-syslibroot".into());
+        args.push(sdk.display().to_string());
+        let mut after: Vec<String> = native_libs.split_whitespace().map(str::to_string).collect();
+        if !after.iter().any(|a| a == "-lSystem") {
+            after.push("-lSystem".into());
+        }
+        let triple = if arch == "arm64" { "aarch64-apple-darwin" } else { "x86_64-apple-darwin" };
+        return Ok((triple.into(), "darwin".into(), args, after));
+    }
+    let (ma, emu, dl) = if cfg!(target_arch = "aarch64") {
+        ("aarch64-linux-gnu", "aarch64linux", "/lib/ld-linux-aarch64.so.1")
+    } else {
+        ("x86_64-linux-gnu", "elf_x86_64", "/lib64/ld-linux-x86-64.so.2")
+    };
+    let mut dirs: Vec<PathBuf> =
+        [format!("/usr/lib/{ma}"), format!("/lib/{ma}"), "/usr/lib64".into(), "/lib64".into(), "/usr/lib".into(), "/lib".into()]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+    if let Ok(rd) = std::fs::read_dir(format!("/usr/lib/gcc/{ma}")) {
+        dirs.extend(rd.flatten().map(|e| e.path()));
+    }
+    dirs.retain(|d| d.is_dir());
+    let find = |f: &str| dirs.iter().map(|d| d.join(f)).find(|p| p.is_file());
+    let crt = |f: &str| {
+        find(f).map(|p| p.display().to_string()).ok_or_else(|| {
+            LinkError(format!("Linux native kit: no {f} (install the C library development files: libc6-dev / glibc-devel)"))
+        })
+    };
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    let mut args = s(&["-m", emu, "-pie", "--dynamic-linker", dl, "--eh-frame-hdr", "--gc-sections", "--as-needed"]);
+    args.extend(s(&["-z", "noexecstack", "-z", "relro", "-z", "now"]));
+    for d in &dirs {
+        args.push(format!("-L{}", d.display()));
+    }
+    args.push(crt("Scrt1.o")?);
+    args.push(crt("crti.o")?);
+    let mut after = Vec::new();
+    for t in native_libs.split_whitespace() {
+        let Some(name) = t.strip_prefix("-l") else {
+            after.push(t.to_string());
+            continue;
+        };
+        if find(&format!("lib{name}.so")).is_some() || find(&format!("lib{name}.a")).is_some() {
+            after.push(t.to_string());
+            continue;
+        }
+        // No development symlink (`libfoo.so`): link the versioned library.
+        let prefix = format!("lib{name}.so.");
+        let versioned = dirs.iter().find_map(|d| {
+            let mut v: Vec<String> = std::fs::read_dir(d)
+                .ok()?
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.starts_with(&prefix))
+                .collect();
+            v.sort_by_key(String::len);
+            v.into_iter().next()
+        });
+        match versioned {
+            Some(f) => after.push(format!("-l:{f}")),
+            None => return Err(LinkError(format!("Linux native kit: library {name} not found (lib{name}.so)"))),
+        }
+    }
+    after.push(crt("crtn.o")?);
+    let triple = if emu == "aarch64linux" { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
+    Ok((triple.into(), "gnu".into(), args, after))
+}
+
+/// `"Version": "14.2"` of the SDK's `SDKSettings.json`.
+fn sdk_version(sdk: &Path) -> Option<String> {
+    let t = std::fs::read_to_string(sdk.join("SDKSettings.json")).ok()?;
+    let rest = &t[t.find("\"Version\"")? + 9..];
+    let rest = &rest[rest.find('"')? + 1..];
+    Some(rest[..rest.find('"')?].to_string())
+}
+
+/// Builds a Linux or macOS native kit for the host in `out` from the runtime
+/// library `staticlib` (`libqb_native.a`), the linker `lld`, rustc's
+/// `native-static-libs` line for it and (macOS) the SDK. Returns a summary.
+pub fn make_kit_unix(staticlib: &Path, lld: &Path, native_libs: &str, sdk: Option<&Path>, out: &Path) -> Result<String, LinkError> {
+    let io = |what: &str, e: std::io::Error| LinkError(format!("{what}: {e}"));
+    let (triple, flavor, args, after) = unix_link_command(native_libs, sdk)?;
+    std::fs::create_dir_all(out).map_err(|e| io("create kit", e))?;
+    let mut kit = format!("{KIT_HEADER} {triple}\nflavor {flavor}\n");
+    for a in &args {
+        kit.push_str(&format!("arg {a}\n"));
+    }
+    kit.push_str("input libqb_native.a\n");
+    for a in &after {
+        kit.push_str(&format!("after {a}\n"));
+    }
+    std::fs::copy(staticlib, out.join("libqb_native.a")).map_err(|e| io("copy runtime library", e))?;
+    std::fs::copy(lld, lld_in(out)).map_err(|e| io("copy rust-lld", e))?;
+    std::fs::write(out.join("kit.txt"), kit).map_err(|e| io("write kit.txt", e))?;
+    std::fs::write(out.join("LICENSES.txt"), LICENSES_UNIX).map_err(|e| io("write LICENSES.txt", e))?;
+    Ok(format!("native kit: {triple}, lld flavor {flavor}, libraries: {}", after.join(" ")))
+}
+
+const LICENSES_UNIX: &str = "\
+QBNex native kit
+================
+rust-lld: LLVM lld as shipped with the Rust toolchain.
+  License: Apache-2.0 WITH LLVM-exception (https://llvm.org/LICENSE.txt).
+libqb_native.a: QBNex runtime (MIT) with the Rust standard library
+  (MIT OR Apache-2.0) and the crates listed in QBNex's Cargo.lock.
+The system C library (Linux: glibc start files and shared libraries) and the
+macOS SDK are used where the system installed them; none is copied here.
+";
 
 const LICENSES: &str = "\
 QBNex native kit
