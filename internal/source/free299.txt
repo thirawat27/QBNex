@@ -1,2 +1,0 @@
-qbs_free(_SUB_IRSELECT_STRING_T);
-qbs_free(_SUB_IRSELECT_STRING_EVERY);

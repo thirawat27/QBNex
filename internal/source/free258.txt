@@ -1,4 +1,0 @@
-if(oldstr4317){
-if(oldstr4317->fixed)qbs_set(oldstr4317,_SUB_IRADDTOK_STRING_V);
-qbs_free(_SUB_IRADDTOK_STRING_V);
-}

@@ -31,11 +31,9 @@ jobs:
             artifact_suffix: win-x64
             artifact_path: qb.exe
             platform: x64
-            mingw_arch: x64
     env:
       QBNEX_CI: "1"
       PLATFORM: ${{ matrix.platform || '' }}
-      QBNEX_MINGW_ARCH: ${{ matrix.mingw_arch || '' }}
       QBNEX_BUNDLE_DIR: dist/bundle/qbnex
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
@@ -82,15 +80,7 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then ulimit -v 8000000; fi
           cargo test --workspace --locked
 
-      - name: Differential tests, legacy C++ vs Rust (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: sh tests/diff/run_diff.sh --quick
 
-      - name: Differential tests, legacy C++ vs Rust (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: call tests\diff\run_diff.cmd --quick
 
       - name: Smoke tests (Unix)
         if: runner.os != 'Windows'
@@ -108,7 +98,7 @@ jobs:
             call tests\smoke\%%t_smoke.cmd || exit /b 1
           )
 
-      - name: Conformance (golden output from the legacy C++ runtime)
+      - name: Conformance (golden output)
         shell: bash
         run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
 

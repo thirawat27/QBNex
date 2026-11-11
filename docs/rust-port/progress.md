@@ -277,7 +277,14 @@ The R11 work (R11a emitter, R11b VM, R11c JIT) is one implementation now (owner:
 - **Compiler:** lock ของโฟลเดอร์ `internal/tempN` (#26) ไม่ถูกปล่อยระหว่าง recompile อีกแล้ว (เดิมทำให้ qb ที่รันพร้อมกันชนกัน, error 70 ใน e2e แบบหลาย thread)
 - **ยังไม่ทำ:** ON KEY/ON STRIG trapping, CHAIN/COMMON, PLAY event, VARPTR$ ของ string (DRAW/PLAY "X"); string ใน TYPE ที่ตายไปพร้อม scope ยังไม่ถูกคืน (leak เล็กน้อย, ไม่กระทบผลลัพธ์)
 
-## R11d: `_FLOAT` and `DECLARE LIBRARY`
+## ## Cutover — QIR is the only backend (branch `claude/r11a-emitter-09276c`, 2026-11-10)
+
+- **Compiler on QIR:** `compiler/qbnex.bas` compiles to QIR and runs on qb-exec; the QIR it emits for itself is a fixpoint (stage1 = stage2 = stage3). `bootstrap/qbnex.qir` is that QIR. What the self-host needed: COMMAND$(n) / `_COMMANDCOUNT` (the program's own argv, also for `qb-exec prog.qir args`), `getpid`, STATIC arrays dimensioned by the first call only, INSTR/LEFT$/RIGHT$/MID$ exactly as qb-runtime's `qb_func_instr`/`qbs_left`/`qbs_right`/`qb_func_mid` (start < 1 and negative counts are not errors), `_MK$`/`_CV` of every type, `_ROUND`, `_ACOS`.. `_SEC`.. `_SHL`.. `_STRCMP`, CASE values compiled after the C++ pass (implicit variables), REDIM of a SHARED array inside a SUB, an emitter that does not depend on the evaluation order of `+` (C++ evaluated right to left, the VM left to right).
+- **Default backend:** QIR (`--ir` is accepted and changes nothing). `qb prog.bas -o prog.exe` writes the packaged runner (D15b: runner + QIR + trailer). DECLARE LIBRARY works on QIR: `meta extfn` + qb-ffi call thunks; the runner links qb-ext and resolves `qb_ext_*` in-process first.
+- **Removed:** `internal/c` (qbx.cpp, libqb, bridges, makeline/makedat, purge scripts), `internal/source` (C++ snapshot), `tests/diff` (the legacy C++ differential harnesses: the Rust unit tests, the conformance corpus and the self-host fixpoint cover what they compared), the C headers of qb-runtime/qb-ext, CMake, `findcurl.cmd`, `refresh_stage0_snapshot.*`, the MinGW download. `internal/support` moved to `compiler/support`; build folders are `target/qb-temp[N]`, settings `target/qb-config.ini`.
+- **Setup:** `scripts/setup_win.cmd`, `setup_lnx.sh`, `setup_osx.command` build qb-exec with cargo, pack `bootstrap/qbnex.qir` into `qb-stage0`, and let it compile `compiler/qbnex.bas` into `qb`. `scripts/selfhost_fixpoint.*` checks gen2 = gen3 = `bootstrap/qbnex.qir` (QIR text).
+- **Deviation:** `_INCLERRORLINE`/`_INCLERRORFILE$` are 0/"" (QIR line markers are lines of the main file); the trig helpers of `_ACOS`.. are computed in double (libqb used long double for some).
+R11d: `_FLOAT` and `DECLARE LIBRARY`
 
 API contract for the emitter and the VM: [`r11d-ffi-float80.md`](r11d-ffi-float80.md).
 

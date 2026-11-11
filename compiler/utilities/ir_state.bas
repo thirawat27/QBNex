@@ -1,6 +1,7 @@
 ' QIR v1 emitter state (utilities/ir_emit.bas). Module-level because QB64
 ' needs DIM SHARED before the SUB/FUNCTION area. Spec: docs/rust-port/qir-v1.md
 DIM SHARED IrEmitMode AS _BYTE
+IrEmitMode = -1 'QIR is the only backend (cutover): --ir is accepted and changes nothing
 'functions: 1 = main
 DIM SHARED IrFnN AS LONG, IrFnCur AS LONG
 REDIM SHARED IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING
@@ -13,6 +14,8 @@ DIM SHARED IrT AS STRING 'register type of the last value produced by IrEval$
 DIM SHARED IrFailMsg AS STRING 'first unsupported construct
 DIM SHARED IrUniq AS LONG
 DIM SHARED IrFix AS STRING, IrFix2 AS STRING, IrFix3 AS STRING 'fixed expressions captured by hooks
+DIM SHARED IrPendCase$, IrPendEvery AS LONG, IrPendElse AS LONG, IrPendCaseOn AS LONG, IrPendLevel AS LONG 'CASE waiting for finishedline
+DIM SHARED IrExtMeta AS STRING 'meta extfn lines (DECLARE LIBRARY)
 DIM SHARED IrPendLL AS LONG 'numeric line label waiting for its LASTLINE
 DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
 DIM SHARED IrDataN AS LONG

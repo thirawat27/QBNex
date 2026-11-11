@@ -19,12 +19,18 @@
 
 pub mod bytecode;
 mod jit;
+include!(concat!(env!("OUT_DIR"), "/ext_symbols.rs"));
 mod lower;
 mod mem;
 mod rt;
 mod vm;
 
 pub use vm::{EventHandle, Vm};
+
+/// Sets the program's argv as BASIC sees it (COMMAND$, _COMMANDCOUNT): [program, args...].
+pub fn set_program_args(args: Vec<String>) {
+    rt::builtins::set_program_args(args)
+}
 /// Debugger hook (feature `debug`), used by `qb-dap`.
 #[cfg(feature = "debug")]
 pub use vm::debug;

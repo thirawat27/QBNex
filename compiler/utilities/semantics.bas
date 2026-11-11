@@ -985,15 +985,7 @@ END IF
 'binary operators
 
 IF u = 1 THEN
-    'integer \ and MOD go through checked helpers (qbx.cpp): a zero divisor is BASIC
-    'error 11 that ON ERROR/TRY can catch, not a hardware fault
-    IF o$ = "\" THEN
-        block(i + 1) = "func_idiv(" + block(i - 1) + "," + block(i + 1) + ")"
-    ELSEIF UCASE$(o$) = "MOD" THEN
-        block(i + 1) = "func_imod(" + block(i - 1) + "," + block(i + 1) + ")"
-    ELSE
-        block(i + 1) = block(i - 1) + i$ + block(i + 1)
-    END IF
+    block(i + 1) = block(i - 1) + i$ + block(i + 1)
     block(i - 1) = "": block(i) = "": i = i + 1: GOTO operatorapplied
 END IF
 

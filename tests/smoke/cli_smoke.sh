@@ -90,13 +90,12 @@ EC_CACHE_A=$?
 "$QB" "$SRC_CACHE_B" -q -o "$BIN_CACHE_B" >"$OUT_CACHE_B" 2>&1
 EC_CACHE_B=$?
 
-if command -v strings >/dev/null 2>&1; then
-  [ -f "$BIN_CACHE_A" ] && strings "$BIN_CACHE_A" >"$OUT_CACHE_A_STRINGS" 2>&1
-  [ -f "$BIN_CACHE_B" ] && strings "$BIN_CACHE_B" >"$OUT_CACHE_B_STRINGS" 2>&1
-else
-  : >"$OUT_CACHE_A_STRINGS"
-  : >"$OUT_CACHE_B_STRINGS"
-fi
+# each binary must print its own program's text (the QIR payload stores strings
+# hex-encoded, so the output is checked rather than the bytes of the file)
+: >"$OUT_CACHE_A_STRINGS"
+: >"$OUT_CACHE_B_STRINGS"
+[ -f "$BIN_CACHE_A" ] && "$BIN_CACHE_A" </dev/null >"$OUT_CACHE_A_STRINGS" 2>&1
+[ -f "$BIN_CACHE_B" ] && "$BIN_CACHE_B" </dev/null >"$OUT_CACHE_B_STRINGS" 2>&1
 set -e
 
 FAIL=0
@@ -206,10 +205,6 @@ if [ ! -f "$BIN_EXTERNAL" ]; then
   FAIL=1
 fi
 
-if ! command -v strings >/dev/null 2>&1; then
-  echo "[FAIL] strings command is required for cache regression coverage."
-  FAIL=1
-fi
 
 if [ "$EC_CACHE_A" -ne 0 ]; then
   echo "[FAIL] Cache regression compile A should exit successfully."

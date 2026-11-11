@@ -1,4 +1,0 @@
-if(oldstr4344){
-if(oldstr4344->fixed)qbs_set(oldstr4344,_FUNC_IRTARGET_STRING_IRSCOPE);
-qbs_free(_FUNC_IRTARGET_STRING_IRSCOPE);
-}

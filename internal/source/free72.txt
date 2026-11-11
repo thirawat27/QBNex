@@ -1,5 +1,0 @@
-if(oldstr3008){
-if(oldstr3008->fixed)qbs_set(oldstr3008,_FUNC_CONVERTTABS_STRING_A2);
-qbs_free(_FUNC_CONVERTTABS_STRING_A2);
-}
-qbs_free(_FUNC_CONVERTTABS_STRING_A);

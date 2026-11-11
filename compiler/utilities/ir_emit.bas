@@ -12,14 +12,18 @@
 '================================================================ output
 
 SUB IrInit
-    'also the start of a recompile pass: nothing of the previous pass may remain
+    'start of every main pass: a recompile (labels, $DYNAMIC...) emits the program again from scratch
     REDIM IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING
     REDIM IrFnHead(1 TO 16) AS STRING, IrFnBody(1 TO 16) AS STRING
     REDIM IrFnDecls(1 TO 16) AS STRING, IrFnRetVar(1 TO 16) AS STRING
     REDIM IrFnRegs(1 TO 16) AS LONG
+    REDIM IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
-    IrDataN = 0: IrPendLL = 0: IrRunN = 0: IrRunTo = ""
+    IrExtMeta = "": IrDataN = 0: IrDefSeg = 0: IrPendLL = 0
+    IrPendCase$ = "": IrPendEvery = 0: IrPendElse = 0: IrPendCaseOn = 0: IrPendLevel = 0
+    IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
+    IrRunN = 0: IrRunTo = ""
 END SUB
 
 SUB IrNotSup (w$)
@@ -100,6 +104,7 @@ SUB IrCloseMain
 END SUB
 
 SUB IrLine
+    IrFlushCase
     IrE "line " + str2$(linenumber)
     IF IrPendLL THEN IrE "rt LASTLINE " + IrI32$(IrPendLL): IrPendLL = 0
 END SUB
@@ -1049,11 +1054,53 @@ FUNCTION IrByRefArg$ (e$, pt AS LONG, ptsize AS LONG)
 END FUNCTION
 
 'user SUB/FUNCTION call; args$ raw elements joined with CHR$(0) per argument
+'DECLARE LIBRARY function/SUB: a QIR call of the C name plus "meta extfn name lib ret args"
+'(BYREF and _OFFSET arguments are addresses, strings pass their characters)
+FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG)
+    DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, tys$, x$, rt$, ty$
+    DIM sv(1 TO 100) AS STRING
+    FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
+    nm$ = LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    FOR k = 1 TO ids(idn).args
+        pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
+        ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
+        IF k > nargs THEN IrNotSup "missing argument": EXIT FUNCTION
+        IF pt AND ISSTRING THEN
+            x$ = IrArgAs$(sv(k), "str"): ty$ = "str"
+        ELSEIF pt AND ISPOINTER THEN
+            x$ = IrByRefArg$(sv(k), pt, ps): ty$ = "ptr"
+        ELSE
+            ty$ = IrTy$(pt): x$ = IrArgAs$(sv(k), ty$)
+        END IF
+        regs$ = regs$ + " " + x$: tys$ = tys$ + " " + ty$
+    NEXT
+    IF ids(idn).subfunc = 1 THEN
+        k = ids(idn).ret: IF k AND ISPOINTER THEN k = k - ISPOINTER
+        IF k AND ISSTRING THEN rt$ = "str" ELSE rt$ = IrTy$(k)
+    ELSE
+        rt$ = "void"
+    END IF
+    IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " - " + rt$ + tys$ + CHR$(10)
+    IF rt$ = "void" THEN
+        IrE "call " + nm$ + regs$
+    ELSE
+        d$ = IrReg$
+        IrE "call " + d$ + " " + nm$ + regs$
+        IrT = rt$
+        IrExtCall$ = d$
+    END IF
+END FUNCTION
+
 FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
     DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, rt$
     DIM sv(1 TO 100) AS STRING
     FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
     nm$ = LTRIM$(RTRIM$(removecast$(RTRIM$(ids(idn).callname))))
+    IF nm$ = "getpid" THEN
+        'DECLARE LIBRARY ... FUNCTION getpid& (the compiler's temp folder lock): the process id
+        IrUserCall$ = IrRt$("getpid", "", "i32"): EXIT FUNCTION
+    END IF
+    IF ids(idn).ccall THEN IrUserCall$ = IrExtCall$(idn, nargs): EXIT FUNCTION
     FOR k = 1 TO ids(idn).args
         pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
         ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
@@ -1173,10 +1220,15 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
     l$ = l$ + "func__freetimer|sub_timer|sub_key|"
+    l$ = l$ + "acos|asin|ceil|sinh|cosh|tanh|func_deg2rad|func_deg2grad|"
+    l$ = l$ + "func_rad2deg|func_rad2grad|func_grad2deg|func_grad2rad|func_arcsec|func_arccsc|func_arccot|func_sech|"
+    l$ = l$ + "func_csch|func_coth|func_sec|func_csc|func_cot|atan2|hypot|func_pi|"
+    l$ = l$ + "func__shl|func__shr|func__setbit|func__resetbit|func__togglebit|func__readbit|func__str_compare|func__str_nc_compare|"
     l$ = l$ + "func__loadmodel|func__meshcube|func__meshplane|sub__meshbegin|sub__meshvertex|sub__meshtriangle|func__meshend|"
     l$ = l$ + "sub__meshcolor|sub__meshtexture|sub__freemesh|sub__draw3d|sub__camera|sub__cameraortho|sub__camerarange|"
     l$ = l$ + "sub__ambient|func__light|sub__lighton|sub__freelight|sub__clear3d|func__gpu3d|sub__depthbuffer|"
     l$ = l$ + "func__shader|func__shadererror|sub__shaderparam|sub__meshshader|sub__freeshader|"
+    l$ = l$ + "|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     l$ = l$ + "sub_out|func_inp|sub_wait|func_stick|sub_bload|sub_bsave|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
@@ -1479,6 +1531,9 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             END IF
             r$ = IrRt$(nm$, "", "i32")
         CASE "INKEY$", "COMMAND$", "DATE$", "TIME$"
+            IF nm$ = "COMMAND$" AND nargs >= 1 THEN
+                IF LEN(sv(1)) THEN r$ = IrRt$("COMMAND$.n", " " + IrArgAs$(sv(1), "i32"), "str"): GOTO irfdone
+            END IF
             r$ = IrRt$(nm$, "", "str")
         CASE "ENVIRON$"
             x$ = IrEval$(sv(1), t)
@@ -1567,6 +1622,20 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrRt$("PEEK", " " + IrArgAs$(sv(1), "i32"), "i32")
         CASE "_CWD$", "_STARTDIR$", "_OS$"
             r$ = IrRt$(nm$, "", "str")
+        CASE "_ROUND"
+            'qbr of the value as an _INTEGER64
+            x$ = IrEval$(sv(1), t)
+            r$ = IrCvt$(x$, IrT, "i64"): IrT = "i64"
+        CASE "_OFFSET"
+            IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
+            IF x$ = "" OR LEFT$(x$, 1) = "A" THEN IrNotSup "_OFFSET argument": r$ = IrConst$("u64", "0"): IrT = "u64": GOTO irfdone
+            y$ = IrAddr$(x$)
+            IF IrPlaceSTy$(x$) = "str" THEN r$ = IrRt$("_OFFSET.s", " " + y$, "u64") ELSE r$ = IrRt$("_OFFSET.p", " " + y$, "u64")
+        CASE "_INCLERRORLINE"
+            'QIR line markers are lines of the main file; no $INCLUDE line/file at run time
+            r$ = IrI32$(0): IrT = "i32"
+        CASE "_INCLERRORFILE$"
+            r$ = IrConstStr$(""): IrT = "str"
         CASE "_COMMANDCOUNT"
             r$ = IrRt$(nm$, "", "i32")
         CASE "_MK$", "_CV"
@@ -1579,15 +1648,28 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 CASE "f32": z$ = "S"
                 CASE "f64": z$ = "D"
                 CASE "i64": z$ = "i64"
+                CASE "i8", "u8", "u16", "u32", "u64", "f80": z$ = "." + sx$
                 CASE ELSE: z$ = ""
             END SELECT
             IF z$ = "" THEN IrNotSup nm$ + " of " + sv(1): r$ = IrI32$(0): IrT = "i32": GOTO irfdone
             IF nm$ = "_MK$" THEN
                 x$ = IrArgAs$(sv(2), sx$)
-                IF z$ = "i64" THEN r$ = IrRt$("_MK$.i64", " " + x$, "str") ELSE r$ = IrRt$("MK" + z$ + "$", " " + x$, "str")
+                IF z$ = "i64" THEN
+                    r$ = IrRt$("_MK$.i64", " " + x$, "str")
+                ELSEIF LEFT$(z$, 1) = "." THEN
+                    r$ = IrRt$("_MK$" + z$, " " + x$, "str")
+                ELSE
+                    r$ = IrRt$("MK" + z$ + "$", " " + x$, "str")
+                END IF
             ELSE
                 x$ = IrArgAs$(sv(2), "str")
-                IF z$ = "i64" THEN r$ = IrRt$("_CV.i64", " " + x$, "i64") ELSE r$ = IrRt$("CV" + z$, " " + x$, sx$)
+                IF z$ = "i64" THEN
+                    r$ = IrRt$("_CV.i64", " " + x$, "i64")
+                ELSEIF LEFT$(z$, 1) = "." THEN
+                    r$ = IrRt$("_CV" + z$, " " + x$, sx$)
+                ELSE
+                    r$ = IrRt$("CV" + z$, " " + x$, sx$)
+                END IF
                 typ = t
             END IF
         CASE "_MEMEXISTS", "_MEMGET"
@@ -1740,8 +1822,8 @@ SUB IrRead (e$)
 END SUB
 
 'DIM/REDIM statement for id idn; elements$ raw bounds ("" = not an array)
-SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
-    DIM nm$, k$, aid AS LONG, p$, t AS LONG, saveid AS idstruct, savecur AS LONG
+SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
+    DIM nm$, k$, aid AS LONG, p$, t AS LONG, saveid AS idstruct, savecur AS LONG, vs$
     aid = idn0
     IF aid >= 1 AND aid <= idn THEN
         IF ids(aid).arraytype = 0 AND LEN(elements$) THEN aid = 0
@@ -1754,9 +1836,33 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
         IF aid THEN nm$ = IrVar$(aid)
         EXIT SUB
     END IF
+    'c%() and c!() share the name c: the statement's type symbol picks the array (currentid
+    'can be the other one when REDIM c%() follows DIM c%(), c!())
+    vs$ = UCASE$(vn$)
+    IF LEN(sy0$) THEN
+        IF INSTR("$%&!#~`", LEFT$(sy0$, 1)) THEN vs$ = vs$ + sy0$
+    END IF
+    IF aid <> 0 AND vs$ <> UCASE$(vn$) THEN
+        saveid = id: savecur = currentid
+        IrQuiet = -1: p$ = IrPlace$(vs$ + sp + "(" + sp + ")", t): IrQuiet = 0
+        id = saveid: currentid = savecur
+        IF LEFT$(p$, 1) = "A" THEN
+            IF IrPart$(p$, 2) <> IrVar$(aid) THEN aid = 0
+        END IF
+    END IF
     IF aid = 0 THEN
         saveid = id: savecur = currentid
-        IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + sp + "(" + sp + ")", t): IrQuiet = 0
+        IrQuiet = -1: p$ = IrPlace$(vs$ + sp + "(" + sp + ")", t): IrQuiet = 0
+        IF LEFT$(p$, 1) <> "A" THEN
+            'the name came without its type symbol (REDIM of a SHARED array inside a SUB)
+            DIM sy$, si AS LONG
+            sy$ = "$|%|&|!|#|##|&&|%%|~%|~&|~&&|~%%|%&|~%&|"
+            si = 1
+            DO WHILE si < LEN(sy$) AND LEFT$(p$, 1) <> "A"
+                IrQuiet = -1: p$ = IrPlace$(UCASE$(vn$) + MID$(sy$, si, INSTR(si, sy$, "|") - si) + sp + "(" + sp + ")", t): IrQuiet = 0
+                si = INSTR(si, sy$, "|") + 1
+            LOOP
+        END IF
         id = saveid: currentid = savecur
         IF LEFT$(p$, 1) <> "A" THEN IrNotSup "REDIM of an unknown array": EXIT SUB
         nm$ = IrPart$(p$, 2)
@@ -1766,6 +1872,18 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$)
     k$ = "dim"
     IF redimopt = 1 THEN k$ = "redim"
     IF redimopt = 2 THEN k$ = "redimp"
+    IF dimstatic = 1 AND redimopt = 0 THEN
+        'STATIC arr(...) inside a SUB/FUNCTION is dimensioned by the first call only
+        DIM g$, gl$, gx$
+        g$ = "$~SD" + str2$(IrNew): gl$ = "~SD" + str2$(IrNew)
+        IrHead "static " + g$ + " i32"
+        gx$ = IrReg$: IrE "load.i32 " + gx$ + " " + g$
+        IrE "jnz " + gx$ + " " + gl$
+        IrDimArray nm$, elements$, k$
+        IrE "store.i32 " + g$ + " " + IrI32$(1)
+        IrE "label " + gl$
+        EXIT SUB
+    END IF
     IrDimArray nm$, elements$, k$
 END SUB
 
@@ -1824,7 +1942,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             IrE "jz " + z$ + " " + y$ + ".E"
             IrE "jmp " + y$
             IrE "label " + y$ + ".E"
-        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE"
+        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE", "_CONTROLCHR", "_SCREENSHOW", "_SCREENHIDE", "_SCREENICON", "_ICON", "_ACCEPTFILEDROP", "_ALLOWFULLSCREEN", "_RESIZE"
             'window state: no visible effect headless
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
@@ -2131,6 +2249,7 @@ SUB IrFinish (src$, outExe$)
     DIM fh AS INTEGER, i AS LONG, runner$, outPath$, ir$, r$, q$, l$, top AS LONG
     IF IrFailMsg <> "" THEN
         PRINT "QIR: unsupported: " + IrFailMsg
+        IF ENVIRON$("QBNEX_IR_DEBUG") = "1" THEN PRINT RIGHT$(IrFnBody(IrFnCur), 600)
         SYSTEM 1
     END IF
     ir$ = tmpdir$ + "program.qir"
@@ -2143,6 +2262,7 @@ SUB IrFinish (src$, outExe$)
         PRINT #fh, "meta console"
     END IF
     IF ScreenHide THEN PRINT #fh, "meta screenhide"
+    PRINT #fh, IrExtMeta;
     PRINT #fh, IrMod;
     top = 0
     FOR i = 2 TO IrFnN
@@ -2171,10 +2291,25 @@ SUB IrFinish (src$, outExe$)
     IF _FILEEXISTS(runner$) = 0 THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
 
     outPath$ = outExe$
+    IF outPath$ <> "" THEN
+        r$ = getfilepath$(outPath$)
+        IF LEN(r$) THEN
+            IF _DIREXISTS(r$) = 0 THEN
+                PRINT
+                PRINT "Can't create output executable - path not found: " + r$
+                SYSTEM 1
+            END IF
+        END IF
+    END IF
     IF outPath$ = "" THEN
-        outPath$ = src$
-        IF UCASE$(RIGHT$(outPath$, 4)) = ".BAS" THEN outPath$ = LEFT$(outPath$, LEN(outPath$) - 4)
-        outPath$ = outPath$ + extension$
+        'no -o: next to the source with -x/exewithsource, else in the compiler's folder
+        IF SaveExeWithSource THEN
+            outPath$ = path.source$
+        ELSE
+            outPath$ = _CWD$
+            IF RIGHT$(outPath$, 1) <> pathsep$ THEN outPath$ = outPath$ + pathsep$
+        END IF
+        outPath$ = outPath$ + file$ + extension$
     ELSEIF LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
         outPath$ = _STARTDIR$ + pathsep$ + outPath$
     END IF
@@ -2204,6 +2339,6 @@ SUB IrFinish (src$, outExe$)
     PUT #fh, , l$
     CLOSE #fh
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + CHR$(34) + outPath$ + CHR$(34)
-    IF QuietMode = 0 THEN PRINT "QIR: wrote " + outPath$
-    SYSTEM 0
+    IF QuietMode = 0 THEN PRINT: PRINT "Build complete: " + outPath$
+    ExitCompilerProcess
 END SUB

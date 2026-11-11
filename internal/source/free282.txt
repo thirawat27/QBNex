@@ -1,8 +1,0 @@
-if(oldstr4356){
-if(oldstr4356->fixed)qbs_set(oldstr4356,_SUB_IRTOPBLOCK_STRING_KIND);
-qbs_free(_SUB_IRTOPBLOCK_STRING_KIND);
-}
-if(oldstr4357){
-if(oldstr4357->fixed)qbs_set(oldstr4357,_SUB_IRTOPBLOCK_STRING_WHAT);
-qbs_free(_SUB_IRTOPBLOCK_STRING_WHAT);
-}

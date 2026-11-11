@@ -51,6 +51,8 @@ END FUNCTION
 SUB IrStmtEnd
     DIM f$, s2$, n AS LONG, i AS LONG, j AS LONG, k AS LONG, t AS LONG, t2 AS LONG, p$, q$, x$, y$, z$, w$, ch$, m$
     DIM mv(1 TO 8) AS STRING
+    IrFlushCase
+
     f$ = UCASE$(IrStmtFirst): IrStmtFirst = ""
     IF f$ = "" OR IrFnCur = 0 THEN EXIT SUB
     n = IrStmtN
@@ -74,6 +76,18 @@ SUB IrStmtEnd
             IrStore p$, m$
         CASE "CALL"
             IF s2$ = "ABSOLUTE" THEN IrCallAbsolute
+        CASE "ASC"
+            'ASC(s$[, position]) = code
+            j = IrMatch(IrStmt, 2, n)
+            k = IrSplitArgs(IrEls$(3, j - 1))
+            FOR i = 1 TO k: mv(i) = IrArgs(i): NEXT
+            p$ = IrPlace$(fixoperationorder$(mv(1)), t)
+            IF p$ = "" THEN EXIT SUB
+            x$ = IrLoad$(p$)
+            IF k >= 2 THEN y$ = IrArgAs$(fixoperationorder$(mv(2)), "i32") ELSE y$ = IrI32$(1)
+            z$ = IrArgAs$(fixoperationorder$(IrEls$(j + 2, n)), "i32")
+            m$ = IrRt$("ASCSET", " " + x$ + " " + y$ + " " + z$, "str")
+            IrStore p$, m$
         CASE "LSET", "RSET"
             j = IrFindSep(2, "|=|")
             p$ = IrPlaceAtRaw$(2, j - 1, t)
@@ -393,7 +407,9 @@ SUB IrGetPut (f$)
         EXIT SUB
     END IF
     sz = IrSize&(st$)
-    IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + IrAddr$(p$) + " " + IrI32$(sz)
+    'operands first: the order of the emitted registers must not depend on the evaluation order of +
+    q$ = IrAddr$(p$): r$ = IrI32$(sz)
+    IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + q$ + " " + r$
 END SUB
 
 'ON TIMER([slot,] secs) GOSUB label (raw slot/secs expressions, label as written)
@@ -442,4 +458,14 @@ SUB IrCallAbsolute
             IrStore ap(i), IrCvt$(x$, at(i), IrRegOf$(IrPlaceSTy$(ap(i))))
         END IF
     NEXT
+END SUB
+
+'a CASE waits until its values were seen by the C++ pass (implicit variables); it is emitted
+'before the next statement or at the end of its own
+SUB IrFlushCase
+    DIM k AS LONG
+    IF IrPendCaseOn = 0 THEN EXIT SUB
+    IrPendCaseOn = 0: k = controllevel: controllevel = IrPendLevel
+    IrCase IrPendCase$, IrPendEvery, IrPendElse
+    controllevel = k
 END SUB

@@ -1,8 +1,0 @@
-qbs *_FUNC_PADLEFTZERO_STRING_PADLEFTZERO=NULL;
-if (!_FUNC_PADLEFTZERO_STRING_PADLEFTZERO)_FUNC_PADLEFTZERO_STRING_PADLEFTZERO=qbs_new(0,0);
-qbs *_FUNC_PADLEFTZERO_STRING_S=NULL;
-if (!_FUNC_PADLEFTZERO_STRING_S)_FUNC_PADLEFTZERO_STRING_S=qbs_new(0,0);
-byte_element_struct *byte_element_4739=NULL;
-if (!byte_element_4739){
-if ((mem_static_pointer+=12)<mem_static_limit) byte_element_4739=(byte_element_struct*)(mem_static_pointer-12); else byte_element_4739=(byte_element_struct*)mem_static_malloc(12);
-}

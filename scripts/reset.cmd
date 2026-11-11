@@ -1,58 +1,20 @@
 @echo off
+rem Removes what setup and the compiler produced: the compiler's build folders
+rem (target\qb-temp*), its settings (target\qb-config.ini) and qb.exe.
+rem Cargo's own output (target\release, target\debug) is left alone: cargo clean.
 
 rem This script lives in scripts\; run everything from the repository root.
 cd /d "%~dp0.."
 
-echo Remove temp folders.
-rmdir /s /q internal\temp,internal\temp2,internal\temp3,internal\temp4,internal\temp5,internal\temp6,internal\temp7,internal\temp8,internal\temp9 2>nul
+echo Remove the compiler's build folders.
+for /d %%D in (target\qb-temp*) do rmdir /s /q "%%D" 2>nul
 
-echo Create temp folder.
-md internal\temp
-
-echo Replacing dummy file in temp folder to maintain directory structure.
-copy internal\source\temp.bin internal\temp\temp.bin
-
-echo Pruning source folder
-del internal\source\undo2.bin 2>nul
-del internal\source\recompile.bat 2>nul
-del internal\source\debug.bat 2>nul
-del internal\source\files.txt 2>nul
-del internal\source\paths.txt 2>nul
-del internal\source\root.txt 2>nul
-del internal\source\bookmarks.bin 2>nul
-del internal\source\recent.bin 2>nul
-
-echo Culling precompiled libraries
-del /s internal\c\libqb\*.o 2>nul
-del /s internal\c\libqb\*.a 2>nul
-del /s internal\c\*.o 2>nul
-
-echo Culling temporary copies of qbx.cpp, such as qbx2.cpp
-del internal\c\qbx2.cpp,internal\c\qbx3.cpp,internal\c\qbx4.cpp,internal\c\qbx5.cpp,internal\c\qbx6.cpp,internal\c\qbx7.cpp,internal\c\qbx8.cpp,internal\c\qbx9.cpp 2>nul
-
-echo Remove config.ini.
-if exist internal\config.ini del internal\config.ini
-
-echo Remove c_compiler.
-if exist internal\c\c_compiler rmdir /s /q internal\c\c_compiler
-
-echo Remove compiled libqb.
-if exist internal\c\libqb\include rmdir /s /q internal\c\libqb\include
-if exist internal\c\libqb\src rmdir /s /q internal\c\libqb\src
-
-echo Remove mingw64.
-if exist mingw64 rmdir /s /q mingw64
-
-echo Remove mingw32
-if exist mingw32 rmdir /s /q mingw32
-
-echo Remove internal/version.txt
-if exist internal\version.txt del internal\version.txt
+echo Remove settings and version files.
+if exist target\qb-config.ini del target\qb-config.ini
+if exist target\qb-version.txt del target\qb-version.txt
 
 echo Remove qb.exe
 if exist qb.exe del qb.exe
+if exist qb-stage0.exe del qb-stage0.exe
 
-echo Remove qb-dev.exe
-if exist qb-dev.exe del qb-dev.exe
-
-pause
+if not "%QBNEX_CI%"=="1" pause

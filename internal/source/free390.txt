@@ -1,4 +1,0 @@
-if(oldstr4650){
-if(oldstr4650->fixed)qbs_set(oldstr4650,_FUNC_ISIDENTIFIERBODYCHAR_STRING_CH);
-qbs_free(_FUNC_ISIDENTIFIERBODYCHAR_STRING_CH);
-}

@@ -1,5 +1,0 @@
-if(oldstr4345){
-if(oldstr4345->fixed)qbs_set(oldstr4345,_FUNC_IRFINDSUB_STRING_ID);
-qbs_free(_FUNC_IRFINDSUB_STRING_ID);
-}
-qbs_free(_FUNC_IRFINDSUB_STRING_B);

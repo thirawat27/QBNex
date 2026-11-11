@@ -1,4 +1,0 @@
-qbs_free(_SUB_IRDIM_STRING_N);
-qbs_free(_SUB_IRDIM_STRING_IRSCOPE);
-qbs_free(_SUB_IRDIM_STRING_NM);
-qbs_free(_SUB_IRDIM_STRING_SFX);

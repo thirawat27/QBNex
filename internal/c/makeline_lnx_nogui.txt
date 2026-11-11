@@ -1,2 +1,0 @@
-g++ -no-pie -w qbx.cpp ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil -ludev -lasound -lpthread -ldl -lrt -o 
-

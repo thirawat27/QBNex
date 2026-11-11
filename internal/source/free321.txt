@@ -1,7 +1,0 @@
-if(oldstr4407){
-if(oldstr4407->fixed)qbs_set(oldstr4407,_FUNC_IRNUMLIT_STRING_V);
-qbs_free(_FUNC_IRNUMLIT_STRING_V);
-}
-qbs_free(_FUNC_IRNUMLIT_STRING_S);
-qbs_free(_FUNC_IRNUMLIT_STRING_BODY);
-qbs_free(_FUNC_IRNUMLIT_STRING_C);

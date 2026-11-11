@@ -17,6 +17,29 @@
 
 use std::io::{BufWriter, Write};
 
+/// Program stdout. On Windows a line ends with CR LF, as the C runtime's text-mode
+/// stdout wrote it (tools such as `findstr /x` need the CR on redirected output).
+struct Stdout<W: Write>(W);
+
+impl<W: Write> Write for Stdout<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if cfg!(windows) {
+            for (k, seg) in buf.split(|&c| c == b'\n').enumerate() {
+                if k > 0 {
+                    self.0.write_all(b"\r\n")?;
+                }
+                self.0.write_all(seg)?;
+            }
+            Ok(buf.len())
+        } else {
+            self.0.write(buf)
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
 const MAGIC: &[u8; 8] = b"QBNEXIR0";
 const MAGIC_NATIVE: &[u8; 8] = b"QBNEXAO1";
 
@@ -35,14 +58,15 @@ fn payload(exe: &[u8]) -> Option<Payload<'_>> {
         let (ql, il) = (le(&exe[n - 24..n - 16])?, le(&exe[n - 16..n - 8])?);
         let end = n - 24;
         let img = exe.get(end.checked_sub(il)?..end)?;
-        let qir = exe.get(end - il - ql..end - il)?;
+        let qir = exe.get(end.checked_sub(il)?.checked_sub(ql)?..end - il)?;
         return Some(Payload::Native(qir, img));
     }
     if n < 16 || &exe[n - 8..] != MAGIC {
         return None;
     }
     let len = le(&exe[n - 16..n - 8])?;
-    exe.get(n - 16 - len..n - 16).map(Payload::Ir)
+    // a length that does not fit inside the file is not a payload
+    exe.get((n - 16).checked_sub(len)?..n - 16).map(Payload::Ir)
 }
 
 fn read(path: &std::ffi::OsStr) -> Vec<u8> {
@@ -169,7 +193,11 @@ fn main() {
         Some(Payload::Ir(p)) => (p.to_vec(), None),
         Some(Payload::Native(q, i)) => (q.to_vec(), Some(i.to_vec())),
         None => match args.first() {
-            Some(path) => (read(path), None),
+            Some(path) => {
+                // `qb-exec prog.qir a b`: the program sees [prog.qir, a, b]
+                qb_exec::set_program_args(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
+                (read(path), None)
+            }
             None => {
                 eprintln!("usage: qb-exec <program.qir> | qb-exec build <program.qir> -o <program.exe>");
                 std::process::exit(2)
@@ -186,7 +214,7 @@ fn main() {
             .stack_size(64 << 20)
             .spawn(move || {
                 // stdout stays unlocked: the window thread writes `snapshot` lines of input scripts
-                let mut out = BufWriter::new(std::io::stdout());
+                let mut out = Stdout(BufWriter::new(std::io::stdout()));
                 let result = qb_exec::run_program_window(&src, image.as_deref(), &mut out);
                 let _ = out.flush();
                 finish(result)
@@ -200,7 +228,7 @@ fn main() {
         std::process::exit(1);
     }
     let stdout = std::io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
+    let mut out = Stdout(BufWriter::new(stdout.lock()));
     let result = qb_exec::run_program(&src, image.as_deref(), &mut out);
     let _ = out.flush();
     finish(result)

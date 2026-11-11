@@ -186,9 +186,11 @@ IF os$ = "LNX" THEN pathsep$ = "/"
 
 ON ERROR GOTO qberror_test
 
-IF os$ = "WIN" THEN tmpdir$ = ".\internal\temp\": tmpdir2$ = "..\\temp\\"
-IF os$ = "LNX" THEN tmpdir$ = "./internal/temp/": tmpdir2$ = "../temp/"
+'build files go to target/qb-temp[N] (one folder per running compiler, locked through #26)
+IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp\": tmpdir2$ = "..\\qb-temp\\"
+IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp/": tmpdir2$ = "../qb-temp/"
 
+IF NOT _DIREXISTS("target") THEN MKDIR "target"
 IF NOT _DIREXISTS(tmpdir$) THEN MKDIR tmpdir$
 
 DECLARE LIBRARY
@@ -198,7 +200,7 @@ FUNCTION getpid& ()
     thisinstancepid = getpid&
     IF os$ = "LNX" THEN
         fh = FREEFILE
-        OPEN ".\internal\temp\tempfoldersearch.bin" FOR RANDOM AS #fh LEN = LEN(tempfolderindex)
+        OPEN "./target/qb-temp/tempfoldersearch.bin" FOR RANDOM AS #fh LEN = LEN(tempfolderindex)
         tempfolderrecords = LOF(fh) / LEN(tempfolderindex)
         i = 1
         IF tempfolderrecords = 0 THEN
@@ -209,9 +211,9 @@ FUNCTION getpid& ()
                 'check if any of the temp folders is being used = pid still active
                 GET #fh, i, tempfoldersearch
 
-                SHELL _HIDE "ps -p " + STR$(tempfoldersearch) + " > /dev/null 2>&1; echo $? > internal/temp/checkpid.bin"
+                SHELL _HIDE "ps -p " + STR$(tempfoldersearch) + " > /dev/null 2>&1; echo $? > target/qb-temp/checkpid.bin"
                 fh2 = FREEFILE
-                OPEN "internal/temp/checkpid.bin" FOR BINARY AS #fh2
+                OPEN "target/qb-temp/checkpid.bin" FOR BINARY AS #fh2
                 LINE INPUT #fh2, checkpid$
                 CLOSE #fh2
                 IF VAL(checkpid$) = 1 THEN
@@ -228,7 +230,7 @@ FUNCTION getpid& ()
         END IF
         CLOSE #fh
         IF i > 1 THEN
-            tmpdir$ = "./internal/temp" + str2$(i) + "/": tmpdir2$ = "../temp" + str2$(i) + "/"
+            tmpdir$ = "./target/qb-temp" + str2$(i) + "/": tmpdir2$ = "../qb-temp" + str2$(i) + "/"
             IF _DIREXISTS(tmpdir$) = 0 THEN
                 MKDIR tmpdir$
             END IF
@@ -241,10 +243,10 @@ FUNCTION getpid& ()
         OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
         DO WHILE E
             i = i + 1
-            IF i = 1000 THEN PRINT "Unable to locate the 'internal' folder": END 1
-            MKDIR ".\internal\temp" + str2$(i)
-            IF os$ = "WIN" THEN tmpdir$ = ".\internal\temp" + str2$(i) + "\": tmpdir2$ = "..\\temp" + str2$(i) + "\\"
-            IF os$ = "LNX" THEN tmpdir$ = "./internal/temp" + str2$(i) + "/": tmpdir2$ = "../temp" + str2$(i) + "/"
+            IF i = 1000 THEN PRINT "Unable to create a build folder in 'target'": END 1
+            IF _DIREXISTS(".\target\qb-temp" + str2$(i)) = 0 THEN MKDIR ".\target\qb-temp" + str2$(i)
+            IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp" + str2$(i) + "\": tmpdir2$ = "..\\qb-temp" + str2$(i) + "\\"
+            IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp" + str2$(i) + "/": tmpdir2$ = "../qb-temp" + str2$(i) + "/"
             E = 0
             OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
         LOOP
@@ -253,18 +255,6 @@ FUNCTION getpid& ()
 
     'temp folder established
     tempfolderindex = i
-    IF i > 1 THEN
-        'create modified version of qbx.cpp
-        OPEN ".\internal\c\qbx" + str2$(i) + ".cpp" FOR OUTPUT AS #2
-        OPEN ".\internal\c\qbx.cpp" FOR BINARY AS #1
-        DO UNTIL EOF(1)
-            LINE INPUT #1, a$
-            x = INSTR(a$, "..\\temp\\"): IF x THEN a$ = LEFT$(a$, x - 1) + "..\\temp" + str2$(i) + "\\" + RIGHT$(a$, LEN(a$) - (x + 9))
-            x = INSTR(a$, "../temp/"): IF x THEN a$ = LEFT$(a$, x - 1) + "../temp" + str2$(i) + "/" + RIGHT$(a$, LEN(a$) - (x + 7))
-            PRINT #2, a$
-        LOOP
-        CLOSE #1, #2
-    END IF
 
     IF Debug THEN OPEN tmpdir$ + "debug.txt" FOR OUTPUT AS #9
 
@@ -1457,11 +1447,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             forceIncludeFromRoot$ = ""
                             IF vWatchOn THEN
                                 addingvWatch = 1
-                                IF firstLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch.bi"
-                                IF lastLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch.bm"
+                                IF firstLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bi"
+                                IF lastLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bm"
                             ELSE
-                                'IF firstLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bi"
-                                IF lastLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bm"
+                                'IF firstLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch_stub.bi"
+                                IF lastLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch_stub.bm"
                             END IF
                             IF firstLine <> 0 AND LEN(stdlibHeadFile$) THEN forceIncludeFromRoot$ = stdlibHeadFile$
                             IF lastLine <> 0 AND LEN(stdlibBodyFile$) THEN forceIncludeFromRoot$ = stdlibBodyFile$
@@ -2578,11 +2568,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 forceIncludeFromRoot$ = ""
                                 IF vWatchOn THEN
                                     addingvWatch = 1
-                                    IF firstLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch.bi"
-                                    IF lastLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch.bm"
+                                    IF firstLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bi"
+                                    IF lastLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bm"
                                 ELSE
-                                    'IF firstLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bi"
-                                    IF lastLine <> 0 THEN forceIncludeFromRoot$ = "internal\support\vwatch\vwatch_stub.bm"
+                                    'IF firstLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch_stub.bi"
+                                    IF lastLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch_stub.bm"
                                 END IF
                                 IF firstLine <> 0 AND LEN(stdlibHeadFile$) THEN forceIncludeFromRoot$ = stdlibHeadFile$
                                 IF lastLine <> 0 AND LEN(stdlibBodyFile$) THEN forceIncludeFromRoot$ = stdlibBodyFile$
@@ -5654,7 +5644,7 @@ IF n >= 1 THEN
         IF controltype(controllevel) <> 6 AND (controltype(controllevel) < 10 OR controltype(controllevel) > 17) THEN a$ = "CASE without SELECT CASE": GOTO errmes
         IF n = 1 THEN a$ = "Expected CASE expression": GOTO errmes
         SelectCaseHasCaseBlock(SelectCaseCounter) = -1
-        IF IrEmitMode THEN IrCase getelements$(ca$, 2, n), EveryCaseSet(SelectCaseCounter), (secondelement$ = "C-EL")
+        IF IrEmitMode THEN IrPendCase$ = getelements$(ca$, 2, n): IrPendEvery = EveryCaseSet(SelectCaseCounter): IrPendElse = (secondelement$ = "C-EL"): IrPendLevel = controllevel: IrPendCaseOn = -1 'emitted at finishedline: the CASE values may create implicit variables
 
 
         'upgrade:
@@ -7843,7 +7833,7 @@ END IF
 dimcommonarray:
 retval = dim2(varname$, typ$, dimmethod, elements$)
 IF Error_Happened THEN GOTO errmes
-IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption, varname$
+IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption, varname$, typ$
 skipdim:
 IF dimshared >= 2 THEN dimshared = dimshared - 2
 
@@ -10855,13 +10845,6 @@ IF ideindentsubs = 0 THEN
     IF LEN(subfunc) THEN a$ = "SUB/FUNCTION without END SUB/FUNCTION": GOTO errmes
 END IF
 
-IF IrEmitMode THEN
-    'a SUB name used as a GOTO label needs the repass below before the QIR is final
-    labelValidationResult = ValidatePendingLabels%
-    IF labelValidationResult = 1 THEN GOTO do_recompile
-    IF labelValidationResult = 2 THEN GOTO errmes
-    IrFinish CMDLineFile, outputfile_cmd$
-END IF
 
 'close the error handler (cannot be put in 'closemain' because subs/functions can also add error jumps to this file)
 PRINT #14, "exit(99);" 'in theory this line should never be run!
@@ -11645,6 +11628,12 @@ IF recompile THEN
         ReportUnusedVariableWarnings
 
         FinishCompilerProgress
+
+        'QIR: the program is written after every check (labels, DATA, warnings) that can end the build
+        IF IrEmitMode THEN
+            IF HasErrors% THEN ExitCompilerProcess
+            IrFinish CMDLineFile, outputfile_cmd$
+        END IF
 
         IF No_C_Compile_Mode = 0 THEN
             IF PrepareExecutableOutputTarget%(file$) THEN a$ = ModuleError$: GOTO errmes

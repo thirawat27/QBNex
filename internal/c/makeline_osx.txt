@@ -1,4 +1,0 @@
-clang++ -w qbx.cpp ../../crates/qb-runtime/os/macos/libqb_runtime.a -lSystem -lc -lm  -framework AppKit -framework CoreGraphics -framework QuartzCore -framework Foundation -framework IOKit -framework CoreFoundation -framework CoreAudio -framework AudioUnit -framework AudioToolbox -framework ApplicationServices -framework CoreVideo -framework Carbon -lobjc -liconv -framework Cocoa  -o 
-
-(below for reference purposes only, above is minimum viable)
-clang++ -w qbx.cpp -framework ApplicationServices -framework OpenGL -framework IOKit -framework CoreServices -framework CoreFoundation -framework GLUT -framework OpenGL -framework Cocoa  -o 

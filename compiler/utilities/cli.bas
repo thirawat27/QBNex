@@ -60,21 +60,7 @@ SUB ShowCommandExamples
 END SUB
 
 SUB PurgePrecompiledContent
-    IF os$ = "WIN" THEN
-        CHDIR "internal\c"
-        SHELL _HIDE "cmd /c purge_all_precompiled_content_win.bat"
-        CHDIR "..\.."
-    END IF
-
-    IF os$ = "LNX" THEN
-        CHDIR "./internal/c"
-        IF INSTR(_OS$, "[MACOSX]") THEN
-            SHELL _HIDE "./purge_all_precompiled_content_osx.command"
-        ELSE
-            SHELL _HIDE "./purge_all_precompiled_content_lnx.sh"
-        END IF
-        CHDIR "../.."
-    END IF
+    'nothing is precompiled since the QIR cutover (no C++ runtime objects)
 END SUB
 
 SUB ShowSettingsUsageAndExit (token$)

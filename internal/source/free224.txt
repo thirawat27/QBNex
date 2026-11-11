@@ -1,6 +1,0 @@
-if(oldstr4145){
-if(oldstr4145->fixed)qbs_set(oldstr4145,_FUNC_GDB_FIX_STRING_G_COMMAND);
-qbs_free(_FUNC_GDB_FIX_STRING_G_COMMAND);
-}
-qbs_free(_FUNC_GDB_FIX_STRING_C);
-qbs_free(_FUNC_GDB_FIX_STRING_O);

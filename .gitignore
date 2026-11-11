@@ -50,3 +50,6 @@ build/
 /temp/
 /tests/corpus-local/*
 !/tests/corpus-local/README.md
+
+# the C++ backend is gone (cutover); leftovers of old checkouts stay untracked
+/internal/

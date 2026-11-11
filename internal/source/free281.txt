@@ -1,8 +1,0 @@
-if(oldstr4354){
-if(oldstr4354->fixed)qbs_set(oldstr4354,_SUB_IRPUSHBLOCK_STRING_KIND);
-qbs_free(_SUB_IRPUSHBLOCK_STRING_KIND);
-}
-if(oldstr4355){
-if(oldstr4355->fixed)qbs_set(oldstr4355,_SUB_IRPUSHBLOCK_STRING_V);
-qbs_free(_SUB_IRPUSHBLOCK_STRING_V);
-}

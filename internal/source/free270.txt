@@ -1,7 +1,0 @@
-if(oldstr4328){
-if(oldstr4328->fixed)qbs_set(oldstr4328,_SUB_IRDEFTYPE_STRING_K);
-qbs_free(_SUB_IRDEFTYPE_STRING_K);
-}
-qbs_free(_SUB_IRDEFTYPE_STRING_SFX);
-qbs_free(_SUB_IRDEFTYPE_STRING_A);
-qbs_free(_SUB_IRDEFTYPE_STRING_B);

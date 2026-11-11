@@ -1,187 +1,98 @@
-#!/bin/bash
-#QBNex Installer -- Shell Script --
+#!/bin/sh
+# QBNex setup (QIR pipeline, D10/D15b): no C/C++ toolchain. Linux and macOS.
+#
+#   1. builds the QIR runner qb-exec with the Rust toolchain only
+#   2. turns the bootstrap compiler bootstrap/qbnex.qir into ./qb-stage0
+#      (runner + QIR payload, D15b; QBNEX_QIR_PACK=native adds a native image
+#       with `qb-exec build`)
+#   3. stage0 compiles compiler/qbnex.bas into ./qb through QIR
+#
+# Variables: QBNEX_QB_EXEC (prebuilt runner), QBNEX_RUST_TARGET, QBNEX_BOOTSTRAP, QBNEX_QIR_PACK (ir|native),
+# QBNEX_STAGE1_ARGS, QBNEX_SKIP_SELFHOST=1, QBNEX_KEEP_STAGE0=1.
 
-set -u
+set -eu
 
-# This script lives in scripts/; everything below runs from the repository root.
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
 
-# QIR pipeline (no C/C++ toolchain), opt-in until the cutover: see docs/rust-port/port-plan.md
-if [ "${QBNEX_QIR_CUTOVER:-}" = "1" ]; then
-  exec sh scripts/setup_qir.sh --enable
-fi
+echo "QBNex Setup (QIR pipeline, no C/C++ toolchain)"
 
-cleanup_setup_artifacts() {
-  rm -f ./temp.7z ./7zr ./7zr.exe >/dev/null 2>&1 || true
-  rm -rf ./mingw32 ./mingw64 >/dev/null 2>&1 || true
-}
+case "$(uname -s)" in
+  Darwin) OSDIR=macos ;;
+  *) OSDIR=linux ;;
+esac
 
-#This checks the currently installed packages for the ones QBNex needs
-#And runs the package manager to install them if that is the case
-pkg_install() {
-  #Search
-  packages_to_install=
-  for pkg in $pkg_list; do
-    if [ -z "$(echo "$installed_packages" | grep $pkg)" ]; then
-      packages_to_install="$packages_to_install $pkg"
-    fi
-  done
-  if [ -n "$packages_to_install" ]; then
-    echo "Installing required packages. If prompted to, please enter your password."
-    $installer_command $packages_to_install
-  fi
+BOOTSTRAP="${QBNEX_BOOTSTRAP:-bootstrap/qbnex.qir}"
+PACK="${QBNEX_QIR_PACK:-ir}"
 
-}
-
-
-
-#Make sure we're not running as root
-if [ "$EUID" = "0" ]; then
-  echo "You are trying to run this script as root. This is highly unrecommended."
-  echo "This script will prompt you for your sudo password if needed to install packages."
-  exit 1
-fi
-
-GET_WGET=
-
-DISTRO=
-
-lsb_command=`which lsb_release 2> /dev/null`
-if [ -z "$lsb_command" ]; then
-  lsb_command=`which lsb_release 2> /dev/null`
-fi
-
-#Outputs from lsb_command:
-
-#Arch Linux  = arch
-#Debian      = debian
-#Fedora      = Fedora
-#KUbuntu     = ubuntu
-#LUbuntu     = ubuntu
-#Linux Mint  = linuxmint
-#Ubuntu      = ubuntu
-#Slackware   = slackware
-#VoidLinux   = voidlinux
-#XUbuntu     = ubuntu
-#Zorin       = Zorin
-if [ -n "$lsb_command" ]; then
-  DISTRO=`$lsb_command -si | tr '[:upper:]' '[:lower:]'`
-elif [ -e /etc/arch-release ]; then
-  DISTRO=arch
-elif [ -e /etc/debian_version ] || [ -e /etc/debian_release ]; then
-  DISTRO=debian
-elif [ -e /etc/fedora-release ]; then
-  DISTRO=fedora
-elif [ -e /etc/redhat-release ]; then
-  DISTRO=redhat
-elif [ -e /etc/centos-release ]; then
-  DISTRO=centos
-fi
-
-#Find and install packages
-if [ "$DISTRO" == "arch" ]; then
-  echo "ArchLinux detected."
-  pkg_list="gcc alsa-lib systemd-libs pkgconf xorg-xmessage $GET_WGET"
-  installed_packages=`pacman -Q`
-  installer_command="sudo pacman -S "
-  pkg_install
-elif [ "$DISTRO" == "linuxmint" ] || [ "$DISTRO" == "ubuntu" ] || [ "$DISTRO" == "debian" ] || [ "$DISTRO" == "zorin" ]; then
-  echo "Debian based distro detected."
-  pkg_list="g++ x11-utils libasound2-dev libudev-dev pkg-config $GET_WGET"
-  installed_packages=`dpkg -l`
-  installer_command="sudo apt-get -y install "
-  pkg_install
-elif [ "$DISTRO" == "fedora" ] || [ "$DISTRO" == "redhat" ] || [ "$DISTRO" == "centos" ]; then
-  echo "Fedora/Redhat based distro detected."
-  pkg_list="gcc-c++ xmessage alsa-lib-devel systemd-devel pkgconf-pkg-config $GET_WGET"
-  installed_packages=`yum list installed`
-  installer_command="sudo yum install "
-  pkg_install
-elif [ "$DISTRO" == "voidlinux" ]; then
-   echo "VoidLinux detected."
-   pkg_list="gcc xmessage alsa-lib-devel eudev-libudev-devel pkg-config $GET_WGET"
-   installed_packages=`xbps-query -l |grep -v libgcc`
-   installer_command="sudo xbps-install -Sy "
-   pkg_install
-
-elif [ -z "$DISTRO" ]; then
-  echo "Unable to detect distro, skipping package installation"
-  echo "Please be aware that QBNex requires the following to compile:"
-  echo "  ALSA development libraries"
-  echo "  libudev development libraries"
-  echo "  pkg-config"
-  echo "  GNU C++ Compiler (g++)"
-  echo "  xmessage (x11-utils)"
-fi
-
-echo "Compiling and installing QBNex..."
-
-### Build process
-cleanup_setup_artifacts
-find . -name "*.sh" -exec chmod +x {} \;
-find internal/c/libqb -type f -iname "*.o" -exec rm -f {} \;
-mkdir -p ./internal/temp
-find ./internal/temp -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
-
-echo "Building library 'LibQB'"
-pushd internal/c/libqb/os/lnx >/dev/null
-rm -f libqb_setup.o
-./setup_build.sh
-popd >/dev/null
-
-echo "Building library 'qb-runtime' (Rust runtime)"
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "cargo was not found. Install Rust from https://rustup.rs and run scripts/setup_lnx.sh again."
-  exit 1
-fi
-pushd crates/qb-runtime/os/linux >/dev/null
-rm -f libqb_runtime.a
-sh ./setup_build.sh
-popd >/dev/null
-if [ ! -f crates/qb-runtime/os/linux/libqb_runtime.a ]; then
-  echo "Compilation of crates/qb-runtime/os/linux/libqb_runtime.a failed!"
-  exit 1
-fi
-
-echo "Building 'QBNex'"
-mkdir -p ./internal/temp
-cp -r ./internal/source/* ./internal/temp/
-cp -r ./compiler/* ./internal/temp/
-pushd internal/c >/dev/null
-g++ -no-pie -w qbx.cpp libqb/os/lnx/libqb_setup.o ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil -ludev -lasound -lpthread -ldl -lrt -o ../../qb-stage0
-popd
-
-if [ -x "./qb-stage0" ]; then
-  rm -f ./qb
-  echo "Self-hosting 'QBNex'"
-  ./qb-stage0 ./compiler/qbnex.bas -o ./qb
-  chmod +x ./qb
-fi
-
-if [ -e "./qb" ]; then
-  if [ -z "${QBNEX_KEEP_STAGE0:-}" ]; then
-    rm -f ./qb-stage0
-  fi
-  # Product-name front end: ./qbnex runs the compiler like ./qb, plus the
-  # developer tools (qbnex fmt / lsp / dap; see scripts/qbnex-launcher.sh).
-  rm -f ./qbnex
-  if cp scripts/qbnex-launcher.sh ./qbnex 2>/dev/null; then chmod +x ./qbnex; else ln -s qb ./qbnex 2>/dev/null || cp ./qb ./qbnex; fi
-  cleanup_setup_artifacts
-  echo "Done compiling!!"
-  echo
-  echo "QBNex CLI compiler is ready:"
-  echo "  ./qb yourfile.bas"
-  echo "  ./qbnex yourfile.bas"
+RUNNER="crates/qb-exec/bin/$OSDIR/qb-exec"
+mkdir -p "crates/qb-exec/bin/$OSDIR"
+if [ -n "${QBNEX_QB_EXEC:-}" ]; then
+  cp "$QBNEX_QB_EXEC" "$RUNNER"
 else
-  ### QBNex did not compile
-  cleanup_setup_artifacts
-  echo "It appears that the final qb executable file was not created."
-  echo "Usually these are due to missing packages needed for compilation. If you're not running a distro supported by this compiler, please note you will need to install the packages listed above."
-  echo "If you need help, please open an issue at https://github.com/thirawat27/QBNex/issues with your distro details and build log."
-  echo "Also, please tell them the exact contents of this next line:"
-  echo "DISTRO: $DISTRO"
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "Error: cargo was not found. Install Rust from https://rustup.rs and run this script again."
+    exit 1
+  fi
+  TARGET="${QBNEX_RUST_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
+  echo "Building the QIR runner 'qb-exec' for $TARGET"
+  if command -v rustup >/dev/null 2>&1; then rustup target add "$TARGET" >/dev/null 2>&1 || true; fi
+  cargo build --release --locked -p qb-exec --target "$TARGET" --target-dir target
+  cp "target/$TARGET/release/qb-exec" "$RUNNER"
+fi
+
+if [ ! -f "$BOOTSTRAP" ]; then
+  echo "Error: $BOOTSTRAP is missing."
+  echo "It is produced from compiler/qbnex.bas by a QIR-capable compiler (qb --ir); see docs/rust-port/port-plan.md."
   exit 1
 fi
-echo
-echo "Thank you for using the QBNex installer."
+
+# runner + QIR + u64 LE length + "QBNEXIR0"
+pack_ir() {
+  cat "$1" "$2" > "$3"
+  n=$(wc -c < "$2" | tr -d ' ')
+  i=0
+  while [ $i -lt 8 ]; do
+    b=$(( (n >> (8 * i)) & 255 ))
+    printf "\\$(printf '%03o' "$b")" >> "$3"
+    i=$((i + 1))
+  done
+  printf 'QBNEXIR0' >> "$3"
+  chmod +x "$3"
+}
+
+echo "Building './qb-stage0' from $BOOTSTRAP ($PACK)"
+rm -f qb-stage0
+if [ "$PACK" = "ir" ]; then
+  pack_ir "$RUNNER" "$BOOTSTRAP" qb-stage0
+else
+  "./$RUNNER" build "$BOOTSTRAP" -o qb-stage0
+fi
+[ -x qb-stage0 ] || { echo "Error: could not build qb-stage0."; exit 1; }
+
+if [ "${QBNEX_SKIP_SELFHOST:-}" = "1" ]; then
+  echo "qb-stage0 is ready (self-host skipped)."
+  exit 0
+fi
+
+echo "Self-hosting 'QBNex' through QIR"
+rm -f qb
+# shellcheck disable=SC2086
+./qb-stage0 compiler/qbnex.bas -o qb ${QBNEX_STAGE1_ARGS:-}
+[ -x qb ] || { echo "Final compiler build failed."; exit 1; }
+
+echo "Smoke test"
+SMOKE="$(mktemp -d)"
+echo 'PRINT "QBNex QIR OK"' > "$SMOKE/smoke.bas"
+./qb "$SMOKE/smoke.bas" -o "$SMOKE/smoke"
+"$SMOKE/smoke" | grep -q "QBNex QIR OK" || { echo "Error: the smoke test failed."; exit 1; }
+rm -rf "$SMOKE"
+
+[ "${QBNEX_KEEP_STAGE0:-}" = "1" ] || rm -f qb-stage0
+# Product-name front end: ./qbnex runs the compiler like ./qb, plus the
+# developer tools (qbnex fmt / lsp / dap; see scripts/qbnex-launcher.sh).
+rm -f ./qbnex
+if cp scripts/qbnex-launcher.sh ./qbnex 2>/dev/null; then chmod +x ./qbnex; else ln -s qb ./qbnex 2>/dev/null || cp ./qb ./qbnex; fi
+echo "QBNex CLI compiler is ready (QIR pipeline):"
+echo "  ./qb yourfile.bas"
+echo "  ./qbnex yourfile.bas"

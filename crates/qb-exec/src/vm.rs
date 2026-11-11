@@ -285,6 +285,9 @@ pub struct Vm<'m, 'o> {
     last_line: u32,
     /// the ON TIMER ticker thread runs
     timer_thread: bool,
+    /// DECLARE LIBRARY: resolved function addresses (per `Module::xfns`) and loaded libraries
+    xptrs: Vec<usize>,
+    xlibs: Vec<qb_ffi::Library>,
     /// unhandled errors continue after the statement (the program executable, headless)
     continue_unhandled: bool,
     data_ptr: usize,
@@ -381,6 +384,9 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn array_extent(&mut self, p: u64) -> crate::rt::R<(u64, u64)> {
         self.mem.array_extent(p).map_err(Stop::Err)
     }
+    fn str_data(&mut self, p: u64) -> crate::rt::R<u64> {
+        self.mem.str_data(p).map_err(Stop::Err)
+    }
     fn load_str(&mut self, p: u64) -> crate::rt::R<Vec<u8>> {
         self.mem.ld_str(p).map(|s| s.to_vec()).map_err(Stop::Err)
     }
@@ -421,6 +427,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             last_line: 0,
             continue_unhandled: false,
             timer_thread: false,
+            xptrs: vec![0; m.xfns.len()],
+            xlibs: Vec::new(),
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
             poll_mask: u32::MAX,
@@ -1225,6 +1233,28 @@ impl<'m, 'o> Vm<'m, 'o> {
         None
     }
 
+    /// Address of DECLARE LIBRARY function `i`: the runner's own qb-ext symbols,
+    /// then the named library or the default system libraries. 453 = not found.
+    fn xresolve(&mut self, i: usize) -> Result<usize, i32> {
+        if self.xptrs[i] != 0 {
+            return Ok(self.xptrs[i]);
+        }
+        let xf = &self.m.xfns[i];
+        let mut p = crate::ext_symbol(&xf.name).map(|p| p as usize);
+        if p.is_none() && !xf.lib.is_empty() {
+            if let Ok(l) = qb_ffi::Library::open_dynamic(&xf.lib, None) {
+                p = l.symbol(&xf.name).map(|p| p as usize);
+                self.xlibs.push(l);
+            }
+        }
+        if p.is_none() {
+            p = qb_ffi::find_default_symbol(&xf.name).map(|p| p as usize);
+        }
+        let p = p.ok_or(453)?;
+        self.xptrs[i] = p;
+        Ok(p)
+    }
+
     /// TIMERTHREAD: ticks the ON TIMER table every millisecond and raises event 0.
     fn start_timer_thread(&mut self) {
         if self.timer_thread {
@@ -1731,6 +1761,48 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
+                Ins::XCall { c } => {
+                    let xc = &m.xcalls[c as usize];
+                    let xf = &m.xfns[xc.f as usize];
+                    let fp = tryc!(self.xresolve(xc.f as usize));
+                    let mut vals = Vec::with_capacity(xc.args.len());
+                    for (&r, &t) in xc.args.iter().zip(&xf.args) {
+                        use crate::bytecode::XTy as T;
+                        vals.push(match t {
+                            T::Str => qb_ffi::Value::Ptr(self.sget(r).as_ptr() as usize),
+                            T::F32 => qb_ffi::Value::F32(rf!(r) as f32),
+                            T::F64 => qb_ffi::Value::F64(rf!(r)),
+                            T::Ptr => qb_ffi::Value::Ptr(r!(r) as usize),
+                            T::U8 | T::U16 | T::U32 | T::U64 => qb_ffi::Value::U(r!(r)),
+                            _ => qb_ffi::Value::I(ri!(r)),
+                        });
+                    }
+                    let sig = qb_ffi::Signature::new(xf.args.iter().map(|&t| xty(t)).collect(), xty(xf.ret));
+                    // SAFETY: the program declared this signature for the symbol (DECLARE LIBRARY)
+                    let v = match unsafe { qb_ffi::call(fp as *const core::ffi::c_void, &sig, &vals) } {
+                        Ok(v) => v,
+                        Err(_) => fail!(5),
+                    };
+                    if let Some(d) = xc.dest {
+                        match (xf.ret, v) {
+                            (crate::bytecode::XTy::Str, qb_ffi::Value::Ptr(p)) => {
+                                let s = if p == 0 {
+                                    Vec::new()
+                                } else {
+                                    // SAFETY: a char* result is a NUL-terminated C string
+                                    unsafe { std::ffi::CStr::from_ptr(p as *const core::ffi::c_char) }.to_bytes().to_vec()
+                                };
+                                *self.sdst(d) = s;
+                            }
+                            (_, qb_ffi::Value::I(x)) => seti!(d, x),
+                            (_, qb_ffi::Value::U(x)) => set!(d, x),
+                            (_, qb_ffi::Value::Ptr(x)) => set!(d, x as u64),
+                            (_, qb_ffi::Value::F32(x)) => setf!(d, f64::from(x)),
+                            (_, qb_ffi::Value::F64(x)) => setf!(d, x),
+                            (_, qb_ffi::Value::Void) => {}
+                        }
+                    }
+                }
                 Ins::OnTimer { s, x, t } => {
                     // event id = handler pc + 1 (0 = no handler)
                     tryc!(qb_runtime::events::timers().setup(ri!(s) as i32, rf!(x), t + 1, 0));
@@ -1784,37 +1856,21 @@ impl<'m, 'o> Vm<'m, 'o> {
                     seti!(d, c as i64)
                 }
                 Ins::Left { d, s, n } => {
-                    let k = ri!(n);
-                    if k < 0 {
-                        fail!(5);
-                    }
+                    // qbs_left: the count is clamped
                     let len = self.sget(s).len();
-                    self.ssub(d, s, 0, (k as usize).min(len));
+                    let k = ri!(n).clamp(0, len as i64) as usize;
+                    self.ssub(d, s, 0, k);
                 }
                 Ins::Right { d, s, n } => {
-                    let k = ri!(n);
-                    if k < 0 {
-                        fail!(5);
-                    }
                     let len = self.sget(s).len();
-                    self.ssub(d, s, len - (k as usize).min(len), len);
+                    let k = ri!(n).clamp(0, len as i64) as usize;
+                    self.ssub(d, s, len - k, len);
                 }
                 Ins::Mid { d, s, start, n } => {
-                    let st = ri!(start);
-                    if st < 1 {
-                        fail!(5);
-                    }
+                    // qb_func_mid: no errors
                     let len = self.sget(s).len();
-                    let from = (st as usize - 1).min(len);
-                    let to = if n == NONE {
-                        len
-                    } else {
-                        let k = ri!(n);
-                        if k < 0 {
-                            fail!(5);
-                        }
-                        from.saturating_add(k as usize).min(len)
-                    };
+                    let l = if n == NONE { None } else { Some(ri!(n)) };
+                    let (from, to) = rt::builtins::mid_range(len, ri!(start), l);
                     self.ssub(d, s, from, to);
                 }
                 Ins::Dim { a, dims, n, mode } => tryc!(self.dim(a, dims, n, mode)),
@@ -2069,5 +2125,23 @@ extern "C" fn jit_cmps(ctx: *mut qb_jit::Ctx, c: i64, a: i64, b: i64) -> i64 {
         -1
     } else {
         0
+    }
+}
+
+fn xty(t: crate::bytecode::XTy) -> qb_ffi::Ty {
+    use crate::bytecode::XTy as T;
+    match t {
+        T::Void => qb_ffi::Ty::Void,
+        T::I8 => qb_ffi::Ty::I8,
+        T::U8 => qb_ffi::Ty::U8,
+        T::I16 => qb_ffi::Ty::I16,
+        T::U16 => qb_ffi::Ty::U16,
+        T::I32 => qb_ffi::Ty::I32,
+        T::U32 => qb_ffi::Ty::U32,
+        T::I64 => qb_ffi::Ty::I64,
+        T::U64 => qb_ffi::Ty::U64,
+        T::F32 => qb_ffi::Ty::F32,
+        T::F64 => qb_ffi::Ty::F64,
+        T::Ptr | T::Str => qb_ffi::Ty::Ptr,
     }
 }

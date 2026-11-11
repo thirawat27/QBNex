@@ -1,4 +1,0 @@
-if(oldstr4343){
-if(oldstr4343->fixed)qbs_set(oldstr4343,_FUNC_IRLABEL_STRING_N);
-qbs_free(_FUNC_IRLABEL_STRING_N);
-}

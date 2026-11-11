@@ -45,12 +45,10 @@ jobs:
             artifact_suffix: win-x64
             artifact_path: qb.exe
             platform: x64
-            mingw_arch: x64
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
       QBNEX_CI: "1"
       PLATFORM: ${{ matrix.platform || '' }}
-      QBNEX_MINGW_ARCH: ${{ matrix.mingw_arch || '' }}
       QBNEX_BUNDLE_DIR: dist/bundle/qbnex
     steps:
       - uses: actions/checkout@v4

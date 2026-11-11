@@ -106,7 +106,19 @@ fn def_ty(m: &ir::Module, i: &Inst) -> Option<IT> {
         Cvt { to, .. } | Trunc { to, .. } => *to,
         Concat { .. } | LdFs { .. } => IT::Str,
         Addr { .. } | ARef { .. } | AAddr { .. } | PAdd { .. } => IT::Ptr,
-        Call { dst: Some(_), func, .. } => m.func(func)?.ret?,
+        Call { dst: Some(_), func, .. } => match m.func(func) {
+            Some(f) => f.ret?,
+            // DECLARE LIBRARY: result type of `meta extfn`
+            None => {
+                let v = m.meta.iter().filter(|(k, _)| k == "extfn").find_map(|(_, v)| {
+                    let mut w = v.split_whitespace();
+                    (w.next() == Some(func.as_str())).then(|| w.nth(1).unwrap_or("void").to_string())
+                })?;
+                [IT::I8, IT::U8, IT::I16, IT::U16, IT::I32, IT::U32, IT::I64, IT::U64, IT::F32, IT::F64, IT::Str, IT::Ptr]
+                    .into_iter()
+                    .find(|t| t.name() == v)?
+            }
+        },
         Rt { dst: Some(_), name, .. } => ir::builtins::lookup(name)?.ret?,
         _ => return None,
     })
@@ -321,6 +333,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
                 data: src.data.clone(),
                 console: src.meta("console").map(|v| v == "only"),
                 screenhide: src.meta("screenhide").is_some(),
+                xfns: src.meta.iter().filter(|(k, _)| k == "extfn").filter_map(|(_, v)| parse_xfn(v)).collect(),
                 ..Module::default()
             },
         kstr: HashMap::new(),
@@ -802,6 +815,28 @@ impl<'a> Lw<'a> {
                         let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
                         let (d, dm) = (nreg!(*dst), nreg!(*dim));
                         self.emit(Ins::BoundM { d, a: p, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
+                        continue;
+                    }
+                    Inst::Call { dst, func, args } if self.ir.func(func).is_none() => {
+                        // DECLARE LIBRARY function (meta extfn): pointers are real addresses here
+                        let f = self.m.xfns.iter().position(|x| x.name == *func).ok_or_else(|| format!("unknown function {func}"))? as u32;
+                        let mut regs = Vec::new();
+                        for r in args {
+                            regs.push(match reg!(*r) {
+                                Rg::N(x) | Rg::S(x) => x,
+                                _ => return Err("_FLOAT argument of a DECLARE LIBRARY function".into()),
+                            });
+                        }
+                        let dest = match dst {
+                            Some(d) => Some(match reg!(*d) {
+                                Rg::N(x) | Rg::S(x) => x,
+                                _ => return Err("_FLOAT result of a DECLARE LIBRARY function".into()),
+                            }),
+                            None => None,
+                        };
+                        self.m.xcalls.push(XCall { f, args: regs, dest });
+                        let c = self.m.xcalls.len() as u32 - 1;
+                        self.emit(Ins::XCall { c });
                         continue;
                     }
                     Inst::Call { dst, func, args } => {
@@ -1335,6 +1370,10 @@ impl<'a> Lw<'a> {
                     let pc = self.emit(Ins::ReturnL { t: 0 });
                     self.fixups.push((pc, fkey(l)));
                 }
+                Inst::Call { func, .. } if self.ir.func(func).is_none() => {
+                    // DECLARE LIBRARY calls pass real addresses: memory mode only
+                    return Err(format!("{func}: DECLARE LIBRARY call (memory mode)"));
+                }
                 Inst::Call { dst, func, args } => {
                     let callee = self.ir.func(func).ok_or_else(|| format!("unknown function {func}"))?;
                     let fi = self.fidx[func.as_str()] as u32;
@@ -1793,4 +1832,32 @@ fn invert(i: Ins) -> Ins {
         Ins::JnzI { s, t } => Ins::JzI { s, t },
         other => other,
     }
+}
+
+/// `meta extfn <name> <lib|-> <ret> <arg types...>` (emitter: DECLARE LIBRARY).
+fn parse_xfn(v: &str) -> Option<XFn> {
+    let mut it = v.split_whitespace();
+    let name = it.next()?.to_string();
+    let lib = it.next()?;
+    let ty = |t: &str| -> Option<XTy> {
+        Some(match t {
+            "void" => XTy::Void,
+            "i8" => XTy::I8,
+            "u8" => XTy::U8,
+            "i16" => XTy::I16,
+            "u16" => XTy::U16,
+            "i32" => XTy::I32,
+            "u32" => XTy::U32,
+            "i64" => XTy::I64,
+            "u64" => XTy::U64,
+            "f32" => XTy::F32,
+            "f64" => XTy::F64,
+            "ptr" => XTy::Ptr,
+            "str" => XTy::Str,
+            _ => return None,
+        })
+    };
+    let ret = ty(it.next()?)?;
+    let args = it.map(ty).collect::<Option<Vec<_>>>()?;
+    Some(XFn { name, lib: if lib == "-" { String::new() } else { lib.to_string() }, args, ret })
 }

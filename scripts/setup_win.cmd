@@ -1,180 +1,119 @@
 @echo off
+rem QBNex setup (QIR pipeline, D10/D15b): no MinGW, no C/C++ toolchain.
+rem
+rem   1. builds the QIR runner qb-exec with the Rust toolchain only
+rem   2. turns the bootstrap compiler bootstrap\qbnex.qir into qb-stage0.exe
+rem      (runner + QIR payload, D15b; QBNEX_QIR_PACK=native adds a native image
+rem       with `qb-exec build`)
+rem   3. stage0 compiles compiler\qbnex.bas into qb.exe through QIR
+rem
+rem Variables:
+rem   QBNEX_QB_EXEC       use this prebuilt qb-exec.exe instead of building it
+rem   QBNEX_RUST_TARGET   Rust target for qb-exec (default: rustc's host target)
+rem   QBNEX_BOOTSTRAP     bootstrap QIR (default: bootstrap\qbnex.qir)
+rem   QBNEX_QIR_PACK      ir (default) or native
+rem   QBNEX_STAGE1_ARGS   extra arguments for stage0 when building qb.exe
+rem   QBNEX_SKIP_SELFHOST 1 = stop after qb-stage0.exe
+rem   QBNEX_KEEP_STAGE0   1 = keep qb-stage0.exe
+rem   QBNEX_CI            1 = no pause at the end
 
-rem Enable cmd extensions and exit if not present
 setlocal enableextensions
-if errorlevel 1 (
-    echo Error: Command Prompt extensions not available!
-    goto end
-)
-
-echo QBNex Setup
-echo.
-
-rem Change to the repository root (this script lives in scripts\)
 cd /d "%~dp0.."
 
-rem QIR pipeline (no C/C++ toolchain), opt-in until the cutover: see docs\rust-port\port-plan.md
-if "%QBNEX_QIR_CUTOVER%"=="1" (
-    call scripts\setup_qir_win.cmd
-    goto end
-)
+echo QBNex Setup ^(QIR pipeline, no C/C++ toolchain^)
+echo.
 
-call scripts\findcurl.cmd
-if errorlevel 1 (
-    echo Error: curl is required to download the Windows toolchain.
-    goto end
-)
-
-set "ARCHIVE_STAGE=%CD%\toolchain_stage"
-set "ARCHIVE_FILE=%CD%\temp.zip"
-
-rem Ensure the compiler temp staging folder exists before cleaning/copying files into it
-if not exist internal\temp mkdir internal\temp
-
-del /q /s internal\c\libqb\*.o >nul 2>nul
-del /q /s internal\c\libqb\*.a >nul 2>nul
-del /q /s internal\temp\*.* >nul 2>nul
-if exist "%ARCHIVE_FILE%" del /q "%ARCHIVE_FILE%" >nul 2>nul
-if exist "%ARCHIVE_STAGE%" rd /s /q "%ARCHIVE_STAGE%" >nul 2>nul
-if exist "mingw32" rd /s /q "mingw32" >nul 2>nul
-if exist "mingw64" rd /s /q "mingw64" >nul 2>nul
-
-rem Check if the C++ compiler is there and skip downloading if the runtime headers are present too
-if exist internal\c\c_compiler\bin\c++.exe if exist internal\c\c_compiler\include\windows.h goto skipccompsetup
-if exist internal\c\c_compiler\bin\c++.exe if exist internal\c\c_compiler\x86_64-w64-mingw32\include\windows.h goto skipccompsetup
-if exist internal\c\c_compiler\bin\c++.exe if exist internal\c\c_compiler\i686-w64-mingw32\include\windows.h goto skipccompsetup
-
-rem internal\c\c_compiler may be a junction/symlink to a shared toolchain (worktrees,
-rem scoop). Never delete through a link: a broken linked toolchain must be repaired
-rem where it lives, so stop here instead of downloading over it.
-dir /al /b internal\c 2>nul | findstr /x /i "c_compiler" >nul && (
-    echo Error: internal\c\c_compiler is a link to a toolchain without c++.exe or windows.h.
-    echo Repair or reinstall that toolchain, or remove the link, then run this script again.
-    goto end
-)
-if exist internal\c\c_compiler rd /s /q internal\c\c_compiler >nul 2>nul
-mkdir internal\c\c_compiler
-mkdir "%ARCHIVE_STAGE%"
-
-rem Check the processor type and then set the correct WinLibs archive URL
-
-rem reg Query "HKLM\Hardware\Description\System\CentralProcessor\0" | find /i "x86" > NUL && set MINGW=mingw32 || set MINGW=mingw64
-rem 
-rem rem Set the correct file to download based on processor type
-rem if "%MINGW%"=="mingw64" (
-rem 	set url="https://github.com/niXman/mingw-builds-binaries/releases/download/12.2.0-rt_v10-rev0/x86_64-12.2.0-release-win32-seh-rt_v10-rev0.7z"
-rem ) else (
-rem 	set url="https://github.com/niXman/mingw-builds-binaries/releases/download/12.2.0-rt_v10-rev0/i686-12.2.0-release-win32-sjlj-rt_v10-rev0.7z"
-rem )
-
-reg Query "HKLM\Hardware\Description\System\CentralProcessor\0" | find /i "x86" > NUL && goto chose32 || goto choose
-
-:choose
-if /I "%QBNEX_MINGW_ARCH%"=="x86" goto chose32
-if /I "%QBNEX_MINGW_ARCH%"=="x64" goto chose64
-choice /c 12 /M "Use (1) 64-bit or (2) 32-bit MINGW? "
-if errorlevel 2 goto chose32
-if errorlevel 1 goto chose64
-goto chose32
-
-:chose32
-set url="https://github.com/brechtsanders/winlibs_mingw/releases/download/15.2.0posix-14.0.0-msvcrt-r7/winlibs-i686-posix-dwarf-gcc-15.2.0-mingw-w64msvcrt-14.0.0-r7.zip"
-goto chosen
-
-:chose64
-set url="https://github.com/brechtsanders/winlibs_mingw/releases/download/15.2.0posix-14.0.0-msvcrt-r7/winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64msvcrt-14.0.0-r7.zip"
-goto chosen
-
-:chosen
-
-echo Downloading %url%...
-curl -L %url% -o "%ARCHIVE_FILE%"
-
-if not exist "%ARCHIVE_FILE%" (
-    echo Error: Failed to download toolchain archive.
-    goto end
-)
-
-echo Extracting C++ Compiler...
-powershell -NoProfile -Command "Expand-Archive -Path '%ARCHIVE_FILE%' -DestinationPath '%ARCHIVE_STAGE%' -Force"
-
-set "TOOLCHAIN_ROOT="
-for /f "delims=" %%A in ('dir /b /s "%ARCHIVE_STAGE%\g++.exe" ^| findstr /i /r "\\bin\\g++\.exe$"') do (
-    if not defined TOOLCHAIN_ROOT (
-        for %%B in ("%%~dpA..") do set "TOOLCHAIN_ROOT=%%~fB"
+if not exist crates\qb-exec\bin\windows mkdir crates\qb-exec\bin\windows
+set "RUNNER=crates\qb-exec\bin\windows\qb-exec.exe"
+if defined QBNEX_QB_EXEC (
+    copy /y "%QBNEX_QB_EXEC%" %RUNNER% >nul
+    if errorlevel 1 (
+        echo Error: cannot copy %QBNEX_QB_EXEC%.
+        exit /b 1
     )
+    goto haverunner
 )
 
-if not defined TOOLCHAIN_ROOT (
-    echo Error: Extracted toolchain root could not be located.
-    goto end
-)
-
-echo Copying C++ compiler from "%TOOLCHAIN_ROOT%"...
-xcopy /e /i /y "%TOOLCHAIN_ROOT%\*" "internal\c\c_compiler\" >nul
-
-if not exist "internal\c\c_compiler\include\windows.h" if not exist "internal\c\c_compiler\x86_64-w64-mingw32\include\windows.h" if not exist "internal\c\c_compiler\i686-w64-mingw32\include\windows.h" (
-    echo Error: Extracted toolchain is missing Windows runtime headers.
-    goto end
-)
-
-echo Cleaning up..
-if exist "%ARCHIVE_FILE%" del /q "%ARCHIVE_FILE%" >nul 2>nul
-if exist "%ARCHIVE_STAGE%" rd /s /q "%ARCHIVE_STAGE%" >nul 2>nul
-if exist "mingw32" rd /s /q "mingw32" >nul 2>nul
-if exist "mingw64" rd /s /q "mingw64" >nul 2>nul
-
-:skipccompsetup
-
-echo Building library 'LibQB'
-cd internal/c/libqb/os/win
-if exist libqb_setup.o del libqb_setup.o
-call .\setup_build.bat
-cd ../../../../..
-
-echo Building library 'qb-runtime' (Rust runtime)
 where cargo >nul 2>nul
 if errorlevel 1 (
-    echo Error: cargo was not found. Install Rust from https://rustup.rs and run scripts\setup_win.cmd again.
-    goto end
-)
-cd crates/qb-runtime/os/windows
-if exist libqb_runtime.a del libqb_runtime.a
-call .\setup_build.bat
-cd ../../../..
-if not exist crates\qb-runtime\os\windows\libqb_runtime.a (
-    echo Error: failed to build crates\qb-runtime\os\windows\libqb_runtime.a
-    goto end
+    echo Error: cargo was not found. Install Rust from https://rustup.rs and run this script again.
+    exit /b 1
 )
 
-echo Building 'QBNex'
-if not exist internal\temp mkdir internal\temp
-copy internal\source\*.* internal\temp\ >nul
-xcopy /e /i /y compiler\* internal\temp\ >nul
-copy compiler\qbnex.ico internal\temp\ >nul
-copy compiler\icon.rc internal\temp\ >nul
-cd internal\c
-c_compiler\bin\windres.exe -i ../temp/icon.rc -o ../temp/icon.o
-c_compiler\bin\g++ -mconsole -s -Wfatal-errors -w -Wall qbx.cpp libqb\os\win\libqb_setup.o ..\..\crates\qb-runtime\os\windows\libqb_runtime.a -lkernel32 -lntdll -luserenv -lws2_32 -ldbghelp -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput ..\temp\icon.o -D DEPENDENCY_LOADFONT -D DEPENDENCY_SOCKETS -D DEPENDENCY_NO_PRINTER -D DEPENDENCY_ICON -D DEPENDENCY_NO_SCREENIMAGE -static-libgcc -static-libstdc++ -lws2_32 -lwinmm -lgdi32 -o "..\..\qb-stage0.exe"
-cd ..\..
+if not defined QBNEX_RUST_TARGET (
+    for /f "tokens=2" %%t in ('rustc -vV ^| findstr /b /c:"host:"') do set "QBNEX_RUST_TARGET=%%t"
+)
+if not defined QBNEX_RUST_TARGET (
+    echo Error: could not determine the Rust host target.
+    exit /b 1
+)
+if not defined QBNEX_BOOTSTRAP set "QBNEX_BOOTSTRAP=bootstrap\qbnex.qir"
+if not defined QBNEX_QIR_PACK set "QBNEX_QIR_PACK=ir"
 
-if exist qb-stage0.exe (
-    echo Self-hosting 'QBNex'
-    if exist qb.exe del /q qb.exe >nul 2>nul
-    .\qb-stage0.exe compiler\qbnex.bas -o qb.exe
+echo Building the QIR runner 'qb-exec' for %QBNEX_RUST_TARGET%
+where rustup >nul 2>nul && rustup target add %QBNEX_RUST_TARGET% >nul 2>nul
+cargo build --release --locked -p qb-exec --target %QBNEX_RUST_TARGET% --target-dir target
+if errorlevel 1 (
+    echo Error: failed to build qb-exec.
+    exit /b 1
+)
+copy /y target\%QBNEX_RUST_TARGET%\release\qb-exec.exe %RUNNER% >nul
+if errorlevel 1 (
+    echo Error: failed to copy the runner to crates\qb-exec\bin\windows.
+    exit /b 1
+)
+:haverunner
+
+if not exist "%QBNEX_BOOTSTRAP%" (
+    echo Error: %QBNEX_BOOTSTRAP% is missing.
+    echo It is produced from compiler\qbnex.bas by a QIR-capable compiler ^(qb --ir^);
+    echo see docs\rust-port\port-plan.md.
+    exit /b 1
 )
 
-echo.
-if exist qb.exe (
-    if not defined QBNEX_KEEP_STAGE0 del qb-stage0.exe >nul 2>nul
-    echo QBNex CLI compiler is ready:
-    echo   qb yourfile.bas
-    echo   qbnex yourfile.bas
+echo Building 'qb-stage0.exe' from %QBNEX_BOOTSTRAP% ^(%QBNEX_QIR_PACK%^)
+if exist qb-stage0.exe del /q qb-stage0.exe >nul 2>nul
+if /i not "%QBNEX_QIR_PACK%"=="native" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\qir_pack.ps1 -Runner "%RUNNER%" -Qir "%QBNEX_BOOTSTRAP%" -Out qb-stage0.exe
 ) else (
+    .\%RUNNER% build "%QBNEX_BOOTSTRAP%" -o qb-stage0.exe
+)
+if not exist qb-stage0.exe (
+    echo Error: could not build qb-stage0.exe.
+    exit /b 1
+)
+
+if "%QBNEX_SKIP_SELFHOST%"=="1" (
+    echo qb-stage0.exe is ready ^(self-host skipped^).
+    exit /b 0
+)
+
+echo Self-hosting 'QBNex' through QIR
+if exist qb.exe del /q qb.exe >nul 2>nul
+.\qb-stage0.exe compiler\qbnex.bas -o qb.exe %QBNEX_STAGE1_ARGS%
+if not exist qb.exe (
     echo Final compiler build failed.
     exit /b 1
 )
-if not defined QBNEX_CI pause
 
-:end
+echo Smoke test
+> "%TEMP%\qbnex_qir_smoke.bas" echo PRINT "QBNex QIR OK"
+.\qb.exe "%TEMP%\qbnex_qir_smoke.bas" -o "%TEMP%\qbnex_qir_smoke.exe"
+if not exist "%TEMP%\qbnex_qir_smoke.exe" (
+    echo Error: qb.exe could not compile the smoke test.
+    exit /b 1
+)
+"%TEMP%\qbnex_qir_smoke.exe" | findstr /c:"QBNex QIR OK" >nul
+if errorlevel 1 (
+    echo Error: the smoke test program did not print the expected text.
+    exit /b 1
+)
+del /q "%TEMP%\qbnex_qir_smoke.bas" "%TEMP%\qbnex_qir_smoke.exe" >nul 2>nul
+
+if not "%QBNEX_KEEP_STAGE0%"=="1" del /q qb-stage0.exe >nul 2>nul
+echo.
+echo QBNex CLI compiler is ready ^(QIR pipeline^):
+echo   qb yourfile.bas
+echo   qbnex yourfile.bas
+if not "%QBNEX_CI%"=="1" pause
 endlocal

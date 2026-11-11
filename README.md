@@ -42,12 +42,8 @@ Where this README and the manual disagree, the manual is the current one.
     - [Platform Requirements](#platform-requirements)
     - [Dependencies](#dependencies)
   - [Installation](#installation)
-    - [Windows Setup](#windows-setup)
-    - [macOS Setup](#macos-setup)
-    - [Linux Setup](#linux-setup)
-    - [Docker Setup](#docker-setup)
     - [Build from Source](#build-from-source)
-    - [CMake Build](#cmake-build)
+    - [Docker Setup](#docker-setup)
   - [Quick Start](#quick-start)
   - [Usage Guide](#usage-guide)
     - [Basic Compilation](#basic-compilation)
@@ -99,9 +95,8 @@ Where this README and the manual disagree, the manual is the current one.
   - [Compilation Pipeline](#compilation-pipeline)
     - [How It Works](#how-it-works)
     - [Stage 1: Pre-pass (Parsing)](#stage-1-pre-pass-parsing)
-    - [Stage 2: Code Generation](#stage-2-code-generation)
-    - [Stage 3: C++ Compilation](#stage-3-c-compilation)
-    - [Generated Files](#generated-files)
+    - [Stage 2: QIR Emission](#stage-2-qir-emission)
+    - [Stage 3: Packaging and Execution](#stage-3-packaging-and-execution)
     - [Compilation Flags Deep Dive](#compilation-flags-deep-dive)
     - [Performance Considerations](#performance-considerations)
   - [Troubleshooting Comprehensive Guide](#troubleshooting-comprehensive-guide)
@@ -156,7 +151,7 @@ Where this README and the manual disagree, the manual is the current one.
 
 ## About
 
-**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into C++ and compiles to native binaries for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runtime is being ported to Rust (`crates/qb-*`), and a second back end (`qb file.bas --ir`) runs programs through the QIR intermediate language on a Rust VM with a Cranelift JIT, without a C++ compiler.
+**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into QIR, a text intermediate language, and packages it with a Rust runner into a standalone executable for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runner and runtime are Rust crates (`crates/qb-*`): the QIR runs on a VM with a Cranelift JIT, and no C/C++ compiler is involved.
 
 **Version**: See release tags and `qb --version`
 
@@ -183,9 +178,9 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - Unsigned integer types (UNSIGNED BYTE, UNSIGNED INTEGER, UNSIGNED LONG, UNSIGNED _INTEGER64)
 
 - **Modern Execution**
-  - Self-hosting compiler written in QBNex BASIC (~26,000 lines)
-  - Transpiles BASIC source to optimized C++ before compilation
-  - Compiles to native binaries for maximum performance
+  - Self-hosting compiler written in QBNex BASIC
+  - Translates BASIC source to QIR, run by a Rust VM with a JIT for hot loops
+  - Standalone executables (runner + program), no C/C++ toolchain needed
   - CLI-driven compilation optimized for modern terminal workflows
   - Cross-platform support: Windows (x64 release builds, x86/x64 source builds), Linux, macOS
 
@@ -249,121 +244,55 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
 
 ## System Requirements
 
-### Platform Requirements
+QBNex needs no C or C++ compiler. The compiler is written in BASIC, translated to
+QIR (a text intermediate form, `bootstrap/qbnex.qir`) and run by the Rust runner
+`qb-exec`; every compiled program is a copy of that runner with its own QIR appended.
 
-**Windows:**
-- Windows 7 or newer (32-bit or 64-bit)
-- No additional setup required (MinGW is downloaded automatically by setup script)
-- Recommended: Whitelist QBNex folder in antivirus software
-
-**macOS:**
-- macOS with Xcode Command Line Tools installed
-- Install with: `xcode-select --install`
-- CoreAudio for sound output
-
-**Linux:**
-- GNU C++ compiler (`g++`)
-- Rust toolchain (`cargo`, from https://rustup.rs)
-- ALSA development libraries (`libasound2-dev`)
-- udev development libraries (`libudev-dev`)
-- `pkg-config`
-- X11 libraries
-- ncurses library
-
-### Dependencies
-
-**Core Dependencies (installed automatically or required):**
-- Rust toolchain (`cargo`): builds the runtime (`crates/qb-runtime`, `crates/qb-audio`)
-- C++ compiler (MinGW g++ on Windows, g++ on Linux, clang++ on macOS)
+**All platforms:**
+- Rust toolchain (`cargo`, from https://rustup.rs) to build the runner
 - Window, graphics, audio, fonts, images and compression are Rust crates of the runtime;
   no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is needed (see `licenses/THIRD_PARTY.TXT`)
 
-**Platform-Specific:**
-- Windows: MinGW g++ (auto-downloaded), Windows Multimedia library
-- Linux: ALSA (`libasound2-dev`), udev (`libudev-dev`), X11
-- macOS: CoreAudio, Cocoa
+**Windows:** Windows 10 or newer, 64-bit. Recommended: whitelist the QBNex folder in antivirus software.
 
-**Optional:**
-- Socket libraries (networking support)
+**macOS:** CoreAudio and Cocoa come with macOS.
+
+**Linux:** ALSA (`libasound2-dev`), udev (`libudev-dev`) and `pkg-config` for sound and gamepads.
 
 ---
 
 ## Installation
 
-Download the appropriate package for your operating system from the repository releases page, or build from source using the provided setup scripts. Tagged releases publish per-platform archives such as `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz`, and `qbnex_<tag>_win-x64.zip`.
+Download the package for your operating system from the releases page, or build from
+source. Tagged releases publish `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and
+`qbnex_<tag>_win-x64.zip`. Extract to a folder with write permissions.
 
-`windows-x86` / 32-bit packages are not published by the GitHub release workflow. If you need a 32-bit Windows build, compile it locally with the scripts in this repository by running `scripts\setup_win.cmd` and choosing the 32-bit MinGW toolchain, or by setting `QBNEX_MINGW_ARCH=x86` before running the script.
-
-### Windows Setup
-
-Extract the package to a folder with full write permissions.
-
-It is advisable to whitelist the QBNex folder in your antivirus or antimalware software.
-
-**Building from source:**
-```cmd
-scripts\setup_win.cmd
-```
-
-To force a 32-bit Windows build without the interactive prompt:
-```cmd
-set QBNEX_MINGW_ARCH=x86
-scripts\setup_win.cmd
-```
-
-The setup script will:
-1. Download MinGW compiler (64-bit or 32-bit based on your choice)
-2. Build library files (LibQB and the Rust runtime `libqb_runtime.a`)
-3. Compile the QBNex compiler
-4. Create `qb.exe` in the project root (run it as `qb` or `qbnex`)
-
-**Note:** The script downloads ~150MB of MinGW binaries. Internet connection required.
-
-### macOS Setup
-
-Install the Xcode command line tools first:
+### Build from Source
 
 ```bash
-xcode-select --install
+git clone https://github.com/thirawat27/QBNex.git
+cd QBNex
+scripts\setup_win.cmd          # Windows
+sh scripts/setup_lnx.sh        # Linux
+sh scripts/setup_osx.command   # macOS
 ```
 
-Run the setup script:
+Linux packages:
 
 ```bash
-chmod +x scripts/setup_osx.command
-./scripts/setup_osx.command
+sudo apt-get install libasound2-dev libudev-dev pkg-config          # Debian/Ubuntu
+sudo dnf install alsa-lib-devel systemd-devel pkgconf-pkg-config     # Fedora/RHEL
+sudo pacman -S alsa-lib systemd-libs pkgconf                         # Arch Linux
 ```
 
-The script will:
-- Verify Xcode Command Line Tools are available
-- Build the bundled runtime objects required for macOS
-- Build the stage0 compiler and self-host the final compiler
-- Create `qb` in the project root (run it as `qb` or `qbnex`)
+The setup script:
+1. Builds the runner `qb-exec` with cargo into `crates/qb-exec/bin/<os>/`
+2. Packs `bootstrap/qbnex.qir` into it, giving a stage-0 compiler
+3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the project root
+   (run it as `qb` or `qbnex`) and runs a smoke test
 
-**Required components:** Xcode Command Line Tools and Rust (`cargo`); CoreAudio and Cocoa come with macOS
-
-### Linux Setup
-
-Run the setup script:
-
-```bash
-chmod +x scripts/setup_lnx.sh
-./scripts/setup_lnx.sh
-```
-
-**Required packages:**
-```bash
-# Debian/Ubuntu
-sudo apt-get install g++ x11-utils libasound2-dev libudev-dev pkg-config libncurses-dev
-
-# Fedora/RHEL
-sudo dnf install gcc-c++ xmessage alsa-lib-devel systemd-devel pkgconf-pkg-config ncurses-devel
-
-# Arch Linux
-sudo pacman -S gcc xorg-xmessage alsa-lib systemd-libs pkgconf ncurses
-```
-
-The setup script compiles all libraries and creates the `qb` compiler binary (run it as `qb` or `qbnex`).
+`scripts/selfhost_fixpoint.cmd` (or `.sh`) checks that the compiler rebuilds itself to
+the same QIR and that `bootstrap/qbnex.qir` is up to date.
 
 ### Docker Setup
 
@@ -399,92 +328,6 @@ docker run --rm -v $(pwd):/project qbnex qb yourfile.bas -x
 ```
 
 **Full Docker documentation:** See the [Docker Complete Guide](#docker-complete-guide) section below.
-
-### Build from Source
-
-**Windows:**
-```cmd
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-scripts\setup_win.cmd
-```
-
-**Linux:**
-```bash
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-chmod +x scripts/setup_lnx.sh
-./scripts/setup_lnx.sh
-```
-
-**macOS:**
-```bash
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-chmod +x scripts/setup_osx.command
-./scripts/setup_osx.command
-```
-
-**Docker:**
-```bash
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-docker build -f docker/Dockerfile -t qbnex .
-docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
-```
-
-### CMake Build
-
-QBNex ships with a supported incremental CMake workflow for developers who want IDE-friendly builds while keeping the existing platform setup scripts intact.
-
-```bash
-cmake -S . -B build
-cmake --build build --target qbnex
-```
-
-This produces `qb-stage0` / `qb-stage0.exe` in the repository root.
-
-To run the self-hosting phase through CMake:
-
-```bash
-cmake --build build --target qb-selfhost
-```
-
-This generates the final compiler binary (`qb` or `qb.exe`) in the repository root.
-
-By default, `qb-selfhost` also removes `qb-stage0` / `qb-stage0.exe` after the final compiler is generated, matching the behavior of the setup scripts.
-
-Using presets (recommended):
-
-```bash
-# Linux
-cmake --preset linux-gcc
-cmake --build --preset linux-gcc-stage0
-
-# macOS
-cmake --preset macos-clang
-cmake --build --preset macos-clang-stage0
-
-# Windows (after scripts\setup_win.cmd)
-cmake --preset windows-mingw
-cmake --build --preset windows-mingw-stage0
-```
-
-Notes:
-- The CMake flow reuses existing runtime setup scripts under `crates/*/os/<windows|linux|macos>/setup_build.*` and `internal/c/**/os/*/`.
-- Existing `scripts\setup_win.cmd`, `scripts/setup_lnx.sh`, and `scripts/setup_osx.command` scripts remain available for bootstrapping and troubleshooting.
-- On Windows, CMake currently expects a MinGW-based toolchain.
-- `qbnex` is the stable top-level target. It builds `qb-stage0` by default, or `qb-selfhost` when configured with `-DQBNEX_SELF_HOST=ON`.
-- To keep stage0 for debugging, configure with `-DQBNEX_KEEP_STAGE0=ON`.
-
-Windows MinGW example:
-
-```cmd
-scripts\setup_win.cmd
-set PATH=%CD%\internal\c\c_compiler\bin;%PATH%
-cmake -S . -B build -G "MinGW Makefiles"
-cmake --build build --target qb-stage0
-```
 
 ---
 
@@ -605,7 +448,7 @@ qb myprogram.bas -e -x
 
 ### Compiler Settings Configuration
 
-QBNex supports configurable compiler settings via the `-s` flag or `internal/config.ini`:
+QBNex supports configurable compiler settings via the `-s` flag or `target/qb-config.ini`:
 
 **Available Settings:**
 
@@ -643,7 +486,7 @@ qb -s:DebugInfo=true -s:IgnoreWarnings=false
 
 **Using Config File:**
 
-Edit `internal/config.ini` directly:
+Edit `target/qb-config.ini` directly:
 ```ini
 [Compiler]
 SaveExeWithSource=false
@@ -1830,7 +1673,6 @@ Supporting fixture sources live in `tests/fixtures/` (15 `.bas` files).
 The native runtime has its own suites:
 - `cargo test --workspace` runs the unit tests of the `crates/` workspace (`cargo test -p qb-runtime`, `-p qb-audio` or `-p qb-exec` for one crate)
 - `cargo run --release -p qbnex-conformance` compiles every program in `tests/conformance/cases/` with the built `qb` and compares the output with the golden files
-- `tests/diff/run_diff.sh` (Linux/macOS) or `tests\diff\run_diff.cmd` (Windows) compares the runtime against the legacy C++ reference code
 
 ### Running Individual Tests
 
@@ -2147,36 +1989,30 @@ Understanding how QBNex translates BASIC code to native binaries.
 
 ### How It Works
 
-QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). The compilation process involves multiple stages:
+QBNex is a self-hosting compiler written in QBNex BASIC itself. The compilation process involves these stages:
 
 ```
 ┌─────────────────┐
 │  BASIC Source   │  (yourfile.bas)
-│    (.bas file)  │
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│   Pre-pass      │  Handle $INCLUDE, $DEFINE, $IFDEF
-│   (Parsing)     │  Validate syntax, process imports
+│   Pre-pass      │  Handle $INCLUDE, $DEFINE, $IFDEF, $IMPORT
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│  Code Generation│  Translate BASIC to C++ code
-│   (Transpiler)  │  Generate optimized C++ in internal/temp/
+│  QIR emission   │  Translate BASIC to QIR (text IR, docs/rust-port/qir-v1.md)
+│                 │  written to target/qb-temp/program.qir
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│  C++ Compiler   │  Invoke g++ (Windows/Linux) or clang++ (macOS)
-│   (Native)      │  Link against OpenGL, audio, etc.
+│   Packaging     │  Copy the runner qb-exec and append the QIR
+│                 │  (no C/C++ compiler, no linker)
 └────────┬────────┘
-         │
          ▼
 ┌─────────────────┐
-│  Native Binary  │  yourfile.exe (Windows)
-│   (Executable)  │  ./yourfile (Linux/macOS)
+│   Executable    │  yourfile.exe (Windows), ./yourfile (Linux/macOS)
+│                 │  qb-exec runs the QIR on its VM and JIT
 └─────────────────┘
 ```
 
@@ -2206,91 +2042,27 @@ $IFDEF DEBUG_MODE
 $ENDIF
 ```
 
-### Stage 2: Code Generation
+### Stage 2: QIR Emission
 
-The code generation stage:
+The compiler checks each statement and lowers it to QIR: typed registers, loads and
+stores of variables, calls into the runtime (`rt PRINTS`, `rt SCREEN`, ...), labels
+and branches. The QIR of the last build is kept in `target/qb-temp/program.qir`.
 
-1. **Translates BASIC to C++**: Each BASIC statement becomes C++ code
-2. **Optimizes output**: Removes redundant code, inlines functions
-3. **Generates runtime calls**: Links to LibQB runtime library
-4. **Handles types**: Converts BASIC types to C++ equivalents
-5. **Creates temp files**: Outputs to `internal/temp/`
+### Stage 3: Packaging and Execution
 
-**BASIC to C++ Translation:**
-```basic
-' BASIC Input
-PRINT "Hello, World!"
-FOR i = 1 TO 10
-    PRINT i
-NEXT i
-```
-
-Becomes (simplified):
-```cpp
-// Generated C++ Output
-print_string("Hello, World!\n");
-for (int i = 1; i <= 10; i++) {
-    print_integer(i);
-    print_string("\n");
-}
-```
-
-### Stage 3: C++ Compilation
-
-The final stage:
-
-1. **Invokes C++ compiler**:
-   - Windows: `g++` from MinGW
-   - Linux: `g++` from GCC
-   - macOS: `clang++` from Xcode
-2. **Links libraries**:
-   - `libqb_runtime.a` (Rust runtime: window, graphics, sound, fonts, images)
-   - Platform-specific libraries
-3. **Produces native binary**: Platform-specific executable
-4. **Cleans up**: Removes temporary files (unless `-z` flag used)
-
-**Compilation Command (Windows):**
-```bash
-g++ -mconsole -s -Wfatal-errors -w -Wall \
-  qbx.cpp \
-  libqb\os\win\libqb_setup.o \
-  ..\..\crates\qb-runtime\os\windows\libqb_runtime.a \
-  -lkernel32 -lntdll -luserenv -luser32 -lgdi32 -lole32 -loleaut32 -lshell32 \
-  -limm32 -ldwmapi -luxtheme -lcomctl32 -ladvapi32 -lxinput \
-  -static-libgcc -static-libstdc++ -lws2_32 -lwinmm \
-  -o "output.exe"
-```
-
-### Generated Files
-
-When you compile with `-z` flag (generate C code only), you can inspect the output:
-
-```bash
-qb myprogram.bas -z
-```
-
-Generated files appear in `internal/temp/`:
-- `qbx.cpp` - Main C++ source file
-- `*.h` - Header files
-- Resource files (icons, etc.)
-
-**View generated C++ code:**
-```bash
-# Windows
-type internal\temp\qbx.cpp | more
-
-# Linux/macOS
-less internal/temp/qbx.cpp
-```
+The output executable is a copy of the prebuilt runner `crates/qb-exec/bin/<os>/qb-exec`
+followed by the QIR text, its length (u64, little endian) and the tag `QBNEXIR0`.
+At start-up the runner reads that payload from its own file, validates it, lowers it to
+bytecode and runs it; hot loops are compiled by the JIT. The runtime (window, graphics,
+sound, files, network) is the Rust crate `qb-runtime`.
 
 ### Compilation Flags Deep Dive
 
-**Flag `-z` (Generate C code only):**
+**Flag `-z` (translate only):**
 ```bash
 qb myprogram.bas -z
-# Creates internal/temp/qbx.cpp
-# Does NOT compile to executable
-# Useful for: debugging, inspection, custom builds
+# Writes target/qb-temp/program.qir
+# Does NOT write an executable
 ```
 
 **Flag `-x` (Compile and run):**
@@ -2560,10 +2332,8 @@ List_Init myList
 
 **Windows:**
 
-**Problem: "g++ not found"**
-- Run `scripts\setup_win.cmd` to download MinGW
-- Check antivirus isn't blocking download
-- Whitelist QBNex folder in antivirus
+**Problem: "qb-exec not found" during setup**
+- Install Rust from https://rustup.rs and run `scripts\setup_win.cmd` again
 
 **Problem: "Antivirus flags qb.exe"**
 - Add QBNex folder to exclusion list
@@ -2575,25 +2345,22 @@ List_Init myList
 **Problem: "Missing libraries"**
 ```bash
 # Install dependencies (Debian/Ubuntu)
-sudo apt-get install build-essential libasound2-dev libudev-dev pkg-config libx11-dev
+sudo apt-get install libasound2-dev libudev-dev pkg-config libx11-dev
 
 # Install dependencies (Fedora)
-sudo dnf install gcc-c++ alsa-lib-devel systemd-devel pkgconf-pkg-config libX11-devel
+sudo dnf install alsa-lib-devel systemd-devel pkgconf-pkg-config libX11-devel
 
 # Install dependencies (Arch)
-sudo pacman -S gcc alsa-lib systemd-libs pkgconf libx11
+sudo pacman -S alsa-lib systemd-libs pkgconf libx11
 ```
 
 **macOS:**
 
-**Problem: "xcode-select not found"**
+**Problem: "cargo not found"**
 ```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-
-# Verify installation
-gcc --version
-clang --version
+# Install Rust, then run the setup again
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+sh scripts/setup_osx.command
 ```
 
 ### Getting Help
@@ -2631,10 +2398,10 @@ qb myprogram.bas -w
 qb myprogram.bas -q
 ```
 
-**Generate C code for inspection:**
+**Inspect the generated QIR:**
 ```bash
 qb myprogram.bas -z
-# Check internal/temp/qbx.cpp for generated code
+# Check target/qb-temp/program.qir
 ```
 
 ### Known Issues
@@ -3291,11 +3058,11 @@ For rebuild steps, minimum verification, and module-splitting guidance, see
 
 QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). The compilation process:
 
-1. **Bootstrap Phase**: A minimal C++ compiler (`internal/c/qbx.cpp`) compiles the bootstrap data in `internal/source/` into a stage0 compiler
-2. **Self-Hosting Phase**: The build generates a stage0-compatible source from `compiler/qbnex.bas` and its modules, then the stage0 compiler recompiles that source into the final `qb` / `qb.exe`
-3. **Code Generation**: The QBNex compiler translates BASIC source code into optimized C++ code
-4. **Native Compilation**: Platform C++ compiler (g++/clang++) compiles the generated C++ to native binary
-5. **Runtime Linking**: Generated code links against OpenGL, miniaudio, FreeType, and platform libraries
+1. **Bootstrap Phase**: `bootstrap/qbnex.qir` (the compiler, already translated to QIR) is packed into the runner `qb-exec`, giving a stage-0 compiler
+2. **Self-Hosting Phase**: stage 0 compiles `compiler/qbnex.bas` and its modules into the final `qb` / `qb.exe`; `scripts/selfhost_fixpoint.*` checks that the result rebuilds itself to the same QIR
+3. **Code Generation**: the compiler translates BASIC source code into QIR
+4. **Packaging**: the output is the runner with the program's QIR appended (no C/C++ compiler or linker)
+5. **Runtime**: `qb-exec` runs the QIR with the Rust runtime `qb-runtime` (window, graphics, audio, fonts, images, network)
 
 ### Project Structure
 
@@ -3323,25 +3090,16 @@ QBNex/
 │   ├── subs_functions/         # Built-in functions/subroutines
 │   └── utilities/              # Compiler utility modules
 ├── crates/                     # Native runtime crates (Cargo workspace)
-│   ├── qb-runtime/             # Runtime library (C ABI, headers in include/, builds in os/<windows|linux|macos>/)
+│   ├── qb-runtime/             # Runtime library (window, graphics, sound, files, network)
 │   ├── qb-audio/               # Audio engine
 │   └── qb-exec/                # Runner for compiled QIR programs (bin/<os>/qb-exec)
 ├── docker/
 │   ├── Dockerfile
 │   ├── Dockerfile.dev
 │   └── docker-compose.yml
+├── bootstrap/
+│   └── qbnex.qir               # The compiler in QIR (bootstrap of the setup scripts)
 ├── docs/                       # Design notes and port progress
-├── internal/                   # Bootstrap/runtime build workspace
-│   ├── c/                      # C++ runtime glue and build scripts
-│   │   ├── c_compiler/         # Downloaded MinGW toolchain (Windows setup)
-│   │   ├── libqb/              # C++ glue to the Rust runtime (*_bridge.cpp, os/win|lnx|osx)
-│   │   ├── qbx.cpp             # Stage0 C++ compiler entry point
-│   │   ├── build_cache/        # Native build cache
-│   │   └── pch/                # Precompiled header artifacts
-│   ├── source/                 # Bootstrap templates/data files consumed by stage0
-│   ├── support/                # Terminal color + watch support data
-│   ├── temp/                   # Generated intermediate files during builds
-│   └── config.ini              # Compiler settings
 ├── licenses/                   # Third-party license files
 ├── packaging/
 │   └── installer/
@@ -3349,19 +3107,16 @@ QBNex/
 ├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, self-host helpers
 ├── tests/
 │   ├── conformance/            # Conformance runner + cases (golden outputs)
-│   ├── diff/                   # Legacy-vs-runtime differential tests (run_diff.sh / run_diff.cmd)
 │   ├── fixtures/               # Test input programs
 │   └── smoke/                  # Smoke and benchmark test runners (*.cmd / *.sh)
 ├── Cargo.toml                  # Cargo workspace
-├── CMakeLists.txt              # CMake build graph
-├── CMakePresets.json           # Cross-platform CMake presets
 ├── qb.cmd                      # Windows wrapper command
 ├── README.md
 ├── CONTRIBUTING.md
 └── CHANGELOG.md
 
 # Generated after build/test (not source)
-# - build/
+# - target/ (cargo output, target/qb-temp, target/qb-config.ini)
 # - qb, qb.exe
 # - qb-stage0, qb-stage0.exe
 ```
@@ -3402,7 +3157,7 @@ docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 ### Adding New Features
 
 - **Built-in Functions/Subs**: Add to `compiler/subs_functions/subs_functions.bas`
-- **Runtime Library**: Rust code in `crates/qb-runtime/` and `crates/qb-audio/`; C++ glue in `internal/c/`
+- **Runtime Library**: Rust code in `crates/qb-runtime/` and `crates/qb-audio/`; QIR builtins in `crates/qb-ir/src/builtins.rs` and `crates/qb-exec/src/rt/`
 - **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`
 
 ### Continuous Integration

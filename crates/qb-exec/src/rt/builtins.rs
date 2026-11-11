@@ -31,6 +31,9 @@ pub(crate) trait Host<'a> {
     fn array_extent(&mut self, p: u64) -> R<(u64, u64)>;
     /// Value of the string variable whose storage is at `p`.
     fn load_str(&mut self, p: u64) -> R<Vec<u8>>;
+    /// Address of the characters of the string variable at `p` (`_OFFSET(s$)`),
+    /// valid until the variable is assigned again; 0 for "".
+    fn str_data(&mut self, p: u64) -> R<u64>;
     /// Assigns the string variable whose storage is at `p` (runs `str_store_hook`).
     fn store_str(&mut self, p: u64, s: &[u8]) -> R<()>;
 }
@@ -227,57 +230,51 @@ fn count(v: &V) -> R<usize> {
     usize::try_from(v.i()).or_else(|_| e(5))
 }
 
-fn instr(start: usize, s: &[u8], t: &[u8]) -> i32 {
-    if start == 0 || start > s.len() + usize::from(t.is_empty()) {
-        return 0;
-    }
-    if t.is_empty() {
-        return start as i32;
-    }
-    if start > s.len() {
-        return 0;
-    }
-    s[start - 1..].windows(t.len()).position(|w| w == t).map_or(0, |p| (p + start) as i32)
-}
-
-fn instrrev(start: usize, s: &[u8], t: &[u8]) -> i32 {
-    if s.is_empty() {
-        return 0;
-    }
-    let st = if start == 0 || start > s.len() { s.len() } else { start };
-    if t.is_empty() {
-        return st as i32;
-    }
-    let mut i = st.min(s.len().saturating_sub(t.len()) + 1);
-    while i >= 1 {
-        if s[i - 1..].starts_with(t) {
-            return i as i32;
-        }
-        i -= 1;
-    }
-    0
-}
-
 fn float1(a: &V, f: impl Fn(f64) -> f64) -> V {
     V::F(f(a.f()))
 }
 
 fn mid(s: &[u8], start: i64, len: Option<i64>) -> R<Vec<u8>> {
-    if start < 1 {
-        return e(5);
-    }
-    if let Some(l) = len {
-        if l < 0 {
-            return e(5);
+    let (a, b) = mid_range(s.len(), start, len);
+    Ok(s[a..b].to_vec())
+}
+
+/// Byte range of `MID$(s, start[, l])` exactly as `qb_func_mid` (no errors:
+/// start < 1 shortens the length, out-of-range parts are empty).
+pub(crate) fn mid_range(len: usize, start: i64, l: Option<i64>) -> (usize, usize) {
+    let len64 = len as i64;
+    let mut start = start;
+    let l = match l {
+        Some(mut l) => {
+            if start < 1 {
+                l = l - 1 + start;
+                start = 1;
+            }
+            if l >= 1 && start <= len64 {
+                if start + l > len64 {
+                    l = len64 - start + 1;
+                }
+                l
+            } else {
+                start = 1;
+                0
+            }
         }
-    }
-    let st = (start - 1) as usize;
-    if st >= s.len() {
-        return Ok(vec![]);
-    }
-    let rest = &s[st..];
-    let n = len.map_or(rest.len(), |l| (l as usize).min(rest.len()));
-    Ok(rest[..n].to_vec())
+        None => {
+            if start < 1 {
+                start = 1;
+            }
+            let l = len64 - start + 1;
+            if l < 1 {
+                start = 1;
+                0
+            } else {
+                l
+            }
+        }
+    };
+    let a = (start - 1) as usize;
+    (a, a + l as usize)
 }
 
 fn midset(t: &[u8], start: i64, len: Option<i64>, r: &[u8]) -> R<Vec<u8>> {
@@ -400,8 +397,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         return Ok(Some(V::S(vec![ty as u8, off as u8, (off >> 8) as u8])));
     }
+    if name == "_OFFSET.p" {
+        return Ok(Some(V::I(a[0].p() as i64)));
+    }
+    if name == "_OFFSET.s" {
+        let p = vm.str_data(a[0].p())?;
+        return Ok(Some(V::I(p as i64)));
+    }
+    if name == "getpid" {
+        return Ok(Some(V::I(i64::from(std::process::id()))));
+    }
     if name == "_COMMANDCOUNT" {
-        return Ok(Some(V::I(std::env::args().count().saturating_sub(1) as i64)));
+        return Ok(Some(V::I(program_args().len().saturating_sub(1) as i64)));
     }
     if name == "_OS$" {
         // func__os
@@ -416,7 +423,50 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             bits.to_string()
         };
         return Ok(Some(V::S(os.into_bytes())));
-    }    if name == "READCHK" {
+    }
+    if let Some(t) = name.strip_prefix("_MK$.") {
+        // little-endian bytes; _FLOAT = the 80-bit value in 32 bytes (f2string)
+        let b: Vec<u8> = match t {
+            "i64" => a[0].i().to_le_bytes().to_vec(),
+            "i8" | "u8" => vec![a[0].i() as u8],
+            "u16" => (a[0].i() as u16).to_le_bytes().to_vec(),
+            "u32" => (a[0].i() as u32).to_le_bytes().to_vec(),
+            "u64" => (a[0].i() as u64).to_le_bytes().to_vec(),
+            _ => {
+                let mut v = a[0].x().to_bytes().to_vec();
+                v.resize(32, 0);
+                v
+            }
+        };
+        return Ok(Some(V::S(b)));
+    }
+    if let Some(t) = name.strip_prefix("_CV.") {
+        let s = a[0].s();
+        let need = match t {
+            "i8" | "u8" => 1,
+            "u16" => 2,
+            "u32" => 4,
+            "u64" | "i64" => 8,
+            _ => 32,
+        };
+        if s.len() < need {
+            return e(5);
+        }
+        let v = match t {
+            "i8" => V::I(i64::from(s[0] as i8)),
+            "u8" => V::I(i64::from(s[0])),
+            "u16" => V::I(i64::from(u16::from_le_bytes([s[0], s[1]]))),
+            "u32" => V::I(i64::from(u32::from_le_bytes(s[..4].try_into().unwrap()))),
+            "u64" => V::I(u64::from_le_bytes(s[..8].try_into().unwrap()) as i64),
+            "i64" => V::I(i64::from_le_bytes(s[..8].try_into().unwrap())),
+            _ => V::X(qb_float80::F80::from_bytes(s[..10].try_into().unwrap())),
+        };
+        return Ok(Some(v));
+    }
+    if let Some(r) = math_call(name, &a) {
+        return r;
+    }
+    if name == "READCHK" {
         let c = std::mem::take(&mut vm.rt().read_err);
         return if c != 0 { e(c) } else { Ok(None) };
     }
@@ -610,14 +660,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             return ok(V::F(f64::from_le_bytes(b)));
         }
         "LEN" => return ok(V::I(s(0).len() as i64)),
+        // qbs_left / qbs_right: the count is clamped to 0..LEN
         "LEFT$" => {
-            let n = count(&a[1])?;
-            return ok(V::S(s(0)[..n.min(s(0).len())].to_vec()));
+            let n = i(1).clamp(0, s(0).len() as i64) as usize;
+            return ok(V::S(s(0)[..n].to_vec()));
         }
         "RIGHT$" => {
-            let n = count(&a[1])?;
             let t = s(0);
-            return ok(V::S(t[t.len() - n.min(t.len())..].to_vec()));
+            let n = i(1).clamp(0, t.len() as i64) as usize;
+            return ok(V::S(t[t.len() - n..].to_vec()));
         }
         "MID$" => return ok(V::S(mid(s(0), i(1), None)?)),
         "MID$.n" => return ok(V::S(mid(s(0), i(1), Some(i(2)))?)),
@@ -638,15 +689,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
             return ok(V::I(s(0).get(k as usize - 1).map_or(-1, |c| i64::from(*c))));
         }
-        "INSTR" => return ok(V::I(instr(1, s(0), s(1)).into())),
-        "INSTR.n" => {
-            if i(0) < 1 {
-                return e(5);
-            }
-            return ok(V::I(instr(i(0) as usize, s(1), s(2)).into()));
-        }
-        "_INSTRREV" => return ok(V::I(instrrev(0, s(0), s(1)).into())),
-        "_INSTRREV.n" => return ok(V::I(instrrev(i(0).max(0) as usize, s(1), s(2)).into())),
+        // qb_func_instr / qb_func__instrrev semantics (start < 1 is allowed)
+        "INSTR" => return ok(V::I(qb_instr(1, s(0), s(1), false).into())),
+        "INSTR.n" => return ok(V::I(qb_instr(i(0) as i32, s(1), s(2), true).into())),
+        "_INSTRREV" => return ok(V::I(qb_instrrev(0, s(0), s(1), false).into())),
+        "_INSTRREV.n" => return ok(V::I(qb_instrrev(i(0) as i32, s(1), s(2), true).into())),
         "UCASE$" => return ok(V::S(s(0).to_ascii_uppercase())),
         "LCASE$" => return ok(V::S(s(0).to_ascii_lowercase())),
         "LTRIM$" => return ok(V::S(trim_l(s(0)))),
@@ -885,9 +932,21 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 qb_runtime::systime::sleep_ms((a[0].f() * 1000.0).min(86_400_000.0) as u64);
             }
         }
-        "COMMAND$" => {
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            return ok(V::S(args.join(" ").into_bytes()));
+        "ASCSET" => {
+            let mut t = s(0).to_vec();
+            let p = i(1);
+            if p < 1 || p as usize > t.len() {
+                return e(5);
+            }
+            t[p as usize - 1] = i(2) as u8;
+            return ok(V::S(t));
+        }
+        "COMMAND$" => return ok(V::S(program_args()[1..].join(" ").into_bytes())),
+        "COMMAND$.n" => {
+            // COMMAND$(n): argument n (0 = the program), "" out of range
+            let a = program_args();
+            let n = i(0);
+            return ok(V::S(if n >= 0 && (n as usize) < a.len() { a[n as usize].clone().into_bytes() } else { vec![] }));
         }
         "ENVIRON$" => {
             return ok(V::S(std::env::var_os(String::from_utf8_lossy(s(0)).as_ref()).map(|v| v.to_string_lossy().into_owned().into_bytes()).unwrap_or_default()))
@@ -1595,4 +1654,169 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
         _ => return None,
     };
     Some(Ok(Some(v)))
+}
+
+/// Math and bit builtins named by their libqb/libm callnames (`_ACOS`, `_D2R`,
+/// `_SEC`, `_SHL`, `_STRCMP`, ...). libqb computes these in double.
+fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
+    let x = |k: usize| a[k].f();
+    let f80 = |v: f64| Some(Ok(Some(V::X(qb_float80::F80::from_f64(v)))));
+    let bad = || Some(e(5));
+    let v = a.first().map_or(0.0, V::f);
+    match name {
+        "acos" => f80(v.acos()),
+        "asin" => f80(v.asin()),
+        "ceil" => f80(v.ceil()),
+        "sinh" => f80(v.sinh()),
+        "cosh" => f80(v.cosh()),
+        "tanh" => f80(v.tanh()),
+        "atan2" => f80(v.atan2(x(1))),
+        "hypot" => f80(v.hypot(x(1))),
+        "func_deg2rad" => f80(v * 0.017453292519943295),
+        "func_rad2deg" => f80(v * 57.29577951308232),
+        "func_deg2grad" => f80(v * 1.111111111111111),
+        "func_grad2deg" => f80(v * 0.9),
+        "func_rad2grad" => f80(v * 63.66197723675816),
+        "func_grad2rad" => f80(v * 0.01570796326794896),
+        "func_arcsec" | "func_arccsc" => {
+            if !(-1.0..=1.0).contains(&v) {
+                return bad();
+            }
+            let sign = f64::from(i32::from(v > 0.0) - i32::from(v < 0.0));
+            f80((v / (1.0 - v * v).sqrt()).atan() + (sign - 1.0) * (2.0 * 1f64.atan()))
+        }
+        "func_arccot" => f80(2.0 * 1f64.atan() - v.atan()),
+        "func_sech" | "func_csch" => {
+            if v > 88.02969 {
+                return bad();
+            }
+            let d = if name == "func_sech" { v.exp() + (-v).exp() } else { v.exp() - (-v).exp() };
+            if d == 0.0 {
+                return bad();
+            }
+            f80(2.0 / d)
+        }
+        "func_coth" => {
+            if v > 44.014845 || 2.0 * v.exp() - 1.0 == 0.0 {
+                return bad();
+            }
+            f80(2.0 * v.exp() - 1.0)
+        }
+        "func_sec" | "func_csc" | "func_cot" => {
+            let d = match name {
+                "func_sec" => v.cos(),
+                "func_csc" => v.sin(),
+                _ => v.tan(),
+            };
+            if d == 0.0 {
+                return bad();
+            }
+            f80(1.0 / d)
+        }
+        "func_pi" => {
+            let pi = std::f64::consts::PI;
+            Some(Ok(Some(V::F(if a[1].i() != 0 { pi * v } else { pi }))))
+        }
+        "func__shl" | "func__shr" | "func__setbit" | "func__resetbit" | "func__togglebit" | "func__readbit" => {
+            let (n, b) = (a[0].i() as u64, (a[1].i() as u32) & 63);
+            let r = match name {
+                "func__shl" => n << b,
+                "func__shr" => n >> b,
+                "func__setbit" => n | 1 << b,
+                "func__resetbit" => n & !(1 << b),
+                "func__togglebit" => n ^ 1 << b,
+                _ => {
+                    if n & 1 << b != 0 {
+                        u64::MAX
+                    } else {
+                        0
+                    }
+                }
+            };
+            Some(Ok(Some(V::I(r as i64))))
+        }
+        "func__str_compare" | "func__str_nc_compare" => {
+            let (p, q) = (a[0].s(), a[1].s());
+            let o = if name == "func__str_compare" {
+                p.cmp(q)
+            } else {
+                p.to_ascii_lowercase().cmp(&q.to_ascii_lowercase())
+            };
+            Some(Ok(Some(V::I(o as i64))))
+        }
+        _ => None,
+    }
+}
+
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// The program's argv as BASIC sees it: [program, args...]. `qb-exec prog.qir a b`
+/// sets it to [prog.qir, a, b] (`set_program_args`); a packaged program uses its own argv.
+pub(crate) fn program_args() -> &'static [String] {
+    PROGRAM_ARGS.get_or_init(|| std::env::args().collect())
+}
+
+/// Sets the program's argv (first call wins).
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+/// `qb_func_instr` (qbs.rs) on slices.
+fn qb_instr(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
+    let mut start = if passed { start } else { 1 };
+    let (slen, tlen) = (s.len() as i32, t.len() as i32);
+    if slen == 0 {
+        return 0;
+    }
+    if start < 1 {
+        start = 1;
+        if tlen == 0 {
+            return 0;
+        }
+    }
+    if start > slen {
+        return 0;
+    }
+    if tlen == 0 {
+        return start;
+    }
+    if start + tlen - 1 > slen {
+        return 0;
+    }
+    s[start as usize - 1..].windows(t.len()).position(|w| w == t).map_or(0, |p| p as i32 + start)
+}
+
+/// `qb_func__instrrev` (qbs.rs) on slices.
+fn qb_instrrev(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
+    let (slen, tlen) = (s.len() as i32, t.len() as i32);
+    if slen == 0 || tlen > slen {
+        return 0;
+    }
+    let mut start = start;
+    if !passed {
+        if tlen == slen && s == t {
+            return 1;
+        }
+        start = slen - tlen + 1;
+    }
+    if start < 1 || start > slen {
+        start = slen - tlen + 1;
+    }
+    if tlen == 0 {
+        return start - 1;
+    }
+    if start + tlen - 1 > slen {
+        start = slen - tlen + 1;
+    }
+    let (mut forward, mut result) = (0, 0);
+    loop {
+        forward = qb_instr(forward + 1, s, t, true);
+        if forward > 0 && forward <= start {
+            result = forward;
+        }
+        if forward == 0 || forward > start {
+            break;
+        }
+    }
+    result
 }
