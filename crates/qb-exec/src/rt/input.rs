@@ -487,6 +487,36 @@ impl Input {
         }
     }
 
+    /// ON KEY(1..14, 30, 31): F1-F10, the arrows (also on the keypad), F11, F12
+    /// (libqb.cpp keydown, priority 2). Marks the slot; true = the key was trapped.
+    fn onkey_trap(x: u32, x2: u32) -> bool {
+        let keys = qb_runtime::events::onkeys();
+        for (i, k) in keys.iter_mut().enumerate() {
+            if k.active == 0 || k.id == 0 {
+                continue;
+            }
+            let (code, alt) = match i {
+                1..=10 => ((58 + i as u32) << 8, 0),
+                11 => (72 << 8, VK + KP0 + 8),
+                12 => (75 << 8, VK + KP0 + 4),
+                13 => (77 << 8, VK + KP0 + 6),
+                14 => (80 << 8, VK + KP0 + 2),
+                30 => (133 << 8, 0),
+                31 => (134 << 8, 0),
+                _ => continue,
+            };
+            if x2 == code || (alt != 0 && x == alt) {
+                if k.active == 1 {
+                    k.state = k.state.saturating_add(1);
+                } else {
+                    k.state = 1;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
     fn keydown(&mut self, cmem: &mut [u8], mut x: u32) {
         if x == 0 {
             x = QBK + QBK_CHR0;
@@ -501,6 +531,15 @@ impl Input {
         keybuf::qb_keyheld_add(x, 0);
         let (x2, numpad) = Self::plain(x);
         keybuf::qb_keyhit_push(i64::from(x2) | numpad);
+        if Self::onkey_trap(x, x2) {
+            // the trapped key does not reach the keyboard buffer, nor its key-up
+            match self.keyup_mask.iter().position(|&m| m == 0) {
+                Some(p) => self.keyup_mask[p] = x,
+                None if self.keyup_mask.len() < 256 => self.keyup_mask.push(x),
+                None => {}
+            }
+            return;
+        }
         let bios = &mut cmem[0x400..];
         let (shift, ctrl, alt) = (held(VK + LSHIFT) || held(VK + RSHIFT), held(VK + LCTRL) || held(VK + RCTRL), held(VK + LALT) || held(VK + RALT));
         let mut x = x;

@@ -275,6 +275,9 @@ pub enum Inst {
     /// `ON TIMER([slot,] secs) GOSUB target`: `slot` i32 (0 = plain ON TIMER), `secs` f64;
     /// the handler runs as a GOSUB at module level when the timer fires.
     OnTimer { slot: Reg, secs: Reg, target: String },
+    /// `ON KEY(key) GOSUB target`: `key` i32 1..31; the handler runs as a GOSUB at
+    /// module level when the key is pressed while trapping is on (`KEY(n) ON`).
+    OnKey { key: Reg, target: String },
     Resume(ResumeKind),
     Error(Reg),
     Read { ty: Ty, dst: Reg },

@@ -343,6 +343,40 @@ fn clear(vm: &mut dyn Host<'_>, run: bool) -> R<()> {
     Ok(())
 }
 
+/// FILES [spec$] (libqb.cpp sub_files): the directory line, entries of 18 columns
+/// (a new line when one does not fit in 80), then "n Bytes free".
+fn files(vm: &mut dyn Host<'_>, spec: &[u8], passed: bool) -> R<()> {
+    let (err, lines) = qb_runtime::fsops::files(passed.then_some(spec));
+    if err == 5 {
+        return e(5);
+    }
+    let Some((dir, rest)) = lines.split_first() else { return Ok(()) };
+    let p = |vm: &mut dyn Host<'_>, s: &[u8], nl: bool| -> R<()> {
+        super::builtins::call(vm, "PRINTS", vec![V::I(0), V::S(s.to_vec())])?;
+        if nl {
+            super::builtins::call(vm, "PRINTNL", vec![V::I(0)])?;
+        }
+        Ok(())
+    };
+    p(vm, dir, true)?;
+    if err != 0 {
+        return e(err);
+    }
+    let Some((last, entries)) = rest.split_last() else { return Ok(()) };
+    for x in entries {
+        let pos = super::builtins::call(vm, "POS", vec![V::I(0)])?.map_or(1, |v| v.i());
+        if pos > 1 && pos as usize - 1 + x.len() > 80 {
+            p(vm, b"", true)?;
+        }
+        p(vm, x, false)?;
+    }
+    let pos = super::builtins::call(vm, "POS", vec![V::I(0)])?.map_or(1, |v| v.i());
+    if pos > 1 {
+        p(vm, b"", true)?;
+    }
+    p(vm, last, true)
+}
+
 pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let i = |k: usize| a[k].i();
     let none = Ok(None);
@@ -418,6 +452,28 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             let (cmd, exe) = chain_command(&f);
             run_program(vm, &cmd, &exe).map(|_| None)
         }
+        // STRIG[(n[, controller])] ON|OFF|STOP (+ passed): no joystick, so no ON STRIG event ever fires
+        "sub_strig" => {
+            let ev = qb_runtime::events::onstrigs();
+            qb_runtime::events::strig_statement(ev, i(0) as i32, i(1) as i32, i(2) as i32, i(3) as i32).map_or_else(e, |_| Ok(None))
+        }
+        // ON STRIG(n[, controller]) GOSUB: argument checks only (see sub_strig)
+        "ONSTRIG" => {
+            let ev = qb_runtime::events::onstrigs();
+            qb_runtime::events::onstrig_setup(ev, i(0) as i32, i(1) as i32, i(2) != 0, 0, 0).map_or_else(e, |_| Ok(None))
+        }
+        // STRIG(n[, controller]): button state, 0 without a joystick (argument checks as libqb func_strig)
+        "func_strig" => {
+            let (n, c, passed) = (i(0), i(1), i(2) != 0);
+            if !(0..=65535).contains(&n) || (passed && !(1..=65535).contains(&c)) {
+                e(5)
+            } else {
+                Ok(Some(V::I(0)))
+            }
+        }
+        // the mouse cursor shape of a window: no visible effect here
+        "sub__mousehide" | "sub__mouseshow" => none,
+        "sub_files" => files(vm, a[0].s(), i(1) != 0).map(|_| None),
         _ => return None,
     })
 }
