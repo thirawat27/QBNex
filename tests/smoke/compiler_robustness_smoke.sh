@@ -39,6 +39,7 @@ bad endif_alone '$END IF without $IF' 'endif_alone.bas(2)'
 bad ifdef_too_deep 'Too many nested $IF blocks' 'ifdef_too_deep.bas(257)'
 good ifdef_valid
 good deep_parens_ok
+good long_expr
 rm -rf "$tmp"
 [ "$failed" -eq 0 ] || exit 1
 echo "[PASS] compiler robustness smoke"
