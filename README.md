@@ -26,6 +26,7 @@ The user manual is in [`docs/manual`](docs/manual/README.md), in English and Tha
 | [Web (WebAssembly) build](docs/manual/en/web.md) | [รันบนเว็บ (WebAssembly)](docs/manual/th/web.md) |
 | [VS Code, formatter, language server, debugger](docs/manual/en/vscode.md) | [VS Code, formatter, language server, debugger](docs/manual/th/vscode.md) |
 | [Differences from QB64](docs/manual/en/differences.md) | [ความแตกต่างจาก QB64](docs/manual/th/differences.md) |
+| [Limitations and differences from QB64](docs/manual/en/limitations.md) | [ข้อจำกัดและความต่างจาก QB64](docs/manual/th/limitations.md) |
 
 Where this README and the manual disagree, the manual is the current one.
 
