@@ -49,19 +49,26 @@ runner เรียกฟังก์ชันเป็น machine code โด�
   (`name.h`) หรือ source C/C++ ที่อยู่คู่กับ `DECLARE LIBRARY "name"` เข้าไปใน
   โปรแกรม แต่ QBNex ทำแบบนั้นไม่ได้
 - **ใช้ static library ไม่ได้** (`.a`, `.lib`, `.o`) เพราะไม่มีขั้นตอน link
+- **shared library ถูกโหลดตามชื่อ** `DECLARE LIBRARY "name"` และ
+  `DECLARE DYNAMIC LIBRARY "name"` จะโหลด shared library ตอนเรียกฟังก์ชันของมัน
+  ครั้งแรก (ทั้งใน VM, JIT และ `.exe` แบบ native) โดยค้นหาชื่อแบบเดียวกับ QB64:
+  - Windows: `name.dll` ตาม path ที่ให้ไว้ในชื่อ, ใน `System32` แล้วจึงตาม
+    DLL search path ปกติ
+  - Linux: `libname.so` (หรือ `libname.so.version` เมื่อเขียน `"name:version"`)
+    ตาม path, ใน `/usr/lib64` และ `/usr/lib`
+  - macOS: `libname.dylib` แบบเดียวกัน
+
+  บน Windows คอมไพเลอร์จะหยุดด้วย `LIBRARY not found` ถ้าไม่มี `.dll` นั้น
+  ส่วนบน Linux และ macOS ถ้าไม่มีไลบรารีจะเกิด error 453 ตอนเรียกครั้งแรก
 - **ฟังก์ชันถูกค้นหาจากที่ไหน** ฟังก์ชันที่ประกาศไว้จะถูกค้นตามลำดับนี้: ใน runner
-  (ฟังก์ชัน `ext.*` ของไลบรารีมาตรฐาน), ในตัวโปรแกรมเอง, แล้วจึงในไลบรารีของระบบ:
+  (ฟังก์ชัน `ext.*` ของไลบรารีมาตรฐาน), ในไลบรารีที่ระบุในบล็อก `DECLARE LIBRARY`
+  ของมัน, ในตัวโปรแกรมเอง, แล้วจึงในไลบรารีของระบบ:
   - Windows: ucrtbase, msvcrt, kernel32, user32, gdi32, advapi32, shell32,
     ole32, oleaut32, comdlg32, winmm, ws2_32 และ ntdll
   - Linux: libc, libm, libdl และ libpthread
   - macOS: libSystem
 
   ถ้าหาฟังก์ชันไม่เจอ จะเกิด error 453 ตอนเรียกครั้งแรก
-- **ยังโหลด DLL หรือ shared library ของคุณเองไม่ได้** ตอนนี้ชื่อไลบรารีใน
-  `DECLARE LIBRARY "name"` และ `DECLARE DYNAMIC LIBRARY "name"` ยังส่งไปไม่ถึง
-  runner ฟังก์ชันที่มีอยู่เฉพาะใน `.dll` / `.so` / `.dylib` ของคุณจึงหาไม่เจอ
-  (error 453) runner เปิดไฟล์แบบนี้ได้อยู่แล้ว (`qb_ffi::Library::open_dynamic`)
-  ที่ยังขาดคือการส่งชื่อมาจากคอมไพเลอร์
 - **ชนิดข้อมูล** ใช้ได้กับจำนวนเต็มทุกขนาด, SINGLE, DOUBLE, `_OFFSET`, สตริง
   (ส่งเป็น pointer ไปยังไบต์ของสตริง) และอาร์กิวเมนต์แบบ BYREF (ส่งเป็นที่อยู่)
   ที่ยังไม่รองรับคือ `_FLOAT` ทั้งในอาร์กิวเมนต์และค่าที่คืน (D-112), ฟังก์ชัน C

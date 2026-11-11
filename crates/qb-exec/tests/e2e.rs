@@ -166,3 +166,27 @@ fn language_programs_match_the_cpp_golden() {
         assert_eq!(ir, expected, "lang{n} under QIR");
     }
 }
+/// DECLARE [DYNAMIC] LIBRARY "name" calls functions of that library (the name reaches
+/// the runner through `meta extfn`). shlwapi is not one of the default system libraries,
+/// so the first two calls only work when the named library is opened.
+#[cfg(windows)]
+#[test]
+fn declare_library_calls_functions_of_the_named_dll() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("declib");
+    let src = dir.join("declib.bas");
+    std::fs::write(
+        &src,
+        "$CONSOLE:ONLY\n\
+         DECLARE DYNAMIC LIBRARY \"shlwapi\"\n    FUNCTION StrToIntA& (s AS STRING)\nEND DECLARE\n\
+         DECLARE LIBRARY \"shlwapi\"\n    FUNCTION PathIsRelativeA& (s AS STRING)\nEND DECLARE\n\
+         DECLARE LIBRARY \"kernel32\"\n    FUNCTION GetTickCount~& ()\nEND DECLARE\n\
+         PRINT StrToIntA(\"1234\" + CHR$(0))\n\
+         PRINT PathIsRelativeA(\"abc\" + CHR$(0)) <> 0\n\
+         t~& = GetTickCount: PRINT t~& > 0\n",
+    )
+    .unwrap();
+    let out = compile_and_run(&qb, &src, &dir.join("declib.exe"), &[]);
+    assert_eq!(out, " 1234 \n-1 \n-1 \n");
+}

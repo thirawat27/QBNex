@@ -18,6 +18,9 @@ DIM SHARED IrUniq AS LONG
 DIM SHARED IrFix AS STRING, IrFix2 AS STRING, IrFix3 AS STRING 'fixed expressions captured by hooks
 DIM SHARED IrPendCase$, IrPendEvery AS LONG, IrPendElse AS LONG, IrPendCaseOn AS LONG, IrPendLevel AS LONG 'CASE waiting for finishedline
 DIM SHARED IrExtMeta AS STRING 'meta extfn lines (DECLARE LIBRARY)
+'DECLARE LIBRARY: spec of the library being declared ("" = none) and, per declared
+'procedure, CHR$(1) + QIR name + CHR$(2) + C symbol + CHR$(2) + library spec + CHR$(1)
+DIM SHARED IrLibSpec AS STRING, IrLibOf AS STRING
 DIM SHARED IrPendLL AS LONG 'numeric line label waiting for its LASTLINE
 DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
 DIM SHARED IrDataN AS LONG

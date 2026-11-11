@@ -57,21 +57,29 @@ compiler:
   into the program; QBNex cannot.
 - **Static libraries cannot be used** (`.a`, `.lib`, `.o`): there is no
   linker step.
+- **Shared libraries are loaded by name.** `DECLARE LIBRARY "name"` and
+  `DECLARE DYNAMIC LIBRARY "name"` load the shared library when one of
+  its functions is first called (in the VM, the JIT and native `.exe`
+  alike). The name is looked for as in QB64:
+  - Windows: `name.dll` next to the path given in the name, in
+    `System32`, then on the normal DLL search path;
+  - Linux: `libname.so` (or `libname.so.version` for
+    `"name:version"`) next to the path, in `/usr/lib64` and `/usr/lib`;
+  - macOS: `libname.dylib` the same way.
+
+  On Windows the compiler stops with `LIBRARY not found` when no such
+  `.dll` exists; on Linux and macOS a missing library shows up as
+  error 453 at the first call.
 - **Where functions are found.** A declared function is looked up, in
   this order, in the runner (the `ext.*` functions of the standard
-  library), in the program itself, and in the system libraries:
+  library), in the library named in its `DECLARE LIBRARY` block, in the
+  program itself, and in the system libraries:
   - Windows: ucrtbase, msvcrt, kernel32, user32, gdi32, advapi32,
     shell32, ole32, oleaut32, comdlg32, winmm, ws2_32 and ntdll;
   - Linux: libc, libm, libdl and libpthread;
   - macOS: libSystem.
 
   A function that is not found raises error 453 when it is first called.
-- **Your own DLL or shared library is not loaded yet.** The library name
-  in `DECLARE LIBRARY "name"` and `DECLARE DYNAMIC LIBRARY "name"` does
-  not reach the runner today, so a function exported only by your own
-  `.dll` / `.so` / `.dylib` is not found (error 453). The runner can
-  already open such files (`qb_ffi::Library::open_dynamic`); passing the
-  name from the compiler is still missing.
 - **Types.** Integers of every size, SINGLE, DOUBLE, `_OFFSET`, strings
   (passed as a pointer to their bytes) and BYREF arguments (passed as an
   address) work. Not supported: `_FLOAT` arguments or results (D-112),

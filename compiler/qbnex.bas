@@ -3210,6 +3210,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 END IF
 
                 sfdeclare = 0: sfheader = 0
+                IrLibSpec = ""
 
                 IF n >= x THEN
 
@@ -3316,6 +3317,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     libpath_inline$ = libpath_inline$ + CHR$(a)
                     IF a = 92 THEN libpath_inline$ = libpath_inline$ + "\"
                 NEXT
+
+                'QIR: the runner opens this library (qb-ffi: name.dll, libname.so, libname.dylib)
+                IF LEN(IrLibSpec) = 0 AND LEN(x$) > 0 THEN
+                    IrLibSpec = libpath$ + x$
+                    IF LEN(libver$) THEN IrLibSpec = IrLibSpec + ":" + libver$
+                END IF
 
                 IF LEN(x$) THEN
                     IF dynamiclibrary = 0 THEN
@@ -3887,7 +3894,11 @@ END IF 'Dynamic
 
 'library found?
 IF dynamiclibrary <> 0 AND LEN(libname$) = 0 THEN a$ = "DYNAMIC LIBRARY not found": GOTO errmes
-IF LEN(libname$) = 0 AND LEN(headername$) = 0 THEN a$ = "LIBRARY not found": GOTO errmes
+'QIR has no linker: DECLARE LIBRARY "name" without a static library or header uses the
+'shared library of that name at run time, as DECLARE DYNAMIC LIBRARY does
+IF LEN(libname$) = 0 AND LEN(headername$) = 0 THEN
+    IF IrSharedLibFound%(libpath$, x$, libver$) = 0 THEN a$ = "LIBRARY not found": GOTO errmes
+END IF
 
 '***actual method should cull redundant header and library entries***
 
@@ -4122,6 +4133,11 @@ IF n >= 1 THEN
     defdatahandle = 13
 
     declibjmp1:
+
+    IF declaringlibrary AND IrEmitMode THEN
+        'QIR call name -> C symbol (the ALIAS, or the declared name) and library
+        IrLibOf = IrLibOf + CHR$(1) + LTRIM$(RTRIM$(removecast$(RTRIM$(id2.callname)))) + CHR$(2) + aliasname$ + CHR$(2) + IrLibSpec + CHR$(1)
+    END IF
 
     IF declaringlibrary THEN
         IF sfdeclare = 0 AND indirectlibrary = 0 THEN
