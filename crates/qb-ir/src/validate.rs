@@ -366,6 +366,10 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
             s.reg(*secs, Some(Ty::F64), ctx)?;
             label(target, main_labels)?;
         }
+        Inst::OnKey { key, target } => {
+            s.int(*key, ctx)?;
+            label(target, main_labels)?;
+        }
         Inst::Read { ty, .. } => {
             if *ty == Ty::Ptr {
                 op_err("cannot READ a ptr")?;

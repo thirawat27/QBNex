@@ -1,0 +1,12 @@
+$CONSOLE
+' LOCATE below row 25 after printing on row 30: both backends agree.
+ON ERROR GOTO h
+COLOR 3, 0: CLS
+LOCATE 30, 28: r1 = CSRLIN
+PRINT "a"
+LOCATE 32, 28: r2 = CSRLIN
+PRINT "b"
+_DEST _CONSOLE
+PRINT r1; r2; e
+SYSTEM
+h: e = ERR: RESUME NEXT

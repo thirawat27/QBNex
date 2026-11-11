@@ -6266,6 +6266,7 @@ IF n >= 2 THEN
             e$ = optController$
         END IF
         PRINT #12, e$ + "," + optPassed$ + ",";
+        IF IrEmitMode THEN IrOnStrig optI$, optController$, optPassed$
 
         l$ = l$ + sp2 + ")" + sp 'close brackets
 
@@ -6691,6 +6692,7 @@ IF n >= 2 THEN
             Labels(r).Scope_Restriction = subfuncn
         END IF 'x
         l$ = l$ + SCase$("GoSub") + sp + tlayout$
+        IF IrEmitMode THEN IrOnKey e2$, a2$
 
         PRINT #28, "if(key_event_id==" + str2$(onkeyid) + ")goto LABEL_" + a2$ + ";"
 
@@ -6707,6 +6709,7 @@ IF n >= 2 THEN
         layoutdone = 1
         GOTO finishedline
     ELSE
+        IF IrEmitMode THEN IrNotSup "ON KEY(n) sub-name"
 
         'establish whether sub a2$ exists using try
         x = 0

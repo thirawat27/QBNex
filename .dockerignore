@@ -6,18 +6,12 @@
 *.o
 *.a
 *.exe
-internal/temp/
-internal/c/c_compiler/
-internal/c/mingw32/
-internal/c/mingw64/
+qb-stage0
 
 # Generated files
 qb.exe
 qb
 qbnex
-internal/config.ini
-internal/version.txt
-tempfoldersearch.bin
 
 # IDE
 .vscode/

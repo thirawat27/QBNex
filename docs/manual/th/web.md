@@ -17,7 +17,7 @@ cp target/wasm32-unknown-unknown/release/qb_web.wasm crates/qb-web/www/
 ## แปลงโปรแกรมเป็น QIR
 
 ```bash
-qb game.bas --ir -o game.exe
+qb game.bas -o game.exe
 ```
 
 ข้อความ QIR คือ payload ที่เก็บไว้ก่อน trailer `QBNEXIR0` ท้ายไฟล์

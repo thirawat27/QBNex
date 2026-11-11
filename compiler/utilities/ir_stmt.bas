@@ -177,11 +177,13 @@ SUB IrStmtEnd
             LOOP
         CASE "RUN"
             IrRun
-        CASE "ECHO", "INTERRUPTX", "_GL", "LPRINT", "STRIG"
+        CASE "ECHO", "INTERRUPTX", "_GL", "LPRINT"
             IrNotSup "statement " + f$
         CASE "ON"
-            IF s2$ <> "ERROR" THEN
-                IF s2$ = "KEY" OR s2$ = "STRIG" OR (s2$ <> "PLAY" AND s2$ <> "TIMER" AND IrFindSep(3, "|GOTO|GOSUB|") > n) THEN IrNotSup "ON " + s2$ 'ON PLAY: checked only, the event is not raised (D-24), as in the C++ path
+            'ON KEY / ON STRIG: lowered by their handlers (IrOnKey, IrOnStrig); ON PLAY: checked only,
+            'the event is not raised (D-24); ON expr GOTO/GOSUB: the selector may start with "(" (element 2)
+            IF s2$ <> "ERROR" AND s2$ <> "KEY" AND s2$ <> "STRIG" AND s2$ <> "PLAY" AND s2$ <> "TIMER" THEN
+                IF IrFindSep(2, "|GOTO|GOSUB|") > n THEN IrNotSup "ON " + s2$
             END IF
     END SELECT
 END SUB
@@ -319,22 +321,11 @@ SUB IrWrite
     IrE "rt PRINTNL " + ch$
 END SUB
 
-'ERASE of one array. A static array (DIM with constant bounds in the main
-'module) is only cleared, as in QBasic and the C++ backend: it is erased and
-'dimensioned again with the bounds it had. Any other array is freed.
+'ERASE of one array. A static array (dimensioned by "dims", IrDimStmt) is
+'only cleared, as in QBasic and the C++ backend; any other array is freed.
+'qb-exec decides at run time, so this also holds for an array passed as a().
 SUB IrErase (nm$, vn$)
-    DIM saveid AS idstruct, savecur AS LONG, st AS LONG, nd AS LONG, k AS LONG, regs$, lo$, hi$
-    saveid = id: savecur = currentid
-    IF FindArray(vn$) THEN st = id.staticarray: nd = ABS(id.arrayelements)
-    id = saveid: currentid = savecur
-    IF st = 0 OR nd < 1 THEN IrE "erase " + nm$: EXIT SUB
-    FOR k = 1 TO nd
-        lo$ = IrReg$: IrE "lbound " + lo$ + " " + nm$ + " " + IrI32$(k)
-        hi$ = IrReg$: IrE "ubound " + hi$ + " " + nm$ + " " + IrI32$(k)
-        regs$ = regs$ + " " + IrCvt$(lo$, "i32", "i64") + " " + IrCvt$(hi$, "i32", "i64")
-    NEXT
     IrE "erase " + nm$
-    IrE "dim " + nm$ + " " + str2$(nd) + regs$
 END SUB
 
 'INPUT [#n,] [prompt;|,] vars   /   LINE INPUT [#n,] [prompt;] var
@@ -410,6 +401,18 @@ SUB IrGetPut (f$)
     'operands first: the order of the emitted registers must not depend on the evaluation order of +
     q$ = IrAddr$(p$): r$ = IrI32$(sz)
     IrE "rt " + f$ + "REC " + ch$ + " " + pos$ + " " + q$ + " " + r$
+END SUB
+
+'ON KEY(n) GOSUB label (raw key expression, label as written)
+SUB IrOnKey (k$, lbl$)
+    IrE "onkey " + IrArgAs$(fixoperationorder$(k$), "i32") + " " + IrLbl$(UCASE$(lbl$))
+END SUB
+
+'ON STRIG(n[, controller]): checked only; without a joystick the event never fires
+SUB IrOnStrig (i$, c$, passed$)
+    DIM ctl$
+    IF passed$ = "1" THEN ctl$ = IrArgAs$(fixoperationorder$(c$), "i32") ELSE ctl$ = IrI32$(0)
+    IrE "rt ONSTRIG " + IrArgAs$(fixoperationorder$(i$), "i32") + " " + ctl$ + " " + IrI32$(VAL(passed$))
 END SUB
 
 'ON TIMER([slot,] secs) GOSUB label (raw slot/secs expressions, label as written)

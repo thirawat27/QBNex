@@ -256,9 +256,10 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
             "stfs" => Inst::StFs { ptr: p.reg()?, off: p.u32()?, len: p.u32()?, src: p.reg()? },
             "padd" => Inst::PAdd { dst: p.reg()?, ptr: p.reg()?, off: p.reg()? },
             "copy" => Inst::Copy { dst: p.reg()?, src: p.reg()?, size: p.u32()? },
-            "dim" | "redim" | "redimp" => {
+            "dim" | "dims" | "redim" | "redimp" => {
                 let kind = match m {
                     "dim" => DimKind::Dim,
+                    "dims" => DimKind::Static,
                     "redim" => DimKind::Redim,
                     _ => DimKind::RedimPreserve,
                 };
@@ -287,6 +288,7 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
                 n => Inst::OnError(Some(n)),
             },
             "ontimer" => Inst::OnTimer { slot: p.reg()?, secs: p.reg()?, target: p.name()? },
+            "onkey" => Inst::OnKey { key: p.reg()?, target: p.name()? },
             "resume" => match p.peek() {
                 None => Inst::Resume(ResumeKind::Same),
                 Some("next") => {
