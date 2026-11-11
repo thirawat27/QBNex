@@ -1472,7 +1472,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
             | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
-            | "func__printwidth" | "func__loadimage" | "func__title" | "sub__depthbuffer"
+            | "func__printwidth" | "func__loadimage" | "func__title" | "sub__blend" | "sub__dontblend" | "sub__glrender" | "sub__displayorder" | "sub__depthbuffer"
     );
     if !known {
         return None;
@@ -1674,6 +1674,24 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 };
                 out = Some(V::I(i64::from(v)));
+            }
+            "sub__glrender" => {
+                #[cfg(not(target_arch = "wasm32"))]
+                qb_runtime::gl::set_render(i(0));
+            }
+            // the layer order of software, hardware images and GL: one software screen and
+            // the _GLRENDER mode here, so the order is accepted and has no further effect
+            "sub__displayorder" => {}
+            "sub__blend" | "sub__dontblend" => {
+                // _BLEND / _DONTBLEND [image]: alpha blending of a 32-bit image (libqb sub__blend)
+                let idx = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
+                if let Some(x) = idx {
+                    if (*im(x)).bytes_per_pixel == 1 {
+                        gerr(d, 5);
+                    } else {
+                        (*im(x)).alpha_disabled = u8::from(name == "sub__dontblend");
+                    }
+                }
             }
             "sub__palettecolor" => {
                 let idx = if i(3) != 0 { d.resolve(i(2)) } else { Some(d.write_index) };

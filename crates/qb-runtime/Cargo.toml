@@ -63,6 +63,9 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 winit = "0.30"
 softbuffer = "0.4"
+# SUB _GL / _gl* (D-14 closed): an OpenGL context on the program window; pure Rust
+# (WGL on Windows, EGL/GLX through dlopen on Linux, CGL on macOS), no C toolchain
+glutin = "0.32"
 gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
 # R15 G2: present the window frame through the GPU (wgpu) when the feature is on;
 # softbuffer stays the default and the fallback when no adapter/surface is available.

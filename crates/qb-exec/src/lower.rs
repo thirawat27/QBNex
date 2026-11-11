@@ -401,6 +401,12 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         fuse_for_tests(&mut m.code, f.entry as usize..f.end as usize, &zero);
     }
     m.funcs = funcs;
+    // SUB _GL (`meta glsub <function>`): called with no arguments at every display frame
+    if let Some(name) = src.meta("glsub") {
+        let f = m.funcs.iter().position(|f| f.name == name).ok_or_else(|| format!("meta glsub: unknown function {name}"))?;
+        m.calls.push(CallDesc { args: Vec::new(), dest: None });
+        m.gl_sub = Some((f as u32, m.calls.len() as u32 - 1));
+    }
     m.validate().map_err(|e| format!("internal: {e}"))?;
     Ok(m)
 }
@@ -1859,5 +1865,5 @@ fn parse_xfn(v: &str) -> Option<XFn> {
     };
     let ret = ty(it.next()?)?;
     let args = it.map(ty).collect::<Option<Vec<_>>>()?;
-    Some(XFn { name, lib: if lib == "-" { String::new() } else { lib.to_string() }, args, ret })
+    Some(XFn { name, gl: lib == "opengl", lib: if lib == "-" { String::new() } else { lib.to_string() }, args, ret })
 }

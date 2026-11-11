@@ -7,4 +7,5 @@
 '$INCLUDE:'..\utilities\error_handler_defs.bas'
 '$INCLUDE:'..\utilities\state.bas'
 '$INCLUDE:'..\utilities\ir_state.bas'
+'$INCLUDE:'..\utilities\opengl_global.bas'
 '$INCLUDE:'..\utilities\ini-manager\ini.bi'

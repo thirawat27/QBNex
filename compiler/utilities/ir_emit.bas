@@ -1055,8 +1055,9 @@ END FUNCTION
 
 'user SUB/FUNCTION call; args$ raw elements joined with CHR$(0) per argument
 'DECLARE LIBRARY function/SUB: a QIR call of the C name plus "meta extfn name lib ret args"
-'(BYREF and _OFFSET arguments are addresses, strings pass their characters)
-FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG)
+'(BYREF and _OFFSET arguments are addresses, strings pass their characters); lib$ is "-" for DECLARE LIBRARY,
+'"opengl" for the _gl* table of SUB _GL (opengl_methods.bas: internal ccall ids; pointer args/results are i64)
+FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
     DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, tys$, x$, rt$, ty$
     DIM sv(1 TO 100) AS STRING
     FOR k = 1 TO nargs: sv(k) = IrArgs(k): NEXT
@@ -1080,7 +1081,7 @@ FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG)
     ELSE
         rt$ = "void"
     END IF
-    IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " - " + rt$ + tys$ + CHR$(10)
+    IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " " + lib$ + " " + rt$ + tys$ + CHR$(10)
     IF rt$ = "void" THEN
         IrE "call " + nm$ + regs$
     ELSE
@@ -1100,7 +1101,7 @@ FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
         'DECLARE LIBRARY ... FUNCTION getpid& (the compiler's temp folder lock): the process id
         IrUserCall$ = IrRt$("getpid", "", "i32"): EXIT FUNCTION
     END IF
-    IF ids(idn).ccall THEN IrUserCall$ = IrExtCall$(idn, nargs): EXIT FUNCTION
+    IF ids(idn).ccall THEN IrUserCall$ = IrExtCall$(idn, nargs, "-"): EXIT FUNCTION
     FOR k = 1 TO ids(idn).args
         pt = CVL(MID$(ids(idn).arg, k * 4 - 3, 4))
         ps = CVL(MID$(ids(idn).argsize, k * 4 - 3, 4))
@@ -1216,7 +1217,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "func__green|func__blue|func__alpha|func__rgb32|func__rgba32|func__red32|"
     l$ = l$ + "func__green32|func__blue32|func__alpha32|func__palettecolor|sub__palettecolor|sub_graphics_get|"
     l$ = l$ + "sub_graphics_put|qbsub_width|sub__font|func__font|func__fontwidth|func__fontheight|"
-    l$ = l$ + "sub__limit|sub__delay|sub__title|"
+    l$ = l$ + "sub__limit|sub__delay|sub__title|sub__blend|sub__dontblend|sub__glrender|sub__displayorder|"
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
     l$ = l$ + "func__freetimer|sub_timer|sub_key|"
@@ -1351,6 +1352,11 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
     IF ids(idn).internal_subfunc = 0 THEN
         FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
         IrCallFunc$ = IrUserCall$(idn, nargs)
+        EXIT FUNCTION
+    END IF
+    IF ids(idn).ccall THEN 'internal ccall = an OpenGL _gl* FUNCTION (opengl_methods.bas)
+        FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+        IrCallFunc$ = IrExtCall$(idn, nargs, "opengl")
         EXIT FUNCTION
     END IF
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
@@ -1918,6 +1924,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     END IF
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
     FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
+    IF ids(idn).ccall THEN x$ = IrExtCall$(idn, nargs, "opengl"): EXIT SUB 'internal ccall = an OpenGL _gl* SUB / _gluPerspective
     IF IrExtSub%(nm$, sv(), nargs) THEN EXIT SUB 'R13 _ASSERT (ir_ext.bas)
     SELECT CASE nm$
         CASE "BEEP": IrE "rt BEEP"
@@ -2263,6 +2270,12 @@ SUB IrFinish (src$, outExe$)
     END IF
     IF ScreenHide THEN PRINT #fh, "meta screenhide"
     PRINT #fh, IrExtMeta;
+    IF UseGL THEN
+        'SUB _GL (deviation D-14): the runner calls this function every frame with a GL context current
+        FOR i = 2 TO IrFnN
+            IF IrFnName(i) = "SUB__GL" THEN PRINT #fh, "meta glsub SUB__GL"
+        NEXT
+    END IF
     PRINT #fh, IrMod;
     top = 0
     FOR i = 2 TO IrFnN

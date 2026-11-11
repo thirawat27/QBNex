@@ -228,6 +228,15 @@ struct Frame {
     desc: u32,
 }
 
+/// State of `SUB _GL` calls at display frames.
+#[derive(Default)]
+struct GlFrames {
+    /// no OpenGL context could be made: frames are presented in software
+    failed: bool,
+    /// a frame's SUB _GL is running (no nested frame from its safe points)
+    busy: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Gs {
     /// ON TIMER slot whose handler this GOSUB runs (-1 = a plain GOSUB)
@@ -299,6 +308,8 @@ pub struct Vm<'m, 'o> {
     /// `exec` returns when a RET brings the frame count back to this
     /// (calls made from native code run the callee to completion).
     stop_depth: usize,
+    /// SUB _GL frames (`Module::gl_sub`)
+    gl: GlFrames,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
     /// addressable memory (QIR TYPE / STRING * n / pointers)
@@ -434,6 +445,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             poll_mask: u32::MAX,
             jit: crate::jit::JitState::from_env(m),
             stop_depth: usize::MAX,
+            gl: GlFrames::default(),
             jit_nest: 0,
             mem: crate::mem::Mem::new(),
             owned: Vec::new(),
@@ -1195,6 +1207,53 @@ impl<'m, 'o> Vm<'m, 'o> {
         })
     }
 
+    /// One display frame drawn by `SUB _GL` (libqb's GL display callback): the
+    /// software screen goes behind, the program's SUB runs to completion with
+    /// the context current, then the frame is swapped. Returns the pc to go on
+    /// at (`pc`, or `u32::MAX` when the program ended inside the SUB).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cold]
+    fn gl_frame(&mut self, pc: u32) -> u32 {
+        let Some((f, desc)) = self.m.gl_sub else { return pc };
+        let soft = crate::rt::window_pixels(&self.rt.display);
+        if let Err(e) = qb_runtime::gl::begin_frame(soft.as_ref().map(|(p, w, h)| (p.as_slice(), *w, *h))) {
+            eprintln!("qb-exec: SUB _GL is not run: no OpenGL context ({e})");
+            self.gl.failed = true;
+            crate::rt::window_present(&self.rt.display);
+            return pc;
+        }
+        self.gl.busy = true;
+        let depth = self.frames.len();
+        let saved = self.stop_depth;
+        let r = match self.call(f, desc, pc) {
+            Ok(entry) => {
+                self.stop_depth = depth;
+                let r = self.exec_impl::<false>(entry);
+                self.stop_depth = saved;
+                r
+            }
+            Err(c) => Err((c, pc)),
+        };
+        qb_runtime::gl::end_frame();
+        self.gl.busy = false;
+        match r {
+            Ok(u32::MAX) => u32::MAX,
+            Ok(_) => pc,
+            Err((code, at)) => {
+                // an error inside SUB _GL ends the program (it runs outside the main flow)
+                let _ = self.rt.flush();
+                eprintln!("Unhandled error #{code} on line {} (in SUB _GL)", self.line_of(at));
+                self.exit_code = 1;
+                u32::MAX
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn gl_frame(&mut self, pc: u32) -> u32 {
+        pc
+    }
+
     // ------------------------------------------------------------ events
 
     /// Safe point with pending events: discard events that are OFF, run the
@@ -1210,6 +1269,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                 return Some(u32::MAX);
             }
             if bits & (1 << crate::rt::PRESENT_EVENT) != 0 && self.rt.display.autodisplay != 0 {
+                if self.m.gl_sub.is_some() && !self.gl.failed && !self.gl.busy {
+                    // SUB _GL draws this frame; the register file may move: reload at `pc`
+                    return Some(self.gl_frame(pc));
+                }
                 crate::rt::window_present(&self.rt.display);
             }
         }
@@ -1240,6 +1303,23 @@ impl<'m, 'o> Vm<'m, 'o> {
             return Ok(self.xptrs[i]);
         }
         let xf = &self.m.xfns[i];
+        if xf.gl {
+            // `_gl*`: only inside SUB _GL (error 270, as libqb's sub_gl_called check)
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if !qb_runtime::gl::in_frame() {
+                    return Err(270);
+                }
+                let p = qb_runtime::gl::proc_address(&xf.name) as usize;
+                if p == 0 {
+                    return Err(453);
+                }
+                self.xptrs[i] = p;
+                return Ok(p);
+            }
+            #[cfg(target_arch = "wasm32")]
+            return Err(270);
+        }
         let mut p = crate::ext_symbol(&xf.name).map(|p| p as usize);
         if p.is_none() && !xf.lib.is_empty() {
             if let Ok(l) = qb_ffi::Library::open_dynamic(&xf.lib, None) {
@@ -1764,6 +1844,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::XCall { c } => {
                     let xc = &m.xcalls[c as usize];
                     let xf = &m.xfns[xc.f as usize];
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if xf.gl && !qb_runtime::gl::in_frame() {
+                        fail!(270);
+                    }
                     let fp = tryc!(self.xresolve(xc.f as usize));
                     let mut vals = Vec::with_capacity(xc.args.len());
                     for (&r, &t) in xc.args.iter().zip(&xf.args) {

@@ -177,7 +177,7 @@ SUB IrStmtEnd
             LOOP
         CASE "RUN"
             IrRun
-        CASE "ECHO", "INTERRUPTX", "_GL", "LPRINT", "STRIG"
+        CASE "ECHO", "INTERRUPTX", "LPRINT", "STRIG"
             IrNotSup "statement " + f$
         CASE "ON"
             IF s2$ <> "ERROR" THEN

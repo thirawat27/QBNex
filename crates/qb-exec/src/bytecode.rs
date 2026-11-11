@@ -522,6 +522,8 @@ pub struct Module {
     pub console: Option<bool>,
     /// `$SCREENHIDE`
     pub screenhide: bool,
+    /// `SUB _GL` (QIR `meta glsub`): (function, call descriptor without arguments)
+    pub gl_sub: Option<(u32, u32)>,
 }
 
 /// One `DECLARE LIBRARY` function: C name, library (`""` = the runner's own
@@ -530,6 +532,9 @@ pub struct Module {
 pub struct XFn {
     pub name: String,
     pub lib: String,
+    /// library `opengl` (`_gl*` statements): resolved through the GL context,
+    /// callable only while SUB _GL runs
+    pub gl: bool,
     pub args: Vec<XTy>,
     pub ret: XTy,
 }
