@@ -34,28 +34,26 @@ jobs:
             runs_on: ubuntu-latest
             artifact_suffix: lnx
             artifact_path: qb
-            build_command: QBNEX_CI=1 bash ./scripts/setup_lnx.sh
+            build_command: bash ./scripts/setup_lnx.sh
           - target: macos
             runs_on: macos-latest
             artifact_suffix: osx
             artifact_path: qb
-            build_command: QBNEX_CI=1 bash ./scripts/setup_osx.command
+            build_command: bash ./scripts/setup_osx.command
           - target: windows-x64
             runs_on: windows-latest
             artifact_suffix: win-x64
             artifact_path: qb.exe
-            platform: x64
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
       QBNEX_CI: "1"
-      PLATFORM: ${{ matrix.platform || '' }}
       QBNEX_BUNDLE_DIR: dist/bundle/qbnex
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libncurses-dev libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && break; sleep 20; done
+        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && break; sleep 20; done
 
       # rust-toolchain.toml pins the version; rustup installs it (and its components) here.
       # No cargo cache here: release builds start clean.

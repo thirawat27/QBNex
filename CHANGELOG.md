@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables) plus `release.yml`; it runs with read-only repository permissions.
+- Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
+
+### Removed
+
+- One-shot migration scripts (`scripts/reorg_crates*.ps1`), the legacy C++ oracle helpers (`tests/conformance/oracle`) and the corpus harness that needed the removed C++ backend (`tests/corpus-run`).
+
 ## [2.0.0] - 2026-11-11
 
 QBNex 2.0 has no C or C++ left: programs are compiled to QIR and run by a Rust

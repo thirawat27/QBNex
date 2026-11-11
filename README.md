@@ -1812,11 +1812,10 @@ qb test_collections.bas -x
 
 QBNex uses GitHub Actions for automated builds and release packaging:
 
-- `pull_request.yml`: Builds compiler artifacts for Linux, macOS, and Windows x64 on pull requests targeting `main`
-- `push.yml`: Runs the same three-target build matrix for pushes to `main`
+- `ci.yml`: On pushes and pull requests to `main` / `rust-port`: dependency audit, build, clippy, Rust tests, smoke tests, conformance, self-host fixpoint and native executables on Linux, macOS and Windows x64; uploads compiler artifacts
 - `release.yml`: Runs on pushed tags matching `v*` and on manual dispatch, packages release archives, and publishes a GitHub Release with generated notes
-- Push and pull-request workflows honor `ci-skip` in the commit message to skip the build matrix when explicitly requested
-- Default GitHub-hosted workflows do not run the smoke or benchmark suites; use the local commands above when you need deeper validation
+- `ci.yml` honors `ci-skip` in the commit message of a push to skip its jobs when explicitly requested
+- GitHub-hosted workflows run the smoke suites but not the benchmark suite; use the local commands above for benchmarks
 - `windows-x86` / 32-bit builds are still supported through the repository setup scripts, but they must be compiled manually outside GitHub Actions
 
 To cut a release from Git:
@@ -2999,7 +2998,7 @@ QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). 
 QBNex/
 ├── .github/
 │   ├── scripts/                # CI helper scripts (bundle/release notes)
-│   └── workflows/              # pull_request.yml, push.yml, release.yml
+│   └── workflows/              # ci.yml, release.yml
 ├── assets/
 │   └── icons/                  # Platform icon assets (linux/macos/windows)
 ├── compiler/                   # QBNex compiler source (BASIC)
@@ -3028,7 +3027,7 @@ QBNex/
 │   └── docker-compose.yml
 ├── bootstrap/
 │   └── qbnex.qir               # The compiler in QIR (bootstrap of the setup scripts)
-├── docs/                       # Design notes and port progress
+├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
 ├── licenses/                   # Third-party license files
 ├── packaging/
 │   └── installer/
@@ -3093,11 +3092,10 @@ docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 
 QBNex uses GitHub Actions for automated builds:
 
-- **Push to `main`**: Linux, macOS, Windows x64 artifact builds
-- **Pull requests to `main`**: Linux, macOS, Windows x64 artifact builds
+- **Push and pull requests (`ci.yml`)**: build, tests, conformance and artifacts on Linux, macOS, Windows x64
 - **Release tags (`v*`)**: Package and publish GitHub Releases for Linux, macOS, and Windows x64
 
-CI workflows call the platform `setup_*` scripts directly in CI mode. Push and pull-request workflows can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases. `windows-x86` / 32-bit builds must be compiled manually with `scripts\setup_win.cmd`.
+CI workflows call the platform `setup_*` scripts directly in CI mode. Pushes can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases. `windows-x86` / 32-bit builds must be compiled manually with `scripts\setup_win.cmd`.
 
 ---
 

@@ -397,21 +397,23 @@ QBNex/
 │   ├── stdlib/                 # Standard library modules
 │   ├── subs_functions/         # Built-in functions/subs
 │   └── utilities/              # Helper modules
-├── crates/                     # Native runtime (Cargo workspace)
-│   ├── runtime/core/           # Runtime library
-│   ├── compiler/ir/            # QIR parser, validator, builtin table
-│   ├── runtime/audio/          # Audio engine
-│   └── engine/exec/            # Runner for compiled QIR programs
+├── crates/                     # Cargo workspace
+│   ├── compiler/               # ir (QIR types, parser, validator), syntax (lexer for tools)
+│   ├── engine/                 # exec (runner, VM), jit (Cranelift), link, native, ffi
+│   ├── runtime/                # core, audio, float80, gpu, ext
+│   ├── tools/                  # fmt, lsp, dap
+│   └── web/                    # WebAssembly build of the runner
 ├── bootstrap/qbnex.qir         # The compiler in QIR (setup bootstrap)
 ├── tests/
 │   ├── conformance/            # Conformance runner and cases
 │   ├── fixtures/               # Test input programs
-│   └── smoke/                  # Smoke test scripts
+│   ├── smoke/                  # Smoke test scripts
+│   └── docs/                   # Compiles the BASIC examples of README.md and docs/manual
 ├── scripts/                    # Platform setup scripts (setup_*.cmd/sh/command)
 ├── docker/                     # Dockerfile, Dockerfile.dev, docker-compose.yml
 ├── packaging/installer/        # Inno Setup installer script
-├── docs/                       # Design notes
-├── .github/                    # GitHub workflows and templates
+├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
+├── .github/                    # ci.yml (build, test, conformance, native exe), release.yml
 ├── assets/                     # Logo and icons
 ├── licenses/                   # License files
 ├── README.md                   # Main documentation
@@ -424,18 +426,13 @@ QBNex/
 
 - **Questions**: Open a Discussion on GitHub
 - **Bugs**: Create an Issue with details
-- **Chat**: Check if project has communication channels
 - **Documentation**: Read README and code comments
 
 ## Recognition
 
 Contributors will be recognized in:
-- README.md acknowledgments section
 - Release notes
 - Project documentation
 
 Thank you for contributing to QBNex!
 
----
-
-**Last Updated**: April 11, 2024

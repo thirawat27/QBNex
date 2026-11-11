@@ -1,0 +1,222 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "rust-port"]
+  pull_request:
+    branches: ["main", "rust-port"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # Known vulnerabilities in Cargo.lock (RustSec). Unmaintained-crate notices are warnings only.
+  audit:
+    if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
+  # Compiler, runtime, tests, conformance and the self-host fixpoint on every OS.
+  build:
+    if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            runs_on: ubuntu-latest
+            artifact_suffix: lnx
+            artifact_path: qb
+            build_command: bash ./scripts/setup_lnx.sh
+          - target: macos
+            runs_on: macos-latest
+            artifact_suffix: osx
+            artifact_path: qb
+            build_command: bash ./scripts/setup_osx.command
+          - target: windows-x64
+            runs_on: windows-latest
+            artifact_suffix: win-x64
+            artifact_path: qb.exe
+    env:
+      QBNEX_CI: "1"
+      QBNEX_BUNDLE_DIR: dist/bundle/qbnex
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && break; sleep 20; done
+
+      # rust-toolchain.toml pins the version; rustup installs it (and its components) here.
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustc -vV
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build compiler (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ${{ matrix.build_command }}
+
+      - name: Build compiler (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: scripts\setup_win.cmd
+
+      - name: Build Rust workspace
+        shell: bash
+        # Not --all-targets: it builds qb-web's cdylib twice (lib, and lib for the
+        # integration tests) under one unhashed name, qb_web.dll, and MSVC fails with LNK1104.
+        run: |
+          cargo build --workspace --locked
+          cargo test --workspace --locked --no-run
+
+      - name: Clippy
+        if: runner.os == 'Linux'
+        shell: bash
+        run: cargo clippy --workspace --locked -- -D warnings
+
+      # Linux overcommit defeats try_reserve, so the image decoder fuzz test can OOM the
+      # runner instead of failing the allocation; cap virtual memory per test process.
+      - name: Rust workspace tests
+        shell: bash
+        env:
+          QB_AUDIO_DEVICE: none
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then ulimit -v 8000000; fi
+          cargo test --workspace --locked --no-fail-fast
+
+      - name: Smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio; do
+            echo "::group::${t}_smoke"; sh "tests/smoke/${t}_smoke.sh"; echo "::endgroup::"
+          done
+
+      - name: Smoke tests (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for %%t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio) do (
+            call tests\smoke\%%t_smoke.cmd || exit /b 1
+          )
+
+      - name: Conformance (golden output)
+        shell: bash
+        run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
+
+      - name: Self-host fixpoint (gen2 == gen3 == bootstrap)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh scripts/selfhost_fixpoint.sh
+
+      - name: Self-host fixpoint (gen2 == gen3 == bootstrap) (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call scripts\selfhost_fixpoint.cmd
+
+      - name: Stage portable bundle (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./.github/scripts/portable_bundle.sh "${{ matrix.artifact_path }}" "${{ env.QBNEX_BUNDLE_DIR }}"
+
+      - name: Stage portable bundle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd" -AliasWrapperPath "qbnex.cmd"
+
+      - name: Upload compiler artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qbnex_${{ github.sha }}_${{ matrix.artifact_suffix }}
+          path: ${{ github.workspace }}/${{ env.QBNEX_BUNDLE_DIR }}
+          if-no-files-found: error
+          retention-days: 14
+
+  # Programs linked by rust-lld with the qb-native runtime library into standard
+  # executables (PE / ELF / Mach-O) must give the VM's output
+  # (crates/engine/exec/tests/native_link.rs).
+  native-exe:
+    if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs_on: ubuntu-latest
+          - name: linux-arm64
+            runs_on: ubuntu-24.04-arm
+          - name: macos-arm64
+            runs_on: macos-latest
+          - name: windows-x64
+            runs_on: windows-latest
+    name: native-exe (${{ matrix.name }})
+    env:
+      QBNEX_NO_ERROR_DIALOG: "1"
+      QBNEX_HEADLESS: "1"
+      QB_AUDIO_DEVICE: none
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && break; sleep 20; done
+
+      # rust-toolchain.toml pins the version; rustup installs it (rust-lld ships with it).
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustc -vV
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build native kit (Linux, macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          sh scripts/native-kit.sh target/release/native
+          cat target/release/native/kit.txt
+
+      - name: Build native kit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/native-kit.ps1 -Out target/release/native
+          Get-Content target/release/native/kit.txt
+
+      - name: Native objects link (ELF, Mach-O, PIC)
+        shell: bash
+        run: cargo test --locked --release -p qb-jit --test semantics native_objects
+
+      - name: Linked executables match the VM
+        shell: bash
+        run: |
+          export QBNEX_NATIVE_KIT="$PWD/target/release/native"
+          cargo test --locked --release -p qb-exec --test native_link --test aot -- --nocapture
