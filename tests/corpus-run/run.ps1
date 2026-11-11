@@ -136,7 +136,9 @@ function Compile([string]$compiler, [string]$root, [string]$src, [string]$exe, [
     for ($try = 1; $try -le 2; $try++) {
         $r = Invoke-Bounded $compiler $argv $root @{ QBNEX_NO_ERROR_DIALOG = '1' } $null 900
         $text = (Get-Normalised $r.out) + (Get-Normalised $r.err)
-        if ($text -notmatch 'Build failed') { break }
+        # A failure with no output at all means the compiler never ran (machine out of
+        # memory, or the app shutting down): retry it too.
+        if ($text -notmatch 'Build failed' -and ($r.code -eq 0 -or $text -match '\S')) { break }
         Start-Sleep -Seconds 30
     }
     Set-Content -LiteralPath $log -Value $text -NoNewline
@@ -204,6 +206,17 @@ foreach ($f in $files) {
             Copy-Item $qir (Join-Path $w 'prog.qir')
             $exes.vm = Join-Path $w 'ir.exe'; $exes.jit = $exes.vm
             if (-not $exes.cpp) { $r.consoleOnly = [bool](Select-String -LiteralPath $qir -Pattern '^meta console only' -Quiet) }
+            # Compiler bug (corpus-run.md Q9): IrFinish writes the QIR before the automatic
+            # console-only decision, so a console program's QIR has no `meta console only` and
+            # qb-exec opens a window. Add the line the C++ build got and repack, so vm/jit are
+            # compared on the same terms; the note keeps the bug visible.
+            $pq = Join-Path $w 'prog.qir'
+            if ($r.consoleOnly -and -not (Select-String -LiteralPath $pq -Pattern '^meta console' -Quiet)) {
+                $t = [IO.File]::ReadAllText($pq) -replace '^QIR 1\r?\n', "QIR 1`nmeta console only`n"
+                [IO.File]::WriteAllText($pq, $t)
+                & (Join-Path $repo 'scripts\qir_pack.ps1') -Runner (Join-Path $repo 'crates\qb-exec\bin\windows\qb-exec.exe') -Qir $pq -Out $exes.vm
+                $r.notes.Add('ir: meta console only added (Q9)')
+            }
         }
     }
     if ('oracle' -in $Variants -and $Oracle -and $r.consoleOnly) {
@@ -271,12 +284,9 @@ foreach ($f in $files) {
         foreach ($v in @('oracle', 'vm', 'jit')) {
             $o = $r.run[$v]
             if (-not $o -or $o -eq $base) { continue }
-            # qb-exec has no window yet: a GUI program prints its text screen to stdout and never
-            # sees the input script, so only crashes/errors are meaningful there.
-            if ($v -in 'vm', 'jit' -and -not $r.consoleOnly -and $base -ne $r.run.vm) {
-                if ($o.exit -match '^0x' -or ($o.exit -notin '0', 'timeout') -or $o.stderr -match 'error|panick') { $r.notes.Add("$v (no window): exit $($o.exit) $($o.stderr)") }
-                continue
-            }
+            # The framebuffer capture holds every _DISPLAY frame, so its count depends on timing:
+            # a mismatch is noted, never counted as a diff.
+            if ($o.fbHash -and $base.fbHash -and $o.fbHash -ne $base.fbHash -and $o.exit -ne 'timeout' -and $base.exit -ne 'timeout') { $r.notes.Add("$v framebuffer differs") }
             if ($o.exit -eq 'timeout' -or $base.exit -eq 'timeout') {
                 if ($o.exit -ne $base.exit) { $r.notes.Add("$v exit $($o.exit) vs $($base.exit)") }
                 continue
