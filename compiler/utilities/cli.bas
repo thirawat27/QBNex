@@ -206,7 +206,13 @@ FUNCTION ParseCMDLineArgs$ ()
             ConsoleMode = 1
             cmdlineswitch = -1
         CASE ELSE
-            IF LEFT$(token$, 1) = "-" OR LEFT$(token$, 1) = "/" THEN
+            'a switch starts with "-" (or "/" on Windows); on macOS/Linux "/..." is an absolute path,
+            'and an existing file is always a path. Keep the original case of file names.
+            rawtoken$ = COMMAND$(i)
+            isswitch = (LEFT$(token$, 1) = "-")
+            IF LEFT$(token$, 1) = "/" AND os$ = "WIN" THEN isswitch = -1
+            IF _FILEEXISTS(rawtoken$) THEN isswitch = 0
+            IF isswitch THEN
                 _DEST _CONSOLE
                 PrintCommandLineBanner
                 PRINT
@@ -214,7 +220,7 @@ FUNCTION ParseCMDLineArgs$ ()
                 PRINT "Run 'qb --help' for usage."
                 SYSTEM 1
             END IF
-            IF PassedFileName$ = "" THEN PassedFileName$ = token$
+            IF PassedFileName$ = "" THEN PassedFileName$ = rawtoken$
         END SELECT
     NEXT i
 

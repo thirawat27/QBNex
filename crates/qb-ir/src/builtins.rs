@@ -211,6 +211,9 @@ pub static TABLE: &[Builtin] = &[
     // ---- files
     b!("OPEN", [Str, I32, I32, I32]),
     b!("OPENOLD", [Str, I32, Str]),
+    // OPEN with ACCESS / SHARED / LOCK: name, mode, ch, len, access (1 READ WRITE, 2 READ,
+    // 3 WRITE), sharing (1 SHARED, 2 LOCK READ WRITE, 3 LOCK READ, 4 LOCK WRITE)
+    b!("OPENX", [Str, I32, I32, I32, I32, I32]),
     b!("CLOSE", [I32]),
     b!("CLOSEALL", []),
     b!("FREEFILE", [], I32),

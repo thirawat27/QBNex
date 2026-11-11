@@ -212,7 +212,7 @@ END SUB
 'OPEN f$ FOR mode [ACCESS ...] [LOCK ...] AS [#]n [LEN = r]   |   OPEN mode$, [#]n, f$[, r]
 SUB IrOpen
     DIM n AS LONG, i AS LONG, j AS LONG, k AS LONG, a AS LONG, f$, mode AS LONG, ch$, ln$, md$, e$
-    DIM gv(1 TO 8) AS STRING
+    DIM gv(1 TO 8) AS STRING, acc AS LONG, shr AS LONG, rw AS LONG
     n = IrStmtN
     j = IrFindSep(2, "|FOR|AS|")
     IF j > n THEN
@@ -225,22 +225,51 @@ SUB IrOpen
         IrE "rt OPENOLD " + f$ + " " + ch$ + " " + md$
         EXIT SUB
     END IF
+    j = IrFindSep(2, "|FOR|ACCESS|SHARED|LOCK|AS|")
     f$ = IrEvalTo$(fixoperationorder$(IrEls$(2, j - 1)), ISSTRING)
     mode = 5 'RANDOM
-    IF UCASE$(IrEl$(j)) = "FOR" THEN
-        SELECT CASE UCASE$(IrEl$(j + 1))
-            CASE "INPUT": mode = 1
-            CASE "OUTPUT": mode = 2
-            CASE "APPEND": mode = 3
-            CASE "BINARY": mode = 4
-            CASE "RANDOM": mode = 5
-        END SELECT
-    END IF
     a = IrFindSep(j, "|AS|")
+    'ACCESS {READ|WRITE|READ WRITE} -> 2/3/1; SHARED -> 1, LOCK {READ WRITE|READ|WRITE} -> 2/3/4
+    acc = 0: shr = 0
+    FOR i = j TO a - 1
+        SELECT CASE UCASE$(IrEl$(i))
+            CASE "FOR"
+                SELECT CASE UCASE$(IrEl$(i + 1))
+                    CASE "INPUT": mode = 1
+                    CASE "OUTPUT": mode = 2
+                    CASE "APPEND": mode = 3
+                    CASE "BINARY": mode = 4
+                    CASE "RANDOM": mode = 5
+                END SELECT
+            CASE "ACCESS", "LOCK"
+                rw = 0
+                IF UCASE$(IrEl$(i + 1)) = "READ" THEN
+                    rw = 1
+                    IF UCASE$(IrEl$(i + 2)) = "WRITE" THEN rw = 3
+                END IF
+                IF UCASE$(IrEl$(i + 1)) = "WRITE" THEN rw = 2
+                'rw: 1 READ, 2 WRITE, 3 READ WRITE
+                IF UCASE$(IrEl$(i)) = "ACCESS" THEN
+                    IF rw = 3 THEN acc = 1
+                    IF rw = 1 THEN acc = 2
+                    IF rw = 2 THEN acc = 3
+                ELSE
+                    IF rw = 3 THEN shr = 2
+                    IF rw = 1 THEN shr = 3
+                    IF rw = 2 THEN shr = 4
+                END IF
+            CASE "SHARED"
+                shr = 1
+        END SELECT
+    NEXT
     k = IrFindSep(a + 1, "|LEN|")
     ch$ = IrChan$(a + 1, k - 1)
     IF k <= n THEN ln$ = IrArgAs$(fixoperationorder$(IrEls$(k + 2, n)), "i32") ELSE ln$ = IrI32$(0)
-    IrE "rt OPEN " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$
+    IF acc = 0 AND shr = 0 THEN
+        IrE "rt OPEN " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$
+    ELSE
+        IrE "rt OPENX " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$ + " " + IrI32$(acc) + " " + IrI32$(shr)
+    END IF
 END SUB
 
 'PRINT #n, items
