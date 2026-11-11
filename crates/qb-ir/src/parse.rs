@@ -287,6 +287,7 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
                 n => Inst::OnError(Some(n)),
             },
             "ontimer" => Inst::OnTimer { slot: p.reg()?, secs: p.reg()?, target: p.name()? },
+            "onkey" => Inst::OnKey { key: p.reg()?, target: p.name()? },
             "resume" => match p.peek() {
                 None => Inst::Resume(ResumeKind::Same),
                 Some("next") => {

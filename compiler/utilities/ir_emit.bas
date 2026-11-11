@@ -1231,6 +1231,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "|"
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     l$ = l$ + "sub_out|func_inp|sub_wait|func_stick|sub_bload|sub_bsave|"
+    l$ = l$ + "sub_strig|func_strig|sub__mousehide|sub__mouseshow|sub_files|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 

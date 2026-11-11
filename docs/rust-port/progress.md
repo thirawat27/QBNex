@@ -673,6 +673,14 @@ The program is ordinary code in `.text` of a normal PE, linked by the toolchain'
 - New builtins in `qb_ir::builtins`: `sub_out`, `func_inp`, `sub_wait`, `func_stick`, `sub_bload`, `sub_bsave`, `VARPTR.n`, `RUN`, `CLEAR`, `RUNFROM`, `RUNFILE`, `CHAIN`.
 - Conformance: new `control/sub_name_label`, `system/run_clear`, `graphics/ports_bload` (goldens from the C++ build, identical under `--ir`).
 
+## R11c-q9: corpus-run 2 Q9, Q17-Q20 (branch `claude/r11c-q9`, after the cutover)
+- Q9 (auto console-only program without `meta console only`) and Q19 (variable first seen in `CASE IS`): already right after the cutover (`IrFinish` runs after the console-only decision; CASE waits for the pass that creates the variable). Cases `console/auto_console_only`, `control/case_is_first_use` lock them in.
+- Q20 `ON (expr) GOTO/GOSUB`: the GOTO/GOSUB search started inside the parentheses. Case `control/on_expr_goto`.
+- Q18: `STRIG ON/OFF/STOP`, `STRIG(n)` (0: no joystick), `ON STRIG` (argument checks; no joystick, so no event), `_MOUSEHIDE`/`_MOUSESHOW`, `FILES` (qb-runtime `fsops::files`, printed like libqb `sub_files`) and `ON KEY(n) GOSUB` with `KEY(n) ON/OFF/STOP`. ON KEY is a new QIR op `onkey %k L` (VM `Ins::OnKey`): F1-F10, the arrows (also on the keypad), F11, F12 are trapped in the keyboard pump (libqb priority 2; user-defined keys 15-25 are not), the trapped key does not reach the buffer, and the handler runs as a module-level GOSUB at a safe point (a thread wakes safe points every 10 ms; JIT sessions with an ON KEY handler pending stay in the VM like ON TIMER). Checked with an input script (VM and JIT). `ON KEY(n) sub-name` is still unsupported. Case `control/strig_onkey`.
+- Q17 deedsaks (JIT only, 0xC0000005): when the window closed during a CALL made from native code, the CALL's event poll ended the program with the callee frame pushed, and `call_from_native` went on running the VM at pc `u32::MAX`. Fixed; deedsaks ends with 0 under `QB_JIT=eager` (3 of 3 runs).
+- Q17 sfb2 (JIT timeout): not a hang. The JIT compiles the whole module before it enters native code; for sfb2 (10.8k lines) that took 16 s on this (loaded) machine against a 4 s VM run, and needs a lot of memory. Open: compile in the background / per function.
+- Compiler: `imports.bas` still looked for `internal\support\vwatch` (15 conformance cases with `$IMPORT`/TRY failed to compile after the cutover); now `compiler\support\vwatch`.
+
 ## Corpus fixes (branch `claude/corpus-fixes-70d56e`)
 
 Local corpus `tests/corpus-local/` (gitignored): 129 `.bas` files from creationix-basic-games (MIT) and the QB64 `programs/samples`. Compile only (`qb file.bas -o x.exe -q -m`), one file at a time.

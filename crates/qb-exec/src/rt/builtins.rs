@@ -1598,9 +1598,13 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             return Some(Ok(None));
         }
         "sub_key" => {
-            // KEY(n) ON|OFF|STOP: ON KEY trapping is not handled; the range is checked
-            if !(0..=31).contains(&a[0].i()) {
+            // KEY(n) ON|OFF|STOP (n, option 1..3): the VM delivers trapped keys at safe points
+            let k = a[0].i();
+            if !(0..=31).contains(&k) {
                 return Some(e(5));
+            }
+            if let Err(c) = qb_runtime::events::key_statement(qb_runtime::events::onkeys(), k as i32, a[1].i() as i32) {
+                return Some(e(c));
             }
             return Some(Ok(None));
         }

@@ -347,6 +347,8 @@ pub enum Ins {
     OnError { t: u32 },
     /// ON TIMER(slot, secs) GOSUB t (`s` slot register, `x` seconds register)
     OnTimer { s: R, x: R, t: u32 },
+    /// ON KEY(k) GOSUB t (s key number register)
+    OnKey { s: R, t: u32 },
     /// DECLARE LIBRARY call (`Module::xcalls[c]`)
     XCall { c: u32 },
     Resume { k: ResumeK, t: u32 },
@@ -766,6 +768,10 @@ impl Ins {
                 f(O::N(x));
                 f(O::TMain(t))
             }
+            OnKey { s, t } => {
+                f(O::N(s));
+                f(O::TMain(t))
+            }
             XCall { .. } => {}
             Resume { k, t } => {
                 if k == ResumeK::Label {
@@ -948,6 +954,7 @@ impl Ins {
             End => "end".into(),
             OnError { .. } => "on_error".into(),
             OnTimer { .. } => "on_timer".into(),
+            OnKey { .. } => "on_key".into(),
             XCall { .. } => "xcall".into(),
             Resume { k, .. } => format!("resume.{k:?}").to_lowercase(),
             Raise { .. } => "raise".into(),
@@ -1057,6 +1064,7 @@ impl Ins {
             | ReturnL { t }
             | OnError { t }
             | OnTimer { t, .. }
+            | OnKey { t, .. }
             | Resume { t, .. }
 
  => Some(t),
