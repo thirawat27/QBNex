@@ -10,6 +10,9 @@ REDIM SHARED IrFnDecls(1 TO 16) AS STRING, IrFnRetVar(1 TO 16) AS STRING
 REDIM SHARED IrFnRegs(1 TO 16) AS LONG
 'per function: code run when it starts (DIM of its static arrays, hoisted)
 REDIM SHARED IrFnPro(1 TO 16) AS STRING
+'lines IrE has not yet appended to IrFnBody(IrPendFn): appending every line to
+'the whole body copied it each time (quadratic for long functions); IrFlush
+DIM SHARED IrPendBody AS STRING, IrPendFn AS LONG
 'module level text (types, globals, data) and declared names
 DIM SHARED IrMod AS STRING, IrModDecls AS STRING, IrUdtDone AS STRING
 DIM SHARED IrT AS STRING 'register type of the last value produced by IrEval$

@@ -1716,8 +1716,12 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::LdM { t, d, p, off } => {
                     let a = r!(p).wrapping_add(u64::from(off));
                     if t == MTy::Str {
-                        let v = tryc!(self.mem.ld_str(a)).to_vec();
-                        *self.sdst(d) = v;
+                        // into the register's own buffer (no allocation per load, R14)
+                        let src: *const [u8] = tryc!(self.mem.ld_str(a));
+                        let dst = self.sdst(d);
+                        dst.clear();
+                        // SAFETY: memory strings and string registers are separate buffers
+                        dst.extend_from_slice(unsafe { &*src });
                     } else if t == MTy::F80 {
                         let raw: [u8; 10] = tryc!(self.mem.bytes(a, 10)).try_into().unwrap();
                         self.xset(d, qb_float80::F80::from_bytes(raw));
@@ -1757,8 +1761,17 @@ impl<'m, 'o> Vm<'m, 'o> {
                     tryc!(self.mem.dim(r!(a), mode, b));
                 }
                 Ins::AAddrM { d, a, i, n } => {
-                    let idx: Vec<i64> = (0..n).map(|k| ri!(i + k)).collect();
-                    let p = tryc!(self.mem.aaddr(r!(a), &idx));
+                    // subscripts on the stack (a heap Vec per element access was a hot allocation, R14)
+                    let mut buf = [0i64; 8];
+                    let p = if (n as usize) <= buf.len() {
+                        for k in 0..n {
+                            buf[k as usize] = ri!(i + k);
+                        }
+                        tryc!(self.mem.aaddr(r!(a), &buf[..n as usize]))
+                    } else {
+                        let idx: Vec<i64> = (0..n).map(|k| ri!(i + k)).collect();
+                        tryc!(self.mem.aaddr(r!(a), &idx))
+                    };
                     set!(d, p)
                 }
                 Ins::BoundM { d, a, dim, upper } => {
@@ -1901,8 +1914,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::SetGS { g, s } => {
-                    let v = self.sget(s).to_vec();
-                    self.strs[g as usize] = v;
+                    // into the global's own buffer (no allocation per store, R14)
+                    let src: *const [u8] = self.sget(s);
+                    let dst = &mut self.strs[g as usize];
+                    if !std::ptr::eq(dst.as_slice(), src) {
+                        dst.clear();
+                        // SAFETY: distinct buffers (checked above)
+                        dst.extend_from_slice(unsafe { &*src });
+                    }
                 }
                 Ins::Concat { d, a, b: y } => self.concat(d, a, y),
                 Ins::LenS { d, s } => seti!(d, self.sget(s).len() as i64),
