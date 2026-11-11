@@ -201035,27 +201035,107 @@ endfunc
 func SUB_IRINIT
 line 13678
 const.i32 %0 1
-store.i32 $__LONG_IRFNN %0
-line 13678
-const.i32 %1 1
-aaddr %2 $__ARRAY_STRING_IRFNNAME %1
-const.str %3 x6D61696E
-st.str %2 0 %3
+const.i32 %1 16
+redim $__ARRAY_STRING_IRFNNAME 1 %0 %1
+const.i32 %2 1
+const.i32 %3 16
+redim $__ARRAY_STRING_IRFNRET 1 %2 %3
 line 13678
 const.i32 %4 1
-store.i32 $__LONG_IRFNCUR %4
+const.i32 %5 16
+redim $__ARRAY_STRING_IRFNHEAD 1 %4 %5
+const.i32 %6 1
+const.i32 %7 16
+redim $__ARRAY_STRING_IRFNBODY 1 %6 %7
 line 13678
-const.str %5 x
-store.str $__STRING_IRMOD %5
+const.i32 %8 1
+const.i32 %9 16
+redim $__ARRAY_STRING_IRFNDECLS 1 %8 %9
+const.i32 %10 1
+const.i32 %11 16
+redim $__ARRAY_STRING_IRFNRETVAR 1 %10 %11
 line 13678
-const.str %6 x7C
-store.str $__STRING_IRMODDECLS %6
+const.i32 %12 1
+const.i32 %13 16
+redim $__ARRAY_LONG_IRFNREGS 1 %12 %13
 line 13678
-const.str %7 x7C
-store.str $__STRING_IRUDTDONE %7
+const.i32 %14 0
+const.i32 %15 1000
+redim $__ARRAY_LONG_IRCTLID 1 %14 %15
+const.i32 %16 0
+const.i32 %17 1000
+redim $__ARRAY_LONG_IRCTLPART 1 %16 %17
+const.i32 %18 0
+const.i32 %19 1000
+redim $__ARRAY_STRING_IRCTLVAR 1 %18 %19
 line 13678
-const.str %8 x
-store.str $__STRING_IRFAILMSG %8
+const.i32 %20 1
+store.i32 $__LONG_IRFNN %20
+line 13678
+const.i32 %21 1
+aaddr %22 $__ARRAY_STRING_IRFNNAME %21
+const.str %23 x6D61696E
+st.str %22 0 %23
+line 13678
+const.i32 %24 1
+store.i32 $__LONG_IRFNCUR %24
+line 13678
+const.str %25 x
+store.str $__STRING_IRMOD %25
+line 13678
+const.str %26 x7C
+store.str $__STRING_IRMODDECLS %26
+line 13678
+const.str %27 x7C
+store.str $__STRING_IRUDTDONE %27
+line 13678
+const.str %28 x
+store.str $__STRING_IRFAILMSG %28
+line 13678
+const.str %29 x
+store.str $__STRING_IREXTMETA %29
+line 13678
+const.i32 %30 0
+store.i32 $__LONG_IRDATAN %30
+line 13678
+const.i32 %31 0
+store.i32 $__LONG_IRDEFSEG %31
+line 13678
+const.i32 %32 0
+store.i32 $__LONG_IRPENDLL %32
+line 13678
+const.str %33 x
+store.str $__STRING_IRPENDCASE %33
+line 13678
+const.i32 %34 0
+store.i32 $__LONG_IRPENDEVERY %34
+line 13678
+const.i32 %35 0
+store.i32 $__LONG_IRPENDELSE %35
+line 13678
+const.i32 %36 0
+store.i32 $__LONG_IRPENDCASEON %36
+line 13678
+const.i32 %37 0
+store.i32 $__LONG_IRPENDLEVEL %37
+line 13678
+const.str %38 x
+store.str $__STRING_IRSTMT %38
+line 13678
+const.i32 %39 0
+store.i32 $__LONG_IRSTMTN %39
+line 13678
+const.str %40 x
+store.str $__STRING_IRSTMTFIRST %40
+line 13678
+const.str %41 x
+store.str $__STRING_IRFIX %41
+line 13678
+const.str %42 x
+store.str $__STRING_IRFIX2 %42
+line 13678
+const.str %43 x
+store.str $__STRING_IRFIX3 %43
 label ~EXIT
 ret
 endfunc

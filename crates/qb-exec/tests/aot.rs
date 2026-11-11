@@ -48,7 +48,8 @@ fn qb_exec_build_writes_a_native_executable() {
     let out = std::process::Command::new(&exe).output().unwrap();
     let mut vm = Vec::new();
     run_ir(p, &mut vm).unwrap();
-    assert_eq!(String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&vm));
+    // the executable's stdout ends lines with CR LF on Windows (text-mode stdout)
+    assert_eq!(String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n"), String::from_utf8_lossy(&vm));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

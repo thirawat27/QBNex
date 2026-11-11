@@ -28,7 +28,8 @@ fn run(exe: &Path, dir: &Path) -> (String, Option<i32>) {
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    (String::from_utf8_lossy(&o.stdout).into_owned(), o.status.code())
+    // line ends compared as LF (the payload runner writes CR LF on Windows)
+    (String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"), o.status.code())
 }
 
 #[test]
