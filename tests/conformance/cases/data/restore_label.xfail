@@ -1,1 +1,0 @@
-legacy defect L-03: RESTORE <label> never returns (program hangs before any output); expected output " 99"
