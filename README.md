@@ -153,7 +153,7 @@ Where this README and the manual disagree, the manual is the current one.
 
 **QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into QIR, a text intermediate language, and packages it with a Rust runner into a standalone executable for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runner and runtime are Rust crates (`crates/qb-*`): the QIR runs on a VM with a Cranelift JIT, and no C/C++ compiler is involved.
 
-**Version**: See release tags and `qb --version`
+**Version**: 2.0.0 (`qb --version`; see [CHANGELOG.md](CHANGELOG.md))
 
 The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. Graphics, windowing, sound, fonts and images come from the Rust runtime (winit, softbuffer, cpal, and wgpu for the optional GPU path); no OpenGL, FreeGLUT, FreeType or miniaudio is linked.
 

@@ -2,7 +2,7 @@ DIM SHARED Version AS STRING
 DIM SHARED DevChannel AS STRING
 DIM SHARED AutoBuildMsg AS STRING
 
-Version$ = "1.0.3"
+Version$ = "2.0.0"
 DevChannel$ = ""
 IF _FILEEXISTS("target/qb-version.txt") THEN
     versionfile = FREEFILE

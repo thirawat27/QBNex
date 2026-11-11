@@ -2887,7 +2887,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qb-audio"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "cpal",
  "symphonia",
@@ -2897,7 +2897,7 @@ dependencies = [
 
 [[package]]
 name = "qb-dap"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "qb-exec",
  "qb-ir",
@@ -2908,7 +2908,7 @@ dependencies = [
 
 [[package]]
 name = "qb-exec"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "qb-audio",
  "qb-ext",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "qb-ext"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -2942,18 +2942,18 @@ dependencies = [
 
 [[package]]
 name = "qb-ffi"
-version = "0.1.0"
+version = "2.0.0"
 
 [[package]]
 name = "qb-float80"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "qb-fmt"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "proptest",
  "qb-syntax",
@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "qb-gpu"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -2974,11 +2974,11 @@ dependencies = [
 
 [[package]]
 name = "qb-ir"
-version = "0.1.0"
+version = "2.0.0"
 
 [[package]]
 name = "qb-jit"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
@@ -2992,7 +2992,7 @@ dependencies = [
 
 [[package]]
 name = "qb-link"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "object",
  "region 4.0.1",
@@ -3000,7 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "qb-lsp"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "lsp-server",
  "lsp-types",
@@ -3012,7 +3012,7 @@ dependencies = [
 
 [[package]]
 name = "qb-native"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "qb-exec",
  "qb-jit",
@@ -3020,7 +3020,7 @@ dependencies = [
 
 [[package]]
 name = "qb-runtime"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "ab_glyph_rasterizer",
  "arboard",
@@ -3043,14 +3043,14 @@ dependencies = [
 
 [[package]]
 name = "qb-syntax"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "qb-web"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "qb-audio",
  "qb-exec",
@@ -3059,7 +3059,7 @@ dependencies = [
 
 [[package]]
 name = "qbnex-conformance"
-version = "0.1.0"
+version = "2.0.0"
 
 [[package]]
 name = "quick-error"

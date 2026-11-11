@@ -9,8 +9,8 @@ The extension lives in `packaging/vscode`. Build and install it:
 ```bash
 cd packaging/vscode
 npm install
-npx vsce package                      # qbnex-0.1.0.vsix
-code --install-extension qbnex-0.1.0.vsix
+npx vsce package                      # qbnex-2.0.0.vsix
+code --install-extension qbnex-2.0.0.vsix
 ```
 
 It needs `qb` (or set `qbnex.compilerPath`) and, for the language features,

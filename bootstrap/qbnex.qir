@@ -2424,7 +2424,7 @@ line 30
 line 30
 line 30
 line 30
-const.str %0 x312E302E33
+const.str %0 x322E302E30
 store.str $__STRING_VERSION %0
 line 30
 const.str %1 x

@@ -12,17 +12,17 @@ $SCREENHIDE
 
 $EXEICON:'./qbnex.ico'
 
-$VERSIONINFO:FILEVERSION#=1,0,3,0
-$VERSIONINFO:PRODUCTVERSION#=1,0,3,0
+$VERSIONINFO:FILEVERSION#=2,0,0,0
+$VERSIONINFO:PRODUCTVERSION#=2,0,0,0
 $VERSIONINFO:CompanyName=thirawat27
 $VERSIONINFO:FileDescription=QBNex CLI Compiler
-$VERSIONINFO:FileVersion=1.0.3
+$VERSIONINFO:FileVersion=2.0.0
 $VERSIONINFO:InternalName=qb.exe
 $VERSIONINFO:LegalCopyright=Copyright (c) 2026 thirawat27
 $VERSIONINFO:LegalTrademarks=QBNex
 $VERSIONINFO:OriginalFilename=qb.exe
 $VERSIONINFO:ProductName=QBNex
-$VERSIONINFO:ProductVersion=1.0.3
+$VERSIONINFO:ProductVersion=2.0.0
 $VERSIONINFO:Comments=QBNex IS a modern extended BASIC programming language that retains QB4.5/QBasic compatibility AND compiles native binaries FOR Windows, Linux AND macOS.
 $VERSIONINFO:Web=https://github.com/thirawat27/QBNex
 

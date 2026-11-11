@@ -1,6 +1,6 @@
 [package]
 name = "qb-audio"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 # cpal 0.18 needs 1.85, xmrsplayer 1.88

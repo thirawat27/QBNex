@@ -2,7 +2,7 @@
   "name": "qbnex",
   "displayName": "QBNex BASIC",
   "description": "QBasic / QB64 / QBNex language support: highlighting, snippets, diagnostics, navigation and formatting through qb-lsp, plus Run and Compile commands.",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "publisher": "qbnex",
   "license": "MIT",
   "repository": {
