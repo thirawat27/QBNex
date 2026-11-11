@@ -55,8 +55,17 @@ fn normalize(b: &[u8]) -> String {
     String::from_utf8_lossy(b).replace("\r\n", "\n")
 }
 
+/// Serializes compiler runs. Concurrent compilers pick their build folder
+/// (`target/qb-temp[N]`) through a file lock on Windows and a pid table on
+/// Unix; neither is race-free when the tests start at the same instant.
+fn compiler_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Compiles `src` with `qb.exe` plus `extra` flags and runs the result.
 fn compile_and_run(qb: &Path, src: &Path, exe: &Path, extra: &[&str]) -> String {
+    let guard = compiler_lock();
     let out = Command::new(qb)
         .current_dir(repo_root())
         .arg(src)
@@ -75,6 +84,7 @@ fn compile_and_run(qb: &Path, src: &Path, exe: &Path, extra: &[&str]) -> String 
         normalize(&out.stdout),
         normalize(&out.stderr)
     );
+    drop(guard);
     let run = Command::new(exe).output().unwrap();
     assert!(run.status.success(), "{} exited {:?}: {}", exe.display(), run.status, normalize(&run.stderr));
     normalize(&run.stdout)
@@ -138,6 +148,7 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     // SCREEN, graphics, sound, CHAIN, _OFFSET, ... are supported on QIR now; VARPTR$ of a
     // string is not (yet)
     std::fs::write(&src, "PRINT 1\nPRINT VARPTR$(a$)\n").unwrap();
+    let _guard = compiler_lock();
     let out = Command::new(&qb)
         .current_dir(repo_root())
         .arg(&src)
