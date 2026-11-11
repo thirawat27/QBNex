@@ -17,7 +17,7 @@ cp target/wasm32-unknown-unknown/release/qb_web.wasm crates/qb-web/www/
 ## Get a program as QIR
 
 ```bash
-qb game.bas --ir -o game.exe
+qb game.bas -o game.exe
 ```
 
 The QIR text is the payload stored before the `QBNEXIR0` trailer at the end

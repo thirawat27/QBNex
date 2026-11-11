@@ -227,7 +227,7 @@ before compiling. A base class must be declared before a class that
 
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
-As in QB64. In the QIR back end external functions are called through
+As in QB64. External functions are called through
 `crates/qb-ffi` (Windows x64, Linux x86-64/AArch64 calling conventions) and
 `_FLOAT` is an exact software 80-bit float.
 

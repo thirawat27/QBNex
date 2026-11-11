@@ -1,12 +1,12 @@
 # QBNex manual / คู่มือ QBNex
 
-QBNex compiles QBasic, QuickBASIC 4.5 and QB64 programs. The runtime is
-being ported to Rust (no C/C++ left in the end), and a second back end runs
-programs through QIR, a small intermediate language, without a C++ compiler.
+QBNex compiles QBasic, QuickBASIC 4.5 and QB64 programs. The compiler
+translates them to QIR, a small intermediate language, which the Rust
+runner `qb-exec` runs (VM + JIT). No C or C++ compiler is involved.
 
-QBNex คอมไพล์โปรแกรม QBasic, QuickBASIC 4.5 และ QB64 ตัว runtime
-กำลังย้ายไปเป็น Rust (สุดท้ายจะไม่เหลือ C/C++) และมี back end ที่สองที่รัน
-โปรแกรมผ่าน QIR ซึ่งเป็นภาษากลางขนาดเล็ก โดยไม่ต้องใช้คอมไพเลอร์ C++
+QBNex คอมไพล์โปรแกรม QBasic, QuickBASIC 4.5 และ QB64 โดยแปลเป็น QIR
+ซึ่งเป็นภาษากลางขนาดเล็ก แล้วให้ runner ภาษา Rust ชื่อ `qb-exec` รัน
+(VM + JIT) ไม่ต้องใช้คอมไพเลอร์ C หรือ C++
 
 | English | ภาษาไทย |
 | --- | --- |
@@ -25,9 +25,8 @@ Each feature in this manual carries one of these labels. ฟีเจอร์�
 
 - **Available / ใช้ได้แล้ว**: in the default build, covered by tests.
   อยู่ใน build ปกติและมีเทสต์ครอบคลุม
-- **Preview / ทดลอง**: works, but only in the QIR back end, behind a build
-  option, or with listed limits. ใช้ได้ แต่เฉพาะ QIR back end หรือต้องเปิด
-  option ตอน build หรือมีข้อจำกัดตามที่ระบุ
+- **Preview / ทดลอง**: works, but behind a build option or with listed
+  limits. ใช้ได้ แต่ต้องเปิด option ตอน build หรือมีข้อจำกัดตามที่ระบุ
 - **Planned / วางแผนไว้**: designed (syntax fixed), not in the compiler yet.
   The editor tools may already know the words. ออกแบบแล้ว (syntax
   กำหนดแล้ว) แต่ยังไม่อยู่ในคอมไพเลอร์ เครื่องมือ editor อาจรู้จักคำเหล่านี้แล้ว

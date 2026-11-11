@@ -33,7 +33,7 @@ Language support for QBasic, QB64 and QBNex source files (`.bas`, `.bi`, `.bm`).
 
 F5 debugs the current `.bas` file with `qb-dap` (no `launch.json` needed;
 *Add Configuration* offers a *QBNex: Debug program* snippet). The program is
-compiled with `qb --ir` and runs on the qb-exec VM (JIT off) with:
+compiled with `qb` and runs on the qb-exec VM (JIT off) with:
 breakpoints by line in the launched file, continue, pause, step over / into /
 out (per statement), the call stack of SUB/FUNCTION frames, variables of each
 frame and globals (numbers, strings, arrays, TYPE fields; arrays show up to
