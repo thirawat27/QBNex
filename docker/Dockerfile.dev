@@ -44,7 +44,7 @@ RUN (cd internal/c/libqb/os/lnx && rm -f libqb_setup.o && chmod +x setup_build.s
      g++ -no-pie -w qbx.cpp \
        libqb/os/lnx/libqb_setup.o \
        ../../crates/qb-runtime/os/linux/libqb_runtime.a -lpthread -ldl -lm -lrt -lutil \
-       -ludev -lpthread -ldl -lrt \
+       -ludev -lasound -lpthread -ldl -lrt \
        -o ../../qb-stage0) && \
     /app/qb-stage0 /app/compiler/qbnex.bas -o /app/qb
 

@@ -13,6 +13,9 @@ path = "src/lib.rs"
 crate-type = ["staticlib"]
 test = false
 doctest = false
+# --all-targets also builds the lib as a bench harness exe; it cannot link without
+# the program's qb_native_entry (and clashes with msvcrt's atexit).
+bench = false
 
 [dependencies]
 qb-exec = { path = "../qb-exec", features = ["native-syms"] }

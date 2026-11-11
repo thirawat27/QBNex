@@ -86,7 +86,9 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
     LOOP
 
     IF nulCount = 0 AND badCount = 0 THEN ValidateUTF8Buffer% = -1: EXIT FUNCTION
-    IF nulCount = 0 AND declaredUTF8 = 0 AND longSeqCount < 2 THEN ValidateUTF8Buffer% = 1: EXIT FUNCTION
+    'CP437 box/graphics characters form a valid 3-byte UTF-8 sequence now and then (E2 95 90 =
+    '"Γò É" is also U+2550), so only call it UTF-8 when such sequences outnumber the bad bytes
+    IF nulCount = 0 AND declaredUTF8 = 0 AND (longSeqCount < 2 OR longSeqCount <= badCount) THEN ValidateUTF8Buffer% = 1: EXIT FUNCTION
 
     invalidLine = 1
     FOR i = 1 TO invalidPos - 1
@@ -107,6 +109,17 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
 
     invalidContext = MID$(text, lineStart, lineEnd - lineStart)
     ValidateUTF8Buffer% = 0
+END FUNCTION
+
+FUNCTION SourceLooksBinary% (text AS STRING)
+    'NUL bytes, but far fewer than UTF-16 text has (one per character): binary data
+    DIM p AS LONG, nuls AS LONG
+    p = INSTR(text, CHR$(0))
+    DO WHILE p > 0
+        nuls = nuls + 1
+        p = INSTR(p + 1, text, CHR$(0))
+    LOOP
+    IF nuls > 0 AND nuls * 4 < LEN(text) THEN SourceLooksBinary% = -1
 END FUNCTION
 
 SUB lineinput3load (f$)
@@ -161,7 +174,11 @@ SUB lineinput3load (f$)
     IF LEN(lineinput3buffer$) THEN
         IF ValidateUTF8Buffer%(lineinput3buffer$, invalidPos, invalidLine, invalidContext, hadBOM) = 0 THEN
             SetCurrentFile f$
-            ReportDetailedErrorWithSeverity ERR_INVALID_UTF8, ERR_FATAL, "Invalid UTF-8 byte sequence detected in source file (or UTF-16 without BOM)", invalidLine, invalidContext, "", "Re-save this file as UTF-8 without mixing ANSI/UTF-16 bytes."
+            IF SourceLooksBinary%(lineinput3buffer$) THEN
+                ReportDetailedErrorWithSeverity ERR_INVALID_UTF8, ERR_FATAL, "File contains binary data, not BASIC source text", invalidLine, "", "", "Check that this is the program's .BAS text file (not a compressed, tokenized or data file)."
+            ELSE
+                ReportDetailedErrorWithSeverity ERR_INVALID_UTF8, ERR_FATAL, "Invalid UTF-8 byte sequence detected in source file (or UTF-16 without BOM)", invalidLine, invalidContext, "", "Re-save this file as UTF-8 without mixing ANSI/UTF-16 bytes."
+            END IF
             compfailed = 1
             lineinput3buffer$ = ""
         END IF

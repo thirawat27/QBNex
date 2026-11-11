@@ -53,6 +53,12 @@ Found by ARTIF/ANT.BAS; also fixed MOSS/MUSIC, misc/replicat, misc/rot13, RPG2/Q
 
 Each with a minimal repro; stdin redirected from a file.
 
+Fixed since on branch `claude/r12b-core-4db168` (test-first, one commit each):
+Q1 `adf15fe` (END prompts only when the runtime's END policy says somebody could press a key, as cpp now does, so
+redirected runs of both backends end without the prompt), Q3 `dceeddd`, Q4 `deb2763` (empty values at the end of stdin;
+the browser runner keeps error 62), Q5 `aafc822` (keyboard / stdin bytes; empty at the end of stdin), Q6 `31c1e4e`
+(emitter: a static array is erased and dimensioned again with its bounds; case `arrays/erase_static`).
+
 **Q1. qb-exec: END does not print "Press any key to continue".** (5 diffs: ANT, MUSIC, QMIDI, replicat, rot13)
 ```basic
 PRINT "x"
@@ -108,10 +114,22 @@ SUB title: PRINT "t": END SUB
 ```
 cpp prints `t` twice. QIR: `qb-exec: invalid program: QIR: main: jmp L_TITLE: undefined label L_TITLE`
 (pete/beatdown/bdt; qb45com/astrowars with `ON ERROR GOTO errcode` + `SUB errcode`). Without the GOTO it runs.
+*Fixed (R11c-ir2):* the QIR was written before the compiler's repass that turns `title:` from a call into a label;
+`--ir` now runs the label check first, and `IrInit` clears every function body for a repass.
+Case `control/sub_name_label`.
 
 **Q8. QIR emitter: unsupported statements** (programs that do not compile with `--ir`, count of programs):
 BLOAD 23, OUT 22, BSAVE 20, RUN 17, WAIT 14, STICK 8, VARPTR of a non-STRING variable 5, CLEAR 4, TIME$ (statement) 3, INP 2,
 CHAIN 1, REDIM of an unknown array 1.
+*Status (R11c-ir2):* all but the last are lowered; qb-exec `rt/dosx.rs` has them.
+- OUT/INP: VGA DAC ports &H3C7/&H3C8/&H3C9 (on the write page's palette), &H3DA (retrace bit, emulated at 60 Hz), &H60 (keyboard scancode queue). Other ports do nothing / read 0, as in the C++ runtime. WAIT polls INP and returns at once on other ports.
+- STICK: 128 (no joystick device), argument checks as in the C++ runtime.
+- BLOAD/BSAVE: DEF SEG memory (SCREEN 13 at &HA000 included). TIME$ = is a no-op (`sub_time` is a stub).
+- VARPTR of a numeric variable / array element: QIR variables are not in conventional memory, so the bytes are mirrored in DBLOCK (the segment VARSEG returns). PEEK, BSAVE and CALL ABSOLUTE see the value at the time they run; POKE and BLOAD into an array mirror are written back to the array; a scalar mirror is a copy only.
+- RUN, RUN label, CLEAR: `rt RUN k` / `rt CLEAR k` end the run like END; the VM restarts `main` with fresh variables and `RUNFROM` (first statement of main) jumps to target k. CLEAR keeps array dimensions with zero elements; RUN forgets them (the DIMs run again). Both close files and reset DATA, ON ERROR and GOSUB; RUN also resets RND and the screen (SCREEN 0, COLOR 7, 0).
+- RUN file$ / CHAIN: run the other program, wait for it, then end. The C++ runtime does not wait (Windows); CHAIN does not pass COMMON variables.
+- REDIM of an unknown array: `DIM [SHARED] name%()` (empty parentheses, L-21) leaves no current id after `dim2`, so neither the DIM nor a later REDIM found the array. The emitter now looks the array up by name (this SUB's own, then the module's). qb64 misc/gor64.bas is not in the local corpus; conformance `arrays/dim_empty_redim_in_function` has the same failure and now compiles with `--ir`.
+Case `system/run_clear`, `graphics/ports_bload`.
 
 **C1. compiler: CP437 sources are still rejected** ("Invalid UTF-8 byte sequence") although the corpus-fixes CP437
 change is merged: MISC/SPACE.BAS (binary-looking first line) and misc/forest.bas (`DATA` line with bytes 0x80-0xFF in a string).

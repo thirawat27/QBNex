@@ -1,4 +1,5 @@
 QIR 1
+meta console only
 func main
 line 1
 const.str %0 x48656C6C6F2C20576F726C6421
