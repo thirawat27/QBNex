@@ -1661,9 +1661,17 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             r$ = IrCvt$(x$, IrT, "i64"): IrT = "i64"
         CASE "_OFFSET"
             IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
-            IF x$ = "" OR LEFT$(x$, 1) = "A" THEN IrNotSup "_OFFSET argument": r$ = IrConst$("u64", "0"): IrT = "u64": GOTO irfdone
+            IF x$ = "" THEN IrNotSup "_OFFSET argument": r$ = IrConst$("u64", "0"): IrT = "u64": GOTO irfdone
             y$ = IrAddr$(x$)
-            IF IrPlaceSTy$(x$) = "str" THEN r$ = IrRt$("_OFFSET.s", " " + y$, "u64") ELSE r$ = IrRt$("_OFFSET.p", " " + y$, "u64")
+            IF LEFT$(x$, 1) = "A" THEN
+                '_OFFSET(a()): the first element (the descriptor reference becomes its data address)
+                z$ = IrReg$: IrE "rt " + z$ + " _ARRADDR " + y$
+                r$ = IrRt$("_OFFSET.p", " " + z$, "u64")
+            ELSEIF IrPlaceSTy$(x$) = "str" THEN
+                r$ = IrRt$("_OFFSET.s", " " + y$, "u64")
+            ELSE
+                r$ = IrRt$("_OFFSET.p", " " + y$, "u64")
+            END IF
         CASE "_INCLERRORLINE"
             'QIR line markers are lines of the main file; no $INCLUDE line/file at run time
             r$ = IrI32$(0): IrT = "i32"
