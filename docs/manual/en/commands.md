@@ -22,7 +22,8 @@ another folder (see [known defects](differences.md#known-defects-not-fixed-yet))
 | --- | --- |
 | `<file>` | Source file (UTF-8, or CP437 bytes as QBasic saved them). |
 | `-c` | Compile (the default). |
-| `-o <file>` | Output executable. |
+| `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/qb-web/README.md) runs). |
+| `--emit-ir` | Write the QIR text instead of an executable (`-o x.exe` becomes `x.qir`). |
 | `-x` | Compile and send the compiler's output to the console. |
 | `-w` | Show warnings. |
 | `-Werror`, `--warnings-as-errors` | Treat warnings as errors. |
@@ -31,7 +32,7 @@ another folder (see [known defects](differences.md#known-defects-not-fixed-yet))
 | `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default; `-d` is the old alias). |
 | `-e` | `OPTION _EXPLICIT` for this compilation. |
 | `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`; `debuginfo` is kept but has no effect). |
-| `-p`, `-z`, `--ir`, `--emit-ir` | Accepted for old scripts; they change nothing (there are no precompiled objects and no C++ step, and QIR is the only back end). |
+| `-p`, `-z`, `--ir` | Accepted for old scripts; they change nothing (there are no precompiled objects and no C++ step, and QIR is the only back end). |
 | `-h`, `--help` · `-v`, `--version` · `-i`, `--info` · `-g`, `--examples` | Help, version, project information, examples. |
 
 Exit code 0 means the program compiled. Diagnostics name the file, line and

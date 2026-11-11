@@ -21,13 +21,13 @@ disturb the native one. On a machine short of memory, also set
 ## 2. Compile a program to QIR
 
 ```
-qb prog.bas --ir -o prog.exe
+qb prog.bas -o prog.qir
 ```
 
-`prog.exe` is the qb-exec runner with the QIR appended. The QIR is the text
-before the 16-byte trailer: a u32 length, a u32 zero, then `QBNEXIR0`.
-The page also takes the plain QIR text. `www/examples/*.qir` were made this
-way from the `.bas` files next to them.
+A `.qir` output name (or `--emit-ir`) makes the compiler write the program's
+QIR text instead of an executable. That text is what the page runs.
+`www/examples/*.qir` and `tests/fixtures/*.qir` were made this way from the
+`.bas` files next to them.
 
 ## 3. Serve the page
 

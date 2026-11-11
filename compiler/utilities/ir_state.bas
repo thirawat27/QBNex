@@ -2,6 +2,8 @@
 ' needs DIM SHARED before the SUB/FUNCTION area. Spec: docs/rust-port/qir-v1.md
 DIM SHARED IrEmitMode AS _BYTE
 IrEmitMode = -1 'QIR is the only backend (cutover): --ir is accepted and changes nothing
+'--emit-ir or -o <name>.qir: write the QIR text (for qb-web) instead of an executable
+DIM SHARED IrEmitText AS _BYTE
 'functions: 1 = main
 DIM SHARED IrFnN AS LONG, IrFnCur AS LONG
 REDIM SHARED IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING

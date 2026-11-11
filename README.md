@@ -401,7 +401,8 @@ qb <source.bas> [flags]
 | `-i` | `--info`, `--about` | Show project information | `qb -i` |
 | `-g` | `--examples` | Show common CLI examples | `qb -g` |
 | `-c` | - | Compile the source file (default) | `qb file.bas -c` |
-| `-o` | - | Specify output filename | `qb file.bas -o myapp.exe` |
+| `-o` | - | Specify output filename; a `.qir` name writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
+| `--emit-ir` | - | Write the QIR text instead of an executable (for qb-web) | `qb file.bas --emit-ir -o file.qir` |
 | `-x` | - | Compile with console-mode CLI behavior | `qb file.bas -x` |
 | `-w` | - | Show warnings during compilation | `qb file.bas -w` |
 | `-Werror` | `--warnings-as-errors` | Promote warnings to blocking diagnostics | `qb file.bas --warnings-as-errors` |
@@ -412,7 +413,7 @@ qb <source.bas> [flags]
 | `-e` | - | Enable OPTION _EXPLICIT | `qb file.bas -e` |
 | `-s` | - | View/edit compiler settings | `qb -s:DebugInfo=true` |
 | `-p` | - | Accepted for old scripts, no effect (nothing is precompiled) | `qb file.bas -p` |
-| `-z` | `--ir`, `--emit-ir` | Accepted for old scripts, no effect (QIR is the only back end) | `qb file.bas -z` |
+| `-z` | `--ir` | Accepted for old scripts, no effect (QIR is the only back end) | `qb file.bas -z` |
 
 **Recommended for debugging diagnostics:**
 ```bash

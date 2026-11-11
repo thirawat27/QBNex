@@ -36,6 +36,8 @@ SUB ShowCommandLineHelp
     PRINT "  -s[:switch=true/false]  View/edit compiler settings"
     PRINT "  -p                      Purge all pre-compiled content first"
     PRINT "  -z                      Generate C code without compiling to executable"
+    PRINT "  --emit-ir               Write the program's QIR text instead of an executable"
+    PRINT "                             (also when -o names a .qir file; for qb-web)"
     PRINT
 END SUB
 
@@ -130,7 +132,8 @@ FUNCTION NormalizeCommandToken$ (token$)
     IF normalized = "--verbose-errors" OR normalized = "--detailed-errors" THEN normalized = "-d"
     IF normalized = "--compact-errors" OR normalized = "--compact-diagnostics" THEN normalized = "-k"
     IF normalized = "-werror" OR normalized = "--warnings-as-errors" THEN normalized = "-r"
-    IF normalized = "--ir" OR normalized = "--emit-ir" THEN normalized = "-ir" 'R11 spike
+    IF normalized = "--ir" THEN normalized = "-ir" 'R11 spike
+    IF normalized = "--emit-ir" THEN normalized = "-irtext"
 
     NormalizeCommandToken$ = normalized
 END FUNCTION
@@ -156,6 +159,9 @@ FUNCTION ParseCMDLineArgs$ ()
         CASE "-i"
             IF LCASE$(token$) = "-ir" THEN
                 IrEmitMode = -1 'R11 spike: emit QIR for the Rust runner instead of C++
+                cmdlineswitch = -1
+            ELSEIF LCASE$(token$) = "-irtext" THEN
+                IrEmitText = -1 'write the QIR text (qb-web) instead of an executable
                 cmdlineswitch = -1
             ELSE
                 ShowProjectInfo
