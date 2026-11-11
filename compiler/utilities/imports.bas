@@ -285,7 +285,7 @@ SUB StdLib_PrepareHoistedImports
     END IF
 
     'these files take the place of the vwatch includes at the first/last line
-    vwatchDir = getfilepath$(COMMAND$(0)) + "internal" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$
+    vwatchDir = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$
     IF vWatchOn THEN
         headText = "'$INCLUDE:'" + vwatchDir + "vwatch.bi'" + CHR$(13) + CHR$(10) + headText
         bodyText = bodyText + "'$INCLUDE:'" + vwatchDir + "vwatch.bm'" + CHR$(13) + CHR$(10)
