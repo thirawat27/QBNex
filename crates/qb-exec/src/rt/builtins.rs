@@ -93,6 +93,8 @@ pub(crate) struct RtState<'a> {
     pub(crate) cmem_sdata: HashMap<u64, (usize, usize)>,
     /// CALL ABSOLUTE argument offsets being collected (ABSARG.*)
     pub(crate) abs_args: Vec<u16>,
+    /// `cmem_next` before the first argument of the CALL ABSOLUTE being collected
+    pub(crate) abs_mark: Option<usize>,
     /// error of the last numeric READ, raised by READCHK after the store
     pub(crate) read_err: i32,
     /// screen pages and images (SCREEN, graphics, `_NEWIMAGE`, ...)
@@ -144,6 +146,7 @@ impl<'a> RtState<'a> {
             read_err: 0,
             cmem_sdata: HashMap::new(),
             abs_args: Vec::new(),
+            abs_mark: None,
             input: super::input::Input::default(),
             limit_last: None,
             varptr_slots: 0,
@@ -528,6 +531,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         let rt = vm.rt();
         let size = if ty == "i16" { 2 } else if ty == "i32" || ty == "f32" { 4 } else { 8 };
         let off = rt.cmem_next;
+        // the arguments are near pointers into DBLOCK (one 64 KB segment)
+        if off + size > 0x1_0000 || DBLOCK + off + size > rt.cmem.len() {
+            return e(7);
+        }
+        if rt.abs_args.is_empty() {
+            rt.abs_mark = Some(off);
+        }
         rt.cmem_next += size;
         let b = DBLOCK + off;
         match ty {
@@ -544,6 +554,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         let off = a[0].i() as usize;
         let rt = vm.rt();
         let b = DBLOCK + off;
+        let size = if ty == "i16" { 2 } else if ty == "i32" || ty == "f32" { 4 } else { 8 };
+        if b + size > rt.cmem.len() {
+            return e(7);
+        }
         let m = &rt.cmem;
         let v = match ty {
             "i16" => V::I(i64::from(i16::from_le_bytes([m[b], m[b + 1]]))),
@@ -559,7 +573,19 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         let rt = vm.rt();
         let args = std::mem::take(&mut rt.abs_args);
         let seg = rt.def_seg.unwrap_or(DBLOCK);
-        super::cpu::call_absolute(&mut rt.cmem, seg, (DBLOCK >> 4) as u16, a[0].i() as u16, &args).or_else(|c| e(c))?;
+        rt.input.pump(&mut rt.cmem[..]);
+        let mouse = rt.input.latest_mouse();
+        let page = rt.display.mouse_page();
+        let r = super::cpu::call_absolute(&mut rt.cmem, seg, (DBLOCK >> 4) as u16, a[0].i() as u16, &args, &mut |n, reg| {
+            if n == 0x33 {
+                int33(reg, mouse, page);
+            }
+        });
+        // the argument slots are free again, whether the call worked or not (ABSGET reads them next)
+        if let Some(m) = rt.abs_mark.take() {
+            rt.cmem_next = m;
+        }
+        r.or_else(|c| e(c))?;
         return Ok(None);
     }
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
@@ -1314,7 +1340,7 @@ fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<V>> {
         // literal text up to the next field (or the end)
         let (lit, _) = scan_literal(&u.fmt, u.pos);
         out.extend_from_slice(&lit);
-        vm.rt().write(ch, &out)?;
+        using_out(vm, ch, out)?;
         return Ok(None);
     }
     let mut wrapped = false;
@@ -1355,9 +1381,53 @@ fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<V>> {
         }
         _ => return e(13),
     }
-    vm.rt().write(ch, &out)?;
+    using_out(vm, ch, out)?;
     vm.rt().using = Some(u);
     Ok(None)
+}
+
+/// INT 33h of CALL ABSOLUTE: the mouse driver of libqb `call_int` (AX 0 reset:
+/// AX=-1, BX=2 buttons; 3 status: BX buttons, CX/DX position; 1, 2, 7, 8 and
+/// the rest do nothing). `mouse`: latest (x, y, buttons) in page pixels;
+/// `page`: (text, mode, width, height, font width, font height).
+fn int33(reg: &mut [u32; 8], mouse: (i32, i32, u32), page: Option<(bool, u16, i32, i32, i32, i32)>) {
+    let set = |reg: &mut [u32; 8], i: usize, v: i32| reg[i] = reg[i] & !0xFFFF | (v as u32 & 0xFFFF);
+    const AX: usize = 0;
+    const CX: usize = 1;
+    const DX: usize = 2;
+    const BX: usize = 3;
+    match reg[AX] & 0xFFFF {
+        0 => {
+            set(reg, AX, -1);
+            set(reg, BX, 2);
+        }
+        3 => {
+            let (x, y, b) = mouse;
+            set(reg, BX, (b & 1) as i32 + if b & 4 != 0 { 2 } else { 0 });
+            let (text, mode, w, h, fw, fh) = page.unwrap_or((true, 0, 80, 25, 8, 16));
+            let (cx, dx) = if text {
+                // 8 units per character cell, whatever the font
+                ((x * 8 / fw.max(1)).min(w * 8 - 1), (y * 8 / fh.max(1)).min(h * 8 - 1))
+            } else if matches!(mode, 1 | 7 | 13) {
+                (x * 2, y)
+            } else {
+                (x, y)
+            };
+            set(reg, CX, cx);
+            set(reg, DX, dx);
+        }
+        _ => {}
+    }
+}
+
+/// PRINT USING text: the screen page when it is the destination (as PRINT), else stdout or the file.
+fn using_out(vm: &mut dyn Host<'_>, ch: i32, out: Vec<u8>) -> R<()> {
+    if ch == 0 && screen_out(vm) {
+        if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(out.clone())]) {
+            return r.map(|_| ());
+        }
+    }
+    vm.rt().write(ch, &out)
 }
 
 fn is_num_start(f: &[u8], p: usize) -> bool {
@@ -1819,4 +1889,32 @@ fn qb_instrrev(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod int33_tests {
+    use super::int33;
+
+    #[test]
+    fn reset_reports_a_two_button_mouse() {
+        let mut r = [0u32; 8];
+        int33(&mut r, (0, 0, 0), None);
+        assert_eq!((r[0], r[3]), (0xFFFF, 2));
+    }
+
+    #[test]
+    fn status_scales_text_cells_to_8_units_and_maps_buttons() {
+        let mut r = [3u32, 0, 0, 0, 0, 0, 0, 0];
+        // right button down (bit 2), 8x16 font: x 100 -> 100, y 48 -> 24
+        int33(&mut r, (100, 48, 4), Some((true, 0, 80, 25, 8, 16)));
+        assert_eq!((r[3], r[1], r[2]), (2, 100, 24));
+        // clamped to the last cell
+        let mut r = [3u32, 0, 0, 0, 0, 0, 0, 0];
+        int33(&mut r, (5000, 5000, 1), Some((true, 0, 80, 25, 8, 16)));
+        assert_eq!((r[3], r[1], r[2]), (1, 639, 199));
+        // SCREEN 12: pixels as they are
+        let mut r = [3u32, 0, 0, 0, 0, 0, 0, 0];
+        int33(&mut r, (10, 20, 0), Some((false, 12, 640, 480, 8, 16)));
+        assert_eq!((r[1], r[2]), (10, 20));
+    }
 }
