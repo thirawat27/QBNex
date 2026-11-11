@@ -895,7 +895,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             return ok(V::F(val(&item)));
         }
         "KILL" => {
-            let spec = String::from_utf8_lossy(s(0)).into_owned();
+            let spec = os_path(s(0));
             let files = glob_files(&spec);
             if files.is_empty() {
                 return e(53);
@@ -907,30 +907,30 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
         }
         "NAME" => {
-            if std::fs::rename(String::from_utf8_lossy(s(0)).as_ref(), String::from_utf8_lossy(s(1)).as_ref()).is_err() {
+            if std::fs::rename(os_path(s(0)), os_path(s(1))).is_err() {
                 return e(53);
             }
         }
         "MKDIR" => {
-            if std::fs::create_dir(String::from_utf8_lossy(s(0)).as_ref()).is_err() {
+            if std::fs::create_dir(os_path(s(0))).is_err() {
                 return e(75);
             }
         }
         "RMDIR" => {
-            if std::fs::remove_dir(String::from_utf8_lossy(s(0)).as_ref()).is_err() {
+            if std::fs::remove_dir(os_path(s(0))).is_err() {
                 return e(75);
             }
         }
         "CHDIR" => {
-            if std::env::set_current_dir(String::from_utf8_lossy(s(0)).as_ref()).is_err() {
+            if std::env::set_current_dir(os_path(s(0))).is_err() {
                 return e(76);
             }
         }
         "_FILEEXISTS" => {
-            return ok(V::I(if std::path::Path::new(String::from_utf8_lossy(s(0)).as_ref()).is_file() { -1 } else { 0 }))
+            return ok(V::I(if std::path::Path::new(&os_path(s(0))).is_file() { -1 } else { 0 }))
         }
         "_DIREXISTS" => {
-            return ok(V::I(if std::path::Path::new(String::from_utf8_lossy(s(0)).as_ref()).is_dir() { -1 } else { 0 }))
+            return ok(V::I(if std::path::Path::new(&os_path(s(0))).is_dir() { -1 } else { 0 }))
         }
         "CLS" | "BEEP" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
@@ -1068,6 +1068,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         _ => return e(73),
     }
     Ok(None)
+}
+
+/// A program path in the host's form: `\` and `/` both separate directories
+/// (legacy `fixdir`), so `'$INCLUDE:'dir\file.bas'` and `_FILEEXISTS("a\b")` work
+/// on Linux and macOS too.
+fn os_path(b: &[u8]) -> String {
+    let mut v = b.to_vec();
+    qb_runtime::gfs::fixdir(&mut v);
+    String::from_utf8_lossy(&v).into_owned()
 }
 
 /// Files matching a DOS pattern (`*`, `?` in the last component).
