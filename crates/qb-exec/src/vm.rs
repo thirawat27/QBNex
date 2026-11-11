@@ -48,11 +48,15 @@ pub(crate) struct Arr {
     /// What JIT'd code reads for inline 1-D numeric element access
     /// (`data` never reallocates: REDIM builds a new `Arr`).
     pub(crate) view: qb_jit::ctx::ArrView,
+    /// static array (`dims`): a second DIM keeps it and ERASE only clears it
+    fixed: bool,
 }
 
 impl Clone for Arr {
     fn clone(&self) -> Arr {
-        Arr::with_data(self.dims.clone(), self.data.clone())
+        let mut a = Arr::with_data(self.dims.clone(), self.data.clone());
+        a.fixed = self.fixed;
+        a
     }
 }
 
@@ -105,7 +109,7 @@ impl Arr {
             [(lb, ub)] if !ptr.is_null() => qb_jit::ctx::ArrView { data: ptr, lbound: *lb, count: ub - lb + 1 },
             _ => qb_jit::ctx::ArrView::NONE,
         };
-        Arr { dims, data, view }
+        Arr { dims, data, view, fixed: false }
     }
 
     #[cfg(test)]
@@ -228,6 +232,9 @@ struct Frame {
     desc: u32,
 }
 
+/// `Gs::ev` of an ON KEY(i) handler: `KEY_EV - i` (timers use their slot >= 0, -1 = plain GOSUB).
+const KEY_EV: i32 = -2;
+
 #[derive(Debug, Clone, Copy)]
 struct Gs {
     /// ON TIMER slot whose handler this GOSUB runs (-1 = a plain GOSUB)
@@ -285,6 +292,8 @@ pub struct Vm<'m, 'o> {
     last_line: u32,
     /// the ON TIMER ticker thread runs
     timer_thread: bool,
+    /// ON KEY was set up: safe points look at the keys (and a thread wakes them)
+    key_poll: bool,
     /// DECLARE LIBRARY: resolved function addresses (per `Module::xfns`) and loaded libraries
     xptrs: Vec<usize>,
     xlibs: Vec<qb_ffi::Library>,
@@ -427,6 +436,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             last_line: 0,
             continue_unhandled: false,
             timer_thread: false,
+            key_poll: false,
             xptrs: vec![0; m.xfns.len()],
             xlibs: Vec::new(),
             data_ptr: 0,
@@ -556,8 +566,8 @@ impl<'m, 'o> Vm<'m, 'o> {
         if (base + k as u32 + 1) >= crate::jit::GOSUB_CAP {
             return None;
         }
-        // an ON TIMER handler's GOSUB keeps its slot (done() at RETURN): stay in the VM
-        if self.gosub[n - k..].iter().any(|g| g.ev >= 0) {
+        // an ON TIMER/KEY handler's GOSUB keeps its slot (done() at RETURN): stay in the VM
+        if self.gosub[n - k..].iter().any(|g| g.ev != -1) {
             return None;
         }
         if self.gosub[..n - k].last().is_some_and(|g| g.depth == depth) {
@@ -610,7 +620,9 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         let depth = self.frames.len();
         let entry = self.step_one(pc)?;
-        if self.frames.len() == depth {
+        // u32::MAX: the program ended at the CALL's event poll (window closed), with
+        // the callee's frame already pushed; there is nothing to run
+        if self.frames.len() == depth || entry == u32::MAX {
             return Ok(entry);
         }
         let saved = self.stop_depth;
@@ -903,10 +915,15 @@ impl<'m, 'o> Vm<'m, 'o> {
         let i = self.arr_index(a, cx.ab);
         let f = if a & G != 0 { 0 } else { cx.func as usize };
         let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-        if mode == DimMode::Dim && self.arrs[i].as_ref().is_some_and(|a| !a.dims.is_empty()) {
+        let dimensioned = self.arrs[i].as_ref().is_some_and(|a| !a.dims.is_empty());
+        if mode == DimMode::Static && dimensioned {
+            return Ok(()); // a static array is dimensioned once (SUB ... STATIC, hoisted DIM)
+        }
+        if mode == DimMode::Dim && dimensioned {
             return Err(10); // duplicate definition
         }
         let mut new = Arr::new(ty, dims)?;
+        new.fixed = mode == DimMode::Static;
         if mode == DimMode::RedimPreserve {
             if let Some(old) = self.arrs[i].take() {
                 new.preserve_from(*old);
@@ -1230,7 +1247,42 @@ impl<'m, 'o> Vm<'m, 'o> {
                 return Some(id - 1);
             }
         }
+        drop(t);
+        if self.key_poll {
+            // ON KEY: keys pressed since the last safe point (libqb.cpp events())
+            let rt = &mut self.rt;
+            rt.input.pump(&mut rt.cmem);
+            // SAFETY: program thread only.
+            if unsafe { qb_runtime::events::onkey_inprogress } == 0 {
+                for (i, k) in qb_runtime::events::onkeys().iter_mut().enumerate() {
+                    if k.id != 0 && k.active == 1 && k.state > 0 {
+                        k.state -= 1;
+                        let id = k.id;
+                        // SAFETY: as above.
+                        unsafe { qb_runtime::events::onkey_inprogress = 1 };
+                        self.gosub.push(Gs { ev: KEY_EV - i as i32, ret: pc, depth: self.frames.len(), view: self.view });
+                        if self.view != 0 {
+                            self.set_view(0);
+                        }
+                        return Some(id - 1);
+                    }
+                }
+            }
+        }
         None
+    }
+
+    /// ON KEY: a thread raises event 0 every 10 ms so the VM looks at the keys.
+    fn start_key_poll(&mut self) {
+        if self.key_poll {
+            return;
+        }
+        self.key_poll = true;
+        let ev = self.events();
+        std::thread::spawn(move || loop {
+            ev.raise(0);
+            qb_runtime::systime::sleep_ms(10);
+        });
     }
 
     /// Address of DECLARE LIBRARY function `i`: the runner's own qb-ext symbols,
@@ -1526,6 +1578,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                         self.gosub.pop();
                         if g.ev >= 0 {
                             qb_runtime::events::timers().done(g.ev);
+                        } else if g.ev <= KEY_EV {
+                            // SAFETY: program thread only.
+                            unsafe { qb_runtime::events::onkey_inprogress = 0 };
                         }
                         pc = g.ret;
                         if g.view != self.view {
@@ -1717,7 +1772,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                     let i = self.arr_index(a, self.ab);
                     let f = if a & G != 0 { 0 } else { self.frames[self.view].func as usize };
                     let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-                    self.arrs[i] = Some(Box::new(tryc!(Arr::new(ty, vec![]))));
+                    // a static array (also one passed as a() to the SUB doing the ERASE)
+                    // keeps its dimensions and is only cleared, as in QBasic
+                    let keep = match self.arrs[i].as_deref() {
+                        Some(old) if old.fixed => Some(old.dims.clone()),
+                        _ => None,
+                    };
+                    let mut new = tryc!(Arr::new(ty, keep.clone().unwrap_or_default()));
+                    new.fixed = keep.is_some();
+                    self.arrs[i] = Some(Box::new(new));
                 }
                 Ins::ReadN { d, typ } => {
                     use qb_runtime::numparse as np_;
@@ -1807,6 +1870,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                     // event id = handler pc + 1 (0 = no handler)
                     tryc!(qb_runtime::events::timers().setup(ri!(s) as i32, rf!(x), t + 1, 0));
                     self.start_timer_thread();
+                }
+                Ins::OnKey { s, t } => {
+                    tryc!(qb_runtime::events::onkey_setup(qb_runtime::events::onkeys(), ri!(s) as i32, t + 1, 0));
+                    self.start_key_poll();
                 }
                 Ins::Resume { k, t } => {
                     pc = tryc!(self.resume(k, t));

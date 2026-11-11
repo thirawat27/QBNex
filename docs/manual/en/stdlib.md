@@ -5,7 +5,6 @@
 The standard library is BASIC source under `compiler/stdlib`, imported per
 module:
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'json'
 '$IMPORT:'ext.regex'
@@ -17,9 +16,7 @@ names carry their type suffix (`Http_Get&`, `Regex_Replace$`); you may call
 them with or without it where QBasic allows. The language server shows the
 declaration and the module of every library procedure on hover.
 
-Status: all modules on this page are **Available** with the default (C++)
-back end. With `--ir` the `ext.*` modules are not available yet (the QIR
-runner does not export their native functions), and in the
+Status: all modules on this page are **Available**. In the
 [web build](web.md) `ext.http` reports "not available".
 
 ## Overview
@@ -121,7 +118,6 @@ Also `UrlNormalizePath$`, `UrlBasename$`, `UrlExtname$`, `UrlDirname$`,
 ## ext.regex
 
 <!-- docs-test: output -->
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.regex'
 PRINT Regex_IsMatch&("^\d{3}-\d{4}$", "555-1234")           ' -1
@@ -154,7 +150,6 @@ folding). Positions are 1-based byte positions.
 ## ext.hash
 
 <!-- docs-test: output -->
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.hash'
 PRINT Hash_SHA256$("abc")
@@ -184,7 +179,6 @@ Digests are lower-case hex. `Hash_CRC32Value~&` returns the number.
 
 ## ext.zip
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.zip'
 h& = Zip_Create&("out.zip")
@@ -199,7 +193,6 @@ r& = Zip_Extract&("out.zip", "outdir")     ' refuses ../ names
 
 ## ext.http
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.http'
 st& = Http_Get&("https://example.com/", 5000)          ' status code, 0 = failed
@@ -214,7 +207,6 @@ followed. Bodies are binary-safe strings.
 
 ## ext.utf8
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.utf8'
 s$ = "สวัสดี"
@@ -231,7 +223,6 @@ Invalid bytes count as one character each and are kept.
 ## ext.collections
 
 <!-- docs-test: output -->
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.collections'
 l& = XList_New&
@@ -268,7 +259,6 @@ Lists are 0-based; dictionaries keep insertion order. `XList_Type&` /
 
 ## ext.datetime
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.datetime'
 t# = DT_Now#                                  ' Unix milliseconds (UTC)
@@ -297,4 +287,4 @@ PRINT Path_Join$("dir", "file.txt"), Path_Extension$("a/b.bas")
 PRINT Env_Platform$, Args_Count&
 ```
 
-These BASIC modules (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*`, ...) work with both the default back end and `--ir`.
+These BASIC modules (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*`, ...) work in native programs and in the web build.

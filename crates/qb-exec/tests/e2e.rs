@@ -135,8 +135,9 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     install_runner();
     let dir = tmpdir("unsupported");
     let src = dir.join("bad.bas");
-    // SCREEN, graphics, sound, CHAIN, ... are supported on QIR now; _OFFSET is not (yet)
-    std::fs::write(&src, "PRINT 1\nPRINT _OFFSET(x)\n").unwrap();
+    // SCREEN, graphics, sound, CHAIN, _OFFSET, ... are supported on QIR now; VARPTR$ of a
+    // string is not (yet)
+    std::fs::write(&src, "PRINT 1\nPRINT VARPTR$(a$)\n").unwrap();
     let out = Command::new(&qb)
         .current_dir(repo_root())
         .arg(&src)

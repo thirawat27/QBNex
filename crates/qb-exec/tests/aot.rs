@@ -22,7 +22,10 @@ fn native_image_matches_the_vm() {
         let r1 = run_ir(&p, &mut vm).map_err(|e| (e.code, e.line));
         let img = build_native(&p).unwrap_or_else(|e| panic!("build: {e:?}"));
         let mut nat = Vec::new();
-        let r2 = run_ir_native(&p, &img, &mut nat).map(|_| ()).map_err(|e| (e.code, e.line));
+        let r2 = run_ir_native(&p, &img, &mut nat).map(|_| ()).map_err(|e| {
+            eprintln!("run_ir_native: {e:?}");
+            (e.code, e.line)
+        });
         assert_eq!((String::from_utf8_lossy(&vm), r1), (String::from_utf8_lossy(&nat), r2));
     }
 }

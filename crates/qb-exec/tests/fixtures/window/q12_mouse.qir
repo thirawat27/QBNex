@@ -1,0 +1,282 @@
+QIR 1
+global $__STRING_MOUSEDATA str
+data x3535
+data x3839
+data x4535
+data x3842
+data x3545
+data x3043
+data x3842
+data x3037
+data x3530
+data x3842
+data x3545
+data x3041
+data x3842
+data x3037
+data x3530
+data x3842
+data x3545
+data x3038
+data x3842
+data x3046
+data x3842
+data x3545
+data x3036
+data x3842
+data x3137
+data x3542
+data x3538
+data x3145
+data x3037
+data x4344
+data x3333
+data x3533
+data x3842
+data x3545
+data x3043
+data x3839
+data x3037
+data x3538
+data x3842
+data x3545
+data x3041
+data x3839
+data x3037
+data x3842
+data x3545
+data x3038
+data x3839
+data x3046
+data x3842
+data x3545
+data x3036
+data x3839
+data x3137
+data x3544
+data x4341
+data x3038
+data x3030
+global $__SINGLE_I f32
+global $__STRING_H str
+global $__STRING_HEXXER str
+global $__INTEGER_LB i16
+global $__INTEGER_RB i16
+global $__INTEGER_MX i16
+global $__INTEGER_MY i16
+global $__SINGLE_MOUSE f32
+global $__SINGLE_T f32
+func main
+local $~T4 f64
+local $~T5 f64
+local $~T6 f64
+line 1
+const.i32 %0 13
+const.i32 %1 0
+const.i32 %2 0
+const.i32 %3 0
+const.i32 %4 0
+const.i32 %5 1
+rt qbg_screen %0 %1 %2 %3 %4 %5
+line 2
+line 6
+const.i32 %6 57
+rt %7 SPACE$ %6
+store.str $__STRING_MOUSEDATA %7
+line 7
+const.i32 %8 1
+cvt.f64.i32 %9 %8
+store.f64 $~T4 %9
+const.i32 %10 57
+cvt.f64.i32 %11 %10
+store.f64 $~T5 %11
+const.i32 %12 1
+cvt.f64.i32 %13 %12
+store.f64 $~T6 %13
+jmp ~F1.E
+label ~F1.T
+load.f32 %14 $__SINGLE_I
+cvt.f64.f32 %15 %14
+load.f64 %16 $~T6
+add.f64 %17 %16 %15
+store.f64 $~T4 %17
+label ~F1.E
+load.f64 %18 $~T4
+cvt.f32.f64 %19 %18
+store.f32 $__SINGLE_I %19
+load.f64 %20 $~T6
+const.f64 %21 0
+lt.f64 %22 %20 %21
+jz %22 ~F1.P
+load.f64 %23 $~T5
+lt.f64 %24 %18 %23
+jnz %24 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.f64 %25 $~T5
+gt.f64 %26 %18 %25
+jnz %26 ~F1.X
+label ~F1.B
+line 8
+read.str %27
+store.str $__STRING_H %27
+line 9
+const.str %28 x2648
+load.str %29 $__STRING_H
+concat %30 %28 %29
+rt %31 VAL.f80 %30
+cvt.i32.f80 %32 %31
+rt %33 CHR$ %32
+store.str $__STRING_HEXXER %33
+line 10
+load.str %34 $__STRING_MOUSEDATA
+load.f32 %35 $__SINGLE_I
+cvt.i32.f32 %36 %35
+load.str %37 $__STRING_HEXXER
+const.i32 %38 1
+rt %39 MIDSET.n %34 %36 %38 %37
+store.str $__STRING_MOUSEDATA %39
+line 11
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 12
+const.i32 %40 0
+cvt.i16.i32 %41 %40
+store.i16 $__INTEGER_LB %41
+line 12
+const.i32 %42 0
+cvt.i16.i32 %43 %42
+store.i16 $__INTEGER_RB %43
+line 12
+const.i32 %44 0
+cvt.i16.i32 %45 %44
+store.i16 $__INTEGER_MX %45
+line 12
+const.i32 %46 0
+cvt.i16.i32 %47 %46
+store.i16 $__INTEGER_MY %47
+line 13
+rt %48 VARSEG
+rt DEFSEG %48
+line 14
+addr %49 $__STRING_MOUSEDATA
+rt %50 SADD %49
+cvt.f32.i32 %51 %50
+store.f32 $__SINGLE_MOUSE %51
+line 15
+load.i16 %52 $__INTEGER_LB
+rt %53 ABSARG.i16 %52
+load.i16 %54 $__INTEGER_RB
+rt %55 ABSARG.i16 %54
+load.i16 %56 $__INTEGER_MX
+rt %57 ABSARG.i16 %56
+load.i16 %58 $__INTEGER_MY
+rt %59 ABSARG.i16 %58
+load.f32 %60 $__SINGLE_MOUSE
+cvt.i32.f32 %61 %60
+rt ABSCALL %61
+rt %62 ABSGET.i16 %53
+store.i16 $__INTEGER_LB %62
+rt %63 ABSGET.i16 %55
+store.i16 $__INTEGER_RB %63
+rt %64 ABSGET.i16 %57
+store.i16 $__INTEGER_MX %64
+rt %65 ABSGET.i16 %59
+store.i16 $__INTEGER_MY %65
+line 16
+const.str %66 x6D6F7573652E747874
+const.i32 %67 1
+const.i32 %68 0
+const.i32 %69 2
+rt OPEN %66 %69 %67 %68
+line 17
+const.i32 %70 1
+load.i16 %71 $__INTEGER_LB
+cvt.i64.i16 %72 %71
+rt PRINTN.i64 %70 %72
+load.i16 %73 $__INTEGER_RB
+cvt.i64.i16 %74 %73
+rt PRINTN.i64 %70 %74
+rt PRINTNL %70
+line 18
+rt %75 TIMER
+cvt.f32.f64 %76 %75
+store.f32 $__SINGLE_T %76
+line 18
+label ~W4.T
+line 18
+label ~W4.C
+rt %77 TIMER
+load.f32 %78 $__SINGLE_T
+cvt.f64.f32 %79 %78
+sub.f64 %80 %77 %79
+const.i32 %81 1
+cvt.f64.i32 %82 %81
+gt.f64 %83 %80 %82
+jz %83 ~W4.T
+label ~W4.X
+line 19
+const.i32 %84 3
+cvt.i16.i32 %85 %84
+store.i16 $__INTEGER_LB %85
+line 19
+const.i32 %86 0
+cvt.i16.i32 %87 %86
+store.i16 $__INTEGER_RB %87
+line 19
+const.i32 %88 0
+cvt.i16.i32 %89 %88
+store.i16 $__INTEGER_MX %89
+line 19
+const.i32 %90 0
+cvt.i16.i32 %91 %90
+store.i16 $__INTEGER_MY %91
+line 20
+load.i16 %92 $__INTEGER_LB
+rt %93 ABSARG.i16 %92
+load.i16 %94 $__INTEGER_RB
+rt %95 ABSARG.i16 %94
+load.i16 %96 $__INTEGER_MX
+rt %97 ABSARG.i16 %96
+load.i16 %98 $__INTEGER_MY
+rt %99 ABSARG.i16 %98
+load.f32 %100 $__SINGLE_MOUSE
+cvt.i32.f32 %101 %100
+rt ABSCALL %101
+rt %102 ABSGET.i16 %93
+store.i16 $__INTEGER_LB %102
+rt %103 ABSGET.i16 %95
+store.i16 $__INTEGER_RB %103
+rt %104 ABSGET.i16 %97
+store.i16 $__INTEGER_MX %104
+rt %105 ABSGET.i16 %99
+store.i16 $__INTEGER_MY %105
+line 21
+const.i32 %106 1
+load.i16 %107 $__INTEGER_RB
+cvt.i64.i16 %108 %107
+rt PRINTN.i64 %106 %108
+load.i16 %109 $__INTEGER_MX
+cvt.i64.i16 %110 %109
+rt PRINTN.i64 %106 %110
+load.i16 %111 $__INTEGER_MY
+cvt.i64.i16 %112 %111
+rt PRINTN.i64 %106 %112
+rt PRINTNL %106
+line 22
+const.i32 %113 1
+rt CLOSE %113
+line 23
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc
