@@ -9,8 +9,8 @@
 ```bash
 cd packaging/vscode
 npm install
-npx vsce package                      # ได้ qbnex-0.1.0.vsix
-code --install-extension qbnex-0.1.0.vsix
+npx vsce package                      # ได้ qbnex-2.0.0.vsix
+code --install-extension qbnex-2.0.0.vsix
 ```
 
 ต้องมี `qb` (หรือตั้ง `qbnex.compilerPath`) และสำหรับความสามารถด้านภาษา

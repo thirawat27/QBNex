@@ -7,8 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-11
+
+QBNex 2.0 has no C or C++ left: programs are compiled to QIR and run by a Rust
+runtime. Old QBasic/QB64 programs compile and behave as before, except for the
+fixes listed in `docs/manual/en/differences.md`.
+
 ### Changed
-- Reorganized the repository: compiler sources moved from `source/` to `compiler/`; the native runtime is now a Cargo workspace in `crates/` (`qb-runtime`, `qb-audio`, `qb-exec`, C ABI symbols prefixed `qb_`, header `crates/qb-runtime/include/qb_runtime.h`); tests live under `tests/` (`smoke/`, `fixtures/`, `conformance/`, `diff/`); setup scripts moved to `scripts/`, Docker files to `docker/`, the installer to `packaging/installer/`.
+
+#### Compiler and runtime
+- The compiler emits QIR (the QBNex intermediate representation) instead of C++. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
+- The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/qb-runtime`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
+- Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library, still without a C/C++ toolchain.
+- `-z`, `-p` and `--ir` are accepted for old scripts and change nothing.
+
+#### Build
+- No MinGW, g++ or CMake: `scripts/setup_win.cmd` and `scripts/setup_lnx.sh` build `qb-exec` with cargo, pack the bootstrap compiler `bootstrap/qbnex.qir` into `qb-stage0`, and let it compile `compiler/qbnex.bas` into `qb`. `internal/` is gone.
+- Reorganized the repository: compiler sources moved from `source/` to `compiler/`; the runtime is a Cargo workspace in `crates/`; tests live under `tests/` (`smoke/`, `fixtures/`, `conformance/`); setup scripts moved to `scripts/`, Docker files to `docker/`, the installer to `packaging/installer/`.
+- All crates share the workspace version (2.0.0).
+
+### Added
+- Language extensions: `ENUM`, `FOR EACH`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `$"..{expr}.."` interpolation, `_IIF`, `_TOSTR$`, `_ANDALSO`/`_ORELSE`.
+- 3D API (`_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, `_LOADMODEL`) with a GPU path and a software renderer.
+- `ext.*` standard library modules backed by Rust (`ext.regex`, `ext.http`, ...).
+- Tools: formatter `qb-fmt`, language server `qb-lsp`, debugger `qb-dap`, a VS Code extension (`packaging/vscode`), and a WebAssembly build of the runner (`crates/qb-web`).
+- User manual in English and Thai (`docs/manual`), checked by `tests/docs/check_docs.ps1`.
+
+### Fixed
+- Integer `\` and `MOD` by zero raise a catchable error 11; runtime errors with redirected output go to stderr with exit code 1; and the other intentional changes listed in `docs/manual/en/differences.md`.
 
 ## [1.0.4] - 2026-05-05
 
@@ -352,6 +378,8 @@ Optional dependencies:
 
 ---
 
+[2.0.0]: https://github.com/thirawat27/QBNex/releases/tag/v2.0.0
+[1.0.4]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.4
 [1.0.3]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.3
 [1.0.2]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.2
 [1.0.1]: https://github.com/thirawat27/QBNex/releases/tag/v1.0.1

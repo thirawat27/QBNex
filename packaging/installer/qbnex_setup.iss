@@ -10,7 +10,7 @@
 #endif
 
 #define MyAppName "QBNex"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "thirawat27"
 #define MyAppURL "https://github.com/thirawat27/QBNex"
 #define MyAppExeName "qb.exe"
@@ -55,9 +55,7 @@ Source: "{#RepoRoot}CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}compiler\*"; DestDir: "{app}\compiler"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#RepoRoot}internal\*"; DestDir: "{app}\internal"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "internal\temp\*"
-; Prebuilt Rust runtime (libqb_runtime.a, linked into every program) and QIR runner.
-Source: "{#RepoRoot}crates\qb-runtime\os\windows\*"; DestDir: "{app}\crates\qb-runtime\os\windows"; Flags: ignoreversion recursesubdirs createallsubdirs
+; QIR runner (every compiled program is a copy of it plus the program's QIR) and, if built, its native kit.
 Source: "{#RepoRoot}crates\qb-exec\bin\windows\*"; DestDir: "{app}\crates\qb-exec\bin\windows"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]

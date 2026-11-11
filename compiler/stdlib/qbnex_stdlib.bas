@@ -1505,7 +1505,7 @@ FUNCTION Result_Expect$ (resultRef AS QBNex_Result, expectationText AS STRING)
 END FUNCTION
 
 FUNCTION QBNex_StdLib_Version$ ()
-    QBNex_StdLib_Version = "1.0.0"
+    QBNex_StdLib_Version = "2.0.0"
 END FUNCTION
 
 FUNCTION QBNex_StdLib_Info$ ()
