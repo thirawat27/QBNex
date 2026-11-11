@@ -40,6 +40,7 @@ and the tests.
 | D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
 | D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |
 | D-R12b-4 | With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog. |
+| D-R11b-1 | `PUT` to a TCP connection whose send buffer is full keeps the connection: the rest of the data is queued and sent, in order, by later network calls and `CLOSE` (QB64 dropped the connection and the data). |
 
 ## QBasic behaviour kept on purpose
 
@@ -60,7 +61,6 @@ next second at program start.
 | L-08 | About 1 run in 300-400 ends with exit code `0xC0000409` at exit. |
 | L-10 | After one `OPEN "COMn:..."`, later COM names fail. |
 | L-12 | `LINE INPUT #` on a BINARY file drops a 1-character last line. |
-| L-14 | `PUT` to a TCP connection with a full send buffer drops the connection. |
 | L-15 | `TIMER ON` after `TIMER STOP` loses an event queued during the stop. |
 
 ## Platform gaps
