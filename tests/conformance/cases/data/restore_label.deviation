@@ -1,0 +1,1 @@
+Fixes legacy defect L-03: RESTORE <label> never returned in the C++ backend (the program hung before any output). The QIR backend restores to the DATA after the label, as QBasic does. Expected output is the QBasic result.
