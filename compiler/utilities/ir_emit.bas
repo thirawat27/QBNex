@@ -2273,7 +2273,11 @@ SUB IrFinish (src$, outExe$)
     fh = FREEFILE
     OPEN ir$ FOR OUTPUT AS #fh
     PRINT #fh, "QIR 1"
-    IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
+    IF LCASE$(RIGHT$(outExe$, 4)) = ".qir" THEN IrEmitText = -1
+    IF IrEmitText AND AutoConsoleOnlyActive THEN
+        'QIR text is for qb-web: a page has no terminal, so a program that is console-only
+        'only because it draws nothing (not $CONSOLE:ONLY) prints on the page's screen
+    ELSEIF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
         PRINT #fh, "meta console only"
     ELSEIF Console THEN
         PRINT #fh, "meta console"
