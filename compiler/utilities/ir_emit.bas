@@ -25,6 +25,7 @@ SUB IrInit
     IrPendCase$ = "": IrPendEvery = 0: IrPendElse = 0: IrPendCaseOn = 0: IrPendLevel = 0
     IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
     IrRunN = 0: IrRunTo = ""
+    IrPendBody = "": IrPendFn = 0
 END SUB
 
 SUB IrNotSup (w$)
@@ -33,7 +34,17 @@ END SUB
 
 SUB IrE (s$)
     IF IrFnCur = 0 THEN EXIT SUB
-    IrFnBody(IrFnCur) = IrFnBody(IrFnCur) + s$ + CHR$(10)
+    'R14: collect lines in a small buffer; IrFlush appends it to the body
+    IF IrPendFn <> IrFnCur THEN IrFlush: IrPendFn = IrFnCur
+    IrPendBody = IrPendBody + s$ + CHR$(10)
+    IF LEN(IrPendBody) > 8192 THEN IrFlush
+END SUB
+
+'appends the lines IrE collected to their function body; call it before
+'reading or replacing IrFnBody()
+SUB IrFlush
+    IF IrPendFn THEN IrFnBody(IrPendFn) = IrFnBody(IrPendFn) + IrPendBody
+    IrPendBody = "": IrPendFn = 0
 END SUB
 
 SUB IrHead (s$)
@@ -787,8 +798,11 @@ FUNCTION IrCmp$ (op$, a$, ta$, b$, tb$)
 END FUNCTION
 
 FUNCTION IrEval$ (a2$, typ AS LONG)
-    DIM blk(1 TO 200) AS STRING, bty(1 TO 200) AS LONG, bq(1 TO 200) AS STRING, bop(1 TO 200) AS INTEGER
     DIM n AS LONG, i AS LONG, j AS LONG, nb AS LONG, l$, t AS LONG, r$
+    'R14: a block takes at least one element; the fixed 200 stopped long
+    'expressions (about 100 terms) with an internal subscript error
+    n = numelements(a2$) + 1
+    DIM blk(1 TO n) AS STRING, bty(1 TO n) AS LONG, bq(1 TO n) AS STRING, bop(1 TO n) AS INTEGER
     DIM o$, u AS LONG, info$, lhs AS LONG, rhs AS LONG, result AS LONG, isop AS LONG
     DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
     DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$
@@ -1916,8 +1930,10 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
             'it exists even where its DIM statement never runs. "dims" in the procedure's
             'prologue dimensions it once; ERASE then only clears it (qb-exec)
             DIM saved$
+            IrFlush
             saved$ = IrFnBody(IrFnCur): IrFnBody(IrFnCur) = ""
             IrDimArray nm$, elements$, "dims"
+            IrFlush
             IrFnPro(IrFnCur) = IrFnPro(IrFnCur) + IrFnBody(IrFnCur)
             IrFnBody(IrFnCur) = saved$
             EXIT SUB
@@ -2056,6 +2072,7 @@ END FUNCTION
 FUNCTION IrRunDispatch$
     DIM saved$, code$, k AS LONG, p AS LONG, rest$, r$, c$, savecur AS LONG
     savecur = IrFnCur: IrFnCur = 1
+    IrFlush
     saved$ = IrFnBody(1): IrFnBody(1) = ""
     r$ = IrRt$("RUNFROM", "", "i32")
     rest$ = IrRunTo
@@ -2065,6 +2082,7 @@ FUNCTION IrRunDispatch$
         IrE "jnz " + c$ + " " + LEFT$(rest$, p - 1)
         rest$ = MID$(rest$, p + 1)
     NEXT
+    IrFlush
     code$ = IrFnBody(1)
     IrFnBody(1) = saved$: IrFnCur = savecur
     IrRunDispatch$ = code$
@@ -2303,6 +2321,7 @@ END SUB
 
 SUB IrFinish (src$, outExe$)
     DIM fh AS INTEGER, i AS LONG, runner$, outPath$, ir$, r$, q$, l$, top AS LONG
+    IrFlush
     IF IrFailMsg <> "" THEN
         PRINT "QIR: unsupported: " + IrFailMsg
         IF ENVIRON$("QBNEX_IR_DEBUG") = "1" THEN PRINT RIGHT$(IrFnBody(IrFnCur), 600)

@@ -173,6 +173,20 @@ impl Mem {
 
     pub(crate) fn st_str(&mut self, p: u64, s: &[u8]) -> R<()> {
         let old = self.ld(MTy::U64, p)?;
+        // Reuse the slot's buffer: freeing and allocating a large string on
+        // every store (`a$(i) = a$(i) + x$`) made repeated appends to a
+        // memory string allocation-bound (R14).
+        if old != 0 && !s.is_empty() {
+            if let Some(v) = self.strs.get_mut(old as usize) {
+                let r = v.as_ptr_range();
+                let src = s.as_ptr();
+                if !(r.start <= src && src < r.end) {
+                    v.clear();
+                    v.extend_from_slice(s);
+                    return Ok(());
+                }
+            }
+        }
         self.free_str(old);
         let h = self.new_str(s);
         self.st(MTy::U64, p, h)

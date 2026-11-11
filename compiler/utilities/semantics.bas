@@ -211,9 +211,12 @@ IF incmem THEN typ = typ + ISINCONVENTIONALMEMORY
 END FUNCTION
 
 FUNCTION evaluate$ (a2$, typ AS LONG)
-    DIM block(1000) AS STRING
-    DIM evaledblock(1000) AS INTEGER
-    DIM blocktype(1000) AS LONG
+    'R14: a block holds at least one element; the fixed 1000 stopped long
+    'expressions (about 500 terms) with an internal subscript error
+    evalblockmax = numelements(a2$) + 1000
+    DIM block(evalblockmax) AS STRING
+    DIM evaledblock(evalblockmax) AS INTEGER
+    DIM blocktype(evalblockmax) AS LONG
     'typ IS A RETURN VALUE
     '''DIM cli(15) AS INTEGER
     a$ = a2$

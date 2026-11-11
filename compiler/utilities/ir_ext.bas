@@ -90,10 +90,12 @@ END FUNCTION
 FUNCTION IrExtCapture$ (e$, t AS LONG, code$, rt$)
     'evaluates e$ with its code captured into code$ instead of the function body
     DIM saved$, r$
+    IrFlush
     saved$ = IrFnBody(IrFnCur)
     IrFnBody(IrFnCur) = ""
     r$ = IrEval$(e$, t)
     rt$ = IrT
+    IrFlush
     code$ = IrFnBody(IrFnCur)
     IrFnBody(IrFnCur) = saved$
     IrExtCapture$ = r$
@@ -137,11 +139,13 @@ FUNCTION IrExtFunc% (nm$, sv() AS STRING, nargs AS LONG, typ AS LONG, result$)
             lbl$ = "~F" + str2$(IrNew)
             c$ = IrExtTruth$(sv(1))
             IrE "jz " + c$ + " " + lbl$ + ".B"
+            IrFlush
             IrFnBody(IrFnCur) = IrFnBody(IrFnCur) + codeA$
             IF ct$ <> "str" THEN x$ = IrCvt$(ra$, ta$, ct$) ELSE x$ = ra$
             IrE "store." + ct$ + " " + tmp$ + " " + x$
             IrE "jmp " + lbl$ + ".E"
             IrE "label " + lbl$ + ".B"
+            IrFlush
             IrFnBody(IrFnCur) = IrFnBody(IrFnCur) + codeB$
             IF ct$ <> "str" THEN y$ = IrCvt$(rb$, tb$, ct$) ELSE y$ = rb$
             IrE "store." + ct$ + " " + tmp$ + " " + y$

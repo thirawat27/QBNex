@@ -40,14 +40,18 @@ FUNCTION getelementspecial$ (savea$, elenum)
     i = INSTR(p, a$, sp)
 
     'avoid sp inside "..."
-    i2 = INSTR(p, a$, CHR$(34))
+    'R14: look for the quote inside this element only (a search to the end of
+    'the line on every call was quadratic for long lines without quotes)
+    i2 = 0
+    IF i THEN i2 = INSTR(MID$(a$, p, i - p), CHR$(34)): IF i2 THEN i2 = i2 + p - 1
     IF i2 < i AND i2 <> 0 THEN
         i3 = INSTR(i2 + 1, a$, CHR$(34)): IF i3 = 0 THEN Give_Error "Expected " + CHR$(34): EXIT FUNCTION
         i = INSTR(i3, a$, sp)
     END IF
 
     IF elenum = n THEN
-        cacheSource(slot) = a$
+        'R14: cacheSource(slot) already holds a$ (matched or set above); copying
+        'the whole line again on every call made long lines quadratic
         cacheElement(slot) = elenum
         cacheStart(slot) = p
         cacheNext(slot) = i
@@ -95,15 +99,19 @@ FUNCTION getelement$ (a$, elenum)
         n = cacheElement(slot) + 1
         p = cacheNext(slot) + 1
     ELSE
-        n = 1
-        p = 1
+        'R14: jump to the element with the shared position cache (seeded by the
+        'SUBs that edit lines) instead of scanning from the start
+        p = elementpos(a$, elenum, 0)
+        IF p = 0 THEN EXIT FUNCTION 'no such element
+        n = elenum
     END IF
 
     getelementnext:
     i = INSTR(p, a$, sp)
 
     IF elenum = n THEN
-        cacheSource(slot) = a$
+        'R14: cacheSource(slot) already holds a$ (matched or set above); copying
+        'the whole line again on every call made long lines quadratic
         cacheElement(slot) = elenum
         cacheStart(slot) = p
         cacheNext(slot) = i
@@ -150,17 +158,54 @@ SUB insertelements (a$, i, elements$)
         EXIT SUB
     END IF
 
-    a2$ = ""
-    n = numelements(a$)
-
-    FOR i2 = 1 TO n
-        IF i2 > 1 THEN a2$ = a2$ + sp
-        a2$ = a2$ + getelement$(a$, i2)
-        IF i = i2 THEN a2$ = a2$ + sp + elements$
-    NEXT
-
-    a$ = a2$
+    'R14: find element i (position cache), then a single splice. Rebuilding
+    'the line element by element made every call O(line length * elements),
+    'and long expressions call this once per number (cubic compile time).
+    IF a$ = "" THEN EXIT SUB
+    'look up element i + 1: removeelements leaves exactly that one cached
+    'when a caller replaces element i + 1 (remove, then insert after i)
+    p = elementpos(a$, i + 1, 0)
+    IF p THEN
+        a$ = LEFT$(a$, p - 1) + elements$ + sp + MID$(a$, p)
+        p = elementpos(a$, i + 1, p) 'the first inserted element starts here
+    ELSE
+        IF elementpos(a$, i, 0) = 0 THEN EXIT SUB 'i past the last element: nothing inserted (as before)
+        a$ = a$ + sp + elements$
+    END IF
 END SUB
+
+FUNCTION elementpos (a$, k, setpos)
+    'R14: position of the first character of element k in a$ (0 if there is
+    'no element k). The last answer is remembered, and the SUBs that splice a
+    'line store the position they know, so walking a long line element by
+    'element while editing it does not rescan it from the start each time.
+    STATIC cacheText AS STRING, cacheK AS LONG, cachePos AS LONG
+    IF setpos > 0 THEN
+        cacheText = a$: cacheK = k: cachePos = setpos
+        elementpos = setpos
+        EXIT FUNCTION
+    END IF
+    IF k < 1 OR a$ = "" THEN EXIT FUNCTION
+
+    n = 1: p = 1: cachehit = 0
+    IF cacheK > 0 THEN
+        IF LEN(cacheText) = LEN(a$) THEN
+            IF cacheText = a$ THEN cachehit = -1
+        END IF
+    END IF
+    IF cachehit THEN
+        IF k >= cacheK THEN n = cacheK: p = cachePos
+    END IF
+    DO WHILE n < k
+        i = INSTR(p, a$, sp)
+        IF i = 0 THEN EXIT FUNCTION 'no element k
+        p = i + 1
+        n = n + 1
+    LOOP
+    IF cachehit = 0 THEN cacheText = a$
+    cacheK = k: cachePos = p
+    elementpos = p
+END FUNCTION
 
 FUNCTION numelements (a$)
     STATIC cacheSource(1 TO 2) AS STRING
@@ -190,22 +235,35 @@ FUNCTION numelements (a$)
 END FUNCTION
 
 SUB removeelements (a$, first, last, keepindexing)
-    a2$ = ""
     'note: first and last MUST be valid
     '      keepindexing means the number of elements will stay the same
     '       but some elements will be equal to ""
+    'R14: cut at the element boundaries (position cache, see insertelements)
 
-    n = numelements(a$)
-    FOR i = 1 TO n
-        IF i < first OR i > last THEN
-            a2$ = a2$ + sp + getelement(a$, i)
+    firstpos = elementpos(a$, first, 0) 'first character of element first
+    IF firstpos = 0 THEN EXIT SUB 'nothing to remove
+    lastn = last
+    lastpos = elementpos(a$, lastn, 0)
+    IF lastpos = 0 THEN lastn = numelements(a$): lastpos = elementpos(a$, lastn, 0)
+    lastend = INSTR(lastpos, a$, sp) 'separator after element last
+    IF lastend = 0 THEN lastend = LEN(a$) + 1
+
+    IF keepindexing THEN
+        a$ = LEFT$(a$, firstpos - 1) + STRING$(lastn - first, sp) + MID$(a$, lastend)
+        p = elementpos(a$, first, firstpos)
+        EXIT SUB
+    END IF
+
+    IF lastend > LEN(a$) THEN 'up to the last element
+        IF first > 1 THEN a$ = LEFT$(a$, firstpos - 2) ELSE a$ = ""
+    ELSE
+        IF first > 1 THEN
+            a$ = LEFT$(a$, firstpos - 2) + MID$(a$, lastend)
         ELSE
-            IF keepindexing THEN a2$ = a2$ + sp
+            a$ = MID$(a$, lastend + 1)
         END IF
-    NEXT
-    IF LEFT$(a2$, 1) = sp THEN a2$ = RIGHT$(a2$, LEN(a2$) - 1)
-
-    a$ = a2$
+        p = elementpos(a$, first, firstpos) 'the next element now starts here
+    END IF
 END SUB
 
 FUNCTION eleucase$ (a$)

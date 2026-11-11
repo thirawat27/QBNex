@@ -25,6 +25,7 @@ call :bad endif_alone "$END IF without $IF" "endif_alone.bas(2)"
 call :bad ifdef_too_deep "Too many nested $IF blocks" "ifdef_too_deep.bas(257)"
 call :good ifdef_valid
 call :good deep_parens_ok
+call :good long_expr
 
 rd /s /q "%TMPDIR%" >nul 2>&1
 if "%FAILED%"=="1" exit /b 1
