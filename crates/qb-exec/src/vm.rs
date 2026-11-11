@@ -48,11 +48,15 @@ pub(crate) struct Arr {
     /// What JIT'd code reads for inline 1-D numeric element access
     /// (`data` never reallocates: REDIM builds a new `Arr`).
     pub(crate) view: qb_jit::ctx::ArrView,
+    /// static array (`dims`): a second DIM keeps it and ERASE only clears it
+    fixed: bool,
 }
 
 impl Clone for Arr {
     fn clone(&self) -> Arr {
-        Arr::with_data(self.dims.clone(), self.data.clone())
+        let mut a = Arr::with_data(self.dims.clone(), self.data.clone());
+        a.fixed = self.fixed;
+        a
     }
 }
 
@@ -105,7 +109,7 @@ impl Arr {
             [(lb, ub)] if !ptr.is_null() => qb_jit::ctx::ArrView { data: ptr, lbound: *lb, count: ub - lb + 1 },
             _ => qb_jit::ctx::ArrView::NONE,
         };
-        Arr { dims, data, view }
+        Arr { dims, data, view, fixed: false }
     }
 
     #[cfg(test)]
@@ -903,10 +907,15 @@ impl<'m, 'o> Vm<'m, 'o> {
         let i = self.arr_index(a, cx.ab);
         let f = if a & G != 0 { 0 } else { cx.func as usize };
         let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-        if mode == DimMode::Dim && self.arrs[i].as_ref().is_some_and(|a| !a.dims.is_empty()) {
+        let dimensioned = self.arrs[i].as_ref().is_some_and(|a| !a.dims.is_empty());
+        if mode == DimMode::Static && dimensioned {
+            return Ok(()); // a static array is dimensioned once (SUB ... STATIC, hoisted DIM)
+        }
+        if mode == DimMode::Dim && dimensioned {
             return Err(10); // duplicate definition
         }
         let mut new = Arr::new(ty, dims)?;
+        new.fixed = mode == DimMode::Static;
         if mode == DimMode::RedimPreserve {
             if let Some(old) = self.arrs[i].take() {
                 new.preserve_from(*old);
@@ -1717,7 +1726,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                     let i = self.arr_index(a, self.ab);
                     let f = if a & G != 0 { 0 } else { self.frames[self.view].func as usize };
                     let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-                    self.arrs[i] = Some(Box::new(tryc!(Arr::new(ty, vec![]))));
+                    // a static array (also one passed as a() to the SUB doing the ERASE)
+                    // keeps its dimensions and is only cleared, as in QBasic
+                    let keep = match self.arrs[i].as_deref() {
+                        Some(old) if old.fixed => Some(old.dims.clone()),
+                        _ => None,
+                    };
+                    let mut new = tryc!(Arr::new(ty, keep.clone().unwrap_or_default()));
+                    new.fixed = keep.is_some();
+                    self.arrs[i] = Some(Box::new(new));
                 }
                 Ins::ReadN { d, typ } => {
                     use qb_runtime::numparse as np_;

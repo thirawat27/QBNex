@@ -205,6 +205,9 @@ pub enum CmpOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DimKind {
     Dim,
+    /// `dims`: DIM of a static array (constant bounds; QBasic allocates it once):
+    /// dimensions it unless it already has data, and ERASE only clears it
+    Static,
     Redim,
     RedimPreserve,
 }

@@ -800,6 +800,7 @@ impl<'a> Lw<'a> {
                         }
                         let mode = match kind {
                             DimKind::Dim => DimMode::Dim,
+                            DimKind::Static => DimMode::Static,
                             DimKind::Redim => DimMode::Redim,
                             DimKind::RedimPreserve => DimMode::RedimPreserve,
                         };
@@ -1325,6 +1326,7 @@ impl<'a> Lw<'a> {
                     }
                     let mode = match kind {
                         DimKind::Dim => DimMode::Dim,
+                            DimKind::Static => DimMode::Static,
                         DimKind::Redim => DimMode::Redim,
                         DimKind::RedimPreserve => DimMode::RedimPreserve,
                     };

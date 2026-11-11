@@ -8,6 +8,8 @@ REDIM SHARED IrFnName(1 TO 16) AS STRING, IrFnRet(1 TO 16) AS STRING
 REDIM SHARED IrFnHead(1 TO 16) AS STRING, IrFnBody(1 TO 16) AS STRING
 REDIM SHARED IrFnDecls(1 TO 16) AS STRING, IrFnRetVar(1 TO 16) AS STRING
 REDIM SHARED IrFnRegs(1 TO 16) AS LONG
+'per function: code run when it starts (DIM of its static arrays, hoisted)
+REDIM SHARED IrFnPro(1 TO 16) AS STRING
 'module level text (types, globals, data) and declared names
 DIM SHARED IrMod AS STRING, IrModDecls AS STRING, IrUdtDone AS STRING
 DIM SHARED IrT AS STRING 'register type of the last value produced by IrEval$

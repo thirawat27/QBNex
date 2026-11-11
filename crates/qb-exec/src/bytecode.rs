@@ -250,6 +250,8 @@ pub enum AccOp {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DimMode {
     Dim,
+    /// static array: dimensioned once (a second DIM keeps it); ERASE clears it
+    Static,
     Redim,
     RedimPreserve,
 }

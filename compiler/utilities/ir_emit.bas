@@ -17,6 +17,7 @@ SUB IrInit
     REDIM IrFnHead(1 TO 16) AS STRING, IrFnBody(1 TO 16) AS STRING
     REDIM IrFnDecls(1 TO 16) AS STRING, IrFnRetVar(1 TO 16) AS STRING
     REDIM IrFnRegs(1 TO 16) AS LONG
+    REDIM IrFnPro(1 TO 16) AS STRING
     REDIM IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
@@ -72,6 +73,7 @@ FUNCTION IrFindFn& (nm$)
         REDIM _PRESERVE IrFnHead(1 TO i) AS STRING, IrFnBody(1 TO i) AS STRING
         REDIM _PRESERVE IrFnDecls(1 TO i) AS STRING, IrFnRetVar(1 TO i) AS STRING
         REDIM _PRESERVE IrFnRegs(1 TO i) AS LONG
+        REDIM _PRESERVE IrFnPro(1 TO i) AS STRING
     END IF
     IrFnName(IrFnN) = nm$
     IrFindFn& = IrFnN
@@ -1869,11 +1871,25 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
     ELSE
         nm$ = IrVar$(aid)
     END IF
+    IF redimopt = 0 AND aid <> 0 THEN
+        IF ids(aid).staticarray THEN
+            'static array (constant bounds): QBasic and the C++ backend allocate it up front, so
+            'it exists even where its DIM statement never runs. "dims" in the procedure's
+            'prologue dimensions it once; ERASE then only clears it (qb-exec)
+            DIM saved$
+            saved$ = IrFnBody(IrFnCur): IrFnBody(IrFnCur) = ""
+            IrDimArray nm$, elements$, "dims"
+            IrFnPro(IrFnCur) = IrFnPro(IrFnCur) + IrFnBody(IrFnCur)
+            IrFnBody(IrFnCur) = saved$
+            EXIT SUB
+        END IF
+    END IF
     k$ = "dim"
     IF redimopt = 1 THEN k$ = "redim"
     IF redimopt = 2 THEN k$ = "redimp"
-    IF dimstatic = 1 AND redimopt = 0 THEN
-        'STATIC arr(...) inside a SUB/FUNCTION is dimensioned by the first call only
+    IF (dimstatic = 1 OR dimstatic = 2) AND redimopt = 0 THEN
+        'STATIC arr(...) inside a SUB/FUNCTION, and DIM inside a SUB ... STATIC (dimstatic 2:
+        'its arrays keep their values between calls), is dimensioned by the first call only
         DIM g$, gl$, gx$
         g$ = "$~SD" + str2$(IrNew): gl$ = "~SD" + str2$(IrNew)
         IrHead "static " + g$ + " i32"
@@ -2271,6 +2287,7 @@ SUB IrFinish (src$, outExe$)
     FOR i = 1 TO IrFnN
         IF IrFnRet(i) <> "" THEN PRINT #fh, "func " + IrFnName(i) + " -> " + IrFnRet(i) ELSE PRINT #fh, "func " + IrFnName(i)
         PRINT #fh, IrFnHead(i);
+        PRINT #fh, IrFnPro(i);
         IF i = 1 AND IrRunN > 0 THEN PRINT #fh, IrRunDispatch$;
         PRINT #fh, IrFnBody(i);
         IF i = 1 THEN

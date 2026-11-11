@@ -105,6 +105,7 @@ pub fn inst_text(i: &Inst) -> String {
         Inst::Dim { kind, var, bounds } => {
             let k = match kind {
                 DimKind::Dim => "dim",
+                DimKind::Static => "dims",
                 DimKind::Redim => "redim",
                 DimKind::RedimPreserve => "redimp",
             };
