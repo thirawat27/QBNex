@@ -333,6 +333,7 @@ impl App {
             POS_Y.store(p.y, Ordering::SeqCst);
         }
         let handle = native_handle(&window);
+        crate::gl::set_window(window.clone());
         self.win = Some(Win {
             window,
             presenter,
@@ -448,6 +449,10 @@ impl App {
 
     fn redraw(&mut self) {
         let Some(win) = &mut self.win else { return };
+        if crate::gl::presenting() {
+            // SUB _GL: the program thread draws and swaps through OpenGL (crate::gl)
+            return;
+        }
         let size = win.window.inner_size();
         let (Some(nw), Some(nh)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         else {

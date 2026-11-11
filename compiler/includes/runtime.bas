@@ -9,3 +9,4 @@
 '$INCLUDE:'..\utilities\file.bas'
 '$INCLUDE:'..\utilities\ini-manager\ini.bm'
 '$INCLUDE:'..\utilities\error_handler.bas'
+'$INCLUDE:'..\utilities\opengl_methods.bas'

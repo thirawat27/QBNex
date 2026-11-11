@@ -180,7 +180,13 @@ fn wait_end_key() {
 /// True for a program compiled without `$CONSOLE` / `$CONSOLE:ONLY` (no
 /// `meta console` line): its executable shows a window, as a C++-built one does.
 pub fn wants_window(src: &str) -> bool {
-    !src.lines().map(str::trim).any(|l| l == "meta console" || l.starts_with("meta console "))
+    let lines = || src.lines().map(str::trim);
+    // SUB _GL draws at display frames: a `$CONSOLE` program with it also gets its
+    // window, as in QB64 (`$CONSOLE:ONLY` has no screen at all)
+    if lines().any(|l| l.starts_with("meta glsub ")) && !lines().any(|l| l == "meta console only") {
+        return true;
+    }
+    !lines().any(|l| l == "meta console" || l.starts_with("meta console "))
 }
 
 /// `meta screenhide` (`$SCREENHIDE`): the window starts hidden.

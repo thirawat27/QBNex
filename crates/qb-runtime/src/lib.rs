@@ -67,6 +67,8 @@ extern crate qb_audio;
 // Extension library (R13-ext): pulled into libqb_runtime.a for the stdlib's ext.* modules.
 #[cfg(feature = "ext")]
 extern crate qb_ext;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod gl;
 pub mod raster;
 pub mod script;
 #[cfg(not(target_arch = "wasm32"))]

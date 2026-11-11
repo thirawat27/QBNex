@@ -177,7 +177,7 @@ SUB IrStmtEnd
             LOOP
         CASE "RUN"
             IrRun
-        CASE "ECHO", "INTERRUPTX", "_GL", "LPRINT"
+        CASE "ECHO", "INTERRUPTX", "LPRINT"
             IrNotSup "statement " + f$
         CASE "ON"
             'ON KEY / ON STRIG: lowered by their handlers (IrOnKey, IrOnStrig); ON PLAY: checked only,

@@ -23,6 +23,11 @@
 //! golden framebuffer is pixel- and palette-exact. `--fb-dump <dir>` keeps the
 //! raw captures (`<tag>.fbraw`) for debugging a mismatch.
 //!
+//! OpenGL (`SUB _GL`): on a host without an OpenGL context the runner reports
+//! `qb-exec: SUB _GL is not run: no OpenGL context` on stderr; such a case is
+//! reported as `[skip]` (not passed, not failed). `QBNEX_REQUIRE_GL=1` makes
+//! it a failure instead, for hosts that must have OpenGL.
+//!
 //! The runner only uses `std` so it builds offline and on every CI host.
 
 use std::env;
@@ -54,6 +59,17 @@ enum Outcome {
     Pass,
     Blessed,
     Fail(String),
+    /// the host lacks something the case needs (OpenGL)
+    Skip(String),
+}
+
+/// What qb-exec prints when SUB _GL cannot run (crates/qb-exec/src/vm.rs, gl_frame).
+const NO_GL: &str = "SUB _GL is not run: no OpenGL context";
+/// `run_program` error prefix for a run that hit [`NO_GL`].
+const SKIP: &str = "\u{1}skip:";
+
+fn require_gl() -> bool {
+    env::var("QBNEX_REQUIRE_GL").is_ok_and(|v| v == "1")
 }
 
 fn usage() -> &'static str {
@@ -307,6 +323,10 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     if opts.verbose && !stderr.is_empty() {
         eprintln!("    stderr({stem}): {}", String::from_utf8_lossy(&stderr));
     }
+    let err_text = String::from_utf8_lossy(&stderr);
+    if let Some(line) = err_text.lines().find(|l| l.contains(NO_GL)) {
+        return Err(if require_gl() { line.to_string() } else { format!("{SKIP}{line}") });
+    }
     Ok((actual, frames))
 }
 
@@ -314,10 +334,12 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
 fn diff_case(opts: &Options, case: &Path, diff_args: &[String]) -> Outcome {
     let a = match run_program(opts, case, &opts.qb_args) {
         Ok(r) => r,
+        Err(e) if e.starts_with(SKIP) => return Outcome::Skip(e[SKIP.len()..].to_string()),
         Err(e) => return Outcome::Fail(format!("reference: {e}")),
     };
     let b = match run_program(opts, case, diff_args) {
         Ok(r) => r,
+        Err(e) if e.starts_with(SKIP) => return Outcome::Skip(e[SKIP.len()..].to_string()),
         Err(e) => return Outcome::Fail(format!("candidate: {e}")),
     };
     if a.0 != b.0 {
@@ -335,6 +357,7 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
     }
     let (actual, frames) = match run_program(opts, case, &opts.qb_args) {
         Ok(r) => r,
+        Err(e) if e.starts_with(SKIP) => return Outcome::Skip(e[SKIP.len()..].to_string()),
         Err(e) => return Outcome::Fail(e),
     };
 
@@ -457,6 +480,7 @@ fn main() -> ExitCode {
     }
 
     let (mut passed, mut blessed, mut xfailed, mut failed) = (0usize, 0usize, 0usize, Vec::new());
+    let mut skipped = 0usize;
     for case in &cases {
         let rel = case.strip_prefix(&opts.cases).unwrap_or(case).display().to_string();
         let xfail_reason = fs::read_to_string(case.with_extension("xfail"))
@@ -484,6 +508,10 @@ fn main() -> ExitCode {
                     println!("[XPASS] {rel}\n    known defect no longer reproduces; delete the .xfail marker ({reason})");
                     failed.push(rel);
                 }
+                Outcome::Skip(why) => {
+                    skipped += 1;
+                    println!("[skip]  {rel} ({why})");
+                }
             }
             continue;
         }
@@ -500,12 +528,16 @@ fn main() -> ExitCode {
                 println!("[FAIL]  {rel}\n    {why}");
                 failed.push(rel);
             }
+            Outcome::Skip(why) => {
+                skipped += 1;
+                println!("[skip]  {rel} ({why})");
+            }
         }
     }
     let _ = fs::remove_dir_all(&opts.work);
 
     println!(
-        "\nconformance: {} cases, {passed} passed, {blessed} blessed, {xfailed} xfail, {} failed",
+        "\nconformance: {} cases, {passed} passed, {blessed} blessed, {xfailed} xfail, {skipped} skipped, {} failed",
         cases.len(),
         failed.len()
     );

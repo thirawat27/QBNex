@@ -133,6 +133,22 @@ pub(crate) fn present(d: &Display) {
     unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, 0, 0, 0) };
 }
 
+/// The next frame of the display page without showing it (SUB _GL draws it
+/// behind its OpenGL output): `(argb, width, height)`.
+pub(crate) fn pixels(d: &Display) -> Option<(Vec<u32>, usize, usize)> {
+    // (a hidden screen still has its pixels: SUB _GL draws over them offscreen)
+    if !d.started {
+        return None;
+    }
+    let frame = FRAME.fetch_add(1, Ordering::Relaxed);
+    // SAFETY: the display page of a started screen is a live registry entry.
+    let p = unsafe { &*d.display_page() };
+    let r = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0)?;
+    FRAME_W.store(r.1 as i32, Ordering::Relaxed);
+    FRAME_H.store(r.2 as i32, Ordering::Relaxed);
+    Some(r)
+}
+
 /// Sets the window title (`_TITLE`).
 pub(crate) fn set_title(t: &[u8]) {
     let t: Vec<u8> = t.iter().copied().filter(|&c| c != 0).collect();

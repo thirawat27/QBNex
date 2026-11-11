@@ -1,1 +1,0 @@
-deviation D-14: SUB _GL / _gl* statements need an OpenGL context; the Rust window layer (winit + softbuffer) has none, so the compiler rejects SUB _GL with an error naming D-14 (R10; before R10 the C++ compile stopped with an #error)

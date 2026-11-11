@@ -817,6 +817,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED sfarglist(1000) AS INTEGER
     DIM SHARED sfelelist(1000) AS INTEGER
 
+    gl_scan_header 'OpenGL keyword table from compiler\support\opengl\gl_table.txt (registered when a program declares SUB _GL)
+
 
 
 
@@ -2333,7 +2335,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                                         id.nele = nele$
                                                         id.nelereq = nelereq$
 
-                                                        IF UCASE$(n$) = "_GL" AND params = 0 AND UseGL = 0 THEN a$ = "SUB _GL (OpenGL) is not supported by this QBNex runtime (deviation D-14)": GOTO errmes
+                                                        'SUB _GL (no params): the runner calls it every frame (QIR "meta glsub"); enables the _gl*/_GL_* table
+                                                        IF UCASE$(n$) = "_GL" AND params = 0 AND UseGL = 0 THEN reginternalsubfunc = 1: UseGL = 1: id.n = "_GL": DEPENDENCY(DEPENDENCY_GL) = 1
                                                         regid
                                                         reginternalsubfunc = 0
 

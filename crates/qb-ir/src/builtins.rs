@@ -456,6 +456,12 @@ pub static TABLE: &[Builtin] = &[
     b!("_STRICMP", [Str, Str], I32),
     b!("_CWD$", [], Str),
     b!("_STARTDIR$", [], Str),
+    // _BLEND / _DONTBLEND [image] + passed
+    b!("sub__blend", [I32, I32]),
+    b!("sub__dontblend", [I32, I32]),
+    // _GLRENDER {_BEHIND|_ONTOP|_ONLY} (1..3) + passed; _DISPLAYORDER layers + passed
+    b!("sub__glrender", [I32, I32]),
+    b!("sub__displayorder", [I32, I32, I32, I32, I32]),
     // ---- DOS-era statements (registry callnames, generic lowering)
     // OUT port, value / INP(port) (VGA palette &H3C7-&H3C9, retrace &H3DA, keyboard &H60)
     b!("sub_out", [I32, I32]),
