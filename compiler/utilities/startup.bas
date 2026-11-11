@@ -10,7 +10,8 @@ SUB VerifyInternalFolderOrExit
     DIM currentDir AS STRING
     DIM separatorPos AS LONG
 
-    IF _DIREXISTS("internal") THEN EXIT SUB
+    'The QBNex root holds crates\ (the QIR runner and runtime); there is no internal\ since the cutover.
+    IF _DIREXISTS("crates") THEN EXIT SUB
 
     compilerPath = COMMAND$(0)
     separatorPos = _INSTRREV(compilerPath, "\")
@@ -21,20 +22,14 @@ SUB VerifyInternalFolderOrExit
         IF LEN(compilerDir) THEN
             currentDir = _CWD$
             CHDIR compilerDir
-            IF _DIREXISTS("internal") THEN EXIT SUB
+            IF _DIREXISTS("crates") THEN EXIT SUB
             CHDIR currentDir
         END IF
     END IF
 
-    _SCREENSHOW
-    PRINT "QBNex cannot locate the 'internal' folder"
-    PRINT
+    'No window and no key wait: this also runs from scripts and CI.
+    PRINT "QBNex cannot locate the 'crates' folder"
     PRINT "Check that QBNex has been extracted properly."
-    PRINT "For macOS, enter './qb' in Terminal."
-    PRINT "For Linux, enter './qb' in the console."
-    DO
-        _LIMIT 1
-    LOOP UNTIL INKEY$ <> ""
     SYSTEM 1
 END SUB
 
