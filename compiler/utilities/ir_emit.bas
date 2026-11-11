@@ -2312,7 +2312,11 @@ SUB IrFinish (src$, outExe$)
     fh = FREEFILE
     OPEN ir$ FOR OUTPUT AS #fh
     PRINT #fh, "QIR 1"
-    IF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
+    IF LCASE$(RIGHT$(outExe$, 4)) = ".qir" THEN IrEmitText = -1
+    IF IrEmitText AND AutoConsoleOnlyActive THEN
+        'QIR text is for qb-web: a page has no terminal, so a program that is console-only
+        'only because it draws nothing (not $CONSOLE:ONLY) prints on the page's screen
+    ELSEIF DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) THEN
         PRINT #fh, "meta console only"
     ELSEIF Console THEN
         PRINT #fh, "meta console"
@@ -2351,7 +2355,7 @@ SUB IrFinish (src$, outExe$)
     ELSE
         runner$ = "crates/qb-exec/bin/linux/qb-exec"
     END IF
-    IF _FILEEXISTS(runner$) = 0 THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
+    IF _FILEEXISTS(runner$) = 0 AND IrEmitText = 0 AND LCASE$(RIGHT$(outExe$, 4)) <> ".qir" THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
 
     outPath$ = outExe$
     IF outPath$ <> "" THEN
@@ -2376,6 +2380,26 @@ SUB IrFinish (src$, outExe$)
     ELSEIF LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
         outPath$ = _STARTDIR$ + pathsep$ + outPath$
     END IF
+
+    ' --emit-ir or -o <name>.qir: the QIR text itself (what qb-web runs), no executable
+    IF LCASE$(RIGHT$(outPath$, 4)) = ".qir" THEN IrEmitText = -1
+    IF IrEmitText THEN
+        IF LCASE$(RIGHT$(outPath$, 4)) <> ".qir" THEN
+            IF LEN(extension$) THEN
+                IF LCASE$(RIGHT$(outPath$, LEN(extension$))) = LCASE$(extension$) THEN outPath$ = LEFT$(outPath$, LEN(outPath$) - LEN(extension$))
+            END IF
+            outPath$ = outPath$ + ".qir"
+        END IF
+        fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh
+        IF _FILEEXISTS(outPath$) THEN KILL outPath$
+        fh = FREEFILE
+        OPEN outPath$ FOR BINARY AS #fh
+        PUT #fh, , q$
+        CLOSE #fh
+        IF QuietMode = 0 THEN PRINT: PRINT "QIR written: " + outPath$
+        ExitCompilerProcess
+    END IF
+
     IF outPath$ <> "" AND INSTR(UCASE$(outPath$), ".EXE") = 0 AND os$ = "WIN" THEN outPath$ = outPath$ + ".exe"
 
     ' D15 final: with the native kit next to the runner, link a standard

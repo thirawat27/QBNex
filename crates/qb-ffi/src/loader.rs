@@ -452,6 +452,31 @@ mod sys {
     }
 }
 
+/// No dynamic libraries (wasm32 in a browser, qb-web): every DECLARE LIBRARY
+/// load fails with an ordinary error and no symbol is found.
+#[cfg(not(any(windows, unix)))]
+mod sys {
+    use std::ffi::c_void;
+
+    pub fn open(_path: &str) -> Result<*mut c_void, String> {
+        Err("dynamic libraries are not available on this platform".to_string())
+    }
+
+    pub fn symbol(_h: *mut c_void, _name: &str) -> Option<*const c_void> {
+        None
+    }
+
+    pub fn close(_h: *mut c_void) {}
+
+    pub fn program() -> Option<*mut c_void> {
+        None
+    }
+
+    pub fn global_symbol(_name: &str) -> Option<*const c_void> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
