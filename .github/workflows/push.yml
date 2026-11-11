@@ -82,7 +82,7 @@ jobs:
           QB_AUDIO_DEVICE: none
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then ulimit -v 8000000; fi
-          cargo test --workspace --locked
+          cargo test --workspace --locked --no-fail-fast
 
 
 
