@@ -785,8 +785,11 @@ FUNCTION IrCmp$ (op$, a$, ta$, b$, tb$)
 END FUNCTION
 
 FUNCTION IrEval$ (a2$, typ AS LONG)
-    DIM blk(1 TO 200) AS STRING, bty(1 TO 200) AS LONG, bq(1 TO 200) AS STRING, bop(1 TO 200) AS INTEGER
     DIM n AS LONG, i AS LONG, j AS LONG, nb AS LONG, l$, t AS LONG, r$
+    'R14: a block takes at least one element; the fixed 200 stopped long
+    'expressions (about 100 terms) with an internal subscript error
+    n = numelements(a2$) + 1
+    DIM blk(1 TO n) AS STRING, bty(1 TO n) AS LONG, bq(1 TO n) AS STRING, bop(1 TO n) AS INTEGER
     DIM o$, u AS LONG, info$, lhs AS LONG, rhs AS LONG, result AS LONG, isop AS LONG
     DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
     DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$
