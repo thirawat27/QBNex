@@ -19,7 +19,7 @@ FUNCTION ResolveColorSupportInclude$ (colorDepth AS LONG)
 
     IF qbnexprefix_set THEN colorFileName$ = colorFileName$ + "_noprefix"
 
-    ResolveColorSupportInclude$ = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "support" + pathsep$ + "color" + pathsep$ + colorFileName$ + ".bi"
+    ResolveColorSupportInclude$ = QBNexRoot$ + "compiler" + pathsep$ + "support" + pathsep$ + "color" + pathsep$ + colorFileName$ + ".bi"
 END FUNCTION
 
 SUB ResetPrepassManagers

@@ -23,6 +23,10 @@ cd /d "%~dp0.."
 echo QBNex Setup ^(QIR pipeline, no C/C++ toolchain^)
 echo.
 
+rem defaults first: the QBNEX_QB_EXEC branch below skips the runner build
+if not defined QBNEX_BOOTSTRAP set "QBNEX_BOOTSTRAP=bootstrap\qbnex.qir"
+if not defined QBNEX_QIR_PACK set "QBNEX_QIR_PACK=ir"
+
 if not exist crates\qb-exec\bin\windows mkdir crates\qb-exec\bin\windows
 set "RUNNER=crates\qb-exec\bin\windows\qb-exec.exe"
 if defined QBNEX_QB_EXEC (
@@ -47,8 +51,6 @@ if not defined QBNEX_RUST_TARGET (
     echo Error: could not determine the Rust host target.
     exit /b 1
 )
-if not defined QBNEX_BOOTSTRAP set "QBNEX_BOOTSTRAP=bootstrap\qbnex.qir"
-if not defined QBNEX_QIR_PACK set "QBNEX_QIR_PACK=ir"
 
 echo Building the QIR runner 'qb-exec' for %QBNEX_RUST_TARGET%
 where rustup >nul 2>nul && rustup target add %QBNEX_RUST_TARGET% >nul 2>nul

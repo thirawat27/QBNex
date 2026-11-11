@@ -7,7 +7,7 @@
 ' which walks the same element strings evaluate$ gets (after fixoperationorder)
 ' and applies the same operator rules (operatorusage), so values carry the C
 ' type the C++ backend would compute. At the end the QIR is packaged with the
-' prebuilt runner crates/qb-exec/bin/<os>/qb-exec instead of running g++.
+' prebuilt runner crates/qb-exec/bin/<os>/qb-exec (no C/C++ toolchain).
 
 '================================================================ output
 

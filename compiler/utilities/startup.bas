@@ -4,28 +4,34 @@ SUB InitCompilerServices
     SetMaxErrors 100
 END SUB
 
+'The QBNex root: the folder that holds crates\ (the QIR runner) and compiler\ (stdlib,
+'support files). VerifyInternalFolderOrExit makes it the current directory, so the
+'runner and target\qb-temp are found relative to it; source paths given on the command
+'line are resolved against _STARTDIR$.
+FUNCTION QBNexRoot$
+    DIM r AS STRING
+    r = _CWD$
+    IF RIGHT$(r, 1) <> "\" AND RIGHT$(r, 1) <> "/" THEN r = r + pathsep$
+    QBNexRoot$ = r
+END FUNCTION
+
 SUB VerifyInternalFolderOrExit
     DIM compilerPath AS STRING
     DIM compilerDir AS STRING
-    DIM currentDir AS STRING
     DIM separatorPos AS LONG
 
-    'The QBNex root holds crates\ (the QIR runner and runtime); there is no internal\ since the cutover.
-    IF _DIREXISTS("crates") THEN EXIT SUB
-
+    'the compiler's own folder first (a crates\ folder in the current directory may belong
+    'to another project), then the current directory (a compiler built outside the tree)
     compilerPath = COMMAND$(0)
     separatorPos = _INSTRREV(compilerPath, "\")
     IF separatorPos = 0 THEN separatorPos = _INSTRREV(compilerPath, "/")
-
     IF separatorPos > 0 THEN
         compilerDir = LEFT$(compilerPath, separatorPos - 1)
         IF LEN(compilerDir) THEN
-            currentDir = _CWD$
-            CHDIR compilerDir
-            IF _DIREXISTS("crates") THEN EXIT SUB
-            CHDIR currentDir
+            IF _DIREXISTS(compilerDir + "/crates") THEN CHDIR compilerDir: EXIT SUB
         END IF
     END IF
+    IF _DIREXISTS("crates") THEN EXIT SUB
 
     'No window and no key wait: this also runs from scripts and CI.
     PRINT "QBNex cannot locate the 'crates' folder"

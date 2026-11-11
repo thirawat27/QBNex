@@ -1035,10 +1035,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 std::cmp::Ordering::Greater => 1,
             }));
         }
-        "_CWD$" | "_STARTDIR$" => {
+        "_CWD$" => {
             let d = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
             return ok(V::S(d.into_bytes()));
         }
+        "_STARTDIR$" => return ok(V::S(start_dir().as_bytes().to_vec())),
         _ => return e(73),
     }
     Ok(None)
@@ -1753,7 +1754,23 @@ static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new
 /// The program's argv as BASIC sees it: [program, args...]. `qb-exec prog.qir a b`
 /// sets it to [prog.qir, a, b] (`set_program_args`); a packaged program uses its own argv.
 pub(crate) fn program_args() -> &'static [String] {
-    PROGRAM_ARGS.get_or_init(|| std::env::args().collect())
+    PROGRAM_ARGS.get_or_init(|| {
+        let mut a: Vec<String> = std::env::args().collect();
+        // COMMAND$(0) is the executable's full path (as QB64's GetModuleFileName), also
+        // when the program was started through PATH by its bare name
+        if let (Some(first), Ok(exe)) = (a.first_mut(), std::env::current_exe()) {
+            *first = exe.to_string_lossy().into_owned();
+        }
+        a
+    })
+}
+
+static START_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// `_STARTDIR$`: the current directory when the program started (a later CHDIR
+/// does not change it). The VM records it when it is created.
+pub(crate) fn start_dir() -> &'static str {
+    START_DIR.get_or_init(|| std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
 }
 
 /// Sets the program's argv (first call wins).

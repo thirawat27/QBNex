@@ -83,6 +83,14 @@ set "EC_XMODE=%ERRORLEVEL%"
 pushd "%TMPDIR%" >nul
 "%QB%" "%SRC_OK%" -o "%BIN_EXTERNAL%" > "%OUT_EXTERNAL%" 2>&1
 set "EC_EXTERNAL=%ERRORLEVEL%"
+rem a relative source and output path from another folder (resolved against that folder);
+rem that folder has its own crates\, which must not be taken for the QBNex root
+if not exist crates mkdir crates
+> rel_src.bas echo PRINT "REL_OK"
+"%QB%" rel_src.bas -o rel_out.exe > rel.txt 2>&1
+set "EC_REL=%ERRORLEVEL%"
+set "OUT_REL=missing"
+if exist rel_out.exe for /f "delims=" %%l in ('rel_out.exe ^< NUL') do set "OUT_REL=%%l"
 popd >nul
 
 > "%SRC_CACHE_A%" echo PRINT "CACHE_A_UNIQUE"
@@ -203,6 +211,14 @@ findstr /L /C:"Build complete:" "%OUT_EXTERNAL%" >nul || (
 )
 if not exist "%BIN_EXTERNAL%" (
     echo [FAIL] External-cwd compile should emit the requested executable.
+    set "FAIL=1"
+)
+if not "%EC_REL%"=="0" (
+    echo [FAIL] Relative source compiled from another folder should succeed ^(see %TMPDIR%\rel.txt^).
+    set "FAIL=1"
+)
+if not "%OUT_REL%"=="REL_OK" (
+    echo [FAIL] Relative-source program printed "%OUT_REL%" instead of REL_OK.
     set "FAIL=1"
 )
 

@@ -1379,8 +1379,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     NEXT
                     'temp folder lock #26 stays held (no close/relock window)
 
-                    ff = FREEFILE: OPEN tmpdir$ + "icon.rc" FOR OUTPUT AS #ff: CLOSE #ff
-
                     IF Debug THEN CLOSE #9: OPEN tmpdir$ + "debug.txt" FOR APPEND AS #9
 
                     qberrorhappened = -1
@@ -11623,31 +11621,15 @@ IF recompile THEN
         IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
     NEXT
         'temp folder lock #26 stays held (no close/relock window)
-        InitializeCompilationLog
 
         ReportUnusedVariableWarnings
 
         FinishCompilerProgress
 
-        'QIR: the program is written after every check (labels, DATA, warnings) that can end the build
-        IF IrEmitMode THEN
-            IF HasErrors% THEN ExitCompilerProcess
-            IrFinish CMDLineFile, outputfile_cmd$
-        END IF
-
-        IF No_C_Compile_Mode = 0 THEN
-            IF PrepareExecutableOutputTarget%(file$) THEN a$ = ModuleError$: GOTO errmes
-        END IF
-
-
-        IF os$ = "WIN" THEN
-            IF PrepareWindowsResourceArtifacts%(file$) THEN a$ = ModuleError$: GOTO errmes
-        END IF
-
-        PrepareDependencyBuildInputs defines$, libs$, libqb$, pchOptions$, o$, win, lnx, mac
-
-        IF RunNativeBuild%(file$, libqb$, libs$, defines$, pchOptions$) THEN a$ = ModuleError$: GOTO errmes
-        FinalizeCompilerRun file$
+        'the program is written after every check (labels, DATA, warnings) that can end the build;
+        'IrFinish packs the QIR with the runner and ends the compiler
+        IF HasErrors% THEN ExitCompilerProcess
+        IrFinish CMDLineFile, outputfile_cmd$
 
         qberror_test:
         E = 1
