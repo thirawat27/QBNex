@@ -19,7 +19,7 @@ The user manual is in [`docs/manual`](docs/manual/README.md), in English and Tha
 | English | ภาษาไทย |
 | --- | --- |
 | [Installation](docs/manual/en/installation.md) | [การติดตั้ง](docs/manual/th/installation.md) |
-| [Commands: compile, `--ir`, fmt, lsp, dap](docs/manual/en/commands.md) | [คำสั่ง: คอมไพล์, `--ir`, fmt, lsp, dap](docs/manual/th/commands.md) |
+| [Commands: compile, fmt, lsp, dap](docs/manual/en/commands.md) | [คำสั่ง: คอมไพล์, fmt, lsp, dap](docs/manual/th/commands.md) |
 | [Language extensions (available and planned)](docs/manual/en/language.md) | [ส่วนขยายของภาษา (ใช้ได้แล้วและวางแผนไว้)](docs/manual/th/language.md) |
 | [Standard library: json, url, ext.*](docs/manual/en/stdlib.md) | [ไลบรารีมาตรฐาน: json, url, ext.*](docs/manual/th/stdlib.md) |
 | [Graphics and 3D](docs/manual/en/graphics-3d.md) | [กราฟิกและ 3 มิติ](docs/manual/th/graphics-3d.md) |
@@ -222,12 +222,9 @@ Additional documentation is being consolidated into this README and `CONTRIBUTIN
   - Quiet mode (`-q` flag)
   - Monochrome output option (`-m` flag)
   - Settings management (`-s` flag)
-  - Pre-compiled content purge (`-p` flag)
-  - C code generation without compilation (`-z` flag)
   - OPTION _EXPLICIT enforcement (`-e` flag)
-  - Compile and run immediately (`-x` flag)
+  - Console-mode compiler output (`-x` flag)
   - Custom output naming (`-o` flag)
-  - Debug mode with GDB information
   - Configurable compiler settings via INI file
   - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`) and a VS Code extension (`packaging/vscode`)
   - Browser build of the QIR runner (WebAssembly, preview)
@@ -280,9 +277,9 @@ sh scripts/setup_osx.command   # macOS
 Linux packages:
 
 ```bash
-sudo apt-get install libasound2-dev libudev-dev pkg-config          # Debian/Ubuntu
-sudo dnf install alsa-lib-devel systemd-devel pkgconf-pkg-config     # Fedora/RHEL
-sudo pacman -S alsa-lib systemd-libs pkgconf                         # Arch Linux
+sudo apt-get install gcc libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config  # Debian/Ubuntu
+sudo dnf install gcc alsa-lib-devel systemd-devel libxkbcommon-devel libX11-devel pkgconf-pkg-config  # Fedora/RHEL
+sudo pacman -S gcc alsa-lib systemd-libs libxkbcommon libx11 pkgconf  # Arch Linux
 ```
 
 The setup script:
@@ -380,11 +377,8 @@ qb hello.bas
 # Compile with custom output name
 qb hello.bas -o myprogram.exe
 
-# Compile and run immediately
+# Compiler messages to the console
 qb hello.bas -x
-
-# Generate C code without compiling
-qb hello.bas -z
 
 # Show compiler version
 qb --version
@@ -417,8 +411,8 @@ qb <source.bas> [flags]
 | `-k` | `--compact-errors` | Use compact diagnostics (hide detailed notes) | `qb file.bas -k` |
 | `-e` | - | Enable OPTION _EXPLICIT | `qb file.bas -e` |
 | `-s` | - | View/edit compiler settings | `qb -s:DebugInfo=true` |
-| `-p` | - | Purge all pre-compiled content | `qb file.bas -p` |
-| `-z` | - | Generate C code only (no exe) | `qb file.bas -z` |
+| `-p` | - | Accepted for old scripts, no effect (nothing is precompiled) | `qb file.bas -p` |
+| `-z` | `--ir`, `--emit-ir` | Accepted for old scripts, no effect (QIR is the only back end) | `qb file.bas -z` |
 
 **Recommended for debugging diagnostics:**
 ```bash
@@ -439,8 +433,8 @@ Detailed output sections used by the modern QBNex formatter (`cause`, `example`,
 # Compile with warnings and custom output
 qb myprogram.bas -w -o myapp.exe
 
-# Quiet mode, generate C code only
-qb myprogram.bas -q -z
+# Quiet mode with warnings
+qb myprogram.bas -q -w
 
 # Compile, run immediately, with explicit mode
 qb myprogram.bas -e -x
@@ -761,15 +755,13 @@ docker run --rm -v %cd%:/project qbnex qb yourfile.bas
 **docker/docker-compose.yml** provides simplified management (pass `-f docker/docker-compose.yml`, or set `COMPOSE_FILE=docker/docker-compose.yml`):
 
 ```yaml
-version: '3.8'
-
 services:
   qbnex:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     volumes:
-      - .:/project
+      - ..:/project
     working_dir: /project
 ```
 
@@ -784,9 +776,6 @@ docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas
 
 # Compile and run immediately
 docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -x
-
-# Generate C code without compiling
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -z
 
 # Compile with custom output name
 docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -o myprogram
@@ -1000,82 +989,20 @@ Use `docker/Dockerfile.dev` for development with build cache:
 docker build -f docker/Dockerfile.dev -t qbnex-dev .
 
 # Run with dev image
-docker run --rm -v $(pwd):/project qbnex-dev qb yourfile.bas -z
+docker run --rm -v $(pwd):/project qbnex-dev qb yourfile.bas
 ```
 
 ### Advanced Docker Configuration
 
-**docker/Dockerfile (Production):**
-```dockerfile
-FROM ubuntu:22.04
-
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libasound2-dev \
-    libudev-dev \
-    pkg-config \
-    libx11-dev \
-    libncurses5-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy QBNex source
-WORKDIR /opt/qbnex
-COPY . .
-
-# Build compiler
-RUN chmod +x scripts/setup_lnx.sh && ./scripts/setup_lnx.sh
-
-# Add to PATH
-ENV PATH="/opt/qbnex:${PATH}"
-
-# Default command
-CMD ["bash"]
-```
-
-**docker/Dockerfile.dev (Development):**
-```dockerfile
-FROM ubuntu:22.04
-
-# Install dependencies with build cache preserved
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libasound2-dev \
-    libudev-dev \
-    pkg-config \
-    libx11-dev \
-    libncurses5-dev \
-    gdb \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /opt/qbnex
-COPY . .
-
-# Build with debug info
-RUN chmod +x scripts/setup_lnx.sh && ./scripts/setup_lnx.sh
-
-ENV PATH="/opt/qbnex:${PATH}"
-CMD ["bash"]
-```
-
-**docker/docker-compose.yml:**
-```yaml
-services:
-  qbnex:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - .:/project
-    working_dir: /project
-    # Optional: Enable host networking
-    # network_mode: host
-    # Optional: Enable graphics
-    # environment:
-    #   - DISPLAY=${DISPLAY}
-    # volumes:
-    #   - /tmp/.X11-unix:/tmp/.X11-unix
-```
+- `docker/Dockerfile` (production): a build stage installs Rust and runs
+  `scripts/setup_lnx.sh` (no C/C++ compiler); the runtime stage keeps `qb`,
+  `crates/` (the QIR runner) and `compiler/` (the standard library) in `/app`
+  and puts a `qb`/`qbnex` launcher on `PATH`.
+- `docker/Dockerfile.dev` (development): the same build in one stage, with the
+  build cache kept for faster rebuilds.
+- `docker/docker-compose.yml`: services `qbnex` and `qbnex-dev`, build context
+  the repository root, the repository mounted at `/project`, host networking
+  and `DISPLAY` passed through for graphics.
 
 **CI/CD Integration:**
 ```yaml
@@ -1744,7 +1671,7 @@ Current CLI smoke coverage includes:
 - settings output (`-s`)
 - warnings-as-errors
 - console-mode CLI flag (`-x`)
-- C-generation mode (`-z`)
+- `-z` (accepted, no effect since the QIR cutover)
 
 This script validates both behaviors in one run:
 - Default compilation output includes detailed markers such as `[!] cause` and `[+] example` without requiring `-d`
@@ -2058,19 +1985,19 @@ sound, files, network) is the Rust crate `qb-runtime`.
 
 ### Compilation Flags Deep Dive
 
-**Flag `-z` (translate only):**
+**The generated QIR:**
 ```bash
-qb myprogram.bas -z
-# Writes target/qb-temp/program.qir
-# Does NOT write an executable
+qb myprogram.bas
+# The QIR of the last build stays in target/qb-temp/program.qir
+# (in the QBNex folder); -z is accepted but builds the executable too
 ```
 
-**Flag `-x` (Compile and run):**
+**Flag `-x` (console output):**
 ```bash
 qb myprogram.bas -x
 # Compiles to myprogram.exe
-# Immediately executes myprogram.exe
-# Shows program output in console
+# Sends the compiler's own messages to the console
+# (it does not run the program)
 ```
 
 **Flag `-o` (Custom output name):**
@@ -2104,15 +2031,15 @@ qb myprogram.bas -e
 - Compiler itself (~26K lines): 1-2 minutes
 
 **Binary Size:**
-- Hello World: ~1-2 MB (includes runtime)
-- Graphics program: ~3-5 MB (includes OpenGL libs)
-- Full stdlib program: ~2-4 MB
+- Every program is the runner (about 12.5 MB on Windows x64, with the whole
+  Rust runtime: graphics, sound, network, JIT) plus its QIR text, so a Hello
+  World and a graphics program are about the same size
 
 **Optimization Tips:**
 1. Use `-q` flag for cleaner output during development
 2. Use `-w` flag to catch potential issues early
 3. Use `-e` flag to enforce variable declaration
-4. Use `-z` flag for debugging compilation issues
+4. Read `target/qb-temp/program.qir` (in the QBNex folder) to see what the compiler generated
 
 ---
 
@@ -2345,13 +2272,13 @@ List_Init myList
 **Problem: "Missing libraries"**
 ```bash
 # Install dependencies (Debian/Ubuntu)
-sudo apt-get install libasound2-dev libudev-dev pkg-config libx11-dev
+sudo apt-get install gcc libasound2-dev libudev-dev pkg-config libx11-dev libxkbcommon-dev
 
 # Install dependencies (Fedora)
-sudo dnf install alsa-lib-devel systemd-devel pkgconf-pkg-config libX11-devel
+sudo dnf install gcc alsa-lib-devel systemd-devel pkgconf-pkg-config libX11-devel libxkbcommon-devel
 
 # Install dependencies (Arch)
-sudo pacman -S alsa-lib systemd-libs pkgconf libx11
+sudo pacman -S gcc alsa-lib systemd-libs pkgconf libx11 libxkbcommon
 ```
 
 **macOS:**
@@ -2400,8 +2327,8 @@ qb myprogram.bas -q
 
 **Inspect the generated QIR:**
 ```bash
-qb myprogram.bas -z
-# Check target/qb-temp/program.qir
+qb myprogram.bas
+# Then read target/qb-temp/program.qir in the QBNex folder
 ```
 
 ### Known Issues

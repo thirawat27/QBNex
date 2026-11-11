@@ -13,6 +13,11 @@ qb hello.bas -o tools/hi.exe  # choose the output file
 qb hello.bas -w               # also show warnings
 ```
 
+Without `-o` the executable goes to the QBNex folder (the one that holds
+`qb` and `crates/`), as in QB64; `-s:exewithsource=true` puts it next to
+the source instead. Give the source as an absolute path when you work in
+another folder (see [known defects](differences.md#known-defects-not-fixed-yet)).
+
 | Switch | Meaning |
 | --- | --- |
 | `<file>` | Source file (UTF-8, or CP437 bytes as QBasic saved them). |
@@ -25,10 +30,8 @@ qb hello.bas -w               # also show warnings
 | `-m` | No colours in the compiler output. |
 | `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default; `-d` is the old alias). |
 | `-e` | `OPTION _EXPLICIT` for this compilation. |
-| `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`, `debuginfo`). |
-| `-p` | Purge precompiled runtime objects first. |
-| `-z` | Generate C++ only, do not build an executable. |
-| `--ir`, `--emit-ir` | Use the QIR back end (below). |
+| `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`; `debuginfo` is kept but has no effect). |
+| `-p`, `-z`, `--ir`, `--emit-ir` | Accepted for old scripts; they change nothing (there are no precompiled objects and no C++ step, and QIR is the only back end). |
 | `-h`, `--help` · `-v`, `--version` · `-i`, `--info` · `-g`, `--examples` | Help, version, project information, examples. |
 
 Exit code 0 means the program compiled. Diagnostics name the file, line and
@@ -45,21 +48,21 @@ Run the executable you built: `hello.exe` or `./hello`.
 - `qb run file.bas` (run on the VM without writing an executable) is
   **Planned**.
 
-## `--ir`: the QIR back end (Preview)
-
-```bash
-qb hello.bas --ir -o hello.exe
-```
+## How a program is built
 
 The compiler writes QIR (the QBNex intermediate representation,
 `docs/rust-port/qir-v1.md`) and appends it to a copy of the prebuilt Rust
-runner `crates/qb-exec/bin/<os>/qb-exec`. No C++ compiler runs. The runner
-lowers QIR to bytecode, runs it on a register VM and compiles hot loops to
-native code with Cranelift. Environment: `QB_JIT=off|eager|<threshold>`.
+runner `crates/qb-exec/bin/<os>/qb-exec`. No C or C++ compiler and no linker
+run. The runner lowers QIR to bytecode, runs it on a register VM and
+compiles hot loops to native code with Cranelift
+(`QB_JIT=off|eager|<threshold>`). A statement the QIR back end does not
+cover yet stops the build with `QIR: unsupported: line N: ...`.
 
-The default back end is still the C++ one until the cutover; programs that
-use features the QIR back end does not cover yet report the line that is not
-supported.
+Native executables (**Preview**): when a native kit sits next to the runner
+(`crates/qb-exec/bin/<os>/native/kit.txt`, built on Windows by
+`scripts/native-kit.ps1`, on Linux/macOS by `scripts/native-kit.sh`), the
+compiler links an ordinary executable with `rust-lld` instead of appending
+the QIR, and falls back to the runner copy if the link fails.
 
 ## `qbnex fmt`: formatter
 
@@ -91,7 +94,7 @@ completion, formatting. See [VS Code and tools](vscode.md).
 ## `qbnex dap`: debugger
 
 Starts the Debug Adapter Protocol server on stdin/stdout. Editors start it
-for you (VS Code: F5). It compiles the program with `qb --ir` and runs it on
+for you (VS Code: F5). It compiles the program with `qb` and runs it on
 the VM with breakpoints, stepping and variable views. See
 [VS Code and tools](vscode.md#debugger).
 

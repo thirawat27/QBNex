@@ -13,6 +13,11 @@ qb hello.bas -o tools/hi.exe  # กำหนดไฟล์ผลลัพธ์
 qb hello.bas -w               # แสดงคำเตือนด้วย
 ```
 
+ถ้าไม่ใส่ `-o` ไฟล์ executable จะไปอยู่ในโฟลเดอร์ QBNex (โฟลเดอร์ที่มี `qb`
+และ `crates/`) เหมือน QB64 ถ้าตั้ง `-s:exewithsource=true` จะไปอยู่ข้างไฟล์
+source แทน เมื่อทำงานในโฟลเดอร์อื่นให้ระบุไฟล์ source เป็น path เต็ม
+(ดู[ข้อบกพร่องที่รู้แล้ว](differences.md))
+
 | Switch | ความหมาย |
 | --- | --- |
 | `<file>` | ไฟล์ source (UTF-8 หรือไบต์ CP437 แบบที่ QBasic บันทึกไว้) |
@@ -25,10 +30,8 @@ qb hello.bas -w               # แสดงคำเตือนด้วย
 | `-m` | ข้อความของคอมไพเลอร์ไม่มีสี |
 | `-k`, `--compact-errors` | diagnostic แบบสั้น (ค่าเริ่มต้นคือแบบละเอียด ส่วน `-d` เป็นชื่อเดิม) |
 | `-e` | เปิด `OPTION _EXPLICIT` สำหรับการคอมไพล์ครั้งนี้ |
-| `-s[:setting=true/false]` | ดูหรือแก้ค่าตั้งของคอมไพเลอร์ (`exewithsource`, `debuginfo`) |
-| `-p` | ลบ object ของ runtime ที่คอมไพล์ไว้ก่อน |
-| `-z` | สร้างเฉพาะโค้ด C++ ไม่ build executable |
-| `--ir`, `--emit-ir` | ใช้ QIR back end (ดูด้านล่าง) |
+| `-s[:setting=true/false]` | ดูหรือแก้ค่าตั้งของคอมไพเลอร์ (`exewithsource` ส่วน `debuginfo` ยังรับอยู่แต่ไม่มีผล) |
+| `-p`, `-z`, `--ir`, `--emit-ir` | ยังรับไว้เพื่อให้สคริปต์เก่าใช้ได้ แต่ไม่เปลี่ยนอะไร (ไม่มี object ที่คอมไพล์ไว้ก่อน ไม่มีขั้น C++ และ QIR เป็น back end เดียว) |
 | `-h`, `--help` · `-v`, `--version` · `-i`, `--info` · `-g`, `--examples` | วิธีใช้, เวอร์ชัน, ข้อมูลโปรเจกต์, ตัวอย่าง |
 
 exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จะบอกชื่อไฟล์ บรรทัด คอลัมน์ และ
@@ -46,20 +49,21 @@ exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จ�
 - `qb run file.bas` (รันบน VM โดยไม่เขียนไฟล์ executable) อยู่ในสถานะ
   **วางแผนไว้**
 
-## `--ir`: QIR back end (ทดลอง)
-
-```bash
-qb hello.bas --ir -o hello.exe
-```
+## โปรแกรมถูก build อย่างไร
 
 คอมไพเลอร์จะเขียน QIR (ภาษากลางของ QBNex, `docs/rust-port/qir-v1.md`)
 แล้วต่อท้ายไว้ในสำเนาของ runner ภาษา Rust ที่ build ไว้แล้ว
-(`crates/qb-exec/bin/<os>/qb-exec`) โดยไม่มีการเรียกคอมไพเลอร์ C++ เลย
-runner จะแปลง QIR เป็น bytecode รันบน register VM และคอมไพล์ loop ที่ทำงาน
-บ่อยเป็นโค้ดเครื่องด้วย Cranelift ตั้งค่าได้ผ่าน `QB_JIT=off|eager|<threshold>`
+(`crates/qb-exec/bin/<os>/qb-exec`) โดยไม่มีการเรียกคอมไพเลอร์ C/C++ หรือ
+linker เลย runner จะแปลง QIR เป็น bytecode รันบน register VM และคอมไพล์
+loop ที่ทำงานบ่อยเป็นโค้ดเครื่องด้วย Cranelift (`QB_JIT=off|eager|<threshold>`)
+ถ้าโปรแกรมใช้คำสั่งที่ QIR back end ยังไม่รองรับ การ build จะหยุดพร้อมข้อความ
+`QIR: unsupported: line N: ...`
 
-จนกว่าจะถึงจังหวะ cutover back end ค่าเริ่มต้นยังเป็น C++ อยู่ ถ้าโปรแกรม
-ใช้ฟีเจอร์ที่ QIR back end ยังไม่รองรับ คอมไพเลอร์จะบอกบรรทัดที่รองรับไม่ได้
+executable แบบ native (**ทดลอง**): ถ้ามี native kit อยู่ข้าง runner
+(`crates/qb-exec/bin/<os>/native/kit.txt` สร้างบน Windows ด้วย
+`scripts/native-kit.ps1` และบน Linux/macOS ด้วย `scripts/native-kit.sh`)
+คอมไพเลอร์จะลิงก์เป็น executable ปกติด้วย `rust-lld` แทนการต่อท้าย QIR
+และถ้าลิงก์ไม่ผ่านจะกลับไปใช้สำเนาของ runner
 
 ## `qbnex fmt`: จัดรูปแบบโค้ด
 
@@ -91,7 +95,7 @@ completion และ formatting ดู[VS Code และเครื่องม
 ## `qbnex dap`: debugger
 
 เปิด server ตามโปรโตคอล Debug Adapter Protocol ทาง stdin/stdout โดยปกติ
-editor จะเรียกให้เอง (VS Code กด F5) ตัวมันจะคอมไพล์โปรแกรมด้วย `qb --ir`
+editor จะเรียกให้เอง (VS Code กด F5) ตัวมันจะคอมไพล์โปรแกรมด้วย `qb`
 แล้วรันบน VM พร้อม breakpoint, การ step และการดูค่าตัวแปร ดู
 [VS Code และเครื่องมือ](vscode.md#debugger)
 

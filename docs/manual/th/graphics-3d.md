@@ -17,7 +17,6 @@
 
 `_MAPTRIANGLE` แบบ 3 มิติของ QB64 ใช้ได้
 
-<!-- docs-test: no-ir _DEPTHBUFFER is not in QIR yet -->
 ```basic
 SCREEN _NEWIMAGE(640, 480, 32)
 tex& = _LOADIMAGE("brick.png", 32)

@@ -2,8 +2,8 @@
 # Compiles every BASIC code block of the user documentation with the real
 # compiler and checks the output where the docs give one.
 #
-#   pwsh tests/docs/check_docs.ps1 [-Compiler path\to\qb.exe] [-Backend cpp|ir]
-#                                  [-Files a.md,b.md] [-Match text] [-List] [-Keep] [-CheckOnly]
+#   pwsh tests/docs/check_docs.ps1 [-Compiler path\to\qb.exe]
+#                                  [-Files a.md,b.md] [-Match text] [-List] [-Keep]
 #
 # A block is a fence tagged ```basic (also ```qbasic / ```bas). An HTML comment
 # on the line(s) directly above the fence controls it:
@@ -15,8 +15,9 @@
 #   <!-- docs-test: run -->              compile, run, exit code 0
 #   <!-- docs-test: output -->           compile, run, and compare stdout with the
 #                                        next ```text block after the code block
-#   <!-- docs-test: no-ir <reason> -->   with -Backend ir: must NOT compile yet (a QIR gap);
-#                                        when it compiles the marker is out of date
+#   <!-- docs-test: unsupported <reason> -->  must NOT compile (run blocks: must not
+#                                        run) yet: a feature the QIR back end lacks;
+#                                        when it works the marker is out of date
 #   <!-- docs-test: prepend NAME -->     prefix the block with the snippet NAME
 #                                        defined by <!-- docs-test: define NAME --> above
 #                                        another block in the same file
@@ -25,17 +26,13 @@
 # 30 s timeout) in a scratch folder; `$CONSOLE:ONLY` is added when the block
 # has no `$CONSOLE` line so PRINT reaches stdout. Identical blocks (the Thai and
 # English pages share their examples) are compiled once.
-#
-# -CheckOnly runs the front end only (`qb -z`: parse and generate C++, no
-# link, nothing run): fast, and usable while the runtime library is being rebuilt.
+
 param(
     [string]$Compiler = $env:QB_COMPILER,
-    [ValidateSet('cpp', 'ir')][string]$Backend = 'cpp',
     [string[]]$Files,
     [string]$Match,
     [switch]$List,
-    [switch]$Keep,
-    [switch]$CheckOnly
+    [switch]$Keep
 )
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -62,7 +59,7 @@ foreach ($file in $Files) {
         # markers: comment lines directly above the fence
         $markers = @()
         for ($j = $start - 1; $j -ge 0 -and $lines[$j] -match '^\s*<!--\s*docs-test:\s*(.*?)\s*-->\s*$'; $j--) { $markers += $matches[1] }
-        $mode = 'compile'; $reason = ''; $prepend = $null; $define = $null; $noIr = $null
+        $mode = 'compile'; $reason = ''; $prepend = $null; $define = $null; $unsupported = $null
         foreach ($m in $markers) {
             switch -Regex ($m) {
                 '^skip\b\s*(.*)$' { $mode = 'skip'; $reason = $matches[1] }
@@ -71,7 +68,7 @@ foreach ($file in $Files) {
                 '^output\b' { $mode = 'output' }
                 '^prepend\s+(\S+)' { $prepend = $matches[1] }
                 '^define\s+(\S+)' { $define = $matches[1] }
-                '^no-ir\b\s*(.*)$' { $noIr = $matches[1] }
+                '^unsupported\b\s*(.*)$' { $unsupported = $matches[1] }
             }
         }
         $expected = $null
@@ -94,7 +91,7 @@ foreach ($file in $Files) {
             if (-not $defines.ContainsKey($prepend)) { throw "${rel}:$($start + 1): prepend $prepend is not defined above" }
             $code = $defines[$prepend] + "`n" + $code
         }
-        $blocks.Add([pscustomobject]@{ File = $rel; Line = $start + 1; Mode = $mode; Reason = $reason; Code = $code; Expected = $expected; NoIr = $noIr })
+        $blocks.Add([pscustomobject]@{ File = $rel; Line = $start + 1; Mode = $mode; Reason = $reason; Code = $code; Expected = $expected; Unsupported = $unsupported })
     }
 }
 if ($Match) { $blocks = @($blocks | Where-Object { $_.Code -like "*$Match*" -or "$($_.File):$($_.Line)" -like "*$Match*" }) }
@@ -150,7 +147,7 @@ foreach ($b in $blocks) {
     # END in a console program waits at "Press any key" even without a console;
     # SYSTEM ends it at once (only possible when no SUB/FUNCTION follows).
     if ($b.Mode -in 'run', 'output' -and $code -notmatch '(?im)^\s*(SUB|FUNCTION)\s') { $code += "`nSYSTEM" }
-    $key = "$($b.Mode)|$Backend|$code|$($b.Expected)"
+    $key = "$($b.Mode)|$code|$($b.Expected)"
     if ($cache.ContainsKey($key)) {
         $r = $cache[$key]
         $results.Add([pscustomobject]@{ Tag = $tag; Status = $r.Status; Detail = "(same as $($r.Tag)) $($r.Detail)" })
@@ -163,17 +160,15 @@ foreach ($b in $blocks) {
     [IO.File]::WriteAllText($src, $code + "`n")
     $exe = Join-Path $dir ('doc' + $exeExt)
     $cargs = @($src, '-o', $exe, '-m')
-    if ($Backend -eq 'ir') { $cargs += '--ir' }
-    if ($CheckOnly) { $cargs += '-z' }
     Write-Host ('[{0}/{1}] {2} {3}' -f $n, $blocks.Count, $tag, $b.Mode)
     $c = Invoke-Proc $Compiler $cargs (Split-Path $Compiler) 600
-    $compiled = ($c.Code -eq 0) -and ($CheckOnly -or (Test-Path $exe))
+    $compiled = ($c.Code -eq 0) -and (Test-Path $exe)
     $msg = ((($c.Out + $c.Err) -replace 'Preparing build files\.\.\. \[[#.]+\] \d+%', '') -split "`n" | Where-Object { $_ -match 'error|Error|ERROR|\[E\d+\]|Expected|Unknown|not|unsupported' } | Select-Object -First 3) -join ' | '
     $status = 'PASS'; $detail = ''
-    if ($Backend -eq 'ir' -and $null -ne $b.NoIr -and $b.Mode -ne 'compile-error') {
+    if ($null -ne $b.Unsupported -and $b.Mode -ne 'compile-error') {
         $works = $compiled
         if ($compiled -and $b.Mode -in 'run', 'output') { $rr = Invoke-Proc $exe @() $dir 30; $works = $rr.Code -eq 0; $msg = ($rr.Err.Trim() -split "`n")[0] }
-        if ($works) { $status = 'FAIL'; $detail = 'works with --ir now: remove the no-ir marker' } else { $status = 'XFAIL'; $detail = "no-ir ($($b.NoIr)): $msg" }
+        if ($works) { $status = 'FAIL'; $detail = 'works now: remove the unsupported marker and update the doc' } else { $status = 'XFAIL'; $detail = "unsupported ($($b.Unsupported)): $msg" }
         $res = [pscustomobject]@{ Tag = $tag; Status = $status; Detail = $detail }; $cache[$key] = $res; $results.Add($res)
         if (-not $Keep) { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
         continue
@@ -182,7 +177,6 @@ foreach ($b in $blocks) {
         'compile' { if (-not $compiled) { $status = 'FAIL'; $detail = "does not compile: $msg" } }
         'compile-error' { if ($compiled) { $status = 'FAIL'; $detail = 'compiles now: the doc calls this planned; update the doc and the marker' } else { $status = 'XFAIL'; $detail = $msg } }
         default {
-            if ($CheckOnly) { if (-not $compiled) { $status = 'FAIL'; $detail = "does not compile: $msg" }; break }
             if (-not $compiled) { $status = 'FAIL'; $detail = "does not compile: $msg"; break }
             $r = Invoke-Proc $exe @() $dir 30
             if ($r.Code -ne 0) { $status = 'FAIL'; $detail = "exit $($r.Code): $(($r.Err.Trim() -split "`n")[0])"; break }
@@ -204,6 +198,6 @@ foreach ($b in $blocks) {
 foreach ($r in $results) { if ($r.Status -ne 'PASS') { '{0,-5} {1} {2}' -f $r.Status, $r.Tag, $r.Detail } }
 $sum = $results | Group-Object Status | ForEach-Object { "$($_.Name) $($_.Count)" }
 ''
-"docs-test ($Backend$(if ($CheckOnly) { ', front end only' })): " + ($sum -join ', ')
+"docs-test: " + ($sum -join ', ')
 if ($results | Where-Object Status -eq 'FAIL') { exit 1 }
 exit 0
