@@ -195,18 +195,24 @@ pub(crate) unsafe fn invoke(func: *const c_void, args: &[(Ty, u64)], variadic_fr
     (f.ret_gpr, f.ret_fpr)
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 unsafe extern "C" {
     fn qb_ffi_thunk(frame: *mut Frame);
 }
 
+/// No native thunk (wasm32, qb-web): nothing can be called, because no library
+/// loads there (`loader::sys::open` always fails), so this is never reached.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+unsafe fn qb_ffi_thunk(_frame: *mut Frame) {}
+
 /// C symbol of the thunk: Mach-O prefixes an underscore.
-#[cfg(all(not(all(target_arch = "x86_64", windows)), target_vendor = "apple"))]
+#[cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), target_vendor = "apple"))]
 macro_rules! thunk_name {
     () => {
         "_qb_ffi_thunk"
     };
 }
-#[cfg(all(not(all(target_arch = "x86_64", windows)), not(target_vendor = "apple")))]
+#[cfg(all(any(target_arch = "aarch64", all(target_arch = "x86_64", not(windows))), not(target_vendor = "apple")))]
 macro_rules! thunk_name {
     () => {
         "qb_ffi_thunk"
