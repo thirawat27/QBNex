@@ -53,7 +53,7 @@ FUNCTION StdLib_ImportPath$ (module$)
     IF LEN(normalizedKey) = 0 THEN EXIT FUNCTION
 
     IF normalizedKey = "qbnex" THEN
-        StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "stdlib" + pathsep$ + "stdlib.bas"
+        StdLib_ImportPath$ = QBNexRoot$ + "compiler" + pathsep$ + "stdlib" + pathsep$ + "stdlib.bas"
         EXIT FUNCTION
     END IF
 
@@ -63,7 +63,7 @@ FUNCTION StdLib_ImportPath$ (module$)
         relativeModulePath = relativeModulePath + importChar
     NEXT
 
-    StdLib_ImportPath$ = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
+    StdLib_ImportPath$ = QBNexRoot$ + "compiler" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
 END FUNCTION
 
 FUNCTION StdLib_QueueImport$ (module$)
@@ -285,7 +285,7 @@ SUB StdLib_PrepareHoistedImports
     END IF
 
     'these files take the place of the vwatch includes at the first/last line
-    vwatchDir = getfilepath$(COMMAND$(0)) + "compiler" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$
+    vwatchDir = QBNexRoot$ + "compiler" + pathsep$ + "support" + pathsep$ + "vwatch" + pathsep$
     IF vWatchOn THEN
         headText = "'$INCLUDE:'" + vwatchDir + "vwatch.bi'" + CHR$(13) + CHR$(10) + headText
         bodyText = bodyText + "'$INCLUDE:'" + vwatchDir + "vwatch.bm'" + CHR$(13) + CHR$(10)

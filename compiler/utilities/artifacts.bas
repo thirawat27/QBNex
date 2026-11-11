@@ -17,15 +17,6 @@ FUNCTION QuotedFilename$ (f$)
     QuotedFilename$ = CHR$(34) + f$ + CHR$(34)
 END FUNCTION
 
-FUNCTION GetCompilerBuildDirectory$ ()
-    DIM buildDirectory AS STRING
-
-    buildDirectory = "." + pathsep$ + "internal" + pathsep$ + "c"
-    IF _DIREXISTS(buildDirectory) = 0 THEN EXIT FUNCTION
-
-    GetCompilerBuildDirectory$ = buildDirectory
-END FUNCTION
-
 FUNCTION ResolveAbsoluteDirectory$ (pathCandidate$)
     DIM currentdir AS STRING
     DIM resolvedPath AS STRING
@@ -56,21 +47,13 @@ FUNCTION IsCompilerRelativeOutputPath% (pathCandidate$)
     END SELECT
 END FUNCTION
 
+'a compiler-relative output folder (the legacy "..\..\" and ".\") is the compiler's folder
 FUNCTION ResolveCompilerRelativeOutputDirectory$ (pathCandidate$)
-    DIM buildDirectory AS STRING
-    DIM currentdir AS STRING
     DIM resolvedPath AS STRING
 
     IF LEN(pathCandidate$) = 0 THEN EXIT FUNCTION
     IF IsCompilerRelativeOutputPath%(pathCandidate$) = 0 THEN EXIT FUNCTION
-    buildDirectory = GetCompilerBuildDirectory$
-    IF LEN(buildDirectory) = 0 THEN EXIT FUNCTION
-
-    currentdir = _CWD$
-    CHDIR buildDirectory
-    CHDIR pathCandidate$
     resolvedPath = _CWD$
-    CHDIR currentdir
 
     IF LEN(resolvedPath) THEN
         IF RIGHT$(resolvedPath, 1) <> pathsep$ THEN resolvedPath = resolvedPath + pathsep$
@@ -106,18 +89,6 @@ FUNCTION ResolveOutputBinaryPath$ (outputPath$)
     END IF
 END FUNCTION
 
-SUB CleanupStaleBuildSideFiles (outputBaseName AS STRING)
-    DIM staleManifestPath AS STRING
-
-    IF outputBaseName = "" THEN EXIT SUB
-
-    staleManifestPath = tmpdir$ + outputBaseName + extension$ + ".manifest"
-    IF _FILEEXISTS(staleManifestPath) THEN KILL staleManifestPath
-    IF _FILEEXISTS(tmpdir$ + "manifest.h") THEN KILL tmpdir$ + "manifest.h"
-    IF _FILEEXISTS(tmpdir$ + "icon.rc") THEN KILL tmpdir$ + "icon.rc"
-    IF _FILEEXISTS(tmpdir$ + "call_windres.bat") THEN KILL tmpdir$ + "call_windres.bat"
-END SUB
-
 SUB PreparePendingOutputBinary (sourceBaseName AS STRING)
     DIM outputName AS STRING
     DIM pathOut AS STRING
@@ -145,44 +116,6 @@ SUB PreparePendingOutputBinary (sourceBaseName AS STRING)
     pendingOutputBinary$ = pathOut + outputName + extension$
 END SUB
 
-SUB ResolveBuildOutputTarget (fileName AS STRING, exePath AS STRING)
-    DIM pathOut AS STRING
-
-    IF LEN(outputfile_cmd$) = 0 THEN
-        IF LEN(exePath) THEN
-            IF IsCompilerRelativeOutputPath%(exePath) THEN
-                pathOut = ResolveCompilerRelativeOutputDirectory$(exePath)
-                IF LEN(pathOut) THEN exePath = pathOut
-            ELSE
-                pathOut = ResolveAbsoluteDirectory$(exePath)
-                IF LEN(pathOut) THEN exePath = pathOut
-            END IF
-        END IF
-        pendingOutputBinary$ = exePath + fileName + extension$
-        EXIT SUB
-    END IF
-
-    pathOut = getfilepath$(outputfile_cmd$)
-    fileName = MID$(outputfile_cmd$, LEN(pathOut) + 1)
-    IF fileName = "" THEN fileName = outputfile_cmd$
-    fileName = RemoveFileExtension$(fileName)
-
-    IF LEN(pathOut) THEN
-        IF _DIREXISTS(pathOut) = 0 THEN
-            PRINT
-            PRINT "Can't create output executable - path not found: " + pathOut
-            IF ConsoleMode THEN SYSTEM 1
-            END 1
-        END IF
-
-        pathOut = ResolveAbsoluteDirectory$(pathOut)
-        exePath = pathOut
-        SaveExeWithSource = -1
-    END IF
-
-    pendingOutputBinary$ = exePath + fileName + extension$
-END SUB
-
 SUB WarnIfStaleOutputBinary
     DIM outputPath AS STRING
     DIM sourcePath AS STRING
@@ -201,187 +134,4 @@ SUB WarnIfStaleOutputBinary
     PRINT "Existing executable may be stale:"
     PRINT "  Source: "; sourcePath
     PRINT "  Output: "; outputPath
-END SUB
-
-SUB InitializeCompilationLog
-    compilelog$ = tmpdir$ + "compilelog.txt"
-    OPEN compilelog$ FOR OUTPUT AS #1
-    CLOSE #1
-END SUB
-
-FUNCTION PrepareExecutableOutputTarget% (outputBaseName AS STRING)
-    DIM targetOutputFile AS STRING
-
-    IF NOT QuietMode THEN
-        PRINT "Compiling program..."
-        PRINT
-    END IF
-
-    CleanupStaleBuildSideFiles outputBaseName
-    ResolveBuildOutputTarget outputBaseName, path.exe$
-    targetOutputFile = pendingOutputBinary$
-    path.exe$ = getfilepath$(targetOutputFile)
-
-    IF path.exe$ = "../../" OR path.exe$ = "..\..\" THEN path.exe$ = ""
-    IF _FILEEXISTS(targetOutputFile) THEN
-        IF os$ = "WIN" THEN
-            SHELL _HIDE "cmd /c del /f /q " + QuotedFilename$(targetOutputFile) + " >nul 2>nul"
-        ELSEIF os$ = "LNX" THEN
-            SHELL _HIDE "rm -f " + QuotedFilename$(targetOutputFile) + " >/dev/null 2>&1"
-        ELSE
-            KILL targetOutputFile
-        END IF
-        IF _FILEEXISTS(targetOutputFile) THEN
-            ModuleError$ = "CANNOT CREATE " + CHR$(34) + outputBaseName + extension$ + CHR$(34) + " BECAUSE THE FILE IS ALREADY IN USE!"
-            PrepareExecutableOutputTarget% = -1
-            EXIT FUNCTION
-        END IF
-    END IF
-
-    pendingOutputBinary$ = targetOutputFile
-    PrepareExecutableOutputTarget% = 0
-END FUNCTION
-
-SUB WriteWindowsManifestFiles (outputBaseName AS STRING)
-    manifest = FREEFILE
-    OPEN tmpdir$ + outputBaseName + extension$ + ".manifest" FOR OUTPUT AS #manifest
-    PRINT #manifest, "<?xml version=" + QuotedFilename("1.0") + " encoding=" + QuotedFilename("UTF-8") + " standalone=" + QuotedFilename("yes") + "?>"
-    PRINT #manifest, "<assembly xmlns=" + QuotedFilename("urn:schemas-microsoft-com:asm.v1") + " manifestVersion=" + QuotedFilename("1.0") + ">"
-    PRINT #manifest, "<assemblyIdentity"
-    PRINT #manifest, "    version=" + QuotedFilename("1.0.0.0")
-    PRINT #manifest, "    processorArchitecture=" + QuotedFilename("*")
-    PRINT #manifest, "    name=" + QuotedFilename(viCompanyName$ + "." + viProductName$ + "." + viProductName$)
-    PRINT #manifest, "    type=" + QuotedFilename("win32")
-    PRINT #manifest, "/>"
-    PRINT #manifest, "<description>" + viFileDescription$ + "</description>"
-    PRINT #manifest, "<dependency>"
-    PRINT #manifest, "    <dependentAssembly>"
-    PRINT #manifest, "        <assemblyIdentity"
-    PRINT #manifest, "            type=" + QuotedFilename("win32")
-    PRINT #manifest, "            name=" + QuotedFilename("Microsoft.Windows.Common-Controls")
-    PRINT #manifest, "            version=" + QuotedFilename("6.0.0.0")
-    PRINT #manifest, "            processorArchitecture=" + QuotedFilename("*")
-    PRINT #manifest, "            publicKeyToken=" + QuotedFilename("6595b64144ccf1df")
-    PRINT #manifest, "            language=" + QuotedFilename("*")
-    PRINT #manifest, "        />"
-    PRINT #manifest, "    </dependentAssembly>"
-    PRINT #manifest, "</dependency>"
-    PRINT #manifest, "</assembly>"
-    CLOSE #manifest
-
-    manifestembed = FREEFILE
-    OPEN tmpdir$ + "manifest.h" FOR OUTPUT AS #manifestembed
-    PRINT #manifestembed, "#ifndef RESOURCE_H"
-    PRINT #manifestembed, "#define   RESOURCE_H"
-    PRINT #manifestembed, "#ifdef    __cplusplus"
-    PRINT #manifestembed, "extern " + QuotedFilename("C") + " {"
-    PRINT #manifestembed, "#endif"
-    PRINT #manifestembed, "#ifdef    __cplusplus"
-    PRINT #manifestembed, "}"
-    PRINT #manifestembed, "#endif"
-    PRINT #manifestembed, "#endif    /* RESOURCE_H */"
-    PRINT #manifestembed, "#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1 /*Defined manifest file*/"
-    PRINT #manifestembed, "#define RT_MANIFEST                       24"
-    CLOSE #manifestembed
-END SUB
-
-SUB AppendVersionInfoResource (outputBaseName AS STRING)
-    iconfilehandle = FREEFILE
-    OPEN tmpdir$ + "icon.rc" FOR APPEND AS #iconfilehandle
-    PRINT #iconfilehandle, ""
-    PRINT #iconfilehandle, "#include " + QuotedFilename("manifest.h")
-    PRINT #iconfilehandle, ""
-    PRINT #iconfilehandle, "CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST " + QuotedFilename(outputBaseName + extension$ + ".manifest")
-    PRINT #iconfilehandle, ""
-    PRINT #iconfilehandle, "1 VERSIONINFO"
-    IF LEN(viFileVersionNum$) THEN PRINT #iconfilehandle, "FILEVERSION     "; viFileVersionNum$
-    IF LEN(viProductVersionNum$) THEN PRINT #iconfilehandle, "PRODUCTVERSION  "; viProductVersionNum$
-    PRINT #iconfilehandle, "BEGIN"
-    PRINT #iconfilehandle, "    BLOCK " + QuotedFilename$("StringFileInfo")
-    PRINT #iconfilehandle, "    BEGIN"
-    PRINT #iconfilehandle, "        BLOCK " + QuotedFilename$("040904E4")
-    PRINT #iconfilehandle, "        BEGIN"
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("CompanyName") + "," + QuotedFilename$(viCompanyName$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("FileDescription") + "," + QuotedFilename$(viFileDescription$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("FileVersion") + "," + QuotedFilename$(viFileVersion$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("InternalName") + "," + QuotedFilename$(viInternalName$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("LegalCopyright") + "," + QuotedFilename$(viLegalCopyright$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("LegalTrademarks") + "," + QuotedFilename$(viLegalTrademarks$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("OriginalFilename") + "," + QuotedFilename$(viOriginalFilename$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("ProductName") + "," + QuotedFilename$(viProductName$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("ProductVersion") + "," + QuotedFilename$(viProductVersion$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("Comments") + "," + QuotedFilename$(viComments$ + "\0")
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("Web") + "," + QuotedFilename$(viWeb$ + "\0")
-    PRINT #iconfilehandle, "        END"
-    PRINT #iconfilehandle, "    END"
-    PRINT #iconfilehandle, "    BLOCK " + QuotedFilename$("VarFileInfo")
-    PRINT #iconfilehandle, "    BEGIN"
-    PRINT #iconfilehandle, "            VALUE " + QuotedFilename$("Translation") + ", 0x409, 0x04E4"
-    PRINT #iconfilehandle, "    END"
-    PRINT #iconfilehandle, "END"
-    CLOSE #iconfilehandle
-END SUB
-
-FUNCTION PrepareWindowsResourceArtifacts% (outputBaseName AS STRING)
-    DIM iconObjectPath AS STRING
-
-    IF os$ <> "WIN" THEN EXIT FUNCTION
-    iconObjectPath = tmpdir$ + "icon.o"
-
-    IF ExeIconSet OR VersionInfoSet THEN
-        IF _FILEEXISTS(iconObjectPath) THEN
-            SHELL _HIDE "cmd /c del /f /q " + QuotedFilename$(iconObjectPath) + " >nul 2>nul"
-            IF _FILEEXISTS(iconObjectPath) THEN
-                ModuleError$ = "Error creating resource file"
-                PrepareWindowsResourceArtifacts% = -1
-                EXIT FUNCTION
-            END IF
-        END IF
-    END IF
-
-    IF ExeIconSet THEN
-        linenumber = ExeIconSet
-        wholeline = " $EXEICON:'" + ExeIconFile$ + "'"
-    END IF
-
-    IF VersionInfoSet THEN
-        WriteWindowsManifestFiles outputBaseName
-        AppendVersionInfoResource outputBaseName
-    END IF
-
-    IF ExeIconSet OR VersionInfoSet THEN
-        ffh = FREEFILE
-        OPEN tmpdir$ + "call_windres.bat" FOR OUTPUT AS #ffh
-        PRINT #ffh, "internal\c\c_compiler\bin\windres.exe -i " + StrReplace$(tmpdir$, "\", "/") + "icon.rc -o " + StrReplace$(tmpdir$, "\", "/") + "icon.o"
-        CLOSE #ffh
-        SHELL _HIDE "cmd /c " + QuotedFilename$(tmpdir$ + "call_windres.bat")
-        IF _FILEEXISTS(tmpdir$ + "icon.o") = 0 THEN
-            ModuleError$ = "Bad icon file"
-            IF VersionInfoSet THEN a$ = a$ + " or invalid $VERSIONINFO values"
-            PrepareWindowsResourceArtifacts% = -1
-            EXIT FUNCTION
-        END IF
-    END IF
-
-    PrepareWindowsResourceArtifacts% = 0
-END FUNCTION
-
-SUB EmitMacOSLauncherScript (outputBaseName AS STRING)
-    IF INSTR(_OS$, "[MACOSX]") = 0 THEN EXIT SUB
-
-    ff = FREEFILE
-    IF path.exe$ = "./" OR path.exe$ = "../../" OR path.exe$ = "..\..\" THEN path.exe$ = ""
-    OPEN path.exe$ + outputBaseName + extension$ + "_start.command" FOR OUTPUT AS #ff
-    PRINT #ff, "cd " + CHR$(34) + "$(dirname " + CHR$(34) + "$0" + CHR$(34) + ")" + CHR$(34);
-    PRINT #ff, CHR$(10);
-    PRINT #ff, "./" + outputBaseName + extension$ + " &";
-    PRINT #ff, CHR$(10);
-    PRINT #ff, "osascript -e 'tell application " + CHR$(34) + "Terminal" + CHR$(34) + " to close (every window whose name contains " + CHR$(34) + outputBaseName + extension$ + "_start.command" + CHR$(34) + ")' &";
-    PRINT #ff, CHR$(10);
-    PRINT #ff, "osascript -e 'if (count the windows of application " + CHR$(34) + "Terminal" + CHR$(34) + ") is 0 then tell application " + CHR$(34) + "Terminal" + CHR$(34) + " to quit' &";
-    PRINT #ff, CHR$(10);
-    PRINT #ff, "exit";
-    PRINT #ff, CHR$(10);
-    CLOSE #ff
-    SHELL _HIDE "chmod +x " + QuotedFilename$(path.exe$ + outputBaseName + extension$ + "_start.command")
 END SUB

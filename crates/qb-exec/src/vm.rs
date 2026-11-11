@@ -407,6 +407,7 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
 
 impl<'m, 'o> Vm<'m, 'o> {
     pub fn new(m: &'m Module, out: &'o mut dyn Write) -> Self {
+        let _ = crate::rt::builtins::start_dir(); // _STARTDIR$ before any CHDIR
         let main = &m.funcs[0];
         let mut rt = RtState::new(out);
         rt.console_on = m.console.is_some();
