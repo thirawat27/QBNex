@@ -1,0 +1,1 @@
+Fixes legacy defect L-06: PRINT USING "^^^^" on a _FLOAT near 1E4932 printed "%0.118973149535723F+4984" and corrupted the heap (exit 0xC0000374) in the C++ backend. The QIR backend prints the overflow marker % and the value rounded to the field (1.189731495357232, exponent F+4932, F for _FLOAT) and the program continues.

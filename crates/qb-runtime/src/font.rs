@@ -819,7 +819,7 @@ mod tests {
 
     fn font_file(name: &str) -> Vec<u8> {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/diff/data/fonts")
+            .join("../../tests/data/fonts")
             .join(name);
         std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
     }
