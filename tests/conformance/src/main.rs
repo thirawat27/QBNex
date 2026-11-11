@@ -17,7 +17,7 @@
 //!
 //! Graphics: every program runs with `QBNEX_FB_CAPTURE` pointing at a scratch
 //! file. The runtime appends one record per `_DISPLAY` call and one at program
-//! end (graphics pages only); see `crates/qb-runtime/src/gfx/capture.rs`. Each
+//! end (graphics pages only); see `crates/runtime/core/src/gfx/capture.rs`. Each
 //! record is summarised as one line (size, depth, mode, FNV-1a 64 hash of the
 //! whole record). When records exist they are compared with `<name>.fb`, so the
 //! golden framebuffer is pixel- and palette-exact. `--fb-dump <dir>` keeps the
@@ -63,7 +63,7 @@ enum Outcome {
     Skip(String),
 }
 
-/// What qb-exec prints when SUB _GL cannot run (crates/qb-exec/src/vm.rs, gl_frame).
+/// What qb-exec prints when SUB _GL cannot run (crates/engine/exec/src/vm.rs, gl_frame).
 const NO_GL: &str = "SUB _GL is not run: no OpenGL context";
 /// `run_program` error prefix for a run that hit [`NO_GL`].
 const SKIP: &str = "\u{1}skip:";
@@ -294,7 +294,7 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     let mut run = Command::new(&exe);
     run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture).env("QBNEX_NO_ERROR_DIALOG", "1");
     // GUI programs run without a window; `<name>.input` is replayed as keyboard/mouse
-    // events (QBNEX_INPUT_SCRIPT, see crates/qb-runtime/src/script.rs). The legacy
+    // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). The legacy
     // runtime ignores both variables.
     run.env("QBNEX_HEADLESS", "1");
     if let Ok(script) = case.with_extension("input").canonicalize() {

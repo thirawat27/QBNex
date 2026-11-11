@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust toolchain for the QIR runner qb-exec (crates/qb-exec)
+# Rust toolchain for the QIR runner qb-exec (crates/engine/exec)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
@@ -51,7 +51,7 @@ RUN apt-get update && apt-get install -y \
 # Copy the compiler from the base stage. It looks for crates/ (the QIR runner)
 # next to itself and reads the standard library from compiler/.
 COPY --from=base /app/qb /app/qb
-COPY --from=base /app/crates/qb-exec/bin /app/crates/qb-exec/bin
+COPY --from=base /app/crates/engine/exec/bin /app/crates/engine/exec/bin
 COPY --from=base /app/compiler /app/compiler
 # Launchers on PATH that call /app/qb by its full path, so it finds /app/crates.
 # `qbnex` is the product-name alias of `qb`.

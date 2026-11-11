@@ -40,7 +40,7 @@
 | `oop.class`, `oop.interface` | registry ตอนรันที่ CLASS ใช้ |
 | `qbnex` | ทุกอย่างข้างบน ยกเว้น `ext.*` ใน import เดียว |
 
-โมดูล `ext.*` เรียกไลบรารี Rust `crates/qb-ext` (Rust ล้วน ไม่ใช้ OpenSSL)
+โมดูล `ext.*` เรียกไลบรารี Rust `crates/runtime/ext` (Rust ล้วน ไม่ใช้ OpenSSL)
 เมื่อเกิด error ฟังก์ชันจะคืน 0 หรือ string ว่าง และ `Ext_LastError$`
 บอกสาเหตุ
 

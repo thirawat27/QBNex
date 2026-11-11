@@ -11,7 +11,7 @@ VS Code  --DAP/stdio-->  qb-dap (adapter)  --loopback TCP, JSON lines-->  qb-dap
                                   +------------- program stdout/stderr --------+  (stdin = launch "input" file)
 ```
 
-- **Adapter** (`crates/qb-dap/src/adapter.rs`): DAP over stdio. On `launch`
+- **Adapter** (`crates/tools/dap/src/adapter.rs`): DAP over stdio. On `launch`
   it gets QIR — `qir` given, or `qb <program.bas> --ir -o <temp exe>` and the
   QIR payload read back from the executable — writes it to a temp file and,
   after `configurationDone`, starts itself as the debuggee. Requests:
@@ -26,7 +26,7 @@ VS Code  --DAP/stdio-->  qb-dap (adapter)  --loopback TCP, JSON lines-->  qb-dap
   snapshot (call stack, each frame's locals, globals) and waits for a resume
   command; breakpoint changes and pause arrive on a reader thread. If the
   adapter goes away the debuggee exits.
-- **VM hook** (`crates/qb-exec/src/debug.rs`, feature `debug`, off by
+- **VM hook** (`crates/engine/exec/src/debug.rs`, feature `debug`, off by
   default): the dispatch loop calls `debug_statement(pc)` at the top of each
   instruction only when the feature is compiled in and a debugger is attached;
   it stops only at statement starts of the bytecode line table (`stmts`,

@@ -29,7 +29,7 @@ This project and everyone participating in it is governed by our commitment to p
 Before contributing, familiarize yourself with:
 
 - **QBasic/QuickBASIC**: Understanding of classic BASIC syntax
-- **Rust**: the runner `qb-exec` and the runtime crates (`crates/qb-*`)
+- **Rust**: the runner `qb-exec` and the runtime crates (`crates/`)
 - **QIR**: the text intermediate language the compiler emits (`docs/rust-port/qir-v1.md`)
 - **Cross-platform development**: QBNex targets Windows, Linux, and macOS
 
@@ -229,8 +229,8 @@ END FUNCTION
 ### Runtime Code
 
 The runtime is a Cargo workspace under `crates/` (`qb-runtime`, `qb-audio`, `qb-ir`, `qb-exec`).
-A new built-in needs an entry in the QIR table (`crates/qb-ir/src/builtins.rs`), its
-implementation in `crates/qb-exec/src/rt/`, and the emitter case in
+A new built-in needs an entry in the QIR table (`crates/compiler/ir/src/builtins.rs`), its
+implementation in `crates/engine/exec/src/rt/`, and the emitter case in
 `compiler/utilities/ir_emit.bas` / `ir_stmt.bas`. Rust changes should pass `cargo test --workspace`.
 
 ### Commit Messages
@@ -398,10 +398,10 @@ QBNex/
 │   ├── subs_functions/         # Built-in functions/subs
 │   └── utilities/              # Helper modules
 ├── crates/                     # Native runtime (Cargo workspace)
-│   ├── qb-runtime/             # Runtime library
-│   ├── qb-ir/                  # QIR parser, validator, builtin table
-│   ├── qb-audio/               # Audio engine
-│   └── qb-exec/                # Runner for compiled QIR programs
+│   ├── runtime/core/           # Runtime library
+│   ├── compiler/ir/            # QIR parser, validator, builtin table
+│   ├── runtime/audio/          # Audio engine
+│   └── engine/exec/            # Runner for compiled QIR programs
 ├── bootstrap/qbnex.qir         # The compiler in QIR (setup bootstrap)
 ├── tests/
 │   ├── conformance/            # Conformance runner and cases

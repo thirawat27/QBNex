@@ -2,7 +2,7 @@ name: Native executables (D15)
 
 # Programs linked by rust-lld with the qb-native runtime library into
 # standard executables (PE / ELF / Mach-O) must give the VM's output
-# (crates/qb-exec/tests/native_link.rs). Linux and macOS cannot be run on the
+# (crates/engine/exec/tests/native_link.rs). Linux and macOS cannot be run on the
 # development machine, so they are checked here.
 
 on:

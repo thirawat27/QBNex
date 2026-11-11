@@ -25,8 +25,8 @@ esac
 BOOTSTRAP="${QBNEX_BOOTSTRAP:-bootstrap/qbnex.qir}"
 PACK="${QBNEX_QIR_PACK:-ir}"
 
-RUNNER="crates/qb-exec/bin/$OSDIR/qb-exec"
-mkdir -p "crates/qb-exec/bin/$OSDIR"
+RUNNER="crates/engine/exec/bin/$OSDIR/qb-exec"
+mkdir -p "crates/engine/exec/bin/$OSDIR"
 if [ -n "${QBNEX_QB_EXEC:-}" ]; then
   cp "$QBNEX_QB_EXEC" "$RUNNER"
 else

@@ -11,7 +11,7 @@ Status: **Preview**. QBNex programs can run in a browser: the QIR runner
 ```bash
 cargo build -p qb-web --release --target wasm32-unknown-unknown
 # (rustup target add wasm32-unknown-unknown once)
-cp target/wasm32-unknown-unknown/release/qb_web.wasm crates/qb-web/www/
+cp target/wasm32-unknown-unknown/release/qb_web.wasm crates/web/www/
 ```
 
 ## Get a program as QIR
@@ -23,11 +23,11 @@ qb game.bas -o game.exe
 The QIR text is the payload stored before the `QBNEXIR0` trailer at the end
 of `game.exe` (the last 16 bytes are the length and the trailer). The
 debugger's code shows how to read it (`qir_payload` in
-`crates/qb-dap/src/adapter.rs`).
+`crates/tools/dap/src/adapter.rs`).
 
 ## Run it
 
-Serve `crates/qb-web/www` over HTTP (module workers do not load from
+Serve `crates/web/www` over HTTP (module workers do not load from
 `file://`), for example `python -m http.server` in that folder, open the
 page and choose the `.qir` file. The page has a canvas for the screen, a box
 for standard input and a console pane.
@@ -48,4 +48,4 @@ for standard input and a console pane.
 | | Sound (silent), JIT |
 
 Unsupported statements end in QBasic errors, not crashes. Tests:
-`node crates/qb-web/tests/run.mjs` (33 checks).
+`node crates/web/tests/run.mjs` (33 checks).

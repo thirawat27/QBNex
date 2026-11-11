@@ -45,7 +45,7 @@ sh scripts/setup_osx.command
 ### What the setup does
 
 1. Builds the runner `qb-exec` (`cargo build --release -p qb-exec`) into
-   `crates/qb-exec/bin/<os>/`.
+   `crates/engine/exec/bin/<os>/`.
 2. Packs `bootstrap/qbnex.qir` (the compiler, already translated to QIR)
    into that runner, giving a stage-0 compiler.
 3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the
@@ -62,7 +62,7 @@ building it), `QBNEX_RUST_TARGET`, `QBNEX_BOOTSTRAP`,
 
 **Native executables (Preview):** `scripts/native-kit.ps1` (Windows) or
 `scripts/native-kit.sh` builds the native kit (`qb-native` plus the Rust
-toolchain's `rust-lld`). Copied to `crates/qb-exec/bin/<os>/native/`, it makes
+toolchain's `rust-lld`). Copied to `crates/engine/exec/bin/<os>/native/`, it makes
 the compiler link ordinary executables instead of appending QIR to the runner
 (see [commands](commands.md)).
 

@@ -1,4 +1,4 @@
-crates/qb-runtime/src/gfx/data/*.bin binary
+crates/runtime/core/src/gfx/data/*.bin binary
 tests/conformance/cases/**/*.fb text eol=lf
 # QIR programs and their recorded output are compared byte for byte: never
 # convert line ends on checkout (core.autocrlf on Windows runners turned

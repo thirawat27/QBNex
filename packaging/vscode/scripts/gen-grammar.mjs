@@ -1,12 +1,12 @@
 // Generates syntaxes/qbasic.tmLanguage.json from the keyword tables of
-// crates/qb-syntax (language keywords + the built-in registry generated from
+// crates/compiler/syntax (language keywords + the built-in registry generated from
 // the compiler). Run: npm run grammar
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const crate = join(here, '..', '..', '..', 'crates', 'qb-syntax', 'src');
+const crate = join(here, '..', '..', '..', 'crates', 'compiler', 'syntax', 'src');
 
 const builtins = [...readFileSync(join(crate, 'builtins_data.rs'), 'utf8').matchAll(/^\s+\("([^"]+)", (true|false), "([^"]*)"/gm)]
     .map((m) => ({ name: m[1] + m[3], isFunction: m[2] === 'true' }));

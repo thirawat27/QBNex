@@ -11,7 +11,7 @@
 ```bash
 cargo build -p qb-web --release --target wasm32-unknown-unknown
 # (รัน rustup target add wasm32-unknown-unknown หนึ่งครั้งก่อน)
-cp target/wasm32-unknown-unknown/release/qb_web.wasm crates/qb-web/www/
+cp target/wasm32-unknown-unknown/release/qb_web.wasm crates/web/www/
 ```
 
 ## แปลงโปรแกรมเป็น QIR
@@ -22,11 +22,11 @@ qb game.bas -o game.exe
 
 ข้อความ QIR คือ payload ที่เก็บไว้ก่อน trailer `QBNEXIR0` ท้ายไฟล์
 `game.exe` (16 ไบต์สุดท้ายคือความยาวกับ trailer) ดูวิธีอ่านได้จากโค้ดของ
-debugger (`qir_payload` ใน `crates/qb-dap/src/adapter.rs`)
+debugger (`qir_payload` ใน `crates/tools/dap/src/adapter.rs`)
 
 ## รัน
 
-เปิด `crates/qb-web/www` ผ่าน HTTP (module worker โหลดจาก `file://` ไม่ได้)
+เปิด `crates/web/www` ผ่าน HTTP (module worker โหลดจาก `file://` ไม่ได้)
 เช่นรัน `python -m http.server` ในโฟลเดอร์นั้น แล้วเปิดหน้าเว็บและเลือกไฟล์
 `.qir` หน้าเว็บมี canvas สำหรับหน้าจอ ช่องใส่ข้อความ standard input และ
 ช่อง console
@@ -47,4 +47,4 @@ debugger (`qir_payload` ใน `crates/qb-dap/src/adapter.rs`)
 | | เสียง (เงียบ), JIT |
 
 คำสั่งที่ไม่รองรับจะจบด้วย error ของ QBasic ไม่ใช่โปรแกรมพัง เทสต์:
-`node crates/qb-web/tests/run.mjs` (ตรวจ 33 จุด)
+`node crates/web/tests/run.mjs` (ตรวจ 33 จุด)

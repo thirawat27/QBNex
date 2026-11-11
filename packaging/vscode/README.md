@@ -84,5 +84,5 @@ The tools also run from the command line through the launch scripts:
 `qbnex fmt file.bas` (or `qb.cmd fmt` on Windows), `qbnex lsp`, `qbnex dap`.
 
 `syntaxes/qbasic.tmLanguage.json` is generated: after the keyword tables in
-`crates/qb-syntax` change, run `npm run grammar`.
+`crates/compiler/syntax` change, run `npm run grammar`.
 

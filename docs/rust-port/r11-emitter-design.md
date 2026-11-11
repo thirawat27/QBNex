@@ -62,7 +62,7 @@
 
 ## 4. QIR
 
-### 4.1 Format ของ spike (v0, Direct: `crates/qb-exec/src/lib.rs`)
+### 4.1 Format ของ spike (v0, Direct: `crates/engine/exec/src/lib.rs`)
 
 ข้อความ 1 คำสั่ง/บรรทัด, header `QIR 0`, stack machine, string literal เป็น hex (ไม่มีปัญหา escape/CRLF/byte 0–255):
 
@@ -166,9 +166,9 @@ Loader resolve label เป็น index และ intern ชื่อตัว�
 
 ## 7. Packaging + bootstrap
 
-- spike: `out.exe = qb-exec.exe + QIR + u64 LE length + "QBNEXIR0"`; runner อ่านไฟล์ตัวเองตอนเริ่ม (`crates/qb-exec/src/main.rs`). ใช้ได้ทุก OS (Linux/macOS `chmod +x` จาก compiler)
+- spike: `out.exe = qb-exec.exe + QIR + u64 LE length + "QBNEXIR0"`; runner อ่านไฟล์ตัวเองตอนเริ่ม (`crates/engine/exec/src/main.rs`). ใช้ได้ทุก OS (Linux/macOS `chmod +x` จาก compiler)
 - ระยะยาว: ใส่ QIR ใน PE resource / ELF section (ลดโอกาส anti-virus มองว่าเป็น packer) และ sign runner ตอน release
-- runner ที่แจกอยู่ที่ `crates/qb-exec/bin/<windows|linux|macos>/qb-exec[.exe]` (gitignored เหมือน `libqb_runtime.a`); CMake target `qb-exec` (ALL และ dependency ของ `qb-selfhost`) เรียก `crates/qb-exec/os/<os>/setup_build.*` — Windows build ด้วย target `x86_64-pc-windows-gnu` เหมือน qb-runtime, import แค่ DLL ของระบบ (KERNEL32, UCRT `api-ms-win-crt-*`, ntdll, USERENV, WS2_32, bcryptprimitives); ยังไม่ได้ใส่ใน release bundle
+- runner ที่แจกอยู่ที่ `crates/engine/exec/bin/<windows|linux|macos>/qb-exec[.exe]` (gitignored เหมือน `libqb_runtime.a`); CMake target `qb-exec` (ALL และ dependency ของ `qb-selfhost`) เรียก `crates/engine/exec/os/<os>/setup_build.*` — Windows build ด้วย target `x86_64-pc-windows-gnu` เหมือน qb-runtime, import แค่ DLL ของระบบ (KERNEL32, UCRT `api-ms-win-crt-*`, ntdll, USERENV, WS2_32, bcryptprimitives); ยังไม่ได้ใส่ใน release bundle
 - **Self-host:** compiler (`compiler/qbnex.bas`) ก็คือโปรแกรม BASIC → เมื่อ QIR ครอบคลุมภาษาที่ compiler ใช้, `qb.exe` = `qb-exec` (+JIT) + `qbnex.qir` และ snapshot bootstrap = `internal/source/qbnex.qir` ไฟล์เดียว แทน C++ 818 ไฟล์ (แก้ปัญหา refresh snapshot ของ L-00 ในเชิงโครงสร้าง แต่ต้องแก้ fixpoint ของ L-00 ก่อน)
 
 ## 8. Migration steps
@@ -237,10 +237,10 @@ runner ลิงก์ `qb-runtime` เป็น rlib จึงเรียก R
 
 | ไฟล์ | หน้าที่ |
 | --- | --- |
-| `crates/qb-exec/src/lib.rs` | loader (resolve label/slot) + interpreter ของ QIR v0, ใช้ `qb_runtime::numfmt` และ `qb_runtime::round` |
-| `crates/qb-exec/src/main.rs` | runner: อ่าน payload ท้ายไฟล์ตัวเอง หรือ `qb-exec file.qir` |
-| `crates/qb-exec/tests/vm.rs` | 18 unit tests (เขียนก่อน, เห็น fail กับ stub ก่อน implement) |
-| `crates/qb-exec/tests/e2e.rs` + `fixtures/` | `.bas` → `qb.exe --ir` → exe → output; `spike.bas` เทียบกับ C++ path (differential), `onerror.bas` (L-01 ใน C++), บรรทัดที่ไม่รองรับต้องแจ้งเลขบรรทัด |
+| `crates/engine/exec/src/lib.rs` | loader (resolve label/slot) + interpreter ของ QIR v0, ใช้ `qb_runtime::numfmt` และ `qb_runtime::round` |
+| `crates/engine/exec/src/main.rs` | runner: อ่าน payload ท้ายไฟล์ตัวเอง หรือ `qb-exec file.qir` |
+| `crates/engine/exec/tests/vm.rs` | 18 unit tests (เขียนก่อน, เห็น fail กับ stub ก่อน implement) |
+| `crates/engine/exec/tests/e2e.rs` + `fixtures/` | `.bas` → `qb.exe --ir` → exe → output; `spike.bas` เทียบกับ C++ path (differential), `onerror.bas` (L-01 ใน C++), บรรทัดที่ไม่รองรับต้องแจ้งเลขบรรทัด |
 | `compiler/utilities/ir_emit.bas`, `ir_state.bas` | emitter ใน BASIC: tokenizer, recursive-descent expression, PRINT/LET/IF/FOR/GOTO/GOSUB/SUB/CALL/DIM/ON ERROR/RESUME/END/SYSTEM |
 | `compiler/utilities/cli.bas`, `compiler/qbnex.bas`, `compiler/includes/bootstrap.bas` | flag `--ir` (`-ir`, `--emit-ir`), include 2 บรรทัด, hook 1 บรรทัดหลังอ่าน command line — C++ path เป็น default เหมือนเดิม |
 
@@ -255,7 +255,7 @@ cargo test -p qb-exec
 ```
 
 ```bash
-cargo build --release -p qb-exec && cp target/release/qb-exec.exe crates/qb-exec/bin/windows/ && ./qb.exe prog.bas --ir -o prog.exe
+cargo build --release -p qb-exec && cp target/release/qb-exec.exe crates/engine/exec/bin/windows/ && ./qb.exe prog.bas --ir -o prog.exe
 ```
 
 ### 12.1 รอบ 2: ขยาย coverage (วัดด้วย conformance corpus)

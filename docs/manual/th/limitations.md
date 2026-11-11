@@ -16,7 +16,7 @@ QBNex คอมไพล์ BASIC เป็น QIR แล้วรันด้�
   `qb-exec` ที่ build ไว้แล้ว จะข้ามขั้นนี้ไป ไม่ต้องใช้ MinGW หรือคอมไพเลอร์ C ใด ๆ
 - **การ build โปรแกรม BASIC ไม่ต้องใช้อะไรเพิ่ม** QBNex ที่ build แล้ว (หรือชุด
   release) คอมไพล์โปรแกรมได้โดยไม่ต้องติดตั้ง Rust คอมไพเลอร์จะคัดลอก runner
-  ที่ build ไว้จาก `crates/qb-exec/bin/<os>/` แล้วต่อโปรแกรมเข้าไปท้ายไฟล์
+  ที่ build ไว้จาก `crates/engine/exec/bin/<os>/` แล้วต่อโปรแกรมเข้าไปท้ายไฟล์
 - `qb fmt`, `qb lsp` และ `qb dap` ต้อง build เครื่องมือของมันด้วย `cargo` ก่อน
 
 ## ไฟล์ปฏิบัติการสองแบบ
@@ -24,7 +24,7 @@ QBNex คอมไพล์ BASIC เป็น QIR แล้วรันด้�
 | แบบ | คืออะไร | สถานะ |
 | --- | --- | --- |
 | Runner + QIR (ค่าเริ่มต้น) | สำเนาของ `qb-exec` ที่ต่อ QIR ของโปรแกรมไว้ท้ายไฟล์ ตอนเริ่มจะรันโปรแกรมบน VM และคอมไพล์โค้ดที่ทำงานบ่อยด้วย Cranelift (JIT) | ใช้ได้แล้ว |
-| Native | `qb-exec build` นำ machine code ที่สร้างไว้ล่วงหน้ามา link เป็นไฟล์ปฏิบัติการด้วย `rust-lld` คอมไพเลอร์จะทำแบบนี้ก็ต่อเมื่อมี native kit อยู่ใน `crates/qb-exec/bin/<os>/native/` | ทดลอง |
+| Native | `qb-exec build` นำ machine code ที่สร้างไว้ล่วงหน้ามา link เป็นไฟล์ปฏิบัติการด้วย `rust-lld` คอมไพเลอร์จะทำแบบนี้ก็ต่อเมื่อมี native kit อยู่ใน `crates/engine/exec/bin/<os>/native/` | ทดลอง |
 
 ไฟล์แบบ native:
 
@@ -42,7 +42,7 @@ QBNex คอมไพล์ BASIC เป็น QIR แล้วรันด้�
 
 ## DECLARE LIBRARY
 
-runner เรียกฟังก์ชันเป็น machine code โดยตรงผ่าน `crates/qb-ffi`
+runner เรียกฟังก์ชันเป็น machine code โดยตรงผ่าน `crates/engine/ffi`
 (calling convention แบบ Win64, SysV x86-64 และ AArch64) เมื่อไม่มีคอมไพเลอร์ C:
 
 - **ใช้ source หรือ header ของ C และ C++ ไม่ได้** QB64 คอมไพล์ header

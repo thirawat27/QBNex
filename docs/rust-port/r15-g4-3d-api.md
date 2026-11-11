@@ -1,7 +1,7 @@
 # R15 G4 — 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
 
 สถานะ (2026-11-11): ออกแบบ, ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) เสร็จและมี test; keyword ใน compiler + shim C++ (`libqb/scene3d_bridge.cpp`) เขียนแล้วแต่ยังไม่ได้ build/ทดสอบกับ compiler จริง.
-เกี่ยวข้อง: port-plan §9.6 (G4), progress.md R15-G1..G4, `crates/qb-gpu`.
+เกี่ยวข้อง: port-plan §9.6 (G4), progress.md R15-G1..G4, `crates/runtime/gpu`.
 
 ## เป้าหมาย
 
@@ -63,8 +63,8 @@ f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3
 
 | ชั้น | ที่อยู่ | งาน |
 | --- | --- | --- |
-| GPU | `crates/qb-gpu/src/scene.rs` | `Model` (glTF/array/primitive), `Material`, `Light`, `Lighting`, `SceneRenderer::render` (depth, Lambert) — **เสร็จ** |
-| runtime | `crates/qb-runtime` (feature `gpu`) | ตาราง handle model/light, คิว `_DRAW3D`, render ลง layer 3D ตอนประกอบ frame; ไม่มี GPU = no-op |
+| GPU | `crates/runtime/gpu/src/scene.rs` | `Model` (glTF/array/primitive), `Material`, `Light`, `Lighting`, `SceneRenderer::render` (depth, Lambert) — **เสร็จ** |
+| runtime | `crates/runtime/core` (feature `gpu`) | ตาราง handle model/light, คิว `_DRAW3D`, render ลง layer 3D ตอนประกอบ frame; ไม่มี GPU = no-op |
 | compiler | `compiler/subs_functions` + qb-syntax builtins | keyword ใหม่, ตรวจ argument |
 | docs/tests | conformance `graphics/3d_*` | ภาพ golden render offscreen (`QBNEX_HEADLESS` + GPU), skip เมื่อไม่มี adapter |
 
@@ -76,7 +76,7 @@ f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3
 
 ## Test (qb-gpu, headless)
 
-`crates/qb-gpu/tests/scene.rs`: ความสว่างหน้ากล่องตามมุมแสง directional, point light ใกล้ = สว่างกว่า,
+`crates/runtime/gpu/tests/scene.rs`: ความสว่างหน้ากล่องตามมุมแสง directional, point light ใกล้ = สว่างกว่า,
 ambient อย่างเดียว, depth ระหว่างสอง model, โหลด `.glb` ที่สร้างในหน่วยความจำ (node transform + baseColorFactor
 + texture), normals ที่คำนวณให้เมื่อไฟล์ไม่มี. ทุก test skip เมื่อไม่มี adapter.
 
@@ -85,7 +85,7 @@ ambient อย่างเดียว, depth ระหว่างสอง mod
 - `_DISPLAY` (ทั้งสองเส้นทางเรียก hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; หน้าต่างผสม layer ใน `window_bridge.cpp` ผ่าน `qb_3d_present`; โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
 - ไม่มี feature `gpu` หรือไม่มี adapter: handle/error ทำงานครบ, ไม่วาด, `_GPU3D` = 0
 - error: handle ผิด = 258, argument ผิด = 5 (`_LIGHT` kind ผิดก็ 5)
-- ต้องตรวจตอน build compiler จริง: bit ของ `passed` ต่อกลุ่ม `[...]` ใน specialformat ของ `_DRAW3D` (ตั้งใจ 1 ตำแหน่ง, 2 การหมุน, 4 scale), `{To}` ใน `_CAMERA`, และรายการ keyword ใน `crates/qb-syntax` (LSP/formatter) ยังไม่ได้เพิ่ม
+- ต้องตรวจตอน build compiler จริง: bit ของ `passed` ต่อกลุ่ม `[...]` ใน specialformat ของ `_DRAW3D` (ตั้งใจ 1 ตำแหน่ง, 2 การหมุน, 4 scale), `{To}` ใน `_CAMERA`, และรายการ keyword ใน `crates/compiler/syntax` (LSP/formatter) ยังไม่ได้เพิ่ม
 
 ## G5 — `_SHADER` (WGSL ของผู้ใช้)
 

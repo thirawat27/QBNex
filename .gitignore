@@ -45,8 +45,8 @@ build/
 /.oracle/
 /crates/*/os/*/*.stamp
 
-# Prebuilt QIR runner (crates/qb-exec/os/<os>/setup_build output)
-/crates/qb-exec/bin/
+# Prebuilt QIR runner (crates/engine/exec/os/<os>/setup_build output)
+/crates/engine/exec/bin/
 /temp/
 /tests/corpus-local/*
 !/tests/corpus-local/README.md

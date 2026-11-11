@@ -2,7 +2,7 @@
 //
 // Copied into a clone of the legacy tree by tests/conformance/oracle/make_fb_oracle.sh,
 // which also inserts the two calls below. The Rust runtime implements the same
-// format in crates/qb-runtime/src/gfx/capture.rs; both must stay byte-identical.
+// format in crates/runtime/core/src/gfx/capture.rs; both must stay byte-identical.
 //
 // When the environment variable QBNEX_FB_CAPTURE names a file, every _DISPLAY
 // call (kind 0) and the end of the program (kind 1, graphics pages only) append

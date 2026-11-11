@@ -2,7 +2,7 @@
 ' QBNex Standard Library - Extension core ('$IMPORT:'ext.core')
 '===============================================================================
 ' Shared plumbing for the ext.* modules (regex, hash, zip, http). The work is
-' done by the Rust extension library (crates/qb-ext) that is linked into every
+' done by the Rust extension library (crates/runtime/ext) that is linked into every
 ' program; results come back through a buffer that Ext_Result$ copies out.
 '
 '   Ext_LastError$   message of the last failed ext.* call ("" after success)

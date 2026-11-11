@@ -7,7 +7,7 @@ Runner: [`tests/corpus-run/run.ps1`](../../tests/corpus-run/run.ps1), inputs in 
 
 - Build: branch `claude/run-tests-2` = rust-port 989c3c3 (qb-exec with a window, Q1-Q8 and C1/C2 fixed) + runner changes.
   `qb.exe` from `scripts\setup_win.cmd` (CARGO_BUILD_JOBS=1), `qb-exec` from `cargo build --release -p qb-exec`,
-  copied to `crates\qb-exec\bin\windows` (no native kit, so `--ir` writes the runner with the QIR appended).
+  copied to `crates\engine\exec\bin\windows` (no native kit, so `--ir` writes the runner with the QIR appended).
 - Corpus (`tests/corpus-local`, gitignored): creationix/basic-games (129 files) and QB64Team/qb64 **tag v1.4**
   `programs/samples` (148 files; the current HEAD of that repository no longer ships the samples). 277 `.bas` files.
 - Variants per program (`-Variants cpp,vm,jit`; the oracle was not run this time):
@@ -146,7 +146,7 @@ SYSTEM
 h: RESUME NEXT
 ```
 cpp: exit 86 "X86 Error: Unknown Opcode" (its emulator stops the program). vm/jit: panic
-`crates\qb-exec\src\rt\builtins.rs:484:29: range end index 1114113 out of range for slice of length 1114112`
+`crates\engine\exec\src\rt\builtins.rs:484:29: range end index 1114113 out of range for slice of length 1114112`
 (exit 0xC0000409). `ABSARG.*` advances `rt.cmem_next` for every argument and nothing resets it when the call fails;
 it needs a bounds check (error 7) and a reset per call.
 

@@ -27,8 +27,8 @@ rem defaults first: the QBNEX_QB_EXEC branch below skips the runner build
 if not defined QBNEX_BOOTSTRAP set "QBNEX_BOOTSTRAP=bootstrap\qbnex.qir"
 if not defined QBNEX_QIR_PACK set "QBNEX_QIR_PACK=ir"
 
-if not exist crates\qb-exec\bin\windows mkdir crates\qb-exec\bin\windows
-set "RUNNER=crates\qb-exec\bin\windows\qb-exec.exe"
+if not exist crates\engine\exec\bin\windows mkdir crates\engine\exec\bin\windows
+set "RUNNER=crates\engine\exec\bin\windows\qb-exec.exe"
 if defined QBNEX_QB_EXEC (
     copy /y "%QBNEX_QB_EXEC%" %RUNNER% >nul
     if errorlevel 1 (
@@ -61,7 +61,7 @@ if errorlevel 1 (
 )
 copy /y target\%QBNEX_RUST_TARGET%\release\qb-exec.exe %RUNNER% >nul
 if errorlevel 1 (
-    echo Error: failed to copy the runner to crates\qb-exec\bin\windows.
+    echo Error: failed to copy the runner to crates\engine\exec\bin\windows.
     exit /b 1
 )
 :haverunner

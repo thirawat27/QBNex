@@ -42,4 +42,4 @@ assets/
 # Rust build output
 target/
 crates/*/os/*/*.stamp
-crates/qb-exec/bin/
+crates/engine/exec/bin/

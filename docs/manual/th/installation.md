@@ -45,7 +45,7 @@ sh scripts/setup_osx.command
 ### สิ่งที่สคริปต์ setup ทำ
 
 1. build runner `qb-exec` (`cargo build --release -p qb-exec`) ไว้ที่
-   `crates/qb-exec/bin/<os>/`
+   `crates/engine/exec/bin/<os>/`
 2. แพ็ก `bootstrap/qbnex.qir` (คอมไพเลอร์ที่แปลเป็น QIR ไว้แล้ว) เข้ากับ
    runner ได้เป็นคอมไพเลอร์ stage-0
 3. ให้ stage 0 คอมไพล์ `compiler/qbnex.bas` ออกมาเป็น `qb` / `qb.exe` ที่
@@ -62,7 +62,7 @@ sh scripts/setup_osx.command
 
 **executable แบบ native (ทดลอง):** `scripts/native-kit.ps1` (Windows) หรือ
 `scripts/native-kit.sh` จะ build native kit (`qb-native` กับ `rust-lld` ของ
-toolchain Rust) ถ้าคัดลอกไปไว้ที่ `crates/qb-exec/bin/<os>/native/`
+toolchain Rust) ถ้าคัดลอกไปไว้ที่ `crates/engine/exec/bin/<os>/native/`
 คอมไพเลอร์จะลิงก์ executable ปกติแทนการต่อ QIR ท้าย runner
 (ดู[คำสั่ง](commands.md))
 

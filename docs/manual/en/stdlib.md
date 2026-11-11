@@ -42,7 +42,7 @@ Status: all modules on this page are **Available**. In the
 | `oop.class`, `oop.interface` | Runtime registry used by CLASS |
 | `qbnex` | Everything above except `ext.*` in one import |
 
-The `ext.*` modules call the Rust library `crates/qb-ext` (pure Rust, no
+The `ext.*` modules call the Rust library `crates/runtime/ext` (pure Rust, no
 OpenSSL). Errors: functions return 0 / an empty string and
 `Ext_LastError$` says why.
 

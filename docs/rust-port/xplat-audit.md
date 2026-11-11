@@ -19,8 +19,8 @@ There were no warnings.
 
 | File:line | Targets | Cause | Fix |
 |---|---|---|---|
-| crates/qb-runtime/src/env.rs:19 | linux, macos | `extern "C"` block without `unsafe` in the `cfg(not(windows))` branch. Edition 2024 rejects it, and it was never compiled on Windows. | Changed to `unsafe extern "C"` (commit 23722fe). |
-| crates/qb-runtime/src/screen.rs:383, 391 | macos | Same cause, in the CoreGraphics / CoreFoundation blocks. | Same fix. |
+| crates/runtime/core/src/env.rs:19 | linux, macos | `extern "C"` block without `unsafe` in the `cfg(not(windows))` branch. Edition 2024 rejects it, and it was never compiled on Windows. | Changed to `unsafe extern "C"` (commit 23722fe). |
+| crates/runtime/core/src/screen.rs:383, 391 | macos | Same cause, in the CoreGraphics / CoreFoundation blocks. | Same fix. |
 
 No other Rust-level errors in any crate.
 
@@ -47,7 +47,7 @@ A cross check from Windows needs these stand-ins. On a real Linux or macOS machi
 Every path these files use still exists after the restructure:
 
 - `compiler/qbnex.bas`
-- `crates/qb-runtime/os/{linux,macos}/setup_build.*`
+- `crates/runtime/core/os/{linux,macos}/setup_build.*`
 - `internal/c/libqb/os/{lnx,osx}`
 - `internal/c/makeline_{lnx,osx}.txt`
 - `RuntimeOsDir$` in `compiler/utilities/linker.bas`
@@ -103,5 +103,5 @@ Open (not fixed):
 
 - `_SCREENIMAGE` is not implemented outside Windows. `qb_screenimage` returns NULL, so the program gets a blank image. Legacy macOS captured the screen. A port would use `CGDisplayCreateImage`, which is deprecated in macOS 15 (ScreenCaptureKit replaces it), or a crate.
 - Posting CGEvents needs the Accessibility permission. Without it, macOS drops the events silently, the same as legacy.
-- `crates/qb-link/src/exe/mod.rs` declares `pub mod macho;`, but `macho.rs` does not exist yet. That is fine for now, because `exe` is WIP (commit c0d6d80) and not included from `lib.rs`. The Mach-O writer has not been reviewed. It will need an ad-hoc code signature (arm64 kernel requirement), 16 KiB segment alignment on arm64, and `LC_BUILD_VERSION`.
+- `crates/engine/link/src/exe/mod.rs` declares `pub mod macho;`, but `macho.rs` does not exist yet. That is fine for now, because `exe` is WIP (commit c0d6d80) and not included from `lib.rs`. The Mach-O writer has not been reviewed. It will need an ad-hoc code signature (arm64 kernel requirement), 16 KiB segment alignment on arm64, and `LC_BUILD_VERSION`.
 - See "Issues to act on" above for the qb-link JIT under the hardened runtime and for qb-ffi variadic calls on arm64.

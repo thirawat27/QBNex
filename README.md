@@ -152,7 +152,7 @@ Where this README and the manual disagree, the manual is the current one.
 
 ## About
 
-**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into QIR, a text intermediate language, and packages it with a Rust runner into a standalone executable for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runner and runtime are Rust crates (`crates/qb-*`): the QIR runs on a VM with a Cranelift JIT, and no C/C++ compiler is involved.
+**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into QIR, a text intermediate language, and packages it with a Rust runner into a standalone executable for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runner and runtime are Rust crates (`crates/`): the QIR runs on a VM with a Cranelift JIT, and no C/C++ compiler is involved.
 
 **Version**: 2.0.0 (`qb --version`; see [CHANGELOG.md](CHANGELOG.md))
 
@@ -284,7 +284,7 @@ sudo pacman -S gcc alsa-lib systemd-libs libxkbcommon libx11 pkgconf  # Arch Lin
 ```
 
 The setup script:
-1. Builds the runner `qb-exec` with cargo into `crates/qb-exec/bin/<os>/`
+1. Builds the runner `qb-exec` with cargo into `crates/engine/exec/bin/<os>/`
 2. Packs `bootstrap/qbnex.qir` into it, giving a stage-0 compiler
 3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the project root
    (run it as `qb` or `qbnex`) and runs a smoke test
@@ -1979,7 +1979,7 @@ and branches. The QIR of the last build is kept in `target/qb-temp/program.qir`.
 
 ### Stage 3: Packaging and Execution
 
-The output executable is a copy of the prebuilt runner `crates/qb-exec/bin/<os>/qb-exec`
+The output executable is a copy of the prebuilt runner `crates/engine/exec/bin/<os>/qb-exec`
 followed by the QIR text, its length (u64, little endian) and the tag `QBNEXIR0`.
 At start-up the runner reads that payload from its own file, validates it, lowers it to
 bytecode and runs it; hot loops are compiled by the JIT. The runtime (window, graphics,
@@ -3019,9 +3019,9 @@ QBNex/
 │   ├── subs_functions/         # Built-in functions/subroutines
 │   └── utilities/              # Compiler utility modules
 ├── crates/                     # Native runtime crates (Cargo workspace)
-│   ├── qb-runtime/             # Runtime library (window, graphics, sound, files, network)
-│   ├── qb-audio/               # Audio engine
-│   └── qb-exec/                # Runner for compiled QIR programs (bin/<os>/qb-exec)
+│   ├── runtime/core/           # Runtime library (window, graphics, sound, files, network)
+│   ├── runtime/audio/          # Audio engine
+│   └── engine/exec/            # Runner for compiled QIR programs (bin/<os>/qb-exec)
 ├── docker/
 │   ├── Dockerfile
 │   ├── Dockerfile.dev
@@ -3086,7 +3086,7 @@ docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 ### Adding New Features
 
 - **Built-in Functions/Subs**: Add to `compiler/subs_functions/subs_functions.bas`
-- **Runtime Library**: Rust code in `crates/qb-runtime/` and `crates/qb-audio/`; QIR builtins in `crates/qb-ir/src/builtins.rs` and `crates/qb-exec/src/rt/`
+- **Runtime Library**: Rust code in `crates/runtime/core/` and `crates/runtime/audio/`; QIR builtins in `crates/compiler/ir/src/builtins.rs` and `crates/engine/exec/src/rt/`
 - **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`
 
 ### Continuous Integration

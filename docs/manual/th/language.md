@@ -226,7 +226,7 @@ END CLASS
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
 ใช้ได้เหมือน QB64 ฟังก์ชันภายนอกถูกเรียกผ่าน
-`crates/qb-ffi` (calling convention ของ Windows x64 และ Linux x86-64/AArch64)
+`crates/engine/ffi` (calling convention ของ Windows x64 และ Linux x86-64/AArch64)
 ส่วน `_FLOAT` เป็นเลขทศนิยม 80-bit ที่คำนวณด้วยซอฟต์แวร์ได้ผลตรงเป๊ะ
 
 ## วางแผนไว้ (port-plan หัวข้อ 9.4)

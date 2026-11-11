@@ -1,7 +1,7 @@
 # QIR v1 — spec
 
 > สถานะ: **normative** สำหรับ R11b (typed VM), R11c (Cranelift JIT), R11a (emitter) — 2026-11-10
-> โค้ดอ้างอิง: `crates/qb-ir` (ชนิดข้อมูล, parser, printer, validator, ตาราง builtin). ถ้าเอกสารนี้กับ crate ขัดกัน **crate ชนะ** และต้องแก้เอกสาร
+> โค้ดอ้างอิง: `crates/compiler/ir` (ชนิดข้อมูล, parser, printer, validator, ตาราง builtin). ถ้าเอกสารนี้กับ crate ขัดกัน **crate ชนะ** และต้องแก้เอกสาร
 > ที่มา: r11-emitter-design.md §4.2 (typed, register-based, map ตรงไป Cranelift)
 
 ## 1. ภาพรวม

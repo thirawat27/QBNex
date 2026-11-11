@@ -18,7 +18,7 @@ listed. Intentional changes and fixed QB64 bugs are on
   C compiler is needed.
 - **Building BASIC programs needs nothing else.** A built QBNex (or the
   release bundle) compiles programs without Rust installed: the compiler
-  copies the prebuilt runner from `crates/qb-exec/bin/<os>/` and appends
+  copies the prebuilt runner from `crates/engine/exec/bin/<os>/` and appends
   the program.
 - `qb fmt`, `qb lsp` and `qb dap` need their tools built with `cargo`
   first.
@@ -28,7 +28,7 @@ listed. Intentional changes and fixed QB64 bugs are on
 | Kind | What it is | Status |
 | --- | --- | --- |
 | Runner + QIR (default) | A copy of `qb-exec` with the program's QIR appended. At start it runs the program on the VM and compiles hot code with Cranelift (JIT). | Available |
-| Native | `qb-exec build` links machine code made ahead of time into an executable with `rust-lld`. The compiler does this only when a native kit exists in `crates/qb-exec/bin/<os>/native/`. | Preview |
+| Native | `qb-exec build` links machine code made ahead of time into an executable with `rust-lld`. The compiler does this only when a native kit exists in `crates/engine/exec/bin/<os>/native/`. | Preview |
 
 Native executables:
 
@@ -48,7 +48,7 @@ Both kinds are about the same size and speed: a hello world is about
 
 ## DECLARE LIBRARY
 
-Calls go from the runner straight to machine code through `crates/qb-ffi`
+Calls go from the runner straight to machine code through `crates/engine/ffi`
 (Win64, SysV x86-64 and AArch64 calling conventions). Without a C
 compiler:
 

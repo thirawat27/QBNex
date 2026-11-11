@@ -7,7 +7,7 @@
 ' which walks the same element strings evaluate$ gets (after fixoperationorder)
 ' and applies the same operator rules (operatorusage), so values carry the C
 ' type the C++ backend would compute. At the end the QIR is packaged with the
-' prebuilt runner crates/qb-exec/bin/<os>/qb-exec (no C/C++ toolchain).
+' prebuilt runner crates/engine/exec/bin/<os>/qb-exec (no C/C++ toolchain).
 
 '================================================================ output
 
@@ -1244,7 +1244,7 @@ FUNCTION IrHex64$ (x$)
     IrHex64$ = d$
 END FUNCTION
 
-' callnames lowered generically (registry argument types; VM: crates/qb-exec/src/v1/display.rs)
+' callnames lowered generically (registry argument types; VM: crates/engine/exec/src/v1/display.rs)
 FUNCTION IrGenOK% (cn$)
     DIM l$
     l$ = "|"
@@ -2368,11 +2368,11 @@ SUB IrFinish (src$, outExe$)
     CLOSE #fh
 
     IF os$ = "WIN" THEN
-        runner$ = "crates\qb-exec\bin\windows\qb-exec.exe"
+        runner$ = "crates\engine\exec\bin\windows\qb-exec.exe"
     ELSEIF MacOSX THEN
-        runner$ = "crates/qb-exec/bin/macos/qb-exec"
+        runner$ = "crates/engine/exec/bin/macos/qb-exec"
     ELSE
-        runner$ = "crates/qb-exec/bin/linux/qb-exec"
+        runner$ = "crates/engine/exec/bin/linux/qb-exec"
     END IF
     IF _FILEEXISTS(runner$) = 0 AND IrEmitText = 0 AND LCASE$(RIGHT$(outExe$, 4)) <> ".qir" THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
 

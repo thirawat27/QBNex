@@ -1,0 +1,28 @@
+[package]
+name = "qb-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Language server (LSP over stdio) for QBasic/QB64/QBNex, built on qb-syntax and qb-fmt."
+publish = false
+
+[lib]
+name = "qb_lsp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qb-lsp"
+path = "src/main.rs"
+
+[dependencies]
+qb-syntax = { path = "../../compiler/syntax" }
+qb-fmt = { path = "../fmt" }
+lsp-server = "0.10"
+lsp-types = "0.97"
+serde = "1"
+serde_json = "1"
+
+[dev-dependencies]
+serde_json = "1"
+

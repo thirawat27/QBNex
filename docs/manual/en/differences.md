@@ -65,7 +65,7 @@ Windows only.
 - Programs are compiled to QIR and run by the Rust runner (see
   [commands](commands.md#how-a-program-is-built)); no C++ is generated, so
   `-z`, `-p`, `-s:debuginfo` and `--ir` do nothing. `DECLARE LIBRARY`
-  functions are called in shared libraries through `crates/qb-ffi` (see
+  functions are called in shared libraries through `crates/engine/ffi` (see
   [language](language.md)).
 - A statement the QIR back end does not cover yet stops the build with
   `QIR: unsupported: line N: ...`.

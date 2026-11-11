@@ -22,7 +22,7 @@ source แทน เมื่อทำงานในโฟลเดอร์อ
 | --- | --- |
 | `<file>` | ไฟล์ source (UTF-8 หรือไบต์ CP437 แบบที่ QBasic บันทึกไว้) |
 | `-c` | คอมไพล์ (ค่าเริ่มต้น) |
-| `-o <file>` | ไฟล์ executable ที่ต้องการ ถ้าชื่อลงท้ายด้วย `.qir` จะเขียน QIR text ของโปรแกรมแทน (สิ่งที่ [qb-web](../../../crates/qb-web/README.md) ใช้รัน) |
+| `-o <file>` | ไฟล์ executable ที่ต้องการ ถ้าชื่อลงท้ายด้วย `.qir` จะเขียน QIR text ของโปรแกรมแทน (สิ่งที่ [qb-web](../../../crates/web/README.md) ใช้รัน) |
 | `--emit-ir` | เขียน QIR text แทน executable (`-o x.exe` จะกลายเป็น `x.qir`) |
 | `-x` | คอมไพล์และส่งข้อความของคอมไพเลอร์ออกทาง console |
 | `-w` | แสดงคำเตือน |
@@ -54,14 +54,14 @@ exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จ�
 
 คอมไพเลอร์จะเขียน QIR (ภาษากลางของ QBNex, `docs/rust-port/qir-v1.md`)
 แล้วต่อท้ายไว้ในสำเนาของ runner ภาษา Rust ที่ build ไว้แล้ว
-(`crates/qb-exec/bin/<os>/qb-exec`) โดยไม่มีการเรียกคอมไพเลอร์ C/C++ หรือ
+(`crates/engine/exec/bin/<os>/qb-exec`) โดยไม่มีการเรียกคอมไพเลอร์ C/C++ หรือ
 linker เลย runner จะแปลง QIR เป็น bytecode รันบน register VM และคอมไพล์
 loop ที่ทำงานบ่อยเป็นโค้ดเครื่องด้วย Cranelift (`QB_JIT=off|eager|<threshold>`)
 ถ้าโปรแกรมใช้คำสั่งที่ QIR back end ยังไม่รองรับ การ build จะหยุดพร้อมข้อความ
 `QIR: unsupported: line N: ...`
 
 executable แบบ native (**ทดลอง**): ถ้ามี native kit อยู่ข้าง runner
-(`crates/qb-exec/bin/<os>/native/kit.txt` สร้างบน Windows ด้วย
+(`crates/engine/exec/bin/<os>/native/kit.txt` สร้างบน Windows ด้วย
 `scripts/native-kit.ps1` และบน Linux/macOS ด้วย `scripts/native-kit.sh`)
 คอมไพเลอร์จะลิงก์เป็น executable ปกติด้วย `rust-lld` แทนการต่อท้าย QIR
 และถ้าลิงก์ไม่ผ่านจะกลับไปใช้สำเนาของ runner

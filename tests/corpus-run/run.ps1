@@ -214,7 +214,7 @@ foreach ($f in $files) {
             if ($r.consoleOnly -and -not (Select-String -LiteralPath $pq -Pattern '^meta console' -Quiet)) {
                 $t = [IO.File]::ReadAllText($pq) -replace '^QIR 1\r?\n', "QIR 1`nmeta console only`n"
                 [IO.File]::WriteAllText($pq, $t)
-                & (Join-Path $repo 'scripts\qir_pack.ps1') -Runner (Join-Path $repo 'crates\qb-exec\bin\windows\qb-exec.exe') -Qir $pq -Out $exes.vm
+                & (Join-Path $repo 'scripts\qir_pack.ps1') -Runner (Join-Path $repo 'crates\engine\exec\bin\windows\qb-exec.exe') -Qir $pq -Out $exes.vm
                 $r.notes.Add('ir: meta console only added (Q9)')
             }
         }

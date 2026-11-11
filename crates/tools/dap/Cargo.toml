@@ -1,0 +1,23 @@
+[package]
+name = "qb-dap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Debug Adapter Protocol server for QBNex programs running on the qb-exec VM."
+publish = false
+
+[lib]
+name = "qb_dap"
+path = "src/lib.rs"
+
+[[bin]]
+name = "qb-dap"
+path = "src/main.rs"
+
+[dependencies]
+qb-exec = { path = "../../engine/exec", features = ["debug"] }
+qb-ir = { path = "../../compiler/ir" }
+qb-syntax = { path = "../../compiler/syntax" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

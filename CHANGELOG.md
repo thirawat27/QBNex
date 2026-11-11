@@ -17,7 +17,7 @@ fixes listed in `docs/manual/en/differences.md`.
 
 #### Compiler and runtime
 - The compiler emits QIR (the QBNex intermediate representation) instead of C++. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
-- The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/qb-runtime`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
+- The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/runtime/core`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
 - Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library, still without a C/C++ toolchain.
 - `-z`, `-p` and `--ir` are accepted for old scripts and change nothing.
 
@@ -30,7 +30,7 @@ fixes listed in `docs/manual/en/differences.md`.
 - Language extensions: `ENUM`, `FOR EACH`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `$"..{expr}.."` interpolation, `_IIF`, `_TOSTR$`, `_ANDALSO`/`_ORELSE`.
 - 3D API (`_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, `_LOADMODEL`) with a GPU path and a software renderer.
 - `ext.*` standard library modules backed by Rust (`ext.regex`, `ext.http`, ...).
-- Tools: formatter `qb-fmt`, language server `qb-lsp`, debugger `qb-dap`, a VS Code extension (`packaging/vscode`), and a WebAssembly build of the runner (`crates/qb-web`).
+- Tools: formatter `qb-fmt`, language server `qb-lsp`, debugger `qb-dap`, a VS Code extension (`packaging/vscode`), and a WebAssembly build of the runner (`crates/web`).
 - User manual in English and Thai (`docs/manual`), checked by `tests/docs/check_docs.ps1`.
 
 ### Fixed

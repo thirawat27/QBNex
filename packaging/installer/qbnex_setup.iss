@@ -56,7 +56,7 @@ Source: "{#RepoRoot}LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#RepoRoot}compiler\*"; DestDir: "{app}\compiler"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; QIR runner (every compiled program is a copy of it plus the program's QIR) and, if built, its native kit.
-Source: "{#RepoRoot}crates\qb-exec\bin\windows\*"; DestDir: "{app}\crates\qb-exec\bin\windows"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#RepoRoot}crates\engine\exec\bin\windows\*"; DestDir: "{app}\crates\engine\exec\bin\windows"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\QBNex Compiler"; Filename: "{app}\qb.cmd"; WorkingDir: "{app}"

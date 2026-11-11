@@ -22,7 +22,7 @@ another folder (see [known defects](differences.md#known-defects-not-fixed-yet))
 | --- | --- |
 | `<file>` | Source file (UTF-8, or CP437 bytes as QBasic saved them). |
 | `-c` | Compile (the default). |
-| `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/qb-web/README.md) runs). |
+| `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/web/README.md) runs). |
 | `--emit-ir` | Write the QIR text instead of an executable (`-o x.exe` becomes `x.qir`). |
 | `-x` | Compile and send the compiler's output to the console. |
 | `-w` | Show warnings. |
@@ -53,14 +53,14 @@ Run the executable you built: `hello.exe` or `./hello`.
 
 The compiler writes QIR (the QBNex intermediate representation,
 `docs/rust-port/qir-v1.md`) and appends it to a copy of the prebuilt Rust
-runner `crates/qb-exec/bin/<os>/qb-exec`. No C or C++ compiler and no linker
+runner `crates/engine/exec/bin/<os>/qb-exec`. No C or C++ compiler and no linker
 run. The runner lowers QIR to bytecode, runs it on a register VM and
 compiles hot loops to native code with Cranelift
 (`QB_JIT=off|eager|<threshold>`). A statement the QIR back end does not
 cover yet stops the build with `QIR: unsupported: line N: ...`.
 
 Native executables (**Preview**): when a native kit sits next to the runner
-(`crates/qb-exec/bin/<os>/native/kit.txt`, built on Windows by
+(`crates/engine/exec/bin/<os>/native/kit.txt`, built on Windows by
 `scripts/native-kit.ps1`, on Linux/macOS by `scripts/native-kit.sh`), the
 compiler links an ordinary executable with `rust-lld` instead of appending
 the QIR, and falls back to the runner copy if the link fails.

@@ -85,7 +85,7 @@ foreach ($prog in $Programs) {
     Copy-Item $qir (Join-Path $dir "$($prog.n).qir") -Force
     Pop-Location
     $variants = [ordered]@{ vm = @($exe, 'off'); jit = @($exe, $null); eager = @($exe, 'eager') }
-    $runner = Join-Path $repo 'crates\qb-exec\bin\windows\qb-exec.exe'
+    $runner = Join-Path $repo 'crates\engine\exec\bin\windows\qb-exec.exe'
     if ($Kit -and (Test-Path (Join-Path $Kit 'kit.txt'))) {
         $nexe = Join-Path $dir "$($prog.n)_native.exe"
         $env:QBNEX_NATIVE_KIT = $Kit

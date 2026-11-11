@@ -3,7 +3,7 @@
 Two Rust-only crates the QIR backend needs. Neither depends on a C compiler or a
 C library beyond the platform loader. Both use `edition = "2024"` (D16).
 
-## `crates/qb-float80` — `_FLOAT` (decision D12)
+## `crates/runtime/float80` — `_FLOAT` (decision D12)
 
 `qb_float80::F80` is the x87 80-bit extended format (`mant: u64` with explicit
 integer bit, `se: u16` sign + biased exponent; `from_bytes`/`to_bytes` give the
@@ -53,7 +53,7 @@ Evidence: `tests/diff/diff_float80.cpp` (in `run_diff.cmd`) against real MinGW
 `long double`: 87,481,972 checks, 0 mismatches; the mutation run (reference at
 53-bit precision) reports 573,263 mismatches.
 
-## `crates/qb-ffi` — `DECLARE LIBRARY` (decision D11)
+## `crates/engine/ffi` — `DECLARE LIBRARY` (decision D11)
 
 ```rust
 use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_header, header_error};
