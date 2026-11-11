@@ -21,7 +21,7 @@ SUB IrInit
     REDIM IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
-    IrExtMeta = "": IrDataN = 0: IrDefSeg = 0: IrPendLL = 0
+    IrExtMeta = "": IrLibSpec = "": IrLibOf = "": IrDataN = 0: IrDefSeg = 0: IrPendLL = 0
     IrPendCase$ = "": IrPendEvery = 0: IrPendElse = 0: IrPendCaseOn = 0: IrPendLevel = 0
     IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
     IrRunN = 0: IrRunTo = ""
@@ -1083,7 +1083,19 @@ FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
     ELSE
         rt$ = "void"
     END IF
-    IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " " + lib$ + " " + rt$ + tys$ + CHR$(10)
+    'DECLARE LIBRARY: the C symbol and library of the DECLARE (recorded at declibjmp1 in qbnex.bas)
+    DIM xlib$, p AS LONG, q AS LONG
+    xlib$ = lib$
+    IF xlib$ = "-" THEN
+        p = INSTR(IrLibOf, CHR$(1) + nm$ + CHR$(2))
+        IF p THEN
+            p = p + LEN(nm$) + 2: q = INSTR(p, IrLibOf, CHR$(2))
+            IF q > p THEN nm$ = MID$(IrLibOf, p, q - p)
+            p = q + 1: q = INSTR(p, IrLibOf, CHR$(1))
+            IF q > p THEN xlib$ = IrHex$(MID$(IrLibOf, p, q - p))
+        END IF
+    END IF
+    IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " " + xlib$ + " " + rt$ + tys$ + CHR$(10)
     IF rt$ = "void" THEN
         IrE "call " + nm$ + regs$
     ELSE
@@ -1092,6 +1104,18 @@ FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
         IrT = rt$
         IrExtCall$ = d$
     END IF
+END FUNCTION
+
+'DECLARE LIBRARY "path/name[:version]" with no static library or header: is there a
+'shared library the runner can open (the files qb-ffi tries, Windows: name.dll in the path
+'or System32)? Linux and macOS leave the search to the loader at run time (system
+'libraries are outside /usr/lib there, or only in the dyld cache), so they always accept.
+FUNCTION IrSharedLibFound% (libpath$, x$, libver$)
+    DIM sys$
+    IF os$ <> "WIN" THEN IrSharedLibFound% = -1: EXIT FUNCTION
+    sys$ = ENVIRON$("SYSTEMROOT") + "\System32\"
+    IF _FILEEXISTS(libpath$ + x$ + ".dll") OR _FILEEXISTS(sys$ + libpath$ + x$ + ".dll") THEN IrSharedLibFound% = -1
+    IF _FILEEXISTS(x$ + ".dll") OR _FILEEXISTS(sys$ + x$ + ".dll") THEN IrSharedLibFound% = -1
 END FUNCTION
 
 FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)

@@ -52,17 +52,7 @@ next second at program start.
 
 ## Known defects not fixed yet
 
-| ID | Defect |
-| --- | --- |
-| L-01 | An `ON ERROR` handler label placed after a SUB (or after an `$INCLUDE` with SUBs) does not compile. |
-| L-02 | `PRINT a, b` with redirected output can loop on spaces. |
-| L-03 | `RESTORE <label>` does not return. |
-| L-06 | `PRINT USING "#.##^^^^"` of a huge `_FLOAT` corrupts the heap. |
-| L-08 | About 1 run in 300-400 ends with exit code `0xC0000409` at exit. |
-| L-10 | After one `OPEN "COMn:..."`, later COM names fail. |
-| L-12 | `LINE INPUT #` on a BINARY file drops a 1-character last line. |
-| L-15 | `TIMER ON` after `TIMER STOP` loses an event queued during the stop. |
-| - | Run from a folder other than the QBNex folder, `qb file.bas` with a relative path does not find the file; pass an absolute path for now. |
+See [Limitations and differences from QB64](limitations.md#known-defects).
 
 ## Platform gaps
 

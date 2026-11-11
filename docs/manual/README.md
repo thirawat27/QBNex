@@ -20,6 +20,7 @@ This manual describes QBNex 2.0.0. คู่มือนี้สำหรับ
 | [Web (WebAssembly) build](en/web.md) | [รันบนเว็บ (WebAssembly)](th/web.md) |
 | [VS Code, formatter, language server, debugger](en/vscode.md) | [VS Code, formatter, language server, debugger](th/vscode.md) |
 | [Differences from QB64 and QBasic](en/differences.md) | [ความแตกต่างจาก QB64 และ QBasic](th/differences.md) |
+| [Limitations and differences from QB64](en/limitations.md) | [ข้อจำกัดและความต่างจาก QB64](th/limitations.md) |
 
 ## Status labels / ป้ายสถานะ
 

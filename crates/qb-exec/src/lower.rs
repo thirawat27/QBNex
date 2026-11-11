@@ -1873,5 +1873,21 @@ fn parse_xfn(v: &str) -> Option<XFn> {
     };
     let ret = ty(it.next()?)?;
     let args = it.map(ty).collect::<Option<Vec<_>>>()?;
-    Some(XFn { name, gl: lib == "opengl", lib: if lib == "-" { String::new() } else { lib.to_string() }, args, ret })
+    let gl = lib == "opengl";
+    Some(XFn { name, gl, lib: if gl { lib.to_string() } else { xfn_lib(lib)? }, args, ret })
+}
+
+/// Library spec of `meta extfn`: `-` = none (default system libraries), else the
+/// `DECLARE LIBRARY "spec"` text as hex (`x` + two hex digits per byte), since
+/// a path may contain spaces.
+fn xfn_lib(t: &str) -> Option<String> {
+    if t == "-" {
+        return Some(String::new());
+    }
+    let h = t.strip_prefix('x')?;
+    if h.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = (0..h.len()).step_by(2).map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok()).collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok()
 }
