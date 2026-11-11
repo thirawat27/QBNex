@@ -1,4 +1,4 @@
-' QIR v1 emitter: _MEM blocks (qb_runtime::mem). A _MEM variable is the
+' QIR emitter: _MEM blocks (qb_runtime::mem). A _MEM variable is the
 ' mem_block UDT; builtins receive its address. See utilities/ir_emit.bas.
 
 'address of the mem_block named by fixed expression e$

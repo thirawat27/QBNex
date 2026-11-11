@@ -1,4 +1,4 @@
-' QIR v1 emitter: statements lowered when they reach finishedline (the C++
+' QIR emitter: statements lowered when they reach finishedline (the C++
 ' handler has created every symbol by then). IrLine2 records the statement.
 ' See utilities/ir_emit.bas.
 

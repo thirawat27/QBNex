@@ -5,7 +5,7 @@
 //! Scenes: 834 instances of a cube (12 triangles each, 10 008 triangles,
 //! one draw per instance: the `_DRAW3D`-in-a-loop case) and one mesh of
 //! 10 000 triangles (one draw). Each frame waits for the GPU, so the time is
-//! the whole frame. Exit gate (port-plan §9.6 G6): >= 60 fps.
+//! the whole frame. Target: >= 60 fps.
 
 use std::time::Instant;
 

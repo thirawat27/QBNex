@@ -231,7 +231,7 @@ As in QB64. External functions are called through
 `crates/engine/ffi` (Windows x64, Linux x86-64/AArch64 calling conventions) and
 `_FLOAT` is an exact software 80-bit float.
 
-## Planned (port-plan section 9.4)
+## Planned
 
 Designed, not in the compiler yet (the editor tools already know some of
 the words):

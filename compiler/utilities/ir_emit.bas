@@ -1,4 +1,4 @@
-' QIR v1 emitter (`qb --ir file.bas`). Spec: docs/rust-port/qir-v1.md
+' QIR emitter (`qb --ir file.bas`). Spec: docs/dev/qir.md
 '
 ' Runs inside the real compiler pipeline: the main pass still does all of its
 ' usual work (symbol table, types, UDTs, $INCLUDE, $IF, CONST, DEFxxx, C++

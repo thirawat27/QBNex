@@ -682,7 +682,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         };
         if std::env::var_os("QB_JIT_STATS").is_some() {
-            // tiering report for benchmarks (docs/rust-port/perf.md)
+            // tiering report for benchmarks (scripts/bench/corpus_perf.ps1)
             eprintln!("qb-exec: native entries {}, JIT {}", self.jit_entries(), self.jit_failure().unwrap_or_else(|| "ok".into()));
         }
         // frame record of the screen at END/SYSTEM (end() of the C++ runtime)

@@ -1,6 +1,6 @@
-//! `qb-ir` — QIR v1, the typed register IR emitted by the QBNex compiler.
+//! `qb-ir` — QIR, the typed register IR emitted by the QBNex compiler.
 //!
-//! The normative description is `docs/rust-port/qir-v1.md`. This crate holds
+//! The normative description is `docs/dev/qir.md`. This crate holds
 //! the in-memory form ([`Module`]), the text parser ([`parse`]) and printer
 //! ([`print`]), the validator ([`validate`]) and the builtin signature table
 //! ([`builtins`]) that every QIR executor (VM, JIT) implements.

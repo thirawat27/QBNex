@@ -49,9 +49,9 @@ and `scale` are public too.
   inputs, never more than one ulp off; measured by `diff_float80`). Integer
   exponents (`x ^ 2`) never use these primitives and are exact everywhere.
 
-Evidence: `tests/diff/diff_float80.cpp` (in `run_diff.cmd`) against real MinGW
-`long double`: 87,481,972 checks, 0 mismatches; the mutation run (reference at
-53-bit precision) reports 573,263 mismatches.
+Evidence (before the C++ backend was removed): a differential test against real
+MinGW `long double` ran 87,481,972 checks with 0 mismatches; its mutation run
+(reference at 53-bit precision) reported 573,263 mismatches.
 
 ## `crates/engine/ffi` — `DECLARE LIBRARY` (decision D11)
 
@@ -66,9 +66,6 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
   the text of `header_error(spec, &path)` (**deviation D-110**):
 
   > DECLARE LIBRARY "spec" uses the C header *path*, which needs a C compiler; QBNex does not support C headers (deviation D-110). Declare the functions without a header, or use DECLARE DYNAMIC LIBRARY
-
-  Note: port-plan D11 calls this "D-10"; that id was already used by R5
-  (`_PUTIMAGE` clipping), so it is D-110 here.
 - Otherwise emit, per declared function, the library spec (empty for a bare
   `DECLARE LIBRARY`), the C name (ALIAS or the BASIC name) and a `Signature`.
   Types: `_BYTE` I8, `_UNSIGNED _BYTE` U8, `INTEGER` I16, `_UNSIGNED INTEGER` U16,

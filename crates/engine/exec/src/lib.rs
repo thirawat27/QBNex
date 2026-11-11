@@ -1,5 +1,5 @@
 //! `qb-exec` — runs QBNex programs: the compiler (`qb --ir`) emits QIR
-//! (`docs/rust-port/qir-v1.md`, crate `qb-ir`), and qb-exec executes it.
+//! (`docs/dev/qir.md`, crate `qb-ir`), and qb-exec executes it.
 //!
 //! One pipeline:
 //!

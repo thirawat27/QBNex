@@ -102,5 +102,4 @@ qb hello.bas        # writes hello.exe (Windows) or hello in the QBNex folder
 Without `-o` the output goes to the QBNex folder (see [commands](commands.md)).
 
 Platform notes: the Windows build is the one tested most. Linux and macOS
-builds are written and reviewed but less tested; see
-`docs/rust-port/progress.md`.
+builds are built and tested in CI (GitHub Actions) only.

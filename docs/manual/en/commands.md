@@ -52,7 +52,7 @@ Run the executable you built: `hello.exe` or `./hello`.
 ## How a program is built
 
 The compiler writes QIR (the QBNex intermediate representation,
-`docs/rust-port/qir-v1.md`) and appends it to a copy of the prebuilt Rust
+`docs/dev/qir.md`) and appends it to a copy of the prebuilt Rust
 runner `crates/engine/exec/bin/<os>/qb-exec`. No C or C++ compiler and no linker
 run. The runner lowers QIR to bytecode, runs it on a register VM and
 compiles hot loops to native code with Cranelift

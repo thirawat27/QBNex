@@ -1,55 +1,42 @@
-internal/c/c_compiler
-internal/temp*
-*.o
-*.o.sig
-*.a
+# Cargo build output (also holds the compiler's work folders, target/qb-temp*)
+/target/
+
+# Produced by scripts/setup_* : compiler, launchers, stage-0 compiler, prebuilt QIR runner
+/qb
+/qbnex
+/qb-stage0
 *.exe
-internal/config*.txt
-internal/config.ini
-# internal/help
-internal/version.txt
-tempfoldersearch.bin
-internal/c/mingw32
-internal/c/mingw64
-internal/c/build_cache/
-internal/c/qbx[2-9].cpp
-internal/c/pch/
+/crates/engine/exec/bin/
+
+# Packaging output
+dist/
+dist-*
+
+# Local scratch
+/temp/
+*.log
+*.bak
+*.tmp
+.vscode/
+
+# Fonts are not redistributed, except the test subsets
 *.ttf
 !tests/data/fonts/*.ttf
-/run_qbnex.sh
-/qbnex
-.fake
-.vscode
-build.cmd
+
+# Markdown lives in the documented places only (keeps agent/scratch notes out of the repo)
 *.md
 !README.md
 !CHANGELOG.md
 !CONTRIBUTING.md
 !SECURITY.md
-!ENGINEERING_BACKLOG.md
-!docs/
-!docs/*.md
 !docs/**/*.md
 !crates/**/*.md
-dist/
-dist-*
-*.log
-*.bak
-*.tmp
-build/
+!packaging/**/*.md
+!tests/**/*.md
 
-# Rust workspace
-/target/
-
-# Legacy oracle build (conformance golden source)
-/.oracle/
-/crates/*/os/*/*.stamp
-
-# Prebuilt QIR runner (crates/engine/exec/os/<os>/setup_build output)
-/crates/engine/exec/bin/
-/temp/
+# Local corpus of third-party programs (see tests/corpus-local/README.md)
 /tests/corpus-local/*
 !/tests/corpus-local/README.md
 
-# the C++ backend is gone (cutover); leftovers of old checkouts stay untracked
-/internal/
+# Agent tooling and worktrees
+/.claude/

@@ -1197,7 +1197,7 @@ id.specialformat = "{On|Off|Lock|_Clear}[,?]"
 id.hr_syntax = "_DEPTHBUFFER {On|Off|Lock|_Clear}[,handle&]"
 regid
 
-'R15 G4 3D API (docs/rust-port/r15-g4-3d-api.md; libqb/scene3d_bridge.cpp, qb_runtime::scene3d)
+'3D API (docs/dev/3d-api.md, qb_runtime::scene3d)
 
 clearid
 id.n = qbnexprefix$ + "LoadModel"

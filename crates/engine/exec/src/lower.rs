@@ -1,4 +1,4 @@
-//! Loader for QIR (`docs/rust-port/qir-v1.md`, crate `qb-ir`) onto the
+//! Loader for QIR (`docs/dev/qir.md`, crate `qb-ir`) onto the
 //! typed register VM.
 //!
 //! QIR is already typed and register based; what this pass adds:

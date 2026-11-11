@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "QIR v1: the typed, register-based IR the QBNex compiler emits. Data types, text parser/printer, validator and the builtin signature table."
+description = "QIR: the typed, register-based IR the QBNex compiler emits. Data types, text parser/printer, validator and the builtin signature table."
 publish = false
 
 [lib]

@@ -1,6 +1,6 @@
 //! R15 G4: models, lights and a lit scene renderer — the GPU side of the
 //! `_MESH` / `_LOADMODEL` / `_CAMERA` / `_LIGHT` / `_DRAW3D` BASIC API
-//! (design: `docs/rust-port/r15-g4-3d-api.md`).
+//! (design: `docs/dev/3d-api.md`).
 //!
 //! - [`Model`]: one or more [`Part`]s (vertex/index buffers, a [`Material`],
 //!   a local transform), from glTF 2.0 ([`Model::from_gltf`]), from arrays

@@ -39,7 +39,7 @@ difference: on the GPU the far plane (10000) clips, as legacy OpenGL did.
 The compiler knows these statements and functions; they draw on a runtime
 built with GPU support (wgpu). Without a GPU every statement still runs
 without an error, `_DRAW3D` draws nothing and `_GPU3D` returns 0. Design:
-`docs/rust-port/r15-g4-3d-api.md`.
+`docs/dev/3d-api.md`.
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)

@@ -1,8 +1,10 @@
-# QIR v1 — spec
+# QIR — spec
 
-> สถานะ: **normative** สำหรับ R11b (typed VM), R11c (Cranelift JIT), R11a (emitter) — 2026-11-10
+The text format starts with the line `QIR 1`: `1` is the format version that the
+runner checks, not part of the name.
+
+> สถานะ: **normative** สำหรับ VM และ Cranelift JIT ใน `crates/engine/exec`/`crates/engine/jit` และ emitter ใน `compiler/utilities/ir_*.bas`
 > โค้ดอ้างอิง: `crates/compiler/ir` (ชนิดข้อมูล, parser, printer, validator, ตาราง builtin). ถ้าเอกสารนี้กับ crate ขัดกัน **crate ชนะ** และต้องแก้เอกสาร
-> ที่มา: r11-emitter-design.md §4.2 (typed, register-based, map ตรงไป Cranelift)
 
 ## 1. ภาพรวม
 

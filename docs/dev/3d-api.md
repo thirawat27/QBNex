@@ -1,7 +1,7 @@
-# R15 G4 — 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
+# 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
 
-สถานะ (2026-11-11): ออกแบบ, ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) เสร็จและมี test; keyword ใน compiler + shim C++ (`libqb/scene3d_bridge.cpp`) เขียนแล้วแต่ยังไม่ได้ build/ทดสอบกับ compiler จริง.
-เกี่ยวข้อง: port-plan §9.6 (G4), progress.md R15-G1..G4, `crates/runtime/gpu`.
+สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test. ส่วนที่อ้าง C++ (`window_bridge.cpp`, shim `libqb`) ด้านล่างเป็นบันทึกการออกแบบยุคก่อน cutover — backend C++ ถูกลบแล้ว เส้นทางที่ใช้จริงคือ QIR อย่างเดียว.
+คู่มือผู้ใช้: [`docs/manual/en/graphics-3d.md`](../manual/en/graphics-3d.md). โค้ด: `crates/runtime/gpu`, `crates/runtime/core/src/scene3d.rs`.
 
 ## เป้าหมาย
 

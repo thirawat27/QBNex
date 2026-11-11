@@ -2,7 +2,7 @@
 //! `_MESHPLANE`, `_MESHBEGIN`/`_MESHVERTEX`/`_MESHTRIANGLE`/`_MESHEND`,
 //! `_MESHCOLOR`, `_MESHTEXTURE`, `_FREEMESH`, `_DRAW3D`, `_CAMERA`,
 //! `_CAMERAORTHO`, `_CAMERARANGE`, `_AMBIENT`, `_LIGHT`, `_LIGHTON`,
-//! `_FREELIGHT`, `_CLEAR3D`, `_GPU3D`). Design: `docs/rust-port/r15-g4-3d-api.md`.
+//! `_FREELIGHT`, `_CLEAR3D`, `_GPU3D`). Design: `docs/dev/3d-api.md`.
 //!
 //! Handles and state live here for both execution paths (compiled programs
 //! through the `qb_3d_*` C ABI and the shims in libqb, QIR programs through

@@ -34,5 +34,5 @@ Each feature in this manual carries one of these labels. ฟีเจอร์�
   The editor tools may already know the words. ออกแบบแล้ว (syntax
   กำหนดแล้ว) แต่ยังไม่อยู่ในคอมไพเลอร์ เครื่องมือ editor อาจรู้จักคำเหล่านี้แล้ว
 
-Developer documents about the port live in [`docs/rust-port`](../rust-port/README.md).
-เอกสารสำหรับนักพัฒนาเรื่องการ port อยู่ใน [`docs/rust-port`](../rust-port/README.md)
+Developer reference (QIR format, deviation IDs, FFI, 3D API) lives in [`docs/dev`](../dev/README.md).
+เอกสารอ้างอิงสำหรับนักพัฒนา (format QIR, รหัส deviation, FFI, 3D API) อยู่ใน [`docs/dev`](../dev/README.md)

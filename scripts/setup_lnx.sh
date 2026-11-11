@@ -43,7 +43,7 @@ fi
 
 if [ ! -f "$BOOTSTRAP" ]; then
   echo "Error: $BOOTSTRAP is missing."
-  echo "It is produced from compiler/qbnex.bas by a QIR-capable compiler (qb --ir); see docs/rust-port/port-plan.md."
+  echo "It is produced from compiler/qbnex.bas by a QIR-capable compiler (qb --ir); see CONTRIBUTING.md (bootstrap)."
   exit 1
 fi
 

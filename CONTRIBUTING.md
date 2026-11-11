@@ -30,7 +30,7 @@ Before contributing, familiarize yourself with:
 
 - **QBasic/QuickBASIC**: Understanding of classic BASIC syntax
 - **Rust**: the runner `qb-exec` and the runtime crates (`crates/`)
-- **QIR**: the text intermediate language the compiler emits (`docs/rust-port/qir-v1.md`)
+- **QIR**: the text intermediate language the compiler emits (`docs/dev/qir.md`)
 - **Cross-platform development**: QBNex targets Windows, Linux, and macOS
 
 ### System Requirements

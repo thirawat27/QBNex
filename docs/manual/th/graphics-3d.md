@@ -39,7 +39,7 @@ _DISPLAY
 คอมไพเลอร์รู้จักคำสั่งและฟังก์ชันเหล่านี้แล้ว และจะวาดได้เมื่อ runtime ถูก
 build พร้อมการรองรับ GPU (wgpu) ถ้าไม่มี GPU ทุกคำสั่งยังรันได้โดยไม่เกิด
 error แต่ `_DRAW3D` จะไม่วาดอะไร และ `_GPU3D` คืน 0 เอกสารออกแบบอยู่ที่
-`docs/rust-port/r15-g4-3d-api.md`
+`docs/dev/3d-api.md`
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)

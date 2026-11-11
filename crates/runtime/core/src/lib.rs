@@ -1,14 +1,12 @@
-//! `qb-runtime` — the QBNex runtime, ported from `internal/c/libqb.cpp` to Rust one
-//! subsystem at a time.
+//! `qb-runtime` — the QBNex runtime library (console, graphics, files, input,
+//! networking, memory, number formatting) that the QIR runner `qb-exec` calls.
+//! Many entry points keep the C ABI and the names of the QB64 runtime they
+//! replaced, so native code produced by the JIT and the native linker can call
+//! them directly.
 //!
-//! The BASIC compiler still emits C++ that is compiled together with
-//! `internal/c/qbx.cpp` and `libqb.cpp`. Each ported subsystem exports the
-//! exact C symbol that libqb.cpp used to define, declared in
-//! `include/qb_runtime.h`. The legacy C++ stays available behind a
-//! `QBNEX_LEGACY_<SUBSYSTEM>` define so both implementations can be compared.
-//!
-//! Rules for every module (see docs/rust-port/port-plan.md, Revision 2):
-//! - Behaviour is ported bug-for-bug; deviations need a conformance note.
+//! Rules for every module:
+//! - Behaviour matches QB64/QBasic bug-for-bug; every intentional difference
+//!   has an ID in docs/dev/deviations.md and a conformance case.
 //! - Exported functions never unwind across the FFI boundary (panic = abort).
 //! - Pointers coming from C may be unaligned (they often point into string
 //!   buffers), so reads and writes go through byte copies.

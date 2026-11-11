@@ -1930,7 +1930,7 @@ QBNex is a self-hosting compiler written in QBNex BASIC itself. The compilation 
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│  QIR emission   │  Translate BASIC to QIR (text IR, docs/rust-port/qir-v1.md)
+│  QIR emission   │  Translate BASIC to QIR (text IR, docs/dev/qir.md)
 │                 │  written to target/qb-temp/program.qir
 └────────┬────────┘
          ▼

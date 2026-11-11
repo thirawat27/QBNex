@@ -4,8 +4,8 @@
 
 QBNex started from QB64. Old programs should compile and give the same
 output; this page lists where they do not, and why. The IDs (D-xx, L-xx)
-are the ones used in `docs/rust-port/progress.md`, which has the details
-and the tests.
+are explained, with their tests, in
+[`docs/dev/deviations.md`](../../dev/deviations.md).
 
 ## The tool
 

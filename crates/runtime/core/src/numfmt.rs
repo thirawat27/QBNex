@@ -10,7 +10,7 @@
 //!   (`STR$(42#)` = " 42.0", `STR$(-0.25#)` = "-.250").
 //! - Non-finite values print as " 0".
 //!
-//! Intentional deviations (see docs/rust-port/progress.md):
+//! Intentional deviations (see docs/dev/deviations.md):
 //! - D-04: legacy built a broken printf format when more than 19 decimals were
 //!   needed (`STR$(1.234567890123456D-16)` gave " .0f"); the port prints the
 //!   decimals the algorithm asked for.

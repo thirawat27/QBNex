@@ -69,7 +69,7 @@ if errorlevel 1 (
 if not exist "%QBNEX_BOOTSTRAP%" (
     echo Error: %QBNEX_BOOTSTRAP% is missing.
     echo It is produced from compiler\qbnex.bas by a QIR-capable compiler ^(qb --ir^);
-    echo see docs\rust-port\port-plan.md.
+    echo see CONTRIBUTING.md ^(bootstrap^).
     exit /b 1
 )
 

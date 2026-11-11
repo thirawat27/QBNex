@@ -20,7 +20,7 @@
 //! [`header_error`] (deviation D-110): headers may contain macros and inline
 //! C code, which only a C compiler can use.
 //!
-//! See `docs/rust-port/r11d-ffi-float80.md` for the API contract used by the
+//! See `docs/dev/ffi-float80.md` for the API contract used by the
 //! emitter (R11a) and the VM (R11b).
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]

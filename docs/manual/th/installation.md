@@ -102,5 +102,4 @@ qb hello.bas        # ได้ hello.exe (Windows) หรือ hello ในโ
 ถ้าไม่ใส่ `-o` ไฟล์ผลลัพธ์จะไปอยู่ในโฟลเดอร์ QBNex (ดู[คำสั่ง](commands.md))
 
 หมายเหตุเรื่องแพลตฟอร์ม: build บน Windows ผ่านการทดสอบมากที่สุด ส่วนบน
-Linux และ macOS เขียนและตรวจโค้ดแล้วแต่ทดสอบน้อยกว่า ดูรายละเอียดใน
-`docs/rust-port/progress.md`
+Linux และ macOS build และทดสอบใน CI (GitHub Actions) เท่านั้น

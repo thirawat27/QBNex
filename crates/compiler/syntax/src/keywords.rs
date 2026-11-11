@@ -134,7 +134,7 @@ static LANGUAGE: &[(&str, KeywordKind, &str, &str)] = {
         ("_ORELSE", O, "a _ORELSE b", "Short-circuit OR."),
         ("_PRESERVE", S, "REDIM _PRESERVE array(bounds)", "Keeps array contents on REDIM."),
         ("_UNSIGNED", T, "AS _UNSIGNED {INTEGER|LONG|_BYTE|_INTEGER64|_OFFSET|_BIT}", "Unsigned variant of an integer type (suffix ~)."),
-        // ---- R13 language features (port-plan section 9.4) ----
+        // ---- QBNex language extensions ----
         ("EACH", S, "FOR EACH item IN array() ... NEXT", "Loop over every element of an array or collection."),
         ("IN", S, "FOR EACH item IN array()", "Collection of a FOR EACH loop."),
         ("OPTIONAL", S, "SUB s (OPTIONAL x AS LONG = 0)", "Parameter that may be left out (with a default value)."),
@@ -154,7 +154,7 @@ static LANGUAGE: &[(&str, KeywordKind, &str, &str)] = {
         ("_DICT", T, "DIM d AS _DICT", "Built-in dictionary (hash map) collection."),
         ("_REGEX", F, "_REGEX(pattern$, text$)", "Regular-expression match (pure Rust engine)."),
         ("_RANDOMSEED", B, "_RANDOMSEED [seed&&]", "Seeds the better random generator (no seed: from the system)."),
-        // ---- R15 3D API (docs/rust-port/r15-g4-3d-api.md) ----
+        // ---- 3D API (docs/dev/3d-api.md) ----
         ("_LOADMODEL", F, "model& = _LOADMODEL(file$)", "Loads a glTF 2.0 model (.gltf/.glb); -1 when it cannot be loaded."),
         ("_MESH", F, "model& = _MESH(px!(), py!(), pz!(), nx!(), ny!(), nz!(), u!(), v!(), idx&())", "Model from vertex arrays (normals may be empty: computed)."),
         ("_MESHCUBE", F, "model& = _MESHCUBE(size!)", "Cube primitive."),
