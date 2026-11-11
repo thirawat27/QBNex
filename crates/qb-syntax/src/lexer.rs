@@ -109,6 +109,36 @@ fn is_hspace(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\x0c' | '\x1a' | '\0' | '\x0b')
 }
 
+/// Offset in `body` (the text after the opening quote of `$"...`) of the
+/// closing quote, as the compiler's `SyntaxExt_InterpEnd&`: inside `{...}`
+/// string literals and nested braces belong to the expression; `{{` and `}}`
+/// outside one are escapes.
+fn interp_end(body: &str) -> Option<usize> {
+    let b = body.as_bytes();
+    let mut depth = 0u32;
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if depth == 0 {
+            match c {
+                b'"' => return Some(i),
+                b'{' | b'}' if b.get(i + 1) == Some(&c) => i += 1,
+                b'{' => depth = 1,
+                _ => {}
+            }
+        } else {
+            match c {
+                b'"' => i += 1 + body[i + 1..].find('"')?,
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 struct Lexer<'a> {
     src: &'a str,
     pos: usize,
@@ -194,7 +224,13 @@ impl<'a> Lexer<'a> {
             }
             '"' => {
                 let line_end = self.line_end();
-                match self.src[start + 1..line_end].find('"') {
+                let body = &self.src[start + 1..line_end];
+                let close = if start > 0 && self.src.as_bytes()[start - 1] == b'$' {
+                    interp_end(body)
+                } else {
+                    body.find('"')
+                };
+                match close {
                     Some(i) => self.push(TokenKind::String, start + 1 + i + 1),
                     None => {
                         let end = self.trim_back(start + 1, line_end);
@@ -450,6 +486,21 @@ mod tests {
         assert_eq!(kinds("PRINT \"abc")[1], (UnterminatedString, "\"abc"));
         assert_eq!(kinds("PRINT #1, x")[1], (Hash, "#"));
         assert_eq!(kinds("# comment")[0], (Comment, "# comment"));
+    }
+
+    #[test]
+    fn interpolated_strings_may_quote_inside_braces() {
+        use TokenKind::*;
+        // the compiler's SyntaxExt_InterpEnd&: quotes inside {...} belong to the expression
+        let k = kinds("PRINT $\"[{n$ + \"!\"}] {LEN(\"abc\")}\": x = 1");
+        assert_eq!(k[1], (Dollar, "$"));
+        assert_eq!(k[2], (String, "\"[{n$ + \"!\"}] {LEN(\"abc\")}\""));
+        assert_eq!(k[3], (Colon, ":"));
+        // nested braces, and {{ }} escapes outside an expression
+        assert_eq!(kinds("? $\"{{x}} {f({1})}\"")[2], (String, "\"{{x}} {f({1})}\""));
+        // a plain string is unchanged
+        assert_eq!(kinds("PRINT \"{\" + \"x\"")[1], (String, "\"{\""));
+        assert_eq!(kinds("PRINT $\"{a + \"b")[2], (UnterminatedString, "\"{a + \"b"));
     }
 
     #[test]
