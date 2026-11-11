@@ -30,6 +30,12 @@ The user manual is in [`docs/manual`](docs/manual/README.md), in English and Tha
 
 Where this README and the manual disagree, the manual is the current one.
 
+Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` and `_FLOAT`,
+3D API design): [`docs/dev`](docs/dev/README.md). Building, testing and contributing:
+[CONTRIBUTING.md](CONTRIBUTING.md).
+เอกสารอ้างอิงสำหรับนักพัฒนาอยู่ที่ [`docs/dev`](docs/dev/README.md) และวิธี build/ทดสอบ/ร่วมพัฒนาอยู่ใน
+[CONTRIBUTING.md](CONTRIBUTING.md)
+
 ---
 
 ## Table of Contents
@@ -160,7 +166,7 @@ The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and
 
 Repository: https://github.com/thirawat27/QBNex
 
-Additional documentation is being consolidated into this README and `CONTRIBUTING.md`.
+More documentation: the user manual in [`docs/manual`](docs/manual/README.md) (English and Thai), the developer reference in [`docs/dev`](docs/dev/README.md), and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
@@ -3017,10 +3023,23 @@ QBNex/
 │   │   └── sys/
 │   ├── subs_functions/         # Built-in functions/subroutines
 │   └── utilities/              # Compiler utility modules
-├── crates/                     # Native runtime crates (Cargo workspace)
-│   ├── runtime/core/           # Runtime library (window, graphics, sound, files, network)
-│   ├── runtime/audio/          # Audio engine
-│   └── engine/exec/            # Runner for compiled QIR programs (bin/<os>/qb-exec)
+├── crates/                     # Rust crates (Cargo workspace)
+│   ├── compiler/ir/            # qb-ir: QIR types, text parser/printer, validator, builtin table
+│   ├── compiler/syntax/        # qb-syntax: lexer and keyword tables for the tools
+│   ├── engine/exec/            # qb-exec: runner for compiled QIR programs (VM, loader; bin/<os>/qb-exec)
+│   ├── engine/jit/             # qb-jit: Cranelift JIT tier
+│   ├── engine/link/            # qb-link: native code loading and executable writer
+│   ├── engine/native/          # qb-native: runtime library linked into native executables
+│   ├── engine/ffi/             # qb-ffi: DECLARE LIBRARY calls into shared libraries
+│   ├── runtime/core/           # qb-runtime: window, graphics, console, files, network, memory
+│   ├── runtime/audio/          # qb-audio: audio engine (SOUND, PLAY, _SND*)
+│   ├── runtime/float80/        # qb-float80: software 80-bit _FLOAT
+│   ├── runtime/gpu/            # qb-gpu: optional wgpu presentation and 3D scene
+│   ├── runtime/ext/            # qb-ext: Rust side of the ext.* standard library modules
+│   ├── tools/fmt/              # qb-fmt: formatter (qbnex fmt)
+│   ├── tools/lsp/              # qb-lsp: language server (qbnex lsp)
+│   ├── tools/dap/              # qb-dap: debugger adapter (qbnex dap)
+│   └── web/                    # qb-web: WebAssembly build of the runner
 ├── docker/
 │   ├── Dockerfile
 │   ├── Dockerfile.dev
@@ -3030,17 +3049,25 @@ QBNex/
 ├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
 ├── licenses/                   # Third-party license files
 ├── packaging/
-│   └── installer/
-│       └── qbnex_setup.iss     # Inno Setup installer script
-├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, self-host helpers
+│   ├── installer/
+│   │   └── qbnex_setup.iss     # Inno Setup installer script
+│   └── vscode/                 # VS Code extension (syntax, formatter, LSP, debugger)
+├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, self-host fixpoint,
+│                               # native-kit.*, qir_pack.ps1, bench/ (corpus timings), license list
 ├── tests/
 │   ├── conformance/            # Conformance runner + cases (golden outputs)
+│   ├── data/                   # Data files used by tests (fonts, images, sounds)
+│   ├── docs/                   # check_docs.ps1: compiles the BASIC examples of README.md and docs/manual
 │   ├── fixtures/               # Test input programs
 │   └── smoke/                  # Smoke and benchmark test runners (*.cmd / *.sh)
 ├── Cargo.toml                  # Cargo workspace
+├── rust-toolchain.toml         # Pinned Rust version (also used by CI)
 ├── qb.cmd                      # Windows wrapper command
+├── qbnex.cmd                   # Windows wrapper, product-name alias of qb
 ├── README.md
 ├── CONTRIBUTING.md
+├── SECURITY.md
+├── LICENSE
 └── CHANGELOG.md
 
 # Generated after build/test (not source)
@@ -3086,7 +3113,10 @@ docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
 
 - **Built-in Functions/Subs**: Add to `compiler/subs_functions/subs_functions.bas`
 - **Runtime Library**: Rust code in `crates/runtime/core/` and `crates/runtime/audio/`; QIR builtins in `crates/compiler/ir/src/builtins.rs` and `crates/engine/exec/src/rt/`
-- **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`
+- **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`; QIR emission in `compiler/utilities/ir_*.bas` (format: `docs/dev/qir.md`)
+- **VM / JIT**: QIR execution in `crates/engine/exec/src/vm.rs`, native code in `crates/engine/jit`
+- **Editor tools**: `crates/tools/fmt`, `crates/tools/lsp`, `crates/tools/dap`, and the extension in `packaging/vscode`
+- **Behaviour changes**: a conformance case in `tests/conformance/cases`; an intentional difference from QB64 gets a `D-xx` entry in `docs/dev/deviations.md`
 
 ### Continuous Integration
 
