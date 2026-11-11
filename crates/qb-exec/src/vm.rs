@@ -668,6 +668,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                 },
             }
         };
+        if std::env::var_os("QB_JIT_STATS").is_some() {
+            // tiering report for benchmarks (docs/rust-port/perf.md)
+            eprintln!("qb-exec: native entries {}, JIT {}", self.jit_entries(), self.jit_failure().unwrap_or_else(|| "ok".into()));
+        }
         // frame record of the screen at END/SYSTEM (end() of the C++ runtime)
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
         // console program: END's "Press any key to continue" (console branch of
