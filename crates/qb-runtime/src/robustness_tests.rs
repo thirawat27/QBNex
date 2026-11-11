@@ -72,7 +72,7 @@ fn hexs(b: &[u8]) -> String {
 }
 
 fn corpus() -> Vec<(String, Vec<u8>)> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/diff/data/images");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/data/images");
     let mut v = Vec::new();
     for e in std::fs::read_dir(dir).expect("image corpus") {
         let p = e.expect("entry").path();

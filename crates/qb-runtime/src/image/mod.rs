@@ -101,7 +101,7 @@ mod tests {
 
     fn corpus(name: &str) -> Vec<u8> {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/diff/data/images")
+            .join("../../tests/data/images")
             .join(name);
         std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
     }

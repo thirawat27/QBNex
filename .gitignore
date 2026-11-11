@@ -15,7 +15,7 @@ internal/c/build_cache/
 internal/c/qbx[2-9].cpp
 internal/c/pch/
 *.ttf
-!tests/diff/data/fonts/*.ttf
+!tests/data/fonts/*.ttf
 /run_qbnex.sh
 /qbnex
 .fake
