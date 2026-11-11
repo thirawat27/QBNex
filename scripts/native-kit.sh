@@ -13,7 +13,9 @@ out="${1:-target/release/native}"
 export CARGO_BUILD_JOBS
 cargo build --release -p qb-exec
 # Build the runtime library and capture the system libraries it needs.
-libs=$(cargo rustc --release -p qb-native -- --print native-static-libs 2>&1 \
+# --color never: with CARGO_TERM_COLOR=always (CI) the note ends in an ANSI reset
+# code that would stick to the last library (-lc becomes "-lc\033[0m").
+libs=$(cargo rustc --color never --release -p qb-native -- --print native-static-libs 2>&1 \
     | sed -n 's/.*native-static-libs: //p' | tail -n 1)
 [ -n "$libs" ] || { echo "native-kit: rustc printed no native-static-libs" >&2; exit 1; }
 sysroot=$(rustc --print sysroot)

@@ -1,0 +1,97 @@
+QIR 1
+meta console only
+global $__STRING_MX str
+global $__LONG_I i32
+global $__INTEGER_CLICK i16
+global $__INTEGER_CH i16
+global $__INTEGER_CV i16
+datalabel L_H
+func main
+local $~T4 i64
+local $~T5 i64
+local $~T6 i64
+line 2
+line 2
+const.i32 %0 57
+rt %1 SPACE$ %0
+store.str $__STRING_MX %1
+line 3
+onerror L_H
+line 4
+const.i32 %2 1
+cvt.i64.i32 %3 %2
+store.i64 $~T4 %3
+const.i32 %4 300000
+cvt.i64.i32 %5 %4
+store.i64 $~T5 %5
+const.i32 %6 1
+cvt.i64.i32 %7 %6
+store.i64 $~T6 %7
+jmp ~F1.E
+label ~F1.T
+load.i32 %8 $__LONG_I
+cvt.i64.i32 %9 %8
+load.i64 %10 $~T6
+add.i64 %11 %10 %9
+store.i64 $~T4 %11
+label ~F1.E
+load.i64 %12 $~T4
+cvt.i32.i64 %13 %12
+store.i32 $__LONG_I %13
+load.i64 %14 $~T6
+const.i64 %15 0
+lt.i64 %16 %14 %15
+jz %16 ~F1.P
+load.i64 %17 $~T5
+lt.i64 %18 %12 %17
+jnz %18 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i64 %19 $~T5
+gt.i64 %20 %12 %19
+jnz %20 ~F1.X
+label ~F1.B
+line 5
+const.i32 %21 2
+rt %22 ABSARG.i32 %21
+load.i16 %23 $__INTEGER_CLICK
+rt %24 ABSARG.i16 %23
+load.i16 %25 $__INTEGER_CH
+rt %26 ABSARG.i16 %25
+load.i16 %27 $__INTEGER_CV
+rt %28 ABSARG.i16 %27
+addr %29 $__STRING_MX
+rt %30 SADD %29
+rt ABSCALL %30
+rt %31 ABSGET.i16 %24
+store.i16 $__INTEGER_CLICK %31
+rt %32 ABSGET.i16 %26
+store.i16 $__INTEGER_CH %32
+rt %33 ABSGET.i16 %28
+store.i16 $__INTEGER_CV %33
+line 6
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 7
+const.str %34 x646F6E65
+const.i32 %35 0
+rt PRINTS %35 %34
+const.i32 %36 0
+rt PRINTNL %36
+line 8
+system
+label L_H
+line 9
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

@@ -558,10 +558,17 @@ fn embedder_array_elements_fast_and_slow_paths() {
 #[test]
 fn aot_objects_link_for_every_target() {
     let m = module(vec![loop_mod(10).funcs.remove(0), fact_func()], vec![]);
-    for t in [qb_jit::Target::Host, qb_jit::Target::X86_64, qb_jit::Target::Aarch64] {
+    use qb_jit::Target as T;
+    for t in [T::Host, T::X86_64, T::Aarch64, T::X86_64Darwin, T::Aarch64Darwin] {
         let obj = qb_jit::aot::compile_object(&m, t).unwrap_or_else(|e| panic!("{t:?}: {e:?}"));
         let img = qb_link::link(&obj).unwrap_or_else(|e| panic!("{t:?}: {e}"));
         assert_eq!(img.symbols.iter().filter(|(n, _)| n.starts_with("qb_func_")).count(), 2, "{t:?}");
+        // names are plain C names on every format (Mach-O's `_` prefix is dropped)
+        for r in &img.relocs {
+            if let qb_link::Target::External(n) = &r.target {
+                assert!(n.starts_with("qb_"), "{t:?}: external {n}");
+            }
+        }
         assert_eq!(qb_link::Image::from_bytes(&img.to_bytes()).unwrap(), img);
     }
 }

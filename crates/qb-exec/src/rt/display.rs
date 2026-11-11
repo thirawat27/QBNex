@@ -1300,6 +1300,20 @@ impl Display {
         }
     }
 
+    /// The display page for the INT 33h mouse driver: (text, mode, width, height,
+    /// font width, font height); `None` before the screen started.
+    pub(crate) fn mouse_page(&self) -> Option<(bool, u16, i32, i32, i32, i32)> {
+        if !self.started {
+            return None;
+        }
+        // SAFETY: the display page of a started screen is valid.
+        let p = unsafe { &*self.dp() };
+        let f = p.font as usize;
+        let fw = self.fontwidth.get(f).copied().unwrap_or(8);
+        let fh = self.fontheight.get(f).copied().unwrap_or(16);
+        Some((p.text != 0, p.compatible_mode, i32::from(p.width), i32::from(p.height), fw, fh))
+    }
+
     /// The destination is a surface (not the `$CONSOLE` stdout image).
     pub(crate) fn write_is_screen(&self) -> bool {
         // SAFETY: valid write page.
@@ -1372,9 +1386,8 @@ impl Host for VmHost<'_> {
             let (c, c2) = ((*w).color, (*w).background_color);
             let mut buf = vec![0u8; 80 * 25 * 2];
             core::ptr::copy_nonoverlapping(self.cmem.add(0xB8000), buf.as_mut_ptr(), buf.len());
-            self.d.sub_screen_width = 80;
-            self.d.sub_screen_height = 50;
-            self.d.screen(self.cmem, 0, 0, 0, 0, 0, 1);
+            // WIDTH 80, 50 (libqb's width_80x50_ calls qbsub_width(0,80,50,0,0,3))
+            self.d.width(self.cmem, 0, 80, 50, 0, 0, 3);
             core::ptr::copy_nonoverlapping(buf.as_ptr(), self.cmem.add(0xB8000), buf.len());
             let w = self.d.wp();
             (*w).color = c;

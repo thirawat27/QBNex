@@ -366,6 +366,15 @@ pub static TABLE: &[Builtin] = &[
     b!("func__freetimer", [], I32),
     b!("sub_timer", [I32, I32, I32]),
     b!("sub_key", [I32, I32, I32]),
+    // STRIG[(n[, controller])] ON|OFF|STOP + passed / STRIG(n[, controller]) + passed
+    b!("sub_strig", [I32, I32, I32, I32]),
+    b!("func_strig", [I32, I32, I32], I32),
+    // ON STRIG(n, controller, controller given): checks only (no joystick events)
+    b!("ONSTRIG", [I32, I32, I32]),
+    b!("sub__mousehide", []),
+    b!("sub__mouseshow", [Str, I32]),
+    // FILES [spec$] + passed
+    b!("sub_files", [Str, I32]),
     // _DELAY: deadline (ms clock) and one wait step (1 = still waiting); the emitter loops
     b!("DELAYBEGIN", [F64], F64),
     b!("DELAYSTEP", [F64], I32),

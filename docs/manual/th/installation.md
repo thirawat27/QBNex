@@ -26,13 +26,15 @@ scripts\setup_win.cmd
 ### Linux
 
 ```bash
-# Debian/Ubuntu: ไลบรารีสำหรับเสียงและจอยเกม
-sudo apt-get install libasound2-dev libudev-dev pkg-config
+# Debian/Ubuntu: ไลบรารีสำหรับเสียง จอยเกม และหน้าต่าง
+sudo apt-get install gcc libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config
 sh scripts/setup_lnx.sh
 ```
 
-Fedora ใช้ `alsa-lib-devel systemd-devel pkgconf-pkg-config` ส่วน Arch ใช้
-`alsa-lib systemd-libs pkgconf`
+Fedora ใช้ `gcc alsa-lib-devel systemd-devel libxkbcommon-devel libX11-devel
+pkgconf-pkg-config` ส่วน Arch ใช้ `gcc alsa-lib systemd-libs libxkbcommon
+libx11 pkgconf` โดย `gcc` เป็นแค่ linker ของระบบที่ Rust ใช้บน Linux
+ไม่มีการคอมไพล์ source ภาษา C หรือ C++
 
 ### macOS
 
@@ -51,6 +53,18 @@ sh scripts/setup_osx.command
 
 โปรแกรมที่คอมไพล์แล้วคือสำเนาของ runner ที่ต่อท้ายด้วย QIR ของโปรแกรม
 จึงไม่ต้องใช้ไฟล์อื่นประกอบ
+
+ตัวแปรของสคริปต์ setup: `QBNEX_QB_EXEC` (ใช้ `qb-exec` ที่ build ไว้แล้ว
+แทนการ build ใหม่), `QBNEX_RUST_TARGET`, `QBNEX_BOOTSTRAP`,
+`QBNEX_QIR_PACK=ir|native`, `QBNEX_SKIP_SELFHOST=1` (หยุดที่ `qb-stage0`),
+`QBNEX_KEEP_STAGE0=1` ดูหัวไฟล์ของ `scripts/setup_win.cmd` และ
+`scripts/setup_lnx.sh`
+
+**executable แบบ native (ทดลอง):** `scripts/native-kit.ps1` (Windows) หรือ
+`scripts/native-kit.sh` จะ build native kit (`qb-native` กับ `rust-lld` ของ
+toolchain Rust) ถ้าคัดลอกไปไว้ที่ `crates/qb-exec/bin/<os>/native/`
+คอมไพเลอร์จะลิงก์ executable ปกติแทนการต่อ QIR ท้าย runner
+(ดู[คำสั่ง](commands.md))
 
 ### ไฟล์ที่ได้
 
@@ -82,8 +96,10 @@ docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas
 
 ```bash
 qb --version
-qb hello.bas        # ได้ hello.exe (Windows) หรือ ./hello
+qb hello.bas        # ได้ hello.exe (Windows) หรือ hello ในโฟลเดอร์ QBNex
 ```
+
+ถ้าไม่ใส่ `-o` ไฟล์ผลลัพธ์จะไปอยู่ในโฟลเดอร์ QBNex (ดู[คำสั่ง](commands.md))
 
 หมายเหตุเรื่องแพลตฟอร์ม: build บน Windows ผ่านการทดสอบมากที่สุด ส่วนบน
 Linux และ macOS เขียนและตรวจโค้ดแล้วแต่ทดสอบน้อยกว่า ดูรายละเอียดใน

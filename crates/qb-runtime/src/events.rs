@@ -487,12 +487,14 @@ pub extern "C" fn qb_timer_done(i: i32) {
     timers().done(i);
 }
 
-fn onkeys() -> &'static mut [OnKey] {
+/// The 32 ON KEY slots (program thread only).
+pub fn onkeys() -> &'static mut [OnKey] {
     // SAFETY: `onkey` always points at the 32-entry storage.
     unsafe { core::slice::from_raw_parts_mut(onkey, 32) }
 }
 
-fn onstrigs() -> &'static mut [OnStrig] {
+/// The ON STRIG slots (program thread only).
+pub fn onstrigs() -> &'static mut [OnStrig] {
     // SAFETY: `onstrig` always points at the 65536-entry storage.
     unsafe { core::slice::from_raw_parts_mut(onstrig, ONSTRIG_SLOTS) }
 }

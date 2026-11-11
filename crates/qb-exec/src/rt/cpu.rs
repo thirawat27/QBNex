@@ -1,6 +1,6 @@
 //! CALL ABSOLUTE: the small 16-bit x86 interpreter of libqb.cpp (`cpu_call`,
 //! `call_absolute`): MOV forms, PUSH/POP, RETF (returns to BASIC) and INT
-//! (ignored here; libqb only answers INT 33h mouse queries), over the
+//! (INT 33h mouse queries are answered by the caller, as libqb `call_int`), over the
 //! program's conventional memory. Anything else is an "X86 Error" (exit 86)
 //! like libqb.
 
@@ -180,8 +180,9 @@ impl Cpu<'_> {
 
 /// `call_absolute(args, offset)` with `defseg` (bytes) and the near
 /// offsets of the arguments; `ds` is the data segment of the variables.
-/// `Err(86)` = unknown opcode (libqb exits with code 86).
-pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, args: &[u16]) -> Result<(), i32> {
+/// `Err(86)` = unknown opcode (libqb exits with code 86). `int` serves `INT n`
+/// (number, registers AX CX DX BX SP BP SI DI; libqb `call_int` answers only 33h, the mouse).
+pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, args: &[u16], int: &mut dyn FnMut(u8, &mut [u32; 8])) -> Result<(), i32> {
     let mut c = Cpu { m, r: [0; 8], s: [0; 8], ip: 0, seg: 0, seg_bp: 0, a32: false };
     c.s[CS] = (defseg >> 4) as u16;
     c.s[SS] = 0xFFFF;
@@ -284,7 +285,8 @@ pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, a
             }
             0xCA | 0xCB => return Ok(()),
             0xCD => {
-                let _ = c.b(); // INT n: no BIOS/DOS services here
+                let n = c.b();
+                int(n, &mut c.r);
             }
             0xFF => {
                 let l = c.ea();
@@ -356,7 +358,7 @@ mod tests {
         let code = [0x55, 0x89, 0xE5, 0x8B, 0x5E, 6, 0xC7, 7, 0xD2, 4, 0x5D, 0xCA, 2, 0];
         let mut m = vec![0u8; 0x110000];
         m[0x2000..0x2000 + code.len()].copy_from_slice(&code);
-        super::call_absolute(&mut m, 0x2000, 0x300, 0, &[0x40]).unwrap();
+        super::call_absolute(&mut m, 0x2000, 0x300, 0, &[0x40], &mut |_, _| {}).unwrap();
         assert_eq!(u16::from_le_bytes([m[0x3040], m[0x3041]]), 1234);
     }
 
@@ -370,17 +372,17 @@ mod tests {
         for (k, b) in m[start..].iter_mut().enumerate() {
             *b = if k % 3 == 0 { 0xB8 } else { 0x11 };
         }
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut m, 0xFFFF0, 0xFFFF, 0xFFF0, &[])));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut m, 0xFFFF0, 0xFFFF, 0xFFF0, &[], &mut |_, _| {})));
         assert!(r.is_ok(), "panicked");
         // A memory image smaller than 1 MB + 64 KB (stack at FFFF:xxxx).
         let mut small = vec![0u8; 0x100];
         small[0] = 0x50; // push ax
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut small, 0, 0, 0, &[1, 2])));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut small, 0, 0, 0, &[1, 2], &mut |_, _| {})));
         assert!(r.is_ok(), "panicked on a small image");
         // MOV AX,[FFFF] with DS = FFFF reads the last bytes of the image.
         let mut m = vec![0u8; 0x110000];
         m[..5].copy_from_slice(&[0x66, 0xA1, 0xFF, 0xFF, 0xCB]);
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut m, 0, 0xFFFF, 0, &[])));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::call_absolute(&mut m, 0, 0xFFFF, 0, &[], &mut |_, _| {})));
         assert!(r.is_ok(), "panicked on a 32-bit read at the top");
     }
 }

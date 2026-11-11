@@ -1,0 +1,4 @@
+SCREEN 12
+PRINT USING "###"; 5
+PRINT "plain"
+SYSTEM

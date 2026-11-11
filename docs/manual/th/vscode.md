@@ -33,7 +33,7 @@ code --install-extension qbnex-0.1.0.vsix
 ## Debugger
 
 กด F5 บนไฟล์ `.bas` ได้เลย ไม่ต้องมี `launch.json` ตัว `qb-dap` จะคอมไพล์
-โปรแกรมด้วย `qb --ir` แล้วรันบน VM ของ qb-exec (ปิด JIT) ให้ใช้งานได้ดังนี้
+โปรแกรมด้วย `qb` แล้วรันบน VM ของ qb-exec (ปิด JIT) ให้ใช้งานได้ดังนี้
 
 - breakpoint ตามบรรทัดในไฟล์ที่ launch (บรรทัดที่ไม่มี statement จะเลื่อนไป
   บรรทัดถัดไป), pause, continue, step over / into / out (ทีละ statement)

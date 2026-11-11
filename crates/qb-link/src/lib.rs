@@ -122,12 +122,16 @@ pub fn link(obj: &[u8]) -> Result<Image, LinkError> {
                     let sym = file.symbol_by_index(si).map_err(|e| LinkError(e.to_string()))?;
                     match sym.section_index().and_then(|s| place.get(&s)) {
                         Some(&sb) => Target::Local(sb + sym.address() - section_address(&file, sym.section_index())),
-                        None if sym.is_undefined() => Target::External(sym.name().map_err(|e| LinkError(e.to_string()))?.to_string()),
+                        None if sym.is_undefined() => {
+                            Target::External(plain_name(&file, sym.name().map_err(|e| LinkError(e.to_string()))?).to_string())
+                        }
                         None => return err(format!("symbol {:?} in a section that is not loaded", sym.name())),
                     }
                 }
+                // Mach-O section relocations carry the target's address in the
+                // object's address space as the addend: rebase it on the section.
                 RelocationTarget::Section(si) => match place.get(&si) {
-                    Some(&sb) => Target::Local(sb),
+                    Some(&sb) => Target::Local(sb.wrapping_sub(section_address(&file, Some(si)))),
                     None => return err("relocation against a section that is not loaded"),
                 },
                 _ => return err("unsupported relocation target"),
@@ -139,11 +143,22 @@ pub fn link(obj: &[u8]) -> Result<Image, LinkError> {
         if sym.is_definition() && sym.kind() == object::SymbolKind::Text {
             if let Some(&sb) = sym.section_index().and_then(|s| place.get(&s)) {
                 let name = sym.name().map_err(|e| LinkError(e.to_string()))?;
-                img.symbols.push((name.to_string(), sb + sym.address() - section_address(&file, sym.section_index())));
+                img.symbols.push((plain_name(&file, name).to_string(), sb + sym.address() - section_address(&file, sym.section_index())));
             }
         }
     }
     Ok(img)
+}
+
+/// Symbol name without the object format's C prefix: Mach-O stores every C
+/// name with a leading `_` (`qb_func_0` is `_qb_func_0` in the file), while
+/// the image and the runtime use the plain name.
+fn plain_name<'a>(file: &object::File, name: &'a str) -> &'a str {
+    if file.format() == object::BinaryFormat::MachO {
+        name.strip_prefix('_').unwrap_or(name)
+    } else {
+        name
+    }
 }
 
 fn section_address(file: &object::File, s: Option<object::SectionIndex>) -> u64 {
@@ -325,7 +340,8 @@ impl Loaded {
 pub fn load(img: &Image, resolve: &dyn Fn(&str) -> Option<usize>) -> Result<Loaded, LinkError> {
     let mut code = img.code.clone();
     let size = code.len().max(1);
-    let mut mem = region::alloc(size, region::Protection::READ_WRITE).map_err(|e| LinkError(e.to_string()))?;
+    let mut mem =
+        region::alloc(size, region::Protection::READ_WRITE).map_err(|e| LinkError(format!("allocating {size} bytes for the image: {e}")))?;
     let base = mem.as_mut_ptr::<u8>() as i64;
     for r in &img.relocs {
         let s = match &r.target {
@@ -339,7 +355,8 @@ pub fn load(img: &Image, resolve: &dyn Fn(&str) -> Option<usize>) -> Result<Load
     // SAFETY: the allocation has `size` bytes and nothing else refers to it yet.
     unsafe {
         core::ptr::copy_nonoverlapping(code.as_ptr(), mem.as_mut_ptr::<u8>(), code.len());
-        region::protect(mem.as_ptr::<u8>(), size, region::Protection::READ_EXECUTE).map_err(|e| LinkError(e.to_string()))?;
+        region::protect(mem.as_ptr::<u8>(), size, region::Protection::READ_EXECUTE)
+            .map_err(|e| LinkError(format!("making the image executable: {e}")))?;
     }
     flush_icache(mem.as_ptr::<u8>(), size);
     Ok(Loaded { mem, symbols: img.symbols.iter().cloned().collect() })

@@ -40,6 +40,7 @@ and the tests.
 | D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
 | D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |
 | D-R12b-4 | With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog. |
+| D-R11b-1 | `PUT` to a TCP connection whose send buffer is full keeps the connection: the rest of the data is queued and sent, in order, by later network calls and `CLOSE` (QB64 dropped the connection and the data). |
 
 ## QBasic behaviour kept on purpose
 
@@ -60,8 +61,8 @@ next second at program start.
 | L-08 | About 1 run in 300-400 ends with exit code `0xC0000409` at exit. |
 | L-10 | After one `OPEN "COMn:..."`, later COM names fail. |
 | L-12 | `LINE INPUT #` on a BINARY file drops a 1-character last line. |
-| L-14 | `PUT` to a TCP connection with a full send buffer drops the connection. |
 | L-15 | `TIMER ON` after `TIMER STOP` loses an event queued during the stop. |
+| - | Run from a folder other than the QBNex folder, `qb file.bas` with a relative path does not find the file; pass an absolute path for now. |
 
 ## Platform gaps
 
@@ -69,11 +70,15 @@ next second at program start.
 `_SCREENPRINT` do nothing on Linux; printing (`LPRINT`, `_PRINTIMAGE`) is
 Windows only.
 
-## The QIR back end (`--ir`) and the web build
+## Since the QIR cutover
 
-- Not every statement is supported yet; the compiler names the line.
-- Not in the QIR back end yet (the compiler names the line): `_DEPTHBUFFER`
-  (so 3D `_MAPTRIANGLE`) and the `ext.*` modules (`_OFFSET`).
+- Programs are compiled to QIR and run by the Rust runner (see
+  [commands](commands.md#how-a-program-is-built)); no C++ is generated, so
+  `-z`, `-p`, `-s:debuginfo` and `--ir` do nothing. `DECLARE LIBRARY`
+  functions are called in shared libraries through `crates/qb-ffi` (see
+  [language](language.md)).
+- A statement the QIR back end does not cover yet stops the build with
+  `QIR: unsupported: line N: ...`.
 - BYREF parameters are copied in and out: different from QB64 only when a
   SUB changes the same variable both through a parameter and through SHARED.
 - GPU 3D clips at the far plane (as QB64's OpenGL did); the software

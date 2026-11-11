@@ -22,6 +22,10 @@ pub(crate) struct MArr {
     strs: bool,
     dims: Vec<(i64, i64)>,
     data: Option<u32>,
+    /// static array (`dims`): a second DIM keeps it, ERASE only clears it
+    fixed: bool,
+    /// ERASEd: no implicit `DIM name(10)` on its next use (subscript out of range)
+    erased: bool,
 }
 
 #[derive(Default)]
@@ -107,7 +111,7 @@ impl Mem {
     /// New zero-initialized storage for a variable: (pointer, block id).
     pub(crate) fn new_var(&mut self, v: &MVar) -> (u64, u32) {
         if v.array {
-            let id = self.alloc(Block::Arr(MArr { esize: v.size, fill: v.fill, strs: v.strs, dims: vec![], data: None }));
+            let id = self.alloc(Block::Arr(MArr { esize: v.size, fill: v.fill, strs: v.strs, dims: vec![], data: None, fixed: false, erased: false }));
             return (ARR_TAG | u64::from(id), id);
         }
         let id = self.alloc(Block::Bytes { data: vec![v.fill; v.size.max(1) as usize], strs: v.strs });
@@ -212,6 +216,9 @@ impl Mem {
         }
         let (esize, fill, strs, old, olddims) = {
             let a = self.arr(desc)?;
+            if kind == DimMode::Static && a.data.is_some() {
+                return Ok(()); // a static array is dimensioned once
+            }
             if kind == DimMode::Dim && a.data.is_some() {
                 return Err(10);
             }
@@ -248,12 +255,32 @@ impl Mem {
         let a = self.arr(desc)?;
         a.data = Some(d);
         a.dims = bounds;
+        a.fixed = kind == DimMode::Static;
+        a.erased = false;
         Ok(())
     }
 
     pub(crate) fn erase(&mut self, desc: u64) -> R<()> {
         let a = self.arr(desc)?;
+        if a.fixed {
+            // static array: cleared in place, dimensions kept (QBasic, C++ backend)
+            let (fill, data) = (a.fill, a.data);
+            if let Some(d) = data {
+                let strs = match &mut self.blocks[d as usize] {
+                    Block::Bytes { data, strs } => {
+                        let old = std::mem::replace(data, vec![fill; data.len()]);
+                        if *strs { old } else { Vec::new() }
+                    }
+                    _ => Vec::new(),
+                };
+                for c in strs.chunks_exact(8) {
+                    self.free_str(u64::from_le_bytes(c.try_into().unwrap()));
+                }
+            }
+            return Ok(());
+        }
         a.dims.clear();
+        a.erased = true;
         if let Some(d) = a.data.take() {
             self.free(d);
         }
@@ -261,6 +288,11 @@ impl Mem {
     }
 
     pub(crate) fn aaddr(&mut self, desc: u64, idx: &[i64]) -> R<u64> {
+        let a = self.arr(desc)?;
+        if a.data.is_none() && !a.erased && !idx.is_empty() {
+            // never dimensioned: QBasic's implicit DIM name(10) (the register model's arr_at)
+            self.dim(desc, DimMode::Dim, vec![(0, 10); idx.len()])?;
+        }
         let a = self.arr(desc)?;
         let Some(d) = a.data else { return Err(9) };
         if idx.len() != a.dims.len() {

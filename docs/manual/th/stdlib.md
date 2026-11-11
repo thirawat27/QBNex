@@ -4,7 +4,6 @@
 
 ไลบรารีมาตรฐานเป็นโค้ด BASIC อยู่ใน `compiler/stdlib` และ import ทีละโมดูล
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'json'
 '$IMPORT:'ext.regex'
@@ -15,10 +14,8 @@
 จะเรียกแบบมีหรือไม่มี suffix ก็ได้ในที่ที่ QBasic ยอม language server จะแสดง
 บรรทัดประกาศและชื่อโมดูลของ procedure ในไลบรารีเมื่อเอาเมาส์ไปชี้
 
-สถานะ: ทุกโมดูลในหน้านี้ **ใช้ได้แล้ว** กับ back end ค่าเริ่มต้น (C++)
-เมื่อใช้ `--ir` โมดูล `ext.*` ยังใช้ไม่ได้ (runner ของ QIR ยังไม่ export
-ฟังก์ชัน native ของมัน) และใน[รุ่นเว็บ](web.md) `ext.http` จะแจ้งว่า
-"not available"
+สถานะ: ทุกโมดูลในหน้านี้ **ใช้ได้แล้ว** ส่วนใน[รุ่นเว็บ](web.md)
+`ext.http` จะแจ้งว่า "not available"
 
 ## ภาพรวม
 
@@ -119,7 +116,6 @@ http://a/b/g
 ## ext.regex
 
 <!-- docs-test: output -->
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.regex'
 PRINT Regex_IsMatch&("^\d{3}-\d{4}$", "555-1234")           ' -1
@@ -152,7 +148,6 @@ c
 ## ext.hash
 
 <!-- docs-test: output -->
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.hash'
 PRINT Hash_SHA256$("abc")
@@ -182,7 +177,6 @@ digest เป็น hex ตัวพิมพ์เล็ก ส่วน `Hash_
 
 ## ext.zip
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.zip'
 h& = Zip_Create&("out.zip")
@@ -197,7 +191,6 @@ r& = Zip_Extract&("out.zip", "outdir")     ' ไม่ยอมแตกไฟ�
 
 ## ext.http
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.http'
 st& = Http_Get&("https://example.com/", 5000)          ' status code, 0 = ล้มเหลว
@@ -212,7 +205,6 @@ body เป็น string ที่เก็บไบต์ได้ทุกค�
 
 ## ext.utf8
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.utf8'
 s$ = "สวัสดี"
@@ -229,7 +221,6 @@ u$ = Cp437_ToUtf8$(old$): back$ = Utf8_ToCp437$(u$)
 ## ext.collections
 
 <!-- docs-test: output -->
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.collections'
 l& = XList_New&
@@ -266,7 +257,6 @@ list เริ่มนับที่ 0 dictionary เก็บลำดับ�
 
 ## ext.datetime
 
-<!-- docs-test: no-ir ext.* modules are not available with --ir -->
 ```basic
 '$IMPORT:'ext.datetime'
 t# = DT_Now#                                  ' มิลลิวินาทีแบบ Unix (UTC)
@@ -296,4 +286,4 @@ PRINT Path_Join$("dir", "file.txt"), Path_Extension$("a/b.bas")
 PRINT Env_Platform$, Args_Count&
 ```
 
-โมดูล BASIC กลุ่มนี้ (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*` ...) ใช้ได้ทั้งกับ back end ค่าเริ่มต้นและ `--ir`
+โมดูล BASIC กลุ่มนี้ (`qbnex`, `sys.*`, `json`, `url`, `collections.*`, `io.*` ...) ใช้ได้ทั้งในโปรแกรมปกติและในรุ่นเว็บ

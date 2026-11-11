@@ -3,9 +3,12 @@
 
 FROM ubuntu:22.04 AS base
 
-# Install build dependencies
+# Build dependencies (QIR pipeline): Rust, plus gcc only as the system linker
+# that Rust uses on Linux; no C/C++ source of QBNex is compiled.
 RUN apt-get update && apt-get install -y \
+    gcc \
     libasound2-dev \
+    libxkbcommon-dev \
     libudev-dev \
     pkg-config \
     libx11-dev \
@@ -17,7 +20,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust toolchain for the qb-runtime library (crates/qb-runtime)
+# Rust toolchain for the QIR runner qb-exec (crates/qb-exec)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
@@ -45,13 +48,16 @@ RUN apt-get update && apt-get install -y \
     libxcursor1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy built compiler from base stage
-COPY --from=base /app/qb /usr/local/bin/qb
-COPY --from=base /app/internal /app/internal
-COPY --from=base /app/crates /app/crates
+# Copy the compiler from the base stage. It looks for crates/ (the QIR runner)
+# next to itself and reads the standard library from compiler/.
+COPY --from=base /app/qb /app/qb
+COPY --from=base /app/crates/qb-exec/bin /app/crates/qb-exec/bin
 COPY --from=base /app/compiler /app/compiler
-# Product-name alias: `qbnex` runs the same compiler as `qb`
-RUN ln -s qb /usr/local/bin/qbnex
+# Launchers on PATH that call /app/qb by its full path, so it finds /app/crates.
+# `qbnex` is the product-name alias of `qb`.
+RUN printf '#!/bin/sh\nexec /app/qb "$@"\n' > /usr/local/bin/qb && \
+    chmod +x /usr/local/bin/qb && \
+    ln -s qb /usr/local/bin/qbnex
 
 # Set working directory for user projects
 WORKDIR /project

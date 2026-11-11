@@ -1,1 +1,0 @@
-legacy defect L-14: PUT on a non-blocking socket treats a full send buffer (WSAEWOULDBLOCK/EAGAIN) as a lost connection, so _CONNECTED drops to 0 and the rest of the data is dropped

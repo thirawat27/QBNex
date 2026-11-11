@@ -33,7 +33,7 @@ them on `PATH`, set `qbnex.lsp.path` / `qbnex.dap.path`, or bundle them with
 ## Debugger
 
 Press F5 on a `.bas` file (no `launch.json` needed). `qb-dap` compiles the
-program with `qb --ir`, runs it on the qb-exec VM (JIT off) and gives you:
+program with `qb`, runs it on the qb-exec VM (JIT off) and gives you:
 
 - breakpoints by line in the launched file (a line without a statement moves
   to the next one), pause, continue, step over / into / out (per statement);
