@@ -2,8 +2,8 @@
 setlocal EnableExtensions
 rem Inputs that crashed the compiler or stopped it with an internal error
 rem must give a clean diagnostic (exit 1, the expected message, a line number,
-rem no "INTERNAL COMPILER ERROR"); the valid ones must compile. Front end only
-rem (-z): no C++ compiler needed.
+rem no "INTERNAL COMPILER ERROR"); the valid ones must compile. Their
+rem executables go to the temp folder (-z no longer stops before the build).
 set "QBNEX_NO_ERROR_DIALOG=1"
 set "ROOT=%~dp0"
 set "REPO_ROOT=%ROOT%..\.."
@@ -33,7 +33,7 @@ echo [PASS] compiler robustness smoke
 exit /b 0
 
 :bad
-"%QB%" "%FIX%\%~1.bas" -z -m < NUL > "%TMPDIR%\%~1.txt" 2>&1
+"%QB%" "%FIX%\%~1.bas" -z -m -o "%TMPDIR%\%~1.exe" < NUL > "%TMPDIR%\%~1.txt" 2>&1
 if not "%ERRORLEVEL%"=="1" (
     echo [FAIL] %~1: exit code %ERRORLEVEL%, expected 1
     set FAILED=1
@@ -54,7 +54,7 @@ findstr /L /c:"%~3" "%TMPDIR%\%~1.txt" >nul || (
 exit /b 0
 
 :good
-"%QB%" "%FIX%\%~1.bas" -z -m < NUL > "%TMPDIR%\%~1.txt" 2>&1
+"%QB%" "%FIX%\%~1.bas" -z -m -o "%TMPDIR%\%~1.exe" < NUL > "%TMPDIR%\%~1.txt" 2>&1
 if not "%ERRORLEVEL%"=="0" (
     echo [FAIL] %~1: exit code %ERRORLEVEL%, expected 0
     type "%TMPDIR%\%~1.txt"

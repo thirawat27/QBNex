@@ -36,7 +36,7 @@ OUT_SIMPLE="$SMOKE_TMP/simple_beep.txt"
 } >"$SIMPLE_SRC"
 
 set +e
-"$QB" "$SRC" -z >"$OUT_ZMODE" 2>&1
+"$QB" "$SRC" -z -o "$SMOKE_TMP/audio_zmode" >"$OUT_ZMODE" 2>&1
 EC_ZMODE=$?
 "$QB" "$SRC" -o "$AUDIO_EXE" >"$OUT_LINK" 2>&1
 EC_LINK=$?

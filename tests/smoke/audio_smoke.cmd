@@ -36,7 +36,7 @@ set "OUT_SIMPLE=%TMPDIR%\simple_beep.txt"
 >"%SIMPLE_SRC%" echo PRINT "simple"
 >>"%SIMPLE_SRC%" echo BEEP
 
-"%QB%" "%SRC%" -z > "%OUT_ZMODE%" 2>&1
+"%QB%" "%SRC%" -z -o "%TMPDIR%\audio_zmode.exe" > "%OUT_ZMODE%" 2>&1
 set "EC_ZMODE=%ERRORLEVEL%"
 "%QB%" "%SRC%" -o "%AUDIO_EXE%" > "%OUT_LINK%" 2>&1
 set "EC_LINK=%ERRORLEVEL%"

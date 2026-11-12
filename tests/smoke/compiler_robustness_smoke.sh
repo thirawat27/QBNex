@@ -1,8 +1,8 @@
 #!/bin/sh
 # Inputs that crashed the compiler or stopped it with an internal error
 # must give a clean diagnostic (exit 1, the expected message, a line number,
-# no "INTERNAL COMPILER ERROR"); the valid ones must compile. Front end only
-# (-z): no C++ compiler needed.
+# no "INTERNAL COMPILER ERROR"); the valid ones must compile. Their
+# executables go to the temp folder (-z no longer stops before the build).
 set -u
 root=$(cd "$(dirname "$0")/../.." && pwd)
 qb="$root/qbnex"
@@ -15,7 +15,7 @@ fi
 tmp=$(mktemp -d)
 failed=0
 bad() {
-  "$qb" "$fix/$1.bas" -z -m < /dev/null > "$tmp/$1.txt" 2>&1
+  "$qb" "$fix/$1.bas" -z -m -o "$tmp/$1" < /dev/null > "$tmp/$1.txt" 2>&1
   ec=$?
   if [ "$ec" -ne 1 ]; then
     echo "[FAIL] $1: exit code $ec, expected 1"; failed=1; return
@@ -25,7 +25,7 @@ bad() {
   grep -qF "$3" "$tmp/$1.txt" || { echo "[FAIL] $1: location \"$3\" missing"; failed=1; }
 }
 good() {
-  "$qb" "$fix/$1.bas" -z -m < /dev/null > "$tmp/$1.txt" 2>&1
+  "$qb" "$fix/$1.bas" -z -m -o "$tmp/$1" < /dev/null > "$tmp/$1.txt" 2>&1
   ec=$?
   if [ "$ec" -ne 0 ]; then
     echo "[FAIL] $1: exit code $ec, expected 0"; cat "$tmp/$1.txt"; failed=1
