@@ -2,15 +2,14 @@
 //!
 //! Replaces the `qbs_str` overloads of libqb.cpp. The legacy algorithm formats
 //! with C `printf` ("% .6E" / "% .15E" / "% .Nf") and then edits the text; the
-//! port reproduces that text exactly, including two legacy quirks that golden
-//! output depends on:
-//!
-//! - DOUBLE: the significant-digit count is really a buffer index, so values
-//!   with two or more significant digits get one extra decimal
-//!   (`STR$(42#)` = " 42.0", `STR$(-0.25#)` = "-.250").
-//! - Non-finite values print as " 0".
+//! port reproduces that text, including one legacy quirk that golden output
+//! depends on: non-finite values print as " 0".
 //!
 //! Intentional deviations (see docs/dev/deviations.md):
+//! - DOUBLE: legacy used a buffer index as the significant-digit count, so
+//!   values with two or more significant digits got one extra decimal
+//!   (`STR$(42.5#)` = " 42.50", `STR$(-0.25#)` = "-.250"). The port prints
+//!   the shortest form, as QBasic and QB64 do (" 42.5", "-.25").
 //! - Legacy built a broken printf format when more than 19 decimals were
 //!   needed (`STR$(1.234567890123456D-16)` gave " .0f"); the port prints the
 //!   decimals the algorithm asked for.
@@ -131,8 +130,7 @@ pub fn str_f64(v: f64) -> Vec<u8> {
         mult *= 10;
     }
     // Position of the 'E' and of the last significant mantissa character.
-    // Legacy calls that position "digits": it is an index, not a count.
-    let (mut digits, mut exp_at) = (0usize, 0usize);
+    let (mut last, mut exp_at) = (0usize, 0usize);
     for i in (1..=l).rev() {
         let c = at(i);
         if exp_at == 0 {
@@ -140,20 +138,24 @@ pub fn str_f64(v: f64) -> Vec<u8> {
                 exp_at = i;
             }
         } else if c != b'0' && c != b'.' {
-            digits = i;
+            last = i;
             break;
         }
     }
-    if digits == 0 {
+    if last == 0 {
         return zero();
     }
     if exponent >= 16 || exponent <= -17 {
-        let mut out = buf[..=digits].to_vec();
+        let mut out = buf[..=last].to_vec();
         out.push(b'D');
         out.extend_from_slice(&buf[exp_at + 1..l]);
         return out;
     }
-    let decimals = (-(exponent - digits as i32 + 1)).max(0) as usize; // no 19 limit
+    // Significant digits: the mantissa is " d.ddd...", so the digit at index
+    // i >= 3 is significant digit number i - 1. (Legacy used the index itself
+    // as the count and printed one decimal too many: " 2.50" for 2.5.)
+    let digits = if last == 1 { 1 } else { last as i32 - 1 };
+    let decimals = (digits - 1 - exponent).max(0) as usize; // no 19 limit
     cull_leading_zero(c_fixed(v, decimals))
 }
 
@@ -227,8 +229,8 @@ mod tests {
     fn c_abi_writes_text_and_returns_length() {
         let mut buf = [0xAAu8; STR_MAX + 1];
         // SAFETY: buffer holds STR_MAX bytes.
-        let n = unsafe { qb_str_f64(42.0, buf.as_mut_ptr()) } as usize;
-        assert_eq!(&buf[..n], b" 42.0");
+        let n = unsafe { qb_str_f64(42.5, buf.as_mut_ptr()) } as usize;
+        assert_eq!(&buf[..n], b" 42.5");
         assert_eq!(buf[n], 0xAA, "no terminator or overrun");
         // SAFETY: as above.
         let n = unsafe { qb_str_f32(0.1, buf.as_mut_ptr()) } as usize;
@@ -278,27 +280,59 @@ mod tests {
     }
 
     #[test]
-    fn double_precision_matches_legacy_including_extra_decimal_quirk() {
-        let cases: [(f64, &str); 16] = [
-            (42.0, " 42.0"),
+    fn double_precision_prints_the_shortest_form() {
+        let cases: [(f64, &str); 31] = [
+            (2.5, " 2.5"),
+            (-2.5, "-2.5"),
+            (12.5, " 12.5"),
+            (-0.25, "-.25"),
+            (0.25, " .25"),
+            (42.0, " 42"),
             (7.0, " 7"),
-            (-0.25, "-.250"),
             (0.1, " .1"),
+            (1.0 / 3.0, " .3333333333333333"),
+            (2.0 / 3.0, " .6666666666666666"),
+            (std::f64::consts::PI, " 3.141592653589793"),
+            (0.1 + 0.2, " .3"),
             (1e15, " 1000000000000000"),
             (1e16, " 1D+16"),
+            (-1e16, "-1D+16"),
+            (1.5e16, " 1.5D+16"),
+            (1.5e-5, " .000015"),
             (1e-16, " .0000000000000001"),
-            (1.5e-10, " .000000000150"),
+            (1.5e-10, " .00000000015"),
             (1e-17, " 1D-17"),
-            (123456789012345.6, " 123456789012345.59"),
-            (0.000123, " .0001230"),
-            (1.25e-5, " .00001250"),
+            (123456789012345.6, " 123456789012345.6"),
+            (0.000123, " .000123"),
+            (1.25e-5, " .0000125"),
             (0.0, " 0"),
+            (-0.0, " 0"),
             (-1e-17, "-1D-17"),
+            (1e300, " 1D+300"),
+            (-1.25e-300, "-1.25D-300"),
+            (9.999999999999999e14, " 999999999999999.9"),
             (f64::MAX, " 1.797693134862316D+308"),
             (5e-324, " 4.940656458412465D-324"),
         ];
         for (v, want) in cases {
             assert_eq!(s(str_f64(v)), want, "STR$({v:e}#)");
+        }
+    }
+
+    #[test]
+    fn double_text_reads_back_and_has_no_trailing_zero() {
+        let mut x = 1.0f64;
+        for _ in 0..1500 {
+            for v in [x, -x, 1.0 / x, x * 0.987654321, x / 7.0] {
+                let text = s(str_f64(v));
+                if let Some(frac) = text.split('D').next().and_then(|m| m.split_once('.')) {
+                    assert!(!frac.1.ends_with('0'), "trailing zero in {text}");
+                }
+                assert!(!text[1..].starts_with("0."), "leading zero in {text}");
+                let back: f64 = text.trim().replace('D', "E").parse().unwrap();
+                assert!(((back - v) / v).abs() < 1e-15, "{v:e} -> {text}");
+            }
+            x *= 1.37;
         }
     }
 
@@ -312,16 +346,17 @@ mod tests {
 
     #[test]
     fn more_than_19_decimals_no_longer_breaks_the_format() {
-        // Legacy printed " .0f" here. 32 decimals are requested.
+        // Legacy printed " .0f" here. 31 decimals are needed.
         let got = s(str_f64(1.234567890123456e-16));
-        assert!(got.starts_with(" .000000000000000123456789012345"), "{got}");
-        assert_eq!(got.len(), 2 + 32);
+        assert_eq!(got, " .0000000000000001234567890123456");
     }
 
     #[test]
     fn float_formats_through_double() {
         let tenth = qb_float80::dec::parse(b"0.1").0;
         assert_eq!(s(str_f80(tenth.to_bytes())), " .1");
+        let two_and_half = qb_float80::dec::parse(b"2.5").0;
+        assert_eq!(s(str_f80(two_and_half.to_bytes())), " 2.5");
         let third = qb_float80::F80::ONE / qb_float80::F80::from_i64(3);
         assert_eq!(str_f80(third.to_bytes()), str_f64(1.0 / 3.0));
         let mut buf = [0u8; STR_MAX];

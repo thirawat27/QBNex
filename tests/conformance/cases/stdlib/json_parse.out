@@ -5,7 +5,7 @@ root type 5 members 5
  key nested type 5 
  key esc type 3 
 name=QBNex
-version= 125.0 
+version= 125 
 tags length 9 
  tag 0 type 3 ="basic"
  tag 1 type 3 ="rust"
@@ -38,10 +38,10 @@ utf8: 41 C3 A9 E2 82 AC F0 9F 98 80 1
 re-escaped: "Aé€😀\u0001"
  num 0 -> 0  text 0
  num -0 -> 0  text -0
- num 12 -> 12.0  text 12
- num -3.5 ->-3.50  text -3.5
+ num 12 -> 12  text 12
+ num -3.5 ->-3.5  text -3.5
  num 1E3 -> 1000  text 1E3
- num 2.5e-3 -> .00250  text 2.5e-3
+ num 2.5e-3 -> .0025  text 2.5e-3
  num 1e400 -> 1.797693134862316D+308  text 1e400
  num -1e400 ->-1.797693134862316D+308  text -1e400
  num 1e-400 -> 0  text 1e-400

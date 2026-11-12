@@ -28,6 +28,7 @@ are explained, with their tests, in
 | D-02 | Rounding to integers (`CINT`, `CLNG`, assignment to integer variables) is round-half-even on every CPU (QB64 on ARM rounded half away from zero). |
 | D-03 | `VAL` reads 1000 significant digits exactly (QB64 overran a buffer past 256). |
 | D-04, D-05 | `STR$` of doubles needing more than 19 decimals prints the digits (QB64 printed ` .0f`); `STR$` of a non-finite SINGLE is ` 0`. |
+| D-29 | DOUBLE and `_FLOAT` values print like QBasic 4.5 and QB64 (`PRINT`, `STR$`, `PRINT #`, `WRITE`): at most 16 significant digits, no trailing zeros. `PRINT 2.5#` shows ` 2.5`; earlier QBNex releases showed ` 2.50`, and ` 42.0` for 42. |
 | D-06 | Main-module code before the first SUB stays in the main module; `ON ERROR GOTO` handlers in the main module work. |
 | D-07 | `_MEMFREE` of a `_MEMNEW` block no longer frees twice (heap corruption in QB64). |
 | D-08, D-10, D-11, D-12, D-R12b-1, D-R12b-3 | Reads past buffers in QB64 (GET of strings, FILES, SHELL, stretched `_PUTIMAGE`, 2-bit GET, HEX$) now give defined results. |
@@ -46,7 +47,7 @@ are explained, with their tests, in
 ## QBasic behaviour kept on purpose
 
 These match QB64 (golden outputs depend on them): `MKSMBF$(0)` gives MBF
-exponent 2; some DOUBLE values print a trailing zero (`-2.50`); `STR$` of
+exponent 2; `STR$` of
 infinity/NaN is ` 0`; graphics keep QB64's float-to-integer conversions;
 `_CONNECTIONADDRESS` shows a byte-swapped remote port; TIMER waits for the
 next second at program start.

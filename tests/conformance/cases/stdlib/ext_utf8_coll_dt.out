@@ -5,10 +5,10 @@
 4772C3BCC39F6520E296880D back ok -1 
 E298BAE299A5 ?x
  4 [banana|fig|2.5|Apple] 2  0 
- 2.50 [2.5] 1  2 -1 
+ 2.5 [2.5] 1  2 -1 
 sorted [2.5,Apple,banana,fig]
 desc [fig,banana,Apple,2.5]
- 2 Ann 43.0 43 0  1 
+ 2 Ann 43 43 0  1 
  key name key age
 freed count-1  not a list/dictionary handle
 big 5000  5000 
@@ -17,6 +17,6 @@ Tuesday 05 March 2024, 07:08:09.010 day 065 week 10 %
  2024  3  5  7  8  9  10  2  65  10 
 -1  1709622480000 1900-01-01T00:00:00.000Z
  0 -1  0 
-2025-03-05T07:08:09.010Z 359.0 
+2025-03-05T07:08:09.010Z 359 
 1969-12-31T23:59:59.999Z now ok -1  local ok -1 
 done

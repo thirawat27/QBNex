@@ -23,7 +23,7 @@ if errorlevel 1 (type "%TMPDIR%\child.log" & echo [FAIL] chain_common_child.bas 
 pushd "%TMPDIR%"
 .\chain_common_main.exe < nul > out.txt 2>&1
 popd
-findstr /x /c:" 7  2.50 text abcd 3 -4 " "%TMPDIR%\out.txt" >nul || (
+findstr /x /c:" 7  2.5 text abcd 3 -4 " "%TMPDIR%\out.txt" >nul || (
     type "%TMPDIR%\out.txt"
     echo [FAIL] the chained program did not get the COMMON values
     exit /b 1
@@ -32,7 +32,7 @@ rem COMMON arrays: static INTEGER, TYPE and STRING * 3 arrays, then dynamic STRI
 set "ARRAYS_OK=1"
 findstr /l /x /c:" 10  20  30  5  6  abcxyz" "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
 findstr /l /x /c:"-1  1  one||three" "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
-findstr /l /x /c:" 2  1  2  1.50 " "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
+findstr /l /x /c:" 2  1  2  1.5 " "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
 if not defined ARRAYS_OK (
     type "%TMPDIR%\out.txt"
     echo [FAIL] the chained program did not get the COMMON arrays

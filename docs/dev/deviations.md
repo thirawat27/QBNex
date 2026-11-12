@@ -45,9 +45,7 @@ Kept defects are conformance `xfail` cases; the runner reports `XPASS` once one 
 Golden files depend on these.
 
 - `MKSMBF$(0)` yields MBF exponent 2 (`00 00 00 02`), not zero.
-- Some DOUBLE values print with a trailing zero (`-2.50`, `3.141592653589790`).
 - `MKDMBF$(-0#)` and tiny/huge doubles raise overflow (error 5).
-- DOUBLE `STR$`/`PRINT` adds one decimal when there are two or more significant digits (` 42.0`, `-.250`, ` 123456789012345.59`, ` .33333333333333331`): legacy uses a buffer index as the digit count. Ported as is (`numfmt.rs`).
 - `STR$` of infinity or NaN is ` 0`.
 - Graphics code keeps legacy float handling: `qbr_float_to_long` on SINGLE coordinates, `cvttsd2si` saturation to `INT_MIN`, and C wrap-around in CIRCLE/LINE arithmetic.
 - `_CONNECTIONADDRESS` of an accepted connection shows the remote port with its two bytes swapped on little-endian CPUs (legacy read the network-order field as a native `uint16`).
@@ -98,6 +96,7 @@ Golden files depend on these.
 | D-26 | Compiler: PRINT does not insert an implied `;` next to a relational or logical operator (fixes L-04). | Code defect. |
 | D-27 | Compiler: an empty `DIM [SHARED] name()` declares a dynamic array with unknown dimensions (the `COMMON name()` path), sized by the first `REDIM` (fixes L-21). | QBasic/QB64 semantics. |
 | D-28 | Compiler: `DIM name AS STRING` may share its name with a built-in function that requires `$` and takes arguments; `name$(` stays the call (a scalar cannot be indexed), the bare name is the variable (fixes L-23). Functions without arguments and user SUB/FUNCTION names still conflict. | QBasic accepts it. |
+| D-29 | DOUBLE and `_FLOAT` `STR$`/`PRINT`/`PRINT #`/`WRITE` print at most 16 significant digits without trailing zeros (` 2.5`, ` 42`, `-.25`, ` .3333333333333333`, ` 1D+16`). Legacy used the buffer index of the last significant digit as the digit count, so every value with two or more significant digits got one extra decimal (` 2.50`, ` 42.0`, `-.250`, ` 123456789012345.59`, ` .33333333333333331`). SINGLE is unchanged. Golden cases whose output changed carry a `.deviation` file. | QBasic 4.5 and QB64 print ` 2.5`. |
 | D-21 | `_OPENCLIENT` tries every IPv4 address of the host until one connects; legacy Windows used only the first (`gethostbyname`), legacy Linux/macOS already tried all. | One behaviour on all OSes. |
 | D-R12b-1 | `n_roundincrement` (READ / INPUT # into `_INTEGER64` and `_UNSIGNED _INTEGER64`) no longer reads `n_digit[n_exp+1]` with a negative index for numbers below 0.1; such numbers are not rounded up (0.06 reads as 0). Legacy read memory before the array (undefined; usually no rounding). | Defined behaviour; `diff_core` skips these reads (3,089 of 2.26M). |
 | D-R12b-2 | READ of a decimal number into `_FLOAT` / DOUBLE uses correctly rounded parsing. MinGW `sscanf("%lf")` was one ulp off for some 17-digit inputs (1 in 2.26M random items, e.g. `6.5535595088869763E245`). | Correct IEEE rounding on every OS. |

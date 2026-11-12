@@ -1,0 +1,1 @@
+D-29: DOUBLE values print with at most 16 significant digits and no trailing zeros, as in QBasic 4.5 and QB64. The legacy runtime used the buffer index of the last significant digit as the digit count and printed one decimal too many (" 2.50" for 2.5, " 42.0" for 42). Only those number lines differ from the legacy oracle; the rest of the output is the legacy golden.

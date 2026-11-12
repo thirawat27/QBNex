@@ -210,7 +210,7 @@ rt PRINTNL %9
 end
 endfunc
 ";
-    assert_eq!(run_full(src), " 12 -3.50 hi-3.50 \n");
+    assert_eq!(run_full(src), " 12 -3.5 hi-3.5 \n");
 }
 
 #[test]

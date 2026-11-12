@@ -11,7 +11,7 @@ join ok-1  args kept-1
 file [c.tar.gz] ext [.gz] root dir ok-1 
 {"k":"a\u0001\b\f\"","n":1}
 plain,"a,b","q""x"
-pre-1970 1969-12-30T23:59:59.999 weekday 2  value-86400001.0 
+pre-1970 1969-12-30T23:59:59.999 weekday 2  value-86400001 
 1900-01-01 value-2208988800000  weekday 1 
 round trip 1900-01-01T00:00:00.000
 leap 2000-02-29T00:00:00.000 2 

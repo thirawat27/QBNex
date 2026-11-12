@@ -245,10 +245,10 @@ XColl_Free l&: XColl_Free d&
 ```text
  3
 fig
- 2.50
+ 2.5
 2.5,fig,pear
 Ann
- 42.0
+ 42
  0
 name
 age
