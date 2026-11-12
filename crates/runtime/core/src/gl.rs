@@ -228,6 +228,10 @@ fn hidden_window() -> Result<Hidden, String> {
         fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
     }
 
+    // macOS allows an event loop only on the main thread, which the program owns
+    if cfg!(target_os = "macos") {
+        return Err("no hidden OpenGL window on macOS (its event loop must run on the main thread)".into());
+    }
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("qb-gl-window".into())

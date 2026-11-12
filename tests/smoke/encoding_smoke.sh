@@ -87,7 +87,8 @@ EC_QUOTE=$?
 "$QB" "$SRC_BOM" -o "$BIN_STALE" >/dev/null 2>&1
 "$QB" "$SRC_INVALID" -o "$BIN_STALE" > "$OUT_STALE" 2>&1
 EC_STALE=$?
-set -e
+# no `set -e` from here on: the binary-data check below expects a failing compile,
+# and every check records its result in FAIL
 # Runtime errors go to stderr (exit code 1) instead of a modal dialog.
 export QBNEX_NO_ERROR_DIALOG=1
 
