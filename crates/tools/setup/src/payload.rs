@@ -39,7 +39,8 @@ pub fn extract(zip: &[u8], dir: &Path) -> Result<Vec<String>, String> {
     for i in 0..archive.len() {
         let mut f = archive.by_index(i).map_err(|e| format!("damaged installer: {e}"))?;
         let Some(rel) = f.enclosed_name() else {
-            return Err(format!("damaged installer: unsafe path {}", f.name()));
+            let name = f.name().map(|n| n.into_owned()).unwrap_or_default();
+            return Err(format!("damaged installer: unsafe path {name}"));
         };
         let path = dir.join(&rel);
         if f.is_dir() {

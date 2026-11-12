@@ -93,6 +93,6 @@ rm -rf "$SMOKE"
 # developer tools (qbnex fmt / lsp / dap; see scripts/qbnex-launcher.sh).
 rm -f ./qbnex
 if cp scripts/qbnex-launcher.sh ./qbnex 2>/dev/null; then chmod +x ./qbnex; else ln -s qb ./qbnex 2>/dev/null || cp ./qb ./qbnex; fi
-echo "QBNex CLI compiler is ready (QIR pipeline):"
+echo "QBNex CLI compiler is ready"
 echo "  ./qb yourfile.bas"
 echo "  ./qbnex yourfile.bas"

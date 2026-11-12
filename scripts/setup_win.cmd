@@ -114,7 +114,7 @@ del /q "%TEMP%\qbnex_qir_smoke.bas" "%TEMP%\qbnex_qir_smoke.exe" >nul 2>nul
 
 if not "%QBNEX_KEEP_STAGE0%"=="1" del /q qb-stage0.exe >nul 2>nul
 echo.
-echo QBNex CLI compiler is ready ^(QIR pipeline^):
+echo QBNex CLI compiler is ready
 echo   qb yourfile.bas
 echo   qbnex yourfile.bas
 if not "%QBNEX_CI%"=="1" pause
