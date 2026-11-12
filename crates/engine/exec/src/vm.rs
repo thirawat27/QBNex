@@ -749,10 +749,10 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.rt.flush();
         // with a window, END keeps it open until it is closed (end() waits for stop_program)
         #[cfg(not(target_arch = "wasm32"))]
-        // (headless: nobody can close the stand-in window, so END ends the program)
+        // (headless without an input script: nobody can close the stand-in window, so END ends the program)
         if self.rt.window && r.is_ok() && !self.by_system {
             crate::rt::window_present(&self.rt.display);
-            if qb_runtime::window::qb_window_headless() != 0 {
+            if qb_runtime::window::qb_window_headless() != 0 && std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
                 return r;
             }
             let mut at = qb_runtime::systime::ticks();

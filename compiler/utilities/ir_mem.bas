@@ -56,7 +56,7 @@ END FUNCTION
 'm = _MEMNEW(n) / _MEM(x) / _MEM(offset, size): writes the block at dst$
 'returns 0 if rhs$ is not one of those
 FUNCTION IrMemAssign% (dst$, rhs$)
-    DIM f$, n AS LONG, j AS LONG, inner$, k AS LONG, x$, y$, p$, t AS LONG, st$, sz AS LONG, mt AS LONG, es AS LONG
+    DIM f$, n AS LONG, j AS LONG, inner$, k AS LONG, x$, y$, p$, t AS LONG, st$, sz AS LONG, mt AS LONG, es AS LONG, vn$, sy$
     DIM sv(1 TO 4) AS STRING
     n = numelements(rhs$)
     f$ = UCASE$(getelement$(rhs$, 1))
@@ -90,7 +90,10 @@ FUNCTION IrMemAssign% (dst$, rhs$)
         z$ = IrReg$: IrE "rt " + z$ + " _ARRBYTES " + x$
         mt = Type2MemTypeValue(t + ISARRAY)
         es = IrSize&(IrSTy$(t, 0))
-        IF t AND ISSTRING THEN es = IrSize&(IrPlaceSTy$(p$)) 'STRING * n: the length is in the place
+        IF t AND ISSTRING THEN 'STRING * n: the length is the array's (the place holds only its name)
+            vn$ = getelement$(sv(1), 1): sy$ = removesymbol$(vn$)
+            k = IrFindArrId&(vn$): IF k THEN es = ids(k).tsize
+        END IF
         IF (t AND ISSTRING) <> 0 AND (t AND ISFIXEDLENGTH) = 0 THEN IrNotSup "_MEM of a variable-length STRING array (QB64 rejects it too)": EXIT FUNCTION
         IrE "rt _MEMVAR " + dst$ + " " + y$ + " " + z$ + " " + IrConst$("i64", str2$(mt)) + " " + IrConst$("i64", str2$(es))
         EXIT FUNCTION

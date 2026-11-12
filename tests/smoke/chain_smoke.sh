@@ -16,7 +16,7 @@ TMPDIR_SMOKE="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_chain.XXXXXX")"
   || { cat "$TMPDIR_SMOKE/child.log"; echo "[FAIL] chain_common_child.bas does not compile"; exit 1; }
 
 out="$(cd "$TMPDIR_SMOKE" && ./chain_common_main < /dev/null 2>&1 | tr -d '\r')"
-if ! printf '%s\n' "$out" | grep -qx ' 7  2.5 text abcd 3 -4 '; then
+if ! printf '%s\n' "$out" | grep -qx ' 7  2.50 text abcd 3 -4 '; then
   printf '%s\n' "$out"
   echo "[FAIL] the chained program did not get the COMMON values"
   exit 1

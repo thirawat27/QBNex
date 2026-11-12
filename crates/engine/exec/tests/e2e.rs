@@ -147,9 +147,9 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     install_runner();
     let dir = tmpdir("unsupported");
     let src = dir.join("bad.bas");
-    // nearly everything is supported on QIR; _MEM of a variable-length STRING is not (QB64
-    // rejects it too)
-    std::fs::write(&src, "PRINT 1\nDIM m AS _MEM: m = _MEM(a$)\n").unwrap();
+    // nearly everything is supported on QIR; CHAIN inside a SUB while a COMMON variable is
+    // not SHARED is not
+    std::fs::write(&src, "COMMON x\nPRINT 1\nCALL s\nSUB s\nCHAIN \"next\"\nEND SUB\n").unwrap();
     let _guard = compiler_lock();
     let out = Command::new(&qb)
         .current_dir(repo_root())
@@ -161,7 +161,7 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
         .unwrap();
     let text = normalize(&out.stdout) + &normalize(&out.stderr);
     assert!(!out.status.success(), "should fail: {text}");
-    assert!(text.contains("line 2"), "message should name the line: {text}");
+    assert!(text.contains("line 5"), "message should name the line: {text}");
 }
 
 /// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,

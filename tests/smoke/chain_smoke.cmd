@@ -23,7 +23,7 @@ if errorlevel 1 (type "%TMPDIR%\child.log" & echo [FAIL] chain_common_child.bas 
 pushd "%TMPDIR%"
 .\chain_common_main.exe < nul > out.txt 2>&1
 popd
-findstr /x /c:" 7  2.5 text abcd 3 -4 " "%TMPDIR%\out.txt" >nul || (
+findstr /x /c:" 7  2.50 text abcd 3 -4 " "%TMPDIR%\out.txt" >nul || (
     type "%TMPDIR%\out.txt"
     echo [FAIL] the chained program did not get the COMMON values
     exit /b 1

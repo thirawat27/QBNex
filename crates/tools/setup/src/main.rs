@@ -83,7 +83,8 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let interactive = !args.yes && io::stdin().is_terminal();
+    // --pack is a build step: it never asks and never waits for Enter
+    let interactive = !args.yes && args.pack.is_none() && io::stdin().is_terminal();
     let result = if let Some(src) = &args.pack {
         match &args.out {
             Some(out) => payload::pack(src, out).map(|n| println!("wrote {} ({n} files)", out.display())),

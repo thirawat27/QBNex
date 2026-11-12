@@ -181,4 +181,4 @@ compile and run; change their delay code to wait on the clock, for example
 | L-01 | An `ON ERROR` or `GOSUB` label in module code after the SUBs does not compile when that code is in an included file (in the main file it works, also when the SUBs come from an `$INCLUDE`). |
 | - | Closing the window of a program inside a `SOUND` loop takes about 2.6 s to end it. |
 
-Not checked on the QIR runner yet (seen with the old C++ runtime): L-08, about 1 run in 300-400 ended with exit code `0xC0000409`.
+L-08 (with the old C++ runtime about 1 run in 300-400 ended with exit code `0xC0000409`) does not happen on the QIR runner: 5000 runs of `control/gosub_goto` all ended normally. Only that console program was run this many times.
