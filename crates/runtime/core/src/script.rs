@@ -18,6 +18,7 @@
 //! resize 800 600
 //! close               # window close button
 //! snapshot            # print "[frame WxH fnv1a=xxxxxxxx]" for the last presented frame
+//! pixel 10 20         # print "[pixel 10,20=AARRGGBB]" (frame pixels; "none" outside it)
 //! ```
 
 use crate::keymap::Key;
@@ -35,6 +36,8 @@ pub enum Cmd {
     Resize(i32, i32),
     Close,
     Snapshot,
+    /// one pixel of the last presented frame (x, y)
+    Pixel(i32, i32),
 }
 
 /// Parses a key name.
@@ -133,6 +136,10 @@ pub fn parse(text: &str) -> Result<Vec<Cmd>, String> {
             }
             "close" => out.push(Cmd::Close),
             "snapshot" => out.push(Cmd::Snapshot),
+            "pixel" => {
+                let v = nums(2)?;
+                out.push(Cmd::Pixel(v[0] as i32, v[1] as i32));
+            }
             _ => return Err(err("unknown command")),
         }
     }
@@ -160,7 +167,7 @@ mod tests {
     #[test]
     fn parses_commands() {
         let s = "# demo\nwait 10\nkey a\ntype Hi\nkeydown lshift\nkeyup lshift\n\
-                 mousemove 3 4\nclick 2\nwheel -1\nresize 800 600\nsnapshot\nclose\n";
+                 mousemove 3 4\nclick 2\nwheel -1\nresize 800 600\nsnapshot\npixel 5 6\nclose\n";
         let c = parse(s).unwrap();
         assert_eq!(
             c,
@@ -180,6 +187,7 @@ mod tests {
                 Cmd::Wheel(-1),
                 Cmd::Resize(800, 600),
                 Cmd::Snapshot,
+                Cmd::Pixel(5, 6),
                 Cmd::Close,
             ]
         );

@@ -152,8 +152,9 @@ The build stops with `QIR: unsupported: line N: ...` on:
 Compiled, but different:
 
 - `TIME$ = ...` does not set the clock (as in QB64).
-- `SUB _GL` needs an OpenGL context: without one (headless, no driver) it is not
-  run and the runner says so on stderr. `_glGetString` returns an `_OFFSET`
+- `SUB _GL` needs an OpenGL context (WGL, EGL/GLX or CGL; headless runs use an
+  offscreen one): without one (no driver, `QB_GL=off`) it is not run and the
+  runner says so on stderr. `_glGetString` returns an `_OFFSET`
   (QB64: a STRING).
 - `LPRINT` prints pages of 60 lines: on Windows as an image of 8x16
   characters on the default printer, on Linux and macOS through `lp`.

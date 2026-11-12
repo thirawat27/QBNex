@@ -1349,6 +1349,12 @@ impl<'m, 'o> Vm<'m, 'o> {
         };
         qb_runtime::gl::end_frame();
         self.gl.busy = false;
+        if qb_runtime::gl::offscreen() && !self.rt.display.screen_hide {
+            // no visible OpenGL window (headless): the frame read back goes to the window layer
+            if let Some((px, w, h)) = qb_runtime::gl::read_pixels() {
+                crate::rt::window_present_pixels(&px, w, h);
+            }
+        }
         match r {
             Ok(u32::MAX) => u32::MAX,
             Ok(_) => pc,

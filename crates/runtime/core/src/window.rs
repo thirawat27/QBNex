@@ -776,6 +776,19 @@ fn run_script(cmds: Vec<script::Cmd>) {
                 );
                 let _ = out.flush();
             }
+            S::Pixel(x, y) => {
+                let f = lock(&FRAME);
+                let p = (x >= 0 && y >= 0 && (x as usize) < f.w && (y as usize) < f.h)
+                    .then(|| f.px.get(y as usize * f.w + x as usize).copied())
+                    .flatten();
+                use std::io::Write;
+                let mut out = std::io::stdout().lock();
+                let _ = match p {
+                    Some(p) => writeln!(out, "[pixel {x},{y}={p:08X}]"),
+                    None => writeln!(out, "[pixel {x},{y}=none]"),
+                };
+                let _ = out.flush();
+            }
         }
     }
 }

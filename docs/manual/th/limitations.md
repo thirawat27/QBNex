@@ -137,7 +137,8 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
 คอมไพล์ได้ แต่ทำงานต่างไป:
 
 - `TIME$ = ...` ไม่ตั้งนาฬิกา (เหมือน QB64)
-- `SUB _GL` ต้องมี OpenGL context ถ้าไม่มี (headless หรือไม่มีไดรเวอร์) จะไม่ถูกเรียก และ runner
+- `SUB _GL` ต้องมี OpenGL context (WGL, EGL/GLX หรือ CGL ถ้ารันแบบ headless จะใช้ context แบบ offscreen)
+  ถ้าไม่มี (ไม่มีไดรเวอร์ หรือตั้ง `QB_GL=off`) จะไม่ถูกเรียก และ runner
   แจ้งทาง stderr ส่วน `_glGetString` คืนค่าเป็น `_OFFSET` (QB64 คืน STRING)
 - `LPRINT` พิมพ์เป็นหน้า หน้าละ 60 บรรทัด บน Windows ส่งเป็นภาพตัวอักษร 8x16 ไปที่เครื่องพิมพ์
   หลัก บน Linux และ macOS ส่งผ่าน `lp` ถ้าตั้ง `QBNEX_LPRINT=<file>` จะต่อข้อความลงไฟล์นั้นแทน

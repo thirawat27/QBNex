@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `LINE INPUT #` on a BINARY file reads a final line of 1 or 2 bytes.
 - `TIMER ON` after `TIMER STOP` delivers the event queued during the stop.
 - A failed `_MEMGET` check of 0 bytes reports the check error instead of error 518.
+- `SUB _GL` without a visible window (`QBNEX_HEADLESS`) draws into an offscreen OpenGL framebuffer, and its frame (with the software screen per `_GLRENDER`) now reaches the window layer, so input-script snapshots show it. Input scripts get `pixel x y`.
 - A second `OPEN "COMn:..."` parses its options instead of failing with `Bad file name`.
 - Native images (`qb-exec build`) of programs that use TYPEs or fixed-length strings in SUBs ran only by chance: the bytecode lowering allocated registers in hash-map order.
 - An empty `$IMPORT` head file no longer stops the compiler with internal error 62.

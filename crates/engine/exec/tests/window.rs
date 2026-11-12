@@ -25,6 +25,12 @@ fn fixture(name: &str) -> String {
 
 /// Runs `qir` headless with `script`; returns (exit code, stdout). Panics after 30 s.
 fn run(dir: &Path, qir: &str, script: &str) -> (Option<i32>, String) {
+    let (code, out, _) = run_err(dir, qir, script);
+    (code, out)
+}
+
+/// [`run`] that also returns stderr.
+fn run_err(dir: &Path, qir: &str, script: &str) -> (Option<i32>, String, String) {
     std::fs::write(dir.join("prog.qir"), qir).unwrap();
     std::fs::write(dir.join("keys.input"), script).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_qb-exec"))
@@ -45,6 +51,12 @@ fn run(dir: &Path, qir: &str, script: &str) -> (Option<i32>, String) {
         let _ = out.read_to_string(&mut s);
         s
     });
+    let mut err = child.stderr.take().unwrap();
+    let err_reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s);
+        s
+    });
     let start = Instant::now();
     let status = loop {
         if let Some(st) = child.try_wait().unwrap() {
@@ -57,7 +69,7 @@ fn run(dir: &Path, qir: &str, script: &str) -> (Option<i32>, String) {
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    (status.code(), reader.join().unwrap())
+    (status.code(), reader.join().unwrap(), err_reader.join().unwrap())
 }
 
 const HELLO: &str = "QIR 1\nfunc main\nconst.str %0 x68656C6C6F\nconst.i32 %1 0\nrt PRINTS %1 %0\nrt PRINTNL %1\nend\nendfunc\n";
@@ -121,6 +133,26 @@ fn graphics_screen_and_inkey() {
     assert!(frame_line(&out).starts_with("[frame 320x200 "), "{out}");
     assert_eq!(std::fs::read_to_string(dir.join("key.txt")).unwrap().trim(), "97");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// SUB _GL draws through a real OpenGL context (offscreen when headless): the
+/// frame shows its glClear colour and its glBegin triangle over the software
+/// screen. Skipped (passes) where no OpenGL context can be made.
+#[test]
+fn sub_gl_draws_clear_colour_and_triangle() {
+    let dir = tmpdir("gl");
+    let script = "wait 1000\nsnapshot\npixel 2 2\npixel 317 197\npixel 160 110\nclose\n";
+    let (code, out, err) = run_err(&dir, &fixture("wgl.qir"), script);
+    let _ = std::fs::remove_dir_all(&dir);
+    if err.contains("SUB _GL is not run") {
+        eprintln!("no OpenGL here, skipped: {err}");
+        return;
+    }
+    assert_eq!(code, Some(0), "{out}{err}");
+    assert!(frame_line(&out).starts_with("[frame 320x200 "), "{out}");
+    assert!(out.contains("[pixel 2,2=FF0000FF]"), "clear colour in a corner: {out}{err}");
+    assert!(out.contains("[pixel 317,197=FF0000FF]"), "clear colour in a corner: {out}{err}");
+    assert!(out.contains("[pixel 160,110=FFFF0000]"), "red triangle in the middle: {out}{err}");
 }
 
 #[test]

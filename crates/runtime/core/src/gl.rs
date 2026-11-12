@@ -392,6 +392,13 @@ pub fn end_frame() {
     });
 }
 
+/// True when this thread's context draws into an offscreen framebuffer (a
+/// hidden window: headless, or no program window); its frames are not shown
+/// by OpenGL, so the window layer gets them through [`read_pixels`].
+pub fn offscreen() -> bool {
+    GL.with(|g| g.borrow().as_ref().is_some_and(|gl| gl.own))
+}
+
 /// True between [`begin_frame`] and [`end_frame`] on this thread: `_gl*`
 /// statements are allowed (outside `SUB _GL` they raise error 270, as in QB64).
 pub fn in_frame() -> bool {

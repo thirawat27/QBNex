@@ -149,6 +149,18 @@ pub(crate) fn pixels(d: &Display) -> Option<(Vec<u32>, usize, usize)> {
     Some(r)
 }
 
+/// Shows `px` (0xAARRGGBB, `w` x `h`, drawn elsewhere: an offscreen SUB _GL
+/// frame read back) as the next frame.
+pub(crate) fn present_pixels(px: &[u32], w: usize, h: usize) {
+    if w == 0 || h == 0 || px.len() < w * h {
+        return;
+    }
+    FRAME_W.store(w as i32, Ordering::Relaxed);
+    FRAME_H.store(h as i32, Ordering::Relaxed);
+    // SAFETY: `px` holds w*h pixels.
+    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, 0, 0, 0) };
+}
+
 /// Sets the window title (`_TITLE`).
 pub(crate) fn set_title(t: &[u8]) {
     let t: Vec<u8> = t.iter().copied().filter(|&c| c != 0).collect();
