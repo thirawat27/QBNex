@@ -164,7 +164,9 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
 }
 
 /// There is no C/C++ compile step: `DECLARE LIBRARY` naming a C header with no library
-/// beside it fails at compile time, with the header in the message.
+/// beside it fails at compile time, with the header in the message. On Linux and macOS a
+/// missing static library is left to the run (system libraries resolve there).
+#[cfg(windows)]
 #[test]
 fn declare_library_with_only_a_c_header_is_a_compile_error() {
     let Some(qb) = qb() else { return };
