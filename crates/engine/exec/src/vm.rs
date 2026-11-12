@@ -2277,28 +2277,6 @@ impl<'m, 'o> Vm<'m, 'o> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn instruction_stays_small() {
-        assert!(std::mem::size_of::<Ins>() <= 20, "{}", std::mem::size_of::<Ins>());
-    }
-
-    #[test]
-    fn arrays_store_native_element_types() {
-        let mut a = Arr::new(Ty::I16, vec![(0, 3)]).unwrap();
-        a.set(2, (-5i64) as u64);
-        assert_eq!(a.get(2) as i64, -5);
-        assert_eq!(a.ty(), Ty::I16);
-        let mut f = Arr::new(Ty::F32, vec![(1, 2)]).unwrap();
-        f.set(f.off1(2).unwrap(), 0.1f64.to_bits());
-        assert_eq!(f64::from_bits(f.get(1)), f64::from(0.1f32));
-        assert_eq!(f.off1(3), Err(9));
-    }
-}
-
 /// VmOp callback for native code: executes the VM instruction `pc` on the
 /// window `frame` (which is the VM's current one).
 #[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_vm_op"))]
@@ -2472,5 +2450,27 @@ fn xty(t: crate::bytecode::XTy) -> qb_ffi::Ty {
         T::F32 => qb_ffi::Ty::F32,
         T::F64 => qb_ffi::Ty::F64,
         T::Ptr | T::Str => qb_ffi::Ty::Ptr,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn instruction_stays_small() {
+        assert!(std::mem::size_of::<Ins>() <= 20, "{}", std::mem::size_of::<Ins>());
+    }
+
+    #[test]
+    fn arrays_store_native_element_types() {
+        let mut a = Arr::new(Ty::I16, vec![(0, 3)]).unwrap();
+        a.set(2, (-5i64) as u64);
+        assert_eq!(a.get(2) as i64, -5);
+        assert_eq!(a.ty(), Ty::I16);
+        let mut f = Arr::new(Ty::F32, vec![(1, 2)]).unwrap();
+        f.set(f.off1(2).unwrap(), 0.1f64.to_bits());
+        assert_eq!(f64::from_bits(f.get(1)), f64::from(0.1f32));
+        assert_eq!(f.off1(3), Err(9));
     }
 }

@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn text_page_draws_glyphs_attributes_and_cursor() {
-        let mut cells = vec![0u8; 2 * 2 * 1];
+        let mut cells = vec![0u8; 2 * 2]; // 2 cells x (char, attribute)
         cells[0] = b'A';
         cells[1] = 0x1E; // yellow on blue
         cells[2] = b' ';
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!((fw, fh), (16, 16));
         // 'A' in 8x16: background row 0, some foreground pixels in the middle rows
         assert_eq!(px[0], 0xFF00_0001);
-        assert!(px[..8 * 16].iter().any(|&c| c == 0xFF00_000E));
+        assert!(px[..8 * 16].contains(&0xFF00_000E));
         assert!(px.iter().enumerate().all(|(i, &c)| i % 16 >= 8 || c == 0xFF00_0001 || c == 0xFF00_000E));
         // cursor (single scanline at the bottom: row 14) in the foreground colour of cell 2
         assert!(px[14 * 16 + 8..14 * 16 + 16].iter().all(|&c| c == 0xFF00_0007));
