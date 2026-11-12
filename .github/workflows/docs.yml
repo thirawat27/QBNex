@@ -1,0 +1,64 @@
+name: Docs
+
+# The CI workflow skips pushes that only change prose. This one runs for exactly
+# those: every ```basic block of README.md and docs/manual must still compile, and
+# the ones that show an output must still print it (tests/docs/README.md).
+on:
+  push:
+    branches: ["main", "rust-port"]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "tests/docs/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    branches: ["main", "rust-port"]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "tests/docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  examples:
+    name: Documentation examples
+    runs-on: windows-latest
+    # About a minute of examples after the compiler is built (2 minutes warm, about 15 cold).
+    timeout-minutes: 40
+    env:
+      QBNEX_CI: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # rust-toolchain.toml pins the version; rustup installs it here.
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustc -vV
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Build compiler
+        shell: cmd
+        run: scripts\setup_win.cmd
+
+      - name: Compile and run the documentation examples
+        shell: pwsh
+        run: ./tests/docs/check_docs.ps1

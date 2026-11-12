@@ -3,9 +3,19 @@ name: CI
 on:
   push:
     branches: ["main", "rust-port"]
+    # A push that only touches prose or the editor extension changes nothing these jobs
+    # build or test. Pull requests always run, so a required check never waits for a
+    # run that was skipped.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "packaging/vscode/**"
   pull_request:
     branches: ["main", "rust-port"]
   workflow_dispatch:
+  # New advisories appear without a push: the audit job also runs every Monday.
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -24,6 +34,7 @@ jobs:
     name: Dependency security audit
     if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
@@ -35,8 +46,11 @@ jobs:
   # (macOS arm64 included: no macOS machine runs these by hand).
   build:
     name: Build and test (${{ matrix.os_name }})
-    if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
+    if: ${{ github.event_name != 'schedule' && !contains(github.event.head_commit.message || '', 'ci-skip') }}
     runs-on: ${{ matrix.runs_on }}
+    # A warm run takes 10 to 17 minutes and a cold one about 50; a program that waits
+    # for input must not hold a runner for GitHub's default of six hours.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -75,10 +89,13 @@ jobs:
           rustup toolchain install
           rustc -vV
 
+      # Pull requests restore the branch cache but do not save their own: per-PR copies
+      # only push the branch caches out of the repository's cache quota.
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-on-failure: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Build compiler (Unix)
         if: runner.os != 'Windows'
@@ -172,8 +189,9 @@ jobs:
   # executables (PE / ELF / Mach-O) must give the VM's output
   # (crates/engine/exec/tests/native_link.rs).
   native-exe:
-    if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
+    if: ${{ github.event_name != 'schedule' && !contains(github.event.head_commit.message || '', 'ci-skip') }}
     runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -207,6 +225,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-on-failure: true
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Build native kit (Linux, macOS)
         if: runner.os != 'Windows'

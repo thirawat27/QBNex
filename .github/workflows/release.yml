@@ -21,11 +21,17 @@ on:
         default: false
         type: boolean
 
+# Two runs for one tag would upload the same asset names at the same time.
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   # The tag reaches shell scripts and asset names only through env (never ${{ }} inside run:),
   # and must be a version tag that matches [workspace.package] version in Cargo.toml.
   check-tag:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     env:
@@ -58,6 +64,8 @@ jobs:
   build:
     needs: check-tag
     runs-on: ${{ matrix.runs_on }}
+    # Clean build, tests and (macOS) up to 30 minutes of notarization.
+    timeout-minutes: 120
     permissions:
       contents: read
     strategy:
@@ -283,6 +291,7 @@ jobs:
   publish-release:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     env:
@@ -298,6 +307,15 @@ jobs:
           path: release-assets
           pattern: release-*
           merge-multiple: true
+
+      # Most assets are not code-signed, so the checksums are how a download is verified:
+      #   sha256sum -c SHA256SUMS.txt --ignore-missing
+      - name: Write checksums
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Generate release notes from changelog
         shell: bash
