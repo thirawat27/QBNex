@@ -2,9 +2,9 @@
 //!
 //! The VM calls [`Tiering::tick`] at SUB/FUNCTION entry (`pc = ENTRY_CALL`)
 //! and at loop headers (back-edge targets, `pc` = block pc). When a counter
-//! reaches the threshold the whole module is compiled once (Cranelift
-//! compiles a module in milliseconds; per-function compilation buys little
-//! and complicates JIT-to-JIT calls). From then on `tick` returns the native
+//! reaches the threshold the whole module is compiled once (its functions
+//! compile in parallel; compiling only the hot ones would need calls from
+//! native code into functions that are not compiled yet). From then on `tick` returns the native
 //! code and the VM enters it at that point; with [`Mode::Eager`] the module
 //! is compiled before the first statement runs (`qb --jit`).
 //!

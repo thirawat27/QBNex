@@ -4,22 +4,28 @@
 //! `extern "C" fn(ctx: *mut Ctx, frame: *mut u64, entry: u32) -> u32`
 //! (`entry` = `ENTRY_CALL` or the VM pc of a block to enter: OSR).
 //!
-//! Frame slots live in Cranelift variables (registers) between the entry
-//! load and the exits; a slot whose address is taken (`AddrOf`, BYREF
-//! argument) stays in memory. Every exit except a normal return writes the
-//! variables back, so the VM sees the exact frame state at the exit pc.
+//! Frame slots are read from Cranelift variables (registers) and every write
+//! also stores to the frame, so the VM sees the exact frame state at any exit
+//! pc without a write-back; a slot whose address is taken (`AddrOf`, BYREF
+//! argument) stays in memory only.
+//!
+//! The IR of each function is built on the calling thread; the functions are
+//! then compiled to machine code on a pool of threads (`QB_JIT_THREADS`
+//! overrides the size; `QB_JIT_STATS=1` prints the compile times).
 
 use crate::ctx::*;
 use crate::mir::*;
 use crate::thunk::abi;
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{self, types, AbiParam, Block as CBlock, InstBuilder, MemFlagsData, Signature, Value};
-use cranelift_codegen::isa::{CallConv, OwnedTargetIsa};
+use cranelift_codegen::control::ControlPlane;
+use cranelift_codegen::isa::{CallConv, OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, FuncId as CFuncId, Linkage, Module as _};
+use cranelift_module::{default_libcall_names, FuncId as CFuncId, Linkage, Module as _, ModuleReloc};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Mutex;
 
 /// Functions with more slots than this keep every slot in memory (keeps
 /// SSA construction cheap for huge module-level code).
@@ -160,23 +166,153 @@ pub(crate) fn define_all<M: cranelift_module::Module>(
     for (name, addr) in symbols(m) {
         syms.entry(addr).or_insert(name);
     }
-    let mut fctx = FunctionBuilderContext::new();
-    let mut cctx = module.make_context();
-    for (i, f) in m.funcs.iter().enumerate() {
-        cctx.func.signature = sig.clone();
-        {
-            let b = FunctionBuilder::new(&mut cctx.func, &mut fctx);
-            let mut g = Gen::new(m, f, b, cc, frontend, module, &syms);
-            // callees are declared in this function when a call to them is emitted: declaring
-            // every function in every function made a module of N functions cost N * N
-            g.fids = &ids[..];
-            g.frefs = vec![None; ids.len()];
-            g.emit();
+    let stats = std::env::var_os("QB_JIT_STATS").is_some();
+    let n = m.funcs.len();
+    let t0 = std::time::Instant::now();
+    // Owned copies of the target for the compiler threads (the module stays borrowed
+    // by the IR builder); a function bigger than `BIG_FUNC` gets no optimization pass.
+    let fast = variant(module.isa(), None);
+    let cheap = variant(module.isa(), Some("none"));
+    let big = BIG_FUNC;
+    // biggest first: the longest compile starts at once and the small ones fill the gaps
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(func_size(&m.funcs[i])));
+    let done: Vec<Mutex<Option<Result<Code, String>>>> = (0..n).map(|_| Mutex::new(None)).collect();
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, ir::Function)>();
+    let rx = Mutex::new(rx);
+    let work = || loop {
+        // the lock is held only while waiting for the next job
+        let job = rx.lock().unwrap_or_else(|p| p.into_inner()).recv();
+        let Ok((i, func)) = job else { break };
+        let isa: &dyn TargetIsa = if func_size(&m.funcs[i]) > big { &*cheap } else { &*fast };
+        let code = compile_one(isa, func, ids[i]);
+        *done[i].lock().unwrap_or_else(|p| p.into_inner()) = Some(code);
+    };
+    let k = threads(n);
+    let mut tb = vec![std::time::Duration::ZERO; n];
+    let mut t1 = t0;
+    std::thread::scope(|s| {
+        for _ in 1..k {
+            // a thread that cannot start leaves its share to the others
+            let _ = std::thread::Builder::new().name("qb-jit-cg".into()).stack_size(8 << 20).spawn_scoped(s, work);
         }
-        module.define_function(ids[i], &mut cctx).map_err(|e| CompileError(format!("{}: {e:?}", f.name)))?;
-        module.clear_context(&mut cctx);
+        // Cranelift IR on this thread (declaring callees and imports needs the module),
+        // machine code on the others as soon as each function's IR is ready
+        let mut fctx = FunctionBuilderContext::new();
+        for &i in &order {
+            let start = std::time::Instant::now();
+            let mut func = ir::Function::new();
+            func.signature = sig.clone();
+            {
+                let b = FunctionBuilder::new(&mut func, &mut fctx);
+                let mut g = Gen::new(m, &m.funcs[i], b, cc, frontend, module, &syms);
+                // callees are declared in this function when a call to them is emitted: declaring
+                // every function in every function made a module of N functions cost N * N
+                g.fids = &ids[..];
+                g.frefs = vec![None; ids.len()];
+                g.emit();
+            }
+            tb[i] = start.elapsed();
+            tx.send((i, func)).expect("the receiver lives in this function");
+        }
+        drop(tx);
+        t1 = std::time::Instant::now();
+        work();
+    });
+    let t2 = std::time::Instant::now();
+    let codes: Vec<Code> = done
+        .into_iter()
+        .enumerate()
+        .map(|(i, d)| {
+            d.into_inner()
+                .unwrap_or_else(|p| p.into_inner())
+                .expect("every function compiled")
+                .map_err(|e| CompileError(format!("{}: {e}", m.funcs[i].name)))
+        })
+        .collect::<Result<_, _>>()?;
+    for (i, c) in codes.iter().enumerate() {
+        module
+            .define_function_bytes(ids[i], c.align, &c.bytes, &c.relocs)
+            .map_err(|e| CompileError(format!("{}: {e:?}", m.funcs[i].name)))?;
+    }
+    if stats {
+        let cpu: std::time::Duration = codes.iter().map(|c| c.time).sum();
+        eprintln!(
+            "qb-jit: {n} functions on {k} threads: IR {:?}, all done {:?} (machine code {:?} of CPU), define {:?}",
+            t1 - t0,
+            t2 - t0,
+            cpu,
+            t2.elapsed()
+        );
+        let mut per: Vec<usize> = (0..n).collect();
+        per.sort_by_key(|&i| std::cmp::Reverse(codes[i].time + tb[i]));
+        for &i in per.iter().take(8) {
+            let f = &m.funcs[i];
+            eprintln!(
+                "  {:>10?} {:>10?} insts {:>6} blocks {:>5} slots {:>5} frame {:>5} {}",
+                tb[i],
+                codes[i].time,
+                func_size(f),
+                f.blocks.len(),
+                f.slots.len(),
+                f.frame_len(),
+                f.name
+            );
+        }
     }
     Ok(ids)
+}
+
+/// Functions with more MIR instructions than this are compiled without
+/// Cranelift's optimization passes: compile time grows faster than linearly
+/// with function size, and such code is mostly straight-line module-level code.
+const BIG_FUNC: usize = 20_000;
+
+/// Machine code of one function, ready for `define_function_bytes`.
+struct Code {
+    bytes: Vec<u8>,
+    align: u64,
+    relocs: Vec<ModuleReloc>,
+    time: std::time::Duration,
+}
+
+/// Instructions of `f` (what its compile time grows with).
+fn func_size(f: &Func) -> usize {
+    f.blocks.iter().map(|b| b.insts.len() + 1).sum()
+}
+
+/// Compiler threads for `n` functions (`QB_JIT_THREADS` overrides).
+fn threads(n: usize) -> usize {
+    let want = std::env::var("QB_JIT_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |p| p.get()));
+    want.clamp(1, n.max(1))
+}
+
+/// An owned copy of `isa`, with optimization level `opt` when given.
+fn variant(isa: &dyn TargetIsa, opt: Option<&str>) -> OwnedTargetIsa {
+    let mut fb = settings::builder();
+    for v in isa.flags().iter() {
+        let _ = fb.set(v.name, &v.value_string());
+    }
+    if let Some(o) = opt {
+        fb.set("opt_level", o).expect("flag");
+    }
+    let mut ib = cranelift_codegen::isa::lookup(isa.triple().clone()).expect("same target");
+    for v in isa.isa_flags() {
+        let _ = ib.set(v.name, &v.value_string());
+    }
+    ib.finish(settings::Flags::new(fb)).expect("isa")
+}
+
+fn compile_one(isa: &dyn TargetIsa, func: ir::Function, id: CFuncId) -> Result<Code, String> {
+    let start = std::time::Instant::now();
+    let mut ctx = cranelift_codegen::Context::for_function(func);
+    let align = ctx.compile(isa, &mut ControlPlane::default()).map_err(|e| format!("{:?}", e.inner))?.buffer.min_alignment;
+    let code = ctx.compiled_code().expect("compiled");
+    let relocs = code.buffer.relocs().iter().map(|r| ModuleReloc::from_mach_reloc(r, &ctx.func, id)).collect();
+    Ok(Code { bytes: code.code_buffer().to_vec(), align: u64::from(align), relocs, time: start.elapsed() })
 }
 
 pub fn compile(m: &Module, target: Target) -> Result<Compiled, CompileError> {
@@ -234,6 +370,8 @@ struct Gen<'a, M: cranelift_module::Module> {
     frontend: cranelift_codegen::isa::TargetFrontendConfig,
     /// Event-poll edge blocks, emitted after the body: (poll block, pc, target).
     polls: Vec<(CBlock, u32, CBlock)>,
+    /// see [`Gen::gosub_sites`]
+    sites: Option<std::rc::Rc<Vec<(u32, BlockId)>>>,
 }
 
 
@@ -323,6 +461,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             vars: Vec::new(),
             frontend,
             polls: Vec::new(),
+            sites: None,
         }
     }
 
@@ -368,6 +507,15 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             self.slot_store(t, v, fr, (r * 8) as i32);
         } else {
             self.b.def_var(self.vars[(r) as usize], v);
+            // Store-through: a frame slot also goes to memory at every write, so the
+            // exits need not write anything back. Writing back at the exits kept every
+            // slot live up to every guard and event check (slots x exits block
+            // arguments), which made Cranelift time grow with the square of the function.
+            if (r as usize) < self.f.frame_len() {
+                let t = self.ty(r);
+                let fr = self.fr();
+                self.slot_store(t, v, fr, (r * 8) as i32);
+            }
         }
     }
 
@@ -407,16 +555,24 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
 
     // ---------------------------------------------------------- control helpers
 
+    /// Continues in `blk`, whose predecessors are all emitted already: sealing
+    /// it now lets variable lookups resolve directly instead of through
+    /// placeholder block parameters. (Blocks of MIR blocks are sealed at the end.)
+    fn to(&mut self, blk: CBlock) {
+        self.b.seal_block(blk);
+        self.b.switch_to_block(blk);
+    }
+
     /// Branches to the error exit with QB error `code` when `cond` is true.
     fn guard(&mut self, cond: Value, code: i32) {
         let ok = self.b.create_block();
         let bad = self.b.create_block();
         self.b.set_cold_block(bad);
         self.b.ins().brif(cond, bad, &[], ok, &[]);
-        self.b.switch_to_block(bad);
+        self.to(bad);
         let c = self.b.ins().iconst(types::I32, i64::from(code));
         self.b.ins().jump(self.err_blk, &[c.into()]);
-        self.b.switch_to_block(ok);
+        self.to(ok);
     }
 
     /// Edge `cur -> t`, polling events on back-edges to resumable blocks.
@@ -438,7 +594,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
     fn emit(mut self) {
         let entry = self.b.create_block();
         self.b.append_block_params_for_function_params(entry);
-        self.b.switch_to_block(entry);
+        self.to(entry);
         let p = self.b.block_params(entry).to_vec();
         self.ctx = p[0];
         self.v_frame = self.b.declare_var(types::I64);
@@ -507,7 +663,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let osr = self.b.create_block();
         let b0 = self.blocks[0];
         self.b.ins().brif(is_call, b0, &[], osr, &[]);
-        self.b.switch_to_block(osr);
+        self.to(osr);
         let mut sw = Switch::new();
         for (i, blk) in self.f.blocks.iter().enumerate() {
             if let Some(pc) = blk.pc
@@ -517,7 +673,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         }
         let unknown = self.b.create_block();
         sw.emit(&mut self.b, entry_pc, unknown);
-        self.b.switch_to_block(unknown);
+        self.to(unknown);
         self.b.ins().jump(self.deopt_blk, &[entry_pc.into()]);
 
         for i in 0..self.f.blocks.len() {
@@ -538,19 +694,19 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
 
     fn emit_exits(&mut self) {
         for (poll, pc, target) in std::mem::take(&mut self.polls) {
-            self.b.switch_to_block(poll);
+            self.to(poll);
             let ev = self.event_word();
             let pcv = self.b.ins().iconst(types::I32, i64::from(pc));
             self.b.ins().brif(ev, self.event_blk, &[pcv.into()], target, &[]);
         }
         // err(code): set err, err_line, exit_pc.
-        self.b.switch_to_block(self.err_blk);
+        self.to(self.err_blk);
         let code = self.b.block_params(self.err_blk)[0];
         self.ctx_store(code, OFF_ERR);
         self.b.ins().jump(self.host_err_blk, &[]);
 
         // host_err: err already set.
-        self.b.switch_to_block(self.host_err_blk);
+        self.to(self.host_err_blk);
         let l = self.b.use_var(self.v_line);
         self.ctx_store(l, OFF_ERR_LINE);
         let pc = self.b.use_var(self.v_pc);
@@ -558,29 +714,21 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let st = self.b.ins().iconst(types::I32, i64::from(status::ERROR));
         self.b.ins().jump(self.exit_blk, &[st.into()]);
 
-        self.b.switch_to_block(self.event_blk);
+        self.to(self.event_blk);
         let pc = self.b.block_params(self.event_blk)[0];
         self.ctx_store(pc, OFF_EXIT_PC);
         let st = self.b.ins().iconst(types::I32, i64::from(status::EVENT));
         self.b.ins().jump(self.exit_blk, &[st.into()]);
 
-        self.b.switch_to_block(self.deopt_blk);
+        self.to(self.deopt_blk);
         let pc = self.b.block_params(self.deopt_blk)[0];
         self.ctx_store(pc, OFF_EXIT_PC);
         let st = self.b.ins().iconst(types::I32, i64::from(status::DEOPT));
         self.b.ins().jump(self.exit_blk, &[st.into()]);
 
-        // exit(status): write back every register slot that may have changed.
-        self.b.switch_to_block(self.exit_blk);
+        // exit(status): the frame is already current (see `set`)
+        self.to(self.exit_blk);
         let st = self.b.block_params(self.exit_blk)[0];
-        for r in 0..self.f.slots.len() as u32 {
-            if !self.resident[r as usize] && self.defined[r as usize] && (r as usize) < self.f.frame_len() {
-                let v = self.b.use_var(self.vars[(r) as usize]);
-                let t = self.ty(r);
-                let fr = self.fr();
-                self.slot_store(t, v, fr, (r * 8) as i32);
-            }
-        }
         self.b.ins().return_(&[st]);
     }
 
@@ -609,7 +757,8 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 // The caller reads the result and the parameters (BYREF copy-out).
                 let outs: Vec<Reg> = self.f.ret.into_iter().chain(self.f.params.iter().copied()).collect();
                 for r in outs {
-                    if !self.resident[r as usize] && self.defined[r as usize] {
+                    // frame slots are current already (see `set`)
+                    if (r as usize) >= self.f.frame_len() && !self.resident[r as usize] && self.defined[r as usize] {
                         let v = self.b.use_var(self.vars[(r) as usize]);
                         let t = self.ty(r);
                         let fr = self.fr();
@@ -633,7 +782,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let other = self.b.create_block();
                 self.b.set_cold_block(other);
                 sw.emit(&mut self.b, v32, other);
-                self.b.switch_to_block(other);
+                self.to(other);
                 self.b.ins().jump(self.deopt_blk, &[v32.into()]);
             }
             Term::Exit { pc } => {
@@ -656,10 +805,10 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let deep = self.b.create_block();
                 self.b.set_cold_block(deep);
                 self.b.ins().brif(full, deep, &[], ok, &[]);
-                self.b.switch_to_block(deep);
+                self.to(deep);
                 let gpc = self.b.ins().iconst(types::I32, i64::from(*ret_pc) - 1);
                 self.b.ins().jump(self.deopt_blk, &[gpc.into()]);
-                self.b.switch_to_block(ok);
+                self.to(ok);
                 let stack = self.ctx_load(types::I64, OFF_GOSUB);
                 let len64 = self.b.ins().uextend(types::I64, len);
                 let off = self.b.ins().ishl_imm_s(len64, 2);
@@ -682,17 +831,10 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let off = self.b.ins().ishl_imm_s(l64, 2);
                 let addr = self.b.ins().iadd(stack, off);
                 let to = self.b.ins().load(types::I32, MemFlagsData::trusted(), addr, 0);
-                let mut sites: Vec<(u32, BlockId)> = Vec::new();
-                let mut seen = HashSet::new();
-                for blk in &self.f.blocks {
-                    if let Term::Gosub { ret, ret_pc, .. } = blk.term
-                        && seen.insert(ret_pc) {
-                            sites.push((ret_pc, ret));
-                        }
-                }
+                let sites = self.gosub_sites();
                 let mut sw = Switch::new();
                 let mut pending = Vec::new();
-                for (rpc, rblk) in sites {
+                for &(rpc, rblk) in sites.iter() {
                     let pop = self.b.create_block();
                     sw.set_entry(u128::from(rpc), pop);
                     pending.push((pop, rblk));
@@ -701,16 +843,35 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.set_cold_block(unknown);
                 sw.emit(&mut self.b, to, unknown);
                 for (pop, rblk) in pending {
-                    self.b.switch_to_block(pop);
+                    self.to(pop);
                     self.ctx_store(len1, OFF_GOSUB_LEN);
                     let e = self.blocks[rblk as usize];
                     self.b.ins().jump(e, &[]);
                 }
-                self.b.switch_to_block(unknown);
+                self.to(unknown);
                 let pcv = self.b.ins().iconst(types::I32, i64::from(*pc));
                 self.b.ins().jump(self.deopt_blk, &[pcv.into()]);
             }
         }
+    }
+
+    /// Return sites of every GOSUB of the function, `(return pc, block)`, once per pc.
+    /// Found once per function: every RETURN dispatches over all of them.
+    fn gosub_sites(&mut self) -> std::rc::Rc<Vec<(u32, BlockId)>> {
+        if let Some(s) = &self.sites {
+            return s.clone();
+        }
+        let mut sites = Vec::new();
+        let mut seen = HashSet::new();
+        for blk in &self.f.blocks {
+            if let Term::Gosub { ret, ret_pc, .. } = blk.term
+                && seen.insert(ret_pc) {
+                    sites.push((ret_pc, ret));
+                }
+        }
+        let s = std::rc::Rc::new(sites);
+        self.sites = Some(s.clone());
+        s
     }
 
     fn inst(&mut self, i: &Inst) {
@@ -723,7 +884,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let ev = self.event_word();
                 let cont = self.b.create_block();
                 self.b.ins().brif(ev, self.event_blk, &[p.into()], cont, &[]);
-                self.b.switch_to_block(cont);
+                self.to(cont);
             }
             Inst::Const { dst, imm } => {
                 let t = self.ty(*dst);
@@ -860,7 +1021,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                     let e = self.ctx_load(types::I32, OFF_ERR);
                     let cont = self.b.create_block();
                     self.b.ins().brif(e, self.host_err_blk, &[], cont, &[]);
-                    self.b.switch_to_block(cont);
+                    self.to(cont);
                 }
             }
             Inst::At { pc } => {
@@ -946,7 +1107,8 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             }
             Inst::VmOp { op, reads, writes } => {
                 for r in reads.iter().chain(writes) {
-                    if !self.resident[*r as usize] {
+                    // temporaries only: frame slots are current already (see `set`)
+                    if !self.resident[*r as usize] && (*r as usize) >= self.f.frame_len() {
                         let v = self.b.use_var(self.vars[(*r) as usize]);
                         let t = self.ty(*r);
                         let fr = self.fr();
@@ -973,7 +1135,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 }
                 let cont = self.b.create_block();
                 self.b.ins().brif(st, self.exit_blk, &[st.into()], cont, &[]);
-                self.b.switch_to_block(cont);
+                self.to(cont);
             }
             Inst::VAElem { load, reg, table, index, view_off, elem, idx, slow } => {
                 self.va_elem(*load, *reg, *table, *index, *view_off, *elem, *idx, *slow)
@@ -988,7 +1150,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.ins().jump(self.err_blk, &[c.into()]);
                 // Unreachable continuation for any following instructions.
                 let dead = self.b.create_block();
-                self.b.switch_to_block(dead);
+                self.to(dead);
             }
         }
     }
@@ -1073,15 +1235,15 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.append_block_param(join, types::I64);
                 self.b.set_cold_block(slow);
                 self.b.ins().brif(ok, fast, &[], slow, &[]);
-                self.b.switch_to_block(fast);
+                self.to(fast);
                 let i = self.b.ins().fcvt_to_sint_sat(types::I64, r);
                 self.b.ins().jump(join, &[i.into()]);
-                self.b.switch_to_block(slow);
+                self.to(slow);
                 let s = self
                     .helper_call(qbr_f64 as *const () as usize, &[types::F64], Some(types::I64), &[d])
                     .expect("result");
                 self.b.ins().jump(join, &[s.into()]);
-                self.b.switch_to_block(join);
+                self.to(join);
                 self.b.block_params(join)[0]
             }
         }
@@ -1176,7 +1338,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         }
         self.b.ins().brif(p, fast, &[], slowb, &[]);
         // fast: in-bounds element
-        self.b.switch_to_block(fast);
+        self.to(fast);
         let vo = view_off as i32;
         let data = self.b.ins().load(types::I64, MemFlagsData::trusted(), p, vo + OFF_VIEW_DATA);
         let lb = self.b.ins().load(types::I64, MemFlagsData::trusted(), p, vo + OFF_VIEW_LB);
@@ -1186,7 +1348,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let nz = self.b.ins().icmp_imm_s(IntCC::NotEqual, data, 0);
         let ok = self.b.ins().band(inb, nz);
         self.b.ins().brif(ok, fast2, &[], slowb, &[]);
-        self.b.switch_to_block(fast2);
+        self.to(fast2);
         let off = self.b.ins().ishl_imm_s(k, i64::from(elem.size().trailing_zeros()));
         let ea = self.b.ins().iadd(data, off);
         if load {
@@ -1208,7 +1370,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             self.b.ins().jump(join, &[]);
         }
         // slow: the embedder's full semantics
-        self.b.switch_to_block(slowb);
+        self.to(slowb);
         let h = &self.m.hosts[slow as usize];
         let addr = h.addr;
         let ctx = self.ctx;
@@ -1225,7 +1387,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let e = self.ctx_load(types::I32, OFF_ERR);
         let cont = self.b.create_block();
         self.b.ins().brif(e, self.host_err_blk, &[], cont, &[]);
-        self.b.switch_to_block(cont);
+        self.to(cont);
         if load {
             let bits = r.expect("result");
             let v = if rt == types::F64 { self.b.ins().bitcast(types::F64, MemFlagsData::new(), bits) } else { bits };
@@ -1233,7 +1395,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         } else {
             self.b.ins().jump(join, &[]);
         }
-        self.b.switch_to_block(join);
+        self.to(join);
         if load {
             let v = self.b.block_params(join)[0];
             self.set(reg, v);
@@ -1296,10 +1458,10 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let vm = self.b.create_block();
         self.b.set_cold_block(vm);
         self.b.ins().brif(no, vm, &[], go, &[]);
-        self.b.switch_to_block(vm);
+        self.to(vm);
         let pcv = self.b.ins().iconst(types::I32, i64::from(call_pc));
         self.b.ins().jump(self.deopt_blk, &[pcv.into()]);
-        self.b.switch_to_block(go);
+        self.to(go);
         let b1 = self.b.ins().iadd_imm_s(budget, -1);
         self.ctx_store(b1, OFF_CALL_BUDGET);
         let arena = self.ctx_load(types::I64, OFF_ARENA);
@@ -1335,7 +1497,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let ok = self.b.create_block();
         self.b.set_cold_block(bad);
         self.b.ins().brif(st, bad, &[], ok, &[]);
-        self.b.switch_to_block(bad);
+        self.to(bad);
         let fid = self.b.ins().iconst(types::I32, i64::from(func));
         let rpc = self.b.ins().iconst(types::I32, i64::from(call_pc));
         let dv = self.b.ins().iconst(types::I32, i64::from(dst.unwrap_or(NO_DST)));
@@ -1346,7 +1508,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             &[ctx, fid, cf, rpc, dv],
         );
         self.b.ins().jump(self.exit_blk, &[st.into()]);
-        self.b.switch_to_block(ok);
+        self.to(ok);
         if let (Some(d), Some(r)) = (dst, callee.ret) {
             let t = callee.slots[r as usize];
             let v = self.b.ins().load(clif_ty(t), MemFlagsData::trusted(), cf, (r * 8) as i32);
