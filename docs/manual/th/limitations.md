@@ -50,22 +50,12 @@ QBNex คอมไพล์ BASIC เป็น QIR แล้วรันด้�
 ## DECLARE LIBRARY
 
 runner เรียกฟังก์ชันเป็น machine code โดยตรงผ่าน `crates/engine/ffi`
-(calling convention แบบ Win64, SysV x86-64 และ AArch64) โปรแกรมถูก build
-โดยไม่ใช้คอมไพเลอร์ C ยกเว้นกรณี header ของ C:
+(calling convention แบบ Win64, SysV x86-64 และ AArch64) เมื่อไม่มีคอมไพเลอร์ C:
 
-- **header ของ C ต้องใช้คอมไพเลอร์ C++** เมื่อ `DECLARE LIBRARY "name"` มี
-  `name.h` หรือ `name.hpp` อยู่คู่กับ source (หรือพบในที่ที่ QB64 ค้นหา)
-  คอมไพเลอร์จะเขียนไฟล์ C++ เล็ก ๆ ที่ include header นั้น และ export ฟังก์ชัน
-  ห่อหนึ่งตัวต่อ SUB/FUNCTION ที่โปรแกรมเรียก ทำให้ใช้ฟังก์ชัน inline และ macro
-  ได้ แล้ว build เป็น `<program>_headers.dll` (`lib<program>_headers.so` /
-  `.dylib`) ไว้ข้างไฟล์ executable จึงต้องเก็บสองไฟล์นี้ไว้ด้วยกัน คอมไพเลอร์
-  C++ ที่ใช้คือ `internal\c\c_compiler\bin\g++.exe` หรือ `g++` ใน `PATH` บน
-  Windows และ `c++`, `g++` หรือ `clang++` บน Linux และ macOS ถ้าไม่มีเลย
-  การคอมไพล์จะหยุดพร้อมข้อความที่ระบุชื่อ header ถ้ามี static library ชื่อ
-  เดียวกันก็จะ link เข้าไปในไลบรารีห่อด้วย ผลลัพธ์แบบข้อความ QIR (`.qir`,
-  เว็บ) ใช้ header ไม่ได้ และยังคอมไพล์ไฟล์ source C/C++ ไม่ได้
-- **ใช้ static library ที่ไม่มี header ไม่ได้** (`.a`, `.lib`, `.o`) เพราะไม่มี
-  ขั้นตอน link
+- **ใช้ source หรือ header ของ C และ C++ ไม่ได้** QB64 คอมไพล์ header
+  (`name.h`) หรือ source C/C++ ที่อยู่คู่กับ `DECLARE LIBRARY "name"` เข้าไปใน
+  โปรแกรม แต่ QBNex ทำแบบนั้นไม่ได้
+- **ใช้ static library ไม่ได้** (`.a`, `.lib`, `.o`) เพราะไม่มีขั้นตอน link
 - **shared library ถูกโหลดตามชื่อ** `DECLARE LIBRARY "name"` และ
   `DECLARE DYNAMIC LIBRARY "name"` จะโหลด shared library ตอนเรียกฟังก์ชันของมัน
   ครั้งแรก (ทั้งใน VM, JIT และ `.exe` แบบ native) โดยค้นหาชื่อแบบเดียวกับ QB64:

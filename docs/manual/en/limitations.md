@@ -57,23 +57,14 @@ Both kinds are about the same size and speed: a hello world is about
 ## DECLARE LIBRARY
 
 Calls go from the runner straight to machine code through `crates/engine/ffi`
-(Win64, SysV x86-64 and AArch64 calling conventions). Programs are
-built without a C compiler, except for C headers:
+(Win64, SysV x86-64 and AArch64 calling conventions). Without a C
+compiler:
 
-- **C headers need a C++ compiler.** For `DECLARE LIBRARY "name"` with
-  `name.h` or `name.hpp` next to the source (or found as QB64 looked for
-  it), the compiler writes a small C++ file that includes the header and
-  exports one wrapper per SUB/FUNCTION the program calls, so inline
-  functions and macros work. It builds this into `<program>_headers.dll`
-  (`lib<program>_headers.so` / `.dylib`) next to the executable; keep the
-  two together. The C++ compiler is `internal\c\c_compiler\bin\g++.exe`
-  or `g++` on the `PATH` on Windows, and `c++`, `g++` or `clang++` on
-  Linux and macOS. Without one, compiling stops with an error that names
-  the header. A static library found for the same name is linked into
-  the wrapper. QIR text output (`.qir`, the web) cannot use headers. C
-  and C++ source files are still not compiled.
-- **Static libraries cannot be used** (`.a`, `.lib`, `.o`) without a
-  header: there is no linker step.
+- **C and C++ sources and headers cannot be used.** QB64 compiled a
+  header (`name.h`) or C/C++ source next to `DECLARE LIBRARY "name"`
+  into the program; QBNex cannot.
+- **Static libraries cannot be used** (`.a`, `.lib`, `.o`): there is no
+  linker step.
 - **Shared libraries are loaded by name.** `DECLARE LIBRARY "name"` and
   `DECLARE DYNAMIC LIBRARY "name"` load the shared library when one of
   its functions is first called (in the VM, the JIT and native `.exe`

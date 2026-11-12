@@ -26,10 +26,6 @@ DIM SHARED IrExtMeta AS STRING 'meta extfn lines (DECLARE LIBRARY)
 'DECLARE LIBRARY: spec of the library being declared ("" = none) and, per declared
 'procedure, CHR$(1) + QIR name + CHR$(2) + C symbol + CHR$(2) + library spec + CHR$(1)
 DIM SHARED IrLibSpec AS STRING, IrLibOf AS STRING
-'DECLARE LIBRARY with a C/C++ header: the headers and static libraries of the wrapper library
-'(CHR$(10)-separated absolute paths), the C++ compiler that builds it ("" = not looked for yet)
-'and per called function one line: wrapper name + CHR$(9) + C symbol + CHR$(9) + "ret args"
-DIM SHARED IrHdrFiles AS STRING, IrHdrLibs AS STRING, IrHdrCxx AS STRING, IrHdrFns AS STRING
 DIM SHARED IrPendLL AS LONG 'numeric line label waiting for its LASTLINE
 DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
 DIM SHARED IrDataN AS LONG

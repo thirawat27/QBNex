@@ -68,8 +68,7 @@ the default printer on Windows and through `lp` on Linux and macOS.
   [commands](commands.md#how-a-program-is-built)); no C++ is generated, so
   `-z`, `-p`, `-s:debuginfo` and `--ir` do nothing. `DECLARE LIBRARY`
   functions are called in shared libraries through `crates/engine/ffi` (see
-  [language](language.md)); a C header in `DECLARE LIBRARY` is the one case
-  that needs a C++ compiler (see [limitations](limitations.md#declare-library)).
+  [language](language.md)).
 - A statement the QIR back end does not cover yet stops the build with
   `QIR: unsupported: line N: ...`.
 - BYREF parameters are copied in and out: different from QB64 only when a

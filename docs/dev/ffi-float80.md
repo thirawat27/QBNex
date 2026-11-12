@@ -61,16 +61,11 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
 
 ### Emitter (R11a): what to check at compile time
 
-- `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`) with a C header
-  (`name.h`/`name.hpp`, where the legacy compiler looked or next to the
-  source): the BASIC compiler (`IrBuildHeaderShim` in `ir_emit.bas`) writes a
-  C++ file that includes the header and exports `qbnex_hdr_<name>` per called
-  function, builds it with g++ / c++ into `<program>_headers` next to the
-  executable, and emits `meta extfn qbnex_hdr_<name> ./<program>_headers ...`;
-  the VM opens a `./` spec from the program's folder. No C++ compiler is a
-  compile error naming the header (**deviation D-110**, now only without a
-  compiler). `find_header` / `header_error` are no longer called by the
-  emitter.
+- `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`): call
+  `find_header(spec, Some(source_dir))`. `Some(path)` is a compile error with
+  the text of `header_error(spec, &path)` (**deviation D-110**):
+
+  > DECLARE LIBRARY "spec" uses the C header *path*, which needs a C compiler; QBNex does not support C headers (deviation D-110). Declare the functions without a header, or use DECLARE DYNAMIC LIBRARY
 - Otherwise emit, per declared function, the library spec (empty for a bare
   `DECLARE LIBRARY`), the C name (ALIAS or the BASIC name) and a `Signature`.
   Types: `_BYTE` I8, `_UNSIGNED _BYTE` U8, `INTEGER` I16, `_UNSIGNED INTEGER` U16,
