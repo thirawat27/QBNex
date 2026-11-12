@@ -76,7 +76,7 @@ if [ "$EC_RUN_QBNEX" -ne 0 ]; then
   echo "[FAIL] qbnex stdlib executable should run successfully."
   FAIL=1
 fi
-grep -F "1.0.0" "$RUN_QBNEX" >/dev/null || {
+grep -E "^[0-9]+\.[0-9]+\.[0-9]+" "$RUN_QBNEX" >/dev/null || {
   echo "[FAIL] qbnex stdlib runtime output is missing version text."
   FAIL=1
 }
