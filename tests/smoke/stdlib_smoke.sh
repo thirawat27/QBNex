@@ -1,5 +1,6 @@
 #!/bin/sh
-set -eu
+# no -e: each compile and run records its exit code, and the checks below report it
+set -u
 # Runtime errors go to stderr (exit code 1) instead of a modal dialog.
 export QBNEX_NO_ERROR_DIALOG=1
 
@@ -116,9 +117,8 @@ if [ "$FAIL" -eq 0 ]; then
 fi
 
 echo "STDLIB_SMOKE_FAIL"
-echo "Inspect outputs:"
-echo "  QBNex compile: \"$OUT_QBNEX\""
-echo "  QBNex run:     \"$RUN_QBNEX\""
-echo "  URL compile:   \"$OUT_URL\""
-echo "  URL run:       \"$RUN_URL\""
+for f in "$OUT_QBNEX" "$RUN_QBNEX" "$OUT_URL" "$RUN_URL"; do
+  echo "----- $f"
+  [ -f "$f" ] && tail -n 30 "$f"
+done
 exit 1
