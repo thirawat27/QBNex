@@ -137,15 +137,11 @@ jobs:
         shell: bash
         run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
 
+      # QIR does not depend on the OS, so one runner proves the fixpoint.
       - name: Self-host fixpoint (gen2 == gen3 == bootstrap)
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         shell: bash
         run: sh scripts/selfhost_fixpoint.sh
-
-      - name: Self-host fixpoint (gen2 == gen3 == bootstrap) (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: call scripts\selfhost_fixpoint.cmd
 
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'

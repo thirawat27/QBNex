@@ -310,7 +310,7 @@ Create test programs that demonstrate:
 
 QBNex uses GitHub Actions for CI:
 
-- **Push and pull requests** (`main`, `rust-port`): `ci.yml` builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, self-host fixpoint, native executables)
+- **Push and pull requests** (`main`, `rust-port`): `ci.yml` builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, native executables; the self-host fixpoint runs on Linux only, since QIR does not depend on the OS)
 - **Releases** (`v*` tags): `release.yml` builds, tests and packages Linux, macOS and Windows x64
 
 #### Code signing (release secrets)

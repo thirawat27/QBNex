@@ -90,8 +90,10 @@ fn image_decoders_never_panic_on_mutated_files() {
     let mut rng = Rng(0x1234_5678_9ABC_DEF1);
     let mut failures = Vec::new();
     let files = corpus();
+    // unoptimized decoders are ~50x slower: a debug test run fuzzes a tenth as much
+    let (mutations, randoms) = if cfg!(debug_assertions) { (40, 200) } else { (400, 2000) };
     for (name, data) in &files {
-        for k in 0..400 {
+        for k in 0..mutations {
             let m = rng.mutate(data);
             check(&format!("{name} mutation {k} len {}", m.len()), &mut failures, || {
                 let _ = crate::image::decode(&m);
@@ -101,7 +103,7 @@ fn image_decoders_never_panic_on_mutated_files() {
             });
         }
     }
-    for k in 0..2000 {
+    for k in 0..randoms {
         let len = rng.below(600);
         let m = rng.bytes(len);
         check(&format!("random {k}: {}", hexs(&m[..m.len().min(32)])), &mut failures, || {
