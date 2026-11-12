@@ -229,7 +229,9 @@ mod platform {
                 let data = c.get_image().ok()?;
                 let pixels = data
                     .bytes
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|p| 0xFF00_0000 | u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2]))
                     .collect();
                 Some(Image { width: data.width as i32, height: data.height as i32, pixels })

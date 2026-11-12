@@ -278,10 +278,10 @@ mod imp {
     }
 
     pub fn remove_install_dir(dir: &Path) {
-        if let Ok(me) = std::env::current_exe() {
-            if me.parent() == Some(dir) {
-                let _ = std::fs::remove_file(&me);
-            }
+        if let Ok(me) = std::env::current_exe()
+            && me.parent() == Some(dir)
+        {
+            let _ = std::fs::remove_file(&me);
         }
         let _ = std::fs::remove_dir(dir);
     }
