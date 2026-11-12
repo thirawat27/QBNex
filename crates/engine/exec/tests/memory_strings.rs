@@ -1,5 +1,5 @@
 //! Strings kept in memory (array elements, STATIC strings) and global strings:
-//! loads and stores reuse buffers (R14 performance work), so appending to an
+//! loads and stores reuse buffers (a performance optimization), so appending to an
 //! element, copying one element to another, assigning a string to itself and
 //! comparing elements must keep QBasic's values, interpreted and with the JIT.
 //! `memory_strings.qir` is the compiler's output for `memory_strings.bas`.

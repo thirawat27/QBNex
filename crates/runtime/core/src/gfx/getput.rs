@@ -50,7 +50,7 @@ pub unsafe fn graphics_get(
     if passed & 4 == 0 && (x1 < 0 || y1 < 0 || x2 >= sx || y2 >= sy) {
         return ERR;
     }
-    // R14: with off-screen GET allowed the rectangle can be huge; the size
+    // With off-screen GET allowed the rectangle can be huge; the size
     // checks below use i32 arithmetic, so reject anything whose 32-bit pixel
     // data could not fit an array (they wrapped past `len` and overran it).
     let (w64, h64) = (i64::from(x2) - i64::from(x1) + 1, i64::from(y2) - i64::from(y1) + 1);
@@ -105,7 +105,7 @@ pub unsafe fn graphics_get(
         }
         2 => {
             mask &= 3;
-            // D-11: legacy checked (w+7)>>3 bytes per row but writes (2w+7)>>3,
+            // Legacy checked (w+7)>>3 bytes per row but writes (2w+7)>>3,
             // overrunning arrays sized by the check.
             let z = (w.wrapping_mul(2).wrapping_add(7)) >> 3;
             if z.wrapping_mul(h).wrapping_add(4) > len {
@@ -131,7 +131,7 @@ pub unsafe fn graphics_get(
                     x3 += 1;
                 }
                 if x3 & 3 != 0 {
-                    // D-11: the pending pixels, left-aligned as PUT reads them
+                    // The pending pixels, left-aligned as PUT reads them
                     // (legacy wrote a stale static `col2` here)
                     unsafe {
                         *cp = (byte << (2 * (4 - (x3 & 3)))) as u8;
@@ -277,7 +277,7 @@ pub unsafe fn graphics_put(
         }
         w >>= 3;
     }
-    // R14: i64 so that a far-away x1/y1 or a forged 65535 x 65535 header
+    // i64 so that a far-away x1/y1 or a forged 65535 x 65535 header
     // cannot wrap past the checks (PUT then read outside the array).
     let (x2l, y2l) = (i64::from(x1) + i64::from(w) - 1, i64::from(y1) + i64::from(h) - 1);
     if !clip && (x1 < 0 || y1 < 0 || x2l >= i64::from(sx) || y2l >= i64::from(sy)) {
@@ -474,7 +474,7 @@ mod tests {
     use super::*;
     use crate::gfx::testutil::TestImage;
 
-    /// R14: huge GET rectangles (allowed off-screen with a fill colour) and
+    /// Huge GET rectangles (allowed off-screen with a fill colour) and
     /// forged PUT headers must fail the size check instead of wrapping past it
     /// and writing/reading outside the array.
     #[test]
@@ -488,7 +488,7 @@ mod tests {
                 assert!(buf[32..].iter().all(|&b| b == 0xAA), "mode {mode} wrote past len");
             }
             // PUT: forged 65535 x 65535 header in a 64-byte array.
-            let mut hdr = vec![0u8; 64];
+            let mut hdr = [0u8; 64];
             hdr[..4].copy_from_slice(&[0xF8, 0xFF, 0xFF, 0xFF]);
             let r = unsafe { graphics_put(&mut a.img, 0.0, 0.0, hdr.as_ptr(), 64, 0, 0, 2) };
             assert_eq!(r, ERR_ILLEGAL_FUNCTION_CALL, "mode {mode}");
@@ -524,7 +524,7 @@ mod tests {
         }
     }
 
-    // D-11: 2-bit GET checks ceil(w/4) bytes per row (it writes that many)
+    // 2-bit GET checks ceil(w/4) bytes per row (it writes that many)
     #[test]
     fn get_2bit_size_check_covers_written_bytes() {
         let mut a = TestImage::new(16, 1, 1);
@@ -536,7 +536,7 @@ mod tests {
         assert!(buf[8..].iter().all(|&b| b == 0xEE));
     }
 
-    // D-11: 2-bit GET stores the last partial byte of a row left-aligned, so
+    // 2-bit GET stores the last partial byte of a row left-aligned, so
     // PUT gets back every pixel of a width that is not a multiple of 4
     #[test]
     fn get_put_2bit_odd_width_roundtrip() {

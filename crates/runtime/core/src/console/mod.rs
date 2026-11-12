@@ -1,4 +1,4 @@
-//! Text console (phase R12a): PRINT to a surface, LOCATE, CSRLIN, POS, CLS,
+//! Text console: PRINT to a surface, LOCATE, CSRLIN, POS, CLS,
 //! VIEW PRINT, SCREEN(), the SCREEN 0 cell buffer and its UTF-8 side table,
 //! INPUT / LINE INPUT / INPUT$ from the keyboard, the BIOS INKEY$ buffer and
 //! the `$CONSOLE` stdout/stdin paths. Ported from `libqb.cpp` bug for bug.

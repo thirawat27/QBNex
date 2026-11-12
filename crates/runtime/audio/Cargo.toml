@@ -20,6 +20,6 @@ symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm
 xmrs = { version = "0.15", default-features = false, features = ["std", "import_mod", "import_xm", "import_s3m", "import_it"] }
 xmrsplayer = { version = "0.15", default-features = false, features = ["std", "import_mod", "import_xm", "import_s3m", "import_it"] }
 
-# Audio output; a browser build (R13-wasm) hands PCM to the page instead (src/device.rs).
+# Audio output; a browser build hands PCM to the page instead (src/device.rs).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.18"

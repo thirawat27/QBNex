@@ -15,7 +15,7 @@
 //!   `ldexpl`, `floorl`, `ceill` step by step. The only steps whose hardware result
 //!   is not the correctly rounded value (`f2xm1`, `fyl2x`, `fyl2xp1`) run on the x87
 //!   unit on `x86/x86_64` ([`x87`]); other targets use a software version that is
-//!   within one unit in the last place (deviation D-111, see the crate docs);
+//!   within one unit in the last place (documented deviation, see the crate docs);
 //! - [`dec`] converts to and from decimal text like MinGW `__mingw_strtold` and
 //!   `__mingw_snprintf("%.*Le" / "%.*Lf" / "%.*Lg")`;
 //! - [`qb`] has the QBasic-level functions (`EXP`, `^`, `FIX`, `SIN`, ...) with the
@@ -25,7 +25,7 @@
 //! real `long double` code compiled by MinGW g++.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
-// R14 H2: clippy::pedantic is clean except for the lints below. Bit-level x87
+// clippy::pedantic is clean except for the lints below. Bit-level x87
 // emulation and C ABI glue cast between integer widths on purpose (every cast
 // is a deliberate truncation, sign reinterpretation or widening of a field),
 // and the one-letter names follow the instruction manuals (a, b, m, e, x, y).

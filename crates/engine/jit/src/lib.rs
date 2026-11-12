@@ -1,4 +1,4 @@
-//! `qb-jit` — Cranelift JIT tier for QBNex (R11.6).
+//! `qb-jit` — Cranelift JIT tier for QBNex.
 //!
 //! Compiles MIR functions (typed, block-structured; see [`mir`]) to native
 //! code in memory: no linker, no C compiler. The VM stays the first tier;
@@ -17,7 +17,7 @@
 pub mod aot;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod codegen;
-/// Browser build (R13-wasm): no Cranelift; every compile declines.
+/// Browser build: no Cranelift; every compile declines.
 #[cfg(target_arch = "wasm32")]
 #[path = "off.rs"]
 pub mod codegen;
@@ -64,7 +64,7 @@ mod libqb_host {
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }
-    // R12b core runtime (allocators, errors, events, waits).
+    // Core runtime (allocators, errors, events, waits).
     #[unsafe(no_mangle)]
     pub static mut cmem_static_pointer: *mut u8 = core::ptr::null_mut();
     #[unsafe(no_mangle)]

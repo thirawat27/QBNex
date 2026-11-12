@@ -17,7 +17,7 @@ unsafe extern "C" {
     fn fgetc(f: *mut c_void) -> i32;
 }
 
-/// Browser build (R13-wasm): no C runtime. Console output collects in a
+/// Browser build: no C runtime. Console output collects in a
 /// buffer the page drains ([`take_stdout`]); stdin is always at its end.
 #[cfg(target_arch = "wasm32")]
 static WASM_STDOUT: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
@@ -93,7 +93,7 @@ unsafe fn c_stdin() -> *mut c_void {
 
 /// Column (1-based) of stdout as written by this program, for output that is
 /// not a console (redirected to a file or pipe), where the console cursor
-/// cannot be asked (L-02).
+/// cannot be asked.
 static COLUMN: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
 
 /// Column after writing `s` from column `col`: line breaks (LF, CR) return
@@ -325,7 +325,7 @@ pub fn pos() -> i32 {
     // SAFETY: Win32 queries.
     unsafe {
         if !win::is_console(win::std(win::STD_OUTPUT_HANDLE)) {
-            return tracked_column(); // redirected: no console cursor to ask (L-02)
+            return tracked_column(); // redirected: no console cursor to ask
         }
         win::conout_info().dwCursorPosition.X as i32 + 1
     }

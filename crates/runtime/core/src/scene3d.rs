@@ -1,4 +1,4 @@
-//! R15 G4: the runtime side of the 3D API (`_LOADMODEL`, `_MESHCUBE`,
+//! The runtime side of the 3D API (`_LOADMODEL`, `_MESHCUBE`,
 //! `_MESHPLANE`, `_MESHBEGIN`/`_MESHVERTEX`/`_MESHTRIANGLE`/`_MESHEND`,
 //! `_MESHCOLOR`, `_MESHTEXTURE`, `_FREEMESH`, `_DRAW3D`, `_CAMERA`,
 //! `_CAMERAORTHO`, `_CAMERARANGE`, `_AMBIENT`, `_LIGHT`, `_LIGHTON`,

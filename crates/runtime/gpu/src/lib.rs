@@ -1,4 +1,4 @@
-//! `qb-gpu` — GPU backend for QBNex (R15 G1), on wgpu (Vulkan / DX12 /
+//! `qb-gpu` — GPU backend for QBNex, on wgpu (Vulkan / DX12 /
 //! Metal / WebGPU). Pure Rust.
 //!
 //! - [`Gpu`]: instance, adapter, device and queue. [`Gpu::headless`] picks a
@@ -298,7 +298,7 @@ pub fn fit_size(w: u32, h: u32, max: u32) -> (u32, u32) {
 /// Texel data ready for a texture of at most `max`×`max`: a `w`×`h` image
 /// (`px` shorter than `w*h` is padded with the default value, extra data is
 /// ignored) scaled down with nearest sampling when a side exceeds `max`
-/// (R14: wgpu panics on textures above `max_texture_dimension_2d`).
+/// (wgpu panics on textures above `max_texture_dimension_2d`).
 pub fn fit_texture<T: Copy + Default>(px: &[T], w: u32, h: u32, max: u32) -> (std::borrow::Cow<'_, [T]>, u32, u32) {
     let (fw, fh) = fit_size(w, h, max);
     let n = w as usize * h as usize;

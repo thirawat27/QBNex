@@ -28,6 +28,14 @@ pub type R = u32;
 
 /// String source operand: constant pool index instead of a register.
 pub const K: u32 = 1 << 31;
+/// String source operand: the string variable in memory whose address is in numeric
+/// register `r & !M` (a load fused into its only reader, so the string is not copied).
+pub const M: u32 = 1 << 30;
+
+/// String operand `r` is read from memory ([`M`]).
+pub fn mem_str(r: R) -> bool {
+    r & K == 0 && r & M != 0
+}
 /// Array operand: module-level array (absolute index).
 pub const G: u32 = 1 << 31;
 /// "no operand" (optional register / handler).
@@ -139,7 +147,7 @@ pub enum Cmp {
 }
 
 impl Cmp {
-    pub fn not(self) -> Cmp {
+    pub fn inverse(self) -> Cmp {
         match self {
             Cmp::Eq => Cmp::Ne,
             Cmp::Ne => Cmp::Eq,
@@ -351,6 +359,8 @@ pub enum Ins {
     OnTimer { s: R, x: R, t: u32 },
     /// ON KEY(k) GOSUB t (s key number register)
     OnKey { s: R, t: u32 },
+    /// ON PLAY(n) GOSUB t (s note count register)
+    OnPlay { s: R, t: u32 },
     /// DECLARE LIBRARY call (`Module::xcalls[c]`)
     XCall { c: u32 },
     Resume { k: ResumeK, t: u32 },
@@ -367,6 +377,10 @@ pub enum Ins {
     LenS { d: R, s: R },
     Chr { d: R, s: R },
     Asc { d: R, s: R },
+    /// ASC(s, i): error 5 when i < 1, -1 past the end
+    AscAt { d: R, s: R, i: R },
+    /// INSTR([start,] a, b); `start` NONE = from 1
+    Instr { d: R, start: R, a: R, b: R },
     Left { d: R, s: R, n: R },
     Right { d: R, s: R, n: R },
     /// MID$(s, start[, n]); `n == NONE` = to the end
@@ -607,6 +621,11 @@ impl Ins {
     pub fn operands(&self, f: &mut impl FnMut(Opnd)) {
         use Ins::*;
         use Opnd as O;
+        // a string read from memory reads the numeric register holding its address
+        let f = &mut |o: Opnd| match o {
+            O::SK(r) if r & K == 0 && r & M != 0 => f(O::N(r & !M)),
+            o => f(o),
+        };
         match *self {
             Ldi { d, .. } => f(O::N(d)),
             Ldk { d, k } => {
@@ -775,7 +794,7 @@ impl Ins {
                 f(O::N(x));
                 f(O::TMain(t))
             }
-            OnKey { s, t } => {
+            OnKey { s, t } | OnPlay { s, t } => {
                 f(O::N(s));
                 f(O::TMain(t))
             }
@@ -806,6 +825,19 @@ impl Ins {
             LenS { d, s } | Asc { d, s } => {
                 f(O::N(d));
                 f(O::SK(s))
+            }
+            AscAt { d, s, i } => {
+                f(O::N(d));
+                f(O::SK(s));
+                f(O::N(i))
+            }
+            Instr { d, start, a, b } => {
+                f(O::N(d));
+                if start != NONE {
+                    f(O::N(start));
+                }
+                f(O::SK(a));
+                f(O::SK(b))
             }
             Chr { d, s } => {
                 f(O::S(d));
@@ -962,6 +994,7 @@ impl Ins {
             OnError { .. } => "on_error".into(),
             OnTimer { .. } => "on_timer".into(),
             OnKey { .. } => "on_key".into(),
+            OnPlay { .. } => "on_play".into(),
             XCall { .. } => "xcall".into(),
             Resume { k, .. } => format!("resume.{k:?}").to_lowercase(),
             Raise { .. } => "raise".into(),
@@ -973,6 +1006,8 @@ impl Ins {
             LenS { .. } => "len".into(),
             Chr { .. } => "chr".into(),
             Asc { .. } => "asc".into(),
+            AscAt { .. } => "ascat".into(),
+            Instr { .. } => "instr".into(),
             Left { .. } => "left".into(),
             Right { .. } => "right".into(),
             Mid { .. } => "mid".into(),
@@ -1033,6 +1068,8 @@ impl Ins {
             | CmpS { d, .. }
             | LenS { d, .. }
             | Asc { d, .. }
+            | AscAt { d, .. }
+            | Instr { d, .. }
             | LdE { d, .. }
             | LdE1 { d, .. }
             | Bound { d, .. }
@@ -1072,6 +1109,7 @@ impl Ins {
             | OnError { t }
             | OnTimer { t, .. }
             | OnKey { t, .. }
+            | OnPlay { t, .. }
             | Resume { t, .. }
 
  => Some(t),
@@ -1150,11 +1188,10 @@ impl Module {
             for pc in f.entry..f.end {
                 let ins = &self.code[pc as usize];
                 let mut chk = |o: Opnd| {
-                    if bad.is_none() {
-                        if let Err(e) = self.check(f, main, o) {
+                    if bad.is_none()
+                        && let Err(e) = self.check(f, main, o) {
                             bad = Some(format!("pc {pc} ({}): {e}", ins.mnemonic()));
                         }
-                    }
                 };
                 ins.operands(&mut chk);
                 if let Ins::Call { f: callee, desc } = *ins {
@@ -1220,6 +1257,8 @@ impl Module {
     fn sk_ok(&self, f: &Func, r: R) -> bool {
         if r & K != 0 {
             ((r & !K) as usize) < self.kstr.len()
+        } else if r & M != 0 {
+            (r & !M) < f.n_num()
         } else {
             r < f.n_str
         }

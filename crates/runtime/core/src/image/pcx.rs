@@ -12,7 +12,7 @@
 //!   rest of the 128-byte header;
 //! - 8-bit images with 2 or more than 4 planes decode as all black.
 //!
-//! Deviation D-R7-1: dr_pcx computed the buffer size in 32 bits and overflowed
+//! Deviation: dr_pcx computed the buffer size in 32 bits and overflowed
 //! the heap for images above 4 GiB of pixels; those now fail cleanly.
 
 const HEADER_LEN: usize = 128;
@@ -310,7 +310,7 @@ pub fn decode(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     };
     let size = width * height * components;
     if size > u32::MAX as usize {
-        return None; // D-R7-1
+        return None; // 1
     }
     // calloc in dr_pcx: allocation failure is a decode failure, not an abort.
     let mut px = Vec::new();

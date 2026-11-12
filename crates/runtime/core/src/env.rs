@@ -22,7 +22,7 @@ unsafe extern "C" {
     fn unsetenv(name: *const c_char) -> i32;
 }
 
-/// Browser build (R13-wasm): no C runtime, so the environment is a table
+/// Browser build: no C runtime, so the environment is a table
 /// private to the page, with the same getenv/setenv/unsetenv calls.
 #[cfg(target_arch = "wasm32")]
 mod wasm_env {

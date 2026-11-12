@@ -36,7 +36,7 @@ are explained, with their tests, in
 | D-19, D-20 | `_CLIPBOARD$` and `_CLIPBOARDIMAGE` work on Linux/macOS (UTF-8 clipboard: non-UTF-8 bytes become U+FFFD there). |
 | D-21 | `_OPENCLIENT` tries every IPv4 address of a host on every OS. |
 | D-22 | CP437 source files compile (QBNex used to reject them). |
-| D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile (the PLAY event itself is not raised yet), relational operators inside PRINT. |
+| D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile and the PLAY event is raised, relational operators inside PRINT. |
 | D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
 | D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |
 | D-R12b-4 | With redirected output or `QBNEX_NO_ERROR_DIALOG=1`, a runtime error prints one line to stderr and exits with code 1 instead of opening a dialog. |
@@ -57,8 +57,8 @@ See [Limitations and differences from QB64](limitations.md#known-defects).
 ## Platform gaps
 
 `_SCREENIMAGE` is a blank image on Linux/macOS; `_SCREENCLICK` and
-`_SCREENPRINT` do nothing on Linux; printing (`LPRINT`, `_PRINTIMAGE`) is
-Windows only.
+`_SCREENPRINT` do nothing on Linux; printing (`LPRINT`, `_PRINTIMAGE`) goes to
+the default printer on Windows and through `lp` on Linux and macOS.
 
 ## Since the QIR cutover
 

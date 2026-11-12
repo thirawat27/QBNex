@@ -444,14 +444,13 @@ impl Server {
             }
             v.push_str(&format!("**{}** — {}", info.name, info.doc));
             v
-        } else if let Some(p) = qb_syntax::library::lookup(&name) {
+        } else {
+            let p = qb_syntax::library::lookup(&name)?;
             let mut v = format!("```qbasic\n{}\n```\n`{}` from **{}** (`$IMPORT:'{}'`)", p.syntax, p.name, p.module, p.module);
             if !p.doc.is_empty() {
                 v.push_str(&format!("\n\n{}", p.doc));
             }
             v
-        } else {
-            return None;
         };
         Some(lt::Hover {
             contents: lt::HoverContents::Markup(lt::MarkupContent { kind: lt::MarkupKind::Markdown, value }),

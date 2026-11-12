@@ -17,7 +17,6 @@
 
 use std::ffi::c_void;
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
 
 /// One entry of the file table (`gfs_file_struct` without the fstream pointers).
@@ -449,19 +448,14 @@ pub fn fixdir(name: &mut [u8]) {
     }
 }
 
-/// Legacy `x` in `gfs_open_com_syntax` is a function-static that is read
-/// before it is written ("invalid port" check), so its value carries over
-/// between calls. Kept bug-for-bug.
-static COM_X: AtomicI32 = AtomicI32::new(0);
-
 /// `gfs_open_com_syntax`: parses "COMn:options" (`fstr` includes the NUL
 /// terminator). Returns 0 not a COM name, -1 syntax error, else fills the
 /// `com_*` fields (legacy returned an undefined value here, treated as "COM").
+/// Legacy kept `x` in a function-static that is read before it is written, so
+/// after one COM name every later one failed; each call starts at 0.
 pub fn open_com_syntax(fstr: &[u8], f: &mut GfsFile) -> i32 {
-    let mut x = COM_X.load(Ordering::Relaxed);
-    let r = com_syntax(fstr, f, &mut x);
-    COM_X.store(x, Ordering::Relaxed);
-    r
+    let mut x = 0;
+    com_syntax(fstr, f, &mut x)
 }
 
 fn com_syntax(fstr: &[u8], f: &mut GfsFile, x: &mut i32) -> i32 {
@@ -1375,9 +1369,12 @@ pub(crate) mod tests {
             (1, 300, 1, 7, 10)
         );
         assert_eq!((f.com_cs_x, f.com_ds_x, f.com_op_x), (1000, 1000, 10000));
-        // legacy leaves its static `x` at the OP timeout, so a second COM name fails
+        // a stale `x` (the OP timeout) makes the next name fail; open_com_syntax
+        // starts every call at 0, so a second COM name works
         assert_eq!(x, 10000);
         assert_eq!(com_syntax(b"COM1:\0", &mut GfsFile::zeroed(), &mut x), -1);
+        assert_eq!(open_com_syntax(b"COM1:\0", &mut GfsFile::zeroed()), 1);
+        assert_eq!(open_com_syntax(b"COM2:\0", &mut GfsFile::zeroed()), 1);
         x = 0;
         let mut f = GfsFile::zeroed();
         assert_eq!(com_syntax(b"com2:9600,N,8,1,ASC,LF,CD0,DS500\0", &mut f, &mut x), 1);

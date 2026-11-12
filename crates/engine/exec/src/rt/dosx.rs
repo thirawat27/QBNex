@@ -8,6 +8,12 @@
 //! `VARSEG` returns): PEEK, BSAVE and CALL ABSOLUTE see the value at the
 //! time they run, and POKE / BLOAD into an array mirror are written back to
 //! the array (a scalar mirror is a copy only: a SUB's local may be gone).
+//!
+//! CHAIN passes the COMMON variables by position, as QBasic does: CHAINPUT
+//! collects them, CHAIN writes them to a file named by `QBNEX_CHAIN` in the
+//! environment of the next program, whose COMMON statement reads them back
+//! (CHAINGET) in the same order. A value whose kind or size does not match
+//! the receiving variable is skipped.
 
 use super::builtins::{Host, DBLOCK};
 use super::{e, R, V};
@@ -41,6 +47,35 @@ pub(crate) struct Dos {
     pub(crate) run_from: i32,
     /// RUN file$ / CHAIN ran the other program: this one ends
     end_now: bool,
+    /// COMMON values for the program CHAIN runs next
+    chain_out: Vec<u8>,
+    /// COMMON values from the program that CHAINed here (read at the first CHAINGET)
+    chain_in: Option<std::io::Cursor<Vec<u8>>>,
+}
+
+/// One COMMON value: kind (1 = bytes, 2 = STRING), length, bytes.
+fn chain_item(out: &mut Vec<u8>, kind: u8, b: &[u8]) {
+    out.push(kind);
+    out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+    out.extend_from_slice(b);
+}
+
+/// The next COMMON value passed by CHAIN, when it is of `kind`.
+fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let c = d.chain_in.get_or_insert_with(|| {
+        let data = std::env::var_os("QBNEX_CHAIN").and_then(|p| {
+            let b = std::fs::read(&p).ok();
+            let _ = std::fs::remove_file(&p);
+            b
+        });
+        std::io::Cursor::new(data.unwrap_or_default())
+    });
+    let mut head = [0u8; 5];
+    c.read_exact(&mut head).ok()?;
+    let mut b = vec![0u8; u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize];
+    c.read_exact(&mut b).ok()?;
+    (head[0] == kind).then_some(b)
 }
 
 impl Dos {
@@ -287,7 +322,24 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
         return e(53);
     }
     vm.rt().flush();
-    let st = super::builtins::shell_command(cmd).status();
+    let mut c = super::builtins::shell_command(cmd);
+    let common = std::mem::take(&mut vm.rt().dos.chain_out);
+    let file = (!common.is_empty()).then(|| std::env::temp_dir().join(format!("qbnex-chain-{}.bin", std::process::id())));
+    match &file {
+        Some(f) => {
+            if std::fs::write(f, &common).is_err() {
+                return e(75);
+            }
+            c.env("QBNEX_CHAIN", f);
+        }
+        None => {
+            c.env_remove("QBNEX_CHAIN");
+        }
+    }
+    let st = c.status();
+    if let Some(f) = &file {
+        let _ = std::fs::remove_file(f);
+    }
     if st.is_err() {
         return e(53);
     }
@@ -297,20 +349,31 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
 
 /// CHAIN name: `.bas` runs the `.exe` of the same name; without an extension
 /// the first word gets `.exe` and the rest are its arguments (qbx.cpp sub_chain).
-/// COMMON variables are not passed on.
 fn chain_command(f: &str) -> (String, String) {
     let up = f.to_ascii_uppercase();
     if let Some(p) = up.find('.') {
         let ext = &up[p + 1..];
         if ext.starts_with("BAS") || ext.starts_with("EXE") {
             let exe = format!("{}{}", &f[..p], if cfg!(windows) { ".exe" } else { "" });
-            return (format!("\"{exe}\"{}", &f[p + 4..]), exe);
+            return (format!("\"{}\"{}", in_dir(&exe), &f[p + 4..]), exe);
         }
     }
     let (name, args) = f.split_once(' ').map_or((f, ""), |(a, b)| (a, b));
     let exe = format!("{name}{}", if cfg!(windows) { ".exe" } else { "" });
-    let cmd = if args.is_empty() { format!("\"{exe}\"") } else { format!("\"{exe}\" {args}") };
+    let cmd = if args.is_empty() { format!("\"{}\"", in_dir(&exe)) } else { format!("\"{}\" {args}", in_dir(&exe)) };
     (cmd, exe)
+}
+
+/// A program name without a directory runs from the current directory, as DOS did:
+/// `sh` searches only the PATH, and so does `cmd` with NoDefaultCurrentDirectoryInExePath.
+fn in_dir(exe: &str) -> String {
+    if exe.contains(['/', '\\', ':']) {
+        exe.to_string()
+    } else if cfg!(windows) {
+        format!(".\\{exe}")
+    } else {
+        format!("./{exe}")
+    }
 }
 
 /// RUN / CLEAR: what the C++ sub_clear (and for RUN sub_run_init) reset that
@@ -438,8 +501,40 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         "RUNFILE" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
             let exe = f.split(' ').next().unwrap_or("").to_string();
+            // RUN passes no COMMON variables
+            vm.rt().dos.chain_out.clear();
             run_program(vm, &f, &exe).map(|_| None)
         }
+        "CHAINPUT" => {
+            let b = match vm.bytes(a[0].p(), i(1).max(0) as usize) {
+                Ok(b) => b.to_vec(),
+                Err(x) => return Some(Err(x)),
+            };
+            chain_item(&mut vm.rt().dos.chain_out, 1, &b);
+            none
+        }
+        "CHAINPUTS" => {
+            let s = match vm.load_str(a[0].p()) {
+                Ok(s) => s,
+                Err(x) => return Some(Err(x)),
+            };
+            chain_item(&mut vm.rt().dos.chain_out, 2, &s);
+            none
+        }
+        "CHAINGET" => {
+            let n = i(1).max(0) as usize;
+            match chain_next(&mut vm.rt().dos, 1) {
+                Some(b) if b.len() == n => vm.bytes(a[0].p(), n).map(|m| {
+                    m.copy_from_slice(&b);
+                    None
+                }),
+                _ => none,
+            }
+        }
+        "CHAINGETS" => match chain_next(&mut vm.rt().dos, 2) {
+            Some(s) => vm.store_str(a[0].p(), &s).map(|_| None),
+            None => none,
+        },
         "CHAIN" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
             if f.is_empty() {
@@ -479,10 +574,26 @@ mod tests {
     use super::chain_command;
 
     #[test]
+    fn common_values_come_back_in_order_and_mismatches_are_skipped() {
+        use super::{chain_item, chain_next, Dos};
+        let mut out = Vec::new();
+        chain_item(&mut out, 1, &7i16.to_le_bytes());
+        chain_item(&mut out, 2, b"text");
+        chain_item(&mut out, 1, &[1, 2, 3, 4]);
+        let mut d = Dos { chain_in: Some(std::io::Cursor::new(out)), ..Dos::default() };
+        assert_eq!(chain_next(&mut d, 1), Some(7i16.to_le_bytes().to_vec()));
+        assert_eq!(chain_next(&mut d, 2), Some(b"text".to_vec()));
+        // a STRING asked for where bytes were passed: skipped
+        assert_eq!(chain_next(&mut d, 2), None);
+        assert_eq!(chain_next(&mut d, 1), None);
+    }
+
+    #[test]
     fn chain_names() {
         let x = if cfg!(windows) { ".exe" } else { "" };
         assert_eq!(chain_command("next.bas").1, format!("next{x}"));
         assert_eq!(chain_command("NEXT.EXE").1, format!("NEXT{x}"));
-        assert_eq!(chain_command("menu a b"), (format!("\"menu{x}\" a b"), format!("menu{x}")));
+        let dir = if cfg!(windows) { ".\\" } else { "./" };
+        assert_eq!(chain_command("menu a b"), (format!("\"{dir}menu{x}\" a b"), format!("menu{x}")));
     }
 }

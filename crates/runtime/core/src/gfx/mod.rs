@@ -1,4 +1,4 @@
-//! Software graphics (phase R5): the image registry, palettes, and every
+//! Software graphics: the image registry, palettes, and every
 //! drawing primitive that used to live in `libqb.cpp`.
 //!
 //! The data model is unchanged: every surface is an [`ImgStruct`] with the

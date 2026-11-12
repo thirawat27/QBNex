@@ -10,7 +10,7 @@ unsafe extern "C" {
     fn malloc(size: usize) -> *mut c_void;
 }
 
-/// Browser build (R13-wasm): no C heap and no C++ code that frees, so the
+/// Browser build: no C heap and no C++ code that frees, so the
 /// block comes from the Rust allocator (callers there never release it).
 #[cfg(target_arch = "wasm32")]
 unsafe fn malloc(size: usize) -> *mut c_void {

@@ -25,8 +25,8 @@ jobs:
     if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-audit
       - run: cargo audit
@@ -61,7 +61,7 @@ jobs:
       QBNEX_CI: "1"
       QBNEX_BUNDLE_DIR: dist/bundle/qbnex
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -75,7 +75,7 @@ jobs:
           rustc -vV
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-on-failure: true
 
@@ -116,7 +116,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio; do
+          for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain; do
             echo "::group::${t}_smoke"; sh "tests/smoke/${t}_smoke.sh"; echo "::endgroup::"
           done
 
@@ -124,7 +124,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          for %%t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio) do (
+          for %%t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain) do (
             call tests\smoke\%%t_smoke.cmd || exit /b 1
           )
 
@@ -153,7 +153,7 @@ jobs:
         run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd" -AliasWrapperPath "qbnex.cmd"
 
       - name: Upload compiler artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: qbnex_${{ github.sha }}_${{ matrix.artifact_suffix }}
           path: ${{ github.workspace }}/${{ env.QBNEX_BUNDLE_DIR }}
@@ -182,7 +182,7 @@ jobs:
       QBNEX_HEADLESS: "1"
       QB_AUDIO_DEVICE: none
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -196,7 +196,7 @@ jobs:
           rustc -vV
 
       - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-on-failure: true
 

@@ -160,7 +160,7 @@ unsafe fn lock_of(lock_offset: isize) -> Option<u64> {
 
 /// True when `[off, off+bytes)` lies inside the block.
 /// Computed in i128: legacy `off + bytes` wrapped for offsets near the top of
-/// the address space and passed the check (R14).
+/// the address space and passed the check.
 fn in_range(b: &MemBlock, off: isize, bytes: isize) -> bool {
     let end = off as i128 + bytes as i128;
     !(off < b.offset || end > b.offset as i128 + b.size as i128)
@@ -169,7 +169,7 @@ fn in_range(b: &MemBlock, off: isize, bytes: isize) -> bool {
 /// `_MEMFREE`. Returns 0 or the error code (309 no lock, 307 already freed).
 ///
 /// Legacy freed a `_MEMNEW` buffer twice (vector erase + `free`), corrupting
-/// the heap (L-09); here it is released once (D-07).
+/// the heap; here it is released once.
 ///
 /// # Safety
 /// `blk.lock_offset` must be null or point to a lock from [`new_mem_lock`].
@@ -220,7 +220,7 @@ pub fn mem_at_offset(offset: isize, size: isize, new_error: bool) -> (MemBlock, 
 /// A `_MEMNEW` buffer owned through a raw pointer. BASIC keeps the address
 /// as an integer and reads/writes it later; moving a `Box<[u8]>` (into the
 /// pool map) retags it and invalidates that address under Rust's aliasing
-/// rules (found by miri, R14). The raw allocation is never moved.
+/// rules (found by miri). The raw allocation is never moved.
 pub(crate) struct RawBuf(*mut [u8]);
 
 // SAFETY: the buffer is plain bytes owned by the pool; access is serialised by
@@ -313,18 +313,16 @@ pub unsafe fn memget(blk: &MemBlock, off: isize, bytes: isize) -> (*mut c_void, 
         Some(_) if !in_range(blk, off, bytes) => 300,
         Some(_) => return (off as *mut c_void, 0),
     };
-    if bytes <= 0 {
-        // Legacy: an empty scratch vector has no data(), reported as critical
-        // "out of memory" (518) right after the check error.
-        return (null_mut(), 518);
-    }
+    // A 0-byte read reports the check error alone; legacy raised critical error 518
+    // because its empty scratch vector had no data().
+    let n = bytes.max(0) as usize;
     let mut p = pool();
     p.fail_buffer.clear();
-    // R14: an absurd size reports "out of memory" instead of aborting.
-    if p.fail_buffer.try_reserve_exact(bytes as usize).is_err() {
+    // An absurd size reports "out of memory" instead of aborting.
+    if p.fail_buffer.try_reserve_exact(n).is_err() {
         return (null_mut(), 518);
     }
-    p.fail_buffer.resize(bytes as usize, 0);
+    p.fail_buffer.resize(n, 0);
     (p.fail_buffer.as_mut_ptr().cast(), err)
 }
 
@@ -564,7 +562,7 @@ mod tests {
         unsafe { std::slice::from_raw_parts(b.offset as *const u8, b.size as usize) }
     }
 
-    /// R14: `offset + bytes` past `isize::MAX` must count as out of range
+    /// `offset + bytes` past `isize::MAX` must count as out of range
     /// (it wrapped and let `_MEMFILL`/`_MEMCOPY`/`_MEMGET` touch foreign memory).
     #[test]
     fn range_checks_do_not_wrap() {
@@ -584,7 +582,7 @@ mod tests {
         assert!(bytes_of(&b).iter().all(|&x| x == 7));
     }
 
-    /// R14: a failed `_MEMGET` check with an absurd byte count reports
+    /// A failed `_MEMGET` check with an absurd byte count reports
     /// "out of memory" (518) instead of aborting while allocating the scratch.
     #[test]
     fn failed_memget_with_huge_size_does_not_abort() {
@@ -669,7 +667,10 @@ mod tests {
             assert_eq!(std::slice::from_raw_parts(p as *const u8, 4), &[0; 4]);
             assert_eq!(memget(&b, b.offset - 1, 1).1, 300);
             assert_eq!(memget(&MemBlock::default(), 0, 1).1, 309);
-            assert_eq!(memget(&b, b.offset + 9, 0).1, 518);
+            // A 0-byte read gives the check error, not 518
+            let (p, e) = memget(&b, b.offset + 9, 0);
+            assert_eq!(e, 300);
+            assert!(!p.is_null());
             let mut stale = b;
             stale.lock_id += 1;
             assert_eq!(memget(&stale, b.offset, 1).1, 308);

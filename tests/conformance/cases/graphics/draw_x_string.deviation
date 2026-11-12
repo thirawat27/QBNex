@@ -1,0 +1,1 @@
+VARPTR$ of a STRING variable (for DRAW and PLAY "X") was not supported by the QIR compiler. QBasic semantics; expected output written by hand.

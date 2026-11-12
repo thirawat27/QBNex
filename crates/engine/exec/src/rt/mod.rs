@@ -13,6 +13,7 @@ mod cpu;
 pub(crate) mod display;
 mod dosx;
 mod input;
+mod lprint;
 mod scancodes;
 pub(crate) mod builtins;
 mod files;

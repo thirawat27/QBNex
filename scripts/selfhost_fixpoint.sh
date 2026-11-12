@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Self-host fixpoint check (legacy defect L-00), QIR pipeline.
+# Self-host fixpoint check, QIR pipeline.
 # qb (gen1) builds qb-gen2 from compiler/qbnex.bas, qb-gen2 builds qb-gen3.
 # The QIR that gen2 and gen3 emit for compiler/qbnex.bas must be byte-identical, and
 # identical to bootstrap/qbnex.qir. Pass --conformance to run the corpus with gen3 too.

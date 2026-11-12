@@ -1,4 +1,4 @@
-//! READ/DATA and the "universal number representation" (R12b).
+//! READ/DATA and the "universal number representation".
 //!
 //! Replaces `n_inputnumberfromdata`, `n_float`, `n_int64`, `n_uint64`,
 //! `n_roundincrement`, `sub_read_string`, `func_read_float`,
@@ -270,7 +270,7 @@ fn radix_value(n: &NumRepr) -> Option<u64> {
 ///
 /// Legacy indexed `n_digit[n_exp+1]` also for `n_exp < -1` (numbers below
 /// 0.1), reading memory before the array (undefined). Those numbers have no
-/// digit in the first decimal place, so no rounding happens here (D-R12b-1).
+/// digit in the first decimal place, so no rounding happens here.
 fn round_increment(n: &NumRepr) -> bool {
     if n.digits == 0 {
         return false;

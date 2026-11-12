@@ -18,14 +18,14 @@ path = "src/lib.rs"
 # Audio runtime (R6). Its own crate so that its object file is only pulled into
 # programs whose libqb references the audio entry points (DEPENDENCY_AUDIO_OUT).
 qb-audio = { path = "../audio" }
-# R13-ext: regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* C ABI),
+# Regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* C ABI),
 # linked into the runner qb-exec so the stdlib's ext.* modules can call it through DECLARE LIBRARY.
 qb-ext = { path = "../ext", optional = true }
-# R11d: software x87 80-bit float (`_FLOAT`): VAL rounding, f80 -> f64, STR$ of _FLOAT.
+# Software x87 80-bit float (`_FLOAT`): VAL rounding, f80 -> f64, STR$ of _FLOAT.
 qb-float80 = { path = "../float80" }
 ab_glyph_rasterizer = "0.1.10"
 png = "0.18"
-# R10: _DEFLATE/_INFLATE (replaces the system zlib); a Rust port of zlib, already used by png via flate2.
+# _DEFLATE/_INFLATE (replaces the system zlib); a Rust port of zlib, already used by png via flate2.
 zlib-rs = { version = "0.6", default-features = false, features = ["std", "rust-allocator"] }
 skrifa = "0.49.0"
 zune-jpeg = "0.5.15"
@@ -59,15 +59,15 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 # R8: window + input (replaces freeglut/GLEW/gui.cpp). Not in a browser build
-# (R13-wasm): there the page is the window and qb-web draws the surfaces.
+# (browser build): there the page is the window and qb-web draws the surfaces.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 winit = "0.30"
 softbuffer = "0.4"
-# SUB _GL / _gl* (D-14 closed): an OpenGL context on the program window; pure Rust
+# SUB _GL / _gl*: an OpenGL context on the program window; pure Rust
 # (WGL on Windows, EGL/GLX through dlopen on Linux, CGL on macOS), no C toolchain
 glutin = "0.32"
 gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
-# R15 G2: present the window frame through the GPU (wgpu) when the feature is on;
+# Present the window frame through the GPU (wgpu) when the feature is on;
 # softbuffer stays the default and the fallback when no adapter/surface is available.
 qb-gpu = { path = "../gpu", optional = true }
 

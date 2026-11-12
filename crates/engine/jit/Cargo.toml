@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "R11.6: Cranelift JIT tier for QBNex programs. Compiles typed functions/loops to native code at run time (no linker, no C compiler)."
+description = "Cranelift JIT tier for QBNex programs. Compiles typed functions/loops to native code at run time (no linker, no C compiler)."
 publish = false
 
 [lib]
@@ -18,7 +18,7 @@ native-syms = []
 [dependencies]
 qb-runtime = { path = "../../runtime/core" }
 
-# Cranelift is native-only; a browser build (R13-wasm) uses src/off.rs.
+# Cranelift is native-only; a browser build uses src/off.rs.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cranelift-codegen = { version = "0.137", features = ["x86", "arm64"] }
 cranelift-frontend = "0.137"

@@ -3,7 +3,8 @@
 //! Every `cases/**/<name>.bas` is compiled with `qb`, executed, and its stdout is
 //! compared with `<name>.out` (line endings normalised to `\n`). An optional
 //! `<name>.in` is piped to stdin; `<name>.input` is an input script (keys/mouse)
-//! replayed by the Rust runtime in headless mode. `--bless` rewrites the `.out` files from the
+//! replayed by the Rust runtime in headless mode. LPRINT output (`QBNEX_LPRINT`) is
+//! compared too: it follows stdout after a `[LPRINT]` line. `--bless` rewrites the `.out` files from the
 //! current compiler, which is how golden output is captured from a trusted build.
 //!
 //! A `<name>.xfail` file marks a known defect of the legacy implementation; its
@@ -51,7 +52,7 @@ struct Options {
     timeout: Duration,
     verbose: bool,
     fb_dump: Option<PathBuf>,
-    /// Extra compiler flags, e.g. `--qb-arg --ir` for the R11 QIR backend.
+    /// Extra compiler flags, e.g. `--qb-arg --ir` for the QIR backend.
     qb_args: Vec<String>,
     /// Differential mode: compile every case a second time with these flags
     /// (e.g. `--diff-arg --ir`) and compare the two runs with each other.
@@ -307,12 +308,16 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     // Programs run inside the scratch dir so file-I/O cases never touch the repo.
     let capture = opts.work.join(format!("{tag}.fbraw"));
     let _ = fs::remove_file(&capture);
+    let lprint = opts.work.join(format!("{tag}.lprint"));
+    let _ = fs::remove_file(&lprint);
     let mut run = Command::new(&exe);
     run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture).env("QBNEX_NO_ERROR_DIALOG", "1");
     // GUI programs run without a window; `<name>.input` is replayed as keyboard/mouse
     // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). The legacy
     // runtime ignores both variables.
     run.env("QBNEX_HEADLESS", "1");
+    // LPRINT pages go to a file (never to a printer); they are compared after stdout
+    run.env("QBNEX_LPRINT", &lprint);
     if let Ok(script) = case.with_extension("input").canonicalize() {
         run.env("QBNEX_INPUT_SCRIPT", script);
     }
@@ -335,6 +340,11 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     let mut actual = normalise(&stdout);
     if code != Some(0) {
         actual.extend_from_slice(format!("[exit {code:?}]\n").as_bytes());
+    }
+    if let Ok(printed) = fs::read(&lprint) {
+        let _ = fs::remove_file(&lprint);
+        actual.extend_from_slice(b"[LPRINT]\n");
+        actual.extend_from_slice(&normalise(&printed));
     }
     if opts.verbose && !stderr.is_empty() {
         eprintln!("    stderr({stem}): {}", String::from_utf8_lossy(&stderr));
@@ -412,7 +422,7 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
         Outcome::Pass
     } else if !fb_path.exists() {
         // No frame golden: the case only checks stdout. Cases whose frames
-        // the legacy oracle cannot produce (R8 input scripts) have none.
+        // the legacy oracle cannot produce (input scripts) have none.
         Outcome::Pass
     } else if expected_frames.is_empty() {
         Outcome::Fail(format!(
@@ -484,7 +494,7 @@ fn fresh_dir(base: &Path, prefix: &str) -> std::io::Result<PathBuf> {
             h.write_u128(t.as_nanos());
         }
         let dir = base.join(format!("{prefix}_{}_{:016x}", std::process::id(), h.finish()));
-        let mut builder = fs::DirBuilder::new();
+        let builder = fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         match builder.create(&dir) {

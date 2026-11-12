@@ -6,7 +6,7 @@
 //!   quirks (palette size taken from the data offset, all-zero alpha made
 //!   opaque, GIF background stored as B,G,R...) are kept bit for bit.
 //! - PNG, JPEG: the `png` and `zune-jpeg` crates (`codecs.rs`).
-//! - PSD, PIC, HDR: no longer decoded (deviation D-R7-3).
+//! - PSD, PIC, HDR: no longer decoded (documented deviation).
 
 mod codecs;
 pub mod pcx;
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn bmp_palette_entries_stb_never_read_are_black() {
         // OS/2 BMP, 1 bpp, 2 palette entries: stb_image computes a palette size
-        // of -2, reads no entry and indexes uninitialised memory; D-R7-5 makes
+        // of -2, reads no entry and indexes uninitialised memory; the port makes
         // those entries black.
         let mut f = b"BM".to_vec();
         f.extend_from_slice(&[0; 8]);

@@ -26,6 +26,8 @@ use crate::bytecode::*;
 use qb_ir::{self as ir, BinOp, CmpOp, DimKind, Inst, Lit, ResumeKind, StoreTy, Ty as IT, UnOp, VarKind};
 
 type Res<T> = Result<T, String>;
+/// A function's slots and its result slot (with its type).
+type FuncSlots = (Vec<Slot>, Option<(Slot, Ty)>);
 
 fn width(t: IT) -> Res<W> {
     Ok(match t {
@@ -74,7 +76,7 @@ fn regs(i: &Inst) -> (Option<u32>, Vec<u32>) {
             (None, vec![])
         }
         OnTimer { slot, secs, .. } => (None, vec![*slot, *secs]),
-        OnKey { key, .. } => (None, vec![*key]),
+        OnKey { key, .. } | OnPlay { n: key, .. } => (None, vec![*key]),
         Const { dst, .. } => (Some(*dst), vec![]),
         Mov { dst, src, .. } | Cvt { dst, src, .. } | Trunc { dst, src, .. } => (Some(*dst), vec![*src]),
         Bin { dst, a, b, .. } | Cmp { dst, a, b, .. } | Concat { dst, a, b } => (Some(*dst), vec![*a, *b]),
@@ -469,7 +471,7 @@ impl<'a> Lw<'a> {
         Ok((mk, MVar { size, fill, strs, array: d.array }))
     }
 
-    fn function(&mut self, k: usize, f: &'a ir::Func, statics: &HashMap<String, Var>) -> Res<(Vec<Slot>, Option<(Slot, Ty)>)> {
+    fn function(&mut self, k: usize, f: &'a ir::Func, statics: &HashMap<String, Var>) -> Res<FuncSlots> {
         let fkey = |l: &str| format!("{k}\u{1}{l}");
         // variables: globals (module view), statics, params, locals
         let mut vars: HashMap<String, Var> = HashMap::new();
@@ -541,13 +543,21 @@ impl<'a> Lw<'a> {
             // module-level memory variables: fetch their addresses once per call
             let used = var_names(f);
             let mut fetch = Vec::new();
-            for (n, v) in vars.iter_mut() {
-                if let Var::MG(g, mk) = *v {
-                    if used.contains(n.as_str()) {
-                        let r = self.frames[k].new_n(0);
-                        fetch.push(Ins::GetG { d: r, g });
-                        *v = Var::M(r, mk);
-                    }
+            // by name: HashMap order differs between runs, and the registers must not
+            // (a native image built ahead of time checks the lowered program)
+            let mut names: Vec<String> = vars
+                .iter()
+                .filter(|(n, v)| matches!(v, Var::MG(..)) && used.contains(n.as_str()))
+                .map(|(n, _)| n.clone())
+                .collect();
+            names.sort_unstable();
+            for n in names {
+                if let Some(v) = vars.get_mut(&n)
+                    && let Var::MG(g, mk) = *v
+                {
+                    let r = self.frames[k].new_n(0);
+                    fetch.push(Ins::GetG { d: r, g });
+                    *v = Var::M(r, mk);
                 }
             }
             self.prologue[k].extend(fetch);
@@ -589,8 +599,8 @@ impl<'a> Lw<'a> {
         // QIR registers: constants defined once become constant registers / K strings
         let mut rmap: HashMap<u32, Rg> = HashMap::new();
         for i in &f.body {
-            if let Inst::Const { ty, dst, val } = i {
-                if defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
+            if let Inst::Const { ty, dst, val } = i
+                && defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
                     let rg = if *ty == IT::Str {
                         let Lit::Str(s) = val else { return Err("bad string const".into()) };
                         Rg::S(self.kstr(s))
@@ -612,7 +622,6 @@ impl<'a> Lw<'a> {
                     };
                     rmap.insert(*dst, rg);
                 }
-            }
         }
         let mut ptrs: HashMap<u32, Ptr> = HashMap::new();
         // QIR register -> variable whose register it aliases
@@ -695,8 +704,13 @@ impl<'a> Lw<'a> {
                                 self.emit(Ins::LdFs { d, p, off: 0, len });
                             }
                             _ if *ty == IT::Str => {
-                                let d = sreg!(*dst);
-                                self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
+                                if single(*dst) && !rmap.contains_key(dst) && p & (K | M) == 0 && str_read_only(body, ii, *dst) {
+                                    // its only reader takes the string from memory: no copy
+                                    rmap.insert(*dst, Rg::S(p | M));
+                                } else {
+                                    let d = sreg!(*dst);
+                                    self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
+                                }
                             }
                             _ => {
                                 let d = if *ty == IT::F80 { xreg!(*dst) } else { nreg!(*dst) };
@@ -1355,10 +1369,11 @@ impl<'a> Lw<'a> {
                     let mut j = if on_true { Ins::JnzI { s: r, t: 0 } } else { Ins::JzI { s: r, t: 0 } };
                     if single(*c) && self.pc() > self.barrier {
                         let fused = match self.m.code.last().copied() {
-                            Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
-                            Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
-                            Some(Ins::CmpS { c: op, d, a, b }) if d == r => Some(Ins::BrS { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
-                            Some(Ins::CmpU { c: op, d, a, b }) if d == r => Some(Ins::BrU { c: if on_true { op } else { op.not() }, a, b, t: 0 }),
+                            Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                            Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                            // native BrS reads string operands from the frame, not from memory
+                            Some(Ins::CmpS { c: op, d, a, b }) if d == r && !mem_str(a) && !mem_str(b) => Some(Ins::BrS { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                            Some(Ins::CmpU { c: op, d, a, b }) if d == r => Some(Ins::BrU { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
                             _ => None,
                         };
                         if let Some(b) = fused {
@@ -1442,12 +1457,15 @@ impl<'a> Lw<'a> {
                     self.emit(Ins::Ret);
                 }
                 Inst::Rt { dst: Some(dst), name, args }
-                    if matches!(name.as_str(), "LEN" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "ASC") =>
+                    if matches!(name.as_str(), "LEN" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" | "CHR$" | "ASC" | "ASC.n" | "INSTR" | "INSTR.n") =>
                 {
                     // hot string builtins: dedicated instructions, same errors as the shared runtime
                     let native = match (name.as_str(), args.as_slice()) {
                         ("LEN", [x]) => Ins::LenS { d: nreg!(*dst), s: sreg!(*x) },
                         ("ASC", [x]) => Ins::Asc { d: nreg!(*dst), s: sreg!(*x) },
+                        ("ASC.n", [x, i]) => Ins::AscAt { d: nreg!(*dst), s: sreg!(*x), i: nreg!(*i) },
+                        ("INSTR", [x, y]) => Ins::Instr { d: nreg!(*dst), start: NONE, a: sreg!(*x), b: sreg!(*y) },
+                        ("INSTR.n", [n, x, y]) => Ins::Instr { d: nreg!(*dst), start: nreg!(*n), a: sreg!(*x), b: sreg!(*y) },
                         ("CHR$", [x]) => Ins::Chr { d: sreg!(*dst), s: nreg!(*x) },
                         ("LEFT$", [x, n]) => Ins::Left { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
                         ("RIGHT$", [x, n]) => Ins::Right { d: sreg!(*dst), s: sreg!(*x), n: nreg!(*n) },
@@ -1533,6 +1551,11 @@ impl<'a> Lw<'a> {
                     let pc = self.emit(Ins::OnKey { s, t: 0 });
                     self.fixups.push((pc, format!("0\u{1}{target}")));
                 }
+                Inst::OnPlay { n, target } => {
+                    let s = nreg!(*n);
+                    let pc = self.emit(Ins::OnPlay { s, t: 0 });
+                    self.fixups.push((pc, format!("0\u{1}{target}")));
+                }
                 Inst::Resume(r) => match r {
                     ResumeKind::Same => {
                         self.emit(Ins::Resume { k: ResumeK::Same, t: 0 });
@@ -1612,14 +1635,12 @@ impl<'a> Lw<'a> {
         if self.pc() <= self.barrier {
             return false;
         }
-        if let Some(last) = self.m.code.last_mut() {
-            if let Some((b, dst)) = last.dest_mut() {
-                if b == str_bank && *dst == t {
+        if let Some(last) = self.m.code.last_mut()
+            && let Some((b, dst)) = last.dest_mut()
+                && b == str_bank && *dst == t {
                     *dst = d;
                     return true;
                 }
-            }
-        }
         false
     }
 
@@ -1690,7 +1711,7 @@ fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
         let refers = match i {
             Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
             Inst::Gosub(t) | Inst::GRetL(t) => return t != l,
-            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } | Inst::OnKey { target: t, .. } => return t != l,
+            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } | Inst::OnKey { target: t, .. } | Inst::OnPlay { target: t, .. } => return t != l,
             _ => false,
         };
         !refers || (k > at && k < here)
@@ -1765,6 +1786,26 @@ fn to_global(v: Var) -> Var {
 
 /// `load %d $x` may reuse `$x`'s register when every use of `%d` comes
 /// before anything that could change `$x` (store, call, control flow).
+/// The string loaded into `d` at `at` is read once, by LEN, ASC, LEFT$, RIGHT$, MID$ or a
+/// string comparison, before anything could change memory: that reader can take the
+/// string from memory instead of a copy.
+fn str_read_only(body: &[Inst], at: usize, d: u32) -> bool {
+    let Some(reader) = body[at + 1..].iter().find(|i| regs(i).1.contains(&d)) else { return false };
+    let ok = match reader {
+        Inst::Rt { dst: Some(_), name, args } => match name.as_str() {
+            "LEN" | "ASC" | "ASC.n" | "LEFT$" | "RIGHT$" | "MID$" | "MID$.n" => args.first() == Some(&d) && !args[1..].contains(&d),
+            "INSTR" => args.iter().filter(|&&a| a == d).count() == 1,
+            "INSTR.n" => args.first() != Some(&d) && args.iter().filter(|&&a| a == d).count() == 1,
+            _ => false,
+        },
+        Inst::Cmp { ty: IT::Str, a, b, .. } => (*a == d) != (*b == d),
+        _ => false,
+    };
+    ok && stable_until_uses(body, at, d, 1, &|i: &Inst| {
+        matches!(i, Inst::Store { .. } | Inst::St { .. } | Inst::StFs { .. } | Inst::Copy { .. } | Inst::Rt { .. } | Inst::Read { .. })
+    })
+}
+
 fn alias_ok(body: &[Inst], at: usize, d: u32, var: &str, total: u32) -> bool {
     stable_until_uses(body, at, d, total, &|i: &Inst| matches!(i, Inst::Store { var: v, .. } if v == var))
 }
@@ -1838,10 +1879,10 @@ fn used_before_redef(body: &[Inst], at: usize, r: u32) -> bool {
 
 fn invert(i: Ins) -> Ins {
     match i {
-        Ins::BrI { c, a, b, t } => Ins::BrI { c: c.not(), a, b, t },
-        Ins::BrF { c, a, b, t } => Ins::BrF { c: c.not(), a, b, t },
-        Ins::BrS { c, a, b, t } => Ins::BrS { c: c.not(), a, b, t },
-        Ins::BrU { c, a, b, t } => Ins::BrU { c: c.not(), a, b, t },
+        Ins::BrI { c, a, b, t } => Ins::BrI { c: c.inverse(), a, b, t },
+        Ins::BrF { c, a, b, t } => Ins::BrF { c: c.inverse(), a, b, t },
+        Ins::BrS { c, a, b, t } => Ins::BrS { c: c.inverse(), a, b, t },
+        Ins::BrU { c, a, b, t } => Ins::BrU { c: c.inverse(), a, b, t },
         Ins::JzI { s, t } => Ins::JnzI { s, t },
         Ins::JnzI { s, t } => Ins::JzI { s, t },
         other => other,

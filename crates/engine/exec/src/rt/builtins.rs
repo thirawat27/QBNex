@@ -81,6 +81,8 @@ pub(crate) struct RtState<'a> {
     pub(crate) field_cur: (i32, usize),
     /// TCP/IP handles
     pub(crate) net: super::netx::Net,
+    /// LPRINT's page (sent when full, on CHR$(12) and when the program ends)
+    pub(crate) lprint: super::lprint::Lprint,
     pub(crate) net_pending_error: i32,
     /// keyboard and mouse (INKEY$, _KEYHIT, _MOUSEINPUT, ...)
     pub(crate) input: super::input::Input,
@@ -141,6 +143,7 @@ impl<'a> RtState<'a> {
             field_vars: Vec::new(),
             field_cur: (0, 0),
             net: super::netx::Net::default(),
+            lprint: super::lprint::Lprint::default(),
             net_pending_error: 0,
             snd_started: false,
             read_err: 0,
@@ -174,6 +177,10 @@ impl<'a> RtState<'a> {
     }
     /// Console output, or file output through qb-runtime (SCRN: falls back to the console).
     pub(crate) fn write(&mut self, ch: i32, b: &[u8]) -> R<()> {
+        if ch == super::lprint::CHANNEL {
+            self.lprint.write(b);
+            return Ok(());
+        }
         if ch != 0 && super::files::print(ch, b, false, false)? {
             return Ok(());
         }
@@ -188,6 +195,10 @@ impl<'a> RtState<'a> {
         Ok(())
     }
     fn nl(&mut self, ch: i32) -> R<()> {
+        if ch == super::lprint::CHANNEL {
+            self.lprint.newline();
+            return Ok(());
+        }
         if ch != 0 && super::files::print(ch, b"", false, true)? {
             return Ok(());
         }
@@ -497,7 +508,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         vm.set_last_line(a[0].i() as u32);
         return Ok(None);
     }
-    if name == "VARPTR.s" || name == "SADD" {
+    if name == "VARPTR.s" || name == "SADD" || name == "VARPTR$.s" {
         let p = a[0].p();
         let known = vm.rt().cmem_strs.get(&p).copied();
         let d = match known {
@@ -513,8 +524,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 d
             }
         };
-        if name == "SADD" {
-            // the characters are copied into DBLOCK too (CALL ABSOLUTE runs code from there)
+        if name == "SADD" || name == "VARPTR$.s" {
+            // the characters are copied into DBLOCK too (CALL ABSOLUTE runs code from there,
+            // DRAW "X" reads them through the descriptor)
             let s = vm.load_str(p)?;
             let rt = vm.rt();
             let (off, cap) = rt.cmem_sdata.get(&p).copied().unwrap_or((0, 0));
@@ -535,7 +547,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 return e(7);
             }
             rt.cmem[DBLOCK + off..DBLOCK + off + s.len()].copy_from_slice(&s);
+            rt.cmem[DBLOCK + d..DBLOCK + d + 2].copy_from_slice(&(s.len() as u16).to_le_bytes());
             rt.cmem[DBLOCK + d + 2..DBLOCK + d + 4].copy_from_slice(&(off as u16).to_le_bytes());
+            if name == "VARPTR$.s" {
+                return Ok(Some(V::S(vec![3, d as u8, (d >> 8) as u8])));
+            }
             return Ok(Some(V::I(off as i64)));
         }
         return Ok(Some(V::I(d as i64)));
@@ -583,6 +599,27 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         };
         return Ok(Some(v));
     }
+    if name == "INTERRUPT" {
+        // CALL INTERRUPT[X]: the INTEGER registers ax, bx, cx, dx, bp, si, di, flags
+        // (INTERRUPTX: + ds, es); outregs gets them as the interrupt leaves them
+        let size = if a[3].i() != 0 { 20 } else { 16 };
+        let mut regs = vm.bytes(a[1].p(), size)?.to_vec();
+        let w = |k: usize| u32::from(u16::from_le_bytes([regs[2 * k], regs[2 * k + 1]]));
+        // the emulator's order: AX CX DX BX SP BP SI DI
+        let mut r = [w(0), w(2), w(3), w(1), 0, w(4), w(5), w(6)];
+        if a[0].i() & 0xFF == 0x33 {
+            let rt = vm.rt();
+            rt.input.pump(&mut rt.cmem[..]);
+            let mouse = rt.input.latest_mouse();
+            let page = rt.display.mouse_page();
+            int33(&mut r, mouse, page);
+        }
+        for (k, v) in [(0, r[0]), (1, r[3]), (2, r[1]), (3, r[2]), (4, r[5]), (5, r[6]), (6, r[7])] {
+            regs[2 * k..2 * k + 2].copy_from_slice(&(v as u16).to_le_bytes());
+        }
+        vm.bytes(a[2].p(), size)?.copy_from_slice(&regs);
+        return Ok(None);
+    }
     if name == "ABSCALL" {
         // call_absolute: code at DEF SEG:offset, data segment = DBLOCK
         let rt = vm.rt();
@@ -600,7 +637,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         if let Some(m) = rt.abs_mark.take() {
             rt.cmem_next = m;
         }
-        r.or_else(|c| e(c))?;
+        r.or_else(e)?;
         return Ok(None);
     }
     let (err, erl, errline) = (vm.err(), vm.erl(), vm.errline());
@@ -614,6 +651,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "PRINTZONE" => {
             let ch = i(0) as i32;
+            if ch == super::lprint::CHANNEL {
+                rt.lprint.zone();
+                return Ok(None);
+            }
             if ch != 0 && super::files::print(ch, b"", true, false)? {
                 return Ok(None);
             }
@@ -634,7 +675,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "PRINTTAB" => {
             let ch = i(0) as i32;
             let n = print_count(ch, i(1)).max(1);
-            let col = if ch == 0 { rt.col } else { 1 };
+            let col = if ch == 0 { rt.col } else if ch == super::lprint::CHANNEL { rt.lprint.pos() } else { 1 };
             if col > n {
                 rt.nl(ch)?;
                 rt.write(ch, &vec![b' '; n - 1])?
@@ -957,7 +998,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "CLS" | "BEEP" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
+        "func_lpos" => return ok(V::I(rt.lprint.pos() as i64)),
         "CSRLIN" => return ok(V::I(1)),
+        // _ECHO text: a line on the console (stdout), also from a window program
+        "sub__echo" => {
+            rt.write(0, s(0))?;
+            rt.nl(0)?;
+        }
         "SLEEP" => {
             // with a window: n seconds or until a key is pressed (no time: until a key)
             #[cfg(not(target_arch = "wasm32"))]
@@ -1154,17 +1201,15 @@ fn echo_input(vm: &mut dyn Host<'_>, mut start: usize, mut line: bool) -> R<()> 
         return Ok(());
     }
     for (k, seg) in text.split(|&c| c == b'\n').enumerate() {
-        if k > 0 {
-            if let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+        if k > 0
+            && let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
                 r?;
             }
-        }
         let seg: Vec<u8> = seg.iter().copied().filter(|&c| c != b'\r').collect();
-        if !seg.is_empty() {
-            if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(seg)]) {
+        if !seg.is_empty()
+            && let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(seg)]) {
                 r?;
             }
-        }
     }
     Ok(())
 }
@@ -1181,11 +1226,10 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
     }
     let mut line: Vec<u8> = Vec::new();
     let draw = |vm: &mut dyn Host<'_>, b: &[u8]| -> R<()> {
-        if screen_out(vm) {
-            if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(b.to_vec())]) {
+        if screen_out(vm)
+            && let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(b.to_vec())]) {
                 r?;
             }
-        }
         Ok(())
     };
     loop {
@@ -1213,11 +1257,10 @@ fn web_type_line(vm: &mut dyn Host<'_>, numeric: bool) -> R<()> {
             _ => {}
         }
     }
-    if screen_out(vm) {
-        if let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
+    if screen_out(vm)
+        && let Some(r) = super::display::call(vm, "SCREENNL", &[]) {
             r?;
         }
-    }
     if numeric && line.is_empty() {
         // an empty answer to a numeric INPUT is 0, as in QBasic
         line.push(b'0');
@@ -1456,11 +1499,10 @@ fn int33(reg: &mut [u32; 8], mouse: (i32, i32, u32), page: Option<(bool, u16, i3
 
 /// PRINT USING text: the screen page when it is the destination (as PRINT), else stdout or the file.
 fn using_out(vm: &mut dyn Host<'_>, ch: i32, out: Vec<u8>) -> R<()> {
-    if ch == 0 && screen_out(vm) {
-        if let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(out.clone())]) {
+    if ch == 0 && screen_out(vm)
+        && let Some(r) = super::display::call(vm, "SCREENPRINT", &[V::S(out.clone())]) {
             return r.map(|_| ());
         }
-    }
     vm.rt().write(ch, &out)
 }
 
@@ -1488,13 +1530,11 @@ fn scan_literal(f: &[u8], mut p: usize) -> (Vec<u8>, usize) {
         if c == b'!' || c == b'&' || is_num_start(f, p) {
             break;
         }
-        if c == b'\\' {
-            if let Some(k) = f[p + 1..].iter().position(|x| *x == b'\\') {
-                if f[p + 1..p + 1 + k].iter().all(|x| *x == b' ') {
+        if c == b'\\'
+            && let Some(k) = f[p + 1..].iter().position(|x| *x == b'\\')
+                && f[p + 1..p + 1 + k].iter().all(|x| *x == b' ') {
                     break;
                 }
-            }
-        }
         lit.push(c);
         p += 1;
     }
@@ -1916,7 +1956,7 @@ pub fn set_program_args(args: Vec<String>) {
 }
 
 /// `qb_func_instr` (qbs.rs) on slices.
-fn qb_instr(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
+pub(crate) fn qb_instr(start: i32, s: &[u8], t: &[u8], passed: bool) -> i32 {
     let mut start = if passed { start } else { 1 };
     let (slen, tlen) = (s.len() as i32, t.len() as i32);
     if slen == 0 {

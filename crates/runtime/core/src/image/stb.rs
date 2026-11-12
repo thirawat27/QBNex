@@ -1021,7 +1021,7 @@ fn pnm_getinteger(s: &mut Ctx, c: &mut u8) -> i32 {
     value
 }
 
-/// Deviation D-R7-4: 16-bit PNM (maxval > 255) used to read past its buffer in
+/// Deviation: 16-bit PNM (maxval > 255) used to read past its buffer in
 /// stb_image 2.27 (it converted 8-bit channels then treated them as 16-bit);
 /// it now decodes to the high byte of each big-endian sample.
 pub fn pnm_load(s: &mut Ctx) -> Option<Rgba> {
@@ -1063,7 +1063,7 @@ pub fn pnm_load(s: &mut Ctx) -> Option<Rgba> {
 // -------------------------------------------- formats only detected here ---
 
 /// PSD, PIC and Radiance HDR: stb_image decoded them, qb-runtime does not
-/// (deviation D-R7-3). A file that matches their test still stops the search,
+/// (documented deviation). A file that matches their test still stops the search,
 /// as in `stbi__load_main`, so it is not retried as TGA.
 pub fn unsupported_test(s: &mut Ctx) -> bool {
     let d = s.d;

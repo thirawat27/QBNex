@@ -278,6 +278,9 @@ pub enum Inst {
     /// `ON KEY(key) GOSUB target`: `key` i32 1..31; the handler runs as a GOSUB at
     /// module level when the key is pressed while trapping is on (`KEY(n) ON`).
     OnKey { key: Reg, target: String },
+    /// `ON PLAY(n) GOSUB target`: `n` i32; the handler runs as a GOSUB at module level when the
+    /// background music queue drops from `n` notes to fewer while trapping is on (`PLAY ON`).
+    OnPlay { n: Reg, target: String },
     Resume(ResumeKind),
     Error(Reg),
     Read { ty: Ty, dst: Reg },

@@ -515,7 +515,7 @@ fn half_pixel(sx1: i64, sx2: i64, sy1: i64, sy2: i64) -> (f64, f64, f64, f64) {
 
 /// The legacy stretch loops: destination rows/columns are walked from the
 /// flipped/mirrored corner while the source position accumulates `mx`/`my`.
-/// Samples outside the source are skipped (deviation D-10).
+/// Samples outside the source are skipped (documented deviation).
 ///
 /// # Safety
 /// The destination rectangle must be inside `d`.
@@ -552,7 +552,7 @@ unsafe fn stretch(
             let sx = qbr_d2l(fx) as isize;
             let dx = (start_x + col * xdir) as isize;
             if sx < 0 || sx >= sw || sy < 0 || sy >= sh {
-                // D-10: legacy read outside the source buffer here (a one pixel
+                // Legacy read outside the source buffer here (a one pixel
                 // wide or high destination skips the source clipping).
                 SOURCE_OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
                 continue;
@@ -564,7 +564,7 @@ unsafe fn stretch(
     }
 }
 
-/// Number of stretched source samples that fell outside the source (D-10).
+/// Number of stretched source samples that fell outside the source.
 pub static SOURCE_OUT_OF_RANGE: AtomicU64 = AtomicU64::new(0);
 
 /// Diagnostic for the differential test: see [`SOURCE_OUT_OF_RANGE`].

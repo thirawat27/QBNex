@@ -26,6 +26,49 @@ SUB IrInit
     IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
     IrRunN = 0: IrRunTo = ""
     IrPendBody = "": IrPendFn = 0
+    IrChainVars = ""
+END SUB
+
+'COMMON variable e$ (main module, after its DIM): it takes the value the program that
+'CHAINed here passed at the same position, and CHAIN passes it on (rt/dosx.rs)
+SUB IrCommonVar (e$, isShared AS LONG)
+    DIM p$, t AS LONG, l$
+    l$ = tlayout$
+    p$ = IrPlace$(fixoperationorder$(e$), t)
+    tlayout$ = l$
+    IF p$ = "" THEN EXIT SUB
+    IrChainVars = IrChainVars + e$ + CHR$(1) + LTRIM$(STR$(isShared)) + CHR$(2)
+    IrChainVal "CHAINGET", p$
+END SUB
+
+'CHAINGET/CHAINPUT of the variable at place p$: a STRING by value, anything else as its bytes
+SUB IrChainVal (op$, p$)
+    DIM st$
+    st$ = IrPlaceSTy$(p$)
+    IF st$ = "str" THEN
+        IrE "rt " + op$ + "S " + IrAddr$(p$)
+    ELSE
+        IrE "rt " + op$ + " " + IrAddr$(p$) + " " + IrI32$(IrSize&(st$))
+    END IF
+END SUB
+
+'CHAIN: every COMMON variable, in order, for the next program
+SUB IrChainPut
+    DIM i AS LONG, j AS LONG, k AS LONG, e$, sh AS LONG, p$, t AS LONG, l$
+    i = 1
+    DO
+        j = INSTR(i, IrChainVars, CHR$(2))
+        IF j = 0 THEN EXIT DO
+        k = INSTR(i, IrChainVars, CHR$(1))
+        e$ = MID$(IrChainVars, i, k - i): sh = VAL(MID$(IrChainVars, k + 1, j - k - 1))
+        i = j + 1
+        IF subfuncn <> 0 AND sh = 0 THEN IrNotSup "CHAIN in a SUB or FUNCTION with a COMMON variable that is not SHARED (" + e$ + ")": EXIT SUB
+        l$ = tlayout$
+        p$ = IrPlace$(fixoperationorder$(e$), t)
+        tlayout$ = l$
+        IF p$ = "" THEN EXIT SUB
+        IrChainVal "CHAINPUT", p$
+    LOOP
 END SUB
 
 SUB IrNotSup (w$)
@@ -34,7 +77,7 @@ END SUB
 
 SUB IrE (s$)
     IF IrFnCur = 0 THEN EXIT SUB
-    'R14: collect lines in a small buffer; IrFlush appends it to the body
+    'Collect lines in a small buffer; IrFlush appends it to the body
     IF IrPendFn <> IrFnCur THEN IrFlush: IrPendFn = IrFnCur
     IrPendBody = IrPendBody + s$ + CHR$(10)
     IF LEN(IrPendBody) > 8192 THEN IrFlush
@@ -799,7 +842,7 @@ END FUNCTION
 
 FUNCTION IrEval$ (a2$, typ AS LONG)
     DIM n AS LONG, i AS LONG, j AS LONG, nb AS LONG, l$, t AS LONG, r$
-    'R14: a block takes at least one element; the fixed 200 stopped long
+    'A block takes at least one element; the fixed 200 stopped long
     'expressions (about 100 terms) with an internal subscript error
     n = numelements(a2$) + 1
     DIM blk(1 TO n) AS STRING, bty(1 TO n) AS LONG, bq(1 TO n) AS STRING, bop(1 TO n) AS INTEGER
@@ -807,7 +850,7 @@ FUNCTION IrEval$ (a2$, typ AS LONG)
     DIM oldtyp AS LONG, newtyp AS LONG, lr$, lq$, rr$, rq$, b AS LONG, b2 AS LONG, b3 AS LONG, s1 AS LONG, s2 AS LONG
     DIM saveid AS idstruct, savecur AS LONG, unary AS LONG, d$, op$
     saveid = id: savecur = currentid
-    IF IrExtShortCircuit%(a2$, typ, r$) THEN IrEval$ = r$: EXIT FUNCTION 'R13 _ANDALSO/_ORELSE (ir_ext.bas)
+    IF IrExtShortCircuit%(a2$, typ, r$) THEN IrEval$ = r$: EXIT FUNCTION '_ANDALSO/_ORELSE (ir_ext.bas)
     n = numelements(a2$)
     i = 1: nb = 0
     DO WHILE i <= n
@@ -1260,7 +1303,7 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "sub__limit|sub__delay|sub__title|sub__blend|sub__dontblend|sub__glrender|sub__displayorder|"
     l$ = l$ + "sub__setalpha|sub__clearcolor|func__clearcolor|sub__putimage|sub__maptriangle|func__errormessage|"
     l$ = l$ + "func__loadfont|sub__freefont|func__printwidth|func__loadimage|"
-    l$ = l$ + "func__freetimer|sub_timer|sub_key|"
+    l$ = l$ + "func__freetimer|sub_timer|sub_key|sub__echo|func_lpos|sub__printimage|"
     l$ = l$ + "acos|asin|ceil|sinh|cosh|tanh|func_deg2rad|func_deg2grad|"
     l$ = l$ + "func_rad2deg|func_rad2grad|func_grad2deg|func_grad2rad|func_arcsec|func_arccsc|func_arccot|func_sech|"
     l$ = l$ + "func_csch|func_coth|func_sec|func_csc|func_cot|atan2|hypot|func_pi|"
@@ -1401,7 +1444,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         EXIT FUNCTION
     END IF
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
-    IF IrExtFunc%(nm$, sv(), nargs, typ, r$) THEN GOTO irfdone 'R13 _IIF/_TOSTR$ (ir_ext.bas)
+    IF IrExtFunc%(nm$, sv(), nargs, typ, r$) THEN GOTO irfdone '_IIF/_TOSTR$ (ir_ext.bas)
     SELECT CASE nm$
         CASE "LEN"
             IrQuiet = -1: x$ = IrPlace$(sv(1), t): IrQuiet = 0
@@ -1458,6 +1501,14 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             END IF
         CASE "VARPTR$"
             'type code as semantics.bas (func_varptr_helper); the value is snapshotted in DBLOCK
+            IrQuiet = -1: y$ = IrPlace$(sv(1), t): IrQuiet = 0
+            IF LEN(y$) THEN
+                IF IrPlaceSTy$(y$) = "str" THEN
+                    'a STRING variable: type 3 and its descriptor (DRAW/PLAY "X")
+                    r$ = IrRt$("VARPTR$.s", " " + IrAddr$(y$), "str")
+                    GOTO irfdone
+                END IF
+            END IF
             x$ = IrEval$(sv(1), t)
             sx$ = IrT
             IF sx$ = "str" THEN IrNotSup "VARPTR$ of a string": r$ = IrConstStr$(""): IrT = "str": GOTO irfdone
@@ -1885,7 +1936,7 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
     ELSE
         aid = 0
     END IF
-    'DIM [SHARED] name() (elements "?", L-21) leaves currentid elsewhere: find the array by name
+    'DIM [SHARED] name() (elements "?") leaves currentid elsewhere: find the array by name
     IF aid = 0 AND LEN(elements$) > 0 THEN aid = IrFindArrId&(vn$)
     IF LEN(elements$) = 0 OR LEFT$(elements$, 1) = "?" THEN
         IF aid THEN nm$ = IrVar$(aid)
@@ -1990,7 +2041,7 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
     nm$ = UCASE$(RTRIM$(ids(idn).n)) + RTRIM$(ids(idn).musthave)
     FOR k = 1 TO nargs: IrArgs(k) = sv(k): NEXT
     IF ids(idn).ccall THEN x$ = IrExtCall$(idn, nargs, "opengl"): EXIT SUB 'internal ccall = an OpenGL _gl* SUB / _gluPerspective
-    IF IrExtSub%(nm$, sv(), nargs) THEN EXIT SUB 'R13 _ASSERT (ir_ext.bas)
+    IF IrExtSub%(nm$, sv(), nargs) THEN EXIT SUB '_ASSERT (ir_ext.bas)
     SELECT CASE nm$
         CASE "BEEP": IrE "rt BEEP"
         CASE "SOUND": IrE "rt SOUND" + IrArgList$("f64,f64", nargs, -1, 0)
@@ -2032,7 +2083,10 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             ELSEIF passed = 1 THEN
                 IrE "rt RANDOMIZE " + IrArgAs$(sv(1), "f64")
             ELSE
-                IrNotSup "RANDOMIZE without a seed"
+                'QBasic asks for the seed
+                IrE "rt INPUTPROMPT " + IrConstStr$("Random-number seed (-32768 to 32767)? ") + " " + IrI32$(0)
+                x$ = IrRt$("INPUTITEM.n", " " + IrI32$(0), "f64")
+                IrE "rt RANDOMIZE " + x$
             END IF
         CASE "KILL", "MKDIR", "RMDIR", "CHDIR", "ENVIRON"
             IrE "rt " + nm$ + " " + IrArgAs$(sv(1), "str")
@@ -2044,7 +2098,9 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             IrE "rt CLEAR " + IrI32$(k)
             IrE "label ~CLR" + str2$(k)
         CASE "CHAIN"
-            IrE "rt CHAIN " + IrArgAs$(sv(1), "str")
+            x$ = IrArgAs$(sv(1), "str")
+            IrChainPut
+            IrE "rt CHAIN " + x$
         CASE "TIME$"
             'setting the clock is a no-op, as in the C++ runtime (sub_time)
             x$ = IrArgAs$(sv(1), "str")
@@ -2343,7 +2399,7 @@ SUB IrFinish (src$, outExe$)
     IF ScreenHide THEN PRINT #fh, "meta screenhide"
     PRINT #fh, IrExtMeta;
     IF UseGL THEN
-        'SUB _GL (deviation D-14): the runner calls this function every frame with a GL context current
+        'SUB _GL: the runner calls this function every frame with a GL context current
         FOR i = 2 TO IrFnN
             IF IrFnName(i) = "SUB__GL" THEN PRINT #fh, "meta glsub SUB__GL"
         NEXT

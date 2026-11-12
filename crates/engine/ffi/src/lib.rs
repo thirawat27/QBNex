@@ -17,14 +17,14 @@
 //!
 //! `DECLARE LIBRARY "name"` where the legacy compiler would have found a C
 //! header (`name.h` / `name.hpp`) is rejected at compile time with
-//! [`header_error`] (deviation D-110): headers may contain macros and inline
+//! [`header_error`] (documented deviation): headers may contain macros and inline
 //! C code, which only a C compiler can use.
 //!
 //! See `docs/dev/ffi-float80.md` for the API contract used by the
-//! emitter (R11a) and the VM (R11b).
+//! emitter and the VM.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
-// R14 H2: clippy::pedantic is clean except for the lints below. Bit-level x87
+// clippy::pedantic is clean except for the lints below. Bit-level x87
 // emulation and C ABI glue cast between integer widths on purpose (every cast
 // is a deliberate truncation, sign reinterpretation or widening of a field),
 // and the one-letter names follow the instruction manuals (a, b, m, e, x, y).
@@ -56,7 +56,7 @@ use std::fmt;
 /// `_UNSIGNED INTEGER` U16, `LONG` I32, `_UNSIGNED LONG` U32, `_INTEGER64` I64,
 /// `_UNSIGNED _INTEGER64` U64, `SINGLE` F32, `DOUBLE` F64, `_OFFSET` and every
 /// `BYREF` parameter and `BYVAL ... AS STRING` (pointer to the bytes) Ptr,
-/// `SUB` Void. `_FLOAT` has no portable C ABI and is rejected (D-112).
+/// `SUB` Void. `_FLOAT` has no portable C ABI and is rejected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     Void,

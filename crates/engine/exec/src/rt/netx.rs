@@ -133,12 +133,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             None => e(52),
         },
         "CLOSE" if h0 < 0 => {
-            if let Some(slot) = (-(h0 + 1) as usize).checked_sub(1).and_then(|i| vm.rt().net.handles.get_mut(i)) {
-                if let Some(h) = slot.take() {
+            if let Some(slot) = (-(h0 + 1) as usize).checked_sub(1).and_then(|i| vm.rt().net.handles.get_mut(i))
+                && let Some(h) = slot.take() {
                     // SAFETY: owned connection.
                     unsafe { qnet::qb_tcp_close(h.conn) };
                 }
-            }
             Ok(None)
         }
         "PUTSTR" | "PUTREC" if h0 < 0 => (|| {

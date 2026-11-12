@@ -53,7 +53,7 @@ DIM SHARED opexarray_recompileAttempts, opexarray_desiredState
 REDIM SHARED EveryCaseSet(100), SelectCaseCounter AS _UNSIGNED LONG
 REDIM SHARED SelectCaseHasCaseBlock(100)
 DIM SHARED ExecLevel(255), ExecCounter AS INTEGER
-'R14: error message set by helper FUNCTIONs in the modules (they cannot set a$, which is not SHARED)
+'Error message set by helper FUNCTIONs in the modules (they cannot set a$, which is not SHARED)
 DIM SHARED ModuleError$
 DIM SHARED UserDefineName(0 TO 1000) AS STRING
 DIM SHARED UserDefineValue(0 TO 1000) AS STRING
@@ -691,7 +691,7 @@ FUNCTION getpid& ()
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
 DIM SHARED defFnBodyText AS STRING 'FUNCTIONs made from single-line DEF FN (deffn.bas)
-DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG 'syntax_ext.bas (R13)
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG 'syntax_ext.bas
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -700,6 +700,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED topLevelRuntimeTypeDepth AS LONG
     DIM SHARED topLevelRuntimeDeclareDepth AS LONG
     DIM SHARED topLevelRuntimeSeenProc AS LONG
+    'Module code with labels after the SUBs is moved before the first SUB (classes.bas)
+    DIM SHARED topLevelHoist AS STRING, topLevelHoistScan AS STRING, topLevelHoistReady AS LONG
+    DIM SHARED topLevelHoistWanted AS LONG, topLevelHoistBad AS LONG, topLevelHoistInjected AS LONG
+    DIM SHARED topLevelHoistAt AS LONG, topLevelHoistAtScan AS LONG
 
     DIM SHARED closedmain AS INTEGER
     DIM SHARED module AS STRING
@@ -971,6 +975,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             opexarray_desiredState = 0
             opexarray_recompileAttempts = 0
 
+            topLevelHoist = "": topLevelHoistReady = 0: topLevelHoistAt = 0
+
             recompile:
             vWatchOn = vWatchDesiredState
             vWatchVariable "", -1 'reset internal variables list
@@ -1022,7 +1028,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             HashAdd "AND", f, 0
             HashAdd "OR", f, 0
             HashAdd "XOR", f, 0
-            HashAdd "_ANDALSO", f, 0 'short-circuit AND/OR (R13)
+            HashAdd "_ANDALSO", f, 0 'short-circuit AND/OR
             HashAdd "_ORELSE", f, 0
             HashAdd "MOD", f, 0
 
@@ -1183,6 +1189,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             topLevelRuntimeTypeDepth = 0
             topLevelRuntimeDeclareDepth = 0
             topLevelRuntimeSeenProc = 0
+            topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistBad = 0: topLevelHoistInjected = 0: topLevelHoistAtScan = 0
             classSyntaxActive = 0
             classSyntaxTypeOpen = 0
             classSyntaxInMethod = 0
@@ -2496,6 +2503,13 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         totallinenumber = reallinenumber
 
                         'prepass finished
+
+                        'Labels in module code after the SUBs must be module labels; compile
+                        'again with that code moved in front of the first SUB (TopLevelRuntime_ProcessLine$)
+                        IF topLevelHoistReady = 0 AND topLevelHoistWanted <> 0 AND topLevelHoistBad = 0 AND topLevelHoistAtScan > 0 AND compfailed = 0 THEN
+                            topLevelHoist = topLevelHoistScan: topLevelHoistReady = -1: topLevelHoistAt = topLevelHoistAtScan
+                            GOTO do_recompile
+                        END IF
 
                         lineinput3index = 1 'reset input line
 
@@ -6419,13 +6433,13 @@ END IF
 
 
 
-'PLAY event trapping: PLAY {ON|OFF|STOP} and ON PLAY(n) GOSUB label are QBasic statements.
-'They are accepted and checked; the runtime does not raise the PLAY event yet (deviation D-24).
+'PLAY event trapping: PLAY {ON|OFF|STOP} and ON PLAY(n) GOSUB label (QBasic statements). The
+'handler runs when the background music queue drops below n notes while trapping is on.
 IF n = 2 AND firstelement$ = "PLAY" THEN
     IF secondelement$ = "ON" OR secondelement$ = "OFF" OR secondelement$ = "STOP" THEN
         l$ = SCase$("Play") + sp + SCase$(LEFT$(secondelement$, 1) + LCASE$(MID$(secondelement$, 2)))
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
-        addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "PLAY event trapping is accepted but the event is not raised", "PLAY " + secondelement$
+        IF IrEmitMode THEN IrPlayEvent secondelement$
         GOTO finishedline
     END IF
 END IF
@@ -6445,6 +6459,7 @@ IF n >= 2 THEN
         NEXT
         IF e$ = "" OR i + 2 <> n THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
         IF getelement$(a$, i + 1) <> "GOSUB" THEN a$ = "Expected ON PLAY(n) GOSUB label": GOTO errmes
+        onPlayCount$ = e$
         e$ = fixoperationorder$(e$)
         IF Error_Happened THEN GOTO errmes
         l$ = SCase$("On" + sp + "Play" + sp2 + "(") + sp2 + tlayout$ + sp2 + ")" + sp + SCase$("GoSub")
@@ -6452,9 +6467,35 @@ IF n >= 2 THEN
         IF Error_Happened THEN GOTO errmes
         a2$ = getelement$(ca$, n)
         IF validlabel(a2$) = 0 THEN a$ = "Invalid label": GOTO errmes
+        v = HashFind(a2$, HASHFLAG_LABEL, ignore, r)
+        x = 1
+        labchkonplay:
+        IF v THEN
+            s = Labels(r).Scope
+            IF s = 0 OR s = -1 THEN 'main scope?
+                IF s = -1 THEN Labels(r).Scope = 0 'acquire scope
+                x = 0 'already defined
+                Labels(r).Scope_Restriction = subfuncn
+                Labels(r).Error_Line = linenumber
+            ELSE
+                IF v = 2 THEN v = HashFindCont(ignore, r): GOTO labchkonplay
+            END IF
+        END IF
+        IF x THEN
+            'does not exist yet
+            nLabels = nLabels + 1: IF nLabels > Labels_Ubound THEN Labels_Ubound = Labels_Ubound * 2: REDIM _PRESERVE Labels(1 TO Labels_Ubound) AS Label_Type
+            Labels(nLabels) = Empty_Label
+            HashAdd a2$, HASHFLAG_LABEL, nLabels
+            r = nLabels
+            Labels(r).State = 0
+            Labels(r).cn = a2$
+            Labels(r).Scope = 0
+            Labels(r).Error_Line = linenumber
+            Labels(r).Scope_Restriction = subfuncn
+        END IF
         l$ = l$ + sp + a2$
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
-        addWarning linenumber, inclevel, inclinenumber(inclevel), incname$(inclevel), "PLAY event trapping is accepted but the event is not raised", "ON PLAY"
+        IF IrEmitMode THEN IrOnPlay onPlayCount$, a2$
         GOTO finishedline
     END IF
 END IF
@@ -6592,6 +6633,7 @@ IF n >= 2 THEN
         l$ = l$ + RTRIM$(id.cn)
 
         PRINT #24, "case " + str2$(ontimerid) + ":"
+        onEvSubId = currentid
         PRINT #24, RTRIM$(id.callname) + "(";
 
         IF id.args > 1 THEN a$ = "SUB requires more than one argument": GOTO errmes
@@ -6601,6 +6643,7 @@ IF n >= 2 THEN
             IF id.args = 1 THEN a$ = "Expected argument after SUB": GOTO errmes
             PRINT #12, "0);"
             PRINT #24, ");"
+            IF IrEmitMode THEN IrOnEventSub IrOnTimerHead$(e3$, e2$), onEvSubId, ""
 
         ELSE
 
@@ -6618,6 +6661,7 @@ IF n >= 2 THEN
             PRINT #24, "(" + ct$ + "*)&i64);"
 
             e$ = getelements$(ca$, i, n)
+            IF IrEmitMode THEN IrOnEventSub IrOnTimerHead$(e3$, e2$), onEvSubId, e$
             e$ = fixoperationorder$(e$)
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + tlayout$
@@ -6729,7 +6773,6 @@ IF n >= 2 THEN
         layoutdone = 1
         GOTO finishedline
     ELSE
-        IF IrEmitMode THEN IrNotSup "ON KEY(n) sub-name"
 
         'establish whether sub a2$ exists using try
         x = 0
@@ -6745,6 +6788,7 @@ IF n >= 2 THEN
         l$ = l$ + RTRIM$(id.cn)
 
         PRINT #27, "case " + str2$(onkeyid) + ":"
+        onEvSubId = currentid
         PRINT #27, RTRIM$(id.callname) + "(";
 
         IF id.args > 1 THEN a$ = "SUB requires more than one argument": GOTO errmes
@@ -6754,6 +6798,7 @@ IF n >= 2 THEN
             IF id.args = 1 THEN a$ = "Expected argument after SUB": GOTO errmes
             PRINT #12, "0);"
             PRINT #27, ");"
+            IF IrEmitMode THEN IrOnEventSub IrOnKeyHead$(e2$), onEvSubId, ""
 
         ELSE
 
@@ -6771,6 +6816,7 @@ IF n >= 2 THEN
             PRINT #27, "(" + ct$ + "*)&i64);"
 
             e$ = getelements$(ca$, i, n)
+            IF IrEmitMode THEN IrOnEventSub IrOnKeyHead$(e2$), onEvSubId, e$
             e$ = fixoperationorder$(e$)
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + tlayout$
@@ -7467,7 +7513,7 @@ IF n >= 2 THEN
             i = i + 1 'set i to point to the next element
 
             IF commonoption THEN elements$ = "?"
-            'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM (L-21)
+            'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM
             IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
@@ -7901,6 +7947,7 @@ IF commonoption <> 0 AND LEN(elements$) = 0 THEN
             IF Error_Happened THEN GOTO errmes
         END IF
     END IF
+    IF IrEmitMode THEN IrCommonVar e$, dimshared
     e$ = evaluatetotyp(fixoperationorder$(e$), -4)
     IF Error_Happened THEN GOTO errmes
 
@@ -8051,7 +8098,7 @@ ELSE
         i = i + 1 'set i to point to the next element
 
         IF commonoption THEN elements$ = "?"
-        'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM (L-21)
+        'DIM [SHARED] name() declares a dynamic array whose dimensions come with a later REDIM
         IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
@@ -9610,7 +9657,7 @@ IF firstelement$ = "PRINT" OR firstelement$ = "LPRINT" THEN
     FOR i = elementon TO n - 1
         nextchar$ = getelement$(a$, i + 1)
         temp1$ = getelement$(a$, i)
-        'no implied ; next to a relational/logical operator: PRINT a$ < "K", PRINT "abc" = "abc" (L-04)
+        'no implied ; next to a relational/logical operator: PRINT a$ < "K", PRINT "abc" = "abc"
         IF INSTR(" = < > <> <= >= => =< AND OR XOR EQV IMP MOD NOT ", " " + nextchar$ + " ") THEN GOTO redosemi_next
         IF INSTR(" = < > <> <= >= => =< AND OR XOR EQV IMP MOD NOT * / \ ^ ", " " + temp1$ + " ") THEN GOTO redosemi_next
         IF nextchar$ <> ";" AND nextchar$ <> "," AND nextchar$ <> "+" AND nextchar$ <> ")" THEN
@@ -13080,7 +13127,7 @@ SUB xprint (a$, ca$, n)
             NEXT
             IF puformat$ = "" THEN Give_Error "Expected PRINT USING formatstring ; ...": EXIT SUB
             IF i = n THEN Give_Error "Expected PRINT USING formatstring ; ...": EXIT SUB
-            IF IrEmitMode THEN IrE "rt USINGBEGIN " + IrI32$(0) + " " + IrEvalTo$(IrFix2, ISSTRING)
+            IF IrEmitMode THEN IrE "rt USINGBEGIN " + IrI32$(-lp) + " " + IrEvalTo$(IrFix2, ISSTRING)
             'create build string
             IF TQBSset = 0 THEN
                 PRINT #12, "tqbs=qbs_new(0,0);"
@@ -13171,7 +13218,7 @@ SUB xprint (a$, ca$, n)
             PRINT #12, "skip_pu" + u$ + ":"
             IF IrEmitMode THEN
                 IrE "rt USINGEND"
-                IF a2$ <> "," AND a2$ <> ";" THEN IrRtCh "PRINTNL", "0"
+                IF a2$ <> "," AND a2$ <> ";" THEN IrRtCh "PRINTNL", str2$(-lp)
             END IF
             'check for errors
             PRINT #12, "if (new_error){"
@@ -13229,7 +13276,7 @@ SUB xprint (a$, ca$, n)
                     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                     IF Error_Happened THEN EXIT SUB
                     PRINT #12, "qbs_set(tqbs," + e$ + ");"
-                    IF IrEmitMode THEN IrPrintStr "0", IrFix
+                    IF IrEmitMode THEN IrPrintStr str2$(-lp), IrFix
                     PRINT #12, "if (new_error) goto skip" + u$ + ";"
                     IF lp THEN PRINT #12, "lprint_makefit(tqbs);" ELSE PRINT #12, "makefit(tqbs);"
                     PRINT #12, "qbs_" + lp$ + "print(tqbs,0);"
@@ -13239,14 +13286,14 @@ SUB xprint (a$, ca$, n)
                         IF RIGHT$(l$, 1) <> ";" THEN l$ = l$ + sp + a2$ 'concat ;; to ;
                     END IF
                 END IF 'len(e$)
-                IF a2$ = "," THEN PRINT #12, "tab();": IF IrEmitMode THEN IrRtCh "PRINTZONE", "0"
+                IF a2$ = "," THEN PRINT #12, "tab();": IF IrEmitMode THEN IrRtCh "PRINTZONE", str2$(-lp)
                 e$ = ""
 
                 IF gotopu THEN i = i + 1: GOTO pujump
 
                 IF last THEN
                     PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);" 'go to new line
-                    IF IrEmitMode THEN IrRtCh "PRINTNL", "0"
+                    IF IrEmitMode THEN IrRtCh "PRINTNL", str2$(-lp)
                     EXIT FOR
                 END IF
 
@@ -13258,7 +13305,7 @@ SUB xprint (a$, ca$, n)
         printnext:
     NEXT
     IF LEN(e$) THEN a2$ = "": last = 1: GOTO printlast
-    IF n = 1 THEN PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);": IF IrEmitMode THEN IrRtCh "PRINTNL", "0"
+    IF n = 1 THEN PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);": IF IrEmitMode THEN IrRtCh "PRINTNL", str2$(-lp)
     PRINT #12, "skip" + u$ + ":"
     PRINT #12, "qbs_free(tqbs);"
     PRINT #12, cleanupstringprocessingcall$ + "0);"

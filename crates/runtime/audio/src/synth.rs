@@ -44,7 +44,7 @@ pub enum Waveform {
 
 /// The C runtime `rand()` used by the legacy noise generators: the MSVCRT/UCRT
 /// LCG (`RAND_MAX` = 32767, seed 1). Using it on every platform makes noise
-/// deterministic and identical to the legacy Windows build (deviation D-62 on
+/// deterministic and identical to the legacy Windows build (a deviation on
 /// Linux/macOS, where glibc/libc `rand()` differs).
 #[derive(Clone, Debug)]
 pub struct CRand {

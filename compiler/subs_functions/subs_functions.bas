@@ -1389,7 +1389,7 @@ id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "_GPU3D"
 regid
 
-'R15 G5 _SHADER: QIR path only (no libqb shim; the C++ backend is being retired)
+'_SHADER: QIR path only (no libqb shim; the C++ backend is being retired)
 clearid
 id.n = qbnexprefix$ + "Shader"
 id.subfunc = 1
@@ -3399,7 +3399,7 @@ id.hr_syntax = "ASC(text$[, position%])"
 regid
 
 clearid
-id.n = qbnexprefix$ + "IIf" 'R13; special case in evaluatefunc (only the chosen value is evaluated)
+id.n = qbnexprefix$ + "IIf" 'special case in evaluatefunc (only the chosen value is evaluated)
 id.subfunc = 1
 id.callname = "func__iif"
 id.args = 3
@@ -3409,7 +3409,7 @@ id.hr_syntax = "_IIF(condition, valueIfTrue, valueIfFalse)"
 regid
 
 clearid
-id.n = qbnexprefix$ + "ToStr" 'R13; special case in evaluatefunc (string interpolation)
+id.n = qbnexprefix$ + "ToStr" 'special case in evaluatefunc (string interpolation)
 id.musthave = "$"
 id.subfunc = 1
 id.callname = "func__tostr"

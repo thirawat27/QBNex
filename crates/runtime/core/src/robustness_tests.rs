@@ -1,4 +1,4 @@
-//! R14 hardening: parsers and decoders that BASIC programs feed with arbitrary
+//! Hardening: parsers and decoders that BASIC programs feed with arbitrary
 //! data must never panic (a panic aborts the whole program instead of raising
 //! a BASIC error). Deterministic random and mutated inputs; each test reports
 //! every input that panicked. (A unit-test module: the crate needs libqb host

@@ -1,5 +1,5 @@
 '===============================================================================
-' QBNex language extensions lowered to plain QBasic statements (R13)
+' QBNex language extensions lowered to plain QBasic statements
 '
 '   ENUM [name] ... END ENUM          -> CONST member = value lines
 '   FOR EACH v IN array() ... NEXT    -> FOR over LBOUND..UBOUND with v = array(i)

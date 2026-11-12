@@ -7,7 +7,7 @@
 //! with the control word forced to the legacy `0x037F` around the instruction;
 //! everything else around them is software. Elsewhere (or with the feature
 //! `soft-transcendentals`) the software versions in [`crate::soft`] are used
-//! (deviation D-111: at most one unit in the last place per primitive).
+//! (documented deviation: at most one unit in the last place per primitive).
 
 use crate::F80;
 

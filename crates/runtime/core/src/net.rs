@@ -12,7 +12,7 @@
 //! - IPv4 only; hosts listen on `0.0.0.0`; client connects block, everything
 //!   after that is non-blocking.
 //! - `connected` starts at -1 and drops to 0 on a send or receive error and on
-//!   EOF. "Would block" is not an error (legacy defect L-14 treated a full send
+//!   EOF. "Would block" is not an error (a legacy defect treated a full send
 //!   buffer as a lost connection): what does not fit is queued, in order, and
 //!   goes out on the next send, receive, `_CONNECTED` or `CLOSE`. Only a
 //!   queue past [`MAX_QUEUED`] (the peer stopped reading) counts as lost.
@@ -186,14 +186,32 @@ pub fn client_open(host: &[u8], port: i64) -> Option<Box<Conn>> {
     client_connect(host, port, None)
 }
 
-/// [`client_open`]; with a `deadline`, each connect attempt only gets the
-/// time left (name resolution itself is not bounded).
+/// Longest wait for a name lookup when the caller gives no deadline.
+pub const DNS_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Resolves `name` on a helper thread, so a slow or dead DNS server costs at
+/// most `timeout`; a dotted address needs no lookup.
+pub fn resolve(name: &str, port: u16, timeout: Duration) -> Option<Vec<SocketAddr>> {
+    if let Ok(ip) = name.parse::<std::net::IpAddr>() {
+        return Some(vec![SocketAddr::new(ip, port)]);
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let owned = name.to_owned();
+    std::thread::spawn(move || {
+        let _ = tx.send((owned.as_str(), port).to_socket_addrs().map(|a| a.collect::<Vec<_>>()));
+    });
+    rx.recv_timeout(timeout).ok()?.ok()
+}
+
+/// [`client_open`]; with a `deadline`, the lookup and each connect attempt
+/// only get the time left (without one the lookup gets [`DNS_TIMEOUT`]).
 fn client_connect(host: &[u8], port: i64, deadline: Option<Instant>) -> Option<Box<Conn>> {
     let port16 = valid_port(port)?;
     let host = &host[..host.iter().position(|&b| b == 0).unwrap_or(host.len())];
     let name = std::str::from_utf8(host).ok()?;
-    let addrs = (name, port16).to_socket_addrs().ok()?;
-    let stream = addrs.filter(SocketAddr::is_ipv4).find_map(|a| match deadline {
+    let budget = deadline.map_or(DNS_TIMEOUT, |d| d.saturating_duration_since(Instant::now()));
+    let addrs = resolve(name, port16, budget)?;
+    let stream = addrs.into_iter().filter(SocketAddr::is_ipv4).find_map(|a| match deadline {
         None => TcpStream::connect(a).ok(),
         Some(d) => {
             let left = d.checked_duration_since(Instant::now()).filter(|t| !t.is_zero())?;
@@ -416,7 +434,22 @@ pub const MAX_IP_REPLY: usize = 4096;
 /// unreachable server does not cost the timeout on every call).
 pub fn whatismyip() -> Vec<u8> {
     static IP: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
-    IP.get_or_init(|| fetch_ip(MYIP_HOST, 80, Duration::from_secs(5))).clone()
+    IP.get_or_init(fetch_public_ip).clone()
+}
+
+/// The public address over HTTPS (the reply cannot be changed on the way).
+#[cfg(feature = "ext")]
+fn fetch_public_ip() -> Vec<u8> {
+    match qb_ext::http::request("GET", &format!("https://{MYIP_HOST}/"), "", &[], 5000) {
+        Ok(r) if r.status == 200 && r.body.len() <= MAX_IP_REPLY => r.body,
+        _ => Vec::new(),
+    }
+}
+
+/// Without the HTTP(S) client (feature `ext` off): plain HTTP, as legacy did.
+#[cfg(not(feature = "ext"))]
+fn fetch_public_ip() -> Vec<u8> {
+    fetch_ip(MYIP_HOST, 80, Duration::from_secs(5))
 }
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
@@ -652,7 +685,7 @@ mod tests {
 
     #[test]
     fn full_send_buffer_keeps_the_connection_and_the_data() {
-        // L-14: a send that would block is not a lost connection; the rest is
+        // A send that would block is not a lost connection; the rest is
         // queued and goes out on later calls, in order.
         let port = free_port();
         let host = host_open(i64::from(port)).expect("listen");
@@ -860,6 +893,15 @@ mod tests {
         assert_eq!(t.join().unwrap(), myip_request("127.0.0.1"));
         let closed = free_port();
         assert_eq!(fetch_ip("127.0.0.1", closed, Duration::from_secs(5)), b"");
+    }
+
+    #[test]
+    fn resolve_answers_within_the_timeout() {
+        let a = resolve("127.0.0.1", 80, Duration::from_millis(1)).expect("dotted address");
+        assert_eq!(a, vec![SocketAddr::from(([127, 0, 0, 1], 80))]);
+        let start = Instant::now();
+        let _ = resolve("localhost", 80, Duration::from_secs(2));
+        assert!(start.elapsed() < Duration::from_secs(3));
     }
 
     #[test]

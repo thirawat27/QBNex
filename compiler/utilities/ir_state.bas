@@ -36,3 +36,5 @@ REDIM SHARED IrArgs(1 TO 100) AS STRING
 DIM SHARED IrStmt AS STRING, IrStmtN AS LONG, IrStmtFirst AS STRING
 'RUN label / CLEAR targets: count and the main labels (CHR$(10)-separated) of RUNFROM 1..IrRunN
 DIM SHARED IrRunN AS LONG, IrRunTo AS STRING
+'COMMON variables in order, each name + CHR$(1) + SHARED flag + CHR$(2): CHAIN passes them on
+DIM SHARED IrChainVars AS STRING

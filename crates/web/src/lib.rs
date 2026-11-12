@@ -1,4 +1,4 @@
-//! `qb-web` — QBNex programs in a browser (R13-wasm).
+//! `qb-web` — QBNex programs in a browser.
 //!
 //! The same pipeline as `qb-exec` (QIR → bytecode → VM), compiled to
 //! `wasm32-unknown-unknown`, without the JIT (wasm cannot run Cranelift
@@ -112,7 +112,7 @@ pub fn run(src: &str, stdin: &[u8]) -> Outcome {
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_web_alloc(n: usize) -> *mut u8 {
     // A boxed slice has exactly `n` bytes, which `qb_web_free` relies on
-    // (R14: Vec::from_raw_parts needs the original capacity).
+    // (Vec::from_raw_parts needs the original capacity).
     Box::into_raw(vec![0u8; n.max(1)].into_boxed_slice()).cast()
 }
 

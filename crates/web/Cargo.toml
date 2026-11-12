@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "R13-wasm: runs QBNex programs (QIR) in a browser. The qb-exec VM compiled to wasm32-unknown-unknown, with a screen renderer and a small C ABI for the page (www/)."
+description = "Runs QBNex programs (QIR) in a browser. The qb-exec VM compiled to wasm32-unknown-unknown, with a screen renderer and a small C ABI for the page (www/)."
 publish = false
 
 [lib]

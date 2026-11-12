@@ -29,7 +29,7 @@ pub fn read_message(r: &mut impl BufRead) -> io::Result<Option<Value>> {
         }
     }
     let len = len.unwrap_or(0);
-    // R14: a client-supplied length is not trusted with an allocation.
+    // A client-supplied length is not trusted with an allocation.
     if len > MAX_MESSAGE {
         return Err(io::Error::new(io::ErrorKind::InvalidData, format!("DAP message of {len} bytes is too large")));
     }
@@ -61,7 +61,7 @@ mod tests {
         assert!(read_message(&mut r).unwrap().is_none());
     }
 
-    /// R14: an absurd Content-Length is an error, not a huge allocation.
+    /// An absurd Content-Length is an error, not a huge allocation.
     #[test]
     fn huge_content_length_is_rejected() {
         let mut r = io::BufReader::new(&b"Content-Length: 1000000000000\r\n\r\n{}"[..]);

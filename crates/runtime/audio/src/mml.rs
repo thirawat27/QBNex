@@ -15,6 +15,8 @@ pub const ERR_ILLEGAL: i32 = 5;
 /// Receives rendered 16-bit stereo frames for a synth voice.
 pub trait Sink {
     fn send(&mut self, voice: usize, frames: &[i16]);
+    /// Where the notes of the next `send` end, in frames from its start.
+    fn note_ends(&mut self, _voice: usize, _ends: &[usize]) {}
 }
 
 /// Reads a numeric variable referenced by `"=" + VARPTR$(v)` in a PLAY string.
@@ -248,6 +250,8 @@ impl Synth {
         let mut bytes_left = s.len() as i64;
         let mut wave: Option<Vec<i16>> = None;
         let mut wave_base = 0usize;
+        // end of every note and pause in `wave`, in frames (the ON PLAY(n) count)
+        let mut ends: Vec<usize> = Vec::new();
         let mut n_changed = false;
         let mut n: i32 = 0;
         let mut number_entered = 0;
@@ -259,7 +263,7 @@ impl Synth {
         let mut i: i32;
 
         // realloc + the legacy memset of (new - old) bytes starting at wave_base.
-        // The legacy tail past that range was uninitialised; here it is zero (D-61).
+        // The legacy tail past that range was uninitialised; here it is zero.
         fn grow(w: &mut Vec<i16>, base: usize, add: usize) {
             if base + add > w.len() {
                 let old = w.len();
@@ -377,6 +381,7 @@ impl Synth {
                 }
                 if i != 44 {
                     wave_base += sw;
+                    ends.push(wave_base / 2);
                 }
                 playit = true;
                 followup = 0;
@@ -420,10 +425,12 @@ impl Synth {
                             if playit {
                                 playit = false;
                                 if let Some(w) = &wave {
+                                    sink.note_ends(voice, &ends);
                                     sink.send(voice, w);
                                 }
                             }
                             wave = None;
+                            ends.clear();
                         }
                     }
                     70 => {
@@ -549,6 +556,7 @@ impl Synth {
                 }
                 if i != 44 {
                     wave_base += sw;
+                    ends.push(wave_base / 2);
                 }
                 playit = true;
                 n_changed = false;
@@ -605,6 +613,7 @@ impl Synth {
         }
         if playit
             && let Some(w) = &wave {
+                sink.note_ends(voice, &ends);
                 sink.send(voice, w);
             }
         Ok(())
@@ -620,10 +629,14 @@ mod tests {
     #[derive(Default)]
     struct Buf {
         sent: Vec<(usize, Vec<i16>)>,
+        ends: Vec<usize>,
     }
     impl Sink for Buf {
         fn send(&mut self, voice: usize, frames: &[i16]) {
             self.sent.push((voice, frames.to_vec()));
+        }
+        fn note_ends(&mut self, _voice: usize, ends: &[usize]) {
+            self.ends.extend_from_slice(ends);
         }
     }
 
@@ -637,6 +650,16 @@ mod tests {
 
     fn frames(b: &Buf) -> usize {
         b.sent.iter().map(|(_, f)| f.len() / 2).sum()
+    }
+
+    #[test]
+    fn every_note_and_pause_marks_its_end() {
+        let mut s = Synth::default();
+        let (r, b) = play(&mut s, "O2 A B P4 C,E");
+        assert_eq!(r, Ok(()));
+        // T120 L4: each note or pause is 0.5 s = 4000 frames; a chord (,) is one entry
+        assert_eq!(b.ends, vec![4000, 8000, 12000, 16000]);
+        assert_eq!(frames(&b), 16000);
     }
 
     #[test]
@@ -874,7 +897,7 @@ mod tests {
         assert_eq!(varptr_value(64 + 57, &r), None);
     }
 
-    /// R14: arbitrary PLAY / SOUND / _WAVE / _ADSR input never panics.
+    /// Arbitrary PLAY / SOUND / _WAVE / _ADSR input never panics.
     #[test]
     fn random_statements_never_panic() {
         struct Count(usize);

@@ -1,0 +1,3 @@
+SUB greet
+    PRINT "in greet"; x
+END SUB

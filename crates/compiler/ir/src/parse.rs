@@ -99,7 +99,7 @@ fn store_ty(t: &str) -> Option<StoreTy> {
 }
 
 pub(crate) fn hex_bytes(h: &str) -> Option<Vec<u8>> {
-    if h.len() % 2 != 0 {
+    if !h.len().is_multiple_of(2) {
         return None;
     }
     (0..h.len())
@@ -289,6 +289,7 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
             },
             "ontimer" => Inst::OnTimer { slot: p.reg()?, secs: p.reg()?, target: p.name()? },
             "onkey" => Inst::OnKey { key: p.reg()?, target: p.name()? },
+            "onplay" => Inst::OnPlay { n: p.reg()?, target: p.name()? },
             "resume" => match p.peek() {
                 None => Inst::Resume(ResumeKind::Same),
                 Some("next") => {

@@ -1,4 +1,4 @@
-//! Program-wide runtime state shared with generated code (R12b).
+//! Program-wide runtime state shared with generated code.
 //!
 //! These globals used to be defined in `internal/c/qbx.cpp` / `libqb.cpp`.
 //! Generated C++ reads and writes them directly (`if (new_error) ...`,

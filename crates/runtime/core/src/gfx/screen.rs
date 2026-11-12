@@ -1,7 +1,7 @@
 //! SCREEN statement decisions (legacy `qbg_screen` in libqb.cpp).
 //!
 //! The orchestration (display lock, page table, freeing old surfaces) stays
-//! in C++ for now because it touches window state owned by R8. What lives
+//! in C++ for now because it touches window state owned by the window code. What lives
 //! here is the part that decides *what* to build: which mode numbers are
 //! legal, the size of each graphics mode, the font override that keeps an
 //! 80x43/80x60 text layout, and the SCREEN 0 layout with its page
@@ -88,7 +88,7 @@ pub fn text_layout(prev_w: i32, prev_h: i32, ov: &mut Overrides) -> TextLayout {
         };
     }
     let mut granularity = x.wrapping_mul(y).wrapping_mul(2);
-    // D-12: legacy wrote `(f=(16+1))` and `(f=16)` (assignments), forcing
+    // Legacy wrote `(f=(16+1))` and `(f=16)` (assignments), forcing
     // fonts 17/16 on any 40x25/80x25 screen. Every WIDTH path passes those
     // fonts anyway, so the comparison changes nothing reachable today.
     if x == 40 && y == 25 && f == 17 {
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn screen0_full_override_keeps_requested_font() {
-        // D-12: legacy `(f=(16+1))` / `(f=16)` overwrote the font; the fixed
+        // Legacy `(f=(16+1))` / `(f=16)` overwrote the font; the fixed
         // granularities apply only to the standard 40x25/80x25 fonts
         let (l, o) = layout(80, 25, Overrides { width: 40, height: 25, font: 8 });
         assert_eq!((l.font, l.granularity), (8, 2000));

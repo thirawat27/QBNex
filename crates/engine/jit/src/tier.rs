@@ -7,10 +7,30 @@
 //! and complicates JIT-to-JIT calls). From then on `tick` returns the native
 //! code and the VM enters it at that point; with [`Mode::Eager`] the module
 //! is compiled before the first statement runs (`qb --jit`).
+//!
+//! A big module (more than [`BACKGROUND_INSTS`] instructions) is compiled on
+//! another thread in Hot mode: the VM keeps interpreting, and `tick` returns
+//! the native code once it is ready, so a large program never stalls at its
+//! first hot loop.
 
 use crate::codegen::{compile, Compiled, Target};
 use crate::mir::{FuncId, Module};
 use std::collections::HashMap;
+use std::sync::mpsc::{Receiver, TryRecvError};
+
+/// Modules with more instructions than this compile in the background (Hot mode).
+pub const BACKGROUND_INSTS: usize = 50_000;
+
+/// Compiled code handed from the compiler thread to the VM thread.
+struct Ready(Compiled);
+// SAFETY: the code memory and function pointers are process-wide; the value is moved to
+// the VM thread once and used only there.
+unsafe impl Send for Ready {}
+
+/// Instructions in `m` (what the compile time grows with).
+fn size(m: &Module) -> usize {
+    m.funcs.iter().flat_map(|f| &f.blocks).map(|b| b.insts.len() + 1).sum()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -31,11 +51,13 @@ pub struct Tiering {
     compiled: Option<Compiled>,
     /// Compilation failed once: stay in the VM.
     failed: Option<String>,
+    /// background compilation in progress
+    pending: Option<Receiver<Result<Ready, String>>>,
 }
 
 impl Tiering {
     pub fn new(mode: Mode, threshold: u32) -> Tiering {
-        Tiering { mode, threshold: threshold.max(1), counts: HashMap::new(), compiled: None, failed: None }
+        Tiering { mode, threshold: threshold.max(1), counts: HashMap::new(), compiled: None, failed: None, pending: None }
     }
 
     /// Reads `QB_JIT` (`off`, `eager`, or a threshold number) — default: hot, 1000.
@@ -74,6 +96,36 @@ impl Tiering {
         self.compiled.as_ref()
     }
 
+    /// Hot mode: compiles `m` now when it is small, else on another thread;
+    /// returns the code once it exists.
+    fn ensure_hot(&mut self, m: &Module) -> Option<&Compiled> {
+        if self.compiled.is_none() && self.failed.is_none() {
+            match &self.pending {
+                Some(rx) => match rx.try_recv() {
+                    Ok(Ok(Ready(c))) => self.compiled = Some(c),
+                    Ok(Err(e)) => self.failed = Some(e),
+                    Err(TryRecvError::Empty) => return None,
+                    Err(TryRecvError::Disconnected) => self.failed = Some("JIT compiler thread stopped".into()),
+                },
+                None if size(m) <= BACKGROUND_INSTS => return self.ensure(m),
+                None => {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let job = m.clone();
+                    let spawned = std::thread::Builder::new().name("qb-jit".into()).spawn(move || {
+                        let _ = tx.send(compile(&job, Target::Host).map(Ready).map_err(|e| e.0));
+                    });
+                    match spawned {
+                        Ok(_) => self.pending = Some(rx),
+                        Err(_) => return self.ensure(m),
+                    }
+                    return None;
+                }
+            }
+            self.pending = None;
+        }
+        self.compiled.as_ref()
+    }
+
     /// Called before running anything (eager mode compiles here).
     pub fn start(&mut self, m: &Module) -> Option<&Compiled> {
         if self.mode == Mode::Eager {
@@ -92,10 +144,13 @@ impl Tiering {
                 if self.compiled.is_some() {
                     return self.compiled.as_ref();
                 }
+                if self.pending.is_some() {
+                    return self.ensure_hot(m);
+                }
                 let c = self.counts.entry((func, pc)).or_insert(0);
                 *c += 1;
                 if *c >= self.threshold {
-                    self.ensure(m)
+                    self.ensure_hot(m)
                 } else {
                     None
                 }

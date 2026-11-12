@@ -1,4 +1,4 @@
-//! R15 G5 `_SHADER` (user WGSL `fn shade`) and G6 batching, headless.
+//! `_SHADER` (user WGSL `fn shade`) and draw batching, headless.
 //! Compilation tests need no GPU; rendering tests skip without an adapter.
 
 use std::sync::Arc;

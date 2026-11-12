@@ -91,6 +91,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                     vm.bytes(q as u64, s.len())?.copy_from_slice(&s);
                 }
             }
+            "_MEMGETS" => {
+                // _MEMGET into a variable-length STRING: as many bytes as the string holds
+                let n = vm.load_str(p(2))?.len();
+                let b = blk(vm, p(0))?;
+                // SAFETY: memget checks the range.
+                let (q, err) = unsafe { mem::memget(b, i(1) as isize, n as isize) };
+                chk(err)?;
+                if n > 0 {
+                    let s = vm.bytes(q as u64, n)?.to_vec();
+                    vm.store_str(p(2), &s)?;
+                }
+            }
             "_MEMCOPY" => {
                 let s = *blk(vm, p(0))?;
                 let d = blk(vm, p(3))?;

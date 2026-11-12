@@ -1,4 +1,4 @@
-//! Math functions with BASIC error checks and `HEX$`/`OCT$`/`_BIN$` (R12b).
+//! Math functions with BASIC error checks and `HEX$`/`OCT$`/`_BIN$`.
 //!
 //! Replaces `func_log`, `func_exp_single`, `func_sqr`, `func_fix_double`,
 //! `func_hex`, `func_oct` and `func__bin` from libqb.cpp. The `long double`
@@ -48,7 +48,7 @@ pub fn fix(x: f64) -> f64 {
 /// Number of significant bits of a negative value's two's complement
 /// representation, widened to `neg_bits` or the next 16/32/64 boundary.
 /// `neg_bits` is a type width (8..=64); anything else is clamped so the result
-/// always fits the 64-digit buffer of `qb_radix_string` (R14).
+/// always fits the 64-digit buffer of `qb_radix_string`.
 fn neg_width(value: i64, neg_bits: i32) -> i32 {
     let neg_bits = neg_bits.clamp(0, 64);
     let mut i2 = 0;

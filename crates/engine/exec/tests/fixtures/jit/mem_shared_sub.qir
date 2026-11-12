@@ -1,0 +1,107 @@
+QIR 1
+type T_P 4
+field X i16 0
+field Y i16 2
+endtype
+global $__UDT_A udt:T_P
+global $__UDT_B udt:T_P
+global $__UDT_C udt:T_P
+global $__UDT_D udt:T_P
+global $__UDT_E udt:T_P
+global $__UDT_F udt:T_P
+global $__STRING4_S1 fstr:4
+global $__STRING4_S2 fstr:4
+func main
+line 5
+line 6
+line 7
+addr %0 $__UDT_A
+const.i32 %1 1
+cvt.i16.i32 %2 %1
+st.i16 %0 0 %2
+line 7
+addr %3 $__UDT_B
+const.i32 %4 2
+cvt.i16.i32 %5 %4
+st.i16 %3 0 %5
+line 7
+addr %6 $__UDT_C
+const.i32 %7 3
+cvt.i16.i32 %8 %7
+st.i16 %6 0 %8
+line 7
+addr %9 $__UDT_D
+const.i32 %10 4
+cvt.i16.i32 %11 %10
+st.i16 %9 0 %11
+line 7
+addr %12 $__UDT_E
+const.i32 %13 5
+cvt.i16.i32 %14 %13
+st.i16 %12 0 %14
+line 7
+addr %15 $__UDT_F
+const.i32 %16 6
+cvt.i16.i32 %17 %16
+st.i16 %15 0 %17
+line 8
+const.str %18 x6162
+store.str $__STRING4_S1 %18
+line 8
+const.str %19 x6364
+store.str $__STRING4_S2 %19
+line 9
+call SUB_SHOW
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_SHOW
+line 11
+addr %0 $__UDT_A
+ld.i16 %1 %0 0
+addr %2 $__UDT_B
+ld.i16 %3 %2 0
+addr %4 $__UDT_C
+ld.i16 %5 %4 0
+addr %6 $__UDT_D
+ld.i16 %7 %6 0
+addr %8 $__UDT_E
+ld.i16 %9 %8 0
+addr %10 $__UDT_F
+ld.i16 %11 %10 0
+cvt.i32.i16 %12 %1
+cvt.i32.i16 %13 %3
+add.i32 %14 %12 %13
+cvt.i32.i16 %15 %5
+add.i32 %16 %14 %15
+cvt.i32.i16 %17 %7
+add.i32 %18 %16 %17
+cvt.i32.i16 %19 %9
+add.i32 %20 %18 %19
+cvt.i32.i16 %21 %11
+add.i32 %22 %20 %21
+cvt.i64.i32 %23 %22
+rt %24 STR$.i64 %23
+const.str %25 x20
+concat %26 %24 %25
+const.i32 %27 0
+rt PRINTS %27 %26
+load.str %28 $__STRING4_S1
+const.i32 %29 0
+rt PRINTS %29 %28
+load.str %30 $__STRING4_S2
+const.i32 %31 0
+rt PRINTS %31 %30
+const.i32 %32 0
+rt PRINTNL %32
+label ~EXIT
+ret
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

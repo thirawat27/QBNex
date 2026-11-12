@@ -85,7 +85,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
     let ch0 = a.first().map_or(0, |v| v.i()) as i32;
     match name {
         "FIELDNEW" => {
-            if vm.rt().reclen.get(&ch0).is_none() {
+            if !vm.rt().reclen.contains_key(&ch0) {
                 return Some(e(if fio::eof(ch0).1 == 52 { 52 } else { 54 }));
             }
             vm.rt().field_cur = (ch0, 0);
@@ -128,7 +128,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let links: Vec<_> = vm.rt().field_vars.iter().filter(|f| f.1 == ch0).copied().collect();
             vm.rt().field_store = true;
             for (var, _, off, size) in links {
-                let _ = vm.store_str(var, &buf[off..off + size].to_vec());
+                let _ = vm.store_str(var, &buf[off..off + size]);
             }
             vm.rt().field_store = false;
             vm.rt().field_buf.insert(ch0, buf);
@@ -137,12 +137,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         "LSETVAR" => {
             let var = a[0].p();
             let val = a[1].s().to_vec();
-            if let Some(&(_, ch, off, size)) = vm.rt().field_vars.iter().find(|f| f.0 == var) {
-                if let Some(b) = vm.rt().field_buf.get_mut(&ch) {
+            if let Some(&(_, ch, off, size)) = vm.rt().field_vars.iter().find(|f| f.0 == var)
+                && let Some(b) = vm.rt().field_buf.get_mut(&ch) {
                     let n = size.min(val.len());
                     b[off..off + n].copy_from_slice(&val[..n]);
                 }
-            }
             vm.rt().field_store = true;
             let r = vm.store_str(var, &val);
             vm.rt().field_store = false;

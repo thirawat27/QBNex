@@ -1947,7 +1947,7 @@ IF RIGHT$(a2$, 1) = ":" THEN a2$ = a2$ + sp + "'" 'add nop
 
 IF Debug THEN PRINT #9, "lineformat():return:" + a2$
 IF Error_Happened THEN EXIT FUNCTION
-'R14: the expression evaluator recurses once per bracket level; thousands of
+'The expression evaluator recurses once per bracket level; thousands of
 'nested brackets overflowed the native stack (crash). Brackets inside quoted
 'text are not counted.
 lfdepth = 0: lfmaxdepth = 0: lfinquote = 0

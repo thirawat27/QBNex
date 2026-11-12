@@ -118,6 +118,12 @@ pub extern "C" fn qb_snd_play_count() -> i32 {
     engine().play_remaining()
 }
 
+/// Notes in the background music queue (the `ON PLAY(n)` event count).
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_snd_play_notes() -> i32 {
+    engine().play_notes_remaining()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_voice(voice: i32) -> i32 {
     err(engine().synth.set_voice(voice))

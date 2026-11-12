@@ -95,7 +95,7 @@ END FUNCTION
 ' its first SUB/FUNCTION) and its procedure body. All heads are included before
 ' the program's first line and all bodies after its last line, so module-level
 ' DIM/REDIM SHARED stay in the main module and the program's own code after an
-' import is not "after a SUB" (the top-level runtime lowering, D-06).
+' import is not "after a SUB" (the top-level runtime lowering).
 '-------------------------------------------------------------------------------
 
 FUNCTION StdLib_MetaArgFromLine$ (rawLine$, meta$)
@@ -199,7 +199,7 @@ SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
         ELSEIF inBody = 0 THEN
             upperText = UCASE$(LTRIM$(lineText))
             'SUB/FUNCTION prototypes inside DECLARE [DYNAMIC|CUSTOMTYPE|STATIC] LIBRARY
-            '... END DECLARE are declarations: they stay in the head (R12b 541f49d).
+            '... END DECLARE are declarations: they stay in the head.
             IF inDeclare THEN
                 IF LEFT$(upperText, 11) = "END DECLARE" THEN inDeclare = 0
             ELSEIF LEFT$(upperText, 8) = "DECLARE " AND INSTR(upperText, " LIBRARY") > 0 THEN

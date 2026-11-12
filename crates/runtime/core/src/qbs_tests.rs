@@ -350,7 +350,7 @@ fn set_qbs_size_resizes_a_variable() {
     }
 }
 
-/// R14: `start + length` near `i32::MAX` must not wrap (it read and wrote past
+/// `start + length` near `i32::MAX` must not wrap (it read and wrote past
 /// the string: `MID$(a$, 2, 2147483647)`, `MID$(a$, 2, 2147483647) = b$`).
 #[test]
 fn mid_with_huge_lengths_stays_inside_the_string() {

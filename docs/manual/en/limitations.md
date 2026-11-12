@@ -96,7 +96,8 @@ operand and address prefixes, `INT` and RETF. Any other instruction
 
 Only `INT 33h` (mouse) is answered, for functions 0 (reset) and 3
 (position and buttons). Other interrupts, such as `INT 21h` and
-`INT 10h`, do nothing. `CALL INTERRUPTX` is not supported.
+`INT 10h`, do nothing. `CALL INTERRUPT` and `CALL INTERRUPTX` answer the
+same way; for other interrupts the output registers get the input registers.
 
 ## PEEK, POKE and DEF SEG
 
@@ -144,21 +145,23 @@ it runs slower than SINGLE and DOUBLE code.
 
 The build stops with `QIR: unsupported: line N: ...` on:
 
-- `LPRINT`, `ECHO`, `CALL INTERRUPTX`, `_GL` and `SUB _GL` (D-14: there
-  is no OpenGL context);
-- `RANDOMIZE` without a seed (QBasic asks for one);
-- `VARPTR$` of a string;
-- `ON KEY(n) name` with a SUB name;
-- the multi-line `DEF FnName ... END DEF` (the single-line `DEF FnName(x) = expression` works);
-- `_MEM` of a STRING array or of a variable-length STRING, `_MEMFILL`
-  without `AS type`, `_MEMGET` into a variable-length STRING.
+- `CHAIN` inside a SUB or FUNCTION while a COMMON variable is not SHARED;
+- `_MEM` of a variable-length STRING or of an array of them, and `_MEMFILL`
+  of a value that is not a variable without `AS type` (QB64 rejects these too).
 
 Compiled, but different:
 
-- `TIME$ = ...` does not set the clock.
-- `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile, but the PLAY event
-  is never raised (D-24).
-- `CHAIN` does not pass COMMON variables; `RUN file$` and `CHAIN` wait
+- `TIME$ = ...` does not set the clock (as in QB64).
+- `SUB _GL` needs an OpenGL context: without one (headless, no driver) it is not
+  run and the runner says so on stderr. `_glGetString` returns an `_OFFSET`
+  (QB64: a STRING).
+- `LPRINT` prints pages of 60 lines: on Windows as an image of 8x16
+  characters on the default printer, on Linux and macOS through `lp`.
+  `QBNEX_LPRINT=<file>` appends the text to a file instead. Without a printer
+  the page is dropped.
+- `ON PLAY(n) GOSUB` needs an audio device: without one (`QB_AUDIO_DEVICE=none`)
+  no notes are queued, so the handler never runs.
+- `CHAIN` passes COMMON variables but not COMMON arrays; `RUN file$` and `CHAIN` wait
   for the other program to end.
 
 ## Programs that time themselves with loops
@@ -175,10 +178,7 @@ compile and run; change their delay code to wait on the clock, for example
 
 | ID | Defect |
 | --- | --- |
-| L-01 | An `ON ERROR` handler label placed after a SUB (or after an `$INCLUDE` with SUBs) does not compile. |
-| L-12 | `LINE INPUT #` on a BINARY file drops a 1-character last line. |
-| L-15 | `TIMER ON` after `TIMER STOP` loses an event queued during the stop. |
+| L-01 | An `ON ERROR` or `GOSUB` label in module code after the SUBs does not compile when that code is in an included file (in the main file it works, also when the SUBs come from an `$INCLUDE`). |
 | - | Closing the window of a program inside a `SOUND` loop takes about 2.6 s to end it. |
-| - | Very large programs start slowly: the JIT compiles the whole program at start (16 s for 10,800 lines). |
 
-Not checked on the QIR runner yet (seen with the old C++ runtime): L-08, about 1 run in 300-400 ended with exit code `0xC0000409`; L-10, after one `OPEN "COMn:..."` later COM names failed.
+Not checked on the QIR runner yet (seen with the old C++ runtime): L-08, about 1 run in 300-400 ended with exit code `0xC0000409`.

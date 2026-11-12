@@ -294,6 +294,7 @@ pub static TABLE: &[Builtin] = &[
     b!("func__console", [], I32),
     b!("func__newimage", [I32, I32, I32, I32], I32),
     b!("sub__freeimage", [I32, I32]),
+    b!("sub__printimage", [I32]),
     b!("func__copyimage", [I32, I32, I32], I32),
     b!("sub__display", []),
     b!("sub__autodisplay", []),
@@ -331,7 +332,7 @@ pub static TABLE: &[Builtin] = &[
     b!("func__clearcolor", [I32, I32], I32),
     b!("sub__putimage", [F64, F64, F64, F64, I32, I32, F64, F64, F64, F64, I32]),
     b!("sub__maptriangle", [I32, F32, F32, F32, F32, F32, F32, I32, F32, F32, F32, F32, F32, F32, F32, F32, F32, I32, I32, I32]),
-    // ---- R15 G4 3D API (qb_runtime::scene3d); trailing I32 `passed` = optional parts given
+    // ---- 3D API (qb_runtime::scene3d); trailing I32 `passed` = optional parts given
     b!("func__loadmodel", [Str], I32),
     b!("func__meshcube", [F32], I32),
     b!("func__meshplane", [F32, F32], I32),
@@ -353,7 +354,7 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__clear3d", [U32, I32]),
     b!("sub__depthbuffer", [I32, I32, I32]), // {ON|OFF|LOCK|_CLEAR}, handle, passed
     b!("func__gpu3d", [], I32),
-    // R15 G5 _SHADER (user WGSL)
+    // _SHADER (user WGSL)
     b!("func__shader", [Str], I32),
     b!("func__shadererror", [], Str),
     b!("sub__shaderparam", [I32, I32, F32]),
@@ -393,6 +394,7 @@ pub static TABLE: &[Builtin] = &[
     b!("BEEP", []),
     b!("PLAY", [Str]),
     b!("PLAY.f", [I32], I32),
+    b!("PLAYEVENT", [I32]),
     b!("_VOICE", [I32]),
     b!("_ADSR", [F64, F64, F64, F64, I32, I32]),
     b!("_WAVE", [Str, I32, I32]),
@@ -430,6 +432,15 @@ pub static TABLE: &[Builtin] = &[
     // string variable address -> offset of its descriptor (length, offset) in DBLOCK
     b!("VARPTR.s", [Ptr], I32),
     b!("SADD", [Ptr], I32),
+    // VARPTR$ of a STRING variable: type 3 and its descriptor in DBLOCK (DRAW/PLAY "X")
+    b!("VARPTR$.s", [Ptr], Str),
+    b!("sub__echo", [Str]),
+    b!("func_lpos", [I32], I32),
+    b!("CHAINPUT", [Ptr, I32]),
+    b!("CHAINPUTS", [Ptr]),
+    b!("CHAINGET", [Ptr, I32]),
+    b!("CHAINGETS", [Ptr]),
+    b!("INTERRUPT", [I32, Ptr, Ptr, I32]),
     b!("VARSEG", [], I32),
     b!("PEEK", [I32], I32),
     b!("POKE", [I32, I32]),
@@ -451,6 +462,7 @@ pub static TABLE: &[Builtin] = &[
     b!("_MEMFILLP", [Ptr, I64, I64, Ptr, I64]),
     b!("_MEMFILLS", [Ptr, I64, I64, Str]),
     b!("_MEMPUTS", [Ptr, I64, Str]),
+    b!("_MEMGETS", [Ptr, I64, Ptr]),
     b!("_MEMCOPY", [Ptr, I64, I64, Ptr, I64]),
     // array descriptor (aref) -> address of the first element / total bytes
     b!("_ARRADDR", [Ptr], Ptr),

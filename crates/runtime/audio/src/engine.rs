@@ -113,6 +113,11 @@ impl Sink for VoiceSink<'_> {
             q.push_i16(frames);
         }
     }
+    fn note_ends(&mut self, voice: usize, ends: &[usize]) {
+        if let Some(q) = self.0.get_mut(voice) {
+            q.mark_note_ends(ends);
+        }
+    }
 }
 
 /// miniaudio `ma_pan_mode_pan` on a stereo frame.
@@ -128,7 +133,7 @@ fn apply_pan(pan: f32, l: f32, r: f32) -> (f32, f32) {
 }
 
 /// 3-D position to (gain, pan): inverse distance (min 1, rolloff 1) and the
-/// x direction as stereo pan. Approximates miniaudio's spatializer (D-64).
+/// x direction as stereo pan. Approximates miniaudio's spatializer.
 fn spatial(pos: [f32; 3]) -> (f32, f32) {
     let d = (pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]).sqrt();
     let gain = if d > 1.0 { 1.0 / d } else { 1.0 };
@@ -267,6 +272,14 @@ impl Engine {
             m = m.max(q.frames_remaining() as i32);
         }
         m
+    }
+
+    /// PLAY notes queued and not fully played on the busiest voice (`ON PLAY(n)`).
+    pub fn play_notes_remaining(&mut self) -> i32 {
+        if !self.initialized {
+            return 0;
+        }
+        self.voices.iter_mut().map(|q| q.notes_remaining() as i32).max().unwrap_or(0)
     }
 
     // ---- static sounds -----------------------------------------------------
@@ -642,7 +655,7 @@ impl Engine {
 
 /// Adds one source's frame. A NaN or infinite contribution (`_SNDVOL` or
 /// `_SNDRAW` given NaN/infinity) is dropped instead of turning the whole mix
-/// into NaN, which reached f32 output devices (R14).
+/// into NaN, which reached f32 output devices.
 fn add_finite(f: &mut [f32; 2], l: f32, r: f32) {
     if l.is_finite() {
         f[0] += l;
@@ -854,7 +867,7 @@ mod tests {
         assert_eq!(spatial([2.0, 0.0, 0.0]), (0.5, 1.0));
     }
 
-    /// R14 H6: the BASIC thread and the device callback share the engine through
+    /// The BASIC thread and the device callback share the engine through
     /// one mutex. Hammer every handle operation from one thread while another
     /// renders; nothing may panic and the counters must stay consistent.
     #[test]

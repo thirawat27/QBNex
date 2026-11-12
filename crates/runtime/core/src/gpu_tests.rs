@@ -1,4 +1,4 @@
-//! R15 G2/G3: the GPU paths against the software reference, headless.
+//! The GPU paths against the software reference, headless.
 //!
 //! * window presentation: `qb_gpu::blit` with the runtime layout must give the
 //!   pixels `raster::scale_to_window` gives;

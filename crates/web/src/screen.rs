@@ -41,7 +41,7 @@ pub fn parse(rec: &[u8]) -> Option<Page> {
         return None;
     }
     let (width, height, bpp, mode) = (u32_at(rec, 8)?, u32_at(rec, 12)?, u32_at(rec, 16)?, u32_at(rec, 20)?);
-    // R14: a page has 1..=4 bytes per pixel, and the RGBA frame (4 bytes per
+    // A page has 1..=4 bytes per pixel, and the RGBA frame (4 bytes per
     // pixel) must fit usize (wasm32); bpp 0 made `render` index empty data.
     if !(1..=4).contains(&bpp) {
         return None;
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(parse(&r), None);
     }
 
-    /// R14: odd pixel sizes must not panic in `render`.
+    /// Odd pixel sizes must not panic in `render`.
     #[test]
     fn odd_pixel_sizes_do_not_panic() {
         for bpp in [0u32, 2, 3, 5, 9] {

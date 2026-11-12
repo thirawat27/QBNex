@@ -15,7 +15,7 @@ fn raise(err: i32) -> R<Option<V>> {
 
 /// Handles `name` if it is a sound builtin; `None` otherwise.
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
-    if !(name.starts_with("_SND") || matches!(name, "SOUND" | "BEEP" | "PLAY" | "PLAY.f" | "_VOICE" | "_ADSR" | "_WAVE" | "_MEMSOUND")) {
+    if !(name.starts_with("_SND") || matches!(name, "SOUND" | "BEEP" | "PLAY" | "PLAY.f" | "PLAYEVENT" | "_VOICE" | "_ADSR" | "_WAVE" | "_MEMSOUND")) {
         return None;
     }
     if !vm.rt().snd_started {
@@ -36,6 +36,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             Some(raise(unsafe { snd::qb_snd_play(s(0).as_ptr(), s(0).len() as i32, dblock) }))
         }
         "PLAY.f" => some(V::I(snd::qb_snd_play_count().into())),
+        // PLAY ON|OFF|STOP (1..3); ON PLAY(n) GOSUB starts the queue polling
+        "PLAYEVENT" => Some(raise(qb_runtime::events::play_trap().statement(i(0)).err().unwrap_or(0))),
         "_VOICE" => Some(raise(snd::qb_snd_voice(i(0)))),
         "_ADSR" => Some(raise(snd::qb_snd_adsr(f(0), f(1), f(2), f(3), i(4), i(5)))),
         "_WAVE" => Some(raise(unsafe { snd::qb_snd_wave(s(0).as_ptr(), s(0).len() as i32, i(1), i(2)) })),

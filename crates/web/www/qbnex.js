@@ -1,4 +1,4 @@
-// QBNex in a browser (R13-wasm): loads qb_web.wasm and runs QIR programs.
+// QBNex in a browser: loads qb_web.wasm and runs QIR programs.
 //
 // Works in a Web Worker (worker.js, used by index.html: sleeps really wait,
 // frames, console text and sound stream to the page while the program runs)

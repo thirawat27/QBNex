@@ -151,7 +151,7 @@ fn scan_f32(arg: &[u8]) -> Option<f32> {
 /// Validates the entry `arg` of a variable of type `t` and, when `var` is not
 /// null, stores the value (the legacy editor did both in one pass, also for
 /// incomplete entries). `max` is the "largest value" variable that legacy
-/// carried between arguments (see `D-R12a-1` in docs/dev/deviations.md).
+/// carried between arguments (see docs/dev/deviations.md).
 pub unsafe fn check_and_store(arg: &mut Vec<u8>, t: i32, var: *mut c_void, max: &mut u64) -> Check {
     let l = arg.len();
     let at = |a: &Vec<u8>, i: usize| -> u8 { a.get(i).copied().unwrap_or(0) };

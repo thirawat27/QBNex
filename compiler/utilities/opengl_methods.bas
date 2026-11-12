@@ -1,4 +1,4 @@
-' OpenGL keyword table (deviation D-14: SUB _GL).
+' OpenGL keyword table (SUB _GL).
 ' gl_scan_header reads compiler\support\opengl\gl_table.txt once at start-up (data converted once
 ' from QB64's gl.h parsing copy; no C header in the repository): every "const GL_x value" becomes a
 ' _GL_x constant and every "sub|func glX ..." line a _glX SUB/FUNCTION.

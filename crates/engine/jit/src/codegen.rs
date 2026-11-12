@@ -45,6 +45,8 @@ pub(crate) fn make_isa(t: Target) -> OwnedTargetIsa {
 pub(crate) fn make_isa_pic(t: Target, pic: bool) -> OwnedTargetIsa {
     let mut fb = settings::builder();
     fb.set("opt_level", "speed").expect("flag");
+    // the IR verifier only checks this crate's own output: debug builds keep it
+    fb.set("enable_verifier", if cfg!(debug_assertions) { "true" } else { "false" }).expect("flag");
     fb.set("is_pic", if pic { "true" } else { "false" }).expect("flag");
     fb.set("use_colocated_libcalls", "false").expect("flag");
     let flags = settings::Flags::new(fb);
@@ -152,9 +154,8 @@ pub(crate) fn define_all<M: cranelift_module::Module>(
     let frontend = isa.frontend_config();
     let sig = entry_sig(cc);
     let ids: Vec<CFuncId> = (0..m.funcs.len())
-        .map(|i| module.declare_function(&func_symbol(i), linkage, &sig))
-        .collect::<Result<_, _>>()
-        .map_err(|e| CompileError(e.to_string()))?;
+        .map(|i| module.declare_function(&func_symbol(i), linkage, &sig).map_err(|e| CompileError(e.to_string())))
+        .collect::<Result<_, _>>()?;
     let mut syms = HashMap::new();
     for (name, addr) in symbols(m) {
         syms.entry(addr).or_insert(name);
@@ -166,8 +167,10 @@ pub(crate) fn define_all<M: cranelift_module::Module>(
         {
             let b = FunctionBuilder::new(&mut cctx.func, &mut fctx);
             let mut g = Gen::new(m, f, b, cc, frontend, module, &syms);
-            let frefs: Vec<ir::FuncRef> = ids.iter().map(|id| g.module.declare_func_in_func(*id, g.b.func)).collect();
-            g.frefs = frefs;
+            // callees are declared in this function when a call to them is emitted: declaring
+            // every function in every function made a module of N functions cost N * N
+            g.fids = &ids[..];
+            g.frefs = vec![None; ids.len()];
             g.emit();
         }
         module.define_function(ids[i], &mut cctx).map_err(|e| CompileError(format!("{}: {e:?}", f.name)))?;
@@ -205,7 +208,9 @@ struct Gen<'a, M: cranelift_module::Module> {
     f: &'a Func,
     b: FunctionBuilder<'a>,
     cc: CallConv,
-    frefs: Vec<ir::FuncRef>,
+    /// the module's functions, and those declared in this function so far
+    fids: &'a [CFuncId],
+    frefs: Vec<Option<ir::FuncRef>>,
     /// Slots kept in memory.
     resident: Vec<bool>,
     /// Slots written somewhere (written back on exit).
@@ -234,6 +239,17 @@ struct Gen<'a, M: cranelift_module::Module> {
 
 
 impl<'a, M: cranelift_module::Module> Gen<'a, M> {
+    /// Reference to module function `func` in the function being built.
+    fn fref(&mut self, func: u32) -> ir::FuncRef {
+        let k = func as usize;
+        if let Some(r) = self.frefs[k] {
+            return r;
+        }
+        let r = self.module.declare_func_in_func(self.fids[k], self.b.func);
+        self.frefs[k] = Some(r);
+        r
+    }
+
     fn new(
         m: &'a Module,
         f: &'a Func,
@@ -285,6 +301,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             f,
             b,
             cc,
+            fids: &[],
             frefs: Vec::new(),
             resident,
             defined,
@@ -493,11 +510,10 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         self.b.switch_to_block(osr);
         let mut sw = Switch::new();
         for (i, blk) in self.f.blocks.iter().enumerate() {
-            if let Some(pc) = blk.pc {
-                if pc != ENTRY_CALL && !sw.entries().contains_key(&u128::from(pc)) {
+            if let Some(pc) = blk.pc
+                && pc != ENTRY_CALL && !sw.entries().contains_key(&u128::from(pc)) {
                     sw.set_entry(u128::from(pc), self.blocks[i]);
                 }
-            }
         }
         let unknown = self.b.create_block();
         sw.emit(&mut self.b, entry_pc, unknown);
@@ -669,11 +685,10 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let mut sites: Vec<(u32, BlockId)> = Vec::new();
                 let mut seen = HashSet::new();
                 for blk in &self.f.blocks {
-                    if let Term::Gosub { ret, ret_pc, .. } = blk.term {
-                        if seen.insert(ret_pc) {
+                    if let Term::Gosub { ret, ret_pc, .. } = blk.term
+                        && seen.insert(ret_pc) {
                             sites.push((ret_pc, ret));
                         }
-                    }
                 }
                 let mut sw = Switch::new();
                 let mut pending = Vec::new();
@@ -1313,7 +1328,8 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         }
         let entry = self.b.ins().iconst(types::I32, i64::from(ENTRY_CALL));
         let ctx = self.ctx;
-        let c = self.b.ins().call(self.frefs[func as usize], &[ctx, cf, entry]);
+        let target = self.fref(func);
+        let c = self.b.ins().call(target, &[ctx, cf, entry]);
         let st = self.b.inst_results(c)[0];
         let bad = self.b.create_block();
         let ok = self.b.create_block();

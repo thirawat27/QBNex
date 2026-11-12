@@ -1,4 +1,4 @@
-//! 3D `_MAPTRIANGLE` on the GPU (R15 G3).
+//! 3D `_MAPTRIANGLE` on the GPU.
 //!
 //! `_MAPTRIANGLE (sx1,sy1)-(sx2,sy2)-(sx3,sy3), src TO (dx1,dy1,dz1)-(...)-(...), dst`
 //! with z coordinates maps a triangle of a hardware image onto the display (or

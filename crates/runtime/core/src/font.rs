@@ -13,7 +13,7 @@
 //! - glyph bitmaps come from the control box of the hinted outline, floored
 //!   and ceiled to whole pixels, like FreeType's renderers.
 //!
-//! Deviation D-R7-6: pixel coverage and hinting are not FreeType's, so glyph
+//! Deviation: pixel coverage and hinting are not FreeType's, so glyph
 //! pixels may differ (see the tolerance in `tests/diff/diff_font.cpp`), and only
 //! TrueType/OpenType (incl. collections) load; FreeType also read Type 1,
 //! CID, PFR, Type 42, Windows FNT/FON, PCF and BDF fonts, and embedded
@@ -225,7 +225,7 @@ fn rasterize_aa(path: &[El], x0: f32, y0: f32, w: usize, h: usize) -> Vec<u8> {
 
 /// Monochrome bitmap like FreeType's "raster1" renderer: a pixel is set when
 /// its centre lies inside the outline (non-zero winding). FreeType's dropout
-/// control for thin stems is not reproduced (D-R7-6).
+/// control for thin stems is not reproduced.
 fn rasterize_mono(path: &[El], x0: f32, y0: f32, w: usize, h: usize) -> Vec<u8> {
     let mut lines: Vec<((f32, f32), (f32, f32))> = Vec::new();
     for_each_segment(path, |seg| match seg {
@@ -981,7 +981,7 @@ mod tests {
                     "U+{cp:04X} opt {opt} options {options}"
                 );
                 // Axis-aligned outlines rasterise identically; diagonal and
-                // curved edges may differ in coverage (D-R7-6).
+                // curved edges may differ in coverage.
                 if cp == 0x25A0 {
                     assert_eq!(
                         fnv1a(&r.data),

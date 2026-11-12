@@ -1,4 +1,4 @@
-//! R15 G4 3D builtins (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA*`,
+//! 3D builtins (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA*`,
 //! `_AMBIENT`, `_LIGHT*`, `_CLEAR3D`, `_GPU3D`), routed to the
 //! `qb_runtime::scene3d` C ABI — the same functions libqb's shims call.
 //! Arguments follow the registry callnames (trailing `passed` flags where the

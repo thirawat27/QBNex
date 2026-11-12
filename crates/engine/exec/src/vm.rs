@@ -237,6 +237,14 @@ struct EvShared {
 #[derive(Clone)]
 pub struct EventHandle(Arc<EvShared>);
 
+/// Event bit of the `QB_PROFILE` sampler.
+const PROFILE_EV: u32 = 31;
+
+struct Profile {
+    path: std::path::PathBuf,
+    counts: std::collections::HashMap<(u32, u32), u32>,
+}
+
 impl EventHandle {
     pub fn raise(&self, id: u32) {
         if id < 32 {
@@ -271,6 +279,8 @@ struct GlFrames {
 
 /// `Gs::ev` of an ON KEY(i) handler: `KEY_EV - i` (timers use their slot >= 0, -1 = plain GOSUB).
 const KEY_EV: i32 = -2;
+/// `Gs::ev` of the ON PLAY handler (below every ON KEY value).
+const PLAY_EV: i32 = -1000;
 
 #[derive(Debug, Clone, Copy)]
 struct Gs {
@@ -331,6 +341,10 @@ pub struct Vm<'m, 'o> {
     timer_thread: bool,
     /// ON KEY was set up: safe points look at the keys (and a thread wakes them)
     key_poll: bool,
+    /// ON PLAY was set up: safe points look at the music queue
+    play_poll: bool,
+    /// the thread that wakes safe points for ON KEY / ON PLAY runs
+    poll_thread: bool,
     /// DECLARE LIBRARY: resolved function addresses (per `Module::xfns`) and loaded libraries
     xptrs: Vec<usize>,
     /// (library spec, the library or None when it could not be opened): each opened once
@@ -341,8 +355,10 @@ pub struct Vm<'m, 'o> {
     ev: Arc<EvShared>,
     /// pending bits examined at safe points
     poll_mask: u32,
-    /// JIT tier (R11.6); `None` = interpret only (`QB_JIT=off`).
+    /// JIT tier; `None` = interpret only (`QB_JIT=off`).
     jit: Option<Box<crate::jit::JitState>>,
+    /// `QB_PROFILE=<file>`: samples per (function, source line), written at the end
+    profile: Option<Box<Profile>>,
     /// `exec` returns when a RET brings the frame count back to this
     /// (calls made from native code run the callee to completion).
     stop_depth: usize,
@@ -478,12 +494,15 @@ impl<'m, 'o> Vm<'m, 'o> {
             continue_unhandled: false,
             timer_thread: false,
             key_poll: false,
+            play_poll: false,
+            poll_thread: false,
             xptrs: vec![0; m.xfns.len()],
             xlibs: Vec::new(),
             data_ptr: 0,
             ev: Arc::new(EvShared { pending: AtomicU32::new(0) }),
             poll_mask: u32::MAX,
             jit: crate::jit::JitState::from_env(m),
+            profile: None,
             stop_depth: usize::MAX,
             gl: GlFrames::default(),
             jit_nest: 0,
@@ -521,7 +540,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.end_prompt = wait;
     }
 
-    /// Browser runner (qb-web, R13-wasm): the program runs on the screen page
+    /// Browser runner (qb-web, WebAssembly): the program runs on the screen page
     /// from its first statement (PRINT draws there, as in a window), INPUT
     /// reads `stdin` and echoes what it consumed on the screen, and only the
     /// VM runs (no native code in a browser).
@@ -693,6 +712,7 @@ impl<'m, 'o> Vm<'m, 'o> {
 
     /// Runs the program; returns its exit code (`SYSTEM n`).
     pub fn run_status(&mut self) -> Result<i32, RunError> {
+        self.start_profile();
         let mut pc = self.m.funcs[0].entry;
         let r = loop {
             match self.exec(pc) {
@@ -710,6 +730,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 },
             }
         };
+        self.write_profile();
         if std::env::var_os("QB_JIT_STATS").is_some() {
             // tiering report for benchmarks (scripts/bench/corpus_perf.ps1)
             eprintln!("qb-exec: native entries {}, JIT {}", self.jit_entries(), self.jit_failure().unwrap_or_else(|| "ok".into()));
@@ -718,19 +739,22 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
         // console program: END's "Press any key to continue" (console branch of
         // sub_end), only when somebody could press the key (see set_end_prompt)
-        if !self.rt.window && r.is_ok() && self.ended {
-            if let Some(wait) = self.end_prompt {
+        if !self.rt.window && r.is_ok() && self.ended
+            && let Some(wait) = self.end_prompt {
                 let text: &[u8] = if cfg!(windows) { b"\nPress any key to continue" } else { b"\nPress enter to continue" };
                 let _ = self.rt.write(0, text);
                 self.rt.flush();
                 wait();
             }
-        }
         self.rt.flush();
         // with a window, END keeps it open until it is closed (end() waits for stop_program)
         #[cfg(not(target_arch = "wasm32"))]
+        // (headless: nobody can close the stand-in window, so END ends the program)
         if self.rt.window && r.is_ok() && !self.by_system {
             crate::rt::window_present(&self.rt.display);
+            if qb_runtime::window::qb_window_headless() != 0 {
+                return r;
+            }
             let mut at = qb_runtime::systime::ticks();
             while !crate::rt::window_closed() {
                 qb_runtime::systime::sleep_ms(16);
@@ -801,6 +825,8 @@ impl<'m, 'o> Vm<'m, 'o> {
     fn sget(&self, r: R) -> &[u8] {
         if r & K != 0 {
             &self.m.kstr[(r & !K) as usize]
+        } else if r & M != 0 {
+            self.mem.peek_str(self.nums[self.nb + (r & !M) as usize])
         } else {
             &self.strs[self.sb + r as usize]
         }
@@ -970,11 +996,10 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         let mut new = Arr::new(ty, dims)?;
         new.fixed = mode == DimMode::Static;
-        if mode == DimMode::RedimPreserve {
-            if let Some(old) = self.arrs[i].take() {
+        if mode == DimMode::RedimPreserve
+            && let Some(old) = self.arrs[i].take() {
                 new.preserve_from(*old);
             }
-        }
         self.arrs[i] = Some(Box::new(new));
         Ok(())
     }
@@ -1163,6 +1188,37 @@ impl<'m, 'o> Vm<'m, 'o> {
         &fs[i]
     }
 
+    fn func_index(&self, pc: u32) -> u32 {
+        self.m.funcs.partition_point(|f| f.entry <= pc).saturating_sub(1) as u32
+    }
+
+    /// `QB_PROFILE=<file>`: a thread asks for a sample every millisecond; the next safe
+    /// point (loop back-edge, CALL) counts its function and source line. Native code
+    /// leaves to the VM at each sample, so profile with `QB_JIT=off`.
+    fn start_profile(&mut self) {
+        let Some(path) = std::env::var_os("QB_PROFILE").filter(|p| !p.is_empty()) else { return };
+        self.profile = Some(Box::new(Profile { path: path.into(), counts: std::collections::HashMap::new() }));
+        let ev = self.events();
+        std::thread::spawn(move || loop {
+            ev.raise(PROFILE_EV);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        });
+    }
+
+    /// Writes the profile: samples, function and source line, hottest first.
+    fn write_profile(&mut self) {
+        let Some(p) = self.profile.take() else { return };
+        let mut v: Vec<_> = p.counts.into_iter().collect();
+        v.sort_by_key(|x| std::cmp::Reverse(x.1));
+        let total: u64 = v.iter().map(|x| u64::from(x.1)).sum();
+        let mut out = format!("{total} samples\n");
+        for ((f, line), n) in v.iter().take(400) {
+            let name = self.m.funcs.get(*f as usize).map_or("?", |x| x.name.as_str());
+            out.push_str(&format!("{n:8} {name} line {line}\n"));
+        }
+        let _ = std::fs::write(&p.path, out);
+    }
+
     fn line_of(&self, pc: u32) -> u32 {
         let s = &self.m.stmts;
         let i = s.partition_point(|x| x.0 <= pc);
@@ -1292,7 +1348,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             Ok(_) => pc,
             Err((code, at)) => {
                 // an error inside SUB _GL ends the program (it runs outside the main flow)
-                let _ = self.rt.flush();
+                self.rt.flush();
                 eprintln!("Unhandled error #{code} on line {} (in SUB _GL)", self.line_of(at));
                 self.exit_code = 1;
                 u32::MAX
@@ -1312,6 +1368,12 @@ impl<'m, 'o> Vm<'m, 'o> {
     #[cold]
     fn dispatch_events(&mut self, pc: u32) -> Option<u32> {
         let bits = self.ev.pending.swap(0, Ordering::AcqRel);
+        if bits & (1 << PROFILE_EV) != 0 {
+            let at = (self.func_index(pc), self.line_of(pc));
+            if let Some(p) = self.profile.as_deref_mut() {
+                *p.counts.entry(at).or_default() += 1;
+            }
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if self.rt.window {
             if crate::rt::window_closed() {
@@ -1345,6 +1407,17 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         }
         drop(t);
+        if self.play_poll {
+            let notes = qb_audio::ffi::qb_snd_play_notes();
+            let due = qb_runtime::events::play_trap().poll(notes);
+            if let Some(id) = due {
+                self.gosub.push(Gs { ev: PLAY_EV, ret: pc, depth: self.frames.len(), view: self.view });
+                if self.view != 0 {
+                    self.set_view(0);
+                }
+                return Some(id - 1);
+            }
+        }
         if self.key_poll {
             // ON KEY: keys pressed since the last safe point (libqb.cpp events())
             let rt = &mut self.rt;
@@ -1369,12 +1442,27 @@ impl<'m, 'o> Vm<'m, 'o> {
         None
     }
 
-    /// ON KEY: a thread raises event 0 every 10 ms so the VM looks at the keys.
+    /// ON KEY: safe points look at the keys.
     fn start_key_poll(&mut self) {
         if self.key_poll {
             return;
         }
         self.key_poll = true;
+        self.start_poll_thread();
+    }
+
+    /// ON PLAY: safe points compare the music queue with the trap.
+    fn start_play_poll(&mut self) {
+        self.play_poll = true;
+        self.start_poll_thread();
+    }
+
+    /// A thread raises event 0 every 10 ms so the VM looks at keys and the music queue.
+    fn start_poll_thread(&mut self) {
+        if self.poll_thread {
+            return;
+        }
+        self.poll_thread = true;
         let ev = self.events();
         std::thread::spawn(move || loop {
             ev.raise(0);
@@ -1697,6 +1785,8 @@ impl<'m, 'o> Vm<'m, 'o> {
                         self.gosub.pop();
                         if g.ev >= 0 {
                             qb_runtime::events::timers().done(g.ev);
+                        } else if g.ev == PLAY_EV {
+                            qb_runtime::events::play_trap().done();
                         } else if g.ev <= KEY_EV {
                             // SAFETY: program thread only.
                             unsafe { qb_runtime::events::onkey_inprogress = 0 };
@@ -1835,7 +1925,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::LdM { t, d, p, off } => {
                     let a = r!(p).wrapping_add(u64::from(off));
                     if t == MTy::Str {
-                        // into the register's own buffer (no allocation per load, R14)
+                        // into the register's own buffer (no allocation per load)
                         let src: *const [u8] = tryc!(self.mem.ld_str(a));
                         let dst = self.sdst(d);
                         dst.clear();
@@ -1880,7 +1970,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     tryc!(self.mem.dim(r!(a), mode, b));
                 }
                 Ins::AAddrM { d, a, i, n } => {
-                    // subscripts on the stack (a heap Vec per element access was a hot allocation, R14)
+                    // subscripts on the stack (a heap Vec per element access was a hot allocation)
                     let mut buf = [0i64; 8];
                     let p = if (n as usize) <= buf.len() {
                         for k in 0..n {
@@ -2018,6 +2108,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                     tryc!(qb_runtime::events::onkey_setup(qb_runtime::events::onkeys(), ri!(s) as i32, t + 1, 0));
                     self.start_key_poll();
                 }
+                Ins::OnPlay { s, t } => {
+                    tryc!(qb_runtime::events::play_trap().setup(ri!(s) as i32, t + 1));
+                    self.start_play_poll();
+                }
                 Ins::Resume { k, t } => {
                     pc = tryc!(self.resume(k, t));
                     reload!();
@@ -2044,7 +2138,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::SetGS { g, s } => {
-                    // into the global's own buffer (no allocation per store, R14)
+                    // into the global's own buffer (no allocation per store)
                     let src: *const [u8] = self.sget(s);
                     let dst = &mut self.strs[g as usize];
                     if !std::ptr::eq(dst.as_slice(), src) {
@@ -2070,6 +2164,19 @@ impl<'m, 'o> Vm<'m, 'o> {
                         None => fail!(5),
                     };
                     seti!(d, c as i64)
+                }
+                Ins::Instr { d, start, a, b: y } => {
+                    let (st, passed) = if start == NONE { (1, false) } else { (ri!(start) as i32, true) };
+                    let v = rt::builtins::qb_instr(st, self.sget(a), self.sget(y), passed);
+                    seti!(d, i64::from(v))
+                }
+                Ins::AscAt { d, s, i } => {
+                    let k = ri!(i);
+                    if k < 1 {
+                        fail!(5);
+                    }
+                    let c = self.sget(s).get(k as usize - 1).map_or(-1, |c| i64::from(*c));
+                    seti!(d, c)
                 }
                 Ins::Left { d, s, n } => {
                     // qbs_left: the count is clamped

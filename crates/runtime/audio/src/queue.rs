@@ -21,13 +21,17 @@ pub struct RawQueue {
     read: usize,
     /// Frames pushed and not yet played.
     queued: usize,
+    /// Frames pushed since the queue was made.
+    pushed: u64,
+    /// Frame positions (counted like `pushed`) where PLAY notes end.
+    note_ends: VecDeque<u64>,
     pub volume: f32,
     pub pan: f32,
 }
 
 impl RawQueue {
     pub fn new(rate: u32) -> Self {
-        RawQueue { block_frames: ((rate >> 4) as usize).max(1), blocks: VecDeque::new(), read: 0, queued: 0, volume: 1.0, pan: 0.0 }
+        RawQueue { block_frames: ((rate >> 4) as usize).max(1), blocks: VecDeque::new(), read: 0, queued: 0, pushed: 0, note_ends: VecDeque::new(), volume: 1.0, pan: 0.0 }
     }
 
     pub fn block_frames(&self) -> usize {
@@ -46,6 +50,22 @@ impl RawQueue {
         b.samples.push(l);
         b.samples.push(r);
         self.queued += 1;
+        self.pushed += 1;
+    }
+
+    /// Records where PLAY notes end, in frames from the start of the next push.
+    pub fn mark_note_ends(&mut self, ends: &[usize]) {
+        let base = self.pushed;
+        self.note_ends.extend(ends.iter().map(|&e| base + e as u64));
+    }
+
+    /// PLAY notes queued and not fully played (the `ON PLAY(n)` count).
+    pub fn notes_remaining(&mut self) -> usize {
+        let played = self.pushed - self.queued as u64;
+        while self.note_ends.front().is_some_and(|&e| e <= played) {
+            self.note_ends.pop_front();
+        }
+        self.note_ends.len()
     }
 
     /// Pushes 16-bit stereo frames (legacy `SendWaveformToQueue`) and forces
@@ -140,5 +160,17 @@ mod tests {
         let mut q = RawQueue::new(48000);
         q.push_i16(&[16384, -32768, 0, 32767]);
         assert_eq!(q.drain(10), vec![0.5, -1.0, 0.0, 32767.0 / 32768.0]);
+    }
+
+    #[test]
+    fn note_ends_count_down_as_frames_play() {
+        let mut q = RawQueue::new(160);
+        q.mark_note_ends(&[2, 5]);
+        q.push_i16(&[0; 10]); // 5 frames: two notes
+        assert_eq!(q.notes_remaining(), 2);
+        q.drain(2);
+        assert_eq!(q.notes_remaining(), 1);
+        q.drain(3);
+        assert_eq!(q.notes_remaining(), 0);
     }
 }

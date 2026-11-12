@@ -270,11 +270,10 @@ impl Display {
         // icon images (16x16 and 32x32), so image handles match the C++ backend
         self.newimage(16, 16, 32, 1);
         self.newimage(32, 32, 32, 1);
-        if console_only && self.console_image < 0 {
-            if let Some(x) = self.resolve(self.console_image) {
+        if console_only && self.console_image < 0
+            && let Some(x) = self.resolve(self.console_image) {
                 self.write_index = x;
             }
-        }
     }
 
     pub(crate) fn newimage(&mut self, x: i32, y: i32, mut bpp: i32, passed: i32) -> i32 {
@@ -681,6 +680,26 @@ impl Display {
         self.freeimg(idx);
     }
 
+    /// `_PRINTIMAGE`: the pixels (0x00RRGGBB) of a graphics image or page; error 5 for text.
+    pub(crate) fn printimage_pixels(&mut self, i: i32) -> Option<(usize, usize, Vec<u32>)> {
+        let ix = self.resolve(i)?;
+        // SAFETY: valid surface; its buffer holds width * height pixels of bytes_per_pixel.
+        unsafe {
+            let s = &*im(ix);
+            if s.text != 0 {
+                self.err(5);
+                return None;
+            }
+            let n = usize::from(s.width) * usize::from(s.height);
+            let px = if s.bytes_per_pixel == 4 {
+                core::slice::from_raw_parts(s.offset.cast::<u32>(), n).to_vec()
+            } else {
+                core::slice::from_raw_parts(s.offset, n).iter().map(|&c| *s.pal.add(usize::from(c))).collect()
+            };
+            Some((usize::from(s.width), usize::from(s.height), px))
+        }
+    }
+
     pub(crate) fn copyimage(&mut self, i: i32, mode: i32, passed: i32) -> i32 {
         let Some(src) = self.resolve(i) else { return 0 };
         // SAFETY: valid source surface.
@@ -828,9 +847,9 @@ impl Display {
                         let old = im(self.page[self.last_active_page as usize] as u32);
                         let w = self.wp();
                         if (*w).text == 0 {
-                            let a = core::ptr::addr_of_mut!((*w).apm_p1) as *mut u8;
-                            let b = core::ptr::addr_of_mut!((*w).apm_p2) as *mut u8;
-                            let o = core::ptr::addr_of!((*old).apm_p1) as *const u8;
+                            let a = core::ptr::addr_of_mut!((*w).apm_p1);
+                            let b = core::ptr::addr_of_mut!((*w).apm_p2);
+                            let o = core::ptr::addr_of!((*old).apm_p1);
                             core::ptr::copy(o, a, b.offset_from(a) as usize);
                         }
                         self.last_active_page = active_page;
@@ -1477,7 +1496,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
         "qbg_screen" | "sub_pset" | "sub_preset" | "sub_line" | "sub_circle" | "sub_paint" | "sub_paint.s" | "qbg_palette" | "qbg_sub_color"
             | "qbg_sub_view" | "qbg_sub_view_print" | "qbg_sub_window" | "func_pmap" | "func_point" | "sub_pcopy" | "sub_draw"
             | "sub_cls" | "qbg_sub_locate" | "sub__dest" | "sub__source" | "func__dest" | "func__source" | "func__display"
-            | "func__console" | "func__newimage" | "sub__freeimage" | "func__copyimage" | "sub__display" | "func__width"
+            | "func__console" | "func__newimage" | "sub__freeimage" | "sub__printimage" | "func__copyimage" | "sub__display" | "func__width"
             | "func__height" | "func__pixelsize" | "func__rgb" | "func__rgba" | "func__red" | "func__green" | "func__blue"
             | "func__alpha" | "func__rgb32" | "func__rgba32" | "func__red32" | "func__green32" | "func__blue32"
             | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put"
@@ -1595,6 +1614,11 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "func__newimage" => out = Some(V::I(d.newimage(i(0), i(1), i(2), i(3)).into())),
             "sub__freeimage" => d.freeimage(i(0), i(1)),
             "func__copyimage" => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
+            "sub__printimage" => {
+                if let Some((w, h, px)) = d.printimage_pixels(i(0)) {
+                    super::lprint::print_image(w, h, &px);
+                }
+            }
             "sub__display" => {
                 d.capture(gfx::capture::KIND_DISPLAY);
                 #[cfg(not(target_arch = "wasm32"))]
@@ -1881,7 +1905,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     }
                 }
             }
-            "qbsub_width" => d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5)),
+            "qbsub_width" => {
+                d.width(cmem, i(0), i(1), i(2), i(3), i(4), i(5));
+                // WIDTH LPRINT n (checked by width)
+                if i(0) == 2 && i(5) == 1 && (1..=255).contains(&i(1)) {
+                    rt.lprint.width = i(1) as usize;
+                }
+            }
             "sub__title" => {
                 d.title = a[0].s().to_vec();
                 #[cfg(not(target_arch = "wasm32"))]

@@ -1,5 +1,5 @@
 #!/bin/sh
-# R11: builds the QIR runner (qb-exec) used by `qb --ir` and copies it to
+# Builds the QIR runner (qb-exec) used by `qb --ir` and copies it to
 # crates/engine/exec/bin/linux/qb-exec. Requires cargo on PATH.
 set -e
 cd "$(dirname "$0")"

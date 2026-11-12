@@ -7,7 +7,7 @@
 //! zlib whose `uncompress` is zlib's `uncompress2` line by line:
 //!
 //! * [`deflate`]: zlib stream (RFC 1950), default level 6. zlib-rs compresses with
-//!   zlib-ng's algorithms, so the bytes can differ from zlib's (deviation D-R10-1);
+//!   zlib-ng's algorithms, so the bytes can differ from zlib's (documented deviation);
 //!   every zlib inflates them.
 //! * [`inflate`]: zlib's result codes, output length and partial output, including
 //!   corrupt streams and the "zero-length destination" special case.

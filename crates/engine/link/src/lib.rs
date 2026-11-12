@@ -16,7 +16,7 @@
 use object::{Object, ObjectSection, ObjectSymbol, RelocationEncoding, RelocationKind, RelocationTarget, SectionKind};
 use std::collections::HashMap;
 
-/// Standard-linker path (rust-lld + native kit), see [	oolchain].
+/// Standard-linker path (rust-lld + native kit), see [`toolchain`].
 #[cfg(not(target_arch = "wasm32"))]
 pub mod toolchain;
 
@@ -150,11 +150,12 @@ pub fn link(obj: &[u8]) -> Result<Image, LinkError> {
         }
     }
     for sym in file.symbols() {
-        if sym.is_definition() && sym.kind() == object::SymbolKind::Text {
-            if let Some(&sb) = sym.section_index().and_then(|s| place.get(&s)) {
-                let name = sym.name().map_err(|e| LinkError(e.to_string()))?;
-                img.symbols.push((plain_name(&file, name).to_string(), sb + sym.address() - section_address(&file, sym.section_index())));
-            }
+        if sym.is_definition()
+            && sym.kind() == object::SymbolKind::Text
+            && let Some(&sb) = sym.section_index().and_then(|s| place.get(&s))
+        {
+            let name = sym.name().map_err(|e| LinkError(e.to_string()))?;
+            img.symbols.push((plain_name(&file, name).to_string(), sb + sym.address() - section_address(&file, sym.section_index())));
         }
     }
     Ok(img)
@@ -319,7 +320,7 @@ pub struct Loaded {
     symbols: HashMap<String, u64>,
 }
 
-/// Browser build (R13-wasm): wasm cannot run machine code, so nothing loads.
+/// Browser build: wasm cannot run machine code, so nothing loads.
 #[cfg(target_arch = "wasm32")]
 pub struct Loaded {
     _never: core::convert::Infallible,

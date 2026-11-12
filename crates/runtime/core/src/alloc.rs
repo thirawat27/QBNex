@@ -1,4 +1,4 @@
-//! Static and conventional-memory allocators used by generated code (R12b).
+//! Static and conventional-memory allocators used by generated code.
 //!
 //! * `mem_static`: a bump allocator for `STATIC`/`SHARED` data and array
 //!   descriptors. Generated code allocates inline

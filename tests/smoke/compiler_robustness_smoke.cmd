@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-rem R14: inputs that crashed the compiler or stopped it with an internal error
+rem Inputs that crashed the compiler or stopped it with an internal error
 rem must give a clean diagnostic (exit 1, the expected message, a line number,
 rem no "INTERNAL COMPILER ERROR"); the valid ones must compile. Front end only
 rem (-z): no C++ compiler needed.

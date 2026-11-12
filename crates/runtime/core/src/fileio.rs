@@ -719,7 +719,9 @@ fn line_input_binary(t: &mut Table, fileno: i32, i: i32, cx: &mut Ctx) -> Option
             d.pop();
         }
     };
-    if start_byte + dest.len() as i64 + 2 >= filelength {
+    // `dest` ends before the LF at byte start_byte + len; the next line starts after
+    // it. Legacy tested `+ 2` here and dropped a final line of 1 or 2 bytes.
+    if start_byte + dest.len() as i64 >= filelength {
         t.setpos(i, filelength);
         t.f(i).eof_passed = 1;
         strip_cr(&mut dest);
@@ -1924,6 +1926,18 @@ mod tests {
         assert_eq!(li(), (Some(b"three".to_vec()), 0));
         assert_eq!(eof(f), (-1, 0));
         close(f);
+        // A final line of 1 or 2 bytes after a CRLF is read, not dropped
+        for last in [&b"x"[..], b"xy", b"xyz"] {
+            let mut data = b"two\r\n".to_vec();
+            data.extend_from_slice(last);
+            std::fs::write(d.join("s.txt"), &data).unwrap();
+            assert_eq!(open(&p(&d, "s.txt"), 2, 0, 0, f, 0, false), 0);
+            assert_eq!(li(), (Some(b"two".to_vec()), 0));
+            assert_eq!(eof(f), (0, 0));
+            assert_eq!(li(), (Some(last.to_vec()), 0));
+            assert_eq!(eof(f), (-1, 0));
+            close(f);
+        }
     }
 
     #[test]

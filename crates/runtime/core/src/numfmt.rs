@@ -11,10 +11,10 @@
 //! - Non-finite values print as " 0".
 //!
 //! Intentional deviations (see docs/dev/deviations.md):
-//! - D-04: legacy built a broken printf format when more than 19 decimals were
+//! - Legacy built a broken printf format when more than 19 decimals were
 //!   needed (`STR$(1.234567890123456D-16)` gave " .0f"); the port prints the
 //!   decimals the algorithm asked for.
-//! - D-05: legacy SINGLE formatting of infinity/NaN read a stale buffer; the
+//! - Legacy SINGLE formatting of infinity/NaN read a stale buffer; the
 //!   port prints " 0" like DOUBLE does.
 
 /// Upper bound on the length of any `STR$` result (C callers size buffers with it).
@@ -65,7 +65,7 @@ fn zero() -> Vec<u8> {
 /// `STR$` of a SINGLE.
 pub fn str_f32(v: f32) -> Vec<u8> {
     if !v.is_finite() {
-        return zero(); // D-05
+        return zero(); // legacy read a stale buffer here
     }
     let v = f64::from(v); // printf promotes float to double
     let mut buf = c_sci(v, 6);
@@ -153,7 +153,7 @@ pub fn str_f64(v: f64) -> Vec<u8> {
         out.extend_from_slice(&buf[exp_at + 1..l]);
         return out;
     }
-    let decimals = (-(exponent - digits as i32 + 1)).max(0) as usize; // D-04: no 19 limit
+    let decimals = (-(exponent - digits as i32 + 1)).max(0) as usize; // no 19 limit
     cull_leading_zero(c_fixed(v, decimals))
 }
 
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn more_than_19_decimals_no_longer_breaks_the_format() {
-        // Legacy printed " .0f" here (L-07). 32 decimals are requested.
+        // Legacy printed " .0f" here. 32 decimals are requested.
         let got = s(str_f64(1.234567890123456e-16));
         assert!(got.starts_with(" .000000000000000123456789012345"), "{got}");
         assert_eq!(got.len(), 2 + 32);

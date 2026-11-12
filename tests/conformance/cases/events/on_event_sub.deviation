@@ -1,0 +1,1 @@
+ON TIMER(x) SubName and ON KEY(n) SubName (QB64 forms) were silently ignored (ON TIMER) or rejected (ON KEY) by the QIR compiler; the SUB now runs as the event handler. Expected output written by hand.

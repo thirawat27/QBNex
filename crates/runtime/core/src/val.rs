@@ -129,7 +129,7 @@ impl Decimal {
             return int_to_f80(v);
         }
         // value = D * 10^e10 with D the digit string as an integer.
-        // (Fixes legacy defect L-05: the sign applies to the written exponent.)
+        // (Fixes a legacy defect: the sign applies to the written exponent.)
         let written = if self.exponent_neg { -self.exponent } else { self.exponent };
         let e10 = written + self.point_pos - self.digits.len() as i64;
         decimal_to_f80(self.neg, &self.digits, e10, self.inexact_tail)
@@ -187,7 +187,7 @@ fn encode(neg: bool, exp: u32, mant: u64) -> F80 {
 
 /// Correctly rounded (nearest, ties to even) conversion of
 /// `(-1)^neg * (digits + tail) * 10^e10` to x87 extended precision
-/// (`qb_float80::dec::decimal_to_f80`, the R11d crate).
+/// (`qb_float80::dec::decimal_to_f80`).
 fn decimal_to_f80(neg: bool, digits: &[u8], e10: i64, inexact_tail: bool) -> F80 {
     qb_float80::dec::decimal_to_f80(neg, digits, e10, inexact_tail).to_bytes()
 }
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn negative_exponent_applies_to_the_written_mantissa() {
-        // Legacy defect L-05: libqb negated the exponent *after* normalising,
+        // Legacy defect: libqb negated the exponent *after* normalising,
         // so VAL("123E-2") was 1.23E-4. QBasic gives 1.23. Intentional deviation.
         assert_eq!(v("123E-2"), v("1.23"));
         assert_eq!(v("0.5E-1"), v("0.05"));

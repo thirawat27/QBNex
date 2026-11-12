@@ -1,4 +1,4 @@
-//! R15 G6 benchmark: a 10k-triangle scene rendered offscreen (no window).
+//! Benchmark: a 10k-triangle scene rendered offscreen (no window).
 //!
 //! `cargo run --release -p qb-gpu --example bench_scene [frames]`
 //!

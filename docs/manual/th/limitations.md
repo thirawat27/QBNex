@@ -83,8 +83,8 @@ runner เรียกฟังก์ชันเป็น machine code โด�
 กระโดด, วนลูป, คำสั่งสตริง) จะหยุดด้วย error 86
 
 ตอบสนองเฉพาะ `INT 33h` (เมาส์) ฟังก์ชัน 0 (reset) และ 3 (ตำแหน่งและปุ่ม)
-interrupt อื่นเช่น `INT 21h` และ `INT 10h` ไม่ทำอะไร และไม่รองรับ
-`CALL INTERRUPTX`
+interrupt อื่นเช่น `INT 21h` และ `INT 10h` ไม่ทำอะไร `CALL INTERRUPT` และ
+`CALL INTERRUPTX` ตอบแบบเดียวกัน ส่วน interrupt อื่น register ขาออกจะได้ค่าเดียวกับ register ขาเข้า
 
 ## PEEK, POKE และ DEF SEG
 
@@ -130,21 +130,21 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
 
 การ build จะหยุดด้วย `QIR: unsupported: line N: ...` เมื่อเจอ:
 
-- `LPRINT`, `ECHO`, `CALL INTERRUPTX`, `_GL` และ `SUB _GL` (D-14: ไม่มี
-  OpenGL context)
-- `RANDOMIZE` ที่ไม่มี seed (QBasic จะถามหา seed)
-- `VARPTR$` ของสตริง
-- `ON KEY(n) name` ที่ใช้ชื่อ SUB
-- `DEF FnName ... END DEF` แบบหลายบรรทัด (แบบบรรทัดเดียว `DEF FnName(x) = นิพจน์` ใช้ได้)
-- `_MEM` ของ array สตริงหรือของ STRING ความยาวไม่คงที่, `_MEMFILL` ที่ไม่มี
-  `AS type`, `_MEMGET` ลงใน STRING ความยาวไม่คงที่
+- `CHAIN` ใน SUB หรือ FUNCTION ขณะที่มีตัวแปร COMMON ที่ไม่ได้เป็น SHARED
+- `_MEM` ของ STRING ความยาวไม่คงที่หรือ array ของมัน และ `_MEMFILL` ของค่าที่ไม่ใช่ตัวแปร
+  โดยไม่มี `AS type` (QB64 ก็ไม่รับเช่นกัน)
 
 คอมไพล์ได้ แต่ทำงานต่างไป:
 
-- `TIME$ = ...` ไม่ตั้งนาฬิกา
-- `PLAY ON/OFF/STOP` และ `ON PLAY(n) GOSUB` คอมไพล์ได้ แต่ไม่เคยเกิด event
-  PLAY (D-24)
-- `CHAIN` ไม่ส่งตัวแปร COMMON ต่อ ส่วน `RUN file$` และ `CHAIN` จะรอให้อีก
+- `TIME$ = ...` ไม่ตั้งนาฬิกา (เหมือน QB64)
+- `SUB _GL` ต้องมี OpenGL context ถ้าไม่มี (headless หรือไม่มีไดรเวอร์) จะไม่ถูกเรียก และ runner
+  แจ้งทาง stderr ส่วน `_glGetString` คืนค่าเป็น `_OFFSET` (QB64 คืน STRING)
+- `LPRINT` พิมพ์เป็นหน้า หน้าละ 60 บรรทัด บน Windows ส่งเป็นภาพตัวอักษร 8x16 ไปที่เครื่องพิมพ์
+  หลัก บน Linux และ macOS ส่งผ่าน `lp` ถ้าตั้ง `QBNEX_LPRINT=<file>` จะต่อข้อความลงไฟล์นั้นแทน
+  ถ้าไม่มีเครื่องพิมพ์ หน้านั้นจะถูกทิ้ง
+- `ON PLAY(n) GOSUB` ต้องมีอุปกรณ์เสียง ถ้าไม่มี (`QB_AUDIO_DEVICE=none`) จะไม่มีโน้ตเข้าคิว
+  handler จึงไม่ถูกเรียก
+- `CHAIN` ส่งตัวแปร COMMON ต่อได้ แต่ไม่ส่ง array ที่เป็น COMMON ส่วน `RUN file$` และ `CHAIN` จะรอให้อีก
   โปรแกรมทำงานจบ
 
 ## โปรแกรมที่จับเวลาด้วยการวนลูป
@@ -160,10 +160,7 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
 
 | รหัส | ข้อบกพร่อง |
 | --- | --- |
-| L-01 | label ของ handler `ON ERROR` ที่อยู่หลัง SUB (หรือหลัง `$INCLUDE` ที่มี SUB) คอมไพล์ไม่ผ่าน |
-| L-12 | `LINE INPUT #` กับไฟล์ BINARY ทิ้งบรรทัดสุดท้ายที่ยาว 1 ตัวอักษร |
-| L-15 | `TIMER ON` หลัง `TIMER STOP` ทำ event ที่ค้างระหว่าง stop หาย |
+| L-01 | label ของ `ON ERROR` หรือ `GOSUB` ในโค้ดระดับโมดูลที่อยู่หลัง SUB คอมไพล์ไม่ผ่าน ถ้าโค้ดนั้นอยู่ในไฟล์ที่ include (ในไฟล์หลักใช้ได้แล้ว รวมถึงกรณีที่ SUB มาจาก `$INCLUDE`) |
 | - | การปิดหน้าต่างของโปรแกรมที่อยู่ในลูป `SOUND` ใช้เวลาราว 2.6 วินาทีกว่าโปรแกรมจะจบ |
-| - | โปรแกรมที่ใหญ่มากเริ่มทำงานช้า เพราะ JIT คอมไพล์ทั้งโปรแกรมตอนเริ่ม (16 วินาทีสำหรับ 10,800 บรรทัด) |
 
-ยังไม่ได้ตรวจกับ runner QIR (พบใน runtime C++ เดิม): L-08 ประมาณ 1 ใน 300-400 ครั้งที่รัน โปรแกรมจบด้วย exit code `0xC0000409` และ L-10 หลัง `OPEN "COMn:..."` ครั้งแรก ชื่อ COM ครั้งต่อไปล้มเหลว
+ยังไม่ได้ตรวจกับ runner QIR (พบใน runtime C++ เดิม): L-08 ประมาณ 1 ใน 300-400 ครั้งที่รัน โปรแกรมจบด้วย exit code `0xC0000409`

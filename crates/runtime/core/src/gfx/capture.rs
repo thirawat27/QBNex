@@ -75,7 +75,7 @@ pub static WEB_FRAME: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 /// `im` must be null or point to a valid surface.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
-    // browser build (R13-wasm): a finished frame is the page's cue to draw it
+    // browser build: a finished frame is the page's cue to draw it
     #[cfg(target_arch = "wasm32")]
     if kind == KIND_DISPLAY {
         // SAFETY: guaranteed by the caller.
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
         }
         return;
     }
-    // R15 G4: _DISPLAY shows the queued 3D draws (scene3d)
+    // _DISPLAY shows the queued 3D draws (scene3d)
     if kind == KIND_DISPLAY {
         crate::scene3d::frame_done();
     }

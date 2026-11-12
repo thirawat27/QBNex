@@ -100,76 +100,129 @@ SUB TopLevelRuntime_InjectMainHook (mainPath$)
     CLOSE #fh
 END SUB
 
+FUNCTION TopLevelRuntime_IsLabelLine% (trimmedLine$)
+    'a line number, or "name:" at the start of the line
+    DIM c AS LONG
+    DIM i AS LONG
+    DIM p AS LONG
+
+    IF LEN(trimmedLine$) = 0 THEN EXIT FUNCTION
+    c = ASC(trimmedLine$)
+    IF c >= 48 AND c <= 57 THEN TopLevelRuntime_IsLabelLine = -1: EXIT FUNCTION
+    p = INSTR(trimmedLine$, ":")
+    IF p < 2 THEN EXIT FUNCTION
+    FOR i = 1 TO p - 1
+        c = ASC(MID$(trimmedLine$, i, 1))
+        IF (c < 65 OR c > 90) AND (c < 97 OR c > 122) AND (c < 48 OR c > 57) AND c <> 95 AND c <> 46 THEN EXIT FUNCTION
+    NEXT
+    TopLevelRuntime_IsLabelLine = -1
+END FUNCTION
+
 FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     DIM trimmedLine AS STRING
     DIM upperLine AS STRING
+    DIM lineText AS STRING
+    DIM markEnd AS LONG
 
     IF rawLine$ = CHR$(13) THEN
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
 
-    trimmedLine = LTRIM$(RTRIM$(rawLine$))
+    lineText = rawLine$
+    'A line moved in front of the first SUB carries its source line number:
+    'CHR$(1) number CHR$(2) text. The caller adds 1 to linenumber after this call.
+    IF LEFT$(lineText, 1) = CHR$(1) THEN
+        markEnd = INSTR(lineText, CHR$(2))
+        IF markEnd > 2 THEN
+            linenumber = VAL(MID$(lineText, 2, markEnd - 2)) - 1
+            lineText = MID$(lineText, markEnd + 1)
+        END IF
+    END IF
+
+    'Feed the module code found after the SUBs (marked lines) in front of the line where
+    'the first SUB starts (its own line, or the $INCLUDE that brings it), then that line
+    IF topLevelHoistReady <> 0 AND topLevelHoistInjected = 0 AND inclevel = 0 THEN
+        IF linenumber + 1 = topLevelHoistAt AND LEN(topLevelHoist) <> 0 THEN
+            topLevelHoistInjected = -1
+            ClassSyntax_PushFrontLine CHR$(1) + LTRIM$(STR$(linenumber + 1)) + CHR$(2) + lineText
+            classSyntaxQueue$ = topLevelHoist + CHR$(10) + classSyntaxQueue$
+            TopLevelRuntime_ProcessLine$ = TopLevelRuntime_ProcessLine$(ClassSyntax_DequeueLine$)
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    trimmedLine = LTRIM$(RTRIM$(lineText))
     upperLine = UCASE$(trimmedLine)
 
     IF TopLevelRuntime_IsKeyword%(upperLine, "END SUB") OR TopLevelRuntime_IsKeyword%(upperLine, "END FUNCTION") THEN
         IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
     IF TopLevelRuntime_IsKeyword%(upperLine, "END TYPE") THEN
         IF topLevelRuntimeTypeDepth > 0 THEN topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth - 1
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
     IF TopLevelRuntime_IsKeyword%(upperLine, "END DECLARE") THEN
         IF topLevelRuntimeDeclareDepth > 0 THEN topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth - 1
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
 
     IF TopLevelRuntime_IsDeclareLibrary%(upperLine) THEN
         topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth + 1
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
-    'SUB/FUNCTION lines inside DECLARE LIBRARY are prototypes, not procedure bodies (L-00)
+    'SUB/FUNCTION lines inside DECLARE LIBRARY are prototypes, not procedure bodies
     IF topLevelRuntimeDeclareDepth THEN
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
     IF LEFT$(upperLine, 5) = "TYPE " THEN
         topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth + 1
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
     IF LEFT$(upperLine, 4) = "SUB " OR LEFT$(upperLine, 9) = "FUNCTION " THEN
+        IF topLevelRuntimeSeenProc = 0 AND topLevelRuntimeProcDepth = 0 THEN
+            'where the module code after the SUBs goes: this line, or the $INCLUDE line (an
+            'included file's lines all count as the line that includes it)
+            IF inclevel THEN topLevelHoistAtScan = linenumber ELSE topLevelHoistAtScan = linenumber + 1
+        END IF
         topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
         topLevelRuntimeSeenProc = -1
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
 
     IF topLevelRuntimeProcDepth OR topLevelRuntimeTypeDepth OR topLevelRuntimeDeclareDepth THEN
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
 
     'Code before the first SUB/FUNCTION is ordinary main-module code and stays in place
-    '(L-00, L-01); only code that follows a procedure is moved into the runtime SUB
+    '(only code that follows a procedure is moved: into the runtime SUB, or in front of the first SUB when it has labels)
     IF topLevelRuntimeSeenProc = 0 THEN
-        TopLevelRuntime_ProcessLine$ = rawLine$
+        TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
     END IF
 
     IF TopLevelRuntime_ShouldCapture%(trimmedLine, upperLine) THEN
+        'Already fed in front of the first SUB
+        IF topLevelHoistInjected THEN TopLevelRuntime_ProcessLine$ = "": EXIT FUNCTION
+        IF inclevel THEN topLevelHoistBad = -1
+        IF TopLevelRuntime_IsLabelLine%(trimmedLine) THEN topLevelHoistWanted = -1
+        ClassSyntax_AppendLine topLevelHoistScan, CHR$(1) + LTRIM$(STR$(linenumber + 1)) + CHR$(2) + lineText
         topLevelRuntimeCallInjected = -1
-        ClassSyntax_AppendLine topLevelRuntimeLines, rawLine$
+        ClassSyntax_AppendLine topLevelRuntimeLines, lineText
         TopLevelRuntime_ProcessLine$ = ""
         EXIT FUNCTION
     END IF
 
-    TopLevelRuntime_ProcessLine$ = rawLine$
+    TopLevelRuntime_ProcessLine$ = lineText
 END FUNCTION
 
 FUNCTION ClassSyntax_IsIdentifierChar% (c$)
@@ -683,7 +736,7 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
         EXIT FUNCTION
     END IF
 
-    'R13 statement extensions (ENUM, FOR EACH, TRY) lower to plain lines first (syntax_ext.bas)
+    'Statement extensions (ENUM, FOR EACH, TRY) lower to plain lines first (syntax_ext.bas)
     IF classSyntaxActive = 0 THEN
         syntaxExtLine$ = SyntaxExt_ProcessLine$(rawLine$)
         IF syntaxExtLine$ <> rawLine$ THEN

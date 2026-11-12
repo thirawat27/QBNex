@@ -1,4 +1,4 @@
-//! R15: presenting the window frame through the GPU (feature `gpu`).
+//! Presenting the window frame through the GPU (feature `gpu`).
 //!
 //! The composed SCREEN frame is still drawn by the CPU (the reference);
 //! only the last step — scaling it into the window per [`raster::layout`] —

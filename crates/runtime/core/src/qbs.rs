@@ -120,7 +120,7 @@ use host::{cmem_sp, dblock};
 /// A block of 65536 string descriptors, owned through a raw pointer: generated
 /// code keeps `qbs*` into it, and moving a `Box<[Qbs]>` into `blocks` retagged
 /// it and invalidated those pointers under Rust's aliasing rules (found by
-/// miri, R14). Freed when the engine is dropped (`qb_qbs_reset`).
+/// miri). Freed when the engine is dropped (`qb_qbs_reset`).
 pub(crate) struct DescBlock(*mut [Qbs]);
 
 impl Drop for DescBlock {
@@ -701,7 +701,7 @@ unsafe extern "C" {
     fn strlen(s: *const c_char) -> usize;
 }
 
-/// Browser build (R13-wasm): no C library; same contract as C `memchr`.
+/// Browser build: no C library; same contract as C `memchr`.
 #[cfg(target_arch = "wasm32")]
 unsafe fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void {
     // SAFETY: caller guarantees `n` readable bytes at `s`.
@@ -1052,7 +1052,7 @@ pub unsafe extern "C" fn qb_func__instrrev(start: i32, s: *mut Qbs, sub: *mut Qb
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_sub_mid(dest: *mut Qbs, start: i32, l: i32, src: *mut Qbs, passed: i32) {
     unsafe {
-        // i64 so that `start + l` cannot wrap (R14: MID$(d$, 2, 2147483647) = s$
+        // i64 so that `start + l` cannot wrap (MID$(d$, 2, 2147483647) = s$
         // wrote past d$).
         let (dlen, slen) = ((*dest).len as i64, (*src).len as i64);
         let mut l = if passed == 0 { slen } else { l as i64 };
@@ -1085,7 +1085,7 @@ pub unsafe extern "C" fn qb_sub_mid(dest: *mut Qbs, start: i32, l: i32, src: *mu
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_func_mid(s: *mut Qbs, start: i32, l: i32, passed: i32) -> *mut Qbs {
     unsafe {
-        // i64 so that `start + l` cannot wrap (R14: MID$(a$, 2, 2147483647)
+        // i64 so that `start + l` cannot wrap (MID$(a$, 2, 2147483647)
         // read past a$).
         let (mut start, mut l) = (start as i64, l as i64);
         let len64 = (*s).len as i64;

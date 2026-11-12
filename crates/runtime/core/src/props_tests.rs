@@ -1,4 +1,4 @@
-//! R14 property tests (proptest) for pure runtime functions. Unit-test module:
+//! Property tests (proptest) for pure runtime functions. Unit-test module:
 //! the crate needs libqb host symbols that only the test build provides.
 
 use proptest::prelude::*;

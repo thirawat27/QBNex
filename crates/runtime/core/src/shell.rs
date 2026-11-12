@@ -58,7 +58,7 @@ unsafe extern "C" {
     fn system(cmd: *const std::ffi::c_char) -> i32;
 }
 
-/// Browser build (R13-wasm): there is no command processor; `system()`
+/// Browser build: there is no command processor; `system()`
 /// fails (-1), so SHELL reports an error.
 #[cfg(target_arch = "wasm32")]
 fn c_system(_cmd: &[u8]) -> i32 {

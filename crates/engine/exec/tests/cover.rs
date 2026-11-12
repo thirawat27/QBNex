@@ -1,6 +1,6 @@
 //! QIR features beyond plain registers (u64, memory-backed variables,
 //! _FLOAT): each program runs on the VM and must give the output recorded in
-//! `tests/fixtures/cover/<test>.expect` (captured from the R11a reference
+//! `tests/fixtures/cover/<test>.expect` (captured from the reference
 //! interpreter before it was retired). `QB_BLESS=1` rewrites the files.
 
 use std::path::PathBuf;

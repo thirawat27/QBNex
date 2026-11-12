@@ -162,7 +162,7 @@ pub unsafe fn tab(h: &mut dyn Host) {
     #[cfg(windows)]
     if (*w).console != 0 {
         // 14-column zones as in QBasic. The column comes from the console, or,
-        // when stdout is redirected, from what this program wrote (L-02:
+        // when stdout is redirected, from what this program wrote (in legacy,
         // asking the console there never advanced, so this looped forever).
         match zone_spaces(stdio::pos(), (*w).width as i32) {
             Some(n) => stdio::write_raw(&vec![b' '; n as usize]),

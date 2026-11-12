@@ -1,4 +1,4 @@
-//! JIT tier (R11.6): VM bytecode -> `qb-jit` MIR -> native code.
+//! JIT tier: VM bytecode -> `qb-jit` MIR -> native code.
 //!
 //! Native code runs on the VM's own numeric register window (`nums[nb..]`),
 //! so entering and leaving it needs no translation:
@@ -174,6 +174,8 @@ fn vm_safe(ins: &Ins) -> bool {
             | LenS { .. }
             | Chr { .. }
             | Asc { .. }
+            | AscAt { .. }
+            | Instr { .. }
             | Left { .. }
             | Right { .. }
             | Mid { .. }
@@ -850,7 +852,7 @@ fn main_shared(m: &bc::Module) -> Vec<u32> {
     let n = m.funcs[0].n_num();
     // ON TIMER / ON KEY handlers are main code the VM may run inside any CALL
     // (its safe point), also one made from native main code.
-    if m.code.iter().any(|i| matches!(i, Ins::OnTimer { .. } | Ins::OnKey { .. })) {
+    if m.code.iter().any(|i| matches!(i, Ins::OnTimer { .. } | Ins::OnKey { .. } | Ins::OnPlay { .. })) {
         return (0..n).collect();
     }
     let mut v = BTreeSet::new();
@@ -869,11 +871,10 @@ fn main_shared(m: &bc::Module) -> Vec<u32> {
             });
             if let Ins::Call { desc, .. } = ins {
                 for a in &m.calls[*desc as usize].args {
-                    if let bc::Arg::Ref(p) = *a {
-                        if let bc::Place::NG(g, _) = m.places[p as usize] {
+                    if let bc::Arg::Ref(p) = *a
+                        && let bc::Place::NG(g, _) = m.places[p as usize] {
                             v.insert(g);
                         }
-                    }
                 }
             }
         }

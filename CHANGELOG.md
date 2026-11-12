@@ -10,6 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - One-file installer `qbnex-setup` (crate `crates/tools/setup`): releases publish `qbnex_<tag>_<os>-setup(.exe)`, which installs per user without administrator rights (Windows: `%LOCALAPPDATA%\Programs\QBNex`, user PATH, Apps & features entry; Linux/macOS: `~/.local/share/qbnex` with links in `~/.local/bin`) and uninstalls with `--uninstall`. Release bundles now include `qb-fmt`, `qb-lsp` and `qb-dap`.
+- `DEF FN` functions, single-line (`DEF FnName(params) = expression`) and multi-line (`DEF FnName ... END DEF`, with `EXIT DEF` and STATIC variables).
+- `RANDOMIZE` without a seed asks for one, as in QBasic.
+- `VARPTR$` of a STRING variable, for `DRAW "X"` and `PLAY "X"`.
+- `_ECHO` writes a line to the console.
+- `ON KEY(n) SubName` and `ON TIMER(x) SubName`, also inside a SUB or FUNCTION.
+- `LPRINT`, `LPRINT USING`, `LPOS` and `WIDTH LPRINT`: pages of 60 lines go to the default printer (Windows), to `lp` (Linux, macOS) or, with `QBNEX_LPRINT=<file>`, to a text file. `_PRINTIMAGE` prints an image the same way.
+- `CHAIN` passes the COMMON variables (numbers, STRINGs, fixed-length strings, TYPEs) to the next program by position.
+- `CALL INTERRUPTX` and the `INTERRUPT[X] n, in, out` form; `_MEMFILL` of a variable without `AS type`; `_MEMGET` into a variable-length STRING; `_MEM` of a fixed-length STRING array.
+- `ON PLAY(n) GOSUB` and `PLAY ON/OFF/STOP`: the handler runs when the background music queue drops below n notes.
+
+### Fixed
+
+- Module code with labels placed after the SUBs (an `ON ERROR` handler, a `GOSUB` target) compiles and runs at module level; its variables are the main module's.
+- `TIMER` without an argument ticks 18.2 times a second (a SINGLE counted from local midnight), as in QBasic and QB64.
+- `LINE INPUT #` on a BINARY file reads a final line of 1 or 2 bytes.
+- `TIMER ON` after `TIMER STOP` delivers the event queued during the stop.
+- A failed `_MEMGET` check of 0 bytes reports the check error instead of error 518.
+- A second `OPEN "COMn:..."` parses its options instead of failing with `Bad file name`.
+- Native images (`qb-exec build`) of programs that use TYPEs or fixed-length strings in SUBs ran only by chance: the bytecode lowering allocated registers in hash-map order.
+- An empty `$IMPORT` head file no longer stops the compiler with internal error 62.
+- `ON TIMER(x) SubName` compiled without error but never called the SUB.
+- `CALL INTERRUPT` compiled to nothing: INT 33h (mouse) calls now answer as under `CALL ABSOLUTE`.
+- `CHAIN "name"` without a directory runs the program in the current directory on Linux and macOS too.
+- Module code with labels after an `$INCLUDE` that brings the SUBs is moved in front of that `$INCLUDE`, so its labels work too.
+- Name lookups of `_OPENCLIENT` and friends give up after 10 seconds instead of blocking forever.
+- Compiling large programs is about 10 times faster (10,000 lines: 20 s instead of 250 s): reading part of a long STRING variable (`LEN`, `ASC`, `MID$`, `LEFT$`, `RIGHT$`, `INSTR`, comparisons) no longer copies the whole string first.
+- A large program no longer stalls at its first hot loop while the JIT compiles it: big modules are compiled on a background thread while the program keeps running (a 10,500-line program: 1.7 s instead of 16 s). The JIT also declares only the functions each function calls.
+
+### Security
+
+- `_CONNECTIONADDRESS` of a host asks api.ipify.org over HTTPS instead of plain HTTP.
+- CI actions are pinned to commit SHAs.
 
 ### Changed
 

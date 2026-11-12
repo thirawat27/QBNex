@@ -1,5 +1,5 @@
 #!/bin/sh
-# R14: inputs that crashed the compiler or stopped it with an internal error
+# Inputs that crashed the compiler or stopped it with an internal error
 # must give a clean diagnostic (exit 1, the expected message, a line number,
 # no "INTERNAL COMPILER ERROR"); the valid ones must compile. Front end only
 # (-z): no C++ compiler needed.

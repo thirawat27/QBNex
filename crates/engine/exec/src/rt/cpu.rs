@@ -30,11 +30,11 @@ struct Cpu<'a> {
 
 impl Cpu<'_> {
     /// Byte at linear address `a`; outside the memory image it reads as 0
-    /// (which also ends the program loop) instead of panicking (R14).
+    /// (which also ends the program loop) instead of panicking.
     fn rd(&self, a: usize) -> u8 {
         self.m.get(a).copied().unwrap_or(0)
     }
-    /// Stores a byte; writes outside the memory image are dropped (R14).
+    /// Stores a byte; writes outside the memory image are dropped.
     fn wr(&mut self, a: usize, v: u8) {
         if let Some(x) = self.m.get_mut(a) {
             *x = v;
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(u16::from_le_bytes([m[0x3040], m[0x3041]]), 1234);
     }
 
-    /// R14: code that runs off the end of conventional memory (no RETF and
+    /// Code that runs off the end of conventional memory (no RETF and
     /// no 0 byte before the end) and accesses near the top must not panic.
     #[test]
     fn running_off_the_end_of_memory_does_not_panic() {

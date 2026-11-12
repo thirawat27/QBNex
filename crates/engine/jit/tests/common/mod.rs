@@ -28,7 +28,7 @@ mod libqb_host {
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }
-    // R12b core runtime (allocators, errors, events, waits).
+    // Core runtime (allocators, errors, events, waits).
     #[unsafe(no_mangle)]
     pub static mut cmem_static_pointer: *mut u8 = core::ptr::null_mut();
     #[unsafe(no_mangle)]

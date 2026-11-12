@@ -76,6 +76,7 @@ SUB IrStmtEnd
             IrStore p$, m$
         CASE "CALL"
             IF s2$ = "ABSOLUTE" THEN IrCallAbsolute
+            IF s2$ = "INTERRUPT" OR s2$ = "INTERRUPTX" THEN IrInterrupt -1
         CASE "ASC"
             'ASC(s$[, position]) = code
             j = IrMatch(IrStmt, 2, n)
@@ -177,15 +178,43 @@ SUB IrStmtEnd
             LOOP
         CASE "RUN"
             IrRun
-        CASE "ECHO", "INTERRUPTX", "LPRINT"
-            IrNotSup "statement " + f$
+        CASE "INTERRUPT", "INTERRUPTX"
+            IrInterrupt 0
         CASE "ON"
-            'ON KEY / ON STRIG: lowered by their handlers (IrOnKey, IrOnStrig); ON PLAY: checked only,
-            'the event is not raised (D-24); ON expr GOTO/GOSUB: the selector may start with "(" (element 2)
+            'ON KEY / ON STRIG / ON PLAY: lowered by their handlers (IrOnKey, IrOnStrig, IrOnPlay);
+            'ON expr GOTO/GOSUB: the selector may start with "(" (element 2)
             IF s2$ <> "ERROR" AND s2$ <> "KEY" AND s2$ <> "STRIG" AND s2$ <> "PLAY" AND s2$ <> "TIMER" THEN
                 IF IrFindSep(2, "|GOTO|GOSUB|") > n THEN IrNotSup "ON " + s2$
             END IF
     END SELECT
+END SUB
+
+'CALL INTERRUPT[X](intno, inregs, outregs) or INTERRUPT[X] intno, inregs, outregs: the
+'registers are RegType (ax, bx, cx, dx, bp, si, di, flags) or RegTypeX (+ ds, es), all
+'INTEGER; outregs gets inregs as the interrupt leaves them (INT 33h answers the mouse)
+SUB IrInterrupt (callForm AS LONG)
+    DIM n AS LONG, j AS LONG, k AS LONG, i AS LONG, t AS LONG, nm$, a$, intNo$, p$
+    DIM av(1 TO 3) AS STRING, pa(1 TO 2) AS STRING
+    n = IrStmtN
+    IF callForm THEN
+        nm$ = UCASE$(IrEl$(2))
+        IF IrEl$(3) <> "(" THEN IrNotSup "CALL " + nm$: EXIT SUB
+        j = IrMatch(IrStmt, 3, n)
+        a$ = IrEls$(4, j - 1)
+    ELSE
+        nm$ = UCASE$(IrEl$(1))
+        a$ = IrEls$(2, n)
+    END IF
+    k = IrSplitArgs(a$)
+    IF k <> 3 THEN IrNotSup "CALL " + nm$ + " without 3 arguments": EXIT SUB
+    FOR i = 1 TO 3: av(i) = IrArgs(i): NEXT
+    intNo$ = IrArgAs$(fixoperationorder$(av(1)), "i32")
+    FOR i = 1 TO 2
+        p$ = IrPlace$(fixoperationorder$(av(i + 1)), t)
+        IF p$ = "" THEN EXIT SUB
+        pa(i) = IrAddr$(p$)
+    NEXT
+    IrE "rt INTERRUPT " + intNo$ + " " + pa(1) + " " + pa(2) + " " + IrI32$(-(nm$ = "INTERRUPTX"))
 END SUB
 
 'RUN | RUN label/line | RUN file$ (the C++ handler: a single non-string element is a label)
@@ -274,11 +303,16 @@ END SUB
 
 'PRINT #n, items
 SUB IrFilePrint
-    DIM n AS LONG, i AS LONG, j AS LONG, ch$, e$, last$, sep$, usng AS LONG
-    n = IrStmtN
+    DIM j AS LONG
     j = IrFindSep(3, "|,|")
-    ch$ = IrChan$(3, j - 1)
-    i = j + 1
+    IrPrintItems IrChan$(3, j - 1), j + 1
+END SUB
+
+'the items of PRINT #n / LPRINT from element i0 on, to channel ch$
+SUB IrPrintItems (ch$, i0 AS LONG)
+    DIM n AS LONG, i AS LONG, j AS LONG, e$, last$, sep$, usng AS LONG
+    n = IrStmtN
+    i = i0
     IF UCASE$(IrEl$(i)) = "USING" THEN
         j = IrFindSep(i + 1, "|;|")
         IrE "rt USINGBEGIN " + ch$ + " " + IrEvalTo$(fixoperationorder$(IrEls$(i + 1, j - 1)), ISSTRING)
@@ -437,6 +471,22 @@ SUB IrOnKey (k$, lbl$)
     IrE "onkey " + IrArgAs$(fixoperationorder$(k$), "i32") + " " + IrLbl$(UCASE$(lbl$))
 END SUB
 
+'ON PLAY(n) GOSUB label (raw count expression, label as written)
+SUB IrOnPlay (n$, lbl$)
+    IrE "onplay " + IrArgAs$(fixoperationorder$(n$), "i32") + " " + IrLbl$(UCASE$(lbl$))
+END SUB
+
+'PLAY ON|OFF|STOP
+SUB IrPlayEvent (opt$)
+    DIM o AS LONG
+    SELECT CASE opt$
+        CASE "ON": o = 1
+        CASE "OFF": o = 2
+        CASE ELSE: o = 3
+    END SELECT
+    IrE "rt PLAYEVENT " + IrI32$(o)
+END SUB
+
 'ON STRIG(n[, controller]): checked only; without a joystick the event never fires
 SUB IrOnStrig (i$, c$, passed$)
     DIM ctl$
@@ -450,6 +500,42 @@ SUB IrOnTimer (slot$, secs$, lbl$)
     IF LEN(slot$) THEN a$ = IrArgAs$(fixoperationorder$(slot$), "i32") ELSE a$ = IrI32$(0)
     b$ = IrArgAs$(fixoperationorder$(secs$), "f64")
     IrE "ontimer " + a$ + " " + b$ + " " + IrLbl$(lbl$)
+END SUB
+
+'onkey / ontimer instruction without its label (the operands are evaluated here)
+FUNCTION IrOnKeyHead$ (k$)
+    IrOnKeyHead$ = "onkey " + IrArgAs$(fixoperationorder$(k$), "i32")
+END FUNCTION
+
+FUNCTION IrOnTimerHead$ (slot$, secs$)
+    DIM a$, b$
+    IF LEN(slot$) THEN a$ = IrArgAs$(fixoperationorder$(slot$), "i32") ELSE a$ = IrI32$(0)
+    b$ = IrArgAs$(fixoperationorder$(secs$), "f64")
+    IrOnTimerHead$ = "ontimer " + a$ + " " + b$
+END FUNCTION
+
+'ON KEY(n) / ON TIMER(...) with a SUB name: a stub in main calls the SUB (with its optional
+'argument) and returns like a GOSUB handler; head$ is IrOnKeyHead$ / IrOnTimerHead$
+SUB IrOnEventSub (head$, idn AS LONG, arg$)
+    DIM u$, x$, here AS LONG
+    'events run as module-level GOSUBs: the stub that calls the SUB goes into main, also
+    'when the ON statement is inside a SUB or FUNCTION
+    here = IrFnCur
+    IF here <> 1 AND LEN(arg$) THEN IrNotSup "ON TIMER with a SUB argument inside a SUB or FUNCTION": EXIT SUB
+    IrFnCur = 1
+    u$ = str2$(IrNew)
+    IrE "jmp ~EVS" + u$
+    IrE "label ~EV" + u$
+    IF LEN(arg$) THEN
+        IrArgs(1) = fixoperationorder$(arg$)
+        x$ = IrUserCall$(idn, 1)
+    ELSE
+        x$ = IrUserCall$(idn, 0)
+    END IF
+    IrE "gret"
+    IrE "label ~EVS" + u$
+    IrFnCur = here
+    IrE head$ + " ~EV" + u$
 END SUB
 
 'CALL ABSOLUTE([args,] offset): numeric arguments are copied into DBLOCK slots (variables

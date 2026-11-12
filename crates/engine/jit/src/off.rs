@@ -1,4 +1,4 @@
-//! Browser build (R13-wasm): Cranelift cannot emit code that a wasm module
+//! Browser build: Cranelift cannot emit code that a wasm module
 //! could run, so the code generator is replaced by one that always declines.
 //! The VM sees a compile failure and keeps interpreting, exactly as when a
 //! native compile fails. Same public surface as `codegen.rs`.

@@ -15,7 +15,9 @@
 //!    bytecode are compiled to native code with Cranelift (JIT), or ahead of
 //!    time into an image stored next to the program ([`build_native`], `qb-exec build`)
 //!
-//! Environment: `QB_JIT=off|eager|<threshold>`, `QB_EXEC_DISASM=1` prints the bytecode.
+//! Environment: `QB_JIT=off|eager|<threshold>`, `QB_EXEC_DISASM=1` prints the bytecode,
+//! `QB_PROFILE=<file>` writes the hottest functions and source lines (a sample every
+//! millisecond; use it with `QB_JIT=off`).
 
 pub mod bytecode;
 mod jit;
@@ -35,7 +37,7 @@ pub fn set_program_args(args: Vec<String>) {
 #[cfg(feature = "debug")]
 pub use vm::debug;
 
-/// `qb-runtime` is linked as a whole: its string engine (R3) refers to symbols that
+/// `qb-runtime` is linked as a whole: its string engine refers to symbols that
 /// libqb.cpp/qbx.cpp define for C++ programs. qb-exec never calls that code, so
 /// it only needs the symbols to exist.
 #[allow(non_upper_case_globals)]
@@ -54,7 +56,7 @@ mod libqb_host {
     pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
         std::process::abort()
     }
-    // R12b core runtime (allocators, errors, events, waits).
+    // Core runtime (allocators, errors, events, waits).
     #[unsafe(no_mangle)]
     pub static mut cmem_static_pointer: *mut u8 = core::ptr::null_mut();
     #[unsafe(no_mangle)]

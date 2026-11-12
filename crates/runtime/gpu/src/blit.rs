@@ -208,7 +208,7 @@ impl Blitter {
         if width == 0 || height == 0 {
             return;
         }
-        // short data padded; a framebuffer above the device limit is scaled down (R14)
+        // short data padded; a framebuffer above the device limit is scaled down
         let (texels, width, height) = crate::fit_texture(pixels, width, height, gpu.max_texture_size());
         let pixels = &texels[..];
         if self.tex.as_ref().is_none_or(|t| t.width != width || t.height != height) {

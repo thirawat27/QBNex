@@ -155,12 +155,12 @@ fn header_candidates(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathB
     out.into_iter().map(PathBuf::from).collect()
 }
 
-/// Compile error for a `DECLARE LIBRARY` that names a C header (deviation D-110).
+/// Compile error for a `DECLARE LIBRARY` that names a C header.
 #[must_use]
 pub fn header_error(spec: &str, header: &Path) -> String {
     format!(
         "DECLARE LIBRARY \"{spec}\" uses the C header {}, which needs a C compiler; \
-         QBNex does not support C headers (deviation D-110). Declare the functions \
+         QBNex does not support C headers. Declare the functions \
          without a header, or use DECLARE DYNAMIC LIBRARY",
         header.display()
     )
@@ -560,7 +560,7 @@ mod tests {
         let found = find_header(&spec, None).expect("header found");
         assert!(found.ends_with("helper.h"));
         let msg = header_error("helper", &found);
-        assert!(msg.contains("D-110") && msg.contains("helper.h") && msg.contains("DECLARE DYNAMIC LIBRARY"));
+        assert!(msg.contains("does not support C headers") && msg.contains("helper.h") && msg.contains("DECLARE DYNAMIC LIBRARY"));
         assert!(find_header(&format!("{}/nothing", dir.display()), None).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }

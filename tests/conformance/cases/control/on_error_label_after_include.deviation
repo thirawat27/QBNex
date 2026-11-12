@@ -1,0 +1,1 @@
+Module code with labels after an $INCLUDE that defines SUBs: the compiler moves it in front of that $INCLUDE line, so the labels and x belong to the main module (QBasic semantics). Expected output written by hand.

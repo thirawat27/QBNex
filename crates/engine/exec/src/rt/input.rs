@@ -60,14 +60,12 @@ const MOVE_BACKLOG: usize = 256;
 
 fn push(e: Ev) {
     let mut q = EVENTS.lock().unwrap_or_else(|p| p.into_inner());
-    if matches!(e, Ev::Move(..)) && q.len() >= MOVE_BACKLOG {
-        if let Some(last) = q.back_mut() {
-            if matches!(last, Ev::Move(..)) {
+    if matches!(e, Ev::Move(..)) && q.len() >= MOVE_BACKLOG
+        && let Some(last) = q.back_mut()
+            && matches!(last, Ev::Move(..)) {
                 *last = e;
                 return;
             }
-        }
-    }
     q.push_back(e);
 }
 /// Key presses seen so far (SLEEP ends at the next one).
@@ -102,7 +100,7 @@ pub(crate) fn start() {
     if super::window::active() {
         return;
     }
-    // browser build (R13-wasm): no window layer and no threads; the page feeds keys instead
+    // browser build: no window layer and no threads; the page feeds keys instead
     #[cfg(not(target_arch = "wasm32"))]
     start_window();
 }
@@ -130,7 +128,7 @@ fn start_window() {
     });
 }
 
-/// Browser build (R13-wasm): the page's keyboard and mouse events, in the
+/// Browser build: the page's keyboard and mouse events, in the
 /// layout of `crates/web/www/qbnex.js` (`[kind, a, b, c, d, mods]`):
 /// 1 key (a pressed, b repeat, c key id, d character or virtual key; mods
 /// 1 shift, 2 ctrl, 4 alt), 2 button (a button 0-2, b down, c x, d y),

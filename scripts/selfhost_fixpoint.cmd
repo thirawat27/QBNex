@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-rem Self-host fixpoint check (legacy defect L-00), QIR pipeline.
+rem Self-host fixpoint check, QIR pipeline.
 rem qb.exe (gen1) builds qb-gen2.exe from compiler\qbnex.bas, qb-gen2 builds qb-gen3.exe.
 rem The QIR that gen2 and gen3 emit for compiler\qbnex.bas must be byte-identical, and
 rem identical to bootstrap\qbnex.qir. Pass --conformance to run the corpus with gen3 too.

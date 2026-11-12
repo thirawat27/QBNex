@@ -3,7 +3,7 @@
 //! Windows keeps the legacy formats byte for byte: text is `CF_TEXT` (raw
 //! bytes, read up to the first NUL), images are `CF_BITMAP`. Linux and macOS
 //! use `arboard`; the system clipboard there is UTF-8, so text that is not
-//! valid UTF-8 is stored with U+FFFD replacements (deviation D-19). When no
+//! valid UTF-8 is stored with U+FFFD replacements (documented deviation). When no
 //! system clipboard is reachable (no display), a clipboard private to the
 //! process is used instead, like legacy's `internal_clipboard`.
 //!
@@ -242,7 +242,7 @@ mod platform {
     }
 }
 
-/// Browser build (R13-wasm): no system clipboard reachable synchronously, so
+/// Browser build: no system clipboard reachable synchronously, so
 /// the clipboard is private to the page.
 #[cfg(target_arch = "wasm32")]
 mod platform {

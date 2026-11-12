@@ -40,7 +40,7 @@ FUNCTION getelementspecial$ (savea$, elenum)
     i = INSTR(p, a$, sp)
 
     'avoid sp inside "..."
-    'R14: look for the quote inside this element only (a search to the end of
+    'Look for the quote inside this element only (a search to the end of
     'the line on every call was quadratic for long lines without quotes)
     i2 = 0
     IF i THEN i2 = INSTR(MID$(a$, p, i - p), CHR$(34)): IF i2 THEN i2 = i2 + p - 1
@@ -50,7 +50,7 @@ FUNCTION getelementspecial$ (savea$, elenum)
     END IF
 
     IF elenum = n THEN
-        'R14: cacheSource(slot) already holds a$ (matched or set above); copying
+        'cacheSource(slot) already holds a$ (matched or set above); copying
         'the whole line again on every call made long lines quadratic
         cacheElement(slot) = elenum
         cacheStart(slot) = p
@@ -99,7 +99,7 @@ FUNCTION getelement$ (a$, elenum)
         n = cacheElement(slot) + 1
         p = cacheNext(slot) + 1
     ELSE
-        'R14: jump to the element with the shared position cache (seeded by the
+        'Jump to the element with the shared position cache (seeded by the
         'SUBs that edit lines) instead of scanning from the start
         p = elementpos(a$, elenum, 0)
         IF p = 0 THEN EXIT FUNCTION 'no such element
@@ -110,7 +110,7 @@ FUNCTION getelement$ (a$, elenum)
     i = INSTR(p, a$, sp)
 
     IF elenum = n THEN
-        'R14: cacheSource(slot) already holds a$ (matched or set above); copying
+        'cacheSource(slot) already holds a$ (matched or set above); copying
         'the whole line again on every call made long lines quadratic
         cacheElement(slot) = elenum
         cacheStart(slot) = p
@@ -158,7 +158,7 @@ SUB insertelements (a$, i, elements$)
         EXIT SUB
     END IF
 
-    'R14: find element i (position cache), then a single splice. Rebuilding
+    'Find element i (position cache), then a single splice. Rebuilding
     'the line element by element made every call O(line length * elements),
     'and long expressions call this once per number (cubic compile time).
     IF a$ = "" THEN EXIT SUB
@@ -175,7 +175,7 @@ SUB insertelements (a$, i, elements$)
 END SUB
 
 FUNCTION elementpos (a$, k, setpos)
-    'R14: position of the first character of element k in a$ (0 if there is
+    'Position of the first character of element k in a$ (0 if there is
     'no element k). The last answer is remembered, and the SUBs that splice a
     'line store the position they know, so walking a long line element by
     'element while editing it does not rescan it from the start each time.
@@ -238,7 +238,7 @@ SUB removeelements (a$, first, last, keepindexing)
     'note: first and last MUST be valid
     '      keepindexing means the number of elements will stay the same
     '       but some elements will be equal to ""
-    'R14: cut at the element boundaries (position cache, see insertelements)
+    'Cut at the element boundaries (position cache, see insertelements)
 
     firstpos = elementpos(a$, first, 0) 'first character of element first
     IF firstpos = 0 THEN EXIT SUB 'nothing to remove

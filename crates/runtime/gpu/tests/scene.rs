@@ -1,4 +1,4 @@
-//! R15 G4 headless tests: lit models (`_MESH`, `_LOADMODEL`, `_CAMERA`,
+//! Headless 3D tests: lit models (`_MESH`, `_LOADMODEL`, `_CAMERA`,
 //! `_LIGHT`). Rendered offscreen and read back; every test skips (passes with
 //! a note) when the machine has no GPU adapter. No windows are opened.
 

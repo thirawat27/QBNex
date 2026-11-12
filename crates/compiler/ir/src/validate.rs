@@ -27,14 +27,13 @@ impl<'m> Scope<'m> {
             Some(t) => *t,
             None => return bad(&self.f.name, format!("`{ctx}`: register %{r} is never defined")),
         };
-        if let Some(w) = want {
-            if t != w {
+        if let Some(w) = want
+            && t != w {
                 return bad(
                     &self.f.name,
                     format!("`{ctx}`: %{r} is {} but {} is required", t.name(), w.name()),
                 );
             }
-        }
         Ok(t)
     }
     fn int(&self, r: Reg, ctx: &str) -> Result<(), IrError> {
@@ -47,11 +46,10 @@ impl<'m> Scope<'m> {
 }
 
 fn check_store_ty(m: &Module, t: &StoreTy, ctx: &str) -> Result<(), IrError> {
-    if let StoreTy::Udt(n) = t {
-        if m.udt(n).is_none() {
+    if let StoreTy::Udt(n) = t
+        && m.udt(n).is_none() {
             return bad(ctx, format!("unknown type udt:{n}"));
         }
-    }
     Ok(())
 }
 
@@ -99,11 +97,10 @@ fn func_def_ty(m: &Module, i: &Inst) -> Option<(Reg, Ty)> {
 fn labels(f: &Func) -> Result<HashSet<&str>, IrError> {
     let mut s = HashSet::new();
     for i in &f.body {
-        if let Inst::Label(l) = i {
-            if !s.insert(l.as_str()) {
+        if let Inst::Label(l) = i
+            && !s.insert(l.as_str()) {
                 return bad(&f.name, format!("label {l} defined twice"));
             }
-        }
     }
     Ok(s)
 }
@@ -116,26 +113,23 @@ fn check_func<'m>(m: &'m Module, f: &'m Func, main_labels: &HashSet<&str>) -> Re
             return bad(&f.name, format!("variable {} declared twice", d.name));
         }
         check_store_ty(m, &d.ty, &f.name)?;
-        if let VarKind::Param { byref: false } = d.kind {
-            if d.array || !matches!(d.ty, StoreTy::Scalar(_)) {
+        if let VarKind::Param { byref: false } = d.kind
+            && (d.array || !matches!(d.ty, StoreTy::Scalar(_))) {
                 return bad(&f.name, format!("byval parameter {} must be a scalar", d.name));
             }
-        }
         vars.insert(&d.name, d);
     }
     let lbl = labels(f)?;
     let mut regs: HashMap<Reg, Ty> = HashMap::new();
     for i in &f.body {
-        if let Some((r, t)) = def(i).or_else(|| func_def_ty(m, i)) {
-            if let Some(old) = regs.insert(r, t) {
-                if old != t {
+        if let Some((r, t)) = def(i).or_else(|| func_def_ty(m, i))
+            && let Some(old) = regs.insert(r, t)
+                && old != t {
                     return bad(
                         &f.name,
                         format!("`{}`: %{r} redefined as {} (was {})", inst_text(i), t.name(), old.name()),
                     );
                 }
-            }
-        }
     }
     let s = Scope { m, f, vars, regs };
     for i in &f.body {
@@ -366,8 +360,8 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
             s.reg(*secs, Some(Ty::F64), ctx)?;
             label(target, main_labels)?;
         }
-        Inst::OnKey { key, target } => {
-            s.int(*key, ctx)?;
+        Inst::OnKey { key: n, target } | Inst::OnPlay { n, target } => {
+            s.int(*n, ctx)?;
             label(target, main_labels)?;
         }
         Inst::Read { ty, .. } => {

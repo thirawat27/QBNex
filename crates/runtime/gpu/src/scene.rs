@@ -1,4 +1,4 @@
-//! R15 G4: models, lights and a lit scene renderer — the GPU side of the
+//! Models, lights and a lit scene renderer — the GPU side of the
 //! `_MESH` / `_LOADMODEL` / `_CAMERA` / `_LIGHT` / `_DRAW3D` BASIC API
 //! (design: `docs/dev/3d-api.md`).
 //!
@@ -302,7 +302,7 @@ impl Model {
 
 /// Nodes of the default scene (or of the file) with their world matrices.
 /// A node reached twice, e.g. through a cycle in a malformed file, is visited
-/// once (R14: the walk looped forever and grew its stack without bound).
+/// once (previously the walk looped forever and grew its stack without bound).
 fn scene_nodes(doc: &gltf::Document) -> Vec<(gltf::Node<'_>, Mat4)> {
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let roots: Vec<gltf::Node> = match scene {
@@ -339,7 +339,7 @@ fn to_rgba(d: &gltf::image::Data) -> Image {
 }
 
 fn upload(gpu: &Gpu, img: &Image) -> wgpu::TextureView {
-    // short data padded, oversized images scaled down to the device limit (R14)
+    // short data padded, oversized images scaled down to the device limit
     let (texels, w, h) = crate::fit_texture(img.rgba.as_chunks::<4>().0, img.width, img.height, gpu.max_texture_size());
     let img = &Image { width: w, height: h, rgba: texels.as_flattened().to_vec() };
     let size = wgpu::Extent3d { width: img.width.max(1), height: img.height.max(1), depth_or_array_layers: 1 };
@@ -527,7 +527,7 @@ fn prelude_lines() -> u32 {
 
 static NEXT_SHADER: AtomicU64 = AtomicU64::new(1);
 
-/// A compiled `_SHADER` (R15 G5): user WGSL that defines
+/// A compiled `_SHADER`: user WGSL that defines
 /// `fn shade(i: ShadeIn) -> vec4<f32>`, called for every pixel of the meshes
 /// that use it. `ShadeIn` gives the world position, the normal, the texture
 /// coordinate, the base colour (mesh colour × texture), the light arriving
@@ -605,7 +605,7 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// Lit renderer for one colour format.
 ///
-/// Draws are batched (R15 G6): all per-draw uniforms of a frame go into one
+/// Draws are batched: all per-draw uniforms of a frame go into one
 /// buffer bound with dynamic offsets, texture bind groups are shared by every
 /// draw using the same texture, and pipeline/buffer changes are only issued
 /// when they differ from the previous draw.
@@ -930,7 +930,7 @@ impl SceneRenderer {
 mod tests {
     use super::*;
 
-    /// R14: a cycle in the node hierarchy of a malformed file must not hang
+    /// A cycle in the node hierarchy of a malformed file must not hang
     /// the loader.
     #[test]
     fn cyclic_node_hierarchy_terminates() {

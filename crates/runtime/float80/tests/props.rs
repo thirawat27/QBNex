@@ -1,4 +1,4 @@
-//! R14 property tests (proptest) for the software x87 float. The bit-exact
+//! Property tests (proptest) for the software x87 float. The bit-exact
 //! reference is `tests/diff/diff_float80.cpp`; these check algebraic
 //! invariants that must hold on every target, including the software path.
 

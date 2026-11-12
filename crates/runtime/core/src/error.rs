@@ -1,4 +1,4 @@
-//! Runtime error machinery (R12b).
+//! Runtime error machinery.
 //!
 //! Replaces `human_error`, `error`, `fix_error` (message texts and the
 //! decision what to do with an error), `get_error_err`/`get_error_erl` and
@@ -77,7 +77,7 @@ fn human_error_z(code: i32) -> &'static str {
         8 => "Label not defined\0",
         9 => "Subscript out of range\0",
         10 => "Duplicate definition\0",
-        11 => "Division by zero\0", // legacy: "Unprintable error" (D-R12b-5)
+        11 => "Division by zero\0", // legacy: "Unprintable error"
         12 => "Illegal in direct mode\0",
         13 => "Type mismatch\0",
         14 => "Out of string space\0",

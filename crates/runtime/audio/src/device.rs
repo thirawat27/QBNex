@@ -11,7 +11,7 @@ pub type RenderFn = std::sync::Arc<dyn Fn(&mut [f32]) + Send + Sync>;
 #[cfg(target_arch = "wasm32")]
 pub use web::{web_active, web_render, Device, WEB_RATE};
 
-/// Browser build (R13-wasm): no device thread. The page pulls stereo f32
+/// Browser build: no device thread. The page pulls stereo f32
 /// from the mixer ([`web_render`]) and plays it through WebAudio.
 #[cfg(target_arch = "wasm32")]
 mod web {
@@ -143,7 +143,7 @@ where
 {
     let channels = config.channels as usize;
     if channels == 0 {
-        // chunks_exact_mut(0) would panic in the callback (R14).
+        // chunks_exact_mut(0) would panic in the callback.
         return None;
     }
     let mut stereo: Vec<f32> = Vec::new();

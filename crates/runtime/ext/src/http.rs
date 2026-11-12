@@ -121,7 +121,7 @@ pub mod testserver {
     /// echoes the method, path, a request header and the body. Returns the
     /// base URL ("http://127.0.0.1:port").
     /// An empty string when no port can be bound. Malformed requests are
-    /// dropped: the server thread never panics (R14; with panic=abort that
+    /// dropped: the server thread never panics (with panic=abort that
     /// would end the BASIC program).
     pub fn start(count: usize) -> String {
         let Ok(l) = TcpListener::bind("127.0.0.1:0") else { return String::new() };
@@ -208,7 +208,7 @@ mod tests {
         assert!(request("GET", &format!("{base}/x"), "no colon", b"", 5000).unwrap_err().contains("bad header"));
     }
 
-    /// R14: the test server is reachable from BASIC; a malformed request
+    /// The test server is reachable from BASIC; a malformed request
     /// (non-UTF-8 request line, early close) must not kill it (with
     /// panic=abort a panic in its thread aborts the whole program).
     #[test]

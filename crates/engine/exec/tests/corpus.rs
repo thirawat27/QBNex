@@ -1,7 +1,7 @@
 //! Real programs: `tests/fixtures/corpus/*.qir` are conformance cases
 //! compiled with the compiler (`qb --ir`). Each must print exactly
 //! `<name>.expect` (output, then `<exit n>` or `<error code line n>`), which
-//! was recorded from the R11a reference interpreter before it was retired.
+//! was recorded from the reference interpreter before it was retired.
 //! `QB_BLESS=1` rewrites the files from the VM.
 //!
 //! Refresh: compile each case with `qb --ir`, copy `internal/temp/program.qir`.

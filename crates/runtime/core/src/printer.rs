@@ -49,9 +49,16 @@ pub fn begin(d: &mut impl Device) -> Option<(i32, i32)> {
 /// Sends a `width` x `height` top-down image and ends the page and document.
 pub fn finish(d: &mut impl Device, width: i32, height: i32, pixels: &[u32]) {
     let w = width.max(0) as usize;
+    finish_rows(d, width, height, |y, row| row.copy_from_slice(&pixels[y as usize * w..][..w]));
+}
+
+/// As [`finish`], with each row drawn by `row(y, pixels)` just before it is sent, so a
+/// page-sized image is never held in memory.
+pub fn finish_rows(d: &mut impl Device, width: i32, height: i32, mut row: impl FnMut(i32, &mut [u32])) {
+    let mut buf = vec![0u32; width.max(0) as usize];
     for y in 0..height.max(0) {
-        let row = &pixels[y as usize * w..][..w];
-        d.put_row(y, width, height, row);
+        row(y, &mut buf);
+        d.put_row(y, width, height, &buf);
     }
     if d.end_page() <= 0 {
         d.end_doc();

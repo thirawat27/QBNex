@@ -1,4 +1,4 @@
-//! R15 G4: the 3D builtins are callable from QIR (`rt func__meshcube ...`)
+//! The 3D builtins are callable from QIR (`rt func__meshcube ...`)
 //! and reach `qb_runtime::scene3d` (handles, errors). Rendering itself is
 //! tested in qb-runtime / qb-gpu.
 

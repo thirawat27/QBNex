@@ -211,7 +211,7 @@ IF incmem THEN typ = typ + ISINCONVENTIONALMEMORY
 END FUNCTION
 
 FUNCTION evaluate$ (a2$, typ AS LONG)
-    'R14: a block holds at least one element; the fixed 1000 stopped long
+    'A block holds at least one element; the fixed 1000 stopped long
     'expressions (about 500 terms) with an internal subscript error
     evalblockmax = numelements(a2$) + 1000
     DIM block(evalblockmax) AS STRING
@@ -1122,7 +1122,7 @@ END IF
 
 skipargnumchk:
 
-'***special case*** R13: _IIF(condition, a, b) evaluates only the chosen value (C ?:);
+'***special case*** _IIF(condition, a, b) evaluates only the chosen value (C ?:);
 '_TOSTR$(x) is x for a string and LTRIM$(STR$(x)) for a number (string interpolation)
 IF UCASE$(n$) = "_IIF" OR UCASE$(n$) = "_TOSTR" THEN
     DIM iifArg(1 TO 3) AS STRING

@@ -5,7 +5,7 @@
 //! * [`put`], [`tri2d`], [`tri3d`] render "hardware" images (`_COPYIMAGE(,33)`,
 //!   `_PUTIMAGE`/`_MAPTRIANGLE` onto `_DISPLAY`) in software. Legacy drew them
 //!   with OpenGL textures, so results can differ from legacy in edge pixels and
-//!   filtering (documented deviation D-13).
+//!   filtering (documented deviation).
 //! * [`scale_to_window`] draws the composed frame into the window buffer.
 //!
 //! Pixels are `0xAARRGGBB` (`uint32` BGRA in memory), like `img_struct`.

@@ -5,7 +5,7 @@
 //! - MOD / XM / S3M / IT: xmrs + xmrsplayer (pure Rust), rendered once to
 //!   16-bit stereo (song played to its end, loops not repeated, capped at 30 minutes).
 //! - MIDI (tinysoundfont + AWE32 ROM) and Reality AdLib Tracker (RADv2) are
-//!   dropped: `_SNDOPEN` returns -1 for them (deviation D-63).
+//!   dropped: `_SNDOPEN` returns -1 for them (documented deviation).
 //!
 //! Like the legacy resource manager, data is converted to the device sample
 //! rate at load time and kept in the decoder's native sample format so

@@ -1,0 +1,1 @@
+Fixes legacy defect L-12: LINE INPUT # on a BINARY file dropped a final line of 1 or 2 bytes after a CRLF (the EOF test allowed 2 extra bytes). The last line "x" is now read and SEEK points past the end of the file, as for a sequential INPUT file. Expected output written by hand.

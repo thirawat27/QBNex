@@ -46,7 +46,7 @@ pub fn sleep_ms(ms: u64) {
     std::thread::sleep(std::time::Duration::from_millis(ms));
 }
 
-/// Browser build (R13-wasm): wasm32-unknown-unknown has no clock or sleep,
+/// Browser build: wasm32-unknown-unknown has no clock or sleep,
 /// so the page supplies them as imports of module `qbnex` (see
 /// `crates/web/www/qbnex.js`).
 #[cfg(target_arch = "wasm32")]

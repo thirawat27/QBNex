@@ -1,5 +1,5 @@
 '===============================================================================
-' QIR emission of the R13 expression extensions (same results as the C++ path in
+' QIR emission of the expression extensions (same results as the C++ path in
 ' semantics.bas / qbnex.bas):
 '   _ANDALSO / _ORELSE   short-circuit, -1/0
 '   _IIF(c, a, b)        only the chosen value is evaluated
@@ -102,7 +102,7 @@ FUNCTION IrExtCapture$ (e$, t AS LONG, code$, rt$)
 END FUNCTION
 
 FUNCTION IrExtFunc% (nm$, sv() AS STRING, nargs AS LONG, typ AS LONG, result$)
-    'R13 functions; returns 0 when nm$ is not one of them
+    'Extension functions; returns 0 when nm$ is not one of them
     DIM r$, t AS LONG, sx$, x$, y$, c$, codeA$, codeB$, ra$, rb$, ta$, tb$, ct$, tA AS LONG, tB AS LONG
     DIM tmp$, lbl$, d$, bitsA AS LONG, bitsB AS LONG
     SELECT CASE nm$
@@ -163,7 +163,7 @@ FUNCTION IrExtFunc% (nm$, sv() AS STRING, nargs AS LONG, typ AS LONG, result$)
 END FUNCTION
 
 FUNCTION IrExtSub% (nm$, sv() AS STRING, nargs AS LONG)
-    'R13 statements; returns 0 when nm$ is not one of them
+    'Extension statements; returns 0 when nm$ is not one of them
     DIM r$, t AS LONG, c$, lbl$, e$
     SELECT CASE nm$
         CASE "_ASSERT"

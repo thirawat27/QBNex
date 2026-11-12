@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "R15 G1: GPU backend for QBNex on wgpu (Vulkan/DX12/Metal/WebGPU): offscreen and window targets, framebuffer blit, 3D groundwork. Pure Rust."
+description = "GPU backend for QBNex on wgpu (Vulkan/DX12/Metal/WebGPU): offscreen and window targets, framebuffer blit, 3D groundwork. Pure Rust."
 publish = false
 
 [lib]
@@ -17,9 +17,9 @@ pollster = "1"
 bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.34", features = ["bytemuck"] }
 winit = "0.30"
-# R15 G4: _LOADMODEL (glTF 2.0 .gltf/.glb, embedded PNG/JPEG textures)
+# _LOADMODEL (glTF 2.0 .gltf/.glb, embedded PNG/JPEG textures)
 gltf = "1"
-# R15 G5: _SHADER compiles user WGSL with naga (same version as wgpu's) for clean error messages
+# _SHADER compiles user WGSL with naga (same version as wgpu's) for clean error messages
 naga = { version = "30", features = ["wgsl-in"] }
 [dev-dependencies]
 glam = "0.34"

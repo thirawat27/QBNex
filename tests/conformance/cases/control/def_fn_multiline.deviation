@@ -1,0 +1,1 @@
+Multi-line DEF FN (DEF FnName ... END DEF) is compiled as a FUNCTION that shares the module variables it uses; QB64 does not support DEF FN. Expected output written by hand from QBasic semantics.

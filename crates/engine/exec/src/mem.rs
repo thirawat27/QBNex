@@ -73,8 +73,8 @@ impl Mem {
         let b = std::mem::replace(slot, Block::Free);
         match b {
             Block::Bytes { data, strs: true } => {
-                for c in data.chunks_exact(8) {
-                    self.free_str(u64::from_le_bytes(c.try_into().unwrap()));
+                for c in data.as_chunks::<8>().0 {
+                    self.free_str(u64::from_le_bytes(*c));
                 }
             }
             Block::Arr(a) => {
@@ -160,6 +160,17 @@ impl Mem {
         Ok(())
     }
 
+    /// The string variable stored at `p` without copying it (a string operand with
+    /// [`crate::bytecode::M`]); "" when `p` is not valid storage.
+    pub(crate) fn peek_str(&self, p: u64) -> &[u8] {
+        if p == 0 || p & ARR_TAG != 0 {
+            return &[];
+        }
+        // SAFETY: as `bytes`: p is the storage of a string variable (8-byte handle).
+        let h = unsafe { (p as *const u64).read_unaligned() };
+        self.strs.get(h as usize).map_or(&[][..], |v| v.as_slice())
+    }
+
     pub(crate) fn ld_str(&mut self, p: u64) -> R<&[u8]> {
         let h = self.ld(MTy::U64, p)?;
         Ok(self.strs.get(h as usize).map_or(&[][..], |v| v.as_slice()))
@@ -175,9 +186,9 @@ impl Mem {
         let old = self.ld(MTy::U64, p)?;
         // Reuse the slot's buffer: freeing and allocating a large string on
         // every store (`a$(i) = a$(i) + x$`) made repeated appends to a
-        // memory string allocation-bound (R14).
-        if old != 0 && !s.is_empty() {
-            if let Some(v) = self.strs.get_mut(old as usize) {
+        // memory string allocation-bound.
+        if old != 0 && !s.is_empty()
+            && let Some(v) = self.strs.get_mut(old as usize) {
                 let r = v.as_ptr_range();
                 let src = s.as_ptr();
                 if !(r.start <= src && src < r.end) {
@@ -186,7 +197,6 @@ impl Mem {
                     return Ok(());
                 }
             }
-        }
         self.free_str(old);
         let h = self.new_str(s);
         self.st(MTy::U64, p, h)
@@ -256,8 +266,8 @@ impl Mem {
                 let k = od.len().min(data.len());
                 data[..k].copy_from_slice(&od[..k]);
                 if strs {
-                    for c in od[k..].chunks_exact(8) {
-                        self.free_str(u64::from_le_bytes(c.try_into().unwrap()));
+                    for c in od[k..].as_chunks::<8>().0 {
+                        self.free_str(u64::from_le_bytes(*c));
                     }
                 }
                 self.free(ob);
@@ -287,8 +297,8 @@ impl Mem {
                     }
                     _ => Vec::new(),
                 };
-                for c in strs.chunks_exact(8) {
-                    self.free_str(u64::from_le_bytes(c.try_into().unwrap()));
+                for c in strs.as_chunks::<8>().0 {
+                    self.free_str(u64::from_le_bytes(*c));
                 }
             }
             return Ok(());

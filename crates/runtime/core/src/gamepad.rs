@@ -3,7 +3,7 @@
 //!
 //! Backend: gilrs. Buttons and axes use gilrs' standard layout with fixed
 //! indices ([`button_index`], [`axis_index`]); legacy reported the raw driver
-//! order, which differed per OS and device (documented deviation D-15).
+//! order, which differed per OS and device (documented deviation).
 //! Y axes are negated so that down/right stay positive as with the legacy
 //! Windows multimedia joystick API.
 //!

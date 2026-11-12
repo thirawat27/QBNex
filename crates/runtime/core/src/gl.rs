@@ -425,6 +425,29 @@ extern "system" fn glu_perspective(fovy: f64, aspect: f64, near: f64, far: f64) 
     });
 }
 
+/// The back buffer as 0xAARRGGBB rows, top row first (after the program drew
+/// into it, before [`end_frame`]); for the frame capture and tests.
+pub fn read_pixels() -> Option<(Vec<u32>, usize, usize)> {
+    GL.with(|g| {
+        let g = g.borrow();
+        let gl = g.as_ref()?;
+        let (w, h) = (gl.size.0 as usize, gl.size.1 as usize);
+        let mut rgba = vec![0u8; w * h * 4];
+        (gl.fns.finish)();
+        (gl.fns.pixel_storei)(GL_PACK_ALIGNMENT, 1);
+        (gl.fns.read_pixels)(0, 0, w as i32, h as i32, GL_RGBA, GL_UNSIGNED_BYTE, rgba.as_mut_ptr().cast());
+        let mut out = vec![0u32; w * h];
+        for y in 0..h {
+            let src = &rgba[(h - 1 - y) * w * 4..(h - y) * w * 4];
+            for x in 0..w {
+                let p = &src[x * 4..x * 4 + 4];
+                out[y * w + x] = 0xFF00_0000 | (u32::from(p[0]) << 16) | (u32::from(p[1]) << 8) | u32::from(p[2]);
+            }
+        }
+        Some((out, w, h))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,10 +479,10 @@ mod tests {
         // SAFETY: GL 1.1 entry points with these signatures.
         let (cc, cl, en, sc): (ClearColor, Clear, Enable, Scissor) = unsafe {
             (
-                std::mem::transmute(get("glClearColor")),
-                std::mem::transmute(get("glClear")),
-                std::mem::transmute(get("glEnable")),
-                std::mem::transmute(get("glScissor")),
+                std::mem::transmute::<*const c_void, ClearColor>(get("glClearColor")),
+                std::mem::transmute::<*const c_void, Clear>(get("glClear")),
+                std::mem::transmute::<*const c_void, Enable>(get("glEnable")),
+                std::mem::transmute::<*const c_void, Scissor>(get("glScissor")),
             )
         };
         sc(0, 0, (w / 2) as i32, h as i32);
@@ -476,7 +499,7 @@ mod tests {
         // _GLRENDER _ONTOP: the software screen goes over the GL output by its alpha
         type Disable = extern "system" fn(u32);
         // SAFETY: GL 1.1 entry point.
-        let dis: Disable = unsafe { std::mem::transmute(get("glDisable")) };
+        let dis: Disable = unsafe { std::mem::transmute::<*const c_void, Disable>(get("glDisable")) };
         set_render(2);
         let mut soft = vec![0x0000_FF00u32; 64 * 40]; // transparent green
         for y in 0..40 {
@@ -501,27 +524,4 @@ mod tests {
         end_frame();
         set_render(1);
     }
-}
-
-/// The back buffer as 0xAARRGGBB rows, top row first (after the program drew
-/// into it, before [`end_frame`]); for the frame capture and tests.
-pub fn read_pixels() -> Option<(Vec<u32>, usize, usize)> {
-    GL.with(|g| {
-        let g = g.borrow();
-        let gl = g.as_ref()?;
-        let (w, h) = (gl.size.0 as usize, gl.size.1 as usize);
-        let mut rgba = vec![0u8; w * h * 4];
-        (gl.fns.finish)();
-        (gl.fns.pixel_storei)(GL_PACK_ALIGNMENT, 1);
-        (gl.fns.read_pixels)(0, 0, w as i32, h as i32, GL_RGBA, GL_UNSIGNED_BYTE, rgba.as_mut_ptr().cast());
-        let mut out = vec![0u32; w * h];
-        for y in 0..h {
-            let src = &rgba[(h - 1 - y) * w * 4..(h - y) * w * 4];
-            for x in 0..w {
-                let p = &src[x * 4..x * 4 + 4];
-                out[y * w + x] = 0xFF00_0000 | (u32::from(p[0]) << 16) | (u32::from(p[1]) << 8) | u32::from(p[2]);
-            }
-        }
-        Some((out, w, h))
-    })
 }

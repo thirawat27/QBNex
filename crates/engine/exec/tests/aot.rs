@@ -6,7 +6,7 @@ use std::path::Path;
 use qb_exec::{build_native, run_ir, run_ir_native};
 
 fn programs() -> Vec<String> {
-    ["numeric_loop", "arrays_in_loop", "error_resume_next_in_loop", "aot_mixed", "native_byref_and_function"]
+    ["numeric_loop", "arrays_in_loop", "error_resume_next_in_loop", "aot_mixed", "native_byref_and_function", "mem_shared_sub"]
         .iter()
         .map(|n| {
             let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jit").join(format!("{n}.qir"));

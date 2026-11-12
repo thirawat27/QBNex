@@ -1,4 +1,4 @@
-//! Event trapping state: ON TIMER, ON KEY, ON STRIG (R12b).
+//! Event trapping state: ON TIMER, ON KEY, ON STRIG.
 //!
 //! Replaces the timer table, `func__freetimer`, `freetimer`,
 //! `ontimer_setup`, `sub_timer`, `stop_timers`/`start_timers`, the body of
@@ -143,7 +143,8 @@ impl TimerTable {
     }
 
     /// One pass of the timer thread at time `now` (seconds). Returns true
-    /// when an event was triggered (the caller sets `qbevent`).
+    /// when an event was triggered, or one queued during `TIMER STOP` can now be
+    /// delivered (the caller sets `qbevent`).
     pub fn tick(&mut self, now: f64) -> bool {
         let mut fired = false;
         if self.paused {
@@ -151,6 +152,9 @@ impl TimerTable {
         }
         for i in 0..self.nextfree {
             let t = self.slot(i);
+            if t.allocated && t.id != 0 && t.active == 1 && t.state == 1 {
+                fired = true;
+            }
             if t.allocated && t.id != 0 && t.active != 0 && t.state == 0 && now - t.last_time > t.seconds {
                 if t.last_time == 0.0 {
                     t.last_time = now;
@@ -199,6 +203,93 @@ static TIMERS: Mutex<TimerTable> = Mutex::new(TimerTable::new());
 /// Locks the global ON TIMER table (shared with the timer thread).
 pub fn timers() -> MutexGuard<'static, TimerTable> {
     TIMERS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+// ---------------------------------------------------------- ON PLAY
+
+/// `ON PLAY(n) GOSUB` and `PLAY ON|OFF|STOP`: one trap on the background music queue.
+/// The handler is due when the queue drops from `n` or more notes to fewer than `n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnPlay {
+    /// Handler id (0 = no `ON PLAY`).
+    pub id: u32,
+    /// The `n` of `ON PLAY(n)`.
+    pub n: i32,
+    /// 0 OFF, 1 ON, 2 STOP (a drop is remembered and delivered at the next `PLAY ON`).
+    pub active: i32,
+    /// 0 idle, 1 due, 2 handler running.
+    pub state: i32,
+    /// Queue length at the previous poll.
+    last: i32,
+}
+
+impl OnPlay {
+    pub const fn new() -> Self {
+        OnPlay { id: 0, n: 0, active: 0, state: 0, last: 0 }
+    }
+
+    /// `ON PLAY(n) GOSUB`: `n` is 1..32 as in QBasic (error 5 otherwise).
+    pub fn setup(&mut self, n: i32, id: u32) -> Result<(), i32> {
+        if !(1..=32).contains(&n) {
+            return Err(5);
+        }
+        self.id = id;
+        self.n = n;
+        if self.state == 1 {
+            self.state = 0;
+        }
+        Ok(())
+    }
+
+    /// `PLAY ON|OFF|STOP` (`option` 1..3).
+    pub fn statement(&mut self, option: i32) -> Result<(), i32> {
+        match option {
+            1 => self.active = 1,
+            2 => {
+                self.active = 0;
+                if self.state == 1 {
+                    self.state = 0;
+                }
+            }
+            3 => self.active = 2,
+            _ => return Err(5),
+        }
+        Ok(())
+    }
+
+    /// Feeds the current queue length; returns the handler id when it should run now
+    /// (the trap is then "running" until [`OnPlay::done`]).
+    pub fn poll(&mut self, notes: i32) -> Option<u32> {
+        if self.id != 0 && self.active != 0 && self.state == 0 && self.last >= self.n && notes < self.n {
+            self.state = 1;
+        }
+        self.last = notes;
+        if self.id != 0 && self.active == 1 && self.state == 1 {
+            self.state = 2;
+            return Some(self.id);
+        }
+        None
+    }
+
+    /// The handler returned.
+    pub fn done(&mut self) {
+        if self.state == 2 {
+            self.state = 0;
+        }
+    }
+}
+
+impl Default for OnPlay {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+static PLAY_TRAP: Mutex<OnPlay> = Mutex::new(OnPlay::new());
+
+/// Locks the global ON PLAY trap.
+pub fn play_trap() -> MutexGuard<'static, OnPlay> {
+    PLAY_TRAP.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 // ---------------------------------------------------------- ON KEY / STRIG
@@ -619,8 +710,10 @@ mod tests {
         assert_eq!(t.slots[0].last_time, 15.0);
         // STOP keeps the event queued, ON delivers it.
         t.statement(0, 3).unwrap();
+        assert!(!t.tick(15.1)); // queued while stopped: no signal yet
         assert_eq!(t.take(0), None);
         t.statement(0, 1).unwrap();
+        assert!(t.tick(15.2)); // ON signals the queued event
         assert_eq!(t.take(0), Some((7, 42)));
         t.done(0);
         // OFF retracts and restarts the period.
@@ -633,6 +726,34 @@ mod tests {
         assert!(!t.tick(100.0));
     }
 
+    #[test]
+    fn play_trap_fires_when_the_queue_drops_below_n() {
+        let mut p = OnPlay::new();
+        assert_eq!(p.setup(0, 1), Err(5));
+        p.setup(2, 7).unwrap();
+        assert_eq!(p.poll(3), None); // OFF
+        p.statement(1).unwrap();
+        assert_eq!(p.poll(3), None);
+        assert_eq!(p.poll(2), None);
+        assert_eq!(p.poll(1), Some(7)); // 2 -> 1
+        assert_eq!(p.poll(0), None); // running
+        p.done();
+        assert_eq!(p.poll(0), None);
+        // STOP remembers the drop, ON delivers it
+        p.statement(3).unwrap();
+        assert_eq!(p.poll(4), None);
+        assert_eq!(p.poll(1), None);
+        p.statement(1).unwrap();
+        assert_eq!(p.poll(1), Some(7));
+        p.done();
+        // OFF forgets it
+        assert_eq!(p.poll(5), None);
+        p.statement(2).unwrap();
+        assert_eq!(p.poll(0), None);
+        p.statement(1).unwrap();
+        assert_eq!(p.poll(0), None);
+        assert_eq!(p.statement(9), Err(5));
+    }
     #[test]
     fn key_statements() {
         let mut k = [ONKEY0; 32];

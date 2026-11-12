@@ -79,7 +79,7 @@ pub fn clear_range(image: i32, first: i32, count: i32) {
         if t.cells.is_empty() || count <= 0 {
             return;
         }
-        // i64: `first + count` cannot overflow (R14).
+        // i64: `first + count` cannot overflow.
         let len = t.cells.len() as i64;
         let first = i64::from(first).max(0);
         let end = (first + i64::from(count)).min(len);
@@ -98,7 +98,7 @@ pub fn scroll_up(image: i32, width: i32, top_row: i32, bottom_row: i32) {
         if t.cells.is_empty() {
             return;
         }
-        // R14: rows outside the table (VIEW PRINT ranges, a WIDTH change before
+        // Rows outside the table (VIEW PRINT ranges, a WIDTH change before
         // the table was resized) are skipped instead of indexing out of range.
         let len = t.cells.len() as i64;
         let (width, top, bottom) = (i64::from(width), i64::from(top_row), i64::from(bottom_row));
@@ -309,7 +309,7 @@ mod tests {
         assert_eq!(span(im, 1), 1);
     }
 
-    /// R14: scroll and clear with rows/counts outside the table must not
+    /// Scroll and clear with rows/counts outside the table must not
     /// panic (VIEW PRINT ranges, a WIDTH change before the table is resized).
     #[test]
     fn out_of_range_scroll_and_clear_are_ignored() {

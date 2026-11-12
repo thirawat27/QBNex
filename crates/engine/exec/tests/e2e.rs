@@ -105,7 +105,7 @@ fn spike_program_runs_and_matches_the_golden() {
 
 #[test]
 fn on_error_resume_next_works_in_main_module() {
-    // The C++ path cannot compile this (legacy defect L-01), so the expected
+    // The C++ path cannot compile this, so the expected
     // output is written by hand from QBasic semantics.
     let Some(qb) = qb() else { return };
     install_runner();
@@ -115,8 +115,10 @@ fn on_error_resume_next_works_in_main_module() {
     assert_eq!(out, expected);
 }
 
-/// Conformance cases the legacy C++ backend cannot run (L-01 ON ERROR in the
-/// main module, L-03 RESTORE label). L-04 (relational operators in PRINT) is a\n/// front-end defect, so since the emitter uses the real front end it affects both backends.
+/// Conformance cases the legacy C++ backend cannot run (ON ERROR in the
+/// main module, RESTORE to a label). A front-end defect with relational
+/// operators in PRINT affects both backends, since the emitter uses the real
+/// front end.
 /// The `.out` files were checked by hand against QBasic semantics.
 #[test]
 fn legacy_defect_cases_run_correctly_under_qir() {
@@ -145,9 +147,9 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     install_runner();
     let dir = tmpdir("unsupported");
     let src = dir.join("bad.bas");
-    // SCREEN, graphics, sound, CHAIN, _OFFSET, ... are supported on QIR now; VARPTR$ of a
-    // string is not (yet)
-    std::fs::write(&src, "PRINT 1\nPRINT VARPTR$(a$)\n").unwrap();
+    // nearly everything is supported on QIR; _MEM of a variable-length STRING is not (QB64
+    // rejects it too)
+    std::fs::write(&src, "PRINT 1\nDIM m AS _MEM: m = _MEM(a$)\n").unwrap();
     let _guard = compiler_lock();
     let out = Command::new(&qb)
         .current_dir(repo_root())

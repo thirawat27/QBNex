@@ -132,7 +132,7 @@ FUNCTION NormalizeCommandToken$ (token$)
     IF normalized = "--verbose-errors" OR normalized = "--detailed-errors" THEN normalized = "-d"
     IF normalized = "--compact-errors" OR normalized = "--compact-diagnostics" THEN normalized = "-k"
     IF normalized = "-werror" OR normalized = "--warnings-as-errors" THEN normalized = "-r"
-    IF normalized = "--ir" THEN normalized = "-ir" 'R11 spike
+    IF normalized = "--ir" THEN normalized = "-ir"
     IF normalized = "--emit-ir" THEN normalized = "-irtext"
 
     NormalizeCommandToken$ = normalized
@@ -158,7 +158,7 @@ FUNCTION ParseCMDLineArgs$ ()
             SYSTEM
         CASE "-i"
             IF LCASE$(token$) = "-ir" THEN
-                IrEmitMode = -1 'R11 spike: emit QIR for the Rust runner instead of C++
+                IrEmitMode = -1 'emit QIR for the Rust runner instead of C++
                 cmdlineswitch = -1
             ELSEIF LCASE$(token$) = "-irtext" THEN
                 IrEmitText = -1 'write the QIR text (qb-web) instead of an executable

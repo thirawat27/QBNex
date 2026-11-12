@@ -90,12 +90,13 @@ FUNCTION IrMemAssign% (dst$, rhs$)
         z$ = IrReg$: IrE "rt " + z$ + " _ARRBYTES " + x$
         mt = Type2MemTypeValue(t + ISARRAY)
         es = IrSize&(IrSTy$(t, 0))
-        IF t AND ISSTRING THEN IrNotSup "_MEM of a STRING array"
+        IF t AND ISSTRING THEN es = IrSize&(IrPlaceSTy$(p$)) 'STRING * n: the length is in the place
+        IF (t AND ISSTRING) <> 0 AND (t AND ISFIXEDLENGTH) = 0 THEN IrNotSup "_MEM of a variable-length STRING array (QB64 rejects it too)": EXIT FUNCTION
         IrE "rt _MEMVAR " + dst$ + " " + y$ + " " + z$ + " " + IrConst$("i64", str2$(mt)) + " " + IrConst$("i64", str2$(es))
         EXIT FUNCTION
     END IF
     st$ = IrPlaceSTy$(p$)
-    IF st$ = "str" THEN IrNotSup "_MEM of a variable-length STRING": EXIT FUNCTION
+    IF st$ = "str" THEN IrNotSup "_MEM of a variable-length STRING (QB64 rejects it too)": EXIT FUNCTION
     sz = IrSize&(st$)
     mt = Type2MemTypeValue(t)
     x$ = IrAddr$(p$)
@@ -128,9 +129,16 @@ SUB IrMemStmt (f$)
             x$ = IrI64At$(fixoperationorder$(sv(3)))
             t = IrAsType&(sv(4))
             IF t = 0 THEN
+                'without AS: the bytes of a variable (as the C++ backend), or of a STRING value
+                IrQuiet = -1: p$ = IrPlace$(fixoperationorder$(sv(4)), t): IrQuiet = 0
+                IF LEN(p$) AND LEFT$(p$, 1) <> "A" AND IrPlaceSTy$(p$) <> "str" THEN
+                    sz = IrSize&(IrPlaceSTy$(p$))
+                    IrE "rt _MEMFILLP " + blk$ + " " + off$ + " " + x$ + " " + IrAddr$(p$) + " " + IrConst$("i64", str2$(sz))
+                    EXIT SUB
+                END IF
                 y$ = IrEval$(fixoperationorder$(sv(4)), t)
                 IF t AND ISSTRING THEN IrE "rt _MEMFILLS " + blk$ + " " + off$ + " " + x$ + " " + y$: EXIT SUB
-                IrNotSup "_MEMFILL value without AS type": EXIT SUB
+                IrNotSup "_MEMFILL of a value that is not a variable needs AS type": EXIT SUB
             END IF
             y$ = IrValueTemp$(fixoperationorder$(IrBeforeAs$(sv(4))), t, sz)
             IrE "rt _MEMFILLP " + blk$ + " " + off$ + " " + x$ + " " + y$ + " " + IrConst$("i64", str2$(sz))
@@ -156,7 +164,7 @@ SUB IrMemStmt (f$)
             p$ = IrPlace$(fixoperationorder$(sv(3)), t)
             IF p$ = "" THEN EXIT SUB
             st$ = IrPlaceSTy$(p$)
-            IF st$ = "str" THEN IrNotSup "_MEMGET into a variable-length STRING": EXIT SUB
+            IF st$ = "str" THEN IrE "rt _MEMGETS " + blk$ + " " + off$ + " " + IrAddr$(p$): EXIT SUB
             sz = IrSize&(st$)
             y$ = IrReg$: IrE "rt " + y$ + " _MEMGETP " + blk$ + " " + off$ + " " + IrConst$("i64", str2$(sz))
             IrE "copy " + IrAddr$(p$) + " " + y$ + " " + str2$(sz)

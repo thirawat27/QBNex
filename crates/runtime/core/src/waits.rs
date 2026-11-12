@@ -1,11 +1,11 @@
-//! `_DELAY`, `_LIMIT` and the timed part of `SLEEP` (R12b).
+//! `_DELAY`, `_LIMIT` and the timed part of `SLEEP`.
 //!
 //! The waits poll the millisecond clock, sleep in slices of at most 9 ms and
 //! call `evnt()` between slices so ON TIMER/KEY handlers and window events
 //! keep running. The clock, the sleep and `evnt()` come from a [`WaitHost`]
 //! so the loops can be replayed against a scripted clock (unit tests and the
 //! differential test). The console branch of SLEEP (waiting on the Windows
-//! console input handle) stays in libqb.cpp with the text console (R12a).
+//! console input handle) stays in libqb.cpp with the text console.
 
 /// Clock, sleep and event pump used by the waits.
 pub trait WaitHost {
