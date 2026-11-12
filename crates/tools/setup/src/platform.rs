@@ -8,7 +8,7 @@ mod imp {
     use std::path::{Path, PathBuf};
     use std::ptr::{null, null_mut};
 
-    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
     use windows_sys::Win32::System::Registry::{
         HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_DWORD, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
         RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
@@ -64,25 +64,33 @@ mod imp {
             (r == ERROR_SUCCESS).then_some(Key(h))
         }
 
-        /// A string value and whether it is REG_EXPAND_SZ.
-        fn get_str(&self, name: &str) -> Option<(String, bool)> {
+        /// A string value and whether it is REG_EXPAND_SZ; `Ok(None)` only when the value
+        /// does not exist. A value that exists but cannot be read is an error: a caller
+        /// that rewrites the value must not take it for empty.
+        fn get_str(&self, name: &str) -> Result<Option<(String, bool)>, String> {
             let n = wide(name);
             let mut ty = 0u32;
             let mut len = 0u32;
             // SAFETY: size query with a null buffer.
             let r = unsafe { RegQueryValueExW(self.0, n.as_ptr(), null(), &mut ty, null_mut(), &mut len) };
-            if r != ERROR_SUCCESS || (ty != REG_SZ && ty != REG_EXPAND_SZ) {
-                return None;
+            if r == ERROR_FILE_NOT_FOUND {
+                return Ok(None);
+            }
+            if r != ERROR_SUCCESS {
+                return Err(format!("cannot read registry value {name} (error {r})"));
+            }
+            if ty != REG_SZ && ty != REG_EXPAND_SZ {
+                return Err(format!("registry value {name} is not a string (type {ty})"));
             }
             let mut buf = vec![0u16; (len as usize).div_ceil(2) + 1];
             let mut bytes = (buf.len() * 2) as u32;
             // SAFETY: `buf` holds `bytes` bytes.
             let r = unsafe { RegQueryValueExW(self.0, n.as_ptr(), null(), &mut ty, buf.as_mut_ptr().cast(), &mut bytes) };
             if r != ERROR_SUCCESS {
-                return None;
+                return Err(format!("cannot read registry value {name} (error {r})"));
             }
             let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-            Some((String::from_utf16_lossy(&buf[..end]), ty == REG_EXPAND_SZ))
+            Ok(Some((String::from_utf16_lossy(&buf[..end]), ty == REG_EXPAND_SZ)))
         }
 
         fn set_str(&self, name: &str, value: &str, expand: bool) -> Result<(), String> {
@@ -120,7 +128,9 @@ mod imp {
 
     fn edit_user_path(dir: &Path, add: bool) -> Result<(), String> {
         let key = Key::create("Environment")?;
-        let (old, expand) = key.get_str("Path").unwrap_or((String::new(), true));
+        // an unreadable Path stops here: writing it back as "empty plus our folder"
+        // would erase every entry the user had
+        let (old, expand) = key.get_str("Path")?.unwrap_or((String::new(), true));
         let d = dir.to_string_lossy().into_owned();
         let mut parts: Vec<&str> = old.split(';').filter(|p| !p.trim().is_empty()).collect();
         let present = parts.iter().any(|p| same_dir(p, dir));
@@ -183,6 +193,28 @@ mod imp {
             let _ = std::process::Command::new("cmd").raw_arg(cmd).creation_flags(CREATE_NO_WINDOW).spawn();
         } else {
             let _ = std::fs::remove_dir(dir);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_missing_value_is_none_and_an_unreadable_one_is_an_error() {
+            let path = format!(r"Software\QBNexSetupTest-{}", std::process::id());
+            let key = Key::create(&path).unwrap();
+            assert_eq!(key.get_str("Missing"), Ok(None));
+            key.set_str("Text", "a;b", true).unwrap();
+            assert_eq!(key.get_str("Text"), Ok(Some(("a;b".to_string(), true))));
+            // not a string: must not read as "no value" (the PATH editor would then
+            // replace the user's whole PATH)
+            key.set_dword("Number", 1).unwrap();
+            assert!(key.get_str("Number").is_err());
+            drop(key);
+            let p = wide(&path);
+            // SAFETY: NUL-terminated subkey under HKCU created by this test.
+            unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, p.as_ptr()) };
         }
     }
 }

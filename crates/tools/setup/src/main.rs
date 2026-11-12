@@ -184,11 +184,7 @@ fn uninstall(args: &Args, interactive: bool) -> Result<(), String> {
     }
     platform::unregister(&dir)?;
     remove_listed(&dir)?;
-    // the compiler's work folder (build files, settings)
-    let work = dir.join("target");
-    if work.is_dir() && !is_link(&work) {
-        let _ = std::fs::remove_dir_all(&work);
-    }
+    remove_work_files(&dir);
     platform::remove_install_dir(&dir);
     println!("QBNex was removed from {}.", dir.display());
     Ok(())
@@ -228,6 +224,37 @@ fn remove_listed(dir: &Path) -> Result<(), String> {
     }
     let _ = std::fs::remove_file(dir.join(MANIFEST));
     Ok(())
+}
+
+/// Settings and version stamp the compiler keeps in its work folder `target`.
+const WORK_FILES: [&str; 2] = ["qb-config.ini", "qb-version.txt"];
+/// Prefix of the compiler's build folders in `target` (`qb-temp`, `qb-temp2`, ...).
+const WORK_DIR_PREFIX: &str = "qb-temp";
+
+/// Removes what the compiler wrote into its work folder `target`, then the folder
+/// if that left it empty. Anything else in it is not QBNex's (the install folder can
+/// be one the user also keeps a project in) and stays.
+fn remove_work_files(dir: &Path) {
+    let work = dir.join("target");
+    if !work.is_dir() || is_link(&work) {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(&work) {
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if is_link(&path) {
+                continue;
+            }
+            if path.is_dir() && name.starts_with(WORK_DIR_PREFIX) {
+                let _ = std::fs::remove_dir_all(&path);
+            } else if path.is_file() && WORK_FILES.contains(&name.as_ref()) {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(&work); // only succeeds when empty
 }
 
 fn is_link(p: &Path) -> bool {
@@ -289,6 +316,26 @@ mod tests {
         assert!(!dir.join("compiler").exists(), "listed file and its empty folders go");
         assert!(dir.join("mine.bas").is_file(), "files the user added stay");
         assert!(!dir.join(MANIFEST).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn uninstall_removes_only_the_compilers_work_files() {
+        let dir = std::env::temp_dir().join(format!("qbnex-setup-work-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let work = dir.join("target");
+        std::fs::create_dir_all(work.join("qb-temp2")).unwrap();
+        std::fs::write(work.join("qb-temp2/program.qir"), "x").unwrap();
+        std::fs::write(work.join("qb-config.ini"), "x").unwrap();
+        remove_work_files(&dir);
+        assert!(!work.exists(), "a work folder holding only compiler files goes");
+
+        std::fs::create_dir_all(work.join("qb-temp")).unwrap();
+        std::fs::create_dir_all(work.join("release")).unwrap();
+        std::fs::write(work.join("release/mine.exe"), "user build").unwrap();
+        remove_work_files(&dir);
+        assert!(!work.join("qb-temp").exists());
+        assert!(work.join("release/mine.exe").is_file(), "other content of target stays");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
