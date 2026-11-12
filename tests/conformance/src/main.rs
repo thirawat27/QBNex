@@ -29,6 +29,9 @@
 //! reported as `[skip]` (not passed, not failed). `QBNEX_REQUIRE_GL=1` makes
 //! it a failure instead, for hosts that must have OpenGL.
 //!
+//! A case with a `<name>.windows` file next to it drives cmd.exe and is
+//! reported as `[skip]` on other systems.
+//!
 //! The runner only uses `std` so it builds offline and on every CI host.
 
 use std::env;
@@ -378,6 +381,10 @@ fn diff_case(opts: &Options, case: &Path, diff_args: &[String]) -> Outcome {
 }
 
 fn run_case(opts: &Options, case: &Path) -> Outcome {
+    // `<case>.windows` marks a case that drives cmd.exe (SHELL "cmd /c ...")
+    if !cfg!(windows) && case.with_extension("windows").exists() {
+        return Outcome::Skip("Windows only (cmd.exe)".into());
+    }
     if let Some(d) = &opts.diff_args {
         return diff_case(opts, case, d);
     }
