@@ -118,11 +118,30 @@ FUNCTION TopLevelRuntime_IsLabelLine% (trimmedLine$)
     TopLevelRuntime_IsLabelLine = -1
 END FUNCTION
 
+FUNCTION TopLevelRuntime_MarkLine$ (lineText$)
+    'A line moved in front of the first SUB carries where it came from:
+    'CHR$(1) number CHR$(2) text, where number is the main-file line (for a line of an
+    'included file: the line of the top-level $INCLUDE, like every included line). A line
+    'of an included file also carries CHR$(3) line-in-file CHR$(3) file before CHR$(2), so
+    'that an error in it still names the included file and its line.
+    IF inclevel = 0 THEN
+        TopLevelRuntime_MarkLine$ = CHR$(1) + LTRIM$(STR$(linenumber + 1)) + CHR$(2) + lineText$
+    ELSE
+        TopLevelRuntime_MarkLine$ = CHR$(1) + LTRIM$(STR$(linenumber)) + CHR$(3) + LTRIM$(STR$(inclinenumber(inclevel))) + CHR$(3) + incname$(inclevel) + CHR$(2) + lineText$
+    END IF
+END FUNCTION
+
 FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     DIM trimmedLine AS STRING
     DIM upperLine AS STRING
     DIM lineText AS STRING
     DIM markEnd AS LONG
+    DIM markHead AS STRING
+    DIM fieldEnd AS LONG
+    DIM fileStart AS LONG
+
+    'only a moved line of an included file sets these (TopLevelRuntime_MarkLine$)
+    topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0
 
     IF rawLine$ = CHR$(13) THEN
         TopLevelRuntime_ProcessLine$ = rawLine$
@@ -130,13 +149,23 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     END IF
 
     lineText = rawLine$
-    'A line moved in front of the first SUB carries its source line number:
-    'CHR$(1) number CHR$(2) text. The caller adds 1 to linenumber after this call.
+    'A line moved in front of the first SUB (TopLevelRuntime_MarkLine$). It is fed at the
+    'main level: the caller adds 1 to linenumber after this call.
     IF LEFT$(lineText, 1) = CHR$(1) THEN
         markEnd = INSTR(lineText, CHR$(2))
         IF markEnd > 2 THEN
-            linenumber = VAL(MID$(lineText, 2, markEnd - 2)) - 1
+            markHead = MID$(lineText, 2, markEnd - 2)
             lineText = MID$(lineText, markEnd + 1)
+            fieldEnd = INSTR(markHead, CHR$(3))
+            IF fieldEnd THEN
+                fileStart = INSTR(fieldEnd + 1, markHead, CHR$(3))
+                IF fileStart THEN
+                    topLevelHoistSrcLine = VAL(MID$(markHead, fieldEnd + 1, fileStart - fieldEnd - 1))
+                    topLevelHoistSrcFile = MID$(markHead, fileStart + 1)
+                END IF
+                markHead = LEFT$(markHead, fieldEnd - 1)
+            END IF
+            linenumber = VAL(markHead) - 1
         END IF
     END IF
 
@@ -145,7 +174,7 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     IF topLevelHoistReady <> 0 AND topLevelHoistInjected = 0 AND inclevel = 0 THEN
         IF linenumber + 1 = topLevelHoistAt AND LEN(topLevelHoist) <> 0 THEN
             topLevelHoistInjected = -1
-            ClassSyntax_PushFrontLine CHR$(1) + LTRIM$(STR$(linenumber + 1)) + CHR$(2) + lineText
+            ClassSyntax_PushFrontLine TopLevelRuntime_MarkLine$(lineText)
             classSyntaxQueue$ = topLevelHoist + CHR$(10) + classSyntaxQueue$
             TopLevelRuntime_ProcessLine$ = TopLevelRuntime_ProcessLine$(ClassSyntax_DequeueLine$)
             EXIT FUNCTION
@@ -211,11 +240,11 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     END IF
 
     IF TopLevelRuntime_ShouldCapture%(trimmedLine, upperLine) THEN
-        'Already fed in front of the first SUB
+        'Already fed in front of the first SUB (lines of an included file too: they are
+        'fed at the main level and keep their file and line for error messages)
         IF topLevelHoistInjected THEN TopLevelRuntime_ProcessLine$ = "": EXIT FUNCTION
-        IF inclevel THEN topLevelHoistBad = -1
         IF TopLevelRuntime_IsLabelLine%(trimmedLine) THEN topLevelHoistWanted = -1
-        ClassSyntax_AppendLine topLevelHoistScan, CHR$(1) + LTRIM$(STR$(linenumber + 1)) + CHR$(2) + lineText
+        ClassSyntax_AppendLine topLevelHoistScan, TopLevelRuntime_MarkLine$(lineText)
         topLevelRuntimeCallInjected = -1
         ClassSyntax_AppendLine topLevelRuntimeLines, lineText
         TopLevelRuntime_ProcessLine$ = ""

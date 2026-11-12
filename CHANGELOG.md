@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CALL INTERRUPT` compiled to nothing: INT 33h (mouse) calls now answer as under `CALL ABSOLUTE`.
 - `CHAIN "name"` without a directory runs the program in the current directory on Linux and macOS too.
 - Module code with labels after an `$INCLUDE` that brings the SUBs is moved in front of that `$INCLUDE`, so its labels work too.
+- Module code with labels after the SUBs inside an `$INCLUDE` file (also a nested one) is moved in front of the first SUB as well, so an `ON ERROR` or `GOSUB` label there compiles; a compile error in that code still names the included file and its line.
 - Name lookups of `_OPENCLIENT` and friends give up after 10 seconds instead of blocking forever.
 - Compiling large programs is about 10 times faster (10,000 lines: 20 s instead of 250 s): reading part of a long STRING variable (`LEN`, `ASC`, `MID$`, `LEFT$`, `RIGHT$`, `INSTR`, comparisons) no longer copies the whole string first.
 - A large program no longer stalls at its first hot loop while the JIT compiles it: big modules are compiled on a background thread while the program keeps running (a 10,500-line program: 1.7 s instead of 16 s). The JIT also declares only the functions each function calls.

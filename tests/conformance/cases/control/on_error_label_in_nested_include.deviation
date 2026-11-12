@@ -1,0 +1,1 @@
+Module code with labels after the SUBs in a file that an included file includes. QB64 rejects labels between SUB/FUNCTIONs; QBasic treats them as module-level code. The compiler moves that code in front of the $INCLUDE line that brings the first SUB, so the labels and y belong to the main module. Expected output written by hand from QBasic semantics.

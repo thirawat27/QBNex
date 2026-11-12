@@ -702,8 +702,9 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED topLevelRuntimeSeenProc AS LONG
     'Module code with labels after the SUBs is moved before the first SUB (classes.bas)
     DIM SHARED topLevelHoist AS STRING, topLevelHoistScan AS STRING, topLevelHoistReady AS LONG
-    DIM SHARED topLevelHoistWanted AS LONG, topLevelHoistBad AS LONG, topLevelHoistInjected AS LONG
+    DIM SHARED topLevelHoistWanted AS LONG, topLevelHoistInjected AS LONG
     DIM SHARED topLevelHoistAt AS LONG, topLevelHoistAtScan AS LONG
+    DIM SHARED topLevelHoistSrcFile AS STRING, topLevelHoistSrcLine AS LONG
 
     DIM SHARED closedmain AS INTEGER
     DIM SHARED module AS STRING
@@ -1189,7 +1190,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             topLevelRuntimeTypeDepth = 0
             topLevelRuntimeDeclareDepth = 0
             topLevelRuntimeSeenProc = 0
-            topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistBad = 0: topLevelHoistInjected = 0: topLevelHoistAtScan = 0
+            topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistInjected = 0: topLevelHoistAtScan = 0
+            topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0
             classSyntaxActive = 0
             classSyntaxTypeOpen = 0
             classSyntaxInMethod = 0
@@ -2443,8 +2445,9 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                         LINE INPUT #fh, x$
 
                                         wholeline$ = ClassSyntax_ProcessLine$(x$)
-                                        wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
+                                        'counted first: TopLevelRuntime_ProcessLine$ records this line's number
                                         inclinenumber(inclevel) = inclinenumber(inclevel) + 1
+                                        wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
                                         'create extended error string 'incerror$'
                                         errorLineInInclude = inclinenumber(inclevel)
                                         e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + incname$(inclevel) + " included"
@@ -2504,9 +2507,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                         'prepass finished
 
-                        'Labels in module code after the SUBs must be module labels; compile
-                        'again with that code moved in front of the first SUB (TopLevelRuntime_ProcessLine$)
-                        IF topLevelHoistReady = 0 AND topLevelHoistWanted <> 0 AND topLevelHoistBad = 0 AND topLevelHoistAtScan > 0 AND compfailed = 0 THEN
+                        'Labels in module code after the SUBs (in the main file or an included file)
+                        'must be module labels; compile again with that code moved in front of the
+                        'first SUB (TopLevelRuntime_ProcessLine$)
+                        IF topLevelHoistReady = 0 AND topLevelHoistWanted <> 0 AND topLevelHoistAtScan > 0 AND compfailed = 0 THEN
                             topLevelHoist = topLevelHoistScan: topLevelHoistReady = -1: topLevelHoistAt = topLevelHoistAtScan
                             GOTO do_recompile
                         END IF
@@ -10813,9 +10817,10 @@ DO WHILE inclevel
     IF EOF(fh) = 0 AND (incRangeEnd(inclevel) = 0 OR inclinenumber(inclevel) < incRangeEnd(inclevel)) THEN
         LINE INPUT #fh, x$
         a3$ = ClassSyntax_ProcessLine$(x$)
+        'counted first: TopLevelRuntime_ProcessLine$ records this line's number
+        inclinenumber(inclevel) = inclinenumber(inclevel) + 1
         a3$ = TopLevelRuntime_ProcessLine$(a3$)
         continuelinefrom = 0
-        inclinenumber(inclevel) = inclinenumber(inclevel) + 1
         'create extended error string 'incerror$'
         errorLineInInclude = inclinenumber(inclevel)
         e$ = " in line " + str2(inclinenumber(inclevel)) + " of " + incname$(inclevel) + " included"

@@ -1,0 +1,7 @@
+oops:
+PRINT "oops"; ERR; y
+RESUME NEXT
+
+tail:
+PRINT "tail"; y
+RETURN

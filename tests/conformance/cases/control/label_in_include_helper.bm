@@ -1,0 +1,11 @@
+SUB greet
+    PRINT "in greet"; x
+END SUB
+
+handler:
+PRINT "handled"; ERR; x
+RESUME NEXT
+
+more:
+PRINT "more"; x
+RETURN

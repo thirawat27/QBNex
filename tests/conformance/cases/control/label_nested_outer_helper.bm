@@ -1,0 +1,4 @@
+SUB hello
+    PRINT "in hello"
+END SUB
+'$INCLUDE:'label_nested_inner_helper.bm'

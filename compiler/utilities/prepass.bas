@@ -34,7 +34,8 @@ SUB ResetPrepassManagers
     topLevelRuntimeTypeDepth = 0
     topLevelRuntimeDeclareDepth = 0
     topLevelRuntimeSeenProc = 0
-    topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistBad = 0: topLevelHoistInjected = 0: topLevelHoistAtScan = 0
+    topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistInjected = 0: topLevelHoistAtScan = 0
+    topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0
     ClassSyntax_ClearRegistry
     ClassSyntax_ClearScopes
     SyntaxExt_Reset

@@ -137,7 +137,12 @@ SUB HandleFrontendErrorAndExit (errMessage$)
     IF forceIncludingFile THEN
         IF INSTR(errMessage$, "END SUB/FUNCTION before") THEN errMessage$ = "SUB without END SUB"
     ELSE
-        IF inclevel > 0 THEN errMessage$ = errMessage$ + incerror$
+        IF inclevel > 0 THEN
+            errMessage$ = errMessage$ + incerror$
+        ELSEIF LEN(topLevelHoistSrcFile) THEN
+            'module code of an included file, moved in front of the first SUB
+            errMessage$ = errMessage$ + " in line " + str2(topLevelHoistSrcLine) + " of " + topLevelHoistSrcFile + " included"
+        END IF
     END IF
 
     fullContext = RTRIM$(diagnosticSourceLine)
@@ -160,6 +165,10 @@ SUB HandleFrontendErrorAndExit (errMessage$)
         IF RTRIM$(incname$(inclevel)) <> "" THEN reportFile = incname$(inclevel)
         IF inclinenumber(inclevel) > 0 THEN reportLineNumber = inclinenumber(inclevel)
         locationNote = "Triggered while compiling an included module."
+    ELSEIF LEN(topLevelHoistSrcFile) THEN
+        reportFile = topLevelHoistSrcFile
+        IF topLevelHoistSrcLine > 0 THEN reportLineNumber = topLevelHoistSrcLine
+        locationNote = "Triggered while compiling module code of an included module (it follows a SUB/FUNCTION and was moved in front of the first SUB)."
     END IF
 
     frontendErrorKey = UCASE$(NormalizeDiagnosticMessage$(errMessage$)) + "|" + UCASE$(RTRIM$(reportFile)) + "|" + LTRIM$(STR$(reportLineNumber))
