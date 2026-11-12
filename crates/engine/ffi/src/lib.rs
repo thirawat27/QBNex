@@ -15,10 +15,13 @@
 //! - [`call`] calls any function pointer with a [`Signature`] of QB types on
 //!   Win64, `SysV` x86-64 and `AArch64` (AAPCS64, including Apple's variant).
 //!
-//! `DECLARE LIBRARY "name"` where the legacy compiler would have found a C
-//! header (`name.h` / `name.hpp`) is rejected at compile time with
-//! [`header_error`] (documented deviation): headers may contain macros and inline
-//! C code, which only a C compiler can use.
+//! `DECLARE LIBRARY "name"` with a C header (`name.h` / `name.hpp`) is
+//! handled by the BASIC compiler: it builds a wrapper library from the header
+//! with a C++ compiler and puts it next to the program, whose `meta extfn`
+//! names it as `./name` (opened from the program's folder). Headers may
+//! contain macros and inline C code, which only a C compiler can use.
+//! [`find_header`] and [`header_error`] remain for tools without a C++
+//! compiler.
 //!
 //! See `docs/dev/ffi-float80.md` for the API contract used by the
 //! emitter and the VM.

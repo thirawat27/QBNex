@@ -1536,7 +1536,10 @@ impl<'m, 'o> Vm<'m, 'o> {
             let k = match self.xlibs.iter().position(|(n, _)| *n == xf.lib) {
                 Some(k) => k,
                 None => {
-                    self.xlibs.push((xf.lib.clone(), qb_ffi::Library::open_dynamic(&xf.lib, None).ok()));
+                    // "./name": next to the program (the compiler puts the wrapper library of
+                    // DECLARE LIBRARY headers there; a "./" the program wrote is already absolute)
+                    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(std::path::Path::to_path_buf));
+                    self.xlibs.push((xf.lib.clone(), qb_ffi::Library::open_dynamic(&xf.lib, exe_dir.as_deref()).ok()));
                     self.xlibs.len() - 1
                 }
             };

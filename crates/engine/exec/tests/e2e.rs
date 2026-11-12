@@ -203,3 +203,87 @@ fn declare_library_calls_functions_of_the_named_dll() {
     let out = compile_and_run(&qb, &src, &dir.join("declib.exe"), &[]);
     assert_eq!(out, " 1234 \n-1 \n-1 \n");
 }
+
+/// The C++ compiler the BASIC compiler uses for DECLARE LIBRARY headers, if any.
+fn header_cxx_available() -> bool {
+    if cfg!(windows) && repo_root().join("internal/c/c_compiler/bin/g++.exe").exists() {
+        return true;
+    }
+    let names: &[&str] = if cfg!(windows) { &["g++"] } else { &["c++", "g++", "clang++"] };
+    names.iter().any(|n| Command::new(n).arg("--version").output().is_ok_and(|o| o.status.success()))
+}
+
+/// Compiles `src` (with a header next to it) and runs it, or, without a C++
+/// compiler, checks the compile error that says so. `None` = no compiler.
+fn compile_and_run_with_header(qb: &Path, src: &Path, exe: &Path) -> Option<String> {
+    if header_cxx_available() {
+        return Some(compile_and_run(qb, src, exe, &[]));
+    }
+    let _guard = compiler_lock();
+    let out = Command::new(qb).current_dir(repo_root()).arg(src).arg("-o").arg(exe).arg("-q").arg("-m").output().unwrap();
+    let text = normalize(&out.stdout) + &normalize(&out.stderr);
+    assert!(!out.status.success() && text.contains("needs a C++ compiler"), "{text}");
+    eprintln!("SKIP: no C++ compiler for DECLARE LIBRARY headers");
+    None
+}
+
+/// DECLARE LIBRARY "name" with name.h next to the source: the header's inline
+/// function is called through the wrapper library the compiler builds from it.
+#[test]
+fn declare_library_header_inline_function() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("dechdr");
+    std::fs::write(dir.join("hdrtest.h"), "static inline int add2(int a, int b) { return a + b; }\n").unwrap();
+    let src = dir.join("hdrtest.bas");
+    std::fs::write(
+        &src,
+        "$CONSOLE:ONLY\n\
+         DECLARE LIBRARY \"hdrtest\"\n    FUNCTION add2& (BYVAL a AS LONG, BYVAL b AS LONG)\nEND DECLARE\n\
+         PRINT add2(2, 3)\n",
+    )
+    .unwrap();
+    if let Some(out) = compile_and_run_with_header(&qb, &src, &dir.join("hdrtest.exe")) {
+        assert_eq!(out, " 5 \n");
+    }
+}
+
+/// Header functions with string arguments and results, a macro (ALIAS) and a
+/// BYREF argument.
+#[test]
+fn declare_library_header_strings_macros_and_byref() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("dechdrstr");
+    std::fs::write(
+        dir.join("strhdr.hpp"),
+        "#include <string.h>\n\
+         static inline int slen(const char *s) { return (int)strlen(s); }\n\
+         static inline int count_char(const char *s, int c) { int n = 0; for (; *s; s++) n += *s == c; return n; }\n\
+         static inline const char *greet(void) { return \"hello from C\"; }\n\
+         #define TWICE(x) ((x) * 2)\n\
+         static inline void bump(int *p) { *p += 1; }\n",
+    )
+    .unwrap();
+    let src = dir.join("strhdr.bas");
+    std::fs::write(
+        &src,
+        "$CONSOLE:ONLY\n\
+         DECLARE LIBRARY \"strhdr\"\n\
+         \x20   FUNCTION slen& (s AS STRING)\n\
+         \x20   FUNCTION count_char& (s AS STRING, BYVAL c AS LONG)\n\
+         \x20   FUNCTION greet$ ()\n\
+         \x20   FUNCTION twice& ALIAS \"TWICE\" (BYVAL x AS LONG)\n\
+         \x20   SUB bump (n AS LONG)\n\
+         END DECLARE\n\
+         PRINT slen(\"hello!\" + CHR$(0))\n\
+         PRINT count_char(\"banana\" + CHR$(0), ASC(\"a\"))\n\
+         PRINT greet$\n\
+         PRINT twice(21)\n\
+         n& = 9: bump n&: PRINT n&\n",
+    )
+    .unwrap();
+    if let Some(out) = compile_and_run_with_header(&qb, &src, &dir.join("strhdr.exe")) {
+        assert_eq!(out, " 6 \n 3 \nhello from C\n 42 \n 10 \n");
+    }
+}

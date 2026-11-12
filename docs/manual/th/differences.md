@@ -67,7 +67,8 @@ exponent ของ MBF เป็น 2, `STR$`
 - โปรแกรมถูกคอมไพล์เป็น QIR แล้วรันด้วย runner ภาษา Rust (ดู[คำสั่ง](commands.md))
   ไม่มีการสร้างโค้ด C++ อีก ดังนั้น `-z`, `-p`, `-s:debuginfo` และ `--ir`
   จึงไม่มีผล ฟังก์ชันใน `DECLARE LIBRARY` ถูกเรียกใน shared library ผ่าน
-  `crates/engine/ffi` (ดู[ส่วนขยายของภาษา](language.md))
+  `crates/engine/ffi` (ดู[ส่วนขยายของภาษา](language.md)) มีเพียง header ของ C
+  ใน `DECLARE LIBRARY` ที่ต้องใช้คอมไพเลอร์ C++ (ดู[ข้อจำกัด](limitations.md#declare-library))
 - ถ้าใช้คำสั่งที่ QIR back end ยังไม่รองรับ การ build จะหยุดพร้อมข้อความ
   `QIR: unsupported: line N: ...`
 - พารามิเตอร์ BYREF ถูกคัดลอกเข้าและคัดลอกกลับ ต่างจาก QB64 เฉพาะเมื่อ SUB

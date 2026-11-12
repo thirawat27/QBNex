@@ -22,6 +22,7 @@ SUB IrInit
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
     IrExtMeta = "": IrLibSpec = "": IrLibOf = "": IrDataN = 0: IrDefSeg = 0: IrPendLL = 0
+    IrHdrFiles = "": IrHdrLibs = "": IrHdrFns = ""
     IrPendCase$ = "": IrPendEvery = 0: IrPendElse = 0: IrPendCaseOn = 0: IrPendLevel = 0
     IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
     IrRunN = 0: IrRunTo = ""
@@ -1208,15 +1209,23 @@ FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
         rt$ = "void"
     END IF
     'DECLARE LIBRARY: the C symbol and library of the DECLARE (recorded at declibjmp1 in qbnex.bas)
-    DIM xlib$, p AS LONG, q AS LONG
+    DIM xlib$, p AS LONG, q AS LONG, spec$, w$
     xlib$ = lib$
     IF xlib$ = "-" THEN
         p = INSTR(IrLibOf, CHR$(1) + nm$ + CHR$(2))
         IF p THEN
+            w$ = nm$
             p = p + LEN(nm$) + 2: q = INSTR(p, IrLibOf, CHR$(2))
             IF q > p THEN nm$ = MID$(IrLibOf, p, q - p)
             p = q + 1: q = INSTR(p, IrLibOf, CHR$(1))
-            IF q > p THEN xlib$ = IrHex$(MID$(IrLibOf, p, q - p))
+            IF q > p THEN spec$ = MID$(IrLibOf, p, q - p): xlib$ = IrHex$(spec$)
+            IF spec$ = IrHdrMark$ THEN
+                'declared with a C header: call the exported wrapper of the header library next
+                'to the program ("./" = the program's folder at run time), which calls nm$
+                w$ = "qbnex_hdr_" + IrCIdent$(w$)
+                IF INSTR(IrHdrFns, w$ + CHR$(9)) = 0 THEN IrHdrFns = IrHdrFns + w$ + CHR$(9) + nm$ + CHR$(9) + rt$ + tys$ + CHR$(10)
+                nm$ = w$: xlib$ = IrHex$("./" + IrHdrLibName$)
+            END IF
         END IF
     END IF
     IF INSTR(IrExtMeta, "meta extfn " + nm$ + " ") = 0 THEN IrExtMeta = IrExtMeta + "meta extfn " + nm$ + " " + xlib$ + " " + rt$ + tys$ + CHR$(10)
@@ -1241,6 +1250,249 @@ FUNCTION IrSharedLibFound% (libpath$, x$, libver$)
     IF _FILEEXISTS(libpath$ + x$ + ".dll") OR _FILEEXISTS(sys$ + libpath$ + x$ + ".dll") THEN IrSharedLibFound% = -1
     IF _FILEEXISTS(x$ + ".dll") OR _FILEEXISTS(sys$ + x$ + ".dll") THEN IrSharedLibFound% = -1
 END FUNCTION
+
+'================================================================ DECLARE LIBRARY with a C header
+
+'library spec recorded for the procedures of a DECLARE LIBRARY that uses a header
+FUNCTION IrHdrMark$
+    IrHdrMark$ = CHR$(3) + "headers"
+END FUNCTION
+
+'base name of the wrapper library next to the program (name.dll, libname.so, libname.dylib)
+FUNCTION IrHdrLibName$
+    IrHdrLibName$ = file$ + "_headers"
+END FUNCTION
+
+FUNCTION IrIsAbsPath% (p$)
+    IF LEFT$(p$, 1) = "/" OR LEFT$(p$, 1) = "\" OR MID$(p$, 2, 1) = ":" THEN IrIsAbsPath% = -1
+END FUNCTION
+
+'absolute form of a path the compiler found relative to its working folder; the "\\" of an
+'inline C path becomes "\"
+FUNCTION IrAbsPath$ (p0$)
+    DIM p$, z AS LONG, d$
+    p$ = p0$
+    IF os$ = "WIN" THEN
+        z = INSTR(p$, "\\")
+        DO WHILE z
+            p$ = LEFT$(p$, z) + MID$(p$, z + 2)
+            z = INSTR(z + 1, p$, "\\")
+        LOOP
+    END IF
+    IF IrIsAbsPath%(p$) = 0 THEN
+        d$ = _CWD$: IF RIGHT$(d$, 1) <> pathsep$ THEN d$ = d$ + pathsep$
+        p$ = d$ + p$
+    END IF
+    IrAbsPath$ = p$
+END FUNCTION
+
+'C identifier from a QIR name: letters, digits and "_"
+FUNCTION IrCIdent$ (s$)
+    DIM r$, k AS LONG, c AS LONG
+    r$ = s$
+    FOR k = 1 TO LEN(r$)
+        c = ASC(r$, k)
+        IF (c < 48 OR c > 57) AND (c < 65 OR c > 90) AND (c < 97 OR c > 122) THEN ASC(r$, k) = 95
+    NEXT
+    IrCIdent$ = r$
+END FUNCTION
+
+'reads the first line of a text file ("" when missing or empty)
+FUNCTION IrFirstLine$ (f$)
+    DIM fh AS INTEGER, l$
+    IF _FILEEXISTS(f$) = 0 THEN EXIT FUNCTION
+    fh = FREEFILE
+    OPEN f$ FOR INPUT AS #fh
+    IF EOF(fh) = 0 THEN LINE INPUT #fh, l$
+    CLOSE #fh
+    IrFirstLine$ = LTRIM$(RTRIM$(l$))
+END FUNCTION
+
+'runs the lines of a shell script (Windows: a .cmd file) from the compiler's folder
+SUB IrRunScript (lines$)
+    DIM fh AS INTEGER, f$, rc AS LONG
+    IF os$ = "WIN" THEN f$ = tmpdir$ + "headers.cmd" ELSE f$ = tmpdir$ + "headers.sh"
+    fh = FREEFILE
+    OPEN f$ FOR OUTPUT AS #fh
+    IF os$ = "WIN" THEN PRINT #fh, "@echo off"
+    PRINT #fh, lines$
+    CLOSE #fh
+    IF os$ = "WIN" THEN rc = _SHELLHIDE(f$) ELSE rc = _SHELLHIDE("sh " + CHR$(34) + f$ + CHR$(34))
+END SUB
+
+'the C++ compiler for wrapper libraries: Windows internal\c\c_compiler\bin\g++.exe, then g++ on
+'the PATH; Linux and macOS c++, g++ or clang++ on the PATH. "" = none.
+FUNCTION IrFindCxx$
+    DIM f$, c$
+    IF LEN(IrHdrCxx) THEN IrFindCxx$ = IrHdrCxx: EXIT FUNCTION
+    f$ = tmpdir$ + "headers_cxx.txt"
+    IF _FILEEXISTS(f$) THEN KILL f$
+    IF os$ = "WIN" THEN
+        c$ = "internal\c\c_compiler\bin\g++.exe"
+        IF _FILEEXISTS(c$) THEN
+            c$ = IrAbsPath$(c$)
+        ELSE
+            IrRunScript "where g++ > " + CHR$(34) + f$ + CHR$(34) + " 2>nul"
+            c$ = IrFirstLine$(f$)
+        END IF
+    ELSE
+        IrRunScript "(command -v c++ || command -v g++ || command -v clang++) > " + CHR$(34) + f$ + CHR$(34) + " 2>/dev/null"
+        c$ = IrFirstLine$(f$)
+    END IF
+    IF _FILEEXISTS(c$) = 0 THEN c$ = ""
+    IrHdrCxx = c$
+    IrFindCxx$ = c$
+END FUNCTION
+
+'DECLARE LIBRARY "spec" found the header hdr$ (and maybe the static library lib$ to link with it):
+'records both for the wrapper library; returns a compile error when no C++ compiler can build it
+FUNCTION IrHeaderFound$ (hdr$, lib$, spec$)
+    DIM h$
+    h$ = IrAbsPath$(hdr$)
+    IF INSTR(CHR$(10) + IrHdrFiles, CHR$(10) + h$ + CHR$(10)) = 0 THEN IrHdrFiles = IrHdrFiles + h$ + CHR$(10)
+    IF LEN(lib$) THEN
+        h$ = IrAbsPath$(lib$)
+        IF INSTR(CHR$(10) + IrHdrLibs, CHR$(10) + h$ + CHR$(10)) = 0 THEN IrHdrLibs = IrHdrLibs + h$ + CHR$(10)
+    END IF
+    IF LEN(IrFindCxx$) = 0 THEN
+        IF os$ = "WIN" THEN
+            h$ = "internal\c\c_compiler (MinGW) or g++ on the PATH"
+        ELSE
+            h$ = "c++, g++ or clang++ on the PATH"
+        END IF
+        IrHeaderFound$ = "DECLARE LIBRARY " + CHR$(34) + spec$ + CHR$(34) + " uses the C header " + IrAbsPath$(hdr$) + ", which needs a C++ compiler to build its wrapper library; none was found (looked for " + h$ + ")"
+    END IF
+END FUNCTION
+
+'C type of a QIR extfn type
+FUNCTION IrCTy$ (t$)
+    SELECT CASE t$
+        CASE "void": IrCTy$ = "void"
+        CASE "i8": IrCTy$ = "int8_t"
+        CASE "u8": IrCTy$ = "uint8_t"
+        CASE "i16": IrCTy$ = "int16_t"
+        CASE "u16": IrCTy$ = "uint16_t"
+        CASE "i32": IrCTy$ = "int32_t"
+        CASE "u32": IrCTy$ = "uint32_t"
+        CASE "i64": IrCTy$ = "int64_t"
+        CASE "u64": IrCTy$ = "uint64_t"
+        CASE "f32": IrCTy$ = "float"
+        CASE "f64": IrCTy$ = "double"
+        CASE "str": IrCTy$ = "const char *"
+        CASE ELSE: IrCTy$ = "void *"
+    END SELECT
+END FUNCTION
+
+'builds the wrapper library of the DECLARE LIBRARY headers next to the program outPath$: a C++
+'file that includes the headers and exports one C function per called procedure, taking and
+'returning the types the runner passes (strings and addresses as pointers)
+SUB IrBuildHeaderShim (outPath$)
+    DIM fh AS INTEGER, src$, dll$, log$, d$, l$, rest$, p AS LONG, q AS LONG, w$, sym$, sig$
+    DIM rt$, ps$, cs$, k AS LONG, t$, n AS LONG, cmd$, inc$
+    IF LEN(IrHdrFns) = 0 THEN EXIT SUB
+    IF IrEmitText THEN
+        PRINT "QIR: DECLARE LIBRARY with a C header needs an executable (its functions are in a wrapper library); QIR text cannot carry it"
+        SYSTEM 1
+    END IF
+    d$ = getfilepath$(outPath$)
+    IF LEN(d$) = 0 THEN d$ = _CWD$ + pathsep$
+    IF os$ = "WIN" THEN
+        dll$ = d$ + IrHdrLibName$ + ".dll"
+    ELSEIF MacOSX THEN
+        dll$ = d$ + "lib" + IrHdrLibName$ + ".dylib"
+    ELSE
+        dll$ = d$ + "lib" + IrHdrLibName$ + ".so"
+    END IF
+    src$ = tmpdir$ + "headers_shim.cpp"
+    log$ = tmpdir$ + "headers_shim.log"
+    fh = FREEFILE
+    OPEN src$ FOR OUTPUT AS #fh
+    PRINT #fh, "// DECLARE LIBRARY headers: wrapper library generated by QBNex"
+    PRINT #fh, "#include <stdint.h>"
+    rest$ = IrHdrFiles
+    DO WHILE LEN(rest$)
+        p = INSTR(rest$, CHR$(10)): l$ = LEFT$(rest$, p - 1): rest$ = MID$(rest$, p + 1)
+        inc$ = l$
+        FOR k = 1 TO LEN(inc$)
+            IF ASC(inc$, k) = 92 THEN ASC(inc$, k) = 47
+        NEXT
+        PRINT #fh, "#include " + CHR$(34) + inc$ + CHR$(34)
+    LOOP
+    PRINT #fh, "#if defined(_WIN32)"
+    PRINT #fh, "#define QBNEX_HDR_EXPORT extern " + CHR$(34) + "C" + CHR$(34) + " __declspec(dllexport)"
+    PRINT #fh, "#else"
+    PRINT #fh, "#define QBNEX_HDR_EXPORT extern " + CHR$(34) + "C" + CHR$(34) + " __attribute__((visibility(" + CHR$(34) + "default" + CHR$(34) + ")))"
+    PRINT #fh, "#endif"
+    PRINT #fh, "// a string or an address converts to whatever pointer (or integer) the header expects"
+    PRINT #fh, "struct qbnex_hdr_ptr {"
+    PRINT #fh, "    void *p;"
+    PRINT #fh, "    template <class T> operator T() const { return (T)(uintptr_t)p; }"
+    PRINT #fh, "};"
+    rest$ = IrHdrFns
+    DO WHILE LEN(rest$)
+        p = INSTR(rest$, CHR$(10)): l$ = LEFT$(rest$, p - 1): rest$ = MID$(rest$, p + 1)
+        p = INSTR(l$, CHR$(9)): q = INSTR(p + 1, l$, CHR$(9))
+        w$ = LEFT$(l$, p - 1): sym$ = MID$(l$, p + 1, q - p - 1): sig$ = MID$(l$, q + 1) + " "
+        n = 0: ps$ = "": cs$ = "": rt$ = ""
+        DO WHILE LEN(sig$)
+            p = INSTR(sig$, " "): t$ = LEFT$(sig$, p - 1): sig$ = LTRIM$(MID$(sig$, p + 1))
+            IF LEN(rt$) = 0 THEN
+                rt$ = t$
+            ELSE
+                n = n + 1
+                IF n > 1 THEN ps$ = ps$ + ", ": cs$ = cs$ + ", "
+                IF t$ = "str" OR t$ = "ptr" THEN
+                    ps$ = ps$ + "void *a" + str2$(n)
+                    cs$ = cs$ + "qbnex_hdr_ptr{a" + str2$(n) + "}"
+                ELSE
+                    ps$ = ps$ + IrCTy$(t$) + " a" + str2$(n)
+                    cs$ = cs$ + "a" + str2$(n)
+                END IF
+            END IF
+        LOOP
+        IF n = 0 THEN ps$ = "void"
+        l$ = "QBNEX_HDR_EXPORT " + IrCTy$(rt$) + " " + w$ + "(" + ps$ + ") { "
+        IF rt$ = "void" THEN
+            l$ = l$ + sym$ + "(" + cs$ + "); }"
+        ELSEIF rt$ = "ptr" THEN
+            l$ = l$ + "return (void *)(uintptr_t)(" + sym$ + "(" + cs$ + ")); }"
+        ELSE
+            l$ = l$ + "return (" + IrCTy$(rt$) + ")(" + sym$ + "(" + cs$ + ")); }"
+        END IF
+        PRINT #fh, l$
+    LOOP
+    CLOSE #fh
+
+    IF _FILEEXISTS(dll$) THEN KILL dll$
+    IF _FILEEXISTS(log$) THEN KILL log$
+    cmd$ = CHR$(34) + IrFindCxx$ + CHR$(34) + " -shared -O2 -w"
+    IF os$ = "WIN" THEN
+        'one file: no libstdc++/libgcc/winpthread DLLs needed next to the program
+        cmd$ = cmd$ + " -static"
+    ELSE
+        cmd$ = cmd$ + " -fPIC"
+    END IF
+    cmd$ = cmd$ + " -o " + CHR$(34) + dll$ + CHR$(34) + " " + CHR$(34) + src$ + CHR$(34)
+    rest$ = IrHdrLibs
+    DO WHILE LEN(rest$)
+        p = INSTR(rest$, CHR$(10)): cmd$ = cmd$ + " " + CHR$(34) + LEFT$(rest$, p - 1) + CHR$(34): rest$ = MID$(rest$, p + 1)
+    LOOP
+    IrRunScript cmd$ + " > " + CHR$(34) + log$ + CHR$(34) + " 2>&1"
+    IF _FILEEXISTS(dll$) = 0 THEN
+        PRINT
+        PRINT "DECLARE LIBRARY: building the wrapper library of the C header(s) failed:"
+        IF _FILEEXISTS(log$) THEN
+            fh = FREEFILE
+            OPEN log$ FOR INPUT AS #fh
+            DO WHILE EOF(fh) = 0
+                LINE INPUT #fh, l$: PRINT l$
+            LOOP
+            CLOSE #fh
+        END IF
+        SYSTEM 1
+    END IF
+    IF QuietMode = 0 THEN PRINT "Header library: " + dll$
+END SUB
 
 FUNCTION IrUserCall$ (idn AS LONG, nargs AS LONG)
     DIM k AS LONG, pt AS LONG, ps AS LONG, regs$, d$, nm$, rt$
@@ -2525,6 +2777,8 @@ SUB IrFinish (src$, outExe$)
 
     ' --emit-ir or -o <name>.qir: the QIR text itself (what qb-web runs), no executable
     IF LCASE$(RIGHT$(outPath$, 4)) = ".qir" THEN IrEmitText = -1
+    'DECLARE LIBRARY headers: their wrapper library goes next to the program
+    IrBuildHeaderShim outPath$
     IF IrEmitText THEN
         IF LCASE$(RIGHT$(outPath$, 4)) <> ".qir" THEN
             IF LEN(extension$) THEN

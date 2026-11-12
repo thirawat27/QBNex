@@ -3716,6 +3716,27 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             GotHeader:
         END IF
 
+        'QIR: a header next to the source counts too; the functions of a header are called through
+        'a wrapper library built from it with a C++ compiler (IrHeaderFound$, IrBuildHeaderShim)
+        IF IrEmitMode THEN
+            IF LEN(headername$) = 0 AND LEN(path.source$) > 0 AND IrIsAbsPath%(libpath$) = 0 THEN
+                IF _FILEEXISTS(path.source$ + libpath$ + x$ + ".h") THEN
+                    headername$ = path.source$ + libpath$ + x$ + ".h"
+                ELSEIF _FILEEXISTS(path.source$ + libpath$ + x$ + ".hpp") THEN
+                    headername$ = path.source$ + libpath$ + x$ + ".hpp"
+                END IF
+                IF LEN(headername$) THEN
+                    IF customtypelibrary = 0 THEN sfdeclare = 0
+                    sfheader = 1
+                END IF
+            END IF
+            IF LEN(headername$) THEN
+                e$ = IrHeaderFound$(headername$, libname$, autoformat_x$)
+                IF LEN(e$) THEN a$ = e$: GOTO errmes
+                IrLibSpec = IrHdrMark$
+            END IF
+        END IF
+
     ELSE
         'dynamic library
 

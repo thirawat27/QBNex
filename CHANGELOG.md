@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CALL INTERRUPTX` and the `INTERRUPT[X] n, in, out` form; `_MEMFILL` of a variable without `AS type`; `_MEMGET` into a variable-length STRING; `_MEM` of a fixed-length STRING array.
 - `ON PLAY(n) GOSUB` and `PLAY ON/OFF/STOP`: the handler runs when the background music queue drops below n notes.
 - A silent audio device: without an output device (or with `QB_AUDIO_DEVICE=null`) sound is mixed in real time and discarded, so `PLAY(n)`, `ON PLAY(n) GOSUB` and sound timing work as with speakers. `QB_AUDIO_DEVICE=none` still starts no audio at all.
+- `DECLARE LIBRARY "name"` with a C header (`name.h` / `name.hpp`, also next to the source): the compiler builds a wrapper library `<program>_headers.dll` (`.so`, `.dylib`) next to the executable with g++ / c++, so inline functions and macros of the header can be called. Without a C++ compiler the compile error names the header.
 
 ### Fixed
 
