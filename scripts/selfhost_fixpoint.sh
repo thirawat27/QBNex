@@ -27,8 +27,12 @@ cp target/qb-temp/program.qir "$WORK/gen3.qir"
 
 cmp -s "$WORK/gen2.qir" "$WORK/gen3.qir" || { echo "[FAIL] gen2 and gen3 emit different QIR for compiler/qbnex.bas"; exit 1; }
 echo "[ok] gen2 and gen3 emit identical QIR"
-cmp -s "$WORK/gen3.qir" bootstrap/qbnex.qir || { echo "[FAIL] the compiler's QIR differs from bootstrap/qbnex.qir (refresh it)"; exit 1; }
-echo "[ok] bootstrap/qbnex.qir is up to date"
+# bootstrap/qbnex.qir is the Windows build of the compiler (its QIR differs per OS where
+# the compiler's own code does), so only a Windows run can compare against it
+if [ "${QBNEX_FIXPOINT_BOOTSTRAP:-1}" = "1" ]; then
+  cmp -s "$WORK/gen3.qir" bootstrap/qbnex.qir || { echo "[FAIL] the compiler's QIR differs from bootstrap/qbnex.qir (refresh it)"; exit 1; }
+  echo "[ok] bootstrap/qbnex.qir is up to date"
+fi
 
 if [ "${1:-}" = "--conformance" ]; then
   echo "[fixpoint] conformance with qb-gen3"

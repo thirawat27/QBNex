@@ -37,6 +37,12 @@ fn install_runner_now() {
     let name = if cfg!(windows) { "qb-exec.exe" } else { "qb-exec" };
     let dir = repo_root().join("crates/engine/exec/bin").join(os);
     std::fs::create_dir_all(&dir).unwrap();
+    // A debug test build must not replace the release runner that setup installed: every
+    // program compiled afterwards (smoke tests, conformance, the self-host fixpoint) would
+    // run many times slower.
+    if cfg!(debug_assertions) && dir.join(name).exists() {
+        return;
+    }
     std::fs::copy(env!("CARGO_BIN_EXE_qb-exec"), dir.join(name)).unwrap();
 }
 
