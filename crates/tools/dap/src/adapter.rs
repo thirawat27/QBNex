@@ -134,7 +134,8 @@ fn fresh_temp_dir(prefix: &str) -> std::io::Result<PathBuf> {
             h.write_u128(t.as_nanos());
         }
         let dir = base.join(format!("{prefix}-{}-{:016x}", std::process::id(), h.finish()));
-        let builder = std::fs::DirBuilder::new();
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
         match builder.create(&dir) {
