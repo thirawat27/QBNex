@@ -9,9 +9,6 @@ publish = false
 
 [lib]
 name = "qb_runtime"
-# staticlib: linked into qb-stage0, qb and every user program next to libqb_*.o
-# rlib: used by Rust unit tests and tools
-crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]

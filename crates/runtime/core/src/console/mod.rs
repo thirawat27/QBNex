@@ -6,8 +6,7 @@
 //! Everything works on [`ImgStruct`] surfaces (`write_page`/`read_page`).
 //! What is still owned elsewhere (font tables and custom-font glyphs, image
 //! handles, `_DEST`/`_SOURCE`, the display thread) is reached through the
-//! [`Host`] trait. libqb.cpp registers a C function table with
-//! [`qb_console_set_host`]; `qb-exec` can implement [`Host`] directly.
+//! [`Host`] trait, which the runner `qb-exec` implements.
 //!
 //! The functions take raw surface pointers and re-read them after every host
 //! call, because host calls may run legacy code that changes the surface
@@ -17,7 +16,6 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod cells;
-pub mod ffi;
 pub mod input;
 pub mod keyboard;
 pub mod stdio;
