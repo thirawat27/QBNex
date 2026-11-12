@@ -25,9 +25,8 @@ gotsc:
     END IF
 
     insf$ = subfunc + SPACE$(256 - LEN(subfunc))
-    secondarg$ = secondarg$ + SPACE$(256 - LEN(secondarg$))
+    'secondarg$ is only compared trimmed (RTRIM$, LEFT$ 1): no padding needed
     IF LEN(sc$) THEN scpassed = 1: sc$ = sc$ + SPACE$(8 - LEN(sc$)) ELSE scpassed = 0
-    IF LEN(n$) < 256 THEN n$ = n$ + SPACE$(256 - LEN(n$))
 
     n$ = RTRIM$(n$)
     IF findanother THEN

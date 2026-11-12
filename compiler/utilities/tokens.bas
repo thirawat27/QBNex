@@ -1,36 +1,36 @@
 FUNCTION getelementspecial$ (savea$, elenum)
-    STATIC cacheSource(1 TO 2) AS STRING
-    STATIC cacheElement(1 TO 2) AS LONG
-    STATIC cacheStart(1 TO 2) AS LONG
-    STATIC cacheNext(1 TO 2) AS LONG
-    STATIC cacheVictim AS INTEGER
+    'two cached lines in scalars, as getelement$
+    STATIC gsSrc1 AS STRING, gsEl1 AS LONG, gsSt1 AS LONG, gsNx1 AS LONG
+    STATIC gsSrc2 AS STRING, gsEl2 AS LONG, gsSt2 AS LONG, gsNx2 AS LONG
+    STATIC gsVictim AS LONG
+    DIM slot AS LONG, ce AS LONG, cs AS LONG, cn AS LONG
 
     a$ = savea$
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
 
-    slot = 0
-    FOR s = 1 TO 2
-        IF cacheSource(s) = a$ THEN slot = s: EXIT FOR
-    NEXT
-    IF slot = 0 THEN
-        cacheVictim = cacheVictim + 1
-        IF cacheVictim > 2 THEN cacheVictim = 1
-        slot = cacheVictim
-        cacheSource(slot) = a$
-        cacheElement(slot) = 0
-        cacheStart(slot) = 0
-        cacheNext(slot) = 0
+    IF a$ = gsSrc1 THEN
+        slot = 1: ce = gsEl1: cs = gsSt1: cn = gsNx1
+    ELSEIF a$ = gsSrc2 THEN
+        slot = 2: ce = gsEl2: cs = gsSt2: cn = gsNx2
+    ELSE
+        IF gsVictim = 1 THEN gsVictim = 2 ELSE gsVictim = 1
+        slot = gsVictim
+        IF slot = 1 THEN
+            gsSrc1 = a$: gsEl1 = 0: gsSt1 = 0: gsNx1 = 0
+        ELSE
+            gsSrc2 = a$: gsEl2 = 0: gsSt2 = 0: gsNx2 = 0
+        END IF
     END IF
 
-    IF elenum = cacheElement(slot) AND cacheStart(slot) > 0 THEN
-        p = cacheStart(slot)
-        i = cacheNext(slot)
+    IF elenum = ce AND cs > 0 THEN
+        p = cs
+        i = cn
         GOTO getelementspecialreturn
     END IF
 
-    IF elenum > cacheElement(slot) AND cacheNext(slot) <> 0 THEN
-        n = cacheElement(slot) + 1
-        p = cacheNext(slot) + 1
+    IF elenum > ce AND cn <> 0 THEN
+        n = ce + 1
+        p = cn + 1
     ELSE
         n = 1
         p = 1
@@ -50,11 +50,13 @@ FUNCTION getelementspecial$ (savea$, elenum)
     END IF
 
     IF elenum = n THEN
-        'cacheSource(slot) already holds a$ (matched or set above); copying
-        'the whole line again on every call made long lines quadratic
-        cacheElement(slot) = elenum
-        cacheStart(slot) = p
-        cacheNext(slot) = i
+        'the slot already holds a$ (matched or set above); copying the whole
+        'line again on every call made long lines quadratic
+        IF slot = 1 THEN
+            gsEl1 = elenum: gsSt1 = p: gsNx1 = i
+        ELSE
+            gsEl2 = elenum: gsSt2 = p: gsNx2 = i
+        END IF
         getelementspecialreturn:
         IF i THEN getelementspecial$ = MID$(a$, p, i - p) ELSE getelementspecial$ = RIGHT$(a$, LEN(a$) - p + 1)
         EXIT FUNCTION
@@ -67,63 +69,59 @@ FUNCTION getelementspecial$ (savea$, elenum)
 END FUNCTION
 
 FUNCTION getelement$ (a$, elenum)
-    STATIC cacheSource(1 TO 2) AS STRING
-    STATIC cacheElement(1 TO 2) AS LONG
-    STATIC cacheStart(1 TO 2) AS LONG
-    STATIC cacheNext(1 TO 2) AS LONG
-    STATIC cacheVictim AS INTEGER
+    'Two lines are cached (callers often alternate between two): the element
+    'last returned for each (its number, start and the separator after it).
+    'Scalars rather than STATIC arrays keep a cache hit, by far the most
+    'frequent call of the compiler, short.
+    STATIC geSrc1 AS STRING, geEl1 AS LONG, geSt1 AS LONG, geNx1 AS LONG
+    STATIC geSrc2 AS STRING, geEl2 AS LONG, geSt2 AS LONG, geNx2 AS LONG
+    STATIC geVictim AS LONG
+    DIM slot AS LONG, ce AS LONG, cs AS LONG, cn AS LONG, p AS LONG, i AS LONG, n AS LONG
 
     IF a$ = "" THEN EXIT FUNCTION 'no elements!
 
-    slot = 0
-    FOR s = 1 TO 2
-        IF cacheSource(s) = a$ THEN slot = s: EXIT FOR
-    NEXT
-    IF slot = 0 THEN
-        cacheVictim = cacheVictim + 1
-        IF cacheVictim > 2 THEN cacheVictim = 1
-        slot = cacheVictim
-        cacheSource(slot) = a$
-        cacheElement(slot) = 0
-        cacheStart(slot) = 0
-        cacheNext(slot) = 0
-    END IF
-
-    IF elenum = cacheElement(slot) AND cacheStart(slot) > 0 THEN
-        p = cacheStart(slot)
-        i = cacheNext(slot)
-        GOTO getelementreturn
-    END IF
-
-    IF elenum > cacheElement(slot) AND cacheNext(slot) <> 0 THEN
-        n = cacheElement(slot) + 1
-        p = cacheNext(slot) + 1
+    IF a$ = geSrc1 THEN
+        slot = 1: ce = geEl1: cs = geSt1: cn = geNx1
+    ELSEIF a$ = geSrc2 THEN
+        slot = 2: ce = geEl2: cs = geSt2: cn = geNx2
     ELSE
-        'Jump to the element with the shared position cache (seeded by the
-        'SUBs that edit lines) instead of scanning from the start
-        p = elementpos(a$, elenum, 0)
-        IF p = 0 THEN EXIT FUNCTION 'no such element
-        n = elenum
+        IF geVictim = 1 THEN geVictim = 2 ELSE geVictim = 1
+        slot = geVictim
+        IF slot = 1 THEN
+            geSrc1 = a$: geEl1 = 0: geSt1 = 0: geNx1 = 0
+        ELSE
+            geSrc2 = a$: geEl2 = 0: geSt2 = 0: geNx2 = 0
+        END IF
     END IF
 
-    getelementnext:
-    i = INSTR(p, a$, sp)
-
-    IF elenum = n THEN
-        'cacheSource(slot) already holds a$ (matched or set above); copying
-        'the whole line again on every call made long lines quadratic
-        cacheElement(slot) = elenum
-        cacheStart(slot) = p
-        cacheNext(slot) = i
-        getelementreturn:
-        IF i THEN getelement$ = MID$(a$, p, i - p) ELSE getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
-        EXIT FUNCTION
+    IF elenum = ce AND cs > 0 THEN
+        p = cs
+        i = cn
+    ELSE
+        IF elenum > ce AND cn <> 0 THEN
+            n = ce + 1
+            p = cn + 1
+        ELSE
+            'Jump to the element with the shared position cache (seeded by the
+            'SUBs that edit lines) instead of scanning from the start
+            p = elementpos(a$, elenum, 0)
+            IF p = 0 THEN EXIT FUNCTION 'no such element
+            n = elenum
+        END IF
+        DO
+            i = INSTR(p, a$, sp)
+            IF elenum = n THEN EXIT DO
+            IF i = 0 THEN EXIT FUNCTION 'no more elements!
+            n = n + 1
+            p = i + 1
+        LOOP
+        IF slot = 1 THEN
+            geEl1 = elenum: geSt1 = p: geNx1 = i
+        ELSE
+            geEl2 = elenum: geSt2 = p: geNx2 = i
+        END IF
     END IF
-
-    IF i = 0 THEN EXIT FUNCTION 'no more elements!
-    n = n + 1
-    p = i + 1
-    GOTO getelementnext
+    IF i THEN getelement$ = MID$(a$, p, i - p) ELSE getelement$ = RIGHT$(a$, LEN(a$) - p + 1)
 END FUNCTION
 
 FUNCTION getelements$ (a$, i1, i2)
@@ -208,30 +206,26 @@ FUNCTION elementpos (a$, k, setpos)
 END FUNCTION
 
 FUNCTION numelements (a$)
-    STATIC cacheSource(1 TO 2) AS STRING
-    STATIC cacheCount(1 TO 2) AS LONG
-    STATIC cacheVictim AS INTEGER
+    'the counts of the last two lines (scalars: see getelement$)
+    STATIC neSrc1 AS STRING, neCnt1 AS LONG, neSrc2 AS STRING, neCnt2 AS LONG
+    STATIC neVictim AS LONG
+    DIM n AS LONG, p AS LONG, i AS LONG
 
     IF a$ = "" THEN EXIT FUNCTION
-    FOR s = 1 TO 2
-        IF cacheSource(s) = a$ THEN numelements = cacheCount(s): EXIT FUNCTION
-    NEXT
+    IF a$ = neSrc1 THEN numelements = neCnt1: EXIT FUNCTION
+    IF a$ = neSrc2 THEN numelements = neCnt2: EXIT FUNCTION
 
     n = 1
     p = 1
-    numelementsnext:
-    i = INSTR(p, a$, sp)
-    IF i = 0 THEN
-        cacheVictim = cacheVictim + 1
-        IF cacheVictim > 2 THEN cacheVictim = 1
-        cacheSource(cacheVictim) = a$
-        cacheCount(cacheVictim) = n
-        numelements = n
-        EXIT FUNCTION
-    END IF
-    n = n + 1
-    p = i + 1
-    GOTO numelementsnext
+    DO
+        i = INSTR(p, a$, sp)
+        IF i = 0 THEN EXIT DO
+        n = n + 1
+        p = i + 1
+    LOOP
+    IF neVictim = 1 THEN neVictim = 2 ELSE neVictim = 1
+    IF neVictim = 1 THEN neSrc1 = a$: neCnt1 = n ELSE neSrc2 = a$: neCnt2 = n
+    numelements = n
 END FUNCTION
 
 SUB removeelements (a$, first, last, keepindexing)

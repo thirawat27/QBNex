@@ -60,6 +60,7 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
     DIM nulCount AS LONG
     DIM longSeqCount AS LONG
     DIM badCount AS LONG
+    DIM c AS LONG
 
     invalidPos = 0
     invalidLine = 1
@@ -67,6 +68,9 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
 
     bytePos = 1
     DO WHILE bytePos <= LEN(text)
+        'ASCII bytes (nearly all of a source) without the two calls per byte
+        c = ASC(text, bytePos)
+        IF c > 0 AND c < 128 THEN bytePos = bytePos + 1: GOTO utf8nextbyte
         n = UTF8SequenceLength%(text, bytePos)
         IF n = 0 THEN
             badCount = badCount + 1
@@ -83,6 +87,7 @@ FUNCTION ValidateUTF8Buffer% (text AS STRING, invalidPos AS LONG, invalidLine AS
             END IF
             bytePos = bytePos + n
         END IF
+        utf8nextbyte:
     LOOP
 
     IF nulCount = 0 AND badCount = 0 THEN ValidateUTF8Buffer% = -1: EXIT FUNCTION

@@ -108,6 +108,9 @@ END TYPE
 
 DIM SHARED typeDefinitions$
 DIM SHARED totalVariablesCreated AS LONG, totalMainVariablesCreated AS LONG
+'usedVariableList entries chained by a hash of their C name (manageVariableList looks a
+'name up on every identifier found; scanning the whole list made it quadratic)
+DIM SHARED varListHead(0 TO 4095) AS LONG, varListNext(1000) AS LONG, varListHeadCount AS LONG
 DIM SHARED bypassNextVariable AS _BYTE
 DIM SHARED totalWarnings AS LONG, warningListItems AS LONG
 DIM SHARED maxLineNumber AS LONG
@@ -346,7 +349,7 @@ FUNCTION getpid& ()
     HashListFreeSize = 1024
     HashListFreeLast = 0
     DIM SHARED HashList(1 TO HashListSize) AS HashListItem
-    DIM SHARED HashListName(1 TO HashListSize) AS STRING * 256
+    DIM SHARED HashListName(1 TO HashListSize) AS STRING
     DIM SHARED HashListFree(1 TO HashListFreeSize) AS LONG
     DIM SHARED HashTable(0 TO HASH_TABLE_MASK) AS LONG '256KB lookup table with chaining for collisions
 
@@ -11987,6 +11990,20 @@ IF recompile THEN
         END SUB
 
         FUNCTION isoperator (a2$)
+            'most elements are names and numbers: reject them before the comparisons
+            'below (no operator is longer than _ANDALSO or starts with a digit, a
+            'bracket, a quote, a comma, a period or another letter than A E I M N O X)
+            ln = LEN(a2$)
+            IF ln = 0 OR ln > 8 THEN EXIT FUNCTION
+            c = ASC(a2$)
+            IF c >= 48 AND c <= 57 THEN EXIT FUNCTION
+            IF c = 34 OR c = 40 OR c = 41 OR c = 44 OR c = 46 THEN EXIT FUNCTION
+            IF (c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) THEN
+                SELECT CASE c AND 223
+                    CASE 65, 69, 73, 77, 78, 79, 88
+                    CASE ELSE: EXIT FUNCTION
+                END SELECT
+            END IF
             a$ = UCASE$(a2$)
             l = 0
             l = l + 1: IF a$ = "IMP" THEN GOTO opfound
@@ -12370,6 +12387,8 @@ IF recompile THEN
             IF method <> 1 THEN e$ = fixoperationorder$(e$)
             IF Error_Happened THEN EXIT SUB
             tl$ = tlayout$
+            IrRhsState = ""
+            IF method <> 1 THEN IrRhsSrc = e2$: IrRhsFixed = e$: IrRhsLayout = tl$: IrRhsState = IrSymState$
 
             'method: 0 evaulatetotyp e$
             '        1 skip evaluation of e$ and use as is
@@ -13768,7 +13787,7 @@ END FUNCTION
 '$INCLUDE:'utilities\ir_ext.bas'
 
 SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
-    DIM findItem AS LONG, cname$, i AS LONG, j AS LONG, name$, temp$
+    DIM findItem AS LONG, cname$, i AS LONG, j AS LONG, name$, temp$, vlHash AS LONG
     name$ = RTRIM$(__name$)
     cname$ = RTRIM$(__cname$)
 
@@ -13779,17 +13798,33 @@ SUB manageVariableList (__name$, __cname$, localIndex AS LONG, action AS _BYTE)
         cname$ = LEFT$(cname$, findItem - 1)
     END IF
 
-    found = 0
-    FOR i = 1 TO totalVariablesCreated
-        IF usedVariableList(i).cname = cname$ THEN found = -1: EXIT FOR
+    'the list was emptied (totalVariablesCreated = 0): forget the chains
+    IF totalVariablesCreated = 0 AND varListHeadCount <> 0 THEN
+        FOR i = 0 TO 4095: varListHead(i) = 0: NEXT
+        varListHeadCount = 0
+    END IF
+    vlHash = 0
+    FOR i = 1 TO LEN(cname$)
+        vlHash = (vlHash * 31 + ASC(cname$, i)) AND 1048575
     NEXT
+    vlHash = vlHash AND 4095
+
+    found = 0
+    i = varListHead(vlHash)
+    DO WHILE i
+        IF usedVariableList(i).cname = cname$ THEN found = -1: EXIT DO
+        i = varListNext(i)
+    LOOP
 
     SELECT CASE action
     CASE 0 'add
         IF found = 0 THEN
+            i = totalVariablesCreated + 1
             IF i > UBOUND(usedVariableList) THEN
                 REDIM _PRESERVE usedVariableList(UBOUND(usedVariableList) + 999) AS usedVarList
             END IF
+            IF i > UBOUND(varListNext) THEN REDIM _PRESERVE varListNext(i + 999) AS LONG
+            varListNext(i) = varListHead(vlHash): varListHead(vlHash) = i: varListHeadCount = varListHeadCount + 1
 
             usedVariableList(i).id = currentid
             usedVariableList(i).used = 0

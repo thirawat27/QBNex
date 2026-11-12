@@ -212,8 +212,10 @@ END FUNCTION
 
 FUNCTION evaluate$ (a2$, typ AS LONG)
     'A block holds at least one element; the fixed 1000 stopped long
-    'expressions (about 500 terms) with an internal subscript error
-    evalblockmax = numelements(a2$) + 1000
+    'expressions (about 500 terms) with an internal subscript error. The
+    'blocks never outnumber the elements, so a small margin is enough (a
+    'margin of 1000 made every call allocate and free three large arrays)
+    evalblockmax = numelements(a2$) + 16
     DIM block(evalblockmax) AS STRING
     DIM evaledblock(evalblockmax) AS INTEGER
     DIM blocktype(evalblockmax) AS LONG

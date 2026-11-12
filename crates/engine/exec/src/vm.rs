@@ -243,6 +243,13 @@ const PROFILE_EV: u32 = 31;
 struct Profile {
     path: std::path::PathBuf,
     counts: std::collections::HashMap<(u32, u32), u32>,
+    /// inclusive samples: every (function, line) on the call stack, once per sample;
+    /// line `u32::MAX` counts the function as a whole
+    incl: std::collections::HashMap<(u32, u32), u32>,
+    /// calls per function (exact, not sampled)
+    calls: Vec<u64>,
+    /// calls per (caller, callee)
+    edges: std::collections::HashMap<(u32, u32), u64>,
 }
 
 impl EventHandle {
@@ -367,6 +374,8 @@ pub struct Vm<'m, 'o> {
     stop_depth: usize,
     /// SUB _GL frames (`Module::gl_sub`)
     gl: GlFrames,
+    /// per `Module::rtfns` entry: the builtin runs without the runtime's name dispatch
+    pure: Vec<Option<rt::builtins::Pure>>,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
     /// addressable memory (QIR TYPE / STRING * n / pointers)
@@ -521,6 +530,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             profile: None,
             stop_depth: usize::MAX,
             gl: GlFrames::default(),
+            pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
             jit_nest: 0,
             mem: crate::mem::Mem::new(),
             owned: Vec::new(),
@@ -920,20 +930,31 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
+    /// Argument of a builtin as the shared runtime takes it.
+    fn rt_arg(&self, r: R, ty: Ty) -> V {
+        match ty {
+            Ty::Str => V::S(self.sget(r).to_vec()),
+            Ty::F80 => V::X(self.xget(r)),
+            Ty::F32 | Ty::F64 => V::F(f64::from_bits(self.nums[self.nb + r as usize])),
+            _ => V::I(self.nums[self.nb + r as usize] as i64),
+        }
+    }
+
     /// QIR `rt` builtin through the shared runtime. `Ok(Some(code))` = the program exits.
     fn rt_call(&mut self, f: u32, d: R, args: u32) -> Result<Option<i32>, i32> {
         let m = self.m;
         let (name, rty) = m.rtfns[f as usize];
-        let vals: Vec<V> = m.bargs[args as usize]
-            .iter()
-            .map(|&(r, ty)| match ty {
-                Ty::Str => V::S(self.sget(r).to_vec()),
-                Ty::F80 => V::X(self.xget(r)),
-                Ty::F32 | Ty::F64 => V::F(f64::from_bits(self.nums[self.nb + r as usize])),
-                _ => V::I(self.nums[self.nb + r as usize] as i64),
-            })
-            .collect();
-        match rt::call(self, name, vals) {
+        let a = &m.bargs[args as usize];
+        let res = match (self.pure.get(f as usize).copied().flatten(), a.as_slice()) {
+            // one argument: no argument vector, no name dispatch
+            (Some(p), &[(r, Ty::Str)]) => rt::builtins::pure_call(p, self.sget(r), &V::I(0)).map(Some),
+            (Some(p), &[(r, ty)]) => rt::builtins::pure_call(p, b"", &self.rt_arg(r, ty)).map(Some),
+            _ => {
+                let vals: Vec<V> = a.iter().map(|&(r, ty)| self.rt_arg(r, ty)).collect();
+                rt::call(self, name, vals)
+            }
+        };
+        match res {
             // RUN, CLEAR, RUN file$, CHAIN: leave like END (run_status restarts the program)
             Ok(_) if self.rt.dos.stops() => Ok(Some(0)),
             Ok(v) => {
@@ -1128,6 +1149,10 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         self.frames.push(Frame { owned: self.owned.len(), func: f, ret, nb, sb, ab, caller_view: self.view, desc });
         self.set_view(self.frames.len() - 1);
+        if let Some(p) = self.profile.as_deref_mut() {
+            p.calls[f as usize] += 1;
+            *p.edges.entry((cx.func, f)).or_default() += 1;
+        }
         Ok(func.entry)
     }
 
@@ -1213,7 +1238,13 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// leaves to the VM at each sample, so profile with `QB_JIT=off`.
     fn start_profile(&mut self) {
         let Some(path) = std::env::var_os("QB_PROFILE").filter(|p| !p.is_empty()) else { return };
-        self.profile = Some(Box::new(Profile { path: path.into(), counts: std::collections::HashMap::new() }));
+        self.profile = Some(Box::new(Profile {
+            path: path.into(),
+            counts: std::collections::HashMap::new(),
+            incl: std::collections::HashMap::new(),
+            calls: vec![0; self.m.funcs.len()],
+            edges: std::collections::HashMap::new(),
+        }));
         let ev = self.events();
         std::thread::spawn(move || loop {
             ev.raise(PROFILE_EV);
@@ -1229,6 +1260,33 @@ impl<'m, 'o> Vm<'m, 'o> {
         let total: u64 = v.iter().map(|x| u64::from(x.1)).sum();
         let mut out = format!("{total} samples\n");
         for ((f, line), n) in v.iter().take(400) {
+            let name = self.m.funcs.get(*f as usize).map_or("?", |x| x.name.as_str());
+            out.push_str(&format!("{n:8} {name} line {line}\n"));
+        }
+        // inclusive: time spent in a function or a line, callees included
+        let mut v: Vec<_> = p.incl.into_iter().collect();
+        v.sort_by_key(|x| std::cmp::Reverse(x.1));
+        out.push_str("\ninclusive (functions)\n");
+        for ((f, _), n) in v.iter().filter(|x| x.0 .1 == u32::MAX).take(150) {
+            let name = self.m.funcs.get(*f as usize).map_or("?", |x| x.name.as_str());
+            out.push_str(&format!("{n:8} {name}\n"));
+        }
+        let mut c: Vec<(usize, u64)> = p.calls.iter().copied().enumerate().filter(|x| x.1 > 0).collect();
+        c.sort_by_key(|x| std::cmp::Reverse(x.1));
+        out.push_str("\ncalls\n");
+        for (f, n) in c.iter().take(150) {
+            let name = self.m.funcs.get(*f).map_or("?", |x| x.name.as_str());
+            out.push_str(&format!("{n:10} {name}\n"));
+        }
+        let mut e: Vec<_> = p.edges.into_iter().collect();
+        e.sort_by_key(|x| std::cmp::Reverse(x.1));
+        out.push_str("\ncalls (caller -> callee)\n");
+        for ((a, b), n) in e.iter().take(200) {
+            let name = |f: u32| self.m.funcs.get(f as usize).map_or("?", |x| x.name.as_str());
+            out.push_str(&format!("{n:10} {} -> {}\n", name(*a), name(*b)));
+        }
+        out.push_str("\ninclusive (lines)\n");
+        for ((f, line), n) in v.iter().filter(|x| x.0 .1 != u32::MAX).take(600) {
             let name = self.m.funcs.get(*f as usize).map_or("?", |x| x.name.as_str());
             out.push_str(&format!("{n:8} {name} line {line}\n"));
         }
@@ -1406,8 +1464,26 @@ impl<'m, 'o> Vm<'m, 'o> {
         let bits = self.ev.pending.swap(0, Ordering::AcqRel);
         if bits & (1 << PROFILE_EV) != 0 {
             let at = (self.func_index(pc), self.line_of(pc));
+            // the line each frame is executing: the caller's is the CALL before its return pc
+            let mut stack: Vec<(u32, u32)> = Vec::new();
+            let mut cur = pc;
+            for (k, fr) in self.frames.iter().enumerate().rev() {
+                let f = self.func_index(cur);
+                for key in [(f, self.line_of(cur)), (f, u32::MAX)] {
+                    if !stack.contains(&key) {
+                        stack.push(key);
+                    }
+                }
+                if k == 0 {
+                    break;
+                }
+                cur = fr.ret.saturating_sub(1);
+            }
             if let Some(p) = self.profile.as_deref_mut() {
                 *p.counts.entry(at).or_default() += 1;
+                for key in stack {
+                    *p.incl.entry(key).or_default() += 1;
+                }
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -2250,18 +2326,27 @@ impl<'m, 'o> Vm<'m, 'o> {
                     arr.set(o, v);
                 }
                 Ins::LdE1S { d, a, i } => {
+                    // into the register's own buffer (no allocation per load)
                     let x = ri!(i);
                     let arr = tryc!(self.arr(a, 1));
                     let o = tryc!(arr.off1(x));
-                    let v = arr.strs()[o].clone();
-                    *self.sdst(d) = v;
+                    let src: *const [u8] = arr.strs()[o].as_slice();
+                    let dst = self.sdst(d);
+                    dst.clear();
+                    // SAFETY: an array element and a register are distinct buffers
+                    dst.extend_from_slice(unsafe { &*src });
                 }
                 Ins::StE1S { a, i, s } => {
+                    // into the element's own buffer (no allocation per store)
                     let x = ri!(i);
-                    let v = self.sget(s).to_vec();
+                    let src: *const [u8] = self.sget(s);
                     let arr = tryc!(self.arr(a, 1));
                     let o = tryc!(arr.off1(x));
-                    arr.strs()[o] = v;
+                    let dst = &mut arr.strs()[o];
+                    dst.clear();
+                    // SAFETY: the source is a register, a constant or memory, never an array
+                    // element; finding the array (or creating it) moves none of those buffers
+                    dst.extend_from_slice(unsafe { &*src });
                 }
                 Ins::LdE { d, a, i, n } => {
                     let cx = self.cur_ctx();

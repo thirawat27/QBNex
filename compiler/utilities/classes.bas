@@ -1403,6 +1403,13 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
     DIM emittedObjectExpr AS STRING
     DIM argsText AS STRING
 
+    'a dispatch needs "object.method(" with a registered class: skip the character scan
+    'of every source line when there is no class or no "."
+    IF classSyntaxRegistryCount = 0 OR INSTR(sourceLine$, ".") = 0 THEN
+        ClassSyntax_RewriteDispatch$ = sourceLine$
+        EXIT FUNCTION
+    END IF
+
     flushPos = 1
     i = 1
     DO WHILE i <= LEN(sourceLine$)

@@ -45,3 +45,7 @@ DIM SHARED IrChainVars AS STRING
 'included files named by "incline": name + CHR$(2) + index + CHR$(1) per file (after a leading CHR$(1)), their count,
 'and the last one looked up
 DIM SHARED IrSrcFiles AS STRING, IrSrcFileN AS LONG, IrSrcLastName AS STRING, IrSrcLastIndex AS LONG
+'right side of an assignment as setrefer fixed it (fixoperationorder$ result and layout),
+'reused by IrAssign while IrSymState$ is unchanged: fixing the same expression twice per
+'assignment was a large part of the compile time
+DIM SHARED IrRhsSrc AS STRING, IrRhsFixed AS STRING, IrRhsLayout AS STRING, IrRhsState AS STRING

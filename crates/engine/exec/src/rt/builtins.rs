@@ -356,6 +356,67 @@ fn write_num(t: Ty, v: &V) -> Vec<u8> {
     }
 }
 
+/// Builtins without runtime state. The VM resolves them once per program and
+/// runs them through [`pure_call`], without the name dispatch of [`call`] (a chain
+/// of string matches) or the argument vector: string-heavy programs, the compiler
+/// above all, call them constantly.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Pure {
+    UCase,
+    LCase,
+    LTrim,
+    RTrim,
+    Trim,
+    StrNum(Ty),
+    Space,
+    MkI,
+    MkL,
+    Cvi,
+    Cvl,
+    Val,
+    ValF80,
+}
+
+/// The [`Pure`] builtin `name` stands for, if any (same names and results as [`call`]).
+pub(crate) fn pure(name: &str) -> Option<Pure> {
+    Some(match name {
+        "UCASE$" => Pure::UCase,
+        "LCASE$" => Pure::LCase,
+        "LTRIM$" => Pure::LTrim,
+        "RTRIM$" => Pure::RTrim,
+        "_TRIM$" => Pure::Trim,
+        n if n.starts_with("STR$.") => Pure::StrNum(suffix_ty(n)),
+        "SPACE$" => Pure::Space,
+        "MKI$" => Pure::MkI,
+        "MKL$" => Pure::MkL,
+        "CVI" => Pure::Cvi,
+        "CVL" => Pure::Cvl,
+        "VAL" => Pure::Val,
+        "VAL.f80" => Pure::ValF80,
+        _ => return None,
+    })
+}
+
+/// Runs the [`Pure`] builtin `p`; `s` is its string argument (or empty), `v` its
+/// other argument.
+pub(crate) fn pure_call(p: Pure, s: &[u8], v: &V) -> R<V> {
+    Ok(match p {
+        Pure::UCase => V::S(s.to_ascii_uppercase()),
+        Pure::LCase => V::S(s.to_ascii_lowercase()),
+        Pure::LTrim => V::S(trim_l(s)),
+        Pure::RTrim => V::S(trim_r(s)),
+        Pure::Trim => V::S(trim_l(&trim_r(s))),
+        Pure::StrNum(t) => V::S(str_num(t, v)),
+        Pure::Space => V::S(vec![b' '; count(v)?]),
+        Pure::MkI => V::S((v.i() as i16).to_le_bytes().to_vec()),
+        Pure::MkL => V::S((v.i() as i32).to_le_bytes().to_vec()),
+        Pure::Cvi => V::I(i16::from_le_bytes(fixed(s)?).into()),
+        Pure::Cvl => V::I(i32::from_le_bytes(fixed(s)?).into()),
+        Pure::Val => V::F(val(s)),
+        Pure::ValF80 => V::X(qb_float80::F80::from_bytes(qb_runtime::val::val(s).map_err(Stop::Err)?)),
+    })
+}
+
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> R<Option<V>> {
     let s = |i: usize| a[i].s();
     let i = |k: usize| a[k].i();

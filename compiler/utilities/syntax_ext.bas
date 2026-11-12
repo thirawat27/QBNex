@@ -28,6 +28,7 @@ FUNCTION SyntaxExt_CodePart$ (text$, commentPart$)
     DIM c AS STRING
 
     commentPart$ = ""
+    IF INSTR(text$, "'") = 0 THEN SyntaxExt_CodePart$ = text$: EXIT FUNCTION 'no comment possible
     FOR i = 1 TO LEN(text$)
         c = MID$(text$, i, 1)
         IF c = CHR$(34) THEN inString = NOT inString

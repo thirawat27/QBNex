@@ -152,10 +152,17 @@ FUNCTION IrHex$ (s$)
 END FUNCTION
 
 FUNCTION IrFindFn& (nm$)
+    STATIC lastFn AS LONG
     DIM i AS LONG
+    'every local variable reference looks up its SUB: try the last answer before the
+    'scan over all procedures (names are unique, so a match is the same answer)
+    IF lastFn >= 1 AND lastFn <= IrFnN THEN
+        IF IrFnName(lastFn) = nm$ THEN IrFindFn& = lastFn: EXIT FUNCTION
+    END IF
     FOR i = 1 TO IrFnN
-        IF IrFnName(i) = nm$ THEN IrFindFn& = i: EXIT FUNCTION
+        IF IrFnName(i) = nm$ THEN IrFindFn& = i: lastFn = i: EXIT FUNCTION
     NEXT
+    lastFn = IrFnN + 1
     IrFnN = IrFnN + 1
     IF IrFnN > UBOUND(IrFnName) THEN
         i = UBOUND(IrFnName) * 2
@@ -2130,11 +2137,21 @@ END FUNCTION
 '================================================================ statements
 
 'assignment: lhs$ fixed target, rhs$ raw expression
+'what fixoperationorder$ depends on that an expression can change: the names declared
+'so far (an undeclared variable is declared while setrefer evaluates the right side)
+FUNCTION IrSymState$
+    IrSymState$ = MKL$(idn) + MKL$(HashListNext) + MKL$(subfuncn) + MKL$(constlast) + MKL$(lasttype) + MKL$(linenumber)
+END FUNCTION
+
 SUB IrAssign (lhs$, rhs$)
     DIM p$, t AS LONG, r$, e$, st$, t2 AS LONG, q$
     p$ = IrPlace$(lhs$, t)
-    IF p$ = "" THEN EXIT SUB
-    e$ = fixoperationorder$(rhs$)
+    IF p$ = "" THEN IrRhsState = "": EXIT SUB
+    IF LEN(IrRhsState) <> 0 AND rhs$ = IrRhsSrc THEN
+        IF IrRhsState = IrSymState$ THEN e$ = IrRhsFixed: tlayout$ = IrRhsLayout
+    END IF
+    IrRhsState = ""
+    IF LEN(e$) = 0 THEN e$ = fixoperationorder$(rhs$)
     st$ = IrPlaceSTy$(p$)
     IF LEFT$(st$, 4) = "udt:" THEN
         IF IrMemAssign%(IrAddr$(p$), e$) THEN EXIT SUB

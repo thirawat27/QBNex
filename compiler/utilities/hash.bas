@@ -1,44 +1,15 @@
 FUNCTION HashValue& (a$)
+    'Case-insensitive (hash1char folds case). It mixes the length, the first two, the
+    'middle and the last three characters over the whole table: the former value only
+    'kept the first two and the last character inside HASH_TABLE_MASK, so names such as
+    'WORK1 .. WORK300 or _RGB/_RGBA32 shared a few long chains.
     l = LEN(a$)
     IF l = 0 THEN EXIT FUNCTION
-
-    a = ASC(a$)
-    IF a <> 95 THEN
-        SELECT CASE l
-        CASE 1
-            HashValue& = hash1char(a) + 1048576
-            EXIT FUNCTION
-        CASE 2
-            HashValue& = hash2char(CVI(a$)) + 2097152
-            EXIT FUNCTION
-        CASE 3
-            HashValue& = hash2char(CVI(a$)) + hash1char(ASC(a$, 3)) * 1024 + 3145728
-            EXIT FUNCTION
-        CASE ELSE
-            HashValue& = hash2char(CVI(a$)) + hash2char(ASC(a$, l) + ASC(a$, l - 1) * 256) * 1024 + (l AND 7) * 1048576
-            EXIT FUNCTION
-        END SELECT
-    ELSE
-        SELECT CASE l
-        CASE 1
-            HashValue& = 1048576 + 8388608
-            EXIT FUNCTION
-        CASE 2
-            HashValue& = hash1char(ASC(a$, 2)) + 2097152 + 8388608
-            EXIT FUNCTION
-        CASE 3
-            HashValue& = hash2char(ASC(a$, 2) + ASC(a$, 3) * 256) + 3145728 + 8388608
-            EXIT FUNCTION
-        CASE 4
-            HashValue& = hash2char((CVL(a$) AND &HFFFF00) \ 256) + hash1char(ASC(a$, 4)) * 1024 + 4194304 + 8388608
-            EXIT FUNCTION
-        CASE ELSE
-            HashValue& = hash2char((CVL(a$) AND &HFFFF00) \ 256) + hash2char(ASC(a$, l) + ASC(a$, l - 1) * 256) * 1024 + (l AND 7) * 1048576 + 8388608
-            EXIT FUNCTION
-        END SELECT
-    END IF
+    h = hash1char(ASC(a$)) + l * 7919
+    IF l > 1 THEN h = h + hash1char(ASC(a$, 2)) * 37 + hash1char(ASC(a$, l)) * 1031 + hash1char(ASC(a$, l - 1)) * 29881
+    IF l > 3 THEN h = h + hash1char(ASC(a$, (l + 1) \ 2)) * 211 + hash1char(ASC(a$, l - 2)) * 4111
+    HashValue& = h
 END FUNCTION
-
 SUB HashAdd (a$, flags, reference)
     IF HashListFreeLast > 0 THEN
         i = HashListFree(HashListFreeLast)
@@ -47,7 +18,7 @@ SUB HashAdd (a$, flags, reference)
         IF HashListNext > HashListSize THEN
             HashListSize = HashListSize * 2
             REDIM _PRESERVE HashList(1 TO HashListSize) AS HashListItem
-            REDIM _PRESERVE HashListName(1 TO HashListSize) AS STRING * 256
+            REDIM _PRESERVE HashListName(1 TO HashListSize) AS STRING
         END IF
         i = HashListNext
         HashListNext = HashListNext + 1
@@ -75,7 +46,7 @@ END SUB
 FUNCTION HashFind (a$, searchflags, resultflags, resultreference)
     i = HashTable(HashValue(a$) AND HASH_TABLE_MASK)
     IF i THEN
-        ua$ = UCASE$(a$) + SPACE$(256 - LEN(a$))
+        ua$ = UCASE$(a$)
         hashfind_next:
         f = HashList(i).Flags
         IF searchflags AND f THEN
@@ -105,7 +76,7 @@ FUNCTION HashFindRev (a$, searchflags, resultflags, resultreference)
     i = HashTable(HashValue(a$) AND HASH_TABLE_MASK)
     IF i THEN
         i = HashList(i).LastItem
-        ua$ = UCASE$(a$) + SPACE$(256 - LEN(a$))
+        ua$ = UCASE$(a$)
         hashfindrev_next:
         f = HashList(i).Flags
         IF searchflags AND f THEN

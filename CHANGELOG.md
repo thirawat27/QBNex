@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The compiler is about 25-30% faster with the same QIR output: a 10,000-line program compiles in 14.7 s instead of 20.2 s, a 5,000-line one in 7.3 s instead of 10.5 s, a 10,500-line program with 300 SUBs in 24.0 s instead of 32.3 s, and the compiler itself in 41 s instead of 51 s. An assignment's right side is fixed once instead of twice; the element, operator and symbol lookups take shorter paths (scalar caches, a hash that spreads names over the whole table, an index for the used-variable list); `qb-exec` runs the pure string builtins (UCASE$, LTRIM$, STR$, VAL, MKL$, ...) without the runtime's name dispatch. `QB_PROFILE` also reports inclusive time and exact call counts per function and per caller.
 - CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables) plus `release.yml`; it runs with read-only repository permissions.
 - `release.yml` signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set (Windows: `signtool` with a `.pfx`; macOS: `codesign` and `notarytool`) and skips with a notice otherwise; the secrets are listed in CONTRIBUTING.md. The macOS and Linux CI build no longer fails on the conformance harness, the smoke tests keep the system `TMPDIR` (macOS sets it), and each smoke script runs under the shell its first line names.
 - Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
