@@ -5,6 +5,8 @@
 //! start-of-day setup in libqb.cpp's `main` (wait for the wall clock's second
 //! to tick over, then record the tick count and the local time of day).
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
+use std::sync::atomic::{AtomicI64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 #[cfg(not(target_arch = "wasm32"))]
@@ -149,6 +151,106 @@ pub fn time_init() -> (u32, u32) {
 #[cfg(not(target_arch = "wasm32"))]
 static ORIGIN: OnceLock<Instant> = OnceLock::new();
 
+// --- program clock (TIME$, DATE$) ---------------------------------------------------
+
+/// Milliseconds that `TIME$ =` and `DATE$ =` added to the program's view of the
+/// local clock. QBasic set the DOS clock; the OS clock is never touched here, so
+/// TIME$, DATE$ and TIMER read the wall clock plus this offset.
+static CLOCK_OFFSET_MS: AtomicI64 = AtomicI64::new(0);
+
+/// QBasic error for a badly formed `TIME$ =` / `DATE$ =` value.
+const ERR_ILLEGAL_CALL: i32 = 5;
+
+/// The offset (milliseconds) the program clock is ahead of the wall clock.
+pub fn clock_offset_ms() -> i64 {
+    CLOCK_OFFSET_MS.load(Ordering::Relaxed)
+}
+
+/// The program's local date and time (the wall clock plus the offset).
+fn program_now() -> NaiveDateTime {
+    use chrono::{Local, TimeZone};
+    let ms = (unix_time() * 1000.0) as i64;
+    let wall = Local
+        .timestamp_millis_opt(ms)
+        .earliest()
+        .map(|t| t.naive_local())
+        .unwrap_or_default();
+    TimeDelta::try_milliseconds(clock_offset_ms())
+        .and_then(|d| wall.checked_add_signed(d))
+        .unwrap_or(wall)
+}
+
+/// Moves the program clock so that it now reads `target`.
+fn set_program_clock(target: NaiveDateTime) {
+    let delta = target.signed_duration_since(program_now()).num_milliseconds();
+    CLOCK_OFFSET_MS.fetch_add(delta, Ordering::Relaxed);
+}
+
+/// `TIME$`: "hh:mm:ss" (24-hour) of the program clock.
+pub fn time_string() -> String {
+    program_now().format("%H:%M:%S").to_string()
+}
+
+/// `DATE$`: "mm-dd-yyyy" of the program clock.
+pub fn date_string() -> String {
+    program_now().format("%m-%d-%Y").to_string()
+}
+
+/// Splits `s` at any of `seps` into numbers of 1..=`max_digits` digits each.
+fn clock_fields(s: &[u8], seps: &[u8], max_digits: usize) -> Option<Vec<(u32, usize)>> {
+    s.split(|c| seps.contains(c))
+        .map(|f| {
+            if f.is_empty() || f.len() > max_digits || !f.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            Some((f.iter().fold(0u32, |n, d| n * 10 + u32::from(d - b'0')), f.len()))
+        })
+        .collect()
+}
+
+/// Parses a `TIME$ =` value: "hh", "hh:mm" or "hh:mm:ss".
+pub fn parse_time(s: &[u8]) -> Option<NaiveTime> {
+    let f = clock_fields(s, b":", 2)?;
+    if f.is_empty() || f.len() > 3 {
+        return None;
+    }
+    let part = |k: usize| f.get(k).map_or(0, |p| p.0);
+    NaiveTime::from_hms_opt(part(0), part(1), part(2))
+}
+
+/// Parses a `DATE$ =` value: "mm-dd-yy", "mm-dd-yyyy", or the same with "/".
+/// A two-digit year is 1980..=2079 (80-99 are 19xx); the year must be 1980..=2099.
+pub fn parse_date(s: &[u8]) -> Option<NaiveDate> {
+    let f = clock_fields(s, b"-/", 4)?;
+    let [(m, ml), (d, dl), (y, yl)] = f[..] else { return None };
+    if ml > 2 || dl > 2 || (yl != 2 && yl != 4) {
+        return None;
+    }
+    let y = match yl {
+        2 if y >= 80 => 1900 + y,
+        2 => 2000 + y,
+        _ => y,
+    };
+    if !(1980..=2099).contains(&y) {
+        return None;
+    }
+    NaiveDate::from_ymd_opt(y as i32, m, d)
+}
+
+/// `TIME$ = s`: the program clock reads `s` on today's (program) date from now on.
+pub fn set_time(s: &[u8]) -> Result<(), i32> {
+    let t = parse_time(s).ok_or(ERR_ILLEGAL_CALL)?;
+    set_program_clock(program_now().date().and_time(t));
+    Ok(())
+}
+
+/// `DATE$ = s`: the program clock reads date `s` at the current (program) time of day.
+pub fn set_date(s: &[u8]) -> Result<(), i32> {
+    let d = parse_date(s).ok_or(ERR_ILLEGAL_CALL)?;
+    set_program_clock(d.and_time(program_now().time()));
+    Ok(())
+}
+
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 
 /// `GetTicks()`: monotonic milliseconds.
@@ -229,6 +331,39 @@ mod tests {
         assert!(h < 24 && m < 60 && s < 61);
         // Same second-of-minute as UTC (time zones are whole minutes).
         assert_eq!(s as i64, now.rem_euclid(60));
+    }
+
+    #[test]
+    fn clock_values_parse_like_qbasic() {
+        let t = |s: &str| parse_time(s.as_bytes()).map(|t| t.format("%H:%M:%S").to_string());
+        assert_eq!(t("13:45:07").as_deref(), Some("13:45:07"));
+        assert_eq!(t("9:5").as_deref(), Some("09:05:00"));
+        assert_eq!(t("23").as_deref(), Some("23:00:00"));
+        for bad in ["", "24:00:00", "12:60", "12:00:60", "1:2:3:4", "ab", "12::00", "123:00", " 12:00"] {
+            assert_eq!(t(bad), None, "{bad:?}");
+        }
+        let d = |s: &str| parse_date(s.as_bytes()).map(|d| d.format("%m-%d-%Y").to_string());
+        assert_eq!(d("07-04-1999").as_deref(), Some("07-04-1999"));
+        assert_eq!(d("2/29/2000").as_deref(), Some("02-29-2000"));
+        assert_eq!(d("12-31-85").as_deref(), Some("12-31-1985"));
+        assert_eq!(d("01-01-05").as_deref(), Some("01-01-2005"));
+        for bad in ["", "13-01-2000", "02-30-2000", "01-01-1979", "01-01-2100", "1-1-200", "01-01", "01.01.2000", "001-01-2000"] {
+            assert_eq!(d(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn setting_the_clock_moves_only_the_program_clock() {
+        let before = clock_offset_ms();
+        set_time(b"03:04:05").unwrap();
+        assert!(time_string().starts_with("03:04"), "{}", time_string());
+        set_date(b"06-15-2001").unwrap();
+        assert_eq!(date_string(), "06-15-2001");
+        assert!(time_string().starts_with("03:04"), "{}", time_string());
+        assert_eq!(set_time(b"25:00"), Err(5));
+        assert_eq!(set_date(b"6/31/2001"), Err(5));
+        assert_eq!(date_string(), "06-15-2001");
+        CLOCK_OFFSET_MS.store(before, Ordering::Relaxed);
     }
 
     #[test]

@@ -74,6 +74,10 @@ the default printer on Windows and through `lp` on Linux and macOS.
   `QIR: unsupported: line N: ...`.
 - BYREF parameters are copied in and out: different from QB64 only when a
   SUB changes the same variable both through a parameter and through SHARED.
+- `TIME$ =` and `DATE$ =` move a clock of the program (TIME$, DATE$, TIMER),
+  not the system clock; QB64 ignored them. `_MEM` of a variable-length STRING
+  and `_MEMFILL` of a non-variable value without `AS` are accepted (see
+  [limitations](limitations.md)).
 - GPU 3D clips at the far plane (as QB64's OpenGL did); the software
   renderer does not.
 - Web build limits: see [web](web.md).

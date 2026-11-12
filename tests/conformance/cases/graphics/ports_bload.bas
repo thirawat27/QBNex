@@ -2,7 +2,7 @@ $SCREENHIDE
 $CONSOLE
 ' OUT/INP on the VGA DAC (&H3C7-&H3C9), WAIT on the retrace bit (&H3DA),
 ' BSAVE/BLOAD of SCREEN 13 memory (DEF SEG = &HA000) and of an array
-' (DEF SEG = VARSEG, VARPTR), PEEK/POKE through VARPTR, TIME$ = (no effect).
+' (DEF SEG = VARSEG, VARPTR), PEEK/POKE through VARPTR, TIME$ = (a program-local clock).
 SCREEN 13
 OUT &H3C8, 5: OUT &H3C9, 63: OUT &H3C9, 32: OUT &H3C9, 0
 OUT &H3C7, 5: r = INP(&H3C9): g = INP(&H3C9): b = INP(&H3C9)

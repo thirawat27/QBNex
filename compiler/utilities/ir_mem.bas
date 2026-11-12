@@ -94,12 +94,16 @@ FUNCTION IrMemAssign% (dst$, rhs$)
             vn$ = getelement$(sv(1), 1): sy$ = removesymbol$(vn$)
             k = IrFindArrId&(vn$): IF k THEN es = ids(k).tsize
         END IF
-        IF (t AND ISSTRING) <> 0 AND (t AND ISFIXEDLENGTH) = 0 THEN IrNotSup "_MEM of a variable-length STRING array (QB64 rejects it too)": EXIT FUNCTION
+        IF (t AND ISSTRING) <> 0 AND (t AND ISFIXEDLENGTH) = 0 THEN IrNotSup "_MEM of a variable-length STRING array (its elements are not stored together); use _MEM of one STRING variable": EXIT FUNCTION
         IrE "rt _MEMVAR " + dst$ + " " + y$ + " " + z$ + " " + IrConst$("i64", str2$(mt)) + " " + IrConst$("i64", str2$(es))
         EXIT FUNCTION
     END IF
     st$ = IrPlaceSTy$(p$)
-    IF st$ = "str" THEN IrNotSup "_MEM of a variable-length STRING (QB64 rejects it too)": EXIT FUNCTION
+    IF st$ = "str" THEN
+        'variable-length STRING (an extension): its current characters, one byte per element
+        IrE "rt _MEMSTR " + dst$ + " " + IrAddr$(p$) + " " + IrConst$("i64", str2$(Type2MemTypeValue(t)))
+        EXIT FUNCTION
+    END IF
     sz = IrSize&(st$)
     mt = Type2MemTypeValue(t)
     x$ = IrAddr$(p$)
@@ -141,7 +145,13 @@ SUB IrMemStmt (f$)
                 END IF
                 y$ = IrEval$(fixoperationorder$(sv(4)), t)
                 IF t AND ISSTRING THEN IrE "rt _MEMFILLS " + blk$ + " " + off$ + " " + x$ + " " + y$: EXIT SUB
-                IrNotSup "_MEMFILL of a value that is not a variable needs AS type": EXIT SUB
+                'a value that is not a variable (an extension): its bytes in its own type
+                IF t AND ISPOINTER THEN t = t - ISPOINTER
+                st$ = IrSTy$(t, 0): sz = IrSize&(st$)
+                p$ = "V" + CHR$(2) + IrTemp$(st$) + CHR$(2) + st$
+                IrStore p$, IrCvt$(y$, IrT, IrTy$(t))
+                IrE "rt _MEMFILLP " + blk$ + " " + off$ + " " + x$ + " " + IrAddr$(p$) + " " + IrConst$("i64", str2$(sz))
+                EXIT SUB
             END IF
             y$ = IrValueTemp$(fixoperationorder$(IrBeforeAs$(sv(4))), t, sz)
             IrE "rt _MEMFILLP " + blk$ + " " + off$ + " " + x$ + " " + y$ + " " + IrConst$("i64", str2$(sz))

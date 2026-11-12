@@ -8966,6 +8966,12 @@ IF n >= 1 THEN
             PRINT #12, "tmp_long=(ptrszint)" + test$ + ";"
             varsize$ = "((qbs*)tmp_long)->len"
             varoffs$ = "((qbs*)tmp_long)->chr"
+        ELSEIF (t AND ISREFERENCE) = 0 THEN
+            'a value that is not a variable (an extension): its bytes in its own type
+            IF t AND ISPOINTER THEN t = t - ISPOINTER
+            PRINT #12, "tmp_long=0;"
+            varsize$ = str2((t AND 511) \ 8)
+            varoffs$ = "&tmp_long"
         ELSE
             varsize$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
             varoffs$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes

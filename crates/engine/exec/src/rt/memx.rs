@@ -54,6 +54,14 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 let b = unsafe { mem::mem(p(1) as isize, i(2) as isize, i(3) as i32, i(4) as isize, var_lock()) };
                 *blk(vm, p(0))? = b;
             }
+            "_MEMSTR" => {
+                // a variable-length STRING: its current characters, one byte per element
+                let n = vm.load_str(p(1))?.len();
+                let q = vm.str_data(p(1))?;
+                // SAFETY: the characters stay in place until the string is assigned again.
+                let b = unsafe { mem::mem(q as isize, n as isize, i(2) as i32, 1, var_lock()) };
+                *blk(vm, p(0))? = b;
+            }
             "_MEMEXISTS" => {
                 let b = blk(vm, p(0))?;
                 // SAFETY: b is a mem_block.

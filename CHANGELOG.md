@@ -22,11 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ON PLAY(n) GOSUB` and `PLAY ON/OFF/STOP`: the handler runs when the background music queue drops below n notes.
 - A silent audio device: without an output device (or with `QB_AUDIO_DEVICE=null`) sound is mixed in real time and discarded, so `PLAY(n)`, `ON PLAY(n) GOSUB` and sound timing work as with speakers. `QB_AUDIO_DEVICE=none` still starts no audio at all.
 - `DECLARE LIBRARY "name"` with a C header (`name.h` / `name.hpp`, also next to the source): the compiler builds a wrapper library `<program>_headers.dll` (`.so`, `.dylib`) next to the executable with g++ / c++, so inline functions and macros of the header can be called. Without a C++ compiler the compile error names the header.
+- `_MEM(a$)` of a variable-length STRING (an extension; QB64 rejects it): a block over the string's current characters, one byte per element, valid until the string is assigned again. `_MEM` of a variable-length STRING array stays an error with a clearer message.
+- `_MEMFILL` of a value that is not a variable, without `AS type`, uses the value's own type (its suffix, or the type of the expression).
+- `TIME$ = "hh:mm:ss"` and `DATE$ = "mm-dd-yyyy"` (also `hh`, `hh:mm`, `mm/dd/yy`) set a clock of the program: TIME$, DATE$ and TIMER count on from the set time; the system clock is not changed. A badly formed value raises illegal function call, as in QBasic.
 
 ### Fixed
 
 - DOUBLE and `_FLOAT` numbers print like QBasic 4.5 and QB64 in `PRINT`, `STR$`, `PRINT #` and `WRITE`: `d# = 2.5: PRINT d#` shows ` 2.5` instead of ` 2.50`, 42 shows ` 42` instead of ` 42.0` (at most 16 significant digits, no trailing zeros).
 - Module code with labels placed after the SUBs (an `ON ERROR` handler, a `GOSUB` target) compiles and runs at module level; its variables are the main module's.
+- `DATE$` and `TIME$` returned an empty string; they give the local date (`mm-dd-yyyy`) and time (`hh:mm:ss`) again.
 - `TIMER` without an argument ticks 18.2 times a second (a SINGLE counted from local midnight), as in QBasic and QB64.
 - `LINE INPUT #` on a BINARY file reads a final line of 1 or 2 bytes.
 - `TIMER ON` after `TIMER STOP` delivers the event queued during the stop.

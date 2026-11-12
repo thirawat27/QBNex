@@ -2827,7 +2827,7 @@ END IF
 IF (sourcetyp AND ISARRAY) THEN
     IF sourcetyp AND ISSTRING THEN
         IF (sourcetyp AND ISFIXEDLENGTH) = 0 THEN
-            Give_Error qbnexprefix$ + "MEM cannot reference variable-length strings": EXIT FUNCTION
+            Give_Error qbnexprefix$ + "MEM cannot reference a variable-length STRING array (its elements are not stored together); use _MEM of one STRING variable": EXIT FUNCTION
         END IF
     END IF
 
@@ -2869,7 +2869,14 @@ END IF
 
 'String
 IF sourcetyp AND ISSTRING THEN
-    IF (sourcetyp AND ISFIXEDLENGTH) = 0 THEN Give_Error qbnexprefix$ + "MEM cannot reference variable-length strings": EXIT FUNCTION
+    IF (sourcetyp AND ISFIXEDLENGTH) = 0 THEN
+        'variable-length STRING (an extension): a block over its current characters,
+        'valid until the string is assigned again
+        e$ = refer(e$, sourcetyp, 0): IF Error_Happened THEN EXIT FUNCTION
+        t = Type2MemTypeValue(sourcetyp)
+        evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + e$ + "->len," + str2(t) + ",1,sf_mem_lock"
+        EXIT FUNCTION
+    END IF
 
     idnumber = VAL(e$)
     getid idnumber: IF Error_Happened THEN EXIT FUNCTION

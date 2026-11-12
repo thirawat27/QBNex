@@ -2437,9 +2437,9 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             x$ = IrArgAs$(sv(1), "str")
             IrChainPut
             IrE "rt CHAIN " + x$
-        CASE "TIME$"
-            'setting the clock is a no-op, as in the C++ runtime (sub_time)
-            x$ = IrArgAs$(sv(1), "str")
+        CASE "TIME$", "DATE$"
+            'moves a program-local clock (TIME$, DATE$, TIMER); the OS clock is not set
+            IrE "rt " + nm$ + ".set " + IrArgAs$(sv(1), "str")
         CASE ELSE
             IF IrGenOK%(RTRIM$(ids(idn).callname)) THEN
                 x$ = IrGeneric$(idn, nargs, passed, 0)

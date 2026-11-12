@@ -1144,7 +1144,11 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let st = shell_command(&cmd).status();
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
-        "DATE$" | "TIME$" => return ok(V::S(vec![])),
+        "DATE$" => return ok(V::S(qb_runtime::systime::date_string().into_bytes())),
+        "TIME$" => return ok(V::S(qb_runtime::systime::time_string().into_bytes())),
+        // TIME$ = / DATE$ =: a program-local clock offset (the OS clock is not set)
+        "TIME$.set" => return qb_runtime::systime::set_time(s(0)).map(|()| None).map_err(Stop::Err),
+        "DATE$.set" => return qb_runtime::systime::set_date(s(0)).map(|()| None).map_err(Stop::Err),
         "_DEFLATE$" => {
             let src = s(0);
             let mut cap = qb_runtime::compress::qb_deflate_bound(src.len() as u32);
@@ -2008,16 +2012,18 @@ pub(crate) fn start_dir() -> &'static str {
 
 /// TIMER's reference, taken at the first TIMER call: the millisecond tick count and the
 /// local time of day in milliseconds at that moment (`qb_runtime::timer` adds the ticks
-/// that passed since).
+/// that passed since). The time of day includes the offset `TIME$ =` / `DATE$ =` set.
 fn timer_origin() -> (u32, u32) {
     static ORIGIN: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
-    *ORIGIN.get_or_init(|| {
+    let (first, day) = *ORIGIN.get_or_init(|| {
         use qb_runtime::systime;
         let now = systime::unix_time();
         let secs = now.floor();
         let day = systime::day_ms(systime::local_hms(secs as i64)) + ((now - secs) * 1000.0) as u32;
         (systime::ticks() as u32, day)
-    })
+    });
+    let day = (i64::from(day) + qb_runtime::systime::clock_offset_ms()).rem_euclid(86_400_000) as u32;
+    (first, day)
 }
 
 /// Sets the program's argv (first call wins).

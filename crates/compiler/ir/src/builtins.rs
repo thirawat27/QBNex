@@ -263,6 +263,9 @@ pub static TABLE: &[Builtin] = &[
     b!("SHELL", [Str], I32),
     b!("DATE$", [], Str),
     b!("TIME$", [], Str),
+    // TIME$ = / DATE$ = (a program-local clock offset)
+    b!("TIME$.set", [Str]),
+    b!("DATE$.set", [Str]),
     b!("_DEST", [I32]),
     // ---- screen pages, images and graphics: libqb callnames of the compiler registry
     // (`subs_functions.bas`); argument types are the registry's, the trailing I32 is `passed`.
@@ -461,6 +464,8 @@ pub static TABLE: &[Builtin] = &[
     b!("_MEMAT", [Ptr, I64, I64]),
     // dst, address, size, type value, element size
     b!("_MEMVAR", [Ptr, Ptr, I64, I64, I64]),
+    // dst, address of a variable-length STRING, type value
+    b!("_MEMSTR", [Ptr, Ptr, I64]),
     b!("_MEMEXISTS", [Ptr], I32),
     b!("_MEMFREE", [Ptr]),
     // checked address of `bytes` bytes at offset in a block

@@ -163,12 +163,20 @@ it runs slower than SINGLE and DOUBLE code.
 The build stops with `QIR: unsupported: line N: ...` on:
 
 - `CHAIN` inside a SUB or FUNCTION while a COMMON variable is not SHARED;
-- `_MEM` of a variable-length STRING or of an array of them, and `_MEMFILL`
-  of a value that is not a variable without `AS type` (QB64 rejects these too).
+- `_MEM` of an array of variable-length STRINGs (its elements are not stored
+  together; `_MEM` of one STRING variable works).
 
 Compiled, but different:
 
-- `TIME$ = ...` does not set the clock (as in QB64).
+- `TIME$ = ...` and `DATE$ = ...` set a clock of the program only: TIME$,
+  DATE$ and TIMER then count on from the set time, but the system clock is not
+  changed (QBasic set the DOS clock; QB64 ignores the statement). A badly formed
+  value is an illegal function call.
+- `_MEM(a$)` of a variable-length STRING is allowed (QB64 rejects it): a block
+  over the string's current characters (SIZE = `LEN(a$)`, ELEMENTSIZE 1), valid
+  until the string is assigned again, like `_OFFSET(a$)`. `_MEMFILL` of a value
+  that is not a variable without `AS type` uses the value's own type
+  (integer arithmetic such as `x% * 2` is an `_INTEGER64`).
 - `SUB _GL` needs an OpenGL context (WGL, EGL/GLX or CGL; headless runs use an
   offscreen one): without one (no driver, `QB_GL=off`) it is not run and the
   runner says so on stderr. `_glGetString` returns an `_OFFSET`
