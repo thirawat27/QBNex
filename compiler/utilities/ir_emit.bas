@@ -1340,25 +1340,37 @@ END SUB
 'the C++ compiler for wrapper libraries: Windows internal\c\c_compiler\bin\g++.exe, then g++ on
 'the PATH; Linux and macOS c++, g++ or clang++ on the PATH. "" = none.
 FUNCTION IrFindCxx$
-    DIM f$, c$
+    DIM c$
     IF LEN(IrHdrCxx) THEN IrFindCxx$ = IrHdrCxx: EXIT FUNCTION
-    f$ = tmpdir$ + "headers_cxx.txt"
-    IF _FILEEXISTS(f$) THEN KILL f$
     IF os$ = "WIN" THEN
         c$ = "internal\c\c_compiler\bin\g++.exe"
-        IF _FILEEXISTS(c$) THEN
-            c$ = IrAbsPath$(c$)
-        ELSE
-            IrRunScript "where g++ > " + CHR$(34) + f$ + CHR$(34) + " 2>nul"
-            c$ = IrFirstLine$(f$)
-        END IF
+        IF _FILEEXISTS(c$) THEN c$ = IrAbsPath$(c$) ELSE c$ = IrOnPath$("g++.exe")
     ELSE
-        IrRunScript "(command -v c++ || command -v g++ || command -v clang++) > " + CHR$(34) + f$ + CHR$(34) + " 2>/dev/null"
-        c$ = IrFirstLine$(f$)
+        c$ = IrOnPath$("c++")
+        IF c$ = "" THEN c$ = IrOnPath$("g++")
+        IF c$ = "" THEN c$ = IrOnPath$("clang++")
     END IF
-    IF _FILEEXISTS(c$) = 0 THEN c$ = ""
     IrHdrCxx = c$
     IrFindCxx$ = c$
+END FUNCTION
+
+'the first folder of PATH that holds the file exe$ (its full path), or ""; read directly so no
+'shell or temporary file is involved
+FUNCTION IrOnPath$ (exe$)
+    DIM p$, d$, sep$, slash$, i AS LONG, j AS LONG
+    p$ = ENVIRON$("PATH")
+    IF os$ = "WIN" THEN sep$ = ";": slash$ = "\" ELSE sep$ = ":": slash$ = "/"
+    i = 1
+    DO WHILE i <= LEN(p$)
+        j = INSTR(i, p$, sep$)
+        IF j = 0 THEN j = LEN(p$) + 1
+        d$ = MID$(p$, i, j - i)
+        i = j + 1
+        IF LEN(d$) THEN
+            IF RIGHT$(d$, 1) <> slash$ THEN d$ = d$ + slash$
+            IF _FILEEXISTS(d$ + exe$) THEN IrOnPath$ = d$ + exe$: EXIT FUNCTION
+        END IF
+    LOOP
 END FUNCTION
 
 'DECLARE LIBRARY "spec" found the header hdr$ (and maybe the static library lib$ to link with it):
