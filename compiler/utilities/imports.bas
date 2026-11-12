@@ -274,7 +274,10 @@ SUB StdLib_PrepareHoistedImports
         END IF
     LOOP
     IF syntaxExtUsesTry THEN usesTry = -1 'a hoisted module uses TRY
-    IF stdlibHoisted$ = "@" AND usesTry = 0 THEN EXIT SUB
+    IF stdlibHoisted$ = "@" AND usesTry = 0 AND LEN(defFnBodyText$) = 0 THEN EXIT SUB
+
+    'FUNCTIONs made from single-line DEF FN (deffn.bas) go after the program's last line
+    bodyText = bodyText + defFnBodyText$
 
     'the in-place $IMPORT lines become no-ops
     IF stdlibHoisted$ <> "@" THEN importedModules$ = stdlibHoisted$
@@ -293,12 +296,16 @@ SUB StdLib_PrepareHoistedImports
         bodyText = bodyText + "'$INCLUDE:'" + vwatchDir + "vwatch_stub.bm'" + CHR$(13) + CHR$(10)
     END IF
 
-    stdlibHeadFile$ = tmpdir$ + "imports_head.bas"
+    'no head file when there is nothing to put first (a program with only DEF FN):
+    'including an empty file reads past its end
+    IF LEN(headText) THEN
+        stdlibHeadFile$ = tmpdir$ + "imports_head.bas"
+        fh = FREEFILE
+        OPEN stdlibHeadFile$ FOR OUTPUT AS #fh
+        PRINT #fh, headText;
+        CLOSE #fh
+    END IF
     stdlibBodyFile$ = tmpdir$ + "imports_body.bas"
-    fh = FREEFILE
-    OPEN stdlibHeadFile$ FOR OUTPUT AS #fh
-    PRINT #fh, headText;
-    CLOSE #fh
     fh = FREEFILE
     OPEN stdlibBodyFile$ FOR OUTPUT AS #fh
     PRINT #fh, bodyText;

@@ -184,6 +184,7 @@ SUB lineinput3load (f$)
         END IF
     END IF
 
+    DefFn_RewriteBuffer 'single-line DEF FN -> FUNCTION (deffn.bas)
     lineinput3index = 1
 END SUB
 

@@ -227,11 +227,10 @@ REM $STATIC
 '  Checks speed of the machine.
 FUNCTION CalcDelay!
 
-  s! = TIMER
-  DO
-    i! = i! + 1
-  LOOP UNTIL TIMER - s! >= .5
-  CalcDelay! = i!
+  ' Rest waits MachSpeed * t# / SPEEDCONST seconds. Counting empty loops for half a
+  ' second gives millions on a modern PC (pauses of hours), so use SPEEDCONST:
+  ' Rest t# then waits t# seconds.
+  CalcDelay! = SPEEDCONST
 
 END FUNCTION
 
@@ -1022,10 +1021,10 @@ END FUNCTION
 'Rest:
 '  pauses the program
 SUB Rest (t#)
-  s# = TIMER
+  s# = TIMER(.001)
   t2# = MachSpeed * t# / SPEEDCONST
   DO
-  LOOP UNTIL TIMER - s# > t2#
+  LOOP UNTIL TIMER(.001) - s# > t2# OR TIMER(.001) < s#
 END SUB
 
 'Scl:

@@ -1,0 +1,1 @@
+Single-line DEF FN (QBasic and QuickBASIC) did not compile (`Command not implemented`; QB64 never supported it). The compiler now turns each DEF FnName[(params)] = expression into a FUNCTION after the program that SHAREs the module variables the expression reads (compiler/utilities/deffn.bas). Expected output is QBasic behaviour.

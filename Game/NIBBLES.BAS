@@ -214,10 +214,8 @@ SUB GetInputs (NumPlayers, speed, diff$, monitor$)
         monitor$ = UCASE$(monitor$)
     LOOP UNTIL monitor$ = "M" OR monitor$ = "C"
 
-    startTime# = TIMER                          ' Calculate speed of system
-    FOR i# = 1 TO 1000: NEXT i#                 ' and do some compensation
-    stopTime# = TIMER
-    speed = speed * .5 / (stopTime# - startTime#)
+    ' speed is now the delay per move in half milliseconds (see PlayNibbles). The
+    ' original timed 1000 empty loops, which takes no measurable time on a modern PC.
 
 END SUB
 
@@ -462,8 +460,9 @@ SUB PlayNibbles (NumPlayers, speed, diff$)
                 count = 0
             END IF
 
-            'Delay game
-            FOR a# = 1 TO curSpeed:  NEXT a#
+            'Delay game: wait curSpeed half milliseconds on the clock
+            delayStart# = TIMER(.001)
+            DO: LOOP UNTIL TIMER(.001) - delayStart# >= curSpeed * .0005 OR TIMER(.001) < delayStart#
 
             'Get keyboard input & Change direction accordingly
             kbd$ = INKEY$

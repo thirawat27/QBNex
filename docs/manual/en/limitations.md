@@ -149,6 +149,7 @@ The build stops with `QIR: unsupported: line N: ...` on:
 - `RANDOMIZE` without a seed (QBasic asks for one);
 - `VARPTR$` of a string;
 - `ON KEY(n) name` with a SUB name;
+- the multi-line `DEF FnName ... END DEF` (the single-line `DEF FnName(x) = expression` works);
 - `_MEM` of a STRING array or of a variable-length STRING, `_MEMFILL`
   without `AS type`, `_MEMGET` into a variable-length STRING.
 
@@ -160,15 +161,23 @@ Compiled, but different:
 - `CHAIN` does not pass COMMON variables; `RUN file$` and `CHAIN` wait
   for the other program to end.
 
+## Programs that time themselves with loops
+
+Some old programs measure the speed of the PC with an empty loop and then wait by
+counting loop iterations, or scale their waits by that speed. They were written for
+PCs about a thousand times slower and break the same way under QBasic on a fast PC
+and under QB64: a loop of 1000 iterations takes no measurable time (dividing by it
+fails or gives 0), and a pause scaled by the loop count can last hours. Such programs
+compile and run; change their delay code to wait on the clock, for example
+`t# = TIMER(.001): DO: LOOP UNTIL TIMER(.001) - t# >= .05`.
+
 ## Known defects
 
 | ID | Defect |
 | --- | --- |
 | L-01 | An `ON ERROR` handler label placed after a SUB (or after an `$INCLUDE` with SUBs) does not compile. |
 | L-12 | `LINE INPUT #` on a BINARY file drops a 1-character last line. |
-| L-14 | `PUT` to a TCP connection with a full send buffer drops the connection. |
 | L-15 | `TIMER ON` after `TIMER STOP` loses an event queued during the stop. |
-| - | `qb file.bas` with a relative path, run from a folder other than the QBNex folder, does not find the file: pass an absolute path. |
 | - | Closing the window of a program inside a `SOUND` loop takes about 2.6 s to end it. |
 | - | Very large programs start slowly: the JIT compiles the whole program at start (16 s for 10,800 lines). |
 

@@ -823,13 +823,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "RANDOMIZE" => rt.rnd.randomize(f(0)),
         "RANDOMIZEUSING" => rt.rnd.randomize_using(f(0)),
         "TIMER.n" => {
-            let t = qb_runtime::systime::unix_time() % 86400.0;
-            let acc = f(0);
-            return ok(V::F(if acc > 0.0 { (t / acc).round() * acc } else { t }));
+            let (first, day) = timer_origin();
+            return match qb_runtime::timer::timer(qb_runtime::systime::ticks() as u32, first, day, Some(f(0))) {
+                Ok(v) => ok(V::F(v)),
+                Err(c) => e(c),
+            };
         }
         "TIMER" => {
-            let t = qb_runtime::systime::unix_time();
-            return ok(V::F(t % 86400.0));
+            // 18.2 steps per second as a SINGLE, like QBasic and QB64: programs that time
+            // a short loop with plain TIMER depend on it.
+            let (first, day) = timer_origin();
+            let v = qb_runtime::timer::timer(qb_runtime::systime::ticks() as u32, first, day, None).unwrap_or(0.0);
+            return ok(V::F(v));
         }
         "ERR" => return ok(V::I(err.into())),
         "ERL" => return ok(V::I(erl.into())),
@@ -1889,6 +1894,20 @@ static START_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// does not change it). The VM records it when it is created.
 pub(crate) fn start_dir() -> &'static str {
     START_DIR.get_or_init(|| std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default())
+}
+
+/// TIMER's reference, taken at the first TIMER call: the millisecond tick count and the
+/// local time of day in milliseconds at that moment (`qb_runtime::timer` adds the ticks
+/// that passed since).
+fn timer_origin() -> (u32, u32) {
+    static ORIGIN: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
+    *ORIGIN.get_or_init(|| {
+        use qb_runtime::systime;
+        let now = systime::unix_time();
+        let secs = now.floor();
+        let day = systime::day_ms(systime::local_hms(secs as i64)) + ((now - secs) * 1000.0) as u32;
+        (systime::ticks() as u32, day)
+    })
 }
 
 /// Sets the program's argv (first call wins).
