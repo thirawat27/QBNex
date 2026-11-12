@@ -50,7 +50,11 @@ impl VarReader for DBlock {
 
 // ---- lifecycle ---------------------------------------------------------------
 
-/// `snd_init`. Set QB_AUDIO_DEVICE=none to run without an output device.
+/// `snd_init`. Opens the default output device; without one, the silent
+/// device ([`Device::open_null`]) plays the mix against the clock, so notes
+/// take their real time. `QB_AUDIO_DEVICE=null` uses the silent device
+/// directly; `QB_AUDIO_DEVICE=none` starts no engine at all (sound
+/// statements do nothing and never wait: fast, deterministic test runs).
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_init() {
     {
@@ -59,8 +63,15 @@ pub extern "C" fn qb_snd_init() {
             return;
         }
     }
-    let no_device = std::env::var("QB_AUDIO_DEVICE").map(|v| v.eq_ignore_ascii_case("none")).unwrap_or(false);
-    let dev = if no_device { None } else { Device::open(Arc::new(|buf: &mut [f32]| engine().render(buf))) };
+    let choice = std::env::var("QB_AUDIO_DEVICE").unwrap_or_default();
+    let render: crate::device::RenderFn = Arc::new(|buf: &mut [f32]| engine().render(buf));
+    let dev = if choice.eq_ignore_ascii_case("none") {
+        None
+    } else if choice.eq_ignore_ascii_case("null") {
+        Device::open_null(render)
+    } else {
+        Device::open(render.clone()).or_else(|| Device::open_null(render))
+    };
     match dev {
         Some(d) => {
             engine().start(d.rate);
@@ -116,6 +127,15 @@ pub unsafe extern "C" fn qb_snd_play(s: *const u8, len: i32, dblock: *const u8) 
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_play_count() -> i32 {
     engine().play_remaining()
+}
+
+/// 1 while PLAY is in music-foreground mode (`MF`, the default): SOUND and
+/// PLAY then wait until their notes have played. 0 after `PLAY "MB"` or
+/// without an audio engine.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_snd_foreground() -> i32 {
+    let e = engine();
+    i32::from(e.initialized && e.synth.play.mb == 0.0)
 }
 
 /// Notes in the background music queue (the `ON PLAY(n)` event count).

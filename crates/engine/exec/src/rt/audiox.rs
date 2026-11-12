@@ -38,17 +38,43 @@ fn start_audio(rt: &mut super::builtins::RtState<'_>) {
     snd::qb_snd_init();
 }
 
-/// Seconds of SOUND/PLAY audio that may wait in the voice queues. Like the
-/// QBasic music buffer it has a limit: a statement that queues past it waits
-/// until the queue plays down, so `DO: SOUND f, d: LOOP` does not grow the
-/// queue until memory runs out. Programs that queue less never wait.
+/// Seconds of SOUND/PLAY audio that may wait in the voice queues in
+/// music-background mode (`PLAY "MB"`). Like the QBasic music buffer it has
+/// a limit: a statement that queues past it waits until the queue plays
+/// down, so `DO: SOUND f, d: LOOP` does not grow the queue until memory runs
+/// out. Programs that queue less never wait.
 const QUEUE_LIMIT_SECONDS: i64 = 10;
 
-/// Waits while more than [`QUEUE_LIMIT_SECONDS`] of synth audio is queued;
-/// a window close ends the program during the wait.
+/// A wait gives up when the queue has not moved for this long (an output
+/// device that stopped pulling frames), so a program never hangs on it.
+const STALL_MS: i64 = 2000;
+
+/// Waits after SOUND/PLAY. In music-foreground mode (`MF`, the QBasic
+/// default) the statement returns once its notes have played; in
+/// music-background mode (`MB`) it returns at once unless more than
+/// [`QUEUE_LIMIT_SECONDS`] per voice is queued. Without an audio engine
+/// (`QB_AUDIO_DEVICE=none`) nothing is queued and nothing waits. The browser
+/// build only applies the background limit: there the page pulls the mix.
 fn hold_queue(rt: &mut super::builtins::RtState<'_>) {
-    let limit = i64::from(snd::qb_snd_rate()) * QUEUE_LIMIT_SECONDS;
-    while limit > 0 && i64::from(snd::qb_snd_play_count()) > limit {
+    let background = i64::from(snd::qb_snd_rate()) * QUEUE_LIMIT_SECONDS;
+    #[cfg(not(target_arch = "wasm32"))]
+    let limit = if snd::qb_snd_foreground() != 0 { 0 } else { background };
+    #[cfg(target_arch = "wasm32")]
+    let limit = background;
+    let mut last = i64::MAX;
+    let mut moved = qb_runtime::systime::ticks();
+    loop {
+        let queued = i64::from(snd::qb_snd_play_count());
+        if queued <= limit || background <= 0 {
+            break;
+        }
+        let now = qb_runtime::systime::ticks();
+        if queued < last {
+            last = queued;
+            moved = now;
+        } else if now.saturating_sub(moved) >= STALL_MS {
+            break;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         if super::window::closed() {
             super::builtins::close_exit(rt);

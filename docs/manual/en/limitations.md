@@ -168,8 +168,17 @@ Compiled, but different:
   characters on the default printer, on Linux and macOS through `lp`.
   `QBNEX_LPRINT=<file>` appends the text to a file instead. Without a printer
   the page is dropped.
-- `ON PLAY(n) GOSUB` needs an audio device: without one (`QB_AUDIO_DEVICE=none`)
-  no notes are queued, so the handler never runs.
+- `SOUND`, `BEEP` and `PLAY` follow QBasic's music modes: in `MF` (the
+  default) the statement returns once its notes have played; after
+  `PLAY "MB"` it returns at once and the notes play in the background, but a
+  statement waits while more than 10 seconds of sound per voice is queued.
+  QB64 never waited. A window close during a wait ends the program at once.
+  In the browser build only the `MB` limit applies.
+- Without an output device, sound plays on a silent device that keeps real
+  time, so `PLAY(n)`, `ON PLAY(n) GOSUB` and the waits above behave as with
+  speakers (`QB_AUDIO_DEVICE=null` selects it on purpose).
+  `QB_AUDIO_DEVICE=none` starts no audio at all, for tests: sound statements
+  do nothing and never wait, and `ON PLAY(n)` never fires.
 - `RUN file$` and `CHAIN` wait for the other program to end.
 
 ## Programs that time themselves with loops

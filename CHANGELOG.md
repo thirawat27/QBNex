@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CHAIN` also passes COMMON arrays, in order with the variables: numeric, fixed-length string and TYPE arrays with their bounds and values, STRING arrays element by element. A dynamic array arrives with the passed bounds; a static array of the same size gets the values.
 - `CALL INTERRUPTX` and the `INTERRUPT[X] n, in, out` form; `_MEMFILL` of a variable without `AS type`; `_MEMGET` into a variable-length STRING; `_MEM` of a fixed-length STRING array.
 - `ON PLAY(n) GOSUB` and `PLAY ON/OFF/STOP`: the handler runs when the background music queue drops below n notes.
+- A silent audio device: without an output device (or with `QB_AUDIO_DEVICE=null`) sound is mixed in real time and discarded, so `PLAY(n)`, `ON PLAY(n) GOSUB` and sound timing work as with speakers. `QB_AUDIO_DEVICE=none` still starts no audio at all.
 
 ### Fixed
 
@@ -42,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A large program no longer stalls at its first hot loop while the JIT compiles it: big modules are compiled on a background thread while the program keeps running (a 10,500-line program: 1.7 s instead of 16 s). The JIT also declares only the functions each function calls.
 - Closing the window while the first `SOUND`, `PLAY` or other sound statement opens the audio device ends the program at once instead of after the device is up (0.4-1 s).
 - A tight `SOUND` or `PLAY` loop no longer queues audio until memory runs out (3 GB in 5 s, then a crash): like the QBasic music buffer, a statement waits while more than 10 seconds of sound per voice is queued.
+- `SOUND`, `BEEP` and `PLAY` follow `PLAY "MF"`/`"MB"`: in `MF` (the QBasic default) the statement returns once its notes have played; after `MB` it returns at once, with the 10-second queue limit. A window close during the wait ends the program at once.
 
 ### Security
 
