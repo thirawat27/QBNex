@@ -118,6 +118,17 @@ pub fn run_main(title: &str, hidden: bool) {
     unsafe { qb_runtime::window::qb_window_run(&cb, 640, 400, t.as_ptr(), 0, i32::from(hidden)) };
 }
 
+/// Records the size of the frame about to be shown. When it differs from the
+/// previous frame's, the window is sized to it: SCREEN, WIDTH and _FONT change
+/// the page size, and a window left at its old size would crop or letterbox it.
+fn frame_size(w: usize, h: usize) {
+    let (w, h) = (w as i32, h as i32);
+    let old = (FRAME_W.swap(w, Ordering::Relaxed), FRAME_H.swap(h, Ordering::Relaxed));
+    if old != (w, h) {
+        qb_runtime::window::qb_window_set_size(w, h);
+    }
+}
+
 /// Builds the next frame of the display page and shows it.
 pub(crate) fn present(d: &Display) {
     if !d.started || d.screen_hide {
@@ -127,8 +138,7 @@ pub(crate) fn present(d: &Display) {
     // SAFETY: the display page of a started screen is a live registry entry.
     let p = unsafe { &*d.display_page() };
     let Some((px, w, h)) = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0) else { return };
-    FRAME_W.store(w as i32, Ordering::Relaxed);
-    FRAME_H.store(h as i32, Ordering::Relaxed);
+    frame_size(w, h);
     // SAFETY: `px` holds w*h pixels.
     unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, 0, 0, 0) };
 }
@@ -144,8 +154,7 @@ pub(crate) fn pixels(d: &Display) -> Option<(Vec<u32>, usize, usize)> {
     // SAFETY: the display page of a started screen is a live registry entry.
     let p = unsafe { &*d.display_page() };
     let r = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0)?;
-    FRAME_W.store(r.1 as i32, Ordering::Relaxed);
-    FRAME_H.store(r.2 as i32, Ordering::Relaxed);
+    frame_size(r.1, r.2);
     Some(r)
 }
 
@@ -155,8 +164,7 @@ pub(crate) fn present_pixels(px: &[u32], w: usize, h: usize) {
     if w == 0 || h == 0 || px.len() < w * h {
         return;
     }
-    FRAME_W.store(w as i32, Ordering::Relaxed);
-    FRAME_H.store(h as i32, Ordering::Relaxed);
+    frame_size(w, h);
     // SAFETY: `px` holds w*h pixels.
     unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, 0, 0, 0) };
 }
