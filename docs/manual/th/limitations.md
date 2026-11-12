@@ -140,6 +140,26 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
 - `ON TIMER(n) sub argument` (SUB ที่รับ argument) ใน SUB หรือ FUNCTION
 - `_MEM` ของ array ของ STRING ความยาวไม่คงที่ (สมาชิกไม่ได้เก็บติดกัน ส่วน `_MEM` ของตัวแปร
   STRING ตัวเดียวใช้ได้)
+- คำสั่งและฟังก์ชันของ QB64 ต่อไปนี้ ซึ่ง backend QIR ยังคอมไพล์ไม่ได้
+  (ได้จากการคอมไพล์โปรแกรมบรรทัดเดียวของทุก keyword ที่คอมไพเลอร์รู้จัก รูปแบบที่มี argument เสริมยังลองไม่ครบ):
+  - clipboard: `_CLIPBOARD$`, `_CLIPBOARDIMAGE`
+  - จอยและอุปกรณ์เกม: `_DEVICES`, `_DEVICE$`, `_DEVICEINPUT`, `_BUTTON`,
+    `_BUTTONCHANGE`, `_AXIS`, `_WHEEL`, `_LASTBUTTON`, `_LASTAXIS`, `_LASTWHEEL`
+  - เดสก์ท็อป: `_SCREENIMAGE`, `_SCREENCLICK`, `_SCREENPRINT`, `_DESKTOPWIDTH`,
+    `_DESKTOPHEIGHT`
+  - หน้าต่าง: `_SCREENX`, `_SCREENY`, `_SCREENEXISTS`, `_SCREENICON` (แบบฟังก์ชัน),
+    `_FULLSCREEN`, `_RESIZE` (แบบฟังก์ชัน), `_RESIZEWIDTH`, `_RESIZEHEIGHT`,
+    `_SCALEDWIDTH`, `_SCALEDHEIGHT`, `_WINDOWHANDLE`, `_WINDOWHASFOCUS`, `_EXIT`,
+  - ไฟล์ที่ลากมาวาง: `_ACCEPTFILEDROP` (แบบฟังก์ชัน), `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP`
+  - เมาส์และคีย์บอร์ด: `_MOUSEMOVE`, `_MOUSEMOVEMENTX`, `_MOUSEMOVEMENTY`,
+    `_MOUSEPIPEOPEN`, `_MOUSEINPUTPIPE`, `_MOUSEPIPECLOSE`, `_CAPSLOCK`,
+    `_NUMLOCK`, `_SCROLLLOCK`, `_KEYCLEAR`
+  - console: `_CINP`, `_CONSOLEINPUT`, `_CONSOLECURSOR`, `_CONSOLEFONT`
+  - ข้อความและสี: `_PRINTSTRING`, `_PRINTMODE`, `_MAPUNICODE`, `_BLINK`,
+    `_SMOOTH`, `_FPS`, `_COPYPALETTE`, `_BACKGROUNDCOLOR`, `_DEFAULTCOLOR`,
+    `_MEMIMAGE`, `_BLEND` (แบบฟังก์ชัน), `_CONTROLCHR` (แบบฟังก์ชัน)
+  - คณิตศาสตร์: `_ASINH`, `_ACOSH`, `_ATANH`
+  - ไฟล์และระบบ: `LOCK`, `UNLOCK`, `_DIR$`, `_ENVIRONCOUNT`, `SHELL` ที่ไม่มีคำสั่งตามหลัง
 
 คอมไพล์ได้ แต่ทำงานต่างไป:
 

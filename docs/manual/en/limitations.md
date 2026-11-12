@@ -155,7 +155,28 @@ The build stops with `QIR: unsupported: line N: ...` on:
 
 - `ON TIMER(n) sub argument` (a SUB with an argument) inside a SUB or FUNCTION;
 - `_MEM` of an array of variable-length STRINGs (its elements are not stored
-  together; `_MEM` of one STRING variable works).
+  together; `_MEM` of one STRING variable works);
+- these QB64 statements and functions, which the QIR backend does not compile
+  yet (found by compiling a one-line program for every keyword the compiler knows; forms with optional arguments were not all tried):
+  - clipboard: `_CLIPBOARD$`, `_CLIPBOARDIMAGE`;
+  - game controllers: `_DEVICES`, `_DEVICE$`, `_DEVICEINPUT`, `_BUTTON`,
+    `_BUTTONCHANGE`, `_AXIS`, `_WHEEL`, `_LASTBUTTON`, `_LASTAXIS`, `_LASTWHEEL`;
+  - desktop: `_SCREENIMAGE`, `_SCREENCLICK`, `_SCREENPRINT`, `_DESKTOPWIDTH`,
+    `_DESKTOPHEIGHT`;
+  - window: `_SCREENX`, `_SCREENY`, `_SCREENEXISTS`, `_SCREENICON` (the
+    function), `_FULLSCREEN`, `_RESIZE` (the function), `_RESIZEWIDTH`,
+    `_RESIZEHEIGHT`, `_SCALEDWIDTH`, `_SCALEDHEIGHT`, `_WINDOWHANDLE`,
+    `_WINDOWHASFOCUS`, `_EXIT`, `_SCREENHIDE` (the function);
+  - dropped files: `_ACCEPTFILEDROP` (the function), `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP`;
+  - mouse and keyboard: `_MOUSEMOVE`, `_MOUSEMOVEMENTX`, `_MOUSEMOVEMENTY`,
+    `_MOUSEPIPEOPEN`, `_MOUSEINPUTPIPE`, `_MOUSEPIPECLOSE`, `_CAPSLOCK`,
+    `_NUMLOCK`, `_SCROLLLOCK`, `_KEYCLEAR`;
+  - console: `_CINP`, `_CONSOLEINPUT`, `_CONSOLECURSOR`, `_CONSOLEFONT`;
+  - text and colours: `_PRINTSTRING`, `_PRINTMODE`, `_MAPUNICODE`, `_BLINK`,
+    `_SMOOTH`, `_FPS`, `_COPYPALETTE`, `_BACKGROUNDCOLOR`, `_DEFAULTCOLOR`,
+    `_MEMIMAGE`, `_BLEND` (the function), `_CONTROLCHR` (the function);
+  - math: `_ASINH`, `_ACOSH`, `_ATANH`;
+  - files and system: `LOCK`, `UNLOCK`, `_DIR$`, `_ENVIRONCOUNT`, `SHELL` without a command.
 
 Compiled, but different:
 

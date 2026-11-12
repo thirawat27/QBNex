@@ -34,7 +34,7 @@ QBNex เริ่มต้นจาก QB64 โปรแกรมเดิม�
 | D-08, D-10, D-11, D-12, D-R12b-1, D-R12b-3 | จุดที่ QB64 อ่านเกิน buffer (GET ของ string, FILES, SHELL, `_PUTIMAGE` แบบยืด, GET แบบ 2-bit, HEX$) ตอนนี้ได้ผลที่กำหนดแน่นอน |
 | D-09 | `SHELL` หยุดรับ event ของหน้าต่างตลอดช่วงที่รอคำสั่ง |
 | D-18 | นาฬิกามิลลิวินาทีเป็น 64-bit ทุกระบบ (QB64 บน Windows วนกลับเมื่อครบ 24.8 วัน) |
-| D-19, D-20 | `_CLIPBOARD$` และ `_CLIPBOARDIMAGE` ใช้ได้บน Linux/macOS (clipboard เป็น UTF-8 ไบต์ที่ไม่ใช่ UTF-8 จะกลายเป็น U+FFFD) |
+| D-19, D-20 | `_CLIPBOARD$` และ `_CLIPBOARDIMAGE` เขียนไว้ใน runtime ให้ใช้บน Linux/macOS ได้ด้วย (clipboard เป็น UTF-8 ไบต์ที่ไม่ใช่ UTF-8 จะกลายเป็น U+FFFD) แต่ backend QIR ยังคอมไพล์สองคำสั่งนี้ไม่ได้ (ดู[ข้อจำกัด](limitations.md#คำสั่งที่ยังไม่รองรับหรือทำงานต่างไป)) |
 | D-21 | `_OPENCLIENT` ลองทุกที่อยู่ IPv4 ของ host บนทุกระบบ |
 | D-22 | ไฟล์ source แบบ CP437 คอมไพล์ได้ (QBNex รุ่นก่อนไม่รับ) |
 | D-23, D-24, D-26 | แก้คอมไพเลอร์: wrapper ของ `CALL ABSOLUTE`, `PLAY ON/OFF/STOP` และ `ON PLAY(n) GOSUB` คอมไพล์ได้และ event ของ PLAY ทำงาน, ตัวดำเนินการเปรียบเทียบใน PRINT |
@@ -58,6 +58,8 @@ exponent ของ MBF เป็น 2, `STR$`
 
 ## ช่องว่างตามแพลตฟอร์ม
 
+backend QIR ยังคอมไพล์ `_SCREENIMAGE`, `_SCREENCLICK` และ `_SCREENPRINT` ไม่ได้
+(ดู[ข้อจำกัด](limitations.md#คำสั่งที่ยังไม่รองรับหรือทำงานต่างไป)) ส่วนใน runtime
 `_SCREENIMAGE` ได้ภาพว่างบน Linux/macOS, `_SCREENCLICK` และ
 `_SCREENPRINT` ไม่ทำอะไรบน Linux, การพิมพ์ (`LPRINT`, `_PRINTIMAGE`)
 ส่งไปเครื่องพิมพ์หลักบน Windows และผ่าน `lp` บน Linux และ macOS
