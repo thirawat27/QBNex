@@ -21,7 +21,7 @@ Windows ควรยกเว้นโฟลเดอร์นี้จากก
 
 `qbnex-setup --yes` ติดตั้งโดยไม่ถาม, `--dir <โฟลเดอร์>` เลือกที่ติดตั้งเอง,
 `--no-path` ไม่แก้ PATH และ `qbnex-setup --uninstall` (ตัวที่อยู่ในโฟลเดอร์ที่ติดตั้ง)
-ลบทุกอย่างที่ติดตั้งไป ตัวติดตั้งยังไม่ได้ลงลายเซ็นดิจิทัล Windows SmartScreen
+ลบทุกอย่างที่ติดตั้งไป ตัวติดตั้งและ `qb` ยังไม่ได้ลงลายเซ็นดิจิทัล Windows SmartScreen
 และ macOS Gatekeeper อาจเตือนก่อนเปิดครั้งแรก (macOS:
 `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`)
 

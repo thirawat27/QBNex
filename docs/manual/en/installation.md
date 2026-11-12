@@ -21,9 +21,9 @@ user, without administrator rights:
 
 `qbnex-setup --yes` installs without asking, `--dir <folder>` picks another
 folder, `--no-path` leaves PATH alone. `qbnex-setup --uninstall` (the copy in
-the install folder) removes everything it installed. The installer is not
-code-signed: Windows SmartScreen and macOS Gatekeeper may warn before the
-first run (macOS: `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`).
+the install folder) removes everything it installed. The installer and `qb`
+are not code-signed: Windows SmartScreen and macOS Gatekeeper may warn before
+the first run (macOS: `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`).
 
 ## Building from source
 

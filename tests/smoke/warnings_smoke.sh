@@ -22,11 +22,11 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_warnings_smoke_XXXXXX")"
-BIN_WARN="$TMPDIR/warn"
-BIN_WERROR="$TMPDIR/werror"
-OUT_WARN="$TMPDIR/warn.txt"
-OUT_WERROR="$TMPDIR/werror.txt"
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_warnings_smoke_XXXXXX")"
+BIN_WARN="$SMOKE_TMP/warn"
+BIN_WERROR="$SMOKE_TMP/werror"
+OUT_WARN="$SMOKE_TMP/warn.txt"
+OUT_WERROR="$SMOKE_TMP/werror.txt"
 
 "$QB" "$SRC_REL" -w -o "$BIN_WARN" >"$OUT_WARN" 2>&1
 EC_WARN=$?
@@ -110,7 +110,7 @@ fi
 
 if [ "$FAIL" -eq 0 ]; then
   echo "WARNINGS_SMOKE_OK"
-  rm -rf "$TMPDIR"
+  rm -rf "$SMOKE_TMP"
   exit 0
 fi
 

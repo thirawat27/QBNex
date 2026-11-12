@@ -25,11 +25,11 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_benchmark_XXXXXX")"
-BIN_TINY="$TMPDIR/tiny_output"
-BIN_WARN="$TMPDIR/warn_output"
-BIN_MEDIUM="$TMPDIR/medium_output"
-BIN_LARGE="$TMPDIR/large_output"
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_benchmark_XXXXXX")"
+BIN_TINY="$SMOKE_TMP/tiny_output"
+BIN_WARN="$SMOKE_TMP/warn_output"
+BIN_MEDIUM="$SMOKE_TMP/medium_output"
+BIN_LARGE="$SMOKE_TMP/large_output"
 
 measure_case() {
   case_name=$1
@@ -77,12 +77,12 @@ measure_case() {
 
     if [ "$status" -ne 0 ]; then
       echo "[FAIL] benchmark case failed: $case_name exit=$status"
-      rm -rf "$TMPDIR"
+      rm -rf "$SMOKE_TMP"
       exit 1
     fi
     if [ ! -f "$output_path" ]; then
       echo "[FAIL] benchmark output missing: $case_name"
-      rm -rf "$TMPDIR"
+      rm -rf "$SMOKE_TMP"
       exit 1
     fi
 
@@ -101,4 +101,4 @@ measure_case "warning-path" 5 "$SRC_WARN_REL" "$BIN_WARN" "-w"
 measure_case "medium-parse" 3 "$SRC_MEDIUM_REL" "$BIN_MEDIUM"
 measure_case "large-parse" 2 "$SRC_LARGE_REL" "$BIN_LARGE"
 
-rm -rf "$TMPDIR"
+rm -rf "$SMOKE_TMP"

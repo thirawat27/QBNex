@@ -41,19 +41,19 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_labels_smoke_XXXXXX")"
-BIN_OK="$TMPDIR/label_recompile_success"
-BIN_FAIL="$TMPDIR/label_missing_failure"
-BIN_SCOPE="$TMPDIR/label_scope_conflict"
-BIN_DATA="$TMPDIR/label_ambiguous_data"
-BIN_STALE="$TMPDIR/label_stale_failure"
-OUT_OK="$TMPDIR/label_recompile_success.txt"
-OUT_FAIL="$TMPDIR/label_missing_failure.txt"
-OUT_SCOPE="$TMPDIR/label_scope_conflict.txt"
-OUT_DATA="$TMPDIR/label_ambiguous_data.txt"
-OUT_STALE="$TMPDIR/label_stale_failure.txt"
-BIN_NOSUB="$TMPDIR/declared_sub_missing"
-OUT_NOSUB="$TMPDIR/declared_sub_missing.txt"
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_labels_smoke_XXXXXX")"
+BIN_OK="$SMOKE_TMP/label_recompile_success"
+BIN_FAIL="$SMOKE_TMP/label_missing_failure"
+BIN_SCOPE="$SMOKE_TMP/label_scope_conflict"
+BIN_DATA="$SMOKE_TMP/label_ambiguous_data"
+BIN_STALE="$SMOKE_TMP/label_stale_failure"
+OUT_OK="$SMOKE_TMP/label_recompile_success.txt"
+OUT_FAIL="$SMOKE_TMP/label_missing_failure.txt"
+OUT_SCOPE="$SMOKE_TMP/label_scope_conflict.txt"
+OUT_DATA="$SMOKE_TMP/label_ambiguous_data.txt"
+OUT_STALE="$SMOKE_TMP/label_stale_failure.txt"
+BIN_NOSUB="$SMOKE_TMP/declared_sub_missing"
+OUT_NOSUB="$SMOKE_TMP/declared_sub_missing.txt"
 
 "$QB" "$SRC_OK_REL" -o "$BIN_OK" >"$OUT_OK" 2>&1
 EC_OK=$?
@@ -166,7 +166,7 @@ fi
 
 if [ "$FAIL" -eq 0 ]; then
   echo "LABELS_SMOKE_OK"
-  rm -rf "$TMPDIR"
+  rm -rf "$SMOKE_TMP"
   exit 0
 fi
 

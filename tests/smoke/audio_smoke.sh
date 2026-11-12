@@ -22,13 +22,13 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_audio_smoke_XXXXXX")"
-OUT_ZMODE="$TMPDIR/audio_zmode.txt"
-OUT_LINK="$TMPDIR/audio_link.txt"
-AUDIO_EXE="$TMPDIR/audio_synth"
-SIMPLE_SRC="$TMPDIR/simple_beep.bas"
-SIMPLE_EXE="$TMPDIR/simple_beep"
-OUT_SIMPLE="$TMPDIR/simple_beep.txt"
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_audio_smoke_XXXXXX")"
+OUT_ZMODE="$SMOKE_TMP/audio_zmode.txt"
+OUT_LINK="$SMOKE_TMP/audio_link.txt"
+AUDIO_EXE="$SMOKE_TMP/audio_synth"
+SIMPLE_SRC="$SMOKE_TMP/simple_beep.bas"
+SIMPLE_EXE="$SMOKE_TMP/simple_beep"
+OUT_SIMPLE="$SMOKE_TMP/simple_beep.txt"
 
 {
   echo 'PRINT "simple"'
@@ -75,5 +75,5 @@ if [ "$simple_size" -ge "$audio_size" ]; then
 fi
 
 echo "AUDIO_SMOKE_OK"
-rm -rf "$TMPDIR"
+rm -rf "$SMOKE_TMP"
 exit 0

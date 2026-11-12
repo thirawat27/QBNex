@@ -22,6 +22,14 @@ listed. Intentional changes and fixed QB64 bugs are on
   the program.
 - `qb fmt`, `qb lsp` and `qb dap` need their tools built with `cargo`
   first.
+- **Release files are not code-signed**, except `qb-fmt`, `qb-lsp` and
+  `qb-dap` when the release was built with a signing certificate. `qb`, the
+  installers and compiled programs carry data appended to the executable,
+  which a signature would break, so SmartScreen and Gatekeeper may warn on
+  first run.
+- **macOS is tested in CI only** (arm64, the `macos-latest` runner: build,
+  tests, smoke tests, conformance, self-host fixpoint). No macOS machine
+  has run QBNex by hand, and Intel Macs are not tested.
 
 ## Two kinds of executable
 

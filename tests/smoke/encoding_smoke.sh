@@ -13,40 +13,40 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_encoding_smoke_XXXXXX")"
-if [ ! -d "$TMPDIR" ]; then
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_encoding_smoke_XXXXXX")"
+if [ ! -d "$SMOKE_TMP" ]; then
   echo "[FAIL] Could not create temp directory"
   exit 2
 fi
 
-SRC_UTF16="$TMPDIR/utf16_source.bas"
-SRC_INVALID="$TMPDIR/invalid_utf8_source.bas"
-SRC_INVALID_MID="$TMPDIR/invalid_utf8_mid_source.bas"
-SRC_BOM="$TMPDIR/utf8_bom_source.bas"
-SRC_CP437="$TMPDIR/cp437_source.bas"
-BIN_CP437="$TMPDIR/cp437_output"
-OUT_CP437="$TMPDIR/cp437_output.txt"
-SRC_EMPTY="$TMPDIR/empty_source.bas"
-SRC_SPACE_DIR="$TMPDIR/source with spaces"
+SRC_UTF16="$SMOKE_TMP/utf16_source.bas"
+SRC_INVALID="$SMOKE_TMP/invalid_utf8_source.bas"
+SRC_INVALID_MID="$SMOKE_TMP/invalid_utf8_mid_source.bas"
+SRC_BOM="$SMOKE_TMP/utf8_bom_source.bas"
+SRC_CP437="$SMOKE_TMP/cp437_source.bas"
+BIN_CP437="$SMOKE_TMP/cp437_output"
+OUT_CP437="$SMOKE_TMP/cp437_output.txt"
+SRC_EMPTY="$SMOKE_TMP/empty_source.bas"
+SRC_SPACE_DIR="$SMOKE_TMP/source with spaces"
 SRC_SPACE="$SRC_SPACE_DIR/hello world.bas"
-SRC_QUOTE_DIR="$TMPDIR/source's apostrophe"
+SRC_QUOTE_DIR="$SMOKE_TMP/source's apostrophe"
 SRC_QUOTE="$SRC_QUOTE_DIR/hello's world.bas"
-BIN_UTF16="$TMPDIR/utf16_output"
-BIN_INVALID="$TMPDIR/invalid_utf8_output"
-BIN_INVALID_MID="$TMPDIR/invalid_utf8_mid_output"
-BIN_BOM="$TMPDIR/utf8_bom_output"
-BIN_EMPTY="$TMPDIR/empty_output"
-BIN_SPACE="$TMPDIR/output with spaces/hello world"
-BIN_QUOTE="$TMPDIR/output's apostrophe/hello's world"
-BIN_STALE="$TMPDIR/stale_output"
-OUT_UTF16="$TMPDIR/utf16_output.txt"
-OUT_INVALID="$TMPDIR/invalid_utf8_output.txt"
-OUT_INVALID_MID="$TMPDIR/invalid_utf8_mid_output.txt"
-OUT_BOM="$TMPDIR/utf8_bom_output.txt"
-OUT_EMPTY="$TMPDIR/empty_output.txt"
-OUT_SPACE="$TMPDIR/space_path_output.txt"
-OUT_QUOTE="$TMPDIR/apostrophe_path_output.txt"
-OUT_STALE="$TMPDIR/stale_output.txt"
+BIN_UTF16="$SMOKE_TMP/utf16_output"
+BIN_INVALID="$SMOKE_TMP/invalid_utf8_output"
+BIN_INVALID_MID="$SMOKE_TMP/invalid_utf8_mid_output"
+BIN_BOM="$SMOKE_TMP/utf8_bom_output"
+BIN_EMPTY="$SMOKE_TMP/empty_output"
+BIN_SPACE="$SMOKE_TMP/output with spaces/hello world"
+BIN_QUOTE="$SMOKE_TMP/output's apostrophe/hello's world"
+BIN_STALE="$SMOKE_TMP/stale_output"
+OUT_UTF16="$SMOKE_TMP/utf16_output.txt"
+OUT_INVALID="$SMOKE_TMP/invalid_utf8_output.txt"
+OUT_INVALID_MID="$SMOKE_TMP/invalid_utf8_mid_output.txt"
+OUT_BOM="$SMOKE_TMP/utf8_bom_output.txt"
+OUT_EMPTY="$SMOKE_TMP/empty_output.txt"
+OUT_SPACE="$SMOKE_TMP/space_path_output.txt"
+OUT_QUOTE="$SMOKE_TMP/apostrophe_path_output.txt"
+OUT_STALE="$SMOKE_TMP/stale_output.txt"
 
 printf '\377\376P\000R\000I\000N\000T\000 \000"\000h\000i\000"\000\r\000\n\000' > "$SRC_UTF16"
 printf '\357\273\277PRINT "\377"\r\n' > "$SRC_INVALID"
@@ -54,9 +54,9 @@ printf 'PRINT "\342\224\200\342\224\202"\r\nPRINT "\377"\r\n' > "$SRC_INVALID_MI
 printf "' \272 comment\r\nPRINT \"\311\315\273\"\r\n" > "$SRC_CP437"
 printf '\357\273\277PRINT "hi"\r\n' > "$SRC_BOM"
 : > "$SRC_EMPTY"
-mkdir -p "$SRC_SPACE_DIR" "$TMPDIR/output with spaces"
+mkdir -p "$SRC_SPACE_DIR" "$SMOKE_TMP/output with spaces"
 printf 'PRINT "hi"\r\n' > "$SRC_SPACE"
-mkdir -p "$SRC_QUOTE_DIR" "$TMPDIR/output's apostrophe"
+mkdir -p "$SRC_QUOTE_DIR" "$SMOKE_TMP/output's apostrophe"
 printf 'PRINT "hi"\r\n' > "$SRC_QUOTE"
 
 set +e
@@ -145,10 +145,10 @@ if [ -f "$BIN_INVALID_MID" ]; then
 fi
 
 # binary data (a few NUL bytes among random bytes, like a compressed file): its own message
-SRC_BINARY="$TMPDIR/binary_source.bas"
-OUT_BINARY="$TMPDIR/binary_output.txt"
+SRC_BINARY="$SMOKE_TMP/binary_source.bas"
+OUT_BINARY="$SMOKE_TMP/binary_output.txt"
 printf '\257\032\261\270\343\037:\\.*\177b\000\226Pw\312\0273\330jr.\n' > "$SRC_BINARY"
-"$QB" "$SRC_BINARY" -o "$TMPDIR/binary_output" > "$OUT_BINARY" 2>&1
+"$QB" "$SRC_BINARY" -o "$SMOKE_TMP/binary_output" > "$OUT_BINARY" 2>&1
 if [ $? -eq 0 ]; then
   echo "[FAIL] Binary data should fail compilation."
   FAIL=1
@@ -234,7 +234,7 @@ fi
 
 if [ "$FAIL" -eq 0 ]; then
   echo "ENCODING_SMOKE_OK"
-  rm -rf "$TMPDIR"
+  rm -rf "$SMOKE_TMP"
   exit 0
 fi
 

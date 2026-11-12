@@ -127,6 +127,96 @@ jobs:
         shell: bash
         run: cargo build --locked --release -p qb-fmt -p qb-lsp -p qb-dap -p qb-setup
 
+      # Code signing runs only when the repository has the signing secrets; without them
+      # it prints a notice and the release is built unsigned. Only qb-fmt, qb-lsp and
+      # qb-dap are signed: qb, the runner copies (every compiled program) and the
+      # one-file installers carry data appended after the executable and are found by a
+      # trailer at the end of the file, which a signature would break (Windows) or which
+      # codesign refuses (macOS). The secrets and their format are in CONTRIBUTING.md.
+      - name: Sign developer tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX_BASE64 -or -not $env:WINDOWS_CERT_PASSWORD) {
+            Write-Output "::notice::Windows code signing skipped: WINDOWS_CERT_PFX_BASE64 and WINDOWS_CERT_PASSWORD are not set."
+            exit 0
+          }
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'signtool.exe was not found in the Windows SDK' }
+          $files = @('qb-fmt', 'qb-lsp', 'qb-dap') | ForEach-Object { "target/release/$_.exe" }
+          $pfx = Join-Path $env:RUNNER_TEMP 'qbnex-sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          try {
+            & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:WINDOWS_CERT_PASSWORD @files
+            if ($LASTEXITCODE) { throw "signtool sign failed ($LASTEXITCODE)" }
+            & $signtool.FullName verify /pa /v @files
+            if ($LASTEXITCODE) { throw "signtool verify failed ($LASTEXITCODE)" }
+          } finally {
+            Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Sign and notarize developer tools (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          for v in APPLE_CERT_P12_BASE64 APPLE_CERT_PASSWORD APPLE_TEAM_ID APPLE_ID APPLE_APP_PASSWORD; do
+            if [ -z "${!v:-}" ]; then
+              echo "::notice::macOS code signing skipped: $v is not set."
+              exit 0
+            fi
+          done
+          files="target/release/qb-fmt target/release/qb-lsp target/release/qb-dap"
+          keychain="$RUNNER_TEMP/qbnex-sign.keychain-db"
+          p12="$RUNNER_TEMP/qbnex-sign.p12"
+          stage="$RUNNER_TEMP/qbnex-notarize"
+          cleanup() {
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            rm -rf "$p12" "$stage" "$stage.zip"
+          }
+          trap cleanup EXIT
+          kc_pass=$(openssl rand -hex 24)
+          printf '%s' "$APPLE_CERT_P12_BASE64" | base64 --decode > "$p12"
+          security create-keychain -p "$kc_pass" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$kc_pass" "$keychain"
+          security import "$p12" -k "$keychain" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_pass" "$keychain" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application" | grep "($APPLE_TEAM_ID)" | head -n 1 | awk '{print $2}' || true)
+          if [ -z "$identity" ]; then
+            echo "::error::No 'Developer ID Application' identity for team $APPLE_TEAM_ID in APPLE_CERT_P12_BASE64."
+            exit 1
+          fi
+          mkdir -p "$stage"
+          for f in $files; do
+            codesign --force --options runtime --timestamp --keychain "$keychain" --sign "$identity" "$f"
+            codesign --verify --strict --verbose=2 "$f"
+            cp "$f" "$stage/"
+          done
+          # Bare executables cannot be stapled: Gatekeeper looks the ticket up online.
+          ditto -c -k --keepParent "$stage" "$stage.zip"
+          result=$(xcrun notarytool submit "$stage.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --timeout 30m --output-format json)
+          status=$(printf '%s' "$result" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status", ""))')
+          if [ "$status" != "Accepted" ]; then
+            id=$(printf '%s' "$result" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')
+            [ -n "$id" ] && xcrun notarytool log "$id" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" || true
+            echo "::error::Notarization finished with status '$status'."
+            exit 1
+          fi
+          echo "Notarized: $files"
+
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
         shell: bash

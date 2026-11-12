@@ -28,14 +28,14 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_stdlib_smoke_XXXXXX")"
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_stdlib_smoke_XXXXXX")"
 
-BIN_QBNEX="$TMPDIR/stdlib_qbnex"
-BIN_URL="$TMPDIR/stdlib_url"
-OUT_QBNEX="$TMPDIR/stdlib_qbnex.txt"
-OUT_URL="$TMPDIR/stdlib_url.txt"
-RUN_QBNEX="$TMPDIR/stdlib_qbnex_run.txt"
-RUN_URL="$TMPDIR/stdlib_url_run.txt"
+BIN_QBNEX="$SMOKE_TMP/stdlib_qbnex"
+BIN_URL="$SMOKE_TMP/stdlib_url"
+OUT_QBNEX="$SMOKE_TMP/stdlib_qbnex.txt"
+OUT_URL="$SMOKE_TMP/stdlib_url.txt"
+RUN_QBNEX="$SMOKE_TMP/stdlib_qbnex_run.txt"
+RUN_URL="$SMOKE_TMP/stdlib_url_run.txt"
 
 "$QB" "$SRC_QBNEX_REL" -o "$BIN_QBNEX" > "$OUT_QBNEX" 2>&1
 EC_QBNEX=$?
@@ -111,7 +111,7 @@ grep -F "file" "$RUN_URL" >/dev/null || {
 
 if [ "$FAIL" -eq 0 ]; then
   echo "STDLIB_SMOKE_OK"
-  rm -rf "$TMPDIR"
+  rm -rf "$SMOKE_TMP"
   exit 0
 fi
 

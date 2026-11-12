@@ -31,7 +31,8 @@ jobs:
           tool: cargo-audit
       - run: cargo audit
 
-  # Compiler, runtime, tests, conformance and the self-host fixpoint on every OS.
+  # Compiler, runtime, tests, conformance and the self-host fixpoint on every OS
+  # (macOS arm64 included: no macOS machine runs these by hand).
   build:
     name: Build and test (${{ matrix.os_name }})
     if: ${{ !contains(github.event.head_commit.message || '', 'ci-skip') }}
@@ -112,12 +113,16 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then ulimit -v 8000000; fi
           cargo test --workspace --locked --no-fail-fast
 
+      # Each script runs under the shell its first line names (dash is sh on Ubuntu,
+      # bash 3.2 on macOS), so a bash-only script never runs under dash.
       - name: Smoke tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain; do
-            echo "::group::${t}_smoke"; sh "tests/smoke/${t}_smoke.sh"; echo "::endgroup::"
+            f="tests/smoke/${t}_smoke.sh"
+            case "$(head -n 1 "$f")" in *bash*) sh_bin=bash ;; *) sh_bin=sh ;; esac
+            echo "::group::${t}_smoke"; "$sh_bin" "$f"; echo "::endgroup::"
           done
 
       - name: Smoke tests (Windows)

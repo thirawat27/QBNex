@@ -135,6 +135,8 @@ fn send(page: &[Vec<u8>], width: usize) {
 }
 
 /// Pixel of the page image (8x16 characters, black on white) at `(x, y)`.
+/// Only the Windows printer path draws the page as an image.
+#[cfg(any(windows, test))]
 fn page_pixel(page: &[Vec<u8>], x: usize, y: usize) -> u32 {
     use qb_runtime::gfx::data::charset8x16;
     let (row, col) = (y / 16, x / 8);

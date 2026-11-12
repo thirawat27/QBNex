@@ -18,6 +18,13 @@ QBNex คอมไพล์ BASIC เป็น QIR แล้วรันด้�
   release) คอมไพล์โปรแกรมได้โดยไม่ต้องติดตั้ง Rust คอมไพเลอร์จะคัดลอก runner
   ที่ build ไว้จาก `crates/engine/exec/bin/<os>/` แล้วต่อโปรแกรมเข้าไปท้ายไฟล์
 - `qb fmt`, `qb lsp` และ `qb dap` ต้อง build เครื่องมือของมันด้วย `cargo` ก่อน
+- **ไฟล์ใน release ยังไม่ได้ลงลายเซ็นดิจิทัล** ยกเว้น `qb-fmt`, `qb-lsp` และ
+  `qb-dap` เมื่อ release นั้น build พร้อมใบรับรองสำหรับลงลายเซ็น ส่วน `qb`
+  ตัวติดตั้ง และโปรแกรมที่คอมไพล์แล้วมีข้อมูลต่อท้ายไฟล์ปฏิบัติการ ซึ่งลายเซ็นจะทำให้เสีย
+  จึงอาจถูก SmartScreen และ Gatekeeper เตือนตอนเปิดครั้งแรก
+- **macOS ทดสอบใน CI เท่านั้น** (arm64 บน runner `macos-latest`: build, tests,
+  smoke tests, conformance และ self-host fixpoint) ยังไม่เคยรัน QBNex บนเครื่อง
+  macOS จริงด้วยมือ และยังไม่ได้ทดสอบบน Mac รุ่น Intel
 
 ## ไฟล์ปฏิบัติการสองแบบ
 

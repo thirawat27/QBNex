@@ -310,9 +310,35 @@ Create test programs that demonstrate:
 
 QBNex uses GitHub Actions for CI:
 
-- **Push to master**: Builds on Linux
-- **Pull requests**: Builds on Linux
-- **Releases**: Builds on Linux, macOS, Windows x64
+- **Push and pull requests** (`main`, `rust-port`): `ci.yml` builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, self-host fixpoint, native executables)
+- **Releases** (`v*` tags): `release.yml` builds, tests and packages Linux, macOS and Windows x64
+
+#### Code signing (release secrets)
+
+`release.yml` signs `qb-fmt`, `qb-lsp` and `qb-dap` when the repository has these Actions secrets
+(Settings > Secrets and variables > Actions). Without them the step prints a notice and the release
+is published unsigned.
+
+| Secret | Contents |
+| --- | --- |
+| `WINDOWS_CERT_PFX_BASE64` | Code signing certificate with its private key, a `.pfx` file in base64 (`[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))`) |
+| `WINDOWS_CERT_PASSWORD` | Password of that `.pfx` |
+| `APPLE_CERT_P12_BASE64` | "Developer ID Application" certificate with its private key, exported from Keychain Access as `.p12`, in base64 (`base64 -i cert.p12`) |
+| `APPLE_CERT_PASSWORD` | Password of that `.p12` |
+| `APPLE_TEAM_ID` | Apple Developer team ID (10 characters) |
+| `APPLE_ID` | Apple ID email used for notarization |
+| `APPLE_APP_PASSWORD` | App-specific password of that Apple ID (appleid.apple.com) |
+
+Windows uses `signtool` from the runner's Windows SDK with a SHA-256 RFC 3161 timestamp (a `.pfx`
+certificate, not Azure Trusted Signing). macOS signs with `codesign` (hardened runtime, timestamp)
+and notarizes with `xcrun notarytool`; bare executables cannot be stapled, so Gatekeeper checks the
+ticket online. A step fails the release if a certificate is set but signing or notarization fails.
+
+`qb`, the runner `qb-exec` and the one-file installers are not signed: each carries data appended
+after the executable (the compiler's QIR, the bundle zip), found by a trailer at the end of the file.
+A Windows signature is written after that trailer, and `codesign` refuses a Mach-O with data after
+it. Every compiled program is also a copy of the runner with data appended. Signing these needs a
+payload format that leaves room for the signature.
 
 If you need a Windows x86 / 32-bit artifact, build it locally with `scripts\setup_win.cmd` from the repository instead of relying on GitHub Releases.
 

@@ -25,16 +25,16 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 pushd "$REPO_ROOT" >/dev/null
 
-TMPDIR="$(mktemp -d "./temp/qbnex_diag_smoke_XXXXXX")"
-if [ ! -d "$TMPDIR" ]; then
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_diag_smoke_XXXXXX")"
+if [ ! -d "$SMOKE_TMP" ]; then
   echo "[FAIL] Could not create temp directory"
   popd >/dev/null
   exit 2
 fi
 
-OUT_DEFAULT="$TMPDIR/default_diagnostics.txt"
-OUT_COMPACT="$TMPDIR/compact_diagnostics.txt"
-OUT_INCLUDE="$TMPDIR/include_chain_diagnostics.txt"
+OUT_DEFAULT="$SMOKE_TMP/default_diagnostics.txt"
+OUT_COMPACT="$SMOKE_TMP/compact_diagnostics.txt"
+OUT_INCLUDE="$SMOKE_TMP/include_chain_diagnostics.txt"
 
 set +e
 "$QB" "$SRC_REL" > "$OUT_DEFAULT" 2>&1
@@ -112,7 +112,7 @@ if [ "$FAIL" -eq 0 ]; then
   echo "  Default: \"$OUT_DEFAULT\""
   echo "  Compact: \"$OUT_COMPACT\""
   echo "  Include: \"$OUT_INCLUDE\""
-  rm -rf "$TMPDIR"
+  rm -rf "$SMOKE_TMP"
   popd >/dev/null
   exit 0
 fi

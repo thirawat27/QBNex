@@ -30,28 +30,28 @@ fi
 mkdir -p "$REPO_ROOT/temp"
 cd "$REPO_ROOT"
 
-TMPDIR="$(mktemp -d "./temp/qbnex_cli_smoke_XXXXXX")"
-OUT_HELP="$TMPDIR/help.txt"
-OUT_VERSION="$TMPDIR/version.txt"
-OUT_INVALID="$TMPDIR/invalid.txt"
-OUT_BADOUT="$TMPDIR/bad_output.txt"
-OUT_QUIET="$TMPDIR/quiet.txt"
-OUT_SETTINGS="$TMPDIR/settings.txt"
-OUT_ZMODE="$TMPDIR/zmode.txt"
-OUT_XMODE="$TMPDIR/xmode.txt"
-OUT_EXTERNAL="$TMPDIR/external_cwd.txt"
-OUT_CACHE_A="$TMPDIR/cache_a.txt"
-OUT_CACHE_B="$TMPDIR/cache_b.txt"
-OUT_CACHE_A_STRINGS="$TMPDIR/cache_a_strings.txt"
-OUT_CACHE_B_STRINGS="$TMPDIR/cache_b_strings.txt"
-BIN_EXTERNAL="$TMPDIR/external_cwd_output"
-EXTERNAL_CWD="$TMPDIR/external-workdir"
+SMOKE_TMP="$(mktemp -d "./temp/qbnex_cli_smoke_XXXXXX")"
+OUT_HELP="$SMOKE_TMP/help.txt"
+OUT_VERSION="$SMOKE_TMP/version.txt"
+OUT_INVALID="$SMOKE_TMP/invalid.txt"
+OUT_BADOUT="$SMOKE_TMP/bad_output.txt"
+OUT_QUIET="$SMOKE_TMP/quiet.txt"
+OUT_SETTINGS="$SMOKE_TMP/settings.txt"
+OUT_ZMODE="$SMOKE_TMP/zmode.txt"
+OUT_XMODE="$SMOKE_TMP/xmode.txt"
+OUT_EXTERNAL="$SMOKE_TMP/external_cwd.txt"
+OUT_CACHE_A="$SMOKE_TMP/cache_a.txt"
+OUT_CACHE_B="$SMOKE_TMP/cache_b.txt"
+OUT_CACHE_A_STRINGS="$SMOKE_TMP/cache_a_strings.txt"
+OUT_CACHE_B_STRINGS="$SMOKE_TMP/cache_b_strings.txt"
+BIN_EXTERNAL="$SMOKE_TMP/external_cwd_output"
+EXTERNAL_CWD="$SMOKE_TMP/external-workdir"
 SRC_OK_FROM_EXTERNAL="../../../$SRC_OK_REL"
 BIN_EXTERNAL_FROM_EXTERNAL="../external_cwd_output"
-SRC_CACHE_A="$TMPDIR/cache_a.bas"
-SRC_CACHE_B="$TMPDIR/cache_b.bas"
-BIN_CACHE_A="$TMPDIR/cache_a_output"
-BIN_CACHE_B="$TMPDIR/cache_b_output"
+SRC_CACHE_A="$SMOKE_TMP/cache_a.bas"
+SRC_CACHE_B="$SMOKE_TMP/cache_b.bas"
+BIN_CACHE_A="$SMOKE_TMP/cache_a_output"
+BIN_CACHE_B="$SMOKE_TMP/cache_b_output"
 
 rm -f "$BIN_XMODE" "$BIN_ZMODE"
 mkdir -p "$EXTERNAL_CWD"
@@ -65,9 +65,9 @@ EC_VERSION=$?
 set +e
 "$QB" --definitely-invalid >"$OUT_INVALID" 2>&1
 EC_INVALID=$?
-"$QB" "$SRC_OK_REL" -o "$TMPDIR/missing-dir/out" >"$OUT_BADOUT" 2>&1
+"$QB" "$SRC_OK_REL" -o "$SMOKE_TMP/missing-dir/out" >"$OUT_BADOUT" 2>&1
 EC_BADOUT=$?
-"$QB" "$SRC_OK_REL" -q -o "$TMPDIR/quiet" >"$OUT_QUIET" 2>&1
+"$QB" "$SRC_OK_REL" -q -o "$SMOKE_TMP/quiet" >"$OUT_QUIET" 2>&1
 EC_QUIET=$?
 "$QB" -s >"$OUT_SETTINGS" 2>&1
 EC_SETTINGS=$?
@@ -152,7 +152,7 @@ if grep -F "Compiling program..." "$OUT_QUIET" >/dev/null 2>&1; then
   echo "[FAIL] Quiet compile should suppress progress banner."
   FAIL=1
 fi
-if [ ! -f "$TMPDIR/quiet" ]; then
+if [ ! -f "$SMOKE_TMP/quiet" ]; then
   echo "[FAIL] Quiet compile should still emit an executable."
   FAIL=1
 fi
@@ -242,7 +242,7 @@ fi
 if [ "$FAIL" -eq 0 ]; then
   echo "CLI_SMOKE_OK"
   rm -f "$BIN_XMODE" "$BIN_ZMODE"
-  rm -rf "$TMPDIR"
+  rm -rf "$SMOKE_TMP"
   exit 0
 fi
 
