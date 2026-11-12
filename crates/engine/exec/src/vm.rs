@@ -335,6 +335,9 @@ pub struct Vm<'m, 'o> {
     by_system: bool,
     /// source line of the last error (_ERRORLINE)
     errline: u32,
+    /// line and file index (`Module::srcfiles`) of the last error inside an `$INCLUDE` file
+    /// (_INCLERRORLINE, _INCLERRORFILE$)
+    inclerr: Option<(u32, u32)>,
     /// last numeric line label passed (QIR LASTLINE; ERL reports it)
     last_line: u32,
     /// the ON TIMER ticker thread runs
@@ -440,6 +443,12 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn errline(&self) -> u32 {
         self.errline
     }
+    fn inclerr(&self) -> (u32, Vec<u8>) {
+        match self.inclerr {
+            Some((l, f)) => (l, self.m.srcfiles.get(f as usize).cloned().unwrap_or_default()),
+            None => (0, Vec::new()),
+        }
+    }
     fn set_last_line(&mut self, n: u32) {
         self.last_line = n;
     }
@@ -496,6 +505,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             end_prompt: None,
             by_system: false,
             errline: 0,
+            inclerr: None,
             last_line: 0,
             continue_unhandled: false,
             timer_thread: false,
@@ -1235,6 +1245,15 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
     }
 
+    /// (line in the file, index into `srcfiles`) when the statement at `pc` is inside an
+    /// `$INCLUDE` file
+    fn incl_of(&self, pc: u32) -> Option<(u32, u32)> {
+        let i = self.m.stmts.partition_point(|x| x.0 <= pc).checked_sub(1)? as u32;
+        let k = self.m.incls.binary_search_by_key(&i, |x| x.0).ok()?;
+        let (_, line, file) = self.m.incls[k];
+        Some((line, file))
+    }
+
     fn stmt_start(&self, pc: u32) -> u32 {
         let f = self.func_of(pc);
         let s = &self.m.stmts;
@@ -1266,7 +1285,11 @@ impl<'m, 'o> Vm<'m, 'o> {
             // dialog becomes one stderr line and the program ends with exit code 1; otherwise
             // (headless, MessageBox2 gets no answer) a non-critical error continues after the statement
             let cmd0 = std::env::args().next().unwrap_or_default();
-            let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), 0, None, cmd0.as_bytes());
+            let (incl, file) = match self.incl_of(at) {
+                Some((l, f)) => (l, self.m.srcfiles.get(f as usize).map(Vec::as_slice)),
+                None => (0, None),
+            };
+            let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), incl, file, cmd0.as_bytes());
             let nd = qb_runtime::error::no_dialog_now();
             if nd || d.critical {
                 self.rt.flush();
@@ -1284,6 +1307,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             (Some(h), None) => {
                 self.err = code;
                 self.errline = self.line_of(at);
+                self.inclerr = self.incl_of(at);
                 self.erl = self.last_line;
                 self.in_handler = Some((at, self.view));
                 self.set_view(0);

@@ -532,6 +532,11 @@ pub struct Module {
     pub mvars: Vec<MVar>,
     /// statement starts: (pc, source line), sorted by pc
     pub stmts: Vec<(u32, u32)>,
+    /// statements inside an `$INCLUDE` file: (index into `stmts`, line in that file,
+    /// index into `srcfiles`), sorted by statement
+    pub incls: Vec<(u32, u32, u32)>,
+    /// `$INCLUDE` file names (QIR `srcfile`)
+    pub srcfiles: Vec<Vec<u8>>,
     pub data: Vec<Vec<u8>>,
     /// DECLARE LIBRARY functions (QIR `meta extfn`) and their call sites
     pub xfns: Vec<XFn>,

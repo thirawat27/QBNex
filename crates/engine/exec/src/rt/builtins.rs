@@ -23,6 +23,9 @@ pub(crate) trait Host<'a> {
     fn erl(&self) -> u32;
     /// _ERRORLINE: source line of the error
     fn errline(&self) -> u32;
+    /// _INCLERRORLINE, _INCLERRORFILE$: line and file of the error inside an `$INCLUDE` file
+    /// (0 and "" in the main module)
+    fn inclerr(&self) -> (u32, Vec<u8>);
     /// LASTLINE builtin: a numeric line label was passed
     fn set_last_line(&mut self, n: u32);
     /// `len` bytes of memory at the address `p` (GET/PUT, _MEM, TCP buffers).
@@ -884,6 +887,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "ERR" => return ok(V::I(err.into())),
         "ERL" => return ok(V::I(erl.into())),
         "_ERRORLINE" => return ok(V::I(errline.into())),
+        "_INCLERRORLINE" => return ok(V::I(vm.inclerr().0.into())),
+        "_INCLERRORFILE$" => return ok(V::S(vm.inclerr().1)),
         "LINEINPUT" => {
             let ch = i(0) as i32;
             let _ = ch;

@@ -38,3 +38,6 @@ DIM SHARED IrStmt AS STRING, IrStmtN AS LONG, IrStmtFirst AS STRING
 DIM SHARED IrRunN AS LONG, IrRunTo AS STRING
 'COMMON variables in order, each name + CHR$(1) + SHARED flag + CHR$(2): CHAIN passes them on
 DIM SHARED IrChainVars AS STRING
+'included files named by "incline": name + CHR$(2) + index + CHR$(1) per file (after a leading CHR$(1)), their count,
+'and the last one looked up
+DIM SHARED IrSrcFiles AS STRING, IrSrcFileN AS LONG, IrSrcLastName AS STRING, IrSrcLastIndex AS LONG

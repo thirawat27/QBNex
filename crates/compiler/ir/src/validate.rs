@@ -166,6 +166,11 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
     };
     match i {
         Inst::Line(_) | Inst::Label(_) | Inst::End | Inst::Stop | Inst::GRet => {}
+        Inst::IncLine { file, .. } => {
+            if *file as usize >= s.m.srcfiles.len() {
+                op_err("unknown srcfile")?;
+            }
+        }
         Inst::Const { ty, val, .. } => {
             let ok = match val {
                 Lit::Int(_) => ty.is_int() || *ty == Ty::Ptr,

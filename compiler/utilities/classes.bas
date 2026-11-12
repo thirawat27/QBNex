@@ -140,8 +140,9 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     DIM fieldEnd AS LONG
     DIM fileStart AS LONG
 
-    'only a moved line of an included file sets these (TopLevelRuntime_MarkLine$)
-    topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0
+    'only a moved line sets these (TopLevelRuntime_MarkLine$): its included file and line, or
+    'that it comes from the main file
+    topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0: topLevelHoistFromMain = 0
 
     IF rawLine$ = CHR$(13) THEN
         TopLevelRuntime_ProcessLine$ = rawLine$
@@ -149,8 +150,9 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     END IF
 
     lineText = rawLine$
-    'A line moved in front of the first SUB (TopLevelRuntime_MarkLine$). It is fed at the
-    'main level: the caller adds 1 to linenumber after this call.
+    'A line moved in front of the first SUB (TopLevelRuntime_MarkLine$). Fed at the main
+    'level, the caller adds 1 to linenumber after this call; fed inside an included file
+    '(the first SUB is there), the caller takes 1 away and adds it back.
     IF LEFT$(lineText, 1) = CHR$(1) THEN
         markEnd = INSTR(lineText, CHR$(2))
         IF markEnd > 2 THEN
@@ -164,20 +166,10 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
                     topLevelHoistSrcFile = MID$(markHead, fileStart + 1)
                 END IF
                 markHead = LEFT$(markHead, fieldEnd - 1)
+            ELSE
+                topLevelHoistFromMain = -1
             END IF
-            linenumber = VAL(markHead) - 1
-        END IF
-    END IF
-
-    'Feed the module code found after the SUBs (marked lines) in front of the line where
-    'the first SUB starts (its own line, or the $INCLUDE that brings it), then that line
-    IF topLevelHoistReady <> 0 AND topLevelHoistInjected = 0 AND inclevel = 0 THEN
-        IF linenumber + 1 = topLevelHoistAt AND LEN(topLevelHoist) <> 0 THEN
-            topLevelHoistInjected = -1
-            ClassSyntax_PushFrontLine TopLevelRuntime_MarkLine$(lineText)
-            classSyntaxQueue$ = topLevelHoist + CHR$(10) + classSyntaxQueue$
-            TopLevelRuntime_ProcessLine$ = TopLevelRuntime_ProcessLine$(ClassSyntax_DequeueLine$)
-            EXIT FUNCTION
+            IF inclevel THEN linenumber = VAL(markHead) ELSE linenumber = VAL(markHead) - 1
         END IF
     END IF
 
@@ -217,9 +209,17 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     END IF
     IF LEFT$(upperLine, 4) = "SUB " OR LEFT$(upperLine, 9) = "FUNCTION " THEN
         IF topLevelRuntimeSeenProc = 0 AND topLevelRuntimeProcDepth = 0 THEN
-            'where the module code after the SUBs goes: this line, or the $INCLUDE line (an
-            'included file's lines all count as the line that includes it)
-            IF inclevel THEN topLevelHoistAtScan = linenumber ELSE topLevelHoistAtScan = linenumber + 1
+            topLevelHoistSubSeen = -1
+            'Feed the module code found after the SUBs (marked lines) in front of this first
+            'SUB, then this line again. Inside an included file it lands at that include
+            'level, after what the file declares before its first SUB (DIM SHARED, TYPE...).
+            IF topLevelHoistReady <> 0 AND topLevelHoistInjected = 0 AND LEN(topLevelHoist) <> 0 THEN
+                topLevelHoistInjected = -1
+                ClassSyntax_PushFrontLine TopLevelRuntime_MarkLine$(lineText)
+                classSyntaxQueue$ = topLevelHoist + CHR$(10) + classSyntaxQueue$
+                TopLevelRuntime_ProcessLine$ = TopLevelRuntime_ProcessLine$(ClassSyntax_DequeueLine$)
+                EXIT FUNCTION
+            END IF
         END IF
         topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
         topLevelRuntimeSeenProc = -1

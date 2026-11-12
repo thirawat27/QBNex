@@ -70,6 +70,7 @@ fn cmp_name(o: CmpOp) -> &'static str {
 pub fn inst_text(i: &Inst) -> String {
     match i {
         Inst::Line(n) => format!("line {n}"),
+        Inst::IncLine { line, file } => format!("incline {line} {file}"),
         Inst::Label(l) => format!("label {l}"),
         Inst::Const { ty, dst, val } => {
             let v = match val {
@@ -142,7 +143,7 @@ pub fn inst_text(i: &Inst) -> String {
     }
 }
 
-/// Canonical text: header, meta, types, globals, data, functions.
+/// Canonical text: header, meta, types, globals, data, include files, functions.
 pub fn print(m: &Module) -> String {
     let mut s = format!("QIR {VERSION}\n");
     for (k, v) in &m.meta {
@@ -169,6 +170,9 @@ pub fn print(m: &Module) -> String {
         if let Some(d) = m.data.get(i) {
             let _ = writeln!(s, "data {}", hex(d));
         }
+    }
+    for (k, n) in m.srcfiles.iter().enumerate() {
+        let _ = writeln!(s, "srcfile {k} {}", hex(n));
     }
     for f in &m.funcs {
         match f.ret {

@@ -1,0 +1,18 @@
+DIM SHARED hits AS INTEGER
+
+SUB bump
+    hits = hits + 1
+END SUB
+
+SUB oops
+    ERROR 6
+END SUB
+
+bump
+ERROR 5
+PRINT "after"; hits
+again:
+bump
+IF hits < 3 THEN GOTO again
+PRINT "hits"; hits
+oops

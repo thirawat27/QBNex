@@ -72,7 +72,7 @@ fn cmp(op: CmpOp) -> Cmp {
 fn regs(i: &Inst) -> (Option<u32>, Vec<u32>) {
     use Inst::*;
     match i {
-        Line(_) | Label(_) | Jmp(_) | Gosub(_) | GRet | GRetL(_) | OnError(_) | Resume(_) | Restore(_) | End | Stop => {
+        Line(_) | IncLine { .. } | Label(_) | Jmp(_) | Gosub(_) | GRet | GRetL(_) | OnError(_) | Resume(_) | Restore(_) | End | Stop => {
             (None, vec![])
         }
         OnTimer { slot, secs, .. } => (None, vec![*slot, *secs]),
@@ -334,6 +334,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         ir: src,
         m: Module {
                 data: src.data.clone(),
+                srcfiles: src.srcfiles.clone(),
                 console: src.meta("console").map(|v| v == "only"),
                 screenhide: src.meta("screenhide").is_some(),
                 xfns: src.meta.iter().filter(|(k, _)| k == "extfn").filter_map(|(_, v)| parse_xfn(v)).collect(),
@@ -1012,6 +1013,12 @@ impl<'a> Lw<'a> {
                     let pc = self.pc();
                     self.m.stmts.push((pc, *n));
                     self.barrier = pc;
+                }
+                Inst::IncLine { line, file } => {
+                    // belongs to the statement the `line` before it started
+                    if let Some(k) = self.m.stmts.len().checked_sub(1) {
+                        self.m.incls.push((k as u32, *line, *file));
+                    }
                 }
                 Inst::Label(l) => {
                     let pc = self.pc();

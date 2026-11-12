@@ -1,0 +1,5 @@
+error 5 at 5  12 include_error_line_helper.bm
+after 1 
+hits 3 
+error 6 at 5  8 include_error_line_helper.bm
+end

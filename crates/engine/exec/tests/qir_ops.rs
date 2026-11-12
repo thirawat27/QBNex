@@ -306,6 +306,41 @@ endfunc
 }
 
 #[test]
+fn incline_names_the_included_file_and_line() {
+    // statement 1 is main-module code; statement 2 is line 12 of "a.bm"
+    let src = "QIR 1
+srcfile 0 x612E626D
+func main
+onerror H
+line 3
+const.i32 %0 5
+error %0
+line 4
+incline 12 0
+const.i32 %6 6
+error %6
+end
+label H
+const.i32 %1 0
+rt %2 _ERRORLINE
+cvt.i64.i32 %3 %2
+rt PRINTN.i64 %1 %3
+rt %4 _INCLERRORLINE
+cvt.i64.i32 %5 %4
+rt PRINTN.i64 %1 %5
+rt %7 _INCLERRORFILE$
+rt PRINTS %1 %7
+rt PRINTNL %1
+resume next
+end
+endfunc
+";
+    assert_eq!(run_full(src), " 3  0 \n 4  12 a.bm\n");
+    let m = qb_ir::parse(src).unwrap();
+    assert_eq!(qb_ir::parse(&qb_ir::print(&m)).unwrap(), m);
+}
+
+#[test]
 fn float80_is_exact_and_rounds_like_qbr() {
     let o = run("const.f80 %0 9223372036854775807\ncvt.i64.f80 %1 %0\nconst.i32 %9 0\nrt PRINTN.i64 %9 %1\nconst.f80 %2 4611686018427387905.5\ncvt.i64.f80 %3 %2\nrt PRINTN.i64 %9 %3\nrt PRINTNL %9");
     assert_eq!(o, " 9223372036854775807  4611686018427387906 \n");

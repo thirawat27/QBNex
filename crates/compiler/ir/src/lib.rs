@@ -223,6 +223,9 @@ pub enum ResumeKind {
 pub enum Inst {
     /// Statement boundary: source line for errors, RESUME target, event poll point.
     Line(u32),
+    /// Line inside an `$INCLUDE` file of the statement the `line` before it starts:
+    /// (line in that file, index into [`Module::srcfiles`]). Runtime errors name it.
+    IncLine { line: u32, file: u32 },
     Label(String),
     Const { ty: Ty, dst: Reg, val: Lit },
     Mov { ty: Ty, dst: Reg, src: Reg },
@@ -310,6 +313,8 @@ pub struct Module {
     pub data: Vec<Vec<u8>>,
     /// `RESTORE` targets: label -> index into `data`.
     pub data_labels: Vec<(String, usize)>,
+    /// `$INCLUDE` files named by `incline` (QIR `srcfile <index> <hex>`).
+    pub srcfiles: Vec<Vec<u8>>,
     pub funcs: Vec<Func>,
 }
 

@@ -27,6 +27,7 @@ SUB IrInit
     IrRunN = 0: IrRunTo = ""
     IrPendBody = "": IrPendFn = 0
     IrChainVars = ""
+    IrSrcFiles = CHR$(1): IrSrcFileN = 0: IrSrcLastName = "": IrSrcLastIndex = 0
 END SUB
 
 'COMMON variable e$ (main module, after its DIM): it takes the value the program that
@@ -196,8 +197,40 @@ END SUB
 SUB IrLine
     IrFlushCase
     IrE "line " + str2$(linenumber)
+    'a statement of an $INCLUDE file also names its line there (runtime errors report it);
+    'module code moved in front of the first SUB keeps the place it came from
+    IF LEN(topLevelHoistSrcFile) THEN
+        IrE "incline " + str2$(topLevelHoistSrcLine) + " " + str2$(IrSrcFileIndex&(topLevelHoistSrcFile))
+    ELSEIF inclevel > 0 AND topLevelHoistFromMain = 0 THEN
+        IF inclinenumber(inclevel) > 0 THEN IrE "incline " + str2$(inclinenumber(inclevel)) + " " + str2$(IrSrcFileIndex&(incname$(inclevel)))
+    END IF
     IF IrPendLL THEN IrE "rt LASTLINE " + IrI32$(IrPendLL): IrPendLL = 0
 END SUB
+
+'index of an $INCLUDE file in the module's "srcfile" table (added on first use); the name is
+'relative to the main source's folder when it lies below it, so the QIR does not depend on
+'where the source tree is
+FUNCTION IrSrcFileIndex& (fileName$)
+    DIM nm$, p$, at AS LONG
+    nm$ = fileName$
+    p$ = getfilepath$(sourcefile$)
+    IF LEN(p$) THEN
+        IF LCASE$(LEFT$(nm$, LEN(p$))) = LCASE$(p$) THEN nm$ = MID$(nm$, LEN(p$) + 1)
+    END IF
+    IF nm$ = IrSrcLastName THEN IrSrcFileIndex& = IrSrcLastIndex: EXIT FUNCTION
+    at = INSTR(IrSrcFiles, CHR$(1) + nm$ + CHR$(2))
+    IF at THEN
+        at = at + LEN(nm$) + 2
+        IrSrcLastIndex = VAL(MID$(IrSrcFiles, at, INSTR(at, IrSrcFiles, CHR$(1)) - at))
+    ELSE
+        IrSrcLastIndex = IrSrcFileN
+        IrSrcFiles = IrSrcFiles + nm$ + CHR$(2) + str2$(IrSrcFileN) + CHR$(1)
+        IrMod = IrMod + "srcfile " + str2$(IrSrcFileN) + " " + IrHex$(nm$) + CHR$(10)
+        IrSrcFileN = IrSrcFileN + 1
+    END IF
+    IrSrcLastName = nm$
+    IrSrcFileIndex& = IrSrcLastIndex
+END FUNCTION
 
 FUNCTION IrLbl$ (l$)
     IrLbl$ = "L_" + l$
@@ -1772,10 +1805,10 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 r$ = IrRt$("_OFFSET.p", " " + y$, "u64")
             END IF
         CASE "_INCLERRORLINE"
-            'QIR line markers are lines of the main file; no $INCLUDE line/file at run time
-            r$ = IrI32$(0): IrT = "i32"
+            'line and file come from the "incline" marker of the statement that failed
+            r$ = IrRt$(nm$, "", "i32")
         CASE "_INCLERRORFILE$"
-            r$ = IrConstStr$(""): IrT = "str"
+            r$ = IrRt$(nm$, "", "str")
         CASE "_COMMANDCOUNT"
             r$ = IrRt$(nm$, "", "i32")
         CASE "_MK$", "_CV"

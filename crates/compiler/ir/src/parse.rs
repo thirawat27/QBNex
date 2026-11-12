@@ -231,6 +231,7 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
         want_tys(p, if two { 2 } else if typed { 1 } else { 0 })?;
         match m {
             "line" => Inst::Line(p.u32()?),
+            "incline" => Inst::IncLine { line: p.u32()?, file: p.u32()? },
             "label" => Inst::Label(p.name()?),
             "const" => {
                 let ty = ty_at(p, 0)?;
@@ -382,6 +383,19 @@ pub fn parse(src: &str) -> Result<Module, IrError> {
                 let l = p.name()?;
                 p.done()?;
                 m.data_labels.push((l, m.data.len()));
+                continue;
+            }
+            "srcfile" => {
+                let k = p.u32()?;
+                let t = p.next()?;
+                p.done()?;
+                if k as usize != m.srcfiles.len() {
+                    return err(line, format!("srcfile {k}: expected index {}", m.srcfiles.len()));
+                }
+                match t.strip_prefix('x').and_then(hex_bytes) {
+                    Some(b) => m.srcfiles.push(b),
+                    None => return err(line, format!("bad srcfile name `{t}`")),
+                }
                 continue;
             }
             _ => {}

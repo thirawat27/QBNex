@@ -1,0 +1,24 @@
+TYPE PointT
+    x AS INTEGER
+    y AS INTEGER
+END TYPE
+DIM SHARED pt AS PointT
+DIM SHARED total AS LONG
+
+SUB show
+    PRINT "show"; pt.x; pt.y; total
+END SUB
+
+ON ERROR GOTO fixit
+pt.x = 3: pt.y = 4
+total = pt.x * pt.y
+ERROR 11
+PRINT "after error"; total
+GOTO ready
+
+fixit:
+PRINT "fixit"; ERR; pt.x
+total = total + 1
+RESUME NEXT
+
+ready:

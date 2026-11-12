@@ -15,7 +15,7 @@ runner checks, not part of the name.
 - ชนิดของทุก op อยู่ใน opcode (`add.i32`) → executor ไม่ต้องเช็กชนิดตอนรัน; `qb_ir::validate` รับประกันความสอดคล้องของชนิด
 - ทุก control flow เป็น jump ไป label ภายใน function เดียวกัน (ยกเว้น ON ERROR/RESUME ดู §7)
 
-Canonical text = output ของ `qb_ir::print` (parse กลับได้ module เท่าเดิม). Parser ยอมรับ `global`/`data`/`datalabel`/`meta` ที่ใดก็ได้ (รวมถึงในตัว function — emitter เขียนตามลำดับที่เจอใน source) และ `param`/`local`/`static` ที่ใดก็ได้ใน function
+Canonical text = output ของ `qb_ir::print` (parse กลับได้ module เท่าเดิม). Parser ยอมรับ `global`/`data`/`datalabel`/`srcfile`/`meta` ที่ใดก็ได้ (รวมถึงในตัว function — emitter เขียนตามลำดับที่เจอใน source) และ `param`/`local`/`static` ที่ใดก็ได้ใน function
 
 ## 2. ชนิด
 
@@ -50,6 +50,7 @@ global $TOTAL& i32            ; ตัวแปรระดับ module (DIM SH
 global $A%() array i16        ; array = descriptor, ยังไม่ DIM
 datalabel MYDATA              ; RESTORE MYDATA ชี้ไปที่ DATA ตัวถัดไป
 data x3132                    ; DATA 1 รายการ = ข้อความดิบ (hex) ตามที่เขียนใน source หลังตัด quote
+srcfile 0 x612E626D           ; ไฟล์ $INCLUDE ลำดับที่ 0 (ชื่อ hex, สัมพัทธ์กับโฟลเดอร์ของ source หลัก) สำหรับ `incline`
 func main
 ...
 endfunc
@@ -180,6 +181,8 @@ string ↔ ตัวเลขทำผ่าน builtin (`STR$.*`, `VAL`)
 3. จุด poll event (ON TIMER ฯลฯ, v1.x)
 
 statement ในส่วน THEN/ELSE ของ IF บรรทัดเดียวไม่มี `line` ของตัวเอง
+
+`incline M K` (ต่อจาก `line N` ทันที) = statement นี้อยู่บรรทัด M ของไฟล์ `srcfile K` (ไฟล์ `$INCLUDE`). ไม่สร้างโค้ด; error ตอนรันใช้บอกตำแหน่ง ("Line: M (in ไฟล์)", `_INCLERRORLINE`, `_INCLERRORFILE$`) ส่วน `_ERRORLINE` ยังเป็น N
 
 ### 4.10 DATA
 

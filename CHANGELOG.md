@@ -37,7 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ON TIMER(x) SubName` compiled without error but never called the SUB.
 - `CALL INTERRUPT` compiled to nothing: INT 33h (mouse) calls now answer as under `CALL ABSOLUTE`.
 - `CHAIN "name"` without a directory runs the program in the current directory on Linux and macOS too.
-- Module code with labels after an `$INCLUDE` that brings the SUBs is moved in front of that `$INCLUDE`, so its labels work too.
+- Module code with labels after an `$INCLUDE` that brings the SUBs is moved in front of the first SUB of that file, so its labels work too.
+- Module code moved in front of a first SUB that is in an `$INCLUDE` file now lands after what that file declares before the SUB, so it can use the file's `DIM SHARED` variables, `TYPE`s and `CONST`s. A runtime error in an included file names the line in that file (error message, `_INCLERRORLINE`, `_INCLERRORFILE$`), also in that moved code.
 - Module code with labels after the SUBs inside an `$INCLUDE` file (also a nested one) is moved in front of the first SUB as well, so an `ON ERROR` or `GOSUB` label there compiles; a compile error in that code still names the included file and its line.
 - Name lookups of `_OPENCLIENT` and friends give up after 10 seconds instead of blocking forever.
 - Compiling large programs is about 10 times faster (10,000 lines: 20 s instead of 250 s): reading part of a long STRING variable (`LEN`, `ASC`, `MID$`, `LEFT$`, `RIGHT$`, `INSTR`, comparisons) no longer copies the whole string first.

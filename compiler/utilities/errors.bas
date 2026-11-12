@@ -137,11 +137,13 @@ SUB HandleFrontendErrorAndExit (errMessage$)
     IF forceIncludingFile THEN
         IF INSTR(errMessage$, "END SUB/FUNCTION before") THEN errMessage$ = "SUB without END SUB"
     ELSE
-        IF inclevel > 0 THEN
-            errMessage$ = errMessage$ + incerror$
-        ELSEIF LEN(topLevelHoistSrcFile) THEN
+        IF LEN(topLevelHoistSrcFile) THEN
             'module code of an included file, moved in front of the first SUB
             errMessage$ = errMessage$ + " in line " + str2(topLevelHoistSrcLine) + " of " + topLevelHoistSrcFile + " included"
+        ELSEIF inclevel > 0 AND topLevelHoistFromMain = 0 THEN
+            '(module code of the main file moved in front of a first SUB that is in an
+            'included file keeps its main-file line)
+            errMessage$ = errMessage$ + incerror$
         END IF
     END IF
 
@@ -161,14 +163,14 @@ SUB HandleFrontendErrorAndExit (errMessage$)
         IF RTRIM$(secondaryContext) = "" THEN secondaryContext = fragmentContext
     END IF
 
-    IF inclevel > 0 THEN
-        IF RTRIM$(incname$(inclevel)) <> "" THEN reportFile = incname$(inclevel)
-        IF inclinenumber(inclevel) > 0 THEN reportLineNumber = inclinenumber(inclevel)
-        locationNote = "Triggered while compiling an included module."
-    ELSEIF LEN(topLevelHoistSrcFile) THEN
+    IF LEN(topLevelHoistSrcFile) THEN
         reportFile = topLevelHoistSrcFile
         IF topLevelHoistSrcLine > 0 THEN reportLineNumber = topLevelHoistSrcLine
         locationNote = "Triggered while compiling module code of an included module (it follows a SUB/FUNCTION and was moved in front of the first SUB)."
+    ELSEIF inclevel > 0 AND topLevelHoistFromMain = 0 THEN
+        IF RTRIM$(incname$(inclevel)) <> "" THEN reportFile = incname$(inclevel)
+        IF inclinenumber(inclevel) > 0 THEN reportLineNumber = inclinenumber(inclevel)
+        locationNote = "Triggered while compiling an included module."
     END IF
 
     frontendErrorKey = UCASE$(NormalizeDiagnosticMessage$(errMessage$)) + "|" + UCASE$(RTRIM$(reportFile)) + "|" + LTRIM$(STR$(reportLineNumber))

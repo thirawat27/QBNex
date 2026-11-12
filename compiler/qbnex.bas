@@ -703,7 +703,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     'Module code with labels after the SUBs is moved before the first SUB (classes.bas)
     DIM SHARED topLevelHoist AS STRING, topLevelHoistScan AS STRING, topLevelHoistReady AS LONG
     DIM SHARED topLevelHoistWanted AS LONG, topLevelHoistInjected AS LONG
-    DIM SHARED topLevelHoistAt AS LONG, topLevelHoistAtScan AS LONG
+    DIM SHARED topLevelHoistSubSeen AS LONG, topLevelHoistFromMain AS LONG
     DIM SHARED topLevelHoistSrcFile AS STRING, topLevelHoistSrcLine AS LONG
 
     DIM SHARED closedmain AS INTEGER
@@ -976,7 +976,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             opexarray_desiredState = 0
             opexarray_recompileAttempts = 0
 
-            topLevelHoist = "": topLevelHoistReady = 0: topLevelHoistAt = 0
+            topLevelHoist = "": topLevelHoistReady = 0
 
             recompile:
             vWatchOn = vWatchDesiredState
@@ -1190,8 +1190,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             topLevelRuntimeTypeDepth = 0
             topLevelRuntimeDeclareDepth = 0
             topLevelRuntimeSeenProc = 0
-            topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistInjected = 0: topLevelHoistAtScan = 0
-            topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0
+            topLevelHoistScan = "": topLevelHoistWanted = 0: topLevelHoistInjected = 0: topLevelHoistSubSeen = 0
+            topLevelHoistSrcFile = "": topLevelHoistSrcLine = 0: topLevelHoistFromMain = 0
             classSyntaxActive = 0
             classSyntaxTypeOpen = 0
             classSyntaxInMethod = 0
@@ -2510,8 +2510,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         'Labels in module code after the SUBs (in the main file or an included file)
                         'must be module labels; compile again with that code moved in front of the
                         'first SUB (TopLevelRuntime_ProcessLine$)
-                        IF topLevelHoistReady = 0 AND topLevelHoistWanted <> 0 AND topLevelHoistAtScan > 0 AND compfailed = 0 THEN
-                            topLevelHoist = topLevelHoistScan: topLevelHoistReady = -1: topLevelHoistAt = topLevelHoistAtScan
+                        IF topLevelHoistReady = 0 AND topLevelHoistWanted <> 0 AND topLevelHoistSubSeen <> 0 AND compfailed = 0 THEN
+                            topLevelHoist = topLevelHoistScan: topLevelHoistReady = -1
                             GOTO do_recompile
                         END IF
 
