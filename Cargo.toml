@@ -17,6 +17,7 @@ members = [
     "crates/runtime/ext",
     "crates/web",
     "crates/tools/dap",
+    "crates/tools/setup",
     "tests/conformance",
 ]
 

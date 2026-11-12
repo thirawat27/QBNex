@@ -25,12 +25,10 @@ Thumbs.db
 
 # Documentation
 docs/
-README.docker.md
 
 # Scripts (not needed in container)
 scripts/setup_win.cmd
 scripts/setup_osx.command
-scripts/findcurl.cmd
 scripts/reset.cmd
 qb.cmd
 qbnex.cmd
@@ -41,5 +39,4 @@ assets/
 
 # Rust build output
 target/
-crates/*/os/*/*.stamp
 crates/engine/exec/bin/

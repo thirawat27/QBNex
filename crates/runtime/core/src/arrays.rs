@@ -79,17 +79,23 @@ pub unsafe fn setbits(bsize: u32, base: *mut u8, i: isize, val: i64) {
     }
 }
 
+/// Entries in a descriptor with `num_indexes` dimensions: 4 header entries
+/// plus 4 per dimension.
+fn desc_len(num_indexes: i32) -> usize {
+    4 + 4 * num_indexes as usize
+}
+
 // ---------------------------------------------------------------- C ABI
 
 /// `func_lbound` (`upper` = 0) / `func_ubound` (`upper` = 1). Returns the
 /// BASIC error (0 = success, value in `*out`).
 ///
 /// # Safety
-/// `desc` is a descriptor with at least `4*(num_indexes+1)+2` entries when
+/// `desc` is a descriptor with at least `4*num_indexes+4` entries when
 /// `index` is in range.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_array_bound(desc: *const isize, index: i32, num_indexes: i32, upper: i32, out: *mut isize) -> i32 {
-    let len = if index >= 1 && index <= num_indexes { 4 * (num_indexes as usize + 1) + 2 } else { 3 };
+    let len = if index >= 1 && index <= num_indexes { desc_len(num_indexes) } else { 3 };
     let d = unsafe { core::slice::from_raw_parts(desc, len) };
     match bound(d, index, num_indexes, if upper != 0 { Bound::Upper } else { Bound::Lower }) {
         Ok(v) => {
@@ -143,6 +149,21 @@ mod tests {
         assert_eq!(bound(&desc, 0, 2, Bound::Lower), Err(9));
         let erased = [0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(bound(&erased, 1, 1, Bound::Lower), Err(9));
+    }
+
+    #[test]
+    fn c_bound_reads_only_the_descriptor() {
+        // exactly 4*n+4 entries: the C entry point must not view more (UB under Miri before)
+        let desc: [isize; 12] = [0, 0, 1, 0, -2, 8, 1, 0, 1, 3, 8, 0];
+        assert_eq!(desc_len(2), desc.len());
+        assert_eq!(desc_len(1), 8);
+        let mut out = 0isize;
+        // SAFETY: `desc` holds a full 2-dimensional descriptor.
+        assert_eq!(unsafe { qb_array_bound(desc.as_ptr(), 1, 2, 1, &mut out) }, 0);
+        assert_eq!(out, 3);
+        // SAFETY: as above.
+        assert_eq!(unsafe { qb_array_bound(desc.as_ptr(), 2, 2, 0, &mut out) }, 0);
+        assert_eq!(out, -2);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Packs a QIR program into a copy of the QIR runner (no native code, no linker):
 #   out = runner + <QIR text> + <u64 LE length> + "QBNEXIR0"
 # The runner (qb-exec) reads its own file at start-up and runs the payload.
-# Used by scripts\setup_qir_win.cmd when `qb-exec build` (native image) is not wanted
+# Used by scripts\setup_win.cmd when `qb-exec build` (native image) is not wanted
 # or not available for the QIR version of the bootstrap.
 param(
     [Parameter(Mandatory = $true)][string]$Runner,

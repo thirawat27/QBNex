@@ -9,6 +9,22 @@
 Windows ควรยกเว้นโฟลเดอร์นี้จากการสแกนของโปรแกรมแอนตี้ไวรัส
 (โปรแกรมที่คอมไพล์ออกมาเป็นไฟล์ exe ใหม่ ซึ่งตัวสแกนมักจะเข้าไปตรวจ)
 
+รุ่นเดียวกันมีตัวติดตั้งไฟล์เดียวของแต่ละระบบด้วย:
+`qbnex_<tag>_win-x64-setup.exe`, `qbnex_<tag>_lnx-setup` และ
+`qbnex_<tag>_osx-setup` เปิดแล้วตอบยืนยันครั้งเดียว ติดตั้งให้ผู้ใช้ปัจจุบัน
+โดยไม่ต้องใช้สิทธิ์ผู้ดูแลระบบ:
+
+- Windows: ลงที่ `%LOCALAPPDATA%\Programs\QBNex` เพิ่มเข้า PATH และอยู่ใน
+  "Apps & features" (ถอนการติดตั้งจากตรงนั้นได้)
+- Linux และ macOS: ลงที่ `~/.local/share/qbnex` และสร้าง link `qb`, `qbnex`
+  ไว้ใน `~/.local/bin` (ถ้าโฟลเดอร์นี้ยังไม่อยู่ใน PATH ให้เพิ่มเอง)
+
+`qbnex-setup --yes` ติดตั้งโดยไม่ถาม, `--dir <โฟลเดอร์>` เลือกที่ติดตั้งเอง,
+`--no-path` ไม่แก้ PATH และ `qbnex-setup --uninstall` (ตัวที่อยู่ในโฟลเดอร์ที่ติดตั้ง)
+ลบทุกอย่างที่ติดตั้งไป ตัวติดตั้งยังไม่ได้ลงลายเซ็นดิจิทัล Windows SmartScreen
+และ macOS Gatekeeper อาจเตือนก่อนเปิดครั้งแรก (macOS:
+`xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`)
+
 ## Build จาก source
 
 ทุกระบบปฏิบัติการต้องมี [Rust](https://rustup.rs) (`cargo`) และไม่ต้องใช้

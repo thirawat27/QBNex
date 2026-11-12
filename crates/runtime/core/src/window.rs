@@ -458,6 +458,8 @@ impl App {
         else {
             return;
         };
+        // one arm without the `gpu` feature, two with it
+        #[allow(clippy::infallible_destructuring_match)]
         let surface = match &mut win.presenter {
             Presenter::Soft(s) => s,
             #[cfg(feature = "gpu")]

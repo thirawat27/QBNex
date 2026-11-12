@@ -225,6 +225,21 @@ fn str_num(t: Ty, v: &V) -> Vec<u8> {
     }
 }
 
+/// Argument of SPC / TAB: past the line width QB takes it MOD the width
+/// (stdout: 80 columns, as PRINTZONE); a file has no width: at most 32767
+/// (QBasic's INTEGER argument). Negative = 0.
+fn print_count(ch: i32, n: i64) -> usize {
+    let n = n.max(0);
+    let n = if ch != 0 {
+        n.min(32767)
+    } else if n > 80 {
+        n % 80
+    } else {
+        n
+    };
+    n as usize
+}
+
 fn suffix_ty(name: &str) -> Ty {
     name.rsplit('.').next().and_then(Ty::from_name).unwrap_or(Ty::I64)
 }
@@ -618,7 +633,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "PRINTNL" => rt.nl(i(0) as i32)?,
         "PRINTTAB" => {
             let ch = i(0) as i32;
-            let n = i(1).max(1) as usize;
+            let n = print_count(ch, i(1)).max(1);
             let col = if ch == 0 { rt.col } else { 1 };
             if col > n {
                 rt.nl(ch)?;
@@ -627,7 +642,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 rt.write(ch, &vec![b' '; n - col])?
             }
         }
-        "PRINTSPC" => rt.write(i(0) as i32, &vec![b' '; i(1).max(0) as usize])?,
+        "PRINTSPC" => {
+            let ch = i(0) as i32;
+            rt.write(ch, &vec![b' '; print_count(ch, i(1))])?
+        }
         "WRITES" => {
             let mut b = vec![b'"'];
             b.extend_from_slice(s(1));
@@ -1001,11 +1019,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "SHELL" => {
             rt.flush();
             let cmd = String::from_utf8_lossy(s(0)).into_owned();
-            let st = if cfg!(windows) {
-                std::process::Command::new("cmd").args(["/c", &cmd]).status()
-            } else {
-                std::process::Command::new("sh").args(["-c", &cmd]).status()
-            };
+            let st = shell_command(&cmd).status();
             return ok(V::I(st.ok().and_then(|s| s.code()).unwrap_or(-1).into()));
         }
         "DATE$" | "TIME$" => return ok(V::S(vec![])),
@@ -1019,12 +1033,17 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             return ok(V::S(dst));
         }
         "_INFLATE$" | "_INFLATE$.n" => {
-            // legacy compress_bridge.cpp: a given size is used as is, otherwise 10 MB steps
+            // legacy compress_bridge.cpp: a given size is used as is, otherwise 10 MB steps;
+            // more than 512 MiB of output (a zip bomb) is error 7 instead of exhausting memory
+            const INFLATE_CAP: u64 = 512 << 20;
             let src = s(0);
             let mut size: u64 = if name == "_INFLATE$.n" { i(1).max(0) as u64 } else { 0 };
             loop {
                 if name == "_INFLATE$" {
                     size += 10_000_000;
+                }
+                if size > INFLATE_CAP {
+                    return e(7);
                 }
                 let mut out_len = size as u32;
                 let mut dst = vec![0u8; size as usize];
@@ -1534,6 +1553,22 @@ fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
     let neg = v < 0.0;
     let a = v.abs();
     let a = if t == Ty::F32 { f64::from(a as f32) } else { a };
+    // Infinity and NaN fit no field: the overflow mark `%` (as for a number too
+    // wide for its field), the sign and INF / NAN
+    let (special, nan) = match x80 {
+        Some(x) => (x.exp() == 0x7FFF, x.mant << 1 != 0),
+        None => (!a.is_finite(), a.is_nan()),
+    };
+    if special {
+        let mut o = vec![b'%'];
+        if neg && !nan {
+            o.push(b'-');
+        } else if lead_plus && !nan {
+            o.push(b'+');
+        }
+        o.extend_from_slice(if nan { b"NAN" } else { b"INF" });
+        return o;
+    }
     let mut digits;
     if exp > 0 {
         let p = int_w.saturating_sub(usize::from(!lead_plus && trail.is_none())).max(1);
@@ -1541,7 +1576,7 @@ fn format_num(fmt: &[u8], val: &V, t: Ty) -> Vec<u8> {
             Some(x) => qb_float80::dec::format_e(x, p - 1 + dec),
             None => format!("{:.*e}", p - 1 + dec, a),
         };
-        let (m, ex) = s.split_once('e').unwrap();
+        let Some((m, ex)) = s.split_once('e') else { return vec![b'%'] };
         let ex: i32 = ex.parse().unwrap_or(0) - (p as i32 - 1);
         let m: String = m.chars().filter(|c| *c != '.').collect();
         let (ip, fp) = m.split_at(p.min(m.len()));
@@ -1946,5 +1981,66 @@ mod int33_tests {
         let mut r = [3u32, 0, 0, 0, 0, 0, 0, 0];
         int33(&mut r, (10, 20, 0), Some((false, 12, 640, 480, 8, 16)));
         assert_eq!((r[1], r[2]), (10, 20));
+    }
+}
+
+/// The shell running command line `cmd` (SHELL, CHAIN, RUN): `cmd /c <cmd>`
+/// with the line passed as written, as libqb's system() did (std's argument
+/// quoting would escape the quotes in it), or `sh -c <cmd>`.
+pub(crate) fn shell_command(cmd: &str) -> std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut c = std::process::Command::new("cmd");
+        c.raw_arg(format!("/c {cmd}"));
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", cmd]);
+        c
+    }
+}
+
+#[cfg(all(test, windows))]
+mod shell_tests {
+    #[test]
+    fn quotes_in_a_shell_command_reach_cmd_as_written() {
+        let o = super::shell_command("echo \"x y\"").output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim_end(), "\"x y\"");
+    }
+}
+
+#[cfg(test)]
+mod using_tests {
+    use super::{format_num, print_count, V};
+    use qb_ir::Ty;
+
+    #[test]
+    fn spc_and_tab_counts_stay_bounded() {
+        // stdout: MOD the 80-column width past it; files: at most 32767
+        assert_eq!(print_count(0, 1_000_000_000_000), (1_000_000_000_000i64 % 80) as usize);
+        assert_eq!(print_count(0, 80), 80);
+        assert_eq!(print_count(0, 85), 5);
+        assert_eq!(print_count(0, -3), 0);
+        assert_eq!(print_count(1, 1_000_000_000_000), 32767);
+        assert_eq!(print_count(1, 100), 100);
+    }
+
+    #[test]
+    fn print_using_infinity_and_nan_get_the_overflow_mark() {
+        for f in [&b"#.##^^^^"[..], b"##.##", b"+#.##^^^^^"] {
+            let plus = f[0] == b'+';
+            let pos: &[u8] = if plus { b"%+INF" } else { b"%INF" };
+            assert_eq!(format_num(f, &V::F(f64::INFINITY), Ty::F64), pos);
+            assert_eq!(format_num(f, &V::F(f64::NEG_INFINITY), Ty::F64), b"%-INF");
+            assert_eq!(format_num(f, &V::F(f64::NAN), Ty::F32), b"%NAN");
+            let x = V::X(qb_float80::F80::from_f64(f64::INFINITY));
+            assert_eq!(format_num(f, &x, Ty::F80), pos);
+        }
+        // finite values still go through the exponent format
+        let f = String::from_utf8(format_num(b"#.##^^^^", &V::F(1234.5), Ty::F64)).unwrap();
+        assert!(f.contains("1.23D+03") && !f.starts_with('%'), "{f}");
     }
 }

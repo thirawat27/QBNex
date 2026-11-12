@@ -32,12 +32,27 @@ pub fn list(path: &Path) -> Result<Vec<Entry>, String> {
     Ok(out)
 }
 
+/// Largest member [`read`] loads into memory (same limit as HTTP bodies).
+pub const MAX_ENTRY: u64 = crate::http::MAX_BODY;
+/// Largest total [`extract`] writes (guards against decompression bombs).
+pub const MAX_EXTRACT: u64 = 8 * MAX_ENTRY;
+
 /// Reads one member into memory.
 pub fn read(path: &Path, name: &str) -> Result<Vec<u8>, String> {
     let mut z = open(path)?;
-    let mut f = z.by_name(name).map_err(|e| format!("{name}: {e}"))?;
-    let mut buf = Vec::with_capacity(usize::try_from(f.size()).unwrap_or(0));
-    f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let f = z.by_name(name).map_err(|e| format!("{name}: {e}"))?;
+    let size = f.size();
+    read_limited(f, size, MAX_ENTRY).map_err(|e| format!("{name}: {e}"))
+}
+
+/// Reads `r` to the end, failing once it yields more than `limit` bytes. The
+/// declared `size` is untrusted: it only seeds the capacity (at most 1 MiB).
+fn read_limited(r: impl Read, size: u64, limit: u64) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::with_capacity(size.min(1 << 20) as usize);
+    r.take(limit.saturating_add(1)).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    if buf.len() as u64 > limit {
+        return Err(format!("member larger than {limit} bytes"));
+    }
     Ok(buf)
 }
 
@@ -45,8 +60,15 @@ pub fn read(path: &Path, name: &str) -> Result<Vec<u8>, String> {
 /// names would leave `dest` (`../x`, absolute paths) are rejected.
 /// Returns the number of files written.
 pub fn extract(path: &Path, dest: &Path) -> Result<usize, String> {
+    extract_limited(path, dest, MAX_EXTRACT)
+}
+
+/// [`extract`] writing at most `budget` bytes in total; the member that goes
+/// over is removed and an error returned.
+fn extract_limited(path: &Path, dest: &Path, budget: u64) -> Result<usize, String> {
     let mut z = open(path)?;
     fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let mut left = budget;
     let mut files = 0;
     for i in 0..z.len() {
         let mut f = z.by_index(i).map_err(|e| e.to_string())?;
@@ -62,7 +84,13 @@ pub fn extract(path: &Path, dest: &Path) -> Result<usize, String> {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let mut out = File::create(&target).map_err(|e| format!("{}: {e}", target.display()))?;
-        std::io::copy(&mut f, &mut out).map_err(|e| e.to_string())?;
+        let n = std::io::copy(&mut f.by_ref().take(left.saturating_add(1)), &mut out).map_err(|e| e.to_string())?;
+        if n > left {
+            drop(out);
+            let _ = fs::remove_file(&target);
+            return Err(format!("archive expands to more than {budget} bytes"));
+        }
+        left -= n;
         files += 1;
     }
     Ok(files)
@@ -144,6 +172,29 @@ mod tests {
         assert_eq!(extract(&zp, &out).unwrap(), 3);
         assert_eq!(fs::read(out.join("hello.txt")).unwrap(), b"hello hello hello hello");
         assert_eq!(fs::read(out.join("sub").join("disk.txt")).unwrap(), b"from disk");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn sizes_are_bounded() {
+        // the declared size only seeds the capacity (ZIP64 can claim 2^63)
+        assert_eq!(read_limited(&b"abc"[..], u64::MAX, 10).unwrap(), b"abc");
+        assert_eq!(read_limited(&[7u8; 10][..], 0, 10).unwrap(), [7u8; 10]);
+        assert!(read_limited(&[7u8; 11][..], 11, 10).unwrap_err().contains("larger"));
+
+        let d = tmp("bomb");
+        let zp = d.join("bomb.zip");
+        let mut b = Builder::create(&zp).unwrap();
+        b.add_data("a.bin", &[0u8; 600]).unwrap();
+        b.add_data("b.bin", &[0u8; 600]).unwrap();
+        b.finish().unwrap();
+        assert_eq!(MAX_ENTRY, crate::http::MAX_BODY);
+        assert_eq!(read(&zp, "a.bin").unwrap().len(), 600);
+        assert_eq!(extract_limited(&zp, &d.join("ok"), 1200).unwrap(), 2);
+        let err = extract_limited(&zp, &d.join("over"), 1000).unwrap_err();
+        assert!(err.contains("more than 1000"), "{err}");
+        assert_eq!(fs::read(d.join("over").join("a.bin")).unwrap().len(), 600);
+        assert!(!d.join("over").join("b.bin").exists());
         let _ = fs::remove_dir_all(&d);
     }
 

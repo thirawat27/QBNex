@@ -228,6 +228,16 @@ fn return_without_gosub_is_error_3() {
 }
 
 #[test]
+fn gosub_with_a_full_native_stack_deopts_at_the_gosub() {
+    // capacity 64 (common::run_full), all used: the VM makes the GOSUB (no error 7)
+    let full = [999u32; 64];
+    let o = both(&gosub_mod(false), 0, &Setup { gosub: &full, gosub_base: 64, ..Setup::default() });
+    assert_eq!((o.status, o.err, o.exit_pc), (status::DEOPT, 0, 10));
+    assert_eq!(o.gosub.len(), 64);
+    assert_eq!(o.globals[0], 0);
+}
+
+#[test]
 fn return_to_vm_only_site_deopts() {
     // The VM pushed return pc 999 before entering the subroutine block natively.
     let o = both(&gosub_mod(false), 0, &Setup { frame: &[0, 1], entry: 50, gosub: &[999], gosub_base: 0, ..Setup::default() });

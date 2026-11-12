@@ -133,7 +133,34 @@ pub fn run_linked(src: &str, fns: &[qb_jit::NativeFn], fingerprint: u64, out: &m
     let mut vm = Vm::new(&m, out);
     vm.load_linked(fns, fingerprint).map_err(RunError::load)?;
     vm.set_continue_unhandled(true);
+    if qb_runtime::error::qb_end_prompt_wanted(0) != 0 {
+        vm.set_end_prompt(Some(wait_end_key));
+    }
     vm.run_status()
+}
+
+/// Program stdout of the runner and of native executables. On Windows a line
+/// ends with CR LF, as the C runtime's text-mode stdout wrote it (tools such
+/// as `findstr /x` need the CR on redirected output).
+pub struct Stdout<W: Write>(pub W);
+
+impl<W: Write> Write for Stdout<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if cfg!(windows) {
+            for (k, seg) in buf.split(|&c| c == b'\n').enumerate() {
+                if k > 0 {
+                    self.0.write_all(b"\r\n")?;
+                }
+                self.0.write_all(seg)?;
+            }
+            Ok(buf.len())
+        } else {
+            self.0.write(buf)
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
 }
 
 /// Runs a QIR program with its native image (from [`build_native`]).

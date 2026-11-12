@@ -225,6 +225,46 @@ fn print_zone() {
     assert_eq!(o, "A             A\n");
 }
 
+/// REDIM _PRESERVE of a 2-D array keeps each element's column-major position
+/// (QB64 keeps the bytes; first subscript fastest), in register mode (LONG
+/// array) and memory mode (TYPE array) alike:
+/// `REDIM a(1 TO 2, 1 TO 2): a(2,1)=21: a(1,2)=12: a(2,2)=22: REDIM _PRESERVE a(1 TO 2, 1 TO 3)`.
+#[test]
+fn redim_preserve_2d_keeps_column_major_positions() {
+    let prog = |decl: &str| {
+        // a TYPE puts the program in memory mode
+        let ty = if decl.starts_with("udt") { "type T 4\nfield N i32 0\nendtype\n" } else { "" };
+        let mut s = format!("QIR 1\n{ty}global $A array {decl}\nfunc main\n");
+        s += "const.i32 %0 1\nconst.i32 %1 2\nconst.i32 %2 3\nconst.i32 %9 0\nredim $A 2 %0 %1 %0 %1\n";
+        for (k, (i, j, v)) in [(1, 0, 21), (0, 1, 12), (1, 1, 22)].into_iter().enumerate() {
+            let r = 10 + 2 * k;
+            s += &format!("const.i32 %{r} {v}\naaddr %{} $A %{i} %{j}\nst.i32 %{} 0 %{r}\n", r + 1, r + 1);
+        }
+        s += "redimp $A 2 %0 %1 %0 %2\n";
+        for (k, (i, j)) in [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)].into_iter().enumerate() {
+            let r = 20 + 3 * k;
+            s += &format!("aaddr %{r} $A %{i} %{j}\nld.i32 %{} %{r} 0\ncvt.i64.i32 %{} %{}\nrt PRINTN.i64 %9 %{}\n", r + 1, r + 2, r + 1, r + 2);
+        }
+        s + "rt PRINTNL %9\nend\nendfunc\n"
+    };
+    let expect = " 0  21  12  22  0  0 \n";
+    assert_eq!(run_full(&prog("i32")), expect, "register array");
+    assert_eq!(run_full(&prog("udt:T")), expect, "memory-mode array");
+}
+
+#[test]
+fn huge_spc_and_tab_take_the_line_width_mod() {
+    // SPC(1E12): 1E12 MOD 80 = 0 spaces; TAB(1E12 + 5) -> column 5 (no abort)
+    let o = run("const.i32 %9 0\nconst.i64 %0 1000000000000\nrt PRINTSPC %9 %0\nconst.str %1 x41\nrt PRINTS %9 %1\nconst.i64 %2 1000000000005\nrt PRINTTAB %9 %2\nrt PRINTS %9 %1\nrt PRINTNL %9");
+    assert_eq!(o, "A   A\n");
+}
+
+#[test]
+fn inflate_output_over_the_cap_is_error_7() {
+    let o = run("line 3\nconst.str %0 x789C\nconst.i64 %1 10000000000\nrt %2 _INFLATE$.n %0 %1");
+    assert!(o.contains("ERR 7 line 3"), "{o}");
+}
+
 #[test]
 fn print_zone_wraps_when_no_zone_is_left() {
     // Five zones fill columns 1..70; a comma after column 57 (no whole 14-column

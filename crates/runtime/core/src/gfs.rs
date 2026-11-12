@@ -112,6 +112,9 @@ impl Slot {
     }
 }
 
+/// Highest usable file number; larger numbers are "Bad file name or number".
+pub(crate) const MAX_FILENO: i32 = 32767;
+
 pub(crate) struct Table {
     slots: Vec<Slot>,
     freed: Vec<i32>,
@@ -176,19 +179,21 @@ impl Table {
     }
 
     /// `gfs_fileno_valid`: -2 invalid number, 1 in use, 0 unused.
+    /// A query never grows the table (legacy grew it to `f`, so `EOF(2000000000)`
+    /// allocated gigabytes); numbers above [`MAX_FILENO`] are invalid (error 52).
     pub(crate) fn fileno_valid(&mut self, f: i32) -> i32 {
-        if f <= 0 {
+        if f <= 0 || f > MAX_FILENO {
             return -2;
         }
         if f <= self.fileno_n() {
             return if self.fileno[f as usize] == -1 { 0 } else { 1 };
         }
-        self.fileno.resize(f as usize + 1, -1);
         0
     }
 
+    /// Table index of file number `f`, -1 when it is not in use.
     pub(crate) fn fileno_index(&self, f: i32) -> i32 {
-        self.fileno[f as usize]
+        usize::try_from(f).ok().and_then(|f| self.fileno.get(f)).copied().unwrap_or(-1)
     }
 
     /// `gfs_fileno_freefile`: lowest unused file number.
@@ -197,10 +202,27 @@ impl Table {
         (1..=n).find(|&x| self.fileno[x as usize] == -1).unwrap_or(n + 1)
     }
 
-    /// `gfs_fileno_use` (handles assumed valid).
+    /// `gfs_fileno_use` (handles assumed valid). The table grows here, only
+    /// for a number [`Table::fileno_valid`] accepts.
     pub(crate) fn fileno_use(&mut self, f: i32, i: i32) {
+        if f <= 0 || f > MAX_FILENO {
+            return;
+        }
+        if f as usize >= self.fileno.len() {
+            self.fileno.resize(f as usize + 1, -1);
+        }
         self.fileno[f as usize] = i;
         self.f(i).fileno = f;
+    }
+
+    /// Returns an entry from [`Table::new_entry`] that never became open to
+    /// the free list (`free` only takes open entries, so a failed OPEN leaked
+    /// its slot).
+    fn release(&mut self, i: i32) {
+        let s = &mut self.slots[i as usize];
+        s.file.open = 0;
+        s.os = os::Handle::NONE;
+        self.freed.push(i);
     }
 
     /// `gfs_free`.
@@ -377,14 +399,14 @@ impl Table {
             }
             f.pos = 0;
             if open_com_syntax(&filenamez, f) == -1 {
-                self.free(i);
+                self.release(i);
                 return -11;
             }
         }
         fixdir(&mut filenamez);
         let r = os::open(&mut self.slots[i as usize], &filenamez, access, restrictions, how);
         if r != 0 {
-            self.free(i);
+            self.release(i);
             return r;
         }
         self.f(i).open = 1;
@@ -1016,22 +1038,43 @@ mod os {
         }
     }
 
-    fn try_open(name: &str, access: i32, truncate: bool) -> Option<File> {
+    /// Opens like `CreateFileA` with `OPEN_ALWAYS` (`how` != 0) or
+    /// `OPEN_EXISTING`: a missing file is created, an existing one is never
+    /// truncated except by `how` 2. Writes go to the current position (no
+    /// O_APPEND: APPEND mode seeks to LOF itself, PUT/SEEK need real positions).
+    fn try_open(name: &str, access: i32, how: i32) -> Option<File> {
         let mut o = OpenOptions::new();
         match access {
             1 => o.read(true),
-            2 if truncate => o.write(true).truncate(true),
-            2 => o.append(true),
-            _ => o.read(true).write(true).truncate(truncate),
+            2 => o.write(true),
+            _ => o.read(true).write(true),
         };
-        o.open(name).ok()
+        let writes = access & 2 != 0;
+        o.create(how != 0 && writes).truncate(how == 2 && writes);
+        match o.open(name) {
+            Ok(f) => Some(f),
+            Err(e) if how != 0 && !writes && e.kind() == std::io::ErrorKind::NotFound => {
+                // read-only OPEN_ALWAYS: create the missing file, leave an existing one alone
+                let _ = OpenOptions::new().write(true).create_new(true).open(name);
+                OpenOptions::new().read(true).open(name).ok()
+            }
+            Err(_) => None,
+        }
     }
 
     pub fn open(s: &mut Slot, namez: &[u8], access: i32, _restrictions: i32, how: i32) -> i32 {
         let name = String::from_utf8_lossy(&namez[..namez.len() - 1]).into_owned();
-        let mut h = try_open(&name, access, how == 2);
-        if how != 0 && h.is_none() && File::create(&name).is_ok() {
-            h = try_open(&name, access, how == 2);
+        let mut h = try_open(&name, access, how);
+        if how == 3 && h.is_none() {
+            // like GFS_WINDOWS: read+write, then read-only, then write-only
+            s.file.read = 1;
+            s.file.write = 0;
+            h = try_open(&name, 1, how);
+            if h.is_none() {
+                s.file.read = 0;
+                s.file.write = 1;
+                h = try_open(&name, 2, how);
+            }
         }
         match h {
             Some(f) => {
@@ -1051,8 +1094,10 @@ mod os {
     }
 
     pub fn setpos(s: &mut Slot, position: i64) -> i32 {
-        if let Some(f) = s.os.0.as_mut() {
-            let _ = f.seek(SeekFrom::Start(position as u64));
+        if let Some(f) = s.os.0.as_mut()
+            && f.seek(SeekFrom::Start(position as u64)).is_err()
+        {
+            return -3; // as GFS_WINDOWS
         }
         0
     }
@@ -1359,5 +1404,68 @@ pub(crate) mod tests {
         } else {
             assert_eq!(v, b"a/b/c");
         }
+    }
+
+    #[test]
+    fn fileno_queries_do_not_grow_the_table() {
+        let mut t = table();
+        assert_eq!(t.fileno_valid(2_000_000_000), -2);
+        assert_eq!(t.fileno_valid(MAX_FILENO + 1), -2);
+        let n = t.max_fileno();
+        assert!(n + 100 <= MAX_FILENO);
+        assert_eq!(t.fileno_valid(n + 100), 0);
+        assert_eq!(t.fileno_valid(MAX_FILENO), 0);
+        assert_eq!(t.max_fileno(), n);
+        assert_eq!(t.fileno_index(n + 100), -1);
+    }
+
+    #[test]
+    fn failed_open_returns_its_slot() {
+        let d = tmp("slotleak");
+        let name = p(&d, "nope.txt");
+        let mut t = table();
+        let before = t.slots.len();
+        for _ in 0..10 {
+            assert_eq!(t.open(&name, 1, 0, 0), -5);
+        }
+        assert!(t.slots.len() <= before + 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_write_only_open_writes_at_position_and_keeps_data() {
+        let d = tmp("wronly");
+        let name = p(&d, "w.bin");
+        let mut t = table();
+        let i = t.open(&name, 3, 0, 3);
+        assert!(i >= 0);
+        assert_eq!(t.write(i, -1, b"0123456789"), 0);
+        t.close(i);
+        // BINARY/RANDOM ACCESS WRITE: write-only, create, no truncate
+        let i = t.open(&name, 2, 0, 1);
+        assert!(i >= 0);
+        assert_eq!(t.lof(i), 10);
+        assert_eq!(t.write(i, 2, b"XY"), 0);
+        t.close(i);
+        assert_eq!(std::fs::read(d.join("w.bin")).unwrap(), b"01XY456789");
+        // read-only with create (OPEN_ALWAYS) makes the missing file
+        let i = t.open(&p(&d, "r.bin"), 1, 0, 1);
+        assert!(i >= 0);
+        assert_eq!(t.lof(i), 0);
+        t.close(i);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_setpos_reports_seek_errors() {
+        use std::os::fd::OwnedFd;
+        let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
+        let mut s = Slot {
+            file: Box::new(GfsFile::zeroed()),
+            os: os::Handle(Some(std::fs::File::from(OwnedFd::from(a)))),
+            field_buffer: Vec::new(),
+            field_strings: Vec::new(),
+        };
+        assert_eq!(os::setpos(&mut s, 5), -3);
     }
 }

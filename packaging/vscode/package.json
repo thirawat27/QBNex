@@ -25,6 +25,18 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In an untrusted workspace the compiler, language server and debug adapter paths (and the compile arguments) come only from your user settings, never from the workspace.",
+      "restrictedConfigurations": [
+        "qbnex.compilerPath",
+        "qbnex.compileArgs",
+        "qbnex.lsp.path",
+        "qbnex.dap.path"
+      ]
+    }
+  },
   "contributes": {
     "languages": [
       {
@@ -180,6 +192,7 @@
       "properties": {
         "qbnex.compilerPath": {
           "type": "string",
+          "scope": "machine-overridable",
           "default": "qb",
           "description": "The QBNex compiler command (`qb` or `qbnex`, or a full path)."
         },
@@ -195,26 +208,15 @@
           ],
           "description": "Arguments for QBNex: Compile. Variables: ${file}, ${fileDirname}, ${fileBasenameNoExtension}, ${exeExtension}, ${workspaceFolder}."
         },
-        "qbnex.runMode": {
-          "type": "string",
-          "enum": [
-            "compileThenExecute",
-            "qbRun"
-          ],
-          "enumDescriptions": [
-            "Compile with qbnex.compileArgs, then start the executable in a terminal.",
-            "Start `qb run <file>` in a terminal (VM + JIT, no executable written)."
-          ],
-          "default": "compileThenExecute",
-          "description": "How QBNex: Run starts the program."
-        },
         "qbnex.lsp.path": {
           "type": "string",
+          "scope": "machine-overridable",
           "default": "",
           "description": "Path of the qb-lsp language server. Empty: the copy bundled in the extension's server folder, else `qb-lsp` on PATH."
         },
         "qbnex.dap.path": {
           "type": "string",
+          "scope": "machine-overridable",
           "default": "",
           "description": "Path of the qb-dap debug adapter. Empty: the copy bundled in the extension's server folder, else `qb-dap` on PATH."
         },

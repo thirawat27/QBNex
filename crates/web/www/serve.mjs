@@ -23,7 +23,15 @@ const types = {
 };
 
 createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let path;
+  try {
+    path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  } catch {
+    // Malformed escape (`/%`): a throw here would reject the handler and
+    // stop the server.
+    res.writeHead(400).end('bad request');
+    return;
+  }
   let file = normalize(join(www, path === '/' ? 'index.html' : path));
   if (file !== www && !file.startsWith(www + sep)) {
     res.writeHead(403).end();

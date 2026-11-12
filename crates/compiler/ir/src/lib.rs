@@ -363,7 +363,9 @@ pub fn float_value(text: &str) -> Option<f64> {
 /// Exact bits of an f80 literal written as 20 hex digits (sign+exponent 4, mantissa 16).
 pub fn f80_bits(text: &str) -> Option<(u16, u64)> {
     let h = text.strip_prefix("0x")?;
-    if h.len() != 20 {
+    // Hex digits only: also guarantees byte 4 is a char boundary (no panic on
+    // non-ASCII input of 20 bytes).
+    if h.len() != 20 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     Some((u16::from_str_radix(&h[..4], 16).ok()?, u64::from_str_radix(&h[4..], 16).ok()?))

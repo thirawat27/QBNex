@@ -30,6 +30,16 @@ pub enum Kind {
     Call26,
 }
 
+impl Kind {
+    /// Bytes of code a relocation of this kind patches.
+    fn size(self) -> u64 {
+        match self {
+            Kind::Abs64 => 8,
+            Kind::Rel32 | Kind::Call26 => 4,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     /// A function of the runtime, resolved at load time.
@@ -168,23 +178,28 @@ fn section_address(file: &object::File, s: Option<object::SectionIndex>) -> u64 
 /// Writes relocation `r` given the target value `s` and the image load address `base`.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn patch(code: &mut [u8], r: &Reloc, s: i64, base: i64) -> Result<(), LinkError> {
-    let p = r.offset as usize;
-    let at = base + r.offset as i64;
+    let p = r.offset;
+    let at = base.wrapping_add(r.offset as i64);
+    // the bytes this relocation patches, inside the code
+    let f = match usize::try_from(p).ok().and_then(|q| Some(q..q.checked_add(r.kind.size() as usize)?)) {
+        Some(range) if range.end <= code.len() => &mut code[range],
+        _ => return err(format!("relocation outside the image at {p:#x}")),
+    };
     match r.kind {
-        Kind::Abs64 => code[p..p + 8].copy_from_slice(&(s + r.addend).to_le_bytes()),
+        Kind::Abs64 => f.copy_from_slice(&s.wrapping_add(r.addend).to_le_bytes()),
         Kind::Rel32 => {
-            let v = s + r.addend - at;
+            let v = s.wrapping_add(r.addend).wrapping_sub(at);
             let v = i32::try_from(v).map_err(|_| LinkError(format!("PC-relative target out of range at {p:#x}")))?;
-            code[p..p + 4].copy_from_slice(&v.to_le_bytes());
+            f.copy_from_slice(&v.to_le_bytes());
         }
         Kind::Call26 => {
-            let v = s + r.addend - at;
+            let v = s.wrapping_add(r.addend).wrapping_sub(at);
             if v & 3 != 0 || !(-(1 << 27)..(1 << 27)).contains(&v) {
                 return err(format!("AArch64 call out of range at {p:#x}"));
             }
-            let w = u32::from_le_bytes(code[p..p + 4].try_into().expect("4 bytes"));
+            let w = u32::from_le_bytes(f[..4].try_into().expect("4 bytes"));
             let w = (w & 0xFC00_0000) | (((v >> 2) as u32) & 0x03FF_FFFF);
-            code[p..p + 4].copy_from_slice(&w.to_le_bytes());
+            f.copy_from_slice(&w.to_le_bytes());
         }
     }
     Ok(())
@@ -255,7 +270,8 @@ impl Image {
                 1 => Target::Local(r.u64()?),
                 t => return err(format!("bad relocation target {t}")),
             };
-            if offset as usize + 4 > code.len() {
+            // the patched bytes (8 for Abs64) must lie inside the code
+            if offset.checked_add(kind.size()).is_none_or(|e| e > code.len() as u64) {
                 return err("relocation outside the image");
             }
             relocs.push(Reloc { offset, kind, target, addend });
@@ -263,7 +279,11 @@ impl Image {
         let mut symbols = Vec::new();
         for _ in 0..r.u64()? {
             let n = r.str()?;
-            symbols.push((n, r.u64()?));
+            let off = r.u64()?;
+            if off >= code.len() as u64 {
+                return err(format!("symbol {n} outside the image"));
+            }
+            symbols.push((n, off));
         }
         Ok(Image { code, relocs, symbols })
     }
@@ -338,6 +358,9 @@ impl Loaded {
 #[cfg(not(target_arch = "wasm32"))]
 /// Copies `img` into executable memory, resolving every external name with `resolve`.
 pub fn load(img: &Image, resolve: &dyn Fn(&str) -> Option<usize>) -> Result<Loaded, LinkError> {
+    if let Some((n, _)) = img.symbols.iter().find(|(_, off)| *off >= img.code.len() as u64) {
+        return err(format!("symbol {n} outside the image"));
+    }
     let mut code = img.code.clone();
     let size = code.len().max(1);
     let mut mem =
@@ -383,3 +406,43 @@ fn flush_icache(p: *const u8, n: usize) {
 
 #[cfg(not(any(target_arch = "aarch64", target_arch = "wasm32")))]
 fn flush_icache(_p: *const u8, _n: usize) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image() -> Image {
+        Image {
+            code: vec![0; 16],
+            relocs: vec![Reloc { offset: 8, kind: Kind::Abs64, target: Target::Local(0), addend: 0 }],
+            symbols: vec![("f".into(), 0)],
+        }
+    }
+
+    #[test]
+    fn bytes_round_trip() {
+        assert_eq!(Image::from_bytes(&image().to_bytes()), Ok(image()));
+    }
+
+    #[test]
+    fn truncated_or_inconsistent_images_are_errors_not_panics() {
+        let b = image().to_bytes();
+        for n in 0..b.len() {
+            assert!(Image::from_bytes(&b[..n]).is_err(), "prefix of {n} bytes");
+        }
+        // an 8-byte relocation ending past the code (12 + 8 > 16), and one whose end overflows
+        for offset in [12, u64::MAX - 2] {
+            let mut i = image();
+            i.relocs[0].offset = offset;
+            assert!(Image::from_bytes(&i.to_bytes()).is_err(), "relocation at {offset}");
+            #[cfg(not(target_arch = "wasm32"))]
+            assert!(load(&i, &|_| None).is_err(), "load, relocation at {offset}");
+        }
+        // a symbol outside the code
+        let mut i = image();
+        i.symbols[0].1 = 16;
+        assert!(Image::from_bytes(&i.to_bytes()).is_err());
+        #[cfg(not(target_arch = "wasm32"))]
+        assert!(load(&i, &|_| None).is_err());
+    }
+}

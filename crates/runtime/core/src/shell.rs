@@ -162,7 +162,17 @@ pub fn run(cmd: &[u8], mode: Mode) -> i64 {
         }
         return i64::from((r >> 8) & 0xFF); // WEXITSTATUS
     }
-    let _ = std::process::Command::new("sh").arg("-c").arg(String::from_utf8_lossy(cmd).as_ref()).spawn();
+    // the command bytes as given (not re-encoded as UTF-8)
+    #[cfg(unix)]
+    let arg = <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(cmd).to_os_string();
+    #[cfg(not(unix))]
+    let arg = std::ffi::OsString::from(String::from_utf8_lossy(cmd).into_owned());
+    if let Ok(mut child) = std::process::Command::new("sh").arg("-c").arg(arg).spawn() {
+        // reap it in the background so every _DONTWAIT does not leave a zombie
+        let _ = std::thread::Builder::new().spawn(move || {
+            let _ = child.wait();
+        });
+    }
     0
 }
 
@@ -263,5 +273,30 @@ mod tests {
         let console = Mode { show: true, wait: true, use_console: true };
         assert_eq!(run(b"exit 5", console), 5);
         assert_eq!(run(b"exit 0", Mode { show: false, wait: false, use_console: false }), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dontwait_passes_the_command_bytes_unchanged() {
+        let d = std::env::temp_dir().join(format!("qb_test_{}_shell_bytes", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let out = d.join("o.bin");
+        let mut cmd = b"printf '%s' '".to_vec();
+        cmd.push(0xFF); // not UTF-8: a lossy conversion would write EF BF BD
+        cmd.extend_from_slice(b"' > '");
+        cmd.extend_from_slice(out.to_string_lossy().as_bytes());
+        cmd.extend_from_slice(b".tmp' && mv '");
+        cmd.extend_from_slice(out.to_string_lossy().as_bytes());
+        cmd.extend_from_slice(b".tmp' '");
+        cmd.extend_from_slice(out.to_string_lossy().as_bytes());
+        cmd.push(b'\'');
+        assert_eq!(run(&cmd, Mode { show: false, wait: false, use_console: false }), 0);
+        let start = std::time::Instant::now();
+        while !out.exists() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(10), "command did not run");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read(&out).unwrap(), [0xFF]);
     }
 }

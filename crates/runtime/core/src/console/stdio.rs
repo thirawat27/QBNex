@@ -534,6 +534,7 @@ pub fn console_input() -> i32 {
 /// so END's "Press any key to continue" and SLEEP do not spin forever (the legacy loop never
 /// ended, as ReadConsoleInputA fails and the zeroed record reads as "no event").
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // a HANDLE is an opaque OS value; only Win32 reads it
 pub fn console_input_on(h: windows_sys::Win32::Foundation::HANDLE) -> i32 {
     if !win::is_console(h) {
         return 1;

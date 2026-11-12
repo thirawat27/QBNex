@@ -14,7 +14,8 @@
 //! - `connected` starts at -1 and drops to 0 on a send or receive error and on
 //!   EOF. "Would block" is not an error (legacy defect L-14 treated a full send
 //!   buffer as a lost connection): what does not fit is queued, in order, and
-//!   goes out on the next send, receive, `_CONNECTED` or `CLOSE`.
+//!   goes out on the next send, receive, `_CONNECTED` or `CLOSE`. Only a
+//!   queue past [`MAX_QUEUED`] (the peer stopped reading) counts as lost.
 //! - The remote port of an accepted connection is reported with its bytes
 //!   swapped on little-endian machines (legacy read the network-order field as
 //!   a native `uint16`).
@@ -27,6 +28,12 @@ enum Sock {
     Listener(TcpListener),
     Stream(TcpStream),
 }
+
+/// Most unsent bytes a connection queues behind a full send buffer. A peer
+/// that stops reading would otherwise make the queue grow until allocation
+/// aborts; past this the connection is lost (`connected` 0, queue dropped),
+/// as legacy treated a full buffer.
+pub const MAX_QUEUED: usize = 64 << 20;
 
 /// One open TCP endpoint (legacy `struct tcp_connection`).
 pub struct Conn {
@@ -61,11 +68,22 @@ impl Conn {
         if self.flush() {
             let sent = self.write_some(data);
             if self.connected != 0 && sent < data.len() {
-                self.out.extend_from_slice(&data[sent..]);
+                self.enqueue(&data[sent..]);
             }
         } else if self.connected != 0 {
-            self.out.extend_from_slice(data);
+            self.enqueue(data);
         }
+    }
+
+    /// Queues unsent bytes; past [`MAX_QUEUED`] the connection is lost.
+    fn enqueue(&mut self, data: &[u8]) {
+        if self.queued().saturating_add(data.len()) > MAX_QUEUED {
+            self.connected = 0;
+            self.out = Vec::new();
+            self.out_pos = 0;
+            return;
+        }
+        self.out.extend_from_slice(data);
     }
 
     /// Bytes queued behind a full send buffer.
@@ -165,11 +183,23 @@ pub fn host_open(port: i64) -> Option<Box<Conn>> {
 
 /// Connects to `host` (name or dotted address; text up to the first NUL).
 pub fn client_open(host: &[u8], port: i64) -> Option<Box<Conn>> {
+    client_connect(host, port, None)
+}
+
+/// [`client_open`]; with a `deadline`, each connect attempt only gets the
+/// time left (name resolution itself is not bounded).
+fn client_connect(host: &[u8], port: i64, deadline: Option<Instant>) -> Option<Box<Conn>> {
     let port16 = valid_port(port)?;
     let host = &host[..host.iter().position(|&b| b == 0).unwrap_or(host.len())];
     let name = std::str::from_utf8(host).ok()?;
     let addrs = (name, port16).to_socket_addrs().ok()?;
-    let stream = addrs.filter(SocketAddr::is_ipv4).find_map(|a| TcpStream::connect(a).ok())?;
+    let stream = addrs.filter(SocketAddr::is_ipv4).find_map(|a| match deadline {
+        None => TcpStream::connect(a).ok(),
+        Some(d) => {
+            let left = d.checked_duration_since(Instant::now()).filter(|t| !t.is_zero())?;
+            TcpStream::connect_timeout(&a, left).ok()
+        }
+    })?;
     stream.set_nonblocking(true).ok()?;
     let mut c = Conn::new(Sock::Stream(stream), port as i32);
     c.hostname = host.to_vec();
@@ -343,11 +373,14 @@ impl IpReply {
 /// Asks `host:port` for this machine's public address. Returns empty text
 /// when the server cannot be reached or does not answer within `timeout`.
 pub fn fetch_ip(host: &str, port: u16, timeout: Duration) -> Vec<u8> {
-    let Some(mut c) = client_open(host.as_bytes(), i64::from(port)) else { return Vec::new() };
-    c.send(&myip_request(host));
     let start = Instant::now();
+    let Some(mut c) = client_connect(host.as_bytes(), i64::from(port), Some(start + timeout)) else {
+        return Vec::new();
+    };
+    c.send(&myip_request(host));
     let mut reply = IpReply::default();
     let mut buf = vec![0u8; 4096];
+    let mut total = 0usize;
     loop {
         std::thread::sleep(Duration::from_millis(50));
         let mut got = Vec::new();
@@ -355,6 +388,11 @@ pub fn fetch_ip(host: &str, port: u16, timeout: Duration) -> Vec<u8> {
             let n = c.recv(&mut buf);
             if n == 0 {
                 break;
+            }
+            total += n;
+            if total > MAX_IP_REPLY {
+                c.close();
+                return Vec::new();
             }
             got.extend_from_slice(&buf[..n]);
         }
@@ -369,9 +407,16 @@ pub fn fetch_ip(host: &str, port: u16, timeout: Duration) -> Vec<u8> {
     }
 }
 
-/// `WHATISMYIP()`: public IPv4 address from api.ipify.org, or empty.
+/// Largest reply [`fetch_ip`] accepts (headers + body); a longer one is not
+/// an address and is dropped instead of accumulated.
+pub const MAX_IP_REPLY: usize = 4096;
+
+/// `WHATISMYIP()`: public IPv4 address from api.ipify.org, or empty. Asked
+/// once per process; later calls reuse the answer (also an empty one, so an
+/// unreachable server does not cost the timeout on every call).
 pub fn whatismyip() -> Vec<u8> {
-    fetch_ip(MYIP_HOST, 80, Duration::from_secs(5))
+    static IP: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    IP.get_or_init(|| fetch_ip(MYIP_HOST, 80, Duration::from_secs(5))).clone()
 }
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
@@ -825,6 +870,59 @@ mod tests {
         assert_eq!(fetch_ip("127.0.0.1", port, Duration::from_millis(300)), b"");
         assert!(start.elapsed() >= Duration::from_millis(300));
         drop(server);
+    }
+
+    #[test]
+    fn fetch_ip_connect_respects_the_timeout() {
+        // non-routable: the connect fails at once or hangs, but never past the budget
+        let start = Instant::now();
+        assert_eq!(fetch_ip("10.255.255.1", 80, Duration::from_millis(300)), b"");
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn fetch_ip_drops_an_oversized_reply() {
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = server.local_addr().unwrap().port();
+        let t = std::thread::spawn(move || {
+            let (mut s, _) = server.accept().unwrap();
+            let mut req = [0u8; 256];
+            let _ = s.read(&mut req);
+            // a header block that never ends
+            let _ = s.write_all(&[b'x'; MAX_IP_REPLY * 4]);
+        });
+        let start = Instant::now();
+        assert_eq!(fetch_ip("127.0.0.1", port, Duration::from_secs(10)), b"");
+        assert!(start.elapsed() < Duration::from_secs(5), "reply was not capped");
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn queue_past_the_cap_loses_the_connection() {
+        let port = free_port();
+        let host = host_open(i64::from(port)).expect("listen");
+        let mut client = client_open(b"127.0.0.1", i64::from(port)).expect("connect");
+        let server = poll(|| accept(&host));
+        let block = vec![3u8; 1_048_576];
+        let mut blocks = 0usize;
+        // nobody reads: fill the socket buffers first
+        while client.queued() == 0 {
+            assert!(blocks < 256, "send buffer never filled");
+            client.send(&block);
+            blocks += 1;
+        }
+        assert_eq!(client.connected, -1);
+        let big = vec![0u8; MAX_QUEUED];
+        for _ in 0..2 {
+            if client.connected != 0 {
+                client.send(&big);
+            }
+        }
+        assert_eq!(client.connected, 0, "an unread peer past the cap is a lost connection");
+        assert_eq!(client.queued(), 0);
+        client.close();
+        server.close();
+        host.close();
     }
 
     #[test]

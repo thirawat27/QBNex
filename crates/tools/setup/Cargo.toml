@@ -1,0 +1,23 @@
+[package]
+name = "qb-setup"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Self-contained QBNex installer: one executable that carries the release bundle and installs it per user."
+publish = false
+
+[[bin]]
+name = "qbnex-setup"
+path = "src/main.rs"
+
+[dependencies]
+zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_UI_WindowsAndMessaging",
+] }

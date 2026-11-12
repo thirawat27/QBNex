@@ -302,8 +302,10 @@ fn defaults() -> &'static Defaults {
             v.push(Library { handle: h, path: "<program>".into(), owned: false });
         }
         for m in default_modules() {
-            if let Ok(l) = Library::open_path(m) {
-                v.push(l);
+            // built-in system modules come from the system directory only, never
+            // from a same-named DLL planted next to the program
+            if let Ok(h) = sys::open_system(m) {
+                v.push(Library { handle: h, path: (*m).to_string(), owned: true });
             }
         }
         Defaults(v)
@@ -343,6 +345,7 @@ mod sys {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn LoadLibraryW(name: *const u16) -> *mut c_void;
+        fn LoadLibraryExW(name: *const u16, file: *mut c_void, flags: u32) -> *mut c_void;
         fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
         fn FreeLibrary(module: *mut c_void) -> i32;
         fn GetModuleHandleW(name: *const u16) -> *mut c_void;
@@ -353,6 +356,20 @@ mod sys {
         let w: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
         // SAFETY: NUL-terminated wide string.
         let h = unsafe { LoadLibraryW(w.as_ptr()) };
+        if h.is_null() {
+            // SAFETY: plain thread-local error code.
+            return Err(format!("Windows error {}", unsafe { GetLastError() }));
+        }
+        Ok(h)
+    }
+
+    /// A system module by name, searched in System32 only (no application
+    /// directory, current directory or PATH: no DLL planting).
+    pub fn open_system(name: &str) -> Result<*mut c_void, String> {
+        const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
+        let w: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        // SAFETY: NUL-terminated wide string; the reserved handle argument is null.
+        let h = unsafe { LoadLibraryExW(w.as_ptr(), core::ptr::null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32) };
         if h.is_null() {
             // SAFETY: plain thread-local error code.
             return Err(format!("Windows error {}", unsafe { GetLastError() }));
@@ -429,6 +446,11 @@ mod sys {
         Ok(h)
     }
 
+    /// A system library by name (the dynamic loader's own search).
+    pub fn open_system(name: &str) -> Result<*mut c_void, String> {
+        open(name)
+    }
+
     pub fn symbol(h: *mut c_void, name: &str) -> Option<*const c_void> {
         let c = CString::new(name).ok()?;
         // SAFETY: valid handle (or RTLD_DEFAULT), NUL-terminated name.
@@ -460,6 +482,10 @@ mod sys {
 
     pub fn open(_path: &str) -> Result<*mut c_void, String> {
         Err("dynamic libraries are not available on this platform".to_string())
+    }
+
+    pub fn open_system(path: &str) -> Result<*mut c_void, String> {
+        open(path)
     }
 
     pub fn symbol(_h: *mut c_void, _name: &str) -> Option<*const c_void> {
@@ -495,6 +521,18 @@ mod tests {
         assert_eq!(d.path, "/src/prog/");
         let n = parse_spec("v2.dll.x", None, Os::Linux);
         assert_eq!((n.name.as_str(), n.version.as_str()), ("v2.dll.x", ""));
+    }
+
+    #[test]
+    fn default_modules_load_as_system_modules() {
+        // Windows: from System32 only (LoadLibraryExW + LOAD_LIBRARY_SEARCH_SYSTEM32)
+        let first = default_modules()[0];
+        let h = sys::open_system(first).expect("first default module");
+        sys::close(h);
+        assert!(find_default_symbol("strlen").is_some());
+        if cfg!(windows) {
+            assert!(sys::open_system("qb_no_such_module.dll").is_err());
+        }
     }
 
     #[test]

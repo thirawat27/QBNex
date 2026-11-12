@@ -411,7 +411,12 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
         }
         for fl in &t.fields {
             check_store_ty(m, &fl.ty, &t.name)?;
-            if fl.offset > t.size {
+            let size = match &fl.ty {
+                StoreTy::Scalar(ty) => ty.size(),
+                StoreTy::FStr(n) => *n,
+                StoreTy::Udt(n) => m.udt(n).map_or(0, |u| u.size),
+            };
+            if u64::from(fl.offset) + u64::from(size) > u64::from(t.size) {
                 return bad(&t.name, format!("field {} outside the type", fl.name));
             }
         }

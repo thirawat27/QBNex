@@ -226,7 +226,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         // INPUT$(n) without a file number reads the keyboard (builtins.rs)
         "INPUT$" if i(1) != 0 => {
             let n = i(0);
-            if n < 0 {
+            // the runtime reads at most a LONG count
+            if n < 0 || n > i64::from(i32::MAX) {
                 return Some(e(5));
             }
             let mut buf = vec![0u8; n as usize];

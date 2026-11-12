@@ -9,6 +9,22 @@ and `qbnex_<tag>_osx.tar.gz`. Extract to a folder you can write to. On
 Windows it helps to exclude that folder from antivirus scanning (compiled
 programs are new executables, which scanners like to inspect).
 
+The same releases have a one-file installer per system:
+`qbnex_<tag>_win-x64-setup.exe`, `qbnex_<tag>_lnx-setup` and
+`qbnex_<tag>_osx-setup`. Run it; it asks once and installs for the current
+user, without administrator rights:
+
+- Windows: `%LOCALAPPDATA%\Programs\QBNex`, added to your PATH and to
+  "Apps & features" (uninstall from there).
+- Linux and macOS: `~/.local/share/qbnex`, with `qb` and `qbnex` linked in
+  `~/.local/bin` (add that folder to PATH if it is not there).
+
+`qbnex-setup --yes` installs without asking, `--dir <folder>` picks another
+folder, `--no-path` leaves PATH alone. `qbnex-setup --uninstall` (the copy in
+the install folder) removes everything it installed. The installer is not
+code-signed: Windows SmartScreen and macOS Gatekeeper may warn before the
+first run (macOS: `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`).
+
 ## Building from source
 
 You need [Rust](https://rustup.rs) (`cargo`) on every platform. No C or C++

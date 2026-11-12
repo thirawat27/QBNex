@@ -468,7 +468,23 @@ impl Lower<'_> {
         let op = match w {
             W::W16 => MathOp::Wrap16,
             W::W32 => MathOp::Wrap32,
-            _ => return, // W64; other widths never reach native code (see `light`)
+            W::W64 | W::U64 => return,
+            // _BYTE and _UNSIGNED widths (only negation reaches here, see `light`):
+            // keep the low bits, as `W::wrap`; _BYTE sign-extends ((v ^ 0x80) - 0x80)
+            W::W8 | W::U8 | W::U16 | W::U32 => {
+                let mask = self.konst_i(match w {
+                    W::U16 => 0xFFFF,
+                    W::U32 => 0xFFFF_FFFF,
+                    _ => 0xFF,
+                });
+                self.insts.push(Inst::Bin { op: BinOp::And, dst: d, a: d, b: mask });
+                if matches!(w, W::W8) {
+                    let s = self.konst_i(0x80);
+                    self.insts.push(Inst::Bin { op: BinOp::Xor, dst: d, a: d, b: s });
+                    self.insts.push(Inst::Bin { op: BinOp::Sub, dst: d, a: d, b: s });
+                }
+                return;
+            }
         };
         self.insts.push(Inst::Math { op, dst: d, src: d });
     }
@@ -832,6 +848,11 @@ impl Lower<'_> {
 /// them (handlers run main code at any safe point).
 fn main_shared(m: &bc::Module) -> Vec<u32> {
     let n = m.funcs[0].n_num();
+    // ON TIMER / ON KEY handlers are main code the VM may run inside any CALL
+    // (its safe point), also one made from native main code.
+    if m.code.iter().any(|i| matches!(i, Ins::OnTimer { .. } | Ins::OnKey { .. })) {
+        return (0..n).collect();
+    }
     let mut v = BTreeSet::new();
     for f in &m.funcs[1..] {
         for ins in &m.code[f.entry as usize..f.end as usize] {

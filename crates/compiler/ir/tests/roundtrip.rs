@@ -168,6 +168,22 @@ fn validator_checks_builtin_signature() {
 }
 
 #[test]
+fn validator_checks_field_end_within_type() {
+    let udt = |fields: &str| format!("QIR 1\ntype T 12\n{fields}endtype\nfunc main\nend\nendfunc\n");
+    // Fits exactly: i32 at 0, fstr:8 at 4, ends at 12.
+    validate(&parse(&udt("field A i32 0\nfield B fstr:8 4\n")).unwrap()).expect("valid");
+    // Offset inside, but the field runs past the end.
+    let e = validate(&parse(&udt("field A i32 0\nfield B fstr:10 4\n")).unwrap()).unwrap_err().msg;
+    assert!(e.contains("field B"), "{e}");
+    let e = validate(&parse(&udt("field A f64 8\n")).unwrap()).unwrap_err().msg;
+    assert!(e.contains("field A"), "{e}");
+    // Nested UDT counts its full size.
+    let src = "QIR 1\ntype P 8\nfield X i32 0\nfield Y i32 4\nendtype\ntype Q 12\nfield A i32 0\nfield B udt:P 4\nendtype\ntype R 10\nfield B udt:P 4\nendtype\nfunc main\nend\nendfunc\n";
+    let e = validate(&parse(src).unwrap()).unwrap_err().msg;
+    assert!(e.starts_with("R:"), "{e}");
+}
+
+#[test]
 fn validator_requires_main() {
     let m = parse("QIR 1\nfunc other\nret\nendfunc\n").unwrap();
     assert!(validate(&m).unwrap_err().msg.contains("main"));
@@ -192,6 +208,19 @@ fn string_literal_bytes_survive() {
         other => panic!("{other:?}"),
     }
     assert_eq!(parse(&print(&m)).unwrap(), m);
+}
+
+#[test]
+fn non_ascii_hex_float_is_error_not_panic() {
+    // 20 bytes after `0x`, with a 2-byte char straddling byte 4.
+    let lit = format!("0xaaa\u{e9}{}", "a".repeat(15));
+    assert_eq!(lit.len(), 22);
+    for ty in ["f80", "f64"] {
+        let src = format!("QIR 1\nfunc main\nconst.{ty} %0 {lit}\nend\nendfunc\n");
+        let e = parse(&src).unwrap_err();
+        assert!(e.msg.contains("float"), "{}", e.msg);
+    }
+    assert!(qb_ir::f80_bits(&lit).is_none());
 }
 
 #[test]

@@ -97,6 +97,8 @@ pub fn blend_ranged(destcol: u32, col: u32) -> u32 {
 /// `(x, y)` must lie inside `im`, whose pixel buffer must be valid.
 #[inline]
 pub unsafe fn pset(im: &ImgStruct, x: i32, y: i32, col: u32) {
+    // Cannot overflow for an in-surface point: registry::qb_imgframe caps a
+    // surface at i32::MAX bytes, so width * height fits in i32.
     let idx = (y * i32::from(im.width) + x) as isize;
     // SAFETY: guaranteed by the caller.
     unsafe {

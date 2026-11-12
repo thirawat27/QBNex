@@ -35,14 +35,15 @@ pub fn include_path(token_text: &str) -> Option<&str> {
     let t = token_text.trim_start();
     let body = if let Some(r) = t.strip_prefix('\'') {
         r
-    } else if t.len() >= 3 && t[..3].eq_ignore_ascii_case("REM") {
+    } else if t.get(..3).is_some_and(|p| p.eq_ignore_ascii_case("REM")) {
+        // `get` (not `[..3]`): a multibyte char may straddle byte 3.
         &t[3..]
     } else {
         t
     };
     let body = body.trim_start();
     let rest = body.strip_prefix('$')?;
-    if rest.len() < 7 || !rest[..7].eq_ignore_ascii_case("INCLUDE") {
+    if !rest.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("INCLUDE")) {
         return None;
     }
     let rest = rest[7..].trim_start().strip_prefix(':')?.trim_start();
@@ -63,5 +64,14 @@ mod tests {
         assert_eq!(include_path("$INCLUDE:'c.bi'"), Some("c.bi"));
         assert_eq!(include_path("' $DYNAMIC"), None);
         assert_eq!(include_path("'$INCLUDE"), None);
+    }
+
+    #[test]
+    fn include_multibyte_no_panic() {
+        assert_eq!(include_path("'$ราคา"), None);
+        assert_eq!(include_path("'$ABCDE€"), None);
+        assert_eq!(include_path("RE€"), None);
+        assert_eq!(include_path("ราคา"), None);
+        assert_eq!(include_path("'$INCLUDE: 'ราคา.bi'"), Some("ราคา.bi"));
     }
 }

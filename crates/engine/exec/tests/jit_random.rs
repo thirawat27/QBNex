@@ -198,6 +198,50 @@ fn run(src: &str, mode: Mode) -> (String, Result<i32, i32>) {
     (String::from_utf8_lossy(&out).into_owned(), r)
 }
 
+/// Negation in a native loop wraps to the variable's width like the VM
+/// (`-u` of an `_UNSIGNED LONG` 5 is 4294967291, `-(-128)` of a `_BYTE` is -128).
+#[test]
+fn negation_wraps_to_every_integer_width() {
+    let cases = [
+        ("i8", -128i64),
+        ("u8", 5),
+        ("i16", -32768),
+        ("u16", 5),
+        ("i32", -2147483648),
+        ("u32", 5),
+        ("i64", 5),
+        ("u64", 5),
+    ];
+    for (ty, v) in cases {
+        let print = match ty {
+            "i64" | "u64" => format!("rt PRINTN.{ty} %20 %10\n"),
+            _ => format!("cvt.i64.{ty} %11 %10\nrt PRINTN.i64 %20 %11\n"),
+        };
+        // V = v: FOR I = 1 TO 3: V = -V: NEXT: PRINT V
+        let p = format!(
+            "QIR 1\nglobal $V {ty}\nglobal $I i32\nfunc main\nline 1\nconst.{ty} %0 {v}\nstore.{ty} $V %0\n\
+             const.i32 %1 1\nstore.i32 $I %1\nlabel T\nload.i32 %2 $I\nconst.i32 %3 3\ngt.i32 %4 %2 %3\njnz %4 X\n\
+             line 2\nload.{ty} %5 $V\nneg.{ty} %6 %5\nstore.{ty} $V %6\nload.i32 %7 $I\nconst.i32 %8 1\n\
+             add.i32 %9 %7 %8\nstore.i32 $I %9\njmp T\nlabel X\nline 3\nload.{ty} %10 $V\nconst.i32 %20 0\n\
+             {print}rt PRINTNL %20\nend\nendfunc\n"
+        );
+        let vm = run(&p, Mode::Off);
+        let expect = match ty {
+            "i8" => "-128 \n",
+            "u8" => " 251 \n",
+            "i16" => "-32768 \n",
+            "u16" => " 65531 \n",
+            "i32" => "-2147483648 \n",
+            "u32" => " 4294967291 \n",
+            "i64" => "-5 \n",
+            _ => " 18446744073709551611 \n",
+        };
+        assert_eq!(vm, (expect.to_string(), Ok(0)), "{ty} VM");
+        assert_eq!(vm, run(&p, Mode::Hot), "{ty} hot");
+        assert_eq!(vm, run(&p, Mode::Eager), "{ty} eager");
+    }
+}
+
 #[test]
 fn random_call_programs_match_the_vm() {
     let n: u64 = std::env::var("QB_JIT_RANDOM").ok().and_then(|v| v.parse().ok()).unwrap_or(300);

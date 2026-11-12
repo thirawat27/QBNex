@@ -26,7 +26,7 @@ code --install-extension qbnex-2.0.0.vsix
 | Outline, ไปยังจุดประกาศ, ค้นหาจุดที่ใช้ | SUB, FUNCTION, TYPE และ field, CONST, label, เลขบรรทัด ข้ามไฟล์ `$INCLUDE` |
 | Hover, completion | keyword พร้อม syntax, procedure ของไลบรารีมาตรฐานพร้อมชื่อโมดูล, สัญลักษณ์ที่เขียนเอง |
 | จัดรูปแบบเมื่อบันทึก | เปิดเป็นค่าเริ่มต้นสำหรับไฟล์ QBasic (ปิดด้วย `"[qbasic]": {"editor.formatOnSave": false}`) |
-| `QBNex: Run` (Ctrl+F5, ปุ่ม play) | บันทึก คอมไพล์ด้วย `qb` แล้วรันใน terminal ถ้าตั้ง `"qbnex.runMode": "qbRun"` จะใช้ `qb run` (วางแผนไว้) |
+| `QBNex: Run` (Ctrl+F5, ปุ่ม play) | บันทึก คอมไพล์ด้วย `qb` แล้วรันใน terminal |
 | `QBNex: Compile` (Ctrl+Shift+B) | คอมไพล์ ผลลัพธ์อยู่ในแผง *QBNex* |
 | Debug (F5) | ดูด้านล่าง |
 

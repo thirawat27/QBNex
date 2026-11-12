@@ -19,7 +19,7 @@ path = "src/lib.rs"
 # programs whose libqb references the audio entry points (DEPENDENCY_AUDIO_OUT).
 qb-audio = { path = "../audio" }
 # R13-ext: regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* C ABI),
-# linked into libqb_runtime.a so compiled programs can call it through DECLARE LIBRARY.
+# linked into the runner qb-exec so the stdlib's ext.* modules can call it through DECLARE LIBRARY.
 qb-ext = { path = "../ext", optional = true }
 # R11d: software x87 80-bit float (`_FLOAT`): VAL rounding, f80 -> f64, STR$ of _FLOAT.
 qb-float80 = { path = "../float80" }
@@ -41,7 +41,7 @@ gpu = ["dep:qb-gpu"]
 [target.'cfg(windows)'.dependencies]
 # Clipboard (CF_TEXT/CF_BITMAP), _SCREENIMAGE/_SCREENCLICK/_SCREENPRINT and the
 # printer use Win32 directly, exactly like the legacy runtime. windows-sys links
-# through raw-dylib import stubs, so libqb_runtime.a needs no extra -l flags for them.
+# through raw-dylib import stubs, so no extra link flags are needed for them.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Globalization",

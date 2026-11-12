@@ -460,64 +460,99 @@ impl Font {
             && let Some(w) = hdmx_width(&font, self.size.ppem, gid.to_u32()) {
                 advance = w << 6;
             }
-        // Control box in 26.6 (on- and off-curve points), as FreeType's cbox.
-        let (mut x_min, mut y_min, mut x_max, mut y_max) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
-        let mut add = |x: f32, y: f32| {
-            let (x, y) = (to26(x), to26(y));
-            x_min = x_min.min(x);
-            y_min = y_min.min(y);
-            x_max = x_max.max(x);
-            y_max = y_max.max(y);
-        };
-        for el in &path.0 {
-            match *el {
-                El::Move(x, y) | El::Line(x, y) => add(x, y),
-                El::Quad(a, b, x, y) => {
-                    add(a, b);
-                    add(x, y);
-                }
-                El::Cubic(a, b, c, d, x, y) => {
-                    add(a, b);
-                    add(c, d);
-                    add(x, y);
-                }
+        glyph_bitmap(&path.0, mono, advance)
+    }
+}
+
+/// Largest glyph bitmap side and area; a crafted outline beyond them renders
+/// as an empty bitmap (advance kept) instead of a huge allocation.
+const GLYPH_MAX_SIDE: usize = 0x7FFF;
+const GLYPH_MAX_AREA: usize = 64 << 20;
+/// Largest bitmap offset (`left`/`top`) and cell advance in pixels, so the
+/// cell arithmetic of `render_font` stays well inside `i32`.
+const GLYPH_MAX_OFFSET: i64 = 1 << 20;
+/// Largest rendered string (pixels); larger strings fail like a bad handle.
+const STRING_MAX_AREA: usize = 256 << 20;
+/// Outline coordinates are clamped to this (26.6) magnitude so the control
+/// box arithmetic below cannot overflow (real glyphs stay far inside).
+const GLYPH_MAX_COORD: i64 = 1 << 40;
+
+/// Renders the outline `path` (pixel units) into the glyph slot.
+fn glyph_bitmap(path: &[El], mono: bool, advance: i64) -> GlyphBitmap {
+    let empty = GlyphBitmap {
+        left: 0,
+        top: 0,
+        width: 0,
+        rows: 0,
+        advance,
+        data: Vec::new(),
+    };
+    // Control box in 26.6 (on- and off-curve points), as FreeType's cbox.
+    let (mut x_min, mut y_min, mut x_max, mut y_max) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
+    let mut add = |x: f32, y: f32| {
+        let clamp = |v: i64| v.clamp(-GLYPH_MAX_COORD, GLYPH_MAX_COORD);
+        let (x, y) = (clamp(to26(x)), clamp(to26(y)));
+        x_min = x_min.min(x);
+        y_min = y_min.min(y);
+        x_max = x_max.max(x);
+        y_max = y_max.max(y);
+    };
+    for el in path {
+        match *el {
+            El::Move(x, y) | El::Line(x, y) => add(x, y),
+            El::Quad(a, b, x, y) => {
+                add(a, b);
+                add(x, y);
+            }
+            El::Cubic(a, b, c, d, x, y) => {
+                add(a, b);
+                add(c, d);
+                add(x, y);
             }
         }
-        if path.0.is_empty() {
-            return GlyphBitmap { advance, ..empty };
-        }
-        // ft_raster1_render rounds the control box, ft_smooth_render floors/ceils it.
-        let (x_min, y_min, x_max, y_max) = if mono {
-            (
-                pix_round(x_min),
-                pix_round(y_min),
-                pix_round(x_max),
-                pix_round(y_max),
-            )
-        } else {
-            (
-                pix_floor(x_min),
-                pix_floor(y_min),
-                pix_ceil(x_max),
-                pix_ceil(y_max),
-            )
-        };
-        let width = ((x_max - x_min) >> 6) as usize;
-        let rows = ((y_max - y_min) >> 6) as usize;
-        let (x0, y0) = ((x_min >> 6) as f32, (y_max >> 6) as f32);
-        let data = if mono {
-            rasterize_mono(&path.0, x0, y0, width, rows)
-        } else {
-            rasterize_aa(&path.0, x0, y0, width, rows)
-        };
-        GlyphBitmap {
-            left: (x_min >> 6) as i32,
-            top: (y_max >> 6) as i32,
-            width: width as i32,
-            rows: rows as i32,
-            advance,
-            data,
-        }
+    }
+    if path.is_empty() {
+        return empty;
+    }
+    // ft_raster1_render rounds the control box, ft_smooth_render floors/ceils it.
+    let (x_min, y_min, x_max, y_max) = if mono {
+        (
+            pix_round(x_min),
+            pix_round(y_min),
+            pix_round(x_max),
+            pix_round(y_max),
+        )
+    } else {
+        (
+            pix_floor(x_min),
+            pix_floor(y_min),
+            pix_ceil(x_max),
+            pix_ceil(y_max),
+        )
+    };
+    let width = (x_max.saturating_sub(x_min) >> 6).max(0) as usize;
+    let rows = (y_max.saturating_sub(y_min) >> 6).max(0) as usize;
+    if width > GLYPH_MAX_SIDE
+        || rows > GLYPH_MAX_SIDE
+        || width * rows > GLYPH_MAX_AREA
+        || (x_min >> 6).abs() > GLYPH_MAX_OFFSET
+        || (y_max >> 6).abs() > GLYPH_MAX_OFFSET
+    {
+        return empty;
+    }
+    let (x0, y0) = ((x_min >> 6) as f32, (y_max >> 6) as f32);
+    let data = if mono {
+        rasterize_mono(path, x0, y0, width, rows)
+    } else {
+        rasterize_aa(path, x0, y0, width, rows)
+    };
+    GlyphBitmap {
+        left: (x_min >> 6) as i32,
+        top: (y_max >> 6) as i32,
+        width: width as i32,
+        rows: rows as i32,
+        advance,
+        data,
     }
 }
 
@@ -620,6 +655,19 @@ pub fn render(i: i32, codepoints: &[u32], options: i32) -> Option<Rendered> {
     render_font(font, codepoints, options)
 }
 
+/// Zeroed `w x h` cell; `None` when it is over [`STRING_MAX_AREA`] or cannot
+/// be allocated.
+fn cell_buffer(w: i32, h: i32) -> Option<Vec<u8>> {
+    let n = (w.max(0) as usize).checked_mul(h.max(0) as usize)?;
+    if n > STRING_MAX_AREA {
+        return None;
+    }
+    let mut v = Vec::<u8>::new();
+    v.try_reserve_exact(n).ok()?;
+    v.resize(n, 0u8);
+    Some(v)
+}
+
 fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered> {
     let h2 = font.default_pixel_height;
     if codepoints.is_empty() {
@@ -639,7 +687,8 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
         let g = font.glyph(cp, mono);
         let (w1, h1) = (g.width, g.rows);
         let mut ox = g.left;
-        let mut w2 = (g.advance / 64) as i32;
+        // (a negative advance ends up as w1 below either way)
+        let mut w2 = (g.advance / 64).clamp(0, GLYPH_MAX_OFFSET) as i32;
         if w2 < w1 {
             w2 = w1;
         }
@@ -658,7 +707,7 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
             ox = 0;
             ox2 = w2 / 2 - w1 / 2;
         }
-        let mut data2 = vec![0u8; (w2.max(0) as usize) * (h2.max(0) as usize)];
+        let mut data2 = cell_buffer(w2, h2)?;
         let oy2 = font.baseline - g.top;
         for y1 in 0..h1 {
             let y2 = y1 + oy2;
@@ -692,13 +741,13 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
             };
         }
         parts.push((data2, w2, codepoint_ox));
-        codepoint_ox += w2;
+        codepoint_ox = codepoint_ox.checked_add(w2)?;
         if codepoint_ox > codepoint_w {
             codepoint_w = codepoint_ox;
         }
     }
     let w2 = codepoint_w;
-    let mut data2 = vec![0u8; (w2.max(0) as usize) * (h2.max(0) as usize)];
+    let mut data2 = cell_buffer(w2, h2)?;
     for (data1, w1, ox2) in parts {
         for y1 in 0..h2 {
             for x1 in 0..w1 {
@@ -943,6 +992,35 @@ mod tests {
             }
             free(h);
         }
+    }
+
+    #[test]
+    fn huge_outlines_render_empty_and_keep_the_advance() {
+        let square = |lo: f32, hi: f32| {
+            vec![El::Move(lo, lo), El::Line(hi, lo), El::Line(hi, hi), El::Line(lo, hi)]
+        };
+        for mono in [false, true] {
+            let g = glyph_bitmap(&square(0.0, 4.0), mono, 320);
+            assert_eq!((g.width, g.rows, g.data.len(), g.advance), (4, 4, 16, 320));
+            // ~7e13 pixels from a crafted bounding box
+            for (lo, hi) in [
+                (-4.0e6, 4.0e6),
+                (0.0, 40000.0),
+                (f32::NEG_INFINITY, f32::INFINITY),
+                (f32::MIN, f32::MAX),
+                (f32::NAN, 1.0e9),
+            ] {
+                let g = glyph_bitmap(&square(lo, hi), mono, 320);
+                assert_eq!((g.width, g.rows, g.data.len(), g.advance), (0, 0, 0, 320), "{lo} {hi}");
+            }
+            // a small glyph far away is empty too (its offsets would not fit)
+            let g = glyph_bitmap(&square(2.0e6, 2.0e6 + 2.0), mono, 64);
+            assert_eq!((g.width, g.data.len()), (0, 0));
+            assert!(glyph_bitmap(&[], mono, 64).data.is_empty());
+        }
+        assert_eq!(cell_buffer(4, 2).map(|v| v.len()), Some(8));
+        assert_eq!(cell_buffer(-1, 2).map(|v| v.len()), Some(0));
+        assert!(cell_buffer(i32::MAX, i32::MAX).is_none());
     }
 
     #[test]

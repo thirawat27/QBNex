@@ -22,9 +22,7 @@ Language support for QBasic, QB64 and QBNex source files (`.bas`, `.bi`, `.bm`).
   off with `"[qbasic]": { "editor.formatOnSave": false }`.
 - **Commands**:
   - `QBNex: Run` (Ctrl+F5, or the play button in the editor title): saves, compiles
-    with `qb`, then starts the program in a terminal. With
-    `"qbnex.runMode": "qbRun"` it runs `qb run <file>` instead (no
-    executable written).
+    with `qb`, then starts the program in a terminal.
   - `QBNex: Compile` (Ctrl+Shift+B): saves and runs `qb` with
     `qbnex.compileArgs`; the compiler output goes to the *QBNex* output panel.
   - `QBNex: Restart Language Server`.
@@ -55,7 +53,6 @@ without it INPUT sees end of file). Program output goes to the Debug Console.
 | --- | --- | --- |
 | `qbnex.compilerPath` | `qb` | Compiler command or full path. |
 | `qbnex.compileArgs` | `["${file}", "-o", "${fileDirname}/${fileBasenameNoExtension}${exeExtension}"]` | Compiler arguments. Variables: `${file}`, `${fileDirname}`, `${fileBasenameNoExtension}`, `${exeExtension}`, `${workspaceFolder}`. |
-| `qbnex.runMode` | `compileThenExecute` | `compileThenExecute` or `qbRun`. |
 | `qbnex.lsp.path` | (empty) | Path of `qb-lsp`; empty means the bundled copy, then `PATH`. |
 | `qbnex.lsp.enabled` | `true` | Start the language server. |
 | `qbnex.dap.path` | (empty) | Path of `qb-dap`; empty means the bundled copy, then `PATH`. |

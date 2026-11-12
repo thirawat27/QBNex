@@ -10,9 +10,7 @@ publish = false
 
 # A separate crate on purpose: the release profile builds each crate as one
 # object file (codegen-units = 1), so keeping audio out of the `qb-runtime` crate is
-# what lets console-only programs link libqb_runtime.a without pulling in the audio
-# engine, cpal or the decoders. Nothing in libqb.cpp references an audio entry point
-# unless DEPENDENCY_AUDIO_OUT is defined.
+# keeps the audio engine, cpal and the decoders in their own object file.
 [lib]
 name = "qb_audio"
 path = "src/lib.rs"

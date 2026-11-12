@@ -296,7 +296,7 @@ fn create() -> Result<Gl, String> {
     // SAFETY: as above.
     let ctx = unsafe { display.create_context(&config, &attrs) }.map_err(|e| e.to_string())?;
     let size = window.inner_size();
-    let (w, h) = (NonZeroU32::new(size.width.max(1)).unwrap(), NonZeroU32::new(size.height.max(1)).unwrap());
+    let (w, h) = (non_zero(size.width), non_zero(size.height));
     let sattrs = SurfaceAttributesBuilder::<WindowSurface>::new().build(rwh, w, h);
     // SAFETY: as above.
     let surface = unsafe { display.create_window_surface(&config, &sattrs) }.map_err(|e| e.to_string())?;
@@ -325,6 +325,12 @@ fn create() -> Result<Gl, String> {
     Ok(Gl { display, surface, context, window, own, fns, fbo, size })
 }
 
+/// A window dimension as the non-zero size GL surfaces need (a minimised window
+/// reports 0).
+fn non_zero(v: u32) -> NonZeroU32 {
+    NonZeroU32::new(v).unwrap_or(NonZeroU32::MIN)
+}
+
 /// Starts a display frame for `SUB _GL`: makes the context current (creating
 /// it on first use), clears, and draws the software screen `soft` (0xAARRGGBB,
 /// `w` x `h`) stretched over the window. Returns the drawable size.
@@ -346,7 +352,7 @@ pub fn begin_frame(soft: Option<(&[u32], usize, usize)>) -> Result<(u32, u32), S
             let size = gl.window.inner_size();
             let (w, h) = (size.width.max(1), size.height.max(1));
             if (w, h) != gl.size {
-                gl.surface.resize(&gl.context, NonZeroU32::new(w).unwrap(), NonZeroU32::new(h).unwrap());
+                gl.surface.resize(&gl.context, non_zero(w), non_zero(h));
                 gl.size = (w, h);
             }
             (w, h)

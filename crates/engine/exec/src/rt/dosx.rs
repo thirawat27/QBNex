@@ -287,11 +287,7 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
         return e(53);
     }
     vm.rt().flush();
-    let st = if cfg!(windows) {
-        std::process::Command::new("cmd").args(["/c", cmd]).status()
-    } else {
-        std::process::Command::new("sh").args(["-c", cmd]).status()
-    };
+    let st = super::builtins::shell_command(cmd).status();
     if st.is_err() {
         return e(53);
     }

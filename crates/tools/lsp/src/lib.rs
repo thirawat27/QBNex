@@ -9,11 +9,13 @@
 pub mod analysis;
 mod uri;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::SystemTime;
 
 use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
 use lsp_types as lt;
@@ -61,9 +63,15 @@ impl Doc {
     }
 }
 
+/// Modification time and length of a file on disk.
+type Stamp = (SystemTime, u64);
+
 /// Server state.
 pub struct Server {
     docs: HashMap<String, Rc<Doc>>,
+    /// Files read from disk (includes that are not open), reused while their
+    /// modification time and length are unchanged.
+    disk: RefCell<HashMap<String, (Stamp, Rc<Doc>)>>,
 }
 
 impl Default for Server {
@@ -128,9 +136,16 @@ fn params<P: serde::de::DeserializeOwned>(v: serde_json::Value) -> Result<P, Str
     serde_json::from_value(v).map_err(|e| e.to_string())
 }
 
+/// A path starting with two slashes of either kind: UNC (`\\host\share`,
+/// `//host/share`) or a device path (`\\?\...`, `\\.\...`).
+fn is_unc_like(written: &str) -> bool {
+    let b = written.trim_start().as_bytes();
+    b.len() >= 2 && matches!(b[0], b'/' | b'\\') && matches!(b[1], b'/' | b'\\')
+}
+
 impl Server {
     pub fn new() -> Self {
-        Server { docs: HashMap::new() }
+        Server { docs: HashMap::new(), disk: RefCell::new(HashMap::new()) }
     }
 
     /// Handles a request and builds its response.
@@ -210,19 +225,41 @@ impl Server {
         }
     }
 
-    /// An open document, or a file read from disk.
+    /// An open document, or a file read from disk (cached by mtime + length).
     fn load(&self, uri: &str) -> Option<Rc<Doc>> {
-        if let Some(d) = self.docs.get(&uri_key(uri)) {
+        let key = uri_key(uri);
+        if let Some(d) = self.docs.get(&key) {
             return Some(d.clone());
         }
         let path = uri_to_path(uri)?;
-        let bytes = std::fs::read(path).ok()?;
+        let stamp: Option<Stamp> = std::fs::metadata(&path).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
+        let cached = self.disk.borrow().get(&key).filter(|(s, d)| stamp == Some(*s) && d.uri == uri).map(|(_, d)| d.clone());
+        if cached.is_some() {
+            return cached;
+        }
+        let bytes = std::fs::read(&path).ok()?;
         let (text, _) = qb_syntax::encoding::decode(&bytes);
-        Some(Rc::new(Doc::new(uri.to_string(), &text)))
+        let doc = Rc::new(Doc::new(uri.to_string(), &text));
+        let mut disk = self.disk.borrow_mut();
+        match stamp {
+            Some(stamp) => {
+                disk.insert(key, (stamp, doc.clone()));
+            }
+            None => {
+                disk.remove(&key);
+            }
+        }
+        Some(doc)
     }
 
     /// Resolves an include path written in `doc` (relative to its folder).
     fn resolve_include(doc: &Doc, written: &str) -> Option<String> {
+        // UNC and device paths (`\\host\share\x`, `//host/x`, `\\?\`, `\\.\`)
+        // are never touched: probing one on Windows opens an SMB connection
+        // (leaking the user's NTLM hash to the host named in the source).
+        if is_unc_like(written) {
+            return None;
+        }
         let dir = doc.path.as_deref()?.parent()?;
         let rel: PathBuf = written.split(['/', '\\']).collect();
         let p = if Path::new(written).is_absolute() { PathBuf::from(written) } else { dir.join(rel) };
@@ -544,5 +581,56 @@ fn to_document_symbol(doc: &Doc, s: &Symbol) -> lt::DocumentSymbol {
         range: doc.range(&s.range),
         selection_range: doc.range(&s.name_range),
         children: (!s.children.is_empty()).then(|| s.children.iter().map(|c| to_document_symbol(doc, c)).collect()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("qb-lsp-unit-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn unc_includes_are_not_probed() {
+        assert!(is_unc_like(r"\\host\share\x.bi"));
+        assert!(is_unc_like("//host/share/x.bi"));
+        assert!(is_unc_like(r"\\?\C:\x.bi"));
+        assert!(is_unc_like(r"/\host\x.bi"));
+        assert!(!is_unc_like("lib/x.bi"));
+        assert!(!is_unc_like(r"C:\lib\x.bi"));
+        assert!(!is_unc_like("/usr/lib/x.bi"));
+
+        let dir = temp_dir("unc");
+        let inc = dir.join("a.bi");
+        std::fs::write(&inc, "CONST A = 1\n").unwrap();
+        let main = Doc::new(path_to_uri(&dir.join("main.bas")), "");
+        assert_eq!(Server::resolve_include(&main, r"\\127.0.0.1\share\a.bi"), None);
+        assert_eq!(Server::resolve_include(&main, "//127.0.0.1/share/a.bi"), None);
+        // Relative and plain absolute paths still resolve.
+        assert!(Server::resolve_include(&main, "a.bi").is_some());
+        assert!(Server::resolve_include(&main, inc.to_str().unwrap()).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn disk_files_cached_until_changed() {
+        let dir = temp_dir("cache");
+        let inc = dir.join("a.bi");
+        std::fs::write(&inc, "CONST A = 1\n").unwrap();
+        let uri = path_to_uri(&inc);
+        let server = Server::new();
+        let first = server.load(&uri).unwrap();
+        let again = server.load(&uri).unwrap();
+        assert!(Rc::ptr_eq(&first, &again), "unchanged file is re-parsed");
+        std::fs::write(&inc, "CONST A = 1\nCONST BB = 2\n").unwrap();
+        let changed = server.load(&uri).unwrap();
+        assert!(!Rc::ptr_eq(&first, &changed), "changed file served from cache");
+        assert!(changed.parse.text.contains("BB"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

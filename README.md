@@ -271,6 +271,13 @@ Download the package for your operating system from the releases page, or build 
 source. Tagged releases publish `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and
 `qbnex_<tag>_win-x64.zip`. Extract to a folder with write permissions.
 
+Or download the one-file installer for your system (`qbnex_<tag>_win-x64-setup.exe`,
+`qbnex_<tag>_lnx-setup`, `qbnex_<tag>_osx-setup`) and run it. It installs for the current
+user without administrator rights: on Windows into `%LOCALAPPDATA%\Programs\QBNex`, added
+to your PATH and to "Apps & features"; on Linux/macOS into `~/.local/share/qbnex` with `qb`
+and `qbnex` linked in `~/.local/bin`. `qbnex-setup --help` lists the options (`--yes`,
+`--dir`, `--no-path`); `qbnex-setup --uninstall` in the install folder removes it again.
+
 ### Build from Source
 
 ```bash
@@ -3039,6 +3046,7 @@ QBNex/
 │   ├── tools/fmt/              # qb-fmt: formatter (qbnex fmt)
 │   ├── tools/lsp/              # qb-lsp: language server (qbnex lsp)
 │   ├── tools/dap/              # qb-dap: debugger adapter (qbnex dap)
+│   ├── tools/setup/            # qb-setup: the one-file installer qbnex-setup (release downloads)
 │   └── web/                    # qb-web: WebAssembly build of the runner
 ├── docker/
 │   ├── Dockerfile
@@ -3049,8 +3057,6 @@ QBNex/
 ├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
 ├── licenses/                   # Third-party license files
 ├── packaging/
-│   ├── installer/
-│   │   └── qbnex_setup.iss     # Inno Setup installer script
 │   └── vscode/                 # VS Code extension (syntax, formatter, LSP, debugger)
 ├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, self-host fixpoint,
 │                               # native-kit.*, qir_pack.ps1, bench/ (corpus timings), license list

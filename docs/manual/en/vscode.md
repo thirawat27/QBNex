@@ -26,7 +26,7 @@ them on `PATH`, set `qbnex.lsp.path` / `qbnex.dap.path`, or bundle them with
 | Outline, go to definition, find references | SUB, FUNCTION, TYPE and fields, CONST, labels, line numbers; across `$INCLUDE` files. |
 | Hover, completion | Keywords with syntax, standard library procedures with their module, your own symbols. |
 | Format on save | On by default for QBasic files (`"[qbasic]": {"editor.formatOnSave": false}` to turn it off). |
-| `QBNex: Run` (Ctrl+F5, play button) | Save, compile with `qb`, run in a terminal. `"qbnex.runMode": "qbRun"` uses `qb run` (Planned). |
+| `QBNex: Run` (Ctrl+F5, play button) | Save, compile with `qb`, run in a terminal. |
 | `QBNex: Compile` (Ctrl+Shift+B) | Compile; output in the *QBNex* panel. |
 | Debug (F5) | See below. |
 

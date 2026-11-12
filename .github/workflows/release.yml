@@ -22,7 +22,41 @@ on:
         type: boolean
 
 jobs:
+  # The tag reaches shell scripts and asset names only through env (never ${{ }} inside run:),
+  # and must be a version tag that matches [workspace.package] version in Cargo.toml.
+  check-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+    steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          re='^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'
+          if [[ ! "$RELEASE_TAG" =~ $re ]]; then
+            echo "::error::Release tag '$RELEASE_TAG' is not a version tag (vMAJOR.MINOR.PATCH[-suffix])."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the workspace version
+        shell: bash
+        run: |
+          version=$(awk '/^\[/{s=($0=="[workspace.package]")} s && /^version[[:space:]]*=/{gsub(/.*=[[:space:]]*"|".*/,""); print; exit}' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error::No version in [workspace.package] of Cargo.toml."
+            exit 1
+          fi
+          if [ "${RELEASE_TAG#v}" != "$version" ]; then
+            echo "::error::Release tag '$RELEASE_TAG' does not match Cargo.toml version '$version'."
+            exit 1
+          fi
+
   build:
+    needs: check-tag
     runs-on: ${{ matrix.runs_on }}
     permissions:
       contents: read
@@ -73,6 +107,26 @@ jobs:
         shell: cmd
         run: scripts\setup_win.cmd
 
+      # Same verification as the CI build job (ci.yml) before anything is packaged.
+      # Linux overcommit defeats try_reserve, so the image decoder fuzz test can OOM the
+      # runner instead of failing the allocation; cap virtual memory per test process.
+      - name: Rust workspace tests
+        shell: bash
+        env:
+          QB_AUDIO_DEVICE: none
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then ulimit -v 8000000; fi
+          cargo test --workspace --locked
+
+      - name: Conformance (golden output)
+        shell: bash
+        run: cargo run --locked --release -p qbnex-conformance -- --timeout 60
+
+      # The tools behind `qbnex fmt|lsp|dap` go into the bundle; qbnex-setup builds the installer.
+      - name: Build developer tools and installer
+        shell: bash
+        run: cargo build --locked --release -p qb-fmt -p qb-lsp -p qb-dap -p qb-setup
+
       - name: Stage portable bundle (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -89,20 +143,51 @@ jobs:
         run: |
           bundle_dir="${QBNEX_BUNDLE_DIR}"
           mkdir -p dist
-          tar -czf "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.tar.gz" -C "$(dirname "${bundle_dir}")" "$(basename "${bundle_dir}")"
+          tar -czf "dist/qbnex_${RELEASE_TAG}_${{ matrix.artifact_suffix }}.tar.gz" -C "$(dirname "${bundle_dir}")" "$(basename "${bundle_dir}")"
 
       - name: Package compiler artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "${{ env.QBNEX_BUNDLE_DIR }}" -DestinationPath "dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.zip" -Force
+          Compress-Archive -Path "$env:QBNEX_BUNDLE_DIR" -DestinationPath "dist/qbnex_$($env:RELEASE_TAG)_${{ matrix.artifact_suffix }}.zip" -Force
+
+      # One-file installer: qbnex-setup with the bundle appended (no Inno Setup). Installed
+      # into a scratch folder, run, and uninstalled again before it is published.
+      - name: Make and check installer (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          setup="dist/qbnex_${RELEASE_TAG}_${{ matrix.artifact_suffix }}-setup"
+          target/release/qbnex-setup --pack "$QBNEX_BUNDLE_DIR" --out "$setup"
+          dir="$RUNNER_TEMP/qbnex-install"
+          "$setup" --yes --no-path --dir "$dir"
+          "$dir/qb" --version
+          "$dir/qbnex-setup" --uninstall --yes --dir "$dir"
+          test ! -e "$dir/qb"
+
+      - name: Make and check installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = "dist/qbnex_$($env:RELEASE_TAG)_${{ matrix.artifact_suffix }}-setup.exe"
+          target/release/qbnex-setup.exe --pack "$env:QBNEX_BUNDLE_DIR" --out $setup
+          if ($LASTEXITCODE) { exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP 'qbnex-install'
+          & $setup --yes --no-path --dir $dir
+          if ($LASTEXITCODE) { exit 1 }
+          & (Join-Path $dir 'qb.exe') --version
+          if ($LASTEXITCODE) { exit 1 }
+          & (Join-Path $dir 'qbnex-setup.exe') --uninstall --yes --dir $dir
+          if ($LASTEXITCODE) { exit 1 }
+          Start-Sleep -Seconds 5
+          if (Test-Path (Join-Path $dir 'qb.exe')) { throw 'uninstall left qb.exe behind' }
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.artifact_suffix }}
-          path: ${{ github.workspace }}/dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}.*
+          path: ${{ github.workspace }}/dist/qbnex_${{ env.RELEASE_TAG }}_${{ matrix.artifact_suffix }}*
           if-no-files-found: error
 
   publish-release:
@@ -126,7 +211,7 @@ jobs:
 
       - name: Generate release notes from changelog
         shell: bash
-        run: bash ./.github/scripts/release_notes.sh CHANGELOG.md "${{ env.RELEASE_TAG }}" release-notes.md
+        run: bash ./.github/scripts/release_notes.sh CHANGELOG.md "$RELEASE_TAG" release-notes.md
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2

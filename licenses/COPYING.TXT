@@ -1,6 +1,7 @@
 === IMPORTANT LICENSING NOTE FOR QBNEX PROGRAMMERS ===
-The QBNex runtime that is linked into your programs (internal/c/libqb.cpp, internal/c/qbx.cpp and the Rust
-runtime crates/runtime/core + crates/runtime/audio, built as libqb_runtime.a) contains no GPL or LGPL code.
+The QBNex runtime that is in your programs (the QIR runner qb-exec, crates/engine/exec, which every compiled
+program and the qb compiler itself are a copy of, with the Rust runtime crates/runtime/core + crates/runtime/audio
+linked in) contains no GPL or LGPL code.
 FreeType, FreeGLUT, GLEW, zlib, miniaudio, stb_vorbis and the other C libraries of the QB64 runtime are no
 longer included, so their licenses no longer apply to your programs.
 Programs that play MP3, FLAC or Ogg Vorbis audio contain Symphonia (MPL-2.0, see below).
@@ -25,40 +26,27 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-Software/Library Name: MinGW 64 (Windows only; the C++ compiler QBNex uses, not linked into programs except its runtime libraries)
-Website: https://www.mingw-w64.org/
-License: (see below)
-Each of the various packages, which is distributed by MinGW.org, is governed by its own individual copyright and licensing terms. In summary, for the most commonly deployed packages:
-MinGW runtime: The MinGW base runtime package has been placed in the public domain, and is not governed by copyright. This basically means that you can do what you like with the code.
-w32api: You are free to use, modify and copy this package. No restrictions are imposed on programs or object files linked with this library. You may not restrict the the usage of this library. You may distribute this library as part of another package or as a modified package if, and only if, you do not restrict the usage of the portions consisting of this (optionally modified) library. If distributed as a modified package, then a copy of this notice must be included.
-This library is distributed in the hope that it will be useful, but WITHOUT WARRANTY OF ANY KIND; without even the implied warranties of MERCHANTABILITY or of FITNESS FOR A PARTICULAR PURPOSE.
-MinGW profiling code: MinGW profiling code is distributed under the terms of the GNU General Public License.
-Binutils, GCC, GDB, GNU Make: All of the GNU development tools, such as GNU binutils, GCC, GDB and GNU Make, are governed by the terms of the GNU General Public License.
-License Website: http://www.gnu.org/licenses/licenses.html#GPL
-License File: license_gnu_gpl_3.txt
-Location in QBNex distribution: internal/c/c_compiler/
-
 Software/Library Name: STB Image (ported to Rust: BMP, TGA, GIF and PNM loaders) and dr_pcx
 Website: http://nothings.org/ and https://github.com/mackron/dr_pcx
 License: MIT License or Public Domain (stb_image); Public Domain / Unlicense (dr_pcx)
 License Website: https://github.com/nothings/stb/blob/master/LICENSE
 License File: license_stb_image.txt
-Location in QBNex distribution: crates/runtime/core/src/image/ (compiled into crates/runtime/core/os/*/libqb_runtime.a)
+Location in QBNex distribution: crates/runtime/core/src/image/ (compiled into the runner qb-exec, crates/engine/exec/bin/*/)
 
 Software/Library Name: Symphonia (Rust crates symphonia*, audio decoding: WAV, FLAC, MP3, Ogg Vorbis)
 Website: https://github.com/pdeljanov/Symphonia
 License: MPL-2.0 (file-level copyleft; used unmodified, source available at https://crates.io/crates/symphonia)
 License Website: https://www.mozilla.org/en-US/MPL/2.0/
 License File: license_mpl_2_0.txt
-Location in QBNex distribution: linked into crates/runtime/core/os/*/libqb_runtime.a (crate crates/runtime/audio)
+Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (crate crates/runtime/audio)
 
 Software/Library Name: xmrs / xmrsplayer (Rust crates, MOD/XM/S3M/IT playback)
 Website: https://codeberg.org/sbechet/xmrsplayer
 License: MIT
 License File: license_xmrs.txt
-Location in QBNex distribution: linked into crates/runtime/core/os/*/libqb_runtime.a (crate crates/runtime/audio)
+Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (crate crates/runtime/audio)
 
 Software/Library Name: All other Rust crates of the runtime (cpal, winit, softbuffer, gilrs, skrifa, ab_glyph_rasterizer, png, zune-jpeg, miniz_oxide, windows-sys, ...)
 License: MIT, Apache-2.0, Zlib, BSD-2-Clause, BSD-3-Clause, ISC, BSL-1.0, Unicode-3.0 or Unlicense (most offer MIT OR Apache-2.0); each crate and its license is listed in THIRD_PARTY.TXT
 License File(s): THIRD_PARTY.TXT, license_apache_2_0.txt (the MIT, BSD, ISC and Zlib texts are in each crate's source at https://crates.io/)
-Location in QBNex distribution: linked into crates/runtime/core/os/*/libqb_runtime.a and crates/engine/exec
+Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (and so into qb and every compiled program)

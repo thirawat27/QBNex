@@ -39,7 +39,8 @@ fn run() -> i32 {
     };
     let src = String::from_utf8_lossy(src);
     let stdout = std::io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
+    // CR LF line ends on Windows and the END prompt (in run_linked), as the runner
+    let mut out = qb_exec::Stdout(BufWriter::new(stdout.lock()));
     let result = qb_exec::run_linked(&src, fns, fingerprint, &mut out);
     let _ = out.flush();
     match result {

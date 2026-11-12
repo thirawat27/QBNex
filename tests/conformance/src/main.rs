@@ -35,6 +35,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -42,6 +43,8 @@ use std::time::{Duration, Instant};
 struct Options {
     qb: PathBuf,
     cases: PathBuf,
+    /// `--work <dir>` names the parent; `main` replaces it with a fresh
+    /// subdirectory, the only thing the runner creates and removes.
     work: PathBuf,
     bless: bool,
     filter: Option<String>,
@@ -99,7 +102,8 @@ fn parse_args() -> Result<Options, String> {
     let mut opts = Options {
         qb: default_qb(&root),
         cases: root.join("tests").join("conformance").join("cases"),
-        work: env::temp_dir().join(format!("qbnex_conformance_{}", std::process::id())),
+        // The run uses a fresh subdirectory of this (see `fresh_dir`).
+        work: env::temp_dir(),
         bless: false,
         filter: None,
         timeout: Duration::from_secs(30),
@@ -195,15 +199,18 @@ fn run_with_timeout(
     };
     let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
     let mut stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
-    let out_thread = thread::spawn(move || {
+    // Readers report over a channel (not `join`) so the wait for them can be bounded.
+    let (out_tx, out_rx) = mpsc::channel::<(usize, Vec<u8>)>();
+    let err_tx = out_tx.clone();
+    thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = stdout_pipe.read_to_end(&mut buf);
-        buf
+        let _ = out_tx.send((0, buf));
     });
-    let err_thread = thread::spawn(move || {
+    thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = stderr_pipe.read_to_end(&mut buf);
-        buf
+        let _ = err_tx.send((1, buf));
     });
 
     let start = Instant::now();
@@ -218,12 +225,21 @@ fn run_with_timeout(
             None => thread::sleep(Duration::from_millis(20)),
         }
     };
-    if let Some(t) = stdin_thread {
-        let _ = t.join();
+    // Not joined: a process the child started may still hold its stdin.
+    drop(stdin_thread);
+    // The pipes close when the child exits, unless a process it started keeps
+    // them open: wait at most the rest of the timeout (2 s at least), then give
+    // up on the reader threads instead of hanging the runner.
+    let deadline = Instant::now() + timeout.saturating_sub(start.elapsed()).max(Duration::from_secs(2));
+    let mut outs: [Option<Vec<u8>>; 2] = [None, None];
+    while outs.iter().any(Option::is_none) {
+        match out_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok((i, buf)) => outs[i] = Some(buf),
+            Err(_) => return Err("the program exited but its output pipes stayed open (a process it started holds them)".to_string()),
+        }
     }
-    let stdout = out_thread.join().unwrap_or_default();
-    let stderr = err_thread.join().unwrap_or_default();
-    Ok((status.code(), stdout, stderr))
+    let [stdout, stderr] = outs;
+    Ok((status.code(), stdout.unwrap_or_default(), stderr.unwrap_or_default()))
 }
 
 fn first_difference(expected: &[u8], actual: &[u8]) -> String {
@@ -454,8 +470,34 @@ fn summarise_frames(raw: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out.into_bytes())
 }
 
+/// A new directory `<prefix>_<pid>_<random>` inside `base`, created with
+/// `create_dir` semantics (fails on an existing path or symlink, so nobody
+/// can pre-plant it); private on Unix.
+fn fresh_dir(base: &Path, prefix: &str) -> std::io::Result<PathBuf> {
+    use std::hash::{BuildHasher, Hasher};
+    let mut last = std::io::Error::other("no fresh work dir");
+    for attempt in 0..16u32 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u32(std::process::id());
+        h.write_u32(attempt);
+        if let Ok(t) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            h.write_u128(t.as_nanos());
+        }
+        let dir = base.join(format!("{prefix}_{}_{:016x}", std::process::id(), h.finish()));
+        let mut builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
 fn main() -> ExitCode {
-    let opts = match parse_args() {
+    let mut opts = match parse_args() {
         Ok(o) => o,
         Err(msg) => {
             eprintln!("{msg}");
@@ -477,6 +519,15 @@ fn main() -> ExitCode {
     if let Err(e) = fs::create_dir_all(&opts.work) {
         eprintln!("[FAIL] cannot create work dir {}: {e}", opts.work.display());
         return ExitCode::from(2);
+    }
+    // Work in (and later delete) only a new subdirectory: `--work .` must not
+    // wipe the given folder.
+    match fresh_dir(&opts.work, "qbnex_conformance") {
+        Ok(dir) => opts.work = dir,
+        Err(e) => {
+            eprintln!("[FAIL] cannot create a work dir in {}: {e}", opts.work.display());
+            return ExitCode::from(2);
+        }
     }
 
     let (mut passed, mut blessed, mut xfailed, mut failed) = (0usize, 0usize, 0usize, Vec::new());

@@ -179,24 +179,52 @@ impl Arr {
         }
     }
 
-    /// QB64 `REDIM _PRESERVE`: keeps elements by linear position.
+    /// QB64 `REDIM _PRESERVE`: QB64 keeps the bytes in place and its arrays are
+    /// column-major (first subscript fastest, as memory-mode arrays here), so an
+    /// element keeps its column-major linear position. Register arrays are
+    /// row-major: offsets are mapped through that position.
     fn preserve_from(&mut self, old: Arr) {
+        let (od, nd) = (&old.dims, &self.dims);
         match (&mut self.data, old.data) {
-            (ArrData::I16(d), ArrData::I16(s)) => copy_prefix(d, s),
-            (ArrData::I32(d), ArrData::I32(s)) => copy_prefix(d, s),
-            (ArrData::I64(d), ArrData::I64(s)) => copy_prefix(d, s),
-            (ArrData::F32(d), ArrData::F32(s)) => copy_prefix(d, s),
-            (ArrData::F64(d), ArrData::F64(s)) => copy_prefix(d, s),
-            (ArrData::Str(d), ArrData::Str(s)) => copy_prefix(d, s),
+            (ArrData::I16(d), ArrData::I16(s)) => copy_preserved(d, s, od, nd),
+            (ArrData::I32(d), ArrData::I32(s)) => copy_preserved(d, s, od, nd),
+            (ArrData::I64(d), ArrData::I64(s)) => copy_preserved(d, s, od, nd),
+            (ArrData::F32(d), ArrData::F32(s)) => copy_preserved(d, s, od, nd),
+            (ArrData::F64(d), ArrData::F64(s)) => copy_preserved(d, s, od, nd),
+            (ArrData::Str(d), ArrData::Str(s)) => copy_preserved(d, s, od, nd),
             _ => {}
         }
     }
 }
 
-fn copy_prefix<T>(d: &mut [T], s: Vec<T>) {
-    for (x, y) in d.iter_mut().zip(s) {
-        *x = y;
+/// Copies element `p` (column-major linear position) of `s` (dims `od`) to
+/// position `p` of `d` (dims `nd`), for every position both arrays have.
+fn copy_preserved<T: Default>(d: &mut [T], mut s: Vec<T>, od: &[(i64, i64)], nd: &[(i64, i64)]) {
+    if od.len() <= 1 && nd.len() <= 1 {
+        // one dimension: both layouts are the linear order
+        for (x, y) in d.iter_mut().zip(s) {
+            *x = y;
+        }
+        return;
     }
+    for p in 0..d.len().min(s.len()) {
+        d[row_major(nd, p)] = std::mem::take(&mut s[row_major(od, p)]);
+    }
+}
+
+/// Row-major offset (this VM's layout) of the element whose column-major
+/// linear position (QB64's layout) is `p`.
+fn row_major(dims: &[(i64, i64)], mut p: usize) -> usize {
+    let idx: Vec<usize> = dims
+        .iter()
+        .map(|&(lb, ub)| {
+            let n = (ub - lb + 1) as usize;
+            let i = p % n;
+            p /= n;
+            i
+        })
+        .collect();
+    dims.iter().zip(idx).fold(0, |off, (&(lb, ub), i)| off * (ub - lb + 1) as usize + i)
 }
 
 // ---------------------------------------------------------------- events
@@ -305,7 +333,8 @@ pub struct Vm<'m, 'o> {
     key_poll: bool,
     /// DECLARE LIBRARY: resolved function addresses (per `Module::xfns`) and loaded libraries
     xptrs: Vec<usize>,
-    xlibs: Vec<qb_ffi::Library>,
+    /// (library spec, the library or None when it could not be opened): each opened once
+    xlibs: Vec<(String, Option<qb_ffi::Library>)>,
     /// unhandled errors continue after the statement (the program executable, headless)
     continue_unhandled: bool,
     data_ptr: usize,
@@ -1379,10 +1408,15 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         let mut p = crate::ext_symbol(&xf.name).map(|p| p as usize);
         if p.is_none() && !xf.lib.is_empty() {
-            if let Ok(l) = qb_ffi::Library::open_dynamic(&xf.lib, None) {
-                p = l.symbol(&xf.name).map(|p| p as usize);
-                self.xlibs.push(l);
-            }
+            // a library is opened once per run (a failed open too), not at every lookup
+            let k = match self.xlibs.iter().position(|(n, _)| *n == xf.lib) {
+                Some(k) => k,
+                None => {
+                    self.xlibs.push((xf.lib.clone(), qb_ffi::Library::open_dynamic(&xf.lib, None).ok()));
+                    self.xlibs.len() - 1
+                }
+            };
+            p = self.xlibs[k].1.as_ref().and_then(|l| l.symbol(&xf.name)).map(|p| p as usize);
         }
         if p.is_none() {
             p = qb_ffi::find_default_symbol(&xf.name).map(|p| p as usize);
@@ -1934,7 +1968,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                     for (&r, &t) in xc.args.iter().zip(&xf.args) {
                         use crate::bytecode::XTy as T;
                         vals.push(match t {
-                            T::Str => qb_ffi::Value::Ptr(self.sget(r).as_ptr() as usize),
+                            T::Str => {
+                                // an empty string still points at readable memory (a zero
+                                // byte), not the dangling pointer of an empty Vec
+                                static EMPTY: [u8; 1] = [0];
+                                let s = self.sget(r);
+                                let p = if s.is_empty() { EMPTY.as_ptr() } else { s.as_ptr() };
+                                qb_ffi::Value::Ptr(p as usize)
+                            }
                             T::F32 => qb_ffi::Value::F32(rf!(r) as f32),
                             T::F64 => qb_ffi::Value::F64(rf!(r)),
                             T::Ptr => qb_ffi::Value::Ptr(r!(r) as usize),

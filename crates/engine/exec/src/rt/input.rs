@@ -54,8 +54,21 @@ enum Ev {
 static EVENTS: Mutex<VecDeque<Ev>> = Mutex::new(VecDeque::new());
 static STARTED: AtomicBool = AtomicBool::new(false);
 
+/// Queued events beyond which consecutive mouse moves are merged (a GUI
+/// program that never reads input would otherwise grow the queue forever).
+const MOVE_BACKLOG: usize = 256;
+
 fn push(e: Ev) {
-    EVENTS.lock().unwrap_or_else(|p| p.into_inner()).push_back(e);
+    let mut q = EVENTS.lock().unwrap_or_else(|p| p.into_inner());
+    if matches!(e, Ev::Move(..)) && q.len() >= MOVE_BACKLOG {
+        if let Some(last) = q.back_mut() {
+            if matches!(last, Ev::Move(..)) {
+                *last = e;
+                return;
+            }
+        }
+    }
+    q.push_back(e);
 }
 /// Key presses seen so far (SLEEP ends at the next one).
 pub(crate) static KEY_PRESSES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -654,5 +667,25 @@ impl Input {
         self.pump(cmem);
         // SAFETY: cmem + 0x400 is the BIOS data area.
         unsafe { keyboard::pop(cmem[0x400..].as_mut_ptr()) }.unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cb_button, cb_move, Ev, EVENTS, MOVE_BACKLOG};
+
+    #[test]
+    fn unread_mouse_moves_are_merged_past_the_backlog() {
+        EVENTS.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        for x in 0..10_000 {
+            cb_move(x, 1);
+        }
+        cb_button(1, 1, 5, 5);
+        cb_move(7, 7);
+        let q: Vec<Ev> = EVENTS.lock().unwrap_or_else(|p| p.into_inner()).drain(..).collect();
+        assert_eq!(q.len(), MOVE_BACKLOG + 2);
+        assert!(matches!(q[MOVE_BACKLOG - 1], Ev::Move(9999, 1)));
+        assert!(matches!(q[MOVE_BACKLOG], Ev::Button(1, true, 5, 5)));
+        assert!(matches!(q[MOVE_BACKLOG + 1], Ev::Move(7, 7)));
     }
 }

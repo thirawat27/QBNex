@@ -3042,6 +3042,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qb-setup"
+version = "2.0.0"
+dependencies = [
+ "windows-sys 0.61.2",
+ "zip",
+]
+
+[[package]]
 name = "qb-syntax"
 version = "2.0.0"
 dependencies = [

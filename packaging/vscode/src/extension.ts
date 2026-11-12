@@ -174,12 +174,6 @@ async function runCommand(): Promise<void> {
         return;
     }
     const v = variables(doc);
-    if (config().get<string>('runMode') === 'qbRun') {
-        const cmd = config().get<string>('compilerPath', 'qb');
-        const term = vscode.window.createTerminal({ name: `QBNex: ${v.fileBasenameNoExtension}`, cwd: v.fileDirname, shellPath: cmd, shellArgs: ['run', v.file] });
-        term.show();
-        return;
-    }
     if ((await compile(doc)) !== 0) {
         void vscode.window.showErrorMessage('QBNex: compile failed (see the QBNex output).');
         return;

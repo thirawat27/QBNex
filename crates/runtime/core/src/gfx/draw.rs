@@ -168,8 +168,8 @@ fn vectors(r: f64, ta: f64) -> [f64; 8] {
 /// # Safety
 /// `im` must be a valid surface whose VIEW lies inside it; `s` readable for
 /// `len` bytes; `cmem` must be the conventional memory block when the string
-/// uses `VARPTR$` (it may be null otherwise). The byte after the end of each
-/// (sub-)string must be readable: `M` and `P` peek at it like legacy did.
+/// uses `VARPTR$` (it may be null otherwise). No terminator is needed: the
+/// parser never reads at or past `len`.
 #[allow(clippy::eq_op)] // aspect expressions copy the legacy arithmetic
 pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
     const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
@@ -220,15 +220,16 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
     };
     let mut col = im.draw_color;
     let (mut prefix_b, mut prefix_n) = (false, false);
-    let mut stack: Vec<(*const u8, u16, u16)> = Vec::new();
+    // full-width positions: a string over 64 KiB must not truncate
+    let mut stack: Vec<(*const u8, i32, i32)> = Vec::new();
     let mut p = Parser { cp: s, len, i: 0, cmem, invalid: false, undefined: true };
 
     loop {
         if p.i >= p.len {
             if let Some((cp, l, i)) = stack.pop() {
                 p.cp = cp;
-                p.len = i32::from(l);
-                p.i = i32::from(i);
+                p.len = l;
+                p.i = i;
                 continue;
             }
             let (x, y) = unmap(im, px, py);
@@ -258,9 +259,11 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 if p.bad() {
                     return ERR;
                 }
-                // legacy reads the byte at p.i even when it is one past the end
-                // of the string (usually a terminator, sometimes a comma)
-                if p.at(p.i) != 44 {
+                // legacy read the byte at p.i even when it was one past the end
+                // of the string; whatever it was (terminator or comma), the
+                // command failed: a comma left the y number empty. Callers do
+                // not guarantee that byte exists, so the end is checked instead.
+                if p.i >= p.len || p.at(p.i) != 44 {
                     return ERR;
                 }
                 p.i += 1;
@@ -363,8 +366,9 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 if fill as f64 != d {
                     return ERR;
                 }
-                if p.at(p.i) != 44 {
-                    // (may read one byte past the end, as legacy)
+                if p.i >= p.len || p.at(p.i) != 44 {
+                    // (legacy read one byte past the end; the result is the
+                    // same error, see `M`)
                     return ERR;
                 }
                 p.i += 1;
@@ -413,7 +417,7 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 if stack.len() == STACK_MAX {
                     return ERR_OVERFLOW;
                 }
-                stack.push((p.cp, p.len as u16, p.i as u16));
+                stack.push((p.cp, p.len, p.i));
                 // string descriptor in DBLOCK: u16 length, u16 offset
                 let at = |k: usize| -> usize { p.cmem_at::<u8>(offset + k) as usize };
                 let (l, o) = (at(1) * 256 + at(0), at(3) * 256 + at(2));
@@ -526,5 +530,22 @@ mod tests {
         assert_eq!(run(&mut t, "TB"), 5);
         let mut t = TestImage::new(16, 16, 0);
         assert_eq!(run(&mut t, "R1"), 5);
+    }
+
+    #[test]
+    fn m_and_p_stop_at_the_end_of_the_string() {
+        // the bytes after `len` are not part of the string (callers pass no
+        // terminator); a comma there must not be taken as the separator
+        let mut t = TestImage::new(16, 16, 13);
+        let b = b"M5,5";
+        assert_eq!(unsafe { draw(&mut t.img, b.as_ptr(), 2, core::ptr::null()) }, 5);
+        let b = b"BM3,3P1,1";
+        assert_eq!(unsafe { draw(&mut t.img, b.as_ptr(), 7, core::ptr::null()) }, 5);
+        assert_eq!(t.count_nonzero(), 0);
+        // an exact-size buffer with nothing after it
+        t.img.draw_color = 4;
+        let b: Box<[u8]> = b"BM2,2 R3".to_vec().into_boxed_slice();
+        assert_eq!(unsafe { draw(&mut t.img, b.as_ptr(), b.len() as i32, core::ptr::null()) }, 0);
+        assert_eq!((t.p8(2, 2), t.p8(5, 2), t.p8(6, 2)), (4, 4, 0));
     }
 }

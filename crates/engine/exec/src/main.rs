@@ -17,28 +17,8 @@
 
 use std::io::{BufWriter, Write};
 
-/// Program stdout. On Windows a line ends with CR LF, as the C runtime's text-mode
-/// stdout wrote it (tools such as `findstr /x` need the CR on redirected output).
-struct Stdout<W: Write>(W);
-
-impl<W: Write> Write for Stdout<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if cfg!(windows) {
-            for (k, seg) in buf.split(|&c| c == b'\n').enumerate() {
-                if k > 0 {
-                    self.0.write_all(b"\r\n")?;
-                }
-                self.0.write_all(seg)?;
-            }
-            Ok(buf.len())
-        } else {
-            self.0.write(buf)
-        }
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.0.flush()
-    }
-}
+// program stdout (CR LF line ends on Windows), shared with qb-native
+use qb_exec::Stdout;
 
 const MAGIC: &[u8; 8] = b"QBNEXIR0";
 const MAGIC_NATIVE: &[u8; 8] = b"QBNEXAO1";
@@ -121,15 +101,24 @@ fn native_kit(args: &[std::ffi::OsString]) -> ! {
 ///
 /// Default: a standard executable linked by rust-lld with the native kit
 /// when the kit is present (`--native-link` requires it), else the runner
-/// with the program appended (`--payload` forces that).
+/// with the program appended (`--payload` forces that). A GUI program (no
+/// `meta console`) always gets the runner: native executables are console-only.
 fn build(args: &[std::ffi::OsString]) -> ! {
     let (Some(input), Some(out)) = (args.first(), opt(args, "-o")) else {
         eprintln!("usage: qb-exec build <program.qir> -o <program.exe> [--native-link | --payload]");
         std::process::exit(2)
     };
     let qir = read(input);
-    let force_link = args.iter().any(|a| a == "--native-link");
-    let payload_only = args.iter().any(|a| a == "--payload");
+    let mut force_link = args.iter().any(|a| a == "--native-link");
+    let mut payload_only = args.iter().any(|a| a == "--payload");
+    if qb_exec::wants_window(&String::from_utf8_lossy(&qir)) {
+        // native executables are console-only: a GUI program (no $CONSOLE)
+        // needs the runner, which opens its window
+        if force_link {
+            eprintln!("qb-exec: GUI program (no $CONSOLE): native executables are console-only; writing the runner with the program");
+        }
+        (force_link, payload_only) = (false, true);
+    }
     let me_path = std::env::current_exe().ok();
     let kit = if payload_only { None } else { qb_link::toolchain::find_kit(me_path.as_deref()) };
     if force_link && kit.is_none() {

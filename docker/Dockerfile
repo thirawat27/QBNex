@@ -46,6 +46,7 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     libxi6 \
     libxcursor1 \
+    libxkbcommon-x11-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiler from the base stage. It looks for crates/ (the QIR runner)
@@ -53,11 +54,20 @@ RUN apt-get update && apt-get install -y \
 COPY --from=base /app/qb /app/qb
 COPY --from=base /app/crates/engine/exec/bin /app/crates/engine/exec/bin
 COPY --from=base /app/compiler /app/compiler
+COPY --from=base /app/LICENSE /app/LICENSE
+COPY --from=base /app/licenses /app/licenses
 # Launchers on PATH that call /app/qb by its full path, so it finds /app/crates.
 # `qbnex` is the product-name alias of `qb`.
 RUN printf '#!/bin/sh\nexec /app/qb "$@"\n' > /usr/local/bin/qb && \
     chmod +x /usr/local/bin/qb && \
     ln -s qb /usr/local/bin/qbnex
+
+# Run as a non-root user. The compiler writes /app/target (build folders,
+# qb-config.ini) next to itself, so that folder and /project belong to the user.
+RUN useradd --create-home --uid 1000 qbnex && \
+    mkdir -p /app/target /project && \
+    chown qbnex:qbnex /app/target /project
+USER qbnex
 
 # Set working directory for user projects
 WORKDIR /project

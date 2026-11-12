@@ -66,6 +66,19 @@ pub fn open(name: &[u8], mut type_: i32, access: i32, sharing: i32, i: i32, reco
         1 => return 55,
         _ => {}
     }
+    // RANDOM: allocate the record buffer before opening, so an impossible LEN
+    // fails cleanly instead of aborting on allocation.
+    let mut record_buffer: Vec<u8> = Vec::new();
+    if type_ == 1 {
+        let rl = if passed && record_length != -1 { record_length } else { 128 };
+        if rl > i64::from(i32::MAX) {
+            return 5;
+        }
+        if record_buffer.try_reserve_exact(rl as usize).is_err() {
+            return 7;
+        }
+        record_buffer.resize(rl as usize, 0);
+    }
     let (mut g_access, mut g_restrictions, mut g_how) = match type_ {
         3 => (1, 0, 0),
         4 => (2, 0, 2),
@@ -109,9 +122,7 @@ pub fn open(name: &[u8], mut type_: i32, access: i32, sharing: i32, i: i32, reco
     if type_ == 1 {
         let rl = if passed && record_length != -1 { record_length } else { 128 };
         t.f(x).record_length = rl;
-        let b = t.field_buffer(x);
-        b.clear();
-        b.resize(rl as usize, 0);
+        *t.field_buffer(x) = record_buffer;
         t.sync_fields(x);
     }
     if type_ == 5 {
@@ -749,11 +760,15 @@ fn record_offset(type_: u8, record_length: i64, offset: i64, passed: bool) -> Re
     if !passed {
         return Ok(-1);
     }
-    let o = offset - 1;
-    if o < 0 {
+    if offset < 1 {
         return Err(63);
     }
-    Ok(if type_ == 1 { o * record_length } else { o })
+    let o = offset - 1;
+    if type_ != 1 {
+        return Ok(o);
+    }
+    // (o + 1) * rl fitting also keeps the callers' `offset + rl` in range
+    offset.checked_mul(record_length).map(|end| end - record_length).ok_or(63)
 }
 
 /// `sub_get` for a file number: reads `buf.len()` bytes.
@@ -861,7 +876,16 @@ fn get_string(t: &mut Table, fileno: i32, offset: i64, fixed: &mut [u8], passed:
     };
     // Legacy reads the record into a scratch vector and may copy up to 8 bytes
     // past it for corrupt headers (undefined behaviour); here those read as 0.
-    let mut data = vec![0u8; rl as usize + 8];
+    let Some(n) = usize::try_from(rl).ok().and_then(|r| r.checked_add(8)) else {
+        cx.raise(7);
+        return None;
+    };
+    let mut data = Vec::new();
+    if data.try_reserve_exact(n).is_err() {
+        cx.raise(7);
+        return None;
+    }
+    data.resize(n, 0);
     let e = t.read(i, offset, &mut data[..rl as usize]);
     if e != 0 && e != -10 {
         cx.raise(map(e));
@@ -983,16 +1007,19 @@ pub fn seek_set(i: i32, mut pos: i64) -> i32 {
         Err(e) => return e,
     };
     if t.f(x).type_ == 1 {
-        pos -= 1;
-        if pos < 0 {
+        if pos < 1 {
             return 63;
         }
-        pos = pos * t.f(x).record_length + 1;
+        pos -= 1;
+        pos = match pos.checked_mul(t.f(x).record_length).and_then(|p| p.checked_add(1)) {
+            Some(p) => p,
+            None => return 63,
+        };
     }
-    pos -= 1;
-    if pos < 0 {
+    if pos < 1 {
         return 63;
     }
+    pos -= 1;
     let e = t.setpos(x, pos);
     if e < 0 {
         return map(e);
@@ -1050,28 +1077,38 @@ pub fn lock(i: i32, mut start: i64, mut end: i64, mut passed: i32, lock: bool) -
         passed = 0;
     }
     if passed & 1 != 0 {
-        start -= 1;
-        if start < 0 {
+        if start < 1 {
             return 5;
         }
+        start -= 1;
         if ty == 1 {
-            start *= rl;
+            start = match start.checked_mul(rl) {
+                Some(s) => s,
+                None => return 5,
+            };
         }
     } else {
         start = -1;
     }
     if passed & 2 != 0 {
-        end -= 1;
-        if end < 0 {
+        if end < 1 {
             return 5;
         }
+        end -= 1;
         if ty == 1 {
-            end = end * rl + rl - 1;
+            // end * rl + rl - 1 == (end + 1) * rl - 1
+            end = match (end + 1).checked_mul(rl) {
+                Some(e) => e - 1,
+                None => return 5,
+            };
         }
     } else {
         end = start;
         if ty == 1 {
-            end = start + rl - 1;
+            end = match start.checked_add(rl) {
+                Some(e) => e - 1,
+                None => return 5,
+            };
         }
         if passed & 1 == 0 {
             end = -1;
@@ -1376,7 +1413,7 @@ pub unsafe extern "C" fn qb_file_open(
     passed: i32,
 ) -> i32 {
     // SAFETY: caller contract.
-    open(unsafe { ffi_bytes(name, len as usize) }, type_, access, sharing, i, record_length, passed != 0)
+    open(unsafe { ffi_bytes(name, len.max(0) as usize) }, type_, access, sharing, i, record_length, passed != 0)
 }
 
 /// # Safety
@@ -1393,7 +1430,13 @@ pub unsafe extern "C" fn qb_file_open_gwbasic(
 ) -> i32 {
     // SAFETY: caller contract.
     unsafe {
-        open_gwbasic(ffi_bytes(typestr, typelen as usize), i, ffi_bytes(name, len as usize), record_length, passed != 0)
+        open_gwbasic(
+            ffi_bytes(typestr, typelen.max(0) as usize),
+            i,
+            ffi_bytes(name, len.max(0) as usize),
+            record_length,
+            passed != 0,
+        )
     }
 }
 
@@ -1419,7 +1462,7 @@ pub extern "C" fn qb_file_freefile() -> i32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_file_print(i: i32, data: *const u8, len: i32, extraspace: i32, tab: i32, newline: i32) -> i32 {
     // SAFETY: caller contract.
-    file_print(i, unsafe { ffi_bytes(data, len as usize) }, extraspace != 0, tab != 0, newline != 0)
+    file_print(i, unsafe { ffi_bytes(data, len.max(0) as usize) }, extraspace != 0, tab != 0, newline != 0)
 }
 
 /// INPUT # of a number: fills `n`, writes the legacy return value (0-3) to
@@ -1900,5 +1943,34 @@ mod tests {
         assert_eq!(lock(f, 1, 10, 3, false), 0);
         assert_eq!(lock(f + 5, 1, 10, 3, true), 52);
         close(f);
+    }
+
+    #[test]
+    fn huge_numbers_lengths_and_records_fail_cleanly() {
+        let d = tmp("bounds");
+        let f = fresh(170);
+        // file numbers past the table: error 52, nothing allocated
+        assert_eq!(open(&p(&d, "h.txt"), 4, 0, 0, 2_000_000_000, 0, false), 52);
+        assert_eq!(eof(2_000_000_000), (0, 52));
+        // a record length no buffer can hold: illegal function call, no abort
+        assert_eq!(open(&p(&d, "big.dat"), 1, 0, 0, f, 1_000_000_000_000, true), 5);
+        assert_eq!(lof(f), (0, 52));
+        // record numbers whose byte offset overflows i64
+        assert_eq!(open(&p(&d, "r.dat"), 1, 0, 0, f, 10, true), 0);
+        assert_eq!(put_bytes(&mut table(), f, i64::MAX, b"x", true), 63);
+        let mut cx = Ctx::default();
+        get_bytes(&mut table(), f, i64::MAX, &mut [0u8; 1], true, &mut cx);
+        assert_eq!(cx.err, 63);
+        assert_eq!(seek_set(f, i64::MAX), 63);
+        assert_eq!(seek_set(f, i64::MIN), 63);
+        assert_eq!(lock(f, 1, i64::MAX, 3, true), 5);
+        assert_eq!(lock(f, i64::MAX, 0, 1, true), 5);
+        close(f);
+        // a negative length from C is an empty string, not a huge slice
+        assert_eq!(open(&p(&d, "n.txt"), 4, 0, 0, f, 0, false), 0);
+        // SAFETY: the pointer is valid; the length is clamped to 0.
+        assert_eq!(unsafe { qb_file_print(f, b"abc".as_ptr(), -1, 0, 0, 0) }, 0);
+        close(f);
+        assert_eq!(std::fs::read(d.join("n.txt")).unwrap(), b"");
     }
 }

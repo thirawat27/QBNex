@@ -41,6 +41,33 @@ fn run(exe: &Path, dir: &Path) -> (String, Option<i32>) {
     (String::from_utf8_lossy(&o.stdout).replace("\r\n", "\n"), o.status.code())
 }
 
+/// A GUI program (no `meta console`) is never native-linked (native
+/// executables are console-only): `build` writes the runner with the program,
+/// which opens the window, even with `--native-link` and without a kit.
+#[test]
+fn window_program_builds_the_runner_payload() {
+    let dir = std::env::temp_dir().join(format!("qb-native-gui-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/native/hello.qir")).unwrap();
+    let src: String = src.lines().filter(|l| !l.starts_with("meta console")).map(|l| format!("{l}\n")).collect();
+    assert!(qb_exec::wants_window(&src));
+    let qir = dir.join("gui.qir");
+    std::fs::write(&qir, &src).unwrap();
+    for mode in [None, Some("--native-link")] {
+        let exe = dir.join("gui.exe");
+        let mut c = Command::new(env!("CARGO_BIN_EXE_qb-exec"));
+        c.arg("build").arg(&qir).arg("-o").arg(&exe);
+        if let Some(m) = mode {
+            c.arg(m);
+        }
+        let o = c.output().unwrap();
+        assert!(o.status.success(), "{mode:?}: {}", String::from_utf8_lossy(&o.stderr));
+        let bytes = std::fs::read(&exe).unwrap();
+        assert!(bytes.ends_with(b"QBNEXAO1"), "{mode:?}: GUI program was not written as the runner payload");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn linked_executables_match_the_vm() {
     let Some(kit) = std::env::var_os("QBNEX_NATIVE_KIT").map(PathBuf::from) else {

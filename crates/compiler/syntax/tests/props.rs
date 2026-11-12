@@ -89,4 +89,9 @@ proptest! {
     fn basic_like(parts in proptest::collection::vec(fragment(), 0..40)) {
         check(&parts.concat());
     }
+
+    #[test]
+    fn include_path_never_panics(prefix in prop_oneof![Just(""), Just("'"), Just("'$"), Just("REM "), Just("$"), Just("'$INCLUDE:'")], s in "\\PC{0,20}") {
+        let _ = qb_syntax::include_path(&format!("{prefix}{s}"));
+    }
 }

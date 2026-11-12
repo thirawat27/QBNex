@@ -556,7 +556,9 @@ pub unsafe fn run(m: &Module, thunks: &Thunks, ctx: &mut Ctx, func: FuncId, fram
             }
             Term::Gosub { target, ret_pc, .. } => {
                 if ctx.gosub_len >= ctx.gosub_cap {
-                    fail!(qberr::OUT_OF_MEMORY);
+                    // full: the VM makes this GOSUB (pc of the GOSUB = ret_pc - 1)
+                    ctx.exit_pc = *ret_pc - 1;
+                    return status::DEOPT;
                 }
                 // SAFETY: below capacity.
                 unsafe { *ctx.gosub.add(ctx.gosub_len as usize) = *ret_pc };

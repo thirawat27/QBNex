@@ -54,6 +54,14 @@ fn a_function_of_a_named_library_is_called() {
     assert_eq!(run(&src), "1\n<exit 0>");
 }
 
+/// An empty BYVAL STRING argument points at a zero byte, not at the dangling
+/// pointer of an empty buffer: `strlen("")` (C runtime, default modules) is 0.
+#[test]
+fn an_empty_string_argument_points_at_a_zero_byte() {
+    let src = prog("-", "strlen", "i64", " str", "const.str %0 x\n", "rt %3 STR$.i64 %1\n");
+    assert_eq!(run(&src), " 0\n<exit 0>");
+}
+
 #[test]
 fn a_missing_function_is_error_453() {
     let src = prog(&hex("qb_no_such_library"), "qb_no_such_function", "i32", "", "", "cvt.i64.i32 %2 %1\nrt %3 STR$.i64 %2\n");

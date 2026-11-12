@@ -401,7 +401,7 @@ QBNex/
 │   ├── compiler/               # ir (QIR types, parser, validator), syntax (lexer for tools)
 │   ├── engine/                 # exec (runner, VM), jit (Cranelift), link, native, ffi
 │   ├── runtime/                # core, audio, float80, gpu, ext
-│   ├── tools/                  # fmt, lsp, dap
+│   ├── tools/                  # fmt, lsp, dap, setup (the one-file installer)
 │   └── web/                    # WebAssembly build of the runner
 ├── bootstrap/qbnex.qir         # The compiler in QIR (setup bootstrap)
 ├── tests/
@@ -411,7 +411,7 @@ QBNex/
 │   └── docs/                   # Compiles the BASIC examples of README.md and docs/manual
 ├── scripts/                    # Platform setup scripts (setup_*.cmd/sh/command)
 ├── docker/                     # Dockerfile, Dockerfile.dev, docker-compose.yml
-├── packaging/installer/        # Inno Setup installer script
+├── packaging/vscode/           # VS Code extension
 ├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
 ├── .github/                    # ci.yml (build, test, conformance, native exe), release.yml
 ├── assets/                     # Logo and icons

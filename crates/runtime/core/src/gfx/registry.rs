@@ -13,13 +13,26 @@
 #![allow(non_upper_case_globals)]
 
 use super::image::{imgrevert, setup_new_image};
-use super::{ImgStruct, IMG_FREEMEM, IMG_FREEPAL};
+use super::{ImgStruct, ERR_ILLEGAL_FUNCTION_CALL, IMG_FREEMEM, IMG_FREEPAL};
 use std::cell::UnsafeCell;
 
 /// Initial number of slots (legacy `IMG_BUFFERSIZE`).
 pub const IMG_BUFFERSIZE: i32 = 4096;
 /// QBasic "Out of memory".
 pub const ERR_OUT_OF_MEMORY: i32 = 502;
+/// Largest surface side: `ImgStruct.width`/`height` are 16-bit.
+pub const IMG_MAX_SIDE: i32 = 0xFFFF;
+
+/// Writes `e` through `err` when it is not null.
+///
+/// # Safety
+/// `err` must be writable or null.
+unsafe fn set_err(err: *mut i32, e: i32) {
+    if !err.is_null() {
+        // SAFETY: guaranteed by the caller.
+        unsafe { *err = e };
+    }
+}
 
 /// `img_struct *img`: base of the registry array.
 #[unsafe(no_mangle)]
@@ -160,12 +173,20 @@ pub extern "C" fn qb_img_free(i: u32) {
     st.free.push(i);
 }
 
-/// Gives slot `i` a zero-filled pixel buffer of `bytes` bytes.
+/// Gives slot `i` a zero-filled pixel buffer of `bytes` bytes. When the
+/// allocation fails the slot is left without pixels (`offset` null).
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_img_alloc_pixels(i: i32, bytes: isize) {
     let st = storage();
     let k = i as usize;
-    st.pixels[k] = vec![0u8; bytes.max(0) as usize];
+    let n = bytes.max(0) as usize;
+    // drop the old buffer first; a failed reservation must not abort
+    st.pixels[k] = Vec::new();
+    let mut v = Vec::<u8>::new();
+    if v.try_reserve_exact(n).is_ok() {
+        v.resize(n, 0u8);
+    }
+    st.pixels[k] = v;
     st.structs[k].offset = if st.pixels[k].is_empty() { core::ptr::null_mut() } else { st.pixels[k].as_mut_ptr() };
 }
 
@@ -224,12 +245,30 @@ pub extern "C" fn qb_img_release_owned(i: i32) {
 
 /// `imgframe(o, x, y, bpp)`: new slot set up for mode `bpp` over pixels `o`;
 /// 0 when the size or mode is invalid (or the registry cannot grow: `*err`).
+/// A side over [`IMG_MAX_SIDE`] (`*err` = 5) or a surface over `i32::MAX`
+/// bytes (`*err` = 502) is rejected before a slot is taken, so the 16-bit
+/// sizes never truncate and `y * width + x` pixel offsets fit in `i32`.
 ///
 /// # Safety
 /// `o` must stay valid while the slot uses it; `err` writable or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_imgframe(o: *mut u8, x: i32, y: i32, bpp: i32, err: *mut i32) -> i32 {
     if x <= 0 || y <= 0 {
+        return 0;
+    }
+    if x > IMG_MAX_SIDE || y > IMG_MAX_SIDE {
+        // SAFETY: guaranteed by the caller.
+        unsafe { set_err(err, ERR_ILLEGAL_FUNCTION_CALL) };
+        return 0;
+    }
+    let bytes_per_pixel: i64 = match bpp {
+        32 => 4,
+        0 => 2,
+        _ => 1,
+    };
+    if i64::from(x) * i64::from(y) * bytes_per_pixel > i64::from(i32::MAX) {
+        // SAFETY: guaranteed by the caller.
+        unsafe { set_err(err, ERR_OUT_OF_MEMORY) };
         return 0;
     }
     // SAFETY: guaranteed by the caller.
@@ -265,6 +304,12 @@ pub unsafe extern "C" fn qb_imgnew(x: i32, y: i32, bpp: i32, err: *mut i32) -> i
     }
     let bytes_per_pixel = slot(i).bytes_per_pixel as isize;
     qb_img_alloc_pixels(i, x as isize * y as isize * bytes_per_pixel);
+    if slot(i).offset.is_null() {
+        qb_img_free(i as u32);
+        // SAFETY: guaranteed by the caller.
+        unsafe { set_err(err, ERR_OUT_OF_MEMORY) };
+        return 0;
+    }
     let im = slot(i);
     if bpp == 0 {
         let n = x as usize * y as usize;
@@ -368,6 +413,35 @@ mod tests {
         assert_eq!(slot(p as u32).flags, 4);
         assert_eq!(unsafe { qb_imgnew(0, 3, 32, &mut e) }, 0);
         assert_eq!(unsafe { qb_imgnew(3, 3, 5, &mut e) }, 0);
+    }
+
+    #[test]
+    fn oversized_images_are_rejected_without_taking_a_slot() {
+        let _g = LOCK.lock().unwrap();
+        init();
+        let next = unsafe { nextimg };
+        let free = storage().free.len();
+        // a side over 16 bits would truncate the u16 width/height
+        let mut e = 0;
+        assert_eq!(unsafe { qb_imgnew(65536, 1, 32, &mut e) }, 0);
+        assert_eq!(e, ERR_ILLEGAL_FUNCTION_CALL);
+        let mut e = 0;
+        assert_eq!(unsafe { qb_imgnew(1, 70000, 13, &mut e) }, 0);
+        assert_eq!(e, ERR_ILLEGAL_FUNCTION_CALL);
+        // over i32::MAX bytes would overflow the i32 pixel offsets
+        let mut e = 0;
+        assert_eq!(unsafe { qb_imgnew(65535, 65535, 32, &mut e) }, 0);
+        assert_eq!(e, ERR_OUT_OF_MEMORY);
+        let mut e = 0;
+        assert_eq!(unsafe { qb_imgframe(core::ptr::null_mut(), 65535, 32769, 0, &mut e) }, 0);
+        assert_eq!(e, ERR_OUT_OF_MEMORY);
+        assert_eq!(unsafe { qb_imgnew(65536, 1, 32, core::ptr::null_mut()) }, 0);
+        assert_eq!((unsafe { nextimg }, storage().free.len()), (next, free));
+        // the largest side is still accepted
+        let mut e = 0;
+        let i = unsafe { qb_imgnew(65535, 1, 13, &mut e) };
+        assert!(i > 0);
+        assert_eq!((e, slot(i as u32).width), (0, 65535));
     }
 
     #[test]

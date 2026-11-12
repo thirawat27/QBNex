@@ -634,7 +634,16 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 let len = self.ctx_load(types::I32, OFF_GOSUB_LEN);
                 let cap = self.ctx_load(types::I32, OFF_GOSUB_CAP);
                 let full = self.b.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, len, cap);
-                self.guard(full, qberr::OUT_OF_MEMORY);
+                // native stack full: the VM makes this GOSUB (deopt at its pc), as
+                // deep as the VM's own GOSUB stack goes
+                let ok = self.b.create_block();
+                let deep = self.b.create_block();
+                self.b.set_cold_block(deep);
+                self.b.ins().brif(full, deep, &[], ok, &[]);
+                self.b.switch_to_block(deep);
+                let gpc = self.b.ins().iconst(types::I32, i64::from(*ret_pc) - 1);
+                self.b.ins().jump(self.deopt_blk, &[gpc.into()]);
+                self.b.switch_to_block(ok);
                 let stack = self.ctx_load(types::I64, OFF_GOSUB);
                 let len64 = self.b.ins().uextend(types::I64, len);
                 let off = self.b.ins().ishl_imm_s(len64, 2);

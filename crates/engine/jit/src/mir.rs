@@ -204,7 +204,8 @@ pub enum Term {
     /// Leave the function normally (END SUB / END FUNCTION / EXIT SUB).
     Ret,
     /// `GOSUB target`; `ret` continues after RETURN. `ret_pc` = VM pc of `ret`
-    /// (what goes on the shared GOSUB stack).
+    /// (what goes on the shared GOSUB stack). Stack full: deopt at `ret_pc - 1`
+    /// (the GOSUB itself), so the VM makes it.
     Gosub { target: BlockId, ret: BlockId, ret_pc: u32 },
     /// `RETURN`; `pc` = VM pc of the RETURN (deopt point if the return pc is unknown).
     Return { pc: u32 },

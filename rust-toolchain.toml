@@ -1,5 +1,6 @@
 # Rust toolchain for every crate in this workspace (pinned so CI and local builds match).
-# The Windows build scripts add the MinGW target (x86_64/i686-pc-windows-gnu) themselves.
+# scripts\setup_win.cmd adds only the target it builds qb-exec for (rustc's host target,
+# or QBNEX_RUST_TARGET); no MinGW target or C toolchain is needed.
 [toolchain]
 channel = "1.99.1"
 components = ["clippy", "rustfmt"]

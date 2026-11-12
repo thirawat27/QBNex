@@ -109,17 +109,33 @@ impl Pcm {
     }
 }
 
-/// Linear-interpolation resampler for interleaved f32.
-pub fn resample(input: &[f32], channels: usize, from: u32, to: u32) -> Vec<f32> {
-    if from == to || from == 0 || to == 0 || channels == 0 {
-        return input.to_vec();
+/// Sample rates accepted for resampling; a file claiming a rate outside this
+/// range is rejected (a rate of 1 would ask for a buffer of hundreds of GB).
+const RESAMPLE_RATES: core::ops::RangeInclusive<u32> = 1000..=768_000;
+/// Longest resampled sound, in seconds at the target rate.
+const RESAMPLE_MAX_SECONDS: u64 = 4 * 60 * 60;
+
+/// Linear-interpolation resampler for interleaved f32. None when a rate is
+/// outside [`RESAMPLE_RATES`], the result would be over
+/// [`RESAMPLE_MAX_SECONDS`] or it cannot be allocated.
+pub fn resample(input: &[f32], channels: usize, from: u32, to: u32) -> Option<Vec<f32>> {
+    if from == to || channels == 0 {
+        return Some(input.to_vec());
+    }
+    if !RESAMPLE_RATES.contains(&from) || !RESAMPLE_RATES.contains(&to) {
+        return None;
     }
     let in_frames = input.len() / channels;
     if in_frames == 0 {
-        return Vec::new();
+        return Some(Vec::new());
     }
-    let out_frames = ((in_frames as u64 * to as u64) / from as u64) as usize;
-    let mut out = Vec::with_capacity(out_frames * channels);
+    let out_frames = (in_frames as u64).checked_mul(u64::from(to))? / u64::from(from);
+    if out_frames > RESAMPLE_MAX_SECONDS * u64::from(to) {
+        return None;
+    }
+    let out_frames = usize::try_from(out_frames).ok()?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(out_frames.checked_mul(channels)?).ok()?;
     let step = from as f64 / to as f64;
     for o in 0..out_frames {
         let pos = o as f64 * step;
@@ -132,16 +148,17 @@ pub fn resample(input: &[f32], channels: usize, from: u32, to: u32) -> Vec<f32> 
             out.push(a + (b - a) * frac);
         }
     }
-    out
+    Some(out)
 }
 
-fn finish(format: SampleFormat, channels: u16, native: Vec<u8>, file_rate: u32, device_rate: u32) -> Pcm {
+/// None when the data cannot be converted to `device_rate` (see [`resample`]).
+fn finish(format: SampleFormat, channels: u16, native: Vec<u8>, file_rate: u32, device_rate: u32) -> Option<Pcm> {
     let pcm = Pcm { format, channels, frames: native.len() / (format.bytes() * channels.max(1) as usize), data: native };
     if file_rate == device_rate {
-        return pcm;
+        return Some(pcm);
     }
-    let f = resample(&pcm.to_f32(), channels as usize, file_rate, device_rate);
-    Pcm::from_f32(format, channels, &f)
+    let f = resample(&pcm.to_f32(), channels as usize, file_rate, device_rate)?;
+    Some(Pcm::from_f32(format, channels, &f))
 }
 
 fn decode_symphonia(path: &Path, device_rate: u32) -> Option<Pcm> {
@@ -239,7 +256,7 @@ fn decode_symphonia(path: &Path, device_rate: u32) -> Option<Pcm> {
     if channels == 0 || native.is_empty() {
         return None;
     }
-    Some(finish(format, channels, native, rate, device_rate))
+    finish(format, channels, native, rate, device_rate)
 }
 
 const MODULE_EXTENSIONS: [&str; 4] = ["mod", "xm", "s3m", "it"];
@@ -340,7 +357,23 @@ mod tests {
 
     #[test]
     fn linear_resample() {
-        assert_eq!(resample(&[0.0, 1.0], 1, 1, 2), vec![0.0, 0.5, 1.0, 1.0]);
-        assert_eq!(resample(&[0.0, 1.0, 2.0, 3.0], 1, 2, 1), vec![0.0, 2.0]);
+        assert_eq!(resample(&[0.0, 1.0], 1, 1000, 2000), Some(vec![0.0, 0.5, 1.0, 1.0]));
+        assert_eq!(resample(&[0.0, 1.0, 2.0, 3.0], 1, 2000, 1000), Some(vec![0.0, 2.0]));
+    }
+
+    #[test]
+    fn implausible_rates_are_rejected() {
+        // rate 1 used to size the output as in_frames * device_rate
+        assert_eq!(resample(&[0.0; 8], 1, 1, 48000), None);
+        assert_eq!(resample(&[0.0; 8], 2, 48000, 0), None);
+        assert_eq!(resample(&[0.0; 8], 1, 1000, 768_001), None);
+        assert_eq!(resample(&[0.5; 8], 1, 7, 7), Some(vec![0.5; 8]));
+        let p = tmp("rate1.wav", &wav(1, 1, 8, &[128, 255, 0, 128]));
+        assert!(load_file(&p, 48000).is_none());
+        std::fs::remove_file(p).ok();
+        // the same data at a real rate still loads
+        let p = tmp("rate1000.wav", &wav(1000, 1, 8, &[128, 255, 0, 128]));
+        assert_eq!(load_file(&p, 48000).expect("decode").frames, 192);
+        std::fs::remove_file(p).ok();
     }
 }

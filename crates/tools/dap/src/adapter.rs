@@ -119,6 +119,33 @@ pub fn run_stdio() -> i32 {
     0
 }
 
+/// A new directory `<prefix>-<pid>-<random>` in the system temp dir. It is
+/// created with `create_dir` semantics (fails on an existing path or
+/// symlink, so another user cannot pre-plant it) and is private on Unix.
+fn fresh_temp_dir(prefix: &str) -> std::io::Result<PathBuf> {
+    use std::hash::{BuildHasher, Hasher};
+    let base = std::env::temp_dir();
+    let mut last = std::io::Error::other("no fresh temp dir");
+    for attempt in 0..16u32 {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u32(std::process::id());
+        h.write_u32(attempt);
+        if let Ok(t) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            h.write_u128(t.as_nanos());
+        }
+        let dir = base.join(format!("{prefix}-{}-{:016x}", std::process::id(), h.finish()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
 /// QIR payload appended to an executable by `qb --ir` (see qb-exec's main.rs).
 fn qir_payload(exe: &[u8]) -> Option<&[u8]> {
     let n = exe.len();
@@ -421,8 +448,10 @@ impl Adapter {
         if let Ok(bytes) = std::fs::read(&program) {
             self.casing = Casing::from_source(&qb_syntax::encoding::decode(&bytes).0);
         }
-        let temp = std::env::temp_dir().join(format!("qb-dap-{}", std::process::id()));
-        std::fs::create_dir_all(&temp).map_err(|e| e.to_string())?;
+        let temp = match &self.temp {
+            Some(t) => t.clone(),
+            None => fresh_temp_dir("qb-dap").map_err(|e| format!("cannot create a work directory: {e}"))?,
+        };
         self.temp = Some(temp.clone());
         let qir_text = match args["qir"].as_str() {
             Some(q) => std::fs::read_to_string(q).map_err(|e| format!("cannot read {q}: {e}"))?,
@@ -553,5 +582,21 @@ impl Adapter {
             }
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn work_dirs_are_fresh_and_distinct() {
+        let a = fresh_temp_dir("qb-dap-unit").unwrap();
+        let b = fresh_temp_dir("qb-dap-unit").unwrap();
+        assert_ne!(a, b);
+        assert!(a.is_dir() && b.is_dir());
+        assert_eq!(std::fs::read_dir(&a).unwrap().count(), 0);
+        let _ = std::fs::remove_dir(&a);
+        let _ = std::fs::remove_dir(&b);
     }
 }

@@ -66,6 +66,10 @@ pub unsafe fn maptriangle(
     let no_edge_overlap = seamless;
     let (dwidth, dheight) = (i32::from(dst.width), i32::from(dst.height));
     let (swidth, sheight) = (i32::from(src.width), i32::from(src.height));
+    if swidth <= 0 || sheight <= 0 {
+        // the tiling below divides by the source size
+        return ERR;
+    }
     let swidth2 = swidth.wrapping_shl(16);
     let sheight2 = sheight.wrapping_shl(16);
     let mut p = [Point::default(); 4];
@@ -282,6 +286,8 @@ struct Scan<'a> {
 impl Scan<'_> {
     #[inline]
     unsafe fn plot(&self, x: i32, y: i32, tx: i32, ty: i32) {
+        // i32 offsets are exact: the registry rejects surfaces whose byte
+        // size exceeds i32::MAX (registry::qb_imgframe).
         let (sx, sy) = if self.tile { ((tx >> 16) % self.swidth, (ty >> 16) % self.sheight) } else { (tx >> 16, ty >> 16) };
         let soff = (sy.wrapping_mul(self.swidth).wrapping_add(sx)) as isize;
         let doff = (y.wrapping_mul(self.dwidth).wrapping_add(x)) as isize;
@@ -544,5 +550,18 @@ mod tests {
         let d = TestImage::new(16, 16, 32);
         unsafe { maptriangle(&s.img, &d.img, [0.0, 0.0, 7.0, 0.0, 0.0, 7.0], [0.0, 0.0, 14.0, 0.0, 0.0, 14.0], false) };
         assert_eq!(d.p32(0, 0), 0xFF00_0001);
+    }
+
+    #[test]
+    fn empty_source_is_an_error_not_a_division_by_zero() {
+        let d = TestImage::new(16, 16, 13);
+        // tiled source coordinates would divide by the source width/height
+        let tiled = [-3.0, -3.0, 7.0, 0.0, 0.0, 7.0];
+        let dst = [0.0, 0.0, 7.0, 0.0, 0.0, 7.0];
+        let s = TestImage::new(0, 8, 13);
+        assert_eq!(unsafe { maptriangle(&s.img, &d.img, tiled, dst, false) }, 5);
+        let s = TestImage::new(8, 0, 13);
+        assert_eq!(unsafe { maptriangle(&s.img, &d.img, tiled, dst, false) }, 5);
+        assert_eq!(d.count_nonzero(), 0);
     }
 }
