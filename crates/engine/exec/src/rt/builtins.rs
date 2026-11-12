@@ -29,6 +29,10 @@ pub(crate) trait Host<'a> {
     fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]>;
     /// (address of the first element, total bytes) of the array whose descriptor `p` references.
     fn array_extent(&mut self, p: u64) -> R<(u64, u64)>;
+    /// Bounds of that array (empty: not dimensioned) and whether it is static.
+    fn array_dims(&mut self, p: u64) -> R<(Vec<(i64, i64)>, bool)>;
+    /// REDIM of that array to `dims` (values cleared).
+    fn array_redim(&mut self, p: u64, dims: Vec<(i64, i64)>) -> R<()>;
     /// Value of the string variable whose storage is at `p`.
     fn load_str(&mut self, p: u64) -> R<Vec<u8>>;
     /// Address of the characters of the string variable at `p` (`_OFFSET(s$)`),

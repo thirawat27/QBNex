@@ -41,6 +41,31 @@ SUB IrCommonVar (e$, isShared AS LONG)
     IrChainVal "CHAINGET", p$
 END SUB
 
+'COMMON array with id aid (main module, after its DIM if any): it takes the array the program
+'that CHAINed here passed at the same position, with its bounds, and CHAIN passes it on
+SUB IrCommonArr (aid AS LONG, isShared AS LONG)
+    DIM nm$, st$, sz AS LONG
+    IF aid < 1 OR aid > idn THEN IrNotSup "COMMON array not found": EXIT SUB
+    IF ids(aid).arraytype = 0 THEN IrNotSup "COMMON array not found": EXIT SUB
+    nm$ = IrVar$(aid)
+    st$ = IrSTy$(ids(aid).arraytype, ids(aid).tsize)
+    sz = -1 'variable-length STRING elements go one by one
+    IF st$ <> "str" THEN sz = IrSize&(st$)
+    IrChainVars = IrChainVars + CHR$(3) + nm$ + CHR$(3) + LTRIM$(STR$(sz)) + CHR$(3) + RTRIM$(ids(aid).n) + CHR$(1) + LTRIM$(STR$(isShared)) + CHR$(2)
+    IrChainArr "CHAINGETA", nm$, sz
+END SUB
+
+'CHAINGETA/CHAINPUTA of the array nm$: elements of sz bytes, or STRINGs when sz < 0
+SUB IrChainArr (op$, nm$, sz AS LONG)
+    DIM d$
+    d$ = IrReg$: IrE "aref " + d$ + " " + nm$
+    IF sz < 0 THEN
+        IrE "rt " + op$ + "S " + d$
+    ELSE
+        IrE "rt " + op$ + " " + d$ + " " + IrI32$(sz)
+    END IF
+END SUB
+
 'CHAINGET/CHAINPUT of the variable at place p$: a STRING by value, anything else as its bytes
 SUB IrChainVal (op$, p$)
     DIM st$
@@ -52,9 +77,9 @@ SUB IrChainVal (op$, p$)
     END IF
 END SUB
 
-'CHAIN: every COMMON variable, in order, for the next program
+'CHAIN: every COMMON variable and array, in order, for the next program
 SUB IrChainPut
-    DIM i AS LONG, j AS LONG, k AS LONG, e$, sh AS LONG, p$, t AS LONG, l$
+    DIM i AS LONG, j AS LONG, k AS LONG, e$, sh AS LONG, p$, t AS LONG, l$, m AS LONG
     i = 1
     DO
         j = INSTR(i, IrChainVars, CHR$(2))
@@ -62,12 +87,21 @@ SUB IrChainPut
         k = INSTR(i, IrChainVars, CHR$(1))
         e$ = MID$(IrChainVars, i, k - i): sh = VAL(MID$(IrChainVars, k + 1, j - k - 1))
         i = j + 1
-        IF subfuncn <> 0 AND sh = 0 THEN IrNotSup "CHAIN in a SUB or FUNCTION with a COMMON variable that is not SHARED (" + e$ + ")": EXIT SUB
-        l$ = tlayout$
-        p$ = IrPlace$(fixoperationorder$(e$), t)
-        tlayout$ = l$
-        IF p$ = "" THEN EXIT SUB
-        IrChainVal "CHAINPUT", p$
+        m = 0
+        IF LEFT$(e$, 1) = CHR$(3) THEN m = INSTR(2, e$, CHR$(3)) 'array: CHR$(3) name CHR$(3) element size CHR$(3) source name
+        IF subfuncn <> 0 AND sh = 0 THEN
+            IF m THEN e$ = MID$(e$, INSTR(m + 1, e$, CHR$(3)) + 1) + "()"
+            IrNotSup "CHAIN in a SUB or FUNCTION with a COMMON variable that is not SHARED (" + e$ + ")": EXIT SUB
+        END IF
+        IF m THEN
+            IrChainArr "CHAINPUTA", MID$(e$, 2, m - 2), VAL(MID$(e$, m + 1))
+        ELSE
+            l$ = tlayout$
+            p$ = IrPlace$(fixoperationorder$(e$), t)
+            tlayout$ = l$
+            IF p$ = "" THEN EXIT SUB
+            IrChainVal "CHAINPUT", p$
+        END IF
     LOOP
 END SUB
 

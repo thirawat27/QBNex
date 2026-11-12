@@ -28,6 +28,16 @@ findstr /x /c:" 7  2.50 text abcd 3 -4 " "%TMPDIR%\out.txt" >nul || (
     echo [FAIL] the chained program did not get the COMMON values
     exit /b 1
 )
+rem COMMON arrays: static INTEGER, TYPE and STRING * 3 arrays, then dynamic STRING and DOUBLE arrays with their bounds
+set "ARRAYS_OK=1"
+findstr /l /x /c:" 10  20  30  5  6  abcxyz" "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
+findstr /l /x /c:"-1  1  one||three" "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
+findstr /l /x /c:" 2  1  2  1.50 " "%TMPDIR%\out.txt" >nul || set "ARRAYS_OK="
+if not defined ARRAYS_OK (
+    type "%TMPDIR%\out.txt"
+    echo [FAIL] the chained program did not get the COMMON arrays
+    exit /b 1
+)
 findstr /c:"not reached" "%TMPDIR%\out.txt" >nul && (
     echo [FAIL] the program went on after CHAIN
     exit /b 1

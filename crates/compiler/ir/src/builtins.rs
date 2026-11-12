@@ -440,6 +440,11 @@ pub static TABLE: &[Builtin] = &[
     b!("CHAINPUTS", [Ptr]),
     b!("CHAINGET", [Ptr, I32]),
     b!("CHAINGETS", [Ptr]),
+    // COMMON arrays (aref): element size, or variable-length STRING elements
+    b!("CHAINPUTA", [Ptr, I32]),
+    b!("CHAINPUTAS", [Ptr]),
+    b!("CHAINGETA", [Ptr, I32]),
+    b!("CHAINGETAS", [Ptr]),
     b!("INTERRUPT", [I32, Ptr, Ptr, I32]),
     b!("VARSEG", [], I32),
     b!("PEEK", [I32], I32),

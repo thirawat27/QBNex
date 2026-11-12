@@ -7908,6 +7908,11 @@ IF IrEmitMode THEN IrDimStmt currentid, elements$, redimoption, varname$, typ$
 skipdim:
 IF dimshared >= 2 THEN dimshared = dimshared - 2
 
+'COMMON array: x is its id (found above, or the one dim2 just created)
+IF commonoption <> 0 AND LEN(elements$) > 0 THEN
+    IF IrEmitMode THEN IrCommonArr x, dimshared
+END IF
+
 'non-array COMMON variable
 IF commonoption <> 0 AND LEN(elements$) = 0 THEN
 
@@ -11322,7 +11327,10 @@ IF recompile THEN
         arraytype = id.arraytype
         arrayelements = id.arrayelements
         e$ = RTRIM$(id.n)
-        IF (t AND ISUDT) = 0 THEN e$ = e$ + typevalue2symbol$(t)
+        IF (t AND ISUDT) = 0 THEN
+            'a fixed-length string has no plain symbol: name$n
+            IF t AND ISFIXEDLENGTH THEN e$ = e$ + "$" + str2$(id.tsize) ELSE e$ = e$ + typevalue2symbol$(t)
+        END IF
         IF Error_Happened THEN GOTO errmes
         n$ = e$
         n2$ = RTRIM$(id.callname)

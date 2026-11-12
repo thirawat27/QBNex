@@ -161,8 +161,7 @@ Compiled, but different:
   the page is dropped.
 - `ON PLAY(n) GOSUB` needs an audio device: without one (`QB_AUDIO_DEVICE=none`)
   no notes are queued, so the handler never runs.
-- `CHAIN` passes COMMON variables but not COMMON arrays; `RUN file$` and `CHAIN` wait
-  for the other program to end.
+- `RUN file$` and `CHAIN` wait for the other program to end.
 
 ## Programs that time themselves with loops
 

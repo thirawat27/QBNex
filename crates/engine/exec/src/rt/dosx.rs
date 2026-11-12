@@ -13,7 +13,9 @@
 //! collects them, CHAIN writes them to a file named by `QBNEX_CHAIN` in the
 //! environment of the next program, whose COMMON statement reads them back
 //! (CHAINGET) in the same order. A value whose kind or size does not match
-//! the receiving variable is skipped.
+//! the receiving variable is skipped. COMMON arrays go in the same sequence
+//! with their bounds (CHAINPUTA / CHAINGETA): a dynamic array arrives
+//! redimensioned to them, a static one of the same size gets the values.
 
 use super::builtins::{Host, DBLOCK};
 use super::{e, R, V};
@@ -53,7 +55,8 @@ pub(crate) struct Dos {
     chain_in: Option<std::io::Cursor<Vec<u8>>>,
 }
 
-/// One COMMON value: kind (1 = bytes, 2 = STRING), length, bytes.
+/// One COMMON value: kind (1 = bytes, 2 = STRING, 3 = array of fixed-size
+/// elements, 4 = STRING array), length, bytes.
 fn chain_item(out: &mut Vec<u8>, kind: u8, b: &[u8]) {
     out.push(kind);
     out.extend_from_slice(&(b.len() as u32).to_le_bytes());
@@ -76,6 +79,108 @@ fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
     let mut b = vec![0u8; u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize];
     c.read_exact(&mut b).ok()?;
     (head[0] == kind).then_some(b)
+}
+
+/// Bounds of a COMMON array item: their count, then (lower, upper) pairs; none = not dimensioned.
+fn put_bounds(out: &mut Vec<u8>, dims: &[(i64, i64)]) {
+    out.extend_from_slice(&(dims.len() as u32).to_le_bytes());
+    for &(lb, ub) in dims {
+        out.extend_from_slice(&lb.to_le_bytes());
+        out.extend_from_slice(&ub.to_le_bytes());
+    }
+}
+
+fn take<'b>(b: &'b [u8], at: &mut usize, n: usize) -> Option<&'b [u8]> {
+    let s = b.get(*at..at.checked_add(n)?)?;
+    *at += n;
+    Some(s)
+}
+
+fn take_u32(b: &[u8], at: &mut usize) -> Option<u32> {
+    take(b, at, 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+}
+
+fn take_bounds(b: &[u8], at: &mut usize) -> Option<Vec<(i64, i64)>> {
+    let n = take_u32(b, at)?;
+    let i64_at =|at: &mut usize| take(b, at, 8).and_then(|s| s.try_into().ok()).map(i64::from_le_bytes);
+    (0..n).map(|_| Some((i64_at(at)?, i64_at(at)?))).collect()
+}
+
+/// Number of elements of an array with these bounds (0 = not dimensioned).
+fn elements(dims: &[(i64, i64)]) -> u64 {
+    if dims.is_empty() {
+        return 0;
+    }
+    dims.iter().fold(1u64, |n, &(lb, ub)| n.saturating_mul(ub.saturating_sub(lb).saturating_add(1).max(0) as u64))
+}
+
+/// CHAINPUTA / CHAINPUTAS: the COMMON array at `p` for the next program. Element
+/// size `esize` (an item of kind 3): its bounds and element bytes; None (kind 4,
+/// variable-length STRINGs): its bounds and each element as length + bytes.
+fn chain_put_array(vm: &mut dyn Host<'_>, p: u64, esize: Option<u32>) -> R<()> {
+    let (dims, _) = vm.array_dims(p)?;
+    let mut b = Vec::new();
+    if let Some(es) = esize {
+        b.extend_from_slice(&es.to_le_bytes());
+    }
+    put_bounds(&mut b, &dims);
+    let n = elements(&dims);
+    if n > 0 {
+        let (addr, bytes) = vm.array_extent(p)?;
+        if esize.is_some() {
+            b.extend_from_slice(vm.bytes(addr, bytes as usize)?);
+        } else {
+            let stride = bytes.checked_div(n).unwrap_or(0);
+            for k in 0..n {
+                let s = vm.load_str(addr + k * stride)?;
+                b.extend_from_slice(&(s.len() as u32).to_le_bytes());
+                b.extend_from_slice(&s);
+            }
+        }
+    }
+    chain_item(&mut vm.rt().dos.chain_out, if esize.is_some() { 3 } else { 4 }, &b);
+    Ok(())
+}
+
+/// CHAINGETA / CHAINGETAS: the COMMON array at `p` takes the array passed at the
+/// same position. A dynamic array is redimensioned to the passed bounds; a static
+/// one keeps its bounds and takes the values when it has as many elements.
+/// An array of another kind or element size is skipped.
+fn chain_get_array(vm: &mut dyn Host<'_>, p: u64, esize: Option<u32>) -> R<()> {
+    let Some(b) = chain_next(&mut vm.rt().dos, if esize.is_some() { 3 } else { 4 }) else { return Ok(()) };
+    let mut at = 0;
+    if esize.is_some() && take_u32(&b, &mut at) != esize {
+        return Ok(());
+    }
+    let Some(dims) = take_bounds(&b, &mut at) else { return Ok(()) };
+    let n = elements(&dims);
+    if n == 0 {
+        return Ok(()); // not dimensioned where it came from
+    }
+    let (cur, fixed) = vm.array_dims(p)?;
+    if fixed {
+        if elements(&cur) != n {
+            return Ok(());
+        }
+    } else {
+        vm.array_redim(p, dims)?;
+    }
+    let (addr, bytes) = vm.array_extent(p)?;
+    if esize.is_some() {
+        let data = &b[at..];
+        let k = (bytes as usize).min(data.len());
+        if k > 0 {
+            vm.bytes(addr, k)?.copy_from_slice(&data[..k]);
+        }
+    } else {
+        let stride = bytes.checked_div(n).unwrap_or(0);
+        for k in 0..n {
+            let Some(len) = take_u32(&b, &mut at) else { break };
+            let Some(s) = take(&b, &mut at, len as usize) else { break };
+            vm.store_str(addr + k * stride, s)?;
+        }
+    }
+    Ok(())
 }
 
 impl Dos {
@@ -535,6 +640,10 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             Some(s) => vm.store_str(a[0].p(), &s).map(|_| None),
             None => none,
         },
+        "CHAINPUTA" => chain_put_array(vm, a[0].p(), Some(i(1).max(0) as u32)).map(|_| None),
+        "CHAINPUTAS" => chain_put_array(vm, a[0].p(), None).map(|_| None),
+        "CHAINGETA" => chain_get_array(vm, a[0].p(), Some(i(1).max(0) as u32)).map(|_| None),
+        "CHAINGETAS" => chain_get_array(vm, a[0].p(), None).map(|_| None),
         "CHAIN" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
             if f.is_empty() {
@@ -586,6 +695,26 @@ mod tests {
         // a STRING asked for where bytes were passed: skipped
         assert_eq!(chain_next(&mut d, 2), None);
         assert_eq!(chain_next(&mut d, 1), None);
+    }
+
+    #[test]
+    fn common_array_bounds_round_trip() {
+        use super::{elements, put_bounds, take_bounds, take_u32};
+        let mut b = 6u32.to_le_bytes().to_vec();
+        put_bounds(&mut b, &[(-1, 1), (0, 2)]);
+        b.extend_from_slice(b"rest");
+        let mut at = 0;
+        assert_eq!(take_u32(&b, &mut at), Some(6));
+        let dims = take_bounds(&b, &mut at).unwrap();
+        assert_eq!(dims, vec![(-1, 1), (0, 2)]);
+        assert_eq!(elements(&dims), 9);
+        assert_eq!(&b[at..], b"rest");
+        // not dimensioned: no bounds, no elements
+        let mut e = Vec::new();
+        put_bounds(&mut e, &[]);
+        assert_eq!(elements(&take_bounds(&e, &mut 0).unwrap()), 0);
+        // a cut item gives no bounds instead of reading past its end
+        assert_eq!(take_bounds(&b[4..20], &mut 0), None);
     }
 
     #[test]

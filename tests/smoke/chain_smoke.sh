@@ -21,6 +21,14 @@ if ! printf '%s\n' "$out" | grep -qx ' 7  2.50 text abcd 3 -4 '; then
   echo "[FAIL] the chained program did not get the COMMON values"
   exit 1
 fi
+# COMMON arrays: static INTEGER, TYPE and STRING * 3 arrays, then dynamic STRING and DOUBLE arrays with their bounds
+for want in ' 10  20  30  5  6  abcxyz' '-1  1  one||three' ' 2  1  2  1.50 '; do
+  if ! printf '%s\n' "$out" | grep -qxF -- "$want"; then
+    printf '%s\n' "$out"
+    echo "[FAIL] the chained program did not get the COMMON arrays"
+    exit 1
+  fi
+done
 if printf '%s\n' "$out" | grep -q 'not reached'; then
   echo "[FAIL] the program went on after CHAIN"
   exit 1

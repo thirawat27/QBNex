@@ -449,6 +449,12 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn array_extent(&mut self, p: u64) -> crate::rt::R<(u64, u64)> {
         self.mem.array_extent(p).map_err(Stop::Err)
     }
+    fn array_dims(&mut self, p: u64) -> crate::rt::R<(Vec<(i64, i64)>, bool)> {
+        self.mem.dims(p).map_err(Stop::Err)
+    }
+    fn array_redim(&mut self, p: u64, dims: Vec<(i64, i64)>) -> crate::rt::R<()> {
+        self.mem.dim(p, crate::bytecode::DimMode::Redim, dims).map_err(Stop::Err)
+    }
     fn str_data(&mut self, p: u64) -> crate::rt::R<u64> {
         self.mem.str_data(p).map_err(Stop::Err)
     }

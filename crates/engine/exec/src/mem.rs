@@ -348,6 +348,12 @@ impl Mem {
         })
     }
 
+    /// Bounds of an array (empty: not dimensioned) and whether it is static.
+    pub(crate) fn dims(&mut self, desc: u64) -> R<(Vec<(i64, i64)>, bool)> {
+        let a = self.arr(desc)?;
+        Ok((if a.data.is_some() { a.dims.clone() } else { Vec::new() }, a.fixed))
+    }
+
     pub(crate) fn bound(&mut self, desc: u64, k: i64, upper: bool) -> R<i64> {
         let a = self.arr(desc)?;
         if a.data.is_none() || k < 1 || k as usize > a.dims.len() {
