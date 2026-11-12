@@ -179,6 +179,5 @@ compile and run; change their delay code to wait on the clock, for example
 | ID | Defect |
 | --- | --- |
 | L-01 | Module code after the SUBs (with `ON ERROR` or `GOSUB` labels) is moved in front of the first SUB, also from included files. When the first SUB is in an included file, that code lands before the `$INCLUDE` line, so it cannot use a `DIM SHARED` or `TYPE` that the same file declares before its first SUB. A runtime error in moved included code names the `$INCLUDE` line. |
-| - | Closing the window of a program inside a `SOUND` loop takes about 2.6 s to end it. |
 
 L-08 (with the old C++ runtime about 1 run in 300-400 ended with exit code `0xC0000409`) does not happen on the QIR runner: 5000 runs of `control/gosub_goto` all ended normally. Only that console program was run this many times.

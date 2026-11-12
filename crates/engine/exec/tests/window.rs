@@ -134,6 +134,57 @@ fn close_ends_a_busy_loop() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A close in a loop of short SOUND calls ends the program at once. SOUND
+/// only queues the note, but the first sound statement opens the audio
+/// device, which takes from a few hundred ms to a second; a close during
+/// that open used to wait for it. The close comes 20 ms after the window
+/// opens, so it lands inside the open. Without an audio device SOUND does
+/// nothing and the loop is a plain busy loop.
+#[test]
+fn close_ends_a_sound_loop_at_once() {
+    use std::io::{BufRead, BufReader};
+    let dir = tmpdir("sound");
+    let prog = "QIR 1\nfunc main\nlabel L\nconst.f64 %0 100\nconst.f64 %1 2\nrt SOUND %0 %1\njmp L\nendfunc\n";
+    std::fs::write(dir.join("prog.qir"), prog).unwrap();
+    // the snapshot line on stdout marks the moment of the close
+    std::fs::write(dir.join("keys.input"), "wait 20\nsnapshot\nclose\n").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_qb-exec"))
+        .arg(dir.join("prog.qir"))
+        .current_dir(&dir)
+        .env("QBNEX_HEADLESS", "1")
+        .env("QBNEX_INPUT_SCRIPT", dir.join("keys.input"))
+        .env("QBNEX_NO_ERROR_DIALOG", "1")
+        .env_remove("QBNEX_FB_CAPTURE")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let out = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        BufReader::new(out).lines().map_while(Result::ok).find(|l| l.starts_with("[frame ")).map(|_| Instant::now())
+    });
+    let start = Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().unwrap() {
+            break st;
+        }
+        if start.elapsed() > Duration::from_secs(30) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("program did not end within 30 s");
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let ended = Instant::now();
+    let closed = reader.join().unwrap().expect("no snapshot line before the close");
+    assert_eq!(status.code(), Some(0));
+    let took = ended.saturating_duration_since(closed);
+    // about 70 ms here (mostly process teardown); waiting for the device took 0.4-1 s
+    assert!(took < Duration::from_millis(400), "the program ended {took:?} after the close");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Q11: PRINT USING in a GUI program goes to the window like PRINT.
 #[test]
 fn print_using_draws_on_the_window() {

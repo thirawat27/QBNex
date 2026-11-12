@@ -13,13 +13,38 @@ fn raise(err: i32) -> R<Option<V>> {
     Ok(None)
 }
 
+/// Opens the audio device for the first sound statement. Opening it can take
+/// a second or more (the program thread waits for the device thread), so in
+/// a window program the open runs on a helper thread while the program
+/// thread keeps watching the close box: a close during the wait ends the
+/// program at once instead of after the device is up.
+fn start_audio(rt: &mut super::builtins::RtState<'_>) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if rt.window {
+        let Ok(open) = std::thread::Builder::new().name("qb-audio-open".into()).spawn(|| snd::qb_snd_init()) else {
+            snd::qb_snd_init();
+            return;
+        };
+        while !open.is_finished() {
+            if super::window::closed() {
+                super::builtins::close_exit(rt);
+            }
+            qb_runtime::systime::sleep_ms(5);
+        }
+        let _ = open.join();
+        return;
+    }
+    let _ = rt;
+    snd::qb_snd_init();
+}
+
 /// Handles `name` if it is a sound builtin; `None` otherwise.
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     if !(name.starts_with("_SND") || matches!(name, "SOUND" | "BEEP" | "PLAY" | "PLAY.f" | "PLAYEVENT" | "_VOICE" | "_ADSR" | "_WAVE" | "_MEMSOUND")) {
         return None;
     }
     if !vm.rt().snd_started {
-        snd::qb_snd_init();
+        start_audio(vm.rt());
         vm.rt().snd_started = true;
     }
     let i = |k: usize| a[k].i() as i32;
