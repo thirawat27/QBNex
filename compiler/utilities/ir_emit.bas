@@ -2282,6 +2282,11 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
     ELSE
         aid = 0
     END IF
+    'bounds that name another array (REDIM _PRESERVE a(UBOUND(b))) leave currentid on that
+    'array once dim2 has evaluated them: only trust currentid when its name is this statement's
+    IF aid THEN
+        IF UCASE$(RTRIM$(ids(aid).n)) <> UCASE$(vn$) THEN aid = 0
+    END IF
     'DIM [SHARED] name() (elements "?") leaves currentid elsewhere: find the array by name
     IF aid = 0 AND LEN(elements$) > 0 THEN aid = IrFindArrId&(vn$)
     IF LEN(elements$) = 0 OR LEFT$(elements$, 1) = "?" THEN

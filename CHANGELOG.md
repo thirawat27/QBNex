@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A tight `SOUND` or `PLAY` loop no longer queues audio until memory runs out (3 GB in 5 s, then a crash): like the QBasic music buffer, a statement waits while more than 10 seconds of sound per voice is queued.
 - `SOUND`, `BEEP` and `PLAY` follow `PLAY "MF"`/`"MB"`: in `MF` (the QBasic default) the statement returns once its notes have played; after `MB` it returns at once, with the 10-second queue limit. A window close during the wait ends the program at once.
 - `CHAIN` inside a SUB or FUNCTION works when a COMMON variable or array is not SHARED (the build stopped with `QIR: unsupported`). COMMON variables and arrays no longer make the whole program run in the slower memory mode. `RUN file$` and `CHAIN` replace the program on Linux and macOS (exec); on Windows the program closes its files, stops its sound and hides its window before it waits, and ends with the other program's exit code.
+- `REDIM _PRESERVE a(UBOUND(b))`, and any `DIM`/`REDIM` whose bounds read another array, resizes `a` again instead of `b`.
 
 ### Security
 
