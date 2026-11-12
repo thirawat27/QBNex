@@ -10,8 +10,9 @@
 //!   a `store` usually retargets the instruction that produced the value.
 //! - **Addresses are symbolic.** `addr`/`aref`/`aaddr` produce no value: a
 //!   pointer register remembers *what* it points at, and the only uses
-//!   accepted are a call argument (BYREF / array parameter) and `ld`/`st` at
-//!   offset 0 of an array element (`lde1`/`ste1`, ...).
+//!   accepted are a call argument (BYREF / array parameter), `ld`/`st` at
+//!   offset 0 of an array element (`lde1`/`ste1`, ...) and the variable or
+//!   array of COMMON / CHAIN (`chain.get` / `chain.put`).
 //! - **Constants are registers** of the frame template (no `const` executed).
 //! - Fusions (compare + branch, `acc`, backward
 //!   jumps as event safe points), never across `line` or `label`.
@@ -625,6 +626,8 @@ impl<'a> Lw<'a> {
                 }
         }
         let mut ptrs: HashMap<u32, Ptr> = HashMap::new();
+        // register mode: QIR type of the variable (or array element) an addr / aref points at
+        let mut ptr_ty: HashMap<u32, IT> = HashMap::new();
         // QIR register -> variable whose register it aliases
         let mut alias_var: HashMap<u32, &str> = HashMap::new();
         for i in std::mem::take(&mut self.prologue[k]) {
@@ -1244,21 +1247,23 @@ impl<'a> Lw<'a> {
                     }
                 }
                 Inst::Addr { dst, var } => {
-                    let p = match var!(var) {
-                        Var::N(r, t) => Place::N(r, vty(t)?),
-                        Var::NG(g, t) => Place::NG(g, vty(t)?),
-                        Var::S(r) => Place::S(r),
-                        Var::SG(g) => Place::SG(g),
+                    let (p, t) = match var!(var) {
+                        Var::N(r, t) => (Place::N(r, vty(t)?), t),
+                        Var::NG(g, t) => (Place::NG(g, vty(t)?), t),
+                        Var::S(r) => (Place::S(r), IT::Str),
+                        Var::SG(g) => (Place::SG(g), IT::Str),
                         Var::A(..) => return Err("addr of an array".into()),
                         Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     };
                     reg!(*dst);
                     ptrs.insert(*dst, Ptr::Place(p));
+                    ptr_ty.insert(*dst, t);
                 }
                 Inst::ARef { dst, var } => {
-                    let Var::A(a, _) = var!(var) else { return Err("aref of a scalar".into()) };
+                    let Var::A(a, t) = var!(var) else { return Err("aref of a scalar".into()) };
                     reg!(*dst);
                     ptrs.insert(*dst, Ptr::Place(Place::A(a)));
+                    ptr_ty.insert(*dst, t);
                 }
                 Inst::AAddr { dst, var, idx } => {
                     let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
@@ -1481,6 +1486,36 @@ impl<'a> Lw<'a> {
                         _ => return Err(format!("bad arguments for {name}")),
                     };
                     self.emit(native);
+                }
+                Inst::Rt { dst: None, name, args } if !self.mem && is_chain_rt(name) => {
+                    // COMMON / CHAIN of a variable or array: no address needed, the
+                    // instruction names the variable's place (no memory mode for it)
+                    let ptr = args.first().copied().ok_or("CHAIN without a variable")?;
+                    let (Some(Ptr::Place(pl)), Some(t)) = (ptrs.get(&ptr).copied(), ptr_ty.get(&ptr).copied()) else {
+                        return Err(format!("{name} of something that is not a variable"));
+                    };
+                    let k = match t {
+                        IT::I8 => ChainK::Int { size: 1, signed: true },
+                        IT::U8 => ChainK::Int { size: 1, signed: false },
+                        IT::I16 => ChainK::Int { size: 2, signed: true },
+                        IT::U16 => ChainK::Int { size: 2, signed: false },
+                        IT::I32 => ChainK::Int { size: 4, signed: true },
+                        IT::U32 => ChainK::Int { size: 4, signed: false },
+                        IT::I64 => ChainK::Int { size: 8, signed: true },
+                        IT::U64 => ChainK::Int { size: 8, signed: false },
+                        IT::F32 => ChainK::F32,
+                        IT::F64 => ChainK::F64,
+                        IT::Str => ChainK::Str,
+                        IT::F80 | IT::Ptr => return Err(format!("{name} of a {} variable", t.name())),
+                    };
+                    let strs = name.ends_with('S');
+                    let whole = matches!(name.as_str(), "CHAINPUTA" | "CHAINGETA" | "CHAINPUTAS" | "CHAINGETAS");
+                    if strs != (k == ChainK::Str) || whole != matches!(pl, Place::A(_)) {
+                        return Err(format!("{name} does not match its variable"));
+                    }
+                    self.m.places.push(pl);
+                    let pl = self.m.places.len() as u32 - 1;
+                    self.emit(Ins::Chain { pl, get: name.starts_with("CHAINGET"), k });
                 }
                 Inst::Rt { dst, name, args } => {
                     let b = ir::builtins::lookup(name).ok_or_else(|| format!("unknown builtin {name}"))?;
@@ -1814,7 +1849,15 @@ fn str_read_only(body: &[Inst], at: usize, d: u32) -> bool {
 }
 
 fn alias_ok(body: &[Inst], at: usize, d: u32, var: &str, total: u32) -> bool {
-    stable_until_uses(body, at, d, total, &|i: &Inst| matches!(i, Inst::Store { var: v, .. } if v == var))
+    // (COMMON writes the variable without a store)
+    stable_until_uses(body, at, d, total, &|i: &Inst| {
+        matches!(i, Inst::Store { var: v, .. } if v == var) || matches!(i, Inst::Rt { name, .. } if is_chain_rt(name) && name.starts_with("CHAINGET"))
+    })
+}
+
+/// The builtins of COMMON (CHAINGET...) and CHAIN (CHAINPUT...), scalar and array forms.
+fn is_chain_rt(name: &str) -> bool {
+    matches!(name, "CHAINPUT" | "CHAINPUTS" | "CHAINGET" | "CHAINGETS" | "CHAINPUTA" | "CHAINPUTAS" | "CHAINGETA" | "CHAINGETAS")
 }
 
 /// Every use of `d` (defined at `at`) comes, in straight-line order, before

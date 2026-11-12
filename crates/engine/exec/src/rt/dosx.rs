@@ -16,6 +16,13 @@
 //! the receiving variable is skipped. COMMON arrays go in the same sequence
 //! with their bounds (CHAINPUTA / CHAINGETA): a dynamic array arrives
 //! redimensioned to them, a static one of the same size gets the values.
+//! A program lowered in register mode does the same through `Ins::Chain`
+//! (vm.rs), with the same bytes, so neither side needs memory mode for it.
+//!
+//! RUN file$ / CHAIN replace the program, as in QBasic: on Unix the process
+//! becomes the next program (`exec`); on Windows, which has no `exec`, this
+//! program closes its files, stops its audio and hides its window, waits for
+//! the next program and ends with that program's exit code.
 
 use super::builtins::{Host, DBLOCK};
 use super::{e, R, V};
@@ -47,8 +54,8 @@ pub(crate) struct Dos {
     pub(crate) restart: Option<(i32, bool)>,
     /// what RUNFROM returns once (set by `Vm::restart`)
     pub(crate) run_from: i32,
-    /// RUN file$ / CHAIN ran the other program: this one ends
-    end_now: bool,
+    /// RUN file$ / CHAIN ran the other program: this one ends with its exit code
+    pub(crate) end_code: Option<i32>,
     /// COMMON values for the program CHAIN runs next
     chain_out: Vec<u8>,
     /// COMMON values from the program that CHAINed here (read at the first CHAINGET)
@@ -63,8 +70,23 @@ fn chain_item(out: &mut Vec<u8>, kind: u8, b: &[u8]) {
     out.extend_from_slice(b);
 }
 
+/// A COMMON value of `kind` for the program CHAIN runs next.
+pub(crate) fn chain_put(d: &mut Dos, kind: u8, b: &[u8]) {
+    chain_item(&mut d.chain_out, kind, b);
+}
+
+/// The file of COMMON values this program was started with, when no COMMON
+/// statement read it (the next program has no COMMON): removed at the end.
+pub(crate) fn chain_cleanup(d: &mut Dos) {
+    if d.chain_in.is_none()
+        && let Some(p) = std::env::var_os("QBNEX_CHAIN")
+    {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 /// The next COMMON value passed by CHAIN, when it is of `kind`.
-fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
+pub(crate) fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
     use std::io::Read;
     let c = d.chain_in.get_or_insert_with(|| {
         let data = std::env::var_os("QBNEX_CHAIN").and_then(|p| {
@@ -82,7 +104,7 @@ fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
 }
 
 /// Bounds of a COMMON array item: their count, then (lower, upper) pairs; none = not dimensioned.
-fn put_bounds(out: &mut Vec<u8>, dims: &[(i64, i64)]) {
+pub(crate) fn put_bounds(out: &mut Vec<u8>, dims: &[(i64, i64)]) {
     out.extend_from_slice(&(dims.len() as u32).to_le_bytes());
     for &(lb, ub) in dims {
         out.extend_from_slice(&lb.to_le_bytes());
@@ -90,24 +112,24 @@ fn put_bounds(out: &mut Vec<u8>, dims: &[(i64, i64)]) {
     }
 }
 
-fn take<'b>(b: &'b [u8], at: &mut usize, n: usize) -> Option<&'b [u8]> {
+pub(crate) fn take<'b>(b: &'b [u8], at: &mut usize, n: usize) -> Option<&'b [u8]> {
     let s = b.get(*at..at.checked_add(n)?)?;
     *at += n;
     Some(s)
 }
 
-fn take_u32(b: &[u8], at: &mut usize) -> Option<u32> {
+pub(crate) fn take_u32(b: &[u8], at: &mut usize) -> Option<u32> {
     take(b, at, 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
 
-fn take_bounds(b: &[u8], at: &mut usize) -> Option<Vec<(i64, i64)>> {
+pub(crate) fn take_bounds(b: &[u8], at: &mut usize) -> Option<Vec<(i64, i64)>> {
     let n = take_u32(b, at)?;
     let i64_at =|at: &mut usize| take(b, at, 8).and_then(|s| s.try_into().ok()).map(i64::from_le_bytes);
     (0..n).map(|_| Some((i64_at(at)?, i64_at(at)?))).collect()
 }
 
 /// Number of elements of an array with these bounds (0 = not dimensioned).
-fn elements(dims: &[(i64, i64)]) -> u64 {
+pub(crate) fn elements(dims: &[(i64, i64)]) -> u64 {
     if dims.is_empty() {
         return 0;
     }
@@ -186,7 +208,7 @@ fn chain_get_array(vm: &mut dyn Host<'_>, p: u64, esize: Option<u32>) -> R<()> {
 impl Dos {
     /// The statement just executed ends this run of the program.
     pub(crate) fn stops(&self) -> bool {
-        self.restart.is_some() || self.end_now
+        self.restart.is_some() || self.end_code.is_some()
     }
 }
 
@@ -419,14 +441,37 @@ fn bsave(vm: &mut dyn Host<'_>, file: &[u8], offset: i64, size: i64) -> R<()> {
     std::fs::write(&path, b).or_else(|_| e(64))
 }
 
-/// RUN file$ / CHAIN: run the program and wait for it (the C++ runtime starts
-/// it and ends at once; waiting keeps the output in order).
+/// What this program holds that the next one may need, released before
+/// RUN file$ / CHAIN hands over: open files (flushed and closed) and the
+/// audio device; a program window is hidden (the window thread owns it and
+/// closes it when this process ends).
+fn release_for_next(vm: &mut dyn Host<'_>) -> R<()> {
+    vm.rt().flush();
+    if let Some(r) = super::files::call(vm, "CLOSEALL", &[]) {
+        r?;
+    }
+    let rt = vm.rt();
+    if rt.snd_started {
+        qb_audio::ffi::qb_snd_un_init();
+        rt.snd_started = false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if rt.window {
+        qb_runtime::window::qb_window_show(0);
+    }
+    Ok(())
+}
+
+/// RUN file$ / CHAIN: the program `cmd` replaces this one. Unix: the process
+/// becomes it (`exec`, through the shell as SHELL does). Windows: this program
+/// releases its files, audio and window, waits for it and ends with its exit
+/// code (the C++ runtime starts it and ends at once; waiting keeps the console
+/// output in order and the exit code for whoever started this program).
 fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     let found = std::path::Path::new(exe).is_file() || (cfg!(windows) && std::path::Path::new(&format!("{exe}.exe")).is_file());
     if !found {
         return e(53);
     }
-    vm.rt().flush();
     let mut c = super::builtins::shell_command(cmd);
     let common = std::mem::take(&mut vm.rt().dos.chain_out);
     let file = (!common.is_empty()).then(|| std::env::temp_dir().join(format!("qbnex-chain-{}.bin", std::process::id())));
@@ -441,15 +486,35 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
             c.env_remove("QBNEX_CHAIN");
         }
     }
-    let st = c.status();
-    if let Some(f) = &file {
-        let _ = std::fs::remove_file(f);
+    // the file of COMMON values this program got is no longer needed
+    chain_cleanup(&mut vm.rt().dos);
+    if let Err(x) = release_for_next(vm) {
+        if let Some(f) = &file {
+            let _ = std::fs::remove_file(f);
+        }
+        return Err(x);
     }
-    if st.is_err() {
-        return e(53);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // returns only when the shell could not be started; the next program
+        // removes the file of COMMON values when it reads it
+        let _ = c.exec();
+        if let Some(f) = &file {
+            let _ = std::fs::remove_file(f);
+        }
+        e(53)
     }
-    vm.rt().dos.end_now = true;
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let st = c.status();
+        if let Some(f) = &file {
+            let _ = std::fs::remove_file(f);
+        }
+        let Ok(st) = st else { return e(53) };
+        vm.rt().dos.end_code = Some(st.code().unwrap_or(1));
+        Ok(())
+    }
 }
 
 /// CHAIN name: `.bas` runs the `.exe` of the same name; without an extension

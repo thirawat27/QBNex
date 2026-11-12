@@ -147,9 +147,8 @@ fn ir_flag_rejects_unsupported_statement_with_line() {
     install_runner();
     let dir = tmpdir("unsupported");
     let src = dir.join("bad.bas");
-    // nearly everything is supported on QIR; CHAIN inside a SUB while a COMMON variable is
-    // not SHARED is not
-    std::fs::write(&src, "COMMON x\nPRINT 1\nCALL s\nSUB s\nCHAIN \"next\"\nEND SUB\n").unwrap();
+    // nearly everything is supported on QIR; ON TIMER with a SUB argument inside a SUB is not
+    std::fs::write(&src, "PRINT 1\nCALL s\nSUB s\nPRINT 2\nON TIMER(1) t 5\nEND SUB\nSUB t (n AS LONG)\nEND SUB\n").unwrap();
     let _guard = compiler_lock();
     let out = Command::new(&qb)
         .current_dir(repo_root())

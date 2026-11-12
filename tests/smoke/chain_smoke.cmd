@@ -42,6 +42,32 @@ findstr /c:"not reached" "%TMPDIR%\out.txt" >nul && (
     echo [FAIL] the program went on after CHAIN
     exit /b 1
 )
+
+rem CHAIN inside a SUB: the module-level COMMON variables and arrays (not SHARED) still go,
+rem and the exit code of the chained program (SYSTEM 3) is the exit code of the first one
+"%QB%" "%FIX%\chain_sub_main.bas" -o "%TMPDIR%\chain_sub_main.exe" > "%TMPDIR%\submain.log" 2>&1
+if errorlevel 1 (type "%TMPDIR%\submain.log" & echo [FAIL] chain_sub_main.bas does not compile & exit /b 1)
+"%QB%" "%FIX%\chain_sub_child.bas" -o "%TMPDIR%\chain_sub_child.exe" > "%TMPDIR%\subchild.log" 2>&1
+if errorlevel 1 (type "%TMPDIR%\subchild.log" & echo [FAIL] chain_sub_child.bas does not compile & exit /b 1)
+pushd "%TMPDIR%"
+.\chain_sub_main.exe < nul > sub.txt 2>&1
+set "SUB_CODE=%ERRORLEVEL%"
+popd
+set "SUB_OK=1"
+findstr /l /x /c:"-7  2.5 text 123456789012  1.25  200 -100 " "%TMPDIR%\sub.txt" >nul || set "SUB_OK="
+findstr /l /x /c:" 10 -20  30 " "%TMPDIR%\sub.txt" >nul || set "SUB_OK="
+findstr /l /x /c:"-1  1  one||three" "%TMPDIR%\sub.txt" >nul || set "SUB_OK="
+findstr /l /x /c:" 2  1  2  1.5 -3 " "%TMPDIR%\sub.txt" >nul || set "SUB_OK="
+findstr /c:"not reached" "%TMPDIR%\sub.txt" >nul && set "SUB_OK="
+if not defined SUB_OK (
+    type "%TMPDIR%\sub.txt"
+    echo [FAIL] CHAIN inside a SUB did not pass the COMMON values
+    exit /b 1
+)
+if not "%SUB_CODE%"=="3" (
+    echo [FAIL] exit code %SUB_CODE% after CHAIN, expected 3 from the chained program
+    exit /b 1
+)
 echo CHAIN_SMOKE_OK
 rmdir /s /q "%TMPDIR%" >nul 2>&1
 exit /b 0

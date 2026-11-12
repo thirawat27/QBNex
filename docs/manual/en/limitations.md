@@ -162,7 +162,7 @@ it runs slower than SINGLE and DOUBLE code.
 
 The build stops with `QIR: unsupported: line N: ...` on:
 
-- `CHAIN` inside a SUB or FUNCTION while a COMMON variable is not SHARED;
+- `ON TIMER(n) sub argument` (a SUB with an argument) inside a SUB or FUNCTION;
 - `_MEM` of an array of variable-length STRINGs (its elements are not stored
   together; `_MEM` of one STRING variable works).
 
@@ -196,7 +196,10 @@ Compiled, but different:
   speakers (`QB_AUDIO_DEVICE=null` selects it on purpose).
   `QB_AUDIO_DEVICE=none` starts no audio at all, for tests: sound statements
   do nothing and never wait, and `ON PLAY(n)` never fires.
-- `RUN file$` and `CHAIN` wait for the other program to end.
+- `RUN file$` and `CHAIN` replace the program on Linux and macOS. Windows cannot
+  replace a running program: this one closes its files, stops its sound, hides
+  its window and waits in the background for the other program, then ends with
+  that program's exit code. Each program opens its own window.
 
 ## Programs that time themselves with loops
 

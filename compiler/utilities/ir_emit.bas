@@ -32,16 +32,32 @@ SUB IrInit
 END SUB
 
 'COMMON variable e$ (main module, after its DIM): it takes the value the program that
-'CHAINed here passed at the same position, and CHAIN passes it on (rt/dosx.rs)
+'CHAINed here passed at the same position, and CHAIN passes it on (rt/dosx.rs).
+'Its place is kept as resolved here: module-level variables are QIR globals, so CHAIN
+'inside a SUB or FUNCTION reaches them by the same names, SHARED or not
 SUB IrCommonVar (e$, isShared AS LONG)
     DIM p$, t AS LONG, l$
     l$ = tlayout$
     p$ = IrPlace$(fixoperationorder$(e$), t)
     tlayout$ = l$
     IF p$ = "" THEN EXIT SUB
-    IrChainVars = IrChainVars + e$ + CHR$(1) + LTRIM$(STR$(isShared)) + CHR$(2)
+    IrChainVars = IrChainVars + IrSwapSep$(p$) + CHR$(1) + LTRIM$(STR$(isShared)) + CHR$(2)
     IrChainVal "CHAINGET", p$
 END SUB
+
+'a place with its CHR$(2) separators as CHR$(4) and back (IrChainVars uses CHR$(2) between entries)
+FUNCTION IrSwapSep$ (a$)
+    DIM r$, i AS LONG
+    r$ = a$
+    FOR i = 1 TO LEN(r$)
+        IF ASC(r$, i) = 2 THEN
+            MID$(r$, i, 1) = CHR$(4)
+        ELSEIF ASC(r$, i) = 4 THEN
+            MID$(r$, i, 1) = CHR$(2)
+        END IF
+    NEXT
+    IrSwapSep$ = r$
+END FUNCTION
 
 'COMMON array with id aid (main module, after its DIM if any): it takes the array the program
 'that CHAINed here passed at the same position, with its bounds, and CHAIN passes it on
@@ -79,30 +95,24 @@ SUB IrChainVal (op$, p$)
     END IF
 END SUB
 
-'CHAIN: every COMMON variable and array, in order, for the next program
+'CHAIN: every COMMON variable and array, in order, for the next program. The places were
+'resolved in the main module (IrCommonVar / IrCommonArr), so this also works inside a SUB
+'or FUNCTION where a COMMON variable is not SHARED
 SUB IrChainPut
-    DIM i AS LONG, j AS LONG, k AS LONG, e$, sh AS LONG, p$, t AS LONG, l$, m AS LONG
+    DIM i AS LONG, j AS LONG, k AS LONG, e$, m AS LONG
     i = 1
     DO
         j = INSTR(i, IrChainVars, CHR$(2))
         IF j = 0 THEN EXIT DO
         k = INSTR(i, IrChainVars, CHR$(1))
-        e$ = MID$(IrChainVars, i, k - i): sh = VAL(MID$(IrChainVars, k + 1, j - k - 1))
+        e$ = MID$(IrChainVars, i, k - i)
         i = j + 1
         m = 0
         IF LEFT$(e$, 1) = CHR$(3) THEN m = INSTR(2, e$, CHR$(3)) 'array: CHR$(3) name CHR$(3) element size CHR$(3) source name
-        IF subfuncn <> 0 AND sh = 0 THEN
-            IF m THEN e$ = MID$(e$, INSTR(m + 1, e$, CHR$(3)) + 1) + "()"
-            IrNotSup "CHAIN in a SUB or FUNCTION with a COMMON variable that is not SHARED (" + e$ + ")": EXIT SUB
-        END IF
         IF m THEN
             IrChainArr "CHAINPUTA", MID$(e$, 2, m - 2), VAL(MID$(e$, m + 1))
         ELSE
-            l$ = tlayout$
-            p$ = IrPlace$(fixoperationorder$(e$), t)
-            tlayout$ = l$
-            IF p$ = "" THEN EXIT SUB
-            IrChainVal "CHAINPUT", p$
+            IrChainVal "CHAINPUT", IrSwapSep$(e$)
         END IF
     LOOP
 END SUB

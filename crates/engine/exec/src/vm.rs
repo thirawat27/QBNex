@@ -227,6 +227,82 @@ fn row_major(dims: &[(i64, i64)], mut p: usize) -> usize {
     dims.iter().zip(idx).fold(0, |off, (&(lb, ub), i)| off * (ub - lb + 1) as usize + i)
 }
 
+/// CHAIN of a COMMON array (register mode): its bounds and its elements in
+/// QB64's column-major order, as `CHAINPUTA` / `CHAINPUTAS` of memory mode
+/// write them. An array that was never dimensioned goes with no bounds.
+fn chain_put_arr(dos: &mut crate::rt::dosx::Dos, a: Option<&mut Arr>, k: ChainK) {
+    use crate::rt::dosx as dx;
+    let mut b = Vec::new();
+    if k != ChainK::Str {
+        b.extend_from_slice(&k.size().to_le_bytes());
+    }
+    match a {
+        None => dx::put_bounds(&mut b, &[]),
+        Some(a) => {
+            let dims = a.dims.clone();
+            dx::put_bounds(&mut b, &dims);
+            let n = dx::elements(&dims) as usize;
+            for p in 0..n {
+                let o = row_major(&dims, p);
+                if k == ChainK::Str {
+                    let s = &a.strs()[o];
+                    b.extend_from_slice(&(s.len() as u32).to_le_bytes());
+                    b.extend_from_slice(s);
+                } else {
+                    k.encode(a.get(o), &mut b);
+                }
+            }
+        }
+    }
+    dx::chain_put(dos, if k == ChainK::Str { 4 } else { 3 }, &b);
+}
+
+/// COMMON array (register mode) takes the array passed at its position: a
+/// dynamic array gets the passed bounds, a static one keeps its bounds and
+/// takes the values when it has as many elements (`CHAINGETA` of memory mode).
+/// Anything of another kind or element size leaves the array as it is.
+/// The error case still hands the array back.
+#[allow(clippy::type_complexity)]
+fn chain_get_arr(dos: &mut crate::rt::dosx::Dos, old: Option<Box<Arr>>, ty: Ty, k: ChainK) -> Result<Option<Box<Arr>>, (Option<Box<Arr>>, i32)> {
+    use crate::rt::dosx as dx;
+    let Some(b) = dx::chain_next(dos, if k == ChainK::Str { 4 } else { 3 }) else { return Ok(old) };
+    let mut at = 0;
+    if k != ChainK::Str && dx::take_u32(&b, &mut at) != Some(k.size()) {
+        return Ok(old);
+    }
+    let Some(dims) = dx::take_bounds(&b, &mut at) else { return Ok(old) };
+    let n = dx::elements(&dims) as usize;
+    if n == 0 {
+        return Ok(old); // not dimensioned where it came from
+    }
+    let mut arr = match old {
+        Some(x) if x.fixed => {
+            if dx::elements(&x.dims) as usize != n {
+                return Ok(Some(x));
+            }
+            x
+        }
+        old => match Arr::new(ty, dims) {
+            Ok(a) => Box::new(a),
+            Err(e) => return Err((old, e)),
+        },
+    };
+    let own = arr.dims.clone();
+    let es = k.size() as usize;
+    for p in 0..n {
+        let o = row_major(&own, p);
+        if k == ChainK::Str {
+            let Some(len) = dx::take_u32(&b, &mut at) else { break };
+            let Some(s) = dx::take(&b, &mut at, len as usize) else { break };
+            arr.strs()[o] = s.to_vec();
+        } else {
+            let Some(x) = dx::take(&b, &mut at, es) else { break };
+            arr.set(o, k.decode(x));
+        }
+    }
+    Ok(Some(arr))
+}
+
 // ---------------------------------------------------------------- events
 
 struct EvShared {
@@ -773,10 +849,12 @@ impl<'m, 'o> Vm<'m, 'o> {
                 wait();
             }
         self.rt.flush();
-        // with a window, END keeps it open until it is closed (end() waits for stop_program)
+        crate::rt::dosx::chain_cleanup(&mut self.rt.dos);
+        // with a window, END keeps it open until it is closed (end() waits for stop_program);
+        // after RUN file$ / CHAIN the window is already hidden and the other program has ended
         #[cfg(not(target_arch = "wasm32"))]
         // (headless without an input script: nobody can close the stand-in window, so END ends the program)
-        if self.rt.window && r.is_ok() && !self.by_system {
+        if self.rt.window && r.is_ok() && !self.by_system && self.rt.dos.end_code.is_none() {
             crate::rt::window_present(&self.rt.display);
             if qb_runtime::window::qb_window_headless() != 0 && std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
                 return r;
@@ -956,7 +1034,8 @@ impl<'m, 'o> Vm<'m, 'o> {
         };
         match res {
             // RUN, CLEAR, RUN file$, CHAIN: leave like END (run_status restarts the program)
-            Ok(_) if self.rt.dos.stops() => Ok(Some(0)),
+            // (RUN file$ / CHAIN: with the exit code of the program that ran instead)
+            Ok(_) if self.rt.dos.stops() => Ok(Some(if self.rt.dos.restart.is_some() { 0 } else { self.rt.dos.end_code.unwrap_or(0) })),
             Ok(v) => {
                 if let (Some(ty), Some(v)) = (rty, v) {
                     match (ty, v) {
@@ -1096,6 +1175,53 @@ impl<'m, 'o> Vm<'m, 'o> {
             _ => return Err(13),
         }
         Ok(())
+    }
+
+    // ------------------------------------------------------------ CHAIN / COMMON
+
+    /// `Ins::Chain`: COMMON (`get`) or CHAIN of the variable or array at place
+    /// `pl`, with the same bytes CHAINGET / CHAINPUT and their array forms use
+    /// in memory mode (rt/dosx.rs).
+    fn chain(&mut self, pl: u32, get: bool, k: ChainK) -> Result<(), i32> {
+        use crate::rt::dosx as dx;
+        let p = self.m.places[pl as usize];
+        let cx = self.cur_ctx();
+        let aty = match p {
+            Place::A(a) => {
+                let f = if a & G != 0 { 0 } else { cx.func as usize };
+                Some(self.m.funcs[f].arr_tys[(a & !G) as usize])
+            }
+            _ => None,
+        };
+        let v = self.place_take(p, cx)?;
+        let dos = &mut self.rt.dos;
+        let (v, err) = match v {
+            PVal::N(bits) if get => match dx::chain_next(dos, 1) {
+                Some(b) if b.len() == k.size() as usize => (PVal::N(k.decode(&b)), None),
+                _ => (PVal::N(bits), None),
+            },
+            PVal::N(bits) => {
+                let mut b = Vec::new();
+                k.encode(bits, &mut b);
+                dx::chain_put(dos, 1, &b);
+                (PVal::N(bits), None)
+            }
+            PVal::S(s) if get => (PVal::S(dx::chain_next(dos, 2).unwrap_or(s)), None),
+            PVal::S(s) => {
+                dx::chain_put(dos, 2, &s);
+                (PVal::S(s), None)
+            }
+            PVal::A(a) if get => match chain_get_arr(dos, a, aty.unwrap_or(Ty::I32), k) {
+                Ok(x) => (PVal::A(x), None),
+                Err((x, e)) => (PVal::A(x), Some(e)),
+            },
+            PVal::A(mut a) => {
+                chain_put_arr(dos, a.as_deref_mut(), k);
+                (PVal::A(a), None)
+            }
+        };
+        self.place_put(p, cx, v)?;
+        err.map_or(Ok(()), Err)
     }
 
     // ------------------------------------------------------------ calls
@@ -2119,6 +2245,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     new.fixed = keep.is_some();
                     self.arrs[i] = Some(Box::new(new));
                 }
+                Ins::Chain { pl, get, k } => tryc!(self.chain(pl, get, k)),
                 Ins::ReadN { d, typ } => {
                     use qb_runtime::numparse as np_;
                     let Some(item) = m.data.get(self.data_ptr) else { fail!(4) };

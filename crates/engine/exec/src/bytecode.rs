@@ -264,6 +264,56 @@ pub enum DimMode {
     RedimPreserve,
 }
 
+/// What a COMMON variable (or each element of a COMMON array) holds, as CHAIN
+/// passes it: the bytes of its QIR type, so a program lowered in memory mode
+/// and one lowered in register mode read each other's values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChainK {
+    /// integer of `size` bytes (1, 2, 4, 8); `signed` = sign-extended into a register
+    Int { size: u8, signed: bool },
+    F32,
+    F64,
+    Str,
+}
+
+impl ChainK {
+    /// Bytes of one value (`Str`: none, strings go with their length).
+    pub fn size(self) -> u32 {
+        match self {
+            ChainK::Int { size, .. } => u32::from(size),
+            ChainK::F32 => 4,
+            ChainK::F64 => 8,
+            ChainK::Str => 0,
+        }
+    }
+
+    /// Bytes of a numeric register value.
+    pub fn encode(self, bits: u64, out: &mut Vec<u8>) {
+        match self {
+            ChainK::Int { size, .. } => out.extend_from_slice(&bits.to_le_bytes()[..usize::from(size)]),
+            ChainK::F32 => out.extend_from_slice(&(f64::from_bits(bits) as f32).to_le_bytes()),
+            ChainK::F64 => out.extend_from_slice(&bits.to_le_bytes()),
+            ChainK::Str => {}
+        }
+    }
+
+    /// Numeric register value of `b` (exactly [`ChainK::size`] bytes).
+    pub fn decode(self, b: &[u8]) -> u64 {
+        let mut x = [0u8; 8];
+        let n = b.len().min(8);
+        x[..n].copy_from_slice(&b[..n]);
+        let v = u64::from_le_bytes(x);
+        match self {
+            ChainK::Int { size, signed } if size < 8 => {
+                let sh = 64 - 8 * u32::from(size);
+                if signed { (((v << sh) as i64) >> sh) as u64 } else { v }
+            }
+            ChainK::F32 => f64::from(f32::from_le_bytes([x[0], x[1], x[2], x[3]])).to_bits(),
+            _ => v,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResumeK {
     Same,
@@ -399,6 +449,10 @@ pub enum Ins {
     StE1S { a: R, i: R, s: R },
     Bound { d: R, a: R, dim: R, upper: bool },
     Erase { a: R },
+    /// COMMON / CHAIN of the variable or whole array at `Module::places[pl]`
+    /// (register mode): `get` = take the value the program that CHAINed here
+    /// passed at this position, else add the value for the next program
+    Chain { pl: u32, get: bool, k: ChainK },
     // ---- _FLOAT (register pairs, see Ty::F80)
     MovX { d: R, s: R },
     XBin { op: XOp, d: R, a: R, b: R },
@@ -721,6 +775,7 @@ impl Ins {
                 f(O::BArgs(args))
             }
             Erase { a } => f(O::A(a)),
+            Chain { pl, .. } => f(O::Place(pl)),
             NewV { d, .. } => f(O::N(d)),
             MovX { d, s } | XNeg { d, s } => {
                 f(O::NRun(d, 2));
@@ -938,6 +993,7 @@ impl Ins {
             System { .. } => "system".into(),
             Rt { .. } => "rt".into(),
             Erase { .. } => "erase".into(),
+            Chain { get, .. } => if get { "chain.get" } else { "chain.put" }.into(),
             NewV { v, .. } => format!("newv mvar{v}"),
             MovX { .. } => "mov.x".into(),
             XBin { op, .. } => format!("{}.x", format!("{op:?}").to_lowercase()),
