@@ -38,6 +38,26 @@ fn start_audio(rt: &mut super::builtins::RtState<'_>) {
     snd::qb_snd_init();
 }
 
+/// Seconds of SOUND/PLAY audio that may wait in the voice queues. Like the
+/// QBasic music buffer it has a limit: a statement that queues past it waits
+/// until the queue plays down, so `DO: SOUND f, d: LOOP` does not grow the
+/// queue until memory runs out. Programs that queue less never wait.
+const QUEUE_LIMIT_SECONDS: i64 = 10;
+
+/// Waits while more than [`QUEUE_LIMIT_SECONDS`] of synth audio is queued;
+/// a window close ends the program during the wait.
+fn hold_queue(rt: &mut super::builtins::RtState<'_>) {
+    let limit = i64::from(snd::qb_snd_rate()) * QUEUE_LIMIT_SECONDS;
+    while limit > 0 && i64::from(snd::qb_snd_play_count()) > limit {
+        #[cfg(not(target_arch = "wasm32"))]
+        if super::window::closed() {
+            super::builtins::close_exit(rt);
+        }
+        qb_runtime::systime::sleep_ms(5);
+    }
+    let _ = rt;
+}
+
 /// Handles `name` if it is a sound builtin; `None` otherwise.
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     if !(name.starts_with("_SND") || matches!(name, "SOUND" | "BEEP" | "PLAY" | "PLAY.f" | "PLAYEVENT" | "_VOICE" | "_ADSR" | "_WAVE" | "_MEMSOUND")) {
@@ -54,11 +74,16 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
     let none = Some(Ok(None));
     // SAFETY (all unsafe calls below): pointers are live slices of the given lengths.
     match name {
-        "SOUND" => Some(raise(snd::qb_snd_sound(f(0), f(1)))),
-        "BEEP" => Some(raise(snd::qb_snd_sound(900.0, 5.0))),
+        "SOUND" | "BEEP" => {
+            let e = if name == "BEEP" { snd::qb_snd_sound(900.0, 5.0) } else { snd::qb_snd_sound(f(0), f(1)) };
+            hold_queue(vm.rt());
+            Some(raise(e))
+        }
         "PLAY" => {
             let dblock = vm.rt().cmem[super::builtins::DBLOCK..].as_ptr();
-            Some(raise(unsafe { snd::qb_snd_play(s(0).as_ptr(), s(0).len() as i32, dblock) }))
+            let e = unsafe { snd::qb_snd_play(s(0).as_ptr(), s(0).len() as i32, dblock) };
+            hold_queue(vm.rt());
+            Some(raise(e))
         }
         "PLAY.f" => some(V::I(snd::qb_snd_play_count().into())),
         // PLAY ON|OFF|STOP (1..3); ON PLAY(n) GOSUB starts the queue polling
