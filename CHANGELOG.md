@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CHAIN` passes the COMMON variables (numbers, STRINGs, fixed-length strings, TYPEs) to the next program by position.
 - `CHAIN` also passes COMMON arrays, in order with the variables: numeric, fixed-length string and TYPE arrays with their bounds and values, STRING arrays element by element. A dynamic array arrives with the passed bounds; a static array of the same size gets the values.
 - `CALL INTERRUPTX` and the `INTERRUPT[X] n, in, out` form; `_MEMFILL` of a variable without `AS type`; `_MEMGET` into a variable-length STRING; `_MEM` of a fixed-length STRING array.
+- `ON STRIG(n) GOSUB` (and `ON STRIG(n) SubName`) with `STRIG(n) ON/OFF/STOP`: the handler runs when the joystick button is pressed.
+- ALT+ENTER switches a window between windowed, stretched and square-pixel full screen; `_ALLOWFULLSCREEN` limits the modes or, with `_OFF`, leaves the keys to the program.
 - `ON PLAY(n) GOSUB` and `PLAY ON/OFF/STOP`: the handler runs when the background music queue drops below n notes.
 - A silent audio device: without an output device (or with `QB_AUDIO_DEVICE=null`) sound is mixed in real time and discarded, so `PLAY(n)`, `ON PLAY(n) GOSUB` and sound timing work as with speakers. `QB_AUDIO_DEVICE=none` still starts no audio at all.
 - `_MEM(a$)` of a variable-length STRING (an extension; QB64 rejects it): a block over the string's current characters, one byte per element, valid until the string is assigned again. `_MEM` of a variable-length STRING array stays an error with a clearer message.

@@ -153,8 +153,7 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
   โปรแกรมที่มีหน้าต่างและไม่มี `$CONSOLE` จะไม่เปิดหน้าต่าง console
 - `STICK`, `STRIG` และฟังก์ชันกลุ่ม `_DEVICES` อ่านจอยเกมด้วยผังคงที่ (19 ปุ่ม 8 แกน)
   ไม่ขึ้นกับลำดับที่ไดรเวอร์รายงาน อุปกรณ์ที่ 1 คือคีย์บอร์ด มีปุ่มละหนึ่ง scan code
-  (`_BUTTON(scancode + 1)`) ส่วน `ON STRIG(n) GOSUB` และ `STRIG(n) ON` คอมไพล์ได้
-  แต่ handler ไม่ถูกเรียก
+  (`_BUTTON(scancode + 1)`)
 - `PEN`, `COM(n)` และ `UEVENT` ที่ตามด้วย `ON`/`OFF`/`STOP` รวมถึง `ON PEN`, `ON COM(n)`
   และ `ON UEVENT GOSUB` คอมไพล์ได้และไม่ทำอะไร เพราะไม่มีเหตุการณ์จาก light pen,
   พอร์ตอนุกรม หรือผู้ใช้ ส่วน `PEN(n)` คืน 0
@@ -162,7 +161,6 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
   และ 60000 สำหรับกรณีอื่น `TRON` และ `TROFF` ไม่ทำอะไร `FILEATTR(n, 2)` คืนเลขที่ใช้แทน
   ไฟล์ที่เปิดอยู่ ไม่ใช่ DOS handle ส่วน `IOCTL` และ `IOCTL$` กับไฟล์ที่เปิดอยู่จะเกิด
   illegal function call (error 5)
-- `_ALLOWFULLSCREEN` รับได้แต่ไม่มีผล เพราะ ALT+ENTER ไม่สลับเป็นเต็มจอ
 - `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
   `_CONSOLETITLE`, `_WINDOWHANDLE` และการตั้ง `_CAPSLOCK`, `_NUMLOCK`, `_SCROLLLOCK`
   ใช้ได้บน Windows เท่านั้น บน Linux `_SCREENIMAGE` ได้ภาพว่าง และ

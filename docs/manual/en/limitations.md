@@ -172,7 +172,6 @@ Compiled, but different:
 - `STICK`, `STRIG` and the `_DEVICES` functions read game controllers in a fixed
   layout (19 buttons, 8 axes), whatever order the driver reports. Device 1 is
   the keyboard, with one button per scan code (`_BUTTON(scancode + 1)`).
-  `ON STRIG(n) GOSUB` and `STRIG(n) ON` compile, but the handler is never called.
 - `PEN`, `COM(n)` and `UEVENT` with `ON`/`OFF`/`STOP`, and `ON PEN`, `ON COM(n)`
   and `ON UEVENT GOSUB`, compile and do nothing: there is no light pen, serial
   or user event. `PEN(n)` is 0.
@@ -181,8 +180,6 @@ Compiled, but different:
   `FILEATTR(n, 2)` returns a number that stands for the open file, not a DOS
   handle. `IOCTL` and `IOCTL$` are an illegal function call (error 5) on an open
   file.
-- `_ALLOWFULLSCREEN` is accepted and has no effect: ALT+ENTER does not switch to
-  full screen.
 - `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
   `_CONSOLETITLE`, `_WINDOWHANDLE` and setting `_CAPSLOCK`, `_NUMLOCK` or
   `_SCROLLLOCK` work on Windows only; `_SCREENIMAGE` gives a blank image and
