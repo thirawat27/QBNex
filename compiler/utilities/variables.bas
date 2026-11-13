@@ -1,14 +1,9 @@
-FUNCTION allocarray (n2$, elements$, elementsize, udt)
+FUNCTION allocarray (elements$)
     dimsharedlast = dimshared: dimshared = 0
 
-    IF autoarray = 1 THEN autoarray = 0: autoary = 1 'clear global value & set local value
-
-
-    'changelog:
-    'added 4 to [2] to indicate cmem array where appropriate
+    IF autoarray = 1 THEN autoarray = 0 'clear the global flag
 
     e$ = elements$
-    IF elementsize = -2147483647 THEN stringarray = 1: elementsize = 8
 
     IF ASC(e$) = 63 THEN '?
     l$ = "(" + sp2 + ")"
@@ -98,14 +93,6 @@ NEXT
 
 undefinedarray:
 
-'calc cmem
-cmem = 0
-IF arraydesc = 0 THEN
-    IF cmemlist(idn + 1) THEN cmem = 1
-ELSE
-    IF cmemlist(arraydesc) THEN cmem = 1
-END IF
-
 staticarray = constdimensions
 IF subfuncn <> 0 AND dimstatic = 0 THEN staticarray = 0 'arrays in SUBS/FUNCTIONS are DYNAMIC
 IF dimstatic = 3 THEN staticarray = 0 'STATIC arrayname() listed arrays keep thier values but are dynamic in memory
@@ -120,208 +107,12 @@ IF arraydesc THEN
     END IF
 END IF
 
-
-IF elementsize < 0 THEN elementsize = -elementsize
-
-
-'Begin creation of array descriptor (if array has not been defined yet)
-IF arraydesc = 0 THEN
-    'create _MEM lock
-END IF
-
-
-'------------------STATIC ARRAY CREATION--------------------------------
 IF staticarray THEN
-    'STATIC memory
-    'Example of sd$ for DIM a(10):
-    '__ARRAY_SINGLE_A[4]= 0 ;
-    '__ARRAY_SINGLE_A[5]=( 10 )-__ARRAY_SINGLE_A[4]+1;
-    '__ARRAY_SINGLE_A[6]=1;
-    IF cmem AND stringarray = 0 THEN
-        'Note: A string array's pointers are always stored in 64bit memory
-        '(static)CONVENTINAL memory
-        'alloc mem & check if static memory boundry has oversteped dynamic memory boundry
-        '64K check
-        'clear array
-        'set flags
-    ELSE
-        '64BIT MEMORY
-        IF stringarray THEN
-            'Init string pointers in the array
-        ELSE
-            'clear array
-        END IF
-    END IF
-
-    IF udt > 0 AND udtxvariable(udt) THEN
-    END IF
-
-    'Close static array desc
-    allocarray = nume + 65536
+    allocarray = nume + 65536 'flags a static array
+ELSE
+    allocarray = nume
+    IF undefined = -1 THEN allocarray = -1
 END IF
-'------------------END OF STATIC ARRAY CREATION-------------------------
-
-'------------------DYNAMIC ARRAY CREATION-------------------------------
-IF staticarray = 0 THEN
-
-    IF undefined = 0 THEN
-
-
-        'Generate error if array is static
-        'Note: Array is either undefined or dynamically defined at this point
-
-
-        'REDIM (not DIM) must be used to redefine an array
-        IF redimoption = 0 THEN
-        ELSE
-            '--------ERASE EXISTING ARRAY IF NECESSARY--------
-
-            'IMPORTANT: If array is not going to be preserved, it should be cleared before
-            '           creating the new array for memory considerations
-
-            'refresh lock ID (_MEM)
-
-            IF redimoption = 2 THEN
-            END IF
-
-            'If array is defined, it must be destroyed first
-
-            IF redimoption = 2 THEN
-                GOTO skiperase
-            END IF
-
-            'Note: pointers to strings must be freed before array can be freed
-            IF stringarray THEN
-            END IF
-            'As must any variable length strings in UDT's
-            IF udt > 0 AND udtxvariable(udt) THEN
-            END IF
-
-            'Free array's memory
-            IF stringarray THEN
-                'Note: String arrays are never in cmem
-            ELSE
-                'Note: Array may be in cmem!
-            END IF
-
-            skiperase:
-
-            IF redimoption = 2 THEN
-            END IF
-
-
-            '--------ERASED ARRAY AS NECESSARY--------
-        END IF 'redim specified
-
-
-        '--------CREATE ARRAY & CLEAN-UP CODE--------
-        'Overwrite existing array dimension sizes/ranges
-        IF stringarray OR ((udt > 0) AND udtxvariable(udt)) THEN
-
-            'Note: String and variable-length udt arrays are always created in 64bit memory
-
-            IF redimoption = 2 THEN
-
-
-                'free any qbs strings which will be lost in the realloc
-                IF stringarray THEN
-                ELSE
-                END IF
-                'reallocate the array
-                IF stringarray THEN
-                ELSE
-                END IF
-
-            END IF
-
-            '1. Create array
-
-
-            'init individual strings
-            IF stringarray THEN
-            ELSE 'initialise udt's
-            END IF
-
-            IF redimoption = 2 THEN
-            END IF
-
-
-            '2. Generate "clean up" code (called when EXITING A SUB/FUNCTION)
-            IF arraydesc = 0 THEN 'only add for first declaration of the array
-            IF udt > 0 AND udtxvariable(udt) THEN
-            END IF
-            'free lock (_MEM)
-        END IF
-
-
-    ELSE 'not string/var-udt array
-
-        '1. Create array
-
-        IF redimoption = 2 THEN
-
-            'reallocation method
-            'backup data
-            'free old array
-
-        END IF
-
-        'standard cmem method
-        'clear array
-
-        IF redimoption = 2 THEN
-        END IF
-
-
-
-        IF redimoption = 2 THEN
-            'reallocation method
-
-        END IF
-        'standard allocation method
-        IF redimoption = 2 THEN
-        END IF
-
-
-        '2. Generate "clean up" code (called when EXITING A SUB/FUNCTION)
-        IF arraydesc = 0 THEN 'only add for first declaration of the array
-        'free lock (_MEM)
-    END IF
-END IF 'not string array
-
-END IF 'undefined=0
-
-'----FINISH ARRAY DESCRIPTOR IF DEFINING FOR THE FIRST TIME----
-IF arraydesc = 0 THEN
-    'Note: Array is init as undefined (& possibly a cmem flag)
-    'set dimensions as undefined
-    FOR i = 1 TO nume
-        b = i * 4
-    NEXT
-    IF stringarray THEN
-        'set array's data offset to the offset of the offset to nothingstring
-    ELSE
-        'set array's data offset to "nothing"
-    END IF
-END IF 'arraydesc = 0
-
-allocarray = nume
-IF undefined = -1 THEN allocarray = -1
-
-END IF
-
-IF autoary = 0 THEN
-    IF dimoption = 3 THEN 'STATIC a(100) puts creation code in main
-END IF
-END IF
-
-'[8] offset of data
-'[8] reserved (could be used to store a bit offset)
-'(the following repeats depending on the number of elements)
-'[4] base-offset
-'[4] number of indexes
-'[4] multiplier (the last multiplier doesn't actually exist)
-'[4] reserved
 
 dimshared = dimsharedlast
 
@@ -383,7 +174,7 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
 
     'notes: (DO NOT REMOVE THESE IMPORTANT USAGE NOTES)
     '
-    '(shared)dimsfarray: Creates an ID only (no C++ code)
+    '(shared)dimsfarray: Creates an ID only
     '                    Adds an index/'link' to the sub/function's argument
     '                        ID.sfid=glinkid
     '                        ID.sfarg=glinkarg
@@ -397,7 +188,7 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
     'elements$="?": (see also dimsfarray for that special case)
     '               Checks arrayelementslist() and;
     '               if unknown(=0), creates an ID only
-    '               if known, creates a DYNAMIC array's C++ initialization code so it can be used later
+    '               if known, registers a DYNAMIC array so it can be used later
 
     typ$ = typ2$
     dim2 = 1 'success
@@ -408,12 +199,6 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
     varname$ = UCASE$(varname$)
 
     IF dimsfarray = 1 THEN f = 0 ELSE f = 1
-
-    IF dimstatic <> 0 AND dimshared = 0 THEN
-        'name will have include the sub/func name in its scope
-        'variable/array will be created in main on startup
-    END IF
-
 
     scope2$ = module$ + "_" + subfunc$ + "_"
     'Note: when REDIMing a SHARED array in dynamic memory scope2$ must be modified
@@ -448,17 +233,13 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
                     LOOP
                 END IF
                 n$ = scope2$ + "ARRAY_" + n$
-                bits = udtxsize(i)
-                IF udtxbytealign(i) THEN
-                    IF bits MOD 8 THEN bits = bits + 8 - (bits MOD 8)
-                END IF
 
                 IF f = 1 THEN
 
                     IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
                     E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
                 END IF
-                nume = allocarray(n$, elements$, -bits, i)
+                nume = allocarray(elements$)
                 IF Error_Happened THEN EXIT FUNCTION
                 l$ = l$ + sp + tlayout$
                 IF arraydesc THEN GOTO dim2exitfunc
@@ -490,21 +271,12 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
         END IF
 
         'not an array of UDTs
-        bits = udtxsize(i): bytes = bits \ 8
-        IF bits MOD 8 THEN
-            bytes = bytes + 1
-        END IF
         n$ = scope2$ + n$
         clearid
         id.n = cvarname$
         id.t = UDTTYPE + i
         IF cmemlist(idn + 1) THEN
             id.t = id.t + ISINCONVENTIONALMEMORY
-        ELSE
-            IF f THEN
-                IF udtxvariable(i) THEN
-                END IF
-            END IF
         END IF
         id.callname = n$
         regid
@@ -600,16 +372,13 @@ IF LEFT$(typ$, 6) = "STRING" THEN
             END IF
             n$ = scope2$ + "ARRAY_" + n$
 
-            'nume = allocarray(n$, elements$, bytes)
-            'IF arraydesc THEN goto dim2exitfunc 'id already exists!
-            'clearid
 
             IF f = 1 THEN
 
                 IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
                 E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
             END IF
-            nume = allocarray(n$, elements$, bytes, 0)
+            nume = allocarray(elements$)
             IF Error_Happened THEN EXIT FUNCTION
             l$ = l$ + sp + tlayout$
             IF arraydesc THEN GOTO dim2exitfunc
@@ -653,8 +422,6 @@ IF LEFT$(typ$, 6) = "STRING" THEN
     id.t = STRINGTYPE + ISFIXEDLENGTH
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-    ELSE
-        o$ = "@"
     END IF
     id.tsize = bytes
     IF method = 0 THEN
@@ -691,16 +458,13 @@ IF elements$ <> "" THEN
     END IF
     n$ = scope2$ + "ARRAY_" + n$
 
-    'nume = allocarray(n$, elements$, -2147483647) '-2147483647=STRING
-    'IF arraydesc THEN goto dim2exitfunc 'id already exists!
-    'clearid
 
     IF f = 1 THEN
 
         IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
         E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
     END IF
-    nume = allocarray(n$, elements$, -2147483647, 0)
+    nume = allocarray(elements$)
     IF Error_Happened THEN EXIT FUNCTION
     l$ = l$ + sp + tlayout$
     IF arraydesc THEN GOTO dim2exitfunc
@@ -769,8 +533,7 @@ IF LEFT$(typ$, 4) = "_BIT" OR (LEFT$(typ$, 3) = "BIT" AND qbnexprefix_set = 1) T
     ELSE
         bits = 1
     END IF
-    IF bits <= 32 THEN ct$ = "int32" ELSE ct$ = "int64"
-    IF unsgn THEN n$ = "U": ct$ = "u" + ct$
+    IF unsgn THEN n$ = "U"
     n$ = n$ + "BIT" + str2(bits) + "_" + varname$
 
     'array of bit-length variables
@@ -794,16 +557,13 @@ IF LEFT$(typ$, 4) = "_BIT" OR (LEFT$(typ$, 3) = "BIT" AND qbnexprefix_set = 1) T
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, -bits) 'passing a negative element size signifies bits not bytes
-        'IF arraydesc THEN goto dim2exitfunc 'id already exists!
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, -bits, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -858,8 +618,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "_BYTE" OR (typ$ = "BYTE" AND qbnexprefix_set = 1) THEN
-    ct$ = "@"
-    IF unsgn THEN n$ = "U": ct$ = "u" + ct$
+    IF unsgn THEN n$ = "U"
     n$ = n$ + "BYTE_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -881,16 +640,13 @@ IF typ$ = "_BYTE" OR (typ$ = "BYTE" AND qbnexprefix_set = 1) THEN
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, 1)
-        'IF arraydesc THEN goto dim2exitfunc
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 1, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -936,8 +692,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "INTEGER" THEN
-    ct$ = "int16"
-    IF unsgn THEN n$ = "U": ct$ = "u" + ct$
+    IF unsgn THEN n$ = "U"
     n$ = n$ + "INTEGER_" + varname$
 
     IF elements$ <> "" THEN
@@ -964,7 +719,7 @@ IF typ$ = "INTEGER" THEN
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 2, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1012,8 +767,7 @@ END IF
 
 
 IF typ$ = "_OFFSET" OR (typ$ = "OFFSET" AND qbnexprefix_set = 1) THEN
-    ct$ = "@"
-    IF unsgn THEN n$ = "U": ct$ = "u" + ct$
+    IF unsgn THEN n$ = "U"
     n$ = n$ + "OFFSET_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1039,7 +793,7 @@ IF typ$ = "_OFFSET" OR (typ$ = "OFFSET" AND qbnexprefix_set = 1) THEN
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, OS_BITS \ 8, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1085,8 +839,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "LONG" THEN
-    ct$ = "@"
-    IF unsgn THEN n$ = "U": ct$ = "u" + ct$
+    IF unsgn THEN n$ = "U"
     n$ = n$ + "LONG_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1107,16 +860,13 @@ IF typ$ = "LONG" THEN
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, 4)
-        'IF arraydesc THEN goto dim2exitfunc
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 4, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1162,8 +912,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "_INTEGER64" OR (typ$ = "INTEGER64" AND qbnexprefix_set = 1) THEN
-    ct$ = "@"
-    IF unsgn THEN n$ = "U": ct$ = "u" + ct$
+    IF unsgn THEN n$ = "U"
     n$ = n$ + "INTEGER64_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1184,16 +933,13 @@ IF typ$ = "_INTEGER64" OR (typ$ = "INTEGER64" AND qbnexprefix_set = 1) THEN
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, 8)
-        'IF arraydesc THEN goto dim2exitfunc
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 8, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1241,7 +987,6 @@ END IF
 IF unsgn = 1 THEN Give_Error "Type cannot be unsigned": EXIT FUNCTION
 
 IF typ$ = "SINGLE" THEN
-    ct$ = "float"
     n$ = n$ + "SINGLE_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1261,16 +1006,13 @@ IF typ$ = "SINGLE" THEN
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, 4)
-        'IF arraydesc THEN goto dim2exitfunc
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 4, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1316,7 +1058,6 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "DOUBLE" THEN
-    ct$ = "double"
     n$ = n$ + "DOUBLE_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1336,16 +1077,13 @@ IF typ$ = "DOUBLE" THEN
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, 8)
-        'IF arraydesc THEN goto dim2exitfunc
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 8, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1391,7 +1129,6 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "_FLOAT" OR (typ$ = "FLOAT" AND qbnexprefix_set = 1) THEN
-    ct$ = "@"
     n$ = n$ + "FLOAT_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1411,16 +1148,13 @@ IF typ$ = "_FLOAT" OR (typ$ = "FLOAT" AND qbnexprefix_set = 1) THEN
         END IF
         n$ = scope2$ + "ARRAY_" + n$
 
-        'nume = allocarray(n$, elements$, 32)
-        'IF arraydesc THEN goto dim2exitfunc
-        'clearid
 
         IF f = 1 THEN
 
             IF LEN(elements$) = 1 AND ASC(elements$) = 63 THEN '"?"
             E = arrayelementslist(idn + 1): IF E THEN elements$ = elements$ + str2$(E) 'eg. "?3" for a 3 dimensional array
         END IF
-        nume = allocarray(n$, elements$, 32, 0)
+        nume = allocarray(elements$)
         IF Error_Happened THEN EXIT FUNCTION
         l$ = l$ + sp + tlayout$
         IF arraydesc THEN GOTO dim2exitfunc
@@ -1475,8 +1209,6 @@ IF dimsfarray THEN
     ids(idn).sfarg = glinkarg
 END IF
 
-'restore STATIC state
-
 tlayout$ = l$
 
 END FUNCTION
@@ -1504,14 +1236,8 @@ ELSE
 END IF
 END IF
 
-IF id.arraytype THEN 'multiply size for arrays
-n$ = RTRIM$(id.callname)
-s$ = str2(bytes) + "*(" + n$ + "[2]&1)" 'note: multiplying by 0 if array not currently defined (affects dynamic arrays)
-arrayelements = id.arrayelements: IF arrayelements = -1 THEN arrayelements = 1 '2009
-FOR i2 = 1 TO arrayelements
-    s$ = s$ + "*" + n$ + "[" + str2(i2 * 4 - 4 + 5) + "]"
-NEXT
-variablesize$ = "(" + s$ + ")"
+IF id.arraytype THEN 'an array's size is only known at run time
+variablesize$ = "@"
 EXIT FUNCTION
 END IF
 

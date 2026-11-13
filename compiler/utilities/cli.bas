@@ -153,8 +153,7 @@ FUNCTION ParseCMDLineArgs$ ()
             SYSTEM
         CASE "-i"
             IF LCASE$(token$) = "-ir" THEN
-                IrEmitMode = -1 'emit QIR for the Rust runner instead of C++
-                cmdlineswitch = -1
+                cmdlineswitch = -1 'accepted for compatibility: QIR is the only output
             ELSEIF LCASE$(token$) = "-irtext" THEN
                 IrEmitText = -1 'write the QIR text (qb-web) instead of an executable
                 cmdlineswitch = -1

@@ -1,13 +1,13 @@
 ' QIR emitter (`qb --ir file.bas`). Spec: docs/dev/qir.md
 '
 ' Runs inside the real compiler pipeline: the main pass still does all of its
-' usual work (symbol table, types, UDTs, $INCLUDE, $IF, CONST, DEFxxx, C++
-' fragments that are simply not compiled) and statement handlers call the
-' Ir* routines below to emit QIR as well. Expressions are lowered by IrEval$,
-' which walks the same element strings evaluate$ gets (after fixoperationorder)
-' and applies the same operator rules (operatorusage), so values carry the C
-' type the C++ backend would compute. At the end the QIR is packaged with the
-' prebuilt runner crates/engine/exec/bin/<os>/qb-exec (no C/C++ toolchain).
+' usual work (symbol table, types, UDTs, $INCLUDE, $IF, CONST, DEFxxx) and
+' statement handlers call the Ir* routines below to emit QIR. Expressions are
+' lowered by IrEval$, which walks the same element strings evaluate$ gets (after
+' fixoperationorder) and applies the same operator rules (operatorusage), so
+' values carry the same numeric type QB64 gives them. At the end the QIR is
+' packaged with the prebuilt runner crates/engine/exec/bin/<os>/qb-exec (no
+' C/C++ toolchain).
 
 '================================================================ output
 
@@ -446,7 +446,7 @@ FUNCTION IrCvt$ (r$, from$, to$)
     IrCvt$ = d$
 END FUNCTION
 
-'C cast (float->int truncates)
+'truncating conversion (float->int drops the fraction)
 FUNCTION IrTrunc$ (r$, from$, to$)
     DIM d$
     IF from$ = to$ THEN IrTrunc$ = r$: EXIT FUNCTION
@@ -780,7 +780,7 @@ END FUNCTION
 
 '================================================================ expressions
 
-'C string literal element -> bytes
+'string literal element (\ooo octal escapes) -> bytes
 FUNCTION IrStrLit$ (l$)
     DIM x AS LONG, s$, r$, i AS LONG, c$
     x = _INSTRREV(l$, CHR$(34))
@@ -1307,7 +1307,7 @@ FUNCTION IrIsArrayName% (nm$)
     IrT = keep$
     IrIsArrayName% = (LEFT$(x$, 1) = "A")
 END FUNCTION
-'the fixed expression e$ is a variable or an array element (C++ evaluate: ISREFERENCE)
+'the fixed expression e$ is a variable or an array element (evaluate gives it ISREFERENCE)
 FUNCTION IrIsVarRef% (e$)
     DIM n AS LONG, c AS LONG, i AS LONG, b AS LONG, nm$
     n = numelements(e$)
@@ -1451,7 +1451,7 @@ FUNCTION IrGeneric$ (idn AS LONG, nargs AS LONG, passed AS LONG, isfunc AS LONG)
         ELSE
             IF t AND ISPOINTER THEN t = t - ISPOINTER
             IF cn$ = "sub_paint" AND k = 3 AND LEN(x$) > 0 THEN
-                'PAINT fill: colour, or a tile string (the C++ overload on qbs*)
+                'PAINT fill: colour, or a tile string (the runtime's sub_paint.s form)
                 p$ = IrEval$(x$, t2)
                 IF IrT = "str" THEN cn$ = "sub_paint.s": r$ = r$ + " " + p$ ELSE r$ = r$ + " " + IrCvt$(p$, IrT, "u32")
             ELSEIF t AND ISSTRING THEN
@@ -1476,7 +1476,7 @@ FUNCTION IrGeneric$ (idn AS LONG, nargs AS LONG, passed AS LONG, isfunc AS LONG)
         END IF
         r$ = r$ + " " + IrI32$(passed)
     END IF
-    IF cn$ = "func__rgb32" THEN r$ = r$ + " " + IrI32$(nargs) 'C++ overload by argument count
+    IF cn$ = "func__rgb32" THEN r$ = r$ + " " + IrI32$(nargs) 'the runtime tells the forms apart by argument count
     IF isfunc THEN
         d$ = IrReg$
         IrE "rt " + d$ + " " + cn$ + r$
@@ -1489,7 +1489,7 @@ FUNCTION IrGeneric$ (idn AS LONG, nargs AS LONG, passed AS LONG, isfunc AS LONG)
 END FUNCTION
 
 ' " %a %b ..." for raw (fixed) arguments IrArgs() converted to the comma-separated QIR types;
-' missing arguments are zero. withpassed: append the C++ backend's optional-argument flags.
+' missing arguments are zero. withpassed: append the flags of the optional arguments given.
 FUNCTION IrArgList$ (types$, nargs AS LONG, passed AS LONG, withpassed AS LONG)
     DIM r$, t$, k AS LONG, rest$, p AS LONG
     DIM sv(1 TO 32) AS STRING
@@ -1578,7 +1578,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             x$ = IrCvt$(x$, IrT, sx$)
             r$ = IrRt$("STR$." + sx$, " " + x$, "str")
         CASE "VAL"
-            'func_val returns long double whatever the registry's type says
+            'VAL returns _FLOAT (f80) whatever the registry's type says
             r$ = IrRt$("VAL.f80", " " + IrArgAs$(sv(1), "str"), "f80")
         CASE "INSTR", "_INSTRREV"
             IF nargs = 3 THEN
@@ -1637,7 +1637,7 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 r$ = IrRadix32$(nm$, x$): GOTO irfdone
             END IF
             IF nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 AND (t AND 511) = 64 AND (t AND ISUNSIGNED) = 0 THEN
-                'C++: a 64-bit HEX$ argument that is not a variable gets neg_size 0 (semantics.bas)
+                'a 64-bit HEX$ argument that is not a variable gets neg_size 0 (as semantics.bas decides)
                 IF IrIsVarRef%(sv(1)) = 0 THEN r$ = IrHex64$(IrCvt$(x$, IrT, "i64")): GOTO irfdone
             END IF
             IF (t AND 511) <= 8 AND (t AND ISFLOAT) = 0 AND nm$ = "HEX$" AND (t AND ISOFFSETINBITS) = 0 THEN
@@ -2097,7 +2097,7 @@ SUB IrDimStmt (idn0 AS LONG, elements$, redimopt AS LONG, vn$, sy0$)
     END IF
     IF redimopt = 0 AND aid <> 0 THEN
         IF ids(aid).staticarray THEN
-            'static array (constant bounds): QBasic and the C++ backend allocate it up front, so
+            'static array (constant bounds): QBasic allocates it up front, so
             'it exists even where its DIM statement never runs. "dims" in the procedure's
             'prologue dimensions it once; ERASE then only clears it (qb-exec)
             DIM saved$
@@ -2339,7 +2339,7 @@ SUB IrLoop (cid AS LONG, kind AS LONG, e$, pre AS LONG)
     IrE "label ~W" + str2$(cid) + ".X"
 END SUB
 
-'--- FOR: var$ fixed variable, ctyp loop type (C++ markup), raw start/final/step
+'--- FOR: var$ fixed variable, ctyp loop type (a type value), raw start/final/step
 SUB IrFor (cid AS LONG, var$, ctyp AS LONG, st$, fi$, sp$)
     DIM p$, t AS LONG, ct$, vv$, ff$, ss$, r$, x$, z$, c$, n$
     p$ = IrPlace$(var$, t)

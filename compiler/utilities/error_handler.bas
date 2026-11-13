@@ -876,7 +876,7 @@ FUNCTION GetSuggestion$ (errCode AS INTEGER)
     CASE ERR_SUBSCRIPT_OUT_OF_RANGE: GetSuggestion$ = "Ensure array index is within declared bounds"
     CASE ERR_CODEGEN_FAILED: GetSuggestion$ = "Check for syntax errors or unsupported language features"
     CASE ERR_UNSUPPORTED_FEATURE: GetSuggestion$ = "Use an alternative syntax or update QBNex"
-    CASE ERR_LINK_ERROR: GetSuggestion$ = "Check C++ compiler installation and library paths"
+    CASE ERR_LINK_ERROR: GetSuggestion$ = "Check that the QBNex runtime (qb-exec and the native kit) is installed and the output folder is writable"
     CASE WARN_UNUSED_VARIABLE: GetSuggestion$ = "Remove the variable declaration if it is unnecessary, or use the variable in code"
     CASE WARN_DUPLICATE_CONSTANT: GetSuggestion$ = "Keep a single CONST definition for the same symbol"
     CASE WARN_EMPTY_SELECT_CASE: GetSuggestion$ = "Add at least one CASE branch inside SELECT CASE"
@@ -1056,11 +1056,11 @@ FUNCTION GetErrorCause$ (errCode AS INTEGER, message AS STRING, context AS STRIN
     CASE ERR_SUBSCRIPT_OUT_OF_RANGE
         GetErrorCause$ = "An array index exceeds the declared bounds."
     CASE ERR_CODEGEN_FAILED
-        GetErrorCause$ = "An internal error occurred during C++ code generation."
+        GetErrorCause$ = "An internal error occurred while generating the program's QIR."
     CASE ERR_UNSUPPORTED_FEATURE
         GetErrorCause$ = "This language feature is not yet implemented in QBNex."
     CASE ERR_LINK_ERROR
-        GetErrorCause$ = "The C++ linker failed to create the executable."
+        GetErrorCause$ = "Writing the executable (the runner with the program's QIR, or the native image) failed."
     CASE WARN_UNUSED_VARIABLE
         GetErrorCause$ = "A variable was declared but never referenced by any reachable code path."
     CASE WARN_DUPLICATE_CONSTANT

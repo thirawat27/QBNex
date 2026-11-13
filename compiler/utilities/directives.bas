@@ -77,15 +77,13 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
     END IF
 
     IF upperLine = "$CHECKING:OFF" THEN
-        layout$ = SCase$("$Checking:Off")
-        NoChecks = 1
+        layout$ = SCase$("$Checking:Off") 'accepted; it no longer changes the generated code
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF
 
     IF upperLine = "$CHECKING:ON" THEN
         layout$ = SCase$("$Checking:On")
-        NoChecks = 0
         HandleSimpleDirective% = 1
         EXIT FUNCTION
     END IF

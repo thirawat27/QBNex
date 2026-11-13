@@ -7,41 +7,41 @@
 ' (IrExtCall$ in ir_emit.bas): "call glX args" plus "meta extfn glX opengl <ret> <argtypes>".
 ' Pointer arguments and pointer results are _OFFSET values (QIR i64).
 
-FUNCTION gl2qb_type_convert$ (a$, symbol$, typ, ctyp$)
+FUNCTION gl2qb_type_convert$ (a$, symbol$, typ)
     symbol$ = ""
 
     'unsigned int
-    IF a$ = "GLenum" THEN b$ = "_UNSIGNED LONG": symbol$ = "~&": typ = ULONGTYPE - ISPOINTER: ctyp$ = "uint32"
-    IF a$ = "GLbitfield" THEN b$ = "_UNSIGNED LONG": symbol$ = "~&": typ = ULONGTYPE - ISPOINTER: ctyp$ = "uint32"
-    IF a$ = "GLuint" THEN b$ = "_UNSIGNED LONG": symbol$ = "~&": typ = ULONGTYPE - ISPOINTER: ctyp$ = "uint32"
+    IF a$ = "GLenum" THEN b$ = "_UNSIGNED LONG": symbol$ = "~&": typ = ULONGTYPE - ISPOINTER
+    IF a$ = "GLbitfield" THEN b$ = "_UNSIGNED LONG": symbol$ = "~&": typ = ULONGTYPE - ISPOINTER
+    IF a$ = "GLuint" THEN b$ = "_UNSIGNED LONG": symbol$ = "~&": typ = ULONGTYPE - ISPOINTER
 
     'int
-    IF a$ = "GLint" THEN b$ = "LONG": symbol$ = "&": typ = LONGTYPE - ISPOINTER: ctyp$ = "int32"
-    IF a$ = "GLsizei" THEN b$ = "LONG": symbol$ = "&": typ = LONGTYPE - ISPOINTER: ctyp$ = "int32"
+    IF a$ = "GLint" THEN b$ = "LONG": symbol$ = "&": typ = LONGTYPE - ISPOINTER
+    IF a$ = "GLsizei" THEN b$ = "LONG": symbol$ = "&": typ = LONGTYPE - ISPOINTER
 
     'unsigned char
-    IF a$ = "GLboolean" THEN b$ = "_UNSIGNED _BYTE": symbol$ = "~%%": typ = UBYTETYPE - ISPOINTER: ctyp$ = "uint8"
-    IF a$ = "GLubyte" THEN b$ = "_UNSIGNED _BYTE": symbol$ = "~%%": typ = UBYTETYPE - ISPOINTER: ctyp$ = "uint8"
+    IF a$ = "GLboolean" THEN b$ = "_UNSIGNED _BYTE": symbol$ = "~%%": typ = UBYTETYPE - ISPOINTER
+    IF a$ = "GLubyte" THEN b$ = "_UNSIGNED _BYTE": symbol$ = "~%%": typ = UBYTETYPE - ISPOINTER
 
     'char
-    IF a$ = "GLbyte" THEN b$ = "_BYTE": symbol$ = "%%": typ = BYTETYPE - ISPOINTER: ctyp$ = "int8"
+    IF a$ = "GLbyte" THEN b$ = "_BYTE": symbol$ = "%%": typ = BYTETYPE - ISPOINTER
 
     'unsigned short
-    IF a$ = "GLushort" THEN b$ = "_UNSIGNED INTEGER": symbol$ = "~%": typ = UINTEGERTYPE - ISPOINTER: ctyp$ = "uint16"
+    IF a$ = "GLushort" THEN b$ = "_UNSIGNED INTEGER": symbol$ = "~%": typ = UINTEGERTYPE - ISPOINTER
 
     'short
-    IF a$ = "GLshort" THEN b$ = "INTEGER": symbol$ = "%": typ = INTEGERTYPE - ISPOINTER: ctyp$ = "int16"
+    IF a$ = "GLshort" THEN b$ = "INTEGER": symbol$ = "%": typ = INTEGERTYPE - ISPOINTER
 
     'float
-    IF a$ = "GLfloat" THEN b$ = "SINGLE": symbol$ = "!": typ = SINGLETYPE - ISPOINTER: ctyp$ = "float"
-    IF a$ = "GLclampf" THEN b$ = "SINGLE": symbol$ = "!": typ = SINGLETYPE - ISPOINTER: ctyp$ = "float"
+    IF a$ = "GLfloat" THEN b$ = "SINGLE": symbol$ = "!": typ = SINGLETYPE - ISPOINTER
+    IF a$ = "GLclampf" THEN b$ = "SINGLE": symbol$ = "!": typ = SINGLETYPE - ISPOINTER
 
     'double
-    IF a$ = "GLdouble" THEN b$ = "DOUBLE": symbol$ = "#": typ = DOUBLETYPE - ISPOINTER: ctyp$ = "double"
-    IF a$ = "GLclampd" THEN b$ = "DOUBLE": symbol$ = "#": typ = DOUBLETYPE - ISPOINTER: ctyp$ = "double"
+    IF a$ = "GLdouble" THEN b$ = "DOUBLE": symbol$ = "#": typ = DOUBLETYPE - ISPOINTER
+    IF a$ = "GLclampd" THEN b$ = "DOUBLE": symbol$ = "#": typ = DOUBLETYPE - ISPOINTER
 
     'void
-    IF a$ = "GLvoid" THEN b$ = "_OFFSET": symbol$ = "%&": typ = OFFSETTYPE - ISPOINTER: ctyp$ = "ptrszint"
+    IF a$ = "GLvoid" THEN b$ = "_OFFSET": symbol$ = "%&": typ = OFFSETTYPE - ISPOINTER
 
     IF b$ = "" THEN PRINT "gl_table.txt: unknown type: " + a$: END
     gl2qb_type_convert$ = b$
@@ -49,9 +49,9 @@ END FUNCTION
 
 'QBNex type of a gl_table.txt argument/result type (GL type name, or "ptr": an _OFFSET)
 FUNCTION gl_table_type& (t$)
-    DIM s$, typ AS LONG, ctyp$
+    DIM s$, typ AS LONG
     IF t$ = "ptr" THEN gl_table_type& = OFFSETTYPE - ISPOINTER: EXIT FUNCTION
-    s$ = gl2qb_type_convert$(t$, s$, typ, ctyp$)
+    s$ = gl2qb_type_convert$(t$, s$, typ)
     gl_table_type& = typ
 END FUNCTION
 

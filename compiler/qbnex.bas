@@ -118,8 +118,6 @@ DIM SHARED viFileDescription$, viFileVersion$, viInternalName$
 DIM SHARED viLegalCopyright$, viLegalTrademarks$, viOriginalFilename$
 DIM SHARED viProductName$, viProductVersion$, viComments$, viWeb$
 
-DIM SHARED NoChecks
-
 DIM SHARED Console
 DIM SHARED ScreenHide
 '$RESIZE: the window may be resized (Resize); the screen is then stretched (1) or smoothed (2)
@@ -144,7 +142,7 @@ DIM SHARED Lev(1 TO OptMax) AS INTEGER 'The indwelling level of each opt () elem
 DIM SHARED EntryLev(1 TO OptMax) AS INTEGER 'The level required from which this opt () can be validly be entered/checked-for
 DIM SHARED DitchLev(1 TO OptMax) AS INTEGER 'The lowest level recorded between the previous Opt and this Opt
 DIM SHARED DontPass(1 TO OptMax) AS INTEGER 'Set to 1 or 0, with 1 meaning don't pass
-'Determines whether the opt () entry needs to actually be passed to the C++ sub/function
+'Determines whether the opt () entry needs to actually be passed to the sub/function
 DIM SHARED TempList(1 TO OptMax) AS INTEGER
 DIM SHARED PassRule(1 TO OptMax) AS LONG
 '0 means no pass rule
@@ -1106,7 +1104,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             fooindwel = 0
             layout = ""
             layoutok = 0
-            NoChecks = 0
             inclevel = 0
             errorLineInInclude = 0
             addmetainclude$ = ""
@@ -2439,9 +2436,9 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                         'return [label] in QBASIC was not possible in a sub/function, but QBNex will support this
                         'special codes will represent special return conditions:
-                        '0=return from main to calling sub/function/proc by return [NULL];
+                        '0=return from main to the calling sub/function/proc
                         '1... a global number representing a return point after a gosub
-                        'note: RETURN [label] should fail if a "return [NULL];" type return is required
+                        'note: RETURN [label] should fail where only a plain return is possible
                         StartMainPassSession
                         IrInit
 
@@ -2751,7 +2748,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
     'jargon:
     'lineelseused - counts how many line ELSEs can POSSIBLY follow
-    'endifs - how many C++ endifs "}" need to be added at the end of the line
+    'endifs - how many implied END IFs must close the end of the line
     'lineelseused - counts the number of indwelling ELSE statements on a line
     'impliedendif - stops autoformat from adding "END IF"
 
@@ -4033,7 +4030,7 @@ IF n >= 1 THEN
 
                 t$ = typkind$(typ, "")
                 IF Error_Happened THEN GOTO errmes
-                IF t$ = "" THEN a$ = "Cannot find C type to return array data": GOTO errmes
+                IF t$ = "" THEN a$ = "Unsupported array element type": GOTO errmes
                 'searchpoint
                 'get the name of the variable
                 r$ = refer$(str2$(currentid), id.t, 1)
@@ -4064,12 +4061,6 @@ layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = 
 
 IF declaringlibrary THEN GOTO declibjmp4
 
-
-'create new _MEM lock for this scope
-
-
-
-
 dimstatic = staticsf
 
 declibjmp4:
@@ -4077,23 +4068,12 @@ declibjmp4:
 IF declaringlibrary THEN
 
     IF customtypelibrary THEN
-
-        callname$ = removecast$(RTRIM$(id2.callname))
-
-
         'if no header exists to make the external function available, the function definition must be found
         IF sfheader = 0 AND sfdeclare <> 0 THEN
             RegisterResolveStaticFunction libname$, aliasname$, 1
         END IF 'sfheader=0
 
     END IF
-
-    IF dynamiclibrary THEN
-        IF sfdeclare THEN
-
-
-        END IF 'sfdeclare
-    END IF 'dynamic
 
     IF sfdeclare = 1 AND customtypelibrary = 0 AND dynamiclibrary = 0 AND indirectlibrary = 0 THEN
         RegisterResolveStaticFunction libname$, aliasname$, 2
@@ -4462,10 +4442,8 @@ IF n >= 1 THEN
             controltype(controllevel) = 3
         END IF
         controlid(controllevel) = uniquenumber
-        IF IrEmitMode THEN
-            IrDo controlid(controllevel)
-            IF controltype(controllevel) = 4 THEN IrWhile controlid(controllevel), IrFix, whileuntil - 1
-        END IF
+        IrDo controlid(controllevel)
+        IF controltype(controllevel) = 4 THEN IrWhile controlid(controllevel), IrFix, whileuntil - 1
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         GOTO finishedline
     END IF
@@ -4497,9 +4475,7 @@ IF n >= 1 THEN
             IF controltype(controllevel) = 4 THEN
             END IF
         END IF
-        IF IrEmitMode THEN
-            IF n >= 2 THEN IrLoop controlid(controllevel), whileuntil, IrFix, 0 ELSE IrLoop controlid(controllevel), 0, "", (controltype(controllevel) = 4)
-        END IF
+        IF n >= 2 THEN IrLoop controlid(controllevel), whileuntil, IrFix, 0 ELSE IrLoop controlid(controllevel), 0, "", (controltype(controllevel) = 4)
         controllevel = controllevel - 1
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         IF n = 1 THEN GOTO finishednonexec '***no error causing code, event checking done by DO***
@@ -4583,23 +4559,20 @@ IF n >= 1 THEN
         controlvalue(controllevel) = currentid
         v$ = e$
 
-        'find C++ datatype to match variable
-        'markup to cater for greater range/accuracy
-        ctype$ = ""
-        ctyp = typ - ISPOINTER
+        'the loop works in a wider type than the variable, for range and accuracy
+        ctyp = 0
         bits = typ AND 511
         IF (typ AND ISFLOAT) THEN
-            IF bits = 32 THEN ctype$ = "double": ctyp = 64& + ISFLOAT
-            IF bits = 64 THEN ctype$ = "@": ctyp = 256& + ISFLOAT
-            IF bits = 256 THEN ctype$ = "@": ctyp = 256& + ISFLOAT
+            IF bits = 32 THEN ctyp = 64& + ISFLOAT
+            IF bits = 64 OR bits = 256 THEN ctyp = 256& + ISFLOAT
         ELSE
-            IF bits = 8 THEN ctype$ = "int16": ctyp = 16&
-            IF bits = 16 THEN ctype$ = "@": ctyp = 32&
-            IF bits = 32 THEN ctype$ = "@": ctyp = 64&
-            IF bits = 64 THEN ctype$ = "@": ctyp = 64&
+            IF bits = 8 THEN ctyp = 16&
+            IF bits = 16 THEN ctyp = 32&
+            IF bits = 32 OR bits = 64 THEN ctyp = 64&
         END IF
-        IF ctype$ = "" THEN a$ = "Unsupported variable used in FOR statement": GOTO errmes
-        u$ = str2(uniquenumber)
+        IF ctyp = 0 THEN a$ = "Unsupported variable used in FOR statement": GOTO errmes
+        'takes a unique number so the numbers (and QIR labels) that follow stay the same
+        u = uniquenumber
 
 
         'calculate start
@@ -4625,7 +4598,7 @@ IF n >= 1 THEN
 
 
 
-        setrefer v$, typ, "fornext_value" + u$, 1
+        setrefer v$, typ, "", 1
         IF Error_Happened THEN GOTO errmes
         IrFor controlid(controllevel), IrFix, ctyp, startvalue$, p2$, p3$
 
@@ -4844,7 +4817,6 @@ IF n >= 1 THEN
         controllevel = controllevel + 1
         controlvalue(controllevel) = 0 'id
 
-        t$ = ""
         IF (typ AND ISSTRING) THEN
             t = 0
             IF (typ AND ISUDT) = 0 AND (typ AND ISARRAY) = 0 AND (typ AND ISREFERENCE) <> 0 THEN
@@ -4858,9 +4830,9 @@ IF n >= 1 THEN
 
             IF (typ AND ISFLOAT) THEN
 
-                IF (typ AND 511) > 64 THEN t = 3: t$ = "@"
-                IF (typ AND 511) = 32 THEN t = 4: t$ = "float"
-                IF (typ AND 511) = 64 THEN t = 5: t$ = "double"
+                IF (typ AND 511) > 64 THEN t = 3
+                IF (typ AND 511) = 32 THEN t = 4
+                IF (typ AND 511) = 64 THEN t = 5
                 IF (typ AND ISUDT) = 0 AND (typ AND ISARRAY) = 0 AND (typ AND ISREFERENCE) <> 0 THEN
                     controlvalue(controllevel) = VAL(e$)
                 ELSE
@@ -4986,18 +4958,12 @@ IF n >= 1 THEN
         '16=SELECT CASE int32
         '17=SELECT CASE uint32
 
-        '    bits = targettyp AND 511
-        '                                IF bits <= 16 THEN e$ = "qbr_float_to_long(" + e$ + ")"
-        '                                IF bits > 16 AND bits < 32 THEN e$ = "qbr_double_to_long(" + e$ + ")"
-        '                                IF bits >= 32 THEN e$ = "qbr(" + e$ + ")"
-
-
         t = controltype(controllevel) - 10
 
-        n$ = "sc_" + str2$(controlid(controllevel))
         cv = controlvalue(controllevel)
         IF cv THEN
-            n$ = refer$(str2$(cv), 0, 0)
+            'checks the SELECT CASE variable still resolves (it can raise errors); the text is not used
+            ignore$ = refer$(str2$(cv), 0, 0)
             IF Error_Happened THEN GOTO errmes
         END IF
 
@@ -5075,12 +5041,6 @@ IF n >= 1 THEN
                 '15=SELECT CASE double
                 '16=SELECT CASE int32
                 '17=SELECT CASE uint32
-
-                '    bits = targettyp AND 511
-                '                                IF bits <= 16 THEN e$ = "qbr_float_to_long(" + e$ + ")"
-                '                                IF bits > 16 AND bits < 32 THEN e$ = "qbr_double_to_long(" + e$ + ")"
-                '                                IF bits >= 32 THEN e$ = "qbr(" + e$ + ")"
-
 
                 'TYPE 2?
                 x$ = getelement$(e$, 1)
@@ -7282,9 +7242,7 @@ IF firstelement$ = "SYSTEM" THEN
         END IF
         l$ = l$ + sp + l2$
     END IF
-    IF IrEmitMode THEN
-        IF n > 1 THEN IrE "system " + IrEvalTo$(fixoperationorder$(getelements$(ca$, 2, n)), INTEGER64TYPE - ISPOINTER) ELSE IrE "system"
-    END IF
+    IF n > 1 THEN IrE "system " + IrEvalTo$(fixoperationorder$(getelements$(ca$, 2, n)), INTEGER64TYPE - ISPOINTER) ELSE IrE "system"
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     GOTO finishedline
 END IF
@@ -7551,42 +7509,17 @@ IF n >= 1 THEN
 
         test$ = evaluate(e$, typ): IF Error_Happened THEN GOTO errmes
         IF (typ AND ISUDT) = 0 OR (typ AND 511) <> 1 THEN a$ = "Expected " + qbnexprefix$ + "MEM type": GOTO errmes
-        blkoffs$ = evaluatetotyp(e$, -6)
-
-        '            IF typ AND ISREFERENCE THEN e$ = refer(e$, typ, 0)
-
-
+        'the evaluatetotyp calls below only check the operands (they can raise errors); their text is not used
+        test$ = evaluatetotyp(e$, -6)
 
         e$ = fixoperationorder$(offs$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
-        e$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
-        offs$ = e$
+        test$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
 
         e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
-        varsize$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
-        varoffs$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
-
-
-
-        'what do we do next
-        'need to know offset of variable and its size
-
-        'known sizes will be handled by designated command casts, otherwise use memmove
-        s = 0
-        IF varsize$ = "1" THEN s = 1: st$ = "@"
-        IF varsize$ = "2" THEN s = 2: st$ = "int16"
-        IF varsize$ = "4" THEN s = 4: st$ = "@"
-        IF varsize$ = "8" THEN s = 8: st$ = "@"
-
-        IF NoChecks THEN
-            'fast version:
-        ELSE
-            'safe version:
-            'is mem block init?
-            'are region and id valid?
-            'diagnose error
-        END IF
+        test$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
+        test$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
 
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         GOTO finishedline
@@ -7626,40 +7559,22 @@ IF n >= 1 THEN
 
         test$ = evaluate(e$, typ): IF Error_Happened THEN GOTO errmes
         IF (typ AND ISUDT) = 0 OR (typ AND 511) <> 1 THEN a$ = "Expected " + qbnexprefix$ + "MEM type": GOTO errmes
-        blkoffs$ = evaluatetotyp(e$, -6)
+        'the evaluatetotyp calls below only check the operands (they can raise errors); their text is not used
+        test$ = evaluatetotyp(e$, -6)
 
         e$ = fixoperationorder$(offs$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
-        e$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
-        offs$ = e$
+        test$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
 
         IF ne = 2 THEN
             e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp2 + "," + sp + tlayout$
 
             test$ = evaluate(e$, t): IF Error_Happened THEN GOTO errmes
-            IF (t AND ISREFERENCE) = 0 AND (t AND ISSTRING) THEN
-                varsize$ = "@"
-                varoffs$ = "@"
-            ELSE
-                varsize$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
-                varoffs$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
-            END IF
-
-            'known sizes will be handled by designated command casts, otherwise use memmove
-            s = 0
-            IF varsize$ = "1" THEN s = 1: st$ = "@"
-            IF varsize$ = "2" THEN s = 2: st$ = "int16"
-            IF varsize$ = "4" THEN s = 4: st$ = "@"
-            IF varsize$ = "8" THEN s = 8: st$ = "@"
-
-            IF NoChecks THEN
-                'fast version:
-            ELSE
-                'safe version:
-                'is mem block init?
-                'are region and id valid?
-                'diagnose error
+            'a string value (not a variable) is passed as it is
+            IF (t AND ISREFERENCE) <> 0 OR (t AND ISSTRING) = 0 THEN
+                test$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
+                test$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
             END IF
 
         ELSE
@@ -7675,15 +7590,6 @@ IF n >= 1 THEN
             e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp2 + "," + sp + tlayout$ + sp + SCase$("As") + sp + typ$
             e$ = evaluatetotyp(e$, t): IF Error_Happened THEN GOTO errmes
-            varsize$ = str2((t AND 511) \ 8)
-            IF NoChecks THEN
-                'fast version:
-            ELSE
-                'safe version:
-                'is mem block init?
-                'are region and id valid?
-                'diagnose error
-            END IF
 
         END IF
 
@@ -7726,33 +7632,25 @@ IF n >= 1 THEN
 
         test$ = evaluate(e$, typ): IF Error_Happened THEN GOTO errmes
         IF (typ AND ISUDT) = 0 OR (typ AND 511) <> 1 THEN a$ = "Expected " + qbnexprefix$ + "MEM type": GOTO errmes
-        blkoffs$ = evaluatetotyp(e$, -6)
+        'the evaluatetotyp calls below only check the operands (they can raise errors); their text is not used
+        test$ = evaluatetotyp(e$, -6)
 
         e$ = fixoperationorder$(offs$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
-        e$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
-        offs$ = e$
+        test$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
 
         e$ = fixoperationorder$(bytes$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
-        e$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
-        bytes$ = e$
+        test$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
 
         IF ne = 3 THEN 'no AS
         e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
         test$ = evaluate(e$, t)
-        IF (t AND ISREFERENCE) = 0 AND (t AND ISSTRING) THEN
-            varsize$ = "@"
-            varoffs$ = "@"
-        ELSEIF (t AND ISREFERENCE) = 0 THEN
-            'a value that is not a variable (an extension): its bytes in its own type
-            IF t AND ISPOINTER THEN t = t - ISPOINTER
-            varsize$ = str2((t AND 511) \ 8)
-            varoffs$ = "&tmp_long"
-        ELSE
-            varsize$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
-            varoffs$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
+        'a value that is not a variable (an extension) fills with its bytes in its own type
+        IF (t AND ISREFERENCE) THEN
+            test$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
+            test$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
         END IF
 
 
@@ -7767,22 +7665,6 @@ IF n >= 1 THEN
         e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$ + sp + SCase$("As") + sp + typ$
         e$ = evaluatetotyp(e$, t): IF Error_Happened THEN GOTO errmes
-
-        c$ = "sub__memfill_"
-        IF NoChecks THEN c$ = "sub__memfill_nochecks_"
-        IF t AND ISOFFSET THEN
-            c$ = c$ + "OFFSET"
-        ELSE
-            IF t AND ISFLOAT THEN
-                IF (t AND 511) = 32 THEN c$ = c$ + "SINGLE"
-                IF (t AND 511) = 64 THEN c$ = c$ + "DOUBLE"
-                IF (t AND 511) = 256 THEN c$ = c$ + "FLOAT" 'padded variable
-            ELSE
-                c$ = c$ + str2((t AND 511) \ 8)
-            END IF
-        END IF
-        c$ = c$ + "("
-        IF NoChecks = 0 THEN c$ = "@"
     END IF
 
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -7901,21 +7783,16 @@ IF n$ = "ABSOLUTE" THEN
                     IF typ AND ISFLOAT THEN
                         IF (typ AND 511) = 32 THEN
                             e$ = evaluatetotyp(e$, SINGLETYPE - ISPOINTER)
-                            IF Error_Happened THEN GOTO errmes
-                            v$ = "pass" + str2$(uniquenumber)
-                            e$ = "@"
                         ELSE
                             e$ = evaluatetotyp(e$, DOUBLETYPE - ISPOINTER)
-                            IF Error_Happened THEN GOTO errmes
-                            v$ = "pass" + str2$(uniquenumber)
-                            e$ = "@"
                         END IF
                     ELSE
                         e$ = evaluatetotyp(e$, INTEGER64TYPE - ISPOINTER)
-                        IF Error_Happened THEN GOTO errmes
-                        v$ = "pass" + str2$(uniquenumber)
-                        e$ = "@"
                     END IF
+                    IF Error_Happened THEN GOTO errmes
+                    'takes a unique number, as the value's temporary once did, so the
+                    'numbers (and QIR labels) that follow stay the same
+                    u = uniquenumber
 
                 END IF
 
@@ -8175,26 +8052,9 @@ IF n > 1 THEN
                 ELSE
                     IF lineinput THEN a$ = "Expected string-variable": GOTO errmes
 
-                    'numeric variable
-                    IF (t AND ISFLOAT) <> 0 OR (t AND 511) <> 64 THEN
-                        IF (t AND ISOFFSETINBITS) THEN
-                            setrefer e$, t, "((int64)func_file_input_float(tmp_fileno," + str2(t) + "))", 1
-                            IF Error_Happened THEN GOTO errmes
-                        ELSE
-                            setrefer e$, t, "func_file_input_float(tmp_fileno," + str2(t) + ")", 1
-                            IF Error_Happened THEN GOTO errmes
-                        END IF
-                    ELSE
-                        IF t AND ISUNSIGNED THEN
-                            setrefer e$, t, "", 1
-                            IF Error_Happened THEN GOTO errmes
-                        ELSE
-                            setrefer e$, t, "func_file_input_int64(tmp_fileno)", 1
-                            IF Error_Happened THEN GOTO errmes
-                        END IF
-                    END IF
-
-
+                    'numeric variable: setrefer checks the target (the value comes from the runtime)
+                    setrefer e$, t, "", 1
+                    IF Error_Happened THEN GOTO errmes
                 END IF
                 IF i = n THEN EXIT FOR
                 IF lineinput THEN a$ = "Too many variables": GOTO errmes
@@ -8214,7 +8074,7 @@ IF firstelement$ = "INPUT" THEN
     commaneeded = 0
     i = 2
 
-    newline = 1: IF getelement$(a$, i) = ";" THEN newline = 0: i = i + 1: l$ = l$ + sp + ";"
+    IF getelement$(a$, i) = ";" THEN i = i + 1: l$ = l$ + sp + ";"
 
     a2$ = getelement$(ca$, i)
     IF LEFT$(a2$, 1) = CHR$(34) THEN
@@ -8275,14 +8135,8 @@ IF firstelement$ = "INPUT" THEN
                     a$ = "INPUT cannot handle BIT array elements": GOTO errmes
                 END IF
             END IF
-            e$ = "&(" + refer(e$, t, 0) + ")"
+            e$ = refer(e$, t, 0)
             IF Error_Happened THEN GOTO errmes
-
-            'remove assumed/unnecessary flags
-            IF (t AND ISPOINTER) THEN t = t - ISPOINTER
-            IF (t AND ISINCONVENTIONALMEMORY) THEN t = t - ISINCONVENTIONALMEMORY
-            IF (t AND ISREFERENCE) THEN t = t - ISREFERENCE
-
 
             'assume it is a regular variable
             numvar = numvar + 1
@@ -8641,7 +8495,6 @@ ELSE
     END IF
 END IF
 
-subcall$ = RTRIM$(id.callname) + "("
 addedlayout = 0
 
 fieldcall = 0
@@ -8652,13 +8505,7 @@ IF RTRIM$(id2.callname) = "sub_get" OR RTRIM$(id2.callname) = "sub_put" THEN
         passed = passed - 2 'for complience with existing methods, remove 'passed' flag for the passing of a variable
     ELSE
         'FIELD GET/PUT call with variable omited
-        IF RTRIM$(id2.callname) = "sub_get" THEN
-            fieldcall = 1
-            subcall$ = "field_get("
-        ELSE
-            fieldcall = 2
-            subcall$ = "field_put("
-        END IF
+        IF RTRIM$(id2.callname) = "sub_get" THEN fieldcall = 1 ELSE fieldcall = 2
     END IF
 END IF 'field exception
 
@@ -8851,17 +8698,11 @@ IF targettyp = -4 THEN
         IF Error_Happened THEN GOTO errmes
         IF (sourcetyp AND ISSTRING) THEN
             IF (sourcetyp AND ISFIXEDLENGTH) = 0 THEN
-                'replace name of sub to call
-                subcall$ = RIGHT$(subcall$, LEN(subcall$) - 7) 'delete original name
-                'note: GET2 & PUT2 take differing input, following code is correct
+                'GET into a variable-length string takes the string itself; PUT falls through
                 IF firstelement$ = "GET" THEN
-                    subcall$ = "sub_get2" + subcall$
-                    e$ = refer(e$, sourcetyp, 0) 'pass a qbs pointer instead
+                    e$ = refer(e$, sourcetyp, 0)
                     IF Error_Happened THEN GOTO errmes
                     GOTO sete
-                ELSE
-                    subcall$ = "sub_put2" + subcall$
-                    'no goto sete required, fall through
                 END IF
             END IF
         END IF
@@ -8873,9 +8714,7 @@ IF targettyp = -4 THEN
     GOTO sete
 END IF '-4
 
-IF separgs_local$(i) = "N-LL" THEN
-    e$ = "NULL"
-ELSE
+IF separgs_local$(i) <> "N-LL" THEN 'an omitted argument needs no checks
 
     e2$ = fixoperationorder$(separgs_local$(i))
     IF Error_Happened THEN GOTO errmes
@@ -9010,42 +8849,18 @@ IF (targettyp AND ISSTRING) = 0 THEN
 
             IF sourcetyp AND ISUDT THEN
                 'udt/udt array
-
-                'get info
-                udtrefid = VAL(e$)
-                getid udtrefid
+                getid VAL(e$)
                 IF Error_Happened THEN GOTO errmes
-                udtrefi = INSTR(e$, sp3) 'end of id
-                udtrefi2 = INSTR(udtrefi + 1, e$, sp3) 'end of u
-                udtrefu = VAL(MID$(e$, udtrefi + 1, udtrefi2 - udtrefi - 1))
-                udtrefi3 = INSTR(udtrefi2 + 1, e$, sp3) 'skip e
-                udtrefe = VAL(MID$(e$, udtrefi2 + 1, udtrefi3 - udtrefi2 - 1))
-                o$ = RIGHT$(e$, LEN(e$) - udtrefi3)
-                'note: most of the UDT info above is not required
-
-                IF arr THEN
-                    n$ = "@"
-                ELSE
-                    n$ = scope$ + "UDT_" + RTRIM$(id.n)
-                END IF
-
-                e$ = "@"
-
-                'convert void* to target type*
-
             ELSE
                 'not a udt
                 IF arr THEN
                     IF (sourcetyp2 AND ISOFFSETINBITS) THEN a$ = "Cannot pass BIT array offsets": GOTO errmes
-                    e$ = "(&(" + refer(e$, sourcetyp, 0) + "))"
+                    e$ = refer(e$, sourcetyp, 0)
                     IF Error_Happened THEN GOTO errmes
                 ELSE
                     e$ = refer(e$, sourcetyp, 1)
                     IF Error_Happened THEN GOTO errmes
                 END IF
-
-                'note: signed/unsigned mismatch requires casting
-
             END IF 'udt?
 
             IF MID$(sfcmemargs(targetid), i, 1) = CHR$(1) THEN 'cmem required?
@@ -9113,61 +8928,15 @@ ELSE
     IF sourcetyp AND ISUDT THEN a$ = "Number required for sub": GOTO errmes
 END IF
 
-'round to integer if required
-IF (sourcetyp AND ISFLOAT) THEN
-    IF (targettyp AND ISFLOAT) = 0 THEN
-        '**32 rounding fix
-        bits = targettyp AND 511
-        IF bits <= 16 THEN e$ = "qbr_float_to_long(" + e$ + ")"
-        IF bits > 16 AND bits < 32 THEN e$ = "qbr_double_to_long(" + e$ + ")"
-        IF bits >= 32 THEN e$ = "qbr(" + e$ + ")"
-    END IF
-END IF
-
 IF (targettyp AND ISPOINTER) THEN 'pointer required
-IF (targettyp AND ISSTRING) THEN GOTO sete 'no changes required
-v$ = "pass" + str2$(uniquenumber)
-'assume numeric type
-IF MID$(sfcmemargs(targetid), i, 1) = CHR$(1) THEN 'cmem required?
-bytesreq = ((targettyp AND 511) + 7) \ 8
-e$ = "&(*" + v$ + "=" + e$ + ")"
-ELSE
-    e$ = "&(" + v$ + "=" + e$ + ")"
-END IF
-GOTO sete
+    'a numeric value passed by reference takes a unique number, as its temporary once did,
+    'so the numbers (and QIR labels) that follow stay the same
+    IF (targettyp AND ISSTRING) = 0 THEN u = uniquenumber
 END IF
 
 END IF 'not "NULL"
 
 sete:
-
-IF RTRIM$(id2.callname) = "sub_paint" THEN
-    IF i = 3 THEN
-        IF (sourcetyp AND ISSTRING) THEN
-            e$ = "@"
-        ELSE
-            e$ = "@"
-        END IF
-    END IF
-END IF
-
-IF id2.ccall THEN
-
-    'if a forced cast from a returned ccall function is in e$, remove it
-    IF LEFT$(e$, 3) = "(  " THEN
-        e$ = removecast$(e$)
-    END IF
-
-    IF targettyp AND ISSTRING THEN
-        e$ = "@"
-    END IF
-
-    IF LTRIM$(RTRIM$(e$)) = "0" THEN e$ = "NULL"
-
-END IF
-
-IF i <> 1 THEN subcall$ = subcall$ + ","
-subcall$ = subcall$ + e$
 NEXT
 
 'note: i=id.args+1
@@ -9236,19 +9005,8 @@ addedlayout = 0
 LOOP
 
 
-IF passedneeded THEN
-    subcall$ = subcall$ + "," + str2$(passed&)
-END IF
-subcall$ = subcall$ + ");"
-
-
-IF IrEmitMode THEN
-    FOR i = 1 TO id2.args: IrArgs(i) = separgs_local$(i): NEXT
-    IrSubCall targetid, id2.args, passed&
-END IF
-
-
-subcall$ = ""
+FOR i = 1 TO id2.args: IrArgs(i) = separgs_local$(i): NEXT
+IrSubCall targetid, id2.args, passed&
 
 layoutdone = 1
 x$ = RIGHT$(l$, 1): IF x$ = sp OR x$ = sp2 THEN l$ = LEFT$(l$, LEN(l$) - 1)
@@ -9938,8 +9696,8 @@ IF recompile THEN
             IF operator$ = CHR$(241) THEN info$ = "-": operatorusage = 5: EXIT FUNCTION
             IF operator$ = "/" THEN
                 info$ = "/ ": operatorusage = 1
-                'for / division, either the lhs or the rhs must be a float to make
-                'c++ return a result in floating point form
+                'for / division, either the lhs or the rhs must be a float so the
+                'result is in floating point form
                 IF (typ AND ISFLOAT) THEN
                     'lhs is a float
                     lhs = 2
@@ -9963,7 +9721,7 @@ IF recompile THEN
             IF operator$ = "<>" THEN info$ = "!=": operatorusage = 3: EXIT FUNCTION
             IF operator$ = "<=" THEN info$ = "<=": operatorusage = 3: EXIT FUNCTION
             IF operator$ = ">=" THEN info$ = ">=": operatorusage = 3: EXIT FUNCTION
-            'short-circuit: C++ && / || give 1/0, usage 3 negates to the BASIC -1/0
+            'short-circuit: && / || give 1/0, usage 3 negates to the BASIC -1/0
             IF UCASE$(operator$) = "_ANDALSO" THEN info$ = "&&": operatorusage = 3: EXIT FUNCTION
             IF UCASE$(operator$) = "_ORELSE" THEN info$ = "||": operatorusage = 3: EXIT FUNCTION
 
@@ -10040,7 +9798,7 @@ IF recompile THEN
                 typ = typ - ISPOINTER - ISREFERENCE 'typ now looks like a regular value
                 IF (typ AND ISSTRING) = 0 AND (typ AND ISOFFSETINBITS) = 0 THEN
                     'the element's type: typkind$ has no value form for the array flag
-                    IF typkind$(typ AND NOT ISARRAY, "") <> "num" THEN Give_Error "Cannot find C type to return array data": EXIT FUNCTION
+                    IF typkind$(typ AND NOT ISARRAY, "") <> "num" THEN Give_Error "Unsupported array element type": EXIT FUNCTION
                 END IF
                 refer$ = "@"
                 EXIT FUNCTION
@@ -10124,7 +9882,7 @@ IF recompile THEN
             'Checks an assignment of e2$ to the reference a2$ (and declares what the
             'evaluation needs); the QIR for it comes from the IrRhs* state set here.
             'method: 0 evaluate e$ to the reference's type
-            '        1 e$ is used as is
+            '        1 only check the reference (the value comes from elsewhere; e2$ is not used)
             a$ = a2$: typ = typ2: e$ = e2$
             IF method <> 1 THEN e$ = fixoperationorder$(e$)
             IF Error_Happened THEN EXIT SUB
@@ -10199,7 +9957,7 @@ IF recompile THEN
                     IF b = 8 OR b = 16 OR b = 32 OR b = 64 THEN ok = 1
                     IF typ AND ISOFFSET THEN ok = 1
                 END IF
-                IF ok = 0 THEN Give_Error "Cannot find C type to return array data": EXIT SUB
+                IF ok = 0 THEN Give_Error "Unsupported array element type": EXIT SUB
             END IF
             IF method = 0 THEN
                 e$ = evaluatetotyp(e$, typ)
@@ -10299,10 +10057,6 @@ IF recompile THEN
                 NEXT
                 IF puformat$ = "" THEN Give_Error "Expected PRINT USING #filenumber, formatstring ; ...": EXIT SUB
                 IF i = n THEN Give_Error "Expected PRINT USING #filenumber, formatstring ; ...": EXIT SUB
-                'create build string
-                'set format start/index variable
-                'create string to hold format in for multiple references
-                puf$ = "print_using_format" + u$
                 'print expressions
                 b = 0
                 e$ = ""
@@ -10321,29 +10075,6 @@ IF recompile THEN
                             IF Error_Happened THEN EXIT SUB
                             IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                             IF Error_Happened THEN EXIT SUB
-                            IF typ AND ISSTRING THEN
-
-                                IF LEFT$(e$, 9) = "func_tab(" OR LEFT$(e$, 9) = "func_spc(" THEN
-
-                                    'TAB/SPC exception
-                                    'note: position in format-string must be maintained
-                                    '-print any string up until now
-                                    '-print e$
-                                    '-set length of tqbs to 0
-
-                                ELSE
-
-                                    'regular string
-
-                                END IF
-
-                            ELSE 'not a string
-                                IF typ AND ISFLOAT THEN
-                                ELSE
-                                    IF ((typ AND 511) = 64) AND (typ AND ISUNSIGNED) <> 0 THEN
-                                    END IF
-                                END IF
-                            END IF 'string/not string
                             e$ = ""
                             IF last THEN EXIT FOR
                             GOTO fprintunext
@@ -10353,8 +10084,6 @@ IF recompile THEN
                     fprintunext:
                 NEXT
                 IF e$ <> "" THEN a2$ = "": last = 1: GOTO fprintulast
-                'check for errors
-                IF a2$ = "," OR a2$ = ";" THEN nl = 0 ELSE nl = 1 'note: a2$ is set to the last element of a$
                 tlayout$ = l$
                 EXIT SUB
             END IF
@@ -10379,10 +10108,6 @@ IF recompile THEN
                         IF e$ <> "" THEN gotofpu = 1 ELSE GOTO fpujump
                     END IF
 
-                    IF a2$ = "," THEN usetab = 1 ELSE usetab = 0
-                    IF last = 1 THEN newline = 1 ELSE newline = 0
-                    extraspace = 0
-
                     IF LEN(e$) THEN
                         ebak$ = e$
                         pnrtnum = 0
@@ -10396,13 +10121,11 @@ IF recompile THEN
                         IF Error_Happened THEN EXIT SUB
                         IF (typ AND ISSTRING) = 0 THEN
                             e$ = "STR$" + sp + "(" + sp + ebak$ + sp + ")"
-                            extraspace = 1
                             pnrtnum = 1
                             GOTO printfilenumber 'force re-evaluation
                         END IF
                         IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                         IF Error_Happened THEN EXIT SUB
-                        'format: string, (1/0) extraspace, (1/0) tab, (1/0)begin a new line
                     ELSE 'len(e$)=0
                         IF a2$ = "," THEN l$ = l$ + sp + a2$
                         IF a2$ = ";" THEN
@@ -10461,7 +10184,6 @@ IF recompile THEN
             IF b = 0 THEN
                 IF a2$ = "," THEN
                     writefilelast:
-                    IF last = 1 THEN newline = 1 ELSE newline = 0
                     ebak$ = e$
                     reevaled = 0
                     writefilenumber:
@@ -10488,7 +10210,6 @@ IF recompile THEN
                     END IF
                     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                     IF Error_Happened THEN EXIT SUB
-                    'format: string, (1/0) extraspace, (1/0) tab, (1/0)begin a new line
                     e$ = ""
                     IF last THEN EXIT FOR
                     GOTO writefilenext
@@ -10563,9 +10284,6 @@ SUB xongotogosub (a$, ca$, n)
     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
     IF Error_Happened THEN EXIT SUB
     IF (typ AND ISSTRING) THEN Give_Error "Expected numeric expression": EXIT SUB
-    IF (typ AND ISFLOAT) THEN
-        e$ = "qbr_float_to_long(" + e$ + ")"
-    END IF
     l$ = l$ + sp + e2$
     u$ = str2$(uniquenumber)
     IrOnStart IrFix
@@ -10629,7 +10347,7 @@ SUB xprint (a$, ca$, n)
     u$ = str2$(uniquenumber)
 
     l$ = SCase$("Print")
-    IF ASC(a$) = 76 THEN lp = 1: lp$ = "l": l$ = SCase$("LPrint"): DEPENDENCY(DEPENDENCY_PRINTER) = 1 '"L"
+    IF ASC(a$) = 76 THEN lp = 1: l$ = SCase$("LPrint"): DEPENDENCY(DEPENDENCY_PRINTER) = 1 '"L"
 
     'PRINT USING?
     IF n >= 2 THEN
@@ -10664,12 +10382,6 @@ SUB xprint (a$, ca$, n)
             IF puformat$ = "" THEN Give_Error "Expected PRINT USING formatstring ; ...": EXIT SUB
             IF i = n THEN Give_Error "Expected PRINT USING formatstring ; ...": EXIT SUB
             IrE "rt USINGBEGIN " + IrI32$(-lp) + " " + IrEvalTo$(IrFix2, ISSTRING)
-            'create build string
-            'set format start/index variable
-
-
-            'create string to hold format in for multiple references
-            puf$ = "print_using_format" + u$
 
             'print expressions
             b = 0
@@ -10690,30 +10402,6 @@ SUB xprint (a$, ca$, n)
                         IF Error_Happened THEN EXIT SUB
                         IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                         IF Error_Happened THEN EXIT SUB
-                        IF typ AND ISSTRING THEN
-
-                            IF LEFT$(e$, 9) = "func_tab(" OR LEFT$(e$, 9) = "func_spc(" THEN
-
-                                'TAB/SPC exception
-                                'note: position in format-string must be maintained
-                                '-print any string up until now
-                                '-print e$
-                                '-set length of tqbs to 0
-
-                            ELSE
-
-                                'regular string
-
-                            END IF
-
-
-                        ELSE 'not a string
-                            IF typ AND ISFLOAT THEN
-                            ELSE
-                                IF ((typ AND 511) = 64) AND (typ AND ISUNSIGNED) <> 0 THEN
-                                END IF
-                            END IF
-                        END IF 'string/not string
                         e$ = ""
                         IF last THEN EXIT FOR
                         GOTO printunext
@@ -10723,12 +10411,8 @@ SUB xprint (a$, ca$, n)
                 printunext:
             NEXT
             IF e$ <> "" THEN a2$ = "": last = 1: GOTO printulast
-            IF IrEmitMode THEN
-                IrE "rt USINGEND"
-                IF a2$ <> "," AND a2$ <> ";" THEN IrRtCh "PRINTNL", str2$(-lp)
-            END IF
-            'check for errors
-            IF a2$ = "," OR a2$ = ";" THEN nl = 0 ELSE nl = 1 'note: a2$ is set to the last element of a$
+            IrE "rt USINGEND"
+            IF a2$ <> "," AND a2$ <> ";" THEN IrRtCh "PRINTNL", str2$(-lp)
             tlayout$ = l$
             EXIT SUB
         END IF
@@ -10738,7 +10422,6 @@ SUB xprint (a$, ca$, n)
     b = 0
     e$ = ""
     last = 0
-    TQBSset = -1 'set the temporary flag so we don't create a temp string twice, in case USING comes after something
     FOR i = 2 TO n
         a2$ = getelement(ca$, i)
         IF a2$ = "(" THEN b = b + 1
@@ -10829,24 +10512,9 @@ SUB xread (ca$, n)
                 e$ = refer(e$, t, 0)
                 IF Error_Happened THEN EXIT SUB
             ELSE
-                'numeric variable
-                IF (t AND ISFLOAT) <> 0 OR (t AND 511) <> 64 THEN
-                    IF (t AND ISOFFSETINBITS) THEN
-                        setrefer e$, t, "((int64)func_read_float(data,&data_offset,data_size," + str2(t) + "))", 1
-                        IF Error_Happened THEN EXIT SUB
-                    ELSE
-                        setrefer e$, t, "func_read_float(data,&data_offset,data_size," + str2(t) + ")", 1
-                        IF Error_Happened THEN EXIT SUB
-                    END IF
-                ELSE
-                    IF t AND ISUNSIGNED THEN
-                        setrefer e$, t, "", 1
-                        IF Error_Happened THEN EXIT SUB
-                    ELSE
-                        setrefer e$, t, "func_read_int64(data,&data_offset,data_size)", 1
-                        IF Error_Happened THEN EXIT SUB
-                    END IF
-                END IF
+                'numeric variable: setrefer checks the target (the value comes from the runtime)
+                setrefer e$, t, "", 1
+                IF Error_Happened THEN EXIT SUB
             END IF 'string/numeric
             IrRead IrFix
             IF i = n THEN EXIT FOR
@@ -10873,7 +10541,6 @@ SUB xwrite (ca$, n)
         IF b = 0 THEN
             IF a2$ = "," THEN
                 writelast:
-                IF last = 1 THEN newline = 1 ELSE newline = 0
                 ebak$ = e$
                 reevaled = 0
                 writechecked:
@@ -10900,7 +10567,6 @@ SUB xwrite (ca$, n)
                 END IF
                 IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                 IF Error_Happened THEN EXIT SUB
-                'format: string, (1/0) extraspace, (1/0) tab, (1/0)begin a new line
                 e$ = ""
                 IF last THEN EXIT FOR
                 GOTO writenext

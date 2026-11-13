@@ -1,7 +1,7 @@
 ' QIR emitter: _MEM blocks (qb_runtime::mem). A _MEM variable is the
-' mem_block UDT; builtins receive its address. See utilities/ir_emit.bas.
+' _MEM UDT; builtins receive its address. See utilities/ir_emit.bas.
 
-'address of the mem_block named by fixed expression e$
+'address of the _MEM block named by fixed expression e$
 FUNCTION IrMemBlk$ (e$)
     DIM p$, t AS LONG
     p$ = IrPlace$(e$, t)
@@ -150,7 +150,7 @@ SUB IrMemStmt (f$)
             x$ = IrI64At$(fixoperationorder$(sv(3)))
             t = IrAsType&(sv(4))
             IF t = 0 THEN
-                'without AS: the bytes of a variable (as the C++ backend), or of a STRING value
+                'without AS: the bytes of a variable (as QB64 does), or of a STRING value
                 IrQuiet = -1: p$ = IrPlace$(fixoperationorder$(sv(4)), t): IrQuiet = 0
                 IF LEN(p$) AND LEFT$(p$, 1) <> "A" AND IrPlaceSTy$(p$) <> "str" THEN
                     sz = IrSize&(IrPlaceSTy$(p$))

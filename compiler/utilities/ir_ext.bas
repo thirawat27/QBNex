@@ -1,14 +1,13 @@
 '===============================================================================
-' QIR emission of the expression extensions (same results as the C++ path in
-' semantics.bas / qbnex.bas):
+' QIR emission of the expression extensions (the same results QB64 gives):
 '   _ANDALSO / _ORELSE   short-circuit, -1/0
 '   _IIF(c, a, b)        only the chosen value is evaluated
 '   _TOSTR$(x)           x for a string, LTRIM$(STR$(x)) for a number
 '   _ASSERT c[, msg$]    only with $ASSERTS: error 314 (315 after echoing msg$ in
 '                        a console program) when c truncates to 0
 ' Every call that emits code is stored in a variable before it is used in a string
-' expression: string + is evaluated right to left by the C++ build of the compiler
-' and left to right by the VM build, and the register numbers must not depend on it.
+' expression: the order in which the parts of a string + are evaluated is not
+' something the code may rely on, and the register numbers must not depend on it.
 '===============================================================================
 
 FUNCTION IrExtTruth$ (e$)
@@ -168,7 +167,7 @@ FUNCTION IrExtSub% (nm$, sv() AS STRING, nargs AS LONG)
     SELECT CASE nm$
         CASE "_ASSERT"
             IF Asserts = 0 THEN IrExtSub% = -1: EXIT FUNCTION
-            'the C++ path passes (int32)(condition): a float condition is truncated
+            'the condition is converted to a 32-bit integer: a float condition is truncated
             r$ = IrEval$(sv(1), t)
             c$ = IrTrunc$(r$, IrT, "i32")
             lbl$ = "~A" + str2$(IrNew)

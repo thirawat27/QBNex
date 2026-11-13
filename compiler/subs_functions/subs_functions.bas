@@ -1,8 +1,8 @@
 
 'special codes:
 
-'-1 Any numeric variable (will be made explicit by a C cast)
-'   Typically, these are used when multiple C functions exist
+'-1 Any numeric variable (converted to the type the runtime builtin takes)
+'   Typically, these are used when the builtin has several numeric forms
 
 '-2 Offset+Size(in bytes)
 '   Size is the largest safe memory block available from the offset
@@ -1418,7 +1418,7 @@ id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "_GPU3D"
 regid
 
-'_SHADER: QIR path only (no libqb shim; the C++ backend is being retired)
+'_SHADER: a QIR runtime builtin
 clearid
 id.n = qbnexprefix$ + "Shader"
 id.subfunc = 1
@@ -3695,7 +3695,7 @@ regid
 clearid   'Clear the old id info so we set the slate for a new one
 id.n = qbnexprefix$ + "Atan2" 'The name of our new one
 id.subfunc = 1 'And this is a function
-id.callname = "atan2" 'The C name of the function
+id.callname = "atan2" 'the runtime name of the function
 id.args = 2 'It takes 2 parameters to work
 id.arg = MKL$(FLOATTYPE - ISPOINTER) + MKL$(FLOATTYPE - ISPOINTER) 'These simply add up to represent the 2 patameters from what I can tell
 id.ret = FLOATTYPE - ISPOINTER 'we want it to return to us a nice _FLOAT value
@@ -3705,7 +3705,7 @@ regid 'and we're finished with ID registration
 clearid   'Clear the old id info so we set the slate for a new one
 id.n = qbnexprefix$ + "Hypot" 'The name of our new one
 id.subfunc = 1 'And this is a function
-id.callname = "hypot" 'The C name of the function
+id.callname = "hypot" 'the runtime name of the function
 id.args = 2 'It takes 2 parameters to work
 id.arg = MKL$(FLOATTYPE - ISPOINTER) + MKL$(FLOATTYPE - ISPOINTER) 'These simply add up to represent the 2 patameters from what I can tell
 id.ret = FLOATTYPE - ISPOINTER 'we want it to return to us a nice _FLOAT value

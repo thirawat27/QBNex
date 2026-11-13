@@ -8,7 +8,7 @@
 '
 ' The lowering runs on every source line before the class syntax and the
 ' top-level runtime lowering, in the prepass and in the main pass, so the
-' generated lines take the normal compile path of both backends. A line that
+' generated lines take the normal compile path. A line that
 ' starts with one of these keywords only changes meaning when it would have
 ' been a syntax error before (ENUM, EACH and TRY are not QBasic statements).
 '===============================================================================
@@ -599,7 +599,7 @@ END FUNCTION
 '---------------- OPTIONAL parameters with defaults ----------------
 ' SUB/FUNCTION/DECLARE headers: "OPTIONAL p AS T = default" -> "p AS T"; the defaults are kept in
 ' syntaxExtOptional$ (built in the prepass, kept for the main pass). A call that passes fewer
-' arguments gets the missing trailing defaults appended as text, so both backends compile a full call.
+' arguments gets the missing trailing defaults appended as text, so the compiler sees a full call.
 
 FUNCTION SyntaxExt_OptKey$ (procName$)
     DIM k AS STRING

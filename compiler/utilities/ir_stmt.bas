@@ -1,4 +1,4 @@
-' QIR emitter: statements lowered when they reach finishedline (the C++
+' QIR emitter: statements lowered when they reach finishedline (the statement
 ' handler has created every symbol by then). IrLine2 records the statement.
 ' See utilities/ir_emit.bas.
 
@@ -217,7 +217,7 @@ SUB IrInterrupt (callForm AS LONG)
     IrE "rt INTERRUPT " + intNo$ + " " + pa(1) + " " + pa(2) + " " + IrI32$(-(nm$ = "INTERRUPTX"))
 END SUB
 
-'RUN | RUN label/line | RUN file$ (the C++ handler: a single non-string element is a label)
+'RUN | RUN label/line | RUN file$ (as the statement handler: a single non-string element is a label)
 SUB IrRun
     DIM n AS LONG, e$, t AS LONG, p$, k AS LONG, isstr AS LONG
     n = IrStmtN
@@ -385,7 +385,7 @@ SUB IrWrite
 END SUB
 
 'ERASE of one array. A static array (dimensioned by "dims", IrDimStmt) is
-'only cleared, as in QBasic and the C++ backend; any other array is freed.
+'only cleared, as in QBasic; any other array is freed.
 'qb-exec decides at run time, so this also holds for an array passed as a().
 SUB IrErase (nm$, vn$)
     IrE "erase " + nm$
@@ -586,7 +586,7 @@ SUB IrCallAbsolute
     NEXT
 END SUB
 
-'a CASE waits until its values were seen by the C++ pass (implicit variables); it is emitted
+'a CASE waits until its values were seen by the main pass (implicit variables); it is emitted
 'before the next statement or at the end of its own
 SUB IrFlushCase
     DIM k AS LONG
