@@ -1,0 +1,5 @@
+# two keys before each _KEYCLEAR of keyclear.bas
+wait 500
+type ab
+wait 1500
+type cd

@@ -1,0 +1,627 @@
+QIR 1
+meta resize on
+global $__SINGLE_X f32
+global $__SINGLE_FOCUS f32
+global $__SINGLE_T f32
+global $__SINGLE_D f32
+global $__SINGLE_AX f32
+global $__SINGLE_AY f32
+global $__STRING_K str
+global $__SINGLE_P f32
+global $__SINGLE_N f32
+global $__SINGLE_MX f32
+global $__SINGLE_MY f32
+datalabel L_OOPS
+func main
+line 4
+const.i32 %0 320
+const.i32 %1 200
+const.i32 %2 32
+const.i32 %3 1
+rt %4 func__newimage %0 %1 %2 %3
+const.i32 %5 0
+const.i32 %6 0
+const.i32 %7 0
+const.i32 %8 0
+const.i32 %9 1
+rt qbg_screen %4 %5 %6 %7 %8 %9
+line 5
+const.str %10 x6576656E74732E747874
+const.i32 %11 1
+const.i32 %12 0
+const.i32 %13 2
+rt OPEN %10 %13 %11 %12
+line 6
+onerror L_OOPS
+line 7
+const.i32 %14 0
+const.i32 %15 0
+rt sub__filedrop %14 %15
+line 8
+const.i32 %16 1
+const.str %17 x64726F70
+rt PRINTS %16 %17
+rt %18 func__filedrop
+cvt.i64.i32 %19 %18
+rt PRINTN.i64 %16 %19
+rt %20 func__totaldroppedfiles
+cvt.i64.i32 %21 %20
+rt PRINTN.i64 %16 %21
+rt PRINTNL %16
+line 9
+const.i32 %22 1
+const.str %23 x64657669636573
+rt PRINTS %22 %23
+rt %24 func__devices
+cvt.i64.i32 %25 %24
+rt PRINTN.i64 %22 %25
+const.i32 %26 1
+const.i32 %27 1
+rt %28 func__device %26 %27
+rt PRINTS %22 %28
+const.str %29 x20
+rt PRINTS %22 %29
+const.i32 %30 2
+const.i32 %31 1
+rt %32 func__device %30 %31
+rt PRINTS %22 %32
+rt PRINTNL %22
+line 10
+const.i32 %33 1
+const.str %34 x6C617374
+rt PRINTS %33 %34
+const.i32 %35 1
+const.i32 %36 1
+rt %37 func__lastbutton %35 %36
+cvt.i64.i32 %38 %37
+rt PRINTN.i64 %33 %38
+const.i32 %39 2
+const.i32 %40 1
+rt %41 func__lastbutton %39 %40
+cvt.i64.i32 %42 %41
+rt PRINTN.i64 %33 %42
+const.i32 %43 2
+const.i32 %44 1
+rt %45 func__lastaxis %43 %44
+cvt.i64.i32 %46 %45
+rt PRINTN.i64 %33 %46
+const.i32 %47 2
+const.i32 %48 1
+rt %49 func__lastwheel %47 %48
+cvt.i64.i32 %50 %49
+rt PRINTN.i64 %33 %50
+rt PRINTNL %33
+line 11
+const.i32 %51 1
+const.str %52 x68616E646C65
+rt PRINTS %51 %52
+rt %53 func__handle
+rt PRINTN.i64 %51 %53
+rt PRINTNL %51
+line 12
+const.i32 %54 60
+cvt.f64.i32 %55 %54
+const.i32 %56 2
+rt sub__fps %55 %56
+line 13
+const.f64 %57 0
+const.i32 %58 1
+rt sub__fps %57 %58
+line 14
+const.i32 %59 0
+cvt.f64.i32 %60 %59
+const.i32 %61 2
+rt sub__fps %60 %61
+line 15
+const.str %62 x6C696E6B
+const.i32 %63 1
+rt sub__mouseshow %62 %63
+line 16
+const.str %64 x6E6F6E73656E7365
+const.i32 %65 1
+rt sub__mouseshow %64 %65
+line 17
+rt sub__mousehide
+line 19
+rt sub__display
+line 20
+const.f64 %67 0.3E+0
+rt %66 DELAYBEGIN %67
+label ~Y1
+rt %68 DELAYSTEP %66
+jz %68 ~Y1.E
+jmp ~Y1
+label ~Y1.E
+line 21
+rt %69 func__resize
+cvt.f32.i32 %70 %69
+store.f32 $__SINGLE_X %70
+line 22
+rt sub__autodisplay
+line 23
+const.i32 %71 -1
+cvt.f32.i32 %72 %71
+store.f32 $__SINGLE_FOCUS %72
+line 24
+rt %73 TIMER
+cvt.f32.f64 %74 %73
+store.f32 $__SINGLE_T %74
+line 25
+label ~W5.T
+line 26
+rt %75 func__resize
+jz %75 ~I2.1
+line 26
+const.i32 %76 1
+const.str %77 x726573697A65
+rt PRINTS %76 %77
+rt %78 func__resizewidth
+cvt.i64.i32 %79 %78
+rt PRINTN.i64 %76 %79
+rt %80 func__resizeheight
+cvt.i64.i32 %81 %80
+rt PRINTN.i64 %76 %81
+rt PRINTNL %76
+line 26
+label ~I2.1
+label ~I2.E
+line 27
+rt %82 func__hasfocus
+load.f32 %83 $__SINGLE_FOCUS
+cvt.f32.i32 %84 %82
+ne.f32 %85 %84 %83
+jz %85 ~I3.1
+line 27
+rt %86 func__hasfocus
+cvt.f32.i32 %87 %86
+store.f32 $__SINGLE_FOCUS %87
+line 27
+const.i32 %88 1
+const.str %89 x666F637573
+rt PRINTS %88 %89
+load.f32 %90 $__SINGLE_FOCUS
+rt PRINTN.f32 %88 %90
+rt PRINTNL %88
+line 27
+label ~I3.1
+label ~I3.E
+line 28
+label ~W8.T
+label ~W8.C
+rt %91 func__totaldroppedfiles
+jz %91 ~W8.X
+line 29
+const.i32 %92 1
+const.str %93 x66696C6520
+rt PRINTS %92 %93
+const.i32 %94 0
+const.i32 %95 0
+rt %96 func__droppedfile %94 %95
+rt PRINTS %92 %96
+rt PRINTNL %92
+line 30
+jmp ~W8.C
+label ~W8.X
+line 31
+const.i32 %97 0
+const.i32 %98 0
+rt %99 func__deviceinput %97 %98
+cvt.f32.i32 %100 %99
+store.f32 $__SINGLE_D %100
+line 32
+label ~W10.T
+label ~W10.C
+load.f32 %101 $__SINGLE_D
+const.f32 %102 0
+ne.f32 %103 %101 %102
+jz %103 ~W10.X
+line 33
+load.f32 %104 $__SINGLE_D
+const.i32 %105 1
+cvt.f32.i32 %106 %105
+eq.f32 %107 %104 %106
+jz %107 ~I4.1
+line 35
+const.i32 %108 32
+const.i32 %109 1
+rt %110 func__buttonchange %108 %109
+jz %110 ~I5.1
+line 35
+const.i32 %111 1
+const.str %112 x6B6579
+rt PRINTS %111 %112
+const.i32 %113 32
+const.i32 %114 1
+rt %115 func__button %113 %114
+cvt.i64.i32 %116 %115
+rt PRINTN.i64 %111 %116
+const.i32 %117 32
+const.i32 %118 1
+rt %119 func__buttonchange %117 %118
+cvt.i64.i32 %120 %119
+rt PRINTN.i64 %111 %120
+rt PRINTNL %111
+line 35
+label ~I5.1
+label ~I5.E
+line 36
+label ~I4.1
+label ~I4.E
+line 37
+load.f32 %121 $__SINGLE_D
+const.i32 %122 2
+cvt.f32.i32 %123 %122
+eq.f32 %124 %121 %123
+jz %124 ~I6.1
+line 38
+const.i32 %125 1
+const.i32 %126 1
+rt %127 func__buttonchange %125 %126
+jz %127 ~I7.1
+line 38
+const.i32 %128 1
+const.str %129 x627574746F6E
+rt PRINTS %128 %129
+const.i32 %130 1
+const.i32 %131 1
+rt %132 func__button %130 %131
+cvt.i64.i32 %133 %132
+rt PRINTN.i64 %128 %133
+const.i32 %134 1
+const.i32 %135 1
+rt %136 func__buttonchange %134 %135
+cvt.i64.i32 %137 %136
+rt PRINTN.i64 %128 %137
+rt PRINTNL %128
+line 38
+label ~I7.1
+label ~I7.E
+line 39
+const.i32 %138 3
+const.i32 %139 1
+rt %140 func__wheel %138 %139
+const.i32 %141 0
+cvt.f32.i32 %142 %141
+ne.f32 %143 %140 %142
+jz %143 ~I8.1
+line 39
+const.i32 %144 1
+const.str %145 x776865656C
+rt PRINTS %144 %145
+const.i32 %146 3
+const.i32 %147 1
+rt %148 func__wheel %146 %147
+rt PRINTN.f32 %144 %148
+rt PRINTNL %144
+line 39
+label ~I8.1
+label ~I8.E
+line 40
+const.i32 %149 1
+const.i32 %150 1
+rt %151 func__axis %149 %150
+load.f32 %152 $__SINGLE_AX
+ne.f32 %153 %151 %152
+const.i32 %154 2
+const.i32 %155 1
+rt %156 func__axis %154 %155
+load.f32 %157 $__SINGLE_AY
+ne.f32 %158 %156 %157
+or.i32 %159 %153 %158
+jz %159 ~I9.1
+line 40
+const.i32 %160 1
+const.i32 %161 1
+rt %162 func__axis %160 %161
+store.f32 $__SINGLE_AX %162
+line 40
+const.i32 %163 2
+const.i32 %164 1
+rt %165 func__axis %163 %164
+store.f32 $__SINGLE_AY %165
+line 40
+const.i32 %166 1
+const.str %167 x61786973
+rt PRINTS %166 %167
+load.f32 %168 $__SINGLE_AX
+rt PRINTN.f32 %166 %168
+load.f32 %169 $__SINGLE_AY
+rt PRINTN.f32 %166 %169
+rt PRINTNL %166
+line 40
+label ~I9.1
+label ~I9.E
+line 41
+label ~I6.1
+label ~I6.E
+line 42
+const.i32 %170 0
+const.i32 %171 0
+rt %172 func__deviceinput %170 %171
+cvt.f32.i32 %173 %172
+store.f32 $__SINGLE_D %173
+line 43
+jmp ~W10.C
+label ~W10.X
+line 44
+rt %174 INKEY$
+store.str $__STRING_K %174
+line 45
+const.i32 %175 200
+cvt.f64.i32 %176 %175
+rt sub__limit %176
+line 46
+label ~W5.C
+load.str %177 $__STRING_K
+const.i32 %178 27
+rt %179 CHR$ %178
+eq.str %180 %177 %179
+rt %181 TIMER
+load.f32 %182 $__SINGLE_T
+cvt.f64.f32 %183 %182
+sub.f64 %184 %181 %183
+const.i32 %185 15
+cvt.f64.i32 %186 %185
+gt.f64 %187 %184 %186
+or.i32 %188 %180 %187
+jz %188 ~W5.T
+label ~W5.X
+line 47
+const.i32 %189 1
+const.str %190 x73656C656374
+rt PRINTS %189 %190
+const.i32 %191 2
+const.i32 %192 1
+rt %193 func__deviceinput %191 %192
+cvt.i64.i32 %194 %193
+rt PRINTN.i64 %189 %194
+const.i32 %195 0
+const.i32 %196 0
+rt %197 func__device %195 %196
+rt PRINTS %189 %197
+rt PRINTNL %189
+line 49
+label ~W16.C
+const.i32 %198 0
+const.i32 %199 0
+rt %200 func__mouseinput %198 %199
+jz %200 ~W16.X
+line 49
+jmp ~W16.C
+label ~W16.X
+line 50
+rt %201 func__mousepipeopen
+cvt.f32.i32 %202 %201
+store.f32 $__SINGLE_P %202
+line 51
+const.i32 %203 10
+cvt.f32.i32 %204 %203
+const.i32 %205 20
+cvt.f32.i32 %206 %205
+rt sub__mousemove %204 %206
+line 52
+const.f64 %208 0.2E+0
+rt %207 DELAYBEGIN %208
+label ~Y10
+rt %209 DELAYSTEP %207
+jz %209 ~Y10.E
+jmp ~Y10
+label ~Y10.E
+line 53
+const.i32 %210 0
+cvt.f32.i32 %211 %210
+store.f32 $__SINGLE_N %211
+line 54
+label ~W17.C
+const.i32 %212 0
+const.i32 %213 0
+rt %214 func__mouseinput %212 %213
+jz %214 ~W17.X
+line 54
+load.f32 %215 $__SINGLE_N
+const.i32 %216 1
+cvt.f32.i32 %217 %216
+add.f32 %218 %215 %217
+store.f32 $__SINGLE_N %218
+line 54
+jmp ~W17.C
+label ~W17.X
+line 55
+const.i32 %219 1
+const.str %220 x64656661756C74
+rt PRINTS %219 %220
+load.f32 %221 $__SINGLE_N
+rt PRINTN.f32 %219 %221
+rt PRINTNL %219
+line 56
+const.i32 %222 0
+cvt.f32.i32 %223 %222
+store.f32 $__SINGLE_N %223
+line 57
+label ~W19.C
+load.f32 %224 $__SINGLE_P
+cvt.i32.f32 %225 %224
+const.i32 %226 1
+rt %227 func__mouseinput %225 %226
+jz %227 ~W19.X
+line 58
+load.f32 %228 $__SINGLE_N
+const.i32 %229 1
+cvt.f32.i32 %230 %229
+add.f32 %231 %228 %230
+store.f32 $__SINGLE_N %231
+line 59
+load.f32 %232 $__SINGLE_N
+const.i32 %233 1
+cvt.f32.i32 %234 %233
+eq.f32 %235 %232 %234
+jz %235 ~I11.1
+line 59
+load.f32 %236 $__SINGLE_P
+cvt.i32.f32 %237 %236
+const.i32 %238 1
+rt %239 func__mousemovementx %237 %238
+store.f32 $__SINGLE_MX %239
+line 59
+load.f32 %240 $__SINGLE_P
+cvt.i32.f32 %241 %240
+const.i32 %242 1
+rt %243 func__mousemovementy %241 %242
+store.f32 $__SINGLE_MY %243
+line 59
+label ~I11.1
+label ~I11.E
+line 60
+load.f32 %244 $__SINGLE_P
+cvt.i32.f32 %245 %244
+rt sub__mouseinputpipe %245
+line 61
+jmp ~W19.C
+label ~W19.X
+line 62
+const.i32 %246 1
+const.str %247 x70697065
+rt PRINTS %246 %247
+load.f32 %248 $__SINGLE_N
+rt PRINTN.f32 %246 %248
+load.f32 %249 $__SINGLE_P
+cvt.i32.f32 %250 %249
+const.i32 %251 1
+rt %252 func__mousex %250 %251
+rt PRINTN.f32 %246 %252
+load.f32 %253 $__SINGLE_P
+cvt.i32.f32 %254 %253
+const.i32 %255 1
+rt %256 func__mousey %254 %255
+rt PRINTN.f32 %246 %256
+load.f32 %257 $__SINGLE_MX
+rt PRINTN.f32 %246 %257
+load.f32 %258 $__SINGLE_MY
+rt PRINTN.f32 %246 %258
+rt PRINTNL %246
+line 63
+const.i32 %259 0
+cvt.f32.i32 %260 %259
+store.f32 $__SINGLE_N %260
+line 64
+label ~W21.C
+const.i32 %261 0
+const.i32 %262 0
+rt %263 func__mouseinput %261 %262
+jz %263 ~W21.X
+line 64
+load.f32 %264 $__SINGLE_N
+const.i32 %265 1
+cvt.f32.i32 %266 %265
+add.f32 %267 %264 %266
+store.f32 $__SINGLE_N %267
+line 64
+jmp ~W21.C
+label ~W21.X
+line 65
+const.i32 %268 1
+const.str %269 x68616E646564206F6E
+rt PRINTS %268 %269
+load.f32 %270 $__SINGLE_N
+rt PRINTN.f32 %268 %270
+const.i32 %271 0
+const.i32 %272 0
+rt %273 func__mousex %271 %272
+rt PRINTN.f32 %268 %273
+const.i32 %274 0
+const.i32 %275 0
+rt %276 func__mousey %274 %275
+rt PRINTN.f32 %268 %276
+rt PRINTNL %268
+line 66
+load.f32 %277 $__SINGLE_P
+cvt.i32.f32 %278 %277
+rt sub__mousepipeclose %278
+line 67
+const.i32 %279 30
+cvt.f32.i32 %280 %279
+const.i32 %281 40
+cvt.f32.i32 %282 %281
+rt sub__mousemove %280 %282
+line 68
+const.f64 %284 0.2E+0
+rt %283 DELAYBEGIN %284
+label ~Y12
+rt %285 DELAYSTEP %283
+jz %285 ~Y12.E
+jmp ~Y12
+label ~Y12.E
+line 69
+label ~W23.C
+const.i32 %286 0
+const.i32 %287 0
+rt %288 func__mouseinput %286 %287
+jz %288 ~W23.X
+line 69
+jmp ~W23.C
+label ~W23.X
+line 70
+const.i32 %289 1
+const.str %290 x636C6F736564
+rt PRINTS %289 %290
+const.i32 %291 0
+const.i32 %292 0
+rt %293 func__mousex %291 %292
+rt PRINTN.f32 %289 %293
+const.i32 %294 0
+const.i32 %295 0
+rt %296 func__mousey %294 %295
+rt PRINTN.f32 %289 %296
+rt PRINTNL %289
+line 71
+load.f32 %297 $__SINGLE_P
+cvt.i32.f32 %298 %297
+const.i32 %299 1
+rt %300 func__mousex %298 %299
+store.f32 $__SINGLE_X %300
+line 72
+const.i32 %301 320
+cvt.f32.i32 %302 %301
+const.i32 %303 0
+cvt.f32.i32 %304 %303
+rt sub__mousemove %302 %304
+line 73
+const.i32 %305 2
+const.i32 %306 0
+const.i32 %307 0
+rt sub__resize %305 %306 %307
+line 74
+const.i32 %308 1
+const.str %309 x6F6666
+rt PRINTS %308 %309
+rt %310 func__resize
+cvt.i64.i32 %311 %310
+rt PRINTN.i64 %308 %311
+rt PRINTNL %308
+line 75
+const.i32 %312 1
+rt CLOSE %312
+line 76
+system
+label L_OOPS
+line 78
+const.i32 %313 1
+const.str %314 x6572726F72
+rt PRINTS %313 %314
+rt %315 ERR
+cvt.i64.i32 %316 %315
+rt PRINTN.i64 %313 %316
+rt PRINTNL %313
+line 79
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

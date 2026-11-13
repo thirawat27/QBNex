@@ -1,0 +1,23 @@
+-1 -1 -1 -1 -1 
+-1 
+output 2 
+input 1 
+append 8 
+random 4 
+binary 32 -1 
+error 5 
+error 52 
+error 5 
+error 5 
+error 52 
+lock
+error 52 
+pen
+ 0  0 
+error 5 
+com
+error 5 
+unicode 65  9786 
+ 8364 
+error 5 
+end

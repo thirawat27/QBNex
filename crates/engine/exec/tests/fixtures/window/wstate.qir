@@ -1,0 +1,278 @@
+QIR 1
+global $__SINGLE_T f32
+global $__SINGLE_X f32
+datalabel L_OOPS
+func main
+line 3
+const.i32 %0 12
+const.i32 %1 0
+const.i32 %2 0
+const.i32 %3 0
+const.i32 %4 0
+const.i32 %5 1
+rt qbg_screen %0 %1 %2 %3 %4 %5
+line 4
+const.str %6 x73746174652E747874
+const.i32 %7 1
+const.i32 %8 0
+const.i32 %9 2
+rt OPEN %6 %9 %7 %8
+line 5
+const.f64 %11 0.3E+0
+rt %10 DELAYBEGIN %11
+label ~Y1
+rt %12 DELAYSTEP %10
+jz %12 ~Y1.E
+jmp ~Y1
+label ~Y1.E
+line 6
+const.i32 %13 1
+const.str %14 x657869737473
+rt PRINTS %13 %14
+rt %15 func_windowexists
+cvt.i64.i32 %16 %15
+rt PRINTN.i64 %13 %16
+rt PRINTNL %13
+line 7
+const.i32 %17 1
+const.str %18 x6465736B746F70
+rt PRINTS %17 %18
+rt %19 func_screenwidth
+cvt.i64.i32 %20 %19
+rt PRINTN.i64 %17 %20
+rt %21 func_screenheight
+cvt.i64.i32 %22 %21
+rt PRINTN.i64 %17 %22
+rt PRINTNL %17
+line 8
+const.i32 %23 1
+const.str %24 x7363616C6564
+rt PRINTS %23 %24
+rt %25 func__scaledwidth
+cvt.i64.i32 %26 %25
+rt PRINTN.i64 %23 %26
+rt %27 func__scaledheight
+cvt.i64.i32 %28 %27
+rt PRINTN.i64 %23 %28
+rt PRINTNL %23
+line 9
+const.i32 %29 30
+const.i32 %30 40
+const.i32 %31 2
+rt sub__screenmove %29 %30 %31
+line 10
+const.f64 %33 0.3E+0
+rt %32 DELAYBEGIN %33
+label ~Y2
+rt %34 DELAYSTEP %32
+jz %34 ~Y2.E
+jmp ~Y2
+label ~Y2.E
+line 11
+const.i32 %35 1
+const.str %36 x6174
+rt PRINTS %35 %36
+rt %37 func__screenx
+cvt.i64.i32 %38 %37
+rt PRINTN.i64 %35 %38
+rt %39 func__screeny
+cvt.i64.i32 %40 %39
+rt PRINTN.i64 %35 %40
+rt PRINTNL %35
+line 12
+const.i32 %41 0
+const.i32 %42 0
+const.i32 %43 1
+rt sub__screenmove %41 %42 %43
+line 13
+const.f64 %45 0.3E+0
+rt %44 DELAYBEGIN %45
+label ~Y3
+rt %46 DELAYSTEP %44
+jz %46 ~Y3.E
+jmp ~Y3
+label ~Y3.E
+line 14
+const.i32 %47 1
+const.str %48 x6D6964646C65
+rt PRINTS %47 %48
+rt %49 func__screenx
+cvt.i64.i32 %50 %49
+rt PRINTN.i64 %47 %50
+rt %51 func__screeny
+cvt.i64.i32 %52 %51
+rt PRINTN.i64 %47 %52
+rt PRINTNL %47
+line 15
+const.i32 %53 1
+const.str %54 x68696464656E
+rt PRINTS %53 %54
+rt %55 func__screenhide
+cvt.i64.i32 %56 %55
+rt PRINTN.i64 %53 %56
+line 16
+rt sub__screenhide
+line 17
+const.i32 %57 1
+rt %58 func__screenhide
+cvt.i64.i32 %59 %58
+rt PRINTN.i64 %57 %59
+line 18
+rt sub__screenshow
+line 19
+const.i32 %60 1
+rt %61 func__screenhide
+cvt.i64.i32 %62 %61
+rt PRINTN.i64 %60 %62
+rt PRINTNL %60
+line 20
+const.i32 %63 1
+const.str %64 x69636F6E
+rt PRINTS %63 %64
+rt %65 func_screenicon
+cvt.i64.i32 %66 %65
+rt PRINTN.i64 %63 %66
+line 21
+rt sub_screenicon
+line 22
+const.f64 %68 0.3E+0
+rt %67 DELAYBEGIN %68
+label ~Y4
+rt %69 DELAYSTEP %67
+jz %69 ~Y4.E
+jmp ~Y4
+label ~Y4.E
+line 23
+const.i32 %70 1
+rt %71 func_screenicon
+cvt.i64.i32 %72 %71
+rt PRINTN.i64 %70 %72
+rt PRINTNL %70
+line 24
+const.i32 %73 1
+const.str %74 x66756C6C
+rt PRINTS %73 %74
+rt %75 func__fullscreen
+cvt.i64.i32 %76 %75
+rt PRINTN.i64 %73 %76
+rt %77 func__fullscreensmooth
+cvt.i64.i32 %78 %77
+rt PRINTN.i64 %73 %78
+line 25
+const.i32 %79 3
+const.i32 %80 1
+rt sub__fullscreen %79 %80
+line 26
+const.i32 %81 1
+rt %82 func__fullscreen
+cvt.i64.i32 %83 %82
+rt PRINTN.i64 %81 %83
+rt %84 func__fullscreensmooth
+cvt.i64.i32 %85 %84
+rt PRINTN.i64 %81 %85
+line 27
+const.i32 %86 0
+const.i32 %87 0
+rt sub__fullscreen %86 %87
+line 28
+const.i32 %88 1
+rt %89 func__fullscreen
+cvt.i64.i32 %90 %89
+rt PRINTN.i64 %88 %90
+rt %91 func__fullscreensmooth
+cvt.i64.i32 %92 %91
+rt PRINTN.i64 %88 %92
+line 29
+const.i32 %93 1
+const.i32 %94 0
+rt sub__fullscreen %93 %94
+line 30
+const.i32 %95 1
+rt %96 func__fullscreen
+cvt.i64.i32 %97 %96
+rt PRINTN.i64 %95 %97
+rt PRINTNL %95
+line 31
+onerror L_OOPS
+line 32
+const.i32 %98 0
+const.i32 %99 0
+const.i32 %100 0
+rt sub__screenmove %98 %99 %100
+line 33
+onerror 0
+line 35
+const.i32 %101 1
+const.str %102 x65786974
+rt PRINTS %101 %102
+rt %103 func__exit
+cvt.i64.i32 %104 %103
+rt PRINTN.i64 %101 %104
+rt PRINTNL %101
+line 36
+rt %105 TIMER
+cvt.f32.f64 %106 %105
+store.f32 $__SINGLE_T %106
+line 37
+label ~W16.T
+line 38
+rt %107 func__exit
+cvt.f32.i32 %108 %107
+store.f32 $__SINGLE_X %108
+line 39
+const.i32 %109 100
+cvt.f64.i32 %110 %109
+rt sub__limit %110
+line 40
+label ~W16.C
+load.f32 %111 $__SINGLE_X
+const.i32 %112 0
+cvt.f32.i32 %113 %112
+ne.f32 %114 %111 %113
+rt %115 TIMER
+load.f32 %116 $__SINGLE_T
+cvt.f64.f32 %117 %116
+sub.f64 %118 %115 %117
+const.i32 %119 10
+cvt.f64.i32 %120 %119
+gt.f64 %121 %118 %120
+or.i32 %122 %114 %121
+jz %122 ~W16.T
+label ~W16.X
+line 41
+const.i32 %123 1
+const.str %124 x72657175657374
+rt PRINTS %123 %124
+load.f32 %125 $__SINGLE_X
+rt PRINTN.f32 %123 %125
+rt %126 func__exit
+cvt.i64.i32 %127 %126
+rt PRINTN.i64 %123 %127
+rt PRINTNL %123
+line 42
+const.i32 %128 1
+rt CLOSE %128
+line 43
+system
+label L_OOPS
+line 45
+const.i32 %129 1
+const.str %130 x6572726F72
+rt PRINTS %129 %130
+rt %131 ERR
+cvt.i64.i32 %132 %131
+rt PRINTN.i64 %129 %132
+rt PRINTNL %129
+line 46
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

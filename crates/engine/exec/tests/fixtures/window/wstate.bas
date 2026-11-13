@@ -1,0 +1,46 @@
+' Window statements and the functions that read them back. Headless, the window is
+' as large as the page and stands on a 1920x1080 desktop.
+SCREEN 12
+OPEN "state.txt" FOR OUTPUT AS #1
+_DELAY .3
+PRINT #1, "exists"; _SCREENEXISTS
+PRINT #1, "desktop"; _DESKTOPWIDTH; _DESKTOPHEIGHT
+PRINT #1, "scaled"; _SCALEDWIDTH; _SCALEDHEIGHT
+_SCREENMOVE 30, 40
+_DELAY .3
+PRINT #1, "at"; _SCREENX; _SCREENY
+_SCREENMOVE _MIDDLE
+_DELAY .3
+PRINT #1, "middle"; _SCREENX; _SCREENY
+PRINT #1, "hidden"; _SCREENHIDE;
+_SCREENHIDE
+PRINT #1, _SCREENHIDE;
+_SCREENSHOW
+PRINT #1, _SCREENHIDE
+PRINT #1, "icon"; _SCREENICON;
+_SCREENICON
+_DELAY .3
+PRINT #1, _SCREENICON
+PRINT #1, "full"; _FULLSCREEN; _SMOOTH;
+_FULLSCREEN _SQUAREPIXELS , _SMOOTH
+PRINT #1, _FULLSCREEN; _SMOOTH;
+_FULLSCREEN
+PRINT #1, _FULLSCREEN; _SMOOTH;
+_FULLSCREEN _OFF
+PRINT #1, _FULLSCREEN
+ON ERROR GOTO oops
+_SCREENMOVE
+ON ERROR GOTO 0
+' _EXIT: from the first call on the close box no longer ends the program
+PRINT #1, "exit"; _EXIT
+t! = TIMER
+DO
+    x = _EXIT
+    _LIMIT 100
+LOOP UNTIL x <> 0 OR TIMER - t! > 10
+PRINT #1, "request"; x; _EXIT
+CLOSE #1
+SYSTEM
+oops:
+PRINT #1, "error"; ERR
+RESUME NEXT

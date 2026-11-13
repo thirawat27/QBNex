@@ -1,0 +1,12 @@
+cells 61  67  128 
+around 0  0  0  0 
+keep 28  28  0  1  1 
+image-1 -1 
+error 258 
+text 116  116  7  9 
+screen 64000  1  9  12 
+image 2048  4 -1 
+freed 0 
+error 258 
+desktop-1 -1  4 
+end

@@ -241,6 +241,86 @@ fn int33_mouse_through_call_absolute() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// _SCREENMOVE, _SCREENHIDE, _SCREENICON, _FULLSCREEN and the functions that read the
+/// window back; after the first _EXIT the close box is a request the program reads.
+#[test]
+fn window_statements_and_exit_requests() {
+    let dir = tmpdir("wstate");
+    let (code, out) = run(&dir, &fixture("wstate.qir"), "wait 4000\nclose\n");
+    assert_eq!(code, Some(0), "{out}");
+    let t = std::fs::read_to_string(dir.join("state.txt")).unwrap();
+    let lines: Vec<&str> = t.lines().map(str::trim_end).collect();
+    assert_eq!(
+        lines,
+        [
+            "exists-1",
+            "desktop 1920  1080",
+            "scaled 640  480",
+            "at 30  40",
+            // (1920 - 640) / 2, (1080 - 480) / 2
+            "middle 640  300",
+            "hidden 0 -1  0",
+            "icon 0 -1",
+            // off; square pixels, smooth; stretched (the default); off
+            "full 0  0  2 -1  1  0  0",
+            // _SCREENMOVE without a position
+            "error 5",
+            "exit 0",
+            // the close box once, then nothing pending
+            "request 1  0",
+        ]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A resize, focus changes, a dropped file, the keyboard and the mouse as devices, mouse pipes.
+#[test]
+fn window_events_devices_and_mouse_pipes() {
+    let dir = tmpdir("wevents");
+    let script = "wait 1500\nresize 400 300\nwait 200\nfocus 0\nwait 200\nfocus 1\nwait 200\ndrop C:\\tmp\\one file.txt\nwait 200\n\
+                  mousemove 319 199\nwait 200\nmousedown 1\nwait 200\nmouseup 1\nwait 200\nwheel -1\nwait 200\nkey s\nwait 200\nkey esc\n";
+    let (code, out) = run(&dir, &fixture("wevents.qir"), script);
+    assert_eq!(code, Some(0), "{out}");
+    let t = std::fs::read_to_string(dir.join("events.txt")).unwrap();
+    let lines: Vec<&str> = t.lines().map(str::trim_end).collect();
+    assert_eq!(
+        lines,
+        [
+            "drop-1  0",
+            "devices 2 [KEYBOARD][BUTTON] [MOUSE][BUTTON][AXIS][WHEEL]",
+            "last 512  3  2  3",
+            // the headless stand-in has no native window
+            "handle 0",
+            // _FPS 0, an unknown pointer shape
+            "error 5",
+            "error 5",
+            "resize 400  300",
+            "focus 0",
+            "focus-1",
+            "file C:\\tmp\\one file.txt",
+            // the bottom right pixel of the 320x200 page
+            "axis 1  1",
+            "button-1 -1",
+            "button 0  1",
+            "wheel-1",
+            "key-1 -1",
+            "key 0  1",
+            // no further mouse event; the device stays selected
+            "select 0 [MOUSE][BUTTON][AXIS][WHEEL]",
+            // _MOUSEMOVE 10, 20 with a pipe open: nothing for the default queue until the pipe hands it on
+            "default 0",
+            "pipe 2  10  20  10  20",
+            "handed on 2  10  20",
+            "closed 30  40",
+            // a closed pipe; _MOUSEMOVE outside the page
+            "error 258",
+            "error 5",
+            "off 0",
+        ]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Q13: a CALL ABSOLUTE that fails gives its argument space back (no panic after many calls).
 #[test]
 fn failing_call_absolute_does_not_leak_argument_space() {
