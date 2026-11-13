@@ -3,7 +3,6 @@ FUNCTION allocarray (n2$, elements$, elementsize, udt)
 
     IF autoarray = 1 THEN autoarray = 0: autoary = 1 'clear global value & set local value
 
-    f12$ = ""
 
     'changelog:
     'added 4 to [2] to indicate cmem array where appropriate
@@ -143,10 +142,6 @@ IF arraydesc THEN
 END IF
 
 
-
-
-
-
 bytesperelement$ = str2(elementsize)
 IF elementsize < 0 THEN
     elementsize = -elementsize
@@ -156,7 +151,6 @@ END IF
 
 'Begin creation of array descriptor (if array has not been defined yet)
 IF arraydesc = 0 THEN
-    PRINT #defdatahandle, "ptrszint *" + n$ + "=NULL;"
     'create _MEM lock
 END IF
 
@@ -168,7 +162,6 @@ FOR i = 1 TO nume
 NEXT
 elesizestr$ = sizestr$ 'elements in entire array
 sizestr$ = sizestr$ + "*" + bytesperelement$ 'bytes in entire array
-
 
 
 '------------------STATIC ARRAY CREATION--------------------------------
@@ -195,7 +188,6 @@ IF staticarray THEN
     END IF
 
     IF udt > 0 AND udtxvariable(udt) THEN
-        initialise_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
     END IF
 
     'Close static array desc
@@ -209,19 +201,12 @@ IF staticarray = 0 THEN
     IF undefined = 0 THEN
 
 
-
         'Generate error if array is static
-        f12$ = f12$ + CRLF + "if (" + n$ + "[2]&2){" 'static array
-        f12$ = f12$ + CRLF + "error(10);" 'cannot redefine a static array!
-        f12$ = f12$ + CRLF + "}else{"
         'Note: Array is either undefined or dynamically defined at this point
 
 
         'REDIM (not DIM) must be used to redefine an array
         IF redimoption = 0 THEN
-            f12$ = f12$ + CRLF + "if (" + n$ + "[2]&1){" 'array is defined
-            f12$ = f12$ + CRLF + "if (!error_occurred) error(10);" 'cannot redefine an array without using REDIM!
-            f12$ = f12$ + CRLF + "}else{"
         ELSE
             '--------ERASE EXISTING ARRAY IF NECESSARY--------
 
@@ -229,51 +214,33 @@ IF staticarray = 0 THEN
             '           creating the new array for memory considerations
 
             'refresh lock ID (_MEM)
-            f12$ = f12$ + CRLF + "((mem_lock*)((ptrszint*)" + n$ + ")[" + str2(4 * nume + 4 + 1 - 1) + "])->id=(++mem_lock_id);"
 
             IF redimoption = 2 THEN
-                f12$ = f12$ + CRLF + "static int32 preserved_elements;" 'must be put here for scope considerations
             END IF
 
             'If array is defined, it must be destroyed first
-            f12$ = f12$ + CRLF + "if (" + n$ + "[2]&1){" 'array is defined
 
             IF redimoption = 2 THEN
-                f12$ = f12$ + CRLF + "preserved_elements=" + elesizestr$ + ";"
                 GOTO skiperase
             END IF
 
             'Note: pointers to strings must be freed before array can be freed
             IF stringarray THEN
-                f12$ = f12$ + CRLF + "tmp_long=" + elesizestr$ + ";"
-                f12$ = f12$ + CRLF + "while(tmp_long--) qbs_free((qbs*)((uint64*)(" + n$ + "[0]))[tmp_long]);"
             END IF
             'As must any variable length strings in UDT's
             IF udt > 0 AND udtxvariable(udt) THEN
-                f12$ = f12$ + CRLF + "tmp_long=" + elesizestr$ + ";"
-                f12$ = f12$ + CRLF + "while(tmp_long--) {"
-                free_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-                f12$ = f12$ + acc$ + "}"
             END IF
 
             'Free array's memory
             IF stringarray THEN
                 'Note: String arrays are never in cmem
-                f12$ = f12$ + CRLF + "free((void*)(" + n$ + "[0]));"
             ELSE
                 'Note: Array may be in cmem!
-                f12$ = f12$ + CRLF + "if (" + n$ + "[2]&4){" 'array is in cmem
-                f12$ = f12$ + CRLF + "cmem_dynamic_free((uint8*)(" + n$ + "[0]));"
-                f12$ = f12$ + CRLF + "}else{" 'not in cmem
-                f12$ = f12$ + CRLF + "free((void*)(" + n$ + "[0]));"
-                f12$ = f12$ + CRLF + "}"
             END IF
 
             skiperase:
 
-            f12$ = f12$ + CRLF + "}" 'array was defined
             IF redimoption = 2 THEN
-                f12$ = f12$ + CRLF + "else preserved_elements=0;" 'if array wasn't defined, no elements are preserved
             END IF
 
 
@@ -283,82 +250,39 @@ IF staticarray = 0 THEN
 
         '--------CREATE ARRAY & CLEAN-UP CODE--------
         'Overwrite existing array dimension sizes/ranges
-        f12$ = f12$ + CRLF + sd$
         IF stringarray OR ((udt > 0) AND udtxvariable(udt)) THEN
 
             'Note: String and variable-length udt arrays are always created in 64bit memory
 
             IF redimoption = 2 THEN
-                f12$ = f12$ + CRLF + "if (preserved_elements){"
 
-                f12$ = f12$ + CRLF + "static ptrszint tmp_long2;"
 
                 'free any qbs strings which will be lost in the realloc
-                f12$ = f12$ + CRLF + "tmp_long2=" + elesizestr$ + ";"
-                f12$ = f12$ + CRLF + "if (tmp_long2<preserved_elements){"
-                f12$ = f12$ + CRLF + "for(tmp_long=tmp_long2;tmp_long<preserved_elements;tmp_long++) {"
                 IF stringarray THEN
-                    f12$ = f12$ + CRLF + "qbs_free((qbs*)((uint64*)(" + n$ + "[0]))[tmp_long]);"
                 ELSE
-                    acc$ = ""
-                    free_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-                    f12$ = f12$ + acc$
                 END IF
-                f12$ = f12$ + CRLF + "}}"
                 'reallocate the array
-                f12$ = f12$ + CRLF + n$ + "[0]=(ptrszint)realloc((void*)(" + n$ + "[0]),tmp_long2*" + bytesperelement$ + ");"
-                f12$ = f12$ + CRLF + "if (!" + n$ + "[0]) error(257);" 'not enough memory
-                f12$ = f12$ + CRLF + "if (preserved_elements<tmp_long2){"
-                f12$ = f12$ + CRLF + "for(tmp_long=preserved_elements;tmp_long<tmp_long2;tmp_long++){"
                 IF stringarray THEN
-                    f12$ = f12$ + CRLF + "if (" + n$ + "[2]&4){" 'array is in cmem
-                    f12$ = f12$ + CRLF + "((uint64*)(" + n$ + "[0]))[tmp_long]=(uint64)qbs_new_cmem(0,0);"
-                    f12$ = f12$ + CRLF + "}else{" 'not in cmem
-                    f12$ = f12$ + CRLF + "((uint64*)(" + n$ + "[0]))[tmp_long]=(uint64)qbs_new(0,0);"
-                    f12$ = f12$ + CRLF + "}" 'not in cmem
                 ELSE
-                    acc$ = ""
-                    initialise_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-                    f12$ = f12$ + acc$
                 END IF
-                f12$ = f12$ + CRLF + "}"
-                f12$ = f12$ + CRLF + "}"
 
-                f12$ = f12$ + CRLF + "}else{"
             END IF
 
             '1. Create array
-            f12$ = f12$ + CRLF + n$ + "[0]=(ptrszint)malloc(" + sizestr$ + ");"
-            f12$ = f12$ + CRLF + "if (!" + n$ + "[0]) error(257);" 'not enough memory
-            f12$ = f12$ + CRLF + n$ + "[2]|=1;" 'ADD initialized flag
-            f12$ = f12$ + CRLF + "tmp_long=" + elesizestr$ + ";"
 
 
             'init individual strings
             IF stringarray THEN
-                f12$ = f12$ + CRLF + "if (" + n$ + "[2]&4){" 'array is in cmem
-                f12$ = f12$ + CRLF + "while(tmp_long--) ((uint64*)(" + n$ + "[0]))[tmp_long]=(uint64)qbs_new_cmem(0,0);"
-                f12$ = f12$ + CRLF + "}else{" 'not in cmem
-                f12$ = f12$ + CRLF + "while(tmp_long--) ((uint64*)(" + n$ + "[0]))[tmp_long]=(uint64)qbs_new(0,0);"
-                f12$ = f12$ + CRLF + "}" 'not in cmem
             ELSE 'initialise udt's
-                f12$ = f12$ + CRLF + "while(tmp_long--){"
-                acc$ = ""
-                initialise_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-                f12$ = f12$ + acc$ + "}"
             END IF
 
             IF redimoption = 2 THEN
-                f12$ = f12$ + CRLF + "}"
             END IF
 
 
             '2. Generate "clean up" code (called when EXITING A SUB/FUNCTION)
             IF arraydesc = 0 THEN 'only add for first declaration of the array
             IF udt > 0 AND udtxvariable(udt) THEN
-                acc$ = ""
-                free_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-            ELSE
             END IF
             'free lock (_MEM)
         END IF
@@ -367,55 +291,31 @@ IF staticarray = 0 THEN
     ELSE 'not string/var-udt array
 
         '1. Create array
-        f12$ = f12$ + CRLF + "if (" + n$ + "[2]&4){" 'array will be in cmem
 
         IF redimoption = 2 THEN
-            f12$ = f12$ + CRLF + "if (preserved_elements){"
 
             'reallocation method
             'backup data
-            f12$ = f12$ + CRLF + "memcpy(redim_preserve_cmem_buffer,(void*)(" + n$ + "[0]),preserved_elements*" + bytesperelement$ + ");"
             'free old array
-            f12$ = f12$ + CRLF + "cmem_dynamic_free((uint8*)(" + n$ + "[0]));"
-            f12$ = f12$ + CRLF + "tmp_long=" + elesizestr$ + ";"
-            f12$ = f12$ + CRLF + n$ + "[0]=(ptrszint)cmem_dynamic_malloc(tmp_long*" + bytesperelement$ + ");"
-            f12$ = f12$ + CRLF + "memcpy((void*)(" + n$ + "[0]),redim_preserve_cmem_buffer,preserved_elements*" + bytesperelement$ + ");"
-            f12$ = f12$ + CRLF + "if (preserved_elements<tmp_long) ZeroMemory(((uint8*)(" + n$ + "[0]))+preserved_elements*" + bytesperelement$ + ",(tmp_long*" + bytesperelement$ + ")-(preserved_elements*" + bytesperelement$ + "));"
 
-            f12$ = f12$ + CRLF + "}else{"
         END IF
 
         'standard cmem method
-        f12$ = f12$ + CRLF + n$ + "[0]=(ptrszint)cmem_dynamic_malloc(" + sizestr$ + ");"
         'clear array
-        f12$ = f12$ + CRLF + "memset((void*)(" + n$ + "[0]),0," + sizestr$ + ");"
 
         IF redimoption = 2 THEN
-            f12$ = f12$ + CRLF + "}"
         END IF
 
 
-        f12$ = f12$ + CRLF + "}else{" 'not in cmem
 
         IF redimoption = 2 THEN
-            f12$ = f12$ + CRLF + "if (preserved_elements){"
             'reallocation method
-            f12$ = f12$ + CRLF + "tmp_long=" + elesizestr$ + ";"
-            f12$ = f12$ + CRLF + n$ + "[0]=(ptrszint)realloc((void*)(" + n$ + "[0]),tmp_long*" + bytesperelement$ + ");"
-            f12$ = f12$ + CRLF + "if (!" + n$ + "[0]) error(257);" 'not enough memory
-            f12$ = f12$ + CRLF + "if (preserved_elements<tmp_long) ZeroMemory(((uint8*)(" + n$ + "[0]))+preserved_elements*" + bytesperelement$ + ",(tmp_long*" + bytesperelement$ + ")-(preserved_elements*" + bytesperelement$ + "));"
 
-            f12$ = f12$ + CRLF + "}else{"
         END IF
         'standard allocation method
-        f12$ = f12$ + CRLF + n$ + "[0]=(ptrszint)calloc(" + sizestr$ + ",1);"
-        f12$ = f12$ + CRLF + "if (!" + n$ + "[0]) error(257);" 'not enough memory
         IF redimoption = 2 THEN
-            f12$ = f12$ + CRLF + "}"
         END IF
 
-        f12$ = f12$ + CRLF + "}" 'not in cmem
-        f12$ = f12$ + CRLF + n$ + "[2]|=1;" 'ADD initialized flag
 
         '2. Generate "clean up" code (called when EXITING A SUB/FUNCTION)
         IF arraydesc = 0 THEN 'only add for first declaration of the array
@@ -428,7 +328,6 @@ END IF 'undefined=0
 '----FINISH ARRAY DESCRIPTOR IF DEFINING FOR THE FIRST TIME----
 IF arraydesc = 0 THEN
     'Note: Array is init as undefined (& possibly a cmem flag)
-    IF cmem THEN PRINT #13, n$ + "[2]=4;" ELSE PRINT #13, n$ + "[2]=0;"
     'set dimensions as undefined
     FOR i = 1 TO nume
         b = i * 4
@@ -443,7 +342,6 @@ END IF 'arraydesc = 0
 IF undefined = 0 THEN
 
     IF redimoption = 0 THEN f12$ = f12$ + CRLF + "}" 'if REDIM not specified the above is conditional
-    f12$ = f12$ + CRLF + "}" 'not static
 
 END IF 'undefined=0
 
@@ -454,7 +352,6 @@ END IF
 
 IF autoary = 0 THEN
     IF dimoption = 3 THEN 'STATIC a(100) puts creation code in main
-ELSE
 END IF
 END IF
 
@@ -556,9 +453,6 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
     IF dimstatic <> 0 AND dimshared = 0 THEN
         'name will have include the sub/func name in its scope
         'variable/array will be created in main on startup
-        defdatahandle = 18 'change from 13 to 18(global.txt)
-        CLOSE #13: OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #13
-        CLOSE #19: OPEN tmpdir$ + "mainfree.txt" FOR APPEND AS #19
     END IF
 
 
@@ -642,7 +536,6 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
             bytes = bytes + 1
         END IF
         n$ = scope2$ + n$
-        IF f THEN PRINT #defdatahandle, "void *" + n$ + "=NULL;"
         clearid
         id.n = cvarname$
         id.t = UDTTYPE + i
@@ -651,8 +544,6 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
         ELSE
             IF f THEN
                 IF udtxvariable(i) THEN
-                    initialise_udt_varstrings n$, i, 13, 0
-                    free_udt_varstrings n$, i, 19, 0
                 END IF
             END IF
         END IF
@@ -798,25 +689,13 @@ IF LEFT$(typ$, 6) = "STRING" THEN
 
     'standard fixed length string
     n$ = scope2$ + n$
-    IF f THEN PRINT #defdatahandle, "qbs *" + n$ + "=NULL;"
-    IF f THEN PRINT #19, "qbs_free(" + n$ + ");" 'so descriptor can be freed
     clearid
     id.n = cvarname$
     id.t = STRINGTYPE + ISFIXEDLENGTH
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f THEN PRINT #13, "if(" + n$ + "==NULL){"
-        IF f THEN PRINT #13, "cmem_sp-=" + str2(bytes) + ";"
-        IF f THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-        IF f THEN PRINT #13, n$ + "=qbs_new_fixed((uint8*)(dblock+cmem_sp)," + str2(bytes) + ",0);"
-        IF f THEN PRINT #13, "memset(" + n$ + "->chr,0," + str2(bytes) + ");"
-        IF f THEN PRINT #13, "}"
     ELSE
-        IF f THEN PRINT #13, "if(" + n$ + "==NULL){"
         o$ = "(uint8*)mem_static_malloc(" + str2$(bytes) + ")"
-        IF f THEN PRINT #13, n$ + "=qbs_new_fixed(" + o$ + "," + str2$(bytes) + ",0);"
-        IF f THEN PRINT #13, "memset(" + n$ + "->chr,0," + str2$(bytes) + ");"
-        IF f THEN PRINT #13, "}"
     END IF
     id.tsize = bytes
     IF method = 0 THEN
@@ -904,14 +783,8 @@ clearid
 id.n = cvarname$
 id.t = STRINGTYPE
 IF cmemlist(idn + 1) THEN
-    IF f THEN PRINT #defdatahandle, "qbs *" + n$ + "=NULL;"
-    IF f THEN PRINT #13, "if (!" + n$ + ")" + n$ + "=qbs_new_cmem(0,0);"
     id.t = id.t + ISINCONVENTIONALMEMORY
-ELSE
-    IF f THEN PRINT #defdatahandle, "qbs *" + n$ + "=NULL;"
-    IF f THEN PRINT #13, "if (!" + n$ + ")" + n$ + "=qbs_new(0,0);"
 END IF
-IF f THEN PRINT #19, "qbs_free(" + n$ + ");"
 IF method = 0 THEN
     id.mayhave = "$"
 END IF
@@ -1009,7 +882,6 @@ IF LEFT$(typ$, 4) = "_BIT" OR (LEFT$(typ$, 3) = "BIT" AND qbnexprefix_set = 1) T
 END IF
 'standard bit-length variable
 n$ = scope2$ + n$
-PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
 clearid
 id.n = cvarname$
 id.t = BITTYPE - 1 + bits + ISINCONVENTIONALMEMORY: IF unsgn THEN id.t = id.t + ISUNSIGNED
@@ -1086,18 +958,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = BYTETYPE: IF unsgn THEN id.t = id.t + ISUNSIGNED
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=1;"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(1);"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1170,18 +1033,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = INTEGERTYPE: IF unsgn THEN id.t = id.t + ISUNSIGNED
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=2;"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(2);"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1196,12 +1050,6 @@ vWatchVariable n$, 0
 IF Error_Happened THEN EXIT FUNCTION
 GOTO dim2exitfunc
 END IF
-
-
-
-
-
-
 
 
 IF typ$ = "_OFFSET" OR (typ$ = "OFFSET" AND qbnexprefix_set = 1) THEN
@@ -1259,18 +1107,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = OFFSETTYPE: IF unsgn THEN id.t = id.t + ISUNSIGNED
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=" + str2(OS_BITS \ 8) + ";"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(" + str2(OS_BITS \ 8) + ");"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1345,18 +1184,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = LONGTYPE: IF unsgn THEN id.t = id.t + ISUNSIGNED
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=4;"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(4);"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1431,18 +1261,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = INTEGER64TYPE: IF unsgn THEN id.t = id.t + ISUNSIGNED
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=8;"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(8);"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1517,18 +1338,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = SINGLETYPE
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=4;"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(4);"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1601,18 +1413,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = DOUBLETYPE
-    IF f = 1 THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f = 1 THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f = 1 THEN PRINT #13, "cmem_sp-=8;"
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f = 1 THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f = 1 THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(8);"
     END IF
-    IF f = 1 THEN PRINT #13, "*" + n$ + "=0;"
-    IF f = 1 THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1685,18 +1488,9 @@ ELSE
     n$ = scope2$ + n$
     clearid
     id.t = FLOATTYPE
-    IF f THEN PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-    IF f THEN PRINT #13, "if(" + n$ + "==NULL){"
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
-        IF f THEN PRINT #13, "cmem_sp-=32;"
-        IF f THEN PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-        IF f THEN PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-    ELSE
-        IF f THEN PRINT #13, n$ + "=(" + ct$ + "*)mem_static_malloc(32);"
     END IF
-    IF f THEN PRINT #13, "*" + n$ + "=0;"
-    IF f THEN PRINT #13, "}"
 END IF
 id.n = cvarname$
 IF method = 0 THEN
@@ -1723,11 +1517,6 @@ IF dimsfarray THEN
 END IF
 
 'restore STATIC state
-IF dimstatic <> 0 AND dimshared = 0 THEN
-    defdatahandle = 13
-    CLOSE #13: OPEN tmpdir$ + "data" + str2$(subfuncn) + ".txt" FOR APPEND AS #13
-    CLOSE #19: OPEN tmpdir$ + "free" + str2$(subfuncn) + ".txt" FOR APPEND AS #19
-END IF
 
 tlayout$ = l$
 

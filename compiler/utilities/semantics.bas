@@ -6,9 +6,6 @@ FUNCTION arrayreference$ (indexes$, typ)
     '*expects array id to be passed in the global id structure
 
 
-
-
-
     idnumber$ = str2(currentid)
 
     DIM id2 AS idstruct
@@ -228,10 +225,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
     IF a2$ = "" THEN Give_Error "Syntax error": EXIT FUNCTION
 
 
-
-
-
-
     '''cl$ = classify(a$)
 
     blockn = 0
@@ -240,8 +233,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
     FOR i = 1 TO n
 
         reevaluate:
-
-
 
 
         l$ = getelement(a$, i)
@@ -533,7 +524,6 @@ FOR i = 1 TO blockn
 NEXT
 
 
-
 'identify any referencable values
 FOR i = 1 TO blockn
     IF isoperator(block(i)) = 0 THEN
@@ -720,12 +710,6 @@ END IF
 'it cannot be returned as a pointer
 
 
-
-
-
-
-
-
 IF Debug THEN PRINT #9, "applying operators:";
 
 
@@ -776,7 +760,6 @@ FOR i = 1 TO blockn
         'PRINT blocktype(i - 1) AND ISFLOAT
         'END
         'END IF
-
 
 
         'numeric->string is illegal!
@@ -1037,7 +1020,6 @@ END IF
 evaluate$ = r$
 
 
-
 END FUNCTION
 
 FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
@@ -1183,7 +1165,6 @@ IF id2.args <> 0 THEN
     FOR i = 1 TO n
 
 
-
         IF curarg >= omitarg_first AND curarg <= omitarg_last THEN
             noargs:
             targettyp = CVL(MID$(id2.arg, curarg * 4 - 4 + 1, 4))
@@ -1212,7 +1193,6 @@ IF id2.args <> 0 THEN
                 END IF
 
                 IF LEFT$(e$, 2) = "(" + sp THEN dereference = 1 ELSE dereference = 0
-
 
 
                 '*special case CVI,CVL,CVS,CVD,_CV (part #1)
@@ -1319,9 +1299,6 @@ IF id2.args <> 0 THEN
                     END IF
 
 
-
-
-
                     'assume checking off
                     offs$ = evaluatetotyp(memget_offs$, OFFSETTYPE - ISPOINTER)
                     blkoffs$ = evaluatetotyp(memget_blk$, -6)
@@ -1340,11 +1317,6 @@ IF id2.args <> 0 THEN
                             IF t AND ISPOINTER THEN t = t - ISPOINTER
                         END IF
                     END IF
-
-
-
-
-
 
 
                     typ& = t
@@ -1841,15 +1813,6 @@ IF id2.args <> 0 THEN
                 END IF 'end of varptr$
 
 
-
-
-
-
-
-
-
-
-
                 'VARPTR
                 IF (sourcetyp AND ISINCONVENTIONALMEMORY) = 0 THEN
                     recompile = 1
@@ -2010,19 +1973,6 @@ IF RTRIM$(id2.n) = "VARSEG" THEN
 END IF 'varseg
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 'note: this code has already been called...
 '------------------------------------------------------------------------------------------------------------
 'e2$ = e$
@@ -2068,7 +2018,6 @@ END IF
 'pointer?
 IF (targettyp AND ISPOINTER) THEN
     IF dereference = 0 THEN 'check deferencing wasn't used
-
 
 
     'note: array pointer
@@ -2121,7 +2070,6 @@ IF (targettyp AND ISPOINTER) THEN
     END IF
 
 
-
     IF id.linkid = 0 THEN
         'if id.linkid is 0, it means the number of array elements is definietly
         'known of the array being passed, this is not some "fake"/unknown array.
@@ -2144,13 +2092,11 @@ IF (targettyp AND ISPOINTER) THEN
             'the number of elements in the array to be passed is known
 
 
-
             'REMOVE FOR TESTING PURPOSES ONLY!!! SHOULD BE UNREM'd!
             'print id.arrayelements,nelereq
             '             1       ,  2
 
             IF id.arrayelements <> nelereq THEN Give_Error "Passing arrays with a differing number of elements to a SUB/FUNCTION is not supported": EXIT FUNCTION
-
 
 
         END IF
@@ -2161,16 +2107,6 @@ IF (targettyp AND ISPOINTER) THEN
     IF Error_Happened THEN EXIT FUNCTION
     GOTO dontevaluate
 END IF
-
-
-
-
-
-
-
-
-
-
 
 
 'note: not an array...
@@ -2381,7 +2317,6 @@ v$ = "pass" + str2$(uniquenumber)
 'assume numeric type
 IF MID$(sfcmemargs(targetid), curarg, 1) = CHR$(1) THEN 'cmem required?
 bytesreq = ((targettyp AND 511) + 7) \ 8
-PRINT #defdatahandle, t$ + " *" + v$ + "=NULL;"
 e$ = "&(*" + v$ + "=" + e$ + ")"
 ELSE
     e$ = "&(" + v$ + "=" + e$ + ")"
@@ -2475,7 +2410,6 @@ END IF
 IF id2.ret = ISUDT + (1) THEN
     '***special case***
     v$ = "func" + str2$(uniquenumber)
-    PRINT #defdatahandle, "mem_block " + v$ + ";"
     r$ = "(" + v$ + "=" + r$ + ")"
 END IF
 
@@ -2628,8 +2562,6 @@ EXIT FUNCTION
 END IF '-4, -5, -6
 
 
-
-
 IF targettyp = -8 THEN '? -> _MEM structure helper {offset, fullsize, typeval, elementsize, sf_mem_lock|???}
 IF (sourcetyp AND ISREFERENCE) = 0 THEN Give_Error "Expected variable name/array element": EXIT FUNCTION
 IF (sourcetyp AND ISOFFSETINBITS) THEN Give_Error "Variable/element cannot be BIT aligned": EXIT FUNCTION
@@ -2763,14 +2695,6 @@ evaluatetotyp$ = "(ptrszint)" + e$ + "," + str2(size) + "," + str2(t) + "," + st
 EXIT FUNCTION
 
 END IF '-8
-
-
-
-
-
-
-
-
 
 
 IF targettyp = -7 THEN '? -> _MEM structure helper {offset, fullsize, typeval, elementsize, sf_mem_lock|???}
@@ -2987,7 +2911,6 @@ IF targettyp = -6 THEN evaluatetotyp$ = e$
 EXIT FUNCTION
 
 END IF '-2 byte_element(offset,bytes)
-
 
 
 'string?
@@ -3207,8 +3130,6 @@ FUNCTION seperateargs (a$, ca$, pass&)
             END IF
 
 
-
-
             x1 = 0 'the 'x' position of the beginning element of the current levelled block
             MustPassOpt = 0 'the 'x' position of the FIRST opt () in the block which must be passed
             MustPassOptNeedsFlag = 0 '{}blocks don't need a flag, ? blocks do
@@ -3336,12 +3257,9 @@ FUNCTION seperateargs (a$, ca$, pass&)
     END IF
 
 
-
 FOR i = 1 TO lastt
     separgs$(i) = "n-ll"
 NEXT
-
-
 
 
         'Consider: "?,[?]"

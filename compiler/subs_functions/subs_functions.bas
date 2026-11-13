@@ -191,7 +191,6 @@ regid
 '---special case---
 
 
-
 clearid
 id.n = qbnexprefix$ + "MemFree"
 id.subfunc = 2
@@ -428,7 +427,6 @@ id.hr_syntax = "STRIG(button%) {On|Off|Stop}"
 regid
 
 
-
 clearid
 id.n = qbnexprefix$ + "Devices": id.Dependency=DEPENDENCY_DEVICEINPUT
 id.subfunc = 1
@@ -537,14 +535,6 @@ id.ret = SINGLETYPE - ISPOINTER
 id.specialformat = "[?]"
 id.hr_syntax = "_WHEEL(wheelNumber%)"
 regid
-
-
-
-
-
-
-
-
 
 
 clearid
@@ -708,9 +698,6 @@ id.specialformat = "[?,?,?,?]"
 id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "_SCREENIMAGE(column1, row1, column2, row2)"
 regid
-
-
-
 
 
 clearid
@@ -2660,7 +2647,6 @@ id.hr_syntax = "CLNG(expression)"
 regid
 
 
-
 clearid
 id.n = "Time"
 id.musthave = "$"
@@ -2680,7 +2666,6 @@ id.callname = "func_time"
 id.ret = STRINGTYPE - ISPOINTER
 id.hr_syntax = "TIME$"
 regid
-
 
 
 clearid

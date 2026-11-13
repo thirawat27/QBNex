@@ -171,12 +171,6 @@ IF os$ = "LNX" THEN BATCHFILE_EXTENSION = ".sh"
 IF MacOSX THEN BATCHFILE_EXTENSION = ".command"
 
 
-DIM inlinedatastr(255) AS STRING
-FOR i = 0 TO 255
-    inlinedatastr(i) = str2$(i) + ","
-NEXT
-
-
 extension$ = ".exe"
 IF os$ = "LNX" THEN extension$ = "" 'no extension under Linux
 
@@ -386,7 +380,6 @@ FUNCTION getpid& ()
 
     DIM SHARED AllowLocalName AS LONG
 
-    DIM SHARED DataOffset
 
     DIM SHARED prepass
 
@@ -474,14 +467,6 @@ FUNCTION getpid& ()
     lfsinglechar(36) = 1 '$ (metacommand only)
     lfsinglechar(63) = 1 '? (print macro)
     lfsinglechar(95) = 1 '_
-
-
-
-
-
-
-
-
 
 
     DIM SHARED nextrunlineindex AS LONG
@@ -714,8 +699,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED closedsubfunc AS _BYTE
     DIM SHARED subfuncid AS LONG
 
-    DIM SHARED defdatahandle AS INTEGER
-    DIM SHARED dimsfarray AS INTEGER
+        DIM SHARED dimsfarray AS INTEGER
     DIM SHARED dimshared AS INTEGER
 
     'Allows passing of known elements to recompilation
@@ -768,14 +752,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     UDTTYPE = ISUDT + ISPOINTER
 
 
-
-
-
-
     DIM SHARED statementn AS LONG
     DIM SHARED everycasenewcase AS LONG
-
-
 
 
     DIM SHARED controllevel AS INTEGER '0=not in a control block
@@ -803,9 +781,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED controlref(1000) AS LONG 'the line number the control was created on
 
 
-
-
-
     ON ERROR GOTO qberror
 
     i2&& = 1
@@ -824,26 +799,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     DIM SHARED sfelelist(1000) AS INTEGER
 
     gl_scan_header 'OpenGL keyword table from compiler\support\opengl\gl_table.txt (registered when a program declares SUB _GL)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     '-----------------------QBNex COMPILER ONCE ONLY SETUP CODE ENDS HERE---------------------------------------
@@ -946,7 +901,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
             'temp folder lock #26 stays held (no close/relock window)
 
-            fh = FREEFILE: OPEN tmpdir$ + "dyninfo.txt" FOR OUTPUT AS #fh: CLOSE #fh
 
             IF Debug THEN CLOSE #9: OPEN tmpdir$ + "debug.txt" FOR OUTPUT AS #9
 
@@ -1145,11 +1099,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             'Z
 
 
-
-
-
-
-
             'clear/init variables
             Console = 0
             ScreenHide = 0
@@ -1235,7 +1184,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             definingtypeerror = 0
             constlast = -1
             'constlastshared = -1
-            defdatahandle = 18
             closedmain = 0
             addmetastatic = 0
             addmetadynamic = 0
@@ -1247,7 +1195,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             viFileDescription$ = "": viFileVersion$ = "": viInternalName$ = ""
             viLegalCopyright$ = "": viLegalTrademarks$ = "": viOriginalFilename$ = ""
             viProductName$ = "": viProductVersion$ = "": viComments$ = "": viWeb$ = ""
-            DataOffset = 0
             statementn = 0
             everycasenewcase = 0
             qberrorhappened = 0: qberrorcode = 0: qberrorline = 0
@@ -1375,14 +1322,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 udtenext(i2) = 0
 
 
-
-
-
-
-
-
-
-
                 'begin compilation
                 FOR closeall = 1 TO 255
         IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
@@ -1424,7 +1363,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         HashAdd "EXPLICIT", f, 0
                     END IF
 
-                    OPEN tmpdir$ + "global.txt" FOR OUTPUT AS #18
 
                     IF NOT QuietMode THEN
                         ShowCompilerBanner
@@ -1820,9 +1758,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                                     END IF
 
 
-
-
-
                                                     IF n >= 1 AND firstelement$ = "CONST" THEN
                                                         'l$ = "CONST"
                                                         'DEF... do not change type, the expression is stored in a suitable type
@@ -2025,9 +1960,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                                     HashAdd hashname$, HASHFLAG_CONSTANT, i2
 
 
-
-
-
                                                     constdefined(i2) = 1
                                                     constcname(i2) = n$
                                                     constnamesymbol(i2) = typevalue2symbol$(t)
@@ -2057,7 +1989,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                                     'layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                                                     GOTO finishedlinepp
                                                 END IF
-
 
 
                                                 'DEFINE
@@ -2369,7 +2300,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 'Include Manager #1
 
 
-
                                 IF LEN(addmetainclude$) THEN
                                     IF Debug THEN PRINT #9, "Pre-pass:INCLUDE$-ing file:'" + addmetainclude$ + "':On line"; linenumber
                                     a$ = addmetainclude$: addmetainclude$ = "" 'read/clear message
@@ -2530,37 +2460,16 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             SYSTEM 1
                         END IF
 
-                        OPEN tmpdir$ + "data.bin" FOR OUTPUT AS #16: CLOSE #16
-                        OPEN tmpdir$ + "data.bin" FOR BINARY AS #16
 
-
-                        OPEN tmpdir$ + "main.txt" FOR OUTPUT AS #12
-                        OPEN tmpdir$ + "maindata.txt" FOR OUTPUT AS #13
-
-                        OPEN tmpdir$ + "regsf.txt" FOR OUTPUT AS #17
-
-                        OPEN tmpdir$ + "mainfree.txt" FOR OUTPUT AS #19
-                        OPEN tmpdir$ + "runline.txt" FOR OUTPUT AS #21
-
-                        OPEN tmpdir$ + "mainerr.txt" FOR OUTPUT AS #14 'main error handler
                         'i. check the value of error_line
                         'ii. jump to the appropriate label
                         errorlabels = 0
 
-                        OPEN tmpdir$ + "chain.txt" FOR OUTPUT AS #22: CLOSE #22 'will be appended to as necessary
-                        OPEN tmpdir$ + "inpchain.txt" FOR OUTPUT AS #23: CLOSE #23 'will be appended to as necessary
                         '*** #22 & #23 are reserved for usage by chain & inpchain ***
 
-                        OPEN tmpdir$ + "ontimer.txt" FOR OUTPUT AS #24
-                        OPEN tmpdir$ + "ontimerj.txt" FOR OUTPUT AS #25
 
                         '*****#26 used for locking qbnex
 
-                        OPEN tmpdir$ + "onkey.txt" FOR OUTPUT AS #27
-                        OPEN tmpdir$ + "onkeyj.txt" FOR OUTPUT AS #28
-
-                        OPEN tmpdir$ + "onstrig.txt" FOR OUTPUT AS #29
-                        OPEN tmpdir$ + "onstrigj.txt" FOR OUTPUT AS #30
 
                         gosubid = 1
                         'to be included whenever return without a label is called
@@ -2701,8 +2610,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     END IF
 
 
-                    linedataoffset = DataOffset
-
                     entireline$ = lineformat(a3$): IF LEN(entireline$) = 0 THEN GOTO finishednonexec
                     IF Error_Happened THEN GOTO errmes
                     u$ = UCASE$(entireline$)
@@ -2762,7 +2669,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     Labels(r).Scope = subfuncn
                     addlabaq100:
                     Labels(r).State = 1
-                    Labels(r).Data_Offset = linedataoffset
 
                     layout$ = tlayout$
                     IrLabelDef label$: IrPendLL = VAL(label$) 'ERL: set after the "line" marker (IrLine) so RESUME NEXT runs it
@@ -2824,7 +2730,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     Labels(r).Scope = subfuncn
                     addlabaq:
                     Labels(r).State = 1
-                    Labels(r).Data_Offset = linedataoffset
                     Labels(r).SourceLineNumber = linenumber
 
                     IF LEN(layout$) THEN layout$ = layout$ + sp + tlayout$ + ":" ELSE layout$ = tlayout$ + ":"
@@ -3068,7 +2973,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     END IF
 
 
-
     'declare library
     IF declaringlibrary THEN
 
@@ -3242,17 +3146,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                     IF dynamiclibrary <> 0 AND LEN(x$) = 0 THEN a$ = "Expected DECLARE DYNAMIC LIBRARY " + CHR$(34) + "..." + CHR$(34): GOTO errmes
                     IF customtypelibrary <> 0 AND LEN(x$) = 0 THEN a$ = "Expected DECLARE CUSTOMTYPE LIBRARY " + CHR$(34) + "..." + CHR$(34): GOTO errmes
-
-
-
-
-
-
-
-
-
-
-
 
 
                     'convert '\\' to '\'
@@ -3946,12 +3839,6 @@ ELSE
     'dynamic
     IF LEN(headername$) = 0 THEN 'no header
 
-    IF subfuncn THEN
-        f = FREEFILE
-        OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #f
-    ELSE
-        f = 13
-    END IF
 
     'make name a C-appropriate variable name
     'by converting everything except numbers and
@@ -3967,24 +3854,9 @@ ELSE
 
     IF sfdeclare THEN
 
-        IF os$ = "WIN" THEN
-            PRINT #f, "if (!DLL_" + x2$ + "){"
-            PRINT #f, "DLL_" + x2$ + "=LoadLibrary(" + CHR$(34) + inlinelibname$ + CHR$(34) + ");"
-            PRINT #f, "if (!DLL_" + x2$ + ") error(259);"
-            PRINT #f, "}"
-        END IF
-
-        IF os$ = "LNX" THEN
-            PRINT #f, "if (!DLL_" + x2$ + "){"
-            PRINT #f, "DLL_" + x2$ + "=dlopen(" + CHR$(34) + inlinelibname$ + CHR$(34) + ",RTLD_LAZY);"
-            PRINT #f, "if (!DLL_" + x2$ + ") error(259);"
-            PRINT #f, "}"
-        END IF
-
 
     END IF
 
-    IF subfuncn THEN CLOSE #f
 
 END IF 'no header
 
@@ -3993,13 +3865,11 @@ END IF 'dynamiclibrary
 IF LEN(headername$) THEN
     IF os$ = "WIN" THEN
         IF MID$(headername$, 2, 1) = ":" OR LEFT$(headername$, 1) = "\" THEN
-        ELSE
         END IF
     END IF
     IF os$ = "LNX" THEN
 
         IF LEFT$(headername$, 1) = "/" THEN
-        ELSE
         END IF
 
     END IF
@@ -4133,10 +4003,6 @@ IF n >= 1 THEN
 
     subfuncret$ = ""
 
-    CLOSE #13: OPEN tmpdir$ + "data" + str2$(subfuncn) + ".txt" FOR OUTPUT AS #13
-    CLOSE #19: OPEN tmpdir$ + "free" + str2$(subfuncn) + ".txt" FOR OUTPUT AS #19
-    CLOSE #15: OPEN tmpdir$ + "ret" + str2$(subfuncn) + ".txt" FOR OUTPUT AS #15
-    defdatahandle = 13
 
     declibjmp1:
 
@@ -4144,18 +4010,6 @@ IF n >= 1 THEN
         'QIR call name -> C symbol (the ALIAS, or the declared name) and library
         IrLibOf = IrLibOf + CHR$(1) + LTRIM$(RTRIM$(removecast$(RTRIM$(id2.callname)))) + CHR$(2) + aliasname$ + CHR$(2) + IrLibSpec + CHR$(1)
     END IF
-
-    IF declaringlibrary THEN
-        IF sfdeclare = 0 AND indirectlibrary = 0 THEN
-            CLOSE #17
-            OPEN tmpdir$ + "regsf_ignore.txt" FOR OUTPUT AS #17
-        END IF
-        IF sfdeclare = 1 AND customtypelibrary = 0 AND dynamiclibrary = 0 AND indirectlibrary = 0 THEN
-            fh = FREEFILE: OPEN tmpdir$ + "externtype" + str2(ResolveStaticFunctions + 1) + ".txt" FOR OUTPUT AS #fh: CLOSE #fh
-        END IF
-    END IF
-
-
 
 
     IF sf = 1 THEN
@@ -4171,19 +4025,9 @@ IF n >= 1 THEN
         END IF
 
         IF declaringlibrary <> 0 AND dynamiclibrary <> 0 THEN
-            IF os$ = "WIN" THEN
-                PRINT #17, "typedef " + t$ + " (CALLBACK* DLLCALL_" + removecast$(RTRIM$(id.callname)) + ")(";
-            END IF
-            IF os$ = "LNX" THEN
-                PRINT #17, "typedef " + t$ + " (*DLLCALL_" + removecast$(RTRIM$(id.callname)) + ")(";
-            END IF
         ELSEIF declaringlibrary <> 0 AND customtypelibrary <> 0 THEN
-            PRINT #17, "typedef " + t$ + " CUSTOMCALL_" + removecast$(RTRIM$(id.callname)) + "(";
-        ELSE
-            PRINT #17, t$ + " " + removecast$(RTRIM$(id.callname)) + "(";
         END IF
         IF declaringlibrary THEN GOTO declibjmp2
-        PRINT #12, t$ + " " + removecast$(RTRIM$(id.callname)) + "(";
 
         'create variable to return result
         'if type wasn't specified, define it
@@ -4198,7 +4042,6 @@ IF n >= 1 THEN
         reginternalvariable = 0
         IrFnRet(IrFnCur) = IrTy$(rettyp): IrFnRetVar(IrFnCur) = IrVar$(currentid)
         'the following line stops the return variable from being free'd before being returned
-        CLOSE #19: OPEN tmpdir$ + "free" + str2$(subfuncn) + ".txt" FOR OUTPUT AS #19
         'create return
         IF (rettyp AND ISSTRING) THEN
             r$ = refer$(str2$(currentid), id.t, 1)
@@ -4213,19 +4056,9 @@ IF n >= 1 THEN
     ELSE
 
         IF declaringlibrary <> 0 AND dynamiclibrary <> 0 THEN
-            IF os$ = "WIN" THEN
-                PRINT #17, "typedef void (CALLBACK* DLLCALL_" + removecast$(RTRIM$(id.callname)) + ")(";
-            END IF
-            IF os$ = "LNX" THEN
-                PRINT #17, "typedef void (*DLLCALL_" + removecast$(RTRIM$(id.callname)) + ")(";
-            END IF
         ELSEIF declaringlibrary <> 0 AND customtypelibrary <> 0 THEN
-            PRINT #17, "typedef void CUSTOMCALL_" + removecast$(RTRIM$(id.callname)) + "(";
-        ELSE
-            PRINT #17, "void " + removecast$(RTRIM$(id.callname)) + "(";
         END IF
         IF declaringlibrary THEN GOTO declibjmp2
-        PRINT #12, "void " + removecast$(RTRIM$(id.callname)) + "(";
     END IF
     declibjmp2:
 
@@ -4265,7 +4098,6 @@ IF n >= 1 THEN
                 params = params + 1
                 glinkid = targetid
                 glinkarg = params
-
 
 
                 IF params > 1 THEN
@@ -4357,8 +4189,6 @@ IF n >= 1 THEN
             END IF
 
 
-
-
             IF array = 1 THEN
                 IF declaringlibrary THEN a$ = "Arrays cannot be passed to a library": GOTO errmes
                 dimsfarray = 1
@@ -4406,7 +4236,6 @@ IF n >= 1 THEN
                         IF byvalue = 1 THEN a$ = "STRINGs cannot be passed using BYVAL": GOTO errmes
                         byvalue = 1 'use t$ as is
                     END IF
-                    IF byvalue THEN PRINT #17, t$; ELSE PRINT #17, t$ + "*";
                     decudt:
                     GOTO declibjmp3
                 END IF
@@ -4425,7 +4254,6 @@ IF n >= 1 THEN
                 IF Error_Happened THEN GOTO errmes
 
 
-
                 IF t$ = "" THEN a$ = "Cannot find C type to return array data": GOTO errmes
                 'searchpoint
                 'get the name of the variable
@@ -4433,7 +4261,6 @@ IF n >= 1 THEN
                 IF Error_Happened THEN GOTO errmes
                 IF t$ = "qbs" THEN
                     u$ = str2$(uniquenumber)
-
 
 
                 END IF
@@ -4488,18 +4315,6 @@ IF declaringlibrary THEN
         callname$ = removecast$(RTRIM$(id2.callname))
 
 
-        IF subfuncn THEN
-            f = FREEFILE
-            OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #f
-        ELSE
-            f = 13
-        END IF
-
-
-        PRINT #f, callname$ + "=(CUSTOMCALL_" + callname$ + "*)&" + aliasname$ + ";"
-
-        IF subfuncn THEN CLOSE #f
-
         'if no header exists to make the external function available, the function definition must be found
         IF sfheader = 0 AND sfdeclare <> 0 THEN
             RegisterResolveStaticFunction libname$, aliasname$, 1
@@ -4510,27 +4325,6 @@ IF declaringlibrary THEN
     IF dynamiclibrary THEN
         IF sfdeclare THEN
 
-            PRINT #17, "DLLCALL_" + removecast$(RTRIM$(id2.callname)) + " " + removecast$(RTRIM$(id2.callname)) + "=NULL;"
-
-            IF subfuncn THEN
-                f = FREEFILE
-                OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #f
-            ELSE
-                f = 13
-            END IF
-
-            PRINT #f, "if (!" + removecast$(RTRIM$(id2.callname)) + "){"
-            IF os$ = "WIN" THEN
-                PRINT #f, removecast$(RTRIM$(id2.callname)) + "=(DLLCALL_" + removecast$(RTRIM$(id2.callname)) + ")GetProcAddress(DLL_" + DLLname$ + "," + CHR$(34) + aliasname$ + CHR$(34) + ");"
-                PRINT #f, "if (!" + removecast$(RTRIM$(id2.callname)) + ") error(260);"
-            END IF
-            IF os$ = "LNX" THEN
-                PRINT #f, removecast$(RTRIM$(id2.callname)) + "=(DLLCALL_" + removecast$(RTRIM$(id2.callname)) + ")dlsym(DLL_" + DLLname$ + "," + CHR$(34) + aliasname$ + CHR$(34) + ");"
-                PRINT #f, "if (dlerror()) error(260);"
-            END IF
-            PRINT #f, "}"
-
-            IF subfuncn THEN CLOSE #f
 
         END IF 'sfdeclare
     END IF 'dynamic
@@ -4539,10 +4333,6 @@ IF declaringlibrary THEN
         RegisterResolveStaticFunction libname$, aliasname$, 2
     END IF
 
-    IF sfdeclare = 0 AND indirectlibrary = 0 THEN
-        CLOSE #17
-        OPEN tmpdir$ + "regsf.txt" FOR APPEND AS #17
-    END IF
 
 END IF 'declaring library
 
@@ -4617,7 +4407,6 @@ IF n = 2 THEN
 
         'release _MEM lock for this scope
 
-        IF subfuncret$ <> "" THEN PRINT #12, subfuncret$
 
         'ret???.txt
         subfunc = ""
@@ -4641,7 +4430,6 @@ IF n = 2 THEN
     END IF
 END IF
 END IF
-
 
 
 IF n >= 1 AND firstelement$ = "CONST" THEN
@@ -4856,10 +4644,8 @@ IF n >= 1 THEN
 END IF
 
 
-
 IF n >= 1 THEN
     IF firstelement$ = "WHILE" THEN
-        IF NoChecks = 0 THEN PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
 
         'prevents code from being placed before 'CASE condition' in a SELECT CASE block
         IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
@@ -4909,12 +4695,8 @@ IF n = 1 THEN
 END IF
 
 
-
-
-
 IF n >= 1 THEN
     IF firstelement$ = "DO" THEN
-        IF NoChecks = 0 THEN PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
 
         'prevents code from being placed before 'CASE condition' in a SELECT CASE block
         IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
@@ -4941,7 +4723,6 @@ IF n >= 1 THEN
             IF Error_Happened THEN GOTO errmes
             IF stringprocessinghappened THEN e$ = cleanupstringprocessingcall$ + e$ + ")"
             IF (typ AND ISSTRING) THEN a$ = "DO ERROR! Cannot accept a STRING type.": GOTO errmes
-            IF whileuntil = 1 THEN PRINT #12, "while((" + e$ + ")||new_error){" ELSE PRINT #12, "while((!(" + e$ + "))||new_error){"
             IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
             END IF
@@ -4950,7 +4731,6 @@ IF n >= 1 THEN
             controltype(controllevel) = 3
             IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 AND NoChecks = 0 THEN
                 vWatchAddLabel linenumber, 0
-            ELSE
             END IF
         END IF
         controlid(controllevel) = uniquenumber
@@ -4968,7 +4748,6 @@ IF n >= 1 THEN
         l$ = SCase$("Loop")
         IF controltype(controllevel) <> 3 AND controltype(controllevel) <> 4 THEN a$ = "PROGRAM FLOW ERROR!": GOTO errmes
         IF n >= 2 THEN
-            IF NoChecks = 0 THEN PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
             IF controltype(controllevel) = 4 THEN a$ = "PROGRAM FLOW ERROR!": GOTO errmes
             whileuntil = 0
             IF secondelement$ = "WHILE" THEN whileuntil = 1: l$ = l$ + sp + SCase$("While")
@@ -4988,7 +4767,6 @@ IF n >= 1 THEN
             IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
             END IF
-            IF whileuntil = 1 THEN PRINT #12, "}while((" + e$ + ")&&(!new_error));" ELSE PRINT #12, "}while((!(" + e$ + "))&&(!new_error));"
         ELSE
 
             IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
@@ -4996,7 +4774,6 @@ IF n >= 1 THEN
             END IF
 
             IF controltype(controllevel) = 4 THEN
-            ELSE
             END IF
         END IF
         IF IrEmitMode THEN
@@ -5010,16 +4787,8 @@ IF n >= 1 THEN
 END IF
 
 
-
-
-
-
-
-
-
 IF n >= 1 THEN
     IF firstelement$ = "FOR" THEN
-        IF NoChecks = 0 THEN PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
 
         l$ = SCase$("For")
 
@@ -5111,9 +4880,6 @@ IF n >= 1 THEN
         IF ctype$ = "" THEN a$ = "Unsupported variable used in FOR statement": GOTO errmes
         u$ = str2(uniquenumber)
 
-        IF subfunc = "" THEN
-        ELSE
-        END IF
 
         'calculate start
         e$ = fixoperationorder$(startvalue$)
@@ -5141,10 +4907,6 @@ IF n >= 1 THEN
         END IF
 
 
-        typbak = typ
-        PRINT #12, "fornext_value" + u$ + "=fornext_step" + u$ + "+(" + refer$(v$, typ, 0) + ");"
-        IF Error_Happened THEN GOTO errmes
-        typ = typbak
         setrefer v$, typ, "fornext_value" + u$, 1
         IF Error_Happened THEN GOTO errmes
         IrFor controlid(controllevel), IrFix, ctyp, startvalue$, p2$, p3$
@@ -5209,7 +4971,6 @@ END IF
 IF n >= 3 THEN
     IF firstelement$ = "ELSEIF" THEN
         IF NoChecks = 0 THEN
-            PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
             IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
             END IF
@@ -5246,7 +5007,6 @@ END IF
 IF n >= 3 THEN
     IF firstelement$ = "IF" THEN
         IF NoChecks = 0 THEN
-            PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
             IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
             END IF
@@ -5341,12 +5101,10 @@ IF n = 2 THEN
 END IF
 
 
-
 'SELECT CASE
 IF n >= 1 THEN
     IF firstelement$ = "SELECT" THEN
         IF NoChecks = 0 THEN
-            PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
             IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
             END IF
@@ -5394,7 +5152,6 @@ IF n >= 1 THEN
             ELSE
                 IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                 IF Error_Happened THEN GOTO errmes
-                IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
             END IF
 
         ELSE
@@ -5410,7 +5167,6 @@ IF n >= 1 THEN
                     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                     IF Error_Happened THEN GOTO errmes
 
-                    IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
                 END IF
 
             ELSE
@@ -5429,20 +5185,16 @@ IF n >= 1 THEN
                 ELSE
                     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                     IF Error_Happened THEN GOTO errmes
-                    IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
                 END IF
 
             END IF
         END IF
 
 
-
         controlref(controllevel) = linenumber
         controltype(controllevel) = 10 + t
         controlid(controllevel) = u
         IrSelect IrFix, u
-        IF EveryCaseSet(SelectCaseCounter) THEN PRINT #13, "int32 sc_" + str2$(controlid(controllevel)) + "_var;"
-        IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "sc_" + str2$(controlid(controllevel)) + "_var=0;"
         GOTO finishedline
     END IF
 END IF
@@ -5457,11 +5209,9 @@ IF n = 2 THEN
         IF controltype(controllevel) = 18 THEN
             everycasenewcase = everycasenewcase + 1
             controllevel = controllevel - 1
-            IF EveryCaseSet(SelectCaseCounter) = 0 THEN PRINT #12, "goto sc_" + str2$(controlid(controllevel)) + "_end;"
         END IF
         IF controltype(controllevel) = 19 THEN
             controllevel = controllevel - 1
-            IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "} /* End of SELECT EVERYCASE ELSE */"
         END IF
 
         IrEndSelect
@@ -5506,7 +5256,6 @@ IF n >= 1 THEN
             controllevel = controllevel - 1
             everycasenewcase = everycasenewcase + 1
             IF EveryCaseSet(SelectCaseCounter) = 0 THEN
-            ELSE
             END IF
             'following line fixes problem related to RESUME after error
             'statementn = statementn + 1
@@ -5571,7 +5320,6 @@ IF n >= 1 THEN
         'CASE ELSE
         IF n = 2 THEN
             IF getelement$(a$, 2) = "C-EL" THEN
-                IF EveryCaseSet(SelectCaseCounter) THEN PRINT #12, "if (sc_" + str2$(controlid(controllevel)) + "_var==0) {"
                 IF controllevel >= 1000 THEN a$ = "Too many nested blocks (the limit is 1000)": GOTO errmes
                 controllevel = controllevel + 1: controltype(controllevel) = 19
                 controlref(controllevel) = controlref(controllevel - 1)
@@ -5582,15 +5330,12 @@ IF n >= 1 THEN
         END IF
 
         IF NoChecks = 0 THEN
-            PRINT #12, "S_" + str2$(statementn) + ":;": dynscope = 1
             IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
                 vWatchAddLabel linenumber, 0
             END IF
         END IF
 
 
-
-        f12$ = ""
 
         nexp = 0
         B = 0
@@ -5604,7 +5349,6 @@ IF n >= 1 THEN
                 IF nexp <> 0 THEN l$ = l$ + sp2 + ",": f12$ = f12$ + "||"
                 IF e$ = "" THEN a$ = "Expected expression": GOTO errmes
                 e$ = RIGHT$(e$, LEN(e$) - 1)
-
 
 
                 'TYPE 1? ... TO ...
@@ -5671,10 +5415,6 @@ IF n >= 1 THEN
                 '                                IF bits >= 32 THEN e$ = "qbr(" + e$ + ")"
 
 
-
-
-
-
                 o$ = "==" 'used by type 3
 
                 'TYPE 2?
@@ -5721,7 +5461,6 @@ IF n >= 1 THEN
                 IF o$ = "<" THEN o$ = "qbs_lessthan"
                 IF o$ = ">=" THEN o$ = "qbs_greaterorequal"
                 IF o$ = "<=" THEN o$ = "qbs_lessorequal"
-                f12$ = f12$ + o$ + "(" + n$ + "," + e$ + ")"
             ELSE
                 'numeric
                 IF (typ AND ISSTRING) THEN a$ = "Expected numeric expression": GOTO errmes
@@ -5733,7 +5472,6 @@ IF n >= 1 THEN
                 END IF
                 'cast result?
                 IF LEN(tc$) THEN e$ = tc$ + "(" + e$ + ")"
-                f12$ = f12$ + "(" + n$ + o$ + "(" + e$ + "))"
             END IF
 
             addedexp:
@@ -5755,22 +5493,11 @@ END IF
 END IF
 
 
-
-
-
-
-
-
-
-
-
-
 'static scope commands:
 
 IF NoChecks = 0 THEN
     IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
         vWatchAddLabel linenumber, 0
-    ELSE
     END IF
     'PRINT #12, "S_" + str2$(statementn) + ":;"
 END IF
@@ -5871,8 +5598,6 @@ END IF 'KEY
 key_fallthrough:
 
 
-
-
 IF firstelement$ = "FIELD" THEN
 
     'get filenumber
@@ -5966,9 +5691,6 @@ IF firstelement$ = "FIELD" THEN
 END IF
 
 
-
-
-
 '1=IF (awaiting END IF)
 '2=FOR (awaiting NEXT)
 '3=DO (awaiting LOOP [UNTIL|WHILE param])
@@ -5986,7 +5708,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 3 OR t = 4 THEN
-                    PRINT #12, "goto dl_exit_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".X"
+                    IrE "jmp ~W" + str2$(controlid(i)) + ".X"
                     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                     GOTO finishedline
                 END IF
@@ -6000,7 +5722,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 2 THEN
-                    PRINT #12, "goto fornext_exit_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~F" + str2$(controlid(i)) + ".X"
+                    IrE "jmp ~F" + str2$(controlid(i)) + ".X"
                     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                     GOTO finishedline
                 END IF
@@ -6014,7 +5736,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 5 THEN
-                    PRINT #12, "goto ww_exit_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".X"
+                    IrE "jmp ~W" + str2$(controlid(i)) + ".X"
                     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                     GOTO finishedline
                 END IF
@@ -6028,7 +5750,7 @@ IF n = 2 THEN
             FOR i = controllevel TO 1 STEP -1
                 t = controltype(i)
                 IF t = 18 OR t = 19 THEN 'CASE/CASE ELSE
-                PRINT #12, "goto sc_" + str2$(controlid(i - 1)) + "_end;": IF IrEmitMode THEN IrE "jmp ~S" + str2$(controlid(i - 1)) + ".E"
+                IrE "jmp ~S" + str2$(controlid(i - 1)) + ".E"
                 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
                 GOTO finishedline
             END IF
@@ -6045,7 +5767,7 @@ IF n = 2 THEN
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         ELSEIF t = 19 THEN 'CASE ELSE
-            PRINT #12, "goto sc_" + str2$(controlid(i - 1)) + "_end;": IF IrEmitMode THEN IrE "jmp ~S" + str2$(controlid(i - 1)) + ".E"
+            IrE "jmp ~S" + str2$(controlid(i - 1)) + ".E"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         END IF
@@ -6055,12 +5777,6 @@ END IF
 
 END IF
 END IF
-
-
-
-
-
-
 
 
 'ON PEN / ON UEVENT / ON COM(n) GOSUB label: a light pen, a user routine and a serial port
@@ -6235,7 +5951,6 @@ IF n >= 2 THEN
         IrOnStrig optI$, optController$, optPassed$, a2$
 
 
-
         IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
         layoutdone = 1
         GOTO finishedline
@@ -6295,16 +6010,6 @@ IF n >= 2 THEN
 
 END IF
 END IF
-
-
-
-
-
-
-
-
-
-
 
 
 'PLAY event trapping: PLAY {ON|OFF|STOP} and ON PLAY(n) GOSUB label (QBasic statements). The
@@ -6464,9 +6169,6 @@ IF n >= 2 THEN
         IrOnTimer e3$, e2$, a2$
 
 
-
-
-
         'call validlabel (to validate the label) [see goto]
         'increment ontimerid
         'use ontimerid to generate the jumper routine
@@ -6531,8 +6233,6 @@ IF n >= 2 THEN
 
 END IF
 END IF
-
-
 
 
 IF n >= 2 THEN
@@ -6608,7 +6308,6 @@ IF n >= 2 THEN
         IrOnKey e2$, a2$
 
 
-
         IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
         layoutdone = 1
         GOTO finishedline
@@ -6669,38 +6368,12 @@ END IF
 END IF
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 'SHARED (SUB)
 IF n >= 1 THEN
     IF firstelement$ = "SHARED" THEN
         IF n = 1 THEN a$ = "Expected SHARED ...": GOTO errmes
         i = 2
         IF subfuncn = 0 THEN a$ = "SHARED must be used within a SUB/FUNCTION": GOTO errmes
-
 
 
         l$ = SCase$("Shared")
@@ -6778,9 +6451,6 @@ IF n >= 1 THEN
             'switch to main module
             oldsubfunc$ = subfunc$
             subfunc$ = ""
-            defdatahandle = 18
-            CLOSE #13: OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #13
-            CLOSE #19: OPEN tmpdir$ + "mainfree.txt" FOR APPEND AS #19
 
             'use 'try' to locate the variable (if it already exists)
             n2$ = n$ + s$ + ts$ 'note: either ts$ or s$ will exist unless it is a UDT
@@ -6856,9 +6526,6 @@ IF n >= 1 THEN
 
             'switch back to sub/func
             subfunc$ = oldsubfunc$
-            defdatahandle = 13
-            CLOSE #13: OPEN tmpdir$ + "data" + str2$(subfuncn) + ".txt" FOR APPEND AS #13
-            CLOSE #19: OPEN tmpdir$ + "free" + str2$(subfuncn) + ".txt" FOR APPEND AS #19
 
             IF newSharedSyntax THEN RETURN
 
@@ -7047,7 +6714,6 @@ stringvariable$ = evaluatetotyp(stringvariable$, ISSTRING)
 IF Error_Happened THEN GOTO errmes
 
 
-
 IF position$ = "1" THEN
     IF useposition THEN l$ = l$ + sp2 + "," + sp + "1" + sp2 + ")" + sp + "=" ELSE l$ = l$ + sp2 + ")" + sp + "="
 
@@ -7075,8 +6741,6 @@ layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = 
 GOTO finishedline
 END IF
 END IF
-
-
 
 
 'MID$ statement
@@ -7148,7 +6812,6 @@ IF n >= 1 THEN
             l$ = l$ + sp2 + "," + sp + tlayout$
             length$ = evaluatetotyp(length$, 32&)
             IF Error_Happened THEN GOTO errmes
-        ELSE
         END IF
 
         l$ = l$ + sp2 + ")" + sp + "=" + sp + l2$
@@ -7181,20 +6844,17 @@ IF n >= 2 THEN
             END IF
             IF (id.arraytype AND ISSTRING) <> 0 AND (id.arraytype AND ISFIXEDLENGTH) = 0 THEN
                 FOR i2 = 1 TO ABS(id.arrayelements)
-                    IF i2 <> 1 THEN PRINT #12, "*";
                 NEXT
             ELSE
                 'numeric
                 'clear array
                 FOR i2 = 1 TO ABS(id.arrayelements)
-                    IF i2 <> 1 THEN PRINT #12, "*";
                 NEXT
             END IF
             '1. free memory & any allocated strings
             IF (id.arraytype AND ISSTRING) <> 0 AND (id.arraytype AND ISFIXEDLENGTH) = 0 THEN
                 'free strings
                 FOR i2 = 1 TO ABS(id.arrayelements)
-                    IF i2 <> 1 THEN PRINT #12, "*";
                 NEXT
                 'free memory
             ELSE
@@ -7206,7 +6866,6 @@ IF n >= 2 THEN
                 B = i2 * 4
             NEXT
             IF (id.arraytype AND ISSTRING) <> 0 AND (id.arraytype AND ISFIXEDLENGTH) = 0 THEN
-            ELSE
             END IF
             IF clearerasereturn = 1 THEN clearerasereturn = 0: GOTO clearerasereturned
             GOTO erasedarray
@@ -7631,17 +7290,11 @@ IF commonoption THEN
         IF x = 0 THEN x = idn + 1
 
         'note: the following code only adds include directives, everything else is defered
-        OPEN tmpdir$ + "chain.txt" FOR APPEND AS #22
         'include directive
-        CLOSE #22
         'create/clear include file
-        OPEN tmpdir$ + "chain" + str2$(x) + ".txt" FOR OUTPUT AS #22: CLOSE #22
 
-        OPEN tmpdir$ + "inpchain.txt" FOR APPEND AS #22
         'include directive
-        CLOSE #22
         'create/clear include file
-        OPEN tmpdir$ + "inpchain" + str2$(x) + ".txt" FOR OUTPUT AS #22: CLOSE #22
 
         'note: elements$="?"
         IF x <> idn + 1 THEN GOTO skipdim 'array already exists
@@ -7704,11 +7357,8 @@ IF commonoption <> 0 AND LEN(elements$) = 0 THEN
     use_global_byte_elements = 1
 
     'switch output from main.txt to chain.txt
-    CLOSE #12
-    OPEN tmpdir$ + "chain.txt" FOR APPEND AS #12
     l2$ = tlayout$
 
-    PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
 
     t = id.t
     bits = t AND 511
@@ -7721,7 +7371,6 @@ IF commonoption <> 0 AND LEN(elements$) = 0 THEN
         END IF
     END IF
 
-    PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
 
     'put the variable
     e$ = RTRIM$(id.n)
@@ -7741,20 +7390,15 @@ IF commonoption <> 0 AND LEN(elements$) = 0 THEN
 
     tlayout$ = l2$
     'revert output to main.txt
-    CLOSE #12
-    OPEN tmpdir$ + "main.txt" FOR APPEND AS #12
 
 
     'INPCHAIN.TXT (load)
 
     'switch output from main.txt to chain.txt
-    CLOSE #12
-    OPEN tmpdir$ + "inpchain.txt" FOR APPEND AS #12
     l2$ = tlayout$
 
 
     'get the size in bits
-    PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
     '***assume correct size***
 
     e$ = RTRIM$(id.n)
@@ -7777,12 +7421,9 @@ IF commonoption <> 0 AND LEN(elements$) = 0 THEN
     e$ = evaluatetotyp(fixoperationorder$(e$), -4)
     IF Error_Happened THEN GOTO errmes
 
-    PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);" 'get next command
 
     tlayout$ = l2$
     'revert output to main.txt
-    CLOSE #12
-    OPEN tmpdir$ + "main.txt" FOR APPEND AS #12
 
     use_global_byte_elements = 0
 
@@ -7941,15 +7582,6 @@ END IF
 END IF
 
 
-
-
-
-
-
-
-
-
-
 'THEN [GOTO] linenumber?
 IF THENGOTO = 1 THEN
     IF n = 1 THEN
@@ -8006,15 +7638,15 @@ IF n = 1 THEN
         FOR i = controllevel TO 1 STEP -1
             t = controltype(i)
             IF t = 2 THEN 'for...next
-            PRINT #12, "goto fornext_continue_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~F" + str2$(controlid(i)) + ".C"
+            IrE "jmp ~F" + str2$(controlid(i)) + ".C"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         ELSEIF t = 3 OR t = 4 THEN 'do...loop
-            PRINT #12, "goto dl_continue_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".C"
+            IrE "jmp ~W" + str2$(controlid(i)) + ".C"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         ELSEIF t = 5 THEN 'while...wend
-            PRINT #12, "goto ww_continue_" + str2$(controlid(i)) + ";": IF IrEmitMode THEN IrE "jmp ~W" + str2$(controlid(i)) + ".C"
+            IrE "jmp ~W" + str2$(controlid(i)) + ".C"
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         END IF
@@ -8037,7 +7669,6 @@ l$ = SCase$("Run")
 IF n = 1 THEN
     'no parameters
     IF LEN(subfunc$) THEN
-    ELSE
     END IF
 ELSE
     'parameter passed
@@ -8083,7 +7714,6 @@ ELSE
     l$ = l$ + sp + tlayout$
     IF LEN(subfunc$) THEN
         nextrunlineindex = nextrunlineindex + 1
-    ELSE
     END IF
 ELSE
     'assume it's a string containing a filename to execute
@@ -8095,9 +7725,6 @@ END IF 'n=1
 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
 GOTO finishedline
 END IF 'run
-
-
-
 
 
 IF firstelement$ = "END" THEN
@@ -8169,7 +7796,6 @@ IF n >= 1 THEN
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         IF vWatchOn = 1 AND NoChecks = 0 AND inclinenumber(inclevel) = 0 THEN
             vWatchAddLabel linenumber, 0
-        ELSE
         END IF
         IrE "stop"
         GOTO finishedline
@@ -8380,7 +8006,6 @@ END IF
 END IF
 
 
-
 'ON ... GOTO/GOSUB
 IF n >= 1 THEN
     IF firstelement$ = "ON" THEN
@@ -8467,8 +8092,6 @@ IF n >= 1 THEN
 
     END IF
 END IF
-
-
 
 
 IF n >= 1 THEN
@@ -8571,9 +8194,6 @@ IF n >= 1 THEN
 END IF
 
 
-
-
-
 IF n >= 1 THEN
     IF firstelement$ = "_MEMFILL" OR (firstelement$ = "MEMFILL" AND qbnexprefix_set = 1) THEN
         'get expressions
@@ -8672,17 +8292,6 @@ END IF
 END IF
 
 
-
-
-
-
-
-
-
-
-
-
-
 'note: ABSOLUTE cannot be used without CALL
 cispecial = 0
 IF n > 1 THEN
@@ -8712,7 +8321,6 @@ IF firstelement$ = "CALL" THEN
 
         IF n$ = "INTERRUPT" OR n$ = "INTERRUPTX" THEN 'assume CALL INTERRUPT[X] request
         'print "CI: call interrupt command reached":sleep 1
-        IF n$ = "INTERRUPT" THEN PRINT #12, "call_interrupt("; ELSE PRINT #12, "call_interruptx(";
         argn = 0
         n = numelements(a$)
         B = 0
@@ -8757,12 +8365,6 @@ GOTO finishedline
 END IF 'call interrupt
 
 
-
-
-
-
-
-
 'call to CALL ABSOLUTE beyond reasonable doubt
 IF n$ = "ABSOLUTE" THEN
     l$ = SCase$("Call" + sp + "Absolute" + sp2 + "(" + sp2)
@@ -8801,20 +8403,17 @@ IF n$ = "ABSOLUTE" THEN
                             e$ = evaluatetotyp(e$, SINGLETYPE - ISPOINTER)
                             IF Error_Happened THEN GOTO errmes
                             v$ = "pass" + str2$(uniquenumber)
-                            PRINT #defdatahandle, "float *" + v$ + "=NULL;"
                             e$ = "(uint16)(((uint8*)&(*" + v$ + "=" + e$ + "))-((uint8*)dblock))"
                         ELSE
                             e$ = evaluatetotyp(e$, DOUBLETYPE - ISPOINTER)
                             IF Error_Happened THEN GOTO errmes
                             v$ = "pass" + str2$(uniquenumber)
-                            PRINT #defdatahandle, "double *" + v$ + "=NULL;"
                             e$ = "(uint16)(((uint8*)&(*" + v$ + "=" + e$ + "))-((uint8*)dblock))"
                         END IF
                     ELSE
                         e$ = evaluatetotyp(e$, INTEGER64TYPE - ISPOINTER)
                         IF Error_Happened THEN GOTO errmes
                         v$ = "pass" + str2$(uniquenumber)
-                        PRINT #defdatahandle, "int64 *" + v$ + "=NULL;"
                         e$ = "(uint16)(((uint8*)&(*" + v$ + "=" + e$ + "))-((uint8*)dblock))"
                     END IF
 
@@ -9006,20 +8605,6 @@ IF firstelement$ = "CLOSE" OR firstelement$ = "RESET" THEN
 END IF 'close
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 'data, restore, read
 IF firstelement$ = "READ" THEN 'file input
 xread ca$, n
@@ -9027,41 +8612,6 @@ IF Error_Happened THEN GOTO errmes
 'note: layout done in xread sub
 GOTO finishedline
 END IF 'read
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 lineinput = 0
@@ -9152,7 +8702,6 @@ IF n > 1 THEN
             END IF
             IF a3$ = "" THEN a3$ = a2$ ELSE a3$ = a3$ + sp + a2$
         NEXT
-        IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
         GOTO finishedline
     END IF
@@ -9186,7 +8735,6 @@ IF firstelement$ = "INPUT" THEN
         a$ = "Syntax error - Reference: INPUT [;] " + CHR$(34) + "[Question or statement text]" + CHR$(34) + "{,|;} variable[, ...] or INPUT ; variable[, ...]": GOTO errmes
     END IF
     'there was no promptstring, so print a ?
-    IF lineinput = 0 THEN PRINT #12, "qbs_print(qbs_new_txt(" + CHR$(34) + "? " + CHR$(34) + "),0);"
     finishedpromptstring:
     numvar = 0
     FOR i = i TO n
@@ -9256,7 +8804,6 @@ IF firstelement$ = "INPUT" THEN
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     GOTO finishedline
 END IF
-
 
 
 IF firstelement$ = "WRITE" THEN 'file write
@@ -9336,7 +8883,6 @@ GOTO finishedline
 END IF
 
 
-
 IF firstelement$ = "CLEAR" THEN
     IF subfunc$ <> "" THEN a$ = "CLEAR cannot be used inside a SUB/FUNCTION": GOTO errmes
 END IF
@@ -9383,9 +8929,6 @@ IF firstelement$ = "LSET" OR firstelement$ = "RSET" THEN
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     source$ = evaluatetotyp(source$, ISSTRING)
     IF Error_Happened THEN GOTO errmes
-    IF firstelement$ = "LSET" THEN
-    ELSE
-    END IF
     GOTO finishedline
 END IF
 
@@ -9467,11 +9010,6 @@ IF firstelement$ = "SWAP" THEN
             src$ = "(((char*)" + scope$ + n2$ + ")+(" + o2$ + "))"
             B = udtxsize(u) \ 8
             siz$ = str2$(B)
-            IF B = 1 THEN PRINT #12, "swap_8(" + src$ + "," + dst$ + ");"
-            IF B = 2 THEN PRINT #12, "swap_16(" + src$ + "," + dst$ + ");"
-            IF B = 4 THEN PRINT #12, "swap_32(" + src$ + "," + dst$ + ");"
-            IF B = 8 THEN PRINT #12, "swap_64(" + src$ + "," + dst$ + ");"
-            IF B <> 1 AND B <> 2 AND B <> 4 AND B <> 8 THEN PRINT #12, "swap_block(" + src$ + "," + dst$ + "," + siz$ + ");"
             GOTO finishedline
         END IF 'e=0
     END IF 'i
@@ -9495,7 +9033,7 @@ t = e1typ
 IF t AND ISOFFSETINBITS THEN a$ = "Cannot SWAP bit-length variables": GOTO errmes
 B = t AND 511
 t$ = str2$(B): IF B > 64 THEN t$ = "longdouble"
-PRINT #12, "swap_" + t$ + "(&" + refer(e1$, e1typ, 0) + ",&" + refer(e2$, e2typ, 0) + ");"
+e1$ = refer(e1$, e1typ, 0): e2$ = refer(e2$, e2typ, 0)
 IF Error_Happened THEN GOTO errmes
 GOTO finishedline
 END IF
@@ -9589,7 +9127,6 @@ FOR i = 1 TO id2.args + 1
 NEXT
 
 
-
 IF Debug THEN
     PRINT #9, "separgs:"
     FOR i = 1 TO id2.args
@@ -9600,7 +9137,6 @@ IF Debug THEN
         PRINT #9, i, separgslayout_local$(i)
     NEXT
 END IF
-
 
 
 'note: seperateargs finds the arguments to pass and sets passed& as necessary
@@ -9705,10 +9241,7 @@ FOR i = 1 TO id2.args
             END IF
 
 
-
-
             IF (an = 1 OR addedlayout = 1) AND alphanumeric(ASC(x2$)) <> 0 THEN
-
 
 
                 s = 1 'force space
@@ -9740,9 +9273,6 @@ FOR i = 1 TO id2.args
         x2$ = x2$ + sp2
 
 
-
-
-
         customlaychar:
         IF s = 0 THEN s = 2
         IF s <> s1 THEN
@@ -9767,9 +9297,7 @@ addedlayout = 0
 LOOP
 
 
-
 '---better sub syntax checking begins here---
-
 
 
 IF targettyp = -3 THEN
@@ -9809,7 +9337,6 @@ IF targettyp = -3 THEN
     END IF 'try=0
 LOOP UNTIL try = 0
 END IF 'one element only
-
 
 
 e$ = fixoperationorder$(e$)
@@ -10141,7 +9668,6 @@ v$ = "pass" + str2$(uniquenumber)
 'assume numeric type
 IF MID$(sfcmemargs(targetid), i, 1) = CHR$(1) THEN 'cmem required?
 bytesreq = ((targettyp AND 511) + 7) \ 8
-PRINT #defdatahandle, t$ + " *" + v$ + "=NULL;"
 e$ = "&(*" + v$ + "=" + e$ + ")"
 ELSE
     e$ = "&(" + v$ + "=" + e$ + ")"
@@ -10248,28 +9774,19 @@ addedlayout = 0
 LOOP
 
 
-
-
-
-
 IF passedneeded THEN
     subcall$ = subcall$ + "," + str2$(passed&)
 END IF
 subcall$ = subcall$ + ");"
 
-IF firstelement$ = "SLEEP" THEN
-END IF
 
 IF IrEmitMode THEN
     FOR i = 1 TO id2.args: IrArgs(i) = separgs_local$(i): NEXT
     IrSubCall targetid, id2.args, passed&
 END IF
 
-IF firstelement$ = "SLEEP" THEN
-END IF
 
 subcall$ = ""
-IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
 
 layoutdone = 1
 x$ = RIGHT$(l$, 1): IF x$ = sp OR x$ = sp2 THEN l$ = LEFT$(l$, LEN(l$) - 1)
@@ -10476,7 +9993,6 @@ LOOP 'fall through to next section...
 '(end manager)
 
 
-
 END IF 'continuelinefrom=0
 
 
@@ -10487,8 +10003,6 @@ IF Debug THEN
     PRINT #9, layoutok
     PRINT #9, "[end layout check]"
 END IF
-
-
 
 
 'layout is not currently used by the compiler, if it was it would be used here
@@ -10533,9 +10047,6 @@ END IF
 'close the error handler (cannot be put in 'closemain' because subs/functions can also add error jumps to this file)
 
 'create CLEAR method "CLEAR"
-CLOSE #12 'close code handle
-CALL TopLevelRuntime_InjectMainHook(tmpdir$ + "main.txt")
-OPEN tmpdir$ + "clear.txt" FOR OUTPUT AS #12 'direct code to clear.txt
 
 FOR i = 1 TO idn
 
@@ -10585,8 +10096,6 @@ END IF
 IF typ AND ISUDT THEN
     IF udtxvariable(typ AND 511) THEN
         'this next procedure resets values of UDT variables with variable-length strings
-        clear_udt_with_varstrings e$, typ AND 511, 12, 0
-    ELSE
     END IF
 ELSE
     IF INSTR(vWatchVariableExclusions$, "@" + e$ + "@") = 0 AND LEFT$(e$, 12) <> "_SUB_VWATCH_" THEN
@@ -10600,7 +10109,6 @@ END IF 'scope
 cleared:
 clearerasereturned:
 NEXT
-CLOSE #12
 
 IF Debug THEN
     PRINT #9, "finished making program!"
@@ -10711,7 +10219,6 @@ lastunresolved = unresolved
 '          by a new fix? if so, it would give these effects
 
 
-
 'could recompilation resolve this?
 'IF sflistn <> -1 THEN
 'IF sflistn <> oldsflistn THEN
@@ -10794,67 +10301,15 @@ IF recompile THEN
 
     'create include files for COMMON arrays
 
-    CLOSE #12
 
     'return to 'main'
     subfunc$ = ""
-    defdatahandle = 18
-    CLOSE #13: OPEN tmpdir$ + "maindata.txt" FOR APPEND AS #13
-    CLOSE #19: OPEN tmpdir$ + "mainfree.txt" FOR APPEND AS #19
 
-
-
-
-
-
-    fh = FREEFILE
-    OPEN tmpdir$ + "dyninfo.txt" FOR APPEND AS #fh
-    IF Resize THEN
-        PRINT #fh, "ScreenResize=1;"
-    END IF
-    IF Resize_Scale THEN
-        PRINT #fh, "ScreenResizeScale=" + str2(Resize_Scale) + ";"
-    END IF
-    CLOSE #fh
 
     IF vWatchOn = 1 THEN
         vWatchVariable "", 1
     END IF
 
-
-    'DATA_finalize
-    IF DataOffset = 0 THEN
-
-
-    ELSE
-
-        IF inline_DATA = 0 THEN
-            IF os$ = "WIN" THEN
-                IF OS_BITS = 32 THEN
-                    x$ = CHR$(0): PUT #16, , x$
-                ELSE
-                    x$ = CHR$(0): PUT #16, , x$
-                END IF
-            END IF
-            IF os$ = "LNX" THEN
-                x$ = CHR$(0): PUT #16, , x$
-            END IF
-        ELSE
-            'inline data
-            CLOSE #16
-            ff = FREEFILE
-            OPEN tmpdir$ + "data.bin" FOR BINARY AS #ff
-            x$ = SPACE$(LOF(ff))
-            GET #ff, , x$
-            CLOSE #ff
-            x2$ = "uint8 inline_data[]={"
-            FOR i = 1 TO LEN(x$)
-                x2$ = x2$ + inlinedatastr$(ASC(x$, i))
-            NEXT
-            x2$ = x2$ + "0};"
-            x$ = "": x2$ = ""
-        END IF
-    END IF
 
     IF Debug THEN PRINT #9, "Beginning generation of code for saving/sharing common array data..."
     use_global_byte_elements = 1
@@ -10917,57 +10372,31 @@ IF recompile THEN
             'load array (copies the array, if any, into a buffer for later)
 
 
-
-            OPEN tmpdir$ + "inpchain" + str2$(i) + ".txt" FOR OUTPUT AS #12
             'create buffer to store array as-is in global.txt
             x$ = str2$(uniquenumber)
             x1$ = "chainarraybuf" + x$
             x2$ = "chainarraybufsiz" + x$
             'read next command
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
 
-            IF command = 3 THEN PRINT #12, "if (int32val==3){" 'fixed-length-element array
-            IF command = 4 THEN PRINT #12, "if (int32val==4){" 'var-length-element array
 
             IF command = 3 THEN
                 'read size in bits of one element, convert it to bytes
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
             END IF 'com=3
 
-            IF command = 4 THEN PRINT #12, "bytes=1;" 'bytes used to calculate number of elements
 
             'read number of dimensions
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
 
             'read size of dimensions & calculate the size of the array in bytes
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);" 'lbound
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val2,8," + NewByteElement$ + "),0);" 'ubound
 
             IF command = 3 THEN
                 'read the array data
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)(" + x1$ + "+" + x2$ + "-bytes),bytes," + NewByteElement$ + "),0);"
             END IF 'com=3
 
-            IF command = 4 THEN
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);" 'get size
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)(" + x1$ + "+" + x2$ + "-(int64val>>3)),(int64val>>3)," + NewByteElement$ + "),0);"
-            END IF
 
             'get next command
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
-
-            CLOSE #12
 
 
             'save array (saves the buffered data, if any, for later)
-
-            OPEN tmpdir$ + "chain" + str2$(i) + ".txt" FOR OUTPUT AS #12
-            PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
-
-            PRINT #12, "sub_put(FF,NULL,byte_element((uint64)" + x1$ + "," + x2$ + "," + NewByteElement$ + "),0);"
-            CLOSE #12
-
-
 
 
         ELSE
@@ -10975,25 +10404,16 @@ IF recompile THEN
 
             'load array
 
-            OPEN tmpdir$ + "inpchain" + str2$(i) + ".txt" FOR OUTPUT AS #12
-
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
-
-            IF command = 3 THEN PRINT #12, "if (int32val==3){" 'fixed-length-element array
-            IF command = 4 THEN PRINT #12, "if (int32val==4){" 'var-length-element array
 
             IF command = 3 THEN
                 'get size in bits
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
                 '***assume correct***
             END IF
 
             'get number of elements
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
             '***assume correct***
 
             e$ = ""
-            IF command = 4 THEN PRINT #12, "bytes=1;" 'bytes counts the number of total elements
             FOR x2 = 1 TO arrayelements
 
                 'create 'secret' variables to assist in passing common arrays
@@ -11012,9 +10432,6 @@ IF recompile THEN
 
                 END IF
 
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val2,8," + NewByteElement$ + "),0);"
-                IF command = 4 THEN PRINT #12, "bytes*=(int64val2-int64val+1);"
                 IF x2 > 1 THEN e$ = e$ + sp + "," + sp
                 e$ = e$ + "___RESERVED_COMMON_LBOUND" + str2$(x2) + sp + "TO" + sp + "___RESERVED_COMMON_UBOUND" + str2$(x2)
             NEXT
@@ -11036,35 +10453,19 @@ IF recompile THEN
                 IF Error_Happened THEN GOTO errmes
             END IF
 
-            IF command = 4 THEN
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);" 'get size
-                PRINT #12, "sub_get(FF,NULL,byte_element((uint64)tqbs->chr,int64val>>3," + NewByteElement$ + "),0);" 'get size
-            END IF
 
             'get next command
-            PRINT #12, "sub_get(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
-            CLOSE #12
 
             'save array
 
-            OPEN tmpdir$ + "chain" + str2$(i) + ".txt" FOR OUTPUT AS #12
-
-            PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
-
-
-            IF command = 3 THEN PRINT #12, "int32val=3;"
-            IF command = 4 THEN PRINT #12, "int32val=4;"
-            PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
 
             IF command = 3 THEN
                 'size of each element in bits
                 bits = t AND 511
                 IF t AND ISUDT THEN bits = udtxsize(t AND 511)
                 IF t AND ISSTRING THEN bits = tsize * 8
-                PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
             END IF 'com=3
 
-            PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int32val,4," + NewByteElement$ + "),0);"
 
             IF command = 3 THEN
 
@@ -11073,11 +10474,9 @@ IF recompile THEN
                     e$ = "LBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
                     e$ = evaluatetotyp(fixoperationorder$(e$), 64)
                     IF Error_Happened THEN GOTO errmes
-                    PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
                     e$ = "UBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
                     e$ = evaluatetotyp(fixoperationorder$(e$), 64)
                     IF Error_Happened THEN GOTO errmes
-                    PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
                 NEXT
 
                 'array data
@@ -11093,22 +10492,13 @@ IF recompile THEN
                     e$ = "LBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
                     e$ = evaluatetotyp(fixoperationorder$(e$), 64)
                     IF Error_Happened THEN GOTO errmes
-                    PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);"
                     e$ = "UBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
                     e$ = evaluatetotyp(fixoperationorder$(e$), 64)
                     IF Error_Happened THEN GOTO errmes
-                    PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val2,8," + NewByteElement$ + "),0);"
                 NEXT
 
-                PRINT #12, "sub_put(FF,NULL,byte_element((uint64)&int64val,8," + NewByteElement$ + "),0);" 'size of element
-                PRINT #12, "sub_put(FF,NULL,byte_element((uint64)tqbs->chr,tqbs->len," + NewByteElement$ + "),0);" 'element data
 
             END IF 'com=4
-
-
-            CLOSE #12
-
-
 
 
             'if chaincommonarray then
@@ -11180,8 +10570,6 @@ IF recompile THEN
             'end if 'chaincommonarray
 
 
-
-
             'OPEN tmpdir$ + "chain.txt" FOR APPEND AS #22
             ''include directive
             'print #22, "#include " + CHR$(34) + "chain" + str2$(x) + ".txt" + CHR$(34)
@@ -11195,10 +10583,6 @@ IF recompile THEN
             'close #22
             ''create/clear include file
             'open tmpdir$ + "inpchain" + str2$(x) + ".txt" for output as #22:close #22
-
-
-
-
 
 
         END IF 'id.arrayelements=-1
@@ -11305,7 +10689,6 @@ IF recompile THEN
         '$INCLUDE:'includes\codegen.bas'
 
 
-
         SUB vWatchVariable (this$, action AS _BYTE)
             STATIC totalLocalVariables AS LONG, localVariablesList$
             STATIC totalMainModuleVariables AS LONG, mainModuleVariablesList$
@@ -11333,19 +10716,10 @@ IF recompile THEN
                 END IF
             CASE 1 'dump to data[].txt & reset
                 IF subfunc = "" THEN
-                    IF totalMainModuleVariables > 0 THEN
-                    ELSE
-                    END IF
 
                     mainModuleVariablesList$ = ""
                     totalMainModuleVariables = 0
                 ELSE
-                    IF subfunc <> "SUB_VWATCH" THEN
-                        IF totalLocalVariables > 0 THEN
-                        ELSE
-                        END IF
-                    ELSE
-                    END IF
 
                     localVariablesList$ = ""
                     totalLocalVariables = 0
@@ -11408,29 +10782,10 @@ IF recompile THEN
         END SUB
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         '$INCLUDE:'utilities\symbols.bas'
 
 
-
-
-
         '$INCLUDE:'utilities\parsing.bas'
-
-
 
 
         SUB getid (i AS LONG)
@@ -11539,7 +10894,6 @@ IF recompile THEN
         '$INCLUDE:'utilities\deffn.bas'
         '$INCLUDE:'utilities\classes.bas'
         '$INCLUDE:'utilities\syntax_ext.bas'
-
 
 
         SUB makeidrefer (ref$, typ AS LONG)
@@ -11796,7 +11150,6 @@ IF recompile THEN
             END IF 'variable
 
 
-
         END FUNCTION
 
 
@@ -11827,9 +11180,6 @@ IF recompile THEN
         'a$=left$(a$,s-1)+sp+newe$
         'end if
         'end sub
-
-
-
 
 
         SUB setrefer (a2$, typ2 AS LONG, e2$, method AS LONG)
@@ -11906,7 +11256,6 @@ IF recompile THEN
                 directudt:
                 IF u <> u2 OR e2 <> 0 THEN Give_Error "Expected = similar user defined type": EXIT SUB
                 dst$ = "((char*)" + lhsscope$ + n$ + ")+(" + o$ + ")"
-                copy_full_udt dst$, src$, 12, 0, u
 
                 'print "setFULLUDTrefer!"
 
@@ -12058,7 +11407,6 @@ IF recompile THEN
                     'signed bit is not set
                     l$ = r$ + "&=" + str2(bitmask(b)) + ";"
                 END IF
-                IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
                 IF arrayprocessinghappened THEN arrayprocessinghappened = 0
                 tlayout$ = tl$
                 IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
@@ -12084,7 +11432,6 @@ IF recompile THEN
             IF method = 0 THEN e$ = evaluatetotyp(e$, t2)
             IF Error_Happened THEN EXIT SUB
             l$ = r$ + "=" + e$ + ";"
-            IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
             IF arrayprocessinghappened THEN arrayprocessinghappened = 0
             tlayout$ = tl$
 
@@ -12172,9 +11519,6 @@ IF recompile THEN
                 'set format start/index variable
                 'create string to hold format in for multiple references
                 puf$ = "print_using_format" + u$
-                IF subfunc = "" THEN
-                ELSE
-                END IF
                 'print expressions
                 b = 0
                 e$ = ""
@@ -12211,12 +11555,8 @@ IF recompile THEN
 
                             ELSE 'not a string
                                 IF typ AND ISFLOAT THEN
-                                    IF (typ AND 511) = 32 THEN PRINT #12, "tmp_long=print_using_single(" + puf$ + "," + e$ + ",tmp_long,tqbs);"
-                                    IF (typ AND 511) = 64 THEN PRINT #12, "tmp_long=print_using_double(" + puf$ + "," + e$ + ",tmp_long,tqbs);"
-                                    IF (typ AND 511) > 64 THEN PRINT #12, "tmp_long=print_using_float(" + puf$ + "," + e$ + ",tmp_long,tqbs);"
                                 ELSE
                                     IF ((typ AND 511) = 64) AND (typ AND ISUNSIGNED) <> 0 THEN
-                                    ELSE
                                     END IF
                                 END IF
                             END IF 'string/not string
@@ -12284,7 +11624,6 @@ IF recompile THEN
                         IF a2$ = ";" THEN
                             IF RIGHT$(l$, 1) <> ";" THEN l$ = l$ + sp + a2$ 'concat ;; to ;
                         END IF
-                        IF usetab THEN PRINT #12, "sub_file_print(tmp_fileno,nothingstring,0,1,0);"
                     END IF 'len(e$)
 
                     e$ = ""
@@ -12500,7 +11839,6 @@ SUB xongotogosub (a$, ca$, n)
 END IF
 NEXT
 IrOnEnd g, u$
-IF g = 1 THEN PRINT #12, "ongo_" + u$ + "_skip:;"
 layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
 END SUB
 
@@ -12508,7 +11846,7 @@ SUB xprint (a$, ca$, n)
     u$ = str2$(uniquenumber)
 
     l$ = SCase$("Print")
-    IF ASC(a$) = 76 THEN lp = 1: lp$ = "l": l$ = SCase$("LPrint"): PRINT #12, "tab_LPRINT=1;": DEPENDENCY(DEPENDENCY_PRINTER) = 1 '"L"
+    IF ASC(a$) = 76 THEN lp = 1: lp$ = "l": l$ = SCase$("LPrint"): DEPENDENCY(DEPENDENCY_PRINTER) = 1 '"L"
 
     'PRINT USING?
     IF n >= 2 THEN
@@ -12549,9 +11887,6 @@ SUB xprint (a$, ca$, n)
 
             'create string to hold format in for multiple references
             puf$ = "print_using_format" + u$
-            IF subfunc = "" THEN
-            ELSE
-            END IF
 
             'print expressions
             b = 0
@@ -12580,7 +11915,6 @@ SUB xprint (a$, ca$, n)
                                 'note: position in format-string must be maintained
                                 '-print any string up until now
                                 '-print e$
-                                IF lp THEN PRINT #12, "lprint_makefit(tqbs);" ELSE PRINT #12, "makefit(tqbs);"
                                 '-set length of tqbs to 0
 
                             ELSE
@@ -12590,15 +11924,10 @@ SUB xprint (a$, ca$, n)
                             END IF
 
 
-
                         ELSE 'not a string
                             IF typ AND ISFLOAT THEN
-                                IF (typ AND 511) = 32 THEN PRINT #12, "tmp_long=print_using_single(" + puf$ + "," + e$ + ",tmp_long,tqbs);"
-                                IF (typ AND 511) = 64 THEN PRINT #12, "tmp_long=print_using_double(" + puf$ + "," + e$ + ",tmp_long,tqbs);"
-                                IF (typ AND 511) > 64 THEN PRINT #12, "tmp_long=print_using_float(" + puf$ + "," + e$ + ",tmp_long,tqbs);"
                             ELSE
                                 IF ((typ AND 511) = 64) AND (typ AND ISUNSIGNED) <> 0 THEN
-                                ELSE
                                 END IF
                             END IF
                         END IF 'string/not string
@@ -12617,7 +11946,6 @@ SUB xprint (a$, ca$, n)
             END IF
             'check for errors
             IF a2$ = "," OR a2$ = ";" THEN nl = 0 ELSE nl = 1 'note: a2$ is set to the last element of a$
-            IF lp THEN PRINT #12, "tab_LPRINT=0;"
             tlayout$ = l$
             EXIT SUB
         END IF
@@ -12661,14 +11989,13 @@ SUB xprint (a$, ca$, n)
                     IF (typ AND ISREFERENCE) THEN e$ = refer(e$, typ, 0)
                     IF Error_Happened THEN EXIT SUB
                     IrPrintStr str2$(-lp), IrFix
-                    IF lp THEN PRINT #12, "lprint_makefit(tqbs);" ELSE PRINT #12, "makefit(tqbs);"
                 ELSE
                     IF a2$ = "," THEN l$ = l$ + sp + a2$
                     IF a2$ = ";" THEN
                         IF RIGHT$(l$, 1) <> ";" THEN l$ = l$ + sp + a2$ 'concat ;; to ;
                     END IF
                 END IF 'len(e$)
-                IF a2$ = "," THEN PRINT #12, "tab();": IF IrEmitMode THEN IrRtCh "PRINTZONE", str2$(-lp)
+                IF a2$ = "," THEN IrRtCh "PRINTZONE", str2$(-lp)
                 e$ = ""
 
                 IF gotopu THEN i = i + 1: GOTO pujump
@@ -12686,12 +12013,9 @@ SUB xprint (a$, ca$, n)
         printnext:
     NEXT
     IF LEN(e$) THEN a2$ = "": last = 1: GOTO printlast
-    IF n = 1 THEN PRINT #12, "qbs_" + lp$ + "print(nothingstring,1);": IF IrEmitMode THEN IrRtCh "PRINTNL", str2$(-lp)
-    IF lp THEN PRINT #12, "tab_LPRINT=0;"
+    IF n = 1 THEN IrRtCh "PRINTNL", str2$(-lp)
     tlayout$ = l$
 END SUB
-
-
 
 
 SUB xread (ca$, n)
@@ -12747,7 +12071,6 @@ SUB xread (ca$, n)
         END IF
         IF a3$ = "" THEN a3$ = a2$ ELSE a3$ = a3$ + sp + a2$
     NEXT
-    IF stringprocessinghappened THEN PRINT #12, cleanupstringprocessingcall$ + "0);"
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
 END SUB
 
@@ -12998,7 +12321,6 @@ ELSE
 END IF
 NEXT
 END IF
-
 
 
 finishedcheck:

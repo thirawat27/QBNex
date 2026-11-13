@@ -102,7 +102,6 @@ FUNCTION fixoperationorder$ (savea$)
     END IF 'rule 3
 
 
-
     '----------------C. 'Quick' location of negation----------------
     'note: the results of this change are beneficial to foolayout
 
@@ -174,9 +173,7 @@ NEXT
 negscandone:
 
 
-
 END IF 'fooindwel=1
-
 
 
 '----------------D. 'Quick' Add 'power of' with negation {}bracketing to bottom bracket level----------------
@@ -498,9 +495,6 @@ IF alphanumeric(c) THEN
         'IF e$ = constname(i2) THEN
 
 
-
-
-
         'is a STATIC variable overriding this constant?
         staticvariable = 0
         try = findid(e$ + es$)
@@ -715,7 +709,6 @@ FOR try_method = 1 TO 4
             f$ = f$ + f2$
 
 
-
             IF nextc <> 46 THEN f$ = f$ + sp: GOTO classdone_special 'no sub-elements referenced
             udtMethodObjectStart = lastti
             t = id.t
@@ -852,13 +845,10 @@ FOR i = 1 TO n
     c = ASC(a2$)
 
 
-
     IF c = 40 OR c = 123 THEN '({
     b = b + 1
 
     IF b = 1 THEN
-
-
 
 
         p1 = i + 1
@@ -898,8 +888,6 @@ END IF
 
 GOTO foopass
 END IF ')}
-
-
 
 
 IF b = 0 THEN aa$ = aa$ + a2$ + sp
@@ -1055,8 +1043,6 @@ pm = 1
 ex$ = ""
 
 
-
-
 lfreadnumber:
 valid = 0
 
@@ -1093,7 +1079,6 @@ END IF
 IF valid THEN
     IF i <= n THEN i = i + 1: c$ = MID$(a$, i, 1): c = ASC(c$): GOTO lfreadnumber
 END IF
-
 
 
 'cull leading 0s off whole$
@@ -1701,8 +1686,6 @@ IF MID$(a$, i + 1, 1) = "O" THEN
         finisheddata:
         e$ = ""
         IF prepass = 0 THEN
-            PUT #16, , x$
-            DataOffset = DataOffset + LEN(x$)
 
             e$ = SPACE$((LEN(x$) - 1) * 2)
             FOR ec = 1 TO LEN(x$) - 1
@@ -1912,7 +1895,6 @@ IF memmode = 1 THEN addmetastatic = 1
 IF memmode = 2 THEN addmetadynamic = 1
 
 GOTO lineformatdone2
-
 
 
 lineformatdone:

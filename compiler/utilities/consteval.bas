@@ -43,7 +43,6 @@ FUNCTION Evaluate_Expression$ (e$)
 END FUNCTION
 
 
-
 SUB ParseExpression (exp$)
     DIM num(10) AS STRING
     'PRINT exp$
@@ -142,7 +141,6 @@ LOOP
 NEXT
 
 END SUB
-
 
 
 SUB Set_OrderOfOperations
@@ -832,7 +830,6 @@ LOOP UNTIL l = 0
 VerifyString t$
 e$ = t$
 END SUB
-
 
 
 SUB VerifyString (t$)

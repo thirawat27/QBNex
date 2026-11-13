@@ -61,45 +61,6 @@ SUB TopLevelRuntime_Finalize
     ClassSyntax_QueueDeferredLine "END SUB"
 END SUB
 
-SUB TopLevelRuntime_InjectMainHook (mainPath$)
-    DIM fileText AS STRING
-    DIM insertPos AS LONG
-    DIM runtimeCall AS STRING
-    DIM fh AS LONG
-    DIM scanPos AS LONG
-    DIM afterPos AS LONG
-
-    runtimeCall = "SUB_QBNEX_TOPLEVEL_RUNTIME0();"
-
-    fh = FREEFILE
-    OPEN mainPath$ FOR BINARY AS #fh
-    IF LOF(fh) THEN fileText = INPUT$(LOF(fh), #fh)
-    CLOSE #fh
-
-    IF INSTR(fileText, runtimeCall) THEN EXIT SUB
-
-    'Call the runtime where main closes ("sub_end();" followed by "return;"), not at the
-    'first END statement of the main body
-    insertPos = INSTR(fileText, "sub_end();")
-    IF insertPos = 0 THEN EXIT SUB
-    scanPos = insertPos
-    DO WHILE scanPos
-        afterPos = scanPos + 10
-        DO WHILE MID$(fileText, afterPos, 1) = CHR$(13) OR MID$(fileText, afterPos, 1) = CHR$(10)
-            afterPos = afterPos + 1
-        LOOP
-        IF MID$(fileText, afterPos, 7) = "return;" THEN insertPos = scanPos: EXIT DO
-        scanPos = INSTR(scanPos + 10, fileText, "sub_end();")
-    LOOP
-
-    fileText = LEFT$(fileText, insertPos - 1) + runtimeCall + CHR$(13) + CHR$(10) + MID$(fileText, insertPos)
-
-    fh = FREEFILE
-    OPEN mainPath$ FOR OUTPUT AS #fh
-    PRINT #fh, fileText;
-    CLOSE #fh
-END SUB
-
 FUNCTION TopLevelRuntime_IsLabelLine% (trimmedLine$)
     'a line number, or "name:" at the start of the line
     DIM c AS LONG

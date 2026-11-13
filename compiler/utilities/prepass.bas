@@ -42,7 +42,6 @@ SUB ResetPrepassManagers
 END SUB
 
 SUB ResetPostPrepassState
-    DataOffset = 0
     inclevel = 0
     subfuncn = 0
     lastLineReturn = 0
@@ -61,7 +60,6 @@ SUB ResetPostPrepassState
 END SUB
 
 SUB StartMainPassSession
-    OPEN tmpdir$ + "ret0.txt" FOR OUTPUT AS #15
 
     continueline = 0
     endifs = 0

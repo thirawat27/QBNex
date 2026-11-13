@@ -104,7 +104,6 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         Console = 1
         AutoConsoleOnlyEligible = 0
         IF prepass = 0 THEN
-            IF NoChecks = 0 THEN PRINT #12, "do{"
             HandleSimpleDirective% = 3
         ELSE
             HandleSimpleDirective% = 1
@@ -725,19 +724,9 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
             EXIT FUNCTION
         END IF
 
-        iconfilehandle = FREEFILE
-        OPEN tmpdir$ + "icon.rc" FOR OUTPUT AS #iconfilehandle
-        PRINT #iconfilehandle, "0 ICON " + QuotedFilename$(StrReplace$(exeIconFile, "\", "/"))
-        CLOSE #iconfilehandle
-        IF _FILEEXISTS(tmpdir$ + "icon.rc") = 0 THEN
-            ModuleError$ = "Error creating icon resource file"
-            HandleExeIconDirective% = 2
-            EXIT FUNCTION
-        END IF
     END IF
 
     ExeIconSet = linenumber
     SetDependency DEPENDENCY_ICON
-    IF NoChecks = 0 THEN PRINT #12, "do{"
     HandleExeIconDirective% = 3
 END FUNCTION
