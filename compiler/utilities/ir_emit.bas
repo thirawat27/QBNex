@@ -2186,7 +2186,12 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             IrE "jmp " + y$
             IrE "label " + y$ + ".E"
         CASE "SLEEP"
-            IrE "rt SLEEP " + IrI32$(0)
+            'SLEEP seconds (0 or none: until a key is pressed)
+            IF passed AND 1 THEN
+                IrE "rt SLEEP " + IrArgAs$(sv(1), "i32")
+            ELSE
+                IrE "rt SLEEP " + IrI32$(0)
+            END IF
         CASE "POKE"
             x$ = IrArgAs$(sv(1), "i32"): y$ = IrArgAs$(sv(2), "i32")
             IrE "rt POKE " + x$ + " " + y$

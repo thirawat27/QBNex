@@ -674,6 +674,95 @@ pub fn console_cursor(visible: i32, size: i32, passed: i32) {
 /// Last console key event (`_CINP`): scan code, negative when released.
 static CONSOLE_KEY: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
+/// `SLEEP` of a console program: waits `timeout_ms` (forever when `None`) or until a
+/// key is pressed, whichever comes first; true when a key ended the wait. Keys
+/// pressed before the call do not count. Without a keyboard (stdin redirected)
+/// only the time passes: `SLEEP` without a time then returns at once.
+pub fn wait_key(timeout_ms: Option<u64>) -> bool {
+    use std::time::{Duration, Instant};
+    let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
+    let left = |d: Instant| d.saturating_duration_since(Instant::now());
+    let sleep_out = || {
+        if let Some(d) = deadline {
+            std::thread::sleep(left(d));
+        }
+        false
+    };
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::{WaitForSingleObject, INFINITE};
+        let h = win::std(win::STD_INPUT_HANDLE);
+        if !win::is_console(h) {
+            return sleep_out();
+        }
+        // SAFETY: Win32 calls on the console input handle with valid buffers.
+        unsafe {
+            win::FlushConsoleInputBuffer(h);
+            loop {
+                let wait = match deadline {
+                    None => INFINITE,
+                    Some(d) => match left(d).as_millis() {
+                        0 => return false,
+                        ms => ms.min(u128::from(INFINITE - 1)) as u32,
+                    },
+                };
+                if WaitForSingleObject(h, wait) != WAIT_OBJECT_0 {
+                    return false;
+                }
+                let mut rec: win::INPUT_RECORD = core::mem::zeroed();
+                let mut n = 0u32;
+                if win::ReadConsoleInputW(h, &mut rec, 1, &mut n) == 0 {
+                    return sleep_out();
+                }
+                if n == 1 && rec.EventType as u32 == win::KEY_EVENT && rec.Event.KeyEvent.bKeyDown != 0 {
+                    return true;
+                }
+            }
+        }
+    }
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
+    {
+        use crossterm::event::{self, Event, KeyEventKind};
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() || crossterm::terminal::enable_raw_mode().is_err() {
+            return sleep_out();
+        }
+        // the terminal goes back to line mode on every way out of the loop
+        let _cooked = core::mem::DropGuard::new((), |()| {
+            let _ = crossterm::terminal::disable_raw_mode();
+        });
+        while event::poll(Duration::ZERO).unwrap_or(false) {
+            let _ = event::read(); // keys typed before SLEEP
+        }
+        loop {
+            let wait = match deadline {
+                None => Duration::from_secs(3600),
+                Some(d) => match left(d) {
+                    Duration::ZERO => return false,
+                    w => w,
+                },
+            };
+            match event::poll(wait) {
+                Ok(true) => {
+                    if let Ok(Event::Key(k)) = event::read()
+                        && k.kind == KeyEventKind::Press
+                    {
+                        return true;
+                    }
+                }
+                Ok(false) => {}
+                Err(_) => return sleep_out(),
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = left;
+        sleep_out()
+    }
+}
+
 /// `_CONSOLEINPUT`: waits for one console input event; 1 = key, 2 = mouse, 0 = other.
 pub fn console_input() -> i32 {
     #[cfg(windows)]

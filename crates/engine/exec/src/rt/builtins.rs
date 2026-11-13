@@ -1098,7 +1098,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 }
                 return Ok(None);
             }
-            // waits only in the browser runner; SLEEP without a time (wait for a key) returns
+            // a console program: n seconds or until a key is pressed (no time: until a key)
+            #[cfg(not(target_arch = "wasm32"))]
+            if !rt.web {
+                rt.flush(); // text printed before SLEEP shows while it waits
+                let ms = a.first().map(|v| v.f()).filter(|&s| s > 0.0).map(|s| (s * 1000.0).min(86_400_000.0) as u64);
+                qb_runtime::console::stdio::wait_key(ms);
+                return Ok(None);
+            }
+            // the browser runner waits for the time only; SLEEP without a time returns
             if rt.web && a.first().is_some_and(|v| v.f() > 0.0) {
                 if rt.display.started && rt.display.autodisplay != 0 {
                     rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
