@@ -1,0 +1,328 @@
+QIR 1
+global $__LONG_NOTED i32
+global $__STRING_WANT str
+global $__SINGLE_FIRED f32
+global $__SINGLE_SECONDS f32
+global $__SINGLE_T f32
+global $__SINGLE_ENTERS f32
+datalabel L_WAITKEY
+global $__STRING_K str
+datalabel L_FIRE
+datalabel L_SECOND
+func main
+local $~T2 i32
+line 3
+line 4
+const.i32 %0 13
+const.i32 %1 0
+const.i32 %2 0
+const.i32 %3 0
+const.i32 %4 0
+const.i32 %5 1
+rt qbg_screen %0 %1 %2 %3 %4 %5
+line 5
+const.str %6 x74726170732E747874
+const.i32 %7 1
+const.i32 %8 0
+const.i32 %9 2
+rt OPEN %6 %9 %7 %8
+line 6
+const.i32 %10 0
+const.i32 %11 -2147483648
+onstrig %10 %11 L_FIRE
+line 7
+const.i32 %12 4
+const.i32 %13 -2147483648
+onstrig %12 %13 L_SECOND
+line 8
+const.i32 %14 0
+const.i32 %15 2
+jmp ~EVS1
+label ~EV1
+const.i32 %16 7
+store.i32 $~T2 %16
+addr %17 $~T2
+call SUB_NOTE %17
+gret
+label ~EVS1
+onstrig %14 %15 ~EV1
+line 9
+const.i32 %18 0
+const.i32 %19 0
+const.i32 %20 1
+const.i32 %21 1
+rt sub_strig %18 %19 %20 %21
+line 10
+const.i32 %22 4
+const.i32 %23 0
+const.i32 %24 1
+const.i32 %25 1
+rt sub_strig %22 %23 %24 %25
+line 11
+const.i32 %26 0
+const.i32 %27 2
+const.i32 %28 1
+const.i32 %29 3
+rt sub_strig %26 %27 %28 %29
+line 12
+const.str %30 x61
+store.str $__STRING_WANT %30
+line 12
+gosub L_WAITKEY
+line 13
+const.i32 %31 1
+const.str %32 x6F6E
+rt PRINTS %31 %32
+load.f32 %33 $__SINGLE_FIRED
+rt PRINTN.f32 %31 %33
+load.f32 %34 $__SINGLE_SECONDS
+rt PRINTN.f32 %31 %34
+load.i32 %35 $__LONG_NOTED
+cvt.i64.i32 %36 %35
+rt PRINTN.i64 %31 %36
+rt PRINTNL %31
+line 15
+const.i32 %37 0
+const.i32 %38 0
+const.i32 %39 3
+const.i32 %40 1
+rt sub_strig %37 %38 %39 %40
+line 16
+const.str %41 x62
+store.str $__STRING_WANT %41
+line 16
+gosub L_WAITKEY
+line 17
+const.i32 %42 1
+const.str %43 x73746F70706564
+rt PRINTS %42 %43
+load.f32 %44 $__SINGLE_FIRED
+rt PRINTN.f32 %42 %44
+rt PRINTNL %42
+line 18
+const.i32 %45 0
+const.i32 %46 0
+const.i32 %47 1
+const.i32 %48 1
+rt sub_strig %45 %46 %47 %48
+line 19
+rt %49 TIMER
+cvt.f32.f64 %50 %49
+store.f32 $__SINGLE_T %50
+line 20
+label ~W3.T
+line 20
+const.i32 %51 200
+cvt.f64.i32 %52 %51
+rt sub__limit %52
+line 20
+label ~W3.C
+rt %53 TIMER
+load.f32 %54 $__SINGLE_T
+cvt.f64.f32 %55 %54
+sub.f64 %56 %53 %55
+const.f64 %57 0.4E+0
+cvt.f32.f64 %58 %56
+cvt.f32.f64 %59 %57
+gt.f32 %60 %58 %59
+jz %60 ~W3.T
+label ~W3.X
+line 21
+const.i32 %61 1
+const.str %62 x6F6E20616761696E
+rt PRINTS %61 %62
+load.f32 %63 $__SINGLE_FIRED
+rt PRINTN.f32 %61 %63
+rt PRINTNL %61
+line 22
+const.i32 %64 0
+const.i32 %65 0
+const.i32 %66 2
+const.i32 %67 1
+rt sub_strig %64 %65 %66 %67
+line 23
+const.str %68 x63
+store.str $__STRING_WANT %68
+line 23
+gosub L_WAITKEY
+line 24
+const.i32 %69 1
+const.str %70 x6F6666
+rt PRINTS %69 %70
+load.f32 %71 $__SINGLE_FIRED
+rt PRINTN.f32 %69 %71
+const.i32 %72 1
+const.i32 %73 0
+const.i32 %74 0
+rt %75 func_strig %72 %73 %74
+cvt.i64.i32 %76 %75
+rt PRINTN.i64 %69 %76
+const.i32 %77 0
+const.i32 %78 0
+const.i32 %79 0
+rt %80 func_strig %77 %78 %79
+cvt.i64.i32 %81 %80
+rt PRINTN.i64 %69 %81
+rt PRINTNL %69
+line 26
+const.str %82 x64
+store.str $__STRING_WANT %82
+line 26
+gosub L_WAITKEY
+line 27
+const.i32 %83 1
+const.str %84 x616C6C
+rt PRINTS %83 %84
+rt %85 func__fullscreen
+cvt.i64.i32 %86 %85
+rt PRINTN.i64 %83 %86
+rt %87 func__fullscreensmooth
+cvt.i64.i32 %88 %87
+rt PRINTN.i64 %83 %88
+rt PRINTNL %83
+line 28
+const.i32 %89 2
+const.i32 %90 1
+const.i32 %91 0
+rt sub__allowfullscreen %89 %90 %91
+line 29
+const.str %92 x65
+store.str $__STRING_WANT %92
+line 29
+gosub L_WAITKEY
+line 30
+const.i32 %93 1
+const.str %94 x73717561726520736D6F6F7468
+rt PRINTS %93 %94
+rt %95 func__fullscreen
+cvt.i64.i32 %96 %95
+rt PRINTN.i64 %93 %96
+rt %97 func__fullscreensmooth
+cvt.i64.i32 %98 %97
+rt PRINTN.i64 %93 %98
+rt PRINTNL %93
+line 31
+const.str %99 x66
+store.str $__STRING_WANT %99
+line 31
+gosub L_WAITKEY
+line 32
+const.i32 %100 1
+const.str %101 x77696E646F77
+rt PRINTS %100 %101
+rt %102 func__fullscreen
+cvt.i64.i32 %103 %102
+rt PRINTN.i64 %100 %103
+rt %104 func__fullscreensmooth
+cvt.i64.i32 %105 %104
+rt PRINTN.i64 %100 %105
+rt PRINTNL %100
+line 33
+const.i32 %106 3
+const.i32 %107 0
+const.i32 %108 0
+rt sub__allowfullscreen %106 %107 %108
+line 34
+const.str %109 x67
+store.str $__STRING_WANT %109
+line 34
+gosub L_WAITKEY
+line 35
+const.i32 %110 1
+const.str %111 x6E6F7420616C6C6F776564
+rt PRINTS %110 %111
+rt %112 func__fullscreen
+cvt.i64.i32 %113 %112
+rt PRINTN.i64 %110 %113
+load.f32 %114 $__SINGLE_ENTERS
+rt PRINTN.f32 %110 %114
+rt PRINTNL %110
+line 36
+const.i32 %115 1
+rt CLOSE %115
+line 37
+system
+label L_WAITKEY
+line 40
+rt %116 TIMER
+cvt.f32.f64 %117 %116
+store.f32 $__SINGLE_T %117
+line 41
+label ~W10.T
+line 42
+rt %118 INKEY$
+store.str $__STRING_K %118
+line 44
+rt %119 func__keyhit
+const.i32 %120 13
+eq.i32 %121 %119 %120
+jz %121 ~I3.1
+line 44
+load.f32 %122 $__SINGLE_ENTERS
+const.i32 %123 1
+cvt.f32.i32 %124 %123
+add.f32 %125 %122 %124
+store.f32 $__SINGLE_ENTERS %125
+line 44
+label ~I3.1
+label ~I3.E
+line 45
+const.i32 %126 200
+cvt.f64.i32 %127 %126
+rt sub__limit %127
+line 46
+label ~W10.C
+load.str %128 $__STRING_K
+load.str %129 $__STRING_WANT
+eq.str %130 %128 %129
+rt %131 TIMER
+load.f32 %132 $__SINGLE_T
+cvt.f64.f32 %133 %132
+sub.f64 %134 %131 %133
+const.i32 %135 10
+cvt.f64.i32 %136 %135
+gt.f64 %137 %134 %136
+or.i32 %138 %130 %137
+jz %138 ~W10.T
+label ~W10.X
+line 47
+gret
+label L_FIRE
+line 50
+load.f32 %139 $__SINGLE_FIRED
+const.i32 %140 1
+cvt.f32.i32 %141 %140
+add.f32 %142 %139 %141
+store.f32 $__SINGLE_FIRED %142
+line 51
+gret
+label L_SECOND
+line 54
+load.f32 %143 $__SINGLE_SECONDS
+const.i32 %144 1
+cvt.f32.i32 %145 %144
+add.f32 %146 %143 %145
+store.f32 $__SINGLE_SECONDS %146
+line 55
+gret
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_NOTE
+param $_SUB_NOTE_LONG_N i32 byref
+line 58
+load.i32 %0 $__LONG_NOTED
+load.i32 %1 $_SUB_NOTE_LONG_N
+add.i32 %2 %0 %1
+store.i32 $__LONG_NOTED %2
+label ~EXIT
+ret
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

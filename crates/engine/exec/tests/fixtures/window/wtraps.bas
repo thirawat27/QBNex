@@ -24,12 +24,12 @@ want$ = "c": GOSUB waitkey
 PRINT #1, "off"; fired; STRIG(1); STRIG(0)
 ' ALT+ENTER: every mode in turn, then only what _ALLOWFULLSCREEN leaves
 want$ = "d": GOSUB waitkey
-PRINT #1, "all"; _FULLSCREEN; _FULLSCREENSMOOTH
+PRINT #1, "all"; _FULLSCREEN; _SMOOTH
 _ALLOWFULLSCREEN _SQUAREPIXELS , _SMOOTH
 want$ = "e": GOSUB waitkey
-PRINT #1, "square smooth"; _FULLSCREEN; _FULLSCREENSMOOTH
+PRINT #1, "square smooth"; _FULLSCREEN; _SMOOTH
 want$ = "f": GOSUB waitkey
-PRINT #1, "window"; _FULLSCREEN; _FULLSCREENSMOOTH
+PRINT #1, "window"; _FULLSCREEN; _SMOOTH
 _ALLOWFULLSCREEN _OFF
 want$ = "g": GOSUB waitkey
 PRINT #1, "not allowed"; _FULLSCREEN; enters
@@ -40,7 +40,8 @@ waitkey:
 t! = TIMER
 DO
     k$ = INKEY$
-    IF k$ = CHR$(13) OR k$ = CHR$(0) + CHR$(28) THEN enters = enters + 1
+    ' ALT+ENTER puts nothing in the keyboard buffer; _KEYHIT reports the key
+    IF _KEYHIT = 13 THEN enters = enters + 1
     _LIMIT 200
 LOOP UNTIL k$ = want$ OR TIMER - t! > 10
 RETURN

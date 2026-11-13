@@ -406,10 +406,11 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             }
             none
         }
-        // _ALLOWFULLSCREEN [mode][, smooth] (+ passed): which modes ALT+ENTER may switch to
+        // _ALLOWFULLSCREEN [mode][, smooth]: which modes ALT+ENTER may switch to. Each is the
+        // number of the option written, 0 when it was left out.
         "sub__allowfullscreen" => {
             #[cfg(not(target_arch = "wasm32"))]
-            super::window::allow_fullscreen(if i(2) & 1 != 0 { i(0) as i32 } else { 0 }, if i(2) & 2 != 0 { i(1) as i32 } else { 0 });
+            super::window::allow_fullscreen(i(0) as i32, i(1) as i32);
             none
         }
         "sub_lock" | "sub_unlock" => {
