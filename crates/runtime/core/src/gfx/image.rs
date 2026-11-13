@@ -1,5 +1,5 @@
-//! Image registry and surface setup (`imgframe`, `imgnew`, `imgrevert`,
-//! `newimg`, `freeimg`, `grow_img_registry` of libqb.cpp).
+//! Image registry and surface setup (QB64's `imgframe`, `imgnew`,
+//! `imgrevert`, `newimg`, `freeimg`, `grow_img_registry`).
 
 use super::palette::restorepalette;
 use super::ImgStruct;

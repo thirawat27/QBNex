@@ -1,16 +1,15 @@
 //! `_MEM` family: lock tags (`mem_lock`), `_MEMNEW`, `_MEMFREE`, `_MEMEXISTS`,
 //! `_MEMGET`, `_MEMFILL`, `_MEMCOPY`, `_MEM(offset, size)`.
 //!
-//! Replaces `new_mem_lock`, `free_mem_lock`, `func__mem*` and `sub__mem*` of
-//! libqb.cpp. Generated C++ code reads and writes `mem_block` / `mem_lock`
-//! fields and the globals `mem_lock_id` / `mem_lock_tmp` directly, so their
-//! layout and symbol names are part of the ABI (`internal/c/common.h`).
+//! A `_MEM` variable is a [`MemBlock`] in program memory, so its layout is
+//! fixed (`repr(C)`, the QB64 `_MEM` layout); its `lock_offset` points at a
+//! [`MemLock`] owned by this module.
 //!
-//! Error codes are returned to the C++ shim, which raises them with `error()`.
+//! Error codes are returned to the caller, which raises them.
 
 use std::collections::BTreeMap;
 use std::ffi::c_void;
-use std::ptr::{addr_of_mut, null_mut};
+use std::ptr::null_mut;
 use std::sync::Mutex;
 
 /// `lock_id` written into a block by `_MEMFREE`; never a live lock id.
@@ -21,7 +20,7 @@ const MEM_LOCK_BLOCK_SIZE: usize = 10_000;
 /// `mem_block.type` of `_MEMNEW` / `_MEM(offset, size)` blocks.
 pub const MEMNEW_TYPE: isize = 16_384;
 
-/// `mem_block` in common.h.
+/// The `_MEM` type: QB64's `mem_block` layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MemBlock {
@@ -35,7 +34,7 @@ pub struct MemBlock {
     pub sound: i32,
 }
 
-/// `mem_lock` in common.h. `type_`: 0 unsecured, 1 `_MEMNEW` allocation,
+/// QB64's `mem_lock`. `type_`: 0 unsecured, 1 `_MEMNEW` allocation,
 /// 2 image, 3 SUB/FUNCTION scope, 4 array, 5 sound.
 #[repr(C)]
 #[derive(Debug)]
@@ -47,26 +46,15 @@ pub struct MemLock {
 
 const EMPTY_LOCK: MemLock = MemLock { id: 0, type_: 0, offset: null_mut() };
 
-/// Last lock id handed out. Generated code also increments it directly.
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut mem_lock_id: u64 = MEM_LOCK_INITIAL_ID;
-
-/// Lock created by the last `new_mem_lock()` call (read by generated code).
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut mem_lock_tmp: *mut MemLock = null_mut();
-
-/// First lock of the newest lock block (legacy global; `_MEMSOUND` uses it as
-/// the lock of an invalid block).
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut mem_lock_base: *mut MemLock = null_mut();
-
 struct Pool {
     /// Locks live in fixed blocks so their addresses never move.
     blocks: Vec<Box<[MemLock]>>,
     next: usize,
+    /// Last lock id handed out.
+    last_id: u64,
+    /// First lock of the newest lock block (`_MEMSOUND` uses it as the lock
+    /// of an invalid block).
+    base: *mut MemLock,
     freed: Vec<*mut MemLock>,
     /// `_MEMNEW` allocations keyed by the address of their lock.
     memnew: BTreeMap<usize, RawBuf>,
@@ -80,6 +68,8 @@ unsafe impl Send for Pool {}
 static POOL: Mutex<Pool> = Mutex::new(Pool {
     blocks: Vec::new(),
     next: MEM_LOCK_BLOCK_SIZE,
+    last_id: MEM_LOCK_INITIAL_ID,
+    base: null_mut(),
     freed: Vec::new(),
     memnew: BTreeMap::new(),
     fail_buffer: Vec::new(),
@@ -89,38 +79,37 @@ fn pool() -> std::sync::MutexGuard<'static, Pool> {
     POOL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// `new_mem_lock()`: takes a fresh (or recycled) lock, gives it the next id,
-/// stores it in `mem_lock_tmp` and returns it.
+/// `new_mem_lock()`: takes a fresh (or recycled) lock, gives it the next id
+/// and returns it.
 pub fn new_mem_lock() -> *mut MemLock {
-    let lock = {
-        let mut p = pool();
-        if let Some(l) = p.freed.pop() {
-            l
-        } else {
-            if p.next == MEM_LOCK_BLOCK_SIZE {
-                let block: Box<[MemLock]> = (0..MEM_LOCK_BLOCK_SIZE).map(|_| EMPTY_LOCK).collect();
-                p.blocks.push(block);
-                p.next = 0;
-                let base = p.blocks.last_mut().expect("just pushed").as_mut_ptr();
-                // SAFETY: plain pointer store; the runtime is single-threaded here.
-                unsafe { *addr_of_mut!(mem_lock_base) = base };
-            }
-            let i = p.next;
-            p.next += 1;
-            let block = p.blocks.last_mut().expect("block allocated above");
-            &mut block[i] as *mut MemLock
+    let mut p = pool();
+    let lock = if let Some(l) = p.freed.pop() {
+        l
+    } else {
+        if p.next == MEM_LOCK_BLOCK_SIZE {
+            let block: Box<[MemLock]> = (0..MEM_LOCK_BLOCK_SIZE).map(|_| EMPTY_LOCK).collect();
+            p.blocks.push(block);
+            p.next = 0;
+            p.base = p.blocks.last_mut().expect("just pushed").as_mut_ptr();
         }
+        let i = p.next;
+        p.next += 1;
+        let block = p.blocks.last_mut().expect("block allocated above");
+        &mut block[i] as *mut MemLock
     };
-    // SAFETY: single-threaded runtime contract of libqb; `lock` points into `blocks`.
+    p.last_id += 1;
+    // SAFETY: `lock` points into `blocks`, which the pool lock guards.
     unsafe {
-        let id = addr_of_mut!(mem_lock_id);
-        *id += 1;
-        (*lock).id = *id;
+        (*lock).id = p.last_id;
         (*lock).type_ = 0;
         (*lock).offset = null_mut();
-        *addr_of_mut!(mem_lock_tmp) = lock;
     }
     lock
+}
+
+/// First lock of the newest lock block (null before the first lock).
+pub fn mem_lock_base() -> *mut MemLock {
+    pool().base
 }
 
 /// `free_mem_lock()`: invalidates the lock, releases a `_MEMNEW` allocation and

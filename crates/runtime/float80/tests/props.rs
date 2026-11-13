@@ -1,5 +1,4 @@
-//! Property tests (proptest) for the software x87 float. The bit-exact
-//! reference is `tests/diff/diff_float80.cpp`; these check algebraic
+//! Property tests (proptest) for the software x87 float. These check algebraic
 //! invariants that must hold on every target, including the software path.
 
 #![allow(clippy::pedantic)] // test code: casts and short names on purpose

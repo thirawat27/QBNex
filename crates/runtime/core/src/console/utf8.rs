@@ -2,9 +2,8 @@
 //! fallback, the code page 437 <-> Unicode table (`_MAPUNICODE` changes it at
 //! run time), and the width classes used to lay out SCREEN 0 cells.
 
-/// Code page 437 -> Unicode (BMP). Generated code and libqb.cpp (`_MAPUNICODE`,
-/// `_UPRINTSTRING`, the text renderer) read and write it through this symbol.
-#[unsafe(no_mangle)]
+/// Code page 437 -> Unicode (BMP); `_MAPUNICODE` changes it (program thread).
+#[allow(non_upper_case_globals)]
 pub static mut codepage437_to_unicode16: [u16; 256] = CP437_DEFAULT;
 
 const CP437_DEFAULT: [u16; 256] = [

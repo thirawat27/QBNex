@@ -165,9 +165,9 @@ impl Display {
         // SAFETY: valid surface.
         unsafe {
             if (*p).text != 0 {
-                console::cells::qb_text_cells_init(i, i32::from((*p).width) * i32::from((*p).height));
+                console::cells::init(i, usize::from((*p).width) * usize::from((*p).height));
             } else {
-                console::cells::qb_text_cells_release(i);
+                console::cells::release(i);
             }
         }
     }
@@ -181,7 +181,7 @@ impl Display {
                 qb_runtime::mem::free_mem_lock((*im(i)).lock_offset as *mut qb_runtime::mem::MemLock);
             }
         }
-        console::cells::qb_text_cells_release(i as i32);
+        console::cells::release(i as i32);
         for p in self.page.iter_mut() {
             if *p == i as i32 {
                 *p = 0;
@@ -806,7 +806,7 @@ impl Display {
                 (*d).flags |= IMG_FREEPAL;
             }
             if (*d).text != 0 {
-                console::cells::qb_text_cells_copy(src as i32, i2 as i32);
+                console::cells::copy(src as i32, i2 as i32);
             }
             if (*d).flags & IMG_SCREEN != 0 {
                 (*d).flags ^= IMG_SCREEN;
@@ -1537,7 +1537,7 @@ impl Host for VmHost<'_> {
         qb_runtime::systime::sleep_ms(u64::from(ms));
     }
     fn ticks(&mut self) -> i64 {
-        qb_runtime::systime::qb_get_ticks()
+        qb_runtime::systime::ticks()
     }
 }
 
@@ -1739,7 +1739,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     let px: Vec<u32> = if (*im(d.resolve(i(0)).unwrap_or(0))).bytes_per_pixel == 4 { px } else { px.iter().map(|p| p | 0xFF00_0000).collect() };
                     #[cfg(not(target_arch = "wasm32"))]
                     if d.window && !d.screen_hide {
-                        qb_runtime::window::qb_window_set_icon(px.as_ptr(), w as i32, h as i32);
+                        qb_runtime::window::qb_window_set_icon(&px, w as i32, h as i32);
                     }
                     let _ = (w, h, px);
                 }
@@ -1747,20 +1747,18 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             // _SCREENIMAGE[(x1, y1, x2, y2)]: a 32-bit image of the desktop (blank where the
             // system gives no access to it)
             "func__screenimage" => {
-                let (mut w, mut h) = (0, 0);
-                let px = qb_runtime::screen::qb_screenimage(i(0), i(1), i(2), i(3), i(4), &mut w, &mut h);
-                let handle = if px.is_null() && w > 0 && h > 0 {
+                let (w, h, px) = qb_runtime::screen::qb_screenimage(i(0), i(1), i(2), i(3), i(4));
+                let handle = if px.is_none() && w > 0 && h > 0 {
                     let (dw, dh) = qb_runtime::screen::desktop();
                     d.newimage(dw.max(1), dh.max(1), 32, 1)
                 } else {
                     d.newimage(w, h, 32, 1)
                 };
-                if !px.is_null() {
-                    let n = w as usize * h as usize;
+                if let Some(px) = px {
+                    let n = (w as usize * h as usize).min(px.len());
                     if handle < -1 {
-                        core::ptr::copy_nonoverlapping(px, (*im((-handle) as u32)).offset.cast::<u32>(), n);
+                        core::ptr::copy_nonoverlapping(px.as_ptr(), (*im((-handle) as u32)).offset.cast::<u32>(), n);
                     }
-                    qb_runtime::pixels::qb_free_pixels(px, n as i64);
                 }
                 out = Some(V::I(handle.into()));
             }

@@ -4,7 +4,7 @@
 //!   tRNS and low bit depths are expanded; 16-bit samples keep their high byte
 //!   (`stbi__convert_16_to_8`), after tRNS was matched on the full 16-bit value.
 //! - JPEG: lossy; the IDCT and chroma upsampling differ from stb_image, so
-//!   pixels may differ slightly (documented deviation, tolerance in diff_image.cpp).
+//!   pixels may differ slightly (documented deviation).
 
 use super::stb::{mad3_valid, Ctx, Rgba, MAX_DIMENSIONS};
 

@@ -1,8 +1,7 @@
 //! `RND` / `RANDOMIZE`: the QBasic 24-bit linear congruential generator.
 //!
-//! Replaces `func_rnd`, `sub_randomize` and the `rnd_seed` globals of
-//! libqb.cpp. The error check (`new_error`) and the interactive
-//! "Random-number seed" prompt stay in the C++ shims.
+//! Same sequence as QBasic and QB64. The caller owns the generator state and
+//! the interactive "Random-number seed" prompt.
 
 /// Seed a fresh program (and `RUN`) starts with.
 pub const INITIAL_SEED: u32 = 327_680;
@@ -59,69 +58,11 @@ fn mix_seed(seed: f64) -> u32 {
     (m & 0xFFFF) << 8
 }
 
-// --- C ABI (include/qb_runtime.h); one generator per program ----------------------
-
-static GLOBAL: std::sync::Mutex<RndState> =
-    std::sync::Mutex::new(RndState { seed: INITIAL_SEED, seed_first: INITIAL_SEED });
-
-fn with_global<T>(f: impl FnOnce(&mut RndState) -> T) -> T {
-    let mut guard = GLOBAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    f(&mut guard)
-}
-
-/// `RND` (`passed == 0`) or `RND(n)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_rnd(n: f32, passed: i32) -> f32 {
-    with_global(|s| s.rnd(if passed != 0 { Some(n) } else { None }))
-}
-
-/// `RANDOMIZE seed` (`using == 0`) or `RANDOMIZE USING seed`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_randomize(seed: f64, using: i32) {
-    with_global(|s| if using != 0 { s.randomize_using(seed) } else { s.randomize(seed) });
-}
-
-/// Seed entered at the interactive `RANDOMIZE` prompt.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_randomize_prompt(seed: i16) {
-    with_global(|s| s.randomize_prompt(seed));
-}
-
-/// Restores the start-up seed (program start and `RUN`).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_rnd_reset() {
-    with_global(|s| *s = RndState::default());
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn c_abi_drives_one_global_generator() {
-        qb_rnd_reset();
-        close(qb_rnd(0.0, 0), 0.7055475);
-        close(qb_rnd(123.0, 0), 0.533424); // n ignored when not passed
-        close(qb_rnd(0.0, 1), 0.533424);
-        qb_randomize(42.0, 1);
-        let a = qb_rnd(0.0, 0);
-        qb_randomize(42.0, 1);
-        assert_eq!(qb_rnd(0.0, 0), a);
-        qb_randomize(42.0, 0);
-        qb_randomize_prompt(5);
-        let mut expect = RndState::default();
-        expect.randomize_using(42.0);
-        expect.rnd(None);
-        expect.randomize_using(42.0);
-        expect.rnd(None);
-        expect.randomize(42.0);
-        expect.randomize_prompt(5);
-        assert_eq!(with_global(|s| *s), expect);
-        qb_rnd_reset();
-        assert_eq!(with_global(|s| *s), RndState::default());
-    }
-
-    /// Values printed by the legacy C++ runtime (7 significant digits).
+    /// Values printed by QB64 (7 significant digits).
     fn close(got: f32, want: f64) {
         assert!((f64::from(got) - want).abs() < 5e-7 * want.abs().max(1e-2), "got {got}, want {want}");
     }

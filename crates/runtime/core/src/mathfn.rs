@@ -1,10 +1,8 @@
 //! Math functions with BASIC error checks and `HEX$`/`OCT$`/`_BIN$`.
 //!
-//! Replaces `func_log`, `func_exp_single`, `func_sqr`, `func_fix_double`,
-//! `func_hex`, `func_oct` and `func__bin` from libqb.cpp. The `long double`
-//! variants (`func_fix_float`, `func_exp_float`) and the float-to-integer
-//! front ends of `HEX$`/`OCT$`/`_BIN$` (x87 rounding of a `long double`)
-//! stay in the libqb.cpp shims until `_FLOAT` is emulated in Rust (D12).
+//! QB64's `func_log`, `func_exp_single`, `func_sqr`, `func_fix_double`,
+//! `func_hex`, `func_oct` and `func__bin`. The `_FLOAT` variants live in
+//! `qb-float80`.
 
 /// `LOG`: `Err(5)` for x <= 0.
 pub fn log(x: f64) -> Result<f64, i32> {

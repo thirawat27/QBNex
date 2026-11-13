@@ -1,9 +1,8 @@
 //! Clock reads for TIMER, `_DELAY`, `_LIMIT` and the cursor blink.
 //!
-//! Replaces `GetTicks` (three per-OS versions: `clock()` on Windows,
-//! `CLOCK_MONOTONIC` on Linux, `mach_absolute_time` on macOS) and the
-//! start-of-day setup in libqb.cpp's `main` (wait for the wall clock's second
-//! to tick over, then record the tick count and the local time of day).
+//! A monotonic millisecond tick count, and the start-of-day reference taken
+//! at program start (wait for the wall clock's second to tick over, then
+//! record the tick count and the local time of day), as QB64 does.
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -251,13 +250,6 @@ pub fn set_date(s: &[u8]) -> Result<(), i32> {
     Ok(())
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// `GetTicks()`: monotonic milliseconds.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_get_ticks() -> i64 {
-    ticks()
-}
 
 #[cfg(test)]
 mod tests {

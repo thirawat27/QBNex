@@ -1,12 +1,11 @@
 //! SHELL family: `SHELL`, `SHELL(...)`, `_SHELLHIDE(...)`, `SHELL _HIDE`,
 //! `SHELL _DONTWAIT`, `SHELL _DONTWAIT _HIDE`.
 //!
-//! Replaces the launching logic of `func_shell`, `func__shellhide`,
+//! The launching logic of QB64's `func_shell`, `func__shellhide`,
 //! `sub_shell`, `sub_shell2`, `sub_shell3`, `sub_shell4`, `cmd_ok` and
-//! `cmd_command` of libqb.cpp. The six legacy functions ran the same steps
-//! and only differed in window visibility and waiting, so they become one
-//! [`run`]. Leaving full screen, the `console`/`console_active` checks and
-//! `shell_call_in_progress` stay in the C++ shims.
+//! `cmd_command`. The six functions ran the same steps and only differed in
+//! window visibility and waiting, so they become one [`run`]. Leaving full
+//! screen and the console checks belong to the caller.
 //!
 //! Windows steps (unchanged): with an active console, `system(cmd)`.
 //! Otherwise, if `cmd.exe` works: ShellExecuteEx the whole text (unless it

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "QBNex runtime in Rust. Replaces libqb.cpp subsystems through a C ABI (strangler migration)."
+description = "QBNex runtime: console, graphics, files, input, networking and memory for the QIR runner."
 publish = false
 
 [lib]
@@ -12,8 +12,7 @@ name = "qb_runtime"
 path = "src/lib.rs"
 
 [dependencies]
-# Audio runtime (R6). Its own crate so that its object file is only pulled into
-# programs whose libqb references the audio entry points (DEPENDENCY_AUDIO_OUT).
+# Audio runtime, in its own crate so that it builds as its own object file.
 qb-audio = { path = "../audio" }
 # Regex, hashing, Base64/hex, zip, HTTP(S) for the BASIC stdlib (qb_ext_* C ABI),
 # linked into the runner qb-exec so the stdlib's ext.* modules can call it through DECLARE LIBRARY.
@@ -37,7 +36,7 @@ gpu = ["dep:qb-gpu"]
 
 [target.'cfg(windows)'.dependencies]
 # Clipboard (CF_TEXT/CF_BITMAP), _SCREENIMAGE/_SCREENCLICK/_SCREENPRINT and the
-# printer use Win32 directly, exactly like the legacy runtime. windows-sys links
+# printer use Win32 directly, as QB64 does. windows-sys links
 # through raw-dylib import stubs, so no extra link flags are needed for them.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -55,8 +54,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
-# R8: window + input (replaces freeglut/GLEW/gui.cpp). Not in a browser build
-# (browser build): there the page is the window and qb-web draws the surfaces.
+# Window and input. Not in a browser build: there the page is the window and
+# qb-web draws the surfaces.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 winit = "0.30"
 softbuffer = "0.4"

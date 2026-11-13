@@ -1,6 +1,6 @@
 //! `TIMER` / `TIMER(accuracy)`: seconds since midnight.
 //!
-//! Replaces the arithmetic of `func_timer` in libqb.cpp. The clock reads it
+//! The arithmetic of QB64's `func_timer`. The clock reads it
 //! takes as arguments (`GetTicks` and the start-up time of day) come from
 //! [`crate::systime`].
 
@@ -24,31 +24,6 @@ pub fn timer(ticks: u32, clock_first: u32, day_first: u32, accuracy: Option<f64>
     let steps = crate::round::qbr(crate::round::f80_from_f64(seconds * steps_per_second));
     let value = steps as f64 / steps_per_second;
     Ok(if accuracy.is_none() { f64::from(value as f32) } else { value })
-}
-
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// Writes TIMER's value to `out` and returns 0, or returns a QBasic error code.
-///
-/// # Safety
-/// `out` must be writable for one `double`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_timer(
-    ticks: u32,
-    clock_first: u32,
-    day_first: u32,
-    accuracy: f64,
-    passed: i32,
-    out: *mut f64,
-) -> i32 {
-    let accuracy = (passed != 0).then_some(accuracy);
-    let (value, code) = match timer(ticks, clock_first, day_first, accuracy) {
-        Ok(v) => (v, 0),
-        Err(e) => (0.0, e),
-    };
-    // SAFETY: caller guarantees `out` is writable.
-    unsafe { out.write_unaligned(value) };
-    code
 }
 
 #[cfg(test)]
@@ -84,20 +59,6 @@ mod tests {
         assert_eq!(timer(6_500, 5_000, start, Some(0.001)), Ok(0.5));
         // Tick counter overflow (u32 wraps after ~49.7 days) still measures elapsed time.
         assert_eq!(timer(100, u32::MAX - 899, 0, Some(0.001)), Ok(1.0));
-    }
-
-    #[test]
-    fn c_abi_reports_value_or_error() {
-        let mut out = -1.0;
-        // SAFETY: `out` is a valid double.
-        assert_eq!(unsafe { qb_timer(2_000, 0, 0, 123.0, 0, &mut out) }, 0);
-        assert_eq!(Ok(out), timer(2_000, 0, 0, None)); // accuracy ignored when not passed
-        // SAFETY: as above.
-        assert_eq!(unsafe { qb_timer(2_000, 0, 0, 0.001, 1, &mut out) }, 0);
-        assert_eq!(out, 2.0);
-        // SAFETY: as above.
-        assert_eq!(unsafe { qb_timer(2_000, 0, 0, 0.0, 1, &mut out) }, ERR_ILLEGAL_CALL);
-        assert_eq!(out, 0.0);
     }
 
     #[test]

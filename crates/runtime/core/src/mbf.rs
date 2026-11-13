@@ -1,9 +1,8 @@
 //! Microsoft Binary Format (MBF) <-> IEEE 754 conversion.
 //!
-//! Port of `internal/c/msbin.cpp`, used by `MKSMBF$`, `CVSMBF`, `MKDMBF$` and
-//! `CVDMBF` (libqb.cpp, `func_mksmbf` and friends). The arithmetic is kept
-//! byte-for-byte identical to the C++ version, including its quirks, because
-//! files written by old programs depend on it:
+//! Used by `MKSMBF$`, `CVSMBF`, `MKDMBF$` and `CVDMBF`. The arithmetic is
+//! byte-for-byte identical to QB64's `msbin` converter, including its quirks,
+//! because files written by old programs depend on it:
 //!
 //! - IEEE NaN/infinity are not special-cased.
 //! - Single precision: IEEE zero/denormals get MBF exponent 2 (not 0), and
@@ -11,15 +10,10 @@
 //! - Double precision: IEEE exponents that do not fit the 8-bit MBF field
 //!   (including every tiny value and `-0.0`) report overflow.
 //! - `dmsbin_to_ieee` reports overflow when the low mantissa nibble would be
-//!   lost, which libqb turns into error 5.
+//!   lost, which the caller turns into error 5.
 //!
 //! All functions return `Ok(bytes)` on success and `Err(bytes)` on overflow;
-//! the bytes are what the C++ code would have left in the destination buffer.
-
-/// Status code the C ABI returns for success.
-const OK: i32 = 0;
-/// Status code the C ABI returns for overflow.
-const OVERFLOW: i32 = 1;
+//! the bytes are what QB64 would have left in the destination buffer.
 
 /// 4-byte MBF -> IEEE single (little-endian byte arrays).
 pub fn fmsbin_to_ieee(msbin: [u8; 4]) -> Result<[u8; 4], [u8; 4]> {
@@ -30,7 +24,7 @@ pub fn fmsbin_to_ieee(msbin: [u8; 4]) -> Result<[u8; 4], [u8; 4]> {
     }
     ieee[3] |= sign;
     // MBF bias 128 with the binary point before the hidden bit; IEEE bias 127
-    // with it after. The C++ code subtracts 2 in `unsigned char` arithmetic.
+    // with it after. QB64 subtracts 2 in `unsigned char` arithmetic.
     let ieee_exp = msbin[3].wrapping_sub(2);
     ieee[3] |= ieee_exp >> 1;
     ieee[2] |= ieee_exp << 7;
@@ -48,7 +42,7 @@ pub fn fieee_to_msbin(ieee: [u8; 4]) -> Result<[u8; 4], [u8; 4]> {
     msbin_exp |= ieee[3] << 1;
     msbin_exp |= ieee[2] >> 7;
     if msbin_exp == 0xFE {
-        // Destination is left untouched by the C++ code; callers zero the length.
+        // QB64 leaves the destination untouched; callers zero the length.
         return Err(msbin);
     }
     msbin_exp = msbin_exp.wrapping_add(2);
@@ -69,7 +63,7 @@ pub fn dmsbin_to_ieee(src: [u8; 8]) -> Result<[u8; 8], [u8; 8]> {
         return Ok(ieee);
     }
     ieee[7] |= sign;
-    // The C++ code evaluates this left to right in uint32, so the intermediate
+    // QB64 evaluates this left to right in uint32, so the intermediate
     // `msbin[7] - 128` wraps for exponents below 128; the final sum is the same.
     let ieee_exp: u32 = u32::from(msbin[7])
         .wrapping_sub(128)
@@ -124,76 +118,6 @@ pub fn dieee_to_msbin(src: [u8; 8]) -> Result<[u8; 8], [u8; 8]> {
     Ok(msbin)
 }
 
-/// Copies `N` bytes from a possibly unaligned C pointer.
-///
-/// # Safety
-/// `src` must be valid for reads of `N` bytes.
-unsafe fn read_bytes<const N: usize>(src: *const u8) -> [u8; N] {
-    let mut buf = [0u8; N];
-    // SAFETY: guaranteed by the caller; byte copies have no alignment requirement.
-    unsafe { core::ptr::copy_nonoverlapping(src, buf.as_mut_ptr(), N) };
-    buf
-}
-
-/// Copies `N` bytes to a possibly unaligned C pointer.
-///
-/// # Safety
-/// `dest` must be valid for writes of `N` bytes.
-unsafe fn write_bytes<const N: usize>(dest: *mut u8, bytes: &[u8; N]) {
-    // SAFETY: guaranteed by the caller; byte copies have no alignment requirement.
-    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), dest, N) };
-}
-
-/// A conversion: `Ok(bytes)` on success, `Err(bytes)` (what C++ left in the
-/// destination) on overflow.
-type Convert<const N: usize> = fn([u8; N]) -> Result<[u8; N], [u8; N]>;
-
-/// Shared shape of the four C entry points: read, convert, write back exactly
-/// what the C++ implementation wrote, and map the result to its status code.
-///
-/// # Safety
-/// `src` must be readable and `dest` writable for `N` bytes.
-unsafe fn convert<const N: usize>(
-    src: *const u8,
-    dest: *mut u8,
-    f: Convert<N>,
-    write_on_overflow: bool,
-) -> i32 {
-    // SAFETY: forwarded caller contract.
-    let input = unsafe { read_bytes::<N>(src) };
-    match f(input) {
-        Ok(out) => {
-            // SAFETY: forwarded caller contract.
-            unsafe { write_bytes(dest, &out) };
-            OK
-        }
-        Err(out) => {
-            if write_on_overflow {
-                // SAFETY: forwarded caller contract.
-                unsafe { write_bytes(dest, &out) };
-            }
-            OVERFLOW
-        }
-    }
-}
-
-// --- C ABI (declared in include/qb_runtime.h) -------------------------------------
-//
-// Which destination bytes the C++ code had written when it reported overflow:
-// - _fieeetomsbin: nothing (returns before touching dest)
-// - _dieeetomsbin: zeroed dest, then sign byte msbin[6]
-// - _dmsbintoieee: fully converted value
-// `Err` payloads reproduce that, and `write_on_overflow` controls whether the
-// payload is stored.
-
-/// # Safety
-/// `src4` must be readable and `dest4` writable for 4 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn _fieeetomsbin(src4: *const f32, dest4: *mut f32) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { convert::<4>(src4.cast(), dest4.cast(), fieee_to_msbin, false) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,7 +141,7 @@ mod tests {
 
     #[test]
     fn single_zero_quirk_is_preserved() {
-        // msbin.cpp never special-cases IEEE zero: exponent 0 + 2 = 2.
+        // QB64 never special-cases IEEE zero: exponent 0 + 2 = 2.
         assert_eq!(fieee_to_msbin(s(0.0)), Ok([0, 0, 0, 2]));
         // MBF exponent 0 means zero regardless of mantissa.
         assert_eq!(fmsbin_to_ieee([0xFF, 0xFF, 0xFF, 0]), Ok([0; 4]));
@@ -274,28 +198,5 @@ mod tests {
             }
             v *= 3.7;
         }
-    }
-
-    #[test]
-    fn c_abi_handles_unaligned_pointers() {
-        let mut buf = [0u8; 9];
-        buf[1..5].copy_from_slice(&s(3.25));
-        let mut out = [0u8; 5];
-        // SAFETY: both buffers hold at least 4 bytes after the offset.
-        let rc = unsafe {
-            _fieeetomsbin(buf.as_ptr().add(1).cast(), out.as_mut_ptr().add(1).cast())
-        };
-        assert_eq!(rc, OK);
-        assert_eq!(&out[1..5], &fieee_to_msbin(s(3.25)).unwrap());
-    }
-
-    #[test]
-    fn c_abi_overflow_leaves_single_dest_untouched() {
-        let src = s(2f32.powi(127));
-        let mut dest = [0xAAu8; 4];
-        // SAFETY: 4-byte buffers.
-        let rc = unsafe { _fieeetomsbin(src.as_ptr().cast(), dest.as_mut_ptr().cast()) };
-        assert_eq!(rc, OVERFLOW);
-        assert_eq!(dest, [0xAA; 4]);
     }
 }

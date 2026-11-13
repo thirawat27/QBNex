@@ -1,7 +1,6 @@
 //! QBasic-compatible float -> integer rounding.
 //!
-//! Replaces `qbr`, `qbr_longdouble_to_uint64`, `qbr_float_to_long` and
-//! `qbr_double_to_long` from libqb.cpp, which used x87 `fistp` with the FPU in
+//! Same results as QB64's `qbr` family, which used x87 `fistp` with the FPU in
 //! round-to-nearest-even mode (control word 0x37F, all exceptions masked).
 //! `fistp` stores the "integer indefinite" value (the most negative integer)
 //! for NaN, infinities and out-of-range results.
@@ -96,7 +95,7 @@ pub fn fistp_i64(f: F80) -> i64 {
     }
 }
 
-/// libqb `qbr(long double)`: like `fistp_i64`, but values above `i64::MAX`
+/// QB64's `qbr(long double)`: like `fistp_i64`, but values above `i64::MAX`
 /// are reduced by 2^63 first and returned with the top bit set, so callers
 /// storing into `_UNSIGNED _INTEGER64` get the right bit pattern.
 pub fn qbr(f: F80) -> i64 {
@@ -141,63 +140,9 @@ pub fn fistp_i32(f: f64) -> i32 {
     }
 }
 
-// --- C ABI (declared in include/qb_runtime.h; called by the qbr* shims in libqb.cpp) ---
-
-/// Reads a possibly unaligned 10-byte x87 value.
-///
-/// # Safety
-/// `p` must be readable for 10 bytes.
-unsafe fn read_f80(p: *const u8) -> F80 {
-    let mut b = [0u8; 10];
-    // SAFETY: guaranteed by the caller; byte copy has no alignment requirement.
-    unsafe { core::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 10) };
-    b
-}
-
-/// # Safety
-/// `f80` must be readable for 10 bytes (an x87 `long double`).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbr_f80(f80: *const u8) -> i64 {
-    // SAFETY: forwarded caller contract.
-    qbr(unsafe { read_f80(f80) })
-}
-
-/// # Safety
-/// `f80` must be readable for 10 bytes (an x87 `long double`).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_fistp_i64_f80(f80: *const u8) -> i64 {
-    // SAFETY: forwarded caller contract.
-    fistp_i64(unsafe { read_f80(f80) })
-}
-
-/// `qbr` for platforms whose `long double` is not x87 extended.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_qbr_f64(v: f64) -> i64 {
+/// `qbr` of a `double` (every `double` widens exactly to x87 extended).
+pub fn qb_qbr_f64(v: f64) -> i64 {
     qbr(f80_from_f64(v))
-}
-
-/// `fistp` to int64 for platforms whose `long double` is not x87 extended.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_fistp_i64_f64(v: f64) -> i64 {
-    fistp_i64(f80_from_f64(v))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_fistp_i32(v: f64) -> i32 {
-    fistp_i32(v)
-}
-
-/// Puts the x87 FPU into the mode QBasic arithmetic expects (was
-/// `fpu_reinit` in libqb.cpp). No-op on other architectures.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_fpu_reinit() {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        // Extended precision, round to nearest even, all exceptions masked.
-        let mode: u16 = 0x037F;
-        // SAFETY: fldcw only reads the control word from the given address.
-        unsafe { core::arch::asm!("fldcw [{}]", in(reg) &mode, options(nostack, readonly)) };
-    }
 }
 
 #[cfg(test)]
@@ -241,40 +186,10 @@ mod tests {
 
     const INDEFINITE: i64 = i64::MIN;
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn read_x87_control_word() -> u16 {
-        let mut cw: u16 = 0;
-        // SAFETY: fnstcw only stores the control word to the given address.
-        unsafe { core::arch::asm!("fnstcw [{}]", in(reg) &mut cw, options(nostack)) };
-        cw
-    }
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]
-    fn fpu_reinit_sets_extended_precision_round_nearest() {
-        let other: u16 = 0x027F; // 53-bit precision, as some Windows CRTs set it
-        // SAFETY: loads a valid x87 control word.
-        unsafe { core::arch::asm!("fldcw [{}]", in(reg) &other, options(nostack)) };
-        assert_eq!(read_x87_control_word(), 0x027F);
-        qb_fpu_reinit();
-        assert_eq!(read_x87_control_word(), 0x037F);
-    }
-
-    #[test]
-    fn c_abi_matches_rust_api() {
-        let big = int80(false, u64::MAX);
-        let mut unaligned = [0u8; 11];
-        unaligned[1..].copy_from_slice(&big);
-        // SAFETY: 10 readable bytes at offset 1.
-        assert_eq!(unsafe { qb_qbr_f80(unaligned.as_ptr().add(1)) }, -1);
-        let half = f80(2.5);
-        // SAFETY: 10-byte array.
-        assert_eq!(unsafe { qb_fistp_i64_f80(half.as_ptr()) }, 2);
+    fn qbr_f64_matches_f80_path() {
         assert_eq!(qb_qbr_f64(1.5e19), qbr(f80(1.5e19)));
         assert_eq!(qb_qbr_f64(-3.5), -4);
-        assert_eq!(qb_fistp_i64_f64(1e19), i64::MIN);
-        assert_eq!(qb_fistp_i64_f64(-0.5), 0);
-        assert_eq!(qb_fistp_i32(6.5), 6);
     }
 
     #[test]

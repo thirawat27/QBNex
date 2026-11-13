@@ -1,5 +1,5 @@
 //! LINE: `lineclip`, `fast_line`, `qb32_line`, `qb32_boxfill`,
-//! `fast_boxfill` and `sub_line` of libqb.cpp.
+//! `fast_boxfill` and `sub_line`, as in QB64.
 
 use super::blend::{blend_onto, pset};
 use super::{cvt_i32, map_point_f2l, qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
@@ -16,7 +16,7 @@ pub struct Clip {
     pub skip: i32,
 }
 
-/// Clips a line to a rectangle the way libqb.cpp did (including its rounding
+/// Clips a line to a rectangle the way QB64 does (including its rounding
 /// through `float`).
 pub fn lineclip(
     mut x1: i32,
@@ -339,12 +339,11 @@ pub unsafe fn sub_line(
     0
 }
 
-/// C ABI: `sub_line` on `write_page`.
+/// `LINE` on `write_page`.
 ///
 /// # Safety
 /// `im` must be `write_page`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_line(
+pub unsafe fn qb_gfx_line(
     im: *mut ImgStruct,
     x1: f32,
     y1: f32,
@@ -359,20 +358,18 @@ pub unsafe extern "C" fn qb_gfx_line(
     unsafe { sub_line(&mut *im, x1, y1, x2, y2, col, bf, style, passed) }
 }
 
-/// C ABI for C++ callers of `fast_boxfill`/`qb32_boxfill`/`fast_line`.
+/// `fast_boxfill`/`qb32_boxfill`/`fast_line` on a surface pointer.
 ///
 /// # Safety
 /// See the Rust functions.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_boxfill(im: *const ImgStruct, x1: f32, y1: f32, x2: f32, y2: f32, col: u32) {
+pub unsafe fn qb_gfx_boxfill(im: *const ImgStruct, x1: f32, y1: f32, x2: f32, y2: f32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { qb32_boxfill(&*im, x1, y1, x2, y2, col) }
 }
 
 /// # Safety
 /// The rectangle must lie inside `im`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_fast_boxfill(im: *const ImgStruct, x1: i32, y1: i32, x2: i32, y2: i32, col: u32) {
+pub unsafe fn qb_gfx_fast_boxfill(im: *const ImgStruct, x1: i32, y1: i32, x2: i32, y2: i32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { fast_boxfill(&*im, x1, y1, x2, y2, col) }
 }

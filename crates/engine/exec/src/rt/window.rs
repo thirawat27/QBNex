@@ -6,7 +6,7 @@
 //! * frames: [`compose`] turns the display page into 0xAARRGGBB pixels
 //!   (text pages through the builtin 8x8/8x14/8x16 fonts with blinking and
 //!   the text cursor, palette and 32-bit pages through the page palette);
-//!   [`present`] hands them to `qb_window_present`;
+//!   [`present`] hands them to `qb_runtime::window::qb_window_present`;
 //! * timing: a ticker thread raises [`PRESENT_EVENT`] every 32 ms (MAIN_LOOP
 //!   displays every second 16 ms loop, `frame` counts those), the VM presents
 //!   at its next safe point while `_AUTODISPLAY` is on;
@@ -171,9 +171,7 @@ pub(crate) fn fullscreen() -> (i32, bool) {
 /// `_SCALEDWIDTH`, `_SCALEDHEIGHT`: the size the page is shown at inside the window.
 pub(crate) fn scaled_size() -> (i32, i32) {
     let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
-    let (mut ww, mut wh) = (0, 0);
-    // SAFETY: two valid out pointers.
-    unsafe { qb_runtime::window::qb_window_size(&mut ww, &mut wh) };
+    let (ww, wh) = qb_runtime::window::qb_window_size();
     if ww <= 0 || wh <= 0 {
         return (fw, fh);
     }
@@ -259,7 +257,7 @@ pub(crate) fn activate(ev: EventHandle) {
     });
 }
 
-extern "C" fn cb_close() {
+fn cb_close() {
     // after `_EXIT` the program answers close requests itself
     if EXIT_BLOCKED.load(Ordering::SeqCst) {
         EXIT_VALUE.fetch_or(EXIT_CLOSE_BOX, Ordering::SeqCst);
@@ -275,17 +273,13 @@ extern "C" fn cb_close() {
 /// frame scaled and letterboxed by `qb_runtime::raster::layout`).
 fn to_frame(x: i32, y: i32) -> (i32, i32) {
     let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
-    let (mut ww, mut wh) = (0, 0);
-    // SAFETY: two valid out pointers.
-    unsafe { qb_runtime::window::qb_window_size(&mut ww, &mut wh) };
+    let (ww, wh) = qb_runtime::window::qb_window_size();
     if ww <= 0 || wh <= 0 || (ww == fw && wh == fh) {
         return (x, y);
     }
-    let (mut o, mut s) = ([0i32; 8], [0f32; 2]);
     let (mode, smooth) = fullscreen();
-    // SAFETY: buffers of the documented sizes.
-    unsafe { qb_runtime::window::qb_layout(fw, fh, ww, wh, mode, i32::from(smooth), RESIZE_SCALE.load(Ordering::Relaxed), o.as_mut_ptr(), s.as_mut_ptr()) };
-    let (x1, y1, x2, y2) = (o[0], o[1], o[2], o[3]);
+    let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
+    let (x1, y1, x2, y2) = (l.x1, l.y1, l.x2, l.y2);
     let map = |v: i32, a: i32, b: i32, n: i32| if b > a { ((v - a) as i64 * n as i64 / (b - a + 1) as i64) as i32 } else { v };
     (map(x, x1, x2, fw), map(y, y1, y2, fh))
 }
@@ -298,28 +292,26 @@ pub(crate) fn warp_mouse(x: i32, y: i32) {
         return;
     }
     let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
-    let (mut ww, mut wh) = (0, 0);
-    // SAFETY: two valid out pointers.
-    unsafe { qb_runtime::window::qb_window_size(&mut ww, &mut wh) };
+    let (ww, wh) = qb_runtime::window::qb_window_size();
     let (mode, smooth) = fullscreen();
     let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
     qb_runtime::window::qb_window_warp_mouse((x as f32 * l.x_scale) as i32 + l.x1, (y as f32 * l.y_scale) as i32 + l.y1);
 }
 
-extern "C" fn cb_button(b: i32, down: i32, x: i32, y: i32) {
+fn cb_button(b: i32, down: i32, x: i32, y: i32) {
     let (x, y) = to_frame(x, y);
     super::input::cb_button(b, down, x, y);
 }
-extern "C" fn cb_move(x: i32, y: i32) {
+fn cb_move(x: i32, y: i32) {
     let (x, y) = to_frame(x, y);
     super::input::cb_move(x, y);
 }
-extern "C" fn cb_wheel(dir: i32, x: i32, y: i32) {
+fn cb_wheel(dir: i32, x: i32, y: i32) {
     let (x, y) = to_frame(x, y);
     super::input::cb_wheel(dir, x, y);
 }
 
-extern "C" fn cb_resize(w: i32, h: i32) {
+fn cb_resize(w: i32, h: i32) {
     RESIZE_W.store(w, Ordering::Relaxed);
     RESIZE_H.store(h, Ordering::Relaxed);
     RESIZE_EVENT.store(true, Ordering::Relaxed);
@@ -329,18 +321,16 @@ extern "C" fn cb_resize(w: i32, h: i32) {
         qb_runtime::window::qb_window_set_size(fw, fh);
     }
 }
-extern "C" fn cb_focus(focused: i32) {
+fn cb_focus(focused: i32) {
     FOCUSED.store(focused != 0, Ordering::Relaxed);
 }
-extern "C" fn cb_file_drop(path: *const std::ffi::c_char) {
-    if path.is_null() || !ACCEPT_DROP.load(Ordering::Relaxed) {
+fn cb_file_drop(path: &[u8]) {
+    if !ACCEPT_DROP.load(Ordering::Relaxed) {
         return;
     }
-    // SAFETY: the window layer passes a NUL-terminated path that lives for this call.
-    let path = unsafe { std::ffi::CStr::from_ptr(path) }.to_bytes().to_vec();
-    dropped().push(path);
+    dropped().push(path.to_vec());
 }
-extern "C" fn cb_created(handle: *mut std::ffi::c_void) {
+fn cb_created(handle: *mut std::ffi::c_void) {
     HANDLE.store(handle as usize, Ordering::Relaxed);
     CREATED.store(true, Ordering::Relaxed);
 }
@@ -367,9 +357,7 @@ pub fn run_main(title: &str, hidden: bool, resize: i32) {
         file_drop: Some(cb_file_drop),
         created: Some(cb_created),
     };
-    let t = std::ffi::CString::new(title.replace('\0', "")).unwrap_or_default();
-    // SAFETY: valid callbacks and a NUL-terminated title.
-    unsafe { qb_runtime::window::qb_window_run(&cb, 640, 400, t.as_ptr(), i32::from(resize > 0), i32::from(hidden)) };
+    qb_runtime::window::qb_window_run(&cb, 640, 400, &title.replace('\0', ""), resize > 0, hidden);
 }
 
 /// Records the size of the frame about to be shown. When it differs from the
@@ -398,8 +386,7 @@ pub(crate) fn present(d: &Display) {
     let p = unsafe { &*d.display_page() };
     let Some((px, w, h)) = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0) else { return };
     frame_size(w, h);
-    // SAFETY: `px` holds w*h pixels.
-    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed)) };
+    qb_runtime::window::qb_window_present(&px, w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed));
 }
 
 /// The next frame of the display page without showing it (SUB _GL draws it
@@ -424,17 +411,13 @@ pub(crate) fn present_pixels(px: &[u32], w: usize, h: usize) {
         return;
     }
     frame_size(w, h);
-    // SAFETY: `px` holds w*h pixels.
-    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed)) };
+    qb_runtime::window::qb_window_present(px, w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed));
 }
 
 /// Sets the window title (`_TITLE`).
 pub(crate) fn set_title(t: &[u8]) {
     let t: Vec<u8> = t.iter().copied().filter(|&c| c != 0).collect();
-    if let Ok(c) = std::ffi::CString::new(t) {
-        // SAFETY: NUL-terminated string.
-        unsafe { qb_runtime::window::qb_window_set_title(c.as_ptr()) };
-    }
+    qb_runtime::window::qb_window_set_title(&t);
 }
 
 /// The pixels a page shows: `(argb, width, height)`.

@@ -3,9 +3,8 @@
 //! `_CONSOLECURSOR`, `_CONSOLEINPUT` and `_CINP` when `_DEST`/`_SOURCE` is
 //! `_CONSOLE`.
 //!
-//! stdout/stdin go through the C runtime's `FILE` streams, like legacy
-//! (text-mode newline translation, buffering shared with the C++ code that
-//! still prints).
+//! stdout/stdin go through the C runtime's `FILE` streams, as in QB64
+//! (text-mode newline translation and the C runtime's buffering).
 
 use super::Host;
 use core::ffi::c_void;
@@ -672,15 +671,8 @@ pub fn console_cursor(visible: i32, size: i32, passed: i32) {
     let _ = (visible, size, passed);
 }
 
-/// Last console key event (`_CINP`) and mouse state (`_MOUSEX` etc. on `_CONSOLE`).
-#[unsafe(no_mangle)]
-pub static mut consolekey: i32 = 0;
-#[unsafe(no_mangle)]
-pub static mut consolemousex: i32 = 0;
-#[unsafe(no_mangle)]
-pub static mut consolemousey: i32 = 0;
-#[unsafe(no_mangle)]
-pub static mut consolebutton: i32 = 0;
+/// Last console key event (`_CINP`): scan code, negative when released.
+static CONSOLE_KEY: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
 /// `_CONSOLEINPUT`: waits for one console input event; 1 = key, 2 = mouse, 0 = other.
 pub fn console_input() -> i32 {
@@ -712,21 +704,11 @@ pub fn console_input_on(h: windows_sys::Win32::Foundation::HANDLE) -> i32 {
         match rec.EventType as u32 {
             win::KEY_EVENT => {
                 let k = rec.Event.KeyEvent;
-                consolekey = k.wVirtualScanCode as i32;
-                if k.bKeyDown == 0 {
-                    consolekey = -consolekey;
-                }
+                let code = k.wVirtualScanCode as i32;
+                CONSOLE_KEY.store(if k.bKeyDown == 0 { -code } else { code }, std::sync::atomic::Ordering::Relaxed);
                 return 1;
             }
-            win::MOUSE_EVENT => {
-                let m = rec.Event.MouseEvent;
-                // legacy subtracted an uninitialised srWindow.Top; the window top is read here
-                let top = win::conout_info().srWindow.Top as i32;
-                consolemousex = m.dwMousePosition.X as i32 + 1;
-                consolemousey = m.dwMousePosition.Y as i32 - top + 1;
-                consolebutton = m.dwButtonState as i32;
-                return 2;
-            }
+            win::MOUSE_EVENT => return 2,
             _ => {}
         }
     }
@@ -738,18 +720,14 @@ pub fn cinp(mut toggle: i32, passed: i32) -> i32 {
     if !cfg!(windows) {
         return 0;
     }
-    // SAFETY: program-thread global.
-    unsafe {
-        let temp = consolekey;
-        consolekey = 0;
-        if passed == 0 {
-            toggle = 1;
-        }
-        if toggle != 0 || temp >= 0 {
-            temp
-        } else {
-            -temp + 128
-        }
+    let temp = CONSOLE_KEY.swap(0, std::sync::atomic::Ordering::Relaxed);
+    if passed == 0 {
+        toggle = 1;
+    }
+    if toggle != 0 || temp >= 0 {
+        temp
+    } else {
+        -temp + 128
     }
 }
 

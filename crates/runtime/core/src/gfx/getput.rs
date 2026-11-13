@@ -424,12 +424,11 @@ pub unsafe fn pcopy(s: &ImgStruct, d: &ImgStruct) -> i32 {
     0
 }
 
-// --- C ABI ---------------------------------------------------------------------
+// --- entry points ----------------------------------------------------------------
 
 /// # Safety
 /// See [`graphics_get`] (`im` = read_page).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_get(
+pub unsafe fn qb_gfx_get(
     im: *mut ImgStruct,
     x1: f32,
     y1: f32,
@@ -446,8 +445,7 @@ pub unsafe extern "C" fn qb_gfx_get(
 
 /// # Safety
 /// See [`graphics_put`] (`im` = write_page).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_put(
+pub unsafe fn qb_gfx_put(
     im: *mut ImgStruct,
     x1: f32,
     y1: f32,
@@ -463,8 +461,7 @@ pub unsafe extern "C" fn qb_gfx_put(
 
 /// # Safety
 /// See [`pcopy`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_pcopy(s: *const ImgStruct, d: *const ImgStruct) -> i32 {
+pub unsafe fn qb_gfx_pcopy(s: *const ImgStruct, d: *const ImgStruct) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { pcopy(&*s, &*d) }
 }

@@ -1,14 +1,8 @@
 #![allow(non_upper_case_globals)]
 
-//! Built-in graphics data that libqb.cpp embedded as byte arrays and copied
-//! into globals at start-up: the default 256-color and EGA palettes, the
-//! SCREEN 10 pseudo-color table and the 8x8 / 8x16 bitmap fonts.
-//!
-//! The globals keep their C names and types so the remaining C++ (window
-//! presentation, text rendering) links against them unchanged:
-//! `uint32 palette_256[256]`, `uint32 palette_64[64]`, `uint32 pal_mode10[2][9]`,
-//! `uint8 charset8x8[256][8][8]`, `uint8 charset8x16[256][16][8]`.
-//! Font bitmaps hold one byte per pixel (0 or 255).
+//! Built-in graphics data: the default 256-color and EGA palettes and the
+//! 8x8 / 8x16 bitmap fonts (QB64's tables). Font bitmaps hold one byte per
+//! pixel (0 or 255), `[char][row][col]`.
 
 const fn argb_palette<const N: usize>(raw: &[u8]) -> [u32; N] {
     let mut out = [0u32; N];
@@ -24,27 +18,17 @@ const fn argb_palette<const N: usize>(raw: &[u8]) -> [u32; N] {
     out
 }
 
-/// Default VGA 256-color palette (ARGB, alpha forced to 255 as in legacy init).
-#[unsafe(no_mangle)]
+/// Default VGA 256-color palette (ARGB, alpha forced to 255 as QB64 does).
 pub static palette_256: [u32; 256] = argb_palette::<256>(include_bytes!("data/pal256.bin"));
 
 /// Default EGA 64-color palette.
-#[unsafe(no_mangle)]
 pub static palette_64: [u32; 64] = argb_palette::<64>(include_bytes!("data/pal64.bin"));
 
-/// SCREEN 10 pseudo colors: `[blink phase][0..8]` (no alpha, as in legacy).
-#[unsafe(no_mangle)]
-pub static pal_mode10: [[u32; 9]; 2] = [
-    [0, 0, 0, 0x808080, 0x808080, 0x808080, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF],
-    [0, 0x808080, 0xFFFFFF, 0, 0x808080, 0xFFFFFF, 0, 0x808080, 0xFFFFFF],
-];
 
 /// 8x8 font, `[char][row][col]`.
-#[unsafe(no_mangle)]
 pub static charset8x8: [u8; 256 * 8 * 8] = *include_bytes!("data/charset8.bin");
 
 /// 8x16 font, `[char][row][col]` (the 8x14 font is rows 1..=14 of it).
-#[unsafe(no_mangle)]
 pub static charset8x16: [u8; 256 * 16 * 8] = *include_bytes!("data/charset16.bin");
 
 #[cfg(test)]

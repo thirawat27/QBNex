@@ -1,5 +1,4 @@
-//! Sound builtins of the runtime, routed to the `qb-audio` C ABI
-//! (`qb_snd_*`).
+//! Sound builtins of the runtime, routed to `qb_audio::ffi`.
 
 use super::builtins::Host;
 use super::{Stop, R, V};
@@ -21,7 +20,7 @@ fn raise(err: i32) -> R<Option<V>> {
 fn start_audio(rt: &mut super::builtins::RtState<'_>) {
     #[cfg(not(target_arch = "wasm32"))]
     if rt.window {
-        let Ok(open) = std::thread::Builder::new().name("qb-audio-open".into()).spawn(|| snd::qb_snd_init()) else {
+        let Ok(open) = std::thread::Builder::new().name("qb-audio-open".into()).spawn(snd::qb_snd_init) else {
             snd::qb_snd_init();
             return;
         };
@@ -104,7 +103,6 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
     let s = |k: usize| a[k].s();
     let some = |v: V| Some(Ok(Some(v)));
     let none = Some(Ok(None));
-    // SAFETY (all unsafe calls below): pointers are live slices of the given lengths.
     match name {
         "SOUND" | "BEEP" => {
             let e = if name == "BEEP" { snd::qb_snd_sound(900.0, 5.0) } else { snd::qb_snd_sound(f(0), f(1)) };
@@ -112,8 +110,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             Some(raise(e))
         }
         "PLAY" => {
-            let dblock = vm.rt().cmem[super::builtins::DBLOCK..].as_ptr();
-            let e = unsafe { snd::qb_snd_play(s(0).as_ptr(), s(0).len() as i32, dblock) };
+            let e = snd::qb_snd_play(s(0), &vm.rt().cmem[super::builtins::DBLOCK..]);
             hold_queue(vm.rt());
             Some(raise(e))
         }
@@ -122,11 +119,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         "PLAYEVENT" => Some(raise(qb_runtime::events::play_trap().statement(i(0)).err().unwrap_or(0))),
         "_VOICE" => Some(raise(snd::qb_snd_voice(i(0)))),
         "_ADSR" => Some(raise(snd::qb_snd_adsr(f(0), f(1), f(2), f(3), i(4), i(5)))),
-        "_WAVE" => Some(raise(unsafe { snd::qb_snd_wave(s(0).as_ptr(), s(0).len() as i32, i(1), i(2)) })),
+        "_WAVE" => Some(raise(snd::qb_snd_wave(s(0), i(1), i(2)))),
         "_SNDRATE" => some(V::I(snd::qb_snd_rate().into())),
         "_SNDOPEN" => {
-            let (n, r) = (s(0), s(1));
-            some(V::I(unsafe { snd::qb_snd_open(n.as_ptr(), n.len() as i32, r.as_ptr(), r.len() as i32, i(2)) }.into()))
+            some(V::I(snd::qb_snd_open(s(0), s(1), i(2)).into()))
         }
         "_SNDCLOSE" => {
             snd::qb_snd_close(i(0));
@@ -142,7 +138,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             none
         }
         "_SNDPLAYFILE" => {
-            unsafe { snd::qb_snd_play_file(s(0).as_ptr(), s(0).len() as i32, i(1), f(2), i(3)) };
+            snd::qb_snd_play_file(s(0), i(1), f(2), i(3));
             none
         }
         "_SNDPAUSE" => {
@@ -188,16 +184,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "_SNDRAWLEN" => some(V::F(snd::qb_snd_raw_len(i(0), i(1)))),
         "_MEMSOUND" => {
-            // _MEMSOUND(handle, channel): a _MEM view of the sound's sample data
+            // `_MEMSOUND`: a `_MEM` over the sound's sample buffer
             let (h, ch) = (i(1), i(2));
-            let mut info = snd::QbMemSound { offset: 0, size: 0, element_size: 0, mem_type: 0, lock_offset: 0, lock_id: 0 };
-            let ok = unsafe { snd::qb_snd_memsound(h, ch, &mut info) } != 0;
             let mut mb = MemBlock::default();
-            if !ok {
-                // SAFETY: reading the runtime's lock base pointer.
-                mb.lock_offset = unsafe { mem::mem_lock_base } as isize;
-                mb.lock_id = mem::MEM_LOCK_INVALID_ID as i64;
-            } else {
+            if let Some(info) = snd::qb_snd_memsound(h, ch) {
                 if info.lock_offset != 0 {
                     mb.lock_offset = info.lock_offset as isize;
                     mb.lock_id = info.lock_id;
@@ -215,6 +205,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 mb.offset = info.offset as isize;
                 mb.size = info.size as isize;
                 mb.sound = h;
+            } else {
+                mb.lock_offset = mem::mem_lock_base() as isize;
+                mb.lock_id = mem::MEM_LOCK_INVALID_ID as i64;
             }
             let r = vm.bytes(a[0].p(), std::mem::size_of::<MemBlock>()).map(|b| {
                 // SAFETY: the destination is a _MEM UDT (MemBlock layout).

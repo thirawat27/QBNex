@@ -1,7 +1,7 @@
 //! `STR$` number formatting (also used by `PRINT` for numbers).
 //!
-//! Replaces the `qbs_str` overloads of libqb.cpp. The legacy algorithm formats
-//! with C `printf` ("% .6E" / "% .15E" / "% .Nf") and then edits the text; the
+//! Matches QB64's `qbs_str`, which formats with C `printf`
+//! ("% .6E" / "% .15E" / "% .Nf") and then edits the text; the
 //! port reproduces that text, including one legacy quirk that golden output
 //! depends on: non-finite values print as " 0".
 //!
@@ -15,9 +15,6 @@
 //!   decimals the algorithm asked for.
 //! - Legacy SINGLE formatting of infinity/NaN read a stale buffer; the
 //!   port prints " 0" like DOUBLE does.
-
-/// Upper bound on the length of any `STR$` result (C callers size buffers with it).
-pub const STR_MAX: usize = 64;
 
 /// `STR$` of any signed integer type (C `"% i"`).
 pub fn str_i64(v: i64) -> Vec<u8> {
@@ -159,89 +156,15 @@ pub fn str_f64(v: f64) -> Vec<u8> {
     cull_leading_zero(c_fixed(v, decimals))
 }
 
-// --- C ABI (include/qb_runtime.h): write into a caller buffer of QB_STR_MAX bytes,
-// return the length. The qbs allocation stays in the libqb.cpp shims. ---------
-
-/// Copies `text` (at most `STR_MAX` bytes) to `out` and returns its length.
-///
-/// # Safety
-/// `out` must be writable for `STR_MAX` bytes.
-unsafe fn emit(text: &[u8], out: *mut u8) -> i32 {
-    let n = text.len().min(STR_MAX);
-    // SAFETY: guaranteed by the caller.
-    unsafe { core::ptr::copy_nonoverlapping(text.as_ptr(), out, n) };
-    n as i32
-}
-
-/// # Safety
-/// `out` must be writable for `STR_MAX` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_str_i64(v: i64, out: *mut u8) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { emit(&str_i64(v), out) }
-}
-
-/// # Safety
-/// `out` must be writable for `STR_MAX` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_str_u64(v: u64, out: *mut u8) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { emit(&str_u64(v), out) }
-}
-
-/// # Safety
-/// `out` must be writable for `STR_MAX` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_str_f32(v: f32, out: *mut u8) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { emit(&str_f32(v), out) }
-}
-
-/// # Safety
-/// `out` must be writable for `STR_MAX` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_str_f64(v: f64, out: *mut u8) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { emit(&str_f64(v), out) }
-}
-
-/// `STR$` of a `_FLOAT` given as the 10 bytes of an x87 `long double`: legacy
+/// `STR$` of a `_FLOAT` given as the 10 bytes of an x87 `long double`: QB64's
 /// `qbs_str(long double)` formats `(double)value`.
 pub fn str_f80(v: [u8; 10]) -> Vec<u8> {
     str_f64(qb_float80::F80::from_bytes(v).to_f64())
 }
 
-/// # Safety
-/// `v` readable for 10 bytes; `out` writable for `STR_MAX` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_str_f80(v: *const u8, out: *mut u8) -> i32 {
-    // SAFETY: caller guarantees 10 readable bytes.
-    let x = unsafe { qb_float80::F80::read(v) };
-    // SAFETY: caller guarantees STR_MAX writable bytes.
-    unsafe { emit(&str_f80(x.to_bytes()), out) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn c_abi_writes_text_and_returns_length() {
-        let mut buf = [0xAAu8; STR_MAX + 1];
-        // SAFETY: buffer holds STR_MAX bytes.
-        let n = unsafe { qb_str_f64(42.5, buf.as_mut_ptr()) } as usize;
-        assert_eq!(&buf[..n], b" 42.5");
-        assert_eq!(buf[n], 0xAA, "no terminator or overrun");
-        // SAFETY: as above.
-        let n = unsafe { qb_str_f32(0.1, buf.as_mut_ptr()) } as usize;
-        assert_eq!(&buf[..n], b" .1");
-        // SAFETY: as above.
-        let n = unsafe { qb_str_i64(-5, buf.as_mut_ptr()) } as usize;
-        assert_eq!(&buf[..n], b"-5");
-        // SAFETY: as above.
-        let n = unsafe { qb_str_u64(7, buf.as_mut_ptr()) } as usize;
-        assert_eq!(&buf[..n], b" 7");
-    }
 
     fn s(b: Vec<u8>) -> String {
         String::from_utf8(b).unwrap()
@@ -359,20 +282,5 @@ mod tests {
         assert_eq!(s(str_f80(two_and_half.to_bytes())), " 2.5");
         let third = qb_float80::F80::ONE / qb_float80::F80::from_i64(3);
         assert_eq!(str_f80(third.to_bytes()), str_f64(1.0 / 3.0));
-        let mut buf = [0u8; STR_MAX];
-        let n = unsafe { qb_str_f80(third.to_bytes().as_ptr(), buf.as_mut_ptr()) } as usize;
-        assert_eq!(&buf[..n], str_f64(1.0 / 3.0).as_slice());
-    }
-
-    #[test]
-    fn results_fit_the_c_buffer() {
-        let mut x = 1.0f64;
-        for _ in 0..2000 {
-            for v in [x, -x, 1.0 / x, -1.0 / x, x * 0.987654321] {
-                assert!(str_f64(v).len() <= STR_MAX);
-                assert!(str_f32(v as f32).len() <= STR_MAX);
-            }
-            x *= 1.7;
-        }
     }
 }

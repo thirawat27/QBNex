@@ -1,9 +1,8 @@
 //! File-system statements: KILL, NAME, CHDIR, MKDIR, RMDIR, FILES,
 //! _FILEEXISTS, _DIREXISTS and _CWD$.
 //!
-//! Replaces `sub_kill`, `sub_name`, `sub_chdir`, `sub_mkdir`, `sub_rmdir`,
-//! `sub_files`, `func__fileexists`, `func__direxists` and `func__cwd` of
-//! libqb.cpp. On Windows the same Win32 / C runtime calls are made as before
+//! KILL, NAME, CHDIR, MKDIR, RMDIR, FILES, `_FILEEXISTS`, `_DIREXISTS` and
+//! `_CWD$`. On Windows the same Win32 / C runtime calls are made as in QB64
 //! (ANSI entry points, CRT `errno` for NAME/CHDIR/MKDIR/RMDIR), so error codes
 //! match bug-for-bug. Other systems use `std` (not verified yet).
 
@@ -75,7 +74,7 @@ fn user_folder(context: &[u8]) -> Option<UserFolder> {
 }
 
 /// `_DIR$(context)`: the user's folder of that name with a trailing `\`
-/// (`func__dir` of libqb.cpp). A name that is not known, or a folder Windows
+/// (QB64's `func__dir`). A name that is not known, or a folder Windows
 /// cannot report, gives the desktop folder, and `.\` when that fails too.
 /// "DOWNLOADS" is the profile folder's `Downloads`, created when missing.
 #[cfg(windows)]

@@ -228,28 +228,25 @@ pub fn defaultcolors(im: &mut ImgStruct) {
     im.draw_color = im.color;
 }
 
-// --- C ABI (the shims in libqb.cpp pass write_page) ---------------------------
+// --- entry points (the caller passes write_page) ------------------------------
 
 /// # Safety
 /// `im` must be a valid surface.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_palette(im: *mut ImgStruct, attribute: u32, col: u32, passed: i32) -> i32 {
+pub unsafe fn qb_gfx_palette(im: *mut ImgStruct, attribute: u32, col: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { palette(&mut *im, attribute, col, passed) }
 }
 
 /// # Safety
 /// `im` must be a valid, non-console surface.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_color(im: *mut ImgStruct, col1: u32, col2: u32, passed: i32) -> i32 {
+pub unsafe fn qb_gfx_color(im: *mut ImgStruct, col1: u32, col2: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { color(&mut *im, col1, col2, passed) }
 }
 
 /// # Safety
 /// `im` must be a valid surface.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_defaultcolors(im: *mut ImgStruct) {
+pub unsafe fn qb_gfx_defaultcolors(im: *mut ImgStruct) {
     // SAFETY: guaranteed by the caller.
     defaultcolors(unsafe { &mut *im })
 }

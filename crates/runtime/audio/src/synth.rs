@@ -1,13 +1,13 @@
 //! QBNex synth voices: ADSR envelope, waveforms and the 16-bit stereo
 //! waveform generator used by SOUND, BEEP and PLAY.
 //!
-//! Ported bug-for-bug from `internal/c/parts/audio/out/audio.cpp`
-//! (`EnvelopeAmplitude`, `SampleCustomWave`, `NextLfsrNoise`,
-//! `ParseCustomWaveSpec`, `ApplyWaveSpecToVoice`, `SampleSynthWave`,
-//! `GenerateWaveform`, `WaveformBufferSize`). Arithmetic keeps the legacy
-//! float/double mix and evaluation order so output matches sample for sample
-//! (see tests/diff_audio.cpp), which is why some clippy suggestions
-//! (clamp, partial_cmp) are not applied: they change NaN handling.
+//! Bug-for-bug the same as QB64's synth (`EnvelopeAmplitude`,
+//! `SampleCustomWave`, `NextLfsrNoise`, `ParseCustomWaveSpec`,
+//! `ApplyWaveSpecToVoice`, `SampleSynthWave`, `GenerateWaveform`,
+//! `WaveformBufferSize`). Arithmetic keeps QB64's float/double mix and
+//! evaluation order so output matches sample for sample, which is why some
+//! clippy suggestions (clamp, partial_cmp) are not applied: they change NaN
+//! handling.
 #![allow(clippy::manual_clamp, clippy::neg_cmp_op_on_partial_ord, clippy::excessive_precision)]
 
 /// Number of synth voices (`_VOICE 1..4`).

@@ -1,6 +1,5 @@
-//! Console unit tests against a mock [`Host`]. Expected values follow the
-//! legacy libqb.cpp behaviour (verified against the verbatim copy by
-//! `tests/diff/diff_console.cpp`).
+//! Console unit tests against a mock [`Host`]. Expected values follow
+//! QB64's behaviour.
 
 use super::*;
 use crate::gfx::ImgStruct;

@@ -1,7 +1,7 @@
 //! Minimal Win32 declarations used by the file, file-system and SHELL layers.
 //!
 //! The legacy runtime was compiled without `UNICODE`, so every call goes to the
-//! ANSI (`...A`) entry point, exactly as libqb.cpp did. Declared by hand to keep
+//! ANSI (`...A`) entry point, exactly as QB64 did. Declared by hand to keep
 //! the crate free of dependencies.
 #![allow(non_snake_case, non_camel_case_types, clippy::upper_case_acronyms)]
 

@@ -3,11 +3,10 @@
 //! RANDOM files), FIELD/LSET/RSET buffers, LOF, EOF, SEEK, LOC, FREEFILE,
 //! LOCK/UNLOCK and the internal `generic_put/get`.
 //!
-//! Replaces the matching functions of libqb.cpp. File numbers are QBasic file
-//! numbers; negative numbers are TCP/IP handles and stay in the C++ shims.
-//! Each function returns 0 or the QBasic error code to raise. When legacy
-//! raised an error and carried on, the first error is the one returned (the
-//! legacy `error()` keeps only the first one, too).
+//! File numbers are QBasic file numbers; negative numbers are TCP/IP handles,
+//! which the runner handles. Each function returns 0 or the QBasic error code
+//! to raise. When QB64 raised an error and carried on, the first error is the
+//! one returned (QB64's `error()` keeps only the first one, too).
 
 use crate::gfs::{table, Table};
 use std::ffi::c_void;
@@ -346,9 +345,8 @@ fn input_index(t: &mut Table, fileno: i32) -> Result<i32, i32> {
     Ok(x)
 }
 
-/// Universal number representation filled by INPUT # (`n_digits`,
-/// `n_digit`, `n_exp`, `n_neg`, `n_hex` in libqb.cpp).
-#[repr(C)]
+/// Universal number representation filled by INPUT # (QB64's `n_digits`,
+/// `n_digit`, `n_exp`, `n_neg`, `n_hex`).
 pub struct NumRepr {
     pub digits: u16,
     pub digit: [u8; 256],
@@ -1245,7 +1243,7 @@ pub fn field_add(size: i64, new_error: bool) -> Result<Option<FieldSlot>, i32> {
 }
 
 /// `field_add`, second half: links string `s` to the file and advances the
-/// FIELD offset (after the C++ shim attached the field info to the string).
+/// FIELD offset (after the caller attached the field info to the string).
 pub fn field_link(fileno: i32, s: *mut c_void, size: i64) {
     let mut t = table();
     if let Ok(x) = index(&mut t, fileno) {
@@ -1369,156 +1367,59 @@ pub fn rset(dest: &mut [u8], src: &[u8]) {
     dest[..pad].fill(b' ');
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
+// --- entry points of the runner: each also returns the error to raise (0 = none) ---
 
-use crate::{ffi_bytes, ffi_bytes_mut};
-
-/// Result buffer for functions that produce a new string; valid until the
-/// next call that uses it.
-static OUT: std::sync::Mutex<Vec<u8>> = std::sync::Mutex::new(Vec::new());
-
-/// Stores `v` in the shared output buffer and reports it through `out`/`out_len`.
-///
-/// # Safety
-/// `out` and `out_len` must be writable.
-unsafe fn publish(v: Option<Vec<u8>>, out: *mut *const u8, out_len: *mut i32) -> i32 {
-    match v {
-        None => 0,
-        Some(v) => {
-            let mut o = OUT.lock().unwrap_or_else(|e| e.into_inner());
-            *o = v;
-            // SAFETY: caller contract.
-            unsafe {
-                *out = o.as_ptr();
-                *out_len = o.len() as i32;
-            }
-            1
-        }
-    }
-}
-
-/// Returns 0, an error code, or -1 (`PRINT_TO_SCREEN`) for "SCRN:" files.
-///
-/// # Safety
-/// `data` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_print(i: i32, data: *const u8, len: i32, extraspace: i32, tab: i32, newline: i32) -> i32 {
-    // SAFETY: caller contract.
-    file_print(i, unsafe { ffi_bytes(data, len.max(0) as usize) }, extraspace != 0, tab != 0, newline != 0)
-}
-
-/// INPUT # of a number: fills `n`, writes the legacy return value (0-3) to
-/// `*result` and returns the error to raise.
-///
-/// # Safety
-/// `n` and `result` writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_input_number(fileno: i32, n: *mut NumRepr, result: *mut i32) -> i32 {
+/// INPUT # of a number into `n`: (QB64's result code 0-3, error).
+pub fn qb_file_input_number(fileno: i32, n: &mut NumRepr) -> (i32, i32) {
     let mut cx = Ctx::default();
-    let mut t = table();
-    // SAFETY: caller contract.
-    unsafe { *result = input_number(&mut t, fileno, &mut *n, &mut cx) };
-    cx.err
+    let r = input_number(&mut table(), fileno, n, &mut cx);
+    (r, cx.err)
 }
 
-/// INPUT # of a string. `*assign` = 1 when the destination must be set to
-/// `*out`/`*out_len`.
-///
-/// # Safety
-/// Out pointers writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_input_string(fileno: i32, out: *mut *const u8, out_len: *mut i32, assign: *mut i32) -> i32 {
+/// INPUT # of a string: (the value to assign, if any; error).
+pub fn qb_file_input_string(fileno: i32) -> (Option<Vec<u8>>, i32) {
     let mut cx = Ctx::default();
     let v = input_string(&mut table(), fileno, &mut cx);
-    // SAFETY: caller contract.
-    unsafe { *assign = publish(v, out, out_len) };
-    cx.err
+    (v, cx.err)
 }
 
 /// LINE INPUT #; same conventions as [`qb_file_input_string`].
-///
-/// # Safety
-/// Out pointers writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_line_input(fileno: i32, out: *mut *const u8, out_len: *mut i32, assign: *mut i32) -> i32 {
+pub fn qb_file_line_input(fileno: i32) -> (Option<Vec<u8>>, i32) {
     let mut cx = Ctx::default();
     let v = line_input(&mut table(), fileno, &mut cx);
-    // SAFETY: caller contract.
-    unsafe { *assign = publish(v, out, out_len) };
-    cx.err
+    (v, cx.err)
 }
 
-/// `INPUT$(n, #fileno)`: `buf` holds `buflen` bytes (the C++ string);
-/// `*len` receives the resulting length.
-///
-/// # Safety
-/// `buf` writable for `buflen` bytes, `len` writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_input_n(n: i32, fileno: i32, buf: *mut u8, buflen: i32, len: *mut i32) -> i32 {
+/// `INPUT$(n, #fileno)` into `buf`: (bytes read, error).
+pub fn qb_file_input_n(n: i32, fileno: i32, buf: &mut [u8]) -> (usize, i32) {
     let mut cx = Ctx::default();
-    // SAFETY: caller contract.
-    let out = unsafe { ffi_bytes_mut(buf, buflen.max(0) as usize) };
-    let l = input_n(&mut table(), n, fileno, out, &mut cx);
-    // SAFETY: caller contract.
-    unsafe { *len = l as i32 };
-    cx.err
+    let len = input_n(&mut table(), n, fileno, buf, &mut cx);
+    (len, cx.err)
 }
 
-/// GET of `len` bytes at `data`.
-///
-/// # Safety
-/// `data` writable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_get(i: i32, offset: i64, data: *mut u8, len: i32, passed: i32) -> i32 {
+/// GET of `data.len()` bytes.
+pub fn qb_file_get(i: i32, offset: i64, data: &mut [u8], passed: bool) -> i32 {
     let mut cx = Ctx::default();
-    // SAFETY: caller contract.
-    get_bytes(&mut table(), i, offset, unsafe { ffi_bytes_mut(data, len.max(0) as usize) }, passed != 0, &mut cx);
+    get_bytes(&mut table(), i, offset, data, passed, &mut cx);
     cx.err
 }
 
-/// PUT of `len` bytes at `data`.
-///
-/// # Safety
-/// `data` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_put(i: i32, offset: i64, data: *const u8, len: i32, passed: i32) -> i32 {
-    // SAFETY: caller contract.
-    put_bytes(&mut table(), i, offset, unsafe { ffi_bytes(data, len.max(0) as usize) }, passed != 0)
+/// PUT of `data`.
+pub fn qb_file_put(i: i32, offset: i64, data: &[u8], passed: bool) -> i32 {
+    put_bytes(&mut table(), i, offset, data, passed)
 }
 
-/// GET of a variable-length string (`chr`/`len` is the current string, filled
-/// in place for BINARY files). `*assign` = 1: set the string to `*out`.
-///
-/// # Safety
-/// Pointers valid as described.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_get_string(
-    i: i32,
-    offset: i64,
-    chr: *mut u8,
-    len: i32,
-    passed: i32,
-    out: *mut *const u8,
-    out_len: *mut i32,
-    assign: *mut i32,
-) -> i32 {
+/// GET of a variable-length string (`fixed` is the current string, filled in
+/// place for BINARY files): (the new value to assign, if any; error).
+pub fn qb_file_get_string(i: i32, offset: i64, fixed: &mut [u8], passed: bool) -> (Option<Vec<u8>>, i32) {
     let mut cx = Ctx::default();
-    // SAFETY: caller contract.
-    let fixed = unsafe { ffi_bytes_mut(chr, len.max(0) as usize) };
-    let v = get_string(&mut table(), i, offset, fixed, passed != 0, &mut cx);
-    // SAFETY: caller contract.
-    unsafe { *assign = publish(v, out, out_len) };
-    cx.err
+    let v = get_string(&mut table(), i, offset, fixed, passed, &mut cx);
+    (v, cx.err)
 }
 
 /// PUT of a variable-length string.
-///
-/// # Safety
-/// `data` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_file_put_string(i: i32, offset: i64, data: *const u8, len: i32, passed: i32) -> i32 {
-    // SAFETY: caller contract.
-    put_string(&mut table(), i, offset, unsafe { ffi_bytes(data, len.max(0) as usize) }, passed != 0)
+pub fn qb_file_put_string(i: i32, offset: i64, data: &[u8], passed: bool) -> i32 {
+    put_string(&mut table(), i, offset, data, passed)
 }
 
 #[cfg(test)]
@@ -1774,11 +1675,5 @@ mod tests {
         assert_eq!(lock(f, 1, i64::MAX, 3, true), 5);
         assert_eq!(lock(f, i64::MAX, 0, 1, true), 5);
         close(f);
-        // a negative length from C is an empty string, not a huge slice
-        assert_eq!(open(&p(&d, "n.txt"), 4, 0, 0, f, 0, false), 0);
-        // SAFETY: the pointer is valid; the length is clamped to 0.
-        assert_eq!(unsafe { qb_file_print(f, b"abc".as_ptr(), -1, 0, 0, 0) }, 0);
-        close(f);
-        assert_eq!(std::fs::read(d.join("n.txt")).unwrap(), b"");
     }
 }

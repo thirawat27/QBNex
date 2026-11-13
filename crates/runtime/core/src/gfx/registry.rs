@@ -1,11 +1,11 @@
 //! The image registry: `img`, `nimg`, `nextimg`, the free list and the pixel
-//! and palette buffers owned by surfaces (`newimg`, `freeimg`,
-//! `grow_img_registry`, `imgframe`, `imgnew`, `imgrevert` of libqb.cpp).
+//! and palette buffers owned by surfaces (QB64's `newimg`, `freeimg`,
+//! `grow_img_registry`, `imgframe`, `imgnew`, `imgrevert`).
 //!
-//! `img`, `nimg` and `nextimg` keep their C names: libqb.cpp, printer.cpp and
-//! the window code index `img[i]` directly. The array is reallocated when the
-//! registry grows, exactly as before, so C++ must refresh cached page pointers
-//! afterwards (the shims compare `nimg` before and after each call).
+//! `img`, `nimg` and `nextimg` keep QB64's names; callers index `img[i]`
+//! directly. The array is reallocated when the registry grows, so callers
+//! must refresh cached page pointers afterwards (compare `nimg` before and
+//! after each call).
 //!
 //! The registry is only touched from the program thread (as in legacy; the
 //! display thread reads `img`/pixels without locking, unchanged).
@@ -35,13 +35,10 @@ unsafe fn set_err(err: *mut i32, e: i32) {
 }
 
 /// `img_struct *img`: base of the registry array.
-#[unsafe(no_mangle)]
 pub static mut img: *mut ImgStruct = core::ptr::null_mut();
 /// `int32 nimg`: capacity of the registry.
-#[unsafe(no_mangle)]
 pub static mut nimg: i32 = 0;
 /// `int32 nextimg`: first never-used index.
-#[unsafe(no_mangle)]
 pub static mut nextimg: i32 = 0;
 
 struct Storage {
@@ -68,7 +65,7 @@ fn storage() -> &'static mut Storage {
             palettes: Vec::from_fn(n, |_| Vec::new()),
             free: Vec::new(),
         };
-        // SAFETY: publishing the registry base for C++.
+        // SAFETY: publishing the registry base for direct indexing.
         unsafe {
             img = st.structs.as_mut_ptr();
             nimg = IMG_BUFFERSIZE;
@@ -97,14 +94,12 @@ pub fn next_capacity(current: i32, required: i32) -> i32 {
 }
 
 /// `qb_img_init`: allocates the initial registry (idempotent).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_init() {
+pub fn qb_img_init() {
     storage();
 }
 
 /// `grow_img_registry`: 0 on success, 502 when out of memory.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_grow(required: i32) -> i32 {
+pub fn qb_img_grow(required: i32) -> i32 {
     let st = storage();
     let current = st.structs.len() as i32;
     if required <= current {
@@ -121,7 +116,7 @@ pub extern "C" fn qb_img_grow(required: i32) -> i32 {
     st.structs.resize(cap, ImgStruct::default());
     st.pixels.resize_with(cap, Vec::new);
     st.palettes.resize_with(cap, Vec::new);
-    // SAFETY: publishing the (possibly moved) registry base for C++.
+    // SAFETY: publishing the (possibly moved) registry base for direct indexing.
     unsafe {
         img = st.structs.as_mut_ptr();
         nimg = cap as i32;
@@ -134,8 +129,7 @@ pub extern "C" fn qb_img_grow(required: i32) -> i32 {
 ///
 /// # Safety
 /// `err` must be writable or null.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_img_new(err: *mut i32) -> u32 {
+pub unsafe fn qb_img_new(err: *mut i32) -> u32 {
     let st = storage();
     let i = if let Some(i) = st.free.pop() {
         i
@@ -161,10 +155,9 @@ pub unsafe extern "C" fn qb_img_new(err: *mut i32) -> u32 {
 }
 
 /// Releases a slot: frees its buffers, zeroes the struct and recycles the
-/// index. The caller has already checked `valid` and handled the C++ side
+/// index. The caller has already checked `valid` and handled its side
 /// tables (memory lock, text cells, page list).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_free(i: u32) {
+pub fn qb_img_free(i: u32) {
     let st = storage();
     let k = i as usize;
     st.pixels[k] = Vec::new();
@@ -175,8 +168,7 @@ pub extern "C" fn qb_img_free(i: u32) {
 
 /// Gives slot `i` a zero-filled pixel buffer of `bytes` bytes. When the
 /// allocation fails the slot is left without pixels (`offset` null).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_alloc_pixels(i: i32, bytes: isize) {
+pub fn qb_img_alloc_pixels(i: i32, bytes: isize) {
     let st = storage();
     let k = i as usize;
     let n = bytes.max(0) as usize;
@@ -191,8 +183,7 @@ pub extern "C" fn qb_img_alloc_pixels(i: i32, bytes: isize) {
 }
 
 /// Gives slot `i` a zero-filled 256-entry palette.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_alloc_palette(i: i32) {
+pub fn qb_img_alloc_palette(i: i32) {
     let st = storage();
     let k = i as usize;
     st.palettes[k] = vec![0u32; 256];
@@ -200,40 +191,35 @@ pub extern "C" fn qb_img_alloc_palette(i: i32) {
 }
 
 /// Frees slot `i`'s pixel buffer and clears `offset`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_release_pixels(i: i32) {
+pub fn qb_img_release_pixels(i: i32) {
     let st = storage();
     st.pixels[i as usize] = Vec::new();
     st.structs[i as usize].offset = core::ptr::null_mut();
 }
 
 /// Frees slot `i`'s palette and clears `pal`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_release_palette(i: i32) {
+pub fn qb_img_release_palette(i: i32) {
     let st = storage();
     st.palettes[i as usize] = Vec::new();
     st.structs[i as usize].pal = core::ptr::null_mut();
 }
 
 /// Points slot `i` at pixels it does not own (video memory, other pages).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_set_external_offset(i: i32, offset: *mut u8) {
+pub fn qb_img_set_external_offset(i: i32, offset: *mut u8) {
     let st = storage();
     st.pixels[i as usize] = Vec::new();
     st.structs[i as usize].offset = offset;
 }
 
 /// Points slot `i` at a palette it does not own (shared with page 0).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_set_external_palette(i: i32, pal: *mut u32) {
+pub fn qb_img_set_external_palette(i: i32, pal: *mut u32) {
     let st = storage();
     st.palettes[i as usize] = Vec::new();
     st.structs[i as usize].pal = pal;
 }
 
 /// Frees what IMG_FREEMEM / IMG_FREEPAL say the slot owns.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_img_release_owned(i: i32) {
+pub fn qb_img_release_owned(i: i32) {
     let flags = slot(i).flags;
     if flags & IMG_FREEMEM != 0 {
         qb_img_release_pixels(i);
@@ -251,8 +237,7 @@ pub extern "C" fn qb_img_release_owned(i: i32) {
 ///
 /// # Safety
 /// `o` must stay valid while the slot uses it; `err` writable or null.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_imgframe(o: *mut u8, x: i32, y: i32, bpp: i32, err: *mut i32) -> i32 {
+pub unsafe fn qb_imgframe(o: *mut u8, x: i32, y: i32, bpp: i32, err: *mut i32) -> i32 {
     if x <= 0 || y <= 0 {
         return 0;
     }
@@ -295,8 +280,7 @@ pub unsafe extern "C" fn qb_imgframe(o: *mut u8, x: i32, y: i32, bpp: i32, err: 
 ///
 /// # Safety
 /// `err` writable or null.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_imgnew(x: i32, y: i32, bpp: i32, err: *mut i32) -> i32 {
+pub unsafe fn qb_imgnew(x: i32, y: i32, bpp: i32, err: *mut i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     let i = unsafe { qb_imgframe(core::ptr::null_mut(), x, y, bpp, err) };
     if i == 0 {
@@ -325,8 +309,7 @@ pub unsafe extern "C" fn qb_imgnew(x: i32, y: i32, bpp: i32, err: *mut i32) -> i
 ///
 /// # Safety
 /// `i` must be a valid slot.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_imgrevert(i: i32) {
+pub unsafe fn qb_imgrevert(i: i32) {
     // SAFETY: guaranteed by the caller.
     unsafe { imgrevert(slot(i)) }
 }
@@ -339,7 +322,7 @@ mod tests {
     // The registry is process-global; serialise the tests that use it.
     static LOCK: Mutex<()> = Mutex::new(());
 
-    /// Start-up as in libqb.cpp: indexes 0 and 1 are reserved (handles 0/-1).
+    /// Start-up as in QB64: indexes 0 and 1 are reserved (handles 0/-1).
     fn init() {
         qb_img_init();
         if unsafe { nextimg } == 0 {

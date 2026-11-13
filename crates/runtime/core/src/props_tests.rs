@@ -1,5 +1,5 @@
-//! Property tests (proptest) for pure runtime functions. Unit-test module:
-//! the crate needs libqb host symbols that only the test build provides.
+//! Property tests (proptest) for pure runtime functions (a unit-test module
+//! of the crate).
 
 use proptest::prelude::*;
 
@@ -27,7 +27,7 @@ proptest! {
         if let Ok(m) = crate::mbf::dieee_to_msbin(ieee) {
             let d = f64::from_bits(bits);
             let back = crate::mbf::dmsbin_to_ieee(m);
-            // Magnitudes below MBF's range underflow to zero (legacy msbin.cpp).
+            // Magnitudes below MBF's range underflow to zero (as in QB64).
             let underflow = m[7] == 0;
             prop_assert!(!underflow || d.abs() < 3e-39, "{:e} became MBF zero", d);
             let want = if d == 0.0 || underflow { 0f64.to_bits().to_le_bytes() } else { ieee };
