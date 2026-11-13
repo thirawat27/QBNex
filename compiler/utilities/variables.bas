@@ -157,12 +157,7 @@ END IF
 'Begin creation of array descriptor (if array has not been defined yet)
 IF arraydesc = 0 THEN
     PRINT #defdatahandle, "ptrszint *" + n$ + "=NULL;"
-    PRINT #13, "if (!" + n$ + "){"
-    PRINT #13, n$ + "=(ptrszint*)mem_static_malloc(" + str2(4 * nume + 4 + 1) + "*ptrsz);" '+1 is for the lock
     'create _MEM lock
-    PRINT #13, "new_mem_lock();"
-    PRINT #13, "mem_lock_tmp->type=4;"
-    PRINT #13, "((ptrszint*)" + n$ + ")[" + str2(4 * nume + 4 + 1 - 1) + "]=(ptrszint)mem_lock_tmp;"
 END IF
 
 'generate sizestr$ & elesizestr$ (both are used in various places in following code)
@@ -179,7 +174,6 @@ sizestr$ = sizestr$ + "*" + bytesperelement$ 'bytes in entire array
 '------------------STATIC ARRAY CREATION--------------------------------
 IF staticarray THEN
     'STATIC memory
-    PRINT #13, sd$ 'setup new array dimension ranges
     'Example of sd$ for DIM a(10):
     '__ARRAY_SINGLE_A[4]= 0 ;
     '__ARRAY_SINGLE_A[5]=( 10 )-__ARRAY_SINGLE_A[4]+1;
@@ -187,45 +181,27 @@ IF staticarray THEN
     IF cmem AND stringarray = 0 THEN
         'Note: A string array's pointers are always stored in 64bit memory
         '(static)CONVENTINAL memory
-        PRINT #13, n$ + "[0]=(ptrszint)cmem_static_pointer;"
         'alloc mem & check if static memory boundry has oversteped dynamic memory boundry
-        PRINT #13, "if ((cmem_static_pointer+=((" + sizestr$ + ")+15)&-16)>cmem_dynamic_base) error(257);"
         '64K check
-        PRINT #13, "if ((" + sizestr$ + ")>65536) error(257);"
         'clear array
-        PRINT #13, "memset((void*)(" + n$ + "[0]),0," + sizestr$ + ");"
         'set flags
-        PRINT #13, n$ + "[2]=1+2+4;" 'init+static+cmem
     ELSE
         '64BIT MEMORY
-        PRINT #13, n$ + "[0]=(ptrszint)mem_static_malloc(" + sizestr$ + ");"
         IF stringarray THEN
             'Init string pointers in the array
-            PRINT #13, "tmp_long=" + elesizestr$ + ";"
-            PRINT #13, "while(tmp_long--){"
             IF cmem THEN
-                PRINT #13, "((uint64*)(" + n$ + "[0]))[tmp_long]=(uint64)qbs_new_cmem(0,0);"
             ELSE
-                PRINT #13, "((uint64*)(" + n$ + "[0]))[tmp_long]=(uint64)qbs_new(0,0);"
             END IF
-            PRINT #13, "}"
         ELSE
             'clear array
-            PRINT #13, "memset((void*)(" + n$ + "[0]),0," + sizestr$ + ");"
         END IF
-        PRINT #13, n$ + "[2]=1+2;" 'init+static
     END IF
 
     IF udt > 0 AND udtxvariable(udt) THEN
-        PRINT #13, "tmp_long=" + elesizestr$ + ";"
-        PRINT #13, "while(tmp_long--){"
         initialise_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-        PRINT #13, acc$
-        PRINT #13, "}"
     END IF
 
     'Close static array desc
-    PRINT #13, "}"
     allocarray = nume + 65536
 END IF
 '------------------END OF STATIC ARRAY CREATION-------------------------
@@ -382,20 +358,12 @@ IF staticarray = 0 THEN
 
             '2. Generate "clean up" code (called when EXITING A SUB/FUNCTION)
             IF arraydesc = 0 THEN 'only add for first declaration of the array
-            PRINT #19, "if (" + n$ + "[2]&1){" 'initialized?
-            PRINT #19, "tmp_long=" + elesizestr$ + ";"
             IF udt > 0 AND udtxvariable(udt) THEN
-                PRINT #19, "while(tmp_long--) {"
                 acc$ = ""
                 free_array_udt_varstrings n$, udt, 0, bytesperelement$, acc$
-                PRINT #19, acc$ + "}"
             ELSE
-                PRINT #19, "while(tmp_long--) qbs_free((qbs*)((uint64*)(" + n$ + "[0]))[tmp_long]);"
             END IF
-            PRINT #19, "free((void*)(" + n$ + "[0]));"
-            PRINT #19, "}"
             'free lock (_MEM)
-            PRINT #19, "free_mem_lock( (mem_lock*)((ptrszint*)" + n$ + ")[" + str2(4 * nume + 4 + 1 - 1) + "] );"
         END IF
 
 
@@ -454,15 +422,7 @@ IF staticarray = 0 THEN
 
         '2. Generate "clean up" code (called when EXITING A SUB/FUNCTION)
         IF arraydesc = 0 THEN 'only add for first declaration of the array
-        PRINT #19, "if (" + n$ + "[2]&1){" 'initialized?
-        PRINT #19, "if (" + n$ + "[2]&4){" 'array is in cmem
-        PRINT #19, "cmem_dynamic_free((uint8*)(" + n$ + "[0]));"
-        PRINT #19, "}else{"
-        PRINT #19, "free((void*)(" + n$ + "[0]));"
-        PRINT #19, "}" 'cmem
-        PRINT #19, "}" 'init
         'free lock (_MEM)
-        PRINT #19, "free_mem_lock( (mem_lock*)((ptrszint*)" + n$ + ")[" + str2(4 * nume + 4 + 1 - 1) + "] );"
     END IF
 END IF 'not string array
 
@@ -475,18 +435,12 @@ IF arraydesc = 0 THEN
     'set dimensions as undefined
     FOR i = 1 TO nume
         b = i * 4
-        PRINT #13, n$ + "[" + str2(b) + "]=2147483647;" 'base
-        PRINT #13, n$ + "[" + str2(b + 1) + "]=0;" 'num. index
-        PRINT #13, n$ + "[" + str2(b + 2) + "]=0;" 'multiplier
     NEXT
     IF stringarray THEN
         'set array's data offset to the offset of the offset to nothingstring
-        PRINT #13, n$ + "[0]=(ptrszint)&nothingstring;"
     ELSE
         'set array's data offset to "nothing"
-        PRINT #13, n$ + "[0]=(ptrszint)nothingvalue;"
     END IF
-    PRINT #13, "}" 'close array descriptor
 END IF 'arraydesc = 0
 
 IF undefined = 0 THEN
@@ -503,9 +457,7 @@ END IF
 
 IF autoary = 0 THEN
     IF dimoption = 3 THEN 'STATIC a(100) puts creation code in main
-    PRINT #13, f12$
 ELSE
-    PRINT #12, f12$
 END IF
 END IF
 
@@ -700,23 +652,13 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
         IF cmemlist(idn + 1) THEN
             id.t = id.t + ISINCONVENTIONALMEMORY
             IF f THEN
-                PRINT #13, "if(" + n$ + "==NULL){"
-                PRINT #13, "cmem_sp-=" + str2(bytes) + ";"
-                PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-                PRINT #13, n$ + "=(void*)(dblock+cmem_sp);"
-                PRINT #13, "memset(" + n$ + ",0," + str2(bytes) + ");"
-                PRINT #13, "}"
             END IF
         ELSE
             IF f THEN
-                PRINT #13, "if(" + n$ + "==NULL){"
-                PRINT #13, n$ + "=(void*)mem_static_malloc(" + str2$(bytes) + ");"
-                PRINT #13, "memset(" + n$ + ",0," + str2(bytes) + ");"
                 IF udtxvariable(i) THEN
                     initialise_udt_varstrings n$, i, 13, 0
                     free_udt_varstrings n$, i, 19, 0
                 END IF
-                PRINT #13, "}"
             END IF
         END IF
         id.callname = n$
@@ -1073,12 +1015,6 @@ END IF
 'standard bit-length variable
 n$ = scope2$ + n$
 PRINT #defdatahandle, ct$ + " *" + n$ + "=NULL;"
-PRINT #13, "if(" + n$ + "==NULL){"
-PRINT #13, "cmem_sp-=4;"
-PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-PRINT #13, n$ + "=(" + ct$ + "*)(dblock+cmem_sp);"
-PRINT #13, "*" + n$ + "=0;"
-PRINT #13, "}"
 clearid
 id.n = cvarname$
 id.t = BITTYPE - 1 + bits + ISINCONVENTIONALMEMORY: IF unsgn THEN id.t = id.t + ISUNSIGNED

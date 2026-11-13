@@ -81,7 +81,6 @@ FUNCTION ValidatePendingLabels% ()
                 EXIT FUNCTION
             END IF
 
-            PRINT #18, "ptrszint data_at_LABEL_" + labelName + "=" + str2(Labels(r).Data_Offset) + ";"
         END IF
     NEXT
 

@@ -105,8 +105,6 @@ FUNCTION HandleSimpleDirective% (upperLine AS STRING)
         AutoConsoleOnlyEligible = 0
         IF prepass = 0 THEN
             IF NoChecks = 0 THEN PRINT #12, "do{"
-            PRINT #12, "sub__dest(func__console());"
-            PRINT #12, "sub__source(func__console());"
             HandleSimpleDirective% = 3
         ELSE
             HandleSimpleDirective% = 1
@@ -741,6 +739,5 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     ExeIconSet = linenumber
     SetDependency DEPENDENCY_ICON
     IF NoChecks = 0 THEN PRINT #12, "do{"
-    PRINT #12, "sub__icon(NULL,NULL,0);"
     HandleExeIconDirective% = 3
 END FUNCTION

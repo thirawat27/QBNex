@@ -1067,7 +1067,6 @@ FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
     IF RTRIM$(id2.callname) = "func_input" AND args = 1 AND inputfunctioncalled = 0 THEN
         inputfunctioncalled = -1
         IF vWatchOn = 1 THEN
-            PRINT #12, "*__LONG_VWATCH_LINENUMBER= -4; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);"
         END IF
     END IF
 
@@ -2392,14 +2391,8 @@ v$ = "pass" + str2$(uniquenumber)
 IF MID$(sfcmemargs(targetid), curarg, 1) = CHR$(1) THEN 'cmem required?
 bytesreq = ((targettyp AND 511) + 7) \ 8
 PRINT #defdatahandle, t$ + " *" + v$ + "=NULL;"
-PRINT #13, "if(" + v$ + "==NULL){"
-PRINT #13, "cmem_sp-=" + str2(bytesreq) + ";"
-PRINT #13, v$ + "=(" + t$ + "*)(dblock+cmem_sp);"
-PRINT #13, "if (cmem_sp<qbs_cmem_sp) error(257);"
-PRINT #13, "}"
 e$ = "&(*" + v$ + "=" + e$ + ")"
 ELSE
-    PRINT #13, t$ + " " + v$ + ";"
     e$ = "&(" + v$ + "=" + e$ + ")"
 END IF
 GOTO dontevaluate

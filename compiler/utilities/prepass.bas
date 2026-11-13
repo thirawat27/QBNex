@@ -62,12 +62,6 @@ END SUB
 
 SUB StartMainPassSession
     OPEN tmpdir$ + "ret0.txt" FOR OUTPUT AS #15
-    PRINT #15, "if (next_return_point){"
-    PRINT #15, "next_return_point--;"
-    PRINT #15, "switch(return_point[next_return_point]){"
-    PRINT #15, "case 0:"
-    PRINT #15, "return;"
-    PRINT #15, "break;"
 
     continueline = 0
     endifs = 0
@@ -78,7 +72,6 @@ SUB StartMainPassSession
     declaringlibrary = 0
     percentage = -1
 
-    PRINT #12, "S_0:;"
     IF UseGL THEN gl_include_content 'SUB _GL declared: register _gl* SUB/FUNCTIONs and _GL_* constants
 END SUB
 
