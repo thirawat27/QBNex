@@ -4,6 +4,7 @@
 //! being replaced are moved into [`BACKUP`] first; when anything fails, or the user
 //! cancels, the new files are deleted and the old ones moved back.
 
+use std::mem::DropGuard;
 use std::path::{Path, PathBuf};
 
 use crate::{payload, platform};
@@ -167,7 +168,14 @@ struct Transaction<'a> {
     written: Vec<String>,
 }
 
-impl Transaction<'_> {
+impl<'a> Transaction<'a> {
+    /// Starts an install in `dir`. The transaction rolls back when it is dropped, so
+    /// every way out of the install (an error, a cancel) undoes it, unless it is taken
+    /// out of the guard and committed.
+    fn begin(dir: &'a Path) -> DropGuard<Transaction<'a>, impl FnOnce(Transaction<'a>)> {
+        DropGuard::new(Transaction { dir, moved: Vec::new(), written: Vec::new() }, Transaction::roll_back)
+    }
+
     fn backup(&self) -> PathBuf {
         self.dir.join(BACKUP)
     }
@@ -275,20 +283,12 @@ pub fn install_with(
     let dir = &o.dir;
     std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     recover_interrupted(dir);
-    let mut tx = Transaction { dir, moved: Vec::new(), written: Vec::new() };
-    match write_files(o, bundle, progress, &mut tx).and_then(|()| {
-        progress.event(Event::Step(Step::Register));
-        register(o, bundle.installed_size() / 1024)
-    }) {
-        Ok(()) => {
-            tx.commit();
-            Ok(())
-        }
-        Err(e) => {
-            tx.roll_back();
-            Err(e)
-        }
-    }
+    let mut tx = Transaction::begin(dir);
+    write_files(o, bundle, progress, &mut tx)?;
+    progress.event(Event::Step(Step::Register));
+    register(o, bundle.installed_size() / 1024)?;
+    DropGuard::dismiss(tx).commit();
+    Ok(())
 }
 
 fn write_files(o: &Options, bundle: &Bundle, progress: &mut dyn Progress, tx: &mut Transaction<'_>) -> Result<(), String> {
@@ -305,13 +305,10 @@ fn write_files(o: &Options, bundle: &Bundle, progress: &mut dyn Progress, tx: &m
 
     progress.event(Event::Step(Step::Extract));
     let total = bundle.installed_size();
-    let mut files = Vec::new();
-    let result = payload::extract(bundle.zip(), dir, &mut files, &mut |name, done| {
+    payload::extract(bundle.zip(), dir, &mut tx.written, &mut |name, done| {
         progress.event(Event::File { name: name.to_string(), done, total });
         !progress.cancelled()
-    });
-    tx.written.append(&mut files);
-    result?;
+    })?;
 
     // The uninstaller is this program without the bundle.
     let me = platform::setup_name();
@@ -519,6 +516,42 @@ mod tests {
         assert!(install_with(&o, &v2, &mut Recorder::default(), &mut |_, _| Ok(())).is_err());
         let _ = std::fs::remove_dir_all(dir.join("compiler/new"));
         assert_eq!(tree(&dir), before, "failed while extracting");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Cancels at the `n`-th question, before any file of the new version is written.
+    struct CancelAt {
+        asked: std::cell::Cell<u32>,
+        n: u32,
+        extracted: bool,
+    }
+
+    impl Progress for CancelAt {
+        fn event(&mut self, event: Event) {
+            self.extracted |= event == Event::Step(Step::Extract);
+        }
+
+        fn cancelled(&self) -> bool {
+            self.asked.set(self.asked.get() + 1);
+            self.asked.get() >= self.n
+        }
+    }
+
+    #[test]
+    fn an_error_while_setting_the_old_version_aside_puts_it_back() {
+        let dir = temp("early");
+        let o = Options::new(dir.clone());
+        let v1 = bundle(&[("qb", "one"), ("compiler/stdlib/a.bas", "a1")]);
+        install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Ok(())).unwrap();
+        let before = tree(&dir);
+
+        // the third question comes after two old files were moved into the backup
+        let v2 = bundle(&[("qb", "two"), ("compiler/stdlib/a.bas", "a2")]);
+        let mut early = CancelAt { asked: std::cell::Cell::new(0), n: 3, extracted: false };
+        assert_eq!(install_with(&o, &v2, &mut early, &mut |_, _| Ok(())), Err(CANCELLED.to_string()));
+        assert!(!early.extracted, "stopped while preparing");
+        assert_eq!(tree(&dir), before);
+        assert!(!dir.join(BACKUP).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
