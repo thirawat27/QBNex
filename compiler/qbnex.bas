@@ -67,6 +67,7 @@ IF INSTR(_OS$, "LINUX") THEN UserDefineValue$(2) = "-1" ELSE UserDefineValue$(2)
 IF INSTR(_OS$, "MAC") THEN UserDefineValue$(3) = "-1": UserDefineValue$(4) = "-1" ELSE UserDefineValue$(3) = "0": UserDefineValue$(4) = "0"
 IF INSTR(_OS$, "32BIT") THEN UserDefineValue$(5) = "-1": UserDefineValue$(6) = "0" ELSE UserDefineValue$(5) = "0": UserDefineValue$(6) = "-1"
 UserDefineValue$(7) = Version$
+IF INSTR(Version$, "-") THEN UserDefineValue$(7) = LEFT$(Version$, INSTR(Version$, "-") - 1) 'a pre-release still compares as its release number
 
 InitCompilerServices
 VerifyInternalFolderOrExit

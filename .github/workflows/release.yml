@@ -328,5 +328,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ env.RELEASE_NAME != '' && env.RELEASE_NAME || env.RELEASE_TAG }}
           draft: ${{ env.RELEASE_DRAFT == 'true' }}
+          # A tag with a suffix (v2.0.0-preview) is published as a pre-release.
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           body_path: release-notes.md
           files: release-assets/*
