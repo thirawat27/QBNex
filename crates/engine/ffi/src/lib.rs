@@ -1,21 +1,21 @@
 //! `DECLARE LIBRARY` and `DECLARE DYNAMIC LIBRARY` for the QIR backend.
 //!
-//! The C++ backend let g++ compile a prototype for every declared function
-//! and link the library. The QIR backend has no C compiler, so the runner
+//! QB64 compiles a prototype for every declared function with a C++ compiler
+//! and links the library. QBNex has no C compiler, so the runner
 //! resolves symbols at run time and calls them through hand-written call
 //! thunks (`global_asm!`, no libffi, no C):
 //!
-//! - [`Library::open_dynamic`] finds the library file the way the legacy
-//!   compiler did for `DECLARE DYNAMIC LIBRARY "name"` (and for
+//! - [`Library::open_dynamic`] finds the library file the way QB64
+//!   does for `DECLARE DYNAMIC LIBRARY "name"` (and for
 //!   `DECLARE LIBRARY "name"`, whose static `.a`/`.lib`/`.o` cannot be loaded
 //!   at run time) and loads it with `LoadLibraryW` / `dlopen`;
 //! - [`find_default_symbol`] serves a header-less `DECLARE LIBRARY` with no
-//!   name: the C runtime, the program itself and the system libraries the
-//!   legacy build linked (kernel32, user32, gdi32, ... / libc, libm);
+//!   name: the C runtime, the program itself and the system libraries a
+//!   QB64 program links (kernel32, user32, gdi32, ... / libc, libm);
 //! - [`call`] calls any function pointer with a [`Signature`] of QB types on
 //!   Win64, `SysV` x86-64 and `AArch64` (AAPCS64, including Apple's variant).
 //!
-//! `DECLARE LIBRARY "name"` where the legacy compiler would have found a C
+//! `DECLARE LIBRARY "name"` where QB64 would find a C
 //! header (`name.h` / `name.hpp`) is rejected at compile time with
 //! [`header_error`] (documented deviation): headers may contain macros and inline
 //! C code, which only a C compiler can use.
@@ -36,7 +36,7 @@
     clippy::cast_precision_loss,
     clippy::many_single_char_names,
     clippy::similar_names,
-    // legacy literals and x87 constants are kept digit for digit
+    // long literals and x87 constants are kept digit for digit
     clippy::unreadable_literal,
     // match arms mirror the x87 special-case tables row by row
     clippy::match_same_arms,

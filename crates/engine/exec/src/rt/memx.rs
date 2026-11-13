@@ -1,13 +1,12 @@
-//! `_MEM` builtins of the runtime, routed to `qb_runtime::mem` (the
-//! Rust port the C++ backend links). A `_MEM` variable is the `mem_block`
-//! UDT (`MemBlock`, 56 bytes); QIR passes its address.
+//! `_MEM` builtins of the runtime, routed to `qb_runtime::mem`. A `_MEM`
+//! variable is the `mem_block` UDT (`MemBlock`, 56 bytes); QIR passes its address.
 
 use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::mem::{self, MemBlock};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Lock shared by `_MEM(variable)` blocks (the C++ backend uses the scope's `sf_mem_lock`).
+/// Lock shared by `_MEM(variable)` blocks (one for the whole program, not one per scope).
 static VAR_LOCK: AtomicUsize = AtomicUsize::new(0);
 
 fn var_lock() -> *mut mem::MemLock {

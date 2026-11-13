@@ -1,8 +1,7 @@
 //! The program window of a GUI program (no `$CONSOLE`): qb-runtime's window
 //! layer (`qb_runtime::window`, winit + softbuffer, or headless with
 //! `QBNEX_HEADLESS=1` / no display) runs on the main thread, the VM on a
-//! program thread. Port of the parts of libqb.cpp's MAIN_LOOP and
-//! `display()` the VM needs:
+//! program thread. The main loop and display rules, as in QB64:
 //!
 //! * frames: [`compose`] turns the display page into 0xAARRGGBB pixels
 //!   (text pages through the builtin 8x8/8x14/8x16 fonts with blinking and
@@ -13,7 +12,7 @@
 //!   at its next safe point while `_AUTODISPLAY` is on;
 //! * close: the close box (or `close` in a `QBNEX_INPUT_SCRIPT`) raises
 //!   [`CLOSE_EVENT`]; the program ends at its next safe point, or at once
-//!   while it waits for input (`exit_value` / `end_program` of libqb.cpp);
+//!   while it waits for input;
 //!   after the program called `_EXIT` the request only waits for its next call;
 //! * resize, focus, dropped files: the window layer's callbacks record them for
 //!   `_RESIZE`, `_WINDOWHASFOCUS` and `_DROPPEDFILE$`.
@@ -64,7 +63,7 @@ const MAX_FPS: f64 = 200.0;
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static CLOSED: AtomicBool = AtomicBool::new(false);
 static EVENTS: OnceLock<EventHandle> = OnceLock::new();
-/// `frame` of libqb.cpp: displays so far (~31 per second), drives blinking.
+/// Displays so far (~31 per second), drives blinking.
 static FRAME: AtomicU32 = AtomicU32::new(0);
 /// A first frame was shown: the window has the size of a page.
 static SIZED: AtomicBool = AtomicBool::new(false);
@@ -438,7 +437,7 @@ pub(crate) fn set_title(t: &[u8]) {
     }
 }
 
-/// The pixels a page shows (`display()` of libqb.cpp): `(argb, width, height)`.
+/// The pixels a page shows: `(argb, width, height)`.
 /// `phase`: blink/cursor phase (`frame & 8`).
 pub(crate) fn compose(p: &ImgStruct, fontwidth: &[i32], fontheight: &[i32], phase: bool) -> Option<(Vec<u32>, usize, usize)> {
     if p.offset.is_null() || p.width == 0 || p.height == 0 {
@@ -520,7 +519,7 @@ pub(crate) fn compose(p: &ImgStruct, fontwidth: &[i32], fontheight: &[i32], phas
     Some((px, fw_, fh_))
 }
 
-/// Scanlines of the text cursor (`LOCATE , , , start, stop`), rules of libqb.cpp `display()`.
+/// Scanlines of the text cursor (`LOCATE , , , start, stop`), with QB64's rules.
 fn cursor_rows(v1: u8, v2: u8, ch: usize) -> std::ops::Range<usize> {
     let bottom = |size: usize| {
         let last = if ch == 16 { 14 } else { ch - 1 };

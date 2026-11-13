@@ -1,6 +1,6 @@
 //! 3D builtins (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA*`,
 //! `_AMBIENT`, `_LIGHT*`, `_CLEAR3D`, `_GPU3D`), routed to the
-//! `qb_runtime::scene3d` C ABI — the same functions libqb's shims call.
+//! `qb_runtime::scene3d` C ABI.
 //! Arguments follow the registry callnames (trailing `passed` flags where the
 //! keyword has optional parts). `_DISPLAY` needs nothing here: the frame
 //! capture hook moves the queued draws to the shown layer.

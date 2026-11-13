@@ -9,7 +9,7 @@
 //! SINGLE = its `f32` bits in the low 32 bits, DOUBLE = its `f64` bits,
 //! STRING / array / BYREF pointer = an opaque 64-bit handle.
 //!
-//! Semantics (copied from the qb-exec VM, which copies the C++ backend):
+//! Semantics (the same as the qb-exec VM):
 //! * `+ - *` on integers wrap in the operand width (C cast);
 //! * `\` and `MOD` by zero raise error 11, `/` by 0.0 raises error 11;
 //! * float -> integer conversion rounds half to even exactly like

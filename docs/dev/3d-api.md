@@ -70,8 +70,8 @@ f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3
 
 ข้อควรระวัง:
 
-- layer 3D ต้องประกอบบน GPU ถ้าอยากเร็ว; ระยะแรกอ่านกลับ (`read_pixels`) แล้วผสมด้วย CPU เพื่อใช้เส้นทางประกอบ frame เดิม (`window_bridge.cpp`) — ช้าแต่ถูก, ตัดทิ้งเมื่อการประกอบทั้ง frame ย้ายไป GPU (G6)
-- feature `gpu` ของ qb-runtime ยังไม่ได้ตรวจการ link แบบ staticlib กับ MinGW (wgpu ใช้ `windows` crate)
+- layer 3D ต้องประกอบบน GPU ถ้าอยากเร็ว; ระยะแรกอ่านกลับ (`read_pixels`) แล้วผสมด้วย CPU (`qb_runtime::scene3d::compose`) — ช้าแต่ถูก, ตัดทิ้งเมื่อการประกอบทั้ง frame ย้ายไป GPU (G6)
+- (เดิม: feature `gpu` ของ qb-runtime ยังไม่ได้ตรวจการ link แบบ staticlib กับ MinGW — ไม่เกี่ยวแล้วเพราะ backend C++ ถูกลบ)
 - golden image ต่างกันได้ระหว่าง GPU vendor ที่ขอบสามเหลี่ยม/การปัดเศษ: test เทียบแบบมี tolerance หรือเฉพาะจุดด้านใน
 
 ## Test (qb-gpu, headless)
@@ -82,7 +82,7 @@ ambient อย่างเดียว, depth ระหว่างสอง mod
 
 ## สถานะ implementation (2026-11-11)
 
-- `_DISPLAY` (ทั้งสองเส้นทางเรียก hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; หน้าต่างผสม layer ใน `window_bridge.cpp` ผ่าน `qb_3d_present`; โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
+- `_DISPLAY` (ผ่าน hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; `qb_3d_present` ผสม layer ลง frame แต่หน้าต่างของ qb-exec ยังไม่เรียกมัน (ผู้เรียกเดิมคือ `window_bridge.cpp` ของ backend C++ ที่ถูกลบแล้ว) จึงเห็น layer 3D เฉพาะใน frame capture; โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
 - ไม่มี feature `gpu` หรือไม่มี adapter: handle/error ทำงานครบ, ไม่วาด, `_GPU3D` = 0
 - error: handle ผิด = 258, argument ผิด = 5 (`_LIGHT` kind ผิดก็ 5)
 - ต้องตรวจตอน build compiler จริง: bit ของ `passed` ต่อกลุ่ม `[...]` ใน specialformat ของ `_DRAW3D` (ตั้งใจ 1 ตำแหน่ง, 2 การหมุน, 4 scale), `{To}` ใน `_CAMERA`, และรายการ keyword ใน `crates/compiler/syntax` (LSP/formatter) ยังไม่ได้เพิ่ม
@@ -111,7 +111,7 @@ struct ShadeIn {
 
 ตรวจด้วย naga (parse + validate) ตอน `_SHADER` จึงได้ข้อความ error ที่อ่านง่ายพร้อมบรรทัด/คอลัมน์ของผู้ใช้
 ไม่ใช่ panic ของ wgpu; ปัญหาที่ไม่ได้อยู่ในข้อความผู้ใช้ (เช่น `shade` คืนชนิดผิด) แจ้งเป็น line 0 พร้อมคำแนะนำ.
-ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ. Keyword มีเฉพาะเส้นทาง QIR (ไม่มี shim C++ เพราะ libqb กำลังจะถูกลบ).
+ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ. Keyword มีบนเส้นทาง QIR ซึ่งเป็นเส้นทางเดียว.
 
 ## G6 — ประสิทธิภาพ
 

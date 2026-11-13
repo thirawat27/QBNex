@@ -33,7 +33,7 @@ pub(crate) use window::{activate as window_activate, closed as window_closed, pi
 pub(crate) enum V {
     I(i64),
     F(f64),
-    /// `_FLOAT`: x87 80-bit extended (bit-exact with the C++ backend)
+    /// `_FLOAT`: x87 80-bit extended (bit-exact with real x87 `long double`)
     X(F80),
     S(Vec<u8>),
     P(u64),
@@ -145,7 +145,7 @@ pub(crate) fn cvt(to: Ty, from: Ty, v: &V, round: bool) -> V {
     if from.is_float() {
         let f = v.f();
         if round && to != Ty::U64 {
-            // x87 FISTP semantics of the C++ backend's qbr()
+            // x87 FISTP semantics (`qb_runtime::round::qbr`)
             return V::I(wrap(to, qb_runtime::round::qb_qbr_f64(f)));
         }
         let f = if round { f.round_ties_even() } else { f.trunc() };

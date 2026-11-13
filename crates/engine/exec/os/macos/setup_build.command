@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the QIR runner (qb-exec) used by `qb --ir` and copies it to
+# Builds the QIR runner (qb-exec) used by `qb` and copies it to
 # crates/engine/exec/bin/macos/qb-exec. Requires cargo on PATH.
 set -e
 cd "$(dirname "$0")"

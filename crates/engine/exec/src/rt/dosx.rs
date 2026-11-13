@@ -1,6 +1,6 @@
-//! DOS-era statements as the C++ runtime has them (libqb.cpp `sub_out`,
-//! `func_inp`, `sub_wait`, `sub_bload`, `sub_bsave`,
-//! `sub_run`, qbx.cpp `sub_chain`), `VARPTR` of numeric variables and the
+//! DOS-era statements as QB64 has them (`sub_out`, `func_inp`, `sub_wait`,
+//! `sub_bload`, `sub_bsave`, `sub_run`, `sub_chain`), `VARPTR` of numeric
+//! variables and the
 //! RUN / CLEAR requests the VM carries out (`Vm::restart`).
 //!
 //! QIR variables do not live in conventional memory. `VARPTR` of a numeric
@@ -466,7 +466,7 @@ fn release_for_next(vm: &mut dyn Host<'_>) -> R<()> {
 /// RUN file$ / CHAIN: the program `cmd` replaces this one. Unix: the process
 /// becomes it (`exec`, through the shell as SHELL does). Windows: this program
 /// releases its files, audio and window, waits for it and ends with its exit
-/// code (the C++ runtime starts it and ends at once; waiting keeps the console
+/// code (the old C++ runtime started it and ended at once; waiting keeps the console
 /// output in order and the exit code for whoever started this program).
 fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     let found = std::path::Path::new(exe).is_file() || (cfg!(windows) && std::path::Path::new(&format!("{exe}.exe")).is_file());
@@ -519,7 +519,7 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
 }
 
 /// CHAIN name: `.bas` runs the `.exe` of the same name; without an extension
-/// the first word gets `.exe` and the rest are its arguments (qbx.cpp sub_chain).
+/// the first word gets `.exe` and the rest are its arguments (as QB64's `sub_chain`).
 fn chain_command(f: &str) -> (String, String) {
     let up = f.to_ascii_uppercase();
     if let Some(p) = up.find('.') {
@@ -547,7 +547,7 @@ fn in_dir(exe: &str) -> String {
     }
 }
 
-/// RUN / CLEAR: what the C++ sub_clear (and for RUN sub_run_init) reset that
+/// RUN / CLEAR: what CLEAR (and for RUN also the run-time init) resets that
 /// lives in the runtime; the variables are the VM's (`Vm::restart`).
 fn clear(vm: &mut dyn Host<'_>, run: bool) -> R<()> {
     if let Some(r) = super::files::call(vm, "CLOSEALL", &[]) {
@@ -573,7 +573,7 @@ fn clear(vm: &mut dyn Host<'_>, run: bool) -> R<()> {
     Ok(())
 }
 
-/// FILES [spec$] (libqb.cpp sub_files): the directory line, entries of 18 columns
+/// FILES [spec$]: the directory line, entries of 18 columns
 /// (a new line when one does not fit in 80), then "n Bytes free".
 fn files(vm: &mut dyn Host<'_>, spec: &[u8], passed: bool) -> R<()> {
     let (err, lines) = qb_runtime::fsops::files(passed.then_some(spec));

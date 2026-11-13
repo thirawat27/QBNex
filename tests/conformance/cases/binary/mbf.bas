@@ -1,5 +1,5 @@
 $CONSOLE:ONLY
-' Exercises MKSMBF$/CVSMBF/MKDMBF$/CVDMBF (internal/c/msbin.cpp -> qb_runtime::mbf).
+' Exercises MKSMBF$/CVSMBF/MKDMBF$/CVDMBF (qb_runtime::mbf).
 DIM vs(9) AS SINGLE
 vs(0) = 0: vs(1) = 1: vs(2) = -1: vs(3) = 0.5: vs(4) = 3.25
 vs(5) = 1E+30: vs(6) = -1E-30: vs(7) = 123456.7: vs(8) = 0.1: vs(9) = 2 ^ 126

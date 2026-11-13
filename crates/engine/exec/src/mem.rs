@@ -1,10 +1,10 @@
 //! Addressable memory for QIR programs that need it (TYPE, `STRING * n`,
-//! pointer arithmetic, GET/PUT of variables). Same layout as the C++ backend's storage:
+//! pointer arithmetic, GET/PUT of variables). Storage layout:
 //!
 //! - every memory-backed variable, array descriptor and array data area is a
 //!   block; a pointer to variable or element storage is its real address (so
-//!   `_MEM`, `_OFFSET` arithmetic and qb-runtime routines work on it, like the
-//!   C++ backend); an array descriptor reference is `ARR_TAG | block id`
+//!   `_MEM`, `_OFFSET` arithmetic and qb-runtime routines work on it, as in
+//!   QB64); an array descriptor reference is `ARR_TAG | block id`
 //! - a `str` slot in memory is an 8-byte handle into `strs` (0 = empty string)
 //! - element layout: first subscript varies fastest (QB64)
 
@@ -118,7 +118,7 @@ impl Mem {
         (self.block_addr(id), id)
     }
 
-    /// `len` bytes at the real address `p` (like the C++ backend, addresses are
+    /// `len` bytes at the real address `p` (as in QB64, addresses are
     /// not checked beyond null and array references).
     pub(crate) fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]> {
         if p == 0 || p & ARR_TAG != 0 {
@@ -287,7 +287,7 @@ impl Mem {
     pub(crate) fn erase(&mut self, desc: u64) -> R<()> {
         let a = self.arr(desc)?;
         if a.fixed {
-            // static array: cleared in place, dimensions kept (QBasic, C++ backend)
+            // static array: cleared in place, dimensions kept (as in QBasic)
             let (fill, data) = (a.fill, a.data);
             if let Some(d) = data {
                 let strs = match &mut self.blocks[d as usize] {

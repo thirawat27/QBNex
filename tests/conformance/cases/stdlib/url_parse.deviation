@@ -1,1 +1,1 @@
-Golden output blessed from the current default C++ path: the legacy url.bas never trimmed its fixed-length fields, kept '//' in protocol, ignored dot segments and appended duplicate query keys (L-16). Resolution results checked by hand against RFC 3986 section 5.4.
+Golden output blessed from the old C++ backend (then the default): the legacy url.bas never trimmed its fixed-length fields, kept '//' in protocol, ignored dot segments and appended duplicate query keys (L-16). Resolution results checked by hand against RFC 3986 section 5.4.

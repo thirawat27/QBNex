@@ -6,7 +6,7 @@
 //! (3 buttons, 2 axes, 3 wheels), the game controllers follow in the order
 //! they were attached. Every change of a device is one event holding the
 //! whole state of the device; `_DEVICEINPUT` steps through the events and the
-//! other functions read the state of the event it stopped at (libqb's
+//! other functions read the state of the event it stopped at (QB64's
 //! `device_struct`, with a queue per device in place of its byte buffer).
 
 // browser build: no game controllers are attached

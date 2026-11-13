@@ -1,7 +1,7 @@
 $CONSOLE:ONLY
-' _DEFLATE$ / _INFLATE$ (R10: qb-runtime compress.rs replaces the system zlib).
+' _DEFLATE$ / _INFLATE$ (qb-runtime compress.rs, no system zlib).
 ' Compressed bytes are not printed: they may differ from zlib's (deviation D-R10-1).
-' Expected values follow zlib's compress()/uncompress() contracts (tests/diff/diff_zlib.cpp).
+' Expected values follow zlib's compress()/uncompress() contracts.
 a$ = "QBNex " + STRING$(200, "x") + "end"
 z$ = _DEFLATE$(a$)
 PRINT LEN(a$); LEN(z$) < LEN(a$); ASC(z$, 1)

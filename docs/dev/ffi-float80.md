@@ -12,7 +12,7 @@ legacy MinGW build (FPU control word `0x037F`).
 
 ### What the VM calls for each BASIC operation
 
-| BASIC | Rust API | C ABI (JIT) | Legacy C++ it replaces |
+| BASIC | Rust API | C ABI (JIT) | Legacy C++ it replaced |
 | --- | --- | --- | --- |
 | `a + b`, `-`, `*`, `/` on `_FLOAT` | `a + b` ... (`core::ops`) | `qb_f80_add/sub/mul/div(a, b, out)` | x87 `fadd`... |
 | unary minus | `-a` | `qb_f80_neg` | `fchs` |
@@ -46,7 +46,7 @@ and `scale` are public too.
   non-integer exponent identical to the legacy build on the same machine.
   On other targets (or with feature `soft-transcendentals`) a 120-bit software
   version is used: **deviation D-111** (identical to the hardware for ~97% of
-  inputs, never more than one ulp off; measured by `diff_float80`). Integer
+  inputs, never more than one ulp off; measured by the former `diff_float80` differential test). Integer
   exponents (`x ^ 2`) never use these primitives and are exact everywhere.
 
 Evidence (before the C++ backend was removed): a differential test against real
