@@ -223,7 +223,10 @@ impl Library {
             // macOS 11+: system libraries (/usr/lib/libz.dylib, ...) exist only in
             // the dyld shared cache, not on disk, yet dlopen of that path works.
             if c.is_file() || (cfg!(target_vendor = "apple") && c.is_absolute()) {
-                match Library::open_path(&text) {
+                // dlopen takes a name without '/' as a name to search for, never as this
+                // file in the current directory (and may find a system library instead)
+                let exact = if cfg!(unix) && !text.contains('/') && c.is_file() { format!("./{text}") } else { text.clone() };
+                match Library::open_path(&exact) {
                     Ok(l) => return Ok(l),
                     Err(e) => last = e,
                 }

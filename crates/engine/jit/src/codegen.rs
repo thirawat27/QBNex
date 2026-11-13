@@ -771,7 +771,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             Term::Dispatch { val, cases } => {
                 let v = self.get(*val);
                 let v32 = match self.ty(*val) {
-                    Ty::I16 => self.b.ins().uextend(types::I32, v),
+                    Ty::I16 => self.b.ins().sextend(types::I32, v),
                     Ty::I32 => v,
                     _ => self.b.ins().ireduce(types::I32, v),
                 };

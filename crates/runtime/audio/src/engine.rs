@@ -492,7 +492,7 @@ impl Engine {
         let rate = self.rate as u64;
         if let Some(s) = self.sound_mut(h) {
             let ms = (seconds * 1000.0) as u64;
-            s.stop_time = Some(ms * rate / 1000);
+            s.stop_time = Some((u128::from(ms) * u128::from(rate) / 1000).min(u128::from(u64::MAX)) as u64);
         }
     }
 

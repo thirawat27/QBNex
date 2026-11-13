@@ -216,7 +216,7 @@ impl<'a> Formatter<'a> {
         // External names in DECLARE LIBRARY keep their case (they are linked by name).
         if self.ctx[i].in_library && n > 0 {
             let prev = self.text(sig[n - 1].0);
-            if prev.eq_ignore_ascii_case("SUB") || prev.eq_ignore_ascii_case("FUNCTION") {
+            if prev.eq_ignore_ascii_case("SUB") || prev.eq_ignore_ascii_case("FUNCTION") || prev.eq_ignore_ascii_case("ALIAS") {
                 out.push_str(text);
                 return;
             }

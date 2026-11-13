@@ -117,7 +117,7 @@ pub fn is_valid(s: &[u8]) -> bool {
 /// none, the byte value for a byte of an invalid sequence.
 pub fn codepoint(s: &[u8], index: i64) -> i64 {
     let r = char_ranges(s);
-    let Some(&(a, b)) = usize::try_from(index - 1).ok().and_then(|i| r.get(i)) else { return -1 };
+    let Some(&(a, b)) = index.checked_sub(1).and_then(|i| usize::try_from(i).ok()).and_then(|i| r.get(i)) else { return -1 };
     match std::str::from_utf8(&s[a..b]) {
         Ok(t) => t.chars().next().map_or(-1, |c| i64::from(u32::from(c))),
         Err(_) => i64::from(s[a]),
