@@ -37,7 +37,7 @@ texts! {
 
     WelcomeTitle: "Install QBNex {}";
     WelcomeBody: "A BASIC compiler for QBasic and QB64 programs.\n\nSetup installs QBNex for your user account only. No administrator rights are needed.";
-    NoBundle: "This copy of qbnex-setup carries no QBNex files. Download the release installer.";
+    NoBundle: "This qbnex-setup is the installer program alone: no QBNex files are packed into it, so there is nothing to install. Use the release installer (qbnex_<version>_<system>-setup), or make one with: qbnex-setup --pack <bundle folder> --out <installer>";
 
     LicenseTitle: "License Agreement";
     LicenseSub: "Please read the following before continuing.";
