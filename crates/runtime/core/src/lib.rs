@@ -13,7 +13,6 @@
 pub mod clipboard;
 pub mod compress;
 pub mod console;
-mod cmem;
 pub mod error;
 pub mod events;
 pub mod fileio;

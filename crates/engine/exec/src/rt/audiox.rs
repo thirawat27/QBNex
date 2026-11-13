@@ -98,6 +98,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         start_audio(vm.rt());
         vm.rt().snd_started = true;
     }
+    // a closed sound is freed once it stops playing: its `_MEMSOUND` blocks end then
+    release_sound_locks();
     let i = |k: usize| a[k].i() as i32;
     let f = |k: usize| a[k].f();
     let s = |k: usize| a[k].s();
@@ -126,6 +128,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "_SNDCLOSE" => {
             snd::qb_snd_close(i(0));
+            release_sound_locks();
             none
         }
         "_SNDCOPY" => some(V::I(snd::qb_snd_copy(i(0)).into())),
@@ -217,5 +220,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             Some(r)
         }
         _ => None,
+    }
+}
+
+/// Invalidates the `_MEM` blocks of freed sounds (`_MEMSOUND`), so `_MEMEXISTS`
+/// reports them gone, as it does for a freed image.
+fn release_sound_locks() {
+    for lock in snd::qb_snd_take_released_locks() {
+        // SAFETY: the offset is the lock `_MEMSOUND` registered for this sound
+        // (`qb_snd_memsound_set_lock`), freed only here, once.
+        unsafe { mem::free_mem_lock(lock as *mut mem::MemLock) };
     }
 }

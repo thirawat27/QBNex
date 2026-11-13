@@ -132,8 +132,8 @@ pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32
 }
 
 /// Runs a compiled program as its executable does (`qb-exec`): unhandled
-/// errors are reported on stderr and the program continues, like the
-/// headless C++ runtime. `image`: native image from [`build_native`].
+/// errors are reported on stderr and the program continues, as a QB64
+/// program does without a window. `image`: native image from [`build_native`].
 pub fn run_program(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Result<i32, RunError> {
     let m = compile(src)?;
     let mut vm = Vm::new(&m, out);

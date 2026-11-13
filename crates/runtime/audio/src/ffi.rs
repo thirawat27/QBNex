@@ -165,6 +165,12 @@ pub fn qb_snd_close(h: i32) {
     engine().close(h)
 }
 
+/// `_MEM` locks of `_MEMSOUND` blocks whose sound was freed since the last call;
+/// the caller invalidates them, so `_MEMEXISTS` of such a block is false.
+pub fn qb_snd_take_released_locks() -> Vec<usize> {
+    std::mem::take(&mut engine().released_locks)
+}
+
 pub fn qb_snd_copy(h: i32) -> i32 {
     engine().copy(h)
 }

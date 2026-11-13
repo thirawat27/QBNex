@@ -65,18 +65,16 @@ pub fn open(name: &[u8], mut type_: i32, access: i32, sharing: i32, i: i32, reco
         1 => return 55,
         _ => {}
     }
-    // RANDOM: allocate the record buffer before opening, so an impossible LEN
-    // fails cleanly instead of aborting on allocation.
-    let mut record_buffer: Vec<u8> = Vec::new();
+    // RANDOM: a record length that cannot be allocated is "Out of memory" (7)
+    // before the file is opened, as QBasic reports it
     if type_ == 1 {
         let rl = if passed && record_length != -1 { record_length } else { 128 };
         if rl > i64::from(i32::MAX) {
             return 5;
         }
-        if record_buffer.try_reserve_exact(rl as usize).is_err() {
+        if Vec::<u8>::new().try_reserve_exact(rl as usize).is_err() {
             return 7;
         }
-        record_buffer.resize(rl as usize, 0);
     }
     let (mut g_access, mut g_restrictions, mut g_how) = match type_ {
         3 => (1, 0, 0),
@@ -122,8 +120,6 @@ pub fn open(name: &[u8], mut type_: i32, access: i32, sharing: i32, i: i32, reco
     if type_ == 1 {
         let rl = if passed && record_length != -1 { record_length } else { 128 };
         t.f(x).record_length = rl;
-        *t.field_buffer(x) = record_buffer;
-        t.sync_fields(x);
     }
     if type_ == 5 {
         let n = t.lof(x);
@@ -1156,193 +1152,7 @@ pub fn lock(i: i32, mut start: i64, mut end: i64, mut passed: i32, lock: bool) -
     }
 }
 
-// --- FIELD / LSET / RSET ----------------------------------------------------------------
-
-struct FieldState {
-    failed: bool,
-    fileno: i32,
-    totalsize: i64,
-    maxsize: i64,
-}
-
-static FIELD: std::sync::Mutex<FieldState> =
-    std::sync::Mutex::new(FieldState { failed: true, fileno: 0, totalsize: 0, maxsize: 0 });
-
-fn field_state() -> std::sync::MutexGuard<'static, FieldState> {
-    FIELD.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-/// RANDOM file validation used by FIELD (TCP/IP handles are rejected).
-fn random_index(t: &mut Table, fileno: i32) -> Result<i32, i32> {
-    if fileno < 0 {
-        return Err(54);
-    }
-    let x = index(t, fileno)?;
-    if t.f(x).type_ != 1 {
-        return Err(54);
-    }
-    Ok(x)
-}
-
-/// `field_new`: starts a FIELD statement.
-pub fn field_new(fileno: i32, new_error: bool) -> i32 {
-    let mut st = field_state();
-    st.failed = true;
-    if new_error {
-        return 0;
-    }
-    let mut t = table();
-    let x = match random_index(&mut t, fileno) {
-        Ok(x) => x,
-        Err(e) => return e,
-    };
-    st.fileno = fileno;
-    st.totalsize = 0;
-    st.maxsize = t.f(x).record_length;
-    st.failed = false;
-    0
-}
-
-/// Placement of one FIELD variable decided by [`field_add`].
-#[repr(C)]
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct FieldSlot {
-    pub fileno: i32,
-    pub fileid: i64,
-    pub size: i64,
-    pub offset: i64,
-}
-
-/// `field_add`, first half: validates `size` and returns where the string
-/// goes. `Ok(None)` = an earlier part of this FIELD failed, do nothing.
-pub fn field_add(size: i64, new_error: bool) -> Result<Option<FieldSlot>, i32> {
-    let mut st = field_state();
-    if st.failed {
-        return Ok(None);
-    }
-    let fail = |st: &mut FieldState, e: i32| {
-        st.failed = true;
-        Err(e)
-    };
-    if new_error {
-        st.failed = true;
-        return Ok(None);
-    }
-    if size < 0 {
-        return fail(&mut st, 5);
-    }
-    if st.totalsize + size > st.maxsize {
-        return fail(&mut st, 50);
-    }
-    let mut t = table();
-    let x = match random_index(&mut t, st.fileno) {
-        Ok(x) => x,
-        Err(e) => return fail(&mut st, e),
-    };
-    Ok(Some(FieldSlot { fileno: st.fileno, fileid: t.f(x).id, size, offset: st.totalsize }))
-}
-
-/// `field_add`, second half: links string `s` to the file and advances the
-/// FIELD offset (after the caller attached the field info to the string).
-pub fn field_link(fileno: i32, s: *mut c_void, size: i64) {
-    let mut t = table();
-    if let Ok(x) = index(&mut t, fileno) {
-        t.field_strings(x).push(s);
-        t.sync_fields(x);
-    }
-    field_state().totalsize += size;
-}
-
-/// Index of the RANDOM file a field string belongs to, if it is still the
-/// same open file (`fileid`).
-fn field_file(t: &mut Table, fileno: i32, fileid: i64) -> Option<i32> {
-    if t.fileno_valid(fileno) != 1 {
-        return None;
-    }
-    let x = t.fileno_index(fileno);
-    if t.f(x).type_ != 1 || t.f(x).id != fileid {
-        return None;
-    }
-    Some(x)
-}
-
-/// `lrset_field`: copies an LSET/RSET result into the FIELD buffer, padding
-/// with spaces. Returns false when the link is stale (drop the field info).
-pub fn field_store(slot: &FieldSlot, data: &[u8]) -> bool {
-    let mut t = table();
-    let Some(x) = field_file(&mut t, slot.fileno, slot.fileid) else { return false };
-    let b = t.field_buffer(x);
-    let (off, size) = (slot.offset as usize, slot.size as usize);
-    if size <= data.len() {
-        b[off..off + size].copy_from_slice(&data[..size]);
-    } else {
-        b[off..off + data.len()].copy_from_slice(data);
-        b[off + data.len()..off + size].fill(b' ');
-    }
-    true
-}
-
-/// `field_free`: unlinks string `s` from its file (if still linked).
-pub fn field_forget(fileno: i32, fileid: i64, s: *mut c_void) {
-    let mut t = table();
-    if let Some(x) = field_file(&mut t, fileno, fileid) {
-        let v = t.field_strings(x);
-        if let Some(k) = v.iter().position(|&p| p == s) {
-            v.remove(k);
-            t.sync_fields(x);
-        }
-    }
-}
-
-/// `field_get` (GET #n without a variable): fills the FIELD buffer.
-pub fn field_get(fileno: i32, offset: i64, passed: bool) -> i32 {
-    let mut t = table();
-    let x = match random_index(&mut t, fileno) {
-        Ok(x) => x,
-        Err(e) => return e,
-    };
-    if t.f(x).read == 0 {
-        return 75;
-    }
-    let rl = t.f(x).record_length;
-    let offset = match record_offset(1, rl, offset, passed) {
-        Ok(o) => o,
-        Err(e) => return e,
-    };
-    let mut buf = std::mem::take(t.field_buffer(x));
-    let e = t.read(x, offset, &mut buf);
-    *t.field_buffer(x) = buf;
-    t.sync_fields(x);
-    if e != 0 && e != -10 {
-        return map(e);
-    }
-    0
-}
-
-/// `field_put` (PUT #n without a variable): writes the FIELD buffer.
-pub fn field_put(fileno: i32, offset: i64, passed: bool) -> i32 {
-    let mut t = table();
-    let x = match random_index(&mut t, fileno) {
-        Ok(x) => x,
-        Err(e) => return e,
-    };
-    if t.f(x).write == 0 {
-        return 75;
-    }
-    let rl = t.f(x).record_length;
-    let offset = match record_offset(1, rl, offset, passed) {
-        Ok(o) => o,
-        Err(e) => return e,
-    };
-    let buf = std::mem::take(t.field_buffer(x));
-    let e = t.write(x, offset, &buf);
-    *t.field_buffer(x) = buf;
-    t.sync_fields(x);
-    if e != 0 {
-        return map(e);
-    }
-    0
-}
+// --- LSET / RSET ----------------------------------------------------------------
 
 /// LSET: left-aligns `src` in `dest`, padding with spaces.
 pub fn lset(dest: &mut [u8], src: &[u8]) {
@@ -1555,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn random_records_strings_and_fields() {
+    fn random_records_and_strings() {
         let d = tmp("rnd");
         let f = fresh(140);
         assert_eq!(open(&p(&d, "r.dat"), 1, 0, 0, f, 10, true), 0);
@@ -1575,27 +1385,8 @@ mod tests {
         assert_eq!(loc(f), (8, 0));
         assert_eq!(seek_set(f, 2), 0);
         assert_eq!(seek_get(f), (2, 0));
-        // FIELD: two 5-byte fields over record 1
-        assert_eq!(field_new(f, false), 0);
-        let a = field_add(5, false).unwrap().unwrap();
-        field_link(f, std::ptr::dangling_mut::<c_void>(), 5);
-        let b = field_add(5, false).unwrap().unwrap();
-        field_link(f, 2 as *mut c_void, 5);
-        assert_eq!((a.offset, b.offset), (0, 5));
-        assert_eq!(field_add(1, false), Err(50));
-        assert_eq!(field_add(1, false), Ok(None)); // FIELD already failed
-        assert!(field_store(&a, b"AB"));
-        assert!(field_store(&b, b"1234567"));
-        assert_eq!(field_put(f, 3, true), 0);
-        assert_eq!(field_get(f, 1, true), 0);
-        let x = table().fileno_index(f);
-        assert_eq!(table().f(x).field_strings_n, 2);
-        field_forget(f, a.fileid, std::ptr::dangling_mut::<c_void>());
-        assert_eq!(table().f(x).field_strings_n, 1);
         close(f);
-        assert!(!field_store(&a, b"zz")); // stale link
         let data = std::fs::read(d.join("r.dat")).unwrap();
-        assert_eq!(&data[20..30], b"AB   12345");
         assert_eq!(&data[..3], b"abc");
     }
 

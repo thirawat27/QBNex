@@ -35,9 +35,6 @@ pub struct GfsFile {
     /// 1 RANDOM, 2 BINARY, 3 INPUT, 4 OUTPUT/APPEND.
     pub type_: u8,
     pub record_length: i64,
-    pub field_buffer: *mut u8,
-    pub field_strings: *mut *mut c_void,
-    pub field_strings_n: i32,
     /// Column for PRINT # tabbing (base 1 once opened).
     pub column: i64,
     pub com_port: u8,
@@ -73,9 +70,6 @@ impl GfsFile {
             fileno: 0,
             type_: 0,
             record_length: 0,
-            field_buffer: null_mut(),
-            field_strings: null_mut(),
-            field_strings_n: 0,
             column: 0,
             com_port: 0,
             com_baud_rate: 0,
@@ -99,17 +93,6 @@ struct Slot {
     /// Boxed so its address stays the same while the table grows.
     file: Box<GfsFile>,
     os: os::Handle,
-    field_buffer: Vec<u8>,
-    field_strings: Vec<*mut c_void>,
-}
-
-impl Slot {
-    fn sync_fields(&mut self) {
-        self.file.field_buffer = if self.field_buffer.is_empty() { null_mut() } else { self.field_buffer.as_mut_ptr() };
-        self.file.field_strings =
-            if self.field_strings.is_empty() { null_mut() } else { self.field_strings.as_mut_ptr() };
-        self.file.field_strings_n = self.field_strings.len() as i32;
-    }
 }
 
 /// Highest usable file number; larger numbers are "Bad file name or number".
@@ -152,8 +135,6 @@ impl Table {
             self.slots.push(Slot {
                 file: Box::new(GfsFile::zeroed()),
                 os: os::Handle::NONE,
-                field_buffer: Vec::new(),
-                field_strings: Vec::new(),
             });
             self.slots.len() as i32 - 1
         };
@@ -162,9 +143,6 @@ impl Table {
         let s = &mut self.slots[i as usize];
         *s.file = GfsFile::zeroed();
         s.os = os::Handle::NONE;
-        s.field_buffer.clear();
-        s.field_strings.clear();
-        s.sync_fields();
         s.file.id = id;
         i
     }
@@ -250,9 +228,6 @@ impl Table {
         if s.file.scrn != 0 {
             return 0;
         }
-        s.field_buffer.clear();
-        s.field_strings.clear();
-        s.sync_fields();
         s.os.close();
         0
     }
@@ -413,17 +388,6 @@ impl Table {
         i
     }
 
-    pub(crate) fn field_buffer(&mut self, i: i32) -> &mut Vec<u8> {
-        &mut self.slots[i as usize].field_buffer
-    }
-
-    pub(crate) fn sync_fields(&mut self, i: i32) {
-        self.slots[i as usize].sync_fields();
-    }
-
-    pub(crate) fn field_strings(&mut self, i: i32) -> &mut Vec<*mut c_void> {
-        &mut self.slots[i as usize].field_strings
-    }
 
     /// Bytes waiting in a COM port's input buffer (LOC of a COM file).
     pub(crate) fn com_in_queue(&mut self, i: i32) -> i64 {
@@ -1333,8 +1297,6 @@ pub(crate) mod tests {
         let mut s = Slot {
             file: Box::new(GfsFile::zeroed()),
             os: os::Handle(Some(std::fs::File::from(OwnedFd::from(a)))),
-            field_buffer: Vec::new(),
-            field_strings: Vec::new(),
         };
         assert_eq!(os::setpos(&mut s, 5), -3);
     }
