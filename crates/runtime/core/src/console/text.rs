@@ -740,6 +740,12 @@ pub unsafe fn csrlin(h: &mut dyn Host) -> i32 {
     if (*w).console != 0 {
         return stdio::csrlin();
     }
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
+    if (*w).console != 0
+        && let Some((row, _)) = stdio::cursor()
+    {
+        return row;
+    }
     if (*w).holding_cursor != 0 {
         if (*w).cursor_y >= (*w).bottom_row {
             return (*w).bottom_row as i32;
@@ -755,6 +761,12 @@ pub unsafe fn pos(h: &mut dyn Host) -> i32 {
     #[cfg(windows)]
     if (*w).console != 0 {
         return stdio::pos();
+    }
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
+    if (*w).console != 0
+        && let Some((_, column)) = stdio::cursor()
+    {
+        return column;
     }
     if (*w).holding_cursor != 0 {
         return 1;

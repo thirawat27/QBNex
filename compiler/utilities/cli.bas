@@ -27,7 +27,8 @@ SUB ShowCommandLineHelp
     PRINT "  -Werror, --warnings-as-errors"
     PRINT "                          Treat warnings as blocking diagnostics"
     PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
-    PRINT "  -m                      Do not colorize compiler output (monochrome mode)"
+    PRINT "  -m                      Do not colorize compiler output (monochrome mode;"
+    PRINT "                             also when NO_COLOR is set)"
     PRINT "  -d, --verbose-errors    Legacy alias (detailed diagnostics are default)"
     PRINT "  -k, --compact-errors    Use compact diagnostics (hide extra detail notes)"
     PRINT "  -e                      Enable OPTION _EXPLICIT, making variable declaration"
@@ -131,6 +132,9 @@ END FUNCTION
 
 FUNCTION ParseCMDLineArgs$ ()
     DIM PassedFileName$
+
+    'NO_COLOR (no-color.org): any non-empty value turns colors off, like -m
+    IF LEN(ENVIRON$("NO_COLOR")) THEN MonochromeLoggingMode = -1
 
     'Recall that COMMAND$ is a concatenation of argv[] elements, so we don't have
     'to worry about more than one space between things (unless they used quotes,

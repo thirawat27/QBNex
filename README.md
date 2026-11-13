@@ -1848,17 +1848,26 @@ If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build 
 
 ### Test Output Interpretation
 
-**Successful Compilation:**
+**Successful Compilation** (in color; the progress bar is redrawn in place):
 ```
-  QQQQ    BBBB    N   N   EEEEE   X   X  
- Q    Q   B   B   NN  N   E        X X   
- Q  QQ    BBBB    N N N   EEEE      X    
- Q   Q    B   B   N  NN   E        X X   
-  QQQQ    BBBB    N   N   EEEEE   X   X  
+    ████    ████    █   █   █████   █   █
+   █    █   █   █   ██  █   █        █ █
+   █  ██    ████    █ █ █   ████      █
+   █   █    █   █   █  ██   █        █ █
+    ████    ████    █   █   █████   █   █
 
-QBNex Compiler
+  QBNex Compiler v2.0.0
 
+  Building  ████████████████████████████████ 100%
+
+  Build complete: hello.exe
+```
+
+With `-m` (or the `NO_COLOR` environment variable set) the banner is drawn with letters and the rest prints in plain ASCII:
+```
 Preparing build files... [########################################] 100%
+
+Build complete: hello.exe
 ```
 
 **Compilation Error:**

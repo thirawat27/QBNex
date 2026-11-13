@@ -339,10 +339,11 @@ pub fn csrlin() -> i32 {
 }
 
 /// LOCATE on the console.
-pub fn locate(mut row: i32, mut column: i32, passed: i32) {
+pub fn locate(row: i32, column: i32, passed: i32) {
     #[cfg(windows)]
     {
         let _ = passed;
+        let (mut row, mut column) = (row, column);
         // SAFETY: Win32 calls.
         unsafe {
             let info = win::conout_info();
@@ -356,10 +357,19 @@ pub fn locate(mut row: i32, mut column: i32, passed: i32) {
             win::SetConsoleCursorPosition(win::std(win::STD_OUTPUT_HANDLE), pos);
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
     {
-        // legacy printed "\033[%d;%dG" with one argument (undefined); this
-        // writes the column it meant (unverified)
+        use crossterm::cursor::{MoveTo, MoveToColumn, MoveToRow};
+        let at = |v: i32| (v - 1).clamp(0, i32::from(u16::MAX)) as u16;
+        match (passed & 1 != 0, passed & 2 != 0) {
+            (true, true) => term(MoveTo(at(column), at(row))),
+            (true, false) => term(MoveToRow(at(row))),
+            (false, true) => term(MoveToColumn(at(column))),
+            (false, false) => {}
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
         if passed & 1 != 0 && passed & 2 != 0 {
             write_raw(format!("\x1b[{row};{column}H").as_bytes());
         } else if passed & 1 != 0 {
@@ -367,7 +377,6 @@ pub fn locate(mut row: i32, mut column: i32, passed: i32) {
         } else if passed & 2 != 0 {
             write_raw(format!("\x1b[{column}G").as_bytes());
         }
-        let _ = (&mut row, &mut column);
     }
 }
 
@@ -385,7 +394,21 @@ pub fn color(col1: u32, col2: u32, passed: i32) -> i32 {
         }
         0
     }
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(target_arch = "wasm32")))]
+    {
+        use crossterm::style::{Color, SetBackgroundColor, SetForegroundColor};
+        if (passed & 1 != 0 && col1 > 255) || (passed & 2 != 0 && col2 > 255) {
+            return 5;
+        }
+        if passed & 1 != 0 {
+            term(SetForegroundColor(Color::AnsiValue(ansi_color(col1))));
+        }
+        if passed & 2 != 0 {
+            term(SetBackgroundColor(Color::AnsiValue(ansi_color(col2))));
+        }
+        0
+    }
+    #[cfg(target_arch = "wasm32")]
     {
         if (passed & 1 != 0 && col1 > 255) || (passed & 2 != 0 && col2 > 255) {
             return 5;
@@ -398,6 +421,41 @@ pub fn color(col1: u32, col2: u32, passed: i32) -> i32 {
         }
         0
     }
+}
+
+/// Terminal index of QBasic color `c`. The 16 QBasic colors are in CGA order
+/// (1 blue, 4 red, 6 brown); a terminal's first 16 are in ANSI order (1 red,
+/// 4 blue, 3 yellow). Colors 16 to 255 are the terminal's own.
+pub fn ansi_color(c: u32) -> u8 {
+    const CGA_TO_ANSI: [u8; 16] = [0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15];
+    CGA_TO_ANSI.get(c as usize).copied().unwrap_or(c.min(255) as u8)
+}
+
+/// Sends one terminal command (Linux, macOS). Text the C runtime still holds
+/// is written first, so PRINT text and cursor moves reach the terminal in the
+/// order the program made them.
+#[cfg(all(not(windows), not(target_arch = "wasm32")))]
+fn term(cmd: impl crossterm::Command) {
+    use std::io::Write;
+    // SAFETY: CRT stream.
+    unsafe { fflush(c_stdout()) };
+    let mut o = std::io::stdout();
+    let _ = crossterm::queue!(o, cmd);
+    let _ = o.flush();
+}
+
+/// Cursor position (1-based row, column) of the terminal on stdout, when
+/// stdout and stdin are a terminal that answers the position request.
+#[cfg(all(not(windows), not(target_arch = "wasm32")))]
+pub fn cursor() -> Option<(i32, i32)> {
+    use std::io::{IsTerminal, Write};
+    if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
+        return None;
+    }
+    // SAFETY: CRT stream.
+    unsafe { fflush(c_stdout()) };
+    let _ = std::io::stdout().flush();
+    crossterm::cursor::position().ok().map(|(c, r)| (i32::from(r) + 1, i32::from(c) + 1))
 }
 
 /// CLS on the console.
@@ -419,6 +477,9 @@ pub fn cls(h: &mut dyn Host, use_color: u32, passed: i32) {
                 h.error(e);
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        term(crossterm::terminal::Clear(crossterm::terminal::ClearType::All));
+        #[cfg(target_arch = "wasm32")]
         write_raw(b"\x1b[2J");
         locate(1, 1, 3);
     }

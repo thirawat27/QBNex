@@ -59,16 +59,16 @@ FOR i = 1 TO n
         argi = (elements - curarg) * 4 + 4
         IF curarg = 1 THEN
             IF NoChecks = 0 THEN
-                r$ = r$ + "array_check((" + e$ + ")-" + n$ + "[" + str2(argi) + "]," + n$ + "[" + str2(argi + 1) + "])+"
+                r$ = "@"
             ELSE
                 r$ = r$ + "(" + e$ + ")-" + n$ + "[" + str2(argi) + "]+"
             END IF
 
         ELSE
             IF NoChecks = 0 THEN
-                r$ = r$ + "array_check((" + e$ + ")-" + n$ + "[" + str2(argi) + "]," + n$ + "[" + str2(argi + 1) + "])*" + n$ + "[" + str2(argi + 2) + "]+"
+                r$ = "@"
             ELSE
-                r$ = r$ + "((" + e$ + ")-" + n$ + "[" + str2(argi) + "])*" + n$ + "[" + str2(argi + 2) + "]+"
+                r$ = "@"
             END IF
         END IF
         firsti = i + 1
@@ -604,9 +604,9 @@ FOR i = 1 TO blockn
             'a typed string in ""
             IF LEFT$(block(i), 1) = CHR$(34) THEN
                 IF RIGHT$(block(i), 1) <> CHR$(34) THEN
-                    block(i) = "qbs_new_txt_len(" + block(i) + ")"
+                    block(i) = "@"
                 ELSE
-                    block(i) = "qbs_new_txt(" + block(i) + ")"
+                    block(i) = "@"
                 END IF
                 blocktype(i) = ISSTRING
                 evaledblock(i) = 1
@@ -800,7 +800,7 @@ FOR i = 1 TO blockn
                 'oldtyp is an int
                 IF (lhstyp AND 1) = 0 THEN
                     'convert int to float
-                    block(i - 1) = "((long double)(" + block(i - 1) + "))"
+                    block(i - 1) = "@"
                     oldtyp = 256& + ISFLOAT
                 END IF
             END IF
@@ -821,7 +821,7 @@ FOR i = 1 TO blockn
                 'newtyp is an int
                 IF (rhstyp AND 1) = 0 THEN
                     'convert int to float
-                    block(i + 1) = "((long double)(" + block(i + 1) + "))"
+                    block(i + 1) = "@"
                     newtyp = 256& + ISFLOAT
                 END IF
             END IF
@@ -842,12 +842,12 @@ FOR i = 1 TO blockn
         s1 = oldtyp AND 511: s2 = newtyp AND 511
         IF s2 < s1 THEN s1 = s2
         IF s1 = 32 THEN
-            block(i - 1) = "((float)(" + block(i - 1) + "))": oldtyp = 32& + ISFLOAT
-            block(i + 1) = "((float)(" + block(i + 1) + "))": newtyp = 32& + ISFLOAT
+            block(i - 1) = "@": oldtyp = 32& + ISFLOAT
+            block(i + 1) = "@": newtyp = 32& + ISFLOAT
         END IF
         IF s1 = 64 THEN
-            block(i - 1) = "((double)(" + block(i - 1) + "))": oldtyp = 64& + ISFLOAT
-            block(i + 1) = "((double)(" + block(i + 1) + "))": newtyp = 64& + ISFLOAT
+            block(i - 1) = "@": oldtyp = 64& + ISFLOAT
+            block(i + 1) = "@": newtyp = 64& + ISFLOAT
         END IF
     END IF 'both floating point
 END IF 'comparitive operator
@@ -1085,7 +1085,7 @@ IF UCASE$(n$) = "_IIF" OR UCASE$(n$) = "_TOSTR" THEN
         IF iifTyp(1) AND ISSTRING THEN
             r$ = iifArg(1)
         ELSE
-            r$ = "qbs_ltrim(qbs_str(" + iifArg(1) + "))"
+            r$ = "@"
         END IF
         typ = STRINGTYPE - ISPOINTER
         evaluatefunc$ = r$
@@ -1096,16 +1096,16 @@ IF UCASE$(n$) = "_IIF" OR UCASE$(n$) = "_TOSTR" THEN
     IF (iifTyp(2) AND ISSTRING) <> (iifTyp(3) AND ISSTRING) THEN Give_Error "_IIF values must both be strings or both be numbers": EXIT FUNCTION
     IF iifTyp(2) AND ISSTRING THEN
         typ = STRINGTYPE - ISPOINTER
-        r$ = "((" + iifArg(1) + ")?(" + iifArg(2) + "):(" + iifArg(3) + "))"
+        r$ = "@"
     ELSE
         IF (iifTyp(2) AND ISFLOAT) OR (iifTyp(3) AND ISFLOAT) THEN
             typ = DOUBLETYPE - ISPOINTER: ct$ = "double"
-            IF ((iifTyp(2) AND ISFLOAT) <> 0 AND (iifTyp(2) AND 511) > 64) OR ((iifTyp(3) AND ISFLOAT) <> 0 AND (iifTyp(3) AND 511) > 64) THEN typ = FLOATTYPE - ISPOINTER: ct$ = "long double"
+            IF ((iifTyp(2) AND ISFLOAT) <> 0 AND (iifTyp(2) AND 511) > 64) OR ((iifTyp(3) AND ISFLOAT) <> 0 AND (iifTyp(3) AND 511) > 64) THEN typ = FLOATTYPE - ISPOINTER: ct$ = "@"
         ELSE
-            typ = INTEGER64TYPE - ISPOINTER: ct$ = "int64"
-            IF (iifTyp(2) AND 511) <= 32 AND (iifTyp(3) AND 511) <= 32 AND (iifTyp(2) AND ISUNSIGNED) = 0 AND (iifTyp(3) AND ISUNSIGNED) = 0 THEN typ = LONGTYPE - ISPOINTER: ct$ = "int32"
+            typ = INTEGER64TYPE - ISPOINTER: ct$ = "@"
+            IF (iifTyp(2) AND 511) <= 32 AND (iifTyp(3) AND 511) <= 32 AND (iifTyp(2) AND ISUNSIGNED) = 0 AND (iifTyp(3) AND ISUNSIGNED) = 0 THEN typ = LONGTYPE - ISPOINTER: ct$ = "@"
         END IF
-        r$ = "((" + iifArg(1) + ")?((" + ct$ + ")(" + iifArg(2) + ")):((" + ct$ + ")(" + iifArg(3) + ")))"
+        r$ = "@"
     END IF
     evaluatefunc$ = r$
     EXIT FUNCTION
@@ -1259,13 +1259,13 @@ IF id2.args <> 0 THEN
                     blkoffs$ = evaluatetotyp(memget_blk$, -6)
                     IF NoChecks = 0 THEN
                         'change offs$ to be the return of the safe version
-                        offs$ = "func__memget((mem_block*)" + blkoffs$ + "," + offs$ + "," + str2(memget_size) + ")"
+                        offs$ = "@"
                     END IF
                     IF t AND ISSTRING THEN
-                        r$ = "qbs_new_txt_len((char*)" + offs$ + "," + str2(memget_size) + ")"
+                        r$ = "@"
                     ELSE
                         IF t AND ISUDT THEN
-                            r$ = "((void*)+" + offs$ + ")"
+                            r$ = "@"
                             t = ISUDT + ISPOINTER + (t AND 511)
                         ELSE
                             r$ = "*(" + memget_ctyp$ + "*)(" + offs$ + ")"
@@ -1308,7 +1308,7 @@ IF id2.args <> 0 THEN
                 IF (sourcetyp AND ISARRAY) THEN
                     IF (sourcetyp AND ISOFFSETINBITS) THEN Give_Error qbnexprefix$ + "OFFSET cannot reference _BIT type arrays": EXIT FUNCTION
                 END IF
-                r$ = "((uptrszint)(" + evaluatetotyp$(e2$, -6) + "))"
+                ignore$ = evaluatetotyp$(e2$, -6): r$ = "@"
                 IF Error_Happened THEN EXIT FUNCTION
                 typ& = UOFFSETTYPE - ISPOINTER
                 GOTO evalfuncspecial
@@ -1335,7 +1335,7 @@ IF id2.args <> 0 THEN
                 IF (sourcetyp AND ISREFERENCE) = 0 THEN
                     'could be a string expression
                     IF sourcetyp AND ISSTRING THEN
-                        r$ = "((int32)(" + e$ + ")->len)"
+                        r$ = "@"
                         GOTO evalfuncspecial
                     END IF
                     Give_Error "String expression or variable name required in LEN statement": EXIT FUNCTION
@@ -1357,15 +1357,15 @@ IF id2.args <> 0 THEN
                     IF Error_Happened THEN EXIT FUNCTION
                     bits = sourcetyp AND 511
                     IF (sourcetyp AND ISOFFSETINBITS) THEN
-                        e$ = "func__bin(" + e$ + "," + str2$(bits) + ")"
+                        e$ = "@"
                     ELSE
                         IF (sourcetyp AND ISFLOAT) THEN
-                            e$ = "func__bin_float(" + e$ + ")"
+                            e$ = "@"
                         ELSE
                             IF bits = 64 THEN
                                 IF wasref = 0 THEN bits = 0
                             END IF
-                            e$ = "func__bin(" + e$ + "," + str2$(bits) + ")"
+                            e$ = "@"
                         END IF
                     END IF
                     typ& = STRINGTYPE - ISPOINTER
@@ -1385,15 +1385,15 @@ IF id2.args <> 0 THEN
                     IF Error_Happened THEN EXIT FUNCTION
                     bits = sourcetyp AND 511
                     IF (sourcetyp AND ISOFFSETINBITS) THEN
-                        e$ = "func_oct(" + e$ + "," + str2$(bits) + ")"
+                        e$ = "@"
                     ELSE
                         IF (sourcetyp AND ISFLOAT) THEN
-                            e$ = "func_oct_float(" + e$ + ")"
+                            e$ = "@"
                         ELSE
                             IF bits = 64 THEN
                                 IF wasref = 0 THEN bits = 0
                             END IF
-                            e$ = "func_oct(" + e$ + "," + str2$(bits) + ")"
+                            e$ = "@"
                         END IF
                     END IF
                     typ& = STRINGTYPE - ISPOINTER
@@ -1413,10 +1413,10 @@ IF id2.args <> 0 THEN
                     bits = sourcetyp AND 511
                     IF (sourcetyp AND ISOFFSETINBITS) THEN
                         chars = (bits + 3) \ 4
-                        e$ = "func_hex(" + e$ + "," + str2$(chars) + ")"
+                        e$ = "@"
                     ELSE
                         IF (sourcetyp AND ISFLOAT) THEN
-                            e$ = "func_hex_float(" + e$ + ")"
+                            e$ = "@"
                         ELSE
                             IF bits = 8 THEN chars = 2
                             IF bits = 16 THEN chars = 4
@@ -1424,7 +1424,7 @@ IF id2.args <> 0 THEN
                             IF bits = 64 THEN
                                 IF wasref = 1 THEN chars = 16 ELSE chars = 0
                             END IF
-                            e$ = "func_hex(" + e$ + "," + str2$(chars) + ")"
+                            e$ = "@"
                         END IF
                     END IF
                     typ& = STRINGTYPE - ISPOINTER
@@ -1446,7 +1446,7 @@ IF id2.args <> 0 THEN
                     IF bits = 32 THEN e$ = "func_exp_single(" + e$ + ")" ELSE e$ = "func_exp_float(" + e$ + ")": typ& = FLOATTYPE - ISPOINTER
                 ELSE
                     IF (sourcetyp AND ISOFFSETINBITS) THEN
-                        e$ = "func_exp_float(" + e$ + ")": typ& = FLOATTYPE - ISPOINTER
+                        e$ = "@": typ& = FLOATTYPE - ISPOINTER
                     ELSE
                         IF bits <= 16 THEN e$ = "func_exp_single(" + e$ + ")" ELSE e$ = "func_exp_float(" + e$ + ")": typ& = FLOATTYPE - ISPOINTER
                     END IF
@@ -1514,9 +1514,9 @@ IF id2.args <> 0 THEN
                 'establish which function (if any!) should be used
                 bits = sourcetyp AND 511
                 IF (sourcetyp AND ISFLOAT) THEN
-                    IF bits > 64 THEN e$ = "func_cdbl_float(" + e$ + ")"
+                    IF bits > 64 THEN e$ = "@"
                 ELSE
-                    e$ = "((double)(" + e$ + "))"
+                    e$ = "@"
                 END IF
                 r$ = e$
                 typ& = DOUBLETYPE - ISPOINTER
@@ -1532,10 +1532,10 @@ IF id2.args <> 0 THEN
                 'establish which function (if any!) should be used
                 bits = sourcetyp AND 511
                 IF (sourcetyp AND ISFLOAT) THEN
-                    IF bits = 64 THEN e$ = "func_csng_double(" + e$ + ")"
-                    IF bits > 64 THEN e$ = "func_csng_float(" + e$ + ")"
+                    IF bits = 64 THEN e$ = "@"
+                    IF bits > 64 THEN e$ = "@"
                 ELSE
-                    e$ = "((double)(" + e$ + "))"
+                    e$ = "@"
                 END IF
                 r$ = e$
                 typ& = SINGLETYPE - ISPOINTER
@@ -1555,10 +1555,10 @@ IF id2.args <> 0 THEN
                     IF bits > 64 THEN e$ = "func_clng_float(" + e$ + ")" ELSE e$ = "func_clng_double(" + e$ + ")"
                 ELSE 'integer
                     IF (sourcetyp AND ISUNSIGNED) THEN
-                        IF bits = 32 THEN e$ = "func_clng_ulong(" + e$ + ")"
-                        IF bits > 32 THEN e$ = "func_clng_uint64(" + e$ + ")"
+                        IF bits = 32 THEN e$ = "@"
+                        IF bits > 32 THEN e$ = "@"
                     ELSE 'signed
-                        IF bits > 32 THEN e$ = "func_clng_int64(" + e$ + ")"
+                        IF bits > 32 THEN e$ = "@"
                     END IF
                 END IF
                 r$ = e$
@@ -1578,11 +1578,11 @@ IF id2.args <> 0 THEN
                     IF bits > 64 THEN e$ = "func_cint_float(" + e$ + ")" ELSE e$ = "func_cint_double(" + e$ + ")"
                 ELSE 'integer
                     IF (sourcetyp AND ISUNSIGNED) THEN
-                        IF bits > 15 AND bits <= 32 THEN e$ = "func_cint_ulong(" + e$ + ")"
-                        IF bits > 32 THEN e$ = "func_cint_uint64(" + e$ + ")"
+                        IF bits > 15 AND bits <= 32 THEN e$ = "@"
+                        IF bits > 32 THEN e$ = "@"
                     ELSE 'signed
-                        IF bits > 16 AND bits <= 32 THEN e$ = "func_cint_long(" + e$ + ")"
-                        IF bits > 32 THEN e$ = "func_cint_int64(" + e$ + ")"
+                        IF bits > 16 AND bits <= 32 THEN e$ = "@"
+                        IF bits > 32 THEN e$ = "@"
                     END IF
                 END IF
                 r$ = e$
@@ -1674,7 +1674,7 @@ IF id2.args <> 0 THEN
                         IF (sourcetyp AND ISREFERENCE) THEN e$ = refer(e$, sourcetyp, 0)
                         IF Error_Happened THEN EXIT FUNCTION
                         sourcetyp = 64&
-                        e$ = "(" + e$ + "->chr[0])"
+                        e$ = "@"
                     END IF
                 END IF
             END IF
@@ -1696,7 +1696,7 @@ IF id2.args <> 0 THEN
                 END IF
                 r$ = refer(e$, sourcetyp, 0)
                 IF Error_Happened THEN EXIT FUNCTION
-                r$ = "((unsigned short)(" + r$ + "->chr-&cmem[1280]))"
+                r$ = "@"
                 typ& = 64&
                 GOTO evalfuncspecial
             END IF
@@ -1728,10 +1728,10 @@ IF id2.args <> 0 THEN
                     IF (sourcetyp AND ISSTRING) THEN
                         IF (sourcetyp AND ISARRAY) THEN r$ = refer(e$, sourcetyp, 0)
                         IF Error_Happened THEN EXIT FUNCTION
-                        r$ = r$ + "->cmem_descriptor_offset"
+                        r$ = "@"
                         t = 3
                     ELSE
-                        r$ = "((unsigned short)(((uint8*)" + r$ + ")-&cmem[1280]))"
+                        r$ = "@"
                         '*top bit on=unsigned
                         '*second top bit on=bit-value (lower bits indicate the size)
                         'BYTE=1
@@ -1762,7 +1762,7 @@ IF id2.args <> 0 THEN
                             END IF
                         END IF
                     END IF
-                    r$ = "func_varptr_helper(" + str2(t) + "," + r$ + ")"
+                    r$ = "@"
                     typ& = ISSTRING
                     GOTO evalfuncspecial
                 END IF 'end of varptr$
@@ -1788,13 +1788,13 @@ IF id2.args <> 0 THEN
                             m = id.tsize
                             index$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3))
                             typ = 64&
-                            r$ = "((" + index$ + ")*" + str2(m) + ")"
+                            r$ = "@"
                             GOTO evalfuncspecial
                         ELSE
                             'return the offset of the string's descriptor
                             r$ = refer(e$, sourcetyp, 0)
                             IF Error_Happened THEN EXIT FUNCTION
-                            r$ = r$ + "->cmem_descriptor_offset"
+                            r$ = "@"
                             typ = 64&
                             GOTO evalfuncspecial
                         END IF
@@ -1813,7 +1813,7 @@ IF id2.args <> 0 THEN
                     m = (sourcetyp AND 511) \ 8 'calculate size multiplier
                     index$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3))
                     typ = 64&
-                    r$ = "((" + index$ + ")*" + str2(m) + ")"
+                    r$ = "@"
                     GOTO evalfuncspecial
 
                 END IF
@@ -1833,10 +1833,10 @@ IF id2.args <> 0 THEN
                     IF Error_Happened THEN EXIT FUNCTION
                     IF id.sfarg THEN 'could be in DBLOCK
                     'note: segment could be the closest segment to UDT element or the base of DBLOCK
-                    r$ = "varptr_dblock_check(((uint8*)" + r$ + ")+(" + o$ + "))"
+                    r$ = "@"
                 ELSE 'definitely in DBLOCK
                     'give offset relative to DBLOCK
-                    r$ = "((unsigned short)(((uint8*)" + r$ + ") - &cmem[1280] + (" + o$ + ") ))"
+                    r$ = "@"
                 END IF
 
                 GOTO evalfuncspecial
@@ -1852,13 +1852,13 @@ IF id2.args <> 0 THEN
                     getid VAL(e$)
                     IF Error_Happened THEN EXIT FUNCTION
                     IF id.sfarg THEN 'could be in DBLOCK
-                    r$ = "varptr_dblock_check(" + r$ + "->chr)"
+                    r$ = "@"
                 ELSE 'definitely in DBLOCK
-                    r$ = "((unsigned short)(" + r$ + "->chr-&cmem[1280]))"
+                    r$ = "@"
                 END IF
 
             ELSE
-                r$ = r$ + "->cmem_descriptor_offset"
+                r$ = "@"
             END IF
             GOTO evalfuncspecial
         END IF
@@ -1868,9 +1868,9 @@ IF id2.args <> 0 THEN
         getid VAL(e$)
         IF Error_Happened THEN EXIT FUNCTION
         IF id.sfarg THEN 'could be in DBLOCK
-        r$ = "varptr_dblock_check((uint8*)" + r$ + ")"
+        r$ = "@"
     ELSE 'definitely in DBLOCK
-        r$ = "((unsigned short)(((uint8*)" + r$ + ")-&cmem[1280]))"
+        r$ = "@"
     END IF
 
     GOTO evalfuncspecial
@@ -1898,7 +1898,7 @@ IF RTRIM$(id2.n) = "VARSEG" THEN
             END IF
         END IF
         typ = 64&
-        r$ = "( ( ((ptrszint)(" + refer(e$, sourcetyp, 1) + "[0])) - ((ptrszint)(&cmem[0])) ) /16)"
+        ignore$ = refer(e$, sourcetyp, 1): r$ = "@"
         IF Error_Happened THEN EXIT FUNCTION
         GOTO evalfuncspecial
     END IF
@@ -1915,9 +1915,9 @@ IF RTRIM$(id2.n) = "VARSEG" THEN
             e$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3)) 'skip idnumber
             e$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3)) 'skip u
             o$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3)) 'skip e
-            r$ = "varseg_dblock_check(((uint8*)" + r$ + ")+(" + o$ + "))"
+            r$ = "@"
         ELSE
-            r$ = "varseg_dblock_check((uint8*)" + refer(e$, sourcetyp, 1) + ")"
+            ignore$ = refer(e$, sourcetyp, 1): r$ = "@"
             IF Error_Happened THEN EXIT FUNCTION
         END IF
     ELSE
@@ -2099,12 +2099,12 @@ IF (targettyp AND ISSTRING) = 0 THEN
                 'note: most of the UDT info above is not required
 
                 IF arr THEN
-                    n2$ = scope$ + "ARRAY_UDT_" + RTRIM$(id.n) + "[0]"
+                    n2$ = "@"
                 ELSE
                     n2$ = scope$ + "UDT_" + RTRIM$(id.n)
                 END IF
 
-                e$ = "(void*)( ((char*)(" + n2$ + ")) + (" + o$ + ") )"
+                e$ = "@"
 
                 'convert void* to target type*
 
@@ -2232,23 +2232,23 @@ END IF
 IF explicitreference THEN
     IF (targettyp AND ISOFFSETINBITS) THEN
         'integer value can fit inside int64
-        e$ = "(int64)(" + e$ + ")"
+        e$ = "@"
     ELSE
         IF (targettyp AND ISFLOAT) THEN
-            IF (targettyp AND 511) = 32 THEN e$ = "(float)(" + e$ + ")"
-            IF (targettyp AND 511) = 64 THEN e$ = "(double)(" + e$ + ")"
-            IF (targettyp AND 511) = 256 THEN e$ = "(long double)(" + e$ + ")"
+            IF (targettyp AND 511) = 32 THEN e$ = "@"
+            IF (targettyp AND 511) = 64 THEN e$ = "@"
+            IF (targettyp AND 511) = 256 THEN e$ = "@"
         ELSE
             IF (targettyp AND ISUNSIGNED) THEN
-                IF (targettyp AND 511) = 8 THEN e$ = "(uint8)(" + e$ + ")"
-                IF (targettyp AND 511) = 16 THEN e$ = "(uint16)(" + e$ + ")"
-                IF (targettyp AND 511) = 32 THEN e$ = "(uint32)(" + e$ + ")"
-                IF (targettyp AND 511) = 64 THEN e$ = "(uint64)(" + e$ + ")"
+                IF (targettyp AND 511) = 8 THEN e$ = "@"
+                IF (targettyp AND 511) = 16 THEN e$ = "@"
+                IF (targettyp AND 511) = 32 THEN e$ = "@"
+                IF (targettyp AND 511) = 64 THEN e$ = "@"
             ELSE
-                IF (targettyp AND 511) = 8 THEN e$ = "(int8)(" + e$ + ")"
+                IF (targettyp AND 511) = 8 THEN e$ = "@"
                 IF (targettyp AND 511) = 16 THEN e$ = "(int16)(" + e$ + ")"
-                IF (targettyp AND 511) = 32 THEN e$ = "(int32)(" + e$ + ")"
-                IF (targettyp AND 511) = 64 THEN e$ = "(int64)(" + e$ + ")"
+                IF (targettyp AND 511) = 32 THEN e$ = "@"
+                IF (targettyp AND 511) = 64 THEN e$ = "@"
             END IF
         END IF 'float?
     END IF 'offset in bits?
@@ -2279,7 +2279,7 @@ IF id2.ccall THEN
     END IF
 
     IF targettyp AND ISSTRING THEN
-        e$ = "(char*)(" + e$ + ")->chr"
+        e$ = "@"
     END IF
 
     IF LTRIM$(RTRIM$(e$)) = "0" THEN e$ = "NULL"
@@ -2360,7 +2360,7 @@ END IF
 
 IF id2.ccall THEN
     IF LEFT$(r$, 11) = "(  char*  )" THEN
-        r$ = "qbs_new_txt(" + r$ + ")"
+        r$ = "@"
     END IF
 END IF
 
@@ -2401,7 +2401,7 @@ FUNCTION evaluatetotyp$ (a2$, targettyp AS LONG)
     IF Error_Happened THEN EXIT FUNCTION
     n$ = "UDT_" + RTRIM$(id.n)
     IF id.arraytype THEN
-        n$ = "ARRAY_" + n$ + "[0]"
+        n$ = "@"
         'whole array reference examplename()?
         IF LEFT$(o$, 3) = "(0)" THEN
             'use -2 type method
@@ -2518,7 +2518,7 @@ getid idnumber
 IF Error_Happened THEN EXIT FUNCTION
 n$ = "UDT_" + RTRIM$(id.n)
 IF id.arraytype THEN
-    n$ = "ARRAY_" + n$ + "[0]"
+    n$ = "@"
     'whole array reference examplename()?
     IF LEFT$(o$, 3) = "(0)" THEN
         'use -7 type method
@@ -2675,7 +2675,7 @@ IF (sourcetyp AND ISARRAY) THEN
     IF Error_Happened THEN EXIT FUNCTION
 
     IF sourcetyp AND ISSTRING THEN
-        e$ = "((" + e$ + ")->chr)" '[2013] handle fixed string arrays differently because they are already pointers
+        e$ = "@"
     ELSE
     END IF
 

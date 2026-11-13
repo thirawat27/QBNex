@@ -1484,7 +1484,7 @@ impl Host for VmHost<'_> {
         }
     }
     fn screen_pages(&mut self) -> Vec<*mut ImgStruct> {
-        (0..self.d.page.len()).map(|i| if self.d.page[i] != 0 { im(i as u32) } else { core::ptr::null_mut() }).collect()
+        Vec::from_fn(self.d.page.len(), |i| if self.d.page[i] != 0 { im(i as u32) } else { core::ptr::null_mut() })
     }
     fn dest(&mut self) -> i32 {
         -(self.d.write_index as i32)
@@ -1627,6 +1627,11 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
         None
     };
     let rt = vm.rt();
+    if matches!(name, "qbg_sub_color" | "sub_cls" | "qbg_sub_locate" | "func_csrlin" | "func_pos" | "func_screen" | "qbsub_width") {
+        // PRINT to stdout is buffered, while these act on the console at once:
+        // the text printed before them has to reach the console first
+        rt.flush();
+    }
     let cmem = rt.cmem.as_mut_ptr();
     let console_on = rt.console_on;
     let console_only = rt.console_only;

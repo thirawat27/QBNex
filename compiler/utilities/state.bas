@@ -16,9 +16,7 @@ DIM SHARED MonochromeLoggingMode AS _BYTE
 DIM SHARED outputfile_cmd$
 DIM SHARED compilelog$
 DIM SHARED compilerBannerShown AS _BYTE
-DIM SHARED compilerProgressRow AS LONG
 DIM SHARED compilerProgressVisible AS _BYTE
-DIM SHARED compilerProgressLastLength AS LONG
 DIM SHARED compilerProgressLastPercentage AS LONG
 DIM SHARED compfailed
 DIM SHARED extension AS STRING

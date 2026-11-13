@@ -71,6 +71,8 @@ qb-gpu = { path = "../gpu", optional = true }
 [target.'cfg(all(not(windows), not(target_arch = "wasm32")))'.dependencies]
 # Clipboard text and images on Linux (X11/Wayland) and macOS.
 arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+# Console LOCATE, COLOR, CLS, CSRLIN and POS on a Linux or macOS terminal.
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
 
 [dev-dependencies]
 proptest = "1.12.0"

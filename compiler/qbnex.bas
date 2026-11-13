@@ -4590,13 +4590,13 @@ IF n >= 1 THEN
         bits = typ AND 511
         IF (typ AND ISFLOAT) THEN
             IF bits = 32 THEN ctype$ = "double": ctyp = 64& + ISFLOAT
-            IF bits = 64 THEN ctype$ = "long double": ctyp = 256& + ISFLOAT
-            IF bits = 256 THEN ctype$ = "long double": ctyp = 256& + ISFLOAT
+            IF bits = 64 THEN ctype$ = "@": ctyp = 256& + ISFLOAT
+            IF bits = 256 THEN ctype$ = "@": ctyp = 256& + ISFLOAT
         ELSE
             IF bits = 8 THEN ctype$ = "int16": ctyp = 16&
-            IF bits = 16 THEN ctype$ = "int32": ctyp = 32&
-            IF bits = 32 THEN ctype$ = "int64": ctyp = 64&
-            IF bits = 64 THEN ctype$ = "int64": ctyp = 64&
+            IF bits = 16 THEN ctype$ = "@": ctyp = 32&
+            IF bits = 32 THEN ctype$ = "@": ctyp = 64&
+            IF bits = 64 THEN ctype$ = "@": ctyp = 64&
         END IF
         IF ctype$ = "" THEN a$ = "Unsupported variable used in FOR statement": GOTO errmes
         u$ = str2(uniquenumber)
@@ -4858,7 +4858,7 @@ IF n >= 1 THEN
 
             IF (typ AND ISFLOAT) THEN
 
-                IF (typ AND 511) > 64 THEN t = 3: t$ = "long double"
+                IF (typ AND 511) > 64 THEN t = 3: t$ = "@"
                 IF (typ AND 511) = 32 THEN t = 4: t$ = "float"
                 IF (typ AND 511) = 64 THEN t = 5: t$ = "double"
                 IF (typ AND ISUDT) = 0 AND (typ AND ISARRAY) = 0 AND (typ AND ISREFERENCE) <> 0 THEN
@@ -7574,10 +7574,10 @@ IF n >= 1 THEN
 
         'known sizes will be handled by designated command casts, otherwise use memmove
         s = 0
-        IF varsize$ = "1" THEN s = 1: st$ = "int8"
+        IF varsize$ = "1" THEN s = 1: st$ = "@"
         IF varsize$ = "2" THEN s = 2: st$ = "int16"
-        IF varsize$ = "4" THEN s = 4: st$ = "int32"
-        IF varsize$ = "8" THEN s = 8: st$ = "int64"
+        IF varsize$ = "4" THEN s = 4: st$ = "@"
+        IF varsize$ = "8" THEN s = 8: st$ = "@"
 
         IF NoChecks THEN
             'fast version:
@@ -7639,8 +7639,8 @@ IF n >= 1 THEN
 
             test$ = evaluate(e$, t): IF Error_Happened THEN GOTO errmes
             IF (t AND ISREFERENCE) = 0 AND (t AND ISSTRING) THEN
-                varsize$ = "g_tmp_str->len"
-                varoffs$ = "g_tmp_str->chr"
+                varsize$ = "@"
+                varoffs$ = "@"
             ELSE
                 varsize$ = evaluatetotyp(e$, -5): IF Error_Happened THEN GOTO errmes
                 varoffs$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
@@ -7648,10 +7648,10 @@ IF n >= 1 THEN
 
             'known sizes will be handled by designated command casts, otherwise use memmove
             s = 0
-            IF varsize$ = "1" THEN s = 1: st$ = "int8"
+            IF varsize$ = "1" THEN s = 1: st$ = "@"
             IF varsize$ = "2" THEN s = 2: st$ = "int16"
-            IF varsize$ = "4" THEN s = 4: st$ = "int32"
-            IF varsize$ = "8" THEN s = 8: st$ = "int64"
+            IF varsize$ = "4" THEN s = 4: st$ = "@"
+            IF varsize$ = "8" THEN s = 8: st$ = "@"
 
             IF NoChecks THEN
                 'fast version:
@@ -7743,8 +7743,8 @@ IF n >= 1 THEN
         l$ = l$ + sp2 + "," + sp + tlayout$
         test$ = evaluate(e$, t)
         IF (t AND ISREFERENCE) = 0 AND (t AND ISSTRING) THEN
-            varsize$ = "((qbs*)tmp_long)->len"
-            varoffs$ = "((qbs*)tmp_long)->chr"
+            varsize$ = "@"
+            varoffs$ = "@"
         ELSEIF (t AND ISREFERENCE) = 0 THEN
             'a value that is not a variable (an extension): its bytes in its own type
             IF t AND ISPOINTER THEN t = t - ISPOINTER
@@ -7782,7 +7782,7 @@ IF n >= 1 THEN
             END IF
         END IF
         c$ = c$ + "("
-        IF NoChecks = 0 THEN c$ = c$ + "(mem_block*)" + blkoffs$ + ","
+        IF NoChecks = 0 THEN c$ = "@"
     END IF
 
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -7903,18 +7903,18 @@ IF n$ = "ABSOLUTE" THEN
                             e$ = evaluatetotyp(e$, SINGLETYPE - ISPOINTER)
                             IF Error_Happened THEN GOTO errmes
                             v$ = "pass" + str2$(uniquenumber)
-                            e$ = "(uint16)(((uint8*)&(*" + v$ + "=" + e$ + "))-((uint8*)dblock))"
+                            e$ = "@"
                         ELSE
                             e$ = evaluatetotyp(e$, DOUBLETYPE - ISPOINTER)
                             IF Error_Happened THEN GOTO errmes
                             v$ = "pass" + str2$(uniquenumber)
-                            e$ = "(uint16)(((uint8*)&(*" + v$ + "=" + e$ + "))-((uint8*)dblock))"
+                            e$ = "@"
                         END IF
                     ELSE
                         e$ = evaluatetotyp(e$, INTEGER64TYPE - ISPOINTER)
                         IF Error_Happened THEN GOTO errmes
                         v$ = "pass" + str2$(uniquenumber)
-                        e$ = "(uint16)(((uint8*)&(*" + v$ + "=" + e$ + "))-((uint8*)dblock))"
+                        e$ = "@"
                     END IF
 
                 END IF
@@ -9024,12 +9024,12 @@ IF (targettyp AND ISSTRING) = 0 THEN
                 'note: most of the UDT info above is not required
 
                 IF arr THEN
-                    n$ = scope$ + "ARRAY_UDT_" + RTRIM$(id.n) + "[0]"
+                    n$ = "@"
                 ELSE
                     n$ = scope$ + "UDT_" + RTRIM$(id.n)
                 END IF
 
-                e$ = "(void*)( ((char*)(" + n$ + ")) + (" + o$ + ") )"
+                e$ = "@"
 
                 'convert void* to target type*
 
@@ -9144,9 +9144,9 @@ sete:
 IF RTRIM$(id2.callname) = "sub_paint" THEN
     IF i = 3 THEN
         IF (sourcetyp AND ISSTRING) THEN
-            e$ = "(qbs*)" + e$
+            e$ = "@"
         ELSE
-            e$ = "(uint32)" + e$
+            e$ = "@"
         END IF
     END IF
 END IF
@@ -9159,7 +9159,7 @@ IF id2.ccall THEN
     END IF
 
     IF targettyp AND ISSTRING THEN
-        e$ = "(char*)(" + e$ + ")->chr"
+        e$ = "@"
     END IF
 
     IF LTRIM$(RTRIM$(e$)) = "0" THEN e$ = "NULL"
@@ -9985,8 +9985,10 @@ IF recompile THEN
 
         FUNCTION refer$ (a2$, typ AS LONG, method AS LONG)
             typbak = typ
-            'method: 0 return an equation which calculates the value of the "variable"
-            '        1 return the C name of the variable, typ will be left unchanged
+            'method: 0 resolve the reference to the value it holds: typ becomes the
+            '          value's type and the result is a placeholder
+            '        1 return the variable's internal name (the key of the used-variable
+            '          list), typ is left unchanged
 
             a$ = a2$
 
@@ -10005,27 +10007,17 @@ IF recompile THEN
                 IF method = 1 THEN
                     n$ = "UDT_" + RTRIM$(id.n)
                     IF id.t = 0 THEN n$ = "ARRAY_" + n$
-                    n$ = scope$ + n$
-                    refer$ = n$
+                    refer$ = scope$ + n$
                     EXIT FUNCTION
                 END IF
-
-                'print "UDTSUBSTRING[idX|u|e|o]:"+a$
-
                 u = VAL(a$)
                 i = INSTR(a$, sp3): a$ = RIGHT$(a$, LEN(a$) - i): E = VAL(a$)
-                i = INSTR(a$, sp3): o$ = RIGHT$(a$, LEN(a$) - i)
-                n$ = "UDT_" + RTRIM$(id.n): IF id.t = 0 THEN n$ = "ARRAY_" + n$ + "[0]"
                 IF E = 0 THEN Give_Error "User defined types in expressions are invalid": EXIT FUNCTION
                 IF typ AND ISOFFSETINBITS THEN Give_Error "Cannot resolve bit-length variables inside user defined types": EXIT FUNCTION
-
                 IF typ AND ISSTRING THEN
                     IF typ AND ISFIXEDLENGTH THEN
-                        o2$ = "(((uint8*)" + scope$ + n$ + ")+(" + o$ + "))"
-                        r$ = "qbs_new_fixed(" + o2$ + "," + str2(udtetypesize(E)) + ",1)"
                         typ = STRINGTYPE + ISFIXEDLENGTH 'ISPOINTER retained, it is still a pointer!
                     ELSE
-                        r$ = "*((qbs**)((char*)" + scope$ + n$ + "+(" + o$ + ")))"
                         typ = STRINGTYPE
                     END IF
                 ELSE
@@ -10033,72 +10025,24 @@ IF recompile THEN
                     IF typ AND ISARRAY THEN typ = typ - ISARRAY
                     t$ = typkind$(typ, "")
                     IF Error_Happened THEN EXIT FUNCTION
-                    o2$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
-                    r$ = "*" + "(" + t$ + "*)" + o2$
                 END IF
-
-                'print "REFER:"+r$+","+str2$(typ)
-                refer$ = r$
+                refer$ = "@"
                 EXIT FUNCTION
             END IF
 
-
             'array?
             IF id.arraytype THEN
-
-                n$ = RTRIM$(id.callname)
                 IF method = 1 THEN
-                    refer$ = n$
+                    refer$ = RTRIM$(id.callname)
                     typ = typbak
                     EXIT FUNCTION
                 END IF
                 typ = typ - ISPOINTER - ISREFERENCE 'typ now looks like a regular value
-
-                IF (typ AND ISSTRING) THEN
-                    IF (typ AND ISFIXEDLENGTH) THEN
-                        offset$ = "&((uint8*)(" + n$ + "[0]))[(" + a$ + ")*" + str2(id.tsize) + "]"
-                        r$ = "qbs_new_fixed(" + offset$ + "," + str2(id.tsize) + ",1)"
-                    ELSE
-                        r$ = "((qbs*)(((uint64*)(" + n$ + "[0]))[" + a$ + "]))"
-                    END IF
-                    refer$ = r$
-                    EXIT FUNCTION
+                IF (typ AND ISSTRING) = 0 AND (typ AND ISOFFSETINBITS) = 0 THEN
+                    'the element's type: typkind$ has no value form for the array flag
+                    IF typkind$(typ AND NOT ISARRAY, "") <> "num" THEN Give_Error "Cannot find C type to return array data": EXIT FUNCTION
                 END IF
-
-                IF (typ AND ISOFFSETINBITS) THEN
-                    'IF (typ AND ISUNSIGNED) THEN r$ = "getubits_" ELSE r$ = "getbits_"
-                    'r$ = r$ + str2(typ AND 511) + "("
-                    IF (typ AND ISUNSIGNED) THEN r$ = "getubits" ELSE r$ = "getbits"
-                    r$ = r$ + "(" + str2(typ AND 511) + ","
-                    r$ = r$ + "(uint8*)(" + n$ + "[0])" + ","
-                    r$ = r$ + a$ + ")"
-                    refer$ = r$
-                    EXIT FUNCTION
-                ELSE
-                    t$ = ""
-                    IF (typ AND ISFLOAT) THEN
-                        IF (typ AND 511) = 32 THEN t$ = "float"
-                        IF (typ AND 511) = 64 THEN t$ = "double"
-                        IF (typ AND 511) = 256 THEN t$ = "long double"
-                    ELSE
-                        IF (typ AND ISUNSIGNED) THEN
-                            IF (typ AND 511) = 8 THEN t$ = "uint8"
-                            IF (typ AND 511) = 16 THEN t$ = "uint16"
-                            IF (typ AND 511) = 32 THEN t$ = "uint32"
-                            IF (typ AND 511) = 64 THEN t$ = "uint64"
-                            IF typ AND ISOFFSET THEN t$ = "uptrszint"
-                        ELSE
-                            IF (typ AND 511) = 8 THEN t$ = "int8"
-                            IF (typ AND 511) = 16 THEN t$ = "int16"
-                            IF (typ AND 511) = 32 THEN t$ = "int32"
-                            IF (typ AND 511) = 64 THEN t$ = "int64"
-                            IF typ AND ISOFFSET THEN t$ = "ptrszint"
-                        END IF
-                    END IF
-                END IF
-                IF t$ = "" THEN Give_Error "Cannot find C type to return array data": EXIT FUNCTION
-                r$ = "((" + t$ + "*)(" + n$ + "[0]))[" + a$ + "]"
-                refer$ = r$
+                refer$ = "@"
                 EXIT FUNCTION
             END IF 'array
 
@@ -10108,46 +10052,41 @@ IF recompile THEN
                 t = id.t
                 'remove irrelavant flags
                 IF (t AND ISINCONVENTIONALMEMORY) THEN t = t - ISINCONVENTIONALMEMORY
-                'string?
                 IF (t AND ISSTRING) THEN
                     IF (t AND ISFIXEDLENGTH) THEN
-                        r$ = scope$ + "STRING" + str2(id.tsize) + "_" + r$: GOTO ref
-                    END IF
-                    r$ = scope$ + "STRING_" + r$: GOTO ref
-                END IF
-                'bit-length single variable?
-                IF (t AND ISOFFSETINBITS) THEN
-                    IF (t AND ISUNSIGNED) THEN
-                        r$ = "*" + scope$ + "UBIT" + str2(t AND 511) + "_" + r$
+                        r$ = scope$ + "STRING" + str2(id.tsize) + "_" + r$
                     ELSE
-                        r$ = "*" + scope$ + "BIT" + str2(t AND 511) + "_" + r$
+                        r$ = scope$ + "STRING_" + r$
                     END IF
-                    GOTO ref
+                ELSEIF (t AND ISOFFSETINBITS) THEN
+                    IF (t AND ISUNSIGNED) THEN r$ = scope$ + "UBIT" + str2(t AND 511) + "_" + r$ ELSE r$ = scope$ + "BIT" + str2(t AND 511) + "_" + r$
+                ELSE
+                    n$ = ""
+                    IF t = BYTETYPE THEN n$ = "BYTE_"
+                    IF t = UBYTETYPE THEN n$ = "UBYTE_"
+                    IF t = INTEGERTYPE THEN n$ = "INTEGER_"
+                    IF t = UINTEGERTYPE THEN n$ = "UINTEGER_"
+                    IF t = LONGTYPE THEN n$ = "LONG_"
+                    IF t = ULONGTYPE THEN n$ = "ULONG_"
+                    IF t = INTEGER64TYPE THEN n$ = "INTEGER64_"
+                    IF t = UINTEGER64TYPE THEN n$ = "UINTEGER64_"
+                    IF t = SINGLETYPE THEN n$ = "SINGLE_"
+                    IF t = DOUBLETYPE THEN n$ = "DOUBLE_"
+                    IF t = FLOATTYPE THEN n$ = "FLOAT_"
+                    IF t = OFFSETTYPE THEN n$ = "OFFSET_"
+                    IF t = UOFFSETTYPE THEN n$ = "UOFFSET_"
+                    IF LEN(n$) THEN r$ = scope$ + n$ + r$
                 END IF
-                IF t = BYTETYPE THEN r$ = "*" + scope$ + "BYTE_" + r$: GOTO ref
-                IF t = UBYTETYPE THEN r$ = "*" + scope$ + "UBYTE_" + r$: GOTO ref
-                IF t = INTEGERTYPE THEN r$ = "*" + scope$ + "INTEGER_" + r$: GOTO ref
-                IF t = UINTEGERTYPE THEN r$ = "*" + scope$ + "UINTEGER_" + r$: GOTO ref
-                IF t = LONGTYPE THEN r$ = "*" + scope$ + "LONG_" + r$: GOTO ref
-                IF t = ULONGTYPE THEN r$ = "*" + scope$ + "ULONG_" + r$: GOTO ref
-                IF t = INTEGER64TYPE THEN r$ = "*" + scope$ + "INTEGER64_" + r$: GOTO ref
-                IF t = UINTEGER64TYPE THEN r$ = "*" + scope$ + "UINTEGER64_" + r$: GOTO ref
-                IF t = SINGLETYPE THEN r$ = "*" + scope$ + "SINGLE_" + r$: GOTO ref
-                IF t = DOUBLETYPE THEN r$ = "*" + scope$ + "DOUBLE_" + r$: GOTO ref
-                IF t = FLOATTYPE THEN r$ = "*" + scope$ + "FLOAT_" + r$: GOTO ref
-                IF t = OFFSETTYPE THEN r$ = "*" + scope$ + "OFFSET_" + r$: GOTO ref
-                IF t = UOFFSETTYPE THEN r$ = "*" + scope$ + "UOFFSET_" + r$: GOTO ref
-                ref:
                 IF (t AND ISPOINTER) THEN t = t - ISPOINTER
                 typ = t
                 IF method = 1 THEN
-                    IF LEFT$(r$, 1) = "*" THEN r$ = RIGHT$(r$, LEN(r$) - 1)
                     typ = typbak
+                    refer$ = r$
+                ELSE
+                    refer$ = "@"
                 END IF
-                refer$ = r$
                 EXIT FUNCTION
             END IF 'variable
-
 
         END FUNCTION
 
@@ -11490,35 +11429,69 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
     RETURN
 END SUB
 
-FUNCTION CompilerProgressLine$ (percentage AS LONG)
-    IF percentage < 0 THEN percentage = 0
-    IF percentage > 100 THEN percentage = 100
-    x2 = (percentage * 40) \ 100
-    a$ = STRING$(x2, "#") + STRING$(40 - x2, ".")
-    CompilerProgressLine$ = "Preparing build files... [" + a$ + "] " + str2$(percentage) + "%"
+'The build screen: a banner, a progress bar redrawn in place on its own line (a carriage
+'return, no cursor addressing, so it works the same in every terminal and in a log), and
+'colors. -m or the NO_COLOR environment variable give the plain ASCII form.
+FUNCTION TuiBlock$ (code AS LONG, n AS LONG)
+    'n copies of a UTF-8 block character: 1 full block, 2 light shade
+    IF code = 1 THEN c$ = CHR$(226) + CHR$(150) + CHR$(136) ELSE c$ = CHR$(226) + CHR$(150) + CHR$(145)
+    r$ = ""
+    FOR i = 1 TO n
+        r$ = r$ + c$
+    NEXT
+    TuiBlock$ = r$
 END FUNCTION
+
+FUNCTION TuiLogo$ (a$)
+    'a banner line with each letter cell drawn as a full block
+    r$ = ""
+    FOR i = 1 TO LEN(a$)
+        IF MID$(a$, i, 1) = " " THEN r$ = r$ + " " ELSE r$ = r$ + TuiBlock$(1, 1)
+    NEXT
+    TuiLogo$ = r$
+END FUNCTION
+
+SUB TuiBannerLine (a$)
+    a$ = RTRIM$(a$)
+    IF MonochromeLoggingMode THEN PRINT a$: EXIT SUB
+    COLOR 11: PRINT "  " + TuiLogo$(LEFT$(a$, 17));
+    COLOR 13: PRINT TuiLogo$(MID$(a$, 18))
+    COLOR 7
+END SUB
+
+SUB DrawCompilerProgress (percentage AS LONG)
+    p = percentage
+    IF p < 0 THEN p = 0
+    IF p > 100 THEN p = 100
+    IF MonochromeLoggingMode THEN
+        x = (p * 40) \ 100
+        PRINT CHR$(13) + "Preparing build files... [" + STRING$(x, "#") + STRING$(40 - x, ".") + "] " + str2$(p) + "%";
+        EXIT SUB
+    END IF
+    x = (p * 32) \ 100
+    n$ = str2$(p) + "%"
+    PRINT CHR$(13);
+    COLOR 11: PRINT "  Building  ";
+    COLOR 10: PRINT TuiBlock$(1, x);
+    COLOR 8: PRINT TuiBlock$(2, 32 - x);
+    COLOR 15: PRINT SPACE$(5 - LEN(n$)) + n$;
+    COLOR 7
+END SUB
 
 SUB FinishCompilerProgress
     IF compilerProgressVisible THEN
-        progressLine$ = CompilerProgressLine$(100)
-        IF compilerProgressLastPercentage <> 100 THEN
-            LOCATE compilerProgressRow, 1
-            PRINT progressLine$;
-            IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
-        END IF
+        IF compilerProgressLastPercentage <> 100 THEN DrawCompilerProgress 100
         PRINT
-        PRINT
-        compilerProgressLastLength = 0
         compilerProgressLastPercentage = -1
         compilerProgressVisible = 0
     END IF
 END SUB
 
 SUB CancelCompilerProgress
+    'ends the progress line, so the diagnostics start on a line of their own
     IF compilerProgressVisible THEN
-        LOCATE compilerProgressRow + 1, 1
         PRINT
-        compilerProgressLastLength = 0
+        PRINT
         compilerProgressLastPercentage = -1
         compilerProgressVisible = 0
     END IF
@@ -11526,22 +11499,27 @@ END SUB
 
 SUB ShowCompilerBanner
     IF compilerBannerShown = 0 THEN
-        PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
-        PRINT " Q    Q   B   B   NN  N   E        X X   "
-        PRINT " Q  QQ    BBBB    N N N   EEEE      X    "
-        PRINT " Q   Q    B   B   N  NN   E        X X   "
-        PRINT "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+        IF MonochromeLoggingMode = 0 THEN PRINT
+        TuiBannerLine "  QQQQ    BBBB    N   N   EEEEE   X   X  "
+        TuiBannerLine " Q    Q   B   B   NN  N   E        X X   "
+        TuiBannerLine " Q  QQ    BBBB    N N N   EEEE      X    "
+        TuiBannerLine " Q   Q    B   B   N  NN   E        X X   "
+        TuiBannerLine "  QQQQ    BBBB    N   N   EEEEE   X   X  "
         PRINT
-        PRINT "QBNex Compiler"
+        IF MonochromeLoggingMode THEN
+            PRINT "QBNex Compiler"
+        ELSE
+            COLOR 15: PRINT "  QBNex Compiler ";
+            COLOR 8: PRINT "v" + Version$
+            COLOR 7
+        END IF
         PRINT
         compilerBannerShown = -1
     ELSEIF compilerProgressVisible THEN
         EXIT SUB
     END IF
 
-    compilerProgressRow = CSRLIN
     compilerProgressVisible = -1
-    compilerProgressLastLength = 0
     compilerProgressLastPercentage = -1
     UpdateCompilerProgress 0
 END SUB
@@ -11553,13 +11531,8 @@ END FUNCTION
 SUB UpdateCompilerProgress (percentage AS LONG)
     IF compilerProgressVisible = 0 THEN EXIT SUB
     IF percentage <= compilerProgressLastPercentage THEN EXIT SUB
-    progressLine$ = CompilerProgressLine$(percentage)
-    LOCATE compilerProgressRow, 1
-    PRINT progressLine$;
-    IF compilerProgressLastLength > LEN(progressLine$) THEN PRINT SPACE$(compilerProgressLastLength - LEN(progressLine$));
-    compilerProgressLastLength = LEN(progressLine$)
+    DrawCompilerProgress percentage
     compilerProgressLastPercentage = percentage
-    LOCATE compilerProgressRow + 1, 1
 END SUB
 
 FUNCTION SCase2$ (t$)

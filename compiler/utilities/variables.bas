@@ -654,7 +654,7 @@ IF LEFT$(typ$, 6) = "STRING" THEN
     IF cmemlist(idn + 1) THEN
         id.t = id.t + ISINCONVENTIONALMEMORY
     ELSE
-        o$ = "(uint8*)mem_static_malloc(" + str2$(bytes) + ")"
+        o$ = "@"
     END IF
     id.tsize = bytes
     IF method = 0 THEN
@@ -858,7 +858,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "_BYTE" OR (typ$ = "BYTE" AND qbnexprefix_set = 1) THEN
-    ct$ = "int8"
+    ct$ = "@"
     IF unsgn THEN n$ = "U": ct$ = "u" + ct$
     n$ = n$ + "BYTE_" + varname$
     IF elements$ <> "" THEN
@@ -1012,7 +1012,7 @@ END IF
 
 
 IF typ$ = "_OFFSET" OR (typ$ = "OFFSET" AND qbnexprefix_set = 1) THEN
-    ct$ = "ptrszint"
+    ct$ = "@"
     IF unsgn THEN n$ = "U": ct$ = "u" + ct$
     n$ = n$ + "OFFSET_" + varname$
     IF elements$ <> "" THEN
@@ -1085,7 +1085,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "LONG" THEN
-    ct$ = "int32"
+    ct$ = "@"
     IF unsgn THEN n$ = "U": ct$ = "u" + ct$
     n$ = n$ + "LONG_" + varname$
     IF elements$ <> "" THEN
@@ -1162,7 +1162,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "_INTEGER64" OR (typ$ = "INTEGER64" AND qbnexprefix_set = 1) THEN
-    ct$ = "int64"
+    ct$ = "@"
     IF unsgn THEN n$ = "U": ct$ = "u" + ct$
     n$ = n$ + "INTEGER64_" + varname$
     IF elements$ <> "" THEN
@@ -1391,7 +1391,7 @@ GOTO dim2exitfunc
 END IF
 
 IF typ$ = "_FLOAT" OR (typ$ = "FLOAT" AND qbnexprefix_set = 1) THEN
-    ct$ = "long double"
+    ct$ = "@"
     n$ = n$ + "FLOAT_" + varname$
     IF elements$ <> "" THEN
         arraydesc = 0
@@ -1499,7 +1499,7 @@ IF t AND ISFIXEDLENGTH THEN
     bytes = id.tsize
 ELSE
     IF id.arraytype THEN Give_Error "Cannot determine size of variable-length string array": EXIT FUNCTION
-    variablesize$ = scope$ + "STRING_" + RTRIM$(id.n) + "->len"
+    variablesize$ = "@"
     EXIT FUNCTION
 END IF
 END IF

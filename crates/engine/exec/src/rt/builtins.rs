@@ -197,7 +197,8 @@ impl<'a> RtState<'a> {
         }
         let _ = self.out.write_all(b);
         for c in b {
-            if *c == b'\n' {
+            // CR returns to column 1 like LF (a line redrawn in place)
+            if *c == b'\n' || *c == b'\r' {
                 self.col = 1;
             } else {
                 self.col += 1;
