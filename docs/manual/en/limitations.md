@@ -138,7 +138,7 @@ a scalar variable.
 Every other port reads 0, and OUT to it does nothing. This includes the
 timer (`&H40`-`&H43`), the speaker (`&H61`) and the joystick (`&H201`).
 `WAIT` polls INP: `WAIT &H3DA, 8` waits for the next frame; on other ports
-it returns at once. `STICK` returns 128 and `STRIG` 0 (no joystick).
+it returns at once. Without a game controller `STICK` returns 128 and `STRIG` 0.
 
 ## _FLOAT
 
@@ -156,30 +156,41 @@ The build stops with `QIR: unsupported: line N: ...` on:
 - `ON TIMER(n) sub argument` (a SUB with an argument) inside a SUB or FUNCTION;
 - `_MEM` of an array of variable-length STRINGs (its elements are not stored
   together; `_MEM` of one STRING variable works);
-- these QB64 statements and functions, which the QIR backend does not compile
-  yet (found by compiling a one-line program for every keyword the compiler knows; forms with optional arguments were not all tried):
-  - clipboard: `_CLIPBOARD$`, `_CLIPBOARDIMAGE`;
-  - game controllers: `_DEVICES`, `_DEVICE$`, `_DEVICEINPUT`, `_BUTTON`,
-    `_BUTTONCHANGE`, `_AXIS`, `_WHEEL`, `_LASTBUTTON`, `_LASTAXIS`, `_LASTWHEEL`;
-  - desktop: `_SCREENIMAGE`, `_SCREENCLICK`, `_SCREENPRINT`, `_DESKTOPWIDTH`,
-    `_DESKTOPHEIGHT`;
-  - window: `_SCREENX`, `_SCREENY`, `_SCREENEXISTS`, `_SCREENICON` (the
-    function), `_FULLSCREEN`, `_RESIZE` (the function), `_RESIZEWIDTH`,
-    `_RESIZEHEIGHT`, `_SCALEDWIDTH`, `_SCALEDHEIGHT`, `_WINDOWHANDLE`,
-    `_WINDOWHASFOCUS`, `_EXIT`, `_SCREENHIDE` (the function);
-  - dropped files: `_ACCEPTFILEDROP` (the function), `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP`;
-  - mouse and keyboard: `_MOUSEMOVE`, `_MOUSEMOVEMENTX`, `_MOUSEMOVEMENTY`,
-    `_MOUSEPIPEOPEN`, `_MOUSEINPUTPIPE`, `_MOUSEPIPECLOSE`, `_CAPSLOCK`,
-    `_NUMLOCK`, `_SCROLLLOCK`, `_KEYCLEAR`;
-  - console: `_CINP`, `_CONSOLEINPUT`, `_CONSOLECURSOR`, `_CONSOLEFONT`;
-  - text and colours: `_PRINTSTRING`, `_PRINTMODE`, `_MAPUNICODE`, `_BLINK`,
-    `_SMOOTH`, `_FPS`, `_COPYPALETTE`, `_BACKGROUNDCOLOR`, `_DEFAULTCOLOR`,
-    `_MEMIMAGE`, `_BLEND` (the function), `_CONTROLCHR` (the function);
-  - math: `_ASINH`, `_ACOSH`, `_ATANH`;
-  - files and system: `LOCK`, `UNLOCK`, `_DIR$`, `_ENVIRONCOUNT`, `SHELL` without a command.
+-
+
+Every other statement and function the compiler knows is compiled (checked by
+compiling a one-line program for each keyword; forms with optional arguments
+were not all tried).
 
 Compiled, but different:
 
+- A program that uses no screen, window, mouse or key-state keyword (`SCREEN`,
+  `LINE`, `LOCATE`, `_KEYHIT`, `_TITLE`, `_DEVICES`, ...) is built as a console
+  program, as if it began with `$CONSOLE:ONLY`. With `$CONSOLE` a program has its
+  window and a console; on Windows a program with a window and no `$CONSOLE`
+  opens no console window.
+- `STICK`, `STRIG` and the `_DEVICES` functions read game controllers in a fixed
+  layout (19 buttons, 8 axes), whatever order the driver reports. Device 1 is
+  the keyboard, with one button per scan code (`_BUTTON(scancode + 1)`).
+  `ON STRIG(n) GOSUB` and `STRIG(n) ON` compile, but the handler is never called.
+- `PEN`, `COM(n)` and `UEVENT` with `ON`/`OFF`/`STOP`, and `ON PEN`, `ON COM(n)`
+  and `ON UEVENT GOSUB`, compile and do nothing: there is no light pen, serial
+  or user event. `PEN(n)` is 0.
+- `FRE` returns fixed sizes: 16777216 for `FRE(-1)` and `SETMEM(n)`, 30000 for
+  `FRE(-2)`, 60000 for anything else. `TRON` and `TROFF` do nothing.
+  `FILEATTR(n, 2)` returns a number that stands for the open file, not a DOS
+  handle. `IOCTL` and `IOCTL$` are an illegal function call (error 5) on an open
+  file.
+- `_ALLOWFULLSCREEN` is accepted and has no effect: ALT+ENTER does not switch to
+  full screen.
+- `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
+  `_CONSOLETITLE`, `_WINDOWHANDLE` and setting `_CAPSLOCK`, `_NUMLOCK` or
+  `_SCROLLLOCK` work on Windows only; `_SCREENIMAGE` gives a blank image and
+  `_SCREENCLICK`/`_SCREENPRINT` do nothing on Linux. `_DIR$` returns `./` off
+  Windows.
+- `_PRINTSTRING STEP(x, y)` moves on from the position of the last
+  `_PRINTSTRING` (QB64 reads `STEP` and then ignores it).
+- `_MOUSEPIPECLOSE` removes the pipe (QB64 leaves it in place).
 - `TIME$ = ...` and `DATE$ = ...` set a clock of the program only: TIME$,
   DATE$ and TIMER then count on from the set time, but the system clock is not
   changed (QBasic set the DOS clock; QB64 ignores the statement). A badly formed
@@ -200,7 +211,8 @@ Compiled, but different:
 - `SOUND`, `BEEP` and `PLAY` follow QBasic's music modes: in `MF` (the
   default) the statement returns once its notes have played; after
   `PLAY "MB"` it returns at once and the notes play in the background, but a
-  statement waits while more than 10 seconds of sound per voice is queued.
+  statement waits while more than 32 notes (the QBasic music buffer) or 10
+  seconds of sound per voice are queued.
   QB64 never waited. A window close during a wait ends the program at once.
   In the browser build only the `MB` limit applies.
 - Without an output device, sound plays on a silent device that keeps real

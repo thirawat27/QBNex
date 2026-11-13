@@ -34,7 +34,7 @@ are explained, with their tests, in
 | D-08, D-10, D-11, D-12, D-R12b-1, D-R12b-3 | Reads past buffers in QB64 (GET of strings, FILES, SHELL, stretched `_PUTIMAGE`, 2-bit GET, HEX$) now give defined results. |
 | D-09 | `SHELL` keeps window events paused for the whole waited call. |
 | D-18 | The millisecond clock is 64-bit everywhere (QB64 on Windows wrapped after 24.8 days). |
-| D-19, D-20 | `_CLIPBOARD$` and `_CLIPBOARDIMAGE` are written for Linux/macOS too in the runtime (UTF-8 clipboard: non-UTF-8 bytes become U+FFFD there), but the QIR backend does not compile either yet (see [Limitations](limitations.md#statements-that-are-not-supported-or-behave-differently)). |
+| D-19, D-20 | `_CLIPBOARD$` and `_CLIPBOARDIMAGE` work on Linux and macOS too (UTF-8 clipboard: non-UTF-8 bytes become U+FFFD there). |
 | D-21 | `_OPENCLIENT` tries every IPv4 address of a host on every OS. |
 | D-22 | CP437 source files compile (QBNex used to reject them). |
 | D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile and the PLAY event is raised, relational operators inside PRINT. |

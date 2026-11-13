@@ -122,8 +122,8 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
 
 พอร์ตอื่นทั้งหมดอ่านได้ 0 และ OUT ไปก็ไม่มีผล รวมถึง timer (`&H40`-`&H43`),
 ลำโพง (`&H61`) และจอยสติก (`&H201`) `WAIT` จะเรียก INP ซ้ำ:
-`WAIT &H3DA, 8` รอเฟรมถัดไป ส่วนพอร์ตอื่นคืนค่าทันที `STICK` คืน 128 และ
-`STRIG` คืน 0 (ไม่มีจอยสติก)
+`WAIT &H3DA, 8` รอเฟรมถัดไป ส่วนพอร์ตอื่นคืนค่าทันที ถ้าไม่มีจอยเกม `STICK` คืน 128 และ
+`STRIG` คืน 0
 
 ## _FLOAT
 
@@ -140,29 +140,36 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
 - `ON TIMER(n) sub argument` (SUB ที่รับ argument) ใน SUB หรือ FUNCTION
 - `_MEM` ของ array ของ STRING ความยาวไม่คงที่ (สมาชิกไม่ได้เก็บติดกัน ส่วน `_MEM` ของตัวแปร
   STRING ตัวเดียวใช้ได้)
-- คำสั่งและฟังก์ชันของ QB64 ต่อไปนี้ ซึ่ง backend QIR ยังคอมไพล์ไม่ได้
-  (ได้จากการคอมไพล์โปรแกรมบรรทัดเดียวของทุก keyword ที่คอมไพเลอร์รู้จัก รูปแบบที่มี argument เสริมยังลองไม่ครบ):
-  - clipboard: `_CLIPBOARD$`, `_CLIPBOARDIMAGE`
-  - จอยและอุปกรณ์เกม: `_DEVICES`, `_DEVICE$`, `_DEVICEINPUT`, `_BUTTON`,
-    `_BUTTONCHANGE`, `_AXIS`, `_WHEEL`, `_LASTBUTTON`, `_LASTAXIS`, `_LASTWHEEL`
-  - เดสก์ท็อป: `_SCREENIMAGE`, `_SCREENCLICK`, `_SCREENPRINT`, `_DESKTOPWIDTH`,
-    `_DESKTOPHEIGHT`
-  - หน้าต่าง: `_SCREENX`, `_SCREENY`, `_SCREENEXISTS`, `_SCREENICON` (แบบฟังก์ชัน),
-    `_FULLSCREEN`, `_RESIZE` (แบบฟังก์ชัน), `_RESIZEWIDTH`, `_RESIZEHEIGHT`,
-    `_SCALEDWIDTH`, `_SCALEDHEIGHT`, `_WINDOWHANDLE`, `_WINDOWHASFOCUS`, `_EXIT`,
-  - ไฟล์ที่ลากมาวาง: `_ACCEPTFILEDROP` (แบบฟังก์ชัน), `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP`
-  - เมาส์และคีย์บอร์ด: `_MOUSEMOVE`, `_MOUSEMOVEMENTX`, `_MOUSEMOVEMENTY`,
-    `_MOUSEPIPEOPEN`, `_MOUSEINPUTPIPE`, `_MOUSEPIPECLOSE`, `_CAPSLOCK`,
-    `_NUMLOCK`, `_SCROLLLOCK`, `_KEYCLEAR`
-  - console: `_CINP`, `_CONSOLEINPUT`, `_CONSOLECURSOR`, `_CONSOLEFONT`
-  - ข้อความและสี: `_PRINTSTRING`, `_PRINTMODE`, `_MAPUNICODE`, `_BLINK`,
-    `_SMOOTH`, `_FPS`, `_COPYPALETTE`, `_BACKGROUNDCOLOR`, `_DEFAULTCOLOR`,
-    `_MEMIMAGE`, `_BLEND` (แบบฟังก์ชัน), `_CONTROLCHR` (แบบฟังก์ชัน)
-  - คณิตศาสตร์: `_ASINH`, `_ACOSH`, `_ATANH`
-  - ไฟล์และระบบ: `LOCK`, `UNLOCK`, `_DIR$`, `_ENVIRONCOUNT`, `SHELL` ที่ไม่มีคำสั่งตามหลัง
+-
+
+คำสั่งและฟังก์ชันอื่นทั้งหมดที่คอมไพเลอร์รู้จักคอมไพล์ได้ (ตรวจด้วยการคอมไพล์โปรแกรม
+บรรทัดเดียวของทุก keyword รูปแบบที่มี argument เสริมยังลองไม่ครบ)
 
 คอมไพล์ได้ แต่ทำงานต่างไป:
 
+- โปรแกรมที่ไม่ใช้ keyword ของจอ หน้าต่าง เมาส์ หรือสถานะปุ่ม (`SCREEN`, `LINE`, `LOCATE`,
+  `_KEYHIT`, `_TITLE`, `_DEVICES`, ...) จะถูก build เป็นโปรแกรม console เหมือนขึ้นต้นด้วย
+  `$CONSOLE:ONLY` ถ้าใส่ `$CONSOLE` โปรแกรมจะมีทั้งหน้าต่างและ console ส่วนบน Windows
+  โปรแกรมที่มีหน้าต่างและไม่มี `$CONSOLE` จะไม่เปิดหน้าต่าง console
+- `STICK`, `STRIG` และฟังก์ชันกลุ่ม `_DEVICES` อ่านจอยเกมด้วยผังคงที่ (19 ปุ่ม 8 แกน)
+  ไม่ขึ้นกับลำดับที่ไดรเวอร์รายงาน อุปกรณ์ที่ 1 คือคีย์บอร์ด มีปุ่มละหนึ่ง scan code
+  (`_BUTTON(scancode + 1)`) ส่วน `ON STRIG(n) GOSUB` และ `STRIG(n) ON` คอมไพล์ได้
+  แต่ handler ไม่ถูกเรียก
+- `PEN`, `COM(n)` และ `UEVENT` ที่ตามด้วย `ON`/`OFF`/`STOP` รวมถึง `ON PEN`, `ON COM(n)`
+  และ `ON UEVENT GOSUB` คอมไพล์ได้และไม่ทำอะไร เพราะไม่มีเหตุการณ์จาก light pen,
+  พอร์ตอนุกรม หรือผู้ใช้ ส่วน `PEN(n)` คืน 0
+- `FRE` คืนค่าคงที่: 16777216 สำหรับ `FRE(-1)` และ `SETMEM(n)`, 30000 สำหรับ `FRE(-2)`
+  และ 60000 สำหรับกรณีอื่น `TRON` และ `TROFF` ไม่ทำอะไร `FILEATTR(n, 2)` คืนเลขที่ใช้แทน
+  ไฟล์ที่เปิดอยู่ ไม่ใช่ DOS handle ส่วน `IOCTL` และ `IOCTL$` กับไฟล์ที่เปิดอยู่จะเกิด
+  illegal function call (error 5)
+- `_ALLOWFULLSCREEN` รับได้แต่ไม่มีผล เพราะ ALT+ENTER ไม่สลับเป็นเต็มจอ
+- `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
+  `_CONSOLETITLE`, `_WINDOWHANDLE` และการตั้ง `_CAPSLOCK`, `_NUMLOCK`, `_SCROLLLOCK`
+  ใช้ได้บน Windows เท่านั้น บน Linux `_SCREENIMAGE` ได้ภาพว่าง และ
+  `_SCREENCLICK`/`_SCREENPRINT` ไม่ทำอะไร ส่วน `_DIR$` คืน `./` บนระบบที่ไม่ใช่ Windows
+- `_PRINTSTRING STEP(x, y)` นับต่อจากตำแหน่งของ `_PRINTSTRING` ครั้งก่อน (QB64 อ่าน `STEP`
+  แล้วไม่ใช้)
+- `_MOUSEPIPECLOSE` ลบ pipe ออก (QB64 ปล่อยไว้)
 - `TIME$ = ...` และ `DATE$ = ...` ตั้งนาฬิกาของโปรแกรมเท่านั้น หลังจากนั้น TIME$, DATE$ และ
   TIMER จะนับต่อจากเวลาที่ตั้ง แต่ไม่เปลี่ยนนาฬิกาของระบบ (QBasic ตั้งนาฬิกา DOS ส่วน QB64
   ไม่ทำอะไร) ค่าที่รูปแบบผิดจะเกิด illegal function call
@@ -178,7 +185,7 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
   ถ้าไม่มีเครื่องพิมพ์ หน้านั้นจะถูกทิ้ง
 - `SOUND`, `BEEP` และ `PLAY` ทำงานตามโหมดเพลงของ QBasic: ในโหมด `MF` (ค่าเริ่มต้น)
   คำสั่งจะกลับมาเมื่อโน้ตของมันเล่นจบ หลัง `PLAY "MB"` คำสั่งกลับมาทันทีและโน้ตเล่นเบื้องหลัง
-  แต่จะรอเมื่อมีเสียงค้างในคิวเกิน 10 วินาทีต่อ voice (QB64 ไม่เคยรอ) ถ้าปิดหน้าต่างระหว่างรอ
+  แต่จะรอเมื่อมีโน้ตค้างในคิวเกิน 32 ตัว (ขนาดบัฟเฟอร์เพลงของ QBasic) หรือเสียงเกิน 10 วินาทีต่อ voice (QB64 ไม่เคยรอ) ถ้าปิดหน้าต่างระหว่างรอ
   โปรแกรมจะจบทันที ใน build สำหรับเบราว์เซอร์ใช้เฉพาะขีดจำกัดของ `MB`
 - ถ้าไม่มีอุปกรณ์เสียง เสียงจะเล่นผ่านอุปกรณ์เงียบที่เดินตามเวลาจริง `PLAY(n)`,
   `ON PLAY(n) GOSUB` และการรอข้างต้นจึงทำงานเหมือนมีลำโพง (`QB_AUDIO_DEVICE=null` เลือก
