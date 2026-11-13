@@ -102,82 +102,46 @@ FUNCTION scope$
     scope$ = module$ + "_" + subfunc$ + "_"
 END FUNCTION
 
-FUNCTION typ2ctyp$ (t AS LONG, tstr AS STRING)
-    ctyp$ = ""
-    'typ can be passed as either: (the unused value is ignored)
-    'i. as a typ value in t
-    'ii. as a typ symbol (eg. "~%") in tstr
-    'iii. as a typ name (eg. _UNSIGNED INTEGER) in tstr
+FUNCTION typkind$ (t AS LONG, tstr AS STRING)
+    'The kind of value a type holds: "str", "udt", "num", or "" for an array type.
+    'The type is either the typ value t (when tstr is empty) or type text in tstr:
+    'a symbol (eg. "~%") or a name (eg. "_UNSIGNED INTEGER"); bad text is an error.
     IF tstr$ = "" THEN
-        IF (t AND ISARRAY) THEN EXIT FUNCTION 'cannot return array types
-        IF (t AND ISSTRING) THEN typ2ctyp$ = "qbs": EXIT FUNCTION
+        IF (t AND ISARRAY) THEN EXIT FUNCTION 'arrays have no value form
+        IF (t AND ISSTRING) THEN typkind$ = "str": EXIT FUNCTION
+        IF (t AND ISUDT) THEN typkind$ = "udt": EXIT FUNCTION
         b = t AND 511
-        IF (t AND ISUDT) THEN typ2ctyp$ = "void": EXIT FUNCTION
-        IF (t AND ISOFFSETINBITS) THEN
-            IF b <= 32 THEN ctyp$ = "int32" ELSE ctyp$ = "int64"
-            IF (t AND ISUNSIGNED) THEN ctyp$ = "u" + ctyp$
-            typ2ctyp$ = ctyp$: EXIT FUNCTION
-        END IF
+        IF (t AND ISOFFSETINBITS) OR (t AND ISOFFSET) THEN typkind$ = "num": EXIT FUNCTION
         IF (t AND ISFLOAT) THEN
-            IF b = 32 THEN ctyp$ = "float"
-            IF b = 64 THEN ctyp$ = "double"
-            IF b = 256 THEN ctyp$ = "long double"
+            IF b = 32 OR b = 64 OR b = 256 THEN typkind$ = "num"
         ELSE
-            IF b = 8 THEN ctyp$ = "int8"
-            IF b = 16 THEN ctyp$ = "int16"
-            IF b = 32 THEN ctyp$ = "int32"
-            IF b = 64 THEN ctyp$ = "int64"
-            IF t AND ISOFFSET THEN ctyp$ = "ptrszint"
-            IF (t AND ISUNSIGNED) THEN ctyp$ = "u" + ctyp$
+            IF b = 8 OR b = 16 OR b = 32 OR b = 64 THEN typkind$ = "num"
         END IF
-        IF t AND ISOFFSET THEN
-            ctyp$ = "ptrszint": IF (t AND ISUNSIGNED) THEN ctyp$ = "uptrszint"
-        END IF
-        typ2ctyp$ = ctyp$: EXIT FUNCTION
+        EXIT FUNCTION
     END IF
 
     ts$ = tstr$
-    'is ts$ a symbol?
-    IF ts$ = "$" THEN ctyp$ = "qbs"
-    IF ts$ = "!" THEN ctyp$ = "float"
-    IF ts$ = "#" THEN ctyp$ = "double"
-    IF ts$ = "##" THEN ctyp$ = "long double"
-    IF LEFT$(ts$, 1) = "~" THEN unsgn = 1: ts$ = RIGHT$(ts$, LEN(ts$) - 1)
+    IF ts$ = "$" THEN typkind$ = "str": EXIT FUNCTION
+    IF ts$ = "!" OR ts$ = "#" OR ts$ = "##" THEN typkind$ = "num": EXIT FUNCTION
+    IF LEFT$(ts$, 1) = "~" THEN ts$ = RIGHT$(ts$, LEN(ts$) - 1)
     IF LEFT$(ts$, 1) = "`" THEN
         n$ = RIGHT$(ts$, LEN(ts$) - 1)
-        b = 1
         IF n$ <> "" THEN
             IF isuinteger(n$) = 0 THEN Give_Error "Invalid index after _BIT type": EXIT FUNCTION
-            b = VAL(n$)
-            IF b > 64 THEN Give_Error "Invalid index after _BIT type": EXIT FUNCTION
+            IF VAL(n$) > 64 THEN Give_Error "Invalid index after _BIT type": EXIT FUNCTION
         END IF
-        IF b <= 32 THEN ctyp$ = "int32" ELSE ctyp$ = "int64"
-        IF unsgn THEN ctyp$ = "u" + ctyp$
-        typ2ctyp$ = ctyp$: EXIT FUNCTION
+        typkind$ = "num": EXIT FUNCTION
     END IF
-    IF ts$ = "%&" THEN
-        typ2ctyp$ = "ptrszint": IF (t AND ISUNSIGNED) THEN typ2ctyp$ = "uptrszint"
-        EXIT FUNCTION
-    END IF
-    IF ts$ = "%%" THEN ctyp$ = "int8"
-    IF ts$ = "%" THEN ctyp$ = "int16"
-    IF ts$ = "&" THEN ctyp$ = "int32"
-    IF ts$ = "&&" THEN ctyp$ = "int64"
-    IF ctyp$ <> "" THEN
-        IF unsgn THEN ctyp$ = "u" + ctyp$
-        typ2ctyp$ = ctyp$: EXIT FUNCTION
-    END IF
+    IF ts$ = "%&" OR ts$ = "%%" OR ts$ = "%" OR ts$ = "&" OR ts$ = "&&" THEN typkind$ = "num": EXIT FUNCTION
     'is tstr$ a named type? (eg. 'LONG')
     s$ = type2symbol$(tstr$)
     IF Error_Happened THEN EXIT FUNCTION
     IF LEN(s$) THEN
-        typ2ctyp$ = typ2ctyp$(0, s$)
-        IF Error_Happened THEN EXIT FUNCTION
+        typkind$ = typkind$(0, s$)
         EXIT FUNCTION
     END IF
 
     Give_Error "Invalid type": EXIT FUNCTION
-
 END FUNCTION
 
 FUNCTION type2symbol$ (typ$)

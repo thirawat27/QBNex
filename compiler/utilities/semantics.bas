@@ -1249,7 +1249,7 @@ IF id2.args <> 0 THEN
                             memget_ctyp$ = "void*"
                         ELSE
                             memget_size = (t AND 511) \ 8
-                            memget_ctyp$ = typ2ctyp$(t, "")
+                            memget_ctyp$ = typkind$(t, "")
                         END IF
                     END IF
 
@@ -2107,8 +2107,6 @@ IF (targettyp AND ISSTRING) = 0 THEN
                 e$ = "(void*)( ((char*)(" + n2$ + ")) + (" + o$ + ") )"
 
                 'convert void* to target type*
-                IF passudtelement THEN e$ = "(" + typ2ctyp$(targettyp2 + (targettyp AND ISUNSIGNED), "") + "*)" + e$
-                IF Error_Happened THEN EXIT FUNCTION
 
             ELSE
                 'not a udt
@@ -2122,10 +2120,6 @@ IF (targettyp AND ISSTRING) = 0 THEN
                 END IF
 
                 'note: signed/unsigned mismatch requires casting
-                IF (sourcetyp AND ISUNSIGNED) <> (targettyp AND ISUNSIGNED) THEN
-                    e$ = "(" + typ2ctyp$(targettyp2 + (targettyp AND ISUNSIGNED), "") + "*)" + e$
-                    IF Error_Happened THEN EXIT FUNCTION
-                END IF
 
             END IF 'udt?
 
@@ -2264,8 +2258,6 @@ END IF 'explicit?
 IF (targettyp AND ISPOINTER) THEN 'pointer required
 IF (targettyp AND ISSTRING) THEN GOTO dontevaluate 'no changes required
 '20090703
-t$ = typ2ctyp$(targettyp, "")
-IF Error_Happened THEN EXIT FUNCTION
 v$ = "pass" + str2$(uniquenumber)
 'assume numeric type
 IF MID$(sfcmemargs(targetid), curarg, 1) = CHR$(1) THEN 'cmem required?
@@ -2417,26 +2409,23 @@ FUNCTION evaluatetotyp$ (a2$, targettyp AS LONG)
         END IF
     END IF
 
-    dst$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
 
     'determine size of element
     IF E = 0 THEN 'no specific element, use size of entire type
     bytes$ = str2(udtxsize(u) \ 8)
 ELSE 'a specific element
     IF (udtetype(E) AND ISSTRING) > 0 AND (udtetype(E) AND ISFIXEDLENGTH) = 0 AND (targettyp = -5) THEN
-        evaluatetotyp$ = "(*(qbs**)" + dst$ + ")->len"
+        evaluatetotyp$ = "@"
         EXIT FUNCTION
     ELSEIF (udtetype(E) AND ISSTRING) > 0 AND (udtetype(E) AND ISFIXEDLENGTH) = 0 AND (targettyp = -4) THEN
-        dst$ = "(*((qbs**)((char*)" + scope$ + n$ + "+(" + o$ + "))))->chr"
-        bytes$ = "(*((qbs**)((char*)" + scope$ + n$ + "+(" + o$ + "))))->len"
-        evaluatetotyp$ = "byte_element((uint64)" + dst$ + "," + bytes$ + "," + NewByteElement$ + ")"
+        NewByteElement: evaluatetotyp$ = "@"
         EXIT FUNCTION
     END IF
     bytes$ = str2(udtesize(E) \ 8)
 END IF
-evaluatetotyp$ = "byte_element((uint64)" + dst$ + "," + bytes$ + "," + NewByteElement$ + ")"
-IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-IF targettyp = -6 THEN evaluatetotyp$ = dst$
+NewByteElement: evaluatetotyp$ = "@"
+IF targettyp = -5 THEN evaluatetotyp$ = "@"
+IF targettyp = -6 THEN evaluatetotyp$ = "@"
 EXIT FUNCTION
 END IF
 
@@ -2460,26 +2449,25 @@ IF sourcetyp AND ISSTRING THEN
         bytes$ = str2(id.tsize)
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
-        evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + bytes$ + "," + NewByteElement$ + ")"
-        IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-        IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
+        NewByteElement: evaluatetotyp$ = "@"
+        IF targettyp = -5 THEN evaluatetotyp$ = "@"
+        IF targettyp = -6 THEN evaluatetotyp$ = "@"
     ELSE
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
 
-        evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + e$ + "->len," + NewByteElement$ + ")"
-        IF targettyp = -5 THEN evaluatetotyp$ = e$ + "->len"
-        IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
+        NewByteElement: evaluatetotyp$ = "@"
+        IF targettyp = -5 THEN evaluatetotyp$ = "@"
+        IF targettyp = -6 THEN evaluatetotyp$ = "@"
     END IF
     EXIT FUNCTION
 END IF
 e$ = refer(e$, sourcetyp, 0)
 IF Error_Happened THEN EXIT FUNCTION
-e$ = "(&(" + e$ + "))"
 bytes$ = str2((sourcetyp AND 511) \ 8)
-evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + bytes$ + "," + NewByteElement$ + ")"
-IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-IF targettyp = -6 THEN evaluatetotyp$ = e$
+NewByteElement: evaluatetotyp$ = "@"
+IF targettyp = -5 THEN evaluatetotyp$ = "@"
+IF targettyp = -6 THEN evaluatetotyp$ = "@"
 EXIT FUNCTION
 END IF
 
@@ -2494,11 +2482,10 @@ IF sourcetyp AND ISFIXEDLENGTH THEN
 ELSE
     e$ = refer(e$, sourcetyp, 0)
     IF Error_Happened THEN EXIT FUNCTION
-    bytes$ = e$ + "->len"
 END IF
-evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + bytes$ + "," + NewByteElement$ + ")"
-IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
+NewByteElement: evaluatetotyp$ = "@"
+IF targettyp = -5 THEN evaluatetotyp$ = "@"
+IF targettyp = -6 THEN evaluatetotyp$ = "@"
 EXIT FUNCTION
 END IF
 
@@ -2506,9 +2493,9 @@ END IF
 e$ = refer(e$, sourcetyp, 1) 'get the variable's formal name
 IF Error_Happened THEN EXIT FUNCTION
 size = (sourcetyp AND 511) \ 8 'calculate its size in bytes
-evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + str2(size) + "," + NewByteElement$ + ")"
-IF targettyp = -5 THEN evaluatetotyp$ = str2(size)
-IF targettyp = -6 THEN evaluatetotyp$ = e$
+NewByteElement: evaluatetotyp$ = "@"
+IF targettyp = -5 THEN evaluatetotyp$ = "@"
+IF targettyp = -6 THEN evaluatetotyp$ = "@"
 EXIT FUNCTION
 
 END IF '-4, -5, -6
@@ -2546,10 +2533,9 @@ ELSE 'a specific element
     bytes$ = str2(udtesize(E) \ 8)
     t1 = udtetype(E)
 END IF
-dst$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
 
 t = Type2MemTypeValue(t1)
-evaluatetotyp$ = "(ptrszint)" + dst$ + "," + bytes$ + "," + str2(t) + "," + bytes$ + ",sf_mem_lock"
+evaluatetotyp$ = "@"
 
 EXIT FUNCTION
 END IF
@@ -2570,7 +2556,6 @@ idnumber = VAL(e$)
 getid idnumber
 IF Error_Happened THEN EXIT FUNCTION
 n$ = RTRIM$(id.callname)
-lk$ = "(mem_lock*)((ptrszint*)" + n$ + ")[" + str2(4 * id.arrayelements + 4 + 1 - 1) + "]"
 
 'assume a specific element
 
@@ -2581,7 +2566,7 @@ IF sourcetyp AND ISSTRING THEN
         IF Error_Happened THEN EXIT FUNCTION
 
         t = Type2MemTypeValue(sourcetyp)
-        evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + bytes$ + "," + str2(t) + "," + bytes$ + "," + lk$
+        evaluatetotyp$ = "@"
 
     ELSE
 
@@ -2593,11 +2578,10 @@ END IF
 
 e$ = refer(e$, sourcetyp, 0)
 IF Error_Happened THEN EXIT FUNCTION
-e$ = "(&(" + e$ + "))"
 bytes$ = str2((sourcetyp AND 511) \ 8)
 
 t = Type2MemTypeValue(sourcetyp)
-evaluatetotyp$ = "(ptrszint)" + e$ + "," + bytes$ + "," + str2(t) + "," + bytes$ + "," + lk$
+evaluatetotyp$ = "@"
 
 EXIT FUNCTION
 END IF 'isarray
@@ -2616,7 +2600,7 @@ END IF
 
 
 t = Type2MemTypeValue(sourcetyp)
-evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + bytes$ + "," + str2(t) + "," + bytes$ + ",sf_mem_lock"
+evaluatetotyp$ = "@"
 
 EXIT FUNCTION
 END IF
@@ -2627,7 +2611,7 @@ IF Error_Happened THEN EXIT FUNCTION
 size = (sourcetyp AND 511) \ 8 'calculate its size in bytes
 
 t = Type2MemTypeValue(sourcetyp)
-evaluatetotyp$ = "(ptrszint)" + e$ + "," + str2(size) + "," + str2(t) + "," + str2(size) + ",sf_mem_lock"
+evaluatetotyp$ = "@"
 
 EXIT FUNCTION
 
@@ -2654,9 +2638,8 @@ IF (sourcetyp AND ISUDT) THEN
     IF Error_Happened THEN EXIT FUNCTION
     n$ = "UDT_" + RTRIM$(id.n): IF id.arraytype THEN n$ = "ARRAY_" + n$ + "[0]"
     method2usealludt__7:
-    bytes$ = variablesize$(-1) + "-(" + o$ + ")"
+    bytes$ = variablesize$(-1) 'checks that the size is known
     IF Error_Happened THEN EXIT FUNCTION
-    dst$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
 
 
 
@@ -2664,7 +2647,7 @@ IF (sourcetyp AND ISUDT) THEN
     IF E <> 0 THEN size = 1 ELSE size = udtxsize(u) \ 8
 
     t = Type2MemTypeValue(sourcetyp)
-    evaluatetotyp$ = "(ptrszint)" + dst$ + "," + bytes$ + "," + str2(t) + "," + str2(size) + ",sf_mem_lock"
+    evaluatetotyp$ = "@"
 
     EXIT FUNCTION
 END IF
@@ -2682,7 +2665,6 @@ IF (sourcetyp AND ISARRAY) THEN
     IF Error_Happened THEN EXIT FUNCTION
 
     n$ = RTRIM$(id.callname)
-    lk$ = "(mem_lock*)((ptrszint*)" + n$ + ")[" + str2(4 * id.arrayelements + 4 + 1 - 1) + "]"
 
     tsize = id.tsize 'used later to determine element size of fixed length strings
     'note: array references consist of idnumber|unmultiplied-element-index
@@ -2695,7 +2677,6 @@ IF (sourcetyp AND ISARRAY) THEN
     IF sourcetyp AND ISSTRING THEN
         e$ = "((" + e$ + ")->chr)" '[2013] handle fixed string arrays differently because they are already pointers
     ELSE
-        e$ = "(&(" + e$ + "))"
     END IF
 
     '           print "CI: array: e$["+e$+"], bytes$["+bytes$+"]":sleep 1
@@ -2705,10 +2686,9 @@ IF (sourcetyp AND ISARRAY) THEN
     ELSE
         bytes = (sourcetyp AND 511) \ 8
     END IF
-    bytes$ = bytes$ + "-(" + str2(bytes) + "*(" + index$ + "))"
 
     t = Type2MemTypeValue(sourcetyp)
-    evaluatetotyp$ = "(ptrszint)" + e$ + "," + bytes$ + "," + str2(t) + "," + str2(bytes) + "," + lk$
+    evaluatetotyp$ = "@"
 
     EXIT FUNCTION
 END IF
@@ -2720,7 +2700,7 @@ IF sourcetyp AND ISSTRING THEN
         'valid until the string is assigned again
         e$ = refer(e$, sourcetyp, 0): IF Error_Happened THEN EXIT FUNCTION
         t = Type2MemTypeValue(sourcetyp)
-        evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + e$ + "->len," + str2(t) + ",1,sf_mem_lock"
+        evaluatetotyp$ = "@"
         EXIT FUNCTION
     END IF
 
@@ -2730,7 +2710,7 @@ IF sourcetyp AND ISSTRING THEN
     e$ = refer(e$, sourcetyp, 0): IF Error_Happened THEN EXIT FUNCTION
 
     t = Type2MemTypeValue(sourcetyp)
-    evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + bytes$ + "," + str2(t) + "," + bytes$ + ",sf_mem_lock"
+    evaluatetotyp$ = "@"
 
     EXIT FUNCTION
 END IF
@@ -2741,7 +2721,7 @@ IF Error_Happened THEN EXIT FUNCTION
 size = (sourcetyp AND 511) \ 8 'calculate its size in bytes
 
 t = Type2MemTypeValue(sourcetyp)
-evaluatetotyp$ = "(ptrszint)" + e$ + "," + str2(size) + "," + str2(t) + "," + str2(size) + ",sf_mem_lock"
+evaluatetotyp$ = "@"
 
 EXIT FUNCTION
 
@@ -2769,12 +2749,11 @@ IF (sourcetyp AND ISUDT) THEN
     IF Error_Happened THEN EXIT FUNCTION
     n$ = "UDT_" + RTRIM$(id.n): IF id.arraytype THEN n$ = "ARRAY_" + n$ + "[0]"
     method2usealludt:
-    bytes$ = variablesize$(-1) + "-(" + o$ + ")"
+    bytes$ = variablesize$(-1) 'checks that the size is known
     IF Error_Happened THEN EXIT FUNCTION
-    dst$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
-    evaluatetotyp$ = "byte_element((uint64)" + dst$ + "," + bytes$ + "," + NewByteElement$ + ")"
-    IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-    IF targettyp = -6 THEN evaluatetotyp$ = dst$
+    NewByteElement: evaluatetotyp$ = "@"
+    IF targettyp = -5 THEN evaluatetotyp$ = "@"
+    IF targettyp = -6 THEN evaluatetotyp$ = "@"
     EXIT FUNCTION
 END IF
 
@@ -2785,9 +2764,9 @@ IF (sourcetyp AND ISARRAY) THEN
         IF (sourcetyp AND ISFIXEDLENGTH) = 0 THEN
             e$ = refer(e$, sourcetyp, 0)
             IF Error_Happened THEN EXIT FUNCTION
-            evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + e$ + "->len," + NewByteElement$ + ")"
-            IF targettyp = -5 THEN evaluatetotyp$ = e$ + "->len"
-            IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
+            NewByteElement: evaluatetotyp$ = "@"
+            IF targettyp = -5 THEN evaluatetotyp$ = "@"
+            IF targettyp = -6 THEN evaluatetotyp$ = "@"
             EXIT FUNCTION
         END IF
     END IF
@@ -2801,7 +2780,6 @@ IF (sourcetyp AND ISARRAY) THEN
     IF Error_Happened THEN EXIT FUNCTION
     e$ = refer(e$, sourcetyp, 0)
     IF Error_Happened THEN EXIT FUNCTION
-    e$ = "(&(" + e$ + "))"
     '           print "CI: array: e$["+e$+"], bytes$["+bytes$+"]":sleep 1
     'calculate size of elements
     IF sourcetyp AND ISSTRING THEN
@@ -2809,10 +2787,9 @@ IF (sourcetyp AND ISARRAY) THEN
     ELSE
         bytes = (sourcetyp AND 511) \ 8
     END IF
-    bytes$ = bytes$ + "-(" + str2(bytes) + "*(" + index$ + "))"
-    evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + bytes$ + "," + NewByteElement$ + ")"
-    IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-    IF targettyp = -6 THEN evaluatetotyp$ = e$
+    NewByteElement: evaluatetotyp$ = "@"
+    IF targettyp = -5 THEN evaluatetotyp$ = "@"
+    IF targettyp = -6 THEN evaluatetotyp$ = "@"
     EXIT FUNCTION
 END IF
 
@@ -2828,11 +2805,10 @@ IF sourcetyp AND ISSTRING THEN
     ELSE
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
-        bytes$ = e$ + "->len"
     END IF
-    evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + bytes$ + "," + NewByteElement$ + ")"
-    IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-    IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
+    NewByteElement: evaluatetotyp$ = "@"
+    IF targettyp = -5 THEN evaluatetotyp$ = "@"
+    IF targettyp = -6 THEN evaluatetotyp$ = "@"
     EXIT FUNCTION
 END IF
 
@@ -2840,9 +2816,9 @@ END IF
 e$ = refer(e$, sourcetyp, 1) 'get the variable's formal name
 IF Error_Happened THEN EXIT FUNCTION
 size = (sourcetyp AND 511) \ 8 'calculate its size in bytes
-evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + str2(size) + "," + NewByteElement$ + ")"
-IF targettyp = -5 THEN evaluatetotyp$ = str2(size)
-IF targettyp = -6 THEN evaluatetotyp$ = e$
+NewByteElement: evaluatetotyp$ = "@"
+IF targettyp = -5 THEN evaluatetotyp$ = "@"
+IF targettyp = -6 THEN evaluatetotyp$ = "@"
 EXIT FUNCTION
 
 END IF '-2 byte_element(offset,bytes)

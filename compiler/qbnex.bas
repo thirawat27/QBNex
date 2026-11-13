@@ -2213,15 +2213,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                                         END IF
                                                         IF id.ret = 0 THEN a$ = "Invalid FUNCTION return type": GOTO errmes
 
-                                                        IF declaringlibrary THEN
-
-                                                            ctype$ = typ2ctyp$(id.ret, "")
-                                                            IF Error_Happened THEN GOTO errmes
-                                                            IF ctype$ = "qbs" THEN ctype$ = "char*"
-                                                            id.callname = "(  " + ctype$ + "  )" + RTRIM$(id.callname)
-
-                                                        END IF
-
                                                         s$ = LEFT$(symbol$, 1)
                                                         IF s$ <> "~" AND s$ <> "`" AND s$ <> "%" AND s$ <> "&" AND s$ <> "!" AND s$ <> "#" AND s$ <> "$" THEN
                                                             symbol$ = type2symbol$(symbol$)
@@ -3833,15 +3824,6 @@ IF n >= 1 THEN
 
     IF sf = 1 THEN
         rettyp = id.ret
-        t$ = typ2ctyp$(id.ret, "")
-        IF Error_Happened THEN GOTO errmes
-        IF t$ = "qbs" THEN t$ = "qbs*"
-
-        IF declaringlibrary THEN
-            IF rettyp AND ISSTRING THEN
-                t$ = "char*"
-            END IF
-        END IF
 
         IF declaringlibrary THEN GOTO declibjmp2
 
@@ -4029,11 +4011,9 @@ IF n >= 1 THEN
                             GOTO decudt
                         END IF
                     NEXT
-                    t$ = typ2ctyp$(0, t2$)
-
+                    t$ = typkind$(0, t2$)
                     IF Error_Happened THEN GOTO errmes
-                    IF t$ = "qbs" THEN
-                        t$ = "char*"
+                    IF t$ = "str" THEN
                         IF byvalue = 1 THEN a$ = "STRINGs cannot be passed using BYVAL": GOTO errmes
                         byvalue = 1 'use t$ as is
                     END IF
@@ -4051,16 +4031,14 @@ IF n >= 1 THEN
                 t$ = ""
                 typ = id.t 'the typ of the ID created by dim2
 
-                t$ = typ2ctyp$(typ, "")
+                t$ = typkind$(typ, "")
                 IF Error_Happened THEN GOTO errmes
-
-
                 IF t$ = "" THEN a$ = "Cannot find C type to return array data": GOTO errmes
                 'searchpoint
                 'get the name of the variable
                 r$ = refer$(str2$(currentid), id.t, 1)
                 IF Error_Happened THEN GOTO errmes
-                IF t$ = "qbs" THEN
+                IF t$ = "str" THEN
                     u$ = str2$(uniquenumber)
 
 
@@ -4894,13 +4872,13 @@ IF n >= 1 THEN
             ELSE
 
                 'non-float
-                t = 1: t$ = "int64"
+                t = 1
                 IF (typ AND ISUNSIGNED) THEN
-                    IF (typ AND 511) <= 32 THEN t = 7: t$ = "uint32"
-                    IF (typ AND 511) > 32 THEN t = 2: t$ = "uint64"
+                    IF (typ AND 511) <= 32 THEN t = 7
+                    IF (typ AND 511) > 32 THEN t = 2
                 ELSE
-                    IF (typ AND 511) <= 32 THEN t = 6: t$ = "int32"
-                    IF (typ AND 511) > 32 THEN t = 1: t$ = "int64"
+                    IF (typ AND 511) <= 32 THEN t = 6
+                    IF (typ AND 511) > 32 THEN t = 1
                 END IF
                 IF (typ AND ISUDT) = 0 AND (typ AND ISARRAY) = 0 AND (typ AND ISREFERENCE) <> 0 THEN
                     controlvalue(controllevel) = VAL(e$)
@@ -5653,12 +5631,6 @@ IF n >= 2 THEN
             t = CVL(id.arg)
             B = t AND 511
             IF B = 0 OR (t AND ISARRAY) <> 0 OR (t AND ISFLOAT) <> 0 OR (t AND ISSTRING) <> 0 OR (t AND ISOFFSETINBITS) <> 0 THEN a$ = "Only SUB arguments of integer-type allowed": GOTO errmes
-            IF B = 8 THEN ct$ = "int8"
-            IF B = 16 THEN ct$ = "int16"
-            IF B = 32 THEN ct$ = "int32"
-            IF B = 64 THEN ct$ = "int64"
-            IF t AND ISOFFSET THEN ct$ = "ptrszint"
-            IF t AND ISUNSIGNED THEN ct$ = "u" + ct$
 
             e$ = getelements$(ca$, i, n)
             IrOnEventSub IrOnStrigHead$(optI$, optController$, optPassed$), onEvSubId, e$
@@ -5876,12 +5848,6 @@ IF n >= 2 THEN
             t = CVL(id.arg)
             B = t AND 511
             IF B = 0 OR (t AND ISARRAY) <> 0 OR (t AND ISFLOAT) <> 0 OR (t AND ISSTRING) <> 0 OR (t AND ISOFFSETINBITS) <> 0 THEN a$ = "Only SUB arguments of integer-type allowed": GOTO errmes
-            IF B = 8 THEN ct$ = "int8"
-            IF B = 16 THEN ct$ = "int16"
-            IF B = 32 THEN ct$ = "int32"
-            IF B = 64 THEN ct$ = "int64"
-            IF t AND ISOFFSET THEN ct$ = "ptrszint"
-            IF t AND ISUNSIGNED THEN ct$ = "u" + ct$
 
             e$ = getelements$(ca$, i, n)
             IrOnEventSub IrOnTimerHead$(e3$, e2$), onEvSubId, e$
@@ -6009,12 +5975,6 @@ IF n >= 2 THEN
             t = CVL(id.arg)
             B = t AND 511
             IF B = 0 OR (t AND ISARRAY) <> 0 OR (t AND ISFLOAT) <> 0 OR (t AND ISSTRING) <> 0 OR (t AND ISOFFSETINBITS) <> 0 THEN a$ = "Only SUB arguments of integer-type allowed": GOTO errmes
-            IF B = 8 THEN ct$ = "int8"
-            IF B = 16 THEN ct$ = "int16"
-            IF B = 32 THEN ct$ = "int32"
-            IF B = 64 THEN ct$ = "int64"
-            IF t AND ISOFFSET THEN ct$ = "ptrszint"
-            IF t AND ISUNSIGNED THEN ct$ = "u" + ct$
 
             e$ = getelements$(ca$, i, n)
             IrOnEventSub IrOnKeyHead$(e2$), onEvSubId, e$
@@ -7715,7 +7675,6 @@ IF n >= 1 THEN
             e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp2 + "," + sp + tlayout$ + sp + SCase$("As") + sp + typ$
             e$ = evaluatetotyp(e$, t): IF Error_Happened THEN GOTO errmes
-            st$ = typ2ctyp$(t, "")
             varsize$ = str2((t AND 511) \ 8)
             IF NoChecks THEN
                 'fast version:
@@ -8227,7 +8186,7 @@ IF n > 1 THEN
                         END IF
                     ELSE
                         IF t AND ISUNSIGNED THEN
-                            setrefer e$, t, "func_file_input_uint64(tmp_fileno)", 1
+                            setrefer e$, t, "", 1
                             IF Error_Happened THEN GOTO errmes
                         ELSE
                             setrefer e$, t, "func_file_input_int64(tmp_fileno)", 1
@@ -8540,10 +8499,6 @@ IF firstelement$ = "SWAP" THEN
             i = INSTR(e$, sp3): o2$ = RIGHT$(e$, LEN(e$) - i)
             'WARNING: u2 may need minor modifications based on e to see if they are the same
             IF u <> u2 OR e2 <> 0 THEN a$ = "Expected SWAP with similar user defined type": GOTO errmes
-            dst$ = "(((char*)" + lhsscope$ + n$ + ")+(" + o$ + "))"
-            src$ = "(((char*)" + scope$ + n2$ + ")+(" + o2$ + "))"
-            B = udtxsize(u) \ 8
-            siz$ = str2$(B)
             GOTO finishedline
         END IF 'e=0
     END IF 'i
@@ -9077,8 +9032,6 @@ IF (targettyp AND ISSTRING) = 0 THEN
                 e$ = "(void*)( ((char*)(" + n$ + ")) + (" + o$ + ") )"
 
                 'convert void* to target type*
-                IF passudtelement THEN e$ = "(" + typ2ctyp$(targettyp2 + (targettyp AND ISUNSIGNED), "") + "*)" + e$
-                IF Error_Happened THEN GOTO errmes
 
             ELSE
                 'not a udt
@@ -9092,10 +9045,6 @@ IF (targettyp AND ISSTRING) = 0 THEN
                 END IF
 
                 'note: signed/unsigned mismatch requires casting
-                IF (sourcetyp AND ISUNSIGNED) <> (targettyp AND ISUNSIGNED) THEN
-                    e$ = "(" + typ2ctyp$(targettyp2 + (targettyp AND ISUNSIGNED), "") + "*)" + e$
-                    IF Error_Happened THEN GOTO errmes
-                END IF
 
             END IF 'udt?
 
@@ -9177,8 +9126,6 @@ END IF
 
 IF (targettyp AND ISPOINTER) THEN 'pointer required
 IF (targettyp AND ISSTRING) THEN GOTO sete 'no changes required
-t$ = typ2ctyp$(targettyp, "")
-IF Error_Happened THEN GOTO errmes
 v$ = "pass" + str2$(uniquenumber)
 'assume numeric type
 IF MID$(sfcmemargs(targetid), i, 1) = CHR$(1) THEN 'cmem required?
@@ -10084,7 +10031,7 @@ IF recompile THEN
                 ELSE
                     typ = typ - ISUDT - ISREFERENCE - ISPOINTER
                     IF typ AND ISARRAY THEN typ = typ - ISARRAY
-                    t$ = typ2ctyp$(typ, "")
+                    t$ = typkind$(typ, "")
                     IF Error_Happened THEN EXIT FUNCTION
                     o2$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
                     r$ = "*" + "(" + t$ + "*)" + o2$
@@ -10235,17 +10182,16 @@ IF recompile THEN
 
 
         SUB setrefer (a2$, typ2 AS LONG, e2$, method AS LONG)
+            'Checks an assignment of e2$ to the reference a2$ (and declares what the
+            'evaluation needs); the QIR for it comes from the IrRhs* state set here.
+            'method: 0 evaluate e$ to the reference's type
+            '        1 e$ is used as is
             a$ = a2$: typ = typ2: e$ = e2$
             IF method <> 1 THEN e$ = fixoperationorder$(e$)
             IF Error_Happened THEN EXIT SUB
             tl$ = tlayout$
             IrRhsState = ""
             IF method <> 1 THEN IrRhsSrc = e2$: IrRhsFixed = e$: IrRhsLayout = tl$: IrRhsState = IrSymState$
-
-            'method: 0 evaulatetotyp e$
-            '        1 skip evaluation of e$ and use as is
-            '*due to the complexity of setting a reference with a value/string
-            ' this function handles the problem
 
             'retrieve ID
             i = INSTR(a$, sp3)
@@ -10259,20 +10205,15 @@ IF recompile THEN
 
             'UDT?
             IF typ AND ISUDT THEN
-
-                'print "setrefer-ing a UDT!"
                 u = VAL(a$)
                 i = INSTR(a$, sp3): a$ = RIGHT$(a$, LEN(a$) - i): E = VAL(a$)
-                i = INSTR(a$, sp3): o$ = RIGHT$(a$, LEN(a$) - i)
-                n$ = "UDT_" + RTRIM$(id.n): IF id.t = 0 THEN n$ = "ARRAY_" + n$ + "[0]"
 
                 IF E <> 0 AND u = 1 THEN 'Setting _MEM type elements is not allowed!
                 Give_Error "Cannot set read-only element of _MEM TYPE": EXIT SUB
             END IF
 
             IF E = 0 THEN
-                'use u and u's size
-
+                'the whole UDT: the right side must be the same type
                 IF method <> 0 THEN Give_Error "Unexpected internal code reference to UDT": EXIT SUB
                 lhsscope$ = scope$
                 e$ = evaluate(e$, t2)
@@ -10280,211 +10221,72 @@ IF recompile THEN
                 IF (t2 AND ISUDT) = 0 THEN Give_Error "Expected = similar user defined type": EXIT SUB
 
                 IF (t2 AND ISREFERENCE) = 0 THEN
-                    IF t2 AND ISPOINTER THEN
-                        src$ = "((char*)" + e$ + ")"
-                        e2 = 0: u2 = t2 AND 511
-                    ELSE
-                        src$ = "((char*)&" + e$ + ")"
-                        e2 = 0: u2 = t2 AND 511
-                    END IF
-                    GOTO directudt
+                    e2 = 0: u2 = t2 AND 511
+                ELSE
+                    idnumber2 = VAL(e$)
+                    getid idnumber2
+                    IF Error_Happened THEN EXIT SUB
+                    i = INSTR(e$, sp3): e$ = RIGHT$(e$, LEN(e$) - i): u2 = VAL(e$)
+                    i = INSTR(e$, sp3): e$ = RIGHT$(e$, LEN(e$) - i): e2 = VAL(e$)
                 END IF
-
-                '****problem****
-                idnumber2 = VAL(e$)
-                getid idnumber2
-
-
-                IF Error_Happened THEN EXIT SUB
-                n2$ = "UDT_" + RTRIM$(id.n): IF id.t = 0 THEN n2$ = "ARRAY_" + n2$ + "[0]"
-                i = INSTR(e$, sp3): e$ = RIGHT$(e$, LEN(e$) - i): u2 = VAL(e$)
-                i = INSTR(e$, sp3): e$ = RIGHT$(e$, LEN(e$) - i): e2 = VAL(e$)
-                i = INSTR(e$, sp3): o2$ = RIGHT$(e$, LEN(e$) - i)
-                'WARNING: u2 may need minor modifications based on e to see if they are the same
-
-                'we have now established we have 2 pointers to similar data types!
-                'ASSUME BYTE TYPE!!!
-                src$ = "((char*)" + scope$ + n2$ + ")+(" + o2$ + ")"
-                directudt:
                 IF u <> u2 OR e2 <> 0 THEN Give_Error "Expected = similar user defined type": EXIT SUB
-                dst$ = "((char*)" + lhsscope$ + n$ + ")+(" + o$ + ")"
-
-                'print "setFULLUDTrefer!"
-
                 tlayout$ = tl$
                 EXIT SUB
-
             END IF 'e=0
 
             IF typ AND ISOFFSETINBITS THEN Give_Error "Cannot resolve bit-length variables inside user defined types": EXIT SUB
             IF typ AND ISSTRING THEN
-                IF typ AND ISFIXEDLENGTH THEN
-                    o2$ = "(((uint8*)" + scope$ + n$ + ")+(" + o$ + "))"
-                    r$ = "qbs_new_fixed(" + o2$ + "," + str2(udtetypesize(E)) + ",1)"
-                ELSE
-                    r$ = "*((qbs**)((char*)(" + scope$ + n$ + ")+(" + o$ + ")))"
-                END IF
                 IF method = 0 THEN e$ = evaluatetotyp(e$, STRINGTYPE - ISPOINTER)
                 IF Error_Happened THEN EXIT SUB
             ELSE
                 typ = typ - ISUDT - ISREFERENCE - ISPOINTER
                 IF typ AND ISARRAY THEN typ = typ - ISARRAY
-                t$ = typ2ctyp$(typ, "")
-                IF Error_Happened THEN EXIT SUB
-                o2$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
-                r$ = "*" + "(" + t$ + "*)" + o2$
                 IF method = 0 THEN e$ = evaluatetotyp(e$, typ)
                 IF Error_Happened THEN EXIT SUB
             END IF
-
-            'print "setUDTrefer:"+r$,e$
             tlayout$ = tl$
-            IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
             EXIT SUB
         END IF
 
-
         'array?
         IF id.arraytype THEN
-            n$ = RTRIM$(id.callname)
             typ = typ - ISPOINTER - ISREFERENCE 'typ now looks like a regular value
-
-            IF (typ AND ISSTRING) THEN
-                IF (typ AND ISFIXEDLENGTH) THEN
-                    offset$ = "&((uint8*)(" + n$ + "[0]))[tmp_long*" + str2(id.tsize) + "]"
-                    r$ = "qbs_new_fixed(" + offset$ + "," + str2(id.tsize) + ",1)"
-                    IF method = 0 THEN
-                        l$ = "if (!new_error) qbs_set(" + r$ + "," + evaluatetotyp(e$, typ) + ");"
-                        IF Error_Happened THEN EXIT SUB
-                    ELSE
-                        l$ = "if (!new_error) qbs_set(" + r$ + "," + e$ + ");"
-                    END IF
+            IF (typ AND ISSTRING) = 0 AND (typ AND ISOFFSETINBITS) = 0 THEN
+                'a numeric element must be one of the stored sizes
+                b = typ AND 511: ok = 0
+                IF typ AND ISFLOAT THEN
+                    IF b = 32 OR b = 64 OR b = 256 THEN ok = 1
                 ELSE
-                    IF method = 0 THEN
-                        l$ = "if (!new_error) qbs_set( ((qbs*)(((uint64*)(" + n$ + "[0]))[tmp_long]))," + evaluatetotyp(e$, typ) + ");"
-                        IF Error_Happened THEN EXIT SUB
-                    ELSE
-                        l$ = "if (!new_error) qbs_set( ((qbs*)(((uint64*)(" + n$ + "[0]))[tmp_long]))," + e$ + ");"
-                    END IF
+                    IF b = 8 OR b = 16 OR b = 32 OR b = 64 THEN ok = 1
+                    IF typ AND ISOFFSET THEN ok = 1
                 END IF
-                tlayout$ = tl$
-                IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
-                EXIT SUB
+                IF ok = 0 THEN Give_Error "Cannot find C type to return array data": EXIT SUB
             END IF
-
-            IF (typ AND ISOFFSETINBITS) THEN
-                'r$ = "setbits_" + str2(typ AND 511) + "("
-                r$ = "setbits(" + str2(typ AND 511) + ","
-                r$ = r$ + "(uint8*)(" + n$ + "[0])" + ",tmp_long,"
-                IF method = 0 THEN
-                    l$ = "if (!new_error) " + r$ + evaluatetotyp(e$, typ) + ");"
-                    IF Error_Happened THEN EXIT SUB
-                ELSE
-                    l$ = "if (!new_error) " + r$ + e$ + ");"
-                END IF
-                tlayout$ = tl$
-                EXIT SUB
-            ELSE
-                t$ = ""
-                IF (typ AND ISFLOAT) THEN
-                    IF (typ AND 511) = 32 THEN t$ = "float"
-                    IF (typ AND 511) = 64 THEN t$ = "double"
-                    IF (typ AND 511) = 256 THEN t$ = "long double"
-                ELSE
-                    IF (typ AND ISUNSIGNED) THEN
-                        IF (typ AND 511) = 8 THEN t$ = "uint8"
-                        IF (typ AND 511) = 16 THEN t$ = "uint16"
-                        IF (typ AND 511) = 32 THEN t$ = "uint32"
-                        IF (typ AND 511) = 64 THEN t$ = "uint64"
-                        IF typ AND ISOFFSET THEN t$ = "uptrszint"
-                    ELSE
-                        IF (typ AND 511) = 8 THEN t$ = "int8"
-                        IF (typ AND 511) = 16 THEN t$ = "int16"
-                        IF (typ AND 511) = 32 THEN t$ = "int32"
-                        IF (typ AND 511) = 64 THEN t$ = "int64"
-                        IF typ AND ISOFFSET THEN t$ = "ptrszint"
-                    END IF
-                END IF
-            END IF
-            IF t$ = "" THEN Give_Error "Cannot find C type to return array data": EXIT SUB
             IF method = 0 THEN
-                l$ = "if (!new_error) ((" + t$ + "*)(" + n$ + "[0]))[tmp_long]=" + evaluatetotyp(e$, typ) + ";"
+                e$ = evaluatetotyp(e$, typ)
                 IF Error_Happened THEN EXIT SUB
-            ELSE
-                l$ = "if (!new_error) ((" + t$ + "*)(" + n$ + "[0]))[tmp_long]=" + e$ + ";"
             END IF
-
             tlayout$ = tl$
             EXIT SUB
         END IF 'array
 
         'variable?
         IF id.t THEN
-            r$ = RTRIM$(id.n)
             t = id.t
             'remove irrelavant flags
             IF (t AND ISINCONVENTIONALMEMORY) THEN t = t - ISINCONVENTIONALMEMORY
             typ = t
-
-            'string variable?
-            IF (t AND ISSTRING) THEN
-                IF (t AND ISFIXEDLENGTH) THEN
-                    r$ = scope$ + "STRING" + str2(id.tsize) + "_" + r$
+            IF method = 0 THEN
+                IF (t AND ISSTRING) THEN
+                    e$ = evaluatetotyp(e$, ISSTRING)
+                ELSEIF (t AND ISOFFSETINBITS) THEN
+                    IF (t AND ISUNSIGNED) THEN e$ = evaluatetotyp(e$, 64& + ISUNSIGNED) ELSE e$ = evaluatetotyp(e$, 64&)
                 ELSE
-                    r$ = scope$ + "STRING_" + r$
+                    e$ = evaluatetotyp(e$, t - ISPOINTER)
                 END IF
-                IF method = 0 THEN e$ = evaluatetotyp(e$, ISSTRING)
                 IF Error_Happened THEN EXIT SUB
-                tlayout$ = tl$
-                IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
-                EXIT SUB
             END IF
-
-            'bit-length variable?
-            IF (t AND ISOFFSETINBITS) THEN
-                b = t AND 511
-                IF (t AND ISUNSIGNED) THEN
-                    r$ = "*" + scope$ + "UBIT" + str2(t AND 511) + "_" + r$
-                    IF method = 0 THEN e$ = evaluatetotyp(e$, 64& + ISUNSIGNED)
-                    IF Error_Happened THEN EXIT SUB
-                    l$ = r$ + "=(" + e$ + ")&" + str2(bitmask(b)) + ";"
-                ELSE
-                    r$ = "*" + scope$ + "BIT" + str2(t AND 511) + "_" + r$
-                    IF method = 0 THEN e$ = evaluatetotyp(e$, 64&)
-                    IF Error_Happened THEN EXIT SUB
-                    l$ = "if ((" + r$ + "=" + e$ + ")&" + str2(2 ^ (b - 1)) + "){"
-                    'signed bit is set
-                    l$ = r$ + "|=" + str2(bitmaskinv(b)) + ";"
-                    'signed bit is not set
-                    l$ = r$ + "&=" + str2(bitmask(b)) + ";"
-                END IF
-                tlayout$ = tl$
-                IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
-                EXIT SUB
-            END IF
-
-            'standard variable?
-            IF t = BYTETYPE THEN r$ = "*" + scope$ + "BYTE_" + r$: GOTO sref
-            IF t = UBYTETYPE THEN r$ = "*" + scope$ + "UBYTE_" + r$: GOTO sref
-            IF t = INTEGERTYPE THEN r$ = "*" + scope$ + "INTEGER_" + r$: GOTO sref
-            IF t = UINTEGERTYPE THEN r$ = "*" + scope$ + "UINTEGER_" + r$: GOTO sref
-            IF t = LONGTYPE THEN r$ = "*" + scope$ + "LONG_" + r$: GOTO sref
-            IF t = ULONGTYPE THEN r$ = "*" + scope$ + "ULONG_" + r$: GOTO sref
-            IF t = INTEGER64TYPE THEN r$ = "*" + scope$ + "INTEGER64_" + r$: GOTO sref
-            IF t = UINTEGER64TYPE THEN r$ = "*" + scope$ + "UINTEGER64_" + r$: GOTO sref
-            IF t = SINGLETYPE THEN r$ = "*" + scope$ + "SINGLE_" + r$: GOTO sref
-            IF t = DOUBLETYPE THEN r$ = "*" + scope$ + "DOUBLE_" + r$: GOTO sref
-            IF t = FLOATTYPE THEN r$ = "*" + scope$ + "FLOAT_" + r$: GOTO sref
-            IF t = OFFSETTYPE THEN r$ = "*" + scope$ + "OFFSET_" + r$: GOTO sref
-            IF t = UOFFSETTYPE THEN r$ = "*" + scope$ + "UOFFSET_" + r$: GOTO sref
-            sref:
-            t2 = t - ISPOINTER
-            IF method = 0 THEN e$ = evaluatetotyp(e$, t2)
-            IF Error_Happened THEN EXIT SUB
-            l$ = r$ + "=" + e$ + ";"
             tlayout$ = tl$
-
-            IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
             EXIT SUB
         END IF 'variable
 
@@ -11099,7 +10901,7 @@ SUB xread (ca$, n)
                     END IF
                 ELSE
                     IF t AND ISUNSIGNED THEN
-                        setrefer e$, t, "func_read_uint64(data,&data_offset,data_size)", 1
+                        setrefer e$, t, "", 1
                         IF Error_Happened THEN EXIT SUB
                     ELSE
                         setrefer e$, t, "func_read_int64(data,&data_offset,data_size)", 1
@@ -11190,10 +10992,11 @@ END FUNCTION
 '$INCLUDE:'includes\support.bas'
 
 
-FUNCTION NewByteElement$
-    a$ = "byte_element_" + str2$(uniquenumber)
-    NewByteElement$ = a$
-END FUNCTION
+SUB NewByteElement
+    'takes the next unique number, as the byte_element temporaries once did, so
+    'the numbers later code takes (and the QIR labels made from them) stay the same
+    u = uniquenumber
+END SUB
 
 FUNCTION validname (a$)
     'notes:
