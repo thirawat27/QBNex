@@ -51,8 +51,9 @@ Native executables:
 - Windows is tested on the development machine. Linux (ELF) and macOS
   (Mach-O) are built and tested in CI only.
 
-Both kinds are about the same size and speed: a hello world is about
-8.5 MB and starts in about 48 ms.
+Both kinds are about the same size and speed: on Windows x64 a hello world
+is about 12.7 MB (the whole runtime: graphics, sound, network, JIT) and
+starts in under 0.1 s.
 
 ## DECLARE LIBRARY
 

@@ -15,8 +15,7 @@ qb hello.bas -w               # แสดงคำเตือนด้วย
 
 ถ้าไม่ใส่ `-o` ไฟล์ executable จะไปอยู่ในโฟลเดอร์ QBNex (โฟลเดอร์ที่มี `qb`
 และ `crates/`) เหมือน QB64 ถ้าตั้ง `-s:exewithsource=true` จะไปอยู่ข้างไฟล์
-source แทน เมื่อทำงานในโฟลเดอร์อื่นให้ระบุไฟล์ source เป็น path เต็ม
-(ดู[ข้อบกพร่องที่รู้แล้ว](differences.md))
+source แทน path ของ source แบบ relative จะนับจากโฟลเดอร์ปัจจุบัน
 
 | Switch | ความหมาย |
 | --- | --- |
@@ -108,3 +107,15 @@ editor จะเรียกให้เอง (VS Code กด F5) ตัวม�
 | `QB_JIT=off` / `eager` / `<n>` | runner ของ QIR: ไม่ใช้ JIT, คอมไพล์ทันที หรือคอมไพล์หลัง loop วนครบ n รอบ |
 | `QB_GPU=off` / `verbose` | build ที่เปิดฟีเจอร์ GPU: ไม่ใช้ GPU เลย / log ว่าเลือกอะไร |
 | `QBNEX_HEADLESS` | รันโปรแกรมกราฟิกโดยไม่เปิดหน้าต่าง (ใช้ตอนทดสอบ) |
+| `QB_JIT_THREADS=<n>` | จำนวน thread ที่ JIT ใช้คอมไพล์ (ค่าเริ่มต้น: ทุก thread ของ CPU) |
+| `QB_JIT_STATS=1` | พิมพ์สถิติของ JIT รวมถึงเวลาคอมไพล์ ออกทาง stderr |
+| `QB_PROFILE=<file>` | เขียนฟังก์ชันและบรรทัดที่ใช้เวลามากที่สุด พร้อมจำนวนครั้งที่เรียกและเวลารวม ลงไฟล์เมื่อโปรแกรมจบ (สุ่มเก็บทุก 1 มิลลิวินาที ควรใช้คู่กับ `QB_JIT=off`) |
+| `QB_EXEC_DISASM=1` | พิมพ์ bytecode ที่ runner แปลงจาก QIR ออกทาง stderr |
+| `QB_GPU_FALLBACK=1` | build ที่เปิดฟีเจอร์ GPU: การวาดแบบ offscreen (headless) ใช้เฉพาะ adapter แบบ software เช่น WARP บน Windows |
+| `QBNEX_NATIVE_KIT=<dir>` | โฟลเดอร์ native kit ที่จะใช้แทน `native/` ข้าง runner |
+| `QBNEX_INPUT_SCRIPT=<file>` | ป้อนเหตุการณ์คีย์บอร์ด เมาส์ และหน้าต่างจาก script (ใช้ตอนทดสอบ บรรทัดละหนึ่งคำสั่ง: `wait 100`, `key a`, `type Hi`, `click 1`, `close`, `snapshot`, `pixel x y`, ... รายการเต็มอยู่ต้นไฟล์ `crates/runtime/core/src/script.rs`) |
+| `QBNEX_FB_CAPTURE=<file>` | เขียนต่อท้ายภาพของหน้าจอที่แสดงลงไฟล์ทุกครั้งที่ `_DISPLAY` และตอนจบโปรแกรม (ใช้ใน conformance test) |
+| `QB_AUDIO_DEVICE=null` / `none` | อุปกรณ์เสียงเงียบที่เดินตามเวลาจริง / ไม่เปิดเสียงเลย (ใช้ตอนทดสอบ) |
+| `QBNEX_LPRINT=<file>` | `LPRINT` และ `_PRINTIMAGE` เขียนต่อท้ายไฟล์ข้อความนี้แทนการพิมพ์ |
+| `QB_GL=off` | ไม่สร้าง OpenGL context: `SUB _GL` จะไม่ถูกเรียก |
+| `NO_COLOR` | ตั้งค่าใดก็ได้: คอมไพเลอร์พิมพ์โดยไม่มีสี เหมือน `-m` |

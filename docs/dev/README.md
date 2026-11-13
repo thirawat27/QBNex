@@ -5,10 +5,10 @@ User documentation: [docs/manual](../manual/README.md).
 
 | Document | Contents |
 | --- | --- |
-| [qir.md](qir.md) | The QIR text format: types, instructions, the builtin table. The crate `crates/compiler/ir` is normative where they differ. |
+| [qir.md](qir.md) | The QIR text format: types, instructions, the builtin table (mostly in Thai). The crate `crates/compiler/ir` is normative where they differ. |
 | [deviations.md](deviations.md) | The `L-xx` (legacy defects) and `D-xx` (intentional deviations) IDs used in code comments, conformance cases and the manual. |
 | [ffi-float80.md](ffi-float80.md) | `DECLARE LIBRARY` calls (`crates/engine/ffi`) and the software 80-bit `_FLOAT` (`crates/runtime/float80`). |
-| [3d-api.md](3d-api.md) | Design of the high-level 3D API (`_MESH`, `_CAMERA`, `_LIGHT`). |
+| [3d-api.md](3d-api.md) | Design and implementation notes of the high-level 3D API (`_MESH`, `_CAMERA`, `_LIGHT`, `_SHADER`), in Thai. |
 
 ## Pipeline
 

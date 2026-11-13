@@ -1,7 +1,7 @@
 === IMPORTANT LICENSING NOTE FOR QBNEX PROGRAMMERS ===
 The QBNex runtime that is in your programs (the QIR runner qb-exec, crates/engine/exec, which every compiled
-program and the qb compiler itself are a copy of, with the Rust runtime crates/runtime/core + crates/runtime/audio
-linked in) is licensed under the GPL-3.0-or-later with the QBNex Compiled Program Exception
+program and the qb compiler itself are a copy of, with the Rust runtime crates/runtime/core, crates/runtime/audio,
+crates/runtime/ext, crates/runtime/float80, crates/engine/jit and crates/engine/ffi linked in) is licensed under the GPL-3.0-or-later with the QBNex Compiled Program Exception
 (LICENSE-EXCEPTION.txt). The exception lets you license a program you compile with QBNex under any terms,
 without publishing its source.
 FreeType, FreeGLUT, GLEW, zlib, miniaudio, stb_vorbis and the other C libraries of the QB64 runtime are no
@@ -48,7 +48,20 @@ License: MIT
 License File: license_xmrs.txt
 Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (crate crates/runtime/audio)
 
-Software/Library Name: All other Rust crates of the runtime (cpal, winit, softbuffer, gilrs, skrifa, ab_glyph_rasterizer, png, zune-jpeg, miniz_oxide, windows-sys, ...)
-License: MIT, Apache-2.0, Zlib, BSD-2-Clause, BSD-3-Clause, ISC, BSL-1.0, Unicode-3.0 or Unlicense (most offer MIT OR Apache-2.0); each crate and its license is listed in THIRD_PARTY.TXT
+Software/Library Name: Cranelift (Rust crates cranelift-*, the JIT and native code generator)
+Website: https://github.com/bytecodealliance/wasmtime/tree/main/cranelift
+License: Apache-2.0 WITH LLVM-exception
+License Website: https://www.apache.org/licenses/LICENSE-2.0 (the LLVM exception: https://spdx.org/licenses/LLVM-exception.html)
+License File: license_apache_2_0.txt
+Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (crate crates/engine/jit)
+
+Software/Library Name: webpki-roots (Mozilla's root certificates, used by the HTTPS client of ext.http)
+Website: https://github.com/rustls/webpki-roots
+License: CDLA-Permissive-2.0
+License Website: https://cdla.dev/permissive-2-0/
+Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (crate crates/runtime/ext)
+
+Software/Library Name: All other Rust crates of the runtime (cpal, winit, softbuffer, gilrs, skrifa, png, zune-jpeg, zlib-rs, zip, regex, rustls, windows-sys, ...)
+License: MIT, Apache-2.0, Zlib, BSD-1-Clause, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, BSL-1.0, Unicode-3.0, CC0-1.0, MIT-0 or Unlicense (most offer MIT OR Apache-2.0); each crate and its license is listed in THIRD_PARTY.TXT
 License File(s): THIRD_PARTY.TXT, license_apache_2_0.txt (the MIT, BSD, ISC and Zlib texts are in each crate's source at https://crates.io/)
 Location in QBNex distribution: linked into the runner qb-exec, crates/engine/exec/bin/*/ (and so into qb and every compiled program)

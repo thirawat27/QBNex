@@ -91,3 +91,5 @@ _FREEMESH box&: _FREELIGHT lamp&
 | `_LIGHTON l&, on&` · `_FREELIGHT l&` | เปิดปิด (เปิดพร้อมกันได้สูงสุด 8 ดวง), คืนหน่วยความจำ |
 | `_CLEAR3D [colour~&]` | ล้างสีและ depth ของชั้น 3 มิติ |
 | `_GPU3D` | คืน -1 เมื่อวาด 3 มิติได้ |
+| `_SHADER(wgsl$)` · `_SHADERERROR$` | คอมไพล์ฟังก์ชัน WGSL `fn shade(i: ShadeIn) -> vec4<f32>` คืน -1 เมื่อคอมไพล์ไม่ผ่าน และ `_SHADERERROR$` บอกบรรทัด คอลัมน์ และเหตุผล |
+| `_SHADERPARAM sh&, index&, value!` · `_MESHSHADER m&, sh&` · `_FREESHADER sh&` | ตั้งพารามิเตอร์ 1 ใน 16 ตัว, วาด mesh ด้วย shader นั้น (0 = แสงปกติ), คืนหน่วยความจำ |

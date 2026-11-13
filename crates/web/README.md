@@ -1,8 +1,8 @@
 # qb-web — QBNex programs in a browser
 
 `qb-web` is the QBNex VM (`qb-exec`, no JIT) compiled to WebAssembly. Nothing is
-compiled in the browser: you compile a program once with `qb --ir`, and the page
-runs the resulting QIR.
+compiled in the browser: you compile a program once with `qb prog.bas -o prog.qir`
+(or `--emit-ir`), and the page runs the resulting QIR.
 
 ## 1. Build the wasm module
 
@@ -12,9 +12,10 @@ Needs Rust with the `wasm32-unknown-unknown` target (`rustup target add wasm32-u
 cargo build -p qb-web --release --target wasm32-unknown-unknown
 ```
 
-The module is `target/wasm32-unknown-unknown/release/qb_web.wasm`, about 4 MB.
-The port's notes use `CARGO_TARGET_DIR=target/wasm` so this build does not
-disturb the native one. On a machine short of memory, also set
+The module is `target/wasm32-unknown-unknown/release/qb_web.wasm`, about 4 MB;
+copy it into `www/`. With `CARGO_TARGET_DIR=target/wasm` the build does not
+disturb the native one and lands where `serve.mjs` looks for it
+(`target/wasm/wasm32-unknown-unknown/release/`). On a machine short of memory, also set
 `CARGO_BUILD_JOBS=1` and pass
 `--config 'profile.release.package.qb-exec.codegen-units=16'`.
 
@@ -26,8 +27,8 @@ qb prog.bas -o prog.qir
 
 A `.qir` output name (or `--emit-ir`) makes the compiler write the program's
 QIR text instead of an executable. That text is what the page runs.
-`www/examples/*.qir` and `tests/fixtures/*.qir` were made this way from the
-`.bas` files next to them.
+`www/examples/*.qir` and `tests/fixtures/*.qir` (in this crate) were made this way
+from the `.bas` files next to them.
 
 ## 3. Serve the page
 

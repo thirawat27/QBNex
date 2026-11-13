@@ -95,16 +95,19 @@ These features provide OS-level access and should be used carefully with untrust
 
 ### External Dependencies
 
-QBNex relies on several third-party libraries:
+Since 2.0 the runner and runtime are Rust crates; no C or C++ library is
+compiled into QBNex. The main third-party crates are:
 
-- **OpenGL/FreeGLUT**: Graphics rendering
-- **GLEW**: OpenGL extension loading
-- **miniaudio**: Cross-platform audio output
-- **FreeType**: TrueType font rendering
-- **STB Image**: Image format loading
-- **Platform-specific libraries**: ALSA (Linux), CoreAudio (macOS), WinMM (Windows)
+- **winit, softbuffer**: window and software presentation
+- **wgpu**: optional GPU presentation and 3D
+- **cpal**: audio output (WASAPI, CoreAudio, ALSA)
+- **symphonia, xmrs**: sound file decoding
+- **skrifa**: TrueType font rendering
+- **image decoders** (PNG, JPEG, BMP, ...) and compression
+- **Cranelift**: the JIT and native code
 
-We monitor these dependencies for security updates and incorporate patches as needed.
+The full list with licenses is `licenses/THIRD_PARTY.TXT`. CI runs a dependency
+audit (`ci.yml`) and Dependabot (`.github/dependabot.yml`) proposes updates.
 
 ## Best Practices for QBNex Developers
 
@@ -133,8 +136,8 @@ The QBNex compiler itself:
 
 - Runs with user permissions only
 - Does not require elevated privileges
-- Generates self-contained binaries
-- Can include source in output for transparency (`SaveExeWithSource` setting)
+- Generates self-contained binaries: a copy of the runner with the program's QIR appended
+- Does not sign its output; signing a compiled program would break the appended QIR
 
 ## Known Limitations
 
@@ -158,6 +161,6 @@ We appreciate responsible disclosure from the security community and will credit
 
 ---
 
-**Last Updated**: April 11, 2024
+**Last Updated**: November 13, 2026
 
 **Contact**: For security concerns, contact the project maintainer through GitHub Issues (for non-sensitive matters) or email for sensitive vulnerabilities.

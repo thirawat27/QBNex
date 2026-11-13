@@ -91,3 +91,5 @@ _FREEMESH box&: _FREELIGHT lamp&
 | `_LIGHTON l&, on&` · `_FREELIGHT l&` | Switch (at most 8 lights on), free. |
 | `_CLEAR3D [colour~&]` | Clear colour and depth of the 3D layer. |
 | `_GPU3D` | -1 when 3D can be drawn. |
+| `_SHADER(wgsl$)` · `_SHADERERROR$` | Compile a WGSL function `fn shade(i: ShadeIn) -> vec4<f32>`; -1 when it does not compile, and `_SHADERERROR$` gives the line, column and reason. |
+| `_SHADERPARAM sh&, index&, value!` · `_MESHSHADER m&, sh&` · `_FREESHADER sh&` | Set one of 16 parameters, draw a mesh with the shader (0 = normal lighting), free. |

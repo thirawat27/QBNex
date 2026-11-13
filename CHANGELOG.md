@@ -5,109 +5,122 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-13
+
+QBNex 2.0 has no C or C++ left: programs are compiled to QIR and run by a Rust
+runtime. Old QBasic/QB64 programs compile and behave as before, except for the
+fixes listed in `docs/manual/en/differences.md`. This entry collects every change
+made after 1.0.4.
 
 ### Changed
 
-- The compiler's build screen: a shaded logo shading from periwinkle through sky blue and mint to light green, icons, the source file, a progress bar redrawn in place with a carriage return, the line count and the build time. Help, version, info, examples, warnings and diagnostics use the same colors; `-m` and `NO_COLOR` now turn the diagnostics' colors off too. It no longer runs together on one line or writes over the shell prompt. `-m` or the `NO_COLOR` environment variable keeps plain ASCII output.
+#### Compiler and runtime
+
+- The compiler emits QIR (the QBNex intermediate representation) instead of C++. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
+- The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/runtime/core`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
 - The compiler no longer builds any C++ text. Messages that named the C++ compiler or a C type now describe the QIR build: "Cannot find C type to return array data" is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
-- Rust 1.100.0 is the required toolchain (`rust-toolchain.toml`, `rust-version`).
+- Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library, still without a C/C++ toolchain.
+- `-z`, `-p` and `--ir` are accepted for old scripts and change nothing. `--emit-ir` (or an `-o` name ending in `.qir`) writes the program's QIR text, for `qb-web`.
+- `-s` shows and sets `exewithsource` (save the executable next to the source) and `debuginfo` (kept for old scripts, no effect). Settings live in `target/qb-config.ini`.
+
+#### Console and build screen
+
+- The compiler's build screen: a shaded logo shading from periwinkle through sky blue and mint to light green, icons, the source file, a progress bar redrawn in place with a carriage return, the line count and the build time. Help, version, info, examples, warnings and diagnostics use the same colors. It no longer runs together on one line or writes over the shell prompt. `-m` or the `NO_COLOR` environment variable keeps plain ASCII output and turns the diagnostics' colors off too.
 - Console programs on Linux and macOS: `COLOR` shows the QBasic colors (1 is blue, 4 is red; before, the terminal's ANSI order swapped them), and `CSRLIN`/`POS` read the terminal's cursor. LOCATE, COLOR and CLS go through the `crossterm` library. On a Windows console, `COLOR` 16 to 255 now shows the 256-color palette (as a VT sequence) instead of a wrong 16-color attribute. On every system, text PRINTed before `LOCATE`, `COLOR`, `CLS`, `CSRLIN` or `POS` now reaches the console first.
-- License: QBNex is now licensed under the GNU General Public License, version 3 or later, with the QBNex Compiled Program Exception (`LICENSE-EXCEPTION.txt`): programs compiled with QBNex may be licensed under any terms. The parts that come from QB64 keep their MIT license (`licenses/QB64.txt`). Releases made before this change remain available under the MIT license. Added `NOTICE.txt`, `TRADEMARKS.md` (use of the name and logo) and `CLA.md` (contributor agreement).
+
+#### Performance
+
+- The compiler is about 25-30% faster with the same QIR output: a 10,000-line program compiles in 14.7 s instead of 20.2 s, a 5,000-line one in 7.3 s instead of 10.5 s, a 10,500-line program with 300 SUBs in 24.0 s instead of 32.3 s, and the compiler itself in 41 s instead of 51 s. An assignment's right side is fixed once instead of twice; the element, operator and symbol lookups take shorter paths (scalar caches, a hash that spreads names over the whole table, an index for the used-variable list); `qb-exec` runs the pure string builtins (UCASE$, LTRIM$, STR$, VAL, MKL$, ...) without the runtime's name dispatch. `QB_PROFILE` also reports inclusive time and exact call counts per function and per caller.
+- Compiling large programs is about 10 times faster (10,000 lines: 20 s instead of 250 s): reading part of a long STRING variable (`LEN`, `ASC`, `MID$`, `LEFT$`, `RIGHT$`, `INSTR`, comparisons) no longer copies the whole string first.
+- The JIT and `qb-exec build` compile a big program much faster: native code writes frame slots through to memory instead of writing every slot back at each exit (that made Cranelift time grow with slots x exits), already-complete blocks are sealed at once, and the functions are compiled to machine code on all CPU threads while the IR of the next ones is built. A 10,500-line program (305 functions) now compiles in 0.3 s instead of 13.8 s (1.5 s on one thread); its run time and a hot-loop benchmark are unchanged. `QB_JIT_THREADS` sets the number of compiler threads, `QB_JIT_STATS=1` also prints compile times.
+- A large program no longer stalls at its first hot loop while the JIT compiles it: big modules are compiled on a background thread while the program keeps running (a 10,500-line program: 1.7 s instead of 16 s). The JIT also declares only the functions each function calls.
+
+#### Build, repository and CI
+
+- No MinGW, g++ or CMake: `scripts/setup_win.cmd`, `scripts/setup_lnx.sh` and `scripts/setup_osx.command` build `qb-exec` with cargo, pack the bootstrap compiler `bootstrap/qbnex.qir` into `qb-stage0`, and let it compile `compiler/qbnex.bas` into `qb`. `internal/` is gone. `scripts/selfhost_fixpoint.*` checks that the compiler rebuilds itself to the same QIR.
+- Reorganized the repository: compiler sources moved from `source/` to `compiler/`; the runtime is a Cargo workspace in `crates/` (`compiler/`, `engine/`, `runtime/`, `tools/`, `web/`); tests live under `tests/` (`smoke/`, `fixtures/`, `conformance/`, `docs/`); setup scripts moved to `scripts/`, Docker files to `docker/`, the VS Code extension to `packaging/vscode/`.
+- Rust 1.100.0 is the required toolchain (`rust-toolchain.toml`, `rust-version`). All crates share the workspace version (2.0.0).
+- CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables on Linux, macOS and Windows x64) plus `release.yml`, and `docs.yml` compiles the BASIC examples of the README and the manual; they run with read-only repository permissions.
+- `release.yml` signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set (Windows: `signtool` with a `.pfx`; macOS: `codesign` and `notarytool`) and skips with a notice otherwise; the secrets are listed in CONTRIBUTING.md. The macOS and Linux CI build no longer fails on the conformance harness, the smoke tests keep the system `TMPDIR` (macOS sets it), and each smoke script runs under the shell its first line names.
+- Release bundles include `qb-fmt`, `qb-lsp` and `qb-dap`, next to the one-file installers.
+- Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
+
+#### License
+
+- QBNex is now licensed under the GNU General Public License, version 3 or later, with the QBNex Compiled Program Exception (`LICENSE-EXCEPTION.txt`): programs compiled with QBNex may be licensed under any terms. The parts that come from QB64 keep their MIT license (`licenses/QB64.txt`). Releases made before this change remain available under the MIT license. Added `NOTICE.txt`, `TRADEMARKS.md` (use of the name and logo) and `CLA.md` (contributor agreement).
 
 ### Added
 
-- One-file installer `qbnex-setup` (crate `crates/tools/setup`): releases publish `qbnex_<tag>_<os>-setup(.exe)`, which installs per user without administrator rights (Windows: `%LOCALAPPDATA%\Programs\QBNex`, user PATH, Apps & features entry; Linux/macOS: `~/.local/share/qbnex` with links in `~/.local/bin`) and uninstalls with `--uninstall`. Release bundles now include `qb-fmt`, `qb-lsp` and `qb-dap`.
+#### Language
+
+- Language extensions: `ENUM`, `FOR EACH`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `$"..{expr}.."` interpolation, `_IIF`, `_TOSTR$`, `_ANDALSO`/`_ORELSE`, `_CONTINUE`, `$ASSERTS`/`_ASSERT` (see `docs/manual/en/language.md`).
 - `DEF FN` functions, single-line (`DEF FnName(params) = expression`) and multi-line (`DEF FnName ... END DEF`, with `EXIT DEF` and STATIC variables).
 - `RANDOMIZE` without a seed asks for one, as in QBasic.
 - `VARPTR$` of a STRING variable, for `DRAW "X"` and `PLAY "X"`.
 - `_ECHO` writes a line to the console.
 - `ON KEY(n) SubName` and `ON TIMER(x) SubName`, also inside a SUB or FUNCTION.
-- `LPRINT`, `LPRINT USING`, `LPOS` and `WIDTH LPRINT`: pages of 60 lines go to the default printer (Windows), to `lp` (Linux, macOS) or, with `QBNEX_LPRINT=<file>`, to a text file. `_PRINTIMAGE` prints an image the same way.
-- `CHAIN` passes the COMMON variables (numbers, STRINGs, fixed-length strings, TYPEs) to the next program by position.
-- `CHAIN` also passes COMMON arrays, in order with the variables: numeric, fixed-length string and TYPE arrays with their bounds and values, STRING arrays element by element. A dynamic array arrives with the passed bounds; a static array of the same size gets the values.
-- `CALL INTERRUPTX` and the `INTERRUPT[X] n, in, out` form; `_MEMFILL` of a variable without `AS type`; `_MEMGET` into a variable-length STRING; `_MEM` of a fixed-length STRING array.
 - `ON STRIG(n) GOSUB` (and `ON STRIG(n) SubName`) with `STRIG(n) ON/OFF/STOP`: the handler runs when the joystick button is pressed.
-- ALT+ENTER switches a window between windowed, stretched and square-pixel full screen; `_ALLOWFULLSCREEN` limits the modes or, with `_OFF`, leaves the keys to the program.
 - `ON PLAY(n) GOSUB` and `PLAY ON/OFF/STOP`: the handler runs when the background music queue drops below n notes.
-- A silent audio device: without an output device (or with `QB_AUDIO_DEVICE=null`) sound is mixed in real time and discarded, so `PLAY(n)`, `ON PLAY(n) GOSUB` and sound timing work as with speakers. `QB_AUDIO_DEVICE=none` still starts no audio at all.
+- `CHAIN` passes the COMMON variables (numbers, STRINGs, fixed-length strings, TYPEs) and COMMON arrays to the next program by position: numeric, fixed-length string and TYPE arrays with their bounds and values, STRING arrays element by element. A dynamic array arrives with the passed bounds; a static array of the same size gets the values.
+- `LPRINT`, `LPRINT USING`, `LPOS` and `WIDTH LPRINT`: pages of 60 lines go to the default printer (Windows), to `lp` (Linux, macOS) or, with `QBNEX_LPRINT=<file>`, to a text file. `_PRINTIMAGE` prints an image the same way.
+- `CALL INTERRUPTX` and the `INTERRUPT[X] n, in, out` form; `_MEMFILL` of a variable without `AS type`; `_MEMGET` into a variable-length STRING; `_MEM` of a fixed-length STRING array.
 - `_MEM(a$)` of a variable-length STRING (an extension; QB64 rejects it): a block over the string's current characters, one byte per element, valid until the string is assigned again. `_MEM` of a variable-length STRING array stays an error with a clearer message.
 - `_MEMFILL` of a value that is not a variable, without `AS type`, uses the value's own type (its suffix, or the type of the expression).
 - `TIME$ = "hh:mm:ss"` and `DATE$ = "mm-dd-yyyy"` (also `hh`, `hh:mm`, `mm/dd/yy`) set a clock of the program: TIME$, DATE$ and TIMER count on from the set time; the system clock is not changed. A badly formed value raises illegal function call, as in QBasic.
 
+#### Graphics, window and sound
+
+- 3D API (preview): `_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA`, `_LIGHT`, `_AMBIENT`, `_CLEAR3D`, `_GPU3D` and user WGSL shaders (`_SHADER`, `_SHADERPARAM`, `_MESHSHADER`), drawn with wgpu by a runtime built with the `gpu` feature; without a GPU the statements run and draw nothing. `_MAPTRIANGLE` 3D keeps its software renderer.
+- `SUB _GL` and the `_gl*` functions run on a real OpenGL context (WGL, EGL/GLX, CGL; an offscreen one when headless); `QB_GL=off` turns it off (D-14).
+- The QB64 keywords the QIR back end did not compile yet now compile and run: `_RESIZE`/`$RESIZE`, `_WINDOWHASFOCUS`, `_WINDOWHANDLE`, file drop, `_FPS`, `_ICON`, `_PRINTSTRING`, `_MEMIMAGE`, `_SCREENIMAGE`, `_SCREENCLICK`, `_SCREENPRINT`, `_MOUSEMOVE`, mouse pipes, `_DEVICES` and the device functions with `STICK` and `STRIG`, `_MAPUNICODE`, `LOCK`/`UNLOCK`, console input, cursor and font, `SHELL` with `_HIDE` and `_DONTWAIT`. QuickBASIC statements old programs still contain (`FRE`, `SETMEM`, `FILEATTR`, `IOCTL`, `PEN`, ...) compile and answer as a machine with plenty of memory and no light pen (see the limitations page).
+- Variable-length `STRING` fields in `TYPE`.
+- ALT+ENTER switches a window between windowed, stretched and square-pixel full screen; `_ALLOWFULLSCREEN` limits the modes or, with `_OFF`, leaves the keys to the program.
+- A silent audio device: without an output device (or with `QB_AUDIO_DEVICE=null`) sound is mixed in real time and discarded, so `PLAY(n)`, `ON PLAY(n) GOSUB` and sound timing work as with speakers. `QB_AUDIO_DEVICE=none` still starts no audio at all.
+
+#### Standard library, tools and installer
+
+- `ext.*` standard library modules backed by Rust (`ext.regex`, `ext.hash`, `ext.zip`, `ext.http`, `ext.utf8`, `ext.collections`, `ext.datetime`; shared plumbing in `ext.core`).
+- Tools: formatter `qb-fmt`, language server `qb-lsp`, debugger `qb-dap` (run as `qbnex fmt|lsp|dap`), a VS Code extension (`packaging/vscode`), and a WebAssembly build of the runner (`crates/web`).
+- One-file installer `qbnex-setup` (crate `crates/tools/setup`): releases publish `qbnex_<tag>_<os>-setup(.exe)`, which installs per user without administrator rights (Windows: `%LOCALAPPDATA%\Programs\QBNex`, user PATH, Start menu, Apps & features entry; Linux/macOS: `~/.local/share/qbnex` with links in `~/.local/bin` and a "QBNex Terminal" menu entry) and uninstalls with `--uninstall`. A setup window leads through the license, the folder and the optional tasks (desktop shortcut, "Compile with QBNex" for `.bas` files), shows the progress and can be cancelled (a cancelled or failed install puts back what was there); without a display it asks in the terminal. `--yes`, `--dir`, `--no-path`, `--no-menu`, `--desktop`, `--associate`, `--console` (and `/S`, `/DIR=`) script it. It keeps the user's PATH entries and files.
+- User manual in English and Thai (`docs/manual`), checked by `tests/docs/check_docs.ps1`.
+
 ### Fixed
 
+- Integer `\` and `MOD` by zero raise a catchable error 11; runtime errors with redirected output go to stderr with exit code 1; and the other intentional changes listed in `docs/manual/en/differences.md`.
 - DOUBLE and `_FLOAT` numbers print like QBasic 4.5 and QB64 in `PRINT`, `STR$`, `PRINT #` and `WRITE`: `d# = 2.5: PRINT d#` shows ` 2.5` instead of ` 2.50`, 42 shows ` 42` instead of ` 42.0` (at most 16 significant digits, no trailing zeros).
 - Module code with labels placed after the SUBs (an `ON ERROR` handler, a `GOSUB` target) compiles and runs at module level; its variables are the main module's.
-- `DATE$` and `TIME$` returned an empty string; they give the local date (`mm-dd-yyyy`) and time (`hh:mm:ss`) again.
-- `TIMER` without an argument ticks 18.2 times a second (a SINGLE counted from local midnight), as in QBasic and QB64.
-- `LINE INPUT #` on a BINARY file reads a final line of 1 or 2 bytes.
-- `TIMER ON` after `TIMER STOP` delivers the event queued during the stop.
-- A failed `_MEMGET` check of 0 bytes reports the check error instead of error 518.
-- `SUB _GL` without a visible window (`QBNEX_HEADLESS`) draws into an offscreen OpenGL framebuffer, and its frame (with the software screen per `_GLRENDER`) now reaches the window layer, so input-script snapshots show it. Input scripts get `pixel x y`.
-- A second `OPEN "COMn:..."` parses its options instead of failing with `Bad file name`.
-- Native images (`qb-exec build`) of programs that use TYPEs or fixed-length strings in SUBs ran only by chance: the bytecode lowering allocated registers in hash-map order.
-- An empty `$IMPORT` head file no longer stops the compiler with internal error 62.
-- `ON TIMER(x) SubName` compiled without error but never called the SUB.
-- `CALL INTERRUPT` compiled to nothing: INT 33h (mouse) calls now answer as under `CALL ABSOLUTE`.
-- `CHAIN "name"` without a directory runs the program in the current directory on Linux and macOS too.
 - Module code with labels after an `$INCLUDE` that brings the SUBs is moved in front of the first SUB of that file, so its labels work too.
 - Module code moved in front of a first SUB that is in an `$INCLUDE` file now lands after what that file declares before the SUB, so it can use the file's `DIM SHARED` variables, `TYPE`s and `CONST`s. A runtime error in an included file names the line in that file (error message, `_INCLERRORLINE`, `_INCLERRORFILE$`), also in that moved code.
 - Module code with labels after the SUBs inside an `$INCLUDE` file (also a nested one) is moved in front of the first SUB as well, so an `ON ERROR` or `GOSUB` label there compiles; a compile error in that code still names the included file and its line.
+- `DATE$` and `TIME$` returned an empty string; they give the local date (`mm-dd-yyyy`) and time (`hh:mm:ss`) again.
+- `TIMER` without an argument ticks 18.2 times a second (a SINGLE counted from local midnight), as in QBasic and QB64.
+- `TIMER ON` after `TIMER STOP` delivers the event queued during the stop.
+- `ON TIMER(x) SubName` compiled without error but never called the SUB.
+- `LINE INPUT #` on a BINARY file reads a final line of 1 or 2 bytes.
+- A failed `_MEMGET` check of 0 bytes reports the check error instead of error 518.
+- `SUB _GL` without a visible window (`QBNEX_HEADLESS`) draws into an offscreen OpenGL framebuffer, and its frame (with the software screen per `_GLRENDER`) now reaches the window layer, so input-script snapshots show it. Input scripts get `pixel x y`.
+- The window follows the size of the screen page: SCREEN 12 no longer loses its bottom 80 rows, and SCREEN 9 no longer shows a black band.
+- A second `OPEN "COMn:..."` parses its options instead of failing with `Bad file name`.
+- Native images (`qb-exec build`) of programs that use TYPEs or fixed-length strings in SUBs ran only by chance: the bytecode lowering allocated registers in hash-map order.
+- An empty `$IMPORT` head file no longer stops the compiler with internal error 62.
+- `CALL INTERRUPT` compiled to nothing: INT 33h (mouse) calls now answer as under `CALL ABSOLUTE`.
+- `CHAIN "name"` without a directory runs the program in the current directory on Linux and macOS too.
+- `CHAIN` inside a SUB or FUNCTION works when a COMMON variable or array is not SHARED (the build stopped with `QIR: unsupported`). COMMON variables and arrays no longer make the whole program run in the slower memory mode. `RUN file$` and `CHAIN` replace the program on Linux and macOS (exec); on Windows the program closes its files, stops its sound and hides its window before it waits, and ends with the other program's exit code.
+- `REDIM _PRESERVE a(UBOUND(b))`, and any `DIM`/`REDIM` whose bounds read another array, resizes `a` again instead of `b`.
 - Name lookups of `_OPENCLIENT` and friends give up after 10 seconds instead of blocking forever.
-- Compiling large programs is about 10 times faster (10,000 lines: 20 s instead of 250 s): reading part of a long STRING variable (`LEN`, `ASC`, `MID$`, `LEFT$`, `RIGHT$`, `INSTR`, comparisons) no longer copies the whole string first.
-- A large program no longer stalls at its first hot loop while the JIT compiles it: big modules are compiled on a background thread while the program keeps running (a 10,500-line program: 1.7 s instead of 16 s). The JIT also declares only the functions each function calls.
 - Closing the window while the first `SOUND`, `PLAY` or other sound statement opens the audio device ends the program at once instead of after the device is up (0.4-1 s).
 - A tight `SOUND` or `PLAY` loop no longer queues audio until memory runs out (3 GB in 5 s, then a crash): like the QBasic music buffer, a statement waits while more than 10 seconds of sound per voice is queued.
 - `SOUND`, `BEEP` and `PLAY` follow `PLAY "MF"`/`"MB"`: in `MF` (the QBasic default) the statement returns once its notes have played; after `MB` it returns at once, with the 10-second queue limit. A window close during the wait ends the program at once.
-- `CHAIN` inside a SUB or FUNCTION works when a COMMON variable or array is not SHARED (the build stopped with `QIR: unsupported`). COMMON variables and arrays no longer make the whole program run in the slower memory mode. `RUN file$` and `CHAIN` replace the program on Linux and macOS (exec); on Windows the program closes its files, stops its sound and hides its window before it waits, and ends with the other program's exit code.
-- `REDIM _PRESERVE a(UBOUND(b))`, and any `DIM`/`REDIM` whose bounds read another array, resizes `a` again instead of `b`.
 
 ### Security
 
 - `_CONNECTIONADDRESS` of a host asks api.ipify.org over HTTPS instead of plain HTTP.
 - CI actions are pinned to commit SHAs.
 
-### Changed
-
-- The compiler is about 25-30% faster with the same QIR output: a 10,000-line program compiles in 14.7 s instead of 20.2 s, a 5,000-line one in 7.3 s instead of 10.5 s, a 10,500-line program with 300 SUBs in 24.0 s instead of 32.3 s, and the compiler itself in 41 s instead of 51 s. An assignment's right side is fixed once instead of twice; the element, operator and symbol lookups take shorter paths (scalar caches, a hash that spreads names over the whole table, an index for the used-variable list); `qb-exec` runs the pure string builtins (UCASE$, LTRIM$, STR$, VAL, MKL$, ...) without the runtime's name dispatch. `QB_PROFILE` also reports inclusive time and exact call counts per function and per caller.
-- The JIT and `qb-exec build` compile a big program much faster: native code writes frame slots through to memory instead of writing every slot back at each exit (that made Cranelift time grow with slots x exits), already-complete blocks are sealed at once, and the functions are compiled to machine code on all CPU threads while the IR of the next ones is built. A 10,500-line program (305 functions) now compiles in 0.3 s instead of 13.8 s (1.5 s on one thread); its run time and a hot-loop benchmark are unchanged. `QB_JIT_THREADS` sets the number of compiler threads, `QB_JIT_STATS=1` also prints compile times.
-- CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables) plus `release.yml`; it runs with read-only repository permissions.
-- `release.yml` signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set (Windows: `signtool` with a `.pfx`; macOS: `codesign` and `notarytool`) and skips with a notice otherwise; the secrets are listed in CONTRIBUTING.md. The macOS and Linux CI build no longer fails on the conformance harness, the smoke tests keep the system `TMPDIR` (macOS sets it), and each smoke script runs under the shell its first line names.
-- Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
-
 ### Removed
 
-- One-shot migration scripts (`scripts/reorg_crates*.ps1`), the legacy C++ oracle helpers (`tests/conformance/oracle`) the corpus harness that needed the removed C++ backend (`tests/corpus-run`) and the Inno Setup script (`packaging/installer`), replaced by `qbnex-setup`.
-
-## [2.0.0] - 2026-11-11
-
-QBNex 2.0 has no C or C++ left: programs are compiled to QIR and run by a Rust
-runtime. Old QBasic/QB64 programs compile and behave as before, except for the
-fixes listed in `docs/manual/en/differences.md`.
-
-### Changed
-
-#### Compiler and runtime
-- The compiler emits QIR (the QBNex intermediate representation) instead of C++. A compiled program is the Rust runner `qb-exec` with the program's QIR appended: QIR is lowered to bytecode, run on a register VM, and hot loops are compiled to native code with Cranelift.
-- The whole runtime (screen, graphics, fonts, images, sound, files, network, `_MEM`, `_FLOAT`, `DECLARE LIBRARY` calls) is Rust (`crates/runtime/core`, `qb-audio`, `qb-float80`, `qb-ffi`, `qb-gpu`); no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is linked. Behaviour was checked against the old runtime with conformance and differential tests.
-- Native executables (preview): with the native kit next to the runner, the compiler links ordinary executables through `rust-lld` and the `qb-native` library, still without a C/C++ toolchain.
-- `-z`, `-p` and `--ir` are accepted for old scripts and change nothing.
-
-#### Build
-- No MinGW, g++ or CMake: `scripts/setup_win.cmd` and `scripts/setup_lnx.sh` build `qb-exec` with cargo, pack the bootstrap compiler `bootstrap/qbnex.qir` into `qb-stage0`, and let it compile `compiler/qbnex.bas` into `qb`. `internal/` is gone.
-- Reorganized the repository: compiler sources moved from `source/` to `compiler/`; the runtime is a Cargo workspace in `crates/`; tests live under `tests/` (`smoke/`, `fixtures/`, `conformance/`); setup scripts moved to `scripts/`, Docker files to `docker/`, the installer to `packaging/installer/`.
-- All crates share the workspace version (2.0.0).
-
-### Added
-- Language extensions: `ENUM`, `FOR EACH`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `$"..{expr}.."` interpolation, `_IIF`, `_TOSTR$`, `_ANDALSO`/`_ORELSE`.
-- 3D API (`_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, `_LOADMODEL`) with a GPU path and a software renderer.
-- `ext.*` standard library modules backed by Rust (`ext.regex`, `ext.http`, ...).
-- Tools: formatter `qb-fmt`, language server `qb-lsp`, debugger `qb-dap`, a VS Code extension (`packaging/vscode`), and a WebAssembly build of the runner (`crates/web`).
-- User manual in English and Thai (`docs/manual`), checked by `tests/docs/check_docs.ps1`.
-
-### Fixed
-- Integer `\` and `MOD` by zero raise a catchable error 11; runtime errors with redirected output go to stderr with exit code 1; and the other intentional changes listed in `docs/manual/en/differences.md`.
+- The C++ back end and runtime: `internal/` (libqb, the C++ build scripts, MinGW downloads), the CMake build and the `-z` C++ output.
+- One-shot migration scripts (`scripts/reorg_crates*.ps1`), the legacy C++ oracle helpers (`tests/conformance/oracle`), the corpus harness that needed the removed C++ backend (`tests/corpus-run`) and the Inno Setup script (`packaging/installer`), replaced by `qbnex-setup`.
 
 ## [1.0.4] - 2026-05-05
 
@@ -426,28 +439,24 @@ fixes listed in `docs/manual/en/differences.md`.
 - **Minor**: New features, backward-compatible enhancements
 - **Patch**: Bug fixes, performance improvements, documentation updates
 
-### Development Channels
-- Stable releases use standard versioning (e.g., `1.0.0`)
-- Development builds may include auto-build messages from Git commits
-- Version information stored in `source/global/version.bas`
+### Where the version lives (2.0)
+- The compiler version is `Version$` in `compiler/global/version.bas` (`qb --version`); a build may add a line from `target/qb-version.txt`.
+- All Rust crates share `version` in the workspace `Cargo.toml`.
 
-### Compiler Settings
-Configuration is managed via `internal/config.ini` with the following options:
-- `SaveExeWithSource`: Include source code in compiled executable
-- `IgnoreWarnings`: Suppress warning messages during compilation
-- `DebugInfo`: Include GDB debugging information in output
+### Compiler settings (2.0)
+`qb -s` reads and writes `target/qb-config.ini`:
+- `exewithsource`: write the executable next to the source instead of the QBNex folder
+- `debuginfo`: accepted for old scripts; it has no effect
+- `IgnoreWarnings` (set in the INI file only): hide warnings
 
-### Dependencies
-Core dependencies vary by platform:
-- **Common**: OpenGL, FreeGLUT, GLEW
-- **Linux**: ALSA (`libasound2-dev`), X11, `g++`
-- **macOS**: Xcode CLT, CoreAudio, Apple GLUT, Cocoa
-- **Windows**: MinGW (automatically downloaded), Windows Multimedia
+1.x kept these in `internal/config.ini`, where `DebugInfo` added GDB symbols to the C++ build.
 
-Optional dependencies:
-- FreeType (TrueType fonts)
-- ZLIB (compression)
-- Socket libraries (networking)
+### Dependencies (2.0)
+- Building QBNex needs the Rust toolchain (`cargo`); compiled programs need nothing else.
+- Linux builds need `gcc` (as the system linker only), ALSA, udev, xkbcommon, X11 and `pkg-config` development packages.
+- Window, graphics, sound, fonts, images and compression are Rust crates (see `licenses/THIRD_PARTY.TXT`).
+
+1.x needed a C++ toolchain (MinGW, g++ or clang++) with OpenGL, FreeGLUT, GLEW, FreeType, ZLIB and the platform audio libraries.
 
 ---
 

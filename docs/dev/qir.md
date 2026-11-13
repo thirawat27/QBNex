@@ -151,6 +151,7 @@ string ↔ ตัวเลขทำผ่าน builtin (`STR$.*`, `VAL`)
 | op | ความหมาย |
 | --- | --- |
 | `dim $a n %lb1 %ub1 .. %lbn %ubn` | สร้าง n มิติ; ถ้า DIM อยู่แล้ว → **error 10**; `ub < lb` → error 9 |
+| `dims $a n ...` | DIM ของ array แบบ static (bound เป็นค่าคงที่ QBasic จองครั้งเดียว): สร้างเฉพาะเมื่อยังไม่มีข้อมูล (ไม่ error 10) และ ERASE แค่ล้างค่า |
 | `redim $a n ...` | ทิ้งค่าเดิมแล้วสร้างใหม่ (ค่าเริ่ม 0/ว่าง) |
 | `redimp $a n ...` | `REDIM _PRESERVE`: คง byte ส่วนต้นเท่าที่ขนาดใหม่รับได้ (เหมือน QB64), ส่วนที่เพิ่มเป็น 0 |
 | `erase $a` | คืนหน่วยความจำ, array กลับเป็นไม่ได้ DIM |
@@ -216,6 +217,7 @@ statement ในส่วน THEN/ELSE ของ IF บรรทัดเดี�
 | --- | --- |
 | `onerror L` / `onerror 0` | ตั้ง/ยกเลิก handler. **L เป็น label ใน `main` เสมอ** (กฎของ QB) แม้ op อยู่ใน SUB |
 | `ontimer %s %x L` | ON TIMER: `%s` i32 = slot (0 = `ON TIMER(x)`, อื่นๆ จาก `_FREETIMER`), `%x` f64 = วินาที; L เป็น label ใน `main`; handler รันแบบ GOSUB ระดับ module ที่ safe point, RETURN แล้ว slot ยิงได้อีก |
+| `onkey %k L` | ON KEY: `%k` i32 = เลขปุ่ม 1..31 แบบ `KEY(n)`; L เป็น label ใน `main`; handler รันแบบ GOSUB ระดับ module เมื่อกดปุ่มนั้นขณะ `KEY(n) ON` |
 | `onplay %n L` | ON PLAY: `%n` i32 = จำนวนโน้ต (1..32); L เป็น label ใน `main`; handler รันแบบ GOSUB ระดับ module เมื่อคิวเพลงลดจาก n โน้ตเหลือน้อยกว่า n ขณะ `PLAY ON` (`rt PLAYEVENT` 1 ON, 2 OFF, 3 STOP) |
 | `onstrig %n %c L` | ON STRIG: `%n` i32 = เลขปุ่มแบบ `STRIG(n)`, `%c` i32 = เลขจอยที่เขียนเป็นอาร์กิวเมนต์ที่สอง (`i32::MIN` = ไม่ได้เขียน); L เป็น label ใน `main`; handler รันแบบ GOSUB ระดับ module เมื่อปุ่มถูกกดขณะ `STRIG(n) ON` (`STOP` เก็บการกดไว้หนึ่งครั้ง) |
 | `error %c` | ERROR n |

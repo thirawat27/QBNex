@@ -82,8 +82,9 @@ sh scripts/setup_osx.command
 
 ตัวแปรของสคริปต์ setup: `QBNEX_QB_EXEC` (ใช้ `qb-exec` ที่ build ไว้แล้ว
 แทนการ build ใหม่), `QBNEX_RUST_TARGET`, `QBNEX_BOOTSTRAP`,
-`QBNEX_QIR_PACK=ir|native`, `QBNEX_SKIP_SELFHOST=1` (หยุดที่ `qb-stage0`),
-`QBNEX_KEEP_STAGE0=1` ดูหัวไฟล์ของ `scripts/setup_win.cmd` และ
+`QBNEX_QIR_PACK=ir|native`, `QBNEX_STAGE1_ARGS` (switch เพิ่มเติมตอน stage 0
+คอมไพล์), `QBNEX_SKIP_SELFHOST=1` (หยุดที่ `qb-stage0`), `QBNEX_KEEP_STAGE0=1`
+และบน Windows `QBNEX_CI=1` (ไม่หยุดรอตอนจบ) ดูหัวไฟล์ของ `scripts/setup_win.cmd` และ
 `scripts/setup_lnx.sh`
 
 **executable แบบ native (ทดลอง):** `scripts/native-kit.ps1` (Windows) หรือ

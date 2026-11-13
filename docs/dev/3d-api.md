@@ -1,6 +1,6 @@
 # 3D API ระดับสูง (`_MESH` / `_CAMERA` / `_LIGHT`)
 
-สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test. ส่วนที่อ้าง C++ (`window_bridge.cpp`, shim `libqb`) ด้านล่างเป็นบันทึกการออกแบบยุคก่อน cutover — backend C++ ถูกลบแล้ว เส้นทางที่ใช้จริงคือ QIR อย่างเดียว.
+สถานะ: ชั้น GPU (`qb_gpu::scene`), runtime (`qb_runtime::scene3d`, C ABI `qb_3d_*`), QIR (`qb_ir` table + `qb-exec` `rt/scene3d.rs`) และ keyword ใน compiler (`compiler/subs_functions/subs_functions.bas`) มีแล้วพร้อม test. backend C++ ถูกลบแล้ว เส้นทางที่ใช้จริงคือ QIR อย่างเดียว.
 คู่มือผู้ใช้: [`docs/manual/en/graphics-3d.md`](../manual/en/graphics-3d.md). โค้ด: `crates/runtime/gpu`, `crates/runtime/core/src/scene3d.rs`.
 
 ## เป้าหมาย
@@ -70,8 +70,7 @@ f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3
 
 ข้อควรระวัง:
 
-- layer 3D ต้องประกอบบน GPU ถ้าอยากเร็ว; ระยะแรกอ่านกลับ (`read_pixels`) แล้วผสมด้วย CPU เพื่อใช้เส้นทางประกอบ frame เดิม (`window_bridge.cpp`) — ช้าแต่ถูก, ตัดทิ้งเมื่อการประกอบทั้ง frame ย้ายไป GPU (G6)
-- feature `gpu` ของ qb-runtime ยังไม่ได้ตรวจการ link แบบ staticlib กับ MinGW (wgpu ใช้ `windows` crate)
+- layer 3D อ่านกลับจาก GPU (`read_pixels`) แล้วผสมกับ frame ของ SCREEN ด้วย CPU (`qb_runtime::scene3d::compose` ซึ่ง `present` ใน `crates/engine/exec/src/rt/window.rs` และ frame capture เรียก) — ช้าแต่ถูก; การประกอบทั้ง frame บน GPU ยังไม่ได้ทำ
 - golden image ต่างกันได้ระหว่าง GPU vendor ที่ขอบสามเหลี่ยม/การปัดเศษ: test เทียบแบบมี tolerance หรือเฉพาะจุดด้านใน
 
 ## Test (qb-gpu, headless)
@@ -82,10 +81,10 @@ ambient อย่างเดียว, depth ระหว่างสอง mod
 
 ## สถานะ implementation (2026-11-11)
 
-- `_DISPLAY` (ทั้งสองเส้นทางเรียก hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; หน้าต่างผสม layer ใน `window_bridge.cpp` ผ่าน `qb_3d_present`; โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
+- `_DISPLAY` (ทั้งสองเส้นทางเรียก hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; หน้าต่างผสม layer ผ่าน `scene3d::compose` (เรียกจาก `present` ใน `crates/engine/exec/src/rt/window.rs`); โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
 - ไม่มี feature `gpu` หรือไม่มี adapter: handle/error ทำงานครบ, ไม่วาด, `_GPU3D` = 0
 - error: handle ผิด = 258, argument ผิด = 5 (`_LIGHT` kind ผิดก็ 5)
-- ต้องตรวจตอน build compiler จริง: bit ของ `passed` ต่อกลุ่ม `[...]` ใน specialformat ของ `_DRAW3D` (ตั้งใจ 1 ตำแหน่ง, 2 การหมุน, 4 scale), `{To}` ใน `_CAMERA`, และรายการ keyword ใน `crates/compiler/syntax` (LSP/formatter) ยังไม่ได้เพิ่ม
+- keyword ทั้งหมดอยู่ใน `compiler/subs_functions/subs_functions.bas` และ `crates/compiler/syntax/src/keywords.rs` (LSP/formatter) แล้ว
 
 ## G5 — `_SHADER` (WGSL ของผู้ใช้)
 
@@ -111,7 +110,7 @@ struct ShadeIn {
 
 ตรวจด้วย naga (parse + validate) ตอน `_SHADER` จึงได้ข้อความ error ที่อ่านง่ายพร้อมบรรทัด/คอลัมน์ของผู้ใช้
 ไม่ใช่ panic ของ wgpu; ปัญหาที่ไม่ได้อยู่ในข้อความผู้ใช้ (เช่น `shade` คืนชนิดผิด) แจ้งเป็น line 0 พร้อมคำแนะนำ.
-ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ. Keyword มีเฉพาะเส้นทาง QIR (ไม่มี shim C++ เพราะ libqb กำลังจะถูกลบ).
+ไม่มี feature `gpu`: เก็บ handle โดยไม่ตรวจ. Keyword มีเฉพาะเส้นทาง QIR (backend C++ ถูกลบแล้ว).
 
 ## G6 — ประสิทธิภาพ
 

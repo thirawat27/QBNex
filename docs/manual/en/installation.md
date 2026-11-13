@@ -84,9 +84,10 @@ so it needs no other files.
 
 Setup variables: `QBNEX_QB_EXEC` (use a prebuilt `qb-exec` instead of
 building it), `QBNEX_RUST_TARGET`, `QBNEX_BOOTSTRAP`,
-`QBNEX_QIR_PACK=ir|native`, `QBNEX_SKIP_SELFHOST=1` (stop at `qb-stage0`),
-`QBNEX_KEEP_STAGE0=1`. See the header of `scripts/setup_win.cmd` and
-`scripts/setup_lnx.sh`.
+`QBNEX_QIR_PACK=ir|native`, `QBNEX_STAGE1_ARGS` (extra switches for the
+stage-0 compile), `QBNEX_SKIP_SELFHOST=1` (stop at `qb-stage0`),
+`QBNEX_KEEP_STAGE0=1`, and on Windows `QBNEX_CI=1` (no pause at the end).
+See the header of `scripts/setup_win.cmd` and `scripts/setup_lnx.sh`.
 
 **Native executables (Preview):** `scripts/native-kit.ps1` (Windows) or
 `scripts/native-kit.sh` builds the native kit (`qb-native` plus the Rust

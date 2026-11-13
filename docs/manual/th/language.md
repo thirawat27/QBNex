@@ -59,7 +59,8 @@ Hello Ada, 3 new messages, {braces}
 ```
 
 ตัวเลขถูกเขียนแบบ `LTRIM$(STR$(x))` (ฟังก์ชัน `_TOSTR$`) ส่วน `{{` และ
-`}}` คือวงเล็บปีกกาตามตัวอักษร นิพจน์ใน `{}` ห้ามมีเครื่องหมาย `"`
+`}}` คือวงเล็บปีกกาตามตัวอักษร นิพจน์ใน `{}` มี string literal ได้
+เช่น `$"Hi {name$ + "!"}"`
 
 ### `FOR EACH`
 
@@ -77,8 +78,8 @@ PRINT total
  100
 ```
 
-ใช้กับ array หนึ่งมิติ วนจาก LBOUND ถึง UBOUND ตัวแปรของ loop เป็นสำเนา
-ของสมาชิก
+วนทุกสมาชิกจาก LBOUND ถึง UBOUND array หลายมิติวนโดยให้ index แรกอยู่วงนอกสุด
+ตัวแปรของ loop เป็นสำเนาของสมาชิก
 
 ### `ENUM`
 
@@ -119,9 +120,9 @@ cleanup
 ```
 
 สร้างบน `ON ERROR`: `CATCH e` เก็บหมายเลข error ไว้ใน `e` ถ้าไม่มี
-`CATCH` error จะถูกยกขึ้นอีกครั้งหลัง `FINALLY` TRY ใช้ในตัว SUB ได้
-ข้อจำกัด: TRY ใช้ได้เฉพาะในไฟล์ source หลัก (ไม่ใช่ไฟล์ `$INCLUDE`)
-keyword ของ TRY แต่ละตัวต้องอยู่บรรทัดของตัวเอง การหารจำนวนเต็มด้วยศูนย์
+`CATCH` error จะถูกยกขึ้นอีกครั้งหลัง `FINALLY` TRY ใช้ในตัว SUB และในไฟล์
+`$INCLUDE` ได้ และ keyword ของ TRY อยู่บรรทัดเดียวกับคำสั่งอื่นได้
+(`TRY: ERROR 6: CATCH e: PRINT e: END TRY`) การหารจำนวนเต็มด้วยศูนย์
 (`\` และ `MOD`) เป็น error 11 ที่ดักได้ `ON ERROR GOTO` ยังใช้ได้ตามเดิม
 
 ### พารามิเตอร์ `OPTIONAL`
@@ -256,7 +257,8 @@ x += 2
 ```
 
 - `_THROW code[, message$]` (ตอนนี้ใช้ `ERROR code`)
-- array literal, string ความยาวไม่คงที่และ array ภายใน TYPE
+- array literal และ array ภายใน TYPE (string ความยาวไม่คงที่ใน TYPE ใช้ได้แล้ว:
+  `nm AS STRING`)
 - ตัวช่วย string `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`,
   `_ENDSWITH`, `_FORMAT$` และตัวช่วย UTF-8 `_ULEN`, `_UMID$`, `_UCHR$`,
   `_UASC` (ตอนนี้ใช้โมดูล [`ext.utf8`](stdlib.md#extutf8) และ

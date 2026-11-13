@@ -1,4 +1,7 @@
-# R11d — `qb-float80` and `qb-ffi` (API for the emitter and the VM)
+# `qb-float80` and `qb-ffi` (API for the emitter and the VM)
+
+(Written during the port as phase R11; the "Legacy C++" column and the evidence
+notes describe the C++ build that was removed in 2.0.)
 
 Two Rust-only crates the QIR backend needs. Neither depends on a C compiler or a
 C library beyond the platform loader. Both use `edition = "2024"` (D16).
@@ -12,22 +15,22 @@ legacy MinGW build (FPU control word `0x037F`).
 
 ### What the VM calls for each BASIC operation
 
-| BASIC | Rust API | C ABI (JIT) | Legacy C++ it replaces |
-| --- | --- | --- | --- |
-| `a + b`, `-`, `*`, `/` on `_FLOAT` | `a + b` ... (`core::ops`) | `qb_f80_add/sub/mul/div(a, b, out)` | x87 `fadd`... |
-| unary minus | `-a` | `qb_f80_neg` | `fchs` |
-| `=`, `<`, ... | `a.compare(b) -> Option<Ordering>` (`None` = unordered) | `qb_f80_cmp` (-1/0/1, 2 unordered) | `fucomi` |
-| `a ^ b` (**every** numeric type: legacy promotes to long double) | `qb::pow2(a, b) -> Result<F80, i32>` | `qb_f80_pow` (returns error) | `pow2` -> `powl` |
-| `EXP(x##)` | `qb::exp_float` | `qb_f80_exp` | `func_exp_float` -> `expl` |
-| `FIX(x##)`, `INT(x##)` | `qb::fix_float`, `qb::int_float` | `qb_f80_fix`, `qb_f80_int` | `ceill`/`floorl` |
-| `SIN/COS/TAN/ATN(x##)` | `qb::sin` ... (through `f64`, like legacy) | `qb_f80_sin` ... | generated code called the double `sin` |
-| `LOG`, `SQR` | `qb::log`, `qb::sqr` (error 5) | `qb_f80_log`, `qb_f80_sqr` | `func_log(double)`, `func_sqr(double)` |
-| `CINT`/`CLNG`/assignment to integers | `qb::qbr(x) -> i64` | — (qb-runtime `qb_qbr_f80`) | `qbr(long double)` |
-| C casts `(int)x` etc. | `x.to_i16/to_i32/to_i64(Round::Zero)`, `x.to_u64_cast()` | `qb_f80_to_i64_trunc` | `fisttp` |
-| widen/narrow | `F80::from_i64/from_u64/from_f32/from_f64`, `x.to_f32()/to_f64()` | `qb_f80_from_*`, `qb_f80_to_f64/f32` | `fild`, `fld`, `fst` |
-| `VAL` | qb-runtime `val::val` (uses `dec::decimal_to_f80`) | `qb_val` | `func_val` |
-| `STR$`/`PRINT` of `_FLOAT` | qb-runtime `numfmt::str_f80` (formats `(double)x`) | `qb_str_f80` | `qbs_str(long double)` |
-| text | `dec::parse` (`strtold`), `dec::format_e/f/g` (`%.*Le/Lf/Lg`), `Display` (shortest) | `qb_f80_parse`, `qb_f80_format` | `__mingw_strtold`, `__mingw_snprintf` |
+| BASIC | Rust API | Legacy C++ it replaced |
+| --- | --- | --- |
+| `a + b`, `-`, `*`, `/` on `_FLOAT` | `a + b` ... (`core::ops`) | x87 `fadd`... |
+| unary minus | `-a` | `fchs` |
+| `=`, `<`, ... | `a.compare(b) -> Option<Ordering>` (`None` = unordered) | `fucomi` |
+| `a ^ b` (**every** numeric type: legacy promotes to long double) | `qb::pow2(a, b) -> Result<F80, i32>` | `pow2` -> `powl` |
+| `EXP(x##)` | `qb::exp_float` | `func_exp_float` -> `expl` |
+| `FIX(x##)`, `INT(x##)` | `qb::fix_float`, `qb::int_float` | `ceill`/`floorl` |
+| `SIN/COS/TAN/ATN(x##)` | `qb::sin` ... (through `f64`, like legacy) | generated code called the double `sin` |
+| `LOG`, `SQR` | `qb::log`, `qb::sqr` (error 5) | `func_log(double)`, `func_sqr(double)` |
+| `CINT`/`CLNG`/assignment to integers | `qb::qbr(x) -> i64` | `qbr(long double)` |
+| C casts `(int)x` etc. | `x.to_i16/to_i32/to_i64(Round::Zero)`, `x.to_u64_cast()` | `fisttp` |
+| widen/narrow | `F80::from_i64/from_u64/from_f32/from_f64`, `x.to_f32()/to_f64()` | `fild`, `fld`, `fst` |
+| `VAL` | qb-runtime `val::val` (uses `dec::decimal_to_f80`) | `func_val` |
+| `STR$`/`PRINT` of `_FLOAT` | qb-runtime `numfmt::str_f80` (formats `(double)x`) | `qbs_str(long double)` |
+| text | `dec::parse` (`strtold`), `dec::format_e/f/g` (`%.*Le/Lf/Lg`), `Display` (shortest) | `__mingw_strtold`, `__mingw_snprintf` |
 
 `Err(code)` is the BASIC error the legacy runtime raised (`5` illegal function
 call, `6` overflow); the result is then 0. The lower-level `libm::{expl, exp2l,
@@ -46,7 +49,7 @@ and `scale` are public too.
   non-integer exponent identical to the legacy build on the same machine.
   On other targets (or with feature `soft-transcendentals`) a 120-bit software
   version is used: **deviation D-111** (identical to the hardware for ~97% of
-  inputs, never more than one ulp off; measured by `diff_float80`). Integer
+  inputs, never more than one ulp off; measured by the former `diff_float80` differential test). Integer
   exponents (`x ^ 2`) never use these primitives and are exact everywhere.
 
 Evidence (before the C++ backend was removed): a differential test against real

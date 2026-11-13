@@ -60,8 +60,8 @@ Hello Ada, 3 new messages, {braces}
 ```
 
 Numbers are written like `LTRIM$(STR$(x))` (the `_TOSTR$` function).
-`{{` and `}}` are literal braces. An expression inside `{}` cannot contain
-a `"`.
+`{{` and `}}` are literal braces. An expression inside `{}` may contain
+string literals: `$"Hi {name$ + "!"}"`.
 
 ### `FOR EACH`
 
@@ -79,8 +79,8 @@ PRINT total
  100
 ```
 
-One-dimensional arrays, from LBOUND to UBOUND; the loop variable is a copy
-of the element.
+Every element from LBOUND to UBOUND; arrays with more dimensions are walked
+with the first index outermost. The loop variable is a copy of the element.
 
 ### `ENUM`
 
@@ -121,10 +121,11 @@ cleanup
 ```
 
 Built on `ON ERROR`: `CATCH e` stores the error number in `e`; without
-`CATCH` the error is raised again after `FINALLY`. TRY works inside SUBs.
-Limits: TRY only in the main source file (not in `$INCLUDE` files), each
-TRY keyword on its own line. Integer division by zero (`\` and `MOD`) is
-error 11 and can be caught. `ON ERROR GOTO` keeps working as before.
+`CATCH` the error is raised again after `FINALLY`. TRY works inside SUBs
+and in `$INCLUDE` files, and its keywords may share a line with other
+statements (`TRY: ERROR 6: CATCH e: PRINT e: END TRY`). Integer division by
+zero (`\` and `MOD`) is error 11 and can be caught. `ON ERROR GOTO` keeps
+working as before.
 
 ### `OPTIONAL` parameters
 
@@ -259,7 +260,8 @@ x += 2
 ```
 
 - `_THROW code[, message$]` (today: `ERROR code`).
-- Array literals, variable-length strings and arrays inside TYPE.
+- Array literals and arrays inside TYPE (variable-length strings inside TYPE
+  work already: `nm AS STRING`).
 - String helpers `_SPLIT`, `_JOIN$`, `_REPLACE$`, `_STARTSWITH`,
   `_ENDSWITH`, `_FORMAT$` and UTF-8 helpers `_ULEN`, `_UMID$`, `_UCHR$`,
   `_UASC` (today: the [`ext.utf8`](stdlib.md#extutf8) and

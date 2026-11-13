@@ -58,8 +58,7 @@ exponent ของ MBF เป็น 2, `STR$`
 
 ## ช่องว่างตามแพลตฟอร์ม
 
-backend QIR ยังคอมไพล์ `_SCREENIMAGE`, `_SCREENCLICK` และ `_SCREENPRINT` ไม่ได้
-(ดู[ข้อจำกัด](limitations.md#คำสั่งที่ยังไม่รองรับหรือทำงานต่างไป)) ส่วนใน runtime
+`_SCREENIMAGE`, `_SCREENCLICK` และ `_SCREENPRINT` คอมไพล์ได้ แต่
 `_SCREENIMAGE` ได้ภาพว่างบน Linux/macOS, `_SCREENCLICK` และ
 `_SCREENPRINT` ไม่ทำอะไรบน Linux, การพิมพ์ (`LPRINT`, `_PRINTIMAGE`)
 ส่งไปเครื่องพิมพ์หลักบน Windows และผ่าน `lp` บน Linux และ macOS

@@ -5,7 +5,7 @@
   
   **Modern QBasic/QuickBASIC Compiler**
   
-  > **QBNex is a modern QBasic compiler built to keep the QuickBASIC/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding a Rust runtime, a standard library, editor tools, and native binaries for Windows, Linux, and macOS.
+  > **QBNex is a modern QBasic compiler built to keep the QuickBASIC/QBasic spirit alive.** It stays true to classic BASIC compatibility, so existing ideas and code patterns still feel familiar, while adding a Rust runtime, a standard library, editor tools, and standalone executables for Windows, Linux, and macOS.
   
 </div>
 
@@ -25,14 +25,14 @@ The user manual is in [`docs/manual`](docs/manual/README.md), in English and Tha
 | [Graphics and 3D](docs/manual/en/graphics-3d.md) | [กราฟิกและ 3 มิติ](docs/manual/th/graphics-3d.md) |
 | [Web (WebAssembly) build](docs/manual/en/web.md) | [รันบนเว็บ (WebAssembly)](docs/manual/th/web.md) |
 | [VS Code, formatter, language server, debugger](docs/manual/en/vscode.md) | [VS Code, formatter, language server, debugger](docs/manual/th/vscode.md) |
-| [Differences from QB64](docs/manual/en/differences.md) | [ความแตกต่างจาก QB64](docs/manual/th/differences.md) |
+| [Differences from QB64 and QBasic](docs/manual/en/differences.md) | [ความแตกต่างจาก QB64 และ QBasic](docs/manual/th/differences.md) |
 | [Limitations and differences from QB64](docs/manual/en/limitations.md) | [ข้อจำกัดและความต่างจาก QB64](docs/manual/th/limitations.md) |
 
 Where this README and the manual disagree, the manual is the current one.
 
 Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` and `_FLOAT`,
 3D API design): [`docs/dev`](docs/dev/README.md). Building, testing and contributing:
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md). Release history: [CHANGELOG.md](CHANGELOG.md).
 เอกสารอ้างอิงสำหรับนักพัฒนาอยู่ที่ [`docs/dev`](docs/dev/README.md) และวิธี build/ทดสอบ/ร่วมพัฒนาอยู่ใน
 [CONTRIBUTING.md](CONTRIBUTING.md)
 
@@ -40,243 +40,150 @@ Developer reference (QIR format, deviation IDs `L-xx`/`D-xx`, `DECLARE LIBRARY` 
 
 ## Table of Contents
 
-- [QBNex](#qbnex)
-  - [Table of Contents](#table-of-contents)
-  - [Documentation / เอกสาร](#documentation--เอกสาร)
-  - [About](#about)
-  - [Features](#features)
-  - [System Requirements](#system-requirements)
-    - [Platform Requirements](#platform-requirements)
-    - [Dependencies](#dependencies)
-  - [Installation](#installation)
-    - [Build from Source](#build-from-source)
-    - [Docker Setup](#docker-setup)
-  - [Quick Start](#quick-start)
-  - [Usage Guide](#usage-guide)
-    - [Basic Compilation](#basic-compilation)
-    - [Compiler Flags Reference](#compiler-flags-reference)
-    - [Compiler Settings Configuration](#compiler-settings-configuration)
-    - [Standard Library Imports](#standard-library-imports)
-    - [Working with Modules](#working-with-modules)
-  - [Docker Complete Guide](#docker-complete-guide)
-    - [Basic Docker Usage](#basic-docker-usage)
-    - [Docker Compose Workflow](#docker-compose-workflow)
-    - [Graphics Programs in Docker](#graphics-programs-in-docker)
-    - [Network Programs in Docker](#network-programs-in-docker)
-    - [Interactive Development](#interactive-development)
-    - [Advanced Docker Configuration](#advanced-docker-configuration)
-    - [Docker Troubleshooting](#docker-troubleshooting)
-  - [Standard Library Reference](#standard-library-reference)
-    - [Collection Libraries](#collection-libraries)
-      - [List (`collections.list`)](#list-collectionslist)
-      - [Stack (`collections.stack`)](#stack-collectionsstack)
-      - [Queue (`collections.queue`)](#queue-collectionsqueue)
-      - [Set (`collections.set`)](#set-collectionsset)
-      - [Dictionary (`collections.dictionary`)](#dictionary-collectionsdictionary)
-    - [String Libraries](#string-libraries)
-      - [StringBuilder (`strings.strbuilder`)](#stringbuilder-stringsstrbuilder)
-      - [Text Utilities (`strings.text`)](#text-utilities-stringstext)
-    - [I/O Libraries](#io-libraries)
-      - [Path Utilities (`io.path`)](#path-utilities-iopath)
-      - [CSV Generation (`io.csv`)](#csv-generation-iocsv)
-      - [JSON Generation (`io.json`)](#json-generation-iojson)
-    - [System Libraries](#system-libraries)
-      - [Environment (`sys.env`)](#environment-sysenv)
-      - [Arguments (`sys.args`)](#arguments-sysargs)
-      - [DateTime (`sys.datetime`)](#datetime-sysdatetime)
-    - [Math \& Error Handling](#math--error-handling)
-      - [Numeric Utilities (`math.numeric`)](#numeric-utilities-mathnumeric)
-      - [Result Type (`error.result`)](#result-type-errorresult)
-    - [OOP Support](#oop-support)
-  - [Testing \& Verification](#testing--verification)
-    - [Comprehensive Test Suite](#comprehensive-test-suite)
-    - [Running Individual Tests](#running-individual-tests)
-    - [Library Compilation Status](#library-compilation-status)
-    - [Test Results Summary](#test-results-summary)
-    - [Verification Checklist](#verification-checklist)
-    - [Test Documentation](#test-documentation)
-    - [Creating Your Own Tests](#creating-your-own-tests)
-    - [Continuous Integration](#continuous-integration)
-    - [Test Output Interpretation](#test-output-interpretation)
-    - [Diagnostic Output Style](#diagnostic-output-style)
-  - [Compilation Pipeline](#compilation-pipeline)
-    - [How It Works](#how-it-works)
-    - [Stage 1: Pre-pass (Parsing)](#stage-1-pre-pass-parsing)
-    - [Stage 2: QIR Emission](#stage-2-qir-emission)
-    - [Stage 3: Packaging and Execution](#stage-3-packaging-and-execution)
-    - [Compilation Flags Deep Dive](#compilation-flags-deep-dive)
-    - [Performance Considerations](#performance-considerations)
-  - [Troubleshooting Comprehensive Guide](#troubleshooting-comprehensive-guide)
-    - [Compilation Issues](#compilation-issues)
-    - [Runtime Issues](#runtime-issues)
-    - [Docker Issues](#docker-issues)
-    - [Standard Library Issues](#standard-library-issues)
-    - [Platform-Specific Issues](#platform-specific-issues)
-    - [Getting Help](#getting-help)
-    - [Known Issues](#known-issues)
-    - [Reporting Bugs](#reporting-bugs)
-  - [Code Examples](#code-examples)
-    - [Hello World](#hello-world)
-    - [Variables and Math](#variables-and-math)
-    - [Data Types](#data-types)
-    - [Loops and Conditionals](#loops-and-conditionals)
-    - [Subroutines and Functions](#subroutines-and-functions)
-    - [Arrays and Data Processing](#arrays-and-data-processing)
-    - [File I/O](#file-io)
-    - [User-Defined Types](#user-defined-types)
-    - [Graphics Example](#graphics-example)
-  - [Supported QBasic Commands](#supported-qbasic-commands)
-    - [Control Flow](#control-flow)
-    - [Variables \& Data Types](#variables--data-types)
-    - [Input/Output](#inputoutput)
-    - [String Functions](#string-functions)
-    - [Math Functions](#math-functions)
-    - [Type Conversion](#type-conversion)
-    - [Array Operations](#array-operations)
-    - [File I/O](#file-io-1)
-    - [Graphics \& Sound](#graphics--sound)
-    - [System \& Memory](#system--memory)
-    - [Error Handling](#error-handling)
-    - [Advanced Features](#advanced-features)
-    - [Logical Operators](#logical-operators)
-    - [Comparison Operators](#comparison-operators)
-  - [Development](#development)
-    - [How It Works](#how-it-works-1)
-    - [Project Structure](#project-structure)
-    - [Building from Source](#building-from-source)
-    - [Adding New Features](#adding-new-features)
-    - [Continuous Integration](#continuous-integration-1)
-  - [Contributing](#contributing)
-    - [Ways to Contribute](#ways-to-contribute)
-    - [Code of Conduct](#code-of-conduct)
-    - [Security](#security)
-  - [License](#license)
-  - [Acknowledgments](#acknowledgments)
-  - [Links](#links)
+- [Documentation / เอกสาร](#documentation--เอกสาร)
+- [About](#about)
+- [Features](#features)
+- [System Requirements](#system-requirements)
+- [Installation](#installation)
+  - [Release Packages and Installer](#release-packages-and-installer)
+  - [Build from Source](#build-from-source)
+  - [Docker](#docker)
+- [Quick Start](#quick-start)
+- [Usage Guide](#usage-guide)
+  - [Basic Compilation](#basic-compilation)
+  - [Compiler Flags Reference](#compiler-flags-reference)
+  - [Compiler Settings](#compiler-settings)
+  - [Environment Variables](#environment-variables)
+- [Language Extensions](#language-extensions)
+- [Standard Library](#standard-library)
+  - [Importing Modules](#importing-modules)
+  - [Working with Modules](#working-with-modules)
+  - [Collection Libraries](#collection-libraries)
+  - [String Libraries](#string-libraries)
+  - [I/O Libraries](#io-libraries)
+  - [System Libraries](#system-libraries)
+  - [Math \& Error Handling](#math--error-handling)
+  - [OOP Support](#oop-support)
+- [Developer Tools](#developer-tools)
+- [Docker Guide](#docker-guide)
+- [Compilation Pipeline](#compilation-pipeline)
+- [Diagnostics](#diagnostics)
+- [Testing \& Verification](#testing--verification)
+- [Troubleshooting](#troubleshooting)
+- [Code Examples](#code-examples)
+- [Supported QBasic Commands](#supported-qbasic-commands)
+- [Development](#development)
+  - [Project Structure](#project-structure)
+  - [Adding New Features](#adding-new-features)
+  - [Continuous Integration and Releases](#continuous-integration-and-releases)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
+- [Links](#links)
 
 ---
 
 ## About
 
-**QBNex** is a modern QBasic/QuickBASIC compiler that translates BASIC source code into QIR, a text intermediate language, and packages it with a Rust runner into a standalone executable for Windows, Linux, and macOS. It was significantly refactored from QB64 to act as a sleek, CLI-driven compiler without the legacy IDE components. The runner and runtime are Rust crates (`crates/`): the QIR runs on a VM with a Cranelift JIT, and no C/C++ compiler is involved.
+**QBNex** is a modern QBasic/QuickBASIC compiler. It translates BASIC source code into QIR, a
+text intermediate language, and packages it with a Rust runner into a standalone executable for
+Windows, Linux, and macOS. It started as a refactor of QB64 into a CLI-driven compiler without the
+IDE. Since 2.0 there is no C or C++ anywhere in the pipeline: the runner and runtime are Rust
+crates (`crates/`), the QIR runs on a register VM, and hot loops are compiled to native code with
+Cranelift.
 
 **Version**: 2.0.0 (`qb --version`; see [CHANGELOG.md](CHANGELOG.md))
 
-The compiler is self-hosting, written in QBNex BASIC itself (~26,000 lines), and supports 150+ QBasic/QB64 keywords. Graphics, windowing, sound, fonts and images come from the Rust runtime (winit, softbuffer, cpal, and wgpu for the optional GPU path); no OpenGL, FreeGLUT, FreeType or miniaudio is linked.
+The compiler is self-hosting: it is written in QBNex BASIC (about 35,000 lines in `compiler/`) and
+compiles itself. Graphics, windowing, sound, fonts and images come from the Rust runtime (winit,
+softbuffer, cpal, skrifa, and wgpu for the optional GPU path); no OpenGL, FreeGLUT, FreeType or
+miniaudio is linked.
 
 Repository: https://github.com/thirawat27/QBNex
-
-More documentation: the user manual in [`docs/manual`](docs/manual/README.md) (English and Thai), the developer reference in [`docs/dev`](docs/dev/README.md), and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
 ## Features
 
-- **Comprehensive Language Support**
-  - Full support for classic QBasic/QB4.5 syntax (100% backward compatible)
-  - QBNex extensions: `'$IMPORT:'module'` standard library modules, `_CONTINUE`, CLASS (with `'$IMPORT:'qbnex'`), CP437 or UTF-8 source files
-  - Planned extensions (ENUM, FOR EACH, TRY/CATCH, `_IIF`, string interpolation, `x += 1`...): see [docs/manual/en/language.md](docs/manual/en/language.md)
-  - User-defined types (TYPE...END TYPE) with nested structures
-  - Subroutines and functions with parameters
-  - Multi-dimensional arrays with REDIM PRESERVE
-  - Standard library imports via `'$IMPORT:'module.name'`: json, url, collections, and the Rust-backed `ext.*` modules (regex, hash, zip, http, utf8, collections, datetime)
-  - 150+ QBasic/QB64 keywords and functions
-  - Extended data types: BIT, BYTE, _INTEGER64, _FLOAT, OFFSET (pointers)
-  - Unsigned integer types (UNSIGNED BYTE, UNSIGNED INTEGER, UNSIGNED LONG, UNSIGNED _INTEGER64)
+- **Language**
+  - QBasic / QuickBASIC 4.5 programs and the QB64 dialect (`_` keywords, `$` metacommands, `_UNSIGNED`, `_INTEGER64`, `_FLOAT`, `_MEM`, `DECLARE LIBRARY`)
+  - `DEF FN` (single-line and multi-line), `CHAIN` with `COMMON`, event traps (`ON TIMER`, `ON KEY`, `ON STRIG`, `ON PLAY`, `ON ERROR`), `LPRINT`
+  - QBNex extensions: `_IIF`, `_ANDALSO`/`_ORELSE`, `$"...{expr}..."` interpolation, `FOR EACH`, `ENUM`, `TRY`/`CATCH`/`FINALLY`, `OPTIONAL` parameters, `_CONTINUE`, `$ASSERTS`/`_ASSERT`, CLASS (with `'$IMPORT:'qbnex'`)
+  - Planned: `x += 1`, array literals, `_THROW`, string helpers such as `_SPLIT`; see [docs/manual/en/language.md](docs/manual/en/language.md#planned)
+  - Source files in CP437 (as QBasic saved them) or UTF-8
+  - Extended data types: `_BIT`, `_BYTE`, `_INTEGER64`, `_FLOAT` (exact software 80-bit), `_OFFSET`, and the `_UNSIGNED` forms
 
-- **Modern Execution**
+- **Execution**
   - Self-hosting compiler written in QBNex BASIC
-  - Translates BASIC source to QIR, run by a Rust VM with a JIT for hot loops
-  - Standalone executables (runner + program), no C/C++ toolchain needed
-  - CLI-driven compilation optimized for modern terminal workflows
-  - Cross-platform support: Windows (x64 release builds, x86/x64 source builds), Linux, macOS
+  - BASIC is translated to QIR and run by a Rust VM with a Cranelift JIT for hot code
+  - Standalone executables (runner + program); no C/C++ toolchain is needed to build programs
+  - Native executables linked with `rust-lld` (Preview, needs the native kit)
+  - Windows x64, Linux and macOS
 
-- **Advanced Graphics & Sound**
-  - Graphics window and input from the Rust runtime (winit + softbuffer)
-  - Automatic detection of graphics/sound features
-  - SCREEN modes with VGA and hi-res graphics support (SCREEN 0-12+)
-  - Drawing primitives (LINE, CIRCLE, PAINT, DRAW with macro strings)
-  - Image manipulation (GET/PUT with PSET, AND, OR, XOR transfer modes)
-  - TrueType font rendering (Rust: skrifa)
-  - Image format loading (BMP, PCX, PNG, JPEG, etc.) in Rust
-  - 3D `_MAPTRIANGLE` with depth buffer; optional wgpu GPU path; high-level `_MESH`/`_CAMERA`/`_LIGHT` API planned
-  - Sound synthesis in Rust (SOUND, PLAY, BEEP; cpal output)
-  - 4-voice polyphonic SOUND/PLAY synthesis via `_VOICE`
-  - ADSR envelopes via `_ADSR attack, decay, sustain, release`
-  - Custom and noise waveforms via `_WAVE` (`SINE`, `SQUARE`, `SAW`, `PINK`, `BROWN`, `LFSR`, `CUSTOM:...`)
-  - Cross-platform audio through cpal: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux)
+- **Graphics, window and sound**
+  - All QBasic `SCREEN` modes (0-13) and QB64 32-bit images; `PSET`, `LINE`, `CIRCLE`, `PAINT`, `DRAW`, `GET`/`PUT`, `_PUTIMAGE`, `_LOADIMAGE` (PNG, JPEG, BMP, PCX, ...), TrueType fonts
+  - `_MAPTRIANGLE` 3D with a depth buffer (software renderer); optional wgpu GPU path
+  - High-level 3D (Preview): `_LOADMODEL`, `_MESH*`, `_CAMERA`, `_LIGHT`, `_DRAW3D`, WGSL shaders with `_SHADER`
+  - ALT+ENTER full screen (`_ALLOWFULLSCREEN`)
+  - `SOUND`, `PLAY`, `BEEP` with QBasic's `MF`/`MB` music modes, `_SND*` sound files, 4-voice synthesis (`_VOICE`, `_ADSR`, `_WAVE`)
+  - Audio through cpal: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux); a silent device when there is no speaker
 
-- **Network Capabilities**
-  - TCP/IP networking with socket support
-  - Server sockets (`_OPENHOST`)
-  - Client connections (`_OPENCLIENT`)
-  - Connection management functions
-  - Conditional compilation via DEPENDENCY_SOCKETS
+- **Files, network and system**
+  - Sequential, random and binary files; `FIELD`, `LSET`/`RSET`; `KILL`, `NAME`, `FILES`, `MKDIR`/`CHDIR`/`RMDIR`; `BLOAD`/`BSAVE`
+  - TCP/IP with `_OPENHOST`, `_OPENCLIENT`, `_OPENCONNECTION`
+  - `PEEK`/`POKE`/`DEF SEG` over an emulated 1 MB memory, `CALL ABSOLUTE` and `CALL INTERRUPT` (16-bit x86 emulator, INT 33h mouse)
+  - `SHELL`, `CHAIN`, `RUN`, `COMMAND$`, `ENVIRON$`
 
-- **File System Operations**
-  - Sequential file access (OPEN, PRINT #, WRITE #, INPUT #, LINE INPUT #)
-  - Random file access (OPEN FOR RANDOM, GET, PUT, FIELD, LSET, RSET)
-  - Binary file access (OPEN FOR BINARY, GET, PUT)
-  - Directory operations (MKDIR, CHDIR, RMDIR)
-  - File management (KILL, NAME...AS, FILES)
-  - Binary load/save (BLOAD, BSAVE)
+- **Standard library** (`'$IMPORT:'module'`): `json`, `url`, collections, strings, I/O, system, math, result, OOP, and the Rust-backed `ext.*` modules (regex, hash, zip, http, utf8, collections, datetime)
 
-- **Developer Tools**
-  - Compiler version tracking (`-v` flag)
-  - Help and documentation (`-h`, `--help`)
-  - Examples display (`-g` flag)
-  - Warning system with `-w` flag
-  - Quiet mode (`-q` flag)
-  - Monochrome output option (`-m` flag)
-  - Settings management (`-s` flag)
-  - OPTION _EXPLICIT enforcement (`-e` flag)
-  - Console-mode compiler output (`-x` flag)
-  - Custom output naming (`-o` flag)
-  - Configurable compiler settings via INI file
-  - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`) and a VS Code extension (`packaging/vscode`)
-  - Browser build of the QIR runner (WebAssembly, preview)
-
-- **System Integration**
-  - Timer and date/time functions
-  - Command-line argument access
-  - Environment variable queries
-  - Low-level memory operations (PEEK, POKE, DEF SEG, VARPTR)
-  - Process control (SHELL, CHAIN, CALL, CALL ABSOLUTE)
-  - Error handling with ON ERROR GOTO, RESUME
+- **Tools**
+  - Formatter (`qbnex fmt`), language server (`qbnex lsp`), debugger (`qbnex dap`), VS Code extension (`packaging/vscode`)
+  - Browser build of the QIR runner (WebAssembly, Preview)
+  - One-file installer `qbnex-setup` for Windows, Linux and macOS
 
 ---
 
 ## System Requirements
 
 QBNex needs no C or C++ compiler. The compiler is written in BASIC, translated to
-QIR (a text intermediate form, `bootstrap/qbnex.qir`) and run by the Rust runner
-`qb-exec`; every compiled program is a copy of that runner with its own QIR appended.
+QIR (`bootstrap/qbnex.qir`) and run by the Rust runner `qb-exec`; every compiled program
+is a copy of that runner with its own QIR appended.
 
-**All platforms:**
-- Rust toolchain (`cargo`, from https://rustup.rs) to build the runner
-- Window, graphics, audio, fonts, images and compression are Rust crates of the runtime;
-  no OpenGL, FreeGLUT, FreeType, miniaudio or zlib is needed (see `licenses/THIRD_PARTY.TXT`)
+- **Using a release:** nothing else. The release bundle and the installer contain the compiler and the prebuilt runner.
+- **Building from source:** the Rust toolchain (`cargo`, from https://rustup.rs). `rust-toolchain.toml` pins Rust 1.100.0.
+- **Windows:** Windows 10 or newer, 64-bit. Excluding the QBNex folder from antivirus scanning helps (every compiled program is a new executable).
+- **macOS:** CoreAudio and Cocoa come with macOS. Tested in CI (arm64) only.
+- **Linux:** ALSA, udev, xkbcommon and X11 development packages and `pkg-config` to build; `gcc` is only the system linker Rust uses. Tested in CI only.
 
-**Windows:** Windows 10 or newer, 64-bit. Recommended: whitelist the QBNex folder in antivirus software.
-
-**macOS:** CoreAudio and Cocoa come with macOS.
-
-**Linux:** ALSA (`libasound2-dev`), udev (`libudev-dev`) and `pkg-config` for sound and gamepads.
+Window, graphics, audio, fonts, images and compression are Rust crates of the runtime
+(see `licenses/THIRD_PARTY.TXT`).
 
 ---
 
 ## Installation
 
-Download the package for your operating system from the releases page, or build from
-source. Tagged releases publish `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and
-`qbnex_<tag>_win-x64.zip`. Extract to a folder with write permissions.
+### Release Packages and Installer
+
+Tagged releases publish `qbnex_<tag>_win-x64.zip`, `qbnex_<tag>_lnx.tar.gz` and
+`qbnex_<tag>_osx.tar.gz`. Extract to a folder you can write to.
 
 Or download the one-file installer for your system (`qbnex_<tag>_win-x64-setup.exe`,
 `qbnex_<tag>_lnx-setup`, `qbnex_<tag>_osx-setup`) and run it. It installs for the current
 user without administrator rights: on Windows into `%LOCALAPPDATA%\Programs\QBNex`, added
-to your PATH and to "Apps & features"; on Linux/macOS into `~/.local/share/qbnex` with `qb`
-and `qbnex` linked in `~/.local/bin`. `qbnex-setup --help` lists the options (`--yes`,
-`--dir`, `--no-path`); `qbnex-setup --uninstall` in the install folder removes it again.
+to your PATH, the Start menu and "Apps & features"; on Linux/macOS into
+`~/.local/share/qbnex` with `qb` and `qbnex` linked in `~/.local/bin`.
+
+| Option | Meaning |
+| --- | --- |
+| `--yes` (`/S`, `/SILENT`, `/VERYSILENT`) | Install without asking |
+| `--dir <folder>` (`/DIR=<folder>`) | Install folder |
+| `--no-path`, `--no-menu` | Leave PATH alone, add no menu entry |
+| `--desktop`, `--associate` | Desktop shortcut, "Compile with QBNex" for `.bas` files |
+| `--console` | Ask in the terminal instead of a window |
+| `--uninstall` | Run from the install folder: remove what was installed |
+
+The installer and `qb` are not code-signed, so SmartScreen and Gatekeeper may warn on the
+first run. Details: [installation manual](docs/manual/en/installation.md).
 
 ### Build from Source
 
@@ -298,53 +205,36 @@ sudo pacman -S gcc alsa-lib systemd-libs libxkbcommon libx11 pkgconf  # Arch Lin
 
 The setup script:
 1. Builds the runner `qb-exec` with cargo into `crates/engine/exec/bin/<os>/`
-2. Packs `bootstrap/qbnex.qir` into it, giving a stage-0 compiler
+2. Packs `bootstrap/qbnex.qir` into it, giving a stage-0 compiler (`qb-stage0`)
 3. Lets stage 0 compile `compiler/qbnex.bas` into `qb` / `qb.exe` in the project root
    (run it as `qb` or `qbnex`) and runs a smoke test
 
+Setup variables: `QBNEX_QB_EXEC` (use a prebuilt `qb-exec`), `QBNEX_RUST_TARGET`,
+`QBNEX_BOOTSTRAP`, `QBNEX_QIR_PACK=ir|native`, `QBNEX_STAGE1_ARGS`, `QBNEX_SKIP_SELFHOST=1`,
+`QBNEX_KEEP_STAGE0=1`, `QBNEX_CI=1` (Windows: no pause at the end).
+
+The developer tools are separate Rust programs:
+
+```bash
+cargo build --release -p qb-fmt -p qb-lsp -p qb-dap
+```
+
 `scripts/selfhost_fixpoint.cmd` (or `.sh`) checks that the compiler rebuilds itself to
-the same QIR and that `bootstrap/qbnex.qir` is up to date.
+the same QIR and that `bootstrap/qbnex.qir` is up to date. `scripts/reset.cmd` removes
+the compiler's build folders, its settings and `qb.exe`.
 
-### Docker Setup
-
-QBNex provides Docker support for consistent cross-platform builds without installing dependencies locally.
-
-**Quick Start:**
+### Docker
 
 ```bash
-# Build the Docker image
 docker build -f docker/Dockerfile -t qbnex .
-
-# Or using docker-compose
-docker-compose -f docker/docker-compose.yml build
+docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas
 ```
 
-**Compile a program:**
-
-```bash
-# Linux/macOS
-docker run --rm -v $(pwd):/project qbnex qb yourfile.bas
-
-# Windows (PowerShell)
-docker run --rm -v ${PWD}:/project qbnex qb yourfile.bas
-
-# Windows (Command Prompt)
-docker run --rm -v %cd%:/project qbnex qb yourfile.bas
-```
-
-**Compile and run immediately:**
-
-```bash
-docker run --rm -v $(pwd):/project qbnex qb yourfile.bas -x
-```
-
-**Full Docker documentation:** See the [Docker Complete Guide](#docker-complete-guide) section below.
+See the [Docker Guide](#docker-guide) below.
 
 ---
 
 ## Quick Start
-
-Get up and running with QBNex in 3 simple steps:
 
 **1. Create a BASIC program** (`hello.bas`):
 ```basic
@@ -363,7 +253,9 @@ PRINT "Done!"
 qb hello.bas
 ```
 
-The compiler can be run as either `qb` or `qbnex` (for example `qbnex hello.bas`).
+The compiler can be run as either `qb` or `qbnex`. Without `-o` the executable goes to the
+QBNex folder (the one that holds `qb` and `crates/`), as in QB64; use `-o` or
+`qb -s:exewithsource=true` to put it somewhere else.
 
 **3. Run the executable:**
 ```bash
@@ -374,155 +266,154 @@ hello.exe
 ./hello
 ```
 
-That's it! You've successfully compiled your first QBNex program.
-
 ---
 
 ## Usage Guide
 
 ### Basic Compilation
 
-Use `qb` or `qbnex` as the command name (depending on your setup):
-
 ```bash
-# Compile to executable (creates hello.exe or ./hello)
+# Compile to an executable (hello.exe or ./hello)
 qb hello.bas
 
-# Compile with custom output name
+# Choose the output file
 qb hello.bas -o myprogram.exe
 
-# Compiler messages to the console
-qb hello.bas -x
+# Show warnings too
+qb hello.bas -w
 
-# Show compiler version
+# Show compiler version and help
 qb --version
-
-# Show help
 qb --help
 ```
 
-**Command Pattern:**
+**Command pattern:**
 ```bash
-qb <source.bas> [flags]
+qb <source.bas> [switches]
 ```
+
+Exit code 0 means the program compiled.
 
 ### Compiler Flags Reference
 
 | Flag | Aliases | Description | Example |
 |------|---------|-------------|---------|
-| `-h` | `--help` | Show help information | `qb -h` |
+| `-h` | `--help`, `/?` | Show help | `qb -h` |
 | `-v` | `--version` | Show compiler version | `qb -v` |
 | `-i` | `--info`, `--about` | Show project information | `qb -i` |
 | `-g` | `--examples` | Show common CLI examples | `qb -g` |
 | `-c` | - | Compile the source file (default) | `qb file.bas -c` |
-| `-o` | - | Specify output filename; a `.qir` name writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
-| `--emit-ir` | - | Write the QIR text instead of an executable (for qb-web) | `qb file.bas --emit-ir -o file.qir` |
-| `-x` | - | Compile with console-mode CLI behavior | `qb file.bas -x` |
-| `-w` | - | Show warnings during compilation | `qb file.bas -w` |
-| `-Werror` | `--warnings-as-errors` | Promote warnings to blocking diagnostics | `qb file.bas --warnings-as-errors` |
-| `-q` | - | Quiet mode (minimal output) | `qb file.bas -q` |
-| `-m` | - | Monochrome (no color) output | `qb file.bas -m` |
-| `-d` | `--verbose-errors` | Legacy alias for detailed diagnostics (enabled by default) | `qb file.bas` |
-| `-k` | `--compact-errors` | Use compact diagnostics (hide detailed notes) | `qb file.bas -k` |
-| `-e` | - | Enable OPTION _EXPLICIT | `qb file.bas -e` |
-| `-s` | - | View/edit compiler settings | `qb -s:DebugInfo=true` |
-| `-p` | - | Accepted for old scripts, no effect (nothing is precompiled) | `qb file.bas -p` |
-| `-z` | `--ir` | Accepted for old scripts, no effect (QIR is the only back end) | `qb file.bas -z` |
+| `-o <file>` | - | Output file; a name ending in `.qir` writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
+| `--emit-ir` | - | Write the QIR text instead of an executable | `qb file.bas --emit-ir -o file.qir` |
+| `-x` | - | Send the compiler's output to the console (it does not run the program) | `qb file.bas -x` |
+| `-w` | - | Show warnings | `qb file.bas -w` |
+| `-Werror` | `--warnings-as-errors` | Treat warnings as blocking diagnostics | `qb file.bas --warnings-as-errors` |
+| `-q` | - | Quiet mode (warnings and errors are still shown) | `qb file.bas -q` |
+| `-m` | - | No colours in the compiler output (also when `NO_COLOR` is set) | `qb file.bas -m` |
+| `-k` | `--compact-errors` | Compact diagnostics (detailed ones are the default) | `qb file.bas -k` |
+| `-d` | `--verbose-errors` | Old alias; detailed diagnostics are the default | `qb file.bas -d` |
+| `-e` | - | `OPTION _EXPLICIT` for this compilation | `qb file.bas -e` |
+| `-s[:setting[=true/false]]` | - | Show or change compiler settings | `qb -s:exewithsource=true` |
+| `-p`, `-z` | `--ir` | Accepted for old scripts; they change nothing | `qb file.bas -z` |
 
-**Recommended for debugging diagnostics:**
+Detailed diagnostics (`cause`, `example` and related notes) are shown by default:
+
 ```bash
-# Detailed diagnostics are enabled by default
-qb myprogram.bas
-
-# Combine warnings when chasing follow-on failures
-qb myprogram.bas -w
-
-# Switch back to compact diagnostics when you only want headline + source snippet
-qb myprogram.bas --compact-errors
+qb myprogram.bas                    # detailed diagnostics
+qb myprogram.bas -w                 # also warnings
+qb myprogram.bas --compact-errors   # headline and source snippet only
+qb myprogram.bas -w -o myapp.exe    # warnings and a custom output name
+qb myprogram.bas -e -q              # OPTION _EXPLICIT, quiet
 ```
 
-Detailed output sections used by the modern QBNex formatter (`cause`, `example`, `where`, `while`, and related context notes) are now shown by default. `-d` and `--verbose-errors` are kept as backward-compatible aliases.
+### Compiler Settings
 
-**Combining Flags:**
+`qb -s` reads and writes `target/qb-config.ini` in the QBNex folder:
+
+| Setting | `-s` switch | Default | Description |
+|---------|-------------|---------|-------------|
+| `SaveExeWithSource` | `-s:exewithsource=true/false` | `false` | Write the executable next to the source file instead of the QBNex folder |
+| `DebugInfo` | `-s:debuginfo=true/false` | `false` | Accepted for old scripts; no effect |
+| `IgnoreWarnings` | (INI file only) | `false` | Hide warnings even with `-w` |
+
 ```bash
-# Compile with warnings and custom output
-qb myprogram.bas -w -o myapp.exe
-
-# Quiet mode with warnings
-qb myprogram.bas -q -w
-
-# Compile, run immediately, with explicit mode
-qb myprogram.bas -e -x
+qb -s                          # show the settings
+qb -s:exewithsource            # show one setting
+qb -s:exewithsource=true       # change it
 ```
 
-### Compiler Settings Configuration
-
-QBNex supports configurable compiler settings via the `-s` flag or `target/qb-config.ini`:
-
-**Available Settings:**
-
-| Setting | Values | Default | Description |
-|---------|--------|---------|-------------|
-| `SaveExeWithSource` | `true`/`false` | `false` | Include source code in compiled executable |
-| `IgnoreWarnings` | `true`/`false` | `false` | Suppress warning messages during compilation |
-| `DebugInfo` | `true`/`false` | `false` | Include GDB debugging information in output |
-
-**Viewing Settings:**
-```bash
-# View all current settings
-qb -s
-
-# Output shows:
-# SaveExeWithSource = false
-# IgnoreWarnings = false
-# DebugInfo = false
-```
-
-**Modifying Settings:**
-```bash
-# Enable debug mode for GDB
-qb -s:DebugInfo=true
-
-# Disable warnings
-qb -s:IgnoreWarnings=true
-
-# Include source in executable
-qb -s:SaveExeWithSource=true
-
-# Combine multiple settings
-qb -s:DebugInfo=true -s:IgnoreWarnings=false
-```
-
-**Using Config File:**
-
-Edit `target/qb-config.ini` directly:
 ```ini
-[Compiler]
-SaveExeWithSource=false
-IgnoreWarnings=false
-DebugInfo=false
+[COMPILER SETTINGS]
+SaveExeWithSource=False
+IgnoreWarnings=False
+DebugInfo=False 'Managed by qbnex -s
 ```
 
-**When to Use Each Setting:**
+### Environment Variables
 
-- **DebugInfo=true**: When debugging with GDB, adds symbol information
-- **IgnoreWarnings=true**: For clean output in CI/CD pipelines
-- **SaveExeWithSource=true**: For distributing source with binary
+| Variable | Effect |
+| --- | --- |
+| `QBNEX_NO_ERROR_DIALOG=1` | Runtime errors go to stderr with exit code 1 instead of the "Unhandled Error" dialog (set it in scripts and CI) |
+| `QB_JIT=off` / `eager` / `<n>` | No JIT, compile at once, or after n loop iterations |
+| `QB_JIT_THREADS=<n>`, `QB_JIT_STATS=1` | JIT compiler threads; JIT statistics on stderr |
+| `QB_PROFILE=<file>` | Write the hottest functions and lines to a file at the end |
+| `QB_GPU=off` / `verbose` | Runtimes with the GPU feature: never use the GPU / log the choice |
+| `QB_GL=off` | No OpenGL context: `SUB _GL` is not run |
+| `QB_AUDIO_DEVICE=null` / `none` | Silent device that keeps time / no audio |
+| `QBNEX_LPRINT=<file>` | `LPRINT` appends to a text file |
+| `QBNEX_HEADLESS=1` | Graphics programs run without a window (tests) |
+| `NO_COLOR` | Compiler output without colours, like `-m` |
 
-### Standard Library Imports
+---
 
-QBNex supports both traditional and modern import syntax for the bundled standard library:
+## Language Extensions
 
-**Modern Syntax (Recommended):**
-<!-- docs-test: compile-error -->
+QBNex adds these to QBasic. Existing programs are unaffected: the new words start with `_` or are only recognised where QBasic would have reported a syntax error. Examples with output: [docs/manual/en/language.md](docs/manual/en/language.md).
+
+| Feature | Example | Notes |
+| --- | --- | --- |
+| `_IIF` | `PRINT _IIF(n > 1, "items", "item")` | Only the chosen value is evaluated. Both values are strings or both are numbers. |
+| `_ANDALSO`, `_ORELSE` | `IF i <= UBOUND(a) _ANDALSO a(i) > 0 THEN` | Short-circuit logic, result -1 or 0. |
+| String interpolation | `PRINT $"Hello {name$ + "!"}, you are {age%}"` | Numbers are formatted like `LTRIM$(STR$(x))` (`_TOSTR$`). Expressions may contain string literals. `{{` and `}}` are literal braces. |
+| `FOR EACH` | `FOR EACH v IN grid()` ... `NEXT` | Every element, first index outermost (any number of dimensions); `v` is a copy of the element. |
+| `ENUM` | `ENUM Color` / `Red, Green = 5, Blue` / `END ENUM` | Members become integer `CONST`s, counting up from 0 or from the last `= value`. |
+| `TRY` / `CATCH` / `FINALLY` | see below | Built on `ON ERROR`; `CATCH e` stores the error number in `e`. Without `CATCH`, the error is raised again after `FINALLY`. |
+| `OPTIONAL` parameters | `SUB Greet (who$, OPTIONAL greeting$ = "Hello")` | Trailing arguments may be left out; the default is any expression valid at the call site. |
+| `_CONTINUE` | `IF i MOD 2 = 0 THEN _CONTINUE` | Next iteration of the innermost `FOR`, `DO` or `WHILE`. |
+| `$ASSERTS` + `_ASSERT` | `_ASSERT total >= 0, "negative total"` | Checked only when `$ASSERTS` is present. |
+| CLASS | `CLASS Dog` ... `END CLASS` | With `'$IMPORT:'qbnex'`; rewritten into TYPEs and procedures (see [OOP Support](#oop-support)). |
+
 ```basic
-' Modern import syntax - cleaner and easier to read
-IMPORT qbnex
-IMPORT json
-IMPORT url
+TRY
+    OPEN "data.txt" FOR INPUT AS #1
+    LINE INPUT #1, first$
+CATCH e
+    PRINT "could not read data.txt, error"; e
+FINALLY
+    CLOSE
+END TRY
 ```
 
-**Traditional Syntax (Still Supported):**
+`TRY`, `CATCH`, `FINALLY`, `END TRY`, `ENUM` and `END ENUM` may share a line with other statements (`TRY: x = 1 / d: CATCH e: PRINT e: END TRY`). TRY also works in `$INCLUDE` and `$IMPORT` files.
+
+Planned (not in the compiler yet; the editor tools may already know the words): `x += 1` and the other
+augmented assignments, `# comment` lines, `IMPORT module` without the `'$IMPORT:` form,
+`FUNCTION name (...) AS type`, array literals, `_THROW`, `_SPLIT`/`_JOIN$`/`_REPLACE$` and the UTF-8
+string helpers, built-in `_LIST`/`_DICT`, CLASS virtual dispatch. Earlier READMEs described some of
+these as available; they are not.
+
+---
+
+## Standard Library
+
+The modules are BASIC files in `compiler/stdlib/`; the `ext.*` modules call Rust code linked into
+every runner (`crates/runtime/ext`). Reference for `json`, `url` and `ext.*`:
+[docs/manual/en/stdlib.md](docs/manual/en/stdlib.md).
+
+### Importing Modules
+
+The only import form the compiler accepts is the `'$IMPORT:'module'` metacommand:
+
 <!-- docs-test: define qbnex -->
 ```basic
 ' Traditional import syntax
@@ -531,7 +422,6 @@ IMPORT url
 '$IMPORT:'url'
 ```
 
-**Basic Import Syntax:**
 ```basic
 ' Import individual modules
 '$IMPORT:'sys.env'
@@ -541,9 +431,21 @@ IMPORT url
 '$IMPORT:'math.numeric'
 ```
 
-**Import Core Library:**
+The `IMPORT module` form below is **planned** and does not compile yet:
+
+<!-- docs-test: compile-error -->
 ```basic
-' Import the full qbnex stdlib core (place at top of file)
+' Modern import syntax - cleaner and easier to read
+IMPORT qbnex
+IMPORT json
+IMPORT url
+```
+
+An import line may appear anywhere in the main file: each module's declarations are placed
+before the program and its procedures after it.
+
+```basic
+' Import the full qbnex stdlib core
 '$IMPORT:'qbnex'
 
 ' Now you can use QBNex_ObjectHeader, QBNex_List, etc.
@@ -552,9 +454,6 @@ List_Init myList
 List_Add myList, "Hello"
 ```
 
-**Best Practices:**
-
-1. **Function-only imports**: Place at end of file
 ```basic
 SUB Main ()
     PRINT Env_Platform$
@@ -565,7 +464,6 @@ END SUB
 '$IMPORT:'io.path'
 ```
 
-2. **Full core imports**: Place at top of file (for TYPE, CLASS, SUB, FUNCTION)
 ```basic
 '$IMPORT:'qbnex'
 
@@ -578,51 +476,18 @@ CLASS Dog
 END CLASS
 ```
 
-**Modern QBNex Syntax (QBasic + Extended):**
-
-> **Note:** the current compiler accepts only the `'$IMPORT:'module'` form below. `IMPORT module`, `FUNCTION name AS STRING`, `x += 1` and `# comment` are planned; see [docs/manual/en/language.md](docs/manual/en/language.md) for what compiles today.
-
-QBNex is gaining a modern syntax while keeping full backward compatibility with traditional QBasic (planned forms):
-
-| Feature | Modern Syntax | Traditional Syntax | Description |
-|---------|--------------|-------------------|-------------|
-| Import | `IMPORT module` | `'$IMPORT:'module'` | Import stdlib modules |
-| Function Type | `FUNCTION name AS STRING` | `FUNCTION name$` | AS TYPE syntax |
-| Short Function | `FUNC name()` | `FUNCTION name()` | Shorter declaration |
-| Single-line Func | `DEF name(x) = x*2` | `FUNCTION...END FUNCTION` | Lambda-like syntax |
-| Augmented Assign | `x += 1` | `x = x + 1` | += -= *= /= operators |
-| Alternative Comment | `# comment` | `' comment` | # for comments |
-
-**Modern API Examples:**
-
-<!-- docs-test: compile-error -->
-```basic
-# Import standard library
-IMPORT qbnex
-
-# JSON handling
-json = json_parse("{""name"": ""John""}")
-name = json_get_str(json)
-output = json_string(json)
-
-# URL encoding/decoding
-encoded = encode("hello world")
-decoded = decode(encoded)
-
-# Augmented assignment (like other modern languages)
-count += 1      # count = count + 1
-total -= 5      # total = total - 5
-value *= 2      # value = value * 2
-average /= n    # average = average / n
-```
-
-**Available Standard Library Modules:**
-
-| Module | Modern Import | Description |
-|--------|-------------|-------------|
-| QBNex Core | `IMPORT qbnex` | Full stdlib with JSON and URL helpers |
-| JSON | Built-in | json_parse, json_string, json_obj, json_array |
-| URL | Built-in | encode, decode, url_parse, path_join |
+| Module | Import | Contents |
+|--------|--------|----------|
+| Core | `'$IMPORT:'qbnex'` | Every module below except `ext.*` in one import (`qbnex_stdlib.bas`), plus CLASS support |
+| JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `JSON_Parse%`, `JsonObjectGet%`, `JsonCreateObject%`, `JSON_Stringify$`, ... |
+| URL | `'$IMPORT:'url'` | `UrlParse`, `UrlFormat$`, `UrlEncodeComponent$`, `UrlDecode$`, `UrlResolve`, ... |
+| Collections | `collections.list`, `.stack`, `.queue`, `.set`, `.dictionary` | `QBNex_List` and friends; import `qbnex` for all but `collections.list` (on their own they do not compile yet) |
+| Strings | `strings.strbuilder`, `strings.text` | String builder, padding and tests |
+| I/O | `io.path`, `io.csv`, `io.json` | Paths, CSV rows, JSON builders |
+| System | `sys.env`, `sys.args`, `sys.datetime` | Platform, arguments, dates |
+| Math, errors | `math.numeric`, `error.result` | `Math_Clamp#`, `QBNex_Result` |
+| OOP | `oop.class`, `oop.interface` | Class registry used by CLASS |
+| Rust-backed | `ext.regex`, `ext.hash`, `ext.zip`, `ext.http`, `ext.utf8`, `ext.collections`, `ext.datetime` | See [stdlib manual](docs/manual/en/stdlib.md) |
 
 ### Working with Modules
 
@@ -721,421 +586,19 @@ END SUB
 '$IMPORT:'qbnex'
 ```
 
----
-
-## Docker Complete Guide
-
-QBNex provides Docker containers for easy deployment without local dependencies installation. This is the recommended approach for CI/CD, reproducible builds, and development environments.
-
-### Basic Docker Usage
-
-**Building the Image:**
-```bash
-# Build using Dockerfile directly
-docker build -f docker/Dockerfile -t qbnex .
-
-# Or using docker-compose (recommended)
-docker-compose -f docker/docker-compose.yml build
-```
-
-**Running Basic Commands:**
-```bash
-# Compile a BASIC program
-docker run --rm -v $(pwd):/project qbnex qb yourfile.bas
-
-# Show help
-docker run --rm qbnex qb --help
-
-# Show version
-docker run --rm qbnex qb --version
-
-# List examples
-docker run --rm qbnex qb --examples
-```
-
-**Platform-Specific Volume Mounting:**
-```bash
-# Linux/macOS
-docker run --rm -v $(pwd):/project qbnex qb yourfile.bas
-
-# Windows PowerShell
-docker run --rm -v ${PWD}:/project qbnex qb yourfile.bas
-
-# Windows Command Prompt
-docker run --rm -v %cd%:/project qbnex qb yourfile.bas
-```
-
-### Docker Compose Workflow
-
-**docker/docker-compose.yml** provides simplified management (pass `-f docker/docker-compose.yml`, or set `COMPOSE_FILE=docker/docker-compose.yml`):
-
-```yaml
-services:
-  qbnex:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    volumes:
-      - ..:/project
-    working_dir: /project
-```
-
-**Using Docker Compose:**
-
-```bash
-# Build the image
-docker-compose -f docker/docker-compose.yml build
-
-# Compile a program
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas
-
-# Compile and run immediately
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -x
-
-# Compile with custom output name
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -o myprogram
-
-# Compile with warnings
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -w
-
-# Quiet mode compilation
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -q
-```
-
-**Complete Workflow Example:**
-```bash
-# 1. Build image once
-docker-compose -f docker/docker-compose.yml build
-
-# 2. Create hello.bas
-echo 'PRINT "Hello from Docker!"' > hello.bas
-
-# 3. Compile and run
-docker-compose -f docker/docker-compose.yml run --rm qbnex qb hello.bas -x
-
-# 4. Check compiled binary
-ls -la hello
-./hello
-```
-
-### Graphics Programs in Docker
-
-Graphics programs require X11 display forwarding to work. Here's how to set it up:
-
-**Linux (X11):**
-```bash
-# Allow Docker to access X11
-xhost +local:docker
-
-# Run with display forwarding
-docker run --rm \
-  -v $(pwd):/project \
-  -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  qbnex qb graphics.bas -x
-
-# Or with docker-compose
-docker-compose -f docker/docker-compose.yml run --rm \
-  -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  qbnex qb graphics.bas -x
-```
-
-**macOS (XQuartz):**
-```bash
-# 1. Install XQuartz
-brew install --cask xquartz
-
-# 2. Start XQuartz and enable network connections
-# Open XQuartz → Preferences → Security → 
-# Check "Allow connections from network clients"
-
-# 3. Run with display forwarding
-docker run --rm \
-  -v $(pwd):/project \
-  -e DISPLAY=host.docker.internal:0 \
-  qbnex qb graphics.bas -x
-```
-
-**Windows (VcXsrv):**
-```bash
-# 1. Install VcXsrv X Server
-# Download from: https://sourceforge.net/projects/vcxsrv/
-
-# 2. Start VcXsrv with "Disable access control" checked
-
-# 3. Run with display forwarding
-docker run --rm \
-  -v ${PWD}:/project \
-  -e DISPLAY=host.docker.internal:0 \
-  qbnex qb graphics.bas -x
-```
-
-**Graphics Demo Example:**
-```basic
-' graphics.bas
-SCREEN 12
-COLOR 15, 1
-CLS
-
-PRINT "QBNex Graphics in Docker!"
-PRINT
-
-' Draw shapes
-LINE (50, 50)-(300, 200), 14, B
-CIRCLE (400, 125), 75, 12
-
-FOR i = 0 TO 639 STEP 20
-    LINE (i, 0)-(639 - i, 479), 9
-NEXT i
-
-PRINT "Graphics working!"
-SLEEP
-SCREEN 0
-```
-
-Compile and run:
-```bash
-docker-compose -f docker/docker-compose.yml run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix qbnex qb graphics.bas -x
-```
-
-### Network Programs in Docker
-
-For TCP/IP networking, use host network mode:
-
-```bash
-# Using docker run with host network
-docker run --rm \
-  -v $(pwd):/project \
-  --network host \
-  qbnex qb server.bas -x
-
-# Using docker-compose with host network
-docker-compose -f docker/docker-compose.yml run --rm --network host qbnex qb server.bas -x
-```
-
-**Server Example:**
-```basic
-' server.bas
-DIM serverHandle AS LONG
-DIM clientHandle AS LONG
-
-serverHandle = _OPENHOST("TCP/IP:8080")
-IF serverHandle = 0 THEN
-    PRINT "Failed to create server"
-    END
-END IF
-
-PRINT "Server listening on port 8080..."
-
-DO
-    clientHandle = _OPENCONNECTION(serverHandle)
-    IF clientHandle > 0 THEN EXIT DO
-    SLEEP 1
-LOOP
-
-PRINT "Client connected!"
-CLOSE #clientHandle
-CLOSE #serverHandle
-```
-
-**Client Example:**
-```basic
-' client.bas
-DIM clientHandle AS LONG
-
-clientHandle = _OPENCLIENT("TCP/IP:8080:localhost")
-IF clientHandle = 0 THEN
-    PRINT "Failed to connect"
-    END
-END IF
-
-PRINT "Connected to server"
-PRINT #clientHandle, "Hello!"
-CLOSE #clientHandle
-```
-
-Run server:
-```bash
-docker-compose -f docker/docker-compose.yml run --rm --network host qbnex qb server.bas -x
-```
-
-Run client (in another terminal):
-```bash
-docker-compose -f docker/docker-compose.yml run --rm --network host qbnex qb client.bas -x
-```
-
-### Interactive Development
-
-For development with shell access:
-
-```bash
-# Start interactive shell
-docker-compose -f docker/docker-compose.yml run --rm qbnex bash
-
-# Inside container:
-# - Compile programs: qb myfile.bas
-# - Run programs: ./myfile
-# - List files: ls -la
-# - Access source: /project (mounted from host)
-```
-
-**Interactive Session Example:**
-```bash
-$ docker-compose -f docker/docker-compose.yml run --rm qbnex bash
-root@abc123:/project# ls
-hello.bas  test.bas
-
-root@abc123:/project# qb hello.bas
-Compiling...
-Build complete: hello
-
-root@abc123:/project# ./hello
-Hello from QBNex!
-
-root@abc123:/project# exit
-```
-
-**Development Mode with Extended Image:**
-
-Use `docker/Dockerfile.dev` for development with build cache:
-```bash
-# Build development image (~500MB with build cache)
-docker build -f docker/Dockerfile.dev -t qbnex-dev .
-
-# Run with dev image
-docker run --rm -v $(pwd):/project qbnex-dev qb yourfile.bas
-```
-
-### Advanced Docker Configuration
-
-- `docker/Dockerfile` (production): a build stage installs Rust and runs
-  `scripts/setup_lnx.sh` (no C/C++ compiler); the runtime stage keeps `qb`,
-  `crates/` (the QIR runner) and `compiler/` (the standard library) in `/app`
-  and puts a `qb`/`qbnex` launcher on `PATH`.
-- `docker/Dockerfile.dev` (development): the same build in one stage, with the
-  build cache kept for faster rebuilds.
-- `docker/docker-compose.yml`: services `qbnex` and `qbnex-dev`, build context
-  the repository root, the repository mounted at `/project`, host networking
-  and `DISPLAY` passed through for graphics.
-
-**CI/CD Integration:**
-```yaml
-# Example Docker workflow snippet
-name: Docker Build
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@<ref>
-      
-      - name: Build Docker image
-        run: docker build -f docker/Dockerfile -t qbnex .
-      
-      - name: Compile test program
-        run: docker run --rm -v $(pwd):/project qbnex qb test.bas
-      
-      - name: Run tests
-        run: docker run --rm -v $(pwd):/project qbnex qb test.bas -x
-```
-
-### Docker Troubleshooting
-
-**Permission Issues:**
-```bash
-# Fix permissions after compilation
-sudo chmod +x ./yourprogram
-
-# Or run with specific user
-docker run --rm -v $(pwd):/project -u $(id -u):$(id -g) qbnex qb yourfile.bas
-```
-
-**Missing Libraries:**
-```bash
-# Check installed packages in container
-docker run --rm qbnex dpkg -l | grep -E "libgl|libasound|x11"
-
-# Rebuild without cache
-docker-compose -f docker/docker-compose.yml build --no-cache qbnex
-```
-
-**Display/Graphics Issues:**
-```bash
-# Test X11 forwarding
-docker run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix xterm
-
-# Check DISPLAY variable
-echo $DISPLAY
-
-# Allow Docker access (Linux)
-xhost +local:docker
-```
-
-**Network Issues:**
-```bash
-# Test network connectivity
-docker run --rm --network host qbnex ping localhost
-
-# Check if port is available
-docker run --rm --network host qbnex netstat -tulpn
-```
-
-**Volume Mount Issues:**
-```bash
-# Verify mounted files
-docker run --rm -v $(pwd):/project qbnex ls -la /project
-
-# Use absolute path
-docker run --rm -v /absolute/path:/project qbnex qb yourfile.bas
-```
-
-**Docker Files Summary:**
-
-| File | Purpose | Size | Use Case |
-|------|---------|------|----------|
-| `docker/Dockerfile` | Production image | ~300MB | Final builds, CI/CD |
-| `docker/Dockerfile.dev` | Development image | ~500MB | Development, debugging |
-| `.dockerignore` | Build exclusions | - | Optimizes build context |
-| `docker/docker-compose.yml` | Easy management | - | Recommended workflow |
-
-**Best Practices:**
-
-1. **Use docker-compose**: Simplifies commands and configuration
-2. **Volume mounting**: Keep source on host, compile in container
-3. **--rm flag**: Clean up containers after use
-4. **Rebuild periodically**: Update dependencies with `docker-compose build --no-cache`
-5. **Use dev image for debugging**: Includes GDB and build artifacts
-
-**Security Notes:**
-
-- Docker containers run as root by default
-- Use `-u $(id -u):$(id -g)` for non-root execution
-- Review Dockerfile for any security concerns
-- Don't expose ports unless necessary
-- Use `.dockerignore` to exclude sensitive files
-
----
-
-## Standard Library Reference
-
-QBNex includes a comprehensive standard library with modern data structures, I/O utilities, and OOP support. All libraries use Python-style import syntax and are located in `compiler/stdlib/`.
 
 ### Collection Libraries
+
+The examples below start with `'$IMPORT:'qbnex'`. All collections hold strings.
 
 #### List (`collections.list`)
 Dynamic array with automatic resizing.
 
-**Functions:**
-- `List_Init(list)` - Initialize list
-- `List_Add(list, item)` - Add item to end
-- `List_Insert(list, index, item)` - Insert at position
-- `List_Remove(list, index)` - Remove at position
-- `List_Get$(list, index)` - Get item as string
-- `List_Count&(list)` - Get item count
-- `List_Join$(list, separator$)` - Join items with separator
-- `List_Free(list)` - Free memory
+- `List_Init list` · `List_Free list` · `List_Clear list`
+- `List_Add list, item$` · `List_Set list, index&, item$` · `List_RemoveAt list, index&`
+- `List_Get$(list, index&)` (0-based) · `List_Count&(list)`
+- `List_IndexOf&(list, item$)` · `List_Contains&(list, item$)`
+- `List_Join$(list, separator$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1155,15 +618,10 @@ List_Free myList
 ```
 
 #### Stack (`collections.stack`)
-LIFO (Last In, First Out) data structure.
+LIFO (last in, first out).
 
-**Functions:**
-- `Stack_Init(stack)` - Initialize stack
-- `Stack_Push(stack, item)` - Push item onto stack
-- `Stack_Pop$(stack)` - Remove and return top item
-- `Stack_Peek$(stack)` - View top item without removing
-- `Stack_Count&(stack)` - Get item count
-- `Stack_Free(stack)` - Free memory
+- `Stack_Init stack` · `Stack_Free stack` · `Stack_Clear stack`
+- `Stack_Push stack, item$` · `Stack_Pop$(stack)` · `Stack_Peek$(stack)` · `Stack_Count&(stack)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1184,15 +642,10 @@ Stack_Free history
 ```
 
 #### Queue (`collections.queue`)
-FIFO (First In, First Out) data structure.
+FIFO (first in, first out).
 
-**Functions:**
-- `Queue_Init(queue)` - Initialize queue
-- `Queue_Enqueue(queue, item)` - Add item to back
-- `Queue_Dequeue$(queue)` - Remove and return front item
-- `Queue_Peek$(queue)` - View front item
-- `Queue_Count&(queue)` - Get item count
-- `Queue_Free(queue)` - Free memory
+- `Queue_Init queue` · `Queue_Free queue` · `Queue_Clear queue`
+- `Queue_Enqueue queue, item$` · `Queue_Dequeue$(queue)` · `Queue_Peek$(queue)` · `Queue_Count&(queue)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1211,16 +664,11 @@ Queue_Free loadOrder
 ```
 
 #### Set (`collections.set`)
-Hash-based collection with unique values.
+Hash-based set of unique strings.
 
-**Functions:**
-- `HashSet_Init(set)` - Initialize set
-- `HashSet_Add(set, item)` - Add item (returns 0 if duplicate)
-- `HashSet_Contains&(set, item)` - Check if item exists
-- `HashSet_Remove(set, item)` - Remove item
-- `HashSet_Count&(set)` - Get item count
-- `HashSet_ToString$(set, separator$)` - Convert to string
-- `HashSet_Free(set)` - Free memory
+- `HashSet_Init set` · `HashSet_Free set` · `HashSet_Clear set`
+- `HashSet_Add set, item$` (a duplicate is ignored) · `HashSet_Remove set, item$`
+- `HashSet_Contains&(set, item$)` · `HashSet_Count&(set)` · `HashSet_ToString$(set, separator$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1243,14 +691,10 @@ HashSet_Free features
 #### Dictionary (`collections.dictionary`)
 Key-value store with string keys.
 
-**Functions:**
-- `Dict_Init(dict)` - Initialize dictionary
-- `Dict_Set(dict, key$, value$)` - Set key-value pair
-- `Dict_Get$(dict, key$, default$)` - Get value by key
-- `Dict_Remove(dict, key$)` - Remove key-value pair
-- `Dict_Count&(dict)` - Get item count
-- `Dict_HasKey&(dict, key$)` - Check if key exists
-- `Dict_Free(dict)` - Free memory
+- `Dict_Init dict` · `Dict_Free dict` · `Dict_Clear dict`
+- `Dict_Set dict, key$, value$` · `Dict_Remove dict, key$`
+- `Dict_Get$(dict, key$, default$)` · `Dict_Has&(dict, key$)` · `Dict_Count&(dict)`
+- `Dict_KeyAt$(dict, index&)` · `Dict_ValueAt$(dict, index&)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1273,14 +717,10 @@ Dict_Free metadata
 ### String Libraries
 
 #### StringBuilder (`strings.strbuilder`)
-Efficient string concatenation for building large strings.
 
-**Functions:**
-- `SB_Init(sb)` - Initialize string builder
-- `SB_Append(sb, text$)` - Append text
-- `SB_AppendLine(sb, text$)` - Append text with newline
-- `SB_ToString$(sb)` - Convert to string
-- `SB_Free(sb)` - Free memory
+- `SB_Init sb` · `SB_Free sb` · `SB_Clear sb`
+- `SB_Append sb, text$` · `SB_AppendLine sb, text$`
+- `SB_ToString$(sb)` · `SB_Length&(sb)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1304,12 +744,10 @@ SB_Free report
 ```
 
 #### Text Utilities (`strings.text`)
-String manipulation and formatting utilities.
 
-**Functions:**
-- `Text_PadLeft$(text$, length, padChar$)` - Pad string on left
-- `Text_PadRight$(text$, length, padChar$)` - Pad string on right
-- Additional text manipulation functions
+- `Text_PadLeft$(text$, width&, pad$)` · `Text_PadRight$(text$, width&, pad$)`
+- `Text_Repeat$(text$, count&)`
+- `Text_StartsWith&(text$, prefix$)` · `Text_EndsWith&(text$, suffix$)` · `Text_Contains&(text$, search$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1324,14 +762,9 @@ PRINT Text_PadLeft$("123", 8, "0")
 ### I/O Libraries
 
 #### Path Utilities (`io.path`)
-Cross-platform file path manipulation.
 
-**Functions:**
-- `Path_Join$(path1$, path2$)` - Join path components
-- `Path_FileName$(path$)` - Extract filename
-- `Path_Directory$(path$)` - Extract directory
-- `Path_Extension$(path$)` - Extract file extension
-- `Path_WithoutExtension$(path$)` - Remove extension
+- `Path_Join$(base$, leaf$)` · `Path_Normalize$(path$)` · `Path_Separator$`
+- `Path_FileName$(path$)` · `Path_DirName$(path$)` · `Path_Extension$(path$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1347,11 +780,9 @@ PRINT Path_Extension$("src/stdlib/demo.bas")
 ```
 
 #### CSV Generation (`io.csv`)
-CSV row creation and parsing.
 
-**Functions:**
-- `CSV_Row3$(col1$, col2$, col3$)` - Create 3-column CSV row
-- Additional CSV parsing functions
+- `CSV_Row2$(a$, b$)` · `CSV_Row3$(a$, b$, c$)` · `CSV_Row4$(a$, b$, c$, d$)`
+- `CSV_Escape$(value$)`: quotes a value that holds a comma, quote or line break
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1363,14 +794,14 @@ PRINT CSV_Row3$("Alice", "100", "pass")
 ' Output: Alice,100,pass
 ```
 
-#### JSON Generation (`io.json`)
-JSON object creation.
+#### JSON Builders (`io.json`)
 
-**Functions:**
-- `Json_Object3$(key1$, val1$, key2$, val2$, key3$, val3$)` - Create JSON with 3 pairs
-- `Json_String$(text$)` - Create JSON string value
-- `Json_Number$(num$)` - Create JSON number value
-- Additional JSON builders
+Small builders that return JSON text. For parsing, use the `json` module
+([stdlib manual](docs/manual/en/stdlib.md#json)).
+
+- `Json_String$(text$)` · `Json_Escape$(text$)` · `Json_Pair$(key$, valueJson$)`
+- `Json_Object2$(...)` · `Json_Object3$(k1$, v1Json$, k2$, v2Json$, k3$, v3Json$)`
+- `Json_Array2$(a$, b$)` · `Json_Array3$(a$, b$, c$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1382,13 +813,10 @@ PRINT Json_Object3$("name", Json_String$("QBNex"), "version", Json_String$("curr
 ### System Libraries
 
 #### Environment (`sys.env`)
-Platform detection and environment variables.
 
-**Functions:**
-- `Env_Platform$` - Get platform name (Windows/Linux/macOS)
-- `Env_Is64Bit&` - Check if 64-bit platform
-- `Env_GetHome$` - Get home directory
-- Additional environment functions
+- `Env_Platform$`: `WINDOWS`, `LINUX`, `MACOS` or `UNKNOWN`
+- `Env_Is64Bit&` (-1 or 0) · `Env_GetHome$`
+- `Env_Get$(name$, default$)` · `Env_Has&(name$)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1397,17 +825,14 @@ PRINT "Platform: "; Env_Platform$
 PRINT "64-bit: "; Env_Is64Bit&
 PRINT "Home: "; Env_GetHome$
 ' Output (Linux):
-' Platform: Linux
-' 64-bit: 1
+' Platform: LINUX
+' 64-bit: -1
 ' Home: /home/user
 ```
 
 #### Arguments (`sys.args`)
-Command-line argument access.
 
-**Functions:**
-- `Args_Count&` - Get argument count
-- `Args_Get$(index)` - Get argument at index
+- `Args_Count&` · `Args_Get$(index&, default$)` · `Args_Program$` · `Args_All$`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1419,15 +844,13 @@ NEXT i
 ```
 
 #### DateTime (`sys.datetime`)
-Date and time utilities.
 
-**Functions:**
-- `Date_SetNow(date)` - Set to current time
-- `Date_ToISOString$(date)` - Convert to ISO 8601 string
-- `Date_GetFullYear&(date)` - Get year
-- `Date_GetMonth&(date)` - Get month
-- `Date_GetDay&(date)` - Get day
-- `Date_NowMs#` - Get current timestamp in milliseconds
+Months count from 0 and `Date_GetDay&` is the weekday (0 = Sunday), as in JavaScript.
+
+- `Date_SetNow date` · `Date_FromParts date, year&, monthIndex&, day&, hour&, minute&, second&, ms&` · `Date_FromUnixMs date, ms#`
+- `Date_ToISOString$(date)` · `Date_ToJSON$(date)` · `Date_ValueOf#(date)` · `Date_NowMs#`
+- `Date_GetFullYear&`, `Date_GetMonth&`, `Date_GetDate&`, `Date_GetDay&`, `Date_GetHours&`, `Date_GetMinutes&`, `Date_GetSeconds&`, `Date_GetMilliseconds&`
+- `Date_IsLeapYear&(year&)` · `Date_DaysInMonth&(year&, month&)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1439,19 +862,19 @@ PRINT "ISO: "; Date_ToISOString$(now)
 PRINT "Year: "; Date_GetFullYear&(now)
 PRINT "Timestamp: "; Date_NowMs#
 ' Output:
-' ISO: 2026-04-13T19:30:00Z
-' Year: 2026
-' Timestamp: 1744564200000
+' ISO: 2026-04-13T19:30:00.000
+' Year:  2026
+' Timestamp:  1776108600000
 ```
+
+For time zones, parsing and formatting use `ext.datetime` ([stdlib manual](docs/manual/en/stdlib.md#extdatetime)).
 
 ### Math & Error Handling
 
 #### Numeric Utilities (`math.numeric`)
-Mathematical helper functions.
 
-**Functions:**
-- `Math_Clamp#(value#, min#, max#)` - Clamp value to range
-- Additional numeric utilities
+- `Math_Min#(a#, b#)` · `Math_Max#(a#, b#)` · `Math_Clamp#(x#, min#, max#)` · `Math_Lerp#(a#, b#, t#)`
+- `Math_Deg2Rad#(degrees#)` · `Math_Rad2Deg#(radians#)`
 
 **Example:**
 <!-- docs-test: prepend qbnex -->
@@ -1590,265 +1013,148 @@ PRINT "Is Dog: "; QBNEX_ObjectIs&(pet.Header, "Dog")
 PRINT "Has IPet: "; QBNEX_Implements&(pet.Header.ClassID, "IPet")
 ```
 
+
 ---
 
-## Testing & Verification
+## Developer Tools
 
-QBNex includes comprehensive test suites to verify compiler and library functionality.
+| Command | Program | What it does |
+| --- | --- | --- |
+| `qbnex fmt [options] [files]` | `qb-fmt` | Formatter: keyword case, block indentation, spacing. `-w` rewrites files, `--check` exits 1 when a file would change. Comments, strings, `DATA` and metacommands are never changed. |
+| `qbnex lsp` | `qb-lsp` | Language server on stdin/stdout: diagnostics, outline, go to definition and references across `$INCLUDE` files, hover, completion, formatting. |
+| `qbnex dap` | `qb-dap` | Debug adapter on stdin/stdout: compiles with `qb` and runs on the VM with breakpoints, stepping and variables. |
+| VS Code extension | `packaging/vscode` | Syntax highlighting, the language server, the formatter and the debugger (F5). |
+| `qb file.bas -o file.qir` | `crates/web` | QIR for the WebAssembly build of the runner, which runs programs in a browser (Preview). |
 
-### Comprehensive Test Suite
+`qbnex fmt|lsp|dap` (and `qb.cmd fmt|lsp|dap` on Windows) finds the tools next to the script,
+then in `target/release` or `target/debug` of the checkout, then on `PATH`. Build them with
+`cargo build --release -p qb-fmt -p qb-lsp -p qb-dap`; release bundles include them.
+Details: [commands](docs/manual/en/commands.md), [VS Code and tools](docs/manual/en/vscode.md),
+[web build](docs/manual/en/web.md).
 
-QBNex ships with runnable smoke scripts under `tests/smoke/` for both Windows (`.cmd`) and Linux/macOS (`.sh`).
+---
 
-Current script coverage includes:
-- Diagnostics formatting and include-chain reporting
-- CLI behavior (`--help`, `--version`, invalid switches, `-q`, `-z`, `-x`, settings output)
-- Encoding handling (UTF-16 rejection, invalid UTF-8 rejection, BOM acceptance, empty source, spaced paths)
-- Label resolution and stale-output protections
-- Audio synth command parsing (`_VOICE`, `_ADSR`, `_WAVE`, SOUND, PLAY)
-- Standard library import/include smoke checks
-- Warning behavior and `--warnings-as-errors` promotion
-- Lightweight compile-time benchmark harness
+## Docker Guide
 
-Supporting fixture sources live in `tests/fixtures/` (15 `.bas` files).
+`docker/Dockerfile` builds QBNex on Ubuntu 22.04 (Rust plus the Linux build packages) and copies
+the compiler, the runner and the standard library into a smaller runtime image. In that image
+`qb` and `qbnex` are on PATH, the work folder is `/project`, and the container runs as the
+non-root user `qbnex` (uid 1000), so files it writes into a mounted folder belong to uid 1000.
 
-The native runtime has its own suites:
-- `cargo test --workspace` runs the unit tests of the `crates/` workspace (`cargo test -p qb-runtime`, `-p qb-audio` or `-p qb-exec` for one crate)
-- `cargo run --release -p qbnex-conformance` compiles every program in `tests/conformance/cases/` with the built `qb` and compares the output with the golden files
-
-### Running Individual Tests
-
-**Smoke Tests:**
 ```bash
-# Linux/macOS
-chmod +x tests/*.sh
-./tests/smoke/diagnostics_smoke.sh
-./tests/smoke/warnings_smoke.sh
-./tests/smoke/labels_smoke.sh
-./tests/smoke/encoding_smoke.sh
-./tests/smoke/cli_smoke.sh
-./tests/smoke/stdlib_smoke.sh
-./tests/smoke/audio_smoke.sh
-./tests/smoke/benchmark_smoke.sh
+# Build the image (the build context is the repository root)
+docker build -f docker/Dockerfile -t qbnex .
+
+# Compile a program in the current folder
+docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas -o yourfile   # Linux/macOS
+docker run --rm -v "${PWD}:/project" qbnex qb yourfile.bas -o yourfile   # PowerShell
+docker run --rm -v "%cd%:/project" qbnex qb yourfile.bas -o yourfile     # cmd.exe
+
+# Run the result inside the container
+docker run --rm -v "$(pwd)":/project qbnex ./yourfile
 ```
 
-```cmd
-:: Windows
-tests\smoke\diagnostics_smoke.cmd
-tests\smoke\warnings_smoke.cmd
-tests\smoke\labels_smoke.cmd
-tests\smoke\encoding_smoke.cmd
-tests\smoke\cli_smoke.cmd
-tests\smoke\stdlib_smoke.cmd
-tests\smoke\audio_smoke.cmd
-tests\smoke\benchmark_smoke.cmd
-```
+Give `-o` a path under `/project`: without it the compiler writes to the QBNex folder inside the
+container (`/app`), which the `qbnex` user cannot write to. Without arguments the image prints `qb --help`.
 
-**Diagnostics Smoke Test Only (Windows):**
-```cmd
-tests\smoke\diagnostics_smoke.cmd
-```
+**Docker Compose** (`docker/docker-compose.yml`) defines two services that mount the repository root
+on `/project`, pass `DISPLAY` and use the host network:
 
-**Diagnostics Smoke Test Only (Linux/macOS):**
 ```bash
-chmod +x tests/smoke/diagnostics_smoke.sh
-./tests/smoke/diagnostics_smoke.sh
+docker compose -f docker/docker-compose.yml build
+docker compose -f docker/docker-compose.yml run --rm qbnex qb yourfile.bas -o yourfile
+docker compose -f docker/docker-compose.yml run --rm qbnex-dev        # bash in the dev image
 ```
 
-**Compiler Smoke Suite (Windows):**
-```cmd
-set QBNEX_CI=1
-set QBNEX_BOOTSTRAP=1
-scripts\setup_win.cmd
-tests\smoke\diagnostics_smoke.cmd
-tests\smoke\warnings_smoke.cmd
-tests\smoke\labels_smoke.cmd
-tests\smoke\encoding_smoke.cmd
-tests\smoke\cli_smoke.cmd
-tests\smoke\stdlib_smoke.cmd
-```
+The `qbnex-dev` service uses `docker/Dockerfile.dev`: one stage that keeps the cargo build cache,
+starts `bash`, and runs as root.
 
-**Benchmark Smoke Test (manual):**
+**Graphics programs** need an X server on the host:
+
 ```bash
-# Linux/macOS
-chmod +x tests/smoke/benchmark_smoke.sh
-./tests/smoke/benchmark_smoke.sh
+xhost +local:docker                                  # Linux
+docker run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v "$(pwd)":/project qbnex ./graphics
 ```
 
-```cmd
-:: Windows
-tests\smoke\benchmark_smoke.cmd
-```
+On macOS use XQuartz ("Allow connections from network clients", then `DISPLAY=host.docker.internal:0`);
+on Windows an X server such as VcXsrv with access control disabled. Programs that only need the
+screen contents can run without a window with `-e QBNEX_HEADLESS=1`.
 
-Current CLI smoke coverage includes:
-- `--help`, `--version`, unknown switch, invalid output path
-- quiet mode (`-q`)
-- settings output (`-s`)
-- warnings-as-errors
-- console-mode CLI flag (`-x`)
-- `-z` (accepted, no effect since the QIR cutover)
+**Network programs** (`_OPENHOST`, `_OPENCLIENT`): use `--network host` (Linux) or publish the
+port with `-p 8080:8080`.
 
-This script validates both behaviors in one run:
-- Default compilation output includes detailed markers such as `[!] cause` and `[+] example` without requiring `-d`
-- `--compact-errors` hides those detailed sections and keeps output compact
-- Source fixture for the test is `tests/fixtures/diagnostics_compile_error.bas`
+**Sound** is not passed into the container; programs run on the silent audio device there.
 
-Smoke and benchmark suites remain available for local validation and troubleshooting, but the default GitHub-hosted build workflows now focus on building and packaging artifacts rather than running these suites on every CI execution.
+---
 
-Success markers printed by the scripts:
-- `DIAGNOSTICS_SMOKE_OK`
-- `WARNINGS_SMOKE_OK`
-- `LABELS_SMOKE_OK`
-- `ENCODING_SMOKE_OK`
-- `CLI_SMOKE_OK`
-- `STDLIB_SMOKE_OK`
-- `BENCHMARK_SMOKE_OK`
-
-### Library Compilation Status
-
-Current compilation status:
-
-✅ **Successfully Compiling (100%)**
-- Collections: List, Stack, Queue, Set, Dictionary (5/5)
-- Strings: StringBuilder, Text (2/2)
-- I/O: CSV, JSON, Path (3/3)
-- System: Args, DateTime, Env (3/3)
-- Math: Numeric (1/1)
-- Error: Result (1/1)
-- OOP: Class, Interface (2/2)
-- Core: qbnex_stdlib.bas (1/1)
-
-The `tests/smoke/stdlib_smoke.*` scripts validate representative stdlib entry points using:
-- `tests/fixtures/stdlib_import_success.bas`
-- `tests/fixtures/qbnex_stdlib_include_success.bas`
-- `tests/fixtures/url_import_success.bas`
-
-### Test Results Summary
+## Compilation Pipeline
 
 ```
-Smoke scripts report one `*_SMOKE_OK` marker each on success.
-If a script fails, it prints `*_SMOKE_FAIL` with paths to captured output.
+┌─────────────────┐
+│  BASIC Source   │  (yourfile.bas, UTF-8 or CP437)
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│   Pre-pass      │  $INCLUDE, $IF/$LET, '$IMPORT modules, DEF FN, CLASS lowering
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│  QIR emission   │  Translate BASIC to QIR (text IR, docs/dev/qir.md),
+│                 │  written to target/qb-temp/program.qir
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│   Packaging     │  Copy the runner qb-exec and append the QIR
+│                 │  (or link a native executable when the native kit exists)
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│   Executable    │  yourfile.exe (Windows), ./yourfile (Linux/macOS)
+│                 │  qb-exec runs the QIR on its VM and JIT
+└─────────────────┘
 ```
 
-### Verification Checklist
+**Pre-pass.** The compiler reads the source, inlines `$INCLUDE` files, evaluates `$IF`/`$LET`,
+resolves `'$IMPORT` lines (module declarations go before the program, procedures after it, so
+diagnostics still name the module file and line), rewrites `DEF FN` and CLASS into ordinary
+procedures, and records variables, procedures and types.
 
-Use this checklist to verify your QBNex installation:
-
-- [ ] **Compiler executable exists**: `qb --version` prints compiler version
-- [ ] **Help works**: `qb --help` displays usage
-- [ ] **Diagnostics smoke**: `tests\smoke\diagnostics_smoke.cmd` or `./tests/smoke/diagnostics_smoke.sh`
-- [ ] **Warnings smoke**: `tests\smoke\warnings_smoke.cmd` or `./tests/smoke/warnings_smoke.sh`
-- [ ] **Labels smoke**: `tests\smoke\labels_smoke.cmd` or `./tests/smoke/labels_smoke.sh`
-- [ ] **Encoding smoke**: `tests\smoke\encoding_smoke.cmd` or `./tests/smoke/encoding_smoke.sh`
-- [ ] **CLI smoke**: `tests\smoke\cli_smoke.cmd` or `./tests/smoke/cli_smoke.sh`
-- [ ] **Stdlib smoke**: `tests\smoke\stdlib_smoke.cmd` or `./tests/smoke/stdlib_smoke.sh`
-- [ ] **Benchmark smoke (optional)**: `tests\smoke\benchmark_smoke.cmd` or `./tests/smoke/benchmark_smoke.sh`
-- [ ] **Docker (optional)**: Docker image builds successfully
-
-### Test Documentation
-
-For detailed testing information, see:
-- `tests/*.cmd` - Windows smoke/benchmark scripts
-- `tests/*.sh` - Linux/macOS smoke/benchmark scripts
-- `tests/fixtures/*.bas` - fixture programs used by the smoke suites
-
-### Creating Your Own Tests
-
-**Simple Test Program:**
+<!-- docs-test: skip needs mylib.bas -->
 ```basic
-' test_basic.bas
-DIM failures AS LONG
-
-' Test arithmetic
-IF 2 + 2 <> 4 THEN failures = failures + 1
-IF 10 - 5 <> 5 THEN failures = failures + 1
-IF 3 * 4 <> 12 THEN failures = failures + 1
-IF 20 / 4 <> 5 THEN failures = failures + 1
-
-' Test strings
-IF LEN("Hello") <> 5 THEN failures = failures + 1
-IF LCASE$("HELLO") <> "hello" THEN failures = failures + 1
-
-' Report results
-IF failures = 0 THEN
-    PRINT "ALL_TESTS_PASSED"
-    SYSTEM 0
-ELSE
-    PRINT "TEST_FAILURES: "; failures
-    SYSTEM 1
-END IF
-```
-
-**Library Test:**
-```basic
-' test_collections.bas
 '$IMPORT:'qbnex'
+'$INCLUDE:'mylib.bas'
 
-DIM failures AS LONG
-
-' Test List
-DIM myList AS QBNex_List
-List_Init myList
-List_Add myList, "item1"
-List_Add myList, "item2"
-
-IF List_Count&(myList) <> 2 THEN failures = failures + 1
-IF List_Get$(myList, 0) <> "item1" THEN failures = failures + 1
-
-List_Free myList
-
-' Test Stack
-DIM stack AS QBNex_Stack
-Stack_Init stack
-Stack_Push stack, "first"
-Stack_Push stack, "second"
-
-IF Stack_Count&(stack) <> 2 THEN failures = failures + 1
-IF Stack_Peek$(stack) <> "second" THEN failures = failures + 1
-
-Stack_Free stack
-
-' Report
-IF failures = 0 THEN
-    PRINT "COLLECTION_TESTS_PASSED"
-ELSE
-    PRINT "COLLECTION_TEST_FAILURES: "; failures
-END IF
+$LET DEBUG_MODE = 1
+$IF DEBUG_MODE = 1 THEN
+    PRINT "Debug mode enabled"
+$END IF
 ```
 
-Run test:
-```bash
-qb test_collections.bas -x
-```
+**QIR emission.** Each statement is checked and lowered to QIR: typed registers, loads and stores
+of variables, calls into the runtime (`rt PRINTS`, `rt SCREEN`, ...), labels and branches. The QIR
+of the last build stays in `target/qb-temp/program.qir` in the QBNex folder (each running
+compiler uses its own `target/qb-temp<N>` folder). A statement the QIR back end does not cover
+stops the build with `QIR: unsupported: line N: ...`.
 
-### Continuous Integration
+**Packaging and execution.** The output is a copy of the prebuilt runner
+`crates/engine/exec/bin/<os>/qb-exec` followed by the QIR text, its length (u64, little endian)
+and the tag `QBNEXIR0`. At start-up the runner reads that payload from its own file, validates it,
+lowers it to bytecode and runs it on a register VM; hot functions are compiled by the Cranelift
+JIT (`QB_JIT`). The runtime (window, graphics, sound, files, network) is the Rust crate
+`qb-runtime` with `qb-audio`, `qb-gpu` and `qb-ext`.
 
-QBNex uses GitHub Actions for automated builds and release packaging:
+**Sizes and speed** (Windows x64, this machine): hello world compiles in about 0.5 s; a
+10,000-line program in about 15 s; the compiler itself in about 41 s. Every program is the
+runner (about 12.7 MB, with graphics, sound, network and the JIT) plus its QIR text, so a hello
+world and a graphics program are about the same size.
 
-- `ci.yml`: On pushes and pull requests to `main` / `rust-port`: dependency audit, build, clippy, Rust tests, smoke tests, conformance, self-host fixpoint and native executables on Linux, macOS and Windows x64; uploads compiler artifacts
-- `release.yml`: Runs on pushed tags matching `v*` and on manual dispatch, packages release archives, and publishes a GitHub Release with generated notes
-- `ci.yml` honors `ci-skip` in the commit message of a push to skip its jobs when explicitly requested
-- GitHub-hosted workflows run the smoke suites but not the benchmark suite; use the local commands above for benchmarks
-- `windows-x86` / 32-bit builds are still supported through the repository setup scripts, but they must be compiled manually outside GitHub Actions
+---
 
-To cut a release from Git:
+## Diagnostics
 
-```bash
-git tag <tag>
-git push origin <tag>
-```
-
-When the release workflow succeeds, GitHub Releases will contain:
-
-- `qbnex_<tag>_lnx.tar.gz`
-- `qbnex_<tag>_osx.tar.gz`
-- `qbnex_<tag>_win-x64.zip`
-
-If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build it locally with `scripts\setup_win.cmd`.
-
-### Test Output Interpretation
-
-**Successful Compilation** (in color: the logo shades from periwinkle through sky blue and mint to light green in the 256-color palette; the progress bar is redrawn in place):
+**Build screen** (in colour the logo shades from periwinkle through sky blue and mint to light
+green; the progress bar is redrawn in place):
 ```
    ██████╗ ██████╗ ███╗   ██╗███████╗██╗  ██╗
   ██╔═══██╗██╔══██╗████╗  ██║██╔════╝╚██╗██╔╝
@@ -1865,25 +1171,14 @@ If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build 
   ✅ Build complete: C:\work\hello.exe  (0.3 s)
 ```
 
-With `-m` (or the `NO_COLOR` environment variable set) the banner is drawn with letters and the rest prints in plain ASCII:
+With `-m` (or `NO_COLOR` set) the banner is drawn with letters and the rest prints in plain ASCII:
 ```
 Preparing build files... [########################################] 100%
 
 Build complete: hello.exe
 ```
 
-**Compilation Error:**
-```
-[x] QBNex :: Error [E1203]  Expression mixes incompatible types
-  [@] compiler/qbnex.bas(1708,28)
-  [#] source
-    1708 | IF UserDefine(0, i) = l$ THEN
-         |                            ^ string value compared against incompatible type
-  [>] next     Convert the value to the correct type using an explicit conversion function.
-  [::] flow    Parsing :: parse source file -> file: compiler/qbnex.bas
-```
-
-**Detailed Diagnostics (default):**
+**A compile error** (detailed form, the default):
 ```
 [x] QBNex :: Error [E1106]  IF statement is missing THEN or GOTO
   [@] app.bas(42,13)
@@ -1898,9 +1193,7 @@ Build complete: hello.exe
 [x] QBNex :: Build Halted  1 blocking diagnostic(s)
 ```
 
-### Diagnostic Output Style
-
-QBNex diagnostics use compact markers so the important parts of an error can be scanned quickly in a plain terminal:
+`-k` / `--compact-errors` drops the `[!] cause` and `[+] example` notes.
 
 | Marker | Meaning |
 |--------|---------|
@@ -1914,268 +1207,141 @@ QBNex diagnostics use compact markers so the important parts of an error can be 
 | `[::]` | Phase and flow summary |
 | `[*]` | Active compiler configuration note |
 | `[=]` | Repeated diagnostic or hidden duplicate summary |
-| `[^]` | Verbose location context |
-| `[.]` | Verbose detail note |
-| `[>>]` | Verbose in-progress context |
-| `[!]` | Verbose cause note |
-| `[+]` | Verbose example or corrected form |
+| `[^]` | Detailed location context |
+| `[.]` | Detailed note |
+| `[>>]` | Detailed in-progress context |
+| `[!]` | Cause note |
+| `[+]` | Example or corrected form |
 
-Detailed diagnostics are enabled by default so the full trail, root-cause notes, and remediation examples appear automatically. Use `-k` or `--compact-errors` when you prefer compact output.
-
-**Runtime Success:**
-```
-RUNTIME_SMOKE_OK
-```
-
-**Runtime Failure:**
-```
-RUNTIME_SMOKE_FAIL 3
-(Exit code: 1)
-```
+**Runtime errors.** An unhandled runtime error in an interactive console shows the classic
+"Unhandled Error #n ... Continue?" dialog. With redirected output or `QBNEX_NO_ERROR_DIALOG=1` it
+prints one line to stderr and the program ends with exit code 1. An error in an `$INCLUDE` file
+names that file and line.
 
 ---
 
-## Compilation Pipeline
+## Testing & Verification
 
-Understanding how QBNex translates BASIC code to native binaries.
+| Suite | Command | What it checks |
+| --- | --- | --- |
+| Rust unit and integration tests | `cargo test --workspace` (or `-p qb-runtime`, `-p qb-exec`, ...) | Runtime, VM, JIT, FFI, tools |
+| Conformance | `cargo run --release -p qbnex-conformance` | Compiles every program in `tests/conformance/cases/` (156) with the built `qb` and compares the output with the golden files |
+| Smoke scripts | `tests\smoke\<name>_smoke.cmd` / `sh tests/smoke/<name>_smoke.sh` | CLI and compiler behaviour end to end |
+| Documentation | `pwsh tests/docs/check_docs.ps1` | Compiles every BASIC block of this README and `docs/manual`, runs those with a shown output ([tests/docs/README.md](tests/docs/README.md)) |
+| Self-host fixpoint | `scripts\selfhost_fixpoint.cmd` / `sh scripts/selfhost_fixpoint.sh` | The compiler rebuilds itself to the same QIR, equal to `bootstrap/qbnex.qir` |
 
-### How It Works
+Smoke scripts (run from the repository root after setup; each prints `[PASS]` or a `*_SMOKE_OK`
+marker and exits non-zero on failure):
 
-QBNex is a self-hosting compiler written in QBNex BASIC itself. The compilation process involves these stages:
+| Script | Covers |
+| --- | --- |
+| `cli_smoke` | `--help`, `--version`, unknown switches, output paths, `-q`, `-s`, `-x`, `-z`, warnings-as-errors |
+| `diagnostics_smoke` | Detailed and compact diagnostics, include-chain reporting |
+| `warnings_smoke` | Warnings and `--warnings-as-errors` |
+| `labels_smoke` | Label resolution, stale-output protection |
+| `encoding_smoke` | UTF-16 and invalid UTF-8 rejection, BOM, CP437, empty source, spaced paths |
+| `stdlib_smoke`, `stdlib_modules_smoke` | Standard library imports and includes, every module |
+| `compiler_robustness_smoke` | Malformed input ends in a diagnostic, not an internal error |
+| `audio_smoke` | `_VOICE`, `_ADSR`, `_WAVE`, `SOUND`, `PLAY` |
+| `chain_smoke` | `CHAIN` with COMMON variables and arrays, also from a SUB |
+| `benchmark_smoke` | Compile times of small, medium and large programs (manual, not in CI) |
 
+Fixture programs live in `tests/fixtures/`. CI runs every smoke script except the benchmark.
+
+```cmd
+:: Windows: build, then the smoke scripts CI runs
+set QBNEX_CI=1
+scripts\setup_win.cmd
+for %t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain) do tests\smoke\%t_smoke.cmd
 ```
-┌─────────────────┐
-│  BASIC Source   │  (yourfile.bas)
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│   Pre-pass      │  Handle $INCLUDE, $DEFINE, $IFDEF, $IMPORT
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│  QIR emission   │  Translate BASIC to QIR (text IR, docs/dev/qir.md)
-│                 │  written to target/qb-temp/program.qir
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│   Packaging     │  Copy the runner qb-exec and append the QIR
-│                 │  (no C/C++ compiler, no linker)
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│   Executable    │  yourfile.exe (Windows), ./yourfile (Linux/macOS)
-│                 │  qb-exec runs the QIR on its VM and JIT
-└─────────────────┘
+
+```bash
+# Linux/macOS
+sh scripts/setup_lnx.sh
+for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain; do
+    sh "tests/smoke/${t}_smoke.sh" || break
+done
 ```
 
-### Stage 1: Pre-pass (Parsing)
+**Writing a test program.** End with `SYSTEM <code>` so scripts see the result:
 
-During the pre-pass stage, the compiler:
-
-1. **Reads source file**: Loads your `.bas` file into memory
-2. **Processes directives**:
-   - `$INCLUDE`: Includes external files
-   - `$DEFINE`/`$IFDEF`/`$ENDIF`: Conditional compilation
-   - `$IMPORT:`: Loads standard library modules
-3. **Validates syntax**: Checks for syntax errors
-4. **Builds symbol table**: Records variables, functions, types
-5. **Handles metacommands**: Processes `OPTION _EXPLICIT`, etc.
-
-**Example:**
-<!-- docs-test: skip needs mylib.bas -->
 ```basic
-' This is processed during pre-pass
+' test_basic.bas
+DIM failures AS LONG
+
+IF 2 + 2 <> 4 THEN failures = failures + 1
+IF LEN("Hello") <> 5 THEN failures = failures + 1
+IF LCASE$("HELLO") <> "hello" THEN failures = failures + 1
+
+IF failures = 0 THEN
+    PRINT "ALL_TESTS_PASSED"
+    SYSTEM 0
+ELSE
+    PRINT "TEST_FAILURES: "; failures
+    SYSTEM 1
+END IF
+```
+
+```bash
+qb test_basic.bas -o test_basic.exe
+QBNEX_NO_ERROR_DIALOG=1 ./test_basic.exe
+```
+
+A change in behaviour gets a conformance case in `tests/conformance/cases/` (see CONTRIBUTING.md).
+
+---
+
+## Troubleshooting
+
+**"cargo was not found" during setup.** Install Rust from https://rustup.rs and run the setup
+script again, or point `QBNEX_QB_EXEC` at a prebuilt `qb-exec`.
+
+**"Cannot locate source file".** Check the path. The compiler resolves a relative source path
+against the current folder; when in doubt, give an absolute path.
+
+**The executable is not where I expected.** Without `-o` it goes to the QBNex folder (next to
+`qb`). Use `-o path` or `qb -s:exewithsource=true`.
+
+**`QIR: unsupported: line N: ...`.** The statement is one of the few the QIR back end does not
+compile yet; see [limitations](docs/manual/en/limitations.md#statements-that-are-not-supported-or-behave-differently).
+
+**A console program waits at "Press any key to continue".** In an interactive console a program
+that ends with `END` waits for a key, as in QBasic; with stdin or stdout redirected (or
+`QBNEX_NO_ERROR_DIALOG=1`) it does not. End it with `SYSTEM` to never wait.
+
+**A runtime error opens a dialog in CI.** Set `QBNEX_NO_ERROR_DIALOG=1`.
+
+**Antivirus flags a compiled program.** Every compiled program is a new, unsigned executable
+with data appended. Exclude the QBNex folder or your output folder from scanning.
+
+**`permission denied: ./myprogram` (Linux/macOS).** `chmod +x myprogram`.
+
+**No window or no sound.** On Linux check that the ALSA and X11/Wayland libraries are installed;
+in Docker see the [Docker Guide](#docker-guide). `_GPU3D` returns 0 without a GPU runtime;
+`SUB _GL` needs an OpenGL driver (`QB_GL=off` disables it).
+
+**Import problems.** The form is `'$IMPORT:'module.name'` (apostrophe, `$IMPORT:`, the name in
+single quotes). Modules are in `compiler/stdlib/`; the collections other than
+`collections.list` need `'$IMPORT:'qbnex'`.
+
+<!-- docs-test: skip shows wrong syntax on purpose -->
+```basic
+' Correct syntax (note the quotes and colon)
 '$IMPORT:'qbnex'
-'$INCLUDE:'mylib.bas'
+'$IMPORT:'collections.list'
+'$IMPORT:'sys.env'
 
-$DEFINE DEBUG_MODE
-$IFDEF DEBUG_MODE
-    PRINT "Debug mode enabled"
-$ENDIF
+' Wrong syntax (common mistakes)
+'$IMPORT: qbnex'          ' Missing quotes around module
+'$IMPORT:qbnex'           ' Missing inner quotes
+IMPORT:'qbnex'            ' Missing $ prefix
 ```
 
-### Stage 2: QIR Emission
-
-The compiler checks each statement and lowers it to QIR: typed registers, loads and
-stores of variables, calls into the runtime (`rt PRINTS`, `rt SCREEN`, ...), labels
-and branches. The QIR of the last build is kept in `target/qb-temp/program.qir`.
-
-### Stage 3: Packaging and Execution
-
-The output executable is a copy of the prebuilt runner `crates/engine/exec/bin/<os>/qb-exec`
-followed by the QIR text, its length (u64, little endian) and the tag `QBNEXIR0`.
-At start-up the runner reads that payload from its own file, validates it, lowers it to
-bytecode and runs it; hot loops are compiled by the JIT. The runtime (window, graphics,
-sound, files, network) is the Rust crate `qb-runtime`.
-
-### Compilation Flags Deep Dive
-
-**The generated QIR:**
-```bash
-qb myprogram.bas
-# The QIR of the last build stays in target/qb-temp/program.qir
-# (in the QBNex folder); -z is accepted but builds the executable too
-```
-
-**Flag `-x` (console output):**
-```bash
-qb myprogram.bas -x
-# Compiles to myprogram.exe
-# Sends the compiler's own messages to the console
-# (it does not run the program)
-```
-
-**Flag `-o` (Custom output name):**
-```bash
-qb myprogram.bas -o myapp.exe
-# Creates myapp.exe instead of myprogram.exe
-# Useful for: deployment, versioning
-```
-
-**Flag `-w` (Show warnings):**
-```bash
-qb myprogram.bas -w
-# Shows potential issues that aren't errors
-# Recommended for development
-```
-
-**Flag `-e` (OPTION _EXPLICIT):**
-```bash
-qb myprogram.bas -e
-# Requires all variables to be declared with DIM
-# Catches typos in variable names
-# Best practice for production code
-```
-
-### Performance Considerations
-
-**Compilation Speed:**
-- Simple programs: 1-3 seconds
-- Medium programs: 3-10 seconds
-- Large programs (1000+ lines): 10-30 seconds
-- Compiler itself (~26K lines): 1-2 minutes
-
-**Binary Size:**
-- Every program is the runner (about 12.5 MB on Windows x64, with the whole
-  Rust runtime: graphics, sound, network, JIT) plus its QIR text, so a Hello
-  World and a graphics program are about the same size
-
-**Optimization Tips:**
-1. Use `-q` flag for cleaner output during development
-2. Use `-w` flag to catch potential issues early
-3. Use `-e` flag to enforce variable declaration
-4. Read `target/qb-temp/program.qir` (in the QBNex folder) to see what the compiler generated
-
----
-
-## Troubleshooting Comprehensive Guide
-
-Common issues and their solutions.
-
-### Compilation Issues
-
-**Problem: "Cannot convert number to string"**
-```
-Cannot convert number to string
-Caused by: IF USERDEFINE ( 0 , I ) = L$ THEN
-LINE 1708
-```
-
-**Solution:**
-- Check type mismatches in comparisons
-- Ensure proper type conversion with `STR$()`, `VAL()`
-- Verify variable types match in operations
-- Known issue in main compiler self-hosting (line 1708)
-
-**Problem: "File not found"**
-```
-Error: File not found: myprogram.bas
-```
-
-**Solution:**
-```bash
-# Check file exists
-ls -la myprogram.bas  # Linux/macOS
-dir myprogram.bas     # Windows
-
-# Use absolute path
-qb /path/to/myprogram.bas
-
-# Check current directory
-pwd   # Linux/macOS
-cd    # Windows
-```
-
-**Problem: "Permission denied"**
-```
-bash: ./myprogram: Permission denied
-```
-
-**Solution:**
-```bash
-# Make executable
-chmod +x myprogram
-
-# Or run with explicit interpreter
-./myprogram
-```
-
-### Runtime Issues
-
-**Problem: Program compiles but doesn't run**
-
-**Solution:**
-```bash
-# Check if executable exists
-ls -la myprogram
-
-# Check dependencies (Linux)
-ldd myprogram
-
-# Run with strace (Linux debugging)
-strace ./myprogram
-
-# Check for missing libraries
-./myprogram
-# Error message will show missing library
-```
-
-**Problem: Graphics not displaying**
-
-**Solution:**
+**Sound test.**
 ```basic
-' Ensure proper SCREEN mode
-SCREEN 12  ' 640x480 graphics mode
+BEEP
+SOUND 440, 18  ' 440 Hz for 1 second
 
-' Check if graphics initialized
-CLS  ' Clear screen
-
-' Add delay to see output
-SLEEP 2
-```
-
-**Docker graphics:**
-```bash
-# Enable X11 forwarding
-xhost +local:docker
-docker run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix qbnex qb graphics.bas -x
-```
-
-**Problem: Sound not working**
-
-**Solution:**
-- Linux: Check ALSA drivers installed (`libasound2-dev`)
-- macOS: CoreAudio should work automatically
-- Windows: Check Windows Multimedia library
-- Use `BEEP` for simple test
-
-```basic
-BEEP  ' Should produce system beep
-SOUND 440, 18  ' 440Hz for 1 second
-```
-
-**Polyphonic synth example:**
-```basic
 _VOICE 1
 _ADSR .01, .05, .7, .08
 _WAVE "SINE"
@@ -2190,210 +1356,9 @@ _WAVE "PINK", 3
 PLAY "MB T180 O3 L8 CEG"
 ```
 
-### Docker Issues
-
-**Problem: "Volume mount not working"**
-
-**Solution:**
-```bash
-# Use absolute paths
-docker run --rm -v /absolute/path:/project qbnex qb file.bas
-
-# Check Docker Compose config
-docker-compose -f docker/docker-compose.yml config
-
-# Verify files mounted
-docker run --rm -v $(pwd):/project qbnex ls -la /project
-```
-
-**Problem: "Graphics not working in Docker"**
-
-**Solution:**
-```bash
-# Linux: Allow Docker X11 access
-xhost +local:docker
-
-# macOS: Install XQuartz
-brew install --cask xquartz
-# Enable "Allow connections from network clients" in XQuartz preferences
-
-# Windows: Install VcXsrv
-# Run with "Disable access control" checked
-```
-
-**Problem: "Build fails in Docker"**
-
-**Solution:**
-```bash
-# Rebuild without cache
-docker-compose -f docker/docker-compose.yml build --no-cache
-
-# Check Dockerfile syntax
-docker build --no-cache -f docker/Dockerfile -t qbnex .
-
-# Verify all files present
-ls -la
-# Should include: docker/ (Dockerfile, docker-compose.yml), compiler/
-```
-
-### Standard Library Issues
-
-**Problem: "Import not working"**
-
-**Solution:**
-<!-- docs-test: skip shows wrong syntax on purpose -->
-```basic
-' Correct syntax (note the quotes and colon)
-'$IMPORT:'qbnex'
-'$IMPORT:'collections.list'
-'$IMPORT:'sys.env'
-
-' Wrong syntax (common mistakes)
-'$IMPORT: qbnex'          ' Missing quotes around module
-'$IMPORT:qbnex'           ' Missing inner quotes
-IMPORT:'qbnex'            ' Missing $ prefix
-```
-
-**Problem: "Module not found"**
-
-**Solution:**
-- Modules are in `compiler/stdlib/` relative to compiler root
-- Ensure compiler installation is complete
-- Check file exists: `compiler/stdlib/collections/list.bas`
-
-```bash
-# Verify stdlib files exist
-ls -la compiler/stdlib/collections/
-ls -la compiler/stdlib/strings/
-ls -la compiler/stdlib/sys/
-```
-
-**Problem: "QBNex_List not defined"**
-
-**Solution:**
-```basic
-' Must import qbnex core first
-'$IMPORT:'qbnex'
-
-' Then you can use QBNex types
-DIM myList AS QBNex_List
-List_Init myList
-```
-
-### Platform-Specific Issues
-
-**Windows:**
-
-**Problem: "qb-exec not found" during setup**
-- Install Rust from https://rustup.rs and run `scripts\setup_win.cmd` again
-
-**Problem: "Antivirus flags qb.exe"**
-- Add QBNex folder to exclusion list
-- This is a false positive (compiled binary heuristic)
-- QBNex is free software (GPL-3.0-or-later); programs you compile with it are yours, under any license
-
-**Linux:**
-
-**Problem: "Missing libraries"**
-```bash
-# Install dependencies (Debian/Ubuntu)
-sudo apt-get install gcc libasound2-dev libudev-dev pkg-config libx11-dev libxkbcommon-dev
-
-# Install dependencies (Fedora)
-sudo dnf install gcc alsa-lib-devel systemd-devel pkgconf-pkg-config libX11-devel libxkbcommon-devel
-
-# Install dependencies (Arch)
-sudo pacman -S gcc alsa-lib systemd-libs pkgconf libx11 libxkbcommon
-```
-
-**macOS:**
-
-**Problem: "cargo not found"**
-```bash
-# Install Rust, then run the setup again
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-sh scripts/setup_osx.command
-```
-
-### Getting Help
-
-**Check compiler version:**
-```bash
-qb --version
-# Should show: QBNex Compiler <build info>
-```
-
-**Show help:**
-```bash
-qb --help
-# Shows all available flags and usage
-```
-
-**Show examples:**
-```bash
-qb --examples
-# Shows common usage patterns
-```
-
-**Check settings:**
-```bash
-qb -s
-# Shows current compiler settings
-```
-
-**Verbose compilation:**
-```bash
-# Compile with warnings
-qb myprogram.bas -w
-
-# Compile in quiet mode (less output)
-qb myprogram.bas -q
-```
-
-**Inspect the generated QIR:**
-```bash
-qb myprogram.bas
-# Then read target/qb-temp/program.qir in the QBNex folder
-```
-
-### Known Issues
-
-1. **Main compiler self-hosting** (line 1708)
-   - Type conversion issue in `UserDefine()` function
-   - Pre-compiled `qb.exe` works fine
-   - Affects recompiling compiler from source
-   - Workaround: Use existing `qb.exe`
-
-2. **Executable timeout in automated tests**
-   - Console I/O in certain environments
-   - Manual execution works correctly
-   - Use `-x` flag for immediate testing
-
-### Reporting Bugs
-
-When reporting bugs, include:
-
-1. **Platform**: Windows/Linux/macOS version
-2. **Compiler version**: `qb --version`
-3. **Source code**: Minimal reproducing example
-4. **Expected behavior**: What you expected
-5. **Actual behavior**: What happened
-6. **Error messages**: Complete error output
-7. **Steps to reproduce**: How to trigger the bug
-
-**Create minimal bug report:**
-```basic
-' bug_demo.bas
-' Expected: Should print "Hello"
-' Actual: Prints nothing or error
-
-PRINT "Hello"  ' This line causes issue
-```
-
-```bash
-qb bug_demo.bas -w
-# Copy complete output
-```
+**Reporting bugs.** Include the platform, `qb --version`, a minimal program, the expected and the
+actual behaviour, and the complete compiler output (`qb file.bas -w -m`). The QIR of the last
+build is in `target/qb-temp/program.qir`. Security problems: see [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -2670,7 +1635,7 @@ SCREEN 0  ' Return to text mode
 
 ## Supported QBasic Commands
 
-QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive reference organized by category.
+The tables below list the classic QBasic statements and functions by category; QB64 `_` keywords are covered too (see the [manual](docs/manual/README.md)).
 
 ### Control Flow
 
@@ -2709,7 +1674,7 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 | ----------------- | ------------------------ | ---------------------------- |
 | `DIM`             | Declare variable/array   | `DIM x AS INTEGER`           |
 | `REDIM`           | Redimension array        | `REDIM arr(20)`              |
-| `REDIM PRESERVE`  | Redimension keeping data | `REDIM PRESERVE arr(30)`     |
+| `REDIM _PRESERVE` | Redimension keeping data | `REDIM _PRESERVE arr(30)`    |
 | `CONST`           | Declare constant         | `CONST MAX = 100`            |
 | `LET`             | Assign value (optional)  | `LET x = 10`                 |
 | `COMMON SHARED`   | Share across modules     | `COMMON SHARED x AS INTEGER` |
@@ -2756,7 +1721,7 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 | `UCASE$`  | Uppercase         | `UCASE$("hello")` → "HELLO"   |
 | `LTRIM$`  | Trim left spaces  | `LTRIM$("  Hi")` → "Hi"       |
 | `RTRIM$`  | Trim right spaces | `RTRIM$("Hi  ")` → "Hi"       |
-| `TRIM$`   | Trim both sides   | `TRIM$("  Hi  ")` → "Hi"      |
+| `_TRIM$`  | Trim both sides   | `_TRIM$("  Hi  ")` → "Hi"     |
 | `STR$`    | Number to string  | `STR$(123)` → " 123"          |
 | `VAL`     | String to number  | `VAL("123")` → 123            |
 | `CHR$`    | ASCII to char     | `CHR$(65)` → "A"              |
@@ -2795,7 +1760,6 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 | `CLNG`   | Convert to long    | `CLNG(3.7)` → 4     |
 | `CSNG`   | Convert to single  | `CSNG(3)` → 3.0     |
 | `CDBL`   | Convert to double  | `CDBL(3)` → 3.0     |
-| `CSTR`   | Convert to string  | `CSTR(123)` → "123" |
 | `MKI$`   | Integer to string  | `MKI$(100)`         |
 | `MKL$`   | Long to string     | `MKL$(100000)`      |
 | `MKS$`   | Single to string   | `MKS$(value)`       |
@@ -2811,7 +1775,7 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 | ---------------- | ------------------- | ------------------------ |
 | `DIM arr(n)`     | Declare array       | `DIM arr(10) AS INTEGER` |
 | `REDIM`          | Resize array        | `REDIM arr(20)`          |
-| `REDIM PRESERVE` | Resize keeping data | `REDIM PRESERVE arr(30)` |
+| `REDIM _PRESERVE` | Resize keeping data | `REDIM _PRESERVE arr(30)` |
 | `LBOUND`         | Lower bound         | `LBOUND(arr)` → 0 or 1   |
 | `UBOUND`         | Upper bound         | `UBOUND(arr)` → 10       |
 | `ERASE`          | Erase array         | `ERASE arr`              |
@@ -2969,77 +1933,40 @@ QBNex supports 150+ QBasic/QB64 keywords and functions. Below is a comprehensive
 
 ---
 
-### Language Extensions
-
-QBNex adds these to QBasic. Existing programs are unaffected: the new words start with `_` or are only recognised where QBasic would have reported a syntax error.
-
-| Feature | Example | Notes |
-| --- | --- | --- |
-| `_IIF` | `PRINT _IIF(n > 1, "items", "item")` | Only the chosen value is evaluated. Both values are strings or both are numbers. |
-| `_ANDALSO`, `_ORELSE` | `IF i <= UBOUND(a) _ANDALSO a(i) > 0 THEN` | Short-circuit logic, result -1 or 0. |
-| String interpolation | `PRINT $"Hello {name$ + "!"}, you are {age%}"` | Numbers are formatted like `LTRIM$(STR$(x))` (`_TOSTR$`). Expressions may contain string literals. `{{` and `}}` are literal braces. |
-| `FOR EACH` | `FOR EACH v IN grid()` ... `NEXT` | Every element, first index outermost (any number of dimensions, taken from the DIM/REDIM of the array); `v` is a copy of the element. |
-| `ENUM` | `ENUM Color` / `Red, Green = 5, Blue` / `END ENUM` | Members become integer `CONST`s, counting up from 0 or from the last `= value`. |
-| `TRY` / `CATCH` / `FINALLY` | see below | Built on `ON ERROR`; `CATCH e` stores the error number in `e`. Without `CATCH`, the error is raised again after `FINALLY`. |
-| `OPTIONAL` parameters | `SUB Greet (who$, OPTIONAL greeting$ = "Hello")` | Trailing arguments may be left out; the default is any expression valid at the call site. |
-| `$ASSERTS` + `_ASSERT` | `_ASSERT total >= 0, "negative total"` | Checked only when `$ASSERTS` is present. |
-
-```basic
-TRY
-    OPEN "data.txt" FOR INPUT AS #1
-    LINE INPUT #1, first$
-CATCH e
-    PRINT "could not read data.txt, error"; e
-FINALLY
-    CLOSE
-END TRY
-```
-
-`TRY`, `CATCH`, `FINALLY`, `END TRY`, `ENUM` and `END ENUM` may share a line with other statements (`TRY: x = 1 / d: CATCH e: PRINT e: END TRY`). TRY also works in `$INCLUDE` and `$IMPORT` files.
-
 ## Development
 
-Primary compiler modules now live under `compiler/utilities/` with `compiler/qbnex.bas`
-acting mainly as the main orchestrator. Shared startup/build/temp-workspace state is
-grouped in `compiler/utilities/state.bas`.
+The compiler is BASIC and compiles itself:
 
-For rebuild steps, minimum verification, and module-splitting guidance, see
-`CONTRIBUTING.md`.
-
-### How It Works
-
-QBNex is a self-hosting compiler written in QBNex BASIC itself (~26,000 lines). The compilation process:
-
-1. **Bootstrap Phase**: `bootstrap/qbnex.qir` (the compiler, already translated to QIR) is packed into the runner `qb-exec`, giving a stage-0 compiler
-2. **Self-Hosting Phase**: stage 0 compiles `compiler/qbnex.bas` and its modules into the final `qb` / `qb.exe`; `scripts/selfhost_fixpoint.*` checks that the result rebuilds itself to the same QIR
-3. **Code Generation**: the compiler translates BASIC source code into QIR
+1. **Bootstrap**: `bootstrap/qbnex.qir` (the compiler, already translated to QIR) is packed into the runner `qb-exec`, giving the stage-0 compiler `qb-stage0`
+2. **Self-hosting**: stage 0 compiles `compiler/qbnex.bas` and its modules into `qb` / `qb.exe`; `scripts/selfhost_fixpoint.*` checks that the next generations produce the same QIR and that it equals `bootstrap/qbnex.qir` (the Windows build of the compiler, so only Windows compares against it; elsewhere set `QBNEX_FIXPOINT_BOOTSTRAP=0`)
+3. **Code generation**: the compiler translates BASIC into QIR
 4. **Packaging**: the output is the runner with the program's QIR appended (no C/C++ compiler or linker)
-5. **Runtime**: `qb-exec` runs the QIR with the Rust runtime `qb-runtime` (window, graphics, audio, fonts, images, network)
+5. **Runtime**: `qb-exec` runs the QIR with the Rust runtime crates
+
+`compiler/qbnex.bas` is the main orchestrator; most of the compiler lives in
+`compiler/utilities/` (QIR emission in `ir_*.bas`, CLI in `cli.bas`, shared state in
+`state.bas`). Rebuild steps, required checks and code conventions: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Project Structure
 
 ```
 QBNex/
 ├── .github/
-│   ├── scripts/                # CI helper scripts (bundle/release notes)
-│   └── workflows/              # ci.yml, release.yml
-├── assets/
-│   └── icons/                  # Platform icon assets (linux/macos/windows)
+│   ├── scripts/                # Release bundle and release-notes helpers
+│   ├── workflows/              # ci.yml, release.yml, docs.yml
+│   └── dependabot.yml
+├── assets/                     # Logo and platform icons
+├── bootstrap/
+│   └── qbnex.qir               # The compiler in QIR (input of the setup scripts)
 ├── compiler/                   # QBNex compiler source (BASIC)
 │   ├── qbnex.bas               # Main orchestrator entry point
-│   ├── qbnex.ico               # Compiler icon
-│   ├── global/                 # Version/constants/settings modules
+│   ├── global/                 # Version, constants, settings
 │   ├── includes/               # Shared include files
-│   ├── stdlib/                 # Standard library modules + examples
-│   │   ├── collections/
-│   │   ├── error/
-│   │   ├── io/
-│   │   ├── math/
-│   │   ├── oop/
-│   │   ├── strings/
-│   │   └── sys/
-│   ├── subs_functions/         # Built-in functions/subroutines
-│   └── utilities/              # Compiler utility modules
+│   ├── stdlib/                 # Standard library modules (collections, error, ext, io,
+│   │                           #   math, oop, strings, sys, json.bas, url.bas, qbnex_stdlib.bas)
+│   ├── subs_functions/         # Built-in statement and function table
+│   ├── support/                # $COLOR tables, SUB _GL keyword table, vwatch
+│   └── utilities/              # Compiler modules (QIR emission, CLI, imports, DEF FN, ...)
 ├── crates/                     # Rust crates (Cargo workspace)
 │   ├── compiler/ir/            # qb-ir: QIR types, text parser/printer, validator, builtin table
 │   ├── compiler/syntax/        # qb-syntax: lexer and keyword tables for the tools
@@ -3048,124 +1975,83 @@ QBNex/
 │   ├── engine/link/            # qb-link: native code loading and executable writer
 │   ├── engine/native/          # qb-native: runtime library linked into native executables
 │   ├── engine/ffi/             # qb-ffi: DECLARE LIBRARY calls into shared libraries
-│   ├── runtime/core/           # qb-runtime: window, graphics, console, files, network, memory
+│   ├── runtime/core/           # qb-runtime: window, graphics, console, files, network, memory, 3D scene
 │   ├── runtime/audio/          # qb-audio: audio engine (SOUND, PLAY, _SND*)
 │   ├── runtime/float80/        # qb-float80: software 80-bit _FLOAT
-│   ├── runtime/gpu/            # qb-gpu: optional wgpu presentation and 3D scene
+│   ├── runtime/gpu/            # qb-gpu: optional wgpu presentation and 3D renderer
 │   ├── runtime/ext/            # qb-ext: Rust side of the ext.* standard library modules
 │   ├── tools/fmt/              # qb-fmt: formatter (qbnex fmt)
 │   ├── tools/lsp/              # qb-lsp: language server (qbnex lsp)
-│   ├── tools/dap/              # qb-dap: debugger adapter (qbnex dap)
-│   ├── tools/setup/            # qb-setup: the one-file installer qbnex-setup (release downloads)
+│   ├── tools/dap/              # qb-dap: debug adapter (qbnex dap)
+│   ├── tools/setup/            # qb-setup: the one-file installer qbnex-setup
 │   └── web/                    # qb-web: WebAssembly build of the runner
-├── docker/
-│   ├── Dockerfile
-│   ├── Dockerfile.dev
-│   └── docker-compose.yml
-├── bootstrap/
-│   └── qbnex.qir               # The compiler in QIR (bootstrap of the setup scripts)
-├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
-├── licenses/                   # Third-party license files
+├── docker/                     # Dockerfile, Dockerfile.dev, docker-compose.yml
+├── docs/
+│   ├── manual/                 # User manual (en, th)
+│   └── dev/                    # Developer reference (QIR, deviations, FFI, 3D API)
+├── licenses/                   # License texts of QB64 and the third-party components
 ├── packaging/
-│   └── vscode/                 # VS Code extension (syntax, formatter, LSP, debugger)
-├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, self-host fixpoint,
-│                               # native-kit.*, qir_pack.ps1, bench/ (corpus timings), license list
+│   └── vscode/                 # VS Code extension
+├── scripts/                    # setup_win.cmd, setup_lnx.sh, setup_osx.command, selfhost_fixpoint.*,
+│                               # native-kit.*, qir_pack.ps1, reset.cmd, qbnex-launcher.sh,
+│                               # third_party_licenses.py, bench/
 ├── tests/
-│   ├── conformance/            # Conformance runner + cases (golden outputs)
-│   ├── data/                   # Data files used by tests (fonts, images, sounds)
-│   ├── docs/                   # check_docs.ps1: compiles the BASIC examples of README.md and docs/manual
-│   ├── fixtures/               # Test input programs
-│   └── smoke/                  # Smoke and benchmark test runners (*.cmd / *.sh)
-├── Cargo.toml                  # Cargo workspace
+│   ├── conformance/            # qbnex-conformance runner + cases/ with golden outputs
+│   ├── corpus-local/           # Your own BASIC programs (ignored by git)
+│   ├── data/                   # Fonts, images and sounds used by tests
+│   ├── docs/                   # check_docs.ps1: compiles the BASIC examples of the docs
+│   ├── fixtures/               # Programs used by the smoke scripts
+│   └── smoke/                  # Smoke and benchmark scripts (*.cmd / *.sh)
+├── Cargo.toml                  # Cargo workspace (version 2.0.0)
 ├── rust-toolchain.toml         # Pinned Rust version (also used by CI)
-├── qb.cmd                      # Windows wrapper command
-├── qbnex.cmd                   # Windows wrapper, product-name alias of qb
-├── README.md
-├── CONTRIBUTING.md
-├── SECURITY.md
-├── LICENSE
-└── CHANGELOG.md
+├── qb.cmd, qbnex.cmd           # Windows launchers (compiler + fmt/lsp/dap subcommands)
+├── README.md, CHANGELOG.md, CONTRIBUTING.md, SECURITY.md
+├── LICENSE, LICENSE-EXCEPTION.txt, NOTICE.txt, TRADEMARKS.md, CLA.md
+└── .dockerignore, .gitattributes, .gitignore
 
-# Generated after build/test (not source)
-# - target/ (cargo output, target/qb-temp, target/qb-config.ini)
-# - qb, qb.exe
-# - qb-stage0, qb-stage0.exe
-```
-
-### Building from Source
-
-**Windows:**
-```cmd
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-scripts\setup_win.cmd
-```
-
-**Linux:**
-```bash
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-chmod +x scripts/setup_lnx.sh
-./scripts/setup_lnx.sh
-```
-
-**macOS:**
-```bash
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-chmod +x scripts/setup_osx.command
-./scripts/setup_osx.command
-```
-
-**Docker:**
-```bash
-git clone https://github.com/thirawat27/QBNex.git
-cd QBNex
-docker build -f docker/Dockerfile -t qbnex .
-docker run --rm -v $(pwd):/project qbnex qb compiler/qbnex.bas -w
+# Generated by setup and builds (not source, ignored by git)
+# - target/ (cargo output, target/qb-temp*, target/qb-config.ini)
+# - qb, qb.exe, qbnex, qb-stage0(.exe)
+# - crates/engine/exec/bin/ (the prebuilt runner and the native kit)
+# - dist/ (release bundles)
 ```
 
 ### Adding New Features
 
-- **Built-in Functions/Subs**: Add to `compiler/subs_functions/subs_functions.bas`
-- **Runtime Library**: Rust code in `crates/runtime/core/` and `crates/runtime/audio/`; QIR builtins in `crates/compiler/ir/src/builtins.rs` and `crates/engine/exec/src/rt/`
-- **Compiler Core**: Main compiler logic in `compiler/qbnex.bas`; QIR emission in `compiler/utilities/ir_*.bas` (format: `docs/dev/qir.md`)
-- **VM / JIT**: QIR execution in `crates/engine/exec/src/vm.rs`, native code in `crates/engine/jit`
-- **Editor tools**: `crates/tools/fmt`, `crates/tools/lsp`, `crates/tools/dap`, and the extension in `packaging/vscode`
-- **Behaviour changes**: a conformance case in `tests/conformance/cases`; an intentional difference from QB64 gets a `D-xx` entry in `docs/dev/deviations.md`
+- **Built-in statements and functions**: `compiler/subs_functions/subs_functions.bas`, the QIR builtin table in `crates/compiler/ir/src/builtins.rs`, the implementation in `crates/engine/exec/src/rt/` and the runtime crates; the keyword list for the tools in `crates/compiler/syntax`
+- **Compiler core**: `compiler/qbnex.bas` and `compiler/utilities/` (QIR format: `docs/dev/qir.md`)
+- **VM / JIT**: `crates/engine/exec/src/vm.rs`, native code in `crates/engine/jit`
+- **Runtime**: `crates/runtime/core`, `crates/runtime/audio`, `crates/runtime/gpu`, `crates/runtime/ext`
+- **Editor tools**: `crates/tools/fmt`, `crates/tools/lsp`, `crates/tools/dap`, and `packaging/vscode`
+- **Behaviour changes**: a conformance case in `tests/conformance/cases`; an intentional difference from QB64 gets a `D-xx` entry in `docs/dev/deviations.md`; user-visible changes go into `docs/manual` (en and th) and [CHANGELOG.md](CHANGELOG.md)
 
-### Continuous Integration
+### Continuous Integration and Releases
 
-QBNex uses GitHub Actions for automated builds:
+- **`ci.yml`** (pushes and pull requests to `main` and `rust-port`, and weekly for the audit): dependency audit, build, clippy, Rust tests, smoke scripts, conformance, self-host fixpoint and native executables on Linux, macOS and Windows x64. A commit message containing `ci-skip` skips the push jobs. Actions are pinned to commit SHAs and run with read-only permissions.
+- **`release.yml`** (tags `v*` and manual dispatch): builds and packages `qbnex_<tag>_win-x64.zip`, `qbnex_<tag>_lnx.tar.gz`, `qbnex_<tag>_osx.tar.gz` and the matching `-setup` installers, tests the installers, signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set, and publishes a GitHub Release.
+- **`docs.yml`** (pushes and pull requests that change `README.md`, `docs/` or `tests/docs/`): runs `tests/docs/check_docs.ps1`, so every BASIC block of the README and the manual still compiles and prints what it shows. `ci.yml` skips pushes that only change prose.
 
-- **Push and pull requests (`ci.yml`)**: build, tests, conformance and artifacts on Linux, macOS, Windows x64
-- **Release tags (`v*`)**: Package and publish GitHub Releases for Linux, macOS, and Windows x64
+There are no 32-bit Windows builds.
 
-CI workflows call the platform `setup_*` scripts directly in CI mode. Pushes can be skipped with a commit message containing `ci-skip`, while the release workflow packages archives and publishes them through GitHub Releases. `windows-x86` / 32-bit builds must be compiled manually with `scripts\setup_win.cmd`.
+```bash
+git tag v2.0.0
+git push origin v2.0.0
+```
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the build, the required
+checks and the pull request process; contributions are accepted under the
+[Contributor License Agreement](CLA.md).
 
-### Ways to Contribute
+- Report bugs and suggest features through GitHub Issues
+- Improve documentation and examples (English and Thai)
+- Add conformance cases and tests
+- Fix bugs and improve performance of the compiler or runtime
 
-- **Report bugs** and issues via GitHub Issues
-- **Suggest new features** and enhancements
-- **Improve documentation** and examples
-- **Submit pull requests** with fixes or features
-- **Write test cases** for better coverage
-- **Optimize performance** of compiler or runtime
-- **Help others** by answering questions in discussions
-
-### Code of Conduct
-
-Please note that this project follows a code of conduct. By participating, you are expected to uphold this code and maintain a respectful, inclusive community.
-
-### Security
-
-For security vulnerabilities, please read [SECURITY.md](SECURITY.md) and follow the responsible disclosure process. **Do not** create public GitHub issues for security vulnerabilities.
+For security vulnerabilities, read [SECURITY.md](SECURITY.md); **do not** open a public issue.
 
 ---
 
@@ -3179,7 +2065,7 @@ Copyright (C) 2026 Thirawat Sinlapasomsak. QBNex is licensed under the **GNU Gen
 - **Name and logo.** "QBNex" and the logo are not covered by the license; forks use a name of their own. See [TRADEMARKS.md](TRADEMARKS.md).
 - **Contributions** are accepted under the [Contributor License Agreement](CLA.md).
 
-QBNex is based on QB64; the parts that come from it keep their MIT license ([licenses/QB64.txt](licenses/QB64.txt)). Versions released before this change remain available under the MIT license. The licenses of the other components are in [licenses/COPYING.TXT](licenses/COPYING.TXT). See [NOTICE.txt](NOTICE.txt).
+QBNex is based on QB64; the parts that come from it keep their MIT license ([licenses/QB64.txt](licenses/QB64.txt)). Versions released before this change remain available under the MIT license. The licenses of the other components are in [licenses/COPYING.TXT](licenses/COPYING.TXT) and [licenses/THIRD_PARTY.TXT](licenses/THIRD_PARTY.TXT). See [NOTICE.txt](NOTICE.txt).
 
 ---
 
@@ -3187,7 +2073,7 @@ QBNex is based on QB64; the parts that come from it keep their MIT license ([lic
 
 - **QBasic/QuickBASIC** - The original BASIC implementation by Microsoft that inspired this project
 - **QB64** - Modern QBasic compiler that served as the foundation for QBNex
-- **FreeGLUT, miniaudio, FreeType, STB Image, GLEW** - The C libraries the QB64 runtime was built on; the QBNex runtime now uses Rust crates instead (winit, softbuffer, cpal, Symphonia, skrifa, png, zune-jpeg, and more, see `licenses/THIRD_PARTY.TXT`)
+- **FreeGLUT, miniaudio, FreeType, STB Image, GLEW** - The C libraries the QB64 runtime was built on; the QBNex runtime now uses Rust crates instead (winit, softbuffer, cpal, Symphonia, skrifa, png, zune-jpeg, wgpu, Cranelift and more, see `licenses/THIRD_PARTY.TXT`)
 - **Contributors** - Everyone who has contributed code, documentation, or feedback to this project
 
 ---
@@ -3205,5 +2091,5 @@ QBNex is based on QB64; the parts that come from it keep their MIT license ([lic
 <div align="center">
   <strong>Built with ❤️</strong>
   <br>
-  <p>Created by <a href="https//github.com/thirawat27">thirawat27</a></p>
+  <p>Created by <a href="https://github.com/thirawat27">thirawat27</a></p>
 </div>

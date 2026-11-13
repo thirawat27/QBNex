@@ -37,12 +37,16 @@ Before contributing, familiarize yourself with:
 
 **All platforms:** Git and the Rust toolchain (`cargo`, from https://rustup.rs). No C/C++ compiler is needed.
 
-**For Linux:**
-- ALSA development libraries (`libasound2-dev`)
-- udev development libraries (`libudev-dev`) and `pkg-config`
+**For Linux:** `gcc` (only as the system linker Rust uses) and the development packages for
+ALSA, udev, xkbcommon and X11 with `pkg-config`:
 
-**For macOS:**
-- Nothing beyond Rust
+```bash
+sudo apt-get install gcc libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config
+```
+
+**For macOS:** nothing beyond Rust.
+
+**Optional:** PowerShell 7 (`pwsh`) for `tests/docs/check_docs.ps1` and the Windows helper scripts.
 
 ## How to Contribute
 
@@ -60,11 +64,10 @@ We use GitHub Issues to track bugs. Before creating a bug report:
    - Expected vs. actual behavior
    - Error messages and screenshots
 
-**Submit a bug report** using the bug report template:
-1. Go to the Issues tab
-2. Click "New Issue"
-3. Select "Bug Report"
-4. Fill in the template with details
+**Submit a bug report** as a new issue on the Issues tab, with the information above. The
+complete compiler output (`qb file.bas -w -m`) and, for compiler bugs, the QIR of the build
+(`target/qb-temp/program.qir`) help. Security problems go through [SECURITY.md](SECURITY.md),
+not a public issue.
 
 ### Suggesting Features
 
@@ -75,11 +78,9 @@ Feature suggestions help QBNex grow. When suggesting features:
 3. **Provide examples** if possible
 4. **Consider scope** and implementation complexity
 
-**Submit a feature request** using the feature request template:
-1. Go to the Issues tab
-2. Click "New Issue"
-3. Select "Feature Request"
-4. Describe the feature and its benefits
+**Submit a feature request** as a new issue that describes the feature, its syntax if it is
+a language change, and why it is needed. Planned language features are listed in
+[docs/manual/en/language.md](docs/manual/en/language.md#planned).
 
 ### Code Contributions
 
@@ -90,15 +91,15 @@ QBNex is primarily written in **QBNex BASIC** itself (self-hosting compiler). Th
   - `global/`: Version, constants, and settings
   - `subs_functions/`: Built-in functions and subroutines
   - `utilities/`: Helper modules
-- **`crates/`**: Native runtime (Cargo workspace)
-  - `qb-runtime`: runtime library (window, graphics, sound, files, network)
-  - `qb-ir`: QIR parser, validator and builtin table
-  - `qb-audio`: audio engine
-  - `qb-exec`: runner for compiled QIR programs
+- **`crates/`**: Rust code (Cargo workspace)
+  - `compiler/ir` (`qb-ir`): QIR types, parser, validator and builtin table; `compiler/syntax` (`qb-syntax`): lexer and keyword tables for the tools
+  - `engine/exec` (`qb-exec`): runner for compiled QIR programs (VM); `engine/jit` (`qb-jit`): Cranelift JIT; `engine/link`, `engine/native`: native executables; `engine/ffi` (`qb-ffi`): `DECLARE LIBRARY`
+  - `runtime/core` (`qb-runtime`): window, graphics, console, files, network; `runtime/audio` (`qb-audio`); `runtime/float80` (`qb-float80`); `runtime/gpu` (`qb-gpu`); `runtime/ext` (`qb-ext`, the `ext.*` modules)
+  - `tools/fmt`, `tools/lsp`, `tools/dap`, `tools/setup` (`qb-fmt`, `qb-lsp`, `qb-dap`, the installer `qbnex-setup`); `web` (`qb-web`)
 - **`bootstrap/qbnex.qir`**: the compiler in QIR, used by the setup scripts
-- **`tests/`**: `smoke/` scripts, `fixtures/`, `conformance/` corpus and runner
-- **`.github/workflows/`**: CI/CD pipelines
-- **`.ci/`**: Build automation scripts
+- **`tests/`**: `smoke/` scripts, `fixtures/`, `conformance/` runner and cases, `docs/` documentation test
+- **`scripts/`**: setup, self-host fixpoint, native kit, benchmarks
+- **`.github/workflows/`**: `ci.yml`, `docs.yml`, `release.yml`
 
 #### Finding Work
 
@@ -134,11 +135,22 @@ Good starting points:
 
 Documentation improvements are always welcome:
 
-- **README.md**: Usage examples, clarifications, corrections
-- **CHANGELOG.md**: Keeping version history current
-- **Code comments**: Improving clarity in complex sections
-- **Wiki pages**: Tutorials, guides, FAQs (if enabled)
-- **Issue templates**: Making them more helpful
+- **`docs/manual/en` and `docs/manual/th`**: the user manual. Change both languages together;
+  each feature carries a status label (Available, Preview, Planned; see `docs/manual/README.md`).
+- **`docs/dev`**: developer reference (QIR format, deviation IDs, FFI, 3D API). An intentional
+  difference from QB64 gets a `D-xx` entry in `docs/dev/deviations.md`.
+- **README.md**: overview, usage and examples; where it and the manual disagree, the manual wins.
+- **CHANGELOG.md**: every user-visible change, under the version being prepared.
+- **Code comments**: clarity in complex sections.
+
+Every ```` ```basic ```` block of README.md and `docs/manual` is compiled by
+`tests/docs/check_docs.ps1`, and blocks marked `<!-- docs-test: output -->` must print the
+output shown below them ([tests/docs/README.md](tests/docs/README.md)). Run it before you
+push documentation changes:
+
+```bash
+pwsh tests/docs/check_docs.ps1 -Compiler ./qb      # or qb.exe on Windows
+```
 
 ## Development Setup
 
@@ -174,16 +186,27 @@ chmod +x scripts/setup_osx.command
 
 ### Manual Build (Advanced)
 
+What the setup scripts do, step by step:
+
 ```bash
 cargo build --release -p qb-exec
-# pack bootstrap/qbnex.qir into the runner (scripts/qir_pack.ps1 on Windows)
-# and let it compile compiler/qbnex.bas:
+# copy target/release/qb-exec(.exe) to crates/engine/exec/bin/<os>/, then pack
+# bootstrap/qbnex.qir into a copy of it: that copy is qb-stage0
+# (scripts/qir_pack.ps1 on Windows; setup_lnx.sh does the same in shell)
 ./qb-stage0 compiler/qbnex.bas -o qb
 sh scripts/selfhost_fixpoint.sh   # gen2 == gen3 == bootstrap/qbnex.qir
 ```
 
-After changing the compiler, refresh `bootstrap/qbnex.qir` from `target/qb-temp/program.qir`
-once the fixpoint holds.
+Setup variables: `QBNEX_QB_EXEC` (use a prebuilt `qb-exec`), `QBNEX_RUST_TARGET`,
+`QBNEX_BOOTSTRAP` (another bootstrap QIR), `QBNEX_QIR_PACK=ir|native`, `QBNEX_STAGE1_ARGS`
+(extra switches for the stage-0 compile), `QBNEX_SKIP_SELFHOST=1` (stop at `qb-stage0`),
+`QBNEX_KEEP_STAGE0=1`, and on Windows `QBNEX_CI=1` (no pause at the end).
+
+After changing the compiler, rebuild `qb` with itself, run the fixpoint, and refresh
+`bootstrap/qbnex.qir` from `target/qb-temp/program.qir` of the last generation once gen2 and
+gen3 agree. `bootstrap/qbnex.qir` is the Windows build of the compiler (its QIR differs per OS
+in a few places), so only a Windows run compares against it; elsewhere set
+`QBNEX_FIXPOINT_BOOTSTRAP=0`.
 
 ## Coding Standards
 
@@ -228,10 +251,17 @@ END FUNCTION
 
 ### Runtime Code
 
-The runtime is a Cargo workspace under `crates/` (`qb-runtime`, `qb-audio`, `qb-ir`, `qb-exec`).
-A new built-in needs an entry in the QIR table (`crates/compiler/ir/src/builtins.rs`), its
-implementation in `crates/engine/exec/src/rt/`, and the emitter case in
-`compiler/utilities/ir_emit.bas` / `ir_stmt.bas`. Rust changes should pass `cargo test --workspace`.
+The runtime is a Cargo workspace under `crates/`. A new built-in needs:
+
+- its keyword in `compiler/subs_functions/subs_functions.bas` (syntax, argument types),
+- an entry in the QIR table (`crates/compiler/ir/src/builtins.rs`),
+- the emitter case in `compiler/utilities/ir_emit.bas` / `ir_stmt.bas` when it is not a plain call,
+- its implementation in `crates/engine/exec/src/rt/` (and the runtime crates),
+- the keyword in `crates/compiler/syntax` so the formatter and language server know it,
+- a conformance case, and the manual page in English and Thai.
+
+Rust changes should pass `cargo test --workspace` and `cargo clippy --workspace -- -D warnings` (as in CI). The toolchain
+is pinned in `rust-toolchain.toml` (Rust 1.100.0).
 
 ### Commit Messages
 
@@ -277,16 +307,44 @@ docs: Update README with comprehensive command reference
 ### Automated Tests
 
 ```bash
-# Runtime unit tests (all crates, or one: -p qb-runtime / -p qb-audio / -p qb-exec)
+# Rust unit and integration tests (all crates, or one: -p qb-runtime / -p qb-audio / -p qb-exec)
 cargo test --workspace
 
-# Conformance corpus (needs a built qb / qbnex in the repository root)
+# Conformance: compiles tests/conformance/cases/**.bas with the built qb in the
+# repository root and compares the output with the golden files
 cargo run --release -p qbnex-conformance
 
-# Smoke tests
-./tests/smoke/cli_smoke.sh          # Linux/macOS
-tests\smoke\cli_smoke.cmd           # Windows
+# Smoke scripts (the ones CI runs)
+for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain; do
+    sh "tests/smoke/${t}_smoke.sh" || break      # Windows: tests\smoke\%t_smoke.cmd
+done
+sh tests/smoke/benchmark_smoke.sh               # compile-time benchmark (manual)
+
+# Self-host fixpoint (after a compiler change)
+sh scripts/selfhost_fixpoint.sh                 # Windows: scripts\selfhost_fixpoint.cmd
+
+# Documentation examples
+pwsh tests/docs/check_docs.ps1
 ```
+
+Set `QBNEX_NO_ERROR_DIALOG=1` when you run compiled programs from scripts, so a runtime error
+ends the program instead of waiting at a dialog.
+
+**Conformance cases.** A behaviour change gets a case in `tests/conformance/cases/<area>/`:
+
+| File | Meaning |
+| --- | --- |
+| `name.bas` | The program |
+| `name.out` | Expected stdout (LPRINT output follows a `[LPRINT]` line) |
+| `name.in` | Piped to stdin |
+| `name.input` | Input script (keys, mouse, window) replayed headless (`QBNEX_INPUT_SCRIPT`) |
+| `name.fb` | Expected framebuffer records, one line each (`QBNEX_FB_CAPTURE`) |
+| `name.deviation` | Intentional difference from the legacy runtime; `.out` is written by hand, `--bless` leaves it alone |
+| `name.xfail` | Known defect, first line is the reason; the run fails with `XPASS` once it passes |
+| `name.windows` | Windows-only case (skipped elsewhere) |
+
+`cargo run --release -p qbnex-conformance -- --bless` rewrites the `.out` files from the current
+compiler; use it only with a build you trust.
 
 ### Manual Testing
 
@@ -310,8 +368,9 @@ Create test programs that demonstrate:
 
 QBNex uses GitHub Actions for CI:
 
-- **Push and pull requests** (`main`, `rust-port`): `ci.yml` builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, native executables; the self-host fixpoint compares against `bootstrap/qbnex.qir` on Windows, where it is built, and checks gen2 == gen3 on Linux)
-- **Releases** (`v*` tags): `release.yml` builds, tests and packages Linux, macOS and Windows x64
+- **Push and pull requests** (`main`, `rust-port`): `ci.yml` runs a dependency audit (also every Monday), clippy, and builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, native executables; the self-host fixpoint compares against `bootstrap/qbnex.qir` on Windows, where it is built, and checks gen2 == gen3 on Linux). Pushes that only change Markdown, `docs/` or `packaging/vscode/` skip it; `ci-skip` in the commit message skips it too.
+- **Documentation** (`docs.yml`): runs `tests/docs/check_docs.ps1` for changes to `README.md`, `docs/` or `tests/docs/`.
+- **Releases** (`v*` tags): `release.yml` builds, tests and packages Linux, macOS and Windows x64, and the one-file installers
 
 #### Code signing (release secrets)
 
@@ -340,7 +399,7 @@ A Windows signature is written after that trailer, and `codesign` refuses a Mach
 it. Every compiled program is also a copy of the runner with data appended. Signing these needs a
 payload format that leaves room for the signature.
 
-If you need a Windows x86 / 32-bit artifact, build it locally with `scripts\setup_win.cmd` from the repository instead of relying on GitHub Releases.
+There are no 32-bit Windows builds.
 
 Ensure your changes pass CI before requesting review.
 
@@ -353,7 +412,7 @@ Ensure your changes pass CI before requesting review.
 3. **Describe changes**: Explain what changed and why
 4. **Test thoroughly**: Ensure everything works before submitting
 5. **Update documentation**: Update README, CHANGELOG, etc. as needed
-6. **Follow the template**: Fill out the PR template completely
+6. **Describe it fully**: the repository has no PR template; use the outline below
 7. **Agree to the CLA**: your first pull request must state that you agree to the
    [Contributor License Agreement](CLA.md) (the line to add is at its end). You keep the
    copyright of your work; the agreement lets the project keep offering QBNex under the GPL
@@ -443,7 +502,7 @@ QBNex/
 ├── docker/                     # Dockerfile, Dockerfile.dev, docker-compose.yml
 ├── packaging/vscode/           # VS Code extension
 ├── docs/                       # manual/ (users, en + th), dev/ (developer reference)
-├── .github/                    # ci.yml (build, test, conformance, native exe), release.yml
+├── .github/                    # ci.yml (build, test, conformance, native exe), docs.yml, release.yml
 ├── assets/                     # Logo and icons
 ├── licenses/                   # License files
 ├── README.md                   # Main documentation

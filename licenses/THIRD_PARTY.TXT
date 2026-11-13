@@ -6,52 +6,64 @@ and crates used only while building. Full license texts are in each crate's sour
 Where a crate offers a choice ("A OR B"), QBNex uses it under the most permissive option
 (MIT where offered).
 
-304 crates.
+452 crates.
 
 License: MIT OR Apache-2.0
-  ahash 0.8.12, android-activity 0.6.1, android_system_properties 0.1.6, arboard 3.7.0, arrayvec 0.7.8, as-raw-xcb-connection 1.0.1, bitflags 2.13.2, bumpalo 3.20.3, cc 1.11.1, cfg-if 1.0.5, chrono 0.4.45, core-foundation 0.9.4, core-foundation-sys 0.8.7, core-graphics 0.23.2, core-graphics-types 0.1.3, crc32fast 1.5.4, crossbeam-utils 0.8.23, dasp_sample 0.11.0, errno 0.3.14, fdeflate 0.3.7, find-msvc-tools 0.1.15, flate2 1.1.11, font-types 0.12.7, futures-core 0.3.34, futures-task 0.3.34, futures-util 0.3.34, getrandom 0.3.4, getrandom 0.4.3, half 2.7.1, hashbrown 0.17.1, hermit-abi 0.5.3, iana-time-zone 0.1.65, iana-time-zone-haiku 0.1.2, image 0.25.10, jni 0.22.4, jni-macros 0.22.4, jni-sys 0.3.1, jni-sys 0.4.1, jni-sys-macros 0.4.1, jobserver 0.1.35, js-sys 0.3.107, lazy_static 1.5.1, libc 0.2.191, lock_api 0.4.14, log 0.4.35, memmap2 0.9.12, ndk 0.9.0, ndk-context 0.1.1, ndk-sys 0.6.0+11769913, num-complex 0.4.6, num-derive 0.4.2, num-traits 0.2.19, once_cell 1.21.4, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, pkg-config 0.3.34, png 0.18.1, proc-macro-crate 3.5.0, proc-macro2 1.0.107, quote 1.0.47, read-fonts 0.46.0, regex-lite 0.1.9, rustc_version 0.4.1, rustversion 1.0.23, scopeguard 1.2.0, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, shlex 2.0.1, simdutf8 0.1.5, skrifa 0.49.0, smallvec 1.16.5, smol_str 0.2.2, softbuffer 0.4.8, stable_deref_trait 1.2.1, syn 2.0.119, syn 3.0.10, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, toml_datetime 1.1.3+spec-1.1.0, toml_edit 0.25.19+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, ttf-parser 0.25.1, unicode-segmentation 1.13.3, wasm-bindgen 0.2.130, wasm-bindgen-futures 0.4.80, wasm-bindgen-macro 0.2.130, wasm-bindgen-macro-support 0.2.130, wasm-bindgen-shared 0.2.130, web-sys 0.3.107, web-time 1.1.0, weezl 0.1.12, windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.59.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_aarch64_gnullvm 0.52.6, windows_aarch64_msvc 0.52.6, windows_i686_gnu 0.52.6, windows_i686_gnullvm 0.52.6, windows_i686_msvc 0.52.6, windows_x86_64_gnu 0.52.6, windows_x86_64_gnullvm 0.52.6, windows_x86_64_msvc 0.52.6, x11rb 0.13.2, x11rb-protocol 0.13.2
+  aead 0.6.1, aes 0.9.4, ahash 0.8.12, allocator-api2 0.2.21, android-activity 0.6.1, android_system_properties 0.1.6, anyhow 1.0.104, arbitrary 1.5.0, arboard 3.7.0, arrayvec 0.7.8, as-raw-xcb-connection 1.0.1, base64 0.23.1, bitflags 2.13.2, block-buffer 0.12.1, bumpalo 3.20.3, cc 1.11.1, cfg-if 1.0.5, chacha20 0.10.2, chrono 0.4.45, cipher 0.5.2, core-foundation 0.9.4, core-foundation-sys 0.8.7, core-graphics 0.23.2, core-graphics-types 0.1.3, cpubits 0.1.1, cpufeatures 0.3.1, crc32fast 1.5.5, crossbeam-utils 0.8.23, crypto-common 0.2.2, ctr 0.10.1, dasp_sample 0.11.0, digest 0.11.3, document-features 0.2.12, errno 0.3.15, fdeflate 0.3.7, find-msvc-tools 0.1.15, fixedbitset 0.5.9, flate2 1.1.11, font-types 0.12.7, futures-core 0.3.34, futures-macro 0.3.34, futures-task 0.3.34, futures-util 0.3.34, getrandom 0.2.17, getrandom 0.3.4, getrandom 0.4.3, gimli 0.33.0, half 2.7.1, hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.1, heck 0.5.0, hermit-abi 0.5.3, hex 0.4.3, hkdf 0.13.0, hmac 0.13.0, http 1.5.0, httparse 1.10.1, hybrid-array 0.4.15, iana-time-zone 0.1.65, iana-time-zone-haiku 0.1.2, image 0.25.10, inout 0.2.6, itoa 1.0.19, jni 0.22.4, jni-macros 0.22.4, jni-sys 0.3.1, jni-sys 0.4.1, jni-sys-macros 0.4.1, jobserver 0.1.35, js-sys 0.3.107, lazy_static 1.5.1, libc 0.2.191, litrs 1.0.1, lock_api 0.4.14, log 0.4.35, md-5 0.11.0, memmap2 0.9.12, ndk 0.9.0, ndk-context 0.1.1, ndk-sys 0.6.0+11769913, num-complex 0.4.6, num-derive 0.4.2, num-traits 0.2.19, once_cell 1.21.4, parking_lot 0.12.5, parking_lot_core 0.9.12, paste 1.0.15, percent-encoding 2.3.2, petgraph 0.8.3, pkg-config 0.3.34, png 0.18.1, proc-macro-crate 3.5.0, proc-macro2 1.0.107, quote 1.0.47, rand_core 0.10.1, read-fonts 0.46.0, regex 1.13.1, regex-automata 0.4.18, regex-lite 0.1.9, regex-syntax 0.8.11, rsa 0.10.0, rustc_version 0.4.1, rustls-pki-types 1.16.0, rustls-rustcrypto 0.1.0-pre.0, rustversion 1.0.23, scopeguard 1.2.0, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, sha1 0.11.0, sha2 0.11.1, shlex 2.0.1, signal-hook-mio 0.2.5, signal-hook-registry 1.4.8, simdutf8 0.1.5, skrifa 0.49.0, smallvec 1.16.5, smol_str 0.2.2, softbuffer 0.4.8, stable_deref_trait 1.2.1, syn 2.0.119, syn 3.0.10, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, toml_datetime 1.1.3+spec-1.1.0, toml_edit 0.25.19+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, ttf-parser 0.25.1, typed-path 0.13.0, typenum 1.20.1, unicode-segmentation 1.13.3, universal-hash 0.6.1, ureq 3.5.2, ureq-proto 0.7.1, utf8-zero 0.8.1, wasm-bindgen 0.2.130, wasm-bindgen-futures 0.4.80, wasm-bindgen-macro 0.2.130, wasm-bindgen-macro-support 0.2.130, wasm-bindgen-shared 0.2.130, web-sys 0.3.107, web-time 1.1.0, weezl 0.1.12, windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.59.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_aarch64_gnullvm 0.52.6, windows_aarch64_msvc 0.52.6, windows_i686_gnu 0.52.6, windows_i686_gnullvm 0.52.6, windows_i686_msvc 0.52.6, windows_x86_64_gnu 0.52.6, windows_x86_64_gnullvm 0.52.6, windows_x86_64_msvc 0.52.6, wl-clipboard-rs 0.9.5, x11rb 0.13.2, x11rb-protocol 0.13.2
 
 License: MIT
-  alsa-sys 0.4.0, android-properties 0.2.2, block2 0.5.1, block2 0.6.2, bytes 1.12.1, calloop 0.13.0, calloop-wayland-source 0.3.0, cfg_aliases 0.2.2, combine 4.6.9, crunchy 0.2.4, dispatch 0.2.0, dlib 0.5.3, drm 0.14.1, drm-ffi 0.9.1, drm-fourcc 2.2.0, drm-sys 0.8.1, extended 0.1.0, fax 0.2.7, libredox 0.1.25, libudev-sys 0.1.4, nix 0.31.3, objc-sys 0.3.5, objc2 0.5.3, objc2 0.6.5, objc2-app-kit 0.2.2, objc2-cloud-kit 0.2.2, objc2-contacts 0.2.2, objc2-core-data 0.2.2, objc2-core-image 0.2.2, objc2-core-location 0.2.2, objc2-encode 4.1.0, objc2-foundation 0.2.2, objc2-foundation 0.3.2, objc2-link-presentation 0.2.2, objc2-metal 0.2.2, objc2-quartz-core 0.2.2, objc2-symbols 0.2.2, objc2-ui-kit 0.2.2, objc2-uniform-type-identifiers 0.2.2, objc2-user-notifications 0.2.2, oplon 1.0.0, orbclient 0.3.55, quick-xml 0.41.0, redox_syscall 0.4.1, redox_syscall 0.5.18, redox_syscall 0.9.5, sctk-adwaita 0.10.1, simd-adler32 0.3.10, slab 0.4.12, smithay-client-toolkit 0.19.2, strict-num 0.1.1, synstructure 0.14.0, tiff 0.11.3, tokio 1.54.1, tracing 0.1.44, tracing-core 0.1.36, wayland-backend 0.3.17, wayland-client 0.31.15, wayland-csd-frame 0.3.0, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.11, wayland-sys 0.31.11, winnow 1.0.5, x11-dl 2.21.0, xcursor 0.3.11, xkbcommon-dl 0.4.2, xmrs 0.15.2, xmrsplayer 0.15.0
+  alsa-sys 0.4.0, android-properties 0.2.2, block2 0.5.1, block2 0.6.2, bytes 1.12.1, calloop 0.13.0, calloop-wayland-source 0.3.0, cfg_aliases 0.2.2, combine 4.6.9, crossterm 0.29.0, crunchy 0.2.4, dispatch 0.2.0, dlib 0.5.3, drm 0.14.1, drm-ffi 0.9.1, drm-fourcc 2.2.0, drm-sys 0.8.1, extended 0.1.0, fax 0.2.7, libm 0.2.16, libredox 0.1.25, libudev-sys 0.1.4, mio 1.2.4, nix 0.31.3, nom 8.0.0, objc-sys 0.3.5, objc2 0.5.3, objc2 0.6.5, objc2-app-kit 0.2.2, objc2-cloud-kit 0.2.2, objc2-contacts 0.2.2, objc2-core-data 0.2.2, objc2-core-image 0.2.2, objc2-core-location 0.2.2, objc2-encode 4.1.0, objc2-foundation 0.2.2, objc2-foundation 0.3.2, objc2-link-presentation 0.2.2, objc2-metal 0.2.2, objc2-quartz-core 0.2.2, objc2-symbols 0.2.2, objc2-ui-kit 0.2.2, objc2-uniform-type-identifiers 0.2.2, objc2-user-notifications 0.2.2, oplon 1.0.0, orbclient 0.3.55, os_pipe 1.2.3, quick-xml 0.41.0, redox_syscall 0.4.1, redox_syscall 0.5.18, redox_syscall 0.9.5, region 3.0.2, region 4.0.1, sctk-adwaita 0.10.1, simd-adler32 0.3.10, slab 0.4.12, smithay-client-toolkit 0.19.2, strict-num 0.1.1, synstructure 0.14.0, tiff 0.11.3, tokio 1.54.1, tracing 0.1.44, tracing-attributes 0.1.31, tracing-core 0.1.36, tree_magic_mini 3.2.2, wayland-backend 0.3.17, wayland-client 0.31.15, wayland-csd-frame 0.3.0, wayland-cursor 0.31.14, wayland-protocols 0.32.13, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.11, wayland-sys 0.31.11, winnow 1.0.5, x11-dl 2.21.0, xcursor 0.3.11, xkbcommon-dl 0.4.2, xml-rs 0.8.29, xmrs 0.15.2, xmrsplayer 0.15.0, zip 9.5.1
 
 License: Apache-2.0 OR MIT
-  atomic-waker 1.1.2, autocfg 1.5.1, concurrent-queue 2.5.0, ctor 0.10.1, dtor 0.8.1, equivalent 1.0.3, fastrand 2.5.0, indexmap 2.14.2, pin-project 1.1.13, pin-project-internal 1.1.13, pin-project-lite 0.2.17, polling 3.11.0, simd_cesu8 1.2.0, uuid 1.29.2
+  aes-gcm 0.11.1, atomic-waker 1.1.2, autocfg 1.5.1, base16ct 1.0.0, base64ct 1.8.3, chacha20poly1305 0.11.0, cmov 0.5.4, concurrent-queue 2.5.0, const-oid 0.10.3, crypto-bigint 0.7.11, crypto-primes 0.7.2, ctor 0.10.1, ctutils 0.4.8, der 0.8.3, dtor 0.8.1, ecdsa 0.17.0, ed25519 3.0.0, elliptic-curve 0.14.3, equivalent 1.0.3, fastrand 2.5.0, ghash 0.6.0, indexmap 2.14.2, object 0.40.0, p256 0.14.0, p384 0.14.0, pem-rfc7468 1.0.0, pin-project 1.1.13, pin-project-internal 1.1.13, pin-project-lite 0.2.17, pkcs1 0.8.0, pkcs8 0.11.0, polling 3.11.0, poly1305 0.9.1, polyval 0.7.3, primefield 0.14.0, primeorder 0.14.0, rfc6979 0.6.0, rustc-hash 2.1.3, sec1 0.8.1, serdect 0.4.3, signature 3.0.0, simd_cesu8 1.2.0, spki 0.8.1, uuid 1.29.2, wnaf 0.14.1, zeroize 1.9.1, zeroize_derive 1.5.0
+
+License: Apache-2.0 WITH LLVM-exception
+  cranelift-assembler-x64 0.137.1, cranelift-assembler-x64-meta 0.137.1, cranelift-bforest 0.137.1, cranelift-bitset 0.137.1, cranelift-codegen 0.137.1, cranelift-codegen-meta 0.137.1, cranelift-codegen-shared 0.137.1, cranelift-control 0.137.1, cranelift-entity 0.137.1, cranelift-frontend 0.137.1, cranelift-isle 0.137.1, cranelift-jit 0.137.1, cranelift-module 0.137.1, cranelift-native 0.137.1, cranelift-object 0.137.1, cranelift-srcgen 0.137.1, regalloc2 0.15.2, target-lexicon 0.13.5, wasmtime-internal-core 50.0.1, wasmtime-internal-jit-icache-coherence 50.0.1
 
 License: MIT/Apache-2.0
-  bitflags 1.3.2, coreaudio-rs 0.14.2, downcast-rs 1.2.1, foreign-types 0.5.0, foreign-types-macros 0.2.4, foreign-types-shared 0.3.1, plain 0.2.3, quick-error 2.0.1, scoped-tls 1.0.1, vec_map 0.8.2, version_check 0.9.5, winapi 0.3.9, winapi-i686-pc-windows-gnu 0.4.0, winapi-x86_64-pc-windows-gnu 0.4.0
+  bitflags 1.3.2, coreaudio-rs 0.14.2, curve25519-dalek-derive 0.1.1, downcast-rs 1.2.1, ff 0.14.0, foreign-types 0.5.0, foreign-types-macros 0.2.4, foreign-types-shared 0.3.1, group 0.14.0, plain 0.2.3, quick-error 2.0.1, scoped-tls 1.0.1, vec_map 0.8.2, version_check 0.9.5, winapi 0.3.9, winapi-i686-pc-windows-gnu 0.4.0, winapi-x86_64-pc-windows-gnu 0.4.0
 
 License: Zlib OR Apache-2.0 OR MIT
-  bytemuck 1.25.2, bytemuck_derive 1.12.1, dispatch2 0.3.1, objc2-app-kit 0.3.2, objc2-audio-toolbox 0.3.2, objc2-avf-audio 0.3.2, objc2-core-audio 0.3.2, objc2-core-audio-types 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-io-kit 0.3.2, objc2-io-surface 0.3.2, objc2-quartz-core 0.3.2, rusty-xinput 1.3.0
+  bytemuck 1.25.2, bytemuck_derive 1.12.1, dispatch2 0.3.1, objc2-app-kit 0.3.2, objc2-audio-toolbox 0.3.2, objc2-avf-audio 0.3.2, objc2-core-audio 0.3.2, objc2-core-audio-types 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-io-kit 0.3.2, objc2-io-surface 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, objc2-uniform-type-identifiers 0.3.2, rusty-xinput 1.3.0, tinyvec 1.13.3
+
+License: Apache-2.0
+  ab_glyph 0.2.32, ab_glyph_rasterizer 0.1.10, ciborium 0.2.2, ciborium-io 0.2.2, ciborium-ll 0.2.2, cpal 0.18.2, gethostname 1.1.0, gl_generator 0.14.0, glutin 0.32.3, glutin_egl_sys 0.7.1, glutin_glx_sys 0.6.1, glutin_wgl_sys 0.6.1, khronos_api 3.1.0, owned_ttf_parser 0.25.1, winit 0.30.13, zopfli 0.8.4
 
 License: MPL-2.0
   symphonia 0.6.1, symphonia-bundle-flac 0.6.1, symphonia-bundle-mp3 0.6.1, symphonia-codec-adpcm 0.6.1, symphonia-codec-pcm 0.6.1, symphonia-codec-vorbis 0.6.1, symphonia-common 0.6.1, symphonia-core 0.6.1, symphonia-format-ogg 0.6.1, symphonia-format-riff 0.6.1, symphonia-metadata 0.6.1
 
-License: Apache-2.0
-  ab_glyph 0.2.32, ab_glyph_rasterizer 0.1.10, ciborium 0.2.2, ciborium-io 0.2.2, ciborium-ll 0.2.2, cpal 0.18.2, gethostname 1.1.0, owned_ttf_parser 0.25.1, winit 0.30.13
-
 License: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
-  linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, linux-raw-sys 0.9.4, rustix 0.38.44, rustix 1.1.6, wasip2 1.0.4+wasi-0.2.12, wit-bindgen 0.57.1
+  linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, linux-raw-sys 0.9.4, rustix 0.38.44, rustix 1.1.6, wasi 0.11.1+wasi-snapshot-preview1, wasip2 1.0.4+wasi-0.2.12, wit-bindgen 0.57.1
+
+License: BSD-3-Clause
+  curve25519-dalek 5.0.0, ed25519-dalek 3.0.0, subtle 2.6.1, tiny-skia 0.11.4, tiny-skia-path 0.11.4, x25519-dalek 3.0.0
 
 License: MIT OR Apache-2.0 OR Zlib
   cursor-icon 1.2.0, raw-window-handle 0.6.2, tiny-xlib 0.2.5, xkeysym 0.2.1, zune-core 0.5.3, zune-jpeg 0.5.15
 
+License: ISC
+  inotify 0.11.5, inotify-sys 0.1.8, libloading 0.8.9, rustls-webpki 0.103.17, untrusted 0.9.0
+
+License: Apache-2.0/MIT
+  alsa 0.11.0, gilrs 0.11.2, gilrs-core 0.6.8, signal-hook 0.3.18
+
 License: Unicode-3.0
   yoke 0.8.4, yoke-derive 0.8.4, zerofrom 0.1.8, zerofrom-derive 0.1.8
 
-License: Apache-2.0/MIT
-  alsa 0.11.0, gilrs 0.11.2, gilrs-core 0.6.8
-
-License: ISC
-  inotify 0.11.5, inotify-sys 0.1.8, libloading 0.8.9
-
 License: Unlicense OR MIT
-  byteorder-lite 0.1.0, memchr 2.8.3, winapi-util 0.1.11
+  aho-corasick 1.1.5, byteorder-lite 0.1.0, memchr 2.8.3, winapi-util 0.1.11
+
+License: BSD-2-Clause OR MIT OR Apache-2.0
+  mach2 0.4.3, mach2 0.6.0, mach2 0.7.0
+
+License: Zlib
+  foldhash 0.1.5, foldhash 0.2.0, zlib-rs 0.6.8
+
+License: (MIT OR Apache-2.0) AND Unicode-3.0
+  unicode-ident 1.0.27, unicode-normalization 0.1.26
 
 License: BSD-2-Clause OR Apache-2.0 OR MIT
   zerocopy 0.8.63, zerocopy-derive 0.8.63
-
-License: BSD-3-Clause
-  tiny-skia 0.11.4, tiny-skia-path 0.11.4
 
 License: BSD-3-Clause OR Apache-2.0
   moxcms 0.8.1, pxfm 0.1.30
@@ -71,23 +83,32 @@ License: MIT OR Zlib OR Apache-2.0
 License: Unlicense/MIT
   same-file 1.0.6, walkdir 2.5.0
 
-License: Zlib
-  foldhash 0.2.0, zlib-rs 0.6.8
-
-License: (MIT OR Apache-2.0) AND Unicode-3.0
-  unicode-ident 1.0.27
-
 License: 0BSD OR MIT OR Apache-2.0
   adler2 2.0.1
 
 License: Apache-2.0 / MIT
   fnv 1.0.7
 
+License: Apache-2.0 AND ISC
+  ring 0.17.14
+
 License: Apache-2.0 AND MIT
   dpi 0.1.2
+
+License: Apache-2.0 OR ISC OR MIT
+  rustls 0.23.46
 
 License: BSD-2-Clause
   arrayref 0.3.9
 
-License: BSD-2-Clause OR MIT OR Apache-2.0
-  mach2 0.6.0
+License: CC0-1.0 OR MIT-0 OR Apache-2.0
+  constant_time_eq 0.6.1
+
+License: CDLA-Permissive-2.0
+  webpki-roots 1.0.12
+
+License: MIT / Apache-2.0
+  cgl 0.3.2
+
+License: MIT OR Apache-2.0 OR BSD-1-Clause
+  fiat-crypto 0.3.0

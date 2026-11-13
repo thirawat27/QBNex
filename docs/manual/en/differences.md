@@ -58,9 +58,8 @@ See [Limitations and differences from QB64](limitations.md#known-defects).
 
 ## Platform gaps
 
-`_SCREENIMAGE`, `_SCREENCLICK` and `_SCREENPRINT` are not compiled by the QIR
-backend yet (see [Limitations](limitations.md#statements-that-are-not-supported-or-behave-differently));
-in the runtime `_SCREENIMAGE` is a blank image on Linux/macOS and `_SCREENCLICK` and
+`_SCREENIMAGE`, `_SCREENCLICK` and `_SCREENPRINT` compile, but
+`_SCREENIMAGE` is a blank image on Linux/macOS and `_SCREENCLICK` and
 `_SCREENPRINT` do nothing on Linux. Printing (`LPRINT`, `_PRINTIMAGE`) goes to
 the default printer on Windows and through `lp` on Linux and macOS.
 

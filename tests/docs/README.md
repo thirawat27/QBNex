@@ -30,7 +30,7 @@ An HTML comment on the line(s) directly above a code fence:
 
 Programs run headless (`QBNEX_HEADLESS=1`, `QBNEX_NO_ERROR_DIALOG=1`, empty
 stdin, 30 s timeout). `$CONSOLE:ONLY` is added when the block has none, and
-`SYSTEM` is appended to blocks without SUB/FUNCTION: a console program that
-ends with `END` waits at "Press any key to continue" even when stdin is not
-a terminal. The Thai and English pages share their examples, so identical
+`SYSTEM` is appended to blocks without SUB/FUNCTION, so a block ends the same
+way whether or not it ends with `END` (in an interactive console `END` waits at
+"Press any key to continue"; with stdin or stdout redirected it does not, D-R12b-6). The Thai and English pages share their examples, so identical
 blocks are compiled once.
