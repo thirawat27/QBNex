@@ -1,11 +1,10 @@
-//! Sound handles and the mixer (legacy `AudioEngine`, `SoundHandle` and the
-//! `_SND*` functions in audio.cpp, plus the parts of miniaudio's `ma_sound`
-//! they relied on: play/stop/loop/seek, volume, pan, stop time, at-end).
+//! Sound handles and the mixer, with the behaviour of QB64's `_SND*`
+//! functions and the parts of miniaudio's `ma_sound` they relied on:
+//! play/stop/loop/seek, volume, pan, stop time, at-end.
 //!
 //! All state lives in one [`Engine`] behind one mutex (see [`crate::ffi`]):
-//! the BASIC thread, libqb's main-loop thread (`snd_mainloop`) and the device
-//! callback ([`Engine::render`]) all lock it, so there is no data race
-//! between `_SND*` calls and playback (legacy debt F3).
+//! the BASIC thread and the device callback ([`Engine::render`]) both lock
+//! it, so there is no data race between `_SND*` calls and playback.
 
 use std::sync::Arc;
 
@@ -70,7 +69,7 @@ pub struct Handle {
     pub flags: u32,
     pub sound: Option<Playback>,
     pub raw: Option<RawQueue>,
-    /// `(lock_offset, lock_id)` of the libqb mem lock created by `_MEMSOUND`.
+    /// `(lock_offset, lock_id)` of the `_MEM` lock created by `_MEMSOUND`.
     pub mem_lock: Option<(usize, i64)>,
 }
 
@@ -80,7 +79,7 @@ impl Handle {
     }
 }
 
-/// Result of `_MEMSOUND` before libqb attaches a mem lock.
+/// Result of `_MEMSOUND` before the caller attaches a `_MEM` lock.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MemSound {
     pub offset: usize,
@@ -102,7 +101,7 @@ pub struct Engine {
     snd_internal_raw: i32,
     /// Frames rendered since init (miniaudio engine time).
     pub time: u64,
-    /// Mem locks released by freed handles, for libqb to free (`free_mem_lock`).
+    /// `_MEM` locks released by freed handles, for the caller to free (`free_mem_lock`).
     pub released_locks: Vec<usize>,
 }
 
@@ -567,7 +566,7 @@ impl Engine {
 
     // ---- _MEMSOUND ---------------------------------------------------------
 
-    /// None = error (libqb returns an empty _MEM). `target_channel` must be 0 or 1.
+    /// None = error (the caller returns an empty _MEM). `target_channel` must be 0 or 1.
     pub fn mem_sound(&mut self, h: i32, target_channel: i32) -> Option<MemSound> {
         if !self.valid_kind(h, SoundKind::Static) {
             return None;

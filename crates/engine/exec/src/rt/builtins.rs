@@ -1158,16 +1158,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "TIME$.set" => return qb_runtime::systime::set_time(s(0)).map(|()| None).map_err(Stop::Err),
         "DATE$.set" => return qb_runtime::systime::set_date(s(0)).map(|()| None).map_err(Stop::Err),
         "_DEFLATE$" => {
-            let src = s(0);
-            let mut cap = qb_runtime::compress::qb_deflate_bound(src.len() as u32);
-            let mut dst = vec![0u8; cap as usize];
-            // SAFETY: buffers of the given sizes.
-            unsafe { qb_runtime::compress::qb_deflate(src.as_ptr(), src.len() as u32, dst.as_mut_ptr(), &mut cap) };
-            dst.truncate(cap as usize);
-            return ok(V::S(dst));
+            return ok(V::S(qb_runtime::compress::deflate(s(0))));
         }
         "_INFLATE$" | "_INFLATE$.n" => {
-            // legacy compress_bridge.cpp: a given size is used as is, otherwise 10 MB steps;
+            // as in QB64: a given size is used as is, otherwise 10 MB steps;
             // more than 512 MiB of output (a zip bomb) is error 7 instead of exhausting memory
             const INFLATE_CAP: u64 = 512 << 20;
             let src = s(0);
@@ -1179,14 +1173,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 if size > INFLATE_CAP {
                     return e(7);
                 }
-                let mut out_len = size as u32;
                 let mut dst = vec![0u8; size as usize];
-                // SAFETY: buffers of the given sizes.
-                let r = unsafe { qb_runtime::compress::qb_inflate(src.as_ptr(), src.len() as u32, dst.as_mut_ptr(), &mut out_len) };
-                if name == "_INFLATE$" && r == -5 {
+                let (r, out_len) = qb_runtime::compress::inflate(src, &mut dst);
+                if name == "_INFLATE$" && r == qb_runtime::compress::Z_BUF_ERROR {
                     continue;
                 }
-                dst.truncate(out_len as usize);
+                dst.truncate(out_len);
                 return ok(V::S(dst));
             }
         }

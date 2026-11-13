@@ -73,8 +73,7 @@ pub static WEB_FRAME: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 ///
 /// # Safety
 /// `im` must be null or point to a valid surface.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
+pub unsafe fn qb_fb_capture(im: *const ImgStruct, kind: i32) {
     // browser build: a finished frame is the page's cue to draw it
     #[cfg(target_arch = "wasm32")]
     if kind == KIND_DISPLAY {

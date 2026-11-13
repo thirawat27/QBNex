@@ -2,19 +2,14 @@
 //! user program thread (consumer): the `_KEYHIT` ring, the held-key list
 //! behind `_KEYDOWN`, and the BIOS shift-state bytes derived from it.
 //!
-//! Legacy (`libqb.cpp`) kept these in plain globals written by the GLUT thread
-//! and read by the program thread without synchronisation (debt F3). Here every
-//! operation runs under one mutex, and [`InputLock`] serialises the multi-step
-//! `keydown()`/`keyup()` sequences in libqb.cpp against each other.
-//!
-//! Semantics are ported bug-for-bug and checked by `tests/diff/diff_keybuf.cpp`.
+//! Every operation runs under one mutex (QB64 used unsynchronised globals).
+//! Semantics match QB64 bug-for-bug.
 
-use std::sync::{Condvar, Mutex, MutexGuard};
-use std::thread::{self, ThreadId};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::keymap::{qbvk, QBK, VK};
 
-/// `QBK_SCROLL_LOCK_MODE` / `QBK_INSERT_MODE` (libqb.cpp).
+/// `QBK_SCROLL_LOCK_MODE` / `QBK_INSERT_MODE` (QB64's key codes).
 pub const QBK_SCROLL_LOCK_MODE: u32 = 11;
 pub const QBK_INSERT_MODE: u32 = 12;
 
@@ -221,107 +216,40 @@ fn with<R>(f: impl FnOnce(&mut KeyState) -> R) -> R {
     f(g.as_mut().expect("initialised"))
 }
 
-/// A re-entrant lock usable from C as lock/unlock pairs.
-pub struct InputLock {
-    owner: Mutex<(Option<ThreadId>, u32)>,
-    cv: Condvar,
-}
+// ---- global keyboard state, shared by the window and program threads ------
 
-impl InputLock {
-    pub const fn new() -> Self {
-        InputLock {
-            owner: Mutex::new((None, 0)),
-            cv: Condvar::new(),
-        }
-    }
-
-    pub fn lock(&self) {
-        let me = thread::current().id();
-        let mut g = self.owner.lock().unwrap_or_else(|e| e.into_inner());
-        loop {
-            match g.0 {
-                None => {
-                    *g = (Some(me), 1);
-                    return;
-                }
-                Some(t) if t == me => {
-                    g.1 += 1;
-                    return;
-                }
-                Some(_) => g = self.cv.wait(g).unwrap_or_else(|e| e.into_inner()),
-            }
-        }
-    }
-
-    /// Releases one level; a call from a thread that does not own the lock
-    /// is ignored.
-    pub fn unlock(&self) {
-        let me = thread::current().id();
-        let mut g = self.owner.lock().unwrap_or_else(|e| e.into_inner());
-        if g.0 == Some(me) {
-            g.1 -= 1;
-            if g.1 == 0 {
-                g.0 = None;
-                self.cv.notify_one();
-            }
-        }
-    }
-}
-
-impl Default for InputLock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ---- C ABI -----------------------------------------------------------------
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_keyhit_push(v: i64) {
+pub fn qb_keyhit_push(v: i64) {
     with(|s| s.keyhit_push(v));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_keyhit_pop() -> i32 {
+pub fn qb_keyhit_pop() -> i32 {
     with(|s| s.keyhit_pop())
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_keyhit_clear() {
+pub fn qb_keyhit_clear() {
     with(|s| s.keyhit_clear());
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_keyheld(x: u32) -> i32 {
+pub fn qb_keyheld(x: u32) -> i32 {
     with(|s| s.keyheld(x)) as i32
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_keyheld_add(x: u32, bind: u32) {
+pub fn qb_keyheld_add(x: u32, bind: u32) {
     with(|s| s.keyheld_add(x, bind));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_keyheld_remove(x: u32) {
+pub fn qb_keyheld_remove(x: u32) {
     with(|s| s.keyheld_remove(x));
 }
 
-/// Writes cmem[0x417], cmem[0x418], cmem[0x496] into `out[0..3]`.
-///
-/// # Safety
-/// `out` must be valid for 3 byte writes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_shift_state(out: *mut u8) {
-    let b = with(|s| s.shift_state());
-    // SAFETY: caller guarantees 3 writable bytes.
-    unsafe { std::ptr::copy_nonoverlapping(b.as_ptr(), out, 3) };
+/// The BIOS shift-state bytes cmem[0x417], cmem[0x418], cmem[0x496].
+pub fn qb_shift_state() -> [u8; 3] {
+    with(|s| s.shift_state())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
 
     #[test]
     fn keyhit_fifo_and_low_32_bits() {
@@ -386,27 +314,5 @@ mod tests {
         s.keyheld_add(QBK + QBK_INSERT_MODE, 0);
         s.keyheld_add(0x5200, 0);
         assert_eq!(s.shift_state(), [2 | 4 | 128, 128, 16 | 1]);
-    }
-
-    #[test]
-    fn input_lock_is_reentrant_and_exclusive() {
-        let lock = Arc::new(InputLock::new());
-        let counter = Arc::new(AtomicU32::new(0));
-        lock.lock();
-        lock.lock(); // re-entrant
-        let (l2, c2) = (lock.clone(), counter.clone());
-        let t = thread::spawn(move || {
-            l2.lock();
-            c2.store(1, Ordering::SeqCst);
-            l2.unlock();
-        });
-        thread::sleep(std::time::Duration::from_millis(50));
-        assert_eq!(counter.load(Ordering::SeqCst), 0, "other thread must wait");
-        lock.unlock();
-        thread::sleep(std::time::Duration::from_millis(20));
-        assert_eq!(counter.load(Ordering::SeqCst), 0, "still held once");
-        lock.unlock();
-        t.join().unwrap();
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 }

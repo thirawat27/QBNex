@@ -1,5 +1,5 @@
 //! Software alpha blending (`init_blend`, `cblend`/`ablend` tables) and the
-//! `pset`/`pset_and_clip` pixel writers of libqb.cpp.
+//! `pset`/`pset_and_clip` pixel writers, as in QB64.
 
 use super::{qbr_f2l, ImgStruct};
 use std::sync::OnceLock;
@@ -124,12 +124,11 @@ pub unsafe fn pset_and_clip(im: &ImgStruct, x: i32, y: i32, col: u32) {
     }
 }
 
-/// C ABI for the C++ code that still plots single pixels (custom fonts).
+/// Plots one pixel with blending (custom fonts).
 ///
 /// # Safety
 /// `im` must be a valid surface and `(x, y)` inside it.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_pset(im: *const ImgStruct, x: i32, y: i32, col: u32) {
+pub unsafe fn qb_gfx_pset(im: *const ImgStruct, x: i32, y: i32, col: u32) {
     // SAFETY: guaranteed by the caller.
     unsafe { pset(&*im, x, y, col) }
 }

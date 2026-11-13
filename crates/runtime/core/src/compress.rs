@@ -1,10 +1,7 @@
-//! `_DEFLATE$` / `_INFLATE$` (was `internal/c/parts/zlib/src.c` linked against the
-//! system zlib, `-l:libz.a` / `-lz`).
-//!
-//! The C++ shim (`internal/c/libqb/compress_bridge.cpp`) keeps the legacy control
-//! flow (buffer sizing, the 10 MB retry loop of `_INFLATE$` without a size); only
-//! zlib's `compress()` and `uncompress()` are replaced, by `zlib-rs`, a Rust port of
-//! zlib whose `uncompress` is zlib's `uncompress2` line by line:
+//! `_DEFLATE$` / `_INFLATE$`: zlib's `compress()` and `uncompress()` through
+//! `zlib-rs`, a Rust port of zlib whose `uncompress` is zlib's `uncompress2` line
+//! by line. The caller does the buffer sizing (the 10 MB retry loop of
+//! `_INFLATE$` without a size).
 //!
 //! * [`deflate`]: zlib stream (RFC 1950), default level 6. zlib-rs compresses with
 //!   zlib-ng's algorithms, so the bytes can differ from zlib's (documented deviation);
@@ -14,12 +11,12 @@
 
 use zlib_rs::{DeflateConfig, InflateConfig, ReturnCode};
 
-/// zlib result codes returned through the C ABI.
+/// zlib result codes returned by [`inflate`].
 pub const Z_OK: i32 = 0;
 pub const Z_DATA_ERROR: i32 = -3;
 pub const Z_BUF_ERROR: i32 = -5;
 
-/// zlib 1.3's `compressBound()` (the C ABI promises this exact value).
+/// zlib 1.3's `compressBound()`.
 pub fn deflate_bound(len: usize) -> usize {
     len + (len >> 12) + (len >> 14) + (len >> 25) + 13
 }
@@ -45,54 +42,6 @@ pub fn deflate(src: &[u8]) -> Vec<u8> {
 pub fn inflate(src: &[u8], dst: &mut [u8]) -> (i32, usize) {
     let (out, rc) = zlib_rs::decompress_slice(dst, src, InflateConfig::default());
     (rc as i32, out.len())
-}
-
-// ---------------------------------------------------------------------------
-// C ABI
-// ---------------------------------------------------------------------------
-
-/// `compressBound(len)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_deflate_bound(len: u32) -> u32 {
-    deflate_bound(len as usize) as u32
-}
-
-/// `compress(dst, dst_len, src, len)`: `*dst_len` is the capacity on entry and the
-/// compressed size on return. Returns `Z_OK` or `Z_BUF_ERROR`.
-///
-/// # Safety
-/// `src` must be readable for `len` bytes, `dst` writable for `*dst_len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_deflate(src: *const u8, len: u32, dst: *mut u8, dst_len: *mut u32) -> i32 {
-    // SAFETY: the caller guarantees the buffer sizes (see above).
-    unsafe {
-        let input = if len == 0 { &[][..] } else { std::slice::from_raw_parts(src, len as usize) };
-        let out = deflate(input);
-        if out.len() > *dst_len as usize {
-            return Z_BUF_ERROR;
-        }
-        std::ptr::copy_nonoverlapping(out.as_ptr(), dst, out.len());
-        *dst_len = out.len() as u32;
-        Z_OK
-    }
-}
-
-/// `uncompress(dst, dst_len, src, len)`: `*dst_len` is the capacity on entry and the
-/// number of bytes written on return. Returns `Z_OK`, `Z_BUF_ERROR` or `Z_DATA_ERROR`.
-///
-/// # Safety
-/// `src` must be readable for `len` bytes, `dst` writable for `*dst_len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_inflate(src: *const u8, len: u32, dst: *mut u8, dst_len: *mut u32) -> i32 {
-    // SAFETY: the caller guarantees the buffer sizes (see above).
-    unsafe {
-        let input = if len == 0 { &[][..] } else { std::slice::from_raw_parts(src, len as usize) };
-        let cap = *dst_len as usize;
-        let out = if cap == 0 { &mut [][..] } else { std::slice::from_raw_parts_mut(dst, cap) };
-        let (code, written) = inflate(input, out);
-        *dst_len = written as u32;
-        code
-    }
 }
 
 #[cfg(test)]
@@ -186,17 +135,5 @@ mod tests {
         assert_eq!(inflate(&deflate(b"x"), &mut none), (Z_OK, 0));
         assert_eq!(inflate(&deflate(b"xy"), &mut none), (Z_DATA_ERROR, 0));
         assert_eq!(inflate(b"junk", &mut none), (Z_DATA_ERROR, 0));
-    }
-
-    #[test]
-    fn c_abi_round_trip() {
-        let src = sample(3000);
-        let mut zlen = qb_deflate_bound(3000);
-        let mut z = vec![0u8; zlen as usize];
-        assert_eq!(unsafe { qb_deflate(src.as_ptr(), 3000, z.as_mut_ptr(), &mut zlen) }, Z_OK);
-        let mut olen: u32 = 3000;
-        let mut out = vec![0u8; 3000];
-        assert_eq!(unsafe { qb_inflate(z.as_ptr(), zlen, out.as_mut_ptr(), &mut olen) }, Z_OK);
-        assert_eq!((olen, out), (3000, src));
     }
 }

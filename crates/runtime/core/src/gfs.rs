@@ -1,9 +1,7 @@
 //! GFS — the generic file system layer under OPEN/CLOSE/GET/PUT/PRINT #/INPUT #.
 //!
-//! Replaces `gfs_new` ... `gfs_unlock` and `gfs_open_com_syntax` of libqb.cpp.
-//! Rust owns the table of open files. The C++ code that is not ported yet (TAB
-//! for PRINT #, FIELD string refresh, font loading) reads entries through
-//! [`qb_gfs_file_at`], whose `#[repr(C)]` layout is `qb_gfs_file` in qb_runtime.h.
+//! QB64's `gfs_new` ... `gfs_unlock` and `gfs_open_com_syntax`, with the
+//! table of open files owned here.
 //!
 //! Return codes are the legacy GFS codes:
 //! -1 non-specific, -2 invalid handle, -3 bad file mode, -4 illegal function
@@ -98,7 +96,7 @@ impl GfsFile {
 }
 
 struct Slot {
-    /// Boxed so the address handed to C++ stays valid while the table grows.
+    /// Boxed so its address stays the same while the table grows.
     file: Box<GfsFile>,
     os: os::Handle,
     field_buffer: Vec<u8>,

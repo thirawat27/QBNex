@@ -97,25 +97,16 @@ mod win {
     use qb_runtime::window as w;
 
     pub fn position() -> (i32, i32) {
-        let (mut x, mut y) = (0, 0);
-        // SAFETY: two valid out pointers.
-        unsafe { w::qb_window_position(&mut x, &mut y) };
-        (x, y)
+        w::qb_window_position()
     }
 
     pub fn size() -> (i32, i32) {
-        let (mut x, mut y) = (0, 0);
-        // SAFETY: two valid out pointers.
-        unsafe { w::qb_window_size(&mut x, &mut y) };
-        (x, y)
+        w::qb_window_size()
     }
 
     /// The desktop as the window's event loop reports it.
     pub fn desktop() -> (i32, i32) {
-        let (mut x, mut y) = (0, 0);
-        // SAFETY: two valid out pointers.
-        unsafe { w::qb_desktop_size(&mut x, &mut y) };
-        (x, y)
+        w::qb_desktop_size()
     }
 }
 
@@ -423,9 +414,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             none
         }
         "sub__screenprint" => {
-            let s = a[0].s();
-            // SAFETY: a live slice of the given length.
-            unsafe { qb_runtime::screen::qb_screenprint(s.as_ptr(), s.len() as i32) };
+            qb_runtime::screen::qb_screenprint(a[0].s());
             none
         }
         // _MAPUNICODE unicode TO ascii: the Unicode character a code page 437 byte stands for

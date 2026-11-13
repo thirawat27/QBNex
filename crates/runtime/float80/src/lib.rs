@@ -21,12 +21,11 @@
 //! - [`qb`] has the QBasic-level functions (`EXP`, `^`, `FIX`, `SIN`, ...) with the
 //!   legacy error codes.
 //!
-//! The differential harness `tests/diff/diff_float80.cpp` checks all of this against
-//! real `long double` code compiled by MinGW g++.
+//! The results match real `long double` code compiled by MinGW g++ bit for bit.
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 // clippy::pedantic is clean except for the lints below. Bit-level x87
-// emulation and C ABI glue cast between integer widths on purpose (every cast
+// emulation casts between integer widths on purpose (every cast
 // is a deliberate truncation, sign reinterpretation or widening of a field),
 // and the one-letter names follow the instruction manuals (a, b, m, e, x, y).
 #![allow(
@@ -44,7 +43,6 @@
     clippy::items_after_statements
 )]
 pub mod arith;
-pub mod capi;
 pub mod conv;
 pub mod dec;
 pub mod libm;
@@ -131,27 +129,6 @@ impl F80 {
         [m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], s[0], s[1]]
     }
 
-    /// Reads 10 bytes from a possibly unaligned pointer.
-    ///
-    /// # Safety
-    /// `p` must be readable for 10 bytes.
-    #[must_use]
-    pub unsafe fn read(p: *const u8) -> F80 {
-        let mut b = [0u8; 10];
-        // SAFETY: caller guarantees 10 readable bytes.
-        unsafe { core::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 10) };
-        F80::from_bytes(b)
-    }
-
-    /// Writes 10 bytes to a possibly unaligned pointer.
-    ///
-    /// # Safety
-    /// `p` must be writable for 10 bytes.
-    pub unsafe fn write(self, p: *mut u8) {
-        let b = self.to_bytes();
-        // SAFETY: caller guarantees 10 writable bytes.
-        unsafe { core::ptr::copy_nonoverlapping(b.as_ptr(), p, 10) };
-    }
 
     #[must_use]
     pub const fn sign(self) -> bool {

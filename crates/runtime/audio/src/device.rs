@@ -1,4 +1,4 @@
-//! Audio output through cpal (replaces miniaudio's device layer).
+//! Audio output through cpal.
 //!
 //! The cpal stream is created, played and dropped on a dedicated thread
 //! because streams are not `Send` on every platform. The callback renders

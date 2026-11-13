@@ -1,11 +1,8 @@
 //! TrueType/OpenType fonts for `_LOADFONT`, `_FONTWIDTH`, `_PRINTWIDTH`,
-//! `_UPRINTSTRING` ... (was `internal/c/parts/video/font/ttf/src.c`, a wrapper
-//! around FreeType 2.4.9).
-//!
-//! The wrapper logic (`FontLoad`, `FontRenderTextUTF32`, `FontWidth`,
-//! `FontFree`) is ported line by line. FreeType itself is replaced by
-//! `skrifa` (outlines, TrueType bytecode hinting) and `ab_glyph_rasterizer`
-//! (anti-aliased coverage):
+//! `_UPRINTSTRING` ..., with the results of QB64's font wrapper around
+//! FreeType 2.4.9 (`FontLoad`, `FontRenderTextUTF32`, `FontWidth`,
+//! `FontFree`). FreeType itself is replaced by `skrifa` (outlines, TrueType
+//! bytecode hinting) and `ab_glyph_rasterizer` (anti-aliased coverage):
 //! - size metrics (ascender, height, so the baseline) follow FreeType's
 //!   fixed-point formulas exactly, including the TrueType "round ppem" rule;
 //! - glyph advances use the hinted phantom points and the `hdmx` table like
@@ -14,7 +11,7 @@
 //!   and ceiled to whole pixels, like FreeType's renderers.
 //!
 //! Deviation: pixel coverage and hinting are not FreeType's, so glyph
-//! pixels may differ (see the tolerance in `tests/diff/diff_font.cpp`), and only
+//! pixels may differ slightly, and only
 //! TrueType/OpenType (incl. collections) load; FreeType also read Type 1,
 //! CID, PFR, Type 42, Windows FNT/FON, PCF and BDF fonts, and embedded
 //! bitmap strikes.
@@ -574,7 +571,7 @@ fn table() -> std::sync::MutexGuard<'static, Vec<Option<Font>>> {
 }
 
 /// `FontLoad`: returns a handle >= 1, or 0 on failure.
-/// `options`: 16 = monospace (other bits are handled by libqb.cpp).
+/// `options`: 16 = monospace (the caller handles the other bits).
 pub fn load(content: &[u8], default_pixel_height: i32, which_font: i32, options: i32) -> i32 {
     let which_font = if which_font == -1 { 0 } else { which_font };
     let mut fonts = table();
@@ -768,100 +765,6 @@ fn render_font(font: &Font, codepoints: &[u32], options: i32) -> Option<Rendered
     })
 }
 
-// ------------------------------------------------------------- C ABI ---
-
-/// # Safety
-/// `content` must point to `bytes` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_font_load(
-    content: *const u8,
-    bytes: i32,
-    pixel_height: i32,
-    which_font: i32,
-    options: i32,
-) -> i32 {
-    if content.is_null() || bytes <= 0 {
-        return 0;
-    }
-    // SAFETY: caller guarantees the buffer.
-    load(
-        unsafe { std::slice::from_raw_parts(content, bytes as usize) },
-        pixel_height,
-        which_font,
-        options,
-    )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_font_free(i: i32) {
-    free(i)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_font_width(i: i32) -> i32 {
-    width(i)
-}
-
-/// Same contract as the legacy `FontRenderTextUTF32`; `*out_data` is
-/// `malloc`ed (NULL when `codepoints` <= 0) and released by the caller.
-///
-/// # Safety
-/// `codepoint` must hold `codepoints` values; the out-pointers must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_font_render_utf32(
-    i: i32,
-    codepoint: *const u32,
-    codepoints: i32,
-    options: i32,
-    out_data: *mut *mut u8,
-    out_x: *mut i32,
-    out_y: *mut i32,
-    out_x_pre_increment: *mut i32,
-    out_x_post_increment: *mut i32,
-) -> i32 {
-    // SAFETY (whole body): caller guarantees writable out-pointers and
-    // `codepoints` readable values (possibly unaligned).
-    unsafe {
-        if codepoints <= 0 {
-            *out_data = std::ptr::null_mut();
-            *out_x = 0;
-            *out_y = default_height(i);
-            *out_x_pre_increment = 0;
-            *out_x_post_increment = 0;
-            return (codepoints == 0) as i32;
-        }
-        let cps: Vec<u32> = (0..codepoints as usize)
-            .map(|k| codepoint.add(k).read_unaligned())
-            .collect();
-        match render(i, &cps, options) {
-            Some(r) => {
-                *out_data = crate::cmem::to_c_heap(&r.data);
-                *out_x = r.w;
-                *out_y = r.h;
-                *out_x_pre_increment = r.pre_increment;
-                *out_x_post_increment = r.post_increment;
-                1
-            }
-            None => {
-                // unknown handle (undefined behaviour in the legacy code)
-                *out_data = std::ptr::null_mut();
-                *out_x = 0;
-                *out_y = 0;
-                *out_x_pre_increment = 0;
-                *out_x_post_increment = 0;
-                0
-            }
-        }
-    }
-}
-
-fn default_height(i: i32) -> i32 {
-    match table().get(i as usize) {
-        Some(Some(f)) => f.default_pixel_height,
-        _ => 0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,7 +797,7 @@ mod tests {
     }
 
     /// (pixel height, ascender, height in 26.6, baseline) captured from the
-    /// legacy FreeType 2.4.9 wrapper (`diff_font --dump`).
+    /// FreeType 2.4.9 wrapper of QB64.
     #[test]
     fn size_metrics_and_baseline_match_legacy() {
         for (file, want) in [
@@ -1069,68 +972,5 @@ mod tests {
             .iter()
             .all(|&v| v == 0 || v == 255));
         free(h);
-    }
-
-    #[test]
-    fn ffi_contract() {
-        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        let data = font_file("NotoSans-Subset.ttf");
-        // SAFETY: valid buffers and out-pointers; the result is freed with free().
-        unsafe {
-            let h = qb_font_load(data.as_ptr(), data.len() as i32, 16, -1, 16);
-            assert!(h > 0);
-            let (mut p, mut x, mut y, mut pre, mut post) = (std::ptr::null_mut(), 0, 0, 0, 0);
-            assert_eq!(
-                qb_font_render_utf32(
-                    h,
-                    std::ptr::null(),
-                    0,
-                    0,
-                    &mut p,
-                    &mut x,
-                    &mut y,
-                    &mut pre,
-                    &mut post
-                ),
-                1
-            );
-            assert!(p.is_null());
-            assert_eq!((x, y), (0, 16));
-            assert_eq!(
-                qb_font_render_utf32(
-                    h,
-                    std::ptr::null(),
-                    -1,
-                    0,
-                    &mut p,
-                    &mut x,
-                    &mut y,
-                    &mut pre,
-                    &mut post
-                ),
-                0
-            );
-            let cps = [65u32, 66];
-            assert_eq!(
-                qb_font_render_utf32(
-                    h,
-                    cps.as_ptr(),
-                    2,
-                    0,
-                    &mut p,
-                    &mut x,
-                    &mut y,
-                    &mut pre,
-                    &mut post
-                ),
-                1
-            );
-            assert_eq!((x, y), (2 * qb_font_width(h), 16));
-            unsafe extern "C" {
-                fn free(p: *mut std::os::raw::c_void);
-            }
-            free(p as *mut _);
-            qb_font_free(h);
-        }
     }
 }

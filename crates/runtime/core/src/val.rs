@@ -1,10 +1,10 @@
 //! `VAL(s$)`: string -> number.
 //!
-//! Replaces `func_val` in libqb.cpp. Decimal input is normalised the same way
-//! the legacy code did and then converted with correct rounding (nearest,
-//! ties to even) to the x87 80-bit format, which is what `sscanf("%Lf")` did
-//! on the legacy toolchains. `&H`, `&O` and `&B` literals are parsed as
-//! 64-bit integers; too many digits is error 6 (overflow).
+//! Decimal input is normalised the way QB64 does and then converted with
+//! correct rounding (nearest, ties to even) to the x87 80-bit format, which is
+//! what `sscanf("%Lf")` did on the MinGW toolchain QB64 used. `&H`, `&O` and
+//! `&B` literals are parsed as 64-bit integers; too many digits is error 6
+//! (overflow).
 
 use crate::round::F80;
 
@@ -12,7 +12,7 @@ use crate::round::F80;
 pub const ERR_OVERFLOW: i32 = 6;
 
 /// Significant digits kept exactly; any further non-zero digit only makes
-/// the value "a little larger" for rounding. Legacy libqb overran a 256-byte
+/// the value "a little larger" for rounding. QB64 overran a 256-byte
 /// buffer beyond 256 digits, so nothing longer had defined behaviour.
 const MAX_DIGITS: usize = 1000;
 
@@ -119,7 +119,7 @@ impl Decimal {
         if self.digits.is_empty() {
             return [0; 10];
         }
-        // Integers without exponent take the exact int64 path, as in libqb.
+        // Integers without exponent take the exact int64 path, as in QB64.
         if self.exponent == 0
             && !self.inexact_tail
             && self.significant_count() as i64 == self.point_pos
@@ -199,32 +199,6 @@ pub fn f64_from_f80(f: F80) -> f64 {
     qb_float80::F80::from_bytes(f).to_f64()
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// Writes the 10-byte x87 result to `out_f80` and returns 0, or returns the
-/// QBasic error code to raise (the result is then 0).
-///
-/// # Safety
-/// `chr` must be readable for `len` bytes (or `len <= 0`); `out_f80` writable for 10.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_val(chr: *const u8, len: i32, out_f80: *mut u8) -> i32 {
-    let s: &[u8] = if len <= 0 || chr.is_null() {
-        &[]
-    } else {
-        // SAFETY: caller guarantees `len` readable bytes.
-        unsafe { core::slice::from_raw_parts(chr, len as usize) }
-    };
-    let (result, code) = match val(s) {
-        Ok(f) => (f, 0),
-        Err(code) => ([0; 10], code),
-    };
-    // SAFETY: caller guarantees 10 writable bytes.
-    unsafe { core::ptr::copy_nonoverlapping(result.as_ptr(), out_f80, 10) };
-    code
-}
-
-// `qb_f80_to_f64` (declared in qb_runtime.h) is exported by the qb-float80 crate.
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,22 +224,10 @@ mod tests {
     }
 
     #[test]
-    fn c_abi_writes_result_or_returns_error() {
-        let mut out = [0xEEu8; 10];
-        let s = b"  -12.5e1xyz";
-        // SAFETY: valid buffers.
-        let rc = unsafe { qb_val(s.as_ptr(), s.len() as i32, out.as_mut_ptr()) };
-        assert_eq!((rc, out), (0, int_to_f80(-125)));
-        let s = b"&H10000000000000000";
-        // SAFETY: valid buffers.
-        let rc = unsafe { qb_val(s.as_ptr(), s.len() as i32, out.as_mut_ptr()) };
-        assert_eq!((rc, out), (ERR_OVERFLOW, [0; 10]));
-        // SAFETY: zero length never reads chr.
-        let rc = unsafe { qb_val(core::ptr::null(), 0, out.as_mut_ptr()) };
-        assert_eq!((rc, out), (0, [0; 10]));
-        let tenth = v("0.1");
-        // SAFETY: 10-byte array.
-        assert_eq!(unsafe { qb_float80::capi::qb_f80_to_f64(tenth.as_ptr()) }, 0.1);
+    fn returns_value_or_error_code() {
+        assert_eq!(val(b"  -12.5e1xyz"), Ok(int_to_f80(-125)));
+        assert_eq!(val(b"&H10000000000000000"), Err(ERR_OVERFLOW));
+        assert_eq!(val(b""), Ok([0; 10]));
     }
 
     fn raw(neg: bool, exp: u16, mant: u64) -> F80 {
@@ -326,7 +288,7 @@ mod tests {
 
     #[test]
     fn negative_exponent_applies_to_the_written_mantissa() {
-        // Legacy defect: libqb negated the exponent *after* normalising,
+        // Legacy defect: QB64 negated the exponent *after* normalising,
         // so VAL("123E-2") was 1.23E-4. QBasic gives 1.23. Intentional deviation.
         assert_eq!(v("123E-2"), v("1.23"));
         assert_eq!(v("0.5E-1"), v("0.05"));

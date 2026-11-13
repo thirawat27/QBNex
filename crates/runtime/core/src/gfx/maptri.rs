@@ -1,6 +1,6 @@
 //! `_MAPTRIANGLE` on software surfaces: the setup part of
-//! `sub__maptriangle` plus the scan converter that libqb.cpp included eight
-//! times (`mtri1/1t/2/2t/3/3t/4/4t.cpp`: 32-bit copy, 32-bit blend, 8-bit
+//! `sub__maptriangle` plus QB64's scan converter in its eight variants
+//! (`mtri1/1t/2/2t/3/3t/4/4t`: 32-bit copy, 32-bit blend, 8-bit
 //! copy, 8-bit with clear color; `t` = tiled texture coordinates).
 //!
 //! All arithmetic is the legacy 16.16 fixed point in `int32` (with `int64`
@@ -481,12 +481,11 @@ impl Scan<'_> {
     }
 }
 
-/// C ABI: s = sx1,sy1,sx2,sy2,sx3,sy3; d = dx1,dy1,...; `seamless` 0/1.
+/// `_MAPTRIANGLE`: s = sx1,sy1,sx2,sy2,sx3,sy3; d = dx1,dy1,...; `seamless` 0/1.
 ///
 /// # Safety
 /// See [`maptriangle`]; `s` and `d` readable for 6 floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_maptriangle(
+pub unsafe fn qb_gfx_maptriangle(
     src: *const ImgStruct,
     dst: *const ImgStruct,
     s: *const f32,

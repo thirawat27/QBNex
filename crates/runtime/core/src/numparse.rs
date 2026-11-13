@@ -1,9 +1,9 @@
 //! READ/DATA and the "universal number representation".
 //!
-//! Replaces `n_inputnumberfromdata`, `n_float`, `n_int64`, `n_uint64`,
+//! QB64's `n_inputnumberfromdata`, `n_float`, `n_int64`, `n_uint64`,
 //! `n_roundincrement`, `sub_read_string`, `func_read_float`,
 //! `func_read_int64`, `func_read_uint64` and the conversion half of
-//! `func_file_input_float/int64/uint64` from libqb.cpp.
+//! `func_file_input_float/int64/uint64`.
 //!
 //! A number item is first split into digits ([`NumRepr`], shared with the
 //! INPUT # reader in `fileio.rs`) and then converted to the target type.

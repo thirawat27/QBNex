@@ -1,15 +1,14 @@
 //! TCP/IP handles of the runtime: `_OPENHOST`, `_OPENCLIENT`,
 //! `_OPENCONNECTION`, `_CONNECTED`, `_CONNECTIONADDRESS$` and GET/PUT/CLOSE
 //! on negative handles. Sockets, the info parser and addresses are
-//! `qb_runtime::net`; this is the handle table libqb.cpp kept in C++
-//! (`connection_new`, `connection_register`, `stream_update`, `sub_get2`...).
+//! `qb_runtime::net`; this is the handle table.
 
 use super::builtins::Host;
 use super::{e, Stop, R, V};
 use qb_runtime::net::{self as qnet, Conn};
 
 pub(crate) struct Handle {
-    conn: *mut Conn,
+    conn: Box<Conn>,
     /// 1 client, 2 listening host, 3 host's connection from a client
     ctype: i32,
     inbuf: Vec<u8>,
@@ -23,15 +22,14 @@ pub(crate) struct Net {
 
 impl Drop for Net {
     fn drop(&mut self) {
-        for h in self.handles.iter_mut().flatten() {
-            // SAFETY: owned connection.
-            unsafe { qnet::qb_tcp_close(h.conn) };
+        for h in self.handles.drain(..).flatten() {
+            Conn::close(*h.conn);
         }
     }
 }
 
 impl Net {
-    fn register(&mut self, conn: *mut Conn, ctype: i32) -> i32 {
+    fn register(&mut self, conn: Box<Conn>, ctype: i32) -> i32 {
         let h = Handle { conn, ctype, inbuf: Vec::new() };
         if let Some(k) = self.handles.iter().position(|x| x.is_none()) {
             self.handles[k] = Some(h);
@@ -53,38 +51,29 @@ impl Net {
 fn update(h: &mut Handle) {
     let mut buf = vec![0u8; 65536];
     loop {
-        // SAFETY: open connection, buffer of buf.len() bytes.
-        let n = unsafe { qnet::qb_tcp_recv(h.conn, buf.as_mut_ptr(), buf.len() as i64) };
-        if n <= 0 {
+        let n = h.conn.recv(&mut buf);
+        if n == 0 {
             break;
         }
-        h.inbuf.extend_from_slice(&buf[..n as usize]);
-        if (n as usize) < buf.len() {
+        h.inbuf.extend_from_slice(&buf[..n]);
+        if n < buf.len() {
             break;
         }
     }
 }
 
 fn open<'a>(vm: &mut dyn Host<'a>, method: i32, info: &[u8]) -> R<i64> {
-    let (mut port, mut off, mut len, mut verr) = (0i32, 0i32, 0i32, 0i32);
-    // SAFETY: info is a live slice.
-    let r = unsafe { qnet::qb_net_parse_info(info.as_ptr(), info.len() as i32, method, 0, &mut port, &mut off, &mut len, &mut verr) };
-    if r != 0 {
-        return e(5);
-    }
+    let Ok(parsed) = qnet::parse_info(info, method, false) else { return e(5) };
     let conn = if method == 0 {
-        // SAFETY: host text inside info.
-        unsafe { qnet::qb_tcp_client_open(info.as_ptr().add(off as usize), len, i64::from(port)) }
+        qnet::client_open(&info[parsed.host.unwrap_or_default()], i64::from(parsed.port))
     } else {
-        qnet::qb_tcp_host_open(i64::from(port))
+        qnet::host_open(i64::from(parsed.port))
     };
-    if verr != 0 {
-        // legacy: VAL raised the error and the open went on
-        vm.rt().net_pending_error = verr;
+    if parsed.val_error != 0 {
+        // as in QB64: VAL raised the error and the open went on
+        vm.rt().net_pending_error = parsed.val_error;
     }
-    if conn.is_null() {
-        return Ok(0);
-    }
+    let Some(conn) = conn else { return Ok(0) };
     let i = vm.rt().net.register(conn, if method == 0 { 1 } else { 2 });
     Ok(i64::from(-1 - i))
 }
@@ -102,41 +91,30 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             if h.ctype != 2 {
                 return e(258);
             }
-            // SAFETY: listening connection.
-            let c = unsafe { qnet::qb_tcp_accept(h.conn) };
-            if c.is_null() {
-                return Ok(Some(V::I(0)));
-            }
+            let Some(c) = qnet::accept(&h.conn) else { return Ok(Some(V::I(0))) };
             let i = vm.rt().net.register(c, 3);
             Ok(Some(V::I(i64::from(-1 - i))))
         })(),
         "_CONNECTED" => match vm.rt().net.get(h0) {
             Some(h) if h.ctype == 2 => Ok(Some(V::I(-1))),
-            // SAFETY: open connection.
-            Some(h) => Ok(Some(V::I(unsafe { qnet::qb_tcp_connected(h.conn) }.into()))),
+            Some(h) => {
+                h.conn.flush();
+                Ok(Some(V::I(h.conn.connected.into())))
+            }
             None => e(52),
         },
         "_CONNECTIONADDRESS$" => match vm.rt().net.get(h0) {
             Some(h) => {
-                let t = if h.ctype == 2 { 2 } else { h.ctype };
-                let mut buf = vec![0u8; 512];
-                // SAFETY: buffer of 512 bytes.
-                let n = unsafe { qnet::qb_tcp_address(h.conn, t, buf.as_mut_ptr(), buf.len() as i32) };
-                if n as usize > buf.len() {
-                    buf.resize(n as usize, 0);
-                    // SAFETY: resized buffer.
-                    unsafe { qnet::qb_tcp_address(h.conn, t, buf.as_mut_ptr(), n) };
-                }
-                buf.truncate(n.max(0) as usize);
-                Ok(Some(V::S(buf)))
+                // a listener reports the public address (asked from api.ipify.org)
+                let ip = if h.ctype == 2 { qnet::whatismyip() } else { Vec::new() };
+                Ok(Some(V::S(qnet::address(&h.conn, h.ctype, &ip))))
             }
             None => e(52),
         },
         "CLOSE" if h0 < 0 => {
             if let Some(slot) = (-(h0 + 1) as usize).checked_sub(1).and_then(|i| vm.rt().net.handles.get_mut(i))
                 && let Some(h) = slot.take() {
-                    // SAFETY: owned connection.
-                    unsafe { qnet::qb_tcp_close(h.conn) };
+                    Conn::close(*h.conn);
                 }
             Ok(None)
         }
@@ -146,8 +124,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             if h.ctype == 2 {
                 return e(52);
             }
-            // SAFETY: open connection, live data.
-            unsafe { qnet::qb_tcp_send(h.conn, data.as_ptr(), data.len() as i64) };
+            h.conn.send(&data);
             Ok(None)
         })(),
         "GETSTR" if h0 < 0 => (|| {

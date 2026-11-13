@@ -1,5 +1,5 @@
 //! Unit tests for the string engine (`qbs.rs`). Expected values follow the
-//! legacy libqb.cpp engine (bug-for-bug) and QBasic semantics.
+//! QB64 engine (bug-for-bug) and QBasic semantics.
 //!
 //! The engine is one global, single-threaded allocator, so every test takes
 //! `LOCK` and starts from `qb_qbs_reset()`.
@@ -46,7 +46,7 @@ fn nexti() -> u32 {
 
 #[test]
 fn layout_matches_common_h() {
-    // struct qbs in internal/c/common.h, read field by field by generated C++.
+    // The field layout of QB64's `struct qbs`.
     use std::mem::{offset_of, size_of};
     let p = size_of::<usize>();
     assert_eq!(offset_of!(Qbs, chr), 0);

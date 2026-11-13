@@ -1,5 +1,4 @@
-//! Game controllers for `_DEVICES`/`_DEVICEINPUT`/`STRIG` (replaces the
-//! vendored libstem gamepad library in `internal/c/parts/input/game_controller`).
+//! Game controllers for `_DEVICES`/`_DEVICEINPUT`/`STRIG`.
 //!
 //! Backend: gilrs. Buttons and axes use gilrs' standard layout with fixed
 //! indices ([`button_index`], [`axis_index`]); legacy reported the raw driver
@@ -7,11 +6,10 @@
 //! Y axes are negated so that down/right stay positive as with the legacy
 //! Windows multimedia joystick API.
 //!
-//! All calls happen on the thread that runs `QBNex_GAMEPAD_POLL` (MAIN_LOOP);
-//! the gilrs context is created lazily on that thread.
+//! All calls happen on the thread that calls [`qb_gamepad_poll`]; the gilrs
+//! context is created lazily on that thread.
 
 use std::cell::RefCell;
-use std::ffi::{c_char, CString};
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 
@@ -60,14 +58,17 @@ pub fn axis_index(a: Axis) -> Option<(i32, f32)> {
     })
 }
 
-/// C callbacks into libqb.cpp (the old onDeviceAttached/onButtonDown/... glue).
-#[repr(C)]
+/// A controller was attached: (id, name, vendor, product, axes, buttons).
+pub type AttachedFn = fn(u32, &str, i32, i32, i32, i32);
+
+/// Receivers of controller events: attached, removed (id), button (id,
+/// index, down), axis (id, index, value).
 #[derive(Clone, Copy)]
 pub struct Callbacks {
-    pub attached: Option<extern "C" fn(u32, *const c_char, i32, i32, i32, i32)>,
-    pub removed: Option<extern "C" fn(u32)>,
-    pub button: Option<extern "C" fn(u32, i32, i32)>,
-    pub axis: Option<extern "C" fn(u32, i32, f32)>,
+    pub attached: Option<AttachedFn>,
+    pub removed: Option<fn(u32)>,
+    pub button: Option<fn(u32, i32, bool)>,
+    pub axis: Option<fn(u32, i32, f32)>,
 }
 
 thread_local! {
@@ -77,7 +78,6 @@ thread_local! {
 
 fn attach(cb: &Callbacks, g: &Gilrs, id: gilrs::GamepadId) {
     let pad = g.gamepad(id);
-    let name = CString::new(pad.name().replace('\0', "")).unwrap_or_default();
     let (vendor, product) = (
         pad.vendor_id().unwrap_or(0) as i32,
         pad.product_id().unwrap_or(0) as i32,
@@ -85,7 +85,7 @@ fn attach(cb: &Callbacks, g: &Gilrs, id: gilrs::GamepadId) {
     if let Some(f) = cb.attached {
         f(
             usize::from(id) as u32,
-            name.as_ptr(),
+            pad.name(),
             vendor,
             product,
             AXES,
@@ -116,27 +116,18 @@ fn scripted(cb: &Callbacks) {
         if !pads.contains(&pad) {
             pads.push(pad);
             if let Some(f) = cb.attached {
-                f(SCRIPTED_ID + pad, c"Scripted pad".as_ptr(), 0, 0, AXES, BUTTONS);
+                f(SCRIPTED_ID + pad, "Scripted pad", 0, 0, AXES, BUTTONS);
             }
         }
         if let Some(f) = cb.button {
-            f(SCRIPTED_ID + pad, button, down as i32);
+            f(SCRIPTED_ID + pad, button, down);
         }
     }
 }
 
-/// Processes pending controller events (`QBNex_GAMEPAD_POLL`).
-///
-/// # Safety
-/// `cb` must point to a valid struct.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
-    if cb.is_null() {
-        return;
-    }
-    // SAFETY: caller passes a valid struct.
-    let cb = unsafe { *cb };
-    scripted(&cb);
+/// Processes pending controller events.
+pub fn qb_gamepad_poll(cb: &Callbacks) {
+    scripted(cb);
     GILRS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
@@ -147,7 +138,7 @@ pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
                 Ok(g) => {
                     let ids: Vec<_> = g.gamepads().map(|(id, _)| id).collect();
                     for id in ids {
-                        attach(&cb, &g, id);
+                        attach(cb, &g, id);
                     }
                     *slot = Some(g);
                 }
@@ -159,7 +150,7 @@ pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
         while let Some(ev) = g.next_event() {
             let id = usize::from(ev.id) as u32;
             match ev.event {
-                EventType::Connected => attach(&cb, g, ev.id),
+                EventType::Connected => attach(cb, g, ev.id),
                 EventType::Disconnected => {
                     if let Some(f) = cb.removed {
                         f(id);
@@ -167,11 +158,7 @@ pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
                 }
                 EventType::ButtonPressed(b, _) | EventType::ButtonReleased(b, _) => {
                     if let (Some(i), Some(f)) = (button_index(b), cb.button) {
-                        f(
-                            id,
-                            i,
-                            matches!(ev.event, EventType::ButtonPressed(..)) as i32,
-                        );
+                        f(id, i, matches!(ev.event, EventType::ButtonPressed(..)));
                     }
                 }
                 EventType::AxisChanged(a, v, _) => {

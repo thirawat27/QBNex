@@ -2,9 +2,8 @@
 //! synthetic mouse/keyboard input.
 //!
 //! The event sequences are computed by pure functions (`win_*`, `mac_*`,
-//! `screen_region`) that reproduce legacy libqb.cpp exactly, quirks included,
-//! and are compared with a verbatim copy of the legacy code in
-//! `tests/diff/diff_screen.cpp`. Thin platform layers send them:
+//! `screen_region`) that reproduce QB64 exactly, quirks included. Thin
+//! platform layers send them:
 //!
 //! | | Windows | macOS | Linux |
 //! | --- | --- | --- | --- |
@@ -531,49 +530,32 @@ pub fn desktop() -> (i32, i32) {
     }
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// `_SCREENIMAGE`: returns top-down BGRA pixels (free with `qb_free_pixels`)
-/// and their size, or NULL where capture is not supported (the caller then
-/// makes a blank image of the screen size). A NULL result with a non-positive
-/// size means "invalid region".
-///
-/// # Safety
-/// `w` and `h` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_screenimage(x1: i32, y1: i32, x2: i32, y2: i32, passed: i32, w: *mut i32, h: *mut i32) -> *mut u32 {
+/// `_SCREENIMAGE`: the size and the top-down BGRA pixels, or no pixels where
+/// capture is not supported (the caller then makes a blank image of the
+/// screen size). No pixels with a non-positive size means "invalid region".
+pub fn qb_screenimage(x1: i32, y1: i32, x2: i32, y2: i32, passed: i32) -> (i32, i32, Option<Vec<u32>>) {
     #[cfg(windows)]
     {
         use std::sync::OnceLock;
-        // Legacy measured the desktop once, on the first call.
+        // QB64 measured the desktop once, on the first call.
         static SIZE: OnceLock<(i32, i32)> = OnceLock::new();
         let (sw, sh) = *SIZE.get_or_init(platform::desktop_size);
         let (x, y, cw, ch) = screen_region(sw, sh, x1, y1, x2, y2, passed != 0);
-        // SAFETY: caller guarantees writable outputs.
-        unsafe {
-            w.write_unaligned(cw);
-            h.write_unaligned(ch);
-        }
         if cw <= 0 || ch <= 0 {
-            return std::ptr::null_mut();
+            return (cw, ch, None);
         }
-        crate::pixels::into_raw(platform::capture(x, y, cw, ch))
+        let px = platform::capture(x, y, cw, ch);
+        (cw, ch, (!px.is_empty()).then_some(px))
     }
     #[cfg(not(windows))]
     {
         let _ = (x1, y1, x2, y2, passed);
-        // SAFETY: caller guarantees writable outputs.
-        unsafe {
-            w.write_unaligned(1);
-            h.write_unaligned(1);
-        }
-        std::ptr::null_mut()
+        (1, 1, None)
     }
 }
 
 /// `_SCREENCLICK x, y[, button]`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_screenclick(x: i32, y: i32, button: i32, passed: i32) {
+pub fn qb_screenclick(x: i32, y: i32, button: i32, passed: i32) {
     #[cfg(windows)]
     {
         let (sw, sh) = platform::desktop_size();
@@ -589,17 +571,7 @@ pub extern "C" fn qb_screenclick(x: i32, y: i32, button: i32, passed: i32) {
 }
 
 /// `_SCREENPRINT text$`.
-///
-/// # Safety
-/// `txt` must be readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_screenprint(txt: *const u8, len: i32) {
-    let txt = if txt.is_null() || len <= 0 {
-        &[][..]
-    } else {
-        // SAFETY: caller guarantees `txt` covers `len` bytes.
-        unsafe { std::slice::from_raw_parts(txt, len as usize) }
-    };
+pub fn qb_screenprint(txt: &[u8]) {
     #[cfg(windows)]
     platform::send_keys(&win_screenprint(txt, platform::vk_key_scan));
     #[cfg(target_os = "macos")]

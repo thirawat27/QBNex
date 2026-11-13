@@ -1,4 +1,4 @@
-//! INPUT / LINE INPUT from the keyboard (`qbs_input` in libqb.cpp): the line
+//! INPUT / LINE INPUT from the keyboard (QB64's `qbs_input`): the line
 //! editor that checks every keystroke against the variable types and refuses
 //! characters that would make the entry invalid.
 

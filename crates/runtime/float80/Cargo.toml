@@ -16,9 +16,6 @@ path = "src/lib.rs"
 # Default: x86/x86_64 run those three primitives on the x87 unit (bit-identical to
 # the legacy build on the same CPU); other targets always use the software path.
 soft-transcendentals = []
-# Exports `qb_f80_diff_op`, the single entry point the differential harness
-# (tests/diff/diff_float80.cpp) drives every operation through.
-diff-hooks = []
 
 [dependencies]
 

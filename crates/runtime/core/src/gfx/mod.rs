@@ -1,13 +1,10 @@
-//! Software graphics: the image registry, palettes, and every
-//! drawing primitive that used to live in `libqb.cpp`.
+//! Software graphics: the image registry, palettes, and every drawing
+//! primitive, with QB64's results.
 //!
-//! The data model is unchanged: every surface is an [`ImgStruct`] with the
-//! exact `#[repr(C)]` layout of `img_struct` in `internal/c/common.h`, so the
-//! C++ code that is not ported yet (text output, window presentation in
-//! `gui.cpp`/freeglut, `_MEM`) keeps reading the same fields and pixel
-//! buffers. Drawing entry points take the page they act on as a pointer
-//! (`write_page`/`read_page` stay C++ globals) and return a QBasic error code
-//! (0 = no error); the one-line shims in libqb.cpp raise it with `error()`.
+//! Every surface is an [`ImgStruct`] with the `#[repr(C)]` layout of QB64's
+//! `img_struct`. Drawing entry points take the page they act on as a pointer
+//! (the runner owns `write_page`/`read_page`) and return a QBasic error
+//! code (0 = no error) for the caller to raise.
 //!
 //! Everything is ported bug-for-bug, including float precision: legacy code
 //! mixes `float` and `double` arithmetic and rounds through x87 `fistp`
@@ -120,7 +117,7 @@ pub const ERR_ILLEGAL_FUNCTION_CALL: i32 = 5;
 /// QBNex "Invalid handle".
 pub const ERR_INVALID_HANDLE: i32 = 258;
 
-/// `qbr(long double)` from libqb.cpp applied to a value that started as a
+/// QB64's `qbr(long double)` applied to a value that started as a
 /// float/double expression (exact widening), truncated to `int32` the way the
 /// legacy assignments did.
 #[inline]
@@ -226,8 +223,7 @@ mod tests {
 
     #[test]
     fn img_struct_layout_matches_common_h() {
-        // Offsets of img_struct as compiled by g++ for x86-64 (checked again
-        // with static_assert in tests/diff_gfx.cpp).
+        // Offsets of img_struct as compiled by g++ for x86-64.
         if size_of::<usize>() != 8 {
             return;
         }

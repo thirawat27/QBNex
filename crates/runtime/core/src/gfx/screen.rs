@@ -1,7 +1,7 @@
-//! SCREEN statement decisions (legacy `qbg_screen` in libqb.cpp).
+//! SCREEN statement decisions (QB64's `qbg_screen`).
 //!
-//! The orchestration (display lock, page table, freeing old surfaces) stays
-//! in C++ for now because it touches window state owned by the window code. What lives
+//! The orchestration (display lock, page table, freeing old surfaces) belongs
+//! to the runner because it touches window state. What lives
 //! here is the part that decides *what* to build: which mode numbers are
 //! legal, the size of each graphics mode, the font override that keeps an
 //! 80x43/80x60 text layout, and the SCREEN 0 layout with its page
@@ -103,19 +103,17 @@ pub fn text_layout(prev_w: i32, prev_h: i32, ov: &mut Overrides) -> TextLayout {
     TextLayout { width: x, height: y, font: f, granularity, cmem_pages }
 }
 
-/// C ABI: 1 when `SCREEN mode` (mode >= 0) is legal.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_gfx_screen_mode_valid(mode: i32) -> i32 {
+/// 1 when `SCREEN mode` (mode >= 0) is legal.
+pub fn qb_gfx_screen_mode_valid(mode: i32) -> i32 {
     mode_valid(mode) as i32
 }
 
-/// C ABI: `out = {width, height, font override}`; returns 0 when `mode` is
+/// `out = {width, height, font override}`; returns 0 when `mode` is
 /// not a graphics mode.
 ///
 /// # Safety
 /// `out` must point to 3 writable `int32`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_screen_geometry(mode: i32, prev_w: i32, prev_h: i32, out: *mut i32) -> i32 {
+pub unsafe fn qb_gfx_screen_geometry(mode: i32, prev_w: i32, prev_h: i32, out: *mut i32) -> i32 {
     match graphics_geometry(mode, prev_w, prev_h) {
         Some((w, h, f)) => {
             let out = unsafe { std::slice::from_raw_parts_mut(out, 3) };
@@ -126,14 +124,13 @@ pub unsafe extern "C" fn qb_gfx_screen_geometry(mode: i32, prev_w: i32, prev_h: 
     }
 }
 
-/// C ABI: SCREEN 0 layout. The three override pointers are the legacy
+/// SCREEN 0 layout. The three override pointers are QB64's
 /// `sub_screen_*` globals and are reset to -1 where the legacy code did.
 /// `out = {width, height, font, granularity, cmem pages}`.
 ///
 /// # Safety
 /// All pointers must be valid; `out` must hold 5 `int32`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_screen0_layout(
+pub unsafe fn qb_gfx_screen0_layout(
     prev_w: i32,
     prev_h: i32,
     width: *mut i32,

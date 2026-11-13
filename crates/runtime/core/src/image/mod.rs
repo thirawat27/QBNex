@@ -1,5 +1,5 @@
-//! `_LOADIMAGE` codecs (was `internal/c/parts/video/image/src.c`: dr_pcx +
-//! stb_image v2.27, plus the 8bpp quantizer and palette remapper).
+//! `_LOADIMAGE` codecs with the results of QB64's decoders (dr_pcx +
+//! stb_image v2.27), plus the 8bpp quantizer and palette remapper.
 //!
 //! - PCX: port of dr_pcx (`pcx.rs`).
 //! - BMP, TGA, GIF, PNM: ports of the stb_image loaders (`stb.rs`); their
@@ -15,7 +15,7 @@ mod stb;
 
 use stb::Ctx;
 
-/// A decoded image: `w * h` pixels, 4 bytes each, in libqb's BGRA order.
+/// A decoded image: `w * h` pixels, 4 bytes each, in BGRA order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bgra {
     pub w: u32,
@@ -23,7 +23,7 @@ pub struct Bgra {
     pub px: Vec<u8>,
 }
 
-/// Decodes like the legacy `func__loadimage`: dr_pcx first, then stb_image.
+/// Decodes like QB64's `_LOADIMAGE`: dr_pcx first, then stb_image.
 pub fn decode(data: &[u8]) -> Option<Bgra> {
     let (w, h, mut px) = match pcx::decode(data) {
         Some(img) => img,
@@ -61,40 +61,6 @@ fn decode_stb(data: &[u8]) -> Option<stb::Rgba> {
     }
 }
 
-/// C ABI, see `qb_runtime.h`.
-///
-/// # Safety
-/// `data` must point to `len` readable bytes (or be null with `len <= 0`);
-/// `w` and `h` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_image_decode(
-    data: *const u8,
-    len: i32,
-    w: *mut i32,
-    h: *mut i32,
-) -> *mut u8 {
-    let bytes: &[u8] = if data.is_null() || len <= 0 {
-        &[]
-    } else {
-        // SAFETY: caller guarantees `len` readable bytes.
-        unsafe { std::slice::from_raw_parts(data, len as usize) }
-    };
-    match decode(bytes) {
-        Some(img) => {
-            let p = crate::cmem::to_c_heap(&img.px);
-            if !p.is_null() {
-                // SAFETY: caller guarantees writable out-pointers.
-                unsafe {
-                    *w = img.w as i32;
-                    *h = img.h as i32;
-                }
-            }
-            p
-        }
-        None => std::ptr::null_mut(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,7 +81,7 @@ mod tests {
     type Expected = Option<(u32, u32, u64)>;
 
     /// (file, Some((w, h, FNV-1a of the BGRA pixels))) captured from the legacy
-    /// dr_pcx + stb_image decoders (`diff_image --dump`); None = legacy failed.
+    /// dr_pcx + stb_image decoders of QB64; None = legacy failed.
     #[rustfmt::skip]
     const LEGACY: &[(&str, Expected)] = &[
         ("bad_empty.bin", None),
@@ -277,23 +243,5 @@ mod tests {
     fn png_pixel_values_are_bgra() {
         // png_1x1.png holds RGBA (1, 2, 3, 4).
         assert_eq!(decode(&corpus("png_1x1.png")).unwrap().px, vec![3, 2, 1, 4]);
-    }
-
-    #[test]
-    fn ffi_returns_malloc_buffer_and_size() {
-        let data = corpus("png_1x1.png");
-        let (mut w, mut h) = (0, 0);
-        // SAFETY: valid buffer and out-pointers; result is freed with free().
-        unsafe {
-            let p = qb_image_decode(data.as_ptr(), data.len() as i32, &mut w, &mut h);
-            assert!(!p.is_null());
-            assert_eq!((w, h), (1, 1));
-            assert_eq!(std::slice::from_raw_parts(p, 4), &[3, 2, 1, 4]);
-            unsafe extern "C" {
-                fn free(p: *mut std::os::raw::c_void);
-            }
-            free(p as *mut _);
-            assert!(qb_image_decode(std::ptr::null(), 0, &mut w, &mut h).is_null());
-        }
     }
 }
