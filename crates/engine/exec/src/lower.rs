@@ -78,6 +78,7 @@ fn regs(i: &Inst) -> (Option<u32>, Vec<u32>) {
         }
         OnTimer { slot, secs, .. } => (None, vec![*slot, *secs]),
         OnKey { key, .. } | OnPlay { n: key, .. } => (None, vec![*key]),
+        OnStrig { n, ctl, .. } => (None, vec![*n, *ctl]),
         Const { dst, .. } => (Some(*dst), vec![]),
         Mov { dst, src, .. } | Cvt { dst, src, .. } | Trunc { dst, src, .. } => (Some(*dst), vec![*src]),
         Bin { dst, a, b, .. } | Cmp { dst, a, b, .. } | Concat { dst, a, b } => (Some(*dst), vec![*a, *b]),
@@ -1598,6 +1599,11 @@ impl<'a> Lw<'a> {
                     let pc = self.emit(Ins::OnPlay { s, t: 0 });
                     self.fixups.push((pc, format!("0\u{1}{target}")));
                 }
+                Inst::OnStrig { n, ctl, target } => {
+                    let (s, x) = (nreg!(*n), nreg!(*ctl));
+                    let pc = self.emit(Ins::OnStrig { s, x, t: 0 });
+                    self.fixups.push((pc, format!("0\u{1}{target}")));
+                }
                 Inst::Resume(r) => match r {
                     ResumeKind::Same => {
                         self.emit(Ins::Resume { k: ResumeK::Same, t: 0 });
@@ -1753,7 +1759,7 @@ fn local_label(body: &[Inst], l: &str, at: usize, here: usize) -> bool {
         let refers = match i {
             Inst::Jmp(t) | Inst::Jz { target: t, .. } | Inst::Jnz { target: t, .. } => t == l,
             Inst::Gosub(t) | Inst::GRetL(t) => return t != l,
-            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } | Inst::OnKey { target: t, .. } | Inst::OnPlay { target: t, .. } => return t != l,
+            Inst::OnError(Some(t)) | Inst::Resume(ResumeKind::Label(t)) | Inst::OnTimer { target: t, .. } | Inst::OnKey { target: t, .. } | Inst::OnPlay { target: t, .. } | Inst::OnStrig { target: t, .. } => return t != l,
             _ => false,
         };
         !refers || (k > at && k < here)

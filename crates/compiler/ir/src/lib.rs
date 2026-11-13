@@ -16,6 +16,8 @@ pub use validate::validate;
 
 /// Current format version (`QIR <n>` header).
 pub const VERSION: u32 = 1;
+/// The controller operand of `onstrig` when `ON STRIG(n)` names no controller.
+pub const NO_CONTROLLER: i32 = i32::MIN;
 
 /// Register (and scalar storage) type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -284,6 +286,10 @@ pub enum Inst {
     /// `ON PLAY(n) GOSUB target`: `n` i32; the handler runs as a GOSUB at module level when the
     /// background music queue drops from `n` notes to fewer while trapping is on (`PLAY ON`).
     OnPlay { n: Reg, target: String },
+    /// `ON STRIG(n[, controller]) GOSUB target`: `n` and `ctl` i32, `ctl` is [`NO_CONTROLLER`]
+    /// when the statement names none; the handler runs as a GOSUB at module level when that
+    /// joystick button is pressed while its trapping is on (`STRIG(n) ON`).
+    OnStrig { n: Reg, ctl: Reg, target: String },
     Resume(ResumeKind),
     Error(Reg),
     Read { ty: Ty, dst: Reg },

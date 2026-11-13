@@ -502,8 +502,6 @@ pub static TABLE: &[Builtin] = &[
     // STRIG[(n[, controller])] ON|OFF|STOP + passed / STRIG(n[, controller]) + passed
     b!("sub_strig", [I32, I32, I32, I32]),
     b!("func_strig", [I32, I32, I32], I32),
-    // ON STRIG(n, controller, controller given): checks only (no joystick events)
-    b!("ONSTRIG", [I32, I32, I32]),
     b!("sub__mousehide", []),
     b!("sub__mouseshow", [Str, I32]),
     // FILES [spec$] + passed

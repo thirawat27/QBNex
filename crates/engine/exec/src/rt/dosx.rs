@@ -709,15 +709,10 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             let (cmd, exe) = chain_command(&f);
             run_program(vm, &cmd, &exe).map(|_| None)
         }
-        // STRIG[(n[, controller])] ON|OFF|STOP (+ passed): the settings are kept, but no ON STRIG handler is called
+        // STRIG[(n[, controller])] ON|OFF|STOP (+ passed)
         "sub_strig" => {
             let ev = qb_runtime::events::onstrigs();
             qb_runtime::events::strig_statement(ev, i(0) as i32, i(1) as i32, i(2) as i32, i(3) as i32).map_or_else(e, |_| Ok(None))
-        }
-        // ON STRIG(n[, controller]) GOSUB: argument checks only (see sub_strig)
-        "ONSTRIG" => {
-            let ev = qb_runtime::events::onstrigs();
-            qb_runtime::events::onstrig_setup(ev, i(0) as i32, i(1) as i32, i(2) != 0, 0, 0).map_or_else(e, |_| Ok(None))
         }
         "sub_files" => files(vm, a[0].s(), i(1) != 0).map(|_| None),
         _ => return None,

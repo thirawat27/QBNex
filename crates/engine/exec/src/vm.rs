@@ -364,6 +364,8 @@ struct GlFrames {
 const KEY_EV: i32 = -2;
 /// `Gs::ev` of the ON PLAY handler (below every ON KEY value).
 const PLAY_EV: i32 = -1000;
+/// `Gs::ev` of an ON STRIG handler.
+const STRIG_EV: i32 = -2000;
 
 #[derive(Debug, Clone, Copy)]
 struct Gs {
@@ -429,6 +431,8 @@ pub struct Vm<'m, 'o> {
     key_poll: bool,
     /// ON PLAY was set up: safe points look at the music queue
     play_poll: bool,
+    /// The ON STRIG slots that have a handler: safe points look at them.
+    strig_slots: Vec<usize>,
     /// the thread that wakes safe points for ON KEY / ON PLAY runs
     poll_thread: bool,
     /// DECLARE LIBRARY: resolved function addresses (per `Module::xfns`) and loaded libraries
@@ -596,6 +600,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             timer_thread: false,
             key_poll: false,
             play_poll: false,
+            strig_slots: Vec::new(),
             poll_thread: false,
             xptrs: vec![0; m.xfns.len()],
             xlibs: Vec::new(),
@@ -1679,6 +1684,29 @@ impl<'m, 'o> Vm<'m, 'o> {
                 }
             }
         }
+        if !self.strig_slots.is_empty() {
+            // ON STRIG: joystick buttons pressed since the last safe point
+            let rt = &mut self.rt;
+            rt.input.pump(&mut rt.cmem);
+            // SAFETY: program thread only.
+            if unsafe { qb_runtime::events::onstrig_inprogress } == 0 {
+                let slots = qb_runtime::events::onstrigs();
+                for &s in &self.strig_slots {
+                    let k = &mut slots[s];
+                    if k.id != 0 && k.active == 1 && k.state > 0 {
+                        k.state -= 1;
+                        let id = k.id;
+                        // SAFETY: as above.
+                        unsafe { qb_runtime::events::onstrig_inprogress = 1 };
+                        self.gosub.push(Gs { ev: STRIG_EV, ret: pc, depth: self.frames.len(), view: self.view });
+                        if self.view != 0 {
+                            self.set_view(0);
+                        }
+                        return Some(id - 1);
+                    }
+                }
+            }
+        }
         None
     }
 
@@ -2027,6 +2055,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                             qb_runtime::events::timers().done(g.ev);
                         } else if g.ev == PLAY_EV {
                             qb_runtime::events::play_trap().done();
+                        } else if g.ev == STRIG_EV {
+                            // SAFETY: program thread only.
+                            unsafe { qb_runtime::events::onstrig_inprogress = 0 };
                         } else if g.ev <= KEY_EV {
                             // SAFETY: program thread only.
                             unsafe { qb_runtime::events::onkey_inprogress = 0 };
@@ -2348,6 +2379,19 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::OnKey { s, t } => {
                     tryc!(qb_runtime::events::onkey_setup(qb_runtime::events::onkeys(), ri!(s) as i32, t + 1, 0));
                     self.start_key_poll();
+                }
+                Ins::OnStrig { s, x, t } => {
+                    let (n, ctl) = (ri!(s) as i32, ri!(x) as i32);
+                    let given = ctl != qb_ir::NO_CONTROLLER;
+                    let slot = tryc!(qb_runtime::events::onstrig_setup(qb_runtime::events::onstrigs(), n, if given { ctl } else { 0 }, given, t + 1, 0));
+                    if let Some(slot) = slot {
+                        if !self.strig_slots.contains(&slot) {
+                            self.strig_slots.push(slot);
+                        }
+                        // the joysticks are read from now on
+                        self.rt.input.devices.controllers = true;
+                        self.start_poll_thread();
+                    }
                 }
                 Ins::OnPlay { s, t } => {
                     tryc!(qb_runtime::events::play_trap().setup(ri!(s) as i32, t + 1));

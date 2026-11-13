@@ -321,6 +321,58 @@ fn window_events_devices_and_mouse_pipes() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// ON STRIG handlers run for the buttons of (scripted) game controllers; ALT+ENTER walks the
+/// full screen modes `_ALLOWFULLSCREEN` allows.
+#[test]
+fn joystick_button_traps_and_alt_enter() {
+    let dir = tmpdir("wtraps");
+    let press = |pad: u32, button: u32| format!("pad {pad} {button} 1\nwait 60\npad {pad} {button} 0\nwait 60\n");
+    let alt_enter = "keydown lalt\nwait 60\nkey enter\nwait 60\nkeyup lalt\nwait 200\n";
+    let script = [
+        "wait 1500\n",
+        // joystick A button 1 twice, its button 2, joystick B button 1
+        &press(0, 0),
+        &press(0, 0),
+        &press(0, 1),
+        &press(1, 0),
+        "wait 300\nkey a\nwait 300\n",
+        &press(0, 0),
+        &press(0, 0),
+        "wait 300\nkey b\nwait 900\n",
+        &press(0, 0),
+        "wait 300\nkey c\nwait 300\n",
+        alt_enter,
+        "key d\nwait 300\n",
+        alt_enter,
+        "key e\nwait 300\n",
+        alt_enter,
+        "key f\nwait 300\n",
+        alt_enter,
+        "key g\n",
+    ]
+    .concat();
+    let (code, out) = run(&dir, &fixture("wtraps.qir"), &script);
+    assert_eq!(code, Some(0), "{out}");
+    let t = std::fs::read_to_string(dir.join("traps.txt")).unwrap();
+    let lines: Vec<&str> = t.lines().map(str::trim_end).collect();
+    assert_eq!(
+        lines,
+        [
+            "on 2  1  7",
+            "stopped 2",
+            "on again 3",
+            // no handler, but STRIG still reads the button: not down now, pressed since the last call
+            "off 3  0 -1",
+            "all 1  0",
+            "square smooth 2 -1",
+            "window 0  0",
+            // _ALLOWFULLSCREEN _OFF: the program gets the key
+            "not allowed 0  1",
+        ]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Q13: a CALL ABSOLUTE that fails gives its argument space back (no panic after many calls).
 #[test]
 fn failing_call_absolute_does_not_leak_argument_space() {

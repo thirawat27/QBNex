@@ -428,8 +428,9 @@ fn strig_slot(i: i32, controller: i32, controller_passed: bool) -> Result<Option
     Ok(Some(((controller - 1) * 256 + (button - 1)) as usize))
 }
 
-/// `onstrig_setup`: `ON STRIG(i[, controller]) GOSUB/CALL`. Returns true
-/// when the slot was set (the caller then makes sure devices are scanned).
+/// `onstrig_setup`: `ON STRIG(i[, controller]) GOSUB/CALL`. Returns the slot
+/// that was set (the caller then makes sure devices are scanned), None for a
+/// controller or button beyond the 256 that are kept.
 pub fn onstrig_setup(
     slots: &mut [OnStrig],
     i: i32,
@@ -437,13 +438,31 @@ pub fn onstrig_setup(
     controller_passed: bool,
     id: u32,
     pass: i64,
-) -> Result<bool, i32> {
-    let Some(s) = strig_slot(i, controller, controller_passed)? else { return Ok(false) };
+) -> Result<Option<usize>, i32> {
+    let Some(s) = strig_slot(i, controller, controller_passed)? else { return Ok(None) };
     let t = &mut slots[s];
     t.state = 0;
     t.pass = pass;
     t.id = id;
-    Ok(true)
+    Ok(Some(s))
+}
+
+/// Button `button` of controller `controller` (both from 0) went down: its
+/// ON STRIG event is queued while trapping is on, and one is kept while it is
+/// stopped (`STRIG(n) STOP`).
+pub fn strig_pressed(slots: &mut [OnStrig], controller: usize, button: usize) {
+    if controller >= 256 || button >= 256 {
+        return;
+    }
+    let s = &mut slots[controller * 256 + button];
+    if s.id == 0 {
+        return;
+    }
+    match s.active {
+        1 => s.state = s.state.saturating_add(1),
+        2 => s.state = 1,
+        _ => {}
+    }
 }
 
 /// `sub_strig`: `STRIG[(i[, controller])] ON|OFF|STOP`; `passed` bit 0 = `i`
@@ -615,8 +634,8 @@ pub extern "C" fn qb_onstrig_setup(i: i32, controller: i32, controller_passed: i
         return;
     }
     match onstrig_setup(onstrigs(), i, controller, controller_passed != 0, id, pass) {
-        Ok(true) => host::devices_init(),
-        Ok(false) => {}
+        Ok(Some(_)) => host::devices_init(),
+        Ok(None) => {}
         Err(e) => crate::error::raise(e),
     }
 }
@@ -774,15 +793,31 @@ mod tests {
     fn strig_slots() {
         let mut s = vec![ONSTRIG0; ONSTRIG_SLOTS];
         // STRIG(0)/(2): controller 1/2 button 1; STRIG(4)/(6): button 2.
-        assert_eq!(onstrig_setup(&mut s, 2, 0, false, 5, 1), Ok(true));
+        assert_eq!(onstrig_setup(&mut s, 2, 0, false, 5, 1), Ok(Some(256)));
         assert_eq!(s[256].id, 5);
-        assert_eq!(onstrig_setup(&mut s, 4, 0, false, 6, 1), Ok(true));
+        assert_eq!(onstrig_setup(&mut s, 4, 0, false, 6, 1), Ok(Some(1)));
         assert_eq!(s[1].id, 6);
-        assert_eq!(onstrig_setup(&mut s, 0, 3, true, 8, 1), Ok(true));
+        assert_eq!(onstrig_setup(&mut s, 0, 3, true, 8, 1), Ok(Some(512)));
         assert_eq!(s[512].id, 8);
         assert_eq!(onstrig_setup(&mut s, 1, 0, false, 1, 0), Err(5));
         assert_eq!(onstrig_setup(&mut s, 0, 0, true, 1, 0), Err(5));
-        assert_eq!(onstrig_setup(&mut s, 0, 300, true, 1, 0), Ok(false));
+        assert_eq!(onstrig_setup(&mut s, 0, 300, true, 1, 0), Ok(None));
+        // a press queues an event only while trapping is on; stopped keeps one
+        let mut p = vec![ONSTRIG0; ONSTRIG_SLOTS];
+        strig_pressed(&mut p, 0, 1);
+        assert_eq!(p[1].state, 0, "no handler: nothing queued");
+        onstrig_setup(&mut p, 4, 0, false, 6, 0).unwrap();
+        strig_pressed(&mut p, 0, 1);
+        assert_eq!(p[1].state, 0, "handler but STRIG OFF");
+        strig_statement(&mut p, 4, 0, 1, 1).unwrap();
+        strig_pressed(&mut p, 0, 1);
+        strig_pressed(&mut p, 0, 1);
+        strig_pressed(&mut p, 300, 1);
+        assert_eq!((p[1].state, p[0].state), (2, 0));
+        strig_statement(&mut p, 4, 0, 3, 1).unwrap();
+        strig_pressed(&mut p, 0, 1);
+        strig_pressed(&mut p, 0, 1);
+        assert_eq!(p[1].state, 1, "stopped: one event waits");
         s[1].state = 2;
         assert_eq!(strig_statement(&mut s, 4, 0, 1, 1), Ok(true));
         assert_eq!(strig_statement(&mut s, 0, 0, 3, 0), Ok(false));

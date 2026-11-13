@@ -17,6 +17,7 @@
 //! wheel -1            # -1 = up (_MOUSEWHEEL -1), 1 = down
 //! resize 800 600
 //! focus 0             # the window loses (0) or gets (1) the keyboard focus
+//! pad 0 1 1           # game controller 0 (attached when first named): button 1 down (1) or up (0)
 //! drop C:\a file.txt  # a file dropped on the window (the rest of the line is its path)
 //! close               # window close button
 //! snapshot            # print "[frame WxH fnv1a=xxxxxxxx]" for the last presented frame
@@ -37,6 +38,8 @@ pub enum Cmd {
     Wheel(i32),
     Resize(i32, i32),
     Focus(bool),
+    /// a button (from 0) of a scripted game controller goes down or up: pad, button, down
+    Pad(u32, i32, bool),
     /// path of a file dropped on the window
     Drop(String),
     Close,
@@ -140,6 +143,10 @@ pub fn parse(text: &str) -> Result<Vec<Cmd>, String> {
                 out.push(Cmd::Resize(v[0] as i32, v[1] as i32));
             }
             "focus" => out.push(Cmd::Focus(nums(1)?[0] != 0)),
+            "pad" => {
+                let v = nums(3)?;
+                out.push(Cmd::Pad(v[0].clamp(0, 255) as u32, v[1] as i32, v[2] != 0));
+            }
             "drop" => {
                 if rest.trim().is_empty() {
                     return Err(err("missing path"));

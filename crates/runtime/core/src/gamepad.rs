@@ -94,6 +94,37 @@ fn attach(cb: &Callbacks, g: &Gilrs, id: gilrs::GamepadId) {
     }
 }
 
+/// Button events a test script asked for (`pad` lines), waiting for the next poll:
+/// (pad, button, down).
+static SCRIPTED: std::sync::Mutex<Vec<(u32, i32, bool)>> = std::sync::Mutex::new(Vec::new());
+/// The scripted pads already reported as attached.
+static SCRIPTED_PADS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+/// Ids of scripted pads start here, clear of the ids of real controllers.
+const SCRIPTED_ID: u32 = 1 << 20;
+
+/// A script presses or releases `button` (from 0) of its pad number `pad`. The pad
+/// is attached the first time it is named, before any real controller is looked
+/// for, so scripted pads are the first joysticks of the program.
+pub fn script_button(pad: u32, button: i32, down: bool) {
+    SCRIPTED.lock().unwrap_or_else(|e| e.into_inner()).push((pad, button, down));
+}
+
+fn scripted(cb: &Callbacks) {
+    let events = std::mem::take(&mut *SCRIPTED.lock().unwrap_or_else(|e| e.into_inner()));
+    let mut pads = SCRIPTED_PADS.lock().unwrap_or_else(|e| e.into_inner());
+    for (pad, button, down) in events {
+        if !pads.contains(&pad) {
+            pads.push(pad);
+            if let Some(f) = cb.attached {
+                f(SCRIPTED_ID + pad, c"Scripted pad".as_ptr(), 0, 0, AXES, BUTTONS);
+            }
+        }
+        if let Some(f) = cb.button {
+            f(SCRIPTED_ID + pad, button, down as i32);
+        }
+    }
+}
+
 /// Processes pending controller events (`QBNex_GAMEPAD_POLL`).
 ///
 /// # Safety
@@ -105,6 +136,7 @@ pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
     }
     // SAFETY: caller passes a valid struct.
     let cb = unsafe { *cb };
+    scripted(&cb);
     GILRS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {

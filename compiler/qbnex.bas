@@ -6384,7 +6384,6 @@ IF n >= 2 THEN
             e$ = optController$
         END IF
         PRINT #12, e$ + "," + optPassed$ + ",";
-        IF IrEmitMode THEN IrOnStrig optI$, optController$, optPassed$
 
         l$ = l$ + sp2 + ")" + sp 'close brackets
 
@@ -6430,6 +6429,7 @@ IF n >= 2 THEN
             Labels(r).Scope_Restriction = subfuncn
         END IF 'x
         l$ = l$ + SCase$("GoSub") + sp + tlayout$
+        IF IrEmitMode THEN IrOnStrig optI$, optController$, optPassed$, a2$
 
         PRINT #30, "if(strig_event_id==" + str2$(onstrigid) + ")goto LABEL_" + a2$ + ";"
 
@@ -6462,6 +6462,7 @@ IF n >= 2 THEN
         l$ = l$ + RTRIM$(id.cn)
 
         PRINT #29, "case " + str2$(onstrigid) + ":"
+        onEvSubId = currentid
         PRINT #29, RTRIM$(id.callname) + "(";
 
         IF id.args > 1 THEN a$ = "SUB requires more than one argument": GOTO errmes
@@ -6471,6 +6472,7 @@ IF n >= 2 THEN
             IF id.args = 1 THEN a$ = "Expected argument after SUB": GOTO errmes
             PRINT #12, "0);"
             PRINT #29, ");"
+            IF IrEmitMode THEN IrOnEventSub IrOnStrigHead$(optI$, optController$, optPassed$), onEvSubId, ""
 
         ELSE
 
@@ -6488,6 +6490,7 @@ IF n >= 2 THEN
             PRINT #29, "(" + ct$ + "*)&i64);"
 
             e$ = getelements$(ca$, i, n)
+            IF IrEmitMode THEN IrOnEventSub IrOnStrigHead$(optI$, optController$, optPassed$), onEvSubId, e$
             e$ = fixoperationorder$(e$)
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + tlayout$

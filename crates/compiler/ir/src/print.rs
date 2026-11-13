@@ -134,6 +134,7 @@ pub fn inst_text(i: &Inst) -> String {
         Inst::OnTimer { slot, secs, target } => format!("ontimer %{slot} %{secs} {target}"),
         Inst::OnKey { key, target } => format!("onkey %{key} {target}"),
         Inst::OnPlay { n, target } => format!("onplay %{n} {target}"),
+        Inst::OnStrig { n, ctl, target } => format!("onstrig %{n} %{ctl} {target}"),
         Inst::Read { ty, dst } => format!("read.{} %{dst}", ty.name()),
         Inst::Restore(None) => "restore".into(),
         Inst::Restore(Some(l)) => format!("restore {l}"),

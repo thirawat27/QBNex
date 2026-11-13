@@ -406,9 +406,12 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             }
             none
         }
-        // _ALLOWFULLSCREEN: which modes ALT+ENTER may switch to; the runner has no
-        // ALT+ENTER switch, so there is nothing to restrict
-        "sub__allowfullscreen" => none,
+        // _ALLOWFULLSCREEN [mode][, smooth] (+ passed): which modes ALT+ENTER may switch to
+        "sub__allowfullscreen" => {
+            #[cfg(not(target_arch = "wasm32"))]
+            super::window::allow_fullscreen(if i(2) & 1 != 0 { i(0) as i32 } else { 0 }, if i(2) & 2 != 0 { i(1) as i32 } else { 0 });
+            none
+        }
         "sub_lock" | "sub_unlock" => {
             let err = qb_runtime::fileio::lock(i(0) as i32, i(1), i(2), i(3) as i32, name == "sub_lock");
             if err != 0 { e(err) } else { none }

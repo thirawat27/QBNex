@@ -768,6 +768,7 @@ fn run_script(cmds: Vec<script::Cmd>) {
                     f();
                 }
             }
+            S::Pad(pad, button, down) => crate::gamepad::script_button(pad, button, down),
             S::Focus(on) => {
                 if let Some(f) = cb().focus {
                     f(on as i32);

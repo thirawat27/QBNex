@@ -852,7 +852,7 @@ fn main_shared(m: &bc::Module) -> Vec<u32> {
     let n = m.funcs[0].n_num();
     // ON TIMER / ON KEY handlers are main code the VM may run inside any CALL
     // (its safe point), also one made from native main code.
-    if m.code.iter().any(|i| matches!(i, Ins::OnTimer { .. } | Ins::OnKey { .. } | Ins::OnPlay { .. })) {
+    if m.code.iter().any(|i| matches!(i, Ins::OnTimer { .. } | Ins::OnKey { .. } | Ins::OnPlay { .. } | Ins::OnStrig { .. })) {
         return (0..n).collect();
     }
     let mut v = BTreeSet::new();

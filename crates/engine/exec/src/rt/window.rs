@@ -112,6 +112,58 @@ pub(crate) fn set_fullscreen(mode: i32, smooth: bool) {
     }
 }
 
+/// `_ALLOWFULLSCREEN`: what ALT+ENTER may switch to. Mode 0 = any, 1 = stretched only,
+/// 2 = square pixels only, -1 = nothing (the keys reach the program). Smooth 0 = any,
+/// 1 = smooth only, -1 = never smooth.
+static ALLOWED_MODE: AtomicI32 = AtomicI32::new(0);
+static ALLOWED_SMOOTH: AtomicI32 = AtomicI32::new(0);
+
+/// `_ALLOWFULLSCREEN [{_STRETCH|_SQUAREPIXELS|_OFF|_ALL|OFF}][, {_SMOOTH|_OFF|_ALL|OFF}]`:
+/// `method` and `smooth` are the numbers of the options (0 = left out, which means all).
+pub(crate) fn allow_fullscreen(method: i32, smooth: i32) {
+    let mode = match method {
+        1 | 2 => method,
+        3 | 5 => -1,
+        _ => 0,
+    };
+    let smooth = match smooth {
+        1 => 1,
+        2 | 4 => -1,
+        _ => 0,
+    };
+    ALLOWED_MODE.store(mode, Ordering::Relaxed);
+    ALLOWED_SMOOTH.store(smooth, Ordering::Relaxed);
+}
+
+/// The mode after `(mode, smooth)` in the round ALT+ENTER walks: window, stretched,
+/// stretched and smooth, square pixels, square pixels and smooth; the ones
+/// `_ALLOWFULLSCREEN` rules out are skipped (the window never is).
+fn next_fullscreen(mode: i32, smooth: bool, allowed_mode: i32, allowed_smooth: i32) -> (i32, bool) {
+    const ROUND: [(i32, bool); 5] = [(0, false), (1, false), (1, true), (2, false), (2, true)];
+    let mut at = ROUND.iter().position(|&m| m == (mode, smooth && mode != 0)).unwrap_or(0);
+    loop {
+        at = (at + 1) % ROUND.len();
+        let (m, s) = ROUND[at];
+        let ruled_out = (allowed_mode > 0 && m != allowed_mode) || (allowed_smooth == 1 && !s) || (allowed_smooth == -1 && s);
+        if at == 0 || !ruled_out {
+            return (m, s);
+        }
+    }
+}
+
+/// ALT+ENTER was pressed: switches to the next full screen mode. False when
+/// `_ALLOWFULLSCREEN _OFF` leaves the keys to the program.
+pub(crate) fn alt_enter() -> bool {
+    let allowed = ALLOWED_MODE.load(Ordering::Relaxed);
+    if allowed < 0 || !active() {
+        return false;
+    }
+    let (mode, smooth) = fullscreen();
+    let (mode, smooth) = next_fullscreen(mode, smooth, allowed, ALLOWED_SMOOTH.load(Ordering::Relaxed));
+    set_fullscreen(mode, smooth);
+    true
+}
+
 /// (`_FULLSCREEN` mode, `_SMOOTH`).
 pub(crate) fn fullscreen() -> (i32, bool) {
     (FULL_SCREEN.load(Ordering::Relaxed), SMOOTH.load(Ordering::Relaxed))
@@ -569,6 +621,16 @@ mod tests {
 
     #[test]
     fn cursor_scanline_rules() {
+        // ALT+ENTER: every mode in turn, then only what _ALLOWFULLSCREEN leaves
+        assert_eq!(next_fullscreen(0, false, 0, 0), (1, false));
+        assert_eq!(next_fullscreen(1, false, 0, 0), (1, true));
+        assert_eq!(next_fullscreen(1, true, 0, 0), (2, false));
+        assert_eq!(next_fullscreen(2, true, 0, 0), (0, false));
+        assert_eq!(next_fullscreen(0, true, 0, 0), (1, false));
+        assert_eq!(next_fullscreen(0, false, 2, 1), (2, true));
+        assert_eq!(next_fullscreen(2, true, 2, 1), (0, false));
+        assert_eq!(next_fullscreen(0, false, 1, -1), (1, false));
+        assert_eq!(next_fullscreen(1, false, 1, -1), (0, false));
         assert_eq!(cursor_rows(4, 4, 16), 14..15);
         assert_eq!(cursor_rows(0, 0, 16), 0..1);
         assert_eq!(cursor_rows(5, 0, 16), 0..0);

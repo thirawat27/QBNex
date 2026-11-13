@@ -291,6 +291,7 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
             "ontimer" => Inst::OnTimer { slot: p.reg()?, secs: p.reg()?, target: p.name()? },
             "onkey" => Inst::OnKey { key: p.reg()?, target: p.name()? },
             "onplay" => Inst::OnPlay { n: p.reg()?, target: p.name()? },
+            "onstrig" => Inst::OnStrig { n: p.reg()?, ctl: p.reg()?, target: p.name()? },
             "resume" => match p.peek() {
                 None => Inst::Resume(ResumeKind::Same),
                 Some("next") => {

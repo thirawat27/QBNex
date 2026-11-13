@@ -369,6 +369,11 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
             s.int(*n, ctx)?;
             label(target, main_labels)?;
         }
+        Inst::OnStrig { n, ctl, target } => {
+            s.int(*n, ctx)?;
+            s.int(*ctl, ctx)?;
+            label(target, main_labels)?;
+        }
         Inst::Read { ty, .. } => {
             if *ty == Ty::Ptr {
                 op_err("cannot READ a ptr")?;

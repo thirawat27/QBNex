@@ -670,6 +670,16 @@ impl Input {
             x = QBK + QBK_CHR0;
         }
         let glyph = std::mem::take(&mut self.glyph);
+        #[cfg(not(target_arch = "wasm32"))]
+        if x == 13 && (held(VK + LALT) || held(VK + RALT)) && super::window::alt_enter() {
+            // ALT+ENTER switched the full screen mode: the program sees neither the key nor its key-up
+            match self.keyup_mask.iter().position(|&m| m == 0) {
+                Some(p) => self.keyup_mask[p] = x,
+                None if self.keyup_mask.len() < 256 => self.keyup_mask.push(x),
+                None => {}
+            }
+            return;
+        }
         if x == 0x5200 {
             self.insert_held = held(0x5200);
         }

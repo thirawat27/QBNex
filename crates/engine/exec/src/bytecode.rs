@@ -411,6 +411,8 @@ pub enum Ins {
     OnKey { s: R, t: u32 },
     /// ON PLAY(n) GOSUB t (s note count register)
     OnPlay { s: R, t: u32 },
+    /// ON STRIG(n[, controller]) GOSUB t (s button function register, x controller register)
+    OnStrig { s: R, x: R, t: u32 },
     /// DECLARE LIBRARY call (`Module::xcalls[c]`)
     XCall { c: u32 },
     Resume { k: ResumeK, t: u32 },
@@ -849,7 +851,7 @@ impl Ins {
                     f(O::TMain(t))
                 }
             }
-            OnTimer { s, x, t } => {
+            OnTimer { s, x, t } | OnStrig { s, x, t } => {
                 f(O::N(s));
                 f(O::N(x));
                 f(O::TMain(t))
@@ -1056,6 +1058,7 @@ impl Ins {
             OnTimer { .. } => "on_timer".into(),
             OnKey { .. } => "on_key".into(),
             OnPlay { .. } => "on_play".into(),
+            OnStrig { .. } => "on_strig".into(),
             XCall { .. } => "xcall".into(),
             Resume { k, .. } => format!("resume.{k:?}").to_lowercase(),
             Raise { .. } => "raise".into(),
@@ -1171,6 +1174,7 @@ impl Ins {
             | OnTimer { t, .. }
             | OnKey { t, .. }
             | OnPlay { t, .. }
+            | OnStrig { t, .. }
             | Resume { t, .. }
 
  => Some(t),

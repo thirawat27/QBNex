@@ -187,6 +187,9 @@ impl Devices {
         self.button(n, button, down);
         if down && let Some(p) = self.list[n - 1].strig_pressed.get_mut(button) {
             *p = true;
+            // ON STRIG counts joysticks, not devices: the keyboard and the mouse come before them
+            let joystick = self.list[..n].iter().filter(|d| d.controller).count() - 1;
+            qb_runtime::events::strig_pressed(qb_runtime::events::onstrigs(), joystick, button);
         }
     }
 

@@ -487,12 +487,19 @@ SUB IrPlayEvent (opt$)
     IrE "rt PLAYEVENT " + IrI32$(o)
 END SUB
 
-'ON STRIG(n[, controller]): checked only; without a joystick the event never fires
-SUB IrOnStrig (i$, c$, passed$)
-    DIM ctl$
-    IF passed$ = "1" THEN ctl$ = IrArgAs$(fixoperationorder$(c$), "i32") ELSE ctl$ = IrI32$(0)
-    IrE "rt ONSTRIG " + IrArgAs$(fixoperationorder$(i$), "i32") + " " + ctl$ + " " + IrI32$(VAL(passed$))
+'ON STRIG(n[, controller]) GOSUB label (raw expressions, label as written)
+SUB IrOnStrig (i$, c$, passed$, lbl$)
+    IrE IrOnStrigHead$(i$, c$, passed$) + " " + IrLbl$(UCASE$(lbl$))
 END SUB
+
+'onstrig instruction without its label; a statement that names no controller passes the
+'value the runner knows as "none"
+FUNCTION IrOnStrigHead$ (i$, c$, passed$)
+    DIM n$, ctl$
+    n$ = IrArgAs$(fixoperationorder$(i$), "i32")
+    IF passed$ = "1" THEN ctl$ = IrArgAs$(fixoperationorder$(c$), "i32") ELSE ctl$ = IrConst$("i32", "-2147483648")
+    IrOnStrigHead$ = "onstrig " + n$ + " " + ctl$
+END FUNCTION
 
 'ON TIMER([slot,] secs) GOSUB label (raw slot/secs expressions, label as written)
 SUB IrOnTimer (slot$, secs$, lbl$)
@@ -514,8 +521,9 @@ FUNCTION IrOnTimerHead$ (slot$, secs$)
     IrOnTimerHead$ = "ontimer " + a$ + " " + b$
 END FUNCTION
 
-'ON KEY(n) / ON TIMER(...) with a SUB name: a stub in main calls the SUB (with its optional
-'argument) and returns like a GOSUB handler; head$ is IrOnKeyHead$ / IrOnTimerHead$
+'ON KEY(n) / ON STRIG(n) / ON TIMER(...) with a SUB name: a stub in main calls the SUB (with
+'its optional argument) and returns like a GOSUB handler; head$ is IrOnKeyHead$ /
+'IrOnStrigHead$ / IrOnTimerHead$
 SUB IrOnEventSub (head$, idn AS LONG, arg$)
     DIM u$, x$, here AS LONG
     'events run as module-level GOSUBs: the stub that calls the SUB goes into main, also
