@@ -199,11 +199,18 @@ fn main() {
     // uses it to explain itself instead of flashing its help. Set or cleared here,
     // so a program started from such a program gets its own answer.
     // SAFETY: no other thread exists yet, so changing the environment cannot race.
+    // QBNEX_STDOUT_TERMINAL=1 when stdout is a terminal, so qb prints plain text
+    // (no color escape sequences) into a pipe, a file or a CI log.
     unsafe {
         if qb_runtime::console::stdio::console_is_own() {
             std::env::set_var("QBNEX_OWN_CONSOLE", "1");
         } else {
             std::env::remove_var("QBNEX_OWN_CONSOLE");
+        }
+        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            std::env::set_var("QBNEX_STDOUT_TERMINAL", "1");
+        } else {
+            std::env::remove_var("QBNEX_STDOUT_TERMINAL");
         }
     }
     let exe = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();

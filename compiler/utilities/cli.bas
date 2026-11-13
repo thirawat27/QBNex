@@ -191,6 +191,8 @@ FUNCTION ParseCMDLineArgs$ ()
 
     'NO_COLOR (no-color.org): any non-empty value turns colors off, like -m
     IF LEN(ENVIRON$("NO_COLOR")) THEN MonochromeLoggingMode = -1
+    'output going to a pipe, a file or a CI log gets no color escape sequences
+    IF ENVIRON$("QBNEX_STDOUT_TERMINAL") <> "1" THEN MonochromeLoggingMode = -1
 
     'Recall that COMMAND$ is a concatenation of argv[] elements, so we don't have
     'to worry about more than one space between things (unless they used quotes,
