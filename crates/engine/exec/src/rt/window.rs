@@ -384,7 +384,9 @@ pub(crate) fn present(d: &Display) {
     let frame = FRAME.fetch_add(1, Ordering::Relaxed);
     // SAFETY: the display page of a started screen is a live registry entry.
     let p = unsafe { &*d.display_page() };
-    let Some((px, w, h)) = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0) else { return };
+    let Some((mut px, w, h)) = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0) else { return };
+    // the _DRAW3D layer shown by _DISPLAY goes over the screen (a no-op without a GPU or a layer)
+    qb_runtime::scene3d::compose(&mut px, w as u32, h as u32);
     frame_size(w, h);
     qb_runtime::window::qb_window_present(&px, w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed));
 }
