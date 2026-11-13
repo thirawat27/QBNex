@@ -44,6 +44,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 *blk(vm, p(0))? = b;
                 chk(err)?;
             }
+            "_MEMIMAGE" => {
+                let b = super::display::memimage(vm, i(1) as i32, i(2) != 0)?;
+                *blk(vm, p(0))? = b;
+            }
             "_MEMAT" => {
                 let (b, err) = mem::mem_at_offset(i(1) as isize, i(2) as isize, false);
                 *blk(vm, p(0))? = b;

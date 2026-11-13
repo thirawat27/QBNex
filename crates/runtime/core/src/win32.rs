@@ -194,6 +194,8 @@ unsafe extern "system" {
 #[link(name = "shell32")]
 unsafe extern "system" {
     pub fn ShellExecuteExA(info: *mut SHELLEXECUTEINFOA) -> BOOL;
+    /// `path` must hold MAX_PATH bytes; a negative result is a failure.
+    pub fn SHGetFolderPathA(owner: HANDLE, csidl: i32, token: HANDLE, flags: DWORD, path: *mut u8) -> i32;
 }
 
 /// Copies `bytes` and appends a NUL terminator.

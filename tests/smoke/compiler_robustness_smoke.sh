@@ -37,6 +37,7 @@ bad deep_for 'Too many nested blocks' 'deep_for.bas(1002)'
 bad ifdef_unclosed '$IF without $END IF' 'ifdef_unclosed.bas(2)'
 bad endif_alone '$END IF without $IF' 'endif_alone.bas(2)'
 bad ifdef_too_deep 'Too many nested $IF blocks' 'ifdef_too_deep.bas(257)'
+bad put_number 'Expected variable name/array element' 'put_number.bas(2)'
 good ifdef_valid
 good deep_parens_ok
 good long_expr

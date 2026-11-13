@@ -151,6 +151,10 @@ fn build(args: &[std::ffi::OsString]) -> ! {
         None => &me[..],
     };
     let mut exe = base.to_vec();
+    let text = String::from_utf8_lossy(&qir);
+    if qb_exec::wants_window(&text) && !qb_exec::wants_console(&text) {
+        windows_gui_subsystem(&mut exe);
+    }
     exe.extend_from_slice(&qir);
     exe.extend_from_slice(&image);
     exe.extend_from_slice(&(qir.len() as u64).to_le_bytes());
@@ -166,6 +170,26 @@ fn build(args: &[std::ffi::OsString]) -> ! {
         let _ = std::fs::set_permissions(out, std::fs::Permissions::from_mode(0o755));
     }
     std::process::exit(0)
+}
+
+/// Marks a Windows executable as a GUI program, so starting it opens no console
+/// window next to its own (a program with `$CONSOLE` keeps the console). Other
+/// executable formats are left as they are.
+fn windows_gui_subsystem(exe: &mut [u8]) {
+    const PE_OFFSET_AT: usize = 0x3C;
+    /// From the PE signature: signature (4), file header (20), then the
+    /// subsystem field 68 bytes into the optional header.
+    const SUBSYSTEM_FROM_PE: usize = 4 + 20 + 68;
+    const CONSOLE: u16 = 3;
+    const GUI: u16 = 2;
+    if exe.len() < PE_OFFSET_AT + 4 || &exe[..2] != b"MZ" {
+        return;
+    }
+    let pe = u32::from_le_bytes([exe[PE_OFFSET_AT], exe[PE_OFFSET_AT + 1], exe[PE_OFFSET_AT + 2], exe[PE_OFFSET_AT + 3]]) as usize;
+    let Some(at) = pe.checked_add(SUBSYSTEM_FROM_PE).filter(|&at| at + 2 <= exe.len()) else { return };
+    if exe.get(pe..pe + 4) == Some(b"PE\0\0") && u16::from_le_bytes([exe[at], exe[at + 1]]) == CONSOLE {
+        exe[at..at + 2].copy_from_slice(&GUI.to_le_bytes());
+    }
 }
 
 fn main() {
@@ -198,6 +222,7 @@ fn main() {
         // GUI program (no $CONSOLE): the window layer needs the main thread,
         // the program runs on its own thread and ends the process
         let hidden = qb_exec::screen_hidden(&src);
+        let resize = qb_exec::window_resize(&src);
         let program = std::thread::Builder::new()
             .name("qb-program".into())
             .stack_size(64 << 20)
@@ -212,7 +237,7 @@ fn main() {
                 eprintln!("qb-exec: cannot start the program thread: {e}");
                 std::process::exit(2)
             });
-        qb_exec::run_window_main("Untitled", hidden);
+        qb_exec::run_window_main("Untitled", hidden, resize);
         let _ = program.join();
         std::process::exit(1);
     }

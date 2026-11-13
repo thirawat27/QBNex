@@ -60,6 +60,20 @@ FUNCTION IrMemAssign% (dst$, rhs$)
     DIM sv(1 TO 4) AS STRING
     n = numelements(rhs$)
     f$ = UCASE$(getelement$(rhs$, 1))
+    IF f$ = "_MEMIMAGE" THEN
+        'm = _MEMIMAGE / _MEMIMAGE(handle): the pixels of the destination image or of an image
+        IF n = 1 THEN
+            IrE "rt _MEMIMAGE " + dst$ + " " + IrI32$(0) + " " + IrI32$(0)
+            IrMemAssign% = -1
+            EXIT FUNCTION
+        END IF
+        IF getelement$(rhs$, 2) <> "(" THEN EXIT FUNCTION
+        IF IrMatch(rhs$, 2, n) <> n THEN EXIT FUNCTION
+        x$ = IrCvt$(IrEval$(getelements$(rhs$, 3, n - 1), t), IrT, "i32")
+        IrE "rt _MEMIMAGE " + dst$ + " " + x$ + " " + IrI32$(1)
+        IrMemAssign% = -1
+        EXIT FUNCTION
+    END IF
     IF (f$ <> "_MEMNEW" AND f$ <> "_MEM" AND f$ <> "_MEMSOUND") OR getelement$(rhs$, 2) <> "(" THEN EXIT FUNCTION
     j = IrMatch(rhs$, 2, n)
     IF j <> n THEN EXIT FUNCTION

@@ -2312,6 +2312,8 @@ IF targettyp AND ISSTRING THEN
         Give_Error str_nth$(nth) + " function argument requires a string": EXIT FUNCTION
     END IF
 END IF
+'FRE takes a number or a string: FRE(text$) asks for the free string space, as FRE(0) does
+IF (sourcetyp AND ISSTRING) <> 0 AND RTRIM$(ids(targetid).callname) = "func_fre" THEN e$ = "0": sourcetyp = LONGTYPE - ISPOINTER
 IF (targettyp AND ISSTRING) = 0 THEN
     IF sourcetyp AND ISSTRING THEN
         nth = curarg

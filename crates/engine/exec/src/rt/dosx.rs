@@ -1,5 +1,5 @@
 //! DOS-era statements as the C++ runtime has them (libqb.cpp `sub_out`,
-//! `func_inp`, `sub_wait`, `func_stick`, `sub_bload`, `sub_bsave`,
+//! `func_inp`, `sub_wait`, `sub_bload`, `sub_bsave`,
 //! `sub_run`, qbx.cpp `sub_chain`), `VARPTR` of numeric variables and the
 //! RUN / CLEAR requests the VM carries out (`Vm::restart`).
 //!
@@ -383,7 +383,8 @@ fn out(vm: &mut dyn Host<'_>, port: i64, data: i64) {
                 unsafe { *p = (*p & !(0xFF << shift)) | ((v & 0xFF) << shift) };
             }
         }
-        // &H3C0 (blink enable) and the rest: no effect
+        // attribute controller: bit 3 switches blinking (see `_BLINK`)
+        0x3C0 => super::display::BLINK.store(data & 8 != 0, std::sync::atomic::Ordering::Relaxed),
         _ => {}
     }
 }
@@ -635,15 +636,6 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
                 std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
-        "func_stick" => {
-            let (n, axes, passed) = (i(0), i(1), i(2) != 0);
-            if (passed && !(1..=65535).contains(&axes)) || !(0..=65535).contains(&n) {
-                e(5)
-            } else {
-                // no joystick attached
-                Ok(Some(V::I(128)))
-            }
-        }
         "sub_bload" => bload(vm, a[0].s(), i(1), i(2) != 0).map(|_| None),
         "sub_bsave" => bsave(vm, a[0].s(), i(1), i(2)).map(|_| None),
         "VARPTR.n" => varptr(vm, a[0].p(), a[1].p(), i(2).max(0) as usize).map(|v| Some(V::I(v))),
@@ -717,7 +709,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             let (cmd, exe) = chain_command(&f);
             run_program(vm, &cmd, &exe).map(|_| None)
         }
-        // STRIG[(n[, controller])] ON|OFF|STOP (+ passed): no joystick, so no ON STRIG event ever fires
+        // STRIG[(n[, controller])] ON|OFF|STOP (+ passed): the settings are kept, but no ON STRIG handler is called
         "sub_strig" => {
             let ev = qb_runtime::events::onstrigs();
             qb_runtime::events::strig_statement(ev, i(0) as i32, i(1) as i32, i(2) as i32, i(3) as i32).map_or_else(e, |_| Ok(None))
@@ -727,17 +719,6 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             let ev = qb_runtime::events::onstrigs();
             qb_runtime::events::onstrig_setup(ev, i(0) as i32, i(1) as i32, i(2) != 0, 0, 0).map_or_else(e, |_| Ok(None))
         }
-        // STRIG(n[, controller]): button state, 0 without a joystick (argument checks as libqb func_strig)
-        "func_strig" => {
-            let (n, c, passed) = (i(0), i(1), i(2) != 0);
-            if !(0..=65535).contains(&n) || (passed && !(1..=65535).contains(&c)) {
-                e(5)
-            } else {
-                Ok(Some(V::I(0)))
-            }
-        }
-        // the mouse cursor shape of a window: no visible effect here
-        "sub__mousehide" | "sub__mouseshow" => none,
         "sub_files" => files(vm, a[0].s(), i(1) != 0).map(|_| None),
         _ => return None,
     })

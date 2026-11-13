@@ -9,10 +9,15 @@ use super::{Stop, R, V};
 use qb_runtime::console::{self, Host};
 use qb_runtime::gfx::{self, ImgStruct, IMG_FREEPAL, IMG_SCREEN};
 use qb_runtime::gfx::registry as reg;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Byte offsets of the video memory mirrors in conventional memory.
 const CMEM_A000: usize = 655_360;
 const CMEM_B800: usize = 753_664;
+
+/// `_BLINK`: attribute bit 7 of a text cell makes the character blink (on, the
+/// default) or selects one of the eight bright background colours (off).
+pub(crate) static BLINK: AtomicBool = AtomicBool::new(true);
 
 pub(crate) struct Display {
     pub page: Vec<i32>,
@@ -509,16 +514,28 @@ impl Display {
         let w = self.wp();
         // SAFETY: valid write page; pixels go through qb_gfx_pset like libqb's pset().
         unsafe {
-            let (color, bg, f) = ((*w).color, (*w).background_color, (*w).font);
+            let f = (*w).font;
             let fw = self.fontwidth[f as usize];
             let x = if fw != 0 { fw * (i32::from((*w).cursor_x) - 1) } else { i32::from((*w).cursor_x) - 1 };
             let y = (i32::from((*w).cursor_y) - 1) * self.fontheight[f as usize];
-            let h = self.fontheight[f as usize];
             let mono = self.mono_target(w, f);
             let Some(r) = self.render(f, ch, mono) else { return };
+            self.draw_rendered(w, &r, x, y, mono, false);
+        }
+    }
+
+    /// Draws rendered text of the font of surface `w` with its top left corner at
+    /// (`x`, `y`), in the surface's colours and `_PRINTMODE`. `mono`: the bitmap
+    /// is 0/255 (see [`Self::mono_target`]); `clip`: pixels outside the surface are
+    /// skipped (else the caller keeps the text inside it).
+    unsafe fn draw_rendered(&self, w: *const ImgStruct, r: &qb_runtime::font::Rendered, x: i32, y: i32, mono: bool, clip: bool) {
+        // SAFETY: valid surface; with `clip` every pixel is range checked.
+        unsafe {
+            let (color, bg, f) = ((*w).color, (*w).background_color, (*w).font);
+            let h = self.fontheight[f as usize].min(r.h);
             let gw = r.w;
             let px = |x2: i32, y2: i32| r.data[(y2 * gw + x2) as usize];
-            let pset = |xx: i32, yy: i32, c: u32| gfx::blend::qb_gfx_pset(w, xx, yy, c);
+            let pset = |xx: i32, yy: i32, c: u32| if clip { gfx::blend::pset_and_clip(&*w, xx, yy, c) } else { gfx::blend::qb_gfx_pset(w, xx, yy, c) };
             let mode = (*w).print_mode;
             if mono {
                 for y2 in 0..h {
@@ -579,6 +596,59 @@ impl Display {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// `_PRINTSTRING [STEP](x, y), text$[, image]`: text at a pixel position of a
+    /// graphics surface (no scrolling, clipped at its edges), at a character cell
+    /// of a text page. `passed` bit 0: STEP, bit 1: an image was given.
+    pub(crate) fn printstring(&mut self, cmem: *mut u8, x: f32, y: f32, text: &[u8], handle: i32, passed: i32) {
+        let old = self.write_index;
+        if passed & 2 != 0 {
+            match self.resolve(handle) {
+                Some(i) => self.write_index = i,
+                None => return,
+            }
+        }
+        if !text.is_empty() {
+            // SAFETY: the write page is a valid surface.
+            unsafe { self.printstring_on_write_page(cmem, x, y, text, passed & 1 != 0) };
+        }
+        self.write_index = old;
+    }
+
+    unsafe fn printstring_on_write_page(&mut self, cmem: *mut u8, x: f32, y: f32, text: &[u8], step: bool) {
+        let w = self.wp();
+        // SAFETY: valid write page.
+        unsafe {
+            if (*w).text != 0 {
+                // a text page: print at row y, column x and put the cursor back
+                let mut h = VmHost { d: self, cmem };
+                let (col, row) = (console::text::pos(&mut h), console::text::csrlin(&mut h));
+                console::text::locate(&mut h, y as i32, x as i32, 0, 0, 0, 3);
+                console::text::print(&mut h, text, false);
+                console::text::locate(&mut h, row, col, 0, 0, 0, 3);
+                return;
+            }
+            if step {
+                (*w).x += x;
+                (*w).y += y;
+            } else {
+                (*w).x = x;
+                (*w).y = y;
+            }
+            let (x, y) = ((*w).x as i32, (*w).y as i32);
+            let f = (*w).font;
+            if f >= 32 {
+                let mono = self.mono_target(w, f);
+                let unicode = self.fontflags[f as usize] & 32 != 0;
+                let cps: Vec<u32> = text.iter().map(|&c| if unicode { u32::from(c) } else { console::utf8::cp437(c) }).collect();
+                if let Some(r) = qb_runtime::font::render(self.font[f as usize], &cps, i32::from(mono)) {
+                    self.draw_rendered(w, &r, x, y, mono, true);
+                }
+                return;
+            }
+            gfx::text::printstring_builtin(&*w, x, y, text);
         }
     }
 
@@ -1471,6 +1541,44 @@ impl Host for VmHost<'_> {
     }
 }
 
+/// `_MEMIMAGE[(image)]`: the pixels of an image or screen page as a `_MEM` block.
+/// The block stays valid until the image is freed.
+pub(crate) fn memimage(vm: &mut dyn VmIface<'_>, handle: i32, given: bool) -> R<qb_runtime::mem::MemBlock> {
+    /// `mem_block.type` of image pixels: integer + unsigned + pixel.
+    const PIXEL_TYPE: isize = 128 + 1024 + 2048;
+    /// `mem_lock.type` of an image.
+    const LOCK_IMAGE: i32 = 2;
+    let rt = vm.rt();
+    let cmem = rt.cmem.as_mut_ptr();
+    let (console_on, console_only) = (rt.console_on, rt.console_only);
+    let d = &mut rt.display;
+    d.start(cmem, console_on, console_only);
+    let idx = if given { d.resolve(handle) } else { Some(d.write_index) };
+    chk(d)?;
+    let Some(idx) = idx else { return Err(Stop::Err(258)) };
+    // SAFETY: a valid registry entry; the lock is created once per image and freed with it.
+    unsafe {
+        let s = im(idx);
+        if (*s).lock_id == 0 {
+            let lock = qb_runtime::mem::new_mem_lock();
+            (*lock).type_ = LOCK_IMAGE;
+            (*s).lock_offset = lock.cast();
+            (*s).lock_id = (*lock).id as i64;
+        }
+        let bpp = (*s).bytes_per_pixel as isize;
+        Ok(qb_runtime::mem::MemBlock {
+            offset: (*s).offset as isize,
+            size: bpp * (*s).width as isize * (*s).height as isize,
+            lock_id: (*s).lock_id,
+            lock_offset: (*s).lock_offset as isize,
+            type_: bpp + PIXEL_TYPE,
+            elementsize: bpp,
+            image: -(idx as i32),
+            sound: 0,
+        })
+    }
+}
+
 fn chk(d: &mut Display) -> R<()> {
     let p = std::mem::take(&mut d.pending);
     if p != 0 {
@@ -1505,6 +1613,9 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
             | "func__clearcolor" | "sub__putimage" | "sub__maptriangle" | "func__loadfont" | "sub__freefont"
             | "func__printwidth" | "func__loadimage" | "func__title" | "sub__blend" | "sub__dontblend" | "sub__glrender" | "sub__displayorder" | "sub__depthbuffer"
+            | "func__blend" | "func__defaultcolor" | "func__backgroundcolor" | "func__printmode" | "sub__printmode" | "sub__copypalette"
+            | "sub__blink" | "func__blink" | "sub__controlchr" | "func__controlchr" | "func__clipboardimage" | "sub__clipboardimage"
+            | "sub__printstring" | "sub__icon" | "func__screenimage" | "sub__mousemove"
     );
     if !known {
         return None;
@@ -1613,6 +1724,66 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "func__console" => out = Some(V::I(d.console_image.into())),
             "func__newimage" => out = Some(V::I(d.newimage(i(0), i(1), i(2), i(3)).into())),
             "sub__freeimage" => d.freeimage(i(0), i(1)),
+            "sub__printstring" => d.printstring(cmem, f32_(0), f32_(1), a[2].s(), i(3), i(4)),
+            // _ICON [image[, small image]]: the window's icon; without an image the default stays
+            "sub__icon" => {
+                if i(2) & 1 != 0
+                    && let Some((w, h, px)) = d.printimage_pixels(i(0))
+                {
+                    // (a palette image has no alpha of its own: opaque)
+                    let px: Vec<u32> = if (*im(d.resolve(i(0)).unwrap_or(0))).bytes_per_pixel == 4 { px } else { px.iter().map(|p| p | 0xFF00_0000).collect() };
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if d.window && !d.screen_hide {
+                        qb_runtime::window::qb_window_set_icon(px.as_ptr(), w as i32, h as i32);
+                    }
+                    let _ = (w, h, px);
+                }
+            }
+            // _SCREENIMAGE[(x1, y1, x2, y2)]: a 32-bit image of the desktop (blank where the
+            // system gives no access to it)
+            "func__screenimage" => {
+                let (mut w, mut h) = (0, 0);
+                let px = qb_runtime::screen::qb_screenimage(i(0), i(1), i(2), i(3), i(4), &mut w, &mut h);
+                let handle = if px.is_null() && w > 0 && h > 0 {
+                    let (dw, dh) = qb_runtime::screen::desktop();
+                    d.newimage(dw.max(1), dh.max(1), 32, 1)
+                } else {
+                    d.newimage(w, h, 32, 1)
+                };
+                if !px.is_null() {
+                    let n = w as usize * h as usize;
+                    if handle < -1 {
+                        core::ptr::copy_nonoverlapping(px, (*im((-handle) as u32)).offset.cast::<u32>(), n);
+                    }
+                    qb_runtime::pixels::qb_free_pixels(px, n as i64);
+                }
+                out = Some(V::I(handle.into()));
+            }
+            // _MOUSEMOVE x, y: puts the pointer on a pixel of the screen (a cell of a text screen)
+            "sub__mousemove" => {
+                let p = &*d.dp();
+                let (x, y) = (f32_(0), f32_(1));
+                let q = |v: f32| qb_runtime::round::qb_qbr_f64(f64::from(v)) as i32;
+                let (pw, ph) = d.display_size();
+                let at = if p.text != 0 {
+                    let (fw, fh) = (d.fontwidth[p.font as usize] as f32, d.fontheight[p.font as usize] as f32);
+                    let inside = x >= 0.5 && y >= 0.5 && x <= f32::from(p.width) + 0.5 && y <= f32::from(p.height) + 0.5;
+                    inside.then(|| (q((x - 0.5) * fw).clamp(0, pw - 1), q((y - 0.5) * fh).clamp(0, ph - 1)))
+                } else {
+                    let (x, y) = (q(x), q(y));
+                    (x >= 0 && y >= 0 && x < pw && y < ph).then_some((x, y))
+                };
+                match at {
+                    None => gerr(d, 5),
+                    Some((x, y)) => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if d.window {
+                            super::window::warp_mouse(x, y);
+                        }
+                        let _ = (x, y);
+                    }
+                }
+            }
             "func__copyimage" => out = Some(V::I(d.copyimage(i(0), i(1), i(2)).into())),
             "sub__printimage" => {
                 if let Some((w, h, px)) = d.printimage_pixels(i(0)) {
@@ -1727,6 +1898,91 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                         gerr(d, 5);
                     } else {
                         (*im(x)).alpha_disabled = u8::from(name == "sub__dontblend");
+                    }
+                }
+            }
+            // _BLEND, _DEFAULTCOLOR, _BACKGROUNDCOLOR, _PRINTMODE [(image)]: state of an
+            // image or page, the write page without an argument
+            "func__blend" | "func__defaultcolor" | "func__backgroundcolor" | "func__printmode" => {
+                let idx = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
+                let v = idx.map_or(0, |x| {
+                    let p = &*im(x);
+                    match name {
+                        "func__blend" => -i64::from(p.compatible_mode == 32 && p.alpha_disabled == 0),
+                        "func__defaultcolor" => i64::from(p.color),
+                        "func__backgroundcolor" => i64::from(p.background_color),
+                        _ => i64::from(p.print_mode),
+                    }
+                });
+                out = Some(V::I(v));
+            }
+            // _PRINTMODE {_FILLBACKGROUND|_KEEPBACKGROUND|_ONLYBACKGROUND}[, image]:
+            // a text page only fills its background
+            "sub__printmode" => {
+                let idx = if i(2) != 0 { d.resolve(i(1)) } else { Some(d.write_index) };
+                if let Some(x) = idx {
+                    let mode = i(0);
+                    if (*im(x)).text != 0 && mode != 1 {
+                        gerr(d, 5);
+                    } else if let Some(m) = [3u8, 1, 2].get((mode - 1) as usize) {
+                        (*im(x)).print_mode = *m;
+                    }
+                }
+            }
+            // _COPYPALETTE [source][, destination]: the read page to the write page by default
+            "sub__copypalette" => {
+                let passed = i(2);
+                let src = if passed & 1 != 0 { d.resolve(i(0)) } else { Some(d.read_index) };
+                if let Some(s) = src {
+                    if (*im(s)).pal.is_null() {
+                        gerr(d, 5);
+                    } else {
+                        let dst = if passed & 2 != 0 { d.resolve(i(1)) } else { Some(d.write_index) };
+                        if let Some(t) = dst {
+                            if (*im(t)).pal.is_null() {
+                                gerr(d, 5);
+                            } else {
+                                core::ptr::copy((*im(s)).pal, (*im(t)).pal, 256);
+                            }
+                        }
+                    }
+                }
+            }
+            "sub__blink" => BLINK.store(i(0) == 1, Ordering::Relaxed),
+            "func__blink" => out = Some(V::I(-i64::from(BLINK.load(Ordering::Relaxed)))),
+            // _CONTROLCHR OFF: PRINT shows characters 0-31 as glyphs instead of acting on them
+            "sub__controlchr" => console::no_control_characters2 = i32::from(i(0) == 2),
+            "func__controlchr" => out = Some(V::I(-i64::from(console::no_control_characters2))),
+            // _CLIPBOARDIMAGE: a new 32-bit image of the clipboard's picture, -1 without one
+            "func__clipboardimage" => {
+                let h = match qb_runtime::clipboard::get_image() {
+                    Some(img) if img.width > 0 && img.height > 0 => {
+                        let h = d.newimage(img.width, img.height, 32, 1);
+                        if h < -1 {
+                            let p = &*im((-h) as u32);
+                            let n = usize::from(p.width) * usize::from(p.height);
+                            core::slice::from_raw_parts_mut(p.offset32(), n).copy_from_slice(&img.pixels[..n]);
+                        }
+                        h
+                    }
+                    _ => -1,
+                };
+                out = Some(V::I(h.into()));
+            }
+            // _CLIPBOARDIMAGE = image: a text page has no picture
+            "sub__clipboardimage" => {
+                if let Some(x) = d.resolve(i(0)) {
+                    let p = &*im(x);
+                    if p.text != 0 {
+                        gerr(d, 5);
+                    } else {
+                        let n = usize::from(p.width) * usize::from(p.height);
+                        let pixels: Vec<u32> = if p.bytes_per_pixel == 4 {
+                            core::slice::from_raw_parts(p.offset32(), n).to_vec()
+                        } else {
+                            core::slice::from_raw_parts(p.offset, n).iter().map(|&c| *p.pal.add(usize::from(c))).collect()
+                        };
+                        qb_runtime::clipboard::set_image(&qb_runtime::clipboard::Image { width: p.width.into(), height: p.height.into(), pixels });
                     }
                 }
             }

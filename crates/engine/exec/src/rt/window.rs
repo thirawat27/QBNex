@@ -13,26 +13,61 @@
 //!   at its next safe point while `_AUTODISPLAY` is on;
 //! * close: the close box (or `close` in a `QBNEX_INPUT_SCRIPT`) raises
 //!   [`CLOSE_EVENT`]; the program ends at its next safe point, or at once
-//!   while it waits for input (`exit_value` / `end_program` of libqb.cpp;
-//!   `_EXIT` is not available to QIR programs, so a close always ends it).
+//!   while it waits for input (`exit_value` / `end_program` of libqb.cpp);
+//!   after the program called `_EXIT` the request only waits for its next call;
+//! * resize, focus, dropped files: the window layer's callbacks record them for
+//!   `_RESIZE`, `_WINDOWHASFOCUS` and `_DROPPEDFILE$`.
 
 use super::display::Display;
 use crate::vm::EventHandle;
 use qb_runtime::gfx::data::{charset8x16, charset8x8};
 use qb_runtime::gfx::ImgStruct;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 /// Event bit: present a frame (ticker thread).
 pub(crate) const PRESENT_EVENT: u32 = 31;
 /// Event bit: the window was closed.
 pub(crate) const CLOSE_EVENT: u32 = 30;
 
+/// Bit of [`take_exit_request`]: the window's close box was used.
+pub(crate) const EXIT_CLOSE_BOX: i32 = 1;
+
+/// `_EXIT` was called: the program handles close requests itself.
+static EXIT_BLOCKED: AtomicBool = AtomicBool::new(false);
+/// Close requests the program has not read yet.
+static EXIT_VALUE: AtomicI32 = AtomicI32::new(0);
+/// `_FULLSCREEN` mode (0 windowed, 1 stretched, 2 square pixels) and `_SMOOTH`.
+static FULL_SCREEN: AtomicI32 = AtomicI32::new(0);
+static SMOOTH: AtomicBool = AtomicBool::new(false);
+/// `_RESIZE`: the user may resize the window (else it snaps back to the page's size).
+static RESIZE_ALLOWED: AtomicBool = AtomicBool::new(false);
+/// `_RESIZE , _STRETCH | _SMOOTH` (1, 2): the page is scaled to the window; 0 = shown at its own size.
+static RESIZE_SCALE: AtomicI32 = AtomicI32::new(0);
+/// The window got a new size the program has not asked `_RESIZE` about yet, and that size.
+static RESIZE_EVENT: AtomicBool = AtomicBool::new(false);
+static RESIZE_W: AtomicI32 = AtomicI32::new(0);
+static RESIZE_H: AtomicI32 = AtomicI32::new(0);
+static FOCUSED: AtomicBool = AtomicBool::new(true);
+/// Native window handle (HWND on Windows), 0 until the window exists.
+static HANDLE: AtomicUsize = AtomicUsize::new(0);
+/// The window (or its headless stand-in) exists.
+static CREATED: AtomicBool = AtomicBool::new(false);
+/// `_ACCEPTFILEDROP` and the files dropped since `_FINISHDROP`.
+static ACCEPT_DROP: AtomicBool = AtomicBool::new(false);
+static DROPPED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+/// Milliseconds between two frames (`_FPS`); the default shows about 31 a second.
+const DEFAULT_FRAME_MS: u32 = 32;
+static FRAME_MS: AtomicU32 = AtomicU32::new(DEFAULT_FRAME_MS);
+/// `_FPS` accepts 1 to 200 frames a second.
+const MAX_FPS: f64 = 200.0;
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static CLOSED: AtomicBool = AtomicBool::new(false);
 static EVENTS: OnceLock<EventHandle> = OnceLock::new();
 /// `frame` of libqb.cpp: displays so far (~31 per second), drives blinking.
 static FRAME: AtomicU32 = AtomicU32::new(0);
+/// A first frame was shown: the window has the size of a page.
+static SIZED: AtomicBool = AtomicBool::new(false);
 /// Size of the last presented frame (mouse coordinate mapping).
 static FRAME_W: AtomicI32 = AtomicI32::new(640);
 static FRAME_H: AtomicI32 = AtomicI32::new(400);
@@ -47,6 +82,120 @@ pub(crate) fn closed() -> bool {
     CLOSED.load(Ordering::Relaxed)
 }
 
+/// `_EXIT`: from this call on a close request no longer ends the program; the
+/// program reads it here. Returns and clears the pending requests
+/// ([`EXIT_CLOSE_BOX`]).
+pub(crate) fn take_exit_request() -> i32 {
+    EXIT_BLOCKED.store(true, Ordering::SeqCst);
+    EXIT_VALUE.swap(0, Ordering::SeqCst)
+}
+
+/// The program has ended and only its window is left: the close box closes it again.
+pub(crate) fn release_exit() {
+    EXIT_BLOCKED.store(false, Ordering::SeqCst);
+    // a request the program never read closes the window now
+    if EXIT_VALUE.swap(0, Ordering::SeqCst) != 0 {
+        cb_close();
+    }
+}
+
+/// `_FULLSCREEN`: `mode` 0 windowed, 1 stretched, 2 square pixels; `smooth` filters the scaling.
+pub(crate) fn set_fullscreen(mode: i32, smooth: bool) {
+    let old = FULL_SCREEN.swap(mode, Ordering::Relaxed);
+    SMOOTH.store(smooth, Ordering::Relaxed);
+    if (old != 0) != (mode != 0) {
+        qb_runtime::window::qb_window_set_fullscreen(i32::from(mode != 0));
+        if mode == 0 {
+            // back to a window of the page's size
+            qb_runtime::window::qb_window_set_size(FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
+        }
+    }
+}
+
+/// (`_FULLSCREEN` mode, `_SMOOTH`).
+pub(crate) fn fullscreen() -> (i32, bool) {
+    (FULL_SCREEN.load(Ordering::Relaxed), SMOOTH.load(Ordering::Relaxed))
+}
+
+/// `_SCALEDWIDTH`, `_SCALEDHEIGHT`: the size the page is shown at inside the window.
+pub(crate) fn scaled_size() -> (i32, i32) {
+    let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
+    let (mut ww, mut wh) = (0, 0);
+    // SAFETY: two valid out pointers.
+    unsafe { qb_runtime::window::qb_window_size(&mut ww, &mut wh) };
+    if ww <= 0 || wh <= 0 {
+        return (fw, fh);
+    }
+    let (mode, smooth) = fullscreen();
+    let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
+    (l.scaled_w, l.scaled_h)
+}
+
+/// `_RESIZE [ON|OFF][, _STRETCH|_SMOOTH]`: `allow` None keeps the setting;
+/// `scale` 0 none, 1 stretch, 2 smooth.
+pub(crate) fn set_resize(allow: Option<bool>, scale: i32) {
+    if let Some(on) = allow {
+        RESIZE_ALLOWED.store(on, Ordering::Relaxed);
+        qb_runtime::window::qb_window_set_resizable(i32::from(on));
+    }
+    RESIZE_SCALE.store(scale, Ordering::Relaxed);
+}
+
+/// `_RESIZE`: true once for every new window size, while resizing is allowed.
+pub(crate) fn take_resize() -> bool {
+    RESIZE_ALLOWED.load(Ordering::Relaxed) && RESIZE_EVENT.swap(false, Ordering::Relaxed)
+}
+
+/// `_RESIZEWIDTH`, `_RESIZEHEIGHT`: the size the window was last given.
+pub(crate) fn resize_size() -> (i32, i32) {
+    (RESIZE_W.load(Ordering::Relaxed), RESIZE_H.load(Ordering::Relaxed))
+}
+
+/// `_WINDOWHASFOCUS`
+pub(crate) fn focused() -> bool {
+    FOCUSED.load(Ordering::Relaxed)
+}
+
+/// `_WINDOWHANDLE`: waits for the window to exist (a hidden one never does: 0).
+pub(crate) fn handle(hidden: bool) -> i64 {
+    /// How long a program waits for its window to be created.
+    const CREATE_WAIT_MS: i64 = 2000;
+    if !hidden {
+        let start = qb_runtime::systime::ticks();
+        while !CREATED.load(Ordering::Relaxed) && !closed() && qb_runtime::systime::ticks() - start < CREATE_WAIT_MS {
+            qb_runtime::systime::sleep_ms(10);
+        }
+    }
+    // (0 where the system has no window handle to give)
+    HANDLE.load(Ordering::Relaxed) as i64
+}
+
+/// `_ACCEPTFILEDROP [ON|OFF]`
+pub(crate) fn accept_drop(on: bool) {
+    ACCEPT_DROP.store(on, Ordering::Relaxed);
+}
+
+pub(crate) fn accepts_drop() -> bool {
+    ACCEPT_DROP.load(Ordering::Relaxed)
+}
+
+/// The files dropped on the window and not yet finished with.
+pub(crate) fn dropped() -> std::sync::MutexGuard<'static, Vec<Vec<u8>>> {
+    DROPPED.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// `_FPS n | _AUTO`: `None` restores the default rate. Error 5 below 1 frame a second.
+pub(crate) fn set_fps(fps: Option<f64>) -> Result<(), i32> {
+    let ms = match fps {
+        None => DEFAULT_FRAME_MS,
+        // (also a value that is not a number)
+        Some(f) if f.is_nan() || f < 1.0 => return Err(5),
+        Some(f) => (1000.0 / f.min(MAX_FPS)).round() as u32,
+    };
+    FRAME_MS.store(ms.max(1), Ordering::Relaxed);
+    Ok(())
+}
+
 /// Marks the window mode and starts the frame ticker (program thread, once).
 pub(crate) fn activate(ev: EventHandle) {
     if ACTIVE.swap(true, Ordering::SeqCst) {
@@ -54,12 +203,17 @@ pub(crate) fn activate(ev: EventHandle) {
     }
     let _ = EVENTS.set(ev.clone());
     std::thread::spawn(move || loop {
-        qb_runtime::systime::sleep_ms(32);
+        qb_runtime::systime::sleep_ms(u64::from(FRAME_MS.load(Ordering::Relaxed)));
         ev.raise(PRESENT_EVENT);
     });
 }
 
 extern "C" fn cb_close() {
+    // after `_EXIT` the program answers close requests itself
+    if EXIT_BLOCKED.load(Ordering::SeqCst) {
+        EXIT_VALUE.fetch_or(EXIT_CLOSE_BOX, Ordering::SeqCst);
+        return;
+    }
     CLOSED.store(true, Ordering::SeqCst);
     if let Some(ev) = EVENTS.get() {
         ev.raise(CLOSE_EVENT);
@@ -77,11 +231,28 @@ fn to_frame(x: i32, y: i32) -> (i32, i32) {
         return (x, y);
     }
     let (mut o, mut s) = ([0i32; 8], [0f32; 2]);
+    let (mode, smooth) = fullscreen();
     // SAFETY: buffers of the documented sizes.
-    unsafe { qb_runtime::window::qb_layout(fw, fh, ww, wh, 0, 0, 0, o.as_mut_ptr(), s.as_mut_ptr()) };
+    unsafe { qb_runtime::window::qb_layout(fw, fh, ww, wh, mode, i32::from(smooth), RESIZE_SCALE.load(Ordering::Relaxed), o.as_mut_ptr(), s.as_mut_ptr()) };
     let (x1, y1, x2, y2) = (o[0], o[1], o[2], o[3]);
     let map = |v: i32, a: i32, b: i32, n: i32| if b > a { ((v - a) as i64 * n as i64 / (b - a + 1) as i64) as i32 } else { v };
     (map(x, x1, x2, fw), map(y, y1, y2, fh))
+}
+
+/// `_MOUSEMOVE`: puts the pointer on page pixel (`x`, `y`). The headless window
+/// has no pointer: the move is reported as if the system had made it.
+pub(crate) fn warp_mouse(x: i32, y: i32) {
+    if qb_runtime::window::qb_window_headless() != 0 {
+        super::input::cb_move(x, y);
+        return;
+    }
+    let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
+    let (mut ww, mut wh) = (0, 0);
+    // SAFETY: two valid out pointers.
+    unsafe { qb_runtime::window::qb_window_size(&mut ww, &mut wh) };
+    let (mode, smooth) = fullscreen();
+    let l = qb_runtime::raster::layout(fw, fh, ww, wh, mode, smooth, RESIZE_SCALE.load(Ordering::Relaxed));
+    qb_runtime::window::qb_window_warp_mouse((x as f32 * l.x_scale) as i32 + l.x1, (y as f32 * l.y_scale) as i32 + l.y1);
 }
 
 extern "C" fn cb_button(b: i32, down: i32, x: i32, y: i32) {
@@ -97,25 +268,57 @@ extern "C" fn cb_wheel(dir: i32, x: i32, y: i32) {
     super::input::cb_wheel(dir, x, y);
 }
 
+extern "C" fn cb_resize(w: i32, h: i32) {
+    RESIZE_W.store(w, Ordering::Relaxed);
+    RESIZE_H.store(h, Ordering::Relaxed);
+    RESIZE_EVENT.store(true, Ordering::Relaxed);
+    // a window the user may not resize goes back to the size of the page
+    let (fw, fh) = (FRAME_W.load(Ordering::Relaxed), FRAME_H.load(Ordering::Relaxed));
+    if !RESIZE_ALLOWED.load(Ordering::Relaxed) && FULL_SCREEN.load(Ordering::Relaxed) == 0 && SIZED.load(Ordering::Relaxed) && (w, h) != (fw, fh) {
+        qb_runtime::window::qb_window_set_size(fw, fh);
+    }
+}
+extern "C" fn cb_focus(focused: i32) {
+    FOCUSED.store(focused != 0, Ordering::Relaxed);
+}
+extern "C" fn cb_file_drop(path: *const std::ffi::c_char) {
+    if path.is_null() || !ACCEPT_DROP.load(Ordering::Relaxed) {
+        return;
+    }
+    // SAFETY: the window layer passes a NUL-terminated path that lives for this call.
+    let path = unsafe { std::ffi::CStr::from_ptr(path) }.to_bytes().to_vec();
+    dropped().push(path);
+}
+extern "C" fn cb_created(handle: *mut std::ffi::c_void) {
+    HANDLE.store(handle as usize, Ordering::Relaxed);
+    CREATED.store(true, Ordering::Relaxed);
+}
+
 /// Runs the window layer on the calling (main) thread: a real window, or the
 /// headless stand-in (`QBNEX_HEADLESS=1`, no display), which also replays
 /// `QBNEX_INPUT_SCRIPT`. Returns only when no event loop could run at all.
-pub fn run_main(title: &str, hidden: bool) {
+///
+/// `resize`: `$RESIZE` of the program: 0 off, 1 on, 2 stretch, 3 smooth.
+pub fn run_main(title: &str, hidden: bool, resize: i32) {
+    if resize > 0 {
+        RESIZE_ALLOWED.store(true, Ordering::Relaxed);
+        RESIZE_SCALE.store(resize - 1, Ordering::Relaxed);
+    }
     let cb = qb_runtime::window::Callbacks {
         key: Some(super::input::cb_key),
         mouse_button: Some(cb_button),
         mouse_move: Some(cb_move),
         mouse_wheel: Some(cb_wheel),
-        mouse_relative: None,
-        resize: None,
+        mouse_relative: Some(super::input::cb_relative),
+        resize: Some(cb_resize),
         close: Some(cb_close),
-        focus: None,
-        file_drop: None,
-        created: None,
+        focus: Some(cb_focus),
+        file_drop: Some(cb_file_drop),
+        created: Some(cb_created),
     };
     let t = std::ffi::CString::new(title.replace('\0', "")).unwrap_or_default();
     // SAFETY: valid callbacks and a NUL-terminated title.
-    unsafe { qb_runtime::window::qb_window_run(&cb, 640, 400, t.as_ptr(), 0, i32::from(hidden)) };
+    unsafe { qb_runtime::window::qb_window_run(&cb, 640, 400, t.as_ptr(), i32::from(resize > 0), i32::from(hidden)) };
 }
 
 /// Records the size of the frame about to be shown. When it differs from the
@@ -124,8 +327,13 @@ pub fn run_main(title: &str, hidden: bool) {
 fn frame_size(w: usize, h: usize) {
     let (w, h) = (w as i32, h as i32);
     let old = (FRAME_W.swap(w, Ordering::Relaxed), FRAME_H.swap(h, Ordering::Relaxed));
-    if old != (w, h) {
-        qb_runtime::window::qb_window_set_size(w, h);
+    let first = !SIZED.swap(true, Ordering::Relaxed);
+    // (a fullscreen window keeps its size and scales the page)
+    if first || old != (w, h) {
+        super::input::set_page_size(w, h);
+        if FULL_SCREEN.load(Ordering::Relaxed) == 0 {
+            qb_runtime::window::qb_window_set_size(w, h);
+        }
     }
 }
 
@@ -140,7 +348,7 @@ pub(crate) fn present(d: &Display) {
     let Some((px, w, h)) = compose(p, &d.fontwidth, &d.fontheight, frame & 8 != 0) else { return };
     frame_size(w, h);
     // SAFETY: `px` holds w*h pixels.
-    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, 0, 0, 0) };
+    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed)) };
 }
 
 /// The next frame of the display page without showing it (SUB _GL draws it
@@ -166,7 +374,7 @@ pub(crate) fn present_pixels(px: &[u32], w: usize, h: usize) {
     }
     frame_size(w, h);
     // SAFETY: `px` holds w*h pixels.
-    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, 0, 0, 0) };
+    unsafe { qb_runtime::window::qb_window_present(px.as_ptr(), w as i32, h as i32, FULL_SCREEN.load(Ordering::Relaxed), i32::from(SMOOTH.load(Ordering::Relaxed)), RESIZE_SCALE.load(Ordering::Relaxed)) };
 }
 
 /// Sets the window title (`_TITLE`).
@@ -226,6 +434,7 @@ pub(crate) fn compose(p: &ImgStruct, fontwidth: &[i32], fontheight: &[i32], phas
     let cells = unsafe { core::slice::from_raw_parts(p.offset, w * h * 2) };
     let (cx, mut cy) = (i32::from(p.cursor_x) - 1, i32::from(p.cursor_y) - 1);
     let mut cx = cx;
+    let blink = super::display::BLINK.load(Ordering::Relaxed);
     if p.holding_cursor == 2 && cy < h as i32 - 1 {
         cy += 1;
         cx = 0;
@@ -234,8 +443,9 @@ pub(crate) fn compose(p: &ImgStruct, fontwidth: &[i32], fontheight: &[i32], phas
         for x in 0..w {
             let (chr, col) = (usize::from(cells[2 * (y * w + x)]), cells[2 * (y * w + x) + 1]);
             let mut c = usize::from(col & 15);
-            let bg = usize::from((col >> 4) & 7);
-            if col & 128 != 0 && phase {
+            // attribute bit 7: blinking, or (`_BLINK OFF`) a bright background colour
+            let bg = if blink { usize::from((col >> 4) & 7) } else { usize::from(col >> 4) };
+            if blink && col & 128 != 0 && phase {
                 c = bg;
             }
             let (fg, bg) = (pal(c), pal(bg));

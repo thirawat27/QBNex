@@ -859,6 +859,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             if qb_runtime::window::qb_window_headless() != 0 && std::env::var_os("QBNEX_INPUT_SCRIPT").is_none_or(|s| s.is_empty()) {
                 return r;
             }
+            // the program is over: a close request it would have read with _EXIT closes the window
+            crate::rt::window_release_exit();
             let mut at = qb_runtime::systime::ticks();
             while !crate::rt::window_closed() {
                 qb_runtime::systime::sleep_ms(16);
@@ -1615,7 +1617,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         #[cfg(not(target_arch = "wasm32"))]
         if self.rt.window {
             if crate::rt::window_closed() {
-                // the close box ends the program (no `_EXIT` in QIR programs)
+                // the close box ends the program (unless it reads close requests with `_EXIT`)
                 self.exit_code = 0;
                 return Some(u32::MAX);
             }

@@ -206,16 +206,26 @@ fn wait_end_key() {
     }
 }
 
-/// True for a program compiled without `$CONSOLE` / `$CONSOLE:ONLY` (no
-/// `meta console` line): its executable shows a window, as a C++-built one does.
+/// True for a program whose screen is a window: every program but a
+/// `$CONSOLE:ONLY` one (`meta console only`). `$CONSOLE` alone gives the
+/// program a console next to its window, as in QB64.
 pub fn wants_window(src: &str) -> bool {
-    let lines = || src.lines().map(str::trim);
-    // SUB _GL draws at display frames: a `$CONSOLE` program with it also gets its
-    // window, as in QB64 (`$CONSOLE:ONLY` has no screen at all)
-    if lines().any(|l| l.starts_with("meta glsub ")) && !lines().any(|l| l == "meta console only") {
-        return true;
+    !src.lines().any(|l| l.trim() == "meta console only")
+}
+
+/// True for a window program that also asked for the console (`$CONSOLE`).
+pub fn wants_console(src: &str) -> bool {
+    src.lines().any(|l| l.trim().starts_with("meta console"))
+}
+
+/// `meta resize on|stretch|smooth` (`$RESIZE`): 0 without it, else 1, 2, 3.
+pub fn window_resize(src: &str) -> i32 {
+    match src.lines().find_map(|l| l.trim().strip_prefix("meta resize ")) {
+        Some("stretch") => 2,
+        Some("smooth") => 3,
+        Some(_) => 1,
+        None => 0,
     }
-    !lines().any(|l| l == "meta console" || l.starts_with("meta console "))
 }
 
 /// `meta screenhide` (`$SCREENHIDE`): the window starts hidden.

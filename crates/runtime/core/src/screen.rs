@@ -435,6 +435,104 @@ mod platform {
     }
 }
 
+// --- Keyboard lock keys (_CAPSLOCK, _NUMLOCK, _SCROLLLOCK) -----------------------
+
+/// A keyboard lock key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockKey {
+    Caps,
+    Num,
+    Scroll,
+}
+
+#[cfg(windows)]
+impl LockKey {
+    fn vk(self) -> u16 {
+        match self {
+            LockKey::Caps => 0x14,
+            LockKey::Num => 0x90,
+            LockKey::Scroll => 0x91,
+        }
+    }
+}
+
+/// State of a lock key as `_CAPSLOCK` returns it: the negated `GetKeyState`
+/// value, so -1 when the lock is on and the key is up, 0 when it is off.
+/// Always 0 off Windows, as in QB64.
+pub fn lock_key_state(key: LockKey) -> i32 {
+    #[cfg(windows)]
+    {
+        // SAFETY: plain Win32 call.
+        let state = unsafe { windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyState(i32::from(key.vk())) };
+        // bit 0 is the lock; the high bit only says the key is held down right now
+        -i32::from(state & 1)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = key;
+        0
+    }
+}
+
+/// What `_CAPSLOCK ON | OFF | _TOGGLE` asks for (the statement's option number).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockChange {
+    On,
+    Off,
+    Toggle,
+}
+
+impl LockChange {
+    /// `1` = ON, `2` = OFF, anything else toggles.
+    pub fn from_option(n: i32) -> Self {
+        match n {
+            1 => LockChange::On,
+            2 => LockChange::Off,
+            _ => LockChange::Toggle,
+        }
+    }
+
+    /// Whether a key in `state` (see [`lock_key_state`]) has to be pressed to get there.
+    pub fn needs_press(self, state: i32) -> bool {
+        match self {
+            LockChange::On => state != -1,
+            LockChange::Off => state != 0,
+            LockChange::Toggle => true,
+        }
+    }
+}
+
+/// `_CAPSLOCK ON | OFF | _TOGGLE` and its siblings: presses the key when the
+/// lock is not in the wanted state. Does nothing off Windows, as in QB64.
+pub fn set_lock_key(key: LockKey, change: LockChange) {
+    if !change.needs_press(lock_key_state(key)) {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, keybd_event};
+        const SCAN: u8 = 0x45;
+        // SAFETY: plain Win32 calls.
+        unsafe {
+            keybd_event(key.vk() as u8, SCAN, KEYEVENTF_EXTENDEDKEY, 0);
+            keybd_event(key.vk() as u8, SCAN, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+        }
+    }
+}
+
+/// Size of the desktop in pixels (`_DESKTOPWIDTH`, `_DESKTOPHEIGHT`); (0, 0) where
+/// it cannot be measured without a window.
+pub fn desktop() -> (i32, i32) {
+    #[cfg(windows)]
+    {
+        platform::desktop_size()
+    }
+    #[cfg(not(windows))]
+    {
+        (0, 0)
+    }
+}
+
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 
 /// `_SCREENIMAGE`: returns top-down BGRA pixels (free with `qb_free_pixels`)
@@ -587,6 +685,18 @@ pub unsafe extern "C" fn qb_test_mac_screenprint(txt: *const u8, len: i32, out: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lock_key_is_pressed_only_when_its_state_differs() {
+        assert_eq!(LockChange::from_option(1), LockChange::On);
+        assert_eq!(LockChange::from_option(2), LockChange::Off);
+        assert_eq!(LockChange::from_option(3), LockChange::Toggle);
+        assert!(!LockChange::On.needs_press(-1) && LockChange::On.needs_press(0));
+        assert!(!LockChange::Off.needs_press(0) && LockChange::Off.needs_press(-1));
+        assert!(LockChange::Toggle.needs_press(0) && LockChange::Toggle.needs_press(-1));
+        // reading the state never changes it
+        assert_eq!(lock_key_state(LockKey::Caps), lock_key_state(LockKey::Caps));
+    }
 
     fn k(vk: u16, up: bool) -> WinKey {
         WinKey { vk, up }

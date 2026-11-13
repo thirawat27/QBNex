@@ -57,23 +57,23 @@ clearid
 id.n = "Input": id.subfunc = 2: id.callname = "sub_stub": regid
 'stubs for unimplemented commands:
 clearid
-id.n = "TrOn": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = "TrOn": id.subfunc = 2: id.callname = "sub_tron": id.hr_syntax = "TRON": regid
 clearid
-id.n = "TrOff": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = "TrOff": id.subfunc = 2: id.callname = "sub_troff": id.hr_syntax = "TROFF": regid
 clearid
 id.n = "List": id.subfunc = 2: id.callname = "sub_stub": regid
 clearid
 id.n = "Def": id.subfunc = 2: id.callname = "sub_stub": id.secondargcantbe = "SEG": regid
 clearid
-id.n = "IoCtl": id.subfunc = 2: id.callname = "sub_stub": regid
+id.n = "IoCtl": id.subfunc = 2: id.callname = "sub_ioctl": id.args = 2: id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(STRINGTYPE - ISPOINTER): id.specialformat = "[#]?,?": id.hr_syntax = "IOCTL #fileNumber%, controlString$": regid
 clearid
-id.n = "IoCtl": id.subfunc = 1: id.callname = "func_stub": id.musthave = "$": id.args = 1: id.arg = MKL$(LONGTYPE - ISPOINTER): id.ret = STRINGTYPE - ISPOINTER: regid
+id.n = "IoCtl": id.subfunc = 1: id.callname = "func_ioctl": id.musthave = "$": id.args = 1: id.arg = MKL$(LONGTYPE - ISPOINTER): id.ret = STRINGTYPE - ISPOINTER: regid
 clearid
-id.n = "Fre": id.subfunc = 1: id.callname = "func_stub": id.args = 1: id.arg = MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
+id.n = "Fre": id.subfunc = 1: id.callname = "func_fre": id.args = 1: id.arg = MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
 clearid
-id.n = "SetMem": id.subfunc = 1: id.callname = "func_stub": id.args = 1: id.arg = MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
+id.n = "SetMem": id.subfunc = 1: id.callname = "func_setmem": id.args = 1: id.arg = MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
 clearid
-id.n = "FileAttr": id.subfunc = 1: id.callname = "func_stub": id.args = 2: id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
+id.n = "FileAttr": id.subfunc = 1: id.callname = "func_fileattr": id.args = 2: id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER): id.ret = LONGTYPE - ISPOINTER: regid
 clearid
 id.n = qbnexprefix$ + "MemGet": id.subfunc = 2: id.callname = "sub_stub": regid
 clearid
@@ -361,6 +361,48 @@ id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
 id.ret = LONGTYPE - ISPOINTER
 id.specialformat = "?[,?]"
 id.hr_syntax = "STICK(direction%) or STICK(direction%, axis_number%)"
+regid
+
+'Light pen, serial port and user events: QuickBASIC statements kept so old programs compile.
+'No such event ever happens, so PEN(n) is 0 and the ON ... GOSUB handlers are never called.
+clearid
+id.n = "Pen"
+id.subfunc = 1
+id.callname = "func_pen"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.ret = LONGTYPE - ISPOINTER
+id.hr_syntax = "PEN(function%)"
+regid
+
+clearid
+id.n = "Pen"
+id.subfunc = 2
+id.callname = "sub_pen"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.specialformat = "{On|Off|Stop}"
+id.hr_syntax = "PEN {On|Off|Stop}"
+regid
+
+clearid
+id.n = "Com"
+id.subfunc = 2
+id.callname = "sub_com"
+id.args = 2
+id.arg = MKL$(LONGTYPE - ISPOINTER) + MKL$(LONGTYPE - ISPOINTER)
+id.specialformat = "(?){On|Off|Stop}"
+id.hr_syntax = "COM(port%) {On|Off|Stop}"
+regid
+
+clearid
+id.n = "UEvent"
+id.subfunc = 2
+id.callname = "sub_uevent"
+id.args = 1
+id.arg = MKL$(LONGTYPE - ISPOINTER)
+id.specialformat = "{On|Off|Stop}"
+id.hr_syntax = "UEVENT {On|Off|Stop}"
 regid
 
 clearid
@@ -3815,6 +3857,7 @@ clearid
 id.n = qbnexprefix$ + "ScreenExists"
 id.subfunc = 1
 id.callname = "func_windowexists"
+id.ret = LONGTYPE - ISPOINTER
 id.hr_syntax = "_SCREENEXISTS"
 regid
 

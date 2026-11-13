@@ -7,17 +7,24 @@
 //! The key path is a port of libqb.cpp `keydown` / `keyup` (BIOS INKEY$
 //! buffer in conventional memory, _KEYHIT ring and held keys in qb-runtime
 //! keybuf) and the mouse path of window_bridge.cpp (one message queue);
-//! ON KEY trapping, CTRL+BREAK, PAUSE and ALT+ENTER are not handled here.
+//! CTRL+BREAK, PAUSE and ALT+ENTER are not handled here.
+//!
+//! Mouse messages go to a queue the program reads with _MOUSEINPUT; a mouse
+//! pipe (_MOUSEPIPEOPEN) is a further queue put in front of it. The same
+//! events, key scan codes and the game controllers feed the devices of
+//! _DEVICEINPUT (rt/devices.rs).
 
 // browser build: the window callbacks that feed events are not compiled in
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
+use super::devices::{self, Devices};
 use super::scancodes::SCANCODE_LOOKUP;
+use super::{e, R};
 use qb_runtime::console::{keyboard, utf8};
 use qb_runtime::keybuf;
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 const QBK: u32 = 200_000;
 const VK: u32 = 100_000;
@@ -49,6 +56,8 @@ enum Ev {
     Button(i32, bool, i32, i32),
     Move(i32, i32),
     Wheel(i32, i32, i32),
+    /// raw pointer movement (not bound to the window)
+    Relative(i32, i32),
 }
 
 static EVENTS: Mutex<VecDeque<Ev>> = Mutex::new(VecDeque::new());
@@ -85,6 +94,33 @@ pub(crate) extern "C" fn cb_move(x: i32, y: i32) {
 }
 pub(crate) extern "C" fn cb_wheel(dir: i32, x: i32, y: i32) {
     push(Ev::Wheel(dir, x, y));
+}
+pub(crate) extern "C" fn cb_relative(dx: i32, dy: i32) {
+    push(Ev::Relative(dx, dy));
+}
+
+/// Size of the page the mouse moves over (the mouse axes of `_DEVICEINPUT` are relative to it).
+static PAGE_W: AtomicI32 = AtomicI32::new(640);
+static PAGE_H: AtomicI32 = AtomicI32::new(400);
+
+/// The shown page changed its pixel size.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub(crate) fn set_page_size(w: i32, h: i32) {
+    PAGE_W.store(w, Ordering::Relaxed);
+    PAGE_H.store(h, Ordering::Relaxed);
+}
+
+/// True when pointer movement is taken from the difference of two positions:
+/// a real Windows window reports it as raw input instead ([`Ev::Relative`]).
+fn movement_from_positions() -> bool {
+    #[cfg(all(windows, not(target_arch = "wasm32")))]
+    {
+        qb_runtime::window::qb_window_headless() != 0
+    }
+    #[cfg(not(all(windows, not(target_arch = "wasm32"))))]
+    {
+        true
+    }
 }
 
 /// Starts the headless window with the input script (once), when one is set.
@@ -194,7 +230,44 @@ fn web_events() {
 struct MouseMsg {
     x: i32,
     y: i32,
+    movement_x: i32,
+    movement_y: i32,
     buttons: u32,
+}
+
+/// Messages a mouse queue holds; the oldest unread one is dropped beyond it.
+const MOUSE_QUEUE: usize = 65536;
+/// Handle of the queue every program has (_MOUSEINPUT without a pipe).
+const DEFAULT_QUEUE: usize = 0;
+
+/// A ring of mouse messages: `current` is the one `_MOUSEX` and the others read,
+/// `last` the newest.
+struct MouseQueue {
+    msgs: Vec<MouseMsg>,
+    current: usize,
+    last: usize,
+    /// the queue `_MOUSEINPUTPIPE` passes a message on to
+    child: Option<usize>,
+    open: bool,
+}
+
+impl MouseQueue {
+    fn new(child: Option<usize>) -> MouseQueue {
+        MouseQueue { msgs: vec![MouseMsg::default(); MOUSE_QUEUE], current: 0, last: 0, child, open: true }
+    }
+    /// Appends the message `make` builds from the newest one.
+    fn add(&mut self, make: impl FnOnce(MouseMsg) -> MouseMsg) {
+        let n = self.msgs.len();
+        let i = (self.last + 1) % n;
+        if i == self.current {
+            self.current = (i + 1) % n;
+        }
+        self.msgs[i] = make(self.msgs[self.last]);
+        self.last = i;
+    }
+    fn message(&self) -> MouseMsg {
+        self.msgs[self.current]
+    }
 }
 
 /// Key and mouse state of the program (libqb globals).
@@ -205,9 +278,11 @@ pub(crate) struct Input {
     glyph: bool,
     port60h: Vec<u8>,
     port60_last: u8,
-    mouse: Vec<MouseMsg>,
-    current: usize,
-    last: usize,
+    /// mouse queues by handle - 1; [`DEFAULT_QUEUE`] always exists
+    queues: Vec<MouseQueue>,
+    /// the queue new messages go to: the default one, or the pipe opened last
+    first: usize,
+    pub(crate) devices: Devices,
 }
 
 impl Default for Input {
@@ -219,9 +294,9 @@ impl Default for Input {
             glyph: false,
             port60h: Vec::new(),
             port60_last: 0,
-            mouse: vec![MouseMsg::default(); 65536],
-            current: 0,
-            last: 0,
+            queues: vec![MouseQueue::new(None)],
+            first: DEFAULT_QUEUE,
+            devices: Devices::default(),
         }
     }
 }
@@ -261,67 +336,122 @@ impl Input {
                     }
                 }
                 Ev::Move(x, y) => {
-                    let i = self.next();
-                    let b = self.mouse[self.last].buttons;
-                    self.mouse[i] = MouseMsg { x, y, buttons: b };
-                    self.last = i;
-                    // the second message of mouse_motion (movement reset)
-                    let i = self.next();
-                    self.mouse[i] = MouseMsg { x, y, buttons: b };
-                    self.last = i;
+                    let deltas = movement_from_positions();
+                    let q = &mut self.queues[self.first];
+                    q.add(|m| {
+                        let (dx, dy) = if deltas { (x - m.x, y - m.y) } else { (0, 0) };
+                        MouseMsg { x, y, movement_x: dx, movement_y: dy, ..m }
+                    });
+                    // a second message ends the movement
+                    q.add(|m| MouseMsg { movement_x: 0, movement_y: 0, ..m });
+                    let (w, h) = (PAGE_W.load(Ordering::Relaxed), PAGE_H.load(Ordering::Relaxed));
+                    let axis = |v: i32, n: i32| if n > 1 { v.clamp(0, n - 1) as f32 / (n - 1) as f32 * 2.0 - 1.0 } else { 0.0 };
+                    self.devices.axes(devices::MOUSE, &[(0, axis(x, w)), (1, axis(y, h))]);
+                }
+                Ev::Relative(dx, dy) => {
+                    let q = &mut self.queues[self.first];
+                    q.add(|m| MouseMsg { movement_x: dx, movement_y: dy, ..m });
+                    q.add(|m| MouseMsg { movement_x: 0, movement_y: 0, ..m });
+                    self.devices.wheel(devices::MOUSE, &[(0, dx as f32), (1, dy as f32)]);
                 }
                 Ev::Wheel(dir, x, y) => {
                     let n = if dir > 0 { 4 } else { 5 };
                     self.button_down(n, x, y);
                     self.button_up(n, x, y);
+                    self.devices.wheel(devices::MOUSE, &[(devices::SCROLL_WHEEL, if dir > 0 { -1.0 } else { 1.0 })]);
                 }
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.devices.controllers {
+            pads::poll(&mut self.devices);
+        }
     }
 
-    fn next(&mut self) -> usize {
-        let n = self.mouse.len();
-        let i = (self.last + 1) % n;
-        if i == self.current {
-            self.current = (i + 1) % n;
-        }
-        i
-    }
+    /// Buttons 1 left, 2 middle, 3 right; 4 and 5 are the wheel steps.
     fn button_down(&mut self, button: i32, x: i32, y: i32) {
-        let i = self.next();
-        let b = self.mouse[self.last].buttons | (1 << (button - 1));
-        self.mouse[i] = MouseMsg { x, y, buttons: b };
-        self.last = i;
+        self.queues[self.first].add(|m| MouseMsg { x, y, movement_x: 0, movement_y: 0, buttons: m.buttons | (1 << (button - 1)) });
+        if (1..=3).contains(&button) {
+            self.devices.button(devices::MOUSE, button as usize - 1, true);
+        }
     }
     fn button_up(&mut self, button: i32, x: i32, y: i32) {
-        let i = self.next();
-        let mut b = self.mouse[self.last].buttons;
-        if b & (1 << (button - 1)) != 0 {
-            b ^= 1 << (button - 1);
+        self.queues[self.first].add(|m| MouseMsg { x, y, movement_x: 0, movement_y: 0, buttons: m.buttons & !(1 << (button - 1)) });
+        if (1..=3).contains(&button) {
+            self.devices.button(devices::MOUSE, button as usize - 1, false);
         }
-        self.mouse[i] = MouseMsg { x, y, buttons: b };
-        self.last = i;
+    }
+
+    /// The queue of a mouse function: the default one, or the pipe `context` names
+    /// (error 258 for a handle that is not an open queue).
+    pub(crate) fn queue(&self, context: i64, passed: bool) -> R<usize> {
+        if !passed {
+            return Ok(DEFAULT_QUEUE);
+        }
+        match usize::try_from(context - 1).ok().filter(|&q| self.queues.get(q).is_some_and(|q| q.open)) {
+            Some(q) => Ok(q),
+            None => e(258),
+        }
+    }
+
+    /// `_MOUSEPIPEOPEN`: a new queue that gets the mouse messages before the
+    /// queues opened earlier; its handle.
+    pub(crate) fn pipe_open(&mut self) -> i32 {
+        self.queues.push(MouseQueue::new(Some(self.first)));
+        self.first = self.queues.len() - 1;
+        self.queues.len() as i32
+    }
+
+    /// `_MOUSEINPUTPIPE`: hands the current message of pipe `q` on to the queue behind it.
+    pub(crate) fn pipe_pass(&mut self, q: usize) -> R<()> {
+        let Some(child) = self.queues[q].child else { return e(5) };
+        let msg = self.queues[q].message();
+        self.queues[child].add(|_| msg);
+        Ok(())
+    }
+
+    /// `_MOUSEPIPECLOSE`: removes pipe `q`; the queue behind it gets the messages again.
+    pub(crate) fn pipe_close(&mut self, q: usize) -> R<()> {
+        let Some(child) = self.queues[q].child else { return e(5) };
+        if self.first == q {
+            self.first = child;
+        }
+        for other in self.queues.iter_mut().filter(|o| o.child == Some(q)) {
+            other.child = Some(child);
+        }
+        let closed = &mut self.queues[q];
+        closed.open = false;
+        closed.msgs = Vec::new();
+        Ok(())
     }
 
     /// `func__mouseinput`
-    pub(crate) fn mouseinput(&mut self) -> bool {
-        if self.current == self.last {
+    pub(crate) fn mouseinput(&mut self, q: usize) -> bool {
+        let q = &mut self.queues[q];
+        if q.current == q.last {
             return false;
         }
-        self.current = (self.current + 1) % self.mouse.len();
+        q.current = (q.current + 1) % q.msgs.len();
         true
     }
     /// The most recent mouse message: (x, y, buttons) (INT 33h status).
     pub(crate) fn latest_mouse(&self) -> (i32, i32, u32) {
-        let m = self.mouse[self.last];
+        // (with a mouse pipe open the newest message is in the pipe)
+        let q = &self.queues[self.first];
+        let m = q.msgs[q.last];
         (m.x, m.y, m.buttons)
     }
-    pub(crate) fn mouse_xy(&self) -> (i32, i32) {
-        let m = self.mouse[self.current];
+    pub(crate) fn mouse_xy(&self, q: usize) -> (i32, i32) {
+        let m = self.queues[q].message();
         (m.x, m.y)
     }
+    /// `_MOUSEMOVEMENTX`, `_MOUSEMOVEMENTY`
+    pub(crate) fn mouse_movement(&self, q: usize) -> (i32, i32) {
+        let m = self.queues[q].message();
+        (m.movement_x, m.movement_y)
+    }
     /// `func__mousebutton` (buttons 2 and 3 swapped as libqb)
-    pub(crate) fn mousebutton(&self, i: i32) -> bool {
+    pub(crate) fn mousebutton(&self, q: usize, i: i32) -> bool {
         let i = match i {
             2 => 3,
             3 => 2,
@@ -330,11 +460,11 @@ impl Input {
         if !(1..=3).contains(&i) {
             return false;
         }
-        self.mouse[self.current].buttons & (1 << (i - 1)) != 0
+        self.queues[q].message().buttons & (1 << (i - 1)) != 0
     }
     /// `func__mousewheel`
-    pub(crate) fn mousewheel(&self) -> i32 {
-        let x = self.mouse[self.current].buttons;
+    pub(crate) fn mousewheel(&self, q: usize) -> i32 {
+        let x = self.queues[q].message().buttons;
         if x & 24 == 24 {
             0
         } else if x & 8 != 0 {
@@ -347,6 +477,11 @@ impl Input {
     }
 
     /// INP(&H60): the oldest queued scancode event; with none queued, the last one read.
+    /// `_KEYCLEAR 3`: forgets the scan codes INP(&H60) has not read yet.
+    pub(crate) fn clear_port60(&mut self) {
+        self.port60h.clear();
+    }
+
     pub(crate) fn port60(&mut self) -> u8 {
         if self.port60h.is_empty() {
             return self.port60_last;
@@ -356,6 +491,7 @@ impl Input {
     }
 
     fn scancodedown(&mut self, s: i32) {
+        self.devices.button(devices::KEYBOARD, s as usize & 255, true);
         let s = s as u8;
         if self.port60h.last() == Some(&s) {
             return;
@@ -366,6 +502,7 @@ impl Input {
         self.port60h.push(s);
     }
     fn scancodeup(&mut self, s: i32) {
+        self.devices.button(devices::KEYBOARD, s as usize & 255, false);
         let s = (s + 128) as u8;
         if self.port60h.last() == Some(&s) {
             return;
@@ -665,6 +802,64 @@ impl Input {
         self.pump(cmem);
         // SAFETY: cmem + 0x400 is the BIOS data area.
         unsafe { keyboard::pop(cmem[0x400..].as_mut_ptr()) }.unwrap_or_default()
+    }
+}
+
+/// Game controllers: qb-runtime reports them through C callbacks; the events
+/// wait here until the program thread applies them to the devices.
+#[cfg(not(target_arch = "wasm32"))]
+mod pads {
+    use super::Devices;
+    use qb_runtime::gamepad::{qb_gamepad_poll, Callbacks};
+    use std::ffi::{c_char, CStr};
+    use std::sync::Mutex;
+
+    enum Pad {
+        Attached(u32, String, i32, i32, i32, i32),
+        Removed(u32),
+        Button(u32, i32, bool),
+        Axis(u32, i32, f32),
+    }
+
+    static EVENTS: Mutex<Vec<Pad>> = Mutex::new(Vec::new());
+
+    fn push(p: Pad) {
+        EVENTS.lock().unwrap_or_else(|p| p.into_inner()).push(p);
+    }
+    extern "C" fn attached(id: u32, name: *const c_char, vendor: i32, product: i32, axes: i32, buttons: i32) {
+        let name = if name.is_null() {
+            String::new()
+        } else {
+            // SAFETY: qb-runtime passes a NUL-terminated name that lives for this call.
+            unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned()
+        };
+        push(Pad::Attached(id, name, vendor, product, axes, buttons));
+    }
+    extern "C" fn removed(id: u32) {
+        push(Pad::Removed(id));
+    }
+    extern "C" fn button(id: u32, button: i32, down: i32) {
+        push(Pad::Button(id, button, down != 0));
+    }
+    extern "C" fn axis(id: u32, axis: i32, value: f32) {
+        push(Pad::Axis(id, axis, value));
+    }
+
+    /// Reads the controllers (program thread) and applies what changed.
+    pub(super) fn poll(devices: &mut Devices) {
+        let cb = Callbacks { attached: Some(attached), removed: Some(removed), button: Some(button), axis: Some(axis) };
+        // SAFETY: a valid callback table.
+        unsafe { qb_gamepad_poll(&cb) };
+        let events = std::mem::take(&mut *EVENTS.lock().unwrap_or_else(|p| p.into_inner()));
+        for ev in events {
+            match ev {
+                Pad::Attached(id, name, vendor, product, axes, buttons) => devices.attach(id, &name, vendor, product, axes.max(0) as usize, buttons.max(0) as usize),
+                Pad::Removed(id) => devices.detach(id),
+                Pad::Button(id, b, down) if b >= 0 => devices.pad_button(id, b as usize, down),
+                Pad::Axis(id, a, v) if a >= 0 => devices.pad_axis(id, a as usize, v),
+                Pad::Button(..) | Pad::Axis(..) => {}
+            }
+        }
     }
 }
 

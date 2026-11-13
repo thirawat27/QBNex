@@ -1400,6 +1400,22 @@ FUNCTION IrGenOK% (cn$)
     l$ = l$ + "func__title|func__keyhit|func__keydown|func__mouseinput|func__mousebutton|func__mousex|func__mousey|func__mousewheel|"
     l$ = l$ + "sub_out|func_inp|sub_wait|func_stick|sub_bload|sub_bsave|"
     l$ = l$ + "sub_strig|func_strig|sub__mousehide|sub__mouseshow|sub_files|"
+    l$ = l$ + "asinh|acosh|atanh|func__environcount|func__dir|func__exit|"
+    l$ = l$ + "func__blend|func__defaultcolor|func__backgroundcolor|func__printmode|sub__printmode|sub__copypalette|"
+    l$ = l$ + "sub__blink|func__blink|sub__controlchr|func__controlchr|"
+    l$ = l$ + "func__clipboard|sub__clipboard|func__clipboardimage|sub__clipboardimage|"
+    l$ = l$ + "func_screenwidth|func_screenheight|func__screenx|func__screeny|sub__screenmove|func_windowexists|"
+    l$ = l$ + "sub_screenicon|func_screenicon|sub__screenhide|sub__screenshow|func__screenhide|"
+    l$ = l$ + "sub__fullscreen|func__fullscreen|func__fullscreensmooth|func__scaledwidth|func__scaledheight|sub__consoletitle|"
+    l$ = l$ + "func__capslock|func__numlock|func__scrolllock|sub__capslock|sub__numlock|sub__scrolllock|sub__keyclear|"
+    l$ = l$ + "sub__resize|func__resize|func__resizewidth|func__resizeheight|func__hasfocus|func__handle|"
+    l$ = l$ + "sub__filedrop|func__filedrop|sub__finishdrop|func__totaldroppedfiles|func__droppedfile|sub__fps|sub__icon|"
+    l$ = l$ + "sub__console|sub__allowfullscreen|sub__printstring|sub__mousemove|func__mousemovementx|func__mousemovementy|"
+    l$ = l$ + "func__mousepipeopen|sub__mouseinputpipe|sub__mousepipeclose|func__devices|func__device|func__deviceinput|"
+    l$ = l$ + "func__button|func__buttonchange|func__axis|func__wheel|func__lastbutton|func__lastaxis|func__lastwheel|"
+    l$ = l$ + "sub__mapunicode|func__mapunicode|sub__screenclick|sub__screenprint|func__screenimage|sub_lock|sub_unlock|"
+    l$ = l$ + "func__cinp|func__getconsoleinput|sub__console_cursor|sub__consolefont|sub_shell2|sub_shell3|"
+    l$ = l$ + "func_fre|func_setmem|func_fileattr|func_ioctl|sub_ioctl|sub_tron|sub_troff|func_pen|sub_pen|sub_com|sub_uevent|"
     IrGenOK% = INSTR(l$, "|" + cn$ + "|") > 0
 END FUNCTION
 
@@ -1745,6 +1761,11 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
         CASE "CVD", "CVDMBF": r$ = IrRt$(nm$, " " + IrArgAs$(sv(1), "str"), "f64")
         CASE "SHELL", "_SHELLHIDE"
             r$ = IrRt$("SHELL", " " + IrArgAs$(sv(1), "str"), "i32")
+        CASE "FRE"
+            'FRE(n) or FRE(text$): the string form asks for the string space, as FRE(0) does
+            x$ = IrEval$(sv(1), t)
+            IF IrT = "str" THEN x$ = IrI32$(0) ELSE x$ = IrCvt$(x$, IrT, "i32")
+            r$ = IrRt$("func_fre", " " + x$, "i32")
         CASE "_STRCMP", "_STRICMP"
             x$ = IrArgAs$(sv(1), "str"): y$ = IrArgAs$(sv(2), "str")
             r$ = IrRt$(nm$, " " + x$ + " " + y$, "i32")
@@ -2164,8 +2185,6 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
             IrE "jz " + z$ + " " + y$ + ".E"
             IrE "jmp " + y$
             IrE "label " + y$ + ".E"
-        CASE "_SCREENMOVE", "_CONSOLETITLE", "_CONSOLE", "_CONTROLCHR", "_SCREENSHOW", "_SCREENHIDE", "_SCREENICON", "_ICON", "_ACCEPTFILEDROP", "_ALLOWFULLSCREEN", "_RESIZE"
-            'window state: no visible effect headless
         CASE "SLEEP"
             IrE "rt SLEEP " + IrI32$(0)
         CASE "POKE"
@@ -2190,7 +2209,17 @@ SUB IrSubCall (idn AS LONG, nargs AS LONG, passed AS LONG)
         CASE "KILL", "MKDIR", "RMDIR", "CHDIR", "ENVIRON"
             IrE "rt " + nm$ + " " + IrArgAs$(sv(1), "str")
         CASE "SHELL"
-            x$ = IrReg$: IrE "rt " + x$ + " SHELL " + IrArgAs$(sv(1), "str")
+            y$ = RTRIM$(ids(idn).callname)
+            IF y$ = "sub_shell2" OR y$ = "sub_shell3" THEN
+                'SHELL _HIDE / SHELL _DONTWAIT
+                x$ = IrGeneric$(idn, nargs, passed, 0)
+            ELSEIF nargs = 0 THEN
+                IrE "rt SHELLI"
+            ELSEIF sv(1) = "" THEN
+                IrE "rt SHELLI"
+            ELSE
+                x$ = IrReg$: IrE "rt " + x$ + " SHELL " + IrArgAs$(sv(1), "str")
+            END IF
         CASE "CLEAR"
             'main only (checked by the compiler): restart with fresh variables, continue after it
             k = IrRunTarget&("~CLR" + str2$(IrRunN + 1))
@@ -2496,6 +2525,16 @@ SUB IrFinish (src$, outExe$)
         PRINT #fh, "meta console"
     END IF
     IF ScreenHide THEN PRINT #fh, "meta screenhide"
+    IF Resize THEN
+        '$RESIZE: the user may resize the window; the screen keeps its size, is stretched or smoothed
+        IF Resize_Scale = 1 THEN
+            PRINT #fh, "meta resize stretch"
+        ELSEIF Resize_Scale = 2 THEN
+            PRINT #fh, "meta resize smooth"
+        ELSE
+            PRINT #fh, "meta resize on"
+        END IF
+    END IF
     PRINT #fh, IrExtMeta;
     IF UseGL THEN
         'SUB _GL: the runner calls this function every frame with a GL context current

@@ -56,6 +56,8 @@ pub struct GfsFile {
     pub com_op_x: i32,
     /// Opened as "SCRN:".
     pub scrn: u8,
+    /// Opened FOR APPEND (`type_` is 4, as for OUTPUT).
+    pub append: u8,
 }
 
 impl GfsFile {
@@ -90,6 +92,7 @@ impl GfsFile {
             com_ds_x: 0,
             com_op_x: 0,
             scrn: 0,
+            append: 0,
         }
     }
 }

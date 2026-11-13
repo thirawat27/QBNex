@@ -37,6 +37,109 @@ mod crt {
     }
 }
 
+/// A folder `_DIR$` can name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UserFolder {
+    Documents,
+    Music,
+    Pictures,
+    Videos,
+    Downloads,
+    Desktop,
+    AppData,
+    LocalAppData,
+    ProgramFiles,
+    ProgramFilesX86,
+    Temp,
+}
+
+/// The folder a `_DIR$` name stands for (compared without case); `None` for any other text.
+fn user_folder(context: &[u8]) -> Option<UserFolder> {
+    use UserFolder::*;
+    Some(match context.to_ascii_uppercase().as_slice() {
+        b"TEXT" | b"DOCUMENT" | b"DOCUMENTS" | b"MY DOCUMENTS" => Documents,
+        b"MUSIC" | b"AUDIO" | b"SOUND" | b"SOUNDS" | b"MY MUSIC" => Music,
+        b"PICTURE" | b"PICTURES" | b"IMAGE" | b"IMAGES" | b"MY PICTURES" => Pictures,
+        b"DCIM" | b"CAMERA" | b"CAMERA ROLL" | b"PHOTO" | b"PHOTOS" => Pictures,
+        b"MOVIE" | b"MOVIES" | b"VIDEO" | b"VIDEOS" | b"MY VIDEOS" => Videos,
+        b"DOWNLOAD" | b"DOWNLOADS" => Downloads,
+        b"DESKTOP" => Desktop,
+        b"APPDATA" | b"APPLICATION DATA" | b"PROGRAM DATA" | b"DATA" => AppData,
+        b"LOCALAPPDATA" | b"LOCAL APPLICATION DATA" | b"LOCAL PROGRAM DATA" | b"LOCAL DATA" => LocalAppData,
+        b"PROGRAMFILES" | b"PROGRAM FILES" => ProgramFiles,
+        b"PROGRAMFILESX86" | b"PROGRAMFILES X86" | b"PROGRAM FILES X86" | b"PROGRAM FILES 86" => ProgramFilesX86,
+        b"PROGRAM FILES (X86)" | b"PROGRAMFILES (X86)" | b"PROGRAM FILES(X86)" => ProgramFilesX86,
+        b"TEMP" | b"TEMP FILES" => Temp,
+        _ => return None,
+    })
+}
+
+/// `_DIR$(context)`: the user's folder of that name with a trailing `\`
+/// (`func__dir` of libqb.cpp). A name that is not known, or a folder Windows
+/// cannot report, gives the desktop folder, and `.\` when that fails too.
+/// "DOWNLOADS" is the profile folder's `Downloads`, created when missing.
+#[cfg(windows)]
+pub fn special_dir(context: &[u8]) -> Vec<u8> {
+    use crate::win32::{MAX_PATH, SHGetFolderPathA};
+    const CSIDL_DESKTOP: i32 = 0x00;
+    const CSIDL_PERSONAL: i32 = 0x05;
+    const CSIDL_MYMUSIC: i32 = 0x0d;
+    const CSIDL_MYVIDEO: i32 = 0x0e;
+    const CSIDL_APPDATA: i32 = 0x1a;
+    const CSIDL_LOCAL_APPDATA: i32 = 0x1c;
+    const CSIDL_PROGRAM_FILES: i32 = 0x26;
+    const CSIDL_MYPICTURES: i32 = 0x27;
+    const CSIDL_PROFILE: i32 = 0x28;
+    const CSIDL_PROGRAM_FILESX86: i32 = 0x2a;
+    let shell = |csidl: i32| -> Option<Vec<u8>> {
+        let mut buf = [0u8; MAX_PATH];
+        // SAFETY: the API writes at most MAX_PATH bytes including the NUL.
+        let hr = unsafe { SHGetFolderPathA(std::ptr::null_mut(), csidl, std::ptr::null_mut(), 0, buf.as_mut_ptr()) };
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(MAX_PATH);
+        (hr >= 0).then(|| buf[..len].to_vec())
+    };
+    let with_sep = |mut p: Vec<u8>| {
+        p.push(b'\\');
+        p
+    };
+    use UserFolder::*;
+    let found = match user_folder(context) {
+        Some(Downloads) => shell(CSIDL_PROFILE).map(|mut p| {
+            p.extend_from_slice(b"\\Downloads");
+            let _ = std::fs::create_dir(String::from_utf8_lossy(&p).as_ref());
+            with_sep(p)
+        }),
+        Some(Temp) => {
+            let mut p = std::env::temp_dir().to_string_lossy().into_owned().into_bytes();
+            if p.last().is_some_and(|&c| c != b'\\') {
+                p.push(b'\\');
+            }
+            (!p.is_empty()).then_some(p)
+        }
+        Some(f) => shell(match f {
+            Documents => CSIDL_PERSONAL,
+            Music => CSIDL_MYMUSIC,
+            Pictures => CSIDL_MYPICTURES,
+            Videos => CSIDL_MYVIDEO,
+            AppData => CSIDL_APPDATA,
+            LocalAppData => CSIDL_LOCAL_APPDATA,
+            ProgramFiles => CSIDL_PROGRAM_FILES,
+            ProgramFilesX86 => CSIDL_PROGRAM_FILESX86,
+            Desktop | Downloads | Temp => CSIDL_DESKTOP,
+        })
+        .map(with_sep),
+        None => None,
+    };
+    found.or_else(|| shell(CSIDL_DESKTOP).map(with_sep)).unwrap_or_else(|| b".\\".to_vec())
+}
+
+/// `_DIR$(context)` off Windows: always the current folder, as in QB64.
+#[cfg(not(windows))]
+pub fn special_dir(context: &[u8]) -> Vec<u8> {
+    let _ = user_folder(context);
+    b"./".to_vec()
+}
+
 /// KILL: deletes every file matching the pattern. 53 nothing matched or a
 /// delete failed, 55 file in use / access denied.
 #[cfg(windows)]
@@ -406,6 +509,25 @@ pub unsafe extern "C" fn qb_files(s: *const u8, len: i32, passed: i32, out: *mut
 mod tests {
     use super::*;
     use crate::gfs::tests::{p, tmp};
+
+    #[test]
+    fn dir_names_are_matched_without_case_and_unknown_ones_fall_back() {
+        assert_eq!(user_folder(b"my documents"), Some(UserFolder::Documents));
+        assert_eq!(user_folder(b"Camera Roll"), Some(UserFolder::Pictures));
+        assert_eq!(user_folder(b"program files (x86)"), Some(UserFolder::ProgramFilesX86));
+        assert_eq!(user_folder(b"nowhere"), None);
+        let sep: &[u8] = if cfg!(windows) { b"\\" } else { b"/" };
+        for name in [&b"nowhere"[..], b"desktop", b"temp", b"documents"] {
+            let d = special_dir(name);
+            assert!(d.ends_with(sep), "{}", String::from_utf8_lossy(&d));
+        }
+        // an unknown name is the desktop folder (the current folder off Windows)
+        assert_eq!(special_dir(b"nowhere"), special_dir(b"DESKTOP"));
+        if cfg!(windows) {
+            let t = special_dir(b"Temp Files");
+            assert!(std::path::Path::new(String::from_utf8_lossy(&t).as_ref()).is_dir());
+        }
+    }
 
     #[test]
     fn mkdir_rmdir_name_kill_exists() {

@@ -4,11 +4,8 @@ DEFLNG A-Z
 'All arrays will be dynamically allocated so they can be REDIM-ed
 '$DYNAMIC
 
-'We need console access to support command-line compilation via the -x command line compile option
-$CONSOLE
-
-'Initially the "SCREEN" will be hidden, if the -x option is used it will never be created
-$SCREENHIDE
+'A command-line program: it reads and writes the console and has no screen
+$CONSOLE:ONLY
 
 $EXEICON:'./qbnex.ico'
 
@@ -128,6 +125,8 @@ DIM SHARED NoChecks
 
 DIM SHARED Console
 DIM SHARED ScreenHide
+'$RESIZE: the window may be resized (Resize); the screen is then stretched (1) or smoothed (2)
+DIM SHARED Resize, Resize_Scale
 DIM SHARED Asserts
 DIM SHARED OptMax AS LONG
 OptMax = 256
@@ -6256,6 +6255,75 @@ END IF
 
 
 
+'ON PEN / ON UEVENT / ON COM(n) GOSUB label: a light pen, a user routine and a serial port
+'raise no event here, so the statement only has to be well formed and name a label
+IF n >= 2 THEN
+    IF firstelement$ = "ON" AND (secondelement$ = "PEN" OR secondelement$ = "UEVENT" OR secondelement$ = "COM") THEN
+        i = 3
+        IF secondelement$ = "PEN" THEN l$ = SCase$("On" + sp + "Pen") + sp
+        IF secondelement$ = "UEVENT" THEN l$ = SCase$("On" + sp + "UEvent") + sp
+        IF secondelement$ = "COM" THEN
+            IF i > n THEN a$ = "Expected (": GOTO errmes
+            IF getelement$(ca$, i) <> "(" THEN a$ = "Expected (": GOTO errmes
+            B = 0
+            e2$ = ""
+            x = i
+            FOR i = x TO n
+                e$ = getelement$(ca$, i)
+                IF e$ = "(" THEN B = B + 1
+                IF e$ = ")" THEN B = B - 1
+                IF B = 0 THEN EXIT FOR
+                IF i > x THEN
+                    IF LEN(e2$) THEN e2$ = e2$ + sp + e$ ELSE e2$ = e$
+                END IF
+            NEXT
+            IF B <> 0 OR e2$ = "" THEN a$ = "Expected COM(port)": GOTO errmes
+            e$ = fixoperationorder$(e2$): IF Error_Happened THEN GOTO errmes
+            l$ = SCase$("On" + sp + "Com") + sp2 + "(" + sp2 + tlayout$ + sp2 + ")" + sp
+            e$ = evaluatetotyp(e$, 32&): IF Error_Happened THEN GOTO errmes
+            i = i + 1
+        END IF
+        IF i > n THEN a$ = "Expected GOSUB": GOTO errmes
+        IF getelement$(a$, i) <> "GOSUB" THEN a$ = "Expected GOSUB": GOTO errmes
+        i = i + 1
+        IF i <> n THEN a$ = "Expected linenumber/label": GOTO errmes
+        a2$ = getelement$(ca$, i)
+        IF validlabel(a2$) = 0 THEN a$ = "Invalid label": GOTO errmes
+        tlayout$ = a2$
+        v = HashFind(a2$, HASHFLAG_LABEL, ignore, r)
+        x = 1
+        labchk60p:
+        IF v THEN
+            s = Labels(r).Scope
+            IF s = 0 OR s = -1 THEN 'main scope?
+                IF s = -1 THEN Labels(r).Scope = 0 'acquire scope
+                x = 0 'already defined
+                tlayout$ = RTRIM$(Labels(r).cn)
+                Labels(r).Scope_Restriction = subfuncn
+                Labels(r).Error_Line = linenumber
+            ELSE
+                IF v = 2 THEN v = HashFindCont(ignore, r): GOTO labchk60p
+            END IF
+        END IF
+        IF x THEN
+            'not seen yet: it must be defined in the main module by the end of the program
+            nLabels = nLabels + 1: IF nLabels > Labels_Ubound THEN Labels_Ubound = Labels_Ubound * 2: REDIM _PRESERVE Labels(1 TO Labels_Ubound) AS Label_Type
+            Labels(nLabels) = Empty_Label
+            HashAdd a2$, HASHFLAG_LABEL, nLabels
+            r = nLabels
+            Labels(r).State = 0
+            Labels(r).cn = a2$
+            Labels(r).Scope = 0
+            Labels(r).Error_Line = linenumber
+            Labels(r).Scope_Restriction = subfuncn
+        END IF
+        l$ = l$ + SCase$("GoSub") + sp + tlayout$
+        IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
+        layoutdone = 1
+        GOTO finishedline
+    END IF
+END IF
+
 IF n >= 2 THEN
     IF firstelement$ = "ON" AND secondelement$ = "STRIG" THEN
         DEPENDENCY(DEPENDENCY_DEVICEINPUT) = 1
@@ -10193,7 +10261,10 @@ IF targettyp = -3 THEN
             IF a >= 97 AND a <= 122 THEN a = a - 32
             IF a = 95 THEN a = 91
             a = a - 64
-            IF LEN(defineextaz(a)) THEN try_string$ = try_string$ + defineextaz(a): try = findid(try_string$)
+            'only a name (A-Z or _) has a DEFtype suffix; a number written where the array belongs has none
+            IF a >= 1 AND a <= 27 THEN
+                IF LEN(defineextaz(a)) THEN try_string$ = try_string$ + defineextaz(a): try = findid(try_string$)
+            END IF
             IF Error_Happened THEN GOTO errmes
         END IF
     END IF 'try=0

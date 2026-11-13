@@ -45,6 +45,11 @@ fn start_audio(rt: &mut super::builtins::RtState<'_>) {
 /// out. Programs that queue less never wait.
 const QUEUE_LIMIT_SECONDS: i64 = 10;
 
+/// Notes the QBasic background music buffer holds: a statement that queues past
+/// it waits until the earlier notes have played, which is what keeps a program's
+/// animation in step with its music.
+const MUSIC_BUFFER_NOTES: i64 = 32;
+
 /// A wait gives up when the queue has not moved for this long (an output
 /// device that stopped pulling frames), so a program never hangs on it.
 const STALL_MS: i64 = 2000;
@@ -52,7 +57,7 @@ const STALL_MS: i64 = 2000;
 /// Waits after SOUND/PLAY. In music-foreground mode (`MF`, the QBasic
 /// default) the statement returns once its notes have played; in
 /// music-background mode (`MB`) it returns at once unless more than
-/// [`QUEUE_LIMIT_SECONDS`] per voice is queued. Without an audio engine
+/// [`MUSIC_BUFFER_NOTES`] notes or [`QUEUE_LIMIT_SECONDS`] per voice are queued. Without an audio engine
 /// (`QB_AUDIO_DEVICE=none`) nothing is queued and nothing waits. The browser
 /// build only applies the background limit: there the page pulls the mix.
 fn hold_queue(rt: &mut super::builtins::RtState<'_>) {
@@ -65,7 +70,8 @@ fn hold_queue(rt: &mut super::builtins::RtState<'_>) {
     let mut moved = qb_runtime::systime::ticks();
     loop {
         let queued = i64::from(snd::qb_snd_play_count());
-        if queued <= limit || background <= 0 {
+        let notes = i64::from(snd::qb_snd_play_notes());
+        if (queued <= limit && notes <= MUSIC_BUFFER_NOTES) || background <= 0 {
             break;
         }
         let now = qb_runtime::systime::ticks();

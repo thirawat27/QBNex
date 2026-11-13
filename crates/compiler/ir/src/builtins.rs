@@ -150,6 +150,9 @@ pub static TABLE: &[Builtin] = &[
     b!("func_sec", [F80], F80),
     b!("func_csc", [F80], F80),
     b!("func_cot", [F80], F80),
+    b!("asinh", [F80], F80),
+    b!("acosh", [F80], F80),
+    b!("atanh", [F80], F80),
     b!("atan2", [F80, F80], F80),
     b!("hypot", [F80, F80], F80),
     b!("func_pi", [F64, I32], F64),
@@ -370,6 +373,127 @@ pub static TABLE: &[Builtin] = &[
     b!("sub__freefont", [I32, I32]),
     b!("func__printwidth", [Str, I32, I32], I32),
     b!("func__loadimage", [Str, I32, I32], I32),
+    // ---- image and text-screen state (a trailing i32 holds the optional-argument flags)
+    b!("func__blend", [I32, I32], I32),
+    b!("func__defaultcolor", [I32, I32], U32),
+    b!("func__backgroundcolor", [I32, I32], U32),
+    b!("func__printmode", [I32, I32], I32),
+    // mode 1 fill, 2 keep, 3 only background; image
+    b!("sub__printmode", [I32, I32, I32]),
+    b!("sub__copypalette", [I32, I32, I32]),
+    // 1 on, 2 off
+    b!("sub__blink", [I32, I32]),
+    b!("func__blink", [], I32),
+    b!("sub__controlchr", [I32, I32]),
+    b!("func__controlchr", [], I32),
+    // ---- clipboard
+    b!("func__clipboard", [], Str),
+    b!("sub__clipboard", [Str, I32]),
+    b!("func__clipboardimage", [], I32),
+    b!("sub__clipboardimage", [I32, I32]),
+    // ---- desktop, window and keyboard state
+    b!("func_screenwidth", [], I32),
+    b!("func_screenheight", [], I32),
+    b!("func__screenx", [], I32),
+    b!("func__screeny", [], I32),
+    // x, y, flags (1 _MIDDLE, 2 position given)
+    b!("sub__screenmove", [I32, I32, I32]),
+    b!("func_windowexists", [], I32),
+    b!("sub_screenicon", []),
+    b!("func_screenicon", [], I32),
+    b!("sub__screenhide", []),
+    b!("sub__screenshow", []),
+    b!("func__screenhide", [], I32),
+    // option (1/4 off, 2 stretch, 3 square pixels, 0 none), flags (1 _SMOOTH)
+    b!("sub__fullscreen", [I32, I32]),
+    b!("func__fullscreen", [], I32),
+    b!("func__fullscreensmooth", [], I32),
+    b!("func__scaledwidth", [], I32),
+    b!("func__scaledheight", [], I32),
+    b!("sub__consoletitle", [Str]),
+    b!("func__exit", [], I32),
+    b!("func__capslock", [], I32),
+    b!("func__numlock", [], I32),
+    b!("func__scrolllock", [], I32),
+    // 1 on, 2 off, 3 toggle
+    b!("sub__capslock", [I32, I32]),
+    b!("sub__numlock", [I32, I32]),
+    b!("sub__scrolllock", [I32, I32]),
+    // buffer (1 INKEY$, 2 _KEYHIT, 3 INP(&H60)), given?
+    b!("sub__keyclear", [I32, I32]),
+    b!("func__environcount", [], I32),
+    b!("func__dir", [Str], Str),
+    // _RESIZE [ON|OFF][, _STRETCH|_SMOOTH] + passed; _RESIZE, _RESIZEWIDTH, _RESIZEHEIGHT
+    b!("sub__resize", [I32, I32, I32]),
+    b!("func__resize", [], I32),
+    b!("func__resizewidth", [], I32),
+    b!("func__resizeheight", [], I32),
+    b!("func__hasfocus", [], I32),
+    b!("func__handle", [], I64),
+    // _ACCEPTFILEDROP [ON|OFF] + passed; _DROPPEDFILE$[(index)] + passed
+    b!("sub__filedrop", [I32, I32]),
+    b!("func__filedrop", [], I32),
+    b!("sub__finishdrop", []),
+    b!("func__totaldroppedfiles", [], I32),
+    b!("func__droppedfile", [I32, I32], Str),
+    // _FPS fps | _AUTO + passed (1 _AUTO, 2 fps)
+    b!("sub__fps", [F64, I32]),
+    // _ICON [image[, small image]] + passed
+    b!("sub__icon", [I32, I32, I32]),
+    // _CONSOLE ON|OFF (1, 2) + passed
+    b!("sub__console", [I32, I32]),
+    b!("sub__allowfullscreen", [I32, I32, I32]),
+    // _PRINTSTRING [STEP](x, y), text$[, image] + passed (1 STEP, 2 image)
+    b!("sub__printstring", [F64, F64, Str, I32, I32]),
+    b!("sub__mousemove", [F32, F32]),
+    // mouse pipes: the mouse functions take (pipe, given?)
+    b!("func__mousemovementx", [I32, I32], F32),
+    b!("func__mousemovementy", [I32, I32], F32),
+    b!("func__mousepipeopen", [], I32),
+    b!("sub__mouseinputpipe", [I32]),
+    b!("sub__mousepipeclose", [I32]),
+    // devices: (number, given?)
+    b!("func__devices", [], I32),
+    b!("func__device", [I32, I32], Str),
+    b!("func__deviceinput", [I32, I32], I32),
+    b!("func__button", [I32, I32], I32),
+    b!("func__buttonchange", [I32, I32], I32),
+    b!("func__axis", [I32, I32], F32),
+    b!("func__wheel", [I32, I32], F32),
+    b!("func__lastbutton", [I32, I32], I32),
+    b!("func__lastaxis", [I32, I32], I32),
+    b!("func__lastwheel", [I32, I32], I32),
+    // _MAPUNICODE unicode TO ascii + passed; _MAPUNICODE(ascii)
+    b!("sub__mapunicode", [I32, I32, I32]),
+    b!("func__mapunicode", [I32], I32),
+    // _SCREENCLICK x, y[, button] + passed; _SCREENIMAGE[(x1, y1, x2, y2)] + passed
+    b!("sub__screenclick", [I32, I32, I32, I32]),
+    b!("sub__screenprint", [Str]),
+    b!("func__screenimage", [I32, I32, I32, I32, I32], I32),
+    // LOCK / UNLOCK [#]file[, [first] [TO last]] + passed
+    b!("sub_lock", [I32, I64, I64, I32]),
+    b!("sub_unlock", [I32, I64, I64, I32]),
+    b!("func__cinp", [I32, I32], I32),
+    b!("func__getconsoleinput", [], I32),
+    b!("sub__console_cursor", [I32, I32, I32]),
+    b!("sub__consolefont", [Str, I16]),
+    // SHELL _HIDE / SHELL _DONTWAIT [command$] + passed (1 the other option, 2 command); SHELL alone
+    b!("sub_shell2", [Str, I32]),
+    b!("sub_shell3", [Str, I32]),
+    b!("SHELLI", []),
+    // QuickBASIC memory and device statements kept for old programs
+    b!("func_fre", [I32], I32),
+    b!("func_setmem", [I32], I32),
+    b!("func_fileattr", [I32, I32], I32),
+    b!("func_ioctl", [I32], Str),
+    b!("sub_ioctl", [I32, Str, I32]),
+    b!("sub_tron", []),
+    b!("sub_troff", []),
+    // PEN(n); PEN / UEVENT ON|OFF|STOP (1..3) + passed; COM(n) ON|OFF|STOP + passed
+    b!("func_pen", [I32], I32),
+    b!("sub_pen", [I32, I32]),
+    b!("sub_uevent", [I32, I32]),
+    b!("sub_com", [I32, I32, I32]),
     b!("func__title", [], Str),
     b!("func__keyhit", [], I32),
     b!("func__freetimer", [], I32),
@@ -461,6 +585,8 @@ pub static TABLE: &[Builtin] = &[
     b!("_INFLATE$.n", [Str, I64], Str),
     // ---- _MEM (the Ptr arguments are mem_block addresses unless named otherwise)
     b!("_MEMNEW", [Ptr, I64]),
+    // block, image handle, given?
+    b!("_MEMIMAGE", [Ptr, I32, I32]),
     b!("_MEMAT", [Ptr, I64, I64]),
     // dst, address, size, type value, element size
     b!("_MEMVAR", [Ptr, Ptr, I64, I64, I64]),

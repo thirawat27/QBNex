@@ -16,6 +16,8 @@
 //! click 1
 //! wheel -1            # -1 = up (_MOUSEWHEEL -1), 1 = down
 //! resize 800 600
+//! focus 0             # the window loses (0) or gets (1) the keyboard focus
+//! drop C:\a file.txt  # a file dropped on the window (the rest of the line is its path)
 //! close               # window close button
 //! snapshot            # print "[frame WxH fnv1a=xxxxxxxx]" for the last presented frame
 //! pixel 10 20         # print "[pixel 10,20=AARRGGBB]" (frame pixels; "none" outside it)
@@ -34,6 +36,9 @@ pub enum Cmd {
     MouseUp(i32),
     Wheel(i32),
     Resize(i32, i32),
+    Focus(bool),
+    /// path of a file dropped on the window
+    Drop(String),
     Close,
     Snapshot,
     /// one pixel of the last presented frame (x, y)
@@ -134,6 +139,13 @@ pub fn parse(text: &str) -> Result<Vec<Cmd>, String> {
                 let v = nums(2)?;
                 out.push(Cmd::Resize(v[0] as i32, v[1] as i32));
             }
+            "focus" => out.push(Cmd::Focus(nums(1)?[0] != 0)),
+            "drop" => {
+                if rest.trim().is_empty() {
+                    return Err(err("missing path"));
+                }
+                out.push(Cmd::Drop(rest.trim().to_string()));
+            }
             "close" => out.push(Cmd::Close),
             "snapshot" => out.push(Cmd::Snapshot),
             "pixel" => {
@@ -167,7 +179,7 @@ mod tests {
     #[test]
     fn parses_commands() {
         let s = "# demo\nwait 10\nkey a\ntype Hi\nkeydown lshift\nkeyup lshift\n\
-                 mousemove 3 4\nclick 2\nwheel -1\nresize 800 600\nsnapshot\npixel 5 6\nclose\n";
+                 mousemove 3 4\nclick 2\nwheel -1\nresize 800 600\nfocus 0\ndrop C:\\a b.txt\nsnapshot\npixel 5 6\nclose\n";
         let c = parse(s).unwrap();
         assert_eq!(
             c,
@@ -186,6 +198,8 @@ mod tests {
                 Cmd::MouseUp(2),
                 Cmd::Wheel(-1),
                 Cmd::Resize(800, 600),
+                Cmd::Focus(false),
+                Cmd::Drop("C:\\a b.txt".into()),
                 Cmd::Snapshot,
                 Cmd::Pixel(5, 6),
                 Cmd::Close,

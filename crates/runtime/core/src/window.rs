@@ -96,6 +96,7 @@ enum Cmd {
     Title(String),
     Size(i32, i32),
     Fullscreen(bool),
+    Resizable(bool),
     Position(i32, i32),
     Visible(bool),
     Minimize,
@@ -386,6 +387,10 @@ impl App {
                         Cmd::Fullscreen(on) => {
                             self.fullscreen = on;
                             window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
+                        }
+                        Cmd::Resizable(on) => {
+                            self.resizable = on;
+                            window.set_resizable(on);
                         }
                         Cmd::Position(x, y) => {
                             window.set_outer_position(PhysicalPosition::new(x, y));
@@ -763,6 +768,16 @@ fn run_script(cmds: Vec<script::Cmd>) {
                     f();
                 }
             }
+            S::Focus(on) => {
+                if let Some(f) = cb().focus {
+                    f(on as i32);
+                }
+            }
+            S::Drop(path) => {
+                if let (Some(f), Ok(c)) = (cb().file_drop, CString::new(path)) {
+                    f(c.as_ptr());
+                }
+            }
             S::Snapshot => {
                 let f = lock(&FRAME);
                 use std::io::Write;
@@ -861,8 +876,10 @@ fn run_headless() -> i32 {
     }
     start_script();
     loop {
-        // commands have no effect without a window, except sizes
-        for c in std::mem::take(&mut *lock(&CMDS)) {
+        // commands have no effect without a window, except sizes (taken out first:
+        // a resize callback may queue a command itself)
+        let cmds = std::mem::take(&mut *lock(&CMDS));
+        for c in cmds {
             match c {
                 Cmd::Size(w, h) if w > 0 && h > 0 => {
                     let changed = (WIN_W.swap(w, Ordering::SeqCst) != w)
@@ -918,8 +935,10 @@ pub unsafe extern "C" fn qb_window_present(
         return;
     }
     let n = w as usize * h as usize;
+    let resized;
     {
         let mut f = lock(&FRAME);
+        resized = (f.w, f.h) != (w as usize, h as usize);
         f.px.resize(n, 0);
         // SAFETY: caller guarantees n readable pixels.
         unsafe { std::ptr::copy_nonoverlapping(px, f.px.as_mut_ptr(), n) };
@@ -931,15 +950,18 @@ pub unsafe extern "C" fn qb_window_present(
         f.serial = f.serial.wrapping_add(1);
     }
     if HEADLESS.load(Ordering::SeqCst) {
-        // the headless "window" always matches the frame
-        let (ow, oh) = (
-            WIN_W.swap(w, Ordering::SeqCst),
-            WIN_H.swap(h, Ordering::SeqCst),
-        );
-        if (ow, oh) != (w, h)
-            && let Some(f) = cb().resize {
-                f(w, h);
-            }
+        // the headless "window" takes the size of a frame of a new size (a size
+        // set by a script's `resize` stays until then, as a user's would)
+        if resized {
+            let (ow, oh) = (
+                WIN_W.swap(w, Ordering::SeqCst),
+                WIN_H.swap(h, Ordering::SeqCst),
+            );
+            if (ow, oh) != (w, h)
+                && let Some(f) = cb().resize {
+                    f(w, h);
+                }
+        }
     } else {
         wake();
     }
@@ -970,6 +992,12 @@ pub extern "C" fn qb_window_set_size(w: i32, h: i32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_window_set_fullscreen(on: i32) {
     push(Cmd::Fullscreen(on != 0));
+}
+
+/// Lets the user resize the window (`_RESIZE ON`) or not.
+#[unsafe(no_mangle)]
+pub extern "C" fn qb_window_set_resizable(on: i32) {
+    push(Cmd::Resizable(on != 0));
 }
 
 #[unsafe(no_mangle)]

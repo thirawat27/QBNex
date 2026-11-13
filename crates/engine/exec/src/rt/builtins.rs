@@ -122,6 +122,9 @@ pub(crate) struct RtState<'a> {
     pub(crate) window: bool,
     /// browser runner: ticks of the last frame shown while polling input
     pub(crate) web_frame_at: i64,
+    /// pointer shape of the last `_MOUSESHOW` (`qb_runtime::window::cursor`)
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    pub(crate) mouse_cursor: i32,
     /// browser runner: stdin bytes before this offset were typed (and drawn) live
     pub(crate) web_typed_end: usize,
     /// OUT/INP/WAIT ports, BLOAD/BSAVE, VARPTR mirrors, RUN/CLEAR/CHAIN requests
@@ -167,6 +170,7 @@ impl<'a> RtState<'a> {
             web: false,
             window: false,
             web_frame_at: 0,
+            mouse_cursor: 1,
             web_typed_end: 0,
             dos: Default::default(),
         }
@@ -426,6 +430,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         return r;
     }
     if let Some(r) = super::dosx::call(vm, name, &a) {
+        return r;
+    }
+    if let Some(r) = super::winx::call(vm, name, &a) {
         return r;
     }
     let is_print = matches!(name, "PRINTS" | "PRINTZONE" | "PRINTNL" | "PRINTTAB" | "PRINTSPC") || name.starts_with("PRINTN.");
@@ -1798,9 +1805,30 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             }
             V::I(if qb_runtime::keybuf::qb_keyheld(x as u32) != 0 { -1 } else { 0 })
         }
-        "func__mouseinput" => {
+        // the mouse functions take an optional pipe handle as their last argument
+        "func__mouseinput" | "func__mousewheel" | "func__mousex" | "func__mousey" | "func__mousemovementx" | "func__mousemovementy" => {
             rt.input.pump(cm);
-            V::I(if rt.input.mouseinput() { -1 } else { 0 })
+            let q = match rt.input.queue(a[0].i(), a[1].i() != 0) {
+                Ok(q) => q,
+                Err(x) => return Some(Err(x)),
+            };
+            match name {
+                "func__mouseinput" => V::I(if rt.input.mouseinput(q) { -1 } else { 0 }),
+                "func__mousewheel" => V::I(i64::from(rt.input.mousewheel(q))),
+                "func__mousemovementx" => V::F(f64::from(rt.input.mouse_movement(q).0)),
+                "func__mousemovementy" => V::F(f64::from(rt.input.mouse_movement(q).1)),
+                _ => {
+                    let (x, y) = rt.input.mouse_xy(q);
+                    // inside the page; a text page counts in character cells from 1
+                    let (w, h) = rt.display.display_size();
+                    let (x, y) = (x.clamp(0, (w - 1).max(0)), y.clamp(0, (h - 1).max(0)));
+                    let (x, y) = match rt.display.mouse_page() {
+                        Some((true, _, _, _, fw, fh)) => (x / fw.max(1) + 1, y / fh.max(1) + 1),
+                        _ => (x, y),
+                    };
+                    V::F(f64::from(if name == "func__mousex" { x } else { y }))
+                }
+            }
         }
         "func__mousebutton" => {
             rt.input.pump(cm);
@@ -1808,19 +1836,48 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
             if i < 1 {
                 return Some(e(5));
             }
-            V::I(if rt.input.mousebutton(i as i32) { -1 } else { 0 })
+            match rt.input.queue(a[1].i(), a[2].i() != 0) {
+                Ok(q) => V::I(if rt.input.mousebutton(q, i as i32) { -1 } else { 0 }),
+                Err(x) => return Some(Err(x)),
+            }
         }
-        "func__mousewheel" => {
-            rt.input.pump(cm);
-            V::I(i64::from(rt.input.mousewheel()))
+        "func__mousepipeopen" => V::I(i64::from(rt.input.pipe_open())),
+        "sub__mouseinputpipe" | "sub__mousepipeclose" => {
+            let r = rt.input.queue(a[0].i(), true).and_then(|q| if name == "sub__mouseinputpipe" { rt.input.pipe_pass(q) } else { rt.input.pipe_close(q) });
+            return Some(r.map(|_| None));
         }
-        "func__mousex" | "func__mousey" => {
+        // _DEVICES and the functions that read a device: from the first use on the
+        // game controllers are watched too
+        "func__devices" | "func__device" | "func__deviceinput" | "func__button" | "func__buttonchange" | "func__axis" | "func__wheel"
+        | "func__lastbutton" | "func__lastaxis" | "func__lastwheel" | "func_stick" | "func_strig" => {
+            rt.input.devices.controllers = true;
             rt.input.pump(cm);
-            let (x, y) = rt.input.mouse_xy();
-            // headless window = the display page at scale 1: clamp to the page
-            let (w, h) = rt.display.display_size();
-            let v = if name == "func__mousex" { x.clamp(0, (w - 1).max(0)) } else { y.clamp(0, (h - 1).max(0)) };
-            V::F(f64::from(v))
+            let d = &mut rt.input.devices;
+            let (n, passed) = (a.first().map_or(0, |v| v.i() as i32), a.get(1).is_some_and(|v| v.i() != 0));
+            let r = match name {
+                "func__devices" => Ok(V::I(i64::from(d.count()))),
+                "func__device" => d.name(n, passed).map(V::S),
+                "func__deviceinput" => d.input(n, passed).map(|v| V::I(i64::from(v))),
+                "func__button" => d.button_down(n, passed).map(|v| V::I(i64::from(v))),
+                "func__buttonchange" => d.button_change(n, passed).map(|v| V::I(i64::from(v))),
+                "func__axis" => d.axis(n, passed, false).map(|v| V::F(f64::from(v))),
+                "func__wheel" => d.axis(n, passed, true).map(|v| V::F(f64::from(v))),
+                "func__lastbutton" => d.last(n, passed, 0).map(|v| V::I(i64::from(v))),
+                "func__lastaxis" => d.last(n, passed, 1).map(|v| V::I(i64::from(v))),
+                "func__lastwheel" => d.last(n, passed, 2).map(|v| V::I(i64::from(v))),
+                // STICK(n[, axis pair]) and STRIG(n[, controller]): (n, option, passed)
+                _ => {
+                    let (option, passed) = (a[1].i(), a[2].i() != 0);
+                    if !(0..=65535).contains(&a[0].i()) || (passed && !(1..=65535).contains(&option)) {
+                        e(5)
+                    } else if name == "func_stick" {
+                        Ok(V::I(i64::from(d.stick(n, if passed { option as i32 } else { 1 }))))
+                    } else {
+                        Ok(V::I(i64::from(d.strig(n, passed.then_some(option as i32)))))
+                    }
+                }
+            };
+            return Some(r.map(Some));
         }
         "func__freetimer" => V::I(i64::from(qb_runtime::events::timers().alloc())),
         "sub_timer" => {
@@ -1908,6 +1965,9 @@ fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
         "sinh" => f80(v.sinh()),
         "cosh" => f80(v.cosh()),
         "tanh" => f80(v.tanh()),
+        "asinh" => f80(v.asinh()),
+        "acosh" => f80(v.acosh()),
+        "atanh" => f80(v.atanh()),
         "atan2" => f80(v.atan2(x(1))),
         "hypot" => f80(v.hypot(x(1))),
         "func_deg2rad" => f80(v * 0.017453292519943295),

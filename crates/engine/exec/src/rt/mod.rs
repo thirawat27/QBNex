@@ -10,6 +10,7 @@ use qb_ir::Ty;
 
 mod audiox;
 mod cpu;
+mod devices;
 pub(crate) mod display;
 pub(crate) mod dosx;
 mod input;
@@ -22,10 +23,11 @@ mod netx;
 mod scene3d;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod window;
+mod winx;
 
 pub(crate) use builtins::{call, str_store_hook, Host, RtState};
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) use window::{activate as window_activate, closed as window_closed, pixels as window_pixels, present as window_present, present_pixels as window_present_pixels, set_title as window_set_title, PRESENT_EVENT};
+pub(crate) use window::{activate as window_activate, closed as window_closed, pixels as window_pixels, present as window_present, present_pixels as window_present_pixels, release_exit as window_release_exit, set_title as window_set_title, PRESENT_EVENT};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum V {

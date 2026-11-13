@@ -488,6 +488,82 @@ pub fn flush_input() {
     }
 }
 
+/// `_CONSOLETITLE`: the title of the Windows console window (bytes up to the
+/// first NUL). Other systems have no console window of the program's own.
+pub fn console_title(title: &[u8]) {
+    #[cfg(windows)]
+    {
+        let z = crate::win32::cstr(title);
+        // SAFETY: NUL-terminated string.
+        unsafe { win::SetConsoleTitleA(z.as_ptr()) };
+    }
+    #[cfg(not(windows))]
+    let _ = title;
+}
+
+/// `_CONSOLEFONT name$, size`: font of the Windows console window; an empty
+/// name keeps the face and changes only the size.
+pub fn console_font(name: &[u8], size: i32) {
+    #[cfg(windows)]
+    // SAFETY: Win32 calls with a zeroed, sized structure.
+    unsafe {
+        let h = win::std(win::STD_OUTPUT_HANDLE);
+        let mut info: win::CONSOLE_FONT_INFOEX = core::mem::zeroed();
+        info.cbSize = core::mem::size_of::<win::CONSOLE_FONT_INFOEX>() as u32;
+        info.dwFontSize.Y = size.clamp(0, i32::from(i16::MAX)) as i16;
+        info.FontWeight = FONT_WEIGHT_NORMAL;
+        // the face name keeps its terminating zero
+        let room = info.FaceName.len() - 1;
+        for (d, s) in info.FaceName.iter_mut().zip(String::from_utf8_lossy(name).encode_utf16().take(room)) {
+            *d = s;
+        }
+        win::SetCurrentConsoleFontEx(h, 0, &info);
+    }
+    #[cfg(not(windows))]
+    let _ = (name, size);
+}
+
+/// `FW_NORMAL` of the Win32 font mapper.
+#[cfg(windows)]
+const FONT_WEIGHT_NORMAL: u32 = 400;
+
+/// Handle of the Windows console window (`_WINDOWHANDLE` of a console program); 0 without one.
+pub fn console_window() -> isize {
+    #[cfg(windows)]
+    // SAFETY: no preconditions.
+    return unsafe { win::GetConsoleWindow() } as isize;
+    #[cfg(not(windows))]
+    0
+}
+
+/// True when this process is the only one attached to its console: the console
+/// window was opened for the program (started from Explorer), not by a shell.
+pub fn console_is_own() -> bool {
+    #[cfg(windows)]
+    {
+        let mut ids = [0u32; 2];
+        // SAFETY: a buffer of the stated length.
+        unsafe { win::GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) == 1 }
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// `_CONSOLE ON|OFF`: shows or hides the program's own console window. A
+/// console that belongs to a shell is left alone.
+pub fn console_show(show: bool) {
+    #[cfg(windows)]
+    if console_is_own() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE};
+        // SAFETY: a window handle of this process's console (or null, which ShowWindow rejects).
+        unsafe { ShowWindow(win::GetConsoleWindow(), if show { SW_SHOWNOACTIVATE } else { SW_HIDE }) };
+    }
+    #[cfg(not(windows))]
+    let _ = show;
+}
+
 /// `_CONSOLECURSOR [_SHOW|_HIDE][, size]` (1 = show, 2 = hide).
 pub fn console_cursor(visible: i32, size: i32, passed: i32) {
     #[cfg(windows)]

@@ -117,6 +117,7 @@ pub fn open(name: &[u8], mut type_: i32, access: i32, sharing: i32, i: i32, reco
     {
         let f = t.f(x);
         f.type_ = if type_ == 5 { 4 } else { type_ as u8 };
+        f.append = u8::from(type_ == 5);
         f.column = 1;
     }
     if type_ == 1 {
@@ -1044,6 +1045,37 @@ pub fn seek_get(i: i32) -> (i64, i32) {
         return (p / t.f(x).record_length + 1, 0);
     }
     (p + 1, 0)
+}
+
+/// `FILEATTR(i, attribute)`: attribute 1 = how the file was opened (1 INPUT,
+/// 2 OUTPUT, 4 RANDOM, 8 APPEND, 32 BINARY), 2 = a number that stands for the
+/// open file (QuickBASIC returned the DOS handle there). Any other attribute is error 5.
+pub fn fileattr(i: i32, attribute: i32) -> (i32, i32) {
+    const INPUT: i32 = 1;
+    const OUTPUT: i32 = 2;
+    const RANDOM: i32 = 4;
+    const APPEND: i32 = 8;
+    const BINARY: i32 = 32;
+    let mut t = table();
+    let x = match index(&mut t, i) {
+        Ok(x) => x,
+        Err(e) => return (0, e),
+    };
+    let (kind, append) = (t.f(x).type_, t.f(x).append != 0);
+    match attribute {
+        1 => (
+            match kind {
+                1 => RANDOM,
+                2 => BINARY,
+                3 => INPUT,
+                _ if append => APPEND,
+                _ => OUTPUT,
+            },
+            0,
+        ),
+        2 => (x + 1, 0),
+        _ => (0, 5),
+    }
 }
 
 /// `LOC(i)`.
