@@ -327,7 +327,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                             block(blockn) = c$
                             evaledblock(blockn) = 2
                             blocktype(blockn) = typ2
-                            IF (typ2 AND ISSTRING) THEN stringprocessinghappened = 1
                             GOTO evaled
                         END IF
                     END IF
@@ -341,7 +340,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                             constequation = 0
                             blockn = blockn + 1
                             makeidrefer block(blockn), blocktype(blockn)
-                            IF (blocktype(blockn) AND ISSTRING) THEN stringprocessinghappened = 1
                             evaledblock(blockn) = 2
                             GOTO evaled
                         END IF
@@ -418,7 +416,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                     block(blockn) = c$
                     evaledblock(blockn) = 2
                     blocktype(blockn) = typ2
-                    IF (typ2 AND ISSTRING) THEN stringprocessinghappened = 1
                     GOTO evaled
                 END IF
 
@@ -511,7 +508,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
         IF b = 0 THEN
             c$ = evaluate(getelements$(a$, i1, i - 1), typ2)
             IF Error_Happened THEN EXIT FUNCTION
-            IF (typ2 AND ISSTRING) THEN stringprocessinghappened = 1
             blockn = blockn + 1
             IF (typ2 AND ISPOINTER) THEN
                 block(blockn) = c$
@@ -644,7 +640,6 @@ FOR i = 1 TO blockn
                 END IF
                 blocktype(i) = ISSTRING
                 evaledblock(i) = 1
-                stringprocessinghappened = 1
                 GOTO evaledblock
             END IF
 
@@ -683,7 +678,6 @@ FOR i = 1 TO blockn
             simplevarfound:
             constequation = 0
             makeidrefer block(i), blocktype(i)
-            IF (blocktype(i) AND ISSTRING) THEN stringprocessinghappened = 1
             IF blockn = 1 THEN
                 IF (blocktype(i) AND ISREFERENCE) THEN GOTO returnpointer
             END IF
@@ -716,7 +710,6 @@ IF blockn = 1 THEN
     IF evaledblock(1) THEN
         IF (blocktype(1) AND ISREFERENCE) THEN
             returnpointer:
-            IF (blocktype(1) AND ISSTRING) THEN stringprocessinghappened = 1
             IF Debug THEN PRINT #9, "evaluated reference:" + block(1)
             typ = blocktype(1)
             evaluate$ = block(1)
@@ -1066,8 +1059,6 @@ FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
     IF RTRIM$(id2.callname) = "func_stub" THEN Give_Error "Command not implemented": EXIT FUNCTION
     IF RTRIM$(id2.callname) = "func_input" AND args = 1 AND inputfunctioncalled = 0 THEN
         inputfunctioncalled = -1
-        IF vWatchOn = 1 THEN
-        END IF
     END IF
 
     SetDependency id2.Dependency

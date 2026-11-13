@@ -189,9 +189,6 @@ IF staticarray THEN
         '64BIT MEMORY
         IF stringarray THEN
             'Init string pointers in the array
-            IF cmem THEN
-            ELSE
-            END IF
         ELSE
             'clear array
         END IF
@@ -511,7 +508,7 @@ assignsimplevariable:
 IF (typ AND ISREFERENCE) = 0 THEN Give_Error "Expected variable =": EXIT SUB
 setrefer a2$, typ, getelements$(a$, i + 1, n), 0
 IF Error_Happened THEN EXIT SUB
-IF IrEmitMode THEN IrAssign irlhs$, getelements$(a$, i + 1, n)
+IrAssign irlhs$, getelements$(a$, i + 1, n)
 tlayout$ = l$ + tlayout$
 
 EXIT SUB
@@ -651,8 +648,6 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
         id.t = UDTTYPE + i
         IF cmemlist(idn + 1) THEN
             id.t = id.t + ISINCONVENTIONALMEMORY
-            IF f THEN
-            END IF
         ELSE
             IF f THEN
                 IF udtxvariable(i) THEN
