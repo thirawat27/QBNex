@@ -69,41 +69,82 @@ fn cmp(op: CmpOp) -> Cmp {
     }
 }
 
+/// Registers an instruction reads. Built without allocating: the scans over a
+/// function body below ask for them once per instruction they pass, which made
+/// a fresh `Vec` per call a large part of loading a big program.
+#[derive(Clone, Copy)]
+enum Uses<'a> {
+    Few([u32; 2], u8),
+    List(&'a [u32]),
+    /// `dim` bounds: (lower, upper) per dimension
+    Pairs(&'a [(u32, u32)]),
+}
+
+impl Uses<'_> {
+    const NONE: Uses<'static> = Uses::Few([0; 2], 0);
+    fn one(a: u32) -> Self {
+        Uses::Few([a, 0], 1)
+    }
+    fn two(a: u32, b: u32) -> Self {
+        Uses::Few([a, b], 2)
+    }
+    fn opt(a: Option<u32>) -> Self {
+        a.map_or(Uses::NONE, Uses::one)
+    }
+    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        const NO: &[u32] = &[];
+        const NO_PAIRS: &[(u32, u32)] = &[];
+        let (few, list, pairs) = match self {
+            Uses::Few(a, n) => (&a[..*n as usize], NO, NO_PAIRS),
+            Uses::List(l) => (NO, *l, NO_PAIRS),
+            Uses::Pairs(p) => (NO, NO, *p),
+        };
+        few.iter().chain(list).copied().chain(pairs.iter().flat_map(|&(a, b)| [a, b]))
+    }
+    fn contains(&self, r: &u32) -> bool {
+        self.iter().any(|u| u == *r)
+    }
+    /// How many times `r` is read.
+    fn count(&self, r: u32) -> u32 {
+        self.iter().filter(|&u| u == r).count() as u32
+    }
+}
+
 /// Register defined and registers read by an instruction.
-fn regs(i: &Inst) -> (Option<u32>, Vec<u32>) {
+fn regs(i: &Inst) -> (Option<u32>, Uses<'_>) {
     use Inst::*;
     match i {
         Line(_) | IncLine { .. } | Label(_) | Jmp(_) | Gosub(_) | GRet | GRetL(_) | OnError(_) | Resume(_) | Restore(_) | End | Stop => {
-            (None, vec![])
+            (None, Uses::NONE)
         }
-        OnTimer { slot, secs, .. } => (None, vec![*slot, *secs]),
-        OnKey { key, .. } | OnPlay { n: key, .. } => (None, vec![*key]),
-        OnStrig { n, ctl, .. } => (None, vec![*n, *ctl]),
-        Const { dst, .. } => (Some(*dst), vec![]),
-        Mov { dst, src, .. } | Cvt { dst, src, .. } | Trunc { dst, src, .. } => (Some(*dst), vec![*src]),
-        Bin { dst, a, b, .. } | Cmp { dst, a, b, .. } | Concat { dst, a, b } => (Some(*dst), vec![*a, *b]),
-        Un { dst, a, .. } => (Some(*dst), vec![*a]),
-        Load { dst, .. } | Addr { dst, .. } | ARef { dst, .. } => (Some(*dst), vec![]),
-        Store { src, .. } => (None, vec![*src]),
-        AAddr { dst, idx, .. } => (Some(*dst), idx.clone()),
-        Ld { dst, ptr, .. } | LdFs { dst, ptr, .. } => (Some(*dst), vec![*ptr]),
-        St { ptr, src, .. } | StFs { ptr, src, .. } => (None, vec![*ptr, *src]),
-        PAdd { dst, ptr, off } => (Some(*dst), vec![*ptr, *off]),
-        Copy { dst, src, .. } => (None, vec![*dst, *src]),
-        Dim { bounds, .. } => (None, bounds.iter().flat_map(|(a, b)| [*a, *b]).collect()),
-        Erase { .. } => (None, vec![]),
-        LBound { dst, dim, .. } | UBound { dst, dim, .. } => (Some(*dst), vec![*dim]),
-        Jz { c, .. } | Jnz { c, .. } | Error(c) => (None, vec![*c]),
-        Call { dst, args, .. } => (*dst, args.clone()),
-        Ret(v) => (None, v.iter().copied().collect()),
-        Rt { dst, args, .. } => (*dst, args.clone()),
-        Read { dst, .. } => (Some(*dst), vec![]),
-        System(c) => (None, c.iter().copied().collect()),
+        OnTimer { slot, secs, .. } => (None, Uses::two(*slot, *secs)),
+        OnKey { key, .. } | OnPlay { n: key, .. } => (None, Uses::one(*key)),
+        OnStrig { n, ctl, .. } => (None, Uses::two(*n, *ctl)),
+        Const { dst, .. } => (Some(*dst), Uses::NONE),
+        Mov { dst, src, .. } | Cvt { dst, src, .. } | Trunc { dst, src, .. } => (Some(*dst), Uses::one(*src)),
+        Bin { dst, a, b, .. } | Cmp { dst, a, b, .. } | Concat { dst, a, b } => (Some(*dst), Uses::two(*a, *b)),
+        Un { dst, a, .. } => (Some(*dst), Uses::one(*a)),
+        Load { dst, .. } | Addr { dst, .. } | ARef { dst, .. } => (Some(*dst), Uses::NONE),
+        Store { src, .. } => (None, Uses::one(*src)),
+        AAddr { dst, idx, .. } => (Some(*dst), Uses::List(idx)),
+        Ld { dst, ptr, .. } | LdFs { dst, ptr, .. } => (Some(*dst), Uses::one(*ptr)),
+        St { ptr, src, .. } | StFs { ptr, src, .. } => (None, Uses::two(*ptr, *src)),
+        PAdd { dst, ptr, off } => (Some(*dst), Uses::two(*ptr, *off)),
+        Copy { dst, src, .. } => (None, Uses::two(*dst, *src)),
+        Dim { bounds, .. } => (None, Uses::Pairs(bounds)),
+        Erase { .. } => (None, Uses::NONE),
+        LBound { dst, dim, .. } | UBound { dst, dim, .. } => (Some(*dst), Uses::one(*dim)),
+        Jz { c, .. } | Jnz { c, .. } | Error(c) => (None, Uses::one(*c)),
+        Call { dst, args, .. } => (*dst, Uses::List(args)),
+        Ret(v) => (None, Uses::opt(*v)),
+        Rt { dst, args, .. } => (*dst, Uses::List(args)),
+        Read { dst, .. } => (Some(*dst), Uses::NONE),
+        System(c) => (None, Uses::opt(*c)),
     }
 }
 
 /// Register type written by an instruction (None = no register result).
-fn def_ty(m: &ir::Module, i: &Inst) -> Option<IT> {
+fn def_ty(m: &ir::Module, fnames: &HashMap<&str, &ir::Func>, i: &Inst) -> Option<IT> {
     use Inst::*;
     Some(match i {
         Const { ty, .. } | Mov { ty, .. } | Bin { ty, .. } | Un { ty, .. } | Load { ty, .. } | Ld { ty, .. } | Read { ty, .. } => *ty,
@@ -111,7 +152,7 @@ fn def_ty(m: &ir::Module, i: &Inst) -> Option<IT> {
         Cvt { to, .. } | Trunc { to, .. } => *to,
         Concat { .. } | LdFs { .. } => IT::Str,
         Addr { .. } | ARef { .. } | AAddr { .. } | PAdd { .. } => IT::Ptr,
-        Call { dst: Some(_), func, .. } => match m.func(func) {
+        Call { dst: Some(_), func, .. } => match fnames.get(func.as_str()) {
             Some(f) => f.ret?,
             // DECLARE LIBRARY: result type of `meta extfn`
             None => {
@@ -300,6 +341,8 @@ struct Lw<'a> {
     fixups: Vec<(u32, String)>,
     barrier: u32,
     fidx: HashMap<&'a str, usize>,
+    /// QIR functions by name (`ir::Module::func` searches the list)
+    fnames: HashMap<&'a str, &'a ir::Func>,
     /// module-level variables as seen from main (registers of frame 0)
     globals: HashMap<String, Var>,
     frames: Vec<Frame>,
@@ -347,6 +390,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         fixups: Vec::new(),
         barrier: 0,
         fidx,
+        fnames: src.funcs.iter().map(|f| (f.name.as_str(), f)).collect(),
         globals: HashMap::new(),
         frames: Vec::from_fn(order.len(), |_| Frame::default()),
         mem,
@@ -474,15 +518,22 @@ impl<'a> Lw<'a> {
         Ok((mk, MVar { size, fill, strs, array: d.array }))
     }
 
+    /// QIR function by name.
+    fn callee(&self, name: &str) -> Option<&'a ir::Func> {
+        self.fnames.get(name).copied()
+    }
+
     fn function(&mut self, k: usize, f: &'a ir::Func, statics: &HashMap<String, Var>) -> Res<FuncSlots> {
         let fkey = |l: &str| format!("{k}\u{1}{l}");
-        // variables: globals (module view), statics, params, locals
-        let mut vars: HashMap<String, Var> = HashMap::new();
-        for (n, v) in &self.globals {
-            vars.insert(n.clone(), if k == 0 { *v } else { to_global(*v) });
-        }
-        for (n, v) in statics {
-            vars.insert(n.clone(), to_global(*v));
+        // variables: this function's own names (statics, params, locals) over the
+        // globals (module view). Looked up in that order instead of copying every
+        // global into a per-function map, which cost globals x functions copies.
+        let globals = std::mem::take(&mut self.globals);
+        let mut vars: HashMap<&'a str, Var> = HashMap::new();
+        for l in f.locals.iter().filter(|l| l.kind == VarKind::Static) {
+            if let Some(v) = statics.get(&l.name) {
+                vars.insert(l.name.as_str(), to_global(*v));
+            }
         }
         let mut params = Vec::new();
         for p in &f.params {
@@ -492,7 +543,7 @@ impl<'a> Lw<'a> {
                 let (mk, _) = self.mvar(p)?;
                 let r = self.frames[k].new_n(0);
                 params.push(Slot::N(r));
-                vars.insert(p.name.clone(), Var::M(r, mk));
+                vars.insert(p.name.as_str(), Var::M(r, mk));
                 continue;
             }
             if self.mem && (!matches!(p.ty, StoreTy::Scalar(_)) || self.taken.contains(&(k, p.name.clone()))) {
@@ -518,7 +569,7 @@ impl<'a> Lw<'a> {
                     params.push(Slot::N(nr));
                     self.prologue[k].push(Ins::StM { t: mty(t), p: ptr_r, off: 0, s: nr });
                 }
-                vars.insert(p.name.clone(), Var::M(ptr_r, mk));
+                vars.insert(p.name.as_str(), Var::M(ptr_r, mk));
                 continue;
             }
             if matches!(p.ty, StoreTy::Scalar(IT::F80)) && !p.array {
@@ -526,7 +577,7 @@ impl<'a> Lw<'a> {
                 let Var::N(r, _) = self.alloc_var(k, p, k)? else { return Err("bad _FLOAT parameter".into()) };
                 params.push(Slot::N(r));
                 params.push(Slot::N(r + 1));
-                vars.insert(p.name.clone(), Var::N(r, IT::F80));
+                vars.insert(p.name.as_str(), Var::N(r, IT::F80));
                 continue;
             }
             let v = self.alloc_var(k, p, k)?;
@@ -536,31 +587,27 @@ impl<'a> Lw<'a> {
                 Var::A(r, _) => Slot::A(r),
                 _ => unreachable!(),
             });
-            vars.insert(p.name.clone(), v);
+            vars.insert(p.name.as_str(), v);
         }
         for l in f.locals.iter().filter(|l| l.kind != VarKind::Static) {
             let v = self.alloc_var(k, l, k)?;
-            vars.insert(l.name.clone(), v);
+            vars.insert(l.name.as_str(), v);
         }
         if self.mem && k > 0 {
             // module-level memory variables: fetch their addresses once per call
-            let used = var_names(f);
             let mut fetch = Vec::new();
             // by name: HashMap order differs between runs, and the registers must not
             // (a native image built ahead of time checks the lowered program)
-            let mut names: Vec<String> = vars
-                .iter()
-                .filter(|(n, v)| matches!(v, Var::MG(..)) && used.contains(n.as_str()))
-                .map(|(n, _)| n.clone())
+            let mut names: Vec<&'a str> = var_names(f)
+                .into_iter()
+                .filter(|n| matches!(lookup_var(&vars, &globals, k, n), Some(Var::MG(..))))
                 .collect();
             names.sort_unstable();
             for n in names {
-                if let Some(v) = vars.get_mut(&n)
-                    && let Var::MG(g, mk) = *v
-                {
+                if let Some(Var::MG(g, mk)) = lookup_var(&vars, &globals, k, n) {
                     let r = self.frames[k].new_n(0);
                     fetch.push(Ins::GetG { d: r, g });
-                    *v = Var::M(r, mk);
+                    vars.insert(n, Var::M(r, mk));
                 }
             }
             self.prologue[k].extend(fetch);
@@ -583,27 +630,34 @@ impl<'a> Lw<'a> {
             fr.n_vars = fr.num_init.len() as u32;
             fr.n_svars = fr.n_str;
         }
+        // Per-register tables of this function. QIR numbers registers densely from
+        // 0 in each function, so they are arrays indexed by register (hash maps here
+        // were a large part of loading a big program).
+        let n_regs = f.body.iter().filter_map(|i| {
+            let (d, us) = regs(i);
+            d.into_iter().chain(us.iter()).max()
+        }).max().map_or(0, |r| r as usize + 1);
         // register types and use counts
-        let mut rty: HashMap<u32, IT> = HashMap::new();
-        let mut defs: HashMap<u32, u32> = HashMap::new();
-        let mut uses: HashMap<u32, u32> = HashMap::new();
+        let mut rty = vec![None::<IT>; n_regs];
+        let mut defs = vec![0u32; n_regs];
+        let mut uses = vec![0u32; n_regs];
         for i in &f.body {
             let (d, us) = regs(i);
             if let Some(d) = d {
-                *defs.entry(d).or_default() += 1;
-                if let Some(t) = def_ty(self.ir, i) {
-                    rty.insert(d, t);
+                defs[d as usize] += 1;
+                if let Some(t) = def_ty(self.ir, &self.fnames, i) {
+                    rty[d as usize] = Some(t);
                 }
             }
-            for u in us {
-                *uses.entry(u).or_default() += 1;
+            for u in us.iter() {
+                uses[u as usize] += 1;
             }
         }
         // QIR registers: constants defined once become constant registers / K strings
-        let mut rmap: HashMap<u32, Rg> = HashMap::new();
+        let mut rmap = vec![None::<Rg>; n_regs];
         for i in &f.body {
             if let Inst::Const { ty, dst, val } = i
-                && defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
+                && defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() {
                     let rg = if *ty == IT::Str {
                         let Lit::Str(s) = val else { return Err("bad string const".into()) };
                         Rg::S(self.kstr(s))
@@ -623,14 +677,14 @@ impl<'a> Lw<'a> {
                         let bits = lit_num(*ty, val)?;
                         Rg::N(self.frames[k].konst(bits, ty.is_float()))
                     };
-                    rmap.insert(*dst, rg);
+                    rmap[*dst as usize] = Some(rg);
                 }
         }
-        let mut ptrs: HashMap<u32, Ptr> = HashMap::new();
+        let mut ptrs = vec![None::<Ptr>; n_regs];
         // register mode: QIR type of the variable (or array element) an addr / aref points at
-        let mut ptr_ty: HashMap<u32, IT> = HashMap::new();
+        let mut ptr_ty = vec![None::<IT>; n_regs];
         // QIR register -> variable whose register it aliases
-        let mut alias_var: HashMap<u32, &str> = HashMap::new();
+        let mut alias_var = vec![None::<&str>; n_regs];
         for i in std::mem::take(&mut self.prologue[k]) {
             self.emit(i);
         }
@@ -641,10 +695,10 @@ impl<'a> Lw<'a> {
             macro_rules! reg {
                 ($r:expr) => {{
                     let r: u32 = $r;
-                    match rmap.get(&r) {
-                        Some(x) => *x,
+                    match rmap[r as usize] {
+                        Some(x) => x,
                         None => {
-                            let t = *rty.get(&r).ok_or_else(|| format!("register %{r} has no type"))?;
+                            let t = rty[r as usize].ok_or_else(|| format!("register %{r} has no type"))?;
                             let x = match t {
                                 IT::Str => Rg::S(self.frames[k].new_s()),
                                 IT::F80 => {
@@ -659,7 +713,7 @@ impl<'a> Lw<'a> {
                                     Rg::N(self.frames[k].new_n(0))
                                 }
                             };
-                            rmap.insert(r, x);
+                            rmap[r as usize] = Some(x);
                             x
                         }
                     }
@@ -691,13 +745,13 @@ impl<'a> Lw<'a> {
             }
             macro_rules! var {
                 ($n:expr) => {
-                    *vars.get($n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
+                    lookup_var(&vars, &globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
                 };
             }
-            let single = |r: u32| defs.get(&r) == Some(&1) && uses.get(&r) == Some(&1);
+            let single = |r: u32| defs[r as usize] == 1 && uses[r as usize] == 1;
             if self.mem {
-                let mvar = |n: &String| match vars.get(n.as_str()) {
-                    Some(Var::M(p, mk)) => Some((*p, *mk)),
+                let mvar = |n: &String| match lookup_var(&vars, &globals, k, n) {
+                    Some(Var::M(p, mk)) => Some((p, mk)),
                     _ => None,
                 };
                 match ins {
@@ -709,9 +763,9 @@ impl<'a> Lw<'a> {
                                 self.emit(Ins::LdFs { d, p, off: 0, len });
                             }
                             _ if *ty == IT::Str => {
-                                if single(*dst) && !rmap.contains_key(dst) && p & (K | M) == 0 && str_read_only(body, ii, *dst) {
+                                if single(*dst) && rmap[*dst as usize].is_none() && p & (K | M) == 0 && str_read_only(body, ii, *dst) {
                                     // its only reader takes the string from memory: no copy
-                                    rmap.insert(*dst, Rg::S(p | M));
+                                    rmap[*dst as usize] = Some(Rg::S(p | M));
                                 } else {
                                     let d = sreg!(*dst);
                                     self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
@@ -744,8 +798,8 @@ impl<'a> Lw<'a> {
                     }
                     Inst::Addr { dst, var } | Inst::ARef { dst, var } => {
                         let (p, _) = mvar(var).ok_or_else(|| format!("address of {var} without storage"))?;
-                        if defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
-                            rmap.insert(*dst, Rg::N(p));
+                        if defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() {
+                            rmap[*dst as usize] = Some(Rg::N(p));
                         } else {
                             let d = nreg!(*dst);
                             self.emit(Ins::Mov { d, s: p });
@@ -844,7 +898,7 @@ impl<'a> Lw<'a> {
                         self.emit(Ins::BoundM { d, a: p, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
                         continue;
                     }
-                    Inst::Call { dst, func, args } if self.ir.func(func).is_none() => {
+                    Inst::Call { dst, func, args } if self.callee(func).is_none() => {
                         // DECLARE LIBRARY function (meta extfn): pointers are real addresses here
                         let f = self.m.xfns.iter().position(|x| x.name == *func).ok_or_else(|| format!("unknown function {func}"))? as u32;
                         let mut regs = Vec::new();
@@ -867,7 +921,7 @@ impl<'a> Lw<'a> {
                         continue;
                     }
                     Inst::Call { dst, func, args } => {
-                        let callee = self.ir.func(func).ok_or_else(|| format!("unknown function {func}"))?;
+                        let callee = self.callee(func).ok_or_else(|| format!("unknown function {func}"))?;
                         let fi = self.fidx[func.as_str()] as u32;
                         let mut out = Vec::new();
                         for (r, _p) in args.iter().zip(&callee.params) {
@@ -912,7 +966,7 @@ impl<'a> Lw<'a> {
             if f80_case {
                 match ins {
                     Inst::Const { dst, val, .. } => {
-                        if defs.get(dst) != Some(&1) {
+                        if defs[*dst as usize] != 1 {
                             let d = xreg!(*dst);
                             let x = lit_f80(val);
                             for (j, bits) in [x.mant, u64::from(x.se)].into_iter().enumerate() {
@@ -1032,7 +1086,7 @@ impl<'a> Lw<'a> {
                     self.barrier = pc;
                 }
                 Inst::Const { ty, dst, val } => {
-                    if defs.get(dst) == Some(&1) {
+                    if defs[*dst as usize] == 1 {
                         continue; // constant register
                     }
                     match reg!(*dst) {
@@ -1134,18 +1188,18 @@ impl<'a> Lw<'a> {
                 }
                 Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
                     let trunc = matches!(ins, Inst::Trunc { .. });
-                    if to.is_int() && from.is_int() && widens(*from, *to) && defs.get(dst) == Some(&1) && !rmap.contains_key(dst) {
+                    if to.is_int() && from.is_int() && widens(*from, *to) && defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() {
                         // widening an already normalized integer changes nothing: reuse the register
                         let s = nreg!(*src);
-                        let n_uses = uses.get(dst).copied().unwrap_or(0);
-                        let ok = match alias_var.get(src).copied() {
+                        let n_uses = uses[*dst as usize];
+                        let ok = match alias_var[*src as usize] {
                             Some(v) => alias_ok(body, ii, *dst, v, n_uses),
                             None => stable_until_uses(body, ii, *dst, n_uses, &|i: &Inst| regs(i).0 == Some(*src)),
                         };
                         if ok {
-                            rmap.insert(*dst, Rg::N(s));
-                            if let Some(v) = alias_var.get(src).copied() {
-                                alias_var.insert(*dst, v);
+                            rmap[*dst as usize] = Some(Rg::N(s));
+                            if let Some(v) = alias_var[*src as usize] {
+                                alias_var[*dst as usize] = Some(v);
                             }
                             continue;
                         }
@@ -1177,11 +1231,11 @@ impl<'a> Lw<'a> {
                     let v = var!(var);
                     match v {
                         Var::N(r, _) | Var::S(r) => {
-                            let alias = defs.get(dst) == Some(&1) && !rmap.contains_key(dst) && alias_ok(body, ii, *dst, var, uses.get(dst).copied().unwrap_or(0));
+                            let alias = defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() && alias_ok(body, ii, *dst, var, uses[*dst as usize]);
                             let is_s = matches!(v, Var::S(_));
                             if alias {
-                                rmap.insert(*dst, if is_s { Rg::S(r) } else { Rg::N(r) });
-                                alias_var.insert(*dst, var.as_str());
+                                rmap[*dst as usize] = Some(if is_s { Rg::S(r) } else { Rg::N(r) });
+                                alias_var[*dst as usize] = Some(var.as_str());
                             } else if is_s {
                                 let d = sreg!(*dst);
                                 self.emit(Ins::MovS { d, s: r });
@@ -1215,7 +1269,7 @@ impl<'a> Lw<'a> {
                                 self.emit(Ins::Mov { d: r, s });
                             }
                             if t.is_int() {
-                                let once = |x: R| rmap.iter().any(|(v, g)| matches!(g, Rg::N(y) if *y == x) && single(*v));
+                                let once = |x: R| rmap.iter().enumerate().any(|(v, g)| matches!(g, Some(Rg::N(y)) if *y == x) && single(v as u32));
                                 self.fuse_acc(k, r, once);
                             }
                         }
@@ -1257,14 +1311,14 @@ impl<'a> Lw<'a> {
                         Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     };
                     reg!(*dst);
-                    ptrs.insert(*dst, Ptr::Place(p));
-                    ptr_ty.insert(*dst, t);
+                    ptrs[*dst as usize] = Some(Ptr::Place(p));
+                    ptr_ty[*dst as usize] = Some(t);
                 }
                 Inst::ARef { dst, var } => {
                     let Var::A(a, t) = var!(var) else { return Err("aref of a scalar".into()) };
                     reg!(*dst);
-                    ptrs.insert(*dst, Ptr::Place(Place::A(a)));
-                    ptr_ty.insert(*dst, t);
+                    ptrs[*dst as usize] = Some(Ptr::Place(Place::A(a)));
+                    ptr_ty[*dst as usize] = Some(t);
                 }
                 Inst::AAddr { dst, var, idx } => {
                     let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
@@ -1274,7 +1328,7 @@ impl<'a> Lw<'a> {
                         [x] => {
                             let x = *x;
                             let cnt = uses_before_redef(body, ii, *dst);
-                            let var = alias_var.get(&x).copied();
+                            let var = alias_var[x as usize];
                             stable_until_uses(body, ii, *dst, cnt, &|i: &Inst| {
                                 regs(i).0 == Some(x) || matches!((i, var), (Inst::Store { var: v, .. }, Some(w)) if v == w)
                             })
@@ -1295,7 +1349,7 @@ impl<'a> Lw<'a> {
                         base
                     };
                     reg!(*dst);
-                    ptrs.insert(*dst, Ptr::Elem { a, i: base, n, ety });
+                    ptrs[*dst as usize] = Some(Ptr::Elem { a, i: base, n, ety });
                     if !used_before_redef(body, ii, *dst) {
                         // address never used: still check the subscripts (error 9)
                         if ety == IT::Str {
@@ -1312,7 +1366,7 @@ impl<'a> Lw<'a> {
                     if *off != 0 {
                         return Err("ld/st at an offset".into());
                     }
-                    let Some(Ptr::Elem { a, i, n, ety }) = ptrs.get(ptr).copied() else {
+                    let Some(Ptr::Elem { a, i, n, ety }) = ptrs[*ptr as usize] else {
                         return Err("ld/st through a pointer that is not an array element".into());
                     };
                     if ety != *ty {
@@ -1407,18 +1461,18 @@ impl<'a> Lw<'a> {
                     let pc = self.emit(Ins::ReturnL { t: 0 });
                     self.fixups.push((pc, fkey(l)));
                 }
-                Inst::Call { func, .. } if self.ir.func(func).is_none() => {
+                Inst::Call { func, .. } if self.callee(func).is_none() => {
                     // DECLARE LIBRARY calls pass real addresses: memory mode only
                     return Err(format!("{func}: DECLARE LIBRARY call (memory mode)"));
                 }
                 Inst::Call { dst, func, args } => {
-                    let callee = self.ir.func(func).ok_or_else(|| format!("unknown function {func}"))?;
+                    let callee = self.callee(func).ok_or_else(|| format!("unknown function {func}"))?;
                     let fi = self.fidx[func.as_str()] as u32;
                     let mut out = Vec::new();
                     for (r, p) in args.iter().zip(&callee.params) {
                         let byref = matches!(p.kind, VarKind::Param { byref: true }) || p.array;
                         if byref {
-                            let pl = match ptrs.get(r).copied() {
+                            let pl = match ptrs[*r as usize] {
                                 Some(Ptr::Place(pl)) => pl,
                                 Some(Ptr::Elem { a, i, n, ety }) => Place::E { a, i, n, ty: vty(ety)? },
                                 None => return Err(format!("BYREF argument %{r} is not an address")),
@@ -1492,7 +1546,7 @@ impl<'a> Lw<'a> {
                     // COMMON / CHAIN of a variable or array: no address needed, the
                     // instruction names the variable's place (no memory mode for it)
                     let ptr = args.first().copied().ok_or("CHAIN without a variable")?;
-                    let (Some(Ptr::Place(pl)), Some(t)) = (ptrs.get(&ptr).copied(), ptr_ty.get(&ptr).copied()) else {
+                    let (Some(Ptr::Place(pl)), Some(t)) = (ptrs[ptr as usize], ptr_ty[ptr as usize]) else {
                         return Err(format!("{name} of something that is not a variable"));
                     };
                     let k = match t {
@@ -1664,6 +1718,7 @@ impl<'a> Lw<'a> {
         }
         // falling off the end = ret (end in main)
         self.emit(if k == 0 { Ins::End } else { Ins::Ret });
+        self.globals = globals;
         Ok((params, ret))
     }
 
@@ -1822,6 +1877,12 @@ fn fuse_for_tests(code: &mut [Ins], range: std::ops::Range<usize>, zero: &dyn Fn
     }
 }
 
+/// A variable as function `k` sees it: its own names (statics, parameters,
+/// locals) first, then the module-level variables.
+fn lookup_var(own: &HashMap<&str, Var>, globals: &HashMap<String, Var>, k: usize, n: &str) -> Option<Var> {
+    own.get(n).copied().or_else(|| globals.get(n).map(|&v| if k == 0 { v } else { to_global(v) }))
+}
+
 fn to_global(v: Var) -> Var {
     match v {
         Var::N(r, t) => Var::NG(r, t),
@@ -1877,7 +1938,7 @@ fn stable_until_uses(body: &[Inst], at: usize, d: u32, total: u32, kill: &dyn Fn
     }
     for (j, i) in body.iter().enumerate().skip(at + 1) {
         let (_, us) = regs(i);
-        seen += us.iter().filter(|&&u| u == d).count() as u32;
+        seen += us.count(d);
         if seen >= total {
             return true;
         }
@@ -1911,7 +1972,7 @@ fn uses_before_redef(body: &[Inst], at: usize, r: u32) -> u32 {
     let mut n = 0;
     for i in &body[at + 1..] {
         let (d, us) = regs(i);
-        n += us.iter().filter(|&&u| u == r).count() as u32;
+        n += us.count(r);
         if d == Some(r) {
             break;
         }

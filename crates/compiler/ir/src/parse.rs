@@ -2,8 +2,9 @@
 
 use crate::*;
 
-struct P<'a> {
-    toks: Vec<&'a str>,
+struct P<'a, 't> {
+    /// tokens of the current line (a buffer reused for every line)
+    toks: &'t [&'a str],
     pos: usize,
     line: u32,
 }
@@ -12,7 +13,7 @@ fn err<T>(line: u32, msg: impl Into<String>) -> Result<T, IrError> {
     Err(IrError { line, msg: msg.into() })
 }
 
-impl<'a> P<'a> {
+impl<'a> P<'a, '_> {
     fn e<T>(&self, msg: impl Into<String>) -> Result<T, IrError> {
         err(self.line, msg)
     }
@@ -201,7 +202,16 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
     let op = p.next()?;
     let mut parts = op.split('.');
     let m = parts.next().unwrap_or("");
-    let tys: Vec<&str> = parts.collect();
+    // type suffixes: at most two are ever valid, so no list is built
+    let mut suffix = [""; 2];
+    let mut n_tys = 0;
+    for t in parts {
+        if let Some(s) = suffix.get_mut(n_tys) {
+            *s = t;
+        }
+        n_tys += 1;
+    }
+    let tys = &suffix[..n_tys.min(2)];
     let ty_at = |p: &P, i: usize| -> Result<Ty, IrError> {
         match tys.get(i).and_then(|t| Ty::from_name(t)) {
             Some(t) => Ok(t),
@@ -209,7 +219,7 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
         }
     };
     let want_tys = |p: &P, n: usize| -> Result<(), IrError> {
-        if tys.len() != n {
+        if n_tys != n {
             return p.e(format!("`{op}`: wrong number of type suffixes"));
         }
         Ok(())
@@ -319,13 +329,16 @@ pub fn parse(src: &str) -> Result<Module, IrError> {
     let mut func: Option<Func> = None;
     let mut udt: Option<UdtDef> = None;
     let mut header = false;
+    let mut toks: Vec<&str> = Vec::new();
     for (n, raw) in src.lines().enumerate() {
         let line = n as u32 + 1;
         let text = raw.trim();
         if text.is_empty() || text.starts_with(';') {
             continue;
         }
-        let mut p = P { toks: text.split_whitespace().collect(), pos: 0, line };
+        toks.clear();
+        toks.extend(text.split_whitespace());
+        let mut p = P { toks: &toks, pos: 0, line };
         if !header {
             if p.next()? != "QIR" {
                 return err(line, "missing `QIR <version>` header");
