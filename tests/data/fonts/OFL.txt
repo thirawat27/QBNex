@@ -1,4 +1,4 @@
-Test fonts for qb-runtime's font tests (crates/runtime/core/src/font.rs, tests/diff/diff_font.cpp).
+Test fonts for qb-runtime's font tests (crates/runtime/core/src/font.rs).
 
 NotoSans-Subset.ttf: Noto Sans Regular, subset to U+0020-007E and U+00A0-00FF, hinting removed
   (fontTools subset). NotoSansSymbols2-Subset.ttf: Noto Sans Symbols 2 Regular, subset to

@@ -1,6 +1,6 @@
 //! 3D builtins (`_LOADMODEL`, `_MESH*`, `_DRAW3D`, `_CAMERA*`,
 //! `_AMBIENT`, `_LIGHT*`, `_CLEAR3D`, `_GPU3D`), routed to the
-//! `qb_runtime::scene3d` C ABI — the same functions libqb's shims call.
+//! `qb_runtime::scene3d` C ABI.
 //! Arguments follow the registry callnames (trailing `passed` flags where the
 //! keyword has optional parts). `_DISPLAY` needs nothing here: the frame
 //! capture hook moves the queued draws to the shown layer.
@@ -56,9 +56,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
     let int = |v: i32| Some(Ok(Some(V::I(v.into()))));
     Some(match name {
         "func__loadmodel" => {
-            let p = a[0].s();
-            // SAFETY: live slice of the given length.
-            return int(unsafe { s3::qb_3d_load_model(p.as_ptr(), p.len() as i32) });
+            return int(s3::qb_3d_load_model(a[0].s()));
+
         }
         "func__meshcube" => return int(s3::qb_3d_mesh_cube(f(0))),
         "func__meshplane" => return int(s3::qb_3d_mesh_plane(f(0), f(1))),
@@ -83,7 +82,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 return Some(Err(Stop::Err(5)));
             }
             // SAFETY: a 32-bit surface owns width*height pixels.
-            raise(unsafe { s3::qb_3d_mesh_texture(i(0), im.offset as *const u32, i32::from(im.width), i32::from(im.height)) })
+            let px = unsafe { std::slice::from_raw_parts(im.offset as *const u32, usize::from(im.width) * usize::from(im.height)) };
+            raise(s3::qb_3d_mesh_texture(i(0), px, i32::from(im.width), i32::from(im.height)))
         }
         "sub__freemesh" => raise(s3::qb_3d_free_mesh(i(0))),
         "sub__draw3d" => {
@@ -128,9 +128,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "func__gpu3d" => return int(s3::qb_3d_available()),
         "func__shader" => {
-            let src = a[0].s();
-            // SAFETY: live slice of the given length.
-            return int(unsafe { s3::qb_3d_shader(src.as_ptr(), src.len() as i32) });
+            return int(s3::qb_3d_shader(a[0].s()));
+
         }
         "func__shadererror" => return Some(Ok(Some(V::S(s3::shader_error().into_bytes())))),
         "sub__shaderparam" => raise(s3::qb_3d_shader_param(i(0), i(1), f(2))),

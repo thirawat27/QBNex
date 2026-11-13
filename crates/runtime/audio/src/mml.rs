@@ -1,7 +1,6 @@
 //! SOUND, PLAY (MML), _VOICE, _ADSR and _WAVE: the device-independent part of
-//! the legacy synth (`sub_sound`, `sub_play`, `sub__voice`, `sub__adsr`,
-//! `sub__wave`, `ResolveConfigVoiceIndex`, `ResolvePlaybackVoiceIndex` in
-//! `internal/c/parts/audio/out/audio.cpp`).
+//! QB64's synth (`sub_sound`, `sub_play`, `sub__voice`, `sub__adsr`,
+//! `sub__wave`, `ResolveConfigVoiceIndex`, `ResolvePlaybackVoiceIndex`).
 //!
 //! Rendering produces 16-bit stereo frames and hands them to a [`Sink`]
 //! (a voice queue in the engine, a buffer in tests), exactly where legacy
@@ -34,7 +33,7 @@ impl VarReader for NoVars {
     }
 }
 
-/// PLAY state that persists between PLAY statements (C++ function statics).
+/// PLAY state that persists between PLAY statements (QB64 kept it in function statics).
 #[derive(Clone, Debug)]
 pub struct PlayState {
     pub octave: i32,

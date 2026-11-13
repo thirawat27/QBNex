@@ -7,13 +7,14 @@
 //! compared too: it follows stdout after a `[LPRINT]` line. `--bless` rewrites the `.out` files from the
 //! current compiler, which is how golden output is captured from a trusted build.
 //!
-//! A `<name>.xfail` file marks a known defect of the legacy implementation; its
+//! A `<name>.xfail` file marks a known defect; its
 //! first line is the reason. Such a case is expected to fail. If it starts
 //! passing the run fails with `XPASS`, so the marker gets removed when the bug
 //! is fixed. `--bless` never writes golden output for xfail cases.
 //!
-//! A `<name>.deviation` file marks an intentional difference from the legacy
-//! runtime (a fixed legacy defect). Its `.out` is written by hand from QBasic
+//! A `<name>.deviation` file marks an intentional difference from the old
+//! QB64-based C++ implementation (a defect of it that is fixed, or a QBNex
+//! extension it did not have). Its `.out` is written by hand from QBasic
 //! semantics, so `--bless` leaves it alone.
 //!
 //! Graphics: every program runs with `QBNEX_FB_CAPTURE` pointing at a scratch
@@ -55,10 +56,10 @@ struct Options {
     timeout: Duration,
     verbose: bool,
     fb_dump: Option<PathBuf>,
-    /// Extra compiler flags, e.g. `--qb-arg --ir` for the QIR backend.
+    /// Extra compiler flags (`--qb-arg <flag>`, repeatable).
     qb_args: Vec<String>,
     /// Differential mode: compile every case a second time with these flags
-    /// (e.g. `--diff-arg --ir`) and compare the two runs with each other.
+    /// (`--diff-arg <flag>`, repeatable) and compare the two runs with each other.
     diff_args: Option<Vec<String>>,
 }
 
@@ -316,8 +317,8 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     let mut run = Command::new(&exe);
     run.current_dir(&opts.work).env("QBNEX_FB_CAPTURE", &capture).env("QBNEX_NO_ERROR_DIALOG", "1");
     // GUI programs run without a window; `<name>.input` is replayed as keyboard/mouse
-    // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). The legacy
-    // runtime ignores both variables.
+    // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). An old
+    // C++-era qb.exe passed with --qb (an oracle build) ignores both variables.
     run.env("QBNEX_HEADLESS", "1");
     // LPRINT pages go to a file (never to a printer); they are compared after stdout
     run.env("QBNEX_LPRINT", &lprint);
@@ -429,7 +430,7 @@ fn run_case(opts: &Options, case: &Path) -> Outcome {
         Outcome::Pass
     } else if !fb_path.exists() {
         // No frame golden: the case only checks stdout. Cases whose frames
-        // the legacy oracle cannot produce (input scripts) have none.
+        // an old C++-era oracle build cannot produce (input scripts) have none.
         Outcome::Pass
     } else if expected_frames.is_empty() {
         Outcome::Fail(format!(

@@ -1,14 +1,10 @@
 //! TCP/IP for `_OPENHOST`, `_OPENCLIENT`, `_OPENCONNECTION`, `_CONNECTED`,
 //! `_CONNECTIONADDRESS`, `PUT`/`GET` on network handles and `CLOSE`.
 //!
-//! Replaces the socket layer of libqb.cpp (`tcp_host_open`, `tcp_client_open`,
-//! `tcp_connection_open`, `tcp_close`, `tcp_out`, the `recv` in
-//! `stream_update`, `tcp_connected`), the info-string parsing of
-//! `connection_new`, the address text of `func__connectionaddress` and
-//! `myip.cpp` (`WHATISMYIP`). The handle tables (`special_handles`, streams)
-//! stay in libqb.cpp because file I/O shares them.
+//! Sockets, the info-string parsing, the `_CONNECTIONADDRESS` text and the
+//! public-address lookup. The runner keeps the handle table.
 //!
-//! Semantics kept from legacy:
+//! Semantics kept from QB64:
 //! - IPv4 only; hosts listen on `0.0.0.0`; client connects block, everything
 //!   after that is non-blocking.
 //! - `connected` starts at -1 and drops to 0 on a send or receive error and on
@@ -312,7 +308,7 @@ pub fn format_address(conn_type: i32, port: i32, ip4: [u8; 4], hostname: &[u8], 
     s
 }
 
-// --- WHATISMYIP (was myip.cpp, generated from BASIC) --------------------------
+// --- WHATISMYIP (QB64 built it in BASIC) --------------------------
 
 pub const MYIP_HOST: &str = "api.ipify.org";
 
@@ -450,142 +446,6 @@ fn fetch_public_ip() -> Vec<u8> {
 #[cfg(not(feature = "ext"))]
 fn fetch_public_ip() -> Vec<u8> {
     fetch_ip(MYIP_HOST, 80, Duration::from_secs(5))
-}
-
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// Parses an info string. Returns 0 and fills the outputs, or -1 for invalid
-/// arguments (only `*val_error` is written then). `*host_off`/`*host_len` are
-/// -1/0 when there is no host part.
-///
-/// # Safety
-/// `info` must be readable for `len` bytes; the outputs must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_net_parse_info(
-    info: *const u8,
-    len: i32,
-    method: i32,
-    ide_allowed: i32,
-    port: *mut i32,
-    host_off: *mut i32,
-    host_len: *mut i32,
-    val_error: *mut i32,
-) -> i32 {
-    // SAFETY: caller guarantees `info` covers `len` bytes.
-    let info = unsafe { bytes(info, len) };
-    match parse_info(info, method, ide_allowed != 0) {
-        Err(e) => {
-            // SAFETY: caller guarantees the outputs are writable.
-            unsafe { val_error.write_unaligned(e) };
-            -1
-        }
-        Ok(r) => {
-            let (off, l) = r.host.map_or((-1, 0), |h| (h.start as i32, h.len() as i32));
-            // SAFETY: caller guarantees the outputs are writable.
-            unsafe {
-                port.write_unaligned(r.port);
-                host_off.write_unaligned(off);
-                host_len.write_unaligned(l);
-                val_error.write_unaligned(r.val_error);
-            }
-            0
-        }
-    }
-}
-
-unsafe fn bytes<'a>(p: *const u8, len: impl TryInto<usize>) -> &'a [u8] {
-    let len = len.try_into().unwrap_or(0);
-    if p.is_null() || len == 0 {
-        &[]
-    } else {
-        // SAFETY: caller guarantees `p` covers `len` bytes.
-        unsafe { std::slice::from_raw_parts(p, len) }
-    }
-}
-
-fn into_raw(c: Option<Box<Conn>>) -> *mut Conn {
-    c.map_or(std::ptr::null_mut(), Box::into_raw)
-}
-
-/// # Safety
-/// Always safe; returns NULL on failure.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_tcp_host_open(port: i64) -> *mut Conn {
-    into_raw(host_open(port))
-}
-
-/// # Safety
-/// `host` must be readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_client_open(host: *const u8, len: i32, port: i64) -> *mut Conn {
-    // SAFETY: caller guarantees `host` covers `len` bytes.
-    into_raw(client_open(unsafe { bytes(host, len) }, port))
-}
-
-/// # Safety
-/// `host` must come from `qb_tcp_host_open` and not be closed.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_accept(host: *mut Conn) -> *mut Conn {
-    // SAFETY: caller guarantees a live connection.
-    into_raw(accept(unsafe { &*host }))
-}
-
-/// # Safety
-/// `c` must come from this module and not be used afterwards.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_close(c: *mut Conn) {
-    if !c.is_null() {
-        // SAFETY: ownership returns to Rust exactly once.
-        unsafe { Box::from_raw(c) }.close();
-    }
-}
-
-/// # Safety
-/// `c` must be live; `data` readable for `bytes` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_send(c: *mut Conn, data: *const u8, bytes_: i64) {
-    // SAFETY: caller guarantees both.
-    unsafe { (*c).send(bytes(data, bytes_)) }
-}
-
-/// # Safety
-/// `c` must be live; `buf` writable for `cap` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_recv(c: *mut Conn, buf: *mut u8, cap: i64) -> i64 {
-    let cap = usize::try_from(cap).unwrap_or(0);
-    if buf.is_null() || cap == 0 {
-        return 0;
-    }
-    // SAFETY: caller guarantees both.
-    unsafe { (*c).recv(std::slice::from_raw_parts_mut(buf, cap)) as i64 }
-}
-
-/// # Safety
-/// `c` must be live.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_connected(c: *mut Conn) -> i32 {
-    // SAFETY: caller guarantees a live connection.
-    let c = unsafe { &mut *c };
-    c.flush();
-    c.connected
-}
-
-/// Writes the `_CONNECTIONADDRESS` text into `out` (at most `cap` bytes) and
-/// returns its full length. `conn_type`: 1 client, 2 host listener, 3
-/// accepted connection. A listener asks api.ipify.org for the public address.
-///
-/// # Safety
-/// `c` must be live; `out` writable for `cap` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_tcp_address(c: *mut Conn, conn_type: i32, out: *mut u8, cap: i32) -> i32 {
-    // SAFETY: caller guarantees a live connection.
-    let conn = unsafe { &*c };
-    let ip = if conn_type == 2 { whatismyip() } else { Vec::new() };
-    let text = address(conn, conn_type, &ip);
-    let n = text.len().min(usize::try_from(cap).unwrap_or(0));
-    // SAFETY: caller guarantees `out` covers `cap` bytes.
-    unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), out, n) };
-    text.len() as i32
 }
 
 #[cfg(test)]
@@ -938,41 +798,5 @@ mod tests {
         client.close();
         server.close();
         host.close();
-    }
-
-    #[test]
-    fn c_abi_round_trip() {
-        let port = free_port();
-        let info = format!("TCP/IP:{port}");
-        let (mut p, mut off, mut len, mut ve) = (0, 0, 0, 0);
-        let r = unsafe {
-            qb_net_parse_info(info.as_ptr(), info.len() as i32, METHOD_HOST, 0, &mut p, &mut off, &mut len, &mut ve)
-        };
-        assert_eq!((r, p, off, len, ve), (0, i32::from(port), -1, 0, 0));
-        let h = qb_tcp_host_open(i64::from(p));
-        assert!(!h.is_null());
-        let c = unsafe { qb_tcp_client_open(b"127.0.0.1".as_ptr(), 9, i64::from(p)) };
-        assert!(!c.is_null());
-        let s = poll(|| {
-            let s = unsafe { qb_tcp_accept(h) };
-            (!s.is_null()).then_some(s)
-        });
-        unsafe { qb_tcp_send(c, b"ping".as_ptr(), 4) };
-        let mut buf = [0u8; 8];
-        let n = poll(|| {
-            let n = unsafe { qb_tcp_recv(s, buf.as_mut_ptr(), 8) };
-            (n > 0).then_some(n)
-        });
-        assert_eq!(&buf[..n as usize], b"ping");
-        assert_eq!(unsafe { qb_tcp_connected(s) }, -1);
-        let mut out = [0u8; 64];
-        let l = unsafe { qb_tcp_address(c, 1, out.as_mut_ptr(), 64) } as usize;
-        assert_eq!(&out[..l], format!("TCP/IP:{port}:127.0.0.1").as_bytes());
-        unsafe {
-            qb_tcp_close(c);
-            qb_tcp_close(s);
-            qb_tcp_close(h);
-            qb_tcp_close(std::ptr::null_mut());
-        }
     }
 }

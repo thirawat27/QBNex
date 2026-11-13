@@ -1,12 +1,15 @@
 //! End to end: `.bas` -> `qb.exe --ir` (BASIC compiler) -> QIR appended to the
 //! prebuilt runner -> running program. No C++ compiler is involved.
 //!
-//! Needs `qb.exe` at the repository root (built by `cmake --build --preset
-//! windows-mingw-selfhost`). Without it the tests print a notice and pass, so
-//! `cargo test --workspace` still works before the compiler is built.
+//! Needs `qb.exe` at the repository root (built by `scripts/setup_win.cmd`,
+//! `scripts/setup_lnx.sh` or `scripts/setup_osx.command`). Without it the tests
+//! print a notice and pass, so `cargo test --workspace` still works before the
+//! compiler is built.
 //!
-//! `spike.bas` is also compiled through the default C++ path and both outputs
-//! must match (differential check against the existing backend).
+//! Each program's output is compared with a `.out` golden next to it. Some
+//! goldens were recorded from the old C++ backend before the switch to QIR;
+//! the others were written by hand from QBasic semantics. `--ir` is passed for
+//! old scripts' sake and changes nothing: QIR is the only back end.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -105,13 +108,13 @@ fn spike_program_runs_and_matches_the_golden() {
     let expected = normalize(&std::fs::read(fixture("spike.out")).unwrap());
 
     let ir_out = compile_and_run(&qb, &src, &dir.join("spike_ir.exe"), &["--ir"]);
-    // the golden was recorded from the C++ backend before the cutover
+    // the golden was recorded from the old C++ backend before the switch to QIR
     assert_eq!(ir_out, expected, "QIR output");
 }
 
 #[test]
 fn on_error_resume_next_works_in_main_module() {
-    // The C++ path cannot compile this, so the expected
+    // The old C++ backend could not compile this, so the expected
     // output is written by hand from QBasic semantics.
     let Some(qb) = qb() else { return };
     install_runner();
@@ -121,11 +124,8 @@ fn on_error_resume_next_works_in_main_module() {
     assert_eq!(out, expected);
 }
 
-/// Conformance cases the legacy C++ backend cannot run (ON ERROR in the
-/// main module, RESTORE to a label). A front-end defect with relational
-/// operators in PRINT affects both backends, since the emitter uses the real
-/// front end.
-/// The `.out` files were checked by hand against QBasic semantics.
+/// Programs the old C++ backend could not run (ON ERROR in the main module,
+/// RESTORE to a label); they run correctly on QIR. The `.out` files were checked by hand against QBasic semantics.
 #[test]
 fn legacy_defect_cases_run_correctly_under_qir() {
     let Some(qb) = qb() else { return };
@@ -191,7 +191,8 @@ fn declare_library_with_only_a_c_header_is_a_compile_error() {
 
 /// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
 /// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
-/// golden is the C++ backend's output (recorded before the cutover); QIR must match it.
+/// golden is the old C++ backend's output (recorded before the switch to QIR); QIR must
+/// match it.
 #[test]
 fn language_programs_match_the_cpp_golden() {
     let Some(qb) = qb() else { return };

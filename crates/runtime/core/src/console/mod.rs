@@ -1,7 +1,7 @@
 //! Text console: PRINT to a surface, LOCATE, CSRLIN, POS, CLS,
 //! VIEW PRINT, SCREEN(), the SCREEN 0 cell buffer and its UTF-8 side table,
 //! INPUT / LINE INPUT / INPUT$ from the keyboard, the BIOS INKEY$ buffer and
-//! the `$CONSOLE` stdout/stdin paths. Ported from `libqb.cpp` bug for bug.
+//! the `$CONSOLE` stdout/stdin paths. Matches QB64 bug for bug.
 //!
 //! Everything works on [`ImgStruct`] surfaces (`write_page`/`read_page`).
 //! What is still owned elsewhere (font tables and custom-font glyphs, image
@@ -9,8 +9,7 @@
 //! [`Host`] trait, which the runner `qb-exec` implements.
 //!
 //! The functions take raw surface pointers and re-read them after every host
-//! call, because host calls may run legacy code that changes the surface
-//! (exactly like the C++ globals they replace).
+//! call, because host calls may change the surface.
 
 #![allow(unsafe_op_in_unsafe_fn)]
 #![allow(clippy::missing_safety_doc)]
@@ -85,25 +84,26 @@ pub trait Host {
     fn ticks(&mut self) -> i64;
 }
 
-// --- state shared with libqb.cpp (LPRINT, _CONTROLCHR) ---
+// --- LPRINT and _CONTROLCHR state (program thread) ---
+// Lower-case names: they are the BASIC-level names of this state.
 
 /// Set to 1 while LPRINT prints to its page image.
-#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static mut lprint: i32 = 0;
 /// LPOS: column of the printer head.
-#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static mut lpos: i32 = 1;
 /// `WIDTH LPRINT`.
-#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static mut width_lprint: i32 = 80;
 /// Content is waiting on the LPRINT page.
-#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static mut lprint_buffered: i32 = 0;
 /// Control characters are printed as glyphs (internal use).
-#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static mut no_control_characters: i32 = 0;
 /// `_CONTROLCHR OFF`.
-#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
 pub static mut no_control_characters2: i32 = 0;
 
 #[cfg(test)]

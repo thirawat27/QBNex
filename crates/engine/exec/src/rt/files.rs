@@ -1,6 +1,6 @@
-//! File builtins of the runtime, routed to `qb_runtime::fileio` (the
-//! same Rust code the C++ backend links), so file numbers, INPUT # parsing,
-//! PRINT # zones, GET/PUT records and EOF/LOC/SEEK follow legacy exactly.
+//! File builtins of the runtime, routed to `qb_runtime::fileio`: file numbers,
+//! INPUT # parsing, PRINT # zones, GET/PUT records and EOF/LOC/SEEK behave as
+//! in QB64.
 
 use super::builtins::Host;
 use super::{e, Stop, R, V};
@@ -23,15 +23,8 @@ pub(crate) fn print(ch: i32, data: &[u8], tab: bool, newline: bool) -> R<bool> {
     Ok(true)
 }
 
-unsafe fn taken(out: *const u8, len: i32) -> Vec<u8> {
-    if out.is_null() || len <= 0 {
-        return Vec::new();
-    }
-    // SAFETY: fileio publishes a buffer of `len` bytes that stays valid until the next call.
-    unsafe { std::slice::from_raw_parts(out, len as usize).to_vec() }
-}
 
-/// Value of an INPUT # number (n_float of libqb.cpp).
+/// Value of an INPUT # number (the digits `qb_runtime::fileio` parsed).
 fn num_value(n: &fio::NumRepr) -> R<f64> {
     let d = &n.digit[..n.digits as usize];
     if d.is_empty() {
@@ -114,16 +107,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         "GETFIELD" | "PUTFIELD" => {
             let pos = i(1);
             let rl = vm.rt().reclen.get(&ch0).copied().unwrap_or(0);
-            let passed = i32::from(pos != -1);
+            let passed = pos != -1;
             let mut buf = vm.rt().field_buf.remove(&ch0).unwrap_or_else(|| vec![0u8; rl]);
             buf.resize(rl, 0);
-            // SAFETY: buf holds rl bytes.
-            let err = unsafe {
-                if name == "GETFIELD" {
-                    fio::qb_file_get(ch0, pos, buf.as_mut_ptr(), rl as i32, passed)
-                } else {
-                    fio::qb_file_put(ch0, pos, buf.as_ptr(), rl as i32, passed)
-                }
+            let err = if name == "GETFIELD" {
+                fio::qb_file_get(ch0, pos, &mut buf, passed)
+            } else {
+                fio::qb_file_put(ch0, pos, &buf, passed)
             };
             let links: Vec<_> = vm.rt().field_vars.iter().filter(|f| f.1 == ch0).copied().collect();
             vm.rt().field_store = true;
@@ -193,24 +183,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "SEEKSET" => Some(chk(fio::seek_set(ch0, i(1))).map(|_| None)),
         "LINEINPUT" | "INPUTITEM.s" if ch0 != 0 => {
-            let (mut out, mut len, mut assign) = (std::ptr::null(), 0i32, 0i32);
-            // SAFETY: valid out-pointers.
-            let err = unsafe {
-                if name == "LINEINPUT" {
-                    fio::qb_file_line_input(ch0, &mut out, &mut len, &mut assign)
-                } else {
-                    fio::qb_file_input_string(ch0, &mut out, &mut len, &mut assign)
-                }
-            };
-            // SAFETY: published buffer.
-            let v = if assign != 0 { unsafe { taken(out, len) } } else { Vec::new() };
-            Some(chk(err).map(|_| Some(V::S(v))))
+            let (v, err) = if name == "LINEINPUT" { fio::qb_file_line_input(ch0) } else { fio::qb_file_input_string(ch0) };
+            Some(chk(err).map(|_| Some(V::S(v.unwrap_or_default()))))
         }
         "INPUTITEM.n" if ch0 != 0 => {
             let mut n = fio::NumRepr::default();
-            let mut r = 3;
-            // SAFETY: valid pointers.
-            let err = unsafe { fio::qb_file_input_number(ch0, &mut n, &mut r) };
+            let (r, err) = fio::qb_file_input_number(ch0, &mut n);
             if err != 0 {
                 return Some(e(err));
             }
@@ -230,56 +208,32 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 return Some(e(5));
             }
             let mut buf = vec![0u8; n as usize];
-            let mut len = 0;
-            // SAFETY: buffer of n bytes.
-            let err = unsafe { fio::qb_file_input_n(n as i32, i(1) as i32, buf.as_mut_ptr(), n as i32, &mut len) };
-            buf.truncate(len.max(0) as usize);
+            let (len, err) = fio::qb_file_input_n(n as i32, i(1) as i32, &mut buf);
+            buf.truncate(len);
             Some(chk(err).map(|_| Some(V::S(buf))))
         }
         "GETREC" | "PUTREC" => {
             let (pos, size) = (i(1), i(3) as usize);
-            let passed = i32::from(pos != -1);
+            let passed = pos != -1;
             let ptr = a[2].p();
             let r = match vm.bytes(ptr, size) {
                 Ok(b) => b,
                 Err(x) => return Some(Err(x)),
             };
-            // SAFETY: `r` is `size` bytes of VM memory.
-            let err = unsafe {
-                if name == "GETREC" {
-                    fio::qb_file_get(ch0, pos, r.as_mut_ptr(), size as i32, passed)
-                } else {
-                    fio::qb_file_put(ch0, pos, r.as_ptr(), size as i32, passed)
-                }
-            };
+            let err = if name == "GETREC" { fio::qb_file_get(ch0, pos, r, passed) } else { fio::qb_file_put(ch0, pos, r, passed) };
             Some(chk(err).map(|_| None))
         }
         "PUTSTR" => {
             let pos = i(1);
             let d = s(2);
-            // SAFETY: d is a live slice.
-            let err = unsafe { fio::qb_file_put_string(ch0, pos, d.as_ptr(), d.len() as i32, i32::from(pos != -1)) };
+            let err = fio::qb_file_put_string(ch0, pos, d, pos != -1);
             Some(chk(err).map(|_| None))
         }
         "GETSTR" => {
             let pos = i(1);
             let mut fixed = vec![0u8; i(2).max(0) as usize];
-            let (mut out, mut len, mut assign) = (std::ptr::null(), 0i32, 0i32);
-            // SAFETY: valid buffers.
-            let err = unsafe {
-                fio::qb_file_get_string(
-                    ch0,
-                    pos,
-                    fixed.as_mut_ptr(),
-                    fixed.len() as i32,
-                    i32::from(pos != -1),
-                    &mut out,
-                    &mut len,
-                    &mut assign,
-                )
-            };
-            // SAFETY: published buffer.
-            let v = if assign != 0 { unsafe { taken(out, len) } } else { fixed };
+            let (v, err) = fio::qb_file_get_string(ch0, pos, &mut fixed, pos != -1);
+            let v = v.unwrap_or(fixed);
             Some(chk(err).map(|_| Some(V::S(v))))
         }
         _ => None,

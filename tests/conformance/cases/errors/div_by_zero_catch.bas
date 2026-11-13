@@ -2,8 +2,8 @@ $CONSOLE:ONLY
 ' Integer division by zero (\ and MOD) is error 11 and can be trapped, as in
 ' QBasic 4.5: ON ERROR GOTO, RESUME NEXT, and TRY/CATCH. The most negative _INTEGER64
 ' \ -1 wraps (as in the QIR VM) instead of crashing. The target of a
-' failed division is not printed: QBasic and the QIR VM leave it unchanged, the C++
-' backend stores 0 (D-R12b-5).
+' failed division is not printed: QBasic and the QIR VM leave it unchanged, the old
+' C++ backend stored 0 (D-R12b-5).
 ON ERROR GOTO handler
 a% = 7: z% = 0: r% = 99
 r% = a% \ z%

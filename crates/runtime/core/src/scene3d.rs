@@ -4,14 +4,12 @@
 //! `_CAMERAORTHO`, `_CAMERARANGE`, `_AMBIENT`, `_LIGHT`, `_LIGHTON`,
 //! `_FREELIGHT`, `_CLEAR3D`, `_GPU3D`). Design: `docs/dev/3d-api.md`.
 //!
-//! Handles and state live here for both execution paths (compiled programs
-//! through the `qb_3d_*` C ABI and the shims in libqb, QIR programs through
-//! `qb-exec`). `_DRAW3D` queues a draw; `_DISPLAY` (seen through
-//! [`frame_done`], called by the frame capture hook every `_DISPLAY`) turns
-//! the queue into the shown 3D layer. The layer is rendered on the GPU
-//! (feature `gpu`, `qb_gpu::scene`) into a transparent image and blended over
-//! the SCREEN frame when the window presents it ([`qb_3d_present`]) and in
-//! captured frames. Without the feature or an adapter every statement still
+//! Handles and state live here; `qb-exec` calls the `qb_3d_*` functions.
+//! `_DRAW3D` queues a draw; `_DISPLAY` (seen through [`frame_done`], called
+//! by the frame capture hook every `_DISPLAY`) turns the queue into the shown
+//! 3D layer. The layer is rendered on the GPU (feature `gpu`,
+//! `qb_gpu::scene`) into a transparent image and blended over a frame by
+//! [`compose`], and over captured frames. Without the feature or an adapter every statement still
 //! works (handles, errors) but nothing is drawn and `_GPU3D` is 0.
 //!
 //! Errors: an unknown mesh/light handle is error 258 (invalid handle),
@@ -210,11 +208,10 @@ pub fn light(h: i32) -> Option<Light3> {
     slot(&mut s.lights, h).copied()
 }
 
-// ---- C ABI -------------------------------------------------------------------
+// ---- the statements and functions ----------------------------------------------
 
 /// `_GPU3D`: -1 when 3D can be drawn (feature `gpu` and an adapter), else 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_available() -> i32 {
+pub fn qb_3d_available() -> i32 {
     #[cfg(feature = "gpu")]
     {
         if gpu::with(|_| ()).is_some() {
@@ -227,13 +224,8 @@ pub extern "C" fn qb_3d_available() -> i32 {
 /// `_LOADMODEL(file$)`: a glTF 2.0 file (`.glb`, or `.gltf` with embedded
 /// buffers). -1 when it cannot be read or is not glTF.
 ///
-/// # Safety
-/// `path` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_3d_load_model(path: *const u8, len: i32) -> i32 {
-    // SAFETY: caller contract.
-    let p = unsafe { crate::ffi_bytes(path, len.max(0) as usize) };
-    let Ok(p) = std::str::from_utf8(p) else { return -1 };
+pub fn qb_3d_load_model(path: &[u8]) -> i32 {
+    let Ok(p) = std::str::from_utf8(path) else { return -1 };
     let Ok(bytes) = std::fs::read(p) else { return -1 };
     let is_glb = bytes.starts_with(b"glTF");
     let is_json = bytes.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{');
@@ -248,8 +240,7 @@ pub unsafe extern "C" fn qb_3d_load_model(path: *const u8, len: i32) -> i32 {
 }
 
 /// `_MESHCUBE(size!)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_cube(size: f32) -> i32 {
+pub fn qb_3d_mesh_cube(size: f32) -> i32 {
     if !(size.is_finite() && size > 0.0) {
         return -1;
     }
@@ -257,8 +248,7 @@ pub extern "C" fn qb_3d_mesh_cube(size: f32) -> i32 {
 }
 
 /// `_MESHPLANE(width!, depth!)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_plane(w: f32, d: f32) -> i32 {
+pub fn qb_3d_mesh_plane(w: f32, d: f32) -> i32 {
     if !(w.is_finite() && d.is_finite() && w > 0.0 && d > 0.0) {
         return -1;
     }
@@ -266,15 +256,13 @@ pub extern "C" fn qb_3d_mesh_plane(w: f32, d: f32) -> i32 {
 }
 
 /// `_MESHBEGIN`: starts a mesh built vertex by vertex (drops an unfinished one).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_begin() {
+pub fn qb_3d_mesh_begin() {
     state().builder = Some(Builder { pos: Vec::new(), uv: Vec::new(), idx: Vec::new() });
 }
 
 /// `_MESHVERTEX x!, y!, z! [, u!, v!]` (u, v from 0 to 1 over the texture).
 /// Vertices are numbered from 0. Error 5 without `_MESHBEGIN`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_vertex(x: f32, y: f32, z: f32, u: f32, v: f32) -> i32 {
+pub fn qb_3d_mesh_vertex(x: f32, y: f32, z: f32, u: f32, v: f32) -> i32 {
     let mut s = state();
     let Some(b) = s.builder.as_mut() else { return ERR_ILLEGAL };
     b.pos.push([x, y, z]);
@@ -284,8 +272,7 @@ pub extern "C" fn qb_3d_mesh_vertex(x: f32, y: f32, z: f32, u: f32, v: f32) -> i
 
 /// `_MESHTRIANGLE a&, b&, c&` (vertex numbers). Error 5 without `_MESHBEGIN`
 /// or for a vertex not given yet.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_triangle(a: i32, b: i32, c: i32) -> i32 {
+pub fn qb_3d_mesh_triangle(a: i32, b: i32, c: i32) -> i32 {
     let mut s = state();
     let Some(bl) = s.builder.as_mut() else { return ERR_ILLEGAL };
     let n = bl.pos.len() as i32;
@@ -297,8 +284,7 @@ pub extern "C" fn qb_3d_mesh_triangle(a: i32, b: i32, c: i32) -> i32 {
 }
 
 /// `_MESHEND`: the built mesh's handle; -1 without `_MESHBEGIN` or triangles.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_end() -> i32 {
+pub fn qb_3d_mesh_end() -> i32 {
     let mut s = state();
     let Some(b) = s.builder.take() else { return -1 };
     if b.idx.is_empty() {
@@ -308,8 +294,7 @@ pub extern "C" fn qb_3d_mesh_end() -> i32 {
 }
 
 /// `_MESHCOLOR mesh&, colour~&` (`_RGBA32` value; multiplies the texture).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_color(h: i32, color: u32) -> i32 {
+pub fn qb_3d_mesh_color(h: i32, color: u32) -> i32 {
     let mut s = state();
     let Some(m) = slot(&mut s.meshes, h) else { return ERR_HANDLE };
     m.color = Some(rgba(color));
@@ -321,17 +306,12 @@ pub extern "C" fn qb_3d_mesh_color(h: i32, color: u32) -> i32 {
     0
 }
 
-/// `_MESHTEXTURE mesh&, image&` with the image's 32-bit pixels.
-///
-/// # Safety
-/// `px` readable for `w*h` pixels.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_3d_mesh_texture(h: i32, px: *const u32, w: i32, hh: i32) -> i32 {
-    if px.is_null() || w <= 0 || hh <= 0 {
+/// `_MESHTEXTURE mesh&, image&` with the image's 32-bit pixels (`w*hh`).
+pub fn qb_3d_mesh_texture(h: i32, px: &[u32], w: i32, hh: i32) -> i32 {
+    if w <= 0 || hh <= 0 || px.len() < w as usize * hh as usize {
         return ERR_ILLEGAL;
     }
-    // SAFETY: caller contract.
-    let v = unsafe { std::slice::from_raw_parts(px, w as usize * hh as usize) }.to_vec();
+    let v = px[..w as usize * hh as usize].to_vec();
     let mut s = state();
     let Some(m) = slot(&mut s.meshes, h) else { return ERR_HANDLE };
     m.texture = Some((v, w as u32, hh as u32));
@@ -344,8 +324,7 @@ pub unsafe extern "C" fn qb_3d_mesh_texture(h: i32, px: *const u32, w: i32, hh: 
 }
 
 /// `_FREEMESH mesh&`. Queued and shown draws of it are dropped.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_free_mesh(h: i32) -> i32 {
+pub fn qb_3d_free_mesh(h: i32) -> i32 {
     let mut s = state();
     if slot(&mut s.meshes, h).is_none() {
         return ERR_HANDLE;
@@ -361,14 +340,9 @@ pub extern "C" fn qb_3d_free_mesh(h: i32) -> i32 {
 /// (see `qb_gpu::scene::Shader`). Returns the handle, or -1 when it does not
 /// compile (`_SHADERERROR$` tells why). Without the `gpu` feature the text is
 /// kept unchecked.
-///
-/// # Safety
-/// `src` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_3d_shader(src: *const u8, len: i32) -> i32 {
-    // SAFETY: caller contract.
+pub fn qb_3d_shader(src: &[u8]) -> i32 {
     #[cfg_attr(not(feature = "gpu"), allow(unused_variables))]
-    let text = String::from_utf8_lossy(unsafe { crate::ffi_bytes(src, len.max(0) as usize) }).into_owned();
+    let text = String::from_utf8_lossy(src).into_owned();
     #[cfg(feature = "gpu")]
     let compiled = match qb_gpu::scene::Shader::compile(&text) {
         Ok(sh) => std::sync::Arc::new(sh),
@@ -394,24 +368,9 @@ pub fn shader_error() -> String {
     state().shader_error.clone()
 }
 
-/// C form of [`shader_error`]: copies up to `cap` bytes, returns the full length.
-///
-/// # Safety
-/// `out` writable for `cap` bytes (may be null when `cap` is 0).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_3d_shader_error(out: *mut u8, cap: i32) -> i32 {
-    let e = shader_error();
-    let n = e.len().min(cap.max(0) as usize);
-    if n > 0 {
-        // SAFETY: caller contract.
-        unsafe { std::ptr::copy_nonoverlapping(e.as_ptr(), out, n) };
-    }
-    e.len() as i32
-}
 
 /// `_SHADERPARAM shader&, index&, value!` (index 0..15 = `i.params[index / 4][index % 4]`).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_shader_param(h: i32, index: i32, value: f32) -> i32 {
+pub fn qb_3d_shader_param(h: i32, index: i32, value: f32) -> i32 {
     let mut s = state();
     let Some(sh) = slot(&mut s.shaders, h) else { return ERR_HANDLE };
     if !(0..16).contains(&index) || !value.is_finite() {
@@ -423,8 +382,7 @@ pub extern "C" fn qb_3d_shader_param(h: i32, index: i32, value: f32) -> i32 {
 }
 
 /// `_MESHSHADER mesh&, shader&` (0 = the lit default).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_mesh_shader(mesh: i32, shader: i32) -> i32 {
+pub fn qb_3d_mesh_shader(mesh: i32, shader: i32) -> i32 {
     let mut s = state();
     if shader != 0 && slot(&mut s.shaders, shader).is_none() {
         return ERR_HANDLE;
@@ -436,8 +394,7 @@ pub extern "C" fn qb_3d_mesh_shader(mesh: i32, shader: i32) -> i32 {
 }
 
 /// `_FREESHADER shader&`; meshes using it go back to the lit default.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_free_shader(h: i32) -> i32 {
+pub fn qb_3d_free_shader(h: i32) -> i32 {
     let mut s = state();
     if slot(&mut s.shaders, h).is_none() {
         return ERR_HANDLE;
@@ -460,9 +417,8 @@ pub fn mesh_shader(mesh: i32) -> Option<i32> {
 
 /// `_DRAW3D mesh& [, x!, y!, z!] [, rx!, ry!, rz!] [, sx!, sy!, sz!]`:
 /// queued for the next `_DISPLAY`. Angles in degrees (Y, then X, then Z).
-#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn qb_3d_draw(h: i32, x: f32, y: f32, z: f32, rx: f32, ry: f32, rz: f32, sx: f32, sy: f32, sz: f32) -> i32 {
+pub fn qb_3d_draw(h: i32, x: f32, y: f32, z: f32, rx: f32, ry: f32, rz: f32, sx: f32, sy: f32, sz: f32) -> i32 {
     let mut s = state();
     if slot(&mut s.meshes, h).is_none() {
         return ERR_HANDLE;
@@ -480,9 +436,8 @@ pub extern "C" fn qb_3d_draw(h: i32, x: f32, y: f32, z: f32, rx: f32, ry: f32, r
 /// `_CAMERA (x!, y!, z!) TO (tx!, ty!, tz!) [, fov!]` (`ortho` 0, `fov` degrees)
 /// or `_CAMERAORTHO ... , height!` (`ortho` 1). Error 5 for eye = target or a
 /// field of view outside 1..179 / height <= 0.
-#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn qb_3d_camera(ex: f32, ey: f32, ez: f32, tx: f32, ty: f32, tz: f32, fov_or_height: f32, ortho: i32) -> i32 {
+pub fn qb_3d_camera(ex: f32, ey: f32, ez: f32, tx: f32, ty: f32, tz: f32, fov_or_height: f32, ortho: i32) -> i32 {
     let v = [ex, ey, ez, tx, ty, tz, fov_or_height];
     if v.iter().any(|x| !x.is_finite()) || (ex, ey, ez) == (tx, ty, tz) {
         return ERR_ILLEGAL;
@@ -499,8 +454,7 @@ pub extern "C" fn qb_3d_camera(ex: f32, ey: f32, ez: f32, tx: f32, ty: f32, tz: 
 }
 
 /// `_CAMERARANGE near!, far!` (0 < near < far).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_camera_range(near: f32, far: f32) -> i32 {
+pub fn qb_3d_camera_range(near: f32, far: f32) -> i32 {
     if !(near.is_finite() && far.is_finite() && near > 0.0 && far > near) {
         return ERR_ILLEGAL;
     }
@@ -512,8 +466,7 @@ pub extern "C" fn qb_3d_camera_range(near: f32, far: f32) -> i32 {
 }
 
 /// `_AMBIENT colour~& [, intensity!]` (intensity defaults to 1).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_ambient(color: u32, intensity: f32) -> i32 {
+pub fn qb_3d_ambient(color: u32, intensity: f32) -> i32 {
     if !intensity.is_finite() || intensity < 0.0 {
         return ERR_ILLEGAL;
     }
@@ -527,11 +480,10 @@ pub extern "C" fn qb_3d_ambient(color: u32, intensity: f32) -> i32 {
 
 /// `_LIGHT(kind&, x!, y!, z!, colour~&, intensity! [, range!])`: kind 1 =
 /// directional (x, y, z = direction the light travels), 2 = point (x, y, z =
-/// position). Returns the handle, -1 for a bad kind or values (the shims
+/// position). Returns the handle, -1 for a bad kind or values (the caller
 /// raise error 5 then).
-#[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub extern "C" fn qb_3d_light(kind: i32, x: f32, y: f32, z: f32, color: u32, intensity: f32, range: f32) -> i32 {
+pub fn qb_3d_light(kind: i32, x: f32, y: f32, z: f32, color: u32, intensity: f32, range: f32) -> i32 {
     if !(kind == 1 || kind == 2) || [x, y, z, intensity, range].iter().any(|v| !v.is_finite()) || intensity < 0.0 {
         return -1;
     }
@@ -546,8 +498,7 @@ pub extern "C" fn qb_3d_light(kind: i32, x: f32, y: f32, z: f32, color: u32, int
 }
 
 /// `_LIGHTON light&, on&` (0 off, else on).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_light_on(h: i32, on: i32) -> i32 {
+pub fn qb_3d_light_on(h: i32, on: i32) -> i32 {
     let mut s = state();
     let Some(l) = slot(&mut s.lights, h) else { return ERR_HANDLE };
     l.on = on != 0;
@@ -556,8 +507,7 @@ pub extern "C" fn qb_3d_light_on(h: i32, on: i32) -> i32 {
 }
 
 /// `_FREELIGHT light&`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_free_light(h: i32) -> i32 {
+pub fn qb_3d_free_light(h: i32) -> i32 {
     let mut s = state();
     if slot(&mut s.lights, h).is_none() {
         return ERR_HANDLE;
@@ -569,36 +519,13 @@ pub extern "C" fn qb_3d_free_light(h: i32) -> i32 {
 
 /// `_CLEAR3D [colour~&]`: drops this frame's queued draws; the layer is
 /// cleared to `colour` (transparent when `passed` is 0).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_3d_clear(color: u32, passed: i32) {
+pub fn qb_3d_clear(color: u32, passed: i32) {
     let mut s = state();
     s.queue.clear();
     s.clear = if passed & 1 != 0 { color } else { 0 };
     s.generation += 1;
 }
 
-/// The window presenter's hook: blends the shown 3D layer over the composed
-/// frame `px` (`w`×`h`, `0xAARRGGBB`). In `_AUTODISPLAY` mode (no
-/// `_DISPLAY`) the queue is shown as it is.
-///
-/// # Safety
-/// `px` writable for `w*h` pixels.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_3d_present(px: *mut u32, w: i32, h: i32) {
-    if px.is_null() || w <= 0 || h <= 0 {
-        return;
-    }
-    {
-        let mut s = state();
-        if !s.queue.is_empty() && s.shown.is_empty() {
-            s.shown = std::mem::take(&mut s.queue);
-            s.generation += 1;
-        }
-    }
-    // SAFETY: caller contract.
-    let frame = unsafe { std::slice::from_raw_parts_mut(px, w as usize * h as usize) };
-    compose(frame, w as u32, h as u32);
-}
 
 /// Blends the shown layer over `frame`; no-op without a GPU or a layer.
 pub fn compose(frame: &mut [u32], w: u32, h: u32) {
@@ -890,9 +817,9 @@ mod tests {
         let bad = dir.join("x.txt");
         std::fs::write(&bad, b"hello").unwrap();
         let p = bad.to_string_lossy().into_owned();
-        assert_eq!(unsafe { qb_3d_load_model(p.as_ptr(), p.len() as i32) }, -1);
+        assert_eq!(qb_3d_load_model(p.as_bytes()), -1);
         let missing = dir.join("missing.glb").to_string_lossy().into_owned();
-        assert_eq!(unsafe { qb_3d_load_model(missing.as_ptr(), missing.len() as i32) }, -1);
+        assert_eq!(qb_3d_load_model(missing.as_bytes()), -1);
         let _ = std::fs::remove_file(&bad);
     }
 
@@ -936,17 +863,18 @@ mod tests {
         qb_3d_mesh_triangle(0, 3, 2);
         let q = qb_3d_mesh_end();
         let tex = [0xFF00_FF00u32; 4];
-        assert_eq!(unsafe { qb_3d_mesh_texture(q, tex.as_ptr(), 2, 2) }, 0);
+        assert_eq!(qb_3d_mesh_texture(q, &tex, 2, 2), 0);
         qb_3d_camera(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 4.0, 1);
         qb_3d_ambient(0xFFFF_FFFF, 1.0);
         qb_3d_draw(q, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
         let mut frame = vec![0u32; 16 * 16];
-        unsafe { qb_3d_present(frame.as_mut_ptr(), 16, 16) }; // _AUTODISPLAY: the queue is shown
+        frame_done();
+        compose(&mut frame, 16, 16);
         assert!(frame.iter().all(|&p| near(p, 0xFF00_FF00)), "{:08x}", frame[0]);
     }
 
     fn shader(src: &str) -> i32 {
-        unsafe { qb_3d_shader(src.as_ptr(), src.len() as i32) }
+        qb_3d_shader(src.as_bytes())
     }
 
     #[test]
@@ -975,9 +903,6 @@ mod tests {
         assert_eq!(shader("fn shade(i: ShadeIn) -> vec4<f32> {\n  return vec4<f32>(oops);\n}"), -1);
         let e = shader_error();
         assert!(e.starts_with("line 2"), "{e}");
-        let mut buf = [0u8; 8];
-        let n = unsafe { qb_3d_shader_error(buf.as_mut_ptr(), 8) };
-        assert_eq!((n as usize, &buf[..]), (e.len(), &e.as_bytes()[..8]));
     }
 
     #[cfg(feature = "gpu")]

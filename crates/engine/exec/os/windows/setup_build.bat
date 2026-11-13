@@ -1,7 +1,9 @@
 @echo off
-rem R11: builds the QIR runner (qb-exec) used by `qb --ir` and copies it to
-rem crates\engine\exec\bin\windows\qb-exec.exe. Same Rust target as qb-runtime (MinGW ABI),
-rem so the executable has no MSVC runtime dependency.
+rem Builds the QIR runner (qb-exec) used by `qb` and copies it to
+rem crates\engine\exec\bin\windows\qb-exec.exe, for the windows-gnu Rust target,
+rem so the executable has no MSVC runtime dependency. scripts\setup_win.cmd is the
+rem usual way to build the runner. The g++ probe below looks for the old MinGW
+rem toolchain under internal\c, which no longer exists; without it the target is x86_64.
 rem Requires cargo/rustup on PATH. End users get the prebuilt runner in release bundles.
 setlocal
 cd /d "%~dp0"

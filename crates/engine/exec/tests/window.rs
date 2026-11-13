@@ -236,7 +236,7 @@ fn int33_mouse_through_call_absolute() {
     assert_eq!(code, Some(0), "{out}");
     let t = std::fs::read_to_string(dir.join("mouse.txt")).unwrap();
     let lines: Vec<&str> = t.lines().map(str::trim).collect();
-    // SCREEN 13: CX is twice the pixel x (libqb call_int)
+    // SCREEN 13: CX is twice the pixel x (as the DOS mouse driver reports it)
     assert_eq!(lines, ["-1  2", "0  200  48"]);
     let _ = std::fs::remove_dir_all(&dir);
 }

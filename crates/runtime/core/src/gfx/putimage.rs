@@ -1,10 +1,10 @@
 //! `_PUTIMAGE` (`sub__putimage`): software copy between surfaces with
 //! clipping, mirroring, flipping, stretching, clear color and alpha blending.
 //!
-//! Handle resolution, the hardware-image command queue and the "source is
-//! the destination" detour stay in the C++ shim; it passes the two surfaces
-//! here. For hardware images the shim passes emulated surfaces and asks for
-//! the resolved coordinates only (`hw_out`).
+//! Handle resolution and the "source is the destination" detour belong to
+//! the caller; it passes the two surfaces here. For hardware images the
+//! caller passes emulated surfaces and asks for the resolved coordinates
+//! only (`hw_out`).
 
 use super::blend::blend_onto;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -109,7 +109,7 @@ unsafe fn plot(k: Kind, s: &ImgStruct, d: &ImgStruct, soff: isize, doff: isize) 
 ///
 /// # Safety
 /// `s` and `d` must be valid, distinct graphics surfaces of compatible depth
-/// (checked by the shim), or emulated surfaces when `hw_out` is given.
+/// (checked by the caller), or emulated surfaces when `hw_out` is given.
 pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passed: i32, hw_out: Option<&mut [i32; 8]>) -> i32 {
     let PutCoords { dx1: mut f_dx1, dy1: mut f_dy1, dx2: mut f_dx2, dy2: mut f_dy2, sx1: mut f_sx1, sy1: mut f_sy1, sx2: mut f_sx2, sy2: mut f_sy2 } = c;
     let (sw, sh, dw, dh) = (i32::from(s.width), i32::from(s.height), i32::from(d.width), i32::from(d.height));
@@ -567,13 +567,12 @@ unsafe fn stretch(
 /// Number of stretched source samples that fell outside the source.
 pub static SOURCE_OUT_OF_RANGE: AtomicU64 = AtomicU64::new(0);
 
-/// C ABI. `hw_out` may be null (software copy) or point to 8 int32 that
+/// `_PUTIMAGE`. `hw_out` may be null (software copy) or point to 8 int32 that
 /// receive (sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2) for a hardware command.
 ///
 /// # Safety
 /// See [`putimage`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_putimage(
+pub unsafe fn qb_gfx_putimage(
     s: *mut ImgStruct,
     d: *mut ImgStruct,
     c: *const PutCoords,

@@ -202,12 +202,11 @@ pub unsafe fn sub_circle(
     0
 }
 
-/// C ABI: `sub_circle` on `write_page`.
+/// `CIRCLE` on `write_page`.
 ///
 /// # Safety
 /// `im` must be `write_page`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_circle(
+pub unsafe fn qb_gfx_circle(
     im: *mut ImgStruct,
     x: f64,
     y: f64,

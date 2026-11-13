@@ -37,48 +37,6 @@ pub fn set_program_args(args: Vec<String>) {
 #[cfg(feature = "debug")]
 pub use vm::debug;
 
-/// `qb-runtime` is linked as a whole: its string engine refers to symbols that
-/// libqb.cpp/qbx.cpp define for C++ programs. qb-exec never calls that code, so
-/// it only needs the symbols to exist.
-#[allow(non_upper_case_globals)]
-mod libqb_host {
-    #[unsafe(no_mangle)]
-    pub static mut cmem_sp: u32 = 0;
-    #[unsafe(no_mangle)]
-    pub static mut dblock: isize = 0;
-    #[unsafe(no_mangle)]
-    pub static mut cmem: [u8; 1] = [0];
-    #[unsafe(no_mangle)]
-    pub extern "C" fn qb_host_error(_n: i32) {
-        std::process::abort()
-    }
-    #[unsafe(no_mangle)]
-    pub extern "C" fn qb_host_field_free(_s: *mut core::ffi::c_void) {
-        std::process::abort()
-    }
-    // Core runtime (allocators, errors, events, waits).
-    #[unsafe(no_mangle)]
-    pub static mut cmem_static_pointer: *mut u8 = core::ptr::null_mut();
-    #[unsafe(no_mangle)]
-    pub static mut cmem_dynamic_base: *mut u8 = core::ptr::null_mut();
-    #[unsafe(no_mangle)]
-    pub extern "C" fn qb_host_message_box(_m: *const core::ffi::c_char, _t: *const core::ffi::c_char, _k: i32) -> i32 {
-        std::process::abort()
-    }
-    #[unsafe(no_mangle)]
-    pub extern "C" fn qb_host_end() {
-        std::process::abort()
-    }
-    #[unsafe(no_mangle)]
-    pub extern "C" fn qb_host_evnt() {
-        std::process::abort()
-    }
-    #[unsafe(no_mangle)]
-    pub extern "C" fn qb_host_devices_init() {
-        std::process::abort()
-    }
-}
-
 use std::io::Write;
 
 /// Runtime error raised by a QIR program (QBasic error code + source line).
@@ -135,7 +93,7 @@ pub fn run_linked(src: &str, fns: &[qb_jit::NativeFn], fingerprint: u64, out: &m
     let mut vm = Vm::new(&m, out);
     vm.load_linked(fns, fingerprint).map_err(RunError::load)?;
     vm.set_continue_unhandled(true);
-    if qb_runtime::error::qb_end_prompt_wanted(0) != 0 {
+    if qb_runtime::error::end_prompt_wanted() {
         vm.set_end_prompt(Some(wait_end_key));
     }
     vm.run_status()
@@ -174,8 +132,8 @@ pub fn run_ir_native(src: &str, image: &[u8], out: &mut dyn Write) -> Result<i32
 }
 
 /// Runs a compiled program as its executable does (`qb-exec`): unhandled
-/// errors are reported on stderr and the program continues, like the
-/// headless C++ runtime. `image`: native image from [`build_native`].
+/// errors are reported on stderr and the program continues, as a QB64
+/// program does without a window. `image`: native image from [`build_native`].
 pub fn run_program(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Result<i32, RunError> {
     let m = compile(src)?;
     let mut vm = Vm::new(&m, out);
@@ -185,7 +143,7 @@ pub fn run_program(src: &str, image: Option<&[u8]>, out: &mut dyn Write) -> Resu
     vm.set_continue_unhandled(true);
     // END waits for a key only when somebody could press one (the runtime's END
     // policy: stdin and stdout on the console, QBNEX_NO_ERROR_DIALOG unset)
-    if qb_runtime::error::qb_end_prompt_wanted(0) != 0 {
+    if qb_runtime::error::end_prompt_wanted() {
         vm.set_end_prompt(Some(wait_end_key));
     }
     vm.run_status()

@@ -5,11 +5,11 @@ edition.workspace = true
 license.workspace = true
 # cpal 0.18 needs 1.85, xmrsplayer 1.88
 rust-version.workspace = true
-description = "QBNex audio runtime (SOUND, BEEP, PLAY, _SND*, synth). Replaces internal/c/parts/audio."
+description = "QBNex audio runtime (SOUND, BEEP, PLAY, _SND*, synth)."
 publish = false
 
 # A separate crate on purpose: the release profile builds each crate as one
-# object file (codegen-units = 1), so keeping audio out of the `qb-runtime` crate is
+# object file (codegen-units = 1), so keeping audio out of the `qb-runtime` crate
 # keeps the audio engine, cpal and the decoders in their own object file.
 [lib]
 name = "qb_audio"

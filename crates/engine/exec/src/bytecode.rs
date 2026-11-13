@@ -9,7 +9,7 @@
 //! - `r` numeric: 64-bit cells. Integers are stored sign-extended and already
 //!   wrapped to their QBasic width (`INTEGER` = i16, `LONG` = i32,
 //!   `_INTEGER64` = i64); `SINGLE`/`DOUBLE` are `f64` bits (`SINGLE` temporaries
-//!   keep double precision until stored, like the C++ backend).
+//!   keep double precision until stored).
 //! - `s` strings (`Vec<u8>`). A string *source* operand with [`K`] set names a
 //!   constant of [`Module::kstr`] instead of a register.
 //! - `a` arrays. An array operand with [`G`] set is a module-level array

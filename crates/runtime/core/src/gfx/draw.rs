@@ -459,12 +459,11 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
     }
 }
 
-/// C ABI: `DRAW` on `write_page`.
+/// `DRAW` on `write_page`.
 ///
 /// # Safety
 /// See [`draw`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_draw(im: *mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
+pub unsafe fn qb_gfx_draw(im: *mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { draw(&mut *im, s, len, cmem) }
 }

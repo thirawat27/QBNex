@@ -1,5 +1,5 @@
 $CONSOLE
-' LOCATE below row 25 after printing on row 30: both backends agree.
+' LOCATE below row 25 after printing on row 30.
 ON ERROR GOTO h
 COLOR 3, 0: CLS
 LOCATE 30, 28: r1 = CSRLIN

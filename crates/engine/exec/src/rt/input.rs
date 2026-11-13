@@ -4,9 +4,9 @@
 //! Events come from qb-runtime's window layer (an input script replayed by
 //! the headless window, `QBNEX_INPUT_SCRIPT`) through its callbacks; they are
 //! queued and applied on the program thread when the program asks for input.
-//! The key path is a port of libqb.cpp `keydown` / `keyup` (BIOS INKEY$
-//! buffer in conventional memory, _KEYHIT ring and held keys in qb-runtime
-//! keybuf) and the mouse path of window_bridge.cpp (one message queue);
+//! The key path follows QB64's `keydown` / `keyup` (BIOS INKEY$ buffer in
+//! conventional memory, _KEYHIT ring and held keys in qb-runtime keybuf); the
+//! mouse path has one message queue;
 //! CTRL+BREAK, PAUSE and ALT+ENTER are not handled here.
 //!
 //! Mouse messages go to a queue the program reads with _MOUSEINPUT; a mouse
@@ -80,22 +80,22 @@ fn push(e: Ev) {
 /// Key presses seen so far (SLEEP ends at the next one).
 pub(crate) static KEY_PRESSES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-pub(crate) extern "C" fn cb_key(action: i32, code: u32) {
+pub(crate) fn cb_key(action: i32, code: u32) {
     if action == 1 || action == 3 {
         KEY_PRESSES.fetch_add(1, Ordering::Relaxed);
     }
     push(Ev::Key(action, code));
 }
-pub(crate) extern "C" fn cb_button(b: i32, down: i32, x: i32, y: i32) {
+pub(crate) fn cb_button(b: i32, down: i32, x: i32, y: i32) {
     push(Ev::Button(b, down != 0, x, y));
 }
-pub(crate) extern "C" fn cb_move(x: i32, y: i32) {
+pub(crate) fn cb_move(x: i32, y: i32) {
     push(Ev::Move(x, y));
 }
-pub(crate) extern "C" fn cb_wheel(dir: i32, x: i32, y: i32) {
+pub(crate) fn cb_wheel(dir: i32, x: i32, y: i32) {
     push(Ev::Wheel(dir, x, y));
 }
-pub(crate) extern "C" fn cb_relative(dx: i32, dy: i32) {
+pub(crate) fn cb_relative(dx: i32, dy: i32) {
     push(Ev::Relative(dx, dy));
 }
 
@@ -159,8 +159,7 @@ fn start_window() {
         created: None,
     };
     std::thread::spawn(move || {
-        // SAFETY: valid callbacks, null title.
-        unsafe { qb_runtime::window::qb_window_run(&cb, 640, 400, core::ptr::null(), 0, 1) };
+        qb_runtime::window::qb_window_run(&cb, 640, 400, "Untitled", false, true);
     });
 }
 
@@ -270,7 +269,7 @@ impl MouseQueue {
     }
 }
 
-/// Key and mouse state of the program (libqb globals).
+/// Key and mouse state of the program.
 pub(crate) struct Input {
     keyup_mask: Vec<u32>,
     insert_held: bool,
@@ -450,7 +449,7 @@ impl Input {
         let m = self.queues[q].message();
         (m.movement_x, m.movement_y)
     }
-    /// `func__mousebutton` (buttons 2 and 3 swapped as libqb)
+    /// `func__mousebutton` (buttons 2 and 3 swapped, as in QB64)
     pub(crate) fn mousebutton(&self, q: usize, i: i32) -> bool {
         let i = match i {
             2 => 3,
@@ -514,9 +513,7 @@ impl Input {
     }
 
     fn update_shift_state(cmem: &mut [u8]) {
-        let mut b = [0u8; 3];
-        // SAFETY: three writable bytes.
-        unsafe { keybuf::qb_shift_state(b.as_mut_ptr()) };
+        let b = keybuf::qb_shift_state();
         cmem[0x417] = b[0];
         cmem[0x418] = b[1];
         cmem[0x496] = b[2];
@@ -636,7 +633,7 @@ impl Input {
     }
 
     /// ON KEY(1..14, 30, 31): F1-F10, the arrows (also on the keypad), F11, F12
-    /// (libqb.cpp keydown, priority 2). Marks the slot; true = the key was trapped.
+    /// (checked before the key reaches the buffer). Marks the slot; true = the key was trapped.
     fn onkey_trap(x: u32, x2: u32) -> bool {
         let keys = qb_runtime::events::onkeys();
         for (i, k) in keys.iter_mut().enumerate() {
@@ -815,13 +812,12 @@ impl Input {
     }
 }
 
-/// Game controllers: qb-runtime reports them through C callbacks; the events
+/// Game controllers: qb-runtime reports them through callbacks; the events
 /// wait here until the program thread applies them to the devices.
 #[cfg(not(target_arch = "wasm32"))]
 mod pads {
     use super::Devices;
     use qb_runtime::gamepad::{qb_gamepad_poll, Callbacks};
-    use std::ffi::{c_char, CStr};
     use std::sync::Mutex;
 
     enum Pad {
@@ -836,30 +832,24 @@ mod pads {
     fn push(p: Pad) {
         EVENTS.lock().unwrap_or_else(|p| p.into_inner()).push(p);
     }
-    extern "C" fn attached(id: u32, name: *const c_char, vendor: i32, product: i32, axes: i32, buttons: i32) {
-        let name = if name.is_null() {
-            String::new()
-        } else {
-            // SAFETY: qb-runtime passes a NUL-terminated name that lives for this call.
-            unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned()
-        };
-        push(Pad::Attached(id, name, vendor, product, axes, buttons));
+    fn attached(id: u32, name: &str, vendor: i32, product: i32, axes: i32, buttons: i32) {
+        push(Pad::Attached(id, name.to_owned(), vendor, product, axes, buttons));
     }
-    extern "C" fn removed(id: u32) {
+    fn removed(id: u32) {
         push(Pad::Removed(id));
     }
-    extern "C" fn button(id: u32, button: i32, down: i32) {
-        push(Pad::Button(id, button, down != 0));
+    fn button(id: u32, button: i32, down: bool) {
+        push(Pad::Button(id, button, down));
     }
-    extern "C" fn axis(id: u32, axis: i32, value: f32) {
+    fn axis(id: u32, axis: i32, value: f32) {
         push(Pad::Axis(id, axis, value));
     }
 
     /// Reads the controllers (program thread) and applies what changed.
     pub(super) fn poll(devices: &mut Devices) {
         let cb = Callbacks { attached: Some(attached), removed: Some(removed), button: Some(button), axis: Some(axis) };
-        // SAFETY: a valid callback table.
-        unsafe { qb_gamepad_poll(&cb) };
+        qb_gamepad_poll(&cb);
+
         let events = std::mem::take(&mut *EVENTS.lock().unwrap_or_else(|p| p.into_inner()));
         for ev in events {
             match ev {

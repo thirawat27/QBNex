@@ -1,4 +1,4 @@
-//! Software replacement for the OpenGL presentation path of `libqb/gui.cpp`.
+//! Software presentation of the SCREEN in the window (what QB64 did with OpenGL).
 //!
 //! * [`layout`] is a port of `prepare_environment_2d()`: where the SCREEN goes
 //!   inside the window (stretch, letterbox, top-left).
@@ -26,7 +26,7 @@ pub struct Layout {
     pub letterbox: i32,
 }
 
-/// Port of `prepare_environment_2d()` (gui.cpp). `full_screen`: 0 windowed,
+/// QB64's `prepare_environment_2d()`. `full_screen`: 0 windowed,
 /// 1 stretched, 2 square pixels. `resize_auto`: 0 off, 1 `_STRETCH`, 2 `_SMOOTH`.
 pub fn layout(
     screen_w: i32,
@@ -119,7 +119,7 @@ pub struct Source<'a> {
     pub h: usize,
 }
 
-/// `DEPTHBUFFER_MODE__*` / `CULL_MODE__*` values from libqb.cpp.
+/// QB64's `DEPTHBUFFER_MODE__*` / `CULL_MODE__*` values.
 pub const DEPTH_OFF: i32 = 0;
 pub const DEPTH_ON: i32 = 1;
 pub const DEPTH_LOCKED: i32 = 2;

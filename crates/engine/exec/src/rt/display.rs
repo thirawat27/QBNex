@@ -1,8 +1,8 @@
 //! Screen pages, image handles and the graphics/console statements of the
-//! v1 interpreter. Ported from the parts of libqb.cpp that still owned this
-//! state (`qbg_screen`, `validatepage`, `func__newimage`, `sub__dest`, the
-//! one-line graphics shims, `end()`'s capture); the surfaces, drawing, text
-//! console and capture are qb-runtime (`gfx`, `console`).
+//! v1 interpreter: the screen state (`qbg_screen`, `validatepage`,
+//! `func__newimage`, `sub__dest`, the one-line graphics builtins, the capture
+//! at END); the surfaces, drawing, text console and capture are qb-runtime
+//! (`gfx`, `console`).
 
 use super::builtins::Host as VmIface;
 use super::{Stop, R, V};
@@ -32,7 +32,7 @@ pub(crate) struct Display {
     pub sub_screen_font: i32,
     pub sub_screen_keep_page0: bool,
     pub last_active_page: i32,
-    /// font tables of libqb (`font`, `fontwidth`, `fontheight`, `fontflags`):
+    /// font tables (`font`, `fontwidth`, `fontheight`, `fontflags`):
     /// 8/9/14/15/16/17 are builtin, 32.. are `_LOADFONT` handles (`font` = qb_runtime::font handle)
     pub font: Vec<i32>,
     pub fontwidth: Vec<i32>,
@@ -165,9 +165,9 @@ impl Display {
         // SAFETY: valid surface.
         unsafe {
             if (*p).text != 0 {
-                console::cells::qb_text_cells_init(i, i32::from((*p).width) * i32::from((*p).height));
+                console::cells::init(i, usize::from((*p).width) * usize::from((*p).height));
             } else {
-                console::cells::qb_text_cells_release(i);
+                console::cells::release(i);
             }
         }
     }
@@ -181,7 +181,7 @@ impl Display {
                 qb_runtime::mem::free_mem_lock((*im(i)).lock_offset as *mut qb_runtime::mem::MemLock);
             }
         }
-        console::cells::qb_text_cells_release(i as i32);
+        console::cells::release(i as i32);
         for p in self.page.iter_mut() {
             if *p == i as i32 {
                 *p = 0;
@@ -272,7 +272,7 @@ impl Display {
             // SAFETY: fresh surface.
             unsafe { (*im(i as u32)).console = 1 };
         }
-        // icon images (16x16 and 32x32), so image handles match the C++ backend
+        // icon images (16x16 and 32x32) come first, so program image handles keep their usual numbers
         self.newimage(16, 16, 32, 1);
         self.newimage(32, 32, 32, 1);
         if console_only && self.console_image < 0
@@ -419,7 +419,7 @@ impl Display {
         i as i32
     }
 
-    /// `func__loadimage(file$, mode, passed)` (image_bridge.cpp): 32, 256 or 257 (no
+    /// `func__loadimage(file$, mode, passed)`: 32, 256 or 257 (no
     /// palette remap); 33 (hardware) loads a software 32bpp image here
     pub(crate) fn loadimage(&mut self, file: &[u8], mut bpp: i32, passed: i32) -> i32 {
         let mut keep_palette = false;
@@ -512,7 +512,7 @@ impl Display {
     /// `printchr_custom`: a custom-font glyph at the cursor of the write page.
     unsafe fn printchr_custom(&self, ch: u32) {
         let w = self.wp();
-        // SAFETY: valid write page; pixels go through qb_gfx_pset like libqb's pset().
+        // SAFETY: valid write page; pixels go through qb_gfx_pset like PSET.
         unsafe {
             let f = (*w).font;
             let fw = self.fontwidth[f as usize];
@@ -663,7 +663,7 @@ impl Display {
     }
 
     /// `func__printwidth(text$, handle, passed)`: a proportional font is measured by
-    /// printing on a 65535-pixel wide temporary image, as libqb does
+    /// printing on a 65535-pixel wide temporary image, as QB64 does
     pub(crate) fn printwidth(&mut self, cmem: *mut u8, text: &[u8], handle: i32, passed: i32) -> i32 {
         let idx = if passed != 0 {
             match self.resolve(handle) {
@@ -806,7 +806,7 @@ impl Display {
                 (*d).flags |= IMG_FREEPAL;
             }
             if (*d).text != 0 {
-                console::cells::qb_text_cells_copy(src as i32, i2 as i32);
+                console::cells::copy(src as i32, i2 as i32);
             }
             if (*d).flags & IMG_SCREEN != 0 {
                 (*d).flags ^= IMG_SCREEN;
@@ -1475,7 +1475,7 @@ impl Host for VmHost<'_> {
             let (c, c2) = ((*w).color, (*w).background_color);
             let mut buf = vec![0u8; 80 * 25 * 2];
             core::ptr::copy_nonoverlapping(self.cmem.add(0xB8000), buf.as_mut_ptr(), buf.len());
-            // WIDTH 80, 50 (libqb's width_80x50_ calls qbsub_width(0,80,50,0,0,3))
+            // WIDTH 80, 50 (qbsub_width(0, 80, 50, 0, 0, 3))
             self.d.width(self.cmem, 0, 80, 50, 0, 0, 3);
             core::ptr::copy_nonoverlapping(buf.as_ptr(), self.cmem.add(0xB8000), buf.len());
             let w = self.d.wp();
@@ -1537,7 +1537,7 @@ impl Host for VmHost<'_> {
         qb_runtime::systime::sleep_ms(u64::from(ms));
     }
     fn ticks(&mut self) -> i64 {
-        qb_runtime::systime::qb_get_ticks()
+        qb_runtime::systime::ticks()
     }
 }
 
@@ -1689,7 +1689,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             "sub_pcopy" => d.pcopy(i(0), i(1)),
             "sub_draw" => {
                 let s = a[0].s();
-                // DRAW reads VARPTR$ offsets at cmem + 1280 (the C++ DBLOCK); the VM's DBLOCK is elsewhere
+                // DRAW reads VARPTR$ offsets at cmem + 1280 (where QB64 keeps DBLOCK); the VM's DBLOCK is elsewhere
                 let base = cmem.wrapping_add(super::builtins::DBLOCK - 1280);
                 gerr(d, gfx::draw::qb_gfx_draw(wp, s.as_ptr(), s.len() as i32, base));
             }
@@ -1739,7 +1739,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     let px: Vec<u32> = if (*im(d.resolve(i(0)).unwrap_or(0))).bytes_per_pixel == 4 { px } else { px.iter().map(|p| p | 0xFF00_0000).collect() };
                     #[cfg(not(target_arch = "wasm32"))]
                     if d.window && !d.screen_hide {
-                        qb_runtime::window::qb_window_set_icon(px.as_ptr(), w as i32, h as i32);
+                        qb_runtime::window::qb_window_set_icon(&px, w as i32, h as i32);
                     }
                     let _ = (w, h, px);
                 }
@@ -1747,20 +1747,18 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             // _SCREENIMAGE[(x1, y1, x2, y2)]: a 32-bit image of the desktop (blank where the
             // system gives no access to it)
             "func__screenimage" => {
-                let (mut w, mut h) = (0, 0);
-                let px = qb_runtime::screen::qb_screenimage(i(0), i(1), i(2), i(3), i(4), &mut w, &mut h);
-                let handle = if px.is_null() && w > 0 && h > 0 {
+                let (w, h, px) = qb_runtime::screen::qb_screenimage(i(0), i(1), i(2), i(3), i(4));
+                let handle = if px.is_none() && w > 0 && h > 0 {
                     let (dw, dh) = qb_runtime::screen::desktop();
                     d.newimage(dw.max(1), dh.max(1), 32, 1)
                 } else {
                     d.newimage(w, h, 32, 1)
                 };
-                if !px.is_null() {
-                    let n = w as usize * h as usize;
+                if let Some(px) = px {
+                    let n = (w as usize * h as usize).min(px.len());
                     if handle < -1 {
-                        core::ptr::copy_nonoverlapping(px, (*im((-handle) as u32)).offset.cast::<u32>(), n);
+                        core::ptr::copy_nonoverlapping(px.as_ptr(), (*im((-handle) as u32)).offset.cast::<u32>(), n);
                     }
-                    qb_runtime::pixels::qb_free_pixels(px, n as i64);
                 }
                 out = Some(V::I(handle.into()));
             }
@@ -1857,7 +1855,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(v.into()));
             }
             "func__rgb32" => {
-                // overloads by argument count (qbx.cpp): (i) (i,a) (r,g,b) (r,g,b,a); components clamp to 0..255
+                // overloads by argument count: (i) (i,a) (r,g,b) (r,g,b,a); components clamp to 0..255
                 let c = |k: usize| i(k).clamp(0, 255) as u32;
                 let v = match i(4) {
                     1 => 0xFF00_0000 | (c(0) << 16) | (c(0) << 8) | c(0),
@@ -1896,7 +1894,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             // the _GLRENDER mode here, so the order is accepted and has no further effect
             "sub__displayorder" => {}
             "sub__blend" | "sub__dontblend" => {
-                // _BLEND / _DONTBLEND [image]: alpha blending of a 32-bit image (libqb sub__blend)
+                // _BLEND / _DONTBLEND [image]: alpha blending of a 32-bit image
                 let idx = if i(1) != 0 { d.resolve(i(0)) } else { Some(d.write_index) };
                 if let Some(x) = idx {
                     if (*im(x)).bytes_per_pixel == 1 {
@@ -2031,7 +2029,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 out = Some(V::I(v.into()));
             }
             "func__loadfont" => {
-                // size: the C++ int32 parameter of a DOUBLE argument (truncated)
+                // size: a DOUBLE argument truncated to int32, as QB64 passes it
                 let v = d.loadfont(a[0].s(), f(1) as i32, a[2].s(), i(3));
                 out = Some(V::I(v.into()));
             }
@@ -2156,7 +2154,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 // (option, handle, passed). The depth buffer belongs to hardware images, which
                 // the QIR runtime does not have (_MAPTRIANGLE draws on software surfaces, and
                 // qb_gpu::maptri::DepthBuffer has no caller outside qb-runtime's GPU tests):
-                // only legacy's handle checks remain. 0/1 = the hardware screen, no-op.
+                // only QB64's handle checks remain. 0/1 = the hardware screen, no-op.
                 if i(2) & 1 != 0 {
                     let dst = i(1);
                     if dst < 0 {

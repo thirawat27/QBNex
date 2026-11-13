@@ -1,8 +1,7 @@
 //! UTF-8 side table of SCREEN 0 surfaces. The character plane of a text
 //! surface holds one code page 437 byte per cell; characters that code page
 //! 437 cannot show (Thai, CJK, emoji, combining marks) are kept here as UTF-8
-//! so the text renderer can draw them. Was `qb_text_utf8_cells` /
-//! `qb_text_utf8_cell_state` (two `std::vector`s per image) in libqb.cpp.
+//! so the text renderer can draw them.
 //!
 //! Cell state: 0 = plain, 1 = UTF-8 cluster, 2 = first half of a wide cluster,
 //! 3 = second half of a wide cluster (no content of its own).
@@ -231,20 +230,6 @@ pub fn cell(image: i32, cell: i32) -> (Vec<u8>, u8) {
     })
 }
 
-// --- C ABI (libqb.cpp: image life cycle and the text renderer) ---
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_text_cells_init(image: i32, cells: i32) {
-    init(image, cells.max(0) as usize)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_text_cells_release(image: i32) {
-    release(image)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_text_cells_copy(src: i32, dst: i32) {
-    copy(src, dst)
-}
 #[cfg(test)]
 mod tests {
     use super::*;

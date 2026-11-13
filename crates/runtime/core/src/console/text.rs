@@ -1,6 +1,6 @@
 //! PRINT to a surface (`qbs_print`, `printchr`, `newline`, `tab`, `makefit`),
-//! VIEW PRINT, CLS, LOCATE, CSRLIN, POS and the SCREEN() function, ported
-//! from libqb.cpp. Surfaces are accessed through raw pointers that are
+//! VIEW PRINT, CLS, LOCATE, CSRLIN, POS and the SCREEN() function, as in
+//! QB64. Surfaces are accessed through raw pointers that are
 //! re-read from the host after every call that may change them.
 
 use super::{cells, stdio, utf8, Host};

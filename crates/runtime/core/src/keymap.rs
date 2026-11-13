@@ -1,23 +1,23 @@
-//! Keyboard translation: OS key events -> the QBNex key codes that
-//! `keydown()`/`keyup()` in libqb.cpp consume.
+//! Keyboard translation: OS key events -> the QBNex key codes that the
+//! runner's `keydown()`/`keyup()` consume.
 //!
-//! Legacy path (Windows): freeglut turned `WM_KEYDOWN`/`WM_CHAR`/`WM_KEYUP`
-//! into GLUT callbacks, and `GLUT_key_special`/`GLUT_key_ascii` in libqb.cpp
+//! QB64 on Windows: freeglut turned `WM_KEYDOWN`/`WM_CHAR`/`WM_KEYUP`
+//! into GLUT callbacks, and QB64's `GLUT_key_special`/`GLUT_key_ascii`
 //! turned those into `keydown_vk`/`keydown_ascii`/`keydown_unicode` calls.
 //! This module keeps that two-stage shape:
 //!
-//! * stage 2 ([`glut_special`], [`glut_ascii`]) is a verbatim port of the two
-//!   libqb.cpp functions and is checked by `tests/diff/diff_keymap.cpp`;
+//! * stage 2 ([`glut_special`], [`glut_ascii`]) does exactly what those two
+//!   QB64 functions do;
 //! * stage 1 ([`translate`]) replaces the freeglut Win32 message translation.
 //!   Its input is an OS-neutral [`KeyInput`] built by the window layer (or by
 //!   an input script).
 
-/// Offsets used by libqb.cpp for key codes.
+/// Offsets QB64 uses for key codes.
 pub const VK: u32 = 100_000;
 pub const QBK: u32 = 200_000;
 pub const UC: u32 = 1_073_741_824;
 
-/// `QBVK_*` values from libqb.cpp (only those used by the translation).
+/// QB64's `QBVK_*` values (only those used by the translation).
 pub mod qbvk {
     pub const KP0: u32 = 256;
     pub const KP_PERIOD: u32 = 266;
@@ -62,7 +62,7 @@ pub mod glut {
     pub const KEY_ALT_R: i32 = 0x0075;
 }
 
-/// One call into libqb.cpp's key handlers.
+/// One call into the key handlers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyAction {
     /// `keydown(x)` (legacy `keydown_vk`/`keydown_ascii`).
@@ -122,7 +122,7 @@ pub struct KeyInput {
     pub alt: bool,
 }
 
-/// Port of `GLUT_key_special` (libqb.cpp), CORE_FREEGLUT branch.
+/// QB64's `GLUT_key_special`, CORE_FREEGLUT branch.
 pub fn glut_special(key: i32, down: bool) -> Option<KeyAction> {
     let vk: u32 = match key {
         1..=10 => 0x3B00 + ((key as u32 - 1) << 8), // F1..F10 = 0x3B00..0x4400
@@ -152,7 +152,7 @@ pub fn glut_special(key: i32, down: bool) -> Option<KeyAction> {
     })
 }
 
-/// Port of `GLUT_key_ascii` (libqb.cpp). `key` is the `unsigned char` freeglut
+/// QB64's `GLUT_key_ascii`. `key` is the `unsigned char` freeglut
 /// passed; `ctrl`/`shift` come from `glutGetModifiers()`. `macos` enables the
 /// DEL/backspace swap of the macOS build.
 pub fn glut_ascii(key: i32, ctrl: bool, shift: bool, down: bool, macos: bool) -> KeyAction {
@@ -196,8 +196,8 @@ fn char_code(c: char, ctrl: bool) -> u32 {
     c
 }
 
-/// Replaces freeglut's Win32 keyboard translation: returns the libqb.cpp
-/// calls legacy made for this event, in order.
+/// Does freeglut's Win32 keyboard translation: returns the key handler
+/// calls QB64 made for this event, in order.
 pub fn translate(ev: &KeyInput) -> Vec<KeyAction> {
     // No DEL/backspace swap here, on any OS: legacy macOS swapped because GLUT
     // reported the backspace key as 0x7F, but `Key::Backspace` / `Key::Delete`

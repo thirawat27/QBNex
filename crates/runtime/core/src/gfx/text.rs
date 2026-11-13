@@ -1,6 +1,6 @@
 //! Text in graphics modes with the built-in 8x8, 8x14 and 8x16 fonts
 //! (the default-font part of `printchr`). Custom fonts (`_LOADFONT`) and text
-//! surfaces stay in libqb.cpp.
+//! surfaces are drawn elsewhere.
 
 use super::blend::{pset, pset_and_clip};
 use super::data::{charset8x16, charset8x8};

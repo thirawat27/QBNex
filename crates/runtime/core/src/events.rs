@@ -1,13 +1,8 @@
 //! Event trapping state: ON TIMER, ON KEY, ON STRIG.
 //!
-//! Replaces the timer table, `func__freetimer`, `freetimer`,
-//! `ontimer_setup`, `sub_timer`, `stop_timers`/`start_timers`, the body of
-//! `TIMERTHREAD`, `onkey_setup`, `sub_key`, `onstrig_setup` and `sub_strig`
-//! from `qbx.cpp`. The dispatch itself (`events()` in qbx.cpp) stays in C++
-//! because it is a `switch` over generated code; it asks Rust which timer
-//! fired ([`qb_timer_take`]) and reads the `onkey`/`onstrig` arrays, which
-//! keep their C layout (`common.h`) because the keyboard and gamepad code in
-//! libqb.cpp updates them.
+//! The timer table (`_FREETIMER`, `ON TIMER`, `TIMER ON|OFF|STOP`), the ON KEY
+//! and ON STRIG slots and their `KEY(n)`/`STRIG(n) ON|OFF|STOP` transitions,
+//! with QB64's semantics. The runner dispatches the handlers at its safe points.
 //!
 //! Event states: `active` 0 = OFF, 1 = ON, 2 = STOP (events are queued but
 //! not dispatched). `state` 0 = idle, 1 = triggered, 2 = in progress (timers);
@@ -292,23 +287,16 @@ pub fn play_trap() -> MutexGuard<'static, OnPlay> {
 
 // ---------------------------------------------------------- ON KEY / STRIG
 
-/// `onkey_struct` (common.h).
-#[repr(C)]
+/// One ON KEY slot.
 #[derive(Clone, Copy)]
 pub struct OnKey {
     pub id: u32,
     pub pass: i64,
     pub active: u8,
     pub state: u8,
-    pub keycode: u32,
-    pub keycode_alternate: u32,
-    pub key_scancode: u8,
-    pub key_flags: u8,
-    pub text: *mut core::ffi::c_void,
 }
 
-/// `onstrig_struct` (common.h).
-#[repr(C)]
+/// One ON STRIG slot.
 #[derive(Clone, Copy)]
 pub struct OnStrig {
     pub id: u32,
@@ -317,17 +305,7 @@ pub struct OnStrig {
     pub state: u8,
 }
 
-const ONKEY0: OnKey = OnKey {
-    id: 0,
-    pass: 0,
-    active: 0,
-    state: 0,
-    keycode: 0,
-    keycode_alternate: 0,
-    key_scancode: 0,
-    key_flags: 0,
-    text: core::ptr::null_mut(),
-};
+const ONKEY0: OnKey = OnKey { id: 0, pass: 0, active: 0, state: 0 };
 const ONSTRIG0: OnStrig = OnStrig { id: 0, pass: 0, active: 0, state: 0 };
 /// 256 controllers x 256 buttons.
 pub const ONSTRIG_SLOTS: usize = 65_536;
@@ -335,17 +313,9 @@ pub const ONSTRIG_SLOTS: usize = 65_536;
 static mut ONKEY_STORAGE: [OnKey; 32] = [ONKEY0; 32];
 static mut ONSTRIG_STORAGE: [OnStrig; ONSTRIG_SLOTS] = [ONSTRIG0; ONSTRIG_SLOTS];
 
-/// ON KEY slots 0..31 (1-31 used), read by libqb.cpp's keyboard code.
-#[unsafe(no_mangle)]
-pub static mut onkey: *mut OnKey = addr_of_mut!(ONKEY_STORAGE) as *mut OnKey;
 /// 1 while an ON KEY handler runs.
-#[unsafe(no_mangle)]
 pub static mut onkey_inprogress: i32 = 0;
-/// ON STRIG slots (`(controller-1)*256 + button-1`), read by the gamepad code.
-#[unsafe(no_mangle)]
-pub static mut onstrig: *mut OnStrig = addr_of_mut!(ONSTRIG_STORAGE) as *mut OnStrig;
 /// 1 while an ON STRIG handler runs.
-#[unsafe(no_mangle)]
 pub static mut onstrig_inprogress: i32 = 0;
 
 /// Shared ON/OFF/STOP transition of ON KEY and ON STRIG slots. Returns true
@@ -481,16 +451,16 @@ pub fn strig_statement(slots: &mut [OnStrig], i: i32, controller: i32, option: i
     Ok(ev)
 }
 
-/// The 32 ON KEY slots (program thread only).
+/// The 32 ON KEY slots, 0..31 (1-31 used); program thread only.
 pub fn onkeys() -> &'static mut [OnKey] {
-    // SAFETY: `onkey` always points at the 32-entry storage.
-    unsafe { core::slice::from_raw_parts_mut(onkey, 32) }
+    // SAFETY: only the program thread touches the storage.
+    unsafe { &mut *addr_of_mut!(ONKEY_STORAGE) }
 }
 
-/// The ON STRIG slots (program thread only).
+/// The ON STRIG slots (`(controller-1)*256 + button-1`); program thread only.
 pub fn onstrigs() -> &'static mut [OnStrig] {
-    // SAFETY: `onstrig` always points at the 65536-entry storage.
-    unsafe { core::slice::from_raw_parts_mut(onstrig, ONSTRIG_SLOTS) }
+    // SAFETY: only the program thread touches the storage.
+    unsafe { &mut *addr_of_mut!(ONSTRIG_STORAGE) }
 }
 
 #[cfg(test)]

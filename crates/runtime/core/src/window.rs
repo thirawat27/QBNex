@@ -1,7 +1,6 @@
 //! The program window: winit event loop on the main thread, software frames
 //! presented with softbuffer (or, with the `gpu` feature, through wgpu when an
-//! adapter is available; see `gpu_present`). Replaces freeglut + GLEW + the GL
-//! half of `libqb/gui.cpp`.
+//! adapter is available; see `gpu_present`).
 //!
 //! Thread model:
 //! * main thread: [`qb_window_run`] owns the event loop and the window;
@@ -10,14 +9,13 @@
 //! * frames: the thread that builds a display frame calls
 //!   [`qb_window_present`]; the loop scales the latest one into the window.
 //!
-//! OS input is translated (see `keymap`) and delivered through the C
-//! callbacks in [`Callbacks`]; libqb.cpp guards its key/mouse state with
-//! `qb_input_lock`.
+//! OS input is translated (see `keymap`) and delivered through the
+//! callbacks in [`Callbacks`].
 //!
 //! `QBNEX_HEADLESS=1` runs without a window (CI). `QBNEX_INPUT_SCRIPT=<file>`
 //! replays scripted input (see `script`).
 
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::c_void;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -36,26 +34,25 @@ use crate::keymap::{self, Key, KeyAction, KeyInput};
 use crate::raster::{self, Source, Target};
 use crate::script;
 
-/// C callbacks into libqb.cpp. Any entry may be null.
-#[repr(C)]
+/// Receivers of window events. Any entry may be `None`.
 #[derive(Clone, Copy)]
 pub struct Callbacks {
     /// action: 1 keydown, 2 keyup, 3 keydown_unicode, 4 keyup_unicode.
-    pub key: Option<extern "C" fn(i32, u32)>,
+    pub key: Option<fn(i32, u32)>,
     /// GLUT button number (0 left, 1 middle, 2 right), 1 = down, window x/y.
-    pub mouse_button: Option<extern "C" fn(i32, i32, i32, i32)>,
-    pub mouse_move: Option<extern "C" fn(i32, i32)>,
+    pub mouse_button: Option<fn(i32, i32, i32, i32)>,
+    pub mouse_move: Option<fn(i32, i32)>,
     /// GLUT wheel direction (+1 forward/up, -1 back/down), window x/y.
-    pub mouse_wheel: Option<extern "C" fn(i32, i32, i32)>,
-    pub mouse_relative: Option<extern "C" fn(i32, i32)>,
+    pub mouse_wheel: Option<fn(i32, i32, i32)>,
+    pub mouse_relative: Option<fn(i32, i32)>,
     /// New client size after an OS or program resize.
-    pub resize: Option<extern "C" fn(i32, i32)>,
-    pub close: Option<extern "C" fn()>,
-    pub focus: Option<extern "C" fn(i32)>,
+    pub resize: Option<fn(i32, i32)>,
+    pub close: Option<fn()>,
+    pub focus: Option<fn(i32)>,
     /// UTF-8 path of a file dropped on the window.
-    pub file_drop: Option<extern "C" fn(*const c_char)>,
+    pub file_drop: Option<fn(&[u8])>,
     /// Native window handle (HWND on Windows, else null) once created.
-    pub created: Option<extern "C" fn(*mut c_void)>,
+    pub created: Option<fn(*mut c_void)>,
 }
 
 static CALLBACKS: OnceLock<Callbacks> = OnceLock::new();
@@ -661,11 +658,8 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::DroppedFile(path) => {
-                if let (Some(f), Ok(c)) = (
-                    cb().file_drop,
-                    CString::new(path.to_string_lossy().as_bytes()),
-                ) {
-                    f(c.as_ptr());
+                if let Some(f) = cb().file_drop {
+                    f(path.to_string_lossy().as_bytes());
                 }
             }
             _ => {}
@@ -770,8 +764,8 @@ fn run_script(cmds: Vec<script::Cmd>) {
                 }
             }
             S::Drop(path) => {
-                if let (Some(f), Ok(c)) = (cb().file_drop, CString::new(path)) {
-                    f(c.as_ptr());
+                if let Some(f) = cb().file_drop {
+                    f(path.as_bytes());
                 }
             }
             S::Snapshot => {
@@ -804,35 +798,21 @@ fn run_script(cmds: Vec<script::Cmd>) {
     }
 }
 
-// ---- C ABI -------------------------------------------------------------------
+// ---- the runner's interface ---------------------------------------------------
 
 /// Runs the window system on the calling (main) thread. Never returns in
 /// windowed mode unless the event loop cannot start; the program ends with
 /// `exit()` from another thread. Returns 1 when it fell back to headless.
-///
-/// # Safety
-/// `callbacks` must point to a valid struct; `title` is null or a NUL-terminated string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_window_run(
-    callbacks: *const Callbacks,
+pub fn qb_window_run(
+    callbacks: &Callbacks,
     width: i32,
     height: i32,
-    title: *const c_char,
-    resizable: i32,
-    start_hidden: i32,
+    title: &str,
+    resizable: bool,
+    start_hidden: bool,
 ) -> i32 {
-    if !callbacks.is_null() {
-        // SAFETY: caller passes a valid struct.
-        let _ = CALLBACKS.set(unsafe { *callbacks });
-    }
-    let title = if title.is_null() {
-        "Untitled".to_string()
-    } else {
-        // SAFETY: caller passes a NUL-terminated string.
-        unsafe { CStr::from_ptr(title) }
-            .to_string_lossy()
-            .into_owned()
-    };
+    let _ = CALLBACKS.set(*callbacks);
+    let title = title.to_string();
     WIN_W.store(width, Ordering::SeqCst);
     WIN_H.store(height, Ordering::SeqCst);
     let event_loop = if headless_requested() {
@@ -849,9 +829,9 @@ pub unsafe extern "C" fn qb_window_run(
         title,
         init_w: width.max(1) as u32,
         init_h: height.max(1) as u32,
-        resizable: resizable != 0,
-        start_hidden: start_hidden != 0,
-        hidden: start_hidden != 0,
+        resizable,
+        start_hidden,
+        hidden: start_hidden,
         mods: ModifiersState::empty(),
         cursor: (0, 0),
         wheel_accum: 0.0,
@@ -898,31 +878,18 @@ fn run_headless() -> i32 {
 }
 
 /// 1 when running without a window (`QBNEX_HEADLESS` or no display).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_headless() -> i32 {
+pub fn qb_window_headless() -> i32 {
     (HEADLESS.load(Ordering::SeqCst) || headless_requested()) as i32
 }
 
 /// 1 once the window (or the headless stand-in) exists.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_exists() -> i32 {
+pub fn qb_window_exists() -> i32 {
     EXISTS.load(Ordering::SeqCst) as i32
 }
 
 /// Hands a composed frame (`0xAARRGGBB`, `w*h`) to the window. The data is copied.
-///
-/// # Safety
-/// `px` must point to `w*h` readable `u32`s.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_window_present(
-    px: *const u32,
-    w: i32,
-    h: i32,
-    full_screen: i32,
-    fullscreen_smooth: i32,
-    resize_auto: i32,
-) {
-    if px.is_null() || w <= 0 || h <= 0 {
+pub fn qb_window_present(px: &[u32], w: i32, h: i32, full_screen: i32, fullscreen_smooth: i32, resize_auto: i32) {
+    if w <= 0 || h <= 0 || px.len() < w as usize * h as usize {
         return;
     }
     let n = w as usize * h as usize;
@@ -930,9 +897,8 @@ pub unsafe extern "C" fn qb_window_present(
     {
         let mut f = lock(&FRAME);
         resized = (f.w, f.h) != (w as usize, h as usize);
-        f.px.resize(n, 0);
-        // SAFETY: caller guarantees n readable pixels.
-        unsafe { std::ptr::copy_nonoverlapping(px, f.px.as_mut_ptr(), n) };
+        f.px.clear();
+        f.px.extend_from_slice(&px[..n]);
         f.w = w as usize;
         f.h = h as usize;
         f.full_screen = full_screen;
@@ -958,162 +924,77 @@ pub unsafe extern "C" fn qb_window_present(
     }
 }
 
-/// # Safety
-/// `title` is null or NUL-terminated (bytes are taken as UTF-8, invalid bytes as CP-1252-ish lossy).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_window_set_title(title: *const c_char) {
-    let t = if title.is_null() {
-        String::new()
-    } else {
-        // SAFETY: caller passes a NUL-terminated string.
-        let bytes = unsafe { CStr::from_ptr(title) }.to_bytes();
-        match std::str::from_utf8(bytes) {
-            Ok(s) => s.to_string(),
-            Err(_) => bytes.iter().map(|&b| b as char).collect(),
-        }
+/// Sets the title (bytes are taken as UTF-8, invalid text byte by byte as Latin-1).
+pub fn qb_window_set_title(title: &[u8]) {
+    let t = match std::str::from_utf8(title) {
+        Ok(s) => s.to_string(),
+        Err(_) => title.iter().map(|&b| b as char).collect(),
     };
     push(Cmd::Title(t));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_set_size(w: i32, h: i32) {
+pub fn qb_window_set_size(w: i32, h: i32) {
     push(Cmd::Size(w, h));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_set_fullscreen(on: i32) {
+pub fn qb_window_set_fullscreen(on: i32) {
     push(Cmd::Fullscreen(on != 0));
 }
 
 /// Lets the user resize the window (`_RESIZE ON`) or not.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_set_resizable(on: i32) {
+pub fn qb_window_set_resizable(on: i32) {
     push(Cmd::Resizable(on != 0));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_set_position(x: i32, y: i32) {
+pub fn qb_window_set_position(x: i32, y: i32) {
     push(Cmd::Position(x, y));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_show(visible: i32) {
+pub fn qb_window_show(visible: i32) {
     push(Cmd::Visible(visible != 0));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_minimize() {
+pub fn qb_window_minimize() {
     push(Cmd::Minimize);
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_minimized() -> i32 {
+pub fn qb_window_minimized() -> i32 {
     MINIMIZED.load(Ordering::SeqCst) as i32
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_set_cursor(style: i32) {
+pub fn qb_window_set_cursor(style: i32) {
     push(Cmd::Cursor(style));
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_warp_mouse(x: i32, y: i32) {
+pub fn qb_window_warp_mouse(x: i32, y: i32) {
     push(Cmd::Warp(x, y));
 }
 
-/// # Safety
-/// `px` must point to `w*h` readable `u32`s (`0xAARRGGBB`).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_window_set_icon(px: *const u32, w: i32, h: i32) {
-    if px.is_null() || w <= 0 || h <= 0 {
+/// Sets the window icon from `w*h` pixels (`0xAARRGGBB`).
+pub fn qb_window_set_icon(px: &[u32], w: i32, h: i32) {
+    if w <= 0 || h <= 0 || px.len() < w as usize * h as usize {
         return;
     }
-    // SAFETY: caller guarantees w*h readable pixels.
-    let v = unsafe { std::slice::from_raw_parts(px, w as usize * h as usize) }.to_vec();
-    push(Cmd::Icon(v, w as u32, h as u32));
+    push(Cmd::Icon(px[..w as usize * h as usize].to_vec(), w as u32, h as u32));
 }
 
-/// # Safety
-/// `w`/`h` must be valid for writes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_window_size(w: *mut i32, h: *mut i32) {
-    // SAFETY: caller passes writable pointers.
-    unsafe {
-        *w = WIN_W.load(Ordering::SeqCst);
-        *h = WIN_H.load(Ordering::SeqCst);
-    }
+/// Client size of the window.
+pub fn qb_window_size() -> (i32, i32) {
+    (WIN_W.load(Ordering::SeqCst), WIN_H.load(Ordering::SeqCst))
 }
 
-/// # Safety
-/// `x`/`y` must be valid for writes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_window_position(x: *mut i32, y: *mut i32) {
-    // SAFETY: caller passes writable pointers.
-    unsafe {
-        *x = POS_X.load(Ordering::SeqCst);
-        *y = POS_Y.load(Ordering::SeqCst);
-    }
+/// Position of the window on the desktop.
+pub fn qb_window_position() -> (i32, i32) {
+    (POS_X.load(Ordering::SeqCst), POS_Y.load(Ordering::SeqCst))
 }
 
 /// Desktop size; waits up to 2 s for the event loop to report it.
-///
-/// # Safety
-/// `w`/`h` must be valid for writes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_desktop_size(w: *mut i32, h: *mut i32) {
+pub fn qb_desktop_size() -> (i32, i32) {
     let start = Instant::now();
     while DESK_W.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(2) {
         std::thread::sleep(Duration::from_millis(5));
     }
-    // SAFETY: caller passes writable pointers.
-    unsafe {
-        *w = DESK_W.load(Ordering::SeqCst);
-        *h = DESK_H.load(Ordering::SeqCst);
-    }
-}
-
-/// `layout()` for libqb.cpp (`_SCALEDWIDTH`, mouse coordinate mapping).
-/// `out` receives x1,y1,x2,y2,scaled_w,scaled_h,smooth,letterbox; `scale` x/y.
-///
-/// # Safety
-/// `out` must hold 8 `i32`s and `scale` 2 `f32`s.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_layout(
-    screen_w: i32,
-    screen_h: i32,
-    window_w: i32,
-    window_h: i32,
-    full_screen: i32,
-    fullscreen_smooth: i32,
-    resize_auto: i32,
-    out: *mut i32,
-    scale: *mut f32,
-) {
-    let l = raster::layout(
-        screen_w,
-        screen_h,
-        window_w,
-        window_h,
-        full_screen,
-        fullscreen_smooth != 0,
-        resize_auto,
-    );
-    let v = [
-        l.x1,
-        l.y1,
-        l.x2,
-        l.y2,
-        l.scaled_w,
-        l.scaled_h,
-        l.smooth as i32,
-        l.letterbox,
-    ];
-    // SAFETY: caller provides the documented buffers.
-    unsafe {
-        std::ptr::copy_nonoverlapping(v.as_ptr(), out, 8);
-        *scale = l.x_scale;
-        *scale.add(1) = l.y_scale;
-    }
+    (DESK_W.load(Ordering::SeqCst), DESK_H.load(Ordering::SeqCst))
 }
 
 #[cfg(test)]

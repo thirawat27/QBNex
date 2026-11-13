@@ -637,14 +637,14 @@ impl<'m, 'o> Vm<'m, 'o> {
         Ok(())
     }
 
-    /// Unhandled (non-critical) errors print the C++ runtime's dialog text on
+    /// Unhandled (non-critical) errors print the error dialog's text on
     /// stderr and the program continues after the statement, as a headless
-    /// C++ program does; off by default (the error ends the run).
+    /// program did when nobody answered the dialog; off by default (the error ends the run).
     pub fn set_continue_unhandled(&mut self, on: bool) {
         self.continue_unhandled = on;
     }
 
-    /// END's "Press any key to continue" (sub_end of the C++ runtime): `None`
+    /// END's "Press any key to continue" of console programs: `None`
     /// ends silently, `Some(wait)` prints the prompt and calls `wait` for the key.
     pub fn set_end_prompt(&mut self, wait: Option<fn()>) {
         self.end_prompt = wait;
@@ -845,7 +845,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             // tiering report for benchmarks (scripts/bench/corpus_perf.ps1)
             eprintln!("qb-exec: native entries {}, JIT {}", self.jit_entries(), self.jit_failure().unwrap_or_else(|| "ok".into()));
         }
-        // frame record of the screen at END/SYSTEM (end() of the C++ runtime)
+        // frame record of the screen at END/SYSTEM
         self.rt.display.capture(qb_runtime::gfx::capture::KIND_END);
         // console program: END's "Press any key to continue" (console branch of
         // sub_end), only when somebody could press the key (see set_end_prompt)
@@ -1475,9 +1475,9 @@ impl<'m, 'o> Vm<'m, 'o> {
     fn raise(&mut self, code: i32, at: u32) -> Result<u32, RunError> {
         let unhandled = !matches!((self.on_error, self.in_handler), (Some(_), None));
         if unhandled && self.continue_unhandled {
-            // the C++ runtime's fix_error: with QBNEX_NO_ERROR_DIALOG or redirected output the
+            // unhandled error: with QBNEX_NO_ERROR_DIALOG or redirected output the
             // dialog becomes one stderr line and the program ends with exit code 1; otherwise
-            // (headless, MessageBox2 gets no answer) a non-critical error continues after the statement
+            // (headless, nobody answers the dialog) a non-critical error continues after the statement
             let cmd0 = std::env::args().next().unwrap_or_default();
             let (incl, file) = match self.incl_of(at) {
                 Some((l, f)) => (l, self.m.srcfiles.get(f as usize).map(Vec::as_slice)),
@@ -1538,7 +1538,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         })
     }
 
-    /// One display frame drawn by `SUB _GL` (libqb's GL display callback): the
+    /// One display frame drawn by `SUB _GL` (the GL display callback): the
     /// software screen goes behind, the program's SUB runs to completion with
     /// the context current, then the frame is swapped. Returns the pc to go on
     /// at (`pc`, or `u32::MAX` when the program ended inside the SUB).
@@ -1633,7 +1633,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         }
         let _ = bits;
-        // no new handlers while an ON ERROR handler runs (events() of qbx.cpp)
+        // no new handlers while an ON ERROR handler runs
         if self.in_handler.is_some() {
             return None;
         }
@@ -1662,7 +1662,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         }
         if self.key_poll {
-            // ON KEY: keys pressed since the last safe point (libqb.cpp events())
+            // ON KEY: keys pressed since the last safe point
             let rt = &mut self.rt;
             rt.input.pump(&mut rt.cmem);
             // SAFETY: program thread only.
@@ -1744,7 +1744,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         let xf = &self.m.xfns[i];
         if xf.gl {
-            // `_gl*`: only inside SUB _GL (error 270, as libqb's sub_gl_called check)
+            // `_gl*`: only inside SUB _GL (error 270 outside it, as in QB64)
             #[cfg(not(target_arch = "wasm32"))]
             {
                 if !qb_runtime::gl::in_frame() {
@@ -2099,7 +2099,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::CvtFI { d, s, w, trunc } => {
                     let f = rf!(s);
                     let n = if !trunc && w != W::U64 {
-                        // x87 FISTP semantics of the C++ backend's qbr()
+                        // x87 FISTP semantics (`qb_runtime::round::qbr`)
                         qb_runtime::round::qb_qbr_f64(f)
                     } else {
                         let f = if trunc { f.trunc() } else { f.round_ties_even() };
@@ -2306,7 +2306,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                             self.data_ptr += 1;
                             set!(d, v)
                         }
-                        // the C++ READ assigns 0 and the error is raised after the store (READCHK);
+                        // READ assigns 0 and the error is raised after the store (READCHK);
                         // Out of DATA stops at once
                         Err(4) => fail!(4),
                         Err(c) => {

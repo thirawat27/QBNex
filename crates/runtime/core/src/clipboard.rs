@@ -7,7 +7,7 @@
 //! system clipboard is reachable (no display), a clipboard private to the
 //! process is used instead, like legacy's `internal_clipboard`.
 //!
-//! Images cross the C ABI as top-down BGRA pixels (`0xAARRGGBB` words);
+//! Images are top-down BGRA pixels (`0xAARRGGBB` words);
 //! images read from the clipboard always have alpha 255.
 
 /// An image as top-down `0xAARRGGBB` pixels.

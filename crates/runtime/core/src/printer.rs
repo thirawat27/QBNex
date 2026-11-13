@@ -1,9 +1,8 @@
 //! Printer output for `_PRINTIMAGE` and buffered `LPRINT` (Windows only, D8).
 //!
-//! Replaces `internal/c/libqb/printer.cpp`. The page flow is written against
-//! the [`Device`] trait so it can be checked call by call against a verbatim
-//! copy of the legacy code (`tests/diff/diff_printer.cpp`) without a printer.
-//! Scaling the image to the page size stays in libqb.cpp (graphics engine):
+//! Same GDI call sequence as QB64. The page flow is written against the
+//! [`Device`] trait so the tests can check it call by call without a printer.
+//! The caller scales the image to the page size:
 //!
 //! 1. [`begin`] opens the default printer, starts a document and a page and
 //!    returns the printable size;
@@ -11,7 +10,7 @@
 //! 3. [`finish`] sends the rows and closes the page and document, or
 //!    [`abort`] closes them when the caller could not make the image.
 
-/// The GDI calls the legacy printer code makes, in order.
+/// The GDI calls the printer code makes, in order.
 pub trait Device {
     /// `GetDefaultPrinter`; legacy ignored failures (empty name here).
     fn default_printer(&mut self) -> Vec<u8>;
@@ -155,19 +154,19 @@ pub mod gdi {
     }
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// Call trace for the differential test. Codes: 1 GetDefaultPrinter,
+/// Call trace for the tests. Codes: 1 GetDefaultPrinter,
 /// 2 CreateDC, 3 StartDoc, 4 StartPage, 5 GetDeviceCaps (twice),
 /// 6 SetDIBitsToDevice, 7 EndPage, 8 EndDoc, 9 DeleteDC.
+#[cfg(test)]
 #[derive(Default)]
-pub struct Trace {
-    pub calls: Vec<i32>,
+struct Trace {
+    calls: Vec<i32>,
     /// Bit `n` set: call code `n` fails.
-    pub fail: u32,
-    pub size: (i32, i32),
+    fail: u32,
+    size: (i32, i32),
 }
 
+#[cfg(test)]
 impl Trace {
     fn rc(&mut self, code: i32) -> i32 {
         self.calls.push(code);
@@ -179,6 +178,7 @@ impl Trace {
     }
 }
 
+#[cfg(test)]
 impl Device for Trace {
     fn default_printer(&mut self) -> Vec<u8> {
         self.calls.push(1);
@@ -211,30 +211,6 @@ impl Device for Trace {
     }
 }
 
-/// Runs the Rust flow on a [`Trace`] the way libqb's `sub__printimage` does
-/// (`image_ok == 0`: the scaled image could not be created) and writes the
-/// call codes into `out`. Returns the number of calls.
-///
-/// # Safety
-/// `out` must be writable for `cap` values.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_printer_trace(fail: u32, page_w: i32, page_h: i32, image_ok: i32, out: *mut i32, cap: i32) -> i32 {
-    let mut t = Trace { fail, size: (page_w, page_h), ..Trace::default() };
-    if let Some((w, h)) = begin(&mut t) {
-        if image_ok != 0 {
-            let px = vec![0u32; (w.max(0) as usize) * (h.max(0) as usize)];
-            finish(&mut t, w, h, &px);
-        } else {
-            abort(&mut t);
-        }
-    }
-    for (i, c) in t.calls.iter().take(cap.max(0) as usize).enumerate() {
-        // SAFETY: caller guarantees `cap` writable values.
-        unsafe { out.add(i).write_unaligned(*c) };
-    }
-    t.calls.len() as i32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,12 +241,5 @@ mod tests {
         assert_eq!(run(0, false), [1, 2, 3, 4, 5, 5, 8, 9]);
         assert_eq!(run(1 << 7, true), [1, 2, 3, 4, 5, 5, 6, 6, 7, 8, 9]);
         assert_eq!(run(1 << 8, true), [1, 2, 3, 4, 5, 5, 6, 6, 7, 8, 9]);
-    }
-
-    #[test]
-    fn c_abi_trace_matches() {
-        let mut out = [0i32; 32];
-        let n = unsafe { qb_test_printer_trace(0, 3, 2, 1, out.as_mut_ptr(), 32) };
-        assert_eq!(&out[..n as usize], [1, 2, 3, 4, 5, 5, 6, 6, 7, 8, 9]);
     }
 }

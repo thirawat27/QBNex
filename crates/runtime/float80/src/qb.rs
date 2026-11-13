@@ -3,15 +3,15 @@
 //!
 //! Which C function the legacy build really called matters:
 //!
-//! | BASIC | legacy C++ | here |
+//! | BASIC | legacy runtime | here |
 //! | --- | --- | --- |
 //! | `EXP(x##)` | `func_exp_float`: `expl` if `x <= 709.782712893` else error 6 | [`exp_float`] |
 //! | `a ^ b` (every numeric type) | `pow2(long double, long double)`: error 5 for `a < 0` and fractional `b`, else `powl` | [`pow2`] |
 //! | `FIX(x##)` | `func_fix_float`: `ceill`/`floorl` | [`fix_float`] |
 //! | `INT(x##)` | `floorl` | [`int_float`] |
-//! | `SIN`/`COS`/`TAN`/`ATN` | generated code calls the **double** C functions (no `using namespace std` in `qbx.cpp`) | [`sin`] .. [`atn`] |
+//! | `SIN`/`COS`/`TAN`/`ATN` | the **double** C functions (the `long double` overloads were never selected) | [`sin`] .. [`atn`] |
 //! | `LOG`, `SQR` | `func_log(double)`, `func_sqr(double)` | [`log`], [`sqr`] |
-//! | `STR$`/`PRINT` of `_FLOAT` | `qbs_str((double)value)` | `qb-runtime` `qb_str_f80` |
+//! | `STR$`/`PRINT` of `_FLOAT` | `qbs_str((double)value)` | `qb-runtime` `numfmt::str_f80` |
 //!
 //! The double functions use the platform `libm` through Rust `f64` methods; on
 //! Windows that is the same UCRT the legacy build linked.
