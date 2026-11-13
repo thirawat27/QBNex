@@ -191,7 +191,7 @@ pub fn strtod_full(tok: &[u8]) -> Option<f64> {
     let s = std::str::from_utf8(tok).ok()?;
     let (neg, body) = match s.strip_prefix('-') {
         Some(rest) => (true, rest),
-        None => (false, s.strip_prefix('+').unwrap_or(s)),
+        None => (false, s.trim_prefix('+')),
     };
     let lower = body.to_ascii_lowercase();
     let v = if lower == "inf" || lower == "infinity" {

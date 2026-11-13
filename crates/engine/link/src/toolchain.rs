@@ -137,7 +137,7 @@ pub fn undefined_symbols(lib: &[u8]) -> Result<BTreeSet<String>, LinkError> {
     }
     Ok(undef
         .difference(&def)
-        .map(|n| n.strip_prefix("__imp_").unwrap_or(n).to_string())
+        .map(|n| n.trim_prefix("__imp_").to_string())
         .filter(|n| !LINKER_DEFINED.contains(&n.as_str()) && !def.contains(n))
         .collect())
 }

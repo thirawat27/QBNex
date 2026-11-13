@@ -99,7 +99,7 @@ impl Val {
                 let d: Vec<String> = dims.iter().map(|(lo, hi)| format!("{lo} TO {hi}")).collect();
                 format!("({}) [{total}]", d.join(", "))
             }
-            Val::Udt { ty, .. } => format!("{{{}}}", ty.strip_prefix("T_").unwrap_or(ty)),
+            Val::Udt { ty, .. } => format!("{{{}}}", ty.trim_prefix("T_")),
             Val::Unavailable(why) => format!("<{why}>"),
         }
     }

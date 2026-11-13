@@ -444,7 +444,7 @@ pub extern "C" fn qb_end_prompt_wanted(window: i32) -> i32 {
 /// One-line form of a dialog: "<title>: <body lines joined with ': '>",
 /// without the "Continue?" question.
 pub fn report_line(title: &[u8], body: &[u8]) -> Vec<u8> {
-    let body = body.strip_suffix(b"\nContinue?").unwrap_or(body);
+    let body = body.trim_suffix(b"\nContinue?");
     let mut line = title.to_vec();
     for part in body.split(|&c| c == b'\n') {
         line.extend_from_slice(b": ");

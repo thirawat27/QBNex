@@ -578,7 +578,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             rt,
             nums: main.num_init.clone(),
             strs: vec![Vec::new(); main.n_str as usize],
-            arrs: (0..main.n_arr()).map(|_| None).collect(),
+            arrs: Vec::from_fn(main.n_arr() as usize, |_| None),
             frames: vec![Frame { owned: 0, func: 0, ret: 0, nb: 0, sb: 0, ab: 0, caller_view: 0, desc: 0 }],
             view: 0,
             nb: 0,

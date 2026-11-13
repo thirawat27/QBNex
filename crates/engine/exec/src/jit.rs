@@ -103,7 +103,7 @@ fn constant_regs(m: &bc::Module, fi: usize) -> Vec<bool> {
             w(g);
         }
     }
-    (0..n).map(|r| !written[r] && f.num_init[r] != 0).collect()
+    Vec::from_fn(n, |r| !written[r] && f.num_init[r] != 0)
 }
 
 /// Compiled to native code (no VM callback).

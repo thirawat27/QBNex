@@ -36,7 +36,7 @@ pub fn uri_key(uri: &str) -> String {
 /// `file:` URI of a path.
 pub fn path_to_uri(path: &Path) -> String {
     let s = path.to_string_lossy().replace('\\', "/");
-    let s = s.strip_prefix("//?/").unwrap_or(&s).to_string();
+    let s = s.trim_prefix("//?/").to_string();
     let mut out = String::from("file://");
     if !s.starts_with('/') {
         out.push('/');

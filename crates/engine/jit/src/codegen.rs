@@ -177,7 +177,7 @@ pub(crate) fn define_all<M: cranelift_module::Module>(
     // biggest first: the longest compile starts at once and the small ones fill the gaps
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(func_size(&m.funcs[i])));
-    let done: Vec<Mutex<Option<Result<Code, String>>>> = (0..n).map(|_| Mutex::new(None)).collect();
+    let done: Vec<Mutex<Option<Result<Code, String>>>> = Vec::from_fn(n, |_| Mutex::new(None));
     let (tx, rx) = std::sync::mpsc::channel::<(usize, ir::Function)>();
     let rx = Mutex::new(rx);
     let work = || loop {
@@ -399,7 +399,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
     ) -> Gen<'a, M> {
         let n = f.slots.len();
         let nf = f.frame_len();
-        let mut resident: Vec<bool> = (0..n).map(|r| r < nf && nf > MAX_REG_SLOTS).collect();
+        let mut resident: Vec<bool> = Vec::from_fn(n, |r| r < nf && nf > MAX_REG_SLOTS);
         let mut defined = vec![false; n];
         for blk in &f.blocks {
             for i in &blk.insts {
@@ -657,7 +657,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             self.b.set_cold_block(blk);
         }
 
-        self.blocks = (0..self.f.blocks.len()).map(|_| self.b.create_block()).collect();
+        self.blocks = Vec::from_fn(self.f.blocks.len(), |_| self.b.create_block());
 
         // Entry dispatch.
         let osr = self.b.create_block();

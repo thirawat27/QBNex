@@ -765,8 +765,8 @@ impl Gif {
         let mut codesize = lzw_cs as i32 + 1;
         let mut codemask = (1 << codesize) - 1;
         let (mut bits, mut valid_bits) = (0i32, 0i32);
-        for init in 0..clear as usize {
-            self.codes[init] = Lzw {
+        for (init, code) in self.codes.iter_mut().take(clear as usize).enumerate() {
+            *code = Lzw {
                 prefix: -1,
                 first: init as u8,
                 suffix: init as u8,

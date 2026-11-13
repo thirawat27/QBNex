@@ -288,7 +288,7 @@ impl Model {
                     let pbr = prim.material().pbr_metallic_roughness();
                     let texture = pbr.base_color_texture().map(|t| t.texture().source().index()).filter(|&i| i < imgs.len());
                     let material = Material { base_color: pbr.base_color_factor(), texture };
-                    let verts = (0..pos.len()).map(|i| MeshVertex { pos: pos[i], normal: nrm[i], uv: uv[i] }).collect();
+                    let verts = Vec::from_fn(pos.len(), |i| MeshVertex { pos: pos[i], normal: nrm[i], uv: uv[i] });
                     data.push(PartData { verts, idx, material, local: m });
                 }
             }

@@ -348,7 +348,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         barrier: 0,
         fidx,
         globals: HashMap::new(),
-        frames: (0..order.len()).map(|_| Frame::default()).collect(),
+        frames: Vec::from_fn(order.len(), |_| Frame::default()),
         mem,
         taken: std::collections::HashSet::new(),
         prologue: vec![Vec::new(); order.len()],

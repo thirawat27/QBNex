@@ -64,8 +64,8 @@ fn storage() -> &'static mut Storage {
         let n = IMG_BUFFERSIZE as usize;
         let mut st = Storage {
             structs: vec![ImgStruct::default(); n],
-            pixels: (0..n).map(|_| Vec::new()).collect(),
-            palettes: (0..n).map(|_| Vec::new()).collect(),
+            pixels: Vec::from_fn(n, |_| Vec::new()),
+            palettes: Vec::from_fn(n, |_| Vec::new()),
             free: Vec::new(),
         };
         // SAFETY: publishing the registry base for C++.

@@ -271,7 +271,7 @@ fn first_difference(expected: &[u8], actual: &[u8]) -> String {
 /// Compiles `case` with `qb_args` and runs it: (normalised stdout + exit marker, frame summary).
 fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u8>, Vec<u8>), String> {
     let stem = case.file_stem().unwrap_or_default().to_string_lossy().to_string();
-    let rel = case.strip_prefix(&opts.cases).unwrap_or(case);
+    let rel = case.trim_prefix(&opts.cases);
     let tag: String = rel
         .with_extension("")
         .to_string_lossy()
@@ -551,7 +551,7 @@ fn main() -> ExitCode {
     let (mut passed, mut blessed, mut xfailed, mut failed) = (0usize, 0usize, 0usize, Vec::new());
     let mut skipped = 0usize;
     for case in &cases {
-        let rel = case.strip_prefix(&opts.cases).unwrap_or(case).display().to_string();
+        let rel = case.trim_prefix(&opts.cases).display().to_string();
         let xfail_reason = fs::read_to_string(case.with_extension("xfail"))
             .ok()
             .map(|s| s.lines().next().unwrap_or("").trim().to_string());

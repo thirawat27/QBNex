@@ -739,7 +739,7 @@ pub unsafe fn input(h: &mut dyn Host, offs: *mut *mut c_void, types: *mut i32, n
                         on = false;
                     }
                     if on != showing_cursor {
-                        showing_cursor = !showing_cursor;
+                        showing_cursor.toggle();
                         toggle_box_cursor(h, w);
                     }
                 }

@@ -44,7 +44,7 @@ pub fn split(s: &[u8]) -> (&[u8], &[u8]) {
     let mut quotes = false;
     for (x, &c) in s.iter().enumerate() {
         if c == b'"' {
-            quotes = !quotes;
+            quotes.toggle();
         }
         if c == b' ' && !quotes {
             return (&s[..x], &s[x + 1..]);

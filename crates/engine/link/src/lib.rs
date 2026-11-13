@@ -166,7 +166,7 @@ pub fn link(obj: &[u8]) -> Result<Image, LinkError> {
 /// the image and the runtime use the plain name.
 fn plain_name<'a>(file: &object::File, name: &'a str) -> &'a str {
     if file.format() == object::BinaryFormat::MachO {
-        name.strip_prefix('_').unwrap_or(name)
+        name.trim_prefix('_')
     } else {
         name
     }

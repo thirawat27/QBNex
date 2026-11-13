@@ -60,7 +60,7 @@ pub fn func_name(qir: &str, casing: &Casing) -> String {
 
 /// BASIC name of a variable declared in function `func` (QIR names).
 pub fn var_name(qir: &str, func: &str, casing: &Casing) -> String {
-    let mut s = qir.strip_prefix('$').unwrap_or(qir);
+    let mut s = qir.trim_prefix('$');
     let own = format!("_{func}_");
     if func != "main"
         && let Some(r) = s.strip_prefix(&own)
@@ -68,7 +68,7 @@ pub fn var_name(qir: &str, func: &str, casing: &Casing) -> String {
         s = r;
     }
     let s = s.trim_start_matches('_');
-    let s = s.strip_prefix("ARRAY_").unwrap_or(s);
+    let s = s.trim_prefix("ARRAY_");
     for (tok, suffix) in TYPES {
         if let Some(rest) = s.strip_prefix(tok) {
             // STRINGn / BITn carry a length: `STRING6_NAME`.
