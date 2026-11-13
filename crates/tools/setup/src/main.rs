@@ -6,33 +6,45 @@
 //! runner `qb-exec` uses for a program's QIR.
 //!
 //! ```text
-//! qbnex-setup                      install (asks first when run from a terminal)
+//! qbnex-setup                      the setup wizard (a window; in a terminal without
+//!                                  a display it asks there instead)
 //! qbnex-setup --yes [--dir D]      install without questions
 //! qbnex-setup --uninstall          remove an installation (run from the install folder)
 //! qbnex-setup --pack DIR --out F   make an installer F that carries DIR
 //! ```
 //!
 //! Per-user install, no administrator rights: Windows `%LOCALAPPDATA%\Programs\QBNex`
-//! (user PATH, "Apps & features" entry); Linux/macOS `~/.local/share/qbnex` with `qb`
-//! and `qbnex` links in `~/.local/bin`.
+//! (user PATH, Start menu, "Apps & features" entry); Linux/macOS `~/.local/share/qbnex`
+//! with `qb` and `qbnex` links in `~/.local/bin` and an entry in the applications menu.
 
+mod engine;
+#[cfg(feature = "gui")]
+mod gui;
 mod payload;
 mod platform;
+#[cfg(any(feature = "gui", test))]
+mod text;
+#[cfg(any(feature = "gui", test))]
+mod wizard;
 
 use std::io::{self, BufRead, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-/// Lists every file the installer wrote, relative to the install folder, so an upgrade
-/// or uninstall removes exactly those (and leaves files the user added).
-const MANIFEST: &str = ".qbnex-install";
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use engine::{Bundle, Event, Options, Progress, VERSION};
 
 #[derive(Default)]
 struct Args {
     yes: bool,
     uninstall: bool,
     no_path: bool,
+    no_menu: bool,
+    desktop: bool,
+    associate: bool,
+    /// Ask in the terminal even where a window could be shown.
+    console: bool,
+    /// Show the window even when not started from a terminal or a file manager.
+    gui: bool,
     dir: Option<PathBuf>,
     pack: Option<PathBuf>,
     out: Option<PathBuf>,
@@ -44,6 +56,10 @@ fn usage() -> &'static str {
      qbnex-setup                      install QBNex for the current user\n\
      qbnex-setup --yes [--dir <dir>]  install without asking\n\
      qbnex-setup --no-path            do not add QBNex to PATH\n\
+     qbnex-setup --no-menu            do not add QBNex to the applications menu\n\
+     qbnex-setup --desktop            create a desktop shortcut\n\
+     qbnex-setup --associate          add \"Compile with QBNex\" to the menu of .bas files\n\
+     qbnex-setup --console | --gui    ask in the terminal | in the setup window\n\
      qbnex-setup --uninstall [--yes]  remove QBNex (run the copy in the install folder)\n\
      qbnex-setup --pack <dir> --out <file>   build an installer that carries <dir>\n\
      qbnex-setup --version | --help\n"
@@ -54,9 +70,15 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Option<Args>, String> {
     while let Some(s) = it.next() {
         let mut value = |name: &str| it.next().map(PathBuf::from).ok_or(format!("{name} needs a value"));
         match s.as_str() {
-            "-y" | "--yes" | "/S" | "/s" => a.yes = true,
+            // the switches other Windows installers use for a silent install
+            "-y" | "--yes" | "/S" | "/s" | "/SILENT" | "/VERYSILENT" => a.yes = true,
             "--uninstall" => a.uninstall = true,
             "--no-path" => a.no_path = true,
+            "--no-menu" => a.no_menu = true,
+            "--desktop" => a.desktop = true,
+            "--associate" => a.associate = true,
+            "--console" => a.console = true,
+            "--gui" => a.gui = true,
             "--dir" => a.dir = Some(value("--dir")?),
             "--pack" => a.pack = Some(value("--pack")?),
             "--out" => a.out = Some(value("--out")?),
@@ -68,10 +90,38 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Option<Args>, String> {
                 println!("qbnex-setup {VERSION}");
                 return Ok(None);
             }
-            other => return Err(format!("unknown argument: {other}\n\n{}", usage())),
+            other => match other.strip_prefix("/DIR=") {
+                Some(dir) if !dir.is_empty() => a.dir = Some(PathBuf::from(dir.trim_matches('"'))),
+                _ => return Err(format!("unknown argument: {other}\n\n{}", usage())),
+            },
         }
     }
     Ok(Some(a))
+}
+
+impl Args {
+    /// What to install where, from the switches.
+    fn options(&self) -> Result<Options, String> {
+        let dir = match &self.dir {
+            Some(d) => d.clone(),
+            None => platform::default_dir()?,
+        };
+        // PATH entries and links must not depend on the folder setup was started from
+        let dir = std::path::absolute(&dir).map_err(|e| format!("bad install folder {}: {e}", dir.display()))?;
+        Ok(Options { dir, add_path: !self.no_path, menu: !self.no_menu, desktop: self.desktop, associate: self.associate && platform::can_associate() })
+    }
+
+    /// True when the questions are asked in the setup window.
+    fn wants_window(&self) -> bool {
+        if !cfg!(feature = "gui") || self.yes || self.console || self.pack.is_some() || !platform::has_display() {
+            return false;
+        }
+        let terminal = io::stdin().is_terminal();
+        // Started from a file manager there is no terminal at all. A script that
+        // pipes or redirects the installer gets no window: it could not answer it.
+        let from_file_manager = cfg!(unix) && !terminal && !io::stdout().is_terminal() && !io::stderr().is_terminal();
+        self.gui || terminal || from_file_manager
+    }
 }
 
 fn main() -> ExitCode {
@@ -83,30 +133,69 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    // --pack is a build step: it never asks and never waits for Enter
-    let interactive = !args.yes && args.pack.is_none() && io::stdin().is_terminal();
-    let result = if let Some(src) = &args.pack {
-        match &args.out {
+    if let Some(src) = &args.pack {
+        // a build step: it never asks and never waits for Enter
+        let result = match &args.out {
             Some(out) => payload::pack(src, out).map(|n| println!("wrote {} ({n} files)", out.display())),
             None => Err("--pack needs --out <file>".into()),
+        };
+        return report(result);
+    }
+    #[cfg(feature = "gui")]
+    if args.wants_window() {
+        match window(&args) {
+            Ok(result) => return report(result),
+            // no window after all (no display server answers): the terminal it is
+            Err(e) if io::stdin().is_terminal() => eprintln!("qbnex-setup: no setup window ({e}); asking here"),
+            Err(e) => return report(Err(format!("cannot open the setup window: {e}"))),
         }
-    } else if args.uninstall {
-        uninstall(&args, interactive)
-    } else {
-        install(&args, interactive)
-    };
-    let code = match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("qbnex-setup: {e}");
-            ExitCode::FAILURE
-        }
-    };
+    }
+    let interactive = !args.yes && io::stdin().is_terminal();
+    let code = report(if args.uninstall { uninstall(&args, interactive) } else { install(&args, interactive) });
     // Started by double-clicking on Windows: keep the console open to show the result.
     if interactive && cfg!(windows) {
         pause();
     }
     code
+}
+
+fn report(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("qbnex-setup: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Runs the wizard; the outer error means no window could be opened.
+#[cfg(feature = "gui")]
+fn window(args: &Args) -> Result<Result<(), String>, String> {
+    let (mode, options, bundle) = if args.uninstall {
+        let dir = match engine::find_install(args.dir.as_deref()) {
+            Ok(dir) => dir,
+            Err(e) => return Ok(Err(e)),
+        };
+        (wizard::Mode::Uninstall, Options::new(dir), None)
+    } else {
+        let options = match args.options() {
+            Ok(o) => o,
+            Err(e) => return Ok(Err(e)),
+        };
+        // without a bundle the window still opens, to say so where it can be read
+        (wizard::Mode::Install, options, Bundle::open().ok())
+    };
+    // a watchdog for the wizard that drives itself: a test must end
+    if std::env::var_os(gui::SELF_DRIVE).is_some() {
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(180));
+            eprintln!("qbnex-setup: the self-driven wizard did not finish");
+            std::process::exit(3);
+        });
+    }
+    platform::leave_own_console();
+    gui::run(gui::Start { mode, options, bundle })
 }
 
 fn ask(question: &str) -> bool {
@@ -127,163 +216,41 @@ fn pause() {
     let _ = io::stdin().lock().read_line(&mut line);
 }
 
+/// The terminal shows results, not progress.
+struct Quiet;
+
+impl Progress for Quiet {
+    fn event(&mut self, _: Event) {}
+}
+
 fn install(args: &Args, interactive: bool) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("cannot find this program: {e}"))?;
-    let image = std::fs::read(&exe).map_err(|e| format!("cannot read {}: {e}", exe.display()))?;
-    let Some((stub, zip)) = payload::split(&image) else {
-        return Err("this copy of qbnex-setup carries no QBNex files (it is the uninstaller or a plain build); download the release installer".into());
-    };
-    let dir = match &args.dir {
-        Some(d) => d.clone(),
-        None => platform::default_dir()?,
-    };
-    // PATH entries and links must not depend on the folder setup was started from
-    let dir = std::path::absolute(&dir).map_err(|e| format!("bad install folder {}: {e}", dir.display()))?;
+    let bundle = Bundle::open()?;
+    let options = args.options()?;
+    let dir = &options.dir;
     println!("QBNex {VERSION} setup");
     println!("Install folder: {}", dir.display());
     if interactive && !ask("Install QBNex here?") {
         return Err("cancelled".into());
     }
-    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    remove_listed(&dir)?;
-    let files = payload::extract(zip, &dir)?;
-    // The uninstaller is this program without the bundle.
-    let me = platform::setup_name();
-    write_file(&dir.join(me), stub, true)?;
-    let mut manifest = files;
-    manifest.push(me.to_string());
-    manifest.sort();
-    let text: String = manifest.iter().map(|f| format!("{f}\n")).collect();
-    write_file(&dir.join(MANIFEST), text.as_bytes(), false)?;
-
-    let size_kb = dir_size(&dir) / 1024;
-    platform::register(&dir, VERSION, size_kb, !args.no_path)?;
+    engine::install(&options, &bundle, &mut Quiet)?;
     println!("QBNex {VERSION} is installed in {}.", dir.display());
     if args.no_path {
         println!("PATH was not changed; run {} directly.", dir.join(platform::compiler_name()).display());
     } else {
-        println!("{}", platform::path_hint(&dir));
+        println!("{}", platform::path_hint(dir));
     }
     Ok(())
 }
 
 fn uninstall(args: &Args, interactive: bool) -> Result<(), String> {
-    let dir = match &args.dir {
-        Some(d) => d.clone(),
-        None => {
-            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let here = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-            if here.join(MANIFEST).is_file() { here } else { platform::default_dir()? }
-        }
-    };
-    if !dir.join(MANIFEST).is_file() {
-        return Err(format!("no QBNex installation found in {}", dir.display()));
-    }
+    let dir = engine::find_install(args.dir.as_deref())?;
     if interactive && !ask(&format!("Remove QBNex from {}?", dir.display())) {
         return Err("cancelled".into());
     }
-    platform::unregister(&dir)?;
-    remove_listed(&dir)?;
-    remove_work_files(&dir);
+    engine::uninstall(&dir, &mut Quiet)?;
     platform::remove_install_dir(&dir);
     println!("QBNex was removed from {}.", dir.display());
     Ok(())
-}
-
-/// Removes the files an earlier install listed in its manifest, then empty folders.
-fn remove_listed(dir: &Path) -> Result<(), String> {
-    let Ok(text) = std::fs::read_to_string(dir.join(MANIFEST)) else {
-        return Ok(());
-    };
-    let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
-    let mut parents = Vec::new();
-    for rel in text.lines().filter(|l| !l.is_empty()) {
-        let Some(path) = payload::safe_join(dir, rel) else {
-            continue;
-        };
-        // a running uninstaller cannot delete itself; platform::remove_install_dir does
-        if me.is_some() && path.canonicalize().ok() == me {
-            continue;
-        }
-        if path.is_file() || is_link(&path) {
-            std::fs::remove_file(&path).map_err(|e| format!("cannot remove {}: {e}", path.display()))?;
-        }
-        let mut p = path.parent();
-        while let Some(d) = p {
-            if d == dir {
-                break;
-            }
-            parents.push(d.to_path_buf());
-            p = d.parent();
-        }
-    }
-    parents.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
-    parents.dedup();
-    for d in parents {
-        let _ = std::fs::remove_dir(&d); // only succeeds when empty
-    }
-    let _ = std::fs::remove_file(dir.join(MANIFEST));
-    Ok(())
-}
-
-/// Settings and version stamp the compiler keeps in its work folder `target`.
-const WORK_FILES: [&str; 2] = ["qb-config.ini", "qb-version.txt"];
-/// Prefix of the compiler's build folders in `target` (`qb-temp`, `qb-temp2`, ...).
-const WORK_DIR_PREFIX: &str = "qb-temp";
-
-/// Removes what the compiler wrote into its work folder `target`, then the folder
-/// if that left it empty. Anything else in it is not QBNex's (the install folder can
-/// be one the user also keeps a project in) and stays.
-fn remove_work_files(dir: &Path) {
-    let work = dir.join("target");
-    if !work.is_dir() || is_link(&work) {
-        return;
-    }
-    if let Ok(entries) = std::fs::read_dir(&work) {
-        for e in entries.flatten() {
-            let path = e.path();
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            if is_link(&path) {
-                continue;
-            }
-            if path.is_dir() && name.starts_with(WORK_DIR_PREFIX) {
-                let _ = std::fs::remove_dir_all(&path);
-            } else if path.is_file() && WORK_FILES.contains(&name.as_ref()) {
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    }
-    let _ = std::fs::remove_dir(&work); // only succeeds when empty
-}
-
-fn is_link(p: &Path) -> bool {
-    std::fs::symlink_metadata(p).map(|m| m.file_type().is_symlink()).unwrap_or(false)
-}
-
-fn write_file(path: &Path, bytes: &[u8], executable: bool) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    #[cfg(unix)]
-    if executable {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(unix))]
-    let _ = executable;
-    Ok(())
-}
-
-fn dir_size(dir: &Path) -> u64 {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    rd.flatten()
-        .map(|e| match e.file_type() {
-            Ok(t) if t.is_dir() => dir_size(&e.path()),
-            Ok(t) if t.is_file() => e.metadata().map(|m| m.len()).unwrap_or(0),
-            _ => 0,
-        })
-        .sum()
 }
 
 #[cfg(test)]
@@ -297,45 +264,37 @@ mod tests {
     #[test]
     fn parses_flags() {
         let a = args(&["--yes", "--dir", "x", "--no-path"]).unwrap().unwrap();
-        assert!(a.yes && a.no_path && !a.uninstall);
+        assert!(a.yes && a.no_path && !a.uninstall && !a.no_menu && !a.desktop && !a.associate);
         assert_eq!(a.dir, Some(PathBuf::from("x")));
         assert!(args(&["--dir"]).is_err());
         assert!(args(&["--bogus"]).is_err());
         assert!(args(&["--version"]).unwrap().is_none());
+
+        let a = args(&["--no-menu", "--desktop", "--associate", "--console"]).unwrap().unwrap();
+        assert!(a.no_menu && a.desktop && a.associate && a.console && !a.yes);
     }
 
     #[test]
-    fn upgrade_removes_only_listed_files() {
-        let dir = std::env::temp_dir().join(format!("qbnex-setup-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("compiler/stdlib")).unwrap();
-        std::fs::write(dir.join("compiler/stdlib/a.bas"), "x").unwrap();
-        std::fs::write(dir.join("mine.bas"), "user file").unwrap();
-        std::fs::write(dir.join(MANIFEST), "compiler/stdlib/a.bas\n../outside.txt\n").unwrap();
-        remove_listed(&dir).unwrap();
-        assert!(!dir.join("compiler").exists(), "listed file and its empty folders go");
-        assert!(dir.join("mine.bas").is_file(), "files the user added stay");
-        assert!(!dir.join(MANIFEST).exists());
-        std::fs::remove_dir_all(&dir).unwrap();
+    fn the_switches_of_other_installers_mean_a_silent_install() {
+        for switch in ["/S", "/SILENT", "/VERYSILENT"] {
+            assert!(args(&[switch]).unwrap().unwrap().yes, "{switch}");
+        }
+        let a = args(&["/VERYSILENT", r#"/DIR="C:\My QBNex""#]).unwrap().unwrap();
+        assert_eq!(a.dir, Some(PathBuf::from(r"C:\My QBNex")));
+        assert!(args(&["/DIR="]).is_err());
     }
 
     #[test]
-    fn uninstall_removes_only_the_compilers_work_files() {
-        let dir = std::env::temp_dir().join(format!("qbnex-setup-work-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let work = dir.join("target");
-        std::fs::create_dir_all(work.join("qb-temp2")).unwrap();
-        std::fs::write(work.join("qb-temp2/program.qir"), "x").unwrap();
-        std::fs::write(work.join("qb-config.ini"), "x").unwrap();
-        remove_work_files(&dir);
-        assert!(!work.exists(), "a work folder holding only compiler files goes");
-
-        std::fs::create_dir_all(work.join("qb-temp")).unwrap();
-        std::fs::create_dir_all(work.join("release")).unwrap();
-        std::fs::write(work.join("release/mine.exe"), "user build").unwrap();
-        remove_work_files(&dir);
-        assert!(!work.join("qb-temp").exists());
-        assert!(work.join("release/mine.exe").is_file(), "other content of target stays");
-        std::fs::remove_dir_all(&dir).unwrap();
+    fn the_switches_choose_what_is_installed_and_never_a_window_when_silent() {
+        let a = args(&["--yes", "--dir", "x", "--no-path", "--no-menu", "--desktop"]).unwrap().unwrap();
+        let o = a.options().unwrap();
+        assert!(o.dir.is_absolute() && o.dir.ends_with("x"));
+        assert!(!o.add_path && !o.menu && o.desktop && !o.associate);
+        assert!(!a.wants_window());
+        let defaults = args(&["--dir", "x"]).unwrap().unwrap().options().unwrap();
+        assert!(defaults.add_path && defaults.menu && !defaults.desktop && !defaults.associate);
+        for silent in [&["--console"][..], &["--gui", "--yes"], &["--pack", "d", "--out", "f", "--gui"]] {
+            assert!(!args(silent).unwrap().unwrap().wants_window(), "{silent:?}");
+        }
     }
 }

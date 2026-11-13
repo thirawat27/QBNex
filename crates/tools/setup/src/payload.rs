@@ -32,10 +32,26 @@ pub fn safe_join(dir: &Path, rel: &str) -> Option<PathBuf> {
     }
 }
 
-/// Extracts the bundle into `dir`; returns the files written (relative, `/`-separated).
-pub fn extract(zip: &[u8], dir: &Path) -> Result<Vec<String>, String> {
+/// Size in bytes of the files in the bundle once extracted.
+pub fn unpacked_size(zip: &[u8]) -> Result<u64, String> {
     let mut archive = ZipArchive::new(Cursor::new(zip)).map_err(|e| format!("damaged installer: {e}"))?;
-    let mut files = Vec::new();
+    let mut total = 0u64;
+    for i in 0..archive.len() {
+        total = total.saturating_add(archive.by_index_raw(i).map_err(|e| format!("damaged installer: {e}"))?.size());
+    }
+    Ok(total)
+}
+
+/// What stops [`extract`] when `on_file` returns false.
+pub const CANCELLED: &str = "cancelled";
+
+/// Extracts the bundle into `dir`. Every file is added to `files` (relative,
+/// `/`-separated) before it is written, so after an error the list names all that
+/// may exist. `on_file` gets each name and the bytes extracted before it; returning
+/// false stops with [`CANCELLED`].
+pub fn extract(zip: &[u8], dir: &Path, files: &mut Vec<String>, on_file: &mut dyn FnMut(&str, u64) -> bool) -> Result<(), String> {
+    let mut archive = ZipArchive::new(Cursor::new(zip)).map_err(|e| format!("damaged installer: {e}"))?;
+    let mut done = 0u64;
     for i in 0..archive.len() {
         let mut f = archive.by_index(i).map_err(|e| format!("damaged installer: {e}"))?;
         let Some(rel) = f.enclosed_name() else {
@@ -50,16 +66,20 @@ pub fn extract(zip: &[u8], dir: &Path) -> Result<Vec<String>, String> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
+        let name = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+        if !on_file(&name, done) {
+            return Err(CANCELLED.into());
+        }
+        files.push(name);
         let mut out = std::fs::File::create(&path).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-        std::io::copy(&mut f, &mut out).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        done += std::io::copy(&mut f, &mut out).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
         #[cfg(unix)]
         if let Some(mode) = f.unix_mode() {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode & 0o777));
         }
-        files.push(rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"));
     }
-    Ok(files)
+    Ok(())
 }
 
 /// Writes an installer to `out`: this program (without any bundle it carries), a zip
@@ -162,8 +182,14 @@ mod tests {
         let zip = w.finish().unwrap().into_inner();
         let dir = std::env::temp_dir().join(format!("qbnex-setup-x-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let files = extract(&zip, &dir).unwrap();
+        assert_eq!(unpacked_size(&zip), Ok(7));
+        let mut files = Vec::new();
+        extract(&zip, &dir, &mut files, &mut |_, _| true).unwrap();
         assert_eq!(files, vec!["compiler/stdlib/a.bas".to_string()]);
+        // a refusal stops before the file is written or listed
+        let mut none = Vec::new();
+        assert_eq!(extract(&zip, &dir.join("no"), &mut none, &mut |_, _| false), Err(CANCELLED.to_string()));
+        assert!(none.is_empty() && !dir.join("no/compiler/stdlib/a.bas").exists());
         assert_eq!(std::fs::read(dir.join("compiler/stdlib/a.bas")).unwrap(), b"PRINT 1");
         std::fs::remove_dir_all(&dir).unwrap();
     }
