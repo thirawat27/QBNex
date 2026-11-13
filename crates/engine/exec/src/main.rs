@@ -229,7 +229,7 @@ fn main() {
             }
         },
     };
-    let src = String::from_utf8_lossy(&src).into_owned();
+    let src = String::from_utf8_lossy_owned(src);
     if qb_exec::wants_window(&src) {
         // GUI program (no $CONSOLE): the window layer needs the main thread,
         // the program runs on its own thread and ends the process

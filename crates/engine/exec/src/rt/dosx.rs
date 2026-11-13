@@ -487,32 +487,28 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
             c.env_remove("QBNEX_CHAIN");
         }
     }
-    // the file of COMMON values this program got is no longer needed
-    chain_cleanup(&mut vm.rt().dos);
-    if let Err(x) = release_for_next(vm) {
-        if let Some(f) = &file {
+    // Every way back from here removes the file of COMMON values this program
+    // wrote: the next program has ended (Windows) or could not be started. When
+    // `exec` works this process is gone, and the next program removes the file
+    // when it reads it.
+    let _file = std::mem::DropGuard::new(file, |f| {
+        if let Some(f) = f {
             let _ = std::fs::remove_file(f);
         }
-        return Err(x);
-    }
+    });
+    // the file of COMMON values this program got is no longer needed
+    chain_cleanup(&mut vm.rt().dos);
+    release_for_next(vm)?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        // returns only when the shell could not be started; the next program
-        // removes the file of COMMON values when it reads it
+        // returns only when the shell could not be started
         let _ = c.exec();
-        if let Some(f) = &file {
-            let _ = std::fs::remove_file(f);
-        }
         e(53)
     }
     #[cfg(not(unix))]
     {
-        let st = c.status();
-        if let Some(f) = &file {
-            let _ = std::fs::remove_file(f);
-        }
-        let Ok(st) = st else { return e(53) };
+        let Ok(st) = c.status() else { return e(53) };
         vm.rt().dos.end_code = Some(st.code().unwrap_or(1));
         Ok(())
     }

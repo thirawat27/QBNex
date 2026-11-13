@@ -1230,7 +1230,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
 fn os_path(b: &[u8]) -> String {
     let mut v = b.to_vec();
     qb_runtime::gfs::fixdir(&mut v);
-    String::from_utf8_lossy(&v).into_owned()
+    String::from_utf8_lossy_owned(v)
 }
 
 /// Files matching a DOS pattern (`*`, `?` in the last component).

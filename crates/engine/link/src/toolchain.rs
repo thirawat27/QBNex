@@ -84,7 +84,7 @@ pub fn link_native(kit: &Path, obj: &[u8], out: &Path) -> Result<(), LinkError> 
     let _ = std::fs::remove_file(&obj_path);
     let r = r.map_err(|e| LinkError(format!("cannot run the linker {}: {e}", lld_in(kit).display())))?;
     if !r.status.success() {
-        let mut msg = String::from_utf8_lossy(&r.stderr).into_owned();
+        let mut msg = String::from_utf8_lossy_owned(r.stderr);
         msg.push_str(&String::from_utf8_lossy(&r.stdout));
         return Err(LinkError(format!("link failed: {}", msg.trim())));
     }
