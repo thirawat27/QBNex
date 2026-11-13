@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The compiler's build screen: a block-letter banner, colors, and a progress bar redrawn in place with a carriage return. It no longer runs together on one line or writes over the shell prompt. `-m` or the `NO_COLOR` environment variable keeps plain ASCII output.
+- The compiler's build screen: a shaded logo shading from violet through sky blue to mint, icons, the source file, a progress bar redrawn in place with a carriage return, the line count and the build time. It no longer runs together on one line or writes over the shell prompt. `-m` or the `NO_COLOR` environment variable keeps plain ASCII output.
 - The compiler no longer builds any C++ text. Messages that named the C++ compiler or a C type now describe the QIR build: "Cannot find C type to return array data" is now "Unsupported array element type". `$EXEICON`, `$VERSIONINFO` and `$CHECKING:OFF` are accepted and have no effect (see the limitations page).
 - Rust 1.100.0 is the required toolchain (`rust-toolchain.toml`, `rust-version`).
-- Console programs on Linux and macOS: `COLOR` shows the QBasic colors (1 is blue, 4 is red; before, the terminal's ANSI order swapped them), and `CSRLIN`/`POS` read the terminal's cursor. LOCATE, COLOR and CLS go through the `crossterm` library. On every system, text PRINTed before `LOCATE`, `COLOR`, `CLS`, `CSRLIN` or `POS` now reaches the console first.
+- Console programs on Linux and macOS: `COLOR` shows the QBasic colors (1 is blue, 4 is red; before, the terminal's ANSI order swapped them), and `CSRLIN`/`POS` read the terminal's cursor. LOCATE, COLOR and CLS go through the `crossterm` library. On a Windows console, `COLOR` 16 to 255 now shows the 256-color palette (as a VT sequence) instead of a wrong 16-color attribute. On every system, text PRINTed before `LOCATE`, `COLOR`, `CLS`, `CSRLIN` or `POS` now reaches the console first.
 - License: QBNex is now licensed under the GNU General Public License, version 3 or later, with the QBNex Compiled Program Exception (`LICENSE-EXCEPTION.txt`): programs compiled with QBNex may be licensed under any terms. The parts that come from QB64 keep their MIT license (`licenses/QB64.txt`). Releases made before this change remain available under the MIT license. Added `NOTICE.txt`, `TRADEMARKS.md` (use of the name and logo) and `CLA.md` (contributor agreement).
 
 ### Added

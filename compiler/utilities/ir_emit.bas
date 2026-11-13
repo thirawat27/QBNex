@@ -2639,15 +2639,6 @@ SUB IrFinish (src$, outExe$)
     PUT #fh, , l$
     CLOSE #fh
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + CHR$(34) + outPath$ + CHR$(34)
-    IF QuietMode = 0 THEN
-        PRINT
-        IF MonochromeLoggingMode THEN
-            PRINT "Build complete: " + outPath$
-        ELSE
-            COLOR 10: PRINT "  Build complete: ";
-            COLOR 15: PRINT outPath$
-            COLOR 7
-        END IF
-    END IF
+    IF QuietMode = 0 THEN ShowBuildComplete outPath$
     ExitCompilerProcess
 END SUB

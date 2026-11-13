@@ -384,7 +384,31 @@ pub fn locate(row: i32, column: i32, passed: i32) {
 pub fn color(col1: u32, col2: u32, passed: i32) -> i32 {
     #[cfg(windows)]
     {
-        let _ = passed;
+        let (fg, bg) = (passed & 1 != 0, passed & 2 != 0);
+        if ((fg && col1 > 15) || (bg && col2 > 15)) && col1 <= 255 && col2 <= 255 {
+            // the console's own attributes have 16 colors: colors 16 to 255 go as a VT
+            // sequence (Windows 10 and later consoles); without VT support nothing changes
+            // SAFETY: Win32 calls with valid buffers.
+            unsafe {
+                let out = win::std(win::STD_OUTPUT_HANDLE);
+                let mut mode = 0;
+                if win::GetConsoleMode(out, &mut mode) != 0
+                    && win::SetConsoleMode(out, mode | win::ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0
+                {
+                    let mut s = String::new();
+                    if fg {
+                        s += &format!("\x1b[38;5;{}m", ansi_color(col1));
+                    }
+                    if bg {
+                        s += &format!("\x1b[48;5;{}m", ansi_color(col2));
+                    }
+                    let w: Vec<u16> = s.encode_utf16().collect();
+                    let mut written = 0;
+                    win::WriteConsoleW(out, w.as_ptr().cast(), w.len() as u32, &mut written, core::ptr::null());
+                }
+            }
+            return 0;
+        }
         // SAFETY: Win32 call.
         unsafe {
             win::SetConsoleTextAttribute(

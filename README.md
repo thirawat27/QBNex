@@ -1848,19 +1848,21 @@ If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build 
 
 ### Test Output Interpretation
 
-**Successful Compilation** (in color; the progress bar is redrawn in place):
+**Successful Compilation** (in color: the logo shades from violet through sky blue to mint in the 256-color palette; the progress bar is redrawn in place):
 ```
-    ████    ████    █   █   █████   █   █
-   █    █   █   █   ██  █   █        █ █
-   █  ██    ████    █ █ █   ████      █
-   █   █    █   █   █  ██   █        █ █
-    ████    ████    █   █   █████   █   █
+   ██████╗ ██████╗ ███╗   ██╗███████╗██╗  ██╗
+  ██╔═══██╗██╔══██╗████╗  ██║██╔════╝╚██╗██╔╝
+  ██║   ██║██████╔╝██╔██╗ ██║█████╗   ╚███╔╝
+  ██║▄▄ ██║██╔══██╗██║╚██╗██║██╔══╝   ██╔██╗
+  ╚██████╔╝██████╔╝██║ ╚████║███████╗██╔╝ ██╗
+   ╚══▀▀═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
 
-  QBNex Compiler v2.0.0
+  ⚡ QBNex Compiler v2.0.0  ·  BASIC → QIR → executable
+  📄 Source  C:\work\hello.bas
 
-  Building  ████████████████████████████████ 100%
+  🔨 Building  ████████████████████████████████ 100%  12 lines
 
-  Build complete: hello.exe
+  ✅ Build complete: C:\work\hello.exe  (0.3 s)
 ```
 
 With `-m` (or the `NO_COLOR` environment variable set) the banner is drawn with letters and the rest prints in plain ASCII:
