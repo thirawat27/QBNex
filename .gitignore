@@ -30,6 +30,8 @@ dist-*
 !CHANGELOG.md
 !CONTRIBUTING.md
 !SECURITY.md
+!TRADEMARKS.md
+!CLA.md
 !docs/**/*.md
 !crates/**/*.md
 !packaging/**/*.md

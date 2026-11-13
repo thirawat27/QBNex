@@ -19,7 +19,14 @@ use crate::platform;
 use crate::text::{Key, fill};
 use crate::wizard::{Mode, Page, Stop, ThisMachine, Wizard};
 
-const LICENSE: &str = include_str!("../../../../LICENSE");
+/// What the license page shows: the notice, the exception for compiled programs, then the GPL.
+const LICENSE: &str = concat!(
+    include_str!("../../../../NOTICE.txt"),
+    "\n\n",
+    include_str!("../../../../LICENSE-EXCEPTION.txt"),
+    "\n\n",
+    include_str!("../../../../LICENSE")
+);
 const ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/linux/QBNex.png");
 /// Who makes QBNex, shown at the foot of the side strip.
 const DEVELOPER: &str = "Thirawat Sinlapasomsak";

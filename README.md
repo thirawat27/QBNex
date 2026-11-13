@@ -2279,7 +2279,7 @@ List_Init myList
 **Problem: "Antivirus flags qb.exe"**
 - Add QBNex folder to exclusion list
 - This is a false positive (compiled binary heuristic)
-- QBNex is open source (MIT License)
+- QBNex is free software (GPL-3.0-or-later); programs you compile with it are yours, under any license
 
 **Linux:**
 
@@ -3161,9 +3161,15 @@ For security vulnerabilities, please read [SECURITY.md](SECURITY.md) and follow 
 
 ## License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+Copyright (C) 2026 Thirawat Sinlapasomsak. QBNex is licensed under the **GNU General Public License, version 3 or later** ([LICENSE](LICENSE)), with the **QBNex Compiled Program Exception** ([LICENSE-EXCEPTION.txt](LICENSE-EXCEPTION.txt)).
 
-The MIT License is a permissive open source license that allows free use, modification, and distribution of the software with minimal restrictions.
+- **Your programs are yours.** A program you compile with QBNex carries a copy of the QBNex runtime; the exception lets you license and sell that program under any terms, without publishing its source.
+- **QBNex stays free.** Anyone may use, study, change and share QBNex. Whoever distributes a changed compiler or runtime must release its source under the same license.
+- **Commercial license.** To ship a changed compiler or runtime without releasing its source, ask the copyright holder for a separate license.
+- **Name and logo.** "QBNex" and the logo are not covered by the license; forks use a name of their own. See [TRADEMARKS.md](TRADEMARKS.md).
+- **Contributions** are accepted under the [Contributor License Agreement](CLA.md).
+
+QBNex is based on QB64; the parts that come from it keep their MIT license ([licenses/QB64.txt](licenses/QB64.txt)). Versions released before this change remain available under the MIT license. The licenses of the other components are in [licenses/COPYING.TXT](licenses/COPYING.TXT). See [NOTICE.txt](NOTICE.txt).
 
 ---
 

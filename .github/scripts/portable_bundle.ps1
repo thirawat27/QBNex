@@ -54,6 +54,9 @@ Copy-IfExists -Source (Join-Path $repoRoot "crates\engine\exec\bin") -Destinatio
 foreach ($tool in @("qb-fmt.exe", "qb-lsp.exe", "qb-dap.exe")) {
     Copy-IfExists -Source (Join-Path $repoRoot "target\release\$tool") -Destination (Join-Path $bundleRoot $tool)
 }
+foreach ($notice in @("LICENSE", "LICENSE-EXCEPTION.txt", "NOTICE.txt", "TRADEMARKS.md")) {
+    Copy-IfExists -Source (Join-Path $repoRoot $notice) -Destination (Join-Path $bundleRoot $notice)
+}
 Copy-IfExists -Source (Join-Path $repoRoot "licenses") -Destination (Join-Path $bundleRoot "licenses")
 Copy-IfExists -Source (Join-Path $repoRoot "README.md") -Destination (Join-Path $bundleRoot "README.md")
 Copy-IfExists -Source (Join-Path $repoRoot "CHANGELOG.md") -Destination (Join-Path $bundleRoot "CHANGELOG.md")

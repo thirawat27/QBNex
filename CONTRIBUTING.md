@@ -354,6 +354,10 @@ Ensure your changes pass CI before requesting review.
 4. **Test thoroughly**: Ensure everything works before submitting
 5. **Update documentation**: Update README, CHANGELOG, etc. as needed
 6. **Follow the template**: Fill out the PR template completely
+7. **Agree to the CLA**: your first pull request must state that you agree to the
+   [Contributor License Agreement](CLA.md) (the line to add is at its end). You keep the
+   copyright of your work; the agreement lets the project keep offering QBNex under the GPL
+   and under other licenses.
 
 ### Pull Request Template
 

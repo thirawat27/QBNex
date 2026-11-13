@@ -1,0 +1,67 @@
+QBNex Compiled Program Exception, version 1.0
+
+Copyright (C) 2026 Thirawat Sinlapasomsak
+
+This exception is an additional permission under section 7 of the GNU General
+Public License, version 3 ("GPLv3"). It applies to QBNex wherever a file or a
+notice says that it is licensed under the GPLv3 "with the QBNex Compiled Program
+Exception".
+
+
+0. Why this exception exists
+
+Every program QBNex compiles carries a copy of the QBNex runtime: an
+executable QBNex produces is the runner with the program appended, or is linked
+with the runtime library, and the standard library a program imports becomes
+part of it. Without this exception the GPLv3 would reach every such program.
+The exception makes sure it does not: the programs people write with QBNex
+belong to them, and they may license them as they choose.
+
+
+1. Definitions
+
+"Runtime" means the parts of QBNex that the compiler copies into, appends to,
+or links with the output it produces: the program runner qb-exec and the
+libraries it is built from, the native runtime library, and the BASIC files
+under compiler/stdlib and compiler/support that a program includes or imports.
+
+"Your Source" means BASIC source code, and other input given to the compiler,
+that is not itself QBNex or a work based on QBNex. A program that only uses
+QBNex's documented statements, functions and standard library is not a work
+based on QBNex.
+
+"Compiled Program" means any output QBNex produces from Your Source: an
+executable, a QIR file, or another file meant to be run, together with the copy
+of the Runtime it contains or is combined with.
+
+
+2. Permission to convey Compiled Programs
+
+You have permission to copy, convey and license a Compiled Program under terms
+of your choice, even though it contains, is combined with or is linked with the
+Runtime, and even though those terms are not compatible with the GPLv3. You do
+not need to provide the source code of the Runtime or of Your Source when you
+convey a Compiled Program.
+
+Parts of the Runtime written by others are under their own licenses, listed in
+the folder "licenses" of the QBNex distribution (licenses/COPYING.TXT and
+licenses/THIRD_PARTY.TXT). This exception does not change those licenses;
+follow their notice requirements when you convey a Compiled Program.
+
+
+3. What this exception does not cover
+
+This exception does not give permission to convey QBNex itself, the compiler,
+the Runtime on its own, or a modified version of any of them, other than inside
+a Compiled Program. Those remain under the GPLv3.
+
+If you modify the Runtime and convey Compiled Programs that contain your
+modified version, this exception applies to them only if you release the
+modified Runtime under the GPLv3 with this exception.
+
+
+4. Modified versions of QBNex
+
+If you modify QBNex, you may extend this exception to your version, but you are
+not obliged to do so. If you do not wish to do so, delete this exception
+statement from your version.

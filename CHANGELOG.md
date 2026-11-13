@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- License: QBNex is now licensed under the GNU General Public License, version 3 or later, with the QBNex Compiled Program Exception (`LICENSE-EXCEPTION.txt`): programs compiled with QBNex may be licensed under any terms. The parts that come from QB64 keep their MIT license (`licenses/QB64.txt`). Releases made before this change remain available under the MIT license. Added `NOTICE.txt`, `TRADEMARKS.md` (use of the name and logo) and `CLA.md` (contributor agreement).
+
 ### Added
 
 - One-file installer `qbnex-setup` (crate `crates/tools/setup`): releases publish `qbnex_<tag>_<os>-setup(.exe)`, which installs per user without administrator rights (Windows: `%LOCALAPPDATA%\Programs\QBNex`, user PATH, Apps & features entry; Linux/macOS: `~/.local/share/qbnex` with links in `~/.local/bin`) and uninstalls with `--uninstall`. Release bundles now include `qb-fmt`, `qb-lsp` and `qb-dap`.

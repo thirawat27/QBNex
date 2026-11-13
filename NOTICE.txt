@@ -1,0 +1,25 @@
+QBNex
+Copyright (C) 2026 Thirawat Sinlapasomsak
+
+QBNex is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version, with the QBNex Compiled Program Exception.
+
+QBNex is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+- LICENSE                 the GNU General Public License, version 3
+- LICENSE-EXCEPTION.txt   the QBNex Compiled Program Exception: programs you
+                          compile with QBNex are yours, under terms of your
+                          choice
+- licenses/QB64.txt       QBNex is based on QB64; the parts that come from it
+                          keep their MIT license
+- licenses/COPYING.TXT    the licenses of the other components QBNex includes
+- TRADEMARKS.md           how the name "QBNex" and its logo may be used
+- CLA.md                  the agreement for contributions
+
+A license to use QBNex under terms other than the GPLv3 (for example, to ship a
+modified compiler or runtime without releasing its source) can be obtained
+from the copyright holder: https://github.com/thirawat27/QBNex

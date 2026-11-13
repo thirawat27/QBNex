@@ -1,7 +1,9 @@
 === IMPORTANT LICENSING NOTE FOR QBNEX PROGRAMMERS ===
 The QBNex runtime that is in your programs (the QIR runner qb-exec, crates/engine/exec, which every compiled
 program and the qb compiler itself are a copy of, with the Rust runtime crates/runtime/core + crates/runtime/audio
-linked in) contains no GPL or LGPL code.
+linked in) is licensed under the GPL-3.0-or-later with the QBNex Compiled Program Exception
+(LICENSE-EXCEPTION.txt). The exception lets you license a program you compile with QBNex under any terms,
+without publishing its source.
 FreeType, FreeGLUT, GLEW, zlib, miniaudio, stb_vorbis and the other C libraries of the QB64 runtime are no
 longer included, so their licenses no longer apply to your programs.
 Programs that play MP3, FLAC or Ogg Vorbis audio contain Symphonia (MPL-2.0, see below).
@@ -13,18 +15,18 @@ The license requirements for components of QBNex (forked from QB64) are as follo
 
 Software/Library Name: QBNex (inclusive of all parts of this distribution not covered by separate licence below)
 Website(s): https://github.com/thirawat27/QBNex (QBNex Repository)
+License: GPL-3.0-or-later with the QBNex Compiled Program Exception
+License Website: https://www.gnu.org/licenses/gpl-3.0.html
+License File(s): LICENSE, LICENSE-EXCEPTION.txt and NOTICE.txt in the root of the distribution
+Copyright (C) 2026 Thirawat Sinlapasomsak
+Versions released before the change to the GPL remain available under the MIT license.
+
+Software/Library Name: QB64 (the parts of QBNex that come from it)
 Original Website: https://qb64.com
 License: MIT
 License Website: https://opensource.org/licenses/MIT
-Copyright (c) 2026 Thirawat Sinlapasomsak
+License File: QB64.txt
 Copyright (c) 2007-2022 Galleon & The QB64 Team
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 
 Software/Library Name: STB Image (ported to Rust: BMP, TGA, GIF and PNM loaders) and dr_pcx
 Website: http://nothings.org/ and https://github.com/mackron/dr_pcx

@@ -4,7 +4,7 @@
   "description": "QBasic / QB64 / QBNex language support: highlighting, snippets, diagnostics, navigation and formatting through qb-lsp, plus Run and Compile commands.",
   "version": "2.0.0",
   "publisher": "qbnex",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/thirawat27/QBNex"

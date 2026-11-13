@@ -38,6 +38,9 @@ copy_if_exists "${repo_root}/crates/engine/exec/bin" "${output_dir}/crates/engin
 for tool in qb-fmt qb-lsp qb-dap; do
   copy_if_exists "${repo_root}/target/release/${tool}" "${output_dir}/${tool}"
 done
+for notice in LICENSE LICENSE-EXCEPTION.txt NOTICE.txt TRADEMARKS.md; do
+  copy_if_exists "${repo_root}/${notice}" "${output_dir}/${notice}"
+done
 copy_if_exists "${repo_root}/licenses" "${output_dir}/licenses"
 copy_if_exists "${repo_root}/README.md" "${output_dir}/README.md"
 copy_if_exists "${repo_root}/CHANGELOG.md" "${output_dir}/CHANGELOG.md"
