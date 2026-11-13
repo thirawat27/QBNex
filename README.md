@@ -3025,7 +3025,6 @@ QBNex/
 │   └── icons/                  # Platform icon assets (linux/macos/windows)
 ├── compiler/                   # QBNex compiler source (BASIC)
 │   ├── qbnex.bas               # Main orchestrator entry point
-│   ├── icon.rc                 # Windows resource script
 │   ├── qbnex.ico               # Compiler icon
 │   ├── global/                 # Version/constants/settings modules
 │   ├── includes/               # Shared include files

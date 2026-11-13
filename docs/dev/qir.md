@@ -97,7 +97,7 @@ executor ต้องข้าม meta ที่ไม่รู้จัก
 
 | op | ชนิด | ความหมาย |
 | --- | --- | --- |
-| `add` `sub` `mul` `.T %d %a %b` | int, float | int: wrap แบบ two's complement (เหมือน C++ path) |
+| `add` `sub` `mul` `.T %d %a %b` | int, float | int: wrap แบบ two's complement (เหมือน QB64) |
 | `div.T` | float เท่านั้น | IEEE (หารศูนย์ได้ inf/nan; QB error 11 ของ `/` emitter เช็กเองถ้าต้องการ) |
 | `idiv.T` `mod.T` | int เท่านั้น | ตัดทศนิยมเข้าหา 0 / เศษมีเครื่องหมายตามตัวตั้ง; ตัวหาร 0 → **error 11** |
 | `pow.T` | float เท่านั้น | `pow()` ของ C |
@@ -115,7 +115,7 @@ EQV/IMP: emitter แตกเป็น `xor`+`not` / `not`+`or`
 
 | op | ความหมาย |
 | --- | --- |
-| `cvt.TO.FROM %d %s` | int→int: cast แบบ C (ตัด/ขยาย sign หรือ zero); int→float, float→float: ปัดใกล้สุด (ties-to-even); **float→int: ปัดครึ่งไปคู่ (`CINT`/`qbr`)** ค่าเกินช่วงของ i64 ได้ค่าที่ไม่กำหนด (ตาม C++ path) |
+| `cvt.TO.FROM %d %s` | int→int: cast แบบ C (ตัด/ขยาย sign หรือ zero); int→float, float→float: ปัดใกล้สุด (ties-to-even); **float→int: ปัดครึ่งไปคู่ (`CINT`/`qbr`)** ค่าเกินช่วงของ i64 ได้ค่าที่ไม่กำหนด (เหมือน QB64) |
 | `trunc.TO.FROM %d %s` | เหมือน `cvt` แต่ float→int ตัดเข้าหา 0 (cast ของ C) |
 
 string ↔ ตัวเลขทำผ่าน builtin (`STR$.*`, `VAL`)
@@ -143,7 +143,7 @@ string ↔ ตัวเลขทำผ่าน builtin (`STR$.*`, `VAL`)
 
 ข้อกำหนด memory:
 - storage ของ `str` เป็น handle ขนาด 8 byte ที่ executor จัดการ: `st.str` แทนที่ค่าเดิม (executor คืน string เดิม), `ld.str` ได้สำเนาค่า. UDT ใน v1 มีเฉพาะ field ที่ไม่ใช่ `str` (QB64 1.x) — `copy` จึงไม่ต้องรู้จัก handle
-- `ptr` ชี้ได้เฉพาะ storage ที่ยังมีชีวิต: local ตายเมื่อ function return, element ตายเมื่อ `redim`/`erase`. executor ไม่ต้องตรวจ (เหมือน C++)
+- `ptr` ชี้ได้เฉพาะ storage ที่ยังมีชีวิต: local ตายเมื่อ function return, element ตายเมื่อ `redim`/`erase`. executor ไม่ต้องตรวจ (เหมือน QB64)
 - layout ของ element: เรียงต่อกันด้วยขนาด element, **index แรกเปลี่ยนเร็วสุด** (เหมือน QB64)
 
 ### 4.7 Array
@@ -226,7 +226,7 @@ statement ในส่วน THEN/ELSE ของ IF บรรทัดเดี�
 2. ถ้ามี handler: บันทึก (F, ตำแหน่ง `line` ของ statement, N), ตั้ง ERR/ERL, แล้วรันโค้ดของ `main` ที่ label L **โดยไม่ unwind frame** (handler เห็น global ตามปกติ; frame ของ SUB ค้างอยู่)
 3. `resume` กลับ F ที่ `line` เดิม; `resume next` กลับ F ที่ `line` ถัดไปของ F; `resume L` unwind กลับ frame ของ main แล้ว jmp L
 4. handler จบด้วย `end`/`system` ได้ตามปกติ
-5. `ERL` = หมายเลขบรรทัดแบบ line-number label ตัวล่าสุดที่ทำงานก่อน error (compiler emit `rt LASTLINE n` ที่ label ตัวเลข; ไม่มีเลย = 0, เหมือน `last_line` ของ C++); `_ERRORLINE` = บรรทัด source จาก `line N`
+5. `ERL` = หมายเลขบรรทัดแบบ line-number label ตัวล่าสุดที่ทำงานก่อน error (compiler emit `rt LASTLINE n` ที่ label ตัวเลข; ไม่มีเลย = 0, เหมือน QB64); `_ERRORLINE` = บรรทัด source จาก `line N`
 
 JIT: ฟังก์ชันที่อาจเกิด error ใน handler ภายนอกต้องสามารถ "หยุดที่ `line` แล้วกลับมาต่อ" — วิธีที่ง่ายที่สุดคือ JIT เฉพาะ function ที่ไม่มี op ที่เกิด error ได้ หรือ fallback ไป VM ตอนเกิด error (deopt ที่ `line`)
 

@@ -86,9 +86,10 @@ fn lock_key(name: &str) -> LockKey {
     }
 }
 
-/// True when the program shows a real or headless window (not the browser runner).
+/// True when the program shows a real or headless window (the browser runner has none).
+#[cfg(not(target_arch = "wasm32"))]
 fn has_window(vm: &mut dyn Host<'_>) -> bool {
-    cfg!(not(target_arch = "wasm32")) && vm.rt().window
+    vm.rt().window
 }
 
 #[cfg(not(target_arch = "wasm32"))]

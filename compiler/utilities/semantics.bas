@@ -1976,11 +1976,11 @@ FUNCTION evaluatetotyp$ (a2$, targettyp AS LONG)
         evaluatetotyp$ = "@"
         EXIT FUNCTION
     ELSEIF (udtetype(E) AND ISSTRING) > 0 AND (udtetype(E) AND ISFIXEDLENGTH) = 0 AND (targettyp = -4) THEN
-        NewByteElement: evaluatetotyp$ = "@"
+        ReserveUniqueNumber: evaluatetotyp$ = "@"
         EXIT FUNCTION
     END IF
 END IF
-NewByteElement: evaluatetotyp$ = "@"
+ReserveUniqueNumber: evaluatetotyp$ = "@"
 EXIT FUNCTION
 END IF
 
@@ -2003,18 +2003,18 @@ IF sourcetyp AND ISSTRING THEN
         IF Error_Happened THEN EXIT FUNCTION
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
-        NewByteElement: evaluatetotyp$ = "@"
+        ReserveUniqueNumber: evaluatetotyp$ = "@"
     ELSE
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
 
-        NewByteElement: evaluatetotyp$ = "@"
+        ReserveUniqueNumber: evaluatetotyp$ = "@"
     END IF
     EXIT FUNCTION
 END IF
 e$ = refer(e$, sourcetyp, 0)
 IF Error_Happened THEN EXIT FUNCTION
-NewByteElement: evaluatetotyp$ = "@"
+ReserveUniqueNumber: evaluatetotyp$ = "@"
 EXIT FUNCTION
 END IF
 
@@ -2029,14 +2029,14 @@ ELSE
     e$ = refer(e$, sourcetyp, 0)
     IF Error_Happened THEN EXIT FUNCTION
 END IF
-NewByteElement: evaluatetotyp$ = "@"
+ReserveUniqueNumber: evaluatetotyp$ = "@"
 EXIT FUNCTION
 END IF
 
 'Standard variable
 e$ = refer(e$, sourcetyp, 1) 'get the variable's formal name
 IF Error_Happened THEN EXIT FUNCTION
-NewByteElement: evaluatetotyp$ = "@"
+ReserveUniqueNumber: evaluatetotyp$ = "@"
 EXIT FUNCTION
 
 END IF '-4, -5, -6
@@ -2215,7 +2215,7 @@ IF (sourcetyp AND ISUDT) THEN
     method2usealludt:
     ignore$ = variablesize$(-1) 'checks that the size is known
     IF Error_Happened THEN EXIT FUNCTION
-    NewByteElement: evaluatetotyp$ = "@"
+    ReserveUniqueNumber: evaluatetotyp$ = "@"
     EXIT FUNCTION
 END IF
 
@@ -2226,7 +2226,7 @@ IF (sourcetyp AND ISARRAY) THEN
         IF (sourcetyp AND ISFIXEDLENGTH) = 0 THEN
             e$ = refer(e$, sourcetyp, 0)
             IF Error_Happened THEN EXIT FUNCTION
-            NewByteElement: evaluatetotyp$ = "@"
+            ReserveUniqueNumber: evaluatetotyp$ = "@"
             EXIT FUNCTION
         END IF
     END IF
@@ -2237,7 +2237,7 @@ IF (sourcetyp AND ISARRAY) THEN
     IF Error_Happened THEN EXIT FUNCTION
     e$ = refer(e$, sourcetyp, 0)
     IF Error_Happened THEN EXIT FUNCTION
-    NewByteElement: evaluatetotyp$ = "@"
+    ReserveUniqueNumber: evaluatetotyp$ = "@"
     EXIT FUNCTION
 END IF
 
@@ -2253,14 +2253,14 @@ IF sourcetyp AND ISSTRING THEN
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
     END IF
-    NewByteElement: evaluatetotyp$ = "@"
+    ReserveUniqueNumber: evaluatetotyp$ = "@"
     EXIT FUNCTION
 END IF
 
 'Standard variable
 e$ = refer(e$, sourcetyp, 1) 'get the variable's formal name
 IF Error_Happened THEN EXIT FUNCTION
-NewByteElement: evaluatetotyp$ = "@"
+ReserveUniqueNumber: evaluatetotyp$ = "@"
 EXIT FUNCTION
 
 END IF '-2

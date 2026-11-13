@@ -155,8 +155,7 @@ The build stops with `QIR: unsupported: line N: ...` on:
 
 - `ON TIMER(n) sub argument` (a SUB with an argument) inside a SUB or FUNCTION;
 - `_MEM` of an array of variable-length STRINGs (its elements are not stored
-  together; `_MEM` of one STRING variable works);
--
+  together; `_MEM` of one STRING variable works).
 
 Every other statement and function the compiler knows is compiled (checked by
 compiling a one-line program for each keyword; forms with optional arguments
@@ -221,6 +220,10 @@ Compiled, but different:
   replace a running program: this one closes its files, stops its sound, hides
   its window and waits in the background for the other program, then ends with
   that program's exit code. Each program opens its own window.
+- `$EXEICON` and `$VERSIONINFO` are checked and accepted, but the executable
+  gets neither the icon nor the version information: it is the runner with the
+  program's QIR appended, and no Windows resource step runs. `$CHECKING:OFF` is
+  accepted and changes nothing; the checks stay on.
 
 ## Programs that time themselves with loops
 

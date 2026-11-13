@@ -10597,8 +10597,8 @@ END FUNCTION
 '$INCLUDE:'includes\support.bas'
 
 
-SUB NewByteElement
-    'takes the next unique number, as the byte_element temporaries once did, so
+SUB ReserveUniqueNumber
+    'takes the next unique number where the expression checker always took one, so
     'the numbers later code takes (and the QIR labels made from them) stay the same
     u = uniquenumber
 END SUB

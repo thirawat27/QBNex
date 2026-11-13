@@ -88104,7 +88104,7 @@ and.i32 %136 %135 %134
 jz %136 ~I5054.2
 line 9505
 incline 1979 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 1979 15
 const.str %137 x40
@@ -88122,7 +88122,7 @@ label ~I5053.1
 label ~I5053.E
 line 9505
 incline 1983 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 1983 15
 const.str %138 x40
@@ -88243,7 +88243,7 @@ label ~I5064.1
 label ~I5064.E
 line 9505
 incline 2006 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2006 15
 const.str %176 x40
@@ -88274,7 +88274,7 @@ label ~I5066.1
 label ~I5066.E
 line 9505
 incline 2011 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2011 15
 const.str %183 x40
@@ -88311,7 +88311,7 @@ label ~I5068.1
 label ~I5068.E
 line 9505
 incline 2017 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2017 15
 const.str %190 x40
@@ -88405,7 +88405,7 @@ incline 2031 15
 label ~I5070.E
 line 9505
 incline 2032 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2032 15
 const.str %214 x40
@@ -88439,7 +88439,7 @@ label ~I5077.1
 label ~I5077.E
 line 9505
 incline 2039 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2039 15
 const.str %221 x40
@@ -89324,7 +89324,7 @@ label ~I5143.1
 label ~I5143.E
 line 9505
 incline 2218 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2218 15
 const.str %479 x40
@@ -89378,7 +89378,7 @@ label ~I5148.1
 label ~I5148.E
 line 9505
 incline 2229 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2229 15
 const.str %497 x40
@@ -89455,7 +89455,7 @@ label ~I5153.1
 label ~I5153.E
 line 9505
 incline 2240 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2240 15
 const.str %513 x40
@@ -89549,7 +89549,7 @@ incline 2255 15
 label ~I5155.E
 line 9505
 incline 2256 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2256 15
 const.str %537 x40
@@ -89583,7 +89583,7 @@ label ~I5162.1
 label ~I5162.E
 line 9505
 incline 2263 15
-call SUB_NEWBYTEELEMENT
+call SUB_RESERVEUNIQUENUMBER
 line 9505
 incline 2263 15
 const.str %544 x40
@@ -184201,11 +184201,11 @@ store.str $__STRING_HASHFIND_NAME %98
 label ~EXIT
 ret
 endfunc
-func SUB_NEWBYTEELEMENT
-local $_SUB_NEWBYTEELEMENT_LONG_U i32
+func SUB_RESERVEUNIQUENUMBER
+local $_SUB_RESERVEUNIQUENUMBER_LONG_U i32
 line 10603
 call %0 FUNC_UNIQUENUMBER
-store.i32 $_SUB_NEWBYTEELEMENT_LONG_U %0
+store.i32 $_SUB_RESERVEUNIQUENUMBER_LONG_U %0
 label ~EXIT
 ret
 endfunc

@@ -351,7 +351,8 @@ struct Frame {
     desc: u32,
 }
 
-/// State of `SUB _GL` calls at display frames.
+/// State of `SUB _GL` calls at display frames (a window program; the browser runner has none).
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Default)]
 struct GlFrames {
     /// no OpenGL context could be made: frames are presented in software
@@ -453,6 +454,7 @@ pub struct Vm<'m, 'o> {
     /// (calls made from native code run the callee to completion).
     stop_depth: usize,
     /// SUB _GL frames (`Module::gl_sub`)
+    #[cfg(not(target_arch = "wasm32"))]
     gl: GlFrames,
     /// per `Module::rtfns` entry: the builtin runs without the runtime's name dispatch
     pure: Vec<Option<rt::builtins::Pure>>,
@@ -610,6 +612,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             jit: crate::jit::JitState::from_env(m),
             profile: None,
             stop_depth: usize::MAX,
+            #[cfg(not(target_arch = "wasm32"))]
             gl: GlFrames::default(),
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
             jit_nest: 0,
@@ -1581,11 +1584,6 @@ impl<'m, 'o> Vm<'m, 'o> {
                 u32::MAX
             }
         }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn gl_frame(&mut self, pc: u32) -> u32 {
-        pc
     }
 
     // ------------------------------------------------------------ events
