@@ -1,7 +1,5 @@
-//! Buffers handed to C++ that libqb.cpp releases with `free()`.
-//!
-//! The legacy decoders and the FreeType wrapper returned `malloc`ed memory and
-//! libqb.cpp frees it, so the Rust replacements allocate from the C heap too.
+//! Buffers returned by C ABI functions (image decoding, font rendering) whose
+//! callers release them with `free()`, so they come from the C heap.
 
 use std::os::raw::c_void;
 
@@ -10,8 +8,8 @@ unsafe extern "C" {
     fn malloc(size: usize) -> *mut c_void;
 }
 
-/// Browser build: no C heap and no C++ code that frees, so the
-/// block comes from the Rust allocator (callers there never release it).
+/// Browser build: no C heap, so the block comes from the Rust allocator
+/// (callers there never release it).
 #[cfg(target_arch = "wasm32")]
 unsafe fn malloc(size: usize) -> *mut c_void {
     match std::alloc::Layout::from_size_align(size.max(1), 16) {

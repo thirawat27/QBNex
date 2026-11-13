@@ -14,7 +14,6 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-pub mod alloc;
 pub mod arrays;
 pub mod clipboard;
 pub mod compress;
@@ -45,8 +44,6 @@ pub mod numfmt;
 pub mod numparse;
 pub mod pixels;
 pub mod printer;
-pub mod program;
-pub mod qbs;
 pub mod rnd;
 pub mod round;
 pub mod scene3d;
@@ -55,7 +52,6 @@ pub mod shell;
 pub mod systime;
 pub mod timer;
 pub mod val;
-pub mod waits;
 #[cfg(windows)]
 pub mod win32;
 

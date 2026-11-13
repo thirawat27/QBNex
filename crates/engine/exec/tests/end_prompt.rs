@@ -1,6 +1,6 @@
 //! END in a console program prints "Press any key to continue" and waits for a
 //! key, like the C++ runtime's sub_end; the runner decides with the runtime's
-//! END policy (qb_end_prompt_wanted) whether anybody could press it. SYSTEM
+//! END policy (end_prompt_wanted) whether anybody could press it. SYSTEM
 //! ends without the prompt.
 
 use std::sync::atomic::{AtomicU32, Ordering};

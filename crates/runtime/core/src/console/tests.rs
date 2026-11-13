@@ -271,23 +271,6 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The string engine is one global allocator shared with the qbs tests.
-fn qbs_lock() -> std::sync::MutexGuard<'static, ()> {
-    let g = crate::qbs::tests::LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    unsafe { crate::qbs::qb_qbs_reset() };
-    g
-}
-
-fn qstr(q: *mut crate::qbs::Qbs) -> Vec<u8> {
-    unsafe {
-        let q = &*q;
-        if q.len <= 0 {
-            return vec![];
-        }
-        std::slice::from_raw_parts(q.chr, q.len as usize).to_vec()
-    }
-}
-
 #[test]
 fn print_text_cells_and_cursor() {
     let _g = lock();
@@ -538,58 +521,6 @@ fn inkey_ring_buffer() {
         }
         assert_eq!(n, 15);
     }
-}
-
-fn run_input(m: &mut Mock, keys: &str, types: &mut [i32], offs: &mut [*mut core::ffi::c_void]) {
-    for b in keys.bytes() {
-        m.key_script.push_back((b, 0));
-    }
-    unsafe { input::input(m, offs.as_mut_ptr(), types.as_mut_ptr(), (types.len() - 1) as i32, true) };
-}
-
-#[test]
-fn input_numbers_and_strings() {
-    let _g = lock();
-    let _q = qbs_lock();
-    let mut m = Mock::new(2000);
-    let t = m.text(40, 5);
-    let mut a: i16 = 99;
-    let s = unsafe { crate::qbs::qb_qbs_new(0, 0) };
-    let mut d: f64 = 0.0;
-    let mut types = [0, 16, input::ISSTRING, input::ISFLOAT | 64];
-    let mut offs = [
-        core::ptr::null_mut(),
-        &mut a as *mut i16 as *mut core::ffi::c_void,
-        s as *mut core::ffi::c_void,
-        &mut d as *mut f64 as *mut core::ffi::c_void,
-    ];
-    // 'x' is rejected for the INTEGER (typed then removed again)
-    run_input(&mut m, "-12x,\"hi, there\",2.5e1\r", &mut types, &mut offs);
-    assert_eq!(a, -12);
-    assert_eq!(qstr(s), b"hi, there");
-    assert_eq!(d, 25.0);
-    assert_eq!(m.row(t, 1).trim_end(), "-12,\"hi, there\",2.5e1");
-    assert_eq!((m.w().cursor_x, m.w().cursor_y), (1, 2));
-}
-
-#[test]
-fn input_hex_overflow_and_line_input() {
-    let _g = lock();
-    let _q = qbs_lock();
-    let mut m = Mock::new(2100);
-    let t = m.text(40, 5);
-    let mut b: u8 = 0;
-    let mut types = [0, 8 | input::ISUNSIGNED];
-    let mut offs = [core::ptr::null_mut(), &mut b as *mut u8 as *mut core::ffi::c_void];
-    // &H1FF does not fit a _UNSIGNED _BYTE: the 3rd digit is refused
-    run_input(&mut m, "&HFFF\r", &mut types, &mut offs);
-    assert_eq!(b, 255);
-    assert_eq!(m.row(t, 1).trim_end(), "&HFF");
-    let s = unsafe { crate::qbs::qb_qbs_new(0, 0) };
-    let mut types = [0, input::ISSTRING | 512];
-    let mut offs = [core::ptr::null_mut(), s as *mut core::ffi::c_void];
-    run_input(&mut m, "a,\"b\x08c\r", &mut types, &mut offs);
-    assert_eq!(qstr(s), b"a,\"c");
 }
 
 #[test]
