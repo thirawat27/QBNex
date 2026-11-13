@@ -11,17 +11,29 @@ programs are new executables, which scanners like to inspect).
 
 The same releases have a one-file installer per system:
 `qbnex_<tag>_win-x64-setup.exe`, `qbnex_<tag>_lnx-setup` and
-`qbnex_<tag>_osx-setup`. Run it; it asks once and installs for the current
-user, without administrator rights:
+`qbnex_<tag>_osx-setup`. Run it: a setup window leads through the license,
+the folder and the tasks below, shows the progress, and can be cancelled at
+any point (a cancelled or failed install puts back what was there before).
+It installs for the current user, without administrator rights:
 
-- Windows: `%LOCALAPPDATA%\Programs\QBNex`, added to your PATH and to
-  "Apps & features" (uninstall from there).
+- Windows: `%LOCALAPPDATA%\Programs\QBNex`, added to your PATH, to the Start
+  menu and to "Apps & features" (uninstall from there).
 - Linux and macOS: `~/.local/share/qbnex`, with `qb` and `qbnex` linked in
-  `~/.local/bin` (add that folder to PATH if it is not there).
+  `~/.local/bin` (add that folder to PATH if it is not there) and a
+  "QBNex Terminal" entry in the applications menu (macOS: a script in
+  `~/Applications`).
 
-`qbnex-setup --yes` installs without asking, `--dir <folder>` picks another
-folder, `--no-path` leaves PATH alone. `qbnex-setup --uninstall` (the copy in
-the install folder) removes everything it installed. The installer and `qb`
+Optional tasks: a desktop shortcut, and "Compile with QBNex" in the file
+manager's menu for `.bas` files (Windows and Linux).
+
+Where no window can be shown (no display, a remote shell) the installer asks
+in the terminal instead; `--console` asks there always. For scripts:
+`qbnex-setup --yes` installs without asking (`/S`, `/SILENT` and `/VERYSILENT`
+mean the same), `--dir <folder>` (or `/DIR=<folder>`) picks another folder,
+`--no-path` leaves PATH alone, `--no-menu` adds no menu entry, `--desktop` and
+`--associate` turn the optional tasks on. `qbnex-setup --uninstall` (the copy
+in the install folder) removes everything it installed and leaves files you
+added. The installer and `qb`
 are not code-signed: Windows SmartScreen and macOS Gatekeeper may warn before
 the first run (macOS: `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`).
 

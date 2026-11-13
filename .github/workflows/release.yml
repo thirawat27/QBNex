@@ -259,7 +259,7 @@ jobs:
           setup="dist/qbnex_${RELEASE_TAG}_${{ matrix.artifact_suffix }}-setup"
           target/release/qbnex-setup --pack "$QBNEX_BUNDLE_DIR" --out "$setup"
           dir="$RUNNER_TEMP/qbnex-install"
-          "$setup" --yes --no-path --dir "$dir"
+          "$setup" --yes --no-path --no-menu --dir "$dir"
           "$dir/qb" --version
           "$dir/qbnex-setup" --uninstall --yes --dir "$dir"
           test ! -e "$dir/qb"
@@ -272,7 +272,7 @@ jobs:
           target/release/qbnex-setup.exe --pack "$env:QBNEX_BUNDLE_DIR" --out $setup
           if ($LASTEXITCODE) { exit 1 }
           $dir = Join-Path $env:RUNNER_TEMP 'qbnex-install'
-          & $setup --yes --no-path --dir $dir
+          & $setup --yes --no-path --no-menu --dir $dir
           if ($LASTEXITCODE) { exit 1 }
           & (Join-Path $dir 'qb.exe') --version
           if ($LASTEXITCODE) { exit 1 }
