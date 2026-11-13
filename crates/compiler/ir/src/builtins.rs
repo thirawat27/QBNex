@@ -58,7 +58,7 @@ pub static TABLE: &[Builtin] = &[
     b!("STR$.f64", [F64], Str),
     b!("STR$.f80", [F80], Str),
     b!("VAL", [Str], F64),
-    // legacy func_val returns long double
+    // VAL of a _FLOAT target parses into an 80-bit long double
     b!("VAL.f80", [Str], F80),
     b!("HEX$", [I64], Str),
     b!("OCT$", [I64], Str),
@@ -124,11 +124,11 @@ pub static TABLE: &[Builtin] = &[
     b!("LOG", [F64], F64),
     b!("EXP", [F64], F64),
     b!("EXP.s", [F64], F64),
-    // raises the error of the numeric READ just stored (C++ assigns 0, then errors)
+    // raises the error of the numeric READ just stored (READ assigns 0, then errors)
     b!("READCHK", []),
     // ASC(s$, position) = code: s$ with that byte replaced (error 5 outside 1..LEN)
     b!("ASCSET", [Str, I32, I32], Str),
-    // _ACOS.., _D2R.., _SEC.. (registry callnames; computed in double like libqb), bit ops, _STRCMP
+    // _ACOS.., _D2R.., _SEC.. (registry callnames; computed in double as in QB64), bit ops, _STRCMP
     b!("acos", [F80], F80),
     b!("asin", [F80], F80),
     b!("ceil", [F80], F80),
@@ -270,7 +270,7 @@ pub static TABLE: &[Builtin] = &[
     b!("TIME$.set", [Str]),
     b!("DATE$.set", [Str]),
     b!("_DEST", [I32]),
-    // ---- screen pages, images and graphics: libqb callnames of the compiler registry
+    // ---- screen pages, images and graphics: runtime callnames of the compiler registry
     // (`subs_functions.bas`); argument types are the registry's, the trailing I32 is `passed`.
     // `sub_graphics_get/put` take the element address and the array (aref) for the buffer.
     b!("qbg_screen", [I32, I32, I32, I32, I32, I32]),
@@ -316,7 +316,7 @@ pub static TABLE: &[Builtin] = &[
     b!("func__green", [U32, U32, I32], I32),
     b!("func__blue", [U32, U32, I32], I32),
     b!("func__alpha", [U32, U32, I32], I32),
-    // trailing I32: argument count (C++ overload)
+    // trailing I32: argument count (selects the overload)
     b!("func__rgb32", [I32, I32, I32, I32, I32], U32),
     b!("func__rgba32", [I32, I32, I32, I32], U32),
     b!("func__red32", [U32], I32),
@@ -516,7 +516,7 @@ pub static TABLE: &[Builtin] = &[
     b!("func__mousey", [I32, I32], F32),
     b!("func__mousewheel", [I32, I32], I32),
 
-    // ---- sound (qb-audio); trailing I32 `passed` = optional-argument flags of the C++ backend
+    // ---- sound (qb-audio); trailing I32 `passed` = optional-argument flags
     b!("SOUND", [F64, F64]),
     b!("BEEP", []),
     b!("PLAY", [Str]),

@@ -1,6 +1,6 @@
 //! DECLARE [DYNAMIC] LIBRARY "name": the emitter writes the library spec into
 //! `meta extfn <name> <lib> ...` (hex text, `-` for none) and the runner
-//! opens that library (qb-ffi, the legacy file names: name.dll, libname.so,
+//! opens that library (qb-ffi, the file names QB64 looks for: name.dll, libname.so,
 //! libname.dylib) before falling back to the default system libraries.
 //! The libraries used here are not in the default list, so the call only
 //! works when the named library is opened.

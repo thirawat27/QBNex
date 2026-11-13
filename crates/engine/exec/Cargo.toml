@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Prebuilt runner that executes QBNex IR (QIR) emitted by the BASIC compiler with `--ir`. No C++ compiler needed at user compile time."
+description = "Prebuilt runner that executes QBNex IR (QIR) emitted by the BASIC compiler. No C or C++ compiler is used."
 publish = false
 
 [lib]

@@ -6,9 +6,9 @@
 //!
 //! `benches/qir/*.qir` are `benches/bas/*.bas` compiled with `qb --ir`; each
 //! program times its own loop with `TIMER(.001)` and prints `<result> <ms>`,
-//! exactly like the same `.bas` built with the C++ backend, so the two can be
-//! compared directly. Every case runs interpreted only (`QB_JIT=off`) and with
-//! the JIT, best of three.
+//! so the same `.bas` built with `qb` (or run in another BASIC) prints numbers
+//! that compare directly. Every case runs interpreted only (`QB_JIT=off`) and
+//! with the JIT, best of three; the table shows the VM and JIT times side by side.
 
 use std::path::Path;
 

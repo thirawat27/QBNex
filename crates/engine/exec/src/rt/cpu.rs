@@ -1,8 +1,7 @@
-//! CALL ABSOLUTE: the small 16-bit x86 interpreter of libqb.cpp (`cpu_call`,
-//! `call_absolute`): MOV forms, PUSH/POP, RETF (returns to BASIC) and INT
-//! (INT 33h mouse queries are answered by the caller, as libqb `call_int`), over the
-//! program's conventional memory. Anything else is an "X86 Error" (exit 86)
-//! like libqb.
+//! CALL ABSOLUTE: a small 16-bit x86 interpreter, as in QB64: MOV forms,
+//! PUSH/POP, RETF (returns to BASIC) and INT (INT 33h mouse queries are
+//! answered by the caller), over the program's conventional memory. Anything
+//! else is an "X86 Error" (exit 86).
 
 const ES: usize = 0;
 const CS: usize = 1;
@@ -77,7 +76,7 @@ impl Cpu<'_> {
         }
         self.r[(i & 7) as usize].wrapping_add(idx)
     }
-    /// ModR/M operand (libqb rm8/rm16/rm32: 16-bit offsets inside the segment)
+    /// ModR/M operand (8/16/32-bit register or memory; 16-bit offsets inside the segment)
     fn ea(&mut self) -> Loc {
         let i = usize::from(self.b());
         let (m, rm) = (i >> 6, i & 7);
@@ -180,8 +179,8 @@ impl Cpu<'_> {
 
 /// `call_absolute(args, offset)` with `defseg` (bytes) and the near
 /// offsets of the arguments; `ds` is the data segment of the variables.
-/// `Err(86)` = unknown opcode (libqb exits with code 86). `int` serves `INT n`
-/// (number, registers AX CX DX BX SP BP SI DI; libqb `call_int` answers only 33h, the mouse).
+/// `Err(86)` = unknown opcode (the program exits with code 86). `int` serves `INT n`
+/// (number, registers AX CX DX BX SP BP SI DI; only 33h, the mouse, is answered).
 pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, args: &[u16], int: &mut dyn FnMut(u8, &mut [u32; 8])) -> Result<(), i32> {
     let mut c = Cpu { m, r: [0; 8], s: [0; 8], ip: 0, seg: 0, seg_bp: 0, a32: false };
     c.s[CS] = (defseg >> 4) as u16;

@@ -1,7 +1,7 @@
 //! TCP/IP handles of the runtime: `_OPENHOST`, `_OPENCLIENT`,
 //! `_OPENCONNECTION`, `_CONNECTED`, `_CONNECTIONADDRESS$` and GET/PUT/CLOSE
 //! on negative handles. Sockets, the info parser and addresses are
-//! `qb_runtime::net`; this is the handle table libqb.cpp kept in C++
+//! `qb_runtime::net`; this is the handle table
 //! (`connection_new`, `connection_register`, `stream_update`, `sub_get2`...).
 
 use super::builtins::Host;
@@ -79,7 +79,7 @@ fn open<'a>(vm: &mut dyn Host<'a>, method: i32, info: &[u8]) -> R<i64> {
         qnet::qb_tcp_host_open(i64::from(port))
     };
     if verr != 0 {
-        // legacy: VAL raised the error and the open went on
+        // VAL raises the error and the open goes on (as the old runtime did)
         vm.rt().net_pending_error = verr;
     }
     if conn.is_null() {

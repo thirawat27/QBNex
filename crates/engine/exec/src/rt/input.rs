@@ -4,9 +4,9 @@
 //! Events come from qb-runtime's window layer (an input script replayed by
 //! the headless window, `QBNEX_INPUT_SCRIPT`) through its callbacks; they are
 //! queued and applied on the program thread when the program asks for input.
-//! The key path is a port of libqb.cpp `keydown` / `keyup` (BIOS INKEY$
-//! buffer in conventional memory, _KEYHIT ring and held keys in qb-runtime
-//! keybuf) and the mouse path of window_bridge.cpp (one message queue);
+//! The key path follows QB64's `keydown` / `keyup` (BIOS INKEY$ buffer in
+//! conventional memory, _KEYHIT ring and held keys in qb-runtime keybuf); the
+//! mouse path has one message queue;
 //! CTRL+BREAK, PAUSE and ALT+ENTER are not handled here.
 //!
 //! Mouse messages go to a queue the program reads with _MOUSEINPUT; a mouse
@@ -270,7 +270,7 @@ impl MouseQueue {
     }
 }
 
-/// Key and mouse state of the program (libqb globals).
+/// Key and mouse state of the program.
 pub(crate) struct Input {
     keyup_mask: Vec<u32>,
     insert_held: bool,
@@ -450,7 +450,7 @@ impl Input {
         let m = self.queues[q].message();
         (m.movement_x, m.movement_y)
     }
-    /// `func__mousebutton` (buttons 2 and 3 swapped as libqb)
+    /// `func__mousebutton` (buttons 2 and 3 swapped, as in QB64)
     pub(crate) fn mousebutton(&self, q: usize, i: i32) -> bool {
         let i = match i {
             2 => 3,
@@ -636,7 +636,7 @@ impl Input {
     }
 
     /// ON KEY(1..14, 30, 31): F1-F10, the arrows (also on the keypad), F11, F12
-    /// (libqb.cpp keydown, priority 2). Marks the slot; true = the key was trapped.
+    /// (checked before the key reaches the buffer). Marks the slot; true = the key was trapped.
     fn onkey_trap(x: u32, x2: u32) -> bool {
         let keys = qb_runtime::events::onkeys();
         for (i, k) in keys.iter_mut().enumerate() {

@@ -1,5 +1,5 @@
 //! Console INPUT, LINE INPUT and INPUT$ of the runner (`qb-exec`) with stdin
-//! redirected, compared with the C++ backend:
+//! redirected:
 //! - INPUT a$, b, c reads one line; values missing from it are empty / 0, the
 //!   next INPUT reads the next line
 //! - at the end of stdin INPUT and LINE INPUT give empty values instead of

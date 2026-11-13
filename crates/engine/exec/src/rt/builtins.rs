@@ -142,7 +142,7 @@ impl<'a> RtState<'a> {
     pub(crate) fn new(out: &'a mut dyn Write) -> Self {
         RtState { out, col: 1, rnd: Default::default(), using: None, stdin: Reader::default(),
             input_line: None,
-            // 1 MB + 64 KB like libqb cmem (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
+            // 1 MB + 64 KB of conventional memory (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
             cmem: vec![0; 0x110000],
             cmem_next: 16,
             cmem_strs: HashMap::new(),
@@ -1016,7 +1016,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let numeric = name == "INPUTITEM.n";
             if rt.input_line.is_none() {
                 // first item: the statement reads one line; its values come from
-                // that line only (missing ones are empty / 0, as in the C++ backend)
+                // that line only (missing ones are empty / 0)
                 if !rt.window {
                     fill(&mut std::io::stdin(), &mut rt.stdin);
                 }
@@ -1167,7 +1167,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             return ok(V::S(dst));
         }
         "_INFLATE$" | "_INFLATE$.n" => {
-            // legacy compress_bridge.cpp: a given size is used as is, otherwise 10 MB steps;
+            // a given size is used as is, otherwise the buffer grows in 10 MB steps;
             // more than 512 MiB of output (a zip bomb) is error 7 instead of exhausting memory
             const INFLATE_CAP: u64 = 512 << 20;
             let src = s(0);
@@ -1225,7 +1225,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
 }
 
 /// A program path in the host's form: `\` and `/` both separate directories
-/// (legacy `fixdir`), so `'$INCLUDE:'dir\file.bas'` and `_FILEEXISTS("a\b")` work
+/// (as QB64's `fixdir`), so `'$INCLUDE:'dir\file.bas'` and `_FILEEXISTS("a\b")` work
 /// on Linux and macOS too.
 fn os_path(b: &[u8]) -> String {
     let mut v = b.to_vec();
@@ -1420,8 +1420,8 @@ fn read_line(f: &mut Reader) -> R<Vec<u8>> {
 }
 
 /// One line of console input. At the end of stdin the console has no end of
-/// file: the line is empty, as the C++ backend's INPUT never sees an end
-/// either (the browser runner keeps error 62, it has no more keys to wait for).
+/// file: the line is empty, so console INPUT never sees an end of file
+/// (the browser runner keeps error 62, it has no more keys to wait for).
 fn console_line(rt: &mut RtState<'_>) -> R<Vec<u8>> {
     let s = &rt.stdin;
     if !rt.web && (s.rpos >= s.rbuf.len() || s.rbuf[s.rpos] == 26) {
@@ -1545,7 +1545,7 @@ fn using<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> R<Option<V>> {
     Ok(None)
 }
 
-/// INT 33h of CALL ABSOLUTE: the mouse driver of libqb `call_int` (AX 0 reset:
+/// INT 33h of CALL ABSOLUTE: a minimal DOS mouse driver (AX 0 reset:
 /// AX=-1, BX=2 buttons; 3 status: BX buttons, CX/DX position; 1, 2, 7, 8 and
 /// the rest do nothing). `mouse`: latest (x, y, buttons) in page pixels;
 /// `page`: (text, mode, width, height, font width, font height).
@@ -1952,8 +1952,8 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
     Some(Ok(Some(v)))
 }
 
-/// Math and bit builtins named by their libqb/libm callnames (`_ACOS`, `_D2R`,
-/// `_SEC`, `_SHL`, `_STRCMP`, ...). libqb computes these in double.
+/// Math and bit builtins named by their registry/libm callnames (`_ACOS`, `_D2R`,
+/// `_SEC`, `_SHL`, `_STRCMP`, ...), computed in double as in QB64.
 fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let x = |k: usize| a[k].f();
     let f80 = |v: f64| Some(Ok(Some(V::X(qb_float80::F80::from_f64(v)))));
@@ -2181,7 +2181,7 @@ mod int33_tests {
 }
 
 /// The shell running command line `cmd` (SHELL, CHAIN, RUN): `cmd /c <cmd>`
-/// with the line passed as written, as libqb's system() did (std's argument
+/// with the line passed as written, as C's `system()` does (std's argument
 /// quoting would escape the quotes in it), or `sh -c <cmd>`.
 pub(crate) fn shell_command(cmd: &str) -> std::process::Command {
     #[cfg(windows)]

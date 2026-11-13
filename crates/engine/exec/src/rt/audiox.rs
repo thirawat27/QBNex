@@ -1,5 +1,5 @@
 //! Sound builtins of the runtime, routed to the `qb-audio` C ABI
-//! (the same functions libqb's audio_bridge.cpp forwards to).
+//! (`qb_snd_*`).
 
 use super::builtins::Host;
 use super::{Stop, R, V};
@@ -188,7 +188,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "_SNDRAWLEN" => some(V::F(snd::qb_snd_raw_len(i(0), i(1)))),
         "_MEMSOUND" => {
-            // audio_bridge.cpp func__memsound
+            // _MEMSOUND(handle, channel): a _MEM view of the sound's sample data
             let (h, ch) = (i(1), i(2));
             let mut info = snd::QbMemSound { offset: 0, size: 0, element_size: 0, mem_type: 0, lock_offset: 0, lock_id: 0 };
             let ok = unsafe { snd::qb_snd_memsound(h, ch, &mut info) } != 0;

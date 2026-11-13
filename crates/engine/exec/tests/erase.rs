@@ -1,5 +1,5 @@
 //! ERASE of a dynamic array: the array has no dimensions afterwards, so an
-//! element access raises "Subscript out of range" (9) like the C++ backend,
+//! element access raises "Subscript out of range" (9) as in QBasic,
 //! instead of implicitly dimensioning it 0 TO 10 (lang3 of tests/e2e.rs).
 
 fn run(src: &str) -> String {

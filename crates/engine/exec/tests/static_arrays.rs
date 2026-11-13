@@ -1,6 +1,6 @@
 //! `dims`: DIM of a static array. It is dimensioned once (a second `dims`, as
 //! in a `SUB ... STATIC` called again, keeps it and its values) and ERASE only
-//! clears it, keeping its dimensions (QBasic and the C++ backend).
+//! clears it, keeping its dimensions (as in QBasic).
 
 fn run(src: &str) -> String {
     let mut b = Vec::new();

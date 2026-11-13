@@ -1,6 +1,6 @@
-//! File builtins of the runtime, routed to `qb_runtime::fileio` (the
-//! same Rust code the C++ backend links), so file numbers, INPUT # parsing,
-//! PRINT # zones, GET/PUT records and EOF/LOC/SEEK follow legacy exactly.
+//! File builtins of the runtime, routed to `qb_runtime::fileio`: file numbers,
+//! INPUT # parsing, PRINT # zones, GET/PUT records and EOF/LOC/SEEK behave as
+//! in QB64.
 
 use super::builtins::Host;
 use super::{e, Stop, R, V};
@@ -31,7 +31,7 @@ unsafe fn taken(out: *const u8, len: i32) -> Vec<u8> {
     unsafe { std::slice::from_raw_parts(out, len as usize).to_vec() }
 }
 
-/// Value of an INPUT # number (n_float of libqb.cpp).
+/// Value of an INPUT # number (the digits `qb_runtime::fileio` parsed).
 fn num_value(n: &fio::NumRepr) -> R<f64> {
     let d = &n.digit[..n.digits as usize];
     if d.is_empty() {

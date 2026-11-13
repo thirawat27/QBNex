@@ -24,7 +24,7 @@ impl Os {
 }
 
 /// A library name as written in `DECLARE [DYNAMIC] LIBRARY "spec"`, split the
-/// way the legacy compiler did: `path/`, `name`, version (`name:1.0` or
+/// way QB64 does: `path/`, `name`, version (`name:1.0` or
 /// `name.1.0` gives `1.0`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Spec {
@@ -83,7 +83,7 @@ fn parse_spec(spec: &str, source_dir: Option<&Path>, os: Os) -> Spec {
     Spec { path, name, version: v }
 }
 
-/// Files the legacy compiler probed for `DECLARE DYNAMIC LIBRARY "spec"`, in order.
+/// Files QB64 probes for `DECLARE DYNAMIC LIBRARY "spec"`, in order.
 /// `source_dir` replaces a leading `./`.
 #[must_use]
 pub fn library_candidates(spec: &str, source_dir: Option<&Path>) -> Vec<PathBuf> {
@@ -129,7 +129,7 @@ fn candidates_for(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathBuf>
     out.into_iter().filter(|c| seen.insert(c.clone())).map(PathBuf::from).collect()
 }
 
-/// The C header the legacy compiler would have used for `DECLARE LIBRARY
+/// The C header QB64 would use for `DECLARE LIBRARY
 /// "spec"` (`name.h`, then `name.hpp`; next to the path, then bare, and in
 /// `/usr/include` on Linux/macOS). `Some` means the declaration needs a C
 /// compiler: report [`header_error`].
@@ -265,8 +265,8 @@ impl Drop for Library {
 }
 
 /// Modules searched by a header-less `DECLARE LIBRARY` without a name, in
-/// order: the program itself, then the C runtime and system libraries the
-/// legacy build linked.
+/// order: the program itself, then the C runtime and system libraries a
+/// QB64 program links.
 #[must_use]
 pub fn default_modules() -> &'static [&'static str] {
     if cfg!(windows) {
@@ -314,7 +314,7 @@ fn defaults() -> &'static Defaults {
 
 /// Header-less `DECLARE LIBRARY`: looks `name` up in the program and the
 /// [`default_modules`]. On Windows a POSIX name the C runtime only exports
-/// with a leading underscore (`getpid` -> `_getpid`, as MinGW's `oldnames`
+/// with a leading underscore (`getpid` -> `_getpid`, as the MinGW `oldnames` library
 /// mapped it) is found too.
 #[must_use]
 pub fn find_default_symbol(name: &str) -> Option<*const c_void> {
