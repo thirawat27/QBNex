@@ -1848,7 +1848,7 @@ If you need `qbnex_<tag>_win-x86.zip` or another 32-bit Windows artifact, build 
 
 ### Test Output Interpretation
 
-**Successful Compilation** (in color: the logo shades from violet through sky blue to mint in the 256-color palette; the progress bar is redrawn in place):
+**Successful Compilation** (in color: the logo shades from periwinkle through sky blue and mint to light green in the 256-color palette; the progress bar is redrawn in place):
 ```
    ██████╗ ██████╗ ███╗   ██╗███████╗██╗  ██╗
   ██╔═══██╗██╔══██╗████╗  ██║██╔════╝╚██╗██╔╝

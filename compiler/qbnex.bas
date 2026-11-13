@@ -11063,7 +11063,7 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
         thisincname$ = getfilepath$(incFileName$)
         thisincname$ = MID$(incFileName$, LEN(thisincname$) + 1)
 
-        IF NOT MonochromeLoggingMode THEN COLOR 15
+        TuiColor 152
         IF includeLevel > 0 AND incLineNumber > 0 THEN
             PRINT thisincname$; ":";
             PRINT str2$(incLineNumber); ": ";
@@ -11072,15 +11072,16 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
             PRINT str2$(whichLineNumber); ": ";
         END IF
 
-        IF NOT MonochromeLoggingMode THEN COLOR 13
+        TuiColor 222
         PRINT "warning: ";
-        IF NOT MonochromeLoggingMode THEN COLOR 7
+        TuiDefault
         PRINT header$
+        TuiDefault
 
         IF LEN(text$) > 0 THEN
-            IF NOT MonochromeLoggingMode THEN COLOR 2
+            TuiColor 248
             PRINT SPACE$(4); text$
-            IF NOT MonochromeLoggingMode THEN COLOR 7
+            TuiDefault
         END IF
     END IF
     EXIT SUB
@@ -11098,6 +11099,26 @@ END SUB
 'The build screen: a banner, a progress bar redrawn in place on its own line (a carriage
 'return, no cursor addressing, so it works the same in every terminal and in a log), and
 'colors. -m or the NO_COLOR environment variable give the plain ASCII form.
+SUB TuiColor (c AS LONG)
+    'COLOR for the compiler's own output; -m and NO_COLOR leave the colors alone
+    IF MonochromeLoggingMode THEN EXIT SUB
+    COLOR c
+    IF c > 15 THEN tuiVT = -1 'the console now takes VT sequences
+END SUB
+
+SUB TuiTitle (t$)
+    'the product name: bold, in a stronger sky blue than the soft colors around it
+    TuiColor 75
+    IF tuiVT AND MonochromeLoggingMode = 0 THEN PRINT CHR$(27) + "[1m" + t$ + CHR$(27) + "[22m"; ELSE PRINT t$;
+END SUB
+
+SUB TuiDefault
+    'back to the terminal's own text color (light on a dark background, dark on a
+    'light one); a 16-color console without VT gets light gray
+    IF MonochromeLoggingMode THEN EXIT SUB
+    IF tuiVT THEN PRINT CHR$(27) + "[39m"; ELSE COLOR 7
+END SUB
+
 FUNCTION U8$ (cp AS LONG)
     'UTF-8 bytes of the Unicode code point cp
     IF cp < 128 THEN U8$ = CHR$(cp): EXIT FUNCTION
@@ -11118,19 +11139,19 @@ END FUNCTION
 SUB TuiLogoLine (a$, row AS LONG)
     'One row of the shaded logo. In a$: # full block, _ lower half, ^ upper half (the
     'letter faces) and r l = | j L (the shadow: corners and double lines). The faces
-    'shade diagonally through seven colors of the 256-color palette, violet to sky
-    'blue to mint; the shadow is one muted slate blue.
+    'shade diagonally through seven soft colors of the 256-color palette, periwinkle
+    'to sky blue to mint to light green; the shadow is a muted slate.
     PRINT "  ";
     lastc = -1
     FOR i = 1 TO LEN(a$)
         ch$ = MID$(a$, i, 1)
         IF INSTR("#_^", ch$) THEN
             k = ((i + row - 2) * 7) \ (LEN(a$) + 6)
-            c = VAL(MID$("141105111117123122121", k * 3 + 1, 3))
+            c = VAL(MID$("105111117116115114150", k * 3 + 1, 3))
         ELSE
-            c = 61
+            c = 60
         END IF
-        IF ch$ <> " " AND c <> lastc THEN COLOR c: lastc = c
+        IF ch$ <> " " AND c <> lastc THEN TuiColor c: lastc = c
         SELECT CASE ch$
             CASE "#": PRINT U8$(9608);
             CASE "_": PRINT U8$(9604);
@@ -11145,7 +11166,7 @@ SUB TuiLogoLine (a$, row AS LONG)
         END SELECT
     NEXT
     PRINT
-    COLOR 7
+    TuiDefault
 END SUB
 
 SUB TuiBanner
@@ -11158,11 +11179,11 @@ SUB TuiBanner
     TuiLogoLine " L==^^=j L=====j L=j  L===jL======jL=j  L=j", 6
     PRINT
     PRINT "  " + U8$(9889) + " ";
-    COLOR 255: PRINT "QBNex Compiler ";
-    COLOR 141: PRINT "v" + Version$;
-    COLOR 244: PRINT "  " + U8$(183) + "  BASIC " + U8$(8594) + " QIR " + U8$(8594) + " executable"
+    TuiTitle "QBNex Compiler "
+    TuiColor 114: PRINT "v" + Version$;
+    TuiColor 248: PRINT "  " + U8$(183) + "  BASIC " + U8$(8594) + " QIR " + U8$(8594) + " executable"
     PRINT "  " + U8$(128196) + " ";
-    COLOR 244: PRINT "Source  ";
+    TuiDefault: PRINT "Source  ";
     'one kind of separator, the system's own (the path is joined from parts)
     s$ = sourcefile
     IF INSTR(s$, "\") THEN
@@ -11170,8 +11191,8 @@ SUB TuiBanner
             IF MID$(s$, i, 1) = "/" THEN MID$(s$, i, 1) = "\"
         NEXT
     END IF
-    COLOR 252: PRINT s$
-    COLOR 7
+    TuiColor 152: PRINT s$
+    TuiDefault
 END SUB
 
 SUB DrawCompilerProgress (percentage AS LONG)
@@ -11183,7 +11204,7 @@ SUB DrawCompilerProgress (percentage AS LONG)
         PRINT CHR$(13) + "Preparing build files... [" + STRING$(x, "#") + STRING$(40 - x, ".") + "] " + str2$(p) + "%";
         EXIT SUB
     END IF
-    'a solid violet bar of 32 cells (the first color of the logo), filled in eighths
+    'a solid indigo-blue bar of 32 cells (a color of the logo), filled in eighths
     'of a cell: full blocks, one partial block, then a dark shaded track
     e = (p * 32 * 8) \ 100
     x = e \ 8
@@ -11191,16 +11212,16 @@ SUB DrawCompilerProgress (percentage AS LONG)
     n$ = str2$(p) + "%"
     PRINT CHR$(13);
     PRINT "  " + U8$(128296) + " ";
-    COLOR 252: PRINT "Building  ";
-    COLOR 141: PRINT TuiRepeat$(9608, x);
+    TuiDefault: PRINT "Building  ";
+    TuiColor 105: PRINT TuiRepeat$(9608, x);
     rest = 32 - x
     IF part > 0 THEN
         PRINT U8$(9616 - part);
         rest = rest - 1
     END IF
-    COLOR 238: PRINT TuiRepeat$(9617, rest);
-    COLOR 255: PRINT SPACE$(5 - LEN(n$)) + n$;
-    COLOR 7
+    TuiColor 240: PRINT TuiRepeat$(9617, rest);
+    TuiColor 114: PRINT SPACE$(5 - LEN(n$)) + n$;
+    TuiDefault
 END SUB
 
 FUNCTION TuiElapsed$
@@ -11215,8 +11236,8 @@ SUB FinishCompilerProgress
     IF compilerProgressVisible THEN
         IF compilerProgressLastPercentage <> 100 THEN DrawCompilerProgress 100
         IF MonochromeLoggingMode = 0 THEN
-            COLOR 244: PRINT "  " + str2$(totallinenumber) + " lines";
-            COLOR 7
+            TuiColor 248: PRINT "  " + str2$(totallinenumber) + " lines";
+            TuiDefault
         END IF
         PRINT
         compilerProgressLastPercentage = -1
@@ -11230,10 +11251,11 @@ SUB ShowBuildComplete (outPath$)
         PRINT "Build complete: " + outPath$
     ELSE
         PRINT "  " + U8$(9989) + " ";
-        COLOR 114: PRINT "Build complete: ";
-        COLOR 252: PRINT outPath$;
-        COLOR 244: PRINT "  (" + TuiElapsed$ + ")"
-        COLOR 7
+        TuiColor 114: PRINT "Build complete: ";
+        TuiColor 152: PRINT outPath$;
+        TuiColor 248: PRINT "  (" + TuiElapsed$ + ")"
+        TuiDefault
+        PRINT
     END IF
 END SUB
 

@@ -1272,13 +1272,13 @@ END FUNCTION
 FUNCTION GetSeverityColor% (severity AS INTEGER)
     SELECT CASE GetRenderedSeverity%(severity)
     CASE ERR_INFO
-        GetSeverityColor% = 11
+        GetSeverityColor% = 117 'sky blue
     CASE ERR_WARNING
-        GetSeverityColor% = 14
+        GetSeverityColor% = 222 'amber
     CASE ERR_FATAL
-        GetSeverityColor% = 4
+        GetSeverityColor% = 211 'rose
     CASE ELSE
-        GetSeverityColor% = 12
+        GetSeverityColor% = 210 'coral
     END SELECT
 END FUNCTION
 
@@ -1383,15 +1383,23 @@ SUB PrintError (errIdx AS LONG)
 
     IF errIdx > 1 THEN PRINT
 
-    COLOR severityColor
+    TuiColor severityColor
     PRINT diagnosticMarker;
-    COLOR 7
-    PRINT " QBNex :: " + diagnosticTitle + " [" + codeTag + "]  ";
-    COLOR 15
+    TuiColor 248
+    PRINT " QBNex :: ";
+    TuiColor severityColor
+    PRINT diagnosticTitle;
+    TuiColor 248
+    PRINT " [" + codeTag + "]  ";
+    TuiDefault
     PRINT headline
-    COLOR 7
+    TuiDefault
 
-    IF locationText <> "" THEN PRINT "  [@] " + locationText
+    IF locationText <> "" THEN
+        TuiColor 248: PRINT "  [@] ";
+        TuiColor 111: PRINT locationText
+        TuiDefault
+    END IF
 
     IF RTRIM$(errInfo.context) <> "" THEN
         IF errInfo.lineNumber > 0 THEN
@@ -1401,30 +1409,32 @@ SUB PrintError (errIdx AS LONG)
         END IF
         gutter = RepeatSpaces$(LEN(lineStr))
 
-        PRINT "  [#] source"
-        COLOR 8
+        TuiColor 248: PRINT "  [#] source"
+        TuiColor 246
         PRINT "    " + lineStr + " | ";
-        COLOR 7
+        TuiDefault
         PRINT RTRIM$(errInfo.context)
+        TuiDefault
 
         IF errInfo.columnNumber > 0 THEN
-            COLOR severityColor
+            TuiColor severityColor
             PRINT "    " + gutter + " | " + RepeatSpaces$(errInfo.columnNumber - 1) + "^";
             IF pointerHint <> "" THEN
                 PRINT " " + pointerHint
             ELSE
                 PRINT
             END IF
-            COLOR 7
+            TuiDefault
         END IF
     END IF
 
     IF RTRIM$(errInfo.suggestion) <> "" THEN
-        COLOR 10
+        TuiColor 114
         PRINT "  [>] next     " + RTRIM$(errInfo.suggestion)
-        COLOR 7
+        TuiDefault
     END IF
 
+    TuiColor 248
     IF flowText <> "" THEN PRINT "  [::] flow    " + flowText
     IF WarningsAsErrors AND errInfo.severity = ERR_WARNING THEN PRINT "  [*] config   warning promoted to blocking diagnostic"
     IF errInfo.duplicateCount > 1 THEN PRINT "  [=] repeat   seen " + LTRIM$(STR$(errInfo.duplicateCount)) + " times; duplicates hidden"
@@ -1436,6 +1446,7 @@ SUB PrintError (errIdx AS LONG)
         IF RTRIM$(errInfo.cause) <> "" THEN PRINT "  [!] cause    " + RTRIM$(errInfo.cause)
         IF RTRIM$(errInfo.fixExample) <> "" THEN PRINT "  [+] example  " + RTRIM$(errInfo.fixExample)
     END IF
+    TuiDefault
 
 END SUB
 
@@ -1496,9 +1507,9 @@ SUB PrintErrorSummary
         ELSE
             summaryMarker = "[x]"
         END IF
-        COLOR 12
+        TuiColor 210
         PRINT summaryMarker; " QBNex :: Build Halted  "; blockingCount; " blocking diagnostic(s)";
-        COLOR 7
+        TuiDefault
         IF Stats.warningCount > 0 AND NOT WarningsAsErrors THEN
             PRINT " and "; Stats.warningCount; " warning(s)"
         ELSEIF Stats.warningCount > 0 AND WarningsAsErrors THEN
@@ -1510,11 +1521,13 @@ SUB PrintErrorSummary
         IF VerboseMode THEN PRINT "[::] QBNex :: Flow   fix the first blocking diagnostic first; later ones may be follow-on effects."
     ELSE
         IF Stats.warningCount > 0 THEN
-            COLOR 14
+            TuiColor 222
             PRINT "[~] QBNex :: Build Complete  "; Stats.warningCount; " warning(s)"
-            COLOR 7
+            TuiDefault
         ELSE
+            TuiColor 114
             PRINT "[ok] QBNex :: Build Complete"
+            TuiDefault
         END IF
         IF Stats.suppressedDuplicateCount > 0 THEN PRINT "[=] QBNex :: Hidden  "; Stats.suppressedDuplicateCount; " duplicate diagnostic(s)."
     END IF

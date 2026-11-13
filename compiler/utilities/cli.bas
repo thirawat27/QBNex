@@ -1,57 +1,86 @@
 SUB PrintCommandLineBanner
     IF qbnexversionprinted = 0 THEN
         qbnexversionprinted = -1
-        PRINT "QBNex Compiler V" + Version$
+        TuiTitle "QBNex Compiler "
+        TuiColor 114: PRINT "V" + Version$
+        TuiDefault
     END IF
+END SUB
+
+SUB HelpHead (h$)
+    TuiColor 114: PRINT h$
+    TuiDefault
+END SUB
+
+SUB HelpRow (sw$, desc$)
+    'a switch in a 24-column field, then its description
+    TuiColor 111: PRINT "  " + sw$;
+    IF LEN(desc$) THEN
+        TuiDefault: PRINT SPACE$(24 - LEN(sw$)) + desc$
+    ELSE
+        PRINT
+    END IF
+    TuiDefault
 END SUB
 
 SUB ShowCommandLineHelp
     _DEST _CONSOLE
     PrintCommandLineBanner
     PRINT
-    PRINT "Usage: qb <file> [switches]"
+    TuiColor 114: PRINT "Usage: ";
+    TuiColor 152: PRINT "qb <file> [switches]"
+    TuiDefault
     PRINT
-    PRINT "Commands:"
-    PRINT "  -h, --help              Show help"
-    PRINT "  -v, --version           Show compiler version"
-    PRINT "  -i, --info, --about     Show project information"
-    PRINT "  -g, --examples          Show common CLI examples"
+    HelpHead "Commands:"
+    HelpRow "-h, --help", "Show help"
+    HelpRow "-v, --version", "Show compiler version"
+    HelpRow "-i, --info, --about", "Show project information"
+    HelpRow "-g, --examples", "Show common CLI examples"
     PRINT
-    PRINT "Options:"
-    PRINT "  <file>                  Source file to load"
-    PRINT "  -c                      Compile the source file (default)"
-    PRINT "  -o <output file>        Write output executable to <output file>"
-    PRINT "  -x                      Compile and output the result to the"
-    PRINT "                             console"
-    PRINT "  -w                      Show warnings"
-    PRINT "  -Werror, --warnings-as-errors"
-    PRINT "                          Treat warnings as blocking diagnostics"
-    PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
-    PRINT "  -m                      Do not colorize compiler output (monochrome mode;"
-    PRINT "                             also when NO_COLOR is set)"
-    PRINT "  -d, --verbose-errors    Legacy alias (detailed diagnostics are default)"
-    PRINT "  -k, --compact-errors    Use compact diagnostics (hide extra detail notes)"
-    PRINT "  -e                      Enable OPTION _EXPLICIT, making variable declaration"
-    PRINT "                             mandatory (per-compilation; doesn't affect the"
-    PRINT "                             source file or global settings)"
-    PRINT "  -s[:switch=true/false]  View/edit compiler settings"
-    PRINT "  -p, -z                  Accepted for old scripts; they change nothing"
-    PRINT "  --emit-ir               Write the program's QIR text instead of an executable"
-    PRINT "                             (also when -o names a .qir file; for qb-web)"
+    HelpHead "Options:"
+    HelpRow "<file>", "Source file to load"
+    HelpRow "-c", "Compile the source file (default)"
+    HelpRow "-o <output file>", "Write output executable to <output file>"
+    HelpRow "-x", "Compile and output the result to the"
+    HelpRow "", "   console"
+    HelpRow "-w", "Show warnings"
+    HelpRow "-Werror, --warnings-as-errors", ""
+    HelpRow "", "Treat warnings as blocking diagnostics"
+    HelpRow "-q", "Quiet mode (does not inhibit warnings or errors)"
+    HelpRow "-m", "Do not colorize compiler output (monochrome mode;"
+    HelpRow "", "   also when NO_COLOR is set)"
+    HelpRow "-d, --verbose-errors", "Legacy alias (detailed diagnostics are default)"
+    HelpRow "-k, --compact-errors", "Use compact diagnostics (hide extra detail notes)"
+    HelpRow "-e", "Enable OPTION _EXPLICIT, making variable declaration"
+    HelpRow "", "   mandatory (per-compilation; doesn't affect the"
+    HelpRow "", "   source file or global settings)"
+    HelpRow "-s[:switch=true/false]", "View/edit compiler settings"
+    HelpRow "-p, -z", "Accepted for old scripts; they change nothing"
+    HelpRow "--emit-ir", "Write the program's QIR text instead of an executable"
+    HelpRow "", "   (also when -o names a .qir file; for qb-web)"
     PRINT
+END SUB
+
+SUB InfoRow (label$, value$)
+    TuiColor 248: PRINT label$;
+    TuiDefault: PRINT value$
+    TuiDefault
 END SUB
 
 SUB ShowProjectInfo
     _DEST _CONSOLE
-    PRINT "QBNex Compiler " + Version$
-    PRINT "Executable: qb"
-    PRINT "Owner: thirawat27"
-    PRINT "Repository: https://github.com/thirawat27/QBNex"
+    TuiTitle "QBNex Compiler "
+    TuiColor 114: PRINT Version$
+    TuiDefault
+    InfoRow "Executable: ", "qb"
+    InfoRow "Owner: ", "thirawat27"
+    InfoRow "Repository: ", "https://github.com/thirawat27/QBNex"
 END SUB
 
 SUB ShowCommandExamples
     _DEST _CONSOLE
-    PRINT "Examples:"
+    HelpHead "Examples:"
+    TuiColor 111
     PRINT "  qb hello.bas"
     PRINT "  qb hello.bas -x"
     PRINT "  qb hello.bas -o hello.exe"
@@ -59,6 +88,7 @@ SUB ShowCommandExamples
     PRINT "  qb broken.bas --compact-errors"
     PRINT "  qb --version"
     PRINT "  qb -s"
+    TuiDefault
 END SUB
 
 SUB ShowSettingsUsageAndExit (token$)
@@ -149,7 +179,9 @@ FUNCTION ParseCMDLineArgs$ ()
             SYSTEM
         CASE "-v"
             _DEST _CONSOLE
-            PRINT "QBNex Compiler " + Version$
+            TuiTitle "QBNex Compiler "
+            TuiColor 114: PRINT Version$
+            TuiDefault
             SYSTEM
         CASE "-i"
             IF LCASE$(token$) = "-ir" THEN
