@@ -542,7 +542,9 @@ fn main() -> ExitCode {
     // Work in (and later delete) only a new subdirectory: `--work .` must not
     // wipe the given folder.
     match fresh_dir(&opts.work, "qbnex_conformance") {
-        Ok(dir) => opts.work = dir,
+        // Absolute: each program runs with the work dir as its current directory, where
+        // a relative path to the program itself (and to its capture files) would not resolve.
+        Ok(dir) => opts.work = std::path::absolute(&dir).unwrap_or(dir),
         Err(e) => {
             eprintln!("[FAIL] cannot create a work dir in {}: {e}", opts.work.display());
             return ExitCode::from(2);

@@ -303,6 +303,22 @@ fn write_files(o: &Options, bundle: &Bundle, progress: &mut dyn Progress, tx: &m
         tx.set_aside(rel)?;
     }
 
+    // A first install (no manifest of an earlier one) owns nothing in the folder yet: a
+    // file already there is the user's. Writing over it would lose it now, and listing
+    // it in the manifest would delete it on roll back or uninstall.
+    if tx.moved.is_empty() {
+        let mut mine = payload::names(bundle.zip())?;
+        mine.push(platform::setup_name().to_string());
+        mine.extend(platform::extra_files().iter().map(|(name, _)| name.to_string()));
+        mine.push(MANIFEST.to_string());
+        if let Some(rel) = mine.iter().find(|rel| payload::safe_join(dir, rel).is_some_and(|p| p.symlink_metadata().is_ok())) {
+            return Err(format!(
+                "{} already has a file named {rel} that is not from a QBNex installation; choose an empty folder",
+                dir.display()
+            ));
+        }
+    }
+
     progress.event(Event::Step(Step::Extract));
     let total = bundle.installed_size();
     payload::extract(bundle.zip(), dir, &mut tx.written, &mut |name, done| {
@@ -563,6 +579,22 @@ mod tests {
         let mut rec = Recorder { stop_at: Some("qb"), ..Recorder::default() };
         assert!(install_with(&o, &v1, &mut rec, &mut |_, _| Ok(())).is_err());
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn a_first_install_never_touches_files_that_are_already_there() {
+        let dir = temp("owned");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), "mine").unwrap();
+        std::fs::write(dir.join("main.bas"), "PRINT 1").unwrap();
+        let o = Options::new(dir.clone());
+        let v1 = bundle(&[("qb", "one"), ("README.md", "theirs")]);
+        let err = install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Ok(())).unwrap_err();
+        assert!(err.contains("README.md"), "{err}");
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "mine");
+        assert!(dir.join("main.bas").is_file());
+        assert!(!dir.join("qb").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

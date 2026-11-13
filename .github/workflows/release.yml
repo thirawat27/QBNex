@@ -61,6 +61,20 @@ jobs:
             exit 1
           fi
 
+      # A manual run builds the ref it was started from. For a tag that already exists
+      # that must be the tagged commit, or the release would carry binaries of another one.
+      - name: Existing tag points at the commit being built
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          if git fetch --quiet --depth=1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG" 2>/dev/null; then
+            tagged=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+            if [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag '$RELEASE_TAG' is at $tagged but this run builds $GITHUB_SHA. Start the run from the tag."
+              exit 1
+            fi
+          fi
+
   build:
     needs: check-tag
     runs-on: ${{ matrix.runs_on }}
@@ -95,7 +109,7 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && break; sleep 20; done
+        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && ok=1 && break; sleep 20; done; [ -n "${ok:-}" ]
 
       # rust-toolchain.toml pins the version; rustup installs it (and its components) here.
       # No cargo cache here: release builds start clean.
