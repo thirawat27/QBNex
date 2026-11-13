@@ -128,7 +128,10 @@ fn light(ins: &Ins) -> bool {
         Un { .. } => true,
         // IEEE division; string compare through `jit_cmps` (no register flush)
         DivFI { .. } => true,
-        CmpS { .. } | BrS { .. } => true,
+        // `jit_cmps` reads its operands from the VM's current window: a string read from
+        // memory (M) names a numeric register that native code has not flushed, and
+        // that is not in that window at all in a call version
+        CmpS { a, b, .. } | BrS { a, b, .. } => !bc::mem_str(*a) && !bc::mem_str(*b),
         _ => false,
     }
 }

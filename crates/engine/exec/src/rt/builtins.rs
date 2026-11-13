@@ -483,6 +483,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         let (ty, v) = (a[0].i() as i32, a[1].f());
         let rt = vm.rt();
         if rt.varptr_slots == 0 {
+            if rt.cmem_next + 16 * 16 > 0x1_0000 {
+                return e(7);
+            }
             rt.varptr_slots = rt.cmem_next;
             rt.cmem_next += 16 * 16;
         }
@@ -593,6 +596,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 let len = vm.load_str(p)?.len() as u16;
                 let rt = vm.rt();
                 let d = rt.cmem_next;
+                // descriptors are near pointers into DBLOCK (one 64 KB segment)
+                if d + 4 > 0x1_0000 {
+                    return e(7);
+                }
                 rt.cmem_next += 4;
                 rt.cmem_strs.insert(p, d);
                 let base = DBLOCK + d;
@@ -606,6 +613,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let s = vm.load_str(p)?;
             let rt = vm.rt();
             let (off, cap) = rt.cmem_sdata.get(&p).copied().unwrap_or((0, 0));
+            // out of string space before anything is reserved: the descriptor holds a
+            // 16-bit offset, and a failed SADD must not use up the segment for later ones
+            let fresh = if rt.cmem_next == d + 4 && cap == 0 { d + 4 } else { rt.cmem_next };
+            if !(s.len() <= cap && off != 0) && fresh + s.len().max(1) > 0x1_0000 {
+                return e(7);
+            }
             let off = if s.len() <= cap && off != 0 {
                 off
             } else if rt.cmem_next == d + 4 && cap == 0 {
@@ -1135,7 +1148,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "ENVIRON$.n" => {
             let k = i(0);
-            let v = std::env::vars().nth((k - 1).max(0) as usize).map(|(a, b)| format!("{a}={b}").into_bytes());
+            // vars() panics on a variable that is not Unicode
+            let v = std::env::vars_os().nth((k - 1).max(0) as usize).map(|(a, b)| format!("{}={}", a.to_string_lossy(), b.to_string_lossy()).into_bytes());
             return ok(V::S(v.unwrap_or_default()));
         }
         "ENVIRON" => {
@@ -1145,6 +1159,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             if let Some(p) = split {
                 let k = t[..p].trim().to_string();
                 let v = if t.as_bytes()[p] == b' ' { t[p + 1..].trim_start() } else { &t[p + 1..] };
+                // names and values set_var/remove_var panic on
+                if k.is_empty() || k.contains(['=', '\0']) || v.contains('\0') {
+                    return e(5);
+                }
                 if v.is_empty() {
                     // SAFETY: the program thread is the only one touching the environment.
                     unsafe { std::env::remove_var(&k) };

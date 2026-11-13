@@ -1324,8 +1324,15 @@ impl<'a> Lw<'a> {
                     let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
                     let n = idx.len() as u32;
                     // one subscript that stays unchanged until the address is used: read it in place
+                    // A BYREF argument is copied back after the callee ran, and the callee
+                    // may have changed the subscript variable (SHARED): the place then
+                    // needs its own copy of the subscript.
+                    let to_call = body[ii + 1..]
+                        .iter()
+                        .take_while(|i| regs(i).0 != Some(*dst))
+                        .any(|i| matches!(i, Inst::Call { args, .. } if args.contains(dst)));
                     let direct = match idx.as_slice() {
-                        [x] => {
+                        [x] if !to_call => {
                             let x = *x;
                             let cnt = uses_before_redef(body, ii, *dst);
                             let var = alias_var[x as usize];

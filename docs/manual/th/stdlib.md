@@ -193,8 +193,8 @@ r& = Zip_Extract&("out.zip", "outdir")     ' ไม่ยอมแตกไฟ�
 
 ```basic
 '$IMPORT:'ext.http'
-st& = Http_Get&("https://example.com/", 5000)          ' status code, 0 = ล้มเหลว
-IF st& = 0 THEN PRINT Ext_LastError$ ELSE PRINT st&, LEN(Http_Body$)
+st& = Http_Get&("https://example.com/", 5000)          ' status code, -1 = ล้มเหลว
+IF st& < 0 THEN PRINT Ext_LastError$ ELSE PRINT st&, LEN(Http_Body$)
 PRINT Http_Header$("content-type")
 st& = Http_Post&(url$, "application/json", body$, 5000)
 st& = Http_Request&("PUT", url$, "X-Token: abc" + CHR$(13) + CHR$(10), body$, 5000)

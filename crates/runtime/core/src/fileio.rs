@@ -132,12 +132,15 @@ pub fn open(name: &[u8], mut type_: i32, access: i32, sharing: i32, i: i32, reco
             let mut c = [0u8; 1];
             let e = t.read(x, -1, &mut c);
             if e != 0 {
+                // the file number is not in use after a failed OPEN
+                t.close(x);
                 return if e == -7 { 70 } else { 75 };
             }
+            t.setpos(x, 0);
+            // after setpos, which clears the flag: a file that starts with ^Z is at its end
             if c[0] == 26 {
                 t.f(x).eof_passed = 1;
             }
-            t.setpos(x, 0);
         }
     }
     0
@@ -692,7 +695,9 @@ fn line_input_binary(t: &mut Table, fileno: i32, i: i32, cx: &mut Ctx) -> Option
         get_bytes(t, fileno, start_byte, &mut buffer, true, cx);
         match buffer.iter().position(|&b| b == b'\n') {
             None => {
-                if start_byte + fbs >= filelength {
+                // `start_byte` is 1-based: at `== filelength` one byte is still unread
+                // (the next pass reads the exact remainder)
+                if start_byte + fbs > filelength {
                     t.setpos(i, filelength);
                     t.f(i).eof_passed = 1;
                     return Some(buffer);

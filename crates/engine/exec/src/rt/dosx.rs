@@ -658,10 +658,13 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         }
         "RUNFILE" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
-            let exe = f.split(' ').next().unwrap_or("").to_string();
+            // as CHAIN: a name without a directory is the program in the current directory
+            let (exe, args) = f.split_once(' ').map_or((f.as_str(), ""), |(x, y)| (x, y));
+            let exe = exe.to_string();
+            let cmd = if args.is_empty() { format!("\"{}\"", in_dir(&exe)) } else { format!("\"{}\" {args}", in_dir(&exe)) };
             // RUN passes no COMMON variables
             vm.rt().dos.chain_out.clear();
-            run_program(vm, &f, &exe).map(|_| None)
+            run_program(vm, &cmd, &exe).map(|_| None)
         }
         "CHAINPUT" => {
             let b = match vm.bytes(a[0].p(), i(1).max(0) as usize) {

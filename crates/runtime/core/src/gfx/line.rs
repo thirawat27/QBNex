@@ -146,6 +146,11 @@ fn walk(c: Clip, mut plot: impl FnMut(i32, i32)) {
     let mut l2 = c.y1.wrapping_sub(c.y2).wrapping_abs();
     let mut mi = 0;
     let mut m = 0f32;
+    // The minor coordinate is summed in f32: on long lines (above about 4200 pixels)
+    // the rounding error adds up to whole pixels past the clipped end, and `plot`
+    // writes unchecked. Inside the clipped segment the clamp changes nothing.
+    let (xlo, xhi) = (c.x1.min(c.x2), c.x1.max(c.x2));
+    let (ylo, yhi) = (c.y1.min(c.y2), c.y1.max(c.y2));
     if l > l2 {
         let mut y1f = c.y1 as f32;
         if l != 0 {
@@ -155,7 +160,7 @@ fn walk(c: Clip, mut plot: impl FnMut(i32, i32)) {
         l += 1;
         while l > 0 {
             l -= 1;
-            y1 = if y1f < 0.0 { cvt_i32(f64::from(y1f - 0.5)) } else { cvt_i32(f64::from(y1f + 0.5)) };
+            y1 = (if y1f < 0.0 { cvt_i32(f64::from(y1f - 0.5)) } else { cvt_i32(f64::from(y1f + 0.5)) }).clamp(ylo, yhi);
             plot(x1, y1);
             x1 += mi;
             y1f += m;
@@ -169,7 +174,7 @@ fn walk(c: Clip, mut plot: impl FnMut(i32, i32)) {
         l2 += 1;
         while l2 > 0 {
             l2 -= 1;
-            x1 = if x1f < 0.0 { cvt_i32(f64::from(x1f - 0.5)) } else { cvt_i32(f64::from(x1f + 0.5)) };
+            x1 = (if x1f < 0.0 { cvt_i32(f64::from(x1f - 0.5)) } else { cvt_i32(f64::from(x1f + 0.5)) }).clamp(xlo, xhi);
             plot(x1, y1);
             y1 += mi;
             x1f += m;

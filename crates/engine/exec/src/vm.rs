@@ -67,7 +67,9 @@ impl Arr {
             if ub < lb {
                 return Err(9);
             }
-            count = count.checked_mul(usize::try_from(ub - lb + 1).map_err(|_| 7)?).ok_or(7)?;
+            // checked: (i64::MIN TO i64::MAX) wraps to 0 elements with bounds that accept every subscript
+            let n = ub.checked_sub(lb).and_then(|d| d.checked_add(1)).ok_or(7)?;
+            count = count.checked_mul(usize::try_from(n).map_err(|_| 7)?).ok_or(7)?;
         }
         if count > (1 << 31) {
             return Err(7); // out of memory
@@ -1266,7 +1268,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nums.extend_from_slice(&func.num_init);
         self.strs.resize_with(sb + func.n_str as usize, Vec::new);
         self.arrs.resize_with(ab + func.n_arr() as usize, || None);
-        for (arg, &slot) in cd.args.iter().zip(&func.params) {
+        for (k, (arg, &slot)) in cd.args.iter().zip(&func.params).enumerate() {
             let v = match *arg {
                 Arg::N(r) => PVal::N(self.nums[cx.nb + r as usize]),
                 Arg::S(r) => PVal::S(self.sget_in(cx.sb, r).to_vec()),
@@ -1274,6 +1276,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Arg::Ref(p) => match self.place_take(m.places[p as usize], cx) {
                     Ok(v) => v,
                     Err(e) => {
+                        // the call does not happen: what earlier BYREF arguments moved
+                        // out of the caller (strings, whole arrays) goes back
+                        for (a, &s) in cd.args.iter().zip(&func.params).take(k) {
+                            if let Arg::Ref(q) = *a {
+                                let v = self.slot_take(s, nb, sb, ab);
+                                let _ = self.place_put(m.places[q as usize], cx, v);
+                            }
+                        }
                         self.nums.truncate(nb);
                         self.strs.truncate(sb);
                         self.arrs.truncate(ab);

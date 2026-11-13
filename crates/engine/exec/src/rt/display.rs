@@ -238,7 +238,8 @@ impl Display {
             self.validatepage(handle);
             return Some(self.page[handle as usize] as u32);
         }
-        let h = -handle;
+        // i32::MIN has no negation: it is no handle
+        let h = handle.checked_neg().unwrap_or(i32::MAX);
         // SAFETY: registry read.
         if h >= nextimg() || unsafe { (*im(h as u32)).valid } == 0 {
             self.err(258);
@@ -520,7 +521,8 @@ impl Display {
             let y = (i32::from((*w).cursor_y) - 1) * self.fontheight[f as usize];
             let mono = self.mono_target(w, f);
             let Some(r) = self.render(f, ch, mono) else { return };
-            self.draw_rendered(w, &r, x, y, mono, false);
+            // clipped: an image can be smaller than one character cell
+            self.draw_rendered(w, &r, x, y, mono, true);
         }
     }
 
@@ -841,7 +843,7 @@ impl Display {
         let i2 = self.page[0];
         if passed & 1 != 0 {
             if mode < 0 {
-                let i3 = -mode;
+                let i3 = mode.checked_neg().unwrap_or(i32::MAX);
                 // SAFETY: registry read.
                 if i3 >= nextimg() || unsafe { (*im(i3 as u32)).valid } == 0 {
                     self.err(258);
@@ -1161,7 +1163,7 @@ impl Display {
                         self.err(5);
                         return;
                     }
-                    width *= self.fontwidth[font as usize].max(1);
+                    width = width.saturating_mul(self.fontwidth[font as usize].max(1));
                 }
                 if passed & 2 == 0 {
                     height = ph;
@@ -1170,7 +1172,13 @@ impl Display {
                         self.err(5);
                         return;
                     }
-                    height *= self.fontheight[font as usize];
+                    height = height.saturating_mul(self.fontheight[font as usize]);
+                }
+                // a surface side is 16 bits and its byte size fits an i32 (registry)
+                let bpp = i64::from((*self.wp()).bytes_per_pixel);
+                if !(1..=65535).contains(&width) || !(1..=65535).contains(&height) || i64::from(width) * i64::from(height) * bpp > i64::from(i32::MAX) {
+                    self.err(5);
+                    return;
                 }
                 if width == pw && height == ph {
                     return;
@@ -1180,7 +1188,7 @@ impl Display {
                 let (col, col2) = ((*w).color, (*w).background_color);
                 (*w).width = width as _;
                 (*w).height = height as _;
-                let bytes = (width * height * i32::from((*w).bytes_per_pixel)) as isize;
+                let bytes = (i64::from(width) * i64::from(height) * bpp) as isize;
                 if (*w).flags & gfx::IMG_FREEMEM != 0 {
                     reg::qb_img_release_pixels(self.write_index as i32);
                     reg::qb_img_alloc_pixels(self.write_index as i32, bytes);
@@ -1484,7 +1492,8 @@ impl Host for VmHost<'_> {
         }
     }
     fn screen_pages(&mut self) -> Vec<*mut ImgStruct> {
-        Vec::from_fn(self.d.page.len(), |i| if self.d.page[i] != 0 { im(i as u32) } else { core::ptr::null_mut() })
+        // the image of each allocated page (page[i] is its image index; 0 = no such page)
+        self.d.page.iter().filter(|&&p| p != 0).map(|&p| im(p as u32)).collect()
     }
     fn dest(&mut self) -> i32 {
         -(self.d.write_index as i32)
@@ -2057,8 +2066,14 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 console::text::tab(&mut h);
             }
             "SCREENTAB" | "SCREENSPC" => {
+                // As on stdout: past the line width of a text page QB takes the count MOD
+                // the width; a graphics page has no column count here, so at most 32767
+                // (QBasic's INTEGER argument). Unbounded, SPC(2000000000) printed for minutes.
+                let wp = d.wp();
+                let cols = if (*wp).text != 0 { i64::from((*wp).width).max(1) } else { 0 };
                 let mut h = VmHost { d, cmem };
-                let n = a[0].i();
+                let n = a[0].i().max(0);
+                let n = if cols == 0 { n.min(32767) } else if n > cols { n % cols } else { n };
                 if name == "SCREENSPC" {
                     console::text::print(&mut h, &vec![b' '; n.max(0) as usize], false);
                 } else {

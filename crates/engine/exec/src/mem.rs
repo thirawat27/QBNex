@@ -236,7 +236,9 @@ impl Mem {
             if hi < lo {
                 return Err(9);
             }
-            n = n.saturating_mul((hi - lo + 1) as u64);
+            // checked: (i64::MIN TO i64::MAX) wraps to 0 elements with bounds that accept every subscript
+            let k = hi.checked_sub(*lo).and_then(|d| d.checked_add(1)).ok_or(7)?;
+            n = n.saturating_mul(k as u64);
         }
         let (esize, fill, strs, old, olddims) = {
             let a = self.arr(desc)?;

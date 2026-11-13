@@ -589,7 +589,7 @@ END FUNCTION
 ' ' Value of a JSON number lexeme. Magnitudes beyond DOUBLE become the largest
 ' DOUBLE (with sign) and tiny ones 0, so VAL never sees an out-of-range text.
 FUNCTION JsonNumberValue# (t AS STRING)
-    DIM p&, e&, m$, i&, c%, intDigits&, seenPoint%, lead&, pos10&, neg%
+    DIM p&, e&, m$, i&, c%, intDigits&, seenPoint%, lead&, pos10&, neg%, leadInt%, r#
     p& = INSTR(t, "e")
     IF p& = 0 THEN p& = INSTR(t, "E")
     m$ = t
@@ -613,18 +613,22 @@ FUNCTION JsonNumberValue# (t AS STRING)
             IF lead& = 0 AND c% > 48 THEN
                 lead& = intDigits&
                 IF seenPoint% THEN lead& = -(i& - INSTR(m$, ".")) ' position after the point
-                IF seenPoint% THEN pos10& = lead& ELSE pos10& = -1
+                IF seenPoint% THEN pos10& = lead& ELSE leadInt% = -1
             END IF
         END IF
     NEXT
     IF lead& = 0 THEN EXIT FUNCTION ' the value is zero
-    IF pos10& = -1 THEN pos10& = intDigits& - lead& ' first significant digit before the point
+    IF leadInt% THEN pos10& = intDigits& - lead& ' first significant digit before the point
     IF pos10& + e& > 308 THEN
         IF neg% THEN JsonNumberValue# = -1.7976931348623157D+308 ELSE JsonNumberValue# = 1.7976931348623157D+308
         EXIT FUNCTION
     END IF
     IF pos10& + e& < -330 THEN EXIT FUNCTION
-    JsonNumberValue# = VAL(t)
+    r# = VAL(t)
+    IF ABS(r#) > 1.7976931348623157D+308 THEN ' a mantissa above 1.797...: VAL overflowed to infinity
+        IF neg% THEN r# = -1.7976931348623157D+308 ELSE r# = 1.7976931348623157D+308
+    END IF
+    JsonNumberValue# = r#
 END FUNCTION
 FUNCTION JsonHexValue& (h AS STRING)
     DIM i%, c%, v&
