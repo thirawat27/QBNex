@@ -1,7 +1,7 @@
 # Cargo build output (also holds the compiler's work folders, target/qb-temp*)
 /target/
 /target-agents/
-
+Game/
 # Produced by scripts/setup_* : compiler, launchers, stage-0 compiler, prebuilt QIR runner
 /qb
 /qbnex
