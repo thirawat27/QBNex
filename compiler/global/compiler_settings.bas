@@ -21,4 +21,3 @@ ELSE
     WriteConfigSetting generalSettingsSection$, "DebugInfo", "False" + DebugInfoIniWarning$
 END IF
 
-Include_GDB_Debugging_Info = compilerdebuginfo

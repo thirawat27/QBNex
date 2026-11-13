@@ -11,7 +11,7 @@ DIM SHARED BATCHFILE_EXTENSION AS STRING
 DIM SHARED pathsep AS STRING * 1
 
 ' CLI/build-output state
-DIM SHARED ConsoleMode, No_C_Compile_Mode
+DIM SHARED ConsoleMode
 DIM SHARED ShowWarnings AS _BYTE, QuietMode AS _BYTE, CMDLineFile AS STRING
 DIM SHARED MonochromeLoggingMode AS _BYTE
 DIM SHARED outputfile_cmd$

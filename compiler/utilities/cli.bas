@@ -34,8 +34,7 @@ SUB ShowCommandLineHelp
     PRINT "                             mandatory (per-compilation; doesn't affect the"
     PRINT "                             source file or global settings)"
     PRINT "  -s[:switch=true/false]  View/edit compiler settings"
-    PRINT "  -p                      Purge all pre-compiled content first"
-    PRINT "  -z                      Generate C code without compiling to executable"
+    PRINT "  -p, -z                  Accepted for old scripts; they change nothing"
     PRINT "  --emit-ir               Write the program's QIR text instead of an executable"
     PRINT "                             (also when -o names a .qir file; for qb-web)"
     PRINT
@@ -61,15 +60,11 @@ SUB ShowCommandExamples
     PRINT "  qb -s"
 END SUB
 
-SUB PurgePrecompiledContent
-    'nothing is precompiled since the QIR cutover (no C++ runtime objects)
-END SUB
-
 SUB ShowSettingsUsageAndExit (token$)
     PRINT "Invalid settings switch: "; token$
     PRINT
     PRINT "Valid switches:"
-    PRINT "    -s:debuginfo=true/false     (Embed C++ debug info into .EXE)"
+    PRINT "    -s:debuginfo=true/false     (Accepted for old scripts; no effect)"
     PRINT "    -s:exewithsource=true/false (Save .EXE in the source folder)"
     SYSTEM 1
 END SUB
@@ -106,14 +101,10 @@ SUB HandleSettingsSwitch (token$)
         PRINT "debuginfo = true"
         WriteConfigSetting generalSettingsSection$, "DebugInfo", "True" + DebugInfoIniWarning$
         compilerdebuginfo = 1
-        Include_GDB_Debugging_Info = compilerdebuginfo
-        PurgePrecompiledContent
     CASE ":debuginfo=false"
         PRINT "debuginfo = false"
         WriteConfigSetting generalSettingsSection$, "DebugInfo", "False" + DebugInfoIniWarning$
         compilerdebuginfo = 0
-        Include_GDB_Debugging_Info = compilerdebuginfo
-        PurgePrecompiledContent
     CASE ELSE
         ShowSettingsUsageAndExit token$
     END SELECT
@@ -205,10 +196,9 @@ FUNCTION ParseCMDLineArgs$ ()
             PRINT "The -l switch is no longer supported in the CLI compiler."
             SYSTEM 1
         CASE "-p"
-            PurgePrecompiledContent
+            'nothing is precompiled any more; the switch is kept for old scripts
             cmdlineswitch = -1
         CASE "-z"
-            No_C_Compile_Mode = 1
             ConsoleMode = 1
             cmdlineswitch = -1
         CASE ELSE

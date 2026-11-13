@@ -72,8 +72,6 @@ UserDefineValue$(7) = Version$
 InitCompilerServices
 VerifyInternalFolderOrExit
 
-DIM SHARED Include_GDB_Debugging_Info 'set using "options.bin"
-
 DIM SHARED DEPENDENCY_LAST
 CONST DEPENDENCY_LOADFONT = 1: DEPENDENCY_LAST = DEPENDENCY_LAST + 1
 CONST DEPENDENCY_AUDIO_CONVERSION = 2: DEPENDENCY_LAST = DEPENDENCY_LAST + 1
