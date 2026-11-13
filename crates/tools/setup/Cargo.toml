@@ -18,7 +18,7 @@ gui = ["dep:eframe", "dep:image", "dep:rfd"]
 
 [dependencies]
 zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
-eframe = { version = "0.37", optional = true, default-features = false, features = ["glow", "default_fonts", "accesskit", "clipboard", "x11", "wayland"] }
+eframe = { version = "0.37", optional = true, default-features = false, features = ["glow", "accesskit", "clipboard", "x11", "wayland"] }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 rfd = { version = "0.18", optional = true }
 

@@ -194,7 +194,6 @@ fn window(args: &Args) -> Result<Result<(), String>, String> {
             std::process::exit(3);
         });
     }
-    platform::leave_own_console();
     gui::run(gui::Start { mode, options, bundle })
 }
 

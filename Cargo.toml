@@ -34,5 +34,43 @@ panic = "abort"
 codegen-units = 1
 lto = false
 
+# The installer runs once: it and its window library are built small, not fast.
+[profile.release.package.qb-setup]
+opt-level = "z"
+[profile.release.package.eframe]
+opt-level = "z"
+[profile.release.package.egui]
+opt-level = "z"
+[profile.release.package.epaint]
+opt-level = "z"
+[profile.release.package.emath]
+opt-level = "z"
+[profile.release.package.ecolor]
+opt-level = "z"
+[profile.release.package.egui-winit]
+opt-level = "z"
+[profile.release.package.egui_glow]
+opt-level = "z"
+[profile.release.package.glutin]
+opt-level = "z"
+[profile.release.package.glutin-winit]
+opt-level = "z"
+[profile.release.package.image]
+opt-level = "z"
+[profile.release.package.png]
+opt-level = "z"
+[profile.release.package.rfd]
+opt-level = "z"
+[profile.release.package.zip]
+opt-level = "z"
+[profile.release.package.accesskit]
+opt-level = "z"
+[profile.release.package.accesskit_winit]
+opt-level = "z"
+[profile.release.package.accesskit_windows]
+opt-level = "z"
+[profile.release.package.accesskit_consumer]
+opt-level = "z"
+
 [profile.dev]
 panic = "abort"

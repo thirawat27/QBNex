@@ -25,8 +25,8 @@ macro_rules! texts {
 texts! {
     WindowTitle: "QBNex Setup";
     UninstallTitle: "QBNex Uninstall";
-    Back: "< Back";
-    Next: "Next >";
+    Back: "Back";
+    Next: "Next";
     Install: "Install";
     Remove: "Uninstall";
     Finish: "Finish";
@@ -35,13 +35,13 @@ texts! {
     No: "No";
     Browse: "Browse...";
 
-    WelcomeTitle: "Welcome to the QBNex {} Setup Wizard";
-    WelcomeBody: "This will install the QBNex BASIC compiler on your computer, for your user account only. No administrator rights are needed.\n\nClick Next to continue, or Cancel to exit Setup.";
+    WelcomeTitle: "Install QBNex {}";
+    WelcomeBody: "A BASIC compiler for QBasic and QB64 programs.\n\nSetup installs QBNex for your user account only. No administrator rights are needed.";
     NoBundle: "This copy of qbnex-setup carries no QBNex files. Download the release installer.";
 
     LicenseTitle: "License Agreement";
     LicenseSub: "Please read the following before continuing.";
-    LicenseNote: "The licenses of the components QBNex includes are installed in the folder \"licenses\".";
+    LicenseNote: "Component licenses are installed in the \"licenses\" folder.";
     Accept: "I accept the agreement";
     Decline: "I do not accept the agreement";
 
@@ -68,7 +68,6 @@ texts! {
 
     ReadyTitle: "Ready to Install";
     ReadySub: "Setup is now ready to install QBNex on your computer.";
-    ReadyBody: "Click Install to continue, or Back to review or change any setting.";
     ReadyFolder: "Destination folder:";
     ReadyTasks: "Additional tasks:";
     ReadyNoTasks: "(none)";

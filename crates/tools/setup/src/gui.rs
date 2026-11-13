@@ -1,5 +1,7 @@
 //! The setup wizard window: the pages of [`crate::wizard`] drawn with egui, the
-//! same on Windows, Linux and macOS.
+//! same on Windows, Linux and macOS. Flat and quiet: one accent colour, round
+//! corners, the steps listed down the left side. Where the window cannot
+//! be opened (no OpenGL, no usable font) the caller asks in the terminal instead.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,29 +21,37 @@ use crate::wizard::{Mode, Page, Stop, ThisMachine, Wizard};
 
 const LICENSE: &str = include_str!("../../../../LICENSE");
 const ICON_PNG: &[u8] = include_bytes!("../../../../assets/icons/linux/QBNex.png");
+/// Who makes QBNex, shown at the foot of the side strip.
+const DEVELOPER: &str = "Thirawat Sinlapasomsak";
 /// With this environment variable set the wizard clicks its own way through every
 /// page and closes: the installer's test of the real window. When its value names a
 /// folder, a picture of every page is saved there first (`page-1.png`, ...).
 pub const SELF_DRIVE: &str = "QBNEX_SETUP_SELF_DRIVE";
 
-const WINDOW: Vec2 = vec2(660.0, 480.0);
-const FOOTER: f32 = 62.0;
-const HEADER: f32 = 68.0;
-const BAND: f32 = 208.0;
+const WINDOW: Vec2 = vec2(720.0, 480.0);
+/// Width of the strip that lists the steps.
+const SIDE: f32 = 204.0;
+/// Height of the row of buttons.
+const FOOTER: f32 = 76.0;
+const BUTTON: Vec2 = vec2(104.0, 36.0);
 
-const NAVY: Color32 = Color32::from_rgb(13, 34, 71);
-const BLUE: Color32 = Color32::from_rgb(28, 100, 206);
-const BLUE_HOT: Color32 = Color32::from_rgb(45, 122, 232);
-const BLUE_DEEP: Color32 = Color32::from_rgb(20, 78, 168);
-const SKY: Color32 = Color32::from_rgb(120, 184, 255);
-const INK: Color32 = Color32::from_rgb(26, 34, 50);
-const MUTED: Color32 = Color32::from_rgb(98, 110, 132);
-const LINE: Color32 = Color32::from_rgb(212, 220, 232);
-const PAPER_TOP: Color32 = Color32::from_rgb(247, 249, 253);
-const PAPER_BOTTOM: Color32 = Color32::from_rgb(226, 233, 245);
-const INSET: Color32 = Color32::from_rgb(244, 247, 252);
-const DANGER: Color32 = Color32::from_rgb(196, 43, 43);
-const GREEN: Color32 = Color32::from_rgb(34, 160, 92);
+const PAPER: Color32 = Color32::WHITE;
+/// The blue and the green of the logo, top and bottom of the side strip.
+const SIDE_TOP: Color32 = Color32::from_rgb(52, 84, 209);
+const SIDE_BOTTOM: Color32 = Color32::from_rgb(28, 163, 118);
+const SOFT: Color32 = Color32::from_rgb(248, 250, 252);
+const HOVER: Color32 = Color32::from_rgb(241, 245, 249);
+const LINE: Color32 = Color32::from_rgb(229, 233, 240);
+const INK: Color32 = Color32::from_rgb(15, 23, 42);
+const MUTED: Color32 = Color32::from_rgb(100, 116, 139);
+const FAINT: Color32 = Color32::from_rgb(160, 172, 190);
+const ACCENT: Color32 = Color32::from_rgb(37, 99, 235);
+const ACCENT_HOT: Color32 = Color32::from_rgb(29, 78, 216);
+const ACCENT_SOFT: Color32 = Color32::from_rgb(239, 244, 255);
+const GREEN: Color32 = Color32::from_rgb(22, 163, 74);
+const GREEN_SOFT: Color32 = Color32::from_rgb(220, 252, 231);
+const DANGER: Color32 = Color32::from_rgb(220, 38, 38);
+const DANGER_SOFT: Color32 = Color32::from_rgb(254, 226, 226);
 
 /// What the window is opened for.
 pub struct Start {
@@ -67,6 +77,17 @@ enum Asking {
     Exit,
     /// Use a folder that holds other files?
     Folder(String),
+}
+
+/// How much a button stands out.
+#[derive(Clone, Copy, PartialEq)]
+enum Weight {
+    /// The step forward: filled with the accent colour.
+    Primary,
+    /// An outlined button.
+    Plain,
+    /// Text only, for the way out.
+    Quiet,
 }
 
 /// A wizard that clicks itself through its pages.
@@ -98,6 +119,8 @@ struct App {
     bold: FontFamily,
     drive: Option<Drive>,
     closing: bool,
+    /// The first frame was drawn.
+    shown: bool,
 }
 
 /// The icon as pixels: (width, height, RGBA).
@@ -116,7 +139,7 @@ pub fn run(start: Start) -> Result<Result<(), String>, String> {
         viewport = viewport.with_icon(egui::IconData { rgba, width, height });
     }
     let options = eframe::NativeOptions { viewport, centered: true, persist_window: false, ..eframe::NativeOptions::default() };
-    eframe::run_native("qbnex-setup", options, Box::new(move |cc| Ok(Box::new(App::new(start, &cc.egui_ctx)))))
+    eframe::run_native("qbnex-setup", options, Box::new(move |cc| Ok(Box::new(App::new(start, &cc.egui_ctx)?))))
         .map_err(|e| e.to_string())?;
     let outcome = OUTCOME.lock().ok().and_then(|mut o| o.take());
     Ok(outcome.unwrap_or_else(|| Err(engine::CANCELLED.into())))
@@ -140,96 +163,90 @@ impl Progress for Channel {
     }
 }
 
-/// The system's own interface font, regular and bold, where it is found: text then
-/// looks like the rest of the desktop. Without it egui's built-in font is used.
-fn system_fonts() -> Option<(Vec<u8>, Vec<u8>)> {
-    let pairs: &[(&str, &str)] = if cfg!(windows) {
-        &[(r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\segoeuib.ttf")]
+/// The system's own interface fonts: regular, bold and fixed width. The window is
+/// written in them, so it looks like the rest of the desktop and the installer
+/// carries no font of its own. None when the system has none of the known ones.
+fn system_fonts() -> Option<[Vec<u8>; 3]> {
+    let sets: &[[&str; 3]] = if cfg!(windows) {
+        &[
+            [r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\seguisb.ttf", r"C:\Windows\Fonts\consola.ttf"],
+            [r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\segoeuib.ttf", r"C:\Windows\Fonts\consola.ttf"],
+            [r"C:\Windows\Fonts\arial.ttf", r"C:\Windows\Fonts\arialbd.ttf", r"C:\Windows\Fonts\cour.ttf"],
+        ]
     } else if cfg!(target_os = "macos") {
-        &[("/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")]
+        &[
+            ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Supplemental/Courier New.ttf"],
+            ["/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf", "/Library/Fonts/Courier New.ttf"],
+        ]
     } else {
         &[
-            ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-            ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
-            ("/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
-            ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+            ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"],
+            ["/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf", "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf", "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf"],
+            ["/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/dejavu/DejaVuSansMono.ttf"],
+            ["/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf"],
+            [
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            ],
+            [
+                "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
+                "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
+            ],
+            ["/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf", "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf"],
+            ["/usr/share/fonts/noto/NotoSans-Regular.ttf", "/usr/share/fonts/noto/NotoSans-Bold.ttf", "/usr/share/fonts/noto/NotoSansMono-Regular.ttf"],
+            ["/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf", "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf", "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf"],
+            ["/usr/share/fonts/truetype/freefont/FreeSans.ttf", "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", "/usr/share/fonts/truetype/freefont/FreeMono.ttf"],
         ]
     };
-    pairs.iter().find_map(|(regular, bold)| Some((std::fs::read(regular).ok()?, std::fs::read(bold).ok()?)))
+    sets.iter().find_map(|[regular, bold, fixed]| Some([std::fs::read(regular).ok()?, std::fs::read(bold).ok()?, std::fs::read(fixed).ok()?]))
 }
 
-/// Sets fonts and colours; returns the family headings are written in.
-fn set_style(ctx: &Context) -> FontFamily {
-    let mut fonts = egui::FontDefinitions::default();
-    let mut bold = FontFamily::Proportional;
-    if let Some((regular, heavy)) = system_fonts() {
-        fonts.font_data.insert("system".into(), Arc::new(egui::FontData::from_owned(regular)));
-        fonts.font_data.insert("system-bold".into(), Arc::new(egui::FontData::from_owned(heavy)));
-        let builtin = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-        let mut regular_first = vec!["system".to_string()];
-        let mut bold_first = vec!["system-bold".to_string()];
-        regular_first.extend(builtin.iter().cloned());
-        bold_first.extend(builtin);
-        fonts.families.insert(FontFamily::Proportional, regular_first);
-        bold = FontFamily::Name("bold".into());
-        fonts.families.insert(bold.clone(), bold_first);
+/// Sets fonts and colours; returns the family headings are written in. An error
+/// when the system has no font the window can be written in.
+fn set_style(ctx: &Context) -> Result<FontFamily, String> {
+    let [regular, heavy, fixed] = system_fonts().ok_or("no usable system font was found")?;
+    let mut fonts = egui::FontDefinitions::empty();
+    let bold = FontFamily::Name("bold".into());
+    for (name, bytes, family) in [("system", regular, FontFamily::Proportional), ("system-bold", heavy, bold.clone()), ("system-fixed", fixed, FontFamily::Monospace)] {
+        fonts.font_data.insert(name.into(), Arc::new(egui::FontData::from_owned(bytes)));
+        // a sign one font lacks is taken from the regular one
+        fonts.families.insert(family, vec![name.to_string(), "system".to_string()]);
     }
     ctx.set_fonts(fonts);
     ctx.set_theme(egui::Theme::Light);
     ctx.all_styles_mut(|style| {
-        style.spacing.item_spacing = vec2(8.0, 9.0);
+        style.spacing.item_spacing = vec2(8.0, 10.0);
         style.spacing.interact_size.y = 24.0;
         style.spacing.icon_width = 18.0;
-        style.text_styles.insert(egui::TextStyle::Body, FontId::proportional(14.5));
-        style.text_styles.insert(egui::TextStyle::Button, FontId::proportional(14.5));
+        style.spacing.icon_spacing = 10.0;
+        style.text_styles.insert(egui::TextStyle::Body, FontId::proportional(14.0));
+        style.text_styles.insert(egui::TextStyle::Button, FontId::proportional(14.0));
         style.text_styles.insert(egui::TextStyle::Small, FontId::proportional(12.5));
         style.text_styles.insert(egui::TextStyle::Monospace, FontId::monospace(12.0));
         let v = &mut style.visuals;
         v.override_text_color = Some(INK);
-        v.selection.bg_fill = Color32::from_rgb(170, 208, 255);
-        v.selection.stroke = Stroke::new(1.0, BLUE);
-        v.extreme_bg_color = Color32::WHITE;
+        v.selection.bg_fill = Color32::from_rgb(191, 219, 254);
+        v.selection.stroke = Stroke::new(1.5, ACCENT);
+        v.extreme_bg_color = SOFT;
         for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.noninteractive] {
-            w.corner_radius = CornerRadius::same(5);
+            w.corner_radius = CornerRadius::same(6);
+            w.expansion = 0.0;
         }
-        v.widgets.inactive.bg_fill = Color32::from_rgb(232, 238, 247);
-        v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(170, 182, 200));
-        v.widgets.hovered.bg_fill = Color32::from_rgb(216, 229, 248);
-        v.widgets.hovered.bg_stroke = Stroke::new(1.0, BLUE);
-        v.widgets.active.bg_fill = Color32::from_rgb(196, 216, 246);
-        v.widgets.active.bg_stroke = Stroke::new(1.0, BLUE_DEEP);
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
+        v.widgets.inactive.bg_fill = PAPER;
+        v.widgets.inactive.weak_bg_fill = PAPER;
+        v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(203, 213, 225));
+        v.widgets.hovered.bg_fill = ACCENT_SOFT;
+        v.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
+        v.widgets.active.bg_fill = ACCENT_SOFT;
+        v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT_HOT);
+        v.widgets.inactive.fg_stroke = Stroke::new(1.6, ACCENT);
+        v.widgets.hovered.fg_stroke = Stroke::new(1.6, ACCENT);
+        v.widgets.active.fg_stroke = Stroke::new(1.6, ACCENT_HOT);
     });
-    bold
-}
-
-/// A rectangle filled with a blend of the colours given for its four corners.
-fn gradient(ui: &Ui, rect: Rect, top_left: Color32, top_right: Color32, bottom_left: Color32, bottom_right: Color32) {
-    let mut mesh = Mesh::default();
-    mesh.colored_vertex(rect.left_top(), top_left);
-    mesh.colored_vertex(rect.right_top(), top_right);
-    mesh.colored_vertex(rect.left_bottom(), bottom_left);
-    mesh.colored_vertex(rect.right_bottom(), bottom_right);
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(1, 2, 3);
-    ui.painter().add(mesh);
-}
-
-/// A rectangle whose colour runs from `top` to `bottom`.
-fn fade(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
-    gradient(ui, rect, top, top, bottom, bottom);
-}
-
-fn shadow(ui: &Ui, rect: Rect, radius: u8, blur: u8, drop: i8, alpha: u8) {
-    let shape = Shadow { offset: [0, drop], blur, spread: 0, color: Color32::from_black_alpha(alpha) };
-    ui.painter().add(shape.as_shape(rect, CornerRadius::same(radius)));
-}
-
-/// A raised white card; returns the area inside its padding.
-fn card(ui: &Ui, rect: Rect) -> Rect {
-    shadow(ui, rect, 12, 18, 5, 42);
-    ui.painter().rect_filled(rect, 12, Color32::WHITE);
-    ui.painter().rect_stroke(rect, 12, Stroke::new(1.0, Color32::from_rgb(222, 229, 240)), StrokeKind::Inside);
-    rect.shrink2(vec2(22.0, 18.0))
+    Ok(bold)
 }
 
 /// Lays `contents` out top down inside `rect`.
@@ -239,14 +256,35 @@ fn area(ui: &mut Ui, rect: Rect, contents: impl FnOnce(&mut Ui)) {
     contents(&mut child);
 }
 
-/// A recessed panel for text that scrolls or lists.
-fn inset() -> egui::Frame {
-    egui::Frame::new().fill(INSET).stroke(Stroke::new(1.0, LINE)).corner_radius(8).inner_margin(Margin::same(10))
+/// A soft round panel for text that scrolls or lists.
+fn panel() -> egui::Frame {
+    egui::Frame::new().fill(SOFT).stroke(Stroke::new(1.0, LINE)).corner_radius(12).inner_margin(Margin::same(14))
+}
+
+/// A tick drawn with two strokes around `centre`.
+fn tick(ui: &Ui, centre: egui::Pos2, size: f32, pen: Stroke) {
+    let painter = ui.painter();
+    painter.line_segment([centre + vec2(-0.45, 0.02) * size, centre + vec2(-0.12, 0.34) * size], pen);
+    painter.line_segment([centre + vec2(-0.12, 0.34) * size, centre + vec2(0.46, -0.3) * size], pen);
+}
+
+/// The names of the steps down the side, and which one `page` is.
+fn steps(mode: Mode, page: Page) -> (&'static [&'static str], usize) {
+    match mode {
+        Mode::Install => {
+            let order = [Page::Welcome, Page::License, Page::Folder, Page::Tasks, Page::Ready, Page::Working, Page::Finished];
+            (&["Welcome", "License", "Location", "Options", "Review", "Install", "Finish"], order.iter().position(|p| *p == page).unwrap_or(0))
+        }
+        Mode::Uninstall => {
+            let order = [Page::Remove, Page::Working, Page::Finished];
+            (&["Confirm", "Remove", "Finish"], order.iter().position(|p| *p == page).unwrap_or(0))
+        }
+    }
 }
 
 impl App {
-    fn new(start: Start, ctx: &Context) -> App {
-        let bold = set_style(ctx);
+    fn new(start: Start, ctx: &Context) -> Result<App, String> {
+        let bold = set_style(ctx)?;
         let required = start.bundle.as_ref().map_or(0, Bundle::installed_size);
         let mut wizard = Wizard::new(start.mode, &start.options, required, platform::can_associate());
         let mut problem = None;
@@ -263,7 +301,7 @@ impl App {
             let pixels = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
             ctx.load_texture("logo", pixels, egui::TextureOptions::LINEAR)
         });
-        App {
+        Ok(App {
             wizard,
             bundle: start.bundle.map(Arc::new),
             asking: None,
@@ -279,11 +317,12 @@ impl App {
             bold,
             drive,
             closing: false,
-        }
+            shown: false,
+        })
     }
 
-    fn heading(&self, text: impl Into<String>, size: f32) -> RichText {
-        RichText::new(text).font(FontId::new(size, self.bold.clone())).color(INK)
+    fn bold(&self, size: f32) -> FontId {
+        FontId::new(size, self.bold.clone())
     }
 
     /// Runs the install or uninstall on a thread of its own; its events come back through a channel.
@@ -453,124 +492,136 @@ impl App {
         }
     }
 
-    /// A push button drawn with depth: shadow, sheen and a pressed state.
-    fn button(&self, ui: &mut Ui, rect: Rect, label: &str, primary: bool, enabled: bool) -> bool {
+    /// A flat round button.
+    fn button(&self, ui: &mut Ui, rect: Rect, label: &str, weight: Weight, enabled: bool) -> bool {
         let response = ui.allocate_rect(rect, if enabled { Sense::click() } else { Sense::hover() });
         response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
         let pressed = enabled && response.is_pointer_button_down_on();
         let hot = enabled && response.hovered();
-        let (fill, edge, ink) = match (primary, enabled) {
-            (true, true) => (if pressed { BLUE_DEEP } else if hot { BLUE_HOT } else { BLUE }, BLUE_DEEP, Color32::WHITE),
-            (true, false) => (Color32::from_rgb(166, 196, 236), Color32::from_rgb(150, 182, 226), Color32::WHITE),
-            (false, true) => {
-                let face = if pressed { Color32::from_rgb(222, 229, 240) } else if hot { Color32::from_rgb(240, 246, 255) } else { Color32::from_rgb(250, 251, 253) };
-                (face, Color32::from_rgb(176, 188, 206), INK)
-            }
-            (false, false) => (Color32::from_rgb(240, 243, 248), LINE, Color32::from_rgb(160, 170, 186)),
+        let (fill, edge, ink) = match (weight, enabled) {
+            (Weight::Primary, true) => (if hot || pressed { ACCENT_HOT } else { ACCENT }, None, Color32::WHITE),
+            (Weight::Primary, false) => (Color32::from_rgb(226, 232, 240), None, FAINT),
+            (Weight::Plain, true) => (if pressed { LINE } else if hot { HOVER } else { PAPER }, Some(Color32::from_rgb(214, 221, 232)), INK),
+            (Weight::Plain, false) => (PAPER, Some(LINE), FAINT),
+            (Weight::Quiet, true) => (if pressed { LINE } else if hot { HOVER } else { Color32::TRANSPARENT }, None, MUTED),
+            (Weight::Quiet, false) => (Color32::TRANSPARENT, None, Color32::from_rgb(203, 213, 225)),
         };
-        let face = if pressed { rect.translate(vec2(0.0, 1.0)) } else { rect };
-        if enabled && !pressed {
-            shadow(ui, face, 7, if hot { 12 } else { 8 }, if hot { 4 } else { 2 }, if primary { 70 } else { 36 });
-        }
         let painter = ui.painter();
-        painter.rect_filled(face, 7, fill);
-        let sheen = Rect::from_min_max(face.min, pos2(face.max.x, face.center().y));
-        painter.rect_filled(sheen, CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 }, Color32::from_white_alpha(if primary { 26 } else { 150 }));
-        painter.rect_stroke(face, 7, Stroke::new(1.0, edge), StrokeKind::Inside);
-        if response.has_focus() {
-            painter.rect_stroke(face.expand(2.5), 9, Stroke::new(1.5, SKY), StrokeKind::Outside);
+        painter.rect_filled(rect, 10, fill);
+        if let Some(edge) = edge {
+            painter.rect_stroke(rect, 10, Stroke::new(1.0, edge), StrokeKind::Inside);
         }
-        let family = if primary { self.bold.clone() } else { FontFamily::Proportional };
-        painter.text(face.center(), Align2::CENTER_CENTER, label, FontId::new(14.5, family), ink);
+        if response.has_focus() {
+            painter.rect_stroke(rect.expand(2.5), 12, Stroke::new(1.5, Color32::from_rgb(147, 197, 253)), StrokeKind::Outside);
+        }
+        let font = if weight == Weight::Primary { self.bold(14.0) } else { FontId::proportional(14.0) };
+        painter.text(rect.center(), Align2::CENTER_CENTER, label, font, ink);
         response.clicked()
     }
 
-    fn logo(&self, ui: &Ui, rect: Rect) {
+    /// The strip on the left, in the two colours of the logo: the product, the
+    /// steps, and who makes it.
+    fn side(&self, ui: &Ui, strip: Rect) {
+        let mut blend = Mesh::default();
+        blend.colored_vertex(strip.left_top(), SIDE_TOP);
+        blend.colored_vertex(strip.right_top(), SIDE_TOP);
+        blend.colored_vertex(strip.left_bottom(), SIDE_BOTTOM);
+        blend.colored_vertex(strip.right_bottom(), SIDE_BOTTOM);
+        blend.add_triangle(0, 1, 2);
+        blend.add_triangle(1, 2, 3);
+        ui.painter().add(blend);
+        let painter = ui.painter();
+        let white = |alpha: u8| Color32::from_white_alpha(alpha);
+        let left = strip.min.x + 26.0;
+        // the logo keeps its own colours on a white tile
+        let tile = Rect::from_min_size(pos2(left, strip.min.y + 24.0), vec2(44.0, 44.0));
+        painter.rect_filled(tile, 12, Color32::WHITE);
         if let Some(logo) = &self.logo {
-            ui.painter().image(logo.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            painter.image(logo.id(), tile.shrink(5.0), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         }
+        painter.text(pos2(left + 56.0, strip.min.y + 27.0), Align2::LEFT_TOP, "QBNex", self.bold(17.0), Color32::WHITE);
+        painter.text(pos2(left + 56.0, strip.min.y + 49.0), Align2::LEFT_TOP, format!("Version {}", engine::VERSION), FontId::proportional(12.0), white(190));
+
+        let (names, here) = steps(self.wizard.mode, self.wizard.page);
+        let failed = self.wizard.page == Page::Finished && self.wizard.outcome != Some(Ok(()));
+        for (i, name) in names.iter().enumerate() {
+            let centre = pos2(left + 10.0, strip.min.y + 118.0 + i as f32 * 36.0);
+            if i + 1 < names.len() {
+                painter.line_segment([centre + vec2(0.0, 13.0), centre + vec2(0.0, 23.0)], Stroke::new(1.5, white(if i < here { 230 } else { 70 })));
+            }
+            let last_done = i == here && self.wizard.page == Page::Finished && !failed;
+            if i < here || last_done {
+                painter.circle_filled(centre, 9.0, Color32::WHITE);
+                tick(ui, centre, 9.0, Stroke::new(1.7, SIDE_TOP));
+            } else if i == here {
+                painter.circle_stroke(centre, 8.2, Stroke::new(1.7, Color32::WHITE));
+                painter.circle_filled(centre, 3.6, Color32::WHITE);
+            } else {
+                painter.circle_stroke(centre, 8.2, Stroke::new(1.4, white(90)));
+            }
+            let (font, colour) = if i == here { (self.bold(13.5), Color32::WHITE) } else if i < here { (FontId::proportional(13.5), white(235)) } else { (FontId::proportional(13.5), white(140)) };
+            painter.text(centre + vec2(22.0, 0.0), Align2::LEFT_CENTER, *name, font, colour);
+        }
+
+        painter.text(pos2(left, strip.max.y - 46.0), Align2::LEFT_TOP, "Developed by", FontId::proportional(11.5), white(170));
+        painter.text(pos2(left, strip.max.y - 30.0), Align2::LEFT_TOP, DEVELOPER, FontId::proportional(12.5), Color32::WHITE);
     }
-
-    /// The page with the coloured band on the left: the first and the last.
-    fn banner_page(&mut self, ui: &mut Ui, top: Rect, page: fn(&mut App, &mut Ui)) {
-        let band = Rect::from_min_size(top.min, vec2(BAND, top.height()));
-        let rest = Rect::from_min_max(pos2(band.max.x, top.min.y), top.max);
-        shadow(ui, band, 0, 22, 0, 90);
-        gradient(ui, band, NAVY, Color32::from_rgb(18, 52, 110), Color32::from_rgb(22, 74, 158), BLUE);
-        let glow = ui.painter().with_clip_rect(band);
-        glow.circle_filled(band.left_bottom() + vec2(20.0, -10.0), 150.0, Color32::from_white_alpha(9));
-        glow.circle_filled(band.right_top() + vec2(-10.0, 30.0), 110.0, Color32::from_white_alpha(8));
-        glow.circle_filled(band.left_bottom() + vec2(60.0, 30.0), 90.0, Color32::from_white_alpha(10));
-        // the logo on a glass plate
-        let plate = Rect::from_center_size(pos2(band.center().x, band.min.y + 118.0), vec2(136.0, 136.0));
-        shadow(ui, plate, 22, 26, 8, 110);
-        ui.painter().rect_filled(plate, 22, Color32::from_white_alpha(28));
-        ui.painter().rect_stroke(plate, 22, Stroke::new(1.0, Color32::from_white_alpha(70)), StrokeKind::Inside);
-        self.logo(ui, plate.shrink(14.0));
-        let name_at = pos2(band.center().x, plate.max.y + 34.0);
-        ui.painter().text(name_at + vec2(0.0, 2.0), Align2::CENTER_CENTER, "QBNex", FontId::new(30.0, self.bold.clone()), Color32::from_black_alpha(90));
-        ui.painter().text(name_at, Align2::CENTER_CENTER, "QBNex", FontId::new(30.0, self.bold.clone()), Color32::WHITE);
-        let pill = Rect::from_center_size(name_at + vec2(0.0, 36.0), vec2(86.0, 24.0));
-        ui.painter().rect_filled(pill, 12, Color32::from_white_alpha(34));
-        ui.painter().text(pill.center(), Align2::CENTER_CENTER, format!("v{}", engine::VERSION), FontId::proportional(13.0), Color32::WHITE);
-        ui.painter().text(pos2(band.center().x, band.max.y - 20.0), Align2::CENTER_CENTER, "BASIC compiler", FontId::proportional(12.0), Color32::from_white_alpha(150));
-
-        let inner = card(ui, rest.shrink2(vec2(20.0, 22.0)));
-        area(ui, inner, |ui| page(self, ui));
-    }
-
-    /// A page with the white strip on top that names the step.
-    fn header_page(&mut self, ui: &mut Ui, top: Rect, title: Key, sub: Key, page: fn(&mut App, &mut Ui)) {
-        let head = Rect::from_min_size(top.min, vec2(top.width(), HEADER));
-        shadow(ui, head, 0, 14, 3, 40);
-        fade(ui, head, Color32::WHITE, Color32::from_rgb(244, 247, 252));
-        let rule = Rect::from_min_size(head.left_bottom() - vec2(0.0, 3.0), vec2(head.width(), 3.0));
-        gradient(ui, rule, BLUE_DEEP, SKY, BLUE_DEEP, SKY);
-        ui.painter().text(head.min + vec2(24.0, 13.0), Align2::LEFT_TOP, title.text(), FontId::new(18.0, self.bold.clone()), INK);
-        ui.painter().text(head.min + vec2(24.0, 38.0), Align2::LEFT_TOP, sub.text(), FontId::proportional(13.5), MUTED);
-        self.logo(ui, Rect::from_center_size(pos2(head.max.x - 42.0, head.center().y - 2.0), vec2(46.0, 46.0)));
-
-        let body = Rect::from_min_max(pos2(top.min.x, head.max.y), top.max);
-        let inner = card(ui, body.shrink2(vec2(22.0, 18.0)));
-        area(ui, inner, |ui| page(self, ui));
+    /// The title of a page and the line below it.
+    fn title(&self, ui: &mut Ui, title: impl Into<String>, sub: Option<Key>) {
+        ui.label(RichText::new(title).font(self.bold(23.0)).color(INK));
+        if let Some(sub) = sub {
+            ui.add_space(-4.0);
+            ui.label(RichText::new(sub.text()).color(MUTED));
+        }
+        ui.add_space(10.0);
     }
 
     fn problem_line(&self, ui: &mut Ui) {
         if let Some(problem) = &self.problem {
-            ui.label(RichText::new(problem).color(DANGER));
+            egui::Frame::new().fill(DANGER_SOFT).corner_radius(10).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+                ui.label(RichText::new(problem).color(Color32::from_rgb(153, 27, 27)));
+            });
         }
     }
 
     fn welcome(&mut self, ui: &mut Ui) {
-        ui.add_space(6.0);
-        ui.label(self.heading(fill(Key::WelcomeTitle.text(), engine::VERSION), 22.0));
-        ui.add_space(6.0);
+        ui.add_space(18.0);
+        self.title(ui, fill(Key::WelcomeTitle.text(), engine::VERSION), None);
         ui.label(RichText::new(Key::WelcomeBody.text()).color(MUTED));
     }
 
     fn license(&mut self, ui: &mut Ui) {
-        let text_height = ui.available_height() - 118.0;
-        inset().show(ui, |ui| {
+        self.title(ui, Key::LicenseTitle.text(), Some(Key::LicenseSub));
+        let text_height = ui.available_height() - 150.0;
+        panel().show(ui, |ui| {
             egui::ScrollArea::vertical().max_height(text_height).auto_shrink([false, false]).show(ui, |ui| {
-                ui.label(RichText::new(LICENSE).monospace().color(INK));
+                ui.label(RichText::new(LICENSE).monospace().color(Color32::from_rgb(51, 65, 85)));
             });
         });
-        ui.label(RichText::new(Key::LicenseNote.text()).small().color(MUTED));
+        ui.label(RichText::new(Key::LicenseNote.text()).small().color(FAINT));
         ui.radio_value(&mut self.wizard.accepted, true, Key::Accept.text());
         ui.radio_value(&mut self.wizard.accepted, false, Key::Decline.text());
     }
 
     fn folder(&mut self, ui: &mut Ui) {
+        self.title(ui, Key::FolderTitle.text(), Some(Key::FolderSub));
         ui.label(RichText::new(Key::FolderBody.text()).color(MUTED));
         ui.add_space(4.0);
         let row = ui.available_width();
         ui.horizontal(|ui| {
-            let edit = egui::TextEdit::singleline(&mut self.wizard.dir).desired_width(row - 138.0).margin(Margin::symmetric(8, 7));
-            if ui.add(edit).changed() {
-                self.problem = None;
-            }
-            let (rect, _) = ui.allocate_exact_size(vec2(104.0, 32.0), Sense::hover());
-            if self.button(ui, rect, Key::Browse.text(), false, true) {
+            let edit = egui::TextEdit::singleline(&mut self.wizard.dir).desired_width(row - BUTTON.x - 6.0).margin(Margin::symmetric(12, 9));
+            ui.scope(|ui| {
+                let widgets = &mut ui.visuals_mut().widgets;
+                for w in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active] {
+                    w.corner_radius = CornerRadius::same(10);
+                }
+                ui.visuals_mut().selection.stroke = Stroke::new(1.5, ACCENT);
+                if ui.add(edit).changed() {
+                    self.problem = None;
+                }
+            });
+            let (rect, _) = ui.allocate_exact_size(BUTTON, Sense::hover());
+            if self.button(ui, rect, Key::Browse.text(), Weight::Plain, true) {
                 let mut dialog = rfd::FileDialog::new().set_title(Key::FolderTitle.text());
                 if let Some(existing) = self.wizard.folder().ancestors().find(|p| p.is_dir()) {
                     dialog = dialog.set_directory(existing);
@@ -586,8 +637,8 @@ impl App {
         ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
             ui.horizontal_wrapped(|ui| {
                 for note in &notes {
-                    egui::Frame::new().fill(Color32::from_rgb(232, 240, 252)).corner_radius(11).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
-                        ui.label(RichText::new(note).small().color(BLUE_DEEP));
+                    egui::Frame::new().fill(HOVER).corner_radius(12).inner_margin(Margin::symmetric(11, 4)).show(ui, |ui| {
+                        ui.label(RichText::new(note).small().color(MUTED));
                     });
                 }
             });
@@ -595,15 +646,15 @@ impl App {
     }
 
     fn tasks(&mut self, ui: &mut Ui) {
+        self.title(ui, Key::TasksTitle.text(), Some(Key::TasksSub));
         let w = &mut self.wizard;
         let mut tasks = vec![(&mut w.add_path, Key::TaskPath), (&mut w.menu, Key::TaskMenu), (&mut w.desktop, Key::TaskDesktop)];
         if w.can_associate {
             tasks.push((&mut w.associate, Key::TaskAssociate));
         }
         for (on, key) in tasks {
-            let fill = if *on { Color32::from_rgb(234, 242, 254) } else { INSET };
-            let edge = if *on { Color32::from_rgb(150, 190, 245) } else { LINE };
-            egui::Frame::new().fill(fill).stroke(Stroke::new(1.0, edge)).corner_radius(8).inner_margin(Margin::symmetric(12, 9)).show(ui, |ui| {
+            let (fill, edge) = if *on { (ACCENT_SOFT, Color32::from_rgb(191, 213, 255)) } else { (PAPER, LINE) };
+            egui::Frame::new().fill(fill).stroke(Stroke::new(1.0, edge)).corner_radius(12).inner_margin(Margin::symmetric(14, 10)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.checkbox(on, key.text());
             });
@@ -611,84 +662,81 @@ impl App {
     }
 
     fn ready(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new(Key::ReadyBody.text()).color(MUTED));
-        ui.add_space(2.0);
-        let bold = self.bold.clone();
+        self.title(ui, Key::ReadyTitle.text(), Some(Key::ReadySub));
+        let bold = self.bold(13.0);
         let folder = self.wizard.folder().display().to_string();
         let tasks = self.wizard.chosen_tasks();
-        inset().show(ui, |ui| {
+        panel().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.set_min_height(ui.available_height());
+            ui.set_min_height(ui.available_height() - 8.0);
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                ui.label(RichText::new(Key::ReadyFolder.text()).font(FontId::new(14.5, bold.clone())));
-                ui.label(format!("      {folder}"));
-                ui.add_space(4.0);
-                ui.label(RichText::new(Key::ReadyTasks.text()).font(FontId::new(14.5, bold.clone())));
+                ui.label(RichText::new(Key::ReadyFolder.text().trim_end_matches(':')).font(bold.clone()).color(MUTED));
+                ui.add_space(-4.0);
+                ui.label(folder);
+                ui.add_space(6.0);
+                ui.label(RichText::new(Key::ReadyTasks.text().trim_end_matches(':')).font(bold.clone()).color(MUTED));
+                ui.add_space(-4.0);
                 if tasks.is_empty() {
-                    ui.label(format!("      {}", Key::ReadyNoTasks.text()));
+                    ui.label(Key::ReadyNoTasks.text());
                 }
                 for task in tasks {
-                    ui.label(format!("      \u{2022}  {task}"));
+                    ui.horizontal(|ui| {
+                        let (dot, _) = ui.allocate_exact_size(vec2(14.0, 18.0), Sense::hover());
+                        tick(ui, dot.center(), 7.0, Stroke::new(1.6, ACCENT));
+                        ui.label(task);
+                    });
                 }
             });
         });
     }
 
     fn remove(&mut self, ui: &mut Ui) {
-        ui.add_space(6.0);
-        ui.label(self.heading(Key::RemoveTitle.text(), 22.0));
-        ui.add_space(6.0);
+        ui.add_space(18.0);
+        self.title(ui, Key::RemoveTitle.text(), None);
         ui.label(RichText::new(Key::RemoveBody.text()).color(MUTED));
-        ui.add_space(4.0);
-        inset().show(ui, |ui| {
+        ui.add_space(6.0);
+        panel().show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new(self.wizard.folder().display().to_string()).monospace());
         });
     }
 
     fn working(&mut self, ui: &mut Ui) {
-        ui.add_space(10.0);
-        ui.label(self.heading(self.step.text(), 15.5));
-        ui.add_space(6.0);
-        let (track, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
-        let painter = ui.painter();
-        painter.rect_filled(track, 11, Color32::from_rgb(222, 229, 240));
-        painter.rect_stroke(track, 11, Stroke::new(1.0, Color32::from_rgb(196, 206, 222)), StrokeKind::Inside);
+        let (title, sub) = if self.wizard.mode == Mode::Install { (Key::InstallingTitle, Key::InstallingSub) } else { (Key::RemoveTitle, Key::RemovingSub) };
+        self.title(ui, title.text(), Some(sub));
+        ui.add_space(36.0);
         let fraction = self.fraction.clamp(0.0, 1.0);
-        if fraction > 0.0 {
-            let bar = Rect::from_min_size(track.min, vec2((track.width() * fraction).max(22.0), track.height())).shrink(2.0);
-            painter.rect_filled(bar, 9, BLUE);
-            painter.rect_filled(Rect::from_min_max(bar.min, pos2(bar.max.x, bar.center().y)), CornerRadius { nw: 9, ne: 9, sw: 0, se: 0 }, Color32::from_white_alpha(60));
-        }
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("{:.0}%", fraction * 100.0)).color(BLUE_DEEP).font(FontId::new(13.5, self.bold.clone())));
-            ui.add(egui::Label::new(RichText::new(&self.file).small().color(MUTED)).truncate());
+            ui.label(RichText::new(self.step.text()).color(INK));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(format!("{:.0}%", fraction * 100.0)).font(self.bold(14.0)).color(ACCENT));
+            });
         });
+        let (track, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(track, 4, LINE);
+        if fraction > 0.0 {
+            painter.rect_filled(Rect::from_min_size(track.min, vec2((track.width() * fraction).max(8.0), track.height())), 4, ACCENT);
+        }
+        ui.add(egui::Label::new(RichText::new(&self.file).small().color(FAINT)).truncate());
     }
 
-    /// A round badge with a tick or a cross, then the title beside it.
+    /// A round badge with a tick or a cross above the title of the last page.
     fn verdict(&self, ui: &mut Ui, good: bool, title: Key) {
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            let (badge, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-            let colour = if good { GREEN } else { DANGER };
-            shadow(ui, badge, 20, 10, 3, 60);
-            let painter = ui.painter();
-            painter.circle_filled(badge.center(), 20.0, colour);
-            painter.circle_filled(badge.center() - vec2(0.0, 6.0), 13.0, Color32::from_white_alpha(28));
+        ui.add_space(14.0);
+        let (badge, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
+        let (soft, colour) = if good { (GREEN_SOFT, GREEN) } else { (DANGER_SOFT, DANGER) };
+        ui.painter().circle_filled(badge.center(), 24.0, soft);
+        let pen = Stroke::new(2.6, colour);
+        if good {
+            tick(ui, badge.center(), 20.0, pen);
+        } else {
             let c = badge.center();
-            let pen = Stroke::new(3.2, Color32::WHITE);
-            if good {
-                painter.line_segment([c + vec2(-9.0, 0.5), c + vec2(-3.0, 6.5)], pen);
-                painter.line_segment([c + vec2(-3.0, 6.5), c + vec2(9.0, -6.0)], pen);
-            } else {
-                painter.line_segment([c + vec2(-7.0, -7.0), c + vec2(7.0, 7.0)], pen);
-                painter.line_segment([c + vec2(-7.0, 7.0), c + vec2(7.0, -7.0)], pen);
-            }
-            ui.add_space(4.0);
-            ui.label(self.heading(title.text(), 19.0));
-        });
+            ui.painter().line_segment([c + vec2(-7.0, -7.0), c + vec2(7.0, 7.0)], pen);
+            ui.painter().line_segment([c + vec2(-7.0, 7.0), c + vec2(7.0, -7.0)], pen);
+        }
         ui.add_space(6.0);
+        self.title(ui, title.text(), None);
     }
 
     fn finished(&mut self, ui: &mut Ui) {
@@ -696,26 +744,30 @@ impl App {
         match self.wizard.outcome.clone() {
             Some(Ok(())) if install => {
                 self.verdict(ui, true, Key::DoneTitle);
-                ui.label(fill(Key::DoneBody.text(), engine::VERSION));
+                ui.add_space(-6.0);
+                ui.label(RichText::new(fill(Key::DoneBody.text(), engine::VERSION)).color(MUTED));
                 let reach = if self.wizard.add_path {
                     Key::DonePath.text().to_string()
                 } else {
                     fill(Key::DoneNoPath.text(), &self.wizard.folder().join(platform::compiler_name()).to_string_lossy())
                 };
-                inset().show(ui, |ui| {
+                ui.add_space(4.0);
+                panel().show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new(reach).monospace());
                 });
-                ui.add_space(6.0);
+                ui.add_space(8.0);
                 ui.checkbox(&mut self.open_readme, Key::OpenReadme.text());
                 ui.checkbox(&mut self.open_folder, Key::OpenFolder.text());
             }
             Some(Ok(())) => {
                 self.verdict(ui, true, Key::RemovedTitle);
+                ui.add_space(-6.0);
                 ui.label(RichText::new(Key::RemovedBody.text()).color(MUTED));
             }
             _ => {
                 self.verdict(ui, false, if install { Key::FailedTitle } else { Key::RemoveFailedTitle });
+                ui.add_space(-6.0);
                 if install && self.bundle.is_some() {
                     ui.label(RichText::new(if self.wizard.cancelled() { Key::CancelledBody } else { Key::FailedBody }.text()).color(MUTED));
                 }
@@ -724,59 +776,36 @@ impl App {
         }
     }
 
-    /// The strip at the bottom: where the wizard is, and the buttons.
-    fn footer(&mut self, ui: &mut Ui, bar: Rect) {
-        shadow(ui, bar, 0, 16, -2, 34);
-        fade(ui, bar, Color32::WHITE, Color32::from_rgb(240, 244, 250));
-        ui.painter().hline(bar.x_range(), bar.min.y, Stroke::new(1.0, LINE));
+    /// The row of buttons at the bottom right.
+    fn buttons(&mut self, ui: &mut Ui, row: Rect) {
         let ctx = ui.ctx().clone();
         let w = &self.wizard;
         let free = self.asking.is_none();
-
-        if w.mode == Mode::Install {
-            // one dot a page: done, here, to come
-            let pages = [Page::Welcome, Page::License, Page::Folder, Page::Tasks, Page::Ready, Page::Working, Page::Finished];
-            let here = pages.iter().position(|p| *p == w.page).unwrap_or(0);
-            for i in 0..pages.len() {
-                let centre = pos2(bar.min.x + 30.0 + i as f32 * 20.0, bar.center().y);
-                if i > 0 {
-                    let colour = if i <= here { BLUE } else { LINE };
-                    ui.painter().line_segment([centre - vec2(14.0, 0.0), centre - vec2(6.0, 0.0)], Stroke::new(2.0, colour));
-                }
-                if i == here {
-                    ui.painter().circle_filled(centre, 8.0, Color32::from_rgb(200, 222, 252));
-                    ui.painter().circle_filled(centre, 5.0, BLUE);
-                } else {
-                    ui.painter().circle_filled(centre, 4.5, if i < here { BLUE } else { Color32::from_rgb(196, 206, 222) });
-                }
-            }
-        }
-
-        let size = vec2(108.0, 34.0);
-        let mut right = bar.max.x - 20.0;
+        let mut right = row.max.x;
         let mut place = |gap: f32| {
-            let rect = Rect::from_min_size(pos2(right - size.x, bar.center().y - size.y / 2.0), size);
-            right -= size.x + gap;
+            let rect = Rect::from_min_size(pos2(right - BUTTON.x, row.center().y - BUTTON.y / 2.0), BUTTON);
+            right -= BUTTON.x + gap;
             rect
         };
         let (page, can_next, can_back, can_cancel, label, install) = (w.page, w.can_next(), w.can_back(), w.can_cancel(), w.next_label(), w.mode == Mode::Install);
-        if page != Page::Finished {
-            let rect = place(18.0);
-            if self.button(ui, rect, Key::Cancel.text(), false, free && can_cancel) {
-                self.cancel(&ctx);
-            }
-        }
         if page != Page::Working {
-            let rect = place(8.0);
-            if self.button(ui, rect, label.text(), true, free && can_next) {
+            let rect = place(10.0);
+            if self.button(ui, rect, label.text(), Weight::Primary, free && can_next) {
                 self.next(&ctx);
             }
         }
-        if install && !matches!(page, Page::Finished | Page::Working) {
-            let rect = place(8.0);
-            if self.button(ui, rect, Key::Back.text(), false, free && can_back) {
+        if install && can_back {
+            let rect = place(10.0);
+            if self.button(ui, rect, Key::Back.text(), Weight::Plain, free) {
                 self.problem = None;
                 self.wizard.back();
+            }
+        }
+        if page != Page::Finished {
+            // the way out sits apart, on the left
+            let rect = Rect::from_min_size(pos2(row.min.x - 14.0, row.center().y - BUTTON.y / 2.0), vec2(84.0, BUTTON.y));
+            if self.button(ui, rect, Key::Cancel.text(), Weight::Quiet, free && can_cancel) {
+                self.cancel(&ctx);
             }
         }
     }
@@ -788,25 +817,24 @@ impl App {
         };
         // swallow clicks meant for the page below
         ui.allocate_rect(whole, Sense::click());
-        ui.painter().rect_filled(whole, 0, Color32::from_rgba_unmultiplied(12, 24, 48, 120));
+        ui.painter().rect_filled(whole, 0, Color32::from_rgba_unmultiplied(15, 23, 42, 96));
         let sentence = match &asking {
             Asking::Exit => Key::ConfirmCancel.text().to_string(),
             Asking::Folder(text) => text.clone(),
         };
-        let dialog = Rect::from_center_size(whole.center() - vec2(0.0, 16.0), vec2(430.0, 164.0));
-        shadow(ui, dialog, 14, 40, 12, 120);
-        ui.painter().rect_filled(dialog, 14, Color32::WHITE);
-        ui.painter().rect_filled(Rect::from_min_size(dialog.min, vec2(dialog.width(), 5.0)), CornerRadius { nw: 14, ne: 14, sw: 0, se: 0 }, BLUE);
-        area(ui, Rect::from_min_max(dialog.min + vec2(26.0, 28.0), dialog.max - vec2(26.0, 64.0)), |ui| {
-            ui.label(RichText::new(sentence).size(15.5));
+        let dialog = Rect::from_center_size(whole.center() - vec2(0.0, 12.0), vec2(420.0, 164.0));
+        let soft = Shadow { offset: [0, 12], blur: 44, spread: 0, color: Color32::from_black_alpha(46) };
+        ui.painter().add(soft.as_shape(dialog, CornerRadius::same(18)));
+        ui.painter().rect_filled(dialog, 18, PAPER);
+        area(ui, Rect::from_min_max(dialog.min + vec2(28.0, 28.0), dialog.max - vec2(28.0, 68.0)), |ui| {
+            ui.label(RichText::new(sentence).size(15.0));
         });
-        let size = vec2(108.0, 34.0);
-        let no = Rect::from_min_size(dialog.max - vec2(26.0, 20.0) - size, size);
-        let yes = no.translate(vec2(-(size.x + 10.0), 0.0));
+        let no = Rect::from_min_size(dialog.max - vec2(24.0, 22.0) - BUTTON, BUTTON);
+        let yes = no.translate(vec2(-(BUTTON.x + 10.0), 0.0));
         let ctx = ui.ctx().clone();
-        if self.button(ui, yes, Key::Yes.text(), true, true) {
+        if self.button(ui, yes, Key::Yes.text(), Weight::Primary, true) {
             self.answer(true, &ctx);
-        } else if self.button(ui, no, Key::No.text(), false, true) {
+        } else if self.button(ui, no, Key::No.text(), Weight::Plain, true) {
             self.answer(false, &ctx);
         }
     }
@@ -828,6 +856,12 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if !self.shown {
+            // only now that the window is up: had it failed to open, the questions
+            // would be asked in the console instead
+            self.shown = true;
+            platform::leave_own_console();
+        }
         self.read_work();
         if ctx.input(|i| i.viewport().close_requested()) && !self.closing {
             // the close box is Cancel: it asks first, and an install is undone before the window goes
@@ -837,26 +871,30 @@ impl eframe::App for App {
         self.keys(&ctx);
 
         let whole = ui.max_rect();
-        fade(ui, whole, PAPER_TOP, PAPER_BOTTOM);
-        let top = Rect::from_min_max(whole.min, pos2(whole.max.x, whole.max.y - FOOTER));
-        let bar = Rect::from_min_max(pos2(whole.min.x, top.max.y), whole.max);
+        ui.painter().rect_filled(whole, 0, PAPER);
+        let strip = Rect::from_min_size(whole.min, vec2(SIDE, whole.height()));
+        let main = Rect::from_min_max(pos2(strip.max.x, whole.min.y), whole.max).shrink2(vec2(36.0, 0.0));
+        let body = Rect::from_min_max(pos2(main.min.x, main.min.y + 34.0), pos2(main.max.x, main.max.y - FOOTER));
+        let row = Rect::from_min_max(pos2(main.min.x, body.max.y), main.max);
+
         let asking = self.asking.is_some();
         let mut page = ui.new_child(UiBuilder::new().max_rect(whole));
         if asking {
             page.disable();
         }
-        match self.wizard.page {
-            Page::Welcome => self.banner_page(&mut page, top, App::welcome),
-            Page::Remove => self.banner_page(&mut page, top, App::remove),
-            Page::Finished => self.banner_page(&mut page, top, App::finished),
-            Page::License => self.header_page(&mut page, top, Key::LicenseTitle, Key::LicenseSub, App::license),
-            Page::Folder => self.header_page(&mut page, top, Key::FolderTitle, Key::FolderSub, App::folder),
-            Page::Tasks => self.header_page(&mut page, top, Key::TasksTitle, Key::TasksSub, App::tasks),
-            Page::Ready => self.header_page(&mut page, top, Key::ReadyTitle, Key::ReadySub, App::ready),
-            Page::Working if self.wizard.mode == Mode::Install => self.header_page(&mut page, top, Key::InstallingTitle, Key::InstallingSub, App::working),
-            Page::Working => self.header_page(&mut page, top, Key::RemoveTitle, Key::RemovingSub, App::working),
-        }
-        self.footer(&mut page, bar);
+        self.side(&page, strip);
+        let draw: fn(&mut App, &mut Ui) = match self.wizard.page {
+            Page::Welcome => App::welcome,
+            Page::License => App::license,
+            Page::Folder => App::folder,
+            Page::Tasks => App::tasks,
+            Page::Ready => App::ready,
+            Page::Remove => App::remove,
+            Page::Working => App::working,
+            Page::Finished => App::finished,
+        };
+        area(&mut page, body, |ui| draw(self, ui));
+        self.buttons(&mut page, row);
         if asking {
             let mut over = ui.new_child(UiBuilder::new().max_rect(whole));
             self.question(&mut over, whole);
@@ -891,5 +929,12 @@ mod tests {
     fn the_icon_decodes() {
         let (w, h, rgba) = icon_pixels(64).unwrap();
         assert_eq!((w.max(h), rgba.len()), (64, (w * h * 4) as usize));
+    }
+
+    #[test]
+    fn the_side_strip_names_the_step_the_wizard_is_on() {
+        assert_eq!(steps(Mode::Install, Page::Folder), (&["Welcome", "License", "Location", "Options", "Review", "Install", "Finish"][..], 2));
+        assert_eq!(steps(Mode::Install, Page::Finished).1, 6);
+        assert_eq!(steps(Mode::Uninstall, Page::Working), (&["Confirm", "Remove", "Finish"][..], 1));
     }
 }
