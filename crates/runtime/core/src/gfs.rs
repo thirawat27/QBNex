@@ -13,8 +13,6 @@
 //! follow the legacy `GFS_C` fstream behaviour with `std::fs` (not verified on
 //! those systems yet).
 
-use std::ffi::c_void;
-use std::ptr::null_mut;
 use std::sync::Mutex;
 
 /// One entry of the file table (`gfs_file_struct` without the fstream pointers).

@@ -9,7 +9,6 @@
 //! one returned (QB64's `error()` keeps only the first one, too).
 
 use crate::gfs::{table, Table};
-use std::ffi::c_void;
 
 /// `sub_file_print` result: the file is "SCRN:", print to the screen instead.
 pub const PRINT_TO_SCREEN: i32 = -1;
