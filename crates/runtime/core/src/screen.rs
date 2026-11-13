@@ -505,11 +505,10 @@ impl LockChange {
 /// `_CAPSLOCK ON | OFF | _TOGGLE` and its siblings: presses the key when the
 /// lock is not in the wanted state. Does nothing off Windows, as in QB64.
 pub fn set_lock_key(key: LockKey, change: LockChange) {
-    if !change.needs_press(lock_key_state(key)) {
-        return;
-    }
+    #[cfg(not(windows))]
+    let _ = (key, change);
     #[cfg(windows)]
-    {
+    if change.needs_press(lock_key_state(key)) {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::{KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, keybd_event};
         const SCAN: u8 = 0x45;
         // SAFETY: plain Win32 calls.

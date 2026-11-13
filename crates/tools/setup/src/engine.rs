@@ -460,7 +460,8 @@ mod tests {
         let mut names = Vec::new();
         files_under(dir, "", &mut names);
         names.sort();
-        names.into_iter().map(|n| (n.clone(), std::fs::read_to_string(dir.join(&n)).unwrap())).collect()
+        // the menu icon some systems install is not text
+        names.into_iter().map(|n| (n.clone(), String::from_utf8_lossy(&std::fs::read(dir.join(&n)).unwrap()).into_owned())).collect()
     }
 
     #[test]
