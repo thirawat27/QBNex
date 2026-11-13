@@ -698,7 +698,6 @@ unsafe fn bytes<'a>(s: *mut Qbs) -> &'a [u8] {
 #[cfg(not(target_arch = "wasm32"))]
 unsafe extern "C" {
     fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void;
-    fn strlen(s: *const c_char) -> usize;
 }
 
 /// Browser build: no C library; same contract as C `memchr`.
@@ -709,24 +708,7 @@ unsafe fn memchr(s: *const c_void, c: i32, n: usize) -> *mut c_void {
     b.iter().position(|&x| x == c as u8).map_or(std::ptr::null_mut(), |i| b[i..].as_ptr().cast_mut().cast())
 }
 
-/// Browser build: C `strlen`.
-#[cfg(target_arch = "wasm32")]
-unsafe fn strlen(s: *const c_char) -> usize {
-    // SAFETY: caller passes a NUL-terminated string.
-    unsafe { std::ffi::CStr::from_ptr(s).to_bytes().len() }
-}
-
 // --- C ABI (include/qb_runtime.h); libqb.cpp keeps one-line shims with the old names ---
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_new_descriptor() -> *mut Qbs {
-    unsafe { eng().new_descriptor() }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_free_descriptor(s: *mut Qbs) {
-    unsafe { eng().free_descriptor(s) }
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_free(s: *mut Qbs) {
@@ -734,41 +716,8 @@ pub unsafe extern "C" fn qb_qbs_free(s: *mut Qbs) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_cmem_concat_list() {
-    unsafe { eng().cmem_concat_list() }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_concat_list() {
-    unsafe { eng().concat_list() }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_tmp_concat_list() {
-    unsafe { eng().tmp_concat_list() }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_concat(bytesrequired: u32) {
-    unsafe { eng().concat(bytesrequired) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_concat_cmem(bytesrequired: u32) {
-    unsafe { eng().concat_cmem(bytesrequired) }
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new_cmem(size: i32, tmp: u8) -> *mut Qbs {
     unsafe { eng().new_cmem(size, tmp) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_new_txt(txt: *const c_char) -> *mut Qbs {
-    unsafe {
-        let len = if txt.is_null() { 0 } else { strlen(txt) as i32 };
-        eng().new_txt_len(txt.cast(), len)
-    }
 }
 
 #[unsafe(no_mangle)]
@@ -784,11 +733,6 @@ pub unsafe extern "C" fn qb_qbs_new_fixed(offset: *mut u8, size: u32, tmp: u8) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_new(size: i32, tmp: u8) -> *mut Qbs {
     unsafe { eng().new_str(size, tmp) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_maketmp(s: *mut Qbs) {
-    unsafe { eng().tmp_add(s) }
 }
 
 #[unsafe(no_mangle)]
@@ -1298,65 +1242,6 @@ pub unsafe extern "C" fn qb_qbs_len(s: *mut Qbs) -> i32 {
 }
 
 // --- introspection for tests and the differential harness ----------------------
-
-/// Snapshot of the engine's internals (diff_qbs.cpp compares it with the legacy globals).
-#[repr(C)]
-pub struct QbsDebugState {
-    pub list: *const isize,
-    pub list_nexti: u32,
-    pub list_lasti: u32,
-    pub cmem_list: *const isize,
-    pub cmem_list_nexti: u32,
-    pub cmem_list_lasti: u32,
-    pub tmp_list: *const isize,
-    pub tmp_list_lasti: u32,
-    pub data: *const u8,
-    pub data_size: u32,
-    pub sp: u32,
-    pub freed: *const *mut Qbs,
-    pub freed_count: u32,
-    pub blocks: u32,
-    pub malloc_next: u32,
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_debug_state(out: *mut QbsDebugState) {
-    unsafe {
-        let e = eng();
-        out.write(QbsDebugState {
-            list: e.list.as_ptr(),
-            list_nexti: e.nexti,
-            list_lasti: e.lasti,
-            cmem_list: e.cmem_list.as_ptr(),
-            cmem_list_nexti: e.cmem_nexti,
-            cmem_list_lasti: e.cmem_lasti,
-            tmp_list: e.tmp_list.as_ptr(),
-            tmp_list_lasti: e.tmp_lasti,
-            data: e.data_ptr,
-            data_size: e.data_size,
-            sp: e.sp,
-            freed: e.freed.as_ptr(),
-            freed_count: e.freed.len() as u32,
-            blocks: e.blocks.len() as u32,
-            malloc_next: e.malloc_next,
-        });
-    }
-}
-
-/// Position of a descriptor in the pool (block * 65536 + slot), or -1.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_qbs_debug_descriptor_index(s: *const Qbs) -> i64 {
-    unsafe {
-        let e = eng();
-        for (b, block) in e.blocks.iter().enumerate() {
-            let base = block.0.cast::<Qbs>().cast_const();
-            if s >= base && s < base.add(block.0.len()) {
-                return (b as i64) * i64::from(DESCRIPTOR_BLOCK) + s.offset_from(base) as i64;
-            }
-        }
-        -1
-    }
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_qbs_debug_sp() -> u32 {

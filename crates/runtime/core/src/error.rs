@@ -456,7 +456,6 @@ pub fn report_line(title: &[u8], body: &[u8]) -> Vec<u8> {
 /// Exit code of a program ended by an error without a dialog.
 pub const NO_DIALOG_EXIT_CODE: i32 = 1;
 
-
 /// `error(n)`: critical errors show a message box and end the process;
 /// otherwise the first error of the statement is latched into `new_error`
 /// and the program thread is told to check events.
@@ -524,84 +523,10 @@ pub fn fix_error(command0: &[u8]) -> FixError {
 
 // ---------------------------------------------------------------- C ABI
 
-/// `error(n)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_error(code: i32) {
-    raise(code);
-}
-
-/// `fix_error`: returns 1 when C++ must enter `QBMAIN` for the `ON ERROR`
-/// handler, 0 otherwise. `command0` is `COMMAND$(0)`.
-///
-/// # Safety
-/// `command0` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_fix_error(command0: *const u8, len: i32) -> i32 {
-    let c = unsafe { crate::ffi_bytes(command0, len.max(0) as usize) };
-    match fix_error(c) {
-        FixError::Handle => 1,
-        FixError::Continue => 0,
-    }
-}
-
 /// `human_error`: NUL-terminated static message text.
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_human_error(code: i32) -> *const c_char {
     human_error_z(code).as_ptr().cast()
-}
-
-// ------------------------------------------- test hooks (tests/diff only)
-
-/// `critical_error`: 1 and the NUL-terminated texts for a critical error.
-///
-/// # Safety
-/// `msg` and `title` valid.
-#[doc(hidden)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_critical_error(code: i32, msg: *mut *const c_char, title: *mut *const c_char) -> i32 {
-    match critical_error(code) {
-        Some((m, t)) => {
-            unsafe {
-                *msg = m.as_ptr().cast();
-                *title = t.as_ptr().cast();
-            }
-            1
-        }
-        None => 0,
-    }
-}
-
-/// [`error_dialog`] into caller buffers (NUL-terminated, truncated to `cap`).
-/// Returns 1 for a critical (OK-only) dialog.
-///
-/// # Safety
-/// `file` null or NUL-terminated; `command0` readable for `len`; `title`
-/// and `body` writable for `cap` bytes.
-#[doc(hidden)]
-#[unsafe(no_mangle)]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn qb_test_error_dialog(
-    code: u32,
-    ercl_: u32,
-    inclercl_: u32,
-    file: *const c_char,
-    command0: *const u8,
-    len: i32,
-    title: *mut u8,
-    body: *mut u8,
-    cap: i32,
-) -> i32 {
-    let f = if file.is_null() { None } else { Some(unsafe { std::ffi::CStr::from_ptr(file) }.to_bytes()) };
-    let c = unsafe { crate::ffi_bytes(command0, len.max(0) as usize) };
-    let d = error_dialog(code, ercl_, inclercl_, f, c);
-    for (src, dst) in [(&d.title, title), (&d.body, body)] {
-        let n = src.len().min(cap.max(1) as usize - 1);
-        unsafe {
-            core::ptr::copy_nonoverlapping(src.as_ptr(), dst, n);
-            *dst.add(n) = 0;
-        }
-    }
-    i32::from(d.critical)
 }
 
 #[cfg(test)]

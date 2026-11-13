@@ -92,7 +92,6 @@ pub mod cursor {
 }
 
 enum Cmd {
-    Create,
     Title(String),
     Size(i32, i32),
     Fullscreen(bool),
@@ -353,10 +352,6 @@ impl App {
     fn run_cmds(&mut self, el: &ActiveEventLoop) {
         let cmds: Vec<Cmd> = std::mem::take(&mut *lock(&CMDS));
         for c in cmds {
-            if let Cmd::Create = c {
-                self.create(el);
-                continue;
-            }
             match c {
                 Cmd::Title(t) => {
                     if let Some(w) = &self.win {
@@ -914,11 +909,6 @@ pub extern "C" fn qb_window_exists() -> i32 {
     EXISTS.load(Ordering::SeqCst) as i32
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_window_create() {
-    push(Cmd::Create);
-}
-
 /// Hands a composed frame (`0xAARRGGBB`, `w*h`) to the window. The data is copied.
 ///
 /// # Safety
@@ -1124,164 +1114,6 @@ pub unsafe extern "C" fn qb_layout(
         *scale = l.x_scale;
         *scale.add(1) = l.y_scale;
     }
-}
-
-// ---- hardware images (software) ----------------------------------------------
-
-/// `hardware_img_put` in software.
-///
-/// # Safety
-/// `dst` holds `dw*dh` pixels, `src` holds `sw*sh` pixels.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_hw_put(
-    dst: *mut u32,
-    dw: i32,
-    dh: i32,
-    src: *const u32,
-    sw: i32,
-    sh: i32,
-    d: *const i32,
-    s: *const i32,
-    use_alpha: i32,
-    smooth: i32,
-) {
-    if dst.is_null() || src.is_null() || dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0 {
-        return;
-    }
-    // SAFETY: sizes as documented by the caller.
-    let (dp, sp, d4, s4) = unsafe {
-        (
-            std::slice::from_raw_parts_mut(dst, (dw * dh) as usize),
-            std::slice::from_raw_parts(src, (sw * sh) as usize),
-            *(d as *const [i32; 4]),
-            *(s as *const [i32; 4]),
-        )
-    };
-    raster::put(
-        &mut Target {
-            px: dp,
-            w: dw as usize,
-            h: dh as usize,
-        },
-        Source {
-            px: sp,
-            w: sw as usize,
-            h: sh as usize,
-        },
-        d4,
-        s4,
-        use_alpha != 0,
-        smooth != 0,
-    );
-}
-
-/// `hardware_img_tri2d` in software. `d`/`s` hold x1,y1,x2,y2,x3,y3.
-///
-/// # Safety
-/// As [`qb_hw_put`]; `d` and `s` hold 6 floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_hw_tri2d(
-    dst: *mut u32,
-    dw: i32,
-    dh: i32,
-    src: *const u32,
-    sw: i32,
-    sh: i32,
-    d: *const f32,
-    s: *const f32,
-    use_alpha: i32,
-    smooth: i32,
-) {
-    if dst.is_null() || src.is_null() || dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0 {
-        return;
-    }
-    // SAFETY: sizes as documented by the caller.
-    let (dp, sp, d6, s6) = unsafe {
-        (
-            std::slice::from_raw_parts_mut(dst, (dw * dh) as usize),
-            std::slice::from_raw_parts(src, (sw * sh) as usize),
-            *(d as *const [f32; 6]),
-            *(s as *const [f32; 6]),
-        )
-    };
-    let p = |a: [f32; 6]| [(a[0], a[1]), (a[2], a[3]), (a[4], a[5])];
-    raster::tri2d(
-        &mut Target {
-            px: dp,
-            w: dw as usize,
-            h: dh as usize,
-        },
-        Source {
-            px: sp,
-            w: sw as usize,
-            h: sh as usize,
-        },
-        p(d6),
-        p(s6),
-        use_alpha != 0,
-        smooth != 0,
-    );
-}
-
-/// `hardware_img_tri3d` in software. `d` holds x,y,z * 3, `s` x,y * 3;
-/// `depth` holds `dw*dh` floats (initialise to +infinity).
-///
-/// # Safety
-/// As [`qb_hw_put`], plus `depth`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_hw_tri3d(
-    dst: *mut u32,
-    dw: i32,
-    dh: i32,
-    depth: *mut f32,
-    src: *const u32,
-    sw: i32,
-    sh: i32,
-    d: *const f32,
-    s: *const f32,
-    use_alpha: i32,
-    smooth: i32,
-    cull: i32,
-    depth_mode: i32,
-) {
-    if dst.is_null() || src.is_null() || depth.is_null() || dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0
-    {
-        return;
-    }
-    let n = (dw * dh) as usize;
-    // SAFETY: sizes as documented by the caller.
-    let (dp, zp, sp, d9, s6) = unsafe {
-        (
-            std::slice::from_raw_parts_mut(dst, n),
-            std::slice::from_raw_parts_mut(depth, n),
-            std::slice::from_raw_parts(src, (sw * sh) as usize),
-            *(d as *const [f32; 9]),
-            *(s as *const [f32; 6]),
-        )
-    };
-    raster::tri3d(
-        &mut Target {
-            px: dp,
-            w: dw as usize,
-            h: dh as usize,
-        },
-        zp,
-        Source {
-            px: sp,
-            w: sw as usize,
-            h: sh as usize,
-        },
-        [
-            (d9[0], d9[1], d9[2]),
-            (d9[3], d9[4], d9[5]),
-            (d9[6], d9[7], d9[8]),
-        ],
-        [(s6[0], s6[1]), (s6[2], s6[3]), (s6[4], s6[5])],
-        use_alpha != 0,
-        smooth != 0,
-        cull,
-        depth_mode,
-    );
 }
 
 #[cfg(test)]

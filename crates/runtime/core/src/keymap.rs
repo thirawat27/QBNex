@@ -278,46 +278,6 @@ pub fn translate(ev: &KeyInput) -> Vec<KeyAction> {
     }
 }
 
-fn action_out(a: KeyAction, out_code: *mut u32) -> i32 {
-    let (k, c) = match a {
-        KeyAction::Down(c) => (1, c),
-        KeyAction::Up(c) => (2, c),
-        KeyAction::DownUnicode(c) => (3, c),
-        KeyAction::UpUnicode(c) => (4, c),
-    };
-    // SAFETY: callers pass a writable pointer (checked non-null).
-    if !out_code.is_null() {
-        unsafe { out_code.write_unaligned(c) };
-    }
-    k
-}
-
-/// [`glut_special`] for the differential test: returns 0 (no call),
-/// 1 (keydown) or 2 (keyup) and writes the code.
-///
-/// # Safety
-/// `out_code` is null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_keymap_glut_special(key: i32, down: i32, out_code: *mut u32) -> i32 {
-    glut_special(key, down != 0).map_or(0, |a| action_out(a, out_code))
-}
-
-/// [`glut_ascii`] for the differential test; `mods` uses GLUT bits
-/// (1 shift, 2 ctrl, 4 alt).
-///
-/// # Safety
-/// `out_code` is null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_keymap_glut_ascii(
-    key: i32,
-    mods: i32,
-    down: i32,
-    macos: i32,
-    out_code: *mut u32,
-) -> i32 {
-    action_out(glut_ascii(key, mods & 2 != 0, mods & 1 != 0, down != 0, macos != 0), out_code)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -71,17 +71,6 @@ pub mod script;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod window;
 
-/// Version of the C ABI exposed by this crate. Bumped whenever a declaration in
-/// `include/qb_runtime.h` changes incompatibly.
-pub const QB_ABI_VERSION: u32 = 1;
-
-/// Returns [`QB_ABI_VERSION`]; lets libqb.cpp assert it links the runtime it
-/// was compiled against.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_abi_version() -> u32 {
-    QB_ABI_VERSION
-}
-
 /// Borrows `len` bytes at `p` (a null or dangling pointer is fine when `len` is 0).
 ///
 /// # Safety

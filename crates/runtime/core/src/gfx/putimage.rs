@@ -567,12 +567,6 @@ unsafe fn stretch(
 /// Number of stretched source samples that fell outside the source.
 pub static SOURCE_OUT_OF_RANGE: AtomicU64 = AtomicU64::new(0);
 
-/// Diagnostic for the differential test: see [`SOURCE_OUT_OF_RANGE`].
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_gfx_putimage_oob_count() -> u64 {
-    SOURCE_OUT_OF_RANGE.load(Ordering::Relaxed)
-}
-
 /// C ABI. `hw_out` may be null (software copy) or point to 8 int32 that
 /// receive (sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2) for a hardware command.
 ///

@@ -459,18 +459,6 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
     }
 }
 
-/// Diagnostic for the differential test: [`f80_load_store`] on 10 bytes.
-///
-/// # Safety
-/// `p` must be readable for 10 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_draw_f80(p: *const u8) -> f64 {
-    let mut b = [0u8; 10];
-    // SAFETY: guaranteed by the caller.
-    unsafe { core::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 10) };
-    f80_load_store(b)
-}
-
 /// C ABI: `DRAW` on `write_page`.
 ///
 /// # Safety

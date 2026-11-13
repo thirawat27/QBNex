@@ -259,26 +259,6 @@ pub extern "C" fn qb_get_ticks() -> i64 {
     ticks()
 }
 
-/// Fills TIMER's start-up reference values.
-///
-/// # Safety
-/// Both pointers must be writable for one `uint32_t`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_time_init(clock_first: *mut u32, day_first: *mut u32) {
-    let (c, d) = time_init();
-    // SAFETY: caller guarantees both pointers are writable.
-    unsafe {
-        clock_first.write_unaligned(c);
-        day_first.write_unaligned(d);
-    }
-}
-
-/// `day_ms` for the differential test: `valid == 0` means localtime failed.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_day_ms(hour: u32, minute: u32, second: u32, valid: i32) -> u32 {
-    day_ms((valid != 0).then_some((hour, minute, second)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

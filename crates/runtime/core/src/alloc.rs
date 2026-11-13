@@ -232,33 +232,6 @@ fn cmem_base() -> *mut u8 {
 
 // ---------------------------------------------------------------- C ABI
 
-/// `allocate_mem_static_block` (program start uses 1 MB).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_mem_static_new_block(size: u32) -> i32 {
-    mem_static_new_block(size)
-}
-
-/// `mem_static_malloc`. Null with `*err` set when allocation failed.
-///
-/// # Safety
-/// `err` valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_mem_static_malloc(size: u32, err: *mut i32) -> *mut u8 {
-    match mem_static_malloc(size) {
-        Ok(p) => p,
-        Err(e) => {
-            unsafe { *err = e };
-            null_mut()
-        }
-    }
-}
-
-/// `mem_static_restore`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_mem_static_restore(restore_point: *mut u8) {
-    mem_static_restore(restore_point);
-}
-
 /// `cmem_dynamic_malloc`. On failure returns null and sets `*err`.
 ///
 /// # Safety
@@ -294,14 +267,6 @@ pub extern "C" fn qb_cmem_dynamic_free(block: *mut u8) {
     if let Ok(o) = u32::try_from(o) {
         d.free(o);
     }
-}
-
-/// Empties the `cmem_dynamic` block list (tests/diff only).
-#[doc(hidden)]
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_test_cmem_dynamic_reset() {
-    // SAFETY: test hook, single-threaded.
-    unsafe { *addr_of_mut!(CMEM_DYNAMIC) = CmemDynamic::new() };
 }
 
 #[doc(hidden)]

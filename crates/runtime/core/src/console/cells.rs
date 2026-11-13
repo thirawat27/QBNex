@@ -245,34 +245,6 @@ pub extern "C" fn qb_text_cells_release(image: i32) {
 pub extern "C" fn qb_text_cells_copy(src: i32, dst: i32) {
     copy(src, dst)
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_text_cells_present(image: i32) -> i32 {
-    present(image) as i32
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_text_cells_has_content(image: i32) -> i32 {
-    -(has_content(image) as i32)
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_text_cells_span(image: i32, cell: i32) -> i32 {
-    span(image, cell)
-}
-/// Copies up to `cap` bytes of the cell's UTF-8 content to `out`; returns
-/// the full length (call with `cap` 0 to size the buffer).
-///
-/// # Safety
-/// `out` must be valid for `cap` bytes (or null when `cap` is 0).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_text_cell_utf8(image: i32, cell: i32, out: *mut u8, cap: i32) -> i32 {
-    let c = content(image, cell);
-    let n = c.len().min(cap.max(0) as usize);
-    if n > 0 {
-        // SAFETY: caller contract.
-        unsafe { core::ptr::copy_nonoverlapping(c.as_ptr(), out, n) };
-    }
-    c.len() as i32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

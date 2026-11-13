@@ -274,19 +274,7 @@ impl Default for InputLock {
     }
 }
 
-static INPUT_LOCK: InputLock = InputLock::new();
-
 // ---- C ABI -----------------------------------------------------------------
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_input_lock() {
-    INPUT_LOCK.lock();
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_input_unlock() {
-    INPUT_LOCK.unlock();
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_keyhit_push(v: i64) {
@@ -316,22 +304,6 @@ pub extern "C" fn qb_keyheld_add(x: u32, bind: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_keyheld_remove(x: u32) {
     with(|s| s.keyheld_remove(x));
-}
-
-/// Writes the bound held key to `*out` and returns 1, or returns 0.
-///
-/// # Safety
-/// `out` must be valid for a `u32` write.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_keyheld_bound_to(x: u32, out: *mut u32) -> i32 {
-    match with(|s| s.keyheld_bound_to(x)) {
-        Some(k) => {
-            // SAFETY: caller guarantees `out` is writable.
-            unsafe { out.write_unaligned(k) };
-            1
-        }
-        None => 0,
-    }
 }
 
 /// Writes cmem[0x417], cmem[0x418], cmem[0x496] into `out[0..3]`.

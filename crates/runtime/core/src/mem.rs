@@ -63,9 +63,6 @@ pub static mut mem_lock_tmp: *mut MemLock = null_mut();
 #[allow(non_upper_case_globals)]
 pub static mut mem_lock_base: *mut MemLock = null_mut();
 
-/// Lock referenced by invalid blocks (`_MEMIMAGE` failures); its id is 0.
-static mut MEM_LOCK_INVALID: MemLock = EMPTY_LOCK;
-
 struct Pool {
     /// Locks live in fixed blocks so their addresses never move.
     blocks: Vec<Box<[MemLock]>>,
@@ -433,124 +430,6 @@ pub unsafe fn mem(offset: isize, size: isize, type_: i32, elementsize: isize, lo
         image: -1,
         sound: 0,
     }
-}
-
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_new_mem_lock() -> *mut MemLock {
-    new_mem_lock()
-}
-
-/// # Safety
-/// `lock` must come from `qb_new_mem_lock`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_free_mem_lock(lock: *mut MemLock) {
-    // SAFETY: caller contract.
-    unsafe { free_mem_lock(lock) }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_mem_lock_invalid() -> *mut MemLock {
-    addr_of_mut!(MEM_LOCK_INVALID)
-}
-
-/// # Safety
-/// `blk` must point to a `mem_block`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memfree(blk: *mut MemBlock) -> i32 {
-    // SAFETY: caller contract.
-    unsafe { memfree(&mut *blk) }
-}
-
-/// # Safety
-/// `out` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_mem_at_offset(offset: isize, size: isize, new_error: i32, out: *mut MemBlock) -> i32 {
-    let (b, e) = mem_at_offset(offset, size, new_error != 0);
-    // SAFETY: caller contract.
-    unsafe { out.write(b) };
-    e
-}
-
-/// # Safety
-/// `out` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memnew(bytes: isize, new_error: i32, out: *mut MemBlock) -> i32 {
-    let (b, e) = memnew(bytes, new_error != 0);
-    // SAFETY: caller contract.
-    unsafe { out.write(b) };
-    e
-}
-
-/// # Safety
-/// `blk` must point to a `mem_block`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memexists(blk: *const MemBlock) -> i32 {
-    // SAFETY: caller contract.
-    unsafe { memexists(&*blk) }
-}
-
-/// # Safety
-/// `blk` must point to a `mem_block`; `err` writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memget(blk: *const MemBlock, off: isize, bytes: isize, err: *mut i32) -> *mut c_void {
-    // SAFETY: caller contract.
-    let (p, e) = unsafe { memget(&*blk, off, bytes) };
-    // SAFETY: caller contract.
-    unsafe { *err = e };
-    p
-}
-
-/// # Safety
-/// See [`memfill`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memfill(
-    blk: *const MemBlock,
-    doff: isize,
-    dbytes: isize,
-    src: *const u8,
-    sbytes: isize,
-) -> i32 {
-    // SAFETY: caller contract.
-    unsafe { memfill(&*blk, doff, dbytes, src, sbytes) }
-}
-
-/// # Safety
-/// See [`memfill_nochecks`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memfill_nochecks(doff: isize, dbytes: isize, src: *const u8, sbytes: isize) {
-    // SAFETY: caller contract.
-    unsafe { memfill_nochecks(doff, dbytes, src, sbytes) }
-}
-
-/// # Safety
-/// See [`memcopy`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_memcopy(
-    sblk: *const MemBlock,
-    soff: isize,
-    bytes: isize,
-    dblk: *const MemBlock,
-    doff: isize,
-) -> i32 {
-    // SAFETY: caller contract.
-    unsafe { memcopy(&*sblk, soff, bytes, &*dblk, doff) }
-}
-
-/// # Safety
-/// See [`mem`]; `out` writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_mem(
-    offset: isize,
-    size: isize,
-    type_: i32,
-    elementsize: isize,
-    lock: *mut MemLock,
-    out: *mut MemBlock,
-) {
-    // SAFETY: caller contract.
-    unsafe { out.write(mem(offset, size, type_, elementsize, lock)) }
 }
 
 #[cfg(test)]

@@ -185,12 +185,6 @@ pub unsafe extern "C" fn qb_gamepad_poll(cb: *const Callbacks) {
     });
 }
 
-/// Drops the gilrs context (`QBNex_GAMEPAD_SHUTDOWN`).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_gamepad_shutdown() {
-    GILRS.with(|c| c.borrow_mut().take());
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

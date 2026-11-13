@@ -106,33 +106,6 @@ pub unsafe extern "C" fn qb_array_bound(desc: *const isize, index: i32, num_inde
     }
 }
 
-/// `getubits`.
-///
-/// # Safety
-/// See [`getubits`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_getubits(bsize: u32, base: *const u8, i: isize) -> u64 {
-    unsafe { getubits(bsize, base, i) }
-}
-
-/// `getbits`.
-///
-/// # Safety
-/// See [`getbits`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_getbits(bsize: u32, base: *const u8, i: isize) -> i64 {
-    unsafe { getbits(bsize, base, i) }
-}
-
-/// `setbits`.
-///
-/// # Safety
-/// See [`setbits`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_setbits(bsize: u32, base: *mut u8, i: isize, val: i64) {
-    unsafe { setbits(bsize, base, i, val) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

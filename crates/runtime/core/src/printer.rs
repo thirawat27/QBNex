@@ -157,62 +157,6 @@ pub mod gdi {
 
 // --- C ABI (include/qb_runtime.h) ---------------------------------------------------
 
-/// Opens a printer page. Returns a handle and the page size, or NULL (no
-/// printer, or not Windows).
-///
-/// # Safety
-/// `w` and `h` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_printer_begin(w: *mut i32, h: *mut i32) -> *mut std::ffi::c_void {
-    #[cfg(windows)]
-    {
-        let mut d = Box::new(gdi::Gdi { dc: std::ptr::null_mut() });
-        if let Some((pw, ph)) = begin(d.as_mut()) {
-            // SAFETY: caller guarantees writable outputs.
-            unsafe {
-                w.write_unaligned(pw);
-                h.write_unaligned(ph);
-            }
-            return Box::into_raw(d).cast();
-        }
-    }
-    let _ = (w, h);
-    std::ptr::null_mut()
-}
-
-/// Prints `w * h` top-down pixels (the size from `qb_printer_begin`) and
-/// closes the handle.
-///
-/// # Safety
-/// `p` must come from `qb_printer_begin`; `pixels` readable for `w * h`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_printer_finish(p: *mut std::ffi::c_void, pixels: *const u32, w: i32, h: i32) {
-    #[cfg(windows)]
-    if !p.is_null() {
-        // SAFETY: ownership comes back from `qb_printer_begin`.
-        let mut d = unsafe { Box::from_raw(p.cast::<gdi::Gdi>()) };
-        let n = (w.max(0) as usize) * (h.max(0) as usize);
-        // SAFETY: caller guarantees the pixel count.
-        let px = if n == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(pixels, n) } };
-        finish(d.as_mut(), w, h, px);
-    }
-    let _ = (p, pixels, w, h);
-}
-
-/// Closes a handle from `qb_printer_begin` without printing.
-///
-/// # Safety
-/// `p` must come from `qb_printer_begin`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_printer_abort(p: *mut std::ffi::c_void) {
-    #[cfg(windows)]
-    if !p.is_null() {
-        // SAFETY: ownership comes back from `qb_printer_begin`.
-        abort(unsafe { Box::from_raw(p.cast::<gdi::Gdi>()) }.as_mut());
-    }
-    let _ = p;
-}
-
 /// Call trace for the differential test. Codes: 1 GetDefaultPrinter,
 /// 2 CreateDC, 3 StartDoc, 4 StartPage, 5 GetDeviceCaps (twice),
 /// 6 SetDIBitsToDevice, 7 EndPage, 8 EndDoc, 9 DeleteDC.

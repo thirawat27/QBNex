@@ -285,7 +285,6 @@ pub fn mac_screenprint(txt: &[u8]) -> Vec<MacKey> {
     ev
 }
 
-
 #[cfg(windows)]
 mod platform {
     use super::*;
@@ -607,78 +606,6 @@ pub unsafe extern "C" fn qb_screenprint(txt: *const u8, len: i32) {
     platform::send_keys(&mac_screenprint(txt));
     #[cfg(not(any(windows, target_os = "macos")))]
     let _ = txt;
-}
-
-// --- Test hooks for the differential harness (tests/diff/diff_screen.cpp) ----------
-
-/// Writes `screen_region` into `out[4]`.
-///
-/// # Safety
-/// `out` must be writable for 4 `int32_t`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_screen_region(sw: i32, sh: i32, x1: i32, y1: i32, x2: i32, y2: i32, passed: i32, out: *mut i32) {
-    let (a, b, c, d) = screen_region(sw, sh, x1, y1, x2, y2, passed != 0);
-    for (i, v) in [a, b, c, d].into_iter().enumerate() {
-        // SAFETY: caller guarantees 4 writable values.
-        unsafe { out.add(i).write_unaligned(v) };
-    }
-}
-
-/// Writes `win_screenclick` as `flags, dx, dy` triples into `out` (room for
-/// `cap` triples) and returns the event count.
-///
-/// # Safety
-/// `out` must be writable for `3 * cap` `int32_t`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_win_screenclick(x: i32, y: i32, button: i32, passed: i32, sw: i32, sh: i32, out: *mut i32, cap: i32) -> i32 {
-    let ev = win_screenclick(x, y, button, passed != 0, sw, sh);
-    for (i, e) in ev.iter().take(cap.max(0) as usize).enumerate() {
-        // SAFETY: caller guarantees room for `cap` triples.
-        unsafe {
-            out.add(3 * i).write_unaligned(e.flags as i32);
-            out.add(3 * i + 1).write_unaligned(e.dx);
-            out.add(3 * i + 2).write_unaligned(e.dy);
-        }
-    }
-    ev.len() as i32
-}
-
-/// Writes `win_screenprint` (with `VkKeyScanA` replaced by the table
-/// `scan[256]`) as `vk | up << 16` into `out` and returns the event count.
-///
-/// # Safety
-/// `txt` readable for `len` bytes, `scan` for 256 values, `out` writable for `cap`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_win_screenprint(txt: *const u8, len: i32, scan: *const i16, out: *mut i32, cap: i32) -> i32 {
-    // SAFETY: caller guarantees the buffers.
-    let (txt, scan) = unsafe { (std::slice::from_raw_parts(txt, len.max(0) as usize), std::slice::from_raw_parts(scan, 256)) };
-    let ev = win_screenprint(txt, |c| scan[c as usize]);
-    for (i, e) in ev.iter().take(cap.max(0) as usize).enumerate() {
-        // SAFETY: caller guarantees room for `cap` values.
-        unsafe { out.add(i).write_unaligned(i32::from(e.vk) | (i32::from(e.up) << 16)) };
-    }
-    ev.len() as i32
-}
-
-/// Writes `mac_screenprint` as `code, down, flags_low32` triples into `out`
-/// (room for `cap` triples) and returns the event count.
-///
-/// # Safety
-/// `txt` readable for `len` bytes, `out` writable for `3 * cap`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_mac_screenprint(txt: *const u8, len: i32, out: *mut i32, cap: i32) -> i32 {
-    // SAFETY: caller guarantees the buffers.
-    let txt = unsafe { std::slice::from_raw_parts(txt, len.max(0) as usize) };
-    let ev = mac_screenprint(txt);
-    for (i, e) in ev.iter().take(cap.max(0) as usize).enumerate() {
-        // SAFETY: caller guarantees room for `cap` triples.
-        unsafe {
-            out.add(3 * i).write_unaligned(i32::from(e.code));
-            out.add(3 * i + 1).write_unaligned(i32::from(e.down));
-            out.add(3 * i + 2).write_unaligned(e.flags as i32);
-        }
-    }
-    ev.len() as i32
 }
 
 #[cfg(test)]

@@ -230,24 +230,6 @@ pub fn interactive(use_console: bool) -> i64 {
     }
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// Runs a non-empty command; see [`run`].
-///
-/// # Safety
-/// `cmd` readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_shell_run(cmd: *const u8, len: i32, show: i32, wait: i32, use_console: i32) -> i64 {
-    // SAFETY: caller contract.
-    let cmd = unsafe { crate::ffi_bytes(cmd, len.max(0) as usize) };
-    run(cmd, Mode { show: show != 0, wait: wait != 0, use_console: use_console != 0 })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_shell_interactive(use_console: i32) -> i64 {
-    interactive(use_console != 0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

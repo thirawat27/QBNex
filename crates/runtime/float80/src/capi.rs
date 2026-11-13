@@ -44,16 +44,6 @@ pub unsafe extern "C" fn qb_f80_neg(a: *const u8, out: *mut u8) {
     unsafe { wr(out, -rd(a)) }
 }
 
-/// `fsqrt` (no BASIC error check; `SQR` is [`qb_f80_sqr`]).
-///
-/// # Safety
-/// `a` readable and `out` writable for 10 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_f80_sqrt(a: *const u8, out: *mut u8) {
-    // SAFETY: caller contract.
-    unsafe { wr(out, rd(a).sqrt()) }
-}
-
 /// `fucomi`: -1 less, 0 equal, 1 greater, 2 unordered.
 ///
 /// # Safety
@@ -80,14 +70,6 @@ pub unsafe extern "C" fn qb_f80_from_i64(v: i64, out: *mut u8) {
 /// # Safety
 /// `out` writable for 10 bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_f80_from_u64(v: u64, out: *mut u8) {
-    // SAFETY: caller contract.
-    unsafe { wr(out, F80::from_u64(v)) }
-}
-
-/// # Safety
-/// `out` writable for 10 bytes.
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_f80_from_f64(v: f64, out: *mut u8) {
     // SAFETY: caller contract.
     unsafe { wr(out, F80::from_f64(v)) }
@@ -99,24 +81,6 @@ pub unsafe extern "C" fn qb_f80_from_f64(v: f64, out: *mut u8) {
 pub unsafe extern "C" fn qb_f80_to_f64(a: *const u8) -> f64 {
     // SAFETY: caller contract.
     unsafe { rd(a) }.to_f64()
-}
-
-/// # Safety
-/// `a` readable for 10 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_f80_to_f32(a: *const u8) -> f32 {
-    // SAFETY: caller contract.
-    unsafe { rd(a) }.to_f32()
-}
-
-/// `fistp qword` (round to nearest even); indefinite = `i64::MIN`.
-///
-/// # Safety
-/// `a` readable for 10 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_f80_to_i64_round(a: *const u8) -> i64 {
-    // SAFETY: caller contract.
-    unsafe { rd(a) }.to_i64(Round::Nearest)
 }
 
 /// C cast `(int64_t)x` (`fisttp qword`).
@@ -194,16 +158,6 @@ unary!(qb_f80_cos, qb::cos);
 unary!(qb_f80_tan, qb::tan);
 unary!(qb_f80_atn, qb::atn);
 unary!(qb_f80_expl, libm::expl);
-
-/// `powl` without the BASIC error check.
-///
-/// # Safety
-/// `a`, `b` readable and `out` writable for 10 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_f80_powl(a: *const u8, b: *const u8, out: *mut u8) {
-    // SAFETY: caller contract.
-    unsafe { wr(out, libm::powl(rd(a), rd(b))) }
-}
 
 /// `strtold`: parses `len` bytes, writes the value, returns bytes consumed.
 ///

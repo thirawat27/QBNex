@@ -154,39 +154,6 @@ pub fn screen_byte(c: u32) -> u8 {
     }
 }
 
-/// C ABI: `unicode_to_cp437`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_unicode_to_cp437(x: u32) -> u32 {
-    unicode_to_cp437(x)
-}
-
-/// C ABI: `qb_decode_utf8_codepoint` (0 for an empty input).
-///
-/// # Safety
-/// `text` valid for `len` bytes; `codepoint` writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_utf8_decode(text: *const u8, len: i32, codepoint: *mut u32) -> i32 {
-    if text.is_null() || len <= 0 || codepoint.is_null() {
-        return 0;
-    }
-    // SAFETY: caller contract.
-    let (n, cp) = decode(unsafe { core::slice::from_raw_parts(text, len as usize) });
-    unsafe { *codepoint = cp };
-    n as i32
-}
-
-/// C ABI: `qb_is_zero_width_codepoint` (-1 / 0).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_utf8_is_zero_width(cp: u32) -> i32 {
-    -(is_zero_width(cp) as i32)
-}
-
-/// C ABI: `qb_is_emoji_like_codepoint` (-1 / 0).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_utf8_is_emoji_like(cp: u32) -> i32 {
-    -(is_emoji_like(cp) as i32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

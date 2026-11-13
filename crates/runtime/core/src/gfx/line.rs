@@ -377,14 +377,6 @@ pub unsafe extern "C" fn qb_gfx_fast_boxfill(im: *const ImgStruct, x1: i32, y1: 
     unsafe { fast_boxfill(&*im, x1, y1, x2, y2, col) }
 }
 
-/// # Safety
-/// `im` must be a valid surface whose VIEW lies inside it.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_fast_line(im: *const ImgStruct, x1: i32, y1: i32, x2: i32, y2: i32, col: u32) {
-    // SAFETY: guaranteed by the caller.
-    unsafe { fast_line(&*im, x1, y1, x2, y2, col) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

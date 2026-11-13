@@ -233,14 +233,6 @@ pub fn defaultcolors(im: &mut ImgStruct) {
 /// # Safety
 /// `im` must be a valid surface.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_restorepalette(im: *const ImgStruct) {
-    // SAFETY: guaranteed by the caller.
-    unsafe { restorepalette(&*im) }
-}
-
-/// # Safety
-/// `im` must be a valid surface.
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn qb_gfx_palette(im: *mut ImgStruct, attribute: u32, col: u32, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
     unsafe { palette(&mut *im, attribute, col, passed) }

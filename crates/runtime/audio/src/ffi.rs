@@ -92,28 +92,11 @@ pub extern "C" fn qb_snd_un_init() {
     engine().stop();
 }
 
-/// `snd_mainloop`: disposes finished auto-kill sounds.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_snd_mainloop() {
-    engine().housekeeping();
-}
-
-/// Pops a `_MEMSOUND` lock released by a freed handle (0 = none left).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_snd_take_released_lock() -> usize {
-    engine().released_locks.pop().unwrap_or(0)
-}
-
 // ---- SOUND / BEEP / PLAY / synth ---------------------------------------------
 
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_sound(frequency: f64, ticks: f64) -> i32 {
     err(engine().sound(frequency, ticks))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_snd_beep() -> i32 {
-    err(engine().sound(900.0, 5.0))
 }
 
 /// # Safety
@@ -343,83 +326,4 @@ pub unsafe extern "C" fn qb_snd_memsound(h: i32, target_channel: i32, out: *mut 
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_snd_memsound_set_lock(h: i32, lock_offset: usize, lock_id: i64) {
     engine().set_mem_lock(h, lock_offset, lock_id)
-}
-
-// ---- offline synth (differential tests) --------------------------------------
-
-/// A device-less engine at `rate` for rendering SOUND/PLAY offline.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_synth_new(rate: u32) -> *mut Engine {
-    let mut e = Engine::default();
-    e.start(rate);
-    Box::into_raw(Box::new(e))
-}
-
-/// # Safety
-/// `e` comes from `qb_synth_new` and is not used afterwards.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_free(e: *mut Engine) {
-    if !e.is_null() {
-        drop(unsafe { Box::from_raw(e) });
-    }
-}
-
-/// # Safety
-/// `e` comes from `qb_synth_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_sound(e: *mut Engine, frequency: f64, ticks: f64) -> i32 {
-    err(unsafe { &mut *e }.sound(frequency, ticks))
-}
-
-/// # Safety
-/// `e` comes from `qb_synth_new`; `s` points to `len` bytes; `dblock` may be null.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_play(e: *mut Engine, s: *const u8, len: i32, dblock: *const u8) -> i32 {
-    let s = unsafe { bytes(s, len) };
-    err(unsafe { &mut *e }.play(s, &DBlock(dblock)))
-}
-
-/// # Safety
-/// `e` comes from `qb_synth_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_voice(e: *mut Engine, voice: i32) -> i32 {
-    err(unsafe { &mut *e }.synth.set_voice(voice))
-}
-
-/// # Safety
-/// `e` comes from `qb_synth_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_adsr(e: *mut Engine, a: f64, d: f64, s: f64, r: f64, voice: i32, passed: i32) -> i32 {
-    err(unsafe { &mut *e }.synth.adsr(a, d, s, r, voice, passed))
-}
-
-/// # Safety
-/// `e` comes from `qb_synth_new`; `spec` points to `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_wave(e: *mut Engine, spec: *const u8, len: i32, voice: i32, passed: i32) -> i32 {
-    let s = unsafe { bytes(spec, len) };
-    err(unsafe { &mut *e }.synth.wave(s, voice, passed))
-}
-
-/// Moves up to `max_frames` queued stereo frames of `voice` into `out`; returns the count.
-///
-/// # Safety
-/// `e` comes from `qb_synth_new`; `out` has room for `2 * max_frames` floats.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_drain(e: *mut Engine, voice: i32, out: *mut f32, max_frames: i32) -> i32 {
-    let e = unsafe { &mut *e };
-    let Some(q) = e.voices.get_mut(voice as usize) else { return 0 };
-    let v = q.drain(max_frames.max(0) as usize);
-    // SAFETY: room for 2 * max_frames floats per the contract.
-    unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
-    (v.len() / 2) as i32
-}
-
-/// Frames queued on `voice` (offline engine).
-///
-/// # Safety
-/// `e` comes from `qb_synth_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_synth_queued(e: *mut Engine, voice: i32) -> i32 {
-    unsafe { &*e }.voices.get(voice as usize).map(|q| q.frames_remaining() as i32).unwrap_or(0)
 }

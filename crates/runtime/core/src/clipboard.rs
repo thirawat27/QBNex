@@ -274,63 +274,6 @@ mod platform {
     }
 }
 
-// --- C ABI (include/qb_runtime.h) ---------------------------------------------------
-
-/// # Safety
-/// `text` must be readable for `len` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_clipboard_set_text(text: *const u8, len: i32) {
-    let text = if text.is_null() || len <= 0 {
-        &[][..]
-    } else {
-        // SAFETY: caller guarantees `text` covers `len` bytes.
-        unsafe { std::slice::from_raw_parts(text, len as usize) }
-    };
-    set_text(text);
-}
-
-/// Returns the clipboard text (free with `qb_free_bytes`) and its length,
-/// or NULL with length 0.
-///
-/// # Safety
-/// `len` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_clipboard_get_text(len: *mut i64) -> *mut u8 {
-    let t = get_text();
-    // SAFETY: caller guarantees `len` is writable.
-    unsafe { len.write_unaligned(t.len() as i64) };
-    crate::pixels::bytes_into_raw(t)
-}
-
-/// # Safety
-/// `pixels` must be readable for `w * h` values.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_clipboard_set_image(pixels: *const u32, w: i32, h: i32) {
-    if pixels.is_null() || w <= 0 || h <= 0 {
-        return;
-    }
-    // SAFETY: caller guarantees `w * h` readable pixels.
-    let px = unsafe { std::slice::from_raw_parts(pixels, w as usize * h as usize) };
-    set_image(&Image { width: w, height: h, pixels: px.to_vec() });
-}
-
-/// Returns the clipboard image (free with `qb_free_pixels`, `w * h`
-/// pixels) or NULL when there is none.
-///
-/// # Safety
-/// `w` and `h` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_clipboard_get_image(w: *mut i32, h: *mut i32) -> *mut u32 {
-    let img = get_image().filter(|i| i.width > 0 && i.height > 0);
-    let (iw, ih, px) = img.map_or((0, 0, Vec::new()), |i| (i.width, i.height, i.pixels));
-    // SAFETY: caller guarantees writable outputs.
-    unsafe {
-        w.write_unaligned(iw);
-        h.write_unaligned(ih);
-    }
-    crate::pixels::into_raw(px)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

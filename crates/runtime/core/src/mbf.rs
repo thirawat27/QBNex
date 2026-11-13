@@ -189,33 +189,9 @@ unsafe fn convert<const N: usize>(
 /// # Safety
 /// `src4` must be readable and `dest4` writable for 4 bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn _fmsbintoieee(src4: *const f32, dest4: *mut f32) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { convert::<4>(src4.cast(), dest4.cast(), fmsbin_to_ieee, true) }
-}
-
-/// # Safety
-/// `src4` must be readable and `dest4` writable for 4 bytes.
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn _fieeetomsbin(src4: *const f32, dest4: *mut f32) -> i32 {
     // SAFETY: forwarded caller contract.
     unsafe { convert::<4>(src4.cast(), dest4.cast(), fieee_to_msbin, false) }
-}
-
-/// # Safety
-/// `src8` must be readable and `dest8` writable for 8 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn _dmsbintoieee(src8: *const f64, dest8: *mut f64) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { convert::<8>(src8.cast(), dest8.cast(), dmsbin_to_ieee, true) }
-}
-
-/// # Safety
-/// `src8` must be readable and `dest8` writable for 8 bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn _dieeetomsbin(src8: *const f64, dest8: *mut f64) -> i32 {
-    // SAFETY: forwarded caller contract.
-    unsafe { convert::<8>(src8.cast(), dest8.cast(), dieee_to_msbin, true) }
 }
 
 #[cfg(test)]

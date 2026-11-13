@@ -235,14 +235,6 @@ pub unsafe extern "C" fn qb_gfx_rgba(im: *const ImgStruct, r: i32, g: i32, b: i3
     unsafe { rgba(&*im, r, g, b, a) }
 }
 
-/// # Safety
-/// `im` must be a palette surface.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_matchcol(im: *const ImgStruct, r: i32, g: i32, b: i32) -> u32 {
-    // SAFETY: guaranteed by the caller.
-    unsafe { matchcol(&*im, r, g, b) }
-}
-
 /// `which`: 0 red, 1 green, 2 blue, 3 alpha.
 ///
 /// # Safety

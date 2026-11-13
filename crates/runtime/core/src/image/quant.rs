@@ -77,63 +77,6 @@ pub fn remap_palette(pixels: &mut [u8], src_pal: &[u32; 256], dst_pal: &[u32; 25
     }
 }
 
-/// C ABI, see `qb_runtime.h`.
-///
-/// # Safety
-/// `bgra` must hold `w*h*4` bytes and `palette_out` 256 writable entries.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_image_to_8bpp(
-    bgra: *const u8,
-    w: i32,
-    h: i32,
-    palette_out: *mut u32,
-) -> *mut u8 {
-    if bgra.is_null() || palette_out.is_null() || w < 0 || h < 0 {
-        return std::ptr::null_mut();
-    }
-    let (w, h) = (w as usize, h as usize);
-    // SAFETY: caller guarantees the sizes.
-    let src = unsafe { std::slice::from_raw_parts(bgra, w * h * 4) };
-    let mut pal = [0u32; 256];
-    let Some(out) = to_8bpp(src, w, h, &mut pal) else {
-        return std::ptr::null_mut();
-    };
-    // SAFETY: caller guarantees 256 entries; palette_out may be unaligned.
-    unsafe {
-        std::ptr::copy_nonoverlapping(pal.as_ptr() as *const u8, palette_out as *mut u8, 1024)
-    };
-    crate::cmem::to_c_heap(&out)
-}
-
-/// C ABI, see `qb_runtime.h`.
-///
-/// # Safety
-/// `pixels` must hold `w*h` bytes; both palettes 256 entries.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_image_remap_palette(
-    pixels: *mut u8,
-    w: i32,
-    h: i32,
-    src_pal: *const u32,
-    dst_pal: *const u32,
-) {
-    if pixels.is_null() || src_pal.is_null() || dst_pal.is_null() || w <= 0 || h <= 0 {
-        return;
-    }
-    let mut a = [0u32; 256];
-    let mut b = [0u32; 256];
-    // SAFETY: caller guarantees the sizes; palettes may be unaligned.
-    unsafe {
-        std::ptr::copy_nonoverlapping(src_pal as *const u8, a.as_mut_ptr() as *mut u8, 1024);
-        std::ptr::copy_nonoverlapping(dst_pal as *const u8, b.as_mut_ptr() as *mut u8, 1024);
-        remap_palette(
-            std::slice::from_raw_parts_mut(pixels, w as usize * h as usize),
-            &a,
-            &b,
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

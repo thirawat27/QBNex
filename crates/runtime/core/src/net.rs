@@ -588,33 +588,6 @@ pub unsafe extern "C" fn qb_tcp_address(c: *mut Conn, conn_type: i32, out: *mut 
     text.len() as i32
 }
 
-/// `format_address` for the differential test (`ip4` 4 bytes).
-///
-/// # Safety
-/// All pointers must cover their lengths; `out` writable for `cap` bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_net_format_address(
-    conn_type: i32,
-    port: i32,
-    ip4: *const u8,
-    host: *const u8,
-    host_len: i32,
-    listener_ip: *const u8,
-    ip_len: i32,
-    out: *mut u8,
-    cap: i32,
-) -> i32 {
-    // SAFETY: caller guarantees the buffers.
-    let text = unsafe {
-        let ip: [u8; 4] = bytes(ip4, 4usize).try_into().unwrap_or([0; 4]);
-        format_address(conn_type, port, ip, bytes(host, host_len), bytes(listener_ip, ip_len))
-    };
-    let n = text.len().min(usize::try_from(cap).unwrap_or(0));
-    // SAFETY: caller guarantees `out` covers `cap` bytes.
-    unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), out, n) };
-    text.len() as i32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

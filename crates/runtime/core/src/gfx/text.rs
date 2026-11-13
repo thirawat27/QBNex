@@ -82,16 +82,6 @@ pub unsafe fn printstring_builtin(im: &ImgStruct, x: i32, y: i32, text: &[u8]) {
     }
 }
 
-/// C ABI: built-in font glyph on `write_page`.
-///
-/// # Safety
-/// See [`printchr_builtin`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_printchr(im: *const ImgStruct, character: i32) {
-    // SAFETY: guaranteed by the caller.
-    unsafe { printchr_builtin(&*im, character) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

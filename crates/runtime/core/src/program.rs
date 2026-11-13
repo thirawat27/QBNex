@@ -118,18 +118,6 @@ pub fn grow_return_points() -> i32 {
     }
 }
 
-/// C ABI of [`take_exit_request`] (`func__exit`).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_take_exit_request() -> i32 {
-    take_exit_request()
-}
-
-/// C ABI of [`grow_return_points`] (`more_return_points`).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_more_return_points() -> i32 {
-    grow_return_points()
-}
-
 #[cfg(test)]
 pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 

@@ -134,20 +134,6 @@ pub unsafe extern "C" fn qb_gfx_pset(im: *const ImgStruct, x: i32, y: i32, col: 
     unsafe { pset(&*im, x, y, col) }
 }
 
-/// Exposes the blend tables to C++ (`cblend`, `ablend`), building them first.
-///
-/// # Safety
-/// The out pointers must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_gfx_blend_tables(cblend: *mut *const u8, ablend: *mut *const u8) {
-    let t = tables();
-    // SAFETY: guaranteed by the caller.
-    unsafe {
-        *cblend = t.cblend.as_ptr();
-        *ablend = t.ablend.as_ptr();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

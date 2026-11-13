@@ -15,9 +15,7 @@
 
 #![allow(non_upper_case_globals)]
 
-use crate::error::new_error;
-use crate::program;
-use core::ptr::{addr_of, addr_of_mut};
+use core::ptr::addr_of_mut;
 use std::sync::{Mutex, MutexGuard};
 
 /// One ON TIMER slot (index 0 is `ON TIMER(n)`, others come from `_FREETIMER`).
@@ -483,120 +481,6 @@ pub fn strig_statement(slots: &mut [OnStrig], i: i32, controller: i32, option: i
     Ok(ev)
 }
 
-// ---------------------------------------------------------------- C ABI
-
-#[cfg(not(test))]
-mod host {
-    unsafe extern "C" {
-        /// `if (device_last==0) func__devices();` in libqb.cpp.
-        fn qb_host_devices_init();
-    }
-    pub fn devices_init() {
-        // SAFETY: plain call into libqb.cpp.
-        unsafe { qb_host_devices_init() }
-    }
-}
-
-#[cfg(test)]
-mod host {
-    pub fn devices_init() {}
-}
-
-fn pending_error() -> bool {
-    program::load(addr_of!(new_error)) != 0
-}
-
-fn raise(r: Result<bool, i32>) {
-    match r {
-        Ok(true) => program::signal_event(),
-        Ok(false) => {}
-        Err(e) => crate::error::raise(e),
-    }
-}
-
-/// `func__freetimer`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_freetimer_new() -> i32 {
-    if pending_error() {
-        return 0;
-    }
-    timers().alloc()
-}
-
-/// `freetimer(i)`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_freetimer(i: i32) {
-    timers().free(i);
-}
-
-/// `ontimer_setup`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_ontimer_setup(i: i32, seconds: f64, id: u32, pass: i64) {
-    if pending_error() {
-        return;
-    }
-    raise(timers().setup(i, seconds, id, pass).map(|_| false));
-}
-
-/// `sub_timer` (`passed` = 0 for plain `TIMER ON`).
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_timer_statement(i: i32, option: i32, passed: i32) {
-    if pending_error() {
-        return;
-    }
-    let i = if passed == 0 { 0 } else { i };
-    raise(timers().statement(i, option).map(|_| false));
-}
-
-/// `stop_timers`: the timer thread stops triggering until `start_timers`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_timers_pause(pause: i32) {
-    timers().paused = pause != 0;
-}
-
-/// `TIMERTHREAD`: runs until `stop_program`, then sets bit 1 of `exit_ok`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_timer_thread() {
-    loop {
-        let now = crate::systime::ticks() as f64 * 0.001;
-        if timers().tick(now) {
-            program::signal_event();
-        }
-        crate::systime::sleep_ms(1);
-        if program::stop_requested() {
-            program::exit_ok_or(2);
-            return;
-        }
-    }
-}
-
-/// Loop limit for the ON TIMER part of `events()`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_timer_count() -> i32 {
-    timers().count()
-}
-
-/// Takes the pending event of timer `i`; returns its id (0 = none).
-///
-/// # Safety
-/// `pass` valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_timer_take(i: i32, pass: *mut i64) -> u32 {
-    match timers().take(i) {
-        Some((id, p)) => {
-            unsafe { *pass = p };
-            id
-        }
-        None => 0,
-    }
-}
-
-/// The ON TIMER handler of slot `i` finished.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_timer_done(i: i32) {
-    timers().done(i);
-}
-
 /// The 32 ON KEY slots (program thread only).
 pub fn onkeys() -> &'static mut [OnKey] {
     // SAFETY: `onkey` always points at the 32-entry storage.
@@ -607,87 +491,6 @@ pub fn onkeys() -> &'static mut [OnKey] {
 pub fn onstrigs() -> &'static mut [OnStrig] {
     // SAFETY: `onstrig` always points at the 65536-entry storage.
     unsafe { core::slice::from_raw_parts_mut(onstrig, ONSTRIG_SLOTS) }
-}
-
-/// `onkey_setup`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_onkey_setup(i: i32, id: u32, pass: i64) {
-    if pending_error() {
-        return;
-    }
-    raise(onkey_setup(onkeys(), i, id, pass).map(|_| false));
-}
-
-/// `sub_key`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_key_statement(i: i32, option: i32) {
-    if pending_error() {
-        return;
-    }
-    raise(key_statement(onkeys(), i, option));
-}
-
-/// `onstrig_setup`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_onstrig_setup(i: i32, controller: i32, controller_passed: i32, id: u32, pass: i64) {
-    if pending_error() {
-        return;
-    }
-    match onstrig_setup(onstrigs(), i, controller, controller_passed != 0, id, pass) {
-        Ok(Some(_)) => host::devices_init(),
-        Ok(None) => {}
-        Err(e) => crate::error::raise(e),
-    }
-}
-
-/// `sub_strig`.
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_strig_statement(i: i32, controller: i32, option: i32, passed: i32) {
-    if pending_error() {
-        return;
-    }
-    raise(strig_statement(onstrigs(), i, controller, option, passed));
-}
-
-// ------------------------------------------- test hooks (tests/diff only)
-
-/// Clears the global timer table (slot 0 allocated, nothing else).
-#[doc(hidden)]
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_test_timer_reset() {
-    *timers() = TimerTable::new();
-}
-
-/// One timer-thread pass at `now` seconds; 1 when an event fired.
-#[doc(hidden)]
-#[unsafe(no_mangle)]
-pub extern "C" fn qb_test_timer_tick(now: f64) -> i32 {
-    i32::from(timers().tick(now))
-}
-
-/// Copies timer slot `i` (`out`: allocated, id, active, state; `pass`;
-/// `secs`: seconds, last_time). Returns 0 when the slot does not exist.
-///
-/// # Safety
-/// `out` writable for 4 values, `secs` for 2, `pass` for 1.
-#[doc(hidden)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qb_test_timer_get(i: i32, out: *mut i64, pass: *mut i64, secs: *mut f64) -> i32 {
-    let mut t = timers();
-    if i < 0 || i >= t.count() {
-        return 0;
-    }
-    let s = *t.slot(i);
-    unsafe {
-        *out = i64::from(s.allocated);
-        *out.add(1) = i64::from(s.id);
-        *out.add(2) = i64::from(s.active);
-        *out.add(3) = i64::from(s.state);
-        *pass = s.pass;
-        *secs = s.seconds;
-        *secs.add(1) = s.last_time;
-    }
-    1
 }
 
 #[cfg(test)]
