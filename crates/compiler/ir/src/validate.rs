@@ -8,21 +8,39 @@ fn bad<T>(f: &str, msg: impl Into<String>) -> Result<T, IrError> {
     Err(IrError { line: 0, msg: format!("{f}: {}", msg.into()) })
 }
 
+/// An instruction named in an error message. It is turned into text only when an
+/// error is reported: formatting every instruction up front was a large part of
+/// validating a big program.
+#[derive(Clone, Copy)]
+struct Ctx<'a>(&'a Inst);
+
+impl std::fmt::Display for Ctx<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&inst_text(self.0))
+    }
+}
+
 struct Scope<'m> {
     m: &'m Module,
     f: &'m Func,
+    /// functions by name
+    funcs: &'m HashMap<&'m str, &'m Func>,
+    /// module-level variables (shared by every function)
+    globals: &'m HashMap<&'m str, &'m VarDecl>,
+    /// the function's parameters and locals
     vars: HashMap<&'m str, &'m VarDecl>,
     regs: HashMap<Reg, Ty>,
 }
 
 impl<'m> Scope<'m> {
-    fn var(&self, n: &str, ctx: &str) -> Result<&'m VarDecl, IrError> {
-        match self.vars.get(n) {
+    fn var(&self, n: &str, ctx: Ctx) -> Result<&'m VarDecl, IrError> {
+        // the function's own names hide the module's
+        match self.vars.get(n).or_else(|| self.globals.get(n)) {
             Some(d) => Ok(d),
             None => bad(&self.f.name, format!("`{ctx}`: unknown variable {n}")),
         }
     }
-    fn reg(&self, r: Reg, want: Option<Ty>, ctx: &str) -> Result<Ty, IrError> {
+    fn reg(&self, r: Reg, want: Option<Ty>, ctx: Ctx) -> Result<Ty, IrError> {
         let t = match self.regs.get(&r) {
             Some(t) => *t,
             None => return bad(&self.f.name, format!("`{ctx}`: register %{r} is never defined")),
@@ -36,7 +54,7 @@ impl<'m> Scope<'m> {
             }
         Ok(t)
     }
-    fn int(&self, r: Reg, ctx: &str) -> Result<(), IrError> {
+    fn int(&self, r: Reg, ctx: Ctx) -> Result<(), IrError> {
         let t = self.reg(r, None, ctx)?;
         if !t.is_int() {
             return bad(&self.f.name, format!("`{ctx}`: %{r} must be an integer, is {}", t.name()));
@@ -73,9 +91,9 @@ fn def(i: &Inst) -> Option<(Reg, Ty)> {
     })
 }
 
-fn func_def_ty(m: &Module, i: &Inst) -> Option<(Reg, Ty)> {
+fn func_def_ty(m: &Module, funcs: &HashMap<&str, &Func>, i: &Inst) -> Option<(Reg, Ty)> {
     match i {
-        Inst::Call { dst: Some(d), func, .. } => match m.func(func) {
+        Inst::Call { dst: Some(d), func, .. } => match funcs.get(func.as_str()) {
             Some(f) => f.ret.map(|t| (*d, t)),
             // DECLARE LIBRARY: the result type of `meta extfn`
             None => m.meta.iter().filter(|(k, _)| k == "extfn").find_map(|(_, v)| {
@@ -105,8 +123,14 @@ fn labels(f: &Func) -> Result<HashSet<&str>, IrError> {
     Ok(s)
 }
 
-fn check_func<'m>(m: &'m Module, f: &'m Func, main_labels: &HashSet<&str>) -> Result<(), IrError> {
-    let mut vars: HashMap<&str, &VarDecl> = m.globals.iter().map(|g| (g.name.as_str(), g)).collect();
+fn check_func<'m>(
+    m: &'m Module,
+    f: &'m Func,
+    funcs: &'m HashMap<&'m str, &'m Func>,
+    globals: &'m HashMap<&'m str, &'m VarDecl>,
+    main_labels: &HashSet<&str>,
+) -> Result<(), IrError> {
+    let mut vars: HashMap<&str, &VarDecl> = HashMap::new();
     let mut own = HashSet::new();
     for d in f.params.iter().chain(&f.locals) {
         if !own.insert(d.name.as_str()) {
@@ -122,7 +146,7 @@ fn check_func<'m>(m: &'m Module, f: &'m Func, main_labels: &HashSet<&str>) -> Re
     let lbl = labels(f)?;
     let mut regs: HashMap<Reg, Ty> = HashMap::new();
     for i in &f.body {
-        if let Some((r, t)) = def(i).or_else(|| func_def_ty(m, i))
+        if let Some((r, t)) = def(i).or_else(|| func_def_ty(m, funcs, i))
             && let Some(old) = regs.insert(r, t)
                 && old != t {
                     return bad(
@@ -131,7 +155,7 @@ fn check_func<'m>(m: &'m Module, f: &'m Func, main_labels: &HashSet<&str>) -> Re
                     );
                 }
     }
-    let s = Scope { m, f, vars, regs };
+    let s = Scope { m, f, funcs, globals, vars, regs };
     for i in &f.body {
         check_inst(&s, i, &lbl, main_labels)?;
     }
@@ -139,8 +163,7 @@ fn check_func<'m>(m: &'m Module, f: &'m Func, main_labels: &HashSet<&str>) -> Re
 }
 
 fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&str>) -> Result<(), IrError> {
-    let ctx = inst_text(i);
-    let ctx = ctx.as_str();
+    let ctx = Ctx(i);
     let fname = s.f.name.as_str();
     let label = |l: &str, set: &HashSet<&str>| -> Result<(), IrError> {
         if set.contains(l) {
@@ -289,7 +312,7 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
             label(target, lbl)?;
         }
         Inst::Call { dst, func, args } => {
-            let Some(g) = s.m.func(func) else {
+            let Some(&g) = s.funcs.get(func.as_str()) else {
                 // DECLARE LIBRARY: `meta extfn <name> <lib|-> <ret> <arg types...>`
                 let decl = s.m.meta.iter().filter(|(k, _)| k == "extfn").find_map(|(_, v)| {
                     let mut w = v.split_whitespace();
@@ -402,9 +425,10 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
     if !main.params.is_empty() || main.ret.is_some() {
         return bad("main", "main takes no parameters and returns nothing");
     }
-    let mut names = HashSet::new();
+    // functions by name (`Module::func` searches the list)
+    let mut funcs = HashMap::new();
     for f in &m.funcs {
-        if !names.insert(f.name.as_str()) {
+        if funcs.insert(f.name.as_str(), f).is_some() {
             return bad("module", format!("function {} defined twice", f.name));
         }
     }
@@ -433,8 +457,9 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
         check_store_ty(m, &g.ty, "module")?;
     }
     let main_labels = labels(main)?;
+    let globals: HashMap<&str, &VarDecl> = m.globals.iter().map(|g| (g.name.as_str(), g)).collect();
     for f in &m.funcs {
-        check_func(m, f, &main_labels)?;
+        check_func(m, f, &funcs, &globals, &main_labels)?;
     }
     Ok(())
 }

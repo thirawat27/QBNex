@@ -202,14 +202,16 @@ fn main() {
     if packaged.is_none() && args.first().is_some_and(|a| a == "native-kit") {
         native_kit(&args[1..]);
     }
+    // the program text is copied out of the executable once (it can be megabytes)
     let (src, image) = match packaged {
-        Some(Payload::Ir(p)) => (p.to_vec(), None),
-        Some(Payload::Native(q, i)) => (q.to_vec(), Some(i.to_vec())),
+        Some(Payload::Ir(p)) => (String::from_utf8_lossy(p).into_owned(), None),
+        Some(Payload::Native(q, i)) => (String::from_utf8_lossy(q).into_owned(), Some(i.to_vec())),
         None => match args.first() {
             Some(path) => {
                 // `qb-exec prog.qir a b`: the program sees [prog.qir, a, b]
                 qb_exec::set_program_args(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
-                (read(path), None)
+                let text = read(path);
+                (String::from_utf8(text).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()), None)
             }
             None => {
                 eprintln!("usage: qb-exec <program.qir> | qb-exec build <program.qir> -o <program.exe>");
@@ -217,7 +219,7 @@ fn main() {
             }
         },
     };
-    let src = String::from_utf8_lossy(&src).into_owned();
+    drop(exe);
     if qb_exec::wants_window(&src) {
         // GUI program (no $CONSOLE): the window layer needs the main thread,
         // the program runs on its own thread and ends the process
