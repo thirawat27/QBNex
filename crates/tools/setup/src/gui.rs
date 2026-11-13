@@ -551,13 +551,16 @@ impl App {
 
         let (names, here) = steps(self.wizard.mode, self.wizard.page);
         let failed = self.wizard.page == Page::Finished && self.wizard.outcome != Some(Ok(()));
+        // without files to install the wizard opens on its last page: the steps
+        // before it never ran, so none of them is ticked
+        let skipped = self.wizard.mode == Mode::Install && self.bundle.is_none();
         for (i, name) in names.iter().enumerate() {
             let centre = pos2(left + 10.0, strip.min.y + 118.0 + i as f32 * 36.0);
             if i + 1 < names.len() {
-                painter.line_segment([centre + vec2(0.0, 13.0), centre + vec2(0.0, 23.0)], Stroke::new(1.5, white(if i < here { 230 } else { 70 })));
+                painter.line_segment([centre + vec2(0.0, 13.0), centre + vec2(0.0, 23.0)], Stroke::new(1.5, white(if i < here && !skipped { 230 } else { 70 })));
             }
             let last_done = i == here && self.wizard.page == Page::Finished && !failed;
-            if i < here || last_done {
+            if !skipped && (i < here || last_done) {
                 painter.circle_filled(centre, 9.0, Color32::WHITE);
                 tick(ui, centre, 9.0, Stroke::new(1.7, SIDE_TOP));
             } else if i == here {
@@ -566,7 +569,7 @@ impl App {
             } else {
                 painter.circle_stroke(centre, 8.2, Stroke::new(1.4, white(90)));
             }
-            let (font, colour) = if i == here { (self.bold(13.5), Color32::WHITE) } else if i < here { (FontId::proportional(13.5), white(235)) } else { (FontId::proportional(13.5), white(140)) };
+            let (font, colour) = if i == here { (self.bold(13.5), Color32::WHITE) } else if i < here && !skipped { (FontId::proportional(13.5), white(235)) } else { (FontId::proportional(13.5), white(140)) };
             painter.text(centre + vec2(22.0, 0.0), Align2::LEFT_CENTER, *name, font, colour);
         }
 

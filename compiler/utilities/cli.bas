@@ -61,6 +61,32 @@ SUB ShowCommandLineHelp
     PRINT
 END SUB
 
+SUB ShowDoubleClickHelp
+    'qb was started by a double-click: say what it is and how to use it, and keep
+    'the window open until a key is pressed
+    _DEST _CONSOLE
+    PRINT
+    PrintCommandLineBanner
+    PRINT
+    TuiDefault: PRINT "QBNex is a command-line compiler: it runs in a terminal, not on its own."
+    PRINT
+    TuiColor 248: PRINT "  1. ";
+    TuiDefault: PRINT "Open a terminal (Windows Terminal, PowerShell or Command Prompt)."
+    TuiColor 248: PRINT "  2. ";
+    TuiDefault: PRINT "Go to the folder of your program and run:  ";
+    TuiColor 111: PRINT "qb myprogram.bas"
+    TuiColor 248: PRINT "  3. ";
+    TuiDefault: PRINT "Run ";
+    TuiColor 111: PRINT "qb -h";
+    TuiDefault: PRINT " to see every option."
+    PRINT
+    TuiColor 248: PRINT "To install QBNex and put qb on your PATH, run the qbnex-setup installer."
+    PRINT
+    TuiDefault: PRINT "Press any key to close this window . . .";
+    SLEEP
+    PRINT
+END SUB
+
 SUB InfoRow (label$, value$)
     TuiColor 248: PRINT label$;
     TuiDefault: PRINT value$
