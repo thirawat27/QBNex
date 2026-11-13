@@ -790,38 +790,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     '-----------------------QBNex COMPILER ONCE ONLY SETUP CODE ENDS HERE---------------------------------------
 
     noide:
-    IF CMDLineFile = "" AND (qbnexversionprinted = 0 OR ConsoleMode = 0) AND NOT QuietMode THEN
-        qbnexversionprinted = -1
-        PRINT "QBNex Compiler V" + Version$
-    END IF
-
     IF CMDLineFile = "" THEN
-        PRINT
-        PRINT "Usage: qb <file> [switches]"
-        PRINT
-        PRINT "Commands:"
-        PRINT "  -h, --help              Show help"
-        PRINT "  -v, --version           Show compiler version"
-        PRINT "  -i, --info, --about     Show project information"
-        PRINT "  -g, --examples          Show common CLI examples"
-        PRINT
-        PRINT "Options:"
-        PRINT "  <file>                  Source file to load"
-        PRINT "  -c                      Compile the source file (default)"
-        PRINT "  -o <output file>        Write output executable to <output file>"
-        PRINT "  -x                      Compile and output the result to the"
-        PRINT "                             console"
-        PRINT "  -w                      Show warnings"
-        PRINT "  -q                      Quiet mode (does not inhibit warnings or errors)"
-        PRINT "  -m                      Do not colorize compiler output (monochrome mode)"
-        PRINT "  -d, --verbose-errors    Legacy alias (detailed diagnostics are default)"
-        PRINT "  -k, --compact-errors    Use compact diagnostics (hide extra detail notes)"
-        PRINT "  -e                      Enable OPTION _EXPLICIT, making variable declaration"
-        PRINT "                             mandatory (per-compilation; doesn't affect the"
-        PRINT "                             source file or global settings)"
-        PRINT "  -s[:switch=true/false]  View/edit compiler settings"
-        PRINT "  -p                      Purge all pre-compiled content first"
-        PRINT "  -z                      Generate C code without compiling to executable"
+        'no source file: started from Explorer, the console window would close at
+        'once, so explain how to use qb and wait; from a terminal, show the help
+        IF ENVIRON$("QBNEX_OWN_CONSOLE") = "1" THEN ShowDoubleClickHelp ELSE ShowCommandLineHelp
         SYSTEM 1
     ELSE
         f$ = CMDLineFile

@@ -194,6 +194,18 @@ fn windows_gui_subsystem(exe: &mut [u8]) {
 
 fn main() {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    // QBNEX_OWN_CONSOLE=1 tells the program that its console window was opened for
+    // it (started from Explorer, not from a terminal) and closes when it ends; qb
+    // uses it to explain itself instead of flashing its help. Set or cleared here,
+    // so a program started from such a program gets its own answer.
+    // SAFETY: no other thread exists yet, so changing the environment cannot race.
+    unsafe {
+        if qb_runtime::console::stdio::console_is_own() {
+            std::env::set_var("QBNEX_OWN_CONSOLE", "1");
+        } else {
+            std::env::remove_var("QBNEX_OWN_CONSOLE");
+        }
+    }
     let exe = std::env::current_exe().and_then(std::fs::read).unwrap_or_default();
     let packaged = payload(&exe);
     if packaged.is_none() && args.first().is_some_and(|a| a == "build") {
