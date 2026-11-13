@@ -46,9 +46,6 @@ SUB InitPlatformDefaults
     os$ = "WIN"
     IF INSTR(_OS$, "[LINUX]") OR MacOSX THEN os$ = "LNX"
 
-    inline_DATA = 0
-    IF MacOSX THEN inline_DATA = 1
-
     OS_BITS = 64
     IF INSTR(_OS$, "[32BIT]") THEN OS_BITS = 32
 

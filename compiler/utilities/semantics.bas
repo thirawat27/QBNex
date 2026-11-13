@@ -1,5 +1,4 @@
 FUNCTION arrayreference$ (indexes$, typ)
-    arrayprocessinghappened = 1
     '*returns an array reference: idnumber | index$
     '*does not take into consideration the type of the array
 
@@ -221,7 +220,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
     a$ = a2$
     typ = -1
 
-    IF Debug THEN PRINT #9, "evaluating:[" + a2$ + "]"
     IF a2$ = "" THEN Give_Error "Syntax error": EXIT FUNCTION
 
 
@@ -238,7 +236,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
         l$ = getelement(a$, i)
 
 
-        IF Debug THEN PRINT #9, "#*#*#* reevaluating:" + l$, i
 
 
         IF i <> n THEN nextl$ = getelement(a$, i + 1) ELSE nextl$ = ""
@@ -247,7 +244,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
 
         IF b = 0 THEN 'don't evaluate anything within brackets
 
-        IF Debug THEN PRINT #9, l$
 
         l2$ = l$ 'pure version of l$
         FOR try_method = 1 TO 4
@@ -270,7 +266,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
             IF Error_Happened THEN EXIT FUNCTION
             DO WHILE try
 
-                IF Debug THEN PRINT #9, try
 
                 'is l$ an array?
                 IF nextl$ = "(" THEN
@@ -421,11 +416,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
             IF getelement$(a$, i + 1) = "(" THEN
                 IF isoperator(l$) = 0 THEN
                     IF isvalidvariable(l$) THEN
-                        IF Debug THEN
-                            PRINT #9, "**************"
-                            PRINT #9, "about to auto-create array:" + l$, i
-                            PRINT #9, "**************"
-                        END IF
                         dtyp$ = removesymbol(l$)
                         IF Error_Happened THEN EXIT FUNCTION
                         'count the number of elements
@@ -439,7 +429,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                             IF b2 = -1 THEN EXIT FOR
                         NEXT
                         fakee$ = "10": FOR i2 = 2 TO nume: fakee$ = fakee$ + sp + "," + sp + "10": NEXT
-                        IF Debug THEN PRINT #9, "evaluate:creating undefined array using dim2(" + l$ + "," + dtyp$ + ",1," + fakee$ + ")"
                         IF optionexplicit OR optionexplicitarray THEN Give_Error "Array '" + l$ + "' (" + symbol2fulltypename$(dtyp$) + ") not defined": EXIT FUNCTION
                         IF Error_Happened THEN EXIT FUNCTION
                         olddimstatic = dimstatic
@@ -472,7 +461,6 @@ FUNCTION evaluate$ (a2$, typ AS LONG)
                         ignore = dim2(l$, dtyp$, method, fakee$)
                         IF Error_Happened THEN EXIT FUNCTION
                         dimstatic = olddimstatic
-                        IF Debug THEN PRINT #9, "#*#*#* dim2 has returned!!!"
                         GOTO reevaluate
                     END IF
                 END IF
@@ -514,14 +502,6 @@ NEXT
 
 r$ = "" 'return value
 
-IF Debug THEN PRINT #9, "evaluated blocks:";
-FOR i = 1 TO blockn
-    IF i <> blockn THEN
-        IF Debug THEN PRINT #9, block(i) + CHR$(219);
-    ELSE
-        IF Debug THEN PRINT #9, block(i)
-    END IF
-NEXT
 
 
 'identify any referencable values
@@ -650,7 +630,6 @@ FOR i = 1 TO blockn
                 try = findid(x$ + typ$)
                 IF Error_Happened THEN EXIT FUNCTION
                 DO WHILE try
-                    IF Debug THEN PRINT #9, try
                     IF id.t <> 0 AND (id.t AND ISUDT) = 0 THEN 'is x$ a simple variable?
                     GOTO simplevarfound
                 END IF
@@ -658,7 +637,6 @@ FOR i = 1 TO blockn
                 IF Error_Happened THEN EXIT FUNCTION
             LOOP
 
-            IF Debug THEN PRINT #9, "CREATING VARIABLE:" + x$
             IF optionexplicit THEN Give_Error "Variable '" + x$ + "' (" + symbol2fulltypename$(typ$) + ") not defined": EXIT FUNCTION
             bypassNextVariable = -1
             retval = dim2(x$, typ$, 1, "")
@@ -700,7 +678,6 @@ IF blockn = 1 THEN
     IF evaledblock(1) THEN
         IF (blocktype(1) AND ISREFERENCE) THEN
             returnpointer:
-            IF Debug THEN PRINT #9, "evaluated reference:" + block(1)
             typ = blocktype(1)
             evaluate$ = block(1)
             EXIT FUNCTION
@@ -710,7 +687,6 @@ END IF
 'it cannot be returned as a pointer
 
 
-IF Debug THEN PRINT #9, "applying operators:";
 
 
 IF typ = -1 THEN
@@ -998,23 +974,12 @@ ELSE
 END IF
 IF nonop > 1 THEN Give_Error "Expected operator in equation": EXIT FUNCTION
 NEXT
-IF Debug THEN PRINT #9, ""
 
 'join blocks
 FOR i = 1 TO blockn
     r$ = r$ + block(i)
 NEXT
 
-IF Debug THEN
-    PRINT #9, "evaluated:" + r$ + " AS TYPE:";
-    IF (typ AND ISSTRING) THEN PRINT #9, "[ISSTRING]";
-    IF (typ AND ISFLOAT) THEN PRINT #9, "[ISFLOAT]";
-    IF (typ AND ISUNSIGNED) THEN PRINT #9, "[ISUNSIGNED]";
-    IF (typ AND ISPOINTER) THEN PRINT #9, "[ISPOINTER]";
-    IF (typ AND ISFIXEDLENGTH) THEN PRINT #9, "[ISFIXEDLENGTH]";
-    IF (typ AND ISINCONVENTIONALMEMORY) THEN PRINT #9, "[ISINCONVENTIONALMEMORY]";
-    PRINT #9, "(size in bits=" + str2$(typ AND 511) + ")"
-END IF
 
 
 evaluate$ = r$
@@ -1025,7 +990,6 @@ END FUNCTION
 FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
     a$ = a2$
 
-    IF Debug THEN PRINT #9, "evaluatingfunction:" + RTRIM$(id.n) + ":" + a$
 
     DIM id2 AS idstruct
 
@@ -1039,10 +1003,6 @@ FUNCTION evaluatefunc$ (a2$, args AS LONG, typ AS LONG)
     END IF
 
     IF RTRIM$(id2.callname) = "func_stub" THEN Give_Error "Command not implemented": EXIT FUNCTION
-    IF RTRIM$(id2.callname) = "func_input" AND args = 1 AND inputfunctioncalled = 0 THEN
-        inputfunctioncalled = -1
-    END IF
-
     SetDependency id2.Dependency
 
     passomit = 0
@@ -1212,7 +1172,6 @@ IF id2.args <> 0 THEN
                         IF curarg = 1 THEN
                             mktype$ = type2symbol$(e$)
                             IF Error_Happened THEN EXIT FUNCTION
-                            IF Debug THEN PRINT #9, "_MK:[" + e$ + "]:[" + mktype$ + "]"
                             e$ = ""
                             GOTO dontevaluate
                         END IF
@@ -1259,10 +1218,6 @@ IF id2.args <> 0 THEN
                 END IF
 
 
-                'PRINT #12, "n$="; n$
-                'PRINT #12, "curarg="; curarg
-                'PRINT #12, "e$="; e$
-                'PRINT #12, "r$="; r$
 
                 '*special case*
                 IF n$ = "_MEMGET" OR (n$ = "MEMGET" AND qbnexprefix_set = 1) THEN
@@ -2024,7 +1979,6 @@ IF (targettyp AND ISPOINTER) THEN
     IF (targettyp AND ISARRAY) THEN
         IF (sourcetyp AND ISREFERENCE) = 0 THEN Give_Error "Expected arrayname()": EXIT FUNCTION
         IF (sourcetyp AND ISARRAY) = 0 THEN Give_Error "Expected arrayname()": EXIT FUNCTION
-        IF Debug THEN PRINT #9, "evaluatefunc:array reference:[" + e$ + "]"
 
         'check arrays are of same type
         targettyp2 = targettyp: sourcetyp2 = sourcetyp
@@ -2034,7 +1988,6 @@ IF (targettyp AND ISPOINTER) THEN
 
         'check arrayname was followed by '()'
         IF targettyp AND ISUDT THEN
-            IF Debug THEN PRINT #9, "evaluatefunc:array reference:udt reference:[" + e$ + "]"
             'get UDT info
             udtrefid = VAL(e$)
             getid udtrefid
@@ -2419,7 +2372,6 @@ IF id2.ccall THEN
     END IF
 END IF
 
-IF Debug THEN PRINT #9, "evaluatefunc:out:"; r$
 evaluatefunc$ = r$
 END FUNCTION
 
@@ -2595,9 +2547,6 @@ ELSE 'a specific element
     t1 = udtetype(E)
 END IF
 dst$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
-'evaluatetotyp$ = "byte_element((uint64)" + dst$ + "," + bytes$ + "," + NewByteElement$ + ")"
-'IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-'IF targettyp = -6 THEN evaluatetotyp$ = dst$
 
 t = Type2MemTypeValue(t1)
 evaluatetotyp$ = "(ptrszint)" + dst$ + "," + bytes$ + "," + str2(t) + "," + bytes$ + ",sf_mem_lock"
@@ -2630,9 +2579,6 @@ IF sourcetyp AND ISSTRING THEN
         bytes$ = str2(id.tsize)
         e$ = refer(e$, sourcetyp, 0)
         IF Error_Happened THEN EXIT FUNCTION
-        'evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + bytes$ + "," + NewByteElement$ + ")"
-        'IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-        'IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
 
         t = Type2MemTypeValue(sourcetyp)
         evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + bytes$ + "," + str2(t) + "," + bytes$ + "," + lk$
@@ -2649,9 +2595,6 @@ e$ = refer(e$, sourcetyp, 0)
 IF Error_Happened THEN EXIT FUNCTION
 e$ = "(&(" + e$ + "))"
 bytes$ = str2((sourcetyp AND 511) \ 8)
-'evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + bytes$ + "," + NewByteElement$ + ")"
-'IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-'IF targettyp = -6 THEN evaluatetotyp$ = e$
 
 t = Type2MemTypeValue(sourcetyp)
 evaluatetotyp$ = "(ptrszint)" + e$ + "," + bytes$ + "," + str2(t) + "," + bytes$ + "," + lk$
@@ -2671,9 +2614,6 @@ ELSE
     Give_Error qbnexprefix$ + "MEMELEMENT cannot reference variable-length strings": EXIT FUNCTION
 END IF
 
-'evaluatetotyp$ = "byte_element((uint64)" + e$ + "->chr," + bytes$ + "," + NewByteElement$ + ")"
-'IF targettyp = -5 THEN evaluatetotyp$ = bytes$
-'IF targettyp = -6 THEN evaluatetotyp$ = e$ + "->chr"
 
 t = Type2MemTypeValue(sourcetyp)
 evaluatetotyp$ = "(ptrszint)" + e$ + "->chr," + bytes$ + "," + str2(t) + "," + bytes$ + ",sf_mem_lock"
@@ -2685,9 +2625,6 @@ END IF
 e$ = refer(e$, sourcetyp, 1) 'get the variable's formal name
 IF Error_Happened THEN EXIT FUNCTION
 size = (sourcetyp AND 511) \ 8 'calculate its size in bytes
-'evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + str2(size) + "," + NewByteElement$ + ")"
-'IF targettyp = -5 THEN evaluatetotyp$ = str2(size)
-'IF targettyp = -6 THEN evaluatetotyp$ = e$
 
 t = Type2MemTypeValue(sourcetyp)
 evaluatetotyp$ = "(ptrszint)" + e$ + "," + str2(size) + "," + str2(t) + "," + str2(size) + ",sf_mem_lock"
@@ -2722,7 +2659,6 @@ IF (sourcetyp AND ISUDT) THEN
     dst$ = "(((char*)" + scope$ + n$ + ")+(" + o$ + "))"
 
 
-    'evaluatetotyp$ = "byte_element((uint64)" + dst$ + "," + bytes$ + "," + NewByteElement$ + ")"
 
     'note: myudt.myelement results in a size of 1 because it is a continuous run of no consistent granularity
     IF E <> 0 THEN size = 1 ELSE size = udtxsize(u) \ 8
@@ -2877,7 +2813,6 @@ IF (sourcetyp AND ISARRAY) THEN
     evaluatetotyp$ = "byte_element((uint64)" + e$ + "," + bytes$ + "," + NewByteElement$ + ")"
     IF targettyp = -5 THEN evaluatetotyp$ = bytes$
     IF targettyp = -6 THEN evaluatetotyp$ = e$
-    '           print "CI: array ->["+"byte_element((uint64)" + e$ + "," + bytes$+ ","+NewByteElement$+")"+"]":sleep 1
     EXIT FUNCTION
 END IF
 
@@ -3093,18 +3028,6 @@ FUNCTION seperateargs (a$, ca$, pass&)
             NEXT
 
 
-            IF Debug THEN
-                PRINT #9, "--------SEPERATE ARGUMENTS REPORT #1:1--------"
-                FOR i = 1 TO lastt
-                        PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt$(i, 1)) + CHR$(34)
-                    PRINT #9, i, "OPTWORDS="; OptWords(i, 1)
-                    PRINT #9, i, "T="; T(i)
-                    PRINT #9, i, "DONTPASS="; DontPass(i)
-                    PRINT #9, i, "PASSRULE="; PassRule(i)
-                    PRINT #9, i, "LEV="; Lev(i)
-                    PRINT #9, i, "ENTRYLEV="; EntryLev(i)
-                NEXT
-            END IF
 
 
             'Any symbols already have dontpass() set to 1
@@ -3116,18 +3039,6 @@ FUNCTION seperateargs (a$, ca$, pass&)
                 END IF
             NEXT
 
-            IF Debug THEN
-                PRINT #9, "--------SEPERATE ARGUMENTS REPORT #1:2--------"
-                FOR i = 1 TO lastt
-                        PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt$(i, 1)) + CHR$(34)
-                    PRINT #9, i, "OPTWORDS="; OptWords(i, 1)
-                    PRINT #9, i, "T="; T(i)
-                    PRINT #9, i, "DONTPASS="; DontPass(i)
-                    PRINT #9, i, "PASSRULE="; PassRule(i)
-                    PRINT #9, i, "LEV="; Lev(i)
-                    PRINT #9, i, "ENTRYLEV="; EntryLev(i)
-                NEXT
-            END IF
 
 
             x1 = 0 'the 'x' position of the beginning element of the current levelled block
@@ -3243,18 +3154,6 @@ FUNCTION seperateargs (a$, ca$, pass&)
         IF scannextlevel = 0 THEN EXIT FOR
     NEXT
 
-    IF Debug THEN
-        PRINT #9, "--------SEPERATE ARGUMENTS REPORT #1:3--------"
-        FOR i = 1 TO lastt
-                PRINT #9, i, "OPT=" + CHR$(34) + RTRIM$(Opt$(i, 1)) + CHR$(34)
-            PRINT #9, i, "OPTWORDS="; OptWords(i, 1)
-            PRINT #9, i, "T="; T(i)
-            PRINT #9, i, "DONTPASS="; DontPass(i)
-            PRINT #9, i, "PASSRULE="; PassRule(i)
-            PRINT #9, i, "LEV="; Lev(i)
-            PRINT #9, i, "ENTRYLEV="; EntryLev(i)
-        NEXT
-    END IF
 
 
 FOR i = 1 TO lastt
@@ -3498,12 +3397,6 @@ END IF 'Expression
 
 IF i <> n + 1 THEN GOTO Backtrack 'Trailing content?
 
-IF Debug THEN
-    PRINT #9, "--------SEPERATE ARGUMENTS REPORT #2--------"
-    FOR i = 1 TO lastt
-PRINT #9, i, separgs$(i)
-    NEXT
-END IF
 
 '   DIM PassRule(1 TO 100) AS LONG
 '   '0 means no pass rule

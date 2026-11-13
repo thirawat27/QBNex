@@ -35,9 +35,8 @@ DIM SHARED PL(1000) AS INTEGER 'Priority level
 DIM SHARED PP_TypeMod(0) AS STRING, PP_ConvertedMod(0) AS STRING 'Prepass Name Conversion variables.
 Set_OrderOfOperations
 
-DIM SHARED vWatchOn, vWatchRecompileAttempts, vWatchDesiredState, vWatchErrorCall$
+DIM SHARED vWatchOn, vWatchRecompileAttempts, vWatchDesiredState
 DIM SHARED vWatchNewVariable$, vWatchVariableExclusions$
-vWatchErrorCall$ = "if (stop_program) {*__LONG_VWATCH_LINENUMBER=0; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);};if(new_error){bkp_new_error=new_error;new_error=0;*__LONG_VWATCH_LINENUMBER=-1; SUB_VWATCH((ptrszint*)vwatch_global_vars,(ptrszint*)vwatch_local_vars);new_error=bkp_new_error;};"
 vWatchVariableExclusions$ = "@__LONG_VWATCH_LINENUMBER@__LONG_VWATCH_SUBLEVEL@__LONG_VWATCH_GOTO@@__STRING_VWATCH_SUBNAME@__STRING_VWATCH_CALLSTACK@__ARRAY_BYTE_VWATCH_BREAKPOINTS@__ARRAY_BYTE_VWATCH_SKIPLINES@__STRING_VWATCH_INTERNALSUBNAME@__ARRAY_STRING_VWATCH_STACK@"
 
 DIM SHARED nativeDataTypes$
@@ -250,7 +249,6 @@ FUNCTION getpid& ()
     'temp folder established
     tempfolderindex = i
 
-    IF Debug THEN OPEN tmpdir$ + "debug.txt" FOR OUTPUT AS #9
 
     ON ERROR GOTO qberror
 
@@ -268,9 +266,6 @@ FUNCTION getpid& ()
 
     DIM SHARED symboltype_size
     symboltype_size = 0
-
-    DIM SHARED use_global_byte_elements
-    use_global_byte_elements = 0
 
     DIM SHARED optionexplicit AS _BYTE
     DIM SHARED optionexplicitarray AS _BYTE
@@ -656,16 +651,10 @@ FUNCTION getpid& ()
     DIM SHARED linenumber AS LONG, reallinenumber AS LONG, totallinenumber AS LONG, definingtypeerror AS LONG
     DIM SHARED wholeline AS STRING
     DIM SHARED diagnosticSourceLine AS STRING
-    DIM SHARED firstLineNumberLabelvWatch AS LONG, lastLineNumberLabelvWatch AS LONG
-    DIM SHARED vWatchUsedLabels AS STRING, vWatchUsedSkipLabels AS STRING
     DIM SHARED linefragment AS STRING
     'COMMON SHARED bitmask() AS _INTEGER64
     'COMMON SHARED bitmaskinv() AS _INTEGER64
 
-    DIM SHARED arrayprocessinghappened AS INTEGER
-    DIM SHARED stringprocessinghappened AS INTEGER
-    DIM SHARED cleanupstringprocessingcall AS STRING
-    DIM SHARED inputfunctioncalled AS _BYTE
     DIM SHARED recompile AS INTEGER 'forces recompilation
     'COMMON SHARED cmemlist() AS INTEGER
     DIM SHARED optionbase AS INTEGER
@@ -792,7 +781,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
     DIM id2 AS idstruct
 
-    cleanupstringprocessingcall$ = "qbs_cleanup(qbs_tmp_base,"
 
     DIM SHARED sfidlist(1000) AS LONG
     DIM SHARED sfarglist(1000) AS INTEGER
@@ -902,7 +890,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             'temp folder lock #26 stays held (no close/relock window)
 
 
-            IF Debug THEN CLOSE #9: OPEN tmpdir$ + "debug.txt" FOR OUTPUT AS #9
 
             FOR i = 1 TO ids_max + 1
                 arrayelementslist(i) = 0
@@ -1109,9 +1096,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             dimstatic = 0
             AllowLocalName = 0
             PossibleSubNameLabels = sp 'QBNex will perform a repass to resolve sub names used as labels
-            use_global_byte_elements = 0
             dimshared = 0: dimmethod = 0: dimoption = 0: redimoption = 0: commonoption = 0
-            mylib$ = "": mylibopt$ = ""
             declaringlibrary = 0
             nLabels = 0
             elsefollowup = 0
@@ -1206,8 +1191,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 diagnosticSourceLine = ""
                 linefragment$ = ""
                 idn = 0
-                arrayprocessinghappened = 0
-                inputfunctioncalled = 0
                 subfuncn = 0
                 closedsubfunc = 0
                 subfunc = ""
@@ -1219,9 +1202,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 totalMainVariablesCreated = 0
                 totalWarnings = 0
                 warningListItems = 0
-                vWatchUsedLabels = SPACE$(1000)
-                vWatchUsedSkipLabels = SPACE$(1000)
-                firstLineNumberLabelvWatch = 0
                 maxLineNumber = 0
                 uniquenumbern = 0
 
@@ -1328,7 +1308,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     NEXT
                     'temp folder lock #26 stays held (no close/relock window)
 
-                    IF Debug THEN CLOSE #9: OPEN tmpdir$ + "debug.txt" FOR APPEND AS #9
 
                     qberrorhappened = -1
                     OPEN sourcefile$ FOR INPUT AS #1
@@ -1392,7 +1371,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             IF firstLine <> 0 THEN StdLib_PrepareHoistedImports
                             forceIncludeFromRoot$ = ""
                             IF vWatchOn THEN
-                                addingvWatch = 1
                                 IF firstLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bi"
                                 IF lastLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bm"
                             ELSE
@@ -1404,7 +1382,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             firstLine = 0: lastLine = 0
                             IF LEN(forceIncludeFromRoot$) THEN GOTO forceInclude_prepass
                             forceIncludeCompleted_prepass:
-                            addingvWatch = 0
                             wholeline$ = lineBackup$
                         END IF
 
@@ -1521,7 +1498,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 ce$ = getelement$(cwholeline$, wholelinei)
                                 IF e$ = ":" OR e$ = "ELSE" OR e$ = "THEN" OR e$ = "" THEN
                                     IF LEN(a$) THEN
-                                        IF Debug THEN PRINT #9, "PP[" + a$ + "]"
                                         n = numelements(a$)
                                         firstelement$ = getelement(a$, 1)
                                         secondelement$ = getelement(a$, 2)
@@ -2301,7 +2277,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
 
                                 IF LEN(addmetainclude$) THEN
-                                    IF Debug THEN PRINT #9, "Pre-pass:INCLUDE$-ing file:'" + addmetainclude$ + "':On line"; linenumber
                                     a$ = addmetainclude$: addmetainclude$ = "" 'read/clear message
 
                                     IF inclevel = 0 THEN
@@ -2364,7 +2339,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                         wholeline$ = TopLevelRuntime_ProcessLine$(wholeline$)
                                         linenumber = linenumber - 1 'lower official linenumber to counter later increment
 
-                                        IF Debug THEN PRINT #9, "Pre-pass:Feeding INCLUDE$ line:[" + wholeline$ + "]"
 
                                         GOTO prepassline
                                     END IF
@@ -2395,7 +2369,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                     incerror$ = e$
                                     linenumber = linenumber - 1 'lower official linenumber to counter later increment
 
-                                    IF Debug THEN PRINT #9, "Pre-pass:Feeding INCLUDE$ line:[" + wholeline$ + "]"
 
                                     GOTO prepassline
                                 END IF
@@ -2403,7 +2376,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                     wholeline$ = ClassSyntax_DequeueDeferredLine$
                                     linenumber = linenumber - 1
 
-                                    IF Debug THEN PRINT #9, "Pre-pass:Feeding deferred CLASS line:[" + wholeline$ + "]"
 
                                     GOTO prepassline
                                 END IF
@@ -2492,7 +2464,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 IF firstLine <> 0 THEN StdLib_PrepareHoistedImports
                                 forceIncludeFromRoot$ = ""
                                 IF vWatchOn THEN
-                                    addingvWatch = 1
                                     IF firstLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bi"
                                     IF lastLine <> 0 THEN forceIncludeFromRoot$ = "compiler\support\vwatch\vwatch.bm"
                                 ELSE
@@ -2504,7 +2475,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 firstLine = 0: lastLine = 0
                                 IF LEN(forceIncludeFromRoot$) THEN GOTO forceInclude
                                 forceIncludeCompleted:
-                                addingvWatch = 0
                                 a3$ = lineBackup$
                             END IF
 
@@ -2566,7 +2536,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                             linefragment = "[INFORMATION UNAVAILABLE]"
                             IF LEN(a3$) = 0 THEN GOTO finishednonexec
-                            IF Debug THEN PRINT #9, "########" + a3$ + "########"
 
                             layoutdone = 1 'validates layout of any following goto finishednonexec/finishedline
 
@@ -2683,9 +2652,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         thisincname$ = MID$(incname$(inclevel), LEN(thisincname$) + 1)
                         inclinenump$ = inclinenump$ + "," + CHR$(34) + thisincname$ + CHR$(34)
                     END IF
-                    IF NoChecks = 0 THEN
-                        IF vWatchOn AND inclinenumber(inclevel) = 0 THEN temp$ = vWatchErrorCall$ ELSE temp$ = ""
-                    END IF
                     IF n = 1 THEN GOTO finishednonexec
                     entireline$ = getelements(entireline$, 2, n): u$ = UCASE$(entireline$): n = n - 1
                     'note: fall through, numeric labels can be followed by alphanumeric label
@@ -2741,9 +2707,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         thisincname$ = getfilepath$(incname$(inclevel))
                         thisincname$ = MID$(incname$(inclevel), LEN(thisincname$) + 1)
                         inclinenump$ = inclinenump$ + "," + CHR$(34) + thisincname$ + CHR$(34)
-                    END IF
-                    IF NoChecks = 0 THEN
-                        IF vWatchOn AND inclinenumber(inclevel) = 0 THEN temp$ = vWatchErrorCall$ ELSE temp$ = ""
                     END IF
                     entireline$ = RIGHT$(entireline$, LEN(entireline$) - x3): u$ = UCASE$(entireline$)
                     n = numelements(entireline$): IF n = 0 THEN GOTO finishednonexec
@@ -2886,7 +2849,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     layoutdone = 0
 
     linefragment = a$
-    IF Debug THEN PRINT #9, a$
     n = numelements(a$)
     IF n = 0 THEN GOTO finishednonexec
 
@@ -2937,7 +2899,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         n = numelements(a$)
     END IF
 
-    arrayprocessinghappened = 0
 
     firstelement$ = getelement(a$, 1)
     secondelement$ = getelement(a$, 2)
@@ -3235,42 +3196,36 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(libpath$ + x$ + ".lib") THEN
                                     libname$ = libpath$ + x$ + ".lib"
-                                    inlinelibname$ = libpath_inline$ + x$ + ".lib"
                                 END IF
                             END IF
                             'check for .a
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(libpath$ + x$ + ".a") THEN
                                     libname$ = libpath$ + x$ + ".a"
-                                    inlinelibname$ = libpath_inline$ + x$ + ".a"
                                 END IF
                             END IF
                             'check for .o
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(libpath$ + x$ + ".o") THEN
                                     libname$ = libpath$ + x$ + ".o"
-                                    inlinelibname$ = libpath_inline$ + x$ + ".o"
                                 END IF
                             END IF
                             'check for .lib
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(x$ + ".lib") THEN
                                     libname$ = x$ + ".lib"
-                                    inlinelibname$ = x$ + ".lib"
                                 END IF
                             END IF
                             'check for .a
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(x$ + ".a") THEN
                                     libname$ = x$ + ".a"
-                                    inlinelibname$ = x$ + ".a"
                                 END IF
                             END IF
                             'check for .o
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(x$ + ".o") THEN
                                     libname$ = x$ + ".o"
-                                    inlinelibname$ = x$ + ".o"
                                 END IF
                             END IF
                         END IF 'Windows
@@ -3283,15 +3238,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 IF LEN(libname$) = 0 THEN
                                     IF _FILEEXISTS(libpath$ + "lib" + x$ + "." + libver$ + ".dylib") THEN
                                         libname$ = libpath$ + "lib" + x$ + "." + libver$ + ".dylib"
-                                        inlinelibname$ = libpath_inline$ + "lib" + x$ + "." + libver$ + ".dylib"
-                                        IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath " + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                                     END IF
                                 END IF
                                 IF LEN(libname$) = 0 THEN
                                     IF _FILEEXISTS(libpath$ + "lib" + x$ + ".dylib") THEN
                                         libname$ = libpath$ + "lib" + x$ + ".dylib"
-                                        inlinelibname$ = libpath_inline$ + "lib" + x$ + ".dylib"
-                                        IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath " + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                                     END IF
                                 END IF
                             END IF
@@ -3300,15 +3251,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(libpath$ + "lib" + x$ + ".so." + libver$) THEN
                                     libname$ = libpath$ + "lib" + x$ + ".so." + libver$
-                                    inlinelibname$ = libpath_inline$ + "lib" + x$ + ".so." + libver$
-                                    IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath " + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                                 END IF
                             END IF
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS(libpath$ + "lib" + x$ + ".so") THEN
                                     libname$ = libpath$ + "lib" + x$ + ".so"
-                                    inlinelibname$ = libpath_inline$ + "lib" + x$ + ".so"
-                                    IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath " + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                                 END IF
                             END IF
                         END IF
@@ -3316,14 +3263,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS(libpath$ + "lib" + x$ + ".a") THEN
                                 libname$ = libpath$ + "lib" + x$ + ".a"
-                                inlinelibname$ = libpath_inline$ + "lib" + x$ + ".a"
                             END IF
                         END IF
                         'check for .o (direct)
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS(libpath$ + "lib" + x$ + ".o") THEN
                                 libname$ = libpath$ + "lib" + x$ + ".o"
-                                inlinelibname$ = libpath_inline$ + "lib" + x$ + ".o"
                             END IF
                         END IF
                         IF staticlinkedlibrary = 0 THEN
@@ -3331,15 +3276,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS("/usr/lib64/" + libpath$ + "lib" + x$ + ".so." + libver$) THEN
                                     libname$ = "/usr/lib64/" + libpath$ + "lib" + x$ + ".so." + libver$
-                                    inlinelibname$ = "/usr/lib64/" + libpath_inline$ + "lib" + x$ + ".so." + libver$
-                                    IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib64/" + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib64/ "
                                 END IF
                             END IF
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS("/usr/lib64/" + libpath$ + "lib" + x$ + ".so") THEN
                                     libname$ = "/usr/lib64/" + libpath$ + "lib" + x$ + ".so"
-                                    inlinelibname$ = "/usr/lib64/" + libpath_inline$ + "lib" + x$ + ".so"
-                                    IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib64/" + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib64/ "
                                 END IF
                             END IF
                         END IF
@@ -3347,7 +3288,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS("/usr/lib64/" + libpath$ + "lib" + x$ + ".a") THEN
                                 libname$ = "/usr/lib64/" + libpath$ + "lib" + x$ + ".a"
-                                inlinelibname$ = "/usr/lib64/" + libpath_inline$ + "lib" + x$ + ".a"
                             END IF
                         END IF
                         IF staticlinkedlibrary = 0 THEN
@@ -3357,15 +3297,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + "." + libver$ + ".dylib") THEN
                                     libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + "." + libver$ + ".dylib"
-                                    inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + "." + libver$ + ".dylib"
-                                    IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/" + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                                 END IF
                             END IF
                             IF LEN(libname$) = 0 THEN
                                 IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".dylib") THEN
                                     libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".dylib"
-                                    inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".dylib"
-                                    IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/" + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                                 END IF
                             END IF
                         END IF
@@ -3374,15 +3310,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".so." + libver$) THEN
                                 libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".so." + libver$
-                                inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".so." + libver$
-                                IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/" + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                             END IF
                         END IF
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".so") THEN
                                 libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".so"
-                                inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".so"
-                                IF LEN(libpath$) THEN mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/" + libpath$ + " " ELSE mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                             END IF
                         END IF
                     END IF
@@ -3390,7 +3322,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".a") THEN
                             libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".a"
-                            inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".a"
                         END IF
                     END IF
                     '--------------------------(without path)------------------------------
@@ -3401,15 +3332,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS("lib" + x$ + "." + libver$ + ".dylib") THEN
                                 libname$ = "lib" + x$ + "." + libver$ + ".dylib"
-                                inlinelibname$ = "lib" + x$ + "." + libver$ + ".dylib"
-                                mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                             END IF
                         END IF
                         IF LEN(libname$) = 0 THEN
                             IF _FILEEXISTS("lib" + x$ + ".dylib") THEN
                                 libname$ = "lib" + x$ + ".dylib"
-                                inlinelibname$ = "lib" + x$ + ".dylib"
-                                mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                             END IF
                         END IF
                     END IF
@@ -3418,15 +3345,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("lib" + x$ + ".so." + libver$) THEN
                             libname$ = "lib" + x$ + ".so." + libver$
-                            inlinelibname$ = "lib" + x$ + ".so." + libver$
-                            mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                         END IF
                     END IF
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("lib" + x$ + ".so") THEN
                             libname$ = "lib" + x$ + ".so"
-                            inlinelibname$ = "lib" + x$ + ".so"
-                            mylibopt$ = mylibopt$ + " -Wl,-rpath ./ "
                         END IF
                     END IF
                 END IF
@@ -3434,14 +3357,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 IF LEN(libname$) = 0 THEN
                     IF _FILEEXISTS("lib" + x$ + ".a") THEN
                         libname$ = "lib" + x$ + ".a"
-                        inlinelibname$ = "lib" + x$ + ".a"
                     END IF
                 END IF
                 'check for .o (direct)
                 IF LEN(libname$) = 0 THEN
                     IF _FILEEXISTS("lib" + x$ + ".o") THEN
                         libname$ = "lib" + x$ + ".o"
-                        inlinelibname$ = "lib" + x$ + ".o"
                     END IF
                 END IF
                 IF staticlinkedlibrary = 0 THEN
@@ -3449,15 +3370,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("/usr/lib64/" + "lib" + x$ + ".so." + libver$) THEN
                             libname$ = "/usr/lib64/" + "lib" + x$ + ".so." + libver$
-                            inlinelibname$ = "/usr/lib64/" + "lib" + x$ + ".so." + libver$
-                            mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib64/ "
                         END IF
                     END IF
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("/usr/lib64/" + "lib" + x$ + ".so") THEN
                             libname$ = "/usr/lib64/" + "lib" + x$ + ".so"
-                            inlinelibname$ = "/usr/lib64/" + "lib" + x$ + ".so"
-                            mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib64/ "
                         END IF
                     END IF
                 END IF
@@ -3465,7 +3382,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 IF LEN(libname$) = 0 THEN
                     IF _FILEEXISTS("/usr/lib64/" + "lib" + x$ + ".a") THEN
                         libname$ = "/usr/lib64/" + "lib" + x$ + ".a"
-                        inlinelibname$ = "/usr/lib64/" + "lib" + x$ + ".a"
                     END IF
                 END IF
                 IF staticlinkedlibrary = 0 THEN
@@ -3475,14 +3391,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + "." + libver$ + ".dylib") THEN
                             libname$ = "/usr/lib/" + "lib" + x$ + "." + libver$ + ".dylib"
-                            inlinelibname$ = "/usr/lib/" + "lib" + x$ + "." + libver$ + ".dylib"
                         END IF
                     END IF
                     IF LEN(libname$) = 0 THEN
                         IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".dylib") THEN
                             libname$ = "/usr/lib/" + "lib" + x$ + ".dylib"
-                            inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".dylib"
-                            mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                         END IF
                     END IF
                 END IF
@@ -3491,14 +3404,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 IF LEN(libname$) = 0 THEN
                     IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".so." + libver$) THEN
                         libname$ = "/usr/lib/" + "lib" + x$ + ".so." + libver$
-                        inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".so." + libver$
                     END IF
                 END IF
                 IF LEN(libname$) = 0 THEN
                     IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".so") THEN
                         libname$ = "/usr/lib/" + "lib" + x$ + ".so"
-                        inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".so"
-                        mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                     END IF
                 END IF
             END IF
@@ -3506,8 +3416,6 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".a") THEN
                     libname$ = "/usr/lib/" + "lib" + x$ + ".a"
-                    inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".a"
-                    mylibopt$ = mylibopt$ + " -Wl,-rpath /usr/lib/ "
                 END IF
             END IF
         END IF 'Linux
@@ -3615,14 +3523,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS(libpath$ + x$ + ".dll") THEN
                     libname$ = libpath$ + x$ + ".dll"
-                    inlinelibname$ = libpath_inline$ + x$ + ".dll"
                 END IF
             END IF
             'check for .dll (system32)
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS(ENVIRON$("SYSTEMROOT") + "\System32\" + libpath$ + x$ + ".dll") THEN
                     libname$ = libpath$ + x$ + ".dll"
-                    inlinelibname$ = libpath_inline$ + x$ + ".dll"
                 END IF
             END IF
             '--------------------------(without path)------------------------------
@@ -3630,14 +3536,12 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS(x$ + ".dll") THEN
                     libname$ = x$ + ".dll"
-                    inlinelibname$ = x$ + ".dll"
                 END IF
             END IF
             'check for .dll (system32)
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS(ENVIRON$("SYSTEMROOT") + "\System32\" + x$ + ".dll") THEN
                     libname$ = x$ + ".dll"
-                    inlinelibname$ = x$ + ".dll"
                 END IF
             END IF
         END IF 'Windows
@@ -3651,15 +3555,13 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS(libpath$ + "lib" + x$ + "." + libver$ + ".dylib") THEN
                     libname$ = libpath$ + "lib" + x$ + "." + libver$ + ".dylib"
-                    inlinelibname$ = libpath_inline$ + "lib" + x$ + "." + libver$ + ".dylib"
-                    IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+                    IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$
                 END IF
             END IF
             IF LEN(libname$) = 0 THEN
                 IF _FILEEXISTS(libpath$ + "lib" + x$ + ".dylib") THEN
                     libname$ = libpath$ + "lib" + x$ + ".dylib"
-                    inlinelibname$ = libpath_inline$ + "lib" + x$ + ".dylib"
-                    IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+                    IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$
                 END IF
             END IF
         END IF
@@ -3668,28 +3570,24 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         IF LEN(libname$) = 0 THEN
             IF _FILEEXISTS(libpath$ + "lib" + x$ + ".so." + libver$) THEN
                 libname$ = libpath$ + "lib" + x$ + ".so." + libver$
-                inlinelibname$ = libpath_inline$ + "lib" + x$ + ".so." + libver$
-                IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+                IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$
             END IF
         END IF
         IF LEN(libname$) = 0 THEN
             IF _FILEEXISTS(libpath$ + "lib" + x$ + ".so") THEN
                 libname$ = libpath$ + "lib" + x$ + ".so"
-                inlinelibname$ = libpath_inline$ + "lib" + x$ + ".so"
-                IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+                IF LEFT$(libpath$, 1) <> "/" THEN libname$ = "./" + libname$
             END IF
         END IF
         'check for .so (usr/lib64)
         IF LEN(libname$) = 0 THEN
             IF _FILEEXISTS("/usr/lib64/" + libpath$ + "lib" + x$ + ".so." + libver$) THEN
                 libname$ = "/usr/lib64/" + libpath$ + "lib" + x$ + ".so." + libver$
-                inlinelibname$ = "/usr/lib64/" + libpath_inline$ + "lib" + x$ + ".so." + libver$
             END IF
         END IF
         IF LEN(libname$) = 0 THEN
             IF _FILEEXISTS("/usr/lib64/" + libpath$ + "lib" + x$ + ".so") THEN
                 libname$ = "/usr/lib64/" + libpath$ + "lib" + x$ + ".so"
-                inlinelibname$ = "/usr/lib64/" + libpath_inline$ + "lib" + x$ + ".so"
             END IF
         END IF
 
@@ -3698,13 +3596,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
         IF LEN(libname$) = 0 THEN
             IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + "." + libver$ + ".dylib") THEN
                 libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + "." + libver$ + ".dylib"
-                inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + "." + libver$ + ".dylib"
             END IF
         END IF
         IF LEN(libname$) = 0 THEN
             IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".dylib") THEN
                 libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".dylib"
-                inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".dylib"
             END IF
         END IF
     END IF
@@ -3713,13 +3609,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     IF LEN(libname$) = 0 THEN
         IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".so." + libver$) THEN
             libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".so." + libver$
-            inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".so." + libver$
         END IF
     END IF
     IF LEN(libname$) = 0 THEN
         IF _FILEEXISTS("/usr/lib/" + libpath$ + "lib" + x$ + ".so") THEN
             libname$ = "/usr/lib/" + libpath$ + "lib" + x$ + ".so"
-            inlinelibname$ = "/usr/lib/" + libpath_inline$ + "lib" + x$ + ".so"
         END IF
     END IF
     '--------------------------(without path)------------------------------
@@ -3728,15 +3622,13 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
     IF LEN(libname$) = 0 THEN
         IF _FILEEXISTS("lib" + x$ + "." + libver$ + ".dylib") THEN
             libname$ = "lib" + x$ + "." + libver$ + ".dylib"
-            inlinelibname$ = "lib" + x$ + "." + libver$ + ".dylib"
-            libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+            libname$ = "./" + libname$
         END IF
     END IF
     IF LEN(libname$) = 0 THEN
         IF _FILEEXISTS("lib" + x$ + ".dylib") THEN
             libname$ = "lib" + x$ + ".dylib"
-            inlinelibname$ = "lib" + x$ + ".dylib"
-            libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+            libname$ = "./" + libname$
         END IF
     END IF
 END IF
@@ -3745,28 +3637,24 @@ END IF
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("lib" + x$ + ".so." + libver$) THEN
         libname$ = "lib" + x$ + ".so." + libver$
-        inlinelibname$ = "lib" + x$ + ".so." + libver$
-        libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+        libname$ = "./" + libname$
     END IF
 END IF
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("lib" + x$ + ".so") THEN
         libname$ = "lib" + x$ + ".so"
-        inlinelibname$ = "lib" + x$ + ".so"
-        libname$ = "./" + libname$: inlinelibname$ = "./" + inlinelibname$
+        libname$ = "./" + libname$
     END IF
 END IF
 'check for .so (usr/lib64)
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("/usr/lib64/" + "lib" + x$ + ".so." + libver$) THEN
         libname$ = "/usr/lib64/" + "lib" + x$ + ".so." + libver$
-        inlinelibname$ = "/usr/lib64/" + "lib" + x$ + ".so." + libver$
     END IF
 END IF
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("/usr/lib64/" + "lib" + x$ + ".so") THEN
         libname$ = "/usr/lib64/" + "lib" + x$ + ".so"
-        inlinelibname$ = "/usr/lib64/" + "lib" + x$ + ".so"
     END IF
 END IF
 
@@ -3775,13 +3663,11 @@ IF MacOSX THEN 'dylib support
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + "." + libver$ + ".dylib") THEN
         libname$ = "/usr/lib/" + "lib" + x$ + "." + libver$ + ".dylib"
-        inlinelibname$ = "/usr/lib/" + "lib" + x$ + "." + libver$ + ".dylib"
     END IF
 END IF
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".dylib") THEN
         libname$ = "/usr/lib/" + "lib" + x$ + ".dylib"
-        inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".dylib"
     END IF
 END IF
 END IF
@@ -3790,13 +3676,11 @@ END IF
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".so." + libver$) THEN
         libname$ = "/usr/lib/" + "lib" + x$ + ".so." + libver$
-        inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".so." + libver$
     END IF
 END IF
 IF LEN(libname$) = 0 THEN
     IF _FILEEXISTS("/usr/lib/" + "lib" + x$ + ".so") THEN
         libname$ = "/usr/lib/" + "lib" + x$ + ".so"
-        inlinelibname$ = "/usr/lib/" + "lib" + x$ + ".so"
     END IF
 END IF
 END IF 'Linux
@@ -3809,70 +3693,6 @@ IF dynamiclibrary <> 0 AND LEN(libname$) = 0 THEN a$ = "DYNAMIC LIBRARY not foun
 'shared library of that name at run time, as DECLARE DYNAMIC LIBRARY does
 IF LEN(libname$) = 0 AND LEN(headername$) = 0 THEN
     IF IrSharedLibFound%(libpath$, x$, libver$) = 0 THEN a$ = "LIBRARY not found": GOTO errmes
-END IF
-
-'***actual method should cull redundant header and library entries***
-
-IF dynamiclibrary = 0 THEN
-
-    'static
-    IF LEN(libname$) THEN
-        IF os$ = "WIN" THEN
-            IF MID$(libname$, 2, 1) = ":" OR LEFT$(libname$, 1) = "\" THEN
-                mylib$ = mylib$ + " " + libname$ + " "
-            ELSE
-                mylib$ = mylib$ + " ..\..\" + libname$ + " "
-            END IF
-        END IF
-        IF os$ = "LNX" THEN
-            IF LEFT$(libname$, 1) = "/" THEN
-                mylib$ = mylib$ + " " + libname$ + " "
-            ELSE
-                mylib$ = mylib$ + " ../../" + libname$ + " "
-            END IF
-        END IF
-
-    END IF
-
-ELSE
-
-    'dynamic
-    IF LEN(headername$) = 0 THEN 'no header
-
-
-    'make name a C-appropriate variable name
-    'by converting everything except numbers and
-    'letters to underscores
-    x2$ = x$
-    FOR x2 = 1 TO LEN(x2$)
-        IF ASC(x2$, x2) < 48 THEN ASC(x2$, x2) = 95
-        IF ASC(x2$, x2) > 57 AND ASC(x2$, x2) < 65 THEN ASC(x2$, x2) = 95
-        IF ASC(x2$, x2) > 90 AND ASC(x2$, x2) < 97 THEN ASC(x2$, x2) = 95
-        IF ASC(x2$, x2) > 122 THEN ASC(x2$, x2) = 95
-    NEXT
-    DLLname$ = x2$
-
-    IF sfdeclare THEN
-
-
-    END IF
-
-
-END IF 'no header
-
-END IF 'dynamiclibrary
-
-IF LEN(headername$) THEN
-    IF os$ = "WIN" THEN
-        IF MID$(headername$, 2, 1) = ":" OR LEFT$(headername$, 1) = "\" THEN
-        END IF
-    END IF
-    IF os$ = "LNX" THEN
-
-        IF LEFT$(headername$, 1) = "/" THEN
-        END IF
-
-    END IF
 END IF
 
 END IF
@@ -4001,7 +3821,6 @@ IF n >= 1 THEN
     closedsubfunc = 0
     subfuncid = targetid
 
-    subfuncret$ = ""
 
 
     declibjmp1:
@@ -4024,9 +3843,6 @@ IF n >= 1 THEN
             END IF
         END IF
 
-        IF declaringlibrary <> 0 AND dynamiclibrary <> 0 THEN
-        ELSEIF declaringlibrary <> 0 AND customtypelibrary <> 0 THEN
-        END IF
         IF declaringlibrary THEN GOTO declibjmp2
 
         'create variable to return result
@@ -4041,23 +3857,8 @@ IF n >= 1 THEN
         IF Error_Happened THEN GOTO errmes
         reginternalvariable = 0
         IrFnRet(IrFnCur) = IrTy$(rettyp): IrFnRetVar(IrFnCur) = IrVar$(currentid)
-        'the following line stops the return variable from being free'd before being returned
-        'create return
-        IF (rettyp AND ISSTRING) THEN
-            r$ = refer$(str2$(currentid), id.t, 1)
-            IF Error_Happened THEN GOTO errmes
-            subfuncret$ = subfuncret$ + "qbs_maketmp(" + r$ + ");"
-            subfuncret$ = subfuncret$ + "return " + r$ + ";"
-        ELSE
-            r$ = refer$(str2$(currentid), id.t, 0)
-            IF Error_Happened THEN GOTO errmes
-            subfuncret$ = "return " + r$ + ";"
-        END IF
     ELSE
 
-        IF declaringlibrary <> 0 AND dynamiclibrary <> 0 THEN
-        ELSEIF declaringlibrary <> 0 AND customtypelibrary <> 0 THEN
-        END IF
         IF declaringlibrary THEN GOTO declibjmp2
     END IF
     declibjmp2:
@@ -4288,21 +4089,8 @@ IF declaringlibrary THEN GOTO declibjmp4
 
 'create new _MEM lock for this scope
 
-IF vWatchOn = 1 THEN
-    IF subfunc <> "SUB_VWATCH" THEN
-        inclinenump$ = ""
-        IF inclinenumber(inclevel) THEN
-            thisincname$ = getfilepath$(incname$(inclevel))
-            thisincname$ = MID$(incname$(inclevel), LEN(thisincname$) + 1)
-            inclinenump$ = "(" + thisincname$ + "," + STR$(inclinenumber(inclevel)) + ") "
-        END IF
-
-    END IF
-END IF
 
 
-'statementn = statementn + 1
-'if nochecks=0 then PRINT #12, "S_" + str2$(statementn) + ":;"
 
 dimstatic = staticsf
 
@@ -4380,30 +4168,6 @@ IF n = 2 THEN
         staticarraylist = "": staticarraylistn = 0 'remove previously listed arrays
         dimstatic = 0
         IrEndFn
-        IF vWatchOn = 1 THEN
-            IF NoChecks = 0 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-                vWatchAddLabel 0, -1
-            END IF
-
-            IF inclinenumber(inclevel) = 0 AND firstLineNumberLabelvWatch > 0 THEN
-                FOR i = firstLineNumberLabelvWatch TO lastLineNumberLabelvWatch
-                    WHILE i > LEN(vWatchUsedLabels)
-                        vWatchUsedLabels = vWatchUsedLabels + SPACE$(1000)
-                        vWatchUsedSkipLabels = vWatchUsedSkipLabels + SPACE$(1000)
-                    WEND
-                    IF ASC(vWatchUsedLabels, i) = 1 THEN
-                    END IF
-                NEXT
-
-                FOR i = firstLineNumberLabelvWatch TO lastLineNumberLabelvWatch
-                    IF ASC(vWatchUsedSkipLabels, i) = 1 THEN
-                    END IF
-                NEXT
-
-            END IF
-            firstLineNumberLabelvWatch = 0
-        END IF
 
         'release _MEM lock for this scope
 
@@ -4622,9 +4386,6 @@ IF n >= 1 THEN
                 IF controltype(controllevel) <> 2 THEN a$ = "NEXT without FOR": GOTO errmes
                 IF n <> 1 AND controlvalue(controllevel) <> currentid THEN a$ = "Incorrect variable after NEXT": GOTO errmes
                 IrNext controlid(controllevel)
-                IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 AND NoChecks = 0 THEN
-                    vWatchAddLabel linenumber, 0
-                END IF
                 controllevel = controllevel - 1
                 IF n = 1 THEN EXIT FOR
                 v$ = ""
@@ -4667,11 +4428,7 @@ IF n >= 1 THEN
             IF Error_Happened THEN GOTO errmes
             IF (typ AND ISREFERENCE) THEN e$ = refer$(e$, typ, 0)
             IF Error_Happened THEN GOTO errmes
-            IF stringprocessinghappened THEN e$ = cleanupstringprocessingcall$ + e$ + ")"
             IF (typ AND ISSTRING) THEN a$ = "WHILE ERROR! Cannot accept a STRING type.": GOTO errmes
-            IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
             IrWhile controlid(controllevel), IrFix, 0
         ELSE
             a$ = "WHILE ERROR! Expected expression after WHILE.": GOTO errmes
@@ -4721,17 +4478,10 @@ IF n >= 1 THEN
             IF Error_Happened THEN GOTO errmes
             IF (typ AND ISREFERENCE) THEN e$ = refer$(e$, typ, 0)
             IF Error_Happened THEN GOTO errmes
-            IF stringprocessinghappened THEN e$ = cleanupstringprocessingcall$ + e$ + ")"
             IF (typ AND ISSTRING) THEN a$ = "DO ERROR! Cannot accept a STRING type.": GOTO errmes
-            IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
             controltype(controllevel) = 4
         ELSE
             controltype(controllevel) = 3
-            IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 AND NoChecks = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
         END IF
         controlid(controllevel) = uniquenumber
         IF IrEmitMode THEN
@@ -4762,16 +4512,9 @@ IF n >= 1 THEN
             IF Error_Happened THEN GOTO errmes
             IF (typ AND ISREFERENCE) THEN e$ = refer$(e$, typ, 0)
             IF Error_Happened THEN GOTO errmes
-            IF stringprocessinghappened THEN e$ = cleanupstringprocessingcall$ + e$ + ")"
             IF (typ AND ISSTRING) THEN a$ = "LOOP ERROR! Cannot accept a STRING type.": GOTO errmes
-            IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
         ELSE
 
-            IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
 
             IF controltype(controllevel) = 4 THEN
             END IF
@@ -4902,9 +4645,6 @@ IF n >= 1 THEN
         e$ = evaluatetotyp(e$, ctyp)
         IF Error_Happened THEN GOTO errmes
 
-        IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-            vWatchAddLabel linenumber, 0
-        END IF
 
 
         setrefer v$, typ, "fornext_value" + u$, 1
@@ -4970,11 +4710,6 @@ END IF
 
 IF n >= 3 THEN
     IF firstelement$ = "ELSEIF" THEN
-        IF NoChecks = 0 THEN
-            IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
-        END IF
         FOR i = controllevel TO 1 STEP -1
             t = controltype(i)
             IF t = 1 THEN
@@ -5006,11 +4741,6 @@ END IF
 
 IF n >= 3 THEN
     IF firstelement$ = "IF" THEN
-        IF NoChecks = 0 THEN
-            IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
-        END IF
 
         'prevents code from being placed before 'CASE condition' in a SELECT CASE block
         IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
@@ -5087,9 +4817,6 @@ IF n = 2 THEN
             IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
         END IF
 
-        IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-            vWatchAddLabel linenumber, 0
-        END IF
 
         IrEndIf
 
@@ -5104,11 +4831,6 @@ END IF
 'SELECT CASE
 IF n >= 1 THEN
     IF firstelement$ = "SELECT" THEN
-        IF NoChecks = 0 THEN
-            IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
-        END IF
 
         'prevents code from being placed before 'CASE condition' in a SELECT CASE block
         IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
@@ -5217,9 +4939,6 @@ IF n = 2 THEN
         IrEndSelect
         IF controltype(controllevel) < 10 OR controltype(controllevel) > 17 THEN a$ = "END SELECT without SELECT CASE": GOTO errmes
 
-        IF NoChecks = 0 AND vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-            vWatchAddLabel linenumber, 0
-        END IF
 
         IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
             'warn user of empty SELECT CASE block
@@ -5257,9 +4976,6 @@ IF n >= 1 THEN
             everycasenewcase = everycasenewcase + 1
             IF EveryCaseSet(SelectCaseCounter) = 0 THEN
             END IF
-            'following line fixes problem related to RESUME after error
-            'statementn = statementn + 1
-            'if nochecks=0 then PRINT #12, "S_" + str2$(statementn) + ":;"
         END IF
 
         IF controltype(controllevel) <> 6 AND (controltype(controllevel) < 10 OR controltype(controllevel) > 17) THEN a$ = "CASE without SELECT CASE": GOTO errmes
@@ -5299,16 +5015,6 @@ IF n >= 1 THEN
 
 
         t = controltype(controllevel) - 10
-        'get required type cast, and float options
-        flt = 0
-        IF t = 0 THEN tc$ = ""
-        IF t = 1 THEN tc$ = ""
-        IF t = 2 THEN tc$ = ""
-        IF t = 3 THEN tc$ = "": flt = 1
-        IF t = 4 THEN tc$ = "(float)": flt = 1
-        IF t = 5 THEN tc$ = "(double)": flt = 1
-        IF t = 6 THEN tc$ = ""
-        IF t = 7 THEN tc$ = ""
 
         n$ = "sc_" + str2$(controlid(controllevel))
         cv = controlvalue(controllevel)
@@ -5329,11 +5035,6 @@ IF n >= 1 THEN
             END IF
         END IF
 
-        IF NoChecks = 0 THEN
-            IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-                vWatchAddLabel linenumber, 0
-            END IF
-        END IF
 
 
 
@@ -5346,7 +5047,7 @@ IF n >= 1 THEN
             IF e2$ = ")" THEN B = B - 1
             IF i = n THEN e$ = e$ + sp + e2$
             IF i = n OR (e2$ = "," AND B = 0) THEN
-                IF nexp <> 0 THEN l$ = l$ + sp2 + ",": f12$ = f12$ + "||"
+                IF nexp <> 0 THEN l$ = l$ + sp2 + ","
                 IF e$ = "" THEN a$ = "Expected expression": GOTO errmes
                 e$ = RIGHT$(e$, LEN(e$) - 1)
 
@@ -5381,20 +5082,8 @@ IF n >= 1 THEN
                         IF Error_Happened THEN GOTO errmes
                         IF t = 0 THEN
                             IF (typ AND ISSTRING) = 0 THEN a$ = "Expected string expression": GOTO errmes
-                            IF i2 = 1 THEN f12$ = f12$ + "(qbs_greaterorequal(" + n$ + "," + e$ + ")&&qbs_lessorequal(" + n$ + ","
-                            IF i2 = 2 THEN f12$ = f12$ + e$ + "))"
                         ELSE
                             IF (typ AND ISSTRING) THEN a$ = "Expected numeric expression": GOTO errmes
-                            'round to integer?
-                            IF (typ AND ISFLOAT) THEN
-                                IF t = 1 THEN e$ = "qbr(" + e$ + ")"
-                                IF t = 2 THEN e$ = "qbr_longdouble_to_uint64(" + e$ + ")"
-                                IF t = 6 OR t = 7 THEN e$ = "qbr_double_to_long(" + e$ + ")"
-                            END IF
-                            'cast result?
-                            IF LEN(tc$) THEN e$ = tc$ + "(" + e$ + ")"
-                            IF i2 = 1 THEN f12$ = f12$ + "((" + n$ + ">=(" + e$ + "))&&(" + n$ + "<=("
-                            IF i2 = 2 THEN f12$ = f12$ + e$ + ")))"
                         END IF
                     NEXT
                     GOTO addedexp
@@ -5415,8 +5104,6 @@ IF n >= 1 THEN
                 '                                IF bits >= 32 THEN e$ = "qbr(" + e$ + ")"
 
 
-                o$ = "==" 'used by type 3
-
                 'TYPE 2?
                 x$ = getelement$(e$, 1)
                 IF isoperator(x$) THEN 'non-standard usage correction
@@ -5431,8 +5118,8 @@ IF n >= 1 THEN
                 o$ = getelement$(e$, 2)
                 o2$ = o$
                 o = 0
-                IF o$ = "=" THEN o$ = "==": o = 1
-                IF o$ = "<>" THEN o$ = "!=": o = 1
+                IF o$ = "=" THEN o = 1
+                IF o$ = "<>" THEN o = 1
                 IF o$ = ">" THEN o = 1
                 IF o$ = "<" THEN o = 1
                 IF o$ = ">=" THEN o = 1
@@ -5440,7 +5127,7 @@ IF n >= 1 THEN
                 IF o <> 1 THEN a$ = "Expected IS =,<>,>,<,>=,<= expression": GOTO errmes
                 l$ = l$ + sp + SCase$("Is") + sp + o2$
                 e$ = getelements$(e$, 3, n2)
-                'fall through to type 3 using modified e$ & o$
+                'fall through to type 3 using modified e$
             END IF
 
             'TYPE 3? simple expression
@@ -5455,23 +5142,9 @@ IF n >= 1 THEN
             IF t = 0 THEN
                 'string comparison
                 IF (typ AND ISSTRING) = 0 THEN a$ = "Expected string expression": GOTO errmes
-                IF o$ = "==" THEN o$ = "qbs_equal"
-                IF o$ = "!=" THEN o$ = "qbs_notequal"
-                IF o$ = ">" THEN o$ = "qbs_greaterthan"
-                IF o$ = "<" THEN o$ = "qbs_lessthan"
-                IF o$ = ">=" THEN o$ = "qbs_greaterorequal"
-                IF o$ = "<=" THEN o$ = "qbs_lessorequal"
             ELSE
                 'numeric
                 IF (typ AND ISSTRING) THEN a$ = "Expected numeric expression": GOTO errmes
-                'round to integer?
-                IF (typ AND ISFLOAT) THEN
-                    IF t = 1 THEN e$ = "qbr(" + e$ + ")"
-                    IF t = 2 THEN e$ = "qbr_longdouble_to_uint64(" + e$ + ")"
-                    IF t = 6 OR t = 7 THEN e$ = "qbr_double_to_long(" + e$ + ")"
-                END IF
-                'cast result?
-                IF LEN(tc$) THEN e$ = tc$ + "(" + e$ + ")"
             END IF
 
             addedexp:
@@ -5495,12 +5168,6 @@ END IF
 
 'static scope commands:
 
-IF NoChecks = 0 THEN
-    IF vWatchOn = 1 AND inclinenumber(inclevel) = 0 THEN
-        vWatchAddLabel linenumber, 0
-    END IF
-    'PRINT #12, "S_" + str2$(statementn) + ":;"
-END IF
 
 
 IF n > 1 THEN
@@ -6479,7 +6146,6 @@ IF n >= 1 THEN
                         IF t2 AND ISPOINTER THEN t2 = t2 - ISPOINTER
                         IF t2 AND ISREFERENCE THEN t2 = t2 - ISREFERENCE
 
-                        IF Debug THEN PRINT #9, "SHARED:comparing:"; t; t2, tsize; t2size
 
                         IF t = t2 AND tsize = t2size THEN GOTO shrfound
                     END IF
@@ -6834,40 +6500,6 @@ IF n >= 2 THEN
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + sp + RTRIM$(id.cn) + ls$
             'erase the array
-            clearerase:
-            n$ = RTRIM$(id.callname)
-            bytesperelement$ = str2((id.arraytype AND 511) \ 8)
-            IF id.arraytype AND ISSTRING THEN bytesperelement$ = str2(id.tsize)
-            IF id.arraytype AND ISOFFSETINBITS THEN bytesperelement$ = str2((id.arraytype AND 511)) + "/8+1"
-            IF id.arraytype AND ISUDT THEN
-                bytesperelement$ = str2(udtxsize(id.arraytype AND 511) \ 8)
-            END IF
-            IF (id.arraytype AND ISSTRING) <> 0 AND (id.arraytype AND ISFIXEDLENGTH) = 0 THEN
-                FOR i2 = 1 TO ABS(id.arrayelements)
-                NEXT
-            ELSE
-                'numeric
-                'clear array
-                FOR i2 = 1 TO ABS(id.arrayelements)
-                NEXT
-            END IF
-            '1. free memory & any allocated strings
-            IF (id.arraytype AND ISSTRING) <> 0 AND (id.arraytype AND ISFIXEDLENGTH) = 0 THEN
-                'free strings
-                FOR i2 = 1 TO ABS(id.arrayelements)
-                NEXT
-                'free memory
-            ELSE
-                'free memory
-            END IF
-            '2. set array (and its elements) as undefined
-            'set dimensions as undefined
-            FOR i2 = 1 TO ABS(id.arrayelements)
-                B = i2 * 4
-            NEXT
-            IF (id.arraytype AND ISSTRING) <> 0 AND (id.arraytype AND ISFIXEDLENGTH) = 0 THEN
-            END IF
-            IF clearerasereturn = 1 THEN clearerasereturn = 0: GOTO clearerasereturned
             GOTO erasedarray
         END IF
         IF Error_Happened THEN GOTO errmes
@@ -6936,8 +6568,6 @@ IF n >= 2 THEN
         listarray = 0
 
 
-        'old chain code
-        'chaincommonarray=0
 
         varname$ = getelement(ca$, i): i = i + 1
         IF varname$ = "" THEN a$ = "Expected " + firstelement$ + " variable-name or " + firstelement$ + " AS type variable-list": GOTO errmes
@@ -6965,7 +6595,6 @@ IF n >= 2 THEN
             IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
-            IF Debug THEN PRINT #9, "DIM2:array:elements$:[" + elements$ + "]"
 
             'arrayname() means list array to it will automatically be static when it is formally dimensioned later
             'note: listed arrays are always created in dynamic memory, but their contents are not erased
@@ -7226,7 +6855,6 @@ IF commonoption THEN
         commonarraylist = commonarraylist + varname$ + sp + symbol2fulltypename$(typ$) + sp + str2(dimmethod) + sp + str2(dimshared)
         IF Error_Happened THEN GOTO errmes
         commonarraylistn = commonarraylistn + 1
-        IF Debug THEN PRINT #9, "common listed:" + varname$ + sp + symbol2fulltypename$(typ$) + sp + str2(dimmethod) + sp + str2(dimshared)
         IF Error_Happened THEN GOTO errmes
 
         x = 0
@@ -7308,7 +6936,6 @@ END IF
 IF LEN(elements$) THEN 'it's an array
 IF subfuncn = 0 THEN 'not in a sub/function
 
-IF Debug THEN PRINT #9, "common checking:" + varname$
 
 xi = 1
 FOR x = 1 TO commonarraylistn
@@ -7316,7 +6943,6 @@ FOR x = 1 TO commonarraylistn
     typ2$ = getelement$(commonarraylist, xi): xi = xi + 1
     dimmethod2 = VAL(getelement$(commonarraylist, xi)): xi = xi + 1
     dimshared2 = VAL(getelement$(commonarraylist, xi)): xi = xi + 1
-    IF Debug THEN PRINT #9, "common checking against:" + varname2$ + sp + typ2$ + sp + str2(dimmethod2) + sp + str2(dimshared2)
     'check if they are similar
     IF varname$ = varname2$ THEN
         IF symbol2fulltypename$(typ$) = typ2$ THEN
@@ -7327,8 +6953,6 @@ FOR x = 1 TO commonarraylistn
                 'enforce shared status (if necessary)
                 IF dimshared2 THEN dimshared = dimshared OR 2 'temp force SHARED
 
-                'old chain code
-                'chaincommonarray=x
 
             END IF 'method
         END IF 'typ
@@ -7351,30 +6975,8 @@ END IF
 
 'non-array COMMON variable
 IF commonoption <> 0 AND LEN(elements$) = 0 THEN
-
-    'CHAIN.TXT (save)
-
-    use_global_byte_elements = 1
-
-    'switch output from main.txt to chain.txt
-    l2$ = tlayout$
-
-
     t = id.t
-    bits = t AND 511
-    IF t AND ISUDT THEN bits = udtxsize(t AND 511)
-    IF t AND ISSTRING THEN
-        IF t AND ISFIXEDLENGTH THEN
-            bits = id.tsize * 8
-        ELSE
-            bits = 0
-        END IF
-    END IF
-
-
-    'put the variable
     e$ = RTRIM$(id.n)
-
     IF (t AND ISUDT) = 0 THEN
         IF t AND ISFIXEDLENGTH THEN
             e$ = e$ + "$" + str2$(id.tsize)
@@ -7384,49 +6986,6 @@ IF commonoption <> 0 AND LEN(elements$) = 0 THEN
         END IF
     END IF
     IrCommonVar e$, dimshared
-    e$ = evaluatetotyp(fixoperationorder$(e$), -4)
-    IF Error_Happened THEN GOTO errmes
-
-
-    tlayout$ = l2$
-    'revert output to main.txt
-
-
-    'INPCHAIN.TXT (load)
-
-    'switch output from main.txt to chain.txt
-    l2$ = tlayout$
-
-
-    'get the size in bits
-    '***assume correct size***
-
-    e$ = RTRIM$(id.n)
-    t = id.t
-    IF (t AND ISUDT) = 0 THEN
-        IF t AND ISFIXEDLENGTH THEN
-            e$ = e$ + "$" + str2$(id.tsize)
-        ELSE
-            e$ = e$ + typevalue2symbol$(t)
-            IF Error_Happened THEN GOTO errmes
-        END IF
-    END IF
-
-    IF t AND ISSTRING THEN
-        IF (t AND ISFIXEDLENGTH) = 0 THEN
-            'now that the string is the correct size, the following GET command will work correctly...
-        END IF
-    END IF
-
-    e$ = evaluatetotyp(fixoperationorder$(e$), -4)
-    IF Error_Happened THEN GOTO errmes
-
-
-    tlayout$ = l2$
-    'revert output to main.txt
-
-    use_global_byte_elements = 0
-
 END IF
 
 commonarraylisted:
@@ -7524,7 +7083,6 @@ ELSE
         IF LEN(elements$) = 0 AND dimoption = 1 AND commonoption = 0 THEN elements$ = "?"
 
 
-        IF Debug THEN PRINT #9, "DIM2:array:elements$:[" + elements$ + "]"
 
         'arrayname() means list array to it will automatically be static when it is formally dimensioned later
         'note: listed arrays are always created in dynamic memory, but their contents are not erased
@@ -7741,10 +7299,8 @@ IF firstelement$ = "END" THEN
             thisincname$ = MID$(incname$(inclevel), LEN(thisincname$) + 1)
             inclinenump$ = inclinenump$ + "," + CHR$(34) + thisincname$ + CHR$(34)
         END IF
-        IF vWatchOn AND inclinenumber(inclevel) = 0 THEN temp$ = vWatchErrorCall$ ELSE temp$ = ""
         l$ = l$ + sp + l2$
     END IF
-    xend
     IrE "end"
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     GOTO finishedline
@@ -7764,15 +7320,7 @@ IF firstelement$ = "SYSTEM" THEN
             thisincname$ = MID$(incname$(inclevel), LEN(thisincname$) + 1)
             inclinenump$ = inclinenump$ + "," + CHR$(34) + thisincname$ + CHR$(34)
         END IF
-        IF vWatchOn = 1 AND NoChecks = 0 AND inclinenumber(inclevel) = 0 THEN temp$ = vWatchErrorCall$ ELSE temp$ = ""
         l$ = l$ + sp + l2$
-    END IF
-
-
-    IF vWatchOn = 1 THEN
-        IF inclinenumber(inclevel) = 0 THEN
-            vWatchAddLabel linenumber, 0
-        END IF
     END IF
     IF IrEmitMode THEN
         IF n > 1 THEN IrE "system " + IrEvalTo$(fixoperationorder$(getelements$(ca$, 2, n)), INTEGER64TYPE - ISPOINTER) ELSE IrE "system"
@@ -7794,9 +7342,6 @@ IF n >= 1 THEN
             'note: this value is currently ignored but evaluated for checking reasons
         END IF
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
-        IF vWatchOn = 1 AND NoChecks = 0 AND inclinenumber(inclevel) = 0 THEN
-            vWatchAddLabel linenumber, 0
-        END IF
         IrE "stop"
         GOTO finishedline
     END IF
@@ -8051,13 +7596,11 @@ IF n >= 1 THEN
         '            IF typ AND ISREFERENCE THEN e$ = refer(e$, typ, 0)
 
 
-        'PRINT #12, blkoffs$ '???
 
         e$ = fixoperationorder$(offs$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
         e$ = evaluatetotyp(e$, OFFSETTYPE - ISPOINTER): IF Error_Happened THEN GOTO errmes
         offs$ = e$
-        'PRINT #12, e$ '???
 
         e$ = fixoperationorder$(var$): IF Error_Happened THEN GOTO errmes
         l$ = l$ + sp2 + "," + sp + tlayout$
@@ -8065,8 +7608,6 @@ IF n >= 1 THEN
         varoffs$ = evaluatetotyp(e$, -6): IF Error_Happened THEN GOTO errmes
 
 
-        'PRINT #12, varoffs$ '???
-        'PRINT #12, varsize$ '???
 
         'what do we do next
         'need to know offset of variable and its size
@@ -8783,13 +8324,6 @@ IF firstelement$ = "INPUT" THEN
             IF (t AND ISINCONVENTIONALMEMORY) THEN t = t - ISINCONVENTIONALMEMORY
             IF (t AND ISREFERENCE) THEN t = t - ISREFERENCE
 
-            'IF (t AND ISOFFSETINBITS) THEN
-            'numvar = numvar + 1
-            'consider storing the bit offset in unused bits of t
-            'PRINT #12, "qbs_input_variabletypes[" + str2(numvar) + "]=" + str2(t) + ";"
-            'PRINT #12, "qbs_input_variableoffsets[" + str2(numvar) + "]=" + refer(ref$, typ, 1) + ";"
-            'GOTO gotinputvar
-            'END IF
 
             'assume it is a regular variable
             numvar = numvar + 1
@@ -9127,16 +8661,6 @@ FOR i = 1 TO id2.args + 1
 NEXT
 
 
-IF Debug THEN
-    PRINT #9, "separgs:"
-    FOR i = 1 TO id2.args
-        PRINT #9, i, separgs_local$(i)
-    NEXT
-    PRINT #9, "separgslayout:"
-    FOR i = 1 TO id2.args + 1
-        PRINT #9, i, separgslayout_local$(i)
-    NEXT
-END IF
 
 
 'note: seperateargs finds the arguments to pass and sets passed& as necessary
@@ -9230,13 +8754,6 @@ FOR i = 1 TO id2.args
                 'convertspacing=1
 
 
-                'if debug=1 then
-                'print #9,"LPRINT:"
-                'print #9,s
-                'print #9,an
-                'print #9,l$
-                'print #9,x2$
-                'end if
 
             END IF
 
@@ -9437,7 +8954,6 @@ ELSE
         IF (targettyp AND ISARRAY) THEN
             IF (sourcetyp AND ISREFERENCE) = 0 THEN a$ = "Expected arrayname()": GOTO errmes
             IF (sourcetyp AND ISARRAY) = 0 THEN a$ = "Expected arrayname()": GOTO errmes
-            IF Debug THEN PRINT #9, "sub:array reference:[" + e$ + "]"
 
             'check arrays are of same type
             targettyp2 = targettyp: sourcetyp2 = sourcetyp
@@ -9447,7 +8963,6 @@ ELSE
 
             'check arrayname was followed by '()'
             IF targettyp AND ISUDT THEN
-                IF Debug THEN PRINT #9, "sub:array reference:udt reference:[" + e$ + "]"
                 'get UDT info
                 udtrefid = VAL(e$)
                 getid udtrefid
@@ -9791,7 +9306,6 @@ subcall$ = ""
 layoutdone = 1
 x$ = RIGHT$(l$, 1): IF x$ = sp OR x$ = sp2 THEN l$ = LEFT$(l$, LEN(l$) - 1)
 IF usecall = 1 THEN l$ = l$ + sp2 + ")"
-IF Debug THEN PRINT #9, "SUB layout:[" + l$ + "]"
 IF LEN(layout$) = 0 THEN layout$ = l$ ELSE layout$ = layout$ + sp + l$
 GOTO finishedline
 
@@ -9846,21 +9360,12 @@ IrStmtEnd
 THENGOTO = 0
 finishedline2:
 
-IF inputfunctioncalled THEN
-    inputfunctioncalled = 0
-END IF
-
-IF arrayprocessinghappened = 1 THEN arrayprocessinghappened = 0
-
 inclinenump$ = ""
 IF inclinenumber(inclevel) THEN
     inclinenump$ = "," + str2$(inclinenumber(inclevel))
     thisincname$ = getfilepath$(incname$(inclevel))
     thisincname$ = MID$(incname$(inclevel), LEN(thisincname$) + 1)
     inclinenump$ = inclinenump$ + "," + CHR$(34) + thisincname$ + CHR$(34)
-END IF
-IF NoChecks = 0 THEN
-    IF vWatchOn AND inclinenumber(inclevel) = 0 THEN temp$ = vWatchErrorCall$ ELSE temp$ = ""
 END IF
 
 finishednonexec:
@@ -9996,13 +9501,6 @@ LOOP 'fall through to next section...
 END IF 'continuelinefrom=0
 
 
-IF Debug THEN
-    PRINT #9, "[layout check]"
-    PRINT #9, "[" + layoutoriginal$ + "]"
-    PRINT #9, "[" + layout$ + "]"
-    PRINT #9, layoutok
-    PRINT #9, "[end layout check]"
-END IF
 
 
 'layout is not currently used by the compiler, if it was it would be used here
@@ -10046,74 +9544,7 @@ END IF
 
 'close the error handler (cannot be put in 'closemain' because subs/functions can also add error jumps to this file)
 
-'create CLEAR method "CLEAR"
 
-FOR i = 1 TO idn
-
-    IF ids(i).staticscope THEN 'static scope?
-    subfunc = RTRIM$(ids(i).insubfunc) 'set static scope
-    GOTO clearstaticscope
-END IF
-
-a = ASC(ids(i).insubfunc)
-IF a = 0 OR a = 32 THEN 'global scope?
-subfunc = "" 'set global scope
-clearstaticscope:
-
-IF ids(i).arraytype THEN 'an array
-getid i
-IF Error_Happened THEN GOTO errmes
-IF id.arrayelements = -1 THEN GOTO clearerasereturned 'cannot erase non-existant array
-IF INSTR(vWatchVariableExclusions$, "@" + RTRIM$(id.callname) + "@") > 0 THEN
-    GOTO clearerasereturned
-END IF
-clearerasereturn = 1: GOTO clearerase
-END IF 'array
-
-IF ids(i).t THEN 'non-array variable
-getid i
-IF Error_Happened THEN GOTO errmes
-bytes$ = variablesize$(-1)
-IF Error_Happened THEN GOTO errmes
-'create a reference
-typ = id.t + ISREFERENCE
-IF typ AND ISUDT THEN
-    e$ = str2(i) + sp3 + str2(typ AND 511) + sp3 + "0" + sp3 + "0"
-ELSE
-    e$ = str2(i)
-END IF
-e$ = refer$(e$, typ, 1)
-IF Error_Happened THEN GOTO errmes
-IF typ AND ISSTRING THEN
-    IF typ AND ISFIXEDLENGTH THEN
-        GOTO cleared
-    ELSE
-        IF INSTR(vWatchVariableExclusions$, "@" + e$ + "@") = 0 AND LEFT$(e$, 12) <> "_SUB_VWATCH_" THEN
-        END IF
-        GOTO cleared
-    END IF
-END IF
-IF typ AND ISUDT THEN
-    IF udtxvariable(typ AND 511) THEN
-        'this next procedure resets values of UDT variables with variable-length strings
-    END IF
-ELSE
-    IF INSTR(vWatchVariableExclusions$, "@" + e$ + "@") = 0 AND LEFT$(e$, 12) <> "_SUB_VWATCH_" THEN
-    END IF
-END IF
-GOTO cleared
-END IF 'non-array variable
-
-END IF 'scope
-
-cleared:
-clearerasereturned:
-NEXT
-
-IF Debug THEN
-    PRINT #9, "finished making program!"
-    PRINT #9, "recompile="; recompile
-END IF
 
 'Set cmem flags for subs/functions requiring data passed in cmem
 FOR i = 1 TO idn
@@ -10122,23 +9553,19 @@ FOR i = 1 TO idn
     getid i
     IF Error_Happened THEN GOTO errmes
 
-    IF Debug THEN PRINT #9, "recompiling cmem sf! checking:"; RTRIM$(id.n)
 
     IF id.sfid THEN 'it is an argument of a sub/function
 
-    IF Debug THEN PRINT #9, "recompiling cmem sf! It's a sub/func arg!"
 
     i2 = id.sfid
     x = id.sfarg
 
-    IF Debug THEN PRINT #9, "recompiling cmem sf! values:"; i2; x
 
     'check if cmem flag is set, if not then set it & force recompile
     IF MID$(sfcmemargs(i2), x, 1) <> CHR$(1) THEN
         MID$(sfcmemargs(i2), x, 1) = CHR$(1)
 
 
-        IF Debug THEN PRINT #9, "recompiling cmem sf! setting:"; i2; x
 
 
         recompile = 1
@@ -10152,7 +9579,6 @@ FOR i = 1 TO idn
     getid i
     IF Error_Happened THEN GOTO errmes
 
-    IF Debug THEN PRINT #9, "checking id named:"; id.n
 
     IF id.subfunc THEN
         FOR i2 = 1 TO id.args
@@ -10161,17 +9587,13 @@ FOR i = 1 TO idn
                 IF (t AND ISPOINTER) THEN
                     IF (t AND ISARRAY) THEN
 
-                        IF Debug THEN PRINT #9, "checking argument "; i2; " of "; id.args
 
                         nele = ASC(MID$(id.nele, i2, 1))
                         nelereq = ASC(MID$(id.nelereq, i2, 1))
 
-                        IF Debug THEN PRINT #9, "nele="; nele
-                        IF Debug THEN PRINT #9, "nelereq="; nelereq
 
                         IF nele <> nelereq THEN
 
-                            IF Debug THEN PRINT #9, "mismatch detected!"
 
                             unresolved = unresolved + 1
                             sflistn = sflistn + 1
@@ -10191,20 +9613,10 @@ IF unresolved > 0 THEN
     IF lastunresolved = -1 THEN
         'first pass
         recompile = 1
-        IF Debug THEN
-            PRINT #9, "recompiling to resolve array elements (first time)"
-            PRINT #9, "sflistn="; sflistn
-            PRINT #9, "oldsflistn="; oldsflistn
-        END IF
     ELSE
         'not first pass
         IF unresolved < lastunresolved THEN
             recompile = 1
-            IF Debug THEN
-                PRINT #9, "recompiling to resolve array elements (not first time)"
-                PRINT #9, "sflistn="; sflistn
-                PRINT #9, "oldsflistn="; oldsflistn
-            END IF
         END IF
     END IF
 END IF 'unresolved
@@ -10219,21 +9631,7 @@ lastunresolved = unresolved
 '          by a new fix? if so, it would give these effects
 
 
-'could recompilation resolve this?
-'IF sflistn <> -1 THEN
-'IF sflistn <> oldsflistn THEN
-'recompile = 1
-'
-'if debug then
-'print #9,"recompile set to 1 to resolve array elements"
-'print #9,"sflistn=";sflistn
-'print #9,"oldsflistn=";oldsflistn
-'end if
-'
-'END IF
-'END IF
 
-IF Debug THEN PRINT #9, "Beginning COMMON array list check..."
 xi = 1
 FOR x = 1 TO commonarraylistn
     varname$ = getelement$(commonarraylist, xi): xi = xi + 1
@@ -10246,7 +9644,6 @@ FOR x = 1 TO commonarraylistn
     IF (t AND ISUDT) = 0 THEN varname$ = varname$ + type2symbol$(typ$)
     IF Error_Happened THEN GOTO errmes
 
-    IF Debug THEN PRINT #9, "Checking for array '" + varname$ + "'..."
 
     try = findid(varname$)
     IF Error_Happened THEN GOTO errmes
@@ -10257,14 +9654,11 @@ FOR x = 1 TO commonarraylistn
     LOOP
     foundcommonarray2:
 
-    IF Debug THEN PRINT #9, "Found array '" + varname$ + "!"
 
     IF id.arrayelements = -1 THEN
         IF arrayelementslist(currentid) <> 0 THEN recompile = 1
-        IF Debug THEN PRINT #9, "Recompiling to resolve elements of:" + varname$
     END IF
 NEXT
-IF Debug THEN PRINT #9, "Finished COMMON array list check!"
 
 IF vWatchDesiredState <> vWatchOn THEN
     vWatchRecompileAttempts = vWatchRecompileAttempts + 1
@@ -10273,7 +9667,6 @@ END IF
 
 IF recompile THEN
     do_recompile:
-    IF Debug THEN PRINT #9, "Recompile required!"
     recompile = 0
     FOR closeall = 1 TO 255
         IF closeall <> 26 THEN CLOSE closeall 'keep the temp folder lock (#26): closing it lets a parallel qb take the folder
@@ -10295,11 +9688,8 @@ IF recompile THEN
     END IF
 
 
-    'if targettyp=-4 or targettyp=-5 then '? -> byte_element(offset,element size in bytes)
-    ' IF (sourcetyp AND ISREFERENCE) = 0 THEN a$ = "Expected variable name/array element": GOTO errmes
 
 
-    'create include files for COMMON arrays
 
 
     'return to 'main'
@@ -10311,285 +9701,6 @@ IF recompile THEN
     END IF
 
 
-    IF Debug THEN PRINT #9, "Beginning generation of code for saving/sharing common array data..."
-    use_global_byte_elements = 1
-    ncommontmp = 0
-    xi = 1
-    FOR x = 1 TO commonarraylistn
-        varname$ = getelement$(commonarraylist, xi): xi = xi + 1
-        typ$ = getelement$(commonarraylist, xi): xi = xi + 1
-        dimmethod2 = VAL(getelement$(commonarraylist, xi)): xi = xi + 1
-        dimshared2 = VAL(getelement$(commonarraylist, xi)): xi = xi + 1
-
-        'find the array ID (try method)
-        purevarname$ = varname$
-        t = typname2typ(typ$)
-        IF Error_Happened THEN GOTO errmes
-        IF (t AND ISUDT) = 0 THEN varname$ = varname$ + type2symbol$(typ$)
-        IF Error_Happened THEN GOTO errmes
-        try = findid(varname$)
-        IF Error_Happened THEN GOTO errmes
-        DO WHILE try
-            IF id.arraytype THEN GOTO foundcommonarray
-            IF try = 2 THEN findanotherid = 1: try = findid(varname$) ELSE try = 0
-            IF Error_Happened THEN GOTO errmes
-        LOOP
-        a$ = "COMMON array unlocatable": GOTO errmes 'should never happen
-        foundcommonarray:
-        IF Debug THEN PRINT #9, "Found common array '" + varname$ + "'!"
-
-        i = currentid
-        arraytype = id.arraytype
-        arrayelements = id.arrayelements
-        e$ = RTRIM$(id.n)
-        IF (t AND ISUDT) = 0 THEN
-            'a fixed-length string has no plain symbol: name$n
-            IF t AND ISFIXEDLENGTH THEN e$ = e$ + "$" + str2$(id.tsize) ELSE e$ = e$ + typevalue2symbol$(t)
-        END IF
-        IF Error_Happened THEN GOTO errmes
-        n$ = e$
-        n2$ = RTRIM$(id.callname)
-        tsize = id.tsize
-
-        'select command
-        command = 3 'fixed length elements
-        IF t AND ISSTRING THEN
-            IF (t AND ISFIXEDLENGTH) = 0 THEN
-                command = 4 'var-len elements
-            END IF
-        END IF
-
-
-        'if...
-        'i) array elements are still undefined (ie. arrayelements=-1) pass the input content along
-        '   if any existed or an array-placeholder
-        'ii) if the array's elements were defined, any input content would have been loaded so the
-        '    array (in whatever state it currently is) should be passed. If it is currently erased
-        '    then it should be passed as a placeholder
-
-        IF arrayelements = -1 THEN
-
-            'load array (copies the array, if any, into a buffer for later)
-
-
-            'create buffer to store array as-is in global.txt
-            x$ = str2$(uniquenumber)
-            x1$ = "chainarraybuf" + x$
-            x2$ = "chainarraybufsiz" + x$
-            'read next command
-
-
-            IF command = 3 THEN
-                'read size in bits of one element, convert it to bytes
-            END IF 'com=3
-
-
-            'read number of dimensions
-
-            'read size of dimensions & calculate the size of the array in bytes
-
-            IF command = 3 THEN
-                'read the array data
-            END IF 'com=3
-
-
-            'get next command
-
-
-            'save array (saves the buffered data, if any, for later)
-
-
-        ELSE
-            'note: arrayelements<>-1
-
-            'load array
-
-
-            IF command = 3 THEN
-                'get size in bits
-                '***assume correct***
-            END IF
-
-            'get number of elements
-            '***assume correct***
-
-            e$ = ""
-            FOR x2 = 1 TO arrayelements
-
-                'create 'secret' variables to assist in passing common arrays
-                IF x2 > ncommontmp THEN
-                    ncommontmp = ncommontmp + 1
-
-                    IF Debug THEN PRINT #9, "Calling DIM2(...)..."
-                    IF Error_Happened THEN GOTO errmes
-                    retval = dim2("___RESERVED_COMMON_LBOUND" + str2$(ncommontmp), "_INTEGER64", 0, "")
-                    IF Error_Happened THEN GOTO errmes
-                    retval = dim2("___RESERVED_COMMON_UBOUND" + str2$(ncommontmp), "_INTEGER64", 0, "")
-                    IF Error_Happened THEN GOTO errmes
-                    IF Debug THEN PRINT #9, "Finished calling DIM2(...)!"
-                    IF Error_Happened THEN GOTO errmes
-
-
-                END IF
-
-                IF x2 > 1 THEN e$ = e$ + sp + "," + sp
-                e$ = e$ + "___RESERVED_COMMON_LBOUND" + str2$(x2) + sp + "TO" + sp + "___RESERVED_COMMON_UBOUND" + str2$(x2)
-            NEXT
-
-            IF Debug THEN PRINT #9, "Calling DIM2(" + purevarname$ + "," + typ$ + ",0," + e$ + ")..."
-            IF Error_Happened THEN GOTO errmes
-            'Note: purevarname$ is simply varname$ without the type symbol after it
-            redimoption = 1
-            retval = dim2(purevarname$, typ$, 0, e$)
-            IF Error_Happened THEN GOTO errmes
-            redimoption = 0
-            IF Debug THEN PRINT #9, "Finished calling DIM2(" + purevarname$ + "," + typ$ + ",0," + e$ + ")!"
-            IF Error_Happened THEN GOTO errmes
-
-            IF command = 3 THEN
-                'use get to load in the array data
-                varname$ = varname$ + sp + "(" + sp + ")"
-                e$ = evaluatetotyp(fixoperationorder$(varname$), -4)
-                IF Error_Happened THEN GOTO errmes
-            END IF
-
-
-            'get next command
-
-            'save array
-
-
-            IF command = 3 THEN
-                'size of each element in bits
-                bits = t AND 511
-                IF t AND ISUDT THEN bits = udtxsize(t AND 511)
-                IF t AND ISSTRING THEN bits = tsize * 8
-            END IF 'com=3
-
-
-            IF command = 3 THEN
-
-                FOR x2 = 1 TO arrayelements
-                    'simulate calls to lbound/ubound
-                    e$ = "LBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
-                    e$ = evaluatetotyp(fixoperationorder$(e$), 64)
-                    IF Error_Happened THEN GOTO errmes
-                    e$ = "UBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
-                    e$ = evaluatetotyp(fixoperationorder$(e$), 64)
-                    IF Error_Happened THEN GOTO errmes
-                NEXT
-
-                'array data
-                e$ = evaluatetotyp(fixoperationorder$(n$ + sp + "(" + sp + ")"), -4)
-                IF Error_Happened THEN GOTO errmes
-
-            END IF 'com=3
-
-            IF command = 4 THEN
-
-                'store LBOUND/UBOUND values and calculate number of total elements/strings
-                FOR x2 = 1 TO arrayelements
-                    e$ = "LBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
-                    e$ = evaluatetotyp(fixoperationorder$(e$), 64)
-                    IF Error_Happened THEN GOTO errmes
-                    e$ = "UBOUND" + sp + "(" + sp + n$ + sp + "," + sp + str2$(x2) + sp + ")"
-                    e$ = evaluatetotyp(fixoperationorder$(e$), 64)
-                    IF Error_Happened THEN GOTO errmes
-                NEXT
-
-
-            END IF 'com=4
-
-
-            'if chaincommonarray then
-            'l2$=tlayout$
-            'x=chaincommonarray
-            '
-            ''chain???.txt
-            'open tmpdir$ + "chain" + str2$(x) + ".txt" for append as #22
-            'if lof(22) then close #22: goto chaindone 'only add this once
-            ''***assume non-var-len-string array***
-            'print #22,"int32val=3;" 'non-var-len-element array
-            'print #22,"sub_put(FF,NULL,byte_element((uint64)&int32val,4,"+NewByteElement$+"),0);"
-            't=id.arraytype
-            ''***check for UDT size if necessary***
-            ''***check for string length if necessary***
-            'bits=t and 511
-            'print #22,"int64val="+str2$(bits)+";" 'size in bits
-            'print #22,"sub_put(FF,NULL,byte_element((uint64)&int64val,8,"+NewByteElement$+"),0);"
-            'print #22,"int32val="+str2$(id.arrayelements)+";" 'number of elements
-            'print #22,"sub_put(FF,NULL,byte_element((uint64)&int32val,4,"+NewByteElement$+"),0);"
-            'e$=rtrim$(id.n)
-            'if (t and ISUDT)=0 then e$=e$+typevalue2symbol$(t)
-            'n$=e$
-            'for x2=1 to id.arrayelements
-            ''simulate calls to lbound/ubound
-            'e$="LBOUND"+sp+"("+sp+n$+sp+","+sp+str2$(x2)+sp+")"
-            'e$=evaluatetotyp(fixoperationorder$(e$),64)
-            'print #22,"int64val="+e$+";"'LBOUND
-            'print #22,"sub_put(FF,NULL,byte_element((uint64)&int64val,8,"+NewByteElement$+"),0);"
-            'e$="UBOUND"+sp+"("+sp+n$+sp+","+sp+str2$(x2)+sp+")"
-            'e$=evaluatetotyp(fixoperationorder$(e$),64)
-            'print #22,"int64val="+e$+";"'LBOUND
-            'print #22,"sub_put(FF,NULL,byte_element((uint64)&int64val,8,"+NewByteElement$+"),0);"
-            'next
-            ''add array data
-            'e$=evaluatetotyp(fixoperationorder$(n$+sp+"("+sp+")"),-4)
-            'print #22,"sub_put(FF,NULL,"+e$+",0);"
-            'close #22
-            '
-            ''inpchain???.txt
-            'open tmpdir$ + "chain" + str2$(x) + ".txt" for append as #22
-            'print #22,"if (int32val==1){" 'common declaration of an array
-            'print #22,"sub_get(FF,NULL,byte_element((uint64)&int32val,4,"+NewByteElement$+"),0);"
-            'print #22,"if (int32val==3){" 'fixed-length-element array
-            '
-            'print #22,"sub_get(FF,NULL,byte_element((uint64)&int64val,8,"+NewByteElement$+"),0);"
-            ''***assume size correct and continue***
-            '
-            ''get number of elements
-            'print #22,"sub_get(FF,NULL,byte_element((uint64)&int32val,4,"+NewByteElement$+"),0);"
-            '
-            ''call dim2 and tell it to redim an array
-            '
-            ''*********this should happen BEFORE the array (above) is actually dimensioned,
-            ''*********where the common() declaration is
-            '
-            ''****although, if you never reference the array.............
-            ''****ARGH! you can access an undimmed array just like in a sub/function
-            '
-            '
-            '
-            '
-            'print #22,"}"
-            'print #22,"}"
-            'close #22
-            '
-            'chaindone:
-            'tlayout$=l2$
-            'end if 'chaincommonarray
-
-
-            'OPEN tmpdir$ + "chain.txt" FOR APPEND AS #22
-            ''include directive
-            'print #22, "#include " + CHR$(34) + "chain" + str2$(x) + ".txt" + CHR$(34)
-            'close #22
-            ''create/clear include file
-            'open tmpdir$ + "chain" + str2$(x) + ".txt" for output as #22:close #22
-            '
-            'OPEN tmpdir$ + "inpchain.txt" FOR APPEND AS #22
-            ''include directive
-            'print #22, "#include " + CHR$(34) + "inpchain" + str2$(x) + ".txt" + CHR$(34)
-            'close #22
-            ''create/clear include file
-            'open tmpdir$ + "inpchain" + str2$(x) + ".txt" for output as #22:close #22
-
-
-        END IF 'id.arrayelements=-1
-
-    NEXT
-    use_global_byte_elements = 0
-    IF Debug THEN PRINT #9, "Finished generation of code for saving/sharing common array data!"
 
 
     FOR closeall = 1 TO 255
@@ -10690,15 +9801,13 @@ IF recompile THEN
 
 
         SUB vWatchVariable (this$, action AS _BYTE)
-            STATIC totalLocalVariables AS LONG, localVariablesList$
-            STATIC totalMainModuleVariables AS LONG, mainModuleVariablesList$
+            STATIC totalLocalVariables AS LONG
+            STATIC totalMainModuleVariables AS LONG
 
             SELECT CASE action
             CASE -1 'reset
                 totalLocalVariables = 0
-                localVariablesList$ = ""
                 totalMainModuleVariables = 0
-                mainModuleVariablesList$ = ""
             CASE 0 'add
                 IF INSTR(vWatchVariableExclusions$, "@" + this$ + "@") > 0 OR LEFT$(this$, 12) = "_SUB_VWATCH_" THEN
                     EXIT SUB
@@ -10707,78 +9816,23 @@ IF recompile THEN
                 vWatchNewVariable$ = this$
                 IF subfunc = "" THEN
                     totalMainModuleVariables = totalMainModuleVariables + 1
-                    mainModuleVariablesList$ = mainModuleVariablesList$ + "vwatch_global_vars[" + str2$(totalMainModuleVariables - 1) + "] = &" + this$ + ";" + CRLF
                     manageVariableList id.cn, this$, totalMainModuleVariables - 1, 0
                 ELSE
                     totalLocalVariables = totalLocalVariables + 1
-                    localVariablesList$ = localVariablesList$ + "vwatch_local_vars[" + str2$(totalLocalVariables - 1) + "] = &" + this$ + ";" + CRLF
                     manageVariableList id.cn, this$, totalLocalVariables - 1, 0
                 END IF
-            CASE 1 'dump to data[].txt & reset
+            CASE 1 'reset
                 IF subfunc = "" THEN
-
-                    mainModuleVariablesList$ = ""
                     totalMainModuleVariables = 0
                 ELSE
-
-                    localVariablesList$ = ""
                     totalLocalVariables = 0
                 END IF
             END SELECT
         END SUB
 
-        SUB vWatchAddLabel (this AS LONG, lastLine AS _BYTE)
-            STATIC prevLabel AS LONG, prevSkip AS LONG
-
-            IF lastLine = 0 THEN
-                WHILE this > LEN(vWatchUsedLabels)
-                    vWatchUsedLabels = vWatchUsedLabels + SPACE$(1000)
-                    vWatchUsedSkipLabels = vWatchUsedSkipLabels + SPACE$(1000)
-                WEND
-
-                IF firstLineNumberLabelvWatch = 0 THEN
-                    firstLineNumberLabelvWatch = this
-                ELSE
-                    IF prevSkip <> prevLabel THEN
-                        ASC(vWatchUsedSkipLabels, prevLabel) = 1
-                        prevSkip = prevLabel
-                    END IF
-                END IF
-
-                IF prevLabel <> this THEN
-                    ASC(vWatchUsedLabels, this) = 1
-                    prevLabel = this
-                    lastLineNumberLabelvWatch = this
-                END IF
-            ELSE
-                IF prevSkip <> prevLabel THEN
-                    ASC(vWatchUsedSkipLabels, prevLabel) = 1
-                    prevSkip = prevLabel
-                END IF
-            END IF
-        END SUB
-
         SUB closemain
             IrCloseMain
-            xend
-
-
-            IF vWatchOn AND firstLineNumberLabelvWatch > 0 THEN
-                FOR i = firstLineNumberLabelvWatch TO lastLineNumberLabelvWatch
-                    IF ASC(vWatchUsedLabels, i) = 1 THEN
-                    END IF
-                NEXT
-
-                FOR i = firstLineNumberLabelvWatch TO lastLineNumberLabelvWatch
-                    IF ASC(vWatchUsedSkipLabels, i) = 1 THEN
-                    END IF
-                NEXT
-
-            END IF
-
-
             closedmain = 1
-            firstLineNumberLabelvWatch = 0
         END SUB
 
 
@@ -10929,8 +9983,7 @@ IF recompile THEN
                 IF operator$ = "<" THEN info$ = "qbs_lessthan": operatorusage = 2: EXIT FUNCTION
                 IF operator$ = ">=" THEN info$ = "qbs_greaterorequal": operatorusage = 2: EXIT FUNCTION
                 IF operator$ = "<=" THEN info$ = "qbs_lessorequal": operatorusage = 2: EXIT FUNCTION
-                IF Debug THEN PRINT #9, "INVALID STRING OPERATOR!": END
-            END IF
+                            END IF
 
             'assume numeric operator
             lhs = 1 + 2: rhs = 1 + 2
@@ -10980,8 +10033,7 @@ IF recompile THEN
             lhs = 7
             IF operator$ = "NOT" THEN info$ = "~": operatorusage = 5: EXIT FUNCTION
 
-            IF Debug THEN PRINT #9, "INVALID NUMBERIC OPERATOR!": END
-
+            
         END FUNCTION
 
         FUNCTION refer$ (a2$, typ AS LONG, method AS LONG)
@@ -11383,7 +10435,6 @@ IF recompile THEN
                 END IF
                 IF method = 0 THEN e$ = evaluatetotyp(e$, ISSTRING)
                 IF Error_Happened THEN EXIT SUB
-                IF arrayprocessinghappened THEN arrayprocessinghappened = 0
                 tlayout$ = tl$
                 IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
                 EXIT SUB
@@ -11407,7 +10458,6 @@ IF recompile THEN
                     'signed bit is not set
                     l$ = r$ + "&=" + str2(bitmask(b)) + ";"
                 END IF
-                IF arrayprocessinghappened THEN arrayprocessinghappened = 0
                 tlayout$ = tl$
                 IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
                 EXIT SUB
@@ -11432,7 +10482,6 @@ IF recompile THEN
             IF method = 0 THEN e$ = evaluatetotyp(e$, t2)
             IF Error_Happened THEN EXIT SUB
             l$ = r$ + "=" + e$ + ";"
-            IF arrayprocessinghappened THEN arrayprocessinghappened = 0
             tlayout$ = tl$
 
             IF LEFT$(r$, 1) = "*" THEN r$ = MID$(r$, 2)
@@ -11454,12 +10503,6 @@ IF recompile THEN
         str2i64$ = LTRIM$(RTRIM$(STR$(v&&)))
     END FUNCTION
 
-    SUB xend
-        IF vWatchOn = 1 THEN
-            'check if closedmain = 0 in case a main module ends in an include.
-            IF (inclinenumber(inclevel) = 0 OR closedmain = 0) THEN vWatchAddLabel 0, -1
-        END IF
-    END SUB
 
     SUB xfileprint (a$, ca$, n)
         u$ = str2$(uniquenumber)
@@ -11715,7 +10758,6 @@ IF recompile THEN
         NEXT
         IF e$ <> "" THEN a2$ = ",": last = 1: GOTO writefilelast
         writeblankline:
-        'print #12, "}"'new_error
         layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
     END SUB
 

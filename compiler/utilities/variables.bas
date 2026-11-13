@@ -7,7 +7,7 @@ FUNCTION allocarray (n2$, elements$, elementsize, udt)
     'changelog:
     'added 4 to [2] to indicate cmem array where appropriate
 
-    e$ = elements$: n$ = n2$
+    e$ = elements$
     IF elementsize = -2147483647 THEN stringarray = 1: elementsize = 8
 
     IF ASC(e$) = 63 THEN '?
@@ -30,7 +30,6 @@ FOR i = 1 TO n
     IF b = 0 AND e2$ = "," THEN nume = nume + 1
     IF e2$ = ")" THEN b = b - 1
 NEXT
-IF Debug THEN PRINT #9, "numelements count:"; nume
 
 descstatic = 0
 IF arraydesc THEN
@@ -50,11 +49,7 @@ END IF
 
 l$ = "(" + sp2
 
-cr$ = CHR$(13) + CHR$(10)
-sd$ = ""
 constdimensions = 1
-ei = 4 + nume * 4 - 4
-cure = 1
 e3$ = "": e3base$ = ""
 FOR i = 1 TO n
     e2$ = getelement(e$, i)
@@ -77,7 +72,6 @@ FOR i = 1 TO n
         IF Error_Happened THEN EXIT FUNCTION
 
         IF constequation = 0 THEN constdimensions = 0
-        sd$ = sd$ + n$ + "[" + str2(ei) + "]=" + e3base$ + ";" + cr$
         'set the number of indexes
         constequation = 1
 
@@ -89,20 +83,6 @@ FOR i = 1 TO n
         IF Error_Happened THEN EXIT FUNCTION
 
         IF constequation = 0 THEN constdimensions = 0
-        ei = ei + 1
-        sd$ = sd$ + n$ + "[" + str2(ei) + "]=(" + e3$ + ")-" + n$ + "[" + str2(ei - 1) + "]+1;" + cr$
-        ei = ei + 1
-        'calc muliplier
-        IF cure = 1 THEN
-            'set only for the purpose of the calculating correct multipliers
-            sd$ = sd$ + n$ + "[" + str2(ei) + "]=1;" + cr$
-        ELSE
-            sd$ = sd$ + n$ + "[" + str2(ei) + "]=" + n$ + "[" + str2(ei + 4) + "]*" + n$ + "[" + str2(ei + 3) + "];" + cr$
-        END IF
-        ei = ei + 1
-        ei = ei + 1 'skip reserved
-        ei = ei - 8
-        cure = cure + 1
         e3$ = "": e3base$ = ""
         GOTO aanexte
     END IF
@@ -115,7 +95,6 @@ FOR i = 1 TO n
     END IF
     aanexte:
 NEXT
-sd$ = LEFT$(sd$, LEN(sd$) - 2)
 
 undefinedarray:
 
@@ -142,26 +121,13 @@ IF arraydesc THEN
 END IF
 
 
-bytesperelement$ = str2(elementsize)
-IF elementsize < 0 THEN
-    elementsize = -elementsize
-    bytesperelement$ = str2(elementsize) + "/8+1"
-END IF
+IF elementsize < 0 THEN elementsize = -elementsize
 
 
 'Begin creation of array descriptor (if array has not been defined yet)
 IF arraydesc = 0 THEN
     'create _MEM lock
 END IF
-
-'generate sizestr$ & elesizestr$ (both are used in various places in following code)
-sizestr$ = ""
-FOR i = 1 TO nume
-    IF i <> 1 THEN sizestr$ = sizestr$ + "*"
-    sizestr$ = sizestr$ + n$ + "[" + str2(i * 4 - 4 + 5) + "]"
-NEXT
-elesizestr$ = sizestr$ 'elements in entire array
-sizestr$ = sizestr$ + "*" + bytesperelement$ 'bytes in entire array
 
 
 '------------------STATIC ARRAY CREATION--------------------------------
@@ -339,12 +305,6 @@ IF arraydesc = 0 THEN
     END IF
 END IF 'arraydesc = 0
 
-IF undefined = 0 THEN
-
-    IF redimoption = 0 THEN f12$ = f12$ + CRLF + "}" 'if REDIM not specified the above is conditional
-
-END IF 'undefined=0
-
 allocarray = nume
 IF undefined = -1 THEN allocarray = -1
 
@@ -442,7 +402,6 @@ FUNCTION dim2 (varname$, typ2$, method, elements$)
     typ$ = typ2$
     dim2 = 1 'success
 
-    IF Debug THEN PRINT #9, "dim2 called", method
 
     cvarname$ = varname$
     l$ = cvarname$

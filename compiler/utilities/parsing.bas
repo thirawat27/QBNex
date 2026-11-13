@@ -2,7 +2,6 @@ FUNCTION fixoperationorder$ (savea$)
     STATIC uboundlbound AS _BYTE
 
     a$ = savea$
-    IF Debug THEN PRINT #9, "fixoperationorder:in:" + a$
 
     fooindwel = fooindwel + 1
 
@@ -68,7 +67,6 @@ FUNCTION fixoperationorder$ (savea$)
         a2$ = LEFT$(a2$, i + 2) + RIGHT$(a2$, LEN(a2$) - i - 4)
         a$ = MID$(a2$, 2, LEN(a2$) - 2)
         n = n - 1
-        IF Debug THEN PRINT #9, "fixoperationorder:+/-:" + a$
         GOTO rule1
     END IF
 
@@ -79,7 +77,6 @@ FUNCTION fixoperationorder$ (savea$)
         a2$ = LEFT$(a2$, i + 2) + RIGHT$(a2$, LEN(a2$) - i - 4)
         a$ = MID$(a2$, 2, LEN(a2$) - 2)
         n = n - 1
-        IF Debug THEN PRINT #9, "fixoperationorder:+/-:" + a$
         GOTO rule2
     END IF
 
@@ -93,7 +90,6 @@ FUNCTION fixoperationorder$ (savea$)
                         removeelements a$, i + 1, i + 2, 0
                         a2$ = sp + a$ + sp
                         n = n - 2
-                        IF Debug THEN PRINT #9, "fixoperationorder:+/-:" + a$
                         GOTO rule3
                     END IF
                 END IF
@@ -153,7 +149,6 @@ FUNCTION fixoperationorder$ (savea$)
         removeelements a$, i, i + 1, 0
         insertelements a$, i - 1, a2$
         n = n - 1
-        IF Debug THEN PRINT #9, "fixoperationorder:negation:" + a$
 
         GOTO negdone
 
@@ -164,7 +159,6 @@ END IF
 'not a number (or for exceptions)...
 removeelements a$, i, i, 0
 insertelements a$, i - 1, CHR$(241)
-IF Debug THEN PRINT #9, "fixoperationorder:negation:" + a$
 
 END IF 'isoperator
 END IF '-
@@ -194,7 +188,6 @@ FOR i = 1 TO n
                     insertelements a$, i - 1, "}"
                     insertelements a$, b1, "{"
                     n = n + 2
-                    IF Debug THEN PRINT #9, "fixoperationorder:^-:" + a$
                     GOTO powneg
                     pownegused = 1
                 END IF
@@ -209,7 +202,6 @@ IF b1 THEN
     insertelements a$, b1, "{"
     a$ = a$ + sp + "}"
     n = n + 2
-    IF Debug THEN PRINT #9, "fixoperationorder:^-:" + a$
     pownegused = 1
     GOTO powneg
 END IF
@@ -297,7 +289,6 @@ n = n + 1
 a$ = a3$
 
 lco_bracketting_done:
-IF Debug THEN PRINT #9, "fixoperationorder:lco bracketing["; lco; ","; hco; "]:" + a$
 
 '--------(F)G. Remove indwelling {}bracketting from power-negation--------
 IF pownegused THEN
@@ -312,7 +303,6 @@ IF pownegused THEN
             removeelements a$, i, i, 0
             n = n - 1
             i = i - 1
-            IF Debug THEN PRINT #9, "fixoperationorder:^- {} removed:" + a$
         END IF
         IF c = 40 OR c = 123 THEN b = b + 1
     LOOP
@@ -638,7 +628,6 @@ FOR try_method = 1 TO 4
     DO WHILE try
         IF (subfuncn = id.insubfuncn AND try_method <= 2) OR try_method >= 3 THEN
 
-            IF Debug THEN PRINT #9, "found id matching " + f2$
 
             IF nextc = 40 OR uboundlbound <> 0 THEN '(
 
@@ -823,8 +812,6 @@ NEXT
 
 IF LEN(f$) THEN f$ = LEFT$(f$, LEN(f$) - 1) 'remove trailing 'sp'
 
-IF Debug THEN PRINT #9, "fixoperationorder:identification:" + a$, n
-IF Debug THEN PRINT #9, "fixoperationorder:identification(layout):" + f$, n
 
 
 '----------------I. Pass (){}bracketed items (if any) to fixoperationorder & build return----------------
@@ -931,8 +918,6 @@ NEXT
 IF LEN(aa$) THEN aa$ = LEFT$(aa$, LEN(aa$) - 1)
 IF LEN(ff$) THEN ff$ = LEFT$(ff$, LEN(ff$) - 1)
 
-IF Debug THEN PRINT #9, "fixoperationorder:return:" + aa$
-IF Debug THEN PRINT #9, "fixoperationorder:layout:" + ff$
 tlayout$ = ff$
 fixoperationorder$ = aa$
 
@@ -1938,7 +1923,6 @@ IF LEFT$(a2$, 1) = sp THEN a2$ = RIGHT$(a2$, LEN(a2$) - 1)
 'fix for trailing : error
 IF RIGHT$(a2$, 1) = ":" THEN a2$ = a2$ + sp + "'" 'add nop
 
-IF Debug THEN PRINT #9, "lineformat():return:" + a2$
 IF Error_Happened THEN EXIT FUNCTION
 'The expression evaluator recurses once per bracket level; thousands of
 'nested brackets overflowed the native stack (crash). Brackets inside quoted
@@ -1959,7 +1943,6 @@ END FUNCTION
 
 FUNCTION evaluateconst$ (a2$, t AS LONG)
     a$ = a2$
-    IF Debug THEN PRINT #9, "evaluateconst:in:" + a$
 
 
     DIM block(1000) AS STRING

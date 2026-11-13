@@ -30,7 +30,6 @@ FUNCTION ValidatePendingLabels% ()
     DIM normalizedLabelName AS STRING
 
     ValidatePendingLabels% = 0
-    IF Debug THEN PRINT #9, "Beginning label check..."
 
     FOR r = 1 TO nLabels
         IF Labels(r).Scope_Restriction THEN
@@ -60,7 +59,6 @@ FUNCTION ValidatePendingLabels% ()
             IF INSTR(PossibleSubNameLabels$, sp + normalizedLabelName + sp) THEN
                 IF INSTR(SubNameLabels$, sp + normalizedLabelName + sp) = 0 THEN
                     SubNameLabels$ = SubNameLabels$ + normalizedLabelName + sp
-                    IF Debug THEN PRINT #9, "Recompiling to resolve label:"; RTRIM$(Labels(r).cn)
                     ValidatePendingLabels% = 1
                     EXIT FUNCTION
                 END IF
@@ -84,5 +82,4 @@ FUNCTION ValidatePendingLabels% ()
         END IF
     NEXT
 
-    IF Debug THEN PRINT #9, "Finished label check!"
 END FUNCTION

@@ -101,7 +101,6 @@ END FUNCTION
 FUNCTION FindArray (secure$)
     FindArray = -1
     n$ = secure$
-    IF Debug THEN PRINT #9, "func findarray:in:" + n$
     IF alphanumeric(ASC(n$)) = 0 THEN FindArray = 0: EXIT FUNCTION
 
     i = INSTR(n$, "~"): IF i THEN sc$ = RIGHT$(n$, LEN(n$) - i + 1): n$ = LEFT$(n$, i - 1): GOTO gotsc2

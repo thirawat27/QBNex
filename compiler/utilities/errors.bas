@@ -26,9 +26,6 @@ SUB ShowQbErrorDebugDisplay
 END SUB
 
 SUB LogQbErrorDetails
-    IF Debug THEN PRINT #9, "QB ERROR!"
-    IF Debug THEN PRINT #9, "ERR="; ERR
-    IF Debug THEN PRINT #9, "ERL="; ERL
 END SUB
 
 FUNCTION UnusedVariableBaseKey$ (rawName$)

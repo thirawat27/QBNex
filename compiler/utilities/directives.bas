@@ -652,7 +652,6 @@ FUNCTION HandleExeIconDirective% (upperLine AS STRING, rawLine AS STRING)
     DIM iconPath AS STRING
     DIM exeIconFileOnly AS STRING
     DIM currentdir$
-    DIM iconfilehandle AS LONG
     HandleExeIconDirective% = 0
     IF LEFT$(upperLine, 8) <> "$EXEICON" THEN EXIT FUNCTION
 
