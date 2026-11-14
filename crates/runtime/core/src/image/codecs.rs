@@ -12,7 +12,43 @@ pub fn png_test(d: &[u8]) -> bool {
     d.starts_with(b"\x89PNG\r\n\x1a\n")
 }
 
+/// The palette and transparency chunks stb 2.27 accepted: PLTE of 1 to 256 whole
+/// entries, tRNS after PLTE and no longer than it, and the tRNS sizes of grey (2)
+/// and RGB (6) images. The png crate panics on a PLTE that is not whole entries.
+fn png_chunks_valid(d: &[u8]) -> bool {
+    let color_type = d.get(25).copied().unwrap_or(0);
+    let mut plte: Option<usize> = None;
+    let mut i = 8usize;
+    while let Some(h) = d.get(i..i + 8) {
+        let len = u32::from_be_bytes([h[0], h[1], h[2], h[3]]) as usize;
+        match &h[4..8] {
+            b"PLTE" => {
+                if !len.is_multiple_of(3) || len == 0 || len > 768 {
+                    return false;
+                }
+                plte = Some(len / 3);
+            }
+            b"tRNS" => match color_type {
+                3 if plte.is_none_or(|n| len > n) => return false,
+                0 if len != 2 => return false,
+                2 if len != 6 => return false,
+                _ => {}
+            },
+            b"IEND" => break,
+            _ => {}
+        }
+        i = match i.checked_add(12 + len) {
+            Some(n) => n,
+            None => break,
+        };
+    }
+    true
+}
+
 pub fn png_load(d: &[u8]) -> Option<Rgba> {
+    if !png_chunks_valid(d) {
+        return None;
+    }
     let mut dec = png::Decoder::new(std::io::Cursor::new(d));
     dec.set_limits(png::Limits { bytes: usize::MAX });
     dec.ignore_checksums(true);

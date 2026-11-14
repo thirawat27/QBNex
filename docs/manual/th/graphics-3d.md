@@ -28,6 +28,7 @@ _DISPLAY
 การฉายภาพ, depth buffer (`_DEPTHBUFFER ON|LOCK|OFF`), การตัดด้านหลัง
 (`_CLOCKWISE`/`_ANTICLOCKWISE`), การกรองแบบ `_SMOOTH*` และ alpha ทำงาน
 เหมือน QB64 ตัววาดค่าเริ่มต้นเป็นแบบซอฟต์แวร์
+บน renderer แบบ software รูปแบบ 3 มิติวาดได้เฉพาะภาพ 32-bit (ภาพแบบอื่นได้ error 5) และแต่ละภาพเก็บ depth buffer ไว้จนกว่าจะสั่ง `_DEPTHBUFFER _CLEAR` หรือคืนภาพนั้น
 
 **ทดลอง:** runtime ที่ build พร้อมฟีเจอร์ `gpu` จะแสดงผลเฟรมและวาด
 สามเหลี่ยม 3 มิติด้วย wgpu (Vulkan, DX12, Metal) ได้ ถ้าไม่มีการ์ดจอหรือ

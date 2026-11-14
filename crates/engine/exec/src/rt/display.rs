@@ -48,6 +48,10 @@ pub(crate) struct Display {
     /// GUI program with a window (rt/window.rs): `_DISPLAY` and `_TITLE` reach it
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub window: bool,
+    /// depth buffer of each image the 3D form of `_MAPTRIANGLE` drew on (image
+    /// index -> (width, height, depths)), and its `_DEPTHBUFFER` mode
+    pub depth: std::collections::HashMap<u32, (u16, u16, Vec<f32>)>,
+    pub depth_mode: std::collections::HashMap<u32, i32>,
 }
 
 impl Default for Display {
@@ -74,6 +78,8 @@ impl Default for Display {
             title: Vec::new(),
             screen_hide: false,
             window: false,
+            depth: std::collections::HashMap::new(),
+            depth_mode: std::collections::HashMap::new(),
         };
         d.fontwidth[8] = 8;
         d.fontwidth[14] = 8;
@@ -757,6 +763,9 @@ impl Display {
             self.read_index = self.display_index;
         }
         reg::qb_img_release_owned(idx as i32);
+        // a new image may get this index
+        self.depth.remove(&idx);
+        self.depth_mode.remove(&idx);
         self.freeimg(idx);
     }
 
@@ -784,6 +793,9 @@ impl Display {
         let Some(src) = self.resolve(i) else { return 0 };
         // SAFETY: valid source surface.
         let s = unsafe { *im(src) };
+        // mode 33 (a hardware image) of a 32-bit image: hardware images are 32-bit
+        // software images here (as _LOADIMAGE(f$, 33))
+        let mode = if passed & 1 != 0 && mode == 33 && s.compatible_mode == 32 { 32 } else { mode };
         if passed & 1 != 0 && mode != i32::from(s.compatible_mode) {
             self.err(5);
             return -1;
@@ -2210,23 +2222,88 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 }
                 let s = if passed & 2 != 0 { d.resolve(i(7)) } else { Some(d.read_index) };
                 let t = if passed & 4 != 0 { d.resolve(i(17)) } else { Some(d.write_index) };
-                if let (Some(sx), Some(tx)) = (s, t) {
+                if let (Some(sx), Some(tx)) = (s, t)
+                    && po & (4 | 8 | 16) != 0
+                {
+                    // TO (x, y, z)-...: a perspective triangle in eye space (camera at the
+                    // origin looking down -z), with the destination's depth buffer and the
+                    // culling of _CLOCKWISE / _ANTICLOCKWISE (it was drawn as a 2D
+                    // triangle at the x, y values). 32-bit images only, as in QB64.
+                    let (sp, tp) = (im(sx), im(tx));
+                    if (*sp).bytes_per_pixel != 4 || (*tp).bytes_per_pixel != 4 || (*sp).text != 0 || (*tp).text != 0 {
+                        gerr(d, 5);
+                    } else {
+                        let (tw, th) = ((*tp).width, (*tp).height);
+                        let (sw, sh) = (usize::from((*sp).width), usize::from((*sp).height));
+                        let mode = d.depth_mode.get(&tx).copied().unwrap_or(qb_runtime::raster::DEPTH_ON);
+                        let entry = d.depth.entry(tx).or_insert_with(|| (0, 0, Vec::new()));
+                        if entry.0 != tw || entry.1 != th {
+                            *entry = (tw, th, vec![f32::INFINITY; usize::from(tw) * usize::from(th)]);
+                        }
+                        let n = usize::from(tw) * usize::from(th);
+                        // the source is copied first: it may be the destination itself
+                        let src: Vec<u32> = core::slice::from_raw_parts((*sp).offset as *const u32, sw * sh).to_vec();
+                        let dst = core::slice::from_raw_parts_mut((*tp).offset as *mut u32, n);
+                        let mut target = qb_runtime::raster::Target { px: dst, w: usize::from(tw), h: usize::from(th) };
+                        let source = qb_runtime::raster::Source { px: &src, w: sw, h: sh };
+                        let cull = match i(0) {
+                            1 => qb_runtime::raster::CULL_CLOCKWISE_ONLY,
+                            2 => qb_runtime::raster::CULL_ANTICLOCKWISE_ONLY,
+                            _ => qb_runtime::raster::CULL_NONE,
+                        };
+                        let dz = |k: usize, bit: i32| if po & bit != 0 { f32_(k) } else { 0.0 };
+                        qb_runtime::raster::tri3d(
+                            &mut target,
+                            &mut entry.2,
+                            source,
+                            [(f32_(8), f32_(9), dz(10, 4)), (f32_(11), f32_(12), dz(13, 8)), (f32_(14), f32_(15), dz(16, 16))],
+                            [(f32_(1), f32_(2)), (f32_(3), f32_(4)), (f32_(5), f32_(6))],
+                            (*tp).alpha_disabled == 0,
+                            po & 64 != 0 && i(18) != 0,
+                            cull,
+                            mode,
+                        );
+                    }
+                } else if let (Some(sx), Some(tx)) = (s, t) {
                     let s6 = [f32_(1), f32_(2), f32_(3), f32_(4), f32_(5), f32_(6)];
                     let d6 = [f32_(8), f32_(9), f32_(11), f32_(12), f32_(14), f32_(15)];
                     gerr(d, gfx::maptri::qb_gfx_maptriangle(im(sx), im(tx), s6.as_ptr(), d6.as_ptr(), passed & 1));
                 }
             }
             "sub__depthbuffer" => {
-                // (option, handle, passed). The depth buffer belongs to hardware images, which
-                // the QIR runtime does not have (_MAPTRIANGLE draws on software surfaces, and
-                // qb_gpu::maptri::DepthBuffer has no caller outside qb-runtime's GPU tests):
-                // only QB64's handle checks remain. 0/1 = the hardware screen, no-op.
-                if i(2) & 1 != 0 {
-                    let dst = i(1);
-                    if dst < 0 {
-                        gerr(d, 258);
-                    } else if dst > 1 {
+                // (option 1 ON / 2 OFF / 3 LOCK / 4 _CLEAR, handle, passed): the depth
+                // buffer the 3D form of _MAPTRIANGLE uses on that image (default: the
+                // write page); 0/1 as in QB64 stand for the screen
+                let target = if i(2) & 1 != 0 {
+                    let h = i(1);
+                    if h == 0 || h == 1 {
+                        Some(d.write_index)
+                    } else if h > 1 {
                         gerr(d, 5);
+                        None
+                    } else {
+                        d.resolve(h)
+                    }
+                } else {
+                    Some(d.write_index)
+                };
+                if let Some(x) = target {
+                    match i(0) {
+                        1 => {
+                            d.depth_mode.insert(x, qb_runtime::raster::DEPTH_ON);
+                        }
+                        2 => {
+                            d.depth_mode.insert(x, qb_runtime::raster::DEPTH_OFF);
+                        }
+                        3 => {
+                            d.depth_mode.insert(x, qb_runtime::raster::DEPTH_LOCKED);
+                        }
+                        4 => {
+                            if let Some(e) = d.depth.get_mut(&x) {
+                                e.2.fill(f32::INFINITY);
+                            }
+                        }
+                        _ => gerr(d, 5),
                     }
                 }
             }
