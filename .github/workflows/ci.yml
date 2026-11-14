@@ -175,7 +175,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          for %%t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain) do (
+          for %%t in (cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain pe_subsystem) do (
             call tests\smoke\%%t_smoke.cmd || exit /b 1
           )
 

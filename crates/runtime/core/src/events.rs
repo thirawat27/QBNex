@@ -152,17 +152,22 @@ impl TimerTable {
             if t.allocated && t.id != 0 && t.active == 1 && t.state == 1 {
                 fired = true;
             }
-            if t.allocated && t.id != 0 && t.active != 0 && t.state == 0 && now - t.last_time > t.seconds {
-                if t.last_time == 0.0 {
+            if !(t.allocated && t.id != 0 && t.active != 0 && t.state == 0) {
+                continue;
+            }
+            if t.last_time == 0.0 {
+                // First tick: the interval starts now. The clock counts from the start
+                // of the program, so this must not wait for `now > seconds` first
+                // (ON TIMER(1) at the start fired after 2 s). 0.0 is the "not
+                // started" mark, so a start at exactly 0 is kept as the smallest time.
+                t.last_time = if now == 0.0 { f64::MIN_POSITIVE } else { now };
+            } else if now - t.last_time > t.seconds {
+                t.last_time += t.seconds;
+                if (now - t.last_time).abs() >= t.seconds {
                     t.last_time = now;
-                } else {
-                    t.last_time += t.seconds;
-                    if (now - t.last_time).abs() >= t.seconds {
-                        t.last_time = now;
-                    }
-                    t.state = 1;
-                    fired = true;
                 }
+                t.state = 1;
+                fired = true;
             }
         }
         fired
@@ -498,6 +503,21 @@ mod tests {
         assert_eq!(t.setup(-1, 1.0, 1, 0), Err(5));
         t.free(3);
         assert_eq!(t.setup(3, 1.0, 1, 0), Err(5));
+    }
+
+    /// The clock counts from the start of the program: ON TIMER(1) set then fires
+    /// after 1 s, not 2 (issue #7).
+    #[test]
+    fn timer_started_with_the_clock_near_zero_fires_after_one_period() {
+        for start in [0.0, 0.002] {
+            let mut t = TimerTable::new();
+            t.setup(0, 1.0, 7, 42).unwrap();
+            t.statement(0, 1).unwrap();
+            assert!(!t.tick(start)); // records the start
+            assert!(!t.tick(start + 0.99));
+            assert!(t.tick(start + 1.01), "start {start}");
+            assert_eq!(t.take(0), Some((7, 42)));
+        }
     }
 
     #[test]

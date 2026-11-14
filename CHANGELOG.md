@@ -128,6 +128,8 @@ made after 1.0.4.
 - Images and 3D: `PRINT` that scrolls an image lower than one character row no longer writes past its pixels; a PNG with a palette that is not whole entries (which aborted the program) or with a tRNS chunk stb rejected returns -1; the 3D form of `_MAPTRIANGLE` (`TO (x, y, z)-...`) projects with perspective, uses the depth buffer and `_CLOCKWISE`/`_ANTICLOCKWISE` (it drew a 2D triangle at x, y), and `_DEPTHBUFFER ON|OFF|LOCK|_CLEAR` works; `_COPYIMAGE(img&, 33)` of a 32-bit image; `_MESHVERTEX` rejects NaN and infinity
 - Web build: output and input are UTF-8 (Thai text), and a byte outside UTF-8 is its code page 437 character
 - `CLOSE` without a file number, and `RUN`, `CHAIN` and `CLEAR`, close the TCP/IP handles too
+- `ON TIMER(n)` set when the program starts fires after n seconds, not 2n: the clock counts from the start of the program, and the first tick waited for one interval before it started counting (issue #7)
+- Windows: a window program (no `$CONSOLE`) built as the runner with the program appended (no native kit) is a GUI executable, as `qb-exec build` already made it, so Windows no longer opens an empty console next to its window (issue #7)
 - Linux: a program that opens a window, and the setup window, no longer abort when libxkbcommon-x11 (or libxkbcommon) is not installed; the program runs without a window and says which library is missing, setup asks its questions in the terminal
 - GPU feature: a program made one Vulkan instance per GPU user (window, 3D scene) and enumerated adapters each time; the Vulkan loader loads and unloads drivers while it does that, which crashed another thread that was using its device. The instance and adapter are now made once per process.
 
