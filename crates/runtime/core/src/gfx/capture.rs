@@ -2,8 +2,8 @@
 //!
 //! When `QBNEX_FB_CAPTURE` names a file, every `_DISPLAY` (kind 0) and the end
 //! of the program (kind 1, graphics pages only) append one record describing
-//! the display page. The format is shared with the legacy oracle hook
-//! (`tests/conformance/oracle/fb_capture_legacy.inc`) and read by `conformance`:
+//! the display page. The format is read by `conformance` and by the web
+//! build (`crates/web/src/screen.rs`):
 //!
 //! ```text
 //! u32 0x42465142 ('QBFB'), u32 kind, u32 width, u32 height,

@@ -134,15 +134,6 @@ impl KeyState {
         }
     }
 
-    /// `keyheld_unbind(x)`: the held key whose binding is `x` (legacy then
-    /// calls `keyup` on it), or `None`.
-    pub fn keyheld_bound_to(&self, x: u32) -> Option<u32> {
-        self.held_bind
-            .iter()
-            .position(|&b| b == x)
-            .map(|i| self.held[i])
-    }
-
     /// `update_shift_state()`: the bytes for cmem 0x417, 0x418 and 0x496.
     pub fn shift_state(&self) -> [u8; 3] {
         let h = |k: u32| self.keyheld(k);
@@ -280,12 +271,7 @@ mod tests {
         s.keyheld_add(65, 0);
         s.keyheld_add(65, 7); // already held: ignored, binding kept
         assert!(s.keyheld(65));
-        assert_eq!(s.keyheld_bound_to(7), None);
         s.keyheld_add(VK + qbvk::CAPSLOCK, qbvk::CAPSLOCK);
-        assert_eq!(
-            s.keyheld_bound_to(qbvk::CAPSLOCK),
-            Some(VK + qbvk::CAPSLOCK)
-        );
         s.keyheld_remove(65);
         assert!(!s.keyheld(65));
         assert!(s.keyheld(VK + qbvk::CAPSLOCK));

@@ -456,7 +456,6 @@ impl Lower<'_> {
         t
     }
 
-    #[allow(dead_code)]
     fn konst_f(&mut self, v: f64) -> u32 {
         let t = self.tmp(Class::Float);
         self.insts.push(Inst::Const { dst: t, imm: Imm::F(v) });
@@ -838,7 +837,7 @@ impl Lower<'_> {
                 self.insts.push(Inst::Mov { dst: dd, src: r });
                 self.put(d, dd);
             }
-            Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, desc, self.is_main()) => {
+            Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, desc) => {
                 self.native_call(pc, f, desc)
             }
             _ => {
@@ -951,7 +950,7 @@ fn fingerprint(m: &bc::Module, hosts: &Hosts) -> u64 {
 
 /// Lowers every function of `m`. `vm_op` = address of the VM step callback.
 /// Arguments a native call can pass: numbers and BYREF numeric variables.
-fn call_args_native(m: &bc::Module, desc: u32, _is_main: bool) -> bool {
+fn call_args_native(m: &bc::Module, desc: u32) -> bool {
     m.calls[desc as usize].args.iter().all(|a| match *a {
         bc::Arg::N(_) => true,
         bc::Arg::Ref(p) => matches!(m.places[p as usize], bc::Place::N(..) | bc::Place::NG(..)),
@@ -982,7 +981,7 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
                 continue;
             }
             let good = m.code[f.entry as usize..f.end as usize].iter().all(|ins| match *ins {
-                Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, desc, false),
+                Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, desc),
                 Ins::Gosub { .. } | Ins::Return => true,
                 ref x => light(x) || exits(x) || !vm_safe(x),
             });

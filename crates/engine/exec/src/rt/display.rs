@@ -2204,7 +2204,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                         }
                         // tmp >= 0 with the same surface: the copy failed (error already set)
                         if sx != tx || tmp < 0 {
-                            gerr(d, gfx::putimage::qb_gfx_putimage(src, tp, &c, passed, core::ptr::null_mut()));
+                            gerr(d, gfx::putimage::qb_gfx_putimage(src, tp, &c, passed));
                         }
                         if tmp < 0 {
                             d.freeimage(tmp, 1);

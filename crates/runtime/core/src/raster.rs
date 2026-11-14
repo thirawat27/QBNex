@@ -2,10 +2,10 @@
 //!
 //! * [`layout`] is a port of `prepare_environment_2d()`: where the SCREEN goes
 //!   inside the window (stretch, letterbox, top-left).
-//! * [`put`], [`tri2d`], [`tri3d`] render "hardware" images (`_COPYIMAGE(,33)`,
-//!   `_PUTIMAGE`/`_MAPTRIANGLE` onto `_DISPLAY`) in software. Legacy drew them
-//!   with OpenGL textures, so results can differ from legacy in edge pixels and
-//!   filtering (documented deviation).
+//! * [`tri3d`] renders "hardware" images (`_COPYIMAGE(,33)`, `_MAPTRIANGLE`
+//!   onto `_DISPLAY`) in software. Legacy drew them with OpenGL textures, so
+//!   results can differ from legacy in edge pixels and filtering (documented
+//!   deviation).
 //! * [`scale_to_window`] draws the composed frame into the window buffer.
 //!
 //! Pixels are `0xAARRGGBB` (`uint32` BGRA in memory), like `img_struct`.
@@ -271,75 +271,6 @@ fn raster_tri(
     }
 }
 
-/// `hardware_img_put`: copies the inclusive source rectangle onto the
-/// inclusive destination rectangle (either may be mirrored), scaling as needed.
-#[allow(clippy::too_many_arguments)]
-pub fn put(dst: &mut Target, src: Source, d: [i32; 4], s: [i32; 4], use_alpha: bool, smooth: bool) {
-    let [mut dx1, mut dy1, mut dx2, mut dy2] = d;
-    let [mut sx1, mut sy1, mut sx2, mut sy2] = s;
-    // ensure dst_x1/y1 represent the top-left co-ordinate of the destination
-    if dx2 < dx1 {
-        std::mem::swap(&mut dx1, &mut dx2);
-        std::mem::swap(&mut sx1, &mut sx2);
-    }
-    if dy2 < dy1 {
-        std::mem::swap(&mut dy1, &mut dy2);
-        std::mem::swap(&mut sy1, &mut sy2);
-    }
-    // texture co-ordinates as legacy computed them (in texel units)
-    let (u1, u2) = if sx1 <= sx2 {
-        (sx1 as f32 + 0.01, sx2 as f32 + 0.99)
-    } else {
-        (sx1 as f32 + 0.99, sx2 as f32 + 0.01)
-    };
-    let (v1, v2) = if sy1 <= sy2 {
-        (sy1 as f32 + 0.01, sy2 as f32 + 0.99)
-    } else {
-        (sy1 as f32 + 0.99, sy2 as f32 + 0.01)
-    };
-    let qw = (dx2 + 1 - dx1) as f32;
-    let qh = (dy2 + 1 - dy1) as f32;
-    let x_lo = dx1.max(0);
-    let x_hi = dx2.min(dst.w as i32 - 1);
-    let y_lo = dy1.max(0);
-    let y_hi = dy2.min(dst.h as i32 - 1);
-    for y in y_lo..=y_hi {
-        let v = v1 + ((y - dy1) as f32 + 0.5) / qh * (v2 - v1);
-        for x in x_lo..=x_hi {
-            let u = u1 + ((x - dx1) as f32 + 0.5) / qw * (u2 - u1);
-            let c = sample(&src, u, v, smooth, false);
-            plot(dst, x as usize, y as usize, c, use_alpha);
-        }
-    }
-}
-
-/// `hardware_img_tri2d`: textured triangle in destination pixel space.
-pub fn tri2d(
-    dst: &mut Target,
-    src: Source,
-    d: [(f32, f32); 3],
-    s: [(f32, f32); 3],
-    use_alpha: bool,
-    smooth: bool,
-) {
-    let mk = |i: usize| Vtx {
-        x: d[i].0,
-        y: d[i].1,
-        u: s[i].0 + 0.5,
-        v: s[i].1 + 0.5,
-        q: 1.0,
-    };
-    raster_tri(
-        dst,
-        None,
-        &src,
-        [mk(0), mk(1), mk(2)],
-        use_alpha,
-        smooth,
-        false,
-    );
-}
-
 const NEAR: f32 = 0.1;
 
 /// `hardware_img_tri3d`: perspective textured triangle (eye space, camera at
@@ -507,92 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn put_copies_scales_and_mirrors() {
-        let src = [R, G, B, W];
-        let s = Source {
-            px: &src,
-            w: 2,
-            h: 2,
-        };
-        let mut buf = vec![0u32; 16];
-        let mut t = Target {
-            px: &mut buf,
-            w: 4,
-            h: 4,
-        };
-        put(&mut t, s, [0, 0, 1, 1], [0, 0, 1, 1], false, false);
-        assert_eq!(&buf[0..2], &[R, G]);
-        assert_eq!(&buf[4..6], &[B, W]);
-        let mut buf = vec![0u32; 16];
-        let mut t = Target {
-            px: &mut buf,
-            w: 4,
-            h: 4,
-        };
-        put(&mut t, s, [0, 0, 3, 3], [0, 0, 1, 1], false, false);
-        assert_eq!(&buf[0..4], &[R, R, G, G]);
-        assert_eq!(&buf[12..16], &[B, B, W, W]);
-        let mut buf = vec![0u32; 16];
-        let mut t = Target {
-            px: &mut buf,
-            w: 4,
-            h: 4,
-        };
-        put(&mut t, s, [1, 0, 0, 0], [0, 0, 1, 0], false, false); // mirrored
-        assert_eq!(&buf[0..2], &[G, R]);
-        // clipped, no panic
-        let mut t = Target {
-            px: &mut buf,
-            w: 4,
-            h: 4,
-        };
-        put(&mut t, s, [-5, -5, 10, 10], [0, 0, 1, 1], true, true);
-    }
-
-    #[test]
-    fn put_alpha_keeps_background_for_transparent_texels() {
-        let src = [0x00FF0000u32];
-        let mut buf = vec![B; 4];
-        let mut t = Target {
-            px: &mut buf,
-            w: 2,
-            h: 2,
-        };
-        put(
-            &mut t,
-            Source {
-                px: &src,
-                w: 1,
-                h: 1,
-            },
-            [0, 0, 1, 1],
-            [0, 0, 0, 0],
-            true,
-            false,
-        );
-        assert_eq!(buf, vec![B; 4]);
-        let mut t = Target {
-            px: &mut buf,
-            w: 2,
-            h: 2,
-        };
-        put(
-            &mut t,
-            Source {
-                px: &src,
-                w: 1,
-                h: 1,
-            },
-            [0, 0, 1, 1],
-            [0, 0, 0, 0],
-            false,
-            false,
-        );
-        assert_eq!(buf, vec![0x00FF0000; 4]);
-    }
-
-    #[test]
-    fn tri2d_fills_half_square() {
+    fn flat_triangle_fills_half_square() {
         let src = [G];
         let mut buf = vec![0u32; 16];
         let mut t = Target {
@@ -605,14 +451,8 @@ mod tests {
             w: 1,
             h: 1,
         };
-        tri2d(
-            &mut t,
-            s,
-            [(0.0, 0.0), (4.0, 0.0), (0.0, 4.0)],
-            [(0.0, 0.0); 3],
-            false,
-            false,
-        );
+        let v = |x: f32, y: f32| Vtx { x, y, u: 0.5, v: 0.5, q: 1.0 };
+        raster_tri(&mut t, None, &s, [v(0.0, 0.0), v(4.0, 0.0), v(0.0, 4.0)], false, false, false);
         let filled = buf.iter().filter(|&&p| p == G).count();
         // pixel centres strictly inside or on top/left edges (GL fill rule)
         assert_eq!(filled, 6, "{buf:x?}");

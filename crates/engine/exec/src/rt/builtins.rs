@@ -999,8 +999,6 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "_INCLERRORLINE" => return ok(V::I(vm.inclerr().0.into())),
         "_INCLERRORFILE$" => return ok(V::S(vm.inclerr().1)),
         "LINEINPUT" => {
-            let ch = i(0) as i32;
-            let _ = ch;
             if !rt.window {
                 fill(&mut std::io::stdin(), &mut rt.stdin);
             }
@@ -1053,8 +1051,6 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
         }
         "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" | "INPUTITEM.x" => {
-            let ch = i(0) as i32;
-            let _ = ch;
             let numeric = name != "INPUTITEM.s";
             if rt.input_line.is_none() {
                 // first item: the statement reads one line; its values come from
@@ -1136,7 +1132,6 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "_DIREXISTS" => {
             return ok(V::I(if std::path::Path::new(&os_path(s(0))).is_dir() { -1 } else { 0 }))
         }
-        "CLS" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
         "func_lpos" => return ok(V::I(rt.lprint.pos() as i64)),
         "CSRLIN" => return ok(V::I(1)),
@@ -1269,18 +1264,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 return ok(V::I(rt.cmem[at].into()));
             }
         }
-        "_STRCMP" | "_STRICMP" => {
-            let (x, y) = if name == "_STRICMP" {
-                (s(0).to_ascii_lowercase(), s(1).to_ascii_lowercase())
-            } else {
-                (s(0).to_vec(), s(1).to_vec())
-            };
-            return ok(V::I(match x.cmp(&y) {
-                std::cmp::Ordering::Less => -1,
-                std::cmp::Ordering::Equal => 0,
-                std::cmp::Ordering::Greater => 1,
-            }));
-        }
+        "_STRCMP" | "_STRICMP" => return ok(V::I(str_compare(s(0), s(1), name == "_STRICMP"))),
         "_CWD$" => {
             let d = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
             return ok(V::S(d.into_bytes()));
@@ -2109,17 +2093,15 @@ fn math_call(name: &str, a: &[V]) -> Option<R<Option<V>>> {
             };
             Some(Ok(Some(V::I(r as i64))))
         }
-        "func__str_compare" | "func__str_nc_compare" => {
-            let (p, q) = (a[0].s(), a[1].s());
-            let o = if name == "func__str_compare" {
-                p.cmp(q)
-            } else {
-                p.to_ascii_lowercase().cmp(&q.to_ascii_lowercase())
-            };
-            Some(Ok(Some(V::I(o as i64))))
-        }
+        "func__str_compare" | "func__str_nc_compare" => Some(Ok(Some(V::I(str_compare(a[0].s(), a[1].s(), name == "func__str_nc_compare"))))),
         _ => None,
     }
+}
+
+/// `_STRCMP` (`nocase` false) / `_STRICMP` (`nocase` true): -1, 0 or 1.
+fn str_compare(p: &[u8], q: &[u8], nocase: bool) -> i64 {
+    let o = if nocase { p.to_ascii_lowercase().cmp(&q.to_ascii_lowercase()) } else { p.cmp(q) };
+    o as i64
 }
 
 static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();

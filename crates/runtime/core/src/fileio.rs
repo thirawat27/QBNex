@@ -1167,31 +1167,6 @@ pub fn lock(i: i32, mut start: i64, mut end: i64, mut passed: i32, lock: bool) -
     }
 }
 
-// --- LSET / RSET ----------------------------------------------------------------
-
-/// LSET: left-aligns `src` in `dest`, padding with spaces.
-pub fn lset(dest: &mut [u8], src: &[u8]) {
-    if src.len() >= dest.len() {
-        let n = dest.len();
-        dest.copy_from_slice(&src[..n]);
-        return;
-    }
-    dest[..src.len()].copy_from_slice(src);
-    dest[src.len()..].fill(b' ');
-}
-
-/// RSET: right-aligns `src` in `dest`, padding with spaces.
-pub fn rset(dest: &mut [u8], src: &[u8]) {
-    if src.len() >= dest.len() {
-        let n = dest.len();
-        dest.copy_from_slice(&src[..n]);
-        return;
-    }
-    let pad = dest.len() - src.len();
-    dest[pad..].copy_from_slice(src);
-    dest[..pad].fill(b' ');
-}
-
 // --- entry points of the runner: each also returns the error to raise (0 = none) ---
 
 /// INPUT # of a number into `n`: (QB64's result code 0-3, error).
@@ -1442,14 +1417,7 @@ mod tests {
     }
 
     #[test]
-    fn lset_rset_and_lock_args() {
-        let mut b = *b"xxxxx";
-        lset(&mut b, b"ab");
-        assert_eq!(&b, b"ab   ");
-        rset(&mut b, b"ab");
-        assert_eq!(&b, b"   ab");
-        rset(&mut b, b"abcdefg");
-        assert_eq!(&b, b"abcde");
+    fn lock_args() {
         let d = tmp("lock");
         let f = fresh(160);
         assert_eq!(open(&p(&d, "k.bin"), 2, 0, 0, f, 0, false), 0);

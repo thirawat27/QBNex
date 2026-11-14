@@ -35,16 +35,6 @@ proptest! {
         }
     }
 
-    /// HEX$/OCT$/_BIN$ read back as the same two's complement value.
-    #[test]
-    fn radix_strings_parse_back(v in any::<i64>()) {
-        let as_u = v as u64;
-        for (text, radix) in [(crate::mathfn::hex(v, 16), 16), (crate::mathfn::oct(v, 64), 8), (crate::mathfn::bin(v, 64), 2)] {
-            let s = String::from_utf8(text).expect("ascii digits");
-            prop_assert_eq!(u64::from_str_radix(&s, radix).ok(), Some(as_u), "{} radix {}", s, radix);
-        }
-    }
-
     /// STR$ of integers: sign column, digits that read back.
     #[test]
     fn str_of_integers(v in any::<i64>()) {

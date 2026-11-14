@@ -252,12 +252,6 @@ impl Model {
         Model::from_gltf_parts(gpu, &doc, &buffers, &images)
     }
 
-    /// `_LOADMODEL` from a file (external buffers/images resolved next to it).
-    pub fn from_gltf_file(gpu: &Gpu, path: &std::path::Path) -> Result<Model, LoadError> {
-        let (doc, buffers, images) = gltf::import(path).map_err(|e| LoadError(e.to_string()))?;
-        Model::from_gltf_parts(gpu, &doc, &buffers, &images)
-    }
-
     fn from_gltf_parts(gpu: &Gpu, doc: &gltf::Document, buffers: &[gltf::buffer::Data], images: &[gltf::image::Data]) -> Result<Model, LoadError> {
         let imgs: Vec<Image> = images.iter().map(to_rgba).collect();
         let mut data = Vec::new();

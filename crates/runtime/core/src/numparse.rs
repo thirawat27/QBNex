@@ -282,12 +282,6 @@ fn round_increment(n: &NumRepr) -> bool {
     false
 }
 
-/// True when `n` hits the undefined legacy read described at
-/// [`round_increment`] (used by the differential test to skip such cases).
-pub fn round_reads_before_digits(n: &NumRepr) -> bool {
-    n.digits != 0 && i64::from(n.digits) > n.exp + 1 && n.exp + 1 < 0
-}
-
 /// Compares the leading digits against a range limit. `Some(true)` =
 /// overflow, `Some(false)` = below, `None` = equal over the scanned prefix.
 fn cmp_prefix(digits: &[u8], max: &[u8], scan: usize) -> bool {
@@ -414,10 +408,9 @@ pub fn n_uint64(n: &NumRepr) -> Option<u64> {
     Some(u)
 }
 
-/// Range check + conversion of `func_read_float` / `func_file_input_float`.
-/// `hex_is_unsigned` is true for READ (signed targets accept the full
-/// unsigned range of hex/oct/bin digits), false for INPUT #.
-fn convert(v: NumValue, typ: i32, hex: bool, hex_is_unsigned: bool) -> Option<NumValue> {
+/// Range check + conversion of `func_read_float`. Signed targets accept the
+/// full unsigned range of hex/oct/bin digits.
+fn convert(v: NumValue, typ: i32, hex: bool) -> Option<NumValue> {
     let bits = (typ & 511) as u32;
     if typ & ISFLOAT != 0 {
         if bits >= 64 {
@@ -435,7 +428,7 @@ fn convert(v: NumValue, typ: i32, hex: bool, hex_is_unsigned: bool) -> Option<Nu
         }
     }
     let mut value = v.qbr();
-    let (maxval, minval) = if typ & ISUNSIGNED != 0 || (hex_is_unsigned && hex) {
+    let (maxval, minval) = if typ & ISUNSIGNED != 0 || hex {
         (1i64.wrapping_shl(bits).wrapping_sub(1), 0)
     } else {
         let top = 1i64.wrapping_shl(bits.wrapping_sub(1));
@@ -467,7 +460,7 @@ pub fn read_float(data: &[u8], offset: &mut usize, typ: i32) -> Result<NumValue,
         }
         _ => {}
     }
-    match n_float(&n).and_then(|v| convert(v, typ, n.hex != 0, true)) {
+    match n_float(&n).and_then(|v| convert(v, typ, n.hex != 0)) {
         Some(v) => Ok(v),
         None => {
             *offset = old;
@@ -545,11 +538,6 @@ pub fn read_string(data: &[u8], offset: &mut usize) -> (Vec<u8>, i32) {
         }
         c = data[*offset];
     }
-}
-
-/// `func_file_input_float` after a successful read: conversion to `typ`.
-pub fn input_float(n: &NumRepr, typ: i32) -> Result<NumValue, i32> {
-    n_float(n).and_then(|v| convert(v, typ, n.hex != 0, false)).ok_or(6)
 }
 
 #[cfg(test)]
@@ -649,15 +637,6 @@ mod tests {
         assert_eq!(read_string(d, &mut o), (Vec::new(), 4));
         let mut o = 3;
         assert_eq!(read_string(b"abc", &mut o), (Vec::new(), 4));
-    }
-
-    #[test]
-    fn file_input_conversion_does_not_treat_hex_as_unsigned() {
-        let mut n = NumRepr::default();
-        let mut o = 0;
-        assert_eq!(number_from_data(b"&HFFFF", &mut o, &mut n), 0);
-        assert_eq!(input_float(&n, INT16), Err(6));
-        assert_eq!(input_float(&n, INT32), Ok(NumValue::Int(65535)));
     }
 
     #[test]

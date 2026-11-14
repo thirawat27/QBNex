@@ -268,9 +268,6 @@ pub static TABLE: &[Builtin] = &[
     b!("_FILEEXISTS", [Str], I32),
     b!("_DIREXISTS", [Str], I32),
     // ---- console / system
-    b!("CLS", []),
-    b!("LOCATE", [I32, I32]),
-    b!("COLOR", [I32, I32]),
     b!("POS", [], I32),
     b!("CSRLIN", [], I32),
     b!("INKEY$", [], Str),
@@ -285,7 +282,6 @@ pub static TABLE: &[Builtin] = &[
     // TIME$ = / DATE$ = (a program-local clock offset)
     b!("TIME$.set", [Str]),
     b!("DATE$.set", [Str]),
-    b!("_DEST", [I32]),
     // ---- screen pages, images and graphics: runtime callnames of the compiler registry
     // (`subs_functions.bas`); argument types are the registry's, the trailing I32 is `passed`.
     // `sub_graphics_get/put` take the element address and the array (aref) for the buffer.

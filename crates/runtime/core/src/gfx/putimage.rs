@@ -2,12 +2,9 @@
 //! clipping, mirroring, flipping, stretching, clear color and alpha blending.
 //!
 //! Handle resolution and the "source is the destination" detour belong to
-//! the caller; it passes the two surfaces here. For hardware images the
-//! caller passes emulated surfaces and asks for the resolved coordinates
-//! only (`hw_out`).
+//! the caller; it passes the two surfaces here.
 
 use super::blend::blend_onto;
-use std::sync::atomic::{AtomicU64, Ordering};
 use super::{qbr_d2l, qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
 
 /// `_PUTIMAGE` coordinates as passed by generated code.
@@ -104,13 +101,12 @@ unsafe fn plot(k: Kind, s: &ImgStruct, d: &ImgStruct, soff: isize, doff: isize) 
 
 /// `_PUTIMAGE` on resolved surfaces. `passed` uses the legacy bits
 /// (1 dx1, 2 STEP dx1, 4 dx2, 16 STEP dx2, 64 sx1, 256 STEP sx1, 512 sx2,
-/// 1024 STEP sx2, 128 _SMOOTH). With `hw_out`, only the coordinates are
-/// resolved and written as (sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2).
+/// 1024 STEP sx2, 128 _SMOOTH).
 ///
 /// # Safety
 /// `s` and `d` must be valid, distinct graphics surfaces of compatible depth
-/// (checked by the caller), or emulated surfaces when `hw_out` is given.
-pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passed: i32, hw_out: Option<&mut [i32; 8]>) -> i32 {
+/// (checked by the caller).
+pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passed: i32) -> i32 {
     let PutCoords { dx1: mut f_dx1, dy1: mut f_dy1, dx2: mut f_dx2, dy2: mut f_dy2, sx1: mut f_sx1, sy1: mut f_sy1, sx2: mut f_sx2, sy2: mut f_sy2 } = c;
     let (sw, sh, dw, dh) = (i32::from(s.width), i32::from(s.height), i32::from(d.width), i32::from(d.height));
     if passed & 2 != 0 {
@@ -167,42 +163,6 @@ pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passe
     }
     let s: &ImgStruct = s;
     let d: &ImgStruct = d;
-
-    if let Some(out) = hw_out {
-        // hardware images: resolve the missing corners and hand them back
-        if passed & 4 != 0 && passed & 512 != 0 {
-        } else if passed & 4 != 0 {
-            if passed & 64 != 0 {
-                sx2 = sx1 + (dx2 - dx1).abs();
-                sy2 = sy1 + (dy2 - dy1).abs();
-            } else {
-                sx2 = sw - 1;
-                sy2 = sh - 1;
-            }
-        } else if passed & 512 != 0 {
-            if passed & 1 != 0 {
-                dx2 = dx1 + (sx2 - sx1).abs();
-                dy2 = dy1 + (sy2 - sy1).abs();
-            } else {
-                dx2 = dw - 1;
-                dy2 = dh - 1;
-            }
-        } else if passed & 64 != 0 {
-            return ERR_ILLEGAL_FUNCTION_CALL;
-        } else if passed & 1 != 0 {
-            sx2 = sw - 1;
-            sy2 = sh - 1;
-            dx2 = dx1 + sx2;
-            dy2 = dy1 + sy2;
-        } else {
-            sx2 = sw - 1;
-            sy2 = sh - 1;
-            dx2 = dw - 1;
-            dy2 = dh - 1;
-        }
-        *out = [sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2];
-        return 0;
-    }
 
     // The software path works in i64: a coordinate of i32::MIN (out of range
     // or NaN after `qbr_f2l`) must not wrap in the corner and clip arithmetic
@@ -554,7 +514,6 @@ unsafe fn stretch(
             if sx < 0 || sx >= sw || sy < 0 || sy >= sh {
                 // Legacy read outside the source buffer here (a one pixel
                 // wide or high destination skips the source clipping).
-                SOURCE_OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
             // SAFETY: destination clipped by the caller, source checked above.
@@ -564,26 +523,13 @@ unsafe fn stretch(
     }
 }
 
-/// Number of stretched source samples that fell outside the source.
-pub static SOURCE_OUT_OF_RANGE: AtomicU64 = AtomicU64::new(0);
-
-/// `_PUTIMAGE`. `hw_out` may be null (software copy) or point to 8 int32 that
-/// receive (sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2) for a hardware command.
+/// `_PUTIMAGE` (software copy).
 ///
 /// # Safety
 /// See [`putimage`].
-pub unsafe fn qb_gfx_putimage(
-    s: *mut ImgStruct,
-    d: *mut ImgStruct,
-    c: *const PutCoords,
-    passed: i32,
-    hw_out: *mut i32,
-) -> i32 {
+pub unsafe fn qb_gfx_putimage(s: *mut ImgStruct, d: *mut ImgStruct, c: *const PutCoords, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
-    unsafe {
-        let out = if hw_out.is_null() { None } else { Some(&mut *(hw_out as *mut [i32; 8])) };
-        putimage(&mut *s, &mut *d, *c, passed, out)
-    }
+    unsafe { putimage(&mut *s, &mut *d, *c, passed) }
 }
 
 #[cfg(test)]
@@ -592,7 +538,7 @@ mod tests {
     use crate::gfx::testutil::TestImage;
 
     fn put(s: &mut TestImage, d: &mut TestImage, c: PutCoords, passed: i32) -> i32 {
-        unsafe { putimage(&mut s.img, &mut d.img, c, passed, None) }
+        unsafe { putimage(&mut s.img, &mut d.img, c, passed) }
     }
 
     fn src8() -> Box<TestImage> {
