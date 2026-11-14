@@ -668,7 +668,8 @@ FUNCTION getpid& ()
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
 DIM SHARED defFnBodyText AS STRING 'FUNCTIONs made from single-line DEF FN (deffn.bas)
 DIM SHARED defFnDimTypes AS STRING 'deffn.bas: |NAME=TYPE| of the module's DIM name AS type
-DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG, syntaxExtLoopStack AS STRING 'syntax_ext.bas
+DIM SHARED defFnIncInDef AS LONG 'deffn.bas: inside DEF FN ... END DEF of an included file
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG, syntaxExtLoopStack AS STRING, syntaxExtTryLabels AS STRING, syntaxExtMainPass AS LONG 'syntax_ext.bas
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -1088,6 +1089,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
             classSyntaxQueue$ = ""
             classSyntaxDeferredQueue$ = ""
             SyntaxExt_Reset
+            defFnIncInDef = 0
+            syntaxExtTryLabels$ = "|": syntaxExtMainPass = 0 'labels inside TRY bodies: built in the prepass, used in the main pass
             syntaxExtOptional$ = "" 'OPTIONAL defaults: built in the prepass, used in the main pass
             syntaxExtArrays$ = "" 'array ranks for FOR EACH, same lifetime
             topLevelRuntimeLines = ""
@@ -2312,6 +2315,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                     END IF
                                     IF EOF(fh) = 0 AND (incRangeEnd(inclevel) = 0 OR inclinenumber(inclevel) < incRangeEnd(inclevel)) THEN
                                         LINE INPUT #fh, x$
+                                        IF LEN(defFnBodyText$) THEN x$ = DefFn_IncludeLine$(x$) 'its DEF FN became a FUNCTION (deffn.bas)
 
                                         wholeline$ = ClassSyntax_ProcessLine$(x$)
                                         'counted first: TopLevelRuntime_ProcessLine$ records this line's number
@@ -9150,6 +9154,7 @@ DO WHILE inclevel
     END IF
     IF EOF(fh) = 0 AND (incRangeEnd(inclevel) = 0 OR inclinenumber(inclevel) < incRangeEnd(inclevel)) THEN
         LINE INPUT #fh, x$
+        IF LEN(defFnBodyText$) THEN x$ = DefFn_IncludeLine$(x$) 'its DEF FN became a FUNCTION (deffn.bas)
         a3$ = ClassSyntax_ProcessLine$(x$)
         'counted first: TopLevelRuntime_ProcessLine$ records this line's number
         inclinenumber(inclevel) = inclinenumber(inclevel) + 1

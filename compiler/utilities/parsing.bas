@@ -541,7 +541,7 @@ IF alphanumeric(c) THEN
                 '(todo: range checking)
                 'convert value into string for returning
                 IF t AND ISFLOAT THEN
-                    e$ = LTRIM$(RTRIM$(STR$(v##)))
+                    e$ = Eval_NumText$(v##) '19 digits: STR$ gives 16, one too few for a DOUBLE
                 ELSE
                     IF t AND ISUNSIGNED THEN
                         e$ = LTRIM$(RTRIM$(STR$(v~&&)))

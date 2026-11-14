@@ -248,6 +248,35 @@ REDIM OName(10000) AS STRING, PL(10000) AS INTEGER
 REDIM _PRESERVE OName(i) AS STRING, PL(i) AS INTEGER
 END SUB
 
+FUNCTION Eval_NumText$ (v AS _FLOAT)
+    'The text of an intermediate CONST value. STR$ gives 16 significant digits, one too
+    'few for a DOUBLE: CONST s = 1 / 7 was not the 1 / 7 of an expression. A value with
+    'a fraction is written with 19 significant digits here.
+    DIM a AS _FLOAT, ip AS _FLOAT, frac AS _FLOAT
+    DIM t AS STRING, f AS STRING, n AS LONG, i AS LONG, d AS LONG
+
+    a = ABS(v)
+    IF a >= 1E+15 OR a < .00001 OR a = INT(a) THEN Eval_NumText$ = RTRIM$(LTRIM$(STR$(v))): EXIT FUNCTION
+    ip = INT(a)
+    frac = a - ip
+    t = LTRIM$(STR$(ip))
+    IF ip = 0 THEN n = 19 ELSE n = 19 - LEN(t)
+    FOR i = 1 TO n
+        frac = frac * 10
+        d = INT(frac)
+        IF d > 9 THEN d = 9
+        IF d < 0 THEN d = 0
+        frac = frac - d
+        f = f + CHR$(48 + d)
+        'leading zeros of a value below 1 are not significant digits
+        IF ip = 0 AND d = 0 AND VAL(f) = 0 AND n < 40 THEN n = n + 1
+    NEXT
+    DO WHILE RIGHT$(f, 1) = "0": f = LEFT$(f, LEN(f) - 1): LOOP
+    IF LEN(f) THEN t = t + "." + f
+    IF v < 0 THEN t = "-" + t
+    Eval_NumText$ = t
+END FUNCTION
+
 FUNCTION EvaluateNumbers$ (p, num() AS STRING)
     DIM n1 AS _FLOAT, n2 AS _FLOAT, n3 AS _FLOAT
     DIM convUnsignedOffset AS _UNSIGNED _OFFSET
@@ -548,7 +577,7 @@ CASE ELSE 'a value we haven't processed elsewhere
     END SELECT
 END SELECT
 
-EvaluateNumbers$ = RTRIM$(LTRIM$(STR$(n1))) + C$
+EvaluateNumbers$ = Eval_NumText$(n1) + C$
 END FUNCTION
 
 FUNCTION DWD$ (exp$) 'Deal With Duplicates

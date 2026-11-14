@@ -409,28 +409,28 @@ END FUNCTION
 
 'Rewrites lineinput3buffer$ in place and fills defFnBodyText$ (see the top of this file).
 'A converted line is overwritten with spaces, so offsets and line numbers stay.
-SUB DefFn_RewriteBuffer
+SUB DefFn_RewriteText (buf AS STRING, defState AS STRING, anyDefType AS LONG)
+    'the DEF FN lines of buf (the main source, or the text of an $INCLUDE file) become
+    'blanks and their FUNCTIONs are added to defFnBodyText$
     DIM lineText AS STRING, fnName AS STRING, params AS STRING, expr AS STRING
     DIM sharedVars AS STRING, knownNames AS STRING, crlf AS STRING, head AS STRING
     DIM body AS STRING, code AS STRING, t AS STRING, kind AS LONG, inDef AS LONG
     DIM p AS LONG, e AS LONG, c13 AS LONG, c10 AS LONG, n AS LONG
-    DIM pre AS LONG, cut AS LONG, defText AS STRING, defState AS STRING, anyDefType AS LONG, mark AS STRING
+    DIM pre AS LONG, cut AS LONG, defText AS STRING, mark AS STRING
 
-    defFnBodyText$ = ""
-    defFnDimTypes$ = "|"
     'after each generated FUNCTION: replaced at the end by the DEFtype lines of the whole file
     mark = CHR$(2)
-    n = LEN(lineinput3buffer$)
-    IF INSTR(UCASE$(lineinput3buffer$), "FN") = 0 THEN EXIT SUB
+    n = LEN(buf)
+    IF INSTR(UCASE$(buf), "FN") = 0 THEN EXIT SUB
     crlf = CHR$(13) + CHR$(10)
     p = 1
     DO WHILE p <= n
-        c13 = INSTR(p, lineinput3buffer$, CHR$(13))
-        c10 = INSTR(p, lineinput3buffer$, CHR$(10))
+        c13 = INSTR(p, buf, CHR$(13))
+        c10 = INSTR(p, buf, CHR$(10))
         IF c13 = 0 THEN c13 = n + 1
         IF c10 = 0 THEN c10 = n + 1
         IF c13 < c10 THEN e = c13 ELSE e = c10
-        lineText = MID$(lineinput3buffer$, p, e - p)
+        lineText = MID$(buf, p, e - p)
         IF inDef THEN
             t = UCASE$(DefFn_StripComment$(DefFn_Trim$(lineText)))
             IF t = "END DEF" THEN
@@ -443,7 +443,7 @@ SUB DefFn_RewriteBuffer
                 body = body + DefFn_ExitDef$(lineText) + crlf
                 IF UCASE$(LEFT$(DefFn_Trim$(lineText), 4)) <> "REM " THEN code = code + DefFn_StripComment$(lineText) + CHR$(10)
             END IF
-            MID$(lineinput3buffer$, p, e - p) = SPACE$(e - p)
+            MID$(buf, p, e - p) = SPACE$(e - p)
         ELSE
             'DEFINT A-Z and the like: a generated FUNCTION is compiled after the program, so
             'it gets the DEFtype lines that were in force where the DEF FN stands
@@ -470,8 +470,8 @@ SUB DefFn_RewriteBuffer
             END IF
             IF kind THEN
                 IF LEN(knownNames) = 0 THEN
-                    knownNames = DefFn_KnownNames$(lineinput3buffer$)
-                    defFnDimTypes$ = DefFn_DimTypes$(lineinput3buffer$)
+                    knownNames = DefFn_KnownNames$(buf)
+                    defFnDimTypes$ = defFnDimTypes$ + MID$(DefFn_DimTypes$(buf), 2)
                 END IF
                 head = "DEFSNG A-Z" + crlf + defState
                 IF LEN(params) THEN head = head + "FUNCTION " + fnName + " (" + params + ")" + crlf ELSE head = head + "FUNCTION " + fnName + crlf
@@ -485,14 +485,77 @@ SUB DefFn_RewriteBuffer
                 END IF
                 'the definition becomes blanks; the line number, the label and what follows ":" stay
                 IF cut THEN
-                    MID$(lineinput3buffer$, p + pre, cut) = SPACE$(cut)
+                    MID$(buf, p + pre, cut) = SPACE$(cut)
                 ELSE
-                    MID$(lineinput3buffer$, p + pre, e - p - pre) = SPACE$(e - p - pre)
+                    MID$(buf, p + pre, e - p - pre) = SPACE$(e - p - pre)
                 END IF
             END IF
         END IF
         p = e + 1
     LOOP
+END SUB
+
+'DEF FN in the files the text includes with a relative '$INCLUDE (and in theirs).
+SUB DefFn_ScanIncludes (text AS STRING, folder AS STRING, depth AS LONG, defState AS STRING, anyDefType AS LONG)
+    DIM p AS LONG, nl AS LONG, lineText AS STRING, incName AS STRING, incPath AS STRING, incText AS STRING
+
+    IF depth > 20 OR INSTR(UCASE$(text), "$INCLUDE") = 0 THEN EXIT SUB
+    p = 1
+    DO WHILE p <= LEN(text)
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        lineText = MID$(text, p, nl - p)
+        p = nl + 1
+        incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
+        IF LEN(incName) THEN
+            incPath = folder + incName
+            IF _FILEEXISTS(incPath) = 0 THEN incPath = incName
+            IF _FILEEXISTS(incPath) THEN
+                incText = StdLib_ReadText$(incPath)
+                IF INSTR(UCASE$(incText), "FN") THEN
+                    DefFn_ScanIncludes incText, getfilepath$(incPath), depth + 1, defState, anyDefType
+                    DefFn_RewriteText incText, defState, anyDefType
+                END IF
+            END IF
+        END IF
+    LOOP
+END SUB
+
+'A line read from an $INCLUDE file without its DEF FN (DefFn_ScanIncludes made the
+'FUNCTION): the definition is dropped, a line number, a label and what follows ":" stay.
+FUNCTION DefFn_IncludeLine$ (lineText AS STRING)
+    DIM t AS STRING, fnName AS STRING, params AS STRING, expr AS STRING
+    DIM pre AS LONG, cut AS LONG, kind AS LONG, defText AS STRING
+
+    DefFn_IncludeLine$ = lineText
+    IF defFnIncInDef THEN
+        IF UCASE$(DefFn_StripComment$(DefFn_Trim$(lineText))) = "END DEF" THEN defFnIncInDef = 0
+        DefFn_IncludeLine$ = ""
+        EXIT FUNCTION
+    END IF
+    t = UCASE$(lineText)
+    IF INSTR(t, "DEF") = 0 OR INSTR(t, "FN") = 0 THEN EXIT FUNCTION
+    IF INSTR(UCASE$(DefFn_Trim$(lineText)), "DEF") > 1 THEN pre = DefFn_PrefixLen&(lineText)
+    defText = MID$(lineText, pre + 1)
+    kind = DefFn_Parse%(defText, fnName, params, expr)
+    IF kind = 0 THEN EXIT FUNCTION
+    IF kind = 1 THEN cut = DefFn_StatementEnd&(defText)
+    IF kind = 2 THEN defFnIncInDef = -1
+    IF cut THEN DefFn_IncludeLine$ = LEFT$(lineText, pre) + MID$(defText, cut + 1) ELSE DefFn_IncludeLine$ = LEFT$(lineText, pre)
+END FUNCTION
+
+'Rewrites lineinput3buffer$ in place and fills defFnBodyText$ (see the top of this file).
+'A converted line is overwritten with spaces, so offsets and line numbers stay.
+SUB DefFn_RewriteBuffer
+    DIM defState AS STRING, anyDefType AS LONG, mark AS STRING, crlf AS STRING, p AS LONG
+
+    defFnBodyText$ = ""
+    defFnDimTypes$ = "|"
+    defFnIncInDef = 0
+    mark = CHR$(2)
+    crlf = CHR$(13) + CHR$(10)
+    DefFn_RewriteText lineinput3buffer$, defState, anyDefType
+    DefFn_ScanIncludes lineinput3buffer$, getfilepath$(sourcefile$), 0, defState, anyDefType
     'What is compiled after a generated FUNCTION gets the DEFtype lines of the whole file
     'again; a file without any needs neither these nor the ones in front of the FUNCTIONs.
     IF anyDefType THEN defState = "DEFSNG A-Z" + crlf + defState ELSE defState = ""

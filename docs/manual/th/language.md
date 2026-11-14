@@ -125,9 +125,8 @@ cleanup
 (`TRY: ERROR 6: CATCH e: PRINT e: END TRY`) การหารจำนวนเต็มด้วยศูนย์
 (`\` และ `MOD`) เป็น error 11 ที่ดักได้ `ON ERROR GOTO` ยังใช้ได้ตามเดิม:
 handler ที่ตั้งไว้ก่อน `TRY` กลับมามีผลเมื่อจบส่วน body รวมถึงเมื่อออกจาก body
-ด้วย `EXIT FOR`, `EXIT DO`, `EXIT WHILE`, `_CONTINUE`, `EXIT SUB` หรือ
-`EXIT FUNCTION` ส่วน `GOTO` ที่กระโดดออกจาก body ของ `TRY` ไม่ถูกติดตาม
-error จะยังถูกดักต่อไปจนกว่าจะเข้า `TRY` เดิมอีกครั้งหรือ procedure นั้นคืนค่า
+ด้วย `EXIT FOR`, `EXIT DO`, `EXIT WHILE`, `_CONTINUE`, `EXIT SUB`,
+`EXIT FUNCTION` หรือ `GOTO` ไปยัง label ที่อยู่นอก body
 
 ### พารามิเตอร์ `OPTIONAL`
 

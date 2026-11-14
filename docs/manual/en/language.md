@@ -127,9 +127,8 @@ statements (`TRY: ERROR 6: CATCH e: PRINT e: END TRY`). Integer division by
 zero (`\` and `MOD`) is error 11 and can be caught. `ON ERROR GOTO` keeps
 working as before: the handler that was set before a `TRY` is in force again
 when its body ends, also when the body is left with `EXIT FOR`, `EXIT DO`,
-`EXIT WHILE`, `_CONTINUE`, `EXIT SUB` or `EXIT FUNCTION`. A `GOTO` out of a
-`TRY` body is not followed: errors stay caught until the same `TRY` is
-entered again or its procedure returns.
+`EXIT WHILE`, `_CONTINUE`, `EXIT SUB`, `EXIT FUNCTION` or a `GOTO` to a label
+outside it.
 
 ### `OPTIONAL` parameters
 

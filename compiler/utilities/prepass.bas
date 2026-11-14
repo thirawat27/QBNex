@@ -39,6 +39,8 @@ SUB ResetPrepassManagers
     ClassSyntax_ClearRegistry
     ClassSyntax_ClearScopes
     SyntaxExt_Reset
+    syntaxExtMainPass = -1
+    defFnIncInDef = 0
 END SUB
 
 SUB ResetPostPrepassState
