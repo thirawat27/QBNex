@@ -80,7 +80,7 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config && ok=1 && break; sleep 20; done; [ -n "${ok:-}" ]
+        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config mesa-vulkan-drivers libxkbcommon-x11-0 xvfb xdotool imagemagick && ok=1 && break; sleep 20; done; [ -n "${ok:-}" ]
 
       # rust-toolchain.toml pins the version; rustup installs it (and its components) here.
       - name: Install Rust toolchain
@@ -130,13 +130,24 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then ulimit -v 8000000; fi
           cargo test --workspace --locked --no-fail-fast
 
+      # The GPU paths against the software reference. Linux uses Mesa's software
+      # Vulkan (lavapipe), Windows WARP; a runner without any adapter skips them.
+      - name: GPU tests
+        shell: bash
+        env:
+          QB_AUDIO_DEVICE: none
+        run: |
+          cargo test --locked -p qb-gpu -- --nocapture 2>&1 | tee gpu.log
+          cargo test --locked -p qb-runtime --features gpu --lib -- gpu scene
+          grep -E 'qb-gpu adapter|skipped: no GPU adapter' gpu.log | sort | uniq -c
+
       # Each script runs under the shell its first line names (dash is sh on Ubuntu,
       # bash 3.2 on macOS), so a bash-only script never runs under dash.
       - name: Smoke tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain; do
+          for t in cli diagnostics warnings labels encoding stdlib stdlib_modules compiler_robustness audio chain window; do
             f="tests/smoke/${t}_smoke.sh"
             case "$(head -n 1 "$f")" in *bash*) sh_bin=bash ;; *) sh_bin=sh ;; esac
             echo "::group::${t}_smoke"; "$sh_bin" "$f"; echo "::endgroup::"
@@ -176,6 +187,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .github/scripts/portable_bundle.ps1 -BinaryPath "${{ matrix.artifact_path }}" -OutputDir "${{ env.QBNEX_BUNDLE_DIR }}" -WrapperPath "qb.cmd" -AliasWrapperPath "qbnex.cmd"
+
+      # The one-file installer on each system: install over a folder with the user's
+      # files in it, compile and run a program with what it installed, install again,
+      # uninstall.
+      - name: Installer (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./.github/scripts/installer_check.sh target/debug/qbnex-setup "${{ env.QBNEX_BUNDLE_DIR }}" "$RUNNER_TEMP/installer-check"
+
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/scripts/installer_check.ps1 -Setup target/debug/qbnex-setup.exe -Bundle "${{ env.QBNEX_BUNDLE_DIR }}" -Work (Join-Path $env:RUNNER_TEMP 'installer-check')
 
       - name: Upload compiler artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

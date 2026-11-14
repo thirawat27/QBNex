@@ -36,7 +36,7 @@ exe="$1"; tag="$2"; shot="$3"
 i=0; while [ ! -f "$tag.ready" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
 sleep 1
 import -window root "$shot"
-xdotool search --sync --name "QBNex window smoke" windowactivate --sync key Escape || true
+timeout 15 xdotool search --sync --limit 1 --name "QBNex window smoke" windowfocus key Escape || true
 wait $pid
 DRIVE
 

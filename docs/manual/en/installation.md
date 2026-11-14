@@ -64,6 +64,11 @@ pkgconf-pkg-config`; Arch: `gcc alsa-lib systemd-libs libxkbcommon libx11
 pkgconf`. `gcc` is only the system linker Rust uses on Linux; no C or C++
 source is compiled.
 
+Programs that open a window also need the X11 keyboard library at run time:
+`libxkbcommon-x11-0` on Debian/Ubuntu, `libxkbcommon-x11` on Fedora and Arch
+(desktop systems have it). Without it a program runs without a window and
+says which library is missing.
+
 ### macOS
 
 ```bash
