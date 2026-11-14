@@ -12,6 +12,11 @@ runtime. Old QBasic/QB64 programs compile and behave as before, except for the
 fixes listed in `docs/manual/en/differences.md`. This entry collects every change
 made after 1.0.4.
 
+Pre-releases from this section: `2.0.0-preview` (2026-11-13) and `2.0.0-preview.2`
+(2026-11-14), which adds the fixes of two audits of the compiler, runtime, tools and
+installer, and CI checks of the GPU paths, a real window and the installer on Linux,
+macOS and Windows.
+
 ### Changed
 
 #### Compiler and runtime
@@ -43,6 +48,7 @@ made after 1.0.4.
 - CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables on Linux, macOS and Windows x64) plus `release.yml`, and `docs.yml` compiles the BASIC examples of the README and the manual; they run with read-only repository permissions.
 - `release.yml` signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set (Windows: `signtool` with a `.pfx`; macOS: `codesign` and `notarytool`) and skips with a notice otherwise; the secrets are listed in CONTRIBUTING.md. The macOS and Linux CI build no longer fails on the conformance harness, the smoke tests keep the system `TMPDIR` (macOS sets it), and each smoke script runs under the shell its first line names.
 - Release bundles include `qb-fmt`, `qb-lsp` and `qb-dap`, next to the one-file installers.
+- The Windows installer has the QBNex icon and version information (description, file and product version, product name, copyright, language), written as a resource file by its build script and linked without a resource compiler.
 - CI also runs the GPU tests on a software adapter (Mesa lavapipe on Linux, WARP on Windows), a compiled program in a real X11 window under Xvfb (`tests/smoke/window_smoke.sh`: the drawing on screen, a key press), and the one-file installer on Linux, macOS and Windows (install over a folder with the user's files, compile and run a program with it, install again, uninstall: `.github/scripts/installer_check.*`).
 - Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
 

@@ -2315,7 +2315,7 @@ line 27
 incline 3 0
 line 27
 incline 5 0
-const.str %0 x322E302E302D70726576696577
+const.str %0 x322E302E302D707265766965772E32
 store.str $__STRING_VERSION %0
 line 27
 incline 6 0

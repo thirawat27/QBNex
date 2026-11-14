@@ -12,6 +12,26 @@ New-Item -ItemType Directory -Force -Path $Work | Out-Null
 $pkg = Join-Path $Work 'qbnex-setup-test.exe'
 & $Setup --pack $Bundle --out $pkg
 if ($LASTEXITCODE) { throw 'pack failed' }
+
+# The installer carries the QBNex icon and version information (Explorer, the
+# Details tab of its properties), also after the bundle is appended.
+$info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $pkg).Path)
+Write-Host "setup: $($info.FileDescription) $($info.ProductVersion), $($info.LegalCopyright)"
+if ($info.ProductName -ne 'QBNex' -or -not $info.ProductVersion -or -not $info.LegalCopyright) { throw 'the installer has no version information' }
+Add-Type -Namespace QbCheck -Name Res -MemberDefinition @'
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern IntPtr LoadLibraryEx(string name, IntPtr file, uint flags);
+[DllImport("kernel32.dll")]
+public static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);
+[DllImport("kernel32.dll")]
+public static extern bool FreeLibrary(IntPtr module);
+'@
+$module = [QbCheck.Res]::LoadLibraryEx((Resolve-Path $pkg).Path, [IntPtr]::Zero, 2) # LOAD_LIBRARY_AS_DATAFILE
+if ($module -eq [IntPtr]::Zero) { throw 'cannot open the installer to read its resources' }
+$group = [QbCheck.Res]::FindResource($module, [IntPtr]1, [IntPtr]14) # icon group 1, RT_GROUP_ICON
+[void][QbCheck.Res]::FreeLibrary($module)
+if ($group -eq [IntPtr]::Zero) { throw 'the installer has no icon' }
+Write-Host 'setup: icon present'
 $dir = Join-Path $Work 'QBNex (Install) & Co'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Set-Content -Path (Join-Path $dir 'notes.txt') -Value 'mine'
