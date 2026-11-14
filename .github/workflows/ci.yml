@@ -80,7 +80,7 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config mesa-vulkan-drivers libxkbcommon-x11-0 xvfb xdotool imagemagick && ok=1 && break; sleep 20; done; [ -n "${ok:-}" ]
+        run: for i in 1 2 3 4 5; do sudo apt-get -o Acquire::Retries=5 update && sudo apt-get -o Acquire::Retries=5 install -y libasound2-dev libudev-dev libxkbcommon-dev libx11-dev pkg-config mesa-vulkan-drivers libxkbcommon-x11-0 xvfb xdotool imagemagick gdb && ok=1 && break; sleep 20; done; [ -n "${ok:-}" ]
 
       # rust-toolchain.toml pins the version; rustup installs it (and its components) here.
       - name: Install Rust toolchain
@@ -138,7 +138,16 @@ jobs:
           QB_AUDIO_DEVICE: none
         run: |
           cargo test --locked -p qb-gpu -- --nocapture 2>&1 | tee gpu.log
-          cargo test --locked -p qb-runtime --features gpu --lib -- gpu scene
+          if ! cargo test --locked -p qb-runtime --features gpu --lib -- gpu scene; then
+            # a crash leaves no Rust backtrace: show where it happened
+            if command -v gdb >/dev/null; then
+              bin=$(ls -t target/debug/build/qb-runtime/*/out/qb_runtime-* | grep -v '\.d$' | head -n 1)
+              for i in 1 2 3; do
+                gdb -q -batch -ex run -ex 'thread apply all bt 20' --args "$bin" gpu scene 2>&1 | grep -v '^\[New Thread\|^\[Thread' | tail -n 200
+              done
+            fi
+            exit 1
+          fi
           grep -E 'qb-gpu adapter|skipped: no GPU adapter' gpu.log | sort | uniq -c
 
       # Each script runs under the shell its first line names (dash is sh on Ubuntu,
