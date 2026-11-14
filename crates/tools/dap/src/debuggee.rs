@@ -91,8 +91,10 @@ impl Debugger for Hook {
     fn statement(&mut self, stop: &mut Stop<'_, '_, '_>) {
         let depth = stop.depth();
         let pause = self.pause.swap(false, Ordering::Relaxed);
-        let bps = self.breakpoints.lock().unwrap().clone();
-        let Some(reason) = self.stepper.check(stop.pc, stop.line, depth, pause, &bps) else { return };
+        // (the set is looked at under its lock: a copy per statement made every
+        // statement of a program with a breakpoint cost an allocation)
+        let reason = self.stepper.check(stop.pc, stop.line, depth, pause, &self.breakpoints.lock().unwrap());
+        let Some(reason) = reason else { return };
         self.stepper.mode = Mode::Run;
         stop.flush();
         let _ = std::io::stdout().flush();

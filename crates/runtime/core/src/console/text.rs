@@ -240,16 +240,24 @@ pub unsafe fn print(h: &mut dyn Host, s: &[u8], finish_on_new_line: bool) {
     let len = s.len() as i32;
     let mut entered_new_line = false;
     let mut i: i32 = 0;
+    // Text is UTF-8 when all of it is, as on the Windows console; else its bytes are
+    // code page 437. Taken pair by pair, the corner of a box drawn with
+    // STRING$(10, 196) + CHR$(191) was one "L with middle dot" (C4 BF is U+013F).
+    let text_is_utf8 = std::str::from_utf8(s).is_ok();
     while i < len {
         let w = wp(h);
         let mut character = s[i as usize] as u32;
         if (*w).text != 0 {
-            let (used, cp) = utf8::decode(&s[i as usize..]);
-            if used == 0 {
-                break;
+            if text_is_utf8 {
+                let (used, cp) = utf8::decode(&s[i as usize..]);
+                if used == 0 {
+                    break;
+                }
+                character = cp;
+                i += used as i32 - 1;
+            } else {
+                character = utf8::cp437(s[i as usize]);
             }
-            character = cp;
-            i += used as i32 - 1;
         } else if h.font_flags((*w).font) & 32 != 0 {
             if i > len - 4 {
                 break;

@@ -69,10 +69,11 @@ pub fn request_with_roots(
     extra_roots: Option<&[u8]>,
 ) -> Result<Response, String> {
     let timeout = Duration::from_millis(if timeout_ms <= 0 { 30_000 } else { timeout_ms as u64 });
+    // the timeout is for the whole request: every redirect gets what is left of it
+    let deadline = std::time::Instant::now() + timeout;
     // Redirects are followed here, not by ureq: ureq does not send a body again, so a
     // POST answered with 307 or 308 failed ("redirect failed") instead of being repeated.
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
         .http_status_as_error(false)
         .max_redirects(0)
         .max_redirects_will_error(false)
@@ -85,7 +86,13 @@ pub fn request_with_roots(
     let mut url = url.to_string();
     let mut body = body.to_vec();
     let mut redirects = 0;
+    // false once a redirect has left the server the caller named
+    let mut same_origin = true;
     let mut resp = loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err("timeout".into());
+        }
         let mut b = ureq::http::Request::builder().method(method.as_str()).uri(url.as_str());
         for line in headers.split('\n') {
             let line = line.trim_end_matches('\r');
@@ -95,14 +102,19 @@ pub fn request_with_roots(
             let Some((k, v)) = line.split_once(':') else {
                 return Err(format!("bad header line: {line}"));
             };
+            // the caller's credentials are for the server it named, not for one a
+            // redirect leads to
+            if !same_origin && is_credential_header(k.trim()) {
+                continue;
+            }
             b = b.header(k.trim(), v.trim());
         }
         let resp = if body.is_empty() && !matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
             let req = b.body(()).map_err(|e| e.to_string())?;
-            agent.run(req)
+            agent.run(agent.configure_request(req).timeout_global(Some(left)).build())
         } else {
             let req = b.body(body.clone()).map_err(|e| e.to_string())?;
-            agent.run(req)
+            agent.run(agent.configure_request(req).timeout_global(Some(left)).build())
         }
         .map_err(|e| e.to_string())?;
         let code = resp.status().as_u16();
@@ -112,10 +124,20 @@ pub fn request_with_roots(
         if redirects > 10 {
             return Err("too many redirects".into());
         }
-        url = join_url(&url, &location);
+        let next = join_url(&url, &location);
+        // an encrypted request is not repeated in clear text
+        if scheme_of(&url) == "https" && scheme_of(&next) != "https" {
+            return Err("redirect from https to an unencrypted address refused".into());
+        }
+        let leaves = origin_of(&url) != origin_of(&next);
+        if leaves {
+            same_origin = false;
+        }
+        url = next;
         // 307 and 308 repeat the request; the others go on as GET without a body
-        // (what browsers do for 301 and 302 too)
-        if !matches!(code, 307 | 308) && method != "HEAD" {
+        // (what browsers do for 301 and 302 too). A body is not repeated to another
+        // server than the one it was sent to.
+        if (!matches!(code, 307 | 308) || leaves) && method != "HEAD" {
             method = "GET".into();
             body.clear();
         }
@@ -134,11 +156,40 @@ pub fn request_with_roots(
     Ok(Response { status, headers: head, body })
 }
 
+/// Headers that carry the caller's credentials.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_credential_header(name: &str) -> bool {
+    ["authorization", "cookie", "proxy-authorization"].iter().any(|h| name.eq_ignore_ascii_case(h))
+}
+
+/// The scheme of `url`, in lower case.
+#[cfg(not(target_arch = "wasm32"))]
+fn scheme_of(url: &str) -> String {
+    url.split_once("://").map_or(String::new(), |(s, _)| s.to_ascii_lowercase())
+}
+
+/// Scheme, host and port of `url` (what a redirect must keep for the caller's
+/// credentials to go along), in lower case.
+#[cfg(not(target_arch = "wasm32"))]
+fn origin_of(url: &str) -> String {
+    let scheme_end = url.find("://").map_or(0, |p| p + 3);
+    let rest = &url[scheme_end..];
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    // user:password@host is the same server as host
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    format!("{}{}", url[..scheme_end].to_ascii_lowercase(), host.to_ascii_lowercase())
+}
+
 /// `location` of a redirect, made absolute against the URL that was asked for.
 #[cfg(not(target_arch = "wasm32"))]
 fn join_url(base: &str, location: &str) -> String {
     if location.contains("://") {
         return location.to_string();
+    }
+    // only a query or a fragment: the same path with it
+    if location.starts_with(['?', '#']) {
+        let keep = base.find(if location.starts_with('?') { &['?', '#'][..] } else { &['#'][..] }).unwrap_or(base.len());
+        return format!("{}{location}", &base[..keep]);
     }
     let scheme_end = base.find("://").map_or(0, |p| p + 3);
     let path_start = base[scheme_end..].find('/').map_or(base.len(), |p| p + scheme_end);

@@ -43,3 +43,6 @@ DIM SHARED IrSrcFiles AS STRING, IrSrcFileN AS LONG, IrSrcLastName AS STRING, Ir
 'reused by IrAssign while IrSymState$ is unchanged: fixing the same expression twice per
 'assignment was a large part of the compile time
 DIM SHARED IrRhsSrc AS STRING, IrRhsFixed AS STRING, IrRhsLayout AS STRING, IrRhsState AS STRING
+'IrAssign asks IrElemPlace$ to hold back the "aaddr" of the element being assigned
+'(IrAaddrLater) and emits the held line (IrAaddrHeld) after the right side
+DIM SHARED IrAaddrLater AS LONG, IrAaddrHeld AS STRING

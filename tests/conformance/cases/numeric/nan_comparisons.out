@@ -1,0 +1,11 @@
+lt ok
+gt ok
+le ok
+ge ok
+eq ok
+ne ok
+c = 1 
+DO UNTIL ran 3 
+single ok
+value of (n < 1): 0 
+FOR: 6 

@@ -7,7 +7,7 @@
 //! -1 non-specific, -2 invalid handle, -3 bad file mode, -4 illegal function
 //! call, -5 file not found, -6 path not found, -7 permission denied,
 //! -8 device unavailable, -9 path/file access error, -10 read past EOF,
-//! -11 bad file name.
+//! -11 bad file name, -13 disk full (-12 is `fileio`'s bad file mode on OPEN).
 //!
 //! Windows uses the same Win32 calls as legacy (`GFS_WINDOWS`). Other systems
 //! follow the legacy `GFS_C` fstream behaviour with `std::fs` (not verified on
@@ -395,6 +395,21 @@ impl Table {
     /// Highest file number seen so far (`gfs_fileno_n`).
     pub(crate) fn max_fileno(&self) -> i32 {
         self.fileno_n()
+    }
+}
+
+/// The bytes of a program's file name as a path of this system. Linux and macOS take
+/// the bytes as they are: read as UTF-8 text, every byte that is not UTF-8 became
+/// U+FFFD, and two different names (CHR$(200), CHR$(201)) named one file.
+pub fn os_path(name: &[u8]) -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(name))
+    }
+    #[cfg(not(unix))]
+    {
+        std::path::PathBuf::from(String::from_utf8_lossy(name).into_owned())
     }
 }
 
@@ -1002,7 +1017,7 @@ mod os {
     /// O_APPEND: APPEND mode seeks to LOF itself, PUT/SEEK need real positions).
     /// The file, or whether the open was refused for lack of permission (as opposed
     /// to a missing file or path).
-    fn try_open(name: &str, access: i32, how: i32) -> Result<File, bool> {
+    fn try_open(name: &std::path::Path, access: i32, how: i32) -> Result<File, bool> {
         let mut o = OpenOptions::new();
         match access {
             1 => o.read(true),
@@ -1024,7 +1039,12 @@ mod os {
     }
 
     pub fn open(s: &mut Slot, namez: &[u8], access: i32, _restrictions: i32, how: i32) -> i32 {
-        let name = String::from_utf8_lossy(&namez[..namez.len() - 1]).into_owned();
+        // a serial port is opened by the Windows layer only: "Device unavailable",
+        // not a file called COM1:9600,N,8,1 in the current folder
+        if s.file.com_port != 0 {
+            return -8;
+        }
+        let name = super::os_path(&namez[..namez.len() - 1]);
         let mut h = try_open(&name, access, how);
         let mut denied = matches!(h, Err(true));
         if how == 3 && h.is_err() {
@@ -1071,8 +1091,15 @@ mod os {
 
     pub fn write(s: &mut Slot, data: &[u8]) -> i32 {
         let Some(f) = s.os.0.as_mut() else { return -7 };
-        if f.write_all(data).is_err() {
-            return -7;
+        // (write_all goes on after an interrupted call)
+        if let Err(e) = f.write_all(data) {
+            // what did get written moved the file position: read it back, so that
+            // the next statement does not work from a position the file is not at
+            if let Ok(p) = f.stream_position() {
+                s.file.pos = p as i64;
+            }
+            // a full disk is "Disk full" (61), not "Permission denied"
+            return if matches!(e.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) { -13 } else { -7 };
         }
         s.file.pos += data.len() as i64;
         0
@@ -1085,6 +1112,8 @@ mod os {
             match f.read(&mut data[done..]) {
                 Ok(0) => break,
                 Ok(n) => done += n,
+                // a signal arrived during the call: nothing was read, ask again
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(_) => return (-7, done as i64),
             }
         }

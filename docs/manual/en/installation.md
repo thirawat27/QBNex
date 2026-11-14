@@ -123,7 +123,7 @@ cargo build --release -p qb-fmt -p qb-lsp -p qb-dap
 
 ```bash
 docker build -f docker/Dockerfile -t qbnex .
-docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas
+docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas -o yourfile
 ```
 
 ## Check the installation

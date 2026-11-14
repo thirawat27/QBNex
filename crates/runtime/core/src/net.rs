@@ -139,7 +139,8 @@ impl Conn {
                 0
             }
             Ok(n) => n,
-            Err(e) if e.kind() == ErrorKind::WouldBlock => 0,
+            // nothing yet, or a signal arrived during the call: the connection is fine
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => 0,
             Err(_) => {
                 self.connected = 0;
                 0

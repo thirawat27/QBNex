@@ -1445,7 +1445,7 @@ impl<'a> Lw<'a> {
                     if single(*c) && self.pc() > self.barrier {
                         let fused = match self.m.code.last().copied() {
                             Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
-                            Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
+                            Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.negated() }, a, b, t: 0 }),
                             // native BrS reads string operands from the frame, not from memory
                             Some(Ins::CmpS { c: op, d, a, b }) if d == r && !mem_str(a) && !mem_str(b) => Some(Ins::BrS { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
                             Some(Ins::CmpU { c: op, d, a, b }) if d == r => Some(Ins::BrU { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
@@ -1842,6 +1842,7 @@ fn widens(from: IT, to: IT) -> bool {
 /// The emitter's FOR test (direction chosen by the sign of STEP each
 /// iteration) as one instruction:
 /// `br ge step,0 -> P; br lt v,lim -> X; jmp B; P: br gt v,lim -> X; B:`
+/// (floats: `br nlt step,0`, the same test for every STEP but NaN, which counts up)
 fn fuse_for_tests(code: &mut [Ins], range: std::ops::Range<usize>, zero: &dyn Fn(R) -> bool) {
     for i in range.start..range.end.saturating_sub(4) {
         let w = &code[i..i + 4];
@@ -1855,7 +1856,7 @@ fn fuse_for_tests(code: &mut [Ins], range: std::ops::Range<usize>, zero: &dyn Fn
                 Some(Ins::ForTestKI { v, lim, step, t: x, skip: 4 })
             }
             (
-                Ins::BrF { c: Cmp::Ge, a: step, b: z, t: p },
+                Ins::BrF { c: Cmp::Nlt, a: step, b: z, t: p },
                 Ins::BrF { c: Cmp::Lt, a: v, b: lim, t: x },
                 Ins::Jmp { t: bb },
                 Ins::BrF { c: Cmp::Gt, a: v2, b: lim2, t: x2 },
@@ -2005,7 +2006,7 @@ fn used_before_redef(body: &[Inst], at: usize, r: u32) -> bool {
 fn invert(i: Ins) -> Ins {
     match i {
         Ins::BrI { c, a, b, t } => Ins::BrI { c: c.inverse(), a, b, t },
-        Ins::BrF { c, a, b, t } => Ins::BrF { c: c.inverse(), a, b, t },
+        Ins::BrF { c, a, b, t } => Ins::BrF { c: c.negated(), a, b, t },
         Ins::BrS { c, a, b, t } => Ins::BrS { c: c.inverse(), a, b, t },
         Ins::BrU { c, a, b, t } => Ins::BrU { c: c.inverse(), a, b, t },
         Ins::JzI { s, t } => Ins::JnzI { s, t },

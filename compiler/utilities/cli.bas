@@ -201,7 +201,13 @@ FUNCTION ParseCMDLineArgs$ ()
         token$ = COMMAND$(i)
         token$ = NormalizeCommandToken$(token$)
 
-        SELECT CASE LCASE$(LEFT$(token$, 2))
+        'A switch is its letter alone: -emit-ir was taken for -e, and -O2 took the next
+        'word (the source file) as the name after -o. Longer ones: -ir, -irtext, -s:name.
+        sw$ = LCASE$(LEFT$(token$, 2))
+        IF LEN(token$) > 2 AND LEFT$(token$, 1) = "-" THEN
+            IF token$ <> "-ir" AND token$ <> "-irtext" AND sw$ <> "-s" THEN sw$ = ""
+        END IF
+        SELECT CASE sw$
         CASE "-?"
             ShowCommandLineHelp
             SYSTEM

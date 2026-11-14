@@ -57,7 +57,7 @@ SUB ParseExpression (exp$)
                 'Look for first valid operator
                 IF J = PL(P) THEN 'Priority levels match
                 IF LEFT$(exp$, 1) = "-" THEN startAt = 2 ELSE startAt = 1
-                op = INSTR(startAt, exp$, OName$(P))
+                op = Eval_FindOp&(startAt, exp$, OName$(P))
                 IF op = 0 AND LEFT$(OName$(P), 1) = "_" AND qbnexprefix_set = 1 THEN
                     'try again without prefix
                     op = INSTR(startAt, exp$, MID$(OName$(P), 2))
@@ -71,7 +71,7 @@ SUB ParseExpression (exp$)
         NEXT
         IF OpOn = 0 THEN EXIT DO 'We haven't gotten to the proper PL for this OP to be processed yet.
         IF LEFT$(exp$, 1) = "-" THEN startAt = 2 ELSE startAt = 1
-        op = INSTR(startAt, exp$, OName$(OpOn))
+        op = Eval_FindOp&(startAt, exp$, OName$(OpOn))
 
         numset = 0
 
@@ -134,7 +134,11 @@ SUB ParseExpression (exp$)
         END IF
         IF MID$(num(3), 1, 1) = "-" THEN MID$(num(3), 1) = "N"
         IF LEFT$(num(3), 5) = "ERROR" THEN exp$ = num(3): EXIT SUB
-        exp$ = LTRIM$(N2S(DWD(LEFT$(exp$, s) + RTRIM$(LTRIM$(num(3))) + MID$(exp$, E + 1))))
+        'Only the result is taken out of scientific notation: N2S on the whole expression
+        'kept what follows "E+" as the exponent and dropped the rest of the expression
+        num(3) = N2S(RTRIM$(LTRIM$(num(3))))
+        IF MID$(num(3), 1, 1) = "-" THEN MID$(num(3), 1) = "N"
+        exp$ = LTRIM$(DWD(LEFT$(exp$, s) + num(3) + MID$(exp$, E + 1)))
     END IF
     op = 0
 LOOP
@@ -248,6 +252,20 @@ REDIM OName(10000) AS STRING, PL(10000) AS INTEGER
 REDIM _PRESERVE OName(i) AS STRING, PL(i) AS INTEGER
 END SUB
 
+FUNCTION Eval_FindOp& (fromPos AS LONG, exprText AS STRING, opName AS STRING)
+    'Position of operator opName in exprText from fromPos. The OR inside XOR is not an OR:
+    'CONST c = 3 AND 1 OR 4 XOR 2 was "Invalid CONST expression".
+    DIM found AS LONG
+    found = INSTR(fromPos, exprText, opName)
+    IF opName = "OR" THEN
+        DO WHILE found > 1
+            IF MID$(exprText, found - 1, 1) <> "X" THEN EXIT DO
+            found = INSTR(found + 1, exprText, opName)
+        LOOP
+    END IF
+    Eval_FindOp& = found
+END FUNCTION
+
 FUNCTION Eval_NumText$ (v AS _FLOAT)
     'The text of an intermediate CONST value. STR$ gives 16 significant digits, one too
     'few for a DOUBLE: CONST s = 1 / 7 was not the 1 / 7 of an expression. A value with
@@ -256,6 +274,15 @@ FUNCTION Eval_NumText$ (v AS _FLOAT)
     DIM t AS STRING, f AS STRING, n AS LONG, i AS LONG, d AS LONG
 
     a = ABS(v)
+    'A whole number below 2^64 is written with all its digits (a _FLOAT holds them):
+    'STR$ gives 16, and CONST c&& = 1234567890123456789 + 1 ended in ...457000.
+    IF a = INT(a) AND a >= 1E+15 AND a < 18446744073709551615## THEN
+        DIM whole AS _UNSIGNED _INTEGER64
+        whole = a
+        t = LTRIM$(STR$(whole))
+        IF v < 0 THEN t = "-" + t
+        Eval_NumText$ = t: EXIT FUNCTION
+    END IF
     IF a >= 1E+15 OR a < .00001 OR a = INT(a) THEN Eval_NumText$ = RTRIM$(LTRIM$(STR$(v))): EXIT FUNCTION
     ip = INT(a)
     frac = a - ip

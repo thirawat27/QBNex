@@ -251,8 +251,9 @@ impl Mem {
                     return Ok(());
                 }
             }
-        self.free_str(old);
+        // `s` may be (part of) the string being replaced: the new one is made first
         let h = self.new_str(s);
+        self.free_str(old);
         self.st(MTy::U64, p, h)
     }
 

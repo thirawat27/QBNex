@@ -144,20 +144,56 @@ pub enum Cmp {
     Le,
     Gt,
     Ge,
+    /// "not less than" and the three like it: the negation of an ordered comparison
+    /// of floats, true when an operand is NaN (`>=` is false then). Only a float
+    /// branch (`BrF`) carries them, see [`Cmp::negated`].
+    Nlt,
+    Nle,
+    Ngt,
+    Nge,
 }
 
 impl Cmp {
+    /// The comparison that holds exactly when this one does not, for operands that
+    /// are always ordered (integers, strings).
     pub fn inverse(self) -> Cmp {
         match self {
             Cmp::Eq => Cmp::Ne,
             Cmp::Ne => Cmp::Eq,
-            Cmp::Lt => Cmp::Ge,
-            Cmp::Le => Cmp::Gt,
-            Cmp::Gt => Cmp::Le,
-            Cmp::Ge => Cmp::Lt,
+            Cmp::Lt | Cmp::Nge => Cmp::Ge,
+            Cmp::Le | Cmp::Ngt => Cmp::Gt,
+            Cmp::Gt | Cmp::Nle => Cmp::Le,
+            Cmp::Ge | Cmp::Nlt => Cmp::Lt,
+        }
+    }
+    /// The comparison that holds exactly when this one does not, for floats too:
+    /// `NOT (a < b)` is not `a >= b` when one of them is NaN.
+    pub fn negated(self) -> Cmp {
+        match self {
+            Cmp::Eq => Cmp::Ne,
+            Cmp::Ne => Cmp::Eq,
+            Cmp::Lt => Cmp::Nlt,
+            Cmp::Le => Cmp::Nle,
+            Cmp::Gt => Cmp::Ngt,
+            Cmp::Ge => Cmp::Nge,
+            Cmp::Nlt => Cmp::Lt,
+            Cmp::Nle => Cmp::Le,
+            Cmp::Ngt => Cmp::Gt,
+            Cmp::Nge => Cmp::Ge,
+        }
+    }
+    /// This comparison as one of the six plain ones, and whether its result is negated.
+    pub fn plain(self) -> (Cmp, bool) {
+        match self {
+            Cmp::Nlt => (Cmp::Lt, true),
+            Cmp::Nle => (Cmp::Le, true),
+            Cmp::Ngt => (Cmp::Gt, true),
+            Cmp::Nge => (Cmp::Ge, true),
+            c => (c, false),
         }
     }
     #[inline(always)]
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // NaN is the point of the last four
     pub fn test<T: PartialOrd>(self, a: T, b: T) -> bool {
         match self {
             Cmp::Eq => a == b,
@@ -166,6 +202,10 @@ impl Cmp {
             Cmp::Le => a <= b,
             Cmp::Gt => a > b,
             Cmp::Ge => a >= b,
+            Cmp::Nlt => !(a < b),
+            Cmp::Nle => !(a <= b),
+            Cmp::Ngt => !(a > b),
+            Cmp::Nge => !(a >= b),
         }
     }
     pub fn name(self) -> &'static str {
@@ -176,6 +216,10 @@ impl Cmp {
             Cmp::Le => "le",
             Cmp::Gt => "gt",
             Cmp::Ge => "ge",
+            Cmp::Nlt => "nlt",
+            Cmp::Nle => "nle",
+            Cmp::Ngt => "ngt",
+            Cmp::Nge => "nge",
         }
     }
 }
@@ -1292,7 +1336,10 @@ impl Module {
                     }
                 }
                 if let Ins::Rt { args, .. } = *ins {
-                    for &(r, ty) in &self.bargs[args as usize] {
+                    let Some(list) = self.bargs.get(args as usize) else {
+                        return Err(format!("pc {pc}: bad argument list"));
+                    };
+                    for &(r, ty) in list {
                         let ok = match ty {
                             Ty::Str => self.sk_ok(f, r),
                             Ty::F80 => r.checked_add(2).is_some_and(|e| e <= f.n_num()),

@@ -73,8 +73,12 @@ the default printer on Windows and through `lp` on Linux and macOS.
   [language](language.md)).
 - A statement the QIR back end does not cover yet stops the build with
   `QIR: unsupported: line N: ...`.
-- BYREF parameters are copied in and out: different from QB64 only when a
-  SUB changes the same variable both through a parameter and through SHARED.
+- BYREF parameters are copied in and out. Different from QB64 when a SUB
+  uses the same variable both through a parameter and through SHARED: a
+  change made under the SHARED name is replaced by the parameter's value at
+  the return, and a whole array passed as `a()` cannot be used under its
+  SHARED name until the SUB returns (use the parameter). A SHARED number or
+  string can be read under its own name during the call.
 - `TIME$ =` and `DATE$ =` move a clock of the program (TIME$, DATE$, TIMER),
   not the system clock; QB64 ignored them. `_MEM` of a variable-length STRING
   and `_MEMFILL` of a non-variable value without `AS` are accepted (see

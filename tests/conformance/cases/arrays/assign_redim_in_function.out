@@ -1,0 +1,3 @@
+main: a(3) = 7 UBOUND = 2000 
+sub: a(4) = 7 UBOUND = 3000 
+no TYPE element: b(2) = 9 UBOUND = 5000 

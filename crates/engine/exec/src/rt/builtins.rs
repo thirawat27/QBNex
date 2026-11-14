@@ -1101,7 +1101,17 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             }
         }
         "NAME" => {
-            if std::fs::rename(os_path(s(0)), os_path(s(1))).is_err() {
+            let (from, to) = (os_path(s(0)), os_path(s(1)));
+            if std::fs::symlink_metadata(&from).is_err() {
+                return e(53);
+            }
+            // NAME does not replace a file (`rename` does, without a word): error 58,
+            // unless both names are the one file (a change of letter case on Windows)
+            let same = || matches!((std::fs::canonicalize(&from), std::fs::canonicalize(&to)), (Ok(a), Ok(b)) if a == b);
+            if std::fs::symlink_metadata(&to).is_ok() && !same() {
+                return e(58);
+            }
+            if std::fs::rename(&from, &to).is_err() {
                 return e(53);
             }
         }
@@ -1284,19 +1294,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
 /// A program path in the host's form: `\` and `/` both separate directories
 /// (as QB64's `fixdir`), so `'$INCLUDE:'dir\file.bas'` and `_FILEEXISTS("a\b")` work
 /// on Linux and macOS too.
-fn os_path(b: &[u8]) -> String {
+fn os_path(b: &[u8]) -> std::path::PathBuf {
     let mut v = b.to_vec();
     qb_runtime::gfs::fixdir(&mut v);
-    String::from_utf8_lossy_owned(v)
+    qb_runtime::gfs::os_path(&v)
 }
 
 /// Files matching a DOS pattern (`*`, `?` in the last component).
-fn glob_files(spec: &str) -> Vec<std::path::PathBuf> {
-    if !spec.contains(['*', '?']) {
-        let p = std::path::PathBuf::from(spec);
-        return if p.is_file() { vec![p] } else { vec![] };
+fn glob_files(spec: &std::path::Path) -> Vec<std::path::PathBuf> {
+    if !spec.as_os_str().as_encoded_bytes().iter().any(|c| matches!(c, b'*' | b'?')) {
+        return if spec.is_file() { vec![spec.to_path_buf()] } else { vec![] };
     }
-    let path = std::path::Path::new(spec);
+    let path = spec;
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
     let pat: Vec<u8> = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase().into_bytes()).unwrap_or_default();
     fn m(p: &[u8], t: &[u8]) -> bool {

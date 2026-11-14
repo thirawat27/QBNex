@@ -25,14 +25,16 @@ enum Class {
     Float,
 }
 
+/// The condition code of one of the six plain comparisons; a negated float comparison
+/// is its plain one with the branch targets exchanged (`BrF`).
 fn cc(c: Cmp) -> Cc {
     match c {
         Cmp::Eq => Cc::Eq,
         Cmp::Ne => Cc::Ne,
-        Cmp::Lt => Cc::Lt,
-        Cmp::Le => Cc::Le,
-        Cmp::Gt => Cc::Gt,
-        Cmp::Ge => Cc::Ge,
+        Cmp::Lt | Cmp::Nge => Cc::Lt,
+        Cmp::Le | Cmp::Ngt => Cc::Le,
+        Cmp::Gt | Cmp::Nle => Cc::Gt,
+        Cmp::Ge | Cmp::Nlt => Cc::Ge,
     }
 }
 
@@ -1112,8 +1114,11 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
                         }
                         BrI { c, a, b, t } | BrF { c, a, b, t } => {
                             let cls = if matches!(ins, BrI { .. }) { Class::Int } else { Class::Float };
+                            // "not less than" branches where "less than" does not (NaN)
+                            let (c, negated) = c.plain();
                             let r = lw.cmp(c, a, b, cls);
-                            Some(branch(&mut lw, r, t, next))
+                            let (yes, no) = if negated { (next, t) } else { (t, next) };
+                            Some(branch(&mut lw, r, yes, no))
                         }
                         ForTestKI { v, lim, step, t, skip } | ForTestKF { v, lim, step, t, skip } => {
                             let cls = if matches!(ins, ForTestKI { .. }) { Class::Int } else { Class::Float };
@@ -1222,10 +1227,10 @@ pub(crate) fn cmp_code(c: Cmp) -> i64 {
     match c {
         Cmp::Eq => 0,
         Cmp::Ne => 1,
-        Cmp::Lt => 2,
-        Cmp::Le => 3,
-        Cmp::Gt => 4,
-        Cmp::Ge => 5,
+        Cmp::Lt | Cmp::Nge => 2,
+        Cmp::Le | Cmp::Ngt => 3,
+        Cmp::Gt | Cmp::Nle => 4,
+        Cmp::Ge | Cmp::Nlt => 5,
     }
 }
 
@@ -1357,7 +1362,9 @@ impl JitState {
     /// Cheap pre-check at every back-edge: is this loop header ever entered natively?
     #[inline(always)]
     pub(crate) fn wants(&self, pc: u32) -> bool {
-        !self.skip[pc as usize]
+        // a program the compiler gave up on stays in the VM: asking again at every
+        // loop edge made its loops slower than with the JIT off
+        !self.skip[pc as usize] && self.tier.failure().is_none()
     }
 
     fn func_of(&self, pc: u32) -> u32 {

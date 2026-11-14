@@ -2252,6 +2252,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 'Include Manager #1
 
 
+                                'a $INCLUDE in a $IF branch that is not compiled includes nothing
+                                IF ExecLevel(ExecCounter) THEN addmetainclude$ = ""
                                 IF LEN(addmetainclude$) THEN
                                     a$ = addmetainclude$: addmetainclude$ = "" 'read/clear message
 
@@ -9096,6 +9098,8 @@ IF layoutdone = 0 THEN layoutok = 0 'invalidate layout if not handled
 IF continuelinefrom = 0 THEN 'note: manager #2 requires this condition
 
 'Include Manager #2 '***
+'a $INCLUDE in a $IF branch that is not compiled includes nothing
+IF ExecLevel(ExecCounter) THEN addmetainclude$ = ""
 IF LEN(addmetainclude$) THEN
 
     IF inclevel = 0 THEN

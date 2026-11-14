@@ -291,6 +291,8 @@ impl Synth {
         let s = &expanded[..];
         let voice = self.playback_voice();
         let st = &mut self.play;
+        // dots counted by a statement that ended in an error do not belong to this one
+        st.fullstops = 0;
 
         let mut pos = 0usize;
         let mut bytes_left = s.len() as i64;
@@ -389,7 +391,8 @@ impl Synth {
                     return Err(ERR_ILLEGAL);
                 }
                 number_entered = 0;
-                if number > 100 {
+                // (a value from a variable can be negative)
+                if !(0..=100).contains(&number) {
                     return Err(ERR_ILLEGAL);
                 }
                 st.volume = number as f64;
@@ -498,7 +501,7 @@ impl Synth {
                     return Err(ERR_ILLEGAL);
                 }
                 number_entered = 0;
-                if number > 84 {
+                if !(0..=84).contains(&number) {
                     return Err(ERR_ILLEGAL);
                 }
                 // N1 is O0 C (as C of octave 0 is n = -33 above), N84 is O6 B; N0 is a rest

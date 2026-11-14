@@ -227,7 +227,7 @@ the compiler's build folders, its settings and `qb.exe`.
 
 ```bash
 docker build -f docker/Dockerfile -t qbnex .
-docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas
+docker run --rm -v "$(pwd)":/project qbnex qb yourfile.bas -o yourfile
 ```
 
 See the [Docker Guide](#docker-guide) below.

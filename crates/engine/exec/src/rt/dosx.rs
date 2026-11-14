@@ -802,7 +802,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
 
 #[cfg(test)]
 mod tests {
-    use super::chain_command;
+    use super::{chain_command, quoted_program};
 
     #[test]
     fn common_values_come_back_in_order_and_mismatches_are_skipped() {
@@ -845,7 +845,14 @@ mod tests {
         assert_eq!(chain_command("next.bas").1, format!("next{x}"));
         assert_eq!(chain_command("NEXT.EXE").1, format!("NEXT{x}"));
         let dir = if cfg!(windows) { ".\\" } else { "./" };
-        assert_eq!(chain_command("menu a b"), (format!("\"{dir}menu{x}\" a b"), format!("menu{x}")));
+        // one word for the shell: double quotes for cmd, single quotes for sh
+        let q = if cfg!(windows) { '"' } else { '\'' };
+        assert_eq!(chain_command("menu a b"), (format!("{q}{dir}menu{x}{q} a b"), format!("menu{x}")));
+        if !cfg!(windows) {
+            // sh expands nothing of the name: not $HOME, and not a quote in it
+            assert_eq!(quoted_program("my$app"), "'./my$app'");
+            assert_eq!(quoted_program("it's"), "'./it'\\''s'");
+        }
         // a "." in a folder name is not the extension
         assert_eq!(chain_command("../next.bas").1, format!("../next{x}"));
         assert_eq!(chain_command("v1.2/next.bas").1, format!("v1.2/next{x}"));

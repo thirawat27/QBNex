@@ -138,6 +138,14 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     trimmedLine = LTRIM$(RTRIM$(lineText))
     upperLine = UCASE$(trimmedLine)
 
+    'A line of a $IF branch that is not compiled declares no SUB and is not module code:
+    'a SUB there made every later module line wait in front of a SUB line the
+    'precompiler then skipped, and the lines were lost without a message.
+    IF ExecLevel(ExecCounter) THEN
+        TopLevelRuntime_ProcessLine$ = lineText
+        EXIT FUNCTION
+    END IF
+
     IF TopLevelRuntime_IsKeyword%(upperLine, "END SUB") OR TopLevelRuntime_IsKeyword%(upperLine, "END FUNCTION") THEN
         IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
         TopLevelRuntime_ProcessLine$ = lineText

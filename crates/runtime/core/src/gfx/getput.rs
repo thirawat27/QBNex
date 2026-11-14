@@ -74,8 +74,8 @@ pub unsafe fn graphics_get(
                 return ERR;
             }
             unsafe {
-                *dims = w as u16;
-                *dims.add(1) = h as u16;
+                dims.write_unaligned(w as u16);
+                dims.add(1).write_unaligned(h as u16);
             }
             for y in y1..=y2 {
                 let mut z2 = 128u32;
@@ -112,8 +112,8 @@ pub unsafe fn graphics_get(
                 return ERR;
             }
             unsafe {
-                *dims = (w * 2) as u16;
-                *dims.add(1) = h as u16;
+                dims.write_unaligned((w * 2) as u16);
+                dims.add(1).write_unaligned(h as u16);
             }
             for y in y1..=y2 {
                 let mut byte = 0u32;
@@ -147,8 +147,8 @@ pub unsafe fn graphics_get(
                 return ERR;
             }
             unsafe {
-                *dims = w as u16;
-                *dims.add(1) = h as u16;
+                dims.write_unaligned(w as u16);
+                dims.add(1).write_unaligned(h as u16);
             }
             let zu = z as usize;
             for (y3, y) in (y1..=y2).enumerate() {
@@ -186,8 +186,8 @@ pub unsafe fn graphics_get(
                 return ERR;
             }
             unsafe {
-                *dims = (w * 8) as u16;
-                *dims.add(1) = h as u16;
+                dims.write_unaligned((w * 8) as u16);
+                dims.add(1).write_unaligned(h as u16);
             }
             for y in y1..=y2 {
                 for x in x1..=x2 {
@@ -204,8 +204,8 @@ pub unsafe fn graphics_get(
                 return ERR;
             }
             unsafe {
-                *dims = w as u16;
-                *dims.add(1) = h as u16;
+                dims.write_unaligned(w as u16);
+                dims.add(1).write_unaligned(h as u16);
             }
             let mut lp = cp as *mut u32;
             for y in y1..=y2 {

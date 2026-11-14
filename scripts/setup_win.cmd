@@ -15,7 +15,7 @@ rem   QBNEX_QIR_PACK      ir (default) or native
 rem   QBNEX_STAGE1_ARGS   extra arguments for stage0 when building qb.exe
 rem   QBNEX_SKIP_SELFHOST 1 = stop after qb-stage0.exe
 rem   QBNEX_KEEP_STAGE0   1 = keep qb-stage0.exe
-rem   QBNEX_CI            1 = no pause at the end
+rem   QBNEX_CI            1 = no pause at the end or after an error
 
 setlocal enableextensions
 cd /d "%~dp0.."
@@ -33,7 +33,7 @@ if defined QBNEX_QB_EXEC (
     copy /y "%QBNEX_QB_EXEC%" %RUNNER% >nul
     if errorlevel 1 (
         echo Error: cannot copy "%QBNEX_QB_EXEC%".
-        exit /b 1
+        goto fail
     )
     goto haverunner
 )
@@ -41,7 +41,7 @@ if defined QBNEX_QB_EXEC (
 where cargo >nul 2>nul
 if errorlevel 1 (
     echo Error: cargo was not found. Install Rust from https://rustup.rs and run this script again.
-    exit /b 1
+    goto fail
 )
 
 if not defined QBNEX_RUST_TARGET (
@@ -49,7 +49,7 @@ if not defined QBNEX_RUST_TARGET (
 )
 if not defined QBNEX_RUST_TARGET (
     echo Error: could not determine the Rust host target.
-    exit /b 1
+    goto fail
 )
 
 echo Building the QIR runner 'qb-exec' for %QBNEX_RUST_TARGET%
@@ -57,12 +57,12 @@ where rustup >nul 2>nul && rustup target add %QBNEX_RUST_TARGET% >nul 2>nul
 cargo build --release --locked -p qb-exec --target %QBNEX_RUST_TARGET% --target-dir target
 if errorlevel 1 (
     echo Error: failed to build qb-exec.
-    exit /b 1
+    goto fail
 )
 copy /y target\%QBNEX_RUST_TARGET%\release\qb-exec.exe %RUNNER% >nul
 if errorlevel 1 (
     echo Error: failed to copy the runner to crates\engine\exec\bin\windows.
-    exit /b 1
+    goto fail
 )
 :haverunner
 
@@ -70,7 +70,7 @@ if not exist "%QBNEX_BOOTSTRAP%" (
     echo Error: "%QBNEX_BOOTSTRAP%" is missing.
     echo It is produced from compiler\qbnex.bas by a QIR-capable compiler ^(qb --ir^);
     echo see CONTRIBUTING.md ^(bootstrap^).
-    exit /b 1
+    goto fail
 )
 
 echo Building 'qb-stage0.exe' from %QBNEX_BOOTSTRAP% ^(%QBNEX_QIR_PACK%^)
@@ -82,7 +82,7 @@ if /i not "%QBNEX_QIR_PACK%"=="native" (
 )
 if not exist qb-stage0.exe (
     echo Error: could not build qb-stage0.exe.
-    exit /b 1
+    goto fail
 )
 
 if "%QBNEX_SKIP_SELFHOST%"=="1" (
@@ -95,7 +95,7 @@ if exist qb.exe del /q qb.exe >nul 2>nul
 .\qb-stage0.exe compiler\qbnex.bas -o qb.exe %QBNEX_STAGE1_ARGS%
 if not exist qb.exe (
     echo Final compiler build failed.
-    exit /b 1
+    goto fail
 )
 
 echo Smoke test
@@ -103,12 +103,12 @@ echo Smoke test
 .\qb.exe "%TEMP%\qbnex_qir_smoke.bas" -o "%TEMP%\qbnex_qir_smoke.exe"
 if not exist "%TEMP%\qbnex_qir_smoke.exe" (
     echo Error: qb.exe could not compile the smoke test.
-    exit /b 1
+    goto fail
 )
 "%TEMP%\qbnex_qir_smoke.exe" | findstr /c:"QBNex QIR OK" >nul
 if errorlevel 1 (
     echo Error: the smoke test program did not print the expected text.
-    exit /b 1
+    goto fail
 )
 del /q "%TEMP%\qbnex_qir_smoke.bas" "%TEMP%\qbnex_qir_smoke.exe" >nul 2>nul
 
@@ -119,3 +119,11 @@ echo   qb yourfile.bas
 echo   qbnex yourfile.bas
 if not "%QBNEX_CI%"=="1" pause
 endlocal
+exit /b 0
+
+rem Started by a double click, the window closes with the script: the error stays
+rem on screen until a key is pressed (not under CI, where nobody presses one).
+:fail
+if not "%QBNEX_CI%"=="1" pause
+endlocal
+exit /b 1

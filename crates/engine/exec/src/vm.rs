@@ -1320,6 +1320,12 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Arg::N(r) => PVal::N(self.nums[cx.nb + r as usize]),
                 Arg::S(r) => PVal::S(self.sget_in(cx.sb, r).to_vec()),
                 Arg::SMove(r) => PVal::S(std::mem::take(&mut self.strs[cx.sb + r as usize])),
+                // A SHARED string stays readable under its own name while the
+                // procedure runs: its text is copied in (and back at the return), not
+                // moved out, which left the variable empty for the whole call.
+                Arg::Ref(p) if let Place::SG(g) = m.places[p as usize] => PVal::S(self.strs[g as usize].clone()),
+                // (the main module's own strings are the SHARED ones: its frame is the first)
+                Arg::Ref(p) if let Place::S(r) = m.places[p as usize] && self.view == 0 => PVal::S(self.strs[cx.sb + r as usize].clone()),
                 Arg::Ref(p) => match self.place_take(m.places[p as usize], cx) {
                     Ok(v) => v,
                     Err(e) => {
@@ -2267,7 +2273,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::XCmp { c, d, a, b: y } => {
                     use std::cmp::Ordering::*;
                     let o = self.xget(a).compare(self.xget(y));
-                    let v = match (c, o) {
+                    // (only a float branch carries a negated comparison)
+                    let (c, negated) = c.plain();
+                    let v = negated ^ match (c, o) {
                         (Cmp::Ne, None) => true,
                         (_, None) => false,
                         (Cmp::Eq, Some(o)) => o == Equal,
@@ -2276,6 +2284,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         (Cmp::Le, Some(o)) => o != Greater,
                         (Cmp::Gt, Some(o)) => o == Greater,
                         (Cmp::Ge, Some(o)) => o != Less,
+                        (Cmp::Nlt | Cmp::Nle | Cmp::Ngt | Cmp::Nge, _) => unreachable!("plain() returns one of the six"),
                     };
                     set!(d, b(v))
                 }

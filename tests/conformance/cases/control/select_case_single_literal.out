@@ -1,0 +1,6 @@
+IF: equal
+CASE 0.1
+IS <= 0.1
+0.05 TO 0.1
+DOUBLE: CASE 0.1
+list
