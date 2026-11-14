@@ -914,7 +914,8 @@ pub(crate) fn build_object(m: &bc::Module, src: &[u8], hosts: &Hosts) -> Result<
     let mir = lower_full(m, hosts);
     let names: Vec<String> = qb_jit::symbols(&mir).into_iter().map(|(n, _)| n).collect();
     for n in &names {
-        if !NATIVE_IMPORTS.contains(&n.as_str()) {
+        // (the math libcalls come from libm, not from qb-native)
+        if !NATIVE_IMPORTS.contains(&n.as_str()) && !qb_jit::LIBCALL_SYMBOLS.contains(&n.as_str()) {
             return Err(format!("runtime symbol {n} is not exported by qb-native"));
         }
     }

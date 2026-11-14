@@ -30,7 +30,7 @@ pub mod rt;
 pub mod thunk;
 pub mod tier;
 
-pub use codegen::{compile, func_symbol, host_supported, symbols, CompileError, Compiled, NativeFn, Target};
+pub use codegen::{compile, func_symbol, host_supported, symbols, LIBCALL_SYMBOLS, CompileError, Compiled, NativeFn, Target};
 pub use ctx::{status, ArrDesc, ChainRec, Ctx};
 
 impl Compiled {

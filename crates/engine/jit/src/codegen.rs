@@ -167,6 +167,10 @@ pub fn symbols(m: &Module) -> Vec<(String, usize)> {
     v
 }
 
+/// Cranelift's math libcalls: the system linker finds them in libm (or the kit's
+/// list); only a native image needs the addresses from [`symbols`].
+pub const LIBCALL_SYMBOLS: [&str; 10] = ["floor", "floorf", "ceil", "ceilf", "trunc", "truncf", "nearbyint", "nearbyintf", "fma", "fmaf"];
+
 extern "C" fn lc_floor(x: f64) -> f64 {
     x.floor()
 }
