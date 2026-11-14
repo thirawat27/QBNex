@@ -1533,6 +1533,9 @@ IF id2.args <> 0 THEN
                 'not an array
 
                 IF sourcetyp AND ISUDT THEN
+                    'the id is the first field of the reference (the two skips below removed
+                    'it before it was read, and getid got 0)
+                    udtVarId& = VAL(e$)
                     r$ = refer(e$, sourcetyp, 1)
                     IF Error_Happened THEN EXIT FUNCTION
                     e$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3)) 'skip idnumber
@@ -1540,7 +1543,7 @@ IF id2.args <> 0 THEN
                     typ = 64&
 
                     'if sub/func arg, may not be in DBLOCK
-                    getid VAL(e$)
+                    getid udtVarId&
                     IF Error_Happened THEN EXIT FUNCTION
                     r$ = "@"
 

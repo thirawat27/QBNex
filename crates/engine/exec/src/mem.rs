@@ -39,6 +39,8 @@ pub(crate) struct Mem {
     /// parameter is the address of an element, and the callee (or a SUB it calls)
     /// may REDIM that SHARED array: the parameter then points into these bytes.
     pub(crate) keep_freed: bool,
+    /// `OPTION BASE`: lower bound of an array used without DIM
+    pub(crate) option_base: i64,
     retired: Vec<Vec<u8>>,
 }
 
@@ -362,7 +364,7 @@ impl Mem {
         let a = self.arr(desc)?;
         if a.data.is_none() && !a.erased && !idx.is_empty() {
             // never dimensioned: QBasic's implicit DIM name(10) (the register model's arr_at)
-            self.dim(desc, DimMode::Dim, vec![(0, 10); idx.len()])?;
+            self.dim(desc, DimMode::Dim, vec![(self.option_base, 10); idx.len()])?;
         }
         let a = self.arr(desc)?;
         let Some(d) = a.data else { return Err(9) };

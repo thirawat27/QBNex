@@ -601,6 +601,8 @@ pub struct Module {
     pub console: Option<bool>,
     /// `$SCREENHIDE`
     pub screenhide: bool,
+    /// `OPTION BASE`: lower bound of an array used without DIM
+    pub option_base: i64,
     /// `SUB _GL` (QIR `meta glsub`): (function, call descriptor without arguments)
     pub gl_sub: Option<(u32, u32)>,
 }

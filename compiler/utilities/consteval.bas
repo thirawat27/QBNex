@@ -580,6 +580,44 @@ FUNCTION DWD$ (exp$) 'Deal With Duplicates
     DWD$ = t$
 END FUNCTION
 
+FUNCTION PP_OperandEnd& (t$, s AS LONG)
+    'position of the last character of the operand that starts at s in a CONST expression
+    'without blanks: a number, a name, a function with its arguments or a bracketed
+    'expression; s - 1 when there is none
+    DIM i AS LONG
+    DIM d AS LONG
+    DIM c AS STRING
+    DIM isNumber AS INTEGER
+
+    PP_OperandEnd& = s - 1
+    i = s
+    IF MID$(t$, i, 1) <> "(" THEN
+        c = MID$(t$, i, 1)
+        IF (c >= "0" AND c <= "9") OR c = "." THEN isNumber = -1
+        DO WHILE i <= LEN(t$)
+            c = MID$(t$, i, 1)
+            IF (c >= "0" AND c <= "9") OR (c >= "A" AND c <= "Z") OR c = "." OR c = "_" OR c = "&" OR c = "%" OR c = "!" OR c = "#" OR c = "$" OR c = "~" OR c = "`" THEN
+                i = i + 1
+            ELSEIF isNumber <> 0 AND i > s AND (c = "-" OR c = "+") AND (MID$(t$, i - 1, 1) = "E" OR MID$(t$, i - 1, 1) = "D") THEN
+                i = i + 1 'the sign of an exponent: 1E-5
+            ELSE
+                EXIT DO
+            END IF
+        LOOP
+        IF i = s THEN EXIT FUNCTION
+        IF MID$(t$, i, 1) <> "(" THEN PP_OperandEnd& = i - 1: EXIT FUNCTION
+    END IF
+    DO WHILE i <= LEN(t$)
+        c = MID$(t$, i, 1)
+        IF c = "(" THEN d = d + 1
+        IF c = ")" THEN
+            d = d - 1
+            IF d = 0 THEN PP_OperandEnd& = i: EXIT FUNCTION
+        END IF
+        i = i + 1
+    LOOP
+END FUNCTION
+
 SUB PreParse (e$)
     DIM f AS _FLOAT
     STATIC TotalPrefixedPP_TypeMod AS LONG, TotalPP_TypeMod AS LONG
@@ -669,6 +707,8 @@ REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then 
                             IF t AND ISUNSIGNED THEN r$ = STR$(constuinteger(i2)) ELSE r$ = STR$(constinteger(i2))
                         END IF
                     END IF
+                    'a negative value in brackets: 2 * k ^ 2 with k = -6 is 2 * (-6) ^ 2, not 2 * -6 ^ 2
+                    IF LEFT$(_TRIM$(r$), 1) = "-" THEN r$ = "(" + _TRIM$(r$) + ")"
                     t$ = LEFT$(t$, found - 1) + _TRIM$(r$) + MID$(t$, found + LEN(thisConstName$))
                 END IF
             LOOP UNTIL found = 0
@@ -724,6 +764,36 @@ REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then 
         LOOP
     NEXT
 
+    'A minus sign in front of a power negates the power: -2 ^ 2 is -(2 ^ 2) = -4. The
+    'evaluator below takes the sign into the number first, so the power is put in brackets
+    'here: (0-2^2). Not after ^ itself: in 2 ^ -3 the sign belongs to the exponent.
+    l = 0
+    DO
+        l = INSTR(l + 1, t$, "-")
+        IF l = 0 THEN EXIT DO
+        good = 0
+        IF l = 1 THEN
+            good = -1
+        ELSEIF INSTR("(*/\+-<>=,", MID$(t$, l - 1, 1)) THEN
+            good = -1
+        END IF
+        IF good THEN
+            E = PP_OperandEnd&(t$, l + 1)
+            IF E > l AND MID$(t$, E + 1, 1) = "^" THEN
+                DO WHILE MID$(t$, E + 1, 1) = "^"
+                    c1 = E + 2
+                    IF MID$(t$, c1, 1) = "-" OR MID$(t$, c1, 1) = "+" THEN c1 = c1 + 1
+                    c = PP_OperandEnd&(t$, c1)
+                    IF c < c1 THEN EXIT DO
+                    E = c
+                LOOP
+                t$ = LEFT$(t$, l - 1) + "(0" + MID$(t$, l, E - l + 1) + ")" + MID$(t$, E + 1)
+                l = l + 2
+            END IF
+        END IF
+    LOOP
+    c = 0: c1 = 0
+
     'Check for bad operators before a ( bracket
     l = 0
     DO
@@ -742,6 +812,7 @@ REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then 
                 END IF
             END IF
         NEXT
+        IF MID$(t$, l - 1, 1) = "(" THEN good = -1 'a bracket inside a bracket: (((1 + 2) * 3) + 1)
         IF NOT good THEN e$ = "ERROR - Improper operations before (.": EXIT SUB
         l = l + 1
     END IF

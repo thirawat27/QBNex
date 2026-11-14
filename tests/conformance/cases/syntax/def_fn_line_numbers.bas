@@ -1,0 +1,3 @@
+10 DEF FNA (X) = X * 2
+20 PRINT FNA(4)
+30 SYSTEM

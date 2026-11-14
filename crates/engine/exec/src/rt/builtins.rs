@@ -28,6 +28,12 @@ pub(crate) trait Host<'a> {
     fn inclerr(&self) -> (u32, Vec<u8>);
     /// LASTLINE builtin: a numeric line label was passed
     fn set_last_line(&mut self, n: u32);
+    /// TRYPUSH: the body of TRY statement `id` begins; the current ON ERROR handler is kept.
+    fn try_enter(&mut self, _id: u32) {}
+    /// TRYPOP: the innermost TRY body of this procedure is left; its kept handler is back.
+    fn try_leave(&mut self) {}
+    /// ENDCODE: exit code of the END statement that follows.
+    fn set_end_code(&mut self, _code: i32) {}
     /// `len` bytes of memory at the address `p` (GET/PUT, _MEM, TCP buffers).
     fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]>;
     /// (address of the first element, total bytes) of the array whose descriptor `p` references.
@@ -585,6 +591,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
     }
     if name == "LASTLINE" {
         vm.set_last_line(a[0].i() as u32);
+        return Ok(None);
+    }
+    if name == "TRYPUSH" {
+        vm.try_enter(a[0].i() as u32);
+        return Ok(None);
+    }
+    if name == "ENDCODE" {
+        vm.set_end_code(a[0].i() as i32);
+        return Ok(None);
+    }
+    if name == "TRYPOP" {
+        vm.try_leave();
         return Ok(None);
     }
     if name == "VARPTR.s" || name == "SADD" || name == "VARPTR$.s" {

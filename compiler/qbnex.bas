@@ -468,6 +468,7 @@ FUNCTION getpid& ()
     DIM SHARED lineinput3buffer AS STRING
     DIM SHARED lineinput3index AS LONG
     DIM SHARED classSyntaxQueue AS STRING
+    DIM SHARED classSyntaxQueuedLine AS LONG 'the line just read was made by lowering: it has no source line of its own
     DIM SHARED classSyntaxDeferredQueue AS STRING
     DIM SHARED classSyntaxActive AS LONG
     DIM SHARED classSyntaxTypeOpen AS LONG
@@ -486,6 +487,8 @@ FUNCTION getpid& ()
     DIM SHARED classSyntaxRegistryOwnFields(1 TO 256) AS STRING
     DIM SHARED classSyntaxRegistryFlatFields(1 TO 256) AS STRING
     DIM SHARED classSyntaxRegistryMethods(1 TO 256) AS STRING
+    DIM SHARED classSyntaxRegistryHeaders(1 TO 256) AS STRING 'per class: METHOD=header line of the generated procedure
+    DIM SHARED classSyntaxInheritPending AS STRING, classSyntaxInheritDone AS LONG 'inherited methods of the class being read
     DIM SHARED classSyntaxScopeDepth AS LONG
     DIM SHARED classSyntaxScopeVars(0 TO 63) AS STRING
 
@@ -664,7 +667,8 @@ FUNCTION getpid& ()
     DIM SHARED importedModules AS STRING
 DIM SHARED stdlibHoisted AS STRING, stdlibHeadFile AS STRING, stdlibBodyFile AS STRING 'hoisted $IMPORT modules (imports.bas)
 DIM SHARED defFnBodyText AS STRING 'FUNCTIONs made from single-line DEF FN (deffn.bas)
-DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG 'syntax_ext.bas
+DIM SHARED defFnDimTypes AS STRING 'deffn.bas: |NAME=TYPE| of the module's DIM name AS type
+DIM SHARED syntaxExtEnumActive AS LONG, syntaxExtEnumNext AS STRING, syntaxExtForStack AS STRING, syntaxExtTryStack AS STRING, syntaxExtCounter AS LONG, syntaxExtOptional AS STRING, syntaxExtArrays AS STRING, syntaxExtUsesTry AS LONG, syntaxExtLoopStack AS STRING 'syntax_ext.bas
 DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRangeEnd(100) AS LONG 'include of a line range: 'file|from|to'
     DIM SHARED topLevelRuntimeLines AS STRING
     DIM SHARED topLevelRuntimeCallInjected AS LONG
@@ -1362,8 +1366,11 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                         layout = ""
                         layoutok = 0
 
-                        linenumber = linenumber + 1
-                        reallinenumber = reallinenumber + 1
+                        'a line made by lowering (TRY, CLASS, FOR EACH) belongs to the source line before it
+                        IF classSyntaxQueuedLine = 0 OR linenumber = 0 THEN
+                            linenumber = linenumber + 1
+                            reallinenumber = reallinenumber + 1
+                        END IF
 
                         EnsureInvalidLineCapacity linenumber
                         InValidLine(linenumber) = 0
@@ -2464,8 +2471,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                             'a3$ is passed in when using $include
                             a3$ = NextMainPassLine$(a3$)
                             IF a3$ = CHR$(13) THEN EXIT DO
-                            linenumber = linenumber + 1
-                            reallinenumber = reallinenumber + 1
+                            IF classSyntaxQueuedLine = 0 OR linenumber = 0 OR inclevel <> 0 THEN
+                                linenumber = linenumber + 1
+                                reallinenumber = reallinenumber + 1
+                            END IF
 
                             IF InValidLine(linenumber) THEN
                                 layoutok = 1
@@ -7193,6 +7202,8 @@ IF firstelement$ = "END" THEN
             inclinenump$ = inclinenump$ + "," + CHR$(34) + thisincname$ + CHR$(34)
         END IF
         l$ = l$ + sp + l2$
+        'END n: n is the exit code, as with SYSTEM n
+        IrE "rt ENDCODE " + IrArgAs$(fixoperationorder$(getelements$(ca$, 2, n)), "i32")
     END IF
     IrE "end"
     layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
@@ -7356,6 +7367,18 @@ IF n = 4 THEN
     IF getelements(a$, 1, 3) = "ON" + sp + "ERROR" + sp + "GOTO" THEN
         l$ = SCase$("On" + sp + "Error" + sp + "GoTo")
         lbl$ = getelement$(ca$, 4)
+        'TRY (syntax_ext.bas): the body keeps the handler that was set before it and
+        'puts it back when it is left
+        IF UCASE$(lbl$) = "QBNEX_TRY_LEAVE" THEN
+            IrE "rt TRYPOP"
+            l$ = l$ + sp + lbl$
+            layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
+            GOTO finishedline
+        END IF
+        IF LEFT$(UCASE$(lbl$), 15) = "QBNEX_TRY_ENTER" THEN
+            IrE "rt TRYPUSH " + IrI32$(VAL(MID$(lbl$, 16)))
+            lbl$ = "QBNEX_TRY_HANDLER"
+        END IF
         IF lbl$ = "0" THEN
             IrE "onerror 0"
             l$ = l$ + sp + "0"
@@ -9522,6 +9545,9 @@ IF recompile THEN
 
         SUB getid (i AS LONG)
             IF i = -1 THEN Give_Error "-1 passed to getid!": EXIT SUB
+            'no such id: a user defined type where a value is expected, as in s (r) or q = (r)
+            '(this was "internal compiler error 9")
+            IF i < LBOUND(ids) OR i > UBOUND(ids) OR i < 1 THEN Give_Error "User defined types in expressions are invalid": EXIT SUB
 
             id = ids(i)
 

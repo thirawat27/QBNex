@@ -214,6 +214,15 @@ FUNCTION DefFn_SharedList$ (code AS STRING, fnName AS STRING, paramNames AS STRI
                 k = k + 1
             LOOP
             u = UCASE$(nm)
+            'p.x where p is DIMmed AS a type: the variable is p
+            k = INSTR(nm, ".")
+            IF k > 1 THEN
+                IF INSTR(defFnDimTypes$, "|" + LEFT$(u, k - 1) + "=") THEN nm = LEFT$(nm, k - 1): u = UCASE$(nm)
+            END IF
+            k = i
+            DO WHILE MID$(code, k, 1) = " "
+                k = k + 1
+            LOOP
             isArray = (MID$(code, k, 1) = "(")
             IF u = "DATA" OR u = "REM" THEN
                 'the rest of the line is not code
@@ -237,6 +246,13 @@ FUNCTION DefFn_SharedList$ (code AS STRING, fnName AS STRING, paramNames AS STRI
                     seen = seen + u + "|"
                     IF LEN(r) THEN r = r + ", "
                     IF isArray THEN r = r + nm + "()" ELSE r = r + nm
+                    'DIM name AS type: SHARED must name the type too, or it would be a new
+                    'variable of the default type
+                    k = INSTR(defFnDimTypes$, "|" + u + "=")
+                    IF k THEN
+                        k = k + LEN(u) + 2
+                        r = r + " AS " + MID$(defFnDimTypes$, k, INSTR(k, defFnDimTypes$, "|") - k)
+                    END IF
                 END IF
             END IF
             prevWord = u
@@ -300,6 +316,97 @@ FUNCTION DefFn_StaticNames$ (code AS STRING)
     DefFn_StaticNames$ = r
 END FUNCTION
 
+'"|NAME=TYPE|..." of the variables and arrays the module declares with DIM / REDIM /
+'COMMON name AS type (outside SUBs and FUNCTIONs).
+FUNCTION DefFn_DimTypes$ (text AS STRING)
+    DIM r AS STRING, p AS LONG, nl AS LONG, t AS STRING, part AS STRING, i AS LONG, j AS LONG
+    DIM depth AS LONG, c AS STRING, inProc AS LONG, nm AS STRING
+    r = "|"
+    p = 1
+    DO WHILE p <= LEN(text)
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        t = UCASE$(DefFn_StripComment$(DefFn_Trim$(MID$(text, p, nl - p))))
+        IF RIGHT$(t, 1) = CHR$(13) THEN t = RTRIM$(LEFT$(t, LEN(t) - 1))
+        p = nl + 1
+        IF LEFT$(t, 4) = "SUB " OR LEFT$(t, 9) = "FUNCTION " THEN
+            inProc = -1
+        ELSEIF t = "END SUB" OR t = "END FUNCTION" THEN
+            inProc = 0
+        ELSEIF inProc = 0 AND (LEFT$(t, 4) = "DIM " OR LEFT$(t, 6) = "REDIM " OR LEFT$(t, 7) = "COMMON ") THEN
+            t = DefFn_Trim$(MID$(t, INSTR(t, " ") + 1))
+            IF LEFT$(t, 7) = "SHARED " THEN t = DefFn_Trim$(MID$(t, 8))
+            IF LEFT$(t, 10) = "_PRESERVE " THEN t = DefFn_Trim$(MID$(t, 11))
+            t = t + ","
+            part = ""
+            depth = 0
+            FOR i = 1 TO LEN(t)
+                c = MID$(t, i, 1)
+                IF c = "(" THEN depth = depth + 1
+                IF c = ")" THEN depth = depth - 1
+                IF c = "," AND depth = 0 THEN
+                    part = DefFn_Trim$(part)
+                    j = 1
+                    DO WHILE j <= LEN(part)
+                        IF DefFn_IsIdChar%(MID$(part, j, 1)) = 0 THEN EXIT DO
+                        j = j + 1
+                    LOOP
+                    nm = LEFT$(part, j - 1)
+                    j = INSTR(part, " AS ")
+                    IF LEN(nm) > 0 AND nm <> "AS" AND j > 0 THEN r = r + nm + "=" + LTRIM$(RTRIM$(MID$(part, j + 4))) + "|"
+                    part = ""
+                ELSE
+                    part = part + c
+                END IF
+            NEXT
+        END IF
+    LOOP
+    DefFn_DimTypes$ = r
+END FUNCTION
+
+'Length of the line number and/or "label:" that starts lineText, with the blanks after
+'them (0 when there is none): 10 DEF FNA(X) = ..., lbl: DEF FNB(X) = ...
+FUNCTION DefFn_PrefixLen& (lineText AS STRING)
+    DIM i AS LONG, j AS LONG, c AS STRING
+    i = 1
+    DO WHILE MID$(lineText, i, 1) = " " OR MID$(lineText, i, 1) = CHR$(9): i = i + 1: LOOP
+    j = i
+    DO WHILE MID$(lineText, j, 1) >= "0" AND MID$(lineText, j, 1) <= "9": j = j + 1: LOOP
+    IF j > i THEN
+        i = j
+        DO WHILE MID$(lineText, i, 1) = " " OR MID$(lineText, i, 1) = CHR$(9): i = i + 1: LOOP
+    END IF
+    j = i
+    IF j <= LEN(lineText) THEN
+        IF DefFn_IsIdStart%(MID$(lineText, j, 1)) THEN
+            DO WHILE j <= LEN(lineText)
+                IF DefFn_IsIdChar%(MID$(lineText, j, 1)) = 0 THEN EXIT DO
+                j = j + 1
+            LOOP
+            IF MID$(lineText, j, 1) = ":" THEN
+                i = j + 1
+                DO WHILE MID$(lineText, i, 1) = " " OR MID$(lineText, i, 1) = CHR$(9): i = i + 1: LOOP
+            END IF
+        END IF
+    END IF
+    'only blanks were skipped: no prefix
+    IF LEN(LTRIM$(LEFT$(lineText, i - 1))) = 0 THEN DefFn_PrefixLen& = 0 ELSE DefFn_PrefixLen& = i - 1
+END FUNCTION
+
+'Position of the ":" that ends the first statement of text (outside string literals and
+'before a comment), 0 when there is none.
+FUNCTION DefFn_StatementEnd& (text AS STRING)
+    DIM i AS LONG, inQuote AS INTEGER, c AS STRING
+    FOR i = 1 TO LEN(text)
+        c = MID$(text, i, 1)
+        IF c = CHR$(34) THEN inQuote = NOT inQuote
+        IF inQuote = 0 THEN
+            IF c = "'" THEN EXIT FUNCTION
+            IF c = ":" THEN DefFn_StatementEnd& = i: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
 'Rewrites lineinput3buffer$ in place and fills defFnBodyText$ (see the top of this file).
 'A converted line is overwritten with spaces, so offsets and line numbers stay.
 SUB DefFn_RewriteBuffer
@@ -307,8 +414,12 @@ SUB DefFn_RewriteBuffer
     DIM sharedVars AS STRING, knownNames AS STRING, crlf AS STRING, head AS STRING
     DIM body AS STRING, code AS STRING, t AS STRING, kind AS LONG, inDef AS LONG
     DIM p AS LONG, e AS LONG, c13 AS LONG, c10 AS LONG, n AS LONG
+    DIM pre AS LONG, cut AS LONG, defText AS STRING, defState AS STRING, anyDefType AS LONG, mark AS STRING
 
     defFnBodyText$ = ""
+    defFnDimTypes$ = "|"
+    'after each generated FUNCTION: replaced at the end by the DEFtype lines of the whole file
+    mark = CHR$(2)
     n = LEN(lineinput3buffer$)
     IF INSTR(UCASE$(lineinput3buffer$), "FN") = 0 THEN EXIT SUB
     crlf = CHR$(13) + CHR$(10)
@@ -327,28 +438,74 @@ SUB DefFn_RewriteBuffer
                 sharedVars = DefFn_SharedList$(code, fnName, DefFn_ParamNames$(params), knownNames + MID$(DefFn_StaticNames$(code), 2))
                 defFnBodyText$ = defFnBodyText$ + head
                 IF LEN(sharedVars) THEN defFnBodyText$ = defFnBodyText$ + "SHARED " + sharedVars + crlf
-                defFnBodyText$ = defFnBodyText$ + body + "END FUNCTION" + crlf
+                defFnBodyText$ = defFnBodyText$ + body + "END FUNCTION" + crlf + mark
             ELSEIF LEN(lineText) THEN
                 body = body + DefFn_ExitDef$(lineText) + crlf
                 IF UCASE$(LEFT$(DefFn_Trim$(lineText), 4)) <> "REM " THEN code = code + DefFn_StripComment$(lineText) + CHR$(10)
             END IF
             MID$(lineinput3buffer$, p, e - p) = SPACE$(e - p)
         ELSE
-            kind = DefFn_Parse%(lineText, fnName, params, expr)
+            'DEFINT A-Z and the like: a generated FUNCTION is compiled after the program, so
+            'it gets the DEFtype lines that were in force where the DEF FN stands
+            t = UCASE$(DefFn_Trim$(lineText))
+            IF LEFT$(t, 3) = "DEF" OR LEFT$(t, 8) = "_DEFINE " THEN
+                IF LEFT$(t, 7) = "DEFINT " OR LEFT$(t, 7) = "DEFLNG " OR LEFT$(t, 7) = "DEFSNG " OR LEFT$(t, 7) = "DEFDBL " OR LEFT$(t, 7) = "DEFSTR " OR LEFT$(t, 8) = "_DEFINE " THEN
+                    defState = defState + DefFn_StripComment$(DefFn_Trim$(lineText)) + crlf
+                    anyDefType = -1
+                END IF
+            END IF
+            'a line number or a label may come first, and another statement may follow
+            'a single-line definition after ":"
+            pre = 0
+            IF INSTR(t, "DEF") > 1 THEN pre = DefFn_PrefixLen&(lineText)
+            defText = MID$(lineText, pre + 1)
+            kind = DefFn_Parse%(defText, fnName, params, expr)
+            cut = 0
+            IF kind = 1 THEN
+                cut = DefFn_StatementEnd&(defText)
+                IF cut THEN
+                    defText = LEFT$(defText, cut - 1)
+                    kind = DefFn_Parse%(defText, fnName, params, expr)
+                END IF
+            END IF
             IF kind THEN
-                IF LEN(knownNames) = 0 THEN knownNames = DefFn_KnownNames$(lineinput3buffer$)
-                IF LEN(params) THEN head = "FUNCTION " + fnName + " (" + params + ")" + crlf ELSE head = "FUNCTION " + fnName + crlf
+                IF LEN(knownNames) = 0 THEN
+                    knownNames = DefFn_KnownNames$(lineinput3buffer$)
+                    defFnDimTypes$ = DefFn_DimTypes$(lineinput3buffer$)
+                END IF
+                head = "DEFSNG A-Z" + crlf + defState
+                IF LEN(params) THEN head = head + "FUNCTION " + fnName + " (" + params + ")" + crlf ELSE head = head + "FUNCTION " + fnName + crlf
                 IF kind = 1 THEN
                     sharedVars = DefFn_SharedList$(expr, fnName, DefFn_ParamNames$(params), knownNames)
                     defFnBodyText$ = defFnBodyText$ + head
                     IF LEN(sharedVars) THEN defFnBodyText$ = defFnBodyText$ + "SHARED " + sharedVars + crlf
-                    defFnBodyText$ = defFnBodyText$ + fnName + " = " + expr + crlf + "END FUNCTION" + crlf
+                    defFnBodyText$ = defFnBodyText$ + fnName + " = " + expr + crlf + "END FUNCTION" + crlf + mark
                 ELSE
                     inDef = -1: body = "": code = ""
                 END IF
-                MID$(lineinput3buffer$, p, e - p) = SPACE$(e - p)
+                'the definition becomes blanks; the line number, the label and what follows ":" stay
+                IF cut THEN
+                    MID$(lineinput3buffer$, p + pre, cut) = SPACE$(cut)
+                ELSE
+                    MID$(lineinput3buffer$, p + pre, e - p - pre) = SPACE$(e - p - pre)
+                END IF
             END IF
         END IF
         p = e + 1
     LOOP
+    'What is compiled after a generated FUNCTION gets the DEFtype lines of the whole file
+    'again; a file without any needs neither these nor the ones in front of the FUNCTIONs.
+    IF anyDefType THEN defState = "DEFSNG A-Z" + crlf + defState ELSE defState = ""
+    p = INSTR(defFnBodyText$, mark)
+    DO WHILE p
+        defFnBodyText$ = LEFT$(defFnBodyText$, p - 1) + defState + MID$(defFnBodyText$, p + 1)
+        p = INSTR(p + LEN(defState), defFnBodyText$, mark)
+    LOOP
+    IF anyDefType = 0 THEN
+        p = INSTR(defFnBodyText$, "DEFSNG A-Z" + crlf + "FUNCTION ")
+        DO WHILE p
+            defFnBodyText$ = LEFT$(defFnBodyText$, p - 1) + MID$(defFnBodyText$, p + LEN("DEFSNG A-Z" + crlf))
+            p = INSTR(p + 1, defFnBodyText$, "DEFSNG A-Z" + crlf + "FUNCTION ")
+        LOOP
+    END IF
 END SUB

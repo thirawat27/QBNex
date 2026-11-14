@@ -213,6 +213,12 @@ pub static TABLE: &[Builtin] = &[
     b!("_INCLERRORFILE$", [], Str),
     // numeric line label reached (ERL reports the last one before the error)
     b!("LASTLINE", [I32]),
+    // TRY: saves the ON ERROR handler before the body arms its own (the argument
+    // identifies the TRY statement), and puts it back when the body is left
+    b!("TRYPUSH", [I32]),
+    b!("TRYPOP", []),
+    // END n: the exit code the END that follows ends the program with
+    b!("ENDCODE", [I32]),
     // ---- files
     b!("OPEN", [Str, I32, I32, I32]),
     b!("OPENOLD", [Str, I32, Str]),

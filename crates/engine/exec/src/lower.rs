@@ -382,6 +382,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
                 srcfiles: src.srcfiles.clone(),
                 console: src.meta("console").map(|v| v == "only"),
                 screenhide: src.meta("screenhide").is_some(),
+                option_base: i64::from(src.meta("optionbase") == Some("1")),
                 xfns: src.meta.iter().filter(|(k, _)| k == "extfn").filter_map(|(_, v)| parse_xfn(v)).collect(),
                 ..Module::default()
             },

@@ -636,6 +636,8 @@ FUNCTION IrSplitArgs& (a$)
         IF e$ = "(" OR e$ = "{" THEN b = b + 1
         IF e$ = ")" OR e$ = "}" THEN b = b - 1
         IF e$ = "," AND b = 0 THEN
+            'more arguments than the list holds (CASE with over 100 values)
+            IF c >= UBOUND(IrArgs) THEN REDIM _PRESERVE IrArgs(1 TO c * 2) AS STRING
             IrArgs(c) = cur$: c = c + 1: cur$ = ""
         ELSE
             IF LEN(cur$) THEN cur$ = cur$ + sp + e$ ELSE cur$ = e$
@@ -2401,7 +2403,7 @@ END SUB
 'CASE: raw text after CASE (comma separated items)
 SUB IrCase (raw$, everycase AS LONG, iselse AS LONG)
     DIM bid AS LONG, p AS LONG, nm$, st$, c AS LONG, k AS LONG, it$, acc$, one$, x$, y$, t AS LONG, op$, i AS LONG, n AS LONG, sty AS LONG
-    DIM sv(1 TO 100) AS STRING
+    REDIM sv(1 TO 100) AS STRING
     bid = IrCtlId(controllevel): p = IrCtlPart(controllevel)
     nm$ = IrPart$(IrCtlVar(controllevel) + CHR$(3), 1)
     nm$ = LEFT$(IrCtlVar(controllevel), INSTR(IrCtlVar(controllevel), CHR$(3)) - 1)
@@ -2421,6 +2423,7 @@ SUB IrCase (raw$, everycase AS LONG, iselse AS LONG)
         EXIT SUB
     END IF
     c = IrSplitArgs(raw$)
+    IF c > UBOUND(sv) THEN REDIM sv(1 TO c) AS STRING
     FOR k = 1 TO c: sv(k) = IrArgs(k): NEXT
     acc$ = ""
     FOR k = 1 TO c
@@ -2530,6 +2533,8 @@ SUB IrFinish (src$, outExe$)
         PRINT #fh, "meta console"
     END IF
     IF ScreenHide THEN PRINT #fh, "meta screenhide"
+    'an array used without DIM is name(10): from 1 under OPTION BASE 1 (the run time made it 0 TO 10)
+    IF optionbase = 1 THEN PRINT #fh, "meta optionbase 1"
     IF Resize THEN
         '$RESIZE: the user may resize the window; the screen keeps its size, is stretched or smoothed
         IF Resize_Scale = 1 THEN

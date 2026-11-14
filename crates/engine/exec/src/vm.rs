@@ -408,6 +408,11 @@ pub struct Vm<'m, 'o> {
     ab: usize,
     gosub: Vec<Gs>,
     on_error: Option<u32>,
+    /// TRY bodies being executed: (TRY statement, frame count when entered, the ON
+    /// ERROR handler that was set before it). See [`Host::try_enter`].
+    try_stack: Vec<(u32, usize, Option<u32>)>,
+    /// exit code of `END n` (set just before its END)
+    end_code: i32,
     /// (pc of the failing instruction, view) while an error handler runs
     in_handler: Option<(u32, usize)>,
     err: i32,
@@ -545,6 +550,27 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn set_last_line(&mut self, n: u32) {
         self.last_line = n;
     }
+    fn set_end_code(&mut self, code: i32) {
+        self.end_code = code;
+    }
+    fn try_enter(&mut self, id: u32) {
+        let depth = self.frames.len();
+        self.try_unwind(depth);
+        // The same TRY of the same procedure call is still listed: its body was left
+        // by a jump (GOTO, EXIT of a loop around it). It and what was inside it end here.
+        if let Some(k) = self.try_stack.iter().rposition(|e| e.0 == id && e.1 == depth) {
+            self.on_error = self.try_stack[k].2;
+            self.try_stack.truncate(k);
+        }
+        self.try_stack.push((id, depth, self.on_error));
+    }
+    fn try_leave(&mut self) {
+        let depth = self.frames.len();
+        self.try_unwind(depth);
+        if let Some(e) = self.try_stack.pop_if(|e| e.1 == depth) {
+            self.on_error = e.2;
+        }
+    }
     fn bytes(&mut self, p: u64, len: usize) -> crate::rt::R<&mut [u8]> {
         self.mem.bytes(p, len).map_err(Stop::Err)
     }
@@ -593,6 +619,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             ab: 0,
             gosub: Vec::new(),
             on_error: None,
+            try_stack: Vec::new(),
+            end_code: 0,
             in_handler: None,
             err: 0,
             erl: 0,
@@ -621,7 +649,11 @@ impl<'m, 'o> Vm<'m, 'o> {
             gl: GlFrames::default(),
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
             jit_nest: 0,
-            mem: crate::mem::Mem::new(),
+            mem: {
+                let mut mem = crate::mem::Mem::new();
+                mem.option_base = m.option_base;
+                mem
+            },
             owned: Vec::new(),
             #[cfg(feature = "debug")]
             dbg: None,
@@ -909,6 +941,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 _ => *a = None,
             }
         }
+        self.try_stack.clear();
         self.gosub.clear();
         // the handlers on that stack never reach their RETURN: no trap stays "in progress"
         qb_runtime::events::timers().reset_in_progress();
@@ -1100,7 +1133,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         if self.arrs[i].is_none() {
             let f = if a & G != 0 { 0 } else { cx.func as usize };
             let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-            self.arrs[i] = Some(Box::new(Arr::new(ty, vec![(0, 10); n])?));
+            self.arrs[i] = Some(Box::new(Arr::new(ty, vec![(self.m.option_base, 10); n])?));
         }
         Ok(self.arrs[i].as_deref_mut().unwrap())
     }
@@ -1327,6 +1360,15 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.mem.prune_retired(|lo, hi| regs.iter().any(|&v| v >= lo && v < hi));
     }
 
+    /// Ends the TRY bodies of procedure calls deeper than `depth` (EXIT SUB inside a
+    /// TRY, or a handler that left the procedure): the handler set before the first
+    /// of them is in force again.
+    fn try_unwind(&mut self, depth: usize) {
+        while let Some(e) = self.try_stack.pop_if(|e| e.1 > depth) {
+            self.on_error = e.2;
+        }
+    }
+
     fn ret(&mut self) -> Result<u32, i32> {
         let m = self.m;
         if self.frames.len() < 2 {
@@ -1363,6 +1405,9 @@ impl<'m, 'o> Vm<'m, 'o> {
             self.prune_retired();
         }
         let depth = self.frames.len();
+        if !self.try_stack.is_empty() {
+            self.try_unwind(depth);
+        }
         self.gosub.retain(|g| g.depth <= depth);
         self.set_view(fr.caller_view);
         Ok(fr.ret)
@@ -2119,7 +2164,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::End => {
-                    self.exit_code = 0;
+                    self.exit_code = std::mem::take(&mut self.end_code);
                     self.ended = true;
                     return Ok(u32::MAX);
                 }

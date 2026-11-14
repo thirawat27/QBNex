@@ -131,6 +131,7 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
                 topLevelHoistFromMain = -1
             END IF
             IF inclevel THEN linenumber = VAL(markHead) ELSE linenumber = VAL(markHead) - 1
+            classSyntaxQueuedLine = 0 'the caller counts this line: it carries its own number
         END IF
     END IF
 
@@ -204,7 +205,10 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
         'Already fed in front of the first SUB (lines of an included file too: they are
         'fed at the main level and keep their file and line for error messages)
         IF topLevelHoistInjected THEN TopLevelRuntime_ProcessLine$ = "": EXIT FUNCTION
-        IF TopLevelRuntime_IsLabelLine%(trimmedLine) THEN topLevelHoistWanted = -1
+        'Module code after a SUB is always moved in front of the first SUB: it is module
+        'code, with the module's variables and its real line numbers. (Without a label it
+        'used to go into a SUB of its own, where x of the module was a new, empty x.)
+        topLevelHoistWanted = -1
         ClassSyntax_AppendLine topLevelHoistScan, TopLevelRuntime_MarkLine$(lineText)
         topLevelRuntimeCallInjected = -1
         ClassSyntax_AppendLine topLevelRuntimeLines, lineText
@@ -835,6 +839,7 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
         ClassSyntax_RegisterCurrentClass
         IF Error_Happened THEN EXIT FUNCTION
         ClassSyntax_EmitHelper
+        ClassSyntax_EmitInherited
         savedQueue$ = classSyntaxQueue$
         ClassSyntax_Reset
         classSyntaxQueue$ = savedQueue$
@@ -857,6 +862,9 @@ FUNCTION ClassSyntax_ProcessLine$ (rawLine$)
         ClassSyntax_EmitHelper
         methodHeader$ = ClassSyntax_BuildMethodHeader$(trimmedLine$)
         ClassSyntax_RegisterMethod classSyntaxClassName$, classSyntaxMethodAlias$, classSyntaxGeneratedName$
+        ClassSyntax_RegisterHeader classSyntaxClassName$, classSyntaxMethodAlias$, methodHeader$
+        'the class has this method of its own: the inherited one is not wanted
+        classSyntaxInheritPending$ = ClassSyntax_WithoutKey$(classSyntaxInheritPending$, UCASE$(RTRIM$(classSyntaxMethodAlias$)))
         classSyntaxInMethod = -1
         ClassSyntax_QueueDeferredLine methodHeader$
         IF classSyntaxMethodAlias$ = "CONSTRUCTOR" THEN
@@ -900,6 +908,8 @@ SUB ClassSyntax_Reset
     classSyntaxMethodAlias$ = ""
     classSyntaxGeneratedName$ = ""
     classSyntaxOwnFieldLines$ = ""
+    classSyntaxInheritPending$ = ""
+    classSyntaxInheritDone = 0
 END SUB
 
 SUB ClassSyntax_QueueLine (line$)
@@ -931,6 +941,7 @@ SUB ClassSyntax_ClearRegistry
         classSyntaxRegistryOwnFields(i) = ""
         classSyntaxRegistryFlatFields(i) = ""
         classSyntaxRegistryMethods(i) = ""
+        classSyntaxRegistryHeaders(i) = ""
     NEXT
 END SUB
 
@@ -1050,6 +1061,224 @@ SUB ClassSyntax_RegisterCurrentClass
     IF LEN(flattenedFields$) AND LEN(classSyntaxOwnFieldLines$) THEN flattenedFields$ = flattenedFields$ + CHR$(10)
     flattenedFields$ = flattenedFields$ + classSyntaxOwnFieldLines$
     classSyntaxRegistryFlatFields(classIndex) = flattenedFields$
+    IF LEN(classSyntaxBaseName$) > 0 AND classSyntaxInheritDone = 0 THEN ClassSyntax_RegisterInherited classIndex, baseIndex
+    classSyntaxInheritDone = -1
+END SUB
+
+FUNCTION ClassSyntax_WithoutKey$ (lines$, key$)
+    'lines$ ("KEY=value" lines) without the line of key$
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM kept AS STRING
+
+    remainingLines = lines$
+    DO WHILE LEN(remainingLines)
+        nextBreak = INSTR(remainingLines, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine = remainingLines
+            remainingLines = ""
+        ELSE
+            nextLine = LEFT$(remainingLines, nextBreak - 1)
+            remainingLines = MID$(remainingLines, nextBreak + 1)
+        END IF
+        IF LEFT$(nextLine, LEN(key$) + 1) <> key$ + "=" THEN ClassSyntax_AppendLine kept, nextLine
+    LOOP
+    ClassSyntax_WithoutKey$ = kept
+END FUNCTION
+
+SUB ClassSyntax_RegisterHeader (className$, methodName$, headerLine$)
+    DIM classIndex AS LONG
+    DIM methodKey AS STRING
+    DIM updatedLines AS STRING
+
+    classIndex = ClassSyntax_FindRegistryClass&(className$)
+    IF classIndex = 0 THEN EXIT SUB
+    methodKey = UCASE$(RTRIM$(methodName$))
+    updatedLines = ClassSyntax_WithoutKey$(classSyntaxRegistryHeaders(classIndex), methodKey)
+    ClassSyntax_AppendLine updatedLines, methodKey + "=" + headerLine$
+    classSyntaxRegistryHeaders(classIndex) = updatedLines
+END SUB
+
+SUB ClassSyntax_SplitHeader (headerLine$, kindText$, generatedName$, otherParams$, returnClause$)
+    'parts of "SUB name(self AS Class, a AS LONG) ..." made by ClassSyntax_BuildMethodHeader$
+    DIM restText AS STRING
+    DIM openPos AS LONG
+    DIM closePos AS LONG
+    DIM commaPos AS LONG
+
+    generatedName$ = ""
+    kindText$ = ClassSyntax_FirstToken$(headerLine$)
+    restText = LTRIM$(MID$(LTRIM$(headerLine$), LEN(kindText$) + 1))
+    openPos = INSTR(restText, "(")
+    IF openPos = 0 THEN EXIT SUB
+    closePos = ClassSyntax_FindMatchingCloseParen&(restText, openPos)
+    IF closePos = 0 THEN EXIT SUB
+    generatedName$ = RTRIM$(LEFT$(restText, openPos - 1))
+    otherParams$ = MID$(restText, openPos + 1, closePos - openPos - 1)
+    returnClause$ = LTRIM$(MID$(restText, closePos + 1))
+    commaPos = INSTR(otherParams$, ",")
+    IF commaPos THEN otherParams$ = LTRIM$(RTRIM$(MID$(otherParams$, commaPos + 1))) ELSE otherParams$ = ""
+END SUB
+
+SUB ClassSyntax_RegisterInherited (classIndex AS LONG, baseIndex AS LONG)
+    'A method of the base class takes "self AS Base": an object of the derived class is
+    'another TYPE and cannot be passed to it. Every inherited method therefore gets a
+    'procedure of the derived class (ClassSyntax_EmitInherited writes them at END CLASS).
+    'They are registered here, before the class's own methods are read, so that those
+    'can call them; a method the class defines itself takes the place of the inherited one.
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM eqPos AS LONG
+    DIM methodKey AS STRING
+    DIM kindText AS STRING
+    DIM baseGenerated AS STRING
+    DIM otherParams AS STRING
+    DIM returnClause AS STRING
+    DIM newGenerated AS STRING
+    DIM newHeader AS STRING
+    DIM basePrefix AS STRING
+
+    basePrefix = "__QBNEX_" + ClassSyntax_SafeIdentifier$(RTRIM$(classSyntaxRegistryName(baseIndex))) + "_"
+    remainingLines = classSyntaxRegistryHeaders(baseIndex)
+    DO WHILE LEN(remainingLines)
+        nextBreak = INSTR(remainingLines, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine = remainingLines
+            remainingLines = ""
+        ELSE
+            nextLine = LEFT$(remainingLines, nextBreak - 1)
+            remainingLines = MID$(remainingLines, nextBreak + 1)
+        END IF
+        eqPos = INSTR(nextLine, "=")
+        IF eqPos > 1 THEN
+            methodKey = LEFT$(nextLine, eqPos - 1)
+            ClassSyntax_SplitHeader MID$(nextLine, eqPos + 1), kindText, baseGenerated, otherParams, returnClause
+            IF methodKey <> "CONSTRUCTOR" AND LEFT$(baseGenerated, LEN(basePrefix)) = basePrefix THEN
+                newGenerated = "__QBNEX_" + ClassSyntax_SafeIdentifier$(classSyntaxClassName$) + "_" + MID$(baseGenerated, LEN(basePrefix) + 1)
+                newHeader = kindText + " " + newGenerated + "(self AS " + classSyntaxClassName$
+                IF LEN(otherParams) THEN newHeader = newHeader + ", " + otherParams
+                newHeader = newHeader + ")"
+                IF LEN(returnClause) THEN newHeader = newHeader + " " + returnClause
+                classSyntaxRegistryMethods(classIndex) = ClassSyntax_WithoutKey$(classSyntaxRegistryMethods(classIndex), methodKey)
+                ClassSyntax_AppendLine classSyntaxRegistryMethods(classIndex), methodKey + "=" + newGenerated
+                classSyntaxRegistryHeaders(classIndex) = ClassSyntax_WithoutKey$(classSyntaxRegistryHeaders(classIndex), methodKey)
+                ClassSyntax_AppendLine classSyntaxRegistryHeaders(classIndex), methodKey + "=" + newHeader
+                'KEY=the base procedure it calls
+                ClassSyntax_AppendLine classSyntaxInheritPending$, methodKey + "=" + baseGenerated
+            END IF
+        END IF
+    LOOP
+END SUB
+
+SUB ClassSyntax_QueueFieldCopies (fieldLines$, toName$, fromName$)
+    'one assignment a field: "name AS type" lines of a class
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM fieldName AS STRING
+
+    remainingLines = fieldLines$
+    DO WHILE LEN(remainingLines)
+        nextBreak = INSTR(remainingLines, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine = remainingLines
+            remainingLines = ""
+        ELSE
+            nextLine = LEFT$(remainingLines, nextBreak - 1)
+            remainingLines = MID$(remainingLines, nextBreak + 1)
+        END IF
+        fieldName = ClassSyntax_FirstIdentifier$(nextLine)
+        IF LEN(fieldName) > 0 AND UCASE$(fieldName) <> "AS" THEN ClassSyntax_QueueDeferredLine "    " + toName$ + "." + fieldName + " = " + fromName$ + "." + fieldName
+    LOOP
+END SUB
+
+SUB ClassSyntax_EmitInherited
+    'the procedures registered by ClassSyntax_RegisterInherited that the class did not
+    'replace: copy the object into one of the base class, call the base method, copy back
+    DIM classIndex AS LONG
+    DIM baseIndex AS LONG
+    DIM remainingLines AS STRING
+    DIM nextBreak AS LONG
+    DIM nextLine AS STRING
+    DIM eqPos AS LONG
+    DIM methodKey AS STRING
+    DIM kindText AS STRING
+    DIM generatedName AS STRING
+    DIM otherParams AS STRING
+    DIM returnClause AS STRING
+    DIM baseGenerated AS STRING
+    DIM headerLine AS STRING
+    DIM argList AS STRING
+    DIM paramText AS STRING
+    DIM argName AS STRING
+    DIM depth AS LONG
+    DIM i AS LONG
+    DIM c AS STRING
+
+    IF LEN(classSyntaxBaseName$) = 0 OR LEN(classSyntaxInheritPending$) = 0 THEN EXIT SUB
+    classIndex = ClassSyntax_FindRegistryClass&(classSyntaxClassName$)
+    baseIndex = ClassSyntax_FindRegistryClass&(classSyntaxBaseName$)
+    IF classIndex = 0 OR baseIndex = 0 THEN EXIT SUB
+
+    remainingLines = classSyntaxInheritPending$
+    DO WHILE LEN(remainingLines)
+        nextBreak = INSTR(remainingLines, CHR$(10))
+        IF nextBreak = 0 THEN
+            nextLine = remainingLines
+            remainingLines = ""
+        ELSE
+            nextLine = LEFT$(remainingLines, nextBreak - 1)
+            remainingLines = MID$(remainingLines, nextBreak + 1)
+        END IF
+        eqPos = INSTR(nextLine, "=")
+        methodKey = LEFT$(nextLine, eqPos - 1)
+        baseGenerated = MID$(nextLine, eqPos + 1)
+        headerLine = ""
+        i = INSTR(CHR$(10) + classSyntaxRegistryHeaders(classIndex), CHR$(10) + methodKey + "=")
+        IF i THEN
+            headerLine = MID$(classSyntaxRegistryHeaders(classIndex), i + LEN(methodKey) + 1)
+            IF INSTR(headerLine, CHR$(10)) THEN headerLine = LEFT$(headerLine, INSTR(headerLine, CHR$(10)) - 1)
+        END IF
+        IF LEN(headerLine) THEN
+            ClassSyntax_SplitHeader headerLine, kindText, generatedName, otherParams, returnClause
+            'the names of the parameters, to pass them on (an array as name())
+            argList = ""
+            paramText = ""
+            depth = 0
+            FOR i = 1 TO LEN(otherParams) + 1
+                c = MID$(otherParams, i, 1)
+                IF c = "(" THEN depth = depth + 1
+                IF c = ")" THEN depth = depth - 1
+                IF (c = "," AND depth = 0) OR i > LEN(otherParams) THEN
+                    paramText = LTRIM$(RTRIM$(paramText))
+                    IF UCASE$(LEFT$(paramText, 6)) = "BYVAL " THEN paramText = LTRIM$(MID$(paramText, 7))
+                    argName = ClassSyntax_FirstIdentifier$(paramText)
+                    IF LEN(argName) THEN
+                        IF INSTR(paramText, "()") THEN argName = argName + "()"
+                        argList = argList + ", " + argName
+                    END IF
+                    paramText = ""
+                ELSE
+                    paramText = paramText + c
+                END IF
+            NEXT
+            ClassSyntax_QueueDeferredLine headerLine
+            ClassSyntax_QueueDeferredLine "    DIM qbnexBase AS " + classSyntaxBaseName$
+            ClassSyntax_QueueDeferredLine "    qbnexBase.Header = self.Header"
+            ClassSyntax_QueueFieldCopies classSyntaxRegistryFlatFields(baseIndex), "qbnexBase", "self"
+            IF kindText = "FUNCTION" THEN
+                ClassSyntax_QueueDeferredLine "    " + generatedName + " = " + baseGenerated + "(qbnexBase" + argList + ")"
+            ELSE
+                ClassSyntax_QueueDeferredLine "    " + baseGenerated + " qbnexBase" + argList
+            END IF
+            ClassSyntax_QueueFieldCopies classSyntaxRegistryFlatFields(baseIndex), "self", "qbnexBase"
+            ClassSyntax_QueueDeferredLine "    self.Header = qbnexBase.Header"
+            ClassSyntax_QueueDeferredLine "END " + kindText
+        END IF
+    LOOP
+    classSyntaxInheritPending$ = ""
 END SUB
 
 SUB ClassSyntax_RegisterMethod (className$, methodName$, generatedName$)
@@ -1345,6 +1574,16 @@ SUB ClassSyntax_RegisterProcedureHeader (rawLine$)
     LOOP
 END SUB
 
+FUNCTION ClassSyntax_AtStatementStart% (textBefore$)
+    'nothing but a statement boundary precedes: start of the line, ":", THEN or ELSE
+    DIM t AS STRING
+
+    t = UCASE$(RTRIM$(textBefore$))
+    IF LEN(LTRIM$(t)) = 0 THEN ClassSyntax_AtStatementStart% = -1: EXIT FUNCTION
+    IF RIGHT$(t, 1) = ":" THEN ClassSyntax_AtStatementStart% = -1: EXIT FUNCTION
+    IF RIGHT$(t, 5) = " THEN" OR RIGHT$(t, 5) = " ELSE" OR LTRIM$(t) = "ELSE" THEN ClassSyntax_AtStatementStart% = -1
+END FUNCTION
+
 FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
     DIM outputText AS STRING
     DIM i AS LONG
@@ -1429,6 +1668,9 @@ FUNCTION ClassSyntax_RewriteDispatch$ (sourceLine$, selfType$)
                                 IF closePos > 0 THEN
                                     argsText = MID$(sourceLine$, openPos + 1, closePos - openPos - 1)
                                     IF objectStart > flushPos THEN outputText = outputText + MID$(sourceLine$, flushPos, objectStart - flushPos)
+                                    'object.method(...) as a statement: with CALL, or the object in
+                                    'brackets would be an expression (a TYPE cannot be one)
+                                    IF ClassSyntax_AtStatementStart%(outputText) THEN outputText = outputText + "CALL "
                                     outputText = outputText + generatedName + "(" + emittedObjectExpr
                                     IF LEN(LTRIM$(RTRIM$(argsText))) THEN outputText = outputText + ", " + argsText
                                     outputText = outputText + ")"

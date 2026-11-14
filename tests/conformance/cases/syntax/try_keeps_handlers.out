@@ -1,0 +1,11 @@
+body
+handler 10 
+after
+fin 1 
+caught 5 i = 1 
+inner ok 2 
+fin 2 
+outer ok 2 
+handler 11 
+handler 12 
+line 34 

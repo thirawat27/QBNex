@@ -308,6 +308,7 @@ SUB StdLib_PrepareHoistedImports
         END IF
     LOOP
     IF syntaxExtUsesTry THEN usesTry = -1 'a hoisted module uses TRY
+    syntaxExtUsesTry = usesTry 'TRY somewhere in the program: SyntaxExt_ProcessLine$ tracks the loops
     IF stdlibHoisted$ = "@" AND usesTry = 0 AND LEN(defFnBodyText$) = 0 THEN EXIT SUB
 
     'FUNCTIONs made from single-line DEF FN (deffn.bas) go after the program's last line
