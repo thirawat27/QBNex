@@ -982,6 +982,15 @@ pub fn lof(i: i32) -> (i64, i32) {
 }
 
 /// EOF: -1 or 0.
+/// Column the next character of `PRINT #i` goes to (1 = start of a line), for TAB.
+pub fn column(i: i32) -> usize {
+    let mut t = table();
+    match index(&mut t, i) {
+        Ok(x) => t.f(x).column.max(1) as usize,
+        Err(_) => 1,
+    }
+}
+
 pub fn eof(i: i32) -> (i32, i32) {
     let mut t = table();
     let x = match index(&mut t, i) {

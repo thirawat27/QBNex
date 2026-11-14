@@ -70,6 +70,43 @@ fn num_value(n: &fio::NumRepr) -> R<f64> {
     }
 }
 
+/// The 64-bit integer an INPUT item stands for, when it is a whole number in the
+/// range of `_INTEGER64` / `_UNSIGNED _INTEGER64` (the bits of a value above
+/// `i64::MAX`); None: take it as a DOUBLE and round.
+pub(crate) fn exact_i64(text: &[u8]) -> Option<i64> {
+    let t = std::str::from_utf8(text).ok()?.trim();
+    let digits = t.strip_prefix(['-', '+']).unwrap_or(t);
+    if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let v: i128 = t.strip_prefix('+').unwrap_or(t).parse().ok()?;
+    if v < i128::from(i64::MIN) || v > i128::from(u64::MAX) {
+        return None;
+    }
+    Some(v as u64 as i64)
+}
+
+/// 2^63: the first DOUBLE past the largest `_INTEGER64`.
+pub(crate) const I64_LIMIT: f64 = 9_223_372_036_854_775_808.0;
+
+fn int_value(n: &fio::NumRepr) -> R<i64> {
+    let d = &n.digit[..n.digits as usize];
+    // d0.d1d2... x 10^exp is whole when the exponent covers every digit
+    if n.hex == 0 && !d.is_empty() && n.exp >= d.len() as i64 - 1 && n.exp < 20 {
+        let mut text: Vec<u8> = if n.neg != 0 { vec![b'-'] } else { Vec::new() };
+        text.extend_from_slice(d);
+        text.resize(text.len() + (n.exp as usize + 1 - d.len()), b'0');
+        if let Some(v) = exact_i64(&text) {
+            return Ok(v);
+        }
+    }
+    let v = num_value(n)?.round_ties_even();
+    if v < -I64_LIMIT || v >= (2.0 * I64_LIMIT) {
+        return e(6);
+    }
+    Ok(if v >= I64_LIMIT { v as u64 as i64 } else { v as i64 })
+}
+
 /// Handles `name` if it is a file builtin; `None` otherwise.
 pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option<V>>> {
     let i = |k: usize| a[k].i();
@@ -132,8 +169,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                     let n = size.min(val.len());
                     b[off..off + n].copy_from_slice(&val[..n]);
                 }
+            // the other variables FIELDed over the same bytes show the new contents too
+            let links: Vec<_> = match vm.rt().field_vars.iter().find(|f| f.0 == var).copied() {
+                Some((_, ch, off, size)) => vm.rt().field_vars.iter().filter(|f| f.1 == ch && f.0 != var && f.2 < off + size && off < f.2 + f.3).copied().collect(),
+                None => Vec::new(),
+            };
             vm.rt().field_store = true;
             let r = vm.store_str(var, &val);
+            for (v, ch, off, size) in links {
+                if let Some(bytes) = vm.rt().field_buf.get(&ch).map(|b| b[off..off + size].to_vec()) {
+                    let _ = vm.store_str(v, &bytes);
+                }
+            }
             vm.rt().field_store = false;
             Some(r.map(|_| None))
         }
@@ -154,7 +201,15 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             }
             Some(r.map(|_| None))
         }
-        "OPENOLD" => Some(chk(fio::open_gwbasic(s(2), i(1) as i32, s(0), 0, false)).map(|_| None)),
+        // OPEN mode$, #n, file$[, reclen]: -1 = no record length (also QIR without the argument)
+        "OPENOLD" | "OPENOLDL" => {
+            let rl = a.get(3).map_or(-1, |v| v.i());
+            let r = chk(fio::open_gwbasic(s(2), i(1) as i32, s(0), rl.max(0), rl >= 0));
+            if r.is_ok() && s(2).first().is_some_and(|c| c & 223 == b'R') {
+                vm.rt().reclen.insert(i(1) as i32, if rl > 0 { rl as usize } else { 128 });
+            }
+            Some(r.map(|_| None))
+        }
         "CLOSE" => {
             fio::close(ch0);
             vm.rt().reclen.remove(&ch0);
@@ -187,6 +242,20 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let (v, err) = if name == "LINEINPUT" { fio::qb_file_line_input(ch0) } else { fio::qb_file_input_string(ch0) };
             Some(chk(err).map(|_| Some(V::S(v.unwrap_or_default()))))
         }
+        "INPUTITEM.i" if ch0 != 0 => {
+            let mut n = fio::NumRepr::default();
+            let (r, err) = fio::qb_file_input_number(ch0, &mut n);
+            if err != 0 {
+                return Some(e(err));
+            }
+            let v = match r {
+                0 => int_value(&n),
+                1 => e(6),
+                2 => e(62),
+                _ => Ok(0),
+            };
+            Some(v.map(|v| Some(V::I(v))))
+        }
         "INPUTITEM.n" if ch0 != 0 => {
             let mut n = fio::NumRepr::default();
             let (r, err) = fio::qb_file_input_number(ch0, &mut n);
@@ -212,6 +281,24 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let (len, err) = fio::qb_file_input_n(n as i32, i(1) as i32, &mut buf);
             buf.truncate(len);
             Some(chk(err).map(|_| Some(V::S(buf))))
+        }
+        "GETARR" | "PUTARR" => {
+            // every element of the array, as one block of bytes
+            let pos = i(1);
+            let passed = pos != -1;
+            let (base, total) = match vm.array_extent(a[2].p()) {
+                Ok(x) => x,
+                Err(x) => return Some(Err(x)),
+            };
+            if total == 0 {
+                return Some(e(9)); // not dimensioned
+            }
+            let r = match vm.bytes(base, total as usize) {
+                Ok(b) => b,
+                Err(x) => return Some(Err(x)),
+            };
+            let err = if name == "GETARR" { fio::qb_file_get(ch0, pos, r, passed) } else { fio::qb_file_put(ch0, pos, r, passed) };
+            Some(chk(err).map(|_| None))
         }
         "GETREC" | "PUTREC" => {
             let (pos, size) = (i(1), i(3) as usize);

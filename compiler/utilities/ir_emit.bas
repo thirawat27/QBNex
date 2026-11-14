@@ -825,6 +825,23 @@ FUNCTION IrNumLit$ (l$, typ AS LONG)
         IrNumLit$ = IrConst$(t$, num$)
         EXIT FUNCTION
     END IF
+    'a whole number past the largest 64-bit integer is a floating-point value (as a
+    '64-bit constant the runner rejected the program)
+    sym$ = num$
+    DO WHILE LEN(sym$) > 1 AND LEFT$(sym$, 1) = "0": sym$ = MID$(sym$, 2): LOOP
+    x = 1
+    DO WHILE x <= LEN(sym$)
+        IF MID$(sym$, x, 1) < "0" OR MID$(sym$, x, 1) > "9" THEN EXIT DO
+        x = x + 1
+    LOOP
+    IF x > 20 AND INSTR(sym$, ".") = 0 THEN
+        IF x > 21 OR LEFT$(sym$, 20) > "18446744073709551615" THEN
+            typ = FLOATTYPE - ISPOINTER
+            IrT = "f80"
+            IrNumLit$ = IrConst$("f80", LEFT$(sym$, x - 1))
+            EXIT FUNCTION
+        END IF
+    END IF
     sym$ = removesymbol$(num$)
     typ = typname2typ(sym$)
     IF typ AND ISPOINTER THEN typ = typ - ISPOINTER
@@ -2040,6 +2057,7 @@ SUB IrRead (e$)
     rt$ = IrRegOf$(IrPlaceSTy$(p$))
     d$ = IrReg$
     IrE "read." + rt$ + " " + d$
+    IF t AND ISOFFSETINBITS THEN d$ = IrBitWrap$(d$, t)
     IrStore p$, d$
     IF rt$ <> "str" THEN IrE "rt READCHK"
 END SUB
@@ -2581,7 +2599,17 @@ SUB IrFinish (src$, outExe$)
     IF _FILEEXISTS(runner$) = 0 AND IrEmitText = 0 AND LCASE$(RIGHT$(outExe$, 4)) <> ".qir" THEN PRINT "QIR: runner not found: " + runner$: SYSTEM 1
 
     outPath$ = outExe$
+    'a relative -o is relative to the folder the compiler was started from (the folder
+    'check below looked in the compiler's own folder)
+    IF outPath$ <> "" AND LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
+        outPath$ = _STARTDIR$ + pathsep$ + outPath$
+    END IF
     IF outPath$ <> "" THEN
+        IF _DIREXISTS(outPath$) THEN
+            PRINT
+            PRINT "Can't create output executable - it is a folder: " + outPath$
+            SYSTEM 1
+        END IF
         r$ = getfilepath$(outPath$)
         IF LEN(r$) THEN
             IF _DIREXISTS(r$) = 0 THEN
@@ -2600,8 +2628,6 @@ SUB IrFinish (src$, outExe$)
             IF RIGHT$(outPath$, 1) <> pathsep$ THEN outPath$ = outPath$ + pathsep$
         END IF
         outPath$ = outPath$ + file$ + extension$
-    ELSEIF LEFT$(outPath$, 1) <> "/" AND LEFT$(outPath$, 1) <> "\" AND MID$(outPath$, 2, 1) <> ":" THEN
-        outPath$ = _STARTDIR$ + pathsep$ + outPath$
     END IF
 
     ' --emit-ir or -o <name>.qir: the QIR text itself (what qb-web runs), no executable
@@ -2611,6 +2637,8 @@ SUB IrFinish (src$, outExe$)
             IF LEN(extension$) THEN
                 IF LCASE$(RIGHT$(outPath$, LEN(extension$))) = LCASE$(extension$) THEN outPath$ = LEFT$(outPath$, LEN(outPath$) - LEN(extension$))
             END IF
+            'x.exe becomes x.qir on every system
+            IF LCASE$(RIGHT$(outPath$, 4)) = ".exe" THEN outPath$ = LEFT$(outPath$, LEN(outPath$) - 4)
             outPath$ = outPath$ + ".qir"
         END IF
         fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh

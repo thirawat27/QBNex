@@ -222,6 +222,8 @@ pub static TABLE: &[Builtin] = &[
     // ---- files
     b!("OPEN", [Str, I32, I32, I32]),
     b!("OPENOLD", [Str, I32, Str]),
+    // with the record length (-1: none given)
+    b!("OPENOLDL", [Str, I32, Str, I32]),
     // OPEN with ACCESS / SHARED / LOCK: name, mode, ch, len, access (1 READ WRITE, 2 READ,
     // 3 WRITE), sharing (1 SHARED, 2 LOCK READ WRITE, 3 LOCK READ, 4 LOCK WRITE)
     b!("OPENX", [Str, I32, I32, I32, I32, I32]),
@@ -236,6 +238,9 @@ pub static TABLE: &[Builtin] = &[
     b!("SEEKSET", [I32, I64]),
     b!("GETREC", [I32, I64, Ptr, I32]),
     b!("PUTREC", [I32, I64, Ptr, I32]),
+    // GET / PUT of a whole array: channel, position, the array
+    b!("GETARR", [I32, I64, Ptr]),
+    b!("PUTARR", [I32, I64, Ptr]),
     b!("GETSTR", [I32, I64, I32], Str),
     b!("PUTSTR", [I32, I64, Str]),
     // FIELD #ch: FIELDNEW ch, then FIELD ch size var (string variable address) per item
@@ -250,6 +255,8 @@ pub static TABLE: &[Builtin] = &[
     b!("LINEINPUT", [I32], Str),
     b!("INPUTITEM.s", [I32], Str),
     b!("INPUTITEM.n", [I32], F64),
+    // a whole number for a 64-bit integer variable, exact (a DOUBLE holds 53 bits)
+    b!("INPUTITEM.i", [I32], I64),
     b!("INPUTPROMPT", [Str, I32]),
     b!("KILL", [Str]),
     b!("NAME", [Str, Str]),
@@ -288,6 +295,8 @@ pub static TABLE: &[Builtin] = &[
     b!("sub_paint", [F80, F80, U32, U32, Str, I32]),
     b!("sub_paint.s", [F80, F80, Str, U32, Str, I32]),
     b!("qbg_palette", [I32, I32, I32]),
+    // PALETTE USING: element address (or the array), the array, bits an element
+    b!("sub_paletteusing", [Ptr, Ptr, I32]),
     b!("qbg_sub_color", [I32, I32, I32, I32]),
     b!("qbg_sub_view", [I32, I32, I32, I32, I32, I32, I32]),
     b!("qbg_sub_view_print", [I32, I32, I32]),

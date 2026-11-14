@@ -782,7 +782,14 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "PRINTTAB" => {
             let ch = i(0) as i32;
             let n = print_count(ch, i(1)).max(1);
-            let col = if ch == 0 { rt.col } else if ch == super::lprint::CHANNEL { rt.lprint.pos() } else { 1 };
+            // a file has a column too (it was taken as 1: TAB padded from the line start)
+            let col = if ch == 0 {
+                rt.col
+            } else if ch == super::lprint::CHANNEL {
+                rt.lprint.pos()
+            } else {
+                qb_runtime::fileio::column(ch)
+            };
             if col > n {
                 rt.nl(ch)?;
                 rt.write(ch, &vec![b' '; n - 1])?
@@ -1041,10 +1048,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 vm.rt().write(0, s(0))?;
             }
         }
-        "INPUTITEM.s" | "INPUTITEM.n" => {
+        "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" => {
             let ch = i(0) as i32;
             let _ = ch;
-            let numeric = name == "INPUTITEM.n";
+            let numeric = name != "INPUTITEM.s";
             if rt.input_line.is_none() {
                 // first item: the statement reads one line; its values come from
                 // that line only (missing ones are empty / 0)
@@ -1064,6 +1071,13 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let item = read_item(line, numeric).unwrap_or_default();
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
+            }
+            if name == "INPUTITEM.i" {
+                let v = super::files::exact_i64(&item).unwrap_or_else(|| {
+                    let f = val(&item).round_ties_even();
+                    if f >= super::files::I64_LIMIT { f as u64 as i64 } else { f as i64 }
+                });
+                return ok(V::I(v));
             }
             return ok(V::F(val(&item)));
         }

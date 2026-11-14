@@ -275,7 +275,12 @@ FUNCTION getpid& ()
 
     CMDLineFile = ParseCMDLineArgs$
     IF CMDLineFile <> "" AND FileHasExtension(CMDLineFile) = 0 THEN
-        CMDLineFile = CMDLineFile + ".BAS"
+        'name.bas where it exists (file names are case sensitive outside Windows), else name.BAS
+        IF _FILEEXISTS(_STARTDIR$ + "/" + CMDLineFile + ".bas") OR _FILEEXISTS(CMDLineFile + ".bas") THEN
+            CMDLineFile = CMDLineFile + ".bas"
+        ELSE
+            CMDLineFile = CMDLineFile + ".BAS"
+        END IF
     END IF
     IF CMDLineFile <> "" AND _FILEEXISTS(_STARTDIR$ + "/" + CMDLineFile) THEN
         CMDLineFile = _STARTDIR$ + "/" + CMDLineFile
@@ -5113,6 +5118,7 @@ IF n > 1 THEN
                 IF t AND ISUNSIGNED THEN z = 0
                 IF z = 0 THEN a$ = "Array must be of type INTEGER or LONG": GOTO errmes
                 bits = t AND 511
+                puArrayId = currentid
                 GOTO pu_gotarray
             END IF
             IF Error_Happened THEN GOTO errmes
@@ -5128,8 +5134,16 @@ IF n > 1 THEN
             e$ = fixoperationorder$(e$)
             IF Error_Happened THEN GOTO errmes
             l$ = l$ + tlayout$
-            e$ = evaluatetotyp(e$, -2)
+            'the run time sets one attribute an element, from this element on
+            '(the statement used to compile to nothing)
+            puDesc$ = IrReg$: IrE "aref " + puDesc$ + " " + IrVar$(puArrayId)
+            IF n = 3 THEN
+                puElem$ = puDesc$
+            ELSE
+                puElem$ = IrAddr$(IrPlace$(e$, t))
+            END IF
             IF Error_Happened THEN GOTO errmes
+            IrE "rt sub_paletteusing " + puElem$ + " " + puDesc$ + " " + IrI32$(bits)
             layoutdone = 1: IF LEN(layout$) THEN layout$ = layout$ + sp + l$ ELSE layout$ = l$
             GOTO finishedline
         END IF 'using
@@ -9445,7 +9459,9 @@ IF recompile THEN
         '_ECHO "linefragment = {" + linefragment+ "}"
 
         IF Debug THEN ShowQbErrorDebugDisplay
-        PRINT "QIR: internal error"; ERR; "at line"; _ERRORLINE; _INCLERRORLINE; _INCLERRORFILE$
+        'not for the source file that is not there (qberrorhappened = -1 is the probe that
+        'opens it): "Cannot locate source file" follows
+        IF NOT (ERR = 53 AND qberrorhappened = -1) THEN PRINT "QIR: internal error"; ERR; "at line"; _ERRORLINE; _INCLERRORLINE; _INCLERRORFILE$
 
         qberrorhappenedvalue = qberrorhappened
         qberrorhappened = 1

@@ -1624,7 +1624,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "func__console" | "func__newimage" | "sub__freeimage" | "sub__printimage" | "func__copyimage" | "sub__display" | "func__width"
             | "func__height" | "func__pixelsize" | "func__rgb" | "func__rgba" | "func__red" | "func__green" | "func__blue"
             | "func__alpha" | "func__rgb32" | "func__rgba32" | "func__red32" | "func__green32" | "func__blue32"
-            | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put"
+            | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put" | "sub_paletteusing"
             | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
@@ -1637,8 +1637,12 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
     if !known {
         return None;
     }
-    let ext = if name == "sub_graphics_get" || name == "sub_graphics_put" {
-        let ap = if name == "sub_graphics_get" { 5 } else { 3 };
+    let ext = if name == "sub_graphics_get" || name == "sub_graphics_put" || name == "sub_paletteusing" {
+        let ap = match name {
+            "sub_graphics_get" => 5,
+            "sub_graphics_put" => 3,
+            _ => 1,
+        };
         vm.array_extent(a[ap].p()).ok()
     } else {
         None
@@ -2010,6 +2014,39 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 let idx = if i(3) != 0 { d.resolve(i(2)) } else { Some(d.write_index) };
                 if let Some(x) = idx {
                     gerr(d, gfx::imgops::qb_gfx_palettecolor_set(im(x), i(0), u(1)));
+                }
+            }
+            "sub_paletteusing" => {
+                // (element address or the array itself, array, bits an element): one
+                // PALETTE a attribute of the screen mode; an element of -1 leaves its
+                // attribute as it is
+                let size = if i(2) == 16 { 2u64 } else { 4 };
+                let last: u64 = match (*wp).compatible_mode {
+                    13 | 256 => 255,
+                    1 | 10 => 3,
+                    2 | 11 => 1,
+                    _ => 15,
+                };
+                match ext {
+                    Some((base, total)) => {
+                        let elem = if a[0].p() == a[1].p() { base } else { a[0].p() };
+                        if elem < base || elem + (last + 1) * size > base + total {
+                            d.err(5); // the array does not hold a value for every attribute
+                        } else {
+                            for k in 0..=last {
+                                let at = (elem + k * size) as *const u8;
+                                let v = if size == 2 { i32::from(at.cast::<i16>().read_unaligned()) } else { at.cast::<i32>().read_unaligned() };
+                                if v != -1 {
+                                    let r = gfx::palette::qb_gfx_palette(wp, k as u32, v as u32, 1);
+                                    if r != 0 {
+                                        d.err(r);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => d.err(5),
                 }
             }
             "sub_graphics_get" | "sub_graphics_put" => {

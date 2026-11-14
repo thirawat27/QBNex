@@ -512,7 +512,7 @@ impl<'a> Lw<'a> {
     fn mvar(&self, d: &ir::VarDecl) -> Res<(MK, MVar)> {
         let (mk, size, fill, strs) = match &d.ty {
             StoreTy::Scalar(t) => (MK::Scalar, t.size(), 0, *t == IT::Str),
-            StoreTy::FStr(n) => (MK::FStr(*n), *n, b' ', false),
+            StoreTy::FStr(n) => (MK::FStr(*n), *n, 0, false),
             StoreTy::Udt(u) => (MK::Udt, self.ir.udt(u).ok_or_else(|| format!("unknown TYPE {u}"))?.size, 0, false),
         };
         let mk = if d.array { MK::Arr } else { mk };

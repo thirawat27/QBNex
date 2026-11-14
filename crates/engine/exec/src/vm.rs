@@ -1427,6 +1427,13 @@ impl<'m, 'o> Vm<'m, 'o> {
     fn free_owned(&mut self, from: usize) {
         while self.owned.len() > from {
             let p = self.owned.pop().unwrap();
+            // FIELD on a variable of this procedure: the link ends with the variable
+            // (a later GET stored the record into the freed slot)
+            if !self.rt.field_vars.is_empty()
+                && let Some((lo, hi)) = self.mem.var_range(p)
+            {
+                self.rt.field_vars.retain(|f| f.0 < lo || f.0 >= hi);
+            }
             self.mem.free_var(p);
         }
     }

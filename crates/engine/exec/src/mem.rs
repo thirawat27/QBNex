@@ -64,6 +64,14 @@ impl Mem {
         }
     }
 
+    /// (first address, end address) of a variable's storage, None for an array.
+    pub(crate) fn var_range(&self, id: u32) -> Option<(u64, u64)> {
+        match self.blocks.get(id as usize) {
+            Some(Block::Bytes { data, .. }) => Some((data.as_ptr() as u64, data.as_ptr() as u64 + data.len() as u64)),
+            _ => None,
+        }
+    }
+
     /// Frees a variable's block (id from `new_var`).
     pub(crate) fn free_var(&mut self, id: u32) {
         self.free(id);
