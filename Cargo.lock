@@ -3910,6 +3910,7 @@ dependencies = [
  "softbuffer",
  "windows-sys 0.61.2",
  "winit",
+ "xkbcommon-dl",
  "zlib-rs",
  "zune-jpeg",
 ]
@@ -3924,6 +3925,7 @@ dependencies = [
  "rfd",
  "windows",
  "windows-sys 0.61.2",
+ "xkbcommon-dl",
  "zip",
 ]
 

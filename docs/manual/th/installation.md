@@ -62,6 +62,11 @@ pkgconf-pkg-config` ส่วน Arch ใช้ `gcc alsa-lib systemd-libs libxk
 libx11 pkgconf` โดย `gcc` เป็นแค่ linker ของระบบที่ Rust ใช้บน Linux
 ไม่มีการคอมไพล์ source ภาษา C หรือ C++
 
+โปรแกรมที่เปิดหน้าต่างต้องมีไลบรารีคีย์บอร์ดของ X11 ตอนรันด้วย คือ
+`libxkbcommon-x11-0` บน Debian/Ubuntu และ `libxkbcommon-x11` บน Fedora กับ Arch
+(เครื่องที่มี desktop มักมีอยู่แล้ว) ถ้าไม่มี โปรแกรมจะรันโดยไม่มีหน้าต่าง
+และแจ้งว่าขาดไลบรารีตัวไหน
+
 ### macOS
 
 ```bash

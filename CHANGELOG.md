@@ -43,6 +43,7 @@ made after 1.0.4.
 - CI is one workflow (`ci.yml`: audit, build, clippy, tests, smoke, conformance, self-host fixpoint, native executables on Linux, macOS and Windows x64) plus `release.yml`, and `docs.yml` compiles the BASIC examples of the README and the manual; they run with read-only repository permissions.
 - `release.yml` signs `qb-fmt`, `qb-lsp` and `qb-dap` when signing secrets are set (Windows: `signtool` with a `.pfx`; macOS: `codesign` and `notarytool`) and skips with a notice otherwise; the secrets are listed in CONTRIBUTING.md. The macOS and Linux CI build no longer fails on the conformance harness, the smoke tests keep the system `TMPDIR` (macOS sets it), and each smoke script runs under the shell its first line names.
 - Release bundles include `qb-fmt`, `qb-lsp` and `qb-dap`, next to the one-file installers.
+- CI also runs the GPU tests on a software adapter (Mesa lavapipe on Linux, WARP on Windows), a compiled program in a real X11 window under Xvfb (`tests/smoke/window_smoke.sh`: the drawing on screen, a key press), and the one-file installer on Linux, macOS and Windows (install over a folder with the user's files, compile and run a program with it, install again, uninstall: `.github/scripts/installer_check.*`).
 - Developer documents are `docs/dev` (QIR format, deviation IDs, FFI, 3D API); the port journal and planning notes were removed.
 
 #### License
@@ -126,6 +127,11 @@ made after 1.0.4.
 - Windows: native executables are linked again when the native kit is present (cmd.exe took the quotes off the link command), `CHAIN`/`RUN` of a path with `(`, `)` or `&`, `COM10:` and higher, `KILL "D:name"`, `DECLARE DYNAMIC LIBRARY` of a DLL in the current folder, `qb fmt` with `&` in a quoted file name, uninstalling from inside the install folder; `CHAIN "..\next.bas"` and other paths with a `.` in a folder name find the program on every system; "Compile with QBNex" in the file manager writes the program next to the source
 - Images and 3D: `PRINT` that scrolls an image lower than one character row no longer writes past its pixels; a PNG with a palette that is not whole entries (which aborted the program) or with a tRNS chunk stb rejected returns -1; the 3D form of `_MAPTRIANGLE` (`TO (x, y, z)-...`) projects with perspective, uses the depth buffer and `_CLOCKWISE`/`_ANTICLOCKWISE` (it drew a 2D triangle at x, y), and `_DEPTHBUFFER ON|OFF|LOCK|_CLEAR` works; `_COPYIMAGE(img&, 33)` of a 32-bit image; `_MESHVERTEX` rejects NaN and infinity
 - Web build: output and input are UTF-8 (Thai text), and a byte outside UTF-8 is its code page 437 character
+- `CLOSE` without a file number, and `RUN`, `CHAIN` and `CLEAR`, close the TCP/IP handles too
+- `ON TIMER(n)` set when the program starts fires after n seconds, not 2n: the clock counts from the start of the program, and the first tick waited for one interval before it started counting (issue #7)
+- Windows: a window program (no `$CONSOLE`) built as the runner with the program appended (no native kit) is a GUI executable, as `qb-exec build` already made it, so Windows no longer opens an empty console next to its window (issue #7)
+- Linux: a program that opens a window, and the setup window, no longer abort when libxkbcommon-x11 (or libxkbcommon) is not installed; the program runs without a window and says which library is missing, setup asks its questions in the terminal
+- GPU feature: a program made one Vulkan instance per GPU user (window, 3D scene) and enumerated adapters each time; the Vulkan loader loads and unloads drivers while it does that, which crashed another thread that was using its device. The instance and adapter are now made once per process.
 
 ### Security
 

@@ -219,6 +219,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         }
         "CLOSEALL" => {
             fio::close_all();
+            vm.rt().net.close_all();
             vm.rt().reclen.clear();
             vm.rt().field_buf.clear();
             vm.rt().field_vars.clear();

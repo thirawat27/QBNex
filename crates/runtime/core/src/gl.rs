@@ -255,6 +255,9 @@ fn hidden_window() -> Result<Hidden, String> {
     if cfg!(target_os = "macos") {
         return Err("no hidden OpenGL window on macOS (its event loop must run on the main thread)".into());
     }
+    if let Some(lib) = crate::window::missing_window_library() {
+        return Err(format!("{lib} is not installed"));
+    }
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("qb-gl-window".into())

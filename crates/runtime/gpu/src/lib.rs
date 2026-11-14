@@ -50,6 +50,37 @@ fn instance() -> wgpu::Instance {
     wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() })
 }
 
+/// The process's one instance and adapter, made on first use.
+///
+/// Creating a Vulkan instance or enumerating adapters makes the Vulkan loader
+/// load and unload driver libraries; doing it while another thread uses a
+/// device crashed that thread inside the loader (seen with Mesa's lavapipe).
+/// So it happens once, and every [`Gpu`] gets its own device on the shared
+/// adapter. `QB_GPU_FALLBACK=1` (read then) picks the software adapter.
+fn shared() -> Option<(wgpu::Instance, wgpu::Adapter)> {
+    static SHARED: std::sync::OnceLock<Option<(wgpu::Instance, wgpu::Adapter)>> = std::sync::OnceLock::new();
+    SHARED
+        .get_or_init(|| {
+            let instance = instance();
+            let pick = |fallback: bool| {
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::default(),
+                    force_fallback_adapter: fallback,
+                    compatible_surface: None,
+                    apply_limit_buckets: false,
+                }))
+                .ok()
+            };
+            let adapter = if std::env::var("QB_GPU_FALLBACK").is_ok_and(|v| v == "1") {
+                pick(true)
+            } else {
+                pick(false).or_else(|| pick(true))
+            }?;
+            Some((instance, adapter))
+        })
+        .clone()
+}
+
 fn device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), GpuError> {
     let desc = wgpu::DeviceDescriptor {
         label: Some("qb-gpu"),
@@ -65,25 +96,11 @@ impl Gpu {
     /// software adapter; `None` when the system has no adapter at all.
     /// `QB_GPU=off` disables the GPU, `QB_GPU_FALLBACK=1` forces the software adapter.
     pub fn headless() -> Option<Gpu> {
-        let instance = instance();
-        let pick = |fallback: bool| {
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                force_fallback_adapter: fallback,
-                compatible_surface: None,
-                apply_limit_buckets: false,
-            }))
-            .ok()
-        };
-        // QB_GPU=off: behave as if there were no adapter; QB_GPU_FALLBACK=1: software adapter only.
+        // QB_GPU=off: behave as if there were no adapter.
         if std::env::var("QB_GPU").is_ok_and(|v| v == "off") {
             return None;
         }
-        let adapter = if std::env::var("QB_GPU_FALLBACK").is_ok_and(|v| v == "1") {
-            pick(true)?
-        } else {
-            pick(false).or_else(|| pick(true))?
-        };
+        let (instance, adapter) = shared()?;
         let (device, queue) = device(&adapter).ok()?;
         Some(Gpu { instance, adapter, device, queue })
     }
@@ -94,15 +111,20 @@ impl Gpu {
         if std::env::var("QB_GPU").is_ok_and(|v| v == "off") {
             return Err(GpuError("disabled by QB_GPU=off".into()));
         }
-        let instance = instance();
+        let (instance, shared_adapter) = shared().ok_or_else(|| GpuError("no adapter".into()))?;
         let surface = instance.create_surface(window.clone()).map_err(|e| GpuError(e.to_string()))?;
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-            apply_limit_buckets: false,
-        }))
-        .map_err(|e| GpuError(e.to_string()))?;
+        // the shared adapter when it can present here; asking for another one enumerates again
+        let adapter = if shared_adapter.is_surface_supported(&surface) {
+            shared_adapter
+        } else {
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+                apply_limit_buckets: false,
+            }))
+            .map_err(|e| GpuError(e.to_string()))?
+        };
         let (device, queue) = device(&adapter)?;
         let gpu = Gpu { instance, adapter, device, queue };
         let size = window.inner_size();
