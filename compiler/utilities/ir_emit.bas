@@ -2677,7 +2677,7 @@ SUB IrFinish (src$, outExe$)
         END IF
     END IF
     IF outPath$ = "" THEN
-        'no -o: next to the source with -x/exewithsource, else in the compiler's folder
+        'no -o: next to the source with --exe-with-source or the exewithsource setting, else in the compiler's folder
         IF SaveExeWithSource THEN
             outPath$ = path.source$
         ELSE

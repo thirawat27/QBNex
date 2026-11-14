@@ -67,19 +67,6 @@ arrayreference$ = r$
 
 END FUNCTION
 
-FUNCTION countelements (a$)
-    n = numelements(a$)
-    c = 1
-    FOR i = 1 TO n
-        e$ = getelement$(a$, i)
-        IF e$ = "(" THEN b = b + 1
-        IF e$ = ")" THEN b = b - 1
-        IF b < 0 THEN Give_Error "Unexpected ) encountered": EXIT FUNCTION
-        IF e$ = "," AND b = 0 THEN c = c + 1
-    NEXT
-    countelements = c
-END FUNCTION
-
 FUNCTION udtreference$ (o$, a$, typ AS LONG)
     'UDT REFERENCE FORMAT
     'idno|udtno|udtelementno|byteoffset

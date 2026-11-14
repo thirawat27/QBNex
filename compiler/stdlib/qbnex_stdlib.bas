@@ -849,12 +849,13 @@ FUNCTION Env_Has& (varName AS STRING)
 END FUNCTION
 
 FUNCTION Env_Platform$ ()
+    'macOS first: its _OS$ names LINUX too ("[MACOSX][64BIT][LINUX]")
     IF INSTR(_OS$, "WIN") THEN
         Env_Platform = "WINDOWS"
-    ELSEIF INSTR(_OS$, "LINUX") THEN
-        Env_Platform = "LINUX"
     ELSEIF INSTR(_OS$, "MAC") THEN
         Env_Platform = "MACOS"
+    ELSEIF INSTR(_OS$, "LINUX") THEN
+        Env_Platform = "LINUX"
     ELSE
         Env_Platform = "UNKNOWN"
     END IF

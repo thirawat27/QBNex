@@ -256,6 +256,8 @@ struct Frame {
     n_str: u32,
     arr_tys: Vec<Ty>,
     consts: HashMap<(u64, bool), R>,
+    /// the registers of `consts` (asked for at every store)
+    const_regs: std::collections::HashSet<R>,
     /// first numeric register that is not a variable (temporaries, QIR registers, constants)
     n_vars: u32,
     n_svars: u32,
@@ -276,6 +278,7 @@ impl Frame {
         }
         let r = self.new_n(bits);
         self.consts.insert((bits, float), r);
+        self.const_regs.insert(r);
         r
     }
 }
@@ -1328,14 +1331,28 @@ impl<'a> Lw<'a> {
                     // A BYREF argument is copied back after the callee ran, and the callee
                     // may have changed the subscript variable (SHARED): the place then
                     // needs its own copy of the subscript.
-                    let to_call = body[ii + 1..]
-                        .iter()
-                        .take_while(|i| regs(i).0 != Some(*dst))
-                        .any(|i| matches!(i, Inst::Call { args, .. } if args.contains(dst)));
+                    // A register defined once has all its reads behind it after `uses`
+                    // of them: the scans below stop there. Scanning to the next definition
+                    // (the end of the function, for such a register) made the loader
+                    // quadratic in the number of array accesses of a function.
+                    let reads = if defs[*dst as usize] == 1 { uses[*dst as usize] } else { u32::MAX };
+                    let mut to_call = false;
+                    let mut seen = 0;
+                    for i in &body[ii + 1..] {
+                        let (d, us) = regs(i);
+                        if seen >= reads || d == Some(*dst) {
+                            break;
+                        }
+                        seen += us.count(*dst);
+                        if matches!(i, Inst::Call { args, .. } if args.contains(dst)) {
+                            to_call = true;
+                            break;
+                        }
+                    }
                     let direct = match idx.as_slice() {
                         [x] if !to_call => {
                             let x = *x;
-                            let cnt = uses_before_redef(body, ii, *dst);
+                            let cnt = if reads == u32::MAX { uses_before_redef(body, ii, *dst) } else { reads };
                             let var = alias_var[x as usize];
                             stable_until_uses(body, ii, *dst, cnt, &|i: &Inst| {
                                 regs(i).0 == Some(x) || matches!((i, var), (Inst::Store { var: v, .. }, Some(w)) if v == w)
@@ -1358,7 +1375,8 @@ impl<'a> Lw<'a> {
                     };
                     reg!(*dst);
                     ptrs[*dst as usize] = Some(Ptr::Elem { a, i: base, n, ety });
-                    if !used_before_redef(body, ii, *dst) {
+                    let read = if reads == u32::MAX { used_before_redef(body, ii, *dst) } else { reads > 0 };
+                    if !read {
                         // address never used: still check the subscripts (error 9)
                         if ety == IT::Str {
                             let t = self.frames[k].new_s();
@@ -1731,7 +1749,7 @@ impl<'a> Lw<'a> {
     }
 
     fn is_const(&self, k: usize, r: R) -> bool {
-        self.frames[k].consts.values().any(|&c| c == r)
+        self.frames[k].const_regs.contains(&r)
     }
 
     fn last_writes(&self, str_bank: bool, r: R) -> bool {

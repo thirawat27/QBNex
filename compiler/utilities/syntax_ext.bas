@@ -995,7 +995,13 @@ FUNCTION SyntaxExt_OptDefaults$ (entry$, given AS LONG)
 END FUNCTION
 
 FUNCTION SyntaxExt_OptCalls$ (codeText$)
-    'append missing defaults to calls of procedures with OPTIONAL parameters
+    SyntaxExt_OptCalls$ = SyntaxExt_OptCallsIn$(codeText$, 0)
+END FUNCTION
+
+FUNCTION SyntaxExt_OptCallsIn$ (codeText$, asExpression AS LONG)
+    'append missing defaults to calls of procedures with OPTIONAL parameters; codeText$ is a
+    'line of statements, or (asExpression) the arguments of a call, where a name is never
+    'a statement
     DIM i AS LONG
     DIM j AS LONG
     DIM k AS LONG
@@ -1011,7 +1017,7 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
     DIM e AS LONG
     REDIM parts(1 TO 16) AS STRING
 
-    stmtStart = -1
+    IF asExpression THEN stmtStart = 0 ELSE stmtStart = -1
     i = 1
     DO WHILE i <= LEN(codeText$)
         c = MID$(codeText$, i, 1)
@@ -1023,7 +1029,7 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
             stmtStart = 0
             GOTO optnext
         END IF
-        IF c = ":" THEN result = result + c: i = i + 1: stmtStart = -1: GOTO optnext
+        IF c = ":" AND asExpression = 0 THEN result = result + c: i = i + 1: stmtStart = -1: GOTO optnext
         IF c = " " OR c = CHR$(9) THEN result = result + c: i = i + 1: GOTO optnext
         IF ClassSyntax_IsIdentifierChar%(c) = 0 OR (c >= "0" AND c <= "9") THEN result = result + c: i = i + 1: stmtStart = 0: GOTO optnext
         'identifier (with dots) and type suffix
@@ -1040,7 +1046,7 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
         word = MID$(codeText$, i, j - i)
         result = result + word
         i = j
-        IF UCASE$(word) = "THEN" OR UCASE$(word) = "ELSE" THEN stmtStart = -1: GOTO optnext
+        IF asExpression = 0 AND (UCASE$(word) = "THEN" OR UCASE$(word) = "ELSE") THEN stmtStart = -1: GOTO optnext
         IF UCASE$(word) = "CALL" THEN GOTO optnext
         k = INSTR(syntaxExtOptional$, CHR$(10) + SyntaxExt_OptKey$(word) + CHR$(9))
         IF k = 0 THEN stmtStart = 0: GOTO optnext
@@ -1053,20 +1059,31 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
         c = MID$(codeText$, j, 1)
         IF c = "(" THEN
             depth = 0
-            FOR e = j TO LEN(codeText$)
-                IF MID$(codeText$, e, 1) = "(" THEN depth = depth + 1
-                IF MID$(codeText$, e, 1) = ")" THEN
+            e = j
+            DO WHILE e <= LEN(codeText$)
+                c = MID$(codeText$, e, 1)
+                IF c = CHR$(34) THEN
+                    'a bracket in a string literal is text
+                    k = INSTR(e + 1, codeText$, CHR$(34))
+                    IF k = 0 THEN e = LEN(codeText$) + 1: EXIT DO
+                    e = k
+                ELSEIF c = "(" THEN
+                    depth = depth + 1
+                ELSEIF c = ")" THEN
                     depth = depth - 1
-                    IF depth = 0 THEN EXIT FOR
+                    IF depth = 0 THEN EXIT DO
                 END IF
-            NEXT
+                e = e + 1
+            LOOP
             inner = MID$(codeText$, j + 1, e - j - 1)
             given = 0
             IF LEN(LTRIM$(inner)) THEN given = SyntaxExt_SplitTop&(inner, ",", parts())
             defs = SyntaxExt_OptDefaults$(entry, given)
             IF LEN(defs) THEN
                 IF given THEN defs = ", " + defs
-                result = result + MID$(codeText$, i, e - i) + defs
+                'the arguments can be calls that need their defaults too: h(h(1)) was
+                'h(h(1), 5), the inner call copied as it was
+                result = result + MID$(codeText$, i, j - i + 1) + SyntaxExt_OptCallsIn$(inner, -1) + defs
                 i = e
             END IF
             stmtStart = 0
@@ -1100,7 +1117,7 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
             defs = SyntaxExt_OptDefaults$(entry, given)
             IF LEN(defs) THEN
                 IF given THEN defs = ", " + defs ELSE defs = " " + defs
-                result = result + MID$(codeText$, i, j - i) + inner + defs
+                result = result + MID$(codeText$, i, j - i) + SyntaxExt_OptCallsIn$(inner, -1) + defs
                 i = j + LEN(inner)
             END IF
             stmtStart = 0
@@ -1112,7 +1129,7 @@ FUNCTION SyntaxExt_OptCalls$ (codeText$)
         stmtStart = 0
         optnext:
     LOOP
-    SyntaxExt_OptCalls$ = result
+    SyntaxExt_OptCallsIn$ = result
 END FUNCTION
 
 FUNCTION SyntaxExt_Optional$ (rawLine$)

@@ -11,29 +11,3 @@ SUB RegisterResolveStaticFunction (libFile AS STRING, aliasName AS STRING, metho
     ResolveStaticFunction_Name(ResolveStaticFunctions) = aliasName
     ResolveStaticFunction_Method(ResolveStaticFunctions) = method
 END SUB
-
-FUNCTION ReadCachedFirstLine$ (path AS STRING)
-    CONST READ_CACHE_SLOTS = 16
-    STATIC cachePath(1 TO READ_CACHE_SLOTS) AS STRING
-    STATIC cacheValue(1 TO READ_CACHE_SLOTS) AS STRING
-    STATIC nextSlot AS LONG
-
-    FOR i = 1 TO READ_CACHE_SLOTS
-        IF cachePath(i) = path THEN
-            ReadCachedFirstLine$ = cacheValue(i)
-            EXIT FUNCTION
-        END IF
-    NEXT
-
-    fh = FREEFILE
-    OPEN path FOR BINARY AS #fh
-    LINE INPUT #fh, cachedLine$
-    CLOSE #fh
-
-    nextSlot = nextSlot + 1
-    IF nextSlot > READ_CACHE_SLOTS THEN nextSlot = 1
-
-    cachePath(nextSlot) = path
-    cacheValue(nextSlot) = cachedLine$
-    ReadCachedFirstLine$ = cachedLine$
-END FUNCTION

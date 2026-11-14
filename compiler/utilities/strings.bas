@@ -4,20 +4,6 @@
 ' utilized outside of QBNex. Meaning, anyone could add this to their
 ' personal project and leverage the same functionality.
 
-' Removes a string pattern from an existing string (case-insensitive).
-FUNCTION StrRemove$ (myString$, whatToRemove$)
-    DIM a$, b$
-    DIM AS LONG i
-    a$ = myString$
-    b$ = LCASE$(whatToRemove$)
-    i = INSTR(LCASE$(a$), b$)
-    DO WHILE i
-        a$ = LEFT$(a$, i - 1) + RIGHT$(a$, LEN(a$) - i - LEN(b$) + 1)
-        i = INSTR(LCASE$(a$), b$)
-    LOOP
-    StrRemove$ = a$
-END FUNCTION
-
 ' Replaces a string pattern within an existing string (case-insensitive).
 FUNCTION StrReplace$ (myString$, find$, replaceWith$)
     DIM a$, b$

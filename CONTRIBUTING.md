@@ -328,7 +328,9 @@ pwsh tests/docs/check_docs.ps1
 ```
 
 Set `QBNEX_NO_ERROR_DIALOG=1` when you run compiled programs from scripts, so a runtime error
-ends the program instead of waiting at a dialog.
+ends the program instead of waiting at a dialog. The conformance runner also sets
+`QBNEX_TEST_HOOKS=1`, which turns on the runtime's test hooks (the local HTTP server of
+`qb-ext` that `stdlib/ext_zip_http` uses); a case run by hand needs it too.
 
 **Conformance cases.** A behaviour change gets a case in `tests/conformance/cases/<area>/`:
 

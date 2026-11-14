@@ -41,6 +41,8 @@ SUB ShowCommandLineHelp
     HelpRow "<file>", "Source file to load"
     HelpRow "-c", "Compile the source file (default)"
     HelpRow "-o <output file>", "Write output executable to <output file>"
+    HelpRow "--exe-with-source", "Without -o: write the executable next to the"
+    HelpRow "", "   source file (this build only)"
     HelpRow "-x", "Compile and output the result to the"
     HelpRow "", "   console"
     HelpRow "-w", "Show warnings"
@@ -182,6 +184,7 @@ FUNCTION NormalizeCommandToken$ (token$)
     IF normalized = "-werror" OR normalized = "--warnings-as-errors" THEN normalized = "-r"
     IF normalized = "--ir" THEN normalized = "-ir"
     IF normalized = "--emit-ir" THEN normalized = "-irtext"
+    IF normalized = "--exe-with-source" THEN normalized = "-exewithsource"
 
     NormalizeCommandToken$ = normalized
 END FUNCTION
@@ -206,8 +209,14 @@ FUNCTION ParseCMDLineArgs$ ()
         sw$ = LCASE$(LEFT$(token$, 2))
         IF LEN(token$) > 2 AND LEFT$(token$, 1) = "-" THEN
             IF token$ <> "-ir" AND token$ <> "-irtext" AND sw$ <> "-s" THEN sw$ = ""
+            IF token$ = "-exewithsource" THEN sw$ = token$
         END IF
         SELECT CASE sw$
+        CASE "-exewithsource"
+            'this build only (-s:exewithsource=true is the setting): the executable is
+            'written next to the source file, not into the compiler's folder
+            SaveExeWithSource = -1
+            cmdlineswitch = -1
         CASE "-?"
             ShowCommandLineHelp
             SYSTEM

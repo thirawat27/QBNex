@@ -157,7 +157,7 @@ if not "%EC_QUIET%"=="0" (
     echo [FAIL] Quiet compile should exit successfully.
     set "FAIL=1"
 )
-findstr /L /C:"Compiling program..." "%OUT_QUIET%" >nul && (
+findstr /L /C:"Preparing build files" /C:"Build complete" "%OUT_QUIET%" >nul && (
     echo [FAIL] Quiet compile should suppress progress banner.
     set "FAIL=1"
 )
@@ -183,8 +183,8 @@ if not "%EC_ZMODE%"=="0" (
     echo [FAIL] -z should exit successfully.
     set "FAIL=1"
 )
-findstr /L /C:"Compiling program..." "%OUT_ZMODE%" >nul && (
-    echo [FAIL] -z should not invoke native executable build output.
+findstr /L /C:"Build complete" "%OUT_ZMODE%" >nul || (
+    echo [FAIL] -z changes nothing: the program should still be built.
     set "FAIL=1"
 )
 

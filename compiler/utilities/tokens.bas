@@ -293,13 +293,3 @@ FUNCTION removecast$ (a$)
         removecast$ = RIGHT$(a$, LEN(a$) - INSTR(a$, "  )") - 2)
     END IF
 END FUNCTION
-
-FUNCTION converttabs$ (a2$)
-    s = 4
-    a$ = a2$
-    DO WHILE INSTR(a$, CHR_TAB)
-        x = INSTR(a$, CHR_TAB)
-        a$ = LEFT$(a$, x - 1) + SPACE$(s - ((x - 1) MOD s)) + RIGHT$(a$, LEN(a$) - x)
-    LOOP
-    converttabs$ = a$
-END FUNCTION

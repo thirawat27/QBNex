@@ -655,5 +655,18 @@ pub static TABLE: &[Builtin] = &[
 ];
 
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
-    TABLE.iter().find(|b| b.name == name)
+    // by name through a map built once: the validator and the lowering ask for every
+    // `rt` instruction of a program, and the table has some 600 entries
+    static BY_NAME: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static Builtin>> = std::sync::OnceLock::new();
+    BY_NAME
+        .get_or_init(|| {
+            let mut m = std::collections::HashMap::with_capacity(TABLE.len());
+            for b in TABLE {
+                // the first entry of a name is the one a linear search found
+                m.entry(b.name).or_insert(b);
+            }
+            m
+        })
+        .get(name)
+        .copied()
 }

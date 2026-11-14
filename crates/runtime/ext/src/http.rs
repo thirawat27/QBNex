@@ -399,7 +399,57 @@ mod tests {
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod redirect_tests {
-    use super::join_url;
+    use super::{is_credential_header, join_url, origin_of, request_with_roots};
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    /// Answers one request with `response` and returns the request's head.
+    fn one_shot(response: String) -> (u16, std::thread::JoinHandle<String>) {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let t = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let mut head = String::new();
+            loop {
+                let mut line = String::new();
+                if r.read_line(&mut line).unwrap_or(0) == 0 || line.trim_end().is_empty() {
+                    break;
+                }
+                head.push_str(&line);
+            }
+            s.write_all(response.as_bytes()).unwrap();
+            head
+        });
+        (port, t)
+    }
+
+    #[test]
+    fn credentials_and_body_stay_with_the_server_they_were_sent_to() {
+        let (other, seen_by_other) = one_shot("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".into());
+        // another port is another origin
+        let (first, _) = one_shot(format!(
+            "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:{other}/t\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        ));
+        let headers = "Authorization: Bearer SECRET\nCookie: id=1\nX-Test: kept";
+        let r = request_with_roots("POST", &format!("http://127.0.0.1:{first}/a"), headers, b"private body", 5000, None).unwrap();
+        assert_eq!(r.status, 200);
+        let head = seen_by_other.join().unwrap().to_ascii_lowercase();
+        assert!(head.starts_with("get /t "), "{head}");
+        assert!(!head.contains("authorization") && !head.contains("cookie") && !head.contains("secret"), "{head}");
+        assert!(head.contains("x-test: kept"), "{head}");
+        assert!(!head.contains("content-length: 12"), "{head}");
+    }
+
+    #[test]
+    fn origins_and_credential_headers() {
+        assert_eq!(origin_of("HTTPS://Example.com:8443/a?b"), "https://example.com:8443");
+        assert_eq!(origin_of("http://user:pw@h/x"), "http://h");
+        assert_ne!(origin_of("http://h/x"), origin_of("https://h/x"));
+        assert_ne!(origin_of("http://h/x"), origin_of("http://h:81/x"));
+        assert!(is_credential_header("authorization") && is_credential_header("COOKIE") && is_credential_header("Proxy-Authorization"));
+        assert!(!is_credential_header("Accept"));
+    }
 
     #[test]
     fn redirect_locations_become_absolute() {
@@ -408,5 +458,9 @@ mod redirect_tests {
         assert_eq!(join_url("http://h", "c"), "http://h/c");
         assert_eq!(join_url("https://h/a", "//o/p"), "https://o/p");
         assert_eq!(join_url("http://h/a", "https://o/p"), "https://o/p");
+        // only a query or a fragment: the same path
+        assert_eq!(join_url("http://h/a/b?x=1", "?page=2"), "http://h/a/b?page=2");
+        assert_eq!(join_url("http://h/a/b?x=1#top", "#end"), "http://h/a/b?x=1#end");
+        assert_eq!(join_url("http://h", "?q"), "http://h?q");
     }
 }

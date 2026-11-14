@@ -35,8 +35,3 @@ FUNCTION RemoveFileExtension$ (f$)
     NEXT
     RemoveFileExtension$ = f$
 END FUNCTION
-
-''' Fixes the provided filename and path to use the correct path separator.
-SUB PATH_SLASH_CORRECT (a$)
-    a$ = Path_Normalize$(a$)
-END SUB

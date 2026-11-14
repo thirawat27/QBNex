@@ -76,6 +76,12 @@ compiler:
     `"name:version"`) next to the path, in `/usr/lib64` and `/usr/lib`;
   - macOS: `libname.dylib` the same way.
 
+  A name without a path is tried in the program's current directory
+  first (QB64's order), before `System32` and the system folders. A
+  program that may be started from a folder other people can write to
+  (a download or shared folder) should name its library with a path, or
+  a file of that name placed there is loaded instead of the system's.
+
   On Windows the compiler stops with `LIBRARY not found` when no such
   `.dll` exists; on Linux and macOS a missing library shows up as
   error 453 at the first call.

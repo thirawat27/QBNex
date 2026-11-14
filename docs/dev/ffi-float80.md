@@ -86,7 +86,8 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
   ntdll, or libc/libm/libdl/libpthread, libSystem on macOS; on Windows
   `getpid` also finds `_getpid`). The compiler's own `getpid` works.
 - `DECLARE DYNAMIC LIBRARY "spec"` and `DECLARE LIBRARY "spec"` without a
-  header: `Library::open_dynamic(spec, Some(source_dir))` once per library, then
+  header: `Library::open_dynamic(spec, None)` once per library (the compiler has
+  already made a `./` spec relative to the source folder), then
   `lib.symbol(name)`. `library_candidates` lists the files tried (legacy order:
   `path\name.dll`, `System32\path\name.dll`, `name.dll`, `System32\name.dll`;
   `lib<name>.so.<ver>`, `lib<name>.so` in the path, `/usr/lib64`, `/usr/lib`,

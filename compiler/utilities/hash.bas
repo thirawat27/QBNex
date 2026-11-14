@@ -150,60 +150,6 @@ FUNCTION HashFindCont (resultflags, resultreference)
     END IF
 END FUNCTION
 
-SUB HashDump
-    fh = FREEFILE
-    OPEN "hashdump.txt" FOR OUTPUT AS #fh
-    b$ = "12345678901234567890123456789012}"
-
-    FOR x = 0 TO HASH_TABLE_MASK
-        IF HashTable(x) THEN
-            PRINT #fh, "START HashTable("; x; "):"
-            i = HashTable(x)
-
-            lasti = HashList(i).LastItem
-            IF HashList(i).LastItem = 0 OR HashList(i).PrevItem <> 0 OR (HashValue(HashListName(i)) AND HASH_TABLE_MASK) <> x THEN GOTO corrupt
-
-            PRINT #fh, "  HashList("; i; ").LastItem="; HashList(i).LastItem
-            hashdumpnextitem:
-            x$ = "  [" + STR$(i) + "]" + HashListName(i)
-
-            f = HashList(i).Flags
-            x$ = x$ + ",.Flags=" + STR$(f) + "{"
-            FOR z = 1 TO 32
-                ASC(b$, z) = (f AND 1) + 48
-                f = f \ 2
-            NEXT
-            x$ = x$ + b$
-            x$ = x$ + ",.Reference=" + STR$(HashList(i).Reference)
-
-            PRINT #fh, x$
-
-            i1 = HashList(i).PrevItem
-            i2 = HashList(i).NextItem
-            IF i1 THEN
-                IF HashList(i1).NextItem <> i THEN GOTO corrupt
-            END IF
-            IF i2 THEN
-                IF HashList(i2).PrevItem <> i THEN GOTO corrupt
-            END IF
-            IF i2 = 0 THEN
-                IF lasti <> i THEN GOTO corrupt
-            END IF
-
-            i = HashList(i).NextItem
-            IF i THEN GOTO hashdumpnextitem
-
-            PRINT #fh, "END HashTable("; x; ")"
-        END IF
-    NEXT
-    CLOSE #fh
-    EXIT SUB
-
-    corrupt:
-    PRINT #fh, "HASH TABLE CORRUPT!"
-    CLOSE #fh
-END SUB
-
 SUB HashClear
     DIM usedItems AS LONG
     DIM clearLimit AS LONG

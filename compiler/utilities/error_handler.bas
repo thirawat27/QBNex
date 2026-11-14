@@ -30,11 +30,6 @@ SUB InitErrorHandler
     Stats.hasErrors = 0
 END SUB
 
-SUB SetErrorOutputFile (fileNum AS INTEGER)
-    ErrorOutputFile = fileNum
-    ErrorOutputFileEnabled = -1
-END SUB
-
 SUB SetVerboseMode (enabled AS _BYTE)
     VerboseMode = enabled
 END SUB
@@ -156,26 +151,6 @@ FUNCTION NormalizeSourceContext$ (text AS STRING)
     NEXT
 
     NormalizeSourceContext$ = RTRIM$(result)
-END FUNCTION
-
-FUNCTION MergeDiagnosticNote$ (existingText AS STRING, newText AS STRING)
-    DIM normalizedExisting AS STRING
-    DIM normalizedNew AS STRING
-
-    normalizedExisting = NormalizeDiagnosticMessage$(existingText)
-    normalizedNew = NormalizeDiagnosticMessage$(newText)
-
-    IF normalizedNew = "" THEN
-        MergeDiagnosticNote$ = normalizedExisting
-    ELSEIF normalizedExisting = "" THEN
-        MergeDiagnosticNote$ = normalizedNew
-    ELSEIF UCASE$(normalizedExisting) = UCASE$(normalizedNew) THEN
-        MergeDiagnosticNote$ = normalizedExisting
-    ELSEIF INSTR(UCASE$(normalizedExisting), UCASE$(normalizedNew)) > 0 THEN
-        MergeDiagnosticNote$ = normalizedExisting
-    ELSE
-        MergeDiagnosticNote$ = normalizedExisting + " | " + normalizedNew
-    END IF
 END FUNCTION
 
 FUNCTION GetErrorContextTrace$ ()
@@ -660,33 +635,12 @@ FUNCTION GetPointerHint$ (errCode AS INTEGER, context AS STRING)
     END SELECT
 END FUNCTION
 
-FUNCTION GetLocationLabel$ (fileName AS STRING, lineNum AS LONG, colNum AS INTEGER)
-    DIM location AS STRING
-
-    location = RTRIM$(fileName)
-
-    IF lineNum > 0 THEN
-        location = location + ":" + LTRIM$(STR$(lineNum))
-        IF colNum > 0 THEN location = location + ":" + LTRIM$(STR$(colNum))
-    END IF
-
-    GetLocationLabel$ = location
-END FUNCTION
-
 '-------------------------------------------------------------------------------
 ' ERROR REPORTING
 '-------------------------------------------------------------------------------
 
-SUB ReportError (errCode AS INTEGER, message AS STRING, lineNum AS LONG, context AS STRING)
-    ReportErrorWithSeverity errCode, GetDefaultSeverity%(errCode), message, lineNum, context
-END SUB
-
 SUB ReportDetailedError (errCode AS INTEGER, message AS STRING, lineNum AS LONG, context AS STRING, secondaryContext AS STRING, locationNote AS STRING)
     ReportDetailedErrorWithSeverity errCode, GetDefaultSeverity%(errCode), message, lineNum, context, secondaryContext, locationNote
-END SUB
-
-SUB ReportErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, message AS STRING, lineNum AS LONG, context AS STRING)
-    ReportDetailedErrorWithSeverity errCode, severity, message, lineNum, context, "", ""
 END SUB
 
 SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, message AS STRING, lineNum AS LONG, context AS STRING, secondaryContext AS STRING, locationNote AS STRING)
@@ -800,14 +754,6 @@ SUB ReportDetailedErrorWithSeverity (errCode AS INTEGER, severity AS INTEGER, me
         Stats.fatalCount = Stats.fatalCount + 1
         Stats.hasErrors = -1
     END SELECT
-END SUB
-
-SUB ReportWarning (warnCode AS INTEGER, message AS STRING, lineNum AS LONG, context AS STRING)
-    ReportErrorWithSeverity warnCode, ERR_WARNING, message, lineNum, context
-END SUB
-
-SUB ReportInfo (infoCode AS INTEGER, message AS STRING, lineNum AS LONG)
-    ReportErrorWithSeverity infoCode, ERR_INFO, message, lineNum, ""
 END SUB
 
 '-------------------------------------------------------------------------------
@@ -1221,16 +1167,6 @@ FUNCTION FindErrorColumn% (errCode AS INTEGER, message AS STRING, context AS STR
     FindErrorColumn% = 0
 END FUNCTION
 
-FUNCTION GetSeverityString$ (severity AS INTEGER)
-    SELECT CASE severity
-    CASE ERR_INFO: GetSeverityString$ = "INFO"
-    CASE ERR_WARNING: GetSeverityString$ = "WARNING"
-    CASE ERR_ERROR: GetSeverityString$ = "ERROR"
-    CASE ERR_FATAL: GetSeverityString$ = "FATAL"
-    CASE ELSE: GetSeverityString$ = "UNKNOWN"
-    END SELECT
-END FUNCTION
-
 FUNCTION PadLeftZero$ (value AS LONG, WIDTH AS INTEGER)
     DIM s AS STRING
 
@@ -1245,17 +1181,6 @@ END FUNCTION
 FUNCTION GetRenderedSeverity% (severity AS INTEGER)
     GetRenderedSeverity% = severity
     IF severity = ERR_WARNING AND WarningsAsErrors THEN GetRenderedSeverity% = ERR_ERROR
-END FUNCTION
-
-FUNCTION GetDiagnosticKind$ (severity AS INTEGER)
-    SELECT CASE GetRenderedSeverity%(severity)
-    CASE ERR_WARNING
-        GetDiagnosticKind$ = "warning"
-    CASE ERR_INFO
-        GetDiagnosticKind$ = "info"
-    CASE ELSE
-        GetDiagnosticKind$ = "error"
-    END SELECT
 END FUNCTION
 
 FUNCTION GetDiagnosticCodeTag$ (severity AS INTEGER, errCode AS INTEGER)
@@ -1537,47 +1462,12 @@ END SUB
 ' ERROR RECOVERY
 '-------------------------------------------------------------------------------
 
-FUNCTION CanRecover% (errCode AS INTEGER)
-    SELECT CASE errCode
-    CASE ERR_NO_SOURCE_FILE, ERR_FILE_NOT_FOUND, ERR_OUT_OF_MEMORY
-        CanRecover% = 0
-    CASE ERR_FATAL
-        CanRecover% = 0
-    CASE ELSE
-        CanRecover% = -1
-    END SELECT
-END FUNCTION
-
-SUB MarkRecovered (errIdx AS LONG)
-    IF errIdx >= 1 AND errIdx <= ErrorCount THEN Errors(errIdx).recovered = -1
-END SUB
-
-FUNCTION ShouldAbort%
-    ShouldAbort% = (Stats.fatalCount > 0) OR (GetBlockingIssueCount& >= Stats.maxErrors)
-END FUNCTION
-
 '-------------------------------------------------------------------------------
 ' QUERY FUNCTIONS
 '-------------------------------------------------------------------------------
 
 FUNCTION HasErrors%
     HasErrors% = Stats.hasErrors
-END FUNCTION
-
-FUNCTION GetErrorCount%
-    GetErrorCount% = ErrorCount
-END FUNCTION
-
-FUNCTION GetWarningCount%
-    GetWarningCount% = Stats.warningCount
-END FUNCTION
-
-FUNCTION GetFatalCount%
-    GetFatalCount% = Stats.fatalCount
-END FUNCTION
-
-FUNCTION GetSuppressedDuplicateCount%
-    GetSuppressedDuplicateCount% = Stats.suppressedDuplicateCount
 END FUNCTION
 
 '-------------------------------------------------------------------------------

@@ -64,7 +64,7 @@ static $C& i32                ; static: คงค่าข้ามการเ�
 endfunc
 ```
 
-- ตัวแปรทุกตัวเริ่มที่ 0 / string ว่าง / fstr เป็น space ทั้งหมด / UDT เป็น 0 (field fstr เป็น 0 byte เหมือน QB64)
+- ตัวแปรทุกตัวเริ่มที่ 0 / string ว่าง / fstr เป็น 0 byte ทั้งหมด (เหมือน QBasic) / UDT เป็น 0 (field fstr เป็น 0 byte เหมือน QB64)
 - ชื่อ variable ขึ้นต้น `$` และไม่มี space; ชื่อ label/func/type เป็น token ที่ไม่ขึ้นต้นด้วย `%`/`$`
 - การค้นชื่อ variable ใน function: param/local/static ก่อน แล้วจึง global
 - ตัวแปรใน main module เป็น `global` ทั้งหมด (compiler ห้าม SUB เห็นตัวที่ไม่ SHARED เอง) → handler ของ ON ERROR ที่รันขณะอยู่ใน SUB ใช้ตัวแปรของ main ได้ตรงๆ

@@ -305,6 +305,7 @@ Exit code 0 means the program compiled.
 | `-c` | - | Compile the source file (default) | `qb file.bas -c` |
 | `-o <file>` | - | Output file; a name ending in `.qir` writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
 | `--emit-ir` | - | Write the QIR text instead of an executable | `qb file.bas --emit-ir -o file.qir` |
+| `--exe-with-source` | - | Without `-o`: write the executable next to the source file (this build only) | `qb file.bas --exe-with-source` |
 | `-x` | - | Send the compiler's output to the console (it does not run the program) | `qb file.bas -x` |
 | `-w` | - | Show warnings | `qb file.bas -w` |
 | `-Werror` | `--warnings-as-errors` | Treat warnings as blocking diagnostics | `qb file.bas --warnings-as-errors` |
