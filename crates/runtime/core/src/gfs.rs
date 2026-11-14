@@ -999,7 +999,9 @@ mod os {
     /// `OPEN_EXISTING`: a missing file is created, an existing one is never
     /// truncated except by `how` 2. Writes go to the current position (no
     /// O_APPEND: APPEND mode seeks to LOF itself, PUT/SEEK need real positions).
-    fn try_open(name: &str, access: i32, how: i32) -> Option<File> {
+    /// The file, or whether the open was refused for lack of permission (as opposed
+    /// to a missing file or path).
+    fn try_open(name: &str, access: i32, how: i32) -> Result<File, bool> {
         let mut o = OpenOptions::new();
         match access {
             1 => o.read(true),
@@ -1008,38 +1010,45 @@ mod os {
         };
         let writes = access & 2 != 0;
         o.create(how != 0 && writes).truncate(how == 2 && writes);
+        let denied = |e: std::io::Error| e.kind() == std::io::ErrorKind::PermissionDenied;
         match o.open(name) {
-            Ok(f) => Some(f),
+            Ok(f) => Ok(f),
             Err(e) if how != 0 && !writes && e.kind() == std::io::ErrorKind::NotFound => {
                 // read-only OPEN_ALWAYS: create the missing file, leave an existing one alone
                 let _ = OpenOptions::new().write(true).create_new(true).open(name);
-                OpenOptions::new().read(true).open(name).ok()
+                OpenOptions::new().read(true).open(name).map_err(denied)
             }
-            Err(_) => None,
+            Err(e) => Err(denied(e)),
         }
     }
 
     pub fn open(s: &mut Slot, namez: &[u8], access: i32, _restrictions: i32, how: i32) -> i32 {
         let name = String::from_utf8_lossy(&namez[..namez.len() - 1]).into_owned();
         let mut h = try_open(&name, access, how);
-        if how == 3 && h.is_none() {
+        let mut denied = matches!(h, Err(true));
+        if how == 3 && h.is_err() {
             // like GFS_WINDOWS: read+write, then read-only, then write-only
             s.file.read = 1;
             s.file.write = 0;
             h = try_open(&name, 1, how);
-            if h.is_none() {
+            denied |= matches!(h, Err(true));
+            if h.is_err() {
                 s.file.read = 0;
                 s.file.write = 1;
                 h = try_open(&name, 2, how);
+                denied |= matches!(h, Err(true));
             }
         }
         match h {
-            Some(f) => {
+            Ok(f) => {
                 s.os = Handle(Some(f));
                 0
             }
-            None if how != 0 => -11,
-            None => -5,
+            // the file is there (or its folder is) but may not be opened this way:
+            // "Permission denied", not "File not found" / "Bad file name"
+            Err(_) if denied => -7,
+            Err(_) if how != 0 => -11,
+            Err(_) => -5,
         }
     }
 

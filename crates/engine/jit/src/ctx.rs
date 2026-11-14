@@ -61,10 +61,22 @@ impl ArrDesc {
         assert!(!bounds.is_empty() && bounds.len() <= MAX_DIMS);
         let mut dims = [Dim::default(); MAX_DIMS];
         let mut stride = 1i64;
+        let mut fits = true;
         for (d, &(lb, ub)) in bounds.iter().enumerate() {
-            let count = (ub - lb + 1).max(0);
+            let count = ub.checked_sub(lb).and_then(|n| n.checked_add(1)).unwrap_or(i64::MAX).max(0);
             dims[d] = Dim { lbound: lb, count, stride };
-            stride *= count;
+            match stride.checked_mul(count) {
+                Some(s) => stride = s,
+                None => fits = false,
+            }
+        }
+        // A size that does not fit (wrapped, it gave a small buffer under dimensions
+        // that accept every subscript): an array without elements instead.
+        if !fits || usize::try_from(stride).ok().and_then(|n| n.checked_mul(elem as usize)).is_none_or(|n| n > isize::MAX as usize) {
+            stride = 0;
+            for d in dims.iter_mut().take(bounds.len()) {
+                d.count = 0;
+            }
         }
         let bytes = (stride as usize) * elem as usize;
         let data = Box::into_raw(vec![0u8; bytes.max(1)].into_boxed_slice()) as *mut u8;

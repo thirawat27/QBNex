@@ -1,0 +1,51 @@
+QIR 1
+meta console only
+global $__STRING_A str
+func main
+line 3
+const.i32 %0 0
+const.str %1 x
+rt INPUTPROMPT %1 %0
+rt %2 LINEINPUT %0
+store.str $__STRING_A %2
+line 4
+const.str %3 xE0B8AAE0B8A7E0B8B1E0B8AAE0B894E0B8B520
+const.i32 %4 0
+rt PRINTS %4 %3
+load.str %5 $__STRING_A
+const.i32 %6 0
+rt PRINTS %6 %5
+const.str %7 x20
+const.i32 %8 0
+rt PRINTS %8 %7
+const.i32 %9 201
+rt %10 CHR$ %9
+const.i32 %11 0
+rt PRINTS %11 %10
+const.i32 %12 205
+rt %13 CHR$ %12
+const.i32 %14 0
+rt PRINTS %14 %13
+load.str %15 $__STRING_A
+rt %16 LEN %15
+cvt.i64.i32 %17 %16
+rt %18 STR$.i64 %17
+const.str %19 x20
+concat %20 %18 %19
+const.i32 %21 0
+rt PRINTS %21 %20
+const.i32 %22 0
+rt PRINTNL %22
+line 5
+system
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

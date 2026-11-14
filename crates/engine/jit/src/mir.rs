@@ -289,11 +289,19 @@ impl Module {
                 return Err(e("no blocks".into()));
             }
             let nb = f.blocks.len() as u32;
+            // Parameters and the result are passed in the frame: a temporary (a slot
+            // past `frame_len`, which lives in a register only) cannot hold one.
             for p in &f.params {
                 ty(*p)?;
+                if *p as usize >= f.frame_len() {
+                    return Err(e(format!("parameter slot {p} is a temporary")));
+                }
             }
             if let Some(r) = f.ret {
                 ty(r)?;
+                if r as usize >= f.frame_len() {
+                    return Err(e(format!("result slot {r} is a temporary")));
+                }
             }
             for (bi, b) in f.blocks.iter().enumerate() {
                 for i in &b.insts {

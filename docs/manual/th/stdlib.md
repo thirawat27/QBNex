@@ -38,7 +38,7 @@
 | `sys.env`, `sys.args`, `sys.datetime` | แพลตฟอร์ม, environment, argument, วันที่ |
 | `error.result` | ค่า Result ที่มีรหัส error และบริบท |
 | `oop.class`, `oop.interface` | registry ตอนรันที่ CLASS ใช้ |
-| `qbnex` | ทุกอย่างข้างบน ยกเว้น `ext.*` ใน import เดียว |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` และ `oop` ใน import เดียว ส่วน `json`, `url` และ `ext.*` import เพิ่มคู่กันได้ |
 
 โมดูล `ext.*` เรียกไลบรารี Rust `crates/runtime/ext` (Rust ล้วน ไม่ใช้ OpenSSL)
 เมื่อเกิด error ฟังก์ชันจะคืน 0 หรือ string ว่าง และ `Ext_LastError$`

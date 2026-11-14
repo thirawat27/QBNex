@@ -555,7 +555,10 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
         self.mem.dims(p).map_err(Stop::Err)
     }
     fn array_redim(&mut self, p: u64, dims: Vec<(i64, i64)>) -> crate::rt::R<()> {
-        self.mem.dim(p, crate::bytecode::DimMode::Redim, dims).map_err(Stop::Err)
+        self.mem.keep_freed = self.frames.len() > 1;
+        let r = self.mem.dim(p, crate::bytecode::DimMode::Redim, dims).map_err(Stop::Err);
+        self.prune_retired();
+        r
     }
     fn str_data(&mut self, p: u64) -> crate::rt::R<u64> {
         self.mem.str_data(p).map_err(Stop::Err)
@@ -1302,6 +1305,20 @@ impl<'m, 'o> Vm<'m, 'o> {
         Ok(func.entry)
     }
 
+    /// Frees the bytes of arrays redimensioned or erased inside a SUB/FUNCTION
+    /// ([`crate::mem::Mem::keep_freed`]) once no register of an active procedure holds
+    /// an address into them. An address is a plain number in a register; a number
+    /// that only looks like one keeps the bytes a little longer, nothing else.
+    fn prune_retired(&mut self) {
+        if !self.mem.has_retired() {
+            return;
+        }
+        // the main module passes addresses but keeps none across statements
+        let from = self.frames.get(1).map_or(self.nums.len(), |f| f.nb);
+        let regs = &self.nums[from..];
+        self.mem.prune_retired(|lo, hi| regs.iter().any(|&v| v >= lo && v < hi));
+    }
+
     fn ret(&mut self) -> Result<u32, i32> {
         let m = self.m;
         if self.frames.len() < 2 {
@@ -1334,6 +1351,9 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.strs.truncate(fr.sb);
         self.arrs.truncate(fr.ab);
         self.free_owned(fr.owned);
+        if self.mem.has_retired() {
+            self.prune_retired();
+        }
         let depth = self.frames.len();
         self.gosub.retain(|g| g.depth <= depth);
         self.set_view(fr.caller_view);
@@ -2246,7 +2266,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::CopyM { d, s, n } => tryc!(self.mem.copy(r!(d), r!(s), n)),
                 Ins::DimM { a, dims, n, mode } => {
                     let b = self.mem_dims(dims, n);
-                    tryc!(self.mem.dim(r!(a), mode, b));
+                    self.mem.keep_freed = self.frames.len() > 1;
+                    let r = self.mem.dim(r!(a), mode, b);
+                    self.prune_retired();
+                    tryc!(r);
                 }
                 Ins::AAddrM { d, a, i, n } => {
                     // subscripts on the stack (a heap Vec per element access was a hot allocation)
@@ -2266,7 +2289,12 @@ impl<'m, 'o> Vm<'m, 'o> {
                     let v = tryc!(self.mem.bound(r!(a), ri!(dim), upper));
                     seti!(d, v)
                 }
-                Ins::EraseM { a } => tryc!(self.mem.erase(r!(a))),
+                Ins::EraseM { a } => {
+                    self.mem.keep_freed = self.frames.len() > 1;
+                    let r = self.mem.erase(r!(a));
+                    self.prune_retired();
+                    tryc!(r);
+                }
                 Ins::Erase { a } => {
                     // an erased array has no dimensions (subscript out of range until
                     // REDIM); None would mean "never dimensioned" (implicit 0 TO 10)

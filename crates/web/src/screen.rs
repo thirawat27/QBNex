@@ -61,12 +61,13 @@ fn put(rgba: &mut [u8], i: usize, argb: u32) {
     rgba[4 * i + 3] = 255;
 }
 
-/// Character a text cell shows as text (control codes and NUL as spaces;
-/// CP437 above 127 is kept as the Latin-1 code point for the page to map).
+/// Character a text cell shows as text (control codes and NUL as spaces; a cell
+/// above 127 is its code page 437 character, as the screen draws it).
 fn cell_char(c: u8) -> char {
     match c {
         0..=31 => ' ',
-        _ => char::from(c),
+        32..=126 => char::from(c),
+        _ => char::from_u32(qb_runtime::console::utf8::cp437(c)).unwrap_or(' '),
     }
 }
 

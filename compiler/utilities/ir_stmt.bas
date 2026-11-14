@@ -294,7 +294,10 @@ SUB IrOpen
     k = IrFindSep(a + 1, "|LEN|")
     ch$ = IrChan$(a + 1, k - 1)
     IF k <= n THEN ln$ = IrArgAs$(fixoperationorder$(IrEls$(k + 2, n)), "i32") ELSE ln$ = IrI32$(0)
-    IF acc = 0 AND shr = 0 THEN
+    IF k <= n THEN
+        'LEN = is written: the runtime reports LEN = 0 as an error (in OPEN/OPENX 0 means "no LEN")
+        IrE "rt OPENL " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$ + " " + IrI32$(acc) + " " + IrI32$(shr)
+    ELSEIF acc = 0 AND shr = 0 THEN
         IrE "rt OPEN " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$
     ELSE
         IrE "rt OPENX " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$ + " " + IrI32$(acc) + " " + IrI32$(shr)

@@ -40,7 +40,7 @@ Status: all modules on this page are **Available**. In the
 | `sys.env`, `sys.args`, `sys.datetime` | Platform, environment, arguments, dates |
 | `error.result` | Result values with error codes and context |
 | `oop.class`, `oop.interface` | Runtime registry used by CLASS |
-| `qbnex` | Everything above except `ext.*` in one import |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it |
 
 The `ext.*` modules call the Rust library `crates/runtime/ext` (pure Rust, no
 OpenSSL). Errors: functions return 0 / an empty string and

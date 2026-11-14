@@ -106,3 +106,13 @@ fn thousands_of_unclosed_blocks_do_not_overflow_the_stack() {
     let out = qb_fmt::format(&src, &Options::default());
     assert_eq!(out.lines().count(), 20_000);
 }
+
+#[test]
+fn a_continuation_glued_to_a_number_or_a_name_formats_once() {
+    // the compiler continues both lines; formatting twice must change nothing more
+    for src in ["total = price * 1_\n+ tax\n", "total = price_\n+ tax\n"] {
+        let once = qb_fmt::format(src, &Options::default());
+        assert_eq!(qb_fmt::format(&once, &Options::default()), once, "{src:?}");
+        assert!(once.lines().next().unwrap().ends_with(" _"), "{once:?}");
+    }
+}

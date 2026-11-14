@@ -283,16 +283,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// `_` followed only by blanks until the end of the line (or input), and
-    /// not glued to a preceding word.
+    /// `_` followed only by blanks until the end of the line (or input). As in the
+    /// compiler, also when it is glued to what precedes it: `1_` and `price_` at the
+    /// end of a line are `1` and `price`, continued ([`Self::word`] leaves the `_`).
     fn is_continuation(&self, at: usize) -> bool {
         let after = &self.src[at + 1..];
         let rest_line = after.split(['\r', '\n']).next().unwrap_or("");
-        if !rest_line.chars().all(is_hspace) {
-            return false;
-        }
-        let before = self.src[..at].chars().next_back();
-        before.is_none_or(|b| !is_ident_char(b))
+        rest_line.chars().all(is_hspace)
     }
 
     fn scan_number(&self, start: usize) -> usize {
@@ -345,7 +342,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn word(&mut self, start: usize, line_start: bool, stmt_start: bool) {
-        let len = self.rest().find(|ch: char| !is_ident_char(ch)).unwrap_or(self.rest().len());
+        let mut len = self.rest().find(|ch: char| !is_ident_char(ch)).unwrap_or(self.rest().len());
+        // a last `_` that ends the line is the line continuation, not part of the name
+        if len > 1 && self.src.as_bytes()[start + len - 1] == b'_' && self.is_continuation(start + len - 1) {
+            len -= 1;
+        }
         let word_end = start + len;
         let word = &self.src[start..word_end];
         let upper = word.to_ascii_uppercase();

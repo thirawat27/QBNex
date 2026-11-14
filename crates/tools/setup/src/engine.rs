@@ -303,19 +303,20 @@ fn write_files(o: &Options, bundle: &Bundle, progress: &mut dyn Progress, tx: &m
         tx.set_aside(rel)?;
     }
 
-    // A first install (no manifest of an earlier one) owns nothing in the folder yet: a
-    // file already there is the user's. Writing over it would lose it now, and listing
-    // it in the manifest would delete it on roll back or uninstall.
-    if tx.moved.is_empty() {
-        let mut mine = payload::names(bundle.zip())?;
-        mine.push(platform::setup_name().to_string());
-        mine.extend(platform::extra_files().iter().map(|(name, _)| name.to_string()));
-        mine.push(MANIFEST.to_string());
-        if let Some(rel) = mine.iter().find(|rel| payload::safe_join(dir, rel).is_some_and(|p| p.symlink_metadata().is_ok())) {
-            return Err(format!(
-                "{} already has a file named {rel} that is not from a QBNex installation; choose an empty folder",
-                dir.display()
-            ));
+    // Installing over what is already there: a file this install replaces that no
+    // manifest lists (a first install into a folder with files, a copy unpacked by
+    // hand, an install killed before it wrote its manifest) is set aside like a file
+    // of the previous version. It comes back when the install fails or is cancelled,
+    // and is replaced for good only when the install is committed.
+    let mut mine = payload::names(bundle.zip())?;
+    mine.push(platform::setup_name().to_string());
+    mine.extend(platform::extra_files().iter().map(|(name, _)| name.to_string()));
+    for rel in &mine {
+        if progress.cancelled() {
+            return Err(CANCELLED.into());
+        }
+        if !tx.moved.contains(rel) {
+            tx.set_aside(rel)?;
         }
     }
 
@@ -582,18 +583,40 @@ mod tests {
     }
 
     #[test]
-    fn a_first_install_never_touches_files_that_are_already_there() {
-        let dir = temp("owned");
+    fn an_install_over_files_that_are_already_there_replaces_them() {
+        let dir = temp("over");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("README.md"), "mine").unwrap();
+        std::fs::write(dir.join("README.md"), "old").unwrap();
+        std::fs::write(dir.join("qb"), "old qb").unwrap();
         std::fs::write(dir.join("main.bas"), "PRINT 1").unwrap();
         let o = Options::new(dir.clone());
-        let v1 = bundle(&[("qb", "one"), ("README.md", "theirs")]);
-        let err = install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Ok(())).unwrap_err();
-        assert!(err.contains("README.md"), "{err}");
-        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "mine");
+        let v1 = bundle(&[("qb", "one"), ("README.md", "new")]);
+        install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Ok(())).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(dir.join("qb")).unwrap(), "one");
+        // a file the bundle does not carry is not QBNex's: it stays, also after an uninstall
         assert!(dir.join("main.bas").is_file());
-        assert!(!dir.join("qb").exists());
+        assert!(!dir.join(BACKUP).exists());
+        remove_listed(&dir).unwrap();
+        assert!(dir.join("main.bas").is_file());
+        assert!(!dir.join("README.md").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_install_over_files_that_are_already_there_puts_them_back() {
+        let dir = temp("overfail");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), "old").unwrap();
+        std::fs::write(dir.join("qb"), "old qb").unwrap();
+        let before = tree(&dir);
+        let o = Options::new(dir.clone());
+        let v1 = bundle(&[("qb", "one"), ("README.md", "new")]);
+        // the step that touches the user's settings fails after every file was written
+        assert!(install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Err("no".into())).is_err());
+        assert_eq!(tree(&dir), before);
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "old");
+        assert!(!dir.join(BACKUP).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

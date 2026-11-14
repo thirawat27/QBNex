@@ -137,7 +137,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             vm.rt().field_store = false;
             Some(r.map(|_| None))
         }
-        "OPEN" | "OPENX" => {
+        // OPENL: OPENX with LEN = written in the program (0 is then an error, not "no LEN")
+        "OPEN" | "OPENX" | "OPENL" => {
             let ty = match i(1) {
                 1 => 3,
                 2 => 4,
@@ -146,8 +147,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 _ => 1,
             };
             let reclen = i(3);
-            let (access, sharing) = if name == "OPENX" { (i(4) as i32, i(5) as i32) } else { (0, 0) };
-            let r = chk(fio::open(s(0), ty, access, sharing, i(2) as i32, reclen, reclen > 0));
+            let (access, sharing) = if name == "OPEN" { (0, 0) } else { (i(4) as i32, i(5) as i32) };
+            let r = chk(fio::open(s(0), ty, access, sharing, i(2) as i32, reclen, reclen > 0 || name == "OPENL"));
             if r.is_ok() && ty == 1 {
                 vm.rt().reclen.insert(i(2) as i32, if reclen > 0 { reclen as usize } else { 128 });
             }
