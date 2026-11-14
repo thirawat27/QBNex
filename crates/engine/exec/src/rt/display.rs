@@ -105,6 +105,9 @@ fn nextimg() -> i32 {
     unsafe { reg::nextimg }
 }
 
+/// Highest video page number: page numbers index a table.
+const MAX_PAGE: i32 = 65535;
+
 impl Display {
     fn err(&mut self, n: i32) {
         if self.pending == 0 {
@@ -206,7 +209,7 @@ impl Display {
     }
 
     pub(crate) fn validatepage(&mut self, n: i32) {
-        if n < 0 {
+        if !(0..=MAX_PAGE).contains(&n) {
             return;
         }
         let n = n as usize;
@@ -234,6 +237,11 @@ impl Display {
 
     /// `resolve_page_or_image_index`
     pub(crate) fn resolve(&mut self, handle: i32) -> Option<u32> {
+        if handle > MAX_PAGE {
+            // a page number, not a size to allocate a table for
+            self.err(258);
+            return None;
+        }
         if handle >= 0 {
             self.validatepage(handle);
             return Some(self.page[handle as usize] as u32);
@@ -392,7 +400,7 @@ impl Display {
                         return 0;
                     }
                 };
-                r[k] += 1;
+                r[k] = r[k].saturating_add(1);
             }
             if r.iter().any(|&c| c > 1) {
                 self.err(5);
@@ -871,7 +879,7 @@ impl Display {
             }
         }
         if passed & 4 != 0 {
-            if active_page < 0 {
+            if !(0..=MAX_PAGE).contains(&active_page) {
                 self.err(5);
                 return;
             }
@@ -888,7 +896,7 @@ impl Display {
             }
         }
         if passed & 8 != 0 {
-            if visual_page < 0 {
+            if !(0..=MAX_PAGE).contains(&visual_page) {
                 self.err(5);
                 return;
             }
@@ -2119,7 +2127,8 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 let s = if passed & 8 != 0 { d.resolve(i(4)) } else { Some(d.read_index) };
                 let t = if passed & 32 != 0 { d.resolve(i(5)) } else { Some(d.write_index) };
                 if let (Some(sx), Some(tx)) = (s, t) {
-                    let (sp, tp) = (im(sx), im(tx));
+                    let sp = im(sx);
+                    let mut tp = im(tx);
                     if (*sp).text != 0 || (*tp).text != 0 || ((*sp).bytes_per_pixel == 4 && (*tp).bytes_per_pixel == 1) {
                         gerr(d, 5);
                     } else {
@@ -2130,9 +2139,14 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                             // a surface cannot be put onto itself: through a temporary copy
                             tmp = d.copyimage(-(sx as i32), 0, 0);
                             passed |= 8;
-                            src = im((-tmp) as u32);
+                            // the copy can grow the image table and move it
+                            tp = im(tx);
+                            if tmp < 0 {
+                                src = im((-tmp) as u32);
+                            }
                         }
-                        if tmp <= 0 {
+                        // tmp >= 0 with the same surface: the copy failed (error already set)
+                        if sx != tx || tmp < 0 {
                             gerr(d, gfx::putimage::qb_gfx_putimage(src, tp, &c, passed, core::ptr::null_mut()));
                         }
                         if tmp < 0 {

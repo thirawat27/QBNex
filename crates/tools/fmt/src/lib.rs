@@ -284,10 +284,10 @@ impl<'a> Formatter<'a> {
         if matches!(pk, K::LParen | K::LBracket | K::LBrace | K::Hash | K::At) {
             return false;
         }
-        // `$"..."` interpolation; anything else after a lone `$` keeps its spacing
-        // (`$ IF` must not become the metacommand `$IF`).
+        // What follows a lone `$` keeps its spacing: `$ IF` must not become the
+        // metacommand `$IF`, nor `$ "{"` the start of an interpolated string.
         if pk == K::Dollar {
-            return had_ws && nk != K::String;
+            return had_ws;
         }
         if pk == K::Dot || nk == K::Dot || pk == K::Ampersand || nk == K::Ampersand {
             return had_ws;

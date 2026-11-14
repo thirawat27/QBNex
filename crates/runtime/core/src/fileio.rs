@@ -702,7 +702,8 @@ fn line_input_binary(t: &mut Table, fileno: i32, i: i32, cx: &mut Ctx) -> Option
                     t.f(i).eof_passed = 1;
                     return Some(buffer);
                 }
-                fbs += 512;
+                // doubled: adding 512 a pass read a long line again and again (quadratic)
+                fbs = fbs.saturating_mul(2);
             }
             Some(p) => {
                 dest.extend_from_slice(&buffer[..p]);

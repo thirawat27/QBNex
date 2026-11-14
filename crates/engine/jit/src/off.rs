@@ -37,6 +37,11 @@ pub struct CompileError(pub String);
 
 const NO_JIT: &str = "no native code generation in a browser build";
 
+/// No native code here.
+pub fn host_supported() -> bool {
+    false
+}
+
 /// Runtime symbols native code would call (kept for API parity).
 pub fn symbols(m: &Module) -> Vec<(String, usize)> {
     let mut v: Vec<(String, usize)> = vec![

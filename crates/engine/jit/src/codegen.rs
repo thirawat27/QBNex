@@ -52,6 +52,13 @@ pub(crate) fn make_isa_pic(t: Target, pic: bool) -> OwnedTargetIsa {
     make_isa_for(t, pic, true)
 }
 
+/// False on a machine Cranelift has no back end for (only x86-64 and AArch64 are
+/// built in): callers then stay with the interpreter instead of failing in
+/// [`compile`].
+pub fn host_supported() -> bool {
+    cfg!(target_pointer_width = "64") && cranelift_native::builder().is_ok()
+}
+
 /// `this_cpu`: use every instruction set extension of the CPU this runs on (AVX,
 /// FMA, ...). Right for code that runs here and now (the JIT); code built ahead of
 /// time runs on other machines and gets the baseline of the architecture, or a

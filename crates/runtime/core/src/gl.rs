@@ -85,12 +85,26 @@ struct Fns {
     finish: extern "system" fn(),
     frustum: extern "system" fn(f64, f64, f64, f64, f64, f64),
     enable: extern "system" fn(u32),
+    disable: extern "system" fn(u32),
     blend_func: extern "system" fn(u32, u32),
     push_attrib: extern "system" fn(u32),
     pop_attrib: extern "system" fn(),
 }
 
 const GL_BLEND: u32 = 0x0BE2;
+const GL_DEPTH_TEST: u32 = 0x0B71;
+const GL_LIGHTING: u32 = 0x0B50;
+const GL_TEXTURE_2D: u32 = 0x0DE1;
+const GL_ALPHA_TEST: u32 = 0x0BC0;
+const GL_FOG: u32 = 0x0B60;
+const GL_SCISSOR_TEST: u32 = 0x0C11;
+const GL_STENCIL_TEST: u32 = 0x0B90;
+const GL_UNPACK_ROW_LENGTH: u32 = 0x0CF2;
+const GL_UNPACK_SKIP_ROWS: u32 = 0x0CF3;
+const GL_UNPACK_SKIP_PIXELS: u32 = 0x0CF4;
+const GL_PACK_ROW_LENGTH: u32 = 0x0D02;
+const GL_PACK_SKIP_ROWS: u32 = 0x0D03;
+const GL_PACK_SKIP_PIXELS: u32 = 0x0D04;
 const GL_SRC_ALPHA: u32 = 0x0302;
 const GL_ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
 const GL_ALL_ATTRIB_BITS: u32 = 0x000F_FFFF;
@@ -191,6 +205,15 @@ fn draw_soft(f: &Fns, px: &[u32], sw: usize, sh: usize, w: u32, h: u32, blend: b
         (f.enable)(GL_BLEND);
         (f.blend_func)(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
+    // What the program's SUB _GL left enabled must not act on the screen's pixels
+    // (restored by the pop below) ...
+    for cap in [GL_DEPTH_TEST, GL_LIGHTING, GL_TEXTURE_2D, GL_ALPHA_TEST, GL_FOG, GL_SCISSOR_TEST, GL_STENCIL_TEST] {
+        (f.disable)(cap);
+    }
+    // ... and its pixel-store layout must not make GL read past `up`.
+    (f.pixel_storei)(GL_UNPACK_ROW_LENGTH, 0);
+    (f.pixel_storei)(GL_UNPACK_SKIP_ROWS, 0);
+    (f.pixel_storei)(GL_UNPACK_SKIP_PIXELS, 0);
     (f.pixel_storei)(GL_UNPACK_ALIGNMENT, 4);
     (f.raster_pos2f)(-1.0, -1.0);
     (f.pixel_zoom)(w as f32 / sw as f32, h as f32 / sh as f32);
@@ -319,6 +342,7 @@ fn create() -> Result<Gl, String> {
         finish: load(&display, "glFinish")?,
         frustum: load(&display, "glFrustum")?,
         enable: load(&display, "glEnable")?,
+        disable: load(&display, "glDisable")?,
         blend_func: load(&display, "glBlendFunc")?,
         push_attrib: load(&display, "glPushAttrib")?,
         pop_attrib: load(&display, "glPopAttrib")?,
@@ -445,6 +469,10 @@ pub fn read_pixels() -> Option<(Vec<u32>, usize, usize)> {
         let (w, h) = (gl.size.0 as usize, gl.size.1 as usize);
         let mut rgba = vec![0u8; w * h * 4];
         (gl.fns.finish)();
+        // the program's pixel-store layout must not make GL write past `rgba`
+        (gl.fns.pixel_storei)(GL_PACK_ROW_LENGTH, 0);
+        (gl.fns.pixel_storei)(GL_PACK_SKIP_ROWS, 0);
+        (gl.fns.pixel_storei)(GL_PACK_SKIP_PIXELS, 0);
         (gl.fns.pixel_storei)(GL_PACK_ALIGNMENT, 1);
         (gl.fns.read_pixels)(0, 0, w as i32, h as i32, GL_RGBA, GL_UNSIGNED_BYTE, rgba.as_mut_ptr().cast());
         let mut out = vec![0u32; w * h];

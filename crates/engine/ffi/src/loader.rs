@@ -341,7 +341,8 @@ pub fn find_default_symbol(name: &str) -> Option<*const c_void> {
     None
 }
 
-#[cfg(windows)]
+// (only where a call thunk exists: elsewhere a library that loaded could not be called)
+#[cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod sys {
     use std::ffi::c_void;
 
@@ -406,7 +407,7 @@ mod sys {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod sys {
     use std::ffi::{CStr, CString, c_char, c_int, c_void};
 
@@ -477,9 +478,10 @@ mod sys {
     }
 }
 
-/// No dynamic libraries (wasm32 in a browser, qb-web): every DECLARE LIBRARY
+/// No dynamic libraries (wasm32 in a browser, qb-web; an architecture without a
+/// call thunk, where a call would silently return 0): every DECLARE LIBRARY
 /// load fails with an ordinary error and no symbol is found.
-#[cfg(not(any(windows, unix)))]
+#[cfg(not(all(any(windows, unix), any(target_arch = "x86_64", target_arch = "aarch64"))))]
 mod sys {
     use std::ffi::c_void;
 
