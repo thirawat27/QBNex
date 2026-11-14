@@ -12,6 +12,11 @@ runtime. Old QBasic/QB64 programs compile and behave as before, except for the
 fixes listed in `docs/manual/en/differences.md`. This entry collects every change
 made after 1.0.4.
 
+Pre-releases from this section: `2.0.0-preview` (2026-11-13) and `2.0.0-preview.2`
+(2026-11-14), which adds the fixes of two audits of the compiler, runtime, tools and
+installer, and CI checks of the GPU paths, a real window and the installer on Linux,
+macOS and Windows.
+
 ### Changed
 
 #### Compiler and runtime
