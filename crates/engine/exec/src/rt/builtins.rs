@@ -1048,7 +1048,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 vm.rt().write(0, s(0))?;
             }
         }
-        "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" => {
+        "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" | "INPUTITEM.x" => {
             let ch = i(0) as i32;
             let _ = ch;
             let numeric = name != "INPUTITEM.s";
@@ -1071,6 +1071,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let item = read_item(line, numeric).unwrap_or_default();
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
+            }
+            if name == "INPUTITEM.x" {
+                return ok(V::X(qb_runtime::val::val(&item).map_or(qb_float80::F80::from_f64(0.0), qb_float80::F80::from_bytes)));
             }
             if name == "INPUTITEM.i" {
                 let v = super::files::exact_i64(&item).unwrap_or_else(|| {

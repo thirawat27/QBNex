@@ -11021,7 +11021,26 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
             warningLocation = ""
         END IF
 
-        warningContext = CleanDiagnosticContext$(diagnosticSourceLine)
+        'the line the warning is about, read from its file: a warning found at the end of
+        'the compile (an unused variable) showed the last line compiled, not its own
+        warningContext = ""
+        IF warningLine > 0 AND _FILEEXISTS(warningFile) THEN
+            warningText$ = StdLib_ReadText$(warningFile)
+            warningPos& = 1
+            FOR warningScan& = 2 TO warningLine
+                warningPos& = INSTR(warningPos&, warningText$, CHR$(10)) + 1
+                IF warningPos& = 1 THEN EXIT FOR
+            NEXT
+            IF warningPos& > 1 OR warningLine = 1 THEN
+                warningEnd& = INSTR(warningPos&, warningText$, CHR$(10))
+                IF warningEnd& = 0 THEN warningEnd& = LEN(warningText$) + 1
+                warningContext = MID$(warningText$, warningPos&, warningEnd& - warningPos&)
+                IF RIGHT$(warningContext, 1) = CHR$(13) THEN warningContext = LEFT$(warningContext, LEN(warningContext) - 1)
+                warningContext = CleanDiagnosticContext$(warningContext)
+            END IF
+            warningText$ = ""
+        END IF
+        IF RTRIM$(warningContext) = "" THEN warningContext = CleanDiagnosticContext$(diagnosticSourceLine)
         IF RTRIM$(warningContext) = "" THEN warningContext = CleanDiagnosticContext$(wholeline$)
         IF RTRIM$(warningContext) = "" THEN warningContext = CleanDiagnosticContext$(linefragment)
         warningSecondary = CleanDiagnosticContext$(text$)

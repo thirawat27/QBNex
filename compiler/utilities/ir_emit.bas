@@ -1209,6 +1209,8 @@ FUNCTION IrByRefArg$ (e$, pt AS LONG, ptsize AS LONG)
     END IF
     IF LEFT$(st$, 4) = "udt:" THEN IrNotSup "UDT argument type mismatch"
     r$ = IrEvalTo$(e$, pt)
+    'a value passed to a _BIT parameter holds what its bits can
+    IF pt AND ISOFFSETINBITS THEN r$ = IrBitWrap$(r$, pt)
     tmp$ = IrTemp$(st$)
     p$ = "V" + CHR$(2) + tmp$ + CHR$(2) + st$
     IrStore p$, r$

@@ -160,6 +160,10 @@ conventional memory มีขนาด 1 MB บวก 64 KB พื้นที�
   และ 60000 สำหรับกรณีอื่น `TRON` และ `TROFF` ไม่ทำอะไร `FILEATTR(n, 2)` คืนเลขที่ใช้แทน
   ไฟล์ที่เปิดอยู่ ไม่ใช่ DOS handle ส่วน `IOCTL` และ `IOCTL$` กับไฟล์ที่เปิดอยู่จะเกิด
   illegal function call (error 5)
+- `KEY ON`, `KEY OFF`, `KEY LIST` และ `KEY n, text$` คอมไพล์ได้แต่ไม่ทำอะไร:
+  ไม่มีแถบปุ่มฟังก์ชันและไม่มี soft key ส่วน `KEY(n) ON|OFF|STOP` ใช้ได้
+- `PUT #` และ `GET #` รับ array ทั้งตัวได้ ยกเว้น array ของ string
+  ความยาวไม่คงที่ (แต่ละตัวยาวไม่เท่ากัน) ซึ่งจะหยุด build พร้อมข้อความ
 - `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
   `_CONSOLETITLE`, `_WINDOWHANDLE` และการตั้ง `_CAPSLOCK`, `_NUMLOCK`, `_SCROLLLOCK`
   ใช้ได้บน Windows เท่านั้น บน Linux `_SCREENIMAGE` ได้ภาพว่าง และ

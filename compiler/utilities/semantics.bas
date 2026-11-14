@@ -1125,6 +1125,9 @@ IF id2.args <> 0 THEN
                             IF RIGHT$(e$, 1) = "&" OR RIGHT$(e$, 1) = "%" THEN e$ = LEFT$(e$, LEN(e$) - 1)
                         END IF
                     END IF
+                    'the elements are joined by the separator, the type name is written with blanks
+                    '(STRING * 4 was "Invalid number/constant after STRING * type")
+                    DO WHILE INSTR(e$, sp): MID$(e$, INSTR(e$, sp), 1) = " ": LOOP
                     t = typname2typ(e$)
                     IF t = 0 THEN Give_Error "Invalid TYPE name": EXIT FUNCTION
                     IF t AND ISOFFSETINBITS THEN Give_Error qbnexprefix$ + "BIT TYPE unsupported": EXIT FUNCTION

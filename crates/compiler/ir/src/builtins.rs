@@ -257,6 +257,8 @@ pub static TABLE: &[Builtin] = &[
     b!("INPUTITEM.n", [I32], F64),
     // a whole number for a 64-bit integer variable, exact (a DOUBLE holds 53 bits)
     b!("INPUTITEM.i", [I32], I64),
+    // a number for a _FLOAT variable, with its 64-bit mantissa
+    b!("INPUTITEM.x", [I32], F80),
     b!("INPUTPROMPT", [Str, I32]),
     b!("KILL", [Str]),
     b!("NAME", [Str, Str]),

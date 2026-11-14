@@ -434,6 +434,8 @@ SUB IrInput (lineinput AS LONG)
                 'a DOUBLE holds 53 bits: 64-bit integers are read as integers
                 r$ = IrRt$("INPUTITEM.i", " " + ch$, "i64")
                 r$ = IrCvt$(r$, "i64", st$)
+            ELSEIF st$ = "f80" THEN
+                r$ = IrRt$("INPUTITEM.x", " " + ch$, "f80")
             ELSE
                 r$ = IrRt$("INPUTITEM.n", " " + ch$, "f64")
                 r$ = IrCvt$(r$, "f64", st$)

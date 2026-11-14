@@ -242,6 +242,30 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             let (v, err) = if name == "LINEINPUT" { fio::qb_file_line_input(ch0) } else { fio::qb_file_input_string(ch0) };
             Some(chk(err).map(|_| Some(V::S(v.unwrap_or_default()))))
         }
+        "INPUTITEM.x" if ch0 != 0 => {
+            let mut n = fio::NumRepr::default();
+            let (r, err) = fio::qb_file_input_number(ch0, &mut n);
+            if err != 0 {
+                return Some(e(err));
+            }
+            let v = match r {
+                0 if n.hex != 0 => num_value(&n).map(qb_float80::F80::from_f64),
+                0 => {
+                    // d0.d1d2... x 10^exp as text, read with the precision of VAL
+                    let d = &n.digit[..n.digits as usize];
+                    let mut text: Vec<u8> = if n.neg != 0 { vec![b'-'] } else { Vec::new() };
+                    text.push(d.first().copied().unwrap_or(b'0'));
+                    text.push(b'.');
+                    text.extend_from_slice(d.get(1..).unwrap_or(&[]));
+                    text.extend_from_slice(format!("E{}", n.exp).as_bytes());
+                    Ok(qb_runtime::val::val(&text).map_or(qb_float80::F80::from_f64(0.0), qb_float80::F80::from_bytes))
+                }
+                1 => e(6),
+                2 => e(62),
+                _ => Ok(qb_float80::F80::from_f64(0.0)),
+            };
+            Some(v.map(|v| Some(V::X(v))))
+        }
         "INPUTITEM.i" if ch0 != 0 => {
             let mut n = fio::NumRepr::default();
             let (r, err) = fio::qb_file_input_number(ch0, &mut n);

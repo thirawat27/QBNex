@@ -180,6 +180,10 @@ Compiled, but different:
   `FILEATTR(n, 2)` returns a number that stands for the open file, not a DOS
   handle. `IOCTL` and `IOCTL$` are an illegal function call (error 5) on an open
   file.
+- `KEY ON`, `KEY OFF`, `KEY LIST` and `KEY n, text$` compile and do nothing:
+  there is no function-key line and no soft keys. `KEY(n) ON|OFF|STOP` works.
+- `PUT #` and `GET #` take a whole array, except an array of variable-length
+  strings (each has its own length): that stops the build with a message.
 - `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
   `_CONSOLETITLE`, `_WINDOWHANDLE` and setting `_CAPSLOCK`, `_NUMLOCK` or
   `_SCROLLLOCK` work on Windows only; `_SCREENIMAGE` gives a blank image and
