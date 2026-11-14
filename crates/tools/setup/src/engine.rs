@@ -303,6 +303,23 @@ fn write_files(o: &Options, bundle: &Bundle, progress: &mut dyn Progress, tx: &m
         tx.set_aside(rel)?;
     }
 
+    // Installing over what is already there: a file this install replaces that no
+    // manifest lists (a first install into a folder with files, a copy unpacked by
+    // hand, an install killed before it wrote its manifest) is set aside like a file
+    // of the previous version. It comes back when the install fails or is cancelled,
+    // and is replaced for good only when the install is committed.
+    let mut mine = payload::names(bundle.zip())?;
+    mine.push(platform::setup_name().to_string());
+    mine.extend(platform::extra_files().iter().map(|(name, _)| name.to_string()));
+    for rel in &mine {
+        if progress.cancelled() {
+            return Err(CANCELLED.into());
+        }
+        if !tx.moved.contains(rel) {
+            tx.set_aside(rel)?;
+        }
+    }
+
     progress.event(Event::Step(Step::Extract));
     let total = bundle.installed_size();
     payload::extract(bundle.zip(), dir, &mut tx.written, &mut |name, done| {
@@ -563,6 +580,44 @@ mod tests {
         let mut rec = Recorder { stop_at: Some("qb"), ..Recorder::default() };
         assert!(install_with(&o, &v1, &mut rec, &mut |_, _| Ok(())).is_err());
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn an_install_over_files_that_are_already_there_replaces_them() {
+        let dir = temp("over");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), "old").unwrap();
+        std::fs::write(dir.join("qb"), "old qb").unwrap();
+        std::fs::write(dir.join("main.bas"), "PRINT 1").unwrap();
+        let o = Options::new(dir.clone());
+        let v1 = bundle(&[("qb", "one"), ("README.md", "new")]);
+        install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Ok(())).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(dir.join("qb")).unwrap(), "one");
+        // a file the bundle does not carry is not QBNex's: it stays, also after an uninstall
+        assert!(dir.join("main.bas").is_file());
+        assert!(!dir.join(BACKUP).exists());
+        remove_listed(&dir).unwrap();
+        assert!(dir.join("main.bas").is_file());
+        assert!(!dir.join("README.md").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_install_over_files_that_are_already_there_puts_them_back() {
+        let dir = temp("overfail");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), "old").unwrap();
+        std::fs::write(dir.join("qb"), "old qb").unwrap();
+        let before = tree(&dir);
+        let o = Options::new(dir.clone());
+        let v1 = bundle(&[("qb", "one"), ("README.md", "new")]);
+        // the step that touches the user's settings fails after every file was written
+        assert!(install_with(&o, &v1, &mut Recorder::default(), &mut |_, _| Err("no".into())).is_err());
+        assert_eq!(tree(&dir), before);
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "old");
+        assert!(!dir.join(BACKUP).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

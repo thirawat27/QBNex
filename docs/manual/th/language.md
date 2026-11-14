@@ -123,7 +123,10 @@ cleanup
 `CATCH` error จะถูกยกขึ้นอีกครั้งหลัง `FINALLY` TRY ใช้ในตัว SUB และในไฟล์
 `$INCLUDE` ได้ และ keyword ของ TRY อยู่บรรทัดเดียวกับคำสั่งอื่นได้
 (`TRY: ERROR 6: CATCH e: PRINT e: END TRY`) การหารจำนวนเต็มด้วยศูนย์
-(`\` และ `MOD`) เป็น error 11 ที่ดักได้ `ON ERROR GOTO` ยังใช้ได้ตามเดิม
+(`\` และ `MOD`) เป็น error 11 ที่ดักได้ `ON ERROR GOTO` ยังใช้ได้ตามเดิม:
+handler ที่ตั้งไว้ก่อน `TRY` กลับมามีผลเมื่อจบส่วน body รวมถึงเมื่อออกจาก body
+ด้วย `EXIT FOR`, `EXIT DO`, `EXIT WHILE`, `_CONTINUE`, `EXIT SUB`,
+`EXIT FUNCTION` หรือ `GOTO` ไปยัง label ที่อยู่นอก body
 
 ### พารามิเตอร์ `OPTIONAL`
 

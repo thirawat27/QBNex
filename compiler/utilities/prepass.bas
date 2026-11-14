@@ -39,6 +39,8 @@ SUB ResetPrepassManagers
     ClassSyntax_ClearRegistry
     ClassSyntax_ClearScopes
     SyntaxExt_Reset
+    syntaxExtMainPass = -1
+    defFnIncInDef = 0
 END SUB
 
 SUB ResetPostPrepassState
@@ -76,7 +78,9 @@ END SUB
 FUNCTION NextPrepassLine$
     DIM processedLine$
 
+    classSyntaxQueuedLine = 0
     IF LEN(classSyntaxQueue$) THEN
+        classSyntaxQueuedLine = -1
         processedLine$ = ClassSyntax_DequeueLine$
         NextPrepassLine$ = TopLevelRuntime_ProcessLine$(processedLine$)
         EXIT FUNCTION
@@ -102,9 +106,11 @@ FUNCTION NextMainPassLine$ (currentLine$)
 
     processedLine$ = currentLine$
     NextMainPassLine$ = processedLine$
+    classSyntaxQueuedLine = 0
     IF inclevel <> 0 THEN EXIT FUNCTION
 
     IF LEN(classSyntaxQueue$) THEN
+        classSyntaxQueuedLine = -1
         processedLine$ = ClassSyntax_DequeueLine$
         NextMainPassLine$ = TopLevelRuntime_ProcessLine$(processedLine$)
         EXIT FUNCTION

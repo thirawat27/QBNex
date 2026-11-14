@@ -32,7 +32,7 @@ set "RUNNER=crates\engine\exec\bin\windows\qb-exec.exe"
 if defined QBNEX_QB_EXEC (
     copy /y "%QBNEX_QB_EXEC%" %RUNNER% >nul
     if errorlevel 1 (
-        echo Error: cannot copy %QBNEX_QB_EXEC%.
+        echo Error: cannot copy "%QBNEX_QB_EXEC%".
         exit /b 1
     )
     goto haverunner
@@ -67,7 +67,7 @@ if errorlevel 1 (
 :haverunner
 
 if not exist "%QBNEX_BOOTSTRAP%" (
-    echo Error: %QBNEX_BOOTSTRAP% is missing.
+    echo Error: "%QBNEX_BOOTSTRAP%" is missing.
     echo It is produced from compiler\qbnex.bas by a QIR-capable compiler ^(qb --ir^);
     echo see CONTRIBUTING.md ^(bootstrap^).
     exit /b 1

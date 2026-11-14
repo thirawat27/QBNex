@@ -463,6 +463,37 @@ fn release_for_next(vm: &mut dyn Host<'_>) -> R<()> {
     Ok(())
 }
 
+/// Writes the COMMON values for the next program to a new file in the temporary
+/// folder. The file is created, never opened: a name that already exists (in a
+/// shared /tmp it can be someone's symbolic link to a file of the user) is passed
+/// over, and only the user can read it.
+fn chain_file(common: &[u8]) -> Option<std::path::PathBuf> {
+    use std::io::Write;
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    for k in 0..16u32 {
+        let path = std::env::temp_dir().join(format!("qbnex-chain-{}-{:08x}.bin", std::process::id(), nanos.wrapping_add(k)));
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            o.mode(0o600);
+        }
+        match o.open(&path) {
+            Ok(mut f) => {
+                if f.write_all(common).is_err() {
+                    let _ = std::fs::remove_file(&path);
+                    return None;
+                }
+                return Some(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return None,
+        }
+    }
+    None
+}
+
 /// RUN file$ / CHAIN: the program `cmd` replaces this one. Unix: the process
 /// becomes it (`exec`, through the shell as SHELL does). Windows: this program
 /// releases its files, audio and window, waits for it and ends with its exit
@@ -475,12 +506,14 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     }
     let mut c = super::builtins::shell_command(cmd);
     let common = std::mem::take(&mut vm.rt().dos.chain_out);
-    let file = (!common.is_empty()).then(|| std::env::temp_dir().join(format!("qbnex-chain-{}.bin", std::process::id())));
+    let file = if common.is_empty() {
+        None
+    } else {
+        let Some(f) = chain_file(&common) else { return e(75) };
+        Some(f)
+    };
     match &file {
         Some(f) => {
-            if std::fs::write(f, &common).is_err() {
-                return e(75);
-            }
             c.env("QBNEX_CHAIN", f);
         }
         None => {
@@ -658,10 +691,13 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
         }
         "RUNFILE" => {
             let f = String::from_utf8_lossy(a[0].s()).into_owned();
-            let exe = f.split(' ').next().unwrap_or("").to_string();
+            // as CHAIN: a name without a directory is the program in the current directory
+            let (exe, args) = f.split_once(' ').map_or((f.as_str(), ""), |(x, y)| (x, y));
+            let exe = exe.to_string();
+            let cmd = if args.is_empty() { format!("\"{}\"", in_dir(&exe)) } else { format!("\"{}\" {args}", in_dir(&exe)) };
             // RUN passes no COMMON variables
             vm.rt().dos.chain_out.clear();
-            run_program(vm, &f, &exe).map(|_| None)
+            run_program(vm, &cmd, &exe).map(|_| None)
         }
         "CHAINPUT" => {
             let b = match vm.bytes(a[0].p(), i(1).max(0) as usize) {

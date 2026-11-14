@@ -3,6 +3,10 @@
 
 use crate::lexer::{Token, TokenKind, lex};
 
+/// Deepest block nesting the tree keeps; an opener beyond it is a plain statement
+/// with an error (real programs stay far below).
+const MAX_BLOCK_DEPTH: usize = 256;
+
 /// Kinds of block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlockKind {
@@ -498,6 +502,13 @@ impl Builder<'_> {
                     && self.stack.iter().any(|f| matches!(f.kind, BlockKind::Sub | BlockKind::Function))
                 {
                     self.error(range.clone(), format!("{} inside another SUB or FUNCTION", kind.opener()));
+                }
+                // The tree is walked recursively and indented by depth: unbounded nesting
+                // (thousands of unclosed openers) overflowed the stack of the tools.
+                if self.stack.len() >= MAX_BLOCK_DEPTH {
+                    self.error(range, format!("{} nested too deeply", kind.opener()));
+                    self.container().children.push(Element::Node(node(Role::Plain)));
+                    return;
                 }
                 let mut block = Node::new(NodeKind::Block(kind));
                 block.children.push(Element::Node(node(role)));

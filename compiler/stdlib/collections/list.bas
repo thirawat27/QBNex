@@ -71,20 +71,22 @@ FUNCTION List_Get$ (listRef AS QBNex_List, index AS LONG)
 END FUNCTION
 
 SUB List_Set (listRef AS QBNex_List, index AS LONG, item AS STRING)
-    DIM rebuilt AS STRING
+    DIM handle AS LONG
+    DIM position AS LONG
     DIM i AS LONG
+    DIM itemLength AS LONG
 
-    IF index < 0 OR index >= listRef.Count THEN EXIT SUB
+    handle = listRef.Handle
+    IF handle < 1 OR handle > 256 THEN EXIT SUB
+    IF index < 0 OR index >= listRef.Count OR index >= QBNEX_ListPoolCount(handle) THEN EXIT SUB
 
-    FOR i = 0 TO listRef.Count - 1
-        IF i = index THEN
-            rebuilt = rebuilt + MKL$(LEN(item)) + item
-        ELSE
-            rebuilt = rebuilt + MKL$(LEN(List_Get$(listRef, i))) + List_Get$(listRef, i)
-        END IF
+    ' one walk to the item, then splice it (a rebuild through List_Get$ was quadratic)
+    position = 1
+    FOR i = 0 TO index - 1
+        position = position + 4 + CVL(MID$(QBNEX_ListPool(handle), position, 4))
     NEXT
-
-    QBNEX_ListPool(listRef.Handle) = rebuilt
+    itemLength = CVL(MID$(QBNEX_ListPool(handle), position, 4))
+    QBNEX_ListPool(handle) = LEFT$(QBNEX_ListPool(handle), position - 1) + MKL$(LEN(item)) + item + MID$(QBNEX_ListPool(handle), position + 4 + itemLength)
 END SUB
 
 FUNCTION List_IndexOf& (listRef AS QBNex_List, item AS STRING)
@@ -105,22 +107,25 @@ FUNCTION List_Contains& (listRef AS QBNex_List, item AS STRING)
 END FUNCTION
 
 SUB List_RemoveAt (listRef AS QBNex_List, index AS LONG)
-    DIM rebuilt AS STRING
+    DIM handle AS LONG
+    DIM position AS LONG
     DIM i AS LONG
-    DIM value AS STRING
+    DIM itemLength AS LONG
 
-    IF index < 0 OR index >= listRef.Count THEN EXIT SUB
+    handle = listRef.Handle
+    IF handle < 1 OR handle > 256 THEN EXIT SUB
+    IF index < 0 OR index >= listRef.Count OR index >= QBNEX_ListPoolCount(handle) THEN EXIT SUB
 
-    FOR i = 0 TO listRef.Count - 1
-        IF i <> index THEN
-            value = List_Get$(listRef, i)
-            rebuilt = rebuilt + MKL$(LEN(value)) + value
-        END IF
+    ' one walk to the item, then cut it out (a rebuild through List_Get$ was quadratic,
+    ' so draining a queue of n items was cubic)
+    position = 1
+    FOR i = 0 TO index - 1
+        position = position + 4 + CVL(MID$(QBNEX_ListPool(handle), position, 4))
     NEXT
-
-    QBNEX_ListPool(listRef.Handle) = rebuilt
-    QBNEX_ListPoolCount(listRef.Handle) = QBNEX_ListPoolCount(listRef.Handle) - 1
-    listRef.Count = QBNEX_ListPoolCount(listRef.Handle)
+    itemLength = CVL(MID$(QBNEX_ListPool(handle), position, 4))
+    QBNEX_ListPool(handle) = LEFT$(QBNEX_ListPool(handle), position - 1) + MID$(QBNEX_ListPool(handle), position + 4 + itemLength)
+    QBNEX_ListPoolCount(handle) = QBNEX_ListPoolCount(handle) - 1
+    listRef.Count = QBNEX_ListPoolCount(handle)
 END SUB
 
 SUB List_Clear (listRef AS QBNex_List)

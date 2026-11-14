@@ -110,6 +110,8 @@ impl Debugger for Hook {
         };
         let mut msg = serde_json::to_value(&snap).unwrap();
         msg["t"] = json!("stopped");
+        // a resume sent while the program was running does not apply to this stop
+        while self.resume.try_recv().is_ok() {}
         if writeln!(self.out, "{msg}").is_err() {
             std::process::exit(0);
         }

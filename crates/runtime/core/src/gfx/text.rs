@@ -11,7 +11,8 @@ use super::ImgStruct;
 /// Other font numbers draw nothing.
 ///
 /// # Safety
-/// The character cell must lie inside `im` (as in legacy, no clipping).
+/// `im` must be a valid surface. Pixels of the cell outside it are skipped (legacy
+/// did not clip, and wrote past the buffer of an image smaller than one cell).
 pub unsafe fn printchr_builtin(im: &ImgStruct, character: i32) {
     let (rows, glyph): (u32, &[u8]) = match im.font {
         8 => (8, &charset8x8[..]),
@@ -28,11 +29,15 @@ pub unsafe fn printchr_builtin(im: &ImgStruct, character: i32) {
     let x = 8u32.wrapping_mul((im.cursor_x as i32 - 1) as u32);
     let y = ((im.cursor_y as i32 - 1) as u32).wrapping_mul(rows);
     let (color, background) = (im.color, im.background_color);
+    let (w, h) = (i32::from(im.width), i32::from(im.height));
     for y2 in 0..rows {
         for x2 in 0..8u32 {
             let ink = glyph[start + (y2 * 8 + x2) as usize] != 0;
             let px = x.wrapping_add(x2) as i32;
             let py = y.wrapping_add(y2) as i32;
+            if px < 0 || py < 0 || px >= w || py >= h {
+                continue;
+            }
             // SAFETY: guaranteed by the caller.
             unsafe {
                 match im.print_mode {

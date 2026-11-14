@@ -251,7 +251,12 @@ SUB IrOpen
         e$ = gv(2): IF LEFT$(e$, 1) = "#" THEN e$ = MID$(e$, 3)
         ch$ = IrArgAs$(fixoperationorder$(e$), "i32")
         f$ = IrEvalTo$(fixoperationorder$(gv(3)), ISSTRING)
-        IrE "rt OPENOLD " + f$ + " " + ch$ + " " + md$
+        IF k >= 4 THEN
+            'OPEN mode$, #n, file$, reclen
+            IrE "rt OPENOLDL " + f$ + " " + ch$ + " " + md$ + " " + IrArgAs$(fixoperationorder$(gv(4)), "i32")
+        ELSE
+            IrE "rt OPENOLD " + f$ + " " + ch$ + " " + md$
+        END IF
         EXIT SUB
     END IF
     j = IrFindSep(2, "|FOR|ACCESS|SHARED|LOCK|AS|")
@@ -294,7 +299,10 @@ SUB IrOpen
     k = IrFindSep(a + 1, "|LEN|")
     ch$ = IrChan$(a + 1, k - 1)
     IF k <= n THEN ln$ = IrArgAs$(fixoperationorder$(IrEls$(k + 2, n)), "i32") ELSE ln$ = IrI32$(0)
-    IF acc = 0 AND shr = 0 THEN
+    IF k <= n THEN
+        'LEN = is written: the runtime reports LEN = 0 as an error (in OPEN/OPENX 0 means "no LEN")
+        IrE "rt OPENL " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$ + " " + IrI32$(acc) + " " + IrI32$(shr)
+    ELSEIF acc = 0 AND shr = 0 THEN
         IrE "rt OPEN " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$
     ELSE
         IrE "rt OPENX " + f$ + " " + IrI32$(mode) + " " + ch$ + " " + ln$ + " " + IrI32$(acc) + " " + IrI32$(shr)
@@ -422,8 +430,18 @@ SUB IrInput (lineinput AS LONG)
         ELSEIF st$ = "str" THEN
             r$ = IrRt$("INPUTITEM.s", " " + ch$, "str")
         ELSE
-            r$ = IrRt$("INPUTITEM.n", " " + ch$, "f64")
-            r$ = IrCvt$(r$, "f64", st$)
+            IF st$ = "i64" OR st$ = "u64" THEN
+                'a DOUBLE holds 53 bits: 64-bit integers are read as integers
+                r$ = IrRt$("INPUTITEM.i", " " + ch$, "i64")
+                r$ = IrCvt$(r$, "i64", st$)
+            ELSEIF st$ = "f80" THEN
+                r$ = IrRt$("INPUTITEM.x", " " + ch$, "f80")
+            ELSE
+                r$ = IrRt$("INPUTITEM.n", " " + ch$, "f64")
+                r$ = IrCvt$(r$, "f64", st$)
+            END IF
+            'a _BIT variable holds what its bits can (as an assignment makes it)
+            IF t AND ISOFFSETINBITS THEN r$ = IrBitWrap$(r$, t)
         END IF
         IrStore p$, r$
         i = j + 1
@@ -447,7 +465,12 @@ SUB IrGetPut (f$)
     IF k > n THEN IrE "rt " + f$ + "FIELD " + ch$ + " " + pos$: EXIT SUB
     p$ = IrPlaceAtRaw$(k + 1, n, t)
     IF p$ = "" THEN EXIT SUB
-    IF LEFT$(p$, 1) = "A" THEN IrNotSup f$ + " of a whole array": EXIT SUB
+    IF LEFT$(p$, 1) = "A" THEN
+        'the whole array as one block of bytes (not variable-length strings: each has its own length)
+        IF (t AND ISSTRING) <> 0 AND (t AND ISFIXEDLENGTH) = 0 THEN IrNotSup f$ + " of a whole array of variable-length strings": EXIT SUB
+        IrE "rt " + f$ + "ARR " + ch$ + " " + pos$ + " " + IrAddr$(p$)
+        EXIT SUB
+    END IF
     st$ = IrPlaceSTy$(p$)
     IF st$ = "str" THEN
         IF f$ = "PUT" THEN

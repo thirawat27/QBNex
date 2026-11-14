@@ -19,10 +19,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(
         vscode.commands.registerCommand('qbnex.compile', () => compileCommand()),
         vscode.commands.registerCommand('qbnex.run', () => runCommand()),
-        vscode.commands.registerCommand('qbnex.restartServer', async () => {
-            await stopServer();
-            await startServer(context);
-        }),
+        vscode.commands.registerCommand('qbnex.restartServer', () => restartServer(context)),
         vscode.debug.registerDebugAdapterDescriptorFactory('qbnex', {
             createDebugAdapterDescriptor: () => new vscode.DebugAdapterExecutable(toolCommand(context, 'dap.path', 'qb-dap')),
         }),
@@ -42,8 +39,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('qbnex.lsp')) {
-                await stopServer();
-                await startServer(context);
+                await restartServer(context);
             }
         }),
     );
@@ -71,6 +67,19 @@ function toolCommand(context: vscode.ExtensionContext, setting: string, tool: st
 
 function serverCommand(context: vscode.ExtensionContext): string {
     return toolCommand(context, 'lsp.path', 'qb-lsp');
+}
+
+let restarting: Promise<void> = Promise.resolve();
+
+/** One restart at a time: two that overlap each started a server and one was never stopped. */
+function restartServer(context: vscode.ExtensionContext): Promise<void> {
+    restarting = restarting
+        .catch(() => undefined)
+        .then(async () => {
+            await stopServer();
+            await startServer(context);
+        });
+    return restarting;
 }
 
 async function startServer(context: vscode.ExtensionContext): Promise<void> {

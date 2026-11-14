@@ -621,7 +621,8 @@ pub fn load(content: &[u8], default_pixel_height: i32, which_font: i32, options:
     };
     if options & 16 != 0 {
         // the width of capital W, rendered in monochrome
-        let r = render_font(&font, &[87], 1).expect("one codepoint always renders");
+        // None: a font whose advance makes one cell larger than any string may be
+        let Some(r) = render_font(&font, &[87], 1) else { return 0 };
         font.monospace_width = r.w;
         font.monospace = true;
     }

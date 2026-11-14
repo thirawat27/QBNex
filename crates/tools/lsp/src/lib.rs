@@ -80,13 +80,78 @@ impl Default for Server {
     }
 }
 
+/// Largest message body accepted. A client-supplied `Content-Length` is not trusted
+/// with an allocation: `Connection::stdio` reserved whatever the header said and
+/// aborted the server on a wrong one.
+pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
+
+/// Reads one message; `Ok(None)` at end of input.
+pub fn read_message(r: &mut impl std::io::BufRead) -> std::io::Result<Option<Message>> {
+    use std::io::{Error, ErrorKind};
+    let mut len: Option<usize> = None;
+    loop {
+        let mut line = String::new();
+        if r.read_line(&mut line)? == 0 {
+            return Ok(None);
+        }
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
+            if len.is_some() {
+                break;
+            }
+            continue;
+        }
+        if let Some((k, v)) = line.split_once(':')
+            && k.trim().eq_ignore_ascii_case("Content-Length")
+        {
+            len = Some(v.trim().parse().map_err(|_| Error::new(ErrorKind::InvalidData, format!("bad Content-Length `{}`", v.trim())))?);
+        }
+    }
+    let len = len.unwrap_or(0);
+    if len > MAX_MESSAGE {
+        return Err(Error::new(ErrorKind::InvalidData, format!("LSP message of {len} bytes is too large")));
+    }
+    let mut buf = vec![0; len];
+    r.read_exact(&mut buf)?;
+    serde_json::from_slice(&buf).map(Some).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+}
+
 /// Runs the server on stdio until the client exits.
 pub fn run_stdio() -> Result<(), BoxError> {
-    let (conn, io) = Connection::stdio();
-    run(&conn)?;
+    let (conn, client) = Connection::memory();
+    let Connection { sender: to_server, receiver: from_server } = client;
+    let reader = std::thread::spawn(move || {
+        let mut stdin = std::io::stdin().lock();
+        loop {
+            match read_message(&mut stdin) {
+                Ok(Some(msg)) => {
+                    let exit = matches!(&msg, Message::Notification(n) if n.method == "exit");
+                    if to_server.send(msg).is_err() || exit {
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    eprintln!("qb-lsp: {e}");
+                    break;
+                }
+            }
+        }
+    });
+    let writer = std::thread::spawn(move || {
+        let mut stdout = std::io::stdout().lock();
+        for msg in from_server {
+            if msg.write(&mut stdout).is_err() {
+                break;
+            }
+        }
+    });
+    let result = run(&conn);
     drop(conn);
-    io.join()?;
-    Ok(())
+    let _ = writer.join();
+    // the reader may still wait for input the client never sends: not joined
+    drop(reader);
+    result
 }
 
 pub fn capabilities() -> lt::ServerCapabilities {

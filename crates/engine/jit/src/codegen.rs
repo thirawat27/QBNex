@@ -49,6 +49,21 @@ pub(crate) fn make_isa(t: Target) -> OwnedTargetIsa {
 /// `pic`: position-independent code (calls and data through the GOT), for
 /// objects a system linker links into a PIE (ELF) or any Mach-O executable.
 pub(crate) fn make_isa_pic(t: Target, pic: bool) -> OwnedTargetIsa {
+    make_isa_for(t, pic, true)
+}
+
+/// False on a machine Cranelift has no back end for (only x86-64 and AArch64 are
+/// built in): callers then stay with the interpreter instead of failing in
+/// [`compile`].
+pub fn host_supported() -> bool {
+    cfg!(target_pointer_width = "64") && cranelift_native::builder().is_ok()
+}
+
+/// `this_cpu`: use every instruction set extension of the CPU this runs on (AVX,
+/// FMA, ...). Right for code that runs here and now (the JIT); code built ahead of
+/// time runs on other machines and gets the baseline of the architecture, or a
+/// program built on a new CPU stops with an illegal instruction on an older one.
+pub(crate) fn make_isa_for(t: Target, pic: bool, this_cpu: bool) -> OwnedTargetIsa {
     let mut fb = settings::builder();
     fb.set("opt_level", "speed").expect("flag");
     // the IR verifier only checks this crate's own output: debug builds keep it
@@ -57,7 +72,7 @@ pub(crate) fn make_isa_pic(t: Target, pic: bool) -> OwnedTargetIsa {
     fb.set("use_colocated_libcalls", "false").expect("flag");
     let flags = settings::Flags::new(fb);
     let triple = match t {
-        Target::Host => return cranelift_native::builder().expect("host ISA").finish(flags).expect("isa"),
+        Target::Host => return cranelift_native::builder_with_options(this_cpu).expect("host ISA").finish(flags).expect("isa"),
         Target::X86_64 => "x86_64-unknown-linux-gnu",
         Target::Aarch64 => "aarch64-unknown-linux-gnu",
         Target::X86_64Darwin => "x86_64-apple-darwin",
@@ -130,6 +145,18 @@ pub fn symbols(m: &Module) -> Vec<(String, usize)> {
         ("qb_jit_pow_f64".into(), pow_f64 as *const () as usize),
         ("qb_jit_zero_slots".into(), zero_slots as *const () as usize),
         ("qb_jit_chain_push".into(), chain_push as *const () as usize),
+        // Cranelift's libcalls for a baseline CPU (no SSE4.1 / FMA): code built ahead
+        // of time calls these by name, and a native image has no libm to find them in
+        ("floor".into(), lc_floor as *const () as usize),
+        ("floorf".into(), lc_floorf as *const () as usize),
+        ("ceil".into(), lc_ceil as *const () as usize),
+        ("ceilf".into(), lc_ceilf as *const () as usize),
+        ("trunc".into(), lc_trunc as *const () as usize),
+        ("truncf".into(), lc_truncf as *const () as usize),
+        ("nearbyint".into(), lc_nearbyint as *const () as usize),
+        ("nearbyintf".into(), lc_nearbyintf as *const () as usize),
+        ("fma".into(), lc_fma as *const () as usize),
+        ("fmaf".into(), lc_fmaf as *const () as usize),
     ];
     for (i, h) in m.hosts.iter().enumerate() {
         v.push((format!("qb_host_{i}"), h.addr));
@@ -138,6 +165,41 @@ pub fn symbols(m: &Module) -> Vec<(String, usize)> {
         v.push(("qb_vm_op".into(), m.vm_op));
     }
     v
+}
+
+/// Cranelift's math libcalls: the system linker finds them in libm (or the kit's
+/// list); only a native image needs the addresses from [`symbols`].
+pub const LIBCALL_SYMBOLS: [&str; 10] = ["floor", "floorf", "ceil", "ceilf", "trunc", "truncf", "nearbyint", "nearbyintf", "fma", "fmaf"];
+
+extern "C" fn lc_floor(x: f64) -> f64 {
+    x.floor()
+}
+extern "C" fn lc_floorf(x: f32) -> f32 {
+    x.floor()
+}
+extern "C" fn lc_ceil(x: f64) -> f64 {
+    x.ceil()
+}
+extern "C" fn lc_ceilf(x: f32) -> f32 {
+    x.ceil()
+}
+extern "C" fn lc_trunc(x: f64) -> f64 {
+    x.trunc()
+}
+extern "C" fn lc_truncf(x: f32) -> f32 {
+    x.trunc()
+}
+extern "C" fn lc_nearbyint(x: f64) -> f64 {
+    x.round_ties_even()
+}
+extern "C" fn lc_nearbyintf(x: f32) -> f32 {
+    x.round_ties_even()
+}
+extern "C" fn lc_fma(a: f64, b: f64, c: f64) -> f64 {
+    a.mul_add(b, c)
+}
+extern "C" fn lc_fmaf(a: f32, b: f32, c: f32) -> f32 {
+    a.mul_add(b, c)
 }
 
 /// Exported name of function `i` of a module.
@@ -771,7 +833,7 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             Term::Dispatch { val, cases } => {
                 let v = self.get(*val);
                 let v32 = match self.ty(*val) {
-                    Ty::I16 => self.b.ins().uextend(types::I32, v),
+                    Ty::I16 => self.b.ins().sextend(types::I32, v),
                     Ty::I32 => v,
                     _ => self.b.ins().ireduce(types::I32, v),
                 };

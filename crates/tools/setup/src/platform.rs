@@ -538,10 +538,21 @@ mod imp {
         cfg!(target_os = "macos") || ["WAYLAND_DISPLAY", "DISPLAY"].iter().any(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
     }
 
+    /// `p` with symlinks resolved; when it does not exist, without `.` and trailing slashes.
+    fn canon(p: &Path) -> PathBuf {
+        p.canonicalize().unwrap_or_else(|_| p.components().collect())
+    }
+
     /// True when `link` is a symlink whose target lies in `dir` (or no longer exists).
+    /// A relative target is relative to the link's folder, not to the current one, and
+    /// the two paths may spell the same folder differently (a symlinked home, a
+    /// trailing slash).
     fn ours(link: &Path, dir: &Path) -> bool {
         match std::fs::read_link(link) {
-            Ok(t) => t.starts_with(dir) || !t.exists(),
+            Ok(t) => {
+                let t = if t.is_absolute() { t } else { link.parent().unwrap_or(Path::new(".")).join(t) };
+                t.starts_with(dir) || canon(&t).starts_with(canon(dir)) || !t.exists()
+            }
             Err(_) => false,
         }
     }
@@ -680,7 +691,10 @@ mod imp {
             return false;
         };
         let d = dir.display().to_string();
-        text.lines().any(|l| l.strip_prefix("X-QBNex-Dir=").or(l.strip_prefix("# QBNex ")) == Some(d.as_str()))
+        let want = canon(dir);
+        text.lines()
+            .filter_map(|l| l.strip_prefix("X-QBNex-Dir=").or(l.strip_prefix("# QBNex ")))
+            .any(|v| v == d || canon(Path::new(v)) == want)
     }
 
     /// Undoes [`register`] for the install in `dir`; what belongs to another install stays.

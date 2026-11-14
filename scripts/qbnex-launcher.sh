@@ -10,7 +10,17 @@
 # Tools are looked up next to this script, then in this checkout's cargo
 # output (target/release, target/debug), then on PATH.
 
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# The installer links ~/.local/bin/qbnex to this script: follow the link, so the
+# tools are looked up in the install folder and not next to the link.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname -- "$self")/$link ;;
+  esac
+done
+here=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)
 
 case "${1:-}" in
   fmt) tool=qb-fmt ;;

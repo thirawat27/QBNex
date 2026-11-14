@@ -369,22 +369,22 @@ FUNCTION List_Get$ (listRef AS QBNex_List, index AS LONG)
 END FUNCTION
 
 SUB List_Set (listRef AS QBNex_List, index AS LONG, item AS STRING)
-    DIM rebuilt AS STRING
+    DIM handle AS LONG
+    DIM position AS LONG
     DIM i AS LONG
-    DIM currentValue AS STRING
+    DIM itemLength AS LONG
 
-    IF index < 0 OR index >= listRef.Count THEN EXIT SUB
+    handle = listRef.Handle
+    IF handle < 1 OR handle > 256 THEN EXIT SUB
+    IF index < 0 OR index >= listRef.Count OR index >= QBNEX_ListPoolCount(handle) THEN EXIT SUB
 
-    FOR i = 0 TO listRef.Count - 1
-        IF i = index THEN
-            rebuilt = rebuilt + MKL$(LEN(item)) + item
-        ELSE
-            currentValue = List_Get$(listRef, i)
-            rebuilt = rebuilt + MKL$(LEN(currentValue)) + currentValue
-        END IF
+    ' one walk to the item, then splice it (a rebuild through List_Get$ was quadratic)
+    position = 1
+    FOR i = 0 TO index - 1
+        position = position + 4 + CVL(MID$(QBNEX_ListPool(handle), position, 4))
     NEXT
-
-    QBNEX_ListPool(listRef.Handle) = rebuilt
+    itemLength = CVL(MID$(QBNEX_ListPool(handle), position, 4))
+    QBNEX_ListPool(handle) = LEFT$(QBNEX_ListPool(handle), position - 1) + MKL$(LEN(item)) + item + MID$(QBNEX_ListPool(handle), position + 4 + itemLength)
 END SUB
 
 FUNCTION List_IndexOf& (listRef AS QBNex_List, item AS STRING)
@@ -405,22 +405,25 @@ FUNCTION List_Contains& (listRef AS QBNex_List, item AS STRING)
 END FUNCTION
 
 SUB List_RemoveAt (listRef AS QBNex_List, index AS LONG)
-    DIM rebuilt AS STRING
+    DIM handle AS LONG
+    DIM position AS LONG
     DIM i AS LONG
-    DIM currentValue AS STRING
+    DIM itemLength AS LONG
 
-    IF index < 0 OR index >= listRef.Count THEN EXIT SUB
+    handle = listRef.Handle
+    IF handle < 1 OR handle > 256 THEN EXIT SUB
+    IF index < 0 OR index >= listRef.Count OR index >= QBNEX_ListPoolCount(handle) THEN EXIT SUB
 
-    FOR i = 0 TO listRef.Count - 1
-        IF i <> index THEN
-            currentValue = List_Get$(listRef, i)
-            rebuilt = rebuilt + MKL$(LEN(currentValue)) + currentValue
-        END IF
+    ' one walk to the item, then cut it out (a rebuild through List_Get$ was quadratic,
+    ' so draining a queue of n items was cubic)
+    position = 1
+    FOR i = 0 TO index - 1
+        position = position + 4 + CVL(MID$(QBNEX_ListPool(handle), position, 4))
     NEXT
-
-    QBNEX_ListPool(listRef.Handle) = rebuilt
-    QBNEX_ListPoolCount(listRef.Handle) = QBNEX_ListPoolCount(listRef.Handle) - 1
-    listRef.Count = QBNEX_ListPoolCount(listRef.Handle)
+    itemLength = CVL(MID$(QBNEX_ListPool(handle), position, 4))
+    QBNEX_ListPool(handle) = LEFT$(QBNEX_ListPool(handle), position - 1) + MID$(QBNEX_ListPool(handle), position + 4 + itemLength)
+    QBNEX_ListPoolCount(handle) = QBNEX_ListPoolCount(handle) - 1
+    listRef.Count = QBNEX_ListPoolCount(handle)
 END SUB
 
 SUB List_Clear (listRef AS QBNex_List)
@@ -572,6 +575,8 @@ END SUB
 SUB Dict_Init (dictRef AS QBNex_Dictionary)
     List_Init dictRef.Keys
     List_Init dictRef.Values
+    ' the list pool ran out between the two: no half dictionary with keys and no values
+    IF dictRef.Values.Handle = 0 THEN List_Free dictRef.Keys
 END SUB
 
 SUB Dict_Set (dictRef AS QBNex_Dictionary, keyText AS STRING, valueText AS STRING)
@@ -1027,7 +1032,7 @@ SUB Date_FromUnixMs (dateRef AS QBNex_Date, epochMs AS DOUBLE)
 
     ' INT rounds toward minus infinity, so times before 1970 work too.
     totalSeconds = INT(epochMs / 1000#)
-    dateRef.Millisecond = epochMs - totalSeconds * 1000#
+    dateRef.Millisecond = INT(epochMs - totalSeconds * 1000#) ' INT: rounding gave 1000 for .9995 and above
     wholeDays = INT(totalSeconds / 86400#)
     secondsOfDay = totalSeconds - wholeDays * 86400#
 
@@ -1314,7 +1319,7 @@ FUNCTION Result_PrependDetail$ (existingText AS STRING, newText AS STRING)
         Result_PrependDetail$ = normalizedNew
     ELSEIF UCASE$(normalizedExisting) = UCASE$(normalizedNew) THEN
         Result_PrependDetail$ = normalizedExisting
-    ELSEIF INSTR(UCASE$(normalizedExisting), UCASE$(normalizedNew)) > 0 THEN
+    ELSEIF INSTR(" -> " + UCASE$(normalizedExisting) + " -> ", " -> " + UCASE$(normalizedNew) + " -> ") > 0 THEN ' a whole entry of the chain, not a substring
         Result_PrependDetail$ = normalizedExisting
     ELSE
         Result_PrependDetail$ = normalizedNew + " -> " + normalizedExisting
@@ -1505,13 +1510,13 @@ FUNCTION Result_Expect$ (resultRef AS QBNex_Result, expectationText AS STRING)
 END FUNCTION
 
 FUNCTION QBNex_StdLib_Version$ ()
-    QBNex_StdLib_Version = "2.0.0"
+    QBNex_StdLib_Version = "2.0.0-preview"
 END FUNCTION
 
 FUNCTION QBNex_StdLib_Info$ ()
     DIM text AS STRING
 
-    text = "QBNex Standard Library v1.0.0" + CHR$(13) + CHR$(10)
+    text = "QBNex Standard Library v" + QBNex_StdLib_Version$ + CHR$(13) + CHR$(10)
     text = text + "Build: 2026.04.13" + CHR$(13) + CHR$(10)
     text = text + "Modules: oop, collections, strings, sys, io, math, data, result, datetime, class syntax"
 

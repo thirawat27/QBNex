@@ -9,7 +9,7 @@
 '
 '   v% = JSON_Parse%(text$)          ' 0 on error: see JSON_LastError$,
 '                                     ' JSON_ErrorPosition& (1-based byte)
-'   t% = JsonGetType%(v%)            ' JSON_NULL ... JSON_OBJECT
+'   t% = JsonGetType%(v%)            ' JSON_TYPE_NULL ... JSON_TYPE_OBJECT
 '   x% = JsonObjectGet%(v%, "key")   ' 0 when missing
 '   e% = JsonArrayGet%(v%, 0)        ' 0-based index
 '   s$ = JSON_Stringify$(v%)         ' compact; JSON_StringifyPretty$ indents
@@ -24,10 +24,17 @@
 ' Adding a value that already belongs to an array/object adds a deep copy.
 '===============================================================================
 
+CONST JSON_TYPE_NULL = 0
+CONST JSON_TYPE_BOOLEAN = 1
+CONST JSON_TYPE_NUMBER = 2
+CONST JSON_TYPE_STRING = 3
+CONST JSON_TYPE_ARRAY = 4
+CONST JSON_TYPE_OBJECT = 5
+' The names before JSON_TYPE_*. There is no JSON_STRING: it is the same name as
+' Json_String$ of '$IMPORT:'qbnex', and the two modules could not be combined.
 CONST JSON_NULL = 0
 CONST JSON_BOOLEAN = 1
 CONST JSON_NUMBER = 2
-CONST JSON_STRING = 3
 CONST JSON_ARRAY = 4
 CONST JSON_OBJECT = 5
 
@@ -83,7 +90,7 @@ FUNCTION JsonAllocValue% ()
     IF JsonValuePoolSize% >= JSON_POOL_MAX THEN EXIT FUNCTION
 JsonValuePoolSize% = JsonValuePoolSize% + 1
     n% = JsonValuePoolSize%
-    JsonValueType%(n%) = JSON_NULL
+    JsonValueType%(n%) = JSON_TYPE_NULL
     JsonBoolValue%(n%) = 0
     JsonNumValue#(n%) = 0
     JsonStrValue$(n%) = ""
@@ -110,7 +117,7 @@ FUNCTION JsonCreateBoolean% (value AS _BYTE)
     DIM v%
     v% = JsonAllocValue%
     IF v% > 0 THEN
-        JsonValueType%(v%) = JSON_BOOLEAN
+        JsonValueType%(v%) = JSON_TYPE_BOOLEAN
         IF value THEN JsonBoolValue%(v%) = -1
     END IF
     JsonCreateBoolean% = v%
@@ -120,7 +127,7 @@ FUNCTION JsonCreateNumber% (value AS DOUBLE)
     DIM v%
     v% = JsonAllocValue%
     IF v% > 0 THEN
-        JsonValueType%(v%) = JSON_NUMBER
+        JsonValueType%(v%) = JSON_TYPE_NUMBER
         JsonNumValue#(v%) = value
     END IF
     JsonCreateNumber% = v%
@@ -130,7 +137,7 @@ FUNCTION JsonCreateString% (value AS STRING)
     DIM v%
     v% = JsonAllocValue%
     IF v% > 0 THEN
-        JsonValueType%(v%) = JSON_STRING
+        JsonValueType%(v%) = JSON_TYPE_STRING
         JsonStrValue$(v%) = value
     END IF
     JsonCreateString% = v%
@@ -139,14 +146,14 @@ END FUNCTION
 FUNCTION JsonCreateArray% ()
     DIM v%
     v% = JsonAllocValue%
-    IF v% > 0 THEN JsonValueType%(v%) = JSON_ARRAY
+    IF v% > 0 THEN JsonValueType%(v%) = JSON_TYPE_ARRAY
     JsonCreateArray% = v%
 END FUNCTION
 
 FUNCTION JsonCreateObject% ()
     DIM v%
     v% = JsonAllocValue%
-    IF v% > 0 THEN JsonValueType%(v%) = JSON_OBJECT
+    IF v% > 0 THEN JsonValueType%(v%) = JSON_TYPE_OBJECT
     JsonCreateObject% = v%
 END FUNCTION
 
@@ -209,7 +216,7 @@ END FUNCTION
 SUB JsonArrayPush (arrayIndex AS INTEGER, valueIndex AS INTEGER)
     DIM c%
     IF NOT JsonValid%(arrayIndex) THEN EXIT SUB
-    IF JsonValueType%(arrayIndex) <> JSON_ARRAY THEN EXIT SUB
+    IF JsonValueType%(arrayIndex) <> JSON_TYPE_ARRAY THEN EXIT SUB
     c% = JsonAdoptable%(arrayIndex, valueIndex)
     IF c% = 0 THEN EXIT SUB
     JsonKey$(c%) = ""
@@ -219,7 +226,7 @@ END SUB
 SUB JsonObjectSet (objectIndex AS INTEGER, memberName AS STRING, valueIndex AS INTEGER)
     DIM c%, p%, old%
     IF NOT JsonValid%(objectIndex) THEN EXIT SUB
-    IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT SUB
+    IF JsonValueType%(objectIndex) <> JSON_TYPE_OBJECT THEN EXIT SUB
     c% = JsonAdoptable%(objectIndex, valueIndex)
     IF c% = 0 THEN EXIT SUB
     JsonKey$(c%) = memberName
@@ -245,7 +252,7 @@ END SUB
 SUB JsonObjectRemove (objectIndex AS INTEGER, memberName AS STRING)
     DIM p%, c%
     IF NOT JsonValid%(objectIndex) THEN EXIT SUB
-    IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT SUB
+    IF JsonValueType%(objectIndex) <> JSON_TYPE_OBJECT THEN EXIT SUB
     c% = JsonFirstChild%(objectIndex)
     DO WHILE c% > 0
         IF JsonKey$(c%) = memberName THEN
@@ -264,7 +271,7 @@ END SUB
 '------------------------------------------------------------------- queries
 
 FUNCTION JsonGetType% (valueIndex AS INTEGER)
-    IF JsonValid%(valueIndex) THEN JsonGetType% = JsonValueType%(valueIndex) ELSE JsonGetType% = JSON_NULL
+    IF JsonValid%(valueIndex) THEN JsonGetType% = JsonValueType%(valueIndex) ELSE JsonGetType% = JSON_TYPE_NULL
 END FUNCTION
 
 FUNCTION JsonGetBoolean% (valueIndex AS INTEGER)
@@ -277,13 +284,13 @@ END FUNCTION
 
 FUNCTION JsonGetString$ (valueIndex AS INTEGER)
     IF JsonValid%(valueIndex) THEN
-        IF JsonValueType%(valueIndex) = JSON_STRING THEN JsonGetString$ = JsonStrValue$(valueIndex)
+        IF JsonValueType%(valueIndex) = JSON_TYPE_STRING THEN JsonGetString$ = JsonStrValue$(valueIndex)
     END IF
 END FUNCTION
 
 FUNCTION JsonArrayLength% (arrayIndex AS INTEGER)
     IF JsonValid%(arrayIndex) THEN
-        IF JsonValueType%(arrayIndex) = JSON_ARRAY OR JsonValueType%(arrayIndex) = JSON_OBJECT THEN JsonArrayLength% = JsonChildCount%(arrayIndex)
+        IF JsonValueType%(arrayIndex) = JSON_TYPE_ARRAY OR JsonValueType%(arrayIndex) = JSON_TYPE_OBJECT THEN JsonArrayLength% = JsonChildCount%(arrayIndex)
     END IF
 END FUNCTION
 
@@ -306,7 +313,7 @@ END FUNCTION
 FUNCTION JsonObjectGet% (objectIndex AS INTEGER, memberName AS STRING)
     DIM c%
     IF NOT JsonValid%(objectIndex) THEN EXIT FUNCTION
-    IF JsonValueType%(objectIndex) <> JSON_OBJECT THEN EXIT FUNCTION
+    IF JsonValueType%(objectIndex) <> JSON_TYPE_OBJECT THEN EXIT FUNCTION
     c% = JsonFirstChild%(objectIndex)
     DO WHILE c% > 0
         IF JsonKey$(c%) = memberName THEN
@@ -324,7 +331,7 @@ END FUNCTION
 ' Name of the 0-based member of an object.
 FUNCTION JsonObjectKey$ (objectIndex AS INTEGER, index AS INTEGER)
     DIM c%
-    IF JsonGetType%(objectIndex) <> JSON_OBJECT THEN EXIT FUNCTION
+    IF JsonGetType%(objectIndex) <> JSON_TYPE_OBJECT THEN EXIT FUNCTION
     c% = JsonArrayGet%(objectIndex, index)
     IF c% > 0 THEN JsonObjectKey$ = JsonKey$(c%)
 END FUNCTION
@@ -375,13 +382,13 @@ FUNCTION JsonStringifyValue$ (valueIndex AS INTEGER, indent AS INTEGER)
     END IF
 
     SELECT CASE JsonValueType%(valueIndex)
-        CASE JSON_BOOLEAN
+        CASE JSON_TYPE_BOOLEAN
             IF JsonBoolValue%(valueIndex) THEN r$ = "true" ELSE r$ = "false"
-        CASE JSON_NUMBER
+        CASE JSON_TYPE_NUMBER
             IF LEN(JsonStrValue$(valueIndex)) THEN r$ = JsonStrValue$(valueIndex) ELSE r$ = JsonNumberText$(JsonNumValue#(valueIndex))
-        CASE JSON_STRING
+        CASE JSON_TYPE_STRING
             r$ = CHR$(34) + JsonEscapeString$(JsonStrValue$(valueIndex)) + CHR$(34)
-        CASE JSON_ARRAY, JSON_OBJECT
+        CASE JSON_TYPE_ARRAY, JSON_TYPE_OBJECT
             nl$ = JsonNewLine$
             pad$ = ""
             inner$ = ""
@@ -389,12 +396,12 @@ FUNCTION JsonStringifyValue$ (valueIndex AS INTEGER, indent AS INTEGER)
                 pad$ = JsonIndent$(indent + 1)
                 inner$ = JsonIndent$(indent)
             END IF
-            IF JsonValueType%(valueIndex) = JSON_ARRAY THEN r$ = "[" ELSE r$ = "{"
+            IF JsonValueType%(valueIndex) = JSON_TYPE_ARRAY THEN r$ = "[" ELSE r$ = "{"
             c% = JsonFirstChild%(valueIndex)
             IF c% > 0 THEN r$ = r$ + nl$
             DO WHILE c% > 0
                 r$ = r$ + pad$
-                IF JsonValueType%(valueIndex) = JSON_OBJECT THEN
+                IF JsonValueType%(valueIndex) = JSON_TYPE_OBJECT THEN
                     r$ = r$ + CHR$(34) + JsonEscapeString$(JsonKey$(c%)) + CHR$(34) + ":"
                     IF JsonPrettyPrint THEN r$ = r$ + " "
                 END IF
@@ -404,7 +411,7 @@ FUNCTION JsonStringifyValue$ (valueIndex AS INTEGER, indent AS INTEGER)
                 r$ = r$ + nl$
             LOOP
             IF JsonFirstChild%(valueIndex) > 0 THEN r$ = r$ + inner$
-            IF JsonValueType%(valueIndex) = JSON_ARRAY THEN r$ = r$ + "]" ELSE r$ = r$ + "}"
+            IF JsonValueType%(valueIndex) = JSON_TYPE_ARRAY THEN r$ = r$ + "]" ELSE r$ = r$ + "}"
         CASE ELSE
             r$ = "null"
     END SELECT
@@ -507,11 +514,11 @@ FUNCTION JsonParseAny% ()
                 JsonParseAny% = v%
             END IF
         CASE 116 ' t
-            JsonParseAny% = JsonParseLiteral%("true", JSON_BOOLEAN, -1)
+            JsonParseAny% = JsonParseLiteral%("true", JSON_TYPE_BOOLEAN, -1)
         CASE 102 ' f
-            JsonParseAny% = JsonParseLiteral%("false", JSON_BOOLEAN, 0)
+            JsonParseAny% = JsonParseLiteral%("false", JSON_TYPE_BOOLEAN, 0)
         CASE 110 ' n
-            JsonParseAny% = JsonParseLiteral%("null", JSON_NULL, 0)
+            JsonParseAny% = JsonParseLiteral%("null", JSON_TYPE_NULL, 0)
         CASE 45, 48 TO 57
             JsonParseAny% = JsonParseNumberAt%
         CASE ELSE
@@ -580,7 +587,7 @@ FUNCTION JsonParseNumberAt% ()
         JsonFail "out of JSON value space"
         EXIT FUNCTION
     END IF
-    JsonValueType%(v%) = JSON_NUMBER
+    JsonValueType%(v%) = JSON_TYPE_NUMBER
     JsonNumValue#(v%) = JsonNumberValue#(t$)
     JsonStrValue$(v%) = t$
     JsonParseNumberAt% = v%
@@ -589,7 +596,7 @@ END FUNCTION
 ' ' Value of a JSON number lexeme. Magnitudes beyond DOUBLE become the largest
 ' DOUBLE (with sign) and tiny ones 0, so VAL never sees an out-of-range text.
 FUNCTION JsonNumberValue# (t AS STRING)
-    DIM p&, e&, m$, i&, c%, intDigits&, seenPoint%, lead&, pos10&, neg%
+    DIM p&, e&, m$, i&, c%, intDigits&, seenPoint%, lead&, pos10&, neg%, leadInt%, r#
     p& = INSTR(t, "e")
     IF p& = 0 THEN p& = INSTR(t, "E")
     m$ = t
@@ -613,18 +620,22 @@ FUNCTION JsonNumberValue# (t AS STRING)
             IF lead& = 0 AND c% > 48 THEN
                 lead& = intDigits&
                 IF seenPoint% THEN lead& = -(i& - INSTR(m$, ".")) ' position after the point
-                IF seenPoint% THEN pos10& = lead& ELSE pos10& = -1
+                IF seenPoint% THEN pos10& = lead& ELSE leadInt% = -1
             END IF
         END IF
     NEXT
     IF lead& = 0 THEN EXIT FUNCTION ' the value is zero
-    IF pos10& = -1 THEN pos10& = intDigits& - lead& ' first significant digit before the point
+    IF leadInt% THEN pos10& = intDigits& - lead& ' first significant digit before the point
     IF pos10& + e& > 308 THEN
         IF neg% THEN JsonNumberValue# = -1.7976931348623157D+308 ELSE JsonNumberValue# = 1.7976931348623157D+308
         EXIT FUNCTION
     END IF
     IF pos10& + e& < -330 THEN EXIT FUNCTION
-    JsonNumberValue# = VAL(t)
+    r# = VAL(t)
+    IF ABS(r#) > 1.7976931348623157D+308 THEN ' a mantissa above 1.797...: VAL overflowed to infinity
+        IF neg% THEN r# = -1.7976931348623157D+308 ELSE r# = 1.7976931348623157D+308
+    END IF
+    JsonNumberValue# = r#
 END FUNCTION
 FUNCTION JsonHexValue& (h AS STRING)
     DIM i%, c%, v&

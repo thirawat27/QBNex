@@ -67,7 +67,9 @@ impl Arr {
             if ub < lb {
                 return Err(9);
             }
-            count = count.checked_mul(usize::try_from(ub - lb + 1).map_err(|_| 7)?).ok_or(7)?;
+            // checked: (i64::MIN TO i64::MAX) wraps to 0 elements with bounds that accept every subscript
+            let n = ub.checked_sub(lb).and_then(|d| d.checked_add(1)).ok_or(7)?;
+            count = count.checked_mul(usize::try_from(n).map_err(|_| 7)?).ok_or(7)?;
         }
         if count > (1 << 31) {
             return Err(7); // out of memory
@@ -406,6 +408,11 @@ pub struct Vm<'m, 'o> {
     ab: usize,
     gosub: Vec<Gs>,
     on_error: Option<u32>,
+    /// TRY bodies being executed: (TRY statement, frame count when entered, the ON
+    /// ERROR handler that was set before it). See [`Host::try_enter`].
+    try_stack: Vec<(u32, usize, Option<u32>)>,
+    /// exit code of `END n` (set just before its END)
+    end_code: i32,
     /// (pc of the failing instruction, view) while an error handler runs
     in_handler: Option<(u32, usize)>,
     err: i32,
@@ -543,6 +550,27 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
     fn set_last_line(&mut self, n: u32) {
         self.last_line = n;
     }
+    fn set_end_code(&mut self, code: i32) {
+        self.end_code = code;
+    }
+    fn try_enter(&mut self, id: u32) {
+        let depth = self.frames.len();
+        self.try_unwind(depth);
+        // The same TRY of the same procedure call is still listed: its body was left
+        // by a jump (GOTO, EXIT of a loop around it). It and what was inside it end here.
+        if let Some(k) = self.try_stack.iter().rposition(|e| e.0 == id && e.1 == depth) {
+            self.on_error = self.try_stack[k].2;
+            self.try_stack.truncate(k);
+        }
+        self.try_stack.push((id, depth, self.on_error));
+    }
+    fn try_leave(&mut self) {
+        let depth = self.frames.len();
+        self.try_unwind(depth);
+        if let Some(e) = self.try_stack.pop_if(|e| e.1 == depth) {
+            self.on_error = e.2;
+        }
+    }
     fn bytes(&mut self, p: u64, len: usize) -> crate::rt::R<&mut [u8]> {
         self.mem.bytes(p, len).map_err(Stop::Err)
     }
@@ -553,7 +581,10 @@ impl<'o> Host<'o> for Vm<'_, 'o> {
         self.mem.dims(p).map_err(Stop::Err)
     }
     fn array_redim(&mut self, p: u64, dims: Vec<(i64, i64)>) -> crate::rt::R<()> {
-        self.mem.dim(p, crate::bytecode::DimMode::Redim, dims).map_err(Stop::Err)
+        self.mem.keep_freed = self.frames.len() > 1;
+        let r = self.mem.dim(p, crate::bytecode::DimMode::Redim, dims).map_err(Stop::Err);
+        self.prune_retired();
+        r
     }
     fn str_data(&mut self, p: u64) -> crate::rt::R<u64> {
         self.mem.str_data(p).map_err(Stop::Err)
@@ -588,6 +619,8 @@ impl<'m, 'o> Vm<'m, 'o> {
             ab: 0,
             gosub: Vec::new(),
             on_error: None,
+            try_stack: Vec::new(),
+            end_code: 0,
             in_handler: None,
             err: 0,
             erl: 0,
@@ -616,7 +649,11 @@ impl<'m, 'o> Vm<'m, 'o> {
             gl: GlFrames::default(),
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
             jit_nest: 0,
-            mem: crate::mem::Mem::new(),
+            mem: {
+                let mut mem = crate::mem::Mem::new();
+                mem.option_base = m.option_base;
+                mem
+            },
             owned: Vec::new(),
             #[cfg(feature = "debug")]
             dbg: None,
@@ -904,7 +941,16 @@ impl<'m, 'o> Vm<'m, 'o> {
                 _ => *a = None,
             }
         }
+        self.try_stack.clear();
         self.gosub.clear();
+        // the handlers on that stack never reach their RETURN: no trap stays "in progress"
+        qb_runtime::events::timers().reset_in_progress();
+        qb_runtime::events::play_trap().done();
+        // SAFETY: the event tables are used by the program thread only.
+        unsafe {
+            qb_runtime::events::onkey_inprogress = 0;
+            qb_runtime::events::onstrig_inprogress = 0;
+        }
         self.on_error = None;
         self.in_handler = None;
         self.err = 0;
@@ -1087,7 +1133,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         if self.arrs[i].is_none() {
             let f = if a & G != 0 { 0 } else { cx.func as usize };
             let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-            self.arrs[i] = Some(Box::new(Arr::new(ty, vec![(0, 10); n])?));
+            self.arrs[i] = Some(Box::new(Arr::new(ty, vec![(self.m.option_base, 10); n])?));
         }
         Ok(self.arrs[i].as_deref_mut().unwrap())
     }
@@ -1266,7 +1312,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nums.extend_from_slice(&func.num_init);
         self.strs.resize_with(sb + func.n_str as usize, Vec::new);
         self.arrs.resize_with(ab + func.n_arr() as usize, || None);
-        for (arg, &slot) in cd.args.iter().zip(&func.params) {
+        for (k, (arg, &slot)) in cd.args.iter().zip(&func.params).enumerate() {
             let v = match *arg {
                 Arg::N(r) => PVal::N(self.nums[cx.nb + r as usize]),
                 Arg::S(r) => PVal::S(self.sget_in(cx.sb, r).to_vec()),
@@ -1274,6 +1320,14 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Arg::Ref(p) => match self.place_take(m.places[p as usize], cx) {
                     Ok(v) => v,
                     Err(e) => {
+                        // the call does not happen: what earlier BYREF arguments moved
+                        // out of the caller (strings, whole arrays) goes back
+                        for (a, &s) in cd.args.iter().zip(&func.params).take(k) {
+                            if let Arg::Ref(q) = *a {
+                                let v = self.slot_take(s, nb, sb, ab);
+                                let _ = self.place_put(m.places[q as usize], cx, v);
+                            }
+                        }
                         self.nums.truncate(nb);
                         self.strs.truncate(sb);
                         self.arrs.truncate(ab);
@@ -1290,6 +1344,29 @@ impl<'m, 'o> Vm<'m, 'o> {
             *p.edges.entry((cx.func, f)).or_default() += 1;
         }
         Ok(func.entry)
+    }
+
+    /// Frees the bytes of arrays redimensioned or erased inside a SUB/FUNCTION
+    /// ([`crate::mem::Mem::keep_freed`]) once no register of an active procedure holds
+    /// an address into them. An address is a plain number in a register; a number
+    /// that only looks like one keeps the bytes a little longer, nothing else.
+    fn prune_retired(&mut self) {
+        if !self.mem.has_retired() {
+            return;
+        }
+        // the main module passes addresses but keeps none across statements
+        let from = self.frames.get(1).map_or(self.nums.len(), |f| f.nb);
+        let regs = &self.nums[from..];
+        self.mem.prune_retired(|lo, hi| regs.iter().any(|&v| v >= lo && v < hi));
+    }
+
+    /// Ends the TRY bodies of procedure calls deeper than `depth` (EXIT SUB inside a
+    /// TRY, or a handler that left the procedure): the handler set before the first
+    /// of them is in force again.
+    fn try_unwind(&mut self, depth: usize) {
+        while let Some(e) = self.try_stack.pop_if(|e| e.1 > depth) {
+            self.on_error = e.2;
+        }
     }
 
     fn ret(&mut self) -> Result<u32, i32> {
@@ -1324,7 +1401,13 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.strs.truncate(fr.sb);
         self.arrs.truncate(fr.ab);
         self.free_owned(fr.owned);
+        if self.mem.has_retired() {
+            self.prune_retired();
+        }
         let depth = self.frames.len();
+        if !self.try_stack.is_empty() {
+            self.try_unwind(depth);
+        }
         self.gosub.retain(|g| g.depth <= depth);
         self.set_view(fr.caller_view);
         Ok(fr.ret)
@@ -1344,6 +1427,13 @@ impl<'m, 'o> Vm<'m, 'o> {
     fn free_owned(&mut self, from: usize) {
         while self.owned.len() > from {
             let p = self.owned.pop().unwrap();
+            // FIELD on a variable of this procedure: the link ends with the variable
+            // (a later GET stored the record into the freed slot)
+            if !self.rt.field_vars.is_empty()
+                && let Some((lo, hi)) = self.mem.var_range(p)
+            {
+                self.rt.field_vars.retain(|f| f.0 < lo || f.0 >= hi);
+            }
             self.mem.free_var(p);
         }
     }
@@ -2081,7 +2171,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::End => {
-                    self.exit_code = 0;
+                    self.exit_code = std::mem::take(&mut self.end_code);
                     self.ended = true;
                     return Ok(u32::MAX);
                 }
@@ -2236,7 +2326,10 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::CopyM { d, s, n } => tryc!(self.mem.copy(r!(d), r!(s), n)),
                 Ins::DimM { a, dims, n, mode } => {
                     let b = self.mem_dims(dims, n);
-                    tryc!(self.mem.dim(r!(a), mode, b));
+                    self.mem.keep_freed = self.frames.len() > 1;
+                    let r = self.mem.dim(r!(a), mode, b);
+                    self.prune_retired();
+                    tryc!(r);
                 }
                 Ins::AAddrM { d, a, i, n } => {
                     // subscripts on the stack (a heap Vec per element access was a hot allocation)
@@ -2256,7 +2349,12 @@ impl<'m, 'o> Vm<'m, 'o> {
                     let v = tryc!(self.mem.bound(r!(a), ri!(dim), upper));
                     seti!(d, v)
                 }
-                Ins::EraseM { a } => tryc!(self.mem.erase(r!(a))),
+                Ins::EraseM { a } => {
+                    self.mem.keep_freed = self.frames.len() > 1;
+                    let r = self.mem.erase(r!(a));
+                    self.prune_retired();
+                    tryc!(r);
+                }
                 Ins::Erase { a } => {
                     // an erased array has no dimensions (subscript out of range until
                     // REDIM); None would mean "never dimensioned" (implicit 0 TO 10)

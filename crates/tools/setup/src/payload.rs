@@ -42,6 +42,24 @@ pub fn unpacked_size(zip: &[u8]) -> Result<u64, String> {
     Ok(total)
 }
 
+/// The files [`extract`] would write (relative, `/`-separated), without writing them.
+pub fn names(zip: &[u8]) -> Result<Vec<String>, String> {
+    let mut archive = ZipArchive::new(Cursor::new(zip)).map_err(|e| format!("damaged installer: {e}"))?;
+    let mut out = Vec::new();
+    for i in 0..archive.len() {
+        let f = archive.by_index_raw(i).map_err(|e| format!("damaged installer: {e}"))?;
+        if f.is_dir() {
+            continue;
+        }
+        let Some(rel) = f.enclosed_name() else {
+            let name = f.name().map(|n| n.into_owned()).unwrap_or_default();
+            return Err(format!("damaged installer: unsafe path {name}"));
+        };
+        out.push(rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"));
+    }
+    Ok(out)
+}
+
 /// What stops [`extract`] when `on_file` returns false.
 pub const CANCELLED: &str = "cancelled";
 

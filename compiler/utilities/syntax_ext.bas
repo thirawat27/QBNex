@@ -18,8 +18,253 @@ SUB SyntaxExt_Reset
     syntaxExtEnumNext$ = ""
     syntaxExtForStack$ = ""
     syntaxExtTryStack$ = ""
+    syntaxExtLoopStack$ = ""
     syntaxExtCounter = 0
 END SUB
+
+FUNCTION SyntaxExt_StackCount& (stack$)
+    'number of entries of a stack made by SyntaxExt_PushEntry
+    DIM i AS LONG
+    DIM n AS LONG
+
+    IF LEN(stack$) = 0 THEN EXIT FUNCTION
+    n = 1
+    i = INSTR(stack$, CHR$(10))
+    DO WHILE i
+        n = n + 1
+        i = INSTR(i + 1, stack$, CHR$(10))
+    LOOP
+    SyntaxExt_StackCount& = n
+END FUNCTION
+
+FUNCTION SyntaxExt_TryPhase& (index AS LONG)
+    'phase (0 body, 1 catch, 2 finally) of the index-th open TRY, the outermost being 1
+    DIM i AS LONG
+    DIM p AS LONG
+    DIM q AS LONG
+    DIM s AS STRING
+
+    p = 1
+    FOR i = 2 TO index
+        p = INSTR(p, syntaxExtTryStack$, CHR$(10)) + 1
+        IF p = 1 THEN SyntaxExt_TryPhase& = -1: EXIT FUNCTION
+    NEXT
+    q = INSTR(p, syntaxExtTryStack$, CHR$(10))
+    IF q = 0 THEN q = LEN(syntaxExtTryStack$) + 1
+    s = MID$(syntaxExtTryStack$, p, q - p)
+    IF LEFT$(s, 1) = CHR$(1) THEN s = MID$(s, 2)
+    SyntaxExt_TryPhase& = VAL(MID$(s, INSTR(s, "|") + 1))
+END FUNCTION
+
+FUNCTION SyntaxExt_TryNumber& (index AS LONG)
+    'number of the index-th open TRY, the outermost being 1
+    DIM i AS LONG
+    DIM p AS LONG
+    DIM s AS STRING
+
+    p = 1
+    FOR i = 2 TO index
+        p = INSTR(p, syntaxExtTryStack$, CHR$(10)) + 1
+        IF p = 1 THEN EXIT FUNCTION
+    NEXT
+    s = MID$(syntaxExtTryStack$, p, 12)
+    IF LEFT$(s, 1) = CHR$(1) THEN s = MID$(s, 2)
+    SyntaxExt_TryNumber& = VAL(s)
+END FUNCTION
+
+SUB SyntaxExt_RecordTryLabel (codeText$)
+    'prepass: a label (or line number) that starts this line lies inside the body of
+    'every open TRY that is in its body; GOTO to it does not leave those bodies
+    DIM t AS STRING
+    DIM i AS LONG
+    DIM lbl AS STRING
+
+    t = LTRIM$(codeText$)
+    IF TopLevelRuntime_IsLabelLine%(t) = 0 THEN EXIT SUB
+    i = 1
+    IF MID$(t, 1, 1) >= "0" AND MID$(t, 1, 1) <= "9" THEN
+        DO WHILE (MID$(t, i, 1) >= "0" AND MID$(t, i, 1) <= "9") OR MID$(t, i, 1) = ".": i = i + 1: LOOP
+        lbl = LEFT$(t, i - 1)
+    ELSE
+        lbl = UCASE$(LEFT$(t, INSTR(t, ":") - 1))
+    END IF
+    FOR i = 1 TO SyntaxExt_StackCount&(syntaxExtTryStack$)
+        IF SyntaxExt_TryPhase&(i) = 0 THEN syntaxExtTryLabels$ = syntaxExtTryLabels$ + LTRIM$(STR$(SyntaxExt_TryNumber&(i))) + ":" + lbl + "|"
+    NEXT
+END SUB
+
+FUNCTION SyntaxExt_GotoLeaves$ (label$)
+    'the statements that end the TRY bodies a GOTO to label$ leaves (see
+    'SyntaxExt_TryLeaves$): from the innermost open TRY out to the first one whose
+    'body holds the label
+    DIM i AS LONG
+    DIM r AS STRING
+
+    FOR i = SyntaxExt_StackCount&(syntaxExtTryStack$) TO 1 STEP -1
+        IF SyntaxExt_TryPhase&(i) = 0 THEN
+            IF INSTR(syntaxExtTryLabels$, "|" + LTRIM$(STR$(SyntaxExt_TryNumber&(i))) + ":" + UCASE$(label$) + "|") THEN EXIT FOR
+            r = r + "ON ERROR GOTO QBNEX_TRY_LEAVE: "
+        END IF
+    NEXT
+    SyntaxExt_GotoLeaves$ = r
+END FUNCTION
+
+FUNCTION SyntaxExt_WordAt% (upperText$, at AS LONG, word$)
+    'word$ stands at position at of upperText$ as a whole word, outside a string literal
+    DIM i AS LONG
+    DIM quotes AS LONG
+    DIM c AS STRING
+
+    IF MID$(upperText$, at, LEN(word$)) <> word$ THEN EXIT FUNCTION
+    IF at > 1 THEN
+        c = MID$(upperText$, at - 1, 1)
+        IF (c >= "A" AND c <= "Z") OR (c >= "0" AND c <= "9") OR c = "_" OR c = "." OR c = "$" THEN EXIT FUNCTION
+    END IF
+    c = MID$(upperText$, at + LEN(word$), 1)
+    IF (c >= "A" AND c <= "Z") OR (c >= "0" AND c <= "9") OR c = "_" OR c = "." OR c = "$" THEN EXIT FUNCTION
+    i = INSTR(upperText$, CHR$(34))
+    DO WHILE i > 0 AND i < at
+        quotes = quotes + 1
+        i = INSTR(i + 1, upperText$, CHR$(34))
+    LOOP
+    IF quotes AND 1 THEN EXIT FUNCTION
+    SyntaxExt_WordAt% = -1
+END FUNCTION
+
+FUNCTION SyntaxExt_TryLeaves$ (kind$)
+    'the statements that end the TRY bodies a jump out of a loop leaves: the loop of
+    'kind$ (F, D, W; "" = the innermost loop) that the jump belongs to was opened
+    'outside them, so their END of body, which puts the ON ERROR handler back, is skipped
+    DIM i AS LONG
+    DIM loopDepth AS LONG
+    DIM found AS INTEGER
+    DIM r AS STRING
+
+    FOR i = LEN(syntaxExtLoopStack$) - 1 TO 1 STEP -2
+        IF kind$ = "" OR MID$(syntaxExtLoopStack$, i, 1) = kind$ THEN
+            loopDepth = ASC(syntaxExtLoopStack$, i + 1) - 1
+            found = -1
+            EXIT FOR
+        END IF
+    NEXT
+    IF found = 0 THEN EXIT FUNCTION
+    FOR i = SyntaxExt_StackCount&(syntaxExtTryStack$) TO loopDepth + 1 STEP -1
+        IF SyntaxExt_TryPhase&(i) = 0 THEN r = r + "ON ERROR GOTO QBNEX_TRY_LEAVE: "
+    NEXT
+    SyntaxExt_TryLeaves$ = r
+END FUNCTION
+
+FUNCTION SyntaxExt_TrackLoops$ (codeText$)
+    'Keeps the list of open loops (with the number of TRY blocks open where each began)
+    'and returns codeText$ with the TRY bodies ended in front of every EXIT FOR / DO /
+    'WHILE and _CONTINUE that jumps out of them. Without that the handler of the TRY
+    'stayed set after the jump and took every later error of the program.
+    DIM n AS LONG
+    DIM k AS LONG
+    DIM j AS LONG
+    DIM p AS LONG
+    DIM s AS STRING
+    DIM su AS STRING
+    DIM kind AS STRING
+    DIM leaves AS STRING
+    DIM rebuilt AS STRING
+    DIM depthChar AS STRING
+    DIM closes AS LONG
+    DIM anyChange AS INTEGER
+    REDIM stmts(1 TO 16) AS STRING
+    REDIM items(1 TO 8) AS STRING
+
+    SyntaxExt_TrackLoops$ = codeText$
+    su = UCASE$(codeText$)
+    IF INSTR(su, "FOR") = 0 AND INSTR(su, "NEXT") = 0 AND INSTR(su, "DO") = 0 AND INSTR(su, "LOOP") = 0 AND INSTR(su, "WHILE") = 0 AND INSTR(su, "WEND") = 0 AND INSTR(su, "_CONTINUE") = 0 AND INSTR(su, "GOTO") = 0 THEN EXIT FUNCTION
+
+    depthChar = CHR$(SyntaxExt_StackCount&(syntaxExtTryStack$) + 1)
+    n = SyntaxExt_SplitTop&(codeText$, ":", stmts())
+    FOR k = 1 TO n
+        s = stmts(k)
+        su = UCASE$(LTRIM$(s))
+        closes = 0
+        kind = ""
+        IF SyntaxExt_IsWord%(su, "FOR") THEN
+            kind = "F"
+        ELSEIF su = "DO" OR SyntaxExt_IsWord%(su, "DO") THEN
+            kind = "D"
+        ELSEIF SyntaxExt_IsWord%(su, "WHILE") THEN
+            kind = "W"
+        ELSEIF su = "WEND" OR su = "LOOP" OR SyntaxExt_IsWord%(su, "LOOP") THEN
+            closes = 1
+        ELSEIF su = "NEXT" OR SyntaxExt_IsWord%(su, "NEXT") THEN
+            closes = 1
+            IF LEN(LTRIM$(MID$(LTRIM$(s), 5))) THEN closes = SyntaxExt_SplitTop&(LTRIM$(MID$(LTRIM$(s), 5)), ",", items())
+        ELSEIF LEN(syntaxExtTryStack$) THEN
+            'a jump out of a loop (also after THEN / ELSE of a single-line IF)
+            su = UCASE$(s)
+            p = INSTR(su, "EXIT")
+            DO WHILE p
+                leaves = ""
+                IF SyntaxExt_WordAt%(su, p, "EXIT") THEN
+                    j = p + 4
+                    DO WHILE MID$(su, j, 1) = " " OR MID$(su, j, 1) = CHR$(9): j = j + 1: LOOP
+                    IF SyntaxExt_WordAt%(su, j, "FOR") THEN
+                        leaves = SyntaxExt_TryLeaves$("F")
+                    ELSEIF SyntaxExt_WordAt%(su, j, "DO") THEN
+                        leaves = SyntaxExt_TryLeaves$("D")
+                    ELSEIF SyntaxExt_WordAt%(su, j, "WHILE") THEN
+                        leaves = SyntaxExt_TryLeaves$("W")
+                    END IF
+                END IF
+                IF LEN(leaves) THEN
+                    s = LEFT$(s, p - 1) + leaves + MID$(s, p)
+                    su = UCASE$(s)
+                    p = p + LEN(leaves)
+                END IF
+                p = INSTR(p + 4, su, "EXIT")
+            LOOP
+            'GOTO label out of the TRY (main pass: the prepass listed the labels inside each
+            'TRY body). Not ON ERROR GOTO, and not ON n GOTO a, b with its list of targets.
+            p = INSTR(su, "GOTO")
+            DO WHILE p AND syntaxExtMainPass <> 0
+                leaves = ""
+                IF SyntaxExt_WordAt%(su, p, "GOTO") AND INSTR(LEFT$(su, p - 1), "ON ") = 0 THEN
+                    j = p + 4
+                    DO WHILE MID$(su, j, 1) = " " OR MID$(su, j, 1) = CHR$(9): j = j + 1: LOOP
+                    closes = j
+                    DO WHILE (MID$(su, closes, 1) >= "A" AND MID$(su, closes, 1) <= "Z") OR (MID$(su, closes, 1) >= "0" AND MID$(su, closes, 1) <= "9") OR MID$(su, closes, 1) = "_" OR MID$(su, closes, 1) = ".": closes = closes + 1: LOOP
+                    IF closes > j THEN leaves = SyntaxExt_GotoLeaves$(MID$(su, j, closes - j))
+                    closes = 0
+                END IF
+                IF LEN(leaves) THEN
+                    s = LEFT$(s, p - 1) + leaves + MID$(s, p)
+                    su = UCASE$(s)
+                    p = p + LEN(leaves)
+                END IF
+                p = INSTR(p + 4, su, "GOTO")
+            LOOP
+            p = INSTR(su, "_CONTINUE")
+            DO WHILE p
+                leaves = ""
+                IF SyntaxExt_WordAt%(su, p, "_CONTINUE") THEN leaves = SyntaxExt_TryLeaves$("")
+                IF LEN(leaves) THEN
+                    s = LEFT$(s, p - 1) + leaves + MID$(s, p)
+                    su = UCASE$(s)
+                    p = p + LEN(leaves)
+                END IF
+                p = INSTR(p + 9, su, "_CONTINUE")
+            LOOP
+            IF stmts(k) <> s THEN stmts(k) = s: anyChange = -1
+        END IF
+        IF LEN(kind) THEN syntaxExtLoopStack$ = syntaxExtLoopStack$ + kind + depthChar
+        IF closes > 0 THEN
+            IF closes * 2 >= LEN(syntaxExtLoopStack$) THEN syntaxExtLoopStack$ = "" ELSE syntaxExtLoopStack$ = LEFT$(syntaxExtLoopStack$, LEN(syntaxExtLoopStack$) - closes * 2)
+        END IF
+    NEXT
+    IF anyChange = 0 THEN EXIT FUNCTION
+    FOR k = 1 TO n
+        IF k > 1 THEN rebuilt = rebuilt + ":"
+        rebuilt = rebuilt + stmts(k)
+    NEXT
+    SyntaxExt_TrackLoops$ = rebuilt
+END FUNCTION
 
 FUNCTION SyntaxExt_CodePart$ (text$, commentPart$)
     'split a line into code and trailing comment (' outside a string literal)
@@ -182,8 +427,14 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
         s = LTRIM$(STR$(syntaxExtCounter))
         SyntaxExt_PushEntry syntaxExtTryStack$, s + "|0|0"
         SyntaxExt_PushLine outLines, "DIM QBNEX_TRYE" + s + " AS LONG"
+        'in a loop the error of an earlier pass must not be raised again by END TRY
+        SyntaxExt_PushLine outLines, "QBNEX_TRYE" + s + " = 0"
         SyntaxExt_PushLine outLines, "QBNEX_TRYERR = 0"
-        SyntaxExt_PushLine outLines, "ON ERROR GOTO QBNEX_TRY_HANDLER"
+        'QBNEX_TRY_ENTER<n> / QBNEX_TRY_LEAVE are not labels: the compiler (ON ERROR GOTO in
+        'qbnex.bas) makes the run time keep the handler set before the TRY and put it back
+        'when the body ends, so the program's own ON ERROR GOTO, or the TRY around this
+        'one, is in force again
+        SyntaxExt_PushLine outLines, "ON ERROR GOTO QBNEX_TRY_ENTER" + s
         GOTO emitlines
     END IF
     IF upper = "CATCH" OR SyntaxExt_IsWord%(upper, "CATCH") OR upper = "FINALLY" OR upper = "END TRY" THEN
@@ -196,10 +447,10 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
             s = LTRIM$(STR$(n))
             IF k = 0 THEN
                 'end of the protected body
-                SyntaxExt_PushLine outLines, "ON ERROR GOTO 0"
+                SyntaxExt_PushLine outLines, "ON ERROR GOTO QBNEX_TRY_LEAVE"
                 SyntaxExt_PushLine outLines, "GOTO QBNEX_TRY_F" + s
                 SyntaxExt_PushLine outLines, "QBNEX_TRY_C" + s + ":"
-                SyntaxExt_PushLine outLines, "ON ERROR GOTO 0"
+                SyntaxExt_PushLine outLines, "ON ERROR GOTO QBNEX_TRY_LEAVE"
                 SyntaxExt_PushLine outLines, "QBNEX_TRYE" + s + " = QBNEX_TRYERR: QBNEX_TRYERR = 0"
                 k = 1
             END IF
@@ -215,11 +466,12 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
                 IF upper = "END TRY" THEN
                     'no CATCH: the error is raised again after FINALLY
                     IF j = 0 THEN SyntaxExt_PushLine outLines, "IF QBNEX_TRYE" + s + " THEN ERROR QBNEX_TRYE" + s
-                    'an enclosing TRY body is protected again
+                    'the body of an enclosing TRY is protected again since this one's body
+                    'ended; an error raised again here, or in CATCH / FINALLY, leaves it
                     IF LEN(syntaxExtTryStack$) THEN
                         su = SyntaxExt_TopEntry$(syntaxExtTryStack$)
                         IF LEFT$(su, 1) = CHR$(1) THEN su = MID$(su, 2)
-                        IF VAL(MID$(su, INSTR(su, "|") + 1)) = 0 THEN SyntaxExt_PushLine outLines, "ON ERROR GOTO QBNEX_TRY_HANDLER"
+                        IF VAL(MID$(su, INSTR(su, "|") + 1)) = 0 THEN SyntaxExt_PushLine outLines, "IF QBNEX_TRYERR THEN GOTO QBNEX_TRY_C" + LTRIM$(STR$(VAL(su)))
                     END IF
                     GOTO emitlines
                 END IF
@@ -264,6 +516,8 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
                         idxNext = idxVar + idxNext
                     NEXT
                     stmts(k) = rebuilt + su + " = " + s + "(" + idxList + ")"
+                    'the array after a tab: EXIT FOR of a loop over several dimensions needs it
+                    IF nl > 1 THEN idxNext = idxNext + CHR$(9) + s
                     SyntaxExt_PushEntry syntaxExtForStack$, idxNext
                     changed = -1
                 END IF
@@ -278,6 +532,7 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
                 FOR j = 1 TO nl
                     su = SyntaxExt_PopEntry$(syntaxExtForStack$)
                     IF LEFT$(su, 1) = CHR$(1) THEN su = MID$(su, 2)
+                    IF INSTR(su, CHR$(9)) THEN su = LEFT$(su, INSTR(su, CHR$(9)) - 1)
                     IF LEN(su) AND su <> CHR$(0) THEN items(j) = su: changed = -1
                     IF j > 1 THEN rebuilt = rebuilt + ", "
                     rebuilt = rebuilt + LTRIM$(RTRIM$(items(j)))
@@ -285,10 +540,41 @@ FUNCTION SyntaxExt_LowerLine$ (rawLine$)
                 IF nl = 0 THEN
                     su = SyntaxExt_PopEntry$(syntaxExtForStack$)
                     IF LEFT$(su, 1) = CHR$(1) THEN su = MID$(su, 2)
+                    IF INSTR(su, CHR$(9)) THEN su = LEFT$(su, INSTR(su, CHR$(9)) - 1)
                     IF LEN(su) AND su <> CHR$(0) THEN stmts(k) = "NEXT " + su: changed = -1 ELSE stmts(k) = "NEXT"
                 ELSE
                     stmts(k) = "NEXT " + rebuilt
                 END IF
+            END IF
+        ELSEIF INSTR(su, "EXIT") > 0 AND LEN(syntaxExtForStack$) > 0 THEN
+            'EXIT FOR inside FOR EACH over an array of several dimensions: there is one FOR
+            'a dimension, and EXIT FOR leaves the innermost only. The outer indexes are set
+            'to their last value first, so their NEXT ends them too.
+            idxNext = SyntaxExt_TopEntry$(syntaxExtForStack$)
+            IF LEFT$(idxNext, 1) = CHR$(1) THEN idxNext = MID$(idxNext, 2)
+            p = INSTR(idxNext, CHR$(9))
+            IF p THEN
+                idxVar = MID$(idxNext, p + 1) 'the array
+                nl = SyntaxExt_SplitTop&(LEFT$(idxNext, p - 1), ",", items()) 'innermost index first
+                rebuilt = ""
+                FOR j = nl TO 2 STEP -1
+                    rebuilt = rebuilt + LTRIM$(RTRIM$(items(j))) + " = UBOUND(" + idxVar + ", " + LTRIM$(STR$(nl - j + 1)) + "): "
+                NEXT
+                p = INSTR(su, "EXIT")
+                DO WHILE p
+                    IF SyntaxExt_WordAt%(su, p, "EXIT") THEN
+                        j = p + 4
+                        DO WHILE MID$(su, j, 1) = " " OR MID$(su, j, 1) = CHR$(9): j = j + 1: LOOP
+                        IF SyntaxExt_WordAt%(su, j, "FOR") THEN
+                            s = LEFT$(s, p - 1) + rebuilt + MID$(s, p)
+                            su = UCASE$(s)
+                            p = p + LEN(rebuilt)
+                            changed = -1
+                        END IF
+                    END IF
+                    p = INSTR(p + 4, su, "EXIT")
+                LOOP
+                stmts(k) = s
             END IF
         END IF
     NEXT
@@ -473,6 +759,12 @@ FUNCTION SyntaxExt_ProcessLine$ (rawLine$)
         IF VAL(MID$(topEntry, INSTR(topEntry, "|") + 1)) = 0 THEN checkIt = -1
         IF SyntaxExt_IsBlockWord%(upper) THEN checkIt = 0
         IF RIGHT$(upper, 1) = "_" OR LEFT$(upper, 1) = "$" OR SyntaxExt_IsWord%(upper, "SELECT") THEN checkIt = 0
+    END IF
+    IF syntaxExtUsesTry <> 0 AND LEN(upper) > 0 THEN
+        IF syntaxExtMainPass = 0 AND LEN(syntaxExtTryStack$) > 0 THEN SyntaxExt_RecordTryLabel codeText
+        topEntry = SyntaxExt_TrackLoops$(codeText)
+        IF topEntry <> codeText THEN codeText = topEntry: procLine = codeText + commentText
+        IF LEN(syntaxExtTryStack$) THEN topEntry = SyntaxExt_TopEntry$(syntaxExtTryStack$): IF LEFT$(topEntry, 1) = CHR$(1) THEN topEntry = MID$(topEntry, 2)
     END IF
     IF INSTR(upper, "DIM") OR INSTR(upper, "STATIC") OR INSTR(upper, "COMMON") THEN SyntaxExt_RecordArrays codeText
     IF LEN(syntaxExtOptional$) OR INSTR(UCASE$(procLine), "OPTIONAL") THEN procLine = SyntaxExt_Optional$(procLine)

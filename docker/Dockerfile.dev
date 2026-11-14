@@ -31,6 +31,9 @@ WORKDIR /app
 # Copy only what the build needs
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ ./crates/
+# tests/conformance is a workspace member: cargo needs its manifest to load the workspace
+COPY tests/conformance/Cargo.toml ./tests/conformance/Cargo.toml
+COPY tests/conformance/src/ ./tests/conformance/src/
 COPY bootstrap/ ./bootstrap/
 COPY compiler/ ./compiler/
 COPY scripts/ ./scripts/

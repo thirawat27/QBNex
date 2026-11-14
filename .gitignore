@@ -43,3 +43,6 @@ dist-*
 
 # Agent tooling and worktrees
 /.claude/
+
+# compiler generations built by scripts/selfhost_fixpoint.* or by hand
+qb-gen*

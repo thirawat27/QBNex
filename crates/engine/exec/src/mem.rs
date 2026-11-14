@@ -34,6 +34,14 @@ pub(crate) struct Mem {
     free_blocks: Vec<u32>,
     strs: Vec<Vec<u8>>,
     free_strs: Vec<u64>,
+    /// Set by the VM while a SUB/FUNCTION is active: the bytes of an array that is
+    /// redimensioned or erased go to `retired` and are not freed at once. A BYREF
+    /// parameter is the address of an element, and the callee (or a SUB it calls)
+    /// may REDIM that SHARED array: the parameter then points into these bytes.
+    pub(crate) keep_freed: bool,
+    /// `OPTION BASE`: lower bound of an array used without DIM
+    pub(crate) option_base: i64,
+    retired: Vec<Vec<u8>>,
 }
 
 /// Tag of an array-descriptor reference; every other pointer is a real address.
@@ -53,6 +61,14 @@ impl Mem {
         } else {
             self.blocks.push(b);
             (self.blocks.len() - 1) as u32
+        }
+    }
+
+    /// (first address, end address) of a variable's storage, None for an array.
+    pub(crate) fn var_range(&self, id: u32) -> Option<(u64, u64)> {
+        match self.blocks.get(id as usize) {
+            Some(Block::Bytes { data, .. }) => Some((data.as_ptr() as u64, data.as_ptr() as u64 + data.len() as u64)),
+            _ => None,
         }
     }
 
@@ -86,6 +102,44 @@ impl Mem {
             _ => {}
         }
         self.free_blocks.push(i);
+    }
+
+    /// Frees the data block of an array; see [`Mem::keep_freed`].
+    fn free_data(&mut self, i: u32) {
+        if self.keep_freed
+            && let Some(Block::Bytes { data, strs }) = self.blocks.get_mut(i as usize)
+        {
+            let (bytes, strs) = (std::mem::take(data), *strs);
+            if strs {
+                for c in bytes.as_chunks::<8>().0 {
+                    self.free_str(u64::from_le_bytes(*c));
+                }
+            }
+            self.blocks[i as usize] = Block::Free;
+            self.free_blocks.push(i);
+            self.retire(bytes);
+            return;
+        }
+        self.free(i);
+    }
+
+    fn retire(&mut self, bytes: Vec<u8>) {
+        if self.keep_freed && !bytes.is_empty() {
+            self.retired.push(bytes);
+        }
+    }
+
+    pub(crate) fn has_retired(&self) -> bool {
+        !self.retired.is_empty()
+    }
+
+    /// Frees the retired array bytes for which `live(first address, end address)`
+    /// is false.
+    pub(crate) fn prune_retired(&mut self, live: impl Fn(u64, u64) -> bool) {
+        self.retired.retain(|b| {
+            let lo = b.as_ptr() as u64;
+            live(lo, lo + b.len() as u64)
+        });
     }
 
     fn free_str(&mut self, h: u64) {
@@ -236,7 +290,9 @@ impl Mem {
             if hi < lo {
                 return Err(9);
             }
-            n = n.saturating_mul((hi - lo + 1) as u64);
+            // checked: (i64::MIN TO i64::MAX) wraps to 0 elements with bounds that accept every subscript
+            let k = hi.checked_sub(*lo).and_then(|d| d.checked_add(1)).ok_or(7)?;
+            n = n.saturating_mul(k as u64);
         }
         let (esize, fill, strs, old, olddims) = {
             let a = self.arr(desc)?;
@@ -271,9 +327,10 @@ impl Mem {
                     }
                 }
                 self.free(ob);
+                self.retire(od);
             }
         } else if let Some(ob) = old {
-            self.free(ob);
+            self.free_data(ob);
         }
         let d = self.alloc(Block::Bytes { data, strs });
         let a = self.arr(desc)?;
@@ -306,7 +363,7 @@ impl Mem {
         a.dims.clear();
         a.erased = true;
         if let Some(d) = a.data.take() {
-            self.free(d);
+            self.free_data(d);
         }
         Ok(())
     }
@@ -315,7 +372,7 @@ impl Mem {
         let a = self.arr(desc)?;
         if a.data.is_none() && !a.erased && !idx.is_empty() {
             // never dimensioned: QBasic's implicit DIM name(10) (the register model's arr_at)
-            self.dim(desc, DimMode::Dim, vec![(0, 10); idx.len()])?;
+            self.dim(desc, DimMode::Dim, vec![(self.option_base, 10); idx.len()])?;
         }
         let a = self.arr(desc)?;
         let Some(d) = a.data else { return Err(9) };

@@ -288,7 +288,7 @@ impl Scan<'_> {
     unsafe fn plot(&self, x: i32, y: i32, tx: i32, ty: i32) {
         // i32 offsets are exact: the registry rejects surfaces whose byte
         // size exceeds i32::MAX (registry::qb_imgframe).
-        let (sx, sy) = if self.tile { ((tx >> 16) % self.swidth, (ty >> 16) % self.sheight) } else { (tx >> 16, ty >> 16) };
+        let (sx, sy) = if self.tile { ((tx >> 16).rem_euclid(self.swidth), (ty >> 16).rem_euclid(self.sheight)) } else { (tx >> 16, ty >> 16) };
         let soff = (sy.wrapping_mul(self.swidth).wrapping_add(sx)) as isize;
         let doff = (y.wrapping_mul(self.dwidth).wrapping_add(x)) as isize;
         // SAFETY: guaranteed by the caller of `run`.

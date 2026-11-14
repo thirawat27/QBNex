@@ -128,7 +128,10 @@ fn light(ins: &Ins) -> bool {
         Un { .. } => true,
         // IEEE division; string compare through `jit_cmps` (no register flush)
         DivFI { .. } => true,
-        CmpS { .. } | BrS { .. } => true,
+        // `jit_cmps` reads its operands from the VM's current window: a string read from
+        // memory (M) names a numeric register that native code has not flushed, and
+        // that is not in that window at all in a call version
+        CmpS { a, b, .. } | BrS { a, b, .. } => !bc::mem_str(*a) && !bc::mem_str(*b),
         _ => false,
     }
 }
@@ -891,6 +894,9 @@ pub(crate) fn lower_full(m: &bc::Module, hosts: &Hosts) -> mir::Module {
 
 /// Native image of program `m` for this executable (AOT, D15).
 pub(crate) fn build_image(m: &bc::Module, hosts: &Hosts) -> Result<Vec<u8>, String> {
+    if !qb_jit::host_supported() {
+        return Err("no native code generator for this machine".into());
+    }
     let mir = lower_full(m, hosts);
     let obj = qb_jit::aot::compile_object(&mir, qb_jit::Target::Host).map_err(|e| e.0)?;
     let img = qb_link::link(&obj).map_err(|e| e.to_string())?;
@@ -902,10 +908,14 @@ pub(crate) fn build_image(m: &bc::Module, hosts: &Hosts) -> Result<Vec<u8>, Stri
 /// Object file for a standard linker (D15 final): the program's functions,
 /// the QIR text `src` and the entry table (`qb_jit::aot::NativeEntry`).
 pub(crate) fn build_object(m: &bc::Module, src: &[u8], hosts: &Hosts) -> Result<Vec<u8>, String> {
+    if !qb_jit::host_supported() {
+        return Err("no native code generator for this machine".into());
+    }
     let mir = lower_full(m, hosts);
     let names: Vec<String> = qb_jit::symbols(&mir).into_iter().map(|(n, _)| n).collect();
     for n in &names {
-        if !NATIVE_IMPORTS.contains(&n.as_str()) {
+        // (the math libcalls come from libm, not from qb-native)
+        if !NATIVE_IMPORTS.contains(&n.as_str()) && !qb_jit::LIBCALL_SYMBOLS.contains(&n.as_str()) {
             return Err(format!("runtime symbol {n} is not exported by qb-native"));
         }
     }
@@ -1265,7 +1275,8 @@ pub struct JitState {
 
 impl JitState {
     pub(crate) fn new(m: &bc::Module, mode: Mode, threshold: u32) -> Option<Box<JitState>> {
-        if mode == Mode::Off {
+        // no code generator for this machine: the interpreter runs everything
+        if mode == Mode::Off || !qb_jit::host_supported() {
             return None;
         }
         Some(Box::new(JitState {

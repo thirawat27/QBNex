@@ -463,7 +463,7 @@ impl Synth {
                     return Err(ERR_ILLEGAL);
                 }
                 number_entered = 0;
-                if number > 6 {
+                if !(0..=6).contains(&number) {
                     return Err(ERR_ILLEGAL);
                 }
                 st.octave = number as i32;

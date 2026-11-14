@@ -208,9 +208,24 @@ FUNCTION IrMemFunc$ (nm$, nargs AS LONG, typ AS LONG)
     off$ = IrI64At$(sv(2))
     t$ = UCASE$(sv(3))
     DO WHILE INSTR(t$, sp): MID$(t$, INSTR(t$, sp), 1) = " ": LOOP
+    IF INSTR(t$, " * ") THEN 'the length carries a type suffix
+        IF RIGHT$(t$, 2) = "&&" THEN
+            t$ = LEFT$(t$, LEN(t$) - 2)
+        ELSEIF RIGHT$(t$, 1) = "&" OR RIGHT$(t$, 1) = "%" THEN
+            t$ = LEFT$(t$, LEN(t$) - 1)
+        END IF
+    END IF
     t = typname2typ(t$)
     IF t AND ISPOINTER THEN t = t - ISPOINTER
     typ = t
+    IF t AND ISSTRING THEN
+        '_MEMGET(block, offset, STRING * n): n bytes as a string
+        y$ = IrReg$: IrE "rt " + y$ + " _MEMGETP " + blk$ + " " + off$ + " " + IrConst$("i64", str2$(typname2typsize))
+        d$ = IrReg$: IrE "ldfs " + d$ + " " + y$ + " 0 " + str2$(typname2typsize)
+        IrT = "str"
+        IrMemFunc$ = d$
+        EXIT FUNCTION
+    END IF
     y$ = IrReg$: IrE "rt " + y$ + " _MEMGETP " + blk$ + " " + off$ + " " + IrConst$("i64", str2$(IrSize&(IrSTy$(t, 0))))
     d$ = IrReg$: IrE "ld." + IrTy$(t) + " " + d$ + " " + y$ + " 0"
     IrT = IrTy$(t)

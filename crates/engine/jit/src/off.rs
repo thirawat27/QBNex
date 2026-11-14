@@ -37,6 +37,14 @@ pub struct CompileError(pub String);
 
 const NO_JIT: &str = "no native code generation in a browser build";
 
+/// Cranelift's math libcalls (kept for API parity).
+pub const LIBCALL_SYMBOLS: [&str; 10] = ["floor", "floorf", "ceil", "ceilf", "trunc", "truncf", "nearbyint", "nearbyintf", "fma", "fmaf"];
+
+/// No native code here.
+pub fn host_supported() -> bool {
+    false
+}
+
 /// Runtime symbols native code would call (kept for API parity).
 pub fn symbols(m: &Module) -> Vec<(String, usize)> {
     let mut v: Vec<(String, usize)> = vec![

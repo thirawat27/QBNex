@@ -216,7 +216,7 @@ impl<'a> Formatter<'a> {
         // External names in DECLARE LIBRARY keep their case (they are linked by name).
         if self.ctx[i].in_library && n > 0 {
             let prev = self.text(sig[n - 1].0);
-            if prev.eq_ignore_ascii_case("SUB") || prev.eq_ignore_ascii_case("FUNCTION") {
+            if prev.eq_ignore_ascii_case("SUB") || prev.eq_ignore_ascii_case("FUNCTION") || prev.eq_ignore_ascii_case("ALIAS") {
                 out.push_str(text);
                 return;
             }
@@ -284,10 +284,10 @@ impl<'a> Formatter<'a> {
         if matches!(pk, K::LParen | K::LBracket | K::LBrace | K::Hash | K::At) {
             return false;
         }
-        // `$"..."` interpolation; anything else after a lone `$` keeps its spacing
-        // (`$ IF` must not become the metacommand `$IF`).
+        // What follows a lone `$` keeps its spacing: `$ IF` must not become the
+        // metacommand `$IF`, nor `$ "{"` the start of an interpolated string.
         if pk == K::Dollar {
-            return had_ws && nk != K::String;
+            return had_ws;
         }
         if pk == K::Dot || nk == K::Dot || pk == K::Ampersand || nk == K::Ampersand {
             return had_ws;

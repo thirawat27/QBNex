@@ -478,7 +478,7 @@ END CLASS
 
 | Module | Import | Contents |
 |--------|--------|----------|
-| Core | `'$IMPORT:'qbnex'` | Every module below except `ext.*` in one import (`qbnex_stdlib.bas`), plus CLASS support |
+| Core | `'$IMPORT:'qbnex'` | Every module below except `json`, `url` and `ext.*` in one import; those combine with it (`qbnex_stdlib.bas`), plus CLASS support |
 | JSON | `'$IMPORT:'json'` | RFC 8259 JSON: `JSON_Parse%`, `JsonObjectGet%`, `JsonCreateObject%`, `JSON_Stringify$`, ... |
 | URL | `'$IMPORT:'url'` | `UrlParse`, `UrlFormat$`, `UrlEncodeComponent$`, `UrlDecode$`, `UrlResolve`, ... |
 | Collections | `collections.list`, `.stack`, `.queue`, `.set`, `.dictionary` | `QBNex_List` and friends; import `qbnex` for all but `collections.list` (on their own they do not compile yet) |

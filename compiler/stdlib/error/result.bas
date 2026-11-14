@@ -32,7 +32,7 @@ FUNCTION Result_PrependDetail$ (existingText AS STRING, newText AS STRING)
         Result_PrependDetail$ = normalizedNew
     ELSEIF UCASE$(normalizedExisting) = UCASE$(normalizedNew) THEN
         Result_PrependDetail$ = normalizedExisting
-    ELSEIF INSTR(UCASE$(normalizedExisting), UCASE$(normalizedNew)) > 0 THEN
+    ELSEIF INSTR(" -> " + UCASE$(normalizedExisting) + " -> ", " -> " + UCASE$(normalizedNew) + " -> ") > 0 THEN ' a whole entry of the chain, not a substring
         Result_PrependDetail$ = normalizedExisting
     ELSE
         Result_PrependDetail$ = normalizedNew + " -> " + normalizedExisting

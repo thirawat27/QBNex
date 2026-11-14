@@ -68,13 +68,15 @@ impl Cpu<'_> {
     fn r16(&self, i: usize) -> u16 {
         self.r[i] as u16
     }
-    fn sib(&mut self, mod0: bool) -> u32 {
+    /// (base + scaled index, the base is ESP or EBP: the operand is in the stack segment)
+    fn sib(&mut self, mod0: bool) -> (u32, bool) {
         let i = u32::from(self.b());
-        let idx = self.r[(i >> 3 & 7) as usize] << (i >> 6);
+        // index field 4 = no index (not ESP)
+        let idx = if i >> 3 & 7 == 4 { 0 } else { self.r[(i >> 3 & 7) as usize] << (i >> 6) };
         if mod0 && i & 7 == 5 {
-            return self.d().wrapping_add(idx);
+            return (self.d().wrapping_add(idx), false);
         }
-        self.r[(i & 7) as usize].wrapping_add(idx)
+        (self.r[(i & 7) as usize].wrapping_add(idx), matches!(i & 7, 4 | 5))
     }
     /// ModR/M operand (8/16/32-bit register or memory; 16-bit offsets inside the segment)
     fn ea(&mut self) -> Loc {
@@ -87,16 +89,15 @@ impl Cpu<'_> {
         let (bx, si, di, bp) = (self.r16(3), self.r16(6), self.r16(7), self.r16(5));
         let off: (usize, u16) = if self.a32 {
             let regv = |c: &Self, k: usize| c.r[k];
+            // the SIB byte comes before the displacement
+            let (sib, stack) = if rm == 4 { self.sib(m == 0) } else { (0, false) };
             let disp: u32 = match m {
                 0 => 0,
                 1 => self.b() as i8 as i32 as u32,
                 _ => self.d(),
             };
             match rm {
-                4 => {
-                    let v = self.sib(m == 0);
-                    (seg, v.wrapping_add(disp) as u16)
-                }
+                4 => (if stack { sbp } else { seg }, sib.wrapping_add(disp) as u16),
                 5 if m == 0 => (seg, self.d() as u16),
                 5 => (sbp, regv(self, 5).wrapping_add(disp) as u16),
                 k => (seg, regv(self, k).wrapping_add(disp) as u16),
@@ -197,22 +198,21 @@ pub(crate) fn call_absolute(m: &mut [u8], defseg: usize, ds: u16, offset: u16, a
         c.a32 = false;
         c.seg = c.base(DS);
         c.seg_bp = c.base(SS);
+        // Prefixes in any order (assemblers put the segment override first:
+        // `26 66 8B 07`). Every pass takes a byte, and bytes outside memory read 0.
         let mut i = c.b();
-        if i == 0x66 {
-            b32 = true;
-            i = c.b();
-        }
-        match i {
-            0x26 => (c.seg, c.seg_bp, i) = (c.base(ES), c.base(ES), c.b()),
-            0x2E => (c.seg, c.seg_bp, i) = (c.base(CS), c.base(CS), c.b()),
-            0x36 => (c.seg, i) = (c.base(SS), c.b()),
-            0x3E => (c.seg_bp, i) = (c.base(DS), c.b()),
-            0x64 => (c.seg, c.seg_bp, i) = (c.base(FS), c.base(FS), c.b()),
-            0x65 => (c.seg, c.seg_bp, i) = (c.base(GS), c.base(GS), c.b()),
-            _ => {}
-        }
-        if i == 0x67 {
-            c.a32 = true;
+        loop {
+            match i {
+                0x66 => b32 = true,
+                0x67 => c.a32 = true,
+                0x26 => (c.seg, c.seg_bp) = (c.base(ES), c.base(ES)),
+                0x2E => (c.seg, c.seg_bp) = (c.base(CS), c.base(CS)),
+                0x36 => c.seg = c.base(SS),
+                0x3E => c.seg_bp = c.base(DS),
+                0x64 => (c.seg, c.seg_bp) = (c.base(FS), c.base(FS)),
+                0x65 => (c.seg, c.seg_bp) = (c.base(GS), c.base(GS)),
+                _ => break,
+            }
             i = c.b();
         }
         let wsz = if b32 { 32 } else { 16 };

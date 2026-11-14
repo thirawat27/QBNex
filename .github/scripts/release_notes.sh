@@ -20,7 +20,8 @@ flush_section() {
     latest_section="${current_section}"
   fi
 
-  if [[ "${current_version}" == "${release_version}" ]]; then
+  # "2.0.0-preview" is released from the section "[2.0.0]"
+  if [[ "${current_version}" == "${release_version}" || "${current_version}" == "${release_version%%-*}" ]]; then
     matching_section="${current_section}"
   fi
 }

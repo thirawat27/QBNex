@@ -40,7 +40,7 @@ Status: all modules on this page are **Available**. In the
 | `sys.env`, `sys.args`, `sys.datetime` | Platform, environment, arguments, dates |
 | `error.result` | Result values with error codes and context |
 | `oop.class`, `oop.interface` | Runtime registry used by CLASS |
-| `qbnex` | Everything above except `ext.*` in one import |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it |
 
 The `ext.*` modules call the Rust library `crates/runtime/ext` (pure Rust, no
 OpenSSL). Errors: functions return 0 / an empty string and
@@ -195,8 +195,8 @@ r& = Zip_Extract&("out.zip", "outdir")     ' refuses ../ names
 
 ```basic
 '$IMPORT:'ext.http'
-st& = Http_Get&("https://example.com/", 5000)          ' status code, 0 = failed
-IF st& = 0 THEN PRINT Ext_LastError$ ELSE PRINT st&, LEN(Http_Body$)
+st& = Http_Get&("https://example.com/", 5000)          ' status code, -1 = failed
+IF st& < 0 THEN PRINT Ext_LastError$ ELSE PRINT st&, LEN(Http_Body$)
 PRINT Http_Header$("content-type")
 st& = Http_Post&(url$, "application/json", body$, 5000)
 st& = Http_Request&("PUT", url$, "X-Token: abc" + CHR$(13) + CHR$(10), body$, 5000)

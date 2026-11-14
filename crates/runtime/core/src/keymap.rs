@@ -189,7 +189,8 @@ fn char_code(c: char, ctrl: bool) -> u32 {
         match c {
             0x41..=0x5A | 0x61..=0x7A => return c & 0x1F,
             0x5B => return 27, // [
-            0x5C => return 28, //             0x5D => return 29, // ]
+            0x5C => return 28, // backslash
+            0x5D => return 29, // ]
             _ => {}
         }
     }

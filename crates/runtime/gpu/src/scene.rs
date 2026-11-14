@@ -567,6 +567,12 @@ impl Shader {
         if !user.contains("fn shade") {
             return Err(ShaderError { line: 0, column: 0, message: "the shader must define fn shade(i: ShadeIn) -> vec4<f32>".into() });
         }
+        // The pipeline layout has the prelude's bindings only. A shader with a binding
+        // or an override of its own passes naga and fails when the pipeline is made,
+        // which ends the program instead of returning an error here.
+        if ["@group", "@binding", "override "].iter().any(|k| user.contains(k)) {
+            return Err(ShaderError { line: 0, column: 0, message: "a shader cannot declare @group/@binding variables or overrides of its own".into() });
+        }
         let source = format!("{PRELUDE}{user}\n{EPILOGUE}");
         let user_lines = user.matches('\n').count() as u32 + 1;
         let place = |loc: Option<naga::SourceLocation>, message: String| {

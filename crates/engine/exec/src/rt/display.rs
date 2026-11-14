@@ -105,6 +105,9 @@ fn nextimg() -> i32 {
     unsafe { reg::nextimg }
 }
 
+/// Highest video page number: page numbers index a table.
+const MAX_PAGE: i32 = 65535;
+
 impl Display {
     fn err(&mut self, n: i32) {
         if self.pending == 0 {
@@ -206,7 +209,7 @@ impl Display {
     }
 
     pub(crate) fn validatepage(&mut self, n: i32) {
-        if n < 0 {
+        if !(0..=MAX_PAGE).contains(&n) {
             return;
         }
         let n = n as usize;
@@ -234,11 +237,17 @@ impl Display {
 
     /// `resolve_page_or_image_index`
     pub(crate) fn resolve(&mut self, handle: i32) -> Option<u32> {
+        if handle > MAX_PAGE {
+            // a page number, not a size to allocate a table for
+            self.err(258);
+            return None;
+        }
         if handle >= 0 {
             self.validatepage(handle);
             return Some(self.page[handle as usize] as u32);
         }
-        let h = -handle;
+        // i32::MIN has no negation: it is no handle
+        let h = handle.checked_neg().unwrap_or(i32::MAX);
         // SAFETY: registry read.
         if h >= nextimg() || unsafe { (*im(h as u32)).valid } == 0 {
             self.err(258);
@@ -391,7 +400,7 @@ impl Display {
                         return 0;
                     }
                 };
-                r[k] += 1;
+                r[k] = r[k].saturating_add(1);
             }
             if r.iter().any(|&c| c > 1) {
                 self.err(5);
@@ -520,7 +529,8 @@ impl Display {
             let y = (i32::from((*w).cursor_y) - 1) * self.fontheight[f as usize];
             let mono = self.mono_target(w, f);
             let Some(r) = self.render(f, ch, mono) else { return };
-            self.draw_rendered(w, &r, x, y, mono, false);
+            // clipped: an image can be smaller than one character cell
+            self.draw_rendered(w, &r, x, y, mono, true);
         }
     }
 
@@ -841,7 +851,7 @@ impl Display {
         let i2 = self.page[0];
         if passed & 1 != 0 {
             if mode < 0 {
-                let i3 = -mode;
+                let i3 = mode.checked_neg().unwrap_or(i32::MAX);
                 // SAFETY: registry read.
                 if i3 >= nextimg() || unsafe { (*im(i3 as u32)).valid } == 0 {
                     self.err(258);
@@ -869,7 +879,7 @@ impl Display {
             }
         }
         if passed & 4 != 0 {
-            if active_page < 0 {
+            if !(0..=MAX_PAGE).contains(&active_page) {
                 self.err(5);
                 return;
             }
@@ -886,7 +896,7 @@ impl Display {
             }
         }
         if passed & 8 != 0 {
-            if visual_page < 0 {
+            if !(0..=MAX_PAGE).contains(&visual_page) {
                 self.err(5);
                 return;
             }
@@ -1161,7 +1171,7 @@ impl Display {
                         self.err(5);
                         return;
                     }
-                    width *= self.fontwidth[font as usize].max(1);
+                    width = width.saturating_mul(self.fontwidth[font as usize].max(1));
                 }
                 if passed & 2 == 0 {
                     height = ph;
@@ -1170,7 +1180,13 @@ impl Display {
                         self.err(5);
                         return;
                     }
-                    height *= self.fontheight[font as usize];
+                    height = height.saturating_mul(self.fontheight[font as usize]);
+                }
+                // a surface side is 16 bits and its byte size fits an i32 (registry)
+                let bpp = i64::from((*self.wp()).bytes_per_pixel);
+                if !(1..=65535).contains(&width) || !(1..=65535).contains(&height) || i64::from(width) * i64::from(height) * bpp > i64::from(i32::MAX) {
+                    self.err(5);
+                    return;
                 }
                 if width == pw && height == ph {
                     return;
@@ -1180,7 +1196,7 @@ impl Display {
                 let (col, col2) = ((*w).color, (*w).background_color);
                 (*w).width = width as _;
                 (*w).height = height as _;
-                let bytes = (width * height * i32::from((*w).bytes_per_pixel)) as isize;
+                let bytes = (i64::from(width) * i64::from(height) * bpp) as isize;
                 if (*w).flags & gfx::IMG_FREEMEM != 0 {
                     reg::qb_img_release_pixels(self.write_index as i32);
                     reg::qb_img_alloc_pixels(self.write_index as i32, bytes);
@@ -1484,7 +1500,8 @@ impl Host for VmHost<'_> {
         }
     }
     fn screen_pages(&mut self) -> Vec<*mut ImgStruct> {
-        Vec::from_fn(self.d.page.len(), |i| if self.d.page[i] != 0 { im(i as u32) } else { core::ptr::null_mut() })
+        // the image of each allocated page (page[i] is its image index; 0 = no such page)
+        self.d.page.iter().filter(|&&p| p != 0).map(|&p| im(p as u32)).collect()
     }
     fn dest(&mut self) -> i32 {
         -(self.d.write_index as i32)
@@ -1607,7 +1624,7 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
             | "func__console" | "func__newimage" | "sub__freeimage" | "sub__printimage" | "func__copyimage" | "sub__display" | "func__width"
             | "func__height" | "func__pixelsize" | "func__rgb" | "func__rgba" | "func__red" | "func__green" | "func__blue"
             | "func__alpha" | "func__rgb32" | "func__rgba32" | "func__red32" | "func__green32" | "func__blue32"
-            | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put"
+            | "func__alpha32" | "func__palettecolor" | "sub__palettecolor" | "sub_graphics_get" | "sub_graphics_put" | "sub_paletteusing"
             | "sub__font" | "func__font" | "func__fontwidth" | "func__fontheight" | "sub__autodisplay" | "func__autodisplay"
             | "SCREENPRINT" | "SCREENNL" | "SCREENZONE" | "SCREENTAB" | "SCREENSPC" | "func_screen" 
             | "sub__delay" | "sub__title" | "func_csrlin" | "func_pos" | "qbsub_width" | "sub__setalpha" | "sub__clearcolor"
@@ -1620,8 +1637,12 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
     if !known {
         return None;
     }
-    let ext = if name == "sub_graphics_get" || name == "sub_graphics_put" {
-        let ap = if name == "sub_graphics_get" { 5 } else { 3 };
+    let ext = if name == "sub_graphics_get" || name == "sub_graphics_put" || name == "sub_paletteusing" {
+        let ap = match name {
+            "sub_graphics_get" => 5,
+            "sub_graphics_put" => 3,
+            _ => 1,
+        };
         vm.array_extent(a[ap].p()).ok()
     } else {
         None
@@ -1995,6 +2016,39 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                     gerr(d, gfx::imgops::qb_gfx_palettecolor_set(im(x), i(0), u(1)));
                 }
             }
+            "sub_paletteusing" => {
+                // (element address or the array itself, array, bits an element): one
+                // PALETTE a attribute of the screen mode; an element of -1 leaves its
+                // attribute as it is
+                let size = if i(2) == 16 { 2u64 } else { 4 };
+                let last: u64 = match (*wp).compatible_mode {
+                    13 | 256 => 255,
+                    1 | 10 => 3,
+                    2 | 11 => 1,
+                    _ => 15,
+                };
+                match ext {
+                    Some((base, total)) => {
+                        let elem = if a[0].p() == a[1].p() { base } else { a[0].p() };
+                        if elem < base || elem + (last + 1) * size > base + total {
+                            d.err(5); // the array does not hold a value for every attribute
+                        } else {
+                            for k in 0..=last {
+                                let at = (elem + k * size) as *const u8;
+                                let v = if size == 2 { i32::from(at.cast::<i16>().read_unaligned()) } else { at.cast::<i32>().read_unaligned() };
+                                if v != -1 {
+                                    let r = gfx::palette::qb_gfx_palette(wp, k as u32, v as u32, 1);
+                                    if r != 0 {
+                                        d.err(r);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => d.err(5),
+                }
+            }
             "sub_graphics_get" | "sub_graphics_put" => {
                 // element address and the bytes from there to the end of its array
                 let ep = if name == "sub_graphics_get" { 4 } else { 2 };
@@ -2057,8 +2111,14 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 console::text::tab(&mut h);
             }
             "SCREENTAB" | "SCREENSPC" => {
+                // As on stdout: past the line width of a text page QB takes the count MOD
+                // the width; a graphics page has no column count here, so at most 32767
+                // (QBasic's INTEGER argument). Unbounded, SPC(2000000000) printed for minutes.
+                let wp = d.wp();
+                let cols = if (*wp).text != 0 { i64::from((*wp).width).max(1) } else { 0 };
                 let mut h = VmHost { d, cmem };
-                let n = a[0].i();
+                let n = a[0].i().max(0);
+                let n = if cols == 0 { n.min(32767) } else if n > cols { n % cols } else { n };
                 if name == "SCREENSPC" {
                     console::text::print(&mut h, &vec![b' '; n.max(0) as usize], false);
                 } else {
@@ -2104,7 +2164,8 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 let s = if passed & 8 != 0 { d.resolve(i(4)) } else { Some(d.read_index) };
                 let t = if passed & 32 != 0 { d.resolve(i(5)) } else { Some(d.write_index) };
                 if let (Some(sx), Some(tx)) = (s, t) {
-                    let (sp, tp) = (im(sx), im(tx));
+                    let sp = im(sx);
+                    let mut tp = im(tx);
                     if (*sp).text != 0 || (*tp).text != 0 || ((*sp).bytes_per_pixel == 4 && (*tp).bytes_per_pixel == 1) {
                         gerr(d, 5);
                     } else {
@@ -2115,9 +2176,14 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                             // a surface cannot be put onto itself: through a temporary copy
                             tmp = d.copyimage(-(sx as i32), 0, 0);
                             passed |= 8;
-                            src = im((-tmp) as u32);
+                            // the copy can grow the image table and move it
+                            tp = im(tx);
+                            if tmp < 0 {
+                                src = im((-tmp) as u32);
+                            }
                         }
-                        if tmp <= 0 {
+                        // tmp >= 0 with the same surface: the copy failed (error already set)
+                        if sx != tx || tmp < 0 {
                             gerr(d, gfx::putimage::qb_gfx_putimage(src, tp, &c, passed, core::ptr::null_mut()));
                         }
                         if tmp < 0 {

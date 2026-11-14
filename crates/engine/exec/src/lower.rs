@@ -382,6 +382,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
                 srcfiles: src.srcfiles.clone(),
                 console: src.meta("console").map(|v| v == "only"),
                 screenhide: src.meta("screenhide").is_some(),
+                option_base: i64::from(src.meta("optionbase") == Some("1")),
                 xfns: src.meta.iter().filter(|(k, _)| k == "extfn").filter_map(|(_, v)| parse_xfn(v)).collect(),
                 ..Module::default()
             },
@@ -511,7 +512,7 @@ impl<'a> Lw<'a> {
     fn mvar(&self, d: &ir::VarDecl) -> Res<(MK, MVar)> {
         let (mk, size, fill, strs) = match &d.ty {
             StoreTy::Scalar(t) => (MK::Scalar, t.size(), 0, *t == IT::Str),
-            StoreTy::FStr(n) => (MK::FStr(*n), *n, b' ', false),
+            StoreTy::FStr(n) => (MK::FStr(*n), *n, 0, false),
             StoreTy::Udt(u) => (MK::Udt, self.ir.udt(u).ok_or_else(|| format!("unknown TYPE {u}"))?.size, 0, false),
         };
         let mk = if d.array { MK::Arr } else { mk };
@@ -1324,8 +1325,15 @@ impl<'a> Lw<'a> {
                     let Var::A(a, ety) = var!(var) else { return Err("aaddr of a scalar".into()) };
                     let n = idx.len() as u32;
                     // one subscript that stays unchanged until the address is used: read it in place
+                    // A BYREF argument is copied back after the callee ran, and the callee
+                    // may have changed the subscript variable (SHARED): the place then
+                    // needs its own copy of the subscript.
+                    let to_call = body[ii + 1..]
+                        .iter()
+                        .take_while(|i| regs(i).0 != Some(*dst))
+                        .any(|i| matches!(i, Inst::Call { args, .. } if args.contains(dst)));
                     let direct = match idx.as_slice() {
-                        [x] => {
+                        [x] if !to_call => {
                             let x = *x;
                             let cnt = uses_before_redef(body, ii, *dst);
                             let var = alias_var[x as usize];

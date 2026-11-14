@@ -524,10 +524,21 @@ impl Adapter {
             let tx = self.tx.clone();
             std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
+                // A read can end inside a multi-byte character (Thai is 3 bytes): the
+                // incomplete tail waits for the next read, or `text` would take the
+                // whole chunk for a legacy code page.
+                let mut pend: Vec<u8> = Vec::new();
                 while let Ok(n) = pipe.read(&mut buf) {
-                    if n == 0 || tx.send(In::Output(cat, text(&buf[..n]))).is_err() {
+                    pend.extend_from_slice(&buf[..n]);
+                    let cut = match std::str::from_utf8(&pend) {
+                        Err(e) if e.error_len().is_none() && n != 0 => e.valid_up_to(),
+                        _ => pend.len(),
+                    };
+                    let rest = pend.split_off(cut);
+                    if (!pend.is_empty() && tx.send(In::Output(cat, text(&pend))).is_err()) || n == 0 {
                         break;
                     }
+                    pend = rest;
                 }
             });
         }

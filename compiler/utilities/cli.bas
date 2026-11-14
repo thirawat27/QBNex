@@ -227,7 +227,12 @@ FUNCTION ParseCMDLineArgs$ ()
         CASE "-c"
             cmdlineswitch = -1
         CASE "-o"
-            IF LEN(COMMAND$(i + 1)) > 0 THEN outputfile_cmd$ = COMMAND$(i + 1): i = i + 1
+            IF LEN(COMMAND$(i + 1)) = 0 THEN
+                PRINT "Missing file name after -o"
+                PRINT "Run 'qb --help' for usage."
+                SYSTEM 1
+            END IF
+            outputfile_cmd$ = COMMAND$(i + 1): i = i + 1
             cmdlineswitch = -1
         CASE "-x"
             ConsoleMode = 1
@@ -279,7 +284,13 @@ FUNCTION ParseCMDLineArgs$ ()
                 PRINT "Run 'qb --help' for usage."
                 SYSTEM 1
             END IF
-            IF PassedFileName$ = "" THEN PassedFileName$ = rawtoken$
+            IF PassedFileName$ = "" THEN
+                PassedFileName$ = rawtoken$
+            ELSE
+                PRINT "Only one source file can be compiled: "; PassedFileName$; " and "; rawtoken$
+                PRINT "Run 'qb --help' for usage."
+                SYSTEM 1
+            END IF
         END SELECT
     NEXT i
 

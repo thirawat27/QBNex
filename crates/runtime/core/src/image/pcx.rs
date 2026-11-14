@@ -79,6 +79,15 @@ impl Pcx<'_> {
         self.header.get(16 + i).copied().unwrap_or(0)
     }
 
+    /// True when the rest of a scan line can be skipped: every pixel of the line is
+    /// decoded (`x` is past the `per_byte` pixels a byte holds times the width) and
+    /// the data has ended, so the bytes left in the line are zeros that change
+    /// nothing. A header may claim 65535 bytes a line and 65536 lines for a file
+    /// without data, and walking them took half a minute.
+    fn line_done(&self, x: usize, per_byte: usize) -> bool {
+        x * per_byte >= self.width && self.rle_count == 0 && self.rd.pos >= self.rd.data.len()
+    }
+
     fn next_value(&mut self) -> u8 {
         if self.rle_count == 0 {
             let (c, v) = self.rd.rle();
@@ -111,6 +120,9 @@ impl Pcx<'_> {
                 for y in 0..self.height {
                     let mut p = self.row(y);
                     for x in 0..bpl {
+                        if self.line_done(x, 8) {
+                            break;
+                        }
                         let v = self.next_value();
                         let mut bit = 0;
                         while bit < 8 && x * 8 + bit < w {
@@ -129,6 +141,9 @@ impl Pcx<'_> {
                     for c in 0..planes {
                         let mut p = self.row(y);
                         for x in 0..bpl {
+                            if self.line_done(x, 8) {
+                                break;
+                            }
                             let v = self.next_value();
                             let mut bit = 0;
                             while bit < 8 && x * 8 + bit < w {
@@ -163,6 +178,9 @@ impl Pcx<'_> {
                 for y in 0..self.height {
                     let mut p = self.row(y);
                     for x in 0..bpl {
+                        if self.line_done(x, 4) {
+                            break;
+                        }
                         let v = self.next_value();
                         for bit in 0..4 {
                             if x * 4 + bit < w {
@@ -189,6 +207,9 @@ impl Pcx<'_> {
                     for c in 0..4u32 {
                         let mut p = self.row(y);
                         for x in 0..bpl {
+                            if self.line_done(x, 4) {
+                                break;
+                            }
                             let v = self.next_value();
                             let mut pair = 0;
                             while pair < 4 && x * 4 + pair < w {
@@ -220,6 +241,9 @@ impl Pcx<'_> {
             for c in 0..planes {
                 let mut p = self.row(y);
                 for x in 0..bpl {
+                    if self.line_done(x, 2) {
+                        break;
+                    }
                     let v = self.next_value();
                     let mut nibble = 0;
                     while nibble < 2 && x * 2 + nibble < w {
@@ -243,6 +267,9 @@ impl Pcx<'_> {
                 for y in 0..self.height {
                     let mut p = self.row(y);
                     for x in 0..bpl {
+                        if self.line_done(x, 1) {
+                            break;
+                        }
                         let v = self.next_value();
                         if x < w {
                             self.px[p..p + 3].fill(v);
@@ -270,6 +297,9 @@ impl Pcx<'_> {
                     for c in 0..comps {
                         let mut p = self.row(y);
                         for x in 0..bpl {
+                            if self.line_done(x, 1) {
+                                break;
+                            }
                             let v = self.next_value();
                             if x < w {
                                 self.px[p + c] = v;

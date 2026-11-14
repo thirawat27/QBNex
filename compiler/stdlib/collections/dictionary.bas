@@ -12,6 +12,8 @@ END TYPE
 SUB Dict_Init (dictRef AS QBNex_Dictionary)
     List_Init dictRef.Keys
     List_Init dictRef.Values
+    ' the list pool ran out between the two: no half dictionary with keys and no values
+    IF dictRef.Values.Handle = 0 THEN List_Free dictRef.Keys
 END SUB
 
 SUB Dict_Set (dictRef AS QBNex_Dictionary, keyText AS STRING, valueText AS STRING)

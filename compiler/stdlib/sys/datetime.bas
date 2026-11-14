@@ -146,7 +146,7 @@ SUB Date_FromUnixMs (dateRef AS QBNex_Date, epochMs AS DOUBLE)
 
     ' INT rounds toward minus infinity, so times before 1970 work too.
     totalSeconds = INT(epochMs / 1000#)
-    dateRef.Millisecond = epochMs - totalSeconds * 1000#
+    dateRef.Millisecond = INT(epochMs - totalSeconds * 1000#) ' INT: rounding gave 1000 for .9995 and above
     wholeDays = INT(totalSeconds / 86400#)
     secondsOfDay = totalSeconds - wholeDays * 86400#
 

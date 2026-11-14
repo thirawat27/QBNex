@@ -36,7 +36,8 @@ impl<'a> P<'a, '_> {
     }
     fn reg(&mut self) -> Result<Reg, IrError> {
         let t = self.next()?;
-        match t.strip_prefix('%').and_then(|n| n.parse::<Reg>().ok()) {
+        // executors size per-function tables by the highest register number
+        match t.strip_prefix('%').and_then(|n| n.parse::<Reg>().ok()).filter(|r| *r < (1 << 24)) {
             Some(r) => Ok(r),
             None => self.e(format!("expected register, found `{t}`")),
         }

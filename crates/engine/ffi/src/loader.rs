@@ -223,7 +223,10 @@ impl Library {
             // macOS 11+: system libraries (/usr/lib/libz.dylib, ...) exist only in
             // the dyld shared cache, not on disk, yet dlopen of that path works.
             if c.is_file() || (cfg!(target_vendor = "apple") && c.is_absolute()) {
-                match Library::open_path(&text) {
+                // dlopen takes a name without '/' as a name to search for, never as this
+                // file in the current directory (and may find a system library instead)
+                let exact = if cfg!(unix) && !text.contains('/') && c.is_file() { format!("./{text}") } else { text.clone() };
+                match Library::open_path(&exact) {
                     Ok(l) => return Ok(l),
                     Err(e) => last = e,
                 }
@@ -338,7 +341,8 @@ pub fn find_default_symbol(name: &str) -> Option<*const c_void> {
     None
 }
 
-#[cfg(windows)]
+// (only where a call thunk exists: elsewhere a library that loaded could not be called)
+#[cfg(all(windows, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod sys {
     use std::ffi::c_void;
 
@@ -403,7 +407,7 @@ mod sys {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 mod sys {
     use std::ffi::{CStr, CString, c_char, c_int, c_void};
 
@@ -474,9 +478,10 @@ mod sys {
     }
 }
 
-/// No dynamic libraries (wasm32 in a browser, qb-web): every DECLARE LIBRARY
+/// No dynamic libraries (wasm32 in a browser, qb-web; an architecture without a
+/// call thunk, where a call would silently return 0): every DECLARE LIBRARY
 /// load fails with an ordinary error and no symbol is found.
-#[cfg(not(any(windows, unix)))]
+#[cfg(not(all(any(windows, unix), any(target_arch = "x86_64", target_arch = "aarch64"))))]
 mod sys {
     use std::ffi::c_void;
 

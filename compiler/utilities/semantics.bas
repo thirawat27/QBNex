@@ -1125,6 +1125,9 @@ IF id2.args <> 0 THEN
                             IF RIGHT$(e$, 1) = "&" OR RIGHT$(e$, 1) = "%" THEN e$ = LEFT$(e$, LEN(e$) - 1)
                         END IF
                     END IF
+                    'the elements are joined by the separator, the type name is written with blanks
+                    '(STRING * 4 was "Invalid number/constant after STRING * type")
+                    DO WHILE INSTR(e$, sp): MID$(e$, INSTR(e$, sp), 1) = " ": LOOP
                     t = typname2typ(e$)
                     IF t = 0 THEN Give_Error "Invalid TYPE name": EXIT FUNCTION
                     IF t AND ISOFFSETINBITS THEN Give_Error qbnexprefix$ + "BIT TYPE unsupported": EXIT FUNCTION
@@ -1533,6 +1536,9 @@ IF id2.args <> 0 THEN
                 'not an array
 
                 IF sourcetyp AND ISUDT THEN
+                    'the id is the first field of the reference (the two skips below removed
+                    'it before it was read, and getid got 0)
+                    udtVarId& = VAL(e$)
                     r$ = refer(e$, sourcetyp, 1)
                     IF Error_Happened THEN EXIT FUNCTION
                     e$ = RIGHT$(e$, LEN(e$) - INSTR(e$, sp3)) 'skip idnumber
@@ -1540,7 +1546,7 @@ IF id2.args <> 0 THEN
                     typ = 64&
 
                     'if sub/func arg, may not be in DBLOCK
-                    getid VAL(e$)
+                    getid udtVarId&
                     IF Error_Happened THEN EXIT FUNCTION
                     r$ = "@"
 

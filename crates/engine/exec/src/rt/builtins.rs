@@ -28,6 +28,12 @@ pub(crate) trait Host<'a> {
     fn inclerr(&self) -> (u32, Vec<u8>);
     /// LASTLINE builtin: a numeric line label was passed
     fn set_last_line(&mut self, n: u32);
+    /// TRYPUSH: the body of TRY statement `id` begins; the current ON ERROR handler is kept.
+    fn try_enter(&mut self, _id: u32) {}
+    /// TRYPOP: the innermost TRY body of this procedure is left; its kept handler is back.
+    fn try_leave(&mut self) {}
+    /// ENDCODE: exit code of the END statement that follows.
+    fn set_end_code(&mut self, _code: i32) {}
     /// `len` bytes of memory at the address `p` (GET/PUT, _MEM, TCP buffers).
     fn bytes(&mut self, p: u64, len: usize) -> R<&mut [u8]>;
     /// (address of the first element, total bytes) of the array whose descriptor `p` references.
@@ -483,6 +489,9 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         let (ty, v) = (a[0].i() as i32, a[1].f());
         let rt = vm.rt();
         if rt.varptr_slots == 0 {
+            if rt.cmem_next + 16 * 16 > 0x1_0000 {
+                return e(7);
+            }
             rt.varptr_slots = rt.cmem_next;
             rt.cmem_next += 16 * 16;
         }
@@ -584,6 +593,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         vm.set_last_line(a[0].i() as u32);
         return Ok(None);
     }
+    if name == "TRYPUSH" {
+        vm.try_enter(a[0].i() as u32);
+        return Ok(None);
+    }
+    if name == "ENDCODE" {
+        vm.set_end_code(a[0].i() as i32);
+        return Ok(None);
+    }
+    if name == "TRYPOP" {
+        vm.try_leave();
+        return Ok(None);
+    }
     if name == "VARPTR.s" || name == "SADD" || name == "VARPTR$.s" {
         let p = a[0].p();
         let known = vm.rt().cmem_strs.get(&p).copied();
@@ -593,6 +614,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 let len = vm.load_str(p)?.len() as u16;
                 let rt = vm.rt();
                 let d = rt.cmem_next;
+                // descriptors are near pointers into DBLOCK (one 64 KB segment)
+                if d + 4 > 0x1_0000 {
+                    return e(7);
+                }
                 rt.cmem_next += 4;
                 rt.cmem_strs.insert(p, d);
                 let base = DBLOCK + d;
@@ -606,6 +631,12 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let s = vm.load_str(p)?;
             let rt = vm.rt();
             let (off, cap) = rt.cmem_sdata.get(&p).copied().unwrap_or((0, 0));
+            // out of string space before anything is reserved: the descriptor holds a
+            // 16-bit offset, and a failed SADD must not use up the segment for later ones
+            let fresh = if rt.cmem_next == d + 4 && cap == 0 { d + 4 } else { rt.cmem_next };
+            if !(s.len() <= cap && off != 0) && fresh + s.len().max(1) > 0x1_0000 {
+                return e(7);
+            }
             let off = if s.len() <= cap && off != 0 {
                 off
             } else if rt.cmem_next == d + 4 && cap == 0 {
@@ -751,7 +782,14 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "PRINTTAB" => {
             let ch = i(0) as i32;
             let n = print_count(ch, i(1)).max(1);
-            let col = if ch == 0 { rt.col } else if ch == super::lprint::CHANNEL { rt.lprint.pos() } else { 1 };
+            // a file has a column too (it was taken as 1: TAB padded from the line start)
+            let col = if ch == 0 {
+                rt.col
+            } else if ch == super::lprint::CHANNEL {
+                rt.lprint.pos()
+            } else {
+                qb_runtime::fileio::column(ch)
+            };
             if col > n {
                 rt.nl(ch)?;
                 rt.write(ch, &vec![b' '; n - 1])?
@@ -1010,10 +1048,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                 vm.rt().write(0, s(0))?;
             }
         }
-        "INPUTITEM.s" | "INPUTITEM.n" => {
+        "INPUTITEM.s" | "INPUTITEM.n" | "INPUTITEM.i" | "INPUTITEM.x" => {
             let ch = i(0) as i32;
             let _ = ch;
-            let numeric = name == "INPUTITEM.n";
+            let numeric = name != "INPUTITEM.s";
             if rt.input_line.is_none() {
                 // first item: the statement reads one line; its values come from
                 // that line only (missing ones are empty / 0)
@@ -1033,6 +1071,16 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             let item = read_item(line, numeric).unwrap_or_default();
             if name == "INPUTITEM.s" {
                 return ok(V::S(item));
+            }
+            if name == "INPUTITEM.x" {
+                return ok(V::X(qb_runtime::val::val(&item).map_or(qb_float80::F80::from_f64(0.0), qb_float80::F80::from_bytes)));
+            }
+            if name == "INPUTITEM.i" {
+                let v = super::files::exact_i64(&item).unwrap_or_else(|| {
+                    let f = val(&item).round_ties_even();
+                    if f >= super::files::I64_LIMIT { f as u64 as i64 } else { f as i64 }
+                });
+                return ok(V::I(v));
             }
             return ok(V::F(val(&item)));
         }
@@ -1135,7 +1183,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         }
         "ENVIRON$.n" => {
             let k = i(0);
-            let v = std::env::vars().nth((k - 1).max(0) as usize).map(|(a, b)| format!("{a}={b}").into_bytes());
+            // vars() panics on a variable that is not Unicode
+            let v = std::env::vars_os().nth((k - 1).max(0) as usize).map(|(a, b)| format!("{}={}", a.to_string_lossy(), b.to_string_lossy()).into_bytes());
             return ok(V::S(v.unwrap_or_default()));
         }
         "ENVIRON" => {
@@ -1145,6 +1194,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             if let Some(p) = split {
                 let k = t[..p].trim().to_string();
                 let v = if t.as_bytes()[p] == b' ' { t[p + 1..].trim_start() } else { &t[p + 1..] };
+                // names and values set_var/remove_var panic on
+                if k.is_empty() || k.contains(['=', '\0']) || v.contains('\0') {
+                    return e(5);
+                }
                 if v.is_empty() {
                     // SAFETY: the program thread is the only one touching the environment.
                     unsafe { std::env::remove_var(&k) };

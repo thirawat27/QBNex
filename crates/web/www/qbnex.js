@@ -25,7 +25,44 @@
 //                         once the stdin text is used up
 //   onAudio(pcm, rate)    interleaved stereo Float32Array of the program's sound
 
-const dec = new TextDecoder('latin1');
+// Program text is bytes. As the native console does (crates/runtime/core/src/console/utf8.rs):
+// valid UTF-8 is shown as such (a program saved as UTF-8 prints Thai), and a byte that is not
+// part of a valid sequence is a code page 437 character (CHR$(201) is a box corner).
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+const CP437_HIGH = '\u00c7\u00fc\u00e9\u00e2\u00e4\u00e0\u00e5\u00e7\u00ea\u00eb\u00e8\u00ef\u00ee\u00ec\u00c4\u00c5\u00c9\u00e6\u00c6\u00f4\u00f6\u00f2\u00fb\u00f9\u00ff\u00d6\u00dc\u00a2\u00a3\u00a5\u20a7\u0192\u00e1\u00ed\u00f3\u00fa\u00f1\u00d1\u00aa\u00ba\u00bf\u2310\u00ac\u00bd\u00bc\u00a1\u00ab\u00bb\u2591\u2592\u2593\u2502\u2524\u2561\u2562\u2556\u2555\u2563\u2551\u2557\u255d\u255c\u255b\u2510\u2514\u2534\u252c\u251c\u2500\u253c\u255e\u255f\u255a\u2554\u2569\u2566\u2560\u2550\u256c\u2567\u2568\u2564\u2565\u2559\u2558\u2552\u2553\u256b\u256a\u2518\u250c\u2588\u2584\u258c\u2590\u2580\u03b1\u00df\u0393\u03c0\u03a3\u03c3\u00b5\u03c4\u03a6\u0398\u03a9\u03b4\u221e\u03c6\u03b5\u2229\u2261\u00b1\u2265\u2264\u2320\u2321\u00f7\u2248\u00b0\u2219\u00b7\u221a\u207f\u00b2\u25a0\u0020';
+
+/** Length of the valid UTF-8 sequence at `i`, 0 if there is none. */
+function utf8Len(b, i) {
+  const c = b[i];
+  const n = c >= 0xc2 && c <= 0xdf ? 2 : c >= 0xe0 && c <= 0xef ? 3 : c >= 0xf0 && c <= 0xf4 ? 4 : 0;
+  if (n === 0 || i + n > b.length) return 0;
+  try {
+    utf8.decode(b.subarray(i, i + n));
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+/** @param {Uint8Array} bytes @returns {string} */
+export function decodeText(bytes) {
+  try {
+    return utf8.decode(bytes);
+  } catch {
+    let out = '';
+    let i = 0;
+    while (i < bytes.length) {
+      let j = i;
+      while (j < bytes.length && bytes[j] < 0x80) j++;
+      if (j > i) out += utf8.decode(bytes.subarray(i, j));
+      if (j >= bytes.length) break;
+      const n = utf8Len(bytes, j);
+      out += n ? utf8.decode(bytes.subarray(j, j + n)) : CP437_HIGH[bytes[j] - 0x80];
+      i = j + (n || 1);
+    }
+    return out;
+  }
+}
 
 /** Input event kinds (`[kind, a, b, c, d, mods]`, read by crates/engine/exec/src/rt/input.rs). */
 export const EVENT_KEY = 1; // a pressed, b repeat, c key id (KEY_IDS), d character code; mods 1 shift 2 ctrl 4 alt
@@ -188,7 +225,7 @@ export class QBNex {
   }
 
   text(kind) {
-    return dec.decode(this.buf(this.x.qb_web_text(kind)));
+    return decodeText(this.buf(this.x.qb_web_text(kind)));
   }
 
   /** @param {0|1} which 0 = frame of the last _DISPLAY, 1 = final screen */
@@ -202,7 +239,7 @@ export class QBNex {
 
   /** Console output so far (call from onFrame for a live console). */
   stdoutSoFar() {
-    return dec.decode(this.buf(this.x.qb_web_poll_stdout()));
+    return decodeText(this.buf(this.x.qb_web_poll_stdout()));
   }
 
   put(bytes) {
@@ -220,7 +257,8 @@ export class QBNex {
     this.used = true;
     const enc = new TextEncoder();
     const src = enc.encode(qir);
-    const inp = Uint8Array.from(stdin, (c) => c.charCodeAt(0) & 255);
+    // UTF-8, as a terminal sends it (the low byte of each UTF-16 unit turned Thai into control codes)
+    const inp = enc.encode(stdin);
     const ps = this.put(src);
     const pi = this.put(inp);
     let status;

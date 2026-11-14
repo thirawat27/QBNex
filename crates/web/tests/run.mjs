@@ -181,5 +181,11 @@ const lines = (r) => r.screenText.split('\n');
   check('fresh instance', r.screenText.startsWith('Hello, QBNex'), r.screenText);
 }
 
+// UTF-8 in and out; a byte that is not UTF-8 is a code page 437 character
+{
+  const r = qb.run(fixture('utf8'), 'กขค\n');
+  check('utf8 text', r.status === 0 && r.stdout === 'สวัสดี กขค ╔═ 9 \n', r.stdout);
+}
+
 console.log(`qb-web: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

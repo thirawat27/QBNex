@@ -5,3 +5,9 @@ tests/conformance/cases/**/*.fb text eol=lf
 # *.expect into CRLF and failed qb-exec's corpus test).
 *.qir -text
 *.expect -text
+# Shell scripts run under sh/bash, which reject a carriage return; cmd.exe needs
+# CRLF to find labels reliably. Neither may depend on core.autocrlf.
+*.sh text eol=lf
+*.command text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf

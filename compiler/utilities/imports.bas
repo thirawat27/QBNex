@@ -66,6 +66,36 @@ FUNCTION StdLib_ImportPath$ (module$)
     StdLib_ImportPath$ = QBNexRoot$ + "compiler" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
 END FUNCTION
 
+FUNCTION StdLib_InQbnexBundle% (moduleKey$)
+    ''qbnex' is collections, strings, io, sys, math, error and oop in one file.
+    'json, url and ext.* are modules of their own and combine with it.
+    SELECT CASE LEFT$(moduleKey$, INSTR(moduleKey$ + ".", ".") - 1)
+    CASE "collections", "strings", "io", "sys", "math", "error", "oop"
+        StdLib_InQbnexBundle% = -1
+    END SELECT
+END FUNCTION
+
+FUNCTION StdLib_ImportCovered% (moduleKey$, imported$)
+    'True when the code of moduleKey$ is already in the program through another import:
+    'a bundled module after 'qbnex', or 'qbnex' after one of its bundled modules
+    '(StdLib_PrepareHoistedImports hoists 'qbnex' first, so that order does not arise
+    'for the imports of the main source).
+    DIM p AS LONG
+    DIM q AS LONG
+
+    IF moduleKey$ = "qbnex" THEN
+        p = 2
+        DO WHILE p <= LEN(imported$)
+            q = INSTR(p, imported$, "@")
+            IF q = 0 THEN EXIT DO
+            IF StdLib_InQbnexBundle%(MID$(imported$, p, q - p)) THEN StdLib_ImportCovered% = -1: EXIT FUNCTION
+            p = q + 1
+        LOOP
+    ELSEIF StdLib_InQbnexBundle%(moduleKey$) THEN
+        IF INSTR(imported$, "@qbnex@") THEN StdLib_ImportCovered% = -1
+    END IF
+END FUNCTION
+
 FUNCTION StdLib_QueueImport$ (module$)
     DIM normalizedKey AS STRING
     DIM importPath AS STRING
@@ -76,11 +106,7 @@ FUNCTION StdLib_QueueImport$ (module$)
         EXIT FUNCTION
     END IF
 
-    IF normalizedKey = "qbnex" THEN
-        IF importedModules$ <> "@" THEN EXIT FUNCTION
-    ELSE
-        IF INSTR(importedModules$, "@qbnex@") THEN EXIT FUNCTION
-    END IF
+    IF StdLib_ImportCovered%(normalizedKey, importedModules$) THEN EXIT FUNCTION
 
     IF INSTR(importedModules$, "@" + normalizedKey + "@") THEN EXIT FUNCTION
 
@@ -221,11 +247,7 @@ SUB StdLib_HoistModule (module$, headText$, bodyText$)
     moduleKey = StdLib_CanonicalImportKey$(module$)
     IF LEN(moduleKey) = 0 THEN EXIT SUB
     'same de-duplication rules as StdLib_QueueImport$
-    IF moduleKey = "qbnex" THEN
-        IF stdlibHoisted$ <> "@" THEN EXIT SUB
-    ELSE
-        IF INSTR(stdlibHoisted$, "@qbnex@") THEN EXIT SUB
-    END IF
+    IF StdLib_ImportCovered%(moduleKey, stdlibHoisted$) THEN EXIT SUB
     IF INSTR(stdlibHoisted$, "@" + moduleKey + "@") THEN EXIT SUB
     modulePath = StdLib_ImportPath$(moduleKey)
     IF _FILEEXISTS(modulePath) = 0 THEN EXIT SUB 'left to the in-place $IMPORT, which reports it
@@ -256,6 +278,18 @@ SUB StdLib_PrepareHoistedImports
     IF _FILEEXISTS(sourcefile$) = 0 THEN EXIT SUB
 
     text = StdLib_ReadText$(sourcefile$)
+    ''qbnex' goes first wherever the program imports it: a bundled module imported
+    'before it (collections.list, then qbnex) would define the same procedures twice
+    p = 1
+    DO WHILE p <= LEN(text)
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        moduleName = StdLib_MetaArgFromLine$(MID$(text, p, nl - p), "$IMPORT")
+        p = nl + 1
+        IF LEN(moduleName) THEN
+            IF StdLib_CanonicalImportKey$(moduleName) = "qbnex" THEN StdLib_HoistModule moduleName, headText, bodyText: EXIT DO
+        END IF
+    LOOP
     p = 1
     DO WHILE p <= LEN(text)
         nl = INSTR(p, text, CHR$(10))
@@ -274,6 +308,7 @@ SUB StdLib_PrepareHoistedImports
         END IF
     LOOP
     IF syntaxExtUsesTry THEN usesTry = -1 'a hoisted module uses TRY
+    syntaxExtUsesTry = usesTry 'TRY somewhere in the program: SyntaxExt_ProcessLine$ tracks the loops
     IF stdlibHoisted$ = "@" AND usesTry = 0 AND LEN(defFnBodyText$) = 0 THEN EXIT SUB
 
     'FUNCTIONs made from single-line DEF FN (deffn.bas) go after the program's last line

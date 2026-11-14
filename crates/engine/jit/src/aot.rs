@@ -7,7 +7,7 @@
 //!   table, for a standard linker (rust-lld) to link with the `qb-native`
 //!   runtime library into an ordinary executable.
 
-use crate::codegen::{define_all, make_isa_pic, CompileError, Target};
+use crate::codegen::{define_all, make_isa_for, CompileError, Target};
 use crate::mir::Module;
 use cranelift_module::{default_libcall_names, DataDescription, Linkage, Module as _};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -43,7 +43,8 @@ fn new_module(target: Target) -> Result<ObjectModule, CompileError> {
 }
 
 fn new_module_pic(target: Target, pic: bool) -> Result<ObjectModule, CompileError> {
-    let isa = make_isa_pic(target, pic);
+    // not this CPU's extensions: the object runs wherever the executable is copied to
+    let isa = make_isa_for(target, pic, false);
     let ob = ObjectBuilder::new(isa, "qbnex_program", default_libcall_names()).map_err(|e| CompileError(e.to_string()))?;
     Ok(ObjectModule::new(ob))
 }
