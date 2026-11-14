@@ -129,6 +129,7 @@ made after 1.0.4.
 - Web build: output and input are UTF-8 (Thai text), and a byte outside UTF-8 is its code page 437 character
 - `CLOSE` without a file number, and `RUN`, `CHAIN` and `CLEAR`, close the TCP/IP handles too
 - Linux: a program that opens a window, and the setup window, no longer abort when libxkbcommon-x11 (or libxkbcommon) is not installed; the program runs without a window and says which library is missing, setup asks its questions in the terminal
+- GPU feature: a program made one Vulkan instance per GPU user (window, 3D scene) and enumerated adapters each time; the Vulkan loader loads and unloads drivers while it does that, which crashed another thread that was using its device. The instance and adapter are now made once per process.
 
 ### Security
 
