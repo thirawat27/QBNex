@@ -31,6 +31,12 @@ impl Drop for Net {
 }
 
 impl Net {
+    /// `CLOSE` without a file number (also RUN, CHAIN and CLEAR): every TCP/IP handle.
+    pub(crate) fn close_all(&mut self) {
+        for h in self.handles.drain(..).flatten() {
+            Conn::close(*h.conn);
+        }
+    }
     fn register(&mut self, conn: Box<Conn>, ctype: i32) -> i32 {
         let h = Handle { conn, ctype, inbuf: Vec::new(), eof: false };
         if let Some(k) = self.handles.iter().position(|x| x.is_none()) {

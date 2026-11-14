@@ -817,6 +817,9 @@ pub fn qb_window_run(
     WIN_H.store(height, Ordering::SeqCst);
     let event_loop = if headless_requested() {
         None
+    } else if let Some(lib) = missing_window_library() {
+        eprintln!("QBNex: no window: {lib} is not installed (package libxkbcommon-x11-0 or libxkbcommon-x11); the program runs without one");
+        None
     } else {
         EventLoop::new().ok()
     };
@@ -840,6 +843,26 @@ pub fn qb_window_run(
     };
     let _ = event_loop.run_app(&mut app);
     0
+}
+
+/// The keyboard library winit needs on Linux and the BSDs and loads only when
+/// the event loop starts: without it winit aborts the program instead of
+/// returning an error. Wayland needs libxkbcommon, X11 also libxkbcommon-x11.
+pub fn missing_window_library() -> Option<&'static str> {
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
+    {
+        let set = |v: &str| std::env::var_os(v).is_some_and(|s| !s.is_empty());
+        if !set("WAYLAND_DISPLAY") && !set("DISPLAY") {
+            return None; // no display at all: winit reports that as an error
+        }
+        if xkbcommon_dl::xkbcommon_option().is_none() {
+            return Some("libxkbcommon.so.0");
+        }
+        if !set("WAYLAND_DISPLAY") && xkbcommon_dl::x11::xkbcommon_x11_option().is_none() {
+            return Some("libxkbcommon-x11.so.0");
+        }
+    }
+    None
 }
 
 fn run_headless() -> i32 {

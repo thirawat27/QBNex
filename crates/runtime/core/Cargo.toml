@@ -68,6 +68,10 @@ gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
 # softbuffer stays the default and the fallback when no adapter/surface is available.
 qb-gpu = { path = "../gpu", optional = true }
 
+[target.'cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))'.dependencies]
+# winit loads libxkbcommon(-x11) with dlopen and aborts when it is missing; it is checked first.
+xkbcommon-dl = { version = "0.4.2", features = ["x11"] }
+
 [target.'cfg(all(not(windows), not(target_arch = "wasm32")))'.dependencies]
 # Clipboard text and images on Linux (X11/Wayland) and macOS.
 arboard = { version = "3.7", default-features = false, features = ["image-data"] }

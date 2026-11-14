@@ -536,7 +536,29 @@ mod imp {
 
     /// True when a window can be shown.
     pub fn has_display() -> bool {
-        cfg!(target_os = "macos") || ["WAYLAND_DISPLAY", "DISPLAY"].iter().any(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
+        if cfg!(target_os = "macos") {
+            return true;
+        }
+        let set = |v: &str| std::env::var_os(v).is_some_and(|s| !s.is_empty());
+        if !set("WAYLAND_DISPLAY") && !set("DISPLAY") {
+            return false;
+        }
+        // the window toolkit aborts the installer when its keyboard library is missing
+        #[cfg(all(feature = "gui", not(target_os = "macos")))]
+        {
+            let missing = if xkbcommon_dl::xkbcommon_option().is_none() {
+                Some("libxkbcommon.so.0")
+            } else if !set("WAYLAND_DISPLAY") && xkbcommon_dl::x11::xkbcommon_x11_option().is_none() {
+                Some("libxkbcommon-x11.so.0")
+            } else {
+                None
+            };
+            if let Some(lib) = missing {
+                eprintln!("qbnex-setup: no setup window: {lib} is not installed");
+                return false;
+            }
+        }
+        true
     }
 
     /// `p` with symlinks resolved; when it does not exist, without `.` and trailing slashes.
