@@ -770,7 +770,8 @@ mod imp {
             let entry = terminal_entry(dir);
             if cfg!(not(target_os = "macos")) {
                 assert!(entry.contains("Exec=sh -c \"PATH='/opt/my qb'\\\\''s':\\\"\\$PATH\\\"; export PATH;"), "{entry}");
-                assert!(compile_entry(dir).contains("\\\"\\$1\\\"; printf"));
+                // -x: the program is written next to the source
+                assert!(compile_entry(dir).contains("\\\"\\$1\\\" -x; printf"), "{}", compile_entry(dir));
                 assert!(compile_entry(dir).ends_with("X-QBNex-Dir=/opt/my qb's\n"));
             }
             assert_eq!(quoted("a'b"), "'a'\\''b'");
