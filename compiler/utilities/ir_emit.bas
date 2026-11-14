@@ -2674,6 +2674,9 @@ SUB IrFinish (src$, outExe$)
 
     fh = FREEFILE: OPEN runner$ FOR BINARY AS #fh: r$ = SPACE$(LOF(fh)): GET #fh, , r$: CLOSE #fh
     fh = FREEFILE: OPEN ir$ FOR BINARY AS #fh: q$ = SPACE$(LOF(fh)): GET #fh, , q$: CLOSE #fh
+    'a window program (no $CONSOLE) is a GUI program on Windows, as `qb-exec build` makes
+    'it: a console program would open an empty console next to its window
+    IF os$ = "WIN" AND DEPENDENCY(DEPENDENCY_CONSOLE_ONLY) = 0 AND Console = 0 THEN IrGuiSubsystem r$
     IF _FILEEXISTS(outPath$) THEN KILL outPath$
     fh = FREEFILE
     OPEN outPath$ FOR BINARY AS #fh
@@ -2685,4 +2688,16 @@ SUB IrFinish (src$, outExe$)
     IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + CHR$(34) + outPath$ + CHR$(34)
     IF QuietMode = 0 THEN ShowBuildComplete outPath$
     ExitCompilerProcess
+END SUB
+
+'Marks the Windows executable exe$ as a GUI program: the PE subsystem field (3 console,
+'2 GUI) is 4 + 20 + 68 bytes after the "PE"+0+0 signature, whose offset is at &H3C.
+SUB IrGuiSubsystem (exe$)
+    DIM pe AS LONG
+    IF LEN(exe$) < &H40 THEN EXIT SUB
+    IF LEFT$(exe$, 2) <> "MZ" THEN EXIT SUB
+    pe = CVL(MID$(exe$, &H3D, 4))
+    IF pe <= 0 OR pe + 94 > LEN(exe$) THEN EXIT SUB
+    IF MID$(exe$, pe + 1, 4) <> "PE" + CHR$(0) + CHR$(0) THEN EXIT SUB
+    IF CVI(MID$(exe$, pe + 93, 2)) = 3 THEN MID$(exe$, pe + 93, 2) = MKI$(2)
 END SUB
