@@ -7,8 +7,9 @@ use std::time::Duration;
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Response {
     pub status: u16,
-    /// "Name: value" lines joined with CR LF, in the order received.
-    pub headers: String,
+    /// "Name: value" lines joined with CR LF, in the order received, as the
+    /// bytes received (a value need not be UTF-8).
+    pub headers: Vec<u8>,
     pub body: Vec<u8>,
 }
 
@@ -68,46 +69,91 @@ pub fn request_with_roots(
     extra_roots: Option<&[u8]>,
 ) -> Result<Response, String> {
     let timeout = Duration::from_millis(if timeout_ms <= 0 { 30_000 } else { timeout_ms as u64 });
+    // Redirects are followed here, not by ureq: ureq does not send a body again, so a
+    // POST answered with 307 or 308 failed ("redirect failed") instead of being repeated.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
-        .max_redirects(10)
+        .max_redirects(0)
+        .max_redirects_will_error(false)
         .user_agent("QBNex")
         .allow_non_standard_methods(true)
         .tls_config(tls_config(extra_roots))
         .build()
         .into();
-    let mut b = ureq::http::Request::builder().method(method.to_ascii_uppercase().as_str()).uri(url);
-    for line in headers.split('\n') {
-        let line = line.trim_end_matches('\r');
-        if line.trim().is_empty() {
-            continue;
+    let mut method = method.to_ascii_uppercase();
+    let mut url = url.to_string();
+    let mut body = body.to_vec();
+    let mut redirects = 0;
+    let mut resp = loop {
+        let mut b = ureq::http::Request::builder().method(method.as_str()).uri(url.as_str());
+        for line in headers.split('\n') {
+            let line = line.trim_end_matches('\r');
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Some((k, v)) = line.split_once(':') else {
+                return Err(format!("bad header line: {line}"));
+            };
+            b = b.header(k.trim(), v.trim());
         }
-        let Some((k, v)) = line.split_once(':') else {
-            return Err(format!("bad header line: {line}"));
-        };
-        b = b.header(k.trim(), v.trim());
-    }
-    let mut resp = if body.is_empty() && !matches!(method.to_ascii_uppercase().as_str(), "POST" | "PUT" | "PATCH") {
-        let req = b.body(()).map_err(|e| e.to_string())?;
-        agent.run(req)
-    } else {
-        let req = b.body(body.to_vec()).map_err(|e| e.to_string())?;
-        agent.run(req)
-    }
-    .map_err(|e| e.to_string())?;
+        let resp = if body.is_empty() && !matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
+            let req = b.body(()).map_err(|e| e.to_string())?;
+            agent.run(req)
+        } else {
+            let req = b.body(body.clone()).map_err(|e| e.to_string())?;
+            agent.run(req)
+        }
+        .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_string);
+        let (true, Some(location)) = (matches!(code, 301 | 302 | 303 | 307 | 308), location) else { break resp };
+        redirects += 1;
+        if redirects > 10 {
+            return Err("too many redirects".into());
+        }
+        url = join_url(&url, &location);
+        // 307 and 308 repeat the request; the others go on as GET without a body
+        // (what browsers do for 301 and 302 too)
+        if !matches!(code, 307 | 308) && method != "HEAD" {
+            method = "GET".into();
+            body.clear();
+        }
+    };
     let status = resp.status().as_u16();
-    let mut head = String::new();
+    let mut head: Vec<u8> = Vec::new();
     for (k, v) in resp.headers() {
         if !head.is_empty() {
-            head.push_str("\r\n");
+            head.extend_from_slice(b"\r\n");
         }
-        head.push_str(k.as_str());
-        head.push_str(": ");
-        head.push_str(&String::from_utf8_lossy(v.as_bytes()));
+        head.extend_from_slice(k.as_str().as_bytes());
+        head.extend_from_slice(b": ");
+        head.extend_from_slice(v.as_bytes());
     }
     let body = resp.body_mut().with_config().limit(MAX_BODY).read_to_vec().map_err(|e| e.to_string())?;
     Ok(Response { status, headers: head, body })
+}
+
+/// `location` of a redirect, made absolute against the URL that was asked for.
+#[cfg(not(target_arch = "wasm32"))]
+fn join_url(base: &str, location: &str) -> String {
+    if location.contains("://") {
+        return location.to_string();
+    }
+    let scheme_end = base.find("://").map_or(0, |p| p + 3);
+    let path_start = base[scheme_end..].find('/').map_or(base.len(), |p| p + scheme_end);
+    if let Some(rest) = location.strip_prefix("//") {
+        return format!("{}{rest}", &base[..scheme_end]);
+    }
+    if location.starts_with('/') {
+        return format!("{}{location}", &base[..path_start]);
+    }
+    // relative to the folder of the path (query and fragment cut off)
+    let path = &base[path_start..];
+    let path = &path[..path.find(['?', '#']).unwrap_or(path.len())];
+    let dir = &path[..path.rfind('/').map_or(0, |p| p + 1)];
+    let dir = if dir.is_empty() { "/" } else { dir };
+    format!("{}{dir}{location}", &base[..path_start])
 }
 
 #[doc(hidden)]
@@ -198,7 +244,7 @@ mod tests {
         let r = request("GET", &format!("{base}/hello?a=1"), "X-Test: yes\n", b"", 5000).unwrap();
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"GET /hello?a=1 x-test=yes body=");
-        assert!(r.headers.contains("x-server: qb-test"));
+        assert!(String::from_utf8_lossy(&r.headers).contains("x-server: qb-test"));
         let r = request("post", &format!("{base}/p"), "Content-Type: text/plain\r\n", b"data\x00\xff", 5000).unwrap();
         assert_eq!(r.body, b"POST /p x-test= body=data\x00\xff");
         let r = request("GET", &format!("{base}/missing"), "", b"", 5000).unwrap();
@@ -298,5 +344,18 @@ mod tests {
         let r = request("GET", "https://example.com/", "", b"", 15_000).unwrap();
         assert_eq!(r.status, 200);
         assert!(String::from_utf8_lossy(&r.body).contains("Example Domain"));
+    }
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod redirect_tests {
+    use super::join_url;
+
+    #[test]
+    fn redirect_locations_become_absolute() {
+        assert_eq!(join_url("http://h:8/a/b?q", "/x"), "http://h:8/x");
+        assert_eq!(join_url("http://h:8/a/b?q", "c"), "http://h:8/a/c");
+        assert_eq!(join_url("http://h", "c"), "http://h/c");
+        assert_eq!(join_url("https://h/a", "//o/p"), "https://o/p");
+        assert_eq!(join_url("http://h/a", "https://o/p"), "https://o/p");
     }
 }

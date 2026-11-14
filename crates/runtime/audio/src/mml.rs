@@ -23,6 +23,50 @@ pub trait Sink {
 pub trait VarReader {
     /// Returns the raw 8 bytes at `offset` (only as many as the type needs are used).
     fn read(&self, offset: u16) -> [u8; 10];
+    /// `len` bytes at `offset` (the characters of a string for `X` + VARPTR$).
+    fn read_bytes(&self, _offset: u16, _len: usize) -> Vec<u8> {
+        Vec::new()
+    }
+}
+
+/// `X` + VARPTR$(s$) runs the commands in s$: the string is put in its place,
+/// so the parser below sees one command string (substrings may use X again).
+fn expand_x(s: &[u8], vars: &dyn VarReader, depth: u32) -> Result<Vec<u8>, i32> {
+    if !s.iter().any(|&c| c == b'X' || c == b'x') {
+        return Ok(s.to_vec());
+    }
+    if depth > 16 {
+        return Err(ERR_ILLEGAL); // a string that runs itself
+    }
+    let mut out = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        match s[i] {
+            // = + VARPTR$: three bytes of binary data that may hold any value
+            b'=' => {
+                let end = (i + 4).min(s.len());
+                out.extend_from_slice(&s[i..end]);
+                i = end;
+            }
+            b'X' | b'x' => {
+                if i + 3 >= s.len() || s[i + 1] != 3 {
+                    return Err(ERR_ILLEGAL);
+                }
+                let desc = u16::from_le_bytes([s[i + 2], s[i + 3]]);
+                // string descriptor: u16 length, u16 offset of the characters
+                let d = vars.read(desc);
+                let (len, at) = (u16::from_le_bytes([d[0], d[1]]), u16::from_le_bytes([d[2], d[3]]));
+                let sub = vars.read_bytes(at, usize::from(len));
+                out.extend_from_slice(&expand_x(&sub, vars, depth + 1)?);
+                i += 4;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// No DBLOCK available (tests, or VARPTR$ unsupported): reads zeros.
@@ -225,6 +269,7 @@ impl Synth {
             return Err(ERR_ILLEGAL);
         }
         if ticks == 0.0 {
+            // a duration of 0 turns off the SOUND that is playing (Engine::sound)
             return Ok(());
         }
         let v = self.playback_voice();
@@ -242,6 +287,8 @@ impl Synth {
         if !initialized {
             return Ok(());
         }
+        let expanded = expand_x(s, vars, 0)?;
+        let s = &expanded[..];
         let voice = self.playback_voice();
         let st = &mut self.play;
 
@@ -253,6 +300,7 @@ impl Synth {
         let mut ends: Vec<usize> = Vec::new();
         let mut n_changed = false;
         let mut n: i32 = 0;
+        let mut rest = false;
         let mut number_entered = 0;
         let mut number: i64 = 0;
         let mut followup = 0;
@@ -453,7 +501,9 @@ impl Synth {
                 if number > 84 {
                     return Err(ERR_ILLEGAL);
                 }
-                n = (-33i64).wrapping_add(number) as i32;
+                // N1 is O0 C (as C of octave 0 is n = -33 above), N84 is O6 B; N0 is a rest
+                n = (-34i64).wrapping_add(number) as i32;
+                rest = number == 0;
                 to_followup1 = true;
             }
 
@@ -530,6 +580,10 @@ impl Synth {
                 st.frequency = 2f64.powf(n as f64 / 12.0) * 440.0;
 
                 let mut wave2 = generate_waveform(&mut self.voices[voice], &mut self.rng, rate, st.frequency, length2 * (1.0 - st.pause), st.volume / 100.0);
+                if rest {
+                    wave2.fill(0);
+                    rest = false;
+                }
                 if st.pause > 0.0 {
                     let extra = frames_for(rate, length2 * st.pause) * 2;
                     wave2.resize(wave2.len() + extra, 0);
@@ -755,12 +809,39 @@ mod tests {
     }
 
     #[test]
+    fn x_runs_a_substring() {
+        // DBLOCK: descriptor at 0 (length 4, characters at 8), "L16C" at 8
+        struct Mem(Vec<u8>);
+        impl VarReader for Mem {
+            fn read(&self, offset: u16) -> [u8; 10] {
+                let mut r = [0u8; 10];
+                let at = usize::from(offset);
+                r[..4].copy_from_slice(&self.0[at..at + 4]);
+                r
+            }
+            fn read_bytes(&self, offset: u16, len: usize) -> Vec<u8> {
+                self.0[usize::from(offset)..usize::from(offset) + len].to_vec()
+            }
+        }
+        let mut m = vec![4, 0, 8, 0, 0, 0, 0, 0];
+        m.extend_from_slice(b"L16C");
+        assert_eq!(expand_x(b"T120X\x03\x00\x00D", &Mem(m.clone()), 0).unwrap(), b"T120L16CD");
+        // the bytes after = are data, not commands
+        assert_eq!(expand_x(b"O=\x01X\x00", &Mem(m), 0).unwrap(), b"O=\x01X\x00");
+        assert_eq!(expand_x(b"X\x03", &NoVars, 0), Err(ERR_ILLEGAL));
+    }
+
+    #[test]
     fn n_command_and_pauses() {
         let mut s = Synth::default();
-        play(&mut s, "N33");
+        // N1 = O0 C ... N34 = O2 A (440 Hz), N84 = O6 B; N0 is a rest
+        play(&mut s, "N34");
         assert_eq!(s.play.frequency, 440.0);
-        play(&mut s, "N0");
+        let (_, b) = play(&mut s, "N1");
         assert_eq!(s.play.frequency, 2f64.powf(-33.0 / 12.0) * 440.0);
+        assert!(b.sent[0].1.iter().any(|&x| x != 0));
+        let (_, b) = play(&mut s, "N0");
+        assert!(b.sent[0].1.iter().all(|&x| x == 0));
         assert_eq!(play(&mut s, "N85").0, Err(5));
         assert_eq!(play(&mut s, "N").0, Err(5));
         let (r, b) = play(&mut s, "P4");

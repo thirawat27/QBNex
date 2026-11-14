@@ -145,7 +145,8 @@ pub fn special_dir(context: &[u8]) -> Vec<u8> {
 pub fn kill(spec: &[u8]) -> i32 {
     use crate::win32::*;
     // directory part as written (before separator conversion)
-    let path_len = spec.iter().rposition(|&c| c == b'/' || c == b'\\').map_or(0, |p| p + 1);
+    // a drive letter is a directory part too: KILL "D:old.txt" deletes in D:'s folder
+    let path_len = spec.iter().rposition(|&c| c == b'/' || c == b'\\' || c == b':').map_or(0, |p| p + 1);
     let path = &spec[..path_len];
     let pattern = osname(spec);
     let mut fd = WIN32_FIND_DATAA::zeroed();

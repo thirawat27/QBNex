@@ -15,9 +15,9 @@ if not defined QB_TOOL (
     "%~dp0qb.exe" %*
     exit /b
 )
-rem Arguments after the subcommand.
-set "QB_REST="
-for /f "tokens=1,*" %%a in ("%*") do set "QB_REST=%%b"
+rem The tool gets every argument and skips the subcommand itself (QBNEX_SUBCOMMAND):
+rem cutting it off here would expose & ( ) inside the user's quotes to cmd.
+set "QBNEX_SUBCOMMAND=%~1"
 rem Next to this script, then a cargo build of this checkout, then PATH.
 set "QB_EXE="
 for %%d in ("%~dp0" "%~dp0target\release\" "%~dp0target\debug\") do (
@@ -28,4 +28,4 @@ if not defined QB_EXE (
     echo qb: %QB_TOOL% was not found. Build it with: cargo build --release -p %QB_TOOL% 1>&2
     exit /b 9009
 )
-"%QB_EXE%" %QB_REST%
+"%QB_EXE%" %*

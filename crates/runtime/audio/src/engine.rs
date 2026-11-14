@@ -250,6 +250,16 @@ impl Engine {
 
     pub fn sound(&mut self, frequency: f64, ticks: f64) -> Result<(), i32> {
         let (rate, init) = (self.rate, self.initialized);
+        // SOUND f, 0: what SOUND and PLAY queued stops (QBasic); volume and pan stay
+        if init && ticks == 0.0 && (frequency == 0.0 || (37.0..=32767.0).contains(&frequency)) {
+            for q in &mut self.voices {
+                let (volume, pan) = (q.volume, q.pan);
+                *q = RawQueue::new(rate);
+                q.volume = volume;
+                q.pan = pan;
+            }
+            return Ok(());
+        }
         let mut sink = VoiceSink(&mut self.voices);
         self.synth.sound(rate, init, frequency, ticks, &mut sink)
     }

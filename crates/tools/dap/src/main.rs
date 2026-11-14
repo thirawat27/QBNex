@@ -2,7 +2,11 @@
 //! internal child mode that runs the program.
 
 fn main() -> std::process::ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // qb.cmd / qbnex.cmd pass "dap" on (see there)
+    if std::env::var("QBNEX_SUBCOMMAND").is_ok_and(|s| s.eq_ignore_ascii_case("dap")) && args.first().is_some_and(|a| a.eq_ignore_ascii_case("dap")) {
+        args.remove(0);
+    }
     let code = if args.first().map(String::as_str) == Some("--debuggee") {
         let (Some(qir), Some(port)) = (args.get(1), args.get(2).and_then(|p| p.parse().ok())) else {
             eprintln!("usage: qb-dap --debuggee <program.qir> <port> [--no-debug] [--stop-on-entry]");

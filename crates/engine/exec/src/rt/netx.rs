@@ -12,6 +12,8 @@ pub(crate) struct Handle {
     /// 1 client, 2 listening host, 3 host's connection from a client
     ctype: i32,
     inbuf: Vec<u8>,
+    /// the last GET of a fixed size could not be filled (EOF(handle) is -1)
+    eof: bool,
 }
 
 #[derive(Default)]
@@ -30,7 +32,7 @@ impl Drop for Net {
 
 impl Net {
     fn register(&mut self, conn: Box<Conn>, ctype: i32) -> i32 {
-        let h = Handle { conn, ctype, inbuf: Vec::new() };
+        let h = Handle { conn, ctype, inbuf: Vec::new(), eof: false };
         if let Some(k) = self.handles.iter().position(|x| x.is_none()) {
             self.handles[k] = Some(h);
             return k as i32 + 1;
@@ -133,6 +135,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 return e(52);
             }
             update(h);
+            h.eof = h.inbuf.is_empty();
             Ok(Some(V::S(std::mem::take(&mut h.inbuf))))
         })(),
         "GETREC" if h0 < 0 => (|| {
@@ -142,13 +145,44 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 return e(52);
             }
             update(h);
-            if h.inbuf.len() < n {
+            h.eof = h.inbuf.len() < n;
+            if h.eof {
                 return Ok(None);
             }
             let got: Vec<u8> = h.inbuf.drain(..n).collect();
             vm.bytes(a[2].p(), n)?.copy_from_slice(&got);
             Ok(None)
         })(),
+        // a whole array as one block of bytes, like a record
+        "PUTARR" | "GETARR" if h0 < 0 => (|| {
+            let (base, total) = vm.array_extent(a[2].p())?;
+            if total == 0 {
+                return e(9);
+            }
+            let n = total as usize;
+            let data = if name == "PUTARR" { vm.bytes(base, n)?.to_vec() } else { Vec::new() };
+            let Some(h) = vm.rt().net.get(h0) else { return e(52) };
+            if h.ctype == 2 {
+                return e(52);
+            }
+            if name == "PUTARR" {
+                h.conn.send(&data);
+                return Ok(None);
+            }
+            update(h);
+            h.eof = h.inbuf.len() < n;
+            if h.eof {
+                return Ok(None);
+            }
+            let got: Vec<u8> = h.inbuf.drain(..n).collect();
+            vm.bytes(base, n)?.copy_from_slice(&got);
+            Ok(None)
+        })(),
+        // EOF(handle): whether the last GET of a value went without data (as in QB64)
+        "EOF" if h0 < 0 => match vm.rt().net.get(h0) {
+            Some(h) if h.ctype != 2 => Ok(Some(V::I(if h.eof { -1 } else { 0 }))),
+            _ => e(52),
+        },
         _ => return None,
     };
     let r = match (r, std::mem::take(&mut vm.rt().net_pending_error)) {

@@ -392,7 +392,7 @@ pub unsafe extern "C" fn qb_ext_http(
     let m = if m.trim().is_empty() { "GET".to_string() } else { m };
     match http::request(&m, &unsafe { text(url, ul) }, &unsafe { text(headers, hl) }, unsafe { bytes(body, bl) }, i64::from(timeout_ms)) {
         Ok(r) => {
-            with(|s| s.http_headers = r.headers.into_bytes());
+            with(|s| s.http_headers = r.headers);
             ok_result(r.body);
             i32::from(r.status)
         }
