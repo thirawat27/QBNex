@@ -96,6 +96,10 @@ impl TimerTable {
 
     /// `ON TIMER(i, sec) GOSUB/CALL ...`.
     pub fn setup(&mut self, i: i32, seconds: f64, id: u32, pass: i64) -> Result<(), i32> {
+        // an interval of 0, below 0 or NaN: the handler ran on every tick (or never)
+        if seconds.is_nan() || seconds <= 0.0 {
+            return Err(5);
+        }
         let t = self.check(i)?;
         if t.state == 1 {
             t.state = 0;
@@ -185,8 +189,19 @@ impl TimerTable {
 
     /// The handler of slot `i` returned.
     pub fn done(&mut self, i: i32) {
-        if i < self.nextfree && self.slot(i).allocated {
+        // also a slot freed (TIMER(n) FREE in its own handler) and perhaps handed out
+        // again while the handler ran: left "in progress" it never fired again
+        if (0..self.nextfree).contains(&i) && self.slot(i).state == 2 {
             self.slot(i).state = 0;
+        }
+    }
+
+    /// RUN / CLEAR dropped the GOSUB stack: no handler is running any more.
+    pub fn reset_in_progress(&mut self) {
+        for t in &mut self.slots {
+            if t.state == 2 {
+                t.state = 0;
+            }
         }
     }
 }

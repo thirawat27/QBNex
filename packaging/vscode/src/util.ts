@@ -9,7 +9,7 @@ export function exeExtension(platform: string): string {
 
 /** Replaces `${name}` in each argument; unknown names stay as written. */
 export function expandArgs(args: readonly string[], vars: Record<string, string>): string[] {
-    return args.map((a) => a.replace(/\$\{(\w+)\}/g, (m, name: string) => (name in vars ? vars[name] : m)));
+    return args.map((a) => a.replace(/\$\{(\w+)\}/g, (m, name: string) => (Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : m)));
 }
 
 /** Places to look for a tool (qb-lsp, qb-dap), in order: the setting, the bundled copy, PATH. */

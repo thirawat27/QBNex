@@ -910,6 +910,14 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
         }
         self.gosub.clear();
+        // the handlers on that stack never reach their RETURN: no trap stays "in progress"
+        qb_runtime::events::timers().reset_in_progress();
+        qb_runtime::events::play_trap().done();
+        // SAFETY: the event tables are used by the program thread only.
+        unsafe {
+            qb_runtime::events::onkey_inprogress = 0;
+            qb_runtime::events::onstrig_inprogress = 0;
+        }
         self.on_error = None;
         self.in_handler = None;
         self.err = 0;
