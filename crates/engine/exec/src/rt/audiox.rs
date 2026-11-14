@@ -116,7 +116,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             hold_queue(vm.rt());
             Some(raise(e))
         }
-        "PLAY.f" => some(V::I(snd::qb_snd_play_count().into())),
+        // PLAY(n): notes in the background music queue, as in QBasic (frames before)
+        "PLAY.f" => some(V::I(snd::qb_snd_play_notes().into())),
         // PLAY ON|OFF|STOP (1..3); ON PLAY(n) GOSUB starts the queue polling
         "PLAYEVENT" => Some(raise(qb_runtime::events::play_trap().statement(i(0)).err().unwrap_or(0))),
         "_VOICE" => Some(raise(snd::qb_snd_voice(i(0)))),

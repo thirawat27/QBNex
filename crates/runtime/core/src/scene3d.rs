@@ -265,6 +265,10 @@ pub fn qb_3d_mesh_begin() {
 pub fn qb_3d_mesh_vertex(x: f32, y: f32, z: f32, u: f32, v: f32) -> i32 {
     let mut s = state();
     let Some(b) = s.builder.as_mut() else { return ERR_ILLEGAL };
+    // as _DRAW3D: a vertex that is not a finite number is an illegal function call
+    if ![x, y, z, u, v].iter().all(|c| c.is_finite()) {
+        return ERR_ILLEGAL;
+    }
     b.pos.push([x, y, z]);
     b.uv.push([u, v]);
     0

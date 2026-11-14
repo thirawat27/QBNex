@@ -2660,7 +2660,11 @@ SUB IrFinish (src$, outExe$)
     kit$ = LEFT$(runner$, LEN(runner$) - LEN("qb-exec" + extension$)) + "native" + pathsep$ + "kit.txt"
     IF _FILEEXISTS(kit$) THEN
         IF _FILEEXISTS(outPath$) THEN KILL outPath$
-        rc = _SHELLHIDE(CHR$(34) + runner$ + CHR$(34) + " build " + CHR$(34) + ir$ + CHR$(34) + " -o " + CHR$(34) + outPath$ + CHR$(34) + " --native-link")
+        c$ = CHR$(34) + runner$ + CHR$(34) + " build " + CHR$(34) + ir$ + CHR$(34) + " -o " + CHR$(34) + outPath$ + CHR$(34) + " --native-link"
+        'cmd /c takes away the first and the last quote of a line with several quoted
+        'names: one more pair around the whole line is what it removes
+        IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
+        rc = _SHELLHIDE(c$)
         IF rc = 0 AND _FILEEXISTS(outPath$) THEN
             IF QuietMode = 0 THEN PRINT "QIR: linked " + outPath$
             SYSTEM 0

@@ -504,7 +504,11 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
     if !found {
         return e(53);
     }
-    let mut c = super::builtins::shell_command(cmd);
+    // cmd /c drops the first and the last quote of a line that starts with one unless
+    // the line is a single quoted name: "C:\Program Files (x86)\next.exe" "a b" then
+    // lost its quotes. A pair around the whole line is the one cmd takes away.
+    let wrapped = if cfg!(windows) { format!("\"{cmd}\"") } else { cmd.to_string() };
+    let mut c = super::builtins::shell_command(&wrapped);
     let common = std::mem::take(&mut vm.rt().dos.chain_out);
     let file = if common.is_empty() {
         None
@@ -551,7 +555,11 @@ fn run_program(vm: &mut dyn Host<'_>, cmd: &str, exe: &str) -> R<()> {
 /// the first word gets `.exe` and the rest are its arguments (as QB64's `sub_chain`).
 fn chain_command(f: &str) -> (String, String) {
     let up = f.to_ascii_uppercase();
-    if let Some(p) = up.find('.') {
+    // the extension of the file name, not a "." of a folder (..\next.bas, C:\john.smith\x.bas)
+    let name_end = up.find(' ').unwrap_or(up.len());
+    let name_start = up[..name_end].rfind(['/', '\\', ':']).map_or(0, |i| i + 1);
+    let dot = up[name_start..].match_indices('.').map(|(i, _)| i + name_start).find(|&i| up[i + 1..].starts_with("BAS") || up[i + 1..].starts_with("EXE"));
+    if let Some(p) = dot {
         let ext = &up[p + 1..];
         if ext.starts_with("BAS") || ext.starts_with("EXE") {
             let exe = format!("{}{}", &f[..p], if cfg!(windows) { ".exe" } else { "" });
@@ -797,5 +805,10 @@ mod tests {
         assert_eq!(chain_command("NEXT.EXE").1, format!("NEXT{x}"));
         let dir = if cfg!(windows) { ".\\" } else { "./" };
         assert_eq!(chain_command("menu a b"), (format!("\"{dir}menu{x}\" a b"), format!("menu{x}")));
+        // a "." in a folder name is not the extension
+        assert_eq!(chain_command("../next.bas").1, format!("../next{x}"));
+        assert_eq!(chain_command("v1.2/next.bas").1, format!("v1.2/next{x}"));
+        assert_eq!(chain_command("C:\\john.smith\\next.bas").1, format!("C:\\john.smith\\next{x}"));
+        assert_eq!(chain_command("next.v2.bas").1, format!("next.v2{x}"));
     }
 }

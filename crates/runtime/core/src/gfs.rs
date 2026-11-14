@@ -777,7 +777,8 @@ mod os {
         // SAFETY: Win32 calls with valid NUL-terminated names and owned structs.
         unsafe {
             if f.com_port != 0 {
-                let portname = format!("COM{}:\0", f.com_port);
+                // \\.\COMn: the DOS names COM1-COM9 are the only ones Win32 knows
+                let portname = format!("\\\\.\\COM{}\0", f.com_port);
                 let h = CreateFileA(portname.as_ptr(), x, 0, null_mut(), OPEN_EXISTING, 0, null_mut());
                 if h == INVALID_HANDLE_VALUE {
                     return -8;

@@ -37,6 +37,7 @@ QBNex เริ่มต้นจาก QB64 โปรแกรมเดิม�
 | D-19, D-20 | `_CLIPBOARD$` และ `_CLIPBOARDIMAGE` ใช้บน Linux และ macOS ได้ด้วย (clipboard เป็น UTF-8 ไบต์ที่ไม่ใช่ UTF-8 จะกลายเป็น U+FFFD) |
 | D-21 | `_OPENCLIENT` ลองทุกที่อยู่ IPv4 ของ host บนทุกระบบ |
 | D-22 | ไฟล์ source แบบ CP437 คอมไพล์ได้ (QBNex รุ่นก่อนไม่รับ) |
+| D-66 | `PLAY "Nn"` เล่นโน้ตตาม QBasic (N0 คือช่วงเงียบ), `PLAY(n)` นับเป็นจำนวนโน้ต, `SOUND f, 0` หยุดเสียงที่เล่นอยู่, `PLAY "X" + VARPTR$(s$)` ใช้ได้ และ `_SNDOPEN` ที่ใส่ "VOL" หรือ "SYNC" ยังใช้ `_MEMSOUND` ได้ |
 | D-23, D-24, D-26 | แก้คอมไพเลอร์: wrapper ของ `CALL ABSOLUTE`, `PLAY ON/OFF/STOP` และ `ON PLAY(n) GOSUB` คอมไพล์ได้และ event ของ PLAY ทำงาน, ตัวดำเนินการเปรียบเทียบใน PRINT |
 | D-60 | `SOUND`, `BEEP` และ `PLAY` มีเสียงและ `PLAY(n)` นับถอยลง (synth ของ QB64 ไม่มีเสียง) ในโหมด `MF` (ค่าเริ่มต้น) คำสั่งจะรอจนโน้ตของมันเล่นจบ เหมือน QBasic (QB64 ไม่เคยรอ) |
 | D-R12b-5 | `\` และ `MOD` ของจำนวนเต็มเมื่อหารด้วยศูนย์เป็น error 11 ธรรมดาที่ `ON ERROR` และ `TRY`/`CATCH` ดักได้ (เหมือน QBasic 4.5) ขณะที่ QB64 จบโปรแกรม |

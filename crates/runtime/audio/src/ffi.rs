@@ -35,6 +35,10 @@ impl VarReader for DBlock<'_> {
         r[..src.len()].copy_from_slice(src);
         r
     }
+    fn read_bytes(&self, offset: u16, len: usize) -> Vec<u8> {
+        let at = usize::from(offset).min(self.0.len());
+        self.0[at..self.0.len().min(at + len)].to_vec()
+    }
 }
 
 // ---- lifecycle ---------------------------------------------------------------
@@ -150,10 +154,12 @@ fn open(name: &[u8], flags: u32) -> i32 {
 pub fn qb_snd_open(name: &[u8], req: &[u8], passed: i32) -> i32 {
     let flags = if passed != 0 && !req.is_empty() {
         let up: Vec<u8> = req.to_ascii_uppercase();
+        // VOL, SYNC, LEN, PAUSE ... are accepted as in QB64; only STREAM changes how
+        // the sound is held (without it, decoded into memory: _MEMSOUND works)
         if up.windows(6).any(|w| w == b"STREAM") {
             FLAG_STREAM
         } else {
-            0
+            FLAG_DECODE
         }
     } else {
         FLAG_DECODE

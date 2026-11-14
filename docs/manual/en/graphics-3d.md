@@ -27,7 +27,9 @@ _DISPLAY
 
 Projection, depth buffer (`_DEPTHBUFFER ON|LOCK|OFF`), culling
 (`_CLOCKWISE`/`_ANTICLOCKWISE`), `_SMOOTH*` filtering and alpha follow
-QB64. The default renderer is the software one.
+QB64. The default renderer is the software one: there the 3D form draws on
+32-bit images only (error 5 otherwise), and each image keeps its depth buffer
+until `_DEPTHBUFFER _CLEAR` or until the image is freed.
 
 **Preview:** a runtime built with the `gpu` feature presents frames and can
 draw 3D triangles with wgpu (Vulkan, DX12, Metal). It falls back to the

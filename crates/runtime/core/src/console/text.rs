@@ -103,12 +103,19 @@ pub unsafe fn newline(h: &mut dyn Host) {
         let w = wp(h);
         let bpp = (*w).bytes_per_pixel as isize;
         let row = bpp * width as isize * fh;
-        core::ptr::copy((*w).offset.offset(top * row), (*w).offset.offset((top - 1) * row), ((bottom - top) * row) as usize);
-        let n = width * fh as usize;
+        // An image shorter than the rows it is said to hold (lower than one character:
+        // bottom_row is at least 1): the copy and the cleared row stay inside its pixels.
+        let total = bpp * width as isize * (*w).height as isize;
+        let len = ((bottom - top) * row).min(total - top * row);
+        if len > 0 {
+            core::ptr::copy((*w).offset.offset(top * row), (*w).offset.offset((top - 1) * row), len as usize);
+        }
+        let start = ((bottom - 1) * row).clamp(0, total);
+        let n = (row.min(total - start).max(0) / bpp) as usize;
         if bpp == 1 {
-            core::ptr::write_bytes((*w).offset.offset((bottom - 1) * width as isize * fh), (*w).background_color as u8, n);
+            core::ptr::write_bytes((*w).offset.offset(start), (*w).background_color as u8, n);
         } else {
-            let p = ((*w).offset as *mut u32).offset((bottom - 1) * width as isize * fh);
+            let p = ((*w).offset as *mut u32).offset(start / 4);
             for k in 0..n {
                 *p.add(k) = (*w).background_color;
             }

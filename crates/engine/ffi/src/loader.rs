@@ -225,7 +225,8 @@ impl Library {
             if c.is_file() || (cfg!(target_vendor = "apple") && c.is_absolute()) {
                 // dlopen takes a name without '/' as a name to search for, never as this
                 // file in the current directory (and may find a system library instead)
-                let exact = if cfg!(unix) && !text.contains('/') && c.is_file() { format!("./{text}") } else { text.clone() };
+                // (LoadLibraryW searches the system folders before the current one, too)
+                let exact = if !text.contains(['/', '\\']) && c.is_file() { format!(".{}{text}", std::path::MAIN_SEPARATOR) } else { text.clone() };
                 match Library::open_path(&exact) {
                     Ok(l) => return Ok(l),
                     Err(e) => last = e,

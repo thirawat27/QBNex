@@ -38,6 +38,7 @@ are explained, with their tests, in
 | D-21 | `_OPENCLIENT` tries every IPv4 address of a host on every OS. |
 | D-22 | CP437 source files compile (QBNex used to reject them). |
 | D-23, D-24, D-26 | Compiler fixes: `CALL ABSOLUTE` wrappers, `PLAY ON/OFF/STOP` and `ON PLAY(n) GOSUB` compile and the PLAY event is raised, relational operators inside PRINT. |
+| D-66 | `PLAY "Nn"` plays the QBasic note (N0 is a rest), `PLAY(n)` counts notes, `SOUND f, 0` stops the sound, `PLAY "X" + VARPTR$(s$)` works, and `_SNDOPEN` with "VOL" or "SYNC" keeps `_MEMSOUND` working. |
 | D-60 | `SOUND`, `BEEP` and `PLAY` are heard and `PLAY(n)` counts down (QB64's synth was silent); in `MF` mode (the default) they wait until their notes have played, as in QBasic (QB64 never waited). |
 | D-R12b-5 | Integer `\` and `MOD` by zero raise error 11 as an ordinary error that `ON ERROR` and `TRY`/`CATCH` catch (QBasic 4.5); QB64 ended the program. |
 | D-R12b-2 | READ of decimal numbers into DOUBLE/`_FLOAT` is correctly rounded. |

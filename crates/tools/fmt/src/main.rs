@@ -26,7 +26,11 @@ fn main() -> ExitCode {
     let mut write = false;
     let mut check = false;
     let mut files = Vec::new();
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    // qb.cmd / qbnex.cmd pass "fmt" on (see there)
+    if std::env::var("QBNEX_SUBCOMMAND").is_ok_and(|s| s.eq_ignore_ascii_case("fmt")) && args.peek().is_some_and(|a| a.eq_ignore_ascii_case("fmt")) {
+        args.next();
+    }
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {

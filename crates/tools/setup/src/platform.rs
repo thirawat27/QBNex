@@ -347,7 +347,7 @@ mod imp {
         verb.set_str("", "Compile with QBNex", false)?;
         verb.set_str("Icon", &qb.to_string_lossy(), false)?;
         // the prompt stays open so the compiler's messages can be read
-        Key::create(&format!(r"{BAS_VERB_KEY}\command"))?.set_str("", &format!("cmd.exe /k \"\"{}\" \"%1\"\"", qb.display()), false)
+        Key::create(&format!(r"{BAS_VERB_KEY}\command"))?.set_str("", &format!("cmd.exe /k \"\"{}\" \"%1\" -x\"", qb.display()), false)
     }
 
     fn unassociate(dir: &Path) {
@@ -423,7 +423,8 @@ mod imp {
     /// deletes it (and the folder, only if empty) after this process has exited.
     pub fn remove_install_dir(dir: &Path) {
         let me = std::env::current_exe().ok();
-        let inside = me.as_ref().and_then(|m| m.parent()).is_some_and(|p| p == dir);
+        // the same folder however it is spelled (--dir ., another letter case)
+        let inside = me.as_ref().and_then(|m| m.parent()).is_some_and(|p| p == dir || (p.canonicalize().ok().is_some() && p.canonicalize().ok() == dir.canonicalize().ok()));
         if let (true, Some(me)) = (inside, me) {
             let cmd = format!("/c ping 127.0.0.1 -n 3 >nul & del /f /q \"{}\" & rmdir \"{}\"", me.display(), dir.display());
             // the setup window has no console: the helper must not inherit its handles
@@ -626,7 +627,8 @@ mod imp {
 
     fn compile_entry(dir: &Path) -> String {
         // the terminal stays open so the compiler's messages can be read
-        let script = format!("{} \"$1\"; printf '\\nPress Enter to close.'; read x", quoted(&dir.join(compiler_name()).to_string_lossy()));
+        // -x: the program goes next to the source, where the user looks for it
+        let script = format!("{} \"$1\" -x; printf '\\nPress Enter to close.'; read x", quoted(&dir.join(compiler_name()).to_string_lossy()));
         format!(
             "[Desktop Entry]\nType=Application\nName=Compile with QBNex\nExec={}\nIcon={}\nTerminal=true\nNoDisplay=true\nMimeType=text/x-basic;\nX-QBNex-Dir={}\n",
             exec_sh(&script, " %f"),
@@ -751,7 +753,7 @@ mod imp {
 
     pub fn remove_install_dir(dir: &Path) {
         if let Ok(me) = std::env::current_exe()
-            && me.parent() == Some(dir)
+            && me.parent().is_some_and(|p| p == dir || (p.canonicalize().ok().is_some() && p.canonicalize().ok() == dir.canonicalize().ok()))
         {
             let _ = std::fs::remove_file(&me);
         }
@@ -768,7 +770,8 @@ mod imp {
             let entry = terminal_entry(dir);
             if cfg!(not(target_os = "macos")) {
                 assert!(entry.contains("Exec=sh -c \"PATH='/opt/my qb'\\\\''s':\\\"\\$PATH\\\"; export PATH;"), "{entry}");
-                assert!(compile_entry(dir).contains("\\\"\\$1\\\"; printf"));
+                // -x: the program is written next to the source
+                assert!(compile_entry(dir).contains("\\\"\\$1\\\" -x; printf"), "{}", compile_entry(dir));
                 assert!(compile_entry(dir).ends_with("X-QBNex-Dir=/opt/my qb's\n"));
             }
             assert_eq!(quoted("a'b"), "'a'\\''b'");
