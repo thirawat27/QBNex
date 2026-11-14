@@ -66,6 +66,9 @@ pub(crate) fn str_store_hook(rt: &mut RtState<'_>, p: u64, len: usize) {
 
 /// Byte offset of the DBLOCK segment (0x1000) in conventional memory.
 pub(crate) const DBLOCK: usize = 0x1000 * 16;
+/// First DBLOCK offset handed out for SADD/VARPTR data (the start stays free, so no
+/// program address is 0).
+pub(crate) const CMEM_FIRST: usize = 16;
 
 pub(crate) struct RtState<'a> {
     out: &'a mut dyn Write,
@@ -100,7 +103,7 @@ pub(crate) struct RtState<'a> {
     /// keyboard and mouse (INKEY$, _KEYHIT, _MOUSEINPUT, ...)
     pub(crate) input: super::input::Input,
     /// _LIMIT: time of the previous frame
-    pub(crate) limit_last: Option<i64>,
+    pub(crate) limit_last: Option<f64>,
     /// VARPTR$ value slots in DBLOCK (offset, next slot)
     pub(crate) varptr_slots: usize,
     pub(crate) varptr_next: usize,
@@ -150,7 +153,7 @@ impl<'a> RtState<'a> {
             input_line: None,
             // 1 MB + 64 KB of conventional memory (SS:SP of CALL ABSOLUTE is FFFF:FFFE)
             cmem: vec![0; 0x110000],
-            cmem_next: 16,
+            cmem_next: CMEM_FIRST,
             cmem_strs: HashMap::new(),
             def_seg: None,
             field_store: false,
@@ -836,12 +839,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "MKL$" => return ok(V::S((i(0) as i32).to_le_bytes().to_vec())),
         "MKS$" => return ok(V::S((f(0) as f32).to_le_bytes().to_vec())),
         "MKD$" => return ok(V::S(f(0).to_le_bytes().to_vec())),
-        "_MK$.i64" => return ok(V::S(i(0).to_le_bytes().to_vec())),
         "CVI" => return ok(V::I(i16::from_le_bytes(fixed(s(0))?).into())),
         "CVL" => return ok(V::I(i32::from_le_bytes(fixed(s(0))?).into())),
         "CVS" => return ok(V::F(f32::from_le_bytes(fixed(s(0))?).into())),
         "CVD" => return ok(V::F(f64::from_le_bytes(fixed(s(0))?))),
-        "_CV.i64" => return ok(V::I(i64::from_le_bytes(fixed(s(0))?))),
         "MKSMBF$" => {
             let b = qb_runtime::mbf::fieee_to_msbin((f(0) as f32).to_le_bytes()).map_err(|_| Stop::Err(5))?;
             return ok(V::S(b.to_vec()));
@@ -886,7 +887,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
             if k < 1 {
                 return e(5);
             }
-            return ok(V::I(s(0).get(k as usize - 1).map_or(-1, |c| i64::from(*c))));
+            // qbs_asc: a position past the end is an illegal function call too
+            return ok(V::I(i64::from(*s(0).get(k as usize - 1).ok_or(Stop::Err(5))?)));
         }
         // qb_func_instr / qb_func__instrrev semantics (start < 1 is allowed)
         "INSTR" => return ok(V::I(qb_instr(1, s(0), s(1), false).into())),
@@ -1030,6 +1032,8 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
                     }
                     got.extend_from_slice(&k);
                 }
+                // an extended key is two bytes: INPUT$(n) is n bytes all the same
+                got.truncate(n);
                 return ok(V::S(got));
             }
             fill(&mut std::io::stdin(), &mut rt.stdin);
@@ -1122,7 +1126,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &'static str, a: Vec<V>) -> 
         "_DIREXISTS" => {
             return ok(V::I(if std::path::Path::new(&os_path(s(0))).is_dir() { -1 } else { 0 }))
         }
-        "CLS" | "BEEP" | "_DEST" | "COLOR" | "LOCATE" => {}
+        "CLS" | "_DEST" | "COLOR" | "LOCATE" => {}
         "POS" => return ok(V::I(rt.col as i64)),
         "func_lpos" => return ok(V::I(rt.lprint.pos() as i64)),
         "CSRLIN" => return ok(V::I(1)),
@@ -1444,6 +1448,10 @@ pub(crate) fn idle_frame(rt: &mut RtState<'_>) {
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn close_exit(rt: &mut RtState<'_>) -> ! {
     rt.flush();
+    // `exit` drops nothing: the page LPRINT has collected goes out here, and the file
+    // of COMMON values no COMMON statement read is removed
+    rt.lprint.eject();
+    super::dosx::chain_cleanup(&mut rt.dos);
     rt.display.capture(qb_runtime::gfx::capture::KIND_END);
     qb_runtime::fileio::close_all();
     std::process::exit(0)
@@ -1987,16 +1995,21 @@ fn input_call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<Option
                 if rt.web && rt.display.started && rt.display.autodisplay != 0 {
                     rt.display.capture(qb_runtime::gfx::capture::KIND_DISPLAY);
                 }
-                // monotonic ms (qb_runtime::systime also serves the browser build)
-                let frame = (1000.0 / fps) as i64;
-                let now = qb_runtime::systime::ticks();
-                if let Some(last) = rt.limit_last {
-                    let due = last + frame;
-                    if due > now {
-                        qb_runtime::systime::sleep_ms((due - now) as u64);
-                    }
+                // Monotonic ms (qb_runtime::systime also serves the browser build). The
+                // frame time keeps its fraction and each frame is due one frame time
+                // after the last one was: in whole ms from the end of the sleep,
+                // _LIMIT 60 ran at 62.5 frames a second and anything over 1000 at full speed.
+                let frame = 1000.0 / fps;
+                let now = qb_runtime::systime::ticks() as f64;
+                let due = match rt.limit_last {
+                    // a program that fell behind does not run fast to catch up
+                    Some(last) => (last + frame).max(now - frame),
+                    None => now,
+                };
+                if due > now {
+                    qb_runtime::systime::sleep_ms((due - now) as u64);
                 }
-                rt.limit_last = Some(qb_runtime::systime::ticks());
+                rt.limit_last = Some(due);
             }
             return Some(Ok(None));
         }

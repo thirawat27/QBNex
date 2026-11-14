@@ -370,6 +370,9 @@ const PLAY_EV: i32 = -1000;
 /// `Gs::ev` of an ON STRIG handler.
 const STRIG_EV: i32 = -2000;
 
+/// GOSUBs that may be waiting for their RETURN; one more is error 7 (Out of memory).
+const MAX_GOSUB_DEPTH: usize = 1 << 20;
+
 #[derive(Debug, Clone, Copy)]
 struct Gs {
     /// ON TIMER slot whose handler this GOSUB runs (-1 = a plain GOSUB)
@@ -1614,18 +1617,39 @@ impl<'m, 'o> Vm<'m, 'o> {
             }
             ResumeK::Label => {
                 // RESUME label unwinds to the main module
-                while self.frames.len() > 1 {
-                    let fr = self.frames.pop().unwrap();
-                    self.free_owned(fr.owned);
-                    self.nums.truncate(fr.nb);
-                    self.strs.truncate(fr.sb);
-                    self.arrs.truncate(fr.ab);
-                }
-                self.gosub.retain(|g| g.depth <= 1);
-                self.set_view(0);
+                self.unwind_to_main();
                 t
             }
         })
+    }
+
+    /// Leaves every procedure: the main module's frame is the only one left and the
+    /// current one (RESUME label, RETURN label out of an event handler).
+    fn unwind_to_main(&mut self) {
+        while self.frames.len() > 1 {
+            let fr = self.frames.pop().unwrap();
+            self.free_owned(fr.owned);
+            self.nums.truncate(fr.nb);
+            self.strs.truncate(fr.sb);
+            self.arrs.truncate(fr.ab);
+        }
+        self.gosub.retain(|g| g.depth <= 1);
+        self.set_view(0);
+    }
+
+    /// The handler of event `ev` (`Gs::ev`) has returned: its trap may fire again.
+    fn handler_done(ev: i32) {
+        if ev >= 0 {
+            qb_runtime::events::timers().done(ev);
+        } else if ev == PLAY_EV {
+            qb_runtime::events::play_trap().done();
+        } else if ev == STRIG_EV {
+            // SAFETY: program thread only.
+            unsafe { qb_runtime::events::onstrig_inprogress = 0 };
+        } else if ev <= KEY_EV {
+            // SAFETY: program thread only.
+            unsafe { qb_runtime::events::onkey_inprogress = 0 };
+        }
     }
 
     /// One display frame drawn by `SUB _GL` (the GL display callback): the
@@ -2133,23 +2157,17 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::Gosub { t } => {
+                    // a routine left by GOTO never returns: QBasic runs out of stack too
+                    if self.gosub.len() >= MAX_GOSUB_DEPTH {
+                        fail!(7);
+                    }
                     self.gosub.push(Gs { ev: -1, ret: pc, depth: self.frames.len(), view: self.view });
                     pc = t;
                 }
                 Ins::Return => match self.gosub.last().copied() {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
-                        if g.ev >= 0 {
-                            qb_runtime::events::timers().done(g.ev);
-                        } else if g.ev == PLAY_EV {
-                            qb_runtime::events::play_trap().done();
-                        } else if g.ev == STRIG_EV {
-                            // SAFETY: program thread only.
-                            unsafe { qb_runtime::events::onstrig_inprogress = 0 };
-                        } else if g.ev <= KEY_EV {
-                            // SAFETY: program thread only.
-                            unsafe { qb_runtime::events::onkey_inprogress = 0 };
-                        }
+                        Self::handler_done(g.ev);
                         pc = g.ret;
                         if g.view != self.view {
                             self.set_view(g.view);
@@ -2211,7 +2229,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
                         pc = t;
-                        if g.view != self.view {
+                        if g.ev != -1 {
+                            // An event handler runs at module level and `t` is a label
+                            // there: the trap is armed again as after RETURN, and the
+                            // procedures the event interrupted are left, as RESUME label
+                            // leaves them. Their register window does not fit main's code.
+                            Self::handler_done(g.ev);
+                            self.unwind_to_main();
+                            reload!();
+                        } else if g.view != self.view {
                             self.set_view(g.view);
                             reload!();
                         }
@@ -2413,7 +2439,16 @@ impl<'m, 'o> Vm<'m, 'o> {
                         }
                     }
                 }
-                Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
+                Ins::OnError { t } => {
+                    self.on_error = (t != NONE).then_some(t);
+                    // ON ERROR GOTO 0 inside a handler: the error it is handling is
+                    // not handled after all and stops the program (QBasic's way to
+                    // pass on an error the handler does not know).
+                    if t == NONE && let Some((at, view)) = self.in_handler.take() {
+                        self.set_view(view);
+                        return Err((self.err, at));
+                    }
+                }
                 Ins::XCall { c } => {
                     let xc = &m.xcalls[c as usize];
                     let xf = &m.xfns[xc.f as usize];
@@ -2556,8 +2591,8 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if k < 1 {
                         fail!(5);
                     }
-                    let c = self.sget(s).get(k as usize - 1).map_or(-1, |c| i64::from(*c));
-                    seti!(d, c)
+                    let Some(&c) = self.sget(s).get(k as usize - 1) else { fail!(5) };
+                    seti!(d, i64::from(c))
                 }
                 Ins::Left { d, s, n } => {
                     // qbs_left: the count is clamped

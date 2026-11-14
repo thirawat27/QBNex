@@ -469,7 +469,10 @@ impl Display {
                 return -1;
             }
             let mut pal = [0u32; 256];
-            let Some(mut px8) = qb_runtime::image::quant::to_8bpp(&img.px, w, h, &mut pal) else { return -1 };
+            let Some(mut px8) = qb_runtime::image::quant::to_8bpp(&img.px, w, h, &mut pal) else {
+                self.freeimage(i, 1);
+                return -1;
+            };
             if !keep_palette {
                 let default = &qb_runtime::gfx::data::palette_256;
                 qb_runtime::image::quant::remap_palette(&mut px8, &pal, default);
@@ -1608,7 +1611,7 @@ pub(crate) fn memimage(vm: &mut dyn VmIface<'_>, handle: i32, given: bool) -> R<
     }
 }
 
-fn chk(d: &mut Display) -> R<()> {
+pub(crate) fn chk(d: &mut Display) -> R<()> {
     let p = std::mem::take(&mut d.pending);
     if p != 0 {
         return Err(Stop::Err(p));
@@ -2134,8 +2137,13 @@ pub(crate) fn call(vm: &mut dyn VmIface<'_>, name: &str, a: &[V]) -> Option<R<Op
                 if name == "SCREENSPC" {
                     console::text::print(&mut h, &vec![b' '; n.max(0) as usize], false);
                 } else {
+                    // As on stdout: a cursor already past column n moves to column n of the
+                    // next line.
                     let pos = console::text::pos(&mut h) as i64;
-                    if n > 0 && pos < n {
+                    if n > 0 && pos > n {
+                        console::text::print(&mut h, b"", true);
+                        console::text::print(&mut h, &vec![b' '; (n - 1) as usize], false);
+                    } else if n > 0 && pos < n {
                         console::text::print(&mut h, &vec![b' '; (n - pos) as usize], false);
                     }
                 }

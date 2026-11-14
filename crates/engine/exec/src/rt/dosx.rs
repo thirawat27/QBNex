@@ -79,17 +79,30 @@ pub(crate) fn chain_put(d: &mut Dos, kind: u8, b: &[u8]) {
 /// statement read it (the next program has no COMMON): removed at the end.
 pub(crate) fn chain_cleanup(d: &mut Dos) {
     if d.chain_in.is_none()
-        && let Some(p) = std::env::var_os("QBNEX_CHAIN")
+        && let Some(p) = chain_path()
     {
         let _ = std::fs::remove_file(p);
     }
+}
+
+/// Start of the name of a file of COMMON values (`chain_file`).
+const CHAIN_FILE_PREFIX: &str = "qbnex-chain-";
+
+/// The file named by QBNEX_CHAIN, when it is one `chain_file` writes: a file of the
+/// temporary folder with its name pattern. The variable comes from the environment,
+/// and its file is deleted after reading; any other path is left alone.
+fn chain_path() -> Option<std::path::PathBuf> {
+    let p = std::path::PathBuf::from(std::env::var_os("QBNEX_CHAIN")?);
+    let name = p.file_name()?.to_str()?;
+    let ours = name.starts_with(CHAIN_FILE_PREFIX) && name.ends_with(".bin") && p.parent() == Some(std::env::temp_dir().as_path());
+    ours.then_some(p)
 }
 
 /// The next COMMON value passed by CHAIN, when it is of `kind`.
 pub(crate) fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
     use std::io::Read;
     let c = d.chain_in.get_or_insert_with(|| {
-        let data = std::env::var_os("QBNEX_CHAIN").and_then(|p| {
+        let data = chain_path().and_then(|p| {
             let b = std::fs::read(&p).ok();
             let _ = std::fs::remove_file(&p);
             b
@@ -98,7 +111,13 @@ pub(crate) fn chain_next(d: &mut Dos, kind: u8) -> Option<Vec<u8>> {
     });
     let mut head = [0u8; 5];
     c.read_exact(&mut head).ok()?;
-    let mut b = vec![0u8; u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize];
+    // the length comes from the file: no more than what is left of it
+    let len = u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize;
+    let left = c.get_ref().len().saturating_sub(c.position() as usize);
+    if len > left {
+        return None;
+    }
+    let mut b = vec![0u8; len];
     c.read_exact(&mut b).ok()?;
     (head[0] == kind).then_some(b)
 }
@@ -452,6 +471,8 @@ fn release_for_next(vm: &mut dyn Host<'_>) -> R<()> {
         r?;
     }
     let rt = vm.rt();
+    // the page LPRINT has collected: `exec` drops nothing
+    rt.lprint.eject();
     if rt.snd_started {
         qb_audio::ffi::qb_snd_un_init();
         rt.snd_started = false;
@@ -471,7 +492,7 @@ fn chain_file(common: &[u8]) -> Option<std::path::PathBuf> {
     use std::io::Write;
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
     for k in 0..16u32 {
-        let path = std::env::temp_dir().join(format!("qbnex-chain-{}-{:08x}.bin", std::process::id(), nanos.wrapping_add(k)));
+        let path = std::env::temp_dir().join(format!("{CHAIN_FILE_PREFIX}{}-{:08x}.bin", std::process::id(), nanos.wrapping_add(k)));
         let mut o = std::fs::OpenOptions::new();
         o.write(true).create_new(true);
         #[cfg(unix)]
@@ -563,13 +584,25 @@ fn chain_command(f: &str) -> (String, String) {
         let ext = &up[p + 1..];
         if ext.starts_with("BAS") || ext.starts_with("EXE") {
             let exe = format!("{}{}", &f[..p], if cfg!(windows) { ".exe" } else { "" });
-            return (format!("\"{}\"{}", in_dir(&exe), &f[p + 4..]), exe);
+            return (format!("{}{}", quoted_program(&exe), &f[p + 4..]), exe);
         }
     }
     let (name, args) = f.split_once(' ').map_or((f, ""), |(a, b)| (a, b));
     let exe = format!("{name}{}", if cfg!(windows) { ".exe" } else { "" });
-    let cmd = if args.is_empty() { format!("\"{}\"", in_dir(&exe)) } else { format!("\"{}\" {args}", in_dir(&exe)) };
-    (cmd, exe)
+    (program_command(&exe, args), exe)
+}
+
+/// The command line of program `exe` with its arguments.
+fn program_command(exe: &str, args: &str) -> String {
+    if args.is_empty() { quoted_program(exe) } else { format!("{} {args}", quoted_program(exe)) }
+}
+
+/// The program name as one word of the shell's command line. `sh` still expands
+/// `$name`, `$(...)` and backticks between double quotes, so a file called `my$app`
+/// ran `./my`: there the name goes between single quotes.
+fn quoted_program(exe: &str) -> String {
+    let path = in_dir(exe);
+    if cfg!(windows) { format!("\"{path}\"") } else { format!("'{}'", path.replace('\'', "'\\''")) }
 }
 
 /// A program name without a directory runs from the current directory, as DOS did:
@@ -595,6 +628,14 @@ fn clear(vm: &mut dyn Host<'_>, run: bool) -> R<()> {
     rt.cmem_sdata.clear();
     rt.field_vars.clear();
     rt.dos.mirrors.clear();
+    // Everything that was allocated in DBLOCK is gone with these tables: the space is
+    // free again. Kept, every RUN took its SADD/VARPTR areas from what was left of the
+    // 64 KB segment until error 7.
+    rt.cmem_next = super::builtins::CMEM_FIRST;
+    rt.varptr_slots = 0;
+    rt.varptr_next = 0;
+    rt.abs_mark = None;
+    rt.abs_args.clear();
     if run {
         rt.rnd = Default::default();
         if rt.display.started {
@@ -702,7 +743,7 @@ pub(crate) fn call(vm: &mut dyn Host<'_>, name: &str, a: &[V]) -> Option<R<Optio
             // as CHAIN: a name without a directory is the program in the current directory
             let (exe, args) = f.split_once(' ').map_or((f.as_str(), ""), |(x, y)| (x, y));
             let exe = exe.to_string();
-            let cmd = if args.is_empty() { format!("\"{}\"", in_dir(&exe)) } else { format!("\"{}\" {args}", in_dir(&exe)) };
+            let cmd = program_command(&exe, args);
             // RUN passes no COMMON variables
             vm.rt().dos.chain_out.clear();
             run_program(vm, &cmd, &exe).map(|_| None)

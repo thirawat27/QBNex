@@ -347,10 +347,13 @@ impl Mem {
             // static array: cleared in place, dimensions kept (as in QBasic)
             let (fill, data) = (a.fill, a.data);
             if let Some(d) = data {
+                // Cleared where it is: an element passed by reference, or its address
+                // held across the statement, still points into these bytes.
                 let strs = match &mut self.blocks[d as usize] {
                     Block::Bytes { data, strs } => {
-                        let old = std::mem::replace(data, vec![fill; data.len()]);
-                        if *strs { old } else { Vec::new() }
+                        let old = if *strs { data.clone() } else { Vec::new() };
+                        data.fill(fill);
+                        old
                     }
                     _ => Vec::new(),
                 };
