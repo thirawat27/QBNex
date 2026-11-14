@@ -138,16 +138,23 @@ jobs:
           QB_AUDIO_DEVICE: none
         run: |
           cargo test --locked -p qb-gpu -- --nocapture 2>&1 | tee gpu.log
-          if ! cargo test --locked -p qb-runtime --features gpu --lib -- gpu scene; then
-            # a crash leaves no Rust backtrace: show where it happened
+          # Ten runs: a crash in the driver shows up even when it is rare, and gdb
+          # (Linux) prints where it happened.
+          bin=$(cargo test --locked --color never -p qb-runtime --features gpu --lib --no-run 2>&1 | tee /dev/stderr | sed -n 's/.*Executable unittests src\/lib.rs (\(.*\))$/\1/p' | tail -n 1)
+          [ -n "$bin" ] || { echo "no test binary"; exit 1; }
+          for i in 1 2 3 4 5 6 7 8 9 10; do
             if command -v gdb >/dev/null; then
-              bin=$(ls -t target/debug/build/qb-runtime/*/out/qb_runtime-* | grep -v '\.d$' | head -n 1)
-              for i in 1 2 3; do
-                gdb -q -batch -ex run -ex 'thread apply all bt 20' --args "$bin" gpu scene 2>&1 | grep -v '^\[New Thread\|^\[Thread' | tail -n 200
-              done
+              gdb -q -batch -ex run -ex 'thread apply all bt 25' --args "$bin" gpu scene > gpu-run.log 2>&1 || true
+              if ! grep -q '^test result: ok' gpu-run.log; then
+                grep -v '^\[New Thread\|^\[Thread' gpu-run.log | tail -n 300
+                echo "GPU tests failed on run $i"
+                exit 1
+              fi
+            else
+              "$bin" gpu scene > gpu-run.log 2>&1 || { cat gpu-run.log; echo "GPU tests failed on run $i"; exit 1; }
             fi
-            exit 1
-          fi
+            grep '^test result' gpu-run.log
+          done
           grep -E 'qb-gpu adapter|skipped: no GPU adapter' gpu.log | sort | uniq -c
 
       # Each script runs under the shell its first line names (dash is sh on Ubuntu,
