@@ -5,7 +5,7 @@
 ## กราฟิก 2 มิติ (ใช้ได้แล้ว)
 
 กราฟิกทั้งหมดของ QBasic และ QB64 รันบน runtime ภาษา Rust ได้แก่
-`SCREEN` 0-13 และหน้า 32-bit ของ `_NEWIMAGE`, `PSET`, `LINE`, `CIRCLE`,
+`SCREEN` 0-2 และ 7-13, หน้า 32-bit ของ `_NEWIMAGE`, `PSET`, `LINE`, `CIRCLE`,
 `PAINT`, `DRAW`, `VIEW`/`WINDOW`, `GET`/`PUT`, `PCOPY`, `_PUTIMAGE`,
 `_LOADIMAGE` (รูปแบบไฟล์ที่ QB64 อ่านได้: PNG, JPEG, BMP, PCX ...),
 ฟอนต์ TrueType ด้วย `_LOADFONT`, palette, alpha blending, `_DISPLAY`,
@@ -27,21 +27,23 @@ _DISPLAY
 
 การฉายภาพ, depth buffer (`_DEPTHBUFFER ON|LOCK|OFF`), การตัดด้านหลัง
 (`_CLOCKWISE`/`_ANTICLOCKWISE`), การกรองแบบ `_SMOOTH*` และ alpha ทำงาน
-เหมือน QB64 ตัววาดค่าเริ่มต้นเป็นแบบซอฟต์แวร์
-บน renderer แบบ software รูปแบบ 3 มิติวาดได้เฉพาะภาพ 32-bit (ภาพแบบอื่นได้ error 5) และแต่ละภาพเก็บ depth buffer ไว้จนกว่าจะสั่ง `_DEPTHBUFFER _CLEAR` หรือคืนภาพนั้น
-
-**GPU:** build มาตรฐานแสดงผลเฟรมด้วย wgpu (Vulkan, DX12, Metal) ส่วน
-สามเหลี่ยม 3 มิติของ `_MAPTRIANGLE` ยังวาดด้วย renderer แบบซอฟต์แวร์
-ถ้าไม่มีการ์ดจอแบบฮาร์ดแวร์หรือตั้ง `QB_GPU=off` หน้าต่างจะแสดงผลด้วย
-ทางซอฟต์แวร์
+เหมือน QB64 รูปแบบ 3 มิติวาดด้วย renderer แบบ software เสมอ วาดได้เฉพาะ
+ภาพ 32-bit (ภาพแบบอื่นได้ error 5) และแต่ละภาพเก็บ depth buffer ไว้จนกว่าจะ
+สั่ง `_DEPTHBUFFER _CLEAR` หรือคืนภาพนั้น และไม่มีระนาบไกล (far plane)
+build มาตรฐานแสดงผลเฟรมด้วย wgpu (Vulkan, DX12, Metal)
+และกลับไปแสดงผลแบบซอฟต์แวร์เมื่อไม่มีการ์ดจอแบบฮาร์ดแวร์หรือตั้ง `QB_GPU=off`
 
 ## 3 มิติระดับสูง: model, กล้อง, แสง (ทดลอง)
 
 คอมไพเลอร์รู้จักคำสั่งและฟังก์ชันเหล่านี้แล้ว build มาตรฐานวาดด้วย GPU
 ผ่าน wgpu หรือด้วย adapter แบบ software (WARP, llvmpipe) เมื่อไม่มี GPU
-ถ้าไม่มี adapter เลยหรือตั้ง `QB_GPU=off` ทุกคำสั่งยังรันได้โดยไม่เกิด
-error แต่ `_DRAW3D` จะไม่วาดอะไร และ `_GPU3D` คืน 0 เอกสารออกแบบอยู่ที่
-`docs/dev/3d-api.md`
+ถ้าไม่มี adapter เลยหรือตั้ง `QB_GPU=off` คำสั่งทั้งหมดยังรันได้
+และไม่เกิด error ถ้าอาร์กิวเมนต์ถูกต้อง แต่ `_DRAW3D` จะไม่วาดอะไร และ `_GPU3D` คืน 0
+error เหมือนกันทุก build คือ handle ของ
+mesh, แสง หรือ shader ที่ไม่มีอยู่ได้ error 258 และอาร์กิวเมนต์ผิดได้ error 5
+(เช่น kind ของ `_LIGHT` ที่ไม่ใช่ 1 หรือ 2, ทิศของแสงแบบทิศทางเป็นเวกเตอร์ศูนย์,
+eye = target ใน `_CAMERA`, มุมมองนอกช่วง 1-179 หรือ near >= far ใน
+`_CAMERARANGE`) เอกสารออกแบบ: [`docs/dev/3d-api.md`](../../dev/3d-api.md)
 
 ```basic
 SCREEN _NEWIMAGE(800, 600, 32)
@@ -93,5 +95,5 @@ _FREEMESH box&: _FREELIGHT lamp&
 | `_LIGHTON l&, on&` · `_FREELIGHT l&` | เปิดปิด (เปิดพร้อมกันได้สูงสุด 8 ดวง), คืนหน่วยความจำ |
 | `_CLEAR3D [colour~&]` | ล้างสีและ depth ของชั้น 3 มิติ |
 | `_GPU3D` | คืน -1 เมื่อวาด 3 มิติได้ |
-| `_SHADER(wgsl$)` · `_SHADERERROR$` | คอมไพล์ฟังก์ชัน WGSL `fn shade(i: ShadeIn) -> vec4<f32>` คืน -1 เมื่อคอมไพล์ไม่ผ่าน และ `_SHADERERROR$` บอกบรรทัด คอลัมน์ และเหตุผล |
+| `_SHADER(wgsl$)` · `_SHADERERROR$` | คอมไพล์ฟังก์ชัน WGSL `fn shade(i: ShadeIn) -> vec4<f32>` คืน -1 เมื่อคอมไพล์ไม่ผ่าน และ `_SHADERERROR$` บอกบรรทัด คอลัมน์ และเหตุผล ส่วน runner ที่ build โดยไม่มี `gpu` (`QBNEX_GPU=0`) จะคืน handle โดยไม่ตรวจโค้ด |
 | `_SHADERPARAM sh&, index&, value!` · `_MESHSHADER m&, sh&` · `_FREESHADER sh&` | ตั้งพารามิเตอร์ 1 ใน 16 ตัว, วาด mesh ด้วย shader นั้น (0 = แสงปกติ), คืนหน่วยความจำ |

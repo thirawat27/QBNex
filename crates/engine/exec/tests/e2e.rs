@@ -225,6 +225,98 @@ fn declare_library_dot_slash_is_the_source_folder() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Builds `ffi/tests/testlib.rs` as `<name>.dll` into `out`.
+#[cfg(windows)]
+fn build_testlib(name: &str, out: &Path) {
+    let lib_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ffi/tests/testlib.rs");
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    let ok = Command::new(rustc)
+        .args(["--crate-type", "cdylib", "--crate-name", name, "-O", "--edition", "2024"])
+        .arg(&lib_src)
+        .arg("--out-dir")
+        .arg(out)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+}
+
+/// Windows: the compile-time check of `DECLARE DYNAMIC LIBRARY "name"`, and of
+/// `DECLARE LIBRARY "name"` with no static library or header, looks where the runner's
+/// loader looks: the program's folder (the folder of `-o`), the Windows folders and
+/// PATH, not the compiler's current folder. A DLL found only next to the program or on
+/// PATH compiles and runs; one found only in the compiler's folder, with the program
+/// written elsewhere, is refused at compile time (the runner would not load it).
+#[cfg(windows)]
+#[test]
+fn declare_library_check_follows_the_runtime_search() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("libsearch");
+    let pid = std::process::id();
+    let src_text = |kind: &str, lib: &str| format!("$CONSOLE:ONLY\nDECLARE {kind} \"{lib}\"\n    FUNCTION qb_test_neg_i16% (BYVAL x AS INTEGER)\nEND DECLARE\nPRINT qb_test_neg_i16(5)\n");
+    let compile = |src: &Path, exe: &Path, path_env: Option<&std::ffi::OsStr>| {
+        let guard = compiler_lock();
+        let mut c = Command::new(&qb);
+        c.current_dir(src.parent().unwrap()).arg(src).arg("-o").arg(exe).arg("-q");
+        if let Some(p) = path_env {
+            c.env("PATH", p);
+        }
+        let out = c.output().unwrap();
+        drop(guard);
+        (out.status.success(), normalize(&out.stdout) + &normalize(&out.stderr))
+    };
+    let (src_dir, out_dir, path_dir) = (dir.join("src"), dir.join("out"), dir.join("onpath"));
+    for d in [&src_dir, &out_dir, &path_dir] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let (pd_lib, path_lib, cwd_lib) = (format!("qbpdlib{pid}"), format!("qbpathlib{pid}"), format!("qbcwdlib{pid}"));
+    build_testlib(&pd_lib, &out_dir);
+    build_testlib(&path_lib, &path_dir);
+    build_testlib(&cwd_lib, &dir);
+    let path = {
+        let mut v = vec![path_dir.clone()];
+        v.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+        std::env::join_paths(v).unwrap()
+    };
+    struct Remove(PathBuf);
+    impl Drop for Remove {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    for (tag, kind) in [("lib", "LIBRARY"), ("dyn", "DYNAMIC LIBRARY")] {
+        // only next to the program
+        let src = src_dir.join(format!("pd_{tag}.bas"));
+        std::fs::write(&src, src_text(kind, &pd_lib)).unwrap();
+        let exe = out_dir.join(format!("pd_{tag}.exe"));
+        let (ok, text) = compile(&src, &exe, None);
+        assert!(ok && exe.exists(), "{kind}: DLL beside the program should compile: {text}");
+        let run = Command::new(&exe).current_dir(&dir).env("QBNEX_NO_ERROR_DIALOG", "1").output().unwrap();
+        assert_eq!(normalize(&run.stdout), "-5 \n", "{kind}: {}", normalize(&run.stderr));
+
+        // only on PATH
+        let src = src_dir.join(format!("onpath_{tag}.bas"));
+        std::fs::write(&src, src_text(kind, &path_lib)).unwrap();
+        let exe = out_dir.join(format!("onpath_{tag}.exe"));
+        let (ok, text) = compile(&src, &exe, Some(&path));
+        assert!(ok && exe.exists(), "{kind}: DLL on PATH should compile: {text}");
+        let run = Command::new(&exe).current_dir(&dir).env("PATH", &path).env("QBNEX_NO_ERROR_DIALOG", "1").output().unwrap();
+        assert_eq!(normalize(&run.stdout), "-5 \n", "{kind}: {}", normalize(&run.stderr));
+
+        // only in the compiler's folder (its current folder while compiling), program elsewhere
+        let planted = Remove(repo_root().join(format!("{cwd_lib}.dll")));
+        std::fs::copy(dir.join(format!("{cwd_lib}.dll")), &planted.0).unwrap();
+        let src = src_dir.join(format!("cwd_{tag}.bas"));
+        std::fs::write(&src, src_text(kind, &cwd_lib)).unwrap();
+        let (ok, text) = compile(&src, &out_dir.join(format!("cwd_{tag}.exe")), None);
+        drop(planted);
+        assert!(!ok, "{kind}: DLL only in the compiler's folder should be refused: {text}");
+        assert!(text.contains(&format!("{kind} not found")), "{kind}: message should say why: {text}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
 /// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
 /// golden is the old C++ backend's output (recorded before the switch to QIR); QIR must

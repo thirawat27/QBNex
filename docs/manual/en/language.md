@@ -232,7 +232,8 @@ before compiling. A base class must be declared before a class that
 ### `DECLARE LIBRARY`, `_FLOAT`, `_MEM`
 
 As in QB64. External functions are called through
-`crates/engine/ffi` (Windows x64, Linux x86-64/AArch64 calling conventions) and
+`crates/engine/ffi` (Win64, System V x86-64 and AArch64 calling conventions,
+including Apple's AArch64 variant, so Windows, Linux and macOS) and
 `_FLOAT` is an exact software 80-bit float.
 
 ## Planned
@@ -274,5 +275,4 @@ x += 2
 - CLASS in QIR: virtual dispatch, `NEW`/`DELETE`, properties; function
   pointers (`@SubName`); overloading by type.
 - `x += 1` (and `-=`, `*=`, `/=`), `# comment` lines, `IMPORT module`
-  without the `'$IMPORT:` form and `FUNCTION name (...) AS type`, which
-  earlier READMEs described.
+  without the `'$IMPORT:` form and `FUNCTION name (...) AS type`.

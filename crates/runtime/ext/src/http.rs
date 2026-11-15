@@ -418,7 +418,16 @@ mod redirect_tests {
                 }
                 head.push_str(&line);
             }
+            // Read the request body too: closing a socket with unread data makes
+            // Windows reset the connection, and the client may then lose the
+            // response (os error 10053) before it reads it.
+            let len = head
+                .lines()
+                .find_map(|h| h.split_once(':').filter(|(k, _)| k.trim().eq_ignore_ascii_case("content-length")).and_then(|(_, v)| v.trim().parse::<u64>().ok()))
+                .unwrap_or(0);
+            let _ = std::io::copy(&mut std::io::Read::take(&mut r, len), &mut std::io::sink());
             s.write_all(response.as_bytes()).unwrap();
+            let _ = s.shutdown(std::net::Shutdown::Write);
             head
         });
         (port, t)

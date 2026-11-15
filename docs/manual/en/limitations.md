@@ -4,9 +4,8 @@
 
 QBNex compiles BASIC to QIR and runs it with the Rust runner `qb-exec`.
 There is no C or C++ compiler anywhere in the pipeline. This page lists
-what that means for programs written for QB64, and the defects that are
-still open. Each item was checked against the code; fixed items are not
-listed. Intentional changes and fixed QB64 bugs are on
+what that means for programs written for QB64. Each item was checked
+against the code. Intentional changes and fixed QB64 bugs are on
 [Differences from QB64 and QBasic](differences.md).
 
 ## Building QBNex and building programs
@@ -20,8 +19,9 @@ listed. Intentional changes and fixed QB64 bugs are on
   release bundle) compiles programs without Rust installed: the compiler
   copies the prebuilt runner from `crates/engine/exec/bin/<os>/` and appends
   the program.
-- `qb fmt`, `qb lsp` and `qb dap` need their tools built with `cargo`
-  first.
+- `qb fmt`, `qb lsp` and `qb dap` run the tools `qb-fmt`, `qb-lsp` and
+  `qb-dap`. The release bundles include them; when QBNex is built from
+  source, build them with `cargo` first.
 - **Release files are not code-signed**, except `qb-fmt`, `qb-lsp` and
   `qb-dap` when the release was built with a signing certificate. `qb`, the
   installers and compiled programs carry data appended to the executable,
@@ -47,7 +47,8 @@ Native executables:
 - They are console programs only. A program with a window still uses the
   runner + QIR kind.
 - They still contain the VM and Cranelift. The machine code uses the
-  instruction set extensions of the CPU that built it.
+  baseline instruction set of the architecture, so it runs on older CPUs
+  too; only the JIT uses the extensions of the CPU it runs on.
 - Windows is tested on the development machine. Linux (ELF) and macOS
   (Mach-O) are built and tested in CI only.
 
@@ -88,9 +89,18 @@ compiler:
   `"./name"`; a path such as `"lib/name"` is relative to the current
   directory, as in QB64.
 
-  On Windows the compiler stops with `LIBRARY not found` when no such
-  `.dll` exists; on Linux and macOS a missing library shows up as
-  error 453 at the first call.
+  On Windows the compiler stops with `LIBRARY not found` (`DYNAMIC
+  LIBRARY not found` for `DECLARE DYNAMIC LIBRARY`) when the `.dll`
+  is in none of the places the runner searches: the written path, the
+  folder the program is written to (the folder of `-o`), `System32`, the
+  Windows folder and `PATH`. A `.dll` only in the compiler's current
+  folder does not count, since the runner would not load it from there.
+  The check sees the program's folder at compile time, so a `.dll` that
+  must sit next to the program has to be there when you compile. On
+  Linux and macOS the compiler accepts either declaration, because the
+  system loader finds libraries the compiler cannot see (the `ld.so`
+  cache, macOS libraries kept only in the dyld cache); a missing library
+  shows up as error 453 at the first call.
 - **Where functions are found.** A declared function is looked up, in
   this order, in the runner (the `ext.*` functions of the standard
   library), in the library named in its `DECLARE LIBRARY` block, in the
@@ -168,7 +178,10 @@ The build stops with `QIR: unsupported: line N: ...` on:
 
 - `ON TIMER(n) sub argument` (a SUB with an argument) inside a SUB or FUNCTION;
 - `_MEM` of an array of variable-length STRINGs (its elements are not stored
-  together; `_MEM` of one STRING variable works).
+  together; `_MEM` of one STRING variable works);
+- `LSET` or `RSET` of a TYPE variable;
+- `VARPTR$` of a string expression that is not a variable;
+- `PUT #` or `GET #` of a whole array of variable-length strings (see below).
 
 Every other statement and function the compiler knows is compiled (checked by
 compiling a one-line program for each keyword; forms with optional arguments
@@ -195,11 +208,12 @@ Compiled, but different:
 - `KEY ON`, `KEY OFF`, `KEY LIST` and `KEY n, text$` compile and do nothing:
   there is no function-key line and no soft keys. `KEY(n) ON|OFF|STOP` works.
 - `PUT #` and `GET #` take a whole array, except an array of variable-length
-  strings (each has its own length): that stops the build with a message.
+  strings (each has its own length): that stops the build with the
+  `QIR: unsupported` message above.
 - `_CONSOLE ON|OFF`, `_CONSOLEFONT`, `_CONSOLECURSOR`, `_CONSOLEINPUT`, `_CINP`,
   `_CONSOLETITLE`, `_WINDOWHANDLE` and setting `_CAPSLOCK`, `_NUMLOCK` or
-  `_SCROLLLOCK` work on Windows only; `_SCREENIMAGE` gives a blank image and
-  `_SCREENCLICK`/`_SCREENPRINT` do nothing on Linux. `_DIR$` returns `./` off
+  `_SCROLLLOCK` work on Windows only; `_SCREENIMAGE` gives a blank image on Linux and
+  macOS, and `_SCREENCLICK`/`_SCREENPRINT` do nothing on Linux. `_DIR$` returns `./` off
   Windows.
 - `_PRINTSTRING STEP(x, y)` moves on from the position of the last
   `_PRINTSTRING` (QB64 reads `STEP` and then ignores it).
@@ -258,8 +272,5 @@ compile and run; change their delay code to wait on the clock, for example
 
 ## Known defects
 
-| ID | Defect |
-| --- | --- |
-| L-01 | **Fixed.** Module code after the SUBs (with `ON ERROR` or `GOSUB` labels) is moved in front of the first SUB, also from included files. When the first SUB is in an included file, that code lands inside the file, after the `DIM SHARED`, `TYPE` and `CONST` it declares before that SUB. A runtime error in included code names the line in the included file. |
-
-L-08 (with the old C++ runtime about 1 run in 300-400 ended with exit code `0xC0000409`) does not happen on the QIR runner: 5000 runs of `control/gosub_goto` all ended normally. Only that console program was run this many times.
+No open defects are known. Deviations from QB64 and their tests are tracked
+in [`docs/dev/deviations.md`](../../dev/deviations.md).

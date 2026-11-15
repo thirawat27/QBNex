@@ -11,7 +11,7 @@ programs are new executables, which scanners like to inspect).
 
 The same releases have a one-file installer per system:
 `qbnex_<tag>_win-x64-setup.exe`, `qbnex_<tag>_lnx-setup` and
-`qbnex_<tag>_osx-setup`. Run it: a setup window leads through the license,
+`qbnex_<tag>_osx-setup`. Run it: a setup window (in English) leads through the license,
 the folder and the tasks below, shows the progress, and can be cancelled at
 any point (a cancelled or failed install puts back what was there before).
 It installs for the current user, without administrator rights:
@@ -27,15 +27,20 @@ Optional tasks: a desktop shortcut, and "Compile with QBNex" in the file
 manager's menu for `.bas` files (Windows and Linux).
 
 Where no window can be shown (no display, a remote shell) the installer asks
-in the terminal instead; `--console` asks there always. For scripts:
-`qbnex-setup --yes` installs without asking (`/S`, `/SILENT` and `/VERYSILENT`
+in the terminal instead; `--console` asks there always and `--gui` always
+opens the setup window. For scripts:
+`qbnex-setup --yes` installs without asking (`-y`, `/S`, `/SILENT` and `/VERYSILENT`
 mean the same), `--dir <folder>` (or `/DIR=<folder>`) picks another folder,
 `--no-path` leaves PATH alone, `--no-menu` adds no menu entry, `--desktop` and
 `--associate` turn the optional tasks on. `qbnex-setup --uninstall` (the copy
 in the install folder) removes everything it installed and leaves files you
-added. The installer and `qb`
+added (`--uninstall --yes` removes it without asking). `--version` and
+`--help` print the installer's version and switches. The installer and `qb`
 are not code-signed: Windows SmartScreen and macOS Gatekeeper may warn before
 the first run (macOS: `xattr -d com.apple.quarantine qbnex_<tag>_osx-setup`).
+
+Each release also has `SHA256SUMS.txt`; in the folder with the downloaded
+files, `sha256sum -c SHA256SUMS.txt --ignore-missing` checks them.
 
 ## Building from source
 
@@ -96,7 +101,10 @@ See the header of `scripts/setup_win.cmd` and `scripts/setup_lnx.sh`.
 
 **Native executables (Preview):** `scripts/native-kit.ps1` (Windows) or
 `scripts/native-kit.sh` builds the native kit (`qb-native` plus the Rust
-toolchain's `rust-lld`). Copied to `crates/engine/exec/bin/<os>/native/`, it makes
+toolchain's `rust-lld`) in `target/release/native` (or the folder given as
+the first argument). `native-kit.sh` needs the C library development files
+(`libc6-dev`) and the libasound and libudev development files on Linux, and
+the Xcode command line tools on macOS. Copied to `crates/engine/exec/bin/<os>/native/`, it makes
 the compiler link ordinary executables instead of appending QIR to the runner
 (see [commands](commands.md)).
 

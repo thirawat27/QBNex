@@ -9,14 +9,16 @@ The extension lives in `packaging/vscode`. Build and install it:
 ```bash
 cd packaging/vscode
 npm install
-npx vsce package                      # qbnex-2.0.0.vsix
-code --install-extension qbnex-2.0.0.vsix
+npx vsce package                      # qbnex-<version>.vsix
+code --install-extension qbnex-<version>.vsix
 ```
 
 It needs `qb` (or set `qbnex.compilerPath`) and, for the language features,
 `qb-lsp` and `qb-dap` (`cargo build --release -p qb-lsp -p qb-dap`, then put
 them on `PATH`, set `qbnex.lsp.path` / `qbnex.dap.path`, or bundle them with
-`npm run bundle-server` before packaging).
+`npm run bundle-server` before packaging). A bundled package is for one
+platform: package it with `npx vsce package --target win32-x64` (or
+`linux-x64`, `darwin-arm64`, ...).
 
 | Feature | How |
 | --- | --- |
@@ -27,7 +29,8 @@ them on `PATH`, set `qbnex.lsp.path` / `qbnex.dap.path`, or bundle them with
 | Hover, completion | Keywords with syntax, standard library procedures with their module, your own symbols. |
 | Format on save | On by default for QBasic files (`"[qbasic]": {"editor.formatOnSave": false}` to turn it off). |
 | `QBNex: Run` (Ctrl+F5, play button) | Save, compile with `qb`, run in a terminal. |
-| `QBNex: Compile` (Ctrl+Shift+B) | Compile; output in the *QBNex* panel. |
+| `QBNex: Compile` (Ctrl+Shift+B) | Compile; output in the *QBNex* panel. The executable goes next to the source by default; `qbnex.compileArgs` changes the arguments. |
+| `QBNex: Restart Language Server` | Restart `qb-lsp` (`qbnex.lsp.enabled: false` does not start it at all). |
 | Debug (F5) | See below. |
 
 ## Debugger
