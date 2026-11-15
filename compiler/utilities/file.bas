@@ -5,14 +5,24 @@ FUNCTION GetFilePath$ (f$)
     DIM directoryPath AS STRING
     DIM resultPath AS STRING
     DIM separator AS STRING
+    'the compiler asks for the folder of the main source and of the current $INCLUDE
+    'file at every statement: the last two answers are kept
+    STATIC cacheIn1 AS STRING, cacheOut1 AS STRING, cacheUsed1 AS LONG
+    STATIC cacheIn2 AS STRING, cacheOut2 AS STRING, cacheUsed2 AS LONG
+
+    IF cacheUsed1 <> 0 AND f$ = cacheIn1 THEN GetFilePath$ = cacheOut1: EXIT FUNCTION
+    IF cacheUsed2 <> 0 AND f$ = cacheIn2 THEN GetFilePath$ = cacheOut2: EXIT FUNCTION
 
     normalizedPath = Path_Normalize$(f$)
     directoryPath = Path_DirName$(normalizedPath)
-    IF directoryPath = "" THEN EXIT FUNCTION
+    IF directoryPath <> "" THEN
+        separator = Path_Separator$
+        resultPath = directoryPath
+        IF RIGHT$(resultPath, 1) <> separator THEN resultPath = resultPath + separator
+    END IF
 
-    separator = Path_Separator$
-    resultPath = directoryPath
-    IF RIGHT$(resultPath, 1) <> separator THEN resultPath = resultPath + separator
+    cacheIn2 = cacheIn1: cacheOut2 = cacheOut1: cacheUsed2 = cacheUsed1
+    cacheIn1 = f$: cacheOut1 = resultPath: cacheUsed1 = -1
     GetFilePath$ = resultPath
 END FUNCTION
 
