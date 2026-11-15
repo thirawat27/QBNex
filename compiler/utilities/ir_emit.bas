@@ -1280,16 +1280,20 @@ FUNCTION IrExtCall$ (idn AS LONG, nargs AS LONG, lib$)
     END IF
 END FUNCTION
 
-'DECLARE LIBRARY "path/name[:version]" with no static library or header: is there a
-'shared library the runner can open? Windows probes the files qb-ffi's loader tries, in
-'its order (crates/engine/ffi/src/loader.rs, candidates_for): a written path first (and
-'that path under System32), then the bare name in the program's folder, System32, the
-'Windows folder and each absolute PATH folder, never the current directory. Linux and
-'macOS leave the search to the loader at run time (system libraries are outside /usr/lib
-'there, or only in the dyld cache), so they always accept.
+'DECLARE DYNAMIC LIBRARY "path/name[:version]", and DECLARE LIBRARY with no static
+'library or header: is there a shared library the runner can open? Windows probes the
+'files qb-ffi's loader tries, in its order (crates/engine/ffi/src/loader.rs,
+'candidates_for): a written path first (and that path under System32), then the bare
+'name in the program's folder, System32, the Windows folder and each absolute PATH
+'folder, never the current directory. API set names (api-ms-*, ext-ms-*) have no file;
+'the loader's own search resolves them, so they are accepted. Linux and macOS leave the
+'search to the loader at run time (ld.so finds libraries outside /usr/lib, such as the
+'multiarch folders, and macOS system libraries are only in the dyld cache), so they
+'always accept and a missing library is error 453 at the first call.
 FUNCTION IrSharedLibFound% (libpath$, x$, libver$)
     DIM root$, sys$, pd$, pathv$, d$, b$, p AS LONG, q AS LONG
     IF os$ <> "WIN" THEN IrSharedLibFound% = -1: EXIT FUNCTION
+    IF LCASE$(LEFT$(x$, 7)) = "api-ms-" OR LCASE$(LEFT$(x$, 7)) = "ext-ms-" THEN IrSharedLibFound% = -1: EXIT FUNCTION
     root$ = ENVIRON$("SYSTEMROOT"): IF root$ = "" THEN root$ = "C:\Windows"
     IF RIGHT$(root$, 1) = "\" OR RIGHT$(root$, 1) = "/" THEN root$ = LEFT$(root$, LEN(root$) - 1)
     sys$ = root$ + "\System32\"

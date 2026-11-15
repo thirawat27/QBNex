@@ -89,15 +89,18 @@ compiler:
   `"./name"`; a path such as `"lib/name"` is relative to the current
   directory, as in QB64.
 
-  On Windows the compiler stops with `LIBRARY not found` when the `.dll`
+  On Windows the compiler stops with `LIBRARY not found` (`DYNAMIC
+  LIBRARY not found` for `DECLARE DYNAMIC LIBRARY`) when the `.dll`
   is in none of the places the runner searches: the written path, the
   folder the program is written to (the folder of `-o`), `System32`, the
   Windows folder and `PATH`. A `.dll` only in the compiler's current
   folder does not count, since the runner would not load it from there.
   The check sees the program's folder at compile time, so a `.dll` that
   must sit next to the program has to be there when you compile. On
-  Linux and macOS a missing library shows up as error 453 at the first
-  call.
+  Linux and macOS the compiler accepts either declaration, because the
+  system loader finds libraries the compiler cannot see (the `ld.so`
+  cache, macOS libraries kept only in the dyld cache); a missing library
+  shows up as error 453 at the first call.
 - **Where functions are found.** A declared function is looked up, in
   this order, in the runner (the `ext.*` functions of the standard
   library), in the library named in its `DECLARE LIBRARY` block, in the
