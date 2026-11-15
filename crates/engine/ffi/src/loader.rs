@@ -83,35 +83,142 @@ fn parse_spec(spec: &str, source_dir: Option<&Path>, os: Os) -> Spec {
     Spec { path, name, version: v }
 }
 
-/// Files QB64 probes for `DECLARE DYNAMIC LIBRARY "spec"`, in order.
-/// `source_dir` replaces a leading `./`.
-#[must_use]
-pub fn library_candidates(spec: &str, source_dir: Option<&Path>) -> Vec<PathBuf> {
-    candidates_for(spec, source_dir, Os::NATIVE)
+/// Where a name without a path is looked for, besides the fixed system folders.
+#[derive(Clone, Debug, Default)]
+struct SearchEnv {
+    /// The program's own folder ([`program_dir`]).
+    program_dir: Option<String>,
+    /// Windows: `%SYSTEMROOT%`.
+    system_root: String,
+    /// Absolute folders of `PATH` (Windows) or `DYLD_FALLBACK_LIBRARY_PATH` (macOS).
+    path: Vec<String>,
 }
 
-fn candidates_for(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathBuf> {
+static PROGRAM_DIR: OnceLock<std::sync::Mutex<Option<PathBuf>>> = OnceLock::new();
+
+/// Sets the folder searched first for a library named without a path. A runner
+/// whose program is not the executable itself calls this (`qb-exec prog.qir`:
+/// the folder of `prog.qir`; the debugger: the folder of the `.bas` file).
+/// A relative folder is taken relative to the current directory now (`""`, the
+/// folder of `prog.qir` given without one, is the current directory), so a
+/// later CHDIR does not move it.
+pub fn set_program_dir(dir: Option<&Path>) {
+    let dir = dir.map(|d| if d.as_os_str().is_empty() { Path::new(".") } else { d }).and_then(|d| std::path::absolute(d).ok());
+    let m = PROGRAM_DIR.get_or_init(|| std::sync::Mutex::new(None));
+    *m.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = dir;
+}
+
+/// The folder searched first for `DECLARE DYNAMIC LIBRARY "name"` without a
+/// path: the one given to [`set_program_dir`], else the executable's folder.
+#[must_use]
+pub fn program_dir() -> Option<PathBuf> {
+    if let Some(m) = PROGRAM_DIR.get() {
+        if let Some(d) = m.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() {
+            return Some(d);
+        }
+    }
+    std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf))
+}
+
+/// A folder of a search-path variable that does not depend on the current
+/// directory: `.`, `bin` or an empty entry would make a library planted in
+/// whatever folder the program is started from load first.
+fn absolute_dir(d: &str, os: Os) -> bool {
+    let b = d.as_bytes();
+    match os {
+        // C:\..., C:/..., \\server\share\..., \... (root of the current drive)
+        Os::Windows => (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/')) || matches!(b.first(), Some(b'\\' | b'/')),
+        Os::Linux | Os::MacOs => b.first() == Some(&b'/'),
+    }
+}
+
+impl SearchEnv {
+    fn native() -> SearchEnv {
+        let os = Os::NATIVE;
+        let var = match os {
+            Os::Windows => "PATH",
+            Os::MacOs => "DYLD_FALLBACK_LIBRARY_PATH",
+            Os::Linux => "",
+        };
+        let path = if var.is_empty() {
+            Vec::new()
+        } else {
+            let sep = if os == Os::Windows { ';' } else { ':' };
+            let v = std::env::var(var).unwrap_or_default();
+            v.split(sep).map(|d| d.trim().trim_matches('"').to_string()).filter(|d| absolute_dir(d, os)).collect()
+        };
+        SearchEnv {
+            program_dir: program_dir().map(|d| d.display().to_string()),
+            system_root: std::env::var("SYSTEMROOT").unwrap_or_else(|_| "C:\\Windows".into()),
+            path,
+        }
+    }
+}
+
+/// Files probed for `DECLARE DYNAMIC LIBRARY "spec"`, in order.
+/// `source_dir` replaces a leading `./`.
+///
+/// A name with a path (`lib/name`, `C:\libs\name`) is looked for there first,
+/// as in QB64. A name without a path, and the name part of a path that has no
+/// such file, is looked for in the program's own folder ([`program_dir`]) and
+/// the system folders, never in the current directory (QB64 looked there
+/// first, so a same-named file in a download or shared folder the program was
+/// started from was loaded instead of the intended library).
+#[must_use]
+pub fn library_candidates(spec: &str, source_dir: Option<&Path>) -> Vec<PathBuf> {
+    candidates_for(spec, source_dir, Os::NATIVE, &SearchEnv::native())
+}
+
+fn candidates_for(spec: &str, source_dir: Option<&Path>, os: Os, env: &SearchEnv) -> Vec<PathBuf> {
     let s = parse_spec(spec, source_dir, os);
     let (p, x, ver) = (&s.path, &s.name, &s.version);
+    let sep = if os == Os::Windows { '\\' } else { '/' };
+    let pd = env.program_dir.as_ref().map(|d| {
+        let mut d = d.clone();
+        if !d.ends_with(['/', '\\']) {
+            d.push(sep);
+        }
+        d
+    });
     let mut out: Vec<String> = Vec::new();
     match os {
         Os::Windows => {
-            let sys = std::env::var("SYSTEMROOT").unwrap_or_else(|_| "C:\\Windows".into());
-            out.push(format!("{p}{x}.dll"));
-            out.push(format!("{sys}\\System32\\{p}{x}.dll"));
-            out.push(format!("{x}.dll"));
+            let sys = env.system_root.trim_end_matches(['\\', '/']);
+            if !p.is_empty() {
+                out.push(format!("{p}{x}.dll"));
+                out.push(format!("{sys}\\System32\\{p}{x}.dll"));
+            }
+            // the order LoadLibrary searches (program folder, System32, Windows,
+            // PATH) without the current directory
+            if let Some(pd) = &pd {
+                out.push(format!("{pd}{x}.dll"));
+            }
             out.push(format!("{sys}\\System32\\{x}.dll"));
+            out.push(format!("{sys}\\{x}.dll"));
+            for d in &env.path {
+                out.push(format!("{}\\{x}.dll", d.trim_end_matches(['\\', '/'])));
+            }
         }
         Os::Linux | Os::MacOs => {
             let mac = os == Os::MacOs;
-            for prefix in [p.as_str(), ""] {
-                let dirs: Vec<String> = if prefix.is_empty() {
-                    vec![String::new(), "/usr/lib64/".into(), "/usr/lib/".into()]
-                } else {
-                    vec![prefix.to_string(), format!("/usr/lib64/{prefix}"), format!("/usr/lib/{prefix}")]
-                };
-                for (k, d) in dirs.iter().enumerate() {
-                    if mac && k != 1 {
+            let mut blocks: Vec<Vec<String>> = Vec::new();
+            if !p.is_empty() {
+                blocks.push(vec![p.clone(), format!("/usr/lib64/{p}"), format!("/usr/lib/{p}")]);
+            }
+            let mut bare: Vec<String> = pd.iter().cloned().collect();
+            bare.push("/usr/lib64/".into());
+            bare.push("/usr/lib/".into());
+            if mac {
+                // what dlopen of a bare name found after /usr/lib (its search of the
+                // current directory comes before these, so it is not used)
+                bare.extend(env.path.iter().map(|d| format!("{}/", d.trim_end_matches('/'))));
+                bare.push("/usr/local/lib/".into());
+            }
+            blocks.push(bare);
+            for dirs in &blocks {
+                for d in dirs {
+                    // no .dylib in /usr/lib64 (QB64's order)
+                    if mac && !d.starts_with("/usr/lib64/") {
                         if !ver.is_empty() {
                             out.push(format!("{d}lib{x}.{ver}.dylib"));
                         }
@@ -127,6 +234,28 @@ fn candidates_for(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathBuf>
     }
     let mut seen = std::collections::HashSet::new();
     out.into_iter().filter(|c| seen.insert(c.clone())).map(PathBuf::from).collect()
+}
+
+/// Names handed to the system loader's own search when no candidate file
+/// loads: Windows (restricted to the executable's folder and System32, so
+/// API-set and side-by-side names still resolve) and Linux (`LD_LIBRARY_PATH`,
+/// the `ld.so` cache: no current directory). None on macOS, where dlopen of
+/// a bare name searches the current directory.
+fn search_names(spec: &str, os: Os) -> Vec<String> {
+    let s = parse_spec(spec, None, os);
+    let (x, ver) = (&s.name, &s.version);
+    match os {
+        Os::Windows => vec![format!("{x}.dll")],
+        Os::Linux => {
+            let mut v = Vec::new();
+            if !ver.is_empty() {
+                v.push(format!("lib{x}.so.{ver}"));
+            }
+            v.push(format!("lib{x}.so"));
+            v
+        }
+        Os::MacOs => Vec::new(),
+    }
 }
 
 /// The C header QB64 would use for `DECLARE LIBRARY
@@ -155,13 +284,14 @@ fn header_candidates(spec: &str, source_dir: Option<&Path>, os: Os) -> Vec<PathB
     out.into_iter().map(PathBuf::from).collect()
 }
 
-/// Compile error for a `DECLARE LIBRARY` that names a C header.
+/// Compile error for a `DECLARE LIBRARY` that names a C header: the text the
+/// BASIC compiler reports (compiler/qbnex.bas).
 #[must_use]
 pub fn header_error(spec: &str, header: &Path) -> String {
     format!(
-        "DECLARE LIBRARY \"{spec}\" uses the C header {}, which needs a C compiler; \
-         QBNex does not support C headers. Declare the functions \
-         without a header, or use DECLARE DYNAMIC LIBRARY",
+        "DECLARE LIBRARY \"{spec}\" names the C header {}: C headers are not supported \
+         (QBNex has no C/C++ compile step). Build the functions into a DLL (.so, .dylib) \
+         and declare that library",
         header.display()
     )
 }
@@ -210,7 +340,8 @@ impl Library {
     }
 
     /// `DECLARE DYNAMIC LIBRARY "spec"`: tries [`library_candidates`] that
-    /// exist, then the plain file name through the OS search path.
+    /// exist, then the plain file name through the system loader's search
+    /// (without the current directory).
     ///
     /// # Errors
     /// [`LibraryError`] with every path tried when nothing loads.
@@ -222,26 +353,22 @@ impl Library {
             let text = c.display().to_string();
             // macOS 11+: system libraries (/usr/lib/libz.dylib, ...) exist only in
             // the dyld shared cache, not on disk, yet dlopen of that path works.
-            if c.is_file() || (cfg!(target_vendor = "apple") && c.is_absolute()) {
-                // dlopen takes a name without '/' as a name to search for, never as this
-                // file in the current directory (and may find a system library instead)
-                // (LoadLibraryW searches the system folders before the current one, too)
-                let exact = if !text.contains(['/', '\\']) && c.is_file() { format!(".{}{text}", std::path::MAIN_SEPARATOR) } else { text.clone() };
-                match Library::open_path(&exact) {
-                    Ok(l) => return Ok(l),
+            // Every candidate has a folder: a name without one would be searched for.
+            if c.parent().is_some_and(|p| !p.as_os_str().is_empty()) && (c.is_file() || (cfg!(target_vendor = "apple") && c.is_absolute())) {
+                // A relative candidate (an explicit `lib/name`) is this file under the
+                // current directory: LoadLibraryW would look for a relative path under
+                // every folder of its search order instead.
+                let load = if c.is_relative() { std::path::absolute(c).map_or_else(|_| text.clone(), |a| a.display().to_string()) } else { text.clone() };
+                match sys::open(&load) {
+                    Ok(h) => return Ok(Library { handle: h, path: text, owned: true }),
                     Err(e) => last = e,
                 }
             }
             tried.push(text);
         }
-        // Fall back to the loader's own search (System32, LD_LIBRARY_PATH, ...).
-        for c in &cands {
-            if c.parent().is_some_and(|p| !p.as_os_str().is_empty()) {
-                continue;
-            }
-            let text = c.display().to_string();
-            match Library::open_path(&text) {
-                Ok(l) => return Ok(l),
+        for name in search_names(spec, Os::NATIVE) {
+            match sys::open_search(&name) {
+                Ok(h) => return Ok(Library { handle: h, path: name, owned: true }),
                 Err(e) => last = e,
             }
         }
@@ -368,18 +495,31 @@ mod sys {
         Ok(h)
     }
 
-    /// A system module by name, searched in System32 only (no application
-    /// directory, current directory or PATH: no DLL planting).
-    pub fn open_system(name: &str) -> Result<*mut c_void, String> {
-        const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
+    const LOAD_LIBRARY_SEARCH_APPLICATION_DIR: u32 = 0x0000_0200;
+    const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
+
+    fn load_ex(name: &str, flags: u32) -> Result<*mut c_void, String> {
         let w: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
         // SAFETY: NUL-terminated wide string; the reserved handle argument is null.
-        let h = unsafe { LoadLibraryExW(w.as_ptr(), core::ptr::null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32) };
+        let h = unsafe { LoadLibraryExW(w.as_ptr(), core::ptr::null_mut(), flags) };
         if h.is_null() {
             // SAFETY: plain thread-local error code.
             return Err(format!("Windows error {}", unsafe { GetLastError() }));
         }
         Ok(h)
+    }
+
+    /// A system module by name, searched in System32 only (no application
+    /// directory, current directory or PATH: no DLL planting).
+    pub fn open_system(name: &str) -> Result<*mut c_void, String> {
+        load_ex(name, LOAD_LIBRARY_SEARCH_SYSTEM32)
+    }
+
+    /// A library by name through the loader's search, limited to the
+    /// executable's folder and System32 (LoadLibraryW would also search the
+    /// current directory).
+    pub fn open_search(name: &str) -> Result<*mut c_void, String> {
+        load_ex(name, LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32)
     }
 
     pub fn symbol(h: *mut c_void, name: &str) -> Option<*const c_void> {
@@ -456,6 +596,12 @@ mod sys {
         open(name)
     }
 
+    /// A library by name through the dynamic loader's search (no slash in
+    /// `name`: glibc and musl never look in the current directory then).
+    pub fn open_search(name: &str) -> Result<*mut c_void, String> {
+        open(name)
+    }
+
     pub fn symbol(h: *mut c_void, name: &str) -> Option<*const c_void> {
         let c = CString::new(name).ok()?;
         // SAFETY: valid handle (or RTLD_DEFAULT), NUL-terminated name.
@@ -491,6 +637,10 @@ mod sys {
     }
 
     pub fn open_system(path: &str) -> Result<*mut c_void, String> {
+        open(path)
+    }
+
+    pub fn open_search(path: &str) -> Result<*mut c_void, String> {
         open(path)
     }
 
@@ -541,18 +691,98 @@ mod tests {
         }
     }
 
+    fn win_env() -> SearchEnv {
+        SearchEnv { program_dir: Some("C:\\Games\\prog".into()), system_root: "C:\\Windows".into(), path: vec!["C:\\Tools\\bin\\".into()] }
+    }
+
+    fn unix_env() -> SearchEnv {
+        SearchEnv { program_dir: Some("/opt/prog".into()), system_root: String::new(), path: Vec::new() }
+    }
+
     #[test]
-    fn candidate_order() {
-        let w = s(&candidates_for("dir/foo", None, Os::Windows));
-        assert_eq!(w[0], "dir\\foo.dll");
-        assert!(w[1].ends_with("\\System32\\dir\\foo.dll"));
-        assert_eq!(w[2], "foo.dll");
-        let l = s(&candidates_for("z:1", None, Os::Linux));
-        assert_eq!(&l[..4], ["libz.so.1", "libz.so", "/usr/lib64/libz.so.1", "/usr/lib64/libz.so"]);
-        let m = s(&candidates_for("png", None, Os::MacOs));
-        assert_eq!(m[0], "libpng.dylib");
+    fn candidate_order_windows() {
+        let w = s(&candidates_for("dir/foo", None, Os::Windows, &win_env()));
+        assert_eq!(
+            w,
+            [
+                "dir\\foo.dll",
+                "C:\\Windows\\System32\\dir\\foo.dll",
+                "C:\\Games\\prog\\foo.dll",
+                "C:\\Windows\\System32\\foo.dll",
+                "C:\\Windows\\foo.dll",
+                "C:\\Tools\\bin\\foo.dll",
+            ]
+        );
+        // a name without a path: the program's folder first, then the system folders
+        let b = s(&candidates_for("user32", None, Os::Windows, &win_env()));
+        assert_eq!(b, ["C:\\Games\\prog\\user32.dll", "C:\\Windows\\System32\\user32.dll", "C:\\Windows\\user32.dll", "C:\\Tools\\bin\\user32.dll"]);
+        assert_eq!(search_names("user32", Os::Windows), ["user32.dll"]);
+    }
+
+    #[test]
+    fn candidate_order_unix() {
+        let l = s(&candidates_for("z:1", None, Os::Linux, &unix_env()));
+        assert_eq!(l, ["/opt/prog/libz.so.1", "/opt/prog/libz.so", "/usr/lib64/libz.so.1", "/usr/lib64/libz.so", "/usr/lib/libz.so.1", "/usr/lib/libz.so"]);
+        assert_eq!(search_names("z:1", Os::Linux), ["libz.so.1", "libz.so"]);
+        let p = s(&candidates_for("sub/foo", None, Os::Linux, &unix_env()));
+        assert_eq!(&p[..4], ["sub/libfoo.so", "/usr/lib64/sub/libfoo.so", "/usr/lib/sub/libfoo.so", "/opt/prog/libfoo.so"]);
+        let mut menv = unix_env();
+        menv.path = vec!["/Users/me/lib".into()];
+        let m = s(&candidates_for("png", None, Os::MacOs, &menv));
+        assert_eq!(m[0], "/opt/prog/libpng.dylib");
         assert!(m.contains(&"/usr/lib/libpng.dylib".to_string()));
         assert!(!m.contains(&"/usr/lib64/libpng.dylib".to_string()));
+        let at = |c: &str| m.iter().position(|x| x == c).unwrap();
+        assert!(at("/usr/lib/libpng.dylib") < at("/Users/me/lib/libpng.dylib"));
+        assert!(at("/Users/me/lib/libpng.dylib") < at("/usr/local/lib/libpng.dylib"));
+        // dlopen of a bare name searches the current directory on macOS: never used
+        assert!(search_names("png", Os::MacOs).is_empty());
+    }
+
+    #[test]
+    fn no_candidate_depends_on_the_current_directory() {
+        for os in [Os::Windows, Os::Linux, Os::MacOs] {
+            let env = if os == Os::Windows { win_env() } else { unix_env() };
+            for spec in ["foo", "foo:2", "foo.1.2"] {
+                for c in s(&candidates_for(spec, None, os, &env)) {
+                    assert!(absolute_dir(&c, os), "{os:?} {spec}: {c}");
+                }
+            }
+            // without a known program folder the bare name is still not tried as is
+            let none = SearchEnv { program_dir: None, ..env.clone() };
+            for c in s(&candidates_for("foo", None, os, &none)) {
+                assert!(absolute_dir(&c, os), "{os:?}: {c}");
+            }
+        }
+        // ./name is the source folder (the compiler passes it as an absolute path)
+        let d = s(&candidates_for("./mine", Some(Path::new("/src/prog")), Os::Linux, &unix_env()));
+        assert_eq!(d[0], "/src/prog/libmine.so");
+    }
+
+    #[test]
+    fn search_path_entries_relative_to_the_current_directory_are_skipped() {
+        assert!(absolute_dir("C:\\Tools", Os::Windows));
+        assert!(absolute_dir("c:/tools", Os::Windows));
+        assert!(absolute_dir("\\\\server\\share", Os::Windows));
+        for rel in ["", ".", "bin", "C:tools", "..\\x"] {
+            assert!(!absolute_dir(rel, Os::Windows), "{rel}");
+        }
+        assert!(absolute_dir("/usr/local/lib", Os::MacOs));
+        assert!(!absolute_dir("lib", Os::MacOs));
+        assert!(!absolute_dir("", Os::Linux));
+    }
+
+    #[test]
+    fn program_dir_override() {
+        // (the only test that sets it: tests run in parallel in one process)
+        let here = std::env::temp_dir();
+        set_program_dir(Some(&here));
+        assert_eq!(program_dir().as_deref(), Some(here.as_path()));
+        set_program_dir(Some(Path::new("")));
+        assert_eq!(program_dir(), std::env::current_dir().ok());
+        set_program_dir(None);
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(program_dir().as_deref(), exe.parent());
     }
 
     #[test]
@@ -566,7 +796,7 @@ mod tests {
         let found = find_header(&spec, None).expect("header found");
         assert!(found.ends_with("helper.h"));
         let msg = header_error("helper", &found);
-        assert!(msg.contains("does not support C headers") && msg.contains("helper.h") && msg.contains("DECLARE DYNAMIC LIBRARY"));
+        assert!(msg.contains("C headers are not supported") && msg.contains("helper.h") && msg.contains("declare that library"), "{msg}");
         assert!(find_header(&format!("{}/nothing", dir.display()), None).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }

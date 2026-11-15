@@ -64,11 +64,15 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
 
 ### Emitter (R11a): what to check at compile time
 
-- `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`): call
-  `find_header(spec, Some(source_dir))`. `Some(path)` is a compile error with
-  the text of `header_error(spec, &path)` (**deviation D-110**):
+- `DECLARE LIBRARY "spec"` (and `CUSTOMTYPE`/`STATIC`) that names a C
+  header is a compile error (**deviation D-110**). The BASIC compiler
+  (`compiler/qbnex.bas`) looks for the header itself, with the file names of
+  `find_header(spec, Some(source_dir))` (`name.h`, `name.hpp`, next to the
+  path, then bare, and in `/usr/include` on Linux/macOS), and reports:
 
-  > DECLARE LIBRARY "spec" uses the C header *path*, which needs a C compiler; QBNex does not support C headers (deviation D-110). Declare the functions without a header, or use DECLARE DYNAMIC LIBRARY
+  > DECLARE LIBRARY "spec" names the C header *path*: C headers are not supported (QBNex has no C/C++ compile step). Build the functions into a DLL (.so, .dylib) and declare that library
+
+  `find_header` and `header_error` are the same check for Rust callers.
 - Otherwise emit, per declared function, the library spec (empty for a bare
   `DECLARE LIBRARY`), the C name (ALIAS or the BASIC name) and a `Signature`.
   Types: `_BYTE` I8, `_UNSIGNED _BYTE` U8, `INTEGER` I16, `_UNSIGNED INTEGER` U16,
@@ -87,11 +91,31 @@ use qb_ffi::{Library, Signature, Ty, Value, call, find_default_symbol, find_head
   `getpid` also finds `_getpid`). The compiler's own `getpid` works.
 - `DECLARE DYNAMIC LIBRARY "spec"` and `DECLARE LIBRARY "spec"` without a
   header: `Library::open_dynamic(spec, None)` once per library (the compiler has
-  already made a `./` spec relative to the source folder), then
-  `lib.symbol(name)`. `library_candidates` lists the files tried (legacy order:
-  `path\name.dll`, `System32\path\name.dll`, `name.dll`, `System32\name.dll`;
-  `lib<name>.so.<ver>`, `lib<name>.so` in the path, `/usr/lib64`, `/usr/lib`,
-  then without the path; `.dylib` first on macOS). A static `.a`/`.lib`/`.o`
+  already made a `./` spec an absolute path in the source folder), then
+  `lib.symbol(name)`. `library_candidates` lists the files tried:
+  - a spec with a path (`lib/name`, `C:\libs\name`) first there, as in QB64:
+    `path\name.dll`, `System32\path\name.dll`; `lib<name>.so.<ver>`,
+    `lib<name>.so` in the path, `/usr/lib64/path`, `/usr/lib/path` (`.dylib`
+    first on macOS). A relative path is relative to the current directory.
+  - then the name alone, **never in the current directory** (QB64 tried
+    `name.dll` / `./libname.so` there first, so a file of that name in the
+    folder the program was started from, such as a download folder, was
+    loaded instead: library planting): the program's folder (`program_dir()`:
+    the executable's folder; `qb-exec prog.qir` sets the folder of `prog.qir`
+    and qb-dap the folder of the `.bas` file with `set_program_dir`), then on
+    Windows `System32`, the Windows folder and the absolute folders of `PATH`;
+    on Linux `/usr/lib64`, `/usr/lib`; on macOS `/usr/lib`, the absolute
+    folders of `DYLD_FALLBACK_LIBRARY_PATH` and `/usr/local/lib`.
+  - finally the system loader's own search for the plain file name: Windows
+    `LoadLibraryExW(name.dll, LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
+    LOAD_LIBRARY_SEARCH_SYSTEM32)` (API-set names), Linux `dlopen("libname.so")`
+    (`LD_LIBRARY_PATH`, the `ld.so` cache). Not on macOS, where `dlopen` of a
+    bare name searches the current directory.
+
+  Folders of `PATH` / `DYLD_FALLBACK_LIBRARY_PATH` that are relative (`.`,
+  `bin`, an empty entry) are skipped for the same reason. The libraries a
+  loaded library needs in turn are found by the system loader as usual.
+  A static `.a`/`.lib`/`.o`
   cannot be loaded without a linker, so `DECLARE LIBRARY "spec"` needs a shared
   library at run time. Failure: `LibraryError` (its text lists the paths).
 - `unsafe { call(ptr, &sig, &args) } -> Result<Value, CallError>`: integers are

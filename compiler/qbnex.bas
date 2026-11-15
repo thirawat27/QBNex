@@ -3151,6 +3151,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 IF libpath$ = "./" OR libpath$ = ".\" THEN
                     libpath$ = ""
                     libpath$ = path.source$
+                    'a source file named without a folder is in the folder the compiler
+                    'started in; a bare name would be searched for in the program's and
+                    'the system folders at run time, not in the source folder
+                    IF LEN(libpath$) = 0 THEN libpath$ = currentdir$
                     IF LEN(libpath$) > 0 AND RIGHT$(libpath$, 1) <> pathsep$ THEN libpath$ = libpath$ + pathsep$
                 END IF
 

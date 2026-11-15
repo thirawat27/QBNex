@@ -229,6 +229,8 @@ fn main() {
             Some(path) => {
                 // `qb-exec prog.qir a b`: the program sees [prog.qir, a, b]
                 qb_exec::set_program_args(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
+                // DECLARE DYNAMIC LIBRARY "name" looks next to prog.qir, not next to qb-exec
+                qb_ffi::set_program_dir(std::path::Path::new(path).parent());
                 let text = read(path);
                 (String::from_utf8_lossy_owned(text), None)
             }
