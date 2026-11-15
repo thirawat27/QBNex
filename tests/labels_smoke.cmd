@@ -8,6 +8,7 @@ set "SRC_OK=%ROOT%fixtures\label_recompile_success.bas"
 set "SRC_FAIL=%ROOT%fixtures\label_missing_failure.bas"
 set "SRC_SCOPE=%ROOT%fixtures\label_scope_conflict.bas"
 set "SRC_DATA=%ROOT%fixtures\label_ambiguous_data.bas"
+set "SRC_HANDLER=%ROOT%fixtures\label_error_handler_success.bas"
 
 if not exist "%QB%" (
     echo [FAIL] qb.exe not found at "%QB%"
@@ -52,6 +53,8 @@ set "OUT_FAIL=%TMPDIR%\label_missing_failure.txt"
 set "OUT_SCOPE=%TMPDIR%\label_scope_conflict.txt"
 set "OUT_DATA=%TMPDIR%\label_ambiguous_data.txt"
 set "OUT_STALE=%TMPDIR%\label_stale_failure.txt"
+set "BIN_HANDLER=%TMPDIR%\label_error_handler_success.exe"
+set "OUT_HANDLER=%TMPDIR%\label_error_handler_success.txt"
 
 "%QB%" "%SRC_OK%" -o "%BIN_OK%" > "%OUT_OK%" 2>&1
 set "EC_OK=%ERRORLEVEL%"
@@ -69,6 +72,9 @@ set "EC_DATA=%ERRORLEVEL%"
 "%QB%" "%SRC_FAIL%" -o "%BIN_STALE%" > "%OUT_STALE%" 2>&1
 set "EC_STALE=%ERRORLEVEL%"
 
+"%QB%" "%SRC_HANDLER%" -o "%BIN_HANDLER%" > "%OUT_HANDLER%" 2>&1
+set "EC_HANDLER=%ERRORLEVEL%"
+
 set "FAIL=0"
 
 if not "%EC_OK%"=="0" (
@@ -85,6 +91,14 @@ findstr /L /C:"not defined" "%OUT_OK%" >nul && (
 )
 if not exist "%BIN_OK%" (
     echo [FAIL] Label recompile fixture should emit an executable.
+    set "FAIL=1"
+)
+if not "%EC_HANDLER%"=="0" (
+    echo [FAIL] Main-module ON ERROR handler before a SUB, with CLEAR , , 5120, should compile ^(issue #2^).
+    set "FAIL=1"
+)
+if not exist "%BIN_HANDLER%" (
+    echo [FAIL] Main-module ON ERROR handler before a SUB should emit an executable.
     set "FAIL=1"
 )
 

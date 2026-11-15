@@ -8,6 +8,7 @@ SRC_OK_REL="tests/fixtures/label_recompile_success.bas"
 SRC_FAIL_REL="tests/fixtures/label_missing_failure.bas"
 SRC_SCOPE_REL="tests/fixtures/label_scope_conflict.bas"
 SRC_DATA_REL="tests/fixtures/label_ambiguous_data.bas"
+SRC_HANDLER_REL="tests/fixtures/label_error_handler_success.bas"
 
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
@@ -44,6 +45,8 @@ BIN_FAIL="$TMPDIR/label_missing_failure"
 BIN_SCOPE="$TMPDIR/label_scope_conflict"
 BIN_DATA="$TMPDIR/label_ambiguous_data"
 BIN_STALE="$TMPDIR/label_stale_failure"
+BIN_HANDLER="$TMPDIR/label_error_handler_success"
+OUT_HANDLER="$TMPDIR/label_error_handler_success.txt"
 OUT_OK="$TMPDIR/label_recompile_success.txt"
 OUT_FAIL="$TMPDIR/label_missing_failure.txt"
 OUT_SCOPE="$TMPDIR/label_scope_conflict.txt"
@@ -63,6 +66,8 @@ EC_DATA=$?
 "$QB" "$SRC_OK_REL" -o "$BIN_STALE" >/dev/null 2>&1
 "$QB" "$SRC_FAIL_REL" -o "$BIN_STALE" >"$OUT_STALE" 2>&1
 EC_STALE=$?
+"$QB" "$SRC_HANDLER_REL" -o "$BIN_HANDLER" >"$OUT_HANDLER" 2>&1
+EC_HANDLER=$?
 set -e
 
 FAIL=0
@@ -81,6 +86,10 @@ if grep -F "not defined" "$OUT_OK" >/dev/null 2>&1; then
 fi
 if [ ! -f "$BIN_OK" ]; then
   echo "[FAIL] Label recompile fixture should emit an executable."
+  FAIL=1
+fi
+if [ "$EC_HANDLER" -ne 0 ] || [ ! -f "$BIN_HANDLER" ]; then
+  echo "[FAIL] Main-module ON ERROR handler before a SUB, with CLEAR , , 5120, should compile (issue #2)."
   FAIL=1
 fi
 

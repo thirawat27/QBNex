@@ -5,6 +5,15 @@ All notable changes to QBNex will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-11-15
+
+### Fixed
+
+- `END SUB` no longer fails with E1101 "Unknown statement 'END'" in programs whose main module has an `ON ERROR GOTO` handler label (SORTDEMO.BAS line 149, issue #2). Main-module code before the first SUB/FUNCTION stays in the main module instead of being moved into a generated SUB, where the handler label belonged to that SUB.
+- `CLEAR , , stacksize` (for example `CLEAR , , 5120`) compiles in the main module (issue #2); it was rejected as "CLEAR cannot be used inside a SUB/FUNCTION" for the same reason.
+- `END SUB`, `END FUNCTION`, `END TYPE` and `END DECLARE` followed by a comment close their block.
+- The compiler reports version 1.0.5 (1.0.4 still reported 1.0.3).
+
 ## [1.0.4] - 2026-05-05
 
 ### Added

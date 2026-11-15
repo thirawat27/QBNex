@@ -18,6 +18,15 @@ FUNCTION TopLevelRuntime_ShouldCapture% (trimmedLine$, upperLine$)
     TopLevelRuntime_ShouldCapture = -1
 END FUNCTION
 
+FUNCTION TopLevelRuntime_IsKeyword% (upperLine$, keyword$)
+    'keyword alone, or followed by a space or a comment
+    IF LEFT$(upperLine$, LEN(keyword$)) <> keyword$ THEN EXIT FUNCTION
+    IF LEN(upperLine$) = LEN(keyword$) THEN TopLevelRuntime_IsKeyword = -1: EXIT FUNCTION
+    SELECT CASE MID$(upperLine$, LEN(keyword$) + 1, 1)
+        CASE " ", "'", CHR$(9): TopLevelRuntime_IsKeyword = -1
+    END SELECT
+END FUNCTION
+
 SUB TopLevelRuntime_Finalize
     DIM remainingLines AS STRING
     DIM nextBreak AS LONG
@@ -79,17 +88,17 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     trimmedLine = LTRIM$(RTRIM$(rawLine$))
     upperLine = UCASE$(trimmedLine)
 
-    IF upperLine = "END SUB" OR upperLine = "END FUNCTION" THEN
+    IF TopLevelRuntime_IsKeyword%(upperLine, "END SUB") OR TopLevelRuntime_IsKeyword%(upperLine, "END FUNCTION") THEN
         IF topLevelRuntimeProcDepth > 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth - 1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
-    IF upperLine = "END TYPE" THEN
+    IF TopLevelRuntime_IsKeyword%(upperLine, "END TYPE") THEN
         IF topLevelRuntimeTypeDepth > 0 THEN topLevelRuntimeTypeDepth = topLevelRuntimeTypeDepth - 1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
-    IF upperLine = "END DECLARE" THEN
+    IF TopLevelRuntime_IsKeyword%(upperLine, "END DECLARE") THEN
         IF topLevelRuntimeDeclareDepth > 0 THEN topLevelRuntimeDeclareDepth = topLevelRuntimeDeclareDepth - 1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
@@ -107,11 +116,20 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
     END IF
     IF LEFT$(upperLine, 4) = "SUB " OR LEFT$(upperLine, 9) = "FUNCTION " THEN
         topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
+        topLevelRuntimeSeenProc = -1
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
 
     IF topLevelRuntimeProcDepth OR topLevelRuntimeTypeDepth OR topLevelRuntimeDeclareDepth THEN
+        TopLevelRuntime_ProcessLine$ = rawLine$
+        EXIT FUNCTION
+    END IF
+
+    'Code before the first SUB/FUNCTION is ordinary main-module code and stays there:
+    'moved into the runtime SUB, an ON ERROR GOTO handler label of the main module was a
+    'label of that SUB, and its END SUB was "Unknown statement 'END'" (SORTDEMO.BAS)
+    IF topLevelRuntimeSeenProc = 0 THEN
         TopLevelRuntime_ProcessLine$ = rawLine$
         EXIT FUNCTION
     END IF
