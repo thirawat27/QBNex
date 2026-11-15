@@ -1,0 +1,14 @@
+# Stands in for the `paste` crate (archived, RUSTSEC-2024-0436), which
+# rustls-rustcrypto (the pure-Rust TLS provider of qb-ext) still names. It
+# re-exports `paste!` from `pastey`, the maintained drop-in fork, through the
+# [patch.crates-io] entry of the workspace Cargo.toml. Remove both when
+# rustls-rustcrypto moves off `paste`.
+[package]
+name = "paste"
+version = "1.0.15"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+pastey = "0.2.3"
