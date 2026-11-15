@@ -5,7 +5,8 @@
 '   TRI  - _MAPTRIANGLE 3D with a depth buffer, transformed and lit in BASIC
 ' Keys: 1-6 or N = shape, M = renderer, A = automatic tour, ESC = quit.
 ' Command line: SHAPE=k starts with shape k, TRI with the _MAPTRIANGLE renderer,
-' FRAMES=n stops after n frames (for tests).
+' FRAMES=n stops after n frames, NOLIMIT drops the 60 fps cap (for tests and
+' benchmarks).
 CONST PI = 3.14159265
 CONST SHAPES = 6
 CONST MAXV = 50000, MAXT = 90000, MAXC = 700
@@ -75,12 +76,13 @@ shape% = 1: p = INSTR(cmd$, "SHAPE="): IF p THEN shape% = VAL(MID$(cmd$, p + 6))
 IF shape% < 1 OR shape% > SHAPES THEN shape% = 1
 mode% = 0: IF gpu% = 0 OR INSTR(cmd$, "TRI") > 0 THEN mode% = 1
 auto% = -1: IF p THEN auto% = 0
+nolimit% = INSTR(cmd$, "NOLIMIT") > 0
 _PRINTMODE _KEEPBACKGROUND
 _DEPTHBUFFER ON
-t0# = TIMER: frames& = 0: fps! = 0: shown# = TIMER
+t0# = TIMER: frames& = 0: fps! = 0: shown# = TIMER: start# = TIMER: drawn& = 0
 
 DO
-    _LIMIT 60
+    IF nolimit% = 0 THEN _LIMIT 60
     ang! = ang! + 1
     k$ = UCASE$(INKEY$)
     IF k$ = CHR$(27) THEN EXIT DO
@@ -102,12 +104,12 @@ DO
     END IF
     hud shape%, mode%, gpu%, fps!, auto%
     _DISPLAY
-    frames& = frames& + 1
+    frames& = frames& + 1: drawn& = drawn& + 1
     IF TIMER - t0# >= 1 THEN fps! = frames& / (TIMER - t0#): t0# = TIMER: total& = total& + frames&: frames& = 0
     IF maxframes& > 0 AND total& + frames& >= maxframes& THEN EXIT DO
 LOOP
 OPEN "shapes3d.log" FOR OUTPUT AS #1
-PRINT #1, "gpu3d"; gpu%; "shape"; shape%; "mode"; mode%; "fps"; INT(fps!); "triangles"; tn(shape%)
+PRINT #1, "gpu3d"; gpu%; "shape"; shape%; "mode"; mode%; "fps"; INT(drawn& / (TIMER - start# + 0.000001)); "triangles"; tn(shape%)
 CLOSE #1
 SYSTEM
 

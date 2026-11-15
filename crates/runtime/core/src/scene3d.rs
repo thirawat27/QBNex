@@ -590,6 +590,9 @@ mod gpu {
         renderer: Option<SceneRenderer>,
         /// (generation, w, h, pixels)
         cache: Option<(u64, u32, u32, Vec<u32>)>,
+        /// the offscreen target of the last frame size asked for, kept between frames
+        target: Option<((u32, u32), Target)>,
+        readback: qb_gpu::Readback,
     }
 
     /// `None` = not tried yet; `Some(None)` = no adapter.
@@ -600,7 +603,7 @@ mod gpu {
     pub(super) fn with<T>(f: impl FnOnce(&mut Side) -> T) -> Option<T> {
         let mut g = SIDE.lock().unwrap_or_else(|e| e.into_inner());
         if g.is_none() {
-            *g = Some(Gpu::headless().map(|gpu| Side { gpu, renderer: None, cache: None }));
+            *g = Some(Gpu::headless().map(|gpu| Side { gpu, renderer: None, cache: None, target: None, readback: qb_gpu::Readback::default() }));
         }
         if g.as_ref().and_then(Option::as_ref).is_some_and(|s| s.gpu.failed()) {
             eprintln!("qb-runtime: GPU error; 3D drawing is off");
@@ -715,20 +718,32 @@ mod gpu {
                     })
                 })
                 .collect();
-            let mut target = Target::offscreen_with_format(gpu, w, h, wgpu::TextureFormat::Bgra8Unorm);
+            // the target, the readback buffer and the pixel vector are reused from frame to frame
+            if side.target.as_ref().is_none_or(|t| t.0 != (w, h)) {
+                side.target = Some(((w, h), Target::offscreen_with_format(gpu, w, h, wgpu::TextureFormat::Bgra8Unorm)));
+            }
+            let (_, target) = side.target.as_mut()?;
             let renderer = side.renderer.get_or_insert_with(|| SceneRenderer::new(gpu, wgpu::TextureFormat::Bgra8Unorm));
             let frame = target.frame(gpu)?;
             let c = rgba(s.clear);
             let clear = wgpu::Color { r: f64::from(c[0]), g: f64::from(c[1]), b: f64::from(c[2]), a: f64::from(c[3]) };
             renderer.render(gpu, &frame, &camera(&s.camera), &lighting, Some(clear), &instances);
             frame.present(gpu);
-            let mut px = target.read_pixels(gpu)?;
+            let (lw, lh) = target.size();
+            let Target::Offscreen { texture, .. } = &*target else { return None };
+            let mut px = side.cache.take().map(|c| c.3).unwrap_or_default();
+            px.resize(lw as usize * lh as usize, 0);
+            let row_len = lw as usize;
+            let ok = side.readback.read(gpu, texture, (0, 0, lw, lh), |j, bytes| {
+                for (d, b) in px[j * row_len..(j + 1) * row_len].iter_mut().zip(bytes.as_chunks::<4>().0) {
+                    *d = u32::from_le_bytes(*b);
+                }
+            });
             // an error while drawing: the pixels are not used, and 3D turns off
-            if gpu.failed() {
+            if !ok || gpu.failed() {
                 return None;
             }
             // a frame above the device's texture limit was rendered smaller: scale up
-            let (lw, lh) = target.size();
             if (lw, lh) != (w, h) {
                 let small = std::mem::take(&mut px);
                 px = (0..w * h).map(|i| small[((i / w) * lh / h * lw + (i % w) * lw / w) as usize]).collect();

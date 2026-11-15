@@ -296,25 +296,29 @@ pub fn tri3d(
     let f = 1.0 / (fov.to_radians() / 2.0).tan();
     let aspect = w / h;
     // clip against the near plane (z = -NEAR) in eye space
-    let mut poly: Vec<([f32; 3], [f32; 2])> = Vec::with_capacity(4);
+    // (at most 4 corners: no allocation per triangle)
+    let mut poly = [([0.0f32; 3], [0.0f32; 2]); 4];
+    let mut np = 0;
     for i in 0..3 {
         let (p, pt) = (d[i], s[i]);
         let (n, nt) = (d[(i + 1) % 3], s[(i + 1) % 3]);
         let p_in = -p.2 >= NEAR;
         let n_in = -n.2 >= NEAR;
         if p_in {
-            poly.push(([p.0, p.1, p.2], [pt.0, pt.1]));
+            poly[np] = ([p.0, p.1, p.2], [pt.0, pt.1]);
+            np += 1;
         }
         if p_in != n_in {
             let t = (-NEAR - p.2) / (n.2 - p.2);
             let lerp = |a: f32, b: f32| a + (b - a) * t;
-            poly.push((
+            poly[np] = (
                 [lerp(p.0, n.0), lerp(p.1, n.1), -NEAR],
                 [lerp(pt.0, nt.0), lerp(pt.1, nt.1)],
-            ));
+            );
+            np += 1;
         }
     }
-    if poly.len() < 3 {
+    if np < 3 {
         return;
     }
     let proj = |e: &([f32; 3], [f32; 2])| {
@@ -327,7 +331,7 @@ pub fn tri3d(
             q: 1.0 / wc,
         }
     };
-    let pv: Vec<Vtx> = poly.iter().map(proj).collect();
+    let pv: [Vtx; 4] = std::array::from_fn(|i| proj(&poly[i.min(np - 1)]));
     // winding on screen (y down): positive area = clockwise
     let area = {
         let (a, b, c) = (pv[0], pv[1], pv[2]);
@@ -338,7 +342,7 @@ pub fn tri3d(
     {
         return;
     }
-    for k in 1..pv.len() - 1 {
+    for k in 1..np - 1 {
         raster_tri(
             dst,
             Some((&mut *depth, depth_mode)),

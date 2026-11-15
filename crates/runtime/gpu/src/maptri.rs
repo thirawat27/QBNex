@@ -28,7 +28,6 @@ use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
-use wgpu::util::DeviceExt;
 
 use crate::Gpu;
 
@@ -235,6 +234,8 @@ pub struct MapTriangle3d {
     samplers: Vec<wgpu::Sampler>,
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
     format: wgpu::TextureFormat,
+    /// vertex buffer kept between draws (grown when a bigger batch comes)
+    vbuf: Option<(wgpu::Buffer, u64)>,
 }
 
 impl MapTriangle3d {
@@ -314,6 +315,7 @@ impl MapTriangle3d {
             samplers,
             pipelines: HashMap::new(),
             format: target_format,
+            vbuf: None,
         }
     }
 
@@ -446,13 +448,21 @@ impl MapTriangle3d {
                 })
             });
         }
-        let vbuf = (!verts.is_empty()).then(|| {
-            gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vbytes: &[u8] = bytemuck::cast_slice(&verts);
+        if !vbytes.is_empty() && self.vbuf.as_ref().is_none_or(|b| b.1 < vbytes.len() as u64) {
+            let size = (vbytes.len() as u64).next_power_of_two();
+            let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("qb-gpu maptriangle vertices"),
-                contents: bytemuck::cast_slice(&verts),
-                usage: wgpu::BufferUsages::VERTEX,
-            })
-        });
+                size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.vbuf = Some((buf, size));
+        }
+        let vbuf = (!vbytes.is_empty()).then(|| self.vbuf.as_ref().map(|b| &b.0)).flatten();
+        if let Some(b) = vbuf {
+            gpu.queue.write_buffer(b, 0, vbytes);
+        }
         let depth_load = if std::mem::take(&mut depth.pending_clear) { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load };
         let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qb-gpu maptriangle") });
         {
@@ -478,7 +488,7 @@ impl MapTriangle3d {
             });
             if let Some(vbuf) = &vbuf {
                 pass.set_bind_group(0, &self.uniform_group, &[]);
-                pass.set_vertex_buffer(0, vbuf.slice(..));
+                pass.set_vertex_buffer(0, vbuf.slice(..vbytes.len() as u64));
                 // one draw per run of triangles with the same pipeline and texture
                 // (the order of the triangles stays as given)
                 let key = |t: &Tri3d| ((t.use_alpha, t.cull, t.depth), (std::ptr::from_ref(t.src) as usize, t.smooth.index() * 2 + usize::from(t.wrap)));

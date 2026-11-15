@@ -352,6 +352,62 @@ impl Target {
     }
 }
 
+/// A readback buffer kept from frame to frame (grown when a bigger rectangle
+/// comes), so reading a frame back allocates nothing.
+#[derive(Default)]
+pub struct Readback {
+    buf: Option<(wgpu::Buffer, u64)>,
+}
+
+impl Readback {
+    /// Copies rectangle `(x, y, w, h)` of `texture` (4 bytes per texel) and
+    /// hands its rows to `row(index, bytes)`, top to bottom. `false` when the
+    /// copy failed (device lost or an error).
+    pub fn read(&mut self, gpu: &Gpu, texture: &wgpu::Texture, rect: (u32, u32, u32, u32), mut row: impl FnMut(usize, &[u8])) -> bool {
+        let (x, y, w, h) = rect;
+        if w == 0 || h == 0 {
+            return true;
+        }
+        let bytes = w * 4;
+        let padded = bytes.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let need = u64::from(padded) * u64::from(h);
+        if self.buf.as_ref().is_none_or(|b| b.1 < need) {
+            let size = need.next_power_of_two();
+            let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("qb-gpu readback"),
+                size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            self.buf = Some((buf, size));
+        }
+        let Some((buf, _)) = &self.buf else { return false };
+        let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("qb-gpu readback") });
+        enc.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo {
+                buffer: buf,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        gpu.queue.submit([enc.finish()]);
+        let slice = buf.slice(..need);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        if gpu.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None }).is_err() {
+            return false;
+        }
+        let Ok(data) = slice.get_mapped_range() else { return false };
+        for j in 0..h as usize {
+            let at = j * padded as usize;
+            row(j, &data[at..at + bytes as usize]);
+        }
+        drop(data);
+        buf.unmap();
+        true
+    }
+}
+
 /// Size that fits `max` on both sides keeping the aspect ratio (at least 1×1).
 pub fn fit_size(w: u32, h: u32, max: u32) -> (u32, u32) {
     let (w, h, max) = (w.max(1), h.max(1), max.max(1));

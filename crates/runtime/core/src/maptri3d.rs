@@ -160,6 +160,22 @@ mod imp {
         r: MapTriangle3d,
         dests: HashMap<u32, DestTex>,
         srcs: HashMap<u32, SrcTex>,
+        readback: qb_gpu::Readback,
+        /// largest texture side (asking wgpu each time costs more than a triangle)
+        max: usize,
+    }
+
+    /// The images of the last triangle queued in this batch: a mesh sends many
+    /// in a row with the same source and destination, which skip the lookups.
+    #[derive(Clone, Copy, PartialEq)]
+    struct Last {
+        dst: u32,
+        ptr: usize,
+        w: usize,
+        h: usize,
+        src: u32,
+        sw: usize,
+        sh: usize,
     }
 
     #[derive(Default)]
@@ -173,6 +189,7 @@ mod imp {
         batch_dst: HashSet<u32>,
         exposed: HashSet<u32>,
         small: u32,
+        last: Option<Last>,
     }
 
     static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -198,7 +215,8 @@ mod imp {
                 if verbose() {
                     eprintln!("qb-runtime: _MAPTRIANGLE 3D on the GPU ({})", gpu.adapter_name());
                 }
-                Some(Gpu3 { gpu, r, dests: HashMap::new(), srcs: HashMap::new() })
+                let max = gpu.max_texture_size() as usize;
+                Some(Gpu3 { gpu, r, dests: HashMap::new(), srcs: HashMap::new(), readback: qb_gpu::Readback::default(), max })
             })
             .as_mut()
     }
@@ -206,13 +224,18 @@ mod imp {
     pub(super) unsafe fn queue(dst: Dst, src: SrcImg, t: Tri) -> bool {
         let (dst_key, w, h, src_key, sw, sh) = (dst.key, dst.w, dst.h, src.key, src.w, src.h);
         let (dst, src) = (dst.px, src.px);
+        let last = Last { dst: dst_key, ptr: dst as usize, w, h, src: src_key, sw, sh };
         with(|s| {
+            // the same images as the triangle before (another source than the destination)
+            if s.last == Some(last) && s.queue.len() < MAX_QUEUE {
+                s.queue.push(Queued { dst: dst_key, src: src_key, t });
+                return true;
+            }
             if s.exposed.contains(&dst_key) || w == 0 || h == 0 || sw == 0 || sh == 0 {
                 return false;
             }
             let Some(g) = gpu3(s) else { return false };
-            let max = g.gpu.max_texture_size() as usize;
-            if w > max || h > max || g.gpu.failed() {
+            if w > g.max || h > g.max || g.gpu.failed() {
                 return false;
             }
             // the source is an image with queued triangles: draw them first
@@ -245,6 +268,7 @@ mod imp {
             }
             s.queue.push(Queued { dst: dst_key, src: src_key, t });
             s.batch_dst.insert(dst_key);
+            s.last = (src_key != dst_key).then_some(last);
             PENDING.store(true, Ordering::Relaxed);
             true
         })
@@ -266,6 +290,7 @@ mod imp {
 
     pub(super) fn forget(key: u32) {
         with(|s| {
+            s.last = None;
             s.exposed.remove(&key);
             if let Some(Some(g)) = s.gpu.as_mut() {
                 g.dests.remove(&key);
@@ -276,6 +301,7 @@ mod imp {
 
     pub(super) fn expose(key: u32) {
         with(|s| {
+            s.last = None;
             s.exposed.insert(key);
         });
     }
@@ -319,9 +345,10 @@ mod imp {
             PENDING.store(false, Ordering::Relaxed);
             return;
         }
-        let queue = std::mem::take(&mut s.queue);
-        let batch_src = std::mem::take(&mut s.batch_src);
+        let mut queue = std::mem::take(&mut s.queue);
+        let mut batch_src = std::mem::take(&mut s.batch_src);
         s.batch_dst.clear();
+        s.last = None;
         PENDING.store(false, Ordering::Relaxed);
         let n = queue.len();
         let drawn = match s.gpu.as_mut().and_then(Option::as_mut) {
@@ -341,6 +368,11 @@ mod imp {
             draw_software(&queue, &batch_src, &dests);
             return;
         }
+        // the queue and the source map keep their capacity for the next batch
+        queue.clear();
+        batch_src.clear();
+        s.queue = queue;
+        s.batch_src = batch_src;
         if n < SMALL_BATCH {
             s.small += 1;
             if s.small >= SMALL_LIMIT {
@@ -438,7 +470,14 @@ mod imp {
             if g.gpu.failed() {
                 return false;
             }
-            if !read_back(&g.gpu, d, (x, y, rw, rh)) || g.gpu.failed() {
+            let (ptr, row) = (d.ptr, rw as usize * 4);
+            let ok = g.readback.read(&g.gpu, &d.tex, (x, y, rw, rh), |j, bytes| {
+                let at = (y as usize + j) * w + x as usize;
+                // SAFETY: the row lies inside the w*h pixels of the image (the rectangle
+                // is within its bounds), valid until the flush ends (contract of `queue`).
+                unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), (ptr as *mut u32).add(at).cast::<u8>(), row) };
+            });
+            if !ok || g.gpu.failed() {
                 return false;
             }
         }
@@ -448,45 +487,6 @@ mod imp {
     fn bytemuck_u32(px: &[u32]) -> &[u8] {
         // SAFETY: u32 has no padding; the byte view covers the same memory.
         unsafe { std::slice::from_raw_parts(px.as_ptr().cast::<u8>(), std::mem::size_of_val(px)) }
-    }
-
-    /// Copies rectangle `r` of the destination texture into its image.
-    fn read_back(gpu: &Gpu, d: &DestTex, r: (u32, u32, u32, u32)) -> bool {
-        let (x, y, rw, rh) = r;
-        let row = rw * 4;
-        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("qb-runtime maptriangle readback"),
-            size: u64::from(padded) * u64::from(rh),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        enc.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo { texture: &d.tex, mip_level: 0, origin: wgpu::Origin3d { x, y, z: 0 }, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &buf,
-                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(rh) },
-            },
-            wgpu::Extent3d { width: rw, height: rh, depth_or_array_layers: 1 },
-        );
-        gpu.queue.submit([enc.finish()]);
-        let slice = buf.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        if gpu.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None }).is_err() {
-            return false;
-        }
-        let Ok(data) = slice.get_mapped_range() else { return false };
-        let w = d.w as usize;
-        for j in 0..rh as usize {
-            let from = &data[j * padded as usize..j * padded as usize + row as usize];
-            let at = (y as usize + j) * w + x as usize;
-            // SAFETY: the row lies inside the w*h pixels of the image (rect within bounds).
-            unsafe { std::ptr::copy_nonoverlapping(from.as_ptr(), (d.ptr as *mut u32).add(at).cast::<u8>(), row as usize) };
-        }
-        drop(data);
-        buf.unmap();
-        true
     }
 }
 
