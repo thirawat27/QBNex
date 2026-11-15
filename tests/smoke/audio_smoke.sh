@@ -8,6 +8,25 @@ REPO_ROOT="$(CDPATH= cd -- "$ROOT/../.." && pwd)"
 QB="$REPO_ROOT/qb"
 SRC="tests/fixtures/audio_synth_success.bas"
 
+# Runs a command with a time limit; macOS has no timeout(1), so a watchdog
+# stops the command there instead.
+run_limited() {
+  limit="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$limit" "$@"
+    return
+  fi
+  "$@" &
+  pid=$!
+  (sleep "$limit" && kill "$pid" 2>/dev/null) &
+  watchdog=$!
+  status=0
+  wait "$pid" || status=$?
+  kill "$watchdog" 2>/dev/null || true
+  return "$status"
+}
+
 if [ ! -x "$QB" ]; then
   echo "[FAIL] qb not found at \"$QB\""
   echo "Build QBNex first, then run this smoke test again."
@@ -116,7 +135,7 @@ if ! "$QB" "$PLAYBACK_SRC" -o "$PLAYBACK_EXE" >"$OUT_PLAYBACK" 2>&1; then
   cat "$OUT_PLAYBACK"
   exit 1
 fi
-(cd "$SMOKE_TMP" && QB_AUDIO_DEVICE=null QBNEX_HEADLESS=1 timeout 60 ./playback </dev/null) >"$OUT_PLAYBACK" 2>&1 || true
+(cd "$SMOKE_TMP" && export QB_AUDIO_DEVICE=null QBNEX_HEADLESS=1 && run_limited 60 ./playback </dev/null) >"$OUT_PLAYBACK" 2>&1 || true
 EXPECTED_PLAYBACK="stream-1 len 1
 limit playing-1
 limit stopped 0

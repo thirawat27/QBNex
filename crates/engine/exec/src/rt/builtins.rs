@@ -2771,7 +2771,9 @@ mod route_tests {
             include_str!("memx.rs"),
             include_str!("input.rs"),
         ];
-        let me = include_str!("builtins.rs");
+        // a Windows checkout may have CRLF line ends
+        let me = include_str!("builtins.rs").replace("\r\n", "\n");
+        let me = me.as_str();
         let main_at = me.find("fn call_main").unwrap();
         let main = &me[main_at..];
         let main = &main[..main.find("\n}\n").unwrap()];
