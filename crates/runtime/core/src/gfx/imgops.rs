@@ -83,7 +83,9 @@ pub unsafe fn component(im: &ImgStruct, col: u32, which: Component) -> (i32, i32
         };
         return (v as i32, 0);
     }
-    if col > im.mask {
+    // A palette has 256 entries whatever the mask says: the mask of a text page covers
+    // a whole cell (character and attribute).
+    if col > im.mask.min(255) {
         return (0, ERR_ILLEGAL_FUNCTION_CALL);
     }
     if which == Component::Alpha {

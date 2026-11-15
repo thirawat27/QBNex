@@ -50,13 +50,80 @@ pub(crate) struct Arr {
     pub(crate) view: qb_jit::ctx::ArrView,
     /// static array (`dims`): a second DIM keeps it and ERASE only clears it
     fixed: bool,
+    /// stands for an array that was never dimensioned (no elements; its first use
+    /// is QBasic's implicit `DIM name(10)`): made when such an array is passed as
+    /// `a()`, so the callee's DIM / REDIM is the caller's too
+    unset: bool,
 }
 
 impl Clone for Arr {
     fn clone(&self) -> Arr {
         let mut a = Arr::with_data(self.dims.clone(), self.data.clone());
         a.fixed = self.fixed;
+        a.unset = self.unset;
         a
+    }
+}
+
+/// An array slot's array. A whole array passed as `a()` is shared, not moved:
+/// the callee's slot holds the same pointer for the duration of the call (and
+/// does not own it, see `Vm::call`), so the array stays usable under every name
+/// it has, and DIM, REDIM and ERASE change it in place. A raw pointer rather
+/// than a `Box`, because two slots may point at it.
+#[repr(transparent)]
+pub(crate) struct ArrBox(core::ptr::NonNull<Arr>);
+
+impl ArrBox {
+    fn new(a: Arr) -> ArrBox {
+        ArrBox(core::ptr::NonNull::from(Box::leak(Box::new(a))))
+    }
+    /// A second slot's handle on the same array; it must be given up with
+    /// [`ArrBox::forget`], never dropped, and only while the owner lives.
+    fn share(&self) -> ArrBox {
+        ArrBox(self.0)
+    }
+    /// Gives up a shared handle without freeing the array.
+    fn forget(self) {
+        std::mem::forget(self)
+    }
+}
+
+impl Drop for ArrBox {
+    fn drop(&mut self) {
+        // SAFETY: an owning handle came from `Box::leak` in `new`; shared handles
+        // are forgotten, never dropped
+        drop(unsafe { Box::from_raw(self.0.as_ptr()) });
+    }
+}
+
+impl std::ops::Deref for ArrBox {
+    type Target = Arr;
+    fn deref(&self) -> &Arr {
+        // SAFETY: the array lives as long as its owning handle, which outlives
+        // every shared one; the VM uses one handle at a time
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl std::ops::DerefMut for ArrBox {
+    fn deref_mut(&mut self) -> &mut Arr {
+        // SAFETY: as for `deref`
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl std::fmt::Debug for ArrBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+/// Puts `new` in slot `slot`: in place when the slot has an array, which other
+/// slots may share.
+fn put_arr(slot: &mut Option<ArrBox>, new: Arr) {
+    match slot {
+        Some(a) => **a = new,
+        None => *slot = Some(ArrBox::new(new)),
     }
 }
 
@@ -111,7 +178,27 @@ impl Arr {
             [(lb, ub)] if !ptr.is_null() => qb_jit::ctx::ArrView { data: ptr, lbound: *lb, count: ub - lb + 1 },
             _ => qb_jit::ctx::ArrView::NONE,
         };
-        Arr { dims, data, view, fixed: false }
+        Arr { dims, data, view, fixed: false, unset: false }
+    }
+
+    /// Number of elements.
+    fn len(&self) -> usize {
+        match &self.data {
+            ArrData::I16(v) => v.len(),
+            ArrData::I32(v) => v.len(),
+            ArrData::I64(v) => v.len(),
+            ArrData::F32(v) => v.len(),
+            ArrData::F64(v) => v.len(),
+            ArrData::Str(v) => v.len(),
+        }
+    }
+
+    /// String element `o`, if this is a string array that has it.
+    fn str_at(&mut self, o: usize) -> Option<&mut Vec<u8>> {
+        match &mut self.data {
+            ArrData::Str(v) => v.get_mut(o),
+            _ => None,
+        }
     }
 
     #[cfg(test)]
@@ -217,16 +304,17 @@ fn copy_preserved<T: Default>(d: &mut [T], mut s: Vec<T>, od: &[(i64, i64)], nd:
 /// Row-major offset (this VM's layout) of the element whose column-major
 /// linear position (QB64's layout) is `p`.
 fn row_major(dims: &[(i64, i64)], mut p: usize) -> usize {
-    let idx: Vec<usize> = dims
-        .iter()
-        .map(|&(lb, ub)| {
-            let n = (ub - lb + 1) as usize;
-            let i = p % n;
-            p /= n;
-            i
-        })
-        .collect();
-    dims.iter().zip(idx).fold(0, |off, (&(lb, ub), i)| off * (ub - lb + 1) as usize + i)
+    // subscript k is `p % n_k` of what the earlier ones left; its row-major
+    // stride is the product of the extents after it
+    let mut rest: usize = dims.iter().map(|&(lb, ub)| (ub - lb + 1) as usize).product();
+    let mut off = 0;
+    for &(lb, ub) in dims {
+        let n = (ub - lb + 1) as usize;
+        rest /= n;
+        off += (p % n) * rest;
+        p /= n;
+    }
+    off
 }
 
 /// CHAIN of a COMMON array (register mode): its bounds and its elements in
@@ -240,6 +328,7 @@ fn chain_put_arr(dos: &mut crate::rt::dosx::Dos, a: Option<&mut Arr>, k: ChainK)
     }
     match a {
         None => dx::put_bounds(&mut b, &[]),
+        Some(a) if a.unset => dx::put_bounds(&mut b, &[]),
         Some(a) => {
             let dims = a.dims.clone();
             dx::put_bounds(&mut b, &dims);
@@ -263,32 +352,28 @@ fn chain_put_arr(dos: &mut crate::rt::dosx::Dos, a: Option<&mut Arr>, k: ChainK)
 /// dynamic array gets the passed bounds, a static one keeps its bounds and
 /// takes the values when it has as many elements (`CHAINGETA` of memory mode).
 /// Anything of another kind or element size leaves the array as it is.
-/// The error case still hands the array back.
-#[allow(clippy::type_complexity)]
-fn chain_get_arr(dos: &mut crate::rt::dosx::Dos, old: Option<Box<Arr>>, ty: Ty, k: ChainK) -> Result<Option<Box<Arr>>, (Option<Box<Arr>>, i32)> {
+/// The array changes in place (other slots may share it).
+fn chain_get_arr(dos: &mut crate::rt::dosx::Dos, slot: &mut Option<ArrBox>, ty: Ty, k: ChainK) -> Result<(), i32> {
     use crate::rt::dosx as dx;
-    let Some(b) = dx::chain_next(dos, if k == ChainK::Str { 4 } else { 3 }) else { return Ok(old) };
+    let Some(b) = dx::chain_next(dos, if k == ChainK::Str { 4 } else { 3 }) else { return Ok(()) };
     let mut at = 0;
     if k != ChainK::Str && dx::take_u32(&b, &mut at) != Some(k.size()) {
-        return Ok(old);
+        return Ok(());
     }
-    let Some(dims) = dx::take_bounds(&b, &mut at) else { return Ok(old) };
+    let Some(dims) = dx::take_bounds(&b, &mut at) else { return Ok(()) };
     let n = dx::elements(&dims) as usize;
     if n == 0 {
-        return Ok(old); // not dimensioned where it came from
+        return Ok(()); // not dimensioned where it came from
     }
-    let mut arr = match old {
+    match slot.as_deref() {
         Some(x) if x.fixed => {
             if dx::elements(&x.dims) as usize != n {
-                return Ok(Some(x));
+                return Ok(());
             }
-            x
         }
-        old => match Arr::new(ty, dims) {
-            Ok(a) => Box::new(a),
-            Err(e) => return Err((old, e)),
-        },
-    };
+        _ => put_arr(slot, Arr::new(ty, dims)?),
+    }
+    let arr = slot.as_deref_mut().expect("dimensioned above");
     let own = arr.dims.clone();
     let es = k.size() as usize;
     for p in 0..n {
@@ -302,7 +387,7 @@ fn chain_get_arr(dos: &mut crate::rt::dosx::Dos, old: Option<Box<Arr>>, ty: Ty, 
             arr.set(o, k.decode(x));
         }
     }
-    Ok(Some(arr))
+    Ok(())
 }
 
 // ---------------------------------------------------------------- events
@@ -351,6 +436,8 @@ struct Frame {
     ab: usize,
     caller_view: usize,
     desc: u32,
+    /// the frame's reference parameters start here in `Vm::refs`
+    refs: usize,
 }
 
 /// State of `SUB _GL` calls at display frames (a window program; the browser runner has none).
@@ -369,6 +456,9 @@ const KEY_EV: i32 = -2;
 const PLAY_EV: i32 = -1000;
 /// `Gs::ev` of an ON STRIG handler.
 const STRIG_EV: i32 = -2000;
+
+/// GOSUBs that may be waiting for their RETURN; one more is error 7 (Out of memory).
+const MAX_GOSUB_DEPTH: usize = 1 << 20;
 
 #[derive(Debug, Clone, Copy)]
 struct Gs {
@@ -391,7 +481,25 @@ struct Ctx {
 enum PVal {
     N(u64),
     S(Vec<u8>),
-    A(Option<Box<Arr>>),
+}
+
+/// A reference register refers to `Vm::refs[v & !REF_TABLE]` when it has this
+/// bit, else to numeric register `v` of `Vm::nums` (no table entry: native
+/// code passes a SHARED variable `g` as `g`, see `jit.rs` `native_call`).
+pub(crate) const REF_TABLE: u64 = 1 << 63;
+
+/// What a [`Slot::R`] parameter refers to (`Vm::refs`): absolute indices, valid
+/// while the frame that holds the storage is active (always longer than the
+/// reference's own frame).
+#[derive(Clone, Copy, Debug)]
+enum RefT {
+    /// numeric register (`Vm::nums`)
+    N(usize),
+    /// string register (`Vm::strs`)
+    S(usize),
+    /// element `o` of the array in slot `a` (`Vm::arrs`); checked at each use,
+    /// since the callee may REDIM or ERASE the array
+    E(usize, usize),
 }
 
 pub struct Vm<'m, 'o> {
@@ -400,7 +508,12 @@ pub struct Vm<'m, 'o> {
     rt: RtState<'o>,
     nums: Vec<u64>,
     strs: Vec<Vec<u8>>,
-    arrs: Vec<Option<Box<Arr>>>,
+    arrs: Vec<Option<ArrBox>>,
+    /// targets of the active [`Slot::R`] parameters (a stack: a frame's entries
+    /// start at `Frame::refs`)
+    refs: Vec<RefT>,
+    /// see [`Vm::handler_enter`]
+    byref_sync: Vec<usize>,
     frames: Vec<Frame>,
     view: usize,
     nb: usize,
@@ -465,6 +578,9 @@ pub struct Vm<'m, 'o> {
     gl: GlFrames,
     /// per `Module::rtfns` entry: the builtin runs without the runtime's name dispatch
     pure: Vec<Option<rt::builtins::Pure>>,
+    /// per `Module::rtfns` entry: the builtin goes past the rt modules' name
+    /// dispatch (`rt::builtins::call_direct`), resolved once here
+    direct: Vec<bool>,
     /// native -> VM -> native nesting of such calls
     jit_nest: u32,
     /// addressable memory (QIR TYPE / STRING * n / pointers)
@@ -612,7 +728,9 @@ impl<'m, 'o> Vm<'m, 'o> {
             nums: main.num_init.clone(),
             strs: vec![Vec::new(); main.n_str as usize],
             arrs: Vec::from_fn(main.n_arr() as usize, |_| None),
-            frames: vec![Frame { owned: 0, func: 0, ret: 0, nb: 0, sb: 0, ab: 0, caller_view: 0, desc: 0 }],
+            refs: Vec::new(),
+            byref_sync: Vec::new(),
+            frames: vec![Frame { owned: 0, func: 0, ret: 0, nb: 0, sb: 0, ab: 0, caller_view: 0, desc: 0, refs: 0 }],
             view: 0,
             nb: 0,
             sb: 0,
@@ -648,6 +766,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             #[cfg(not(target_arch = "wasm32"))]
             gl: GlFrames::default(),
             pure: m.rtfns.iter().map(|(n, _)| rt::builtins::pure(n)).collect(),
+            direct: m.rtfns.iter().map(|(n, _)| rt::builtins::route(n)).collect(),
             jit_nest: 0,
             mem: {
                 let mut mem = crate::mem::Mem::new();
@@ -764,7 +883,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         // into this VM only through `vm_op` (one non-control instruction).
         let hosts = vm_hosts();
         let arrs = self.arrs.as_mut_ptr() as *mut u64;
-        // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<Box<Arr>> is one nullable pointer.
+        // SAFETY: `ab` + the frame's array count is inside `arrs`; Option<ArrBox> is one nullable pointer.
         let tables = [unsafe { arrs.add(self.ab) }, arrs];
         // This frame's GOSUB entries move to the native stack for the native session.
         let base = js.gosub_len();
@@ -786,7 +905,9 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         self.gosub.truncate(n - k);
         js.set_gosub_base(base);
-        let st = unsafe { js.enter(pc, np, globals, ev, mask, me, &hosts, tables) };
+        let js: *mut crate::jit::JitState = js;
+        // SAFETY: as above; no reference into the JIT state is held across native code
+        let st = unsafe { crate::jit::JitState::enter(js, pc, np, globals, ev, mask, me, &hosts, tables) };
         let js: &mut crate::jit::JitState = self.jit.as_deref_mut()?;
         for r in js.gosub_take(base) {
             if r != crate::jit::GOSUB_VM_BELOW {
@@ -813,7 +934,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             self.nums.extend_from_slice(&regs[..func.n_num() as usize]);
             self.strs.resize_with(sb + func.n_str as usize, Vec::new);
             self.arrs.resize_with(ab + func.n_arr() as usize, || None);
-            self.frames.push(Frame { owned: self.owned.len(), func: f, ret: call_pc + 1, nb, sb, ab, caller_view: self.view, desc });
+            self.frames.push(Frame { owned: self.owned.len(), func: f, ret: call_pc + 1, nb, sb, ab, caller_view: self.view, desc, refs: self.refs.len() });
             self.set_view(self.frames.len() - 1);
         }
     }
@@ -926,8 +1047,14 @@ impl<'m, 'o> Vm<'m, 'o> {
     fn restart(&mut self, k: i32, run: bool) {
         let m = self.m;
         let main = &m.funcs[0];
+        while self.frames.len() > 1 {
+            // (no copies back: every variable starts over)
+            let fr = self.frames.pop().unwrap();
+            self.release_arrays(&fr);
+        }
         self.free_owned(0);
-        self.frames.truncate(1);
+        self.refs.clear();
+        self.byref_sync.clear();
         self.set_view(0);
         self.nums.clear();
         self.nums.extend_from_slice(&main.num_init);
@@ -1085,7 +1212,11 @@ impl<'m, 'o> Vm<'m, 'o> {
             (Some(p), &[(r, ty)]) => rt::builtins::pure_call(p, b"", &self.rt_arg(r, ty)).map(Some),
             _ => {
                 let vals: Vec<V> = a.iter().map(|&(r, ty)| self.rt_arg(r, ty)).collect();
-                rt::call(self, name, vals)
+                if self.direct.get(f as usize).copied().unwrap_or(false) {
+                    rt::builtins::call_direct(self, name, vals)
+                } else {
+                    rt::call(self, name, vals)
+                }
             }
         };
         match res {
@@ -1130,10 +1261,10 @@ impl<'m, 'o> Vm<'m, 'o> {
     /// `DIM name(10)` per subscript.
     fn arr_at(&mut self, a: R, n: usize, cx: Ctx) -> Result<&mut Arr, i32> {
         let i = self.arr_index(a, cx.ab);
-        if self.arrs[i].is_none() {
+        if self.arrs[i].as_deref().is_none_or(|x| x.unset) {
             let f = if a & G != 0 { 0 } else { cx.func as usize };
             let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
-            self.arrs[i] = Some(Box::new(Arr::new(ty, vec![(self.m.option_base, 10); n])?));
+            put_arr(&mut self.arrs[i], Arr::new(ty, vec![(self.m.option_base, 10); n])?);
         }
         Ok(self.arrs[i].as_deref_mut().unwrap())
     }
@@ -1168,42 +1299,55 @@ impl<'m, 'o> Vm<'m, 'o> {
         }
         let mut new = Arr::new(ty, dims)?;
         new.fixed = mode == DimMode::Static;
-        if mode == DimMode::RedimPreserve
-            && let Some(old) = self.arrs[i].take() {
-                new.preserve_from(*old);
+        // in place: the array may be shared with a caller (passed as a())
+        match self.arrs[i].as_deref_mut() {
+            Some(cur) => {
+                let old = std::mem::replace(cur, new);
+                if mode == DimMode::RedimPreserve {
+                    cur.preserve_from(old);
+                }
             }
-        self.arrs[i] = Some(Box::new(new));
+            None => self.arrs[i] = Some(ArrBox::new(new)),
+        }
         Ok(())
     }
 
     fn elem_off(&mut self, a: R, i: R, n: u32, cx: Ctx) -> Result<(usize, usize), i32> {
         let start = cx.nb + i as usize;
-        let idx: Vec<i64> = self.nums[start..start + n as usize].iter().map(|&x| x as i64).collect();
         let ai = self.arr_index(a, cx.ab);
-        let arr = self.arr_at(a, n as usize, cx)?;
-        let o = arr.off(idx.into_iter(), n as usize)?;
+        // implicit DIM first; then the subscripts are read where they are (no Vec per access)
+        self.arr_at(a, n as usize, cx)?;
+        let arr = self.arrs[ai].as_deref().expect("arr_at made it");
+        let o = arr.off(self.nums[start..start + n as usize].iter().map(|&x| x as i64), n as usize)?;
         Ok((ai, o))
     }
 
     // ------------------------------------------------------------ places
 
-    fn place_take(&mut self, p: Place, cx: Ctx) -> Result<PVal, i32> {
+    /// Value of a scalar place; a string is moved out (`take`) or copied.
+    fn place_take(&mut self, p: Place, cx: Ctx, take: bool) -> Result<PVal, i32> {
+        let s = |v: &mut Vec<u8>| PVal::S(if take { std::mem::take(v) } else { v.clone() });
         Ok(match p {
             Place::N(r, _) => PVal::N(self.nums[cx.nb + r as usize]),
             Place::NG(g, _) => PVal::N(self.nums[g as usize]),
-            Place::S(r) => PVal::S(std::mem::take(&mut self.strs[cx.sb + r as usize])),
-            Place::SG(g) => PVal::S(std::mem::take(&mut self.strs[g as usize])),
-            Place::A(a) => {
-                let i = self.arr_index(a, cx.ab);
-                PVal::A(self.arrs[i].take())
-            }
+            Place::S(r) => s(&mut self.strs[cx.sb + r as usize]),
+            Place::SG(g) => s(&mut self.strs[g as usize]),
+            Place::A(_) => return Err(13),
             Place::E { a, i, n, ty } => {
                 let (ai, o) = self.elem_off(a, i, n, cx)?;
                 let arr = self.arrs[ai].as_deref_mut().unwrap();
                 if ty == Ty::Str {
-                    PVal::S(std::mem::take(&mut arr.strs()[o]))
+                    s(&mut arr.strs()[o])
                 } else {
                     PVal::N(arr.get(o))
+                }
+            }
+            Place::R(r, ty) => {
+                let t = self.ref_in(cx, r)?;
+                if ty == Ty::Str {
+                    s(self.ref_str(t)?)
+                } else {
+                    PVal::N(self.ref_ld(t)?)
                 }
             }
         })
@@ -1215,22 +1359,96 @@ impl<'m, 'o> Vm<'m, 'o> {
             (Place::NG(g, _), PVal::N(x)) => self.nums[g as usize] = x,
             (Place::S(r), PVal::S(s)) => self.strs[cx.sb + r as usize] = s,
             (Place::SG(g), PVal::S(s)) => self.strs[g as usize] = s,
-            (Place::A(a), PVal::A(x)) => {
-                let i = self.arr_index(a, cx.ab);
-                self.arrs[i] = x;
-            }
             (Place::E { a, i, n, .. }, v) => {
                 let (ai, o) = self.elem_off(a, i, n, cx)?;
                 let arr = self.arrs[ai].as_deref_mut().unwrap();
                 match v {
                     PVal::S(s) => arr.strs()[o] = s,
                     PVal::N(x) => arr.set(o, x),
-                    PVal::A(_) => return Err(13),
+                }
+            }
+            (Place::R(r, _), v) => {
+                let t = self.ref_in(cx, r)?;
+                match v {
+                    PVal::S(s) => *self.ref_str(t)? = s,
+                    PVal::N(x) => self.ref_st(t, x)?,
                 }
             }
             _ => return Err(13),
         }
         Ok(())
+    }
+
+    // ------------------------------------------------------------ reference parameters
+
+    /// What a [`Slot::R`] parameter bound to place `p` (of the frame `cx`) refers to.
+    fn reference(&mut self, p: Place, cx: Ctx) -> Result<RefT, i32> {
+        Ok(match p {
+            Place::N(r, _) => RefT::N(cx.nb + r as usize),
+            Place::NG(g, _) => RefT::N(g as usize),
+            Place::S(r) => RefT::S(cx.sb + r as usize),
+            Place::SG(g) => RefT::S(g as usize),
+            Place::E { a, i, n, .. } => {
+                let (ai, o) = self.elem_off(a, i, n, cx)?;
+                RefT::E(ai, o)
+            }
+            // a reference passed on refers to the same storage
+            Place::R(r, _) => self.ref_in(cx, r)?,
+            Place::A(_) => return Err(13),
+        })
+    }
+
+    /// Target of reference register `r` of frame `cx`.
+    #[inline]
+    fn ref_in(&self, cx: Ctx, r: R) -> Result<RefT, i32> {
+        self.ref_of(self.nums[cx.nb + r as usize])
+    }
+
+    /// The target of reference value `v` (see [`REF_TABLE`]). Only the loader's
+    /// reference parameters are read like this; the value is checked all the same.
+    #[inline]
+    fn ref_of(&self, v: u64) -> Result<RefT, i32> {
+        if v & REF_TABLE != 0 {
+            self.refs.get((v & !REF_TABLE) as usize).copied().ok_or(5)
+        } else if (v as usize) < self.nums.len() {
+            Ok(RefT::N(v as usize))
+        } else {
+            Err(5)
+        }
+    }
+
+    #[inline]
+    fn ref_ld(&self, t: RefT) -> Result<u64, i32> {
+        match t {
+            RefT::N(i) => Ok(self.nums[i]),
+            RefT::E(a, o) => match self.arrs[a].as_deref() {
+                Some(arr) if o < arr.len() => Ok(arr.get(o)),
+                _ => Err(9), // the array was erased or made smaller meanwhile
+            },
+            RefT::S(_) => Err(13),
+        }
+    }
+
+    #[inline]
+    fn ref_st(&mut self, t: RefT, v: u64) -> Result<(), i32> {
+        match t {
+            RefT::N(i) => self.nums[i] = v,
+            RefT::E(a, o) => match self.arrs[a].as_deref_mut() {
+                Some(arr) if o < arr.len() => arr.set(o, v),
+                _ => return Err(9),
+            },
+            RefT::S(_) => return Err(13),
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn ref_str(&mut self, t: RefT) -> Result<&mut Vec<u8>, i32> {
+        match t {
+            RefT::S(i) => Ok(&mut self.strs[i]),
+            RefT::E(a, o) => self.arrs[a].as_deref_mut().and_then(|arr| arr.str_at(o)).ok_or(9),
+            RefT::N(_) => Err(13),
+        }
     }
 
     // ------------------------------------------------------------ CHAIN / COMMON
@@ -1242,61 +1460,213 @@ impl<'m, 'o> Vm<'m, 'o> {
         use crate::rt::dosx as dx;
         let p = self.m.places[pl as usize];
         let cx = self.cur_ctx();
-        let aty = match p {
-            Place::A(a) => {
-                let f = if a & G != 0 { 0 } else { cx.func as usize };
-                Some(self.m.funcs[f].arr_tys[(a & !G) as usize])
-            }
-            _ => None,
-        };
-        let v = self.place_take(p, cx)?;
+        if let Place::A(a) = p {
+            // in place: the array may be shared with a caller
+            let f = if a & G != 0 { 0 } else { cx.func as usize };
+            let ty = self.m.funcs[f].arr_tys[(a & !G) as usize];
+            let i = self.arr_index(a, cx.ab);
+            let dos = &mut self.rt.dos;
+            return if get {
+                chain_get_arr(dos, &mut self.arrs[i], ty, k)
+            } else {
+                chain_put_arr(dos, self.arrs[i].as_deref_mut(), k);
+                Ok(())
+            };
+        }
+        let v = self.place_take(p, cx, true)?;
         let dos = &mut self.rt.dos;
-        let (v, err) = match v {
+        let v = match v {
             PVal::N(bits) if get => match dx::chain_next(dos, 1) {
-                Some(b) if b.len() == k.size() as usize => (PVal::N(k.decode(&b)), None),
-                _ => (PVal::N(bits), None),
+                Some(b) if b.len() == k.size() as usize => PVal::N(k.decode(&b)),
+                _ => PVal::N(bits),
             },
             PVal::N(bits) => {
                 let mut b = Vec::new();
                 k.encode(bits, &mut b);
                 dx::chain_put(dos, 1, &b);
-                (PVal::N(bits), None)
+                PVal::N(bits)
             }
-            PVal::S(s) if get => (PVal::S(dx::chain_next(dos, 2).unwrap_or(s)), None),
+            PVal::S(s) if get => PVal::S(dx::chain_next(dos, 2).unwrap_or(s)),
             PVal::S(s) => {
                 dx::chain_put(dos, 2, &s);
-                (PVal::S(s), None)
-            }
-            PVal::A(a) if get => match chain_get_arr(dos, a, aty.unwrap_or(Ty::I32), k) {
-                Ok(x) => (PVal::A(x), None),
-                Err((x, e)) => (PVal::A(x), Some(e)),
-            },
-            PVal::A(mut a) => {
-                chain_put_arr(dos, a.as_deref_mut(), k);
-                (PVal::A(a), None)
+                PVal::S(s)
             }
         };
-        self.place_put(p, cx, v)?;
-        err.map_or(Ok(()), Err)
+        self.place_put(p, cx, v)
     }
 
     // ------------------------------------------------------------ calls
 
-    fn slot_put(&mut self, s: Slot, nb: usize, sb: usize, ab: usize, v: PVal) -> Result<(), i32> {
+    /// Passes BYREF argument `p` (of the frame `cx`) to parameter `slot` of a
+    /// callee whose window starts at `nb`/`sb`/`ab`.
+    fn bind_ref(&mut self, p: Place, slot: Slot, cx: Ctx, (nb, sb, ab): (usize, usize, usize)) -> Result<(), i32> {
+        match (p, slot) {
+            (Place::A(a), Slot::A(r)) => {
+                // shared for the call, so the array is the same under every name it has
+                let i = self.arr_index(a, cx.ab);
+                if self.arrs[i].is_none() {
+                    // never dimensioned: a placeholder the first DIM or use fills in,
+                    // for the caller as well
+                    let mut u = Arr::with_data(Vec::new(), ArrData::I16(Vec::new()));
+                    u.unset = true;
+                    self.arrs[i] = Some(ArrBox::new(u));
+                }
+                let h = self.arrs[i].as_ref().unwrap().share();
+                self.arrs[ab + r as usize] = Some(h);
+            }
+            (p, Slot::R(r)) => {
+                self.nums[nb + r as usize] = match self.reference(p, cx)? {
+                    RefT::N(i) => i as u64,
+                    t => {
+                        self.refs.push(t);
+                        (self.refs.len() - 1) as u64 | REF_TABLE
+                    }
+                };
+            }
+            // A SHARED string stays readable under its own name while the procedure
+            // runs (by an ON ERROR or event handler; a procedure that names it gets a
+            // reference): its text is copied in, not moved out. The main module's own
+            // strings are the SHARED ones (its frame is the first).
+            (Place::SG(_), Slot::S(r)) => {
+                let v = self.place_take(p, cx, false)?;
+                self.slot_put(Slot::S(r), nb, sb, v)?;
+            }
+            (Place::S(_), Slot::S(r)) if self.view == 0 => {
+                let v = self.place_take(p, cx, false)?;
+                self.slot_put(Slot::S(r), nb, sb, v)?;
+            }
+            (p, s) => {
+                let v = self.place_take(p, cx, true)?;
+                self.slot_put(s, nb, sb, v)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn slot_put(&mut self, s: Slot, nb: usize, sb: usize, v: PVal) -> Result<(), i32> {
         match (s, v) {
             (Slot::N(r), PVal::N(x)) => self.nums[nb + r as usize] = x,
             (Slot::S(r), PVal::S(x)) => self.strs[sb + r as usize] = x,
-            (Slot::A(r), PVal::A(x)) => self.arrs[ab + r as usize] = x,
             _ => return Err(13),
         }
         Ok(())
     }
 
-    fn slot_take(&mut self, s: Slot, nb: usize, sb: usize, ab: usize) -> PVal {
-        match s {
-            Slot::N(r) => PVal::N(self.nums[nb + r as usize]),
-            Slot::S(r) => PVal::S(std::mem::take(&mut self.strs[sb + r as usize])),
-            Slot::A(r) => PVal::A(self.arrs[ab + r as usize].take()),
+    /// End of the first `upto` arguments of a call (`fr` = the callee's frame, `cx`
+    /// = the caller's): BYREF copies go back to their arguments, the callee's handles
+    /// on shared arrays are given up. RET, every way of leaving a procedure other
+    /// than RET, and a call whose arguments failed all come here.
+    fn unbind_args(&mut self, fr: &Frame, cx: Ctx, upto: usize) {
+        let m = self.m;
+        let func = &m.funcs[fr.func as usize];
+        let cd = &m.calls[fr.desc as usize];
+        for (arg, &slot) in cd.args.iter().zip(&func.params).take(upto) {
+            let Arg::Ref(p) = *arg else { continue };
+            let p = m.places[p as usize];
+            let v = match slot {
+                Slot::N(r) => {
+                    let x = self.nums[fr.nb + r as usize];
+                    match p {
+                        Place::N(q, _) => self.nums[cx.nb + q as usize] = x,
+                        Place::NG(g, _) => self.nums[g as usize] = x,
+                        _ => {
+                            // the element may be gone (array erased/redimmed inside the SUB)
+                            let _ = self.place_put(p, cx, PVal::N(x));
+                        }
+                    }
+                    continue;
+                }
+                Slot::S(r) => PVal::S(std::mem::take(&mut self.strs[fr.sb + r as usize])),
+                Slot::A(r) => {
+                    if let Some(h) = self.arrs[fr.ab + r as usize].take() {
+                        h.forget();
+                    }
+                    continue;
+                }
+                Slot::R(_) => continue,
+            };
+            let _ = self.place_put(p, cx, v);
+        }
+    }
+
+    /// Gives up the handles frame `fr` has on its callers' arrays (array
+    /// parameters, see `bind_ref`); the arrays stay with their owners.
+    fn release_arrays(&mut self, fr: &Frame) {
+        for &slot in &self.m.funcs[fr.func as usize].params {
+            if let Slot::A(r) = slot
+                && let Some(h) = self.arrs.get_mut(fr.ab + r as usize).and_then(Option::take)
+            {
+                h.forget();
+            }
+        }
+    }
+
+    /// Frees the window of `fr`, the frame just removed from `frames`.
+    #[inline]
+    fn drop_window(&mut self, fr: &Frame) {
+        self.nums.truncate(fr.nb);
+        self.strs.truncate(fr.sb);
+        self.arrs.truncate(fr.ab);
+        self.refs.truncate(fr.refs);
+        self.free_owned(fr.owned);
+    }
+
+    /// ON ERROR / event handlers and `SUB _GL` run module-level code while
+    /// procedures are suspended. The BYREF copies those procedures hold
+    /// (`Slot::N` / `Slot::S`) are written to their arguments when such code
+    /// starts, and read again when it goes back into the procedures, so the
+    /// handler and the procedure see one variable, as with real references.
+    /// `byref_sync` holds, per handler running, the frame count below which the
+    /// arguments are the current values.
+    #[cold]
+    fn handler_enter(&mut self) {
+        let from = self.byref_sync.last().copied().unwrap_or(1);
+        let n = self.frames.len();
+        self.sync_frames(from, n, true);
+        self.byref_sync.push(n.max(from));
+    }
+
+    /// The handler [`Vm::handler_enter`] started goes back into the procedures.
+    #[cold]
+    fn handler_leave(&mut self) {
+        if let Some(to) = self.byref_sync.pop() {
+            let from = self.byref_sync.last().copied().unwrap_or(1);
+            self.sync_frames(from, to, false);
+        }
+    }
+
+    /// Writes the BYREF copies of frames `lo..hi` to their arguments (`out`,
+    /// innermost first) or reads them back (outermost first).
+    fn sync_frames(&mut self, lo: usize, hi: usize, out: bool) {
+        let m = self.m;
+        let hi = hi.min(self.frames.len());
+        for k in lo..hi {
+            let fr = self.frames[if out { hi - 1 - (k - lo) } else { k }];
+            let cx = self.ctx(fr.caller_view);
+            let func = &m.funcs[fr.func as usize];
+            for (arg, &slot) in m.calls[fr.desc as usize].args.iter().zip(&func.params) {
+                let Arg::Ref(p) = *arg else { continue };
+                let p = m.places[p as usize];
+                match (slot, out) {
+                    (Slot::N(r), true) => {
+                        let _ = self.place_put(p, cx, PVal::N(self.nums[fr.nb + r as usize]));
+                    }
+                    (Slot::S(r), true) => {
+                        let _ = self.place_put(p, cx, PVal::S(self.strs[fr.sb + r as usize].clone()));
+                    }
+                    (Slot::N(r), false) => {
+                        if let Ok(PVal::N(x)) = self.place_take(p, cx, false) {
+                            self.nums[fr.nb + r as usize] = x;
+                        }
+                    }
+                    (Slot::S(r), false) => {
+                        if let Ok(PVal::S(s)) = self.place_take(p, cx, false) {
+                            self.strs[fr.sb + r as usize] = s;
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -1312,32 +1682,38 @@ impl<'m, 'o> Vm<'m, 'o> {
         self.nums.extend_from_slice(&func.num_init);
         self.strs.resize_with(sb + func.n_str as usize, Vec::new);
         self.arrs.resize_with(ab + func.n_arr() as usize, || None);
+        let fr = Frame { owned: self.owned.len(), func: f, ret, nb, sb, ab, caller_view: self.view, desc, refs: self.refs.len() };
         for (k, (arg, &slot)) in cd.args.iter().zip(&func.params).enumerate() {
-            let v = match *arg {
-                Arg::N(r) => PVal::N(self.nums[cx.nb + r as usize]),
-                Arg::S(r) => PVal::S(self.sget_in(cx.sb, r).to_vec()),
-                Arg::SMove(r) => PVal::S(std::mem::take(&mut self.strs[cx.sb + r as usize])),
-                Arg::Ref(p) => match self.place_take(m.places[p as usize], cx) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        // the call does not happen: what earlier BYREF arguments moved
-                        // out of the caller (strings, whole arrays) goes back
-                        for (a, &s) in cd.args.iter().zip(&func.params).take(k) {
-                            if let Arg::Ref(q) = *a {
-                                let v = self.slot_take(s, nb, sb, ab);
-                                let _ = self.place_put(m.places[q as usize], cx, v);
-                            }
-                        }
-                        self.nums.truncate(nb);
-                        self.strs.truncate(sb);
-                        self.arrs.truncate(ab);
-                        return Err(e);
-                    }
-                },
+            let r = match *arg {
+                // the common cases first: a number, a numeric variable passed BYREF
+                Arg::N(r) if let Slot::N(d) = slot => {
+                    self.nums[nb + d as usize] = self.nums[cx.nb + r as usize];
+                    continue;
+                }
+                Arg::Ref(p) if let (Place::N(q, _), Slot::N(d)) = (m.places[p as usize], slot) => {
+                    self.nums[nb + d as usize] = self.nums[cx.nb + q as usize];
+                    continue;
+                }
+                Arg::N(r) => self.slot_put(slot, nb, sb, PVal::N(self.nums[cx.nb + r as usize])),
+                Arg::S(r) => {
+                    let v = PVal::S(self.sget_in(cx.sb, r).to_vec());
+                    self.slot_put(slot, nb, sb, v)
+                }
+                Arg::SMove(r) => {
+                    let v = PVal::S(std::mem::take(&mut self.strs[cx.sb + r as usize]));
+                    self.slot_put(slot, nb, sb, v)
+                }
+                Arg::Ref(p) => self.bind_ref(m.places[p as usize], slot, cx, (nb, sb, ab)),
             };
-            self.slot_put(slot, nb, sb, ab, v)?;
+            if let Err(e) = r {
+                // the call does not happen: what earlier arguments moved out of the
+                // caller goes back
+                self.unbind_args(&fr, cx, k);
+                self.drop_window(&fr);
+                return Err(e);
+            }
         }
-        self.frames.push(Frame { owned: self.owned.len(), func: f, ret, nb, sb, ab, caller_view: self.view, desc });
+        self.frames.push(fr);
         self.set_view(self.frames.len() - 1);
         if let Some(p) = self.profile.as_deref_mut() {
             p.calls[f as usize] += 1;
@@ -1387,20 +1763,11 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Slot::S(r) => self.strs[cx.sb + d as usize] = std::mem::take(&mut self.strs[fr.sb + r as usize]),
-                Slot::A(_) => {}
+                Slot::A(_) | Slot::R(_) => {}
             }
         }
-        for (arg, &slot) in cd.args.iter().zip(&func.params) {
-            if let Arg::Ref(p) = *arg {
-                let v = self.slot_take(slot, fr.nb, fr.sb, fr.ab);
-                // the element may be gone (array erased/redimmed inside the SUB)
-                let _ = self.place_put(m.places[p as usize], cx, v);
-            }
-        }
-        self.nums.truncate(fr.nb);
-        self.strs.truncate(fr.sb);
-        self.arrs.truncate(fr.ab);
-        self.free_owned(fr.owned);
+        self.unbind_args(&fr, cx, usize::MAX);
+        self.drop_window(&fr);
         if self.mem.has_retired() {
             self.prune_retired();
         }
@@ -1519,20 +1886,22 @@ impl<'m, 'o> Vm<'m, 'o> {
         let _ = std::fs::write(&p.path, out);
     }
 
-    fn line_of(&self, pc: u32) -> u32 {
+    /// Index in `stmts` of the statement containing `pc`: none before the
+    /// function's first `line` (the previous statement is another function's).
+    fn stmt_of(&self, pc: u32) -> Option<usize> {
         let s = &self.m.stmts;
-        let i = s.partition_point(|x| x.0 <= pc);
-        if i == 0 {
-            0
-        } else {
-            s[i - 1].1
-        }
+        let i = s.partition_point(|x| x.0 <= pc).checked_sub(1)?;
+        (s[i].0 >= self.func_of(pc).entry).then_some(i)
+    }
+
+    fn line_of(&self, pc: u32) -> u32 {
+        self.stmt_of(pc).map_or(0, |i| self.m.stmts[i].1)
     }
 
     /// (line in the file, index into `srcfiles`) when the statement at `pc` is inside an
     /// `$INCLUDE` file
     fn incl_of(&self, pc: u32) -> Option<(u32, u32)> {
-        let i = self.m.stmts.partition_point(|x| x.0 <= pc).checked_sub(1)? as u32;
+        let i = self.stmt_of(pc)? as u32;
         let k = self.m.incls.binary_search_by_key(&i, |x| x.0).ok()?;
         let (_, line, file) = self.m.incls[k];
         Some((line, file))
@@ -1575,8 +1944,9 @@ impl<'m, 'o> Vm<'m, 'o> {
             };
             let d = qb_runtime::error::error_dialog(code as u32, self.line_of(at), incl, file, cmd0.as_bytes());
             let nd = qb_runtime::error::no_dialog_now();
+            // what the program printed comes before the report on stderr
+            self.rt.flush();
             if nd || d.critical {
-                self.rt.flush();
                 let line = qb_runtime::error::report_line(&d.title, &d.body);
                 use std::io::Write;
                 let mut e = std::io::stderr().lock();
@@ -1594,6 +1964,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 self.inclerr = self.incl_of(at);
                 self.erl = self.last_line;
                 self.in_handler = Some((at, self.view));
+                self.handler_enter();
                 self.set_view(0);
                 Ok(h)
             }
@@ -1606,26 +1977,55 @@ impl<'m, 'o> Vm<'m, 'o> {
         Ok(match k {
             ResumeK::Same => {
                 self.set_view(view);
+                self.handler_leave();
                 self.stmt_start(at)
             }
             ResumeK::Next => {
                 self.set_view(view);
+                self.handler_leave();
                 self.next_stmt(at)
             }
             ResumeK::Label => {
                 // RESUME label unwinds to the main module
-                while self.frames.len() > 1 {
-                    let fr = self.frames.pop().unwrap();
-                    self.free_owned(fr.owned);
-                    self.nums.truncate(fr.nb);
-                    self.strs.truncate(fr.sb);
-                    self.arrs.truncate(fr.ab);
-                }
-                self.gosub.retain(|g| g.depth <= 1);
-                self.set_view(0);
+                self.unwind_to_main();
                 t
             }
         })
+    }
+
+    /// Leaves every procedure: the main module's frame is the only one left and the
+    /// current one (RESUME label, RETURN label out of an event handler).
+    fn unwind_to_main(&mut self) {
+        // the copies of procedures under a handler first take what the handler
+        // left in their arguments; then, innermost first, each procedure's copies
+        // go back to its caller as at RET, so nothing the procedures changed is lost
+        if let Some(&top) = self.byref_sync.last() {
+            self.sync_frames(1, top, false);
+        }
+        self.byref_sync.clear();
+        while self.frames.len() > 1 {
+            let fr = self.frames.pop().unwrap();
+            let cx = self.ctx(fr.caller_view);
+            self.unbind_args(&fr, cx, usize::MAX);
+            self.drop_window(&fr);
+        }
+        self.gosub.retain(|g| g.depth <= 1);
+        self.set_view(0);
+    }
+
+    /// The handler of event `ev` (`Gs::ev`) has returned: its trap may fire again.
+    fn handler_done(ev: i32) {
+        if ev >= 0 {
+            qb_runtime::events::timers().done(ev);
+        } else if ev == PLAY_EV {
+            qb_runtime::events::play_trap().done();
+        } else if ev == STRIG_EV {
+            // SAFETY: program thread only.
+            unsafe { qb_runtime::events::onstrig_inprogress = 0 };
+        } else if ev <= KEY_EV {
+            // SAFETY: program thread only.
+            unsafe { qb_runtime::events::onkey_inprogress = 0 };
+        }
     }
 
     /// One display frame drawn by `SUB _GL` (the GL display callback): the
@@ -1644,6 +2044,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             return pc;
         }
         self.gl.busy = true;
+        self.handler_enter();
         let depth = self.frames.len();
         let saved = self.stop_depth;
         let r = match self.call(f, desc, pc) {
@@ -1657,6 +2058,7 @@ impl<'m, 'o> Vm<'m, 'o> {
         };
         qb_runtime::gl::end_frame();
         self.gl.busy = false;
+        self.handler_leave();
         if qb_runtime::gl::offscreen() && !self.rt.display.screen_hide {
             // no visible OpenGL window (headless): the frame read back goes to the window layer
             if let Some((px, w, h)) = qb_runtime::gl::read_pixels() {
@@ -1733,6 +2135,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                 drop(t);
                 // the handler runs as a GOSUB at module level and returns here
                 self.gosub.push(Gs { ev: i, ret: pc, depth: self.frames.len(), view: self.view });
+                self.handler_enter();
                 if self.view != 0 {
                     self.set_view(0);
                 }
@@ -1745,6 +2148,7 @@ impl<'m, 'o> Vm<'m, 'o> {
             let due = qb_runtime::events::play_trap().poll(notes);
             if let Some(id) = due {
                 self.gosub.push(Gs { ev: PLAY_EV, ret: pc, depth: self.frames.len(), view: self.view });
+                self.handler_enter();
                 if self.view != 0 {
                     self.set_view(0);
                 }
@@ -1764,6 +2168,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         // SAFETY: as above.
                         unsafe { qb_runtime::events::onkey_inprogress = 1 };
                         self.gosub.push(Gs { ev: KEY_EV - i as i32, ret: pc, depth: self.frames.len(), view: self.view });
+                        self.handler_enter();
                         if self.view != 0 {
                             self.set_view(0);
                         }
@@ -1787,6 +2192,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         // SAFETY: as above.
                         unsafe { qb_runtime::events::onstrig_inprogress = 1 };
                         self.gosub.push(Gs { ev: STRIG_EV, ret: pc, depth: self.frames.len(), view: self.view });
+                        self.handler_enter();
                         if self.view != 0 {
                             self.set_view(0);
                         }
@@ -2133,22 +2539,19 @@ impl<'m, 'o> Vm<'m, 'o> {
                     }
                 }
                 Ins::Gosub { t } => {
+                    // a routine left by GOTO never returns: QBasic runs out of stack too
+                    if self.gosub.len() >= MAX_GOSUB_DEPTH {
+                        fail!(7);
+                    }
                     self.gosub.push(Gs { ev: -1, ret: pc, depth: self.frames.len(), view: self.view });
                     pc = t;
                 }
                 Ins::Return => match self.gosub.last().copied() {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
-                        if g.ev >= 0 {
-                            qb_runtime::events::timers().done(g.ev);
-                        } else if g.ev == PLAY_EV {
-                            qb_runtime::events::play_trap().done();
-                        } else if g.ev == STRIG_EV {
-                            // SAFETY: program thread only.
-                            unsafe { qb_runtime::events::onstrig_inprogress = 0 };
-                        } else if g.ev <= KEY_EV {
-                            // SAFETY: program thread only.
-                            unsafe { qb_runtime::events::onkey_inprogress = 0 };
+                        if g.ev != -1 {
+                            Self::handler_done(g.ev);
+                            self.handler_leave();
                         }
                         pc = g.ret;
                         if g.view != self.view {
@@ -2211,7 +2614,15 @@ impl<'m, 'o> Vm<'m, 'o> {
                     Some(g) if g.depth == self.frames.len() => {
                         self.gosub.pop();
                         pc = t;
-                        if g.view != self.view {
+                        if g.ev != -1 {
+                            // An event handler runs at module level and `t` is a label
+                            // there: the trap is armed again as after RETURN, and the
+                            // procedures the event interrupted are left, as RESUME label
+                            // leaves them. Their register window does not fit main's code.
+                            Self::handler_done(g.ev);
+                            self.unwind_to_main();
+                            reload!();
+                        } else if g.view != self.view {
                             self.set_view(g.view);
                             reload!();
                         }
@@ -2241,7 +2652,9 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::XCmp { c, d, a, b: y } => {
                     use std::cmp::Ordering::*;
                     let o = self.xget(a).compare(self.xget(y));
-                    let v = match (c, o) {
+                    // (only a float branch carries a negated comparison)
+                    let (c, negated) = c.plain();
+                    let v = negated ^ match (c, o) {
                         (Cmp::Ne, None) => true,
                         (_, None) => false,
                         (Cmp::Eq, Some(o)) => o == Equal,
@@ -2250,6 +2663,7 @@ impl<'m, 'o> Vm<'m, 'o> {
                         (Cmp::Le, Some(o)) => o != Greater,
                         (Cmp::Gt, Some(o)) => o == Greater,
                         (Cmp::Ge, Some(o)) => o != Less,
+                        (Cmp::Nlt | Cmp::Nle | Cmp::Ngt | Cmp::Nge, _) => unreachable!("plain() returns one of the six"),
                     };
                     set!(d, b(v))
                 }
@@ -2369,13 +2783,19 @@ impl<'m, 'o> Vm<'m, 'o> {
                     };
                     let mut new = tryc!(Arr::new(ty, keep.clone().unwrap_or_default()));
                     new.fixed = keep.is_some();
-                    self.arrs[i] = Some(Box::new(new));
+                    // in place: the array may be shared with a caller (passed as a())
+                    put_arr(&mut self.arrs[i], new);
                 }
                 Ins::Chain { pl, get, k } => tryc!(self.chain(pl, get, k)),
                 Ins::ReadN { d, typ } => {
                     use qb_runtime::numparse as np_;
                     let Some(item) = m.data.get(self.data_ptr) else { fail!(4) };
-                    let t: Vec<u8> = item.iter().copied().filter(|c| *c != b' ').collect();
+                    // (spaces are dropped; most items have none, and need no copy)
+                    let t: std::borrow::Cow<[u8]> = if item.contains(&b' ') {
+                        item.iter().copied().filter(|c| *c != b' ').collect::<Vec<u8>>().into()
+                    } else {
+                        item.as_slice().into()
+                    };
                     let mut off = 0;
                     let float = typ & np_::ISFLOAT != 0;
                     // an empty item reads as 0
@@ -2413,7 +2833,16 @@ impl<'m, 'o> Vm<'m, 'o> {
                         }
                     }
                 }
-                Ins::OnError { t } => self.on_error = (t != NONE).then_some(t),
+                Ins::OnError { t } => {
+                    self.on_error = (t != NONE).then_some(t);
+                    // ON ERROR GOTO 0 inside a handler: the error it is handling is
+                    // not handled after all and stops the program (QBasic's way to
+                    // pass on an error the handler does not know).
+                    if t == NONE && let Some((at, view)) = self.in_handler.take() {
+                        self.set_view(view);
+                        return Err((self.err, at));
+                    }
+                }
                 Ins::XCall { c } => {
                     let xc = &m.xcalls[c as usize];
                     let xf = &m.xfns[xc.f as usize];
@@ -2556,8 +2985,8 @@ impl<'m, 'o> Vm<'m, 'o> {
                     if k < 1 {
                         fail!(5);
                     }
-                    let c = self.sget(s).get(k as usize - 1).map_or(-1, |c| i64::from(*c));
-                    seti!(d, c)
+                    let Some(&c) = self.sget(s).get(k as usize - 1) else { fail!(5) };
+                    seti!(d, i64::from(c))
                 }
                 Ins::Left { d, s, n } => {
                     // qbs_left: the count is clamped
@@ -2629,14 +3058,23 @@ impl<'m, 'o> Vm<'m, 'o> {
                 Ins::LdES { d, a, i, n } => {
                     let cx = self.cur_ctx();
                     let (ai, o) = tryc!(self.elem_off(a, i, n, cx));
-                    let v = self.arrs[ai].as_deref_mut().unwrap().strs()[o].clone();
-                    *self.sdst(d) = v;
+                    // into the register's own buffer (no allocation per load)
+                    let src: *const [u8] = self.arrs[ai].as_deref_mut().unwrap().strs()[o].as_slice();
+                    let dst = self.sdst(d);
+                    dst.clear();
+                    // SAFETY: an array element and a register are distinct buffers
+                    dst.extend_from_slice(unsafe { &*src });
                 }
                 Ins::StES { a, i, n, s } => {
-                    let v = self.sget(s).to_vec();
                     let cx = self.cur_ctx();
                     let (ai, o) = tryc!(self.elem_off(a, i, n, cx));
-                    self.arrs[ai].as_deref_mut().unwrap().strs()[o] = v;
+                    // into the element's own buffer (no allocation per store)
+                    let src: *const [u8] = self.sget(s);
+                    let dst = &mut self.arrs[ai].as_deref_mut().unwrap().strs()[o];
+                    dst.clear();
+                    // SAFETY: the source is a register, a constant or memory, never an array
+                    // element; finding the array (or creating it) moves none of those buffers
+                    dst.extend_from_slice(unsafe { &*src });
                 }
                 Ins::Bound { d, a, dim, upper } => {
                     let k = ri!(dim);
@@ -2656,6 +3094,36 @@ impl<'m, 'o> Vm<'m, 'o> {
                     dst.extend_from_slice(item);
                 }
                 Ins::Restore { i } => self.data_ptr = i as usize,
+                Ins::LdR { d, r } => {
+                    let t = tryc!(self.ref_in(self.cur_ctx(), r));
+                    let v = tryc!(self.ref_ld(t));
+                    set!(d, v)
+                }
+                Ins::StR { r, s } => {
+                    let v = r!(s);
+                    let t = tryc!(self.ref_in(self.cur_ctx(), r));
+                    tryc!(self.ref_st(t, v));
+                }
+                Ins::LdRS { d, r } => {
+                    let t = tryc!(self.ref_in(self.cur_ctx(), r));
+                    let src: *const [u8] = tryc!(self.ref_str(t)).as_slice();
+                    let dst = self.sdst(d);
+                    dst.clear();
+                    // SAFETY: the target is a caller's string or element, never one of
+                    // this frame's registers; nothing is reallocated in between
+                    dst.extend_from_slice(unsafe { &*src });
+                }
+                Ins::StRS { r, s } => {
+                    let t = tryc!(self.ref_in(self.cur_ctx(), r));
+                    let src: *const [u8] = self.sget(s);
+                    let dst = tryc!(self.ref_str(t));
+                    if !std::ptr::eq(dst.as_ptr(), src as *const u8) {
+                        dst.clear();
+                        // SAFETY: distinct buffers (checked above); finding the target
+                        // moves no string
+                        dst.extend_from_slice(unsafe { &*src });
+                    }
+                }
             }
         }
     }
@@ -2665,14 +3133,17 @@ impl<'m, 'o> Vm<'m, 'o> {
 /// window `frame` (which is the VM's current one).
 #[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_vm_op"))]
 extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
-    // SAFETY: `user` was set by `jit_enter` to the VM that entered native code.
-    let ctx = unsafe { &mut *ctx };
-    let vm = unsafe { &mut *(ctx.user as *mut Vm<'static, 'static>) };
+    // The VM runs code that may enter native code again and reuse the context:
+    // the context is only reached through `ctx` before and after that, no
+    // reference to it is held across. SAFETY: `user` was set by `jit_enter` to
+    // the VM that entered native code (which holds no reference to itself meanwhile).
+    let vm = unsafe { &mut *((*ctx).user as *mut Vm<'static, 'static>) };
     debug_assert_eq!(frame, vm.np());
     let r = if matches!(vm.m.code[pc as usize], Ins::Call { .. }) {
         // Hand the native GOSUB entries of this frame to the VM around the call.
         let (depth, view) = (vm.frames.len(), vm.view);
-        let base = ctx.gosub_base;
+        // SAFETY: as above
+        let base = unsafe { (*ctx).gosub_base };
         let js = vm.jit.as_deref_mut().expect("native code runs with a JIT state");
         let mine = js.gosub_take(base);
         let below = mine.first() == Some(&crate::jit::GOSUB_VM_BELOW);
@@ -2698,6 +3169,8 @@ extern "C" fn vm_op(ctx: *mut qb_jit::Ctx, frame: *mut u64, pc: u32) -> u32 {
         vm.step_one(pc)
     };
     // Nested native code may have reused the context; the register file may have moved.
+    // SAFETY: as above; nothing else uses the context now
+    let ctx = unsafe { &mut *ctx };
     ctx.user = vm as *mut Vm<'static, 'static> as *mut core::ffi::c_void;
     ctx.frame = vm.np();
     ctx.globals = vm.nums.as_mut_ptr();
@@ -2785,10 +3258,10 @@ extern "C" fn jit_ste1g(ctx: *mut qb_jit::Ctx, a: i64, i: i64, v: i64) {
     jit_ste1(ctx, a | G as i64, i, v)
 }
 
-// Native code reads `Option<Box<Arr>>` table entries as plain pointers
+// Native code reads `Option<ArrBox>` table entries as plain pointers
 // (no native code in a browser build, where pointers are 4 bytes).
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::size_of::<Option<Box<Arr>>>() == 8);
+const _: () = assert!(core::mem::size_of::<Option<ArrBox>>() == 8);
 
 /// The VM entry points native code calls (same addresses for JIT and AOT code
 /// of this executable).
@@ -2802,6 +3275,8 @@ pub(crate) fn vm_hosts() -> crate::jit::Hosts {
         lde1g: jit_lde1g as *const () as usize,
         cmps: jit_cmps as *const () as usize,
         ste1g: jit_ste1g as *const () as usize,
+        ldr: jit_ldr as *const () as usize,
+        str_: jit_str as *const () as usize,
         view_off: core::mem::offset_of!(Arr, view) as u32,
     }
 }
@@ -2816,6 +3291,29 @@ extern "C" fn jit_cmps(ctx: *mut qb_jit::Ctx, c: i64, a: i64, b: i64) -> i64 {
         -1
     } else {
         0
+    }
+}
+
+/// Native `ld.ref`: what reference `t` (a reference register's value, see
+/// [`REF_TABLE`]) refers to, as register bits.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_7"))]
+extern "C" fn jit_ldr(ctx: *mut qb_jit::Ctx, t: i64) -> i64 {
+    let (ctx, vm) = host_vm(ctx);
+    match vm.ref_of(t as u64).and_then(|x| vm.ref_ld(x)) {
+        Ok(v) => v as i64,
+        Err(c) => {
+            ctx.err = c;
+            0
+        }
+    }
+}
+
+/// Native `st.ref`.
+#[cfg_attr(feature = "native-syms", unsafe(export_name = "qb_host_8"))]
+extern "C" fn jit_str(ctx: *mut qb_jit::Ctx, t: i64, v: i64) {
+    let (ctx, vm) = host_vm(ctx);
+    if let Err(c) = vm.ref_of(t as u64).and_then(|x| vm.ref_st(x, v as u64)) {
+        ctx.err = c;
     }
 }
 

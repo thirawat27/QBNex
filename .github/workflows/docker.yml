@@ -1,0 +1,56 @@
+name: Docker
+
+# Builds the image of docker/Dockerfile whenever the Docker files change, so a
+# broken image is not found by the first user who tries the README's Docker guide.
+on:
+  push:
+    branches: ["main", "rust-port"]
+    paths:
+      - "docker/**"
+      - ".dockerignore"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    branches: ["main", "rust-port"]
+    paths:
+      - "docker/**"
+      - ".dockerignore"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Build the Docker image
+    runs-on: ubuntu-latest
+    # A cold build compiles qb-exec and self-hosts the compiler (about 15 minutes).
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Compose file is valid
+        run: docker compose -f docker/docker-compose.yml config --quiet
+
+      - name: Build docker/Dockerfile
+        run: docker build -f docker/Dockerfile -t qbnex:ci .
+
+      - name: qb runs in the image
+        run: docker run --rm qbnex:ci qb --version
+
+      # As in the README: compile into the mounted folder as the image's user (uid 1000).
+      - name: Compile and run a program in the image
+        run: |
+          work="$RUNNER_TEMP/docker-hello"
+          mkdir -p "$work"
+          printf '$CONSOLE:ONLY\nPRINT "hello from docker"\n' > "$work/hello.bas"
+          chmod 777 "$work"
+          docker run --rm -v "$work":/project qbnex:ci qb hello.bas -o hello
+          docker run --rm -v "$work":/project qbnex:ci ./hello | tee "$work/out.txt"
+          grep -q "hello from docker" "$work/out.txt"

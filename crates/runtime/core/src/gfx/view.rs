@@ -105,6 +105,11 @@ pub unsafe fn view(
     passed: i32,
 ) -> i32 {
     const ERR: i32 = ERR_ILLEGAL_FUNCTION_CALL;
+    // A graphics statement: a text page has no pixels (its cells are two bytes each,
+    // and the fill and border would be written as 32-bit pixels past its end).
+    if im.text != 0 {
+        return ERR;
+    }
     let w = i32::from(im.width);
     let h = i32::from(im.height);
     if passed & 1 != 0 {

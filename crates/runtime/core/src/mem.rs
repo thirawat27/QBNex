@@ -58,8 +58,6 @@ struct Pool {
     freed: Vec<*mut MemLock>,
     /// `_MEMNEW` allocations keyed by the address of their lock.
     memnew: BTreeMap<usize, RawBuf>,
-    /// Zeroed buffer returned by `_MEMGET` when a check fails.
-    fail_buffer: Vec<u8>,
 }
 
 // SAFETY: the raw pointers only refer to locks owned by `blocks`.
@@ -72,7 +70,6 @@ static POOL: Mutex<Pool> = Mutex::new(Pool {
     base: null_mut(),
     freed: Vec::new(),
     memnew: BTreeMap::new(),
-    fail_buffer: Vec::new(),
 });
 
 fn pool() -> std::sync::MutexGuard<'static, Pool> {
@@ -287,7 +284,9 @@ pub unsafe fn memexists(blk: &MemBlock) -> i32 {
 }
 
 /// `_MEMGET` address check. Returns the address to read from and an error
-/// code; on error the address is a zeroed scratch buffer of `bytes` bytes.
+/// code; on error the address is null. (Legacy returned a zeroed scratch
+/// buffer here, which the next failed check reused and freed while the first
+/// caller could still hold it; the runner never reads after an error.)
 ///
 /// # Safety
 /// `blk.lock_offset` must be null or point to a readable `MemLock`.
@@ -299,17 +298,7 @@ pub unsafe fn memget(blk: &MemBlock, off: isize, bytes: isize) -> (*mut c_void, 
         Some(_) if !in_range(blk, off, bytes) => 300,
         Some(_) => return (off as *mut c_void, 0),
     };
-    // A 0-byte read reports the check error alone; legacy raised critical error 518
-    // because its empty scratch vector had no data().
-    let n = bytes.max(0) as usize;
-    let mut p = pool();
-    p.fail_buffer.clear();
-    // An absurd size reports "out of memory" instead of aborting.
-    if p.fail_buffer.try_reserve_exact(n).is_err() {
-        return (null_mut(), 518);
-    }
-    p.fail_buffer.resize(n, 0);
-    (p.fail_buffer.as_mut_ptr().cast(), err)
+    (null_mut(), err)
 }
 
 /// `_MEMFILL` without checks: repeats the `sbytes`-byte pattern at `src` over
@@ -450,17 +439,17 @@ mod tests {
         assert!(bytes_of(&b).iter().all(|&x| x == 7));
     }
 
-    /// A failed `_MEMGET` check with an absurd byte count reports
-    /// "out of memory" (518) instead of aborting while allocating the scratch.
+    /// A failed `_MEMGET` check allocates nothing, whatever the byte count:
+    /// the error with a null address.
     #[test]
     fn failed_memget_with_huge_size_does_not_abort() {
         let (b, _) = memnew(4, false);
         unsafe {
             let (p, err) = memget(&b, b.offset + 100, isize::MAX / 2);
             assert!(p.is_null());
-            assert_eq!(err, 518);
+            assert_eq!(err, 300);
             let (p, err) = memget(&b, b.offset + 100, 8);
-            assert!(!p.is_null());
+            assert!(p.is_null());
             assert_eq!(err, 300);
         }
     }
@@ -531,14 +520,13 @@ mod tests {
             assert_eq!(memget(&b, b.offset + 4, 4), ((b.offset + 4) as *mut c_void, 0));
             let (p, e) = memget(&b, b.offset + 5, 4);
             assert_eq!(e, 300);
-            assert_ne!(p as isize, b.offset);
-            assert_eq!(std::slice::from_raw_parts(p as *const u8, 4), &[0; 4]);
+            assert!(p.is_null());
             assert_eq!(memget(&b, b.offset - 1, 1).1, 300);
             assert_eq!(memget(&MemBlock::default(), 0, 1).1, 309);
-            // A 0-byte read gives the check error, not 518
+            // A 0-byte read gives the check error
             let (p, e) = memget(&b, b.offset + 9, 0);
             assert_eq!(e, 300);
-            assert!(!p.is_null());
+            assert!(p.is_null());
             let mut stale = b;
             stale.lock_id += 1;
             assert_eq!(memget(&stale, b.offset, 1).1, 308);

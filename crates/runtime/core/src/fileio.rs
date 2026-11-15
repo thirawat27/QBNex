@@ -20,6 +20,7 @@ fn map(e: i32) -> i32 {
         -3 => 54,
         -4 => 5,
         -7 => 70,
+        -13 => 61,
         _ => 75,
     }
 }
@@ -255,22 +256,21 @@ pub fn file_print(i: i32, data: &[u8], extraspace: bool, tab: bool, newline: boo
 /// `file_input_chr`: next byte, -1 at end of file (or CHR$(26), which is
 /// then re-read by the next call), -2 after raising an error.
 fn input_chr(t: &mut Table, i: i32, cx: &mut Ctx) -> i32 {
-    let mut c = [0u8; 1];
-    let e = t.read(i, -1, &mut c);
-    if e != 0 {
-        if e == -10 {
-            return -1;
+    let c = match t.read_byte(i) {
+        Ok(c) => c,
+        Err(-10) => return -1,
+        Err(e) => {
+            cx.raise(map(e));
+            return -2;
         }
-        cx.raise(map(e));
-        return -2;
-    }
-    if c[0] == 26 {
+    };
+    if c == 26 {
         let p = t.getpos(i);
         t.setpos(i, p - 1);
         t.f(i).eof_passed = 1;
         return -1;
     }
-    i32::from(c[0])
+    i32::from(c)
 }
 
 fn back_one(t: &mut Table, i: i32) {
@@ -594,45 +594,46 @@ fn input_string(t: &mut Table, fileno: i32, cx: &mut Ctx) -> Option<Vec<u8>> {
     }
 }
 
-/// `INPUT$(n, #fileno)` for INPUT and BINARY files. Fills `out` (n bytes)
-/// and returns the length of the result.
-fn input_n(t: &mut Table, n: i32, fileno: i32, out: &mut [u8], cx: &mut Ctx) -> usize {
-    let len = out.len();
+/// `INPUT$(n, #fileno)` for INPUT and BINARY files: at most `n` bytes. The
+/// file number and mode are checked first, and the result grows with what the
+/// file gives (`INPUT$(2000000000, #1)` of a short file does not allocate 2 GB).
+fn input_n(t: &mut Table, n: i32, fileno: i32, cx: &mut Ctx) -> Vec<u8> {
+    let mut out = Vec::new();
     let i = match index(t, fileno) {
         Ok(x) => x,
         Err(e) => {
             cx.raise(e);
-            return len;
+            return out;
         }
     };
     let ty = t.f(i).type_;
     if !(2..=3).contains(&ty) {
         cx.raise(62);
-        return len;
+        return out;
     }
     if t.f(i).read == 0 {
         cx.raise(75);
-        return len;
+        return out;
     }
     if n < 0 {
         cx.raise(52);
-        return len;
+        return out;
     }
     if n == 0 {
-        return len;
+        return out;
     }
     if ty == 3 {
-        for slot in out.iter_mut().take(n as usize) {
+        for _ in 0..n {
             let c = input_chr(t, i, cx);
             if c == -1 {
                 cx.raise(62);
-                return len;
+                return out;
             }
             if c == -2 {
                 cx.raise(75);
-                return len;
+                return out;
             }
-            *slot = c as u8;
+            out.push(c as u8);
             if t.f(i).eof_passed != 1 {
                 input_chr(t, i, cx);
                 if t.f(i).eof_passed != 1 {
@@ -640,14 +641,26 @@ fn input_n(t: &mut Table, n: i32, fileno: i32, out: &mut [u8], cx: &mut Ctx) -> 
                 }
             }
         }
-        return len;
+        return out;
     }
-    let e = t.read(i, -1, &mut out[..n as usize]);
-    if e != 0 && e != -10 {
-        cx.raise(map(e));
-        return 0;
+    // BINARY: blocks of at most 1 MB until `n` bytes or the end of the file (the
+    // same position, result and EOF state as one read of `n` bytes)
+    const BLOCK: usize = 1 << 20;
+    let n = n as usize;
+    while out.len() < n {
+        let got = out.len();
+        out.resize(got + (n - got).min(BLOCK), 0);
+        let e = t.read(i, -1, &mut out[got..]);
+        out.truncate(got + t.read_bytes() as usize);
+        if e != 0 && e != -10 {
+            cx.raise(map(e));
+            return Vec::new();
+        }
+        if e == -10 {
+            break;
+        }
     }
-    t.read_bytes() as usize
+    out
 }
 
 /// `LINE INPUT #` on an INPUT file.
@@ -1166,31 +1179,6 @@ pub fn lock(i: i32, mut start: i64, mut end: i64, mut passed: i32, lock: bool) -
     }
 }
 
-// --- LSET / RSET ----------------------------------------------------------------
-
-/// LSET: left-aligns `src` in `dest`, padding with spaces.
-pub fn lset(dest: &mut [u8], src: &[u8]) {
-    if src.len() >= dest.len() {
-        let n = dest.len();
-        dest.copy_from_slice(&src[..n]);
-        return;
-    }
-    dest[..src.len()].copy_from_slice(src);
-    dest[src.len()..].fill(b' ');
-}
-
-/// RSET: right-aligns `src` in `dest`, padding with spaces.
-pub fn rset(dest: &mut [u8], src: &[u8]) {
-    if src.len() >= dest.len() {
-        let n = dest.len();
-        dest.copy_from_slice(&src[..n]);
-        return;
-    }
-    let pad = dest.len() - src.len();
-    dest[pad..].copy_from_slice(src);
-    dest[..pad].fill(b' ');
-}
-
 // --- entry points of the runner: each also returns the error to raise (0 = none) ---
 
 /// INPUT # of a number into `n`: (QB64's result code 0-3, error).
@@ -1214,11 +1202,11 @@ pub fn qb_file_line_input(fileno: i32) -> (Option<Vec<u8>>, i32) {
     (v, cx.err)
 }
 
-/// `INPUT$(n, #fileno)` into `buf`: (bytes read, error).
-pub fn qb_file_input_n(n: i32, fileno: i32, buf: &mut [u8]) -> (usize, i32) {
+/// `INPUT$(n, #fileno)`: (the bytes read, error).
+pub fn qb_file_input_n(n: i32, fileno: i32) -> (Vec<u8>, i32) {
     let mut cx = Ctx::default();
-    let len = input_n(&mut table(), n, fileno, buf, &mut cx);
-    (len, cx.err)
+    let v = input_n(&mut table(), n, fileno, &mut cx);
+    (v, cx.err)
 }
 
 /// GET of `data.len()` bytes.
@@ -1368,11 +1356,13 @@ mod tests {
         assert_eq!(eof(f), (-1, 0));
         get_bytes(&mut table(), f, 0, &mut buf, true, &mut cx);
         assert_eq!(cx.err, 63);
-        let mut out = [0u8; 4];
         seek_set(f, 3);
         let mut cx = Ctx::default();
-        assert_eq!(input_n(&mut table(), 4, f, &mut out, &mut cx), 3);
-        assert_eq!(&out[..3], b"XYZ");
+        assert_eq!(input_n(&mut table(), 4, f, &mut cx), b"XYZ");
+        // a count far beyond the file allocates only what the file gives
+        seek_set(f, 3);
+        assert_eq!(qb_file_input_n(i32::MAX, f), (b"XYZ".to_vec(), 0));
+        assert_eq!(qb_file_input_n(i32::MAX, f + 5), (Vec::new(), 52));
         close(f);
         assert_eq!(lof(f), (0, 52));
         assert_eq!(eof(f), (0, 52));
@@ -1441,14 +1431,7 @@ mod tests {
     }
 
     #[test]
-    fn lset_rset_and_lock_args() {
-        let mut b = *b"xxxxx";
-        lset(&mut b, b"ab");
-        assert_eq!(&b, b"ab   ");
-        rset(&mut b, b"ab");
-        assert_eq!(&b, b"   ab");
-        rset(&mut b, b"abcdefg");
-        assert_eq!(&b, b"abcde");
+    fn lock_args() {
         let d = tmp("lock");
         let f = fresh(160);
         assert_eq!(open(&p(&d, "k.bin"), 2, 0, 0, f, 0, false), 0);

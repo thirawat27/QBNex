@@ -6,7 +6,7 @@
 //! (a voice queue in the engine, a buffer in tests), exactly where legacy
 //! called `SendWaveformToQueue`.
 
-use crate::synth::{apply_wave_spec, frames_for, generate_waveform, CRand, Voice, VOICE_COUNT};
+use crate::synth::{apply_wave_spec, frames_for, generate_waveform, CRand, NoteGen, Voice, VOICE_COUNT};
 
 /// QBasic "Illegal function call".
 pub const ERR_ILLEGAL: i32 = 5;
@@ -16,7 +16,17 @@ pub trait Sink {
     fn send(&mut self, voice: usize, frames: &[i16]);
     /// Where the notes of the next `send` end, in frames from its start.
     fn note_ends(&mut self, _voice: usize, _ends: &[usize]) {}
+    /// A long note, generated as it plays; by default all at once.
+    fn send_note(&mut self, voice: usize, mut note: NoteGen) {
+        let mut frames = vec![0i16; note.remaining() * 2];
+        note.fill(&mut frames);
+        self.send(voice, &frames);
+    }
 }
+
+/// Notes longer than this many seconds are generated while they play
+/// ([`Sink::send_note`]) instead of before.
+pub const LONG_NOTE_SECONDS: usize = 2;
 
 /// Reads a numeric variable referenced by `"=" + VARPTR$(v)` in a PLAY string.
 /// `ty` is the VARPTR$ type byte and `offset` the offset inside DBLOCK.
@@ -117,41 +127,26 @@ fn le<const N: usize>(b: &[u8]) -> [u8; N] {
     a
 }
 
-fn f80_to_f64(b: &[u8]) -> f64 {
-    let mant = u64::from_le_bytes(le::<8>(b));
-    let se = u16::from_le_bytes([b[8], b[9]]);
-    let sign = if se & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exp = (se & 0x7fff) as i32;
-    if exp == 0 && mant == 0 {
-        return sign * 0.0;
-    }
-    // x87 loads unnormals, pseudo-infinities and pseudo-NaNs (integer bit
-    // clear with a non-zero exponent) as the invalid-operation NaN.
-    if exp != 0 && mant >> 63 == 0 {
-        return f64::NAN;
-    }
-    if exp == 0x7fff {
-        return if mant << 1 == 0 { sign * f64::INFINITY } else { f64::NAN };
-    }
-    // value = mant * 2^(exp - 16383 - 63); denormals use exponent 1
-    let e = exp.max(1) - 16383 - 63;
-    let hi = (mant >> 11) as f64 * 2f64.powi(11);
-    let lo = (mant & 0x7ff) as f64;
-    sign * (hi + lo) * pow2(e)
+/// Bytes of the variable a VARPTR$ type byte names (what [`varptr_value`]
+/// reads); None for a type byte that names no numeric type (`_BIT` types,
+/// bit 64, count as 8 bytes).
+pub fn varptr_size(ty: u8) -> Option<usize> {
+    Some(match ty {
+        1 | 129 => 1,
+        2 | 130 => 2,
+        4 | 20 | 148 => 4,
+        6 => 10,
+        5 | 133 | 8 => 8,
+        _ if ty & 64 != 0 => 8,
+        _ => return None,
+    })
 }
 
-fn pow2(e: i32) -> f64 {
-    if e < -1000 {
-        2f64.powi(-1000) * 2f64.powi(e + 1000)
-    } else if e > 1000 {
-        2f64.powi(1000) * 2f64.powi(e - 1000)
-    } else {
-        2f64.powi(e)
-    }
-}
-
-/// Value of a VARPTR$ reference; None = illegal type (error 5).
-fn varptr_value(ty: u8, raw: &[u8; 10]) -> Option<f64> {
+/// Value of the variable a `"=" + VARPTR$(v)` reference in PLAY or DRAW
+/// names: `ty` is the VARPTR$ type byte, `raw` the variable's bytes (at
+/// least [`varptr_size`] of them, the rest zero). None = illegal type
+/// (error 5). `_BIT` types (bit 64 set) are PLAY's only.
+pub fn varptr_value(ty: u8, raw: &[u8; 10]) -> Option<f64> {
     let i64v = i64::from_le_bytes(le::<8>(raw));
     Some(match ty {
         1 => raw[0] as i8 as f64,
@@ -159,8 +154,9 @@ fn varptr_value(ty: u8, raw: &[u8; 10]) -> Option<f64> {
         2 => i16::from_le_bytes([raw[0], raw[1]]) as f64,
         130 => u16::from_le_bytes([raw[0], raw[1]]) as f64,
         4 => f32::from_le_bytes(le::<4>(raw)) as f64,
-        5 | 133 => i64v as f64,
-        6 => f80_to_f64(&raw[..]),
+        5 => i64v as f64,
+        133 => i64v as u64 as f64,
+        6 => qb_float80::F80::from_bytes(*raw).to_f64(),
         8 => f64::from_le_bytes(le::<8>(raw)),
         20 => i32::from_le_bytes(le::<4>(raw)) as f64,
         148 => u32::from_le_bytes(le::<4>(raw)) as f64,
@@ -273,8 +269,15 @@ impl Synth {
             return Ok(());
         }
         let v = self.playback_voice();
-        let data = generate_waveform(&mut self.voices[v], &mut self.rng, rate, frequency, ticks / 18.2, 1.0);
-        sink.send(v, &data);
+        let length = ticks / 18.2;
+        if frames_for(rate, length) > LONG_NOTE_SECONDS * rate as usize {
+            let note = NoteGen::new(self.voices[v].clone(), self.rng.clone(), rate, frequency, length, 1.0);
+            note.advance_past(&mut self.voices[v], &mut self.rng);
+            sink.send_note(v, note);
+        } else {
+            let data = generate_waveform(&mut self.voices[v], &mut self.rng, rate, frequency, length, 1.0);
+            sink.send(v, &data);
+        }
         Ok(())
     }
 
@@ -291,6 +294,8 @@ impl Synth {
         let s = &expanded[..];
         let voice = self.playback_voice();
         let st = &mut self.play;
+        // dots counted by a statement that ended in an error do not belong to this one
+        st.fullstops = 0;
 
         let mut pos = 0usize;
         let mut bytes_left = s.len() as i64;
@@ -389,7 +394,8 @@ impl Synth {
                     return Err(ERR_ILLEGAL);
                 }
                 number_entered = 0;
-                if number > 100 {
+                // (a value from a variable can be negative)
+                if !(0..=100).contains(&number) {
                     return Err(ERR_ILLEGAL);
                 }
                 st.volume = number as f64;
@@ -498,7 +504,7 @@ impl Synth {
                     return Err(ERR_ILLEGAL);
                 }
                 number_entered = 0;
-                if number > 84 {
+                if !(0..=84).contains(&number) {
                     return Err(ERR_ILLEGAL);
                 }
                 // N1 is O0 C (as C of octave 0 is n = -33 above), N84 is O6 B; N0 is a rest
@@ -964,11 +970,11 @@ mod tests {
     #[test]
     fn f80_conversion() {
         let one = [0, 0, 0, 0, 0, 0, 0, 0x80, 0xff, 0x3f];
-        assert_eq!(f80_to_f64(&one), 1.0);
         assert_eq!(varptr_value(6, &one), Some(1.0));
         assert_eq!(varptr_value(3, &one), None);
         let unnormal = [0, 0, 0, 0, 0, 0, 0, 0x40, 0xff, 0x3f];
-        assert!(f80_to_f64(&unnormal).is_nan());
+        assert!(varptr_value(6, &unnormal).unwrap().is_nan());
+        assert_eq!(varptr_value(133, &[0xff; 10]), Some(u64::MAX as f64));
         // _BIT * 4 signed: 0b1111 -> -1
         let mut r = [0u8; 10];
         r[0] = 0x0f;

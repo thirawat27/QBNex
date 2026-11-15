@@ -163,6 +163,68 @@ fn qir_payload(exe: &[u8]) -> Option<&[u8]> {
     exe.get((n - 16).checked_sub(len)?..n - 16)
 }
 
+/// Environment variable that hands the debuggee the token it must send first.
+pub const TOKEN_VAR: &str = "QBNEX_DAP_TOKEN";
+
+/// 128 random bits from the operating system, as hex.
+fn new_token() -> Result<String, String> {
+    let mut b = [0u8; 16];
+    getrandom::fill(&mut b).map_err(|e| format!("no random numbers for the debuggee token: {e}"))?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+/// Reads one line of at most `max` bytes before `until`, byte by byte
+/// (nothing after the newline is consumed: the connection then carries the
+/// protocol). A peer that sends a byte now and then cannot stretch the wait.
+fn read_first_line(c: &mut TcpStream, max: usize, until: Instant) -> Option<String> {
+    let mut line = Vec::new();
+    let mut b = [0u8; 1];
+    loop {
+        let left = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())?;
+        c.set_read_timeout(Some(left)).ok()?;
+        match c.read(&mut b) {
+            Ok(1) if b[0] == b'\n' => return String::from_utf8(line).ok(),
+            Ok(1) if line.len() < max => line.push(b[0]),
+            _ => return None,
+        }
+    }
+}
+
+fn same_token(a: &str, b: &str) -> bool {
+    // compared in full, so the time taken does not tell how much was right
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
+}
+
+/// Waits for the debuggee on `listener`. The loopback port can be reached by
+/// any local process (other users on the machine too): a connection counts
+/// only once its first line is `token`. Others are closed and the wait goes
+/// on, each one given `handshake` to send its line, all within `deadline`.
+/// `check` is called while waiting (the debuggee may have exited).
+fn accept_debuggee(listener: &TcpListener, token: &str, deadline: Duration, handshake: Duration, mut check: impl FnMut() -> Result<(), String>) -> Result<TcpStream, String> {
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let started = Instant::now();
+    loop {
+        match listener.accept() {
+            Ok((mut c, _)) => {
+                c.set_nonblocking(false).map_err(|e| e.to_string())?;
+                let left = deadline.saturating_sub(started.elapsed()).max(Duration::from_millis(10));
+                if read_first_line(&mut c, token.len() + 2, Instant::now() + handshake.min(left)).is_some_and(|l| same_token(l.trim_end_matches('\r'), token)) {
+                    c.set_read_timeout(None).map_err(|e| e.to_string())?;
+                    return Ok(c);
+                }
+                // not the debuggee: drop it and keep listening
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => return Err(format!("debuggee did not connect: {e}")),
+        }
+        if started.elapsed() >= deadline {
+            return Err("debuggee did not connect in time".to_string());
+        }
+        check()?;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn same_file(a: &Path, b: &Path) -> bool {
     let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let (a, b) = (canon(a), canon(b));
@@ -506,8 +568,16 @@ impl Adapter {
         let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let token = new_token()?;
         let mut cmd = Command::new(exe);
-        cmd.arg("--debuggee").arg(&l.qir_file).arg(port.to_string());
+        // (the token goes in the environment, not on the command line, which other
+        // users can read; the debuggee removes it before the program runs)
+        cmd.arg("--debuggee").arg(&l.qir_file).arg(port.to_string()).env(TOKEN_VAR, &token);
+        // DECLARE DYNAMIC LIBRARY "name" looks in the program's folder, not next to qb-dap
+        // (made absolute here: the debuggee runs in the launch's cwd)
+        if let Some(dir) = l.program.parent().filter(|d| !d.as_os_str().is_empty()).and_then(|d| std::path::absolute(d).ok()) {
+            cmd.arg("--program-dir").arg(dir);
+        }
         if l.no_debug {
             cmd.arg("--no-debug");
         }
@@ -545,21 +615,11 @@ impl Adapter {
         let child = Arc::new(Mutex::new(child));
         self.child = Some(child.clone());
         if !l.no_debug {
-            listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-            let started = Instant::now();
-            let conn = loop {
-                match listener.accept() {
-                    Ok((c, _)) => break c,
-                    Err(_) if started.elapsed() < Duration::from_secs(20) => {
-                        if let Ok(Some(_)) = child.lock().unwrap().try_wait() {
-                            return Err("the debuggee exited before connecting".to_string());
-                        }
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(e) => return Err(format!("debuggee did not connect: {e}")),
-                }
-            };
-            conn.set_nonblocking(false).map_err(|e| e.to_string())?;
+            let conn = accept_debuggee(&listener, &token, Duration::from_secs(20), Duration::from_secs(5), || match child.lock().unwrap().try_wait() {
+                Ok(Some(_)) => Err("the debuggee exited before connecting".to_string()),
+                _ => Ok(()),
+            })?;
+            drop(listener);
             let reader = conn.try_clone().map_err(|e| e.to_string())?;
             self.conn = Some(conn);
             let bps = self.breakpoints.clone();
@@ -600,6 +660,51 @@ impl Adapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn connect(port: u16, first: Option<&str>) -> TcpStream {
+        let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        if let Some(f) = first {
+            c.write_all(f.as_bytes()).unwrap();
+        }
+        c
+    }
+
+    #[test]
+    fn only_the_connection_with_the_token_is_the_debuggee() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let token = new_token().unwrap();
+        assert_eq!(token.len(), 32);
+        assert_ne!(token, new_token().unwrap());
+        let good = token.clone();
+        let t = std::thread::spawn(move || {
+            // wrong token, a line too long, silence: all turned away first
+            let _a = connect(port, Some("0123456789abcdef0123456789abcdef\n"));
+            let _b = connect(port, Some(&"x".repeat(200)));
+            let _c = connect(port, None);
+            std::thread::sleep(Duration::from_millis(400));
+            let mut d = connect(port, Some(&format!("{good}\n")));
+            d.write_all(b"after\n").unwrap();
+            d
+        });
+        let conn = accept_debuggee(&listener, &token, Duration::from_secs(20), Duration::from_millis(300), || Ok(())).expect("debuggee accepted");
+        let _d = t.join().unwrap();
+        // the line after the token is left for the protocol
+        let mut r = BufReader::new(conn);
+        let mut line = String::new();
+        r.read_line(&mut line).unwrap();
+        assert_eq!(line, "after\n");
+    }
+
+    #[test]
+    fn waiting_for_the_debuggee_ends() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let e = accept_debuggee(&listener, "t", Duration::from_millis(200), Duration::from_millis(50), || Ok(())).unwrap_err();
+        assert!(e.contains("in time"), "{e}");
+        let e = accept_debuggee(&listener, "t", Duration::from_secs(20), Duration::from_millis(50), || Err("exited".into())).unwrap_err();
+        assert_eq!(e, "exited");
+        assert!(same_token("abc", "abc") && !same_token("abc", "abd") && !same_token("abc", "ab"));
+    }
 
     #[test]
     fn work_dirs_are_fresh_and_distinct() {

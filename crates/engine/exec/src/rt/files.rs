@@ -302,9 +302,7 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
             if n < 0 || n > i64::from(i32::MAX) {
                 return Some(e(5));
             }
-            let mut buf = vec![0u8; n as usize];
-            let (len, err) = fio::qb_file_input_n(n as i32, i(1) as i32, &mut buf);
-            buf.truncate(len);
+            let (buf, err) = fio::qb_file_input_n(n as i32, i(1) as i32);
             Some(chk(err).map(|_| Some(V::S(buf))))
         }
         "GETARR" | "PUTARR" => {

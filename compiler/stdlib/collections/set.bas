@@ -29,7 +29,7 @@ SUB HashSet_Remove (setRef AS QBNex_HashSet, item AS STRING)
 END SUB
 
 FUNCTION HashSet_Count& (setRef AS QBNex_HashSet)
-    HashSet_Count = setRef.Items.Count
+    HashSet_Count = List_Count&(setRef.Items)
 END FUNCTION
 
 FUNCTION HashSet_ToString$ (setRef AS QBNex_HashSet, separator AS STRING)

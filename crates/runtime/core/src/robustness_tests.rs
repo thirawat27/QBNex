@@ -187,17 +187,10 @@ fn data_and_input_parsing_never_panics() {
 }
 
 #[test]
-fn radix_and_number_formatting_never_panic() {
+fn number_formatting_never_panic() {
     let mut rng = Rng(99);
     let mut failures = Vec::new();
     for k in 0..100_000 {
-        let v = rng.next() as i64 >> rng.below(64);
-        let bits = [-1, 0, 8, 16, 32, 64, 65, 1000, i32::MIN, i32::MAX][rng.below(10)];
-        check(&format!("radix {k} {v} {bits}"), &mut failures, || {
-            let _ = crate::mathfn::bin(v, bits);
-            let _ = crate::mathfn::oct(v, bits);
-            let _ = crate::mathfn::hex(v, bits);
-        });
         let d = f64::from_bits(rng.next());
         let f = f32::from_bits(rng.next() as u32);
         check(&format!("str {k} {d:e} {f:e}"), &mut failures, || {

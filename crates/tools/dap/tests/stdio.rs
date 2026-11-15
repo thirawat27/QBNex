@@ -364,3 +364,26 @@ fn real_compiler_end_to_end() {
     assert!(out.contains(" 6  5"), "{out}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The debuggee token is not visible to the program (ENVIRON$), and a launch
+/// with it still connects.
+#[test]
+fn debuggee_token_is_hidden_from_the_program() {
+    let dir = std::env::temp_dir().join(format!("qb_dap_token_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let hex = |s: &str| s.bytes().map(|b| format!("{b:02X}")).collect::<String>();
+    let qir = format!(
+        "QIR 1\nmeta console only\nfunc main\nline 1\nconst.str %0 x{}\nrt %1 ENVIRON$ %0\nconst.i32 %2 0\nconst.str %3 x{}\nrt PRINTS %2 %3\nrt PRINTS %2 %1\nconst.str %4 x{}\nrt PRINTS %2 %4\nrt PRINTNL %2\nline 2\nsystem\nend\nendfunc\n",
+        hex(qb_dap::adapter::TOKEN_VAR),
+        hex("<"),
+        hex(">")
+    );
+    let (bas, qir_file) = (dir.join("token.bas"), dir.join("token.qir"));
+    std::fs::write(&bas, "PRINT \"<\"; ENVIRON$(\"QBNEX_DAP_TOKEN\"); \">\"\n").unwrap();
+    std::fs::write(&qir_file, qir).unwrap();
+    let mut d = Dap::start();
+    d.launch(&bas, &qir_file, json!({}), &[]);
+    let out = d.finish();
+    assert!(out.contains("<>"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

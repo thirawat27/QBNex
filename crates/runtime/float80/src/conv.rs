@@ -3,6 +3,20 @@
 use crate::arith::{fin_norm, round_pack, shift_mode, zero};
 use crate::{Class, Round, F80, INT_BIT, QUIET_BIT};
 
+/// The C/C++ cast of a `double` to a 32-bit `int` (`cvttsd2si`): truncates
+/// toward zero; NaN and out-of-range values give `INT_MIN` (`0x80000000`),
+/// where Rust's `as` saturates. Used by the graphics and sound code, which
+/// legacy compiled with such casts.
+#[must_use]
+#[inline]
+pub fn cvttsd2si(v: f64) -> i32 {
+    if v.is_nan() || v >= 2147483648.0 || v <= -2147483649.0 {
+        i32::MIN
+    } else {
+        v as i32
+    }
+}
+
 impl F80 {
     /// `fild` (exact).
     #[must_use]

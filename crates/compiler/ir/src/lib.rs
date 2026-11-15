@@ -310,9 +310,24 @@ pub struct Func {
     pub body: Vec<Inst>,
 }
 
+/// A DECLARE LIBRARY function: `meta extfn <name> <lib> <ret> <arg types...>`.
+/// `lib` is `-` (the default system libraries), `opengl`, or the library spec as
+/// `x` + hex bytes. Parsed once by [`parse`]; the `meta` line stays in
+/// [`Module::meta`] too (the printer writes it back from there).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtFn {
+    pub name: String,
+    pub lib: String,
+    /// None = `void` (a SUB)
+    pub ret: Option<Ty>,
+    pub args: Vec<Ty>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Module {
     pub meta: Vec<(String, String)>,
+    /// the `meta extfn` lines, parsed
+    pub extfns: Vec<ExtFn>,
     pub types: Vec<UdtDef>,
     pub globals: Vec<VarDecl>,
     /// DATA items in program order (raw text of each item, unquoted).
@@ -333,6 +348,10 @@ impl Module {
     }
     pub fn meta(&self, key: &str) -> Option<&str> {
         self.meta.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    }
+    /// The DECLARE LIBRARY function `name`.
+    pub fn extfn(&self, name: &str) -> Option<&ExtFn> {
+        self.extfns.iter().find(|f| f.name == name)
     }
 }
 

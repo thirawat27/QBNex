@@ -49,6 +49,9 @@ DIM SHARED opexarray_recompileAttempts, opexarray_desiredState
 REDIM SHARED EveryCaseSet(100), SelectCaseCounter AS _UNSIGNED LONG
 REDIM SHARED SelectCaseHasCaseBlock(100)
 DIM SHARED ExecLevel(255), ExecCounter AS INTEGER
+'Line of each open $IF, for "$IF without $END IF". $IF nesting is kept apart from the
+'block stack (controltype) so a block may be opened inside a $IF and closed after it.
+DIM SHARED ExecRef(255) AS LONG
 'Error message set by helper FUNCTIONs in the modules (they cannot set a$, which is not SHARED)
 DIM SHARED ModuleError$
 DIM SHARED UserDefineName(0 TO 1000) AS STRING
@@ -155,18 +158,10 @@ DIM SHARED separgslayout(OptMax + 1) AS STRING
 DIM SHARED separgs_local(OptMax + 1) AS STRING
 DIM SHARED separgslayout_local(OptMax + 1) AS STRING
 DIM SHARED E
-DIM SHARED ResolveStaticFunctions
-DIM SHARED ResolveStaticFunction_File(1 TO 100) AS STRING
-DIM SHARED ResolveStaticFunction_Name(1 TO 100) AS STRING
-DIM SHARED ResolveStaticFunction_Method(1 TO 100) AS LONG
 DIM SHARED Error_Happened AS LONG
 DIM SHARED Error_Message AS STRING
 DIM SHARED FrontendErrorHandled AS _BYTE
 DIM SHARED LastFrontendErrorKey AS STRING
-
-BATCHFILE_EXTENSION = ".bat"
-IF os$ = "LNX" THEN BATCHFILE_EXTENSION = ".sh"
-IF MacOSX THEN BATCHFILE_EXTENSION = ".command"
 
 
 extension$ = ".exe"
@@ -179,8 +174,8 @@ IF os$ = "LNX" THEN pathsep$ = "/"
 ON ERROR GOTO qberror_test
 
 'build files go to target/qb-temp[N] (one folder per running compiler, locked through #26)
-IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp\": tmpdir2$ = "..\\qb-temp\\"
-IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp/": tmpdir2$ = "../qb-temp/"
+IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp\"
+IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp/"
 
 IF NOT _DIREXISTS("target") THEN MKDIR "target"
 IF NOT _DIREXISTS(tmpdir$) THEN MKDIR tmpdir$
@@ -222,7 +217,7 @@ FUNCTION getpid& ()
         END IF
         CLOSE #fh
         IF i > 1 THEN
-            tmpdir$ = "./target/qb-temp" + str2$(i) + "/": tmpdir2$ = "../qb-temp" + str2$(i) + "/"
+            tmpdir$ = "./target/qb-temp" + str2$(i) + "/"
             IF _DIREXISTS(tmpdir$) = 0 THEN
                 MKDIR tmpdir$
             END IF
@@ -237,8 +232,8 @@ FUNCTION getpid& ()
             i = i + 1
             IF i = 1000 THEN PRINT "Unable to create a build folder in 'target'": END 1
             IF _DIREXISTS(".\target\qb-temp" + str2$(i)) = 0 THEN MKDIR ".\target\qb-temp" + str2$(i)
-            IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp" + str2$(i) + "\": tmpdir2$ = "..\\qb-temp" + str2$(i) + "\\"
-            IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp" + str2$(i) + "/": tmpdir2$ = "../qb-temp" + str2$(i) + "/"
+            IF os$ = "WIN" THEN tmpdir$ = ".\target\qb-temp" + str2$(i) + "\"
+            IF os$ = "LNX" THEN tmpdir$ = "./target/qb-temp" + str2$(i) + "/"
             E = 0
             OPEN tmpdir$ + "temp.bin" FOR OUTPUT LOCK WRITE AS #26
         LOOP
@@ -252,7 +247,7 @@ FUNCTION getpid& ()
     ON ERROR GOTO qberror
 
     'Appended to generated temp-file names when multiple compiler instances run.
-    IF tempfolderindex <> 1 THEN tempfolderindexstr$ = "(" + str2$(tempfolderindex) + ")": tempfolderindexstr2$ = str2$(tempfolderindex)
+    IF tempfolderindex <> 1 THEN tempfolderindexstr$ = "(" + str2$(tempfolderindex) + ")"
 
 
     DIM SHARED compilerdebuginfo
@@ -1842,7 +1837,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                                                         'override type?
                                                         IF typeoverride THEN
-                                                            'range check required here (noted in todo)
+                                                            IF ConstOverflow%(t, typeoverride, constval##, constval&&, constval~&&) THEN a$ = "Overflow": GOTO errmes
+                                                            ConstToUnsigned t, typeoverride, constval##, constval&&, constval~&&
                                                             t = typeoverride
                                                         END IF
 
@@ -2252,6 +2248,8 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                 'Include Manager #1
 
 
+                                'a $INCLUDE in a $IF branch that is not compiled includes nothing
+                                IF ExecLevel(ExecCounter) THEN addmetainclude$ = ""
                                 IF LEN(addmetainclude$) THEN
                                     a$ = addmetainclude$: addmetainclude$ = "" 'read/clear message
 
@@ -2274,6 +2272,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
 
                                     firstTryMethod = 1
                                     IF includingFromRoot <> 0 AND inclevel = 0 THEN firstTryMethod = 2
+                                    'the paths as written first; then the same paths with another letter case
+                                    '(ResolvePathCase$), so an exact match anywhere wins
+                                    incCaseTry = 0
+                                    incopenretry1:
                                     FOR try = firstTryMethod TO 2 'if including file from root, do not attempt including from relative location
                                         IF try = 1 THEN
                                             IF inclevel = 0 THEN
@@ -2284,6 +2286,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                             f$ = p$ + a$
                                         END IF
                                         IF try = 2 THEN f$ = a$
+                                        IF incCaseTry THEN f$ = ResolvePathCase$(f$)
                                         IF _FILEEXISTS(f$) THEN
                                             qberrorhappened = -3
                                             'We're using the faster LINE INPUT, which requires a BINARY open.
@@ -2294,6 +2297,7 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                                         END IF
                                         qberrorhappened = 0
                                     NEXT
+                                    IF qberrorhappened <> -3 AND incCaseTry = 0 THEN incCaseTry = -1: GOTO incopenretry1
                                     IF qberrorhappened <> -3 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
                                     qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
                                     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
@@ -3149,6 +3153,10 @@ DIM SHARED incRangeFrom AS LONG, incRangeTo AS LONG, incRangeSkip AS LONG, incRa
                 IF libpath$ = "./" OR libpath$ = ".\" THEN
                     libpath$ = ""
                     libpath$ = path.source$
+                    'a source file named without a folder is in the folder the compiler
+                    'started in; a bare name would be searched for in the program's and
+                    'the system folders at run time, not in the source folder
+                    IF LEN(libpath$) = 0 THEN libpath$ = currentdir$
                     IF LEN(libpath$) > 0 AND RIGHT$(libpath$, 1) <> pathsep$ THEN libpath$ = libpath$ + pathsep$
                 END IF
 
@@ -3772,7 +3780,7 @@ IF n >= 1 THEN
         IF closedmain = 0 THEN closemain
 
         'check for open controls (copy #2)
-        IF controllevel <> 0 AND controltype(controllevel) <> 6 THEN 'It's OK for subs to be inside $IF blocks
+        IF controllevel <> 0 THEN
         a$ = "Unidentified open control block"
         SELECT CASE controltype(controllevel)
         CASE 1: a$ = "IF without END IF"
@@ -4056,23 +4064,6 @@ dimstatic = staticsf
 
 declibjmp4:
 
-IF declaringlibrary THEN
-
-    IF customtypelibrary THEN
-        'if no header exists to make the external function available, the function definition must be found
-        IF sfheader = 0 AND sfdeclare <> 0 THEN
-            RegisterResolveStaticFunction libname$, aliasname$, 1
-        END IF 'sfheader=0
-
-    END IF
-
-    IF sfdeclare = 1 AND customtypelibrary = 0 AND dynamiclibrary = 0 AND indirectlibrary = 0 THEN
-        RegisterResolveStaticFunction libname$, aliasname$, 2
-    END IF
-
-
-END IF 'declaring library
-
 GOTO finishednonexec
 END IF
 END IF
@@ -4086,9 +4077,11 @@ IF n = 2 THEN
         IF sf THEN
 
             IF LEN(subfunc) = 0 THEN a$ = "END " + secondelement$ + " without " + secondelement$: GOTO errmes
+            'END SUB must close a SUB and END FUNCTION a FUNCTION (as in QBasic)
+            IF (sf = 2) <> (LEFT$(subfunc, 4) = "SUB_") THEN a$ = "END " + secondelement$ + " without " + secondelement$: GOTO errmes
 
             'check for open controls (copy #3)
-            IF controllevel <> 0 AND controltype(controllevel) <> 6 AND controltype(controllevel) <> 32 THEN 'It's OK for subs to be inside $IF blocks
+            IF controllevel <> 0 AND controltype(controllevel) <> 32 THEN
             a$ = "Unidentified open control block"
             SELECT CASE controltype(controllevel)
             CASE 1: a$ = "IF without END IF"
@@ -4919,7 +4912,7 @@ IF n >= 1 THEN
             END IF
         END IF
 
-        IF controltype(controllevel) <> 6 AND (controltype(controllevel) < 10 OR controltype(controllevel) > 17) THEN a$ = "CASE without SELECT CASE": GOTO errmes
+        IF controltype(controllevel) < 10 OR controltype(controllevel) > 17 THEN a$ = "CASE without SELECT CASE": GOTO errmes
         IF n = 1 THEN a$ = "Expected CASE expression": GOTO errmes
         SelectCaseHasCaseBlock(SelectCaseCounter) = -1
         IrPendCase$ = getelements$(ca$, 2, n): IrPendEvery = EveryCaseSet(SelectCaseCounter): IrPendElse = (secondelement$ = "C-EL"): IrPendLevel = controllevel: IrPendCaseOn = -1 'emitted at finishedline: the CASE values may create implicit variables
@@ -6214,6 +6207,7 @@ IF n = 2 THEN
         IF sf THEN
 
             IF LEN(subfunc) = 0 THEN a$ = "EXIT " + secondelement$ + " must be used within a " + secondelement$: GOTO errmes
+            IF (sf = 2) <> (LEFT$(subfunc, 4) = "SUB_") THEN a$ = "EXIT " + secondelement$ + " must be used within a " + secondelement$: GOTO errmes
 
             IrE "jmp ~EXIT"
             IF LEFT$(subfunc, 4) = "SUB_" THEN secondelement$ = SCase$("Sub") ELSE secondelement$ = SCase$("Function")
@@ -9096,6 +9090,8 @@ IF layoutdone = 0 THEN layoutok = 0 'invalidate layout if not handled
 IF continuelinefrom = 0 THEN 'note: manager #2 requires this condition
 
 'Include Manager #2 '***
+'a $INCLUDE in a $IF branch that is not compiled includes nothing
+IF ExecLevel(ExecCounter) THEN addmetainclude$ = ""
 IF LEN(addmetainclude$) THEN
 
     IF inclevel = 0 THEN
@@ -9126,6 +9122,9 @@ IF LEN(addmetainclude$) THEN
 
     firstTryMethod = 1
     IF includingFromRoot <> 0 AND inclevel = 0 THEN firstTryMethod = 2
+    'the paths as written first; then the same paths with another letter case (ResolvePathCase$)
+    incCaseTry = 0
+    incopenretry2:
     FOR try = firstTryMethod TO 2 'if including file from root, do not attempt including from relative location
         IF try = 1 THEN
             IF inclevel = 0 THEN
@@ -9136,6 +9135,7 @@ IF LEN(addmetainclude$) THEN
             f$ = p$ + a$
         END IF
         IF try = 2 THEN f$ = a$
+        IF incCaseTry THEN f$ = ResolvePathCase$(f$)
         IF _FILEEXISTS(f$) THEN
             qberrorhappened = -2 '***
             OPEN f$ FOR BINARY AS #fh
@@ -9144,6 +9144,7 @@ IF LEN(addmetainclude$) THEN
         END IF
         qberrorhappened = 0
     NEXT
+    IF qberrorhappened <> -2 AND incCaseTry = 0 THEN incCaseTry = -1: GOTO incopenretry2
     IF qberrorhappened <> -2 THEN qberrorhappened = 0: a$ = "File " + a$ + " not found": GOTO errmes
     qberrorhappened = 0 'opened: a later internal error must not RESUME into this loop
     inclevel = inclevel + 1: incname$(inclevel) = f$: inclinenumber(inclevel) = 0
@@ -9249,13 +9250,13 @@ IF controllevel THEN
     CASE 2: a$ = "FOR without NEXT"
     CASE 3, 4: a$ = "DO without LOOP"
     CASE 5: a$ = "WHILE without WEND"
-    CASE 6: a$ = "$IF without $END IF"
     CASE 10 TO 19: a$ = "SELECT CASE without END SELECT"
     CASE 32: a$ = "SUB/FUNCTION without END SUB/FUNCTION"
     END SELECT
     linenumber = controlref(controllevel)
     GOTO errmes
 END IF
+IF ExecCounter > 0 THEN linenumber = ExecRef(ExecCounter): a$ = "$IF without $END IF": GOTO errmes
 
 IF ideindentsubs = 0 THEN
     IF LEN(subfunc) THEN a$ = "SUB/FUNCTION without END SUB/FUNCTION": GOTO errmes
@@ -10018,10 +10019,6 @@ IF recompile THEN
         str2u64$ = LTRIM$(RTRIM$(STR$(v~&&)))
     END FUNCTION
 
-    FUNCTION str2i64$ (v&&)
-        str2i64$ = LTRIM$(RTRIM$(STR$(v&&)))
-    END FUNCTION
-
 
     SUB xfileprint (a$, ca$, n)
         u$ = str2$(uniquenumber)
@@ -10679,33 +10676,11 @@ SUB Give_Error (a$)
     Error_Message = a$
 END SUB
 
-FUNCTION VRGBS~& (text$, DefaultColor AS _UNSIGNED LONG)
-    'Value of RGB String = VRGBS without a ton of typing
-    'A function to get the RGB value back from a string such as _RGB32(255,255,255)
-    'text$ is the string that we send to check for a value
-    'DefaultColor is the value we send back if the string isn't in the proper format
-
-    VRGBS~& = DefaultColor 'A return the default value if we can't parse the string properly
-    IF UCASE$(LEFT$(text$, 4)) = "_RGB" THEN
-        rpos = INSTR(text$, "(")
-        gpos = INSTR(rpos, text$, ",")
-        bpos = INSTR(gpos + 1, text$, ",")
-        IF rpos <> 0 AND bpos <> 0 AND gpos <> 0 THEN
-            red = VAL(_TRIM$(MID$(text$, rpos + 1)))
-            green = VAL(_TRIM$(MID$(text$, gpos + 1)))
-            blue = VAL(_TRIM$(MID$(text$, bpos + 1)))
-            VRGBS~& = _RGB32(red, green, blue)
-        END IF
-    END IF
-END FUNCTION
-
-FUNCTION rgbs$ (c AS _UNSIGNED LONG)
-    rgbs$ = "_RGB32(" + _TRIM$(STR$(_RED32(c))) + ", " + _TRIM$(STR$(_GREEN32(c))) + ", " + _TRIM$(STR$(_BLUE32(c))) + ")"
-END FUNCTION
-
 FUNCTION EvalPreIF (text$, err$)
     temp$ = text$ 'so we don't corrupt the string sent to us for evaluation
     err$ = "" 'null the err message to begin with
+    'an empty condition ($IF THEN) is a mistake, not a false condition
+    IF LEN(_TRIM$(temp$)) = 0 THEN err$ = "Expected $IF condition THEN": EXIT FUNCTION
     'first order of business is to solve for <>=
     DIM PC_Op(3) AS STRING
     PC_Op(1) = "="

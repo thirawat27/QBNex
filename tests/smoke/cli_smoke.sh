@@ -148,7 +148,7 @@ if [ "$EC_QUIET" -ne 0 ]; then
   echo "[FAIL] Quiet compile should exit successfully."
   FAIL=1
 fi
-if grep -F "Compiling program..." "$OUT_QUIET" >/dev/null 2>&1; then
+if grep -F -e "Preparing build files" -e "Build complete" "$OUT_QUIET" >/dev/null 2>&1; then
   echo "[FAIL] Quiet compile should suppress progress banner."
   FAIL=1
 fi
@@ -174,8 +174,8 @@ if [ "$EC_ZMODE" -ne 0 ]; then
   echo "[FAIL] -z should exit successfully."
   FAIL=1
 fi
-if grep -F "Compiling program..." "$OUT_ZMODE" >/dev/null 2>&1; then
-  echo "[FAIL] -z should not invoke native executable build output."
+if ! grep -F "Build complete" "$OUT_ZMODE" >/dev/null 2>&1; then
+  echo "[FAIL] -z changes nothing: the program should still be built."
   FAIL=1
 fi
 

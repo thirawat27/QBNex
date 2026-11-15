@@ -44,11 +44,6 @@ impl RndState {
     pub fn randomize_using(&mut self, seed: f64) {
         self.seed = mix_seed(seed) | (self.seed_first & 0xFF);
     }
-
-    /// Seed typed at the `RANDOMIZE` prompt.
-    pub fn randomize_prompt(&mut self, seed: i16) {
-        self.seed = ((seed as u16 as u32) << 8) | (self.seed & 0xFF);
-    }
 }
 
 /// High 32 bits of the double, folded to 16 bits, placed in bits 8..24.
@@ -141,15 +136,5 @@ mod tests {
         }
         // Full-period 24-bit LCG: no repeats within 100k draws.
         assert_eq!(seen.len(), 100_000);
-    }
-
-    #[test]
-    fn prompt_seed_uses_low_16_bits() {
-        let mut a = RndState::default();
-        let mut b = RndState::default();
-        a.randomize_prompt(-1);
-        b.randomize_prompt(-1);
-        assert_eq!(a, b);
-        assert_ne!(a, RndState::default());
     }
 }

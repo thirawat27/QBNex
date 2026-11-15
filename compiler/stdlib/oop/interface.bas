@@ -47,6 +47,14 @@ FUNCTION QBNEX_RegisterInterfaceName& (interfaceName AS STRING)
     QBNEX_RegisterInterfaceName = QBNEX_InterfaceCount
 END FUNCTION
 
+FUNCTION QBNEX_EnsureInterfaceName& (interfaceName AS STRING)
+    DIM interfaceID AS LONG
+
+    interfaceID = QBNEX_FindInterface(interfaceName)
+    IF interfaceID = 0 THEN interfaceID = QBNEX_RegisterInterfaceName(interfaceName)
+    QBNEX_EnsureInterfaceName = interfaceID
+END FUNCTION
+
 SUB QBNEX_RegisterInterface (classID AS LONG, interfaceName AS STRING)
     DIM interfaceID AS LONG
     DIM index AS LONG

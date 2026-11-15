@@ -133,14 +133,7 @@ pub fn qbr_i64(v: f64) -> i64 {
 
 /// C/C++ float-to-int conversion (`cvttsd2si`): truncates toward zero and
 /// yields `INT_MIN` for NaN and out-of-range values (Rust `as` saturates).
-#[inline]
-pub fn cvt_i32(v: f64) -> i32 {
-    if v.is_nan() || v >= 2147483648.0 || v <= -2147483649.0 {
-        i32::MIN
-    } else {
-        v as i32
-    }
-}
+pub use qb_float80::conv::cvttsd2si as cvt_i32;
 
 /// `qbr_float_to_long(float)`: the argument is converted to `float` first.
 #[inline]

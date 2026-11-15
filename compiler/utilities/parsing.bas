@@ -97,6 +97,30 @@ FUNCTION fixoperationorder$ (savea$)
         NEXT
     END IF 'rule 3
 
+    'rule 4: drop a unary plus (QBasic accepts x = +5, PRINT +5, 2 * +3 and f(+1)): a "+"
+    'that starts the expression or follows an operator, "(" or "," has no effect. A "+"
+    'with nothing after it is kept, so the usual error is still reported.
+    rule4:
+    IF INSTR(sp + a$ + sp, sp + "+" + sp) THEN
+        FOR i = 1 TO n - 1
+            IF getelement(a$, i) = "+" THEN
+                uplus = 0
+                IF i = 1 THEN
+                    uplus = 1
+                ELSE
+                    a2$ = getelement(a$, i - 1)
+                    IF a2$ = "(" OR a2$ = "," THEN uplus = 1
+                    IF isoperator(a2$) THEN uplus = 1
+                END IF
+                IF uplus THEN
+                    removeelements a$, i, i, 0
+                    n = n - 1
+                    GOTO rule4
+                END IF
+            END IF
+        NEXT
+    END IF 'rule 4
+
 
     '----------------C. 'Quick' location of negation----------------
     'note: the results of this change are beneficial to foolayout
@@ -1942,63 +1966,71 @@ lineformat$ = a2$
 END FUNCTION
 
 FUNCTION evaluateconst$ (a2$, t AS LONG)
+    'a2$ is a CONST expression as fixoperationorder$ returns it: brackets make the order of
+    'evaluation explicit, so the elements inside one bracket are evaluated left to right
+    '(evaluateconstlinear$). The innermost bracket is evaluated first and replaced, in place,
+    'by one evaluated block: its value stays a binary _MK$ string with its type in btype() and
+    'is never turned back into text (re-parsing those bytes as a literal gave wrong values).
     a$ = a2$
 
-
-    DIM block(1000) AS STRING
-    DIM status(1000) AS INTEGER
+    n = numelements(a$)
+    IF n = 0 THEN Give_Error "Invalid CONST expression.2": EXIT FUNCTION
+    DIM block(1 TO n) AS STRING
+    DIM status(1 TO n) AS INTEGER
     '0=unprocessed (can be "")
     '1=processed
-    DIM btype(1000) AS LONG 'for status=1 blocks
-
-    'put a$ into blocks
-    n = numelements(a$)
+    DIM btype(1 TO n) AS LONG 'for status=1 blocks
     FOR i = 1 TO n
         block(i) = getelement$(a$, i)
     NEXT
 
-    evalconstevalbrack:
-
-    'find highest bracket level
-    l = 0
-    b = 0
-    FOR i = 1 TO n
-        IF block(i) = "(" THEN b = b + 1
-        IF block(i) = ")" THEN b = b - 1
-        IF b > l THEN l = b
-    NEXT
-
-    'if brackets exist, evaluate that item first
-    IF l THEN
-
-        b = 0
-        e$ = ""
+    DO
+        'find the first bracket of the highest level
+        l = 0: b = 0: i1 = 0
         FOR i = 1 TO n
-
-            IF block(i) = ")" THEN
-                IF b = l THEN block(i) = "": EXIT FOR
-                b = b - 1
+            IF status(i) = 0 THEN
+                IF block(i) = "(" THEN
+                    b = b + 1
+                    IF b > l THEN l = b: i1 = i
+                END IF
+                IF block(i) = ")" THEN b = b - 1
             END IF
+        NEXT
+        IF l = 0 THEN EXIT DO
 
-            IF b >= l THEN
-                IF LEN(e$) = 0 THEN e$ = block(i) ELSE e$ = e$ + sp + block(i)
-                block(i) = ""
+        'its closing bracket (no bracket opens in between)
+        i2 = 0
+        FOR i = i1 + 1 TO n
+            IF status(i) = 0 THEN
+                IF block(i) = ")" THEN i2 = i: EXIT FOR
             END IF
+        NEXT
+        IF i2 = 0 OR i2 = i1 + 1 THEN Give_Error "Invalid CONST expression.3": EXIT FUNCTION
 
-            IF block(i) = "(" THEN
-                b = b + 1
-                IF b = l THEN i2 = i: block(i) = ""
-            END IF
-
-        NEXT i
-
-        status(i) = 1
-        block(i) = evaluateconst$(e$, btype(i))
+        m = i2 - i1 - 1
+        REDIM segblock(1 TO m) AS STRING
+        REDIM segstatus(1 TO m) AS INTEGER
+        REDIM segbtype(1 TO m) AS LONG
+        FOR i = 1 TO m
+            segblock(i) = block(i1 + i): segstatus(i) = status(i1 + i): segbtype(i) = btype(i1 + i)
+        NEXT
+        r$ = evaluateconstlinear$(segblock(), segstatus(), segbtype(), m, rt)
         IF Error_Happened THEN EXIT FUNCTION
-        GOTO evalconstevalbrack
 
-    END IF 'l
+        'the bracket becomes one evaluated block
+        block(i1) = r$: status(i1) = 1: btype(i1) = rt
+        d = i2 - i1
+        FOR i = i2 + 1 TO n
+            block(i - d) = block(i): status(i - d) = status(i): btype(i - d) = btype(i)
+        NEXT
+        n = n - d
+    LOOP
 
+    evaluateconst$ = evaluateconstlinear$(block(), status(), btype(), n, t)
+END FUNCTION
+
+FUNCTION evaluateconstlinear$ (block() AS STRING, status() AS INTEGER, btype() AS LONG, n AS LONG, t AS LONG)
+    'evaluates block(1 TO n), a CONST expression without brackets, left to right
     'linear equation remains with some pre-calculated & non-pre-calc blocks
 
     'problem: type QBASIC assumes and type required to store calc. value may
@@ -2104,7 +2136,7 @@ n = n2
 IF n = 1 THEN
     IF status(1) = 0 THEN Give_Error "Invalid CONST expression.2": EXIT FUNCTION
     t = btype(1)
-    evaluateconst$ = block(1)
+    evaluateconstlinear$ = block(1)
     EXIT FUNCTION
 END IF 'n=1
 
@@ -2121,10 +2153,10 @@ IF status(1) = 0 THEN
     IF o$ = CHR$(241) THEN
         IF btype(2) AND ISFLOAT THEN
             r## = -_CV(_FLOAT, block(2))
-            evaluateconst$ = _MK$(_FLOAT, r##)
+            evaluateconstlinear$ = _MK$(_FLOAT, r##)
         ELSE
             r&& = -_CV(_INTEGER64, block(2))
-            evaluateconst$ = _MK$(_INTEGER64, r&&)
+            evaluateconstlinear$ = _MK$(_INTEGER64, r&&)
         END IF
         t = btype(2)
         EXIT FUNCTION
@@ -2139,7 +2171,7 @@ IF status(1) = 0 THEN
         r&& = NOT r&&
         t = btype(2)
         IF t AND ISFLOAT THEN t = LONGTYPE - ISPOINTER 'markdown to LONG
-        evaluateconst$ = _MK$(_INTEGER64, r&&)
+        evaluateconstlinear$ = _MK$(_INTEGER64, r&&)
         EXIT FUNCTION
     END IF
 
@@ -2300,6 +2332,6 @@ i = i + 1
 IF i <= n THEN GOTO evalconstequ
 
 t = et
-evaluateconst$ = ev$
+evaluateconstlinear$ = ev$
 
 END FUNCTION

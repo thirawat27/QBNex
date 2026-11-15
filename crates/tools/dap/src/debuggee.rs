@@ -6,6 +6,10 @@
 //! - adapter -> debuggee: `{"t":"bp","lines":[..]}`, `{"t":"pause"}`,
 //!   `{"t":"resume","mode":"continue"|"in"|"over"|"out"}`
 //! - debuggee -> adapter: `{"t":"stopped", ...Snapshot}`
+//!
+//! The first line the debuggee sends is the token the adapter put in its
+//! environment ([`crate::adapter::TOKEN_VAR`]): the adapter takes no other
+//! connection for the debuggee.
 
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Write};
@@ -91,8 +95,10 @@ impl Debugger for Hook {
     fn statement(&mut self, stop: &mut Stop<'_, '_, '_>) {
         let depth = stop.depth();
         let pause = self.pause.swap(false, Ordering::Relaxed);
-        let bps = self.breakpoints.lock().unwrap().clone();
-        let Some(reason) = self.stepper.check(stop.pc, stop.line, depth, pause, &bps) else { return };
+        // (the set is looked at under its lock: a copy per statement made every
+        // statement of a program with a breakpoint cost an allocation)
+        let reason = self.stepper.check(stop.pc, stop.line, depth, pause, &self.breakpoints.lock().unwrap());
+        let Some(reason) = reason else { return };
         self.stepper.mode = Mode::Run;
         stop.flush();
         let _ = std::io::stdout().flush();
@@ -124,7 +130,7 @@ impl Debugger for Hook {
 }
 
 /// Entry point of the debuggee process. Returns the exit code.
-pub fn main(qir_path: &str, port: u16, no_debug: bool, stop_on_entry: bool) -> i32 {
+pub fn main(qir_path: &str, port: u16, token: &str, no_debug: bool, stop_on_entry: bool) -> i32 {
     let qir = match std::fs::read_to_string(qir_path) {
         Ok(s) => s,
         Err(e) => {
@@ -149,10 +155,14 @@ pub fn main(qir_path: &str, port: u16, no_debug: bool, stop_on_entry: bool) -> i
     let mut stdout = std::io::stdout();
     let mut vm = qb_exec::Vm::new(&module, &mut stdout);
     if !no_debug {
-        let Ok(conn) = TcpStream::connect(("127.0.0.1", port)) else {
+        let Ok(mut conn) = TcpStream::connect(("127.0.0.1", port)) else {
             eprintln!("qb-dap: cannot reach the adapter on port {port}");
             return 2;
         };
+        if writeln!(conn, "{token}").is_err() {
+            eprintln!("qb-dap: cannot reach the adapter on port {port}");
+            return 2;
+        }
         let breakpoints = Arc::new(Mutex::new(HashSet::new()));
         let pause = Arc::new(AtomicBool::new(false));
         let (tx, rx) = channel();

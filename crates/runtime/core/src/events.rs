@@ -32,7 +32,6 @@ pub struct TimerTable {
     pub slots: Vec<Timer>,
     nextfree: i32,
     freelist: Vec<i32>,
-    paused: bool,
 }
 
 impl Default for TimerTable {
@@ -44,7 +43,7 @@ impl Default for TimerTable {
 impl TimerTable {
     /// Slot 0 exists and is allocated from the start.
     pub const fn new() -> Self {
-        TimerTable { slots: Vec::new(), nextfree: 1, freelist: Vec::new(), paused: false }
+        TimerTable { slots: Vec::new(), nextfree: 1, freelist: Vec::new() }
     }
 
     fn slot(&mut self, i: i32) -> &mut Timer {
@@ -144,9 +143,6 @@ impl TimerTable {
     /// delivered (the caller sets `qbevent`).
     pub fn tick(&mut self, now: f64) -> bool {
         let mut fired = false;
-        if self.paused {
-            return false;
-        }
         for i in 0..self.nextfree {
             let t = self.slot(i);
             if t.allocated && t.id != 0 && t.active == 1 && t.state == 1 {
@@ -548,9 +544,6 @@ mod tests {
         t.statement(0, 2).unwrap();
         assert_eq!(t.slots[0].state, 0);
         assert_eq!(t.slots[0].last_time, 0.0);
-        t.paused = true;
-        t.statement(0, 1).unwrap();
-        assert!(!t.tick(100.0));
     }
 
     #[test]

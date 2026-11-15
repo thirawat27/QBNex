@@ -41,6 +41,16 @@ FUNCTION QBNEX_FindClass& (className AS STRING)
     QBNEX_FindClass = 0
 END FUNCTION
 
+' The class named className, registered first when it is not yet (CLASS ... END CLASS
+' lowers to a call of this).
+FUNCTION QBNEX_EnsureClass& (className AS STRING, baseClassID AS LONG)
+    DIM classID AS LONG
+
+    classID = QBNEX_FindClass(className)
+    IF classID = 0 THEN classID = QBNEX_RegisterClass(className, baseClassID)
+    QBNEX_EnsureClass = classID
+END FUNCTION
+
 FUNCTION QBNEX_RegisterClass& (className AS STRING, baseClassID AS LONG)
     DIM classID AS LONG
 

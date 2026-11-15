@@ -45,7 +45,7 @@
 mod abi;
 mod loader;
 
-pub use loader::{Library, LibraryError, Os, default_modules, find_default_symbol, find_header, header_error, library_candidates};
+pub use loader::{Library, LibraryError, Os, default_modules, find_default_symbol, find_header, header_error, library_candidates, program_dir, set_program_dir};
 
 use std::ffi::c_void;
 use std::fmt;

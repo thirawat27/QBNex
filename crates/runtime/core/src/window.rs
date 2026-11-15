@@ -148,8 +148,18 @@ fn wake() {
     }
 }
 
+/// Set by [`request_headless`].
+static HEADLESS_WANTED: AtomicBool = AtomicBool::new(false);
+
+/// The next [`qb_window_run`] runs without a window, as with `QBNEX_HEADLESS=1`
+/// (a runner that only replays an input script asks this way instead of
+/// changing the environment while other threads may read it).
+pub fn request_headless() {
+    HEADLESS_WANTED.store(true, Ordering::SeqCst);
+}
+
 fn headless_requested() -> bool {
-    std::env::var("QBNEX_HEADLESS")
+    HEADLESS_WANTED.load(Ordering::SeqCst) || std::env::var("QBNEX_HEADLESS")
         .map(|v| !v.is_empty() && v != "0")
         .unwrap_or(false)
 }
@@ -302,6 +312,10 @@ struct App {
     wheel_accum: f64,
     focused: bool,
     fullscreen: bool,
+    /// Commands given before the window exists (`$SCREENHIDE`, before the
+    /// first frame), applied once it is made. Size, full screen and
+    /// resizing are kept in the fields above and given at creation.
+    pending: Vec<Cmd>,
 }
 
 impl App {
@@ -313,7 +327,12 @@ impl App {
             .with_title(self.title.clone())
             .with_inner_size(PhysicalSize::new(self.init_w, self.init_h))
             .with_resizable(self.resizable)
+            .with_fullscreen(self.fullscreen.then_some(Fullscreen::Borderless(None)))
             .with_visible(!self.hidden);
+        let attrs = match self.pending.iter().find_map(|c| if let Cmd::Position(x, y) = c { Some((*x, *y)) } else { None }) {
+            Some((x, y)) => attrs.with_position(PhysicalPosition::new(x, y)),
+            None => attrs,
+        };
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -337,6 +356,9 @@ impl App {
             last_serial: u64::MAX,
         });
         EXISTS.store(true, Ordering::SeqCst);
+        for c in std::mem::take(&mut self.pending) {
+            self.apply(c);
+        }
         if let Some(f) = cb().created {
             f(handle);
         }
@@ -344,6 +366,33 @@ impl App {
             f(size.width as i32, size.height as i32);
         }
         start_script();
+    }
+
+    /// Keeps a command given before the window exists for its creation.
+    fn defer(&mut self, c: Cmd) {
+        match c {
+            Cmd::Size(x, y) if x > 0 && y > 0 => {
+                self.init_w = x as u32;
+                self.init_h = y as u32;
+            }
+            Cmd::Fullscreen(on) => self.fullscreen = on,
+            Cmd::Resizable(on) => self.resizable = on,
+            Cmd::Position(x, y) => {
+                // (_SCREENX/_SCREENY read it back before the window exists)
+                POS_X.store(x, Ordering::SeqCst);
+                POS_Y.store(y, Ordering::SeqCst);
+                self.pending.retain(|p| !matches!(p, Cmd::Position(..)));
+                self.pending.push(c);
+            }
+            // (the pointer cannot be moved over a window that does not exist)
+            Cmd::Warp(..) | Cmd::Size(..) => {}
+            c => {
+                // only the last of each kind matters
+                let same = std::mem::discriminant(&c);
+                self.pending.retain(|p| std::mem::discriminant(p) != same);
+                self.pending.push(c);
+            }
+        }
     }
 
     fn run_cmds(&mut self, el: &ActiveEventLoop) {
@@ -365,60 +414,8 @@ impl App {
                         w.window.set_visible(v);
                     }
                 }
-                _ => {
-                    let Some(w) = &self.win else { continue };
-                    let window = &w.window;
-                    match c {
-                        Cmd::Size(x, y) if x > 0 && y > 0 => {
-                            if let Some(s) =
-                                window.request_inner_size(PhysicalSize::new(x as u32, y as u32))
-                            {
-                                self.on_resize(s.width, s.height);
-                            }
-                        }
-                        Cmd::Fullscreen(on) => {
-                            self.fullscreen = on;
-                            window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
-                        }
-                        Cmd::Resizable(on) => {
-                            self.resizable = on;
-                            window.set_resizable(on);
-                        }
-                        Cmd::Position(x, y) => {
-                            window.set_outer_position(PhysicalPosition::new(x, y));
-                            POS_X.store(x, Ordering::SeqCst);
-                            POS_Y.store(y, Ordering::SeqCst);
-                        }
-                        Cmd::Minimize => {
-                            window.set_minimized(true);
-                            MINIMIZED.store(true, Ordering::SeqCst);
-                        }
-                        Cmd::Cursor(style) => {
-                            if style == cursor::HIDDEN {
-                                window.set_cursor_visible(false);
-                            } else {
-                                window.set_cursor_visible(true);
-                                window.set_cursor(cursor_icon(style));
-                            }
-                        }
-                        Cmd::Warp(x, y) => {
-                            let _ = window.set_cursor_position(PhysicalPosition::new(x, y));
-                        }
-                        Cmd::Icon(px, iw, ih) => {
-                            let rgba: Vec<u8> = px
-                                .iter()
-                                .flat_map(|p| {
-                                    let [b, g, r, a] = p.to_le_bytes();
-                                    [r, g, b, a]
-                                })
-                                .collect();
-                            if let Ok(icon) = Icon::from_rgba(rgba, iw, ih) {
-                                window.set_window_icon(Some(icon));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                c if self.win.is_none() => self.defer(c),
+                c => self.apply(c),
             }
         }
         // new frame?
@@ -426,6 +423,62 @@ impl App {
             && lock(&FRAME).serial != w.last_serial {
                 w.window.request_redraw();
             }
+    }
+
+    /// Carries out a window command (not Title or Visible) on the window.
+    fn apply(&mut self, c: Cmd) {
+        let Some(w) = &self.win else { return };
+        let window = &w.window;
+        match c {
+            Cmd::Size(x, y) if x > 0 && y > 0 => {
+                if let Some(s) =
+                    window.request_inner_size(PhysicalSize::new(x as u32, y as u32))
+                {
+                    self.on_resize(s.width, s.height);
+                }
+            }
+            Cmd::Fullscreen(on) => {
+                self.fullscreen = on;
+                window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
+            }
+            Cmd::Resizable(on) => {
+                self.resizable = on;
+                window.set_resizable(on);
+            }
+            Cmd::Position(x, y) => {
+                window.set_outer_position(PhysicalPosition::new(x, y));
+                POS_X.store(x, Ordering::SeqCst);
+                POS_Y.store(y, Ordering::SeqCst);
+            }
+            Cmd::Minimize => {
+                window.set_minimized(true);
+                MINIMIZED.store(true, Ordering::SeqCst);
+            }
+            Cmd::Cursor(style) => {
+                if style == cursor::HIDDEN {
+                    window.set_cursor_visible(false);
+                } else {
+                    window.set_cursor_visible(true);
+                    window.set_cursor(cursor_icon(style));
+                }
+            }
+            Cmd::Warp(x, y) => {
+                let _ = window.set_cursor_position(PhysicalPosition::new(x, y));
+            }
+            Cmd::Icon(px, iw, ih) => {
+                let rgba: Vec<u8> = px
+                    .iter()
+                    .flat_map(|p| {
+                        let [b, g, r, a] = p.to_le_bytes();
+                        [r, g, b, a]
+                    })
+                    .collect();
+                if let Ok(icon) = Icon::from_rgba(rgba, iw, ih) {
+                    window.set_window_icon(Some(icon));
+                }
+            }
+            _ => {}
+        }
     }
 
     fn on_resize(&mut self, w: u32, h: u32) {
@@ -461,19 +514,25 @@ impl App {
             Presenter::Soft(s) => s,
             #[cfg(feature = "gpu")]
             Presenter::Gpu(p) => {
-                let frame = lock(&FRAME);
-                let l = raster::layout(
-                    frame.w as i32,
-                    frame.h as i32,
-                    size.width as i32,
-                    size.height as i32,
-                    frame.full_screen,
-                    frame.fullscreen_smooth,
-                    frame.resize_auto,
-                );
-                if p.redraw(nw.get(), nh.get(), &frame.px, frame.w, frame.h, &l) {
+                // the program thread waits for FRAME to hand over its next
+                // picture: it is held for the upload only, not while the
+                // surface gives a frame or presents it
+                let Some(target) = p.acquire(nw.get(), nh.get()) else { return };
+                {
+                    let frame = lock(&FRAME);
+                    let l = raster::layout(
+                        frame.w as i32,
+                        frame.h as i32,
+                        size.width as i32,
+                        size.height as i32,
+                        frame.full_screen,
+                        frame.fullscreen_smooth,
+                        frame.resize_auto,
+                    );
+                    p.draw(&target, &frame.px, frame.w, frame.h, &l);
                     win.last_serial = frame.serial;
                 }
+                p.present(target);
                 return;
             }
         };
@@ -840,6 +899,7 @@ pub fn qb_window_run(
         wheel_accum: 0.0,
         focused: false,
         fullscreen: false,
+        pending: Vec::new(),
     };
     let _ = event_loop.run_app(&mut app);
     0

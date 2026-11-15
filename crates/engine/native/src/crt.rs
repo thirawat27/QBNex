@@ -66,11 +66,6 @@ pub static _tls_used: TlsDirectory = TlsDirectory {
     characteristics: 0,
 };
 
-#[allow(dead_code)]
-fn keep_xlz() -> usize {
-    XLZ
-}
-
 static AT_EXIT: Mutex<Vec<extern "C" fn()>> = Mutex::new(Vec::new());
 
 /// C `atexit`: functions run (last registered first) when the program ends.

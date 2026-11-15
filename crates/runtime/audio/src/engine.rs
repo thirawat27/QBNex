@@ -8,10 +8,11 @@
 
 use std::sync::Arc;
 
-use crate::decode::Pcm;
+use crate::decode::{Pcm, SampleFormat};
 use crate::mml::{Sink, Synth};
 use crate::queue::RawQueue;
-use crate::synth::VOICE_COUNT;
+use crate::stream::Stream;
+use crate::synth::{NoteGen, VOICE_COUNT};
 
 pub const INVALID_SOUND_HANDLE: i32 = -1;
 pub const QB_TRUE: i32 = -1;
@@ -28,9 +29,13 @@ pub enum SoundKind {
 pub const FLAG_STREAM: u32 = 1;
 pub const FLAG_DECODE: u32 = 2;
 
-/// A playing instance of decoded data (`ma_sound`).
+/// A playing instance of decoded data (`ma_sound`), or of a file decoded
+/// while it plays (`stream`; `data` is then empty).
 pub struct Playback {
     pub data: Arc<Pcm>,
+    pub stream: Option<Box<Stream>>,
+    /// The frames the mixer reads from `stream`.
+    scratch: Vec<f32>,
     pub cursor: usize,
     pub playing: bool,
     pub looping: bool,
@@ -39,13 +44,58 @@ pub struct Playback {
     pub pan: f32,
     /// `Some(x, y, z)` when `_SNDBAL` set a 3-D position.
     pub position: Option<[f32; 3]>,
-    /// Absolute engine time (frames) at which playback stops (`_SNDLIMIT`).
-    pub stop_time: Option<u64>,
+    /// Frames the sound plays before it stops (`_SNDLIMIT`), counted from
+    /// its start by `played`.
+    pub limit: Option<u64>,
+    pub played: u64,
 }
 
 impl Playback {
     fn new(data: Arc<Pcm>) -> Self {
-        Playback { data, cursor: 0, playing: false, looping: false, at_end: false, volume: 1.0, pan: 0.0, position: None, stop_time: None }
+        Playback { data, stream: None, scratch: Vec::new(), cursor: 0, playing: false, looping: false, at_end: false, volume: 1.0, pan: 0.0, position: None, limit: None, played: 0 }
+    }
+
+    fn streamed(stream: Stream) -> Self {
+        let empty = Pcm { format: SampleFormat::F32, channels: 2, frames: 0, data: Vec::new() };
+        let mut p = Playback::new(Arc::new(empty));
+        p.stream = Some(Box::new(stream));
+        p
+    }
+
+    /// Length in frames (of a streamed file: as its headers tell, 0 when unknown).
+    pub fn frames(&self) -> usize {
+        match &self.stream {
+            Some(s) => s.frames,
+            None => self.data.frames,
+        }
+    }
+
+    /// The `_SNDLIMIT` was reached: the sound stops where it is (`_SNDPLAY`
+    /// goes on from there) and the limit is used up, as miniaudio's stop time.
+    fn stop_at_limit(&mut self) {
+        self.playing = false;
+        self.limit = None;
+        self.played = 0;
+    }
+
+    fn set_looping(&mut self, on: bool) {
+        self.looping = on;
+        if let Some(st) = &self.stream {
+            st.set_looping(on);
+        }
+    }
+
+    /// `_SNDPLAY` and `_SNDLOOP`: a sound that starts over (not one resumed
+    /// after `_SNDPAUSE`) counts its `_SNDLIMIT` from here.
+    fn begin(&mut self, looping: bool) {
+        if self.playing && (!self.looping || self.at_end) {
+            self.seek(0);
+        }
+        if self.playing || self.at_end || self.cursor == 0 {
+            self.played = 0;
+        }
+        self.start();
+        self.set_looping(looping);
     }
 
     /// `ma_sound_start`: a sound at its end restarts from the beginning.
@@ -57,7 +107,14 @@ impl Playback {
     }
 
     fn seek(&mut self, frame: usize) {
-        self.cursor = frame.min(self.data.frames);
+        match &self.stream {
+            Some(st) => {
+                // (a file whose length is unknown is not clamped)
+                self.cursor = if self.frames() > 0 { frame.min(self.frames()) } else { frame };
+                st.seek(self.cursor as u64);
+            }
+            None => self.cursor = frame.min(self.data.frames),
+        }
         self.at_end = false;
     }
 }
@@ -116,6 +173,34 @@ impl Sink for VoiceSink<'_> {
         if let Some(q) = self.0.get_mut(voice) {
             q.mark_note_ends(ends);
         }
+    }
+    fn send_note(&mut self, voice: usize, note: NoteGen) {
+        if let Some(q) = self.0.get_mut(voice) {
+            q.push_note(note);
+        }
+    }
+}
+
+/// What SOUND or PLAY rendered from a copy of the synth state, without the
+/// engine lock (the device callback needs it), for [`Engine::queue_rendered`].
+#[derive(Default)]
+pub struct Rendered(Vec<RenderedPart>);
+
+enum RenderedPart {
+    Frames(usize, Vec<i16>),
+    Ends(usize, Vec<usize>),
+    Note(usize, NoteGen),
+}
+
+impl Sink for Rendered {
+    fn send(&mut self, voice: usize, frames: &[i16]) {
+        self.0.push(RenderedPart::Frames(voice, frames.to_vec()));
+    }
+    fn note_ends(&mut self, voice: usize, ends: &[usize]) {
+        self.0.push(RenderedPart::Ends(voice, ends.to_vec()));
+    }
+    fn send_note(&mut self, voice: usize, note: NoteGen) {
+        self.0.push(RenderedPart::Note(voice, note));
     }
 }
 
@@ -249,19 +334,47 @@ impl Engine {
     // ---- synth -------------------------------------------------------------
 
     pub fn sound(&mut self, frequency: f64, ticks: f64) -> Result<(), i32> {
-        let (rate, init) = (self.rate, self.initialized);
-        // SOUND f, 0: what SOUND and PLAY queued stops (QBasic); volume and pan stay
-        if init && ticks == 0.0 && (frequency == 0.0 || (37.0..=32767.0).contains(&frequency)) {
-            for q in &mut self.voices {
-                let (volume, pan) = (q.volume, q.pan);
-                *q = RawQueue::new(rate);
-                q.volume = volume;
-                q.pan = pan;
-            }
+        if self.sound_stop(frequency, ticks) {
             return Ok(());
         }
+        let (rate, init) = (self.rate, self.initialized);
         let mut sink = VoiceSink(&mut self.voices);
         self.synth.sound(rate, init, frequency, ticks, &mut sink)
+    }
+
+    /// `SOUND f, 0`: what SOUND and PLAY queued stops (QBasic); volume and
+    /// pan stay. False for any other SOUND.
+    pub fn sound_stop(&mut self, frequency: f64, ticks: f64) -> bool {
+        let rate = self.rate;
+        if !(self.initialized && ticks == 0.0 && (frequency == 0.0 || (37.0..=32767.0).contains(&frequency))) {
+            return false;
+        }
+        for q in &mut self.voices {
+            let (volume, pan) = (q.volume, q.pan);
+            *q = RawQueue::new(rate);
+            q.volume = volume;
+            q.pan = pan;
+        }
+        true
+    }
+
+    /// The synth state, device rate and whether the engine is up, to render
+    /// SOUND or PLAY without the lock.
+    pub fn synth_job(&self) -> (Synth, u32, bool) {
+        (self.synth.clone(), self.rate, self.initialized)
+    }
+
+    /// Takes back the synth state of [`Self::synth_job`] and queues what it rendered.
+    pub fn queue_rendered(&mut self, synth: Synth, out: Rendered) {
+        self.synth = synth;
+        let mut sink = VoiceSink(&mut self.voices);
+        for part in out.0 {
+            match part {
+                RenderedPart::Frames(v, f) => sink.send(v, &f),
+                RenderedPart::Ends(v, e) => sink.note_ends(v, &e),
+                RenderedPart::Note(v, n) => sink.send_note(v, n),
+            }
+        }
     }
 
     pub fn play(&mut self, s: &[u8], vars: &dyn crate::mml::VarReader) -> Result<(), i32> {
@@ -317,10 +430,32 @@ impl Engine {
         }
     }
 
+    /// `_SNDOPEN(f$, "STREAM")` and `_SNDPLAYFILE` of a file decoded while it plays.
+    pub fn open_stream(&mut self, stream: Stream, flags: u32) -> i32 {
+        if !self.initialized {
+            return INVALID_SOUND_HANDLE;
+        }
+        let h = self.allocate();
+        if h < 1 {
+            return INVALID_SOUND_HANDLE;
+        }
+        let hd = &mut self.handles[h as usize];
+        hd.kind = SoundKind::Static;
+        hd.flags = flags;
+        hd.sound = Some(Playback::streamed(stream));
+        h
+    }
+
+    /// `_SNDCLOSE`: the sound is freed once it has finished; a looping one
+    /// finishes the pass it plays (it used to loop on, unreachable, forever).
     pub fn close(&mut self, h: i32) {
         if self.initialized && self.valid(h) {
             self.raw_done(h, true);
-            self.handles[h as usize].auto_kill = true;
+            let hd = &mut self.handles[h as usize];
+            if let Some(s) = hd.sound.as_mut() {
+                s.set_looping(false);
+            }
+            hd.auto_kill = true;
         }
     }
 
@@ -352,21 +487,13 @@ impl Engine {
 
     pub fn play_sound(&mut self, h: i32) {
         if let Some(s) = self.sound_mut(h) {
-            if s.playing && (!s.looping || s.at_end) {
-                s.seek(0);
-            }
-            s.start();
-            s.looping = false;
+            s.begin(false);
         }
     }
 
     pub fn loop_sound(&mut self, h: i32) {
         if let Some(s) = self.sound_mut(h) {
-            if s.playing && (!s.looping || s.at_end) {
-                s.seek(0);
-            }
-            s.start();
-            s.looping = true;
+            s.begin(true);
         }
     }
 
@@ -468,7 +595,7 @@ impl Engine {
     pub fn length(&mut self, h: i32) -> f64 {
         let rate = self.rate;
         match self.sound_mut(h) {
-            Some(s) if rate > 0 => (s.data.frames as f32 / rate as f32) as f64,
+            Some(s) if rate > 0 => (s.frames() as f32 / rate as f32) as f64,
             _ => 0.0,
         }
     }
@@ -487,22 +614,26 @@ impl Engine {
             if rate == 0 {
                 return;
             }
-            let len_secs = s.data.frames as f32 / rate as f32;
+            let frames = s.frames();
+            let len_secs = frames as f32 / rate as f32;
             if seconds > len_secs as f64 {
                 s.playing = false;
                 return;
             }
-            let frame = (s.data.frames as f64 * (seconds / len_secs as f64)) as u64;
+            let frame = (frames as f64 * (seconds / len_secs as f64)) as u64;
             s.seek(frame as usize);
         }
     }
 
-    /// `_SNDLIMIT`: miniaudio's stop time is absolute engine time, kept as is.
+    /// `_SNDLIMIT`: the sound plays at most `seconds` from its start
+    /// (`_SNDPLAY`/`_SNDLOOP`), as QB64 documents it. Legacy handed miniaudio
+    /// an absolute engine time, so the limit counted from when the audio
+    /// engine started and a sound played late in a program stopped at once.
     pub fn limit(&mut self, h: i32, seconds: f64) {
         let rate = self.rate as u64;
         if let Some(s) = self.sound_mut(h) {
             let ms = (seconds * 1000.0) as u64;
-            s.stop_time = Some((u128::from(ms) * u128::from(rate) / 1000).min(u128::from(u64::MAX)) as u64);
+            s.limit = Some((u128::from(ms) * u128::from(rate) / 1000).min(u128::from(u64::MAX)) as u64);
         }
     }
 
@@ -652,7 +783,7 @@ impl Engine {
                 mix_queue(q, out);
             }
             if let Some(s) = h.sound.as_mut() {
-                mix_sound(s, out, self.time);
+                mix_sound(s, out);
             }
         }
         self.time += frames as u64;
@@ -687,7 +818,45 @@ fn mix_queue(q: &mut RawQueue, out: &mut [f32]) {
     }
 }
 
-fn mix_sound(s: &mut Playback, out: &mut [f32], time: u64) {
+/// Frames `s` may still play before its `_SNDLIMIT`; at the limit it stops.
+fn frames_before_limit(s: &mut Playback, want: usize) -> usize {
+    match s.limit {
+        Some(l) if s.played >= l => {
+            s.stop_at_limit();
+            0
+        }
+        Some(l) => want.min(usize::try_from(l - s.played).unwrap_or(usize::MAX)),
+        None => want,
+    }
+}
+
+fn mix_stream(s: &mut Playback, out: &mut [f32], vol: f32, pan: f32) {
+    let want = frames_before_limit(s, out.len() / 2);
+    if want == 0 {
+        return;
+    }
+    if s.scratch.len() < want * 2 {
+        s.scratch.resize(want * 2, 0.0);
+    }
+    let Some(st) = s.stream.as_ref() else { return };
+    let r = st.read(&mut s.scratch[..want * 2]);
+    for (f, x) in out.as_chunks_mut::<2>().0.iter_mut().zip(s.scratch[..r.frames * 2].as_chunks::<2>().0) {
+        let (l, r) = apply_pan(pan, x[0] * vol, x[1] * vol);
+        add_finite(f, l, r);
+    }
+    s.played += r.frames as u64;
+    if let Some(p) = r.pos {
+        s.cursor = usize::try_from(p).unwrap_or(usize::MAX);
+    }
+    if r.ended {
+        s.playing = false;
+        s.at_end = true;
+    } else {
+        frames_before_limit(s, 1);
+    }
+}
+
+fn mix_sound(s: &mut Playback, out: &mut [f32]) {
     if !s.playing {
         return;
     }
@@ -696,11 +865,14 @@ fn mix_sound(s: &mut Playback, out: &mut [f32], time: u64) {
         None => (1.0, s.pan),
     };
     let vol = s.volume * gain;
-    for (k, f) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
-        if let Some(t) = s.stop_time
-            && time + k as u64 >= t {
-                s.playing = false;
-                s.stop_time = None;
+    if s.stream.is_some() {
+        mix_stream(s, out, vol, pan);
+        return;
+    }
+    for f in out.as_chunks_mut::<2>().0.iter_mut() {
+        if let Some(l) = s.limit
+            && s.played >= l {
+                s.stop_at_limit();
                 return;
             }
         if s.cursor >= s.data.frames {
@@ -716,6 +888,7 @@ fn mix_sound(s: &mut Playback, out: &mut [f32], time: u64) {
         let (l, r) = apply_pan(pan, l * vol, r * vol);
         add_finite(f, l, r);
         s.cursor += 1;
+        s.played += 1;
     }
     if s.cursor >= s.data.frames && !s.looping {
         s.playing = false;
@@ -815,6 +988,68 @@ mod tests {
         assert_eq!(&out[0..6], &[0.0, 0.0, 0.0, 0.01, 0.0, 0.02]);
         assert_eq!(&out[6..], &[0.0; 6]);
         assert_eq!(e.playing(h), QB_FALSE);
+    }
+
+    /// `_SNDLIMIT` counts from the sound's start, not from the engine's.
+    #[test]
+    fn limit_counts_from_the_start_of_the_sound() {
+        let mut e = engine();
+        let h = e.open_decoded(Some(pcm(100)), FLAG_DECODE);
+        let mut out = vec![0.0f32; 2 * 50];
+        e.render(&mut out); // the engine is 50 frames on
+        e.limit(h, 0.01);
+        e.play_sound(h);
+        e.render(&mut out);
+        assert_eq!(out[2 * 9], 0.09);
+        assert_eq!(out[2 * 10], 0.0);
+        assert_eq!(e.playing(h), QB_FALSE);
+        // a sound resumed after _SNDPAUSE goes on counting
+        e.limit(h, 0.01);
+        e.play_sound(h);
+        e.render(&mut out[..2 * 4]);
+        e.pause(h);
+        e.play_sound(h);
+        e.render(&mut out);
+        assert_eq!(out[2 * 5], 0.19);
+        assert_eq!(out[2 * 6], 0.0);
+    }
+
+    /// `_SNDLOOP h: _SNDCLOSE h` finishes the pass and frees the handle.
+    #[test]
+    fn closing_a_looping_sound_ends_it() {
+        let mut e = engine();
+        let h = e.open_decoded(Some(pcm(10)), FLAG_DECODE);
+        e.loop_sound(h);
+        let mut out = vec![0.0f32; 2 * 4];
+        e.render(&mut out);
+        e.close(h);
+        e.render(&mut out);
+        e.render(&mut out);
+        e.housekeeping();
+        assert!(!e.handles[h as usize].used);
+    }
+
+    /// SOUND rendered outside the engine (Rendered) queues what rendering
+    /// into the voices does, and a long note is not rendered ahead.
+    #[test]
+    fn rendered_sound_and_long_notes() {
+        let mut a = engine();
+        let mut b = engine();
+        a.sound(440.0, 9.1).unwrap();
+        let (mut synth, rate, init) = b.synth_job();
+        let mut out = Rendered::default();
+        synth.sound(rate, init, 440.0, 9.1, &mut out).unwrap();
+        b.queue_rendered(synth, out);
+        assert_eq!(a.play_remaining(), b.play_remaining());
+        let (mut x, mut y) = (vec![0f32; 2 * 600], vec![0f32; 2 * 600]);
+        a.render(&mut x);
+        b.render(&mut y);
+        assert_eq!(x, y);
+        // an hour of SOUND: queued as a note generated while it plays
+        a.sound(440.0, 65535.0).unwrap();
+        assert_eq!(a.play_remaining(), 3_600_824);
+        a.render(&mut x);
+        assert!(x.iter().any(|&v| v != 0.0));
     }
 
     #[test]

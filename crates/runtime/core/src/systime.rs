@@ -1,8 +1,7 @@
 //! Clock reads for TIMER, `_DELAY`, `_LIMIT` and the cursor blink.
 //!
-//! A monotonic millisecond tick count, and the start-of-day reference taken
-//! at program start (wait for the wall clock's second to tick over, then
-//! record the tick count and the local time of day), as QB64 does.
+//! A monotonic millisecond tick count, the wall clock and the local time of
+//! day, and the program clock that `TIME$ =` and `DATE$ =` move.
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeDelta};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -92,22 +91,6 @@ pub mod web {
     }
 }
 
-/// Busy-waits until `now()` (wall-clock seconds, `-1` = unknown) changes and
-/// returns the new value, like the legacy `time()` loop. If the clock is
-/// unknown from the start, returns 0 (midnight, January 1, 1970).
-pub fn wait_for_second_change(mut now: impl FnMut() -> i64) -> i64 {
-    let old = now();
-    if old == -1 {
-        return 0;
-    }
-    loop {
-        let t = now();
-        if t != old {
-            return t;
-        }
-    }
-}
-
 /// Milliseconds past midnight for a local time of day; `None` (localtime
 /// failed) is treated as midnight.
 pub fn day_ms(hms: Option<(u32, u32, u32)>) -> u32 {
@@ -126,25 +109,6 @@ pub fn local_hms(unix_seconds: i64) -> Option<(u32, u32, u32)> {
     }
     let t = Local.timestamp_opt(unix_seconds, 0).single()?;
     Some((t.hour(), t.minute(), t.second()))
-}
-
-fn wall_seconds() -> i64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        (web::now_ms() / 1000.0) as i64
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(-1)
-    }
-}
-
-/// Start-up reference for TIMER: `(clock_first, day_first)` = tick count and
-/// milliseconds past local midnight, taken right after a second boundary.
-pub fn time_init() -> (u32, u32) {
-    let secs = wait_for_second_change(wall_seconds);
-    let clock_first = ticks() as u32;
-    (clock_first, day_ms(local_hms(secs)))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -272,21 +236,6 @@ mod tests {
     }
 
     #[test]
-    fn waits_for_the_next_second() {
-        let mut seq = [100, 100, 100, 101, 102].into_iter();
-        assert_eq!(wait_for_second_change(|| seq.next().unwrap()), 101);
-        let mut seq = [7, 8].into_iter();
-        assert_eq!(wait_for_second_change(|| seq.next().unwrap()), 8);
-    }
-
-    #[test]
-    fn unknown_clock_means_midnight_1970() {
-        let mut calls = 0;
-        assert_eq!(wait_for_second_change(|| { calls += 1; -1 }), 0);
-        assert_eq!(calls, 1, "legacy reads time() once when it fails");
-    }
-
-    #[test]
     fn day_ms_counts_from_midnight() {
         assert_eq!(day_ms(Some((0, 0, 0))), 0);
         assert_eq!(day_ms(Some((0, 0, 1))), 1_000);
@@ -298,7 +247,7 @@ mod tests {
     #[test]
     fn local_time_matches_the_wall_clock() {
         assert_eq!(local_hms(-1), None);
-        let now = wall_seconds();
+        let now = unix_time() as i64;
         let (h, m, s) = local_hms(now).unwrap();
         assert!(h < 24 && m < 60 && s < 61);
         // Same second-of-minute as UTC (time zones are whole minutes).
@@ -336,14 +285,5 @@ mod tests {
         assert_eq!(set_date(b"6/31/2001"), Err(5));
         assert_eq!(date_string(), "06-15-2001");
         CLOCK_OFFSET_MS.store(before, Ordering::Relaxed);
-    }
-
-    #[test]
-    fn time_init_is_consistent_with_timer() {
-        let (clock_first, day_first) = time_init();
-        assert!(day_first < 86_400_000);
-        assert_eq!(day_first % 1000, 0);
-        let t = crate::timer::timer(ticks() as u32, clock_first, day_first, Some(0.001)).unwrap();
-        assert!((t * 1000.0 - f64::from(day_first)).abs() < 2_000.0 || t < 2.0, "{t} {day_first}");
     }
 }

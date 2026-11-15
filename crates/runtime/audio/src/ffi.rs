@@ -9,7 +9,8 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use crate::decode::load_file;
 use crate::device::Device;
-use crate::engine::{Engine, FLAG_DECODE, FLAG_STREAM, INVALID_SOUND_HANDLE};
+use crate::engine::{Engine, Rendered, FLAG_DECODE, FLAG_STREAM, INVALID_SOUND_HANDLE};
+use crate::stream::Stream;
 use crate::mml::VarReader;
 
 static ENGINE: LazyLock<Mutex<Engine>> = LazyLock::new(|| Mutex::new(Engine::default()));
@@ -85,13 +86,31 @@ pub fn qb_snd_un_init() {
 
 // ---- SOUND / BEEP / PLAY / synth ---------------------------------------------
 
+// SOUND and PLAY render from a copy of the synth state without the engine
+// lock, which the device callback takes for every buffer: a long PLAY string
+// no longer makes the sounds already playing stutter.
+
 pub fn qb_snd_sound(frequency: f64, ticks: f64) -> i32 {
-    err(engine().sound(frequency, ticks))
+    let (mut synth, rate, init) = {
+        let mut e = engine();
+        if e.sound_stop(frequency, ticks) {
+            return 0;
+        }
+        e.synth_job()
+    };
+    let mut out = Rendered::default();
+    let r = synth.sound(rate, init, frequency, ticks, &mut out);
+    engine().queue_rendered(synth, out);
+    err(r)
 }
 
 /// `PLAY s$`; `dblock` is the program's DBLOCK (for `"=" + VARPTR$(v)`).
 pub fn qb_snd_play(s: &[u8], dblock: &[u8]) -> i32 {
-    err(engine().play(s, &DBlock(dblock)))
+    let (mut synth, rate, init) = engine().synth_job();
+    let mut out = Rendered::default();
+    let r = synth.play(rate, init, s, &DBlock(dblock), &mut out);
+    engine().queue_rendered(synth, out);
+    err(r)
 }
 
 pub fn qb_snd_play_count() -> i32 {
@@ -132,7 +151,19 @@ pub fn qb_snd_rate() -> i32 {
 fn path_from(name: &[u8]) -> PathBuf {
     // QB64 handed a C string to its decoder: stop at the first NUL.
     let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
-    PathBuf::from(String::from_utf8_lossy(&name[..end]).into_owned())
+    os_path(&name[..end])
+}
+
+/// The file name's bytes as a path: byte for byte on Unix (a name that is
+/// not UTF-8 used to become U+FFFD and name another file), UTF-8 elsewhere.
+#[cfg(unix)]
+fn os_path(b: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(b))
+}
+#[cfg(not(unix))]
+fn os_path(b: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(b).into_owned())
 }
 
 fn open(name: &[u8], flags: u32) -> i32 {
@@ -146,8 +177,15 @@ fn open(name: &[u8], flags: u32) -> i32 {
     if name.is_empty() {
         return INVALID_SOUND_HANDLE;
     }
-    // Decode without holding the lock so playback continues meanwhile.
-    let pcm = load_file(&path_from(name), rate);
+    // Decode without holding the lock so playback continues meanwhile. A
+    // streamed sound reads only the start of the file here, the rest while it
+    // plays; one that cannot be streamed (a tracker module) is decoded whole.
+    let path = path_from(name);
+    if flags & FLAG_STREAM != 0
+        && let Some(st) = Stream::open(&path, rate) {
+            return engine().open_stream(st, flags);
+        }
+    let pcm = load_file(&path, rate);
     engine().open_decoded(pcm, flags)
 }
 

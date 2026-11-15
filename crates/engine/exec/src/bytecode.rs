@@ -85,7 +85,7 @@ impl Ty {
 }
 
 /// Integer width of a wrapping/range-checked integer operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum W {
     W16,
     W32,
@@ -136,7 +136,7 @@ impl W {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Cmp {
     Eq,
     Ne,
@@ -144,20 +144,56 @@ pub enum Cmp {
     Le,
     Gt,
     Ge,
+    /// "not less than" and the three like it: the negation of an ordered comparison
+    /// of floats, true when an operand is NaN (`>=` is false then). Only a float
+    /// branch (`BrF`) carries them, see [`Cmp::negated`].
+    Nlt,
+    Nle,
+    Ngt,
+    Nge,
 }
 
 impl Cmp {
+    /// The comparison that holds exactly when this one does not, for operands that
+    /// are always ordered (integers, strings).
     pub fn inverse(self) -> Cmp {
         match self {
             Cmp::Eq => Cmp::Ne,
             Cmp::Ne => Cmp::Eq,
-            Cmp::Lt => Cmp::Ge,
-            Cmp::Le => Cmp::Gt,
-            Cmp::Gt => Cmp::Le,
-            Cmp::Ge => Cmp::Lt,
+            Cmp::Lt | Cmp::Nge => Cmp::Ge,
+            Cmp::Le | Cmp::Ngt => Cmp::Gt,
+            Cmp::Gt | Cmp::Nle => Cmp::Le,
+            Cmp::Ge | Cmp::Nlt => Cmp::Lt,
+        }
+    }
+    /// The comparison that holds exactly when this one does not, for floats too:
+    /// `NOT (a < b)` is not `a >= b` when one of them is NaN.
+    pub fn negated(self) -> Cmp {
+        match self {
+            Cmp::Eq => Cmp::Ne,
+            Cmp::Ne => Cmp::Eq,
+            Cmp::Lt => Cmp::Nlt,
+            Cmp::Le => Cmp::Nle,
+            Cmp::Gt => Cmp::Ngt,
+            Cmp::Ge => Cmp::Nge,
+            Cmp::Nlt => Cmp::Lt,
+            Cmp::Nle => Cmp::Le,
+            Cmp::Ngt => Cmp::Gt,
+            Cmp::Nge => Cmp::Ge,
+        }
+    }
+    /// This comparison as one of the six plain ones, and whether its result is negated.
+    pub fn plain(self) -> (Cmp, bool) {
+        match self {
+            Cmp::Nlt => (Cmp::Lt, true),
+            Cmp::Nle => (Cmp::Le, true),
+            Cmp::Ngt => (Cmp::Gt, true),
+            Cmp::Nge => (Cmp::Ge, true),
+            c => (c, false),
         }
     }
     #[inline(always)]
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // NaN is the point of the last four
     pub fn test<T: PartialOrd>(self, a: T, b: T) -> bool {
         match self {
             Cmp::Eq => a == b,
@@ -166,6 +202,10 @@ impl Cmp {
             Cmp::Le => a <= b,
             Cmp::Gt => a > b,
             Cmp::Ge => a >= b,
+            Cmp::Nlt => !(a < b),
+            Cmp::Nle => !(a <= b),
+            Cmp::Ngt => !(a > b),
+            Cmp::Nge => !(a >= b),
         }
     }
     pub fn name(self) -> &'static str {
@@ -176,12 +216,16 @@ impl Cmp {
             Cmp::Le => "le",
             Cmp::Gt => "gt",
             Cmp::Ge => "ge",
+            Cmp::Nlt => "nlt",
+            Cmp::Nle => "nle",
+            Cmp::Ngt => "ngt",
+            Cmp::Nge => "nge",
         }
     }
 }
 
 /// Numeric unary operations (operand and result types fixed by the loader).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Un {
     NegI(W),
     NegF,
@@ -190,7 +234,7 @@ pub enum Un {
 }
 
 /// Scalar type of a memory access (QIR `ld`/`st`, memory-backed variables).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MTy {
     I8,
     U8,
@@ -222,19 +266,17 @@ impl MTy {
 }
 
 /// Storage of a memory-backed variable or array.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MVar {
     /// bytes of the variable / of one element
     pub size: u32,
-    /// initial byte (space for `STRING * n`)
-    pub fill: u8,
     /// holds string handles
     pub strs: bool,
     pub array: bool,
 }
 
 /// `_FLOAT` binary operation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum XOp {
     Add,
     Sub,
@@ -245,7 +287,7 @@ pub enum XOp {
 }
 
 /// Inner operation of the accumulate superinstruction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AccOp {
     Mul,
     IDiv,
@@ -255,7 +297,7 @@ pub enum AccOp {
     Xor,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DimMode {
     Dim,
     /// static array: dimensioned once (a second DIM keeps it); ERASE clears it
@@ -267,7 +309,7 @@ pub enum DimMode {
 /// What a COMMON variable (or each element of a COMMON array) holds, as CHAIN
 /// passes it: the bytes of its QIR type, so a program lowered in memory mode
 /// and one lowered in register mode read each other's values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChainK {
     /// integer of `size` bytes (1, 2, 4, 8); `signed` = sign-extended into a register
     Int { size: u8, signed: bool },
@@ -314,7 +356,7 @@ impl ChainK {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ResumeK {
     Same,
     Next,
@@ -322,7 +364,7 @@ pub enum ResumeK {
 }
 
 /// One instruction. `d` = destination, `a`/`b`/`s` = sources, `t` = jump target.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Ins {
     // ---- numeric moves and conversions
     Ldi { d: R, v: i32 },
@@ -492,11 +534,20 @@ pub enum Ins {
     /// integer targets get the i64 value, float targets the f64 value;
     /// overflow = error 6, malformed number = error 2 (the item is not consumed)
     ReadN { d: R, typ: i32 },
-    // ---- events (ON TIMER / ON KEY / ...), delivered at safe points
+    // ---- BYREF parameters that alias their argument ([`Slot::R`]): register `r`
+    // holds the argument's index in the VM's reference table
+    /// numeric load through reference parameter `r`
+    LdR { d: R, r: R },
+    /// numeric store through reference parameter `r`
+    StR { r: R, s: R },
+    /// string load through reference parameter `r`
+    LdRS { d: R, r: R },
+    /// string store through reference parameter `r` (`s` may carry [`K`] / [`M`])
+    StRS { r: R, s: R },
 }
 
 /// Where a BYREF argument lives.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Place {
     /// numeric register of the frame
     N(R, Ty),
@@ -508,12 +559,14 @@ pub enum Place {
     A(R),
     /// array element: array operand + `n` consecutive index registers
     E { a: R, i: R, n: u32, ty: Ty },
+    /// what reference parameter `r` (of type `ty`) of the current frame refers to
+    R(R, Ty),
 }
 
 impl Place {
     pub fn ty(&self) -> Option<Ty> {
         match *self {
-            Place::N(_, t) | Place::NG(_, t) | Place::E { ty: t, .. } => Some(t),
+            Place::N(_, t) | Place::NG(_, t) | Place::E { ty: t, .. } | Place::R(_, t) => Some(t),
             Place::S(_) | Place::SG(_) => Some(Ty::Str),
             Place::A(_) => None,
         }
@@ -521,7 +574,7 @@ impl Place {
 }
 
 /// One argument of a call, already converted to the parameter's type.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Arg {
     /// copy numeric register
     N(R),
@@ -529,11 +582,13 @@ pub enum Arg {
     S(R),
     /// move string out of a dead temporary
     SMove(R),
-    /// BYREF: copied in at the call, copied back at return (strings/arrays are moved, not copied)
+    /// BYREF: `Module::places[p]`. A whole array is shared with the callee; a scalar
+    /// or element is copied in at the call and back at the return, or, for a
+    /// [`Slot::R`] parameter, referred to (see `Vm::call`)
     Ref(u32),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct CallDesc {
     pub args: Vec<Arg>,
     /// FUNCTION result destination in the caller (register of the result type's bank)
@@ -541,14 +596,18 @@ pub struct CallDesc {
 }
 
 /// Parameter / result slot of a function.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Slot {
     N(R),
     S(R),
     A(R),
+    /// BYREF scalar that aliases its argument: the numeric register holds the
+    /// argument's index in the VM's reference table (the loader chooses this where
+    /// a copy could be told apart from the argument, `byref.rs`)
+    R(R),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct Func {
     pub name: String,
     /// first instruction / one past the last
@@ -573,7 +632,7 @@ impl Func {
 }
 
 /// A loaded program: one flat code vector, function 0 is the main module.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Hash)]
 pub struct Module {
     pub code: Vec<Ins>,
     pub funcs: Vec<Func>,
@@ -609,7 +668,7 @@ pub struct Module {
 
 /// One `DECLARE LIBRARY` function: C name, library (`""` = the runner's own
 /// symbols and the default system libraries), argument and result types.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Hash)]
 pub struct XFn {
     pub name: String,
     pub lib: String,
@@ -621,7 +680,7 @@ pub struct XFn {
 }
 
 /// C-level type of an extern argument or result.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum XTy {
     #[default]
     Void,
@@ -642,7 +701,7 @@ pub enum XTy {
 }
 
 /// An extern call: function, argument registers (numeric or string), result register.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct XCall {
     pub f: u32,
     pub args: Vec<R>,
@@ -650,7 +709,7 @@ pub struct XCall {
 }
 
 /// Operand roles, for validation and for tools (disassembler, JIT).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Opnd {
     /// numeric register
     N(R),
@@ -971,6 +1030,22 @@ impl Ins {
             }
             Restore { i } => f(O::Data(i)),
             ReadS { d } => f(O::S(d)),
+            LdR { d, r } => {
+                f(O::N(d));
+                f(O::N(r))
+            }
+            StR { r, s } => {
+                f(O::N(r));
+                f(O::N(s))
+            }
+            LdRS { d, r } => {
+                f(O::S(d));
+                f(O::N(r))
+            }
+            StRS { r, s } => {
+                f(O::N(r));
+                f(O::SK(s))
+            }
         }
     }
 
@@ -1089,6 +1164,10 @@ impl Ins {
             Bound { upper, .. } => if upper { "ubound" } else { "lbound" }.into(),
             Restore { .. } => "restore".into(),
             ReadS { .. } => "read.s".into(),
+            LdR { .. } => "ld.ref".into(),
+            StR { .. } => "st.ref".into(),
+            LdRS { .. } => "ld.ref.s".into(),
+            StRS { .. } => "st.ref.s".into(),
         }
     }
 
@@ -1139,9 +1218,7 @@ impl Ins {
             | LdE { d, .. }
             | LdE1 { d, .. }
             | Bound { d, .. }
-
-
- => Some((false, d)),
+            | LdR { d, .. } => Some((false, d)),
             MovS { d, .. }
             | TakeS { d, .. }
             | GetGS { d, .. }
@@ -1151,7 +1228,8 @@ impl Ins {
             | Right { d, .. }
             | Mid { d, .. }
             | LdES { d, .. }
-            | LdE1S { d, .. } => Some((true, d)),
+            | LdE1S { d, .. }
+            | LdRS { d, .. } => Some((true, d)),
             _ => None,
         }
     }
@@ -1248,8 +1326,12 @@ impl Module {
             for p in &f.params {
                 check_slot(f, *p)?;
             }
-            if let Some((s, _)) = f.ret {
+            if let Some((s, t)) = f.ret {
                 check_slot(f, s)?;
+                // a _FLOAT result is a register pair
+                if t == Ty::F80 && !matches!(s, Slot::N(r) if r + 1 < f.n_num()) {
+                    return Err(format!("func {fi}: bad result slot"));
+                }
             }
             let mut bad: Option<String> = None;
             for pc in f.entry..f.end {
@@ -1269,11 +1351,19 @@ impl Module {
                         return Err(format!("pc {pc}: call does not match {}", cf.name));
                     }
                     for (a, p) in cd.args.iter().zip(&cf.params) {
+                        // the bank of a BYREF place must be the parameter's (the VM moves
+                        // values between them without looking)
                         let ok = match (a, p) {
                             (Arg::N(r), Slot::N(_)) => *r < f.n_num(),
                             (Arg::S(r), Slot::S(_)) => self.sk_ok(f, *r),
                             (Arg::SMove(r), Slot::S(_)) => *r < f.n_str,
-                            (Arg::Ref(pl), _) => (*pl as usize) < self.places.len(),
+                            (Arg::Ref(pl), s) => match (self.places.get(*pl as usize).map(|p| (p, p.ty())), s) {
+                                (Some((Place::A(_), _)), Slot::A(_)) => true,
+                                (Some((_, Some(Ty::Str))), Slot::S(_) | Slot::R(_)) => true,
+                                (Some((_, Some(Ty::F80))), _) => false,
+                                (Some((_, Some(_))), Slot::N(_) | Slot::R(_)) => true,
+                                _ => false,
+                            },
                             _ => false,
                         };
                         if !ok {
@@ -1282,17 +1372,39 @@ impl Module {
                     }
                     if let (Some(d), Some((s, rty))) = (cd.dest, cf.ret) {
                         let ok = match s {
-                            Slot::N(_) => d + u32::from(rty == Ty::F80) < f.n_num(),
+                            Slot::N(_) => d.checked_add(u32::from(rty == Ty::F80)).is_some_and(|e| e < f.n_num()),
                             Slot::S(_) => d < f.n_str,
-                            Slot::A(_) => false,
+                            Slot::A(_) | Slot::R(_) => false,
                         };
                         if !ok {
                             return Err(format!("pc {pc}: bad result register"));
                         }
                     }
                 }
+                match *ins {
+                    Ins::NewV { v, .. } if v as usize >= self.mvars.len() => return Err(format!("pc {pc}: bad memory variable")),
+                    Ins::XCall { c } => {
+                        let Some(xc) = self.xcalls.get(c as usize) else { return Err(format!("pc {pc}: bad extern call")) };
+                        let Some(xf) = self.xfns.get(xc.f as usize) else { return Err(format!("pc {pc}: bad extern function")) };
+                        if xc.args.len() != xf.args.len() || (xc.dest.is_some() && xf.ret == XTy::Void) {
+                            return Err(format!("pc {pc}: extern call does not match {}", xf.name));
+                        }
+                        let reg_ok = |r: R, t: XTy| if t == XTy::Str { self.sk_ok(f, r) } else { r < f.n_num() };
+                        if !xc.args.iter().zip(&xf.args).all(|(&r, &t)| reg_ok(r, t)) || xc.dest.is_some_and(|d| !(if xf.ret == XTy::Str { d < f.n_str } else { d < f.n_num() })) {
+                            return Err(format!("pc {pc}: bad extern call register"));
+                        }
+                    }
+                    Ins::Chain { pl, .. } => {
+                        let p = self.places.get(pl as usize).ok_or_else(|| format!("pc {pc}: bad place"))?;
+                        self.check_place(f, main, p).map_err(|e| format!("pc {pc}: {e}"))?
+                    }
+                    _ => {}
+                }
                 if let Ins::Rt { args, .. } = *ins {
-                    for &(r, ty) in &self.bargs[args as usize] {
+                    let Some(list) = self.bargs.get(args as usize) else {
+                        return Err(format!("pc {pc}: bad argument list"));
+                    };
+                    for &(r, ty) in list {
                         let ok = match ty {
                             Ty::Str => self.sk_ok(f, r),
                             Ty::F80 => r.checked_add(2).is_some_and(|e| e <= f.n_num()),
@@ -1332,9 +1444,11 @@ impl Module {
     }
 
     fn check_place(&self, f: &Func, main: &Func, p: &Place) -> Result<(), String> {
+        // a _FLOAT value is a register pair
         let ok = match *p {
-            Place::N(r, _) => r < f.n_num(),
-            Place::NG(g, _) => g < main.n_num(),
+            Place::N(r, t) => r.checked_add(1 + u32::from(t == Ty::F80)).is_some_and(|e| e <= f.n_num()),
+            Place::NG(g, t) => g.checked_add(1 + u32::from(t == Ty::F80)).is_some_and(|e| e <= main.n_num()),
+            Place::R(r, t) => r < f.n_num() && t != Ty::F80,
             Place::S(r) => r < f.n_str,
             Place::SG(g) => g < main.n_str,
             Place::A(a) => arr_ok(f, main, a),
@@ -1390,7 +1504,7 @@ fn arr_ok(f: &Func, main: &Func, a: R) -> bool {
 
 fn check_slot(f: &Func, s: Slot) -> Result<(), String> {
     let ok = match s {
-        Slot::N(r) => r < f.n_num(),
+        Slot::N(r) | Slot::R(r) => r < f.n_num(),
         Slot::S(r) => r < f.n_str,
         Slot::A(r) => r < f.n_arr(),
     };

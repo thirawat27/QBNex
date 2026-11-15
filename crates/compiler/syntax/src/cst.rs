@@ -311,6 +311,17 @@ fn split_statements(text: &str, tokens: &[Token]) -> Vec<Item> {
                 }
             }
             _ => {
+                // `ELSE IF c THEN` at the start of a line is ELSE and a statement of its
+                // own, a block IF with its own END IF when THEN ends the line (the
+                // compiler reads it so; as one ELSE line, the END IF of the inner IF
+                // was reported as "END IF without IF").
+                let else_alone = cur.len() == 1 && {
+                    let e = &tokens[cur[0] as usize];
+                    e.kind == TokenKind::Keyword && upper(text, e) == "ELSE"
+                };
+                if else_alone && t.kind == TokenKind::Keyword && upper(text, t) == "IF" {
+                    flush(&mut items, &mut cur, &mut held);
+                }
                 if cur.is_empty() {
                     then_seen = false;
                     single_if = false;
@@ -591,6 +602,20 @@ mod tests {
     #[test]
     fn next_closes_many() {
         let p = parse("FOR i = 1 TO 2\nFOR j = 1 TO 2\nNEXT j, i\n");
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+    }
+
+    #[test]
+    fn else_if_opens_a_block() {
+        // ELSE followed by a block IF: two END IFs, as the compiler wants
+        let p = parse("IF x = 1 THEN\nPRINT 1\nELSE IF x = 2 THEN\nPRINT 2\nEND IF\nEND IF\n");
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        // with one END IF the outer IF stays open
+        let p = parse("IF x = 1 THEN\nPRINT 1\nELSE IF x = 2 THEN\nPRINT 2\nEND IF\n");
+        let msgs: Vec<&str> = p.diagnostics.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(msgs, vec!["IF without END IF"]);
+        // ELSE with a single-line IF, and ELSE IF inside a single-line IF, open nothing
+        let p = parse("IF x = 1 THEN\nPRINT 1\nELSE IF x = 2 THEN PRINT 2\nEND IF\nIF a THEN b = 1 ELSE IF c THEN b = 2\n");
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
     }
 

@@ -15,7 +15,6 @@
 
 use crate::ctx::*;
 use crate::mir::*;
-use crate::thunk::abi;
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{self, types, AbiParam, Block as CBlock, InstBuilder, MemFlagsData, Signature, Value};
 use cranelift_codegen::control::ControlPlane;
@@ -24,7 +23,7 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch, Variable};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, FuncId as CFuncId, Linkage, Module as _, ModuleReloc};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 /// Functions with more slots than this keep every slot in memory (keeps
@@ -42,7 +41,8 @@ pub enum Target {
     Aarch64Darwin,
 }
 
-pub(crate) fn make_isa(t: Target) -> OwnedTargetIsa {
+#[doc(hidden)] // (the tests' host-call trampolines)
+pub fn make_isa(t: Target) -> OwnedTargetIsa {
     make_isa_pic(t, false)
 }
 
@@ -81,7 +81,19 @@ pub(crate) fn make_isa_for(t: Target, pic: bool, this_cpu: bool) -> OwnedTargetI
     cranelift_codegen::isa::lookup_by_name(triple).expect(triple).finish(flags).expect("isa")
 }
 
-pub(crate) fn clif_ty(t: Ty) -> ir::Type {
+/// Cranelift parameter of a MIR type (narrow integers sign-extended, as the
+/// C calling conventions want).
+#[doc(hidden)]
+pub fn abi(t: Ty) -> AbiParam {
+    let p = AbiParam::new(clif_ty(t));
+    match t {
+        Ty::I16 | Ty::I32 => p.sext(),
+        _ => p,
+    }
+}
+
+#[doc(hidden)]
+pub fn clif_ty(t: Ty) -> ir::Type {
     match t {
         Ty::I16 => types::I16,
         Ty::I32 => types::I32,
@@ -411,8 +423,6 @@ struct Gen<'a, M: cranelift_module::Module> {
     frefs: Vec<Option<ir::FuncRef>>,
     /// Slots kept in memory.
     resident: Vec<bool>,
-    /// Slots written somewhere (written back on exit).
-    defined: Vec<bool>,
     blocks: Vec<CBlock>,
     ctx: Value,
     v_frame: Variable,
@@ -462,7 +472,6 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
         let n = f.slots.len();
         let nf = f.frame_len();
         let mut resident: Vec<bool> = Vec::from_fn(n, |r| r < nf && nf > MAX_REG_SLOTS);
-        let mut defined = vec![false; n];
         for blk in &f.blocks {
             for i in &blk.insts {
                 match i {
@@ -475,19 +484,6 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                         }
                     }
                     _ => {}
-                }
-                if let Some(d) = inst_def(i) {
-                    defined[d as usize] = true;
-                }
-                if let Inst::Call { back, .. } = i {
-                    for (_, r) in back {
-                        defined[*r as usize] = true;
-                    }
-                }
-                if let Inst::VmOp { writes, .. } = i {
-                    for w in writes {
-                        defined[*w as usize] = true;
-                    }
                 }
             }
         }
@@ -504,7 +500,6 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
             fids: &[],
             frefs: Vec::new(),
             resident,
-            defined,
             blocks: Vec::new(),
             ctx: z,
             v_frame: Variable::from_u32(0),
@@ -816,17 +811,9 @@ impl<'a, M: cranelift_module::Module> Gen<'a, M> {
                 self.b.ins().brif(c, t1, &[], t2, &[]);
             }
             Term::Ret => {
-                // The caller reads the result and the parameters (BYREF copy-out).
-                let outs: Vec<Reg> = self.f.ret.into_iter().chain(self.f.params.iter().copied()).collect();
-                for r in outs {
-                    // frame slots are current already (see `set`)
-                    if (r as usize) >= self.f.frame_len() && !self.resident[r as usize] && self.defined[r as usize] {
-                        let v = self.b.use_var(self.vars[(r) as usize]);
-                        let t = self.ty(r);
-                        let fr = self.fr();
-                        self.slot_store(t, v, fr, (r * 8) as i32);
-                    }
-                }
+                // The caller reads the result and the parameters (BYREF copy-out) from
+                // the frame. `Module::validate` rejects a result or parameter in a
+                // temporary slot, and frame slots are current already (see `set`).
                 let st = self.b.ins().iconst(types::I32, i64::from(status::OK));
                 self.b.ins().return_(&[st]);
             }
@@ -1594,42 +1581,4 @@ fn wrap_imm(t: Ty, v: i64) -> i64 {
         Ty::I32 => i64::from(v as i32),
         _ => v,
     }
-}
-
-fn inst_def(i: &Inst) -> Option<Reg> {
-    match i {
-        Inst::Const { dst, .. }
-        | Inst::Mov { dst, .. }
-        | Inst::Conv { dst, .. }
-        | Inst::Bin { dst, .. }
-        | Inst::Cmp { dst, .. }
-        | Inst::Neg { dst, .. }
-        | Inst::Not { dst, .. }
-        | Inst::GLoad { dst, .. }
-        | Inst::AddrOf { dst, .. }
-        | Inst::GAddrOf { dst, .. }
-        | Inst::LoadPtr { dst, .. }
-        | Inst::ALoad { dst, .. }
-        | Inst::ConvWrap { dst, .. }
-        | Inst::Trunc { dst, .. }
-        | Inst::Math { dst, .. }
-        | Inst::Bitcast { dst, .. } => Some(*dst),
-        Inst::VAElem { load: true, reg, .. } => Some(*reg),
-        Inst::Host { dst, .. } => *dst,
-        Inst::Call { dst, .. } => *dst,
-        _ => None,
-    }
-}
-
-/// Collects the set of slots a function touches (for diagnostics/tests).
-pub fn used_slots(f: &Func) -> BTreeSet<Reg> {
-    let mut s = BTreeSet::new();
-    for b in &f.blocks {
-        for i in &b.insts {
-            if let Some(d) = inst_def(i) {
-                s.insert(d);
-            }
-        }
-    }
-    s
 }

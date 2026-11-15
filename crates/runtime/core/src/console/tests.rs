@@ -523,29 +523,6 @@ fn inkey_ring_buffer() {
 }
 
 #[test]
-fn input_validation_rules() {
-    use input::{validate, Check, ISFLOAT, ISUNSIGNED};
-    assert_eq!(validate(b"32767", 16), Check::Valid);
-    assert_eq!(validate(b"32768", 16), Check::Invalid);
-    assert_eq!(validate(b"-32768", 16), Check::Valid);
-    assert_eq!(validate(b"01", 16), Check::Invalid);
-    assert_eq!(validate(b"-", 16), Check::Valid);
-    assert_eq!(validate(b"&O777", 8), Check::Invalid);
-    assert_eq!(validate(b"255", 8 | ISUNSIGNED), Check::Valid);
-    assert_eq!(validate(b"-1", 8 | ISUNSIGNED), Check::Invalid);
-    assert_eq!(validate(b"9223372036854775807", 64), Check::Valid);
-    assert_eq!(validate(b"9223372036854775808", 64), Check::Invalid);
-    assert_eq!(validate(b"18446744073709551615", 64 | ISUNSIGNED), Check::Valid);
-    assert_eq!(validate(b"1.5d3", 32 | ISFLOAT), Check::Invalid);
-    assert_eq!(validate(b"1.5d3", 64 | ISFLOAT), Check::Valid);
-    assert_eq!(validate(b"3.402823E+38", 32 | ISFLOAT), Check::Valid);
-    assert_eq!(validate(b"3.402824E+38", 32 | ISFLOAT), Check::Invalid);
-    assert_eq!(validate(b"1.23456789", 32 | ISFLOAT), Check::Invalid);
-    assert_eq!(validate(b"00", 64 | ISFLOAT), Check::Invalid);
-    assert_eq!(validate(b"0.", 64 | ISFLOAT), Check::Valid);
-}
-
-#[test]
 fn input_dollar_from_keyboard() {
     let _g = lock();
     let mut m = Mock::new(2200);

@@ -206,13 +206,6 @@ FUNCTION type2symbol$ (typ$)
     END IF
 END FUNCTION
 
-'Strips away bits/indentifiers which make locating a variables source difficult
-FUNCTION typecomp (typ)
-    typ2 = typ
-    IF (typ2 AND ISINCONVENTIONALMEMORY) THEN typ2 = typ2 - ISINCONVENTIONALMEMORY
-    typecomp = typ2
-END FUNCTION
-
 FUNCTION typname2typ& (t2$)
     typname2typsize = 0 'the default
 
@@ -443,45 +436,6 @@ FUNCTION id2fulltypename$
         IF t AND ISUNSIGNED THEN a$ = qbnexprefix$ + "UNSIGNED " + a$
     END IF
     id2fulltypename$ = a$
-END FUNCTION
-
-FUNCTION id2shorttypename$
-    t = id.t
-    IF t = 0 THEN t = id.arraytype
-    size = id.tsize
-    bits = t AND 511
-    IF t AND ISUDT THEN
-        a$ = RTRIM$(udtxcname(t AND 511))
-        id2shorttypename$ = a$: EXIT FUNCTION
-    END IF
-    IF t AND ISSTRING THEN
-        IF t AND ISFIXEDLENGTH THEN a$ = "STRING" + str2(size) ELSE a$ = "STRING"
-        id2shorttypename$ = a$: EXIT FUNCTION
-    END IF
-    IF t AND ISOFFSETINBITS THEN
-        IF t AND ISUNSIGNED THEN a$ = "_U" ELSE a$ = "_"
-        IF bits > 1 THEN a$ = a$ + "BIT" + str2(bits) ELSE a$ = a$ + "BIT1"
-        id2shorttypename$ = a$: EXIT FUNCTION
-    END IF
-    IF t AND ISFLOAT THEN
-        IF bits = 32 THEN a$ = "SINGLE"
-        IF bits = 64 THEN a$ = "DOUBLE"
-        IF bits = 256 THEN a$ = "_FLOAT"
-    ELSE 'integer-based
-        IF bits = 8 THEN
-            IF (t AND ISUNSIGNED) THEN a$ = "_UBYTE" ELSE a$ = "_BYTE"
-        END IF
-        IF bits = 16 THEN
-            IF (t AND ISUNSIGNED) THEN a$ = "UINTEGER" ELSE a$ = "INTEGER"
-        END IF
-        IF bits = 32 THEN
-            IF (t AND ISUNSIGNED) THEN a$ = "ULONG" ELSE a$ = "LONG"
-        END IF
-        IF bits = 64 THEN
-            IF (t AND ISUNSIGNED) THEN a$ = "_UINTEGER64" ELSE a$ = "_INTEGER64"
-        END IF
-    END IF
-    id2shorttypename$ = a$
 END FUNCTION
 
 FUNCTION symbol2fulltypename$ (s2$)

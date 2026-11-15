@@ -5,7 +5,10 @@
 '
 ' Values live in a growable pool and are addressed by handles (1, 2, ...;
 ' 0 = no value). Arrays and objects keep their children as linked lists, so
-' JsonArrayGet% and JsonObjectGet% return the stored child itself.
+' JsonArrayGet% and JsonObjectGet% return the stored child itself. Up to
+' JSON_POOL_MAX (32767) values exist at a time: JsonFree v% gives back a value
+' with everything in it (a document: free its root when done with it), and
+' Json_Cleanup gives back all. A parse that fails keeps nothing.
 '
 '   v% = JSON_Parse%(text$)          ' 0 on error: see JSON_LastError$,
 '                                     ' JSON_ErrorPosition& (1-based byte)
@@ -50,20 +53,27 @@ TYPE JsonParser
     hasError AS _BYTE
 END TYPE
 
-' Value pool (fixed size: an import is placed after the program's SUBs, where
-' only declarations are allowed, and REDIM there would make local arrays).
-DIM SHARED JsonValueType%(1 TO JSON_POOL_MAX)
-DIM SHARED JsonBoolValue%(1 TO JSON_POOL_MAX)
-DIM SHARED JsonNumValue#(1 TO JSON_POOL_MAX)
-DIM SHARED JsonStrValue$(1 TO JSON_POOL_MAX) ' string value, or the source text of a parsed number
-DIM SHARED JsonKey$(1 TO JSON_POOL_MAX) ' member name when the parent is an object
-DIM SHARED JsonParent%(1 TO JSON_POOL_MAX)
-DIM SHARED JsonFirstChild%(1 TO JSON_POOL_MAX)
-DIM SHARED JsonLastChild%(1 TO JSON_POOL_MAX)
-DIM SHARED JsonNextSibling%(1 TO JSON_POOL_MAX)
-DIM SHARED JsonChildCount%(1 TO JSON_POOL_MAX)
+' Value pool: grown by JsonAllocValue% (the arrays are declared without a size,
+' so this line does not reset them wherever the module is placed). A free
+' value has type JSON_TYPE_FREE; JsonNextSibling% links the free values.
+CONST JSON_TYPE_FREE = -1
+DIM SHARED JsonValueType%()
+DIM SHARED JsonBoolValue%()
+DIM SHARED JsonNumValue#()
+DIM SHARED JsonStrValue$() ' string value, or the source text of a parsed number
+DIM SHARED JsonKey$() ' member name when the parent is an object
+DIM SHARED JsonParent%()
+DIM SHARED JsonFirstChild%()
+DIM SHARED JsonLastChild%()
+DIM SHARED JsonNextSibling%()
+DIM SHARED JsonChildCount%()
+DIM SHARED JsonParseLog%() ' the values a parse made, freed when it fails
 DIM SHARED JsonPoolCapacity%
 DIM SHARED JsonValuePoolSize%
+DIM SHARED JsonFreeValue%
+DIM SHARED JsonParseLogged&
+DIM SHARED JsonParseLogCap&
+DIM SHARED JsonParsing AS _BYTE
 DIM SHARED JsonPrettyPrint AS _BYTE
 DIM SHARED JsonIndentSize%
 DIM SHARED JsonSrc$
@@ -75,6 +85,7 @@ DIM SHARED JsonDepth%
 
 SUB Json_Init
     JsonValuePoolSize% = 0
+    JsonFreeValue% = 0
     JsonPrettyPrint = 0
     JsonIndentSize% = 2
     JsonErrMsg$ = ""
@@ -83,13 +94,43 @@ END SUB
 
 SUB Json_Cleanup
     JsonValuePoolSize% = 0
+    JsonFreeValue% = 0
 END SUB
 
 FUNCTION JsonAllocValue% ()
-    DIM n%
-    IF JsonValuePoolSize% >= JSON_POOL_MAX THEN EXIT FUNCTION
-JsonValuePoolSize% = JsonValuePoolSize% + 1
-    n% = JsonValuePoolSize%
+    DIM n%, c&
+    IF JsonFreeValue% > 0 THEN
+        n% = JsonFreeValue%
+        JsonFreeValue% = JsonNextSibling%(n%)
+    ELSE
+        IF JsonValuePoolSize% >= JSON_POOL_MAX THEN EXIT FUNCTION
+        n% = JsonValuePoolSize% + 1
+        IF n% > JsonPoolCapacity% THEN
+            c& = JsonPoolCapacity% * 2&
+            IF c& < 64 THEN c& = 64
+            IF c& > JSON_POOL_MAX THEN c& = JSON_POOL_MAX
+            REDIM _PRESERVE JsonValueType%(1 TO c&)
+            REDIM _PRESERVE JsonBoolValue%(1 TO c&)
+            REDIM _PRESERVE JsonNumValue#(1 TO c&)
+            REDIM _PRESERVE JsonStrValue$(1 TO c&)
+            REDIM _PRESERVE JsonKey$(1 TO c&)
+            REDIM _PRESERVE JsonParent%(1 TO c&)
+            REDIM _PRESERVE JsonFirstChild%(1 TO c&)
+            REDIM _PRESERVE JsonLastChild%(1 TO c&)
+            REDIM _PRESERVE JsonNextSibling%(1 TO c&)
+            REDIM _PRESERVE JsonChildCount%(1 TO c&)
+            JsonPoolCapacity% = c&
+        END IF
+        JsonValuePoolSize% = n%
+    END IF
+    IF JsonParsing THEN
+        JsonParseLogged& = JsonParseLogged& + 1
+        IF JsonParseLogged& > JsonParseLogCap& THEN
+            JsonParseLogCap& = JsonParseLogCap& * 2 + 64
+            REDIM _PRESERVE JsonParseLog%(1 TO JsonParseLogCap&)
+        END IF
+        JsonParseLog%(JsonParseLogged&) = n%
+    END IF
     JsonValueType%(n%) = JSON_TYPE_NULL
     JsonBoolValue%(n%) = 0
     JsonNumValue#(n%) = 0
@@ -104,8 +145,54 @@ JsonValuePoolSize% = JsonValuePoolSize% + 1
 END FUNCTION
 
 FUNCTION JsonValid% (valueIndex AS INTEGER)
-    JsonValid% = (valueIndex >= 1 AND valueIndex <= JsonValuePoolSize%)
+    IF valueIndex >= 1 AND valueIndex <= JsonValuePoolSize% THEN JsonValid% = (JsonValueType%(valueIndex) <> JSON_TYPE_FREE)
 END FUNCTION
+
+' Gives back a value and all values in it; it is first removed from the array
+' or object that holds it. Its handle (and those of its children) are then
+' invalid and are used again for new values.
+SUB JsonFree (valueIndex AS INTEGER)
+    DIM p%, c%, prev%
+    IF NOT JsonValid%(valueIndex) THEN EXIT SUB
+    p% = JsonParent%(valueIndex)
+    IF JsonValid%(p%) THEN
+        c% = JsonFirstChild%(p%)
+        DO WHILE c% > 0
+            IF c% = valueIndex THEN
+                IF prev% > 0 THEN JsonNextSibling%(prev%) = JsonNextSibling%(c%) ELSE JsonFirstChild%(p%) = JsonNextSibling%(c%)
+                IF JsonLastChild%(p%) = c% THEN JsonLastChild%(p%) = prev%
+                JsonChildCount%(p%) = JsonChildCount%(p%) - 1
+                EXIT DO
+            END IF
+            prev% = c%
+            c% = JsonNextSibling%(c%)
+        LOOP
+    END IF
+    JsonFreeTree valueIndex
+END SUB
+
+SUB JsonFreeTree (valueIndex AS INTEGER)
+    DIM c%, nx%
+    c% = JsonFirstChild%(valueIndex)
+    DO WHILE c% > 0
+        nx% = JsonNextSibling%(c%)
+        JsonFreeTree c%
+        c% = nx%
+    LOOP
+    JsonFreeOne valueIndex
+END SUB
+
+SUB JsonFreeOne (valueIndex AS INTEGER)
+    JsonValueType%(valueIndex) = JSON_TYPE_FREE
+    JsonStrValue$(valueIndex) = ""
+    JsonKey$(valueIndex) = ""
+    JsonParent%(valueIndex) = 0
+    JsonFirstChild%(valueIndex) = 0
+    JsonLastChild%(valueIndex) = 0
+    JsonChildCount%(valueIndex) = 0
+    JsonNextSibling%(valueIndex) = JsonFreeValue%
+    JsonFreeValue% = valueIndex
+END SUB
 
 '------------------------------------------------------------------ creation
 
@@ -450,9 +537,24 @@ END FUNCTION
 '-------------------------------------------------------------------- parser
 
 ' Parses a complete JSON text. Returns the root value, or 0 on error
-' (JSON_LastError$ / JSON_ErrorPosition& describe it; values allocated
-' before the error stay in the pool).
+' (JSON_LastError$ / JSON_ErrorPosition& describe it; the values made before
+' the error are given back).
 FUNCTION JSON_Parse% (jsonString AS STRING)
+    DIM v%, i&
+    JsonParsing = -1
+    JsonParseLogged& = 0
+    v% = JsonParseText%(jsonString)
+    JsonParsing = 0
+    IF v% = 0 THEN
+        FOR i& = JsonParseLogged& TO 1 STEP -1
+            IF JsonValueType%(JsonParseLog%(i&)) <> JSON_TYPE_FREE THEN JsonFreeOne JsonParseLog%(i&)
+        NEXT
+    END IF
+    JsonParseLogged& = 0
+    JSON_Parse% = v%
+END FUNCTION
+
+FUNCTION JsonParseText% (jsonString AS STRING)
     DIM v%
     JsonSrc$ = jsonString
     JsonPos& = 1
@@ -471,7 +573,7 @@ FUNCTION JSON_Parse% (jsonString AS STRING)
         JsonFail "unexpected text after the value"
         EXIT FUNCTION
     END IF
-    JSON_Parse% = v%
+    JsonParseText% = v%
 END FUNCTION
 
 SUB JsonFail (message AS STRING)
@@ -785,7 +887,7 @@ FUNCTION JsonParseArrayAt% ()
 END FUNCTION
 
 FUNCTION JsonParseObjectAt% ()
-    DIM o%, v%, k$
+    DIM o%, v%, k$, old%
     JsonDepth% = JsonDepth% + 1
     IF JsonDepth% > JSON_MAX_DEPTH THEN
         JsonFail "nesting too deep"
@@ -820,7 +922,12 @@ FUNCTION JsonParseObjectAt% ()
         JsonPos& = JsonPos& + 1
         v% = JsonParseAny%
         IF LEN(JsonErrMsg$) THEN EXIT FUNCTION
+        ' a duplicate key keeps the last value: the one it replaces is given back
+        old% = JsonObjectGet%(o%, k$)
         JsonObjectSet o%, k$, v%
+        IF old% > 0 THEN
+            IF JsonParent%(old%) = 0 THEN JsonFreeTree old%
+        END IF
         JsonSkipWs
         SELECT CASE JsonPeek%
             CASE 44

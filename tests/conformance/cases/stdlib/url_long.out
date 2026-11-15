@@ -1,0 +1,8 @@
+ 3013  3003  1 []
+ 304  8080  2001  701  3018 
+ 5000 
+ 0 [invalid port: 99999] h/x
+ 0 [invalid port: 80a]
+ 0 [invalid port: -1]
+ 0 [] http://h/x
+ 65535 [] [::1]

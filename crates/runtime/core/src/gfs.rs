@@ -7,7 +7,7 @@
 //! -1 non-specific, -2 invalid handle, -3 bad file mode, -4 illegal function
 //! call, -5 file not found, -6 path not found, -7 permission denied,
 //! -8 device unavailable, -9 path/file access error, -10 read past EOF,
-//! -11 bad file name.
+//! -11 bad file name, -13 disk full (-12 is `fileio`'s bad file mode on OPEN).
 //!
 //! Windows uses the same Win32 calls as legacy (`GFS_WINDOWS`). Other systems
 //! follow the legacy `GFS_C` fstream behaviour with `std::fs` (not verified on
@@ -91,7 +91,47 @@ struct Slot {
     /// Boxed so its address stays the same while the table grows.
     file: Box<GfsFile>,
     os: os::Handle,
+    /// A regular file opened for reading: INPUT # and LINE INPUT # read it
+    /// through [`ReadAhead`] (a device, pipe or COM port is read byte by byte,
+    /// a block read could wait for bytes that are not there yet).
+    buffered: bool,
+    ra: ReadAhead,
+    /// The file itself (device and inode, or volume and file index) for a
+    /// regular file: a write through one file number drops what other file
+    /// numbers of the same file read ahead.
+    ident: Option<(u64, u64)>,
+    /// Linux and macOS: byte ranges (start, length; 0 = to the end of any file)
+    /// this file number holds with LOCK, so that UNLOCK must name one of them
+    /// exactly and LOCK may not overlap one, as on Windows.
+    #[cfg_attr(windows, allow(dead_code))]
+    locks: Vec<(u64, u64)>,
 }
+
+/// Bytes read ahead of the position for the byte-at-a-time readers (INPUT #,
+/// LINE INPUT #, INPUT$ of an INPUT file): one system call per block instead
+/// of one per byte (and one more per step back).
+///
+/// While `data` is not empty the OS file offset is at `start + data.len()` and
+/// `GfsFile::pos` (the program's position) lies inside the block. Every other
+/// operation puts the OS offset back first ([`Table::sync`]). The block is only
+/// used while `epoch` equals [`Table::epoch`], which every OPEN, LOCK/UNLOCK and
+/// [`invalidate_read_ahead`] change, and a write through any file number of
+/// the same file drops it: bytes written through any file number (or by a
+/// SHELL command) are never read from an older block.
+#[derive(Default)]
+struct ReadAhead {
+    data: Vec<u8>,
+    start: i64,
+    epoch: u64,
+    /// Size of the next block: it starts small (a program that opens a file to
+    /// read one line reads little more than that line) and doubles while the
+    /// program goes on reading.
+    size: usize,
+}
+
+/// Smallest and largest [`ReadAhead`] block.
+const READ_AHEAD_MIN: usize = 4 * 1024;
+const READ_AHEAD_MAX: usize = 64 * 1024;
 
 /// Highest usable file number; larger numbers are "Bad file name or number".
 pub(crate) const MAX_FILENO: i32 = 32767;
@@ -103,17 +143,25 @@ pub(crate) struct Table {
     /// `gfs_fileno[f]` = table index or -1; index 0 unused.
     fileno: Vec<i32>,
     read_bytes: i64,
+    /// Changes whenever file contents may have changed (see [`ReadAhead`]).
+    epoch: u64,
 }
 
 // SAFETY: raw pointers inside point into data owned by the same table.
 unsafe impl Send for Table {}
 
 static TABLE: Mutex<Table> =
-    Mutex::new(Table { slots: Vec::new(), freed: Vec::new(), nextid: 1, fileno: Vec::new(), read_bytes: 0 });
+    Mutex::new(Table { slots: Vec::new(), freed: Vec::new(), nextid: 1, fileno: Vec::new(), read_bytes: 0, epoch: 0 });
 
 /// Locks the file table. Not re-entrant: helpers below take `&mut Table`.
 pub(crate) fn table() -> std::sync::MutexGuard<'static, Table> {
     TABLE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Files may have been changed outside the file table (SHELL, BSAVE, KILL,
+/// NAME): bytes read ahead are read again from the file.
+pub fn invalidate_read_ahead() {
+    table().epoch += 1;
 }
 
 impl Table {
@@ -133,6 +181,10 @@ impl Table {
             self.slots.push(Slot {
                 file: Box::new(GfsFile::zeroed()),
                 os: os::Handle::NONE,
+                buffered: false,
+                ra: ReadAhead::default(),
+                ident: None,
+                locks: Vec::new(),
             });
             self.slots.len() as i32 - 1
         };
@@ -141,8 +193,24 @@ impl Table {
         let s = &mut self.slots[i as usize];
         *s.file = GfsFile::zeroed();
         s.os = os::Handle::NONE;
+        s.buffered = false;
+        s.ra = ReadAhead::default();
+        s.ident = None;
+        s.locks.clear();
         s.file.id = id;
         i
+    }
+
+    /// Puts the OS file offset back at the program's position when a
+    /// [`ReadAhead`] block moved it, and drops the block.
+    fn sync(&mut self, i: i32) -> i32 {
+        let s = &mut self.slots[i as usize];
+        if s.ra.data.is_empty() {
+            return 0;
+        }
+        s.ra.data.clear();
+        let pos = s.file.pos;
+        os::setpos(s, pos)
     }
 
     /// `gfs_validhandle`.
@@ -223,6 +291,11 @@ impl Table {
             return x;
         }
         let s = &mut self.slots[i as usize];
+        s.ra = ReadAhead::default();
+        s.buffered = false;
+        s.ident = None;
+        // (closing the file also releases its LOCKs, as on Windows)
+        s.locks.clear();
         if s.file.scrn != 0 {
             return 0;
         }
@@ -249,6 +322,20 @@ impl Table {
         }
         if position < 0 {
             return -4;
+        }
+        {
+            // inside the bytes read ahead (INPUT # steps back one byte): no system
+            // call, and no LOF either: the position is within what the file held
+            let epoch = self.epoch;
+            let s = &mut self.slots[i as usize];
+            let end = s.ra.start + s.ra.data.len() as i64;
+            if !s.ra.data.is_empty() && s.ra.epoch == epoch && (s.ra.start..=end).contains(&position) {
+                s.file.pos = position;
+                s.file.eof_passed = 0;
+                s.file.eof_reached = 0;
+                return 0;
+            }
+            s.ra.data.clear();
         }
         let e = os::setpos(&mut self.slots[i as usize], position);
         if e != 0 {
@@ -279,6 +366,19 @@ impl Table {
         if self.f(i).write == 0 {
             return -3;
         }
+        let x = self.sync(i);
+        if x != 0 {
+            return x;
+        }
+        // another file number of this file must not go on with bytes read before
+        if let Some(id) = self.slots[i as usize].ident {
+            for j in 0..self.slots.len() as i32 {
+                let s = &self.slots[j as usize];
+                if j != i && !s.ra.data.is_empty() && s.ident == Some(id) {
+                    self.sync(j);
+                }
+            }
+        }
         if position != -1 {
             let x = self.setpos(i, position);
             if x != 0 {
@@ -297,15 +397,84 @@ impl Table {
         if self.f(i).read == 0 {
             return -3;
         }
+        let x = self.sync(i);
+        if x != 0 {
+            return x;
+        }
         if position != -1 {
-            let x = self.setpos(i, position);
+            // as setpos, without its LOF: the read sets or clears eof_passed itself
+            // (GET with a position: one system call less per record)
+            if position < 0 {
+                return -4;
+            }
+            let s = &mut self.slots[i as usize];
+            let x = os::setpos(s, position);
             if x != 0 {
                 return x;
             }
+            s.file.pos = position;
+            s.file.eof_reached = 0;
         }
         let (e, n) = os::read(&mut self.slots[i as usize], data);
         self.read_bytes = n;
         e
+    }
+
+    /// The next byte at the current position: [`Table::read`] of one byte, with
+    /// the same results (`Err(-10)` at the end of the file, which sets
+    /// `eof_passed`), served from a [`ReadAhead`] block for a regular file.
+    pub(crate) fn read_byte(&mut self, i: i32) -> Result<u8, i32> {
+        let mut c = [0u8; 1];
+        let plain = |t: &mut Table, c: &mut [u8; 1]| match t.read(i, -1, c) {
+            0 => Ok(c[0]),
+            e => Err(e),
+        };
+        if !self.valid(i) || !self.slots[i as usize].buffered || self.f(i).read == 0 {
+            return plain(self, &mut c);
+        }
+        self.read_bytes = 0;
+        let epoch = self.epoch;
+        let s = &mut self.slots[i as usize];
+        let pos = s.file.pos;
+        let end = s.ra.start + s.ra.data.len() as i64;
+        if s.ra.epoch != epoch || pos < s.ra.start || pos >= end {
+            // a new block from the position on; the OS offset is at the end of the old one
+            let moved = !s.ra.data.is_empty() && pos != end;
+            s.ra.data.clear();
+            if moved && os::setpos(s, pos) != 0 {
+                return plain(self, &mut c);
+            }
+            // sequential reading: a larger block each time
+            let size = if pos == end { (s.ra.size * 2).clamp(READ_AHEAD_MIN, READ_AHEAD_MAX) } else { READ_AHEAD_MIN };
+            s.ra.size = size;
+            let mut block = std::mem::take(&mut s.ra.data);
+            block.resize(size, 0);
+            let got = os::read_some(s, &mut block);
+            s.ra.data = block;
+            match got {
+                Ok(0) => {
+                    s.ra.data.clear();
+                    s.file.eof_passed = 1;
+                    return Err(-10);
+                }
+                Ok(n) => {
+                    s.ra.data.truncate(n);
+                    s.ra.start = pos;
+                    s.ra.epoch = epoch;
+                }
+                Err(_) => {
+                    // (a byte range LOCKed by another program on Windows): the single byte
+                    // as before, with its own result
+                    s.ra.data.clear();
+                    return plain(self, &mut c);
+                }
+            }
+        }
+        let b = s.ra.data[(pos - s.ra.start) as usize];
+        s.file.pos += 1;
+        s.file.eof_passed = 0;
+        self.read_bytes = 1;
+        Ok(b)
     }
 
     /// Bytes transferred by the last [`Table::read`].
@@ -317,6 +486,13 @@ impl Table {
     pub(crate) fn eof_reached(&mut self, i: i32) -> i32 {
         if !self.valid(i) {
             return -2;
+        }
+        // a byte read ahead is a byte the file has: no LOF (EOF of an INPUT file
+        // is asked once per line)
+        let epoch = self.epoch;
+        let s = &self.slots[i as usize];
+        if s.ra.epoch == epoch && s.file.pos >= s.ra.start && s.file.pos < s.ra.start + s.ra.data.len() as i64 {
+            return 0;
         }
         i32::from(self.getpos(i) >= self.lof(i))
     }
@@ -338,6 +514,12 @@ impl Table {
         if start < 0 || end < -1 {
             return -4;
         }
+        // another program may change the bytes once they are unlocked
+        self.epoch += 1;
+        let x = self.sync(i);
+        if x != 0 {
+            return x;
+        }
         os::lock(&mut self.slots[i as usize], start, end, lock)
     }
 
@@ -348,6 +530,8 @@ impl Table {
     pub(crate) fn open(&mut self, filename: &[u8], access: i32, restrictions: i32, how: i32) -> i32 {
         let mut filenamez = filename.to_vec();
         filenamez.push(0);
+        // OUTPUT truncates a file another file number may be reading
+        self.epoch += 1;
         let i = self.new_entry();
         // "SCRN:" (legacy reads the first five bytes even past the end)
         let at = |k: usize| filename.get(k).copied().unwrap_or(0);
@@ -382,7 +566,10 @@ impl Table {
             self.release(i);
             return r;
         }
-        self.f(i).open = 1;
+        let s = &mut self.slots[i as usize];
+        s.ident = os::regular(s);
+        s.buffered = s.ident.is_some() && s.file.read != 0;
+        s.file.open = 1;
         i
     }
 
@@ -395,6 +582,21 @@ impl Table {
     /// Highest file number seen so far (`gfs_fileno_n`).
     pub(crate) fn max_fileno(&self) -> i32 {
         self.fileno_n()
+    }
+}
+
+/// The bytes of a program's file name as a path of this system. Linux and macOS take
+/// the bytes as they are: read as UTF-8 text, every byte that is not UTF-8 became
+/// U+FFFD, and two different names (CHR$(200), CHR$(201)) named one file.
+pub fn os_path(name: &[u8]) -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(name))
+    }
+    #[cfg(not(unix))]
+    {
+        std::path::PathBuf::from(String::from_utf8_lossy(name).into_owned())
     }
 }
 
@@ -970,6 +1172,39 @@ mod os {
         0
     }
 
+    /// Up to `buf.len()` bytes at the file offset; `Ok(0)` at the end of the file.
+    pub fn read_some(s: &mut Slot, buf: &mut [u8]) -> Result<usize, ()> {
+        let n = buf.len().min(0xFFFF_FFFF) as DWORD;
+        let mut got: DWORD = 0;
+        // SAFETY: open handle, buffer valid for n bytes.
+        if unsafe { ReadFile(s.os.0, buf.as_mut_ptr(), n, &mut got, null_mut()) } == 0 {
+            return Err(());
+        }
+        Ok(got as usize)
+    }
+
+    /// Volume serial number and file index of a disk file; `None` for a
+    /// device, pipe or COM port.
+    pub fn regular(s: &Slot) -> Option<(u64, u64)> {
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, FILE_TYPE_DISK, GetFileInformationByHandle, GetFileType,
+        };
+        // SAFETY: open handle, owned struct.
+        unsafe {
+            if GetFileType(s.os.0) != FILE_TYPE_DISK {
+                return None;
+            }
+            let mut info: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+            if GetFileInformationByHandle(s.os.0, &mut info) == 0 {
+                return None;
+            }
+            Some((
+                u64::from(info.dwVolumeSerialNumber),
+                (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+            ))
+        }
+    }
+
     pub fn com_in_queue(s: &Slot) -> i64 {
         let mut st = COMSTAT::default();
         let mut ignore: DWORD = 0;
@@ -1002,7 +1237,7 @@ mod os {
     /// O_APPEND: APPEND mode seeks to LOF itself, PUT/SEEK need real positions).
     /// The file, or whether the open was refused for lack of permission (as opposed
     /// to a missing file or path).
-    fn try_open(name: &str, access: i32, how: i32) -> Result<File, bool> {
+    fn try_open(name: &std::path::Path, access: i32, how: i32) -> Result<File, bool> {
         let mut o = OpenOptions::new();
         match access {
             1 => o.read(true),
@@ -1023,8 +1258,13 @@ mod os {
         }
     }
 
-    pub fn open(s: &mut Slot, namez: &[u8], access: i32, _restrictions: i32, how: i32) -> i32 {
-        let name = String::from_utf8_lossy(&namez[..namez.len() - 1]).into_owned();
+    pub fn open(s: &mut Slot, namez: &[u8], access: i32, restrictions: i32, how: i32) -> i32 {
+        // a serial port is opened by the Windows layer only: "Device unavailable",
+        // not a file called COM1:9600,N,8,1 in the current folder
+        if s.file.com_port != 0 {
+            return -8;
+        }
+        let name = super::os_path(&namez[..namez.len() - 1]);
         let mut h = try_open(&name, access, how);
         let mut denied = matches!(h, Err(true));
         if how == 3 && h.is_err() {
@@ -1042,6 +1282,13 @@ mod os {
         }
         match h {
             Ok(f) => {
+                use std::os::unix::fs::MetadataExt;
+                // one fstat for both: the file's identity, and whether it is a regular file
+                s.ident = f.metadata().ok().filter(std::fs::Metadata::is_file).map(|m| (m.dev(), m.ino()));
+                if s.ident.is_some() && !share(&f, restrictions) {
+                    s.ident = None;
+                    return -7;
+                }
                 s.os = Handle(Some(f));
                 0
             }
@@ -1071,8 +1318,15 @@ mod os {
 
     pub fn write(s: &mut Slot, data: &[u8]) -> i32 {
         let Some(f) = s.os.0.as_mut() else { return -7 };
-        if f.write_all(data).is_err() {
-            return -7;
+        // (write_all goes on after an interrupted call)
+        if let Err(e) = f.write_all(data) {
+            // what did get written moved the file position: read it back, so that
+            // the next statement does not work from a position the file is not at
+            if let Ok(p) = f.stream_position() {
+                s.file.pos = p as i64;
+            }
+            // a full disk is "Disk full" (61), not "Permission denied"
+            return if matches!(e.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) { -13 } else { -7 };
         }
         s.file.pos += data.len() as i64;
         0
@@ -1085,6 +1339,8 @@ mod os {
             match f.read(&mut data[done..]) {
                 Ok(0) => break,
                 Ok(n) => done += n,
+                // a signal arrived during the call: nothing was read, ask again
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(_) => return (-7, done as i64),
             }
         }
@@ -1098,7 +1354,131 @@ mod os {
         (0, done as i64)
     }
 
-    pub fn lock(_s: &mut Slot, _start: i64, _end: i64, _lock: bool) -> i32 {
+    /// Up to `buf.len()` bytes at the file offset; `Ok(0)` at the end of the file.
+    pub fn read_some(s: &mut Slot, buf: &mut [u8]) -> Result<usize, ()> {
+        let Some(f) = s.os.0.as_mut() else { return Err(()) };
+        loop {
+            match f.read(buf) {
+                Ok(n) => return Ok(n),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return Err(()),
+            }
+        }
+    }
+
+    /// Device and inode of a regular file; `None` for a device, FIFO or socket
+    /// (found by [`open`]).
+    pub fn regular(s: &Slot) -> Option<(u64, u64)> {
+        s.ident
+    }
+
+    /// `OPEN ... LOCK READ`, `LOCK WRITE` or `LOCK READ WRITE` (Windows share
+    /// modes) on Linux: a whole-file `flock`, exclusive for a file opened with
+    /// any LOCK clause and shared otherwise, so that one program's LOCK clause
+    /// refuses the other programs' OPEN of the file and the other way round.
+    /// Stricter than Windows: LOCK READ and LOCK WRITE refuse every other OPEN.
+    /// False when another file number or program holds a lock that refuses
+    /// this OPEN; a file system without `flock` opens as before. Regular files only.
+    #[cfg(target_os = "linux")]
+    fn share(f: &File, restrictions: i32) -> bool {
+        use std::os::fd::AsRawFd;
+        let op = if restrictions != 0 { libc::LOCK_EX } else { libc::LOCK_SH };
+        // SAFETY: plain call on an open descriptor.
+        if unsafe { libc::flock(f.as_raw_fd(), op | libc::LOCK_NB) } == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::EWOULDBLOCK)
+    }
+
+    /// macOS and other systems: whole-file `flock` locks there may conflict
+    /// with the program's own LOCK byte ranges (one lock list for both), so the
+    /// LOCK clause of OPEN is not enforced.
+    #[cfg(not(target_os = "linux"))]
+    fn share(_f: &File, _restrictions: i32) -> bool {
+        true
+    }
+
+    /// Linux: open file description locks (released only when this file number
+    /// is closed, and seen by the program's other file numbers, as Windows
+    /// LockFile); a kernel without them uses process locks.
+    #[cfg(target_os = "linux")]
+    fn setlk(fd: i32, fl: &mut libc::flock) -> i32 {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static NO_OFD: AtomicBool = AtomicBool::new(false);
+        if !NO_OFD.load(Ordering::Relaxed) {
+            // SAFETY: plain call, `fl` valid (l_pid 0 as F_OFD_SETLK requires).
+            if unsafe { libc::fcntl(fd, libc::F_OFD_SETLK, fl as *mut libc::flock) } == 0 {
+                return 0;
+            }
+            if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINVAL) {
+                return -1;
+            }
+            NO_OFD.store(true, Ordering::Relaxed);
+        }
+        // SAFETY: as above.
+        unsafe { libc::fcntl(fd, libc::F_SETLK, fl as *mut libc::flock) }
+    }
+
+    /// Other systems: process locks (closing another file number of the same
+    /// file in the program releases them; documented).
+    #[cfg(not(target_os = "linux"))]
+    fn setlk(fd: i32, fl: &mut libc::flock) -> i32 {
+        // SAFETY: plain call, `fl` valid.
+        unsafe { libc::fcntl(fd, libc::F_SETLK, fl as *mut libc::flock) }
+    }
+
+    /// LOCK / UNLOCK of the inclusive range `start..=end` (`end` -1 = to the end
+    /// of any file length) with `fcntl` record locks, which other programs that
+    /// lock the file see: a range another program holds is "Permission denied",
+    /// as on Windows. A file opened for writing takes an exclusive lock, a file
+    /// opened only for reading (INPUT, ACCESS READ) a shared one (`fcntl` only
+    /// allows that much). A file system without record locks behaves as before
+    /// (every LOCK succeeds).
+    pub fn lock(s: &mut Slot, start: i64, end: i64, lock: bool) -> i32 {
+        use std::os::fd::AsRawFd;
+        if end != -1 && end < start {
+            return -4;
+        }
+        let Some(f) = s.os.0.as_ref() else { return -9 };
+        let start_u = start as u64;
+        // fcntl length 0 = to the end of any file length
+        let len: u64 = if end == -1 || (end - start) as u64 >= i64::MAX as u64 { 0 } else { (end - start) as u64 + 1 };
+        let last = |a: u64, n: u64| if n == 0 { u64::MAX } else { a + (n - 1) };
+        if lock {
+            // LockFile refuses a range that overlaps one this file number holds
+            // (fcntl would merge the two without a word)
+            if s.locks.iter().any(|&(a, n)| a <= last(start_u, len) && start_u <= last(a, n)) {
+                return -7;
+            }
+        } else if !s.locks.contains(&(start_u, len)) {
+            // UnlockFile takes only a range that was locked, exactly
+            return -7;
+        }
+        // SAFETY: an all-zero flock is a valid value.
+        let mut fl: libc::flock = unsafe { std::mem::zeroed() };
+        fl.l_type = (if !lock {
+            libc::F_UNLCK
+        } else if s.file.write != 0 {
+            libc::F_WRLCK
+        } else {
+            libc::F_RDLCK
+        }) as _;
+        fl.l_whence = libc::SEEK_SET as _;
+        fl.l_start = start as libc::off_t;
+        fl.l_len = len as libc::off_t;
+        if setlk(f.as_raw_fd(), &mut fl) != 0 {
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(libc::EACCES | libc::EAGAIN) => return -7,
+                // no record locks on this file system: as before
+                Some(libc::ENOLCK | libc::EOPNOTSUPP | libc::ENOSYS) => {}
+                _ => return -9,
+            }
+        }
+        if lock {
+            s.locks.push((start_u, len));
+        } else {
+            s.locks.retain(|&r| r != (start_u, len));
+        }
         0
     }
 
@@ -1297,6 +1677,100 @@ pub(crate) mod tests {
         t.close(i);
     }
 
+    /// The bytes INPUT # reads one at a time come from a read-ahead block: the
+    /// same bytes, positions and end of file as single reads, steps back
+    /// included, and a write through another file number of the file is seen.
+    #[test]
+    fn read_ahead_matches_single_reads_and_sees_writes() {
+        let d = tmp("readahead");
+        let name = p(&d, "r.txt");
+        let data: Vec<u8> = (0..20_000u32).map(|k| b'a' + (k % 26) as u8).collect();
+        std::fs::write(d.join("r.txt"), &data).unwrap();
+        let mut t = table();
+        let i = t.open(&name, 1, 0, 0);
+        assert!(i >= 0 && t.slots[i as usize].buffered);
+        for (k, &b) in data.iter().enumerate().take(9000) {
+            assert_eq!(t.read_byte(i), Ok(b));
+            assert_eq!(t.getpos(i), k as i64 + 1);
+            if k % 1000 == 999 {
+                // INPUT # steps back one byte
+                assert_eq!(t.setpos(i, k as i64), 0);
+                assert_eq!(t.read_byte(i), Ok(b));
+            }
+        }
+        assert_eq!(t.eof_reached(i), 0);
+        // GET of an INPUT file mixed in: the real position
+        let mut two = [0u8; 2];
+        assert_eq!(t.read(i, -1, &mut two), 0);
+        assert_eq!(&two, &data[9000..9002]);
+        assert_eq!(t.read_byte(i), Ok(data[9002]));
+        // a write through another file number, inside the block read ahead
+        let w = t.open(&name, 3, 0, 1);
+        assert!(w >= 0);
+        assert_eq!(t.write(w, 9003, b"XYZ"), 0);
+        assert_eq!(t.read_byte(i), Ok(b'X'));
+        assert_eq!(t.read_byte(i), Ok(b'Y'));
+        t.close(w);
+        assert_eq!(t.setpos(i, 19_999), 0);
+        assert_eq!(t.read_byte(i), Ok(*data.last().unwrap()));
+        assert_eq!(t.eof_reached(i), 1);
+        assert_eq!(t.read_byte(i), Err(-10));
+        assert_eq!(t.eof_passed(i), 1);
+        assert_eq!(t.getpos(i), 20_000);
+        t.close(i);
+    }
+
+    /// LOCK and UNLOCK as on Windows: another file number (or program) that
+    /// locks an overlapping range is refused, a range cannot be locked twice,
+    /// and UNLOCK takes only a range that was locked.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_lock_ranges_conflict_between_file_numbers() {
+        let d = tmp("locks");
+        let name = p(&d, "l.dat");
+        let mut t = table();
+        let a = t.open(&name, 3, 0, 3);
+        let b = t.open(&name, 3, 0, 3);
+        assert!(a >= 0 && b >= 0);
+        assert_eq!(t.write(a, -1, &[0u8; 100]), 0);
+        assert_eq!(t.lock(a, 10, 19, true), 0);
+        assert_eq!(t.lock(a, 15, 30, true), -7);
+        assert_eq!(t.lock(b, 19, 19, true), -7);
+        assert_eq!(t.lock(b, 20, 29, true), 0);
+        assert_eq!(t.lock(a, 10, 18, false), -7);
+        assert_eq!(t.lock(a, 10, 19, false), 0);
+        assert_eq!(t.lock(b, 10, 19, true), 0);
+        assert_eq!(t.lock(a, -1, -1, true), -7);
+        t.close(b);
+        assert_eq!(t.lock(a, -1, -1, true), 0);
+        assert_eq!(t.lock(a, -1, -1, false), 0);
+        t.close(a);
+    }
+
+    /// `OPEN ... LOCK READ WRITE` refuses every other OPEN of the file (and is
+    /// refused while the file is open), until it is closed.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_open_lock_clause_refuses_other_opens() {
+        let d = tmp("share");
+        let name = p(&d, "s.dat");
+        let mut t = table();
+        let a = t.open(&name, 3, 3, 3);
+        assert!(a >= 0);
+        assert_eq!(t.open(&name, 1, 0, 0), -7);
+        assert_eq!(t.open(&name, 3, 3, 3), -7);
+        t.close(a);
+        let a = t.open(&name, 1, 0, 0);
+        let b = t.open(&name, 1, 0, 0);
+        assert!(a >= 0 && b >= 0);
+        assert_eq!(t.open(&name, 3, 2, 3), -7);
+        t.close(a);
+        t.close(b);
+        let c = t.open(&name, 3, 2, 3);
+        assert!(c >= 0);
+        t.close(c);
+    }
+
     #[cfg(unix)]
     #[test]
     fn unix_setpos_reports_seek_errors() {
@@ -1305,6 +1779,10 @@ pub(crate) mod tests {
         let mut s = Slot {
             file: Box::new(GfsFile::zeroed()),
             os: os::Handle(Some(std::fs::File::from(OwnedFd::from(a)))),
+            buffered: false,
+            ra: ReadAhead::default(),
+            ident: None,
+            locks: Vec::new(),
         };
         assert_eq!(os::setpos(&mut s, 5), -3);
     }

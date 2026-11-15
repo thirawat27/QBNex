@@ -189,6 +189,42 @@ fn declare_library_with_only_a_c_header_is_a_compile_error() {
     assert!(text.contains("C headers are not supported") || text.contains("LIBRARY not found"), "message should say why: {text}");
 }
 
+/// `DECLARE DYNAMIC LIBRARY "./name"` is the library in the source folder, also when
+/// the source file is named without a folder and the program runs from elsewhere (a
+/// bare name is not looked for in the current directory).
+#[test]
+fn declare_library_dot_slash_is_the_source_folder() {
+    let Some(qb) = qb() else { return };
+    install_runner();
+    let dir = tmpdir("dotlib");
+    let (src_dir, out_dir) = (dir.join("src"), dir.join("out"));
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::create_dir_all(&out_dir).unwrap();
+    let lib_src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ffi/tests/testlib.rs");
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    let ok = Command::new(rustc)
+        .args(["--crate-type", "cdylib", "--crate-name", "qbdotlib", "-O", "--edition", "2024"])
+        .arg(&lib_src)
+        .arg("--out-dir")
+        .arg(&src_dir)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    std::fs::write(
+        src_dir.join("dotlib.bas"),
+        "$CONSOLE:ONLY\nDECLARE DYNAMIC LIBRARY \"./qbdotlib\"\n    FUNCTION qb_test_neg_i16% (BYVAL x AS INTEGER)\nEND DECLARE\nPRINT qb_test_neg_i16(5)\n",
+    )
+    .unwrap();
+    let exe = out_dir.join(if cfg!(windows) { "dotlib.exe" } else { "dotlib" });
+    let guard = compiler_lock();
+    let out = Command::new(&qb).current_dir(&src_dir).arg("dotlib.bas").arg("-o").arg(&exe).arg("-q").output().unwrap();
+    drop(guard);
+    assert!(out.status.success() && exe.exists(), "compile failed: {}{}", normalize(&out.stdout), normalize(&out.stderr));
+    let run = Command::new(&exe).current_dir(&dir).env("QBNEX_NO_ERROR_DIALOG", "1").output().unwrap();
+    assert_eq!(normalize(&run.stdout), "-5 \n", "{}", normalize(&run.stderr));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Language programs (INCLUDE, CONST, DEFxxx, UDTs, arrays, SUB/FUNCTION,
 /// STATIC, recursion, SELECT, loops, ON GOSUB, DATA, errors): the `.out`
 /// golden is the old C++ backend's output (recorded before the switch to QIR); QIR must

@@ -18,7 +18,6 @@ pub(crate) enum Block {
 
 pub(crate) struct MArr {
     esize: u32,
-    fill: u8,
     strs: bool,
     dims: Vec<(i64, i64)>,
     data: Option<u32>,
@@ -165,10 +164,10 @@ impl Mem {
     /// New zero-initialized storage for a variable: (pointer, block id).
     pub(crate) fn new_var(&mut self, v: &MVar) -> (u64, u32) {
         if v.array {
-            let id = self.alloc(Block::Arr(MArr { esize: v.size, fill: v.fill, strs: v.strs, dims: vec![], data: None, fixed: false, erased: false }));
+            let id = self.alloc(Block::Arr(MArr { esize: v.size, strs: v.strs, dims: vec![], data: None, fixed: false, erased: false }));
             return (ARR_TAG | u64::from(id), id);
         }
-        let id = self.alloc(Block::Bytes { data: vec![v.fill; v.size.max(1) as usize], strs: v.strs });
+        let id = self.alloc(Block::Bytes { data: vec![0; v.size.max(1) as usize], strs: v.strs });
         (self.block_addr(id), id)
     }
 
@@ -184,7 +183,15 @@ impl Mem {
     }
 
     /// Numeric load: register bits (integers sign/zero-extended, floats as f64).
+    /// A `_FLOAT` comes as the f64 bits of its value (the VM's own `_FLOAT`
+    /// instructions read all 10 bytes through `bytes()`; this is for inspection).
     pub(crate) fn ld(&mut self, t: MTy, p: u64) -> R<u64> {
+        if t == MTy::F80 {
+            let b = self.bytes(p, 10)?;
+            let mant = u64::from_le_bytes(b[..8].try_into().expect("8 bytes"));
+            let se = u16::from_le_bytes([b[8], b[9]]);
+            return Ok(qb_float80::F80 { mant, se }.to_f64().to_bits());
+        }
         let n = t.size();
         let b = self.bytes(p, n)?;
         let mut w = [0u8; 8];
@@ -200,11 +207,19 @@ impl Mem {
             MTy::I64 | MTy::U64 | MTy::Ptr | MTy::Str => u,
             MTy::F32 => f64::from(f32::from_bits(u as u32)).to_bits(),
             MTy::F64 => u,
-            MTy::F80 => u, // the VM reads _FLOAT through bytes()
+            MTy::F80 => unreachable!("read above"),
         })
     }
 
     pub(crate) fn st(&mut self, t: MTy, p: u64, bits: u64) -> R<()> {
+        if t == MTy::F80 {
+            // (as `ld`: the value as f64 bits)
+            let x = qb_float80::F80::from_f64(f64::from_bits(bits));
+            let b = self.bytes(p, 10)?;
+            b[..8].copy_from_slice(&x.mant.to_le_bytes());
+            b[8..].copy_from_slice(&x.se.to_le_bytes());
+            return Ok(());
+        }
         let u = match t {
             MTy::F32 => u64::from((f64::from_bits(bits) as f32).to_bits()),
             _ => bits,
@@ -251,8 +266,9 @@ impl Mem {
                     return Ok(());
                 }
             }
-        self.free_str(old);
+        // `s` may be (part of) the string being replaced: the new one is made first
         let h = self.new_str(s);
+        self.free_str(old);
         self.st(MTy::U64, p, h)
     }
 
@@ -294,7 +310,7 @@ impl Mem {
             let k = hi.checked_sub(*lo).and_then(|d| d.checked_add(1)).ok_or(7)?;
             n = n.saturating_mul(k as u64);
         }
-        let (esize, fill, strs, old, olddims) = {
+        let (esize, strs, old, olddims) = {
             let a = self.arr(desc)?;
             if kind == DimMode::Static && a.data.is_some() {
                 return Ok(()); // a static array is dimensioned once
@@ -302,7 +318,7 @@ impl Mem {
             if kind == DimMode::Dim && a.data.is_some() {
                 return Err(10);
             }
-            (a.esize, a.fill, a.strs, a.data.take(), std::mem::take(&mut a.dims))
+            (a.esize, a.strs, a.data.take(), std::mem::take(&mut a.dims))
         };
         let total = n.saturating_mul(u64::from(esize));
         if total > (1 << 31) {
@@ -312,7 +328,9 @@ impl Mem {
             }
             return Err(7);
         }
-        let mut data = vec![fill; total as usize];
+        // at least one byte: element addresses of an array of a 0-byte TYPE point
+        // into a real block (an empty Vec has none, only a dangling address)
+        let mut data = vec![0; (total as usize).max(1)];
         if kind == DimMode::RedimPreserve {
             if let Some(ob) = old {
                 let od = match std::mem::replace(&mut self.blocks[ob as usize], Block::Bytes { data: vec![], strs: false }) {
@@ -345,12 +363,15 @@ impl Mem {
         let a = self.arr(desc)?;
         if a.fixed {
             // static array: cleared in place, dimensions kept (as in QBasic)
-            let (fill, data) = (a.fill, a.data);
+            let data = a.data;
             if let Some(d) = data {
+                // Cleared where it is: an element passed by reference, or its address
+                // held across the statement, still points into these bytes.
                 let strs = match &mut self.blocks[d as usize] {
                     Block::Bytes { data, strs } => {
-                        let old = std::mem::replace(data, vec![fill; data.len()]);
-                        if *strs { old } else { Vec::new() }
+                        let old = if *strs { data.clone() } else { Vec::new() };
+                        data.fill(0);
+                        old
                     }
                     _ => Vec::new(),
                 };
@@ -418,5 +439,34 @@ impl Mem {
         }
         let (lo, hi) = a.dims[k as usize - 1];
         Ok(if upper { hi } else { lo })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn float80_load_and_store_do_not_panic() {
+        let mut m = Mem::new();
+        let (p, _) = m.new_var(&MVar { size: 10, strs: false, array: false });
+        m.st(MTy::F80, p, 2.5f64.to_bits()).unwrap();
+        assert_eq!(f64::from_bits(m.ld(MTy::F80, p).unwrap()), 2.5);
+        let b = m.bytes(p, 10).unwrap();
+        let x = qb_float80::F80 { mant: u64::from_le_bytes(b[..8].try_into().unwrap()), se: u16::from_le_bytes([b[8], b[9]]) };
+        assert_eq!(x.to_f64(), 2.5);
+    }
+
+    #[test]
+    fn element_of_a_zero_byte_type_points_into_a_block() {
+        let mut m = Mem::new();
+        let (desc, _) = m.new_var(&MVar { size: 0, strs: false, array: true });
+        m.dim(desc, DimMode::Dim, vec![(0, 9)]).unwrap();
+        let p = m.aaddr(desc, &[3]).unwrap();
+        let (lo, _) = m.array_extent(desc).unwrap();
+        assert_eq!(p, lo);
+        // the data block has a real byte there (an empty Vec has only a dangling address)
+        let d = m.arr(desc).unwrap().data.unwrap();
+        assert!(matches!(&m.blocks[d as usize], Block::Bytes { data, .. } if !data.is_empty() && data.as_ptr() as u64 == p));
     }
 }

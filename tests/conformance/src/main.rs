@@ -320,6 +320,8 @@ fn run_program(opts: &Options, case: &Path, qb_args: &[String]) -> Result<(Vec<u
     // events (QBNEX_INPUT_SCRIPT, see crates/runtime/core/src/script.rs). An old
     // C++-era qb.exe passed with --qb (an oracle build) ignores both variables.
     run.env("QBNEX_HEADLESS", "1");
+    // the hooks of the runtime that exist for these cases (the local HTTP server of qb-ext)
+    run.env("QBNEX_TEST_HOOKS", "1");
     // LPRINT pages go to a file (never to a printer); they are compared after stdout
     run.env("QBNEX_LPRINT", &lprint);
     if let Ok(script) = case.with_extension("input").canonicalize() {
@@ -613,6 +615,12 @@ fn main() -> ExitCode {
         cases.len(),
         failed.len()
     );
+    // A run that compared nothing proved nothing: a wrong --cases folder or a --filter
+    // that matches no case ended with "0 failed" and exit code 0.
+    if passed + blessed + xfailed + failed.len() == 0 {
+        eprintln!("conformance: no case was run");
+        return ExitCode::from(2);
+    }
     if failed.is_empty() {
         ExitCode::SUCCESS
     } else {

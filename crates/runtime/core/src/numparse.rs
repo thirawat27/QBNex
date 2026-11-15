@@ -282,12 +282,6 @@ fn round_increment(n: &NumRepr) -> bool {
     false
 }
 
-/// True when `n` hits the undefined legacy read described at
-/// [`round_increment`] (used by the differential test to skip such cases).
-pub fn round_reads_before_digits(n: &NumRepr) -> bool {
-    n.digits != 0 && i64::from(n.digits) > n.exp + 1 && n.exp + 1 < 0
-}
-
 /// Compares the leading digits against a range limit. `Some(true)` =
 /// overflow, `Some(false)` = below, `None` = equal over the scanned prefix.
 fn cmp_prefix(digits: &[u8], max: &[u8], scan: usize) -> bool {
@@ -414,10 +408,9 @@ pub fn n_uint64(n: &NumRepr) -> Option<u64> {
     Some(u)
 }
 
-/// Range check + conversion of `func_read_float` / `func_file_input_float`.
-/// `hex_is_unsigned` is true for READ (signed targets accept the full
-/// unsigned range of hex/oct/bin digits), false for INPUT #.
-fn convert(v: NumValue, typ: i32, hex: bool, hex_is_unsigned: bool) -> Option<NumValue> {
+/// Range check + conversion of `func_read_float`. Signed targets accept the
+/// full unsigned range of hex/oct/bin digits.
+fn convert(v: NumValue, typ: i32, hex: bool) -> Option<NumValue> {
     let bits = (typ & 511) as u32;
     if typ & ISFLOAT != 0 {
         if bits >= 64 {
@@ -434,20 +427,23 @@ fn convert(v: NumValue, typ: i32, hex: bool, hex_is_unsigned: bool) -> Option<Nu
             return None;
         }
     }
-    let mut value = v.qbr();
-    let (maxval, minval) = if typ & ISUNSIGNED != 0 || (hex_is_unsigned && hex) {
-        (1i64.wrapping_shl(bits).wrapping_sub(1), 0)
+    // in 128 bits: for a 64-bit target `1 << 64` is no shift at all in 64 bits
+    // (wrapping_shl takes the count modulo 64), which made the range 0..=0
+    let bits = bits.clamp(1, 64);
+    let mut value = i128::from(v.qbr());
+    let (maxval, minval) = if typ & ISUNSIGNED != 0 || hex {
+        ((1i128 << bits) - 1, 0)
     } else {
-        let top = 1i64.wrapping_shl(bits.wrapping_sub(1));
-        (top.wrapping_sub(1), top.wrapping_neg())
+        let top = 1i128 << (bits - 1);
+        (top - 1, -top)
     };
     if value > maxval || value < minval {
         return None;
     }
-    if typ & ISUNSIGNED == 0 && hex && 1i64.wrapping_shl(bits.wrapping_sub(1)) & value != 0 {
-        value = (maxval ^ -1).wrapping_add(value);
+    if typ & ISUNSIGNED == 0 && hex && (1i128 << (bits - 1)) & value != 0 {
+        value += maxval ^ -1;
     }
-    Some(NumValue::Int(value))
+    Some(NumValue::Int(value as i64))
 }
 
 /// `func_read_float`: READ into a numeric variable of type `typ`.
@@ -467,7 +463,7 @@ pub fn read_float(data: &[u8], offset: &mut usize, typ: i32) -> Result<NumValue,
         }
         _ => {}
     }
-    match n_float(&n).and_then(|v| convert(v, typ, n.hex != 0, true)) {
+    match n_float(&n).and_then(|v| convert(v, typ, n.hex != 0)) {
         Some(v) => Ok(v),
         None => {
             *offset = old;
@@ -547,11 +543,6 @@ pub fn read_string(data: &[u8], offset: &mut usize) -> (Vec<u8>, i32) {
     }
 }
 
-/// `func_file_input_float` after a successful read: conversion to `typ`.
-pub fn input_float(n: &NumRepr, typ: i32) -> Result<NumValue, i32> {
-    n_float(n).and_then(|v| convert(v, typ, n.hex != 0, false)).ok_or(6)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,6 +557,18 @@ mod tests {
         let mut o = 0;
         let r = read_float(d.as_bytes(), &mut o, typ);
         (r, o)
+    }
+
+    #[test]
+    fn convert_has_the_full_range_of_64_bit_targets() {
+        let (u64t, i64t) = (64 | ISUNSIGNED, 64);
+        assert_eq!(convert(NumValue::Int(5), u64t, false), Some(NumValue::Int(5)));
+        assert_eq!(convert(NumValue::Int(-1), u64t, false), None);
+        assert_eq!(convert(NumValue::Int(i64::MAX), i64t, false), Some(NumValue::Int(i64::MAX)));
+        assert_eq!(convert(NumValue::Int(i64::MIN), i64t, false), Some(NumValue::Int(i64::MIN)));
+        assert_eq!(convert(NumValue::Int(7), 32, true), Some(NumValue::Int(7)));
+        assert_eq!(convert(NumValue::Int(0xFFFF), 16, true), Some(NumValue::Int(-1)));
+        assert_eq!(convert(NumValue::Int(0x1_0000), 16, true), None);
     }
 
     #[test]
@@ -649,15 +652,6 @@ mod tests {
         assert_eq!(read_string(d, &mut o), (Vec::new(), 4));
         let mut o = 3;
         assert_eq!(read_string(b"abc", &mut o), (Vec::new(), 4));
-    }
-
-    #[test]
-    fn file_input_conversion_does_not_treat_hex_as_unsigned() {
-        let mut n = NumRepr::default();
-        let mut o = 0;
-        assert_eq!(number_from_data(b"&HFFFF", &mut o, &mut n), 0);
-        assert_eq!(input_float(&n, INT16), Err(6));
-        assert_eq!(input_float(&n, INT32), Ok(NumValue::Int(65535)));
     }
 
     #[test]

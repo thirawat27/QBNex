@@ -21,7 +21,7 @@ SUB IrInit
     REDIM IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
-    IrExtMeta = "": IrLibSpec = "": IrLibOf = "": IrDataN = 0: IrDefSeg = 0: IrPendLL = 0
+    IrExtMeta = "": IrLibSpec = "": IrLibOf = "": IrPendLL = 0
     IrPendCase$ = "": IrPendEvery = 0: IrPendElse = 0: IrPendCaseOn = 0: IrPendLevel = 0
     IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
     IrRunN = 0: IrRunTo = ""
@@ -277,7 +277,6 @@ SUB IrData (t$)
         LOOP
         IF started = 0 THEN item$ = LTRIM$(RTRIM$(item$))
         IrMod = IrMod + "data " + IrHex$(item$) + CHR$(10)
-        IrDataN = IrDataN + 1
         IF i > LEN(t$) THEN EXIT DO
         i = i + 1
     LOOP
@@ -687,6 +686,16 @@ FUNCTION IrUdtPlace$ (p$, u0 AS LONG, a$, i AS LONG, n AS LONG, typ AS LONG)
     IrUdtPlace$ = "P" + CHR$(2) + base$ + CHR$(2) + str2$(boff) + CHR$(2) + st$
 END FUNCTION
 
+'CASE value y$ (of IrT) for a selector of type st$: two floats are compared in the
+'smaller of their types, as a comparison in an expression is (IrEval$). A SINGLE selector
+'never equalled CASE 0.1, whose literal is a DOUBLE.
+FUNCTION IrCaseValue$ (y$, st$)
+    IrCaseValue$ = y$
+    IF IrIsFloat(st$) = 0 OR IrIsFloat(IrT) = 0 THEN EXIT FUNCTION
+    IF st$ = "f32" AND IrT <> "f32" THEN IrCaseValue$ = IrCvt$(y$, IrT, "f32"): IrT = "f32"
+    IF st$ = "f64" AND IrT = "f80" THEN IrCaseValue$ = IrCvt$(y$, IrT, "f64"): IrT = "f64"
+END FUNCTION
+
 FUNCTION IrIndex$ (e$)
     DIM r$, t AS LONG
     r$ = IrEval$(e$, t)
@@ -696,8 +705,11 @@ END FUNCTION
 
 'element of array idn with raw index elements idx$
 FUNCTION IrElemPlace$ (idn AS LONG, idx$, typ AS LONG)
-    DIM c AS LONG, k AS LONG, regs$, nm$, d$, at AS LONG
+    DIM c AS LONG, k AS LONG, regs$, nm$, d$, at AS LONG, later AS LONG
     DIM sv(1 TO 64) AS STRING
+    'the element an assignment stores to (IrAssign): its address is taken after the right
+    'side; the indexes (and the elements they read) are evaluated here as before
+    later = IrAaddrLater: IrAaddrLater = 0
     nm$ = IrVar$(idn)
     c = IrSplitArgs(idx$)
     FOR k = 1 TO c: sv(k) = IrArgs(k): NEXT
@@ -705,7 +717,7 @@ FUNCTION IrElemPlace$ (idn AS LONG, idx$, typ AS LONG)
         regs$ = regs$ + " " + IrIndex$(sv(k))
     NEXT
     d$ = IrReg$
-    IrE "aaddr " + d$ + " " + nm$ + regs$
+    IF later THEN IrAaddrHeld = "aaddr " + d$ + " " + nm$ + regs$ ELSE IrE "aaddr " + d$ + " " + nm$ + regs$
     at = ids(idn).arraytype
     typ = at
     IrElemPlace$ = "P" + CHR$(2) + d$ + CHR$(2) + "0" + CHR$(2) + IrSTy$(at, ids(idn).tsize)
@@ -1675,6 +1687,10 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
             x$ = IrEval$(sv(1), t)
             IF IrIsFloat(IrT) THEN
                 r$ = IrRt$("ABS." + IrT, " " + x$, IrT)
+            ELSEIF IrT = "u64" THEN
+                'an _UNSIGNED _INTEGER64 is its own absolute value (as a signed number
+                'a value from 2^63 was negative)
+                r$ = x$
             ELSE
                 sx$ = IrT: x$ = IrCvt$(x$, IrT, "i64")
                 r$ = IrRt$("ABS.i64", " " + x$, "i64")
@@ -1687,6 +1703,10 @@ FUNCTION IrCallFunc$ (idn AS LONG, a$, typ AS LONG)
                 IF IrT = "f80" THEN sx$ = "f80" ELSE sx$ = "f64"
                 x$ = IrCvt$(x$, IrT, sx$)
                 r$ = IrRt$("SGN." + sx$, " " + x$, "i32")
+            ELSEIF IrT = "u64" THEN
+                'never negative: 0, or 1 for any other value
+                r$ = IrReg$: IrE "ne.u64 " + r$ + " " + x$ + " " + IrConst$("u64", "0")
+                x$ = IrReg$: IrE "neg.i32 " + x$ + " " + r$: r$ = x$: IrT = "i32"
             ELSE
                 x$ = IrCvt$(x$, IrT, "i64")
                 r$ = IrRt$("SGN.i64", " " + x$, "i32")
@@ -1944,8 +1964,13 @@ FUNCTION IrSymState$
 END FUNCTION
 
 SUB IrAssign (lhs$, rhs$)
-    DIM p$, t AS LONG, r$, e$, st$, t2 AS LONG, q$
+    DIM p$, t AS LONG, r$, e$, st$, t2 AS LONG, q$, held$
+    'a(i) = f(): the address of a(i) is taken after f has run. Taken before, it pointed
+    'into the old bytes of the array when f changed its size (REDIM), and the value
+    'was stored there.
+    IrAaddrHeld = "": IrAaddrLater = -1
     p$ = IrPlace$(lhs$, t)
+    IrAaddrLater = 0: held$ = IrAaddrHeld: IrAaddrHeld = ""
     IF p$ = "" THEN IrRhsState = "": EXIT SUB
     IF LEN(IrRhsState) <> 0 AND rhs$ = IrRhsSrc THEN
         IF IrRhsState = IrSymState$ THEN e$ = IrRhsFixed: tlayout$ = IrRhsLayout
@@ -1954,6 +1979,7 @@ SUB IrAssign (lhs$, rhs$)
     IF LEN(e$) = 0 THEN e$ = fixoperationorder$(rhs$)
     st$ = IrPlaceSTy$(p$)
     IF LEFT$(st$, 4) = "udt:" THEN
+        IF LEN(held$) THEN IrE held$
         IF IrMemAssign%(IrAddr$(p$), e$) THEN EXIT SUB
         q$ = IrPlace$(e$, t2)
         IF q$ = "" THEN EXIT SUB
@@ -1967,8 +1993,36 @@ SUB IrAssign (lhs$, rhs$)
     IF LEFT$(st$, 5) = "fstr:" THEN t = ISSTRING
     r$ = IrEvalTo$(e$, t)
     IF t AND ISOFFSETINBITS THEN r$ = IrBitWrap$(r$, t)
+    IF LEN(held$) THEN IrE held$
     IrStore p$, r$
 END SUB
+
+'paths a$ and b$ name the same file (a relative one is relative to the folder the
+'compiler was started from; Windows file names ignore case)
+FUNCTION IrSamePath% (a$, b$)
+    DIM x$, y$
+    x$ = IrFullPath$(a$): y$ = IrFullPath$(b$)
+    IF os$ = "WIN" THEN x$ = UCASE$(x$): y$ = UCASE$(y$)
+    IrSamePath% = (LEN(x$) <> 0 AND x$ = y$)
+END FUNCTION
+
+FUNCTION IrFullPath$ (p$)
+    DIM x$, d$, f$, i AS LONG, here$
+    x$ = p$
+    IF x$ = "" THEN EXIT FUNCTION
+    IF LEFT$(x$, 1) <> "/" AND LEFT$(x$, 1) <> "\" AND MID$(x$, 2, 1) <> ":" THEN x$ = _STARTDIR$ + pathsep$ + x$
+    'the folder as the system names it (.., links, other separators); the name as given
+    FOR i = LEN(x$) TO 1 STEP -1
+        IF MID$(x$, i, 1) = "/" OR MID$(x$, i, 1) = "\" THEN EXIT FOR
+    NEXT
+    d$ = LEFT$(x$, i): f$ = MID$(x$, i + 1)
+    IF LEN(d$) <> 0 AND _DIREXISTS(d$) <> 0 THEN
+        here$ = _CWD$
+        CHDIR d$: d$ = _CWD$: CHDIR here$
+        IF RIGHT$(d$, 1) <> pathsep$ THEN d$ = d$ + pathsep$
+    END IF
+    IrFullPath$ = d$ + f$
+END FUNCTION
 
 'value r$ (of IrTy$(t)) wrapped to the n bits of a _BIT * n type: masked, sign-extended if signed
 FUNCTION IrBitWrap$ (r$, t AS LONG)
@@ -2461,7 +2515,7 @@ SUB IrCase (raw$, everycase AS LONG, iselse AS LONG)
                 CASE ">=": op$ = "ge"
             END SELECT
             x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
-            y$ = IrEval$(fixoperationorder$(getelements$(it$, 3, n)), t)
+            y$ = IrCaseValue$(IrEval$(fixoperationorder$(getelements$(it$, 3, n)), t), st$)
             one$ = IrCmp$(op$, x$, st$, y$, IrT)
         ELSE
             i = 0
@@ -2470,16 +2524,16 @@ SUB IrCase (raw$, everycase AS LONG, iselse AS LONG)
             NEXT
             IF i THEN
                 x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
-                y$ = IrEval$(fixoperationorder$(getelements$(it$, 1, i - 1)), t)
+                y$ = IrCaseValue$(IrEval$(fixoperationorder$(getelements$(it$, 1, i - 1)), t), st$)
                 one$ = IrCmp$("ge", x$, st$, y$, IrT)
                 x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
-                y$ = IrEval$(fixoperationorder$(getelements$(it$, i + 1, n)), t)
+                y$ = IrCaseValue$(IrEval$(fixoperationorder$(getelements$(it$, i + 1, n)), t), st$)
                 y$ = IrCmp$("le", x$, st$, y$, IrT)
                 x$ = IrReg$: IrE "and.i32 " + x$ + " " + one$ + " " + y$
                 one$ = x$
             ELSE
                 x$ = IrReg$: IrE "load." + st$ + " " + x$ + " " + nm$
-                y$ = IrEval$(fixoperationorder$(it$), t)
+                y$ = IrCaseValue$(IrEval$(fixoperationorder$(it$), t), st$)
                 one$ = IrCmp$("eq", x$, st$, y$, IrT)
             END IF
         END IF
@@ -2622,7 +2676,7 @@ SUB IrFinish (src$, outExe$)
         END IF
     END IF
     IF outPath$ = "" THEN
-        'no -o: next to the source with -x/exewithsource, else in the compiler's folder
+        'no -o: next to the source with --exe-with-source or the exewithsource setting, else in the compiler's folder
         IF SaveExeWithSource THEN
             outPath$ = path.source$
         ELSE
@@ -2654,13 +2708,19 @@ SUB IrFinish (src$, outExe$)
     END IF
 
     IF outPath$ <> "" AND INSTR(UCASE$(outPath$), ".EXE") = 0 AND os$ = "WIN" THEN outPath$ = outPath$ + ".exe"
+    'qb prog.bas -o prog.bas replaced the source with the executable
+    IF IrSamePath%(outPath$, sourcefile$) THEN
+        PRINT
+        PRINT "Can't create output executable - it is the source file: " + outPath$
+        SYSTEM 1
+    END IF
 
     ' D15 final: with the native kit next to the runner, link a standard
     ' executable (rust-lld + qb-native); else the runner with the QIR appended.
     kit$ = LEFT$(runner$, LEN(runner$) - LEN("qb-exec" + extension$)) + "native" + pathsep$ + "kit.txt"
     IF _FILEEXISTS(kit$) THEN
         IF _FILEEXISTS(outPath$) THEN KILL outPath$
-        c$ = CHR$(34) + runner$ + CHR$(34) + " build " + CHR$(34) + ir$ + CHR$(34) + " -o " + CHR$(34) + outPath$ + CHR$(34) + " --native-link"
+        c$ = QuotedFilename$(runner$) + " build " + QuotedFilename$(ir$) + " -o " + QuotedFilename$(outPath$) + " --native-link"
         'cmd /c takes away the first and the last quote of a line with several quoted
         'names: one more pair around the whole line is what it removes
         IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
@@ -2685,7 +2745,7 @@ SUB IrFinish (src$, outExe$)
     l$ = MKL$(LEN(q$)) + MKL$(0) + "QBNEXIR0"
     PUT #fh, , l$
     CLOSE #fh
-    IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + CHR$(34) + outPath$ + CHR$(34)
+    IF os$ <> "WIN" THEN SHELL _HIDE "chmod +x " + QuotedFilename$(outPath$)
     IF QuietMode = 0 THEN ShowBuildComplete outPath$
     ExitCompilerProcess
 END SUB

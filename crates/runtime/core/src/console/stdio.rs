@@ -119,6 +119,31 @@ pub fn tracked_column() -> i32 {
     COLUMN.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Text is waiting in the C runtime's stdout buffer (see [`flush_pending`]).
+static C_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// stdout is a terminal (or console): PRINT text is flushed at once, so that it
+/// shows while the program goes on. Into a file or a pipe it is flushed at the
+/// points where order or timing matter (input, SLEEP, SHELL, errors, the end).
+fn stdout_is_terminal() -> bool {
+    static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *T.get_or_init(|| std::io::IsTerminal::is_terminal(&std::io::stdout()))
+}
+
+/// Flushes the console text the C runtime holds, if any. The runner calls it
+/// before it writes stdout itself, before input and waits, and at the end.
+pub fn flush_pending() {
+    if C_PENDING.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        // SAFETY: CRT stream.
+        unsafe { fflush(c_stdout()) };
+    }
+}
+
+/// Console text waits in the C runtime's stdout buffer.
+pub fn pending() -> bool {
+    C_PENDING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `printf`-style write to stdout without flushing.
 pub fn write_raw(s: &[u8]) {
     if s.is_empty() {
@@ -129,6 +154,7 @@ pub fn write_raw(s: &[u8]) {
     unsafe {
         fwrite(s.as_ptr().cast(), 1, s.len(), c_stdout());
     }
+    C_PENDING.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// One byte of stdin (`fgetc`), None at end of input.
@@ -276,6 +302,8 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
         let out = win::std(win::STD_OUTPUT_HANDLE);
         if win::is_console(out) {
             win::init_utf8();
+            // spaces of a PRINT , zone written through the C runtime come first
+            flush_pending();
             if !text.is_empty() {
                 let wide = win::to_wide(text, windows_sys::Win32::Globalization::CP_UTF8, win::utf8_strict())
                     .or_else(|| {
@@ -314,7 +342,13 @@ pub fn write_utf8(text: &[u8], finish_on_new_line: bool) {
         if finish_on_new_line {
             fwrite(b"\n".as_ptr().cast(), 1, 1, f);
         }
-        fflush(f);
+        // into a file or pipe: no flush per PRINT item (a system call each)
+        if stdout_is_terminal() {
+            fflush(f);
+            C_PENDING.store(false, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            C_PENDING.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 }
 
@@ -408,12 +442,16 @@ pub fn color(col1: u32, col2: u32, passed: i32) -> i32 {
             }
             return 0;
         }
-        // SAFETY: Win32 call.
+        // SAFETY: Win32 calls with an owned struct.
         unsafe {
-            win::SetConsoleTextAttribute(
-                win::std(win::STD_OUTPUT_HANDLE),
-                col2.wrapping_mul(16).wrapping_add(col1) as i32 as u16,
-            );
+            let out = win::std(win::STD_OUTPUT_HANDLE);
+            // COLOR f or COLOR , b changes one color only: the other comes from the
+            // console's current attributes
+            let mut info: win::CONSOLE_SCREEN_BUFFER_INFO = core::mem::zeroed();
+            let cur = if win::GetConsoleScreenBufferInfo(out, &mut info) != 0 { u32::from(info.wAttributes) } else { 7 };
+            let f = if fg { col1 } else { cur & 15 };
+            let b = if bg { col2 } else { (cur >> 4) & 15 };
+            win::SetConsoleTextAttribute(out, b.wrapping_mul(16).wrapping_add(f) as i32 as u16);
         }
         0
     }

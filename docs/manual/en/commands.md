@@ -24,6 +24,7 @@ folder.
 | `-c` | Compile (the default). |
 | `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/web/README.md) runs). |
 | `--emit-ir` | Write the QIR text instead of an executable (`-o x.exe` becomes `x.qir`). |
+| `--exe-with-source` | Without `-o`: write the executable next to the source file, for this build (the setting is `-s:exewithsource=true`). |
 | `-x` | Compile and send the compiler's output to the console. |
 | `-w` | Show warnings. |
 | `-Werror`, `--warnings-as-errors` | Treat warnings as errors. |

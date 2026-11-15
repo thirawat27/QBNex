@@ -1,0 +1,1 @@
+QB64 rejected a leading unary plus ("Expected variable/value before '+'"); QBasic accepts it. Expected output is QBasic behaviour.

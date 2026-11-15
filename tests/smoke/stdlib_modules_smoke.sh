@@ -13,6 +13,16 @@ STDLIB="$REPO_ROOT/compiler/stdlib"
 TMPDIR_SMOKE="$(mktemp -d "${TMPDIR:-/tmp}/qbnex_stdlib_modules.XXXXXX")"
 fail=0
 count=0
+
+# 'qbnex' (qbnex_stdlib.bas) imports its modules: it must not hold a copy of
+# one of their procedures again (the copies drifted apart)
+procs() { grep -hiE '^[[:space:]]*(SUB|FUNCTION)[[:space:]]' "$@" | sed -E 's/^[[:space:]]*[A-Za-z]+[[:space:]]+([A-Za-z0-9_.]*).*/\1/' | tr 'a-z' 'A-Z' | sort -u; }
+procs "$STDLIB"/*/*.bas > "$TMPDIR_SMOKE/module_procs.txt"
+dups="$(procs "$STDLIB/qbnex_stdlib.bas" | comm -12 - "$TMPDIR_SMOKE/module_procs.txt")"
+if [ -n "$dups" ]; then
+  echo "[FAIL] qbnex_stdlib.bas holds copies of module procedures:" $dups
+  fail=1
+fi
 for f in $(cd "$STDLIB" && find . -name '*.bas' | sort); do
   key="$(printf '%s' "${f#./}" | sed 's/\.bas$//; s#/#.#g')"
   [ "$key" = "qbnex_stdlib" ] && continue   # body of '$IMPORT:'qbnex' (stdlib.bas)

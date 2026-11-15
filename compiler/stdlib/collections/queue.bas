@@ -17,7 +17,7 @@ SUB Queue_Enqueue (queueRef AS QBNex_Queue, item AS STRING)
 END SUB
 
 FUNCTION Queue_Peek$ (queueRef AS QBNex_Queue)
-    IF queueRef.Items.Count = 0 THEN
+    IF List_Count&(queueRef.Items) = 0 THEN
         Queue_Peek = ""
         EXIT FUNCTION
     END IF
@@ -27,7 +27,7 @@ END FUNCTION
 FUNCTION Queue_Dequeue$ (queueRef AS QBNex_Queue)
     DIM valueText AS STRING
 
-    IF queueRef.Items.Count = 0 THEN
+    IF List_Count&(queueRef.Items) = 0 THEN
         Queue_Dequeue = ""
         EXIT FUNCTION
     END IF
@@ -37,7 +37,7 @@ FUNCTION Queue_Dequeue$ (queueRef AS QBNex_Queue)
 END FUNCTION
 
 FUNCTION Queue_Count& (queueRef AS QBNex_Queue)
-    Queue_Count = queueRef.Items.Count
+    Queue_Count = List_Count&(queueRef.Items)
 END FUNCTION
 
 SUB Queue_Clear (queueRef AS QBNex_Queue)

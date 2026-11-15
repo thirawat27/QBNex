@@ -15,7 +15,6 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod cells;
-pub mod input;
 pub mod keyboard;
 pub mod stdio;
 pub mod text;

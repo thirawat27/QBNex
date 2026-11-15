@@ -1,0 +1,28 @@
+$CONSOLE:ONLY
+' SELECT CASE on a SINGLE compares with a fractional CASE value as IF does: in SINGLE
+s! = 0.1
+IF s! = 0.1 THEN PRINT "IF: equal"
+SELECT CASE s!
+    CASE 0.1: PRINT "CASE 0.1"
+    CASE ELSE: PRINT "CASE ELSE (wrong)"
+END SELECT
+SELECT CASE s!
+    CASE IS < 0.1: PRINT "IS < 0.1 (wrong)"
+    CASE IS <= 0.1: PRINT "IS <= 0.1"
+    CASE ELSE: PRINT "CASE ELSE (wrong)"
+END SELECT
+SELECT CASE s!
+    CASE 0.05 TO 0.1: PRINT "0.05 TO 0.1"
+    CASE ELSE: PRINT "CASE ELSE (wrong)"
+END SELECT
+d# = 0.1
+SELECT CASE d#
+    CASE 0.1: PRINT "DOUBLE: CASE 0.1"
+    CASE ELSE: PRINT "DOUBLE: CASE ELSE (wrong)"
+END SELECT
+t! = 2.5
+SELECT CASE t!
+    CASE 1, 2.5, 4: PRINT "list"
+    CASE ELSE: PRINT "CASE ELSE (wrong)"
+END SELECT
+SYSTEM

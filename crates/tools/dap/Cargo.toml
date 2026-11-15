@@ -17,6 +17,8 @@ path = "src/main.rs"
 
 [dependencies]
 qb-exec = { path = "../../engine/exec", features = ["debug"] }
+qb-ffi = { path = "../../engine/ffi" }
+getrandom = "0.3"
 qb-ir = { path = "../../compiler/ir" }
 qb-syntax = { path = "../../compiler/syntax" }
 serde = { version = "1", features = ["derive"] }

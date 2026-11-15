@@ -1,0 +1,15 @@
+k = 5 
+n = 6 
+after p: 6 
+b = 30 
+a = 31 
+after twice: 31 
+x = abcd
+t = abcdef
+after s: abcdef
+y = 3 
+w(2) = 4 
+after e: 4 
+k = 101 
+after deep: 101 
+after bump: 200000 

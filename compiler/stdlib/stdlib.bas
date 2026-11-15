@@ -1,10 +1,8 @@
 '===============================================================================
 ' QBNex Standard Library - Main Import File
 '===============================================================================
-' Stage0-safe entrypoint for:
-'   '$IMPORT:'qbnex'
-' The monolithic stdlib already exports the public helpers used by the docs.
+' The file '$IMPORT:'qbnex' (also 'stdlib', 'all') opens. qbnex_stdlib.bas
+' imports each module of the bundle by its own name.
 '===============================================================================
 
-' Pull in the full monolithic stdlib as the canonical import target.
 '$INCLUDE:'qbnex_stdlib.bas'

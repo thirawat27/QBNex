@@ -232,11 +232,22 @@ pub fn qb_3d_load_model(path: &[u8]) -> i32 {
     if !is_glb && !is_json {
         return -1;
     }
+    // With a GPU the model is checked by building it, and that model is kept
+    // (it used to be parsed and uploaded again at its first draw).
     #[cfg(feature = "gpu")]
-    if let Some(Err(_)) = gpu::with(|g| qb_gpu::scene::Model::from_gltf(&g.gpu, &bytes)) {
-        return -1;
+    let model = match gpu::with(|g| qb_gpu::scene::Model::from_gltf(&g.gpu, &bytes)) {
+        Some(Err(_)) => return -1,
+        Some(Ok(m)) => Some(m),
+        None => None,
+    };
+    #[allow(unused_mut)]
+    let mut mesh = new_mesh(Shape::Gltf(bytes));
+    #[cfg(feature = "gpu")]
+    if let Some(m) = model {
+        mesh.model = Some(Some(m));
     }
-    add_mesh(Shape::Gltf(bytes))
+    let mut s = state();
+    add(&mut s.meshes, mesh)
 }
 
 /// `_MESHCUBE(size!)`.
@@ -534,13 +545,13 @@ pub fn qb_3d_clear(color: u32, passed: i32) {
 /// Blends the shown layer over `frame`; no-op without a GPU or a layer.
 pub fn compose(frame: &mut [u32], w: u32, h: u32) {
     #[cfg(feature = "gpu")]
-    if let Some(layer) = gpu::layer(w, h) {
+    gpu::layer(w, h, |layer| {
         for (d, &l) in frame.iter_mut().zip(layer.iter()) {
             if l >> 24 != 0 {
                 *d = crate::raster::blend(*d, l);
             }
         }
-    }
+    });
     #[cfg(not(feature = "gpu"))]
     let _ = (frame, w, h);
 }
@@ -642,9 +653,10 @@ mod gpu {
         }
     }
 
-    /// The shown layer rendered at `w`×`h` (`0xAARRGGBB`, transparent where
-    /// nothing was drawn); `None` without a GPU or a layer.
-    pub(super) fn layer(w: u32, h: u32) -> Option<Vec<u32>> {
+    /// Runs `f` on the shown layer rendered at `w`×`h` (`0xAARRGGBB`,
+    /// transparent where nothing was drawn; kept for the next frame, not
+    /// copied); `None` without a GPU or a layer.
+    pub(super) fn layer<T>(w: u32, h: u32, f: impl FnOnce(&[u32]) -> T) -> Option<T> {
         let mut s = state();
         if s.shown.is_empty() && s.clear == 0 {
             return None;
@@ -654,7 +666,7 @@ mod gpu {
             if let Some((g, cw, ch, px)) = &side.cache
                 && (*g, *cw, *ch) == (generation, w, h)
             {
-                return Some(px.clone());
+                return Some(f(px));
             }
             let gpu = &side.gpu;
             for d in s.shown.clone() {
@@ -706,8 +718,8 @@ mod gpu {
                 let small = std::mem::take(&mut px);
                 px = (0..w * h).map(|i| small[((i / w) * lh / h * lw + (i % w) * lw / w) as usize]).collect();
             }
-            side.cache = Some((generation, w, h, px.clone()));
-            Some(px)
+            let cache = side.cache.insert((generation, w, h, px));
+            Some(f(&cache.3))
         })
         .flatten()
     }

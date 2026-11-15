@@ -2,12 +2,9 @@
 //! clipping, mirroring, flipping, stretching, clear color and alpha blending.
 //!
 //! Handle resolution and the "source is the destination" detour belong to
-//! the caller; it passes the two surfaces here. For hardware images the
-//! caller passes emulated surfaces and asks for the resolved coordinates
-//! only (`hw_out`).
+//! the caller; it passes the two surfaces here.
 
 use super::blend::blend_onto;
-use std::sync::atomic::{AtomicU64, Ordering};
 use super::{qbr_d2l, qbr_f2l, ImgStruct, ERR_ILLEGAL_FUNCTION_CALL};
 
 /// `_PUTIMAGE` coordinates as passed by generated code.
@@ -104,13 +101,12 @@ unsafe fn plot(k: Kind, s: &ImgStruct, d: &ImgStruct, soff: isize, doff: isize) 
 
 /// `_PUTIMAGE` on resolved surfaces. `passed` uses the legacy bits
 /// (1 dx1, 2 STEP dx1, 4 dx2, 16 STEP dx2, 64 sx1, 256 STEP sx1, 512 sx2,
-/// 1024 STEP sx2, 128 _SMOOTH). With `hw_out`, only the coordinates are
-/// resolved and written as (sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2).
+/// 1024 STEP sx2, 128 _SMOOTH).
 ///
 /// # Safety
 /// `s` and `d` must be valid, distinct graphics surfaces of compatible depth
-/// (checked by the caller), or emulated surfaces when `hw_out` is given.
-pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passed: i32, hw_out: Option<&mut [i32; 8]>) -> i32 {
+/// (checked by the caller).
+pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passed: i32) -> i32 {
     let PutCoords { dx1: mut f_dx1, dy1: mut f_dy1, dx2: mut f_dx2, dy2: mut f_dy2, sx1: mut f_sx1, sy1: mut f_sy1, sx2: mut f_sx2, sy2: mut f_sy2 } = c;
     let (sw, sh, dw, dh) = (i32::from(s.width), i32::from(s.height), i32::from(d.width), i32::from(d.height));
     if passed & 2 != 0 {
@@ -167,42 +163,6 @@ pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passe
     }
     let s: &ImgStruct = s;
     let d: &ImgStruct = d;
-
-    if let Some(out) = hw_out {
-        // hardware images: resolve the missing corners and hand them back
-        if passed & 4 != 0 && passed & 512 != 0 {
-        } else if passed & 4 != 0 {
-            if passed & 64 != 0 {
-                sx2 = sx1 + (dx2 - dx1).abs();
-                sy2 = sy1 + (dy2 - dy1).abs();
-            } else {
-                sx2 = sw - 1;
-                sy2 = sh - 1;
-            }
-        } else if passed & 512 != 0 {
-            if passed & 1 != 0 {
-                dx2 = dx1 + (sx2 - sx1).abs();
-                dy2 = dy1 + (sy2 - sy1).abs();
-            } else {
-                dx2 = dw - 1;
-                dy2 = dh - 1;
-            }
-        } else if passed & 64 != 0 {
-            return ERR_ILLEGAL_FUNCTION_CALL;
-        } else if passed & 1 != 0 {
-            sx2 = sw - 1;
-            sy2 = sh - 1;
-            dx2 = dx1 + sx2;
-            dy2 = dy1 + sy2;
-        } else {
-            sx2 = sw - 1;
-            sy2 = sh - 1;
-            dx2 = dw - 1;
-            dy2 = dh - 1;
-        }
-        *out = [sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2];
-        return 0;
-    }
 
     // The software path works in i64: a coordinate of i32::MIN (out of range
     // or NaN after `qbr_f2l`) must not wrap in the corner and clip arithmetic
@@ -308,188 +268,214 @@ pub unsafe fn putimage(s: &mut ImgStruct, d: &mut ImgStruct, c: PutCoords, passe
         }
         Next::Stretch => {
             orient(&mut dx1, &mut dx2, &mut sx1, &mut sx2, &mut dy1, &mut dy2, &mut sy1, &mut sy2);
-            let (w, h) = (dx2 - dx1, dy2 - dy1);
-            let (mut fsx1, mut fsx2, mut fsy1, mut fsy2) = half_pixel(sx1, sx2, sy1, sy2);
-            let mx = if w != 0 { (fsx2 - fsx1) / w as f64 } else { 0.0 };
-            let my = if h != 0 { (fsy2 - fsy1) / h as f64 } else { 0.0 };
-            if dx1 < 0 {
-                if mirror {
-                    fsx2 += dx1 as f64 * mx;
-                } else {
-                    fsx1 -= dx1 as f64 * mx;
-                }
-                dx1 = 0;
-            }
-            if dy1 < 0 {
-                if flip {
-                    fsy2 += dy1 as f64 * my;
-                } else {
-                    fsy1 -= dy1 as f64 * my;
-                }
-                dy1 = 0;
-            }
-            if dx2 >= dw {
-                if mirror {
-                    fsx1 += (dx2 - dw + 1) as f64 * mx;
-                } else {
-                    fsx2 -= (dx2 - dw + 1) as f64 * mx;
-                }
-                dx2 = dw - 1;
-            }
-            if dy2 >= dh {
-                if flip {
-                    fsy1 += (dy2 - dh + 1) as f64 * my;
-                } else {
-                    fsy2 -= (dy2 - dh + 1) as f64 * my;
-                }
-                dy2 = dh - 1;
-            }
-            if w != 0 {
-                if fsx1 < -0.4999999 {
-                    let x = super::cvt_i32((-fsx1 - 0.499999) / mx + 1.0);
-                    if mirror {
-                        dx2 -= i64::from(x);
-                    } else {
-                        dx1 += i64::from(x);
-                    }
-                    fsx1 += f64::from(x) * mx;
-                }
-                if fsx2 > sw as f64 - 0.5000001 {
-                    let x = super::cvt_i32((fsx2 - (sw as f64 - 0.500001)) / mx + 1.0);
-                    if mirror {
-                        dx1 += i64::from(x);
-                    } else {
-                        dx2 -= i64::from(x);
-                    }
-                    fsx2 -= f64::from(x) * mx;
-                }
-            }
-            if h != 0 {
-                if fsy1 < -0.4999999 {
-                    let y = super::cvt_i32((-fsy1 - 0.499999) / my + 1.0);
-                    if flip {
-                        dy2 -= i64::from(y);
-                    } else {
-                        dy1 += i64::from(y);
-                    }
-                    fsy1 += f64::from(y) * my;
-                }
-                if fsy2 > sh as f64 - 0.5000001 {
-                    let y = super::cvt_i32((fsy2 - (sh as f64 - 0.500001)) / my + 1.0);
-                    if flip {
-                        dy1 += i64::from(y);
-                    } else {
-                        dy2 -= i64::from(y);
-                    }
-                    fsy2 -= f64::from(y) * my;
-                }
-            }
-            let _ = (fsx2, fsy2);
-            // The source adjustments above only shrink the destination for
-            // sane input; an INDEFINITE `cvt_i32` result must not move it
-            // outside the surface.
-            dx1 = dx1.max(0);
-            dy1 = dy1.max(0);
-            dx2 = dx2.min(dw - 1);
-            dy2 = dy2.min(dh - 1);
-            if dx1 > dx2 || dy1 > dy2 {
-                return 0;
-            }
-            // SAFETY: the destination is clipped to `d` (so it fits in i32);
-            // `stretch` skips samples outside the source.
-            unsafe { stretch(s, d, dx1 as i32, dy1 as i32, dx2 as i32, dy2 as i32, fsx1, fsy1, mx, my, mirror, flip) };
-            0
+            // SAFETY: as for this function.
+            unsafe { stretch_clipped(s, d, [dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2], mirror, flip) }
         }
         Next::Reverse | Next::Clip | Next::NoFlip => {
             if let Next::Reverse = next {
                 orient(&mut dx1, &mut dx2, &mut sx1, &mut sx2, &mut dy1, &mut dy2, &mut sy1, &mut sy2);
             }
-            if !matches!(next, Next::NoFlip) {
-                // clip
-                if dx1 < 0 {
-                    if mirror {
-                        sx2 += dx1;
-                    } else {
-                        sx1 -= dx1;
-                    }
-                    dx1 = 0;
-                }
-                if dy1 < 0 {
-                    if flip {
-                        sy2 += dy1;
-                    } else {
-                        sy1 -= dy1;
-                    }
-                    dy1 = 0;
-                }
-                if dx2 >= dw {
-                    if mirror {
-                        sx1 += dx2 - dw + 1;
-                    } else {
-                        sx2 -= dx2 - dw + 1;
-                    }
-                    dx2 = dw - 1;
-                }
-                if dy2 >= dh {
-                    if flip {
-                        sy1 += dy2 - dh + 1;
-                    } else {
-                        sy2 -= dy2 - dh + 1;
-                    }
-                    dy2 = dh - 1;
-                }
-                if sx1 < 0 {
-                    if mirror {
-                        dx2 += sx1;
-                    } else {
-                        dx1 -= sx1;
-                    }
-                    sx1 = 0;
-                }
-                if sy1 < 0 {
-                    if flip {
-                        dy2 += sy1;
-                    } else {
-                        dy1 -= sy1;
-                    }
-                    sy1 = 0;
-                }
-                if sx2 >= sw {
-                    if mirror {
-                        dx1 += sx2 - sw + 1;
-                    } else {
-                        dx2 -= sx2 - sw + 1;
-                    }
-                    sx2 = sw - 1;
-                }
-                if sy2 >= sh {
-                    if flip {
-                        dy1 += sy2 - sh + 1;
-                    } else {
-                        dy2 -= sy2 - sh + 1;
-                    }
-                    sy2 = sh - 1;
-                }
-                if dx1 > dx2 || dy1 > dy2 {
-                    return 0;
-                }
-            }
-            // Both rectangles now lie inside their surfaces (16-bit sizes), so
-            // every value below fits in i32 / isize.
-            let k = kind(s, d);
-            let (sw, dw) = (sw as isize, dw as isize);
-            for row in 0..=(dy2 - dy1) {
-                let sy = if flip { sy2 - row } else { sy1 + row } as isize;
-                let dy = (dy1 + row) as isize;
-                for col in 0..=(dx2 - dx1) {
-                    let sx = if mirror { sx2 - col } else { sx1 + col } as isize;
-                    // SAFETY: clipped to both surfaces.
-                    unsafe { plot(k, s, d, sy * sw + sx, dy * dw + (dx1 + col) as isize) };
-                }
-            }
-            0
+            // SAFETY: as for this function.
+            unsafe { copy_clipped(s, d, [dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2], mirror, flip, !matches!(next, Next::NoFlip)) }
         }
     }
+}
+
+/// The stretched `_PUTIMAGE`: destination corners `[dx1, dy1, dx2, dy2]`
+/// and source corners `[sx1, sy1, sx2, sy2]` (ordered, `mirror`/`flip` tell
+/// the direction) clipped to both surfaces, then drawn by [`stretch`].
+///
+/// # Safety
+/// As [`putimage`].
+unsafe fn stretch_clipped(s: &ImgStruct, d: &ImgStruct, c: [i64; 8], mirror: bool, flip: bool) -> i32 {
+    let [mut dx1, mut dy1, mut dx2, mut dy2, sx1, sy1, sx2, sy2] = c;
+    let (sw, sh, dw, dh) = (i64::from(s.width), i64::from(s.height), i64::from(d.width), i64::from(d.height));
+    let (w, h) = (dx2 - dx1, dy2 - dy1);
+    let (mut fsx1, mut fsx2, mut fsy1, mut fsy2) = half_pixel(sx1, sx2, sy1, sy2);
+    let mx = if w != 0 { (fsx2 - fsx1) / w as f64 } else { 0.0 };
+    let my = if h != 0 { (fsy2 - fsy1) / h as f64 } else { 0.0 };
+    if dx1 < 0 {
+        if mirror {
+            fsx2 += dx1 as f64 * mx;
+        } else {
+            fsx1 -= dx1 as f64 * mx;
+        }
+        dx1 = 0;
+    }
+    if dy1 < 0 {
+        if flip {
+            fsy2 += dy1 as f64 * my;
+        } else {
+            fsy1 -= dy1 as f64 * my;
+        }
+        dy1 = 0;
+    }
+    if dx2 >= dw {
+        if mirror {
+            fsx1 += (dx2 - dw + 1) as f64 * mx;
+        } else {
+            fsx2 -= (dx2 - dw + 1) as f64 * mx;
+        }
+        dx2 = dw - 1;
+    }
+    if dy2 >= dh {
+        if flip {
+            fsy1 += (dy2 - dh + 1) as f64 * my;
+        } else {
+            fsy2 -= (dy2 - dh + 1) as f64 * my;
+        }
+        dy2 = dh - 1;
+    }
+    if w != 0 {
+        if fsx1 < -0.4999999 {
+            let x = super::cvt_i32((-fsx1 - 0.499999) / mx + 1.0);
+            if mirror {
+                dx2 -= i64::from(x);
+            } else {
+                dx1 += i64::from(x);
+            }
+            fsx1 += f64::from(x) * mx;
+        }
+        if fsx2 > sw as f64 - 0.5000001 {
+            let x = super::cvt_i32((fsx2 - (sw as f64 - 0.500001)) / mx + 1.0);
+            if mirror {
+                dx1 += i64::from(x);
+            } else {
+                dx2 -= i64::from(x);
+            }
+            fsx2 -= f64::from(x) * mx;
+        }
+    }
+    if h != 0 {
+        if fsy1 < -0.4999999 {
+            let y = super::cvt_i32((-fsy1 - 0.499999) / my + 1.0);
+            if flip {
+                dy2 -= i64::from(y);
+            } else {
+                dy1 += i64::from(y);
+            }
+            fsy1 += f64::from(y) * my;
+        }
+        if fsy2 > sh as f64 - 0.5000001 {
+            let y = super::cvt_i32((fsy2 - (sh as f64 - 0.500001)) / my + 1.0);
+            if flip {
+                dy1 += i64::from(y);
+            } else {
+                dy2 -= i64::from(y);
+            }
+            fsy2 -= f64::from(y) * my;
+        }
+    }
+    let _ = (fsx2, fsy2);
+    // The source adjustments above only shrink the destination for
+    // sane input; an INDEFINITE `cvt_i32` result must not move it
+    // outside the surface.
+    dx1 = dx1.max(0);
+    dy1 = dy1.max(0);
+    dx2 = dx2.min(dw - 1);
+    dy2 = dy2.min(dh - 1);
+    if dx1 > dx2 || dy1 > dy2 {
+        return 0;
+    }
+    // SAFETY: the destination is clipped to `d` (so it fits in i32);
+    // `stretch` skips samples outside the source.
+    unsafe { stretch(s, d, dx1 as i32, dy1 as i32, dx2 as i32, dy2 as i32, fsx1, fsy1, mx, my, mirror, flip) };
+    0
+}
+
+/// The pixel-for-pixel `_PUTIMAGE` (the same size, maybe mirrored or
+/// flipped): corners as for [`stretch_clipped`], clipped to both surfaces
+/// when `clip` (the whole-surface copy needs none), then copied.
+///
+/// # Safety
+/// As [`putimage`].
+unsafe fn copy_clipped(s: &ImgStruct, d: &ImgStruct, c: [i64; 8], mirror: bool, flip: bool, clip: bool) -> i32 {
+    let [mut dx1, mut dy1, mut dx2, mut dy2, mut sx1, mut sy1, mut sx2, mut sy2] = c;
+    let (sw, sh, dw, dh) = (i64::from(s.width), i64::from(s.height), i64::from(d.width), i64::from(d.height));
+    if clip {
+        // clip
+        if dx1 < 0 {
+            if mirror {
+                sx2 += dx1;
+            } else {
+                sx1 -= dx1;
+            }
+            dx1 = 0;
+        }
+        if dy1 < 0 {
+            if flip {
+                sy2 += dy1;
+            } else {
+                sy1 -= dy1;
+            }
+            dy1 = 0;
+        }
+        if dx2 >= dw {
+            if mirror {
+                sx1 += dx2 - dw + 1;
+            } else {
+                sx2 -= dx2 - dw + 1;
+            }
+            dx2 = dw - 1;
+        }
+        if dy2 >= dh {
+            if flip {
+                sy1 += dy2 - dh + 1;
+            } else {
+                sy2 -= dy2 - dh + 1;
+            }
+            dy2 = dh - 1;
+        }
+        if sx1 < 0 {
+            if mirror {
+                dx2 += sx1;
+            } else {
+                dx1 -= sx1;
+            }
+            sx1 = 0;
+        }
+        if sy1 < 0 {
+            if flip {
+                dy2 += sy1;
+            } else {
+                dy1 -= sy1;
+            }
+            sy1 = 0;
+        }
+        if sx2 >= sw {
+            if mirror {
+                dx1 += sx2 - sw + 1;
+            } else {
+                dx2 -= sx2 - sw + 1;
+            }
+            sx2 = sw - 1;
+        }
+        if sy2 >= sh {
+            if flip {
+                dy1 += sy2 - sh + 1;
+            } else {
+                dy2 -= sy2 - sh + 1;
+            }
+            sy2 = sh - 1;
+        }
+        if dx1 > dx2 || dy1 > dy2 {
+            return 0;
+        }
+    }
+    // Both rectangles now lie inside their surfaces (16-bit sizes), so
+    // every value below fits in i32 / isize.
+    let k = kind(s, d);
+    let (sw, dw) = (sw as isize, dw as isize);
+    for row in 0..=(dy2 - dy1) {
+        let sy = if flip { sy2 - row } else { sy1 + row } as isize;
+        let dy = (dy1 + row) as isize;
+        for col in 0..=(dx2 - dx1) {
+            let sx = if mirror { sx2 - col } else { sx1 + col } as isize;
+            // SAFETY: clipped to both surfaces.
+            unsafe { plot(k, s, d, sy * sw + sx, dy * dw + (dx1 + col) as isize) };
+        }
+    }
+    0
 }
 
 /// Source rectangle widened by just under half a pixel on each side.
@@ -554,7 +540,6 @@ unsafe fn stretch(
             if sx < 0 || sx >= sw || sy < 0 || sy >= sh {
                 // Legacy read outside the source buffer here (a one pixel
                 // wide or high destination skips the source clipping).
-                SOURCE_OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
             // SAFETY: destination clipped by the caller, source checked above.
@@ -564,26 +549,13 @@ unsafe fn stretch(
     }
 }
 
-/// Number of stretched source samples that fell outside the source.
-pub static SOURCE_OUT_OF_RANGE: AtomicU64 = AtomicU64::new(0);
-
-/// `_PUTIMAGE`. `hw_out` may be null (software copy) or point to 8 int32 that
-/// receive (sx1, sy1, sx2, sy2, dx1, dy1, dx2, dy2) for a hardware command.
+/// `_PUTIMAGE` (software copy).
 ///
 /// # Safety
 /// See [`putimage`].
-pub unsafe fn qb_gfx_putimage(
-    s: *mut ImgStruct,
-    d: *mut ImgStruct,
-    c: *const PutCoords,
-    passed: i32,
-    hw_out: *mut i32,
-) -> i32 {
+pub unsafe fn qb_gfx_putimage(s: *mut ImgStruct, d: *mut ImgStruct, c: *const PutCoords, passed: i32) -> i32 {
     // SAFETY: guaranteed by the caller.
-    unsafe {
-        let out = if hw_out.is_null() { None } else { Some(&mut *(hw_out as *mut [i32; 8])) };
-        putimage(&mut *s, &mut *d, *c, passed, out)
-    }
+    unsafe { putimage(&mut *s, &mut *d, *c, passed) }
 }
 
 #[cfg(test)]
@@ -592,7 +564,7 @@ mod tests {
     use crate::gfx::testutil::TestImage;
 
     fn put(s: &mut TestImage, d: &mut TestImage, c: PutCoords, passed: i32) -> i32 {
-        unsafe { putimage(&mut s.img, &mut d.img, c, passed, None) }
+        unsafe { putimage(&mut s.img, &mut d.img, c, passed) }
     }
 
     fn src8() -> Box<TestImage> {

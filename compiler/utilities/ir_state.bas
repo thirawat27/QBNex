@@ -26,10 +26,8 @@ DIM SHARED IrExtMeta AS STRING 'meta extfn lines (DECLARE LIBRARY)
 DIM SHARED IrLibSpec AS STRING, IrLibOf AS STRING
 DIM SHARED IrPendLL AS LONG 'numeric line label waiting for its LASTLINE
 DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
-DIM SHARED IrDataN AS LONG
 'per control level (IF/SELECT/FOR...) state, indexed by controllevel
 REDIM SHARED IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
-DIM SHARED IrDefSeg AS LONG
 REDIM SHARED IrArgs(1 TO 100) AS STRING
 DIM SHARED IrStmt AS STRING, IrStmtN AS LONG, IrStmtFirst AS STRING
 'RUN label / CLEAR targets: count and the main labels (CHR$(10)-separated) of RUNFROM 1..IrRunN
@@ -43,3 +41,6 @@ DIM SHARED IrSrcFiles AS STRING, IrSrcFileN AS LONG, IrSrcLastName AS STRING, Ir
 'reused by IrAssign while IrSymState$ is unchanged: fixing the same expression twice per
 'assignment was a large part of the compile time
 DIM SHARED IrRhsSrc AS STRING, IrRhsFixed AS STRING, IrRhsLayout AS STRING, IrRhsState AS STRING
+'IrAssign asks IrElemPlace$ to hold back the "aaddr" of the element being assigned
+'(IrAaddrLater) and emits the held line (IrAaddrHeld) after the right side
+DIM SHARED IrAaddrLater AS LONG, IrAaddrHeld AS STRING

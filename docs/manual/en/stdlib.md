@@ -33,14 +33,14 @@ Status: all modules on this page are **Available**. In the
 | `ext.collections` | Lists and dictionaries of strings and numbers (handles) |
 | `ext.datetime` | Dates as Unix milliseconds: ISO 8601, formatting, parsing, parts |
 | `ext.core` | Shared helpers: `Ext_LastError$` |
-| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | Collections in BASIC (TYPE based); import `qbnex` for all but `collections.list` (on their own they fail to compile for now) |
+| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | Collections in BASIC (TYPE based), no fixed limit on lists or items |
 | `strings.text`, `strings.strbuilder` | Text helpers, string builder |
 | `io.path`, `io.csv`, `io.json` | Paths, CSV rows, small JSON builders |
 | `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, degrees/radians |
 | `sys.env`, `sys.args`, `sys.datetime` | Platform, environment, arguments, dates |
 | `error.result` | Result values with error codes and context |
 | `oop.class`, `oop.interface` | Runtime registry used by CLASS |
-| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` and `oop` in one import; `json`, `url` and `ext.*` are imported next to it. It imports each of those modules by name, so it combines with any of them in any order |
 
 The `ext.*` modules call the Rust library `crates/runtime/ext` (pure Rust, no
 OpenSSL). Errors: functions return 0 / an empty string and
@@ -81,6 +81,13 @@ Access: `JsonGetType%`, `JsonObjectGet%`, `JsonObjectKey$`,
 Building: `JsonCreate*`, `JsonArrayPush`, `JsonObjectSet`. Parse ->
 stringify gives the same text back for parsed numbers.
 
+Up to 32767 values exist at a time (handles are INTEGERs). `JsonFree v%`
+gives back a value and everything in it (free a document's root when you are
+done with it; a member or element is first removed from its parent), and
+`Json_Cleanup` gives back all. A parse that fails keeps nothing. When the
+pool is full, `JSON_Parse%` returns 0 with `JSON_LastError$` "out of JSON
+value space".
+
 ## url
 
 <!-- docs-test: output -->
@@ -88,9 +95,9 @@ stringify gives the same text back for parsed numbers.
 '$IMPORT:'url'
 DIM u AS UrlParts
 UrlParse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top", u
-PRINT RTRIM$(u.hostname)
+PRINT u.hostname
 PRINT u.port
-PRINT RTRIM$(u.pathname)
+PRINT u.pathname
 PRINT UrlGetQueryParam$(u, "s")          ' "a b"
 UrlSetQueryParam u, "q", "two words"
 PRINT UrlFormat$(u)
@@ -114,6 +121,11 @@ http://a/b/g
 
 Also `UrlNormalizePath$`, `UrlBasename$`, `UrlExtname$`, `UrlDirname$`,
 `UrlBuildQueryString$`, `UrlPathToFile$`, `UrlFileToPath$`.
+
+The `UrlParts` fields are variable-length strings: a component of any length
+is kept whole. A port that is not a number from 0 to 65535 (`http://h:99999/`)
+is an error: `UrlParse` leaves `port` 0 and `UrlLastError$` says why (it is
+"" after a URL that parsed).
 
 ## ext.regex
 

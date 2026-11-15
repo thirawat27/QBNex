@@ -347,7 +347,7 @@ mod imp {
         verb.set_str("", "Compile with QBNex", false)?;
         verb.set_str("Icon", &qb.to_string_lossy(), false)?;
         // the prompt stays open so the compiler's messages can be read
-        Key::create(&format!(r"{BAS_VERB_KEY}\command"))?.set_str("", &format!("cmd.exe /k \"\"{}\" \"%1\" -x\"", qb.display()), false)
+        Key::create(&format!(r"{BAS_VERB_KEY}\command"))?.set_str("", &format!("cmd.exe /k \"\"{}\" \"%1\" -x --exe-with-source\"", qb.display()), false)
     }
 
     fn unassociate(dir: &Path) {
@@ -649,8 +649,9 @@ mod imp {
 
     fn compile_entry(dir: &Path) -> String {
         // the terminal stays open so the compiler's messages can be read
-        // -x: the program goes next to the source, where the user looks for it
-        let script = format!("{} \"$1\" -x; printf '\\nPress Enter to close.'; read x", quoted(&dir.join(compiler_name()).to_string_lossy()));
+        // --exe-with-source: the program goes next to the source, where the user looks
+        // for it (without it, into the installation folder)
+        let script = format!("{} \"$1\" -x --exe-with-source; printf '\\nPress Enter to close.'; read x", quoted(&dir.join(compiler_name()).to_string_lossy()));
         format!(
             "[Desktop Entry]\nType=Application\nName=Compile with QBNex\nExec={}\nIcon={}\nTerminal=true\nNoDisplay=true\nMimeType=text/x-basic;\nX-QBNex-Dir={}\n",
             exec_sh(&script, " %f"),
@@ -792,8 +793,8 @@ mod imp {
             let entry = terminal_entry(dir);
             if cfg!(not(target_os = "macos")) {
                 assert!(entry.contains("Exec=sh -c \"PATH='/opt/my qb'\\\\''s':\\\"\\$PATH\\\"; export PATH;"), "{entry}");
-                // -x: the program is written next to the source
-                assert!(compile_entry(dir).contains("\\\"\\$1\\\" -x; printf"), "{}", compile_entry(dir));
+                // --exe-with-source: the program is written next to the source
+                assert!(compile_entry(dir).contains("\\\"\\$1\\\" -x --exe-with-source; printf"), "{}", compile_entry(dir));
                 assert!(compile_entry(dir).ends_with("X-QBNex-Dir=/opt/my qb's\n"));
             }
             assert_eq!(quoted("a'b"), "'a'\\''b'");

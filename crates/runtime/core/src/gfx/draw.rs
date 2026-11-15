@@ -22,12 +22,6 @@ fn cvt_i64(v: f64) -> i64 {
     }
 }
 
-/// `double d = *(long double*)p` on x87: unsupported encodings (unnormals,
-/// pseudo-NaN/infinity) load as the "indefinite" QNaN and NaNs keep their
-/// payload, quietened; finite values round to nearest.
-fn f80_load_store(b: [u8; 10]) -> f64 {
-    qb_float80::F80::from_bytes(b).to_f64()
-}
 
 struct Parser {
     cp: *const u8,
@@ -44,9 +38,13 @@ impl Parser {
         unsafe { *self.cp.add(k as usize) }
     }
 
-    fn cmem_at<T: Copy>(&self, offset: usize) -> T {
-        // SAFETY: VARPTR$ offsets address variables inside cmem.
-        unsafe { core::ptr::read_unaligned(self.cmem.add(DBLOCK + offset) as *const T) }
+    /// The `len` bytes of the variable at VARPTR$ offset `offset`, zero padded.
+    fn cmem_var(&self, offset: usize, len: usize) -> [u8; 10] {
+        let mut b = [0u8; 10];
+        // SAFETY: VARPTR$ offsets address variables inside cmem; `len` is the
+        // size of the variable's type.
+        unsafe { core::ptr::copy_nonoverlapping(self.cmem.add(DBLOCK + offset), b.as_mut_ptr(), len.min(10)) };
+        b
     }
 
     /// Legacy `draw_num`.
@@ -70,19 +68,17 @@ impl Parser {
                 }
                 let offset = self.at(self.i + 2) as usize * 256 + self.at(self.i + 1) as usize;
                 self.i += 3;
-                d = match c {
-                    1 => f64::from(self.cmem_at::<i8>(offset)),
-                    129 => f64::from(self.cmem_at::<u8>(offset)),
-                    2 => f64::from(self.cmem_at::<i16>(offset)),
-                    130 => f64::from(self.cmem_at::<u16>(offset)),
-                    4 => f64::from(self.cmem_at::<f32>(offset)),
-                    5 => self.cmem_at::<i64>(offset) as f64,
-                    133 => self.cmem_at::<u64>(offset) as f64,
-                    6 => f80_load_store(self.cmem_at(offset)),
-                    8 => self.cmem_at::<f64>(offset),
-                    20 => f64::from(self.cmem_at::<i32>(offset)),
-                    148 => f64::from(self.cmem_at::<u32>(offset)),
-                    _ => {
+                // (the PLAY decoder; DRAW has no _BIT references. An x87 value:
+                // unsupported encodings load as the indefinite NaN, finite
+                // values round to nearest.)
+                // (memory is read only for a type that names a variable)
+                let value = match qb_audio::mml::varptr_size(c) {
+                    Some(n) if c & 64 == 0 => qb_audio::mml::varptr_value(c, &self.cmem_var(offset, n)),
+                    _ => None,
+                };
+                d = match value {
+                    Some(v) => v,
+                    None => {
                         self.invalid = true;
                         return 0.0;
                     }
@@ -419,7 +415,7 @@ pub unsafe fn draw(im: &mut ImgStruct, s: *const u8, len: i32, cmem: *const u8) 
                 }
                 stack.push((p.cp, p.len, p.i));
                 // string descriptor in DBLOCK: u16 length, u16 offset
-                let at = |k: usize| -> usize { p.cmem_at::<u8>(offset + k) as usize };
+                let at = |k: usize| -> usize { p.cmem_var(offset + k, 1)[0] as usize };
                 let (l, o) = (at(1) * 256 + at(0), at(3) * 256 + at(2));
                 // SAFETY: the descriptor addresses a string inside cmem.
                 p.cp = unsafe { cmem.add(DBLOCK + o) };

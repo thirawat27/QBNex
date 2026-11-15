@@ -1,0 +1,23 @@
+# cargo audit settings (CI runs `cargo audit`, which fails on any vulnerability).
+# Only "unmaintained" notices are ignored here, each because no maintained
+# replacement exists yet that keeps what the parent crate does. Look again
+# when the parent named below has a new release.
+[advisories]
+ignore = [
+    # ttf-parser (via owned_ttf_parser, ab_glyph): sctk-adwaita 0.10, which
+    # winit 0.30 (the window of every graphics program, qb-runtime / qb-gpu, and
+    # of the installer) uses to draw the window title on Wayland desktops
+    # without server-side decorations (GNOME). Leaving it out would leave those
+    # title bars without the title; winit's other title renderer needs FreeType
+    # (C). It only reads the installed system font. Fix: winit 0.31
+    # (sctk-adwaita 0.12 can use skrifa).
+    "RUSTSEC-2026-0192",
+    # zvariant, zvariant_derive, zbus_names (merged into zbus 6): zbus 5,
+    # through accesskit_unix 0.24 (latest) <- accesskit_winit <- egui-winit <-
+    # eframe 0.37, the screen-reader support (AT-SPI over D-Bus) of the
+    # qbnex-setup window on Linux. Leaving it out would make the installer
+    # unusable with a screen reader. Fix: an accesskit_unix release on zbus 6.
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
+]

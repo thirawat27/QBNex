@@ -234,3 +234,25 @@ fn float_literals_exact() {
         o => panic!("{o:?}"),
     }
 }
+
+#[test]
+fn hex_string_bytes_take_no_sign() {
+    let e = parse("QIR 1\nfunc main\nconst.str %0 x+f\nend\nendfunc\n").unwrap_err();
+    assert!(e.msg.contains("string literal"), "{}", e.msg);
+}
+
+#[test]
+fn pointer_constant_is_null_only() {
+    assert!(parse("QIR 1\nfunc main\nconst.ptr %0 0\nend\nendfunc\n").is_ok());
+    let e = parse("QIR 1\nfunc main\nconst.ptr %0 4096\nend\nendfunc\n").unwrap_err();
+    assert!(e.msg.contains("pointer constant"), "{}", e.msg);
+}
+
+#[test]
+fn extfn_is_parsed_once_into_the_module() {
+    let m = parse("QIR 1\nmeta extfn abs - i32 i32\nmeta extfn beep - void\nfunc main\nend\nendfunc\n").unwrap();
+    let f = m.extfn("abs").unwrap();
+    assert_eq!((f.lib.as_str(), f.ret, f.args.as_slice()), ("-", Some(Ty::I32), &[Ty::I32][..]));
+    assert_eq!(m.extfn("beep").unwrap().ret, None);
+    assert!(parse("QIR 1\nmeta extfn bad - i99\nfunc main\nend\nendfunc\n").is_err());
+}

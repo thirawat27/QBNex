@@ -260,6 +260,9 @@ pub static TABLE: &[Builtin] = &[
     // a number for a _FLOAT variable, with its 64-bit mantissa
     b!("INPUTITEM.x", [I32], F80),
     b!("INPUTPROMPT", [Str, I32]),
+    // INPUTPROMPT + the storage types of the INPUT's variables ("i16 f64 str"),
+    // which the runner checks the answer against ("Redo from start")
+    b!("INPUTPROMPT.t", [Str, I32, Str]),
     b!("KILL", [Str]),
     b!("NAME", [Str, Str]),
     b!("MKDIR", [Str]),
@@ -268,9 +271,6 @@ pub static TABLE: &[Builtin] = &[
     b!("_FILEEXISTS", [Str], I32),
     b!("_DIREXISTS", [Str], I32),
     // ---- console / system
-    b!("CLS", []),
-    b!("LOCATE", [I32, I32]),
-    b!("COLOR", [I32, I32]),
     b!("POS", [], I32),
     b!("CSRLIN", [], I32),
     b!("INKEY$", [], Str),
@@ -285,7 +285,6 @@ pub static TABLE: &[Builtin] = &[
     // TIME$ = / DATE$ = (a program-local clock offset)
     b!("TIME$.set", [Str]),
     b!("DATE$.set", [Str]),
-    b!("_DEST", [I32]),
     // ---- screen pages, images and graphics: runtime callnames of the compiler registry
     // (`subs_functions.bas`); argument types are the registry's, the trailing I32 is `passed`.
     // `sub_graphics_get/put` take the element address and the array (aref) for the buffer.
@@ -655,5 +654,18 @@ pub static TABLE: &[Builtin] = &[
 ];
 
 pub fn lookup(name: &str) -> Option<&'static Builtin> {
-    TABLE.iter().find(|b| b.name == name)
+    // by name through a map built once: the validator and the lowering ask for every
+    // `rt` instruction of a program, and the table has some 600 entries
+    static BY_NAME: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static Builtin>> = std::sync::OnceLock::new();
+    BY_NAME
+        .get_or_init(|| {
+            let mut m = std::collections::HashMap::with_capacity(TABLE.len());
+            for b in TABLE {
+                // the first entry of a name is the one a linear search found
+                m.entry(b.name).or_insert(b);
+            }
+            m
+        })
+        .get(name)
+        .copied()
 }

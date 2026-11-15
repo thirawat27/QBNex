@@ -45,17 +45,26 @@ impl Present {
         self.gpu.adapter_name()
     }
 
-    /// Shows `px` in a `win_w`×`win_h` window with layout `l`. Returns false
-    /// when the surface could not give a frame now (minimised, lost).
-    pub fn redraw(&mut self, win_w: u32, win_h: u32, px: &[u32], w: usize, h: usize, l: &Layout) -> bool {
+    /// The next frame of a `win_w`×`win_h` window; None when the surface
+    /// cannot give one now (minimised, lost). Waiting for it (vertical sync)
+    /// happens here, before the caller takes the lock of the pixels it draws.
+    pub fn acquire(&mut self, win_w: u32, win_h: u32) -> Option<Frame> {
         if self.target.size() != (win_w, win_h) {
             self.target.resize(&self.gpu, win_w, win_h);
         }
-        let Some(frame) = self.target.frame(&self.gpu) else { return false };
+        self.target.frame(&self.gpu)
+    }
+
+    /// Draws `px` into `frame` with layout `l` (black when there is no picture).
+    pub fn draw(&mut self, frame: &Frame, px: &[u32], w: usize, h: usize, l: &Layout) {
         if w > 0 && h > 0 && px.len() >= w * h {
-            draw_layout(&self.gpu, &mut self.blit, &frame, &px[..w * h], w, h, l);
+            draw_layout(&self.gpu, &mut self.blit, frame, &px[..w * h], w, h, l);
+        } else {
+            self.blit.clear(&self.gpu, frame);
         }
+    }
+
+    pub fn present(&self, frame: Frame) {
         frame.present(&self.gpu);
-        true
     }
 }

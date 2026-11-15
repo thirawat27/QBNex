@@ -76,6 +76,18 @@ compiler:
     `"name:version"`) next to the path, in `/usr/lib64` and `/usr/lib`;
   - macOS: `libname.dylib` the same way.
 
+  A name without a path is looked for in the program's own folder (the
+  folder of the executable; for `qb-exec prog.qir` the folder of
+  `prog.qir`), then in the system folders: on Windows `System32`, the
+  Windows folder and the folders of `PATH`; on Linux `/usr/lib64`,
+  `/usr/lib` and the `ld.so` search path; on macOS `/usr/lib`,
+  `DYLD_FALLBACK_LIBRARY_PATH` and `/usr/local/lib`. Unlike QB64, it is
+  never looked for in the current directory, so a file of that name in
+  the folder the program is started from (a download or shared folder)
+  cannot be loaded instead. A library in the source folder is named
+  `"./name"`; a path such as `"lib/name"` is relative to the current
+  directory, as in QB64.
+
   On Windows the compiler stops with `LIBRARY not found` when no such
   `.dll` exists; on Linux and macOS a missing library shows up as
   error 453 at the first call.
@@ -229,6 +241,10 @@ Compiled, but different:
   gets neither the icon nor the version information: it is the runner with the
   program's QIR appended, and no Windows resource step runs. `$CHECKING:OFF` is
   accepted and changes nothing; the checks stay on.
+- Sounds opened without `"STREAM"` are decoded into memory and limited to
+  4 hours / 4 GiB of samples (a longer file fails to open: use `"STREAM"`);
+  images are limited to 2^28 pixels (16384 x 16384) for PNG, JPEG, GIF, PCX
+  and run-length TGA.
 
 ## Programs that time themselves with loops
 

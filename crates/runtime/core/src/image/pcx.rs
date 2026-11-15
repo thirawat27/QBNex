@@ -338,9 +338,17 @@ pub fn decode(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     } else {
         3
     };
-    let size = width * height * components;
+    let size = width.checked_mul(height)?.checked_mul(components)?;
     if size > u32::MAX as usize {
         return None; // 1
+    }
+    // The size is the header's word alone (three bytes of a file say it is a PCX). One
+    // byte of data is at most a run of 63 bytes of eight pixels each: a file too short
+    // for its picture by that measure is not decoded, instead of clearing gigabytes for
+    // a file of 128 bytes.
+    const MAX_OUTPUT_PER_INPUT_BYTE: usize = 63 * 8 * 4;
+    if size / MAX_OUTPUT_PER_INPUT_BYTE > data.len() || !super::stb::within_budget(width as u64, height as u64) {
+        return None;
     }
     // calloc in dr_pcx: allocation failure is a decode failure, not an abort.
     let mut px = Vec::new();

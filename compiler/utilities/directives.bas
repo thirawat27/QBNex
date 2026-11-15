@@ -395,19 +395,13 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
         DefineElse(ExecCounter) = 0
         ExecCounter = ExecCounter - 1
         layout$ = SCase$("$End If")
-        controltype(controllevel) = 0
-        controllevel = controllevel - 1
         HandleMainPassConditionalDirective% = 1
         EXIT FUNCTION
     END IF
 
     IF LEFT$(upperLine, 4) = "$IF " THEN
-        IF SelectCaseCounter > 0 AND SelectCaseHasCaseBlock(SelectCaseCounter) = 0 THEN
-            ModuleError$ = "Expected CASE expression"
-            HandleMainPassConditionalDirective% = 2
-            EXIT FUNCTION
-        END IF
-
+        'a $IF right after SELECT CASE is not code before the first CASE: it may hold the
+        'CASE blocks (each line it compiles is checked as usual)
         conditionText = LTRIM$(MID$(upperLine, 4))
         conditionText = RTRIM$(LEFT$(conditionText, LEN(conditionText) - 4))
 
@@ -430,6 +424,7 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
         ExecCounter = ExecCounter + 1
         ExecLevel(ExecCounter) = -1
         DefineElse(ExecCounter) = 1
+        ExecRef(ExecCounter) = linenumber
 
         ModuleError$ = "": conditionResult = EvalPreIF(conditionText, ModuleError$)
         IF ModuleError$ <> "" THEN
@@ -442,15 +437,8 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
             IF ExecLevel(ExecCounter) = 0 THEN DefineElse(ExecCounter) = DefineElse(ExecCounter) OR 4
         END IF
 
-        IF controllevel >= 1000 THEN
-            ModuleError$ = "Too many nested blocks (the limit is 1000)"
-            HandleMainPassConditionalDirective% = 2
-            EXIT FUNCTION
-        END IF
-        controllevel = controllevel + 1
-        controlref(controllevel) = linenumber
-        controltype(controllevel) = 6
-
+        'the $IF is not pushed on the block stack (controltype): it only selects lines, so the
+        'blocks of the code it encloses may open inside it and close after it, or the reverse
         IF comparePos = 0 THEN
             layout$ = SCase$("$If ") + conditionText + SCase$(" Then")
         ELSE
@@ -484,7 +472,6 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
         END IF
 
         layout$ = SCase$("$Else")
-        lhscontrollevel = lhscontrollevel - 1
         HandleMainPassConditionalDirective% = 1
         EXIT FUNCTION
     END IF
@@ -529,7 +516,6 @@ FUNCTION HandleMainPassConditionalDirective% (upperLine AS STRING)
             END IF
         END IF
 
-        lhscontrollevel = lhscontrollevel - 1
         comparePos = INSTR(conditionText, "=")
         IF comparePos = 0 THEN
             layout$ = SCase$("$ElseIf ") + conditionText + SCase$(" Then")

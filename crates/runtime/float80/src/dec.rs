@@ -553,6 +553,14 @@ fn parse_hex(s: &[u8], neg: bool) -> Option<(F80, usize)> {
     Some((round_pack(neg, e, m, sticky), j))
 }
 
+/// Significant digits [`decimal_to_f80`] converts exactly. A midpoint between
+/// two neighbouring 80-bit values is `odd * 2^k` with an odd factor below
+/// 2^65; it has the most significant digits at the bottom of the denormals,
+/// `odd * 2^-16446 = odd * 5^16446 / 10^16446`: about 19.6 + 16446 * log10(5)
+/// = 11516 digits. Truncating longer input to this many digits and keeping
+/// a sticky bit for the rest cannot move it across such a boundary.
+const MAX_SIGNIFICANT_DIGITS: usize = 11_600;
+
 /// Correctly rounded `(-1)^neg * (digits + tail) * 10^e10`, where `digits`
 /// holds decimal digit values (0..=9) and `inexact_tail` says that non-zero
 /// digits were dropped after them. Used by `VAL`.
@@ -570,13 +578,25 @@ pub fn decimal_to_f80(neg: bool, digits: &[u8], e10: i64, inexact_tail: bool) ->
     if e10 + n < -4952 {
         return zero(neg);
     }
+    // Digits past the first MAX_SIGNIFICANT_DIGITS only tell whether the value
+    // is above the truncated one (the sticky bit): every rounding boundary of
+    // the format has fewer significant digits, so the result is the same, and
+    // a long string of digits no longer costs time quadratic in its length.
+    let (digits, e10, inexact_tail) = if digits.len() > MAX_SIGNIFICANT_DIGITS {
+        let (kept, dropped) = digits.split_at(MAX_SIGNIFICANT_DIGITS);
+        (kept, e10 + dropped.len() as i64, inexact_tail || dropped.iter().any(|&d| d != 0))
+    } else {
+        (digits, e10, inexact_tail)
+    };
+    // nine digits at a time: one pass over the number per nine digits
     let mut num = Big(Vec::new());
-    for &d in digits {
-        if num.is_zero() {
-            num = Big::from_u128(d as u128);
-        } else {
-            num.mul_add_small(10, d as u32);
+    for group in digits.chunks(9) {
+        let (mut mul, mut add) = (1u32, 0u32);
+        for &d in group {
+            mul *= 10;
+            add = add * 10 + d as u32;
         }
+        num.mul_add_small(mul, add);
     }
     let mut den = Big::from_u128(1);
     if e10 >= 0 {
@@ -612,6 +632,43 @@ mod tests {
 
     fn p(s: &str) -> F80 {
         parse(s.as_bytes()).0
+    }
+
+    /// Long digit strings are truncated with a sticky bit, and still round
+    /// correctly: 1 + 2^-64 is halfway between 1 and the next value.
+    #[test]
+    fn long_digit_strings_round_correctly() {
+        // 2^-64 = 5^64 / 10^64
+        let mut five = vec![1u8];
+        for _ in 0..64 {
+            let mut carry = 0;
+            for d in five.iter_mut().rev() {
+                let v = *d * 5 + carry;
+                *d = v % 10;
+                carry = v / 10;
+            }
+            while carry > 0 {
+                five.insert(0, carry % 10);
+                carry /= 10;
+            }
+        }
+        let mut half = vec![1u8];
+        half.extend(std::iter::repeat_n(0, 64 - five.len()));
+        half.extend_from_slice(&five);
+        let next = F80::from_parts(false, 0x3FFF, (1 << 63) | 1);
+        for zeros in [0, 50_000] {
+            let mut d = half.clone();
+            d.extend(std::iter::repeat_n(0, zeros));
+            let e = -(d.len() as i64 - 1);
+            assert_eq!(decimal_to_f80(false, &d, e, false), F80::ONE, "{zeros}");
+            d.push(1);
+            assert_eq!(decimal_to_f80(false, &d, e - 1, false), next, "{zeros}");
+        }
+        // a million digits take no time to speak of
+        let t = std::time::Instant::now();
+        let d = vec![7u8; 1_000_000];
+        assert!(decimal_to_f80(false, &d, -999_999, false).is_finite());
+        assert!(t.elapsed().as_secs() < 5);
     }
 
     #[test]

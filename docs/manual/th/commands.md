@@ -23,6 +23,7 @@ source แทน path ของ source แบบ relative จะนับจา�
 | `-c` | คอมไพล์ (ค่าเริ่มต้น) |
 | `-o <file>` | ไฟล์ executable ที่ต้องการ ถ้าชื่อลงท้ายด้วย `.qir` จะเขียน QIR text ของโปรแกรมแทน (สิ่งที่ [qb-web](../../../crates/web/README.md) ใช้รัน) |
 | `--emit-ir` | เขียน QIR text แทน executable (`-o x.exe` จะกลายเป็น `x.qir`) |
+| `--exe-with-source` | เมื่อไม่มี `-o`: เขียนไฟล์โปรแกรมไว้ข้างไฟล์ซอร์ส เฉพาะการ build ครั้งนี้ (ค่าตั้งถาวรคือ `-s:exewithsource=true`) |
 | `-x` | คอมไพล์และส่งข้อความของคอมไพเลอร์ออกทาง console |
 | `-w` | แสดงคำเตือน |
 | `-Werror`, `--warnings-as-errors` | ถือว่าคำเตือนเป็น error |

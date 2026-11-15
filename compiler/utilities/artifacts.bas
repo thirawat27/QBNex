@@ -9,12 +9,8 @@ FUNCTION QuotedFilename$ (f$)
         EXIT FUNCTION
     END IF
 
-    IF os$ = "LNX" THEN
-        QuotedFilename$ = "'" + EscapeUnixShellPath$(f$) + "'"
-        EXIT FUNCTION
-    END IF
-
-    QuotedFilename$ = CHR$(34) + f$ + CHR$(34)
+    'sh: nothing is special between single quotes ($name, $(...) and ` are between double ones)
+    QuotedFilename$ = "'" + EscapeUnixShellPath$(f$) + "'"
 END FUNCTION
 
 FUNCTION ResolveAbsoluteDirectory$ (pathCandidate$)

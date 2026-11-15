@@ -7,7 +7,7 @@
 
 use qb_jit::ctx::{qberr, status, ArrDesc, ChainRec, Ctx, NO_DST};
 use qb_jit::mir::*;
-use qb_jit::thunk::Thunks;
+use super::thunk::Thunks;
 
 
 /// VM callback executing one VM instruction on a frame.

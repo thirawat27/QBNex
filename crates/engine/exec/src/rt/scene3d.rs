@@ -74,8 +74,18 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
         "func__meshend" => return int(s3::qb_3d_mesh_end()),
         "sub__meshcolor" => raise(s3::qb_3d_mesh_color(i(0), u(1))),
         "sub__meshtexture" => {
-            let d = &mut vm.rt().display;
-            let Some(x) = d.resolve(i(1)) else { return Some(Err(Stop::Err(258))) };
+            // The registry exists only once the display has started, and a handle that
+            // does not resolve leaves its error pending in the display: take it here.
+            let rt = vm.rt();
+            let cmem = rt.cmem.as_mut_ptr();
+            let (console_on, console_only) = (rt.console_on, rt.console_only);
+            let d = &mut rt.display;
+            d.start(cmem, console_on, console_only);
+            let x = d.resolve(i(1));
+            if let Err(e) = super::display::chk(d) {
+                return Some(Err(e));
+            }
+            let Some(x) = x else { return Some(Err(Stop::Err(258))) };
             // SAFETY: a resolved registry entry.
             let im = unsafe { &*reg::img.add(x as usize) };
             if im.bytes_per_pixel != 4 || im.text != 0 {

@@ -73,8 +73,6 @@ the default printer on Windows and through `lp` on Linux and macOS.
   [language](language.md)).
 - A statement the QIR back end does not cover yet stops the build with
   `QIR: unsupported: line N: ...`.
-- BYREF parameters are copied in and out: different from QB64 only when a
-  SUB changes the same variable both through a parameter and through SHARED.
 - `TIME$ =` and `DATE$ =` move a clock of the program (TIME$, DATE$, TIMER),
   not the system clock; QB64 ignored them. `_MEM` of a variable-length STRING
   and `_MEMFILL` of a non-variable value without `AS` are accepted (see
@@ -82,3 +80,22 @@ the default printer on Windows and through `lp` on Linux and macOS.
 - GPU 3D clips at the far plane (as QB64's OpenGL did); the software
   renderer does not.
 - Web build limits: see [web](web.md).
+
+## Changed in 2.0.0-preview.3
+
+- `DECLARE LIBRARY "name"` without a path is never looked for in the current
+  directory (QB64 tried it first); see [limitations](limitations.md#declare-library).
+- `$INCLUDE` names are resolved case-insensitively on Linux/macOS when the
+  exact path does not exist (folder by folder; an exact match wins). `$IF` does
+  not interact with block structure (QB64 popped the open block at `$END IF`).
+- `_SNDLIMIT` counts from the sound's start (QB64's implementation used
+  absolute engine time).
+- INPUT with redirected stdin: an answer that does not fit prints "Redo from
+  start" and reads the next line. When no input is left, the answer is taken as
+  given (missing values 0 / "") instead of waiting for ever.
+- Linux: OPEN … LOCK READ and LOCK WRITE refuse every other OPEN of the file,
+  not only the conflicting access (stricter than Windows). Locks are advisory:
+  only programs that lock the file (QBNex programs, `flock`/`fcntl` users) see
+  them. A file open only for reading takes a shared LOCK.
+- macOS: the LOCK clause of OPEN is not enforced. LOCK ranges are per process,
+  so closing another file number of the same file releases them.

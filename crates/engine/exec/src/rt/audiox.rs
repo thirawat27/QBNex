@@ -214,8 +214,10 @@ pub(crate) fn call<'a>(vm: &mut dyn Host<'a>, name: &str, a: &[V]) -> Option<R<O
                 mb.lock_id = mem::MEM_LOCK_INVALID_ID as i64;
             }
             let r = vm.bytes(a[0].p(), std::mem::size_of::<MemBlock>()).map(|b| {
-                // SAFETY: the destination is a _MEM UDT (MemBlock layout).
-                unsafe { *(b.as_mut_ptr() as *mut MemBlock) = mb };
+                // SAFETY: the destination is a _MEM UDT (MemBlock layout) of
+                // `size_of::<MemBlock>()` bytes; variable storage need not be
+                // aligned for MemBlock, hence the unaligned write.
+                unsafe { std::ptr::write_unaligned(b.as_mut_ptr() as *mut MemBlock, mb) };
                 None
             });
             Some(r)

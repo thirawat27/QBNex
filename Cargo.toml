@@ -19,13 +19,19 @@ members = [
     "crates/tools/dap",
     "crates/tools/setup",
     "tests/conformance",
+    "crates/compat/paste",
 ]
 
 [workspace.package]
-version = "2.0.0-preview.2"
+version = "2.0.0-preview.3"
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.100"
+
+# `paste` is archived (RUSTSEC-2024-0436) and rustls-rustcrypto has no release
+# without it: crates/compat/paste forwards to its maintained fork `pastey`.
+[patch.crates-io]
+paste = { path = "crates/compat/paste" }
 
 [profile.release]
 opt-level = 3

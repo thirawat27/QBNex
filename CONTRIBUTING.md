@@ -260,7 +260,7 @@ The runtime is a Cargo workspace under `crates/`. A new built-in needs:
 - the keyword in `crates/compiler/syntax` so the formatter and language server know it,
 - a conformance case, and the manual page in English and Thai.
 
-Rust changes should pass `cargo test --workspace` and `cargo clippy --workspace -- -D warnings` (as in CI). The toolchain
+Rust changes should pass `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings` (as in CI). The toolchain
 is pinned in `rust-toolchain.toml` (Rust 1.100.0).
 
 ### Commit Messages
@@ -328,7 +328,9 @@ pwsh tests/docs/check_docs.ps1
 ```
 
 Set `QBNEX_NO_ERROR_DIALOG=1` when you run compiled programs from scripts, so a runtime error
-ends the program instead of waiting at a dialog.
+ends the program instead of waiting at a dialog. The conformance runner also sets
+`QBNEX_TEST_HOOKS=1`, which turns on the runtime's test hooks (the local HTTP server of
+`qb-ext` that `stdlib/ext_zip_http` uses); a case run by hand needs it too.
 
 **Conformance cases.** A behaviour change gets a case in `tests/conformance/cases/<area>/`:
 
@@ -368,7 +370,7 @@ Create test programs that demonstrate:
 
 QBNex uses GitHub Actions for CI:
 
-- **Push and pull requests** (`main`, `rust-port`): `ci.yml` runs a dependency audit (also every Monday), clippy, and builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, native executables; the self-host fixpoint compares against `bootstrap/qbnex.qir` on Windows, where it is built, and checks gen2 == gen3 on Linux). Pushes that only change Markdown, `docs/` or `packaging/vscode/` skip it; `ci-skip` in the commit message skips it too.
+- **Push and pull requests** (`main`, `rust-port`): `ci.yml` runs a dependency audit (also every Monday), clippy, and builds and tests on Linux x64, macOS arm64 and Windows x64 (workspace tests, smoke tests, conformance, native executables; the self-host fixpoint compares against `bootstrap/qbnex.qir` on Windows, where it is built, and checks gen2 == gen3 on Linux). Pushes that only change Markdown, `docs/` or `packaging/vscode/` skip it; `ci-skip` in the commit message skips it too. `extension.yml` tests the VS Code extension (and checks its generated grammar) when `packaging/vscode/` or `crates/compiler/syntax/` changes, and `docker.yml` builds `docker/Dockerfile` when `docker/` changes.
 - **Documentation** (`docs.yml`): runs `tests/docs/check_docs.ps1` for changes to `README.md`, `docs/` or `tests/docs/`.
 - **Releases** (`v*` tags): `release.yml` builds, tests and packages Linux, macOS and Windows x64, and the one-file installers
 

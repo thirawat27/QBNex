@@ -57,7 +57,7 @@ SUB ParseExpression (exp$)
                 'Look for first valid operator
                 IF J = PL(P) THEN 'Priority levels match
                 IF LEFT$(exp$, 1) = "-" THEN startAt = 2 ELSE startAt = 1
-                op = INSTR(startAt, exp$, OName$(P))
+                op = Eval_FindOp&(startAt, exp$, OName$(P))
                 IF op = 0 AND LEFT$(OName$(P), 1) = "_" AND qbnexprefix_set = 1 THEN
                     'try again without prefix
                     op = INSTR(startAt, exp$, MID$(OName$(P), 2))
@@ -71,7 +71,7 @@ SUB ParseExpression (exp$)
         NEXT
         IF OpOn = 0 THEN EXIT DO 'We haven't gotten to the proper PL for this OP to be processed yet.
         IF LEFT$(exp$, 1) = "-" THEN startAt = 2 ELSE startAt = 1
-        op = INSTR(startAt, exp$, OName$(OpOn))
+        op = Eval_FindOp&(startAt, exp$, OName$(OpOn))
 
         numset = 0
 
@@ -134,7 +134,11 @@ SUB ParseExpression (exp$)
         END IF
         IF MID$(num(3), 1, 1) = "-" THEN MID$(num(3), 1) = "N"
         IF LEFT$(num(3), 5) = "ERROR" THEN exp$ = num(3): EXIT SUB
-        exp$ = LTRIM$(N2S(DWD(LEFT$(exp$, s) + RTRIM$(LTRIM$(num(3))) + MID$(exp$, E + 1))))
+        'Only the result is taken out of scientific notation: N2S on the whole expression
+        'kept what follows "E+" as the exponent and dropped the rest of the expression
+        num(3) = N2S(RTRIM$(LTRIM$(num(3))))
+        IF MID$(num(3), 1, 1) = "-" THEN MID$(num(3), 1) = "N"
+        exp$ = LTRIM$(DWD(LEFT$(exp$, s) + num(3) + MID$(exp$, E + 1)))
     END IF
     op = 0
 LOOP
@@ -248,6 +252,20 @@ REDIM OName(10000) AS STRING, PL(10000) AS INTEGER
 REDIM _PRESERVE OName(i) AS STRING, PL(i) AS INTEGER
 END SUB
 
+FUNCTION Eval_FindOp& (fromPos AS LONG, exprText AS STRING, opName AS STRING)
+    'Position of operator opName in exprText from fromPos. The OR inside XOR is not an OR:
+    'CONST c = 3 AND 1 OR 4 XOR 2 was "Invalid CONST expression".
+    DIM found AS LONG
+    found = INSTR(fromPos, exprText, opName)
+    IF opName = "OR" THEN
+        DO WHILE found > 1
+            IF MID$(exprText, found - 1, 1) <> "X" THEN EXIT DO
+            found = INSTR(found + 1, exprText, opName)
+        LOOP
+    END IF
+    Eval_FindOp& = found
+END FUNCTION
+
 FUNCTION Eval_NumText$ (v AS _FLOAT)
     'The text of an intermediate CONST value. STR$ gives 16 significant digits, one too
     'few for a DOUBLE: CONST s = 1 / 7 was not the 1 / 7 of an expression. A value with
@@ -256,6 +274,15 @@ FUNCTION Eval_NumText$ (v AS _FLOAT)
     DIM t AS STRING, f AS STRING, n AS LONG, i AS LONG, d AS LONG
 
     a = ABS(v)
+    'A whole number below 2^64 is written with all its digits (a _FLOAT holds them):
+    'STR$ gives 16, and CONST c&& = 1234567890123456789 + 1 ended in ...457000.
+    IF a = INT(a) AND a >= 1E+15 AND a < 18446744073709551615## THEN
+        DIM whole AS _UNSIGNED _INTEGER64
+        whole = a
+        t = LTRIM$(STR$(whole))
+        IF v < 0 THEN t = "-" + t
+        Eval_NumText$ = t: EXIT FUNCTION
+    END IF
     IF a >= 1E+15 OR a < .00001 OR a = INT(a) THEN Eval_NumText$ = RTRIM$(LTRIM$(STR$(v))): EXIT FUNCTION
     ip = INT(a)
     frac = a - ip
@@ -745,25 +772,33 @@ REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then 
         NEXT
     NEXT
 
-    'Modify so that NOT will process properly
+    'Modify so that NOT will process properly: NOT takes everything after it up to the
+    'next AND, OR, XOR, EQV or IMP of its own bracket level (1 + NOT 2 + 1 is
+    '1 + (NOT 2 + 1), (1 + NOT 0) * 3 is (1 + (NOT 0)) * 3), so it is put in brackets.
+    '(This looked for "NOT " after the spaces were gone, so it never ran and NOT after
+    'an operator was misread: 10 / NOT 1 was a division by zero.)
     l = 0
     DO
-        l = INSTR(l + 1, t$, "NOT ")
-        IF l THEN
-            'We need to work magic on the statement so it looks pretty.
-            ' 1 + NOT 2 + 1 is actually processed as 1 + (NOT 2 + 1)
-            'Look for something not proper
-            l1 = INSTR(l + 1, t$, "AND")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "OR") > 0 AND INSTR(l + 1, t$, "OR") < l1) THEN l1 = INSTR(l + 1, t$, "OR")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "XOR") > 0 AND INSTR(l + 1, t$, "XOR") < l1) THEN l1 = INSTR(l + 1, t$, "XOR")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "EQV") > 0 AND INSTR(l + 1, t$, "EQV") < l1) THEN l1 = INSTR(l + 1, t$, "EQV")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "IMP") > 0 AND INSTR(l + 1, t$, "IMP") < l1) THEN l1 = INSTR(l + 1, t$, "IMP")
-            IF l1 = 0 THEN l1 = LEN(t$) + 1
-            t$ = LEFT$(t$, l - 1) + "(" + MID$(t$, l, l1 - l) + ")" + MID$(t$, l + l1 - l)
-            l = l + 3
-            'PRINT t$
-        END IF
-    LOOP UNTIL l = 0
+        l = INSTR(l + 1, t$, "NOT")
+        IF l = 0 THEN EXIT DO
+        c = 0
+        FOR l1 = l + 3 TO LEN(t$)
+            m$ = MID$(t$, l1, 1)
+            IF m$ = "(" THEN
+                c = c + 1
+            ELSEIF m$ = ")" THEN
+                IF c = 0 THEN EXIT FOR
+                c = c - 1
+            ELSEIF c = 0 THEN
+                IF m$ = "," THEN EXIT FOR
+                m$ = MID$(t$, l1, 3)
+                IF m$ = "AND" OR m$ = "XOR" OR m$ = "EQV" OR m$ = "IMP" OR LEFT$(m$, 2) = "OR" THEN EXIT FOR
+            END IF
+        NEXT
+        t$ = LEFT$(t$, l - 1) + "(" + MID$(t$, l, l1 - l) + ")" + MID$(t$, l1)
+        l = l + 3
+    LOOP
+    c = 0: l1 = 0: m$ = ""
 
     uboundPP_TypeMod = TotalPrefixedPP_TypeMod
     IF qbnexprefix_set = 1 THEN uboundPP_TypeMod = TotalPP_TypeMod
@@ -1006,3 +1041,72 @@ END SELECT
 
 N2S$ = sign$ + l$
 END FUNCTION
+
+FUNCTION ConstOverflow% (srct AS LONG, dstt AS LONG, fv AS _FLOAT, iv AS _INTEGER64, uv AS _UNSIGNED _INTEGER64)
+    'True when the value of a CONST does not fit the type its name's suffix gives (dstt):
+    'CONST c% = 40000 is "Overflow" in QBasic. srct is the type of the value and fv, iv, uv
+    'hold it as the CONST code does (iv is fv rounded when the value is a float). A negative
+    'value for an unsigned type stands for its two's complement bits, as in QB64: CONST
+    'white~& = &HFFFFFFFF, where &HFFFFFFFF is the LONG -1.
+    DIM bits AS LONG, k AS LONG, neg AS LONG
+    DIM mag AS _UNSIGNED _INTEGER64, lim AS _UNSIGNED _INTEGER64
+
+    IF dstt AND ISSTRING THEN EXIT FUNCTION
+    bits = dstt AND 511
+    IF dstt AND ISFLOAT THEN
+        IF (srct AND ISFLOAT) = 0 THEN EXIT FUNCTION 'every integer is in the range of a SINGLE
+        IF bits = 32 AND ABS(fv) > 3.402823466E+38 THEN ConstOverflow% = -1
+        IF bits = 64 AND ABS(fv) > 1.797693134862315D+308 THEN ConstOverflow% = -1
+        EXIT FUNCTION
+    END IF
+    IF bits < 1 OR bits > 64 THEN EXIT FUNCTION
+
+    'the value as sign and magnitude
+    IF srct AND ISFLOAT THEN
+        IF fv >= 18446744073709551616## OR fv < -9223372036854775808## THEN ConstOverflow% = -1: EXIT FUNCTION
+        IF fv >= 9223372036854775808## THEN
+            mag = fv
+        ELSEIF iv < 0 THEN
+            neg = -1: mag = -(iv + 1): mag = mag + 1
+        ELSE
+            mag = iv
+        END IF
+    ELSEIF (srct AND ISUNSIGNED) <> 0 AND (srct AND 511) = 64 THEN
+        mag = uv
+    ELSEIF iv < 0 THEN
+        neg = -1: mag = -(iv + 1): mag = mag + 1
+    ELSE
+        mag = iv
+    END IF
+
+    lim = 1 '2 ^ (bits - 1)
+    FOR k = 2 TO bits: lim = lim * 2: NEXT
+    IF neg THEN
+        IF mag > lim THEN ConstOverflow% = -1
+    ELSEIF dstt AND ISUNSIGNED THEN
+        IF bits < 64 THEN
+            IF mag > lim * 2 - 1 THEN ConstOverflow% = -1
+        END IF
+    ELSE
+        IF mag > lim - 1 THEN ConstOverflow% = -1
+    END IF
+END FUNCTION
+
+SUB ConstToUnsigned (srct AS LONG, dstt AS LONG, fv AS _FLOAT, iv AS _INTEGER64, uv AS _UNSIGNED _INTEGER64)
+    'The value of a CONST with an unsigned integer suffix, as that type holds it: a negative
+    'value (ConstOverflow% let it through) is its two's complement bits (CONST c~& = -1 is
+    '4294967295), and a float in the top half of an _UNSIGNED _INTEGER64 is not an _INTEGER64.
+    DIM bits AS LONG, k AS LONG, w AS _INTEGER64
+    IF (dstt AND ISUNSIGNED) = 0 OR (dstt AND (ISFLOAT + ISSTRING)) <> 0 THEN EXIT SUB
+    bits = dstt AND 511
+    IF srct AND ISFLOAT THEN
+        IF fv >= 9223372036854775808## THEN uv = fv: EXIT SUB
+    ELSEIF (srct AND ISUNSIGNED) <> 0 AND (srct AND 511) = 64 THEN
+        EXIT SUB
+    END IF
+    IF iv >= 0 OR bits < 1 OR bits >= 64 THEN EXIT SUB
+    w = 1
+    FOR k = 1 TO bits: w = w * 2: NEXT
+    iv = iv + w
+    uv = iv
+END SUB

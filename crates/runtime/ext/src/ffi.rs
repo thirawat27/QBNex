@@ -882,10 +882,15 @@ pub extern "C" fn qb_ext_dt_part(ms: f64, part: i32, local: i32) -> i64 {
     }
 }
 /// Test hook: starts the in-process HTTP test server for `count` requests
-/// on 127.0.0.1 and returns its port (conformance tests, no internet).
+/// on 127.0.0.1 and returns its port (conformance tests, no internet). Every
+/// `qb_ext_*` function is part of every compiled program, so the hook answers only
+/// when the test runner asks for it (`QBNEX_TEST_HOOKS=1`); otherwise -1.
 #[doc(hidden)]
 #[unsafe(no_mangle)]
 pub extern "C" fn qb_ext_test_http_server(count: i32) -> i32 {
+    if std::env::var_os("QBNEX_TEST_HOOKS").is_none_or(|v| v != "1") {
+        return -1;
+    }
     let base = http::testserver::start(count.max(1) as usize);
     base.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(-1)
 }

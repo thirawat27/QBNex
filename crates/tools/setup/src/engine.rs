@@ -15,6 +15,9 @@ use crate::{payload, platform};
 pub const MANIFEST: &str = ".qbnex-install";
 /// Holds the files of the previous version while a new one is written.
 const BACKUP: &str = ".qbnex-backup";
+/// File in the backup folder of an install that worked: what is left of the folder is
+/// rubbish to delete, not a previous version to bring back.
+const BACKUP_DONE: &str = ".done";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use payload::CANCELLED;
 
@@ -200,6 +203,13 @@ impl<'a> Transaction<'a> {
 
     /// The install worked: the previous version goes.
     fn commit(self) {
+        // A file of the previous version that is still open (a running program, a virus
+        // scanner) cannot be deleted on Windows and stays in the folder. The mark tells
+        // the next run that this install was finished: without it, the leftovers were
+        // taken for a killed install and moved back over the new version.
+        if self.backup().is_dir() {
+            let _ = std::fs::write(self.backup().join(BACKUP_DONE), b"");
+        }
         let _ = std::fs::remove_dir_all(self.backup());
         prune_empty_dirs(self.dir, &self.moved);
     }
@@ -253,6 +263,11 @@ fn files_under(dir: &Path, prefix: &str, out: &mut Vec<String>) {
 fn recover_interrupted(dir: &Path) {
     let backup = dir.join(BACKUP);
     if !backup.is_dir() {
+        return;
+    }
+    // what a finished install could not delete: try again, bring nothing back
+    if backup.join(BACKUP_DONE).is_file() {
+        let _ = std::fs::remove_dir_all(&backup);
         return;
     }
     let mut files = Vec::new();
@@ -635,6 +650,22 @@ mod tests {
         std::fs::write(dir.join("qb"), "half").unwrap();
         recover_interrupted(&dir);
         assert_eq!(tree(&dir), before);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn leftovers_of_a_finished_install_are_not_brought_back() {
+        let dir = temp("leftover");
+        let o = Options::new(dir.clone());
+        let v2 = bundle(&[("qb", "two")]);
+        install_with(&o, &v2, &mut Recorder::default(), &mut |_, _| Ok(())).unwrap();
+        // an old file the finished upgrade could not delete (it was open), with the mark
+        std::fs::create_dir_all(dir.join(BACKUP)).unwrap();
+        std::fs::write(dir.join(BACKUP).join("qb"), "one").unwrap();
+        std::fs::write(dir.join(BACKUP).join(BACKUP_DONE), "").unwrap();
+        recover_interrupted(&dir);
+        assert_eq!(std::fs::read_to_string(dir.join("qb")).unwrap(), "two");
+        assert!(!dir.join(BACKUP).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

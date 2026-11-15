@@ -26,7 +26,6 @@ pub mod qbvk {
     pub const KP_MINUS: u32 = 269;
     pub const KP_PLUS: u32 = 270;
     pub const KP_ENTER: u32 = 271;
-    pub const F15: u32 = 296;
     pub const NUMLOCK: u32 = 300;
     pub const CAPSLOCK: u32 = 301;
     pub const SCROLLOCK: u32 = 302;
@@ -36,7 +35,6 @@ pub mod qbvk {
     pub const LCTRL: u32 = 306;
     pub const RALT: u32 = 307;
     pub const LALT: u32 = 308;
-    pub const MODE: u32 = 313;
     pub const SYSREQ: u32 = 317;
     pub const BREAK: u32 = 318;
     pub const PAUSE: u32 = 19;
