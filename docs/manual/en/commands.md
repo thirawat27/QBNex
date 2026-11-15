@@ -30,11 +30,11 @@ folder.
 | `-Werror`, `--warnings-as-errors` | Treat warnings as errors. |
 | `-q` | Quiet (warnings and errors are still shown). |
 | `-m` | No colours in the compiler output. |
-| `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default; `-d` is the old alias). |
+| `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default; `-d`, `--verbose-errors` are the old aliases). |
 | `-e` | `OPTION _EXPLICIT` for this compilation. |
 | `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`; `debuginfo` is kept but has no effect). |
 | `-p`, `-z`, `--ir` | Accepted for old scripts; they change nothing (there are no precompiled objects and no C++ step, and QIR is the only back end). |
-| `-h`, `--help` · `-v`, `--version` · `-i`, `--info` · `-g`, `--examples` | Help, version, project information, examples. |
+| `-h`, `--help` · `-v`, `--version` · `-i`, `--info`, `--about` · `-g`, `--examples` | Help, version, project information, examples. The Windows-style `/?`, `/help` and `/version` work too. |
 
 Exit code 0 means the program compiled. Diagnostics name the file, line and
 column and quote the source line.
@@ -104,19 +104,19 @@ the VM with breakpoints, stepping and variable views. See
 
 | Variable | Effect |
 | --- | --- |
-| `QBNEX_NO_ERROR_DIALOG=1` | Runtime errors go to stderr, exit code 1, no dialog. |
+| `QBNEX_NO_ERROR_DIALOG=1` | Runtime errors go to stderr, exit code 1, no dialog; `END` also does not wait with "Press any key to continue". Without it the dialog is still skipped when stdout or stderr is redirected. |
 | `QB_JIT=off` / `eager` / `<n>` | QIR runner: no JIT, compile at once, or after n loop iterations. |
-| `QB_GPU=off` / `verbose` | Builds with the GPU feature: never use the GPU / log the choice. |
+| `QB_GPU=off` / `verbose` | Builds with the GPU feature (the `gpu` cargo feature of qb-exec, off in the standard setup and release builds): never use the GPU / log the choice. |
 | `QBNEX_HEADLESS` | Run graphics programs without a window (tests). |
 | `QB_JIT_THREADS=<n>` | Number of threads the JIT compiles with (default: all CPU threads). |
 | `QB_JIT_STATS=1` | Print JIT statistics, including compile times, on stderr. |
 | `QB_PROFILE=<file>` | Write the hottest functions and source lines, with call counts and inclusive time, to the file when the program ends (a sample every millisecond; use it with `QB_JIT=off`). |
 | `QB_EXEC_DISASM=1` | Print the bytecode the runner made from the QIR on stderr. |
 | `QB_GPU_FALLBACK=1` | Builds with the GPU feature: the program uses only the software adapter, for example WARP on Windows (offscreen rendering, and the window when that adapter can present to it). |
-| `QBNEX_NATIVE_KIT=<dir>` | Native kit folder to use instead of `native/` next to the runner. |
+| `QBNEX_NATIVE_KIT=<dir>` | Native kit folder used by `qb-exec build --native-link` instead of `native/` next to the runner. `qb` itself links natively only when `native/kit.txt` is next to the runner. |
 | `QBNEX_INPUT_SCRIPT=<file>` | Feed keyboard, mouse and window events from a script (tests; one command per line: `wait 100`, `key a`, `type Hi`, `click 1`, `close`, `snapshot`, `pixel x y`, ...; the full list is at the top of `crates/runtime/core/src/script.rs`). |
 | `QBNEX_FB_CAPTURE=<file>` | Append the display page to the file at each `_DISPLAY` and at the end (conformance tests). |
 | `QB_AUDIO_DEVICE=null` / `none` | Silent audio device that keeps real time / no audio at all (tests). |
 | `QBNEX_LPRINT=<file>` | `LPRINT` and `_PRINTIMAGE` append to this text file instead of printing. |
 | `QB_GL=off` | Never create an OpenGL context: `SUB _GL` is not run. |
-| `NO_COLOR` | Any value: the compiler prints without colours, like `-m`. |
+| `NO_COLOR` | Any value: the compiler prints without colours, like `-m`. Output to a pipe, a file or a CI log is uncoloured anyway. |

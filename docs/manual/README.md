@@ -8,7 +8,8 @@ QBNex คอมไพล์โปรแกรม QBasic, QuickBASIC 4.5 แล�
 ซึ่งเป็นภาษากลางขนาดเล็ก แล้วให้ runner ภาษา Rust ชื่อ `qb-exec` รัน
 (VM + JIT) ไม่ต้องใช้คอมไพเลอร์ C หรือ C++
 
-This manual describes QBNex 2.0.0. คู่มือนี้สำหรับ QBNex 2.0.0
+This manual describes the current QBNex release; `qb --version` shows the
+installed one. คู่มือนี้อธิบาย QBNex รุ่นปัจจุบัน ดูรุ่นที่ติดตั้งด้วย `qb --version`
 
 | English | ภาษาไทย |
 | --- | --- |

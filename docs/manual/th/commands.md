@@ -29,11 +29,11 @@ source แทน path ของ source แบบ relative จะนับจา�
 | `-Werror`, `--warnings-as-errors` | ถือว่าคำเตือนเป็น error |
 | `-q` | โหมดเงียบ (ยังแสดงคำเตือนและ error) |
 | `-m` | ข้อความของคอมไพเลอร์ไม่มีสี |
-| `-k`, `--compact-errors` | diagnostic แบบสั้น (ค่าเริ่มต้นคือแบบละเอียด ส่วน `-d` เป็นชื่อเดิม) |
+| `-k`, `--compact-errors` | diagnostic แบบสั้น (ค่าเริ่มต้นคือแบบละเอียด ส่วน `-d`, `--verbose-errors` เป็นชื่อเดิม) |
 | `-e` | เปิด `OPTION _EXPLICIT` สำหรับการคอมไพล์ครั้งนี้ |
 | `-s[:setting=true/false]` | ดูหรือแก้ค่าตั้งของคอมไพเลอร์ (`exewithsource` ส่วน `debuginfo` ยังรับอยู่แต่ไม่มีผล) |
 | `-p`, `-z`, `--ir` | ยังรับไว้เพื่อให้สคริปต์เก่าใช้ได้ แต่ไม่เปลี่ยนอะไร (ไม่มี object ที่คอมไพล์ไว้ก่อน ไม่มีขั้น C++ และ QIR เป็น back end เดียว) |
-| `-h`, `--help` · `-v`, `--version` · `-i`, `--info` · `-g`, `--examples` | วิธีใช้, เวอร์ชัน, ข้อมูลโปรเจกต์, ตัวอย่าง |
+| `-h`, `--help` · `-v`, `--version` · `-i`, `--info`, `--about` · `-g`, `--examples` | วิธีใช้, เวอร์ชัน, ข้อมูลโปรเจกต์, ตัวอย่าง ใช้แบบ Windows อย่าง `/?`, `/help` และ `/version` ได้ด้วย |
 
 exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จะบอกชื่อไฟล์ บรรทัด คอลัมน์ และ
 ยกบรรทัด source ที่มีปัญหามาให้ดู
@@ -46,7 +46,7 @@ exit code 0 แปลว่าคอมไพล์ผ่าน diagnostic จ�
   จะขึ้นกล่องข้อความ "Unhandled Error #n ... Continue?" แบบเดิม แต่ถ้า
   output ถูก redirect หรือตั้ง `QBNEX_NO_ERROR_DIALOG=1` ไว้ จะพิมพ์หนึ่ง
   บรรทัดออกทาง stderr แล้วจบโปรแกรมด้วย exit code 1 แทน สคริปต์และ CI
-  ควรตั้งตัวแปรนี้ไว้เสมอ
+  ควรตั้งตัวแปรนี้
 - `qb run file.bas` (รันบน VM โดยไม่เขียนไฟล์ executable) อยู่ในสถานะ
   **วางแผนไว้**
 
@@ -72,7 +72,7 @@ executable แบบ native (**ทดลอง**): ถ้ามี native kit �
 qbnex fmt file.bas                 # พิมพ์ไฟล์ที่จัดรูปแบบแล้วออกมา
 qbnex fmt -w *.bas                 # เขียนทับไฟล์เดิม
 qbnex fmt --check src/*.bas        # exit 1 พร้อมรายชื่อไฟล์ที่จะถูกเปลี่ยน
-type file.bas | qbnex fmt          # อ่าน stdin เขียน stdout (Windows; ระบบอื่นใช้ cat)
+type file.bas | qbnex fmt          # อ่าน stdin เขียน stdout (Windows; ระบบอื่นใช้ `cat`)
 ```
 
 ตัวเลือก: `--keyword-case upper|lower|preserve` (ค่าเริ่มต้น `upper`),
@@ -104,19 +104,19 @@ editor จะเรียกให้เอง (VS Code กด F5) ตัวม�
 
 | ตัวแปร | ผล |
 | --- | --- |
-| `QBNEX_NO_ERROR_DIALOG=1` | runtime error ออกทาง stderr, exit code 1, ไม่มีกล่องข้อความ |
+| `QBNEX_NO_ERROR_DIALOG=1` | runtime error ออกทาง stderr, exit code 1, ไม่มีกล่องข้อความ และ `END` จะไม่รอด้วย "Press any key to continue" ถ้าไม่ตั้งตัวแปรนี้ กล่องข้อความก็ยังถูกข้ามเมื่อ stdout หรือ stderr ถูก redirect |
 | `QB_JIT=off` / `eager` / `<n>` | runner ของ QIR: ไม่ใช้ JIT, คอมไพล์ทันที หรือคอมไพล์หลัง loop วนครบ n รอบ |
-| `QB_GPU=off` / `verbose` | build ที่เปิดฟีเจอร์ GPU: ไม่ใช้ GPU เลย / log ว่าเลือกอะไร |
+| `QB_GPU=off` / `verbose` | build ที่เปิดฟีเจอร์ GPU (cargo feature `gpu` ของ qb-exec ซึ่งปิดอยู่ใน build ของ setup ปกติและของ release): ไม่ใช้ GPU เลย / log ว่าเลือกอะไร |
 | `QBNEX_HEADLESS` | รันโปรแกรมกราฟิกโดยไม่เปิดหน้าต่าง (ใช้ตอนทดสอบ) |
 | `QB_JIT_THREADS=<n>` | จำนวน thread ที่ JIT ใช้คอมไพล์ (ค่าเริ่มต้น: ทุก thread ของ CPU) |
 | `QB_JIT_STATS=1` | พิมพ์สถิติของ JIT รวมถึงเวลาคอมไพล์ ออกทาง stderr |
 | `QB_PROFILE=<file>` | เขียนฟังก์ชันและบรรทัดที่ใช้เวลามากที่สุด พร้อมจำนวนครั้งที่เรียกและเวลารวม ลงไฟล์เมื่อโปรแกรมจบ (สุ่มเก็บทุก 1 มิลลิวินาที ควรใช้คู่กับ `QB_JIT=off`) |
 | `QB_EXEC_DISASM=1` | พิมพ์ bytecode ที่ runner แปลงจาก QIR ออกทาง stderr |
 | `QB_GPU_FALLBACK=1` | build ที่เปิดฟีเจอร์ GPU: โปรแกรมใช้เฉพาะ adapter แบบ software เช่น WARP บน Windows (ทั้งการวาดแบบ offscreen และหน้าต่าง ถ้า adapter นั้นแสดงผลบนหน้าต่างได้) |
-| `QBNEX_NATIVE_KIT=<dir>` | โฟลเดอร์ native kit ที่จะใช้แทน `native/` ข้าง runner |
+| `QBNEX_NATIVE_KIT=<dir>` | โฟลเดอร์ native kit ที่ `qb-exec build --native-link` จะใช้แทน `native/` ข้าง runner ส่วน `qb` เองจะลิงก์แบบ native ก็ต่อเมื่อมี `native/kit.txt` อยู่ข้าง runner เท่านั้น |
 | `QBNEX_INPUT_SCRIPT=<file>` | ป้อนเหตุการณ์คีย์บอร์ด เมาส์ และหน้าต่างจาก script (ใช้ตอนทดสอบ บรรทัดละหนึ่งคำสั่ง: `wait 100`, `key a`, `type Hi`, `click 1`, `close`, `snapshot`, `pixel x y`, ... รายการเต็มอยู่ต้นไฟล์ `crates/runtime/core/src/script.rs`) |
 | `QBNEX_FB_CAPTURE=<file>` | เขียนต่อท้ายภาพของหน้าจอที่แสดงลงไฟล์ทุกครั้งที่ `_DISPLAY` และตอนจบโปรแกรม (ใช้ใน conformance test) |
 | `QB_AUDIO_DEVICE=null` / `none` | อุปกรณ์เสียงเงียบที่เดินตามเวลาจริง / ไม่เปิดเสียงเลย (ใช้ตอนทดสอบ) |
 | `QBNEX_LPRINT=<file>` | `LPRINT` และ `_PRINTIMAGE` เขียนต่อท้ายไฟล์ข้อความนี้แทนการพิมพ์ |
 | `QB_GL=off` | ไม่สร้าง OpenGL context: `SUB _GL` จะไม่ถูกเรียก |
-| `NO_COLOR` | ตั้งค่าใดก็ได้: คอมไพเลอร์พิมพ์โดยไม่มีสี เหมือน `-m` |
+| `NO_COLOR` | ตั้งค่าใดก็ได้: คอมไพเลอร์พิมพ์โดยไม่มีสี เหมือน `-m` ส่วน output ที่ส่งไป pipe, ไฟล์ หรือ log ของ CI จะไม่มีสีอยู่แล้ว |
