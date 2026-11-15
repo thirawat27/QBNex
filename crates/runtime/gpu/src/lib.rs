@@ -11,8 +11,8 @@
 //! - [`blit::Blitter`]: presents the software framebuffer the runtime draws
 //!   (`u32` pixels `0xAARRGGBB`, i.e. BGRA bytes) scaled to the target with
 //!   the aspect ratio kept (letterbox), nearest filtering.
-//! - [`three`]: groundwork for 3D (`_MAPTRIANGLE` 3D, a future `_MESH`
-//!   API): vertex/index buffers, perspective/orthographic camera, depth
+//! - [`three`]: 3D building blocks (`_MAPTRIANGLE` 3D, `_MESH`): vertex/index
+//!   buffers, perspective/orthographic camera, depth
 //!   buffer and a textured-triangle WGSL pipeline.
 //!
 //! The CPU renderer stays the reference: the GPU path presents its pixels

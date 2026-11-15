@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.0] - 2026-11-13
 
 In QBNex 2.0, programs are compiled to QIR and run by a Rust runtime. Old
-QBasic/QB64 programs compile and behave as before, except for the in `docs/manual/en/differences.md`. This entry collects every change made after
+QBasic/QB64 programs compile and behave as before, except for the fixes listed
+in `docs/manual/en/differences.md`. This entry collects every change made after
 1.0.4.
 
 Pre-releases from this section: `2.0.0-preview` (2026-11-13), `2.0.0-preview.2`

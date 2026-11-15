@@ -1,4 +1,4 @@
-//! 3D groundwork: meshes (vertex + index buffers), a camera (perspective or
+//! 3D building blocks: meshes (vertex + index buffers), a camera (perspective or
 //! orthographic), a depth buffer and a textured-triangle pipeline. This is
 //! what `_MAPTRIANGLE` 3D and a future `_MESH` API build on.
 //!

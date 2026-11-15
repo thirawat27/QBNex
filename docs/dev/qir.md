@@ -227,7 +227,7 @@ statement ในส่วน THEN/ELSE ของ IF บรรทัดเดี�
 | `error %c` | ERROR n |
 | `resume` / `resume next` / `resume L` | ใช้ได้ใน handler เท่านั้น (ไม่ใช่ → error 20) |
 
-กลไก (เท่ากับ QBasic และ spike v0):
+กลไก (เท่ากับ QBasic):
 1. error (จาก op, builtin หรือ `error`) ขณะอยู่ใน frame F ที่ statement `line N`: ถ้าไม่มี handler หรือกำลังอยู่ใน handler → จบโปรแกรมด้วย "Unhandled error #code on line N" (exit 1)
 2. ถ้ามี handler: บันทึก (F, ตำแหน่ง `line` ของ statement, N), ตั้ง ERR/ERL, แล้วรันโค้ดของ `main` ที่ label L **โดยไม่ unwind frame** (handler เห็น global ตามปกติ; frame ของ SUB ค้างอยู่)
 3. `resume` กลับ F ที่ `line` เดิม; `resume next` กลับ F ที่ `line` ถัดไปของ F; `resume L` unwind กลับ frame ของ main แล้ว jmp L
@@ -238,7 +238,7 @@ JIT: ฟังก์ชันที่อาจเกิด error ใน handler
 
 ## 8. Packaging
 
-exe = `qb-exec` + ข้อความ QIR + u64 LE ความยาว + `QBNEXIR0` (เหมือน v0). Executor ดู header `QIR <n>` เพื่อเลือก loader (v0 spike ยังรันได้จนกว่าจะลบ)
+exe = `qb-exec` + ข้อความ QIR + u64 LE ความยาว + `QBNEXIR0`. Executor ดู header `QIR <n>` เพื่อเลือก loader
 
 ## 9. ตัวอย่าง
 

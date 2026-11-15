@@ -1,5 +1,5 @@
 $CONSOLE:ONLY
-' Spike fixture: PRINT, numeric variables, IF, FOR, GOSUB/RETURN, SUB, strings
+' Language basics: PRINT, numeric variables, IF, FOR, GOSUB/RETURN, SUB, strings
 DIM SHARED total AS LONG
 DIM n AS INTEGER
 x = 1.5

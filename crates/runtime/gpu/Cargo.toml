@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "GPU backend for QBNex on wgpu (Vulkan/DX12/Metal/WebGPU): offscreen and window targets, framebuffer blit, 3D groundwork. Pure Rust."
+description = "GPU backend for QBNex on wgpu (Vulkan/DX12/Metal/WebGPU): offscreen and window targets, framebuffer blit, 3D scenes. Pure Rust."
 publish = false
 
 [lib]

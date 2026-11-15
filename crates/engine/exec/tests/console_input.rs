@@ -81,23 +81,23 @@ endfunc
 
 #[test]
 fn input_with_several_variables_reads_one_line() {
-    assert_eq!(run("q3", INPUT3, b"1\n7\n8\n"), "? ? [1]\n 0\n 0\n[7]\n<exit 0>");
+    assert_eq!(run("input_one_line", INPUT3, b"1\n7\n8\n"), "? ? [1]\n 0\n 0\n[7]\n<exit 0>");
 }
 
 #[test]
 fn input_with_several_variables_splits_the_line_at_commas() {
-    assert_eq!(run("q3b", INPUT3, b"ab, 2, 3\nz\n"), "? ? [ab]\n 2\n 3\n[z]\n<exit 0>");
+    assert_eq!(run("input_commas", INPUT3, b"ab, 2, 3\nz\n"), "? ? [ab]\n 2\n 3\n[z]\n<exit 0>");
 }
 
 #[test]
 fn input_at_end_of_stdin_gives_empty_values() {
-    assert_eq!(run("q4", INPUT3, b""), "? ? []\n 0\n 0\n[]\n<exit 0>");
+    assert_eq!(run("input_eof", INPUT3, b""), "? ? []\n 0\n 0\n[]\n<exit 0>");
 }
 
 #[test]
 fn line_input_at_end_of_stdin_gives_an_empty_line() {
     let qir = "QIR 1\nmeta console only\nfunc main\nline 1\nconst.i32 %0 0\nconst.str %1 x\nrt INPUTPROMPT %1 %0\nrt %2 LINEINPUT %0\nconst.str %3 x5B\nconst.str %4 x5D\nrt PRINTS %0 %3\nrt PRINTS %0 %2\nrt PRINTS %0 %4\nrt PRINTNL %0\nsystem\nendfunc\n";
-    assert_eq!(run("q4l", qir, b""), "[]\n<exit 0>");
+    assert_eq!(run("line_input_eof", qir, b""), "[]\n<exit 0>");
 }
 
 /// `A$ = INPUT$(1)` twice, each printed as [A$].
@@ -126,10 +126,10 @@ endfunc
 
 #[test]
 fn input_dollar_without_a_file_number_reads_stdin() {
-    assert_eq!(run("q5", INPUTN, b"xy"), "[x]\n[y]\n<exit 0>");
+    assert_eq!(run("input_dollar_stdin", INPUTN, b"xy"), "[x]\n[y]\n<exit 0>");
 }
 
 #[test]
 fn input_dollar_at_end_of_stdin_is_empty() {
-    assert_eq!(run("q5e", INPUTN, b"x"), "[x]\n[]\n<exit 0>");
+    assert_eq!(run("input_dollar_eof", INPUTN, b"x"), "[x]\n[]\n<exit 0>");
 }

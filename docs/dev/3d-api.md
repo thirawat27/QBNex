@@ -79,7 +79,7 @@ f% = _GPU3D                  ' -1 เมื่อมี GPU และวาด 3
 ambient อย่างเดียว, depth ระหว่างสอง model, โหลด `.glb` ที่สร้างในหน่วยความจำ (node transform + baseColorFactor
 + texture), normals ที่คำนวณให้เมื่อไฟล์ไม่มี. ทุก test skip เมื่อไม่มี adapter.
 
-## สถานะ implementation (2026-11-11)
+## สถานะ implementation
 
 - `_DISPLAY` (ทั้งสองเส้นทางเรียก hook `qb_fb_capture`) ย้ายคิว `_DRAW3D` ไปเป็น layer ที่แสดง; หน้าต่างผสม layer ผ่าน `scene3d::compose` (เรียกจาก `present` ใน `crates/engine/exec/src/rt/window.rs`); โหมด `_AUTODISPLAY` แสดงคิวเมื่อยังไม่มี layer
 - ไม่มี feature `gpu` หรือไม่มี adapter: handle/error ทำงานครบ, ไม่วาด, `_GPU3D` = 0

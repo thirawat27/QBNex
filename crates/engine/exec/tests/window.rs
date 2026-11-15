@@ -376,7 +376,7 @@ fn joystick_button_traps_and_alt_enter() {
 /// A CALL ABSOLUTE that fails gives its argument space back (no panic after many calls).
 #[test]
 fn failing_call_absolute_does_not_leak_argument_space() {
-    let dir = tmpdir("absleak");
+    let dir = tmpdir("call_absolute_leak");
     let (code, out) = run(&dir, &fixture("call_absolute_leak.qir"), "");
     assert_eq!((code, out.trim()), (Some(0), "done"));
     let _ = std::fs::remove_dir_all(&dir);

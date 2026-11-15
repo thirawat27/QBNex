@@ -100,14 +100,14 @@ fn compile_and_run(qb: &Path, src: &Path, exe: &Path, extra: &[&str]) -> String 
 }
 
 #[test]
-fn spike_program_runs_and_matches_the_golden() {
+fn basics_program_runs_and_matches_the_golden() {
     let Some(qb) = qb() else { return };
     install_runner();
-    let dir = tmpdir("spike");
-    let src = fixture("spike.bas");
-    let expected = normalize(&std::fs::read(fixture("spike.out")).unwrap());
+    let dir = tmpdir("basics");
+    let src = fixture("basics.bas");
+    let expected = normalize(&std::fs::read(fixture("basics.out")).unwrap());
 
-    let ir_out = compile_and_run(&qb, &src, &dir.join("spike_ir.exe"), &["--ir"]);
+    let ir_out = compile_and_run(&qb, &src, &dir.join("basics_ir.exe"), &["--ir"]);
     // the golden was recorded from the earlier back end before the switch to QIR
     assert_eq!(ir_out, expected, "QIR output");
 }
