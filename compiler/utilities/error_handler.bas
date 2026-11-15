@@ -1283,6 +1283,7 @@ SUB PrintError (errIdx AS LONG)
     DIM pointerHint AS STRING
     DIM lineStr AS STRING
     DIM gutter AS STRING
+    DIM numWidth AS LONG
     DIM severityColor AS INTEGER
     DIM locationText AS STRING
     DIM flowText AS STRING
@@ -1332,9 +1333,17 @@ SUB PrintError (errIdx AS LONG)
         ELSE
             lineStr = "?"
         END IF
-        gutter = RepeatSpaces$(LEN(lineStr))
+        numWidth = LEN(lineStr)
+        IF DiagnosticNeighborLines > 0 AND errInfo.lineNumber > 0 THEN
+            numWidth = LEN(LTRIM$(STR$(errInfo.lineNumber + DiagnosticNeighborLines)))
+            lineStr = RepeatSpaces$(numWidth - LEN(lineStr)) + lineStr
+        END IF
+        gutter = RepeatSpaces$(numWidth)
 
         TuiColor 248: PRINT "  [#] source"
+        IF DiagnosticNeighborLines > 0 AND errInfo.lineNumber > 0 THEN
+            PrintDiagnosticNeighborLines RTRIM$(errInfo.fileName), errInfo.lineNumber - DiagnosticNeighborLines, errInfo.lineNumber - 1, numWidth
+        END IF
         TuiColor 246
         PRINT "    " + lineStr + " | ";
         TuiDefault
@@ -1350,6 +1359,9 @@ SUB PrintError (errIdx AS LONG)
                 PRINT
             END IF
             TuiDefault
+        END IF
+        IF DiagnosticNeighborLines > 0 AND errInfo.lineNumber > 0 THEN
+            PrintDiagnosticNeighborLines RTRIM$(errInfo.fileName), errInfo.lineNumber + 1, errInfo.lineNumber + DiagnosticNeighborLines, numWidth
         END IF
     END IF
 
@@ -1373,6 +1385,54 @@ SUB PrintError (errIdx AS LONG)
     END IF
     TuiDefault
 
+END SUB
+
+SUB PrintDiagnosticNeighborLines (fileName AS STRING, fromLine AS LONG, toLine AS LONG, numWidth AS LONG)
+    'lines fromLine..toLine of fileName as they are in the file, dimmed, numbered in a
+    'numWidth-wide gutter (-d shows them around the line a diagnostic is about)
+    DIM text AS STRING
+    DIM lineText AS STRING
+    DIM numText AS STRING
+    DIM p AS LONG
+    DIM e AS LONG
+    DIM e2 AS LONG
+    DIM n AS LONG
+    DIM firstLine AS LONG
+
+    firstLine = fromLine
+    IF firstLine < 1 THEN firstLine = 1
+    IF toLine < firstLine THEN EXIT SUB
+    IF fileName = "" THEN EXIT SUB
+    IF _FILEEXISTS(fileName) = 0 THEN EXIT SUB
+    text = StdLib_ReadText$(fileName)
+    IF LEFT$(text, 3) = CHR$(239) + CHR$(187) + CHR$(191) THEN text = MID$(text, 4)
+
+    p = 1
+    n = 1
+    DO WHILE n < firstLine
+        p = INSTR(p, text, CHR$(10))
+        IF p = 0 THEN EXIT SUB
+        p = p + 1
+        n = n + 1
+    LOOP
+    DO WHILE n <= toLine AND p <= LEN(text)
+        e = INSTR(p, text, CHR$(10))
+        IF e = 0 THEN e = LEN(text) + 1
+        lineText = MID$(text, p, e - p)
+        IF RIGHT$(lineText, 1) = CHR$(13) THEN lineText = LEFT$(lineText, LEN(lineText) - 1)
+        DO WHILE INSTR(lineText, CHR$(9))
+            e2 = INSTR(lineText, CHR$(9))
+            lineText = LEFT$(lineText, e2 - 1) + "    " + MID$(lineText, e2 + 1)
+        LOOP
+        numText = LTRIM$(STR$(n))
+        TuiColor 246
+        PRINT "    " + RepeatSpaces$(numWidth - LEN(numText)) + numText + " | ";
+        TuiColor 248
+        PRINT RTRIM$(lineText)
+        TuiDefault
+        p = e + 1
+        n = n + 1
+    LOOP
 END SUB
 
 FUNCTION HasPrintedFingerprint% (fingerprint AS STRING, uptoIndex AS LONG)

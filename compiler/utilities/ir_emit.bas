@@ -2754,7 +2754,7 @@ SUB IrFinish (src$, outExe$)
         OPEN outPath$ FOR BINARY AS #fh
         PUT #fh, , q$
         CLOSE #fh
-        IF QuietMode = 0 THEN PRINT: PRINT "QIR written: " + outPath$
+        IF QuietMode = 0 THEN PRINT: PRINT "QIR written: " + outPath$: ShowWarningSummary
         ExitCompilerProcess
     END IF
 
@@ -2777,7 +2777,7 @@ SUB IrFinish (src$, outExe$)
         IF os$ = "WIN" THEN c$ = CHR$(34) + c$ + CHR$(34)
         rc = _SHELLHIDE(c$)
         IF rc = 0 AND _FILEEXISTS(outPath$) THEN
-            IF QuietMode = 0 THEN PRINT "QIR: linked " + outPath$
+            IF QuietMode = 0 THEN PRINT "QIR: linked " + outPath$: ShowWarningSummary
             SYSTEM 0
         END IF
         IF QuietMode = 0 THEN PRINT "QIR: native link failed, writing the runner with the program"

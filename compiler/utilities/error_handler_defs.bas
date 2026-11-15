@@ -114,6 +114,7 @@ DIM SHARED CurrentFile AS STRING
 DIM SHARED ErrorOutputFile AS INTEGER
 DIM SHARED ErrorOutputFileEnabled AS _BYTE
 DIM SHARED VerboseMode AS _BYTE
+DIM SHARED DiagnosticNeighborLines AS INTEGER 'source lines shown before and after a diagnostic (-d)
 DIM SHARED WarningsAsErrors AS _BYTE
 DIM SHARED ErrorsFlushed AS _BYTE
 DIM SHARED LastRenderedFingerprint AS STRING * 512

@@ -32,10 +32,11 @@ SUB ShowCommandLineHelp
     TuiDefault
     PRINT
     HelpHead "Commands:"
-    HelpRow "-h, --help", "Show help"
-    HelpRow "-v, --version", "Show compiler version"
-    HelpRow "-i, --info, --about", "Show project information"
-    HelpRow "-g, --examples", "Show common CLI examples"
+    HelpRow "-h, --help", "Show this help"
+    HelpRow "-v, --version", "Show the compiler version (one line)"
+    HelpRow "-i, --info, --about", "Show project information: folders, settings"
+    HelpRow "", "   file, platform, license and links"
+    HelpRow "-g, --examples", "Show common command lines with what each does"
     PRINT
     HelpHead "Options:"
     HelpRow "<file>", "Source file to load"
@@ -43,20 +44,23 @@ SUB ShowCommandLineHelp
     HelpRow "-o <output file>", "Write output executable to <output file>"
     HelpRow "--exe-with-source", "Without -o: write the executable next to the"
     HelpRow "", "   source file (this build only)"
-    HelpRow "-x", "Compile and output the result to the"
-    HelpRow "", "   console"
-    HelpRow "-w", "Show warnings"
+    HelpRow "-x", "Compile with the messages in the console: the same"
+    HelpRow "", "   as -c here, since qb always prints to the console"
+    HelpRow "", "   (kept for QB64 scripts)"
+    HelpRow "-w", "Show warnings, and a warning count at the end"
     HelpRow "-Werror, --warnings-as-errors", ""
-    HelpRow "", "Treat warnings as blocking diagnostics"
-    HelpRow "-q", "Quiet mode (does not inhibit warnings or errors)"
+    HelpRow "", "Treat warnings as blocking diagnostics (exit code 1)"
+    HelpRow "-q", "Quiet mode: no banner or progress (warnings and"
+    HelpRow "", "   errors are still shown)"
     HelpRow "-m", "Do not colorize compiler output (monochrome mode;"
     HelpRow "", "   also when NO_COLOR is set)"
-    HelpRow "-d, --verbose-errors", "Legacy alias (detailed diagnostics are default)"
+    HelpRow "-d, --verbose-errors", "Detailed diagnostics (the default) plus the"
+    HelpRow "", "   source lines around each one"
     HelpRow "-k, --compact-errors", "Use compact diagnostics (hide extra detail notes)"
     HelpRow "-e", "Enable OPTION _EXPLICIT, making variable declaration"
     HelpRow "", "   mandatory (per-compilation; doesn't affect the"
     HelpRow "", "   source file or global settings)"
-    HelpRow "-s[:switch=true/false]", "View/edit compiler settings"
+    HelpRow "-s[:switch=true/false]", "View/edit compiler settings (-s lists them)"
     HelpRow "-p, -z", "Accepted for old scripts; they change nothing"
     HelpRow "--emit-ir", "Write the program's QIR text instead of an executable"
     HelpRow "", "   (also when -o names a .qir file; for qb-web)"
@@ -95,50 +99,106 @@ SUB InfoRow (label$, value$)
     TuiDefault
 END SUB
 
+FUNCTION NativePath$ (p$)
+    'a path as the system writes it: backslashes on Windows
+    r$ = p$
+    IF os$ = "WIN" THEN
+        FOR k = 1 TO LEN(r$)
+            IF MID$(r$, k, 1) = "/" THEN MID$(r$, k, 1) = "\"
+        NEXT
+    END IF
+    NativePath$ = r$
+END FUNCTION
+
+FUNCTION SettingsFilePath$
+    SettingsFilePath$ = NativePath$(QBNexRoot$ + ConfigFile$)
+END FUNCTION
+
 SUB ShowProjectInfo
     _DEST _CONSOLE
     TuiTitle "QBNex Compiler "
     TuiColor 114: PRINT Version$
     TuiDefault
-    InfoRow "Executable: ", "qb"
-    InfoRow "Owner: ", "thirawat27"
-    InfoRow "Repository: ", "https://github.com/thirawat27/QBNex"
+    TuiColor 248: PRINT "A QBasic/QB64-compatible BASIC compiler: BASIC -> QIR -> executable"
+    TuiDefault
+    PRINT
+    platform$ = "Linux"
+    IF os$ = "WIN" THEN platform$ = "Windows"
+    IF MacOSX THEN platform$ = "macOS"
+    InfoRow "Executable:  ", "qb (" + NativePath$(COMMAND$(0)) + ")"
+    InfoRow "Home:        ", NativePath$(QBNexRoot$) + "  (holds crates and compiler)"
+    IF SaveExeWithSource THEN
+        InfoRow "Output:      ", "next to the source file (without -o; -s:exewithsource)"
+    ELSE
+        InfoRow "Output:      ", "the Home folder (without -o)"
+    END IF
+    InfoRow "Settings:    ", SettingsFilePath$ + "  (qb -s)"
+    InfoRow "Platform:    ", platform$ + " " + LTRIM$(STR$(OS_BITS)) + "-bit"
+    InfoRow "License:     ", "GPL-3.0 with the QBNex Compiled Program Exception"
+    InfoRow "Owner:       ", "thirawat27"
+    InfoRow "Repository:  ", "https://github.com/thirawat27/QBNex"
+    InfoRow "Manual:      ", "https://github.com/thirawat27/QBNex/tree/main/docs/manual"
+END SUB
+
+SUB ExampleRow (cmd$, desc$)
+    'a command line in a 36-column field, then what it does
+    TuiColor 111: PRINT "  " + cmd$;
+    TuiColor 248: PRINT SPACE$(36 - LEN(cmd$)) + desc$
+    TuiDefault
 END SUB
 
 SUB ShowCommandExamples
     _DEST _CONSOLE
+    IF os$ = "WIN" THEN exe$ = "hello.exe" ELSE exe$ = "hello"
     HelpHead "Examples:"
-    TuiColor 111
-    PRINT "  qb hello.bas"
-    PRINT "  qb hello.bas -x"
-    PRINT "  qb hello.bas -o hello.exe"
-    PRINT "  qb broken.bas"
-    PRINT "  qb broken.bas --compact-errors"
-    PRINT "  qb --version"
-    PRINT "  qb -s"
-    TuiDefault
+    ExampleRow "qb hello.bas", "compile; the executable goes to the QBNex folder"
+    ExampleRow "qb hello.bas -o " + exe$, "choose the output file"
+    ExampleRow "qb hello.bas --exe-with-source", "write the executable next to hello.bas"
+    ExampleRow "qb hello.bas -w", "also show warnings"
+    ExampleRow "qb hello.bas -Werror", "fail the build on any warning"
+    ExampleRow "qb hello.bas -e", "every variable must be declared (DIM)"
+    ExampleRow "qb hello.bas -q", "no banner or progress, only problems"
+    ExampleRow "qb hello.bas -m", "no colors (setting NO_COLOR does the same)"
+    ExampleRow "qb broken.bas -k", "short diagnostics"
+    ExampleRow "qb broken.bas -d", "diagnostics with the lines around them"
+    ExampleRow "qb hello.bas -o hello.qir", "write QIR text for qb-web (or --emit-ir)"
+    ExampleRow "qb -s", "list the compiler settings"
+    ExampleRow "qb -s:exewithsource=true", "always write executables next to the source"
+    ExampleRow "qb --info", "show folders, settings file and license"
 END SUB
 
 SUB ShowSettingsUsageAndExit (token$)
     PRINT "Invalid settings switch: "; token$
     PRINT
     PRINT "Valid switches:"
-    PRINT "    -s:debuginfo=true/false     (Accepted for old scripts; no effect)"
-    PRINT "    -s:exewithsource=true/false (Save .EXE in the source folder)"
+    PRINT "    -s:exewithsource=true/false  (Save .EXE in the source folder)"
+    PRINT "    -s:ignorewarnings=true/false (Hide warnings, even with -w or -Werror)"
+    PRINT "    -s:debuginfo=true/false      (Accepted for old scripts; no effect)"
     SYSTEM 1
 END SUB
 
+SUB SettingRow (name$, value AS LONG, note$)
+    TuiColor 111: PRINT "  " + name$ + SPACE$(15 - LEN(name$));
+    TuiDefault: PRINT "= ";
+    IF value THEN PRINT "true "; ELSE PRINT "false";
+    TuiColor 248: PRINT "   " + note$
+    TuiDefault
+END SUB
+
 SUB HandleSettingsSwitch (token$)
-    settingsMode = -1
     _DEST _CONSOLE
     PrintCommandLineBanner
 
     SELECT CASE LCASE$(MID$(token$, 3))
     CASE ""
-        PRINT "debuginfo     = ";
-        IF compilerdebuginfo THEN PRINT "true" ELSE PRINT "false"
-        PRINT "exewithsource = ";
-        IF SaveExeWithSource THEN PRINT "true" ELSE PRINT "false"
+        TuiColor 248: PRINT "Settings file: ";
+        TuiDefault: PRINT SettingsFilePath$
+        SettingRow "exewithsource", (SaveExeWithSource), "write the executable next to the source (without -o)"
+        SettingRow "ignorewarnings", (IgnoreWarnings), "hide warnings, even with -w or -Werror"
+        SettingRow "debuginfo", (compilerdebuginfo), "kept for old scripts; no effect"
+        PRINT
+        TuiColor 248: PRINT "Change one with -s:<name>=true or -s:<name>=false."
+        TuiDefault
         SYSTEM
     CASE ":exewithsource"
         PRINT "exewithsource = ";
@@ -152,6 +212,18 @@ SUB HandleSettingsSwitch (token$)
         WriteConfigSetting generalSettingsSection$, "SaveExeWithSource", "False"
         PRINT "exewithsource = false"
         SaveExeWithSource = 0
+    CASE ":ignorewarnings"
+        PRINT "ignorewarnings = ";
+        IF IgnoreWarnings THEN PRINT "true" ELSE PRINT "false"
+        SYSTEM
+    CASE ":ignorewarnings=true"
+        WriteConfigSetting generalSettingsSection$, "IgnoreWarnings", "True"
+        PRINT "ignorewarnings = true"
+        IgnoreWarnings = -1
+    CASE ":ignorewarnings=false"
+        WriteConfigSetting generalSettingsSection$, "IgnoreWarnings", "False"
+        PRINT "ignorewarnings = false"
+        IgnoreWarnings = 0
     CASE ":debuginfo"
         PRINT "debuginfo = ";
         IF compilerdebuginfo THEN PRINT "true" ELSE PRINT "false"
@@ -196,6 +268,11 @@ FUNCTION ParseCMDLineArgs$ ()
     IF LEN(ENVIRON$("NO_COLOR")) THEN MonochromeLoggingMode = -1
     'output going to a pipe, a file or a CI log gets no color escape sequences
     IF ENVIRON$("QBNEX_STDOUT_TERMINAL") <> "1" THEN MonochromeLoggingMode = -1
+    '-m anywhere on the line, also after -h, -i, -g or -s, which print before the
+    'loop below reaches it
+    FOR i = 1 TO _COMMANDCOUNT
+        IF LCASE$(COMMAND$(i)) = "-m" THEN MonochromeLoggingMode = -1
+    NEXT i
 
     'Recall that COMMAND$ is a concatenation of argv[] elements, so we don't have
     'to worry about more than one space between things (unless they used quotes,
@@ -250,7 +327,8 @@ FUNCTION ParseCMDLineArgs$ ()
             outputfile_cmd$ = COMMAND$(i + 1): i = i + 1
             cmdlineswitch = -1
         CASE "-x"
-            ConsoleMode = 1
+            'QB64's "compile, messages to the console" (its -c showed a window): qb
+            'always prints to the console, so -x builds exactly like -c
             cmdlineswitch = -1
         CASE "-w"
             ShowWarnings = -1
@@ -265,16 +343,22 @@ FUNCTION ParseCMDLineArgs$ ()
             MonochromeLoggingMode = -1
             cmdlineswitch = -1
         CASE "-d"
+            'the default detail, plus the source lines around each diagnostic
             SetVerboseMode -1
+            DiagnosticNeighborLines = 2
             cmdlineswitch = -1
         CASE "-k"
             SetVerboseMode 0
+            DiagnosticNeighborLines = 0
             cmdlineswitch = -1
         CASE "-e"
             optionexplicit_cmd = -1
             cmdlineswitch = -1
         CASE "-s"
             HandleSettingsSwitch token$
+            'set here: the one in HandleSettingsSwitch is that SUB's own variable, so
+            '-s:name=value went on to the "no source file" help and exit code 1
+            settingsMode = -1
         CASE "-l"
             PRINT "The -l switch is no longer supported in the CLI compiler."
             SYSTEM 1
@@ -282,7 +366,8 @@ FUNCTION ParseCMDLineArgs$ ()
             'nothing is precompiled any more; the switch is kept for old scripts
             cmdlineswitch = -1
         CASE "-z"
-            ConsoleMode = 1
+            'QB64 wrote C++ without building it; there is no C++ step, so the switch is
+            'kept for old scripts and the program is built as usual
             cmdlineswitch = -1
         CASE ELSE
             'a switch starts with "-" (or "/" on Windows); on macOS/Linux "/..." is an absolute path,

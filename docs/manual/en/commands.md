@@ -25,16 +25,17 @@ folder.
 | `-o <file>` | Output executable. A name ending in `.qir` writes the program's QIR text instead (what [qb-web](../../../crates/web/README.md) runs). |
 | `--emit-ir` | Write the QIR text instead of an executable (`-o x.exe` becomes `x.qir`). |
 | `--exe-with-source` | Without `-o`: write the executable next to the source file, for this build (the setting is `-s:exewithsource=true`). |
-| `-x` | Compile and send the compiler's output to the console. |
-| `-w` | Show warnings. |
-| `-Werror`, `--warnings-as-errors` | Treat warnings as errors. |
-| `-q` | Quiet (warnings and errors are still shown). |
+| `-x` | The same as `-c`: qb always prints to the console (kept for QB64 scripts; it does not run the program). |
+| `-w` | Show warnings, and a warning count at the end (without `-w` the build says how many it did not show). |
+| `-Werror`, `--warnings-as-errors` | Treat warnings as errors (exit code 1). |
+| `-q` | Quiet: no banner or progress (warnings and errors are still shown). |
 | `-m` | No colours in the compiler output. |
-| `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default; `-d`, `--verbose-errors` are the old aliases). |
+| `-k`, `--compact-errors` | Short diagnostics (detailed ones are the default). |
+| `-d`, `--verbose-errors` | Detailed diagnostics plus the two source lines before and after each one. |
 | `-e` | `OPTION _EXPLICIT` for this compilation. |
-| `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`; `debuginfo` is kept but has no effect). |
+| `-s[:setting=true/false]` | Show or change compiler settings (`exewithsource`, `ignorewarnings`; `debuginfo` is kept but has no effect). `-s` alone lists them with the settings file. |
 | `-p`, `-z`, `--ir` | Accepted for old scripts; they change nothing (there are no precompiled objects and no C++ step, and QIR is the only back end). |
-| `-h`, `--help` · `-v`, `--version` · `-i`, `--info`, `--about` · `-g`, `--examples` | Help, version, project information, examples. The Windows-style `/?`, `/help` and `/version` work too. |
+| `-h`, `--help` · `-v`, `--version` · `-i`, `--info`, `--about` · `-g`, `--examples` | Help; the version (one line); project information (folders, settings file, platform, license); examples with what each does. The Windows-style `/?`, `/help` and `/version` work too. |
 
 Exit code 0 means the program compiled. Diagnostics name the file, line and
 column and quote the source line.

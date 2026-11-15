@@ -10889,16 +10889,27 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
         IF RTRIM$(locationText) <> "" THEN PRINT "  [@] " + RTRIM$(locationText)
         IF RTRIM$(warningContext) <> "" THEN
             PRINT "  [#] source"
+            IF DiagnosticNeighborLines > 0 AND warningLine > 0 THEN
+                warningNumWidth& = LEN(LTRIM$(STR$(warningLine + DiagnosticNeighborLines)))
+                lineStr = SPACE$(warningNumWidth& - LEN(lineStr)) + lineStr
+                PrintDiagnosticNeighborLines RTRIM$(warningFile), warningLine - DiagnosticNeighborLines, warningLine - 1, warningNumWidth&
+            END IF
             PRINT "    " + lineStr + " | " + RTRIM$(warningContext)
+            IF DiagnosticNeighborLines > 0 AND warningLine > 0 THEN
+                PrintDiagnosticNeighborLines RTRIM$(warningFile), warningLine + 1, warningLine + DiagnosticNeighborLines, warningNumWidth&
+            END IF
         END IF
         IF RTRIM$(suggestionText) <> "" THEN PRINT "  [>] next     " + RTRIM$(suggestionText)
         IF RTRIM$(flowText) <> "" THEN PRINT "  [::] flow    " + RTRIM$(flowText)
         PRINT "  [*] config   warning promoted to blocking diagnostic"
-        IF RTRIM$(warningMessage) <> "" THEN PRINT "  [.] detail   " + RTRIM$(warningMessage)
-        IF RTRIM$(warningLocation) <> "" THEN PRINT "  [^] where    " + RTRIM$(warningLocation)
-        IF RTRIM$(warningSecondary) <> "" THEN PRINT "  [>>] while   " + RTRIM$(warningSecondary)
-        IF RTRIM$(causeText) <> "" THEN PRINT "  [!] cause    " + RTRIM$(causeText)
-        IF RTRIM$(exampleText) <> "" THEN PRINT "  [+] example  " + RTRIM$(exampleText)
+        '-k (compact diagnostics) leaves out the notes below, as it does for errors
+        IF VerboseMode THEN
+            IF RTRIM$(warningMessage) <> "" THEN PRINT "  [.] detail   " + RTRIM$(warningMessage)
+            IF RTRIM$(warningLocation) <> "" THEN PRINT "  [^] where    " + RTRIM$(warningLocation)
+            IF RTRIM$(warningSecondary) <> "" THEN PRINT "  [>>] while   " + RTRIM$(warningSecondary)
+            IF RTRIM$(causeText) <> "" THEN PRINT "  [!] cause    " + RTRIM$(causeText)
+            IF RTRIM$(exampleText) <> "" THEN PRINT "  [+] example  " + RTRIM$(exampleText)
+        END IF
         PRINT
         PRINT "[x] QBNex :: Build Halted  1 blocking diagnostic(s) (1 warning(s) promoted)"
         WarnIfStaleOutputBinary
@@ -10912,6 +10923,9 @@ SUB addWarning (whichLineNumber AS LONG, includeLevel AS LONG, incLineNumber AS 
         thisincname$ = getfilepath$(incFileName$)
         thisincname$ = MID$(incFileName$, LEN(thisincname$) + 1)
 
+        'a warning starts a line of its own, not the end of the progress bar's line
+        '(the bar is drawn again below it)
+        IF compilerProgressVisible THEN PRINT
         TuiColor 152
         IF includeLevel > 0 AND incLineNumber > 0 THEN
             PRINT thisincname$; ":";
@@ -11105,6 +11119,24 @@ SUB ShowBuildComplete (outPath$)
         TuiColor 248: PRINT "  (" + TuiElapsed$ + ")"
         TuiDefault
         PRINT
+    END IF
+    ShowWarningSummary
+END SUB
+
+SUB ShowWarningSummary
+    'how many warnings: -w printed them above; without it they are only counted
+    IF IgnoreWarnings = 0 THEN
+        IF ShowWarnings THEN
+            IF totalWarnings = 0 THEN
+                TuiColor 114: PRINT "No warnings."
+            ELSE
+                TuiColor 222: PRINT str2$(totalWarnings) + " warning(s) shown above."
+            END IF
+            TuiDefault
+        ELSEIF totalWarnings > 0 THEN
+            TuiColor 222: PRINT str2$(totalWarnings) + " warning(s) not shown; add -w to see them."
+            TuiDefault
+        END IF
     END IF
 END SUB
 

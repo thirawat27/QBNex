@@ -360,21 +360,21 @@ Exit code 0 means the program compiled.
 
 | Flag | Aliases | Description | Example |
 |------|---------|-------------|---------|
-| `-h` | `--help`, `/?` | Show help | `qb -h` |
-| `-v` | `--version` | Show compiler version | `qb -v` |
-| `-i` | `--info`, `--about` | Show project information | `qb -i` |
-| `-g` | `--examples` | Show common CLI examples | `qb -g` |
+| `-h` | `--help`, `/?` | Show the help screen | `qb -h` |
+| `-v` | `--version` | Show the compiler version (one line) | `qb -v` |
+| `-i` | `--info`, `--about` | Show project information: folders, settings file, platform, license, links | `qb -i` |
+| `-g` | `--examples` | Show common command lines with what each does | `qb -g` |
 | `-c` | - | Compile the source file (default) | `qb file.bas -c` |
 | `-o <file>` | - | Output file; a name ending in `.qir` writes the QIR text (for qb-web) | `qb file.bas -o myapp.exe` |
 | `--emit-ir` | - | Write the QIR text instead of an executable | `qb file.bas --emit-ir -o file.qir` |
 | `--exe-with-source` | - | Without `-o`: write the executable next to the source file (this build only) | `qb file.bas --exe-with-source` |
-| `-x` | - | Send the compiler's output to the console (it does not run the program) | `qb file.bas -x` |
-| `-w` | - | Show warnings | `qb file.bas -w` |
+| `-x` | - | The same as `-c`: qb always prints to the console (kept for QB64 scripts; it does not run the program) | `qb file.bas -x` |
+| `-w` | - | Show warnings, and a warning count at the end | `qb file.bas -w` |
 | `-Werror` | `--warnings-as-errors` | Treat warnings as blocking diagnostics | `qb file.bas --warnings-as-errors` |
-| `-q` | - | Quiet mode (warnings and errors are still shown) | `qb file.bas -q` |
+| `-q` | - | Quiet mode: no banner or progress (warnings and errors are still shown) | `qb file.bas -q` |
 | `-m` | - | No colours in the compiler output (also when `NO_COLOR` is set) | `qb file.bas -m` |
 | `-k` | `--compact-errors` | Compact diagnostics (detailed ones are the default) | `qb file.bas -k` |
-| `-d` | `--verbose-errors` | Old alias; detailed diagnostics are the default | `qb file.bas -d` |
+| `-d` | `--verbose-errors` | Detailed diagnostics (the default) plus two source lines before and after each one | `qb file.bas -d` |
 | `-e` | - | `OPTION _EXPLICIT` for this compilation | `qb file.bas -e` |
 | `-s[:setting[=true/false]]` | - | Show or change compiler settings | `qb -s:exewithsource=true` |
 | `-p`, `-z` | - | Accepted for old scripts; they change nothing | `qb file.bas -z` |
@@ -398,7 +398,7 @@ qb myprogram.bas -e -q              # OPTION _EXPLICIT, quiet
 |---------|-------------|---------|-------------|
 | `SaveExeWithSource` | `-s:exewithsource=true/false` | `false` | Write the executable next to the source file instead of the QBNex folder |
 | `DebugInfo` | `-s:debuginfo=true/false` | `false` | Accepted for old scripts; no effect |
-| `IgnoreWarnings` | (INI file only) | `false` | Hide warnings even with `-w` |
+| `IgnoreWarnings` | `-s:ignorewarnings=true/false` | `false` | Hide warnings even with `-w` or `-Werror` |
 
 ```bash
 qb -s                          # show the settings
@@ -1283,7 +1283,7 @@ Build complete: hello.exe
 ```
 
 `-k` / `--compact-errors` hides the `[^] where`, `[.] detail`, `[>>] while`, `[!] cause` and
-`[+] example` notes and the closing flow hint.
+`[+] example` notes and the closing flow hint; `-d` / `--verbose-errors` adds the two source lines before and after the one quoted.
 
 | Marker | Meaning |
 |--------|---------|
@@ -1327,6 +1327,7 @@ marker and exits non-zero on failure):
 | Script | Covers |
 | --- | --- |
 | `cli_smoke` | `--help`, `--version`, unknown switches, output paths, `-q`, `-s`, `-x`, `-z`, warnings-as-errors |
+| `cli_options_smoke` | Every `qb --help` command and option does what its line says and prints something of its own |
 | `diagnostics_smoke` | Detailed and compact diagnostics, include-chain reporting |
 | `warnings_smoke` | Warnings and `--warnings-as-errors` |
 | `labels_smoke` | Label resolution, stale-output protection |
