@@ -7,8 +7,12 @@ use qb_jit::ctx::{ChainRec, Ctx};
 #[path = "interp.rs"]
 mod interp;
 use qb_jit::mir::*;
-use qb_jit::rt::{self, Rt};
-use qb_jit::thunk::Thunks;
+#[path = "rt.rs"]
+pub mod rt;
+#[path = "thunk.rs"]
+pub mod thunk;
+use rt::Rt;
+use thunk::Thunks;
 use qb_jit::{compile, Target};
 
 /// Function builder.

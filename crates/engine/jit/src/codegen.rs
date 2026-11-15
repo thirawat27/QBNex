@@ -15,7 +15,6 @@
 
 use crate::ctx::*;
 use crate::mir::*;
-use crate::thunk::abi;
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{self, types, AbiParam, Block as CBlock, InstBuilder, MemFlagsData, Signature, Value};
 use cranelift_codegen::control::ControlPlane;
@@ -42,7 +41,8 @@ pub enum Target {
     Aarch64Darwin,
 }
 
-pub(crate) fn make_isa(t: Target) -> OwnedTargetIsa {
+#[doc(hidden)] // (the tests' host-call trampolines)
+pub fn make_isa(t: Target) -> OwnedTargetIsa {
     make_isa_pic(t, false)
 }
 
@@ -81,7 +81,19 @@ pub(crate) fn make_isa_for(t: Target, pic: bool, this_cpu: bool) -> OwnedTargetI
     cranelift_codegen::isa::lookup_by_name(triple).expect(triple).finish(flags).expect("isa")
 }
 
-pub(crate) fn clif_ty(t: Ty) -> ir::Type {
+/// Cranelift parameter of a MIR type (narrow integers sign-extended, as the
+/// C calling conventions want).
+#[doc(hidden)]
+pub fn abi(t: Ty) -> AbiParam {
+    let p = AbiParam::new(clif_ty(t));
+    match t {
+        Ty::I16 | Ty::I32 => p.sext(),
+        _ => p,
+    }
+}
+
+#[doc(hidden)]
+pub fn clif_ty(t: Ty) -> ir::Type {
     match t {
         Ty::I16 => types::I16,
         Ty::I32 => types::I32,

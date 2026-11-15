@@ -25,9 +25,6 @@ pub mod codegen;
 pub use codegen::aot;
 pub mod ctx;
 pub mod mir;
-pub mod rt;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod thunk;
 pub mod tier;
 
 pub use codegen::{compile, func_symbol, host_supported, symbols, LIBCALL_SYMBOLS, CompileError, Compiled, NativeFn, Target};

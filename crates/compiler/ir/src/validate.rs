@@ -96,14 +96,7 @@ fn func_def_ty(m: &Module, funcs: &HashMap<&str, &Func>, i: &Inst) -> Option<(Re
         Inst::Call { dst: Some(d), func, .. } => match funcs.get(func.as_str()) {
             Some(f) => f.ret.map(|t| (*d, t)),
             // DECLARE LIBRARY: the result type of `meta extfn`
-            None => m.meta.iter().filter(|(k, _)| k == "extfn").find_map(|(_, v)| {
-                let mut w = v.split_whitespace();
-                if w.next() != Some(func.as_str()) {
-                    return None;
-                }
-                let ret = w.nth(1)?;
-                ALL_TYS.iter().copied().find(|t| t.name() == ret).map(|t| (*d, t))
-            }),
+            None => m.extfn(func)?.ret.map(|t| (*d, t)),
         },
         Inst::Rt { dst: Some(d), name, .. } => {
             builtins::lookup(name).and_then(|b| b.ret).map(|t| (*d, t))
@@ -314,25 +307,18 @@ fn check_inst(s: &Scope, i: &Inst, lbl: &HashSet<&str>, main_labels: &HashSet<&s
         Inst::Call { dst, func, args } => {
             let Some(&g) = s.funcs.get(func.as_str()) else {
                 // DECLARE LIBRARY: `meta extfn <name> <lib|-> <ret> <arg types...>`
-                let decl = s.m.meta.iter().filter(|(k, _)| k == "extfn").find_map(|(_, v)| {
-                    let mut w = v.split_whitespace();
-                    (w.next() == Some(func.as_str())).then(|| w.skip(1).map(str::to_string).collect::<Vec<_>>())
-                });
-                let Some(decl) = decl else {
+                let Some(decl) = s.m.extfn(func) else {
                     return bad(fname, format!("`{ctx}`: unknown function {func}"));
                 };
-                let Some((ret, tys)) = decl.split_first() else {
-                    return bad(fname, format!("`{ctx}`: bad extfn {func}"));
-                };
-                if args.len() != tys.len() {
-                    op_err(&format!("{func} takes {} arguments", tys.len()))?;
+                if args.len() != decl.args.len() {
+                    op_err(&format!("{func} takes {} arguments", decl.args.len()))?;
                 }
-                for (a, t) in args.iter().zip(tys) {
-                    if s.reg(*a, None, ctx)?.name() != t.as_str() {
-                        op_err(&format!("{func}: argument %{a} must be {t}"))?;
+                for (a, t) in args.iter().zip(&decl.args) {
+                    if s.reg(*a, None, ctx)? != *t {
+                        op_err(&format!("{func}: argument %{a} must be {}", t.name()))?;
                     }
                 }
-                if dst.is_some() != (ret != "void") {
+                if dst.is_some() != decl.ret.is_some() {
                     op_err(&format!("{func}: result register must match its return type"))?;
                 }
                 return Ok(());
@@ -464,4 +450,3 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
     Ok(())
 }
 
-const ALL_TYS: [Ty; 13] = [Ty::I8, Ty::U8, Ty::I16, Ty::U16, Ty::I32, Ty::U32, Ty::I64, Ty::U64, Ty::F32, Ty::F64, Ty::F80, Ty::Str, Ty::Ptr];

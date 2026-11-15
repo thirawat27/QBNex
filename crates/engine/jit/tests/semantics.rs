@@ -5,7 +5,7 @@ mod common;
 use common::*;
 use qb_jit::ctx::status;
 use qb_jit::mir::*;
-use qb_jit::rt::{self, id};
+use common::rt::{self, id};
 
 /// `FOR i& = 1 TO n: s& = s& + i& MOD 7: NEXT`
 fn loop_mod(n: i64) -> Module {

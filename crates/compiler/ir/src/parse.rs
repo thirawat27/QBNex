@@ -101,7 +101,8 @@ fn store_ty(t: &str) -> Option<StoreTy> {
 }
 
 pub(crate) fn hex_bytes(h: &str) -> Option<Vec<u8>> {
-    if !h.len().is_multiple_of(2) {
+    // (`from_str_radix` alone would take a sign: `+f` is not a byte)
+    if !h.len().is_multiple_of(2) || !h.bytes().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
     (0..h.len())
@@ -145,6 +146,10 @@ fn lit(p: &mut P, ty: Ty) -> Result<Lit, IrError> {
     };
     if v < lo || v > hi {
         return p.e(format!("literal {v} out of range for {}", ty.name()));
+    }
+    // the only pointer constant is the null pointer (the executors make no other)
+    if ty == Ty::Ptr && v != 0 {
+        return p.e(format!("pointer constant {v} (only 0)"));
     }
     Ok(Lit::Int(v))
 }
@@ -324,6 +329,14 @@ fn inst(p: &mut P) -> Result<Inst, IrError> {
     Ok(i)
 }
 
+/// `meta extfn <name> <lib> <ret> <arg types...>`: `ret` may be `void`.
+fn extfn(w: &[&str]) -> Option<ExtFn> {
+    let [name, lib, ret, args @ ..] = w else { return None };
+    let ret = if *ret == "void" { None } else { Some(Ty::from_name(ret)?) };
+    let args = args.iter().map(|t| Ty::from_name(t)).collect::<Option<Vec<_>>>()?;
+    Some(ExtFn { name: name.to_string(), lib: lib.to_string(), ret, args })
+}
+
 /// Parses QIR text. Rejects a header version newer than [`VERSION`].
 pub fn parse(src: &str) -> Result<Module, IrError> {
     let mut m = Module::default();
@@ -377,6 +390,9 @@ pub fn parse(src: &str) -> Result<Module, IrError> {
             "meta" => {
                 let k = p.name()?;
                 let v = p.toks[p.pos..].join(" ");
+                if k == "extfn" {
+                    m.extfns.push(extfn(&p.toks[p.pos..]).ok_or_else(|| IrError { line, msg: format!("bad `meta extfn {v}`") })?);
+                }
                 m.meta.push((k, v));
                 continue;
             }

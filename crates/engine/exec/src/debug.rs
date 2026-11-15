@@ -12,7 +12,7 @@ use qb_ir as ir;
 use qb_ir::{StoreTy, Ty as IT, VarKind};
 
 use super::{Arr, ArrData, Vm};
-use crate::bytecode::{MTy, Module};
+use crate::bytecode::{MTy, Module, Slot as BSlot};
 use crate::mem::ARR_TAG;
 
 /// Most array elements a [`Value::Array`] carries.
@@ -75,6 +75,8 @@ enum Loc {
     A(u32),
     /// memory mode: register holding the address (or array descriptor)
     M(u32),
+    /// register mode: BYREF parameter that refers to its argument (`Slot::R`)
+    R(u32, IT),
 }
 
 #[derive(Clone, Debug)]
@@ -159,9 +161,16 @@ fn layout(src: &ir::Module, m: &Module) -> Result<Vec<Vec<Slot>>, String> {
     for (k, f) in order.iter().enumerate() {
         let mut fresh = Counter::default();
         let c = if k == 0 { &mut c0 } else { &mut fresh };
+        // the bytecode's slot of the parameter (a BYVAL _FLOAT has two)
+        let mut pi = 0;
         for p in &f.params {
             let byref = matches!(p.kind, VarKind::Param { byref: true }) || p.array;
-            let loc = if mem && byref {
+            let slot = m.funcs[k].params.get(pi).copied();
+            pi += if !mem && !byref && matches!(p.ty, StoreTy::Scalar(IT::F80)) { 2 } else { 1 };
+            let loc = if let (Some(BSlot::R(r)), StoreTy::Scalar(t)) = (slot, &p.ty) {
+                c.n += 1;
+                Loc::R(r, *t)
+            } else if mem && byref {
                 c.n += 1;
                 Loc::M(c.n - 1)
             } else if mem && (!matches!(p.ty, StoreTy::Scalar(_)) || taken.contains(&(k, p.name.clone()))) {
@@ -316,6 +325,18 @@ impl Stop<'_, '_, '_> {
                 Some(Some(a)) => reg_array(a),
                 _ => Value::Unavailable("not dimensioned".into()),
             },
+            Loc::R(r, t) => {
+                let cx = super::Ctx { nb: f.nb, sb: f.sb, ab: f.ab, func: f.func };
+                match self.vm.ref_in(cx, r) {
+                    Ok(super::RefT::S(i)) => self.vm.strs.get(i).map_or(Value::Unavailable("register".into()), |s| Value::Str(s.clone())),
+                    Ok(super::RefT::E(a, o)) if t == IT::Str => match self.vm.arrs.get_mut(a).and_then(|x| x.as_deref_mut()).and_then(|x| x.str_at(o)) {
+                        Some(s) => Value::Str(s.clone()),
+                        None => Value::Unavailable("element".into()),
+                    },
+                    Ok(x) => self.vm.ref_ld(x).map_or(Value::Unavailable("element".into()), |b| num(t, b)),
+                    Err(_) => Value::Unavailable("reference".into()),
+                }
+            }
             Loc::M(r) => match self.vm.nums.get(f.nb + r as usize).copied() {
                 Some(p) => self.read_mem(&s.decl.ty, s.decl.array, p),
                 None => Value::Unavailable("register".into()),

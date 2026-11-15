@@ -30,32 +30,45 @@ type Res<T> = Result<T, String>;
 /// A function's slots and its result slot (with its type).
 type FuncSlots = (Vec<Slot>, Option<(Slot, Ty)>);
 
+/// What each QIR type is in the VM, in one table: integer width, register-mode
+/// storage type (arrays, builtin arguments), memory access type, DECLARE
+/// LIBRARY argument type and CHAIN/COMMON encoding. `None` = the type has no
+/// such form.
+struct TyMap {
+    w: Option<W>,
+    v: Option<Ty>,
+    m: MTy,
+    x: Option<XTy>,
+    chain: Option<ChainK>,
+}
+
+fn ty_map(t: IT) -> TyMap {
+    let int = |w, v, m, x, size, signed| TyMap { w: Some(w), v: Some(v), m, x: Some(x), chain: Some(ChainK::Int { size, signed }) };
+    match t {
+        IT::I8 => int(W::W8, Ty::I16, MTy::I8, XTy::I8, 1, true),
+        IT::U8 => int(W::U8, Ty::I16, MTy::U8, XTy::U8, 1, false),
+        IT::I16 => int(W::W16, Ty::I16, MTy::I16, XTy::I16, 2, true),
+        IT::U16 => int(W::U16, Ty::I32, MTy::U16, XTy::U16, 2, false),
+        IT::I32 => int(W::W32, Ty::I32, MTy::I32, XTy::I32, 4, true),
+        IT::U32 => int(W::U32, Ty::I64, MTy::U32, XTy::U32, 4, false),
+        IT::I64 => int(W::W64, Ty::I64, MTy::I64, XTy::I64, 8, true),
+        IT::U64 => int(W::U64, Ty::I64, MTy::U64, XTy::U64, 8, false),
+        IT::F32 => TyMap { w: None, v: Some(Ty::F32), m: MTy::F32, x: Some(XTy::F32), chain: Some(ChainK::F32) },
+        IT::F64 => TyMap { w: None, v: Some(Ty::F64), m: MTy::F64, x: Some(XTy::F64), chain: Some(ChainK::F64) },
+        // _FLOAT values live in register pairs and memory only
+        IT::F80 => TyMap { w: None, v: None, m: MTy::F80, x: None, chain: None },
+        IT::Str => TyMap { w: None, v: Some(Ty::Str), m: MTy::Str, x: Some(XTy::Str), chain: Some(ChainK::Str) },
+        IT::Ptr => TyMap { w: None, v: None, m: MTy::Ptr, x: Some(XTy::Ptr), chain: None },
+    }
+}
+
 fn width(t: IT) -> Res<W> {
-    Ok(match t {
-        IT::I8 => W::W8,
-        IT::U8 => W::U8,
-        IT::I16 => W::W16,
-        IT::U16 => W::U16,
-        IT::I32 => W::W32,
-        IT::U32 => W::U32,
-        IT::I64 => W::W64,
-        IT::U64 => W::U64,
-        _ => return Err(format!("no integer width for {}", t.name())),
-    })
+    ty_map(t).w.ok_or_else(|| format!("no integer width for {}", t.name()))
 }
 
 /// VM type used for array storage and builtin arguments.
 fn vty(t: IT) -> Res<Ty> {
-    Ok(match t {
-        IT::I8 | IT::U8 | IT::I16 => Ty::I16,
-        IT::U16 | IT::I32 => Ty::I32,
-        IT::U32 | IT::I64 | IT::U64 => Ty::I64,
-        IT::F32 => Ty::F32,
-        IT::F64 => Ty::F64,
-        IT::F80 => return Err("_FLOAT (80-bit)".into()),
-        IT::Str => Ty::Str,
-        IT::Ptr => return Err("pointer value".into()),
-    })
+    ty_map(t).v.ok_or_else(|| if t == IT::F80 { "_FLOAT (80-bit)".into() } else { "pointer value".into() })
 }
 
 fn cmp(op: CmpOp) -> Cmp {
@@ -155,15 +168,8 @@ fn def_ty(m: &ir::Module, fnames: &HashMap<&str, &ir::Func>, i: &Inst) -> Option
         Call { dst: Some(_), func, .. } => match fnames.get(func.as_str()) {
             Some(f) => f.ret?,
             // DECLARE LIBRARY: result type of `meta extfn`
-            None => {
-                let v = m.meta.iter().filter(|(k, _)| k == "extfn").find_map(|(_, v)| {
-                    let mut w = v.split_whitespace();
-                    (w.next() == Some(func.as_str())).then(|| w.nth(1).unwrap_or("void").to_string())
-                })?;
-                [IT::I8, IT::U8, IT::I16, IT::U16, IT::I32, IT::U32, IT::I64, IT::U64, IT::F32, IT::F64, IT::Str, IT::Ptr]
-                    .into_iter()
-                    .find(|t| t.name() == v)?
-            }
+            // (no _FLOAT: such a function is not callable, `xfn`)
+            None => m.extfn(func)?.ret.filter(|t| *t != IT::F80)?,
         },
         Rt { dst: Some(_), name, .. } => ir::builtins::lookup(name)?.ret?,
         _ => return None,
@@ -182,6 +188,9 @@ enum Var {
     M(R, MK),
     /// memory mode: main-frame register holding a module-level variable's address
     MG(R, MK),
+    /// register mode: BYREF scalar parameter that refers to its argument
+    /// (register = reference, see [`Slot::R`]); type of the variable
+    R(R, IT),
 }
 
 /// Kind of a memory-backed variable.
@@ -194,21 +203,7 @@ enum MK {
 }
 
 fn mty(t: IT) -> MTy {
-    match t {
-        IT::I8 => MTy::I8,
-        IT::U8 => MTy::U8,
-        IT::I16 => MTy::I16,
-        IT::U16 => MTy::U16,
-        IT::I32 => MTy::I32,
-        IT::U32 => MTy::U32,
-        IT::I64 => MTy::I64,
-        IT::U64 => MTy::U64,
-        IT::F32 => MTy::F32,
-        IT::F64 => MTy::F64,
-        IT::F80 => MTy::F80,
-        IT::Str => MTy::Str,
-        IT::Ptr => MTy::Ptr,
-    }
+    ty_map(t).m
 }
 
 /// Names a function's body refers to through variables.
@@ -283,6 +278,112 @@ impl Frame {
     }
 }
 
+/// Per-function QIR register tables (`Lw::function`). QIR numbers registers
+/// densely from 0 in each function, so they are arrays indexed by register
+/// (hash maps here were a large part of loading a big program).
+struct FnRegs {
+    rty: Vec<Option<IT>>,
+    defs: Vec<u32>,
+    uses: Vec<u32>,
+    /// QIR register -> VM register (allocated on first sight)
+    rmap: Vec<Option<Rg>>,
+    /// QIR register -> the register whose VM register it reuses (a widening cvt)
+    alias_src: Vec<Option<u32>>,
+}
+
+impl FnRegs {
+    /// VM register of QIR register `r` (allocated in frame `fr` on first sight).
+    fn reg(&mut self, fr: &mut Frame, mem: bool, r: u32) -> Res<Rg> {
+        if let Some(x) = self.rmap[r as usize] {
+            return Ok(x);
+        }
+        let t = self.rty[r as usize].ok_or_else(|| format!("register %{r} has no type"))?;
+        let x = match t {
+            IT::Str => Rg::S(fr.new_s()),
+            IT::F80 => {
+                let r = fr.new_n(0);
+                fr.new_n(0);
+                Rg::X(r)
+            }
+            IT::Ptr if mem => Rg::N(fr.new_n(0)),
+            IT::Ptr => Rg::P,
+            _ => {
+                vty(t)?;
+                Rg::N(fr.new_n(0))
+            }
+        };
+        self.rmap[r as usize] = Some(x);
+        Ok(x)
+    }
+
+    fn n(&mut self, fr: &mut Frame, mem: bool, r: u32) -> Res<R> {
+        match self.reg(fr, mem, r)? {
+            Rg::N(x) => Ok(x),
+            _ => Err(format!("%{r} is not numeric")),
+        }
+    }
+
+    fn x(&mut self, fr: &mut Frame, mem: bool, r: u32) -> Res<R> {
+        match self.reg(fr, mem, r)? {
+            Rg::X(x) => Ok(x),
+            _ => Err(format!("%{r} is not _FLOAT")),
+        }
+    }
+
+    fn s(&mut self, fr: &mut Frame, mem: bool, r: u32) -> Res<R> {
+        match self.reg(fr, mem, r)? {
+            Rg::S(x) => Ok(x),
+            _ => Err(format!("%{r} is not a string")),
+        }
+    }
+
+    /// Defined and read once. A widening cvt makes its result share the VM
+    /// register of its source: the fusions that take the only reader for
+    /// granted need the source read once too (by that cvt).
+    fn single(&self, mut r: u32) -> bool {
+        loop {
+            if self.defs[r as usize] != 1 || self.uses[r as usize] != 1 {
+                return false;
+            }
+            match self.alias_src[r as usize] {
+                Some(s) => r = s,
+                None => return true,
+            }
+        }
+    }
+}
+
+/// The register macros of a lowering function: `$s` is the `Lw`, `$rg` the
+/// [`FnRegs`], `$k` the function index.
+macro_rules! reg_macros {
+    ($s:ident, $rg:ident, $k:ident) => {
+        #[allow(unused_macros)]
+        macro_rules! reg {
+            ($r:expr) => {
+                $rg.reg(&mut $s.frames[$k], $s.mem, $r)?
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! nreg {
+            ($r:expr) => {
+                $rg.n(&mut $s.frames[$k], $s.mem, $r)?
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! xreg {
+            ($r:expr) => {
+                $rg.x(&mut $s.frames[$k], $s.mem, $r)?
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! sreg {
+            ($r:expr) => {
+                $rg.s(&mut $s.frames[$k], $s.mem, $r)?
+            };
+        }
+    };
+}
+
 fn lit_num(ty: IT, l: &Lit) -> Res<u64> {
     Ok(match l {
         Lit::Int(n) => {
@@ -353,8 +454,13 @@ struct Lw<'a> {
     mem: bool,
     /// (scope, name) of variables whose address is taken; scope = function index, MAX = module
     taken: std::collections::HashSet<(usize, String)>,
+    /// register mode: (function, parameter) of the BYREF parameters that refer to
+    /// their argument instead of holding a copy (`byref.rs`)
+    refs: std::collections::HashSet<(usize, usize)>,
     /// instructions run on entry of each function (storage of memory-backed variables)
     prologue: Vec<Vec<Ins>>,
+    /// register-table entries the functions may still allocate (see `function`)
+    reg_budget: usize,
 }
 
 /// Lowers a QIR module to bytecode, or says why it cannot.
@@ -386,7 +492,7 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
                 console: src.meta("console").map(|v| v == "only"),
                 screenhide: src.meta("screenhide").is_some(),
                 option_base: i64::from(src.meta("optionbase") == Some("1")),
-                xfns: src.meta.iter().filter(|(k, _)| k == "extfn").filter_map(|(_, v)| parse_xfn(v)).collect(),
+                xfns: src.extfns.iter().filter_map(xfn).collect(),
                 ..Module::default()
             },
         kstr: HashMap::new(),
@@ -399,7 +505,9 @@ fn compile_mode(src: &ir::Module, mem: bool) -> Res<Module> {
         frames: Vec::from_fn(order.len(), |_| Frame::default()),
         mem,
         taken: std::collections::HashSet::new(),
+        refs: if mem { std::collections::HashSet::new() } else { crate::byref::reference_params(src, &order) },
         prologue: vec![Vec::new(); order.len()],
+        reg_budget: src.funcs.iter().map(|f| f.body.len()).sum::<usize>().saturating_mul(4) + (1 << 16),
     };
     if mem {
         for (k, &fi) in order.iter().enumerate() {
@@ -513,13 +621,14 @@ impl<'a> Lw<'a> {
 
     /// Memory layout of a variable declaration.
     fn mvar(&self, d: &ir::VarDecl) -> Res<(MK, MVar)> {
-        let (mk, size, fill, strs) = match &d.ty {
-            StoreTy::Scalar(t) => (MK::Scalar, t.size(), 0, *t == IT::Str),
-            StoreTy::FStr(n) => (MK::FStr(*n), *n, 0, false),
-            StoreTy::Udt(u) => (MK::Udt, self.ir.udt(u).ok_or_else(|| format!("unknown TYPE {u}"))?.size, 0, false),
+        // (storage starts as zero bytes, a `STRING * n` too)
+        let (mk, size, strs) = match &d.ty {
+            StoreTy::Scalar(t) => (MK::Scalar, t.size(), *t == IT::Str),
+            StoreTy::FStr(n) => (MK::FStr(*n), *n, false),
+            StoreTy::Udt(u) => (MK::Udt, self.ir.udt(u).ok_or_else(|| format!("unknown TYPE {u}"))?.size, false),
         };
         let mk = if d.array { MK::Arr } else { mk };
-        Ok((mk, MVar { size, fill, strs, array: d.array }))
+        Ok((mk, MVar { size, strs, array: d.array }))
     }
 
     /// QIR function by name.
@@ -540,8 +649,19 @@ impl<'a> Lw<'a> {
             }
         }
         let mut params = Vec::new();
-        for p in &f.params {
+        for (j, p) in f.params.iter().enumerate() {
             let byref = matches!(p.kind, VarKind::Param { byref: true }) || p.array;
+            if !self.mem && byref && !p.array && self.refs.contains(&(k, j)) {
+                // a reference to the argument (a copy could be told apart from it)
+                let t = check_store_ty(&p.ty)?;
+                if t == IT::F80 {
+                    return Err("BYREF _FLOAT".into());
+                }
+                let r = self.frames[k].new_n(0);
+                params.push(Slot::R(r));
+                vars.insert(p.name.as_str(), Var::R(r, t));
+                continue;
+            }
             if self.mem && byref {
                 // memory mode: BYREF / array parameters are the caller's pointers
                 let (mk, _) = self.mvar(p)?;
@@ -641,6 +761,14 @@ impl<'a> Lw<'a> {
             let (d, us) = regs(i);
             d.into_iter().chain(us.iter()).max()
         }).max().map_or(0, |r| r as usize + 1);
+        // Registers are dense, so the highest one is about the number of
+        // instructions that define one. Sparse numbers (`%16000000` in a small
+        // function) would make every table below that large: the whole program
+        // gets tables for 4 registers per instruction (and 64K more), no more.
+        if n_regs > self.reg_budget {
+            return Err(format!("{}: register %{} is far above the program's {} instructions", f.name, n_regs - 1, self.ir.funcs.iter().map(|f| f.body.len()).sum::<usize>()));
+        }
+        self.reg_budget -= n_regs;
         // register types and use counts
         let mut rty = vec![None::<IT>; n_regs];
         let mut defs = vec![0u32; n_regs];
@@ -689,270 +817,21 @@ impl<'a> Lw<'a> {
         let mut ptr_ty = vec![None::<IT>; n_regs];
         // QIR register -> variable whose register it aliases
         let mut alias_var = vec![None::<&str>; n_regs];
+        let mut rg = FnRegs { rty, defs, uses, rmap, alias_src: vec![None; n_regs] };
         for i in std::mem::take(&mut self.prologue[k]) {
             self.emit(i);
         }
         self.barrier = self.pc();
         let body = &f.body;
         for (ii, ins) in body.iter().enumerate() {
-            // VM register of a QIR register (allocated on first sight)
-            macro_rules! reg {
-                ($r:expr) => {{
-                    let r: u32 = $r;
-                    match rmap[r as usize] {
-                        Some(x) => x,
-                        None => {
-                            let t = rty[r as usize].ok_or_else(|| format!("register %{r} has no type"))?;
-                            let x = match t {
-                                IT::Str => Rg::S(self.frames[k].new_s()),
-                                IT::F80 => {
-                                    let r = self.frames[k].new_n(0);
-                                    self.frames[k].new_n(0);
-                                    Rg::X(r)
-                                }
-                                IT::Ptr if self.mem => Rg::N(self.frames[k].new_n(0)),
-                                IT::Ptr => Rg::P,
-                                _ => {
-                                    vty(t)?;
-                                    Rg::N(self.frames[k].new_n(0))
-                                }
-                            };
-                            rmap[r as usize] = Some(x);
-                            x
-                        }
-                    }
-                }};
-            }
-            macro_rules! nreg {
-                ($r:expr) => {
-                    match reg!($r) {
-                        Rg::N(x) => x,
-                        _ => return Err(format!("%{} is not numeric", $r)),
-                    }
-                };
-            }
-            macro_rules! xreg {
-                ($r:expr) => {
-                    match reg!($r) {
-                        Rg::X(x) => x,
-                        _ => return Err(format!("%{} is not _FLOAT", $r)),
-                    }
-                };
-            }
-            macro_rules! sreg {
-                ($r:expr) => {
-                    match reg!($r) {
-                        Rg::S(x) => x,
-                        _ => return Err(format!("%{} is not a string", $r)),
-                    }
-                };
-            }
+            reg_macros!(self, rg, k);
             macro_rules! var {
                 ($n:expr) => {
                     lookup_var(&vars, &globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
                 };
             }
-            let single = |r: u32| defs[r as usize] == 1 && uses[r as usize] == 1;
-            if self.mem {
-                let mvar = |n: &String| match lookup_var(&vars, &globals, k, n) {
-                    Some(Var::M(p, mk)) => Some((p, mk)),
-                    _ => None,
-                };
-                match ins {
-                    Inst::Load { ty, dst, var } if mvar(var).is_some() => {
-                        let (p, mk) = mvar(var).unwrap();
-                        match mk {
-                            MK::FStr(len) => {
-                                let d = sreg!(*dst);
-                                self.emit(Ins::LdFs { d, p, off: 0, len });
-                            }
-                            _ if *ty == IT::Str => {
-                                if single(*dst) && rmap[*dst as usize].is_none() && p & (K | M) == 0 && str_read_only(body, ii, *dst) {
-                                    // its only reader takes the string from memory: no copy
-                                    rmap[*dst as usize] = Some(Rg::S(p | M));
-                                } else {
-                                    let d = sreg!(*dst);
-                                    self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
-                                }
-                            }
-                            _ => {
-                                let d = if *ty == IT::F80 { xreg!(*dst) } else { nreg!(*dst) };
-                                self.emit(Ins::LdM { t: mty(*ty), d, p, off: 0 });
-                            }
-                        }
-                        continue;
-                    }
-                    Inst::Store { ty, var, src } if mvar(var).is_some() => {
-                        let (p, mk) = mvar(var).unwrap();
-                        match mk {
-                            MK::FStr(len) => {
-                                let sr = sreg!(*src);
-                                self.emit(Ins::StFs { p, off: 0, len, s: sr });
-                            }
-                            _ if *ty == IT::Str => {
-                                let sr = sreg!(*src);
-                                self.emit(Ins::StM { t: MTy::Str, p, off: 0, s: sr });
-                            }
-                            _ => {
-                                let sr = if *ty == IT::F80 { xreg!(*src) } else { nreg!(*src) };
-                                self.emit(Ins::StM { t: mty(*ty), p, off: 0, s: sr });
-                            }
-                        }
-                        continue;
-                    }
-                    Inst::Addr { dst, var } | Inst::ARef { dst, var } => {
-                        let (p, _) = mvar(var).ok_or_else(|| format!("address of {var} without storage"))?;
-                        if defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() {
-                            rmap[*dst as usize] = Some(Rg::N(p));
-                        } else {
-                            let d = nreg!(*dst);
-                            self.emit(Ins::Mov { d, s: p });
-                        }
-                        continue;
-                    }
-                    Inst::AAddr { dst, var, idx } => {
-                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
-                        let n = idx.len() as u32;
-                        let base = if n == 1 {
-                            nreg!(idx[0])
-                        } else {
-                            let base = self.frames[k].num_init.len() as R;
-                            for _ in 0..n {
-                                self.frames[k].new_n(0);
-                            }
-                            for (j, r) in idx.iter().enumerate() {
-                                let s = nreg!(*r);
-                                self.emit(Ins::Mov { d: base + j as R, s });
-                            }
-                            base
-                        };
-                        let d = nreg!(*dst);
-                        self.emit(Ins::AAddrM { d, a: p, i: base, n });
-                        continue;
-                    }
-                    Inst::Ld { ty, dst, ptr, off } => {
-                        let pr = nreg!(*ptr);
-                        let d = match ty {
-                            IT::Str => sreg!(*dst),
-                            IT::F80 => xreg!(*dst),
-                            _ => nreg!(*dst),
-                        };
-                        self.emit(Ins::LdM { t: mty(*ty), d, p: pr, off: *off });
-                        continue;
-                    }
-                    Inst::St { ty, ptr, off, src } => {
-                        let pr = nreg!(*ptr);
-                        let sr = match ty {
-                            IT::Str => sreg!(*src),
-                            IT::F80 => xreg!(*src),
-                            _ => nreg!(*src),
-                        };
-                        self.emit(Ins::StM { t: mty(*ty), p: pr, off: *off, s: sr });
-                        continue;
-                    }
-                    Inst::LdFs { dst, ptr, off, len } => {
-                        let (pr, d) = (nreg!(*ptr), sreg!(*dst));
-                        self.emit(Ins::LdFs { d, p: pr, off: *off, len: *len });
-                        continue;
-                    }
-                    Inst::StFs { ptr, off, len, src } => {
-                        let (pr, sr) = (nreg!(*ptr), sreg!(*src));
-                        self.emit(Ins::StFs { p: pr, off: *off, len: *len, s: sr });
-                        continue;
-                    }
-                    Inst::PAdd { dst, ptr, off } => {
-                        let (pr, o, d) = (nreg!(*ptr), nreg!(*off), nreg!(*dst));
-                        self.emit(Ins::PAddM { d, p: pr, o });
-                        continue;
-                    }
-                    Inst::Copy { dst, src, size } => {
-                        let (d, sr) = (nreg!(*dst), nreg!(*src));
-                        self.emit(Ins::CopyM { d, s: sr, n: *size });
-                        continue;
-                    }
-                    Inst::Dim { kind, var, bounds } => {
-                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
-                        let n = bounds.len() as u32;
-                        let base = self.frames[k].num_init.len() as R;
-                        for _ in 0..2 * n {
-                            self.frames[k].new_n(0);
-                        }
-                        for (j, (lo, hi)) in bounds.iter().enumerate() {
-                            let (lo, hi) = (nreg!(*lo), nreg!(*hi));
-                            self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
-                            self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
-                        }
-                        let mode = match kind {
-                            DimKind::Dim => DimMode::Dim,
-                            DimKind::Static => DimMode::Static,
-                            DimKind::Redim => DimMode::Redim,
-                            DimKind::RedimPreserve => DimMode::RedimPreserve,
-                        };
-                        self.emit(Ins::DimM { a: p, dims: base, n, mode });
-                        continue;
-                    }
-                    Inst::Erase { var } => {
-                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
-                        self.emit(Ins::EraseM { a: p });
-                        continue;
-                    }
-                    Inst::LBound { dst, var, dim } | Inst::UBound { dst, var, dim } => {
-                        let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
-                        let (d, dm) = (nreg!(*dst), nreg!(*dim));
-                        self.emit(Ins::BoundM { d, a: p, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
-                        continue;
-                    }
-                    Inst::Call { dst, func, args } if self.callee(func).is_none() => {
-                        // DECLARE LIBRARY function (meta extfn): pointers are real addresses here
-                        let f = self.m.xfns.iter().position(|x| x.name == *func).ok_or_else(|| format!("unknown function {func}"))? as u32;
-                        let mut regs = Vec::new();
-                        for r in args {
-                            regs.push(match reg!(*r) {
-                                Rg::N(x) | Rg::S(x) => x,
-                                _ => return Err("_FLOAT argument of a DECLARE LIBRARY function".into()),
-                            });
-                        }
-                        let dest = match dst {
-                            Some(d) => Some(match reg!(*d) {
-                                Rg::N(x) | Rg::S(x) => x,
-                                _ => return Err("_FLOAT result of a DECLARE LIBRARY function".into()),
-                            }),
-                            None => None,
-                        };
-                        self.m.xcalls.push(XCall { f, args: regs, dest });
-                        let c = self.m.xcalls.len() as u32 - 1;
-                        self.emit(Ins::XCall { c });
-                        continue;
-                    }
-                    Inst::Call { dst, func, args } => {
-                        let callee = self.callee(func).ok_or_else(|| format!("unknown function {func}"))?;
-                        let fi = self.fidx[func.as_str()] as u32;
-                        let mut out = Vec::new();
-                        for (r, _p) in args.iter().zip(&callee.params) {
-                            match reg!(*r) {
-                                Rg::N(x) => out.push(Arg::N(x)),
-                                Rg::S(x) => out.push(Arg::S(x)),
-                                Rg::X(x) => {
-                                    out.push(Arg::N(x));
-                                    out.push(Arg::N(x + 1));
-                                }
-                                Rg::P => return Err("pointer argument".into()),
-                            }
-                        }
-                        let dest = match dst {
-                            Some(d) => Some(match reg!(*d) {
-                                Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
-                                Rg::P => return Err("pointer result".into()),
-                            }),
-                            None => None,
-                        };
-                        self.m.calls.push(CallDesc { args: out, dest });
-                        let desc = self.m.calls.len() as u32 - 1;
-                        self.emit(Ins::Call { f: fi, desc });
-                        continue;
-                    }
-                    _ => {}
-                }
+            if self.mem && self.lower_mem(k, &mut rg, &vars, &globals, body, ii)? {
+                continue;
             }
             // _FLOAT instructions (register pairs)
             let f80_case = match ins {
@@ -968,106 +847,7 @@ impl<'a> Lw<'a> {
                 _ => false,
             };
             if f80_case {
-                match ins {
-                    Inst::Const { dst, val, .. } => {
-                        if defs[*dst as usize] != 1 {
-                            let d = xreg!(*dst);
-                            let x = lit_f80(val);
-                            for (j, bits) in [x.mant, u64::from(x.se)].into_iter().enumerate() {
-                                let kk = self.m.nconst.len() as u32;
-                                self.m.nconst.push(bits);
-                                self.emit(Ins::Ldk { d: d + j as R, k: kk });
-                            }
-                        }
-                    }
-                    Inst::Mov { dst, src, .. } => {
-                        let (d, sr) = (xreg!(*dst), xreg!(*src));
-                        self.emit(Ins::MovX { d, s: sr });
-                    }
-                    Inst::Bin { op, dst, a, b, .. } => {
-                        let (d, x, y) = (xreg!(*dst), xreg!(*a), xreg!(*b));
-                        let op = match op {
-                            BinOp::Add => XOp::Add,
-                            BinOp::Sub => XOp::Sub,
-                            BinOp::Mul => XOp::Mul,
-                            BinOp::Div => XOp::Div,
-                            BinOp::Pow => XOp::Pow,
-                            _ => return Err("bad _FLOAT op".into()),
-                        };
-                        self.emit(Ins::XBin { op, d, a: x, b: y });
-                    }
-                    Inst::Un { op: UnOp::Neg, dst, a, .. } => {
-                        let (d, sr) = (xreg!(*dst), xreg!(*a));
-                        self.emit(Ins::XNeg { d, s: sr });
-                    }
-                    Inst::Cmp { op, dst, a, b, .. } => {
-                        let (d, x, y) = (nreg!(*dst), xreg!(*a), xreg!(*b));
-                        self.emit(Ins::XCmp { c: cmp(*op), d, a: x, b: y });
-                    }
-                    Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
-                        let trunc = matches!(ins, Inst::Trunc { .. });
-                        if *to == IT::F80 {
-                            let d = xreg!(*dst);
-                            if *from == IT::F80 {
-                                let sr = xreg!(*src);
-                                self.emit(Ins::MovX { d, s: sr });
-                            } else if from.is_float() {
-                                let sr = nreg!(*src);
-                                self.emit(Ins::XFromF { d, s: sr });
-                            } else {
-                                let sr = nreg!(*src);
-                                self.emit(Ins::XFromI { d, s: sr, u: *from == IT::U64 });
-                            }
-                        } else {
-                            let (d, sr) = (nreg!(*dst), xreg!(*src));
-                            if to.is_float() {
-                                self.emit(Ins::XToF { d, s: sr, f32: *to == IT::F32 });
-                            } else {
-                                self.emit(Ins::XToI { d, s: sr, w: width(*to)?, trunc });
-                            }
-                        }
-                    }
-                    Inst::Load { dst, var, .. } => match var!(var) {
-                        Var::N(r, _) => {
-                            let d = xreg!(*dst);
-                            self.emit(Ins::MovX { d, s: r });
-                        }
-                        Var::NG(g, _) => {
-                            let d = xreg!(*dst);
-                            self.emit(Ins::GetG { d, g });
-                            self.emit(Ins::GetG { d: d + 1, g: g + 1 });
-                        }
-                        Var::M(p, _) => {
-                            let d = xreg!(*dst);
-                            self.emit(Ins::LdM { t: MTy::F80, d, p, off: 0 });
-                        }
-                        _ => return Err("bad _FLOAT variable".into()),
-                    },
-                    Inst::Store { var, src, .. } => match var!(var) {
-                        Var::N(r, _) => {
-                            let sr = xreg!(*src);
-                            self.emit(Ins::MovX { d: r, s: sr });
-                        }
-                        Var::NG(g, _) => {
-                            let sr = xreg!(*src);
-                            self.emit(Ins::SetG { g, s: sr });
-                            self.emit(Ins::SetG { g: g + 1, s: sr + 1 });
-                        }
-                        Var::M(p, _) => {
-                            let sr = xreg!(*src);
-                            self.emit(Ins::StM { t: MTy::F80, p, off: 0, s: sr });
-                        }
-                        _ => return Err("bad _FLOAT variable".into()),
-                    },
-                    Inst::Read { dst, .. } => {
-                        // func_read_float(.., FLOATTYPE): the double value
-                        let d = xreg!(*dst);
-                        let t = self.frames[k].new_n(0);
-                        self.emit(Ins::ReadN { d: t, typ: qb_runtime::numparse::ISFLOAT | 256 });
-                        self.emit(Ins::XFromF { d, s: t });
-                    }
-                    _ => return Err("unsupported _FLOAT instruction".into()),
-                }
+                self.lower_f80(k, &mut rg, &vars, &globals, ins)?;
                 continue;
             }
             match ins {
@@ -1090,7 +870,7 @@ impl<'a> Lw<'a> {
                     self.barrier = pc;
                 }
                 Inst::Const { ty, dst, val } => {
-                    if defs[*dst as usize] == 1 {
+                    if rg.defs[*dst as usize] == 1 {
                         continue; // constant register
                     }
                     match reg!(*dst) {
@@ -1192,16 +972,17 @@ impl<'a> Lw<'a> {
                 }
                 Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
                     let trunc = matches!(ins, Inst::Trunc { .. });
-                    if to.is_int() && from.is_int() && widens(*from, *to) && defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() {
+                    if to.is_int() && from.is_int() && widens(*from, *to) && rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() {
                         // widening an already normalized integer changes nothing: reuse the register
                         let s = nreg!(*src);
-                        let n_uses = uses[*dst as usize];
+                        let n_uses = rg.uses[*dst as usize];
                         let ok = match alias_var[*src as usize] {
                             Some(v) => alias_ok(body, ii, *dst, v, n_uses),
                             None => stable_until_uses(body, ii, *dst, n_uses, &|i: &Inst| regs(i).0 == Some(*src)),
                         };
                         if ok {
-                            rmap[*dst as usize] = Some(Rg::N(s));
+                            rg.rmap[*dst as usize] = Some(Rg::N(s));
+                            rg.alias_src[*dst as usize] = Some(*src);
                             if let Some(v) = alias_var[*src as usize] {
                                 alias_var[*dst as usize] = Some(v);
                             }
@@ -1235,10 +1016,10 @@ impl<'a> Lw<'a> {
                     let v = var!(var);
                     match v {
                         Var::N(r, _) | Var::S(r) => {
-                            let alias = defs[*dst as usize] == 1 && rmap[*dst as usize].is_none() && alias_ok(body, ii, *dst, var, uses[*dst as usize]);
+                            let alias = rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() && alias_ok(body, ii, *dst, var, rg.uses[*dst as usize]);
                             let is_s = matches!(v, Var::S(_));
                             if alias {
-                                rmap[*dst as usize] = Some(if is_s { Rg::S(r) } else { Rg::N(r) });
+                                rg.rmap[*dst as usize] = Some(if is_s { Rg::S(r) } else { Rg::N(r) });
                                 alias_var[*dst as usize] = Some(var.as_str());
                             } else if is_s {
                                 let d = sreg!(*dst);
@@ -1256,6 +1037,14 @@ impl<'a> Lw<'a> {
                             let d = sreg!(*dst);
                             self.emit(Ins::GetGS { d, g });
                         }
+                        Var::R(r, IT::Str) => {
+                            let d = sreg!(*dst);
+                            self.emit(Ins::LdRS { d, r });
+                        }
+                        Var::R(r, _) => {
+                            let d = nreg!(*dst);
+                            self.emit(Ins::LdR { d, r });
+                        }
                         Var::A(..) => return Err("load of an array".into()),
                         Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     }
@@ -1266,23 +1055,27 @@ impl<'a> Lw<'a> {
                     match v {
                         Var::N(r, t) => {
                             let s = nreg!(*src);
-                            let produced = single(*src) && s >= self.frames[k].n_vars && !self.is_const(k, s) && self.last_writes(false, s);
+                            let produced = rg.single(*src) && s >= self.frames[k].n_vars && !self.is_const(k, s) && self.last_writes(false, s);
                             if *ty == IT::F32 && !(produced && matches!(self.m.code.last(), Some(Ins::RoundF32 { .. }))) && !self.is_const(k, s) {
                                 self.emit(Ins::RoundF32 { d: r, s });
                             } else if s != r && !(produced && self.retarget(false, s, r)) {
                                 self.emit(Ins::Mov { d: r, s });
                             }
                             if t.is_int() {
-                                let once = |x: R| rmap.iter().enumerate().any(|(v, g)| matches!(g, Some(Rg::N(y)) if *y == x) && single(v as u32));
+                                // every QIR register on the VM register is read once
+                                let once = |x: R| {
+                                    let mut on = rg.rmap.iter().enumerate().filter(|(_, g)| matches!(g, Some(Rg::N(y)) if *y == x)).peekable();
+                                    on.peek().is_some() && on.all(|(v, _)| rg.single(v as u32))
+                                };
                                 self.fuse_acc(k, r, once);
                             }
                         }
                         Var::S(r) => {
                             let s = sreg!(*src);
                             if s != r {
-                                let produced = single(*src) && s & K == 0 && s >= self.frames[k].n_svars && self.last_writes(true, s);
+                                let produced = rg.single(*src) && s & K == 0 && s >= self.frames[k].n_svars && self.last_writes(true, s);
                                 if !(produced && self.retarget(true, s, r)) {
-                                    let tmp = s & K == 0 && s >= self.frames[k].n_svars && single(*src);
+                                    let tmp = s & K == 0 && s >= self.frames[k].n_svars && rg.single(*src);
                                     self.emit(if tmp { Ins::TakeS { d: r, s } } else { Ins::MovS { d: r, s } });
                                 }
                             }
@@ -1301,6 +1094,20 @@ impl<'a> Lw<'a> {
                             let s = sreg!(*src);
                             self.emit(Ins::SetGS { g, s });
                         }
+                        Var::R(r, IT::Str) => {
+                            let s = sreg!(*src);
+                            self.emit(Ins::StRS { r, s });
+                        }
+                        Var::R(r, _) => {
+                            let s = nreg!(*src);
+                            if *ty == IT::F32 && !self.is_const(k, s) {
+                                let t = self.frames[k].new_n(0);
+                                self.emit(Ins::RoundF32 { d: t, s });
+                                self.emit(Ins::StR { r, s: t });
+                            } else {
+                                self.emit(Ins::StR { r, s });
+                            }
+                        }
                         Var::A(..) => return Err("store to an array".into()),
                         Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     }
@@ -1311,6 +1118,7 @@ impl<'a> Lw<'a> {
                         Var::NG(g, t) => (Place::NG(g, vty(t)?), t),
                         Var::S(r) => (Place::S(r), IT::Str),
                         Var::SG(g) => (Place::SG(g), IT::Str),
+                        Var::R(r, t) => (Place::R(r, vty(t)?), t),
                         Var::A(..) => return Err("addr of an array".into()),
                         Var::M(..) | Var::MG(..) => return Err("memory variable outside memory mode".into()),
                     };
@@ -1335,7 +1143,7 @@ impl<'a> Lw<'a> {
                     // of them: the scans below stop there. Scanning to the next definition
                     // (the end of the function, for such a register) made the loader
                     // quadratic in the number of array accesses of a function.
-                    let reads = if defs[*dst as usize] == 1 { uses[*dst as usize] } else { u32::MAX };
+                    let reads = if rg.defs[*dst as usize] == 1 { rg.uses[*dst as usize] } else { u32::MAX };
                     let mut to_call = false;
                     let mut seen = 0;
                     for i in &body[ii + 1..] {
@@ -1460,7 +1268,7 @@ impl<'a> Lw<'a> {
                     let on_true = matches!(ins, Inst::Jnz { .. });
                     let r = nreg!(*c);
                     let mut j = if on_true { Ins::JnzI { s: r, t: 0 } } else { Ins::JzI { s: r, t: 0 } };
-                    if single(*c) && self.pc() > self.barrier {
+                    if rg.single(*c) && self.pc() > self.barrier {
                         let fused = match self.m.code.last().copied() {
                             Some(Ins::CmpI { c: op, d, a, b }) if d == r => Some(Ins::BrI { c: if on_true { op } else { op.inverse() }, a, b, t: 0 }),
                             Some(Ins::CmpF { c: op, d, a, b }) if d == r => Some(Ins::BrF { c: if on_true { op } else { op.negated() }, a, b, t: 0 }),
@@ -1575,20 +1383,7 @@ impl<'a> Lw<'a> {
                     let (Some(Ptr::Place(pl)), Some(t)) = (ptrs[ptr as usize], ptr_ty[ptr as usize]) else {
                         return Err(format!("{name} of something that is not a variable"));
                     };
-                    let k = match t {
-                        IT::I8 => ChainK::Int { size: 1, signed: true },
-                        IT::U8 => ChainK::Int { size: 1, signed: false },
-                        IT::I16 => ChainK::Int { size: 2, signed: true },
-                        IT::U16 => ChainK::Int { size: 2, signed: false },
-                        IT::I32 => ChainK::Int { size: 4, signed: true },
-                        IT::U32 => ChainK::Int { size: 4, signed: false },
-                        IT::I64 => ChainK::Int { size: 8, signed: true },
-                        IT::U64 => ChainK::Int { size: 8, signed: false },
-                        IT::F32 => ChainK::F32,
-                        IT::F64 => ChainK::F64,
-                        IT::Str => ChainK::Str,
-                        IT::F80 | IT::Ptr => return Err(format!("{name} of a {} variable", t.name())),
-                    };
+                    let k = ty_map(t).chain.ok_or_else(|| format!("{name} of a {} variable", t.name()))?;
                     let strs = name.ends_with('S');
                     let whole = matches!(name.as_str(), "CHAINPUTA" | "CHAINGETA" | "CHAINPUTAS" | "CHAINGETAS");
                     if strs != (k == ChainK::Str) || whole != matches!(pl, Place::A(_)) {
@@ -1746,6 +1541,324 @@ impl<'a> Lw<'a> {
         self.emit(if k == 0 { Ins::End } else { Ins::Ret });
         self.globals = globals;
         Ok((params, ret))
+    }
+
+    /// Memory mode: the instructions on memory-backed variables and pointers.
+    /// `Ok(false)`: `body[ii]` is lowered as in register mode.
+    fn lower_mem(&mut self, k: usize, rg: &mut FnRegs, vars: &HashMap<&'a str, Var>, globals: &HashMap<String, Var>, body: &'a [Inst], ii: usize) -> Res<bool> {
+        reg_macros!(self, rg, k);
+        let ins = &body[ii];
+        let mvar = |n: &String| match lookup_var(vars, globals, k, n) {
+            Some(Var::M(p, mk)) => Some((p, mk)),
+            _ => None,
+        };
+        match ins {
+            Inst::Load { ty, dst, var } if mvar(var).is_some() => {
+                let (p, mk) = mvar(var).unwrap();
+                match mk {
+                    MK::FStr(len) => {
+                        let d = sreg!(*dst);
+                        self.emit(Ins::LdFs { d, p, off: 0, len });
+                    }
+                    _ if *ty == IT::Str => {
+                        if rg.single(*dst) && rg.rmap[*dst as usize].is_none() && p & (K | M) == 0 && str_read_only(body, ii, *dst) {
+                            // its only reader takes the string from memory: no copy
+                            rg.rmap[*dst as usize] = Some(Rg::S(p | M));
+                        } else {
+                            let d = sreg!(*dst);
+                            self.emit(Ins::LdM { t: MTy::Str, d, p, off: 0 });
+                        }
+                    }
+                    _ => {
+                        let d = if *ty == IT::F80 { xreg!(*dst) } else { nreg!(*dst) };
+                        self.emit(Ins::LdM { t: mty(*ty), d, p, off: 0 });
+                    }
+                }
+                return Ok(true);
+            }
+            Inst::Store { ty, var, src } if mvar(var).is_some() => {
+                let (p, mk) = mvar(var).unwrap();
+                match mk {
+                    MK::FStr(len) => {
+                        let sr = sreg!(*src);
+                        self.emit(Ins::StFs { p, off: 0, len, s: sr });
+                    }
+                    _ if *ty == IT::Str => {
+                        let sr = sreg!(*src);
+                        self.emit(Ins::StM { t: MTy::Str, p, off: 0, s: sr });
+                    }
+                    _ => {
+                        let sr = if *ty == IT::F80 { xreg!(*src) } else { nreg!(*src) };
+                        self.emit(Ins::StM { t: mty(*ty), p, off: 0, s: sr });
+                    }
+                }
+                return Ok(true);
+            }
+            Inst::Addr { dst, var } | Inst::ARef { dst, var } => {
+                let (p, _) = mvar(var).ok_or_else(|| format!("address of {var} without storage"))?;
+                if rg.defs[*dst as usize] == 1 && rg.rmap[*dst as usize].is_none() {
+                    rg.rmap[*dst as usize] = Some(Rg::N(p));
+                } else {
+                    let d = nreg!(*dst);
+                    self.emit(Ins::Mov { d, s: p });
+                }
+                return Ok(true);
+            }
+            Inst::AAddr { dst, var, idx } => {
+                let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                let n = idx.len() as u32;
+                let base = if n == 1 {
+                    nreg!(idx[0])
+                } else {
+                    let base = self.frames[k].num_init.len() as R;
+                    for _ in 0..n {
+                        self.frames[k].new_n(0);
+                    }
+                    for (j, r) in idx.iter().enumerate() {
+                        let s = nreg!(*r);
+                        self.emit(Ins::Mov { d: base + j as R, s });
+                    }
+                    base
+                };
+                let d = nreg!(*dst);
+                self.emit(Ins::AAddrM { d, a: p, i: base, n });
+                return Ok(true);
+            }
+            Inst::Ld { ty, dst, ptr, off } => {
+                let pr = nreg!(*ptr);
+                let d = match ty {
+                    IT::Str => sreg!(*dst),
+                    IT::F80 => xreg!(*dst),
+                    _ => nreg!(*dst),
+                };
+                self.emit(Ins::LdM { t: mty(*ty), d, p: pr, off: *off });
+                return Ok(true);
+            }
+            Inst::St { ty, ptr, off, src } => {
+                let pr = nreg!(*ptr);
+                let sr = match ty {
+                    IT::Str => sreg!(*src),
+                    IT::F80 => xreg!(*src),
+                    _ => nreg!(*src),
+                };
+                self.emit(Ins::StM { t: mty(*ty), p: pr, off: *off, s: sr });
+                return Ok(true);
+            }
+            Inst::LdFs { dst, ptr, off, len } => {
+                let (pr, d) = (nreg!(*ptr), sreg!(*dst));
+                self.emit(Ins::LdFs { d, p: pr, off: *off, len: *len });
+                return Ok(true);
+            }
+            Inst::StFs { ptr, off, len, src } => {
+                let (pr, sr) = (nreg!(*ptr), sreg!(*src));
+                self.emit(Ins::StFs { p: pr, off: *off, len: *len, s: sr });
+                return Ok(true);
+            }
+            Inst::PAdd { dst, ptr, off } => {
+                let (pr, o, d) = (nreg!(*ptr), nreg!(*off), nreg!(*dst));
+                self.emit(Ins::PAddM { d, p: pr, o });
+                return Ok(true);
+            }
+            Inst::Copy { dst, src, size } => {
+                let (d, sr) = (nreg!(*dst), nreg!(*src));
+                self.emit(Ins::CopyM { d, s: sr, n: *size });
+                return Ok(true);
+            }
+            Inst::Dim { kind, var, bounds } => {
+                let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                let n = bounds.len() as u32;
+                let base = self.frames[k].num_init.len() as R;
+                for _ in 0..2 * n {
+                    self.frames[k].new_n(0);
+                }
+                for (j, (lo, hi)) in bounds.iter().enumerate() {
+                    let (lo, hi) = (nreg!(*lo), nreg!(*hi));
+                    self.emit(Ins::Mov { d: base + 2 * j as R, s: lo });
+                    self.emit(Ins::Mov { d: base + 2 * j as R + 1, s: hi });
+                }
+                let mode = match kind {
+                    DimKind::Dim => DimMode::Dim,
+                    DimKind::Static => DimMode::Static,
+                    DimKind::Redim => DimMode::Redim,
+                    DimKind::RedimPreserve => DimMode::RedimPreserve,
+                };
+                self.emit(Ins::DimM { a: p, dims: base, n, mode });
+                return Ok(true);
+            }
+            Inst::Erase { var } => {
+                let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                self.emit(Ins::EraseM { a: p });
+                return Ok(true);
+            }
+            Inst::LBound { dst, var, dim } | Inst::UBound { dst, var, dim } => {
+                let (p, _) = mvar(var).ok_or_else(|| format!("array {var} without storage"))?;
+                let (d, dm) = (nreg!(*dst), nreg!(*dim));
+                self.emit(Ins::BoundM { d, a: p, dim: dm, upper: matches!(ins, Inst::UBound { .. }) });
+                return Ok(true);
+            }
+            Inst::Call { dst, func, args } if self.callee(func).is_none() => {
+                // DECLARE LIBRARY function (meta extfn): pointers are real addresses here
+                let f = self.m.xfns.iter().position(|x| x.name == *func).ok_or_else(|| format!("unknown function {func}"))? as u32;
+                let mut regs = Vec::new();
+                for r in args {
+                    regs.push(match reg!(*r) {
+                        Rg::N(x) | Rg::S(x) => x,
+                        _ => return Err("_FLOAT argument of a DECLARE LIBRARY function".into()),
+                    });
+                }
+                let dest = match dst {
+                    Some(d) => Some(match reg!(*d) {
+                        Rg::N(x) | Rg::S(x) => x,
+                        _ => return Err("_FLOAT result of a DECLARE LIBRARY function".into()),
+                    }),
+                    None => None,
+                };
+                self.m.xcalls.push(XCall { f, args: regs, dest });
+                let c = self.m.xcalls.len() as u32 - 1;
+                self.emit(Ins::XCall { c });
+                return Ok(true);
+            }
+            Inst::Call { dst, func, args } => {
+                let callee = self.callee(func).ok_or_else(|| format!("unknown function {func}"))?;
+                let fi = self.fidx[func.as_str()] as u32;
+                let mut out = Vec::new();
+                for (r, _p) in args.iter().zip(&callee.params) {
+                    match reg!(*r) {
+                        Rg::N(x) => out.push(Arg::N(x)),
+                        Rg::S(x) => out.push(Arg::S(x)),
+                        Rg::X(x) => {
+                            out.push(Arg::N(x));
+                            out.push(Arg::N(x + 1));
+                        }
+                        Rg::P => return Err("pointer argument".into()),
+                    }
+                }
+                let dest = match dst {
+                    Some(d) => Some(match reg!(*d) {
+                        Rg::N(x) | Rg::S(x) | Rg::X(x) => x,
+                        Rg::P => return Err("pointer result".into()),
+                    }),
+                    None => None,
+                };
+                self.m.calls.push(CallDesc { args: out, dest });
+                let desc = self.m.calls.len() as u32 - 1;
+                self.emit(Ins::Call { f: fi, desc });
+                return Ok(true);
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    /// `_FLOAT` instructions (register pairs).
+    fn lower_f80(&mut self, k: usize, rg: &mut FnRegs, vars: &HashMap<&'a str, Var>, globals: &HashMap<String, Var>, ins: &Inst) -> Res<()> {
+        reg_macros!(self, rg, k);
+        macro_rules! var {
+            ($n:expr) => {
+                lookup_var(vars, globals, k, $n.as_str()).ok_or_else(|| format!("unknown variable {}", $n))?
+            };
+        }
+        match ins {
+            Inst::Const { dst, val, .. } => {
+                if rg.defs[*dst as usize] != 1 {
+                    let d = xreg!(*dst);
+                    let x = lit_f80(val);
+                    for (j, bits) in [x.mant, u64::from(x.se)].into_iter().enumerate() {
+                        let kk = self.m.nconst.len() as u32;
+                        self.m.nconst.push(bits);
+                        self.emit(Ins::Ldk { d: d + j as R, k: kk });
+                    }
+                }
+            }
+            Inst::Mov { dst, src, .. } => {
+                let (d, sr) = (xreg!(*dst), xreg!(*src));
+                self.emit(Ins::MovX { d, s: sr });
+            }
+            Inst::Bin { op, dst, a, b, .. } => {
+                let (d, x, y) = (xreg!(*dst), xreg!(*a), xreg!(*b));
+                let op = match op {
+                    BinOp::Add => XOp::Add,
+                    BinOp::Sub => XOp::Sub,
+                    BinOp::Mul => XOp::Mul,
+                    BinOp::Div => XOp::Div,
+                    BinOp::Pow => XOp::Pow,
+                    _ => return Err("bad _FLOAT op".into()),
+                };
+                self.emit(Ins::XBin { op, d, a: x, b: y });
+            }
+            Inst::Un { op: UnOp::Neg, dst, a, .. } => {
+                let (d, sr) = (xreg!(*dst), xreg!(*a));
+                self.emit(Ins::XNeg { d, s: sr });
+            }
+            Inst::Cmp { op, dst, a, b, .. } => {
+                let (d, x, y) = (nreg!(*dst), xreg!(*a), xreg!(*b));
+                self.emit(Ins::XCmp { c: cmp(*op), d, a: x, b: y });
+            }
+            Inst::Cvt { to, from, dst, src } | Inst::Trunc { to, from, dst, src } => {
+                let trunc = matches!(ins, Inst::Trunc { .. });
+                if *to == IT::F80 {
+                    let d = xreg!(*dst);
+                    if *from == IT::F80 {
+                        let sr = xreg!(*src);
+                        self.emit(Ins::MovX { d, s: sr });
+                    } else if from.is_float() {
+                        let sr = nreg!(*src);
+                        self.emit(Ins::XFromF { d, s: sr });
+                    } else {
+                        let sr = nreg!(*src);
+                        self.emit(Ins::XFromI { d, s: sr, u: *from == IT::U64 });
+                    }
+                } else {
+                    let (d, sr) = (nreg!(*dst), xreg!(*src));
+                    if to.is_float() {
+                        self.emit(Ins::XToF { d, s: sr, f32: *to == IT::F32 });
+                    } else {
+                        self.emit(Ins::XToI { d, s: sr, w: width(*to)?, trunc });
+                    }
+                }
+            }
+            Inst::Load { dst, var, .. } => match var!(var) {
+                Var::N(r, _) => {
+                    let d = xreg!(*dst);
+                    self.emit(Ins::MovX { d, s: r });
+                }
+                Var::NG(g, _) => {
+                    let d = xreg!(*dst);
+                    self.emit(Ins::GetG { d, g });
+                    self.emit(Ins::GetG { d: d + 1, g: g + 1 });
+                }
+                Var::M(p, _) => {
+                    let d = xreg!(*dst);
+                    self.emit(Ins::LdM { t: MTy::F80, d, p, off: 0 });
+                }
+                _ => return Err("bad _FLOAT variable".into()),
+            },
+            Inst::Store { var, src, .. } => match var!(var) {
+                Var::N(r, _) => {
+                    let sr = xreg!(*src);
+                    self.emit(Ins::MovX { d: r, s: sr });
+                }
+                Var::NG(g, _) => {
+                    let sr = xreg!(*src);
+                    self.emit(Ins::SetG { g, s: sr });
+                    self.emit(Ins::SetG { g: g + 1, s: sr + 1 });
+                }
+                Var::M(p, _) => {
+                    let sr = xreg!(*src);
+                    self.emit(Ins::StM { t: MTy::F80, p, off: 0, s: sr });
+                }
+                _ => return Err("bad _FLOAT variable".into()),
+            },
+            Inst::Read { dst, .. } => {
+                // func_read_float(.., FLOATTYPE): the double value
+                let d = xreg!(*dst);
+                let t = self.frames[k].new_n(0);
+                self.emit(Ins::ReadN { d: t, typ: qb_runtime::numparse::ISFLOAT | 256 });
+                self.emit(Ins::XFromF { d, s: t });
+            }
+            _ => return Err("unsupported _FLOAT instruction".into()),
+        }
+        Ok(())
     }
 
     fn is_const(&self, k: usize, r: R) -> bool {
@@ -2034,32 +2147,17 @@ fn invert(i: Ins) -> Ins {
 }
 
 /// `meta extfn <name> <lib|-> <ret> <arg types...>` (emitter: DECLARE LIBRARY).
-fn parse_xfn(v: &str) -> Option<XFn> {
-    let mut it = v.split_whitespace();
-    let name = it.next()?.to_string();
-    let lib = it.next()?;
-    let ty = |t: &str| -> Option<XTy> {
-        Some(match t {
-            "void" => XTy::Void,
-            "i8" => XTy::I8,
-            "u8" => XTy::U8,
-            "i16" => XTy::I16,
-            "u16" => XTy::U16,
-            "i32" => XTy::I32,
-            "u32" => XTy::U32,
-            "i64" => XTy::I64,
-            "u64" => XTy::U64,
-            "f32" => XTy::F32,
-            "f64" => XTy::F64,
-            "ptr" => XTy::Ptr,
-            "str" => XTy::Str,
-            _ => return None,
-        })
+/// The native call of a DECLARE LIBRARY function (`None` for a `_FLOAT`
+/// argument or result, which no C calling convention here passes).
+fn xfn(f: &ir::ExtFn) -> Option<XFn> {
+    let ty = |t: IT| ty_map(t).x;
+    let ret = match f.ret {
+        None => XTy::Void,
+        Some(t) => ty(t)?,
     };
-    let ret = ty(it.next()?)?;
-    let args = it.map(ty).collect::<Option<Vec<_>>>()?;
-    let gl = lib == "opengl";
-    Some(XFn { name, gl, lib: if gl { lib.to_string() } else { xfn_lib(lib)? }, args, ret })
+    let args = f.args.iter().map(|&t| ty(t)).collect::<Option<Vec<_>>>()?;
+    let gl = f.lib == "opengl";
+    Some(XFn { name: f.name.clone(), gl, lib: if gl { f.lib.clone() } else { xfn_lib(&f.lib)? }, args, ret })
 }
 
 /// Library spec of `meta extfn`: `-` = none (default system libraries), else the
@@ -2070,7 +2168,7 @@ fn xfn_lib(t: &str) -> Option<String> {
         return Some(String::new());
     }
     let h = t.strip_prefix('x')?;
-    if h.len() % 2 != 0 {
+    if h.len() % 2 != 0 || !h.bytes().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
     let bytes = (0..h.len()).step_by(2).map(|i| u8::from_str_radix(h.get(i..i + 2)?, 16).ok()).collect::<Option<Vec<u8>>>()?;

@@ -1,5 +1,5 @@
-//! Default host functions: strings, console output and arrays over
-//! `qb-runtime`, for embedders (and tests) that do not bring their own.
+//! Host functions of the tests: strings, console output and arrays over
+//! `qb-runtime`.
 //!
 //! The VM registers its own table (its string representation); these
 //! follow the same calling contract: `extern "C" fn(*mut Ctx, args...) -> ret`,
@@ -8,8 +8,8 @@
 //! Strings are handles: 0 = empty string, otherwise `Box<Vec<u8>>` raw pointer.
 //! Every function returning a string returns a new handle the caller owns.
 
-use crate::ctx::{qberr, ArrDesc, Ctx};
-use crate::mir::{HostFn, HostSig, Ty};
+use qb_jit::ctx::{qberr, ArrDesc, Ctx};
+use qb_jit::mir::{HostFn, HostSig, Ty};
 
 /// Host state reached through `Ctx::user`.
 #[derive(Debug, Default)]

@@ -1,0 +1,5 @@
+handler: s$ = keep+changed, k% = 42 
+s$ = keep+changed, k% = 42 , UBOUND(a) = 200 , a(5) = 9 
+handler 2: m$ = xy
+q: z = xy!
+m$ = xy!z

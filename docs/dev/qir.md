@@ -12,6 +12,7 @@ runner checks, not part of the name.
 - บรรทัดแรกที่ไม่ใช่ comment ต้องเป็น `QIR 1`. Executor ต้องปฏิเสธ version ที่ใหม่กว่าที่ตัวเองรู้จัก
 - โปรแกรม = **module** (types, globals, DATA) + **functions**. `func main` คือ main module (บังคับมี, ไม่มี param, ไม่คืนค่า)
 - ภายใน function: **register** `%n` แบบ typed (ชนิดคงที่ตลอด function), **variable** `$name` = storage ที่มี address
+- register ใช้เลขเรียงจาก 0 ในแต่ละ function (executor จองตารางตามเลขสูงสุด; qb-exec ปฏิเสธ function ที่เลข register สูงเกิน 4 เท่าของจำนวนคำสั่ง + 256)
 - ชนิดของทุก op อยู่ใน opcode (`add.i32`) → executor ไม่ต้องเช็กชนิดตอนรัน; `qb_ir::validate` รับประกันความสอดคล้องของชนิด
 - ทุก control flow เป็น jump ไป label ภายใน function เดียวกัน (ยกเว้น ON ERROR/RESUME ดู §7)
 
@@ -32,7 +33,7 @@ Canonical text = output ของ `qb_ir::print` (parse กลับได้ mo
 | `ptr` | address ของ storage (`_OFFSET` ใช้ `i64`/`u64`) | 8 |
 
 ชนิด storage (ใช้ได้กับ variable/field/element เท่านั้น ไม่ใช่ register):
-- `fstr:N` = `STRING * N` (N byte, เติม space) — `load.str`/`store.str` อ่าน/เขียนเป็น `str` (store ตัด/เติม space)
+- `fstr:N` = `STRING * N` (N byte, เริ่มเป็น 0 byte ทั้งหมด ดู §3) — `load.str`/`store.str` อ่าน/เขียนเป็น `str` (store ตัด/เติม space)
 - `udt:NAME` = UDT ที่ประกาศด้วย `type`
 
 `_BIT` ไม่อยู่ใน v1 (compiler แจ้ง error)
@@ -77,6 +78,7 @@ endfunc
 | `source <hex>` | ชื่อไฟล์ต้นฉบับ (สำหรับข้อความ error) |
 | `screenhide` | `$SCREENHIDE` (no window: `_DISPLAY` leaves `_AUTODISPLAY` on) |
 | `endkey 0` | `END` ไม่พิมพ์ "Press any key to continue" |
+| `extfn <name> <lib> <ret> <types...>` | ฟังก์ชัน DECLARE LIBRARY: `lib` = `-` / `opengl` / `x<hex>`, `ret` = ชนิด register หรือ `void`, ตามด้วยชนิดของ argument. parser อ่านครั้งเดียวเป็น `Module::extfns` และปฏิเสธรูปแบบที่ผิด |
 
 executor ต้องข้าม meta ที่ไม่รู้จัก
 
@@ -144,6 +146,8 @@ string ↔ ตัวเลขทำผ่าน builtin (`STR$.*`, `VAL`)
 ข้อกำหนด memory:
 - storage ของ `str` เป็น handle ขนาด 8 byte ที่ executor จัดการ: `st.str` แทนที่ค่าเดิม (executor คืน string เดิม), `ld.str` ได้สำเนาค่า. UDT ใน v1 มีเฉพาะ field ที่ไม่ใช่ `str` (QB64 1.x) — `copy` จึงไม่ต้องรู้จัก handle
 - `ptr` ชี้ได้เฉพาะ storage ที่ยังมีชีวิต: local ตายเมื่อ function return, element ตายเมื่อ `redim`/`erase`. executor ไม่ต้องตรวจ (เหมือน QB64)
+- ความเชื่อถือ: `ld`/`st`/`ldfs`/`stfs`/`copy` บน `ptr` ใดๆ (รวมผล `padd`) อ่าน/เขียน address นั้นตรงๆ — qb-exec ตรวจเพียง null และ array descriptor (`Mem::bytes`). payload QIR จึงได้รับความเชื่อถือเท่ากับตัวโปรแกรม exe (เหมือน QB64 ที่ `_MEM`/`_OFFSET` เข้าถึง memory ได้ทั้งหมด); อย่ารัน QIR ที่ไม่ไว้ใจ
+- element ของ array ของ UDT ขนาด 0 byte ได้ address ใน block จริง (executor จองอย่างน้อย 1 byte)
 - layout ของ element: เรียงต่อกันด้วยขนาด element, **index แรกเปลี่ยนเร็วสุด** (เหมือน QB64)
 
 ### 4.7 Array
@@ -195,7 +199,7 @@ statement ในส่วน THEN/ELSE ของ IF บรรทัดเดี�
 ## 5. Function และ frame
 
 - frame ใหม่ทุก `call`: locals ใหม่ (0/ว่าง), registers ใหม่, GOSUB stack ใหม่
-- byref param: `load/store $p` ไปที่ storage ของ caller; `addr $p` ได้ ptr เดิมของ caller (ส่งต่อได้)
+- byref param: `load/store $p` ไปที่ storage ของ caller; `addr $p` ได้ ptr เดิมของ caller (ส่งต่อได้). เป็น reference จริง: SHARED/global ที่ถูกส่งมาแล้วเปลี่ยนผ่านชื่อตัวเองก็เห็นผ่าน param ทันที และกลับกัน (qb-exec register mode: copy เข้า/ออกเมื่อแยกไม่ออก, ส่วน param ที่แยกออกได้เป็น reference — `byref.rs`; array param ใช้ array เดียวกับ caller เสมอ)
 - recursion ไม่จำกัดนอกจาก memory (stack overflow → error 7 "Out of memory")
 - string ที่คืนจาก function เป็นค่าใหม่
 

@@ -19,6 +19,7 @@
 //! `QB_PROFILE=<file>` writes the hottest functions and source lines (a sample every
 //! millisecond; use it with `QB_JIT=off`).
 
+mod byref;
 pub mod bytecode;
 mod jit;
 include!(concat!(env!("OUT_DIR"), "/ext_symbols.rs"));

@@ -1,0 +1,158 @@
+QIR 1
+meta console only
+global $__LONG_PX i32
+global $__DOUBLE_TOT f64
+global $__ARRAY_LONG_A array i32
+global $__LONG_I i32
+global $__LONG_E i32
+datalabel L_H
+func main
+local $~T1 i64
+local $~T2 i64
+local $~T3 i64
+const.i64 %0 0
+const.i32 %1 5
+dims $__ARRAY_LONG_A 1 %0 %1
+line 5
+line 6
+onerror L_H
+line 7
+const.i32 %2 1
+cvt.i64.i32 %3 %2
+store.i64 $~T1 %3
+const.i32 %4 3000
+cvt.i64.i32 %5 %4
+store.i64 $~T2 %5
+const.i32 %6 1
+cvt.i64.i32 %7 %6
+store.i64 $~T3 %7
+jmp ~F1.E
+label ~F1.T
+load.i32 %8 $__LONG_I
+cvt.i64.i32 %9 %8
+load.i64 %10 $~T3
+add.i64 %11 %10 %9
+store.i64 $~T1 %11
+label ~F1.E
+load.i64 %12 $~T1
+cvt.i32.i64 %13 %12
+store.i32 $__LONG_I %13
+load.i64 %14 $~T3
+const.i64 %15 0
+lt.i64 %16 %14 %15
+jz %16 ~F1.P
+load.i64 %17 $~T2
+lt.i64 %18 %12 %17
+jnz %18 ~F1.X
+jmp ~F1.B
+label ~F1.P
+load.i64 %19 $~T2
+gt.i64 %20 %12 %19
+jnz %20 ~F1.X
+label ~F1.B
+line 8
+addr %21 $__LONG_PX
+call SUB_BUMP %21
+line 9
+load.i32 %22 $__LONG_I
+const.i32 %23 1000
+mod.i32 %24 %22 %23
+const.i32 %25 0
+eq.i32 %26 %24 %25
+jz %26 ~I4.1
+line 9
+addr %27 $__LONG_PX
+call SUB_BAD %27
+line 9
+label ~I4.1
+label ~I4.E
+line 10
+label ~F1.C
+jmp ~F1.T
+label ~F1.X
+line 11
+load.i32 %28 $__LONG_PX
+cvt.i64.i32 %29 %28
+rt %30 STR$.i64 %29
+const.str %31 x20
+concat %32 %30 %31
+const.i32 %33 0
+rt PRINTS %33 %32
+load.f64 %34 $__DOUBLE_TOT
+rt %35 STR$.f64 %34
+const.str %36 x20
+concat %37 %35 %36
+const.i32 %38 0
+rt PRINTS %38 %37
+load.i32 %39 $__LONG_E
+cvt.i64.i32 %40 %39
+rt %41 STR$.i64 %40
+const.str %42 x20
+concat %43 %41 %42
+const.i32 %44 0
+rt PRINTS %44 %43
+const.i32 %45 0
+rt PRINTNL %45
+line 12
+system
+label L_H
+line 14
+load.i32 %46 $__LONG_E
+const.i32 %47 1
+add.i32 %48 %46 %47
+store.i32 $__LONG_E %48
+line 15
+resume next
+call SUB_QBNEX_TOPLEVEL_RUNTIME0
+end
+endfunc
+func SUB_BUMP
+param $_SUB_BUMP_LONG_V i32 byref
+line 17
+load.i32 %0 $_SUB_BUMP_LONG_V
+const.i32 %1 1
+add.i32 %2 %0 %1
+store.i32 $_SUB_BUMP_LONG_V %2
+line 18
+load.f64 %3 $__DOUBLE_TOT
+load.i32 %4 $__LONG_PX
+cvt.f64.i32 %5 %4
+add.f64 %6 %3 %5
+store.f64 $__DOUBLE_TOT %6
+label ~EXIT
+ret
+endfunc
+func SUB_BAD
+param $_SUB_BAD_LONG_V i32 byref
+line 21
+load.i32 %0 $_SUB_BAD_LONG_V
+const.i32 %1 10
+add.i32 %2 %0 %1
+store.i32 $_SUB_BAD_LONG_V %2
+line 22
+load.i32 %3 $_SUB_BAD_LONG_V
+const.i32 %5 1
+aaddr %4 $__ARRAY_LONG_A %3
+st.i32 %4 0 %5
+line 23
+load.i32 %6 $_SUB_BAD_LONG_V
+const.i32 %7 100
+add.i32 %8 %6 %7
+store.i32 $_SUB_BAD_LONG_V %8
+line 24
+load.f64 %9 $__DOUBLE_TOT
+load.i32 %10 $__LONG_PX
+cvt.f64.i32 %11 %10
+add.f64 %12 %9 %11
+store.f64 $__DOUBLE_TOT %12
+label ~EXIT
+ret
+endfunc
+func SUB_QBNEX_TOPLEVEL_RUNTIME0
+label ~EXIT
+ret
+endfunc
+func SUB_VWATCH
+label ~EXIT
+ret
+endfunc

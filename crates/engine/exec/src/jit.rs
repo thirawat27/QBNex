@@ -121,6 +121,8 @@ fn light(ins: &Ins) -> bool {
         | PowF { .. } | CmpI { .. } | CmpF { .. } | Jmp { .. } | Loop { .. } | JzI { .. } | JnzI { .. }
         | BrI { .. } | BrF { .. }
         | LdE1 { .. } | StE1 { .. } | Gosub { .. } | Return => true,
+        // a BYREF parameter that refers to its argument, through `jit_ldr` / `jit_str`
+        LdR { .. } | StR { .. } => true,
         LdE { n, .. } | StE { n, .. } => *n <= 2,
         // the emitter's FOR loop and accumulation shapes
         ForTestKI { .. } | ForTestKF { .. } => true,
@@ -195,6 +197,8 @@ fn vm_safe(ins: &Ins) -> bool {
             | LdE1S { .. }
             | StE1S { .. }
             | Bound { .. }
+            | LdRS { .. }
+            | StRS { .. }
             | Restore { .. }
             | Raise { .. }
             | Un { .. }
@@ -264,6 +268,8 @@ fn frame_regs(m: &bc::Module, ins: &Ins, n: u32, is_main: bool) -> Vec<u32> {
                     bc::Place::N(r, _) => add(r),
                     bc::Place::NG(g, _) if is_main => add(g),
                     bc::Place::E { i, n: k, .. } => (i..i + k).for_each(&mut add),
+                    // (the register holds the reference, see `Slot::R`)
+                    bc::Place::R(r, _) => add(r),
                     _ => {}
                 },
                 _ => {}
@@ -293,6 +299,7 @@ fn frame_regs(m: &bc::Module, ins: &Ins, n: u32, is_main: bool) -> Vec<u32> {
             bc::Place::N(r, _) => add(r),
             bc::Place::NG(g, _) if is_main => add(g),
             bc::Place::E { i, n: k, .. } => (i..i + k).for_each(&mut add),
+            bc::Place::R(r, _) => add(r),
             _ => {}
         },
         _ => {}
@@ -393,6 +400,8 @@ struct Lower<'a> {
     natcall: &'a [Option<u32>],
     /// registers holding a constant (see [`constant_regs`])
     konst: Vec<bool>,
+    /// register classes of every function (callees' parameters)
+    all_cls: &'a [Vec<Class>],
 }
 
 fn ty_of(c: Class) -> Ty {
@@ -571,13 +580,33 @@ impl Lower<'_> {
     /// frame (BYREF copied back after a normal return), like `Vm::call`/`ret`.
     fn native_call(&mut self, pc: u32, f: u32, desc: u32) {
         let callee = &self.m.funcs[f as usize];
-        let ccls = classes(self.m, callee);
+        let ccls = &self.all_cls[f as usize];
         let cd = &self.m.calls[desc as usize];
         let mut args = Vec::new();
         let mut back = Vec::new();
         let mut after = Vec::new();
         for (a, slot) in cd.args.iter().zip(&callee.params) {
-            let bc::Slot::N(ps) = *slot else { unreachable!("numeric callee") };
+            let ps = match *slot {
+                bc::Slot::N(ps) => ps,
+                bc::Slot::R(_) => {
+                    // a reference to SHARED variable g is the number g (`vm.rs` REF_TABLE);
+                    // main keeps g in a register: it goes to memory for the call, and back
+                    let bc::Arg::Ref(p) = *a else { unreachable!("checked by call_args_native") };
+                    let g = match self.m.places[p as usize] {
+                        bc::Place::NG(g, _) => g,
+                        // (main's own registers are the module-level variables)
+                        bc::Place::N(r, _) if self.is_main() => r,
+                        _ => unreachable!("checked by call_args_native"),
+                    };
+                    if self.is_main() {
+                        self.insts.push(Inst::GStore { slot: g, src: g });
+                        after.push(Inst::GLoad { dst: g, slot: g });
+                    }
+                    args.push(mir::Arg::Val(self.konst_i(i64::from(g))));
+                    continue;
+                }
+                _ => unreachable!("numeric callee"),
+            };
             let pc_cls = ccls[ps as usize];
             match *a {
                 bc::Arg::N(r) => args.push(mir::Arg::Val(self.get(r, pc_cls))),
@@ -805,6 +834,18 @@ impl Lower<'_> {
                     self.insts.push(Inst::VAElem { load, reg: sr, table, index, view_off, elem: et, idx: ir, slow });
                 }
             }
+            LdR { d, r } => {
+                self.insts.push(Inst::At { pc });
+                let t = self.get(r, Class::Int);
+                let dd = self.dst(d, Class::Int);
+                self.insts.push(Inst::Host { f: H_LDR, args: vec![t], dst: Some(dd) });
+                self.put(d, dd);
+            }
+            StR { r, s } => {
+                self.insts.push(Inst::At { pc });
+                let (t, sr) = (self.get(r, Class::Int), self.get(s, Class::Int));
+                self.insts.push(Inst::Host { f: H_STR, args: vec![t, sr], dst: None });
+            }
             LdE1 { d, a, i } | LdE { d, a, i, n: 1 } => {
                 self.insts.push(Inst::At { pc });
                 let (ar, ir) = (self.konst_i(i64::from(a)), self.get(i, Class::Int));
@@ -837,7 +878,7 @@ impl Lower<'_> {
                 self.insts.push(Inst::Mov { dst: dd, src: r });
                 self.put(d, dd);
             }
-            Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, desc) => {
+            Call { f, desc } if self.natcall[f as usize].is_some() && call_args_native(self.m, self.is_main(), f, desc) => {
                 self.native_call(pc, f, desc)
             }
             _ => {
@@ -938,22 +979,49 @@ pub(crate) const NATIVE_IMPORTS: &[&str] = &[
     "qb_host_4",
     "qb_host_5",
     "qb_host_6",
+    "qb_host_7",
+    "qb_host_8",
     "qb_vm_op",
 ];
 
 /// Identifies the program and the runner layout an image was built for
 /// (addresses are not part of it: they are resolved by name at load time).
 fn fingerprint(m: &bc::Module, hosts: &Hosts) -> u64 {
-    let text = format!("{} {} {:?}", env!("CARGO_PKG_VERSION"), hosts.view_off, m);
-    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    use std::hash::{Hash, Hasher};
+    // FNV-1a over the module's data, fed straight from its fields (formatting the
+    // whole program as text first cost time and memory at every native start)
+    struct Fnv(u64);
+    impl Hasher for Fnv {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            for &b in bytes {
+                self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+    }
+    let mut h = Fnv(0xcbf2_9ce4_8422_2325);
+    env!("CARGO_PKG_VERSION").hash(&mut h);
+    hosts.view_off.hash(&mut h);
+    m.hash(&mut h);
+    h.finish()
 }
 
 /// Lowers every function of `m`. `vm_op` = address of the VM step callback.
-/// Arguments a native call can pass: numbers and BYREF numeric variables.
-fn call_args_native(m: &bc::Module, desc: u32) -> bool {
-    m.calls[desc as usize].args.iter().all(|a| match *a {
-        bc::Arg::N(_) => true,
-        bc::Arg::Ref(p) => matches!(m.places[p as usize], bc::Place::N(..) | bc::Place::NG(..)),
+/// Arguments a native call can pass: numbers and BYREF numeric variables; a
+/// reference parameter (`Slot::R`) only a module-level variable (`main`: the
+/// caller is the main module, whose registers are those variables).
+fn call_args_native(m: &bc::Module, main: bool, f: u32, desc: u32) -> bool {
+    let params = &m.funcs[f as usize].params;
+    m.calls[desc as usize].args.iter().zip(params).all(|(a, s)| match (*a, s) {
+        (bc::Arg::N(_), bc::Slot::N(_)) => true,
+        (bc::Arg::Ref(p), bc::Slot::N(_)) => matches!(m.places[p as usize], bc::Place::N(..) | bc::Place::NG(..)),
+        (bc::Arg::Ref(p), bc::Slot::R(_)) => match m.places[p as usize] {
+            bc::Place::NG(..) => true,
+            bc::Place::N(..) => main,
+            _ => false,
+        },
         _ => false,
     })
 }
@@ -970,7 +1038,7 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
             i != 0
                 && f.n_str == 0
                 && f.n_arr() == 0
-                && f.params.iter().all(|p| matches!(p, bc::Slot::N(_)))
+                && f.params.iter().all(|p| matches!(p, bc::Slot::N(_) | bc::Slot::R(_)))
                 && matches!(f.ret, None | Some((bc::Slot::N(_), _)))
         })
         .collect();
@@ -981,7 +1049,7 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
                 continue;
             }
             let good = m.code[f.entry as usize..f.end as usize].iter().all(|ins| match *ins {
-                Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, desc),
+                Ins::Call { f: g, desc } => ok[g as usize] && call_args_native(m, i == 0, g, desc),
                 Ins::Gosub { .. } | Ins::Return => true,
                 ref x => light(x) || exits(x) || !vm_safe(x),
             });
@@ -997,7 +1065,8 @@ fn native_callees(m: &bc::Module) -> Vec<bool> {
 }
 
 pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module {
-    let gcls = classes(m, &m.funcs[0]);
+    let all_cls: Vec<Vec<Class>> = m.funcs.iter().map(|f| classes(m, f)).collect();
+    let gcls = all_cls[0].clone();
     let simple = native_callees(m);
     let n = m.funcs.len();
     let mut natcall = vec![None; n];
@@ -1013,7 +1082,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
         (0..n).map(|i| (i, false)).chain((0..n).filter(|&i| simple[i]).map(|i| (i, true))).collect();
     for (fi, callver) in order {
         let f = &m.funcs[fi];
-        let cls = if fi == 0 { gcls.clone() } else { classes(m, f) };
+        let cls = all_cls[fi].clone();
         let (lo, hi) = (f.entry, f.end);
         let code = &m.code[lo as usize..hi as usize];
         // Block leaders.
@@ -1047,10 +1116,11 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
             view_off,
             natcall: &natcall,
             konst: constant_regs(m, fi),
+            all_cls: &all_cls,
         };
         let mut blocks = Vec::new();
         if callver {
-            let params: Vec<u32> = f.params.iter().map(|p| if let bc::Slot::N(r) = *p { r } else { unreachable!() }).collect();
+            let params: Vec<u32> = f.params.iter().map(|p| if let bc::Slot::N(r) | bc::Slot::R(r) = *p { r } else { unreachable!() }).collect();
             for (r, &bits) in f.num_init.iter().enumerate() {
                 if bits != 0 && !params.contains(&(r as u32)) {
                     lw.raw_const(r as u32, bits);
@@ -1164,7 +1234,7 @@ pub(crate) fn lower(m: &bc::Module, vm_op: usize, view_off: u32) -> mir::Module 
         }
         let (params, ret) = if callver {
             (
-                f.params.iter().map(|p| if let bc::Slot::N(r) = *p { r } else { unreachable!() }).collect(),
+                f.params.iter().map(|p| if let bc::Slot::N(r) | bc::Slot::R(r) = *p { r } else { unreachable!() }).collect(),
                 match f.ret {
                     Some((bc::Slot::N(r), _)) => Some(r),
                     _ => None,
@@ -1209,6 +1279,8 @@ pub(crate) struct Hosts {
     pub lde1g: usize,
     pub cmps: usize,
     pub ste1g: usize,
+    pub ldr: usize,
+    pub str_: usize,
     /// offset of the `ArrView` inside the VM's array object
     pub view_off: u32,
 }
@@ -1220,6 +1292,8 @@ const H_STE2: u32 = 3;
 const H_LDE1G: u32 = 4;
 const H_STE1G: u32 = 5;
 const H_CMPS: u32 = 6;
+const H_LDR: u32 = 7;
+const H_STR: u32 = 8;
 
 /// `Cmp` as the integer `jit_cmps` receives.
 pub(crate) fn cmp_code(c: Cmp) -> i64 {
@@ -1260,6 +1334,8 @@ fn host_table(h: &Hosts) -> Vec<mir::HostFn> {
             sig: mir::HostSig { name: "cmps".into(), params: vec![Ty::I64; 3], ret: Some(Ty::I64), may_error: false },
             addr: h.cmps,
         },
+        f("ldr", 1, true, h.ldr),
+        f("str", 2, false, h.str_),
             ]
 }
 
@@ -1275,6 +1351,9 @@ pub struct JitState {
     bc: *const bc::Module,
     /// loop headers left to the interpreter (see [`vm_bound_headers`])
     skip: Vec<bool>,
+    /// MIR function -> the VM function it is the call version of (made at the
+    /// first [`JitState::take_frames`] that needs it)
+    vm_func_of: Vec<u32>,
 }
 
 impl JitState {
@@ -1297,6 +1376,7 @@ impl JitState {
             entries: 0,
             bc: m,
             skip: if mode == Mode::Eager { vec![false; m.code.len()] } else { vm_bound_headers(m) },
+            vm_func_of: Vec::new(),
         }))
     }
 
@@ -1376,8 +1456,13 @@ impl JitState {
     /// `np` is the VM's current window of the function containing `pc`,
     /// `globals` its module frame, `user` the VM that `cb` expects.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// Takes the state as a raw pointer: native code calls back into the VM
+    /// (`vm_op`), which reaches this state again (nested entries, the GOSUB
+    /// stack), so no reference to it, to its context or to the compiled code
+    /// is held while native code runs.
     pub(crate) unsafe fn enter(
-        &mut self,
+        this: *mut JitState,
         pc: u32,
         np: *mut u64,
         globals: *mut u64,
@@ -1387,27 +1472,36 @@ impl JitState {
         hosts: &Hosts,
         tables: [*mut u64; 2],
     ) -> Option<Result<(u32, bool), (i32, u32)>> {
-        if self.mir.is_none() {
-            // SAFETY: the bytecode module outlives the VM that owns this state.
-            self.mir = Some(lower_full(unsafe { &*self.bc }, hosts));
-        }
-        if self.skip[pc as usize] {
-            return None;
-        }
-        let func = self.func_of(pc);
-        let mir = self.mir.as_ref().expect("lowered");
-        let code = self.tier.tick(mir, func, pc)?;
-        let ctx = &mut *self.ctx;
-        ctx.reset_exit();
-        ctx.globals = globals;
-        ctx.ev_ptr = ev;
-        ctx.ev_mask = mask;
-        ctx.user = user;
-        ctx.tables = tables;
-        ctx.call_budget = qb_jit::ctx::DEFAULT_CALL_BUDGET;
-        self.entries += 1;
+        let (f, ctx): (qb_jit::NativeFn, *mut Ctx) = {
+            // SAFETY: caller contract (`this` is the VM's live state); this borrow ends
+            // before native code runs
+            let st = unsafe { &mut *this };
+            if st.mir.is_none() {
+                // SAFETY: the bytecode module outlives the VM that owns this state.
+                st.mir = Some(lower_full(unsafe { &*st.bc }, hosts));
+            }
+            if st.skip[pc as usize] {
+                return None;
+            }
+            let func = st.func_of(pc);
+            let mir = st.mir.as_ref().expect("lowered");
+            // (the compiled code stays until the state is dropped)
+            let f = st.tier.tick(mir, func, pc)?.fns[func as usize];
+            let ctx = &mut *st.ctx;
+            ctx.reset_exit();
+            ctx.globals = globals;
+            ctx.ev_ptr = ev;
+            ctx.ev_mask = mask;
+            ctx.user = user;
+            ctx.tables = tables;
+            ctx.call_budget = qb_jit::ctx::DEFAULT_CALL_BUDGET;
+            st.entries += 1;
+            (f, ctx)
+        };
         // SAFETY: caller contract; the frame layout is the VM window.
-        let st = unsafe { code.run(ctx, func, np, pc) };
+        let st = unsafe { f(ctx, np, pc) };
+        // SAFETY: native code has returned; the context lives in the state
+        let ctx = unsafe { &*ctx };
         Some(match st {
             status::DEOPT => Ok((ctx.exit_pc, false)),
             status::EVENT => Ok((ctx.exit_pc, true)),
@@ -1449,12 +1543,21 @@ impl JitState {
     pub(crate) fn take_frames(&mut self, vm_funcs: usize) -> Vec<(u32, Vec<u64>, u32)> {
         let mir = self.mir.as_ref().expect("lowered");
         let ctx = &mut *self.ctx;
+        if ctx.chain.is_empty() {
+            return Vec::new();
+        }
+        if self.vm_func_of.is_empty() {
+            // call versions are named `<function>.call`
+            let by_name: std::collections::HashMap<&str, u32> = mir.funcs[..vm_funcs].iter().enumerate().map(|(i, f)| (f.name.as_str(), i as u32)).collect();
+            self.vm_func_of = mir.funcs.iter().enumerate().map(|(i, f)| f.name.strip_suffix(".call").and_then(|n| by_name.get(n).copied()).unwrap_or(i as u32)).collect();
+        }
+        let vm_func_of = &self.vm_func_of;
         let mut v: Vec<(u32, Vec<u64>, u32)> = ctx
             .chain
             .drain(..)
             .map(|c| {
-                let name = &mir.funcs[c.func as usize].name;
-                let vf = mir.funcs[..vm_funcs].iter().position(|f| format!("{}.call", f.name) == *name).expect("call version") as u32;
+                let vf = vm_func_of[c.func as usize];
+                debug_assert!(mir.funcs[c.func as usize].name.ends_with(".call"), "call version");
                 let n = mir.funcs[c.func as usize].frame_len();
                 // SAFETY: the frame is in the context arena, untouched since the exit.
                 let regs = unsafe { core::slice::from_raw_parts(c.frame, n) }.to_vec();

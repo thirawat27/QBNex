@@ -5,9 +5,9 @@
 //! They are generated with the same Cranelift ABI lowering the JIT uses, so
 //! the interpreter and the JIT pass arguments identically.
 
-use crate::codegen::{clif_ty, make_isa, Target};
-use crate::ctx::Ctx;
-use crate::mir::{Module, Ty};
+use qb_jit::codegen::{abi, clif_ty, make_isa, Target};
+use qb_jit::ctx::Ctx;
+use qb_jit::mir::{Module, Ty};
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, MemFlagsData, Signature};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -109,13 +109,5 @@ impl Thunks {
         let (addr, t) = self.tramps[h as usize];
         // SAFETY: caller contract.
         unsafe { t(addr, ctx, args.as_ptr()) }
-    }
-}
-
-pub(crate) fn abi(t: Ty) -> AbiParam {
-    let p = AbiParam::new(clif_ty(t));
-    match t {
-        Ty::I16 | Ty::I32 => p.sext(),
-        _ => p,
     }
 }
