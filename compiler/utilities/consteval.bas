@@ -772,25 +772,33 @@ REDIM _PRESERVE PP_TypeMod(i) AS STRING, PP_ConvertedMod(i) AS STRING 'And then 
         NEXT
     NEXT
 
-    'Modify so that NOT will process properly
+    'Modify so that NOT will process properly: NOT takes everything after it up to the
+    'next AND, OR, XOR, EQV or IMP of its own bracket level (1 + NOT 2 + 1 is
+    '1 + (NOT 2 + 1), (1 + NOT 0) * 3 is (1 + (NOT 0)) * 3), so it is put in brackets.
+    '(This looked for "NOT " after the spaces were gone, so it never ran and NOT after
+    'an operator was misread: 10 / NOT 1 was a division by zero.)
     l = 0
     DO
-        l = INSTR(l + 1, t$, "NOT ")
-        IF l THEN
-            'We need to work magic on the statement so it looks pretty.
-            ' 1 + NOT 2 + 1 is actually processed as 1 + (NOT 2 + 1)
-            'Look for something not proper
-            l1 = INSTR(l + 1, t$, "AND")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "OR") > 0 AND INSTR(l + 1, t$, "OR") < l1) THEN l1 = INSTR(l + 1, t$, "OR")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "XOR") > 0 AND INSTR(l + 1, t$, "XOR") < l1) THEN l1 = INSTR(l + 1, t$, "XOR")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "EQV") > 0 AND INSTR(l + 1, t$, "EQV") < l1) THEN l1 = INSTR(l + 1, t$, "EQV")
-            IF l1 = 0 OR (INSTR(l + 1, t$, "IMP") > 0 AND INSTR(l + 1, t$, "IMP") < l1) THEN l1 = INSTR(l + 1, t$, "IMP")
-            IF l1 = 0 THEN l1 = LEN(t$) + 1
-            t$ = LEFT$(t$, l - 1) + "(" + MID$(t$, l, l1 - l) + ")" + MID$(t$, l + l1 - l)
-            l = l + 3
-            'PRINT t$
-        END IF
-    LOOP UNTIL l = 0
+        l = INSTR(l + 1, t$, "NOT")
+        IF l = 0 THEN EXIT DO
+        c = 0
+        FOR l1 = l + 3 TO LEN(t$)
+            m$ = MID$(t$, l1, 1)
+            IF m$ = "(" THEN
+                c = c + 1
+            ELSEIF m$ = ")" THEN
+                IF c = 0 THEN EXIT FOR
+                c = c - 1
+            ELSEIF c = 0 THEN
+                IF m$ = "," THEN EXIT FOR
+                m$ = MID$(t$, l1, 3)
+                IF m$ = "AND" OR m$ = "XOR" OR m$ = "EQV" OR m$ = "IMP" OR LEFT$(m$, 2) = "OR" THEN EXIT FOR
+            END IF
+        NEXT
+        t$ = LEFT$(t$, l - 1) + "(" + MID$(t$, l, l1 - l) + ")" + MID$(t$, l1)
+        l = l + 3
+    LOOP
+    c = 0: l1 = 0: m$ = ""
 
     uboundPP_TypeMod = TotalPrefixedPP_TypeMod
     IF qbnexprefix_set = 1 THEN uboundPP_TypeMod = TotalPP_TypeMod
@@ -1033,3 +1041,72 @@ END SELECT
 
 N2S$ = sign$ + l$
 END FUNCTION
+
+FUNCTION ConstOverflow% (srct AS LONG, dstt AS LONG, fv AS _FLOAT, iv AS _INTEGER64, uv AS _UNSIGNED _INTEGER64)
+    'True when the value of a CONST does not fit the type its name's suffix gives (dstt):
+    'CONST c% = 40000 is "Overflow" in QBasic. srct is the type of the value and fv, iv, uv
+    'hold it as the CONST code does (iv is fv rounded when the value is a float). A negative
+    'value for an unsigned type stands for its two's complement bits, as in QB64: CONST
+    'white~& = &HFFFFFFFF, where &HFFFFFFFF is the LONG -1.
+    DIM bits AS LONG, k AS LONG, neg AS LONG
+    DIM mag AS _UNSIGNED _INTEGER64, lim AS _UNSIGNED _INTEGER64
+
+    IF dstt AND ISSTRING THEN EXIT FUNCTION
+    bits = dstt AND 511
+    IF dstt AND ISFLOAT THEN
+        IF (srct AND ISFLOAT) = 0 THEN EXIT FUNCTION 'every integer is in the range of a SINGLE
+        IF bits = 32 AND ABS(fv) > 3.402823466E+38 THEN ConstOverflow% = -1
+        IF bits = 64 AND ABS(fv) > 1.797693134862315D+308 THEN ConstOverflow% = -1
+        EXIT FUNCTION
+    END IF
+    IF bits < 1 OR bits > 64 THEN EXIT FUNCTION
+
+    'the value as sign and magnitude
+    IF srct AND ISFLOAT THEN
+        IF fv >= 18446744073709551616## OR fv < -9223372036854775808## THEN ConstOverflow% = -1: EXIT FUNCTION
+        IF fv >= 9223372036854775808## THEN
+            mag = fv
+        ELSEIF iv < 0 THEN
+            neg = -1: mag = -(iv + 1): mag = mag + 1
+        ELSE
+            mag = iv
+        END IF
+    ELSEIF (srct AND ISUNSIGNED) <> 0 AND (srct AND 511) = 64 THEN
+        mag = uv
+    ELSEIF iv < 0 THEN
+        neg = -1: mag = -(iv + 1): mag = mag + 1
+    ELSE
+        mag = iv
+    END IF
+
+    lim = 1 '2 ^ (bits - 1)
+    FOR k = 2 TO bits: lim = lim * 2: NEXT
+    IF neg THEN
+        IF mag > lim THEN ConstOverflow% = -1
+    ELSEIF dstt AND ISUNSIGNED THEN
+        IF bits < 64 THEN
+            IF mag > lim * 2 - 1 THEN ConstOverflow% = -1
+        END IF
+    ELSE
+        IF mag > lim - 1 THEN ConstOverflow% = -1
+    END IF
+END FUNCTION
+
+SUB ConstToUnsigned (srct AS LONG, dstt AS LONG, fv AS _FLOAT, iv AS _INTEGER64, uv AS _UNSIGNED _INTEGER64)
+    'The value of a CONST with an unsigned integer suffix, as that type holds it: a negative
+    'value (ConstOverflow% let it through) is its two's complement bits (CONST c~& = -1 is
+    '4294967295), and a float in the top half of an _UNSIGNED _INTEGER64 is not an _INTEGER64.
+    DIM bits AS LONG, k AS LONG, w AS _INTEGER64
+    IF (dstt AND ISUNSIGNED) = 0 OR (dstt AND (ISFLOAT + ISSTRING)) <> 0 THEN EXIT SUB
+    bits = dstt AND 511
+    IF srct AND ISFLOAT THEN
+        IF fv >= 9223372036854775808## THEN uv = fv: EXIT SUB
+    ELSEIF (srct AND ISUNSIGNED) <> 0 AND (srct AND 511) = 64 THEN
+        EXIT SUB
+    END IF
+    IF iv >= 0 OR bits < 1 OR bits >= 64 THEN EXIT SUB
+    w = 1
+    FOR k = 1 TO bits: w = w * 2: NEXT
+    iv = iv + w
+    uv = iv
+END SUB

@@ -66,36 +66,6 @@ FUNCTION StdLib_ImportPath$ (module$)
     StdLib_ImportPath$ = QBNexRoot$ + "compiler" + pathsep$ + "stdlib" + pathsep$ + relativeModulePath + ".bas"
 END FUNCTION
 
-FUNCTION StdLib_InQbnexBundle% (moduleKey$)
-    ''qbnex' is collections, strings, io, sys, math, error and oop in one file.
-    'json, url and ext.* are modules of their own and combine with it.
-    SELECT CASE LEFT$(moduleKey$, INSTR(moduleKey$ + ".", ".") - 1)
-    CASE "collections", "strings", "io", "sys", "math", "error", "oop"
-        StdLib_InQbnexBundle% = -1
-    END SELECT
-END FUNCTION
-
-FUNCTION StdLib_ImportCovered% (moduleKey$, imported$)
-    'True when the code of moduleKey$ is already in the program through another import:
-    'a bundled module after 'qbnex', or 'qbnex' after one of its bundled modules
-    '(StdLib_PrepareHoistedImports hoists 'qbnex' first, so that order does not arise
-    'for the imports of the main source).
-    DIM p AS LONG
-    DIM q AS LONG
-
-    IF moduleKey$ = "qbnex" THEN
-        p = 2
-        DO WHILE p <= LEN(imported$)
-            q = INSTR(p, imported$, "@")
-            IF q = 0 THEN EXIT DO
-            IF StdLib_InQbnexBundle%(MID$(imported$, p, q - p)) THEN StdLib_ImportCovered% = -1: EXIT FUNCTION
-            p = q + 1
-        LOOP
-    ELSEIF StdLib_InQbnexBundle%(moduleKey$) THEN
-        IF INSTR(imported$, "@qbnex@") THEN StdLib_ImportCovered% = -1
-    END IF
-END FUNCTION
-
 FUNCTION StdLib_QueueImport$ (module$)
     DIM normalizedKey AS STRING
     DIM importPath AS STRING
@@ -105,8 +75,6 @@ FUNCTION StdLib_QueueImport$ (module$)
         Give_Error "Expected $IMPORT:'module.name'"
         EXIT FUNCTION
     END IF
-
-    IF StdLib_ImportCovered%(normalizedKey, importedModules$) THEN EXIT FUNCTION
 
     IF INSTR(importedModules$, "@" + normalizedKey + "@") THEN EXIT FUNCTION
 
@@ -156,6 +124,24 @@ FUNCTION StdLib_ReadText$ (path$)
     StdLib_ReadText$ = text
 END FUNCTION
 
+FUNCTION StdLib_FindInclude$ (folder$, name$, fromFolder AS LONG)
+    'The file an $INCLUDE of name$ in a file in folder$ opens, tried in the include managers'
+    'order: relative to folder$, then as written; then both with another letter case
+    '(ResolvePathCase$). fromFolder tells which of the two it is. "" when there is none.
+    DIM f AS STRING
+
+    fromFolder = -1
+    f = folder$ + name$
+    IF _FILEEXISTS(f) THEN StdLib_FindInclude$ = f: EXIT FUNCTION
+    fromFolder = 0
+    IF _FILEEXISTS(name$) THEN StdLib_FindInclude$ = name$: EXIT FUNCTION
+    fromFolder = -1
+    f = ResolvePathCase$(folder$ + name$)
+    IF LEN(f) THEN StdLib_FindInclude$ = f: EXIT FUNCTION
+    fromFolder = 0
+    StdLib_FindInclude$ = ResolvePathCase$(name$)
+END FUNCTION
+
 SUB StdLib_SplitIncludeRange (spec$, fromLine AS LONG, toLine AS LONG)
     'an include written as 'file|from|to' reads only that line range of the file (hoisted imports);
     'the reader keeps the real file name and line numbers for diagnostics
@@ -196,6 +182,7 @@ SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
     DIM segStart AS LONG
     DIM p AS LONG
     DIM nl AS LONG
+    DIM fromFolder AS LONG
 
     text = StdLib_ReadText$(path$)
     segStart = 1
@@ -215,8 +202,9 @@ SUB StdLib_HoistFile (path$, headText$, bodyText$, depth AS LONG)
         incPath = ""
         incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(incName) AND depth < 20 THEN
-            incPath = getfilepath$(path$) + incName
-            IF _FILEEXISTS(incPath) = 0 THEN incPath = ""
+            'only an include relative to this file is split here; any other one stays in place
+            incPath = StdLib_FindInclude$(getfilepath$(path$), incName, fromFolder)
+            IF fromFolder = 0 THEN incPath = ""
         END IF
         IF LEN(incPath) THEN
             StdLib_EmitRange path$, segStart, lineNo - 1, inBody, headText$, bodyText$
@@ -246,8 +234,8 @@ SUB StdLib_HoistModule (module$, headText$, bodyText$)
 
     moduleKey = StdLib_CanonicalImportKey$(module$)
     IF LEN(moduleKey) = 0 THEN EXIT SUB
-    'same de-duplication rules as StdLib_QueueImport$
-    IF StdLib_ImportCovered%(moduleKey, stdlibHoisted$) THEN EXIT SUB
+    'same de-duplication as StdLib_QueueImport$: each module once ('qbnex' is the list of
+    'its modules, each imported by its own key, so it combines with them in any order)
     IF INSTR(stdlibHoisted$, "@" + moduleKey + "@") THEN EXIT SUB
     modulePath = StdLib_ImportPath$(moduleKey)
     IF _FILEEXISTS(modulePath) = 0 THEN EXIT SUB 'left to the in-place $IMPORT, which reports it
@@ -270,6 +258,7 @@ SUB StdLib_PrepareHoistedImports
     DIM usesTry AS INTEGER
     DIM codeText AS STRING
     DIM commentText AS STRING
+    DIM fromFolder AS LONG
 
     stdlibHoisted$ = "@"
     syntaxExtUsesTry = 0
@@ -278,18 +267,6 @@ SUB StdLib_PrepareHoistedImports
     IF _FILEEXISTS(sourcefile$) = 0 THEN EXIT SUB
 
     text = StdLib_ReadText$(sourcefile$)
-    ''qbnex' goes first wherever the program imports it: a bundled module imported
-    'before it (collections.list, then qbnex) would define the same procedures twice
-    p = 1
-    DO WHILE p <= LEN(text)
-        nl = INSTR(p, text, CHR$(10))
-        IF nl = 0 THEN nl = LEN(text) + 1
-        moduleName = StdLib_MetaArgFromLine$(MID$(text, p, nl - p), "$IMPORT")
-        p = nl + 1
-        IF LEN(moduleName) THEN
-            IF StdLib_CanonicalImportKey$(moduleName) = "qbnex" THEN StdLib_HoistModule moduleName, headText, bodyText: EXIT DO
-        END IF
-    LOOP
     p = 1
     DO WHILE p <= LEN(text)
         nl = INSTR(p, text, CHR$(10))
@@ -303,8 +280,10 @@ SUB StdLib_PrepareHoistedImports
         'TRY inside an $INCLUDE file of the main source needs the handler too
         moduleName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(moduleName) THEN
-            IF StdLib_FileUsesTry%(getfilepath$(sourcefile$) + moduleName, 0) THEN usesTry = -1
+            moduleName = StdLib_FindInclude$(getfilepath$(sourcefile$), moduleName, fromFolder)
             IF StdLib_FileUsesTry%(moduleName, 0) THEN usesTry = -1
+            'and its $IMPORT lines are hoisted like the main source's
+            StdLib_HoistIncludeImports moduleName, headText, bodyText, 0
         END IF
     LOOP
     IF syntaxExtUsesTry THEN usesTry = -1 'a hoisted module uses TRY
@@ -346,6 +325,34 @@ SUB StdLib_PrepareHoistedImports
     PRINT #fh, bodyText;
     CLOSE #fh
 END SUB
+SUB StdLib_HoistIncludeImports (path$, headText$, bodyText$, depth AS LONG)
+    'hoists the $IMPORT lines of an $INCLUDE file of the main source and of the files
+    'it includes in turn. In place, a module would come after the SUBs of the code before it,
+    'where its CONST and DIM SHARED cannot be (an include of qbnex_stdlib.bas imports them all).
+    DIM text AS STRING
+    DIM lineText AS STRING
+    DIM argText AS STRING
+    DIM p AS LONG
+    DIM nl AS LONG
+    DIM fromFolder AS LONG
+
+    IF depth > 20 OR LEN(path$) = 0 THEN EXIT SUB
+    IF _FILEEXISTS(path$) = 0 THEN EXIT SUB
+    text = StdLib_ReadText$(path$)
+    IF INSTR(UCASE$(text), "$IMPORT") = 0 AND INSTR(UCASE$(text), "$INCLUDE") = 0 THEN EXIT SUB
+    p = 1
+    DO WHILE p <= LEN(text)
+        nl = INSTR(p, text, CHR$(10))
+        IF nl = 0 THEN nl = LEN(text) + 1
+        lineText = MID$(text, p, nl - p)
+        p = nl + 1
+        argText = StdLib_MetaArgFromLine$(lineText, "$IMPORT")
+        IF LEN(argText) THEN StdLib_HoistModule argText, headText$, bodyText$
+        argText = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
+        IF LEN(argText) THEN StdLib_HoistIncludeImports StdLib_FindInclude$(getfilepath$(path$), argText, fromFolder), headText$, bodyText$, depth + 1
+    LOOP
+END SUB
+
 FUNCTION StdLib_FileUsesTry% (path$, depth AS LONG)
     'a TRY statement in this file or in one of its relative $INCLUDE files
     DIM text AS STRING
@@ -353,6 +360,7 @@ FUNCTION StdLib_FileUsesTry% (path$, depth AS LONG)
     DIM incName AS STRING
     DIM p AS LONG
     DIM nl AS LONG
+    DIM fromFolder AS LONG
 
     IF depth > 20 THEN EXIT FUNCTION
     IF _FILEEXISTS(path$) = 0 THEN EXIT FUNCTION
@@ -367,7 +375,7 @@ FUNCTION StdLib_FileUsesTry% (path$, depth AS LONG)
         IF SyntaxExt_LineHasTry%(lineText) THEN StdLib_FileUsesTry% = -1: EXIT FUNCTION
         incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(incName) THEN
-            IF StdLib_FileUsesTry%(getfilepath$(path$) + incName, depth + 1) THEN StdLib_FileUsesTry% = -1: EXIT FUNCTION
+            IF StdLib_FileUsesTry%(StdLib_FindInclude$(getfilepath$(path$), incName, fromFolder), depth + 1) THEN StdLib_FileUsesTry% = -1: EXIT FUNCTION
         END IF
     LOOP
 END FUNCTION

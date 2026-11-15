@@ -1,0 +1,1 @@
+On Linux and macOS an $INCLUDE whose name differs from the file only in letter case was "not found" (backslashes were already translated). It is now resolved folder by folder ignoring case, as DOS and Windows do. Expected output is QBasic behaviour.

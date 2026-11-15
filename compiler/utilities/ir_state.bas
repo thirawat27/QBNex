@@ -26,10 +26,8 @@ DIM SHARED IrExtMeta AS STRING 'meta extfn lines (DECLARE LIBRARY)
 DIM SHARED IrLibSpec AS STRING, IrLibOf AS STRING
 DIM SHARED IrPendLL AS LONG 'numeric line label waiting for its LASTLINE
 DIM SHARED IrQuiet AS _BYTE 'IrPlace$: return "" instead of failing
-DIM SHARED IrDataN AS LONG
 'per control level (IF/SELECT/FOR...) state, indexed by controllevel
 REDIM SHARED IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
-DIM SHARED IrDefSeg AS LONG
 REDIM SHARED IrArgs(1 TO 100) AS STRING
 DIM SHARED IrStmt AS STRING, IrStmtN AS LONG, IrStmtFirst AS STRING
 'RUN label / CLEAR targets: count and the main labels (CHR$(10)-separated) of RUNFROM 1..IrRunN

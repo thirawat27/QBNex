@@ -17,27 +17,27 @@ SUB Stack_Push (stackRef AS QBNex_Stack, item AS STRING)
 END SUB
 
 FUNCTION Stack_Peek$ (stackRef AS QBNex_Stack)
-    IF stackRef.Items.Count = 0 THEN
+    IF List_Count&(stackRef.Items) = 0 THEN
         Stack_Peek = ""
         EXIT FUNCTION
     END IF
-    Stack_Peek = List_Get$(stackRef.Items, stackRef.Items.Count - 1)
+    Stack_Peek = List_Get$(stackRef.Items, List_Count&(stackRef.Items) - 1)
 END FUNCTION
 
 FUNCTION Stack_Pop$ (stackRef AS QBNex_Stack)
     DIM valueText AS STRING
 
-    IF stackRef.Items.Count = 0 THEN
+    IF List_Count&(stackRef.Items) = 0 THEN
         Stack_Pop = ""
         EXIT FUNCTION
     END IF
-    valueText = List_Get$(stackRef.Items, stackRef.Items.Count - 1)
-    List_RemoveAt stackRef.Items, stackRef.Items.Count - 1
+    valueText = List_Get$(stackRef.Items, List_Count&(stackRef.Items) - 1)
+    List_RemoveAt stackRef.Items, List_Count&(stackRef.Items) - 1
     Stack_Pop = valueText
 END FUNCTION
 
 FUNCTION Stack_Count& (stackRef AS QBNex_Stack)
-    Stack_Count = stackRef.Items.Count
+    Stack_Count = List_Count&(stackRef.Items)
 END FUNCTION
 
 SUB Stack_Clear (stackRef AS QBNex_Stack)

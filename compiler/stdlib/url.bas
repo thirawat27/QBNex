@@ -9,35 +9,59 @@
 '   u.protocol = "https:"   u.hostname = "example.com"   u.port = 8080
 '   u.pathname = "/a/b.txt" u.search = "?q=1"            u.hash = "#top"
 '
-' UrlParts fields are fixed-length strings: read them with RTRIM$ (the
-' functions here do that themselves). Query parameters are kept encoded, one
+' UrlParts fields are variable-length strings, so a component of any length
+' is kept whole. A port that is not a number from 0 to 65535 is an error:
+' UrlParse then leaves port 0 and UrlLastError$ says why ("" after a URL
+' that parsed). Query parameters are kept encoded, one
 ' "key=value" per line in queryData; UrlGetQueryParam$ decodes them ("+" is a
 ' space), UrlSetQueryParam replaces an existing key or appends a new one.
 '===============================================================================
 
 TYPE UrlParts
-    href AS STRING * 2048
-    protocol AS STRING * 16
-    username AS STRING * 128
-    password AS STRING * 128
-    hostname AS STRING * 256
+    href AS STRING
+    protocol AS STRING
+    username AS STRING
+    password AS STRING
+    hostname AS STRING
     port AS LONG
-    pathname AS STRING * 1024
-    search AS STRING * 2048
-    hash AS STRING * 512
-    host AS STRING * 268
-    origin AS STRING * 2048
+    pathname AS STRING
+    search AS STRING
+    hash AS STRING
+    host AS STRING
+    origin AS STRING
     queryCount AS INTEGER
-    queryData AS STRING * 4096
+    queryData AS STRING
 END TYPE
+
+' Why the last UrlParse failed ("" when it did not); see UrlLastError$.
+DIM SHARED UrlErrorText AS STRING
 
 SUB Url_Init
 END SUB
 
+FUNCTION UrlLastError$
+    UrlLastError$ = UrlErrorText
+END FUNCTION
+
+' The port of a URL: digits only, 0 to 65535 (an empty port means none, as in
+' "http://h:/"). Returns -1 when portText is not a valid port.
+FUNCTION UrlPortValue& (portText AS STRING)
+    DIM i&, c%, v&
+    IF LEN(portText) > 5 THEN UrlPortValue& = -1: EXIT FUNCTION
+    FOR i& = 1 TO LEN(portText)
+        c% = ASC(portText, i&)
+        IF c% < 48 OR c% > 57 THEN UrlPortValue& = -1: EXIT FUNCTION
+        v& = v& * 10 + c% - 48
+    NEXT
+    IF v& > 65535 THEN v& = -1
+    UrlPortValue& = v&
+END FUNCTION
+
 SUB UrlParse (urlParseText AS STRING, urlParseParts AS UrlParts)
     DIM rest AS STRING, auth AS STRING, hostPort AS STRING
-    DIM p&, c&
+    DIM p&, c&, portValue&
 
+    UrlErrorText = ""
     urlParseParts.href = urlParseText
     urlParseParts.protocol = ""
     urlParseParts.username = ""
@@ -96,7 +120,12 @@ SUB UrlParse (urlParseText AS STRING, urlParseParts AS UrlParts)
         c& = UrlInstrRev%(hostPort, ":")
         IF c& > 0 AND INSTR(MID$(hostPort, c& + 1), "]") = 0 THEN
             urlParseParts.hostname = LCASE$(LEFT$(hostPort, c& - 1))
-            urlParseParts.port = VAL(MID$(hostPort, c& + 1))
+            portValue& = UrlPortValue&(MID$(hostPort, c& + 1))
+            IF portValue& < 0 THEN
+                UrlErrorText = "invalid port: " + MID$(hostPort, c& + 1)
+            ELSE
+                urlParseParts.port = portValue&
+            END IF
         ELSE
             urlParseParts.hostname = LCASE$(hostPort)
         END IF
@@ -105,12 +134,12 @@ SUB UrlParse (urlParseText AS STRING, urlParseParts AS UrlParts)
     urlParseParts.pathname = rest
 
     IF urlParseParts.port > 0 THEN
-        urlParseParts.host = RTRIM$(urlParseParts.hostname) + ":" + LTRIM$(STR$(urlParseParts.port))
+        urlParseParts.host = urlParseParts.hostname + ":" + LTRIM$(STR$(urlParseParts.port))
     ELSE
-        urlParseParts.host = RTRIM$(urlParseParts.hostname)
+        urlParseParts.host = urlParseParts.hostname
     END IF
-    IF LEN(RTRIM$(urlParseParts.protocol)) > 0 AND LEN(RTRIM$(urlParseParts.host)) > 0 THEN
-        urlParseParts.origin = RTRIM$(urlParseParts.protocol) + "//" + RTRIM$(urlParseParts.host)
+    IF LEN(urlParseParts.protocol) > 0 AND LEN(urlParseParts.host) > 0 THEN
+        urlParseParts.origin = urlParseParts.protocol + "//" + urlParseParts.host
     END IF
 END SUB
 
@@ -212,14 +241,14 @@ FUNCTION UrlDecodeQuery$ (t AS STRING)
 END FUNCTION
 
 FUNCTION UrlBuildQueryString$ (urlBuildParts AS UrlParts)
-    UrlBuildQueryString$ = REPLACE_LINEBREAKS$(RTRIM$(urlBuildParts.queryData), "&")
+    UrlBuildQueryString$ = REPLACE_LINEBREAKS$(urlBuildParts.queryData, "&")
 END FUNCTION
 
 SUB UrlSetQueryParam (urlSetParts AS UrlParts, urlSetKey AS STRING, urlSetValue AS STRING)
     DIM lines$, item$, qd$, encoded$
     DIM p&, eq&, found%, n%
     encoded$ = UrlEncodeComponent$(urlSetKey) + "=" + UrlEncodeComponent$(urlSetValue)
-    lines$ = RTRIM$(urlSetParts.queryData)
+    lines$ = urlSetParts.queryData
     DO WHILE LEN(lines$) > 0
         p& = INSTR(lines$, CHR$(10))
         IF p& > 0 THEN
@@ -255,7 +284,7 @@ END SUB
 FUNCTION UrlGetQueryParam$ (urlGetParts AS UrlParts, urlGetKey AS STRING)
     DIM lines$, item$
     DIM p&, eq&
-    lines$ = RTRIM$(urlGetParts.queryData)
+    lines$ = urlGetParts.queryData
     DO WHILE LEN(lines$) > 0
         p& = INSTR(lines$, CHR$(10))
         IF p& > 0 THEN
@@ -276,18 +305,18 @@ END FUNCTION
 
 FUNCTION UrlFormat$ (urlFormatParts AS UrlParts)
     DIM r$
-    IF LEN(RTRIM$(urlFormatParts.protocol)) > 0 THEN r$ = RTRIM$(urlFormatParts.protocol)
-    IF LEN(RTRIM$(urlFormatParts.hostname)) > 0 THEN
+    IF LEN(urlFormatParts.protocol) > 0 THEN r$ = urlFormatParts.protocol
+    IF LEN(urlFormatParts.hostname) > 0 THEN
         r$ = r$ + "//"
-        IF LEN(RTRIM$(urlFormatParts.username)) > 0 THEN
-            r$ = r$ + RTRIM$(urlFormatParts.username)
-            IF LEN(RTRIM$(urlFormatParts.password)) > 0 THEN r$ = r$ + ":" + RTRIM$(urlFormatParts.password)
+        IF LEN(urlFormatParts.username) > 0 THEN
+            r$ = r$ + urlFormatParts.username
+            IF LEN(urlFormatParts.password) > 0 THEN r$ = r$ + ":" + urlFormatParts.password
             r$ = r$ + "@"
         END IF
-        r$ = r$ + RTRIM$(urlFormatParts.hostname)
+        r$ = r$ + urlFormatParts.hostname
         IF urlFormatParts.port > 0 THEN r$ = r$ + ":" + LTRIM$(STR$(urlFormatParts.port))
     END IF
-    UrlFormat$ = r$ + RTRIM$(urlFormatParts.pathname) + RTRIM$(urlFormatParts.search) + RTRIM$(urlFormatParts.hash)
+    UrlFormat$ = r$ + urlFormatParts.pathname + urlFormatParts.search + urlFormatParts.hash
 END FUNCTION
 
 ' RFC 3986 section 5.2: resolves a reference against a base URL.
@@ -297,7 +326,7 @@ SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResol
     r$ = urlResolveRelative
     IF UrlSchemeEnd&(r$) > 0 THEN
         UrlParse r$, urlResolveResult
-        urlResolveResult.pathname = UrlNormalizePath$(RTRIM$(urlResolveResult.pathname))
+        urlResolveResult.pathname = UrlNormalizePath$(urlResolveResult.pathname)
         urlResolveResult.href = UrlFormat$(urlResolveResult)
         EXIT SUB
     END IF
@@ -313,25 +342,25 @@ SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResol
         r$ = LEFT$(r$, p& - 1)
     END IF
     authority$ = ""
-    IF LEN(RTRIM$(b.hostname)) > 0 THEN
+    IF LEN(b.hostname) > 0 THEN
         authority$ = "//"
-        IF LEN(RTRIM$(b.username)) > 0 THEN
-            authority$ = authority$ + RTRIM$(b.username)
-            IF LEN(RTRIM$(b.password)) > 0 THEN authority$ = authority$ + ":" + RTRIM$(b.password)
+        IF LEN(b.username) > 0 THEN
+            authority$ = authority$ + b.username
+            IF LEN(b.password) > 0 THEN authority$ = authority$ + ":" + b.password
             authority$ = authority$ + "@"
         END IF
-        authority$ = authority$ + RTRIM$(b.host)
+        authority$ = authority$ + b.host
     END IF
     IF LEFT$(r$, 2) = "//" THEN
-        UrlParse RTRIM$(b.protocol) + urlResolveRelative, urlResolveResult
-        urlResolveResult.pathname = UrlNormalizePath$(RTRIM$(urlResolveResult.pathname))
+        UrlParse b.protocol + urlResolveRelative, urlResolveResult
+        urlResolveResult.pathname = UrlNormalizePath$(urlResolveResult.pathname)
         urlResolveResult.href = UrlFormat$(urlResolveResult)
         EXIT SUB
     END IF
-    basePath$ = RTRIM$(b.pathname)
+    basePath$ = b.pathname
     IF r$ = "" THEN
         path$ = basePath$
-        IF query$ = "" THEN query$ = RTRIM$(b.search)
+        IF query$ = "" THEN query$ = b.search
     ELSEIF LEFT$(r$, 1) = "/" THEN
         path$ = UrlNormalizePath$(r$)
     ELSE
@@ -343,7 +372,7 @@ SUB UrlResolve (urlResolveBase AS STRING, urlResolveRelative AS STRING, urlResol
         END IF
         path$ = UrlNormalizePath$(path$)
     END IF
-    UrlParse RTRIM$(b.protocol) + authority$ + path$ + query$ + frag$, urlResolveResult
+    UrlParse b.protocol + authority$ + path$ + query$ + frag$, urlResolveResult
 END SUB
 
 FUNCTION UrlJoin$ (urlJoinBase AS STRING, urlJoinPath AS STRING)

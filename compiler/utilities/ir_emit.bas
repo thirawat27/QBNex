@@ -21,7 +21,7 @@ SUB IrInit
     REDIM IrCtlId(0 TO 1000) AS LONG, IrCtlPart(0 TO 1000) AS LONG, IrCtlVar(0 TO 1000) AS STRING
     IrFnN = 1: IrFnName(1) = "main": IrFnCur = 1
     IrMod = "": IrModDecls = "|": IrUdtDone = "|": IrFailMsg = ""
-    IrExtMeta = "": IrLibSpec = "": IrLibOf = "": IrDataN = 0: IrDefSeg = 0: IrPendLL = 0
+    IrExtMeta = "": IrLibSpec = "": IrLibOf = "": IrPendLL = 0
     IrPendCase$ = "": IrPendEvery = 0: IrPendElse = 0: IrPendCaseOn = 0: IrPendLevel = 0
     IrStmt = "": IrStmtN = 0: IrStmtFirst = "": IrFix = "": IrFix2 = "": IrFix3 = ""
     IrRunN = 0: IrRunTo = ""
@@ -277,7 +277,6 @@ SUB IrData (t$)
         LOOP
         IF started = 0 THEN item$ = LTRIM$(RTRIM$(item$))
         IrMod = IrMod + "data " + IrHex$(item$) + CHR$(10)
-        IrDataN = IrDataN + 1
         IF i > LEN(t$) THEN EXIT DO
         i = i + 1
     LOOP

@@ -1,0 +1,1 @@
+CONST evaluation re-read already evaluated bracket results as text (QB64 heritage): valid expressions such as 1 + NOT 0 were rejected and 17714 AND 17714 OR 0 XOR 0 gave 2. Expected output is QBasic behaviour (the same expressions at run time on the last line).

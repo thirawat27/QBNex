@@ -31,14 +31,14 @@
 | `ext.collections` | list และ dictionary ของ string และตัวเลข (ใช้ handle) |
 | `ext.datetime` | วันเวลาในรูปมิลลิวินาทีแบบ Unix: ISO 8601, จัดรูปแบบ, parse, แยกส่วน |
 | `ext.core` | ตัวช่วยที่ใช้ร่วมกัน: `Ext_LastError$` |
-| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | collection เขียนด้วย BASIC (อิง TYPE) ตัวอื่นนอกจาก `collections.list` ให้ import ผ่าน `qbnex` (ตอนนี้ import แยกเดี่ยวแล้วคอมไพล์ไม่ผ่าน) |
+| `collections.list`, `.dictionary`, `.queue`, `.stack`, `.set` | collection เขียนด้วย BASIC (อิง TYPE) ไม่จำกัดจำนวน list หรือจำนวนรายการตายตัว |
 | `strings.text`, `strings.strbuilder` | ตัวช่วยจัดการข้อความ, string builder |
 | `io.path`, `io.csv`, `io.json` | path, แถว CSV, ตัวสร้าง JSON ขนาดเล็ก |
 | `math.numeric` | `Math_Min#`, `Math_Max#`, `Math_Clamp#`, `Math_Lerp#`, องศา/เรเดียน |
 | `sys.env`, `sys.args`, `sys.datetime` | แพลตฟอร์ม, environment, argument, วันที่ |
 | `error.result` | ค่า Result ที่มีรหัส error และบริบท |
 | `oop.class`, `oop.interface` | registry ตอนรันที่ CLASS ใช้ |
-| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` และ `oop` ใน import เดียว ส่วน `json`, `url` และ `ext.*` import เพิ่มคู่กันได้ |
+| `qbnex` | `collections`, `strings`, `io`, `sys`, `math`, `error` และ `oop` ใน import เดียว ส่วน `json`, `url` และ `ext.*` import เพิ่มคู่กันได้ `qbnex` import โมดูลเหล่านั้นทีละตัวตามชื่อ จึงใช้ร่วมกับการ import โมดูลใดก็ได้ในลำดับใดก็ได้ |
 
 โมดูล `ext.*` เรียกไลบรารี Rust `crates/runtime/ext` (Rust ล้วน ไม่ใช้ OpenSSL)
 เมื่อเกิด error ฟังก์ชันจะคืน 0 หรือ string ว่าง และ `Ext_LastError$`
@@ -79,6 +79,13 @@ grammar อย่างเคร่งครัด, ซ้อนได้ลึ�
 `JsonGetString$`, `JsonGetNumber#` การสร้าง: `JsonCreate*`, `JsonArrayPush`,
 `JsonObjectSet` ตัวเลขที่ parse มาเมื่อแปลงกลับจะได้ข้อความเดิมทุกตัวอักษร
 
+มีค่าอยู่พร้อมกันได้สูงสุด 32767 ค่า (handle เป็น INTEGER) `JsonFree v%`
+คืนค่านั้นพร้อมทุกค่าที่อยู่ข้างใน (ใช้เสร็จแล้วให้ free root ของเอกสาร
+ถ้าเป็นสมาชิกของ object หรือ array จะถูกถอดออกจาก parent ก่อน) และ
+`Json_Cleanup` คืนทั้งหมด การ parse ที่ล้มเหลวจะไม่เหลือค่าค้างไว้ เมื่อ
+pool เต็ม `JSON_Parse%` คืน 0 และ `JSON_LastError$` เป็น "out of JSON
+value space"
+
 ## url
 
 <!-- docs-test: output -->
@@ -86,9 +93,9 @@ grammar อย่างเคร่งครัด, ซ้อนได้ลึ�
 '$IMPORT:'url'
 DIM u AS UrlParts
 UrlParse "https://user@Example.com:8080/a/b.txt?q=1&s=a+b#top", u
-PRINT RTRIM$(u.hostname)
+PRINT u.hostname
 PRINT u.port
-PRINT RTRIM$(u.pathname)
+PRINT u.pathname
 PRINT UrlGetQueryParam$(u, "s")          ' "a b"
 UrlSetQueryParam u, "q", "two words"
 PRINT UrlFormat$(u)
@@ -112,6 +119,11 @@ http://a/b/g
 
 มี `UrlNormalizePath$`, `UrlBasename$`, `UrlExtname$`, `UrlDirname$`,
 `UrlBuildQueryString$`, `UrlPathToFile$`, `UrlFileToPath$` ด้วย
+
+ฟิลด์ของ `UrlParts` เป็น string ความยาวแปรผัน ส่วนประกอบยาวเท่าใดก็เก็บได้
+ครบ port ที่ไม่ใช่ตัวเลข 0 ถึง 65535 (`http://h:99999/`) ถือเป็น error:
+`UrlParse` ให้ `port` เป็น 0 และ `UrlLastError$` บอกสาเหตุ (เป็น "" เมื่อ
+parse URL สำเร็จ)
 
 ## ext.regex
 

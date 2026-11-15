@@ -1,0 +1,1 @@
+Fixes a defect inherited from QB64: $END IF popped the innermost block whatever it was, so a block opened in a $IF branch and closed after $END IF (or the reverse) failed to compile. $IF nesting is now kept apart from the block structure. Expected output is what the selected lines do in QBasic.

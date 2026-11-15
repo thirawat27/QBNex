@@ -22,9 +22,16 @@ call :bad deep_blocks "Too many nested blocks" "deep_blocks.bas(1002)"
 call :bad deep_for "Too many nested blocks" "deep_for.bas(1002)"
 call :bad ifdef_unclosed "$IF without $END IF" "ifdef_unclosed.bas(2)"
 call :bad endif_alone "$END IF without $IF" "endif_alone.bas(2)"
+call :bad ifdef_empty_condition "Expected $IF condition THEN" "ifdef_empty_condition.bas(2)"
+call :bad ifdef_block_unclosed "IF without END IF" "ifdef_block_unclosed.bas(3)"
+call :bad end_sub_in_function "END SUB without SUB" "end_sub_in_function.bas(4)"
+call :bad exit_sub_in_function "EXIT SUB must be used within a SUB" "exit_sub_in_function.bas(3)"
+call :bad const_overflow "Overflow" "const_overflow.bas(2)"
+call :bad const_overflow_unsigned "Overflow" "const_overflow_unsigned.bas(3)"
 call :bad ifdef_too_deep "Too many nested $IF blocks" "ifdef_too_deep.bas(257)"
 call :bad put_number "Expected variable name/array element" "put_number.bas(2)"
 call :good ifdef_valid
+call :good ifdef_block_branches
 call :good deep_parens_ok
 call :good long_expr
 

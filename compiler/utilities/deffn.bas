@@ -498,6 +498,7 @@ END SUB
 'DEF FN in the files the text includes with a relative '$INCLUDE (and in theirs).
 SUB DefFn_ScanIncludes (text AS STRING, folder AS STRING, depth AS LONG, defState AS STRING, anyDefType AS LONG)
     DIM p AS LONG, nl AS LONG, lineText AS STRING, incName AS STRING, incPath AS STRING, incText AS STRING
+    DIM fromFolder AS LONG
 
     IF depth > 20 OR INSTR(UCASE$(text), "$INCLUDE") = 0 THEN EXIT SUB
     p = 1
@@ -508,9 +509,8 @@ SUB DefFn_ScanIncludes (text AS STRING, folder AS STRING, depth AS LONG, defStat
         p = nl + 1
         incName = StdLib_MetaArgFromLine$(lineText, "$INCLUDE")
         IF LEN(incName) THEN
-            incPath = folder + incName
-            IF _FILEEXISTS(incPath) = 0 THEN incPath = incName
-            IF _FILEEXISTS(incPath) THEN
+            incPath = StdLib_FindInclude$(folder, incName, fromFolder)
+            IF LEN(incPath) THEN
                 incText = StdLib_ReadText$(incPath)
                 IF INSTR(UCASE$(incText), "FN") THEN
                     DefFn_ScanIncludes incText, getfilepath$(incPath), depth + 1, defState, anyDefType

@@ -12,8 +12,6 @@ END TYPE
 SUB Dict_Init (dictRef AS QBNex_Dictionary)
     List_Init dictRef.Keys
     List_Init dictRef.Values
-    ' the list pool ran out between the two: no half dictionary with keys and no values
-    IF dictRef.Values.Handle = 0 THEN List_Free dictRef.Keys
 END SUB
 
 SUB Dict_Set (dictRef AS QBNex_Dictionary, keyText AS STRING, valueText AS STRING)
@@ -53,7 +51,7 @@ SUB Dict_Remove (dictRef AS QBNex_Dictionary, keyText AS STRING)
 END SUB
 
 FUNCTION Dict_Count& (dictRef AS QBNex_Dictionary)
-    Dict_Count = dictRef.Keys.Count
+    Dict_Count = List_Count&(dictRef.Keys)
 END FUNCTION
 
 FUNCTION Dict_KeyAt$ (dictRef AS QBNex_Dictionary, itemIndex AS LONG)

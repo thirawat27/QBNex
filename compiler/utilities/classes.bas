@@ -27,6 +27,27 @@ FUNCTION TopLevelRuntime_IsKeyword% (upperLine$, keyword$)
     END SELECT
 END FUNCTION
 
+FUNCTION TopLevelRuntime_EndsProc% (upperLine$)
+    'True when a later statement of the line (after a ":" outside a string, before a
+    'comment) is END SUB or END FUNCTION
+    DIM i AS LONG, c AS STRING, inQuote AS LONG, part AS STRING
+
+    FOR i = 1 TO LEN(upperLine$)
+        c = MID$(upperLine$, i, 1)
+        IF c = CHR$(34) THEN
+            inQuote = NOT inQuote
+        ELSEIF inQuote = 0 THEN
+            IF c = "'" THEN EXIT FUNCTION
+            IF c = ":" THEN
+                part = LTRIM$(MID$(upperLine$, i + 1))
+                IF TopLevelRuntime_IsKeyword%(part, "REM") THEN EXIT FUNCTION
+                IF TopLevelRuntime_IsKeyword%(part, "END SUB") OR TopLevelRuntime_IsKeyword%(part, "END FUNCTION") THEN TopLevelRuntime_EndsProc% = -1: EXIT FUNCTION
+                IF LEFT$(part, 8) = "END SUB:" OR LEFT$(part, 13) = "END FUNCTION:" THEN TopLevelRuntime_EndsProc% = -1: EXIT FUNCTION
+            END IF
+        END IF
+    NEXT
+END FUNCTION
+
 FUNCTION TopLevelRuntime_IsDeclareLibrary% (upperLine$)
     DIM rest AS STRING
 
@@ -191,7 +212,8 @@ FUNCTION TopLevelRuntime_ProcessLine$ (rawLine$)
                 EXIT FUNCTION
             END IF
         END IF
-        topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
+        'SUB a: PRINT "a": END SUB on one line opens and closes the procedure
+        IF TopLevelRuntime_EndsProc%(upperLine) = 0 THEN topLevelRuntimeProcDepth = topLevelRuntimeProcDepth + 1
         topLevelRuntimeSeenProc = -1
         TopLevelRuntime_ProcessLine$ = lineText
         EXIT FUNCTION
